@@ -865,12 +865,29 @@ namespace NinjaTrader.NinjaScript
         // cross-instrument intrabar ordering.
         private static List<KeystoneArcEvent> DetectAsian75Reversal(List<KeystoneArcBar> oneMinute, KeystoneArcRunConfig cfg)
         {
-            var output = new List<KeystoneArcEvent>();
-            bool invalidRisk = AsianUsesPriceRisk(cfg)
-                ? (cfg.AsianMnqReversalPriceMove <= 0 || cfg.AsianMgcReversalPriceMove <= 0)
-                : cfg.AsianReversalLossDollars <= 0;
-            if (invalidRisk || cfg.AsianCycleTargetDollars <= 0 || cfg.AsianDailyLossLimitDollars <= 0 || cfg.AsianStartingQuantity <= 0 || cfg.AsianMnqMaxReversals < 0 || cfg.AsianMgcMaxReversals < 0) return output;
-            List<KeystoneArcBar> all = oneMinute.Where(x => x != null).OrderBy(x => x.Time).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ToList();
+            return SimulateAsian75Sessions(PrepareAsian75Sessions(oneMinute, cfg), cfg);
+        }
+
+        // One Asian session's 1-minute bars laid out for fast repeated simulation: Times holds
+        // every distinct bar stamp in the window, and Bars[s][t] is symbol s's bar at Times[t]
+        // (null when that minute had no trade). Built once per start/end time and instrument
+        // scope, then reused by every parameter combination the optimizer tests.
+        public sealed class Asian75Session
+        {
+            public DateTime SessionDate;
+            public DateTime OpeningStamp;
+            public string[] Symbols;
+            public DateTime[] Times;
+            public KeystoneArcBar[][] Bars;
+            public bool OpeningComplete;
+        }
+
+        public static List<Asian75Session> PrepareAsian75Sessions(List<KeystoneArcBar> oneMinute, KeystoneArcRunConfig cfg)
+        {
+            var sessions = new List<Asian75Session>();
+            if (oneMinute == null || cfg == null) return sessions;
+            string[] symbols = AsianSelectedSymbols(cfg);
+            List<KeystoneArcBar> all = oneMinute.Where(x => x != null && symbols.Contains(x.Symbol ?? string.Empty, StringComparer.OrdinalIgnoreCase)).OrderBy(x => x.Time).ToList();
             // Stamp of the bar that OPENS at the configured start minute (18:01 for NinjaTrader's
             // close-stamped 1M bars). Requiring a bar stamped exactly 18:00 skipped every session.
             int stampOffset = AsianBarStampOffsetMinutes(all, cfg);
@@ -880,124 +897,141 @@ namespace NinjaTrader.NinjaScript
                 DateTime start = AsianDateAtHhmm(sessionDate, cfg.AsianStartHhmm).AddMinutes(stampOffset);
                 DateTime end = AsianDateAtHhmm(sessionDate, cfg.AsianEndHhmm);
                 if (end < start) end = end.AddDays(1);
-                List<KeystoneArcBar> range = day.Where(x => x.Time >= start && x.Time <= end).OrderBy(x => x.Time).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ToList();
+                List<KeystoneArcBar> range = day.Where(x => x.Time >= start && x.Time <= end).ToList();
                 if (range.Count == 0) continue;
-                var positions = new Dictionary<string, Asian75Position>(StringComparer.OrdinalIgnoreCase);
-                // BOTH is one shared cycle, not two independent optional cycles.  A selected
+                DateTime[] times = range.Select(x => x.Time).Distinct().OrderBy(x => x).ToArray();
+                var index = new Dictionary<DateTime, int>(times.Length);
+                for (int t = 0; t < times.Length; t++) index[times[t]] = t;
+                var bars = new KeystoneArcBar[symbols.Length][];
+                for (int s = 0; s < symbols.Length; s++) bars[s] = new KeystoneArcBar[times.Length];
+                foreach (KeystoneArcBar b in range)
+                {
+                    int s = Array.FindIndex(symbols, x => string.Equals(x, b.Symbol, StringComparison.OrdinalIgnoreCase));
+                    bars[s][index[b.Time]] = b;
+                }
+                // BOTH is one shared cycle, not two independent optional cycles. A selected
                 // instrument lacking its exact configured opening 1M bar makes that session
-                // unavailable rather than silently testing only the other instrument.
-                bool openingComplete = true;
-                foreach (string symbol in AsianSelectedSymbols(cfg))
-                {
-                    KeystoneArcBar opening = range.FirstOrDefault(x => string.Equals(x.Symbol, symbol, StringComparison.OrdinalIgnoreCase) && x.Time == start);
-                    // No 17:59 carry-forward or nearest-bar proxy is permitted: the session is
-                    // simply unavailable for an instrument without its exact 18:00 opening bar.
-                    if (opening == null) { openingComplete = false; break; }
-                    positions[symbol] = new Asian75Position { Symbol = symbol, LegNumber = 1, Quantity = cfg.AsianStartingQuantity, Direction = AsianInitialDirection(symbol, cfg), EntryTime = start, EntryPrice = opening.Open };
-                }
-                if (!openingComplete || positions.Count == 0) continue;
-                var latestClose = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-                bool closed = false;
-                double combinedPeakMarked = double.MinValue;
-                foreach (IGrouping<DateTime, KeystoneArcBar> tickGroup in range.GroupBy(x => x.Time).OrderBy(x => x.Key))
-                {
-                    DateTime time = tickGroup.Key;
-                    var tick = tickGroup.ToDictionary(x => x.Symbol, x => x, StringComparer.OrdinalIgnoreCase);
-                    foreach (KeystoneArcBar b in tickGroup) latestClose[b.Symbol] = b.Close;
-                    // Stops observed in one bar hand off at the next 1M bar open. This avoids
-                    // inventing a same-minute reversal price/path not present in OHLC history.
-                    // A minute with no trades has no bar, so the reversal enters on the first bar at
-                    // or after the next minute rather than waiting for an exact stamp forever.
-                    foreach (Asian75Position p in positions.Values.Where(x => x.PendingEntry && x.PendingAt <= time).ToList())
-                    {
-                        KeystoneArcBar b;
-                        if (!tick.TryGetValue(p.Symbol, out b)) continue;
-                        p.PendingEntry = false; p.Direction = p.PendingDirection; p.Quantity = p.PendingQuantity; p.LegNumber++; p.EntryTime = time; p.EntryPrice = b.Open;
-                    }
-                    {
-                        // Every leg enters at a bar's OPEN, so that bar's whole high/low range happens
-                        // after the entry and must be checked for the stop as well.
-                        foreach (Asian75Position p in positions.Values.Where(x => !x.Halted && !x.PendingEntry && x.EntryTime <= time).ToList())
-                        {
-                            KeystoneArcBar b;
-                            if (!tick.TryGetValue(p.Symbol, out b)) continue;
-                            double stop = Asian75StopPrice(p, cfg);
-                            bool hit = p.Direction > 0 ? b.Low <= stop : b.High >= stop;
-                            if (!hit) continue;
-                            // A bar that opens beyond the stop cannot fill at the stop; use its open.
-                            bool gapped = p.Direction > 0 ? b.Open < stop : b.Open > stop;
-                            double fill = gapped ? b.Open : stop;
-                            double reversalLoss = Asian75OpenPnl(p, fill);
-                            p.RealizedPnl += reversalLoss;
-                            int maxTotalLegs = Math.Max(1, AsianMaxReversalsForSymbol(p.Symbol, cfg) + 1);
-                            double instrumentCap = AsianInstrumentCapForSymbol(p.Symbol, cfg);
-                            bool instrumentStop = instrumentCap > 0 && p.RealizedPnl <= -Math.Abs(instrumentCap);
-                            string lossNote = "REVERSAL LOSS • " + AsianRiskDescription(p, cfg);
-                            if (gapped) lossNote += " • GAP: FILLED AT BAR OPEN BEYOND STOP";
-                            if (instrumentStop) lossNote += " • INSTRUMENT LOSS CAP REACHED";
-                            else if (p.LegNumber >= maxTotalLegs) lossNote += " • MAX REVERSALS REACHED";
-                            output.Add(NewAsian75Event(p, sessionDate, fill, time, "LOSS", reversalLoss, cfg, lossNote));
-                            if (instrumentStop || p.LegNumber >= maxTotalLegs) p.Halted = true;
-                            else { p.PendingEntry = true; p.PendingAt = time.AddMinutes(1); p.PendingDirection = -p.Direction; p.PendingQuantity = p.Quantity + 1; }
-                        }
-                    }
-                    double marked = output.Where(x => SessionGroupingDate(x.TriggerTime, cfg) == sessionDate).Sum(x => x.GrossPnl);
-                    foreach (Asian75Position p in positions.Values.Where(x => !x.Halted && !x.PendingEntry))
-                    {
-                        double mark; if (latestClose.TryGetValue(p.Symbol, out mark)) marked += Asian75OpenPnl(p, mark);
-                    }
-                    combinedPeakMarked = Math.Max(combinedPeakMarked, marked);
-                    if (marked >= cfg.AsianCycleTargetDollars)
-                    {
-                        CloseAsian75Positions(output, positions, latestClose, sessionDate, time, "WIN", "CYCLE TARGET • 1M CLOSE CONFIRMED", cfg);
-                        closed = true;
-                    }
-                    else if (cfg.AsianCombinedStopLossDollars > 0 && marked <= -Math.Abs(cfg.AsianCombinedStopLossDollars))
-                    {
-                        KeystoneArcEvent terminalLoss = output.LastOrDefault(x => x.ExitTime == time && x.Outcome == "LOSS");
-                        if (terminalLoss != null) terminalLoss.ReviewNote = (terminalLoss.ReviewNote ?? string.Empty) + " • COMBINED CYCLE STOP REACHED";
-                        CloseAsian75Positions(output, positions, latestClose, sessionDate, time, "LOSS", "COMBINED CYCLE STOP • 1M CLOSE CONFIRMED", cfg);
-                        closed = true;
-                    }
-                    else if (cfg.AsianBreakEvenTriggerDollars > 0 && combinedPeakMarked >= cfg.AsianBreakEvenTriggerDollars && marked <= 0)
-                    {
-                        // Minute OHLC cannot prove the exact intraminute flat print after the
-                        // trigger. Exit at the known completed-bar close and preserve actual P/L.
-                        CloseAsian75Positions(output, positions, latestClose, sessionDate, time, "BREAKEVEN GUARD", "BREAKEVEN GUARD • PROFIT TRIGGER REACHED; 1M CLOSE RETURNED TO FLAT/NEGATIVE", cfg);
-                        closed = true;
-                    }
-                    else if (marked <= -Math.Abs(cfg.AsianDailyLossLimitDollars))
-                    {
-                        CloseAsian75Positions(output, positions, latestClose, sessionDate, time, "LOSS", "DAILY LOSS LIMIT • 1M CLOSE CONFIRMED", cfg);
-                        closed = true;
-                    }
-                    if (closed) break;
-                }
-                if (!closed)
-                {
-                    DateTime closeTime = range.Max(x => x.Time);
-                    CloseAsian75Positions(output, positions, latestClose, sessionDate, closeTime, "SESSION EXIT", "SESSION END • LAST AVAILABLE 1M CLOSE", cfg);
-                }
+                // unavailable rather than silently testing only the other instrument. No 17:59
+                // carry-forward or nearest-bar proxy is permitted.
+                bool openingComplete = times[0] == start;
+                for (int s = 0; s < symbols.Length && openingComplete; s++) openingComplete = bars[s][0] != null;
+                sessions.Add(new Asian75Session { SessionDate = sessionDate, OpeningStamp = start, Symbols = symbols, Times = times, Bars = bars, OpeningComplete = openingComplete });
             }
+            return sessions;
+        }
+
+        public static List<KeystoneArcEvent> SimulateAsian75Sessions(List<Asian75Session> sessions, KeystoneArcRunConfig cfg)
+        {
+            var output = new List<KeystoneArcEvent>();
+            bool invalidRisk = AsianUsesPriceRisk(cfg)
+                ? (cfg.AsianMnqReversalPriceMove <= 0 || cfg.AsianMgcReversalPriceMove <= 0)
+                : cfg.AsianReversalLossDollars <= 0;
+            if (invalidRisk || cfg.AsianCycleTargetDollars <= 0 || cfg.AsianDailyLossLimitDollars <= 0 || cfg.AsianStartingQuantity <= 0 || cfg.AsianMnqMaxReversals < 0 || cfg.AsianMgcMaxReversals < 0) return output;
+            foreach (Asian75Session session in sessions ?? new List<Asian75Session>())
+                if (session.OpeningComplete) SimulateAsian75Session(session, cfg, output);
+            string configurationKey = cfg.Snapshot();
+            output = output.OrderBy(x => x.TriggerTime).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.EntryTime).ToList();
             int order = 0; DateTime orderDay = DateTime.MinValue;
-            foreach (KeystoneArcEvent e in output.OrderBy(x => x.TriggerTime).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.EntryTime))
+            foreach (KeystoneArcEvent e in output)
             {
                 DateTime day = SessionGroupingDate(e.TriggerTime, cfg);
                 if (day != orderDay) { orderDay = day; order = 0; }
-                e.SessionOrder = ++order; e.ConfigurationKey = cfg.Snapshot();
+                e.SessionOrder = ++order; e.ConfigurationKey = configurationKey;
             }
-            return output.OrderBy(x => x.TriggerTime).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.EntryTime).ToList();
+            return output;
         }
 
-        private static void CloseAsian75Positions(List<KeystoneArcEvent> output, Dictionary<string, Asian75Position> positions, Dictionary<string, double> latestClose, DateTime sessionDate, DateTime time, string outcome, string reason, KeystoneArcRunConfig cfg)
+        private static void SimulateAsian75Session(Asian75Session session, KeystoneArcRunConfig cfg, List<KeystoneArcEvent> output)
         {
-            foreach (Asian75Position p in positions.Values.Where(x => !x.Halted && !x.PendingEntry).ToList())
+            DateTime sessionDate = session.SessionDate;
+            int n = session.Symbols.Length;
+            var positions = new Asian75Position[n];
+            var latestClose = new double[n];
+            var hasClose = new bool[n];
+            for (int s = 0; s < n; s++)
             {
-                double mark; if (!latestClose.TryGetValue(p.Symbol, out mark)) continue;
-                output.Add(NewAsian75Event(p, sessionDate, mark, time, outcome, Asian75OpenPnl(p, mark), cfg, reason));
+                KeystoneArcBar opening = session.Bars[s][0];
+                positions[s] = new Asian75Position { Symbol = session.Symbols[s], LegNumber = 1, Quantity = cfg.AsianStartingQuantity, Direction = AsianInitialDirection(session.Symbols[s], cfg), EntryTime = session.OpeningStamp, EntryPrice = opening.Open };
+            }
+            double[] stopPrice = new double[n];
+            for (int s = 0; s < n; s++) stopPrice[s] = Asian75StopPrice(positions[s], cfg);
+            double combinedPeakMarked = double.MinValue;
+            for (int t = 0; t < session.Times.Length; t++)
+            {
+                DateTime time = session.Times[t];
+                for (int s = 0; s < n; s++) { KeystoneArcBar b = session.Bars[s][t]; if (b != null) { latestClose[s] = b.Close; hasClose[s] = true; } }
+                // A minute with no trades has no bar, so the reversal enters on the first bar at
+                // or after the next minute rather than waiting for an exact stamp forever.
+                for (int s = 0; s < n; s++)
+                {
+                    Asian75Position p = positions[s]; KeystoneArcBar b = session.Bars[s][t];
+                    if (!p.PendingEntry || p.PendingAt > time || b == null) continue;
+                    p.PendingEntry = false; p.Direction = p.PendingDirection; p.Quantity = p.PendingQuantity; p.LegNumber++; p.EntryTime = time; p.EntryPrice = b.Open;
+                    stopPrice[s] = Asian75StopPrice(p, cfg);
+                }
+                // Every leg enters at a bar's OPEN, so that bar's whole high/low range happens
+                // after the entry and must be checked for the stop as well.
+                KeystoneArcEvent lastLossThisMinute = null;
+                for (int s = 0; s < n; s++)
+                {
+                    Asian75Position p = positions[s]; KeystoneArcBar b = session.Bars[s][t];
+                    if (p.Halted || p.PendingEntry || p.EntryTime > time || b == null) continue;
+                    double stop = stopPrice[s];
+                    bool hit = p.Direction > 0 ? b.Low <= stop : b.High >= stop;
+                    if (!hit) continue;
+                    // A bar that opens beyond the stop cannot fill at the stop; use its open.
+                    bool gapped = p.Direction > 0 ? b.Open < stop : b.Open > stop;
+                    double fill = gapped ? b.Open : stop;
+                    double reversalLoss = Asian75OpenPnl(p, fill);
+                    p.RealizedPnl += reversalLoss;
+                    int maxTotalLegs = Math.Max(1, AsianMaxReversalsForSymbol(p.Symbol, cfg) + 1);
+                    double instrumentCap = AsianInstrumentCapForSymbol(p.Symbol, cfg);
+                    bool instrumentStop = instrumentCap > 0 && p.RealizedPnl <= -Math.Abs(instrumentCap);
+                    string lossNote = "REVERSAL LOSS • " + AsianRiskDescription(p, cfg);
+                    if (gapped) lossNote += " • GAP: FILLED AT BAR OPEN BEYOND STOP";
+                    if (instrumentStop) lossNote += " • INSTRUMENT LOSS CAP REACHED";
+                    else if (p.LegNumber >= maxTotalLegs) lossNote += " • MAX REVERSALS REACHED";
+                    lastLossThisMinute = NewAsian75Event(p, sessionDate, fill, time, "LOSS", reversalLoss, cfg, lossNote);
+                    output.Add(lastLossThisMinute);
+                    if (instrumentStop || p.LegNumber >= maxTotalLegs) p.Halted = true;
+                    else { p.PendingEntry = true; p.PendingAt = time.AddMinutes(1); p.PendingDirection = -p.Direction; p.PendingQuantity = p.Quantity + 1; }
+                }
+                // Realized reversal losses booked this session plus every open leg marked to its
+                // latest 1M close.
+                double marked = 0;
+                for (int s = 0; s < n; s++)
+                {
+                    Asian75Position p = positions[s];
+                    marked += p.RealizedPnl;
+                    if (!p.Halted && !p.PendingEntry && hasClose[s]) marked += Asian75OpenPnl(p, latestClose[s]);
+                }
+                combinedPeakMarked = Math.Max(combinedPeakMarked, marked);
+                string outcome = null, reason = null;
+                if (marked >= cfg.AsianCycleTargetDollars) { outcome = "WIN"; reason = "CYCLE TARGET • 1M CLOSE CONFIRMED"; }
+                else if (cfg.AsianCombinedStopLossDollars > 0 && marked <= -Math.Abs(cfg.AsianCombinedStopLossDollars))
+                {
+                    if (lastLossThisMinute != null) lastLossThisMinute.ReviewNote = (lastLossThisMinute.ReviewNote ?? string.Empty) + " • COMBINED CYCLE STOP REACHED";
+                    outcome = "LOSS"; reason = "COMBINED CYCLE STOP • 1M CLOSE CONFIRMED";
+                }
+                // Minute OHLC cannot prove the exact intraminute flat print after the trigger.
+                // Exit at the known completed-bar close and preserve actual P/L.
+                else if (cfg.AsianBreakEvenTriggerDollars > 0 && combinedPeakMarked >= cfg.AsianBreakEvenTriggerDollars && marked <= 0) { outcome = "BREAKEVEN GUARD"; reason = "BREAKEVEN GUARD • PROFIT TRIGGER REACHED; 1M CLOSE RETURNED TO FLAT/NEGATIVE"; }
+                else if (marked <= -Math.Abs(cfg.AsianDailyLossLimitDollars)) { outcome = "LOSS"; reason = "DAILY LOSS LIMIT • 1M CLOSE CONFIRMED"; }
+                if (outcome != null) { CloseAsian75Positions(output, positions, latestClose, hasClose, sessionDate, time, outcome, reason, cfg); return; }
+            }
+            CloseAsian75Positions(output, positions, latestClose, hasClose, sessionDate, session.Times[session.Times.Length - 1], "SESSION EXIT", "SESSION END • LAST AVAILABLE 1M CLOSE", cfg);
+        }
+
+        private static void CloseAsian75Positions(List<KeystoneArcEvent> output, Asian75Position[] positions, double[] latestClose, bool[] hasClose, DateTime sessionDate, DateTime time, string outcome, string reason, KeystoneArcRunConfig cfg)
+        {
+            for (int s = 0; s < positions.Length; s++)
+            {
+                Asian75Position p = positions[s];
+                if (p.PendingEntry) { p.Halted = true; continue; }
+                if (p.Halted || !hasClose[s]) continue;
+                output.Add(NewAsian75Event(p, sessionDate, latestClose[s], time, outcome, Asian75OpenPnl(p, latestClose[s]), cfg, reason));
                 p.Halted = true;
             }
-            foreach (Asian75Position p in positions.Values.Where(x => x.PendingEntry).ToList()) p.Halted = true;
         }
 
         private static KeystoneArcEvent NewAsian75Event(Asian75Position p, DateTime sessionDate, double exit, DateTime exitTime, string outcome, double pnl, KeystoneArcRunConfig cfg, string note)
@@ -2530,6 +2564,282 @@ namespace NinjaTrader.NinjaScript
             return UsesOvernightSessionDate(cfg) ? TradingSessionDate(time) : time.Date;
         }
     }
+    // ---------------------------------------------------------------------------------------
+    // Asian 75 parameter optimizer. Runs the Asian cycle engine above over every combination of
+    // the requested parameters on the already-loaded 1-minute bars and ranks the results.
+    // Overfitting guard: ranking uses only the earlier IN-SAMPLE sessions; every row also shows
+    // how the same settings did on the later OUT-OF-SAMPLE sessions they were not ranked on.
+    // Historical research only: costs are modeled per contract, fills are 1M-bar based.
+    // ---------------------------------------------------------------------------------------
+    public sealed class KeystoneArcAsianGrid
+    {
+        public List<string> Scopes = new List<string> { "MNQ", "MGC", "BOTH" };
+        public List<string> MnqDirections = new List<string> { "LONG", "SHORT" };
+        public List<string> MgcDirections = new List<string> { "LONG", "SHORT" };
+        public List<string> RiskModes = new List<string> { "CASH" };
+        public List<double> LegLosses = new List<double> { 50, 75, 100, 125, 150 };
+        public List<int> Reversals = new List<int> { 1, 2, 3, 4, 5 };
+        public List<double> Targets = new List<double> { 150, 250, 350, 500, 750 };
+        public List<double> CycleStops = new List<double> { 0 };
+        public List<double> InstrumentCaps = new List<double> { 0 };
+        public List<double> BreakEvens = new List<double> { 0 };
+        public List<int> StartTimes = new List<int> { 1800 };
+        public int EndHhmm = 1555;
+        // 0 = AUTO, exactly like the lab: leg loss × max reversals × selected instruments.
+        public double DailyLossLimit = 0;
+        // True = one start direction for both instruments (the lab's single direction selector).
+        public bool LinkDirections;
+        public int StartingQuantity = 1;
+        public double CostPerContract = 1.00;   // round trip per contract: commission + exchange fees
+        public double OutOfSampleFraction = 0.30;
+        public int MinimumNights = 40;
+        public double PropDrawdown = 2000;
+    }
+
+    public sealed class KeystoneArcAsianCombo
+    {
+        public string Scope, MnqDirection, MgcDirection, RiskMode;
+        public double LegLoss, Target, CycleStop, InstrumentCap, BreakEven, DailyLossLimit;
+        public int Reversals, StartHhmm, EndHhmm, StartingQuantity;
+
+        public string Label()
+        {
+            string dir = Scope == "BOTH" ? MnqDirection.Substring(0, 1) + "/" + MgcDirection.Substring(0, 1) : (Scope == "MNQ" ? MnqDirection : MgcDirection);
+            return Scope + " " + dir + " " + StartHhmm.ToString("0000") + (RiskMode == "PRICE" ? " move x1 $" : " leg $") + LegLoss.ToString("0") + " rev " + Reversals + " tgt $" + Target.ToString("0")
+                + (CycleStop > 0 ? " cyc $" + CycleStop.ToString("0") : "") + (InstrumentCap > 0 ? " cap $" + InstrumentCap.ToString("0") : "") + (BreakEven > 0 ? " BE $" + BreakEven.ToString("0") : "");
+        }
+
+        // Writes these Asian settings onto a configuration (a clone of the lab's, or a new one).
+        public KeystoneArcRunConfig Apply(KeystoneArcRunConfig cfg)
+        {
+            cfg.StrategyCode = "ASIAN75"; cfg.SessionMode = "ASIAN75"; cfg.Scope = Scope; cfg.SetupMinutes = 1;
+            cfg.AsianStartHhmm = StartHhmm; cfg.AsianEndHhmm = EndHhmm; cfg.CustomStart = StartHhmm; cfg.EndTime = EndHhmm;
+            cfg.AsianMnqInitialDirection = MnqDirection; cfg.AsianMgcInitialDirection = MgcDirection;
+            cfg.AsianRiskMode = RiskMode; cfg.AsianReversalLossDollars = LegLoss;
+            // PRICE mode: the leg-loss value is the x1 leg loss, converted to each instrument's price move.
+            cfg.AsianMnqReversalPriceMove = LegLoss / 2.0; cfg.AsianMgcReversalPriceMove = LegLoss / 10.0;
+            cfg.AsianCycleTargetDollars = Target; cfg.AsianCombinedStopLossDollars = CycleStop;
+            cfg.AsianDailyLossLimitDollars = DailyLossLimit > 0 ? DailyLossLimit : Math.Max(1, LegLoss * Math.Max(1, Reversals) * (Scope == "BOTH" ? 2 : 1));
+            cfg.AsianInstrumentStopLossDollars = InstrumentCap; cfg.AsianMnqInstrumentStopLossDollars = InstrumentCap; cfg.AsianMgcInstrumentStopLossDollars = InstrumentCap;
+            cfg.AsianBreakEvenTriggerDollars = BreakEven; cfg.AsianStartingQuantity = StartingQuantity;
+            cfg.AsianMaxReversalsPerInstrument = Reversals; cfg.AsianMnqMaxReversals = Reversals; cfg.AsianMgcMaxReversals = Reversals;
+            cfg.AsianMaxTotalLegsPerInstrument = Reversals + 1;
+            return cfg;
+        }
+    }
+
+    public sealed class KeystoneArcAsianStats
+    {
+        public int Nights, WinNights, TargetNights, Legs, Contracts, MaxLosingStreak;
+        public double Net, Gross, MaxDrawdown, WorstNight, BestNight, GrossWin, GrossLoss;
+        public double WinRate { get { return Nights == 0 ? 0 : 100.0 * WinNights / Nights; } }
+        public double TargetRate { get { return Nights == 0 ? 0 : 100.0 * TargetNights / Nights; } }
+        public double ProfitFactor { get { return GrossLoss <= 0 ? (GrossWin > 0 ? 99 : 0) : GrossWin / GrossLoss; } }
+        public double NetPerNight { get { return Nights == 0 ? 0 : Net / Nights; } }
+        // Net profit per $1 of worst peak-to-trough drawdown: rewards a steady equity curve.
+        public double ReturnToDrawdown { get { return MaxDrawdown <= 0 ? (Net > 0 ? 99 : 0) : Net / MaxDrawdown; } }
+    }
+
+    public sealed class KeystoneArcAsianNight
+    {
+        public DateTime SessionDate;
+        public double Gross, Net;
+        public int Legs, Contracts;
+        public bool TargetReached;
+    }
+
+    public sealed class KeystoneArcAsianResult
+    {
+        public KeystoneArcAsianCombo Combo;
+        public KeystoneArcAsianStats InSample, OutOfSample, All;
+        public List<KeystoneArcAsianNight> Nights;
+        // A real edge should hold up calendar year after calendar year, not in one lucky stretch.
+        public int Years, ProfitableYears;
+        public double WorstYear;
+    }
+
+    public sealed class KeystoneArcAsianOptimization
+    {
+        public List<KeystoneArcAsianResult> Ranked = new List<KeystoneArcAsianResult>();
+        public int Combinations;
+        public DateTime FirstSession, OutOfSampleStart, LastSession;
+        public KeystoneArcAsianGrid Grid;
+        public bool Cancelled;
+    }
+
+    public static class KeystoneArcAsianOptimizer
+    {
+        public static List<KeystoneArcAsianCombo> BuildCombos(KeystoneArcAsianGrid g, bool hasMnq, bool hasMgc)
+        {
+            var combos = new List<KeystoneArcAsianCombo>();
+            foreach (string scope in g.Scopes.Distinct())
+            {
+                if ((scope == "MNQ" || scope == "BOTH") && !hasMnq) continue;
+                if ((scope == "MGC" || scope == "BOTH") && !hasMgc) continue;
+                foreach (string mnqDir in scope == "MGC" ? new List<string> { "LONG" } : g.MnqDirections.Distinct().ToList())
+                foreach (string mgcDir in scope == "MNQ" ? new List<string> { "LONG" } : (g.LinkDirections && scope == "BOTH" ? new List<string> { mnqDir } : g.MgcDirections.Distinct().ToList()))
+                foreach (string mode in g.RiskModes.Distinct())
+                foreach (double loss in g.LegLosses.Distinct())
+                foreach (int rev in g.Reversals.Distinct())
+                foreach (double target in g.Targets.Distinct())
+                foreach (double cycle in g.CycleStops.Distinct())
+                foreach (double cap in g.InstrumentCaps.Distinct())
+                foreach (double be in g.BreakEvens.Distinct())
+                foreach (int start in g.StartTimes.Distinct())
+                    combos.Add(new KeystoneArcAsianCombo { Scope = scope, MnqDirection = mnqDir, MgcDirection = mgcDir, RiskMode = mode, LegLoss = loss, Reversals = rev, Target = target, CycleStop = cycle, InstrumentCap = cap, BreakEven = be, StartHhmm = start, EndHhmm = g.EndHhmm, DailyLossLimit = g.DailyLossLimit, StartingQuantity = g.StartingQuantity });
+            }
+            return combos;
+        }
+
+        // progress(done, total) is called from worker threads. cancelled() is polled.
+        public static KeystoneArcAsianOptimization Run(List<KeystoneArcBar> oneMinute, KeystoneArcAsianGrid g, Action<int, int> progress, Func<bool> cancelled)
+        {
+            var result = new KeystoneArcAsianOptimization { Grid = g };
+            List<KeystoneArcBar> bars = (oneMinute ?? new List<KeystoneArcBar>()).Where(x => x != null).ToList();
+            bool hasMnq = bars.Any(x => !(x.Symbol ?? string.Empty).StartsWith("MGC", StringComparison.OrdinalIgnoreCase));
+            bool hasMgc = bars.Any(x => (x.Symbol ?? string.Empty).StartsWith("MGC", StringComparison.OrdinalIgnoreCase));
+            List<KeystoneArcAsianCombo> combos = BuildCombos(g, hasMnq, hasMgc);
+            result.Combinations = combos.Count;
+            if (combos.Count == 0 || bars.Count == 0) return result;
+
+            var probe = new KeystoneArcRunConfig { SessionMode = "ASIAN75", AsianStartHhmm = 1800, AsianEndHhmm = g.EndHhmm };
+            List<DateTime> dates = bars.Select(x => KeystoneArcEngine.SessionGroupingDate(x.Time, probe)).Distinct().OrderBy(x => x).ToList();
+            result.FirstSession = dates.First(); result.LastSession = dates.Last();
+            int split = Math.Max(0, Math.Min(dates.Count - 1, (int)Math.Floor(dates.Count * (1 - Math.Max(0, Math.Min(0.9, g.OutOfSampleFraction))))));
+            result.OutOfSampleStart = g.OutOfSampleFraction <= 0 ? DateTime.MaxValue : dates[split];
+
+            // Prepare each (scope, start, end) session layout once; every combo reuses it.
+            var prepared = new Dictionary<string, List<KeystoneArcEngine.Asian75Session>>();
+            foreach (var key in combos.Select(c => new { c.Scope, c.StartHhmm, c.EndHhmm }).Distinct())
+            {
+                if (cancelled != null && cancelled()) { result.Cancelled = true; return result; }
+                var cfg = new KeystoneArcAsianCombo { Scope = key.Scope, StartHhmm = key.StartHhmm, EndHhmm = key.EndHhmm, MnqDirection = "LONG", MgcDirection = "LONG", RiskMode = "CASH" }.Apply(new KeystoneArcRunConfig());
+                prepared[key.Scope + "|" + key.StartHhmm + "|" + key.EndHhmm] = KeystoneArcEngine.PrepareAsian75Sessions(bars, cfg);
+            }
+
+            var results = new KeystoneArcAsianResult[combos.Count];
+            int done = 0;
+            var options = new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
+            System.Threading.Tasks.Parallel.For(0, combos.Count, options, (i, state) =>
+            {
+                if (cancelled != null && cancelled()) { state.Stop(); return; }
+                KeystoneArcAsianCombo c = combos[i];
+                KeystoneArcRunConfig cfg = c.Apply(new KeystoneArcRunConfig());
+                List<KeystoneArcEvent> events = KeystoneArcEngine.SimulateAsian75Sessions(prepared[c.Scope + "|" + c.StartHhmm + "|" + c.EndHhmm], cfg);
+                results[i] = Score(c, events, g, result.OutOfSampleStart);
+                int k = System.Threading.Interlocked.Increment(ref done);
+                if (progress != null) progress(k, combos.Count);
+            });
+            result.Cancelled = cancelled != null && cancelled();
+            result.Ranked = results.Where(r => r != null && r.InSample.Nights >= g.MinimumNights)
+                .OrderByDescending(r => r.InSample.Net > 0 ? r.InSample.ReturnToDrawdown : r.InSample.Net / 1e6)
+                .ThenByDescending(r => r.InSample.Net).ToList();
+            return result;
+        }
+
+        private static KeystoneArcAsianResult Score(KeystoneArcAsianCombo c, List<KeystoneArcEvent> events, KeystoneArcAsianGrid g, DateTime oosStart)
+        {
+            // Events carry the cycle's opening clock time as ReferenceTime; its date names the session.
+            List<KeystoneArcAsianNight> nights = events.GroupBy(e => e.ReferenceTime.Date).OrderBy(x => x.Key).Select(x =>
+            {
+                int contracts = (int)Math.Round(x.Sum(e => e.Quantity)); double gross = x.Sum(e => e.GrossPnl);
+                return new KeystoneArcAsianNight { SessionDate = x.Key, Gross = gross, Net = gross - contracts * g.CostPerContract, Legs = x.Count(), Contracts = contracts, TargetReached = x.Any(e => e.Outcome == "WIN") };
+            }).ToList();
+            List<double> years = nights.GroupBy(n => n.SessionDate.Year).Select(y => y.Sum(n => n.Net)).ToList();
+            return new KeystoneArcAsianResult
+            {
+                Combo = c, Nights = nights,
+                InSample = Stats(nights.Where(n => n.SessionDate < oosStart)),
+                OutOfSample = Stats(nights.Where(n => n.SessionDate >= oosStart)),
+                All = Stats(nights),
+                Years = years.Count, ProfitableYears = years.Count(y => y > 0), WorstYear = years.Count == 0 ? 0 : years.Min()
+            };
+        }
+
+        public static KeystoneArcAsianStats Stats(IEnumerable<KeystoneArcAsianNight> nights)
+        {
+            var s = new KeystoneArcAsianStats(); double equity = 0, peak = 0; int streak = 0;
+            foreach (KeystoneArcAsianNight n in nights)
+            {
+                s.Nights++; s.Legs += n.Legs; s.Contracts += n.Contracts; s.Gross += n.Gross; s.Net += n.Net;
+                if (n.Net > 0) { s.WinNights++; s.GrossWin += n.Net; streak = 0; } else { s.GrossLoss -= n.Net; streak++; s.MaxLosingStreak = Math.Max(s.MaxLosingStreak, streak); }
+                if (n.TargetReached) s.TargetNights++;
+                s.WorstNight = s.Nights == 1 ? n.Net : Math.Min(s.WorstNight, n.Net); s.BestNight = Math.Max(s.BestNight, n.Net);
+                equity += n.Net; peak = Math.Max(peak, equity); s.MaxDrawdown = Math.Max(s.MaxDrawdown, peak - equity);
+            }
+            return s;
+        }
+
+        // The ranked row for a given setting (e.g. the lab's current configuration), or null.
+        public static KeystoneArcAsianResult FindMatch(KeystoneArcAsianOptimization o, KeystoneArcAsianCombo m)
+        {
+            if (o == null || m == null) return null;
+            return o.Ranked.FirstOrDefault(r => r.Combo.Scope == m.Scope && r.Combo.LegLoss == m.LegLoss && r.Combo.Target == m.Target && r.Combo.Reversals == m.Reversals && r.Combo.RiskMode == m.RiskMode
+                && r.Combo.CycleStop == m.CycleStop && r.Combo.InstrumentCap == m.InstrumentCap && r.Combo.BreakEven == m.BreakEven && r.Combo.StartHhmm == m.StartHhmm
+                && (m.Scope == "MGC" || r.Combo.MnqDirection == m.MnqDirection) && (m.Scope == "MNQ" || r.Combo.MgcDirection == m.MgcDirection));
+        }
+
+        public static string FormatTable(KeystoneArcAsianOptimization o, int top, KeystoneArcAsianCombo current)
+        {
+            var sb = new StringBuilder();
+            KeystoneArcAsianGrid g = o.Grid ?? new KeystoneArcAsianGrid();
+            sb.AppendLine("ASIAN 75 OPTIMIZER • " + o.Combinations.ToString("N0") + " combinations • " + o.Ranked.Count.ToString("N0") + " with at least " + g.MinimumNights + " in-sample nights" + (o.Cancelled ? " • CANCELLED (partial)" : ""));
+            sb.AppendLine("IN-SAMPLE " + o.FirstSession.ToString("yyyy-MM-dd") + " → " + (o.OutOfSampleStart == DateTime.MaxValue ? o.LastSession : o.OutOfSampleStart.AddDays(-1)).ToString("yyyy-MM-dd")
+                + "   OUT-OF-SAMPLE " + (o.OutOfSampleStart == DateTime.MaxValue ? "none" : o.OutOfSampleStart.ToString("yyyy-MM-dd") + " → " + o.LastSession.ToString("yyyy-MM-dd")));
+            sb.AppendLine("Net = after $" + g.CostPerContract.ToString("0.00") + " round trip per contract. Ranked by IN-SAMPLE net ÷ max drawdown. OOS columns were NOT used for ranking: settings that stay good there are the trustworthy ones.");
+            sb.AppendLine();
+            sb.AppendLine(string.Format("{0,-4}{1,-50}{2,9}{3,6}{4,9}{5,6} |{6,9}{7,6}{8,9}{9,6} |{10,6}{11,10}{12,5}", "#", "SETTINGS", "IS NET", "WIN", "MAX DD", "R/DD", "OOS NET", "WIN", "MAX DD", "R/DD", "YRS+", "WORST YR", "PROP"));
+            for (int i = 0; i < Math.Min(top, o.Ranked.Count); i++) sb.AppendLine(Line(i + 1, o.Ranked[i], g));
+            KeystoneArcAsianResult d = FindMatch(o, current);
+            if (d != null)
+            {
+                sb.AppendLine();
+                sb.AppendLine("YOUR CURRENT SETTINGS • rank " + (o.Ranked.IndexOf(d) + 1) + " of " + o.Ranked.Count);
+                sb.AppendLine(Line(o.Ranked.IndexOf(d) + 1, d, g));
+            }
+            sb.AppendLine();
+            sb.AppendLine("WIN = % of nights with net profit. R/DD = net ÷ max drawdown. YRS+ = profitable calendar years / years tested. PROP = whole-history max drawdown within $" + g.PropDrawdown.ToString("N0") + ".");
+            return sb.ToString();
+        }
+
+        private static string Line(int rank, KeystoneArcAsianResult r, KeystoneArcAsianGrid g)
+        {
+            return string.Format(CultureInfo.InvariantCulture, "{0,-4}{1,-50}{2,9:N0}{3,5:0}%{4,9:N0}{5,6:0.0} |{6,9:N0}{7,5:0}%{8,9:N0}{9,6:0.0} |{10,6}{11,10:N0}{12,5}",
+                rank, r.Combo.Label(), r.InSample.Net, r.InSample.WinRate, r.InSample.MaxDrawdown, r.InSample.ReturnToDrawdown,
+                r.OutOfSample.Net, r.OutOfSample.WinRate, r.OutOfSample.MaxDrawdown, r.OutOfSample.ReturnToDrawdown,
+                r.ProfitableYears + "/" + r.Years, r.WorstYear, r.All.MaxDrawdown <= g.PropDrawdown ? "ok" : "DD!");
+        }
+
+        public static string ToCsv(KeystoneArcAsianOptimization o)
+        {
+            KeystoneArcAsianGrid g = o.Grid ?? new KeystoneArcAsianGrid();
+            var sb = new StringBuilder("rank,scope,mnq_dir,mgc_dir,start,end,risk_mode,leg_loss,reversals,target,cycle_stop,instrument_cap,breakeven,daily_loss_limit,cost_per_contract,"
+                + "is_nights,is_net,is_win_pct,is_target_pct,is_max_dd,is_return_dd,is_profit_factor,is_worst_night,is_max_losing_streak,"
+                + "oos_nights,oos_net,oos_win_pct,oos_target_pct,oos_max_dd,oos_return_dd,oos_profit_factor,oos_worst_night,"
+                + "all_nights,all_net,all_net_per_night,all_max_dd,all_contracts,profitable_years,years,worst_year,within_prop_dd\n");
+            Func<double, string> f = x => x.ToString("0.##", CultureInfo.InvariantCulture);
+            for (int i = 0; i < o.Ranked.Count; i++)
+            {
+                KeystoneArcAsianResult r = o.Ranked[i]; KeystoneArcAsianCombo c = r.Combo;
+                sb.AppendLine(string.Join(",", new[] { (i + 1).ToString(), c.Scope, c.MnqDirection, c.MgcDirection, c.StartHhmm.ToString("0000"), c.EndHhmm.ToString("0000"), c.RiskMode, f(c.LegLoss), c.Reversals.ToString(), f(c.Target), f(c.CycleStop), f(c.InstrumentCap), f(c.BreakEven), f(c.DailyLossLimit), f(g.CostPerContract),
+                    r.InSample.Nights.ToString(), f(r.InSample.Net), f(r.InSample.WinRate), f(r.InSample.TargetRate), f(r.InSample.MaxDrawdown), f(r.InSample.ReturnToDrawdown), f(r.InSample.ProfitFactor), f(r.InSample.WorstNight), r.InSample.MaxLosingStreak.ToString(),
+                    r.OutOfSample.Nights.ToString(), f(r.OutOfSample.Net), f(r.OutOfSample.WinRate), f(r.OutOfSample.TargetRate), f(r.OutOfSample.MaxDrawdown), f(r.OutOfSample.ReturnToDrawdown), f(r.OutOfSample.ProfitFactor), f(r.OutOfSample.WorstNight),
+                    r.All.Nights.ToString(), f(r.All.Net), f(r.All.NetPerNight), f(r.All.MaxDrawdown), r.All.Contracts.ToString(), r.ProfitableYears.ToString(), r.Years.ToString(), f(r.WorstYear), r.All.MaxDrawdown <= g.PropDrawdown ? "1" : "0" }));
+            }
+            return sb.ToString();
+        }
+
+        public static string NightsCsv(KeystoneArcAsianResult r)
+        {
+            var sb = new StringBuilder("# " + r.Combo.Label() + "\nsession_date,legs,contracts,gross,net_after_costs,cumulative_net,target_reached\n"); double cum = 0;
+            foreach (KeystoneArcAsianNight n in r.Nights)
+            {
+                cum += n.Net;
+                sb.AppendLine(n.SessionDate.ToString("yyyy-MM-dd") + "," + n.Legs + "," + n.Contracts + "," + n.Gross.ToString("0.##", CultureInfo.InvariantCulture) + "," + n.Net.ToString("0.##", CultureInfo.InvariantCulture) + "," + cum.ToString("0.##", CultureInfo.InvariantCulture) + "," + (n.TargetReached ? "1" : "0"));
+            }
+            return sb.ToString();
+        }
+    }
 }
 
 namespace NinjaTrader.NinjaScript.Indicators
@@ -2746,6 +3056,16 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string mnqOutcomeValidation = "not checked", mgcOutcomeValidation = "not checked";
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
+        // Asian 75 optimizer window state.
+        private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
+        private UniformGrid historyControls;
+        private Window asianOptimizerWindow;
+        private TextBox asianOptLossBox, asianOptReversalsBox, asianOptTargetBox, asianOptDirectionBox, asianOptStartBox, asianOptBreakEvenBox, asianOptCostBox, asianOptOosBox, asianOptPropDdBox, asianOptApplyRankBox, asianOptResultsText;
+        private CheckBox asianOptMnqBox, asianOptMgcBox, asianOptBothBox;
+        private TextBlock asianOptStatusText, asianOptCountText;
+        private volatile bool asianOptCancelRequested;
+        private bool asianOptRunning;
+        private KeystoneArcAsianOptimization asianOptLast;
         private readonly Dictionary<string, List<KeystoneArcBar>> comparisonSetupCache = new Dictionary<string, List<KeystoneArcBar>>();
         private readonly Dictionary<string, string> comparisonSeriesStatus = new Dictionary<string, string>();
         private KeystoneArcRunConfig comparisonRunConfig;
@@ -3807,7 +4127,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             UIElement asianMgcInstrumentStopRow = Row("MGC MAX LOSS / DAY $ (0=OFF)", asianMgcInstrumentStopBox);
             UIElement asianBreakEvenRow = Row("ASIAN BREAKEVEN TRIGGER $ (0=OFF)", asianBreakEvenBox);
             UIElement asianStartQuantityRow = Row("ASIAN INITIAL MICRO CONTRACTS", asianStartingQuantityBox);
-            UIElement asianMaxReversalsRow = Row("MAX REVERSAL LEGS / INSTRUMENT", asianMaxReversalsBox);
+            UIElement asianMaxReversalsRow = Row("MAX REVERSALS AFTER x1 / INSTRUMENT (3 = x1→x4)", asianMaxReversalsBox);
             UIElement asianMnqMaxReversalsRow = Row("MNQ MAX REVERSALS AFTER x1", asianMnqMaxReversalsBox);
             UIElement asianMgcMaxReversalsRow = Row("MGC MAX REVERSALS AFTER x1", asianMgcMaxReversalsBox);
             UIElement liveModeNote = Txt("LIVE ACCOUNT: enter the broker cash value and lot size yourself; Keystone never assumes an IC Markets contract. Exactly one earliest resolved setup across the selected instrument scope enters the final historical ledger per session date. All later setups remain visible as evidence only.", Cyan, 10, FontWeights.Bold);
@@ -4139,6 +4459,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (clearPoolButton != null) clearPoolButton.IsEnabled = accounts.Count > 0 && !busy;
             if (evidenceAfterPoolButton != null) evidenceAfterPoolButton.IsEnabled = detected && dataReady && !busy;
             if (comparisonRunButton != null) comparisonRunButton.IsEnabled = detected && dataReady && !busy;
+            bool asianStudy = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            if (asianOptimizeButton != null) { asianOptimizeButton.Visibility = asianStudy ? Visibility.Visible : Visibility.Collapsed; asianOptimizeButton.IsEnabled = asianStudy && dataReady && !busy && AsianOptimizerBars().Count > 0; }
+            if (historyControls != null) historyControls.Columns = asianStudy ? 4 : 3;
             for (int i = 0; i < saveButtons.Count; i++) saveButtons[i].IsEnabled = detected && !busy;
             for (int i = 0; i < exportButtons.Count; i++) exportButtons[i].IsEnabled = detected && !busy;
             if (researchPackageButton != null) researchPackageButton.IsEnabled = simulated && !busy;
@@ -4159,11 +4482,12 @@ namespace NinjaTrader.NinjaScript.AddOns
         private UIElement HistoryTab()
         {
             var grid = new Grid(); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            var controls = new UniformGrid { Columns = 3, Margin = new Thickness(8) };
+            var controls = new UniformGrid { Columns = 3, Margin = new Thickness(8) }; historyControls = controls;
             requestButton = Btn("1. REQUEST SELECTED NINJATRADER DATA", Blue); requestButton.Click += delegate { RequestHistory(); };
             runButton = Btn("2. BUILD PENDING EVENT LEDGER", Green); runButton.IsEnabled = false; runButton.Click += delegate { RunResearch(); };
             cancelButton = Btn("CANCEL REQUEST", Red); cancelButton.Click += delegate { CancelRequests(); UpdateUi("CANCELLED", Gold); };
-            controls.Children.Add(requestButton); controls.Children.Add(runButton); controls.Children.Add(cancelButton); grid.Children.Add(controls);
+            asianOptimizeButton = Btn("OPTIMIZE ASIAN 75", Orchid); asianOptimizeButton.Visibility = Visibility.Collapsed; asianOptimizeButton.IsEnabled = false; asianOptimizeButton.ToolTip = "Test many Asian 75 parameter combinations on the loaded 1-minute data"; asianOptimizeButton.Click += delegate { OpenAsianOptimizer(); };
+            controls.Children.Add(requestButton); controls.Children.Add(runButton); controls.Children.Add(asianOptimizeButton); controls.Children.Add(cancelButton); grid.Children.Add(controls);
             summaryText = Txt("CHOOSE A RANGE IN RESEARCH SETUP", Gold, 13, FontWeights.Bold); summaryText.Margin = new Thickness(8); Grid.SetRow(summaryText, 1); grid.Children.Add(summaryText);
             eventText = Txt("This screen creates PENDING candidates only. Review and accept entries in 3. VERIFY ENTRIES before you run the pool.", Text, 11, FontWeights.Normal); eventText.FontFamily = new FontFamily("Consolas"); eventText.TextWrapping = TextWrapping.Wrap;
             var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = eventText, Margin = new Thickness(8) }; Grid.SetRow(scroll, 2); grid.Children.Add(scroll); return PanelCard(grid);
@@ -4480,6 +4804,250 @@ namespace NinjaTrader.NinjaScript.AddOns
             resultsCard.VerticalAlignment = VerticalAlignment.Stretch;
             resultsCard.HorizontalAlignment = HorizontalAlignment.Stretch;
             return resultsCard;
+        }
+
+        // ---------------------------------------------------------------------------------
+        // ASIAN 75 OPTIMIZER window. Runs KeystoneArcAsianOptimizer over the 1-minute bars the
+        // lab already loaded for the Asian study (no export, no new request) and lets the user
+        // apply any ranked row back to the Asian settings to inspect it on the evidence chart.
+        // ---------------------------------------------------------------------------------
+        private List<KeystoneArcBar> AsianOptimizerBars()
+        {
+            var bars = new List<KeystoneArcBar>();
+            if (config == null) return bars;
+            bool needsMnq = config.Scope == "MNQ" || config.Scope == "BOTH";
+            bool needsMgc = config.Scope == "MGC" || config.Scope == "BOTH";
+            if (needsMnq && mnqOutcomeMatchesSetup) bars.AddRange(mnqBars);
+            if (needsMgc && mgcOutcomeMatchesSetup) bars.AddRange(mgcBars);
+            return bars;
+        }
+
+        private KeystoneArcAsianCombo CurrentAsianCombo()
+        {
+            if (config == null) return null;
+            return new KeystoneArcAsianCombo
+            {
+                Scope = config.Scope, MnqDirection = config.AsianMnqInitialDirection, MgcDirection = config.AsianMgcInitialDirection, RiskMode = config.AsianRiskMode,
+                LegLoss = config.AsianReversalLossDollars, Reversals = config.AsianMnqMaxReversals, Target = config.AsianCycleTargetDollars, CycleStop = config.AsianCombinedStopLossDollars,
+                InstrumentCap = config.AsianMnqInstrumentStopLossDollars, BreakEven = config.AsianBreakEvenTriggerDollars, StartHhmm = config.AsianStartHhmm, EndHhmm = config.AsianEndHhmm
+            };
+        }
+
+        private void OpenAsianOptimizer()
+        {
+            if (config == null || !string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase)) { UpdateUi("ASIAN OPTIMIZER • select the ASIAN 75 strategy, START RESEARCH, and load its 1-minute data first", Gold); return; }
+            if (AsianOptimizerBars().Count == 0) { UpdateUi("ASIAN OPTIMIZER • no verified 1-minute bars are loaded yet • request the Asian data first", Gold); return; }
+            if (asianOptimizerWindow != null) { asianOptimizerWindow.Activate(); return; }
+            var w = new Window { Title = "KEYSTONE ARC • ASIAN 75 OPTIMIZER", Width = 1400, Height = 860, MinWidth = 980, MinHeight = 600, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            var root = new Grid { Margin = new Thickness(10) };
+            for (int i = 0; i < 4; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            var header = Stack(); header.Margin = new Thickness(0);
+            header.Children.Add(Txt("ASIAN 75 PARAMETER OPTIMIZER", Orchid, 18, FontWeights.Bold));
+            header.Children.Add(Txt("Tests every combination below on the 1-minute bars already loaded for this Asian study, using the same cycle engine as the normal backtest. Enter several values separated by commas. Ranking uses only the earlier IN-SAMPLE sessions; the later OUT-OF-SAMPLE sessions show whether a setting holds up on data it was not picked on. Historical research only.", Muted, 11, FontWeights.Normal));
+            KeystoneArcBar firstBar = AsianOptimizerBars().OrderBy(x => x.Time).FirstOrDefault(), lastBar = AsianOptimizerBars().OrderByDescending(x => x.Time).FirstOrDefault();
+            header.Children.Add(new Border { Background = Card, BorderBrush = Orchid, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(5), Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 5, 0, 4),
+                Child = Txt("LOADED DATA • " + config.Scope + " • " + AsianOptimizerBars().Count.ToString("N0") + " one-minute bars • " + (firstBar == null ? "" : firstBar.Time.ToString("yyyy-MM-dd") + " → " + lastBar.Time.ToString("yyyy-MM-dd")) + " • session end " + config.AsianEndHhmm.ToString("0000") + " ET", Text, 12, FontWeights.Bold) });
+            Grid.SetRow(header, 0); root.Children.Add(header);
+
+            bool both = config.Scope == "BOTH";
+            asianOptMnqBox = new CheckBox { Content = "MNQ ONLY", IsChecked = config.Scope != "MGC", IsEnabled = config.Scope != "MGC", Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
+            asianOptMgcBox = new CheckBox { Content = "MGC ONLY", IsChecked = config.Scope != "MNQ", IsEnabled = config.Scope != "MNQ", Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
+            asianOptBothBox = new CheckBox { Content = "BOTH TOGETHER", IsChecked = both, IsEnabled = both, Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
+            var scopes = new WrapPanel(); scopes.Children.Add(asianOptMnqBox); scopes.Children.Add(asianOptMgcBox); scopes.Children.Add(asianOptBothBox);
+            asianOptLossBox = Input("50,75,100,125,150"); asianOptLossBox.ToolTip = "Fixed cash loss per reversal leg ($). Each value is tested.";
+            asianOptReversalsBox = Input("1,2,3,4,5"); asianOptReversalsBox.ToolTip = "Reversals after the first x1 leg: 3 means x1→x2→x3→x4 (four legs).";
+            asianOptTargetBox = Input("150,250,350,500,750"); asianOptTargetBox.ToolTip = "Combined cycle profit target ($), checked at each 1-minute close.";
+            asianOptDirectionBox = Input("LONG,SHORT"); asianOptDirectionBox.ToolTip = "Start direction (one direction for both instruments, like the main settings).";
+            asianOptStartBox = Input(config.AsianStartHhmm.ToString("0000")); asianOptStartBox.ToolTip = "Entry times HHMM (ET). Only times at or after the loaded session start can be tested.";
+            asianOptBreakEvenBox = Input("0"); asianOptBreakEvenBox.ToolTip = "Breakeven guard trigger ($); 0 = off.";
+            asianOptCostBox = Input("1.00"); asianOptCostBox.ToolTip = "Round-trip commission + fees per contract ($). Every leg pays it.";
+            asianOptOosBox = Input("30"); asianOptOosBox.ToolTip = "Percent of the latest sessions held out of the ranking (out-of-sample).";
+            asianOptPropDdBox = Input("2000"); asianOptPropDdBox.ToolTip = "Flags settings whose worst historical drawdown exceeds this prop limit.";
+            asianOptCountText = Txt("", Gold, 11, FontWeights.Bold); asianOptCountText.VerticalAlignment = VerticalAlignment.Center;
+            var inputs = new UniformGrid { Columns = 4, Margin = new Thickness(0, 2, 0, 2) };
+            inputs.Children.Add(Row("INSTRUMENT SETS", scopes)); inputs.Children.Add(Row("LOSS PER LEG $", asianOptLossBox)); inputs.Children.Add(Row("MAX REVERSALS AFTER x1", asianOptReversalsBox)); inputs.Children.Add(Row("COMBINED TARGET $", asianOptTargetBox));
+            inputs.Children.Add(Row("START DIRECTION", asianOptDirectionBox)); inputs.Children.Add(Row("ENTRY TIME HHMM", asianOptStartBox)); inputs.Children.Add(Row("BREAKEVEN TRIGGER $", asianOptBreakEvenBox)); inputs.Children.Add(Row("COST $ / CONTRACT (ROUND TRIP)", asianOptCostBox));
+            inputs.Children.Add(Row("OUT-OF-SAMPLE HOLD-OUT %", asianOptOosBox)); inputs.Children.Add(Row("PROP DRAWDOWN LIMIT $", asianOptPropDdBox)); inputs.Children.Add(asianOptCountText);
+            foreach (TextBox box in new[] { asianOptLossBox, asianOptReversalsBox, asianOptTargetBox, asianOptDirectionBox, asianOptStartBox, asianOptBreakEvenBox }) box.TextChanged += delegate { UpdateAsianOptimizerCount(); };
+            foreach (CheckBox box in new[] { asianOptMnqBox, asianOptMgcBox, asianOptBothBox }) { box.Checked += delegate { UpdateAsianOptimizerCount(); }; box.Unchecked += delegate { UpdateAsianOptimizerCount(); }; }
+            Grid.SetRow(inputs, 1); root.Children.Add(inputs);
+
+            var actions = new UniformGrid { Columns = 4, Margin = new Thickness(0, 4, 0, 2) };
+            asianOptRunButton = Btn("RUN OPTIMIZATION", Green); asianOptRunButton.Click += delegate { StartAsianOptimization(); };
+            asianOptCancelButton = Btn("CANCEL", Red); asianOptCancelButton.Click += delegate { asianOptCancelRequested = true; if (asianOptStatusText != null) asianOptStatusText.Text = "CANCELLING • finishing the combinations already running…"; };
+            asianOptApplyRankBox = Input("1"); asianOptApplyRankBox.Width = 60; asianOptApplyRankBox.ToolTip = "Rank number from the table";
+            asianOptApplyButton = Btn("APPLY RANK → ASIAN SETTINGS", Orchid); asianOptApplyButton.Click += delegate { ApplyAsianOptimizerRank(); };
+            var applyRow = new DockPanel(); DockPanel.SetDock(asianOptApplyRankBox, Dock.Left); applyRow.Children.Add(asianOptApplyRankBox); applyRow.Children.Add(asianOptApplyButton);
+            asianOptSaveButton = Btn("SAVE CSV", Blue); asianOptSaveButton.Click += delegate { SaveAsianOptimization(); };
+            actions.Children.Add(asianOptRunButton); actions.Children.Add(asianOptCancelButton); actions.Children.Add(applyRow); actions.Children.Add(asianOptSaveButton);
+            Grid.SetRow(actions, 2); root.Children.Add(actions);
+
+            asianOptStatusText = Txt("SET THE VALUES TO TEST, THEN RUN OPTIMIZATION.", Gold, 12, FontWeights.Bold); asianOptStatusText.Margin = new Thickness(2, 4, 2, 4);
+            Grid.SetRow(asianOptStatusText, 3); root.Children.Add(asianOptStatusText);
+
+            asianOptResultsText = new TextBox { IsReadOnly = true, Background = Card, Foreground = Text, BorderBrush = Orchid, BorderThickness = new Thickness(1), FontFamily = new FontFamily("Consolas"), FontSize = 11,
+                TextWrapping = TextWrapping.NoWrap, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(6),
+                Text = asianOptLast == null ? "No optimization run yet." : KeystoneArcAsianOptimizer.FormatTable(asianOptLast, 100, CurrentAsianCombo()) };
+            Grid.SetRow(asianOptResultsText, 4); root.Children.Add(asianOptResultsText);
+
+            w.Content = root; asianOptimizerWindow = w;
+            w.Closed += delegate { asianOptCancelRequested = true; asianOptimizerWindow = null; asianOptResultsText = null; asianOptStatusText = null; asianOptCountText = null; asianOptRunButton = null; asianOptCancelButton = null; asianOptApplyButton = null; asianOptSaveButton = null; };
+            UpdateAsianOptimizerCount();
+            SetAsianOptimizerButtons();
+            w.Show();
+        }
+
+        private static List<string> SplitList(TextBox box)
+        {
+            return (box == null ? string.Empty : box.Text ?? string.Empty).Split(new[] { ',', ';', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim().ToUpperInvariant()).Where(x => x.Length > 0).Distinct().ToList();
+        }
+
+        private static bool TryReadNumberList(TextBox box, string name, double min, out List<double> values, out string error)
+        {
+            values = new List<double>(); error = null;
+            foreach (string v in SplitList(box))
+            {
+                double d;
+                if (!double.TryParse(v, NumberStyles.Any, CultureInfo.InvariantCulture, out d) || d < min) { error = name + " value '" + v + "' is not valid"; return false; }
+                values.Add(d);
+            }
+            if (values.Count == 0) { error = name + " needs at least one value"; return false; }
+            return true;
+        }
+
+        private bool TryReadAsianOptimizerGrid(out KeystoneArcAsianGrid grid, out string error)
+        {
+            grid = new KeystoneArcAsianGrid(); error = null;
+            var scopes = new List<string>();
+            if (asianOptMnqBox != null && asianOptMnqBox.IsChecked == true && asianOptMnqBox.IsEnabled) scopes.Add("MNQ");
+            if (asianOptMgcBox != null && asianOptMgcBox.IsChecked == true && asianOptMgcBox.IsEnabled) scopes.Add("MGC");
+            if (asianOptBothBox != null && asianOptBothBox.IsChecked == true && asianOptBothBox.IsEnabled) scopes.Add("BOTH");
+            if (scopes.Count == 0) { error = "choose at least one instrument set"; return false; }
+            List<double> losses, reversals, targets, starts, breakEvens;
+            if (!TryReadNumberList(asianOptLossBox, "LOSS PER LEG", 1, out losses, out error)) return false;
+            if (!TryReadNumberList(asianOptReversalsBox, "MAX REVERSALS", 1, out reversals, out error)) return false;
+            if (!TryReadNumberList(asianOptTargetBox, "TARGET", 1, out targets, out error)) return false;
+            if (!TryReadNumberList(asianOptStartBox, "ENTRY TIME", 0, out starts, out error)) return false;
+            if (!TryReadNumberList(asianOptBreakEvenBox, "BREAKEVEN", 0, out breakEvens, out error)) return false;
+            if (reversals.Any(x => x != Math.Floor(x) || x > 10)) { error = "MAX REVERSALS must be whole numbers from 1 to 10"; return false; }
+            if (starts.Any(x => x != Math.Floor(x) || !IsValidHhmm((int)x))) { error = "ENTRY TIME must be HHMM, e.g. 1800"; return false; }
+            List<string> directions = SplitList(asianOptDirectionBox);
+            if (directions.Count == 0 || directions.Any(x => x != "LONG" && x != "SHORT")) { error = "START DIRECTION must be LONG and/or SHORT"; return false; }
+            double cost, oos, propDd;
+            if (!double.TryParse(asianOptCostBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out cost) || cost < 0) { error = "COST must be 0 or more"; return false; }
+            if (!double.TryParse(asianOptOosBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out oos) || oos < 0 || oos > 60) { error = "HOLD-OUT % must be 0–60"; return false; }
+            if (!double.TryParse(asianOptPropDdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out propDd) || propDd <= 0) { error = "PROP DRAWDOWN must be above 0"; return false; }
+            grid.Scopes = scopes; grid.MnqDirections = directions; grid.MgcDirections = directions; grid.LinkDirections = true; grid.RiskModes = new List<string> { "CASH" };
+            grid.LegLosses = losses; grid.Reversals = reversals.Select(x => (int)x).ToList(); grid.Targets = targets; grid.StartTimes = starts.Select(x => (int)x).ToList(); grid.BreakEvens = breakEvens;
+            grid.CycleStops = new List<double> { 0 }; grid.InstrumentCaps = new List<double> { 0 };
+            grid.EndHhmm = config.AsianEndHhmm; grid.StartingQuantity = Math.Max(1, config.AsianStartingQuantity); grid.DailyLossLimit = 0;
+            grid.CostPerContract = cost; grid.OutOfSampleFraction = oos / 100.0; grid.PropDrawdown = propDd; grid.MinimumNights = 1;
+            return true;
+        }
+
+        private void UpdateAsianOptimizerCount()
+        {
+            if (asianOptCountText == null) return;
+            KeystoneArcAsianGrid grid; string error;
+            if (!TryReadAsianOptimizerGrid(out grid, out error)) { asianOptCountText.Text = "CHECK INPUTS • " + error; asianOptCountText.Foreground = Red; return; }
+            int count = KeystoneArcAsianOptimizer.BuildCombos(grid, config.Scope != "MGC", config.Scope != "MNQ").Count;
+            asianOptCountText.Text = count.ToString("N0") + " COMBINATIONS" + (count > 20000 ? " • TOO MANY (max 20,000)" : "");
+            asianOptCountText.Foreground = count > 20000 ? Red : Gold;
+        }
+
+        private void SetAsianOptimizerButtons()
+        {
+            if (asianOptRunButton != null) asianOptRunButton.IsEnabled = !asianOptRunning;
+            if (asianOptCancelButton != null) asianOptCancelButton.IsEnabled = asianOptRunning;
+            bool hasResults = asianOptLast != null && asianOptLast.Ranked.Count > 0;
+            if (asianOptApplyButton != null) asianOptApplyButton.IsEnabled = !asianOptRunning && hasResults;
+            if (asianOptSaveButton != null) asianOptSaveButton.IsEnabled = !asianOptRunning && hasResults;
+        }
+
+        private void StartAsianOptimization()
+        {
+            if (asianOptRunning) return;
+            if (operationBusy || isProcessing) { if (asianOptStatusText != null) asianOptStatusText.Text = "WAIT FOR THE CURRENT LAB OPERATION TO FINISH."; return; }
+            List<KeystoneArcBar> bars = AsianOptimizerBars();
+            if (bars.Count == 0) { if (asianOptStatusText != null) asianOptStatusText.Text = "NO VERIFIED 1-MINUTE BARS ARE LOADED FOR THE ASIAN STUDY."; return; }
+            KeystoneArcAsianGrid grid; string error;
+            if (!TryReadAsianOptimizerGrid(out grid, out error)) { if (asianOptStatusText != null) asianOptStatusText.Text = "CHECK INPUTS • " + error; return; }
+            int total = KeystoneArcAsianOptimizer.BuildCombos(grid, bars.Any(x => x.Symbol == "MNQ"), bars.Any(x => x.Symbol == "MGC")).Count;
+            if (total == 0 || total > 20000) { if (asianOptStatusText != null) asianOptStatusText.Text = total == 0 ? "NO COMBINATIONS TO TEST." : "TOO MANY COMBINATIONS (" + total.ToString("N0") + ") • narrow the lists to 20,000 or fewer."; return; }
+            KeystoneArcAsianCombo current = CurrentAsianCombo();
+            asianOptRunning = true; asianOptCancelRequested = false; SetAsianOptimizerButtons();
+            if (asianOptStatusText != null) asianOptStatusText.Text = "PREPARING " + bars.Count.ToString("N0") + " BARS • " + total.ToString("N0") + " COMBINATIONS…";
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            int step = Math.Max(1, total / 100);
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                KeystoneArcAsianOptimization result = null; string failure = null;
+                try
+                {
+                    result = KeystoneArcAsianOptimizer.Run(bars, grid, (done, all) =>
+                    {
+                        if (done % step != 0 && done != all) return;
+                        double seconds = clock.Elapsed.TotalSeconds; double remaining = done == 0 ? 0 : seconds / done * (all - done);
+                        DispatchToLab(delegate { if (asianOptStatusText != null && asianOptRunning) asianOptStatusText.Text = "RUNNING • " + done.ToString("N0") + " / " + all.ToString("N0") + " combinations • " + seconds.ToString("0") + "s elapsed • about " + remaining.ToString("0") + "s left"; });
+                    }, () => asianOptCancelRequested);
+                }
+                catch (Exception ex) { failure = ex.Message; }
+                DispatchToLab(delegate
+                {
+                    asianOptRunning = false;
+                    if (result != null && result.Ranked.Count > 0) asianOptLast = result;
+                    string saved = result != null && result.Ranked.Count > 0 ? SaveAsianOptimizationFiles(result) : null;
+                    if (asianOptResultsText != null && result != null) asianOptResultsText.Text = KeystoneArcAsianOptimizer.FormatTable(result, 100, current);
+                    if (asianOptStatusText != null)
+                        asianOptStatusText.Text = failure != null ? "OPTIMIZATION FAILED • " + failure
+                            : (result == null || result.Ranked.Count == 0 ? "NO RESULTS • no session had a complete opening bar for the chosen settings" + (result != null && result.Cancelled ? " (cancelled)" : "")
+                            : (result.Cancelled ? "CANCELLED • partial results • " : "DONE • ") + result.Ranked.Count.ToString("N0") + " combinations in " + clock.Elapsed.TotalSeconds.ToString("0") + "s" + (saved == null ? "" : " • saved " + saved) + " • APPLY a rank to inspect it on the evidence chart");
+                    SetAsianOptimizerButtons();
+                });
+            });
+        }
+
+        private string SaveAsianOptimizationFiles(KeystoneArcAsianOptimization result)
+        {
+            try
+            {
+                string folder = Path.Combine(DataDirectory(), "AsianOptimizer"); Directory.CreateDirectory(folder);
+                string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+                string path = Path.Combine(folder, "asian75_optimizer_" + stamp + ".csv");
+                File.WriteAllText(path, KeystoneArcAsianOptimizer.ToCsv(result));
+                File.WriteAllText(Path.Combine(folder, "asian75_optimizer_" + stamp + "_rank1_nights.csv"), KeystoneArcAsianOptimizer.NightsCsv(result.Ranked[0]));
+                return path;
+            }
+            catch (Exception ex) { return "(save failed: " + ex.Message + ")"; }
+        }
+
+        private void SaveAsianOptimization()
+        {
+            if (asianOptLast == null || asianOptLast.Ranked.Count == 0) return;
+            string saved = SaveAsianOptimizationFiles(asianOptLast);
+            if (asianOptStatusText != null) asianOptStatusText.Text = "SAVED • " + saved;
+        }
+
+        private void ApplyAsianOptimizerRank()
+        {
+            if (asianOptLast == null || asianOptLast.Ranked.Count == 0) return;
+            int rank;
+            if (!int.TryParse(asianOptApplyRankBox == null ? "" : asianOptApplyRankBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out rank) || rank < 1 || rank > asianOptLast.Ranked.Count)
+            { if (asianOptStatusText != null) asianOptStatusText.Text = "ENTER A RANK FROM 1 TO " + asianOptLast.Ranked.Count; return; }
+            KeystoneArcAsianCombo c = asianOptLast.Ranked[rank - 1].Combo;
+            if (scopeBox != null) scopeBox.SelectedItem = c.Scope;
+            if (asianDirectionBox != null) asianDirectionBox.SelectedItem = c.Scope == "MGC" ? c.MgcDirection : c.MnqDirection;
+            if (asianReversalLossBox != null) asianReversalLossBox.Text = c.LegLoss.ToString("0.##", CultureInfo.InvariantCulture);
+            if (asianMaxReversalsBox != null) asianMaxReversalsBox.Text = c.Reversals.ToString(CultureInfo.InvariantCulture);
+            if (asianCycleTargetBox != null) asianCycleTargetBox.Text = c.Target.ToString("0.##", CultureInfo.InvariantCulture);
+            if (asianBreakEvenBox != null) asianBreakEvenBox.Text = c.BreakEven.ToString("0.##", CultureInfo.InvariantCulture);
+            if (asianStartTimeBox != null) asianStartTimeBox.Text = c.StartHhmm.ToString("0000", CultureInfo.InvariantCulture);
+            RefreshAsianDerivedInputs();
+            string message = "APPLIED RANK " + rank + " • " + c.Label() + " • go to CONFIGURE and click START RESEARCH to backtest it and see every leg on the evidence chart.";
+            if (asianOptStatusText != null) asianOptStatusText.Text = message;
+            UpdateUi(message, Orchid);
         }
 
         private void OpenComparisonWorkbench()

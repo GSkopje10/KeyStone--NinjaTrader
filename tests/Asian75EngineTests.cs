@@ -133,6 +133,20 @@ public static class Asian75EngineTests
             string receipt = KeystoneArcEngine.AsianCycleReadinessReceipt(Bars("MNQ", m => Flat(20000)), Cfg("MNQ"));
             Check(receipt.Contains("CYCLE READY") && !receipt.Contains("NO CYCLE"), "readiness receipt reports READY for close-stamped data", receipt);
         }
+        // 10. Optimizer core: runs the same engine, counts combos, honours the lab's auto daily loss.
+        {
+            var mnq = Bars("MNQ", m => m < 5 ? Flat(20000) : (m == 5 ? new[] { 20000, 20000.25, 19960, 19962 } : Flat(19962 - (m - 5) * 2.0)));
+            var grid = new KeystoneArcAsianGrid { Scopes = new List<string> { "MNQ" }, MnqDirections = new List<string> { "LONG", "SHORT" }, LegLosses = new List<double> { 75, 100 }, Reversals = new List<int> { 1, 3 }, Targets = new List<double> { 350 }, OutOfSampleFraction = 0, MinimumNights = 1, CostPerContract = 0 };
+            var o = KeystoneArcAsianOptimizer.Run(mnq, grid, null, null);
+            Check(o.Combinations == 8 && o.Ranked.Count == 8, "optimizer tests every combination (2 dirs x 2 losses x 2 reversals)", o.Combinations + " / " + o.Ranked.Count);
+            var match = KeystoneArcAsianOptimizer.FindMatch(o, new KeystoneArcAsianCombo { Scope = "MNQ", MnqDirection = "LONG", MgcDirection = "LONG", RiskMode = "CASH", LegLoss = 75, Reversals = 3, Target = 350, StartHhmm = 1800 });
+            var direct = Run(Cfg("MNQ"), mnq);
+            Check(match != null && Math.Abs(match.All.Net - direct.Sum(e => e.GrossPnl)) < 0.01, "optimizer result equals the normal backtest for the same settings", match == null ? "no match" : match.All.Net + " vs " + direct.Sum(e => e.GrossPnl));
+            var cfg = new KeystoneArcAsianCombo { Scope = "BOTH", MnqDirection = "LONG", MgcDirection = "LONG", RiskMode = "CASH", LegLoss = 75, Reversals = 4, Target = 350, StartHhmm = 1800, EndHhmm = 1555, StartingQuantity = 1 }.Apply(new KeystoneArcRunConfig());
+            Check(cfg.AsianDailyLossLimitDollars == 600, "auto daily loss = leg x reversals x instruments (75 x 4 x 2 = 600), same as the lab", cfg.AsianDailyLossLimitDollars.ToString());
+            var linked = KeystoneArcAsianOptimizer.BuildCombos(new KeystoneArcAsianGrid { Scopes = new List<string> { "BOTH" }, LinkDirections = true, LegLosses = new List<double> { 75 }, Reversals = new List<int> { 3 }, Targets = new List<double> { 350 } }, true, true);
+            Check(linked.Count == 2 && linked.All(c => c.MnqDirection == c.MgcDirection), "linked directions give L/L and S/S only for BOTH", linked.Count.ToString());
+        }
         Console.WriteLine(failures == 0 ? "\nALL ASIAN 75 TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
