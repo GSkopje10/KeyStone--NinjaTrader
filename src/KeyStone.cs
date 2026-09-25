@@ -16,6 +16,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using NinjaTrader.Cbi;
 using NinjaTrader.Data;
@@ -2638,6 +2639,27 @@ namespace NinjaTrader.NinjaScript.AddOns
         private int evidenceFirstVisibleBar;
         private bool evidenceCrosshairVisible;
         private Point evidenceCrosshairPoint;
+        private string evidenceLastAnimatedRenderKey;
+        // --- Interaction smoothness -------------------------------------------------
+        // Every pan/zoom/hover tick used to call RenderEvidenceChart() synchronously,
+        // which clears and rebuilds every candle, marker, and label from scratch. A
+        // mouse reports far more move events than the screen can paint, so interaction
+        // speed was capped by full-rebuild cost instead of the display refresh rate.
+        // These fields coalesce any number of updates that arrive within one frame
+        // into a single real render on CompositionTarget.Rendering (~60 fps), and let
+        // a pure hover reposition a persistent crosshair overlay instead of rebuilding
+        // the whole chart just to move a dashed line.
+        private bool evidenceRenderQueued;
+        private bool evidenceFullRenderNeeded = true;
+        private double evidenceLayoutLeft, evidenceLayoutRight, evidenceLayoutTop, evidenceLayoutBottom;
+        private double evidenceLayoutWidth, evidenceLayoutHeight;
+        private double evidenceLayoutMinPrice, evidenceLayoutMaxPrice;
+        private double evidenceLayoutCandleWidth;
+        private int evidenceLayoutLastPossibleFirst;
+        private TranslateTransform evidencePanOverscrollTransform;
+        private List<KeystoneArcBar> evidenceLayoutBars;
+        private System.Windows.Shapes.Line evidenceCrosshairHLine, evidenceCrosshairVLine;
+        private TextBlock evidenceCrosshairPriceLabel, evidenceCrosshairTimeLabel;
         private TabControl workspaceTabs;
         private TabItem configureTab, reviewTab, resultsTab, savedRunsTab;
         private Border activityOverlay, comparisonBusyOverlay;
@@ -2734,30 +2756,36 @@ namespace NinjaTrader.NinjaScript.AddOns
         // an accidental second historical load while the current run is still the active study.
         private bool researchSubmissionLocked;
         private KeystoneArcRunConfig config = new KeystoneArcRunConfig();
-        private static readonly SolidColorBrush Bg = ColorBrush(14, 22, 37);
-        private static readonly SolidColorBrush Panel = ColorBrush(24, 38, 60);
-        private static readonly SolidColorBrush Card = ColorBrush(34, 51, 79);
-        private static readonly SolidColorBrush Text = ColorBrush(238, 244, 252);
-        private static readonly SolidColorBrush Muted = ColorBrush(155, 174, 198);
-        private static readonly SolidColorBrush Blue = ColorBrush(39, 162, 222);
-        private static readonly SolidColorBrush Orchid = ColorBrush(202, 117, 239);
-        private static readonly SolidColorBrush Cyan = ColorBrush(44, 215, 203);
-        private static readonly SolidColorBrush Green = ColorBrush(65, 217, 142);
-        private static readonly SolidColorBrush Red = ColorBrush(239, 92, 105);
-        private static readonly SolidColorBrush Gold = ColorBrush(244, 191, 76);
-        private static readonly SolidColorBrush Orange = ColorBrush(246, 145, 62);
+        // --- Visual theme ------------------------------------------------------------
+        // A disciplined terminal palette: one true dark base with two elevation steps,
+        // a single confident accent (Blue) for interactive/primary elements, a distinct
+        // secondary accent (Cyan) used sparingly for section headers, and exactly three
+        // semantic colors (Green/Red/Gold) reused everywhere something is good, bad, or
+        // pending - rather than many competing bright hues at the same weight.
+        private static readonly SolidColorBrush Bg = ColorBrush(9, 13, 20);
+        private static readonly SolidColorBrush Panel = ColorBrush(16, 23, 34);
+        private static readonly SolidColorBrush Card = ColorBrush(24, 34, 49);
+        private static readonly SolidColorBrush Text = ColorBrush(236, 241, 249);
+        private static readonly SolidColorBrush Muted = ColorBrush(124, 141, 163);
+        private static readonly SolidColorBrush Blue = ColorBrush(74, 163, 255);
+        private static readonly SolidColorBrush Orchid = ColorBrush(163, 137, 247);
+        private static readonly SolidColorBrush Cyan = ColorBrush(45, 201, 190);
+        private static readonly SolidColorBrush Green = ColorBrush(50, 197, 122);
+        private static readonly SolidColorBrush Red = ColorBrush(240, 84, 97);
+        private static readonly SolidColorBrush Gold = ColorBrush(235, 176, 43);
+        private static readonly SolidColorBrush Orange = ColorBrush(240, 133, 58);
         // Evidence Chart uses a quieter slate palette. Candle bodies stay muted so wicks, exact entry lines,
         // and the small result markers remain readable without the chart looking like a wall of neon labels.
-        private static readonly SolidColorBrush EvidenceBg = ColorBrush(25, 42, 63);
-        private static readonly SolidColorBrush EvidenceGrid = ColorBrush(75, 91, 116);
-        private static readonly SolidColorBrush CandleUp = ColorBrush(48, 151, 128);
-        private static readonly SolidColorBrush CandleDown = ColorBrush(188, 82, 106);
-        private static readonly SolidColorBrush CandleWick = ColorBrush(194, 211, 228);
-        private static readonly SolidColorBrush EntryInk = ColorBrush(22, 68, 112);
-        private static readonly SolidColorBrush EntryHalo = ColorBrush(198, 238, 255);
-        private static readonly SolidColorBrush WinPurple = ColorBrush(76, 230, 138);
-        private static readonly SolidColorBrush LossAmber = ColorBrush(255, 74, 92);
-        private static readonly SolidColorBrush ExitIce = ColorBrush(153, 218, 255);
+        private static readonly SolidColorBrush EvidenceBg = ColorBrush(11, 16, 25);
+        private static readonly SolidColorBrush EvidenceGrid = ColorBrush(63, 78, 99);
+        private static readonly SolidColorBrush CandleUp = ColorBrush(43, 150, 116);
+        private static readonly SolidColorBrush CandleDown = ColorBrush(181, 76, 94);
+        private static readonly SolidColorBrush CandleWick = ColorBrush(184, 200, 219);
+        private static readonly SolidColorBrush EntryInk = ColorBrush(17, 55, 92);
+        private static readonly SolidColorBrush EntryHalo = ColorBrush(199, 231, 255);
+        private static readonly SolidColorBrush WinPurple = ColorBrush(56, 214, 130);
+        private static readonly SolidColorBrush LossAmber = ColorBrush(255, 82, 96);
+        private static readonly SolidColorBrush ExitIce = ColorBrush(141, 210, 250);
 
         protected override void OnStateChange()
         {
@@ -6289,6 +6317,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             Grid.SetRow(auditStack, 2); root.Children.Add(auditStack);
             evidenceZoom = 1.0; evidenceHorizontalZoom = 1.0; evidenceVerticalZoom = 1.0;
             evidenceCanvas = new Canvas { Background = EvidenceBg, Width = 1200, Height = 620, ClipToBounds = true };
+            // A small rubber-band: dragging past the first/last loaded bar still visibly "gives"
+            // a little instead of feeling dead at the edge, then springs back on release - the
+            // tactile cue that TradingView-style charts give even though this dataset (unlike a
+            // live feed) has no more history to reveal past the edge.
+            evidencePanOverscrollTransform = new TranslateTransform();
+            evidenceCanvas.RenderTransform = evidencePanOverscrollTransform;
             evidenceCanvas.PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs args) { if (AdjustEvidenceZoomAtPointer(args)) args.Handled = true; };
             // The canvas remains a fitted viewport. Dedicated navigation bars outside the time
             // and price axes provide fast travel without converting the chart into a browser page.
@@ -6310,6 +6344,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 evidencePanStart = chartPoint;
                 evidenceSelectionClickHandled = false;
                 pendingEvidenceSelectionAction = null;
+                // Cancel any in-flight rubber-band snap-back so a fresh drag isn't fighting an
+                // animation still returning the canvas from the previous release.
+                if (evidencePanOverscrollTransform != null) evidencePanOverscrollTransform.BeginAnimation(TranslateTransform.XProperty, null);
                 evidenceCanvas.CaptureMouse();
             };
             evidenceCanvas.MouseMove += delegate(object sender, MouseEventArgs args)
@@ -6319,7 +6356,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (hoverPoint.X >= 72 && hoverPoint.X <= evidenceCanvas.Width - 78 && hoverPoint.Y >= 58 && hoverPoint.Y <= evidenceCanvas.Height - 58)
                 {
                     evidenceCrosshairPoint = hoverPoint; evidenceCrosshairVisible = true;
-                    if (evidenceBars != null && evidenceBars.Count > 0 && args.LeftButton != MouseButtonState.Pressed) RenderEvidenceChart();
+                    // Pure hover (no button pressed): reposition the crosshair overlay only.
+                    // This used to call a full RenderEvidenceChart() on every mouse-move tick,
+                    // rebuilding every candle/marker just to move two dashed lines.
+                    if (evidenceBars != null && evidenceBars.Count > 0 && args.LeftButton != MouseButtonState.Pressed) RequestEvidenceRender(false);
                 }
                 if (args.LeftButton != MouseButtonState.Pressed) { evidencePanning = false; evidenceScaleDragAxis = 0; return; }
                 if (evidenceScaleDragAxis != 0)
@@ -6331,7 +6371,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else if (evidenceScaleDragAxis == 2) evidenceVerticalZoom = Math.Max(0.04, Math.Min(40.0, evidenceScaleDragStartZoom * Math.Exp(dy / 130.0)));
                     evidenceZoom = Math.Sqrt(evidenceHorizontalZoom * evidenceVerticalZoom);
                     UpdateEvidenceZoomText();
-                    if (evidenceBars != null && evidenceBars.Count > 0) RenderEvidenceChart();
+                    // Coalesced: many MouseMove ticks during one drag now produce at most one
+                    // real rebuild per screen refresh instead of one rebuild per tick.
+                    if (evidenceBars != null && evidenceBars.Count > 0) RequestEvidenceRender(true);
                     args.Handled = true;
                     return;
                 }
@@ -6345,11 +6387,20 @@ namespace NinjaTrader.NinjaScript.AddOns
                     evidenceSelectionClickHandled = false;
                 }
                 int shift = (int)Math.Round((evidencePanStart.X - now.X) / Math.Max(2.0, EvidenceRenderedCandleWidth()));
-                evidenceFirstVisibleBar = Math.Max(0, evidenceScaleDragStartFirstBar + shift);
+                int intendedFirst = evidenceScaleDragStartFirstBar + shift;
+                evidenceFirstVisibleBar = Math.Max(0, Math.Min(evidenceLayoutLastPossibleFirst, intendedFirst));
+                // Rubber-band: once the intended shift goes past what the loaded range allows,
+                // let the whole canvas visibly slide a damped, capped amount instead of freezing
+                // dead at the boundary - the tactile cue that the drag is still being received.
+                int overshootBars = intendedFirst - evidenceFirstVisibleBar;
+                double rawOverscrollPixels = -overshootBars * EvidenceRenderedCandleWidth();
+                if (evidencePanOverscrollTransform != null) evidencePanOverscrollTransform.X = Math.Max(-48.0, Math.Min(48.0, rawOverscrollPixels * 0.28));
                 double plotHeight = Math.Max(1.0, evidenceCanvas.Height - 116.0);
                 if (evidenceVisiblePriceRange > 0 && !double.IsNaN(evidencePriceCenter))
                     evidencePriceCenter = evidenceScaleDragStartPriceCenter + (now.Y - evidencePanStart.Y) * evidenceVisiblePriceRange / plotHeight;
-                if (evidenceBars != null && evidenceBars.Count > 0) RenderEvidenceChart();
+                // Coalesced the same way as the scale-drag above: the pan math still runs on
+                // every tick (it is cheap), only the expensive rebuild is capped to one per frame.
+                if (evidenceBars != null && evidenceBars.Count > 0) RequestEvidenceRender(true);
                 args.Handled = true;
             };
             evidenceCanvas.MouseLeftButtonUp += delegate
@@ -6358,6 +6409,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                 bool wasScaleDrag = evidenceScaleDragAxis != 0;
                 Action select = pendingEvidenceSelectionAction;
                 evidencePanning = false; evidenceScaleDragAxis = 0; evidenceSelectionClickHandled = false; pendingEvidenceSelectionAction = null;
+                if (evidencePanOverscrollTransform != null && evidencePanOverscrollTransform.X != 0)
+                {
+                    var snapBack = new DoubleAnimation(evidencePanOverscrollTransform.X, 0.0, TimeSpan.FromMilliseconds(220)) { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.3 } };
+                    evidencePanOverscrollTransform.BeginAnimation(TranslateTransform.XProperty, snapBack);
+                }
                 evidenceCanvas.ReleaseMouseCapture();
                 if (!wasScaleDrag && select != null) select();
                 else if (!wasScaleDrag && !clickedSelectedObject && selectedEvidenceEvent != null) ClearEvidenceSelection(true);
@@ -6366,8 +6422,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             // internally for compatibility with prior layout state, but keep them hidden.
             evidenceHorizontalScrollBar = new ScrollBar { Orientation = Orientation.Horizontal, Minimum = 0, Maximum = 0, SmallChange = 1, LargeChange = 10, Height = 0, Visibility = Visibility.Collapsed };
             evidenceVerticalScrollBar = new ScrollBar { Orientation = Orientation.Vertical, Minimum = 0, Maximum = 100, SmallChange = 2, LargeChange = 10, Width = 0, Visibility = Visibility.Collapsed };
-            evidenceHorizontalScrollBar.ValueChanged += delegate { if (evidenceNavigationUpdating || evidenceBars == null || evidenceBars.Count == 0) return; evidenceFirstVisibleBar = Math.Max(0, (int)Math.Round(evidenceHorizontalScrollBar.Value)); RenderEvidenceChart(); };
-            evidenceVerticalScrollBar.ValueChanged += delegate { if (evidenceNavigationUpdating || evidenceBars == null || evidenceBars.Count == 0 || evidenceScrollPriceMaximum <= evidenceScrollPriceMinimum) return; evidencePriceCenter = evidenceScrollPriceMinimum + (evidenceScrollPriceMaximum - evidenceScrollPriceMinimum) * evidenceVerticalScrollBar.Value / 100.0; RenderEvidenceChart(); };
+            evidenceHorizontalScrollBar.ValueChanged += delegate { if (evidenceNavigationUpdating || evidenceBars == null || evidenceBars.Count == 0) return; evidenceFirstVisibleBar = Math.Max(0, (int)Math.Round(evidenceHorizontalScrollBar.Value)); RequestEvidenceRender(true); };
+            evidenceVerticalScrollBar.ValueChanged += delegate { if (evidenceNavigationUpdating || evidenceBars == null || evidenceBars.Count == 0 || evidenceScrollPriceMaximum <= evidenceScrollPriceMinimum) return; evidencePriceCenter = evidenceScrollPriceMinimum + (evidenceScrollPriceMaximum - evidenceScrollPriceMinimum) * evidenceVerticalScrollBar.Value / 100.0; RequestEvidenceRender(true); };
             var chartHost = new Grid { Margin = new Thickness(4), Background = EvidenceBg };
             chartHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); chartHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             chartHost.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); chartHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -6383,7 +6439,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (answer != MessageBoxResult.Yes) { args.Cancel = true; return; }
                 evidenceCloseConfirmed = true;
             };
-            w.Closed += delegate { CancelEvidenceRequest(); if (evidenceSelectionTimer != null) evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; evidenceWindow = null; evidenceCanvas = null; evidenceScroll = null; evidenceHorizontalScrollBar = null; evidenceVerticalScrollBar = null; evidenceTabsScroll = null; evidenceDateStrip = null; evidenceDateButtons.Clear(); evidenceSelectedDateIndex = -1; evidenceControlsPanel = null; evidenceDetailBorder = null; evidencePnlBorder = null; evidenceControlsToggle = null; evidenceStatusText = null; evidenceMetricsText = null; evidenceLegendText = null; evidenceZoomText = null; evidenceStudyText = null; evidenceDetailText = null; evidencePnlText = null; selectedEvidenceEvent = null; evidenceInstrumentTabs = null; evidenceTimeframeBox = null; evidencePreviewEvents.Clear(); evidencePreviewOwnLedger = false; evidencePreviewMinutes = 0; evidencePanning = false; pendingEvidenceSelectionAction = null; };
+            w.Closed += delegate { CancelEvidenceRequest(); if (evidenceSelectionTimer != null) evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; if (evidenceRenderQueued) { CompositionTarget.Rendering -= EvidenceRenderTick; evidenceRenderQueued = false; } evidenceFullRenderNeeded = true; evidenceLastAnimatedRenderKey = null; evidencePanOverscrollTransform = null; evidenceCrosshairHLine = null; evidenceCrosshairVLine = null; evidenceCrosshairPriceLabel = null; evidenceCrosshairTimeLabel = null; evidenceLayoutBars = null; evidenceWindow = null; evidenceCanvas = null; evidenceScroll = null; evidenceHorizontalScrollBar = null; evidenceVerticalScrollBar = null; evidenceTabsScroll = null; evidenceDateStrip = null; evidenceDateButtons.Clear(); evidenceSelectedDateIndex = -1; evidenceControlsPanel = null; evidenceDetailBorder = null; evidencePnlBorder = null; evidenceControlsToggle = null; evidenceStatusText = null; evidenceMetricsText = null; evidenceLegendText = null; evidenceZoomText = null; evidenceStudyText = null; evidenceDetailText = null; evidencePnlText = null; selectedEvidenceEvent = null; evidenceInstrumentTabs = null; evidenceTimeframeBox = null; evidencePreviewEvents.Clear(); evidencePreviewOwnLedger = false; evidencePreviewMinutes = 0; evidencePanning = false; pendingEvidenceSelectionAction = null; };
             w.Show();
             if (evidenceInstrumentTabs != null && evidenceInstrumentTabs.Items.Count > 0)
             {
@@ -6605,6 +6661,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             DateTime day; if (!DateTime.TryParseExact(evidenceDateBox == null ? string.Empty : evidenceDateBox.Text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out day)) return;
             List<KeystoneArcBar> allBars = FilterEvidenceBars(evidenceBars);
             if (allBars.Count == 0) { evidenceCanvas.Children.Clear(); SetEvidenceStatus("NO DIRECT " + chartMinutes + "M BARS IN THE SELECTED DISPLAY WINDOW", Gold); return; }
+            // One orchestrated pop-in when a session is actually new (date, symbol, timeframe,
+            // or session filter changed) - never replayed on a pan/zoom re-render of the same
+            // view, so dragging around never re-triggers the entrance animation.
+            string sessionFilterKey = evidenceSessionFilterBox == null ? string.Empty : Convert.ToString(evidenceSessionFilterBox.SelectedItem);
+            string renderKey = symbol + "|" + day.ToString("yyyy-MM-dd") + "|" + chartMinutes + "|" + sessionFilterKey;
+            bool animateMarkers = !string.Equals(renderKey, evidenceLastAnimatedRenderKey, StringComparison.Ordinal);
+            evidenceLastAnimatedRenderKey = renderKey;
             List<KeystoneArcEvent> allMarks = EvidenceEvents(symbol, day);
             UpdateEvidenceSessionMetrics(symbol, day);
             // At 100% candles use a normal readable width. A long session therefore opens as a
@@ -6617,6 +6680,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             double candleWidth = baseCandleWidth * Math.Max(0.04, Math.Min(40.0, evidenceHorizontalZoom));
             int visibleCount = Math.Max(1, Math.Min(allBars.Count, (int)Math.Floor((width - left - right) / Math.Max(0.35, candleWidth))));
             int lastPossibleFirst = Math.Max(0, allBars.Count - visibleCount);
+            evidenceLayoutLastPossibleFirst = lastPossibleFirst;
             evidenceFirstVisibleBar = Math.Max(0, Math.Min(lastPossibleFirst, evidenceFirstVisibleBar));
             List<KeystoneArcBar> bars = allBars.Skip(evidenceFirstVisibleBar).Take(visibleCount).ToList();
             List<KeystoneArcEvent> marks = allMarks.Where(e => EvidenceEntryBarIndex(bars, e) >= 0).ToList();
@@ -6641,14 +6705,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 AddCanvasText(priceLabel, 4, py - 8, Text, 10, FontWeights.Normal);
                 AddCanvasText(priceLabel, width - right + 7, py - 8, Text, 10, FontWeights.Normal);
             }
-            if (evidenceCrosshairVisible && evidenceCrosshairPoint.X >= left && evidenceCrosshairPoint.X <= width - right && evidenceCrosshairPoint.Y >= top && evidenceCrosshairPoint.Y <= chartHeight - bottom)
-            {
-                Brush crossBrush = Gold;
-                AddDashedEvidenceLeader(left, evidenceCrosshairPoint.Y, width - right, evidenceCrosshairPoint.Y, crossBrush, 0.9, null);
-                AddDashedEvidenceLeader(evidenceCrosshairPoint.X, top, evidenceCrosshairPoint.X, chartHeight - bottom, crossBrush, 0.9, null);
-                double cursorPrice = max - (evidenceCrosshairPoint.Y - top) / Math.Max(1.0, chartHeight - top - bottom) * (max - min);
-                AddCanvasText(cursorPrice.ToString(symbol == "MGC" ? "0.0" : "0.00"), width - right + 7, evidenceCrosshairPoint.Y - 8, crossBrush, 10, FontWeights.Bold);
-            }
+            // Crosshair rendering moved to a persistent overlay (see UpdateEvidenceCrosshairOverlay)
+            // so a pure hover no longer needs to rebuild the full candle/marker canvas below.
             var index = new Dictionary<DateTime, int>();
             int timeLabelMinutes = EvidenceTimeLabelMinutes();
             double lastTimeLabelX = double.MinValue;
@@ -6673,11 +6731,6 @@ namespace NinjaTrader.NinjaScript.AddOns
                     AddCanvasText(b.Time.ToString("HH:mm"), x - 13, chartHeight - bottom + 10, Muted, 9, FontWeights.Normal);
                     lastTimeLabelX = x;
                 }
-            }
-            if (evidenceCrosshairVisible && evidenceCrosshairPoint.X >= left && evidenceCrosshairPoint.X <= width - right)
-            {
-                int cursorIndex = Math.Max(0, Math.Min(bars.Count - 1, (int)Math.Floor((evidenceCrosshairPoint.X - left) / Math.Max(1.0, candleWidth))));
-                AddCanvasText(bars[cursorIndex].Time.ToString("yyyy-MM-dd HH:mm"), evidenceCrosshairPoint.X - 42, chartHeight - bottom + 26, Gold, 10, FontWeights.Bold);
             }
             DateTime testedStart = EvidenceTestStart(day), testedEnd = EvidenceTestEnd(day);
             AddEvidenceRangeBoundary("TEST START", testedStart, bars, left, candleWidth, top, chartHeight - bottom, Cyan);
@@ -6733,7 +6786,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // "S" label was ambiguous and made every unresolved marker look like SELL.
                 string resultShort = groupedEvents.Count == 1 ? EvidenceDisplayTag(e) : groupedEvents.Count.ToString(CultureInfo.InvariantCulture);
                 if (groupedEvents.Count > 1 && !allLiveSkipped) resultBrush = groupWins > 0 && groupLosses == 0 && groupExits == 0 ? WinPurple : (groupLosses > 0 && groupWins == 0 && groupExits == 0 ? LossAmber : Cyan);
-                Border pin = AddCanvasResultCircle(resultShort, pinX, pinY, resultBrush, selectedMark, pulseOn);
+                Border pin = AddCanvasResultCircle(resultShort, pinX, pinY, resultBrush, selectedMark, pulseOn, animateMarkers, markerGroupIndex);
                 pin.ToolTip = (shortMark ? "SHORT " : "LONG ") + (allLiveSkipped ? "VALID DETECTED SETUP • RAW " + e.Outcome + " • NOT SELECTED IN FINAL LIVE LEDGER" : (groupedEvents.Count == 1 ? e.Outcome : (groupedEvents.Count + " setups on this exact entry bar • " + groupWins + " W / " + groupLosses + " L / " + groupExits + " session exit")));
                 selectEvent(pin);
                 double leaderStartY = shortMark ? pinY : pinY + 14;
@@ -6748,6 +6801,89 @@ namespace NinjaTrader.NinjaScript.AddOns
             UpdateEvidenceNavigationBars(allBars, visibleCount);
             SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH") + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
             if (selectedEvidenceEvent != null && !marks.Any(record => record.Id == selectedEvidenceEvent.Id)) ClearEvidenceSelection(false);
+            // Cache exactly what the lightweight crosshair-only overlay needs, then draw it once
+            // on top of the freshly rebuilt chart. Every subsequent pure-hover MouseMove reuses
+            // this cached layout instead of re-running the block above.
+            evidenceLayoutLeft = left; evidenceLayoutRight = right; evidenceLayoutTop = top; evidenceLayoutBottom = bottom;
+            evidenceLayoutWidth = width; evidenceLayoutHeight = chartHeight;
+            evidenceLayoutMinPrice = min; evidenceLayoutMaxPrice = max;
+            evidenceLayoutCandleWidth = candleWidth;
+            evidenceLayoutBars = bars;
+            if (!evidencePanning && evidencePanOverscrollTransform != null) evidencePanOverscrollTransform.X = 0;
+            EnsureEvidenceCrosshairElements();
+            UpdateEvidenceCrosshairOverlay();
+        }
+
+        // Creates the four crosshair overlay elements (two dashed lines, two labels) once and
+        // re-adds them after RenderEvidenceChart's Children.Clear(). They are reused rather than
+        // rebuilt, and IsHitTestVisible = false keeps them from stealing candle hover/click events.
+        private void EnsureEvidenceCrosshairElements()
+        {
+            if (evidenceCanvas == null) return;
+            if (evidenceCrosshairHLine != null && evidenceCanvas.Children.Contains(evidenceCrosshairHLine)) return;
+            Brush crossBrush = Gold;
+            evidenceCrosshairHLine = new System.Windows.Shapes.Line { Stroke = crossBrush, StrokeThickness = 0.9, Opacity = 0.9, StrokeDashArray = new DoubleCollection { 4, 3 }, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+            evidenceCrosshairVLine = new System.Windows.Shapes.Line { Stroke = crossBrush, StrokeThickness = 0.9, Opacity = 0.9, StrokeDashArray = new DoubleCollection { 4, 3 }, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+            evidenceCrosshairPriceLabel = new TextBlock { Foreground = crossBrush, FontSize = 10, FontWeight = FontWeights.Bold, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+            evidenceCrosshairTimeLabel = new TextBlock { Foreground = crossBrush, FontSize = 10, FontWeight = FontWeights.Bold, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+            evidenceCanvas.Children.Add(evidenceCrosshairHLine);
+            evidenceCanvas.Children.Add(evidenceCrosshairVLine);
+            evidenceCanvas.Children.Add(evidenceCrosshairPriceLabel);
+            evidenceCanvas.Children.Add(evidenceCrosshairTimeLabel);
+            System.Windows.Controls.Panel.SetZIndex(evidenceCrosshairHLine, 1000); System.Windows.Controls.Panel.SetZIndex(evidenceCrosshairVLine, 1000);
+            System.Windows.Controls.Panel.SetZIndex(evidenceCrosshairPriceLabel, 1001); System.Windows.Controls.Panel.SetZIndex(evidenceCrosshairTimeLabel, 1001);
+        }
+
+        // The cheap path: repositions the existing crosshair overlay from the layout cached by
+        // the last full render. No Children.Clear(), no candle/marker rebuild, no new shapes -
+        // just moving four existing elements, so a pure hover stays smooth however many candles
+        // are on screen.
+        private void UpdateEvidenceCrosshairOverlay()
+        {
+            if (evidenceCanvas == null || evidenceLayoutBars == null || evidenceLayoutBars.Count == 0 || evidenceCrosshairHLine == null) return;
+            bool visible = evidenceCrosshairVisible
+                && evidenceCrosshairPoint.X >= evidenceLayoutLeft && evidenceCrosshairPoint.X <= evidenceLayoutWidth - evidenceLayoutRight
+                && evidenceCrosshairPoint.Y >= evidenceLayoutTop && evidenceCrosshairPoint.Y <= evidenceLayoutHeight - evidenceLayoutBottom;
+            Visibility v = visible ? Visibility.Visible : Visibility.Collapsed;
+            evidenceCrosshairHLine.Visibility = v; evidenceCrosshairVLine.Visibility = v;
+            evidenceCrosshairPriceLabel.Visibility = v; evidenceCrosshairTimeLabel.Visibility = v;
+            if (!visible) return;
+            evidenceCrosshairHLine.X1 = evidenceLayoutLeft; evidenceCrosshairHLine.X2 = evidenceLayoutWidth - evidenceLayoutRight;
+            evidenceCrosshairHLine.Y1 = evidenceCrosshairHLine.Y2 = evidenceCrosshairPoint.Y;
+            evidenceCrosshairVLine.Y1 = evidenceLayoutTop; evidenceCrosshairVLine.Y2 = evidenceLayoutHeight - evidenceLayoutBottom;
+            evidenceCrosshairVLine.X1 = evidenceCrosshairVLine.X2 = evidenceCrosshairPoint.X;
+            double plotHeight = Math.Max(1.0, evidenceLayoutHeight - evidenceLayoutTop - evidenceLayoutBottom);
+            double cursorPrice = evidenceLayoutMaxPrice - (evidenceCrosshairPoint.Y - evidenceLayoutTop) / plotHeight * (evidenceLayoutMaxPrice - evidenceLayoutMinPrice);
+            string symbol = evidenceLayoutBars.Count > 0 ? evidenceLayoutBars[0].Symbol : string.Empty;
+            evidenceCrosshairPriceLabel.Text = cursorPrice.ToString(string.Equals(symbol, "MGC", StringComparison.OrdinalIgnoreCase) ? "0.0" : "0.00", CultureInfo.InvariantCulture);
+            Canvas.SetLeft(evidenceCrosshairPriceLabel, evidenceLayoutWidth - evidenceLayoutRight + 7); Canvas.SetTop(evidenceCrosshairPriceLabel, evidenceCrosshairPoint.Y - 8);
+            int cursorIndex = Math.Max(0, Math.Min(evidenceLayoutBars.Count - 1, (int)Math.Floor((evidenceCrosshairPoint.X - evidenceLayoutLeft) / Math.Max(1.0, evidenceLayoutCandleWidth))));
+            evidenceCrosshairTimeLabel.Text = evidenceLayoutBars[cursorIndex].Time.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+            Canvas.SetLeft(evidenceCrosshairTimeLabel, evidenceCrosshairPoint.X - 42); Canvas.SetTop(evidenceCrosshairTimeLabel, evidenceLayoutHeight - evidenceLayoutBottom + 26);
+        }
+
+        // Coalesces any number of pan/zoom/hover updates that arrive within one screen refresh
+        // into a single real render, capped at the display refresh rate (~60 fps via
+        // CompositionTarget.Rendering) instead of the raw mouse-event rate. This is the core fix
+        // for the choppy drag/zoom: previously every MouseMove tick rebuilt the entire candle and
+        // marker canvas synchronously, so perceived smoothness was limited by render cost, not by
+        // the monitor. fullRebuild=false is used for a pure hover, which only needs the cheap
+        // crosshair reposition, not a full RenderEvidenceChart().
+        private void RequestEvidenceRender(bool fullRebuild)
+        {
+            if (fullRebuild) evidenceFullRenderNeeded = true;
+            if (evidenceRenderQueued) return;
+            evidenceRenderQueued = true;
+            CompositionTarget.Rendering += EvidenceRenderTick;
+        }
+
+        private void EvidenceRenderTick(object sender, EventArgs e)
+        {
+            CompositionTarget.Rendering -= EvidenceRenderTick;
+            evidenceRenderQueued = false;
+            if (evidenceCanvas == null || evidenceBars == null || evidenceBars.Count == 0) return;
+            if (evidenceFullRenderNeeded) { evidenceFullRenderNeeded = false; RenderEvidenceChart(); }
+            else UpdateEvidenceCrosshairOverlay();
         }
 
         private List<KeystoneArcBar> FilterEvidenceBars(List<KeystoneArcBar> source)
@@ -6964,18 +7100,34 @@ namespace NinjaTrader.NinjaScript.AddOns
             Canvas.SetLeft(pin, x); Canvas.SetTop(pin, y); evidenceCanvas.Children.Add(pin); return pin;
         }
 
-        private Border AddCanvasResultCircle(string value, double x, double y, Brush outcomeBrush, bool selected, bool pulseOn)
+        private Border AddCanvasResultCircle(string value, double x, double y, Brush outcomeBrush, bool selected, bool pulseOn, bool animate = false, int animationIndex = 0)
         {
             if (evidenceCanvas == null) return null;
             var text = new TextBlock { Text = value, Foreground = EvidenceBg, FontSize = selected ? 9 : 7, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.NoWrap, Margin = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            double finalOpacity = selected && !pulseOn ? 0.76 : 1.0;
             var circle = new Border
             {
                 Width = selected && pulseOn ? 23 : (selected ? 20 : 14), Height = selected && pulseOn ? 23 : (selected ? 20 : 14),
                 Background = outcomeBrush, BorderBrush = selected ? Text : EntryInk, BorderThickness = new Thickness(selected ? (pulseOn ? 3 : 2) : 1.25),
-                CornerRadius = new CornerRadius(selected && pulseOn ? 12 : (selected ? 10 : 7)), Opacity = selected && !pulseOn ? 0.76 : 1.0,
-                Child = text, ToolTip = "Click for entry / exit price audit"
+                CornerRadius = new CornerRadius(selected && pulseOn ? 12 : (selected ? 10 : 7)), Opacity = animate ? 0.0 : finalOpacity,
+                Child = text, ToolTip = "Click for entry / exit price audit", RenderTransformOrigin = new Point(0.5, 0.5)
             };
-            Canvas.SetLeft(circle, x); Canvas.SetTop(circle, y); evidenceCanvas.Children.Add(circle); return circle;
+            Canvas.SetLeft(circle, x); Canvas.SetTop(circle, y); evidenceCanvas.Children.Add(circle);
+            if (animate)
+            {
+                // A short, staggered pop-in - one orchestrated reveal when the session first
+                // appears, not a per-card hover/idle effect. animateMarkers in RenderEvidenceChart
+                // gates this to real view changes so panning/zooming never replays it.
+                var scale = new ScaleTransform(0.4, 0.4);
+                circle.RenderTransform = scale;
+                TimeSpan delay = TimeSpan.FromMilliseconds(Math.Min(360, animationIndex * 14));
+                var fade = new DoubleAnimation(0.0, finalOpacity, TimeSpan.FromMilliseconds(240)) { BeginTime = delay, EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } };
+                var grow = new DoubleAnimation(0.4, 1.0, TimeSpan.FromMilliseconds(260)) { BeginTime = delay, EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.5 } };
+                circle.BeginAnimation(UIElement.OpacityProperty, fade);
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+            }
+            return circle;
         }
 
         private void AddSelectedEvidenceEntry(KeystoneArcEvent e, List<KeystoneArcBar> bars, double entryX, double entryY, double left, double candleWidth, double chartWidth, Func<double, double> y, Brush entryBrush, Brush outcomeBrush, bool pulseOn, Action<UIElement> bind)
@@ -7102,7 +7254,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (evidenceBars == null || evidenceBars.Count == 0 || evidenceVisiblePriceRange <= 0) return false;
                 if (double.IsNaN(evidencePriceCenter)) evidencePriceCenter = (evidenceScrollPriceMinimum + evidenceScrollPriceMaximum) / 2.0;
                 evidencePriceCenter += (args.Delta > 0 ? -1 : 1) * evidenceVisiblePriceRange * 0.10;
-                RenderEvidenceChart();
+                // A fast wheel/trackpad can fire many deltas per frame; coalesce them the same
+                // way as pan/scale-drag so the scroll wheel does not out-pace the renderer.
+                RequestEvidenceRender(true);
                 return true;
             }
             bool vertical = axis == 2;
@@ -7114,7 +7268,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             evidenceZoom = Math.Sqrt(evidenceHorizontalZoom * evidenceVerticalZoom);
             UpdateEvidenceZoomText();
             if (evidenceBars == null || evidenceBars.Count == 0) return true;
-            RenderEvidenceChart();
+            RequestEvidenceRender(true);
             return true;
         }
 
