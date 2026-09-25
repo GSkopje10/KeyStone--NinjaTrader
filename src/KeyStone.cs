@@ -789,9 +789,10 @@ namespace NinjaTrader.NinjaScript
             DateTime last = SessionGroupingDate(cfg.End, cfg).Date;
             if (last < first) last = first;
             var lines = new List<string>();
+            int stampOffset = AsianBarStampOffsetMinutes(all, cfg);
             for (DateTime sessionDate = first; sessionDate <= last; sessionDate = sessionDate.AddDays(1))
             {
-                DateTime start = AsianDateAtHhmm(sessionDate, cfg.AsianStartHhmm);
+                DateTime start = AsianDateAtHhmm(sessionDate, cfg.AsianStartHhmm).AddMinutes(stampOffset);
                 DateTime end = AsianDateAtHhmm(sessionDate, cfg.AsianEndHhmm);
                 if (end < start) end = end.AddDays(1);
                 var states = new List<string>();
@@ -814,7 +815,40 @@ namespace NinjaTrader.NinjaScript
                 }
                 lines.Add(sessionDate.ToString("yyyy-MM-dd") + " • " + (ready ? "CYCLE READY" : "NO CYCLE — exact simultaneous opening bar required") + " • " + string.Join(" | ", states));
             }
-            return "ASIAN CYCLE DIAGNOSTIC • entry " + cfg.AsianStartHhmm.ToString("0000") + " ET • selected scope " + cfg.Scope + " • exact opening-bar policy (no nearest-bar substitute)\n" + string.Join("\n", lines);
+            return "ASIAN CYCLE DIAGNOSTIC • entry " + cfg.AsianStartHhmm.ToString("0000") + " ET • selected scope " + cfg.Scope + " • " + AsianStampDescription(stampOffset, cfg) + " • exact opening-bar policy (no nearest-bar substitute)\n" + string.Join("\n", lines);
+        }
+
+        // NinjaTrader stamps a completed minute bar with its CLOSING time: the bar that trades
+        // 18:00:00–18:00:59 is stamped 18:01. Some other feeds stamp the OPENING minute instead.
+        // The Asian cycle enters at the configured minute's opening price, so the engine must
+        // know which stamp that bar carries. The convention is read from the data itself: after
+        // a trading pause (the daily 17:00–18:00 halt or the weekend), a close-stamped series
+        // resumes at :01 and an open-stamped series at :00. Returns minutes to add to a clock
+        // time to get the stamp of the bar that opens at that time (1 = close-stamped).
+        // Undetermined data defaults to the NinjaTrader close-stamp convention.
+        private static int AsianBarStampOffsetMinutes(List<KeystoneArcBar> all, KeystoneArcRunConfig cfg)
+        {
+            int openStamped = 0, closeStamped = 0;
+            foreach (IGrouping<string, KeystoneArcBar> series in all.Where(x => x != null).GroupBy(x => x.Symbol ?? string.Empty, StringComparer.OrdinalIgnoreCase))
+            {
+                KeystoneArcBar previous = null;
+                foreach (KeystoneArcBar bar in series.OrderBy(x => x.Time))
+                {
+                    bool resumed = previous == null || (bar.Time - previous.Time).TotalMinutes >= 30;
+                    if (resumed && bar.Time.Hour == 18 && bar.Time.Minute == 0) openStamped++;
+                    if (resumed && bar.Time.Hour == 18 && bar.Time.Minute == 1) closeStamped++;
+                    previous = bar;
+                }
+            }
+            return openStamped > closeStamped ? 0 : 1;
+        }
+
+        private static string AsianStampDescription(int stampOffset, KeystoneArcRunConfig cfg)
+        {
+            DateTime clock = AsianDateAtHhmm(DateTime.Today, cfg.AsianStartHhmm);
+            return stampOffset == 1
+                ? "bars are close-stamped (NinjaTrader standard): the " + clock.ToString("HH:mm") + " opening minute is the bar stamped " + clock.AddMinutes(1).ToString("HH:mm")
+                : "bars are open-stamped: the " + clock.ToString("HH:mm") + " opening minute is the bar stamped " + clock.ToString("HH:mm");
         }
 
         private static string[] AsianSelectedSymbols(KeystoneArcRunConfig cfg)
@@ -837,10 +871,13 @@ namespace NinjaTrader.NinjaScript
                 : cfg.AsianReversalLossDollars <= 0;
             if (invalidRisk || cfg.AsianCycleTargetDollars <= 0 || cfg.AsianDailyLossLimitDollars <= 0 || cfg.AsianStartingQuantity <= 0 || cfg.AsianMnqMaxReversals < 0 || cfg.AsianMgcMaxReversals < 0) return output;
             List<KeystoneArcBar> all = oneMinute.Where(x => x != null).OrderBy(x => x.Time).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ToList();
+            // Stamp of the bar that OPENS at the configured start minute (18:01 for NinjaTrader's
+            // close-stamped 1M bars). Requiring a bar stamped exactly 18:00 skipped every session.
+            int stampOffset = AsianBarStampOffsetMinutes(all, cfg);
             foreach (IGrouping<DateTime, KeystoneArcBar> day in all.GroupBy(x => SessionGroupingDate(x.Time, cfg)).OrderBy(x => x.Key))
             {
                 DateTime sessionDate = day.Key.Date;
-                DateTime start = AsianDateAtHhmm(sessionDate, cfg.AsianStartHhmm);
+                DateTime start = AsianDateAtHhmm(sessionDate, cfg.AsianStartHhmm).AddMinutes(stampOffset);
                 DateTime end = AsianDateAtHhmm(sessionDate, cfg.AsianEndHhmm);
                 if (end < start) end = end.AddDays(1);
                 List<KeystoneArcBar> range = day.Where(x => x.Time >= start && x.Time <= end).OrderBy(x => x.Time).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ToList();
@@ -869,30 +906,37 @@ namespace NinjaTrader.NinjaScript
                     foreach (KeystoneArcBar b in tickGroup) latestClose[b.Symbol] = b.Close;
                     // Stops observed in one bar hand off at the next 1M bar open. This avoids
                     // inventing a same-minute reversal price/path not present in OHLC history.
-                    foreach (Asian75Position p in positions.Values.Where(x => x.PendingEntry && x.PendingAt == time).ToList())
+                    // A minute with no trades has no bar, so the reversal enters on the first bar at
+                    // or after the next minute rather than waiting for an exact stamp forever.
+                    foreach (Asian75Position p in positions.Values.Where(x => x.PendingEntry && x.PendingAt <= time).ToList())
                     {
                         KeystoneArcBar b;
                         if (!tick.TryGetValue(p.Symbol, out b)) continue;
                         p.PendingEntry = false; p.Direction = p.PendingDirection; p.Quantity = p.PendingQuantity; p.LegNumber++; p.EntryTime = time; p.EntryPrice = b.Open;
                     }
-                    if (time > start)
                     {
-                        foreach (Asian75Position p in positions.Values.Where(x => !x.Halted && !x.PendingEntry && x.EntryTime < time).ToList())
+                        // Every leg enters at a bar's OPEN, so that bar's whole high/low range happens
+                        // after the entry and must be checked for the stop as well.
+                        foreach (Asian75Position p in positions.Values.Where(x => !x.Halted && !x.PendingEntry && x.EntryTime <= time).ToList())
                         {
                             KeystoneArcBar b;
                             if (!tick.TryGetValue(p.Symbol, out b)) continue;
                             double stop = Asian75StopPrice(p, cfg);
                             bool hit = p.Direction > 0 ? b.Low <= stop : b.High >= stop;
                             if (!hit) continue;
-                            double reversalLoss = -Asian75LegLoss(p, cfg);
+                            // A bar that opens beyond the stop cannot fill at the stop; use its open.
+                            bool gapped = p.Direction > 0 ? b.Open < stop : b.Open > stop;
+                            double fill = gapped ? b.Open : stop;
+                            double reversalLoss = Asian75OpenPnl(p, fill);
                             p.RealizedPnl += reversalLoss;
                             int maxTotalLegs = Math.Max(1, AsianMaxReversalsForSymbol(p.Symbol, cfg) + 1);
                             double instrumentCap = AsianInstrumentCapForSymbol(p.Symbol, cfg);
                             bool instrumentStop = instrumentCap > 0 && p.RealizedPnl <= -Math.Abs(instrumentCap);
                             string lossNote = "REVERSAL LOSS • " + AsianRiskDescription(p, cfg);
+                            if (gapped) lossNote += " • GAP: FILLED AT BAR OPEN BEYOND STOP";
                             if (instrumentStop) lossNote += " • INSTRUMENT LOSS CAP REACHED";
                             else if (p.LegNumber >= maxTotalLegs) lossNote += " • MAX REVERSALS REACHED";
-                            output.Add(NewAsian75Event(p, sessionDate, stop, time, "LOSS", reversalLoss, cfg, lossNote));
+                            output.Add(NewAsian75Event(p, sessionDate, fill, time, "LOSS", reversalLoss, cfg, lossNote));
                             if (instrumentStop || p.LegNumber >= maxTotalLegs) p.Halted = true;
                             else { p.PendingEntry = true; p.PendingAt = time.AddMinutes(1); p.PendingDirection = -p.Direction; p.PendingQuantity = p.Quantity + 1; }
                         }
