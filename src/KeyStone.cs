@@ -5516,7 +5516,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             // must still not be sent only to the current dated contract (for example MNQ 12-26
             // for Mar→Sep). Build automatic delivery-month intervals only after every normal
             // full-range/chart/24x7/continuous request has failed; no contract input is exposed.
-            if ((useMgcDeliverySchedule || segments.Count < 2) && (item.End - item.Start).TotalDays > 31)
+            // MGC short-range fix: the MGC delivery-month recovery previously required a range
+            // longer than 31 days and at least two segments, so a short MGC study whose initial
+            // contract resolution failed got no recovery at all, and a range that falls inside a
+            // single delivery month (legitimately one segment) was discarded. For MGC only, run
+            // the delivery-month recovery at any range length and accept a single segment. The
+            // master-calendar / non-MGC path keeps its original >31-day and >=2-segment rules.
+            int minimumRecoverySegments = useMgcDeliverySchedule ? 1 : 2;
+            if (useMgcDeliverySchedule || (segments.Count < 2 && (item.End - item.Start).TotalDays > 31))
             {
                 segments.Clear();
                 try
@@ -5543,14 +5550,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                         if (segmentEnd >= item.End) break;
                         fallbackCursor = segmentEnd.AddMinutes(1);
                     }
-                    if (segments.Count >= 2) reason += useMgcDeliverySchedule
+                    if (segments.Count >= minimumRecoverySegments) reason += useMgcDeliverySchedule
                         ? " • using standard MGC Feb/Apr/Jun/Aug/Oct/Dec delivery-month recovery"
                         : " • master expiry calendar unavailable; using automatic " + item.Key + " delivery-month recovery";
                     else segments.Clear();
                 }
                 catch { segments.Clear(); }
             }
-            if (segments.Count < 2) return false;
+            if (segments.Count < minimumRecoverySegments) return false;
             foreach (HistoricalRequestWorkItem segment in segments) historicalRequestQueue.Enqueue(segment);
             historicalRequestTotal += segments.Count;
             historicalRequestDetails.Add(item.Key + " " + item.Minutes + "M " + (item.IsSetupRequest ? "setup" : "outcome") + " had " + reason + " after the full-range/chart/24x7/continuous path. Queued " + segments.Count + " adjacent date-compatible contract segments; each response will be merged and must still pass the existing strict 1-minute outcome validation.");
