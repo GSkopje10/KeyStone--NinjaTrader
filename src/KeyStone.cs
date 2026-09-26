@@ -349,6 +349,15 @@ namespace NinjaTrader.NinjaScript
         // True while a slot is still the account bought funded at the start (direct-funded mode).
         // After a blowout it is replaced by an evaluation and this becomes false.
         public bool DirectFundedStart;
+        // Evaluation trading days (any day with trades, plus minimum-day trades) and the hold
+        // state after the target is met while minimum trading days are still missing.
+        public int EvalTradingDays;
+        public bool EvalMinDayHold;
+        // Values at the start of the current session, so each daily record shows that day's
+        // trades, wins, losses, starting balance, and purchases (measured at the close before,
+        // they always read zero). Cost / purchases start at 0 so day one includes the initial buy.
+        public int DayStartTrades, DayStartWins, DayStartLosses, DayStartPurchases, DayStartPayouts;
+        public double DayStartBalance, DayStartCost, DayStartPayoutGross, DayStartPayoutCash;
         public int EvaluationPurchases;
         public int Payouts;
         // Gross withdrawal reduces the illustrative funded balance; net cash applies the
@@ -532,6 +541,10 @@ namespace NinjaTrader.NinjaScript
         // 1 = the evaluation's qualifying days must be consecutive (original rule); 0 = any
         // qualifying days count toward the minimum.
         public int EvalQualifyingDaysConsecutive = 1;
+        // Prop-firm minimum trading days for an evaluation (0 = off). Once the target and the
+        // consistency rule are met, the account stops trading the strategy and completes the
+        // remaining days with a minimal open-and-close trade ($0 risk), each counting as a day.
+        public int EvaluationMinTradingDays;
         // Asian only: optional different cycle settings while an account is in EVALUATION (e.g.
         // trade the evaluation more aggressively, the funded account more conservatively). The
         // main Asian settings apply to funded accounts. The lab runs the cycle engine a second
@@ -592,7 +605,7 @@ namespace NinjaTrader.NinjaScript
                 PoolSize.ToString(), DailyGoal.ToString("0.00", CultureInfo.InvariantCulture), DailyLoss.ToString("0.00", CultureInfo.InvariantCulture),
                 EvaluationEnabled.ToString(), EvaluationTarget.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyCreditCap.ToString("0.00", CultureInfo.InvariantCulture), EvaluationConsistencyPercent.ToString("0.00", CultureInfo.InvariantCulture), EvaluationFailure.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), EvaluationStageTradeRulesEnabled.ToString(), EvaluationTradeTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), EvaluationTradeStopDollars.ToString("0.00", CultureInfo.InvariantCulture), FundedDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), FundedFailure.ToString("0.00", CultureInfo.InvariantCulture), MinimumPositiveDays.ToString(), MinimumQualifyingDayProfit.ToString("0.00", CultureInfo.InvariantCulture),
                 PayoutThreshold.ToString("0.00", CultureInfo.InvariantCulture), PayoutDaysRequired.ToString(), PayoutAmount.ToString("0.00", CultureInfo.InvariantCulture), EvaluationCost.ToString("0.00", CultureInfo.InvariantCulture), ReplacementsRequirePayoutFunding.ToString(), FirmFundedCapEnabled.ToString(), EvaluationSlotsPerFirm.ToString(), MaxFundedPerFirm.ToString(), PropStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), PersonalStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), AsianStartHhmm.ToString(), AsianEndHhmm.ToString(), AsianMnqInitialDirection ?? string.Empty, AsianMgcInitialDirection ?? string.Empty, AsianRiskMode ?? string.Empty, AsianReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianCombinedStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianDailyLossLimitDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianBreakEvenTriggerDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianStartingQuantity.ToString(), AsianMaxReversalsPerInstrument.ToString(), AsianMnqMaxReversals.ToString(), AsianMgcMaxReversals.ToString(), AsianMaxTotalLegsPerInstrument.ToString(),
-                BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString() });
+                BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString() });
         }
     }
 
@@ -1794,7 +1807,7 @@ namespace NinjaTrader.NinjaScript
                 {
                     int candidateIndex = (nextAccountCursor + stateIndex) % accounts.Count;
                     KeystoneArcVirtualAccount candidate = accounts[candidateIndex];
-                    if (!candidate.Blown && !candidate.ReplacementPending && !candidate.FundedCapPending && !candidate.DayLocked && candidate.FreeAt <= when) { selected = candidate; selectedIndex = candidateIndex; break; }
+                    if (!candidate.Blown && !candidate.ReplacementPending && !candidate.FundedCapPending && !candidate.DayLocked && !candidate.EvalMinDayHold && candidate.FreeAt <= when) { selected = candidate; selectedIndex = candidateIndex; break; }
                 }
                 if (selected == null)
                 {
@@ -1867,7 +1880,7 @@ namespace NinjaTrader.NinjaScript
                     RollDay(account, when.Date, cfg, accounts);
                 }
                 EnforceFirmFundedCapacity(accounts, cfg);
-                List<KeystoneArcVirtualAccount> active = accounts.Where(x => !x.Blown && !x.ReplacementPending && !x.FundedCapPending && !x.DayLocked && x.FreeAt <= when).ToList();
+                List<KeystoneArcVirtualAccount> active = accounts.Where(x => !x.Blown && !x.ReplacementPending && !x.FundedCapPending && !x.DayLocked && !x.EvalMinDayHold && x.FreeAt <= when).ToList();
                 if (active.Count == 0)
                 {
                     e.SkipReason = accounts.Any(x => x.ReplacementPending || x.ReplacementBudgetBlocked) ? "COPY COHORT • WAITING FOR REPLACEMENT" : "COPY COHORT • DAILY LOCK OR NO ACTIVE ACCOUNT";
@@ -1948,7 +1961,7 @@ namespace NinjaTrader.NinjaScript
                     RollDay(account, day, cfg, accounts);
                 }
                 EnforceFirmFundedCapacity(accounts, cfg);
-                List<KeystoneArcVirtualAccount> active = accounts.Where(x => !x.Blown && !x.ReplacementPending && !x.FundedCapPending && !x.DayLocked).ToList();
+                List<KeystoneArcVirtualAccount> active = accounts.Where(x => !x.Blown && !x.ReplacementPending && !x.FundedCapPending && !x.DayLocked && !x.EvalMinDayHold).ToList();
                 if (active.Count == 0)
                 {
                     foreach (KeystoneArcEvent e in cycle) e.SkipReason = "NO ACTIVE VIRTUAL COPY ACCOUNT";
@@ -2086,14 +2099,24 @@ namespace NinjaTrader.NinjaScript
 
         private static void RollDay(KeystoneArcVirtualAccount a, DateTime day, KeystoneArcRunConfig cfg, IEnumerable<KeystoneArcVirtualAccount> pool)
         {
-            if (a.ActiveDay == DateTime.MinValue) { a.ActiveDay = day; return; }
+            if (a.ActiveDay == DateTime.MinValue) { a.ActiveDay = day; SnapshotDayStart(a, false); return; }
             if (a.ActiveDay == day) return;
             FinalizeDay(a, cfg);
+            SnapshotDayStart(a, true);
             StartPendingReplacementAtNewSession(a, cfg, pool);
+            a.DayStartBalance = a.Funded ? a.FundedBalance : a.EvaluationBalance;
             a.ActiveDay = day;
             a.DayPnl = 0;
             a.EvalDayCredit = 0;
             a.DayLocked = false;
+        }
+
+        private static void SnapshotDayStart(KeystoneArcVirtualAccount a, bool includePurchases)
+        {
+            a.DayStartTrades = a.Trades; a.DayStartWins = a.Wins; a.DayStartLosses = a.Losses;
+            a.DayStartBalance = a.Funded ? a.FundedBalance : a.EvaluationBalance;
+            a.DayStartPayouts = a.Payouts; a.DayStartPayoutGross = a.PayoutGrossWithdrawn; a.DayStartPayoutCash = a.PayoutCash;
+            if (includePurchases) { a.DayStartCost = a.EvaluationCost; a.DayStartPurchases = a.EvaluationPurchases; }
         }
 
         private static void StartPendingReplacementAtNewSession(KeystoneArcVirtualAccount a, KeystoneArcRunConfig cfg, IEnumerable<KeystoneArcVirtualAccount> pool)
@@ -2121,6 +2144,7 @@ namespace NinjaTrader.NinjaScript
             a.Funded = false; a.EvaluationPassed = false;
             a.EvaluationBalance = 0; a.FundedBalance = 0;
             a.PositiveDays = 0; a.ConsecutiveEvalQualifyingDays = 0; a.FundedPositiveDays = 0; a.EvalDayCredit = 0; a.EvalBestPositiveDay = 0;
+            a.EvalTradingDays = 0; a.EvalMinDayHold = false;
             a.EvaluationPurchases++;
             a.EvaluationCost += cfg.EvaluationCost;
             a.CurrentLifecycleStart = a.ActiveDay == DateTime.MinValue ? DateTime.MinValue : a.ActiveDay.AddDays(1);
@@ -2130,15 +2154,15 @@ namespace NinjaTrader.NinjaScript
         private static void FinalizeDay(KeystoneArcVirtualAccount a, KeystoneArcRunConfig cfg)
         {
             if (a.ActiveDay == DateTime.MinValue) return;
-            int tradesBefore = a.Trades;
-            int winsBefore = a.Wins;
-            int lossesBefore = a.Losses;
-            int purchasesBefore = a.EvaluationPurchases;
-            double costBefore = a.EvaluationCost;
-            int payoutsBefore = a.Payouts;
-            double payoutGrossBefore = a.PayoutGrossWithdrawn;
-            double payoutCashBefore = a.PayoutCash;
-            double balanceBefore = a.Funded ? a.FundedBalance : a.EvaluationBalance;
+            int tradesBefore = a.DayStartTrades;
+            int winsBefore = a.DayStartWins;
+            int lossesBefore = a.DayStartLosses;
+            int purchasesBefore = a.DayStartPurchases;
+            double costBefore = a.DayStartCost;
+            int payoutsBefore = a.DayStartPayouts;
+            double payoutGrossBefore = a.DayStartPayoutGross;
+            double payoutCashBefore = a.DayStartPayoutCash;
+            double balanceBefore = a.DayStartBalance;
             bool evalQualified = false;
             bool fundedQualified = false;
             if (cfg.EvaluationEnabled == -2)
@@ -2185,7 +2209,9 @@ namespace NinjaTrader.NinjaScript
                 bool asianStudy = string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
                 double evalDayRequirement = asianStudy ? Math.Max(0, cfg.MinimumQualifyingDayProfit) : Math.Max(Math.Max(0, cfg.MinimumQualifyingDayProfit), DailyProfitLock(a, cfg));
                 evalQualified = a.EvalDayCredit >= evalDayRequirement && (!asianStudy || a.DayPnl > 0);
-                if (evalQualified)
+                // A minimum-day trade (target already met) neither qualifies nor breaks the streak.
+                if (a.EvalMinDayHold) { }
+                else if (evalQualified)
                 {
                     a.PositiveDays++;
                     a.ConsecutiveEvalQualifyingDays++;
@@ -2193,11 +2219,19 @@ namespace NinjaTrader.NinjaScript
                 }
                 else if (cfg.EvalQualifyingDaysConsecutive > 0) a.ConsecutiveEvalQualifyingDays = 0;
                 bool consistencyOk = cfg.EvaluationConsistencyPercent <= 0 || a.EvaluationBalance <= 0 || a.EvalBestPositiveDay * 100.0 <= a.EvaluationBalance * cfg.EvaluationConsistencyPercent;
-                if (a.EvaluationBalance >= cfg.EvaluationTarget && a.ConsecutiveEvalQualifyingDays >= cfg.MinimumPositiveDays && consistencyOk)
+                // A day counts as a trading day when the account traded, or made its minimum-day trade.
+                if (a.EvalMinDayHold || a.Trades > a.DayStartTrades) a.EvalTradingDays++;
+                bool targetRulesMet = a.EvaluationBalance >= cfg.EvaluationTarget && a.ConsecutiveEvalQualifyingDays >= cfg.MinimumPositiveDays && consistencyOk;
+                bool tradingDaysMet = cfg.EvaluationMinTradingDays <= 0 || a.EvalTradingDays >= cfg.EvaluationMinTradingDays;
+                a.EvalMinDayHold = targetRulesMet && !tradingDaysMet;
+                if (a.EvalMinDayHold)
+                    a.LastState = "EVAL TARGET MET • MINIMUM TRADING DAYS " + a.EvalTradingDays + " / " + cfg.EvaluationMinTradingDays + " • NEXT DAY: MINIMAL TRADE (ILLUSTRATIVE)";
+                else if (targetRulesMet)
                 {
                     a.Funded = true;
                     a.EvaluationPassed = true;
                     a.FundedCapPending = false;
+                    a.EvalMinDayHold = false; a.EvalTradingDays = 0;
                     a.FundedSinceDate = a.ActiveDay;
                     if (a.FirstEvaluationPassDate == DateTime.MinValue) a.FirstEvaluationPassDate = a.ActiveDay;
                     a.EvaluationPasses++;
@@ -3021,6 +3055,184 @@ namespace NinjaTrader.NinjaScript
             return sb.ToString();
         }
     }
+    // ---------------------------------------------------------------------------------------
+    // Asian night replay: turns one night's legs (both instruments) into ordered steps — the
+    // cycle opening, every stop + reversal, the closing — with the state of BOTH instruments and
+    // the combined cycle P/L at each step. Used by the evidence chart's PREV / NEXT / PLAY replay.
+    // ---------------------------------------------------------------------------------------
+    public sealed class KeystoneArcReplayStep
+    {
+        public DateTime Time;
+        public string Headline = string.Empty;
+        public string Detail = string.Empty;
+        public double CombinedPnl;
+        public double WorstCombined;
+        public List<KeystoneArcEvent> Entries = new List<KeystoneArcEvent>();
+        public List<KeystoneArcEvent> Exits = new List<KeystoneArcEvent>();
+    }
+
+    public static class KeystoneArcAsianReplay
+    {
+        static double PointValue(string symbol) { return (symbol ?? string.Empty).StartsWith("MGC", StringComparison.OrdinalIgnoreCase) ? 10.0 : 2.0; }
+        static string Money(double v) { return (v >= 0 ? "+$" : "−$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture); }
+        static string Price(string symbol, double p) { return p.ToString((symbol ?? string.Empty).StartsWith("MGC", StringComparison.OrdinalIgnoreCase) ? "0.0" : "0.00", CultureInfo.InvariantCulture); }
+        static bool IsStop(KeystoneArcEvent e) { return (e.ReviewNote ?? string.Empty).StartsWith("REVERSAL LOSS", StringComparison.OrdinalIgnoreCase); }
+        static bool IsLastLeg(KeystoneArcEvent e) { string n = e.ReviewNote ?? string.Empty; return n.IndexOf("MAX REVERSALS", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("INSTRUMENT LOSS CAP", StringComparison.OrdinalIgnoreCase) >= 0; }
+
+        static string Closing(KeystoneArcEvent e)
+        {
+            if (e.Outcome == "WIN") return "CYCLE TARGET REACHED";
+            if (e.Outcome == "SESSION EXIT") return "SESSION END";
+            if (e.Outcome == "BREAKEVEN GUARD") return "BREAKEVEN GUARD";
+            return (e.ReviewNote ?? string.Empty).IndexOf("COMBINED CYCLE STOP", StringComparison.OrdinalIgnoreCase) >= 0 ? "COMBINED CYCLE STOP" : "DAILY LOSS LIMIT";
+        }
+
+        // closeAt(symbol, time): latest 1-minute close at or before time (null if unknown); used to
+        // mark open legs. target / lossLimit are the cycle's combined target and loss limit.
+        public static List<KeystoneArcReplayStep> Build(List<KeystoneArcEvent> nightLegs, Func<string, DateTime, double?> closeAt, double target, double lossLimit)
+        {
+            var steps = new List<KeystoneArcReplayStep>();
+            List<KeystoneArcEvent> legs = (nightLegs ?? new List<KeystoneArcEvent>()).Where(e => e != null && e.SetupClass == "ASIA75").OrderBy(e => e.EntryTime).ThenBy(e => e.Symbol).ToList();
+            if (legs.Count == 0) return steps;
+            string[] symbols = legs.Select(e => e.Symbol).Distinct().OrderBy(x => x).ToArray();
+            var times = legs.Select(e => e.EntryTime).Concat(legs.Select(e => e.ExitTime)).Where(t => t != DateTime.MinValue).Distinct().OrderBy(t => t).ToList();
+            double worst = 0;
+            foreach (DateTime t in times)
+            {
+                var step = new KeystoneArcReplayStep { Time = t };
+                step.Exits = legs.Where(e => e.ExitTime == t).ToList();
+                step.Entries = legs.Where(e => e.EntryTime == t).ToList();
+                var lines = new List<string>();
+                // what happened — entries first: a leg enters at the minute's open, stops happen during it
+                foreach (KeystoneArcEvent e in step.Entries.OrderBy(x => x.Symbol))
+                    lines.Add(e.Symbol + "  L" + e.AsianLegNumber + " " + (e.AsianLegNumber <= 1 ? "OPENED " : "REVERSED → ") + e.Direction + " x" + e.Quantity.ToString("0", CultureInfo.InvariantCulture) + " @ " + Price(e.Symbol, e.Entry)
+                        + " • stop " + Price(e.Symbol, e.Stop) + " (" + Money(-Math.Abs(e.Entry - e.Stop) * PointValue(e.Symbol) * e.Quantity) + ")");
+                foreach (KeystoneArcEvent e in step.Exits.OrderBy(x => x.Symbol))
+                {
+                    if (IsStop(e))
+                        lines.Add(e.Symbol + "  L" + e.AsianLegNumber + " " + e.Direction + " x" + e.Quantity.ToString("0", CultureInfo.InvariantCulture) + " STOPPED " + Money(e.GrossPnl) + " @ " + Price(e.Symbol, e.ExitPrice)
+                            + (IsLastLeg(e) ? "  → last leg, " + e.Symbol + " done for the night" : "  → reverses " + (e.Direction == "LONG" ? "SHORT" : "LONG") + " x" + (e.Quantity + 1).ToString("0", CultureInfo.InvariantCulture) + " next minute"));
+                    else
+                        lines.Add(e.Symbol + "  L" + e.AsianLegNumber + " " + e.Direction + " x" + e.Quantity.ToString("0", CultureInfo.InvariantCulture) + " CLOSED " + Money(e.GrossPnl) + " @ " + Price(e.Symbol, e.ExitPrice) + "  (" + Closing(e) + ")");
+                }
+                KeystoneArcEvent closing = step.Exits.FirstOrDefault(e => !IsStop(e));
+                string stopText = step.Exits.Any(IsStop) ? "STOP HIT" + (step.Exits.Any(IsLastLeg) ? " • LAST LEG" : " • REVERSAL NEXT MINUTE") : string.Empty;
+                string entryText = step.Entries.Any(e => e.AsianLegNumber <= 1) ? "CYCLE OPENED" : (step.Entries.Count > 0 ? "REVERSAL ENTERED" : string.Empty);
+                step.Headline = closing != null ? (entryText.Length > 0 ? entryText + " • " : string.Empty) + "NIGHT CLOSED • " + Closing(closing)
+                    : string.Join(" • ", new[] { entryText, stopText }.Where(x => x.Length > 0));
+                // state of every instrument after this step
+                lines.Add("────────────────────────────────────────────────────────");
+                double combined = 0;
+                foreach (string symbol in symbols)
+                {
+                    double realized = legs.Where(e => e.Symbol == symbol && e.ExitTime <= t).Sum(e => e.GrossPnl);
+                    KeystoneArcEvent open = legs.FirstOrDefault(e => e.Symbol == symbol && e.EntryTime <= t && e.ExitTime > t);
+                    int done = legs.Count(e => e.Symbol == symbol && e.ExitTime <= t);
+                    string state;
+                    double openPnl = 0;
+                    if (open != null)
+                    {
+                        double? mark = closeAt == null ? null : closeAt(symbol, t);
+                        double now = mark ?? open.Entry;
+                        openPnl = (now - open.Entry) * PointValue(symbol) * open.Quantity * (open.Direction == "LONG" ? 1 : -1);
+                        state = "OPEN L" + open.AsianLegNumber + " " + open.Direction + " x" + open.Quantity.ToString("0", CultureInfo.InvariantCulture) + " @ " + Price(symbol, open.Entry) + " • now " + Price(symbol, now) + " • open " + Money(openPnl);
+                    }
+                    else if (legs.Any(e => e.Symbol == symbol && e.EntryTime > t)) state = "FLAT • reversal enters next minute";
+                    else state = "FLAT • done for the night";
+                    combined += realized + openPnl;
+                    lines.Add(symbol.PadRight(4) + " " + state + " • realized " + Money(realized) + " • legs closed " + done);
+                }
+                // the engine's own combined value at an exit minute is authoritative (1M-close marked)
+                KeystoneArcEvent recorded = step.Exits.FirstOrDefault(e => !double.IsNaN(e.AsianCyclePnlAtExit));
+                if (recorded != null) combined = recorded.AsianCyclePnlAtExit;
+                worst = Math.Min(worst, combined);
+                if (recorded != null && !double.IsNaN(recorded.AsianCycleWorstAtExit)) worst = Math.Min(worst, recorded.AsianCycleWorstAtExit);
+                step.CombinedPnl = combined; step.WorstCombined = worst;
+                lines.Add("COMBINED P/L " + Money(combined) + " • WORST SO FAR " + Money(worst) + " • TARGET " + Money(target) + " • LOSS LIMIT " + Money(-Math.Abs(lossLimit)));
+                step.Detail = string.Join("\n", lines);
+                steps.Add(step);
+            }
+            return steps;
+        }
+    }
+    // ---------------------------------------------------------------------------------------
+    // Strategy-only day scoreboard (no accounts): one row per session with setups / legs, wins,
+    // losses, P/L, how an Asian night ended; plus totals, streaks and a month-by-month table.
+    // Same for every strategy; Asian adds per-instrument legs and the night ending.
+    // ---------------------------------------------------------------------------------------
+    public sealed class KeystoneArcDayScore
+    {
+        public DateTime Day;
+        public int Setups, Wins, Losses, Exits;
+        public double Pnl;
+        public string Detail = string.Empty;   // Asian: legs per instrument + ending; BH: per instrument counts
+    }
+
+    public static class KeystoneArcScoreboard
+    {
+        static string Money(double v) { return (v >= 0 ? "+$" : "−$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture); }
+
+        public static List<KeystoneArcDayScore> Days(IEnumerable<KeystoneArcEvent> source, KeystoneArcRunConfig cfg)
+        {
+            bool asian = cfg != null && string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            var rows = new List<KeystoneArcDayScore>();
+            var list = (source ?? Enumerable.Empty<KeystoneArcEvent>()).Where(e => e != null && e.Outcome != "UNVERIFIED 1M").ToList();
+            foreach (var g in list.GroupBy(e => asian ? e.ReferenceTime.Date : KeystoneArcEngine.SessionGroupingDate(e.TriggerTime, cfg).Date).OrderBy(g => g.Key))
+            {
+                var legs = g.ToList();
+                var row = new KeystoneArcDayScore { Day = g.Key, Setups = legs.Count, Pnl = legs.Sum(e => e.GrossPnl),
+                    Wins = legs.Count(e => e.Outcome == "WIN"), Losses = legs.Count(e => (e.Outcome ?? string.Empty).StartsWith("LOSS", StringComparison.OrdinalIgnoreCase)), Exits = legs.Count(e => e.Outcome == "SESSION EXIT") };
+                if (asian)
+                {
+                    row.Detail = string.Join(" • ", legs.GroupBy(e => e.Symbol).OrderBy(x => x.Key).Select(x => x.Key + " " + x.Count() + " leg" + (x.Count() == 1 ? "" : "s") + " " + Money(x.Sum(e => e.GrossPnl))))
+                        + " • " + KeystoneArcAsianOptimizer.NightEnding(legs);
+                }
+                else row.Detail = string.Join(" • ", legs.GroupBy(e => e.Symbol).OrderBy(x => x.Key).Select(x => x.Key + " " + x.Count() + " setup" + (x.Count() == 1 ? "" : "s") + " " + x.Count(e => e.Outcome == "WIN") + "W/" + x.Count(e => (e.Outcome ?? "").StartsWith("LOSS")) + "L " + Money(x.Sum(e => e.GrossPnl))));
+                rows.Add(row);
+            }
+            return rows;
+        }
+
+        public static string DayLine(KeystoneArcDayScore d, bool asian)
+        {
+            return d.Day.ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture) + " • " + (d.Pnl > 0 ? "WIN DAY " : (d.Pnl < 0 ? "LOSS DAY " : "FLAT DAY ")) + Money(d.Pnl)
+                + " • " + d.Setups + (asian ? " legs" : " setups") + " (" + d.Wins + "W / " + d.Losses + "L" + (d.Exits > 0 ? " / " + d.Exits + " exit" : "") + ") • " + d.Detail;
+        }
+
+        // Full strategy-only report: totals, streaks, month-by-month, then every day.
+        public static string Report(List<KeystoneArcDayScore> days, KeystoneArcRunConfig cfg)
+        {
+            bool asian = cfg != null && string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            var sb = new StringBuilder();
+            if (days == null || days.Count == 0) return "SETUPS ONLY • no resolved setups loaded.";
+            int winDays = days.Count(d => d.Pnl > 0), lossDays = days.Count(d => d.Pnl < 0);
+            double total = days.Sum(d => d.Pnl), equity = 0, peak = 0, maxDd = 0;
+            int streak = 0, worstStreak = 0; double streakPnl = 0, worstStreakPnl = 0;
+            foreach (var d in days)
+            {
+                equity += d.Pnl; peak = Math.Max(peak, equity); maxDd = Math.Max(maxDd, peak - equity);
+                if (d.Pnl < 0) { streak++; streakPnl += d.Pnl; if (streak > worstStreak || (streak == worstStreak && streakPnl < worstStreakPnl)) { worstStreak = streak; worstStreakPnl = streakPnl; } }
+                else { streak = 0; streakPnl = 0; }
+            }
+            var best = days.OrderByDescending(d => d.Pnl).First(); var worst = days.OrderBy(d => d.Pnl).First();
+            sb.AppendLine("SETUPS ONLY • STRATEGY RESULT WITHOUT ACCOUNTS • " + days.First().Day.ToString("yyyy-MM-dd") + " → " + days.Last().Day.ToString("yyyy-MM-dd") + " • before commissions");
+            sb.AppendLine("DAYS " + days.Count + " • WIN DAYS " + winDays + " (" + (100.0 * winDays / days.Count).ToString("0", CultureInfo.InvariantCulture) + "%) • LOSS DAYS " + lossDays + " • TOTAL " + Money(total) + " • AVG / DAY " + Money(total / days.Count));
+            sb.AppendLine("BEST DAY " + best.Day.ToString("yyyy-MM-dd") + " " + Money(best.Pnl) + " • WORST DAY " + worst.Day.ToString("yyyy-MM-dd") + " " + Money(worst.Pnl) + " • MAX DRAWDOWN " + Money(-maxDd) + " • LONGEST LOSING STREAK " + worstStreak + " days (" + Money(worstStreakPnl) + ")");
+            sb.AppendLine();
+            sb.AppendLine("MONTH BY MONTH");
+            sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-9}{1,6}{2,10}{3,11}{4,12}", "MONTH", "DAYS", "WIN DAYS", "P/L", "RUNNING"));
+            double running = 0;
+            foreach (var m in days.GroupBy(d => new DateTime(d.Day.Year, d.Day.Month, 1)).OrderBy(g => g.Key))
+            {
+                double p = m.Sum(d => d.Pnl); running += p;
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-9}{1,6}{2,9}%{3,11}{4,12}", m.Key.ToString("yyyy-MM"), m.Count(), (100.0 * m.Count(d => d.Pnl > 0) / m.Count()).ToString("0"), Money(p), Money(running)));
+            }
+            sb.AppendLine();
+            sb.AppendLine("EVERY DAY");
+            foreach (var d in days) sb.AppendLine(DayLine(d, asian));
+            return sb.ToString();
+        }
+    }
 }
 
 namespace NinjaTrader.NinjaScript.Indicators
@@ -3135,8 +3347,13 @@ namespace NinjaTrader.NinjaScript.AddOns
         private WrapPanel evalRulesPanel, fundedRulesPanel, asianEvalStagePanel;
         private TextBlock evalRulesHeading;
         private TabControl resultViewTabs;
+        // Pool Settings day-by-day stepping / setups-only
+        private TextBlock poolDayLabel, poolDayText;
+        private CheckBox setupsOnlyBox;
+        private int poolDayIndex = -1;
         private ComboBox blownAccountBox;
         private CheckBox evalConsecutiveBox, asianEvalStageBox;
+        private TextBox evalMinTradingDaysBox;
         private TextBox asianEvalTargetBox, asianEvalLegLossBox, asianEvalReversalsBox;
         private UIElement poolAllocationRow, poolDailyAllocationRow, evalStageToggleRowRef, asianEvalStageToggleRow;
         private readonly List<UIElement> evaluationTradeRuleControls = new List<UIElement>();
@@ -3246,7 +3463,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-26d • ACCOUNT SIMULATION FIX • EVAL / FUNDED RULES";
+        private const string KeystoneBuild = "BUILD 2026-09-26e • CHART REPLAY • DAY STEPPING • SETUPS ONLY";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -3282,6 +3499,16 @@ namespace NinjaTrader.NinjaScript.AddOns
         private TextBlock evidenceDetailText;
         private TextBlock evidenceHoverText;
         private Border evidenceHoverBorder;
+        // Asian replay state
+        private WrapPanel evidenceReplayBar;
+        private Border evidenceReplayBorder;
+        private TextBlock evidenceReplayHeadline, evidenceReplayDetail, evidenceReplayStepText;
+        private Button evidenceReplayPlayButton;
+        private List<KeystoneArcReplayStep> evidenceReplaySteps = new List<KeystoneArcReplayStep>();
+        private DateTime evidenceReplayDay = DateTime.MinValue;
+        private int evidenceReplayIndex = -1;
+        private bool evidenceReplayFollow;
+        private DispatcherTimer evidenceReplayTimer;
         private bool evidenceSelectionClickHandled;
         private readonly List<Button> evidenceDateButtons = new List<Button>();
         private int evidenceSelectedDateIndex = -1;
@@ -4787,11 +5014,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             singleAccountControls.Clear(); singleAccountControls.Add(singleStartBalanceRow);
             evalTargetBox = Input("3000"); evalDailyCapBox = Input("1500"); evalConsistencyBox = Input("0"); evalFailureBox = Input("2000"); evalDailyLossBox = Input("500"); fundedDailyLossBox = Input("0"); fundedFailureBox = Input("2000"); evalCostBox = Input("120"); minimumQualifyingDayBox = Input("150"); evalTradeTargetBox = Input("1500"); evalTradeStopBox = Input("500");
             payoutThresholdBox = Input("4000"); payoutDaysBox = Input("5"); payoutAmountBox = Input("2000"); payoutProfitShareBox = Input("100"); minimumDaysBox = Input("2");
-            var evalTargetRow = PoolRow("EVAL TARGET $", evalTargetBox); var evalDailyCapRow = PoolRow("EVAL DAILY + $", evalDailyCapBox); var evalConsistencyRow = PoolRow("BEST DAY % (0=OFF)", evalConsistencyBox); var evalFailureRow = PoolRow("EVAL DRAWDOWN $", evalFailureBox); var evalDailyLossRow = PoolRow("EVAL DAILY - $", evalDailyLossBox); var evalCostRow = PoolRow("ACCOUNT COST $ (EVAL OR FUNDED)", evalCostBox); var minimumDaysRow = PoolRow("EVAL PASS DAYS", minimumDaysBox);
+            var evalTargetRow = PoolRow("EVAL PROFIT TARGET $", evalTargetBox); var evalDailyCapRow = PoolRow("EVAL DAILY + $", evalDailyCapBox); var evalConsistencyRow = PoolRow("CONSISTENCY % • BEST DAY ≤ % OF PROFIT (0=OFF)", evalConsistencyBox); var evalFailureRow = PoolRow("EVAL MAX DRAWDOWN $", evalFailureBox); var evalDailyLossRow = PoolRow("EVAL DAILY - $", evalDailyLossBox); var evalCostRow = PoolRow("ACCOUNT COST $ (EVAL OR FUNDED)", evalCostBox); var minimumDaysRow = PoolRow("QUALIFYING DAYS NEEDED", minimumDaysBox);
             evalStageTradeRulesBox = new CheckBox { Content = "USE EVAL OVERRIDE", IsChecked = false, Foreground = Orchid, Margin = new Thickness(4), ToolTip = "Off: evaluation uses the main Step 1 trade and daily limits. On: evaluation-only target, drawdown, daily, and per-trade values replace them." }; evalStageTradeRulesBox.Checked += delegate { RefreshLifecycleInputState(); }; evalStageTradeRulesBox.Unchecked += delegate { RefreshLifecycleInputState(); };
-            replacementFundingGateBox = new CheckBox { Content = "WAIT FOR PAYOUT BEFORE REBUY", IsChecked = false, Foreground = Green, Margin = new Thickness(6), ToolTip = "OFF (default): a blown evaluation or funded slot buys a new evaluation at the next session so later setups are not skipped. ON: failed slots are benched and later setups are skipped until modeled payout cash funds every pending replacement." };
+            replacementFundingGateBox = new CheckBox { Content = "ONLY SPEND THE INITIAL INVESTMENT • REBUY FROM PAYOUTS", IsChecked = false, Foreground = Green, Margin = new Thickness(6), ToolTip = "OFF (default): a blown evaluation or funded slot buys a new evaluation at the next session so later setups are not skipped. ON: failed slots are benched and later setups are skipped until modeled payout cash funds every pending replacement." };
             firmFundedCapBox = new CheckBox { Content = "FIRM FUNDED CAP", IsChecked = false, Foreground = Gold, Margin = new Thickness(6), ToolTip = "When on, evaluation slots are grouped by firm. Passed evaluations wait if that firm has reached its funded-account capacity." }; firmFundedCapBox.Checked += delegate { RefreshLifecycleInputState(); }; firmFundedCapBox.Unchecked += delegate { RefreshLifecycleInputState(); };
-            var evalStageToggleRow = PoolRow("EVAL TERMS", evalStageTradeRulesBox); var evalTradeTargetRow = PoolRow("EVAL TRADE + $", evalTradeTargetBox); var evalTradeStopRow = PoolRow("EVAL TRADE - $", evalTradeStopBox); var replacementGateRow = PoolRow("REPLACEMENT", replacementFundingGateBox);
+            var evalStageToggleRow = PoolRow("EVAL TERMS", evalStageTradeRulesBox); var evalTradeTargetRow = PoolRow("EVAL TRADE + $", evalTradeTargetBox); var evalTradeStopRow = PoolRow("EVAL TRADE - $", evalTradeStopBox); var replacementGateRow = PoolRow("INVESTMENT", replacementFundingGateBox);
             firmEvalSlotsBox = Input("10"); firmMaxFundedBox = Input("5");
             var firmCapToggleRow = PoolRow("FIRM CAP MODEL", firmFundedCapBox);
             var firmCapPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2), Visibility = Visibility.Collapsed };
@@ -4806,7 +5033,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             // direct-funded blowout): always visible, because the engine always applies them.
             evalConsecutiveBox = new CheckBox { Content = "PASS DAYS MUST BE CONSECUTIVE", IsChecked = true, Foreground = Orchid, Margin = new Thickness(6), ToolTip = "On (original rule): a non-qualifying day resets the pass-day count. Off: any qualifying days count toward EVAL PASS DAYS." };
             evalRulesPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
-            evalRulesPanel.Children.Add(evalTargetRow); evalRulesPanel.Children.Add(evalFailureRow); evalRulesPanel.Children.Add(minimumDaysRow); evalRulesPanel.Children.Add(PoolRow("PASS-DAY RULE", evalConsecutiveBox)); evalRulesPanel.Children.Add(evalConsistencyRow);
+            evalMinTradingDaysBox = Input("0"); evalMinTradingDaysBox.ToolTip = "Prop-firm minimum trading days (0 = off). After the target and consistency are met, remaining days are a minimal open-and-close trade ($0 risk) that counts as a trading day.";
+            evalRulesPanel.Children.Add(evalTargetRow); evalRulesPanel.Children.Add(evalFailureRow); evalRulesPanel.Children.Add(minimumDaysRow); evalRulesPanel.Children.Add(PoolRow("PASS-DAY RULE", evalConsecutiveBox)); evalRulesPanel.Children.Add(evalConsistencyRow); evalRulesPanel.Children.Add(PoolRow("MIN TRADING DAYS (0=OFF)", evalMinTradingDaysBox));
             blownAccountBox = Select("BUY NEW EVALUATION", "END SLOT (NO REPLACEMENT)"); blownAccountBox.SelectedIndex = 0; blownAccountBox.SelectionChanged += delegate { RefreshLifecycleInputState(); };
             blownAccountBox.ToolTip = "BUY NEW EVALUATION (default): a blown account (failed evaluation or funded drawdown) is replaced by a new paid evaluation at the next session; it must pass again before payouts. Applies to direct-funded starts too. END SLOT: the slot stops trading; the study stops once every slot has ended.";
             // Asian: different cycle settings while an account is in evaluation.
@@ -4830,6 +5058,19 @@ namespace NinjaTrader.NinjaScript.AddOns
             var settingsStack = Stack();
             settingsStack.Children.Add(Txt("POOL SETTINGS • SCENARIO CONTROLS", Cyan, 13, FontWeights.Bold));
             settingsStack.Children.Add(startModeHintText);
+            // Day-by-day: step through sessions without going back to Configure.
+            var dayBar = new WrapPanel { Margin = new Thickness(0, 4, 0, 2) };
+            var prevDayButton = Btn("◀ PREV DAY", Blue); prevDayButton.Width = 120; prevDayButton.Height = 30; prevDayButton.Click += delegate { StepPoolDay(-1); };
+            var nextDayButton = Btn("NEXT DAY ▶", Blue); nextDayButton.Width = 120; nextDayButton.Height = 30; nextDayButton.Click += delegate { StepPoolDay(1); };
+            var dayChartButton = Btn("OPEN CHART", Orchid); dayChartButton.Width = 120; dayChartButton.Height = 30; dayChartButton.ToolTip = "Open the evidence chart on this day"; dayChartButton.Click += delegate { OpenPoolDayChart(); };
+            setupsOnlyBox = new CheckBox { Content = "SETUPS ONLY • strategy result per day, no accounts / payouts", IsChecked = false, Foreground = Cyan, Margin = new Thickness(10, 6, 6, 6), VerticalAlignment = VerticalAlignment.Center };
+            setupsOnlyBox.Checked += delegate { RenderPoolDayPanel(); }; setupsOnlyBox.Unchecked += delegate { RenderPoolDayPanel(); };
+            poolDayLabel = Txt("DAY BY DAY • press NEXT DAY to step through the sessions", Gold, 13, FontWeights.Bold); poolDayLabel.VerticalAlignment = VerticalAlignment.Center; poolDayLabel.Margin = new Thickness(10, 0, 0, 0);
+            foreach (UIElement dayControl in new UIElement[] { prevDayButton, nextDayButton, dayChartButton, setupsOnlyBox, poolDayLabel }) dayBar.Children.Add(dayControl);
+            settingsStack.Children.Add(dayBar);
+            poolDayText = Txt(string.Empty, Text, 12, FontWeights.Normal); poolDayText.FontFamily = new FontFamily("Consolas"); poolDayText.TextWrapping = TextWrapping.NoWrap;
+            settingsStack.Children.Add(new Border { Background = Card, BorderBrush = Cyan, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 2, 0, 6),
+                Child = new ScrollViewer { Content = poolDayText, MaxHeight = 320, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } });
             settingsStack.Children.Add(Txt("CORE", Cyan, 10, FontWeights.Bold)); settingsStack.Children.Add(coreControls);
             lifecyclePolicySection = Stack(); lifecyclePolicySection.Children.Add(Txt("ACCOUNT COST + PAYOUT RULES", Gold, 10, FontWeights.Bold)); lifecyclePolicySection.Children.Add(lifecyclePolicyControls);
             evalRulesHeading = Txt("EVALUATION RULES • must pass before an account is funded", Orchid, 10, FontWeights.Bold); lifecyclePolicySection.Children.Add(evalRulesHeading); lifecyclePolicySection.Children.Add(evalRulesPanel);
@@ -5024,6 +5265,74 @@ namespace NinjaTrader.NinjaScript.AddOns
         // lab already loaded for the Asian study (no export, no new request) and lets the user
         // apply any ranked row back to the Asian settings to inspect it on the evidence chart.
         // ---------------------------------------------------------------------------------
+        // ---- Pool Settings: day-by-day stepping and setups-only mode --------------------------------
+        private List<KeystoneArcDayScore> PoolDays()
+        {
+            return KeystoneArcScoreboard.Days(events.Where(x => string.Equals(x.ReviewState, "ACCEPTED", StringComparison.OrdinalIgnoreCase)), config);
+        }
+
+        private void StepPoolDay(int delta)
+        {
+            List<KeystoneArcDayScore> days = PoolDays();
+            if (days.Count == 0) { if (poolDayLabel != null) poolDayLabel.Text = "DAY BY DAY • run the backtest first (no resolved setups loaded)"; return; }
+            poolDayIndex = poolDayIndex < 0 ? (delta >= 0 ? 0 : days.Count - 1) : Math.Max(0, Math.Min(days.Count - 1, poolDayIndex + delta));
+            RenderPoolDayPanel();
+        }
+
+        private void OpenPoolDayChart()
+        {
+            List<KeystoneArcDayScore> days = PoolDays();
+            if (poolDayIndex < 0 || poolDayIndex >= days.Count) { StepPoolDay(1); days = PoolDays(); }
+            if (poolDayIndex < 0 || poolDayIndex >= days.Count) return;
+            string dateText = days[poolDayIndex].Day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            OpenEvidenceChart();
+            if (evidenceWindow != null) SelectEvidenceSessionDate(dateText, true);
+        }
+
+        private void RenderPoolDayPanel()
+        {
+            if (poolDayText == null || config == null) return;
+            bool asian = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            List<KeystoneArcDayScore> days = PoolDays();
+            bool setupsOnly = setupsOnlyBox != null && setupsOnlyBox.IsChecked == true;
+            if (days.Count == 0) { poolDayLabel.Text = "DAY BY DAY • no resolved setups loaded yet"; poolDayText.Text = string.Empty; return; }
+            if (poolDayIndex >= days.Count) poolDayIndex = days.Count - 1;
+            KeystoneArcDayScore day = poolDayIndex >= 0 ? days[poolDayIndex] : null;
+            poolDayLabel.Text = day == null ? "DAY BY DAY • " + days.Count + " sessions with activity • press NEXT DAY" : "DAY " + (poolDayIndex + 1) + " / " + days.Count + " • " + day.Day.ToString("yyyy-MM-dd dddd", CultureInfo.InvariantCulture);
+            poolDayLabel.Foreground = day == null ? Gold : (day.Pnl >= 0 ? Green : Red);
+            var sb = new StringBuilder();
+            if (day != null)
+            {
+                sb.AppendLine((asian ? "NIGHT RESULT  " : "DAY RESULT  ") + KeystoneArcScoreboard.DayLine(day, asian));
+                sb.AppendLine(PoolAccountsOnDay(day.Day));
+                if (setupsOnly) sb.AppendLine();
+            }
+            if (setupsOnly) sb.Append(KeystoneArcScoreboard.Report(days, config));
+            poolDayText.Text = sb.ToString().TrimEnd();
+        }
+
+        // What happened to the virtual accounts on one session (from their daily records).
+        private string PoolAccountsOnDay(DateTime day)
+        {
+            if (accounts == null || accounts.Count == 0) return "ACCOUNTS  run the virtual pool to see what the accounts did on this day.";
+            var rows = accounts.Select(a => new { Account = a, Day = a.DayHistory.FirstOrDefault(x => x.Day.Date == day.Date) }).Where(x => x.Day != null).ToList();
+            if (rows.Count == 0) return "ACCOUNTS  no account traded this day (all ended, benched, or waiting).";
+            Func<double, string> money = v => (v >= 0 ? "+$" : "−$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            int traded = rows.Count(x => x.Day.TradesAfter > 0);
+            int funded = rows.Count(x => x.Day.FundedAfter), waiting = rows.Count(x => x.Day.FundedCapPendingAfter), blown = rows.Count(x => x.Day.BlownAfter);
+            int payouts = rows.Count(x => x.Day.PayoutGrossDelta > 0), purchases = rows.Sum(x => x.Day.EvaluationPurchaseDelta), passes = rows.Count(x => x.Day.EvaluationPassDateAfter.Date == day.Date);
+            var sb = new StringBuilder();
+            sb.AppendLine("ACCOUNTS  " + traded + " of " + rows.Count + " traded • " + funded + " funded • " + (rows.Count - funded - waiting - blown) + " in evaluation" + (waiting > 0 ? " • " + waiting + " firm-cap wait" : "") + " • passed today " + passes
+                + " • payouts today " + payouts + (payouts > 0 ? " (" + money(rows.Sum(x => x.Day.PayoutGrossDelta)) + " gross)" : "") + " • bought today " + purchases + (purchases > 0 ? " (" + money(-rows.Sum(x => x.Day.CostDelta)) + ")" : "") + " • blown at close " + blown);
+            // Accounts with the same result are grouped so copy-traded pools read as one line.
+            foreach (var g in rows.GroupBy(x => money(x.Day.DayPnl) + " • " + (string.IsNullOrWhiteSpace(x.Day.StateAfterClose) ? "-" : x.Day.StateAfterClose)).OrderByDescending(g => g.Count()))
+            {
+                var names = g.Select(x => x.Account.Name).ToList();
+                sb.AppendLine("  " + names.Count.ToString(CultureInfo.InvariantCulture).PadLeft(3) + " × " + g.Key + "  [" + (names.Count <= 6 ? string.Join(", ", names) : string.Join(", ", names.Take(5)) + " … " + names.Last()) + "]");
+            }
+            return sb.ToString().TrimEnd();
+        }
+
         private List<KeystoneArcBar> AsianOptimizerBars()
         {
             var bars = new List<KeystoneArcBar>();
@@ -5833,6 +6142,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool oneDay = config != null && config.Start != DateTime.MinValue
                 ? config.OneDayMode == 1
                 : (dateModeBox != null && string.Equals(Convert.ToString(dateModeBox.SelectedItem), "ONE DAY", StringComparison.OrdinalIgnoreCase));
+            // Show every prop control first; the specific rules below then hide what does not apply
+            // (running this last used to re-show BH-only evaluation boxes on Asian studies).
+            for (int i = 0; i < propOnlyControls.Count; i++) propOnlyControls[i].Visibility = Visibility.Visible;
             bool singleAccount = poolBox != null && string.Equals(Convert.ToString(poolBox.SelectedItem), "1", StringComparison.OrdinalIgnoreCase);
             bool evaluationFirst = !singleAccount && (accountStartModeBox == null || !string.Equals(Convert.ToString(accountStartModeBox.SelectedItem), "DIRECT FUNDED", StringComparison.OrdinalIgnoreCase));
             // Evaluation rules matter for evaluation-first studies and for the replacement
@@ -5874,7 +6186,6 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool firmCapVisible = !oneDay && !singleAccount && firmFundedCapBox != null && firmFundedCapBox.IsChecked == true;
             for (int i = 0; i < firmCapControls.Count; i++) firmCapControls[i].Visibility = firmCapVisible ? Visibility.Visible : Visibility.Collapsed;
             for (int i = 0; i < singleAccountControls.Count; i++) singleAccountControls[i].Visibility = singleAccount ? Visibility.Visible : Visibility.Collapsed;
-            for (int i = 0; i < propOnlyControls.Count; i++) propOnlyControls[i].Visibility = Visibility.Visible;
             for (int i = 0; i < personalOnlyControls.Count; i++) personalOnlyControls[i].Visibility = Visibility.Collapsed;
             if (poolBox != null) poolBox.IsEnabled = true;
             if (lifecycleControlsPanel != null) lifecycleControlsPanel.Visibility = Visibility.Visible;
@@ -6803,6 +7114,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     UpdateWorkflowState();
                     if (events.Count > 0 && workspaceTabs != null) workspaceTabs.SelectedIndex = 1;
                     if (resultViewTabs != null) resultViewTabs.SelectedIndex = 0;
+                    poolDayIndex = -1; RenderPoolDayPanel();
                 });
             });
         }
@@ -6922,6 +7234,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     accounts = result ?? new List<KeystoneArcVirtualAccount>();
                     RenderPoolLedger(); RenderLifecycle(); RenderPoolDashboard(); RenderEvents(); unsavedResearch = true;
+                    RenderPoolDayPanel();
                     if (runPoolButton != null) runPoolButton.Content = "RECALCULATE VIRTUAL POOL";
                     EndBusy();
                     if (workspaceTabs != null) workspaceTabs.SelectedIndex = 2;
@@ -7189,6 +7502,22 @@ namespace NinjaTrader.NinjaScript.AddOns
             auditRow.Children.Add(evidenceHoverBorder);
             var totalsBorder = new Border { Background = Card, BorderBrush = Cyan, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(8, 0, 0, 0), Child = evidenceMetricsText };
             Grid.SetColumn(totalsBorder, 1); auditRow.Children.Add(totalsBorder); auditStack.Children.Add(auditRow);
+            // Asian replay: step through the night event by event on either instrument tab.
+            evidenceReplayBar = new WrapPanel { Margin = new Thickness(0, 4, 0, 2), Visibility = Visibility.Collapsed };
+            var replayStart = Btn("⏮ START", Card); replayStart.Width = 96; replayStart.Height = 30; replayStart.Foreground = Text; replayStart.ToolTip = "First event of the night"; replayStart.Click += delegate { EvidenceReplayGo(0); };
+            var replayPrev = Btn("◀ PREV", Blue); replayPrev.Width = 96; replayPrev.Height = 30; replayPrev.ToolTip = "Previous event"; replayPrev.Click += delegate { EvidenceReplayGo(evidenceReplayIndex <= 0 ? 0 : evidenceReplayIndex - 1); };
+            evidenceReplayPlayButton = Btn("▶ PLAY", Green); evidenceReplayPlayButton.Width = 110; evidenceReplayPlayButton.Height = 30; evidenceReplayPlayButton.ToolTip = "Animate the night step by step"; evidenceReplayPlayButton.Click += delegate { ToggleEvidenceReplayPlay(); };
+            var replayNext = Btn("NEXT ▶", Blue); replayNext.Width = 96; replayNext.Height = 30; replayNext.ToolTip = "Next event"; replayNext.Click += delegate { EvidenceReplayGo(evidenceReplayIndex + 1); };
+            var replayEnd = Btn("END ⏭", Card); replayEnd.Width = 96; replayEnd.Height = 30; replayEnd.Foreground = Text; replayEnd.ToolTip = "Last event of the night"; replayEnd.Click += delegate { EvidenceReplayGo(int.MaxValue); };
+            var replayExit = Btn("SHOW ALL", Orchid); replayExit.Width = 100; replayExit.Height = 30; replayExit.ToolTip = "Leave replay and show every leg"; replayExit.Click += delegate { StopEvidenceReplay(); };
+            evidenceReplayStepText = Txt(string.Empty, Gold, 12, FontWeights.Bold); evidenceReplayStepText.VerticalAlignment = VerticalAlignment.Center; evidenceReplayStepText.Margin = new Thickness(10, 0, 0, 0);
+            foreach (UIElement replayControl in new UIElement[] { replayStart, replayPrev, evidenceReplayPlayButton, replayNext, replayEnd, replayExit, evidenceReplayStepText }) evidenceReplayBar.Children.Add(replayControl);
+            auditStack.Children.Add(evidenceReplayBar);
+            evidenceReplayHeadline = Txt(string.Empty, Cyan, 15, FontWeights.Bold);
+            evidenceReplayDetail = Txt(string.Empty, Text, 12, FontWeights.Normal); evidenceReplayDetail.FontFamily = new FontFamily("Consolas"); evidenceReplayDetail.TextWrapping = TextWrapping.NoWrap;
+            var replayContent = new StackPanel(); replayContent.Children.Add(evidenceReplayHeadline); replayContent.Children.Add(evidenceReplayDetail);
+            evidenceReplayBorder = new Border { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(5), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 2, 0, 2), HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed, Child = replayContent };
+            auditStack.Children.Add(evidenceReplayBorder);
             evidenceDetailText = Txt("CLICK A W/L/EXIT CIRCLE TO AUDIT ONE SETUP. The chart stays clean until selection: then its exact entry and exit prices appear without covering the candles.", Muted, 11, FontWeights.Normal);
             evidenceDetailText.FontFamily = new FontFamily("Consolas");
             evidenceDetailBorder = new Border { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1), Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 3, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = 940, Visibility = Visibility.Collapsed, Child = evidenceDetailText };
@@ -7322,7 +7651,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (answer != MessageBoxResult.Yes) { args.Cancel = true; return; }
                 evidenceCloseConfirmed = true;
             };
-            w.Closed += delegate { CancelEvidenceRequest(); if (evidenceSelectionTimer != null) evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; if (evidenceRenderQueued) { CompositionTarget.Rendering -= EvidenceRenderTick; evidenceRenderQueued = false; } evidenceFullRenderNeeded = true; evidenceLastAnimatedRenderKey = null; evidencePanOverscrollTransform = null; evidenceCrosshairHLine = null; evidenceCrosshairVLine = null; evidenceCrosshairPriceLabel = null; evidenceCrosshairTimeLabel = null; evidenceLayoutBars = null; evidenceWindow = null; evidenceCanvas = null; evidenceScroll = null; evidenceHorizontalScrollBar = null; evidenceVerticalScrollBar = null; evidenceTabsScroll = null; evidenceDateStrip = null; evidenceDateButtons.Clear(); evidenceSelectedDateIndex = -1; evidenceControlsPanel = null; evidenceDetailBorder = null; evidencePnlBorder = null; evidenceControlsToggle = null; evidenceStatusText = null; evidenceMetricsText = null; evidenceLegendText = null; evidenceZoomText = null; evidenceStudyText = null; evidenceDetailText = null; evidencePnlText = null; selectedEvidenceEvent = null; evidenceInstrumentTabs = null; evidenceTimeframeBox = null; evidencePreviewEvents.Clear(); evidencePreviewOwnLedger = false; evidencePreviewMinutes = 0; evidencePanning = false; pendingEvidenceSelectionAction = null; };
+            w.Closed += delegate { CancelEvidenceRequest(); if (evidenceReplayTimer != null) evidenceReplayTimer.Stop(); evidenceReplayIndex = -1; evidenceReplayDay = DateTime.MinValue; evidenceReplaySteps = new List<KeystoneArcReplayStep>(); evidenceReplayBar = null; evidenceReplayBorder = null; evidenceReplayHeadline = null; evidenceReplayDetail = null; evidenceReplayStepText = null; evidenceReplayPlayButton = null; if (evidenceSelectionTimer != null) evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; if (evidenceRenderQueued) { CompositionTarget.Rendering -= EvidenceRenderTick; evidenceRenderQueued = false; } evidenceFullRenderNeeded = true; evidenceLastAnimatedRenderKey = null; evidencePanOverscrollTransform = null; evidenceCrosshairHLine = null; evidenceCrosshairVLine = null; evidenceCrosshairPriceLabel = null; evidenceCrosshairTimeLabel = null; evidenceLayoutBars = null; evidenceWindow = null; evidenceCanvas = null; evidenceScroll = null; evidenceHorizontalScrollBar = null; evidenceVerticalScrollBar = null; evidenceTabsScroll = null; evidenceDateStrip = null; evidenceDateButtons.Clear(); evidenceSelectedDateIndex = -1; evidenceControlsPanel = null; evidenceDetailBorder = null; evidencePnlBorder = null; evidenceControlsToggle = null; evidenceStatusText = null; evidenceMetricsText = null; evidenceLegendText = null; evidenceZoomText = null; evidenceStudyText = null; evidenceDetailText = null; evidencePnlText = null; selectedEvidenceEvent = null; evidenceInstrumentTabs = null; evidenceTimeframeBox = null; evidencePreviewEvents.Clear(); evidencePreviewOwnLedger = false; evidencePreviewMinutes = 0; evidencePanning = false; pendingEvidenceSelectionAction = null; };
             w.Show();
             if (evidenceInstrumentTabs != null && evidenceInstrumentTabs.Items.Count > 0)
             {
@@ -7564,6 +7893,17 @@ namespace NinjaTrader.NinjaScript.AddOns
             int visibleCount = Math.Max(1, Math.Min(allBars.Count, (int)Math.Floor((width - left - right) / Math.Max(0.35, candleWidth))));
             int lastPossibleFirst = Math.Max(0, allBars.Count - visibleCount);
             evidenceLayoutLastPossibleFirst = lastPossibleFirst;
+            bool asianReplay = config != null && string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            if (asianReplay && day != evidenceReplayDay) { EnsureEvidenceReplaySteps(day); UpdateEvidenceReplayPanel(); }
+            if (asianReplay && evidenceReplayFollow && evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count)
+            {
+                // Keep the current replay event in view (about a third from the left).
+                DateTime replayTime = evidenceReplaySteps[evidenceReplayIndex].Time;
+                int replayBar = allBars.FindLastIndex(candle => candle.Time <= replayTime);
+                if (replayBar >= 0 && (replayBar < evidenceFirstVisibleBar || replayBar >= evidenceFirstVisibleBar + visibleCount - 2))
+                    evidenceFirstVisibleBar = Math.Max(0, replayBar - visibleCount / 3);
+                evidenceReplayFollow = false;
+            }
             evidenceFirstVisibleBar = Math.Max(0, Math.Min(lastPossibleFirst, evidenceFirstVisibleBar));
             List<KeystoneArcBar> bars = allBars.Skip(evidenceFirstVisibleBar).Take(visibleCount).ToList();
             List<KeystoneArcEvent> marks = allMarks.Where(e => EvidenceEntryBarIndex(bars, e) >= 0).ToList();
@@ -7962,13 +8302,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             return e.Outcome == "UNVERIFIED 1M" ? (string.Equals(e.Direction, "SHORT", StringComparison.OrdinalIgnoreCase) ? "↓" : "↑") : (e.Outcome == "WIN" ? "W" : (e.Outcome.StartsWith("LOSS") ? "L" : "E"));
         }
 
-        // Asian cycle chart annotations: for every leg of this instrument, its label at entry
-        // (leg, direction, contracts, price), the stop level, an entry→exit line, and at the exit
-        // what happened (stop and reversal, target, loss limit, session end) with the combined
-        // MNQ + MGC cycle P/L at that minute and the night's worst combined P/L so far.
+        // Asian cycle chart annotations for one instrument. Normal view: compact labels (leg,
+        // direction, size at entry; result at exit), stop lines and entry→exit lines — the full
+        // story lives in the replay box. Replay view (cutoff set): only what has happened up to the
+        // current step, a cursor at that minute, and full labels + a highlight on the current event.
         private void DrawAsianLegAnnotations(List<KeystoneArcEvent> legs, List<KeystoneArcBar> bars, double left, double candleWidth, Func<double, double> y, double plotTop, double plotBottom, string symbol)
         {
             if (legs == null || bars == null || bars.Count == 0) return;
+            KeystoneArcReplayStep current = evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count ? evidenceReplaySteps[evidenceReplayIndex] : null;
+            DateTime cutoff = current == null ? DateTime.MaxValue : current.Time;
             string priceFormat = symbol == "MGC" ? "0.0" : "0.00";
             DateTime firstTime = bars[0].Time, lastTime = bars[bars.Count - 1].Time;
             Func<DateTime, double> xAt = delegate(DateTime t)
@@ -7979,42 +8321,124 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             Func<double, double> clampY = delegate(double v) { return Math.Max(plotTop + 2, Math.Min(plotBottom - 28, v)); };
             Func<double, string> money = delegate(double v) { return (v >= 0 ? "+$" : "−$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture); };
-            foreach (KeystoneArcEvent e in legs.Where(x => x.SetupClass == "ASIA75").OrderBy(x => x.EntryTime))
+            foreach (KeystoneArcEvent e in legs.Where(x => x.SetupClass == "ASIA75" && x.EntryTime <= cutoff).OrderBy(x => x.EntryTime))
             {
-                DateTime exitTime = e.ExitTime == DateTime.MinValue ? e.EntryTime : e.ExitTime;
-                if (exitTime < firstTime || e.EntryTime > lastTime) continue;
-                double x1 = xAt(e.EntryTime < firstTime ? firstTime : e.EntryTime), x2 = xAt(exitTime > lastTime ? lastTime : exitTime);
+                bool exited = e.ExitTime != DateTime.MinValue && e.ExitTime <= cutoff;
+                DateTime endTime = exited ? e.ExitTime : (cutoff == DateTime.MaxValue ? e.ExitTime : cutoff);
+                if (endTime < firstTime || e.EntryTime > lastTime) continue;
+                bool isCurrent = current != null && (current.Entries.Contains(e) || current.Exits.Contains(e));
+                bool longLeg = e.Direction == "LONG";
+                double x1 = xAt(e.EntryTime < firstTime ? firstTime : e.EntryTime), x2 = xAt(endTime > lastTime ? lastTime : endTime);
                 double entryY = y(e.Entry), exitY = double.IsNaN(e.ExitPrice) ? entryY : y(e.ExitPrice);
                 bool reversalStop = (e.ReviewNote ?? string.Empty).StartsWith("REVERSAL LOSS", StringComparison.OrdinalIgnoreCase);
                 Brush legBrush = e.GrossPnl >= 0 ? Green : Red;
-                int stagger = Math.Max(0, (e.AsianLegNumber - 1) % 3) * 26;
-                // stop level while the leg was open
-                AddDashedEvidenceLeader(x1, y(e.Stop), Math.Max(x1 + 6, x2), y(e.Stop), Red, 0.55, null);
-                // entry → exit path
-                evidenceCanvas.Children.Add(new System.Windows.Shapes.Line { X1 = x1, Y1 = entryY, X2 = Math.Max(x1 + 2, x2), Y2 = exitY, Stroke = legBrush, StrokeThickness = 1.8, Opacity = 0.85, IsHitTestVisible = false });
-                var entryDot = new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Fill = e.Direction == "LONG" ? Blue : Orchid, IsHitTestVisible = false };
+                int stagger = Math.Max(0, (e.AsianLegNumber - 1) % 3) * 14;
+                AddDashedEvidenceLeader(x1, y(e.Stop), Math.Max(x1 + 6, x2), y(e.Stop), Red, isCurrent ? 0.9 : 0.45, null);
+                if (exited) evidenceCanvas.Children.Add(new System.Windows.Shapes.Line { X1 = x1, Y1 = entryY, X2 = Math.Max(x1 + 2, x2), Y2 = exitY, Stroke = legBrush, StrokeThickness = isCurrent ? 2.6 : 1.6, Opacity = isCurrent ? 1.0 : 0.75, IsHitTestVisible = false });
+                var entryDot = new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Fill = longLeg ? Blue : Orchid, IsHitTestVisible = false };
                 Canvas.SetLeft(entryDot, x1 - 3.5); Canvas.SetTop(entryDot, entryY - 3.5); evidenceCanvas.Children.Add(entryDot);
-                // entry label
-                bool longLeg = e.Direction == "LONG";
-                string entryLabel = "L" + Math.Max(1, e.AsianLegNumber) + " " + e.Direction + " x" + e.Quantity.ToString("0", CultureInfo.InvariantCulture) + " @ " + e.Entry.ToString(priceFormat, CultureInfo.InvariantCulture);
-                AddCanvasText(entryLabel, x1 + 6, clampY(longLeg ? entryY - 30 - stagger : entryY + 8 + stagger), longLeg ? Blue : Orchid, 10, FontWeights.Bold);
-                // exit label: what happened + combined cycle state
-                string what;
-                if (reversalStop)
+                string sizeText = " x" + e.Quantity.ToString("0", CultureInfo.InvariantCulture);
+                if (isCurrent && current.Entries.Contains(e))
+                    AddCanvasText("L" + Math.Max(1, e.AsianLegNumber) + " " + e.Direction + sizeText + " @ " + e.Entry.ToString(priceFormat, CultureInfo.InvariantCulture), x1 + 6, clampY(longLeg ? entryY - 30 : entryY + 8), longLeg ? Blue : Orchid, 12, FontWeights.Bold);
+                else
+                    AddCanvasText("L" + Math.Max(1, e.AsianLegNumber) + (longLeg ? " L" : " S") + sizeText, x1 + 4, clampY(longLeg ? entryY - 16 - stagger : entryY + 4 + stagger), longLeg ? Blue : Orchid, 9, FontWeights.Bold);
+                if (!exited) continue;
+                string result;
+                if (reversalStop) result = "STOP " + money(e.GrossPnl);
+                else if (e.Outcome == "WIN") result = "TARGET " + money(e.GrossPnl);
+                else if (e.Outcome == "SESSION EXIT") result = "SESSION END " + money(e.GrossPnl);
+                else if (e.Outcome == "BREAKEVEN GUARD") result = "BREAKEVEN " + money(e.GrossPnl);
+                else result = "LOSS LIMIT " + money(e.GrossPnl);
+                if (isCurrent && current.Exits.Contains(e))
                 {
-                    string note = e.ReviewNote ?? string.Empty;
-                    bool lastLeg = note.IndexOf("MAX REVERSALS", StringComparison.OrdinalIgnoreCase) >= 0 || note.IndexOf("INSTRUMENT LOSS CAP", StringComparison.OrdinalIgnoreCase) >= 0;
-                    what = "STOP " + money(e.GrossPnl) + (note.IndexOf("GAP", StringComparison.OrdinalIgnoreCase) >= 0 ? " (GAP)" : "") + (lastLeg ? " • LAST LEG, " + symbol + " DONE" : " → " + (longLeg ? "SHORT" : "LONG") + " x" + (e.Quantity + 1).ToString("0", CultureInfo.InvariantCulture));
+                    var ring = new System.Windows.Shapes.Ellipse { Width = 18, Height = 18, Stroke = Gold, StrokeThickness = 2.5, IsHitTestVisible = false };
+                    Canvas.SetLeft(ring, x2 - 9); Canvas.SetTop(ring, exitY - 9); evidenceCanvas.Children.Add(ring);
+                    AddCanvasText(result + " • CYCLE " + money(current.CombinedPnl), x2 + 11, clampY(exitY - 8), legBrush, 12, FontWeights.Bold);
                 }
-                else if (e.Outcome == "WIN") what = "TARGET • LEG " + money(e.GrossPnl);
-                else if (e.Outcome == "SESSION EXIT") what = "SESSION END • LEG " + money(e.GrossPnl);
-                else if (e.Outcome == "BREAKEVEN GUARD") what = "BREAKEVEN GUARD • LEG " + money(e.GrossPnl);
-                else what = ((e.ReviewNote ?? string.Empty).IndexOf("COMBINED CYCLE STOP", StringComparison.OrdinalIgnoreCase) >= 0 ? "CYCLE STOP" : "DAILY LOSS LIMIT") + " • LEG " + money(e.GrossPnl);
-                string cycle = double.IsNaN(e.AsianCyclePnlAtExit) ? string.Empty : "CYCLE " + money(e.AsianCyclePnlAtExit) + " • WORST " + money(Math.Min(0, e.AsianCycleWorstAtExit)) + " • " + exitTime.ToString("HH:mm", CultureInfo.InvariantCulture);
-                double labelY = clampY(longLeg ? exitY + 6 + stagger : exitY - 32 - stagger);
-                AddCanvasText(what, x2 + 5, labelY, legBrush, 10, FontWeights.Bold);
-                if (cycle.Length > 0) AddCanvasText(cycle, x2 + 5, labelY + 13, Gold, 9, FontWeights.Bold);
+                else AddCanvasText(result, x2 + 4, clampY(longLeg ? exitY + 4 + stagger : exitY - 16 - stagger), legBrush, 9, FontWeights.Bold);
             }
+            if (current != null && cutoff >= firstTime && cutoff <= lastTime)
+            {
+                double cx = xAt(cutoff);
+                evidenceCanvas.Children.Add(new System.Windows.Shapes.Line { X1 = cx, Y1 = plotTop, X2 = cx, Y2 = plotBottom, Stroke = Gold, StrokeThickness = 1.4, Opacity = 0.85, IsHitTestVisible = false });
+                AddCanvasText("REPLAY " + cutoff.ToString("HH:mm", CultureInfo.InvariantCulture), cx + 4, plotTop + 2, Gold, 11, FontWeights.Bold);
+            }
+        }
+
+        // ---- Evidence replay (Asian): PREV / NEXT / PLAY through one night's events ----------------
+        private double? LabCloseAt(string symbol, DateTime t)
+        {
+            List<KeystoneArcBar> list = string.Equals(symbol, "MGC", StringComparison.OrdinalIgnoreCase) ? mgcBars : mnqBars;
+            if (list == null || list.Count == 0) return null;
+            int lo = 0, hi = list.Count - 1, found = -1;
+            while (lo <= hi) { int mid = (lo + hi) / 2; if (list[mid].Time <= t) { found = mid; lo = mid + 1; } else hi = mid - 1; }
+            return found < 0 ? (double?)null : list[found].Close;
+        }
+
+        private bool EvidenceReplayDay(out DateTime day)
+        {
+            return DateTime.TryParseExact(evidenceDateBox == null ? string.Empty : evidenceDateBox.Text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out day);
+        }
+
+        private void EnsureEvidenceReplaySteps(DateTime day)
+        {
+            if (day == evidenceReplayDay) return;
+            evidenceReplayDay = day; evidenceReplayIndex = -1;
+            if (evidenceReplayTimer != null) evidenceReplayTimer.Stop();
+            List<KeystoneArcEvent> night = (evidencePreviewOwnLedger ? evidencePreviewEvents : events).Where(e => e != null && e.SetupClass == "ASIA75" && e.ReferenceTime.Date == day.Date).ToList();
+            evidenceReplaySteps = KeystoneArcAsianReplay.Build(night, LabCloseAt, config == null ? 350 : config.AsianCycleTargetDollars, config == null ? 600 : config.AsianDailyLossLimitDollars);
+        }
+
+        private void EvidenceReplayGo(int index)
+        {
+            DateTime day; if (!EvidenceReplayDay(out day)) return;
+            EnsureEvidenceReplaySteps(day);
+            if (evidenceReplaySteps.Count == 0) { evidenceReplayIndex = -1; UpdateEvidenceReplayPanel(); return; }
+            evidenceReplayIndex = Math.Max(0, Math.Min(evidenceReplaySteps.Count - 1, index));
+            evidenceReplayFollow = true;
+            UpdateEvidenceReplayPanel();
+            RenderEvidenceChart();
+        }
+
+        private void StopEvidenceReplay()
+        {
+            if (evidenceReplayTimer != null) evidenceReplayTimer.Stop();
+            evidenceReplayIndex = -1;
+            UpdateEvidenceReplayPanel();
+            RenderEvidenceChart();
+        }
+
+        private void ToggleEvidenceReplayPlay()
+        {
+            if (evidenceReplayTimer == null)
+            {
+                evidenceReplayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1400) };
+                evidenceReplayTimer.Tick += delegate
+                {
+                    if (evidenceReplayIndex >= evidenceReplaySteps.Count - 1) { evidenceReplayTimer.Stop(); UpdateEvidenceReplayPanel(); return; }
+                    EvidenceReplayGo(evidenceReplayIndex + 1);
+                };
+            }
+            if (evidenceReplayTimer.IsEnabled) { evidenceReplayTimer.Stop(); UpdateEvidenceReplayPanel(); return; }
+            if (evidenceReplayIndex < 0 || evidenceReplayIndex >= evidenceReplaySteps.Count - 1) EvidenceReplayGo(0);
+            evidenceReplayTimer.Start();
+            UpdateEvidenceReplayPanel();
+        }
+
+        private void UpdateEvidenceReplayPanel()
+        {
+            bool asian = config != null && string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            if (evidenceReplayBar != null) evidenceReplayBar.Visibility = asian ? Visibility.Visible : Visibility.Collapsed;
+            if (evidenceReplayPlayButton != null) evidenceReplayPlayButton.Content = evidenceReplayTimer != null && evidenceReplayTimer.IsEnabled ? "❚❚ PAUSE" : "▶ PLAY";
+            bool active = asian && evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count;
+            if (evidenceReplayBorder != null) evidenceReplayBorder.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+            if (evidenceReplayStepText != null)
+                evidenceReplayStepText.Text = !asian ? string.Empty : (active ? "STEP " + (evidenceReplayIndex + 1) + " / " + evidenceReplaySteps.Count + " • " + evidenceReplaySteps[evidenceReplayIndex].Time.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " ET • switch MNQ / MGC tabs any time"
+                    : "REPLAY • step through this night event by event (both instruments + combined P/L)");
+            if (!active) return;
+            KeystoneArcReplayStep step = evidenceReplaySteps[evidenceReplayIndex];
+            if (evidenceReplayHeadline != null) { evidenceReplayHeadline.Text = step.Headline; evidenceReplayHeadline.Foreground = step.Headline.Contains("NIGHT CLOSED") ? (step.CombinedPnl >= 0 ? Green : Red) : (step.Headline.Contains("STOP") ? Red : Cyan); }
+            if (evidenceReplayDetail != null) evidenceReplayDetail.Text = step.Detail;
         }
 
         private TextBlock AddCanvasText(string value, double x, double y, Brush brush, double size, FontWeight weight)
@@ -9883,6 +10307,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.FirmFundedCapEnabled = config.EvaluationEnabled >= 0 && firmFundedCapBox != null && firmFundedCapBox.IsChecked == true ? 1 : 0;
             config.BlownAccountReplacement = blownAccountBox != null && blownAccountBox.SelectedIndex == 1 ? 0 : 1;
             config.EvalQualifyingDaysConsecutive = evalConsecutiveBox == null || evalConsecutiveBox.IsChecked == true ? 1 : 0;
+            config.EvaluationMinTradingDays = Math.Max(0, Integer(evalMinTradingDaysBox, 0));
             config.AsianEvalStageEnabled = asian75 && asianEvalStageBox != null && asianEvalStageBox.IsChecked == true ? 1 : 0;
             config.AsianEvalCycleTargetDollars = Number(asianEvalTargetBox, config.AsianCycleTargetDollars);
             config.AsianEvalReversalLossDollars = Number(asianEvalLegLossBox, config.AsianReversalLossDollars);
@@ -10934,6 +11359,24 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (payoutAmountBox != null) payoutAmountBox.Text = "2000";
             if (minimumDaysBox != null) minimumDaysBox.Text = "2";
             if (minimumQualifyingDayBox != null) minimumQualifyingDayBox.Text = "150";
+            // Every pool / results control returns to its default on NEW TEST.
+            if (payoutProfitShareBox != null) payoutProfitShareBox.Text = "100";
+            if (copyTradingPoolBox != null) copyTradingPoolBox.IsChecked = false;
+            if (multipleSetupsPerDayBox != null) multipleSetupsPerDayBox.IsChecked = false;
+            if (blownAccountBox != null) blownAccountBox.SelectedIndex = 0;
+            if (evalConsecutiveBox != null) evalConsecutiveBox.IsChecked = true;
+            if (evalMinTradingDaysBox != null) evalMinTradingDaysBox.Text = "0";
+            if (asianEvalStageBox != null) asianEvalStageBox.IsChecked = false;
+            if (asianEvalTargetBox != null) asianEvalTargetBox.Text = "350";
+            if (asianEvalLegLossBox != null) asianEvalLegLossBox.Text = "75";
+            if (asianEvalReversalsBox != null) asianEvalReversalsBox.Text = "4";
+            foreach (CheckBox filter in new[] { oneDayShowTradedBox, oneDayShowProfitLocksBox, oneDayShowLossLocksBox, oneDayShowUnusedBox, showWinsBox, showLossesBox, showExitsBox, showNoEntryBox }) if (filter != null) filter.IsChecked = true;
+            foreach (ComboBox picker in new[] { periodGranularityBox, poolStateFilterBox, payoutCycleMonthFilterBox }) if (picker != null && picker.Items.Count > 0) picker.SelectedIndex = 0;
+            if (resultViewTabs != null) resultViewTabs.SelectedIndex = 0;
+            if (evidenceReplayTimer != null) evidenceReplayTimer.Stop();
+            evidenceReplayIndex = -1; evidenceReplayDay = DateTime.MinValue; evidenceReplaySteps = new List<KeystoneArcReplayStep>();
+            if (setupsOnlyBox != null) setupsOnlyBox.IsChecked = false;
+            poolDayIndex = -1; if (poolDayText != null) poolDayText.Text = string.Empty; if (poolDayLabel != null) poolDayLabel.Text = "DAY BY DAY • press NEXT DAY to step through the sessions";
             if (outcomesBox != null) outcomesBox.IsChecked = true;
             if (chartMarksBox != null) chartMarksBox.IsChecked = true;
             if (chartReviewScopeBox != null) chartReviewScopeBox.SelectedIndex = 0;
@@ -11280,6 +11723,20 @@ namespace NinjaTrader.NinjaScript.AddOns
         // Pool settings must remain readable at normal NinjaTrader window sizes.  These rows have
         // a stable compact width, so a WrapPanel creates clean rows instead of vertically-stretched
         // controls or a hidden lower half of the settings page.
-        private static Grid PoolRow(string label, UIElement control) { var g = new Grid { Width = 270, MinHeight = 34, Margin = new Thickness(3, 2, 3, 2), VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.95, GridUnitType.Star) }); var caption = Txt(label, Muted, 9, FontWeights.Bold); caption.TextWrapping = TextWrapping.Wrap; caption.VerticalAlignment = VerticalAlignment.Center; g.Children.Add(caption); FrameworkElement compactControl = control as FrameworkElement; if (compactControl != null) { compactControl.VerticalAlignment = VerticalAlignment.Center; compactControl.Height = 28; compactControl.Margin = new Thickness(3, 1, 3, 1); } Grid.SetColumn(control, 1); g.Children.Add(control); return g; }
+        // A labelled pool-settings field. Checkbox / dropdown rows are wider and checkbox text wraps,
+        // so option names are never cut off.
+        private static Grid PoolRow(string label, UIElement control)
+        {
+            bool wide = control is CheckBox || control is ComboBox;
+            var g = new Grid { Width = wide ? 380 : 300, MinHeight = 34, Margin = new Thickness(3, 2, 3, 2), VerticalAlignment = VerticalAlignment.Top };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(wide ? 0.95 : 1.25, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(wide ? 1.45 : 0.95, GridUnitType.Star) });
+            var caption = Txt(label, Muted, 10, FontWeights.Bold); caption.TextWrapping = TextWrapping.Wrap; caption.VerticalAlignment = VerticalAlignment.Center; g.Children.Add(caption);
+            var box = control as CheckBox;
+            if (box != null && box.Content is string) box.Content = new TextBlock { Text = (string)box.Content, TextWrapping = TextWrapping.Wrap };
+            FrameworkElement compactControl = control as FrameworkElement;
+            if (compactControl != null) { compactControl.VerticalAlignment = VerticalAlignment.Center; if (box == null) compactControl.Height = 28; else compactControl.MinHeight = 28; compactControl.Margin = new Thickness(3, 1, 3, 1); }
+            Grid.SetColumn(control, 1); g.Children.Add(control); return g;
+        }
     }
 }

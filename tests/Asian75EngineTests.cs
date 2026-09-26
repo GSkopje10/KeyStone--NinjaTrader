@@ -180,6 +180,21 @@ public static class Asian75EngineTests
             Check(mnqWin != null && Math.Abs(mnqWin.AsianCyclePnlAtExit - (mgcPnl + mnqPnl)) < 0.01, "closing leg's cycle P/L equals the night result", mnqWin == null ? "" : mnqWin.AsianCyclePnlAtExit.ToString());
             Check(mnqWin != null && mnqWin.AsianCycleWorstAtExit < -300 && mnqWin.AsianCycleWorstAtExit <= ev.Min(e => e.AsianCyclePnlAtExit), "night's worst combined drawdown is recorded and is the lowest point of the night", mnqWin == null ? "" : mnqWin.AsianCycleWorstAtExit.ToString());
         }
+        // 14. Replay steps: one per moment of the night, both instruments' state, combined P/L.
+        {
+            var mgc = Bars("MGC", m => new double[] { 2900, 2910, 2890, 2900 });
+            var mnq = Bars("MNQ", m => m == 0 ? new double[] { 20000, 20000.25, 19960, 19965 } : Flat(19965 - m * 1.0));
+            var all = mnq.Concat(mgc).ToList();
+            var ev = Run(Cfg("BOTH"), all);
+            Func<string, DateTime, double?> closeAt = (sym, t) => { var b = all.Where(x => x.Symbol == sym && x.Time <= t).OrderBy(x => x.Time).LastOrDefault(); return b == null ? (double?)null : b.Close; };
+            var steps = KeystoneArcAsianReplay.Build(ev, closeAt, 350, 600);
+            foreach (var st in steps.Take(3).Concat(steps.Skip(steps.Count - 1))) Console.WriteLine("  [" + st.Time.ToString("HH:mm") + "] " + st.Headline + "\n    " + st.Detail.Replace("\n", "\n    "));
+            Check(steps.Count > 3 && steps[0].Headline.StartsWith("CYCLE OPENED") && steps[0].Entries.Count == 2, "replay starts with the cycle opening both instruments", steps.Count > 0 ? steps[0].Headline : "none");
+            var last = steps[steps.Count - 1];
+            Check(last.Headline.Contains("NIGHT CLOSED • CYCLE TARGET") && Math.Abs(last.CombinedPnl - ev.Sum(e => e.GrossPnl)) < 0.01, "replay ends at the combined target with the night's P/L", last.Headline + " " + last.CombinedPnl);
+            Check(steps.All(st => st.Detail.Contains("MNQ ") && st.Detail.Contains("MGC ") && st.Detail.Contains("COMBINED P/L")), "every step shows both instruments and the combined P/L", "");
+            Check(steps.Select(st => st.WorstCombined).Zip(steps.Select(st => st.WorstCombined).Skip(1), (a, b) => b <= a).All(x => x), "worst-so-far never improves", "");
+        }
         Console.WriteLine(failures == 0 ? "\nALL ASIAN 75 TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

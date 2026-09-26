@@ -111,6 +111,37 @@ public static class LifecycleTests
             Check(ev != null && ev.AsianCycleTargetDollars == 600 && ev.AsianReversalLossDollars == 100 && ev.AsianMnqMaxReversals == 2 && ev.AsianDailyLossLimitDollars == 400 && main.AsianCycleTargetDollars == 350,
                 "evaluation-stage config: target $600, $100 legs, 2 reversals, auto loss 100×2×2=$400; main config unchanged", ev == null ? "null" : ev.AsianDailyLossLimitDollars.ToString());
         }
+        // 9. Daily records show that day's trades / wins / losses, starting balance and purchases.
+        {
+            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 1, 1, 0); cfg.PoolSize = 1;
+            var a = KeystoneArcEngine.SimulatePool(Nights(350, -600, -600, -600, -600, 350), cfg)[0];
+            var d0 = a.DayHistory[0]; var d1 = a.DayHistory[1];
+            Check(d0.TradesAfter == 1 && d0.WinsAfter == 1 && d1.LossesAfter == 1, "daily records count that day's trades and wins/losses (was always 0)", d0.TradesAfter + "/" + d0.WinsAfter + "/" + d1.LossesAfter);
+            Check(Math.Abs(d0.CostDelta - 120) < 0.01 && Math.Abs(d1.BalanceBefore - 350) < 0.01, "day one shows the $120 purchase; day two starts from the day-one balance", d0.CostDelta + " / " + d1.BalanceBefore);
+            var replacementDay = a.DayHistory.FirstOrDefault(d => d.EvaluationPurchaseDelta == 1 && d.Day > d0.Day);
+            Check(replacementDay != null && Math.Abs(replacementDay.CostDelta - 120) < 0.01 && Math.Abs(replacementDay.BalanceBefore) < 0.01, "replacement day shows +$120 and starts at a $0 balance", replacementDay == null ? "none" : replacementDay.CostDelta + " / " + replacementDay.BalanceBefore);
+        }
+        // 10. Setups-only scoreboard: days, win days, month-by-month.
+        {
+            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 1, 1, 0);
+            var ev = Nights(350, -600, 400, 350, -600, -600, 380);
+            var days = KeystoneArcScoreboard.Days(ev, cfg);
+            string rep = KeystoneArcScoreboard.Report(days, cfg);
+            Console.WriteLine(rep.Substring(0, Math.Min(rep.Length, 900)));
+            Check(days.Count == 7 && days.Count(d => d.Pnl > 0) == 4 && Math.Abs(days.Sum(d => d.Pnl) - ev.Sum(e => e.GrossPnl)) < 0.01, "scoreboard: one row per night, 4 win days, totals match", days.Count.ToString());
+            Check(rep.Contains("MONTH BY MONTH") && rep.Contains("LONGEST LOSING STREAK 2 days"), "report has month-by-month and the longest losing streak (2 days)", "");
+        }
+        // 11. Minimum trading days: target met on day 2, minimal trades on days 3-4, pass on day 4.
+        {
+            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 1, 1, 0); cfg.PoolSize = 1; cfg.EvaluationDailyCreditCap = 5000; cfg.EvaluationMinTradingDays = 4;
+            var a = KeystoneArcEngine.SimulatePool(Nights(Repeat(1600, 8)), cfg)[0];
+            var passDay = a.DayHistory.FindIndex(d => d.EvaluationPassesAfter == 1);
+            Check(passDay == 3, "passes on trading day 4 (target met day 2, then 2 minimal-trade days)", "pass index " + passDay);
+            Check(a.DayHistory.Count > 3 && a.DayHistory[2].DayPnl == 0 && a.DayHistory[3].DayPnl == 0 && Math.Abs(a.DayHistory[3].EvaluationBalanceAfter - 3200) < 0.01, "minimal-trade days carry no strategy P/L (balance stays $3,200)", a.DayHistory.Count > 3 ? a.DayHistory[2].DayPnl + " / " + a.DayHistory[3].EvaluationBalanceAfter : "");
+            cfg.EvaluationMinTradingDays = 0;
+            var b = KeystoneArcEngine.SimulatePool(Nights(Repeat(1600, 8)), cfg)[0];
+            Check(b.DayHistory.FindIndex(d => d.EvaluationPassesAfter == 1) == 1, "without the minimum it passes on day 2", "");
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
