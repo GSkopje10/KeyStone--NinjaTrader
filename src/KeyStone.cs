@@ -868,6 +868,21 @@ namespace NinjaTrader.NinjaScript
             return SimulateAsian75Sessions(PrepareAsian75Sessions(oneMinute, cfg), cfg);
         }
 
+        // AUTO daily loss ceiling shared by the lab and the optimizer. FIXED CASH keeps the lab's
+        // original rule (leg loss × max reversals × instruments). PRICE MOVE legs grow ($x1, 2×x1,
+        // 3×x1 …), so the ceiling is every leg of every selected instrument being stopped out.
+        public static double AsianAutoDailyLossLimit(string riskMode, string scope, double cashLegLoss, double mnqPriceMove, double mgcPriceMove, int reversals)
+        {
+            reversals = Math.Max(1, reversals);
+            bool mnq = scope != "MGC", mgc = scope != "MNQ";
+            if (string.Equals(riskMode, "PRICE", StringComparison.OrdinalIgnoreCase))
+            {
+                double legSum = (reversals + 1) * (reversals + 2) / 2.0;
+                return legSum * ((mnq ? Math.Max(0, mnqPriceMove) * 2.0 : 0) + (mgc ? Math.Max(0, mgcPriceMove) * 10.0 : 0));
+            }
+            return Math.Max(0, cashLegLoss) * reversals * (mnq && mgc ? 2 : 1);
+        }
+
         public sealed class MgcRollSegment
         {
             public DateTime ContractMonth;   // first day of the delivery month, e.g. 2026-12-01 = MGC 12-26
@@ -2643,7 +2658,7 @@ namespace NinjaTrader.NinjaScript
         public string Label()
         {
             string dir = Scope == "BOTH" ? MnqDirection.Substring(0, 1) + "/" + MgcDirection.Substring(0, 1) : (Scope == "MNQ" ? MnqDirection : MgcDirection);
-            return Scope + " " + dir + " " + StartHhmm.ToString("0000") + (RiskMode == "PRICE" ? " move x1 $" : " leg $") + LegLoss.ToString("0") + " rev " + Reversals + " tgt $" + Target.ToString("0")
+            return Scope + " " + dir + " " + StartHhmm.ToString("0000") + (RiskMode == "PRICE" ? " FIXED STOP x1 $" : " FIXED $ leg $") + LegLoss.ToString("0") + " rev " + Reversals + " tgt $" + Target.ToString("0")
                 + (CycleStop > 0 ? " cyc $" + CycleStop.ToString("0") : "") + (InstrumentCap > 0 ? " cap $" + InstrumentCap.ToString("0") : "") + (BreakEven > 0 ? " BE $" + BreakEven.ToString("0") : "");
         }
 
@@ -2657,7 +2672,7 @@ namespace NinjaTrader.NinjaScript
             // PRICE mode: the leg-loss value is the x1 leg loss, converted to each instrument's price move.
             cfg.AsianMnqReversalPriceMove = LegLoss / 2.0; cfg.AsianMgcReversalPriceMove = LegLoss / 10.0;
             cfg.AsianCycleTargetDollars = Target; cfg.AsianCombinedStopLossDollars = CycleStop;
-            cfg.AsianDailyLossLimitDollars = DailyLossLimit > 0 ? DailyLossLimit : Math.Max(1, LegLoss * Math.Max(1, Reversals) * (Scope == "BOTH" ? 2 : 1));
+            cfg.AsianDailyLossLimitDollars = DailyLossLimit > 0 ? DailyLossLimit : Math.Max(1, KeystoneArcEngine.AsianAutoDailyLossLimit(RiskMode, Scope, LegLoss, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, Reversals));
             cfg.AsianInstrumentStopLossDollars = InstrumentCap; cfg.AsianMnqInstrumentStopLossDollars = InstrumentCap; cfg.AsianMgcInstrumentStopLossDollars = InstrumentCap;
             cfg.AsianBreakEvenTriggerDollars = BreakEven; cfg.AsianStartingQuantity = StartingQuantity;
             cfg.AsianMaxReversalsPerInstrument = Reversals; cfg.AsianMnqMaxReversals = Reversals; cfg.AsianMgcMaxReversals = Reversals;
@@ -2865,6 +2880,46 @@ namespace NinjaTrader.NinjaScript
                     r.All.Nights.ToString(), f(r.All.Net), f(r.All.NetPerNight), f(r.All.MaxDrawdown), r.All.Contracts.ToString(), r.ProfitableYears.ToString(), r.Years.ToString(), f(r.WorstYear), r.All.MaxDrawdown <= g.PropDrawdown ? "1" : "0" }));
             }
             return sb.ToString();
+        }
+
+        // One line per Asian night: every stopped leg is its own LOSS row in the ledger, so the
+        // ledger alone cannot show whether a night made money. This groups the legs by session.
+        public static string NightlySummary(List<KeystoneArcEvent> events, double costPerContract)
+        {
+            var nights = (events ?? new List<KeystoneArcEvent>()).Where(e => e != null && e.SetupClass == "ASIA75").GroupBy(e => e.ReferenceTime.Date).OrderBy(g => g.Key).ToList();
+            if (nights.Count == 0) return string.Empty;
+            var sb = new StringBuilder();
+            sb.AppendLine("NIGHT-BY-NIGHT CYCLE SUMMARY • session date = the evening the cycle starts • P/L after $" + costPerContract.ToString("0.00", CultureInfo.InvariantCulture) + " round trip per contract");
+            sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-12}{1,-24}{2,-24}{3,-26}{4,10}{5,12}", "SESSION", "MNQ LEGS", "MGC LEGS", "HOW THE NIGHT ENDED", "NIGHT P/L", "RUNNING"));
+            double running = 0; int wins = 0;
+            foreach (var night in nights)
+            {
+                List<KeystoneArcEvent> legs = night.OrderBy(e => e.ExitTime).ThenBy(e => e.Symbol).ToList();
+                double net = legs.Sum(e => e.GrossPnl) - legs.Sum(e => e.Quantity) * costPerContract;
+                running += net; if (net > 0) wins++;
+                Func<string, string> legText = symbol =>
+                {
+                    List<KeystoneArcEvent> mine = legs.Where(e => e.Symbol == symbol).OrderBy(e => e.EntryTime).ToList();
+                    if (mine.Count == 0) return "-";
+                    return mine.Count + " (" + string.Join(" ", mine.Select(e => (e.Direction == "LONG" ? "L" : "S") + "x" + e.Quantity.ToString("0", CultureInfo.InvariantCulture))) + ")";
+                };
+                string ended = NightEnding(legs);
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-12}{1,-24}{2,-24}{3,-26}{4,10:N0}{5,12:N0}", night.Key.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), legText("MNQ"), legText("MGC"), ended, net, running));
+            }
+            sb.AppendLine("NIGHTS " + nights.Count + " • PROFITABLE " + wins + " (" + (100.0 * wins / nights.Count).ToString("0", CultureInfo.InvariantCulture) + "%) • NET " + running.ToString("N0", CultureInfo.InvariantCulture) + " • AVERAGE / NIGHT " + (running / nights.Count).ToString("N0", CultureInfo.InvariantCulture));
+            return sb.ToString();
+        }
+
+        // How one Asian night ended, from its legs: the closing (non-reversal) event decides.
+        public static string NightEnding(IEnumerable<KeystoneArcEvent> nightLegs)
+        {
+            KeystoneArcEvent closing = (nightLegs ?? Enumerable.Empty<KeystoneArcEvent>()).OrderBy(e => e.ExitTime).LastOrDefault(e => !(e.ReviewNote ?? string.Empty).StartsWith("REVERSAL LOSS", StringComparison.OrdinalIgnoreCase));
+            if (closing == null) return "ALL LEGS STOPPED OUT";
+            string at = " " + closing.ExitTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+            if (closing.Outcome == "WIN") return "TARGET" + at;
+            if (closing.Outcome == "SESSION EXIT") return "SESSION END" + at;
+            if (closing.Outcome == "BREAKEVEN GUARD") return "BREAKEVEN GUARD" + at;
+            return "LOSS LIMIT" + at;
         }
 
         public static string NightsCsv(KeystoneArcAsianResult r)
@@ -3095,12 +3150,12 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-26 • ASIAN 18:01 FIX • OPTIMIZER • MGC LIQUID ROLL";
+        private const string KeystoneBuild = "BUILD 2026-09-26b • ASIAN NIGHT SUMMARY • PRICE-STOP MODE • MGC LIQUID ROLL";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
         private Window asianOptimizerWindow;
-        private TextBox asianOptLossBox, asianOptReversalsBox, asianOptTargetBox, asianOptDirectionBox, asianOptStartBox, asianOptBreakEvenBox, asianOptCostBox, asianOptOosBox, asianOptPropDdBox, asianOptApplyRankBox, asianOptResultsText;
+        private TextBox asianOptRiskBox, asianOptLossBox, asianOptReversalsBox, asianOptTargetBox, asianOptDirectionBox, asianOptStartBox, asianOptBreakEvenBox, asianOptCostBox, asianOptOosBox, asianOptPropDdBox, asianOptApplyRankBox, asianOptResultsText;
         private CheckBox asianOptMnqBox, asianOptMgcBox, asianOptBothBox;
         private TextBlock asianOptStatusText, asianOptCountText;
         private volatile bool asianOptCancelRequested;
@@ -4129,7 +4184,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             asianMaxReversalsBox.TextChanged += delegate { RefreshAsianDerivedInputs(); };
             stopModeBox.SelectionChanged += delegate { RefreshStopModelInputState(); InvalidateConfigurationApproval(); };
             breakEvenBox.Checked += delegate { RefreshStopModelInputState(); InvalidateConfigurationApproval(); }; breakEvenBox.Unchecked += delegate { RefreshStopModelInputState(); InvalidateConfigurationApproval(); };
-            asianRiskModeBox.SelectionChanged += delegate { RefreshAsianRiskInputState(); InvalidateConfigurationApproval(); };
+            asianRiskModeBox.SelectionChanged += delegate { RefreshAsianRiskInputState(); RefreshAsianDerivedInputs(); InvalidateConfigurationApproval(); };
+            asianMnqPriceMoveBox.TextChanged += delegate { RefreshAsianDerivedInputs(); };
+            asianMgcPriceMoveBox.TextChanged += delegate { RefreshAsianDerivedInputs(); };
             asianDirectionBox.SelectionChanged += delegate { if (asianMnqDirectionBox != null) asianMnqDirectionBox.SelectedIndex = asianDirectionBox.SelectedIndex; if (asianMgcDirectionBox != null) asianMgcDirectionBox.SelectedIndex = asianDirectionBox.SelectedIndex; InvalidateConfigurationApproval(); };
             asianMnqDirectionBox.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
             asianMgcDirectionBox.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
@@ -4157,8 +4214,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             UIElement asianMgcDirectionRow = Row("MGC INITIAL DIRECTION", asianMgcDirectionBox);
             UIElement asianRiskModeRow = Row("ASIAN REVERSAL RISK TYPE", asianRiskModeBox);
             UIElement asianReversalRow = Row("ASIAN FIXED CASH LOSS / LEG $", asianReversalLossBox);
-            UIElement asianMnqPriceMoveRow = Row("MNQ REVERSAL PRICE MOVE / LEG", asianMnqPriceMoveBox);
-            UIElement asianMgcPriceMoveRow = Row("MGC REVERSAL PRICE MOVE / LEG", asianMgcPriceMoveBox);
+            UIElement asianMnqPriceMoveRow = Row("MNQ STOP DISTANCE / LEG (POINTS • 37.5 = $75 AT x1)", asianMnqPriceMoveBox);
+            UIElement asianMgcPriceMoveRow = Row("MGC STOP DISTANCE / LEG (POINTS • 7.5 = $75 AT x1)", asianMgcPriceMoveBox);
             UIElement asianCycleTargetRow = Row("ASIAN COMBINED DAILY PROFIT TARGET $", asianCycleTargetBox);
             UIElement asianCombinedStopRow = Row("ADVANCED COMBINED CYCLE STOP $ (0=OFF)", asianCombinedStopBox);
             UIElement asianDailyLossRow = Row("AUTO MAX COMBINED REVERSAL LOSS $", asianDailyLossBox);
@@ -4180,12 +4237,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             UIElement bhModelNote = Txt("PROP MODEL: fixed micro quantity uses the selected cash target and risk. BELOW 3-CANDLE LOW calculates the stop from the red/reference/trigger group and risk-sizes the micro quantity. This is historical research only; no broker, firm, or order access exists.", Gold, 10, FontWeights.Bold);
             var asianModel = Stack(); asianModel.Margin = new Thickness(0, 4, 0, 2);
             asianModel.Children.Add(Txt("ASIAN REVERSAL BACKTEST • COPY TRADING", Orchid, 11, FontWeights.Bold));
-            asianModel.Children.Add(asianStartTimeRow); asianModel.Children.Add(asianEndTimeRow); asianModel.Children.Add(asianDirectionRow); asianModel.Children.Add(asianStartQuantityRow); asianModel.Children.Add(asianReversalRow); asianModel.Children.Add(asianMaxReversalsRow); asianModel.Children.Add(asianCycleTargetRow); asianModel.Children.Add(asianDailyLossRow); asianModel.Children.Add(asianBreakEvenRow);
+            asianModel.Children.Add(asianStartTimeRow); asianModel.Children.Add(asianEndTimeRow); asianModel.Children.Add(asianDirectionRow); asianModel.Children.Add(asianStartQuantityRow); asianModel.Children.Add(asianRiskModeRow); asianModel.Children.Add(asianReversalRow); asianModel.Children.Add(asianMnqPriceMoveRow); asianModel.Children.Add(asianMgcPriceMoveRow); asianModel.Children.Add(asianMaxReversalsRow); asianModel.Children.Add(asianCycleTargetRow); asianModel.Children.Add(asianDailyLossRow); asianModel.Children.Add(asianBreakEvenRow);
             asianCashRiskControls.Clear(); asianCashRiskControls.Add(asianReversalRow);
             asianPriceRiskControls.Clear(); asianPriceRiskControls.Add(asianMnqPriceMoveRow); asianPriceRiskControls.Add(asianMgcPriceMoveRow);
             // Retained only for compatibility with old snapshots; the current Asian tester uses
             // one shared cash stop and one shared reversal count for both instruments.
-            asianInstrumentStopRow.Visibility = Visibility.Collapsed; asianMnqInstrumentStopRow.Visibility = Visibility.Collapsed; asianMgcInstrumentStopRow.Visibility = Visibility.Collapsed; asianMnqDirectionRow.Visibility = Visibility.Collapsed; asianMgcDirectionRow.Visibility = Visibility.Collapsed; asianRiskModeRow.Visibility = Visibility.Collapsed; asianCombinedStopRow.Visibility = Visibility.Collapsed; asianMnqPriceMoveRow.Visibility = Visibility.Collapsed; asianMgcPriceMoveRow.Visibility = Visibility.Collapsed; asianMnqMaxReversalsRow.Visibility = Visibility.Collapsed; asianMgcMaxReversalsRow.Visibility = Visibility.Collapsed;
+            asianInstrumentStopRow.Visibility = Visibility.Collapsed; asianMnqInstrumentStopRow.Visibility = Visibility.Collapsed; asianMgcInstrumentStopRow.Visibility = Visibility.Collapsed; asianMnqDirectionRow.Visibility = Visibility.Collapsed; asianMgcDirectionRow.Visibility = Visibility.Collapsed; asianCombinedStopRow.Visibility = Visibility.Collapsed; asianMnqPriceMoveRow.Visibility = Visibility.Collapsed; asianMgcPriceMoveRow.Visibility = Visibility.Collapsed; asianMnqMaxReversalsRow.Visibility = Visibility.Collapsed; asianMgcMaxReversalsRow.Visibility = Visibility.Collapsed;
             asianModel.Children.Add(Txt("ONE DAILY CYCLE: MNQ and MGC enter together at the exact selected 1-minute bar (18:00 by default). Every stop closes that leg at the fixed cash loss, reverses at the next 1-minute open, and adds one micro. The shared reversal count applies separately to MNQ and MGC. AUTO MAX COMBINED REVERSAL LOSS = reversal legs × fixed loss × 2 instruments; it is a visible protection ceiling, while the combined profit target closes the daily cycle. Each completed cycle is copied to active virtual accounts; no rotation is used.", Orchid, 10, FontWeights.Bold));
             asianStrategyControls.Clear(); asianStrategyControls.Add(asianModel);
             bhStrategyControls.Add(stopModeRow); bhStrategyControls.Add(propQuantityRow); bhStrategyControls.Add(propTargetRow); bhStrategyControls.Add(propStopRow); bhStrategyControls.Add(dailyGoalRow); bhStrategyControls.Add(dailyLossRow); bhStrategyControls.Add(mnqLowOffsetRow); bhStrategyControls.Add(mgcLowOffsetRow); bhStrategyControls.Add(propModeNote); bhStrategyControls.Add(bhModelNote);
@@ -4271,8 +4328,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             double loss = Number(asianReversalLossBox, 75);
             int reversals = Math.Max(1, Integer(asianMaxReversalsBox, 4));
             string scope = scopeBox == null ? "BOTH" : Convert.ToString(scopeBox.SelectedItem ?? "BOTH");
-            int instrumentCount = string.Equals(scope, "BOTH", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
-            double combined = Math.Max(0, loss) * reversals * instrumentCount;
+            bool price = asianRiskModeBox != null && Convert.ToString(asianRiskModeBox.SelectedItem).StartsWith("PRICE", StringComparison.OrdinalIgnoreCase);
+            double combined = KeystoneArcEngine.AsianAutoDailyLossLimit(price ? "PRICE" : "CASH", (scope ?? "BOTH").ToUpperInvariant(), loss, Number(asianMnqPriceMoveBox, 37.5), Number(asianMgcPriceMoveBox, 7.5), reversals);
             asianDailyLossBox.Text = combined.ToString("0.##", CultureInfo.InvariantCulture);
             if (asianMnqMaxReversalsBox != null) asianMnqMaxReversalsBox.Text = reversals.ToString(CultureInfo.InvariantCulture);
             if (asianMgcMaxReversalsBox != null) asianMgcMaxReversalsBox.Text = reversals.ToString(CultureInfo.InvariantCulture);
@@ -4896,7 +4953,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             asianOptMgcBox = new CheckBox { Content = "MGC ONLY", IsChecked = config.Scope != "MNQ", IsEnabled = config.Scope != "MNQ", Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
             asianOptBothBox = new CheckBox { Content = "BOTH TOGETHER", IsChecked = both, IsEnabled = both, Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
             var scopes = new WrapPanel(); scopes.Children.Add(asianOptMnqBox); scopes.Children.Add(asianOptMgcBox); scopes.Children.Add(asianOptBothBox);
-            asianOptLossBox = Input("50,75,100,125,150"); asianOptLossBox.ToolTip = "Fixed cash loss per reversal leg ($). Each value is tested.";
+            asianOptRiskBox = Input("CASH,PRICE"); asianOptRiskBox.ToolTip = "CASH = every leg loses the same $ (stop tightens as size grows). PRICE = the stop stays the same distance (leg losses grow: $x1, 2×, 3× …).";
+            asianOptLossBox = Input("50,75,100,125,150"); asianOptLossBox.ToolTip = "CASH: $ lost per leg. PRICE: $ lost by the x1 leg (MNQ stop = value ÷ 2 points, MGC stop = value ÷ 10 points).";
             asianOptReversalsBox = Input("1,2,3,4,5"); asianOptReversalsBox.ToolTip = "Reversals after the first x1 leg: 3 means x1→x2→x3→x4 (four legs).";
             asianOptTargetBox = Input("150,250,350,500,750"); asianOptTargetBox.ToolTip = "Combined cycle profit target ($), checked at each 1-minute close.";
             asianOptDirectionBox = Input("LONG,SHORT"); asianOptDirectionBox.ToolTip = "Start direction (one direction for both instruments, like the main settings).";
@@ -4907,10 +4965,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             asianOptPropDdBox = Input("2000"); asianOptPropDdBox.ToolTip = "Flags settings whose worst historical drawdown exceeds this prop limit.";
             asianOptCountText = Txt("", Gold, 11, FontWeights.Bold); asianOptCountText.VerticalAlignment = VerticalAlignment.Center;
             var inputs = new UniformGrid { Columns = 4, Margin = new Thickness(0, 2, 0, 2) };
-            inputs.Children.Add(Row("INSTRUMENT SETS", scopes)); inputs.Children.Add(Row("LOSS PER LEG $", asianOptLossBox)); inputs.Children.Add(Row("MAX REVERSALS AFTER x1", asianOptReversalsBox)); inputs.Children.Add(Row("COMBINED TARGET $", asianOptTargetBox));
+            inputs.Children.Add(Row("INSTRUMENT SETS", scopes)); inputs.Children.Add(Row("RISK TYPE (CASH / PRICE)", asianOptRiskBox)); inputs.Children.Add(Row("LOSS PER LEG $ (PRICE: x1 LEG)", asianOptLossBox)); inputs.Children.Add(Row("MAX REVERSALS AFTER x1", asianOptReversalsBox)); inputs.Children.Add(Row("COMBINED TARGET $", asianOptTargetBox));
             inputs.Children.Add(Row("START DIRECTION", asianOptDirectionBox)); inputs.Children.Add(Row("ENTRY TIME HHMM", asianOptStartBox)); inputs.Children.Add(Row("BREAKEVEN TRIGGER $", asianOptBreakEvenBox)); inputs.Children.Add(Row("COST $ / CONTRACT (ROUND TRIP)", asianOptCostBox));
             inputs.Children.Add(Row("OUT-OF-SAMPLE HOLD-OUT %", asianOptOosBox)); inputs.Children.Add(Row("PROP DRAWDOWN LIMIT $", asianOptPropDdBox)); inputs.Children.Add(asianOptCountText);
-            foreach (TextBox box in new[] { asianOptLossBox, asianOptReversalsBox, asianOptTargetBox, asianOptDirectionBox, asianOptStartBox, asianOptBreakEvenBox }) box.TextChanged += delegate { UpdateAsianOptimizerCount(); };
+            foreach (TextBox box in new[] { asianOptRiskBox, asianOptLossBox, asianOptReversalsBox, asianOptTargetBox, asianOptDirectionBox, asianOptStartBox, asianOptBreakEvenBox }) box.TextChanged += delegate { UpdateAsianOptimizerCount(); };
             foreach (CheckBox box in new[] { asianOptMnqBox, asianOptMgcBox, asianOptBothBox }) { box.Checked += delegate { UpdateAsianOptimizerCount(); }; box.Unchecked += delegate { UpdateAsianOptimizerCount(); }; }
             Grid.SetRow(inputs, 1); root.Children.Add(inputs);
 
@@ -4973,13 +5031,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (!TryReadNumberList(asianOptBreakEvenBox, "BREAKEVEN", 0, out breakEvens, out error)) return false;
             if (reversals.Any(x => x != Math.Floor(x) || x > 10)) { error = "MAX REVERSALS must be whole numbers from 1 to 10"; return false; }
             if (starts.Any(x => x != Math.Floor(x) || !IsValidHhmm((int)x))) { error = "ENTRY TIME must be HHMM, e.g. 1800"; return false; }
+            List<string> riskModes = SplitList(asianOptRiskBox);
+            if (riskModes.Count == 0 || riskModes.Any(x => x != "CASH" && x != "PRICE")) { error = "RISK TYPE must be CASH and/or PRICE"; return false; }
             List<string> directions = SplitList(asianOptDirectionBox);
             if (directions.Count == 0 || directions.Any(x => x != "LONG" && x != "SHORT")) { error = "START DIRECTION must be LONG and/or SHORT"; return false; }
             double cost, oos, propDd;
             if (!double.TryParse(asianOptCostBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out cost) || cost < 0) { error = "COST must be 0 or more"; return false; }
             if (!double.TryParse(asianOptOosBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out oos) || oos < 0 || oos > 60) { error = "HOLD-OUT % must be 0–60"; return false; }
             if (!double.TryParse(asianOptPropDdBox.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out propDd) || propDd <= 0) { error = "PROP DRAWDOWN must be above 0"; return false; }
-            grid.Scopes = scopes; grid.MnqDirections = directions; grid.MgcDirections = directions; grid.LinkDirections = true; grid.RiskModes = new List<string> { "CASH" };
+            grid.Scopes = scopes; grid.MnqDirections = directions; grid.MgcDirections = directions; grid.LinkDirections = true; grid.RiskModes = riskModes;
             grid.LegLosses = losses; grid.Reversals = reversals.Select(x => (int)x).ToList(); grid.Targets = targets; grid.StartTimes = starts.Select(x => (int)x).ToList(); grid.BreakEvens = breakEvens;
             grid.CycleStops = new List<double> { 0 }; grid.InstrumentCaps = new List<double> { 0 };
             grid.EndHhmm = config.AsianEndHhmm; grid.StartingQuantity = Math.Max(1, config.AsianStartingQuantity); grid.DailyLossLimit = 0;
@@ -5079,7 +5139,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             KeystoneArcAsianCombo c = asianOptLast.Ranked[rank - 1].Combo;
             if (scopeBox != null) scopeBox.SelectedItem = c.Scope;
             if (asianDirectionBox != null) asianDirectionBox.SelectedItem = c.Scope == "MGC" ? c.MgcDirection : c.MnqDirection;
+            bool price = c.RiskMode == "PRICE";
+            if (asianRiskModeBox != null) asianRiskModeBox.SelectedIndex = price ? 1 : 0;
             if (asianReversalLossBox != null) asianReversalLossBox.Text = c.LegLoss.ToString("0.##", CultureInfo.InvariantCulture);
+            if (price && asianMnqPriceMoveBox != null) asianMnqPriceMoveBox.Text = (c.LegLoss / 2.0).ToString("0.##", CultureInfo.InvariantCulture);
+            if (price && asianMgcPriceMoveBox != null) asianMgcPriceMoveBox.Text = (c.LegLoss / 10.0).ToString("0.##", CultureInfo.InvariantCulture);
             if (asianMaxReversalsBox != null) asianMaxReversalsBox.Text = c.Reversals.ToString(CultureInfo.InvariantCulture);
             if (asianCycleTargetBox != null) asianCycleTargetBox.Text = c.Target.ToString("0.##", CultureInfo.InvariantCulture);
             if (asianBreakEvenBox != null) asianBreakEvenBox.Text = c.BreakEven.ToString("0.##", CultureInfo.InvariantCulture);
@@ -8119,6 +8183,18 @@ namespace NinjaTrader.NinjaScript.AddOns
                 evidenceMetricsText.Text = "RAW DETECTED • " + symbol + " • " + CurrentEvidenceFilterLabel() + " • " + rows.Count + " SETUPS • " + wins + " W • " + losses + " L • " + exits + " SESSION EXIT  |  FINAL LIVE • " + liveRows.Count + " TRADED • " + liveWins + " W • " + liveLosses + " L • " + liveExits + " SESSION EXIT • P/L " + livePnl.ToString("C0") + " • " + notSelected + " LATER / UNAVAILABLE";
                 return;
             }
+            if (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase))
+            {
+                // The Asian cycle is one combined MNQ + MGC position book: show the whole night,
+                // whichever instrument tab is open, and each instrument's share of it.
+                List<KeystoneArcEvent> night = (evidencePreviewOwnLedger ? evidencePreviewEvents : events).Where(e => e != null && e.SetupClass == "ASIA75" && e.ReferenceTime.Date == day.Date).ToList();
+                double combined = night.Sum(e => e.GrossPnl);
+                string parts = string.Join(" • ", night.GroupBy(e => e.Symbol).OrderBy(g => g.Key).Select(g => g.Key + " " + (g.Sum(e => e.GrossPnl) >= 0 ? "+" : "") + g.Sum(e => e.GrossPnl).ToString("C0") + " (" + g.Count() + " legs)"));
+                evidenceMetricsText.Foreground = combined >= 0 ? Green : Red;
+                evidenceMetricsText.Text = night.Count == 0 ? "NIGHT CYCLE • no legs this session"
+                    : "NIGHT CYCLE MNQ + MGC • COMBINED P/L " + (combined >= 0 ? "+" : "") + combined.ToString("C0") + " • " + KeystoneArcAsianOptimizer.NightEnding(night) + " • " + parts + " • before commissions";
+                return;
+            }
             evidenceMetricsText.Foreground = gross >= 0 ? Green : Red;
             evidenceMetricsText.Text = "FILTER TOTALS • " + symbol + " • " + CurrentEvidenceFilterLabel() + " • " + rows.Count + " SETUPS • " + wins + " W • " + losses + " L • " + exits + " SESSION EXIT • MODEL P/L " + gross.ToString("C0");
         }
@@ -9544,7 +9620,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             string asianDirection = asianDirectionBox != null && string.Equals(Convert.ToString(asianDirectionBox.SelectedItem), "SHORT", StringComparison.OrdinalIgnoreCase) ? "SHORT" : "LONG";
             config.AsianMnqInitialDirection = asianDirection;
             config.AsianMgcInitialDirection = asianDirection;
-            config.AsianRiskMode = "CASH";
+            config.AsianRiskMode = asianRiskModeBox != null && Convert.ToString(asianRiskModeBox.SelectedItem).StartsWith("PRICE", StringComparison.OrdinalIgnoreCase) ? "PRICE" : "CASH";
             if (asian75) { config.CustomStart = config.AsianStartHhmm; config.EndTime = config.AsianEndHhmm; }
             if (!IsValidHhmm(config.CustomStart) || !IsValidHhmm(config.EndTime)) { UpdateUi("SESSION TIME ERROR • USE HHMM FROM 0000 TO 2359", Red); return false; }
             DateTime requestStart, requestEnd;
@@ -9636,7 +9712,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 else
                 {
-                    eventText.Text = mode + (asianBacktest ? " • EACH COMPLETED DAILY CYCLE IS COPIED TO ACTIVE VIRTUAL ACCOUNTS AFTER STEP 3" : " • POOL DECISION CONTROLS FUTURE VIRTUAL ROTATION WHEN OUTCOME VALIDATION IS AVAILABLE") + "\n\n" + string.Join("\n", events.Take(250).Select(e => e.TriggerTime.ToString("yyyy-MM-dd HH:mm") + " | " + e.Symbol + " | " + e.Direction + " " + e.SetupClass + " " + e.StrengthTag + " | ENTRY " + e.Entry.ToString("0.00") + " | OUTCOME " + e.Outcome + (config.OutcomeModelEnabled == 1 ? " " + e.GrossPnl.ToString("C0") : string.Empty) + " | " + PoolDecisionLabel(e) + (asianBacktest && !string.IsNullOrWhiteSpace(e.ReviewNote) ? " | " + e.ReviewNote : string.Empty))) + (events.Count > 250 ? "\n\n... display limited to first 250 rows; the full ledger is available in the browser report." : string.Empty);
+                    eventText.Text = (asianBacktest ? KeystoneArcAsianOptimizer.NightlySummary(events, 1.00) + "\nLEG LEDGER • every stopped leg is its own LOSS row; the night's result is the summary above\n\n" : string.Empty) + mode + (asianBacktest ? " • EACH COMPLETED DAILY CYCLE IS COPIED TO ACTIVE VIRTUAL ACCOUNTS AFTER STEP 3" : " • POOL DECISION CONTROLS FUTURE VIRTUAL ROTATION WHEN OUTCOME VALIDATION IS AVAILABLE") + "\n\n" + string.Join("\n", events.Take(250).Select(e => e.TriggerTime.ToString("yyyy-MM-dd HH:mm") + " | " + e.Symbol + " | " + e.Direction + " " + e.SetupClass + " " + e.StrengthTag + " | ENTRY " + e.Entry.ToString("0.00") + " | OUTCOME " + e.Outcome + (config.OutcomeModelEnabled == 1 ? " " + e.GrossPnl.ToString("C0") : string.Empty) + " | " + PoolDecisionLabel(e) + (asianBacktest && !string.IsNullOrWhiteSpace(e.ReviewNote) ? " | " + e.ReviewNote : string.Empty))) + (events.Count > 250 ? "\n\n... display limited to first 250 rows; the full ledger is available in the browser report." : string.Empty);
                 }
             }
         }

@@ -157,6 +157,26 @@ public static class Asian75EngineTests
             Check(months == "02-21,04-21,06-21,08-21,12-21,02-22", "a full year walks Feb, Apr, Jun, Aug, Dec (Oct skipped)", months);
             Check(year.Zip(year.Skip(1), (a, b) => (b.Start - a.End).TotalMinutes == 1).All(x => x), "segments are gapless", "");
         }
+        // 12. Night-by-night summary groups legs per session and shows how the night ended.
+        {
+            var ev = Run(Cfg("MNQ"), Bars("MNQ", m => m < 5 ? Flat(20000) : (m == 5 ? new[] { 20000, 20000.25, 19960, 19962 } : Flat(19962 - (m - 5) * 2.0))));
+            string text = KeystoneArcAsianOptimizer.NightlySummary(ev, 0);
+            Console.WriteLine(text);
+            Check(text.Contains("2 (Lx1 Sx2)") && text.Contains("TARGET") && text.Contains("NIGHTS 1 • PROFITABLE 1"), "nightly summary: legs, target ending, one profitable night", text);
+        }
+        // 13. User's 2026-09-13 pattern: MGC whipsaws through all legs, MNQ's first leg stops,
+        //     its SHORT x2 then has to recover every loss; the night closes at the COMBINED target.
+        {
+            var mgc = Bars("MGC", m => new double[] { 2900, 2910, 2890, 2900 });                  // every leg stopped
+            var mnq = Bars("MNQ", m => m == 0 ? new double[] { 20000, 20000.25, 19960, 19965 } : Flat(19965 - m * 1.0));
+            var ev = Run(Cfg("BOTH"), mnq.Concat(mgc).ToList());
+            double mgcPnl = ev.Where(e => e.Symbol == "MGC").Sum(e => e.GrossPnl), mnqPnl = ev.Where(e => e.Symbol == "MNQ").Sum(e => e.GrossPnl);
+            var mnqWin = ev.FirstOrDefault(e => e.Symbol == "MNQ" && e.Outcome == "WIN");
+            Check(Math.Abs(mgcPnl + 300) < 0.01 && ev.Count(e => e.Symbol == "MGC") == 4, "MGC stops out all 4 legs (-$300)", Dump(ev));
+            Check(mnqWin != null && mnqWin.Direction == "SHORT" && mnqWin.Quantity == 2 && mnqWin.GrossPnl >= 725, "MNQ SHORT x2 wins at least $725 (= $350 + $75 + $300 recovered)", Dump(ev));
+            Check(mgcPnl + mnqPnl >= 350 && mgcPnl + mnqPnl < 360, "night closes on the COMBINED +$350 (MNQ + MGC), not per instrument", (mgcPnl + mnqPnl).ToString());
+            Check(KeystoneArcAsianOptimizer.NightEnding(ev).StartsWith("TARGET"), "night ending reads TARGET", KeystoneArcAsianOptimizer.NightEnding(ev));
+        }
         Console.WriteLine(failures == 0 ? "\nALL ASIAN 75 TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
