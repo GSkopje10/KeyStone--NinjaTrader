@@ -538,6 +538,8 @@ namespace NinjaTrader.NinjaScript
         // 0 = the slot ends and is not replaced (trading stops once every slot has ended).
         // Applies to both start modes; a direct-funded start is replaced by an evaluation too.
         public int BlownAccountReplacement = 1;
+        // Calendar days a blown slot waits before its replacement evaluation trades (0 = next session).
+        public int ReplacementDelayDays = 0;
         // 1 = the evaluation's qualifying days must be consecutive (original rule); 0 = any
         // qualifying days count toward the minimum.
         public int EvalQualifyingDaysConsecutive = 1;
@@ -605,7 +607,7 @@ namespace NinjaTrader.NinjaScript
                 PoolSize.ToString(), DailyGoal.ToString("0.00", CultureInfo.InvariantCulture), DailyLoss.ToString("0.00", CultureInfo.InvariantCulture),
                 EvaluationEnabled.ToString(), EvaluationTarget.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyCreditCap.ToString("0.00", CultureInfo.InvariantCulture), EvaluationConsistencyPercent.ToString("0.00", CultureInfo.InvariantCulture), EvaluationFailure.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), EvaluationStageTradeRulesEnabled.ToString(), EvaluationTradeTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), EvaluationTradeStopDollars.ToString("0.00", CultureInfo.InvariantCulture), FundedDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), FundedFailure.ToString("0.00", CultureInfo.InvariantCulture), MinimumPositiveDays.ToString(), MinimumQualifyingDayProfit.ToString("0.00", CultureInfo.InvariantCulture),
                 PayoutThreshold.ToString("0.00", CultureInfo.InvariantCulture), PayoutDaysRequired.ToString(), PayoutAmount.ToString("0.00", CultureInfo.InvariantCulture), EvaluationCost.ToString("0.00", CultureInfo.InvariantCulture), ReplacementsRequirePayoutFunding.ToString(), FirmFundedCapEnabled.ToString(), EvaluationSlotsPerFirm.ToString(), MaxFundedPerFirm.ToString(), PropStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), PersonalStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), AsianStartHhmm.ToString(), AsianEndHhmm.ToString(), AsianMnqInitialDirection ?? string.Empty, AsianMgcInitialDirection ?? string.Empty, AsianRiskMode ?? string.Empty, AsianReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianCombinedStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianDailyLossLimitDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianBreakEvenTriggerDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianStartingQuantity.ToString(), AsianMaxReversalsPerInstrument.ToString(), AsianMnqMaxReversals.ToString(), AsianMgcMaxReversals.ToString(), AsianMaxTotalLegsPerInstrument.ToString(),
-                BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString() });
+                BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString(), ReplacementDelayDays.ToString() });
         }
     }
 
@@ -2103,7 +2105,7 @@ namespace NinjaTrader.NinjaScript
             if (a.ActiveDay == day) return;
             FinalizeDay(a, cfg);
             SnapshotDayStart(a, true);
-            StartPendingReplacementAtNewSession(a, cfg, pool);
+            StartPendingReplacementAtNewSession(a, day, cfg, pool);
             a.DayStartBalance = a.Funded ? a.FundedBalance : a.EvaluationBalance;
             a.ActiveDay = day;
             a.DayPnl = 0;
@@ -2119,9 +2121,17 @@ namespace NinjaTrader.NinjaScript
             if (includePurchases) { a.DayStartCost = a.EvaluationCost; a.DayStartPurchases = a.EvaluationPurchases; }
         }
 
-        private static void StartPendingReplacementAtNewSession(KeystoneArcVirtualAccount a, KeystoneArcRunConfig cfg, IEnumerable<KeystoneArcVirtualAccount> pool)
+        private static void StartPendingReplacementAtNewSession(KeystoneArcVirtualAccount a, DateTime day, KeystoneArcRunConfig cfg, IEnumerable<KeystoneArcVirtualAccount> pool)
         {
             if (a == null || !a.ReplacementPending || cfg.EvaluationEnabled < 0 || string.Equals(cfg.AccountPath, "PERSONAL", StringComparison.OrdinalIgnoreCase)) return;
+            // Realistic restart: buying and setting up a new evaluation takes time. With a delay of
+            // N days the replacement first trades on the first session at least N + 1 calendar
+            // days after the blowout (0 = next session, the original behaviour).
+            if (cfg.ReplacementDelayDays > 0 && a.LastBlowoutDate != DateTime.MinValue && day.Date < a.LastBlowoutDate.Date.AddDays(cfg.ReplacementDelayDays + 1))
+            {
+                a.LastState = "BLOWN • NEW EVALUATION STARTS " + a.LastBlowoutDate.Date.AddDays(cfg.ReplacementDelayDays + 1).ToString("yyyy-MM-dd") + " OR LATER (ILLUSTRATIVE)";
+                return;
+            }
             if (cfg.ReplacementsRequirePayoutFunding > 0)
             {
                 KeystoneArcCapitalPolicySummary capital = BuildCapitalPolicySummary(pool, cfg);
@@ -3233,6 +3243,113 @@ namespace NinjaTrader.NinjaScript
             return sb.ToString();
         }
     }
+
+    // One instrument's strategy result (no accounts): setups / legs, wins, losses, P/L.
+    public sealed class KeystoneArcInstrumentStats
+    {
+        public string Symbol = string.Empty;
+        public int Setups, Wins, Losses, Exits, Days, WinDays, LossDays;
+        public double Pnl, BestDay, WorstDay, MaxDrawdown;
+        public double WinRate { get { return Wins + Losses == 0 ? 0 : 100.0 * Wins / (Wins + Losses); } }
+    }
+
+    // Everything the results screens show in their top boxes, computed once from the pool.
+    // Pure calculation over accounts / day records / events: no UI, no data requests.
+    public sealed class KeystoneArcPoolInsights
+    {
+        public int Accounts, FundedNow, EvaluationNow, WaitingReplacement, SlotsEnded;
+        public int BlowupEvents, EvaluationFails, FundedBlowups, MaxBlowupsPerAccount, MinBlowupsPerAccount;
+        public int EvaluationPasses, Payouts, PaidAccounts, PayoutDates, EvaluationPurchases;
+        public double Gross, CashAfterShare, Cost, Net;
+        public DateTime FirstPayoutDate = DateTime.MinValue, LastPayoutDate = DateTime.MinValue;
+        public string FirstPayoutAccount = string.Empty, LastPayoutAccount = string.Empty;
+        public int AccountsPaidOnLastDate, StillFundedAfterLastPayout;
+        public double AverageDaysToFirstPayout, AverageCostThroughFirstPayout;
+        public DateTime LargestPayoutDay = DateTime.MinValue; public double LargestPayoutDayCash;
+        public DateTime BestMonth = DateTime.MinValue, WorstMonth = DateTime.MinValue; public double BestMonthNet, WorstMonthNet;
+        public int PositiveMonths, NegativeMonths;
+        public string LongestFundedAccount = string.Empty; public int LongestFundedDays;
+        public string MostPayoutsAccount = string.Empty; public int MostPayouts;
+        public double MaxCarryBalance; public double AverageCarryBalance;
+        public List<KeystoneArcInstrumentStats> Instruments = new List<KeystoneArcInstrumentStats>();
+
+        public static KeystoneArcPoolInsights Build(List<KeystoneArcVirtualAccount> accounts, IEnumerable<KeystoneArcEvent> events, KeystoneArcRunConfig cfg)
+        {
+            var x = new KeystoneArcPoolInsights();
+            var acc = (accounts ?? new List<KeystoneArcVirtualAccount>()).Where(a => a != null).ToList();
+            x.Accounts = acc.Count;
+            x.FundedNow = acc.Count(a => a.Funded && !a.Blown);
+            x.WaitingReplacement = acc.Count(a => a.ReplacementPending);
+            x.SlotsEnded = acc.Count(a => a.Blown && !a.ReplacementPending);
+            x.EvaluationNow = acc.Count(a => !a.Funded && !a.Blown && !a.ReplacementPending);
+            x.EvaluationFails = acc.Sum(a => a.FailedEvaluations);
+            x.FundedBlowups = acc.Sum(a => a.FailedFunded);
+            x.BlowupEvents = x.EvaluationFails + x.FundedBlowups;
+            x.MaxBlowupsPerAccount = acc.Count == 0 ? 0 : acc.Max(a => a.FailedEvaluations + a.FailedFunded);
+            x.MinBlowupsPerAccount = acc.Count == 0 ? 0 : acc.Min(a => a.FailedEvaluations + a.FailedFunded);
+            x.EvaluationPasses = acc.Sum(a => a.EvaluationPasses);
+            x.EvaluationPurchases = acc.Sum(a => a.EvaluationPurchases);
+            x.Payouts = acc.Sum(a => a.Payouts);
+            x.PaidAccounts = acc.Count(a => a.Payouts > 0);
+            x.Gross = acc.Sum(a => a.PayoutGrossWithdrawn);
+            x.CashAfterShare = acc.Sum(a => a.PayoutCash);
+            x.Cost = acc.Sum(a => a.EvaluationCost);
+            x.Net = x.CashAfterShare - x.Cost;
+            var paid = acc.Where(a => a.FirstPayoutDate != DateTime.MinValue).ToList();
+            if (paid.Count > 0)
+            {
+                var first = paid.OrderBy(a => a.FirstPayoutDate).ThenBy(a => a.Name).First();
+                x.FirstPayoutDate = first.FirstPayoutDate; x.FirstPayoutAccount = first.Name;
+                x.AverageDaysToFirstPayout = paid.Average(a => (a.FirstPayoutDate - (a.InitialLifecycleStart == DateTime.MinValue ? a.FirstPayoutDate : a.InitialLifecycleStart)).TotalDays);
+                x.AverageCostThroughFirstPayout = paid.Average(a => a.DayHistory.Where(d => d.Day <= a.FirstPayoutDate).Sum(d => d.CostDelta));
+            }
+            var lastPaid = acc.Where(a => a.LastPayoutDate != DateTime.MinValue).ToList();
+            if (lastPaid.Count > 0)
+            {
+                var last = lastPaid.OrderByDescending(a => a.LastPayoutDate).ThenBy(a => a.Name).First();
+                x.LastPayoutDate = last.LastPayoutDate; x.LastPayoutAccount = last.Name;
+                x.AccountsPaidOnLastDate = lastPaid.Count(a => a.LastPayoutDate == x.LastPayoutDate);
+                x.StillFundedAfterLastPayout = lastPaid.Count(a => a.Funded && !a.Blown);
+            }
+            var payoutDays = acc.SelectMany(a => a.DayHistory).Where(d => d.PayoutCashDelta > 0).GroupBy(d => d.Day.Date).Select(g => new { Day = g.Key, Cash = g.Sum(d => d.PayoutCashDelta) }).ToList();
+            x.PayoutDates = payoutDays.Count;
+            if (payoutDays.Count > 0) { var big = payoutDays.OrderByDescending(d => d.Cash).ThenBy(d => d.Day).First(); x.LargestPayoutDay = big.Day; x.LargestPayoutDayCash = big.Cash; }
+            var months = acc.SelectMany(a => a.DayHistory).GroupBy(d => new DateTime(d.Day.Year, d.Day.Month, 1)).Select(g => new { Month = g.Key, Net = g.Sum(d => d.PayoutCashDelta - d.CostDelta) }).OrderBy(m => m.Month).ToList();
+            if (months.Count > 0)
+            {
+                var best = months.OrderByDescending(m => m.Net).ThenBy(m => m.Month).First(); var worst = months.OrderBy(m => m.Net).ThenBy(m => m.Month).First();
+                x.BestMonth = best.Month; x.BestMonthNet = best.Net; x.WorstMonth = worst.Month; x.WorstMonthNet = worst.Net;
+                x.PositiveMonths = months.Count(m => m.Net > 0); x.NegativeMonths = months.Count(m => m.Net < 0);
+            }
+            foreach (var a in acc)
+            {
+                int run = 0, bestRun = 0;
+                foreach (var d in a.DayHistory.OrderBy(d => d.Day)) { if (d.FundedAfter) { run++; bestRun = Math.Max(bestRun, run); } else run = 0; }
+                if (bestRun > x.LongestFundedDays) { x.LongestFundedDays = bestRun; x.LongestFundedAccount = a.Name; }
+                if (a.Payouts > x.MostPayouts) { x.MostPayouts = a.Payouts; x.MostPayoutsAccount = a.Name; }
+            }
+            var carry = acc.Where(a => a.Funded && !a.Blown).Select(a => a.FundedBalance).ToList();
+            if (carry.Count > 0) { x.MaxCarryBalance = carry.Max(); x.AverageCarryBalance = carry.Average(); }
+            x.Instruments = InstrumentStats(events, cfg);
+            return x;
+        }
+
+        public static List<KeystoneArcInstrumentStats> InstrumentStats(IEnumerable<KeystoneArcEvent> events, KeystoneArcRunConfig cfg)
+        {
+            var output = new List<KeystoneArcInstrumentStats>();
+            var list = (events ?? Enumerable.Empty<KeystoneArcEvent>()).Where(e => e != null && e.Outcome != "UNVERIFIED 1M" && !string.IsNullOrEmpty(e.Symbol)).ToList();
+            foreach (var g in list.GroupBy(e => e.Symbol.ToUpperInvariant()).OrderBy(g => g.Key))
+            {
+                var days = KeystoneArcScoreboard.Days(g, cfg);
+                var s = new KeystoneArcInstrumentStats { Symbol = g.Key, Setups = g.Count(), Wins = g.Count(e => e.Outcome == "WIN"), Losses = g.Count(e => (e.Outcome ?? string.Empty).StartsWith("LOSS", StringComparison.OrdinalIgnoreCase)), Exits = g.Count(e => e.Outcome == "SESSION EXIT"), Pnl = g.Sum(e => e.GrossPnl) };
+                s.Days = days.Count; s.WinDays = days.Count(d => d.Pnl > 0); s.LossDays = days.Count(d => d.Pnl < 0);
+                if (days.Count > 0) { s.BestDay = days.Max(d => d.Pnl); s.WorstDay = days.Min(d => d.Pnl); }
+                double eq = 0, peak = 0; foreach (var d in days) { eq += d.Pnl; peak = Math.Max(peak, eq); s.MaxDrawdown = Math.Max(s.MaxDrawdown, peak - eq); }
+                output.Add(s);
+            }
+            return output;
+        }
+    }
 }
 
 namespace NinjaTrader.NinjaScript.Indicators
@@ -3353,7 +3470,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private int poolDayIndex = -1;
         private ComboBox blownAccountBox;
         private CheckBox evalConsecutiveBox, asianEvalStageBox;
-        private TextBox evalMinTradingDaysBox;
+        private TextBox evalMinTradingDaysBox, replacementDelayBox;
         private TextBox asianEvalTargetBox, asianEvalLegLossBox, asianEvalReversalsBox;
         private UIElement poolAllocationRow, poolDailyAllocationRow, evalStageToggleRowRef, asianEvalStageToggleRow;
         private readonly List<UIElement> evaluationTradeRuleControls = new List<UIElement>();
@@ -4994,6 +5111,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
             var resultViews = resultViewTabs = new TabControl { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
             Grid.SetRow(resultViews, 3); root.Children.Add(resultViews);
+            resultViews.SelectionChanged += (sender, args) => { if (args != null && args.OriginalSource == resultViewTabs) UpdateTopTilesForTab(); };
             var body = new Grid { MinHeight = 0 };
             // Keep the default settings view short enough to read without a page scroll.  The
             // only expanding group is the explicit evaluation override, which has no effect
@@ -5053,7 +5171,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             fundedRulesPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
             fundedRulesPanel.Children.Add(fundedFailureRow); fundedRulesPanel.Children.Add(fundedDailyLossRow);
             lifecyclePolicyControls.Children.Add(evalCostRow); lifecyclePolicyControls.Children.Add(payoutThresholdRow); lifecyclePolicyControls.Children.Add(payoutDaysRow); lifecyclePolicyControls.Children.Add(payoutAmountRow); lifecyclePolicyControls.Children.Add(payoutProfitShareRow); lifecyclePolicyControls.Children.Add(qualifyingDayRow);
-            governanceControls.Children.Add(PoolRow("BLOWN ACCOUNT", blownAccountBox)); governanceControls.Children.Add(evalStageToggleRow); governanceControls.Children.Add(asianEvalStageToggleRow); governanceControls.Children.Add(replacementGateRow); governanceControls.Children.Add(firmCapToggleRow); governanceControls.Children.Add(firmCapPanel); governanceControls.Children.Add(evalOverridePanel); governanceControls.Children.Add(asianEvalStagePanel);
+            replacementDelayBox = Input("0"); replacementDelayBox.ToolTip = "Calendar days a blown slot waits before its new evaluation starts trading. 0 = next session. 2 = blown Monday, trades again Thursday (time to buy and set up the new account).";
+            governanceControls.Children.Add(PoolRow("BLOWN ACCOUNT", blownAccountBox)); governanceControls.Children.Add(PoolRow("NEW EVAL WAIT DAYS (0 = NEXT SESSION)", replacementDelayBox)); governanceControls.Children.Add(evalStageToggleRow); governanceControls.Children.Add(asianEvalStageToggleRow); governanceControls.Children.Add(replacementGateRow); governanceControls.Children.Add(firmCapToggleRow); governanceControls.Children.Add(firmCapPanel); governanceControls.Children.Add(evalOverridePanel); governanceControls.Children.Add(asianEvalStagePanel);
             startModeHintText = Txt("DEFAULT: evaluation uses the main Step 1 profit / loss values. Turn on EVAL OVERRIDE only to show evaluation-only target, drawdown, daily, and per-trade limits. DIRECT FUNDED hides evaluation inputs.", Gold, 10, FontWeights.Bold);
             var settingsStack = Stack();
             settingsStack.Children.Add(Txt("POOL SETTINGS • SCENARIO CONTROLS", Cyan, 13, FontWeights.Bold));
@@ -9086,6 +9205,76 @@ namespace NinjaTrader.NinjaScript.AddOns
             return true;
         }
 
+        private KeystoneArcPoolInsights poolInsights;
+
+        private static string Day(DateTime d) { return d == DateTime.MinValue ? "—" : d.ToString("yyyy-MM-dd"); }
+
+        // The four boxes above the result tabs show the key numbers of the tab being viewed.
+        private void UpdateTopTilesForTab()
+        {
+            KeystoneArcPoolInsights x = poolInsights;
+            if (x == null || poolGrossWithdrawalMetric == null || IsOneDayAssignmentMode()) return;
+            string tab = resultViewTabs == null || resultViewTabs.SelectedItem == null ? string.Empty : Convert.ToString(((TabItem)resultViewTabs.SelectedItem).Header);
+            bool copy = config != null && (config.CopyTradingPool == 1 || string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase));
+            string blowCaption = "evaluation fails " + x.EvaluationFails + " • funded blowups " + x.FundedBlowups
+                + (copy && x.MaxBlowupsPerAccount == x.MinBlowupsPerAccount && x.Accounts > 0 ? " • " + x.MaxBlowupsPerAccount + " per account × " + x.Accounts + " copied accounts" : " • most on one account " + x.MaxBlowupsPerAccount)
+                + " • slots ended " + x.SlotsEnded;
+            Brush netBrush = x.Net < 0 ? Red : (x.Net > 0 ? Green : Muted);
+            if (tab == "POOL DASHBOARD")
+            {
+                UpdateMetricTile(poolGrossWithdrawalMetric, "FUNDED NOW", x.FundedNow + " / " + x.Accounts, "accounts funded at the end of the range • in evaluation " + x.EvaluationNow + " • waiting for replacement " + x.WaitingReplacement, x.FundedNow > 0 ? Green : Muted);
+                UpdateMetricTile(poolNetCashAfterCostMetric, "LAST PAYOUT", Day(x.LastPayoutDate), x.LastPayoutDate == DateTime.MinValue ? "no payout in this range" : x.LastPayoutAccount + (x.AccountsPaidOnLastDate > 1 ? " + " + (x.AccountsPaidOnLastDate - 1) + " more that day" : "") + " • still funded after their last payout " + x.StillFundedAfterLastPayout, Gold);
+                UpdateMetricTile(poolPayoutCycleMetric, "CARRY-OVER BALANCE", Cash(x.AverageCarryBalance), x.FundedNow == 0 ? "no funded account at the end" : "average funded balance left after payouts and split • highest " + Cash(x.MaxCarryBalance), Cyan);
+                UpdateMetricTile(poolBlownMetric, "BLOWUPS", x.BlowupEvents.ToString(CultureInfo.InvariantCulture), blowCaption, x.BlowupEvents > 0 ? Red : Muted);
+            }
+            else if (tab == "LIFECYCLE WALKTHROUGH")
+            {
+                UpdateMetricTile(poolGrossWithdrawalMetric, "EVALUATION PASSES", x.EvaluationPasses.ToString(CultureInfo.InvariantCulture), "evaluations bought " + x.EvaluationPurchases + " • pass rate " + (x.EvaluationPurchases == 0 ? "—" : (100.0 * x.EvaluationPasses / x.EvaluationPurchases).ToString("0", CultureInfo.InvariantCulture) + "%"), Orchid);
+                UpdateMetricTile(poolNetCashAfterCostMetric, "LONGEST FUNDED RUN", x.LongestFundedDays + " days", x.LongestFundedDays == 0 ? "no account reached funded" : x.LongestFundedAccount + " stayed funded the longest (recorded session days)", Green);
+                UpdateMetricTile(poolPayoutCycleMetric, "MOST PAYOUTS", x.MostPayouts.ToString(CultureInfo.InvariantCulture), x.MostPayouts == 0 ? "no payout" : x.MostPayoutsAccount + " • biggest payout streak of one account", Gold);
+                UpdateMetricTile(poolBlownMetric, "BLOWUPS", x.BlowupEvents.ToString(CultureInfo.InvariantCulture), blowCaption, x.BlowupEvents > 0 ? Red : Muted);
+            }
+            else if (tab == "FIRST RETURN")
+            {
+                UpdateMetricTile(poolGrossWithdrawalMetric, "PAID ACCOUNTS", x.PaidAccounts + " / " + x.Accounts, "slots that reached at least one payout", x.PaidAccounts > 0 ? Green : Muted);
+                UpdateMetricTile(poolNetCashAfterCostMetric, "EARLIEST FIRST PAYOUT", Day(x.FirstPayoutDate), x.FirstPayoutDate == DateTime.MinValue ? "no payout in this range" : "first paid account " + x.FirstPayoutAccount, Gold);
+                UpdateMetricTile(poolPayoutCycleMetric, "AVG DAYS TO FIRST PAYOUT", x.PaidAccounts == 0 ? "—" : x.AverageDaysToFirstPayout.ToString("0", CultureInfo.InvariantCulture) + " days", "calendar days from each slot's start to its first payout", Cyan);
+                UpdateMetricTile(poolBlownMetric, "AVG COST TO FIRST PAYOUT", x.PaidAccounts == 0 ? "—" : Cash(x.AverageCostThroughFirstPayout), "evaluation + replacement money one slot spent before its first payout", Orchid);
+            }
+            else if (tab == "PERFORMANCE PERIODS")
+            {
+                UpdateMetricTile(poolGrossWithdrawalMetric, "TO YOUR BANK", Cash(x.CashAfterShare), "all payouts after the account-share split • gross " + Cash(x.Gross), Green);
+                UpdateMetricTile(poolNetCashAfterCostMetric, "TOTAL COST", Cash(x.Cost), x.EvaluationPurchases + " evaluations / accounts bought", Orchid);
+                UpdateMetricTile(poolPayoutCycleMetric, "NET AFTER ALL COSTS", Cash(x.Net), "to your bank minus every account purchase • winning months " + x.PositiveMonths + " • losing months " + x.NegativeMonths, netBrush);
+                UpdateMetricTile(poolBlownMetric, "BEST / WORST MONTH", x.BestMonth == DateTime.MinValue ? "—" : x.BestMonth.ToString("MMM yyyy", CultureInfo.InvariantCulture) + " " + Cash(x.BestMonthNet), x.WorstMonth == DateTime.MinValue ? "" : "worst " + x.WorstMonth.ToString("MMM yyyy", CultureInfo.InvariantCulture) + " " + Cash(x.WorstMonthNet), Gold);
+            }
+            else if (tab == "RESEARCH FINDINGS")
+            {
+                var days = KeystoneArcScoreboard.Days(events.Where(ev => string.Equals(ev.ReviewState, "ACCEPTED", StringComparison.OrdinalIgnoreCase)), config);
+                double total = days.Sum(d => d.Pnl), eq = 0, peak = 0, dd = 0; foreach (var d in days) { eq += d.Pnl; peak = Math.Max(peak, eq); dd = Math.Max(dd, peak - eq); }
+                int wins = days.Count(d => d.Pnl > 0);
+                bool asianTab = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+                UpdateMetricTile(poolGrossWithdrawalMetric, asianTab ? "NIGHTS TESTED" : "TRADING DAYS", days.Count.ToString(CultureInfo.InvariantCulture), (asianTab ? "nights" : "days") + " with a resolved setup", Cyan);
+                UpdateMetricTile(poolNetCashAfterCostMetric, "WIN DAYS", days.Count == 0 ? "—" : (100.0 * wins / days.Count).ToString("0", CultureInfo.InvariantCulture) + "%", wins + " winning / " + days.Count(d => d.Pnl < 0) + " losing " + (asianTab ? "nights" : "days") + " (per " + (asianTab ? "night" : "day") + ", not per leg)", Green);
+                UpdateMetricTile(poolPayoutCycleMetric, "STRATEGY P/L", Cash(total), "one account, no prop rules, before commissions", total < 0 ? Red : Green);
+                UpdateMetricTile(poolBlownMetric, "MAX DRAWDOWN", Cash(-dd), "deepest drop of the strategy equity curve", dd > 0 ? Red : Muted);
+            }
+            else if (tab == "PAYOUT CYCLES")
+            {
+                UpdateMetricTile(poolGrossWithdrawalMetric, "PAYOUT DATES", x.PayoutDates.ToString(CultureInfo.InvariantCulture), x.Payouts + " payouts in total", Cyan);
+                UpdateMetricTile(poolNetCashAfterCostMetric, "FIRST → LAST PAYOUT", Day(x.FirstPayoutDate), "last " + Day(x.LastPayoutDate), Gold);
+                UpdateMetricTile(poolPayoutCycleMetric, "BIGGEST PAYOUT DAY", Cash(x.LargestPayoutDayCash), x.LargestPayoutDay == DateTime.MinValue ? "no payout" : Day(x.LargestPayoutDay) + " • cash after split", Green);
+                UpdateMetricTile(poolBlownMetric, "PAID ACCOUNTS", x.PaidAccounts + " / " + x.Accounts, "most payouts on one account " + x.MostPayouts, Orchid);
+            }
+            else
+            {
+                UpdateMetricTile(poolGrossWithdrawalMetric, "GROSS WITHDRAWALS", Cash(x.Gross), "before the account-share split and before costs", x.Gross > 0 ? Gold : Muted);
+                UpdateMetricTile(poolNetCashAfterCostMetric, "NET AFTER ALL COSTS", Cash(x.Net), "to your bank " + Cash(x.CashAfterShare) + " − all account purchases " + Cash(x.Cost), netBrush);
+                UpdateMetricTile(poolPayoutCycleMetric, "PAYOUTS", x.Payouts.ToString(CultureInfo.InvariantCulture), "first " + Day(x.FirstPayoutDate) + " • last " + Day(x.LastPayoutDate), x.Payouts > 0 ? Cyan : Muted);
+                UpdateMetricTile(poolBlownMetric, "BLOWUPS", x.BlowupEvents.ToString(CultureInfo.InvariantCulture), blowCaption, x.BlowupEvents > 0 ? Red : Muted);
+            }
+        }
+
         private void UpdatePoolMetricTiles()
         {
             bool oneDay = IsOneDayAssignmentMode();
@@ -9146,6 +9335,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             UpdateMetricTile(poolReplacementMetric, "EVAL AVAILABLE / ACTIVE", evaluationAvailable + " / " + evaluationActive,
                 "open evaluation-stage slots / slots with one or more assignments in this loaded run", evaluationActive > 0 ? Orchid : Muted);
             if (poolBlownMetric != null) { poolBlownMetric.Text = terminalBlown.ToString(CultureInfo.InvariantCulture); poolBlownMetric.Foreground = terminalBlown > 0 ? Red : Muted; }
+            poolInsights = accounts.Count == 0 ? null : KeystoneArcPoolInsights.Build(accounts, events.Where(ev => !string.IsNullOrWhiteSpace(ev.AssignedVirtualAccount) || string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase)), config);
+            UpdateTopTilesForTab();
             int eligible = events.Count(x => string.Equals(x.ReviewState, "ACCEPTED", StringComparison.OrdinalIgnoreCase));
             int assigned = events.Count(x => !string.IsNullOrWhiteSpace(x.AssignedVirtualAccount));
             double assignedPnl = events.Where(x => !string.IsNullOrWhiteSpace(x.AssignedVirtualAccount)).Sum(x => x.GrossPnl);
@@ -10308,6 +10499,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.BlownAccountReplacement = blownAccountBox != null && blownAccountBox.SelectedIndex == 1 ? 0 : 1;
             config.EvalQualifyingDaysConsecutive = evalConsecutiveBox == null || evalConsecutiveBox.IsChecked == true ? 1 : 0;
             config.EvaluationMinTradingDays = Math.Max(0, Integer(evalMinTradingDaysBox, 0));
+            config.ReplacementDelayDays = Math.Max(0, Integer(replacementDelayBox, 0));
             config.AsianEvalStageEnabled = asian75 && asianEvalStageBox != null && asianEvalStageBox.IsChecked == true ? 1 : 0;
             config.AsianEvalCycleTargetDollars = Number(asianEvalTargetBox, config.AsianCycleTargetDollars);
             config.AsianEvalReversalLossDollars = Number(asianEvalLegLossBox, config.AsianReversalLossDollars);
@@ -11366,6 +11558,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (blownAccountBox != null) blownAccountBox.SelectedIndex = 0;
             if (evalConsecutiveBox != null) evalConsecutiveBox.IsChecked = true;
             if (evalMinTradingDaysBox != null) evalMinTradingDaysBox.Text = "0";
+            if (replacementDelayBox != null) replacementDelayBox.Text = "0";
             if (asianEvalStageBox != null) asianEvalStageBox.IsChecked = false;
             if (asianEvalTargetBox != null) asianEvalTargetBox.Text = "350";
             if (asianEvalLegLossBox != null) asianEvalLegLossBox.Text = "75";

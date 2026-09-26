@@ -142,6 +142,32 @@ public static class LifecycleTests
             var b = KeystoneArcEngine.SimulatePool(Nights(Repeat(1600, 8)), cfg)[0];
             Check(b.DayHistory.FindIndex(d => d.EvaluationPassesAfter == 1) == 1, "without the minimum it passes on day 2", "");
         }
+        // 12. Pool insights: real blowup count, last payout, per-instrument split.
+        {
+            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 0, 1, 0); cfg.PoolSize = 3;
+            var ev = Nights(Repeat(900, 6).Concat(Repeat(-900, 6)).Concat(Repeat(900, 3)).ToArray());
+            var acc = KeystoneArcEngine.SimulatePool(ev, cfg);
+            var ins = KeystoneArcPoolInsights.Build(acc, ev, cfg);
+            Check(ins.BlowupEvents == acc.Sum(a => a.FailedEvaluations + a.FailedFunded) && ins.BlowupEvents > 0, "blowup box counts every blowup event, not only ended slots", ins.BlowupEvents + " events, ended " + ins.SlotsEnded);
+            Check(ins.MaxBlowupsPerAccount == ins.MinBlowupsPerAccount, "copy trading: every account has the same blowup count", ins.MinBlowupsPerAccount + "-" + ins.MaxBlowupsPerAccount);
+            Check(Math.Abs(ins.Net - (acc.Sum(a => a.PayoutCash) - acc.Sum(a => a.EvaluationCost))) < 0.01, "net = cash after share − all costs", ins.Net.ToString());
+            Check(ins.LastPayoutDate >= ins.FirstPayoutDate, "last payout date is on/after the first", ins.FirstPayoutDate.ToShortDateString() + " / " + ins.LastPayoutDate.ToShortDateString());
+            var bh = LifecycleSnapshot.BhEvents(3);
+            var stats = KeystoneArcPoolInsights.InstrumentStats(bh, LifecycleSnapshot.Cfg("BH", 1, 0, 0));
+            Check(stats.Count == 2 && stats.Sum(x => x.Setups) == bh.Count && Math.Abs(stats.Sum(x => x.Pnl) - bh.Sum(e => e.GrossPnl)) < 0.01, "per-instrument split: MNQ + MGC setups and P/L add up to the total", string.Join(", ", stats.Select(x => x.Symbol + " " + x.Setups + " " + x.Pnl)));
+        }
+        // 13. Replacement delay: a blown slot waits N calendar days before the new evaluation trades.
+        {
+            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 1, 1, 0); cfg.PoolSize = 1;
+            var ev = Nights(-2100, 350, 350, 350, 350, 350, 350);
+            var now = KeystoneArcEngine.SimulatePool(ev, cfg)[0];
+            cfg.ReplacementDelayDays = 2;
+            var later = KeystoneArcEngine.SimulatePool(Nights(-2100, 350, 350, 350, 350, 350, 350), cfg)[0];
+            DateTime blow = later.DayHistory[0].Day;
+            var firstTrade = later.DayHistory.Skip(1).FirstOrDefault(d => d.TradesAfter > 0);
+            Check(now.DayHistory.Count > 1 && now.DayHistory[1].TradesAfter > 0, "delay 0: replacement trades the next session", "");
+            Check(firstTrade != null && firstTrade.Day >= blow.AddDays(3) && later.Trades < now.Trades, "delay 2: blown on day 1, new evaluation trades 3+ calendar days later", firstTrade == null ? "none" : blow.ToShortDateString() + " → " + firstTrade.Day.ToShortDateString());
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

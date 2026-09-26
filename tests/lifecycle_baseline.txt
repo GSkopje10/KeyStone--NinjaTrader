@@ -1,0 +1,77 @@
+## BH EVAL-FIRST ROTATION
+KA-V01 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 25 | pnl 9500 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V02 | buy 2 | cost 240 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 1 | failF 0 | blown False | funded False | trades 25 | pnl 7500 | days 101 | DAILY LOSS LOCK • EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V03 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 25 | pnl 7500 | days 101 | DAILY PROFIT LOCK • EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V04 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 6000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V05 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 8000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V06 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 8000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V07 | buy 2 | cost 240 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 1 | failF 0 | blown False | funded False | trades 24 | pnl 8000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V08 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 20000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V09 | buy 2 | cost 240 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 1 | failF 0 | blown False | funded False | trades 24 | pnl 10000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V10 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 2000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+## BH EVAL-FIRST COPY
+KA-V01 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V02 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V03 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V04 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V05 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V06 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V07 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V08 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V09 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V10 | buy 1 | cost 120 | pass 1 | payouts 8 | gross 16000 | cash 16000 | failE 0 | failF 0 | blown False | funded True | trades 101 | pnl 39500 | days 101 | DAILY LOSS LOCK • FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+## BH EVAL-FIRST ROTATION FIRM CAP
+P1-EVAL1 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 25 | pnl 9500 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+P1-EVAL2 | buy 2 | cost 240 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 1 | failF 0 | blown False | funded False | trades 25 | pnl 7500 | days 101 | DAILY LOSS LOCK • EVALUATION IN PROGRESS (ILLUSTRATIVE)
+P1-EVAL3 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 25 | pnl 7500 | days 101 | DAILY PROFIT LOCK • EVALUATION IN PROGRESS (ILLUSTRATIVE)
+P1-EVAL4 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 6000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+P1-EVAL5 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 8000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+P1-EVAL6 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 8000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+P1-EVAL7 | buy 2 | cost 240 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 1 | failF 0 | blown False | funded False | trades 24 | pnl 8000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+P1-EVAL8 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 20000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+P1-EVAL9 | buy 2 | cost 240 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 1 | failF 0 | blown False | funded False | trades 24 | pnl 10000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+P1-EVAL10 | buy 1 | cost 120 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 24 | pnl 2000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+## BH DIRECT-FUNDED ROTATION
+KA-V01 | buy 1 | cost 120 | pass 0 | payouts 2 | gross 4000 | cash 4000 | failE 0 | failF 0 | blown False | funded True | trades 25 | pnl 9500 | days 101 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V02 | buy 2 | cost 240 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 1 | blown False | funded False | trades 25 | pnl 7500 | days 101 | DAILY LOSS LOCK • EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V03 | buy 1 | cost 120 | pass 0 | payouts 2 | gross 4000 | cash 4000 | failE 0 | failF 0 | blown False | funded True | trades 25 | pnl 7500 | days 101 | DAILY PROFIT LOCK • PAYOUT RECORDED • GROSS ¤2,000 • NET SHARE ¤2,000 • BALANCE ¤5,500 → ¤3,500 (ILLUSTRATIVE)
+KA-V04 | buy 1 | cost 120 | pass 0 | payouts 1 | gross 2000 | cash 2000 | failE 0 | failF 0 | blown False | funded True | trades 24 | pnl 6000 | days 101 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V05 | buy 1 | cost 120 | pass 0 | payouts 2 | gross 4000 | cash 4000 | failE 0 | failF 0 | blown False | funded True | trades 24 | pnl 8000 | days 101 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V06 | buy 1 | cost 120 | pass 0 | payouts 2 | gross 4000 | cash 4000 | failE 0 | failF 0 | blown False | funded True | trades 24 | pnl 8000 | days 101 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V07 | buy 2 | cost 240 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 1 | blown False | funded False | trades 24 | pnl 8000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V08 | buy 1 | cost 120 | pass 0 | payouts 3 | gross 6000 | cash 6000 | failE 0 | failF 0 | blown False | funded True | trades 24 | pnl 20000 | days 101 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V09 | buy 2 | cost 240 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 1 | blown False | funded False | trades 24 | pnl 10000 | days 101 | EVALUATION IN PROGRESS (ILLUSTRATIVE)
+KA-V10 | buy 1 | cost 120 | pass 0 | payouts 1 | gross 2000 | cash 2000 | failE 0 | failF 0 | blown False | funded True | trades 24 | pnl 2000 | days 101 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+## BH ONE-DAY
+KA-V01 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 1 | pnl 1500 | days 2 | ONE-DAY • SESSION COMPLETE
+KA-V02 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 1 | pnl -500 | days 2 | ONE-DAY • SESSION COMPLETE
+KA-V03 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 1 | pnl 1500 | days 2 | DAILY PROFIT LOCK
+KA-V04 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 1 | pnl 1500 | days 2 | DAILY PROFIT LOCK
+KA-V05 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 0 | pnl 0 | days 2 | ONE-DAY • UNUSED
+KA-V06 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 0 | pnl 0 | days 2 | ONE-DAY • UNUSED
+KA-V07 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 0 | pnl 0 | days 2 | ONE-DAY • UNUSED
+KA-V08 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 0 | pnl 0 | days 2 | ONE-DAY • UNUSED
+KA-V09 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 0 | pnl 0 | days 2 | ONE-DAY • UNUSED
+KA-V10 | buy 0 | cost 0 | pass 0 | payouts 0 | gross 0 | cash 0 | failE 0 | failF 0 | blown False | funded False | trades 0 | pnl 0 | days 2 | ONE-DAY • UNUSED
+## ASIAN EVAL-FIRST COPY
+KA-V01 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V02 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V03 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V04 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V05 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V06 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V07 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V08 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V09 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V10 | buy 1 | cost 120 | pass 1 | payouts 9 | gross 18000 | cash 18000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+## ASIAN DIRECT-FUNDED COPY
+KA-V01 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V02 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V03 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V04 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V05 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V06 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V07 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V08 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V09 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)
+KA-V10 | buy 1 | cost 120 | pass 0 | payouts 11 | gross 22000 | cash 22000 | failE 0 | failF 0 | blown False | funded True | trades 190 | pnl 22320 | days 190 | FUNDED • PAYOUT PROGRESS (ILLUSTRATIVE)

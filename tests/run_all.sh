@@ -8,3 +8,7 @@ mcs --parse "$root/src/KeyStone.cs" >/dev/null && echo "SYNTAX OK  src/KeyStone.
 rm -f "$here/.build/life.exe"
 "$root/tools/compile_engine.sh" "$here/.build/life.exe" "$here/LifecycleSnapshot.cs" "$here/LifecycleTests.cs"
 mono "$here/.build/life.exe" | tail -1
+rm -f "$here/.build/snap.exe"
+"$root/tools/compile_engine.sh" "$here/.build/snap.exe" "$here/LifecycleSnapshot.cs" "$here/SnapshotRunner.cs"
+mono "$here/.build/snap.exe" "$here/.build/snapshot.txt"
+cmp -s "$here/.build/snapshot.txt" "$here/lifecycle_baseline.txt" && echo "LIFECYCLE SNAPSHOT IDENTICAL TO BASELINE (BH + Asian results unchanged)" || { echo "LIFECYCLE SNAPSHOT CHANGED — diff tests/.build/snapshot.txt tests/lifecycle_baseline.txt"; exit 1; }
