@@ -235,6 +235,29 @@ public static class LifecycleTests
             Console.WriteLine(why);
             Check(why.StartsWith("WHY") && why.Contains("FEWER ACCOUNTS"), "payout diagnosis explains too few trades per account", why);
         }
+        // 18. Strategy comparison (BH vs FVG) summary, winner, same-entry agreement, day line.
+        {
+            var cfg = LifecycleSnapshot.Cfg("BH", 1, 0, 0);
+            var bh = LifecycleSnapshot.BhEvents(8).Take(60).ToList();
+            var fvg = bh.Select(e => e.CopyForPool()).ToList();
+            for (int i = 0; i < fvg.Count; i++) { fvg[i].SetupClass = "FVG"; if (i % 3 == 0) { fvg[i].Outcome = "LOSS"; fvg[i].GrossPnl = -Math.Abs(fvg[i].GrossPnl == 0 ? 300 : fvg[i].GrossPnl); } if (i % 2 == 1) fvg[i].EntryTime = fvg[i].EntryTime.AddMinutes(45); }
+            var rows = new List<KeystoneArcStrategyRow> {
+                KeystoneArcStrategyCompare.Summarize("BH", bh, KeystoneArcEngine.SimulatePool(bh.Select(e => e.CopyForPool()).ToList(), cfg), cfg),
+                KeystoneArcStrategyCompare.Summarize("FVG", fvg, KeystoneArcEngine.SimulatePool(fvg.Select(e => e.CopyForPool()).ToList(), cfg), cfg) };
+            KeystoneArcStrategyCompare.MarkBest(rows);
+            var agree = KeystoneArcStrategyCompare.SameEntries(fvg, bh, 5);
+            Console.WriteLine(KeystoneArcStrategyCompare.Table(rows));
+            string verdict = KeystoneArcStrategyCompare.Verdict(rows, agree.Count, agree.Count(e => e.Outcome == "WIN"), agree.Sum(e => e.GrossPnl));
+            Console.WriteLine(verdict);
+            Check(rows[0].Wins + rows[0].Losses + rows[0].Exits == rows[0].Resolved && rows[0].TradePnl > rows[1].TradePnl, "strategy rows count W/L/EXIT and trade P/L", rows[0].TradePnl + " vs " + rows[1].TradePnl);
+            Check(rows.Count(r => r.Best) <= 1 && (rows.All(r => !r.Best) || rows.First(r => r.Best).Net >= rows.Where(r => !r.Best).Max(r => r.Net)), "winner = best net after costs", string.Join(",", rows.Select(r => r.Strategy + " " + r.Net)));
+            Check(agree.Count == fvg.Count(e => bh.Any(b => b.Symbol == e.Symbol && Math.Abs((b.EntryTime - e.EntryTime).TotalMinutes) <= 5)) && agree.Count > 0 && agree.Count < fvg.Count, "same-entry agreement matches entries within the tolerance only", agree.Count + " of " + fvg.Count);
+            Check(verdict.Contains("BOTH AGREE") && (verdict.StartsWith("WINNER • BH") || verdict.StartsWith("WINNER • FVG") || verdict.StartsWith("WINNER • none")), "verdict names the winner and the agreement", verdict);
+            var day = bh[0].EntryTime.Date;
+            string line = KeystoneArcStrategyCompare.DayLine(day.ToString("yyyy-MM-dd"), new[] { Tuple.Create("BH", bh.Where(e => e.EntryTime.Date == day).ToList()), Tuple.Create("FVG", fvg.Where(e => e.EntryTime.Date == day).ToList()) });
+            Console.WriteLine(line);
+            Check(line.StartsWith("DAY COMPARE") && line.Contains("BH ") && line.Contains("FVG "), "day line lists each strategy", line);
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

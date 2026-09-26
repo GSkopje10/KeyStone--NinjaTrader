@@ -3907,6 +3907,136 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    public sealed class KeystoneArcStrategyRow
+    {
+        public string Strategy = string.Empty;
+        public int Setups, Resolved, Wins, Losses, Exits, Days, GreenDays, Payouts, Blowups, EvalPasses;
+        public double TradePnl, WinRate, ProfitFactor, AvgWin, AvgLoss, WorstDay, BestDay, MaxDrawdown, ToBank, Cost, Net;
+        public string BestHour = "—", BestGrade = "—";
+        public bool PoolRan, Best;
+    }
+
+    // BH vs FVG (and more strategies later) on the same loaded bars, the same session and the same
+    // prop rules. Detection and outcomes come from each strategy's own engine; nothing is changed.
+    public static class KeystoneArcStrategyCompare
+    {
+        public static bool Resolved(KeystoneArcEvent e)
+        {
+            string o = e == null ? string.Empty : (e.Outcome ?? string.Empty);
+            return o == "WIN" || o.StartsWith("LOSS", StringComparison.OrdinalIgnoreCase) || o == "SESSION EXIT" || o == "BREAKEVEN";
+        }
+
+        public static KeystoneArcRunConfig ConfigFor(KeystoneArcRunConfig cfg, string strategy)
+        {
+            KeystoneArcRunConfig c = cfg.ShallowCopy();
+            c.StrategyCode = strategy;
+            if (strategy == "BH") { c.EnableBh = 1; c.EnableFvg = 0; }
+            return c;
+        }
+
+        public static KeystoneArcStrategyRow Summarize(string strategy, List<KeystoneArcEvent> events, List<KeystoneArcVirtualAccount> accounts, KeystoneArcRunConfig cfg)
+        {
+            var r = new KeystoneArcStrategyRow { Strategy = strategy };
+            if (events == null) return r;
+            List<KeystoneArcEvent> done = events.Where(Resolved).OrderBy(e => e.EntryTime).ToList();
+            r.Setups = events.Count; r.Resolved = done.Count;
+            r.Wins = done.Count(e => e.Outcome == "WIN"); r.Losses = done.Count(e => e.Outcome.StartsWith("LOSS", StringComparison.OrdinalIgnoreCase)); r.Exits = done.Count - r.Wins - r.Losses;
+            r.TradePnl = done.Sum(e => e.GrossPnl);
+            r.WinRate = done.Count == 0 ? 0 : 100.0 * r.Wins / done.Count;
+            double gw = done.Where(e => e.GrossPnl > 0).Sum(e => e.GrossPnl), gl = -done.Where(e => e.GrossPnl < 0).Sum(e => e.GrossPnl);
+            r.ProfitFactor = gl <= 0 ? (gw > 0 ? 99 : 0) : gw / gl;
+            r.AvgWin = done.Where(e => e.GrossPnl > 0).Select(e => e.GrossPnl).DefaultIfEmpty(0).Average();
+            r.AvgLoss = done.Where(e => e.GrossPnl < 0).Select(e => e.GrossPnl).DefaultIfEmpty(0).Average();
+            var byDay = done.GroupBy(e => cfg == null ? e.EntryTime.Date : KeystoneArcEngine.SessionGroupingDate(e.TriggerTime, cfg)).Select(g => g.Sum(e => e.GrossPnl)).ToList();
+            r.Days = byDay.Count; r.GreenDays = byDay.Count(v => v > 0);
+            r.BestDay = byDay.DefaultIfEmpty(0).Max(); r.WorstDay = byDay.DefaultIfEmpty(0).Min();
+            double equity = 0, peak = 0;
+            foreach (var e in done) { equity += e.GrossPnl; peak = Math.Max(peak, equity); r.MaxDrawdown = Math.Max(r.MaxDrawdown, peak - equity); }
+            var hour = done.GroupBy(e => e.EntryTime.Hour).Where(g => g.Count() >= 3).OrderByDescending(g => g.Sum(e => e.GrossPnl)).FirstOrDefault();
+            if (hour != null && hour.Sum(e => e.GrossPnl) > 0) r.BestHour = hour.Key.ToString("00") + ":00";
+            var grade = done.Where(e => !string.IsNullOrEmpty(e.QualityTier) && e.QualityTier != "N").GroupBy(e => e.QualityTier).Where(g => g.Count() >= 3).OrderByDescending(g => g.Average(e => e.GrossPnl)).FirstOrDefault();
+            if (grade != null) r.BestGrade = grade.Key;
+            if (accounts != null && accounts.Count > 0 && cfg != null && cfg.EvaluationEnabled >= 0)
+            {
+                KeystoneArcPoolInsights x = KeystoneArcPoolInsights.Build(accounts, null, cfg);
+                r.PoolRan = true; r.Payouts = x.Payouts; r.Blowups = x.BlowupEvents; r.ToBank = x.CashAfterShare; r.Cost = x.Cost; r.Net = x.Net;
+                r.EvalPasses = accounts.Sum(a => a.EvaluationPasses);
+            }
+            return r;
+        }
+
+        public static void MarkBest(List<KeystoneArcStrategyRow> rows)
+        {
+            if (rows == null || rows.Count == 0) return;
+            // Net cash after costs decides when any strategy reached payouts; otherwise trade P/L.
+            bool pool = rows.All(r => r.PoolRan) && rows.Any(r => r.Net > 0);
+            var best = rows.OrderByDescending(r => pool ? r.Net : r.TradePnl).ThenByDescending(r => r.TradePnl).First();
+            if ((pool ? best.Net : best.TradePnl) > 0) best.Best = true;
+        }
+
+        // Entries of two strategies on the same instrument within toleranceMinutes of each other.
+        public static List<KeystoneArcEvent> SameEntries(List<KeystoneArcEvent> a, List<KeystoneArcEvent> b, int toleranceMinutes)
+        {
+            var output = new List<KeystoneArcEvent>();
+            if (a == null || b == null) return output;
+            var bySymbol = b.Where(e => e.EntryTime != DateTime.MinValue).GroupBy(e => e.Symbol ?? string.Empty).ToDictionary(g => g.Key, g => g.Select(e => e.EntryTime).OrderBy(t => t).ToList());
+            foreach (var e in a)
+            {
+                List<DateTime> times;
+                if (e.EntryTime == DateTime.MinValue || !bySymbol.TryGetValue(e.Symbol ?? string.Empty, out times)) continue;
+                if (times.Any(t => Math.Abs((t - e.EntryTime).TotalMinutes) <= toleranceMinutes)) output.Add(e);
+            }
+            return output;
+        }
+
+        public static string Table(List<KeystoneArcStrategyRow> rows)
+        {
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var sb = new StringBuilder();
+            bool pool = rows.Count > 0 && rows.All(r => r.PoolRan);
+            sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-10} {1,7} {2,13} {3,5} {4,5} {5,11} {6,9} {7,10} {8,10} {9,6} {10,6}{11}", "STRATEGY", "SETUPS", "W / L / EXIT", "WIN%", "PF", "TRADE P/L", "WORSTDAY", "MAX DD", "GREEN DAYS", "HOUR", "GRADE",
+                pool ? string.Format(CultureInfo.InvariantCulture, " {0,8} {1,11} {2,10} {3,11}", "PAYOUTS", "TO BANK", "COST", "NET") : string.Empty));
+            foreach (var r in rows)
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-10} {1,7} {2,13} {3,4:0}% {4,5:0.00} {5,11} {6,9} {7,10} {8,10} {9,6} {10,6}{11}", (r.Best ? "★ " : "  ") + r.Strategy, r.Setups, r.Wins + "/" + r.Losses + "/" + r.Exits, r.WinRate, r.ProfitFactor, m(r.TradePnl), m(r.WorstDay), m(-r.MaxDrawdown), r.GreenDays + "/" + r.Days, r.BestHour, r.BestGrade,
+                    pool ? string.Format(CultureInfo.InvariantCulture, " {0,8} {1,11} {2,10} {3,11}", r.Payouts, m(r.ToBank), m(r.Cost), m(r.Net)) : string.Empty));
+            return sb.ToString().TrimEnd();
+        }
+
+        public static string Verdict(List<KeystoneArcStrategyRow> rows, int agreeCount, int agreeWins, double agreePnl)
+        {
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var best = rows == null ? null : rows.FirstOrDefault(r => r.Best);
+            var sb = new StringBuilder();
+            if (best == null) sb.Append("WINNER • none of the strategies made money with these settings.");
+            else
+            {
+                bool byNet = best.PoolRan && best.Net > 0;
+                var other = rows.Where(r => r != best).OrderByDescending(r => byNet ? r.Net : r.TradePnl).FirstOrDefault();
+                sb.Append("WINNER • " + best.Strategy + (byNet ? " • net cash " + m(best.Net) : " • trade P/L " + m(best.TradePnl)));
+                if (other != null) sb.Append(" vs " + other.Strategy + " " + (byNet ? m(other.Net) : m(other.TradePnl)));
+                if (!byNet && best.PoolRan) sb.Append(" • no payouts with these prop rules yet (try COMPARE ACCOUNTS)");
+                sb.Append(" • win " + best.WinRate.ToString("0", CultureInfo.InvariantCulture) + "% • PF " + best.ProfitFactor.ToString("0.00", CultureInfo.InvariantCulture) + " • worst day " + m(best.WorstDay));
+            }
+            if (agreeCount > 0)
+                sb.Append("\nBOTH AGREE (FVG entry = BH entry, ±1 bar) • " + agreeCount + " setups • win " + (100.0 * agreeWins / agreeCount).ToString("0", CultureInfo.InvariantCulture) + "% • FVG P/L " + m(agreePnl) + " → these are DOUBLE TROUBLE confirmations.");
+            return sb.ToString();
+        }
+
+        // One-line result per strategy for a single day on the chart.
+        public static string DayLine(string day, IEnumerable<Tuple<string, List<KeystoneArcEvent>>> strategies)
+        {
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var parts = new List<string>(); string winner = null; double best = double.MinValue;
+            foreach (var s in strategies)
+            {
+                var done = s.Item2.Where(Resolved).ToList(); double pnl = done.Sum(e => e.GrossPnl);
+                parts.Add(s.Item1 + " " + s.Item2.Count + " setups • " + done.Count(e => e.Outcome == "WIN") + "W/" + done.Count(e => e.Outcome.StartsWith("LOSS", StringComparison.OrdinalIgnoreCase)) + "L • " + m(pnl));
+                if (done.Count > 0 && pnl > best) { best = pnl; winner = s.Item1; }
+            }
+            return "DAY COMPARE " + day + " • " + string.Join("  |  ", parts) + (winner != null && best > 0 ? "  → " + winner + " WINS THE DAY" : "  → no strategy made money this day");
+        }
+    }
+
     public sealed class KeystoneArcInsight
     {
         public string Level;   // GOOD, WARN, BAD, IDEA
@@ -4141,6 +4271,11 @@ namespace NinjaTrader.NinjaScript.AddOns
         private ScrollViewer evidenceTabsScroll;
         private CheckBox outcomesBox, chartMarksBox, showWinsBox, showLossesBox, showExitsBox, showNoEntryBox, oneDayShowTradedBox, oneDayShowProfitLocksBox, oneDayShowLossLocksBox, oneDayShowUnusedBox, chartReviewEnabledBox, chartReviewBhBox, chartReviewFvgBox, chartReviewDtBox, chartReviewWinsBox, chartReviewLossesBox, chartReviewExitsBox, chartReviewNoEntryBox, chartReviewFvgZonesBox, bhSetupBox, fvgSetupBox, breakEvenBox, evalStageTradeRulesBox, replacementFundingGateBox, firmFundedCapBox, copyTradingPoolBox, multipleSetupsPerDayBox;
         private CheckBox evidenceWinsBox, evidenceLossesBox, evidenceExitsBox, evidenceNoEntryBox;
+        // Other strategies drawn on the same chart day / timeframe (read-only overlay, never in the ledger).
+        private CheckBox evidenceOverlayBhBox, evidenceOverlayFvgBox;
+        private WrapPanel evidenceOverlayRow;
+        private readonly Dictionary<string, List<KeystoneArcEvent>> evidenceOverlayCache = new Dictionary<string, List<KeystoneArcEvent>>();
+        private string evidenceDayCompareLine = string.Empty;
         private Button confirmConfigurationButton, requestButton, runButton, cancelButton, openReviewButton, resetNewTestButton, refreshMathButton, runPoolButton, saveButton, exportButton, clearButton, publishChartReviewButton, comparisonRunButton, clearPoolButton, evidenceAfterPoolButton, researchPackageButton, comparisonBuildButton, comparisonOptimizeButton, comparisonClearButton, comparisonExportButton;
         private ListBox reviewList, poolAccountList, savedRunList, comparisonList, payoutAccountList, firstReturnAccountList;
         private StackPanel poolAccountCardStack, poolTimelineStack, walkthroughTimelineStack, firstReturnDashboardStack, dailySessionScoreboardStack, payoutCycleDashboardStack, researchFindingsStack;
@@ -4342,6 +4477,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         private CheckBox fvgMergeBox;
         private TextBox copyGroupSizeBox;
         private string lastAccountComparison = string.Empty;
+        private string lastStrategyComparison = string.Empty;
+        private List<KeystoneArcStrategyRow> lastStrategyRows = new List<KeystoneArcStrategyRow>();
         private TextBlock fvgPointsPreview;
         private UIElement fvgPointsPanel;
         private bool evidenceSelectionClickHandled;
@@ -6048,6 +6185,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             var compareAccountsButton = Btn("COMPARE ACCOUNTS", Green); compareAccountsButton.Height = 27; compareAccountsButton.Margin = new Thickness(8, 0, 2, 0); compareAccountsButton.Click += delegate { CompareAccountCounts(); };
             compareAccountsButton.ToolTip = "Runs the pool with 1, 2, 3, 5, 10, 20 accounts, copy to all and copy groups — same setups and settings — and marks the best (★).";
             clearRow.Children.Add(compareAccountsButton);
+            var compareStrategiesButton = Btn("COMPARE STRATEGIES", Orchid); compareStrategiesButton.Height = 27; compareStrategiesButton.Margin = new Thickness(8, 0, 2, 0); compareStrategiesButton.Click += delegate { CompareStrategies(); };
+            compareStrategiesButton.ToolTip = "Runs BH and FVG on the same loaded bars, session, instrument view and prop rules, and shows which strategy wins (★) — also how often both give the same entry (DOUBLE TROUBLE).";
+            clearRow.Children.Add(compareStrategiesButton);
             var claudeExportButton = Btn("EXPORT FOR CLAUDE", Gold); claudeExportButton.Height = 27; claudeExportButton.Margin = new Thickness(8, 0, 2, 0); claudeExportButton.Click += delegate { ExportForClaude(); };
             claudeExportButton.ToolTip = "Saves the loaded bars, settings, ledger and results summary to Documents\\KeystoneArc5MResearch\\ClaudeExport. Upload that folder's files to the GitHub repo (data/ folder) so Claude can optimise on your real data.";
             clearRow.Children.Add(claudeExportButton);
@@ -7448,7 +7588,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             DateTime start, end;
             if (!ConfigurationStillApproved()) { UpdateUi("STEP 1 REQUIRED • CONFIRM THE CURRENT CONFIGURATION BEFORE REQUESTING DATA", Gold); UpdateWorkflowState(); return; }
             if (!ReadConfig(out start, out end)) return;
-            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); historicalRequestDetails.Clear(); failedContractRolloverSeries.Clear(); mnqBars = new List<KeystoneArcBar>(); mgcBars = new List<KeystoneArcBar>(); mnqSetupBars = new List<KeystoneArcBar>(); mgcSetupBars = new List<KeystoneArcBar>(); mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false; mnqOutcomeMatchesSetup = true; mgcOutcomeMatchesSetup = true; config.MnqOutcomeTimeOffsetMinutes = 0; config.MgcOutcomeTimeOffsetMinutes = 0; config.MnqOutcomeSource = "VERIFICATION PENDING"; config.MgcOutcomeSource = "VERIFICATION PENDING"; mnqOutcomeValidation = "awaiting 1-minute comparison"; mgcOutcomeValidation = "awaiting 1-minute comparison"; researchRunCompleted = false; events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; reviewRows.Clear(); accounts.Clear(); historicalDataReceipt = "DATA RECEIPT: historical request started; awaiting NinjaTrader BarsRequest completion.";
+            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); historicalRequestDetails.Clear(); failedContractRolloverSeries.Clear(); mnqBars = new List<KeystoneArcBar>(); mgcBars = new List<KeystoneArcBar>(); mnqSetupBars = new List<KeystoneArcBar>(); mgcSetupBars = new List<KeystoneArcBar>(); mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false; mnqOutcomeMatchesSetup = true; mgcOutcomeMatchesSetup = true; config.MnqOutcomeTimeOffsetMinutes = 0; config.MgcOutcomeTimeOffsetMinutes = 0; config.MnqOutcomeSource = "VERIFICATION PENDING"; config.MgcOutcomeSource = "VERIFICATION PENDING"; mnqOutcomeValidation = "awaiting 1-minute comparison"; mgcOutcomeValidation = "awaiting 1-minute comparison"; researchRunCompleted = false; events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>(); reviewRows.Clear(); accounts.Clear(); historicalDataReceipt = "DATA RECEIPT: historical request started; awaiting NinjaTrader BarsRequest completion.";
             // A new request must never leave totals, account cards, or a ledger from a previous
             // completed run on screen.  Otherwise a zero-bar receipt looks like a successful run
             // because the visible totals belong to a different date range.
@@ -8381,7 +8521,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DispatchToLab(delegate
                 {
                     events = generated ?? new List<KeystoneArcEvent>();
-                    loadedEvents = events; loadedScope = workerConfig.Scope; viewScope = workerConfig.Scope; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty;
+                    loadedEvents = events; loadedScope = workerConfig.Scope; viewScope = workerConfig.Scope; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>();
                     for (int i = 0; i < events.Count; i++)
                     {
                         events[i].ReviewState = "ACCEPTED";
@@ -8525,11 +8665,12 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void RenderInstrumentSplit()
         {
             if (instrumentSplitText == null) return;
-            if (loadedEvents == null || loadedEvents.Count == 0 || (loadedScope != "BOTH" && string.IsNullOrEmpty(lastAccountComparison)))
+            string extraComparisons = string.Join("\n\n", new[] { lastStrategyComparison, lastAccountComparison }.Where(x => !string.IsNullOrEmpty(x)));
+            if (loadedEvents == null || loadedEvents.Count == 0 || (loadedScope != "BOTH" && string.IsNullOrEmpty(extraComparisons)))
             {
                 instrumentSplitText.Visibility = Visibility.Collapsed; return;
             }
-            if (loadedScope != "BOTH") { instrumentSplitText.Text = lastAccountComparison; instrumentSplitText.Visibility = Visibility.Visible; return; }
+            if (loadedScope != "BOTH") { instrumentSplitText.Text = extraComparisons; instrumentSplitText.Visibility = Visibility.Visible; return; }
             bool asian = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
             List<KeystoneArcInstrumentStats> stats = KeystoneArcPoolInsights.InstrumentStats(loadedEvents, config);
             var sb = new StringBuilder("STRATEGY BY INSTRUMENT (" + (asian ? "legs of the combined cycle" : "all setups, no accounts") + ")\n");
@@ -8538,7 +8679,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     x.Symbol, x.Setups, asian ? "legs  " : "setups", x.Wins, x.Losses, x.WinRate, Cash(x.Pnl), Cash(x.BestDay), Cash(x.WorstDay), Cash(-x.MaxDrawdown)));
             if (stats.Count == 2) { var best = stats.OrderByDescending(x => x.Pnl).First(); sb.Append("BETTER: " + best.Symbol + " by " + Cash(Math.Abs(stats[0].Pnl - stats[1].Pnl))); }
             if (!string.IsNullOrEmpty(lastInstrumentComparison)) sb.Append("\n\n" + lastInstrumentComparison);
-            if (!string.IsNullOrEmpty(lastAccountComparison)) sb.Append("\n\n" + lastAccountComparison);
+            if (!string.IsNullOrEmpty(extraComparisons)) sb.Append("\n\n" + extraComparisons);
             instrumentSplitText.Text = sb.ToString().TrimEnd();
             instrumentSplitText.Visibility = Visibility.Visible;
         }
@@ -8662,6 +8803,48 @@ namespace NinjaTrader.NinjaScript.AddOns
                 });
             });
         }
+        private void CompareStrategies()
+        {
+            if (operationBusy || isProcessing) { UpdateUi("WAIT FOR THE CURRENT OPERATION TO FINISH", Gold); return; }
+            if (events == null || events.Count == 0) { UpdateUi("LOAD A TEST FIRST", Gold); return; }
+            if (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase)) { UpdateUi("COMPARE STRATEGIES is for BH vs FVG on the same day session. Asian 75 trades its own overnight session — load a BH or FVG test.", Gold); return; }
+            DateTime s0, e0; DateTime loadedStart = config.Start, loadedEnd = config.End; int loadedOneDay = config.OneDayMode; string loadedSession = config.SessionMode; int ls = config.CustomStart, le = config.EndTime; string loadedStrategy = config.StrategyCode; int loadedMinutes = config.SetupMinutes;
+            if (!ReadConfig(out s0, out e0)) return;
+            config.Start = loadedStart; config.End = loadedEnd; config.OneDayMode = loadedOneDay; config.SessionMode = loadedSession; config.CustomStart = ls; config.EndTime = le; config.StrategyCode = loadedStrategy; config.SetupMinutes = loadedMinutes;
+            config.EvaluationEnabled = loadedOneDay == 1 ? -1 : (accountStartModeBox != null && string.Equals(Convert.ToString(accountStartModeBox.SelectedItem), "DIRECT FUNDED", StringComparison.OrdinalIgnoreCase) ? 0 : 1);
+            ApplyInstrumentView(config);
+            KeystoneArcRunConfig cfg = CloneConfig(config);
+            List<KeystoneArcEvent> current = events.Where(x => string.Equals(x.ReviewState, "ACCEPTED", StringComparison.OrdinalIgnoreCase)).ToList();
+            BeginBusy("COMPARING BH AND FVG ON THE SAME BARS");
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                var rows = new List<KeystoneArcStrategyRow>(); var ledgers = new Dictionary<string, List<KeystoneArcEvent>>();
+                string text;
+                try
+                {
+                    foreach (string strategy in new[] { "BH", "FVG" })
+                    {
+                        KeystoneArcRunConfig c = KeystoneArcStrategyCompare.ConfigFor(cfg, strategy);
+                        List<KeystoneArcEvent> ledger = string.Equals(cfg.StrategyCode, strategy, StringComparison.OrdinalIgnoreCase) ? current : BuildDetectorLedger(c);
+                        List<KeystoneArcVirtualAccount> acc = c.EvaluationEnabled >= 0 ? KeystoneArcEngine.SimulatePool(ledger.Where(e => string.Equals(e.ReviewState, "ACCEPTED", StringComparison.OrdinalIgnoreCase)).Select(e => e.CopyForPool()).ToList(), c) : null;
+                        rows.Add(KeystoneArcStrategyCompare.Summarize(strategy, ledger, acc, c)); ledgers[strategy] = ledger;
+                    }
+                    KeystoneArcStrategyCompare.MarkBest(rows);
+                    List<KeystoneArcEvent> agree = KeystoneArcStrategyCompare.SameEntries(ledgers["FVG"].Where(KeystoneArcStrategyCompare.Resolved).ToList(), ledgers["BH"], Math.Max(1, cfg.SetupMinutes));
+                    text = "STRATEGIES • " + cfg.Scope + " • " + cfg.SetupMinutes + "M • same bars, session and prop rules • ★ = winner" + (cfg.EvaluationEnabled >= 0 ? " (net cash after costs)" : " (trade P/L)") + "\n" +
+                        KeystoneArcStrategyCompare.Table(rows) + "\n" + KeystoneArcStrategyCompare.Verdict(rows, agree.Count, agree.Count(e => e.Outcome == "WIN"), agree.Sum(e => e.GrossPnl));
+                }
+                catch (Exception ex) { DispatchToLab(delegate { EndBusy(); UpdateUi("STRATEGY COMPARISON ERROR • " + ex.Message, Red); }); return; }
+                DispatchToLab(delegate
+                {
+                    EndBusy();
+                    lastStrategyComparison = text; lastStrategyRows = rows;
+                    RenderInstrumentSplit();
+                    UpdateUi("STRATEGY COMPARISON READY • shown under the buttons and added to the report", Green);
+                });
+            });
+        }
+
         private WrapPanel payoutAccountCards;
         private UniformGrid payoutAccountTiles;
 
@@ -8987,6 +9170,27 @@ namespace NinjaTrader.NinjaScript.AddOns
             evidenceStrengthBox.SelectionChanged += delegate { selectedEvidenceEvent = null; refreshEvidenceFilters(); };
             filters.Children.Add(evidenceWinsBox); filters.Children.Add(evidenceLossesBox); filters.Children.Add(evidenceExitsBox); filters.Children.Add(evidenceNoEntryBox);
             top.Children.Add(filters);
+            evidenceOverlayRow = new WrapPanel { Margin = new Thickness(4, 0, 4, 2) };
+            evidenceOverlayRow.Children.Add(Txt("OTHER STRATEGIES ON THIS DAY: ", Gold, 11, FontWeights.Bold));
+            evidenceOverlayBhBox = new CheckBox { Content = "SHOW BH SETUPS", IsChecked = false, Foreground = Blue, Margin = new Thickness(6, 0, 10, 0), ToolTip = "Draws the BH setups of this day and timeframe (same loaded bars, same session) under the candles as BH tags. View only: the ledger and pool are not changed." };
+            evidenceOverlayFvgBox = new CheckBox { Content = "SHOW FVG SETUPS", IsChecked = false, Foreground = Orchid, Margin = new Thickness(6, 0, 10, 0), ToolTip = "Draws the FVG retest setups of this day and timeframe under the candles as FVG tags. View only." };
+            evidenceOverlayBhBox.Checked += delegate { refreshEvidenceFilters(); }; evidenceOverlayBhBox.Unchecked += delegate { refreshEvidenceFilters(); };
+            evidenceOverlayFvgBox.Checked += delegate { refreshEvidenceFilters(); }; evidenceOverlayFvgBox.Unchecked += delegate { refreshEvidenceFilters(); };
+            var compareDayButton = Btn("COMPARE THIS DAY", Gold); compareDayButton.Height = 24; compareDayButton.FontSize = 10; compareDayButton.Foreground = Bg; compareDayButton.Margin = new Thickness(6, 0, 0, 0);
+            compareDayButton.ToolTip = "Turns on every other strategy for this day and shows which one won the day (setups, W/L, P/L).";
+            compareDayButton.Click += delegate
+            {
+                bool fvgStudy = string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase);
+                if (fvgStudy) evidenceOverlayBhBox.IsChecked = true; else evidenceOverlayFvgBox.IsChecked = true;
+                refreshEvidenceFilters();
+                if (!string.IsNullOrEmpty(evidenceDayCompareLine)) SetEvidenceStatus(evidenceDayCompareLine, Gold);
+            };
+            evidenceOverlayRow.Children.Add(evidenceOverlayBhBox); evidenceOverlayRow.Children.Add(evidenceOverlayFvgBox); evidenceOverlayRow.Children.Add(compareDayButton);
+            bool overlayAsian = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            evidenceOverlayRow.Visibility = overlayAsian ? Visibility.Collapsed : Visibility.Visible;
+            evidenceOverlayBhBox.Visibility = string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
+            evidenceOverlayFvgBox.Visibility = string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? Visibility.Collapsed : Visibility.Visible;
+            top.Children.Add(evidenceOverlayRow);
             var zoomControls = new WrapPanel { Margin = new Thickness(4, 1, 4, 3) };
             zoomControls.Children.Add(Txt("CHART ZOOM: ", Cyan, 11, FontWeights.Bold));
             var zoomOut = Btn("−", Card); zoomOut.Width = 34; zoomOut.Height = 24; zoomOut.FontSize = 17; zoomOut.Foreground = Text; zoomOut.ToolTip = "Zoom out"; zoomOut.Click += delegate { SetEvidenceZoom(evidenceZoom - 0.20); };
@@ -9414,8 +9618,74 @@ namespace NinjaTrader.NinjaScript.AddOns
             return hasStart && hasEnd;
         }
 
+        // Other strategies on the same chart: detected from the same loaded bars / timeframe / session
+        // with each strategy's own engine, cached per view, and drawn as tags under the candles.
+        private List<KeystoneArcEvent> EvidenceOverlayEvents(string strategy, string symbol, DateTime day, int minutes)
+        {
+            string key = strategy + "|" + symbol + "|" + day.ToString("yyyy-MM-dd") + "|" + minutes + "|" + evidenceBars.Count;
+            List<KeystoneArcEvent> cached;
+            if (evidenceOverlayCache.TryGetValue(key, out cached)) return cached;
+            var output = new List<KeystoneArcEvent>();
+            try
+            {
+                List<KeystoneArcBar> oneMinute = symbol == "MNQ" ? mnqBars : mgcBars;
+                bool matched = symbol == "MNQ" ? mnqOutcomeMatchesSetup : mgcOutcomeMatchesSetup;
+                DateTime sessionStart = ConfiguredSessionStart(day), sessionEnd = TradingSessionEnd(day);
+                DateTime from = sessionStart.AddMinutes(-EvidenceContextMinutes(minutes) - Math.Max(minutes, 240));
+                List<KeystoneArcBar> setup = evidenceBars.Where(b => b.Time > from && b.Time <= sessionEnd).ToList();
+                List<KeystoneArcBar> outcome = oneMinute == null ? new List<KeystoneArcBar>() : oneMinute.Where(b => b.Time > from && b.Time <= sessionEnd.AddHours(3)).ToList();
+                KeystoneArcRunConfig c = KeystoneArcStrategyCompare.ConfigFor(CloneConfig(config), strategy);
+                c.Scope = symbol; c.SetupMinutes = minutes; c.Start = sessionStart; c.End = sessionEnd;
+                c.OutcomeModelEnabled = matched && outcome.Count > 0 ? 1 : 0;
+                if (evidencePreviewOwnLedger) { if (symbol == "MNQ") c.MnqOutcomeTimeOffsetMinutes = 0; else c.MgcOutcomeTimeOffsetMinutes = 0; }
+                if (setup.Count >= 3) output = KeystoneArcEngine.DetectAndResolve(c.OutcomeModelEnabled == 1 ? outcome : setup, setup, c).Where(e => string.Equals(e.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).ToList();
+                foreach (var e in output) { e.ReviewState = "ACCEPTED"; e.ReviewNote = strategy + " OVERLAY • view only • " + e.ReviewNote; }
+            }
+            catch (Exception ex) { SetEvidenceStatus(strategy + " OVERLAY ERROR • " + ex.Message, Red); }
+            evidenceOverlayCache[key] = output;
+            return output;
+        }
+
+        private void DrawStrategyOverlays(string symbol, DateTime day, int minutes, List<KeystoneArcEvent> primary, List<KeystoneArcBar> bars, double left, double candleWidth, Func<double, double> y, double plotBottom, bool replaying)
+        {
+            evidenceDayCompareLine = string.Empty;
+            var shown = new List<Tuple<string, List<KeystoneArcEvent>>>();
+            string own = string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG" : "BH";
+            if (evidenceOverlayBhBox != null && evidenceOverlayBhBox.IsChecked == true && own != "BH") shown.Add(Tuple.Create("BH", EvidenceOverlayEvents("BH", symbol, day, minutes)));
+            if (evidenceOverlayFvgBox != null && evidenceOverlayFvgBox.IsChecked == true && own != "FVG") shown.Add(Tuple.Create("FVG", EvidenceOverlayEvents("FVG", symbol, day, minutes)));
+            if (shown.Count == 0) return;
+            var primaryBars = new HashSet<int>(primary.Select(e => EvidenceEntryBarIndex(bars, e)).Where(i => i >= 0));
+            foreach (var strategy in shown)
+            {
+                Brush tagBrush = strategy.Item1 == "BH" ? Blue : Orchid;
+                foreach (var group in strategy.Item2.Select(e => new { Event = e, Index = EvidenceEntryBarIndex(bars, e) }).Where(m => m.Index >= 0).GroupBy(m => m.Index))
+                {
+                    List<KeystoneArcEvent> rows = group.Select(m => m.Event).Where(e => !replaying || (e.ExitTime != DateTime.MinValue ? e.ExitTime <= evidenceBarCursor : e.EntryTime <= evidenceBarCursor)).ToList();
+                    if (rows.Count == 0) continue;
+                    KeystoneArcEvent first = rows[0]; int i = group.Key;
+                    double x = left + i * candleWidth + candleWidth / 2.0;
+                    Brush resultBrush = first.Outcome == "WIN" ? WinPurple : ((first.Outcome ?? string.Empty).StartsWith("LOSS") ? LossAmber : ExitIce);
+                    bool both = primaryBars.Contains(i) || primaryBars.Contains(i - 1) || primaryBars.Contains(i + 1);
+                    if (!double.IsNaN(first.Entry) && first.Entry > 0) evidenceCanvas.Children.Add(new System.Windows.Shapes.Line { X1 = x - candleWidth * 0.9, X2 = x + candleWidth * 0.9, Y1 = y(first.Entry), Y2 = y(first.Entry), Stroke = tagBrush, StrokeThickness = 2, IsHitTestVisible = false });
+                    double tagY = Math.Min(plotBottom - 16, y(bars[i].Low) + 6 + (strategy.Item1 == "FVG" ? 16 : 0));
+                    string label = (both ? "★" : string.Empty) + strategy.Item1 + " " + (rows.Count == 1 ? EvidenceDisplayTag(first) : rows.Count.ToString(CultureInfo.InvariantCulture));
+                    var tag = new Border { Background = Card, BorderBrush = both ? Gold : tagBrush, BorderThickness = new Thickness(both ? 2 : 1), CornerRadius = new CornerRadius(3), Padding = new Thickness(3, 0, 3, 0),
+                        Child = new TextBlock { Text = label, Foreground = resultBrush, FontSize = 9, FontWeight = FontWeights.Bold } };
+                    tag.ToolTip = strategy.Item1 + " SETUP (view only, not in this ledger)" + (both ? "\n★ SAME ENTRY AS THE " + own + " SETUP → DOUBLE TROUBLE CONFIRMATION" : string.Empty) + "\n" +
+                        string.Join("\n", rows.Select(r => (r.EntryTime == DateTime.MinValue ? r.TriggerTime : r.EntryTime).ToString("HH:mm") + " • ENTRY " + r.Entry.ToString("0.00", CultureInfo.InvariantCulture) + " • " + r.Outcome + " • " + Cash(r.GrossPnl) + (string.IsNullOrEmpty(r.QualityTier) ? string.Empty : " • GRADE " + r.QualityTier)));
+                    Canvas.SetLeft(tag, x - 14); Canvas.SetTop(tag, tagY); evidenceCanvas.Children.Add(tag);
+                }
+            }
+            var all = new List<Tuple<string, List<KeystoneArcEvent>>> { Tuple.Create(own, primary) };
+            all.AddRange(shown);
+            evidenceDayCompareLine = KeystoneArcStrategyCompare.DayLine(day.ToString("yyyy-MM-dd"), all);
+            var line = AddCanvasText(evidenceDayCompareLine, left, 24, Gold, 11, FontWeights.Bold);
+            if (line != null) line.IsHitTestVisible = false;
+        }
+
         private void ResetEvidenceDisplayForRequest()
         {
+            evidenceOverlayCache.Clear();
             // Invalidate any asynchronous response for the prior MNQ/MGC/date tab before clearing its view.
             CancelEvidenceRequest();
             if (evidenceSelectionTimer != null) { evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; }
@@ -9685,6 +9955,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             if (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase))
                 DrawAsianLegAnnotations(allMarks, bars, left, candleWidth, y, top, chartHeight - bottom, symbol);
+            else DrawStrategyOverlays(symbol, day, chartMinutes, allMarks, bars, left, candleWidth, y, chartHeight - bottom, replaying);
             AddCanvasText(symbol + " • TEST WINDOW " + testedStart.ToString("yyyy-MM-dd HH:mm") + " → " + testedEnd.ToString("yyyy-MM-dd HH:mm") + " • " + EvidenceContextMinutes(chartMinutes) + "M LEFT CONTEXT • DIRECT NINJATRADER " + chartMinutes + "M BARS • " + bars.Count + " CANDLES • " + marks.Count + " LEDGER " + (marks.Count == 1 ? "MARK" : "MARKS") + " / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES"), left, 4, Cyan, 12, FontWeights.Bold);
             UpdateEvidenceNavigationBars(allBars, visibleCount);
             RefreshEvidenceSidePanel();
@@ -13484,7 +13755,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             mnqOutcomeValidation = "not checked"; mgcOutcomeValidation = "not checked";
             historicalRequestDetails.Clear(); selectedEvidenceEvent = null;
             evidenceBars.Clear(); CancelEvidenceRequest(); EndBusy(); isProcessing = false; pendingRequests = 0;
-            loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; RefreshInstrumentViewControls();
+            loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>(); RefreshInstrumentViewControls();
             if (strategyBox != null) strategyBox.SelectedIndex = 0;
             if (scopeBox != null) scopeBox.SelectedIndex = 0;
             if (accountPathBox != null) accountPathBox.SelectedIndex = 0;
@@ -13611,7 +13882,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void ClearCurrentResearch(bool resetConfigurationApproval)
         {
-            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); mnqBars.Clear(); mgcBars.Clear(); mnqSetupBars.Clear(); mgcSetupBars.Clear(); events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; reviewRows.Clear(); accounts.Clear(); researchRunCompleted = false; historicalDataReceipt = "DATA RECEIPT: no completed NinjaTrader historical request recorded for this lab run."; unsavedResearch = false; KeystoneArcHub.Publish(events, config);
+            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); mnqBars.Clear(); mgcBars.Clear(); mnqSetupBars.Clear(); mgcSetupBars.Clear(); events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>(); reviewRows.Clear(); accounts.Clear(); researchRunCompleted = false; historicalDataReceipt = "DATA RECEIPT: no completed NinjaTrader historical request recorded for this lab run."; unsavedResearch = false; KeystoneArcHub.Publish(events, config);
             if (resetConfigurationApproval) { configurationApproved = false; configurationApprovalKey = string.Empty; researchSubmissionLocked = false; }
             if (summaryText != null) summaryText.Text = "CLEARED"; if (eventText != null) eventText.Text = "EVENT LEDGER EMPTY"; if (mathText != null) mathText.Text = "WAITING FOR A NEW SELECTED RANGE"; if (poolText != null) poolText.Text = "NO VIRTUAL POOL RUN"; if (poolDetailText != null) poolDetailText.Text = "NO ACCOUNT SELECTED"; if (poolTimelineStack != null) poolTimelineStack.Children.Clear(); if (researchFindingsStack != null) researchFindingsStack.Children.Clear(); if (walkthroughAccountBox != null) walkthroughAccountBox.Items.Clear(); UpdateWalkthroughSelection(null); if (firstReturnDashboardStack != null) firstReturnDashboardStack.Children.Clear(); if (firstReturnDashboardText != null) firstReturnDashboardText.Text = "FIRST RETURN FROM INITIAL EVALUATION • RUN THE VIRTUAL POOL"; if (lifecycleText != null) lifecycleText.Text = "NO LIFECYCLE RUN"; if (reviewList != null) reviewList.Items.Clear(); if (poolAccountList != null) poolAccountList.Items.Clear(); UpdatePoolMetricTiles(); UpdateUi("CLEARED KEYSTONE ARC MEMORY ONLY • SAVED FILES RETAINED", Gold);
             UpdateWorkflowState();

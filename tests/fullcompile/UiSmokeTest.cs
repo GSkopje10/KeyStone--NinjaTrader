@@ -82,6 +82,21 @@ public static class UiSmokeTest
                 Call(lab2, "ToggleEvidenceReplayPlay"); Call(lab2, "ToggleEvidenceReplayPlay");
                 Call(lab2, "UpdateEvidenceLivePanel"); Call(lab2, "StopEvidenceReplay");
             });
+            Step(strategy + ": other strategy on the same chart day + day compare + range ledger", () =>
+            {
+                if (asian) return;
+                Call(lab2, "RequestEvidenceBars");
+                string other = strategy == "FVG" ? "evidenceOverlayBhBox" : "evidenceOverlayFvgBox";
+                var box = (System.Windows.Controls.CheckBox)lab2.GetType().GetField(other, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                box.IsChecked = true; Call(lab2, "RenderEvidenceChart");
+                string line = (string)lab2.GetType().GetField("evidenceDayCompareLine", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                Console.WriteLine("      " + line);
+                if (!line.StartsWith("DAY COMPARE")) throw new Exception("no day compare line");
+                box.IsChecked = false;
+                var cfgOther = KeystoneArcStrategyCompare.ConfigFor(c, strategy == "FVG" ? "BH" : "FVG");
+                var ledger = (List<KeystoneArcEvent>)Call(lab2, "BuildDetectorLedger", cfgOther);
+                Console.WriteLine("      range ledger for " + cfgOther.StrategyCode + ": " + ledger.Count + " setups");
+            });
             Step(strategy + ": other timeframes built from the loaded 1M bars (chart = ledger)", () =>
             {
                 var agg = KeystoneArc5MResearchLab.AggregateCloseStamped(m1, 15, "MNQ");
