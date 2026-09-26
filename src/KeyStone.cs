@@ -9238,7 +9238,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             // regardless of whether it originated from an open chart or BarsRequest.  This
             // avoids a second narrow request being truncated at midnight after a long-range
             // study and guarantees that the Evidence view uses the same bars as detection.
-            if (evidenceMinutes == config.SetupMinutes && HasFullEvidenceSessionCoverage(loadedSetupBars, day))
+            // Chart = ledger: the research bars are always used when they have this session, even
+            // a short holiday session, so chart candles and ledger entries share one contract.
+            if (evidenceMinutes == config.SetupMinutes && (HasFullEvidenceSessionCoverage(loadedSetupBars, day) || HasAnyEvidenceSessionBars(loadedSetupBars, day)))
             {
                 CancelEvidenceRequest(); ++evidenceGeneration;
                 evidenceBars = new List<KeystoneArcBar>(loadedSetupBars);
@@ -9250,6 +9252,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 RenderEvidenceChart();
                 return;
             }
+            // Other timeframes are built from the loaded 1-minute research bars (same contract as
+            // the ledger, no new NinjaTrader request, instant).
+            List<KeystoneArcBar> loadedOneMinute = key == "MNQ" ? mnqBars : mgcBars;
+            if (evidenceMinutes != config.SetupMinutes && HasAnyEvidenceSessionBars(loadedOneMinute, day)) { ShowDerivedEvidence(key, day, evidenceMinutes, loadedOneMinute); return; }
             string source;
             Instrument instrument = ResolveDynamicInstrument(key, day, out source);
             string contract = instrument == null ? (key == "MNQ" ? config.MnqName : config.MgcName) : instrument.FullName;
@@ -9281,6 +9287,56 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         // Never silently display a partial open chart as a full selected trading day.  For ALL
         // ELIGIBLE this means one chart from 18:00 on the named session date through 15:55 next day.
+        private bool HasAnyEvidenceSessionBars(List<KeystoneArcBar> source, DateTime sessionDate)
+        {
+            if (source == null || source.Count == 0) return false;
+            DateTime start = ConfiguredSessionStart(sessionDate), end = TradingSessionEnd(sessionDate);
+            return source.Any(x => x.Time >= start && x.Time <= end);
+        }
+
+        // N-minute candles from 1-minute close-stamped bars (NinjaTrader convention: the 09:31–09:35
+        // minutes make the 09:35 bar). 240-minute bars are anchored to the 18:00 ET session open.
+        public static List<KeystoneArcBar> AggregateCloseStamped(IEnumerable<KeystoneArcBar> oneMinute, int minutes, string symbol)
+        {
+            var output = new List<KeystoneArcBar>();
+            if (oneMinute == null) return output;
+            if (minutes <= 1) return oneMinute.OrderBy(b => b.Time).Select(b => new KeystoneArcBar { Symbol = symbol, Time = b.Time, Open = b.Open, High = b.High, Low = b.Low, Close = b.Close, Volume = b.Volume }).ToList();
+            Func<DateTime, DateTime> bucket = t =>
+            {
+                if (minutes >= 240)
+                {
+                    DateTime anchor = t.Date.AddHours(18); if (t <= anchor) anchor = anchor.AddDays(-1);
+                    double since = (t - anchor).TotalMinutes; return anchor.AddMinutes(Math.Ceiling(since / minutes) * minutes);
+                }
+                double m = t.Hour * 60 + t.Minute; return t.Date.AddMinutes(Math.Ceiling(m / minutes) * minutes);
+            };
+            foreach (var g in oneMinute.OrderBy(b => b.Time).GroupBy(b => bucket(b.Time)))
+            {
+                var list = g.ToList();
+                output.Add(new KeystoneArcBar { Symbol = symbol, Time = g.Key, Open = list[0].Open, High = list.Max(b => b.High), Low = list.Min(b => b.Low), Close = list[list.Count - 1].Close, Volume = list.Sum(b => b.Volume) });
+            }
+            return output;
+        }
+
+        private void ShowDerivedEvidence(string key, DateTime day, int minutes, List<KeystoneArcBar> oneMinute)
+        {
+            CancelEvidenceRequest(); ++evidenceGeneration;
+            DateTime sessionStart = ConfiguredSessionStart(day), sessionEnd = TradingSessionEnd(day);
+            DateTime from = sessionStart.AddMinutes(-EvidenceContextMinutes(minutes) - Math.Max(minutes, 240));
+            List<KeystoneArcBar> window = oneMinute.Where(b => b.Time > from && b.Time <= sessionEnd).ToList();
+            evidenceBars = AggregateCloseStamped(window, minutes, key).Where(b => b.Time >= sessionStart.AddMinutes(-EvidenceContextMinutes(minutes)) && b.Time <= sessionEnd).ToList();
+            evidencePreviewMinutes = minutes;
+            if (evidenceBars.Count == 0) { SetEvidenceStatus("NO LOADED 1M BARS FOR " + key + " ON " + day.ToString("yyyy-MM-dd"), Red); return; }
+            KeystoneArcRunConfig previewConfig = CloneConfig(config); previewConfig.Scope = key; previewConfig.SetupMinutes = minutes; previewConfig.Start = sessionStart; previewConfig.End = sessionEnd; previewConfig.OutcomeModelEnabled = 1;
+            if (key == "MNQ") { previewConfig.MnqOutcomeTimeOffsetMinutes = 0; previewConfig.MnqOutcomeSource = "LOADED 1M • SAME CONTRACT AS LEDGER"; } else { previewConfig.MgcOutcomeTimeOffsetMinutes = 0; previewConfig.MgcOutcomeSource = "LOADED 1M • SAME CONTRACT AS LEDGER"; }
+            List<KeystoneArcBar> outcome = oneMinute.Where(b => b.Time > from && b.Time <= sessionEnd.AddHours(3)).ToList();
+            evidencePreviewEvents = KeystoneArcEngine.DetectAndResolve(outcome, AggregateCloseStamped(window, minutes, key), previewConfig);
+            for (int i = 0; i < evidencePreviewEvents.Count; i++) { evidencePreviewEvents[i].ReviewState = "ACCEPTED"; evidencePreviewEvents[i].ReviewNote = "TEMPORARY " + minutes + "M VIEW BUILT FROM THE LOADED 1M RESEARCH BARS • " + evidencePreviewEvents[i].ReviewNote; }
+            evidencePreviewOwnLedger = true;
+            SetEvidenceStatus(minutes + "M VIEW BUILT FROM THE LOADED 1M RESEARCH BARS • " + key + " • " + evidenceBars.Count + " CANDLES • same contract as the ledger • " + evidencePreviewEvents.Count + " setups on " + minutes + "M", Green);
+            RenderEvidenceChart();
+        }
+
         private bool HasFullEvidenceSessionCoverage(List<KeystoneArcBar> source, DateTime sessionDate)
         {
             if (source == null || source.Count == 0) return false;

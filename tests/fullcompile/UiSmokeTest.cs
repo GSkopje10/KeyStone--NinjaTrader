@@ -73,6 +73,22 @@ public static class UiSmokeTest
                 Call(lab2, "ToggleEvidenceReplayPlay"); Call(lab2, "ToggleEvidenceReplayPlay");
                 Call(lab2, "UpdateEvidenceLivePanel"); Call(lab2, "StopEvidenceReplay");
             });
+            Step(strategy + ": other timeframes built from the loaded 1M bars (chart = ledger)", () =>
+            {
+                var agg = KeystoneArc5MResearchLab.AggregateCloseStamped(m1, 15, "MNQ");
+                var sample = agg.Where(b => b.Time.Hour == 11 && b.Time.Minute == 0).First();
+                var one = m1.Where(b => b.Time > sample.Time.AddMinutes(-15) && b.Time <= sample.Time).ToList();
+                if (Math.Abs(sample.High - one.Max(b => b.High)) > 1e-9 || Math.Abs(sample.Close - one.Last().Close) > 1e-9 || Math.Abs(sample.Open - one.First().Open) > 1e-9) throw new Exception("15M candle is not the close-stamped sum of its 1M candles");
+                var tf = (System.Windows.Controls.ComboBox)lab2.GetType().GetField("evidenceTimeframeBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                if (tf == null || asian) return;
+                int idx = -1; for (int i = 0; i < tf.Items.Count; i++) if (Convert.ToString(tf.Items[i]).TrimEnd('M') == "15") idx = i;
+                if (idx < 0) throw new Exception("no 15M timeframe choice");
+                tf.SelectedIndex = idx; tf.SelectedItem = tf.Items[idx];
+                Call(lab2, "RequestEvidenceBars"); Call(lab2, "RenderEvidenceChart");
+                var bars = (List<KeystoneArcBar>)lab2.GetType().GetField("evidenceBars", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                Console.WriteLine("      15M view from loaded 1M: " + bars.Count + " candles");
+                if (bars.Count < 20) throw new Exception("derived 15M view is empty");
+            });
             Step(strategy + ": switch instrument view to MNQ", () => { Call(lab2, "RenderPoolLedger"); });
         }
         Console.WriteLine(failures == 0 ? "UI SMOKE TEST PASSED" : "UI SMOKE TEST: " + failures + " FAILURE(S)");
