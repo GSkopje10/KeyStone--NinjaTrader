@@ -4523,7 +4523,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-27e • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-27f • ONE START BUTTON • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -5855,6 +5855,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             var workflow = Stack(); workflow.Children.Add(Txt("3. START RESEARCH", Orchid, 13, FontWeights.Bold));
             strategyWorkflowText = Txt("BH = red candle → bullish reference → next high break. Every detected setup is automatically included in the research ledger and virtual pool. The review screen is for chart inspection or excluding a specific setup only.", Text, 11, FontWeights.Normal); strategyWorkflowText.TextWrapping = TextWrapping.Wrap; workflow.Children.Add(strategyWorkflowText);
             confirmConfigurationButton = Btn("START RESEARCH • LOAD + DETECT", Green); confirmConfigurationButton.Height = 38; confirmConfigurationButton.Click += delegate { ConfirmAndStartResearch(); }; workflow.Children.Add(confirmConfigurationButton);
+            // A single start button lives at the top (next to the data settings); this duplicate stays hidden.
+            confirmConfigurationButton.Visibility = Visibility.Collapsed;
             summaryText = Txt("NEXT: choose the test settings above, then click START RESEARCH. Keystone locks the screen while it loads and detects.", Gold, 11, FontWeights.Bold); workflow.Children.Add(summaryText);
             eventText = Txt("No candidate ledger yet.", Text, 10, FontWeights.Normal); workflow.Children.Add(eventText);
             setupStatsText = Txt("RAW SETUP TOTALS: waiting for Step 3. This count is independent of virtual accounts and rotation.", Cyan, 10, FontWeights.Bold); setupStatsText.TextWrapping = TextWrapping.Wrap; workflow.Children.Add(setupStatsText);
@@ -5937,7 +5939,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     : "BH RULE: after the chosen session begins, a red candle is followed by a bullish reference candle; the immediately next bar breaks that bullish high. Every valid long BH setup is detected and eligible by default. No contract month is required.";
             }
             if (confirmConfigurationButton != null) confirmConfigurationButton.Content = asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT";
-            if (quickStartButton != null) quickStartButton.Content = "▶ " + (IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
+            RefreshStartButtonLabel();
             if (strategyWorkflowText != null)
             {
                 strategyWorkflowText.Text = asian
@@ -6151,14 +6153,28 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         // One visible action validates the configuration, loads NinjaTrader history, and then
         // builds the setup ledger.  Later tabs remain locked until their own prerequisite exists.
+        // One start button. After a test is loaded it becomes RUN THIS TEST AGAIN (asks first);
+        // changing any setting turns it back into START.
+        private void RefreshStartButtonLabel()
+        {
+            if (quickStartButton == null) return;
+            bool asian = IsAsian75Selected();
+            quickStartButton.Content = researchSubmissionLocked
+                ? "↻ RUN THIS TEST AGAIN • same settings (or change a setting to start a new one)"
+                : "▶ " + (IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
+        }
+
         private void ConfirmAndStartResearch()
         {
             if (operationBusy || isProcessing) return;
             if (researchSubmissionLocked)
             {
-                UpdateUi("THIS CONFIGURATION IS ALREADY LOADED • USE NEW TEST OR CHANGE A SETTING BEFORE STARTING AGAIN", Gold);
-                UpdateWorkflowState();
-                return;
+                if (MessageBox.Show("Run this test again with the same settings? The current results in the lab are replaced (saved files and the Run Archive are kept).", "Run the test again", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                {
+                    UpdateUi("CURRENT RESULTS KEPT", Gold);
+                    return;
+                }
+                ClearCurrentResearch(true);
             }
             autoRunResearchAfterLoad = true;
             ConfirmConfiguration();
@@ -6179,8 +6195,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool outcomesVerified = config.OutcomeModelEnabled == 1;
             bool busy = operationBusy || isProcessing;
             int activeTab = workspaceTabs == null ? -1 : workspaceTabs.SelectedIndex;
-            if (confirmConfigurationButton != null) confirmConfigurationButton.IsEnabled = !busy && !researchSubmissionLocked;
-            if (quickStartButton != null) quickStartButton.IsEnabled = !busy && !researchSubmissionLocked;
+            if (confirmConfigurationButton != null) confirmConfigurationButton.IsEnabled = !busy;
+            if (quickStartButton != null) quickStartButton.IsEnabled = !busy;
+            RefreshStartButtonLabel();
             if (resetNewTestButton != null) resetNewTestButton.IsEnabled = !busy;
             if (requestButton != null) requestButton.IsEnabled = false;
             if (runButton != null) runButton.IsEnabled = false;
