@@ -104,3 +104,8 @@ and chart labels differ per strategy.
       Upload files, data/ folder); Claude runs the full optimizer and reports the best way to
       run the strategy (in-sample / out-of-sample, per year, per month, prop-rule fit)
 - [ ] Run on the full history and review results together
+
+## G. New strategies
+- [ ] FVG retest long (spec: `docs/FVG.md`) — all timeframes, MNQ + MGC, zone boxes on chart,
+      replay, full pool / payout / report / optimizer
+- [ ] 123 bullish engulfing — waiting for the user's explanation
