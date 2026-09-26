@@ -168,6 +168,14 @@ public static class LifecycleTests
             Check(now.DayHistory.Count > 1 && now.DayHistory[1].TradesAfter > 0, "delay 0: replacement trades the next session", "");
             Check(firstTrade != null && firstTrade.Day >= blow.AddDays(3) && later.Trades < now.Trades, "delay 2: blown on day 1, new evaluation trades 3+ calendar days later", firstTrade == null ? "none" : blow.ToShortDateString() + " → " + firstTrade.Day.ToShortDateString());
         }
+        // 14. Investment answer: initial money, first payout, profitable date, spending after.
+        {
+            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 0, 1, 0); cfg.PoolSize = 2;
+            var acc = KeystoneArcEngine.SimulatePool(Nights(Repeat(900, 8).Concat(Repeat(-900, 4)).ToArray()), cfg);
+            string ans = KeystoneArcPoolInsights.InvestmentAnswer(KeystoneArcEngine.BuildCapitalPolicySummary(acc, cfg), KeystoneArcPoolInsights.Build(acc, null, cfg));
+            Console.WriteLine(ans);
+            Check(ans.Contains("start $240") && ans.Contains("WAS ENOUGH") && ans.Contains("PROFITABLE FROM") && ans.Contains("FINAL NET"), "answer: $240 start was enough, profitable date, final net", ans);
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

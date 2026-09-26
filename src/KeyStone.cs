@@ -3334,6 +3334,24 @@ namespace NinjaTrader.NinjaScript
             return x;
         }
 
+        // Plain-language answer to "how much money did I need, and when did it pay back?"
+        public static string InvestmentAnswer(KeystoneArcCapitalPolicySummary c, KeystoneArcPoolInsights x)
+        {
+            if (c == null || x == null) return string.Empty;
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var sb = new StringBuilder("YOUR MONEY • start " + m(c.InitialEvaluationInvestment));
+            if (!c.FirstPayoutReached || x.FirstPayoutDate == DateTime.MinValue)
+                return sb.Append(" • NO PAYOUT in this range • spent " + m(c.TotalEvaluationCost) + " in total").ToString();
+            sb.Append(" • FIRST PAYOUT " + c.FirstPayoutDate.ToString("yyyy-MM-dd") + (string.IsNullOrEmpty(x.FirstPayoutAccount) ? "" : " (" + x.FirstPayoutAccount + ")") + " after " + m(c.InvestmentThroughFirstPayoutDate) + " spent");
+            double extra = c.InvestmentThroughFirstPayoutDate - c.InitialEvaluationInvestment;
+            sb.Append(extra <= 0.5 ? " → the initial investment WAS ENOUGH" : " → initial NOT enough: " + m(extra) + " extra before the first payout");
+            sb.Append(c.ProfitabilityReached ? " • PROFITABLE FROM " + c.ProfitabilityDate.ToString("yyyy-MM-dd") : " • NOT yet paid back");
+            double after = c.TotalEvaluationCost - (c.ProfitabilityReached ? c.InvestmentThroughProfitability : c.InvestmentThroughFirstPayoutDate);
+            if (after > 0.5) sb.Append(" • " + m(after) + " more spent on accounts after that");
+            sb.Append(" • FINAL NET " + m(c.FullNetCashAfterAllCosts));
+            return sb.ToString();
+        }
+
         public static List<KeystoneArcInstrumentStats> InstrumentStats(IEnumerable<KeystoneArcEvent> events, KeystoneArcRunConfig cfg)
         {
             var output = new List<KeystoneArcInstrumentStats>();
@@ -10325,9 +10343,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                     ? "SINGLE ACCOUNT COMPLETE: starting balance plus range P/L have been calculated. No payout, evaluation, funded-stage, or replacement lifecycle was applied."
                     : config.EvaluationEnabled < 0
                     ? "ONE-DAY POOL COMPLETE: " + accounts.Count + " ACCOUNTS • TRADED " + accounts.Count(x => x.Trades > 0) + " • PROFIT LOCKS " + accounts.Count(x => x.DayLocked && x.DayPnl >= Math.Max(0, config.DailyGoal)) + " • LOSS LOCKS " + accounts.Count(x => x.DayLocked && x.DayPnl <= -Math.Abs(config.DailyLoss)) + " • SELECT A CARD FOR ITS EXACT ASSIGNED TRADES."
-                    : config.EvaluationEnabled == 0
+                    : KeystoneArcPoolInsights.InvestmentAnswer(capital, KeystoneArcPoolInsights.Build(accounts, null, config)) + "\n" + (config.EvaluationEnabled == 0
                     ? "POOL COMPLETE: " + accounts.Count + " DIRECT-FUNDED START ACCOUNTS • FUNDED " + funded + " • PAYOUT CYCLES " + payouts + " • SELECT AN ACCOUNT FOR ITS FULL LIFECYCLE."
-                    : "POOL COMPLETE: " + accounts.Count + " ACCOUNTS • EVALUATION PASSES " + passed + " • CURRENTLY FUNDED " + funded + " • PAYOUT CYCLES " + payouts + (capital.GateEnabled ? " • WAIT FOR PAYOUT BEFORE REBUY ON • BENCHED " + capital.BenchedReplacementSlots + " • REINVESTMENT CASH " + Cash(capital.ReplacementCashAvailable) + " • RELEASE REQUIRED " + Cash(capital.CashRequiredForPendingReplacements) : " • CONTINUOUS REPLACEMENT ACTIVE • " + capital.ReplacementEvaluationPurchases + " REPLACEMENT EVALS PURCHASED • " + (capital.FirstPayoutReached ? "FIRST PAYOUT " + capital.FirstPayoutDate.ToString("yyyy-MM-dd") + " AFTER " + Cash(capital.InvestmentThroughFirstPayoutDate) + " INVESTMENT" : "NO PAYOUT IN THIS RANGE; ACTIVE SLOTS CONTINUED TRADING")) + " • SELECT AN ACCOUNT FOR ITS FULL LIFECYCLE.";
+                    : "POOL COMPLETE: " + accounts.Count + " ACCOUNTS • EVALUATION PASSES " + passed + " • CURRENTLY FUNDED " + funded + " • PAYOUT CYCLES " + payouts + (capital.GateEnabled ? " • WAIT FOR PAYOUT BEFORE REBUY ON • BENCHED " + capital.BenchedReplacementSlots + " • REINVESTMENT CASH " + Cash(capital.ReplacementCashAvailable) + " • RELEASE REQUIRED " + Cash(capital.CashRequiredForPendingReplacements) : " • CONTINUOUS REPLACEMENT ACTIVE • " + capital.ReplacementEvaluationPurchases + " REPLACEMENT EVALS PURCHASED • " + (capital.FirstPayoutReached ? "FIRST PAYOUT " + capital.FirstPayoutDate.ToString("yyyy-MM-dd") + " AFTER " + Cash(capital.InvestmentThroughFirstPayoutDate) + " INVESTMENT" : "NO PAYOUT IN THIS RANGE; ACTIVE SLOTS CONTINUED TRADING")) + " • SELECT AN ACCOUNT FOR ITS FULL LIFECYCLE.");
                 return;
             }
             if (lifecycleText == null) return;
