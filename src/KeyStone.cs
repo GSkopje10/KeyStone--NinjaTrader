@@ -1348,7 +1348,9 @@ namespace NinjaTrader.NinjaScript
                     // 2. A close below the box kills it.
                     if (bar.Close < z.Lower) { Retire(w, bar.Time, "CLOSED BELOW"); continue; }
                     // 3. Price running far above the box retires it.
-                    if (cfg.FvgRunAwayMultiple > 0 && w.State != 2 && bar.High > z.Upper + cfg.FvgRunAwayMultiple * Math.Max(z.Height, 1e-9)) { Retire(w, bar.Time, "RUN AWAY"); continue; }
+                    // "Moved away" = the whole candle (its low too) trades above the run-away distance.
+                    // A candle that dips into or touches the box has not moved away, whatever its high.
+                    if (cfg.FvgRunAwayMultiple > 0 && w.State != 2 && bar.Low > z.Upper + cfg.FvgRunAwayMultiple * Math.Max(z.Height, 1e-9)) { Retire(w, bar.Time, "RUN AWAY"); continue; }
                     // 4. Dip into the box (deep enough) starts a retest.
                     bool dipped = bar.Low <= z.Upper - depth * z.Height + 1e-9;
                     if (dipped && w.State == 0) { w.State = 1; z.Visits++; }
@@ -3985,7 +3987,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-27a • FVG • INSTRUMENT SWITCH • BAR REPLAY • AI REPORT • THEMES";
+        private const string KeystoneBuild = "BUILD 2026-09-27b • FVG RUN-AWAY FIX • BAR REPLAY • AI REPORT • THEMES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;

@@ -112,3 +112,8 @@ for each bar on the selected timeframe (NY time, inside the session window):
   retired (multiple of box height or points; 0 = never retire, only a close below kills it) and
   **MAX ENTRIES PER BOX** (default 1). Both get optimized; the lab records every revisit so the
   results show whether 2nd/3rd visits win.
+
+## Fix 2026-09-27 (build 26-09-27b)
+Run-away now means the WHOLE candle (its low too) trades above the run-away distance. Before,
+a candle that dipped into a small box but spiked high retired the box, so the user's MGC
+2026-09-23 10:55 setup was missed. Regression test: tests/FvgTests.cs #6b.

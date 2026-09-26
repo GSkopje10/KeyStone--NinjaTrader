@@ -95,11 +95,18 @@ public static class FvgTests
         }
         // 6. Run-away: price goes 2+ box heights above (above 106) → box retired; 0 = never retire.
         {
-            var c = Base(); c.Add(C(104.0, 107.0, 103.8, 106.5)); c.Add(C(106.5, 106.6, 100.9, 103.0)); c.Add(C(103.0, 103.6, 102.5, 103.5)); c.Add(C(103.5, 104.4, 103.4, 104.2));
+            var c = Base(); c.Add(C(104.0, 106.5, 103.9, 106.4)); c.Add(C(106.4, 108.0, 106.3, 107.8)); /* whole candle above 106 */ c.Add(C(107.8, 107.9, 100.9, 103.0)); c.Add(C(103.0, 103.6, 102.5, 103.5)); c.Add(C(103.5, 104.4, 103.4, 104.2));
             var zones = Scan(c, Cfg(), out en);
             Check(en.Count == 0 && zones[0].EndReason == "RUN AWAY", "run-away above 2× box height retires the box", zones[0].EndReason);
             var cfg = Cfg(); cfg.FvgRunAwayMultiple = 0; Scan(c, cfg, out en);
             Check(en.Count == 1, "run-away 0: box stays until a close below", en.Count.ToString());
+        }
+        // 6b. A candle that dips into the box is never "run away", even with a high far above
+        //     (user's 2026-09-23 MGC 10:55 setup: small box, the dip candle spiked above 2× box height).
+        {
+            var c = Base(); c.Add(C(104.0, 109.0, 101.0, 103.0)); /* high 109 > 106 but dips to 101 */ c.Add(C(103.0, 103.6, 102.2, 103.5)); /* green → ref 103.6 */ c.Add(C(103.5, 104.4, 103.4, 104.2));
+            var zones = Scan(c, Cfg(), out en);
+            Check(en.Count == 1 && Math.Abs(en[0].Entry - 103.6) < 1e-9, "a dip candle with a big high still counts: entry at the next break", en.Count + " / " + zones[0].EndReason);
         }
         // 7. Two entries per box: second visit gives a second entry (screenshot 2).
         {
