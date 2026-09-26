@@ -563,6 +563,19 @@ namespace NinjaTrader.NinjaScript
         // for a 90/10 split or 80 for an 80/20 split. It does not alter the account balance.
         public double PayoutProfitSharePercent = 100;
         public double EvaluationCost = 120;
+        // Price of a direct-funded account (START = DIRECT FUNDED). 0 = same as EvaluationCost.
+        // Replacements after a blowup are always evaluations and cost EvaluationCost.
+        public double DirectFundedCost = 0;
+        public double InitialAccountCost() { return EvaluationEnabled == 0 && DirectFundedCost > 0 ? DirectFundedCost : EvaluationCost; }
+        // DIRECT FUNDED after a blowup. 0 (engine default, original behaviour): the slot buys an evaluation
+        // and trades the evaluation rules until it passes. 1 (the lab's direct-funded mode): the slot is
+        // funded again after DirectRefundDays (the few days it takes to pass a new evaluation in real
+        // life) at DirectReplacementCost (0 = evaluation cost); no evaluation rules are simulated.
+        public int DirectReplacementMode = 0;
+        public int DirectRefundDays = 3;
+        public double DirectReplacementCost = 0;
+        public bool DirectRefund() { return EvaluationEnabled == 0 && DirectReplacementMode == 1; }
+        public double ReplacementCost() { return DirectRefund() && DirectReplacementCost > 0 ? DirectReplacementCost : EvaluationCost; }
         // Optional historical-scenario capital rule. Initial evaluations are purchased at the
         // selected range start. Replacement evaluations wait on the bench until modeled payout
         // cash after account share can pay for them without new money beyond that initial spend.
@@ -673,7 +686,7 @@ namespace NinjaTrader.NinjaScript
                 EvaluationEnabled.ToString(), EvaluationTarget.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyCreditCap.ToString("0.00", CultureInfo.InvariantCulture), EvaluationConsistencyPercent.ToString("0.00", CultureInfo.InvariantCulture), EvaluationFailure.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), EvaluationStageTradeRulesEnabled.ToString(), EvaluationTradeTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), EvaluationTradeStopDollars.ToString("0.00", CultureInfo.InvariantCulture), FundedDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), FundedFailure.ToString("0.00", CultureInfo.InvariantCulture), MinimumPositiveDays.ToString(), MinimumQualifyingDayProfit.ToString("0.00", CultureInfo.InvariantCulture),
                 PayoutThreshold.ToString("0.00", CultureInfo.InvariantCulture), PayoutDaysRequired.ToString(), PayoutAmount.ToString("0.00", CultureInfo.InvariantCulture), EvaluationCost.ToString("0.00", CultureInfo.InvariantCulture), ReplacementsRequirePayoutFunding.ToString(), FirmFundedCapEnabled.ToString(), EvaluationSlotsPerFirm.ToString(), MaxFundedPerFirm.ToString(), PropStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), PersonalStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), AsianStartHhmm.ToString(), AsianEndHhmm.ToString(), AsianMnqInitialDirection ?? string.Empty, AsianMgcInitialDirection ?? string.Empty, AsianRiskMode ?? string.Empty, AsianReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianCombinedStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianDailyLossLimitDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianBreakEvenTriggerDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianStartingQuantity.ToString(), AsianMaxReversalsPerInstrument.ToString(), AsianMnqMaxReversals.ToString(), AsianMgcMaxReversals.ToString(), AsianMaxTotalLegsPerInstrument.ToString(),
                 BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString(), ReplacementDelayDays.ToString(),
-                FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString(), FvgTargetMode ?? string.Empty, FvgTargetRA.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRB.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRC.ToString("0.##", CultureInfo.InvariantCulture), EvalTierFilter ?? string.Empty, FundedTierFilter ?? string.Empty, FvgMergeStacked.ToString(), FvgMergedDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRDT.ToString("0.##", CultureInfo.InvariantCulture), string.Join("/", new[] { FvgStopPointsDT, FvgTargetPointsDT, FvgStopPointsA, FvgTargetPointsA, FvgStopPointsB, FvgTargetPointsB, FvgStopPointsC, FvgTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))) });
+                DirectFundedCost.ToString("0.00", CultureInfo.InvariantCulture), DirectReplacementMode.ToString(), DirectRefundDays.ToString(), DirectReplacementCost.ToString("0.00", CultureInfo.InvariantCulture), FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString(), FvgTargetMode ?? string.Empty, FvgTargetRA.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRB.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRC.ToString("0.##", CultureInfo.InvariantCulture), EvalTierFilter ?? string.Empty, FundedTierFilter ?? string.Empty, FvgMergeStacked.ToString(), FvgMergedDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRDT.ToString("0.##", CultureInfo.InvariantCulture), string.Join("/", new[] { FvgStopPointsDT, FvgTargetPointsDT, FvgStopPointsA, FvgTargetPointsA, FvgStopPointsB, FvgTargetPointsB, FvgStopPointsC, FvgTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))) });
         }
     }
 
@@ -1955,7 +1968,7 @@ namespace NinjaTrader.NinjaScript
                 PropFirmSlot = grouped ? firmSlot : accountIndex,
                 StartingBalance = cfg.PropStartingBalance,
                 // Every prop account is bought: an evaluation, or a direct-funded account at the same price.
-                EvaluationCost = cfg.EvaluationEnabled < 0 ? 0 : cfg.EvaluationCost,
+                EvaluationCost = cfg.EvaluationEnabled < 0 ? 0 : cfg.InitialAccountCost(),
                 EvaluationPurchases = cfg.EvaluationEnabled >= 0 ? 1 : 0,
                 DirectFundedStart = cfg.EvaluationEnabled == 0,
                 InitialLifecycleStart = initialStart,
@@ -2435,7 +2448,15 @@ namespace NinjaTrader.NinjaScript
             // Realistic restart: buying and setting up a new evaluation takes time. With a delay of
             // N days the replacement first trades on the first session at least N + 1 calendar
             // days after the blowout (0 = next session, the original behaviour).
-            if (cfg.ReplacementDelayDays > 0 && a.LastBlowoutDate != DateTime.MinValue && day.Date < a.LastBlowoutDate.Date.AddDays(cfg.ReplacementDelayDays + 1))
+            if (cfg.DirectRefund())
+            {
+                if (a.LastBlowoutDate != DateTime.MinValue && day.Date < a.LastBlowoutDate.Date.AddDays(Math.Max(0, cfg.DirectRefundDays) + 1))
+                {
+                    a.LastState = "BLOWN • FUNDED AGAIN FROM " + a.LastBlowoutDate.Date.AddDays(Math.Max(0, cfg.DirectRefundDays) + 1).ToString("yyyy-MM-dd") + " (time to pass a new evaluation) (ILLUSTRATIVE)";
+                    return;
+                }
+            }
+            else if (cfg.ReplacementDelayDays > 0 && a.LastBlowoutDate != DateTime.MinValue && day.Date < a.LastBlowoutDate.Date.AddDays(cfg.ReplacementDelayDays + 1))
             {
                 a.LastState = "BLOWN • NEW EVALUATION STARTS " + a.LastBlowoutDate.Date.AddDays(cfg.ReplacementDelayDays + 1).ToString("yyyy-MM-dd") + " OR LATER (ILLUSTRATIVE)";
                 return;
@@ -2464,9 +2485,15 @@ namespace NinjaTrader.NinjaScript
             a.PositiveDays = 0; a.ConsecutiveEvalQualifyingDays = 0; a.FundedPositiveDays = 0; a.EvalDayCredit = 0; a.EvalBestPositiveDay = 0;
             a.EvalTradingDays = 0; a.EvalMinDayHold = false;
             a.EvaluationPurchases++;
-            a.EvaluationCost += cfg.EvaluationCost;
+            a.EvaluationCost += cfg.ReplacementCost();
             a.CurrentLifecycleStart = a.ActiveDay == DateTime.MinValue ? DateTime.MinValue : a.ActiveDay.AddDays(1);
             a.LastState = "NEW EVALUATION PURCHASED • REPLACEMENT (ILLUSTRATIVE)";
+            if (cfg.DirectRefund())
+            {
+                a.Funded = true; a.EvaluationPassed = true; a.DirectFundedStart = true;
+                a.FundedSinceDate = day.Date;
+                a.LastState = "FUNDED AGAIN • NEW ACCOUNT AFTER " + Math.Max(0, cfg.DirectRefundDays) + " DAY(S) (ILLUSTRATIVE)";
+            }
         }
 
         private static void FinalizeDay(KeystoneArcVirtualAccount a, KeystoneArcRunConfig cfg)
@@ -2501,6 +2528,8 @@ namespace NinjaTrader.NinjaScript
             {
                 if (a.ReplacementBudgetBlocked)
                     a.LastState = "BENCHED • WAITING FOR PAYOUT-FUNDED REPLACEMENT (ILLUSTRATIVE)";
+                else if (cfg.DirectRefund())
+                    a.LastState = "FUNDED FAILURE • NEW FUNDED ACCOUNT FROM " + (a.LastBlowoutDate == DateTime.MinValue ? "THE NEXT SESSION" : a.LastBlowoutDate.Date.AddDays(Math.Max(0, cfg.DirectRefundDays) + 1).ToString("yyyy-MM-dd")) + " (ILLUSTRATIVE)";
                 else
                     a.LastState = a.ReplacementFromFunded
                         ? "FUNDED FAILURE • REPLACEMENT EVALUATION NEXT SESSION (ILLUSTRATIVE)"
@@ -2687,7 +2716,7 @@ namespace NinjaTrader.NinjaScript
                     if (!replace) a.TerminalLifecycleEnd = a.ActiveDay;
                     a.DayLocked = true;
                     a.LastState = replace
-                        ? "FUNDED BLOWN • REPLACEMENT EVALUATION NEXT SESSION (ILLUSTRATIVE)"
+                        ? (cfg.DirectRefund() ? "FUNDED BLOWN • NEW FUNDED ACCOUNT AFTER " + Math.Max(0, cfg.DirectRefundDays) + " DAY(S) (ILLUSTRATIVE)" : "FUNDED BLOWN • REPLACEMENT EVALUATION NEXT SESSION (ILLUSTRATIVE)")
                         : (cfg.EvaluationEnabled == 0 ? "FUNDED BLOWN • DIRECT-FUNDED SLOT ENDED (ILLUSTRATIVE)" : "FUNDED BLOWN • SLOT ENDED (NO REPLACEMENT)");
                 }
             }
@@ -2742,16 +2771,16 @@ namespace NinjaTrader.NinjaScript
             // The selected initial pool is a separate cash commitment. The optional gate compares
             // subsequent replacement purchases only with modeled payout cash after the account
             // share, avoiding any claim that trading P/L is withdrawable cash.
-            result.InitialEvaluationInvestment = result.InitialEvaluationPurchases * (cfg == null ? 0 : Math.Max(0, cfg.EvaluationCost));
+            result.InitialEvaluationInvestment = result.InitialEvaluationPurchases * (cfg == null ? 0 : Math.Max(0, cfg.InitialAccountCost()));
             result.ReplacementEvaluationCost = Math.Max(0, result.TotalEvaluationCost - result.InitialEvaluationInvestment);
-            result.ReplacementEvaluationPurchases = cfg == null || cfg.EvaluationCost <= 0 ? 0 : (int)Math.Round(result.ReplacementEvaluationCost / cfg.EvaluationCost, MidpointRounding.AwayFromZero);
+            result.ReplacementEvaluationPurchases = cfg == null || cfg.ReplacementCost() <= 0 ? 0 : (int)Math.Round(result.ReplacementEvaluationCost / cfg.ReplacementCost(), MidpointRounding.AwayFromZero);
             result.PayoutCashAfterInitialInvestment = result.PayoutCashAfterShare - result.InitialEvaluationInvestment;
             // The optional policy is intentionally stricter than merely matching one new fee:
             // modeled payout cash must recover the initial selected evaluation investment and
             // any already-paid replacement cost before it is available to buy another batch.
             // This is a virtual cash gate, not a claim about a firm's actual payout timing.
             result.ReplacementCashAvailable = Math.Max(0, result.PayoutCashAfterShare - result.InitialEvaluationInvestment - result.ReplacementEvaluationCost);
-            result.CashRequiredForPendingReplacements = result.PendingReplacementSlots * (cfg == null ? 0 : Math.Max(0, cfg.EvaluationCost));
+            result.CashRequiredForPendingReplacements = result.PendingReplacementSlots * (cfg == null ? 0 : Math.Max(0, cfg.ReplacementCost()));
             result.ReplacementCashShortfall = Math.Max(0, result.CashRequiredForPendingReplacements - result.ReplacementCashAvailable);
             result.FullNetCashAfterAllCosts = result.PayoutCashAfterShare - result.TotalEvaluationCost;
 
@@ -2800,7 +2829,7 @@ namespace NinjaTrader.NinjaScript
                 int purchasesThisDay = dayRow.ReplacementPurchases;
                 cumulativePurchases += purchasesThisDay;
                 cumulativeReplacementPurchases += dayRow.ReplacementPurchases;
-                cumulativeInvestment += purchasesThisDay * (cfg == null ? 0 : Math.Max(0, cfg.EvaluationCost));
+                cumulativeInvestment += purchasesThisDay * (cfg == null ? 0 : Math.Max(0, cfg.ReplacementCost()));
                 cumulativePayout += dayRow.PayoutCash;
                 foreach (string name in dayRow.ReplenishedSlots) replenishedSlots.Add(name);
 
@@ -4427,7 +4456,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Window comparisonWindow;
         private TextBlock statusText, workflowText, summaryText, poolText, lifecycleText, eventText, setupStatsText, mathText, reviewDetailText, poolDetailText, savedDataText, sessionHintText, strategyRuleText, strategyWorkflowText, reviewLedgerText, reviewPositionText, poolResultBanner, startModeHintText, instrumentSourceText, resultScopeText, resultsHeadingText, poolAccountsHeadingText, poolDetailHeadingText, poolTimelineHeadingText, poolGrossWithdrawalMetric, poolNetCashMetric, poolEvaluationCostMetric, poolNetCashAfterCostMetric, poolInitialInvestmentMetric, poolPayoutAfterInitialMetric, poolCapitalAvailabilityMetric, poolFirmCapMetric, poolPayoutCycleMetric, poolFundedMetric, poolReplacementMetric, poolBlownMetric, rangeEligibleMetric, rangeAssignedMetric, rangePnlMetric, rangePurchasesMetric, rangeCostMetric, rangeNetCashAfterCostMetric, rangeInitialInvestmentMetric, rangePayoutAfterInitialMetric, rangeCapitalAvailabilityMetric, rangeBlowoutMetric, oneDayEligibleMetric, oneDayAssignedMetric, oneDayAccountsTradedMetric, oneDayProfitLockedMetric, oneDayLossLockedMetric, oneDayUnusedMetric, oneDaySkippedMetric, oneDayPnlMetric, oneDayRangeSummaryText, accountBalanceMetric, accountPayoutCashMetric, accountCostMetric, accountNetCashAfterCostMetric, accountPayoutCyclesMetric, accountBlowoutMetric, accountLatestBlowoutMetric, accountLifecycleMetric, accountPnlMetric, accountTradesMetric, accountFirstPayoutMetric, accountFirstPayoutDaysMetric, oneDayAccountBalanceMetric, oneDayAccountPnlMetric, oneDayAccountTradesMetric, oneDayAccountStateMetric, oneDayAccountWindowMetric, oneDayAccountLimitsMetric, firstReturnDashboardText, dailySessionScoreboardText, comparisonStatusText, comparisonSummaryText, comparisonMatrixText;
         private TextBlock evidenceStatusText, evidenceLegendText, evidenceZoomText, evidencePnlText, evidenceStudyText, evidenceMetricsText, comparisonBusyText;
-        private TextBox mnqBox, mgcBox, startBox, endBox, targetBox, stopBox, mnqStopOffsetBox, mgcStopOffsetBox, dailyGoalBox, dailyLossBox, asianStartTimeBox, asianEndTimeBox, asianReversalLossBox, asianMnqPriceMoveBox, asianMgcPriceMoveBox, asianCycleTargetBox, asianCombinedStopBox, asianDailyLossBox, asianInstrumentStopBox, asianMnqInstrumentStopBox, asianMgcInstrumentStopBox, asianBreakEvenBox, asianStartingQuantityBox, asianMaxReversalsBox, asianMnqMaxReversalsBox, asianMgcMaxReversalsBox, mnqStrongRedBox, mnqStrongDeclineBox, mgcStrongRedBox, mgcStrongDeclineBox, evalTargetBox, evalTradeTargetBox, evalTradeStopBox, payoutThresholdBox, payoutAmountBox, payoutProfitShareBox, mnqStartBox, mgcStartBox, customStartBox, endTimeBox, quantityBox, personalLotBox, mnqCashValueBox, mgcCashValueBox, mnqTargetMoveBox, mgcTargetMoveBox, mnqStandardStopMoveBox, mgcStandardStopMoveBox, personalMaxRiskBox, breakEvenMoveBox, evalDailyCapBox, evalConsistencyBox, evalFailureBox, evalDailyLossBox, fundedDailyLossBox, fundedFailureBox, payoutDaysBox, minimumDaysBox, minimumQualifyingDayBox, evalCostBox, firmEvalSlotsBox, firmMaxFundedBox, propStartingBalanceBox, personalStartingBalanceBox, reviewNoteBox;
+        private TextBox mnqBox, mgcBox, startBox, endBox, targetBox, stopBox, mnqStopOffsetBox, mgcStopOffsetBox, dailyGoalBox, dailyLossBox, asianStartTimeBox, asianEndTimeBox, asianReversalLossBox, asianMnqPriceMoveBox, asianMgcPriceMoveBox, asianCycleTargetBox, asianCombinedStopBox, asianDailyLossBox, asianInstrumentStopBox, asianMnqInstrumentStopBox, asianMgcInstrumentStopBox, asianBreakEvenBox, asianStartingQuantityBox, asianMaxReversalsBox, asianMnqMaxReversalsBox, asianMgcMaxReversalsBox, mnqStrongRedBox, mnqStrongDeclineBox, mgcStrongRedBox, mgcStrongDeclineBox, evalTargetBox, evalTradeTargetBox, evalTradeStopBox, payoutThresholdBox, payoutAmountBox, payoutProfitShareBox, mnqStartBox, mgcStartBox, customStartBox, endTimeBox, quantityBox, personalLotBox, mnqCashValueBox, mgcCashValueBox, mnqTargetMoveBox, mgcTargetMoveBox, mnqStandardStopMoveBox, mgcStandardStopMoveBox, personalMaxRiskBox, breakEvenMoveBox, evalDailyCapBox, evalConsistencyBox, evalFailureBox, evalDailyLossBox, fundedDailyLossBox, fundedFailureBox, payoutDaysBox, minimumDaysBox, minimumQualifyingDayBox, evalCostBox, directFundedCostBox, directReplacementCostBox, directRefundDaysBox, firmEvalSlotsBox, firmMaxFundedBox, propStartingBalanceBox, personalStartingBalanceBox, reviewNoteBox;
         private TextBox evidenceDateBox;
         private ComboBox strategyBox, scopeBox, accountPathBox, directionBox, bhFilterBox, bhStrongCombineBox, stopModeBox, poolBox, sessionBox, accountStartModeBox, poolStateFilterBox, payoutCycleMonthFilterBox, chartReviewScopeBox, evidenceInstrumentBox, evidenceTimeframeBox, evidenceScopeBox, evidenceBarsBox, evidenceSessionFilterBox, evidenceStrengthBox, timeframeBox, dateModeBox, comparisonInstrumentBox, comparisonTimeframeBox, comparisonPoolBox, comparisonModeBox, comparisonSessionBox, asianDirectionBox, asianMnqDirectionBox, asianMgcDirectionBox, asianRiskModeBox;
         private TabControl evidenceInstrumentTabs;
@@ -4545,7 +4574,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         private bool closeConfirmed;
         private UIElement lifecycleControlsPanel, poolAccountsCard, poolDetailCard;
         private StackPanel lifecyclePolicySection, governanceSection;
-        private Border evaluationBlock;
+        private Border evaluationBlock, directFundedBlock;
+        private UIElement evalCostRowRef, replacementDelayRowRef;
         private readonly List<UIElement> evaluationOnlyControls = new List<UIElement>();
         private readonly List<UIElement> oneDayHiddenControls = new List<UIElement>();
         private readonly List<UIElement> propOnlyControls = new List<UIElement>();
@@ -6430,7 +6460,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             singleAccountControls.Clear(); singleAccountControls.Add(singleStartBalanceRow);
             evalTargetBox = Input("3000"); evalDailyCapBox = Input("1500"); evalConsistencyBox = Input("0"); evalFailureBox = Input("2000"); evalDailyLossBox = Input("500"); fundedDailyLossBox = Input("0"); fundedFailureBox = Input("2000"); evalCostBox = Input("120"); minimumQualifyingDayBox = Input("150"); evalTradeTargetBox = Input("1500"); evalTradeStopBox = Input("500");
             payoutThresholdBox = Input("4000"); payoutDaysBox = Input("5"); payoutAmountBox = Input("2000"); payoutProfitShareBox = Input("100"); minimumDaysBox = Input("2");
-            var evalTargetRow = PoolRow("EVAL PROFIT TARGET $", evalTargetBox); var evalDailyCapRow = PoolRow("EVAL DAILY + $", evalDailyCapBox); var evalConsistencyRow = PoolRow("CONSISTENCY % • BEST DAY ≤ % OF PROFIT (0=OFF)", evalConsistencyBox); var evalFailureRow = PoolRow("EVAL MAX DRAWDOWN $", evalFailureBox); var evalDailyLossRow = PoolRow("EVAL DAILY - $", evalDailyLossBox); var evalCostRow = PoolRow("ACCOUNT COST $ (EVAL OR FUNDED)", evalCostBox); var minimumDaysRow = PoolRow("QUALIFYING DAYS NEEDED", minimumDaysBox);
+            var evalTargetRow = PoolRow("EVAL PROFIT TARGET $", evalTargetBox); var evalDailyCapRow = PoolRow("EVAL DAILY + $", evalDailyCapBox); var evalConsistencyRow = PoolRow("CONSISTENCY % • BEST DAY ≤ % OF PROFIT (0=OFF)", evalConsistencyBox); var evalFailureRow = PoolRow("EVAL MAX DRAWDOWN $", evalFailureBox); var evalDailyLossRow = PoolRow("EVAL DAILY - $", evalDailyLossBox); var evalCostRow = PoolRow("EVALUATION COST $ (also every replacement)", evalCostBox); var minimumDaysRow = PoolRow("QUALIFYING DAYS NEEDED", minimumDaysBox);
             evalStageTradeRulesBox = new CheckBox { Content = "USE EVAL OVERRIDE", IsChecked = false, Foreground = Orchid, Margin = new Thickness(4), ToolTip = "Off: evaluation uses the main Step 1 trade and daily limits. On: evaluation-only target, drawdown, daily, and per-trade values replace them." }; evalStageTradeRulesBox.Checked += delegate { RefreshLifecycleInputState(); }; evalStageTradeRulesBox.Unchecked += delegate { RefreshLifecycleInputState(); };
             replacementFundingGateBox = new CheckBox { Content = "ONLY SPEND THE INITIAL INVESTMENT • REBUY FROM PAYOUTS", IsChecked = false, Foreground = Green, Margin = new Thickness(6), ToolTip = "OFF (default): a blown evaluation or funded slot buys a new evaluation at the next session so later setups are not skipped. ON: failed slots are benched and later setups are skipped until modeled payout cash funds every pending replacement." };
             firmFundedCapBox = new CheckBox { Content = "FIRM FUNDED CAP", IsChecked = false, Foreground = Gold, Margin = new Thickness(6), ToolTip = "When on, evaluation slots are grouped by firm. Passed evaluations wait if that firm has reached its funded-account capacity." }; firmFundedCapBox.Checked += delegate { RefreshLifecycleInputState(); }; firmFundedCapBox.Unchecked += delegate { RefreshLifecycleInputState(); };
@@ -6456,8 +6486,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             evalRulesPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
             evalMinTradingDaysBox = Input("0"); evalMinTradingDaysBox.ToolTip = "Prop-firm minimum trading days (0 = off). After the target and consistency are met, remaining days are a minimal open-and-close trade ($0 risk) that counts as a trading day.";
             evalRulesPanel.Children.Add(evalTargetRow); evalRulesPanel.Children.Add(evalFailureRow); evalRulesPanel.Children.Add(minimumDaysRow); evalRulesPanel.Children.Add(PoolRow("PASS-DAY RULE", evalConsecutiveBox)); evalRulesPanel.Children.Add(evalConsistencyRow); evalRulesPanel.Children.Add(PoolRow("MIN TRADING DAYS (0=OFF)", evalMinTradingDaysBox));
-            blownAccountBox = Select("BUY NEW EVALUATION", "END SLOT (NO REPLACEMENT)"); blownAccountBox.SelectedIndex = 0; blownAccountBox.SelectionChanged += delegate { RefreshLifecycleInputState(); };
-            blownAccountBox.ToolTip = "BUY NEW EVALUATION (default): a blown account (failed evaluation or funded drawdown) is replaced by a new paid evaluation at the next session; it must pass again before payouts. Applies to direct-funded starts too. END SLOT: the slot stops trading; the study stops once every slot has ended.";
+            blownAccountBox = Select("REPLACE THE ACCOUNT", "END SLOT (NO REPLACEMENT)"); blownAccountBox.SelectedIndex = 0; blownAccountBox.SelectionChanged += delegate { RefreshLifecycleInputState(); };
+            blownAccountBox.ToolTip = "REPLACE THE ACCOUNT (default): EVALUATION FIRST → a blown account buys a new evaluation (waits NEW EVAL WAIT DAYS) and must pass it again. DIRECT FUNDED → it is replaced for REPLACEMENT COST and trades funded again after DAYS UNTIL FUNDED AGAIN. END SLOT: the slot stops trading.";
             // Asian: different cycle settings while an account is in evaluation.
             asianEvalStageBox = new CheckBox { Content = "DIFFERENT CYCLE WHILE IN EVAL", IsChecked = false, Foreground = Orchid, Margin = new Thickness(6), ToolTip = "Off: evaluation and funded accounts trade the same Asian cycle (Step 1 settings). On: accounts in EVALUATION trade the cycle below; funded accounts keep the Step 1 settings." };
             asianEvalStageBox.Checked += delegate { RefreshLifecycleInputState(); }; asianEvalStageBox.Unchecked += delegate { RefreshLifecycleInputState(); };
@@ -6476,12 +6506,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Pool Settings in three clear blocks: EVALUATION (the paid test), FUNDED (payout rules)
             // and AFTER A BLOWUP. Every control keeps its single parent.
             coreControls.Children.Add(evalCostRow);
+            evalCostRowRef = evalCostRow;
+            directFundedCostBox = Input("120"); directFundedCostBox.ToolTip = "Price of one direct-funded account.";
+            directReplacementCostBox = Input("120"); directReplacementCostBox.ToolTip = "What a blown account costs to replace (e.g. the evaluation you buy and pass to get funded again).";
+            directRefundDaysBox = Input("3"); directRefundDaysBox.ToolTip = "Calendar days a blown account is out before it trades funded again — the time it takes in real life to pass a new evaluation. No evaluation rules are simulated in DIRECT FUNDED.";
             lifecyclePolicyControls.Children.Add(payoutThresholdRow); lifecyclePolicyControls.Children.Add(payoutDaysRow); lifecyclePolicyControls.Children.Add(qualifyingDayRow); lifecyclePolicyControls.Children.Add(payoutAmountRow); lifecyclePolicyControls.Children.Add(payoutProfitShareRow);
             replacementDelayBox = Input("0"); replacementDelayBox.ToolTip = "Calendar days a blown slot waits before its new evaluation starts trading. 0 = next session. 2 = blown Monday, trades again Thursday (time to buy and set up the new account).";
             var evalExtraControls = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
             evalExtraControls.Children.Add(evalTierRow); evalExtraControls.Children.Add(evalStageToggleRow); evalExtraControls.Children.Add(asianEvalStageToggleRow);
             fundedRulesPanel.Children.Add(fundedTierRow);
-            governanceControls.Children.Add(PoolRow("BLOWN ACCOUNT", blownAccountBox)); governanceControls.Children.Add(PoolRow("NEW EVAL WAIT DAYS (0 = NEXT SESSION)", replacementDelayBox)); governanceControls.Children.Add(replacementGateRow); governanceControls.Children.Add(firmCapToggleRow); governanceControls.Children.Add(firmCapPanel);
+            governanceControls.Children.Add(PoolRow("BLOWN ACCOUNT", blownAccountBox)); var replacementDelayRow = PoolRow("NEW EVAL WAIT DAYS (0 = NEXT SESSION)", replacementDelayBox); replacementDelayRowRef = replacementDelayRow; governanceControls.Children.Add(replacementDelayRow); governanceControls.Children.Add(replacementGateRow); governanceControls.Children.Add(firmCapToggleRow); governanceControls.Children.Add(firmCapPanel);
             startModeHintText = Txt("DEFAULT: evaluation uses the main Step 1 profit / loss values. Turn on EVAL OVERRIDE only to show evaluation-only target, drawdown, daily, and per-trade limits. DIRECT FUNDED hides evaluation inputs.", Gold, 10, FontWeights.Bold);
             var settingsStack = Stack();
             settingsStack.Children.Add(Txt("POOL SETTINGS • SCENARIO CONTROLS", Cyan, 13, FontWeights.Bold));
@@ -6501,6 +6535,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Child = new ScrollViewer { Content = poolDayText, MaxHeight = 320, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } });
             settingsStack.Children.Add(Txt("CORE", Cyan, 10, FontWeights.Bold)); settingsStack.Children.Add(coreControls);
             lifecyclePolicySection = Stack();
+            var directStack = Stack(); directStack.Children.Add(Txt("① DIRECT FUNDED • accounts are bought funded — no evaluation", Gold, 12, FontWeights.Bold));
+            directStack.Children.Add(SettingsExplain("Every account starts funded at DIRECT-FUNDED ACCOUNT COST. When one blows, it is replaced for REPLACEMENT COST and trades funded again after DAYS UNTIL FUNDED AGAIN (the few days a new evaluation takes in real life). Evaluation settings are not used in this mode."));
+            var directControls = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
+            directControls.Children.Add(PoolRow("DIRECT-FUNDED ACCOUNT COST $", directFundedCostBox)); directControls.Children.Add(PoolRow("REPLACEMENT COST $ (after a blowup)", directReplacementCostBox)); directControls.Children.Add(PoolRow("DAYS UNTIL FUNDED AGAIN", directRefundDaysBox));
+            directStack.Children.Add(directControls);
+            directFundedBlock = SettingsBlock(directStack, Gold); lifecyclePolicySection.Children.Add(directFundedBlock);
             evalRulesHeading = Txt("① EVALUATION • the paid test every new account must pass before it can earn payouts", Orchid, 12, FontWeights.Bold);
             var evalStack = Stack(); evalStack.Children.Add(evalRulesHeading);
             evalStack.Children.Add(SettingsExplain("Reach EVAL PROFIT TARGET without losing EVAL MAX DRAWDOWN, with enough QUALIFYING DAYS (a day that makes at least QUALIFYING DAY $). Passed → the account becomes FUNDED. EVALUATION TRADES chooses which setup grades an evaluation takes (e.g. ALL to pass fast)."));
@@ -7606,8 +7646,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool evaluationFirst = !singleAccount && (accountStartModeBox == null || !string.Equals(Convert.ToString(accountStartModeBox.SelectedItem), "DIRECT FUNDED", StringComparison.OrdinalIgnoreCase));
             // Evaluation rules matter for evaluation-first studies and for the replacement
             // evaluations bought after a direct-funded account blows (BUY NEW EVALUATION).
-            bool replacesWithEvaluation = blownAccountBox == null || blownAccountBox.SelectedIndex != 1;
-            bool evalRulesApply = !singleAccount && !oneDay && (evaluationFirst || replacesWithEvaluation);
+            // DIRECT FUNDED never trades an evaluation (a blown account is funded again after
+            // DAYS UNTIL FUNDED AGAIN), so evaluation settings apply to evaluation-first studies only.
+            bool evalRulesApply = !singleAccount && !oneDay && evaluationFirst;
+            bool directMode = !singleAccount && !oneDay && !evaluationFirst;
             if (evalTargetBox != null) evalTargetBox.IsEnabled = evalRulesApply;
             if (evalDailyCapBox != null) evalDailyCapBox.IsEnabled = evaluationFirst;
             if (evalConsistencyBox != null) evalConsistencyBox.IsEnabled = evalRulesApply;
@@ -7625,6 +7667,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             for (int i = 0; i < evaluationOnlyControls.Count; i++) evaluationOnlyControls[i].Visibility = evalRulesApply ? Visibility.Visible : Visibility.Collapsed;
             if (evalRulesHeading != null) evalRulesHeading.Visibility = evalRulesApply ? Visibility.Visible : Visibility.Collapsed;
             if (evaluationBlock != null) evaluationBlock.Visibility = evalRulesApply ? Visibility.Visible : Visibility.Collapsed;
+            if (directFundedBlock != null) directFundedBlock.Visibility = directMode ? Visibility.Visible : Visibility.Collapsed;
+            if (evalCostRowRef != null && directMode) evalCostRowRef.Visibility = Visibility.Collapsed;
+            if (replacementDelayRowRef != null) replacementDelayRowRef.Visibility = directMode ? Visibility.Collapsed : Visibility.Visible;
             if (governanceSection != null && singleAccount) governanceSection.Visibility = Visibility.Collapsed;
             bool asianEvalStageVisible = asianCopy && evalRulesApply;
             if (asianEvalStageToggleRow != null) asianEvalStageToggleRow.Visibility = asianEvalStageVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -12242,7 +12287,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             sb.AppendLine("ILLUSTRATIVE LIFECYCLE • EXPLICIT TOTALS");
             sb.AppendLine("COLOR KEY: GREEN = funded / no payout history • GOLD = funded / payout history • PURPLE = evaluation in progress • RED = blown / unavailable.");
             if (config.EvaluationEnabled < 0) sb.AppendLine("One-day " + (asianCopy ? "copy" : "assignment") + " only. No evaluation, funded stage, or payout cycle was applied.");
-            else if (config.EvaluationEnabled == 0) sb.AppendLine("DIRECT FUNDED • currently funded " + funded + " • terminal blown " + terminalBlown + " • direct-funded blown slots are not replaced.");
+            else if (config.EvaluationEnabled == 0) sb.AppendLine("DIRECT FUNDED • currently funded " + funded + " • terminal blown " + terminalBlown + " • " + (config.BlownAccountReplacement <= 0 ? "a blown direct-funded account ends (BLOWN ACCOUNT = END SLOT)" : config.DirectRefund() ? "a blown account is replaced for " + Cash(config.ReplacementCost()) + " and trades funded again after " + config.DirectRefundDays + " day(s)" : "a blown direct-funded account buys a NEW EVALUATION (" + Cash(config.EvaluationCost) + ") and trades the evaluation rules until it passes") + ".");
             else sb.AppendLine("EVALUATION PASSES COMPLETED " + passed + " • CURRENTLY FUNDED " + funded + " • EVAL IN PROGRESS " + evalInProgress + " • EVAL ACCOUNTS BLOWN " + evalBlown + " • FUNDED ACCOUNTS BLOWN " + fundedBlown + " • REPLACEMENTS NEXT SESSION " + replacementPending);
             sb.AppendLine("FAILURE EVENTS " + (evalBlown + fundedBlown) + " • TERMINAL ENDED " + terminalBlown + " • REPLACEMENT PURCHASES " + (config.EvaluationEnabled > 0 ? Math.Max(0, purchases - accounts.Count) : 0));
             sb.AppendLine("EVALUATIONS PURCHASED " + purchases + " • TOTAL EVALUATION / REPLACEMENT COST " + Cash(evaluationCost));
@@ -12842,7 +12887,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 config.EvaluationTradeTargetDollars = config.TargetDollars;
                 config.EvaluationTradeStopDollars = config.StopDollars;
             }
-            config.FundedDailyLoss = NumberAllowZero(fundedDailyLossBox, 0); config.FundedFailure = Number(fundedFailureBox, 2000); config.PayoutDaysRequired = Integer(payoutDaysBox, 5); config.MinimumPositiveDays = Integer(minimumDaysBox, 2); config.MinimumQualifyingDayProfit = NumberAllowZero(minimumQualifyingDayBox, 150); config.EvaluationCost = Number(evalCostBox, 120); config.ReplacementsRequirePayoutFunding = replacementFundingGateBox != null && replacementFundingGateBox.IsChecked == true ? 1 : 0;
+            config.FundedDailyLoss = NumberAllowZero(fundedDailyLossBox, 0); config.FundedFailure = Number(fundedFailureBox, 2000); config.PayoutDaysRequired = Integer(payoutDaysBox, 5); config.MinimumPositiveDays = Integer(minimumDaysBox, 2); config.MinimumQualifyingDayProfit = NumberAllowZero(minimumQualifyingDayBox, 150); config.EvaluationCost = Number(evalCostBox, 120); config.DirectFundedCost = NumberAllowZero(directFundedCostBox, 120);
+            config.DirectReplacementMode = 1; config.DirectReplacementCost = NumberAllowZero(directReplacementCostBox, 120); config.DirectRefundDays = Math.Max(0, Integer(directRefundDaysBox, 3)); config.ReplacementsRequirePayoutFunding = replacementFundingGateBox != null && replacementFundingGateBox.IsChecked == true ? 1 : 0;
             config.FirmFundedCapEnabled = config.EvaluationEnabled >= 0 && firmFundedCapBox != null && firmFundedCapBox.IsChecked == true ? 1 : 0;
             config.BlownAccountReplacement = blownAccountBox != null && blownAccountBox.SelectedIndex == 1 ? 0 : 1;
             config.EvalQualifyingDaysConsecutive = evalConsecutiveBox == null || evalConsecutiveBox.IsChecked == true ? 1 : 0;
@@ -14058,6 +14104,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (fundedDailyLossBox != null) fundedDailyLossBox.Text = "0";
             if (fundedFailureBox != null) fundedFailureBox.Text = "2000";
             if (evalCostBox != null) evalCostBox.Text = "120";
+            if (directFundedCostBox != null) directFundedCostBox.Text = "120";
+            if (directReplacementCostBox != null) directReplacementCostBox.Text = "120";
+            if (directRefundDaysBox != null) directRefundDaysBox.Text = "3";
             if (payoutThresholdBox != null) payoutThresholdBox.Text = "4000";
             if (payoutDaysBox != null) payoutDaysBox.Text = "5";
             if (payoutAmountBox != null) payoutAmountBox.Text = "2000";
@@ -14395,7 +14444,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var content = new StackPanel { Margin = new Thickness(5) };
             var title = new TextBlock { Text = label, Foreground = accent, FontSize = 10, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap };
             content.Children.Add(title);
-            var value = new TextBlock { Text = initialValue, Foreground = accent, FontSize = valueFontSize, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Segoe UI"), Margin = new Thickness(0, 3, 0, 0) };
+            var value = new TextBlock { Text = initialValue, Foreground = accent, FontSize = valueFontSize, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Segoe UI"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
             content.Children.Add(value);
             var note = new TextBlock { Text = caption, Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Normal, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
             content.Children.Add(note);

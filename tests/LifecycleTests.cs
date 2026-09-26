@@ -290,6 +290,32 @@ public static class LifecycleTests
                     "funded episodes = evaluation passes; never-paid ≤ funded blowups; open = funded now (seed " + ds + ")");
             }
         }
+        // 21. DIRECT FUNDED: own account cost; a blowup is funded again after N days at the replacement cost, no evaluation stage.
+        {
+            var cfg = LifecycleSnapshot.Cfg("BH", 0, 0, 0); cfg.PoolSize = 3; cfg.FundedFailure = 700;
+            cfg.DirectFundedCost = 500; cfg.DirectReplacementMode = 1; cfg.DirectRefundDays = 3; cfg.DirectReplacementCost = 150;
+            var acc = KeystoneArcEngine.SimulatePool(LifecycleSnapshot.BhEvents(8), cfg);
+            int blowups = acc.Sum(a => a.FailedFunded), purchases = acc.Sum(a => a.EvaluationPurchases);
+            double cost = acc.Sum(a => a.EvaluationCost);
+            Console.WriteLine("direct refund • blowups " + blowups + " • purchases " + purchases + " • cost " + cost + " • eval fails " + acc.Sum(a => a.FailedEvaluations) + " • passes " + acc.Sum(a => a.EvaluationPasses));
+            Check(blowups > 0 && acc.Sum(a => a.FailedEvaluations) == 0, "direct funded never trades an evaluation after a blowup", blowups + " blowups");
+            Check(Math.Abs(cost - (3 * 500 + (purchases - 3) * 150)) < 0.01, "first accounts at the direct-funded cost, replacements at the replacement cost", cost.ToString());
+            bool gapOk = true;
+            foreach (var a in acc)
+            {
+                var hist = a.DayHistory.OrderBy(d => d.Day).ToList();
+                for (int i = 0; i < hist.Count; i++)
+                    if (hist[i].BlownAfter && (i == 0 || !hist[i - 1].BlownAfter))
+                    {
+                        var next = hist.Skip(i + 1).FirstOrDefault(d => d.TradesAfter > 0);
+                        if (next != null && (next.Day - hist[i].Day).TotalDays < 4) gapOk = false;
+                    }
+            }
+            Check(gapOk, "after a blowup the next trade is at least 3 days + 1 later");
+            var legacy = LifecycleSnapshot.Cfg("BH", 0, 0, 0); legacy.PoolSize = 3; legacy.FundedFailure = 700;
+            var accLegacy = KeystoneArcEngine.SimulatePool(LifecycleSnapshot.BhEvents(8), legacy);
+            Check(accLegacy.Sum(a => a.EvaluationPasses) + accLegacy.Sum(a => a.FailedEvaluations) > 0 || accLegacy.Sum(a => a.FailedFunded) == 0, "engine default keeps the original direct-funded replacement (new evaluation)");
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

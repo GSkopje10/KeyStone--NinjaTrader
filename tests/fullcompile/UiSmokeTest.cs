@@ -27,6 +27,16 @@ public static class UiSmokeTest
             if (!ReferenceEquals(win.Background, bg) && !ReferenceEquals(win.Background, panel)) throw new Exception("window background was not re-coloured");
             Call(lab, "ApplyThemeLive", "OBSIDIAN GOLD");
         });
+        Step("DIRECT FUNDED shows only its own block; EVALUATION FIRST only the evaluation block", () =>
+        {
+            Func<string, object> F = n => lab.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab);
+            var start = (System.Windows.Controls.ComboBox)F("accountStartModeBox");
+            start.SelectedIndex = 1; start.SelectedItem = start.Items[1]; Call(lab, "RefreshLifecycleInputState");
+            var evBlock = (System.Windows.Controls.Border)F("evaluationBlock"); var dir = (System.Windows.Controls.Border)F("directFundedBlock");
+            if (evBlock.Visibility != System.Windows.Visibility.Collapsed || dir.Visibility != System.Windows.Visibility.Visible) throw new Exception("direct mode shows evaluation settings");
+            start.SelectedIndex = 0; start.SelectedItem = start.Items[0]; Call(lab, "RefreshLifecycleInputState");
+            if (evBlock.Visibility != System.Windows.Visibility.Visible || dir.Visibility != System.Windows.Visibility.Collapsed) throw new Exception("evaluation mode shows direct-funded settings");
+        });
         Step("strategy switch to ASIAN / FVG / BH", () => { var box = (System.Windows.Controls.ComboBox)lab.GetType().GetField("strategyBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); foreach (int i in new[] { 1, 2, 0 }) { box.SelectedIndex = i; box.SelectedItem = box.Items[i]; Call(lab, "RefreshStrategyInputState"); } });
         // A pool result through the UI render paths.
         var rng = new Random(2); var ev = new List<KeystoneArcEvent>(); DateTime day = new DateTime(2025, 1, 6);
