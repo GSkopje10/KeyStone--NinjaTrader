@@ -107,6 +107,8 @@ namespace NinjaTrader.NinjaScript
         // is optional and can exclude a specific row; it is not a second approval requirement.
         public string ReviewState = "ACCEPTED"; // ACCEPTED (eligible), REJECTED, FLAGGED
         public string ReviewNote = string.Empty;
+        // Field-by-field copy (values and strings only) for running the same ledger through several pools.
+        public KeystoneArcEvent CopyForPool() { var c = (KeystoneArcEvent)MemberwiseClone(); c.AssignedVirtualAccount = null; c.SkipReason = null; return c; }
     }
 
     // One bullish FVG box and what happened to it (FVG retest strategy). Chart + audit data.
@@ -527,6 +529,9 @@ namespace NinjaTrader.NinjaScript
         // Copy pool is a separate historical allocation mode: each active modeled account
         // receives the same eligible BH event rather than rotating to the next free account.
         public int CopyTradingPool;
+        // Copy to groups: accounts split into groups of N; each setup goes to the next free group
+        // and every account of that group takes it (0 / 1 = off). Used when CopyTradingPool is off.
+        public int CopyGroupSize = 0;
         // Default false preserves one setup per account per session. When enabled, an account
         // may receive additional BH setups in the same session until its configured daily
         // profit/loss lock, total drawdown, or lifecycle state stops it.
@@ -2027,7 +2032,7 @@ namespace NinjaTrader.NinjaScript
         {
             if (cfg != null && string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase))
                 return SimulateAsian75CopyPool(events, cfg, evaluationStageEvents);
-            if (cfg != null && cfg.CopyTradingPool > 0)
+            if (cfg != null && (cfg.CopyTradingPool > 0 || cfg.CopyGroupSize > 1))
                 return SimulateBhCopyPool(events, cfg);
             List<KeystoneArcVirtualAccount> accounts = new List<KeystoneArcVirtualAccount>();
             // Prop-only lab: every eligible event is evaluated through the virtual-pool allocator.
@@ -2159,6 +2164,8 @@ namespace NinjaTrader.NinjaScript
                 else if (cfg.EvaluationEnabled == 0) { account.Funded = true; account.EvaluationPassed = true; account.FundedSinceDate = initial; account.LastState = "COPY COHORT • FUNDED READY (ILLUSTRATIVE)"; }
                 accounts.Add(account);
             }
+            bool grouped = cfg.CopyTradingPool <= 0 && cfg.CopyGroupSize > 1;
+            int groupSize = Math.Max(1, cfg.CopyGroupSize), groupCount = Math.Max(1, (accounts.Count + groupSize - 1) / groupSize), groupCursor = 0;
             foreach (KeystoneArcEvent e in (events ?? new List<KeystoneArcEvent>()).OrderBy(x => x.EntryTime == DateTime.MinValue ? x.TriggerTime : x.EntryTime))
             {
                 DateTime when = e.EntryTime == DateTime.MinValue ? e.TriggerTime : e.EntryTime;
@@ -2169,7 +2176,21 @@ namespace NinjaTrader.NinjaScript
                     RollDay(account, when.Date, cfg, accounts);
                 }
                 EnforceFirmFundedCapacity(accounts, cfg);
-                List<KeystoneArcVirtualAccount> active = accounts.Where(x => !x.Blown && !x.ReplacementPending && !x.FundedCapPending && !x.DayLocked && !x.EvalMinDayHold && x.FreeAt <= when && StageAllows(x, e, cfg)).ToList();
+                Func<KeystoneArcVirtualAccount, bool> free = x => !x.Blown && !x.ReplacementPending && !x.FundedCapPending && !x.DayLocked && !x.EvalMinDayHold && x.FreeAt <= when && StageAllows(x, e, cfg);
+                List<KeystoneArcVirtualAccount> active;
+                string groupLabel = null;
+                if (grouped)
+                {
+                    // Copy to groups: the next group (in turn) with at least one free account takes it.
+                    active = new List<KeystoneArcVirtualAccount>();
+                    for (int k = 0; k < groupCount && active.Count == 0; k++)
+                    {
+                        int g = (groupCursor + k) % groupCount;
+                        active = accounts.Skip(g * groupSize).Take(groupSize).Where(free).ToList();
+                        if (active.Count > 0) { groupCursor = (g + 1) % groupCount; groupLabel = "GROUP " + (g + 1) + " → " + string.Join(", ", active.Select(a => a.Name)); }
+                    }
+                }
+                else active = accounts.Where(free).ToList();
                 if (active.Count == 0)
                 {
                     e.SkipReason = accounts.Any(x => x.ReplacementPending || x.ReplacementBudgetBlocked) ? "COPY COHORT • WAITING FOR REPLACEMENT" : "COPY COHORT • DAILY LOCK OR NO ACTIVE ACCOUNT";
@@ -2178,7 +2199,7 @@ namespace NinjaTrader.NinjaScript
                 // All active accounts are at the same lifecycle point under a synchronized copy
                 // run, so the evaluation override (if selected) produces one shared outcome.
                 ApplyEvaluationStageOutcomeForAccount(e, active[0], cfg);
-                e.AssignedVirtualAccount = "COPY → " + active.Count + " ACTIVE ACCOUNT" + (active.Count == 1 ? string.Empty : "S");
+                e.AssignedVirtualAccount = groupLabel ?? ("COPY → " + active.Count + " ACTIVE ACCOUNT" + (active.Count == 1 ? string.Empty : "S"));
                 foreach (KeystoneArcVirtualAccount account in active)
                 {
                     account.LastAssignedDate = when.Date;
@@ -3819,6 +3840,73 @@ namespace NinjaTrader.NinjaScript
             return output;
         }
     }
+    // One pool scenario result for the account-count / allocation comparison.
+    public sealed class KeystoneArcPoolScenario
+    {
+        public string Label = string.Empty; public int Accounts, GroupSize; public bool Copy;
+        public int Payouts, Blowups, PaidAccounts; public double ToBank, Cost, Net, TradesPerAccount;
+        public DateTime FirstPayout = DateTime.MinValue, Profitable = DateTime.MinValue;
+        public bool Best;
+    }
+
+    public static class KeystoneArcPoolCompare
+    {
+        // Runs the same ledger and settings with different account counts and allocations.
+        public static List<KeystoneArcPoolScenario> Run(List<KeystoneArcEvent> events, KeystoneArcRunConfig cfg)
+        {
+            var rows = new List<KeystoneArcPoolScenario>();
+            if (events == null || cfg == null) return rows;
+            bool asian = string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            var plans = new List<Tuple<string, int, int, bool>>();
+            foreach (int n in new[] { 1, 2, 3, 5, 10, 20 }) plans.Add(Tuple.Create(asian ? "COPY " + n + " ACCOUNTS" : "ROTATION " + n + " ACCOUNT" + (n == 1 ? "" : "S"), n, 0, asian));
+            if (!asian)
+            {
+                plans.Add(Tuple.Create("COPY TO ALL 3", 3, 0, true)); plans.Add(Tuple.Create("COPY TO ALL 5", 5, 0, true));
+                plans.Add(Tuple.Create("10 ACCOUNTS • 2 GROUPS OF 5", 10, 5, false)); plans.Add(Tuple.Create("20 ACCOUNTS • 4 GROUPS OF 5", 20, 5, false)); plans.Add(Tuple.Create("20 ACCOUNTS • 2 GROUPS OF 10", 20, 10, false));
+            }
+            foreach (var plan in plans)
+            {
+                KeystoneArcRunConfig c = cfg.ShallowCopy(); c.PoolSize = plan.Item2; c.CopyGroupSize = plan.Item3; c.CopyTradingPool = plan.Item4 && !asian ? 1 : 0;
+                List<KeystoneArcVirtualAccount> acc = KeystoneArcEngine.SimulatePool(events.Where(e => e != null).Select(e => e.CopyForPool()).ToList(), c);
+                KeystoneArcPoolInsights x = KeystoneArcPoolInsights.Build(acc, null, c);
+                KeystoneArcCapitalPolicySummary cap = KeystoneArcEngine.BuildCapitalPolicySummary(acc, c);
+                rows.Add(new KeystoneArcPoolScenario { Label = plan.Item1, Accounts = plan.Item2, GroupSize = plan.Item3, Copy = plan.Item4, Payouts = x.Payouts, Blowups = x.BlowupEvents, PaidAccounts = x.PaidAccounts,
+                    ToBank = x.CashAfterShare, Cost = x.Cost, Net = x.Net, TradesPerAccount = acc.Count == 0 ? 0 : acc.Average(a => a.Trades), FirstPayout = x.FirstPayoutDate, Profitable = cap.ProfitabilityReached ? cap.ProfitabilityDate : DateTime.MinValue });
+            }
+            var best = rows.OrderByDescending(r => r.Net).ThenBy(r => r.Cost).FirstOrDefault();
+            if (best != null && best.Net > 0) best.Best = true;
+            return rows;
+        }
+
+        public static string Table(List<KeystoneArcPoolScenario> rows)
+        {
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-30} {1,7} {2,8} {3,11} {4,10} {5,11} {6,8} {7,11} {8,11}", "ALLOCATION", "TRADES", "PAYOUTS", "TO BANK", "COST", "NET", "BLOWUPS", "1ST PAYOUT", "PROFITABLE"));
+            foreach (var r in rows)
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-30} {1,7:0} {2,8} {3,11} {4,10} {5,11} {6,8} {7,11} {8,11}", (r.Best ? "★ " : "  ") + r.Label, r.TradesPerAccount, r.Payouts, m(r.ToBank), m(r.Cost), m(r.Net), r.Blowups,
+                    r.FirstPayout == DateTime.MinValue ? "—" : r.FirstPayout.ToString("yyyy-MM-dd"), r.Profitable == DateTime.MinValue ? "—" : r.Profitable.ToString("yyyy-MM-dd")));
+            return sb.ToString().TrimEnd();
+        }
+
+        // Plain answer when payouts are missing or rare: what each account earned vs what a payout needs.
+        public static string PayoutDiagnosis(List<KeystoneArcVirtualAccount> accounts, KeystoneArcRunConfig cfg)
+        {
+            if (accounts == null || accounts.Count == 0 || cfg == null || cfg.EvaluationEnabled < 0) return string.Empty;
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            int payouts = accounts.Sum(a => a.Payouts);
+            double avgPnl = accounts.Average(a => a.TotalPnl), avgTrades = accounts.Average(a => a.Trades);
+            var bestAcc = accounts.OrderByDescending(a => a.FundedBalance).First();
+            int maxQual = accounts.Max(a => a.FundedPositiveDays);
+            if (payouts > 0 && payouts >= accounts.Count) return string.Empty;
+            var sb = new StringBuilder("WHY " + (payouts == 0 ? "NO PAYOUT" : "FEW PAYOUTS") + " • each account took ~" + avgTrades.ToString("0", CultureInfo.InvariantCulture) + " trades and averaged " + m(avgPnl));
+            sb.Append(" • a payout needs a funded balance of " + m(cfg.PayoutThreshold) + " and " + cfg.PayoutDaysRequired + " qualifying days (≥ " + m(cfg.MinimumQualifyingDayProfit) + ")");
+            sb.Append(" • best: " + bestAcc.Name + " at " + m(bestAcc.FundedBalance) + ", most qualifying days " + maxQual);
+            sb.Append(avgTrades < 25 ? " → too few trades per account: use FEWER ACCOUNTS or COPY GROUPS (COMPARE ACCOUNTS shows which is best)" : " → the strategy result per account is too small or blows up first: check the stop / target and daily loss");
+            return sb.ToString();
+        }
+    }
+
     public sealed class KeystoneArcInsight
     {
         public string Level;   // GOOD, WARN, BAD, IDEA
@@ -4251,6 +4339,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         private TextBox fvgTargetRABox, fvgTargetRBBox, fvgTargetRCBox, fvgMergedDepthBox, fvgTargetRDTBox;
         private readonly TextBox[] fvgPtsBoxes = new TextBox[8];
         private CheckBox fvgMergeBox;
+        private TextBox copyGroupSizeBox;
+        private string lastAccountComparison = string.Empty;
         private TextBlock fvgPointsPreview;
         private UIElement fvgPointsPanel;
         private bool evidenceSelectionClickHandled;
@@ -5908,6 +5998,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             viewMnqButton = Btn("MNQ", Blue); viewMgcButton = Btn("MGC", Gold); viewBothButton = Btn("BOTH", Cyan); compareInstrumentsButton = Btn("COMPARE MNQ vs MGC vs BOTH", Orchid);
             foreach (Button b in new[] { viewMnqButton, viewMgcButton, viewBothButton }) { b.Height = 27; b.Width = 78; b.Margin = new Thickness(2, 0, 2, 0); b.IsEnabled = false; clearRow.Children.Add(b); }
             compareInstrumentsButton.Height = 27; compareInstrumentsButton.Margin = new Thickness(8, 0, 2, 0); compareInstrumentsButton.IsEnabled = false; clearRow.Children.Add(compareInstrumentsButton);
+            var compareAccountsButton = Btn("COMPARE ACCOUNTS", Green); compareAccountsButton.Height = 27; compareAccountsButton.Margin = new Thickness(8, 0, 2, 0); compareAccountsButton.Click += delegate { CompareAccountCounts(); };
+            compareAccountsButton.ToolTip = "Runs the pool with 1, 2, 3, 5, 10, 20 accounts, copy to all and copy groups — same setups and settings — and marks the best (★).";
+            clearRow.Children.Add(compareAccountsButton);
             var claudeExportButton = Btn("EXPORT FOR CLAUDE", Gold); claudeExportButton.Height = 27; claudeExportButton.Margin = new Thickness(8, 0, 2, 0); claudeExportButton.Click += delegate { ExportForClaude(); };
             claudeExportButton.ToolTip = "Saves the loaded bars, settings, ledger and results summary to Documents\\KeystoneArc5MResearch\\ClaudeExport. Upload that folder's files to the GitHub repo (data/ folder) so Claude can optimise on your real data.";
             clearRow.Children.Add(claudeExportButton);
@@ -5955,7 +6048,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             poolBox = Select("1", "5", "10", "20", "40"); poolBox.SelectedItem = "20"; poolBox.SelectionChanged += delegate { RefreshLifecycleInputState(); }; var poolRow = PoolRow("ACCOUNTS", poolBox); propOnlyControls.Add(poolRow); coreControls.Children.Add(poolRow);
             accountStartModeBox = Select("EVALUATION FIRST", "DIRECT FUNDED"); accountStartModeBox.SelectedIndex = 0; accountStartModeBox.SelectionChanged += delegate { RefreshLifecycleInputState(); }; var startModeRow = PoolRow("START", accountStartModeBox); oneDayHiddenControls.Add(startModeRow); propOnlyControls.Add(startModeRow); coreControls.Children.Add(startModeRow);
             copyTradingPoolBox = new CheckBox { Content = "COPY EVERY SETUP TO ALL ACTIVE", IsChecked = false, Foreground = Cyan, Margin = new Thickness(6), ToolTip = "Off: rotate each eligible setup to the next free account. On: every active account takes the same eligible setup, locks/blows/passes together, and replacement evaluations restart together on the next session." };
-            poolAllocationRow = PoolRow("ALLOCATION", copyTradingPoolBox); coreControls.Children.Add(poolAllocationRow);
+            copyTradingPoolBox.Content = "COPY EVERY SETUP TO ALL ACCOUNTS (off = ROTATION)";
+            var allocationStack = new StackPanel { Orientation = Orientation.Horizontal };
+            allocationStack.Children.Add(copyTradingPoolBox);
+            copyGroupSizeBox = Input("0"); copyGroupSizeBox.Width = 60; copyGroupSizeBox.ToolTip = "COPY TO GROUPS OF N: accounts are split into groups of N; each setup goes to the next free group and every account of that group takes it. 0 = off (plain rotation, one account per setup).";
+            allocationStack.Children.Add(Txt("  OR COPY TO GROUPS OF", Text, 10, FontWeights.Bold)); allocationStack.Children.Add(copyGroupSizeBox); allocationStack.Children.Add(Txt("(0 = OFF)", Muted, 10, FontWeights.Normal));
+            poolAllocationRow = PoolRow("ALLOCATION", allocationStack); coreControls.Children.Add(poolAllocationRow);
             multipleSetupsPerDayBox = new CheckBox { Content = "ALLOW MULTIPLE SETUPS / DAY", IsChecked = false, Foreground = Gold, Margin = new Thickness(6), ToolTip = "Off (default): each rotating or BH copy account receives at most one setup per session. On: keep assigning additional BH setups to the same account(s) until the configured daily profit/loss lock, total drawdown, blowout, or other lifecycle state is reached. Asian 75 remains one configured cycle per session." };
             poolDailyAllocationRow = PoolRow("DAILY ALLOCATION", multipleSetupsPerDayBox); coreControls.Children.Add(poolDailyAllocationRow);
             propStartingBalanceBox = Input("0");
@@ -7283,7 +7381,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             DateTime start, end;
             if (!ConfigurationStillApproved()) { UpdateUi("STEP 1 REQUIRED • CONFIRM THE CURRENT CONFIGURATION BEFORE REQUESTING DATA", Gold); UpdateWorkflowState(); return; }
             if (!ReadConfig(out start, out end)) return;
-            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); historicalRequestDetails.Clear(); failedContractRolloverSeries.Clear(); mnqBars = new List<KeystoneArcBar>(); mgcBars = new List<KeystoneArcBar>(); mnqSetupBars = new List<KeystoneArcBar>(); mgcSetupBars = new List<KeystoneArcBar>(); mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false; mnqOutcomeMatchesSetup = true; mgcOutcomeMatchesSetup = true; config.MnqOutcomeTimeOffsetMinutes = 0; config.MgcOutcomeTimeOffsetMinutes = 0; config.MnqOutcomeSource = "VERIFICATION PENDING"; config.MgcOutcomeSource = "VERIFICATION PENDING"; mnqOutcomeValidation = "awaiting 1-minute comparison"; mgcOutcomeValidation = "awaiting 1-minute comparison"; researchRunCompleted = false; events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; reviewRows.Clear(); accounts.Clear(); historicalDataReceipt = "DATA RECEIPT: historical request started; awaiting NinjaTrader BarsRequest completion.";
+            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); historicalRequestDetails.Clear(); failedContractRolloverSeries.Clear(); mnqBars = new List<KeystoneArcBar>(); mgcBars = new List<KeystoneArcBar>(); mnqSetupBars = new List<KeystoneArcBar>(); mgcSetupBars = new List<KeystoneArcBar>(); mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false; mnqOutcomeMatchesSetup = true; mgcOutcomeMatchesSetup = true; config.MnqOutcomeTimeOffsetMinutes = 0; config.MgcOutcomeTimeOffsetMinutes = 0; config.MnqOutcomeSource = "VERIFICATION PENDING"; config.MgcOutcomeSource = "VERIFICATION PENDING"; mnqOutcomeValidation = "awaiting 1-minute comparison"; mgcOutcomeValidation = "awaiting 1-minute comparison"; researchRunCompleted = false; events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; reviewRows.Clear(); accounts.Clear(); historicalDataReceipt = "DATA RECEIPT: historical request started; awaiting NinjaTrader BarsRequest completion.";
             // A new request must never leave totals, account cards, or a ledger from a previous
             // completed run on screen.  Otherwise a zero-bar receipt looks like a successful run
             // because the visible totals belong to a different date range.
@@ -8216,7 +8314,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DispatchToLab(delegate
                 {
                     events = generated ?? new List<KeystoneArcEvent>();
-                    loadedEvents = events; loadedScope = workerConfig.Scope; viewScope = workerConfig.Scope; lastInstrumentComparison = string.Empty;
+                    loadedEvents = events; loadedScope = workerConfig.Scope; viewScope = workerConfig.Scope; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty;
                     for (int i = 0; i < events.Count; i++)
                     {
                         events[i].ReviewState = "ACCEPTED";
@@ -8360,7 +8458,11 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void RenderInstrumentSplit()
         {
             if (instrumentSplitText == null) return;
-            if (loadedEvents == null || loadedEvents.Count == 0 || loadedScope != "BOTH") { instrumentSplitText.Visibility = Visibility.Collapsed; return; }
+            if (loadedEvents == null || loadedEvents.Count == 0 || (loadedScope != "BOTH" && string.IsNullOrEmpty(lastAccountComparison)))
+            {
+                instrumentSplitText.Visibility = Visibility.Collapsed; return;
+            }
+            if (loadedScope != "BOTH") { instrumentSplitText.Text = lastAccountComparison; instrumentSplitText.Visibility = Visibility.Visible; return; }
             bool asian = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
             List<KeystoneArcInstrumentStats> stats = KeystoneArcPoolInsights.InstrumentStats(loadedEvents, config);
             var sb = new StringBuilder("STRATEGY BY INSTRUMENT (" + (asian ? "legs of the combined cycle" : "all setups, no accounts") + ")\n");
@@ -8369,6 +8471,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     x.Symbol, x.Setups, asian ? "legs  " : "setups", x.Wins, x.Losses, x.WinRate, Cash(x.Pnl), Cash(x.BestDay), Cash(x.WorstDay), Cash(-x.MaxDrawdown)));
             if (stats.Count == 2) { var best = stats.OrderByDescending(x => x.Pnl).First(); sb.Append("BETTER: " + best.Symbol + " by " + Cash(Math.Abs(stats[0].Pnl - stats[1].Pnl))); }
             if (!string.IsNullOrEmpty(lastInstrumentComparison)) sb.Append("\n\n" + lastInstrumentComparison);
+            if (!string.IsNullOrEmpty(lastAccountComparison)) sb.Append("\n\n" + lastAccountComparison);
             instrumentSplitText.Text = sb.ToString().TrimEnd();
             instrumentSplitText.Visibility = Visibility.Visible;
         }
@@ -8464,6 +8567,34 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
 
         private string lastInstrumentComparison = string.Empty;
+
+        private void CompareAccountCounts()
+        {
+            if (operationBusy || isProcessing) { UpdateUi("WAIT FOR THE CURRENT OPERATION TO FINISH", Gold); return; }
+            if (events == null || events.Count == 0) { UpdateUi("LOAD A TEST FIRST", Gold); return; }
+            DateTime s0, e0; DateTime loadedStart = config.Start, loadedEnd = config.End; int loadedOneDay = config.OneDayMode; string loadedSession = config.SessionMode; int ls = config.CustomStart, le = config.EndTime;
+            if (!ReadConfig(out s0, out e0)) return;
+            config.Start = loadedStart; config.End = loadedEnd; config.OneDayMode = loadedOneDay; config.SessionMode = loadedSession; config.CustomStart = ls; config.EndTime = le;
+            config.EvaluationEnabled = loadedOneDay == 1 ? -1 : (accountStartModeBox != null && string.Equals(Convert.ToString(accountStartModeBox.SelectedItem), "DIRECT FUNDED", StringComparison.OrdinalIgnoreCase) ? 0 : 1);
+            ApplyInstrumentView(config);
+            if (config.EvaluationEnabled < 0) { UpdateUi("ACCOUNT COMPARISON NEEDS A DATE RANGE (payouts take weeks)", Gold); return; }
+            KeystoneArcRunConfig cfg = CloneConfig(config);
+            List<KeystoneArcEvent> ledger = events.Where(x => string.Equals(x.ReviewState, "ACCEPTED", StringComparison.OrdinalIgnoreCase)).ToList();
+            BeginBusy("COMPARING ACCOUNT COUNTS AND ALLOCATIONS");
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                string table;
+                try { table = "ACCOUNTS & ALLOCATION • same setups, same prop rules • ★ = best net\n" + KeystoneArcPoolCompare.Table(KeystoneArcPoolCompare.Run(ledger, cfg)); }
+                catch (Exception ex) { DispatchToLab(delegate { EndBusy(); UpdateUi("ACCOUNT COMPARISON ERROR • " + ex.Message, Red); }); return; }
+                DispatchToLab(delegate
+                {
+                    EndBusy();
+                    lastAccountComparison = table;
+                    RenderInstrumentSplit();
+                    UpdateUi("ACCOUNT COMPARISON READY • shown under the buttons and added to the report • set ACCOUNTS / ALLOCATION to the ★ row and RECALCULATE", Green);
+                });
+            });
+        }
         private WrapPanel payoutAccountCards;
         private UniformGrid payoutAccountTiles;
 
@@ -11628,7 +11759,19 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool asianCopy = config != null && string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
             if (asianCopy && account.Trades > 0)
                 return events.Where(x => !string.IsNullOrWhiteSpace(x.AssignedVirtualAccount) && x.AssignedVirtualAccount.StartsWith("COPY", StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.EntryTime).ToList();
-            return events.Where(x => string.Equals(x.AssignedVirtualAccount, account.Name, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.EntryTime).ToList();
+            return events.Where(x => AssignedTo(x, account)).OrderBy(x => x.EntryTime).ToList();
+        }
+
+        // Rotation stores one account name; copy groups store "GROUP n → KA-V01, KA-V02".
+        private static bool AssignedTo(KeystoneArcEvent e, KeystoneArcVirtualAccount account)
+        {
+            string a = e == null ? null : e.AssignedVirtualAccount;
+            if (string.IsNullOrWhiteSpace(a) || account == null) return false;
+            if (string.Equals(a, account.Name, StringComparison.OrdinalIgnoreCase)) return true;
+            int arrow = a.IndexOf("→", StringComparison.Ordinal);
+            if (a.StartsWith("GROUP", StringComparison.OrdinalIgnoreCase) && arrow >= 0)
+                return a.Substring(arrow + 1).Split(',').Any(n => string.Equals(n.Trim(), account.Name, StringComparison.OrdinalIgnoreCase));
+            return false;
         }
 
         private void RenderAccountTimeline(KeystoneArcVirtualAccount account)
@@ -11845,7 +11988,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     ? "SINGLE ACCOUNT COMPLETE: starting balance plus range P/L have been calculated. No payout, evaluation, funded-stage, or replacement lifecycle was applied."
                     : config.EvaluationEnabled < 0
                     ? "ONE-DAY POOL COMPLETE: " + accounts.Count + " ACCOUNTS • TRADED " + accounts.Count(x => x.Trades > 0) + " • PROFIT LOCKS " + accounts.Count(x => x.DayLocked && x.DayPnl >= Math.Max(0, config.DailyGoal)) + " • LOSS LOCKS " + accounts.Count(x => x.DayLocked && x.DayPnl <= -Math.Abs(config.DailyLoss)) + " • SELECT A CARD FOR ITS EXACT ASSIGNED TRADES."
-                    : KeystoneArcPoolInsights.InvestmentAnswer(capital, KeystoneArcPoolInsights.Build(accounts, null, config)) + "\n" + (config.EvaluationEnabled == 0
+                    : KeystoneArcPoolInsights.InvestmentAnswer(capital, KeystoneArcPoolInsights.Build(accounts, null, config)) + "\n" + (string.IsNullOrEmpty(KeystoneArcPoolCompare.PayoutDiagnosis(accounts, config)) ? "" : KeystoneArcPoolCompare.PayoutDiagnosis(accounts, config) + "\n") + (config.EvaluationEnabled == 0
                     ? "POOL COMPLETE: " + accounts.Count + " DIRECT-FUNDED START ACCOUNTS • FUNDED " + funded + " • PAYOUT CYCLES " + payouts + " • SELECT AN ACCOUNT FOR ITS FULL LIFECYCLE."
                     : "POOL COMPLETE: " + accounts.Count + " ACCOUNTS • EVALUATION PASSES " + passed + " • CURRENTLY FUNDED " + funded + " • PAYOUT CYCLES " + payouts + (capital.GateEnabled ? " • WAIT FOR PAYOUT BEFORE REBUY ON • BENCHED " + capital.BenchedReplacementSlots + " • REINVESTMENT CASH " + Cash(capital.ReplacementCashAvailable) + " • RELEASE REQUIRED " + Cash(capital.CashRequiredForPendingReplacements) : " • CONTINUOUS REPLACEMENT ACTIVE • " + capital.ReplacementEvaluationPurchases + " REPLACEMENT EVALS PURCHASED • " + (capital.FirstPayoutReached ? "FIRST PAYOUT " + capital.FirstPayoutDate.ToString("yyyy-MM-dd") + " AFTER " + Cash(capital.InvestmentThroughFirstPayoutDate) + " INVESTMENT" : "NO PAYOUT IN THIS RANGE; ACTIVE SLOTS CONTINUED TRADING")) + " • SELECT AN ACCOUNT FOR ITS FULL LIFECYCLE.");
                 return;
@@ -11994,7 +12137,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             DateTime requestStart, requestEnd;
             GetConfiguredSessionBounds(start.Date, selectedEnd.Date, config, out requestStart, out requestEnd);
             config.Start = requestStart; config.End = requestEnd;
-            config.Quantity = Integer(quantityBox, 0); config.PoolSize = Number(poolBox, 10); config.CopyTradingPool = copyTradingPoolBox != null && copyTradingPoolBox.IsChecked == true ? 1 : 0; config.AllowMultipleSetupsPerDay = multipleSetupsPerDayBox != null && multipleSetupsPerDayBox.IsChecked == true ? 1 : 0; config.TargetDollars = Number(targetBox, 0); config.StopDollars = Number(stopBox, 0); config.DailyGoal = Number(dailyGoalBox, 0); config.DailyLoss = Number(dailyLossBox, 0);
+            config.Quantity = Integer(quantityBox, 0); config.PoolSize = Number(poolBox, 10); config.CopyTradingPool = copyTradingPoolBox != null && copyTradingPoolBox.IsChecked == true ? 1 : 0; config.CopyGroupSize = Math.Max(0, Integer(copyGroupSizeBox, 0)); config.AllowMultipleSetupsPerDay = multipleSetupsPerDayBox != null && multipleSetupsPerDayBox.IsChecked == true ? 1 : 0; config.TargetDollars = Number(targetBox, 0); config.StopDollars = Number(stopBox, 0); config.DailyGoal = Number(dailyGoalBox, 0); config.DailyLoss = Number(dailyLossBox, 0);
             RefreshAsianDerivedInputs();
             config.AsianReversalLossDollars = Number(asianReversalLossBox, 75);
             config.AsianMnqReversalPriceMove = Number(asianMnqPriceMoveBox, 37.5);
@@ -13177,7 +13320,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             mnqOutcomeValidation = "not checked"; mgcOutcomeValidation = "not checked";
             historicalRequestDetails.Clear(); selectedEvidenceEvent = null;
             evidenceBars.Clear(); CancelEvidenceRequest(); EndBusy(); isProcessing = false; pendingRequests = 0;
-            loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; RefreshInstrumentViewControls();
+            loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; RefreshInstrumentViewControls();
             if (strategyBox != null) strategyBox.SelectedIndex = 0;
             if (scopeBox != null) scopeBox.SelectedIndex = 0;
             if (accountPathBox != null) accountPathBox.SelectedIndex = 0;
@@ -13254,6 +13397,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Every pool / results control returns to its default on NEW TEST.
             if (payoutProfitShareBox != null) payoutProfitShareBox.Text = "100";
             if (copyTradingPoolBox != null) copyTradingPoolBox.IsChecked = false;
+            if (copyGroupSizeBox != null) copyGroupSizeBox.Text = "0";
             if (multipleSetupsPerDayBox != null) multipleSetupsPerDayBox.IsChecked = false;
             if (blownAccountBox != null) blownAccountBox.SelectedIndex = 0;
             if (evalConsecutiveBox != null) evalConsecutiveBox.IsChecked = true;
@@ -13303,7 +13447,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void ClearCurrentResearch(bool resetConfigurationApproval)
         {
-            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); mnqBars.Clear(); mgcBars.Clear(); mnqSetupBars.Clear(); mgcSetupBars.Clear(); events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; reviewRows.Clear(); accounts.Clear(); researchRunCompleted = false; historicalDataReceipt = "DATA RECEIPT: no completed NinjaTrader historical request recorded for this lab run."; unsavedResearch = false; KeystoneArcHub.Publish(events, config);
+            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); mnqBars.Clear(); mgcBars.Clear(); mnqSetupBars.Clear(); mgcSetupBars.Clear(); events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; reviewRows.Clear(); accounts.Clear(); researchRunCompleted = false; historicalDataReceipt = "DATA RECEIPT: no completed NinjaTrader historical request recorded for this lab run."; unsavedResearch = false; KeystoneArcHub.Publish(events, config);
             if (resetConfigurationApproval) { configurationApproved = false; configurationApprovalKey = string.Empty; researchSubmissionLocked = false; }
             if (summaryText != null) summaryText.Text = "CLEARED"; if (eventText != null) eventText.Text = "EVENT LEDGER EMPTY"; if (mathText != null) mathText.Text = "WAITING FOR A NEW SELECTED RANGE"; if (poolText != null) poolText.Text = "NO VIRTUAL POOL RUN"; if (poolDetailText != null) poolDetailText.Text = "NO ACCOUNT SELECTED"; if (poolTimelineStack != null) poolTimelineStack.Children.Clear(); if (researchFindingsStack != null) researchFindingsStack.Children.Clear(); if (walkthroughAccountBox != null) walkthroughAccountBox.Items.Clear(); UpdateWalkthroughSelection(null); if (firstReturnDashboardStack != null) firstReturnDashboardStack.Children.Clear(); if (firstReturnDashboardText != null) firstReturnDashboardText.Text = "FIRST RETURN FROM INITIAL EVALUATION • RUN THE VIRTUAL POOL"; if (lifecycleText != null) lifecycleText.Text = "NO LIFECYCLE RUN"; if (reviewList != null) reviewList.Items.Clear(); if (poolAccountList != null) poolAccountList.Items.Clear(); UpdatePoolMetricTiles(); UpdateUi("CLEARED KEYSTONE ARC MEMORY ONLY • SAVED FILES RETAINED", Gold);
             UpdateWorkflowState();

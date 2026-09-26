@@ -219,6 +219,22 @@ public static class LifecycleTests
             Check(evs.Where(e => !string.IsNullOrEmpty(e.AssignedVirtualAccount)).All(e => e.QualityTier == "A") && evs.Any(e => !string.IsNullOrEmpty(e.AssignedVirtualAccount)), "FUNDED TRADES = A ONLY: funded accounts take only grade A setups", evs.Count(e => !string.IsNullOrEmpty(e.AssignedVirtualAccount)) + " assigned");
             Check(evs.Where(e => e.QualityTier == "C").All(e => (e.SkipReason ?? "").StartsWith("QUALITY FILTER")), "skipped setups say why (quality filter)", evs.First(e => e.QualityTier == "C").SkipReason);
         }
+        // 17. Copy to groups, account-count comparison, payout diagnosis.
+        {
+            var cfg = LifecycleSnapshot.Cfg("BH", 0, 0, 0); cfg.PoolSize = 6; cfg.CopyGroupSize = 3; cfg.AllowMultipleSetupsPerDay = 1;
+            var ev = LifecycleSnapshot.BhEvents(8).Take(30).ToList();
+            var acc = KeystoneArcEngine.SimulatePool(ev, cfg);
+            var groupsUsed = ev.Where(e => (e.AssignedVirtualAccount ?? "").StartsWith("GROUP")).Select(e => e.AssignedVirtualAccount.Substring(0, 7)).Distinct().ToList();
+            Check(groupsUsed.Count == 2 && acc.Take(3).All(a => a.Trades == acc[0].Trades) && acc.Skip(3).All(a => a.Trades == acc[3].Trades), "copy to groups: 2 groups of 3 take turns, members of a group trade the same setups", string.Join(",", acc.Select(a => a.Trades)));
+            var rows = KeystoneArcPoolCompare.Run(LifecycleSnapshot.BhEvents(8), LifecycleSnapshot.Cfg("BH", 1, 0, 0));
+            Console.WriteLine(KeystoneArcPoolCompare.Table(rows));
+            Check(rows.Count >= 10 && rows.Count(r => r.Best) <= 1 && rows.First(r => r.Accounts == 1 && !r.Copy).TradesPerAccount > rows.First(r => r.Accounts == 20 && r.GroupSize == 0).TradesPerAccount, "comparison covers account counts and groups; fewer accounts → more trades each", rows.Count.ToString());
+            var few = LifecycleSnapshot.Cfg("BH", 0, 0, 0); few.PoolSize = 20;
+            var accFew = KeystoneArcEngine.SimulatePool(LifecycleSnapshot.BhEvents(8).Take(40).ToList(), few);
+            string why = KeystoneArcPoolCompare.PayoutDiagnosis(accFew, few);
+            Console.WriteLine(why);
+            Check(why.StartsWith("WHY") && why.Contains("FEWER ACCOUNTS"), "payout diagnosis explains too few trades per account", why);
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
