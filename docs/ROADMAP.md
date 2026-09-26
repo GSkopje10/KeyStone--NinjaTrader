@@ -23,6 +23,9 @@ and chart labels differ per strategy.
       P/L vs target and loss limit (progress bars), worst so far — updating every candle
 - [ ] Clear chart labels: instrument exit ("MNQ exit +$92") separate from the cycle result
       ("CYCLE +$367 ≥ TARGET $350"); no overlapping text
+- [ ] Use the BH 5M chart (small W/L badges, clean axes, easy zoom/drag) as the style template
+      for the Asian chart; details go in the side panel, not on the candles
+- [ ] Later / optional: a replay for BH setups
 - [ ] Session-end timestamp for every Asian cycle (which session it ended in) in report
 
 ## B. Pool settings — fast testing
