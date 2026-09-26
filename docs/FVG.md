@@ -137,3 +137,26 @@ a candle that dipped into a small box but spiked high retired the box, so the us
 - Pool Settings: EVALUATION TRADES / FUNDED TRADES = ALL / GRADE A + B / GRADE A ONLY.
 - Evidence chart SETUP FILTER: GRADE A ONLY / GRADE A + B (declutters 1-minute charts).
 - Report / analysis: results per grade.
+
+## Build 26-09-27e — user feedback round (double trouble, stacked zones, points, compare)
+- **DOUBLE TROUBLE (DT)**: aggressive box + the candle before the green reference is red (the BH
+  entry shape) → top grade above A. Own target (TARGET R DT) and own points (STOP/TARGET PTS DT).
+  Filters: EVALUATION / FUNDED TRADES and the chart SETUP FILTER have "DOUBLE TROUBLE ONLY".
+- **Stacked FVGs**: boxes formed within 2 candles of each other (not yet visited) merge into one
+  zone; the dip must reach the MERGED DEPTH % (default 50 = middle of the whole zone). Parts are
+  drawn dashed.
+- **Why no entry**: every box keeps a log (formed, merged, each dip %, "touch only x%", green
+  close, missed break, entry, ended + reason) shown in the box tooltip on the chart.
+- **POINTS BY GRADE** stop mode: stop / target in points per grade (DT/A 10/15, B/C 5/10) with
+  the Step 2 contract size; live $ preview (e.g. 10 MGC: +15 pts = $1,500, −10 pts = $1,000).
+- **Chart = ledger**: the evidence chart always uses the loaded research bars (also on short holiday
+  sessions); other timeframes are built from the loaded 1-minute bars of the same contract.
+- **Other strategies on the chart**: SHOW BH SETUPS / SHOW FVG SETUPS draw the other strategy's
+  setups under the candles (★ = same entry as this strategy → double trouble confirmation), and
+  COMPARE THIS DAY shows which strategy won the day.
+- **COMPARE STRATEGIES** (results): BH vs FVG on the same bars, session and prop rules; winner by
+  net cash (or trade P/L when neither reached a payout) and how often both gave the same entry.
+- **OPTIMAL BEST ENTRIES FOR PROP** (Research Findings tab, report, Claude export): best grade filter
+  for evaluation (fastest to target inside the drawdown) and funded (most per setup, PF > 1), best
+  entry hours, stop / target points from real price moves, double trouble / stacked / retry stats,
+  best account plan and strategy from the comparisons.

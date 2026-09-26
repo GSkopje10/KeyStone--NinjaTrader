@@ -4046,11 +4046,120 @@ namespace NinjaTrader.NinjaScript
 
     // Automatic analysis: plain-English conclusions and suggestions drawn only from the loaded
     // run (no outside data, no promises). Every sentence can be traced to a number in the report.
+    public sealed class KeystoneArcFilterRow
+    {
+        public string Filter = "ALL", Label = "ALL SETUPS";
+        public int Setups, Wins, Days;
+        public double WinRate, PerSetup, ProfitFactor, MaxDrawdown, WorstDay, PerDay, DaysToEvalTarget = double.NaN, Total;
+        public bool EvalPick, FundedPick;
+    }
+
+    public sealed class KeystoneArcBestEntryPlan
+    {
+        public List<KeystoneArcFilterRow> Filters = new List<KeystoneArcFilterRow>();
+        public List<KeystoneArcInsight> Cards = new List<KeystoneArcInsight>();
+        public string EvalFilter = "ALL", FundedFilter = "ALL";
+        public string Headline = string.Empty;
+    }
+
     public static class KeystoneArcAnalyst
     {
         static string M(double v) { return (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture); }
         static string P(double v) { return v.ToString("0", CultureInfo.InvariantCulture) + "%"; }
         static void Add(List<KeystoneArcInsight> list, string level, string title, string text) { list.Add(new KeystoneArcInsight { Level = level, Title = title, Text = text }); }
+
+        // OPTIMAL BEST ENTRIES FOR PROP: which setup grades to trade while passing an evaluation
+        // (reach the target fastest without breaking the drawdown) and while funded (safest steady
+        // profit), plus the best entry hours, setup types and data-based stop / target points.
+        // Everything is measured on this run's finished setups; grades are walk-forward (no look-ahead).
+        public static KeystoneArcBestEntryPlan BestEntries(IEnumerable<KeystoneArcEvent> events, KeystoneArcRunConfig cfg, List<KeystoneArcPoolScenario> accountRows, List<KeystoneArcStrategyRow> strategyRows)
+        {
+            var plan = new KeystoneArcBestEntryPlan();
+            if (cfg == null) return plan;
+            bool asian = string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            bool fvg = string.Equals(cfg.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase);
+            var ev = (events ?? Enumerable.Empty<KeystoneArcEvent>()).Where(e => e != null && KeystoneArcStrategyCompare.Resolved(e) && string.Equals(e.ReviewState ?? "ACCEPTED", "ACCEPTED", StringComparison.OrdinalIgnoreCase)).OrderBy(e => e.EntryTime).ToList();
+            if (ev.Count == 0) { plan.Headline = "Not enough finished setups yet for a recommendation."; return plan; }
+            int rangeDays = Math.Max(1, ev.Select(e => KeystoneArcEngine.SessionGroupingDate(e.TriggerTime, cfg)).Distinct().Count());
+            double evalRoom = Math.Abs(cfg.EvaluationFailure), fundedRoom = Math.Abs(cfg.FundedFailure);
+            var labels = new Dictionary<string, string> { { "ALL", "ALL SETUPS" }, { "AB", "GRADE A + B (+DT)" }, { "A", "GRADE A (+DT)" }, { "DT", "DOUBLE TROUBLE ONLY" } };
+            foreach (string f in asian ? new[] { "ALL" } : new[] { "ALL", "AB", "A", "DT" })
+            {
+                var rows = ev.Where(e => KeystoneArcQualityLearner.TierAllowed(f, e.QualityTier)).ToList();
+                var r = new KeystoneArcFilterRow { Filter = f, Label = labels[f], Setups = rows.Count };
+                if (rows.Count > 0)
+                {
+                    r.Wins = rows.Count(e => e.Outcome == "WIN"); r.WinRate = 100.0 * r.Wins / rows.Count; r.Total = rows.Sum(e => e.GrossPnl); r.PerSetup = r.Total / rows.Count;
+                    double gw = rows.Where(e => e.GrossPnl > 0).Sum(e => e.GrossPnl), gl = -rows.Where(e => e.GrossPnl < 0).Sum(e => e.GrossPnl);
+                    r.ProfitFactor = gl <= 0 ? (gw > 0 ? 99 : 0) : gw / gl;
+                    double eq = 0, peak = 0; foreach (var e in rows) { eq += e.GrossPnl; peak = Math.Max(peak, eq); r.MaxDrawdown = Math.Max(r.MaxDrawdown, peak - eq); }
+                    var byDay = rows.GroupBy(e => KeystoneArcEngine.SessionGroupingDate(e.TriggerTime, cfg)).Select(g => g.Sum(e => e.GrossPnl)).ToList();
+                    r.Days = byDay.Count; r.WorstDay = byDay.Min(); r.PerDay = r.Total / rangeDays;
+                    if (r.PerDay > 0 && cfg.EvaluationTarget > 0) r.DaysToEvalTarget = cfg.EvaluationTarget / r.PerDay;
+                }
+                if (f == "ALL" || r.Setups > 0) plan.Filters.Add(r);
+            }
+            // Evaluation: fastest to the target while the drawdown stays inside the evaluation limit.
+            var evalCandidates = plan.Filters.Where(r => r.Setups >= 10 && r.PerDay > 0).ToList();
+            var evalPick = evalCandidates.Where(r => evalRoom <= 0 || r.MaxDrawdown < evalRoom).OrderBy(r => r.DaysToEvalTarget).FirstOrDefault()
+                ?? evalCandidates.OrderBy(r => r.MaxDrawdown).FirstOrDefault();
+            // Funded: best profit per setup with a profit factor above 1 and a drawdown inside the funded limit.
+            var fundedCandidates = plan.Filters.Where(r => r.Setups >= 10 && r.ProfitFactor > 1).ToList();
+            var fundedPick = fundedCandidates.Where(r => fundedRoom <= 0 || r.MaxDrawdown < fundedRoom).OrderByDescending(r => r.PerSetup).ThenByDescending(r => r.ProfitFactor).FirstOrDefault()
+                ?? fundedCandidates.OrderByDescending(r => r.ProfitFactor).FirstOrDefault();
+            if (evalPick != null) { evalPick.EvalPick = true; plan.EvalFilter = evalPick.Filter; }
+            if (fundedPick != null) { fundedPick.FundedPick = true; plan.FundedFilter = fundedPick.Filter; }
+            if (evalPick != null)
+                Add(plan.Cards, evalRoom > 0 && evalPick.MaxDrawdown >= evalRoom ? "WARN" : "BEST", "EVALUATION • TRADE " + evalPick.Label, evalPick.Setups + " setups, " + P(evalPick.WinRate) + " win, " + M(evalPick.PerDay) + " per " + (asian ? "night" : "day") + " on one account → about " + (double.IsNaN(evalPick.DaysToEvalTarget) ? "—" : evalPick.DaysToEvalTarget.ToString("0", CultureInfo.InvariantCulture)) + " trading days to the " + M(cfg.EvaluationTarget) + " target; its worst drawdown " + M(-evalPick.MaxDrawdown) + (evalRoom > 0 ? (evalPick.MaxDrawdown < evalRoom ? " stays inside" : " is LARGER than") + " the " + M(evalRoom) + " evaluation limit" : "") + ". Set Pool Settings → EVALUATION TRADES = " + evalPick.Label + ".");
+            else Add(plan.Cards, "WARN", "EVALUATION", "No grade filter makes money per day on this range yet — an evaluation would not pass reliably. Test a longer range or other stop / target settings.");
+            if (fundedPick != null)
+                Add(plan.Cards, fundedRoom > 0 && fundedPick.MaxDrawdown >= fundedRoom ? "WARN" : "BEST", "FUNDED • TRADE " + fundedPick.Label, M(fundedPick.PerSetup) + " per setup, profit factor " + fundedPick.ProfitFactor.ToString("0.00", CultureInfo.InvariantCulture) + ", worst day " + M(fundedPick.WorstDay) + ", drawdown " + M(-fundedPick.MaxDrawdown) + (fundedRoom > 0 ? " vs " + M(fundedRoom) + " funded limit" : "") + ". Set FUNDED TRADES = " + fundedPick.Label + " to protect the account between payouts." + (fundedRoom > 0 && fundedPick.MaxDrawdown >= fundedRoom ? " Its drawdown is larger than the funded limit: reduce size (fewer contracts / smaller stop) before trading it funded." : ""));
+            else Add(plan.Cards, "WARN", "FUNDED", "No grade filter has a profit factor above 1 with at least 10 setups — funded accounts would lose money on this range.");
+            // Best entry hours (NY time).
+            if (!asian)
+            {
+                var hours = ev.GroupBy(e => e.EntryTime.Hour).Select(g => new { Hour = g.Key, Count = g.Count(), Avg = g.Average(e => e.GrossPnl), Win = 100.0 * g.Count(e => e.Outcome == "WIN") / g.Count() }).Where(h => h.Count >= 5).OrderByDescending(h => h.Avg).ToList();
+                var good = hours.Where(h => h.Avg > 0).Take(3).OrderBy(h => h.Hour).ToList();
+                if (good.Count > 0)
+                    Add(plan.Cards, "BEST", "BEST ENTRY HOURS (NY)", string.Join(" • ", good.Select(h => h.Hour.ToString("00") + ":00–" + h.Hour.ToString("00") + ":59 " + M(h.Avg) + "/setup, " + P(h.Win) + " win (" + h.Count + ")")) + "." + (hours.Any(h => h.Avg < 0) ? " Avoid: " + string.Join(", ", hours.Where(h => h.Avg < 0).OrderBy(h => h.Avg).Take(2).Select(h => h.Hour.ToString("00") + ":00 " + M(h.Avg) + "/setup")) + "." : ""));
+            }
+            // Setup types.
+            var dt = ev.Where(e => e.QualityTier == "DT").ToList(); var rest = ev.Where(e => e.QualityTier != "DT").ToList();
+            if (dt.Count >= 3 && rest.Count > 0)
+                Add(plan.Cards, dt.Average(e => e.GrossPnl) > rest.Average(e => e.GrossPnl) ? "BEST" : "IDEA", "DOUBLE TROUBLE", dt.Count + " setups, " + P(100.0 * dt.Count(e => e.Outcome == "WIN") / dt.Count) + " win, " + M(dt.Average(e => e.GrossPnl)) + " per setup vs " + M(rest.Average(e => e.GrossPnl)) + " for the rest.");
+            if (fvg)
+            {
+                var stacked = ev.Where(e => (e.ReviewNote ?? string.Empty).Contains("STACKED ZONE")).ToList(); var single = ev.Where(e => !(e.ReviewNote ?? string.Empty).Contains("STACKED ZONE")).ToList();
+                if (stacked.Count >= 3 && single.Count > 0) Add(plan.Cards, "IDEA", "STACKED FVG ZONES", stacked.Count + " entries from merged zones: " + M(stacked.Average(e => e.GrossPnl)) + " per setup vs " + M(single.Average(e => e.GrossPnl)) + " for single boxes.");
+                var first = ev.Where(e => e.FvgVisit <= 1).ToList(); var later = ev.Where(e => e.FvgVisit >= 2).ToList();
+                if (first.Count >= 5 && later.Count >= 5) Add(plan.Cards, first.Average(e => e.GrossPnl) >= later.Average(e => e.GrossPnl) ? "IDEA" : "BEST", "FIRST TRY vs RETRIES", "1st try " + M(first.Average(e => e.GrossPnl)) + "/setup (" + first.Count + "), 2nd+ try " + M(later.Average(e => e.GrossPnl)) + "/setup (" + later.Count + ")." + (later.Average(e => e.GrossPnl) < 0 ? " Retries lose: set TRIES PER BOX = 1." : ""));
+            }
+            // Data-based stop / target points per instrument (price moves after entry, long setups).
+            foreach (var bySymbol in ev.Where(e => !double.IsNaN(e.PeakAfterEntry) && !double.IsNaN(e.TroughAfterEntry) && e.Entry > 0 && !string.Equals(e.Direction, "SHORT", StringComparison.OrdinalIgnoreCase)).GroupBy(e => e.Symbol))
+            {
+                var winners = bySymbol.Where(e => e.Outcome == "WIN").ToList(); var losers = bySymbol.Where(e => e.Outcome.StartsWith("LOSS", StringComparison.OrdinalIgnoreCase)).ToList();
+                if (winners.Count < 5) continue;
+                Func<List<double>, double, double> pct = (list, q) => { var o = list.OrderBy(v => v).ToList(); return o.Count == 0 ? double.NaN : o[Math.Min(o.Count - 1, (int)Math.Floor(q * (o.Count - 1) + 0.5))]; };
+                double heat = pct(winners.Select(e => Math.Max(0, e.Entry - e.TroughAfterEntry)).ToList(), 0.8);
+                double move = pct(winners.Select(e => Math.Max(0, e.PeakAfterEntry - e.Entry)).ToList(), 0.5);
+                double pv = string.Equals(bySymbol.Key, "MGC", StringComparison.OrdinalIgnoreCase) ? 10.0 : 2.0; double qty = Math.Max(1, bySymbol.Average(e => e.Quantity));
+                string text = "80% of winners never went more than " + heat.ToString("0.##", CultureInfo.InvariantCulture) + " pts against the entry; half of winners moved " + move.ToString("0.##", CultureInfo.InvariantCulture) + "+ pts in favour. Data-based start: STOP ≈ " + (heat * 1.1).ToString("0.#", CultureInfo.InvariantCulture) + " pts, TARGET ≈ " + move.ToString("0.#", CultureInfo.InvariantCulture) + " pts (" + qty.ToString("0", CultureInfo.InvariantCulture) + " contracts ≈ " + M(-heat * 1.1 * pv * qty) + " / +" + M(move * pv * qty) + ").";
+                if (losers.Count >= 5)
+                {
+                    double loserUp = pct(losers.Select(e => Math.Max(0, e.PeakAfterEntry - e.Entry)).ToList(), 0.5);
+                    text += " Half of the losers first moved +" + loserUp.ToString("0.##", CultureInfo.InvariantCulture) + " pts before stopping out" + (loserUp > 0 && loserUp < move ? " — a partial take-profit there would have saved many of them (estimate)." : ".");
+                }
+                Add(plan.Cards, "BEST", bySymbol.Key + " STOP / TARGET FROM PRICE MOVES", text);
+            }
+            // Account plan and strategy winner from the comparisons, when they were run.
+            var bestAcc = accountRows == null ? null : accountRows.FirstOrDefault(r => r.Best);
+            if (bestAcc != null) Add(plan.Cards, "BEST", "ACCOUNTS • " + bestAcc.Label, "Best of the account comparison: net " + M(bestAcc.Net) + ", " + bestAcc.Payouts + " payouts, " + bestAcc.Blowups + " blowups, ~" + bestAcc.TradesPerAccount.ToString("0", CultureInfo.InvariantCulture) + " trades per account" + (bestAcc.FirstPayout == DateTime.MinValue ? "." : ", first payout " + bestAcc.FirstPayout.ToString("yyyy-MM-dd") + "."));
+            else if (accountRows == null || accountRows.Count == 0) Add(plan.Cards, "IDEA", "ACCOUNTS", "Press COMPARE ACCOUNTS in the lab to add the best account count / allocation to this plan.");
+            var bestStrategy = strategyRows == null ? null : strategyRows.FirstOrDefault(r => r.Best);
+            if (bestStrategy != null) Add(plan.Cards, "BEST", "STRATEGY • " + bestStrategy.Strategy, "Won the strategy comparison: " + (bestStrategy.PoolRan && bestStrategy.Net > 0 ? "net " + M(bestStrategy.Net) : "trade P/L " + M(bestStrategy.TradePnl)) + ", " + P(bestStrategy.WinRate) + " win, profit factor " + bestStrategy.ProfitFactor.ToString("0.00", CultureInfo.InvariantCulture) + ".");
+            plan.Headline = "PROP PLAN • EVALUATION: " + (evalPick == null ? "no reliable filter" : evalPick.Label) + " • FUNDED: " + (fundedPick == null ? "no profitable filter" : fundedPick.Label) + (bestAcc != null ? " • ACCOUNTS: " + bestAcc.Label : string.Empty) + (bestStrategy != null ? " • STRATEGY: " + bestStrategy.Strategy : string.Empty);
+            return plan;
+        }
 
         public static List<KeystoneArcInsight> Analyze(List<KeystoneArcVirtualAccount> accounts, IEnumerable<KeystoneArcEvent> events, KeystoneArcRunConfig cfg, KeystoneArcCapitalPolicySummary capital)
         {
@@ -4414,7 +4523,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-27d • SETUP GRADES A/B/C • DYNAMIC R • FVG TRIES • CHART TIMEFRAMES";
+        private const string KeystoneBuild = "BUILD 2026-09-27e • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -4478,6 +4587,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private TextBox copyGroupSizeBox;
         private string lastAccountComparison = string.Empty;
         private string lastStrategyComparison = string.Empty;
+        private List<KeystoneArcPoolScenario> lastAccountRows = new List<KeystoneArcPoolScenario>();
         private List<KeystoneArcStrategyRow> lastStrategyRows = new List<KeystoneArcStrategyRow>();
         private TextBlock fvgPointsPreview;
         private UIElement fvgPointsPanel;
@@ -7588,7 +7698,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             DateTime start, end;
             if (!ConfigurationStillApproved()) { UpdateUi("STEP 1 REQUIRED • CONFIRM THE CURRENT CONFIGURATION BEFORE REQUESTING DATA", Gold); UpdateWorkflowState(); return; }
             if (!ReadConfig(out start, out end)) return;
-            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); historicalRequestDetails.Clear(); failedContractRolloverSeries.Clear(); mnqBars = new List<KeystoneArcBar>(); mgcBars = new List<KeystoneArcBar>(); mnqSetupBars = new List<KeystoneArcBar>(); mgcSetupBars = new List<KeystoneArcBar>(); mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false; mnqOutcomeMatchesSetup = true; mgcOutcomeMatchesSetup = true; config.MnqOutcomeTimeOffsetMinutes = 0; config.MgcOutcomeTimeOffsetMinutes = 0; config.MnqOutcomeSource = "VERIFICATION PENDING"; config.MgcOutcomeSource = "VERIFICATION PENDING"; mnqOutcomeValidation = "awaiting 1-minute comparison"; mgcOutcomeValidation = "awaiting 1-minute comparison"; researchRunCompleted = false; events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>(); reviewRows.Clear(); accounts.Clear(); historicalDataReceipt = "DATA RECEIPT: historical request started; awaiting NinjaTrader BarsRequest completion.";
+            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); historicalRequestDetails.Clear(); failedContractRolloverSeries.Clear(); mnqBars = new List<KeystoneArcBar>(); mgcBars = new List<KeystoneArcBar>(); mnqSetupBars = new List<KeystoneArcBar>(); mgcSetupBars = new List<KeystoneArcBar>(); mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false; mnqOutcomeMatchesSetup = true; mgcOutcomeMatchesSetup = true; config.MnqOutcomeTimeOffsetMinutes = 0; config.MgcOutcomeTimeOffsetMinutes = 0; config.MnqOutcomeSource = "VERIFICATION PENDING"; config.MgcOutcomeSource = "VERIFICATION PENDING"; mnqOutcomeValidation = "awaiting 1-minute comparison"; mgcOutcomeValidation = "awaiting 1-minute comparison"; researchRunCompleted = false; events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastAccountRows = new List<KeystoneArcPoolScenario>(); lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>(); reviewRows.Clear(); accounts.Clear(); historicalDataReceipt = "DATA RECEIPT: historical request started; awaiting NinjaTrader BarsRequest completion.";
             // A new request must never leave totals, account cards, or a ledger from a previous
             // completed run on screen.  Otherwise a zero-bar receipt looks like a successful run
             // because the visible totals belong to a different date range.
@@ -8521,7 +8631,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DispatchToLab(delegate
                 {
                     events = generated ?? new List<KeystoneArcEvent>();
-                    loadedEvents = events; loadedScope = workerConfig.Scope; viewScope = workerConfig.Scope; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>();
+                    loadedEvents = events; loadedScope = workerConfig.Scope; viewScope = workerConfig.Scope; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastAccountRows = new List<KeystoneArcPoolScenario>(); lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>();
                     for (int i = 0; i < events.Count; i++)
                     {
                         events[i].ReviewState = "ACCEPTED";
@@ -8791,14 +8901,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             BeginBusy("COMPARING ACCOUNT COUNTS AND ALLOCATIONS");
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                string table;
-                try { table = "ACCOUNTS & ALLOCATION • same setups, same prop rules • ★ = best net\n" + KeystoneArcPoolCompare.Table(KeystoneArcPoolCompare.Run(ledger, cfg)); }
+                string table; List<KeystoneArcPoolScenario> accountRows;
+                try { accountRows = KeystoneArcPoolCompare.Run(ledger, cfg); table = "ACCOUNTS & ALLOCATION • same setups, same prop rules • ★ = best net\n" + KeystoneArcPoolCompare.Table(accountRows); }
                 catch (Exception ex) { DispatchToLab(delegate { EndBusy(); UpdateUi("ACCOUNT COMPARISON ERROR • " + ex.Message, Red); }); return; }
                 DispatchToLab(delegate
                 {
                     EndBusy();
-                    lastAccountComparison = table;
-                    RenderInstrumentSplit();
+                    lastAccountComparison = table; lastAccountRows = accountRows;
+                    RenderInstrumentSplit(); RequestTabRender("RESEARCH FINDINGS", RenderResearchFindings);
                     UpdateUi("ACCOUNT COMPARISON READY • shown under the buttons and added to the report • set ACCOUNTS / ALLOCATION to the ★ row and RECALCULATE", Green);
                 });
             });
@@ -8839,7 +8949,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     EndBusy();
                     lastStrategyComparison = text; lastStrategyRows = rows;
-                    RenderInstrumentSplit();
+                    RenderInstrumentSplit(); RequestTabRender("RESEARCH FINDINGS", RenderResearchFindings);
                     UpdateUi("STRATEGY COMPARISON READY • shown under the buttons and added to the report", Green);
                 });
             });
@@ -8893,6 +9003,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                     KeystoneArcCapitalPolicySummary capital = acc.Count > 0 ? KeystoneArcEngine.BuildCapitalPolicySummary(acc, cfg) : null;
                     if (acc.Count > 0) summary.AppendLine(KeystoneArcPoolInsights.InvestmentAnswer(capital, KeystoneArcPoolInsights.Build(acc, null, cfg))).AppendLine();
                     foreach (KeystoneArcInsight f in KeystoneArcAnalyst.Analyze(acc, ledger, cfg, capital)) summary.AppendLine("[" + f.Level + "] " + f.Title + ": " + f.Text);
+                    KeystoneArcBestEntryPlan exportPlan = KeystoneArcAnalyst.BestEntries(ledger, cfg, lastAccountRows, lastStrategyRows);
+                    summary.AppendLine(exportPlan.Headline);
+                    foreach (KeystoneArcInsight f in exportPlan.Cards) summary.AppendLine("[" + f.Level + "] " + f.Title + ": " + f.Text);
                     summary.AppendLine();
                     foreach (KeystoneArcInstrumentStats x in KeystoneArcPoolInsights.InstrumentStats(ledger, cfg)) summary.AppendLine(x.Symbol + " setups " + x.Setups + " W " + x.Wins + " L " + x.Losses + " P/L " + x.Pnl.ToString("0", CultureInfo.InvariantCulture) + " max DD " + x.MaxDrawdown.ToString("0", CultureInfo.InvariantCulture));
                     if (!string.IsNullOrEmpty(lastInstrumentComparison)) summary.AppendLine().AppendLine(lastInstrumentComparison);
@@ -11171,6 +11284,28 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             if (researchFindingsStack == null) return;
             researchFindingsStack.Children.Clear();
+            // OPTIMAL BEST ENTRIES FOR PROP first: eval / funded grade filters, hours, stop / target, accounts.
+            if (events != null && events.Count > 0 && config != null)
+            {
+                KeystoneArcBestEntryPlan plan = KeystoneArcAnalyst.BestEntries(events, config, lastAccountRows, lastStrategyRows);
+                var planStack = new StackPanel();
+                var head = Txt("★ OPTIMAL BEST ENTRIES FOR PROP • " + plan.Headline, Gold, 14, FontWeights.Bold); head.Margin = new Thickness(8, 8, 8, 4); planStack.Children.Add(head);
+                if (plan.Filters.Count > 1)
+                {
+                    var table = new StringBuilder(string.Format(CultureInfo.InvariantCulture, "{0,-24} {1,7} {2,5} {3,10} {4,6} {5,10} {6,10} {7,9}\n", "TRADE", "SETUPS", "WIN%", "PER SETUP", "PF", "MAX DD", "PER DAY", "EVAL DAYS"));
+                    foreach (var r in plan.Filters)
+                        table.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-24} {1,7} {2,4:0}% {3,10} {4,6:0.00} {5,10} {6,10} {7,9}", (r.EvalPick ? "E" : " ") + (r.FundedPick ? "F " : "  ") + r.Label, r.Setups, r.WinRate, Cash(r.PerSetup), r.ProfitFactor, Cash(-r.MaxDrawdown), Cash(r.PerDay), double.IsNaN(r.DaysToEvalTarget) ? "—" : r.DaysToEvalTarget.ToString("0", CultureInfo.InvariantCulture)));
+                    table.Append("E = best for EVALUATION (fastest to target inside the drawdown) • F = best for FUNDED (most per setup, PF > 1)");
+                    var tableText = Txt(table.ToString(), Text, 11, FontWeights.Normal); tableText.FontFamily = new FontFamily("Consolas"); tableText.TextWrapping = TextWrapping.NoWrap; tableText.Margin = new Thickness(8, 0, 8, 6);
+                    planStack.Children.Add(new ScrollViewer { Content = tableText, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled });
+                }
+                foreach (KeystoneArcInsight card in plan.Cards)
+                {
+                    Brush accent = card.Level == "BEST" ? Gold : (card.Level == "WARN" ? Orange : Cyan);
+                    var line = Txt(card.Title + " • " + card.Text, accent, 11, FontWeights.Bold); line.Margin = new Thickness(8, 1, 8, 3); line.TextWrapping = TextWrapping.Wrap; planStack.Children.Add(line);
+                }
+                researchFindingsStack.Children.Add(new Border { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(2.5), CornerRadius = new CornerRadius(6), Margin = new Thickness(3), Child = planStack });
+            }
             foreach (KeystoneArcResearchFinding finding in BuildResearchFindings().OrderBy(x => x.Title != null && x.Title.StartsWith("ACTIONABLE OBSERVATION", StringComparison.OrdinalIgnoreCase) ? 0 : 1))
             {
                 bool actionable = finding.Title != null && finding.Title.StartsWith("ACTIONABLE OBSERVATION", StringComparison.OrdinalIgnoreCase);
@@ -12967,6 +13102,26 @@ namespace NinjaTrader.NinjaScript.AddOns
             var monthBars = new List<Tuple<DateTime, double, double, double>>(); double running = 0;
             foreach (var g in monthRows) { double bank = g.Sum(d => d.PayoutCashDelta), cost = g.Sum(d => d.CostDelta); running += bank - cost; monthBars.Add(Tuple.Create(g.Key, bank, cost, running)); }
             sb.Append("<div class='card'><div class='label'>Month by month • money</div>").Append(SvgMonthBars(monthBars, 1000, 260)).Append("</div></div>");
+            // OPTIMAL BEST ENTRIES FOR PROP + comparisons (strategies, accounts) + payout diagnosis.
+            KeystoneArcBestEntryPlan bestPlan = KeystoneArcAnalyst.BestEntries(accepted, config, lastAccountRows, lastStrategyRows);
+            sb.Append("<h2 id='best-entries'>★ OPTIMAL BEST ENTRIES FOR PROP TRADING</h2><div class='answer'>").Append(Hx(bestPlan.Headline)).Append("</div>");
+            if (bestPlan.Filters.Count > 1)
+            {
+                sb.Append("<div class='table-wrap'><table><thead><tr><th>Trade</th><th>Setups</th><th>Win %</th><th>Per setup</th><th>Profit factor</th><th>Max drawdown</th><th>Worst day</th><th>Per day</th><th>Days to eval target</th><th>Best for</th></tr></thead><tbody>");
+                foreach (KeystoneArcFilterRow r in bestPlan.Filters)
+                    sb.Append("<tr class='").Append(r.EvalPick || r.FundedPick ? "win" : "").Append("'><td><b>").Append(Hx(r.Label)).Append("</b></td><td>").Append(r.Setups).Append("</td><td>").Append(r.WinRate.ToString("0", CultureInfo.InvariantCulture)).Append("%</td><td class='").Append(r.PerSetup >= 0 ? "green" : "red").Append("'>").Append(Hx(Cash(r.PerSetup))).Append("</td><td>").Append(r.ProfitFactor.ToString("0.00", CultureInfo.InvariantCulture)).Append("</td><td class='red'>").Append(Hx(Cash(-r.MaxDrawdown))).Append("</td><td>").Append(Hx(Cash(r.WorstDay))).Append("</td><td>").Append(Hx(Cash(r.PerDay))).Append("</td><td>").Append(double.IsNaN(r.DaysToEvalTarget) ? "—" : r.DaysToEvalTarget.ToString("0", CultureInfo.InvariantCulture)).Append("</td><td class='gold'>").Append((r.EvalPick ? "EVALUATION " : "") + (r.FundedPick ? "FUNDED" : "")).Append("</td></tr>");
+                sb.Append("</tbody></table></div><div class='muted'>Grades are learned walk-forward (each setup graded only from setups that had finished before it). EVALUATION = fastest to the target while the drawdown stays inside the evaluation limit; FUNDED = most profit per setup with profit factor above 1.</div>");
+            }
+            sb.Append("<div class='insights'>");
+            foreach (KeystoneArcInsight f in bestPlan.Cards)
+                sb.Append("<div class='insight ").Append(f.Level.ToLowerInvariant()).Append("'><div class='tag'>").Append(Hx(f.Level)).Append("</div><div><b>").Append(Hx(f.Title)).Append("</b><br>").Append(Hx(f.Text)).Append("</div></div>");
+            sb.Append("</div>");
+            string whyNoPayout = KeystoneArcPoolCompare.PayoutDiagnosis(accounts, config);
+            if (!string.IsNullOrEmpty(whyNoPayout)) sb.Append("<div class='card'><div class='label'>Why no / few payouts</div>").Append(Hx(whyNoPayout)).Append("</div>");
+            if (!string.IsNullOrEmpty(lastStrategyComparison)) sb.Append("<h3 id='strategy-compare'>Which strategy wins • same bars, session and prop rules</h3><pre class='cmp'>").Append(Hx(lastStrategyComparison)).Append("</pre>");
+            else sb.Append("<div class='muted'>Press COMPARE STRATEGIES in the lab to add BH vs FVG (and how often both give the same entry) to this report.</div>");
+            if (!string.IsNullOrEmpty(lastAccountComparison)) sb.Append("<h3 id='account-compare'>Account count and allocation</h3><pre class='cmp'>").Append(Hx(lastAccountComparison)).Append("</pre>");
+            else sb.Append("<div class='muted'>Press COMPARE ACCOUNTS in the lab to add the 1 / 2 / 3 / 5 / 10 / 20 accounts and copy-group comparison.</div>");
             // AI analysis.
             sb.Append("<h2 id='analysis'>AI ANALYSIS • WHAT THE NUMBERS SAY</h2><div class='muted'>Written automatically from this run only. Every sentence points at a number in this report; nothing is predicted. For deeper optimisation use EXPORT FOR CLAUDE in the lab and share the file.</div><div class='insights'>");
             foreach (KeystoneArcInsight f in KeystoneArcAnalyst.Analyze(accounts, accepted, config, capital))
@@ -13156,9 +13311,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             KeystoneArcRiskSequenceStats propRisk = CalculateWorstVirtualAccountRisk(config.PropStartingBalance);
             var sb = new StringBuilder();
             sb.Append("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Keystone Arc Research Report</title><style>");
-            sb.Append("html{scroll-behavior:smooth}body{margin:0;background:#0a0f1a;color:#eef4fc;font-family:Segoe UI,Arial,sans-serif;line-height:1.35}.wrap{max-width:1500px;margin:auto;padding:28px}.hero{background:linear-gradient(120deg,#13243c,#1a3144);border:1px solid #2cd7cb;border-radius:14px;padding:24px}.brand{color:#2cd7cb;font-size:13px;font-weight:700;letter-spacing:.08em}.hero h1{margin:4px 0 8px;font-size:29px}.muted{color:#9baec6}.notice{margin-top:16px;border-left:4px solid #f4bf4c;background:#242536;padding:12px;color:#f5d790}.goodnote{margin-top:12px;border-left:4px solid #41d98e;background:#102d29;padding:12px;color:#d5f6e7}.report-nav{position:sticky;top:8px;z-index:3;display:flex;flex-wrap:wrap;gap:7px;margin:14px 0;padding:10px;background:rgba(10,15,26,.94);border:1px solid #283d5b;border-radius:10px;backdrop-filter:blur(5px)}.report-nav a{color:#dff8ff;text-decoration:none;background:#183653;border:1px solid #2cd7cb;border-radius:7px;padding:6px 9px;font-size:12px;font-weight:700}.report-nav a:hover{background:#2cd7cb;color:#08101b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px;margin:18px 0}.card{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:14px}.label{color:#9baec6;font-size:11px;font-weight:700;text-transform:uppercase}.value{font-size:24px;font-weight:700;margin-top:3px}.green{color:#41d98e}.red{color:#ef5c69}.cyan{color:#2cd7cb}.gold{color:#f4bf4c}.orchid{color:#ca75ef}h2{font-size:18px;color:#2cd7cb;margin-top:30px;padding-top:8px}h3{font-size:14px;color:#ca75ef;margin:18px 0 8px}table{width:100%;border-collapse:collapse;background:#131c2d;font-size:12px}th{position:sticky;top:0;background:#1c273d;color:#2cd7cb;text-align:left}th,td{padding:8px;border-bottom:1px solid #283d5b;vertical-align:top}tr.win td{background:#102d29}tr.loss td{background:#321b25}tr.exit td{background:#23263a}.table-wrap{overflow:auto;max-height:540px;border:1px solid #283d5b;border-radius:10px}.mono{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap}.pill{display:inline-block;border:1px solid #365577;border-radius:999px;padding:5px 9px;margin:3px;color:#d7e5f5}.filters{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.filters button{cursor:pointer;background:#183653;color:#dff8ff;border:1px solid #2cd7cb;border-radius:7px;padding:7px 10px;font-weight:700}.filters button:hover,.filters button.active{background:#2cd7cb;color:#08101b}.audit{margin:18px 0;background:#101a2a;border:1px solid #365577;border-radius:10px;overflow:hidden}.audit summary{cursor:pointer;padding:13px;color:#caeefa;background:#15243a;font-weight:700}.audit summary:hover{background:#183653}.audit .inside{padding:0 14px 14px}.hide-row{display:none}.footer{margin-top:28px;color:#9baec6;font-size:12px}.dash .answer{margin:14px 0;padding:14px 16px;border-radius:12px;background:linear-gradient(90deg,#2a2413,#15151c);border:1px solid #f4c450;color:#f8e7b8;font-weight:700}.kpi .value{font-size:26px}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:1000px){.two{grid-template-columns:1fr}}svg.chart{width:100%;height:260px;background:#0e1422;border-radius:8px;margin-top:8px}svg .grid{stroke:#223049;stroke-width:1}svg .zero{stroke:#56657d;stroke-width:1.2;stroke-dasharray:4 3}svg .axis{fill:#8fa3bd;font-size:11px}svg rect.bank{fill:#41d98e}svg rect.cost{fill:#ca75ef}svg .netline{stroke:#f4c450;stroke-width:2.4;fill:none}.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;color:#b9c7d8;font-size:12px}.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}.legend i.bank{background:#41d98e}.legend i.cost{background:#ca75ef}.legend i.netline{background:#f4c450}.insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:10px;margin:12px 0}.insight{display:flex;gap:12px;background:#131c2d;border:1px solid #283d5b;border-left:5px solid #58a6ff;border-radius:10px;padding:12px;font-size:13px}.insight .tag{font-size:10px;font-weight:800;letter-spacing:.08em;min-width:44px;color:#58a6ff}.insight.good{border-left-color:#41d98e}.insight.good .tag{color:#41d98e}.insight.bad{border-left-color:#ef5c69}.insight.bad .tag{color:#ef5c69}.insight.warn{border-left-color:#f4c450}.insight.warn .tag{color:#f4c450}.filters input{background:#0e1422;color:#eef4fc;border:1px solid #365577;border-radius:7px;padding:7px 10px;min-width:220px}.acct-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.acct{background:#131c2d;border:1px solid #283d5b;border-top:4px solid #58a6ff;border-radius:10px;padding:10px 12px;font-size:12px}.acct.st-funded{border-top-color:#41d98e}.acct.st-ended{border-top-color:#ef5c69}.acct.st-eval{border-top-color:#ca75ef}.acct-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}.acct-head span{color:#9baec6;font-size:10px;text-align:right}.acct-row{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dashed #223049}.audit-head{margin-top:40px}pre.cmp{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:12px;overflow:auto;font-size:12px;color:#dff8ff}@media(max-width:700px){.wrap{padding:12px}.hero{padding:16px}.hero h1{font-size:23px}.report-nav{position:static}.value{font-size:21px}}</style></head><body><div class='wrap'>");
+            sb.Append("html{scroll-behavior:smooth}body{margin:0;background:#0a0f1a;color:#eef4fc;font-family:Segoe UI,Arial,sans-serif;line-height:1.35}.wrap{max-width:1500px;margin:auto;padding:28px}.hero{background:linear-gradient(120deg,#13243c,#1a3144);border:1px solid #2cd7cb;border-radius:14px;padding:24px}.brand{color:#2cd7cb;font-size:13px;font-weight:700;letter-spacing:.08em}.hero h1{margin:4px 0 8px;font-size:29px}.muted{color:#9baec6}.notice{margin-top:16px;border-left:4px solid #f4bf4c;background:#242536;padding:12px;color:#f5d790}.goodnote{margin-top:12px;border-left:4px solid #41d98e;background:#102d29;padding:12px;color:#d5f6e7}.report-nav{position:sticky;top:8px;z-index:3;display:flex;flex-wrap:wrap;gap:7px;margin:14px 0;padding:10px;background:rgba(10,15,26,.94);border:1px solid #283d5b;border-radius:10px;backdrop-filter:blur(5px)}.report-nav a{color:#dff8ff;text-decoration:none;background:#183653;border:1px solid #2cd7cb;border-radius:7px;padding:6px 9px;font-size:12px;font-weight:700}.report-nav a:hover{background:#2cd7cb;color:#08101b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px;margin:18px 0}.card{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:14px}.label{color:#9baec6;font-size:11px;font-weight:700;text-transform:uppercase}.value{font-size:24px;font-weight:700;margin-top:3px}.green{color:#41d98e}.red{color:#ef5c69}.cyan{color:#2cd7cb}.gold{color:#f4bf4c}.orchid{color:#ca75ef}h2{font-size:18px;color:#2cd7cb;margin-top:30px;padding-top:8px}h3{font-size:14px;color:#ca75ef;margin:18px 0 8px}table{width:100%;border-collapse:collapse;background:#131c2d;font-size:12px}th{position:sticky;top:0;background:#1c273d;color:#2cd7cb;text-align:left}th,td{padding:8px;border-bottom:1px solid #283d5b;vertical-align:top}tr.win td{background:#102d29}tr.loss td{background:#321b25}tr.exit td{background:#23263a}.table-wrap{overflow:auto;max-height:540px;border:1px solid #283d5b;border-radius:10px}.mono{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap}.pill{display:inline-block;border:1px solid #365577;border-radius:999px;padding:5px 9px;margin:3px;color:#d7e5f5}.filters{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.filters button{cursor:pointer;background:#183653;color:#dff8ff;border:1px solid #2cd7cb;border-radius:7px;padding:7px 10px;font-weight:700}.filters button:hover,.filters button.active{background:#2cd7cb;color:#08101b}.audit{margin:18px 0;background:#101a2a;border:1px solid #365577;border-radius:10px;overflow:hidden}.audit summary{cursor:pointer;padding:13px;color:#caeefa;background:#15243a;font-weight:700}.audit summary:hover{background:#183653}.audit .inside{padding:0 14px 14px}.hide-row{display:none}.footer{margin-top:28px;color:#9baec6;font-size:12px}.dash .answer{margin:14px 0;padding:14px 16px;border-radius:12px;background:linear-gradient(90deg,#2a2413,#15151c);border:1px solid #f4c450;color:#f8e7b8;font-weight:700}.kpi .value{font-size:26px}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:1000px){.two{grid-template-columns:1fr}}svg.chart{width:100%;height:260px;background:#0e1422;border-radius:8px;margin-top:8px}svg .grid{stroke:#223049;stroke-width:1}svg .zero{stroke:#56657d;stroke-width:1.2;stroke-dasharray:4 3}svg .axis{fill:#8fa3bd;font-size:11px}svg rect.bank{fill:#41d98e}svg rect.cost{fill:#ca75ef}svg .netline{stroke:#f4c450;stroke-width:2.4;fill:none}.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;color:#b9c7d8;font-size:12px}.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}.legend i.bank{background:#41d98e}.legend i.cost{background:#ca75ef}.legend i.netline{background:#f4c450}.insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:10px;margin:12px 0}.insight{display:flex;gap:12px;background:#131c2d;border:1px solid #283d5b;border-left:5px solid #58a6ff;border-radius:10px;padding:12px;font-size:13px}.insight .tag{font-size:10px;font-weight:800;letter-spacing:.08em;min-width:44px;color:#58a6ff}.insight.good{border-left-color:#41d98e}.insight.good .tag{color:#41d98e}.insight.bad{border-left-color:#ef5c69}.insight.bad .tag{color:#ef5c69}.insight.warn{border-left-color:#f4c450}.insight.warn .tag{color:#f4c450}.insight.best{border-left-color:#f4c450;background:linear-gradient(90deg,#2a2413,#131c2d)}.insight.best .tag{color:#f4c450}.filters input{background:#0e1422;color:#eef4fc;border:1px solid #365577;border-radius:7px;padding:7px 10px;min-width:220px}.acct-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.acct{background:#131c2d;border:1px solid #283d5b;border-top:4px solid #58a6ff;border-radius:10px;padding:10px 12px;font-size:12px}.acct.st-funded{border-top-color:#41d98e}.acct.st-ended{border-top-color:#ef5c69}.acct.st-eval{border-top-color:#ca75ef}.acct-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}.acct-head span{color:#9baec6;font-size:10px;text-align:right}.acct-row{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dashed #223049}.audit-head{margin-top:40px}pre.cmp{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:12px;overflow:auto;font-size:12px;color:#dff8ff}@media(max-width:700px){.wrap{padding:12px}.hero{padding:16px}.hero h1{font-size:23px}.report-nav{position:static}.value{font-size:21px}}</style></head><body><div class='wrap'>");
             sb.Append("<section class='hero'><div class='brand'>KEYSTONE ARC 5M RESEARCH LAB</div><h1>").Append(personalReport ? "Live-Account Historical Research Report" : "Prop Virtual-Pool Historical Research Report").Append("</h1><div class='muted'>").Append(Html(strategyName)).Append(" • ").Append(Html(strategyAudit)).Append("<br>Created ").Append(Html(DateTime.Now.ToString("yyyy-MM-dd HH:mm"))).Append(" • No live orders • Historical-model output</div><div class='notice'><strong>Interpretation boundary.</strong> This report records ").Append(personalReport ? "one historical account using one earliest resolved setup per session date" : (asianReport ? "the selected virtual-account evaluation/funded scenario using copied daily Asian cycles" : "the selected virtual-account evaluation/funded scenario")).Append(". It is not a verified trading strategy, firm-rule determination, or payout forecast.</div><div class='goodnote'><strong>Data state.</strong> ").Append(outcomesVerified ? "The 1-minute outcome series reproduced the selected setup bars, so target/stop/session-close model fields are enabled." : "The selected setup bars loaded, but no matching 1-minute outcome series was proven. This report is limited to setup placement and counts; win/loss, P/L, drawdown, and account math are intentionally disabled.").Append("</div></section>");
-            if (!personalReport) sb.Append(config.EvaluationEnabled < 0 ? "<nav class='report-nav'><a href='#portfolio'>One-Day Scorecard</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#accounts'>Account Allocation</a><a href='#event-audit'>Event Audit</a></nav>" : "<nav class='report-nav'><a href='#dashboard'>Dashboard</a><a href='#analysis'>AI Analysis</a><a href='#months'>Months</a><a href='#account-cards'>Accounts</a><a href='#portfolio'>Portfolio</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#first-return'>First Returns</a><a href='#payout-accounts'>Payout Accounts</a><a href='#payout-cycles'>Payout Cycles</a><a href='#accounts'>Account Snapshot</a><a href='#event-audit'>Event Audit</a></nav>");
+            if (!personalReport) sb.Append(config.EvaluationEnabled < 0 ? "<nav class='report-nav'><a href='#portfolio'>One-Day Scorecard</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#accounts'>Account Allocation</a><a href='#event-audit'>Event Audit</a></nav>" : "<nav class='report-nav'><a href='#dashboard'>Dashboard</a><a href='#best-entries'>★ Best Entries</a><a href='#analysis'>AI Analysis</a><a href='#months'>Months</a><a href='#account-cards'>Accounts</a><a href='#portfolio'>Portfolio</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#first-return'>First Returns</a><a href='#payout-accounts'>Payout Accounts</a><a href='#payout-cycles'>Payout Cycles</a><a href='#accounts'>Account Snapshot</a><a href='#event-audit'>Event Audit</a></nav>");
             if (!personalReport && accounts.Count > 0 && config.EvaluationEnabled >= 0) sb.Append(BuildDashboardHtml(accepted, capital));
             if (personalReport)
                 sb.Append("<h2>LIVE ACCOUNT • FINAL RESULT</h2><div class='grid'><div class='card'><div class='label'>Tested session days</div><div class='value cyan'>").Append(testedDays).Append("</div><div class='muted'>Selected session-date range.</div></div><div class='card'><div class='label'>Final W / L / session exits</div><div class='value gold'>").Append(liveLedgerReady ? liveWins + " / " + liveLosses + " / " + liveExits : "RUN RESULTS").Append("</div><div class='muted'>One earliest resolved setup per session date only.</div></div><div class='card'><div class='label'>Final live-account range P/L</div><div class='value ").Append(liveAccountGross >= 0 ? "green" : "red").Append("'>").Append(Html(liveLedgerReady ? liveAccountGross.ToString("C0") : "RUN RESULTS")).Append("</div><div class='muted'>Canonical final ledger.</div></div><div class='card'><div class='label'>Starting / ending balance</div><div class='value cyan'>").Append(Html(config.PersonalStartingBalance.ToString("C0"))).Append(" / ").Append(Html((config.PersonalStartingBalance + liveAccountGross).ToString("C0"))).Append("</div><div class='muted'>Ending balance = start + final ledger P/L.</div></div><div class='card'><div class='label'>Later / unavailable setups</div><div class='value cyan'>").Append(liveNotSelected).Append("</div><div class='muted'>Kept as evidence; excluded from final P/L.</div></div><div class='card'><div class='label'>Personal target / stop / lot</div><div class='value gold'>").Append(Html(LiveTargetRiskCardValue(config))).Append("</div><div class='muted'>").Append(Html(LiveOutcomeModelSummary(config))).Append("</div></div></div>");
@@ -13755,7 +13910,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             mnqOutcomeValidation = "not checked"; mgcOutcomeValidation = "not checked";
             historicalRequestDetails.Clear(); selectedEvidenceEvent = null;
             evidenceBars.Clear(); CancelEvidenceRequest(); EndBusy(); isProcessing = false; pendingRequests = 0;
-            loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>(); RefreshInstrumentViewControls();
+            loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastAccountRows = new List<KeystoneArcPoolScenario>(); lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>(); RefreshInstrumentViewControls();
             if (strategyBox != null) strategyBox.SelectedIndex = 0;
             if (scopeBox != null) scopeBox.SelectedIndex = 0;
             if (accountPathBox != null) accountPathBox.SelectedIndex = 0;
@@ -13882,7 +14037,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void ClearCurrentResearch(bool resetConfigurationApproval)
         {
-            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); mnqBars.Clear(); mgcBars.Clear(); mnqSetupBars.Clear(); mgcSetupBars.Clear(); events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>(); reviewRows.Clear(); accounts.Clear(); researchRunCompleted = false; historicalDataReceipt = "DATA RECEIPT: no completed NinjaTrader historical request recorded for this lab run."; unsavedResearch = false; KeystoneArcHub.Publish(events, config);
+            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); mnqBars.Clear(); mgcBars.Clear(); mnqSetupBars.Clear(); mgcSetupBars.Clear(); events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastAccountRows = new List<KeystoneArcPoolScenario>(); lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>(); reviewRows.Clear(); accounts.Clear(); researchRunCompleted = false; historicalDataReceipt = "DATA RECEIPT: no completed NinjaTrader historical request recorded for this lab run."; unsavedResearch = false; KeystoneArcHub.Publish(events, config);
             if (resetConfigurationApproval) { configurationApproved = false; configurationApprovalKey = string.Empty; researchSubmissionLocked = false; }
             if (summaryText != null) summaryText.Text = "CLEARED"; if (eventText != null) eventText.Text = "EVENT LEDGER EMPTY"; if (mathText != null) mathText.Text = "WAITING FOR A NEW SELECTED RANGE"; if (poolText != null) poolText.Text = "NO VIRTUAL POOL RUN"; if (poolDetailText != null) poolDetailText.Text = "NO ACCOUNT SELECTED"; if (poolTimelineStack != null) poolTimelineStack.Children.Clear(); if (researchFindingsStack != null) researchFindingsStack.Children.Clear(); if (walkthroughAccountBox != null) walkthroughAccountBox.Items.Clear(); UpdateWalkthroughSelection(null); if (firstReturnDashboardStack != null) firstReturnDashboardStack.Children.Clear(); if (firstReturnDashboardText != null) firstReturnDashboardText.Text = "FIRST RETURN FROM INITIAL EVALUATION • RUN THE VIRTUAL POOL"; if (lifecycleText != null) lifecycleText.Text = "NO LIFECYCLE RUN"; if (reviewList != null) reviewList.Items.Clear(); if (poolAccountList != null) poolAccountList.Items.Clear(); UpdatePoolMetricTiles(); UpdateUi("CLEARED KEYSTONE ARC MEMORY ONLY • SAVED FILES RETAINED", Gold);
             UpdateWorkflowState();

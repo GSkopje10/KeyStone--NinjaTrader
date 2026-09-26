@@ -122,3 +122,16 @@ and chart labels differ per strategy.
       lifecycle baselines
 - [ ] Next: BH best session / timeframe per day (E), 123 bullish engulfing (G), lifecycle
       walkthrough per day/week/month (C), prop firm colours / names (C)
+
+## I. Build 27e (2026-09-27)
+- [x] FVG: double trouble grade, stacked zones, why-no-entry log, points by grade
+- [x] Pool: copy to groups of N, COMPARE ACCOUNTS (★ best), WHY NO PAYOUT
+- [x] Pool Settings in EVALUATION / FUNDED / AFTER A BLOWUP blocks; Asian rows only for Asian
+- [x] Period cards: TRADES P/L THIS DAY, NET SINCE START, PROFIT STILL IN ACCOUNTS, hover help, session exits
+- [x] Colored account cards (stage band, balance, progress to target, chips)
+- [x] APPLY THEME live (no restart)
+- [x] Chart = ledger (same contract; other timeframes from loaded 1M)
+- [x] Other strategies on the chart + day compare + COMPARE STRATEGIES
+- [x] Report + AI: OPTIMAL BEST ENTRIES FOR PROP, strategy / account comparisons, payout diagnosis
+- [ ] Next: BH best session / timeframe per day (E), 123 bullish engulfing (G), lifecycle
+      walkthrough per day/week/month (C), prop firm colours / names (C)

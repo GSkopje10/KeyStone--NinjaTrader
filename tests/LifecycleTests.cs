@@ -258,6 +258,25 @@ public static class LifecycleTests
             Console.WriteLine(line);
             Check(line.StartsWith("DAY COMPARE") && line.Contains("BH ") && line.Contains("FVG "), "day line lists each strategy", line);
         }
+        // 19. OPTIMAL BEST ENTRIES FOR PROP: eval / funded filter picks, hours, stop / target from price moves.
+        {
+            var cfg = LifecycleSnapshot.Cfg("BH", 1, 0, 0); cfg.StrategyCode = "FVG";
+            var ev = LifecycleSnapshot.BhEvents(8).Take(120).ToList();
+            for (int i = 0; i < ev.Count; i++)
+            {
+                var e = ev[i]; e.QualityTier = i % 10 == 0 ? "DT" : (i % 4 == 0 ? "A" : (i % 4 == 1 ? "B" : "C"));
+                if (e.QualityTier == "C") { e.Outcome = "LOSS"; e.GrossPnl = -500; }
+                if (e.QualityTier == "A" || e.QualityTier == "DT") { e.Outcome = "WIN"; e.GrossPnl = 800; }
+                e.Entry = 2000; e.PeakAfterEntry = e.Outcome == "WIN" ? 2015 : 2004; e.TroughAfterEntry = e.Outcome == "WIN" ? 1994 : 1989; e.Symbol = "MGC"; e.Quantity = 10;
+            }
+            var plan = KeystoneArcAnalyst.BestEntries(ev, cfg, null, null);
+            Console.WriteLine(plan.Headline); foreach (var c in plan.Cards) Console.WriteLine("[" + c.Level + "] " + c.Title + ": " + c.Text);
+            Check(plan.Filters.Count >= 3 && (plan.FundedFilter == "A" || plan.FundedFilter == "DT"), "funded pick = the strongest grades when they earn most per setup", plan.FundedFilter);
+            Check(plan.EvalFilter != "ALL", "evaluation pick avoids the losing C setups", plan.EvalFilter);
+            Check(plan.Cards.Any(c => c.Title.StartsWith("MGC STOP / TARGET") && c.Text.Contains("TARGET ≈ 15")), "stop / target suggested from real price moves (winners moved +15)", string.Join(" | ", plan.Cards.Select(c => c.Title)));
+            Check(plan.Cards.Any(c => c.Title == "DOUBLE TROUBLE"), "double trouble stats included");
+            Check(plan.Headline.StartsWith("PROP PLAN"), "headline states the plan", plan.Headline);
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
