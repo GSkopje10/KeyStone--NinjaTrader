@@ -88,7 +88,8 @@ for each bar on the selected timeframe (NY time, inside the session window):
   next bar high > reference                         -> ENTRY long at reference; zone finished
   next bar does not break                           -> default: need another dip into zone, then
                                                        a new green close (option: any green close)
-  price leaves the zone without an entry            -> zone finished (reuse parameter, default 1)
+  price runs above top + run-away distance          -> zone retired (0 = never; close below always kills)
+  price stays near the zone                         -> every new dip can start a new retest
   after an entry                                    -> only a NEW FVG can give the next entry
 ```
 
@@ -96,5 +97,10 @@ for each bar on the selected timeframe (NY time, inside the session window):
 
 - Aggression definition (examples tomorrow).
 - Risk defaults (stop / target / size) — to decide and optimize.
-- "Moved away" for a used zone without entry: proposal = zone is finished once a later candle
-  closes above the zone top after the retest without an entry being triggered.
+- (answered) "Moved away": gold often revisits a box several times. While price stays
+  relatively close above the box, every new dip can still give a setup. Only a close below the
+  box kills it. If price runs far above the box, the box is retired by default.
+  Parameters: **RUN-AWAY DISTANCE** = how far above the box top price may go before the box is
+  retired (multiple of box height or points; 0 = never retire, only a close below kills it) and
+  **MAX ENTRIES PER BOX** (default 1). Both get optimized; the lab records every revisit so the
+  results show whether 2nd/3rd visits win.
