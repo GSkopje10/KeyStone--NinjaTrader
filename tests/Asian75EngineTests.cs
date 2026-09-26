@@ -147,6 +147,16 @@ public static class Asian75EngineTests
             var linked = KeystoneArcAsianOptimizer.BuildCombos(new KeystoneArcAsianGrid { Scopes = new List<string> { "BOTH" }, LinkDirections = true, LegLosses = new List<double> { 75 }, Reversals = new List<int> { 3 }, Targets = new List<double> { 350 } }, true, true);
             Check(linked.Count == 2 && linked.All(c => c.MnqDirection == c.MgcDirection), "linked directions give L/L and S/S only for BOTH", linked.Count.ToString());
         }
+        // 11. MGC liquid-contract roll schedule (gold data loader).
+        {
+            var seg = KeystoneArcEngine.MgcLiquidRollSchedule(new DateTime(2026, 6, 24, 18, 0, 0), new DateTime(2026, 9, 25, 15, 55, 0));
+            string got = string.Join(" | ", seg.Select(x => x.ContractMonth.ToString("MM-yy") + " " + x.Start.ToString("MM-dd HH:mm") + "→" + x.End.ToString("MM-dd HH:mm")));
+            Check(got == "08-26 06-24 18:00→07-24 17:00 | 12-26 07-24 17:01→09-25 15:55", "Jun–Sep 2026 uses Aug then Dec, switching in the 17:00 halt (was Jun/Aug to expiry, then nothing)", got);
+            var year = KeystoneArcEngine.MgcLiquidRollSchedule(new DateTime(2021, 1, 1), new DateTime(2022, 1, 1));
+            string months = string.Join(",", year.Select(x => x.ContractMonth.ToString("MM-yy")));
+            Check(months == "02-21,04-21,06-21,08-21,12-21,02-22", "a full year walks Feb, Apr, Jun, Aug, Dec (Oct skipped)", months);
+            Check(year.Zip(year.Skip(1), (a, b) => (b.Start - a.End).TotalMinutes == 1).All(x => x), "segments are gapless", "");
+        }
         Console.WriteLine(failures == 0 ? "\nALL ASIAN 75 TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

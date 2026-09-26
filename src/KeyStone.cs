@@ -868,6 +868,44 @@ namespace NinjaTrader.NinjaScript
             return SimulateAsian75Sessions(PrepareAsian75Sessions(oneMinute, cfg), cfg);
         }
 
+        public sealed class MgcRollSegment
+        {
+            public DateTime ContractMonth;   // first day of the delivery month, e.g. 2026-12-01 = MGC 12-26
+            public DateTime Start;
+            public DateTime End;
+        }
+
+        // Gold's liquid contracts are Feb, Apr, Jun, Aug and Dec (Oct is thin). Trading moves to
+        // the next of these about a week before first notice day (end of the month before
+        // delivery), so each contract is used until 17:00 ET on the 24th of the month before its
+        // delivery month. 17:00 is inside the daily 17:00–18:00 halt, so every session comes
+        // from one contract and no fake price jump from a contract switch lands inside a session.
+        // Using each contract until its expiry (the old rule) read weeks of thin delivery-month
+        // bars and left the range empty once the last requested contract expired.
+        public static List<MgcRollSegment> MgcLiquidRollSchedule(DateTime start, DateTime end)
+        {
+            var segments = new List<MgcRollSegment>();
+            int[] liquid = { 2, 4, 6, 8, 12 };
+            DateTime cursor = start;
+            for (int guard = 0; cursor < end && guard < 400; guard++)
+            {
+                DateTime month = new DateTime(cursor.Year, cursor.Month, 1), contract = DateTime.MinValue, roll = DateTime.MinValue;
+                for (int k = 0; k <= 14; k++)
+                {
+                    DateTime candidate = month.AddMonths(k);
+                    if (!liquid.Contains(candidate.Month)) continue;
+                    DateTime before = candidate.AddMonths(-1);
+                    DateTime candidateRoll = new DateTime(before.Year, before.Month, 24, 17, 0, 0);
+                    if (candidateRoll > cursor) { contract = candidate; roll = candidateRoll; break; }
+                }
+                if (contract == DateTime.MinValue) break;
+                DateTime segmentEnd = roll < end ? roll : end;
+                segments.Add(new MgcRollSegment { ContractMonth = contract, Start = cursor, End = segmentEnd });
+                cursor = roll.AddMinutes(1);
+            }
+            return segments;
+        }
+
         // One Asian session's 1-minute bars laid out for fast repeated simulation: Times holds
         // every distinct bar stamp in the window, and Bars[s][t] is symbol s's bar at Times[t]
         // (null when that minute had no trade). Built once per start/end time and instrument
@@ -3056,6 +3094,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string mnqOutcomeValidation = "not checked", mgcOutcomeValidation = "not checked";
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
+        // Shown in the header so it is obvious which source version NinjaTrader compiled.
+        private const string KeystoneBuild = "BUILD 2026-09-26 • ASIAN 18:01 FIX • OPTIMIZER • MGC LIQUID ROLL";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -3987,7 +4027,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var stack = new StackPanel { Margin = new Thickness(0) };
             var title = Txt("KEYSTONE ARC", Text, 20, FontWeights.Bold); title.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(title);
-            var subtitle = Txt("5M RESEARCH LAB • INDEPENDENT HISTORICAL DETECTION • VIRTUAL POOL • NO LIVE ORDERS", Cyan, 9, FontWeights.Bold); subtitle.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(subtitle);
+            var subtitle = Txt("5M RESEARCH LAB • INDEPENDENT HISTORICAL DETECTION • VIRTUAL POOL • NO LIVE ORDERS • " + KeystoneBuild, Cyan, 9, FontWeights.Bold); subtitle.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(subtitle);
             g.Children.Add(stack);
             var newTest = Btn("NEW TEST", Gold); newTest.Width = 106; newTest.Height = 30; newTest.Click += delegate { ConfirmResetForNewTest(); }; resetNewTestButton = newTest; Grid.SetColumn(newTest, 1); g.Children.Add(newTest);
             var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(closeAux, 2); g.Children.Add(closeAux);
@@ -6142,6 +6182,28 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     DateTime fallbackCursor = item.Start;
                     int fallbackGuard = 0;
+                    if (useMgcDeliverySchedule)
+                    {
+                        // Liquid-contract roll schedule (see KeystoneArcEngine.MgcLiquidRollSchedule).
+                        // If a contract is not in the instrument database, the next liquid delivery
+                        // covers its window; if none resolves, recovery fails instead of leaving a gap.
+                        foreach (KeystoneArcEngine.MgcRollSegment roll in KeystoneArcEngine.MgcLiquidRollSchedule(item.Start, item.End))
+                        {
+                            Instrument contract = null;
+                            for (int next = 0; next <= 4 && contract == null; next += 2)
+                                contract = SafeGetInstrument(item.Key + " " + roll.ContractMonth.AddMonths(next).ToString("MM-yy", CultureInfo.InvariantCulture));
+                            if (contract == null) { segments.Clear(); break; }
+                            segments.Add(new HistoricalRequestWorkItem
+                            {
+                                Key = item.Key, Instrument = contract, Start = roll.Start, End = roll.End,
+                                Minutes = item.Minutes, IsSetupRequest = item.IsSetupRequest,
+                                TradingHours = item.TradingHours, TradingHoursSource = item.TradingHoursSource,
+                                Append = segments.Count > 0, FallbackInstrument = null, FallbackStage = 4,
+                                ContractRolloverSegment = true, Run = item.Run
+                            });
+                        }
+                        fallbackCursor = item.End;
+                    }
                     while (fallbackCursor < item.End && fallbackGuard++ < 48)
                     {
                         DateTime expiry = NextAutomaticExpiryMonth(item.Key, fallbackCursor.Date);
@@ -6163,7 +6225,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         fallbackCursor = segmentEnd.AddMinutes(1);
                     }
                     if (segments.Count >= minimumRecoverySegments) reason += useMgcDeliverySchedule
-                        ? " • using standard MGC Feb/Apr/Jun/Aug/Oct/Dec delivery-month recovery"
+                        ? " • using MGC liquid-contract recovery (Feb/Apr/Jun/Aug/Dec, rolled 17:00 ET on the 24th of the prior month)"
                         : " • master expiry calendar unavailable; using automatic " + item.Key + " delivery-month recovery";
                     else segments.Clear();
                 }
