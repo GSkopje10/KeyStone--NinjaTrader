@@ -3508,6 +3508,13 @@ namespace NinjaTrader.NinjaScript.AddOns
         private StackPanel evidenceControlsPanel;
         private Border evidenceDetailBorder, evidencePnlBorder;
         private Button evidenceControlsToggle;
+        // Instrument view on the results screen: the loaded ledger (loadedScope) can be viewed as
+        // MNQ, MGC, or BOTH without reloading. BH filters the loaded setups; Asian re-simulates
+        // the loaded 1-minute bars for the selected instrument(s).
+        private string loadedScope, viewScope;
+        private List<KeystoneArcEvent> loadedEvents = new List<KeystoneArcEvent>();
+        private Button viewMnqButton, viewMgcButton, viewBothButton, compareInstrumentsButton;
+        private TextBlock instrumentSplitText;
         private bool evidenceControlsVisible;
         private bool asianScopeDefaultApplied;
         private double evidenceZoom = 1.0;
@@ -5103,7 +5110,17 @@ namespace NinjaTrader.NinjaScript.AddOns
             researchPackageButton = Btn("EXPORT RESEARCH PACKAGE", Orchid); researchPackageButton.IsEnabled = false; researchPackageButton.Click += delegate { ExportEvidencePackage(); }; exportButtons.Add(researchPackageButton);
             comparisonRunButton = Btn("COMPARE TIMEFRAMES", Cyan); comparisonRunButton.IsEnabled = false; comparisonRunButton.Click += delegate { OpenComparisonWorkbench(); };
             actions.Children.Add(runPoolButton); actions.Children.Add(evidenceAfterPoolButton); actions.Children.Add(comparisonRunButton); actions.Children.Add(researchPackageButton); top.Children.Add(actions);
-            var clearRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 1) }; clearPoolButton.Height = 27; clearRow.Children.Add(clearPoolButton); top.Children.Add(clearRow);
+            var clearRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 1) }; clearPoolButton.Height = 27; clearRow.Children.Add(clearPoolButton);
+            var instrumentLabel = Txt("INSTRUMENT", Muted, 11, FontWeights.Bold); instrumentLabel.Margin = new Thickness(16, 6, 6, 0); clearRow.Children.Add(instrumentLabel);
+            viewMnqButton = Btn("MNQ", Blue); viewMgcButton = Btn("MGC", Gold); viewBothButton = Btn("BOTH", Cyan); compareInstrumentsButton = Btn("COMPARE MNQ vs MGC vs BOTH", Orchid);
+            foreach (Button b in new[] { viewMnqButton, viewMgcButton, viewBothButton }) { b.Height = 27; b.Width = 78; b.Margin = new Thickness(2, 0, 2, 0); b.IsEnabled = false; clearRow.Children.Add(b); }
+            compareInstrumentsButton.Height = 27; compareInstrumentsButton.Margin = new Thickness(8, 0, 2, 0); compareInstrumentsButton.IsEnabled = false; clearRow.Children.Add(compareInstrumentsButton);
+            viewMnqButton.Click += delegate { SwitchInstrumentView("MNQ"); }; viewMgcButton.Click += delegate { SwitchInstrumentView("MGC"); }; viewBothButton.Click += delegate { SwitchInstrumentView("BOTH"); };
+            compareInstrumentsButton.Click += delegate { CompareInstrumentPools(); };
+            viewMnqButton.ToolTip = "Show and re-run the pool with only MNQ, using the same settings and the data already loaded."; viewMgcButton.ToolTip = "Show and re-run the pool with only MGC."; viewBothButton.ToolTip = "Both instruments: BH setups go to the next available account; Asian trades both together.";
+            compareInstrumentsButton.ToolTip = "Runs the pool three times (MNQ, MGC, BOTH) with the current settings and shows the results side by side.";
+            top.Children.Add(clearRow);
+            instrumentSplitText = Txt(string.Empty, Text, 11, FontWeights.Bold); instrumentSplitText.Margin = new Thickness(4, 1, 4, 1); instrumentSplitText.FontFamily = new FontFamily("Consolas"); instrumentSplitText.TextWrapping = TextWrapping.Wrap; instrumentSplitText.Visibility = Visibility.Collapsed; top.Children.Add(instrumentSplitText);
             poolResultBanner = Txt("NEXT: choose settings, then RUN VIRTUAL POOL. Chart setups are available after detection.", Gold, 10, FontWeights.Bold); poolResultBanner.Margin = new Thickness(4, 0, 4, 1); lifecycleText = poolResultBanner; top.Children.Add(poolResultBanner);
             // Account detail always shows every assigned row. The full filters and unassigned-row audit live in the single exported package.
             showWinsBox = new CheckBox { IsChecked = true }; showLossesBox = new CheckBox { IsChecked = true }; showExitsBox = new CheckBox { IsChecked = true }; showNoEntryBox = new CheckBox { IsChecked = true };
@@ -6456,7 +6473,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             DateTime start, end;
             if (!ConfigurationStillApproved()) { UpdateUi("STEP 1 REQUIRED • CONFIRM THE CURRENT CONFIGURATION BEFORE REQUESTING DATA", Gold); UpdateWorkflowState(); return; }
             if (!ReadConfig(out start, out end)) return;
-            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); historicalRequestDetails.Clear(); failedContractRolloverSeries.Clear(); mnqBars = new List<KeystoneArcBar>(); mgcBars = new List<KeystoneArcBar>(); mnqSetupBars = new List<KeystoneArcBar>(); mgcSetupBars = new List<KeystoneArcBar>(); mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false; mnqOutcomeMatchesSetup = true; mgcOutcomeMatchesSetup = true; config.MnqOutcomeTimeOffsetMinutes = 0; config.MgcOutcomeTimeOffsetMinutes = 0; config.MnqOutcomeSource = "VERIFICATION PENDING"; config.MgcOutcomeSource = "VERIFICATION PENDING"; mnqOutcomeValidation = "awaiting 1-minute comparison"; mgcOutcomeValidation = "awaiting 1-minute comparison"; researchRunCompleted = false; events.Clear(); reviewRows.Clear(); accounts.Clear(); historicalDataReceipt = "DATA RECEIPT: historical request started; awaiting NinjaTrader BarsRequest completion.";
+            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); historicalRequestDetails.Clear(); failedContractRolloverSeries.Clear(); mnqBars = new List<KeystoneArcBar>(); mgcBars = new List<KeystoneArcBar>(); mnqSetupBars = new List<KeystoneArcBar>(); mgcSetupBars = new List<KeystoneArcBar>(); mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false; mnqOutcomeMatchesSetup = true; mgcOutcomeMatchesSetup = true; config.MnqOutcomeTimeOffsetMinutes = 0; config.MgcOutcomeTimeOffsetMinutes = 0; config.MnqOutcomeSource = "VERIFICATION PENDING"; config.MgcOutcomeSource = "VERIFICATION PENDING"; mnqOutcomeValidation = "awaiting 1-minute comparison"; mgcOutcomeValidation = "awaiting 1-minute comparison"; researchRunCompleted = false; events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; reviewRows.Clear(); accounts.Clear(); historicalDataReceipt = "DATA RECEIPT: historical request started; awaiting NinjaTrader BarsRequest completion.";
             // A new request must never leave totals, account cards, or a ledger from a previous
             // completed run on screen.  Otherwise a zero-bar receipt looks like a successful run
             // because the visible totals belong to a different date range.
@@ -7231,6 +7248,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DispatchToLab(delegate
                 {
                     events = generated ?? new List<KeystoneArcEvent>();
+                    loadedEvents = events; loadedScope = workerConfig.Scope; viewScope = workerConfig.Scope; lastInstrumentComparison = string.Empty;
                     for (int i = 0; i < events.Count; i++)
                     {
                         events[i].ReviewState = "ACCEPTED";
@@ -7251,7 +7269,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     UpdateWorkflowState();
                     if (events.Count > 0 && workspaceTabs != null) workspaceTabs.SelectedIndex = 1;
                     if (resultViewTabs != null) resultViewTabs.SelectedIndex = 0;
-                    poolDayIndex = -1; RenderPoolDayPanel();
+                    poolDayIndex = -1; RenderPoolDayPanel(); RefreshInstrumentViewControls();
                 });
             });
         }
@@ -7331,6 +7349,150 @@ namespace NinjaTrader.NinjaScript.AddOns
             UpdateWorkflowState();
         }
 
+        // Keeps the results-screen instrument choice when the pool settings are re-read.
+        private void ApplyInstrumentView(KeystoneArcRunConfig cfg)
+        {
+            if (cfg == null || string.IsNullOrEmpty(viewScope) || string.IsNullOrEmpty(loadedScope)) return;
+            string before = cfg.Scope;
+            cfg.Scope = viewScope;
+            // Asian AUTO daily loss scales with the number of instruments: re-derive it when the
+            // box still holds the automatic value of the loaded scope.
+            if (string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) && before != viewScope)
+            {
+                int reversals = Math.Max(1, cfg.AsianMaxReversalsPerInstrument);
+                double autoLoaded = KeystoneArcEngine.AsianAutoDailyLossLimit(cfg.AsianRiskMode, before, cfg.AsianReversalLossDollars, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, reversals);
+                if (Math.Abs(cfg.AsianDailyLossLimitDollars - autoLoaded) < 0.01)
+                    cfg.AsianDailyLossLimitDollars = KeystoneArcEngine.AsianAutoDailyLossLimit(cfg.AsianRiskMode, viewScope, cfg.AsianReversalLossDollars, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, reversals);
+            }
+        }
+
+        private void RefreshInstrumentViewControls()
+        {
+            bool loaded = loadedEvents != null && loadedEvents.Count > 0 && !string.IsNullOrEmpty(loadedScope);
+            string current = viewScope ?? loadedScope;
+            var map = new[] { Tuple.Create(viewMnqButton, "MNQ"), Tuple.Create(viewMgcButton, "MGC"), Tuple.Create(viewBothButton, "BOTH") };
+            foreach (var m in map)
+            {
+                if (m.Item1 == null) continue;
+                bool available = loaded && (loadedScope == "BOTH" || loadedScope == m.Item2);
+                m.Item1.IsEnabled = available && !operationBusy && !isProcessing;
+                m.Item1.BorderThickness = new Thickness(current == m.Item2 ? 3 : 0);
+                m.Item1.BorderBrush = Text;
+                m.Item1.Opacity = available ? 1.0 : 0.35;
+            }
+            if (compareInstrumentsButton != null) compareInstrumentsButton.IsEnabled = loaded && loadedScope == "BOTH" && !operationBusy && !isProcessing;
+            RenderInstrumentSplit();
+        }
+
+        // Winners, losers and P/L per instrument, straight from the loaded ledger (no accounts).
+        private void RenderInstrumentSplit()
+        {
+            if (instrumentSplitText == null) return;
+            if (loadedEvents == null || loadedEvents.Count == 0 || loadedScope != "BOTH") { instrumentSplitText.Visibility = Visibility.Collapsed; return; }
+            bool asian = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            List<KeystoneArcInstrumentStats> stats = KeystoneArcPoolInsights.InstrumentStats(loadedEvents, config);
+            var sb = new StringBuilder("STRATEGY BY INSTRUMENT (" + (asian ? "legs of the combined cycle" : "all setups, no accounts") + ")\n");
+            foreach (var x in stats)
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-4} {1,7:N0} {2}  W {3,-6:N0} L {4,-6:N0} WIN {5,3:0}%  P/L {6,11}  BEST DAY {7,9}  WORST DAY {8,9}  MAX DD {9,10}",
+                    x.Symbol, x.Setups, asian ? "legs  " : "setups", x.Wins, x.Losses, x.WinRate, Cash(x.Pnl), Cash(x.BestDay), Cash(x.WorstDay), Cash(-x.MaxDrawdown)));
+            if (stats.Count == 2) { var best = stats.OrderByDescending(x => x.Pnl).First(); sb.Append("BETTER: " + best.Symbol + " by " + Cash(Math.Abs(stats[0].Pnl - stats[1].Pnl))); }
+            if (!string.IsNullOrEmpty(lastInstrumentComparison)) sb.Append("\n\n" + lastInstrumentComparison);
+            instrumentSplitText.Text = sb.ToString().TrimEnd();
+            instrumentSplitText.Visibility = Visibility.Visible;
+        }
+
+        private List<KeystoneArcEvent> EventsForInstrumentView(string scope, KeystoneArcRunConfig baseConfig)
+        {
+            if (scope == loadedScope) return loadedEvents;
+            if (!string.Equals(baseConfig.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase))
+                return loadedEvents.Where(e => string.Equals(e.Symbol, scope, StringComparison.OrdinalIgnoreCase)).ToList();
+            // Asian: a single-instrument cycle is a different cycle (its own target / limits), so
+            // it is re-simulated from the loaded 1-minute bars instead of filtering BOTH legs.
+            KeystoneArcRunConfig cfg = CloneConfig(baseConfig); cfg.Scope = scope;
+            List<KeystoneArcBar> bars = scope == "MNQ" ? mnqBars : (scope == "MGC" ? mgcBars : mnqBars.Concat(mgcBars).OrderBy(b => b.Time).ThenBy(b => b.Symbol, StringComparer.OrdinalIgnoreCase).ToList());
+            List<KeystoneArcEvent> generated = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).OrderBy(x => x.EntryTime).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ToList();
+            foreach (KeystoneArcEvent e in generated) { e.ReviewState = "ACCEPTED"; e.ReviewNote = "AUTO-INCLUDED: resolved Asian daily-cycle leg (" + scope + " view)"; }
+            return generated;
+        }
+
+        private void SwitchInstrumentView(string scope)
+        {
+            if (operationBusy || isProcessing) { UpdateUi("WAIT FOR THE CURRENT OPERATION TO FINISH", Gold); return; }
+            if (loadedEvents == null || loadedEvents.Count == 0) { UpdateUi("LOAD A TEST FIRST", Gold); return; }
+            if (loadedScope != "BOTH" && scope != loadedScope) { UpdateUi("ONLY " + loadedScope + " WAS LOADED • CHOOSE BOTH IN STEP 1 TO SWITCH INSTRUMENTS", Gold); return; }
+            if (scope == (viewScope ?? loadedScope) && accounts.Count > 0) { UpdateUi(scope + " IS ALREADY SHOWN", Green); return; }
+            bool rerunPool = accounts.Count > 0;
+            KeystoneArcRunConfig baseConfig = CloneConfig(config); baseConfig.Scope = loadedScope;
+            BeginBusy("SWITCHING TO " + scope);
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                List<KeystoneArcEvent> view;
+                try { view = EventsForInstrumentView(scope, baseConfig); }
+                catch (Exception ex) { DispatchToLab(delegate { EndBusy(); UpdateUi("SWITCH ERROR • " + ex.Message, Red); }); return; }
+                DispatchToLab(delegate
+                {
+                    EndBusy();
+                    viewScope = scope; config.Scope = scope;
+                    events = view;
+                    for (int i = 0; i < events.Count; i++) { events[i].AssignedVirtualAccount = string.Empty; events[i].SkipReason = string.Empty; }
+                    accounts = new List<KeystoneArcVirtualAccount>();
+                    RebuildReviewList(); RenderEvents(); BuildMathReader(); RenderResearchFindings();
+                    poolDayIndex = -1; RenderPoolDayPanel(); RefreshInstrumentViewControls();
+                    UpdateUi("NOW SHOWING " + scope + " • " + events.Count + (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? " LEGS" : " SETUPS") + (rerunPool ? " • RE-RUNNING THE POOL" : ""), Green);
+                    if (rerunPool) SimulatePool(); else { RenderPoolLedger(); RenderLifecycle(); RenderPoolDashboard(); }
+                });
+            });
+        }
+
+        // Runs the pool for MNQ, MGC and BOTH with the current settings and shows them side by side.
+        private void CompareInstrumentPools()
+        {
+            if (operationBusy || isProcessing) { UpdateUi("WAIT FOR THE CURRENT OPERATION TO FINISH", Gold); return; }
+            if (loadedScope != "BOTH" || loadedEvents.Count == 0) { UpdateUi("LOAD BOTH INSTRUMENTS IN STEP 1 TO COMPARE", Gold); return; }
+            DateTime s0, e0; DateTime loadedStart = config.Start, loadedEnd = config.End; int loadedOneDay = config.OneDayMode; string loadedSession = config.SessionMode; int ls = config.CustomStart, le = config.EndTime;
+            if (!ReadConfig(out s0, out e0)) return;
+            config.Start = loadedStart; config.End = loadedEnd; config.OneDayMode = loadedOneDay; config.SessionMode = loadedSession; config.CustomStart = ls; config.EndTime = le;
+            config.EvaluationEnabled = config.PoolSize == 1 ? -2 : (loadedOneDay == 1 ? -1 : (accountStartModeBox != null && string.Equals(Convert.ToString(accountStartModeBox.SelectedItem), "DIRECT FUNDED", StringComparison.OrdinalIgnoreCase) ? 0 : 1));
+            ApplyInstrumentView(config);
+            KeystoneArcRunConfig baseConfig = CloneConfig(config); baseConfig.Scope = loadedScope;
+            BeginBusy("COMPARING MNQ • MGC • BOTH WITH THE SAME SETTINGS");
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                var sb = new StringBuilder();
+                try
+                {
+                    sb.AppendLine("POOL COMPARISON • same settings • " + baseConfig.PoolSize + " accounts • " + (baseConfig.EvaluationEnabled == 0 ? "direct funded" : "evaluation first"));
+                    sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-5} {1,9} {2,12} {3,11} {4,12} {5,8} {6,8} {7,12} {8,12}", "", "SETUPS", "TO BANK", "COST", "NET", "PAYOUTS", "BLOWUPS", "1ST PAYOUT", "PROFITABLE"));
+                    foreach (string scope in new[] { "MNQ", "MGC", "BOTH" })
+                    {
+                        KeystoneArcRunConfig cfg = CloneConfig(baseConfig); cfg.Scope = scope;
+                        if (string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) && scope != loadedScope)
+                        {
+                            int reversals = Math.Max(1, cfg.AsianMaxReversalsPerInstrument);
+                            double autoLoaded = KeystoneArcEngine.AsianAutoDailyLossLimit(cfg.AsianRiskMode, loadedScope, cfg.AsianReversalLossDollars, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, reversals);
+                            if (Math.Abs(cfg.AsianDailyLossLimitDollars - autoLoaded) < 0.01) cfg.AsianDailyLossLimitDollars = KeystoneArcEngine.AsianAutoDailyLossLimit(cfg.AsianRiskMode, scope, cfg.AsianReversalLossDollars, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, reversals);
+                        }
+                        List<KeystoneArcEvent> ev = CloneEvents(EventsForInstrumentView(scope, cfg).Where(x => string.Equals(x.ReviewState, "ACCEPTED", StringComparison.OrdinalIgnoreCase)));
+                        List<KeystoneArcVirtualAccount> acc = KeystoneArcEngine.SimulatePool(ev, cfg);
+                        KeystoneArcCapitalPolicySummary cap = KeystoneArcEngine.BuildCapitalPolicySummary(acc, cfg);
+                        KeystoneArcPoolInsights ins = KeystoneArcPoolInsights.Build(acc, null, cfg);
+                        sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-5} {1,9:N0} {2,12} {3,11} {4,12} {5,8} {6,8} {7,12} {8,12}", scope, ev.Count, Cash(ins.CashAfterShare), Cash(ins.Cost), Cash(ins.Net), ins.Payouts, ins.BlowupEvents,
+                            ins.FirstPayoutDate == DateTime.MinValue ? "—" : ins.FirstPayoutDate.ToString("yyyy-MM-dd"), cap.ProfitabilityReached ? cap.ProfitabilityDate.ToString("yyyy-MM-dd") : "—"));
+                    }
+                }
+                catch (Exception ex) { DispatchToLab(delegate { EndBusy(); UpdateUi("COMPARISON ERROR • " + ex.Message, Red); }); return; }
+                DispatchToLab(delegate
+                {
+                    EndBusy();
+                    lastInstrumentComparison = sb.ToString().TrimEnd();
+                    UpdateUi("COMPARISON READY • MNQ vs MGC vs BOTH shown under the buttons and added to the exported report", Green);
+                    RefreshInstrumentViewControls();
+                });
+            });
+        }
+
+        private string lastInstrumentComparison = string.Empty;
+
         private void SimulatePool()
         {
             if (operationBusy || isProcessing) { UpdateUi("WAIT FOR THE CURRENT OPERATION TO FINISH", Gold); return; }
@@ -7345,6 +7507,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             DateTime s, e; if (!ReadConfig(out s, out e)) return;
             config.Start = loadedStart; config.End = loadedEnd; config.OneDayMode = loadedOneDay;
             config.SessionMode = loadedSessionMode; config.CustomStart = loadedCustomStart; config.EndTime = loadedEndTime;
+            ApplyInstrumentView(config);
             config.EvaluationEnabled = config.PoolSize == 1 ? -2 : (loadedOneDay == 1 ? -1 : (accountStartModeBox != null && string.Equals(Convert.ToString(accountStartModeBox.SelectedItem), "DIRECT FUNDED", StringComparison.OrdinalIgnoreCase) ? 0 : 1));
             RefreshLifecycleInputState();
             if (config.OutcomeModelEnabled == 0) { UpdateUi("POOL BLOCKED • THE 1-MINUTE OUTCOME SERIES DID NOT MATCH THE SELECTED SETUP CHART • REVIEW THE DATA RECEIPT", Gold); UpdateWorkflowState(); return; }
@@ -10914,7 +11077,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             KeystoneArcRiskSequenceStats propRisk = CalculateWorstVirtualAccountRisk(config.PropStartingBalance);
             var sb = new StringBuilder();
             sb.Append("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Keystone Arc Research Report</title><style>");
-            sb.Append("html{scroll-behavior:smooth}body{margin:0;background:#0a0f1a;color:#eef4fc;font-family:Segoe UI,Arial,sans-serif;line-height:1.35}.wrap{max-width:1500px;margin:auto;padding:28px}.hero{background:linear-gradient(120deg,#13243c,#1a3144);border:1px solid #2cd7cb;border-radius:14px;padding:24px}.brand{color:#2cd7cb;font-size:13px;font-weight:700;letter-spacing:.08em}.hero h1{margin:4px 0 8px;font-size:29px}.muted{color:#9baec6}.notice{margin-top:16px;border-left:4px solid #f4bf4c;background:#242536;padding:12px;color:#f5d790}.goodnote{margin-top:12px;border-left:4px solid #41d98e;background:#102d29;padding:12px;color:#d5f6e7}.report-nav{position:sticky;top:8px;z-index:3;display:flex;flex-wrap:wrap;gap:7px;margin:14px 0;padding:10px;background:rgba(10,15,26,.94);border:1px solid #283d5b;border-radius:10px;backdrop-filter:blur(5px)}.report-nav a{color:#dff8ff;text-decoration:none;background:#183653;border:1px solid #2cd7cb;border-radius:7px;padding:6px 9px;font-size:12px;font-weight:700}.report-nav a:hover{background:#2cd7cb;color:#08101b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px;margin:18px 0}.card{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:14px}.label{color:#9baec6;font-size:11px;font-weight:700;text-transform:uppercase}.value{font-size:24px;font-weight:700;margin-top:3px}.green{color:#41d98e}.red{color:#ef5c69}.cyan{color:#2cd7cb}.gold{color:#f4bf4c}.orchid{color:#ca75ef}h2{font-size:18px;color:#2cd7cb;margin-top:30px;padding-top:8px}h3{font-size:14px;color:#ca75ef;margin:18px 0 8px}table{width:100%;border-collapse:collapse;background:#131c2d;font-size:12px}th{position:sticky;top:0;background:#1c273d;color:#2cd7cb;text-align:left}th,td{padding:8px;border-bottom:1px solid #283d5b;vertical-align:top}tr.win td{background:#102d29}tr.loss td{background:#321b25}tr.exit td{background:#23263a}.table-wrap{overflow:auto;max-height:540px;border:1px solid #283d5b;border-radius:10px}.mono{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap}.pill{display:inline-block;border:1px solid #365577;border-radius:999px;padding:5px 9px;margin:3px;color:#d7e5f5}.filters{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.filters button{cursor:pointer;background:#183653;color:#dff8ff;border:1px solid #2cd7cb;border-radius:7px;padding:7px 10px;font-weight:700}.filters button:hover,.filters button.active{background:#2cd7cb;color:#08101b}.audit{margin:18px 0;background:#101a2a;border:1px solid #365577;border-radius:10px;overflow:hidden}.audit summary{cursor:pointer;padding:13px;color:#caeefa;background:#15243a;font-weight:700}.audit summary:hover{background:#183653}.audit .inside{padding:0 14px 14px}.hide-row{display:none}.footer{margin-top:28px;color:#9baec6;font-size:12px}@media(max-width:700px){.wrap{padding:12px}.hero{padding:16px}.hero h1{font-size:23px}.report-nav{position:static}.value{font-size:21px}}</style></head><body><div class='wrap'>");
+            sb.Append("html{scroll-behavior:smooth}body{margin:0;background:#0a0f1a;color:#eef4fc;font-family:Segoe UI,Arial,sans-serif;line-height:1.35}.wrap{max-width:1500px;margin:auto;padding:28px}.hero{background:linear-gradient(120deg,#13243c,#1a3144);border:1px solid #2cd7cb;border-radius:14px;padding:24px}.brand{color:#2cd7cb;font-size:13px;font-weight:700;letter-spacing:.08em}.hero h1{margin:4px 0 8px;font-size:29px}.muted{color:#9baec6}.notice{margin-top:16px;border-left:4px solid #f4bf4c;background:#242536;padding:12px;color:#f5d790}.goodnote{margin-top:12px;border-left:4px solid #41d98e;background:#102d29;padding:12px;color:#d5f6e7}.report-nav{position:sticky;top:8px;z-index:3;display:flex;flex-wrap:wrap;gap:7px;margin:14px 0;padding:10px;background:rgba(10,15,26,.94);border:1px solid #283d5b;border-radius:10px;backdrop-filter:blur(5px)}.report-nav a{color:#dff8ff;text-decoration:none;background:#183653;border:1px solid #2cd7cb;border-radius:7px;padding:6px 9px;font-size:12px;font-weight:700}.report-nav a:hover{background:#2cd7cb;color:#08101b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px;margin:18px 0}.card{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:14px}.label{color:#9baec6;font-size:11px;font-weight:700;text-transform:uppercase}.value{font-size:24px;font-weight:700;margin-top:3px}.green{color:#41d98e}.red{color:#ef5c69}.cyan{color:#2cd7cb}.gold{color:#f4bf4c}.orchid{color:#ca75ef}h2{font-size:18px;color:#2cd7cb;margin-top:30px;padding-top:8px}h3{font-size:14px;color:#ca75ef;margin:18px 0 8px}table{width:100%;border-collapse:collapse;background:#131c2d;font-size:12px}th{position:sticky;top:0;background:#1c273d;color:#2cd7cb;text-align:left}th,td{padding:8px;border-bottom:1px solid #283d5b;vertical-align:top}tr.win td{background:#102d29}tr.loss td{background:#321b25}tr.exit td{background:#23263a}.table-wrap{overflow:auto;max-height:540px;border:1px solid #283d5b;border-radius:10px}.mono{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap}.pill{display:inline-block;border:1px solid #365577;border-radius:999px;padding:5px 9px;margin:3px;color:#d7e5f5}.filters{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.filters button{cursor:pointer;background:#183653;color:#dff8ff;border:1px solid #2cd7cb;border-radius:7px;padding:7px 10px;font-weight:700}.filters button:hover,.filters button.active{background:#2cd7cb;color:#08101b}.audit{margin:18px 0;background:#101a2a;border:1px solid #365577;border-radius:10px;overflow:hidden}.audit summary{cursor:pointer;padding:13px;color:#caeefa;background:#15243a;font-weight:700}.audit summary:hover{background:#183653}.audit .inside{padding:0 14px 14px}.hide-row{display:none}.footer{margin-top:28px;color:#9baec6;font-size:12px}pre.cmp{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:12px;overflow:auto;font-size:12px;color:#dff8ff}@media(max-width:700px){.wrap{padding:12px}.hero{padding:16px}.hero h1{font-size:23px}.report-nav{position:static}.value{font-size:21px}}</style></head><body><div class='wrap'>");
             sb.Append("<section class='hero'><div class='brand'>KEYSTONE ARC 5M RESEARCH LAB</div><h1>").Append(personalReport ? "Live-Account Historical Research Report" : "Prop Virtual-Pool Historical Research Report").Append("</h1><div class='muted'>").Append(Html(strategyName)).Append(" • ").Append(Html(strategyAudit)).Append("<br>Created ").Append(Html(DateTime.Now.ToString("yyyy-MM-dd HH:mm"))).Append(" • No live orders • Historical-model output</div><div class='notice'><strong>Interpretation boundary.</strong> This report records ").Append(personalReport ? "one historical account using one earliest resolved setup per session date" : (asianReport ? "the selected virtual-account evaluation/funded scenario using copied daily Asian cycles" : "the selected virtual-account evaluation/funded scenario")).Append(". It is not a verified trading strategy, firm-rule determination, or payout forecast.</div><div class='goodnote'><strong>Data state.</strong> ").Append(outcomesVerified ? "The 1-minute outcome series reproduced the selected setup bars, so target/stop/session-close model fields are enabled." : "The selected setup bars loaded, but no matching 1-minute outcome series was proven. This report is limited to setup placement and counts; win/loss, P/L, drawdown, and account math are intentionally disabled.").Append("</div></section>");
             if (!personalReport) sb.Append(config.EvaluationEnabled < 0 ? "<nav class='report-nav'><a href='#portfolio'>One-Day Scorecard</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#accounts'>Account Allocation</a><a href='#event-audit'>Event Audit</a></nav>" : "<nav class='report-nav'><a href='#portfolio'>Portfolio</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#first-return'>First Returns</a><a href='#payout-accounts'>Payout Accounts</a><a href='#payout-cycles'>Payout Cycles</a><a href='#accounts'>Account Snapshot</a><a href='#event-audit'>Event Audit</a></nav>");
             if (personalReport)
@@ -10930,6 +11093,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             else
                 sb.Append("<h2>At-a-glance result</h2><div class='grid'><div class='card'><div class='label'>Strategy</div><div class='value cyan'>").Append(Html(asianReport ? "ASIAN CYCLE COPY" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH"))).Append("</div><div class='muted'>").Append(Html(asianReport ? strategyAudit : BhAggressionSummary(config))).Append("</div></div><div class='card'><div class='label'>Resolved W / L / exits</div><div class='value gold'>").Append(outcomesVerified ? wins + " / " + losses + " / " + exits : "BLOCKED").Append("</div><div class='muted'>").Append(asianReport ? "Resolved daily-cycle legs; before copy allocation." : "All detected setups; before account allocation.").Append("</div></div><div class='card'><div class='label'>All-outcome model P/L</div><div class='value ").Append(gross >= 0 ? "green" : "red").Append("'>").Append(Html(outcomesVerified ? gross.ToString("C0") : "NOT AVAILABLE")).Append("</div><div class='muted'>Historical model only.</div></div><div class='card'><div class='label'>Pool assigned / skipped</div><div class='value cyan'>").Append(assigned).Append(" / ").Append(skipped).Append("</div><div class='muted'>").Append(asianReport ? "Every resolved daily cycle is copied to active accounts." : "Eligible setups only.").Append("</div></div><div class='card'><div class='label'>Evaluation passes / currently funded</div><div class='value orchid'>").Append(evaluationPasses).Append(" / ").Append(currentlyFunded).Append("</div><div class='muted'>Selected scenario mechanics.</div></div><div class='card'><div class='label'>Payout cash</div><div class='value ").Append(payoutCash > 0 ? "green" : "gold").Append("'>").Append(Html(payoutCash.ToString("C0"))).Append("</div><div class='muted'>").Append(Html(payoutExplanation)).Append("</div></div></div>");
             if (!personalReport) AppendPortfolioCashHtml(sb, capital, config, accounts);
+            if (!personalReport && loadedScope == "BOTH" && loadedEvents.Count > 0)
+            {
+                sb.Append("<h2 id='instruments'>MNQ vs MGC</h2><div class='grid'>");
+                foreach (KeystoneArcInstrumentStats x in KeystoneArcPoolInsights.InstrumentStats(loadedEvents, config))
+                    sb.Append("<div class='card'><div class='label'>").Append(Html(x.Symbol)).Append(" • ").Append(x.Setups.ToString("N0")).Append(asianReport ? " legs" : " setups").Append("</div><div class='value ").Append(x.Pnl >= 0 ? "green" : "red").Append("'>").Append(Html(Cash(x.Pnl))).Append("</div><div class='muted'>W ").Append(x.Wins).Append(" / L ").Append(x.Losses).Append(" • win ").Append(x.WinRate.ToString("0", CultureInfo.InvariantCulture)).Append("% • best day ").Append(Html(Cash(x.BestDay))).Append(" • worst day ").Append(Html(Cash(x.WorstDay))).Append(" • max drawdown ").Append(Html(Cash(-x.MaxDrawdown))).Append("</div></div>");
+                sb.Append("</div>");
+                if (!string.IsNullOrEmpty(lastInstrumentComparison)) sb.Append("<pre class='cmp'>").Append(Html(lastInstrumentComparison)).Append("</pre>");
+                sb.Append("<p class='muted'>Now showing: ").Append(Html(viewScope ?? loadedScope)).Append(". Use the INSTRUMENT buttons in the lab to switch and COMPARE to fill the pool table.</p>");
+            }
             if (!personalReport) AppendResearchFindingsHtml(sb);
             if (personalReport)
                 sb.Append("<h2>Live-account risk sequence</h2><div class='card'><div class='mono'>Worst consecutive losing trades: ").Append(personalRisk.WorstNegativeSetupStreak).Append(" / ").Append(Html(personalRisk.WorstNegativeSetupStreakPnl.ToString("C0"))).Append("\nWorst consecutive negative session days: ").Append(personalRisk.WorstNegativeDayStreak).Append(" / ").Append(Html(personalRisk.WorstNegativeDayStreakPnl.ToString("C0"))).Append("\nStarting balance: ").Append(Html(personalRisk.StartingBalance.ToString("C0"))).Append(" • ending balance: ").Append(Html(personalRisk.EndingBalance.ToString("C0"))).Append(" • lowest balance: ").Append(Html(personalRisk.LowestBalance.ToString("C0"))).Append("\nMaximum drawdown from running peak: ").Append(Html(personalRisk.MaximumDrawdown.ToString("C0"))).Append("</div></div>");
@@ -11503,6 +11675,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             mnqOutcomeValidation = "not checked"; mgcOutcomeValidation = "not checked";
             historicalRequestDetails.Clear(); selectedEvidenceEvent = null;
             evidenceBars.Clear(); CancelEvidenceRequest(); EndBusy(); isProcessing = false; pendingRequests = 0;
+            loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; RefreshInstrumentViewControls();
             if (strategyBox != null) strategyBox.SelectedIndex = 0;
             if (scopeBox != null) scopeBox.SelectedIndex = 0;
             if (accountPathBox != null) accountPathBox.SelectedIndex = 0;
@@ -11622,7 +11795,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void ClearCurrentResearch(bool resetConfigurationApproval)
         {
-            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); mnqBars.Clear(); mgcBars.Clear(); mnqSetupBars.Clear(); mgcSetupBars.Clear(); events.Clear(); reviewRows.Clear(); accounts.Clear(); researchRunCompleted = false; historicalDataReceipt = "DATA RECEIPT: no completed NinjaTrader historical request recorded for this lab run."; unsavedResearch = false; KeystoneArcHub.Publish(events, config);
+            CancelRequests(); CancelEvidenceRequest(); evidenceBars.Clear(); mnqBars.Clear(); mgcBars.Clear(); mnqSetupBars.Clear(); mgcSetupBars.Clear(); events.Clear(); loadedEvents = new List<KeystoneArcEvent>(); loadedScope = null; viewScope = null; lastInstrumentComparison = string.Empty; reviewRows.Clear(); accounts.Clear(); researchRunCompleted = false; historicalDataReceipt = "DATA RECEIPT: no completed NinjaTrader historical request recorded for this lab run."; unsavedResearch = false; KeystoneArcHub.Publish(events, config);
             if (resetConfigurationApproval) { configurationApproved = false; configurationApprovalKey = string.Empty; researchSubmissionLocked = false; }
             if (summaryText != null) summaryText.Text = "CLEARED"; if (eventText != null) eventText.Text = "EVENT LEDGER EMPTY"; if (mathText != null) mathText.Text = "WAITING FOR A NEW SELECTED RANGE"; if (poolText != null) poolText.Text = "NO VIRTUAL POOL RUN"; if (poolDetailText != null) poolDetailText.Text = "NO ACCOUNT SELECTED"; if (poolTimelineStack != null) poolTimelineStack.Children.Clear(); if (researchFindingsStack != null) researchFindingsStack.Children.Clear(); if (walkthroughAccountBox != null) walkthroughAccountBox.Items.Clear(); UpdateWalkthroughSelection(null); if (firstReturnDashboardStack != null) firstReturnDashboardStack.Children.Clear(); if (firstReturnDashboardText != null) firstReturnDashboardText.Text = "FIRST RETURN FROM INITIAL EVALUATION • RUN THE VIRTUAL POOL"; if (lifecycleText != null) lifecycleText.Text = "NO LIFECYCLE RUN"; if (reviewList != null) reviewList.Items.Clear(); if (poolAccountList != null) poolAccountList.Items.Clear(); UpdatePoolMetricTiles(); UpdateUi("CLEARED KEYSTONE ARC MEMORY ONLY • SAVED FILES RETAINED", Gold);
             UpdateWorkflowState();
