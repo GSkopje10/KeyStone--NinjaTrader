@@ -47,6 +47,22 @@ public static class UiSmokeTest
         Set(lab, "events", ev); Set(lab, "loadedEvents", ev); Set(lab, "loadedScope", "BOTH"); Set(lab, "accounts", accounts);
         Step("render pool results (ledger, lifecycle, dashboard, banner)", () => { Call(lab, "RenderEvents"); Call(lab, "RenderPoolLedger"); Call(lab, "RenderLifecycle"); Call(lab, "RenderPoolDashboard"); Call(lab, "RenderPoolDayPanel"); Call(lab, "RefreshInstrumentViewControls"); });
         Step("render heavy tabs (periods, payout cycles, first return, findings)", () => { Call(lab, "RenderDailySessionScoreboard"); Call(lab, "RenderPayoutCycleDashboard"); Call(lab, "RenderPayoutAccountDashboard"); Call(lab, "RenderFirstReturnDashboard"); Call(lab, "RenderResearchFindings"); });
+        Step("first return + payout cycles show the new layout when accounts were paid", () =>
+        {
+            var winEv = ev.Select(e => { var c2 = e.CopyForPool(); c2.Outcome = "WIN"; c2.GrossPnl = 900; return c2; }).ToList();
+            var payCfg = cfg.ShallowCopy(); payCfg.PoolSize = 4; payCfg.EvaluationEnabled = 0;
+            var paidAccounts = KeystoneArcEngine.SimulatePool(winEv, payCfg);
+            Set(lab, "accounts", paidAccounts); Set(lab, "events", winEv);
+            Call(lab, "RenderFirstReturnDashboard"); Call(lab, "RenderPayoutCycleDashboard");
+            int paid = paidAccounts.Count(a => a.Payouts > 0);
+            var fr = (System.Windows.Controls.StackPanel)lab.GetType().GetField("firstReturnDashboardStack", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab);
+            var pc = (System.Windows.Controls.StackPanel)lab.GetType().GetField("payoutCycleDashboardStack", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab);
+            Console.WriteLine("      paid accounts " + paid + " • first return elements " + fr.Children.Count + " • payout cycle rows " + pc.Children.Count);
+            if (paid > 0 && (fr.Children.Count < 5 || pc.Children.Count < 4)) throw new Exception("new layout not built");
+            foreach (string sort in new[] { "MOST PAYOUTS", "HIGHEST NET", "ACCOUNT NAME", "FASTEST FIRST" }) { Set(lab, "firstReturnSort", sort); Call(lab, "RenderFirstReturnDashboard"); }
+            if (paid == 0) throw new Exception("test pool had no payouts");
+            Set(lab, "accounts", accounts); Set(lab, "events", ev);
+        });
         Step("top boxes for every tab", () => { var tabs = (System.Windows.Controls.TabControl)lab.GetType().GetField("resultViewTabs", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); for (int i = 0; i < tabs.Items.Count; i++) { tabs.SelectedIndex = i; tabs.SelectedItem = tabs.Items[i]; Call(lab, "UpdateTopTilesForTab"); } });
         Step("report html", () => Call(lab, "BuildHtmlReport"));
         // Evidence chart + replay on real detected setups from random-walk bars.

@@ -4191,10 +4191,18 @@ namespace NinjaTrader.NinjaScript
                 ?? fundedCandidates.OrderByDescending(r => r.ProfitFactor).FirstOrDefault();
             if (evalPick != null) { evalPick.EvalPick = true; plan.EvalFilter = evalPick.Filter; }
             if (fundedPick != null) { fundedPick.FundedPick = true; plan.FundedFilter = fundedPick.Filter; }
-            if (evalPick != null)
+            if (asian)
+            {
+                var only = plan.Filters.FirstOrDefault();
+                Add(plan.Cards, "IDEA", "ASIAN CYCLES ARE NOT GRADED", "Every night trades the same cycle, so there is no grade filter to pick. " + (only == null ? "" : only.Setups + " legs, " + M(only.PerDay) + " per night, worst drawdown " + M(-only.MaxDrawdown) + (fundedRoom > 0 ? (only.MaxDrawdown < fundedRoom ? " — inside" : " — LARGER than") + " the " + M(fundedRoom) + " funded limit" : "") + ". ") + "Tune the risk (loss per leg, reversals, cycle target, daily loss) with the ASIAN 75 OPTIMIZER and keep the drawdown under the account limit.");
+                evalPick = null; fundedPick = null;
+                foreach (var r in plan.Filters) { r.EvalPick = false; r.FundedPick = false; }
+            }
+            else if (evalPick != null)
                 Add(plan.Cards, evalRoom > 0 && evalPick.MaxDrawdown >= evalRoom ? "WARN" : "BEST", "EVALUATION • TRADE " + evalPick.Label, evalPick.Setups + " setups, " + P(evalPick.WinRate) + " win, " + M(evalPick.PerDay) + " per " + (asian ? "night" : "day") + " on one account → about " + (double.IsNaN(evalPick.DaysToEvalTarget) ? "—" : evalPick.DaysToEvalTarget.ToString("0", CultureInfo.InvariantCulture)) + " trading days to the " + M(cfg.EvaluationTarget) + " target; its worst drawdown " + M(-evalPick.MaxDrawdown) + (evalRoom > 0 ? (evalPick.MaxDrawdown < evalRoom ? " stays inside" : " is LARGER than") + " the " + M(evalRoom) + " evaluation limit" : "") + ". Set Pool Settings → EVALUATION TRADES = " + evalPick.Label + ".");
-            else Add(plan.Cards, "WARN", "EVALUATION", "No grade filter makes money per day on this range yet — an evaluation would not pass reliably. Test a longer range or other stop / target settings.");
-            if (fundedPick != null)
+            else if (!asian) Add(plan.Cards, "WARN", "EVALUATION", "No grade filter makes money per day on this range yet — an evaluation would not pass reliably. Test a longer range or other stop / target settings.");
+            if (asian) { }
+            else if (fundedPick != null)
                 Add(plan.Cards, fundedRoom > 0 && fundedPick.MaxDrawdown >= fundedRoom ? "WARN" : "BEST", "FUNDED • TRADE " + fundedPick.Label, M(fundedPick.PerSetup) + " per setup, profit factor " + fundedPick.ProfitFactor.ToString("0.00", CultureInfo.InvariantCulture) + ", worst day " + M(fundedPick.WorstDay) + ", drawdown " + M(-fundedPick.MaxDrawdown) + (fundedRoom > 0 ? " vs " + M(fundedRoom) + " funded limit" : "") + ". Set FUNDED TRADES = " + fundedPick.Label + " to protect the account between payouts." + (fundedRoom > 0 && fundedPick.MaxDrawdown >= fundedRoom ? " Its drawdown is larger than the funded limit: reduce size (fewer contracts / smaller stop) before trading it funded." : ""));
             else Add(plan.Cards, "WARN", "FUNDED", "No grade filter has a profit factor above 1 with at least 10 setups — funded accounts would lose money on this range.");
             // Best entry hours (NY time).
@@ -4217,7 +4225,8 @@ namespace NinjaTrader.NinjaScript
                 if (first.Count >= 5 && later.Count >= 5) Add(plan.Cards, first.Average(e => e.GrossPnl) >= later.Average(e => e.GrossPnl) ? "IDEA" : "BEST", "FIRST TRY vs RETRIES", "1st try " + M(first.Average(e => e.GrossPnl)) + "/setup (" + first.Count + "), 2nd+ try " + M(later.Average(e => e.GrossPnl)) + "/setup (" + later.Count + ")." + (later.Average(e => e.GrossPnl) < 0 ? " Retries lose: set TRIES PER BOX = 1." : ""));
             }
             // Data-based stop / target points per instrument (price moves after entry, long setups).
-            foreach (var bySymbol in ev.Where(e => !double.IsNaN(e.PeakAfterEntry) && !double.IsNaN(e.TroughAfterEntry) && e.Entry > 0 && !string.Equals(e.Direction, "SHORT", StringComparison.OrdinalIgnoreCase)).GroupBy(e => e.Symbol))
+            // Not for Asian: a cycle leg's high includes the whole night, not one trade.
+            foreach (var bySymbol in ev.Where(e => !asian).Where(e => !double.IsNaN(e.PeakAfterEntry) && !double.IsNaN(e.TroughAfterEntry) && e.Entry > 0 && !string.Equals(e.Direction, "SHORT", StringComparison.OrdinalIgnoreCase)).GroupBy(e => e.Symbol))
             {
                 var winners = bySymbol.Where(e => e.Outcome == "WIN").ToList(); var losers = bySymbol.Where(e => e.Outcome.StartsWith("LOSS", StringComparison.OrdinalIgnoreCase)).ToList();
                 if (winners.Count < 5) continue;
@@ -4239,7 +4248,7 @@ namespace NinjaTrader.NinjaScript
             else if (accountRows == null || accountRows.Count == 0) Add(plan.Cards, "IDEA", "ACCOUNTS", "Press COMPARE ACCOUNTS in the lab to add the best account count / allocation to this plan.");
             var bestStrategy = strategyRows == null ? null : strategyRows.FirstOrDefault(r => r.Best);
             if (bestStrategy != null) Add(plan.Cards, "BEST", "STRATEGY • " + bestStrategy.Strategy, "Won the strategy comparison: " + (bestStrategy.PoolRan && bestStrategy.Net > 0 ? "net " + M(bestStrategy.Net) : "trade P/L " + M(bestStrategy.TradePnl)) + ", " + P(bestStrategy.WinRate) + " win, profit factor " + bestStrategy.ProfitFactor.ToString("0.00", CultureInfo.InvariantCulture) + ".");
-            plan.Headline = "PROP PLAN • EVALUATION: " + (evalPick == null ? "no reliable filter" : evalPick.Label) + " • FUNDED: " + (fundedPick == null ? "no profitable filter" : fundedPick.Label) + (bestAcc != null ? " • ACCOUNTS: " + bestAcc.Label : string.Empty) + (bestStrategy != null ? " • STRATEGY: " + bestStrategy.Strategy : string.Empty);
+            plan.Headline = (asian ? "PROP PLAN • ASIAN CYCLE: tune risk with the optimizer (no grades)" : "PROP PLAN • EVALUATION: " + (evalPick == null ? "no reliable filter" : evalPick.Label) + " • FUNDED: " + (fundedPick == null ? "no profitable filter" : fundedPick.Label)) + (bestAcc != null ? " • ACCOUNTS: " + bestAcc.Label : string.Empty) + (bestStrategy != null ? " • STRATEGY: " + bestStrategy.Strategy : string.Empty);
             return plan;
         }
 
@@ -4495,6 +4504,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private ComboBox walkthroughAccountBox, periodGranularityBox;
         private TextBlock walkthroughHeadingText, walkthroughSummaryText, payoutAccountDetailText, firstReturnDetailText;
         private bool walkthroughSelectionUpdating, payoutAccountUpdating, firstReturnAccountUpdating;
+        private string firstReturnSort = "FASTEST FIRST";
         private Border oneDayRangeSummaryCard;
         private RowDefinition firstReturnDashboardRow, payoutCycleDashboardRow;
         private ScrollViewer poolAccountScroll;
@@ -4608,7 +4618,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-27g • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • ONE START BUTTON • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-27h • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -6692,6 +6702,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var firstReturnHint = Txt("Only accounts that actually reached a first payout appear here. Select one to inspect start date, first payout, cost through return, full net, current balance, payout count, and daily/weekly/monthly facts. Unpaid accounts remain in Pool Dashboard and Lifecycle Walkthrough.", Cyan, 10, FontWeights.Bold); firstReturnHint.TextWrapping = TextWrapping.Wrap; Grid.SetRow(firstReturnHint, 1); firstReturnPanel.Children.Add(firstReturnHint);
             firstReturnDashboardStack = new StackPanel { Margin = new Thickness(2) };
             var firstReturnScroll = new ScrollViewer { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(1), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, CanContentScroll = false, Content = firstReturnDashboardStack, Margin = new Thickness(3) }; Grid.SetRow(firstReturnScroll, 2); firstReturnPanel.Children.Add(firstReturnScroll);
+            firstReturnScroll.AddHandler(Mouse.PreviewMouseWheelEvent, new MouseWheelEventHandler(delegate(object sender, MouseWheelEventArgs args) { firstReturnScroll.ScrollToVerticalOffset(Math.Max(0, firstReturnScroll.VerticalOffset - args.Delta / 1.5)); args.Handled = true; }), true);
             firstReturnCard = PanelCard(firstReturnPanel);
             firstReturnResultsTab = new TabItem { Header = "FIRST RETURN", Background = Gold, Foreground = Bg, Content = firstReturnCard };
             resultViews.Items.Add(firstReturnResultsTab);
@@ -10196,7 +10207,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             AddCanvasText(symbol + " • TEST WINDOW " + testedStart.ToString("yyyy-MM-dd HH:mm") + " → " + testedEnd.ToString("yyyy-MM-dd HH:mm") + " • " + EvidenceContextMinutes(chartMinutes) + "M LEFT CONTEXT • DIRECT NINJATRADER " + chartMinutes + "M BARS • " + bars.Count + " CANDLES • " + marks.Count + " LEDGER " + (marks.Count == 1 ? "MARK" : "MARKS") + " / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES"), left, 4, Cyan, 12, FontWeights.Bold);
             UpdateEvidenceNavigationBars(allBars, visibleCount);
             RefreshEvidenceSidePanel();
-            SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
+            SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"))) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
             if (selectedEvidenceEvent != null && !marks.Any(record => record.Id == selectedEvidenceEvent.Id)) ClearEvidenceSelection(false);
             // Cache exactly what the lightweight crosshair-only overlay needs, then draw it once
             // on top of the freshly rebuilt chart. Every subsequent pure-hover MouseMove reuses
@@ -11336,7 +11347,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 Title = "ACTIONABLE OBSERVATION • LOADED DATA ONLY",
                 Detail = total > 0
-                    ? "The selected " + config.Scope + " / " + (config.SessionMode ?? "selected").Replace("_", " ") + " / " + config.SetupMinutes + "M sample is positive at the currently loaded target and stop. Keep the base BH rule unchanged and challenge the same parameters on a separate date range before changing risk, session, or account count. This is a current-run observation, not a performance promise."
+                    ? "The selected " + config.Scope + " / " + (config.SessionMode ?? "selected").Replace("_", " ") + " / " + config.SetupMinutes + "M sample is positive at the currently loaded target and stop. Keep the base " + StrategyDisplayName() + " rule unchanged and challenge the same parameters on a separate date range before changing risk, session, or account count. This is a current-run observation, not a performance promise."
                     : "The selected " + config.Scope + " / " + (config.SessionMode ?? "selected").Replace("_", " ") + " / " + config.SetupMinutes + "M sample is not positive at the currently loaded target and stop. Do not infer that another session, timeframe, or parameter is better unless that alternative is explicitly loaded and compared. Audit the evidence charts and test a separate range before changing risk.",
                 Accent = total > 0 ? Green : Red
             });
@@ -11400,7 +11411,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     Accent = Cyan
                 });
             }
-            findings.Add(new KeystoneArcResearchFinding { Title = "NEXT VALIDATION STEP", Detail = "Keep the base BH rule unchanged for the next check. If reviewing a positive instrument or time band, run the same exact parameters on an out-of-sample date range. If comparing sessions or timeframes, request each series explicitly—filters never fabricate unrequested data.", Accent = Gold });
+            findings.Add(new KeystoneArcResearchFinding { Title = "NEXT VALIDATION STEP", Detail = "Keep the base " + StrategyDisplayName() + " rule unchanged for the next check. If reviewing a positive instrument or time band, run the same exact parameters on an out-of-sample date range. If comparing sessions or timeframes, request each series explicitly—filters never fabricate unrequested data.", Accent = Gold });
             return findings;
         }
 
@@ -11672,32 +11683,40 @@ namespace NinjaTrader.NinjaScript.AddOns
             double shownCashAfterShare = cycles.Sum(x => x.NetCashAfterShare);
             double shownNetAfterMonthCosts = cycles.Sum(x => x.NetCashAfterEvaluationCost);
             string summaryPeriod = selectedMonth == "ALL MONTHS" ? "ALL DISPLAYED MONTHS" : selectedMonth;
-            payoutCycleDashboardStack.Children.Add(Txt("PAYOUT SUMMARY • " + summaryPeriod + " • PERIOD FLOW ONLY", Cyan, 11, FontWeights.Bold));
+            // WHAT MATTERS: four numbers, then one compact row per payout date.
+            bool allMonths = selectedMonth == "ALL MONTHS";
+            double netAll = allMonths ? accounts.Sum(a => a.PayoutCash - a.EvaluationCost) : shownNetAfterMonthCosts;
+            List<DateTime> payDates = cycles.Select(x => x.Day.Date).Distinct().OrderBy(x => x).ToList();
+            double avgGap = payDates.Count > 1 ? Enumerable.Range(1, payDates.Count - 1).Average(i => (payDates[i] - payDates[i - 1]).TotalDays) : double.NaN;
+            payoutCycleDashboardStack.Children.Add(Txt("WHAT MATTERS • " + summaryPeriod, Gold, 13, FontWeights.Bold));
             var summaryMetrics = new UniformGrid { Columns = 4, Margin = new Thickness(3, 0, 3, 4) };
-            CycleMetric(summaryMetrics, "TOTAL PAYOUTS", shownPayoutCycles.ToString(CultureInfo.InvariantCulture), Gold);
-            CycleMetric(summaryMetrics, "ACCOUNTS PAID", shownPaidAccounts.ToString(CultureInfo.InvariantCulture), Blue);
-            CycleMetric(summaryMetrics, "CASH AFTER SHARE", Cash(shownCashAfterShare), Green);
-            CycleMetric(summaryMetrics, "NET AFTER MONTH COSTS", Cash(shownNetAfterMonthCosts), shownNetAfterMonthCosts < 0 ? Red : Green);
-            payoutCycleDashboardStack.Children.Add(new Border { Background = Panel, BorderBrush = selectedMonth == "ALL MONTHS" ? Cyan : Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(5), Margin = new Thickness(2), Child = summaryMetrics });
-            payoutCycleDashboardStack.Children.Add(Txt("TOTAL PAYOUTS counts withdrawal cycles on dates in this view. ACCOUNTS PAID counts unique accounts paid in this view. NET AFTER MONTH COSTS equals payout cash after share less only evaluation/replacement costs recorded on those payout dates; it is not a cumulative all-range balance.", Muted, 9, FontWeights.Bold));
-            payoutCycleDashboardStack.Children.Add(Txt("EACH COLORED CARD IS ONE PAYOUT DATE. COST THROUGH DATE INCLUDES INITIAL EVALUATIONS (INCLUDING THE FIRST $120 PER SLOT) PLUS REPLACEMENTS PURCHASED UP TO THAT PAYOUT; it is modeled scenario cost, not a trading loss.", Gold, 10, FontWeights.Bold));
+            CycleMetric(summaryMetrics, "TO YOUR BANK", Cash(shownCashAfterShare), Green, shownPayoutCycles + " payouts • " + shownPaidAccounts + " accounts paid • after the account share %.");
+            CycleMetric(summaryMetrics, "NET AFTER ALL COSTS", Cash(netAll), netAll < 0 ? Red : Green, allMonths ? "Everything paid out minus everything spent on accounts in the whole range. Your real result." : "Payout cash of this month minus account costs recorded on its payout dates.");
+            CycleMetric(summaryMetrics, "AVERAGE PAYOUT", Cash(shownPayoutCycles == 0 ? 0 : shownCashAfterShare / shownPayoutCycles), Gold, "Cash per single payout (one account, one withdrawal).");
+            CycleMetric(summaryMetrics, "DAYS BETWEEN PAYOUT DATES", double.IsNaN(avgGap) ? "—" : avgGap.ToString("0", CultureInfo.InvariantCulture) + " days", Cyan, "Average calendar days between two payout dates — how often money arrives.");
+            payoutCycleDashboardStack.Children.Add(new Border { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(5), Margin = new Thickness(2), Child = summaryMetrics });
+            payoutCycleDashboardStack.Children.Add(Txt("PAYOUT DATES • one row each • hover a row for the paid accounts and account states", Cyan, 11, FontWeights.Bold));
             foreach (KeystoneArcPayoutCycleRow cycle in cycles)
             {
-                var card = new Grid { Margin = new Thickness(2), Background = Panel };
-                card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                var header = Txt("CYCLE " + cycle.CycleNumber + " • " + cycle.Day.ToString("yyyy-MM-dd") + " • " + cycle.PayoutAccounts + " ACCOUNT" + (cycle.PayoutAccounts == 1 ? string.Empty : "S") + " PAID • " + string.Join(", ", cycle.PayoutContributors), Gold, 12, FontWeights.Bold); header.Margin = new Thickness(7, 5, 7, 2); header.TextWrapping = TextWrapping.Wrap; card.Children.Add(header);
-                var metrics = new UniformGrid { Columns = 4, Margin = new Thickness(4, 0, 4, 3) };
-                CycleMetric(metrics, "GROSS WITHDRAWAL", Cash(cycle.GrossWithdrawals), Gold);
-                CycleMetric(metrics, "CASH AFTER SHARE", Cash(cycle.NetCashAfterShare), Green);
-                CycleMetric(metrics, "ALL COST THROUGH DATE", Cash(cycle.CumulativeEvaluationCostThroughDate), Orchid);
-                CycleMetric(metrics, "FULL NET THROUGH DATE", Cash(cycle.CumulativeFullNetCashAfterAllCosts), cycle.CumulativeFullNetCashAfterAllCosts < 0 ? Red : Green);
-                Grid.SetRow(metrics, 1); card.Children.Add(metrics);
-                var states = Txt("COST ON THIS DATE " + Cash(cycle.EvaluationCostOnDate) + " • EVAL PURCHASES " + cycle.EvaluationPurchases + " • CLOSE STATES: FUNDED " + cycle.FundedAtClose + " • BELOW PAYOUT GOAL " + cycle.FundedBelowPayoutGoal + " • EVAL " + cycle.EvaluationInProgress + " • REPLACEMENT " + cycle.ReplacementNextSession + " • ENDED " + cycle.TerminalBlown, Cyan, 10, FontWeights.Bold); states.Margin = new Thickness(7, 0, 7, 5); states.TextWrapping = TextWrapping.Wrap; Grid.SetRow(states, 2); card.Children.Add(states);
-                payoutCycleDashboardStack.Children.Add(new Border { Background = Panel, BorderBrush = cycle.NetCashAfterEvaluationCost < 0 ? Red : Cyan, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(5), Margin = new Thickness(2), Child = card });
+                var row = new Grid { Margin = new Thickness(2) };
+                foreach (double w in new[] { 1.1, 1.0, 1.0, 1.0, 1.2 }) row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(w, GridUnitType.Star) });
+                Action<int, string, string, Brush> cell = (c, label, value, brush) =>
+                {
+                    var st = new StackPanel { Margin = new Thickness(6, 3, 6, 3) };
+                    st.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold });
+                    st.Children.Add(new TextBlock { Text = value, Foreground = brush, FontSize = 14, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap });
+                    Grid.SetColumn(st, c); row.Children.Add(st);
+                };
+                cell(0, "CYCLE " + cycle.CycleNumber, cycle.Day.ToString("yyyy-MM-dd"), Gold);
+                cell(1, "ACCOUNTS PAID", cycle.PayoutAccounts.ToString(CultureInfo.InvariantCulture), Blue);
+                cell(2, "TO BANK THIS DATE", Cash(cycle.NetCashAfterShare), Green);
+                cell(3, "SPENT SO FAR", Cash(cycle.CumulativeEvaluationCostThroughDate), Orchid);
+                cell(4, "NET SO FAR", Cash(cycle.CumulativeFullNetCashAfterAllCosts), cycle.CumulativeFullNetCashAfterAllCosts < 0 ? Red : Green);
+                var rowBorder = new Border { Background = Panel, BorderBrush = cycle.CumulativeFullNetCashAfterAllCosts < 0 ? Red : Cyan, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Margin = new Thickness(2), Child = row };
+                rowBorder.ToolTip = "PAID: " + string.Join(", ", cycle.PayoutContributors ?? new List<string>()) + "\nGROSS " + Cash(cycle.GrossWithdrawals) + " • COST ON THIS DATE " + Cash(cycle.EvaluationCostOnDate) + " • ACCOUNTS BOUGHT " + cycle.EvaluationPurchases +
+                    "\nAT THE CLOSE: FUNDED " + cycle.FundedAtClose + " • BELOW PAYOUT GOAL " + cycle.FundedBelowPayoutGoal + " • IN EVALUATION " + cycle.EvaluationInProgress;
+                payoutCycleDashboardStack.Children.Add(rowBorder);
             }
-            payoutCycleDashboardStack.Children.Add(new Border { Background = Card, BorderBrush = Green, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(5), Margin = new Thickness(3), Padding = new Thickness(7), Child = Txt("TOTAL SHOWN • GROSS " + Cash(cycles.Sum(x => x.GrossWithdrawals)) + " • AFTER SHARE " + Cash(cycles.Sum(x => x.NetCashAfterShare)) + " • EVAL COST RECORDED ON PAYOUT DATES " + Cash(cycles.Sum(x => x.EvaluationCostOnDate)) + " • NET AFTER THOSE DATE COSTS " + Cash(cycles.Sum(x => x.NetCashAfterEvaluationCost)), Green, 11, FontWeights.Bold) });
         }
 
         private void RenderPayoutAccountDashboard()
@@ -11807,35 +11826,85 @@ namespace NinjaTrader.NinjaScript.AddOns
                     : "NO ACCOUNTS REACHED A FIRST PAYOUT IN THIS SELECTED RANGE. Unpaid accounts remain available in POOL DASHBOARD and LIFECYCLE WALKTHROUGH; the first-return view intentionally lists paid accounts only.", Muted, 11, FontWeights.Bold));
                 return;
             }
-            DateTime earliest = rows.Min(x => x.FirstPayoutDate);
-            firstReturnDashboardStack.Children.Add(Txt("PAID ACCOUNTS " + rows.Count + " • EARLIEST FIRST PAYOUT " + earliest.ToString("yyyy-MM-dd") + " • select an account for its full first-return and period summary.", Gold, 11, FontWeights.Bold));
-            var body = new Grid { Margin = new Thickness(2) };
-            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.70, GridUnitType.Star) });
-            body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.30, GridUnitType.Star) });
-            firstReturnAccountList = new ListBox { Background = Panel, Foreground = Text, BorderBrush = Gold, BorderThickness = new Thickness(1.5), Margin = new Thickness(2), MinHeight = 160 };
-            ScrollViewer.SetVerticalScrollBarVisibility(firstReturnAccountList, ScrollBarVisibility.Auto);
-            for (int i = 0; i < rows.Count; i++) firstReturnAccountList.Items.Add(rows[i].Account + " • " + rows[i].FirstPayoutDate.ToString("yyyy-MM-dd"));
-            firstReturnDetailText = Txt("Select a paid account.", Text, 11, FontWeights.Bold); firstReturnDetailText.TextWrapping = TextWrapping.Wrap;
-            var detailScroll = new ScrollViewer { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1.5), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = firstReturnDetailText, Margin = new Thickness(2), MinHeight = 160 };
-            firstReturnAccountList.SelectionChanged += delegate
+            // Summary, how fast accounts reach the first payout, then one card per paid account.
+            var byName = accounts.ToDictionary(a => a.Name, a => a, StringComparer.OrdinalIgnoreCase);
+            Func<KeystoneArcFirstReturnRow, KeystoneArcVirtualAccount> acct = r => { KeystoneArcVirtualAccount a; return byName.TryGetValue(r.Account ?? string.Empty, out a) ? a : null; };
+            string sort = string.IsNullOrEmpty(firstReturnSort) ? "FASTEST FIRST" : firstReturnSort;
+            if (sort == "MOST PAYOUTS") rows = rows.OrderByDescending(r => acct(r) == null ? 0 : acct(r).Payouts).ThenBy(r => r.CalendarDaysFromInitial).ToList();
+            else if (sort == "HIGHEST NET") rows = rows.OrderByDescending(r => acct(r) == null ? 0 : acct(r).PayoutCash - acct(r).EvaluationCost).ToList();
+            else if (sort == "ACCOUNT NAME") rows = rows.OrderBy(r => r.Account, StringComparer.OrdinalIgnoreCase).ToList();
+            else rows = rows.OrderBy(r => r.CalendarDaysFromInitial).ThenBy(r => r.Account, StringComparer.OrdinalIgnoreCase).ToList();
+            var headRow = new WrapPanel { Margin = new Thickness(2, 2, 2, 4) };
+            headRow.Children.Add(Txt("PAID " + rows.Count + " OF " + accounts.Count + " ACCOUNTS • earliest first payout " + rows.Min(x => x.FirstPayoutDate).ToString("yyyy-MM-dd") + "   SORT:", Gold, 11, FontWeights.Bold));
+            var sortBox = Select("FASTEST FIRST", "MOST PAYOUTS", "HIGHEST NET", "ACCOUNT NAME"); sortBox.SelectedItem = sort; sortBox.Width = 170; sortBox.Height = 24;
+            sortBox.SelectionChanged += delegate { string pick = Convert.ToString(sortBox.SelectedItem); if (pick != firstReturnSort) { firstReturnSort = pick; RenderFirstReturnDashboard(); } };
+            headRow.Children.Add(sortBox);
+            firstReturnDashboardStack.Children.Add(headRow);
+            List<int> dayList = rows.Select(r => r.CalendarDaysFromInitial).ToList();
+            var tiles = new UniformGrid { Columns = 7, Margin = new Thickness(2, 0, 2, 4) };
+            CycleMetric(tiles, "PAID ACCOUNTS", rows.Count + " / " + accounts.Count, Gold, "Accounts that reached at least one payout in this range.");
+            CycleMetric(tiles, "FASTEST FIRST PAYOUT", dayList.Min() + " days", Green, "Calendar days from the account's start to its first payout — the quickest account.");
+            CycleMetric(tiles, "AVERAGE", dayList.Average().ToString("0", CultureInfo.InvariantCulture) + " days", Cyan, "Average calendar days from start to the first payout.");
+            CycleMetric(tiles, "SLOWEST", dayList.Max() + " days", Orange, "The slowest paid account.");
+            CycleMetric(tiles, "COST TO FIRST PAYOUT", Cash(rows.Average(r => r.EvaluationCostThroughFirstPayout)), Orchid, "Average money spent on that account (incl. replacements) until its first payout.");
+            CycleMetric(tiles, "FIRST PAYOUT", Cash(rows.Average(r => r.FirstPayoutCashAfterShare)), Gold, "Average first payout cash after the account share.");
+            CycleMetric(tiles, "NEVER PAID", (accounts.Count - rows.Count).ToString(CultureInfo.InvariantCulture), accounts.Count - rows.Count > 0 ? Red : Muted, "Accounts with no payout in this range (see POOL DASHBOARD / LIFECYCLE WALKTHROUGH).");
+            firstReturnDashboardStack.Children.Add(tiles);
+            // Days-to-first-payout distribution.
+            int[] edges = { 14, 30, 45, 60, 90, int.MaxValue }; string[] names = { "≤ 14 d", "15–30 d", "31–45 d", "46–60 d", "61–90 d", "90+ d" };
+            int[] counts = new int[edges.Length];
+            foreach (int d in dayList) for (int b = 0; b < edges.Length; b++) if (d <= edges[b]) { counts[b]++; break; }
+            var chart = new Grid { Height = 118, Margin = new Thickness(8, 2, 8, 2) };
+            for (int b = 0; b < edges.Length; b++)
             {
-                if (firstReturnAccountUpdating || firstReturnAccountList.SelectedIndex < 0 || firstReturnAccountList.SelectedIndex >= rows.Count) return;
-                KeystoneArcFirstReturnRow row = rows[firstReturnAccountList.SelectedIndex];
-                KeystoneArcVirtualAccount account = accounts.FirstOrDefault(x => string.Equals(x.Name, row.Account, StringComparison.OrdinalIgnoreCase));
-                RenderFirstReturnAccountDetail(account, row, startLabel);
-                int poolIndex = accounts.IndexOf(account);
-                if (poolIndex >= 0 && poolAccountList != null) poolAccountList.SelectedIndex = poolIndex;
-            };
-            body.Children.Add(firstReturnAccountList); Grid.SetColumn(detailScroll, 1); body.Children.Add(detailScroll);
-            firstReturnDashboardStack.Children.Add(body);
-            firstReturnAccountUpdating = true;
-            try { firstReturnAccountList.SelectedIndex = 0; }
-            finally { firstReturnAccountUpdating = false; }
-            if (rows.Count > 0)
-            {
-                KeystoneArcVirtualAccount first = accounts.FirstOrDefault(x => string.Equals(x.Name, rows[0].Account, StringComparison.OrdinalIgnoreCase));
-                RenderFirstReturnAccountDetail(first, rows[0], startLabel);
+                chart.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                var col = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(6, 0, 6, 0) };
+                col.Children.Add(new TextBlock { Text = counts[b].ToString(CultureInfo.InvariantCulture), Foreground = counts[b] > 0 ? Text : Muted, FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center });
+                col.Children.Add(new Border { Height = Math.Max(2, 70.0 * counts[b] / Math.Max(1, counts.Max())), Background = counts[b] > 0 ? Gold : Card, CornerRadius = new CornerRadius(3, 3, 0, 0) });
+                col.Children.Add(new TextBlock { Text = names[b], Foreground = Muted, FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center });
+                Grid.SetColumn(col, b); chart.Children.Add(col);
             }
+            var chartStack = new StackPanel(); chartStack.Children.Add(Txt("HOW LONG UNTIL THE FIRST PAYOUT • number of accounts", Cyan, 11, FontWeights.Bold)); chartStack.Children.Add(chart);
+            // Selected account detail next to the chart.
+            firstReturnDetailText = Txt("Click an account card below.", Text, 11, FontWeights.Bold); firstReturnDetailText.TextWrapping = TextWrapping.Wrap;
+            var middle = new Grid { Margin = new Thickness(2) };
+            middle.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.9, GridUnitType.Star) }); middle.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
+            middle.Children.Add(new Border { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(6), Margin = new Thickness(2), Child = chartStack });
+            var detailBorder = new Border { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(5), Padding = new Thickness(8), Margin = new Thickness(2), Child = firstReturnDetailText };
+            Grid.SetColumn(detailBorder, 1); middle.Children.Add(detailBorder);
+            firstReturnDashboardStack.Children.Add(middle);
+            bool identical = rows.Count > 1 && rows.Select(r => r.FirstPayoutDate).Distinct().Count() == 1 && rows.Select(r => acct(r) == null ? 0 : Math.Round(acct(r).PayoutCash)).Distinct().Count() == 1;
+            if (identical) firstReturnDashboardStack.Children.Add(Txt("ALL " + rows.Count + " PAID ACCOUNTS ARE IDENTICAL (copy trading: every account took the same trades) — this is one account's result shown " + rows.Count + " times.", Orange, 11, FontWeights.Bold));
+            var cards = new WrapPanel { Margin = new Thickness(2) };
+            for (int i = 0; i < rows.Count; i++)
+            {
+                KeystoneArcFirstReturnRow row = rows[i]; KeystoneArcVirtualAccount a = acct(row);
+                double net = a == null ? row.FullNetReturnAfterAllCosts : a.PayoutCash - a.EvaluationCost;
+                Brush accent = row.CalendarDaysFromInitial <= 30 ? Green : (row.CalendarDaysFromInitial <= 60 ? Gold : Orange);
+                var body = new StackPanel();
+                body.Children.Add(new Border { Background = accent, CornerRadius = new CornerRadius(3, 3, 0, 0), Padding = new Thickness(7, 2, 7, 2), Child = new TextBlock { Text = row.Account + " • " + row.CalendarDaysFromInitial + " DAYS TO FIRST PAYOUT", Foreground = Bg, FontSize = 11, FontWeight = FontWeights.Bold } });
+                body.Children.Add(new TextBlock { Text = "first " + row.FirstPayoutDate.ToString("yyyy-MM-dd") + " • " + Cash(row.FirstPayoutCashAfterShare), Foreground = Text, FontSize = 11, Margin = new Thickness(7, 3, 7, 0) });
+                body.Children.Add(new TextBlock { Text = (a == null ? 0 : a.Payouts) + " payouts • net " + Cash(net), Foreground = net >= 0 ? Green : Red, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(7, 1, 7, 4) });
+                var card = new Button { Content = body, Width = 250, Margin = new Thickness(3), Padding = new Thickness(0), Background = Card, BorderBrush = accent, BorderThickness = new Thickness(1.5), HorizontalContentAlignment = HorizontalAlignment.Stretch };
+                KeystoneArcFirstReturnRow picked = row;
+                card.Click += delegate
+                {
+                    KeystoneArcVirtualAccount account = acct(picked);
+                    RenderFirstReturnAccountDetail(account, picked, startLabel);
+                    int poolIndex = account == null ? -1 : accounts.IndexOf(account);
+                    if (poolIndex >= 0 && poolAccountList != null) poolAccountList.SelectedIndex = poolIndex;
+                };
+                cards.Children.Add(card);
+            }
+            firstReturnDashboardStack.Children.Add(Txt("PAID ACCOUNTS • click one • green ≤ 30 days, gold ≤ 60 days, orange slower", Gold, 11, FontWeights.Bold));
+            firstReturnDashboardStack.Children.Add(cards);
+            RenderFirstReturnAccountDetail(acct(rows[0]), rows[0], startLabel);
+        }
+
+        private string StrategyDisplayName()
+        {
+            string code = config == null ? "BH" : (config.StrategyCode ?? "BH").ToUpperInvariant();
+            return code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : "BH");
         }
 
         private void RenderFirstReturnAccountDetail(KeystoneArcVirtualAccount account, KeystoneArcFirstReturnRow row, string startLabel)
@@ -14375,7 +14444,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string BuildEvidenceStudyLabel()
         {
             if (config == null || config.Start == DateTime.MinValue) return "CURRENT TEST RANGE • not configured";
-            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"));
+            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")));
             return "CURRENT TEST RANGE • " + SessionDateLabel(config) + " • " + config.Scope + " • " + config.SessionMode + " • " + config.SetupMinutes + "-MINUTE SETUPS • " + setup + " • SELECT A DATE TAB BELOW TO INSPECT ONE COMPLETE SESSION";
         }
         private static void GetConfiguredSessionBounds(DateTime firstDate, DateTime lastDate, KeystoneArcRunConfig cfg, out DateTime start, out DateTime end)

@@ -135,3 +135,10 @@ and chart labels differ per strategy.
 - [x] Report + AI: OPTIMAL BEST ENTRIES FOR PROP, strategy / account comparisons, payout diagnosis
 - [ ] Next: BH best session / timeframe per day (E), 123 bullish engulfing (G), lifecycle
       walkthrough per day/week/month (C), prop firm colours / names (C)
+
+## J. Build 27h (2026-09-27)
+- [x] DIRECT FUNDED block (account cost, replacement cost, days until funded again); no evaluation
+      stage in direct mode; evaluation settings only shown for EVALUATION FIRST
+- [x] First Return redesign (summary, days-to-first-payout chart, sortable account cards)
+- [x] Payout Cycles: WHAT MATTERS strip + one compact row per payout date
+- [x] Asian: no grade / stop-target suggestions, strategy names fixed in findings and chart
