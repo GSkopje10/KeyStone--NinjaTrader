@@ -31,5 +31,8 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
 - `tests/build_engine.sh tests/Asian75EngineTests.cs` — compiles the engine block of
   `src/KeyStone.cs` with mono and runs the Asian/optimizer/MGC-roll tests.
 - `mcs --parse src/KeyStone.cs` — syntax check of the whole file.
+- `tests/fullcompile/compile.sh` — compiles the WHOLE file (engine + WPF lab + chart) against
+  stand-in WPF / NinjaTrader stubs. Add a stub member when new code uses a new API; keep real
+  names and signatures. Catches type/scope errors; the real compile is still the user's F5.
 - UI code cannot be fully compiled here (no WPF/NinjaTrader assemblies); compile new UI methods
   against small WPF stand-ins before pushing, and state that the real compile is the user's F5.
