@@ -3841,6 +3841,56 @@ namespace NinjaTrader.NinjaScript
         }
     }
     // One pool scenario result for the account-count / allocation comparison.
+    // Every time an account was funded: how long it stayed funded, how close it came to the payout
+    // balance and whether it was ever paid. Rebuilt from the per-day account records (no engine change).
+    public sealed class KeystoneArcFundedEpisodes
+    {
+        public int Episodes, Paid, NeverPaid, StillOpen, ReachedThresholdNoPayout;
+        public double AverageDays, AveragePeak, BestPeak, AveragePeakPercent;
+        public string BestAccount = string.Empty;
+
+        public static KeystoneArcFundedEpisodes Build(List<KeystoneArcVirtualAccount> accounts, KeystoneArcRunConfig cfg)
+        {
+            var x = new KeystoneArcFundedEpisodes();
+            if (accounts == null) return x;
+            var days = new List<double>(); var peaks = new List<double>();
+            foreach (var a in accounts.Where(a => a != null && a.DayHistory != null))
+            {
+                bool open = false; DateTime start = DateTime.MinValue, last = DateTime.MinValue; double peak = 0; int payoutsAtStart = 0, payoutsNow = 0;
+                Action close = () =>
+                {
+                    x.Episodes++; days.Add(Math.Max(1, (last - start).TotalDays + 1)); peaks.Add(peak);
+                    if (payoutsNow > payoutsAtStart) x.Paid++; else { x.NeverPaid++; if (cfg != null && cfg.PayoutThreshold > 0 && peak >= cfg.PayoutThreshold) x.ReachedThresholdNoPayout++; }
+                    if (peak > x.BestPeak) { x.BestPeak = peak; x.BestAccount = a.Name; }
+                };
+                foreach (var d in a.DayHistory.OrderBy(d => d.Day))
+                {
+                    bool funded = d.FundedAfter && !d.BlownAfter;
+                    if (!open && funded)
+                    { open = true; start = d.Day; peak = d.FundedBalanceAfter; payoutsAtStart = d.PayoutsAfter - (d.PayoutGrossDelta > 0 ? 1 : 0); }
+                    if (open)
+                    {
+                        last = d.Day; payoutsNow = d.PayoutsAfter; peak = Math.Max(peak, d.FundedBalanceAfter + d.PayoutGrossDelta);
+                        if (!funded) { close(); open = false; }
+                    }
+                }
+                if (open) { close(); x.StillOpen++; if (payoutsNow <= payoutsAtStart) x.NeverPaid--; }
+            }
+            if (x.Episodes > 0) { x.AverageDays = days.Average(); x.AveragePeak = peaks.Average(); }
+            if (cfg != null && cfg.PayoutThreshold > 0) x.AveragePeakPercent = 100.0 * x.AveragePeak / cfg.PayoutThreshold;
+            return x;
+        }
+
+        public string Line(KeystoneArcRunConfig cfg)
+        {
+            if (Episodes == 0) return "FUNDED • no account was funded in this range";
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            return "FUNDED " + Episodes + " TIME" + (Episodes == 1 ? "" : "S") + " • PAID " + Paid + " • FUNDED BUT NEVER PAID (blown) " + NeverPaid + (StillOpen > 0 ? " • STILL FUNDED AT THE END " + StillOpen : "") +
+                " • stayed funded ~" + AverageDays.ToString("0", CultureInfo.InvariantCulture) + " days • highest balance reached: average " + m(AveragePeak) + " (" + AveragePeakPercent.ToString("0", CultureInfo.InvariantCulture) + "% of the " + m(cfg == null ? 0 : cfg.PayoutThreshold) + " payout balance), best " + m(BestPeak) + " (" + BestAccount + ")" +
+                (ReachedThresholdNoPayout > 0 ? " • " + ReachedThresholdNoPayout + " reached the payout balance but lacked qualifying days" : "");
+        }
+    }
+
     public sealed class KeystoneArcPoolScenario
     {
         public string Label = string.Empty; public int Accounts, GroupSize; public bool Copy;
@@ -3899,10 +3949,13 @@ namespace NinjaTrader.NinjaScript
             var bestAcc = accounts.OrderByDescending(a => a.FundedBalance).First();
             int maxQual = accounts.Max(a => a.FundedPositiveDays);
             if (payouts > 0 && payouts >= accounts.Count) return string.Empty;
+            bool copyAll = cfg.CopyTradingPool > 0 || string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
             var sb = new StringBuilder("WHY " + (payouts == 0 ? "NO PAYOUT" : "FEW PAYOUTS") + " • each account took ~" + avgTrades.ToString("0", CultureInfo.InvariantCulture) + " trades and averaged " + m(avgPnl));
+            if (copyAll && accounts.Count > 1) sb.Append(" • COPY: all " + accounts.Count + " accounts trade the same thing, so this is ONE result repeated " + accounts.Count + " times — more accounts multiply the cost of a losing strategy, they do not change the result");
             sb.Append(" • a payout needs a funded balance of " + m(cfg.PayoutThreshold) + " and " + cfg.PayoutDaysRequired + " qualifying days (≥ " + m(cfg.MinimumQualifyingDayProfit) + ")");
             sb.Append(" • best: " + bestAcc.Name + " at " + m(bestAcc.FundedBalance) + ", most qualifying days " + maxQual);
-            sb.Append(avgTrades < 25 ? " → too few trades per account: use FEWER ACCOUNTS or COPY GROUPS (COMPARE ACCOUNTS shows which is best)" : " → the strategy result per account is too small or blows up first: check the stop / target and daily loss");
+            sb.Append("\n" + KeystoneArcFundedEpisodes.Build(accounts, cfg).Line(cfg));
+            sb.Append(avgPnl < 0 ? " → the strategy itself lost money per account (" + m(avgPnl) + "): fix the strategy first (COMPARE MNQ vs MGC, COMPARE TIMEFRAMES / optimizer), accounts cannot fix a losing edge" : avgTrades < 25 ? " → too few trades per account: use FEWER ACCOUNTS or COPY GROUPS (COMPARE ACCOUNTS shows which is best)" : " → the strategy result per account is too small or blows up first: check the stop / target and daily loss");
             return sb.ToString();
         }
     }
@@ -4222,6 +4275,8 @@ namespace NinjaTrader.NinjaScript
                     string where = x.EvaluationFails >= x.FundedBlowups ? "mostly during evaluations (" + x.EvaluationFails + " of " + x.BlowupEvents + ")" : "mostly on funded accounts (" + x.FundedBlowups + " of " + x.BlowupEvents + ")";
                     Add(list, x.BlowupEvents > x.Payouts ? "WARN" : "IDEA", "BLOWUPS", x.BlowupEvents + " blowups, " + where + ". " + (x.FundedBlowups > x.EvaluationFails ? "Funded accounts blow before reaching the payout balance: a lower payout balance or smaller size would convert more of them." : "Evaluations fail more than they pass: consider passing evaluations with a steadier setting and trading the funded stage with this one."));
                 }
+                KeystoneArcFundedEpisodes funded = KeystoneArcFundedEpisodes.Build(acc, cfg);
+                if (funded.Episodes > 0) Add(list, funded.NeverPaid > funded.Paid ? "WARN" : "IDEA", "FUNDED BUT NEVER PAID", funded.Line(cfg) + (funded.NeverPaid > funded.Paid && funded.AveragePeakPercent < 60 ? ". Funded accounts die far from the payout balance: the strategy's drawdown is bigger than the funded room — smaller size or a lower-risk setting for the funded stage." : funded.NeverPaid > funded.Paid ? ". They get close and then blow: a lower payout balance / earlier withdrawal or a daily profit cap near the target would convert more of them." : "."));
                 if (cfg.EvaluationEnabled > 0 && x.EvaluationPurchases > 0)
                     Add(list, "IDEA", "PASS RATE", P(100.0 * x.EvaluationPasses / x.EvaluationPurchases) + " of bought evaluations passed (" + x.EvaluationPasses + " / " + x.EvaluationPurchases + "). Compare with START = DIRECT FUNDED to see the cost of the evaluation stage.");
             }
@@ -4523,7 +4578,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-27f • ONE START BUTTON • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-27g • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • ONE START BUTTON • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -6647,7 +6702,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             resultViews.Items.Add(payoutCycleResultsTab);
             // Pool Settings is always the safe default: select assumptions before inspecting results.
             resultViews.SelectedIndex = 0;
-            Border resultsCard = PanelCard(root);
+            // The summary above the tabs grew (comparisons, why-no-payout, top boxes), which left the
+            // tabs tiny. The results page now scrolls as one page and the tab area is always one
+            // full window tall: scroll down past the summary and every tab has the whole screen.
+            // Inner lists keep their own scrollbars because the tab area has a fixed height.
+            var resultsPage = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+            resultViews.Height = 620;
+            resultsPage.SizeChanged += delegate { if (resultsPage.ActualHeight > 200) resultViews.Height = Math.Max(480, resultsPage.ActualHeight - 12); };
+            Border resultsCard = PanelCard(resultsPage);
             resultsCard.VerticalAlignment = VerticalAlignment.Stretch;
             resultsCard.HorizontalAlignment = HorizontalAlignment.Stretch;
             return resultsCard;

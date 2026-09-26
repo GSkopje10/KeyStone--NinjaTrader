@@ -277,6 +277,19 @@ public static class LifecycleTests
             Check(plan.Cards.Any(c => c.Title == "DOUBLE TROUBLE"), "double trouble stats included");
             Check(plan.Headline.StartsWith("PROP PLAN"), "headline states the plan", plan.Headline);
         }
+        // 20. Funded episodes: funded but never paid, how close to the payout balance.
+        {
+            foreach (int ds in new[] { 5, 8, 11, -5, -8 })
+            {
+                var cfg = LifecycleSnapshot.Cfg("BH", 1, 0, 0); cfg.PoolSize = 5;
+                if (ds < 0) { cfg.FundedFailure = 700; cfg.PayoutThreshold = 6000; }
+                var acc = KeystoneArcEngine.SimulatePool(LifecycleSnapshot.BhEvents(Math.Abs(ds)), cfg);
+                var f = KeystoneArcFundedEpisodes.Build(acc, cfg);
+                Console.WriteLine(f.Line(cfg) + "   | passes " + acc.Sum(a => a.EvaluationPasses) + " funded blowups " + acc.Sum(a => a.FailedFunded) + " payouts " + acc.Sum(a => a.Payouts) + " funded now " + acc.Count(a => a.Funded && !a.Blown));
+                Check(f.Episodes == acc.Sum(a => a.EvaluationPasses) && f.Paid + f.NeverPaid + f.StillOpen >= f.Episodes - f.Paid && f.StillOpen == acc.Count(a => a.Funded && !a.Blown) && f.NeverPaid <= acc.Sum(a => a.FailedFunded),
+                    "funded episodes = evaluation passes; never-paid ≤ funded blowups; open = funded now (seed " + ds + ")");
+            }
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
