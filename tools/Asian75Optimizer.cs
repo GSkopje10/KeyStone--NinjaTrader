@@ -74,7 +74,7 @@ public static class Asian75Optimizer
     {
         foreach (string p in paths)
         {
-            if (Directory.Exists(p)) { foreach (string f in Directory.GetFiles(p).Where(f => f.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)).OrderBy(f => f)) yield return f; }
+            if (Directory.Exists(p)) { foreach (string f in Directory.GetFiles(p).Where(f => f.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".txt.gz", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)).OrderBy(f => f)) yield return f; }
             else if (File.Exists(p)) yield return p;
             else Console.WriteLine("WARNING missing path " + p);
         }
@@ -104,10 +104,22 @@ public static class Asian75Optimizer
         return chosen.Values.SelectMany(x => x).OrderBy(b => b.Time).ToList();
     }
 
+    // Plain text or the lab's EXPORT FOR CLAUDE files (*.txt.gz).
+    static IEnumerable<string> ReadLines(string path)
+    {
+        if (!path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase)) { foreach (string l in File.ReadLines(path)) yield return l; yield break; }
+        using (var fs = File.OpenRead(path))
+        using (var gz = new System.IO.Compression.GZipStream(fs, System.IO.Compression.CompressionMode.Decompress))
+        using (var r = new StreamReader(gz))
+        {
+            string line; while ((line = r.ReadLine()) != null) yield return line;
+        }
+    }
+
     static List<KeystoneArcBar> ParseFile(string path, string symbol)
     {
         var list = new List<KeystoneArcBar>();
-        foreach (string line in File.ReadLines(path))
+        foreach (string line in ReadLines(path))
         {
             string t = line.Trim(); if (t.Length == 0) continue;
             string[] p = t.Split(t.Contains(";") ? ';' : ',');

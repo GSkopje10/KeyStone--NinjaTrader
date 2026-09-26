@@ -5546,6 +5546,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             viewMnqButton = Btn("MNQ", Blue); viewMgcButton = Btn("MGC", Gold); viewBothButton = Btn("BOTH", Cyan); compareInstrumentsButton = Btn("COMPARE MNQ vs MGC vs BOTH", Orchid);
             foreach (Button b in new[] { viewMnqButton, viewMgcButton, viewBothButton }) { b.Height = 27; b.Width = 78; b.Margin = new Thickness(2, 0, 2, 0); b.IsEnabled = false; clearRow.Children.Add(b); }
             compareInstrumentsButton.Height = 27; compareInstrumentsButton.Margin = new Thickness(8, 0, 2, 0); compareInstrumentsButton.IsEnabled = false; clearRow.Children.Add(compareInstrumentsButton);
+            var claudeExportButton = Btn("EXPORT FOR CLAUDE", Gold); claudeExportButton.Height = 27; claudeExportButton.Margin = new Thickness(8, 0, 2, 0); claudeExportButton.Click += delegate { ExportForClaude(); };
+            claudeExportButton.ToolTip = "Saves the loaded bars, settings, ledger and results summary to Documents\\KeystoneArc5MResearch\\ClaudeExport. Upload that folder's files to the GitHub repo (data/ folder) so Claude can optimise on your real data.";
+            clearRow.Children.Add(claudeExportButton);
             viewMnqButton.Click += delegate { SwitchInstrumentView("MNQ"); }; viewMgcButton.Click += delegate { SwitchInstrumentView("MGC"); }; viewBothButton.Click += delegate { SwitchInstrumentView("BOTH"); };
             compareInstrumentsButton.Click += delegate { CompareInstrumentPools(); };
             viewMnqButton.ToolTip = "Show and re-run the pool with only MNQ, using the same settings and the data already loaded."; viewMgcButton.ToolTip = "Show and re-run the pool with only MGC."; viewBothButton.ToolTip = "Both instruments: BH setups go to the next available account; Asian trades both together.";
@@ -8081,6 +8084,63 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
 
         private string lastInstrumentComparison = string.Empty;
+
+        // One folder with everything needed to re-run and optimise this study outside NinjaTrader:
+        // the loaded bars (NinjaTrader export format, gzip), every setting, the ledger and a summary.
+        private void ExportForClaude()
+        {
+            if (operationBusy || isProcessing) { UpdateUi("WAIT FOR THE CURRENT OPERATION TO FINISH", Gold); return; }
+            if ((mnqBars == null || mnqBars.Count == 0) && (mgcBars == null || mgcBars.Count == 0)) { UpdateUi("LOAD A TEST FIRST • nothing to export yet", Gold); return; }
+            KeystoneArcRunConfig cfg = CloneConfig(config);
+            var bars = new List<Tuple<string, List<KeystoneArcBar>>>();
+            if (mnqBars != null && mnqBars.Count > 0) bars.Add(Tuple.Create("MNQ_1m", mnqBars.ToList()));
+            if (mgcBars != null && mgcBars.Count > 0) bars.Add(Tuple.Create("MGC_1m", mgcBars.ToList()));
+            if (cfg.SetupMinutes > 1 && mnqSetupBars != null && mnqSetupBars.Count > 0) bars.Add(Tuple.Create("MNQ_" + cfg.SetupMinutes + "m", mnqSetupBars.ToList()));
+            if (cfg.SetupMinutes > 1 && mgcSetupBars != null && mgcSetupBars.Count > 0) bars.Add(Tuple.Create("MGC_" + cfg.SetupMinutes + "m", mgcSetupBars.ToList()));
+            List<KeystoneArcEvent> ledger = (loadedEvents != null && loadedEvents.Count > 0 ? loadedEvents : events).ToList();
+            List<KeystoneArcVirtualAccount> acc = accounts.ToList();
+            string ledgerCsv = EventCsv(ledger);
+            string study = BuildStudyScopeLabel();
+            BeginBusy("EXPORTING FOR CLAUDE");
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                string folder;
+                try
+                {
+                    folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArc5MResearch", "ClaudeExport",
+                        (cfg.StrategyCode ?? "BH") + "_" + (cfg.Scope ?? "") + "_" + cfg.Start.ToString("yyyyMMdd") + "_" + cfg.End.ToString("yyyyMMdd") + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+                    Directory.CreateDirectory(folder);
+                    foreach (var b in bars)
+                    {
+                        using (var fs = File.Create(Path.Combine(folder, b.Item1 + ".txt.gz")))
+                        using (var gz = new System.IO.Compression.GZipStream(fs, System.IO.Compression.CompressionMode.Compress))
+                        using (var w = new StreamWriter(gz, new UTF8Encoding(false)))
+                            foreach (KeystoneArcBar x in b.Item2.OrderBy(v => v.Time))
+                                w.WriteLine(x.Time.ToString("yyyyMMdd HHmmss", CultureInfo.InvariantCulture) + ";" + x.Open.ToString(CultureInfo.InvariantCulture) + ";" + x.High.ToString(CultureInfo.InvariantCulture) + ";" + x.Low.ToString(CultureInfo.InvariantCulture) + ";" + x.Close.ToString(CultureInfo.InvariantCulture) + ";" + x.Volume.ToString(CultureInfo.InvariantCulture));
+                    }
+                    var settings = new StringBuilder("# Keystone Arc settings for this export (" + KeystoneBuild + ")\n# " + study + "\n");
+                    foreach (var f in typeof(KeystoneArcRunConfig).GetFields().OrderBy(f => f.Name))
+                    {
+                        object v = f.GetValue(cfg);
+                        settings.AppendLine(f.Name + "=" + (v is DateTime ? ((DateTime)v).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) : Convert.ToString(v, CultureInfo.InvariantCulture)));
+                    }
+                    File.WriteAllText(Path.Combine(folder, "settings.txt"), settings.ToString(), Encoding.UTF8);
+                    File.WriteAllText(Path.Combine(folder, "ledger.csv"), ledgerCsv, Encoding.UTF8);
+                    var summary = new StringBuilder("KEYSTONE ARC • EXPORT FOR CLAUDE\n" + study + "\nTimes are New York (ET); bars are NinjaTrader close-stamped.\n\n");
+                    KeystoneArcCapitalPolicySummary capital = acc.Count > 0 ? KeystoneArcEngine.BuildCapitalPolicySummary(acc, cfg) : null;
+                    if (acc.Count > 0) summary.AppendLine(KeystoneArcPoolInsights.InvestmentAnswer(capital, KeystoneArcPoolInsights.Build(acc, null, cfg))).AppendLine();
+                    foreach (KeystoneArcInsight f in KeystoneArcAnalyst.Analyze(acc, ledger, cfg, capital)) summary.AppendLine("[" + f.Level + "] " + f.Title + ": " + f.Text);
+                    summary.AppendLine();
+                    foreach (KeystoneArcInstrumentStats x in KeystoneArcPoolInsights.InstrumentStats(ledger, cfg)) summary.AppendLine(x.Symbol + " setups " + x.Setups + " W " + x.Wins + " L " + x.Losses + " P/L " + x.Pnl.ToString("0", CultureInfo.InvariantCulture) + " max DD " + x.MaxDrawdown.ToString("0", CultureInfo.InvariantCulture));
+                    if (!string.IsNullOrEmpty(lastInstrumentComparison)) summary.AppendLine().AppendLine(lastInstrumentComparison);
+                    summary.AppendLine().AppendLine(KeystoneArcScoreboard.Report(KeystoneArcScoreboard.Days(ledger, cfg), cfg));
+                    File.WriteAllText(Path.Combine(folder, "summary.txt"), summary.ToString(), Encoding.UTF8);
+                    File.WriteAllText(Path.Combine(folder, "README.txt"), "Upload every file in this folder to the KeyStone--NinjaTrader repo on github.com:\n1. Open the repo, go to the data/ folder (create it with Add file → Create new file → data/README.md if missing).\n2. Add file → Upload files → drag these files in → Commit changes.\n3. Tell Claude the folder name: " + Path.GetFileName(folder) + "\n\nFiles: *_1m.txt.gz = 1-minute bars (yyyyMMdd HHmmss;open;high;low;close;volume, ET), settings.txt = every lab setting, ledger.csv = every setup/leg with its outcome, summary.txt = results and analysis.\n", Encoding.UTF8);
+                }
+                catch (Exception ex) { DispatchToLab(delegate { EndBusy(); UpdateUi("EXPORT FOR CLAUDE FAILED • " + ex.Message, Red); }); return; }
+                DispatchToLab(delegate { EndBusy(); UpdateUi("EXPORT FOR CLAUDE READY • " + folder + " • upload these files to the repo's data/ folder on github.com (see README.txt)", Green); });
+            });
+        }
 
         private void SimulatePool()
         {
