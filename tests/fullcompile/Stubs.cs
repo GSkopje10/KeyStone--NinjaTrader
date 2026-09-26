@@ -57,6 +57,10 @@ namespace System.Windows
     public class ResourceDictionary : Dictionary<object, object> { }
     public class UIElement : DependencyObject
     {
+        // Stand-in for WPF's single logical parent rule: adding an element that already has a parent throws, as WPF does.
+        internal object StubParent;
+        internal static void Adopt(object parent, object child) { var e = child as UIElement; if (e == null) return; if (e.StubParent != null && !ReferenceEquals(e.StubParent, parent)) throw new InvalidOperationException("Specified element is already the logical child of another element. Disconnect it first. (" + e.GetType().Name + ")"); e.StubParent = parent; }
+        internal static void Release(object child) { var e = child as UIElement; if (e != null) e.StubParent = null; }
         public Visibility Visibility { get; set; }
         public bool IsEnabled { get; set; }
         public bool IsVisible { get { return true; } }
@@ -284,12 +288,20 @@ namespace System.Windows.Controls
     public enum Dock { Left, Top, Right, Bottom }
     public enum Orientation { Horizontal, Vertical }
     public enum SelectionMode { Single, Multiple, Extended }
-    public class UIElementCollection : List<UIElement> { public new int Add(UIElement e) { base.Add(e); return Count - 1; } }
+    public class UIElementCollection : List<UIElement>
+    {
+        internal object Owner;
+        public new int Add(UIElement e) { UIElement.Adopt(Owner, e); base.Add(e); return Count - 1; }
+        public new void Insert(int i, UIElement e) { UIElement.Adopt(Owner, e); base.Insert(i, e); }
+        public new bool Remove(UIElement e) { UIElement.Release(e); return base.Remove(e); }
+        public new void RemoveAt(int i) { UIElement.Release(this[i]); base.RemoveAt(i); }
+        public new void Clear() { foreach (var e in this) UIElement.Release(e); base.Clear(); }
+    }
     public class ItemCollection : List<object> { public new int Add(object o) { base.Add(o); return Count - 1; } }
     public class Panel : FrameworkElement
     {
         private readonly UIElementCollection children = new UIElementCollection();
-        public UIElementCollection Children { get { return children; } }
+        public UIElementCollection Children { get { children.Owner = this; return children; } }
         public Brush Background { get; set; }
         public static void SetZIndex(UIElement e, int z) { }
     }
@@ -320,7 +332,7 @@ namespace System.Windows.Controls
         public event MouseButtonEventHandlerCompat MouseDoubleClick;
     }
     public delegate void MouseButtonEventHandlerCompat(object sender, System.Windows.Input.MouseButtonEventArgs e);
-    public class ContentControl : Control { public object Content { get; set; } }
+    public class ContentControl : Control { private object content; public object Content { get { return content; } set { if (ReferenceEquals(content, value)) return; UIElement.Release(content); UIElement.Adopt(this, value); content = value; } } }
     public class UserControl : ContentControl { }
     public class Label : ContentControl { }
     public class ToolTip : ContentControl { }
@@ -392,7 +404,8 @@ namespace System.Windows.Controls
     public class Border : FrameworkElement
     {
         public Brush Background { get; set; } public Brush BorderBrush { get; set; } public Thickness BorderThickness { get; set; }
-        public CornerRadius CornerRadius { get; set; } public Thickness Padding { get; set; } public UIElement Child { get; set; }
+        public CornerRadius CornerRadius { get; set; } public Thickness Padding { get; set; }
+        private UIElement child; public UIElement Child { get { return child; } set { if (ReferenceEquals(child, value)) return; UIElement.Release(child); UIElement.Adopt(this, value); child = value; } }
     }
     public class Viewbox : FrameworkElement { public UIElement Child { get; set; } public Stretch Stretch { get; set; } }
     public class Image : FrameworkElement { public ImageSource Source { get; set; } public Stretch Stretch { get; set; } }

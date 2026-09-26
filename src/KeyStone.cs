@@ -5916,6 +5916,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             payoutAccountList = new ListBox { Background = Card, Foreground = Text, BorderBrush = Gold, BorderThickness = new Thickness(1.5), Margin = new Thickness(0, 3, 0, 3), MinHeight = 100 }; ScrollViewer.SetVerticalScrollBarVisibility(payoutAccountList, ScrollBarVisibility.Auto); payoutAccountList.SelectionChanged += delegate { if (!payoutAccountUpdating) RenderPayoutAccountDetail(); }; Grid.SetRow(payoutAccountList, 1); payoutAccountPanel.Children.Add(payoutAccountList);
             payoutAccountDetailText = Txt("Only accounts with payout history are listed here.", Text, 10, FontWeights.Bold); payoutAccountDetailText.TextWrapping = TextWrapping.Wrap;
             var payoutAccountScroll = new ScrollViewer { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1.5), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = payoutAccountDetailText, Margin = new Thickness(0, 2, 0, 0) }; Grid.SetRow(payoutAccountScroll, 2); payoutAccountPanel.Children.Add(payoutAccountScroll);
+            // Redesign: full-height colour cards (click one) above a box view of the selected account.
+            payoutAccountList.Visibility = Visibility.Collapsed;
+            payoutAccountCards = new WrapPanel { Margin = new Thickness(2) };
+            var payoutCardsScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = payoutAccountCards, Margin = new Thickness(0, 3, 0, 3) };
+            Grid.SetRow(payoutCardsScroll, 1); payoutAccountPanel.Children.Add(payoutCardsScroll);
+            payoutAccountTiles = new UniformGrid { Columns = 3, Margin = new Thickness(0, 2, 0, 2) };
+            payoutAccountScroll.Content = null; // release the text block before re-parenting it (WPF allows one parent)
+            var detailStack = new StackPanel(); detailStack.Children.Add(payoutAccountTiles); detailStack.Children.Add(payoutAccountDetailText);
+            payoutAccountScroll.Content = detailStack;
             var payoutAccountCard = PanelCard(payoutAccountPanel); Grid.SetColumn(payoutAccountCard, 1); cycleBody.Children.Add(payoutAccountCard);
             Grid.SetRow(cycleBody, 2); cyclePanel.Children.Add(cycleBody);
             payoutCycleCard = PanelCard(cyclePanel);
@@ -8165,6 +8174,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
 
         private string lastInstrumentComparison = string.Empty;
+        private WrapPanel payoutAccountCards;
+        private UniformGrid payoutAccountTiles;
 
         // One folder with everything needed to re-run and optimise this study outside NinjaTrader:
         // the loaded bars (NinjaTrader export format, gzip), every setting, the ledger and a summary.
@@ -10589,6 +10600,23 @@ namespace NinjaTrader.NinjaScript.AddOns
                 payoutAccountList.SelectedIndex = paid.Count > 0 ? 0 : -1;
             }
             finally { payoutAccountUpdating = false; }
+            if (payoutAccountCards != null)
+            {
+                payoutAccountCards.Children.Clear();
+                for (int i = 0; i < paid.Count; i++)
+                {
+                    KeystoneArcVirtualAccount a = paid[i]; int index = i;
+                    Brush state = AccountLifecycleBrush(a);
+                    var content = new StackPanel();
+                    content.Children.Add(Txt(a.Name, Text, 12, FontWeights.Bold));
+                    content.Children.Add(Txt(a.Payouts + " PAYOUT" + (a.Payouts == 1 ? "" : "S"), Gold, 18, FontWeights.Bold));
+                    content.Children.Add(Txt((a.FirstPayoutDate == DateTime.MinValue ? "—" : a.FirstPayoutDate.ToString("yyyy-MM-dd")) + (a.LastPayoutDate > a.FirstPayoutDate ? " → " + a.LastPayoutDate.ToString("yyyy-MM-dd") : ""), Muted, 10, FontWeights.Bold));
+                    content.Children.Add(Txt("NET " + Cash(a.PayoutCash - a.EvaluationCost) + " • " + (a.Funded && !a.Blown ? "FUNDED" : (a.Blown && !a.ReplacementPending ? "ENDED" : "EVALUATION")), state, 10, FontWeights.Bold));
+                    var cardButton = new Button { Content = new Border { Background = Card, BorderBrush = state, BorderThickness = new Thickness(0, 4, 0, 0), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 6, 8, 6), Child = content }, Width = 180, Margin = new Thickness(3), Background = Card, BorderBrush = state, BorderThickness = new Thickness(1), Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Stretch };
+                    cardButton.Click += delegate { if (payoutAccountList != null && index < payoutAccountList.Items.Count) payoutAccountList.SelectedIndex = index; };
+                    payoutAccountCards.Children.Add(cardButton);
+                }
+            }
             if (paid.Count == 0)
             {
                 payoutAccountDetailText.Text = accounts.Count == 0 ? "RUN THE VIRTUAL POOL TO BUILD PAYOUT-ACCOUNT RECORDS." : "NO ACCOUNTS HAVE PAYOUT HISTORY IN THIS SELECTED RANGE. The dated cycle aggregate remains empty by design.";
@@ -10623,7 +10651,21 @@ namespace NinjaTrader.NinjaScript.AddOns
             text.AppendLine("PERIODS • " + days.Count + " daily records • " + weeks.Count + " weekly records • " + months.Count + " monthly records • assigned P/L " + Cash(account.TotalPnl));
             text.AppendLine("BLOWOUT AFTER PAYOUT • " + (account.LastBlowoutDate == DateTime.MinValue ? "NONE" : account.LastBlowoutDate.ToString("yyyy-MM-dd")) + ". Open LIFECYCLE WALKTHROUGH for the day-by-day audit.");
             payoutAccountDetailText.Text = text.ToString();
-            payoutAccountDetailText.Foreground = AccountLifecycleBrush(account);
+            payoutAccountDetailText.Foreground = Muted; payoutAccountDetailText.FontSize = 10;
+            if (payoutAccountTiles != null)
+            {
+                payoutAccountTiles.Children.Clear();
+                Brush state = AccountLifecycleBrush(account);
+                MetricTile(payoutAccountTiles, account.Name, AccountPrimaryStage(account), "current stage", state, 60, 13);
+                MetricTile(payoutAccountTiles, "BALANCE NOW", Cash(balance), account.Funded && !account.Blown ? "carry-over after payouts" : "stage balance", Cyan, 60, 16);
+                MetricTile(payoutAccountTiles, "PAYOUTS", account.Payouts.ToString(CultureInfo.InvariantCulture), (first.HasPayout ? first.FirstPayoutDate.ToString("yyyy-MM-dd") : "—") + " → " + LastPayoutDate(account), Gold, 60, 16);
+                MetricTile(payoutAccountTiles, "TO YOUR BANK", Cash(account.PayoutCash), "gross " + Cash(account.PayoutGrossWithdrawn), Green, 60, 16);
+                MetricTile(payoutAccountTiles, "ALL COSTS", Cash(account.EvaluationCost), account.EvaluationPurchases + " account(s) bought", Orchid, 60, 16);
+                MetricTile(payoutAccountTiles, "NET", Cash(account.PayoutCash - account.EvaluationCost), "to bank − costs", account.PayoutCash - account.EvaluationCost >= 0 ? Green : Red, 60, 16);
+                MetricTile(payoutAccountTiles, "FIRST RETURN", first.HasPayout ? first.CalendarDaysFromInitial + " days" : "—", first.HasPayout ? first.RecordedSessionsFromInitial + " sessions" : "not reached", Blue, 60, 16);
+                MetricTile(payoutAccountTiles, "BLOWUPS", (account.FailedEvaluations + account.FailedFunded).ToString(CultureInfo.InvariantCulture), account.LastBlowoutDate == DateTime.MinValue ? "none" : "last " + account.LastBlowoutDate.ToString("yyyy-MM-dd"), Red, 60, 16);
+                MetricTile(payoutAccountTiles, "TRADES", account.Trades + " • " + account.Wins + "W " + account.Losses + "L", "P/L " + Cash(account.TotalPnl), Text, 60, 13);
+            }
         }
 
         private static string LastPayoutDate(KeystoneArcVirtualAccount account)

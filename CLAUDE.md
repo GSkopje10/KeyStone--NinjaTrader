@@ -34,5 +34,13 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
 - `tests/fullcompile/compile.sh` — compiles the WHOLE file (engine + WPF lab + chart) against
   stand-in WPF / NinjaTrader stubs. Add a stub member when new code uses a new API; keep real
   names and signatures. Catches type/scope errors; the real compile is still the user's F5.
+- `tests/fullcompile/UiSmokeTest.cs` (in run_all) builds the whole lab window and evidence
+  chart with the stubs, which enforce WPF's one-logical-parent rule, and runs replay / render
+  paths — catches runtime UI construction errors before the user opens the lab.
+- `tests/fullcompile/ReportPreview.cs` writes the real HTML report from synthetic data
+  (`tests/fullcompile/.build/report_*.html`); screenshot with
+  `/opt/pw-browsers/chromium-1194/chrome-linux/chrome --headless --no-sandbox --screenshot=...`.
+- Baselines: `tests/lifecycle_baseline.txt` and `tests/bh_detection_baseline.txt` must stay
+  identical unless a change to BH / pool behaviour is intended and approved.
 - UI code cannot be fully compiled here (no WPF/NinjaTrader assemblies); compile new UI methods
   against small WPF stand-ins before pushing, and state that the real compile is the user's F5.
