@@ -64,6 +64,11 @@ namespace NinjaTrader.NinjaScript
         public double ExitPrice = double.NaN;
         public string Outcome;          // WIN, LOSS, SESSION EXIT, OPEN
         public double GrossPnl;
+        // Asian cycle only: combined MNQ + MGC cycle P/L (realized + open legs at the 1M close)
+        // at the minute this leg closed, and the lowest combined value the night had reached by then.
+        public int AsianLegNumber;
+        public double AsianCyclePnlAtExit = double.NaN;
+        public double AsianCycleWorstAtExit = double.NaN;
         // Optional evaluation-stage result for the same historical path.  The standard Outcome
         // remains the funded/base parameter result; allocation selects this resolved result only
         // while the assigned virtual slot is still in its evaluation stage.
@@ -655,7 +660,8 @@ namespace NinjaTrader.NinjaScript
                 ReferenceTime = x.ReferenceTime, TriggerTime = x.TriggerTime, EntryTime = x.EntryTime, Entry = x.Entry, Stop = x.Stop, Quantity = x.Quantity, StopDistance = x.StopDistance, RiskModel = x.RiskModel,
                 Target = x.Target, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched,
                 SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, AssignedVirtualAccount = x.AssignedVirtualAccount,
-                SkipReason = x.SkipReason, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote
+                SkipReason = x.SkipReason, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote,
+                AsianLegNumber = x.AsianLegNumber, AsianCyclePnlAtExit = x.AsianCyclePnlAtExit, AsianCycleWorstAtExit = x.AsianCycleWorstAtExit
             };
         }
     }
@@ -678,6 +684,8 @@ namespace NinjaTrader.NinjaScript
             // Realized loss is held per instrument so an optional instrument cap can stop MNQ
             // without pretending that MGC must also stop. It is never used to synthesize a price.
             public double RealizedPnl;
+            // Highest / lowest price traded while the current leg was open (chart MFE / MAE).
+            public double LegHigh, LegLow;
         }
 
         private sealed class BullishFvg
@@ -1004,11 +1012,12 @@ namespace NinjaTrader.NinjaScript
             for (int s = 0; s < n; s++)
             {
                 KeystoneArcBar opening = session.Bars[s][0];
-                positions[s] = new Asian75Position { Symbol = session.Symbols[s], LegNumber = 1, Quantity = cfg.AsianStartingQuantity, Direction = AsianInitialDirection(session.Symbols[s], cfg), EntryTime = session.OpeningStamp, EntryPrice = opening.Open };
+                positions[s] = new Asian75Position { Symbol = session.Symbols[s], LegNumber = 1, Quantity = cfg.AsianStartingQuantity, Direction = AsianInitialDirection(session.Symbols[s], cfg), EntryTime = session.OpeningStamp, EntryPrice = opening.Open, LegHigh = opening.Open, LegLow = opening.Open };
             }
             double[] stopPrice = new double[n];
             for (int s = 0; s < n; s++) stopPrice[s] = Asian75StopPrice(positions[s], cfg);
-            double combinedPeakMarked = double.MinValue;
+            double combinedPeakMarked = double.MinValue, combinedLowMarked = 0;
+            var closedThisMinute = new List<KeystoneArcEvent>();
             for (int t = 0; t < session.Times.Length; t++)
             {
                 DateTime time = session.Times[t];
@@ -1020,21 +1029,25 @@ namespace NinjaTrader.NinjaScript
                     Asian75Position p = positions[s]; KeystoneArcBar b = session.Bars[s][t];
                     if (!p.PendingEntry || p.PendingAt > time || b == null) continue;
                     p.PendingEntry = false; p.Direction = p.PendingDirection; p.Quantity = p.PendingQuantity; p.LegNumber++; p.EntryTime = time; p.EntryPrice = b.Open;
+                    p.LegHigh = b.Open; p.LegLow = b.Open;
                     stopPrice[s] = Asian75StopPrice(p, cfg);
                 }
                 // Every leg enters at a bar's OPEN, so that bar's whole high/low range happens
                 // after the entry and must be checked for the stop as well.
                 KeystoneArcEvent lastLossThisMinute = null;
+                closedThisMinute.Clear();
                 for (int s = 0; s < n; s++)
                 {
                     Asian75Position p = positions[s]; KeystoneArcBar b = session.Bars[s][t];
                     if (p.Halted || p.PendingEntry || p.EntryTime > time || b == null) continue;
                     double stop = stopPrice[s];
                     bool hit = p.Direction > 0 ? b.Low <= stop : b.High >= stop;
-                    if (!hit) continue;
+                    if (!hit) { p.LegHigh = Math.Max(p.LegHigh, b.High); p.LegLow = Math.Min(p.LegLow, b.Low); continue; }
                     // A bar that opens beyond the stop cannot fill at the stop; use its open.
                     bool gapped = p.Direction > 0 ? b.Open < stop : b.Open > stop;
                     double fill = gapped ? b.Open : stop;
+                    // Within the stop bar only the move to the fill is known to precede the exit.
+                    p.LegHigh = Math.Max(p.LegHigh, fill); p.LegLow = Math.Min(p.LegLow, fill);
                     double reversalLoss = Asian75OpenPnl(p, fill);
                     p.RealizedPnl += reversalLoss;
                     int maxTotalLegs = Math.Max(1, AsianMaxReversalsForSymbol(p.Symbol, cfg) + 1);
@@ -1045,7 +1058,7 @@ namespace NinjaTrader.NinjaScript
                     if (instrumentStop) lossNote += " • INSTRUMENT LOSS CAP REACHED";
                     else if (p.LegNumber >= maxTotalLegs) lossNote += " • MAX REVERSALS REACHED";
                     lastLossThisMinute = NewAsian75Event(p, sessionDate, fill, time, "LOSS", reversalLoss, cfg, lossNote);
-                    output.Add(lastLossThisMinute);
+                    output.Add(lastLossThisMinute); closedThisMinute.Add(lastLossThisMinute);
                     if (instrumentStop || p.LegNumber >= maxTotalLegs) p.Halted = true;
                     else { p.PendingEntry = true; p.PendingAt = time.AddMinutes(1); p.PendingDirection = -p.Direction; p.PendingQuantity = p.Quantity + 1; }
                 }
@@ -1059,6 +1072,8 @@ namespace NinjaTrader.NinjaScript
                     if (!p.Halted && !p.PendingEntry && hasClose[s]) marked += Asian75OpenPnl(p, latestClose[s]);
                 }
                 combinedPeakMarked = Math.Max(combinedPeakMarked, marked);
+                combinedLowMarked = Math.Min(combinedLowMarked, marked);
+                foreach (KeystoneArcEvent closedLeg in closedThisMinute) { closedLeg.AsianCyclePnlAtExit = marked; closedLeg.AsianCycleWorstAtExit = combinedLowMarked; }
                 string outcome = null, reason = null;
                 if (marked >= cfg.AsianCycleTargetDollars) { outcome = "WIN"; reason = "CYCLE TARGET • 1M CLOSE CONFIRMED"; }
                 else if (cfg.AsianCombinedStopLossDollars > 0 && marked <= -Math.Abs(cfg.AsianCombinedStopLossDollars))
@@ -1070,19 +1085,23 @@ namespace NinjaTrader.NinjaScript
                 // Exit at the known completed-bar close and preserve actual P/L.
                 else if (cfg.AsianBreakEvenTriggerDollars > 0 && combinedPeakMarked >= cfg.AsianBreakEvenTriggerDollars && marked <= 0) { outcome = "BREAKEVEN GUARD"; reason = "BREAKEVEN GUARD • PROFIT TRIGGER REACHED; 1M CLOSE RETURNED TO FLAT/NEGATIVE"; }
                 else if (marked <= -Math.Abs(cfg.AsianDailyLossLimitDollars)) { outcome = "LOSS"; reason = "DAILY LOSS LIMIT • 1M CLOSE CONFIRMED"; }
-                if (outcome != null) { CloseAsian75Positions(output, positions, latestClose, hasClose, sessionDate, time, outcome, reason, cfg); return; }
+                if (outcome != null) { CloseAsian75Positions(output, positions, latestClose, hasClose, sessionDate, time, outcome, reason, cfg, marked, combinedLowMarked); return; }
             }
-            CloseAsian75Positions(output, positions, latestClose, hasClose, sessionDate, session.Times[session.Times.Length - 1], "SESSION EXIT", "SESSION END • LAST AVAILABLE 1M CLOSE", cfg);
+            double finalMarked = 0;
+            for (int s = 0; s < n; s++) { finalMarked += positions[s].RealizedPnl; if (!positions[s].Halted && !positions[s].PendingEntry && hasClose[s]) finalMarked += Asian75OpenPnl(positions[s], latestClose[s]); }
+            CloseAsian75Positions(output, positions, latestClose, hasClose, sessionDate, session.Times[session.Times.Length - 1], "SESSION EXIT", "SESSION END • LAST AVAILABLE 1M CLOSE", cfg, finalMarked, Math.Min(combinedLowMarked, finalMarked));
         }
 
-        private static void CloseAsian75Positions(List<KeystoneArcEvent> output, Asian75Position[] positions, double[] latestClose, bool[] hasClose, DateTime sessionDate, DateTime time, string outcome, string reason, KeystoneArcRunConfig cfg)
+        private static void CloseAsian75Positions(List<KeystoneArcEvent> output, Asian75Position[] positions, double[] latestClose, bool[] hasClose, DateTime sessionDate, DateTime time, string outcome, string reason, KeystoneArcRunConfig cfg, double cyclePnl, double cycleWorst)
         {
             for (int s = 0; s < positions.Length; s++)
             {
                 Asian75Position p = positions[s];
                 if (p.PendingEntry) { p.Halted = true; continue; }
                 if (p.Halted || !hasClose[s]) continue;
-                output.Add(NewAsian75Event(p, sessionDate, latestClose[s], time, outcome, Asian75OpenPnl(p, latestClose[s]), cfg, reason));
+                KeystoneArcEvent closing = NewAsian75Event(p, sessionDate, latestClose[s], time, outcome, Asian75OpenPnl(p, latestClose[s]), cfg, reason);
+                closing.AsianCyclePnlAtExit = cyclePnl; closing.AsianCycleWorstAtExit = cycleWorst;
+                output.Add(closing);
                 p.Halted = true;
             }
         }
@@ -1113,8 +1132,9 @@ namespace NinjaTrader.NinjaScript
                 ExitPrice = exit,
                 Outcome = outcome,
                 GrossPnl = pnl,
-                PeakAfterEntry = Math.Max(p.EntryPrice, exit),
-                TroughAfterEntry = Math.Min(p.EntryPrice, exit),
+                PeakAfterEntry = Math.Max(Math.Max(p.EntryPrice, exit), p.LegHigh > 0 ? p.LegHigh : p.EntryPrice),
+                TroughAfterEntry = Math.Min(Math.Min(p.EntryPrice, exit), p.LegLow > 0 ? p.LegLow : p.EntryPrice),
+                AsianLegNumber = p.LegNumber,
                 TargetTouched = outcome == "WIN" ? 1 : 0,
                 StopTouched = note.StartsWith("REVERSAL LOSS", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
                 ReviewState = "ACCEPTED",
@@ -3150,7 +3170,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-26b • ASIAN NIGHT SUMMARY • PRICE-STOP MODE • MGC LIQUID ROLL";
+        private const string KeystoneBuild = "BUILD 2026-09-26c • ASIAN LEG LABELS ON CHART • NIGHT SUMMARY • PRICE-STOP MODE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -7542,6 +7562,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 pinRightEdges[pinLevel] = pinX + 14;
             }
+            if (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase))
+                DrawAsianLegAnnotations(allMarks, bars, left, candleWidth, y, top, chartHeight - bottom, symbol);
             AddCanvasText(symbol + " • TEST WINDOW " + testedStart.ToString("yyyy-MM-dd HH:mm") + " → " + testedEnd.ToString("yyyy-MM-dd HH:mm") + " • " + EvidenceContextMinutes(chartMinutes) + "M LEFT CONTEXT • DIRECT NINJATRADER " + chartMinutes + "M BARS • " + bars.Count + " CANDLES • " + marks.Count + " LEDGER " + (marks.Count == 1 ? "MARK" : "MARKS") + " / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES"), left, 4, Cyan, 12, FontWeights.Bold);
             UpdateEvidenceNavigationBars(allBars, visibleCount);
             SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH") + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
@@ -7820,6 +7842,61 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string EvidenceDisplayTag(KeystoneArcEvent e)
         {
             return e.Outcome == "UNVERIFIED 1M" ? (string.Equals(e.Direction, "SHORT", StringComparison.OrdinalIgnoreCase) ? "↓" : "↑") : (e.Outcome == "WIN" ? "W" : (e.Outcome.StartsWith("LOSS") ? "L" : "E"));
+        }
+
+        // Asian cycle chart annotations: for every leg of this instrument, its label at entry
+        // (leg, direction, contracts, price), the stop level, an entry→exit line, and at the exit
+        // what happened (stop and reversal, target, loss limit, session end) with the combined
+        // MNQ + MGC cycle P/L at that minute and the night's worst combined P/L so far.
+        private void DrawAsianLegAnnotations(List<KeystoneArcEvent> legs, List<KeystoneArcBar> bars, double left, double candleWidth, Func<double, double> y, double plotTop, double plotBottom, string symbol)
+        {
+            if (legs == null || bars == null || bars.Count == 0) return;
+            string priceFormat = symbol == "MGC" ? "0.0" : "0.00";
+            DateTime firstTime = bars[0].Time, lastTime = bars[bars.Count - 1].Time;
+            Func<DateTime, double> xAt = delegate(DateTime t)
+            {
+                int i = 0;
+                for (int k = 0; k < bars.Count && bars[k].Time <= t; k++) i = k;
+                return left + i * candleWidth + candleWidth / 2.0;
+            };
+            Func<double, double> clampY = delegate(double v) { return Math.Max(plotTop + 2, Math.Min(plotBottom - 28, v)); };
+            Func<double, string> money = delegate(double v) { return (v >= 0 ? "+$" : "−$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture); };
+            foreach (KeystoneArcEvent e in legs.Where(x => x.SetupClass == "ASIA75").OrderBy(x => x.EntryTime))
+            {
+                DateTime exitTime = e.ExitTime == DateTime.MinValue ? e.EntryTime : e.ExitTime;
+                if (exitTime < firstTime || e.EntryTime > lastTime) continue;
+                double x1 = xAt(e.EntryTime < firstTime ? firstTime : e.EntryTime), x2 = xAt(exitTime > lastTime ? lastTime : exitTime);
+                double entryY = y(e.Entry), exitY = double.IsNaN(e.ExitPrice) ? entryY : y(e.ExitPrice);
+                bool reversalStop = (e.ReviewNote ?? string.Empty).StartsWith("REVERSAL LOSS", StringComparison.OrdinalIgnoreCase);
+                Brush legBrush = e.GrossPnl >= 0 ? Green : Red;
+                int stagger = Math.Max(0, (e.AsianLegNumber - 1) % 3) * 26;
+                // stop level while the leg was open
+                AddDashedEvidenceLeader(x1, y(e.Stop), Math.Max(x1 + 6, x2), y(e.Stop), Red, 0.55, null);
+                // entry → exit path
+                evidenceCanvas.Children.Add(new System.Windows.Shapes.Line { X1 = x1, Y1 = entryY, X2 = Math.Max(x1 + 2, x2), Y2 = exitY, Stroke = legBrush, StrokeThickness = 1.8, Opacity = 0.85, IsHitTestVisible = false });
+                var entryDot = new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Fill = e.Direction == "LONG" ? Blue : Orchid, IsHitTestVisible = false };
+                Canvas.SetLeft(entryDot, x1 - 3.5); Canvas.SetTop(entryDot, entryY - 3.5); evidenceCanvas.Children.Add(entryDot);
+                // entry label
+                bool longLeg = e.Direction == "LONG";
+                string entryLabel = "L" + Math.Max(1, e.AsianLegNumber) + " " + e.Direction + " x" + e.Quantity.ToString("0", CultureInfo.InvariantCulture) + " @ " + e.Entry.ToString(priceFormat, CultureInfo.InvariantCulture);
+                AddCanvasText(entryLabel, x1 + 6, clampY(longLeg ? entryY - 30 - stagger : entryY + 8 + stagger), longLeg ? Blue : Orchid, 10, FontWeights.Bold);
+                // exit label: what happened + combined cycle state
+                string what;
+                if (reversalStop)
+                {
+                    string note = e.ReviewNote ?? string.Empty;
+                    bool lastLeg = note.IndexOf("MAX REVERSALS", StringComparison.OrdinalIgnoreCase) >= 0 || note.IndexOf("INSTRUMENT LOSS CAP", StringComparison.OrdinalIgnoreCase) >= 0;
+                    what = "STOP " + money(e.GrossPnl) + (note.IndexOf("GAP", StringComparison.OrdinalIgnoreCase) >= 0 ? " (GAP)" : "") + (lastLeg ? " • LAST LEG, " + symbol + " DONE" : " → " + (longLeg ? "SHORT" : "LONG") + " x" + (e.Quantity + 1).ToString("0", CultureInfo.InvariantCulture));
+                }
+                else if (e.Outcome == "WIN") what = "TARGET • LEG " + money(e.GrossPnl);
+                else if (e.Outcome == "SESSION EXIT") what = "SESSION END • LEG " + money(e.GrossPnl);
+                else if (e.Outcome == "BREAKEVEN GUARD") what = "BREAKEVEN GUARD • LEG " + money(e.GrossPnl);
+                else what = ((e.ReviewNote ?? string.Empty).IndexOf("COMBINED CYCLE STOP", StringComparison.OrdinalIgnoreCase) >= 0 ? "CYCLE STOP" : "DAILY LOSS LIMIT") + " • LEG " + money(e.GrossPnl);
+                string cycle = double.IsNaN(e.AsianCyclePnlAtExit) ? string.Empty : "CYCLE " + money(e.AsianCyclePnlAtExit) + " • WORST " + money(Math.Min(0, e.AsianCycleWorstAtExit)) + " • " + exitTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+                double labelY = clampY(longLeg ? exitY + 6 + stagger : exitY - 32 - stagger);
+                AddCanvasText(what, x2 + 5, labelY, legBrush, 10, FontWeights.Bold);
+                if (cycle.Length > 0) AddCanvasText(cycle, x2 + 5, labelY + 13, Gold, 9, FontWeights.Bold);
+            }
         }
 
         private TextBlock AddCanvasText(string value, double x, double y, Brush brush, double size, FontWeight weight)
@@ -8192,7 +8269,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 string parts = string.Join(" • ", night.GroupBy(e => e.Symbol).OrderBy(g => g.Key).Select(g => g.Key + " " + (g.Sum(e => e.GrossPnl) >= 0 ? "+" : "") + g.Sum(e => e.GrossPnl).ToString("C0") + " (" + g.Count() + " legs)"));
                 evidenceMetricsText.Foreground = combined >= 0 ? Green : Red;
                 evidenceMetricsText.Text = night.Count == 0 ? "NIGHT CYCLE • no legs this session"
-                    : "NIGHT CYCLE MNQ + MGC • COMBINED P/L " + (combined >= 0 ? "+" : "") + combined.ToString("C0") + " • " + KeystoneArcAsianOptimizer.NightEnding(night) + " • " + parts + " • before commissions";
+                    : "NIGHT CYCLE MNQ + MGC • COMBINED P/L " + (combined >= 0 ? "+" : "") + combined.ToString("C0") + " • " + KeystoneArcAsianOptimizer.NightEnding(night)
+                      + (night.Any(e => !double.IsNaN(e.AsianCycleWorstAtExit)) ? " • WORST COMBINED " + Math.Min(0, night.Where(e => !double.IsNaN(e.AsianCycleWorstAtExit)).Min(e => e.AsianCycleWorstAtExit)).ToString("C0") : "")
+                      + " • " + parts + " • before commissions";
                 return;
             }
             evidenceMetricsText.Foreground = gross >= 0 ? Green : Red;

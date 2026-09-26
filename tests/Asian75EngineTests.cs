@@ -176,6 +176,9 @@ public static class Asian75EngineTests
             Check(mnqWin != null && mnqWin.Direction == "SHORT" && mnqWin.Quantity == 2 && mnqWin.GrossPnl >= 725, "MNQ SHORT x2 wins at least $725 (= $350 + $75 + $300 recovered)", Dump(ev));
             Check(mgcPnl + mnqPnl >= 350 && mgcPnl + mnqPnl < 360, "night closes on the COMBINED +$350 (MNQ + MGC), not per instrument", (mgcPnl + mnqPnl).ToString());
             Check(KeystoneArcAsianOptimizer.NightEnding(ev).StartsWith("TARGET"), "night ending reads TARGET", KeystoneArcAsianOptimizer.NightEnding(ev));
+            Check(ev.All(e => !double.IsNaN(e.AsianCyclePnlAtExit) && e.AsianLegNumber >= 1), "every leg records its number and the combined cycle P/L at its exit", "");
+            Check(mnqWin != null && Math.Abs(mnqWin.AsianCyclePnlAtExit - (mgcPnl + mnqPnl)) < 0.01, "closing leg's cycle P/L equals the night result", mnqWin == null ? "" : mnqWin.AsianCyclePnlAtExit.ToString());
+            Check(mnqWin != null && mnqWin.AsianCycleWorstAtExit < -300 && mnqWin.AsianCycleWorstAtExit <= ev.Min(e => e.AsianCyclePnlAtExit), "night's worst combined drawdown is recorded and is the lowest point of the night", mnqWin == null ? "" : mnqWin.AsianCycleWorstAtExit.ToString());
         }
         Console.WriteLine(failures == 0 ? "\nALL ASIAN 75 TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
