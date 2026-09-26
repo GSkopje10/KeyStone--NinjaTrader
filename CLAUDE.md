@@ -9,7 +9,8 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   then compiles with F5 in the NinjaScript Editor.
 - **After every code change: commit, push, bump `KeystoneBuild` in `src/KeyStone.cs`, and end the
   reply with the copy-paste link pinned to the pushed commit:**
-  `https://raw.githubusercontent.com/GSkopje10/KeyStone--NinjaTrader/<full commit sha>/src/KeyStone.cs`
+  `https://github.com/GSkopje10/KeyStone--NinjaTrader/raw/<full commit sha>/src/KeyStone.cs`
+  (the github.com form works for the private repo when the user is logged in)
   plus the build label the header should show, so the user can confirm the new code is running.
 - If a user screenshot shows an older build label, the new file was not compiled/installed;
   say so before debugging anything else. NinjaTrader keeps running the last successful compile
