@@ -120,6 +120,10 @@ namespace NinjaTrader.NinjaScript
         public int Visits, Entries;
         public int RedRun; public double Drop; public bool Aggressive;
         public double FormationLow;               // lowest low of the 3 candles that made the gap
+        public int Stacked = 1;                   // boxes merged into this zone (FVGs formed in a row)
+        public List<double[]> Parts = new List<double[]>();   // the individual boxes [lower, upper]
+        public List<string> Log = new List<string>();          // why an entry did / did not happen, candle by candle
+        public void Note(DateTime t, string text) { if (Log.Count < 60) Log.Add(t.ToString("HH:mm") + "  " + text); }
         public double Height { get { return Upper - Lower; } }
     }
 
@@ -641,6 +645,11 @@ namespace NinjaTrader.NinjaScript
         public double FvgStopBufferPoints = 0;   // extra points below the box / green low
         public int FvgMaxQuantity = 20;          // cap for risk-sized positions
         // Target for auto-size stops: FIXED_DOLLARS (Step 2 target $) or R_BY_QUALITY (A / B / C multiples of the risk).
+        public int FvgMergeStacked = 1;          // FVGs formed in a row become one zone
+        public double FvgMergedDepthPercent = 50; // a merged zone needs a dip to its middle
+        public double FvgTargetRDT = 3;          // R target for DOUBLE TROUBLE (auto size)
+        // POINTS sizing (fixed contracts): stop / target in points per grade (DT, A, B, C; N uses B).
+        public double FvgStopPointsDT = 10, FvgTargetPointsDT = 15, FvgStopPointsA = 10, FvgTargetPointsA = 15, FvgStopPointsB = 5, FvgTargetPointsB = 10, FvgStopPointsC = 5, FvgTargetPointsC = 10;
         public string FvgTargetMode = "R_BY_QUALITY";
         public double FvgTargetRA = 3, FvgTargetRB = 2, FvgTargetRC = 1.5;
         // Which quality tiers each account stage trades (ALL, AB, A). Any strategy with graded setups.
@@ -659,7 +668,7 @@ namespace NinjaTrader.NinjaScript
                 EvaluationEnabled.ToString(), EvaluationTarget.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyCreditCap.ToString("0.00", CultureInfo.InvariantCulture), EvaluationConsistencyPercent.ToString("0.00", CultureInfo.InvariantCulture), EvaluationFailure.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), EvaluationStageTradeRulesEnabled.ToString(), EvaluationTradeTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), EvaluationTradeStopDollars.ToString("0.00", CultureInfo.InvariantCulture), FundedDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), FundedFailure.ToString("0.00", CultureInfo.InvariantCulture), MinimumPositiveDays.ToString(), MinimumQualifyingDayProfit.ToString("0.00", CultureInfo.InvariantCulture),
                 PayoutThreshold.ToString("0.00", CultureInfo.InvariantCulture), PayoutDaysRequired.ToString(), PayoutAmount.ToString("0.00", CultureInfo.InvariantCulture), EvaluationCost.ToString("0.00", CultureInfo.InvariantCulture), ReplacementsRequirePayoutFunding.ToString(), FirmFundedCapEnabled.ToString(), EvaluationSlotsPerFirm.ToString(), MaxFundedPerFirm.ToString(), PropStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), PersonalStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), AsianStartHhmm.ToString(), AsianEndHhmm.ToString(), AsianMnqInitialDirection ?? string.Empty, AsianMgcInitialDirection ?? string.Empty, AsianRiskMode ?? string.Empty, AsianReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianCombinedStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianDailyLossLimitDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianBreakEvenTriggerDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianStartingQuantity.ToString(), AsianMaxReversalsPerInstrument.ToString(), AsianMnqMaxReversals.ToString(), AsianMgcMaxReversals.ToString(), AsianMaxTotalLegsPerInstrument.ToString(),
                 BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString(), ReplacementDelayDays.ToString(),
-                FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString(), FvgTargetMode ?? string.Empty, FvgTargetRA.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRB.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRC.ToString("0.##", CultureInfo.InvariantCulture), EvalTierFilter ?? string.Empty, FundedTierFilter ?? string.Empty });
+                FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString(), FvgTargetMode ?? string.Empty, FvgTargetRA.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRB.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRC.ToString("0.##", CultureInfo.InvariantCulture), EvalTierFilter ?? string.Empty, FundedTierFilter ?? string.Empty, FvgMergeStacked.ToString(), FvgMergedDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRDT.ToString("0.##", CultureInfo.InvariantCulture), string.Join("/", new[] { FvgStopPointsDT, FvgTargetPointsDT, FvgStopPointsA, FvgTargetPointsA, FvgStopPointsB, FvgTargetPointsB, FvgStopPointsC, FvgTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))) });
         }
     }
 
@@ -1320,6 +1329,8 @@ namespace NinjaTrader.NinjaScript
             public KeystoneArcFvgZone Zone; public int FormedIndex;
             public int State;            // 0 waiting for a dip, 1 dipped (waiting green close), 2 armed (reference set)
             public double RetestLow = double.MaxValue;
+            public int LastFormedIndex;
+            public double LastShallowLog = double.NaN;
             public double RefHigh, RefLow; public DateTime RefTime; public int RefIndex;
             public bool Dead;
         }
@@ -1335,6 +1346,8 @@ namespace NinjaTrader.NinjaScript
             double depth = Math.Max(0, Math.Min(100, cfg.FvgMinDepthPercent)) / 100.0;
             string aggression = (cfg.FvgAggressionMode ?? "TAG").ToUpperInvariant();
             var live = new List<FvgWork>();
+            string fmt = mgc ? "0.0" : "0.00";
+            Func<double, string> px = v => v.ToString(fmt, CultureInfo.InvariantCulture);
             for (int i = 0; i < bars.Count; i++)
             {
                 KeystoneArcBar bar = bars[i];
@@ -1346,30 +1359,39 @@ namespace NinjaTrader.NinjaScript
                     KeystoneArcFvgZone z = w.Zone;
                     if (cfg.FvgSameSessionOnly > 0 && SessionGroupingDate(z.FormedTime, cfg) != session) { Retire(w, bars[i - 1].Time, "SESSION END"); continue; }
                     if (cfg.FvgMaxBoxAgeBars > 0 && i - w.FormedIndex > cfg.FvgMaxBoxAgeBars) { Retire(w, bars[i - 1].Time, "AGE"); continue; }
+                    double zoneDepth = z.Stacked > 1 ? Math.Max(depth, Math.Max(0, Math.Min(100, cfg.FvgMergedDepthPercent)) / 100.0) : depth;
                     // 1. Armed: this candle breaking the green candle's high is the entry.
                     if (w.State == 2)
                     {
                         if (bar.High >= w.RefHigh && inWindow && DirectionAllows(symbol, "LONG", cfg))
                         {
                             z.Entries++;
+                            z.Note(bar.Time, "ENTRY: broke " + px(w.RefHigh) + " (try " + z.Entries + ")");
                             if (entries != null) entries.Add(new FvgScanEntry { Zone = z, ReferenceIndex = w.RefIndex, TriggerIndex = i, Entry = w.RefHigh, GreenLow = w.RefLow, RetestLow = w.RetestLow, Visit = z.Visits });
                             if (z.Entries >= Math.Max(1, cfg.FvgMaxEntriesPerBox)) { Retire(w, bar.Time, "USED"); continue; }
                             w.State = 0;
                         }
-                        else w.State = cfg.FvgNeedNewDipAfterMiss > 0 ? 0 : 1;
+                        else
+                        {
+                            bool needDip = cfg.FvgNeedNewDipAfterMiss > 0;
+                            z.Note(bar.Time, bar.High >= w.RefHigh ? "break outside the session window → no entry" : "next candle did not break " + px(w.RefHigh) + (needDip ? " → needs a new dip" : " → waits for the next green close"));
+                            w.State = needDip ? 0 : 1;
+                        }
                     }
                     // 2. A close below the box kills it.
                     if (bar.Close < z.Lower) { Retire(w, bar.Time, "CLOSED BELOW"); continue; }
-                    // 3. Price running far above the box retires it.
-                    // "Moved away" = the whole candle (its low too) trades above the run-away distance.
-                    // A candle that dips into or touches the box has not moved away, whatever its high.
+                    // 3. "Moved away" = the whole candle (its low too) trades above the run-away distance.
                     if (cfg.FvgRunAwayMultiple > 0 && w.State != 2 && bar.Low > z.Upper + cfg.FvgRunAwayMultiple * Math.Max(z.Height, 1e-9)) { Retire(w, bar.Time, "RUN AWAY"); continue; }
-                    // 4. Dip into the box (deep enough) starts a retest.
-                    bool dipped = bar.Low <= z.Upper - depth * z.Height + 1e-9;
-                    if (dipped && w.State == 0) { w.State = 1; z.Visits++; w.RetestLow = bar.Low; }
+                    // 4. Dip into the zone (deep enough) starts a retest.
+                    double reach = z.Height <= 0 ? 0 : (z.Upper - bar.Low) / z.Height;
+                    bool dipped = bar.Low <= z.Upper - zoneDepth * z.Height + 1e-9;
+                    if (dipped && w.State == 0) { w.State = 1; z.Visits++; w.RetestLow = bar.Low; z.Note(bar.Time, "dip " + (reach * 100).ToString("0") + "% into the " + (z.Stacked > 1 ? "stacked zone" : "box") + " (visit " + z.Visits + ")"); }
+                    else if (!dipped && w.State == 0 && bar.Low <= z.Upper && (double.IsNaN(w.LastShallowLog) || w.LastShallowLog != i - 1))
+                        z.Note(bar.Time, "touch only " + (reach * 100).ToString("0") + "% (needs " + (zoneDepth * 100).ToString("0") + "%) → not a retest");
+                    if (!dipped && w.State == 0 && bar.Low <= z.Upper) w.LastShallowLog = i;
                     if (w.State == 1) w.RetestLow = Math.Min(w.RetestLow, bar.Low);
-                    // 5. First green close after the dip (the dip candle itself counts) arms the box.
-                    if (w.State == 1 && bar.Close > bar.Open) { w.State = 2; w.RefHigh = bar.High; w.RefLow = bar.Low; w.RefTime = bar.Time; w.RefIndex = i; }
+                    // 5. First green close after the dip (the dip candle itself counts) arms the zone.
+                    if (w.State == 1 && bar.Close > bar.Open) { w.State = 2; w.RefHigh = bar.High; w.RefLow = bar.Low; w.RefTime = bar.Time; w.RefIndex = i; z.Note(bar.Time, "green close → entry if the next candle breaks " + px(bar.High)); }
                 }
                 live.RemoveAll(w => w.Dead);
                 // New box on this candle (candle 3 = this bar).
@@ -1378,6 +1400,18 @@ namespace NinjaTrader.NinjaScript
                     bool formedInside = bar.Time >= cfg.Start && bar.Time <= cfg.End && InsideSession(bar.Time, symbol, cfg);
                     if (formedInside || (cfg.FvgZonesOutsideWindow > 0 && bar.Time <= cfg.End))
                     {
+                        double lower = bars[i - 2].High, upper = bar.Low, formationLow = Math.Min(bars[i - 2].Low, Math.Min(bars[i - 1].Low, bar.Low));
+                        // Stacked FVGs (formed in a row, zone not yet retested) become one zone.
+                        FvgWork stack = cfg.FvgMergeStacked > 0 ? live.LastOrDefault(w => !w.Dead && w.State == 0 && w.Zone.Visits == 0 && i - w.LastFormedIndex <= 2) : null;
+                        if (stack != null)
+                        {
+                            KeystoneArcFvgZone z = stack.Zone;
+                            z.Lower = Math.Min(z.Lower, lower); z.Upper = Math.Max(z.Upper, upper); z.FormationLow = Math.Min(z.FormationLow, formationLow);
+                            z.Stacked++; z.Parts.Add(new[] { lower, upper });
+                            stack.LastFormedIndex = i; stack.FormedIndex = i;
+                            z.Note(bar.Time, "stacked FVG " + px(lower) + "–" + px(upper) + " merged → zone " + px(z.Lower) + "–" + px(z.Upper) + " (" + z.Stacked + " boxes, dip must reach the middle)");
+                            continue;
+                        }
                         int red; double drop; FvgAggression(bars, i - 2, cfg.FvgAllowOneGreenInRun > 0, out red, out drop);
                         int needRed = Math.Max(0, mgc ? cfg.FvgMgcRedCandles : cfg.FvgMnqRedCandles);
                         double needDrop = Math.Max(0, mgc ? cfg.FvgMgcDropPoints : cfg.FvgMnqDropPoints);
@@ -1387,17 +1421,20 @@ namespace NinjaTrader.NinjaScript
                             : (useRed && red >= needRed) || (useDrop && drop >= needDrop));
                         if (aggression != "REQUIRED" || aggressive)
                         {
-                            var zone = new KeystoneArcFvgZone { Symbol = symbol, Lower = bars[i - 2].High, Upper = bar.Low, FormedTime = bar.Time, RedRun = red, Drop = drop, Aggressive = aggressive, FormationLow = Math.Min(bars[i - 2].Low, Math.Min(bars[i - 1].Low, bar.Low)) };
+                            var zone = new KeystoneArcFvgZone { Symbol = symbol, Lower = lower, Upper = upper, FormedTime = bar.Time, RedRun = red, Drop = drop, Aggressive = aggressive, FormationLow = formationLow };
+                            zone.Parts.Add(new[] { lower, upper });
+                            zone.Note(bar.Time, "FVG formed " + px(lower) + "–" + px(upper) + " (" + (upper - lower).ToString("0.##", CultureInfo.InvariantCulture) + " pts)" + (aggressive ? " after aggression: " + red + " red, drop " + drop.ToString("0.#", CultureInfo.InvariantCulture) : ""));
                             zones.Add(zone);
-                            live.Add(new FvgWork { Zone = zone, FormedIndex = i });
+                            live.Add(new FvgWork { Zone = zone, FormedIndex = i, LastFormedIndex = i });
                         }
                     }
                 }
             }
+            foreach (FvgWork w in live.Where(x => !x.Dead)) w.Zone.Note(bars.Count == 0 ? DateTime.MinValue : bars[bars.Count - 1].Time, "still open at the end of the data");
             return zones;
         }
 
-        private static void Retire(FvgWork w, DateTime when, string reason) { w.Dead = true; w.Zone.EndTime = when; w.Zone.EndReason = reason; }
+        private static void Retire(FvgWork w, DateTime when, string reason) { w.Dead = true; w.Zone.EndTime = when; w.Zone.EndReason = reason; w.Zone.Note(when, "ENDED: " + (reason == "CLOSED BELOW" ? "a candle closed below the zone" : (reason == "RUN AWAY" ? "a whole candle ran far above the zone" : (reason == "USED" ? "all tries used" : reason.ToLowerInvariant())))); }
 
         // Red candles in a row ending at (or just before) candle 1 of the box, and the price drop
         // from the top of that run to its lowest low. Optionally one small green candle (body
@@ -1453,10 +1490,24 @@ namespace NinjaTrader.NinjaScript
                 }
                 e.FvgGap = x.Zone.Height; e.FvgVisit = x.Visit; e.StrengthTag = x.Zone.Aggressive ? "AGGR" : "BASE";
                 learner.Grade(e, trigger.Time, pv);
+                // DOUBLE TROUBLE: aggression before the box, and the FVG entry is also a BH entry
+                // (red candle → green reference → next candle breaks the reference high).
+                bool doubleTrouble = x.Zone.Aggressive && x.ReferenceIndex >= 1 && bars[x.ReferenceIndex - 1].Close < bars[x.ReferenceIndex - 1].Open && green.Close > green.Open;
+                if (doubleTrouble) e.QualityTier = "DT";
+                if (stopMode == "POINTS")
+                {
+                    // Fixed contracts, stop / target in points by grade (N uses B).
+                    string g = e.QualityTier;
+                    double sp = g == "DT" ? cfg.FvgStopPointsDT : (g == "A" ? cfg.FvgStopPointsA : (g == "C" ? cfg.FvgStopPointsC : cfg.FvgStopPointsB));
+                    double tp = g == "DT" ? cfg.FvgTargetPointsDT : (g == "A" ? cfg.FvgTargetPointsA : (g == "C" ? cfg.FvgTargetPointsC : cfg.FvgTargetPointsB));
+                    sp = Math.Max(0.01, sp); tp = Math.Max(0.01, tp);
+                    e.Quantity = Math.Max(1, cfg.Quantity); e.Stop = x.Entry - sp; e.StopDistance = sp; e.Target = x.Entry + tp;
+                    e.RiskModel = "FVG POINTS BY GRADE " + g + " • STOP " + sp.ToString("0.##", CultureInfo.InvariantCulture) + " / TARGET " + tp.ToString("0.##", CultureInfo.InvariantCulture) + " PTS • " + e.Quantity.ToString("0", CultureInfo.InvariantCulture) + " CONTRACTS • PRICE P/L";
+                }
                 if ((stopMode == "BOX" || stopMode == "GREEN_LOW" || stopMode == "FORMATION_LOW") && string.Equals(cfg.FvgTargetMode, "R_BY_QUALITY", StringComparison.OrdinalIgnoreCase))
                 {
                     // Dynamic reward: stronger setups aim further (A 3R, B 2R, C 1.5R by default; N = B).
-                    double r = e.QualityTier == "A" ? cfg.FvgTargetRA : (e.QualityTier == "C" ? cfg.FvgTargetRC : cfg.FvgTargetRB);
+                    double r = e.QualityTier == "DT" ? cfg.FvgTargetRDT : (e.QualityTier == "A" ? cfg.FvgTargetRA : (e.QualityTier == "C" ? cfg.FvgTargetRC : cfg.FvgTargetRB));
                     e.Target = x.Entry + Math.Max(0.1, r) * e.StopDistance;
                     e.RiskModel += " • TARGET " + r.ToString("0.#", CultureInfo.InvariantCulture) + "R (" + e.QualityTier + ")";
                 }
@@ -1465,7 +1516,7 @@ namespace NinjaTrader.NinjaScript
                 e.FvgLower = x.Zone.Lower; e.FvgUpper = x.Zone.Upper; e.FvgFormedTime = x.Zone.FormedTime;
                 e.FvgVisit = x.Visit; e.FvgRedRun = x.Zone.RedRun; e.FvgDrop = x.Zone.Drop; e.FvgGap = x.Zone.Height;
                 e.StrengthTag = x.Zone.Aggressive ? "AGGR" : "BASE";
-                e.ReviewNote = "FVG box " + x.Zone.Lower.ToString("0.##", CultureInfo.InvariantCulture) + "–" + x.Zone.Upper.ToString("0.##", CultureInfo.InvariantCulture) + " formed " + x.Zone.FormedTime.ToString("yyyy-MM-dd HH:mm") + " • visit " + x.Visit + " • red run " + x.Zone.RedRun + " • drop " + x.Zone.Drop.ToString("0.##", CultureInfo.InvariantCulture) + (x.Zone.Aggressive ? " • AGGRESSIVE" : "");
+                e.ReviewNote = (e.QualityTier == "DT" ? "DOUBLE TROUBLE • " : "") + (x.Zone.Stacked > 1 ? "STACKED ZONE (" + x.Zone.Stacked + " FVGs) • " : "") + "FVG box " + x.Zone.Lower.ToString("0.##", CultureInfo.InvariantCulture) + "–" + x.Zone.Upper.ToString("0.##", CultureInfo.InvariantCulture) + " formed " + x.Zone.FormedTime.ToString("yyyy-MM-dd HH:mm") + " • visit " + x.Visit + " • red run " + x.Zone.RedRun + " • drop " + x.Zone.Drop.ToString("0.##", CultureInfo.InvariantCulture) + (x.Zone.Aggressive ? " • AGGRESSIVE" : "");
                 e.ConfigurationKey = cfg.Snapshot();
                 ResolveOutcome(e, raw, cfg, symbol);
                 ResolveEvaluationStageOutcome(e, raw, cfg, symbol);
@@ -3486,8 +3537,9 @@ namespace NinjaTrader.NinjaScript
         {
             string f = (filter ?? "ALL").ToUpperInvariant();
             if (f == "ALL") return true;
-            if (f == "A") return tier == "A";
-            return tier == "A" || tier == "B";
+            if (f == "DT") return tier == "DT";
+            if (f == "A") return tier == "DT" || tier == "A";
+            return tier == "DT" || tier == "A" || tier == "B";
         }
     }
 
@@ -4196,7 +4248,11 @@ namespace NinjaTrader.NinjaScript.AddOns
         private TextBlock evidenceTimeframeLabel;
         private Button quickStartButton;
         private ComboBox evalTierBox, fundedTierBox, fvgTargetModeBox;
-        private TextBox fvgTargetRABox, fvgTargetRBBox, fvgTargetRCBox;
+        private TextBox fvgTargetRABox, fvgTargetRBBox, fvgTargetRCBox, fvgMergedDepthBox, fvgTargetRDTBox;
+        private readonly TextBox[] fvgPtsBoxes = new TextBox[8];
+        private CheckBox fvgMergeBox;
+        private TextBlock fvgPointsPreview;
+        private UIElement fvgPointsPanel;
         private bool evidenceSelectionClickHandled;
         private readonly List<Button> evidenceDateButtons = new List<Button>();
         private int evidenceSelectedDateIndex = -1;
@@ -5336,7 +5392,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             fvgLifetimeBox = Select("UNTIL USED, CLOSED BELOW OR RUN AWAY", "SAME SESSION ONLY"); fvgLifetimeBox.SelectedIndex = 0;
             fvgAggressionBox = Select("TAG ONLY (TAKE ALL, MARK AGGRESSIVE)", "REQUIRED (ONLY AGGRESSIVE BOXES)", "OFF"); fvgAggressionBox.SelectedIndex = 0;
             fvgCombineBox = Select("ANY ENABLED RULE", "ALL ENABLED RULES"); fvgCombineBox.SelectedIndex = 0;
-            fvgStopModeBox = Select("BELOW THE 3 FVG CANDLES • AUTO SIZE", "BELOW THE BOX • AUTO SIZE", "BELOW THE GREEN CANDLE • AUTO SIZE", "FIXED $ STOP • MY CONTRACT SIZE"); fvgStopModeBox.SelectedIndex = 0;
+            fvgStopModeBox = Select("BELOW THE 3 FVG CANDLES • AUTO SIZE", "BELOW THE BOX • AUTO SIZE", "BELOW THE GREEN CANDLE • AUTO SIZE", "FIXED $ STOP • MY CONTRACT SIZE", "POINTS BY GRADE • MY CONTRACT SIZE"); fvgStopModeBox.SelectedIndex = 0;
             fvgOneGreenBox = new CheckBox { Content = "A SMALL GREEN CANDLE DOES NOT BREAK THE RED RUN", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
             foreach (TextBox box in new[] { fvgMnqMinGapBox, fvgMgcMinGapBox, fvgDepthBox, fvgRunAwayBox, fvgMaxEntriesBox, fvgMaxAgeBox, fvgMnqRedBox, fvgMgcRedBox, fvgMnqDropBox, fvgMgcDropBox, fvgStopBufferBox, fvgMaxQtyBox }) WatchConfigurationInput(box);
             foreach (ComboBox box in new[] { fvgMissBox, fvgOutsideBox, fvgLifetimeBox, fvgAggressionBox, fvgCombineBox, fvgStopModeBox }) box.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
@@ -5354,6 +5410,29 @@ namespace NinjaTrader.NinjaScript.AddOns
             fvgTargetRABox = Input("3"); fvgTargetRBBox = Input("2"); fvgTargetRCBox = Input("1.5");
             foreach (TextBox box in new[] { fvgTargetRABox, fvgTargetRBBox, fvgTargetRCBox }) WatchConfigurationInput(box);
             fvgModel.Children.Add(Row("TARGET (AUTO-SIZE STOPS)", fvgTargetModeBox));
+            // POINTS BY GRADE: stop / target points for DOUBLE TROUBLE, A, B, C with a live $ preview.
+            string[] ptsDefaults = { "10", "15", "10", "15", "5", "10", "5", "10" };
+            var ptsGrid = new UniformGrid { Columns = 4, Margin = new Thickness(6, 2, 6, 2) };
+            string[] grades = { "DOUBLE TROUBLE", "GRADE A", "GRADE B (and N)", "GRADE C" };
+            for (int g = 0; g < 4; g++)
+            {
+                var cell = new StackPanel { Margin = new Thickness(3) };
+                cell.Children.Add(Txt(grades[g], g == 0 ? Gold : Text, 10, FontWeights.Bold));
+                var pair = new StackPanel { Orientation = Orientation.Horizontal };
+                for (int k = 0; k < 2; k++)
+                {
+                    var box = Input(ptsDefaults[g * 2 + k]); box.Width = 58; box.Margin = new Thickness(0, 2, 6, 2); box.ToolTip = k == 0 ? "stop points" : "target points";
+                    box.TextChanged += delegate { UpdateFvgPointsPreview(); }; WatchConfigurationInput(box);
+                    fvgPtsBoxes[g * 2 + k] = box;
+                    pair.Children.Add(Txt(k == 0 ? "STOP" : "TARGET", Muted, 9, FontWeights.Bold)); pair.Children.Add(box);
+                }
+                cell.Children.Add(pair); ptsGrid.Children.Add(cell);
+            }
+            fvgPointsPreview = Txt(string.Empty, Green, 10, FontWeights.Bold); fvgPointsPreview.TextWrapping = TextWrapping.Wrap; fvgPointsPreview.Margin = new Thickness(8, 0, 8, 4);
+            var ptsStack = new StackPanel(); ptsStack.Children.Add(ptsGrid); ptsStack.Children.Add(fvgPointsPreview);
+            fvgPointsPanel = ptsStack; fvgPointsPanel.Visibility = Visibility.Collapsed;
+            fvgModel.Children.Add(fvgPointsPanel);
+            fvgStopModeBox.SelectionChanged += delegate { if (fvgPointsPanel != null) fvgPointsPanel.Visibility = fvgStopModeBox.SelectedIndex == 4 ? Visibility.Visible : Visibility.Collapsed; UpdateFvgPointsPreview(); };
             fvgModel.Children.Add(Row("TRIES PER BOX (fake-outs: trade the same box again)", fvgMaxEntriesBox));
             fvgModel.Children.Add(Row("DIP DEPTH INTO BOX % (0 = TOUCH, 50 = MIDPOINT)", fvgDepthBox));
             fvgModel.Children.Add(Row("MGC MIN BOX SIZE (POINTS, 0 = ANY)", fvgMgcMinGapBox)); fvgModel.Children.Add(Row("MNQ MIN BOX SIZE (POINTS, 0 = ANY)", fvgMnqMinGapBox));
@@ -5370,6 +5449,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             fvgAdvanced.Children.Add(Row("MGC RED CANDLES IN A ROW (0 = OFF)", fvgMgcRedBox)); fvgAdvanced.Children.Add(Row("MGC DROP POINTS (0 = OFF)", fvgMgcDropBox));
             fvgAdvanced.Children.Add(Row("MNQ RED CANDLES IN A ROW (0 = OFF)", fvgMnqRedBox)); fvgAdvanced.Children.Add(Row("MNQ DROP POINTS (0 = OFF)", fvgMnqDropBox));
             fvgAdvanced.Children.Add(Row("AGGRESSION RULES COMBINE", fvgCombineBox)); fvgAdvanced.Children.Add(Row("RED RUN", fvgOneGreenBox));
+            fvgMergeBox = new CheckBox { Content = "FVGs FORMED IN A ROW = ONE ZONE (dip must reach its middle)", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
+            fvgMergeBox.Checked += delegate { InvalidateConfigurationApproval(); }; fvgMergeBox.Unchecked += delegate { InvalidateConfigurationApproval(); };
+            fvgMergedDepthBox = Input("50"); WatchConfigurationInput(fvgMergedDepthBox);
+            fvgTargetRDTBox = Input("3"); WatchConfigurationInput(fvgTargetRDTBox);
+            fvgAdvanced.Children.Add(Row("STACKED FVGs", fvgMergeBox)); fvgAdvanced.Children.Add(Row("STACKED ZONE DIP DEPTH %", fvgMergedDepthBox));
+            fvgAdvanced.Children.Add(Row("TARGET R • DOUBLE TROUBLE", fvgTargetRDTBox));
             fvgAdvanced.Children.Add(Row("TARGET R • GRADE A", fvgTargetRABox)); fvgAdvanced.Children.Add(Row("TARGET R • GRADE B (and N)", fvgTargetRBBox)); fvgAdvanced.Children.Add(Row("TARGET R • GRADE C", fvgTargetRCBox));
             fvgAdvanced.Children.Add(Row("STOP BUFFER POINTS", fvgStopBufferBox)); fvgAdvanced.Children.Add(Row("MAX CONTRACTS (AUTO SIZE)", fvgMaxQtyBox));
             fvgModel.Children.Add(fvgAdvanced);
@@ -5400,6 +5485,27 @@ namespace NinjaTrader.NinjaScript.AddOns
             RefreshStrategyInputState();
             RefreshAsianDerivedInputs();
             return PanelCard(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = root, Margin = new Thickness(2) });
+        }
+
+        private void UpdateFvgPointsPreview()
+        {
+            if (fvgPointsPreview == null) return;
+            string scope = scopeBox == null ? "MGC" : Convert.ToString(scopeBox.SelectedItem ?? "MGC");
+            double qty = Math.Max(1, Number(quantityBox, 10));
+            var parts = new List<string>();
+            string[] names = { "DT", "A", "B", "C" };
+            foreach (string sym in scope == "BOTH" ? new[] { "MGC", "MNQ" } : new[] { scope })
+            {
+                double pv = sym == "MGC" ? 10 : 2;
+                var one = new List<string>();
+                for (int g = 0; g < 4; g++)
+                {
+                    double sp = Number(fvgPtsBoxes[g * 2], 5), tp = Number(fvgPtsBoxes[g * 2 + 1], 10);
+                    one.Add(names[g] + " −" + Cash(sp * pv * qty) + " / +" + Cash(tp * pv * qty) + " (" + (tp / Math.Max(0.01, sp)).ToString("0.#", CultureInfo.InvariantCulture) + "R)");
+                }
+                parts.Add(qty.ToString("0") + " " + sym + ": " + string.Join(" • ", one));
+            }
+            fvgPointsPreview.Text = "WITH YOUR STEP 2 CONTRACTS • " + string.Join("   |   ", parts);
         }
 
         private bool IsFvgSelected()
@@ -5863,8 +5969,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             firmFundedCapBox = new CheckBox { Content = "FIRM FUNDED CAP", IsChecked = false, Foreground = Gold, Margin = new Thickness(6), ToolTip = "When on, evaluation slots are grouped by firm. Passed evaluations wait if that firm has reached its funded-account capacity." }; firmFundedCapBox.Checked += delegate { RefreshLifecycleInputState(); }; firmFundedCapBox.Unchecked += delegate { RefreshLifecycleInputState(); };
             var evalStageToggleRow = PoolRow("EVAL TERMS", evalStageTradeRulesBox); var evalTradeTargetRow = PoolRow("EVAL TRADE + $", evalTradeTargetBox); var evalTradeStopRow = PoolRow("EVAL TRADE - $", evalTradeStopBox); var replacementGateRow = PoolRow("INVESTMENT", replacementFundingGateBox);
             firmEvalSlotsBox = Input("10"); firmMaxFundedBox = Input("5");
-            evalTierBox = Select("ALL SETUPS", "GRADE A + B", "GRADE A ONLY"); evalTierBox.SelectedIndex = 0;
-            fundedTierBox = Select("ALL SETUPS", "GRADE A + B", "GRADE A ONLY"); fundedTierBox.SelectedIndex = 0;
+            evalTierBox = Select("ALL SETUPS", "GRADE A + B (+ DOUBLE TROUBLE)", "GRADE A (+ DOUBLE TROUBLE)", "DOUBLE TROUBLE ONLY"); evalTierBox.SelectedIndex = 0;
+            fundedTierBox = Select("ALL SETUPS", "GRADE A + B (+ DOUBLE TROUBLE)", "GRADE A (+ DOUBLE TROUBLE)", "DOUBLE TROUBLE ONLY"); fundedTierBox.SelectedIndex = 0;
             evalTierBox.ToolTip = "Which setups evaluation accounts take. Grades A/B/C are learned from earlier finished setups only (no look-ahead). N (not enough history yet) is traded only with ALL SETUPS.";
             fundedTierBox.ToolTip = "Which setups funded accounts take — e.g. evaluations trade everything to pass fast, funded accounts only the strongest.";
             var evalTierRow = PoolRow("EVALUATION TRADES", evalTierBox); var fundedTierRow = PoolRow("FUNDED TRADES", fundedTierBox);
@@ -8666,7 +8772,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             controls.Children.Add(Row("INSTRUMENT", evidenceInstrumentBox)); controls.Children.Add(Row("CHART TIMEFRAME", evidenceTimeframeBox)); controls.Children.Add(Row("SESSION DATE YYYY-MM-DD", evidenceDateBox)); controls.Children.Add(render); top.Children.Add(controls);
             var displayFilters = new UniformGrid { Columns = 2, Margin = new Thickness(2, 2, 2, 2) };
             evidenceSessionFilterBox = Select("FULL LOADED SESSION", "ASIA 18:00-08:00", "NY EARLY 08:00-15:55", "NY OPEN 09:30-15:55"); evidenceSessionFilterBox.SelectedIndex = 0;
-            evidenceStrengthBox = Select("ALL DETECTED SETUPS", "AGGRESSION-TAGGED SETUPS", "GRADE A ONLY", "GRADE A + B"); evidenceStrengthBox.SelectedIndex = 0;
+            evidenceStrengthBox = Select("ALL DETECTED SETUPS", "AGGRESSION-TAGGED SETUPS", "DOUBLE TROUBLE ONLY", "GRADE A ONLY", "GRADE A + B"); evidenceStrengthBox.SelectedIndex = 0;
             displayFilters.Children.Add(Row("CHART SESSION FILTER", evidenceSessionFilterBox)); displayFilters.Children.Add(Row("SETUP FILTER", evidenceStrengthBox)); top.Children.Add(displayFilters);
             var filters = new WrapPanel { Margin = new Thickness(4, 2, 4, 2) };
             filters.Children.Add(Txt("VIEW: ", Cyan, 11, FontWeights.Bold));
@@ -9319,6 +9425,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                     AddSelectedEvidenceEntry(selectedInGroup, bars, x, y(selectedInGroup.Entry), left, candleWidth, width, y, setupBrush, resultBrush, pulseOn, selectEvent);
                 }
                 pinRightEdges[pinLevel] = pinX + 14;
+                // Grade badge above the result circle: DT (double trouble) in gold, A in green.
+                string badgeGrade = groupedEvents.Any(g => g.QualityTier == "DT") ? "DT" : (groupedEvents.Any(g => g.QualityTier == "A") ? "A" : string.Empty);
+                if (badgeGrade.Length > 0) { var gradeTag = AddCanvasText(badgeGrade, pinX + (badgeGrade == "DT" ? -1 : 3), pinY - 13, badgeGrade == "DT" ? Gold : Green, 10, FontWeights.Bold); if (gradeTag != null) gradeTag.IsHitTestVisible = false; }
             }
             if (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase))
                 DrawAsianLegAnnotations(allMarks, bars, left, candleWidth, y, top, chartHeight - bottom, symbol);
@@ -9564,8 +9673,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (evidenceStrengthBox != null && string.Equals(Convert.ToString(evidenceStrengthBox.SelectedItem), "AGGRESSION-TAGGED SETUPS", StringComparison.OrdinalIgnoreCase))
                 q = q.Where(x => string.Equals(x.StrengthTag, "AGGR", StringComparison.OrdinalIgnoreCase));
             string gradePick = evidenceStrengthBox == null ? string.Empty : Convert.ToString(evidenceStrengthBox.SelectedItem);
-            if (gradePick == "GRADE A ONLY") q = q.Where(x => x.QualityTier == "A");
-            else if (gradePick == "GRADE A + B") q = q.Where(x => x.QualityTier == "A" || x.QualityTier == "B");
+            if (gradePick == "DOUBLE TROUBLE ONLY") q = q.Where(x => x.QualityTier == "DT");
+            else if (gradePick == "GRADE A ONLY") q = q.Where(x => x.QualityTier == "A" || x.QualityTier == "DT");
+            else if (gradePick == "GRADE A + B") q = q.Where(x => x.QualityTier == "A" || x.QualityTier == "B" || x.QualityTier == "DT");
             return q.Where(EvidenceFilterIncludes).OrderBy(x => x.TriggerTime).ToList();
         }
 
@@ -9886,11 +9996,18 @@ namespace NinjaTrader.NinjaScript.AddOns
                 double x0 = left + startIdx * candleWidth, width = Math.Max(candleWidth, (endIdx - startIdx + 1) * candleWidth);
                 double yTop = y(z.Upper), yBottom = y(z.Lower);
                 var box = new System.Windows.Shapes.Rectangle { Width = width, Height = Math.Max(2, Math.Abs(yBottom - yTop)), Fill = fill, Opacity = z.EndReason == "USED" ? 0.24 : 0.14, IsHitTestVisible = true,
-                    ToolTip = "FVG BOX " + z.Lower.ToString("0.##", CultureInfo.InvariantCulture) + " – " + z.Upper.ToString("0.##", CultureInfo.InvariantCulture) + " (" + z.Height.ToString("0.##", CultureInfo.InvariantCulture) + " pts)\nformed " + z.FormedTime.ToString("yyyy-MM-dd HH:mm") + " • visits " + z.Visits + " • entries " + z.Entries + "\nended: " + z.EndReason + (z.EndTime == DateTime.MaxValue ? "" : " " + z.EndTime.ToString("HH:mm")) + "\naggression: " + z.RedRun + " red candles, drop " + z.Drop.ToString("0.##", CultureInfo.InvariantCulture) + (z.Aggressive ? " (AGGRESSIVE)" : "") };
+                    ToolTip = "FVG BOX " + z.Lower.ToString("0.##", CultureInfo.InvariantCulture) + " – " + z.Upper.ToString("0.##", CultureInfo.InvariantCulture) + " (" + z.Height.ToString("0.##", CultureInfo.InvariantCulture) + " pts)\nformed " + z.FormedTime.ToString("yyyy-MM-dd HH:mm") + " • visits " + z.Visits + " • entries " + z.Entries + "\nended: " + z.EndReason + (z.EndTime == DateTime.MaxValue ? "" : " " + z.EndTime.ToString("HH:mm")) + "\naggression: " + z.RedRun + " red candles, drop " + z.Drop.ToString("0.##", CultureInfo.InvariantCulture) + (z.Aggressive ? " (AGGRESSIVE)" : "") + (z.Stacked > 1 ? "\nstacked zone: " + z.Stacked + " FVGs in a row" : "") + "\n\nWHAT HAPPENED\n" + string.Join("\n", z.Log) };
                 Canvas.SetLeft(box, x0); Canvas.SetTop(box, Math.Min(yTop, yBottom)); evidenceCanvas.Children.Add(box);
                 var outline = new System.Windows.Shapes.Rectangle { Width = width, Height = Math.Max(2, Math.Abs(yBottom - yTop)), Stroke = z.Aggressive ? Gold : fill, StrokeThickness = z.Aggressive ? 1.6 : 1, Opacity = 0.85, IsHitTestVisible = false };
                 Canvas.SetLeft(outline, x0); Canvas.SetTop(outline, Math.Min(yTop, yBottom)); evidenceCanvas.Children.Add(outline);
-                if (width > 60) AddCanvasText("FVG " + z.Height.ToString("0.##", CultureInfo.InvariantCulture) + (z.Aggressive ? " • AGGR" : "") + (z.Entries > 0 ? " • " + z.Entries + " ENTRY" : ""), x0 + 3, Math.Min(yTop, yBottom) - 13, z.Aggressive ? Gold : fill, 9, FontWeights.Bold);
+                if (z.Parts.Count > 1)
+                    foreach (double[] part in z.Parts)
+                    {
+                        // the individual FVGs inside a stacked zone, drawn faintly
+                        var inner = new System.Windows.Shapes.Rectangle { Width = width, Height = Math.Max(1, Math.Abs(y(part[0]) - y(part[1]))), Stroke = fill, StrokeThickness = 0.8, StrokeDashArray = new DoubleCollection { 3, 3 }, Opacity = 0.6, IsHitTestVisible = false };
+                        Canvas.SetLeft(inner, x0); Canvas.SetTop(inner, Math.Min(y(part[0]), y(part[1]))); evidenceCanvas.Children.Add(inner);
+                    }
+                if (width > 60) AddCanvasText((z.Stacked > 1 ? "ZONE ×" + z.Stacked + " " : "FVG ") + z.Height.ToString("0.##", CultureInfo.InvariantCulture) + (z.Aggressive ? " • AGGR" : "") + (z.Entries > 0 ? " • " + z.Entries + " ENTRY" : ""), x0 + 3, Math.Min(yTop, yBottom) - 13, z.Aggressive ? Gold : fill, 9, FontWeights.Bold);
             }
         }
 
@@ -11816,7 +11933,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.FvgMnqDropPoints = Math.Max(0, NumberAllowZero(fvgMnqDropBox, 0)); config.FvgMgcDropPoints = Math.Max(0, NumberAllowZero(fvgMgcDropBox, 0));
             config.FvgAggressionCombine = fvgCombineBox != null && fvgCombineBox.SelectedIndex == 1 ? "ALL" : "ANY";
             config.FvgAllowOneGreenInRun = fvgOneGreenBox == null || fvgOneGreenBox.IsChecked != false ? 1 : 0;
-            config.FvgStopMode = fvgStopModeBox == null ? "FORMATION_LOW" : (fvgStopModeBox.SelectedIndex == 1 ? "BOX" : (fvgStopModeBox.SelectedIndex == 2 ? "GREEN_LOW" : (fvgStopModeBox.SelectedIndex == 3 ? "FIXED" : "FORMATION_LOW")));
+            config.FvgStopMode = fvgStopModeBox == null ? "FORMATION_LOW" : (fvgStopModeBox.SelectedIndex == 1 ? "BOX" : (fvgStopModeBox.SelectedIndex == 2 ? "GREEN_LOW" : (fvgStopModeBox.SelectedIndex == 3 ? "FIXED" : (fvgStopModeBox.SelectedIndex == 4 ? "POINTS" : "FORMATION_LOW"))));
+            Func<TextBox, double, double> pts = (box, d) => Math.Max(0.01, Number(box, d));
+            config.FvgStopPointsDT = pts(fvgPtsBoxes[0], 10); config.FvgTargetPointsDT = pts(fvgPtsBoxes[1], 15); config.FvgStopPointsA = pts(fvgPtsBoxes[2], 10); config.FvgTargetPointsA = pts(fvgPtsBoxes[3], 15);
+            config.FvgStopPointsB = pts(fvgPtsBoxes[4], 5); config.FvgTargetPointsB = pts(fvgPtsBoxes[5], 10); config.FvgStopPointsC = pts(fvgPtsBoxes[6], 5); config.FvgTargetPointsC = pts(fvgPtsBoxes[7], 10);
+            config.FvgMergeStacked = fvgMergeBox == null || fvgMergeBox.IsChecked != false ? 1 : 0;
+            config.FvgMergedDepthPercent = Math.Max(0, Math.Min(100, NumberAllowZero(fvgMergedDepthBox, 50)));
+            config.FvgTargetRDT = Math.Max(0.2, Number(fvgTargetRDTBox, 3));
             config.FvgStopBufferPoints = Math.Max(0, NumberAllowZero(fvgStopBufferBox, 0));
             config.FvgTargetMode = fvgTargetModeBox != null && fvgTargetModeBox.SelectedIndex == 1 ? "FIXED_DOLLARS" : "R_BY_QUALITY";
             config.FvgTargetRA = Math.Max(0.2, Number(fvgTargetRABox, 3)); config.FvgTargetRB = Math.Max(0.2, Number(fvgTargetRBBox, 2)); config.FvgTargetRC = Math.Max(0.2, Number(fvgTargetRCBox, 1.5)); config.FvgMaxQuantity = Math.Max(1, Integer(fvgMaxQtyBox, 20));
@@ -11933,7 +12056,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.EvalQualifyingDaysConsecutive = evalConsecutiveBox == null || evalConsecutiveBox.IsChecked == true ? 1 : 0;
             config.EvaluationMinTradingDays = Math.Max(0, Integer(evalMinTradingDaysBox, 0));
             config.ReplacementDelayDays = Math.Max(0, Integer(replacementDelayBox, 0));
-            Func<ComboBox, string> tierOf = box => box == null ? "ALL" : (box.SelectedIndex == 1 ? "AB" : (box.SelectedIndex == 2 ? "A" : "ALL"));
+            Func<ComboBox, string> tierOf = box => box == null ? "ALL" : (box.SelectedIndex == 1 ? "AB" : (box.SelectedIndex == 2 ? "A" : (box.SelectedIndex == 3 ? "DT" : "ALL")));
             config.EvalTierFilter = tierOf(evalTierBox); config.FundedTierFilter = tierOf(fundedTierBox);
             config.AsianEvalStageEnabled = asian75 && asianEvalStageBox != null && asianEvalStageBox.IsChecked == true ? 1 : 0;
             config.AsianEvalCycleTargetDollars = Number(asianEvalTargetBox, config.AsianCycleTargetDollars);
@@ -13137,7 +13260,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (evalMinTradingDaysBox != null) evalMinTradingDaysBox.Text = "0";
             if (replacementDelayBox != null) replacementDelayBox.Text = "0";
             if (evalTierBox != null) evalTierBox.SelectedIndex = 0; if (fundedTierBox != null) fundedTierBox.SelectedIndex = 0;
-            if (fvgTargetModeBox != null) fvgTargetModeBox.SelectedIndex = 0; if (fvgTargetRABox != null) fvgTargetRABox.Text = "3"; if (fvgTargetRBBox != null) fvgTargetRBBox.Text = "2"; if (fvgTargetRCBox != null) fvgTargetRCBox.Text = "1.5";
+            if (fvgTargetModeBox != null) fvgTargetModeBox.SelectedIndex = 0; if (fvgTargetRABox != null) fvgTargetRABox.Text = "3"; if (fvgTargetRBBox != null) fvgTargetRBBox.Text = "2"; if (fvgTargetRCBox != null) fvgTargetRCBox.Text = "1.5"; if (fvgTargetRDTBox != null) fvgTargetRDTBox.Text = "3"; if (fvgMergedDepthBox != null) fvgMergedDepthBox.Text = "50"; if (fvgMergeBox != null) fvgMergeBox.IsChecked = true;
+            string[] ptsReset = { "10", "15", "10", "15", "5", "10", "5", "10" }; for (int k = 0; k < fvgPtsBoxes.Length; k++) if (fvgPtsBoxes[k] != null) fvgPtsBoxes[k].Text = ptsReset[k];
             foreach (var pair in new[] { Tuple.Create(fvgMnqMinGapBox, "0"), Tuple.Create(fvgMgcMinGapBox, "0"), Tuple.Create(fvgDepthBox, "25"), Tuple.Create(fvgRunAwayBox, "2"), Tuple.Create(fvgMaxEntriesBox, "3"), Tuple.Create(fvgMaxAgeBox, "0"), Tuple.Create(fvgMnqRedBox, "3"), Tuple.Create(fvgMgcRedBox, "3"), Tuple.Create(fvgMnqDropBox, "0"), Tuple.Create(fvgMgcDropBox, "0"), Tuple.Create(fvgStopBufferBox, "0"), Tuple.Create(fvgMaxQtyBox, "20") }) if (pair.Item1 != null) pair.Item1.Text = pair.Item2;
             foreach (ComboBox box in new[] { fvgMissBox, fvgOutsideBox, fvgLifetimeBox, fvgAggressionBox, fvgCombineBox, fvgStopModeBox }) if (box != null) box.SelectedIndex = 0;
             if (fvgOneGreenBox != null) fvgOneGreenBox.IsChecked = true;

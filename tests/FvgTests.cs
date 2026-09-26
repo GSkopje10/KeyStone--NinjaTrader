@@ -120,10 +120,10 @@ public static class FvgTests
         // 8. Aggression REQUIRED drops boxes without a red run; TAG keeps them untagged.
         {
             var c = new List<double[]> { C(100, 100.4, 99.8, 100.2), C(100.2, 100.6, 100.0, 100.5), C(100.5, 101, 100.3, 100.9), C(100.9, 104, 100.8, 103.8), C(103.8, 105, 102, 104.6), C(104.0, 104.2, 101.4, 103.0), C(103.0, 103.6, 101.5, 103.4), C(103.4, 104.5, 103.2, 104.3) };
-            var tag = Cfg(); tag.FvgRunAwayMultiple = 0; // this small box would otherwise be retired by the 104.2 high
+            var tag = Cfg(); tag.FvgRunAwayMultiple = 0; tag.FvgMergeStacked = 0; // this small box would otherwise be retired by the 104.2 high
             var zones = Scan(c, tag, out en);
             Check(zones.Count >= 1 && zones.All(z => !z.Aggressive) && en.Count == 1, "TAG: box without aggression is kept, marked BASE", zones.Count + " / " + en.Count);
-            var cfg = Cfg(); cfg.FvgRunAwayMultiple = 0; cfg.FvgAggressionMode = "REQUIRED"; zones = Scan(c, cfg, out en);
+            var cfg = Cfg(); cfg.FvgRunAwayMultiple = 0; cfg.FvgMergeStacked = 0; cfg.FvgAggressionMode = "REQUIRED"; zones = Scan(c, cfg, out en);
             Check(zones.Count == 0 && en.Count == 0, "REQUIRED: box without aggression is ignored", zones.Count.ToString());
         }
         // 9. Minimum gap: a 2-point box is skipped when the minimum is 3.
@@ -167,6 +167,41 @@ public static class FvgTests
             var ev = KeystoneArcEngine.DetectAndResolve(bars, bars, cf);
             double qty = Math.Floor(200 / ((103.6 - 98) * 10));
             Check(ev.Count == 1 && Math.Abs(ev[0].Stop - 98) < 1e-9 && Math.Abs(ev[0].Quantity - qty) < 1e-9 && Math.Abs(ev[0].GrossPnl + (103.6 - 98) * 10 * qty) < 0.01, "stop below the FVG candles' lowest low (98), contracts sized to the $200 risk", ev.Count == 0 ? "none" : ev[0].Stop + " x" + ev[0].Quantity + " " + ev[0].GrossPnl);
+        }
+        // 12. Stacked FVGs (in a row) = one zone; the dip must reach its middle. Every zone keeps a log.
+        {
+            var c = new List<double[]> { C(100, 100.4, 99.8, 100.2), C(100.2, 100.6, 100.0, 100.5), C(100.5, 101, 100.3, 100.9), C(100.9, 104, 100.8, 103.8), C(103.8, 105, 102, 104.6) };
+            // zone 100.6–102 (two boxes), middle 101.3
+            var shallow = new List<double[]>(c) { C(104.0, 104.2, 101.4, 103.0), C(103.0, 103.6, 101.5, 103.4), C(103.4, 104.5, 103.2, 104.3) };
+            var cfg = Cfg(); cfg.FvgRunAwayMultiple = 0;
+            var zones = Scan(shallow, cfg, out en);
+            Check(zones.Count == 1 && zones[0].Stacked == 2 && Math.Abs(zones[0].Lower - 100.6) < 1e-9 && Math.Abs(zones[0].Upper - 102) < 1e-9, "two FVGs in a row merge into one zone", zones.Count + " zones");
+            Check(en.Count == 0 && zones[0].Log.Any(l => l.Contains("touch only") && l.Contains("needs 50%")), "a dip above the middle of the stacked zone is not a retest (log says why)", string.Join(" | ", zones[0].Log));
+            var deep = new List<double[]>(c) { C(104.0, 104.2, 101.1, 103.0), C(103.0, 103.6, 101.5, 103.4), C(103.4, 104.5, 103.2, 104.3) };
+            zones = Scan(deep, cfg, out en);
+            Check(en.Count == 1 && zones[0].Log.Any(l => l.Contains("ENTRY")), "dip to the middle of the stacked zone → entry", string.Join(" | ", zones[0].Log));
+            cfg.FvgMergeStacked = 0; zones = Scan(shallow, cfg, out en);
+            Check(zones.Count == 2, "stacking off: two separate boxes", zones.Count.ToString());
+        }
+        // 13. DOUBLE TROUBLE: aggression before the box + red candle, green reference, break (= BH) on the FVG entry.
+        {
+            var c = Base(); c.Add(C(104.0, 104.2, 100.8, 103.0)); /* red dip */ c.Add(C(103.0, 103.6, 101.5, 103.4)); /* green ref */ c.Add(C(103.4, 104.5, 103.2, 104.3)); c.Add(C(104.3, 110, 104, 109)); c.Add(C(109, 114, 108.5, 113.9));
+            var bars = Bars(c.ToArray());
+            var cfg = Cfg();
+            var ev = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg);
+            Check(ev.Count == 1 && ev[0].QualityTier == "DT" && (ev[0].ReviewNote ?? "").Contains("DOUBLE TROUBLE"), "aggressive box + red/green/break = DOUBLE TROUBLE (top grade)", ev.Count == 0 ? "none" : ev[0].QualityTier + " " + ev[0].ReviewNote);
+            var c2 = Base(); c2[6] = C(104.0, 105.2, 103.5, 104.6); /* green */ c2.Add(C(103.0, 104.2, 100.8, 103.3)); /* green dip = reference */ c2.Add(C(103.3, 104.5, 103.2, 104.3)); /* break */
+            var ev2 = KeystoneArcEngine.DetectAndResolve(Bars(c2.ToArray()), Bars(c2.ToArray()), cfg);
+            Check(ev2.Count == 1 && ev2[0].QualityTier != "DT", "no red candle before the green reference → not DOUBLE TROUBLE", string.Join(",", ev2.Select(e => e.QualityTier)));
+            Check(KeystoneArcQualityLearner.TierAllowed("DT", "DT") && !KeystoneArcQualityLearner.TierAllowed("DT", "A") && KeystoneArcQualityLearner.TierAllowed("A", "DT") && KeystoneArcQualityLearner.TierAllowed("AB", "DT"), "filters: DT only; A and A+B include DT", "");
+        }
+        // 14. POINTS sizing per grade with the user's contract size: DT stop 10 / target 15.
+        {
+            var c = Base(); c.Add(C(104.0, 104.2, 100.8, 103.0)); c.Add(C(103.0, 103.6, 101.5, 103.4)); c.Add(C(103.4, 104.5, 103.2, 104.3)); c.Add(C(104.3, 119, 104, 118.8));
+            var bars = Bars(c.ToArray());
+            var cfg = Cfg(); cfg.FvgStopMode = "POINTS"; cfg.Quantity = 10;
+            var ev = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg);
+            Check(ev.Count == 1 && Math.Abs(ev[0].Stop - (103.6 - 10)) < 1e-9 && Math.Abs(ev[0].Target - (103.6 + 15)) < 1e-9 && ev[0].Outcome == "WIN" && Math.Abs(ev[0].GrossPnl - 15 * 10 * 10) < 0.01, "DT with POINTS: stop 10, target 15 points, 10 MGC = +$1,500", ev.Count == 0 ? "none" : ev[0].Stop + "/" + ev[0].Target + " " + ev[0].Outcome + " " + ev[0].GrossPnl);
         }
         // 11. BH strategy is untouched by the FVG code path.
         {
