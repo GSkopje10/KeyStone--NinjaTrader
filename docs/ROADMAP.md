@@ -69,6 +69,9 @@ and chart labels differ per strategy.
 - [ ] The 4 top boxes change with the selected results tab and show that tab's key numbers
       (e.g. First Return: paid accounts, earliest first payout, average days to first payout,
       cost through first return); the general summary lives only on the main tab
+- [ ] Payout Cycles tab redesign: the payout-account list and its detail are cramped (tiny
+      nested scroll boxes). Full-height account list as colored cards, detail as boxes, one
+      scroll per panel; same look and theme for every strategy
 - [ ] Consolidate tabs; no duplicate boxes; nothing cut off on one-day tests
 - [ ] Prop firm / account colors and names for easy reading
 - [x] Fix: daily records showed TRADES 0 • W/L 0/0, start balance and cost wrong (26e)
