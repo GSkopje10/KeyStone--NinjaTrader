@@ -117,3 +117,13 @@ for each bar on the selected timeframe (NY time, inside the session window):
 Run-away now means the WHOLE candle (its low too) trades above the run-away distance. Before,
 a candle that dipped into a small box but spiked high retired the box, so the user's MGC
 2026-09-23 10:55 setup was missed. Regression test: tests/FvgTests.cs #6b.
+
+## Update 2026-09-27 (build 26-09-27c) — user feedback
+- Fake-outs: a box can be traded again after a loss — TRIES PER BOX, default 3 (needs a new dip,
+  green close and break each time; a close below the box or a whole candle far above ends it).
+- New default stop: below the lowest low of the 3 FVG candles, contracts auto-sized so the loss
+  at the stop ≈ RISK $ (Step 2 STOP $). Other stops: below the box, below the green candle
+  (auto size), or FIXED $ stop with the user's contract size.
+- Simple panel: stop, tries, dip depth, min box size, aggression; the rest under ADVANCED.
+- Evidence chart: TIMEFRAME buttons (1/5/15/30/60/240M) — setups, boxes and replay use only the
+  chosen timeframe for that day.

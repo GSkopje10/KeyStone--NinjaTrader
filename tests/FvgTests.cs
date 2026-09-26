@@ -30,7 +30,7 @@ public static class FvgTests
         return new KeystoneArcRunConfig
         {
             StrategyCode = "FVG", Scope = "MGC", SetupMinutes = 1, SessionMode = "CUSTOM", CustomStart = 800, EndTime = 1655,
-            Start = T0.Date, End = T0.Date.AddDays(1), TargetDollars = 100, StopDollars = 50, Quantity = 1, StopMode = "STANDARD", OutcomeModelEnabled = 1
+            Start = T0.Date, End = T0.Date.AddDays(1), TargetDollars = 100, StopDollars = 50, Quantity = 1, StopMode = "STANDARD", OutcomeModelEnabled = 1, FvgMaxEntriesPerBox = 1, FvgStopMode = "FIXED"
         };
     }
 
@@ -149,6 +149,24 @@ public static class FvgTests
             var ev2 = KeystoneArcEngine.DetectAndResolve(lb, lb, cfgBox);
             double expectedQty = Math.Max(1, Math.Floor(50 / ((103.6 - 100) * 10)));
             Check(ev2.Count == 1 && Math.Abs(ev2[0].Stop - 100) < 1e-9 && ev2[0].Outcome.StartsWith("LOSS") && Math.Abs(ev2[0].GrossPnl + (103.6 - 100) * 10 * expectedQty) < 0.01, "BOX stop: stop at box bottom, loss = real price move × size", ev2.Count == 0 ? "none" : ev2[0].Stop + " " + ev2[0].Outcome + " " + ev2[0].GrossPnl);
+        }
+        // 10b. Defaults for the lab: 3 tries per box (fake-out retry) and the stop below the 3 FVG candles, auto-sized.
+        {
+            var def = new KeystoneArcRunConfig();
+            Check(def.FvgMaxEntriesPerBox == 3 && def.FvgStopMode == "FORMATION_LOW", "defaults: 3 tries per box, stop below the FVG candles", def.FvgMaxEntriesPerBox + " / " + def.FvgStopMode);
+            // Fake-out: entry 1 stops out without closing below the box, a new dip + green + break gives entry 2.
+            var c = Base(); c.Add(C(104.0, 104.2, 100.8, 103.0)); c.Add(C(103.0, 103.6, 101.5, 103.4)); c.Add(C(103.4, 104.0, 103.2, 103.5)); // entry 1 @103.6
+            c.Add(C(103.5, 103.6, 100.2, 100.6)); // dips, closes inside the box (not below 100)
+            c.Add(C(100.6, 102.4, 100.4, 102.2)); // green → ref 102.4
+            c.Add(C(102.2, 103.0, 102.0, 102.9)); // entry 2 @102.4
+            var cfg = Cfg(); cfg.FvgMaxEntriesPerBox = 3; Scan(c, cfg, out en);
+            Check(en.Count == 2 && Math.Abs(en[1].Entry - 102.4) < 1e-9 && en[1].Visit == 2, "fake-out: the same box gives a second try after the first", string.Join(",", en.Select(x => x.Entry)));
+            // Stop below the lowest low of the 3 FVG candles (98), size = floor(risk / (distance × $10)).
+            var bars = Bars(Base().Concat(new[] { C(104.0, 104.2, 100.8, 103.0), C(103.0, 103.6, 101.5, 103.4), C(103.4, 104.5, 103.2, 104.3), C(104.3, 104.4, 97.0, 97.5) }).ToArray());
+            var cf = Cfg(); cf.FvgStopMode = "FORMATION_LOW"; cf.StopDollars = 200;
+            var ev = KeystoneArcEngine.DetectAndResolve(bars, bars, cf);
+            double qty = Math.Floor(200 / ((103.6 - 98) * 10));
+            Check(ev.Count == 1 && Math.Abs(ev[0].Stop - 98) < 1e-9 && Math.Abs(ev[0].Quantity - qty) < 1e-9 && Math.Abs(ev[0].GrossPnl + (103.6 - 98) * 10 * qty) < 0.01, "stop below the FVG candles' lowest low (98), contracts sized to the $200 risk", ev.Count == 0 ? "none" : ev[0].Stop + " x" + ev[0].Quantity + " " + ev[0].GrossPnl);
         }
         // 11. BH strategy is untouched by the FVG code path.
         {

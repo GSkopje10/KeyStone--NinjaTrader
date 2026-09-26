@@ -114,6 +114,7 @@ namespace NinjaTrader.NinjaScript
         public string EndReason = "OPEN";         // CLOSED BELOW, RUN AWAY, USED, AGE, SESSION END, OPEN
         public int Visits, Entries;
         public int RedRun; public double Drop; public bool Aggressive;
+        public double FormationLow;               // lowest low of the 3 candles that made the gap
         public double Height { get { return Upper - Lower; } }
     }
 
@@ -621,7 +622,7 @@ namespace NinjaTrader.NinjaScript
         public double FvgMgcMinGap = 0;          // minimum box height, MGC points (0 = any gap)
         public double FvgMinDepthPercent = 25;   // how deep the dip must reach into the box (0 = touch, 50 = midpoint)
         public double FvgRunAwayMultiple = 2;    // box retired when price runs this many box heights above it (0 = never)
-        public int FvgMaxEntriesPerBox = 1;      // entries one box may give (1 = one use)
+        public int FvgMaxEntriesPerBox = 3;      // tries one box may give (gold fakes out: after a loss the same box can be traded again)
         public int FvgNeedNewDipAfterMiss = 1;   // 1: a green candle whose high is not broken needs a new dip; 0: any later green close re-arms
         public int FvgZonesOutsideWindow = 1;    // 1: boxes formed before the session window can be traded inside it
         public int FvgSameSessionOnly = 0;       // 1: a box is only traded in the session it formed
@@ -631,7 +632,7 @@ namespace NinjaTrader.NinjaScript
         public double FvgMnqDropPoints = 0, FvgMgcDropPoints = 0; // drop before the box in price points (0 = off)
         public string FvgAggressionCombine = "ANY";
         public int FvgAllowOneGreenInRun = 1;    // a small green candle does not reset the red run
-        public string FvgStopMode = "FIXED";     // FIXED ($ stop as BH), BOX (below box bottom), GREEN_LOW (below the green candle)
+        public string FvgStopMode = "FORMATION_LOW"; // FORMATION_LOW (below the 3 FVG candles, auto size), BOX, GREEN_LOW, FIXED ($ stop + own contract size)
         public double FvgStopBufferPoints = 0;   // extra points below the box / green low
         public int FvgMaxQuantity = 20;          // cap for risk-sized positions
 
@@ -1373,7 +1374,7 @@ namespace NinjaTrader.NinjaScript
                             : (useRed && red >= needRed) || (useDrop && drop >= needDrop));
                         if (aggression != "REQUIRED" || aggressive)
                         {
-                            var zone = new KeystoneArcFvgZone { Symbol = symbol, Lower = bars[i - 2].High, Upper = bar.Low, FormedTime = bar.Time, RedRun = red, Drop = drop, Aggressive = aggressive };
+                            var zone = new KeystoneArcFvgZone { Symbol = symbol, Lower = bars[i - 2].High, Upper = bar.Low, FormedTime = bar.Time, RedRun = red, Drop = drop, Aggressive = aggressive, FormationLow = Math.Min(bars[i - 2].Low, Math.Min(bars[i - 1].Low, bar.Low)) };
                             zones.Add(zone);
                             live.Add(new FvgWork { Zone = zone, FormedIndex = i });
                         }
@@ -1419,14 +1420,15 @@ namespace NinjaTrader.NinjaScript
             {
                 KeystoneArcBar green = bars[x.ReferenceIndex], trigger = bars[x.TriggerIndex];
                 KeystoneArcEvent e = NewEvent(symbol, "FVG", green.Time, trigger.Time, x.Entry, cfg, bars, x.TriggerIndex);
-                if (stopMode == "BOX" || stopMode == "GREEN_LOW")
+                if (stopMode == "BOX" || stopMode == "GREEN_LOW" || stopMode == "FORMATION_LOW")
                 {
-                    double stop = (stopMode == "BOX" ? x.Zone.Lower : x.GreenLow) - Math.Max(0, cfg.FvgStopBufferPoints);
+                    double basePrice = stopMode == "BOX" ? x.Zone.Lower : (stopMode == "GREEN_LOW" ? x.GreenLow : x.Zone.FormationLow);
+                    double stop = basePrice - Math.Max(0, cfg.FvgStopBufferPoints);
                     double distance = Math.Max(0.0001, x.Entry - stop);
                     double qty = Math.Max(1, Math.Min(Math.Max(1, cfg.FvgMaxQuantity), Math.Floor(cfg.StopDollars / (distance * pointValue))));
                     e.Stop = stop; e.StopDistance = distance; e.Quantity = qty;
                     e.Target = x.Entry + cfg.TargetDollars / Math.Max(0.0001, pointValue * qty);
-                    e.RiskModel = "FVG " + (stopMode == "BOX" ? "BELOW BOX" : "BELOW GREEN CANDLE") + " • RISK-SIZED " + qty + " • PRICE P/L";
+                    e.RiskModel = "FVG " + (stopMode == "BOX" ? "BELOW BOX" : (stopMode == "GREEN_LOW" ? "BELOW GREEN CANDLE" : "BELOW FVG CANDLES LOW")) + " • AUTO SIZE " + qty + " • PRICE P/L";
                 }
                 DateTime day = SessionGroupingDate(trigger.Time, cfg); if (day != orderDay) { orderDay = day; order = 0; }
                 e.SessionOrder = ++order;
@@ -3987,7 +3989,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-27b • FVG RUN-AWAY FIX • BAR REPLAY • AI REPORT • THEMES";
+        private const string KeystoneBuild = "BUILD 2026-09-27c • FVG TRIES + AUTO SIZE • CHART TIMEFRAMES • BAR REPLAY";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -4041,6 +4043,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Border evidenceLiveBorder, evidenceLiveTargetFill, evidenceLiveLossFill, evidenceSidePanel;
         private TextBlock evidenceLiveClock, evidenceLiveCombined, evidenceLiveLines, evidenceLiveTargetText, evidenceLiveLossText;
         private string evidenceReplayKey = string.Empty;
+        private readonly List<Button> evidenceTimeframeButtons = new List<Button>();
+        private TextBlock evidenceTimeframeLabel;
         private bool evidenceSelectionClickHandled;
         private readonly List<Button> evidenceDateButtons = new List<Button>();
         private int evidenceSelectedDateIndex = -1;
@@ -5173,14 +5177,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             asianStrategyControls.Clear(); asianStrategyControls.Add(asianModel);
             var fvgModel = Stack(); fvgModel.Margin = new Thickness(0, 4, 0, 2);
             fvgModel.Children.Add(Txt("FVG RETEST • BOX RULES", Orchid, 11, FontWeights.Bold));
-            fvgMnqMinGapBox = Input("0"); fvgMgcMinGapBox = Input("0"); fvgDepthBox = Input("25"); fvgRunAwayBox = Input("2"); fvgMaxEntriesBox = Input("1"); fvgMaxAgeBox = Input("0");
+            fvgMnqMinGapBox = Input("0"); fvgMgcMinGapBox = Input("0"); fvgDepthBox = Input("25"); fvgRunAwayBox = Input("2"); fvgMaxEntriesBox = Input("3"); fvgMaxAgeBox = Input("0");
             fvgMnqRedBox = Input("3"); fvgMgcRedBox = Input("3"); fvgMnqDropBox = Input("0"); fvgMgcDropBox = Input("0"); fvgStopBufferBox = Input("0"); fvgMaxQtyBox = Input("20");
             fvgMissBox = Select("WAIT FOR A NEW DIP", "ANY LATER GREEN CLOSE"); fvgMissBox.SelectedIndex = 0;
             fvgOutsideBox = Select("TRADE BOXES FORMED BEFORE THE WINDOW", "ONLY BOXES FORMED INSIDE THE WINDOW"); fvgOutsideBox.SelectedIndex = 0;
             fvgLifetimeBox = Select("UNTIL USED, CLOSED BELOW OR RUN AWAY", "SAME SESSION ONLY"); fvgLifetimeBox.SelectedIndex = 0;
             fvgAggressionBox = Select("TAG ONLY (TAKE ALL, MARK AGGRESSIVE)", "REQUIRED (ONLY AGGRESSIVE BOXES)", "OFF"); fvgAggressionBox.SelectedIndex = 0;
             fvgCombineBox = Select("ANY ENABLED RULE", "ALL ENABLED RULES"); fvgCombineBox.SelectedIndex = 0;
-            fvgStopModeBox = Select("FIXED $ (STEP 2 STOP)", "BELOW THE BOX • RISK-SIZED", "BELOW THE GREEN CANDLE • RISK-SIZED"); fvgStopModeBox.SelectedIndex = 0;
+            fvgStopModeBox = Select("BELOW THE 3 FVG CANDLES • AUTO SIZE", "BELOW THE BOX • AUTO SIZE", "BELOW THE GREEN CANDLE • AUTO SIZE", "FIXED $ STOP • MY CONTRACT SIZE"); fvgStopModeBox.SelectedIndex = 0;
             fvgOneGreenBox = new CheckBox { Content = "A SMALL GREEN CANDLE DOES NOT BREAK THE RED RUN", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
             foreach (TextBox box in new[] { fvgMnqMinGapBox, fvgMgcMinGapBox, fvgDepthBox, fvgRunAwayBox, fvgMaxEntriesBox, fvgMaxAgeBox, fvgMnqRedBox, fvgMgcRedBox, fvgMnqDropBox, fvgMgcDropBox, fvgStopBufferBox, fvgMaxQtyBox }) WatchConfigurationInput(box);
             foreach (ComboBox box in new[] { fvgMissBox, fvgOutsideBox, fvgLifetimeBox, fvgAggressionBox, fvgCombineBox, fvgStopModeBox }) box.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
@@ -5190,22 +5194,27 @@ namespace NinjaTrader.NinjaScript.AddOns
             fvgMaxEntriesBox.ToolTip = "How many entries one box may give (1 = the box is finished after its first entry).";
             fvgMissBox.ToolTip = "If the candle after the green candle does not break its high: wait for a new dip into the box (default), or accept any later green close.";
             fvgAggressionBox.ToolTip = "Aggression = red candles in a row and/or a price drop just before the box. TAG ONLY keeps every box and records it; REQUIRED keeps only aggressive boxes.";
-            fvgModel.Children.Add(Row("MNQ MIN BOX SIZE (POINTS, 0 = ANY)", fvgMnqMinGapBox)); fvgModel.Children.Add(Row("MGC MIN BOX SIZE (POINTS, 0 = ANY)", fvgMgcMinGapBox));
+            // Simple view: the rules that matter most. Everything else sits under ADVANCED.
+            fvgModel.Children.Add(Row("STOP", fvgStopModeBox));
+            fvgModel.Children.Add(Txt("AUTO SIZE: contracts = RISK $ (Step 2 STOP $) ÷ stop distance, so every trade risks the same money. FIXED: your Step 2 contract size, $ target and $ stop.", Muted, 10, FontWeights.Normal));
+            fvgModel.Children.Add(Row("TRIES PER BOX (fake-outs: trade the same box again)", fvgMaxEntriesBox));
             fvgModel.Children.Add(Row("DIP DEPTH INTO BOX % (0 = TOUCH, 50 = MIDPOINT)", fvgDepthBox));
-            fvgModel.Children.Add(Row("RETIRE BOX AFTER RUN-AWAY OF X BOX HEIGHTS (0 = NEVER)", fvgRunAwayBox));
-            fvgModel.Children.Add(Row("MAX ENTRIES PER BOX", fvgMaxEntriesBox));
-            fvgModel.Children.Add(Row("GREEN CANDLE NOT BROKEN", fvgMissBox));
-            fvgModel.Children.Add(Row("BOXES BEFORE THE SESSION WINDOW", fvgOutsideBox));
-            fvgModel.Children.Add(Row("BOX LIFETIME", fvgLifetimeBox));
-            fvgModel.Children.Add(Row("MAX BOX AGE IN CANDLES (0 = NO LIMIT)", fvgMaxAgeBox));
-            fvgModel.Children.Add(Txt("AGGRESSION BEFORE THE BOX", Orchid, 11, FontWeights.Bold));
-            fvgModel.Children.Add(Row("AGGRESSION", fvgAggressionBox));
-            fvgModel.Children.Add(Row("MNQ RED CANDLES IN A ROW (0 = OFF)", fvgMnqRedBox)); fvgModel.Children.Add(Row("MNQ DROP POINTS (0 = OFF)", fvgMnqDropBox));
-            fvgModel.Children.Add(Row("MGC RED CANDLES IN A ROW (0 = OFF)", fvgMgcRedBox)); fvgModel.Children.Add(Row("MGC DROP POINTS (0 = OFF)", fvgMgcDropBox));
-            fvgModel.Children.Add(Row("COMBINE", fvgCombineBox)); fvgModel.Children.Add(Row("RED RUN", fvgOneGreenBox));
-            fvgModel.Children.Add(Txt("FVG STOP", Orchid, 11, FontWeights.Bold));
-            fvgModel.Children.Add(Row("STOP", fvgStopModeBox)); fvgModel.Children.Add(Row("STOP BUFFER POINTS", fvgStopBufferBox)); fvgModel.Children.Add(Row("MAX CONTRACTS WHEN RISK-SIZED", fvgMaxQtyBox));
-            fvgModel.Children.Add(Txt("Target / fixed stop / quantity come from the rows above. Risk-sized stops size the position so the loss at the stop is at most the Step 2 stop $, and P/L uses the real price move.", Muted, 10, FontWeights.Normal));
+            fvgModel.Children.Add(Row("MGC MIN BOX SIZE (POINTS, 0 = ANY)", fvgMgcMinGapBox)); fvgModel.Children.Add(Row("MNQ MIN BOX SIZE (POINTS, 0 = ANY)", fvgMnqMinGapBox));
+            fvgModel.Children.Add(Row("AGGRESSION BEFORE THE BOX", fvgAggressionBox));
+            var fvgAdvanced = Stack(); fvgAdvanced.Visibility = Visibility.Collapsed;
+            var fvgAdvancedToggle = new CheckBox { Content = "SHOW ADVANCED FVG SETTINGS", IsChecked = false, Foreground = Orchid, Margin = new Thickness(6) };
+            fvgAdvancedToggle.Checked += delegate { fvgAdvanced.Visibility = Visibility.Visible; }; fvgAdvancedToggle.Unchecked += delegate { fvgAdvanced.Visibility = Visibility.Collapsed; };
+            fvgModel.Children.Add(fvgAdvancedToggle);
+            fvgAdvanced.Children.Add(Row("RETIRE BOX WHEN A WHOLE CANDLE IS X BOX HEIGHTS ABOVE (0 = NEVER)", fvgRunAwayBox));
+            fvgAdvanced.Children.Add(Row("GREEN CANDLE NOT BROKEN", fvgMissBox));
+            fvgAdvanced.Children.Add(Row("BOXES BEFORE THE SESSION WINDOW", fvgOutsideBox));
+            fvgAdvanced.Children.Add(Row("BOX LIFETIME", fvgLifetimeBox));
+            fvgAdvanced.Children.Add(Row("MAX BOX AGE IN CANDLES (0 = NO LIMIT)", fvgMaxAgeBox));
+            fvgAdvanced.Children.Add(Row("MGC RED CANDLES IN A ROW (0 = OFF)", fvgMgcRedBox)); fvgAdvanced.Children.Add(Row("MGC DROP POINTS (0 = OFF)", fvgMgcDropBox));
+            fvgAdvanced.Children.Add(Row("MNQ RED CANDLES IN A ROW (0 = OFF)", fvgMnqRedBox)); fvgAdvanced.Children.Add(Row("MNQ DROP POINTS (0 = OFF)", fvgMnqDropBox));
+            fvgAdvanced.Children.Add(Row("AGGRESSION RULES COMBINE", fvgCombineBox)); fvgAdvanced.Children.Add(Row("RED RUN", fvgOneGreenBox));
+            fvgAdvanced.Children.Add(Row("STOP BUFFER POINTS", fvgStopBufferBox)); fvgAdvanced.Children.Add(Row("MAX CONTRACTS (AUTO SIZE)", fvgMaxQtyBox));
+            fvgModel.Children.Add(fvgAdvanced);
             fvgStrategyControls.Clear(); fvgStrategyControls.Add(fvgModel);
             bhStrategyControls.Add(stopModeRow); bhStrategyControls.Add(propQuantityRow); bhStrategyControls.Add(propTargetRow); bhStrategyControls.Add(propStopRow); bhStrategyControls.Add(dailyGoalRow); bhStrategyControls.Add(dailyLossRow); bhStrategyControls.Add(mnqLowOffsetRow); bhStrategyControls.Add(mgcLowOffsetRow); bhStrategyControls.Add(propModeNote); bhStrategyControls.Add(bhModelNote);
             model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel);
@@ -8555,10 +8564,22 @@ namespace NinjaTrader.NinjaScript.AddOns
             var replayNextBar = rb("BAR ▶", Card, 70, "One candle forward", delegate { ReplayStepBar(1); });
             var replayNextEvent = rb("EVENT ▶▶", Blue, 96, "Jump to the next entry / stop / exit", delegate { ReplayJumpEvent(1); });
             var replayEnd = rb("END ⏭", Card, 80, "Last event of the session", delegate { ReplayJumpEvent(int.MaxValue); });
-            var replayExit = rb("SHOW ALL", Orchid, 92, "Leave replay and show every candle", delegate { StopEvidenceReplay(); });
-            evidenceSpeedBox = Select("1 BAR/S", "2 BARS/S", "5 BARS/S", "10 BARS/S", "30 BARS/S", "60 BARS/S"); evidenceSpeedBox.SelectedIndex = 2; evidenceSpeedBox.Width = 110; evidenceSpeedBox.Height = 28; evidenceSpeedBox.Margin = new Thickness(6, 0, 2, 0);
+            var replayExit = rb("EXIT REPLAY", Orchid, 104, "Leave replay: show every candle and every setup of the day", delegate { StopEvidenceReplay(); });
+            evidenceSpeedBox = Select("SPEED 1 CANDLE/SEC", "SPEED 2 CANDLES/SEC", "SPEED 5 CANDLES/SEC", "SPEED 10 CANDLES/SEC", "SPEED 30 CANDLES/SEC", "SPEED 60 CANDLES/SEC"); evidenceSpeedBox.SelectedIndex = 2; evidenceSpeedBox.Width = 170; evidenceSpeedBox.Height = 28; evidenceSpeedBox.Margin = new Thickness(6, 0, 2, 0);
+            evidenceSpeedBox.ToolTip = "How fast PLAY moves: candles per second";
             evidenceSpeedBox.SelectionChanged += delegate { if (evidenceReplayTimer != null) evidenceReplayTimer.Interval = ReplayInterval(); };
             evidenceReplayStepText = Txt(string.Empty, Gold, 12, FontWeights.Bold); evidenceReplayStepText.VerticalAlignment = VerticalAlignment.Center; evidenceReplayStepText.Margin = new Thickness(10, 0, 0, 0);
+            // Timeframe for this day: the chart, its setups and the replay all use the chosen timeframe only.
+            var tfLabel = Txt("TIMEFRAME", Muted, 10, FontWeights.Bold); evidenceTimeframeLabel = tfLabel; tfLabel.VerticalAlignment = VerticalAlignment.Center; tfLabel.Margin = new Thickness(2, 0, 4, 0);
+            evidenceReplayBar.Children.Add(tfLabel);
+            evidenceTimeframeButtons.Clear();
+            foreach (string tf in new[] { "1M", "5M", "15M", "30M", "60M", "240M" })
+            {
+                string chosenTf = tf;
+                var tfButton = rb(tf, Card, 50, "Show this day on " + tf + " candles: setups, boxes and replay are found on " + tf + " only", delegate { if (evidenceTimeframeBox != null) { StopEvidenceReplay(); evidenceTimeframeBox.SelectedItem = chosenTf; } });
+                evidenceTimeframeButtons.Add(tfButton); evidenceReplayBar.Children.Add(tfButton);
+            }
+            var tfGap = new Border { Width = 14 }; evidenceReplayBar.Children.Add(tfGap);
             foreach (UIElement replayControl in new UIElement[] { replayStart, replayPrevEvent, replayPrevBar, evidenceReplayPlayButton, replayNextBar, replayNextEvent, replayEnd, evidenceSpeedBox, replayExit, evidenceReplayStepText }) evidenceReplayBar.Children.Add(replayControl);
             auditStack.Children.Add(evidenceReplayBar);
             // Side panel (right of the chart): live replay box, last event, selected setup.
@@ -9048,7 +9069,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     lastTimeLabelX = x;
                 }
             }
-            if (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) && chartMinutes == config.SetupMinutes)
+            if (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase))
                 DrawFvgBoxes(replaying ? allBars.Where(b => b.Time <= evidenceBarCursor).ToList() : allBars, replaying ? shownBars : bars, symbol, left, candleWidth, y);
             if (replaying)
             {
@@ -9504,7 +9525,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void EnsureEvidenceReplaySteps(DateTime day)
         {
-            string key = day.ToString("yyyyMMdd") + "|" + (evidencePreviewOwnLedger ? "P" : "L") + "|" + (evidencePreviewOwnLedger ? evidencePreviewEvents.Count : events.Count);
+            string key = day.ToString("yyyyMMdd") + "|" + EvidenceSelectedMinutes() + "|" + (evidencePreviewOwnLedger ? "P" : "L") + "|" + (evidencePreviewOwnLedger ? evidencePreviewEvents.Count : events.Count);
             if (key == evidenceReplayKey) return;
             evidenceReplayKey = key; evidenceReplayDay = day; evidenceReplayIndex = -1; evidenceBarCursor = DateTime.MinValue;
             if (evidenceReplayTimer != null) evidenceReplayTimer.Stop();
@@ -9621,6 +9642,12 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void RefreshEvidenceSidePanel()
         {
+            string activeTf = EvidenceSelectedMinutes() + "M";
+            // Asian cycles are defined on 1-minute bars only; the timeframe buttons are for setup strategies.
+            Visibility tfVisible = EvidenceIsAsian() ? Visibility.Collapsed : Visibility.Visible;
+            if (evidenceTimeframeLabel != null) evidenceTimeframeLabel.Visibility = tfVisible;
+            foreach (Button b in evidenceTimeframeButtons) b.Visibility = tfVisible;
+            foreach (Button b in evidenceTimeframeButtons) { bool on = string.Equals(Convert.ToString(b.Content), activeTf, StringComparison.OrdinalIgnoreCase); b.Background = on ? Gold : Card; b.Foreground = on ? Bg : Text; }
             if (evidenceSidePanel == null) return;
             bool show = evidenceBarCursor != DateTime.MinValue || selectedEvidenceEvent != null || (evidencePnlBorder != null && evidencePnlBorder.Visibility == Visibility.Visible);
             evidenceSidePanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
@@ -11590,7 +11617,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : "BH");
             config.FvgMnqMinGap = Math.Max(0, NumberAllowZero(fvgMnqMinGapBox, 0)); config.FvgMgcMinGap = Math.Max(0, NumberAllowZero(fvgMgcMinGapBox, 0));
             config.FvgMinDepthPercent = Math.Max(0, Math.Min(100, NumberAllowZero(fvgDepthBox, 25))); config.FvgRunAwayMultiple = Math.Max(0, NumberAllowZero(fvgRunAwayBox, 2));
-            config.FvgMaxEntriesPerBox = Math.Max(1, Integer(fvgMaxEntriesBox, 1)); config.FvgMaxBoxAgeBars = Math.Max(0, Integer(fvgMaxAgeBox, 0));
+            config.FvgMaxEntriesPerBox = Math.Max(1, Integer(fvgMaxEntriesBox, 3)); config.FvgMaxBoxAgeBars = Math.Max(0, Integer(fvgMaxAgeBox, 0));
             config.FvgNeedNewDipAfterMiss = fvgMissBox != null && fvgMissBox.SelectedIndex == 1 ? 0 : 1;
             config.FvgZonesOutsideWindow = fvgOutsideBox != null && fvgOutsideBox.SelectedIndex == 1 ? 0 : 1;
             config.FvgSameSessionOnly = fvgLifetimeBox != null && fvgLifetimeBox.SelectedIndex == 1 ? 1 : 0;
@@ -11599,7 +11626,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.FvgMnqDropPoints = Math.Max(0, NumberAllowZero(fvgMnqDropBox, 0)); config.FvgMgcDropPoints = Math.Max(0, NumberAllowZero(fvgMgcDropBox, 0));
             config.FvgAggressionCombine = fvgCombineBox != null && fvgCombineBox.SelectedIndex == 1 ? "ALL" : "ANY";
             config.FvgAllowOneGreenInRun = fvgOneGreenBox == null || fvgOneGreenBox.IsChecked != false ? 1 : 0;
-            config.FvgStopMode = fvgStopModeBox == null ? "FIXED" : (fvgStopModeBox.SelectedIndex == 1 ? "BOX" : (fvgStopModeBox.SelectedIndex == 2 ? "GREEN_LOW" : "FIXED"));
+            config.FvgStopMode = fvgStopModeBox == null ? "FORMATION_LOW" : (fvgStopModeBox.SelectedIndex == 1 ? "BOX" : (fvgStopModeBox.SelectedIndex == 2 ? "GREEN_LOW" : (fvgStopModeBox.SelectedIndex == 3 ? "FIXED" : "FORMATION_LOW")));
             config.FvgStopBufferPoints = Math.Max(0, NumberAllowZero(fvgStopBufferBox, 0)); config.FvgMaxQuantity = Math.Max(1, Integer(fvgMaxQtyBox, 20));
             config.SetupMinutes = asian75 ? 1 : SetupMinutesFromDisplay(timeframeBox == null ? string.Empty : Convert.ToString(timeframeBox.SelectedItem));
             config.DirectionMode = "BB";
@@ -12915,6 +12942,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (evalConsecutiveBox != null) evalConsecutiveBox.IsChecked = true;
             if (evalMinTradingDaysBox != null) evalMinTradingDaysBox.Text = "0";
             if (replacementDelayBox != null) replacementDelayBox.Text = "0";
+            foreach (var pair in new[] { Tuple.Create(fvgMnqMinGapBox, "0"), Tuple.Create(fvgMgcMinGapBox, "0"), Tuple.Create(fvgDepthBox, "25"), Tuple.Create(fvgRunAwayBox, "2"), Tuple.Create(fvgMaxEntriesBox, "3"), Tuple.Create(fvgMaxAgeBox, "0"), Tuple.Create(fvgMnqRedBox, "3"), Tuple.Create(fvgMgcRedBox, "3"), Tuple.Create(fvgMnqDropBox, "0"), Tuple.Create(fvgMgcDropBox, "0"), Tuple.Create(fvgStopBufferBox, "0"), Tuple.Create(fvgMaxQtyBox, "20") }) if (pair.Item1 != null) pair.Item1.Text = pair.Item2;
+            foreach (ComboBox box in new[] { fvgMissBox, fvgOutsideBox, fvgLifetimeBox, fvgAggressionBox, fvgCombineBox, fvgStopModeBox }) if (box != null) box.SelectedIndex = 0;
+            if (fvgOneGreenBox != null) fvgOneGreenBox.IsChecked = true;
             if (asianEvalStageBox != null) asianEvalStageBox.IsChecked = false;
             if (asianEvalTargetBox != null) asianEvalTargetBox.Text = "350";
             if (asianEvalLegLossBox != null) asianEvalLegLossBox.Text = "75";
