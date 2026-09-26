@@ -1,7 +1,8 @@
 # FVG retest long — rules as explained by the user (2026-09-26)
 
-Status: specification only, not built yet. Open questions at the bottom must be answered (or a
-default chosen) before implementation. BH and Asian 75 code paths are not touched.
+Status: BUILT (build 26f). Engine `KeystoneArcEngine.FvgScan` / `DetectFvgRetest`, tests in
+`tests/FvgTests.cs`, Step 1 option "FVG • RETEST + BREAK LONG". BH and Asian code paths are not
+touched (guarded by `tests/bh_detection_baseline.txt` and `tests/lifecycle_baseline.txt`).
 
 ## Idea
 

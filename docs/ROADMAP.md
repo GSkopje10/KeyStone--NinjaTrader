@@ -29,7 +29,7 @@ and chart labels differ per strategy.
 - [ ] Session-end timestamp for every Asian cycle (which session it ended in) in report
 
 ## B. Pool settings — fast testing
-- [ ] INSTRUMENT switch on the results screen (MNQ / MGC / BOTH) for every strategy: re-runs
+- [x] INSTRUMENT switch on the results screen (MNQ / MGC / BOTH) for every strategy: re-runs
       the pool with the same rules without going back to Configure; day stepping, charts and
       boxes show the selected instrument(s). BOTH on BH: each setup goes to the next available
       account (MNQ and MGC setups share the rotation). Both instruments are loaded once so
@@ -45,10 +45,10 @@ and chart labels differ per strategy.
       enough or how much extra money was needed
 - [x] Prop-firm style evaluation: consistency %, MIN TRADING DAYS with $0-risk minimal-trade
       days after the target (26e)
-- [ ] Firm cap optional, OFF by default: max evaluations per firm (10), max funded per firm (5),
+- [x] Firm cap optional, OFF by default: max evaluations per firm (10), max funded per firm (5),
       extras benched until a funded account blows; separate eval / funded account names
 - [x] Account cost charged for direct-funded accounts too (26d)
-- [ ] Replacement delay: a blown account's new evaluation starts trading after N days
+- [x] Replacement delay: a blown account's new evaluation starts trading after N days
       (default 2) instead of the next session
 - [ ] Option: evaluation passed with another strategy / assumed passed (cost + days), funded
       stage traded with the selected strategy
@@ -61,17 +61,17 @@ and chart labels differ per strategy.
       SPEND THE INITIAL INVESTMENT"; results summary still to do)
 
 ## C. Results — what the numbers must answer (main page, not buried)
-- [ ] Total investment (initial + replacements), gross payouts, cash after split, net
-- [ ] First payout date + account, days / sessions to first payout, money spent until then
-- [ ] Was the initial investment enough to get paid without extra money? date, account
-- [ ] First profitable date (payout cash ≥ all money spent)
+- [x] Total investment (initial + replacements), gross payouts, cash after split, net
+- [x] First payout date + account, days / sessions to first payout, money spent until then
+- [x] Was the initial investment enough to get paid without extra money? date, account
+- [x] First profitable date (payout cash ≥ all money spent)
 - [ ] Longest losing streak (nights, $), max drawdown, best / worst day, longest-lasting
       accounts, biggest payout streaks
 - [ ] Asian: accounts copied, P/L per account, reversal legs per instrument, highest profit peak,
       deepest drawdown
 - [ ] Daily / weekly / monthly browsing with filters, numbered cards (date visible when scrolling)
 - [ ] Lifecycle walkthrough that actually walks through each day / week / month per account
-- [ ] The 4 top boxes change with the selected results tab and show that tab's key numbers
+- [x] The 4 top boxes change with the selected results tab and show that tab's key numbers
       (e.g. First Return: paid accounts, earliest first payout, average days to first payout,
       cost through first return); the general summary lives only on the main tab
 - [ ] Payout Cycles tab redesign: the payout-account list and its detail are cramped (tiny
@@ -80,14 +80,14 @@ and chart labels differ per strategy.
 - [ ] Consolidate tabs; no duplicate boxes; nothing cut off on one-day tests
 - [ ] Prop firm / account colors and names for easy reading
 - [x] Fix: daily records showed TRADES 0 • W/L 0/0, start balance and cost wrong (26e)
-- [ ] BLOWN box = real blowup count (per copied account and total events), not "terminal slots"
-- [ ] Pool dashboard account card: first AND latest payout, payout count, current status
+- [x] BLOWN box = real blowup count (per copied account and total events), not "terminal slots"
+- [x] Pool dashboard account card: first AND latest payout, payout count, current status
       (still funded / eval / blown), current balance and carry-over balance after payout + split
 - [ ] Remove the small yellow/blue/white text blocks at the bottom of tabs; everything in
       colored boxes
-- [ ] Performance periods per day/week/month: profit after split per account, number of
+- [x] Performance periods per day/week/month: profit after split per account, number of
       accounts, total to bank, cost to date, net after all costs, carry-over balances
-- [ ] Clear answer box: "spent $X initial → first payout date → profitable date → extra money
+- [x] Clear answer box: "spent $X initial → first payout date → profitable date → extra money
       needed after that (replacements) and whether it was ever paid back"
 - [ ] Research findings specific to the strategy (no BH boilerplate on Asian); win rate per
       night, not per leg
@@ -111,6 +111,6 @@ and chart labels differ per strategy.
 - [ ] Run on the full history and review results together
 
 ## G. New strategies
-- [ ] FVG retest long (spec: `docs/FVG.md`) — all timeframes, MNQ + MGC, zone boxes on chart,
+- [x] FVG retest long (spec: `docs/FVG.md`) (26f; replay still to come) — all timeframes, MNQ + MGC, zone boxes on chart,
       replay, full pool / payout / report / optimizer
 - [ ] 123 bullish engulfing — waiting for the user's explanation
