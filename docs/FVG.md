@@ -95,7 +95,14 @@ for each bar on the selected timeframe (NY time, inside the session window):
 
 ## Still open
 
-- Aggression definition (examples tomorrow).
+- Aggression (example received 2026-09-26: a run of mostly red candles, accelerating, the last
+  ones large, straight into the reversal that forms the FVG). Plan: reuse the BH "STRONGER"
+  measures so both strategies speak the same language — **red candles in a row** before the
+  FVG's first candle (MNQ / MGC separately) and **drop size** (MNQ points, MGC $) from the
+  top of that run to its low; combine ANY / ALL; mode OFF / TAG ONLY / REQUIRED. Extra option:
+  allow 1 small green candle inside the run (so a pause does not reset the count). Every setup
+  records its red-count and drop so the results can show whether stronger aggression wins.
+  More examples welcome.
 - Risk defaults (stop / target / size) — to decide and optimize.
 - (answered) "Moved away": gold often revisits a box several times. While price stays
   relatively close above the box, every new dip can still give a setup. Only a close below the
