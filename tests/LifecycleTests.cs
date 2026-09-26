@@ -192,6 +192,33 @@ public static class LifecycleTests
             var found2 = KeystoneArcAnalyst.Analyze(new List<KeystoneArcVirtualAccount>(), bh, bcfg, null);
             Check(found2.Any(f => f.Title == "TRADE MNQ ONLY?"), "analysis suggests the winning instrument when the other loses", string.Join(", ", found2.Select(f => f.Title)));
         }
+        // 16. Setup grades: walk-forward only, learn which buckets win; stage filters in the pool.
+        {
+            var list = new List<KeystoneArcEvent>(); DateTime d0 = new DateTime(2025, 2, 3);
+            for (int i = 0; i < 160; i++)
+            {
+                DateTime day = d0.AddDays(i); bool good = i % 2 == 0;
+                DateTime t = day.AddHours(good ? 10 : 14);
+                list.Add(new KeystoneArcEvent { Id = "Q" + i, Symbol = "MNQ", SetupClass = "BH", TriggerTime = t, EntryTime = t, ExitTime = t.AddMinutes(30), Outcome = good ? "WIN" : "LOSS", GrossPnl = good ? 300 : -100, StopDistance = 50, Quantity = 1, StrengthTag = "BASE", SessionOrder = 1, ReviewState = "ACCEPTED" });
+            }
+            // a later event whose exit happens after the next entry must not be known at that entry
+            KeystoneArcQualityLearner.GradeAll(list, e => 2.0);
+            Check(list.Take(30).All(e => e.QualityTier == "N"), "first 30 setups are N (not enough earlier setups)", string.Join("", list.Take(30).Select(e => e.QualityTier)));
+            var late = list.Skip(80).ToList();
+            double goodA = late.Where(e => e.TriggerTime.Hour == 10).Count(e => e.QualityTier == "A"), badA = late.Where(e => e.TriggerTime.Hour == 14).Count(e => e.QualityTier == "A");
+            Check(goodA > badA * 3, "grades learn: the winning 10:00 setups get A far more often than the losing 14:00 ones", goodA + " vs " + badA);
+            var leak = new List<KeystoneArcEvent>(); DateTime t0 = new DateTime(2025, 6, 2, 10, 0, 0);
+            for (int i = 0; i < 40; i++) leak.Add(new KeystoneArcEvent { Id = "L" + i, Symbol = "MNQ", SetupClass = "BH", TriggerTime = t0.AddMinutes(i), EntryTime = t0.AddMinutes(i), ExitTime = t0.AddDays(1), Outcome = "WIN", GrossPnl = 100, StopDistance = 50, Quantity = 1, StrengthTag = "BASE" });
+            KeystoneArcQualityLearner.GradeAll(leak, e => 2.0);
+            Check(leak.All(e => e.QualityTier == "N"), "no look-ahead: setups still open at the next entry are not used to grade it", string.Join("", leak.Select(e => e.QualityTier)));
+            // Pool: funded accounts take only grade A.
+            var cfg = LifecycleSnapshot.Cfg("BH", 0, 0, 0); cfg.PoolSize = 2; cfg.FundedTierFilter = "A";
+            var evs = LifecycleSnapshot.BhEvents(5).Take(40).ToList();
+            for (int i = 0; i < evs.Count; i++) evs[i].QualityTier = i % 4 == 0 ? "A" : "C";
+            KeystoneArcEngine.SimulatePool(evs, cfg);
+            Check(evs.Where(e => !string.IsNullOrEmpty(e.AssignedVirtualAccount)).All(e => e.QualityTier == "A") && evs.Any(e => !string.IsNullOrEmpty(e.AssignedVirtualAccount)), "FUNDED TRADES = A ONLY: funded accounts take only grade A setups", evs.Count(e => !string.IsNullOrEmpty(e.AssignedVirtualAccount)) + " assigned");
+            Check(evs.Where(e => e.QualityTier == "C").All(e => (e.SkipReason ?? "").StartsWith("QUALITY FILTER")), "skipped setups say why (quality filter)", evs.First(e => e.QualityTier == "C").SkipReason);
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

@@ -127,3 +127,13 @@ a candle that dipped into a small box but spiked high retired the box, so the us
 - Simple panel: stop, tries, dip depth, min box size, aggression; the rest under ADVANCED.
 - Evidence chart: TIMEFRAME buttons (1/5/15/30/60/240M) — setups, boxes and replay use only the
   chosen timeframe for that day.
+
+## Setup grades + dynamic target (build 26-09-27d)
+- Every setup (FVG and BH) gets grade A / B / C, learned walk-forward from setups that had
+  already finished before its entry (no look-ahead): box size vs ATR, dip depth, green-candle
+  body, try number, stop distance vs ATR, aggression, hour, weekday. A = top 25% of scores so
+  far, B = next 35%, C = rest, N = fewer than 30 earlier finished setups.
+- FVG target BY GRADE (default): A 3R, B 2R (and N), C 1.5R, R = stop distance. FIXED $ = Step 2 target.
+- Pool Settings: EVALUATION TRADES / FUNDED TRADES = ALL / GRADE A + B / GRADE A ONLY.
+- Evidence chart SETUP FILTER: GRADE A ONLY / GRADE A + B (declutters 1-minute charts).
+- Report / analysis: results per grade.

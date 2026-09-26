@@ -94,6 +94,11 @@ namespace NinjaTrader.NinjaScript
         public int FvgRedRun;
         public double FvgDrop;
         public double FvgGap;
+        // Setup quality (walk-forward: learned only from setups that finished before this entry).
+        // Tier A / B / C; "N" = not enough earlier setups yet. Features are known at entry time.
+        public double QualityScore = double.NaN;
+        public string QualityTier = string.Empty;
+        public double FeatureAtr, FeatureDipPercent, FeatureGreenBody;
         public string AssignedVirtualAccount;
         public string SkipReason;
         public string ConfigurationKey;
@@ -635,6 +640,12 @@ namespace NinjaTrader.NinjaScript
         public string FvgStopMode = "FORMATION_LOW"; // FORMATION_LOW (below the 3 FVG candles, auto size), BOX, GREEN_LOW, FIXED ($ stop + own contract size)
         public double FvgStopBufferPoints = 0;   // extra points below the box / green low
         public int FvgMaxQuantity = 20;          // cap for risk-sized positions
+        // Target for auto-size stops: FIXED_DOLLARS (Step 2 target $) or R_BY_QUALITY (A / B / C multiples of the risk).
+        public string FvgTargetMode = "R_BY_QUALITY";
+        public double FvgTargetRA = 3, FvgTargetRB = 2, FvgTargetRC = 1.5;
+        // Which quality tiers each account stage trades (ALL, AB, A). Any strategy with graded setups.
+        public string EvalTierFilter = "ALL";
+        public string FundedTierFilter = "ALL";
 
         // Field-by-field copy (all fields are values or strings).
         public KeystoneArcRunConfig ShallowCopy() { return (KeystoneArcRunConfig)MemberwiseClone(); }
@@ -648,7 +659,7 @@ namespace NinjaTrader.NinjaScript
                 EvaluationEnabled.ToString(), EvaluationTarget.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyCreditCap.ToString("0.00", CultureInfo.InvariantCulture), EvaluationConsistencyPercent.ToString("0.00", CultureInfo.InvariantCulture), EvaluationFailure.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), EvaluationStageTradeRulesEnabled.ToString(), EvaluationTradeTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), EvaluationTradeStopDollars.ToString("0.00", CultureInfo.InvariantCulture), FundedDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), FundedFailure.ToString("0.00", CultureInfo.InvariantCulture), MinimumPositiveDays.ToString(), MinimumQualifyingDayProfit.ToString("0.00", CultureInfo.InvariantCulture),
                 PayoutThreshold.ToString("0.00", CultureInfo.InvariantCulture), PayoutDaysRequired.ToString(), PayoutAmount.ToString("0.00", CultureInfo.InvariantCulture), EvaluationCost.ToString("0.00", CultureInfo.InvariantCulture), ReplacementsRequirePayoutFunding.ToString(), FirmFundedCapEnabled.ToString(), EvaluationSlotsPerFirm.ToString(), MaxFundedPerFirm.ToString(), PropStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), PersonalStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), AsianStartHhmm.ToString(), AsianEndHhmm.ToString(), AsianMnqInitialDirection ?? string.Empty, AsianMgcInitialDirection ?? string.Empty, AsianRiskMode ?? string.Empty, AsianReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianCombinedStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianDailyLossLimitDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianBreakEvenTriggerDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianStartingQuantity.ToString(), AsianMaxReversalsPerInstrument.ToString(), AsianMnqMaxReversals.ToString(), AsianMgcMaxReversals.ToString(), AsianMaxTotalLegsPerInstrument.ToString(),
                 BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString(), ReplacementDelayDays.ToString(),
-                FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString() });
+                FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString(), FvgTargetMode ?? string.Empty, FvgTargetRA.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRB.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRC.ToString("0.##", CultureInfo.InvariantCulture), EvalTierFilter ?? string.Empty, FundedTierFilter ?? string.Empty });
         }
     }
 
@@ -737,7 +748,7 @@ namespace NinjaTrader.NinjaScript
                 Id = x.Id, Symbol = x.Symbol, SetupClass = x.SetupClass, Direction = x.Direction, StrengthTag = x.StrengthTag,
                 ReferenceTime = x.ReferenceTime, TriggerTime = x.TriggerTime, EntryTime = x.EntryTime, Entry = x.Entry, Stop = x.Stop, Quantity = x.Quantity, StopDistance = x.StopDistance, RiskModel = x.RiskModel,
                 Target = x.Target, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched,
-                SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, FvgVisit = x.FvgVisit, FvgRedRun = x.FvgRedRun, FvgDrop = x.FvgDrop, FvgGap = x.FvgGap, AssignedVirtualAccount = x.AssignedVirtualAccount,
+                SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, FvgVisit = x.FvgVisit, FvgRedRun = x.FvgRedRun, FvgDrop = x.FvgDrop, FvgGap = x.FvgGap, QualityScore = x.QualityScore, QualityTier = x.QualityTier, FeatureAtr = x.FeatureAtr, FeatureDipPercent = x.FeatureDipPercent, FeatureGreenBody = x.FeatureGreenBody, AssignedVirtualAccount = x.AssignedVirtualAccount,
                 SkipReason = x.SkipReason, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote,
                 AsianLegNumber = x.AsianLegNumber, AsianCyclePnlAtExit = x.AsianCyclePnlAtExit, AsianCycleWorstAtExit = x.AsianCycleWorstAtExit
             };
@@ -1308,11 +1319,12 @@ namespace NinjaTrader.NinjaScript
         {
             public KeystoneArcFvgZone Zone; public int FormedIndex;
             public int State;            // 0 waiting for a dip, 1 dipped (waiting green close), 2 armed (reference set)
+            public double RetestLow = double.MaxValue;
             public double RefHigh, RefLow; public DateTime RefTime; public int RefIndex;
             public bool Dead;
         }
 
-        public sealed class FvgScanEntry { public KeystoneArcFvgZone Zone; public int ReferenceIndex, TriggerIndex; public double Entry, GreenLow; public int Visit; }
+        public sealed class FvgScanEntry { public KeystoneArcFvgZone Zone; public int ReferenceIndex, TriggerIndex; public double Entry, GreenLow, RetestLow; public int Visit; }
 
         public static List<KeystoneArcFvgZone> FvgScan(List<KeystoneArcBar> bars, KeystoneArcRunConfig cfg, string symbol, List<FvgScanEntry> entries)
         {
@@ -1340,7 +1352,7 @@ namespace NinjaTrader.NinjaScript
                         if (bar.High >= w.RefHigh && inWindow && DirectionAllows(symbol, "LONG", cfg))
                         {
                             z.Entries++;
-                            if (entries != null) entries.Add(new FvgScanEntry { Zone = z, ReferenceIndex = w.RefIndex, TriggerIndex = i, Entry = w.RefHigh, GreenLow = w.RefLow, Visit = z.Visits });
+                            if (entries != null) entries.Add(new FvgScanEntry { Zone = z, ReferenceIndex = w.RefIndex, TriggerIndex = i, Entry = w.RefHigh, GreenLow = w.RefLow, RetestLow = w.RetestLow, Visit = z.Visits });
                             if (z.Entries >= Math.Max(1, cfg.FvgMaxEntriesPerBox)) { Retire(w, bar.Time, "USED"); continue; }
                             w.State = 0;
                         }
@@ -1354,7 +1366,8 @@ namespace NinjaTrader.NinjaScript
                     if (cfg.FvgRunAwayMultiple > 0 && w.State != 2 && bar.Low > z.Upper + cfg.FvgRunAwayMultiple * Math.Max(z.Height, 1e-9)) { Retire(w, bar.Time, "RUN AWAY"); continue; }
                     // 4. Dip into the box (deep enough) starts a retest.
                     bool dipped = bar.Low <= z.Upper - depth * z.Height + 1e-9;
-                    if (dipped && w.State == 0) { w.State = 1; z.Visits++; }
+                    if (dipped && w.State == 0) { w.State = 1; z.Visits++; w.RetestLow = bar.Low; }
+                    if (w.State == 1) w.RetestLow = Math.Min(w.RetestLow, bar.Low);
                     // 5. First green close after the dip (the dip candle itself counts) arms the box.
                     if (w.State == 1 && bar.Close > bar.Open) { w.State = 2; w.RefHigh = bar.High; w.RefLow = bar.Low; w.RefTime = bar.Time; w.RefIndex = i; }
                 }
@@ -1416,10 +1429,18 @@ namespace NinjaTrader.NinjaScript
             double pointValue = CashValuePerPriceMove(symbol, cfg);
             string stopMode = (cfg.FvgStopMode ?? "FIXED").ToUpperInvariant();
             int order = 0; DateTime orderDay = DateTime.MinValue;
+            var learner = new KeystoneArcQualityLearner();
+            Func<KeystoneArcEvent, double> pv = ev => CashValuePerPriceMove(ev.Symbol, cfg);
             foreach (FvgScanEntry x in entries.OrderBy(v => v.TriggerIndex))
             {
                 KeystoneArcBar green = bars[x.ReferenceIndex], trigger = bars[x.TriggerIndex];
                 KeystoneArcEvent e = NewEvent(symbol, "FVG", green.Time, trigger.Time, x.Entry, cfg, bars, x.TriggerIndex);
+                // Entry-time features for grading (known before the outcome).
+                double tr = 0; int trn = 0;
+                for (int k = Math.Max(1, x.TriggerIndex - 14); k < x.TriggerIndex; k++) { tr += Math.Max(bars[k].High, bars[k - 1].Close) - Math.Min(bars[k].Low, bars[k - 1].Close); trn++; }
+                e.FeatureAtr = trn == 0 ? Math.Max(1e-9, trigger.High - trigger.Low) : tr / trn;
+                e.FeatureDipPercent = x.Zone.Height <= 0 || x.RetestLow == double.MaxValue ? 0 : Math.Max(0, Math.Min(150, (x.Zone.Upper - x.RetestLow) / x.Zone.Height * 100));
+                e.FeatureGreenBody = green.High - green.Low <= 0 ? 0 : Math.Abs(green.Close - green.Open) / (green.High - green.Low);
                 if (stopMode == "BOX" || stopMode == "GREEN_LOW" || stopMode == "FORMATION_LOW")
                 {
                     double basePrice = stopMode == "BOX" ? x.Zone.Lower : (stopMode == "GREEN_LOW" ? x.GreenLow : x.Zone.FormationLow);
@@ -1430,6 +1451,15 @@ namespace NinjaTrader.NinjaScript
                     e.Target = x.Entry + cfg.TargetDollars / Math.Max(0.0001, pointValue * qty);
                     e.RiskModel = "FVG " + (stopMode == "BOX" ? "BELOW BOX" : (stopMode == "GREEN_LOW" ? "BELOW GREEN CANDLE" : "BELOW FVG CANDLES LOW")) + " • AUTO SIZE " + qty + " • PRICE P/L";
                 }
+                e.FvgGap = x.Zone.Height; e.FvgVisit = x.Visit; e.StrengthTag = x.Zone.Aggressive ? "AGGR" : "BASE";
+                learner.Grade(e, trigger.Time, pv);
+                if ((stopMode == "BOX" || stopMode == "GREEN_LOW" || stopMode == "FORMATION_LOW") && string.Equals(cfg.FvgTargetMode, "R_BY_QUALITY", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Dynamic reward: stronger setups aim further (A 3R, B 2R, C 1.5R by default; N = B).
+                    double r = e.QualityTier == "A" ? cfg.FvgTargetRA : (e.QualityTier == "C" ? cfg.FvgTargetRC : cfg.FvgTargetRB);
+                    e.Target = x.Entry + Math.Max(0.1, r) * e.StopDistance;
+                    e.RiskModel += " • TARGET " + r.ToString("0.#", CultureInfo.InvariantCulture) + "R (" + e.QualityTier + ")";
+                }
                 DateTime day = SessionGroupingDate(trigger.Time, cfg); if (day != orderDay) { orderDay = day; order = 0; }
                 e.SessionOrder = ++order;
                 e.FvgLower = x.Zone.Lower; e.FvgUpper = x.Zone.Upper; e.FvgFormedTime = x.Zone.FormedTime;
@@ -1439,6 +1469,7 @@ namespace NinjaTrader.NinjaScript
                 e.ConfigurationKey = cfg.Snapshot();
                 ResolveOutcome(e, raw, cfg, symbol);
                 ResolveEvaluationStageOutcome(e, raw, cfg, symbol);
+                learner.Learn(e);
                 output.Add(e);
             }
             return output;
@@ -1832,6 +1863,20 @@ namespace NinjaTrader.NinjaScript
             return a != null && a.Blown && !a.ReplacementPending;
         }
 
+        private static bool TierFiltersOff(KeystoneArcRunConfig cfg)
+        {
+            return cfg == null || (string.Equals(cfg.EvalTierFilter ?? "ALL", "ALL", StringComparison.OrdinalIgnoreCase) && string.Equals(cfg.FundedTierFilter ?? "ALL", "ALL", StringComparison.OrdinalIgnoreCase));
+        }
+
+        // Quality filter per account stage: e.g. evaluations trade every setup, funded accounts
+        // only A / A+B setups. Off (ALL / ALL) keeps the original allocation exactly.
+        private static bool StageAllows(KeystoneArcVirtualAccount a, KeystoneArcEvent e, KeystoneArcRunConfig cfg)
+        {
+            if (TierFiltersOff(cfg) || a == null || e == null) return true;
+            bool funded = a.Funded || DirectFundedPhase(a, cfg);
+            return KeystoneArcQualityLearner.TierAllowed(funded ? cfg.FundedTierFilter : cfg.EvalTierFilter, e.QualityTier);
+        }
+
         private static bool ReplacesBlownAccounts(KeystoneArcRunConfig cfg)
         {
             return cfg != null && cfg.EvaluationEnabled >= 0 && cfg.BlownAccountReplacement > 0 && !string.Equals(cfg.AccountPath, "PERSONAL", StringComparison.OrdinalIgnoreCase);
@@ -1999,12 +2044,13 @@ namespace NinjaTrader.NinjaScript
                 {
                     int candidateIndex = (nextAccountCursor + stateIndex) % accounts.Count;
                     KeystoneArcVirtualAccount candidate = accounts[candidateIndex];
-                    if (!candidate.Blown && !candidate.ReplacementPending && !candidate.FundedCapPending && !candidate.DayLocked && !candidate.EvalMinDayHold && candidate.FreeAt <= when) { selected = candidate; selectedIndex = candidateIndex; break; }
+                    if (!candidate.Blown && !candidate.ReplacementPending && !candidate.FundedCapPending && !candidate.DayLocked && !candidate.EvalMinDayHold && candidate.FreeAt <= when && StageAllows(candidate, e, cfg)) { selected = candidate; selectedIndex = candidateIndex; break; }
                 }
                 if (selected == null)
                 {
                     List<KeystoneArcVirtualAccount> activeSlots = accounts.Where(x => !x.Blown && !x.ReplacementPending && !x.FundedCapPending).ToList();
-                    e.SkipReason = activeSlots.Count > 0 && activeSlots.All(x => x.DayLocked)
+                    e.SkipReason = !TierFiltersOff(cfg) && activeSlots.Any(x => !x.DayLocked && !StageAllows(x, e, cfg)) ? "QUALITY FILTER • TIER " + (string.IsNullOrEmpty(e.QualityTier) ? "?" : e.QualityTier) + " NOT TRADED BY THIS STAGE"
+                        : activeSlots.Count > 0 && activeSlots.All(x => x.DayLocked)
                         ? "DAILY ACCOUNT LOCK • ALL ACTIVE ACCOUNTS LOCKED"
                         : (accounts.Any(x => x.FundedCapPending) ? "FIRM FUNDED CAP WAIT • PASSED EVAL BENCHED" : "NO FREE VIRTUAL ACCOUNT");
                     continue;
@@ -2072,7 +2118,7 @@ namespace NinjaTrader.NinjaScript
                     RollDay(account, when.Date, cfg, accounts);
                 }
                 EnforceFirmFundedCapacity(accounts, cfg);
-                List<KeystoneArcVirtualAccount> active = accounts.Where(x => !x.Blown && !x.ReplacementPending && !x.FundedCapPending && !x.DayLocked && !x.EvalMinDayHold && x.FreeAt <= when).ToList();
+                List<KeystoneArcVirtualAccount> active = accounts.Where(x => !x.Blown && !x.ReplacementPending && !x.FundedCapPending && !x.DayLocked && !x.EvalMinDayHold && x.FreeAt <= when && StageAllows(x, e, cfg)).ToList();
                 if (active.Count == 0)
                 {
                     e.SkipReason = accounts.Any(x => x.ReplacementPending || x.ReplacementBudgetBlocked) ? "COPY COHORT • WAITING FOR REPLACEMENT" : "COPY COHORT • DAILY LOCK OR NO ACTIVE ACCOUNT";
@@ -3355,6 +3401,96 @@ namespace NinjaTrader.NinjaScript
             return steps;
         }
     }
+    // Walk-forward setup grading. A setup is graded only from setups that had already finished
+    // (exit before its entry): no look-ahead. Each feature bucket keeps the average result in R
+    // (P/L ÷ money at risk); a setup's score is the average of its buckets' results, shrunk toward
+    // the overall average when a bucket has few examples. Tier A = top 25% of scores so far,
+    // B = next 35%, C = the rest, N = fewer than MinHistory finished setups.
+    public sealed class KeystoneArcQualityLearner
+    {
+        public int MinHistory = 30; public double Shrink = 10;
+        readonly Dictionary<string, double[]> buckets = new Dictionary<string, double[]>(StringComparer.Ordinal);
+        readonly List<KeystoneArcEvent> pending = new List<KeystoneArcEvent>();
+        readonly List<double> scores = new List<double>();
+        int count; double sum;
+
+        static string Bin(double v, double[] edges) { int i = 0; while (i < edges.Length && v >= edges[i]) i++; return i.ToString(CultureInfo.InvariantCulture); }
+
+        public static List<string> Features(KeystoneArcEvent e, DateTime entry)
+        {
+            var f = new List<string> { "H" + entry.Hour, "T" + (e.StrengthTag ?? ""), "W" + (int)entry.DayOfWeek };
+            if (e.SetupClass == "FVG")
+            {
+                double atr = e.FeatureAtr > 0 ? e.FeatureAtr : 1;
+                f.Add("G" + Bin(e.FvgGap / atr, new[] { 0.5, 1.0, 2.0 }));
+                f.Add("V" + Math.Min(3, Math.Max(1, e.FvgVisit)));
+                f.Add("D" + Bin(e.FeatureDipPercent, new[] { 25.0, 50.0, 75.0, 100.0 }));
+                f.Add("B" + Bin(e.FeatureGreenBody, new[] { 0.4, 0.7 }));
+                f.Add("S" + Bin(e.StopDistance / atr, new[] { 0.5, 1.0, 2.0, 3.0 }));
+            }
+            else f.Add("O" + Math.Min(3, Math.Max(1, e.SessionOrder)));
+            return f;
+        }
+
+        public static double ResultR(KeystoneArcEvent e, double pointValue)
+        {
+            double risk = Math.Abs(e.StopDistance) * pointValue * Math.Max(0.0001, e.Quantity);
+            return risk > 0.0001 ? e.GrossPnl / risk : Math.Sign(e.GrossPnl);
+        }
+
+        void Absorb(DateTime upTo, Func<KeystoneArcEvent, double> pointValue)
+        {
+            foreach (KeystoneArcEvent done in pending.Where(x => x.ExitTime != DateTime.MinValue && x.ExitTime <= upTo).ToList())
+            {
+                pending.Remove(done);
+                double r = ResultR(done, pointValue(done)); count++; sum += r;
+                foreach (string k in Features(done, done.EntryTime))
+                {
+                    double[] b; if (!buckets.TryGetValue(k, out b)) { b = new double[2]; buckets[k] = b; }
+                    b[0]++; b[1] += r;
+                }
+            }
+        }
+
+        // Grade e as of 'entry' (before its outcome is known), then call Learn(e) once resolved.
+        public void Grade(KeystoneArcEvent e, DateTime entry, Func<KeystoneArcEvent, double> pointValue)
+        {
+            Absorb(entry, pointValue);
+            if (count < MinHistory) { e.QualityTier = "N"; e.QualityScore = double.NaN; return; }
+            double mean = sum / count, score = 0; var keys = Features(e, entry);
+            foreach (string k in keys) { double[] b; buckets.TryGetValue(k, out b); double n = b == null ? 0 : b[0], sm = b == null ? 0 : b[1]; score += (sm + Shrink * mean) / (n + Shrink); }
+            score /= keys.Count;
+            int below = scores.Count(v => v < score);
+            double pct = scores.Count == 0 ? 0.5 : (double)below / scores.Count;
+            e.QualityScore = score; e.QualityTier = pct >= 0.75 ? "A" : (pct >= 0.40 ? "B" : "C");
+            scores.Add(score);
+        }
+
+        public void Learn(KeystoneArcEvent e) { if (e != null && e.ExitTime != DateTime.MinValue && e.Outcome != "NO ENTRY DATA") pending.Add(e); }
+
+        // Grades an already-resolved ledger in entry order (used for BH; outcomes unchanged).
+        public static void GradeAll(IEnumerable<KeystoneArcEvent> events, Func<KeystoneArcEvent, double> pointValue)
+        {
+            foreach (var group in (events ?? Enumerable.Empty<KeystoneArcEvent>()).Where(e => e != null).GroupBy(e => e.Symbol ?? ""))
+            {
+                var learner = new KeystoneArcQualityLearner();
+                foreach (KeystoneArcEvent e in group.OrderBy(x => x.EntryTime == DateTime.MinValue ? x.TriggerTime : x.EntryTime))
+                {
+                    learner.Grade(e, e.EntryTime == DateTime.MinValue ? e.TriggerTime : e.EntryTime, pointValue);
+                    learner.Learn(e);
+                }
+            }
+        }
+
+        public static bool TierAllowed(string filter, string tier)
+        {
+            string f = (filter ?? "ALL").ToUpperInvariant();
+            if (f == "ALL") return true;
+            if (f == "A") return tier == "A";
+            return tier == "A" || tier == "B";
+        }
+    }
+
     // Live replay state at one minute: open positions marked at that minute's close, realized
     // P/L so far and the combined total — for any strategy (Asian legs or BH / FVG trades).
     public sealed class KeystoneArcLiveLine { public string Symbol; public double Realized, Open; public int Closed; public string Position = string.Empty; }
@@ -3728,6 +3864,19 @@ namespace NinjaTrader.NinjaScript
                 var second = ev.Where(e => e.FvgVisit >= 2).ToList();
                 if (second.Count >= 5) Add(list, "IDEA", "REPEAT VISITS", "Entries on the 2nd+ visit of a box: " + second.Count + ", " + M(second.Sum(e => e.GrossPnl)) + ".");
             }
+            var graded = ev.Where(e => e.QualityTier == "A" || e.QualityTier == "B" || e.QualityTier == "C").ToList();
+            if (graded.Count >= 20)
+            {
+                var parts = new List<string>();
+                foreach (string tier in new[] { "A", "B", "C" })
+                {
+                    var t = graded.Where(e => e.QualityTier == tier).ToList(); if (t.Count == 0) continue;
+                    parts.Add(tier + ": " + t.Count + " setups, " + P(100.0 * t.Count(e => e.Outcome == "WIN") / t.Count) + " win, " + M(t.Sum(e => e.GrossPnl)));
+                }
+                var a = graded.Where(e => e.QualityTier == "A").ToList(); var c = graded.Where(e => e.QualityTier == "C").ToList();
+                bool works = a.Count >= 5 && c.Count >= 5 && a.Sum(e => e.GrossPnl) / a.Count > c.Sum(e => e.GrossPnl) / c.Count;
+                Add(list, works ? "GOOD" : "IDEA", "SETUP GRADES (LEARNED WALK-FORWARD)", string.Join(" • ", parts) + "." + (works ? " Grade A earns more per setup than C: try FUNDED TRADES = GRADE A + B." : " Grades do not separate winners yet on this range; keep ALL or test a longer range."));
+            }
             if (!asian && ev.Count >= 20)
             {
                 var hours = ev.GroupBy(e => e.TriggerTime.Hour).Select(g => new { Hour = g.Key, Pnl = g.Sum(e => e.GrossPnl), Count = g.Count() }).Where(h => h.Count >= 5).OrderByDescending(h => h.Pnl).ToList();
@@ -3989,7 +4138,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-27c • FVG TRIES + AUTO SIZE • CHART TIMEFRAMES • BAR REPLAY";
+        private const string KeystoneBuild = "BUILD 2026-09-27d • SETUP GRADES A/B/C • DYNAMIC R • FVG TRIES • CHART TIMEFRAMES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -4045,6 +4194,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string evidenceReplayKey = string.Empty;
         private readonly List<Button> evidenceTimeframeButtons = new List<Button>();
         private TextBlock evidenceTimeframeLabel;
+        private Button quickStartButton;
+        private ComboBox evalTierBox, fundedTierBox, fvgTargetModeBox;
+        private TextBox fvgTargetRABox, fvgTargetRBBox, fvgTargetRCBox;
         private bool evidenceSelectionClickHandled;
         private readonly List<Button> evidenceDateButtons = new List<Button>();
         private int evidenceSelectedDateIndex = -1;
@@ -5197,6 +5349,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Simple view: the rules that matter most. Everything else sits under ADVANCED.
             fvgModel.Children.Add(Row("STOP", fvgStopModeBox));
             fvgModel.Children.Add(Txt("AUTO SIZE: contracts = RISK $ (Step 2 STOP $) ÷ stop distance, so every trade risks the same money. FIXED: your Step 2 contract size, $ target and $ stop.", Muted, 10, FontWeights.Normal));
+            fvgTargetModeBox = Select("BY GRADE: A 3R • B 2R • C 1.5R", "FIXED $ (STEP 2 TARGET)"); fvgTargetModeBox.SelectedIndex = 0; fvgTargetModeBox.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
+            fvgTargetModeBox.ToolTip = "R = the stop distance. BY GRADE: stronger setups aim further (dynamic reward : risk). FIXED $: the Step 2 target in dollars.";
+            fvgTargetRABox = Input("3"); fvgTargetRBBox = Input("2"); fvgTargetRCBox = Input("1.5");
+            foreach (TextBox box in new[] { fvgTargetRABox, fvgTargetRBBox, fvgTargetRCBox }) WatchConfigurationInput(box);
+            fvgModel.Children.Add(Row("TARGET (AUTO-SIZE STOPS)", fvgTargetModeBox));
             fvgModel.Children.Add(Row("TRIES PER BOX (fake-outs: trade the same box again)", fvgMaxEntriesBox));
             fvgModel.Children.Add(Row("DIP DEPTH INTO BOX % (0 = TOUCH, 50 = MIDPOINT)", fvgDepthBox));
             fvgModel.Children.Add(Row("MGC MIN BOX SIZE (POINTS, 0 = ANY)", fvgMgcMinGapBox)); fvgModel.Children.Add(Row("MNQ MIN BOX SIZE (POINTS, 0 = ANY)", fvgMnqMinGapBox));
@@ -5213,12 +5370,17 @@ namespace NinjaTrader.NinjaScript.AddOns
             fvgAdvanced.Children.Add(Row("MGC RED CANDLES IN A ROW (0 = OFF)", fvgMgcRedBox)); fvgAdvanced.Children.Add(Row("MGC DROP POINTS (0 = OFF)", fvgMgcDropBox));
             fvgAdvanced.Children.Add(Row("MNQ RED CANDLES IN A ROW (0 = OFF)", fvgMnqRedBox)); fvgAdvanced.Children.Add(Row("MNQ DROP POINTS (0 = OFF)", fvgMnqDropBox));
             fvgAdvanced.Children.Add(Row("AGGRESSION RULES COMBINE", fvgCombineBox)); fvgAdvanced.Children.Add(Row("RED RUN", fvgOneGreenBox));
+            fvgAdvanced.Children.Add(Row("TARGET R • GRADE A", fvgTargetRABox)); fvgAdvanced.Children.Add(Row("TARGET R • GRADE B (and N)", fvgTargetRBBox)); fvgAdvanced.Children.Add(Row("TARGET R • GRADE C", fvgTargetRCBox));
             fvgAdvanced.Children.Add(Row("STOP BUFFER POINTS", fvgStopBufferBox)); fvgAdvanced.Children.Add(Row("MAX CONTRACTS (AUTO SIZE)", fvgMaxQtyBox));
             fvgModel.Children.Add(fvgAdvanced);
             fvgStrategyControls.Clear(); fvgStrategyControls.Add(fvgModel);
             bhStrategyControls.Add(stopModeRow); bhStrategyControls.Add(propQuantityRow); bhStrategyControls.Add(propTargetRow); bhStrategyControls.Add(propStopRow); bhStrategyControls.Add(dailyGoalRow); bhStrategyControls.Add(dailyLossRow); bhStrategyControls.Add(mnqLowOffsetRow); bhStrategyControls.Add(mgcLowOffsetRow); bhStrategyControls.Add(propModeNote); bhStrategyControls.Add(bhModelNote);
             model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel);
             sessionHintText = Txt("NY OPEN: begins at the first 09:30 ET setup bar and ends at 15:55 ET.", Cyan, 10, FontWeights.Bold); data.Children.Add(sessionHintText);
+            // Start right under the settings: no scrolling down to section 3.
+            quickStartButton = Btn("▶ START RESEARCH • LOAD + DETECT", Green); quickStartButton.Height = 44; quickStartButton.FontSize = 15; quickStartButton.Margin = new Thickness(6, 14, 6, 4);
+            quickStartButton.Click += delegate { ConfirmAndStartResearch(); };
+            data.Children.Add(quickStartButton);
 
             setupCards.Children.Add(PanelCard(data)); setupCards.Children.Add(PanelCard(model)); root.Children.Add(setupCards);
 
@@ -5286,6 +5448,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     : "BH RULE: after the chosen session begins, a red candle is followed by a bullish reference candle; the immediately next bar breaks that bullish high. Every valid long BH setup is detected and eligible by default. No contract month is required.";
             }
             if (confirmConfigurationButton != null) confirmConfigurationButton.Content = asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT";
+            if (quickStartButton != null) quickStartButton.Content = "▶ " + (IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
             if (strategyWorkflowText != null)
             {
                 strategyWorkflowText.Text = asian
@@ -5527,6 +5690,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool busy = operationBusy || isProcessing;
             int activeTab = workspaceTabs == null ? -1 : workspaceTabs.SelectedIndex;
             if (confirmConfigurationButton != null) confirmConfigurationButton.IsEnabled = !busy && !researchSubmissionLocked;
+            if (quickStartButton != null) quickStartButton.IsEnabled = !busy && !researchSubmissionLocked;
             if (resetNewTestButton != null) resetNewTestButton.IsEnabled = !busy;
             if (requestButton != null) requestButton.IsEnabled = false;
             if (runButton != null) runButton.IsEnabled = false;
@@ -5699,6 +5863,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             firmFundedCapBox = new CheckBox { Content = "FIRM FUNDED CAP", IsChecked = false, Foreground = Gold, Margin = new Thickness(6), ToolTip = "When on, evaluation slots are grouped by firm. Passed evaluations wait if that firm has reached its funded-account capacity." }; firmFundedCapBox.Checked += delegate { RefreshLifecycleInputState(); }; firmFundedCapBox.Unchecked += delegate { RefreshLifecycleInputState(); };
             var evalStageToggleRow = PoolRow("EVAL TERMS", evalStageTradeRulesBox); var evalTradeTargetRow = PoolRow("EVAL TRADE + $", evalTradeTargetBox); var evalTradeStopRow = PoolRow("EVAL TRADE - $", evalTradeStopBox); var replacementGateRow = PoolRow("INVESTMENT", replacementFundingGateBox);
             firmEvalSlotsBox = Input("10"); firmMaxFundedBox = Input("5");
+            evalTierBox = Select("ALL SETUPS", "GRADE A + B", "GRADE A ONLY"); evalTierBox.SelectedIndex = 0;
+            fundedTierBox = Select("ALL SETUPS", "GRADE A + B", "GRADE A ONLY"); fundedTierBox.SelectedIndex = 0;
+            evalTierBox.ToolTip = "Which setups evaluation accounts take. Grades A/B/C are learned from earlier finished setups only (no look-ahead). N (not enough history yet) is traded only with ALL SETUPS.";
+            fundedTierBox.ToolTip = "Which setups funded accounts take — e.g. evaluations trade everything to pass fast, funded accounts only the strongest.";
+            var evalTierRow = PoolRow("EVALUATION TRADES", evalTierBox); var fundedTierRow = PoolRow("FUNDED TRADES", fundedTierBox);
             var firmCapToggleRow = PoolRow("FIRM CAP MODEL", firmFundedCapBox);
             var firmCapPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2), Visibility = Visibility.Collapsed };
             firmCapPanel.Children.Add(PoolRow("EVAL SLOTS / FIRM", firmEvalSlotsBox)); firmCapPanel.Children.Add(PoolRow("MAX FUNDED / FIRM", firmMaxFundedBox));
@@ -5733,7 +5902,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             fundedRulesPanel.Children.Add(fundedFailureRow); fundedRulesPanel.Children.Add(fundedDailyLossRow);
             lifecyclePolicyControls.Children.Add(evalCostRow); lifecyclePolicyControls.Children.Add(payoutThresholdRow); lifecyclePolicyControls.Children.Add(payoutDaysRow); lifecyclePolicyControls.Children.Add(payoutAmountRow); lifecyclePolicyControls.Children.Add(payoutProfitShareRow); lifecyclePolicyControls.Children.Add(qualifyingDayRow);
             replacementDelayBox = Input("0"); replacementDelayBox.ToolTip = "Calendar days a blown slot waits before its new evaluation starts trading. 0 = next session. 2 = blown Monday, trades again Thursday (time to buy and set up the new account).";
-            governanceControls.Children.Add(PoolRow("BLOWN ACCOUNT", blownAccountBox)); governanceControls.Children.Add(PoolRow("NEW EVAL WAIT DAYS (0 = NEXT SESSION)", replacementDelayBox)); governanceControls.Children.Add(evalStageToggleRow); governanceControls.Children.Add(asianEvalStageToggleRow); governanceControls.Children.Add(replacementGateRow); governanceControls.Children.Add(firmCapToggleRow); governanceControls.Children.Add(firmCapPanel); governanceControls.Children.Add(evalOverridePanel); governanceControls.Children.Add(asianEvalStagePanel);
+            governanceControls.Children.Add(evalTierRow); governanceControls.Children.Add(fundedTierRow); governanceControls.Children.Add(PoolRow("BLOWN ACCOUNT", blownAccountBox)); governanceControls.Children.Add(PoolRow("NEW EVAL WAIT DAYS (0 = NEXT SESSION)", replacementDelayBox)); governanceControls.Children.Add(evalStageToggleRow); governanceControls.Children.Add(asianEvalStageToggleRow); governanceControls.Children.Add(replacementGateRow); governanceControls.Children.Add(firmCapToggleRow); governanceControls.Children.Add(firmCapPanel); governanceControls.Children.Add(evalOverridePanel); governanceControls.Children.Add(asianEvalStagePanel);
             startModeHintText = Txt("DEFAULT: evaluation uses the main Step 1 profit / loss values. Turn on EVAL OVERRIDE only to show evaluation-only target, drawdown, daily, and per-trade limits. DIRECT FUNDED hides evaluation inputs.", Gold, 10, FontWeights.Bold);
             var settingsStack = Stack();
             settingsStack.Children.Add(Txt("POOL SETTINGS • SCENARIO CONTROLS", Cyan, 13, FontWeights.Bold));
@@ -8016,6 +8185,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 output.AddRange(eventsForSymbol);
             }
+            // Grade every setup A / B / C from earlier finished setups only (walk-forward). FVG is graded
+            // inside its detector (its target can depend on the grade); BH outcomes are not changed.
+            if (!string.Equals(baseConfig.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase))
+                KeystoneArcQualityLearner.GradeAll(output.Where(x => x.Outcome != "UNVERIFIED 1M"), x => string.Equals(x.Symbol, "MGC", StringComparison.OrdinalIgnoreCase) ? 10.0 : 2.0);
             return output.OrderBy(x => x.TriggerTime).ThenBy(x => x.Symbol).ToList();
         }
 
@@ -8493,7 +8666,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             controls.Children.Add(Row("INSTRUMENT", evidenceInstrumentBox)); controls.Children.Add(Row("CHART TIMEFRAME", evidenceTimeframeBox)); controls.Children.Add(Row("SESSION DATE YYYY-MM-DD", evidenceDateBox)); controls.Children.Add(render); top.Children.Add(controls);
             var displayFilters = new UniformGrid { Columns = 2, Margin = new Thickness(2, 2, 2, 2) };
             evidenceSessionFilterBox = Select("FULL LOADED SESSION", "ASIA 18:00-08:00", "NY EARLY 08:00-15:55", "NY OPEN 09:30-15:55"); evidenceSessionFilterBox.SelectedIndex = 0;
-            evidenceStrengthBox = Select("ALL DETECTED SETUPS", "AGGRESSION-TAGGED SETUPS"); evidenceStrengthBox.SelectedIndex = 0;
+            evidenceStrengthBox = Select("ALL DETECTED SETUPS", "AGGRESSION-TAGGED SETUPS", "GRADE A ONLY", "GRADE A + B"); evidenceStrengthBox.SelectedIndex = 0;
             displayFilters.Children.Add(Row("CHART SESSION FILTER", evidenceSessionFilterBox)); displayFilters.Children.Add(Row("SETUP FILTER", evidenceStrengthBox)); top.Children.Add(displayFilters);
             var filters = new WrapPanel { Margin = new Thickness(4, 2, 4, 2) };
             filters.Children.Add(Txt("VIEW: ", Cyan, 11, FontWeights.Bold));
@@ -9390,6 +9563,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             if (evidenceStrengthBox != null && string.Equals(Convert.ToString(evidenceStrengthBox.SelectedItem), "AGGRESSION-TAGGED SETUPS", StringComparison.OrdinalIgnoreCase))
                 q = q.Where(x => string.Equals(x.StrengthTag, "AGGR", StringComparison.OrdinalIgnoreCase));
+            string gradePick = evidenceStrengthBox == null ? string.Empty : Convert.ToString(evidenceStrengthBox.SelectedItem);
+            if (gradePick == "GRADE A ONLY") q = q.Where(x => x.QualityTier == "A");
+            else if (gradePick == "GRADE A + B") q = q.Where(x => x.QualityTier == "A" || x.QualityTier == "B");
             return q.Where(EvidenceFilterIncludes).OrderBy(x => x.TriggerTime).ToList();
         }
 
@@ -9994,7 +10170,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             double mae = (shortLeg ? e.Entry - peak : trough - e.Entry) * valuePerPoint;
             string price = mgc ? "0.0" : "0.00";
             var sb = new StringBuilder();
-            sb.Append("SELECTED • ").Append(e.Symbol).Append(" ").Append(e.SetupClass).Append(" • ").Append(e.Outcome).Append(" • ").Append(liveTraded ? "FINAL LIVE TRADE" : (liveSkipped ? "NOT TRADED • " + e.SkipReason : e.ReviewState)).Append(" • ").Append(e.TriggerTime.ToString("yyyy-MM-dd HH:mm")).AppendLine();
+            sb.Append("SELECTED • ").Append(e.Symbol).Append(" ").Append(e.SetupClass).Append(string.IsNullOrEmpty(e.QualityTier) ? "" : " • GRADE " + e.QualityTier + (e.QualityTier == "N" ? " (not enough earlier setups yet)" : "")).Append(" • ").Append(e.Outcome).Append(" • ").Append(liveTraded ? "FINAL LIVE TRADE" : (liveSkipped ? "NOT TRADED • " + e.SkipReason : e.ReviewState)).Append(" • ").Append(e.TriggerTime.ToString("yyyy-MM-dd HH:mm")).AppendLine();
             sb.Append("ENTRY ").Append(e.Entry.ToString(price)).Append(asianLeg ? "  |  CYCLE TARGET $" + config.AsianCycleTargetDollars.ToString("0") : "  |  TARGET " + e.Target.ToString(price)).Append("  |  STOP ").Append(e.Stop.ToString(price)).Append("  |  QTY ").Append(e.Quantity <= 0 ? config.Quantity.ToString() : e.Quantity.ToString()).Append("  |  RISK MODEL ").Append(e.RiskModel ?? config.StopMode).Append("  |  EXIT ").Append(double.IsNaN(e.ExitPrice) ? "n/a" : e.ExitPrice.ToString(price)).Append(" @ ").Append(e.ExitTime == DateTime.MinValue ? "n/a" : e.ExitTime.ToString("HH:mm")).AppendLine();
             if (verifiedOutcome) sb.Append(liveSkipped ? "RAW OUTCOME (NOT IN FINAL LIVE P/L) " : "P/L ").Append(e.GrossPnl.ToString("C0")).Append("  |  PEAK ").Append(peak.ToString(price)).Append(" (MFE ").Append(mfe.ToString("C0")).Append(")  |  LOW ").Append(trough.ToString(price)).Append(" (MAE ").Append(mae.ToString("C0")).Append(")").AppendLine();
             else sb.Append("OUTCOME / P&L: NOT AVAILABLE • setup placement only until matching 1M aggregation is proven.").AppendLine();
@@ -11607,6 +11783,20 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (oneDay) selectedEnd = start;
             else if (!DateTime.TryParseExact((endBox == null ? "" : endBox.Text).Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out selectedEnd) || start > selectedEnd) { UpdateUi("DATE RANGE ERROR • USE YYYY-MM-DD AND START MUST NOT EXCEED END", Red); return false; }
             bool asian75 = IsAsian75Selected();
+            // A one-day test on a day the market is closed can only return 0 bars: say so plainly.
+            if (oneDay)
+            {
+                string sessionPick = sessionBox == null ? string.Empty : Convert.ToString(sessionBox.SelectedItem ?? string.Empty);
+                bool eveningSession = asian75 || sessionPick.StartsWith("FULL GLOBEX", StringComparison.OrdinalIgnoreCase) || sessionPick.StartsWith("ASIA", StringComparison.OrdinalIgnoreCase);
+                bool closed = start.DayOfWeek == DayOfWeek.Saturday
+                    || (start.DayOfWeek == DayOfWeek.Sunday && !eveningSession)
+                    || (asian75 && start.DayOfWeek == DayOfWeek.Friday);
+                if (closed)
+                {
+                    UpdateUi(start.ToString("yyyy-MM-dd dddd", CultureInfo.InvariantCulture).ToUpperInvariant() + " HAS NO " + (asian75 ? "ASIAN SESSION" : "TRADING SESSION") + " • choose a weekday, or set DATE MODE = DATE RANGE to test several months", Red);
+                    return false;
+                }
+            }
             config.OneDayMode = oneDay ? 1 : 0;
             // Asian defaults to BOTH, while the active selector may deliberately isolate MNQ or
             // MGC for a one-instrument cycle backtest.  Never request an unselected instrument.
@@ -11627,7 +11817,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.FvgAggressionCombine = fvgCombineBox != null && fvgCombineBox.SelectedIndex == 1 ? "ALL" : "ANY";
             config.FvgAllowOneGreenInRun = fvgOneGreenBox == null || fvgOneGreenBox.IsChecked != false ? 1 : 0;
             config.FvgStopMode = fvgStopModeBox == null ? "FORMATION_LOW" : (fvgStopModeBox.SelectedIndex == 1 ? "BOX" : (fvgStopModeBox.SelectedIndex == 2 ? "GREEN_LOW" : (fvgStopModeBox.SelectedIndex == 3 ? "FIXED" : "FORMATION_LOW")));
-            config.FvgStopBufferPoints = Math.Max(0, NumberAllowZero(fvgStopBufferBox, 0)); config.FvgMaxQuantity = Math.Max(1, Integer(fvgMaxQtyBox, 20));
+            config.FvgStopBufferPoints = Math.Max(0, NumberAllowZero(fvgStopBufferBox, 0));
+            config.FvgTargetMode = fvgTargetModeBox != null && fvgTargetModeBox.SelectedIndex == 1 ? "FIXED_DOLLARS" : "R_BY_QUALITY";
+            config.FvgTargetRA = Math.Max(0.2, Number(fvgTargetRABox, 3)); config.FvgTargetRB = Math.Max(0.2, Number(fvgTargetRBBox, 2)); config.FvgTargetRC = Math.Max(0.2, Number(fvgTargetRCBox, 1.5)); config.FvgMaxQuantity = Math.Max(1, Integer(fvgMaxQtyBox, 20));
             config.SetupMinutes = asian75 ? 1 : SetupMinutesFromDisplay(timeframeBox == null ? string.Empty : Convert.ToString(timeframeBox.SelectedItem));
             config.DirectionMode = "BB";
             config.EnableBh = asian75 || fvgStrategy ? 0 : 1;
@@ -11741,6 +11933,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.EvalQualifyingDaysConsecutive = evalConsecutiveBox == null || evalConsecutiveBox.IsChecked == true ? 1 : 0;
             config.EvaluationMinTradingDays = Math.Max(0, Integer(evalMinTradingDaysBox, 0));
             config.ReplacementDelayDays = Math.Max(0, Integer(replacementDelayBox, 0));
+            Func<ComboBox, string> tierOf = box => box == null ? "ALL" : (box.SelectedIndex == 1 ? "AB" : (box.SelectedIndex == 2 ? "A" : "ALL"));
+            config.EvalTierFilter = tierOf(evalTierBox); config.FundedTierFilter = tierOf(fundedTierBox);
             config.AsianEvalStageEnabled = asian75 && asianEvalStageBox != null && asianEvalStageBox.IsChecked == true ? 1 : 0;
             config.AsianEvalCycleTargetDollars = Number(asianEvalTargetBox, config.AsianCycleTargetDollars);
             config.AsianEvalReversalLossDollars = Number(asianEvalLegLossBox, config.AsianReversalLossDollars);
@@ -11898,7 +12092,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private static List<KeystoneArcEvent> CloneEvents(IEnumerable<KeystoneArcEvent> source)
         {
-            return source.Select(x => new KeystoneArcEvent { Id = x.Id, Symbol = x.Symbol, SetupClass = x.SetupClass, Direction = x.Direction, StrengthTag = x.StrengthTag, ReferenceTime = x.ReferenceTime, TriggerTime = x.TriggerTime, EntryTime = x.EntryTime, Entry = x.Entry, Stop = x.Stop, Target = x.Target, Quantity = x.Quantity, StopDistance = x.StopDistance, RiskModel = x.RiskModel, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, EvaluationOutcome = x.EvaluationOutcome, EvaluationExitTime = x.EvaluationExitTime, EvaluationExitPrice = x.EvaluationExitPrice, EvaluationGrossPnl = x.EvaluationGrossPnl, EvaluationTarget = x.EvaluationTarget, EvaluationStop = x.EvaluationStop, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched, SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, FvgVisit = x.FvgVisit, FvgRedRun = x.FvgRedRun, FvgDrop = x.FvgDrop, FvgGap = x.FvgGap, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote }).ToList();
+            return source.Select(x => new KeystoneArcEvent { Id = x.Id, Symbol = x.Symbol, SetupClass = x.SetupClass, Direction = x.Direction, StrengthTag = x.StrengthTag, ReferenceTime = x.ReferenceTime, TriggerTime = x.TriggerTime, EntryTime = x.EntryTime, Entry = x.Entry, Stop = x.Stop, Target = x.Target, Quantity = x.Quantity, StopDistance = x.StopDistance, RiskModel = x.RiskModel, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, EvaluationOutcome = x.EvaluationOutcome, EvaluationExitTime = x.EvaluationExitTime, EvaluationExitPrice = x.EvaluationExitPrice, EvaluationGrossPnl = x.EvaluationGrossPnl, EvaluationTarget = x.EvaluationTarget, EvaluationStop = x.EvaluationStop, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched, SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, FvgVisit = x.FvgVisit, FvgRedRun = x.FvgRedRun, FvgDrop = x.FvgDrop, FvgGap = x.FvgGap, QualityScore = x.QualityScore, QualityTier = x.QualityTier, FeatureAtr = x.FeatureAtr, FeatureDipPercent = x.FeatureDipPercent, FeatureGreenBody = x.FeatureGreenBody, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote }).ToList();
         }
 
         private static KeystoneArcRunConfig CloneConfig(KeystoneArcRunConfig source)
@@ -12942,6 +13136,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (evalConsecutiveBox != null) evalConsecutiveBox.IsChecked = true;
             if (evalMinTradingDaysBox != null) evalMinTradingDaysBox.Text = "0";
             if (replacementDelayBox != null) replacementDelayBox.Text = "0";
+            if (evalTierBox != null) evalTierBox.SelectedIndex = 0; if (fundedTierBox != null) fundedTierBox.SelectedIndex = 0;
+            if (fvgTargetModeBox != null) fvgTargetModeBox.SelectedIndex = 0; if (fvgTargetRABox != null) fvgTargetRABox.Text = "3"; if (fvgTargetRBBox != null) fvgTargetRBBox.Text = "2"; if (fvgTargetRCBox != null) fvgTargetRCBox.Text = "1.5";
             foreach (var pair in new[] { Tuple.Create(fvgMnqMinGapBox, "0"), Tuple.Create(fvgMgcMinGapBox, "0"), Tuple.Create(fvgDepthBox, "25"), Tuple.Create(fvgRunAwayBox, "2"), Tuple.Create(fvgMaxEntriesBox, "3"), Tuple.Create(fvgMaxAgeBox, "0"), Tuple.Create(fvgMnqRedBox, "3"), Tuple.Create(fvgMgcRedBox, "3"), Tuple.Create(fvgMnqDropBox, "0"), Tuple.Create(fvgMgcDropBox, "0"), Tuple.Create(fvgStopBufferBox, "0"), Tuple.Create(fvgMaxQtyBox, "20") }) if (pair.Item1 != null) pair.Item1.Text = pair.Item2;
             foreach (ComboBox box in new[] { fvgMissBox, fvgOutsideBox, fvgLifetimeBox, fvgAggressionBox, fvgCombineBox, fvgStopModeBox }) if (box != null) box.SelectedIndex = 0;
             if (fvgOneGreenBox != null) fvgOneGreenBox.IsChecked = true;
