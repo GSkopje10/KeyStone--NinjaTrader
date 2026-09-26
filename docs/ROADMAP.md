@@ -66,6 +66,9 @@ and chart labels differ per strategy.
       deepest drawdown
 - [ ] Daily / weekly / monthly browsing with filters, numbered cards (date visible when scrolling)
 - [ ] Lifecycle walkthrough that actually walks through each day / week / month per account
+- [ ] The 4 top boxes change with the selected results tab and show that tab's key numbers
+      (e.g. First Return: paid accounts, earliest first payout, average days to first payout,
+      cost through first return); the general summary lives only on the main tab
 - [ ] Consolidate tabs; no duplicate boxes; nothing cut off on one-day tests
 - [ ] Prop firm / account colors and names for easy reading
 - [x] Fix: daily records showed TRADES 0 • W/L 0/0, start balance and cost wrong (26e)
@@ -93,4 +96,8 @@ and chart labels differ per strategy.
 
 ## F. Optimizer
 - [x] Asian optimizer on loaded data (26a)
+- [ ] EXPORT FOR CLAUDE (Asian): one compressed file with the loaded MNQ + MGC 1-minute bars
+      and the current settings/results; user uploads it to the repo (github.com → Add file →
+      Upload files, data/ folder); Claude runs the full optimizer and reports the best way to
+      run the strategy (in-sample / out-of-sample, per year, per month, prop-rule fit)
 - [ ] Run on the full history and review results together
