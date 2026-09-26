@@ -27,6 +27,7 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
 
 ## Verification available here (no NinjaTrader)
 
+- `tests/run_all.sh` — runs every test suite (Asian engine, account lifecycle) + syntax check.
 - `tests/build_engine.sh tests/Asian75EngineTests.cs` — compiles the engine block of
   `src/KeyStone.cs` with mono and runs the Asian/optimizer/MGC-roll tests.
 - `mcs --parse src/KeyStone.cs` — syntax check of the whole file.
