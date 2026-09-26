@@ -12,6 +12,17 @@ and chart labels differ per strategy.
       worst drawdown so far (26e)
 - [x] Cursor + highlight on the chart where each event happened; MNQ and MGC tabs (26e)
 - [x] Compact labels on multi-leg nights; full detail in the replay box (26e) — review in NinjaTrader
+- [ ] Chart is the main, biggest element: replay controls / info move into a compact side
+      panel or overlay; nothing pushes the chart down
+- [ ] TradingView-style navigation: drag to pan, wheel zoom, drag the time axis to zoom
+      horizontally, drag the price axis to scale vertically, time axis always visible,
+      double-click to reset
+- [ ] Bar-by-bar replay: candles appear one minute at a time (future hidden), speed choice,
+      play / pause / step bar / jump to next event; not just event-to-event jumps
+- [ ] Live replay dashboard box: open legs, unrealized + realized P/L per instrument, combined
+      P/L vs target and loss limit (progress bars), worst so far — updating every candle
+- [ ] Clear chart labels: instrument exit ("MNQ exit +$92") separate from the cycle result
+      ("CYCLE +$367 ≥ TARGET $350"); no overlapping text
 - [ ] Session-end timestamp for every Asian cycle (which session it ended in) in report
 
 ## B. Pool settings — fast testing
