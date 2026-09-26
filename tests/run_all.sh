@@ -19,3 +19,4 @@ rm -f "$here/.build/bhsnap.exe"
 "$root/tools/compile_engine.sh" "$here/.build/bhsnap.exe" "$here/BhDetectionSnapshot.cs"
 mono "$here/.build/bhsnap.exe" "$here/.build/bh_detection.txt"
 cmp -s "$here/.build/bh_detection.txt" "$here/bh_detection_baseline.txt" && echo "BH DETECTION SNAPSHOT IDENTICAL TO BASELINE ($(grep -c '|' "$here/bh_detection_baseline.txt") setups)" || { echo "BH DETECTION CHANGED — diff tests/.build/bh_detection.txt tests/bh_detection_baseline.txt"; exit 1; }
+( cd "$here/fullcompile" && mcs -langversion:6 -nowarn:67,169,414,649,618,219,168,162,1998,429,108,114 -r:System.Core.dll -out:.build/saved.exe Stubs.cs NinjaStubs.cs ../../src/KeyStone.cs SavedDataTest.cs >/dev/null && mono .build/saved.exe | tail -1 )

@@ -3640,6 +3640,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             // contract interval. This is deliberately distinct from calendar fragmentation.
             public bool ContractRolloverSegment;
             public long Run;
+            // Set once the response (or a timeout / saved-data receipt) has been handled, so a late
+            // NinjaTrader callback after a timeout can never be counted twice.
+            public bool Finished;
+            public DateTime StartedUtc;
         }
 
         private const string MenuCaption = "KEYSTONE ARC 5M RESEARCH LAB";
@@ -4819,6 +4823,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             data.Children.Add(Row("STRATEGY", strategyBox)); data.Children.Add(Row("INSTRUMENTS", scopeBox)); data.Children.Add(Row("DATE MODE", dateModeBox)); data.Children.Add(timeframeRow); data.Children.Add(Row("SESSION", sessionBox)); data.Children.Add(customStartRow); data.Children.Add(customEndRow); data.Children.Add(Row("RUN DATE YYYY-MM-DD", startBox)); data.Children.Add(Row("RANGE END DATE", endBox)); data.Children.Add(instrumentSourceText);
             strategyRuleText = Txt("BH RULE: after the chosen session begins, a red candle is followed by a bullish reference candle; the immediately next bar breaks that bullish high. Every valid long BH setup is detected and eligible by default. No contract month is required.", Gold, 10, FontWeights.Bold);
             data.Children.Add(strategyRuleText);
+            reuseSavedDataBox = new CheckBox { Content = "REUSE SAVED DATA • a repeat test or a second instrument loads only what is missing", IsChecked = true, Foreground = Green, Margin = new Thickness(6), ToolTip = "Completed history requests are kept (in memory, and on disk for ranges that ended before today) and reused when the same contract, timeframe, range and session template are requested again. Untick to always ask NinjaTrader." };
+            var clearSavedButton = Btn("CLEAR SAVED DATA", Muted); clearSavedButton.Height = 26; clearSavedButton.Margin = new Thickness(6, 2, 6, 2); clearSavedButton.Click += delegate { ClearSavedData(); };
+            var savedRow = new WrapPanel { Margin = new Thickness(0, 2, 0, 2) }; savedRow.Children.Add(reuseSavedDataBox); savedRow.Children.Add(clearSavedButton); data.Children.Add(savedRow);
 
             var model = Stack(); model.Children.Add(Txt("2. OUTCOME + RISK MODEL", Blue, 13, FontWeights.Bold));
             quantityBox = Input("10"); targetBox = Input("1500"); stopBox = Input("500"); mnqStopOffsetBox = Input("5"); mgcStopOffsetBox = Input("1"); dailyGoalBox = Input("1500"); dailyLossBox = Input("500");
@@ -5390,7 +5397,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
             var resultViews = resultViewTabs = new TabControl { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
             Grid.SetRow(resultViews, 3); root.Children.Add(resultViews);
-            resultViews.SelectionChanged += (sender, args) => { if (args != null && args.OriginalSource == resultViewTabs) UpdateTopTilesForTab(); };
+            resultViews.SelectionChanged += (sender, args) => { if (args != null && args.OriginalSource == resultViewTabs) { RunDeferredTabRender(); UpdateTopTilesForTab(); } };
             var body = new Grid { MinHeight = 0 };
             // Keep the default settings view short enough to read without a page scroll.  The
             // only expanding group is the explicit evaluation override, which has no effect
@@ -5617,7 +5624,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var scorePanel = new Grid(); scorePanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); scorePanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); scorePanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             var scoreHeader = new Grid(); scoreHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); scoreHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             dailySessionScoreboardText = Txt("PERFORMANCE PERIODS • DAILY / WEEKLY / MONTHLY", Cyan, 13, FontWeights.Bold); scoreHeader.Children.Add(dailySessionScoreboardText);
-            periodGranularityBox = Select("DAILY", "WEEKLY", "MONTHLY"); periodGranularityBox.SelectedIndex = 0; periodGranularityBox.Width = 125; periodGranularityBox.SelectionChanged += delegate { RenderDailySessionScoreboard(); }; Grid.SetColumn(periodGranularityBox, 1); scoreHeader.Children.Add(periodGranularityBox); scorePanel.Children.Add(scoreHeader);
+            periodGranularityBox = Select("DAILY", "WEEKLY", "MONTHLY"); periodGranularityBox.SelectedIndex = 0; periodGranularityBox.Width = 125; periodGranularityBox.SelectionChanged += delegate { periodCardLimit = 60; RenderDailySessionScoreboard(); }; Grid.SetColumn(periodGranularityBox, 1); scoreHeader.Children.Add(periodGranularityBox); scorePanel.Children.Add(scoreHeader);
             var scoreHint = Txt("Each colored card is an existing selected-session period. It shows accounts assigned, accounts at the selected daily profit / loss lock, payout accounts, P/L, and evaluation cost. Green marks the best positive period in the current view. It never invents an unrequested session or timeframe series.", Gold, 10, FontWeights.Bold); scoreHint.TextWrapping = TextWrapping.Wrap; Grid.SetRow(scoreHint, 1); scorePanel.Children.Add(scoreHint);
             dailySessionScoreboardStack = new StackPanel { Margin = new Thickness(2) };
             var scoreScroll = new ScrollViewer { Background = Card, BorderBrush = Green, BorderThickness = new Thickness(1), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = dailySessionScoreboardStack, Margin = new Thickness(3) }; Grid.SetRow(scoreScroll, 2); scorePanel.Children.Add(scoreScroll);
@@ -6877,13 +6884,168 @@ namespace NinjaTrader.NinjaScript.AddOns
             historicalRequestDetails.Add(key + " " + minutes + "M " + (isSetupRequest ? "setup" : "outcome") + " history queued as one direct selected-range request • " + requestStart.ToString("yyyy-MM-dd HH:mm") + " → " + end.ToString("yyyy-MM-dd HH:mm") + ".");
         }
 
+        // ---- Loading: saved data + watchdog --------------------------------------------------
+        // Past bars never change, so a completed request (same contract, timeframe, range and
+        // session template) is kept in memory and, when the range ended before today, on disk.
+        // A repeat test or a second instrument then loads only what is missing.
+        private static readonly Dictionary<string, List<KeystoneArcBar>> savedBarsMemory = new Dictionary<string, List<KeystoneArcBar>>(StringComparer.Ordinal);
+        private static readonly object savedBarsLock = new object();
+        private HistoricalRequestWorkItem currentHistoricalItem;
+        private DispatcherTimer loadWatchdog;
+        private CheckBox reuseSavedDataBox;
+
+        private static string SavedBarsKey(HistoricalRequestWorkItem item)
+        {
+            if (item == null || item.Instrument == null) return null;
+            string hours = item.TradingHours == null ? (item.TradingHoursSource ?? string.Empty) : (item.TradingHours.Name ?? item.TradingHoursSource ?? string.Empty);
+            return "v1|" + item.Key + "|" + item.Instrument.FullName + "|" + item.Minutes + "|" + item.Start.ToString("yyyyMMddHHmm") + "|" + item.End.ToString("yyyyMMddHHmm") + "|" + hours;
+        }
+
+        private static string SavedBarsFile(string key)
+        {
+            using (var sha = System.Security.Cryptography.SHA1.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(key));
+                string name = BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArc5MResearch", "DataCache", name + ".bars");
+            }
+        }
+
+        private static List<KeystoneArcBar> CopyBars(List<KeystoneArcBar> source, string symbol)
+        {
+            var copy = new List<KeystoneArcBar>(source.Count);
+            foreach (KeystoneArcBar b in source) copy.Add(new KeystoneArcBar { Time = b.Time, Symbol = symbol ?? b.Symbol, Open = b.Open, High = b.High, Low = b.Low, Close = b.Close, Volume = b.Volume });
+            return copy;
+        }
+
+        private List<KeystoneArcBar> LoadSavedBars(HistoricalRequestWorkItem item)
+        {
+            if (reuseSavedDataBox != null && reuseSavedDataBox.IsChecked == false) return null;
+            string key = SavedBarsKey(item); if (key == null) return null;
+            try
+            {
+                lock (savedBarsLock) { List<KeystoneArcBar> hit; if (savedBarsMemory.TryGetValue(key, out hit)) return CopyBars(hit, item.Key); }
+                string file = SavedBarsFile(key);
+                if (!File.Exists(file)) return null;
+                var list = new List<KeystoneArcBar>();
+                using (var reader = new BinaryReader(File.OpenRead(file)))
+                {
+                    if (reader.ReadString() != key) return null;
+                    int count = reader.ReadInt32();
+                    for (int i = 0; i < count; i++) list.Add(new KeystoneArcBar { Time = new DateTime(reader.ReadInt64()), Symbol = item.Key, Open = reader.ReadDouble(), High = reader.ReadDouble(), Low = reader.ReadDouble(), Close = reader.ReadDouble(), Volume = reader.ReadInt64() });
+                }
+                if (list.Count == 0) return null;
+                lock (savedBarsLock) savedBarsMemory[key] = CopyBars(list, item.Key);
+                return list;
+            }
+            catch { return null; }
+        }
+
+        private static void StoreSavedBars(HistoricalRequestWorkItem item, List<KeystoneArcBar> list)
+        {
+            string key = SavedBarsKey(item); if (key == null || list == null || list.Count == 0) return;
+            // Keep only receipts that cover the requested range; a partial history (NinjaTrader
+            // still downloading, or a contract segment) is never frozen into saved data.
+            DateTime first = list.Min(b => b.Time), last = list.Max(b => b.Time);
+            if (first > item.Start.AddDays(5) || last < item.End.AddDays(-5)) return;
+            try
+            {
+                lock (savedBarsLock)
+                {
+                    if (savedBarsMemory.Count >= 12) savedBarsMemory.Remove(savedBarsMemory.Keys.First());
+                    savedBarsMemory[key] = CopyBars(list, item.Key);
+                }
+                // Only fully historical ranges go to disk; today's bars can still change.
+                if (item.End.Date >= DateTime.Today) return;
+                string file = SavedBarsFile(key);
+                Directory.CreateDirectory(Path.GetDirectoryName(file));
+                string temp = file + ".tmp";
+                using (var writer = new BinaryWriter(File.Create(temp)))
+                {
+                    writer.Write(key); writer.Write(list.Count);
+                    foreach (KeystoneArcBar b in list) { writer.Write(b.Time.Ticks); writer.Write(b.Open); writer.Write(b.High); writer.Write(b.Low); writer.Write(b.Close); writer.Write(b.Volume); }
+                }
+                if (File.Exists(file)) File.Delete(file);
+                File.Move(temp, file);
+            }
+            catch { }
+        }
+
+        private void ClearSavedData()
+        {
+            int files = 0;
+            try
+            {
+                lock (savedBarsLock) savedBarsMemory.Clear();
+                string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArc5MResearch", "DataCache");
+                if (Directory.Exists(folder)) foreach (string f in Directory.GetFiles(folder, "*.bars")) { File.Delete(f); files++; }
+            }
+            catch (Exception ex) { UpdateUi("COULD NOT CLEAR SAVED DATA • " + ex.Message, Red); return; }
+            UpdateUi("SAVED DATA CLEARED • " + files + " FILE(S) • the next test loads everything from NinjaTrader again", Green);
+        }
+
+        // Shows a live elapsed time while NinjaTrader works, and ends a request that never
+        // answers (the normal fallback / error path then takes over) instead of spinning forever.
+        private void StartLoadWatchdog()
+        {
+            if (window == null || window.Dispatcher == null) return;
+            if (loadWatchdog == null)
+            {
+                loadWatchdog = new DispatcherTimer(DispatcherPriority.Background, window.Dispatcher) { Interval = TimeSpan.FromSeconds(1) };
+                loadWatchdog.Tick += delegate { LoadWatchdogTick(); };
+            }
+            loadWatchdog.Start();
+        }
+
+        private void StopLoadWatchdog() { if (loadWatchdog != null) loadWatchdog.Stop(); }
+
+        private static TimeSpan RequestTimeLimit(HistoricalRequestWorkItem item)
+        {
+            double days = Math.Max(1, (item.End - item.Start).TotalDays);
+            double minutes = 5 + days / 45.0 * (item.Minutes <= 1 ? 1.0 : 0.5);
+            return TimeSpan.FromMinutes(Math.Min(25, minutes));
+        }
+
+        private void LoadWatchdogTick()
+        {
+            HistoricalRequestWorkItem item = currentHistoricalItem;
+            if (item == null || item.Finished || item.Run != generation) return;
+            TimeSpan elapsed = DateTime.UtcNow - item.StartedUtc, limit = RequestTimeLimit(item);
+            string what = item.Key + " " + item.Minutes + "M " + (item.IsSetupRequest ? "SETUP" : "1M OUTCOME") + " • " + item.Start.ToString("yyyy-MM-dd") + " → " + item.End.ToString("yyyy-MM-dd");
+            if (elapsed < limit)
+            {
+                UpdateUi("LOADING " + what + " • REQUEST " + (historicalRequestCompleted + 1) + " OF " + Math.Max(historicalRequestTotal, historicalRequestCompleted + 1) + " • " + ((int)elapsed.TotalMinutes) + ":" + elapsed.Seconds.ToString("00") + " ELAPSED • NINJATRADER IS WORKING (limit " + (int)limit.TotalMinutes + " min)", Gold);
+                return;
+            }
+            historicalRequestDetails.Add(what + " • no answer from NinjaTrader after " + (int)limit.TotalMinutes + " minutes • request ended and the normal fallback started");
+            try
+            {
+                BarsRequest stuck = item.Key == "MNQ" ? (item.IsSetupRequest ? mnqSetupRequest : mnqRequest) : (item.IsSetupRequest ? mgcSetupRequest : mgcRequest);
+                if (stuck != null) stuck.Dispose();
+            }
+            catch { }
+            UpdateUi("NO ANSWER FOR " + what + " AFTER " + (int)limit.TotalMinutes + " MIN • TRYING THE FALLBACK SOURCE", Red);
+            CompleteRequestOnLabThread(item, new List<KeystoneArcBar>(), ErrorCode.NoError, "TIMED OUT");
+        }
+
         private void StartNextHistoricalRequest()
         {
             if (historicalRequestActive || pendingRequests > 0) return;
-            if (historicalRequestQueue.Count == 0) { FinalizeRequestedDataState(); return; }
+            if (historicalRequestQueue.Count == 0) { StopLoadWatchdog(); FinalizeRequestedDataState(); return; }
             HistoricalRequestWorkItem item = historicalRequestQueue.Dequeue();
             if (item == null || item.Run != generation) { StartNextHistoricalRequest(); return; }
             historicalRequestActive = true; pendingRequests = 1;
+            List<KeystoneArcBar> saved = LoadSavedBars(item);
+            if (saved != null)
+            {
+                historicalRequestDetails.Add(item.Key + " " + item.Minutes + "M " + (item.IsSetupRequest ? "setup" : "outcome") + " • " + saved.Count + " bars reused from saved data (same contract, range and session template) • no NinjaTrader request needed");
+                UpdateUi("LOADING HISTORY • " + item.Key + " " + item.Minutes + "M FROM SAVED DATA • " + saved.Count.ToString("N0") + " BARS", Green);
+                HistoricalRequestWorkItem reused = item;
+                if (window != null && window.Dispatcher != null) window.Dispatcher.BeginInvoke(new Action(delegate { CompleteRequestOnLabThread(reused, saved, ErrorCode.NoError, "SAVED DATA"); }));
+                else CompleteRequestOnLabThread(reused, saved, ErrorCode.NoError, "SAVED DATA");
+                return;
+            }
+            item.StartedUtc = DateTime.UtcNow; currentHistoricalItem = item; StartLoadWatchdog();
             try
             {
                 BarsRequest request = StartRequest(item);
@@ -6935,6 +7097,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     DispatchToLab(delegate { CompleteRequestStartFailure(key, isSetupRequest, "BAR CONVERSION ERROR • " + ex.Message, run); });
                     return;
                 }
+                if (list.Count > 0 && item != null) StoreSavedBars(item, list);
                 DispatchToLab(delegate { CompleteRequestOnLabThread(item, list, error, message); });
             });
         }
@@ -7203,9 +7366,11 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void CompleteRequestOnLabThread(HistoricalRequestWorkItem item, List<KeystoneArcBar> list, ErrorCode error, string message)
         {
-            if (item == null) return;
+            if (item == null || item.Finished) return;
             string key = item.Key; bool isSetupRequest = item.IsSetupRequest; long run = item.Run;
             if (run != generation) return;
+            item.Finished = true;
+            if (currentHistoricalItem == item) currentHistoricalItem = null;
             pendingRequests = Math.Max(0, pendingRequests - 1); historicalRequestCompleted++; historicalRequestActive = false;
             bool emptyReceipt = list == null || list.Count == 0;
             string failureReason = error != ErrorCode.NoError ? ("error " + error + " " + message) : "0 bars";
@@ -9512,10 +9677,32 @@ namespace NinjaTrader.NinjaScript.AddOns
                 finally { walkthroughSelectionUpdating = false; }
             }
             UpdatePoolDetail();
-            RenderFirstReturnDashboard();
-            RenderPayoutCycleDashboard();
-            RenderDailySessionScoreboard();
+            // Heavy tabs are built only when opened (a 2-year run has thousands of cards).
+            periodCardLimit = 60;
+            RequestTabRender("FIRST RETURN", RenderFirstReturnDashboard);
+            RequestTabRender("PAYOUT CYCLES", RenderPayoutCycleDashboard);
+            RequestTabRender("PERFORMANCE PERIODS", RenderDailySessionScoreboard);
             RenderResearchFindings();
+        }
+
+        private readonly Dictionary<string, Action> deferredTabRenders = new Dictionary<string, Action>(StringComparer.OrdinalIgnoreCase);
+        private int periodCardLimit = 60;
+
+        private string CurrentResultTab()
+        {
+            return resultViewTabs == null || resultViewTabs.SelectedItem == null ? string.Empty : Convert.ToString(((TabItem)resultViewTabs.SelectedItem).Header);
+        }
+
+        private void RequestTabRender(string header, Action render)
+        {
+            if (string.Equals(CurrentResultTab(), header, StringComparison.OrdinalIgnoreCase)) { deferredTabRenders.Remove(header); render(); }
+            else deferredTabRenders[header] = render;
+        }
+
+        private void RunDeferredTabRender()
+        {
+            string tab = CurrentResultTab(); Action render;
+            if (deferredTabRenders.TryGetValue(tab, out render)) { deferredTabRenders.Remove(tab); render(); }
         }
 
         private List<KeystoneArcResearchFinding> BuildResearchFindings()
@@ -10081,6 +10268,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             int periodNumber = 0; double netToDate = 0;
             foreach (DateTime key in periods)
             {
+                if (periodNumber >= periodCardLimit)
+                {
+                    int remaining = periods.Count - periodNumber;
+                    var more = Btn("SHOW NEXT " + Math.Min(60, remaining) + " • " + remaining + " MORE " + (string.Equals(mode, "MONTHLY", StringComparison.OrdinalIgnoreCase) ? "MONTHS" : (string.Equals(mode, "WEEKLY", StringComparison.OrdinalIgnoreCase) ? "WEEKS" : "DAYS")), Blue);
+                    more.Margin = new Thickness(6); more.Height = 32;
+                    more.Click += delegate { periodCardLimit += 60; RenderDailySessionScoreboard(); };
+                    dailySessionScoreboardStack.Children.Add(more);
+                    break;
+                }
                 periodNumber++;
                 List<KeystoneArcEvent> rows; if (!eventGroups.TryGetValue(key, out rows)) rows = new List<KeystoneArcEvent>();
                 List<KeystoneArcPayoutAuditDay> audit; if (!auditGroups.TryGetValue(key, out audit)) audit = new List<KeystoneArcPayoutAuditDay>();
@@ -12090,6 +12286,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void CancelRequests()
         {
+            StopLoadWatchdog(); currentHistoricalItem = null;
             ++generation; pendingRequests = 0; historicalRequestActive = false; historicalRequestQueue.Clear(); isProcessing = false; try { if (mnqRequest != null) mnqRequest.Dispose(); } catch { } try { if (mgcRequest != null) mgcRequest.Dispose(); } catch { } try { if (mnqSetupRequest != null) mnqSetupRequest.Dispose(); } catch { } try { if (mgcSetupRequest != null) mgcSetupRequest.Dispose(); } catch { } mnqRequest = null; mgcRequest = null; mnqSetupRequest = null; mgcSetupRequest = null; EndBusy();
         }
 
