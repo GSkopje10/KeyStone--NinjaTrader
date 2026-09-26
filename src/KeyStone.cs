@@ -3985,7 +3985,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-26e • CHART REPLAY • DAY STEPPING • SETUPS ONLY";
+        private const string KeystoneBuild = "BUILD 2026-09-27a • FVG • INSTRUMENT SWITCH • BAR REPLAY • AI REPORT • THEMES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -8606,6 +8606,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 if (evidenceScroll == null) return;
                 Point chartPoint = args.GetPosition(evidenceCanvas);
+                if (args.ClickCount == 2)
+                {
+                    // TradingView habit: double-click resets the view (time + price scale, latest candles).
+                    evidenceHorizontalZoom = 1.0; evidenceVerticalZoom = 1.0; evidenceZoom = 1.0; evidencePriceCenter = double.NaN;
+                    UpdateEvidenceZoomText();
+                    if (evidenceBarCursor != DateTime.MinValue) evidenceCursorFollow = true;
+                    RenderEvidenceChart();
+                    args.Handled = true;
+                    return;
+                }
                 evidenceScaleDragAxis = EvidenceScaleAxisAt(chartPoint);
                 evidenceScaleDragStart = chartPoint;
                 evidenceScaleDragStartHorizontalZoom = evidenceHorizontalZoom;
