@@ -5310,7 +5310,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             accountPayoutCyclesMetric = MetricTile(accountLifecycleMetrics, "PAYOUT CYCLES", "0", "completed historical withdrawal cycles", Gold, 53, 16);
             accountBlowoutMetric = MetricTile(accountLifecycleMetrics, "BLOWOUT EVENTS", "0", "evaluation plus funded drawdown failures", Red, 53, 16);
             accountTradesMetric = MetricTile(accountLifecycleMetrics, "TRADES / W-L", "0", "assigned completed trade record", Cyan, 53, 16);
-            accountFirstPayoutMetric = MetricTile(accountLifecycleMetrics, "FIRST PAYOUT DATE", "—", "first dated modeled payout in this slot", Gold, 53, 14);
+            accountFirstPayoutMetric = MetricTile(accountLifecycleMetrics, "FIRST → LATEST PAYOUT", "—", "first and most recent payout of this slot", Gold, 53, 14);
             accountFirstPayoutDaysMetric = MetricTile(accountLifecycleMetrics, "TIME TO FIRST PAYOUT", "—", "calendar days / recorded sessions from initial slot start", Gold, 53, 14);
             accountLifecycleMetric = MetricTile(accountLifecycleMetrics, "LIFECYCLE / BLOWOUT DATE", "—", "initial start through last assignment or terminal blowout", Orchid, 53, 13);
             Grid.SetRow(accountLifecycleMetrics, 1); detailPanel.Children.Add(accountLifecycleMetrics);
@@ -9642,8 +9642,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 periodNet[key] = audit.Sum(x => x.DaySnapshot.DayPnl);
             }
             double bestPositive = periodNet.Values.Where(x => x > 0).DefaultIfEmpty(0).Max();
+            int periodNumber = 0; double netToDate = 0;
             foreach (DateTime key in periods)
             {
+                periodNumber++;
                 List<KeystoneArcEvent> rows; if (!eventGroups.TryGetValue(key, out rows)) rows = new List<KeystoneArcEvent>();
                 List<KeystoneArcPayoutAuditDay> audit; if (!auditGroups.TryGetValue(key, out audit)) audit = new List<KeystoneArcPayoutAuditDay>();
                 int setups = rows.Count;
@@ -9663,16 +9665,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (string.Equals(mode, "WEEKLY", StringComparison.OrdinalIgnoreCase)) periodLabel += " → " + key.AddDays(6).ToString("yyyy-MM-dd");
                 var card = new Grid { Background = Panel, Margin = new Thickness(2) };
                 card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                string header = periodLabel + " • " + mode + " • SETUPS " + setups + " • W " + wins + " / L " + losses + (best ? " • BEST POSITIVE PERIOD" : string.Empty);
+                string header = "#" + periodNumber + "  " + periodLabel + " • " + mode + " • SETUPS " + setups + " • W " + wins + " / L " + losses + (best ? " • BEST POSITIVE PERIOD" : string.Empty);
                 var headerText = Txt(header, accent, 12, FontWeights.Bold); headerText.Margin = new Thickness(8, 5, 8, 2); headerText.TextWrapping = TextWrapping.Wrap; card.Children.Add(headerText);
-                var metrics = new UniformGrid { Columns = 5, Margin = new Thickness(4, 0, 4, 3) };
-                CycleMetric(metrics, "ACCOUNTS ASSIGNED", accounts.Count > 0 && accountsAssigned == accounts.Count ? "ALL " + accounts.Count : accountsAssigned + " / " + accounts.Count, Cyan);
-                CycleMetric(metrics, "PROFIT / LOSS LOCKS", profitLocks + " / " + lossLocks, lossLocks > profitLocks ? Red : Green);
-                CycleMetric(metrics, "ASSIGNED P/L", Cash(assignedPnl), assignedPnl < 0 ? Red : (assignedPnl > 0 ? Green : Muted));
-                CycleMetric(metrics, "PAYOUT ACCOUNTS", payoutAccounts + " / " + payoutCycles, payoutAccounts > 0 ? Gold : Muted);
-                CycleMetric(metrics, "PAYOUT NET / COST", Cash(payoutCash) + " / " + Cash(evaluationCost), payoutCash - evaluationCost < 0 ? Orchid : Green);
+                var metrics = new UniformGrid { Columns = 6, Margin = new Thickness(4, 0, 4, 3) };
+                netToDate += payoutCash - evaluationCost;
+                // Carry-over: what the funded accounts still hold at the end of the period (after payouts and split).
+                double carry = audit.GroupBy(x => x.Account).Select(g => g.OrderBy(x => x.DaySnapshot.Day).Last().DaySnapshot).Where(d => d.FundedAfter && !d.BlownAfter).Sum(d => d.FundedBalanceAfter);
+                bool asianPeriod = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+                CycleMetric(metrics, "ACCOUNTS TRADING", accounts.Count > 0 && accountsAssigned == accounts.Count ? "ALL " + accounts.Count : accountsAssigned + " / " + accounts.Count, Cyan);
+                CycleMetric(metrics, asianPeriod ? "P/L PER ACCOUNT" : "ASSIGNED P/L", asianPeriod && accountsAssigned > 0 ? Cash(assignedPnl / accountsAssigned) : Cash(assignedPnl), assignedPnl < 0 ? Red : (assignedPnl > 0 ? Green : Muted));
+                CycleMetric(metrics, "TO YOUR BANK", Cash(payoutCash) + (payoutAccounts > 0 ? " • " + payoutAccounts + " acct" : ""), payoutCash > 0 ? Gold : Muted);
+                CycleMetric(metrics, "COST", Cash(evaluationCost), evaluationCost > 0 ? Orchid : Muted);
+                CycleMetric(metrics, "NET TO DATE", Cash(netToDate), netToDate < 0 ? Red : Green);
+                CycleMetric(metrics, "CARRY-OVER BALANCE", Cash(carry), carry > 0 ? Blue : Muted);
                 Grid.SetRow(metrics, 1); card.Children.Add(metrics);
-                string close = "NET CASH AFTER PERIOD COST " + Cash(payoutCash - evaluationCost) + " • EVAL PURCHASES " + audit.Sum(x => x.EvaluationPurchaseDelta) + " • FUNDED QUALIFYING DAYS " + audit.Count(x => x.DaySnapshot.FundedQualifyingDay) + " • EVAL PASSES " + audit.GroupBy(x => x.Account).Count(g => g.Max(x => x.DaySnapshot.EvaluationPassesAfter) > 0);
+                string close = "THIS PERIOD NET " + Cash(payoutCash - evaluationCost) + " • PAYOUTS " + payoutCycles + (payoutAccounts > 0 ? " (" + Cash(payoutCash / Math.Max(1, payoutAccounts)) + " per paid account)" : "") + " • ACCOUNTS BOUGHT " + audit.Sum(x => x.EvaluationPurchaseDelta) + " • EVAL PASSES " + audit.GroupBy(x => x.Account).Count(g => g.Max(x => x.DaySnapshot.EvaluationPassesAfter) > g.Min(x => x.DaySnapshot.EvaluationPassesAfter)) + (asianPeriod ? string.Empty : " • PROFIT / LOSS LOCKS " + profitLocks + " / " + lossLocks);
                 var closeText = Txt(close, Gold, 10, FontWeights.Bold); closeText.Margin = new Thickness(8, 0, 8, 5); closeText.TextWrapping = TextWrapping.Wrap; Grid.SetRow(closeText, 2); card.Children.Add(closeText);
                 var accountBadges = new WrapPanel { Margin = new Thickness(6, 0, 6, 5) };
                 foreach (var accountPeriod in audit.GroupBy(x => x.Account).OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
@@ -10017,7 +10024,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             else
             {
                 summary.AppendLine("CASH • GROSS WITHDRAWALS " + Cash(a.PayoutGrossWithdrawn) + " • CASH AFTER SHARE " + Cash(a.PayoutCash) + " • ALL COSTS " + Cash(a.EvaluationCost) + " • FULL NET " + Cash(a.PayoutCash - a.EvaluationCost));
-                summary.AppendLine("DATES • START " + (a.InitialLifecycleStart == DateTime.MinValue ? "NOT RECORDED" : a.InitialLifecycleStart.ToString("yyyy-MM-dd")) + " • FIRST PAYOUT " + (first.HasPayout ? first.FirstPayoutDate.ToString("yyyy-MM-dd") : "NOT REACHED") + " • LAST BLOWOUT " + (a.LastBlowoutDate == DateTime.MinValue ? "NONE" : a.LastBlowoutDate.ToString("yyyy-MM-dd")));
+                summary.AppendLine("DATES • START " + (a.InitialLifecycleStart == DateTime.MinValue ? "NOT RECORDED" : a.InitialLifecycleStart.ToString("yyyy-MM-dd")) + " • FIRST PAYOUT " + (first.HasPayout ? first.FirstPayoutDate.ToString("yyyy-MM-dd") : "NOT REACHED") + " • LATEST PAYOUT " + (a.LastPayoutDate == DateTime.MinValue ? "—" : a.LastPayoutDate.ToString("yyyy-MM-dd")) + (a.Funded && !a.Blown ? " • STILL FUNDED • CARRY-OVER BALANCE " + Cash(a.FundedBalance) : "") + " • LAST BLOWOUT " + (a.LastBlowoutDate == DateTime.MinValue ? "NONE" : a.LastBlowoutDate.ToString("yyyy-MM-dd")));
                 summary.AppendLine("STATE NOTES • " + AccountLifecycleLabel(a) + " • PAYOUTS " + a.Payouts + " • BLOWOUT EVENTS " + (a.FailedEvaluations + a.FailedFunded) + ".");
             }
             summary.AppendLine("OPEN LIFECYCLE WALKTHROUGH FOR EVERY RECORDED DAY, PASS, PAYOUT, BENCH, REPLACEMENT, AND BLOWOUT. The exported HTML and CSV package retain the full trade ledger.");
@@ -10089,7 +10096,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (accountPnlMetric != null) { accountPnlMetric.Text = Cash(account.TotalPnl); accountPnlMetric.Foreground = account.TotalPnl < 0 ? Red : (account.TotalPnl > 0 ? Green : Muted); }
             if (accountTradesMetric != null) { accountTradesMetric.Text = account.Trades + " / " + account.Wins + "W " + account.Losses + "L"; accountTradesMetric.Foreground = account.Wins >= account.Losses ? Green : Red; }
             KeystoneArcFirstPayoutTiming timing = KeystoneArcEngine.GetFirstPayoutTiming(account);
-            if (accountFirstPayoutMetric != null) { accountFirstPayoutMetric.Text = timing.HasPayout ? timing.FirstPayoutDate.ToString("yyyy-MM-dd") : "NO PAYOUT"; accountFirstPayoutMetric.Foreground = timing.HasPayout ? Gold : Muted; }
+            if (accountFirstPayoutMetric != null) { accountFirstPayoutMetric.Text = timing.HasPayout ? timing.FirstPayoutDate.ToString("yyyy-MM-dd") + (account.LastPayoutDate > timing.FirstPayoutDate ? " → " + account.LastPayoutDate.ToString("yyyy-MM-dd") : "") : "NO PAYOUT"; accountFirstPayoutMetric.ToolTip = "first → latest payout • " + account.Payouts + " payout(s) • " + (account.Funded && !account.Blown ? "still funded, balance " + Cash(account.FundedBalance) : AccountLifecycleLabel(account)); accountFirstPayoutMetric.Foreground = timing.HasPayout ? Gold : Muted; }
             if (accountFirstPayoutDaysMetric != null) { accountFirstPayoutDaysMetric.Text = timing.HasPayout ? timing.CalendarDaysFromInitial + " cal / " + timing.RecordedSessionsFromInitial + " sess" : "NOT RECORDED"; accountFirstPayoutDaysMetric.Foreground = timing.HasPayout ? Gold : Muted; }
         }
 
