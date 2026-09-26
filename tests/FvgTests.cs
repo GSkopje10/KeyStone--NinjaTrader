@@ -133,7 +133,7 @@ public static class FvgTests
             var cfg = Cfg();
             var ev = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg);
             Check(ev.Count == 1 && ev[0].SetupClass == "FVG" && ev[0].Outcome == "WIN" && Math.Abs(ev[0].GrossPnl - 100) < 0.01, "FVG event resolves on 1-minute bars (fixed $ target)", ev.Count == 0 ? "none" : ev[0].Outcome + " " + ev[0].GrossPnl);
-            Check(ev.Count == 1 && ev[0].FvgVisit == 1 && Math.Abs(ev[0].FvgGap - 2) < 1e-9 && ev[0].StrengthTag == "AGGRESSIVE", "event records visit, box size, aggression", ev.Count == 0 ? "" : ev[0].ReviewNote);
+            Check(ev.Count == 1 && ev[0].FvgVisit == 1 && Math.Abs(ev[0].FvgGap - 2) < 1e-9 && ev[0].StrengthTag == "AGGR", "event records visit, box size, aggression", ev.Count == 0 ? "" : ev[0].ReviewNote);
             // Box stop: stop below the box (100), risk-sized, price-based P/L on a loss.
             var lossBars = Base(); lossBars.Add(C(104.0, 104.2, 100.8, 103.0)); lossBars.Add(C(103.0, 103.6, 101.5, 103.4)); lossBars.Add(C(103.4, 104.0, 103.2, 103.5)); lossBars.Add(C(103.5, 103.6, 101.0, 101.2)); lossBars.Add(C(101.2, 101.3, 99.5, 100.1));
             // (the dip below 100 closes above 100, so the box is still valid when the stop hits)

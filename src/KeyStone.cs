@@ -1430,7 +1430,7 @@ namespace NinjaTrader.NinjaScript
                 e.SessionOrder = ++order;
                 e.FvgLower = x.Zone.Lower; e.FvgUpper = x.Zone.Upper; e.FvgFormedTime = x.Zone.FormedTime;
                 e.FvgVisit = x.Visit; e.FvgRedRun = x.Zone.RedRun; e.FvgDrop = x.Zone.Drop; e.FvgGap = x.Zone.Height;
-                e.StrengthTag = x.Zone.Aggressive ? "AGGRESSIVE" : "BASE";
+                e.StrengthTag = x.Zone.Aggressive ? "AGGR" : "BASE";
                 e.ReviewNote = "FVG box " + x.Zone.Lower.ToString("0.##", CultureInfo.InvariantCulture) + "–" + x.Zone.Upper.ToString("0.##", CultureInfo.InvariantCulture) + " formed " + x.Zone.FormedTime.ToString("yyyy-MM-dd HH:mm") + " • visit " + x.Visit + " • red run " + x.Zone.RedRun + " • drop " + x.Zone.Drop.ToString("0.##", CultureInfo.InvariantCulture) + (x.Zone.Aggressive ? " • AGGRESSIVE" : "");
                 e.ConfigurationKey = cfg.Snapshot();
                 ResolveOutcome(e, raw, cfg, symbol);
@@ -3777,6 +3777,11 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<UIElement> customSessionControls = new List<UIElement>();
         private readonly List<UIElement> bhStrategyControls = new List<UIElement>();
         private readonly List<UIElement> asianStrategyControls = new List<UIElement>();
+        private readonly List<UIElement> fvgStrategyControls = new List<UIElement>();
+        private bool fvgSessionDefaultApplied;
+        private TextBox fvgMnqMinGapBox, fvgMgcMinGapBox, fvgDepthBox, fvgRunAwayBox, fvgMaxEntriesBox, fvgMaxAgeBox, fvgMnqRedBox, fvgMgcRedBox, fvgMnqDropBox, fvgMgcDropBox, fvgStopBufferBox, fvgMaxQtyBox;
+        private ComboBox fvgMissBox, fvgOutsideBox, fvgLifetimeBox, fvgAggressionBox, fvgCombineBox, fvgStopModeBox;
+        private CheckBox fvgOneGreenBox;
         private readonly List<UIElement> asianCashRiskControls = new List<UIElement>();
         private readonly List<UIElement> asianPriceRiskControls = new List<UIElement>();
         private readonly List<Button> saveButtons = new List<Button>();
@@ -4762,7 +4767,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             RefreshOpenChartInstruments();
             string defaultDay = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var data = Stack(); data.Children.Add(Txt("1. DATA, SETUPS & SESSION", Gold, 13, FontWeights.Bold));
-            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING"); strategyBox.SelectedIndex = 0;
+            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG"); strategyBox.SelectedIndex = 0;
             scopeBox = Select("MNQ", "MGC", "BOTH"); scopeBox.SelectedIndex = 0;
             accountPathBox = Select("PROP • VIRTUAL POOL"); accountPathBox.SelectedIndex = 0; accountPathBox.Visibility = Visibility.Collapsed;
             // Keystone is intentionally one setup lab in this revision: long BH only.
@@ -4896,8 +4901,44 @@ namespace NinjaTrader.NinjaScript.AddOns
             asianInstrumentStopRow.Visibility = Visibility.Collapsed; asianMnqInstrumentStopRow.Visibility = Visibility.Collapsed; asianMgcInstrumentStopRow.Visibility = Visibility.Collapsed; asianMnqDirectionRow.Visibility = Visibility.Collapsed; asianMgcDirectionRow.Visibility = Visibility.Collapsed; asianCombinedStopRow.Visibility = Visibility.Collapsed; asianMnqPriceMoveRow.Visibility = Visibility.Collapsed; asianMgcPriceMoveRow.Visibility = Visibility.Collapsed; asianMnqMaxReversalsRow.Visibility = Visibility.Collapsed; asianMgcMaxReversalsRow.Visibility = Visibility.Collapsed;
             asianModel.Children.Add(Txt("ONE DAILY CYCLE: MNQ and MGC enter together at the exact selected 1-minute bar (18:00 by default). Every stop closes that leg at the fixed cash loss, reverses at the next 1-minute open, and adds one micro. The shared reversal count applies separately to MNQ and MGC. AUTO MAX COMBINED REVERSAL LOSS = reversal legs × fixed loss × 2 instruments; it is a visible protection ceiling, while the combined profit target closes the daily cycle. Each completed cycle is copied to active virtual accounts; no rotation is used.", Orchid, 10, FontWeights.Bold));
             asianStrategyControls.Clear(); asianStrategyControls.Add(asianModel);
+            var fvgModel = Stack(); fvgModel.Margin = new Thickness(0, 4, 0, 2);
+            fvgModel.Children.Add(Txt("FVG RETEST • BOX RULES", Orchid, 11, FontWeights.Bold));
+            fvgMnqMinGapBox = Input("0"); fvgMgcMinGapBox = Input("0"); fvgDepthBox = Input("25"); fvgRunAwayBox = Input("2"); fvgMaxEntriesBox = Input("1"); fvgMaxAgeBox = Input("0");
+            fvgMnqRedBox = Input("3"); fvgMgcRedBox = Input("3"); fvgMnqDropBox = Input("0"); fvgMgcDropBox = Input("0"); fvgStopBufferBox = Input("0"); fvgMaxQtyBox = Input("20");
+            fvgMissBox = Select("WAIT FOR A NEW DIP", "ANY LATER GREEN CLOSE"); fvgMissBox.SelectedIndex = 0;
+            fvgOutsideBox = Select("TRADE BOXES FORMED BEFORE THE WINDOW", "ONLY BOXES FORMED INSIDE THE WINDOW"); fvgOutsideBox.SelectedIndex = 0;
+            fvgLifetimeBox = Select("UNTIL USED, CLOSED BELOW OR RUN AWAY", "SAME SESSION ONLY"); fvgLifetimeBox.SelectedIndex = 0;
+            fvgAggressionBox = Select("TAG ONLY (TAKE ALL, MARK AGGRESSIVE)", "REQUIRED (ONLY AGGRESSIVE BOXES)", "OFF"); fvgAggressionBox.SelectedIndex = 0;
+            fvgCombineBox = Select("ANY ENABLED RULE", "ALL ENABLED RULES"); fvgCombineBox.SelectedIndex = 0;
+            fvgStopModeBox = Select("FIXED $ (STEP 2 STOP)", "BELOW THE BOX • RISK-SIZED", "BELOW THE GREEN CANDLE • RISK-SIZED"); fvgStopModeBox.SelectedIndex = 0;
+            fvgOneGreenBox = new CheckBox { Content = "A SMALL GREEN CANDLE DOES NOT BREAK THE RED RUN", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
+            foreach (TextBox box in new[] { fvgMnqMinGapBox, fvgMgcMinGapBox, fvgDepthBox, fvgRunAwayBox, fvgMaxEntriesBox, fvgMaxAgeBox, fvgMnqRedBox, fvgMgcRedBox, fvgMnqDropBox, fvgMgcDropBox, fvgStopBufferBox, fvgMaxQtyBox }) WatchConfigurationInput(box);
+            foreach (ComboBox box in new[] { fvgMissBox, fvgOutsideBox, fvgLifetimeBox, fvgAggressionBox, fvgCombineBox, fvgStopModeBox }) box.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
+            fvgOneGreenBox.Checked += delegate { InvalidateConfigurationApproval(); }; fvgOneGreenBox.Unchecked += delegate { InvalidateConfigurationApproval(); };
+            fvgDepthBox.ToolTip = "How deep a candle must dip into the box: 0 = any touch, 25 = a quarter, 50 = the midpoint.";
+            fvgRunAwayBox.ToolTip = "If price runs this many box heights above the box, the box is retired. 0 = never (only a close below kills it).";
+            fvgMaxEntriesBox.ToolTip = "How many entries one box may give (1 = the box is finished after its first entry).";
+            fvgMissBox.ToolTip = "If the candle after the green candle does not break its high: wait for a new dip into the box (default), or accept any later green close.";
+            fvgAggressionBox.ToolTip = "Aggression = red candles in a row and/or a price drop just before the box. TAG ONLY keeps every box and records it; REQUIRED keeps only aggressive boxes.";
+            fvgModel.Children.Add(Row("MNQ MIN BOX SIZE (POINTS, 0 = ANY)", fvgMnqMinGapBox)); fvgModel.Children.Add(Row("MGC MIN BOX SIZE (POINTS, 0 = ANY)", fvgMgcMinGapBox));
+            fvgModel.Children.Add(Row("DIP DEPTH INTO BOX % (0 = TOUCH, 50 = MIDPOINT)", fvgDepthBox));
+            fvgModel.Children.Add(Row("RETIRE BOX AFTER RUN-AWAY OF X BOX HEIGHTS (0 = NEVER)", fvgRunAwayBox));
+            fvgModel.Children.Add(Row("MAX ENTRIES PER BOX", fvgMaxEntriesBox));
+            fvgModel.Children.Add(Row("GREEN CANDLE NOT BROKEN", fvgMissBox));
+            fvgModel.Children.Add(Row("BOXES BEFORE THE SESSION WINDOW", fvgOutsideBox));
+            fvgModel.Children.Add(Row("BOX LIFETIME", fvgLifetimeBox));
+            fvgModel.Children.Add(Row("MAX BOX AGE IN CANDLES (0 = NO LIMIT)", fvgMaxAgeBox));
+            fvgModel.Children.Add(Txt("AGGRESSION BEFORE THE BOX", Orchid, 11, FontWeights.Bold));
+            fvgModel.Children.Add(Row("AGGRESSION", fvgAggressionBox));
+            fvgModel.Children.Add(Row("MNQ RED CANDLES IN A ROW (0 = OFF)", fvgMnqRedBox)); fvgModel.Children.Add(Row("MNQ DROP POINTS (0 = OFF)", fvgMnqDropBox));
+            fvgModel.Children.Add(Row("MGC RED CANDLES IN A ROW (0 = OFF)", fvgMgcRedBox)); fvgModel.Children.Add(Row("MGC DROP POINTS (0 = OFF)", fvgMgcDropBox));
+            fvgModel.Children.Add(Row("COMBINE", fvgCombineBox)); fvgModel.Children.Add(Row("RED RUN", fvgOneGreenBox));
+            fvgModel.Children.Add(Txt("FVG STOP", Orchid, 11, FontWeights.Bold));
+            fvgModel.Children.Add(Row("STOP", fvgStopModeBox)); fvgModel.Children.Add(Row("STOP BUFFER POINTS", fvgStopBufferBox)); fvgModel.Children.Add(Row("MAX CONTRACTS WHEN RISK-SIZED", fvgMaxQtyBox));
+            fvgModel.Children.Add(Txt("Target / fixed stop / quantity come from the rows above. Risk-sized stops size the position so the loss at the stop is at most the Step 2 stop $, and P/L uses the real price move.", Muted, 10, FontWeights.Normal));
+            fvgStrategyControls.Clear(); fvgStrategyControls.Add(fvgModel);
             bhStrategyControls.Add(stopModeRow); bhStrategyControls.Add(propQuantityRow); bhStrategyControls.Add(propTargetRow); bhStrategyControls.Add(propStopRow); bhStrategyControls.Add(dailyGoalRow); bhStrategyControls.Add(dailyLossRow); bhStrategyControls.Add(mnqLowOffsetRow); bhStrategyControls.Add(mgcLowOffsetRow); bhStrategyControls.Add(propModeNote); bhStrategyControls.Add(bhModelNote);
-            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel);
+            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel);
             sessionHintText = Txt("NY OPEN: begins at the first 09:30 ET setup bar and ends at 15:55 ET.", Cyan, 10, FontWeights.Bold); data.Children.Add(sessionHintText);
 
             setupCards.Children.Add(PanelCard(data)); setupCards.Children.Add(PanelCard(model)); root.Children.Add(setupCards);
@@ -4920,6 +4961,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             return PanelCard(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = root, Margin = new Thickness(2) });
         }
 
+        private bool IsFvgSelected()
+        {
+            return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("FVG", StringComparison.OrdinalIgnoreCase);
+        }
+
         private bool IsAsian75Selected()
         {
             return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("ASIAN 75", StringComparison.OrdinalIgnoreCase);
@@ -4930,6 +4976,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool asian = IsAsian75Selected();
             for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = asian ? Visibility.Collapsed : Visibility.Visible;
             for (int i = 0; i < asianStrategyControls.Count; i++) if (asianStrategyControls[i] != null) asianStrategyControls[i].Visibility = asian ? Visibility.Visible : Visibility.Collapsed;
+            bool fvg = IsFvgSelected();
+            for (int i = 0; i < fvgStrategyControls.Count; i++) if (fvgStrategyControls[i] != null) fvgStrategyControls[i].Visibility = fvg ? Visibility.Visible : Visibility.Collapsed;
+            // FVG default window: pre-NY 08:00 ET to the 16:55 ET close (editable custom range).
+            if (fvg && !fvgSessionDefaultApplied && sessionBox != null && customStartBox != null && endTimeBox != null) { sessionBox.SelectedIndex = 6; customStartBox.Text = "800"; endTimeBox.Text = "1655"; fvgSessionDefaultApplied = true; }
+            if (!fvg) fvgSessionDefaultApplied = false;
             // Asian defaults to the combined MNQ + MGC study, but a backtest may intentionally
             // isolate MNQ or MGC.  The scope selector therefore remains active after the first
             // Asian default is applied; the report and data-request path use that exact scope.
@@ -4948,8 +4999,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             if (strategyRuleText != null)
             {
-                strategyRuleText.Foreground = asian ? Orchid : Gold;
-                strategyRuleText.Text = asian
+                strategyRuleText.Foreground = asian || IsFvgSelected() ? Orchid : Gold;
+                strategyRuleText.Text = IsFvgSelected()
+                    ? "FVG RULE: a bullish gap forms when candle 3's low is above candle 1's high (box = candle 1 high → candle 3 low, any colours). Later a candle dips into the box (depth setting) without closing below it; the first green close after the dip is the reference; the next candle breaking that green high is the long entry at that high. A close below the box kills it; running far above retires it. Everything is on the chosen timeframe, New York time."
+                    : asian
                     ? "ASIAN CYCLE BACKTEST: default scope is BOTH, but MNQ or MGC may be selected alone. Every selected instrument uses validated direct 1-minute bars, enters at the selected exact minute (18:00 ET by default) in the selected direction, reverses on the next minute after its fixed loss, and adds one micro per reversal. The automatic loss ceiling uses selected instruments × reversal legs × cash loss; the combined profit target closes the daily cycle."
                     : "BH RULE: after the chosen session begins, a red candle is followed by a bullish reference candle; the immediately next bar breaks that bullish high. Every valid long BH setup is detected and eligible by default. No contract month is required.";
             }
@@ -4959,6 +5012,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                 strategyWorkflowText.Text = asian
                     ? "ASIAN = no setup search. At the exact selected 1-minute opening bar, every selected instrument enters in the selected direction. A fixed reversal loss closes that leg; the next one-minute open reverses direction and adds one micro. The combined target, daily loss, or session end closes the cycle. For BOTH, MNQ and MGC must both have the exact opening bar—Keystone never substitutes a nearby price or silently tests only one instrument."
                     : "BH = red candle → bullish reference → next high break. Every detected setup is automatically included in the research ledger and virtual pool. The review screen is for chart inspection or excluding a specific setup only.";
+            }
+            if (IsFvgSelected())
+            {
+                if (confirmConfigurationButton != null) confirmConfigurationButton.Content = "START RESEARCH • LOAD + FIND FVG ENTRIES";
+                if (strategyWorkflowText != null) strategyWorkflowText.Text = "FVG = gap box → dip into the box → first green close → next candle breaks the green high. Every entry is kept in the ledger, drawn on the chart with its box, resolved on 1-minute data, and runs through the same account pool, payouts and reports as BH.";
             }
             RefreshSessionInputs();
             RefreshStopModelInputState();
@@ -8441,6 +8499,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                     lastTimeLabelX = x;
                 }
             }
+            if (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) && chartMinutes == config.SetupMinutes)
+                DrawFvgBoxes(allBars, bars, symbol, left, candleWidth, y);
             DateTime testedStart = EvidenceTestStart(day), testedEnd = EvidenceTestEnd(day);
             AddEvidenceRangeBoundary("TEST START", testedStart, bars, left, candleWidth, top, chartHeight - bottom, Cyan);
             AddEvidenceRangeBoundary("TEST END", testedEnd, bars, left, candleWidth, top, chartHeight - bottom, Gold);
@@ -8510,7 +8570,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DrawAsianLegAnnotations(allMarks, bars, left, candleWidth, y, top, chartHeight - bottom, symbol);
             AddCanvasText(symbol + " • TEST WINDOW " + testedStart.ToString("yyyy-MM-dd HH:mm") + " → " + testedEnd.ToString("yyyy-MM-dd HH:mm") + " • " + EvidenceContextMinutes(chartMinutes) + "M LEFT CONTEXT • DIRECT NINJATRADER " + chartMinutes + "M BARS • " + bars.Count + " CANDLES • " + marks.Count + " LEDGER " + (marks.Count == 1 ? "MARK" : "MARKS") + " / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES"), left, 4, Cyan, 12, FontWeights.Bold);
             UpdateEvidenceNavigationBars(allBars, visibleCount);
-            SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH") + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
+            SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
             if (selectedEvidenceEvent != null && !marks.Any(record => record.Id == selectedEvidenceEvent.Id)) ClearEvidenceSelection(false);
             // Cache exactly what the lightweight crosshair-only overlay needs, then draw it once
             // on top of the freshly rebuilt chart. Every subsequent pure-hover MouseMove reuses
@@ -8925,6 +8985,33 @@ namespace NinjaTrader.NinjaScript.AddOns
             KeystoneArcReplayStep step = evidenceReplaySteps[evidenceReplayIndex];
             if (evidenceReplayHeadline != null) { evidenceReplayHeadline.Text = step.Headline; evidenceReplayHeadline.Foreground = step.Headline.Contains("NIGHT CLOSED") ? (step.CombinedPnl >= 0 ? Green : Red) : (step.Headline.Contains("STOP") ? Red : Cyan); }
             if (evidenceReplayDetail != null) evidenceReplayDetail.Text = step.Detail;
+        }
+
+        // FVG strategy: every box found on the displayed timeframe, from the candle that formed it
+        // to the candle that ended it. Colour = what happened: purple used for an entry, red closed
+        // below, grey ran away, blue still open. Gold border = aggression before the box.
+        private void DrawFvgBoxes(List<KeystoneArcBar> allBars, List<KeystoneArcBar> bars, string symbol, double left, double candleWidth, Func<double, double> y)
+        {
+            if (bars == null || bars.Count == 0 || allBars == null) return;
+            List<KeystoneArcFvgZone> zones;
+            try { zones = KeystoneArcEngine.FvgScan(allBars.Where(b => string.Equals(b.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).OrderBy(b => b.Time).ToList(), config, symbol, null); }
+            catch { return; }
+            DateTime firstVisible = bars[0].Time, lastVisible = bars[bars.Count - 1].Time;
+            foreach (KeystoneArcFvgZone z in zones)
+            {
+                if (z.EndTime < firstVisible || z.FormedTime > lastVisible) continue;
+                int startIdx = bars.FindIndex(b => b.Time >= z.FormedTime); if (startIdx < 0) continue;
+                int endIdx = z.EndTime == DateTime.MaxValue ? bars.Count - 1 : bars.FindLastIndex(b => b.Time <= z.EndTime); if (endIdx < startIdx) endIdx = startIdx;
+                Brush fill = z.EndReason == "USED" ? Orchid : (z.EndReason == "CLOSED BELOW" ? Red : (z.EndReason == "RUN AWAY" || z.EndReason == "AGE" || z.EndReason == "SESSION END" ? Muted : Blue));
+                double x0 = left + startIdx * candleWidth, width = Math.Max(candleWidth, (endIdx - startIdx + 1) * candleWidth);
+                double yTop = y(z.Upper), yBottom = y(z.Lower);
+                var box = new System.Windows.Shapes.Rectangle { Width = width, Height = Math.Max(2, Math.Abs(yBottom - yTop)), Fill = fill, Opacity = z.EndReason == "USED" ? 0.24 : 0.14, IsHitTestVisible = true,
+                    ToolTip = "FVG BOX " + z.Lower.ToString("0.##", CultureInfo.InvariantCulture) + " – " + z.Upper.ToString("0.##", CultureInfo.InvariantCulture) + " (" + z.Height.ToString("0.##", CultureInfo.InvariantCulture) + " pts)\nformed " + z.FormedTime.ToString("yyyy-MM-dd HH:mm") + " • visits " + z.Visits + " • entries " + z.Entries + "\nended: " + z.EndReason + (z.EndTime == DateTime.MaxValue ? "" : " " + z.EndTime.ToString("HH:mm")) + "\naggression: " + z.RedRun + " red candles, drop " + z.Drop.ToString("0.##", CultureInfo.InvariantCulture) + (z.Aggressive ? " (AGGRESSIVE)" : "") };
+                Canvas.SetLeft(box, x0); Canvas.SetTop(box, Math.Min(yTop, yBottom)); evidenceCanvas.Children.Add(box);
+                var outline = new System.Windows.Shapes.Rectangle { Width = width, Height = Math.Max(2, Math.Abs(yBottom - yTop)), Stroke = z.Aggressive ? Gold : fill, StrokeThickness = z.Aggressive ? 1.6 : 1, Opacity = 0.85, IsHitTestVisible = false };
+                Canvas.SetLeft(outline, x0); Canvas.SetTop(outline, Math.Min(yTop, yBottom)); evidenceCanvas.Children.Add(outline);
+                if (width > 60) AddCanvasText("FVG " + z.Height.ToString("0.##", CultureInfo.InvariantCulture) + (z.Aggressive ? " • AGGR" : "") + (z.Entries > 0 ? " • " + z.Entries + " ENTRY" : ""), x0 + 3, Math.Min(yTop, yBottom) - 13, z.Aggressive ? Gold : fill, 9, FontWeights.Bold);
+            }
         }
 
         private TextBlock AddCanvasText(string value, double x, double y, Brush brush, double size, FontWeight weight)
@@ -10760,10 +10847,24 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.Scope = scopeBox == null ? (asian75 ? "BOTH" : "MNQ") : Convert.ToString(scopeBox.SelectedItem ?? (asian75 ? "BOTH" : "MNQ"));
             if (config.Scope != "MNQ" && config.Scope != "MGC" && config.Scope != "BOTH") config.Scope = asian75 ? "BOTH" : "MNQ";
             config.AccountPath = "PROP";
-            config.StrategyCode = asian75 ? "ASIAN75" : "BH";
+            bool fvgStrategy = !asian75 && IsFvgSelected();
+            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : "BH");
+            config.FvgMnqMinGap = Math.Max(0, NumberAllowZero(fvgMnqMinGapBox, 0)); config.FvgMgcMinGap = Math.Max(0, NumberAllowZero(fvgMgcMinGapBox, 0));
+            config.FvgMinDepthPercent = Math.Max(0, Math.Min(100, NumberAllowZero(fvgDepthBox, 25))); config.FvgRunAwayMultiple = Math.Max(0, NumberAllowZero(fvgRunAwayBox, 2));
+            config.FvgMaxEntriesPerBox = Math.Max(1, Integer(fvgMaxEntriesBox, 1)); config.FvgMaxBoxAgeBars = Math.Max(0, Integer(fvgMaxAgeBox, 0));
+            config.FvgNeedNewDipAfterMiss = fvgMissBox != null && fvgMissBox.SelectedIndex == 1 ? 0 : 1;
+            config.FvgZonesOutsideWindow = fvgOutsideBox != null && fvgOutsideBox.SelectedIndex == 1 ? 0 : 1;
+            config.FvgSameSessionOnly = fvgLifetimeBox != null && fvgLifetimeBox.SelectedIndex == 1 ? 1 : 0;
+            config.FvgAggressionMode = fvgAggressionBox == null ? "TAG" : (fvgAggressionBox.SelectedIndex == 1 ? "REQUIRED" : (fvgAggressionBox.SelectedIndex == 2 ? "OFF" : "TAG"));
+            config.FvgMnqRedCandles = Math.Max(0, Integer(fvgMnqRedBox, 3)); config.FvgMgcRedCandles = Math.Max(0, Integer(fvgMgcRedBox, 3));
+            config.FvgMnqDropPoints = Math.Max(0, NumberAllowZero(fvgMnqDropBox, 0)); config.FvgMgcDropPoints = Math.Max(0, NumberAllowZero(fvgMgcDropBox, 0));
+            config.FvgAggressionCombine = fvgCombineBox != null && fvgCombineBox.SelectedIndex == 1 ? "ALL" : "ANY";
+            config.FvgAllowOneGreenInRun = fvgOneGreenBox == null || fvgOneGreenBox.IsChecked != false ? 1 : 0;
+            config.FvgStopMode = fvgStopModeBox == null ? "FIXED" : (fvgStopModeBox.SelectedIndex == 1 ? "BOX" : (fvgStopModeBox.SelectedIndex == 2 ? "GREEN_LOW" : "FIXED"));
+            config.FvgStopBufferPoints = Math.Max(0, NumberAllowZero(fvgStopBufferBox, 0)); config.FvgMaxQuantity = Math.Max(1, Integer(fvgMaxQtyBox, 20));
             config.SetupMinutes = asian75 ? 1 : SetupMinutesFromDisplay(timeframeBox == null ? string.Empty : Convert.ToString(timeframeBox.SelectedItem));
             config.DirectionMode = "BB";
-            config.EnableBh = asian75 ? 0 : 1;
+            config.EnableBh = asian75 || fvgStrategy ? 0 : 1;
             config.EnableFvg = 0;
             config.BhAggressionFilter = "ALL";
             config.MnqStrongRedCandles = Math.Max(0, Integer(mnqStrongRedBox, 0));
@@ -11277,7 +11378,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 sb.Append("<h2 id='portfolio'>One-day virtual-account scorecard</h2><div class='grid'><div class='card'><div class='label'>Eligible / assigned / skipped</div><div class='value cyan'>").Append(accepted.Count).Append(" / ").Append(assigned).Append(" / ").Append(skipped).Append("</div><div class='muted'>Only assigned rows contribute to the account result.</div></div><div class='card'><div class='label'>Assigned W / L / exits</div><div class='value gold'>").Append(wins).Append(" / ").Append(losses).Append(" / ").Append(exits).Append("</div><div class='muted'>Historical outcomes after account allocation.</div></div><div class='card'><div class='label'>Accounts traded / unused</div><div class='value cyan'>").Append(oneDayTraded).Append(" / ").Append(Math.Max(0, accounts.Count - oneDayTraded)).Append("</div><div class='muted'>Every account can receive more trades only until its selected daily lock.</div></div><div class='card'><div class='label'>Profit locks / loss locks</div><div class='value ").Append(oneDayLossLocks > 0 ? "red" : "green").Append("'>").Append(oneDayProfitLocks).Append(" / ").Append(oneDayLossLocks).Append("</div><div class='muted'>Profit lock ").Append(Html(config.DailyGoal.ToString("C0"))).Append(" • loss lock -").Append(Html(Math.Abs(config.DailyLoss).ToString("C0"))).Append(".</div></div><div class='card'><div class='label'>Assigned model P/L</div><div class='value ").Append(oneDayPnl < 0 ? "red" : "green").Append("'>").Append(Html(oneDayPnl.ToString("C0"))).Append("</div><div class='muted'>No payout, evaluation cost, replacement, or blowout lifecycle is used for a one-day study.</div></div></div>");
             }
             else
-                sb.Append("<h2>At-a-glance result</h2><div class='grid'><div class='card'><div class='label'>Strategy</div><div class='value cyan'>").Append(Html(asianReport ? "ASIAN CYCLE COPY" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH"))).Append("</div><div class='muted'>").Append(Html(asianReport ? strategyAudit : BhAggressionSummary(config))).Append("</div></div><div class='card'><div class='label'>Resolved W / L / exits</div><div class='value gold'>").Append(outcomesVerified ? wins + " / " + losses + " / " + exits : "BLOCKED").Append("</div><div class='muted'>").Append(asianReport ? "Resolved daily-cycle legs; before copy allocation." : "All detected setups; before account allocation.").Append("</div></div><div class='card'><div class='label'>All-outcome model P/L</div><div class='value ").Append(gross >= 0 ? "green" : "red").Append("'>").Append(Html(outcomesVerified ? gross.ToString("C0") : "NOT AVAILABLE")).Append("</div><div class='muted'>Historical model only.</div></div><div class='card'><div class='label'>Pool assigned / skipped</div><div class='value cyan'>").Append(assigned).Append(" / ").Append(skipped).Append("</div><div class='muted'>").Append(asianReport ? "Every resolved daily cycle is copied to active accounts." : "Eligible setups only.").Append("</div></div><div class='card'><div class='label'>Evaluation passes / currently funded</div><div class='value orchid'>").Append(evaluationPasses).Append(" / ").Append(currentlyFunded).Append("</div><div class='muted'>Selected scenario mechanics.</div></div><div class='card'><div class='label'>Payout cash</div><div class='value ").Append(payoutCash > 0 ? "green" : "gold").Append("'>").Append(Html(payoutCash.ToString("C0"))).Append("</div><div class='muted'>").Append(Html(payoutExplanation)).Append("</div></div></div>");
+                sb.Append("<h2>At-a-glance result</h2><div class='grid'><div class='card'><div class='label'>Strategy</div><div class='value cyan'>").Append(Html(asianReport ? "ASIAN CYCLE COPY" : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH")))).Append("</div><div class='muted'>").Append(Html(asianReport ? strategyAudit : BhAggressionSummary(config))).Append("</div></div><div class='card'><div class='label'>Resolved W / L / exits</div><div class='value gold'>").Append(outcomesVerified ? wins + " / " + losses + " / " + exits : "BLOCKED").Append("</div><div class='muted'>").Append(asianReport ? "Resolved daily-cycle legs; before copy allocation." : "All detected setups; before account allocation.").Append("</div></div><div class='card'><div class='label'>All-outcome model P/L</div><div class='value ").Append(gross >= 0 ? "green" : "red").Append("'>").Append(Html(outcomesVerified ? gross.ToString("C0") : "NOT AVAILABLE")).Append("</div><div class='muted'>Historical model only.</div></div><div class='card'><div class='label'>Pool assigned / skipped</div><div class='value cyan'>").Append(assigned).Append(" / ").Append(skipped).Append("</div><div class='muted'>").Append(asianReport ? "Every resolved daily cycle is copied to active accounts." : "Eligible setups only.").Append("</div></div><div class='card'><div class='label'>Evaluation passes / currently funded</div><div class='value orchid'>").Append(evaluationPasses).Append(" / ").Append(currentlyFunded).Append("</div><div class='muted'>Selected scenario mechanics.</div></div><div class='card'><div class='label'>Payout cash</div><div class='value ").Append(payoutCash > 0 ? "green" : "gold").Append("'>").Append(Html(payoutCash.ToString("C0"))).Append("</div><div class='muted'>").Append(Html(payoutExplanation)).Append("</div></div></div>");
             if (!personalReport) AppendPortfolioCashHtml(sb, capital, config, accounts);
             if (!personalReport && loadedScope == "BOTH" && loadedEvents.Count > 0)
             {
@@ -12183,14 +12284,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             string setup = asian ? "ASIAN CYCLE BACKTEST • COPY" : (config.EnableBh == 1 && config.EnableFvg == 1 ? "BH + FVG" : (config.EnableBh == 1 ? "BH" : "FVG"));
             string detail = asian
                 ? config.AsianStartHhmm.ToString("0000") + " ET " + config.AsianMnqInitialDirection + " MNQ / " + config.AsianMgcInitialDirection + " MGC • " + (config.AsianRiskMode == "PRICE" ? "PRICE-MOVE REVERSALS" : "FIXED-CASH REVERSALS")
-                : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH");
+                : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH"));
             return "CURRENT STUDY • SESSION DATE(S) " + SessionDateLabel(config) + " • DATA WINDOW " + config.Start.ToString("yyyy-MM-dd HH:mm") + " → " + config.End.ToString("yyyy-MM-dd HH:mm") + " • " + config.Scope + " • " + config.SessionMode + " • " + config.SetupMinutes + "M • " + setup + " • " + detail;
         }
 
         private string BuildEvidenceStudyLabel()
         {
             if (config == null || config.Start == DateTime.MinValue) return "CURRENT TEST RANGE • not configured";
-            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH");
+            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"));
             return "CURRENT TEST RANGE • " + SessionDateLabel(config) + " • " + config.Scope + " • " + config.SessionMode + " • " + config.SetupMinutes + "-MINUTE SETUPS • " + setup + " • SELECT A DATE TAB BELOW TO INSPECT ONE COMPLETE SESSION";
         }
         private static void GetConfiguredSessionBounds(DateTime firstDate, DateTime lastDate, KeystoneArcRunConfig cfg, out DateTime start, out DateTime end)
