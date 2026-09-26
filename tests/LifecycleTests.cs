@@ -176,6 +176,22 @@ public static class LifecycleTests
             Console.WriteLine(ans);
             Check(ans.Contains("start $240") && ans.Contains("WAS ENOUGH") && ans.Contains("PROFITABLE FROM") && ans.Contains("FINAL NET"), "answer: $240 start was enough, profitable date, final net", ans);
         }
+        // 15. Automatic analysis: front-loaded profits → EDGE FADED; one losing instrument → trade the other.
+        {
+            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 0, 1, 0); cfg.PoolSize = 2;
+            var pnl = Repeat(350, 60).Concat(Repeat(-400, 60)).ToArray();
+            var ev = Nights(pnl);
+            var acc = KeystoneArcEngine.SimulatePool(ev, cfg);
+            var found = KeystoneArcAnalyst.Analyze(acc, ev, cfg, KeystoneArcEngine.BuildCapitalPolicySummary(acc, cfg));
+            foreach (var f in found) Console.WriteLine("  [" + f.Level + "] " + f.Title + ": " + f.Text);
+            Check(found.Any(f => f.Title == "EDGE FADED"), "analysis flags profits that only came early", string.Join(", ", found.Select(f => f.Title)));
+            Check(found.Any(f => f.Title == "STRATEGY EDGE") && found.Any(f => f.Title == "NET RESULT"), "analysis states the strategy edge and the net result", "");
+            var bh = LifecycleSnapshot.BhEvents(4);
+            foreach (var e in bh.Where(e => e.Symbol == "MGC")) { e.Outcome = "LOSS"; e.GrossPnl = -500; }
+            var bcfg = LifecycleSnapshot.Cfg("BH", 1, 0, 0);
+            var found2 = KeystoneArcAnalyst.Analyze(new List<KeystoneArcVirtualAccount>(), bh, bcfg, null);
+            Check(found2.Any(f => f.Title == "TRADE MNQ ONLY?"), "analysis suggests the winning instrument when the other loses", string.Join(", ", found2.Select(f => f.Title)));
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

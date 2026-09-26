@@ -3554,6 +3554,118 @@ namespace NinjaTrader.NinjaScript
             return output;
         }
     }
+    public sealed class KeystoneArcInsight
+    {
+        public string Level;   // GOOD, WARN, BAD, IDEA
+        public string Title;
+        public string Text;
+    }
+
+    // Automatic analysis: plain-English conclusions and suggestions drawn only from the loaded
+    // run (no outside data, no promises). Every sentence can be traced to a number in the report.
+    public static class KeystoneArcAnalyst
+    {
+        static string M(double v) { return (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture); }
+        static string P(double v) { return v.ToString("0", CultureInfo.InvariantCulture) + "%"; }
+        static void Add(List<KeystoneArcInsight> list, string level, string title, string text) { list.Add(new KeystoneArcInsight { Level = level, Title = title, Text = text }); }
+
+        public static List<KeystoneArcInsight> Analyze(List<KeystoneArcVirtualAccount> accounts, IEnumerable<KeystoneArcEvent> events, KeystoneArcRunConfig cfg, KeystoneArcCapitalPolicySummary capital)
+        {
+            var list = new List<KeystoneArcInsight>();
+            if (cfg == null) return list;
+            bool asian = string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            bool fvg = string.Equals(cfg.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase);
+            string unit = asian ? "night" : "day";
+            var ev = (events ?? Enumerable.Empty<KeystoneArcEvent>()).Where(e => e != null && e.Outcome != "UNVERIFIED 1M" && string.Equals(e.ReviewState ?? "ACCEPTED", "ACCEPTED", StringComparison.OrdinalIgnoreCase)).ToList();
+            var days = KeystoneArcScoreboard.Days(ev, cfg);
+            var acc = accounts ?? new List<KeystoneArcVirtualAccount>();
+            KeystoneArcPoolInsights x = acc.Count > 0 ? KeystoneArcPoolInsights.Build(acc, ev, cfg) : null;
+
+            // 1. Strategy edge (no accounts).
+            if (days.Count > 0)
+            {
+                double total = days.Sum(d => d.Pnl); int win = days.Count(d => d.Pnl > 0);
+                double eq = 0, peak = 0, dd = 0; foreach (var d in days) { eq += d.Pnl; peak = Math.Max(peak, eq); dd = Math.Max(dd, peak - eq); }
+                Add(list, total > 0 ? "GOOD" : "BAD", "STRATEGY EDGE", "Over " + days.Count + " " + unit + "s the strategy made " + M(total) + " on one account before prop rules (" + P(100.0 * win / days.Count) + " winning " + unit + "s, average " + M(total / days.Count) + " per " + unit + "). Deepest drawdown " + M(-dd) + ".");
+                double accountRoom = Math.Abs(cfg.FundedFailure > 0 ? cfg.FundedFailure : cfg.EvaluationFailure);
+                if (accountRoom > 0 && dd > accountRoom)
+                    Add(list, "WARN", "DRAWDOWN BIGGER THAN THE ACCOUNT", "The strategy's own drawdown (" + M(-dd) + ") is larger than the account drawdown limit (" + M(accountRoom) + "), so blowups are expected. Smaller size, a tighter daily loss, or fewer reversals/setups per day reduce that.");
+                // Edge over time: compare halves.
+                var months = days.GroupBy(d => new DateTime(d.Day.Year, d.Day.Month, 1)).OrderBy(g => g.Key).Select(g => new { Month = g.Key, Pnl = g.Sum(d => d.Pnl) }).ToList();
+                if (months.Count >= 4)
+                {
+                    int half = months.Count / 2;
+                    double first = months.Take(half).Sum(m => m.Pnl), second = months.Skip(half).Sum(m => m.Pnl);
+                    if (first > 0 && second < 0) Add(list, "WARN", "EDGE FADED", "The first " + half + " months made " + M(first) + " but the last " + (months.Count - half) + " months lost " + M(second) + ". Results are front-loaded; test a later range on its own before trusting these settings.");
+                    else if (first < 0 && second > 0) Add(list, "IDEA", "EDGE IMPROVED LATER", "The first " + half + " months lost " + M(first) + ", the last " + (months.Count - half) + " made " + M(second) + ". Check whether the market changed or the early period was unusual.");
+                    var best = months.OrderByDescending(m => m.Pnl).First(); var worst = months.OrderBy(m => m.Pnl).First();
+                    Add(list, "IDEA", "BEST / WORST MONTH", "Best month " + best.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture) + " " + M(best.Pnl) + ", worst " + worst.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture) + " " + M(worst.Pnl) + ". " + months.Count(m => m.Pnl > 0) + " of " + months.Count + " months were positive.");
+                }
+                // Day of week.
+                var dow = days.GroupBy(d => d.Day.DayOfWeek).Select(g => new { Day = g.Key, Pnl = g.Sum(d => d.Pnl), Count = g.Count() }).Where(g => g.Count >= 4).OrderBy(g => g.Pnl).ToList();
+                if (dow.Count >= 3 && dow[0].Pnl < 0 && dow.Last().Pnl > 0)
+                    Add(list, "IDEA", "DAY OF THE WEEK", dow.Last().Day + " was the best " + unit + " (" + M(dow.Last().Pnl) + " over " + dow.Last().Count + "), " + dow[0].Day + " the worst (" + M(dow[0].Pnl) + " over " + dow[0].Count + "). Worth testing without " + dow[0].Day + ".");
+            }
+            // 2. Instruments.
+            var inst = KeystoneArcPoolInsights.InstrumentStats(ev, cfg);
+            if (inst.Count == 2)
+            {
+                var good = inst.OrderByDescending(v => v.Pnl).First(); var bad = inst.OrderBy(v => v.Pnl).First();
+                if (bad.Pnl < 0 && good.Pnl > 0) Add(list, "IDEA", "TRADE " + good.Symbol + " ONLY?", good.Symbol + " made " + M(good.Pnl) + " while " + bad.Symbol + " lost " + M(bad.Pnl) + ". Use the MNQ / MGC switch to see the pool with " + good.Symbol + " alone.");
+                else Add(list, "IDEA", "INSTRUMENTS", string.Join(" • ", inst.Select(v => v.Symbol + " " + M(v.Pnl) + " (" + P(v.WinRate) + " win)")) + ".");
+            }
+            // 3. Money and accounts.
+            if (x != null && capital != null)
+            {
+                if (!capital.FirstPayoutReached) Add(list, "BAD", "NO PAYOUT", "No account reached a payout in this range; " + M(x.Cost) + " was spent on accounts. The strategy or the prop rules (payout balance " + M(cfg.PayoutThreshold) + ", drawdown " + M(cfg.FundedFailure) + ") do not fit together yet.");
+                else
+                {
+                    double extra = capital.InvestmentThroughFirstPayoutDate - capital.InitialEvaluationInvestment;
+                    Add(list, extra <= 0.5 ? "GOOD" : "WARN", "MONEY TO FIRST PAYOUT", "First payout " + capital.FirstPayoutDate.ToString("yyyy-MM-dd") + " after " + M(capital.InvestmentThroughFirstPayoutDate) + " spent" + (extra <= 0.5 ? " — the initial investment alone was enough." : " — " + M(extra) + " more than the initial " + M(capital.InitialEvaluationInvestment) + "."));
+                    Add(list, x.Net > 0 ? "GOOD" : "BAD", "NET RESULT", "To your bank " + M(x.CashAfterShare) + ", all accounts cost " + M(x.Cost) + ", net " + M(x.Net) + (capital.ProfitabilityReached ? " • profitable from " + capital.ProfitabilityDate.ToString("yyyy-MM-dd") : " • never paid back") + ".");
+                    if (x.Payouts > 0) Add(list, "IDEA", "COST PER PAYOUT", "Each payout cost " + M(x.Cost / x.Payouts) + " in accounts on average; every $1 spent returned " + (x.Cost > 0 ? (x.CashAfterShare / x.Cost).ToString("0.0", CultureInfo.InvariantCulture) + "×" : "—") + ". " + x.PaidAccounts + " of " + x.Accounts + " slots were paid at least once.");
+                }
+                if (x.BlowupEvents > 0)
+                {
+                    string where = x.EvaluationFails >= x.FundedBlowups ? "mostly during evaluations (" + x.EvaluationFails + " of " + x.BlowupEvents + ")" : "mostly on funded accounts (" + x.FundedBlowups + " of " + x.BlowupEvents + ")";
+                    Add(list, x.BlowupEvents > x.Payouts ? "WARN" : "IDEA", "BLOWUPS", x.BlowupEvents + " blowups, " + where + ". " + (x.FundedBlowups > x.EvaluationFails ? "Funded accounts blow before reaching the payout balance: a lower payout balance or smaller size would convert more of them." : "Evaluations fail more than they pass: consider passing evaluations with a steadier setting and trading the funded stage with this one."));
+                }
+                if (cfg.EvaluationEnabled > 0 && x.EvaluationPurchases > 0)
+                    Add(list, "IDEA", "PASS RATE", P(100.0 * x.EvaluationPasses / x.EvaluationPurchases) + " of bought evaluations passed (" + x.EvaluationPasses + " / " + x.EvaluationPurchases + "). Compare with START = DIRECT FUNDED to see the cost of the evaluation stage.");
+            }
+            // 4. Strategy-specific.
+            if (fvg && ev.Count >= 10)
+            {
+                var aggr = ev.Where(e => e.StrengthTag == "AGGR").ToList(); var baseSet = ev.Where(e => e.StrengthTag != "AGGR").ToList();
+                if (aggr.Count >= 5 && baseSet.Count >= 5)
+                {
+                    double wa = 100.0 * aggr.Count(e => e.Outcome == "WIN") / aggr.Count, wb = 100.0 * baseSet.Count(e => e.Outcome == "WIN") / baseSet.Count;
+                    Add(list, "IDEA", "AGGRESSION BEFORE THE BOX", "Aggressive boxes: " + aggr.Count + " entries, " + P(wa) + " win, " + M(aggr.Sum(e => e.GrossPnl)) + ". Other boxes: " + baseSet.Count + ", " + P(wb) + " win, " + M(baseSet.Sum(e => e.GrossPnl)) + "." + (wa > wb + 5 ? " Your instinct holds: try AGGRESSION = REQUIRED." : ""));
+                }
+                var byGap = ev.Where(e => e.FvgGap > 0).OrderBy(e => e.FvgGap).ToList();
+                if (byGap.Count >= 12)
+                {
+                    int third = byGap.Count / 3; var small = byGap.Take(third).ToList(); var large = byGap.Skip(byGap.Count - third).ToList();
+                    Add(list, "IDEA", "BOX SIZE", "Smallest third of boxes (≤ " + small.Last().FvgGap.ToString("0.##", CultureInfo.InvariantCulture) + " pts): " + M(small.Sum(e => e.GrossPnl)) + ". Largest third (≥ " + large.First().FvgGap.ToString("0.##", CultureInfo.InvariantCulture) + " pts): " + M(large.Sum(e => e.GrossPnl)) + "." + (large.Sum(e => e.GrossPnl) > small.Sum(e => e.GrossPnl) ? " Bigger boxes did better: try a minimum box size near " + byGap[third].FvgGap.ToString("0.##", CultureInfo.InvariantCulture) + "." : ""));
+                }
+                var second = ev.Where(e => e.FvgVisit >= 2).ToList();
+                if (second.Count >= 5) Add(list, "IDEA", "REPEAT VISITS", "Entries on the 2nd+ visit of a box: " + second.Count + ", " + M(second.Sum(e => e.GrossPnl)) + ".");
+            }
+            if (!asian && ev.Count >= 20)
+            {
+                var hours = ev.GroupBy(e => e.TriggerTime.Hour).Select(g => new { Hour = g.Key, Pnl = g.Sum(e => e.GrossPnl), Count = g.Count() }).Where(h => h.Count >= 5).OrderByDescending(h => h.Pnl).ToList();
+                if (hours.Count >= 3) Add(list, "IDEA", "BEST HOURS (NY TIME)", "Best: " + string.Join(", ", hours.Take(2).Select(h => h.Hour.ToString("00") + ":00 " + M(h.Pnl))) + ". Worst: " + string.Join(", ", hours.Skip(Math.Max(0, hours.Count - 2)).Select(h => h.Hour.ToString("00") + ":00 " + M(h.Pnl))) + ". A narrower session window may help.");
+            }
+            if (asian && ev.Any(e => e.AsianLegNumber > 0))
+            {
+                var nights = ev.GroupBy(e => e.ReferenceTime.Date).ToList();
+                int deep = nights.Count(n => n.Max(e => e.AsianLegNumber) >= Math.Max(2, cfg.AsianMaxReversalsPerInstrument));
+                double deepPnl = nights.Where(n => n.Max(e => e.AsianLegNumber) >= Math.Max(2, cfg.AsianMaxReversalsPerInstrument)).Sum(n => n.Sum(e => e.GrossPnl));
+                if (nights.Count > 0) Add(list, deepPnl < 0 ? "WARN" : "IDEA", "DEEP REVERSAL NIGHTS", deep + " of " + nights.Count + " nights used the last reversal legs; together they made " + M(deepPnl) + "." + (deepPnl < 0 ? " Try one reversal fewer or a smaller daily loss." : ""));
+            }
+            return list;
+        }
+    }
 }
 
 namespace NinjaTrader.NinjaScript.Indicators
@@ -11479,6 +11591,137 @@ namespace NinjaTrader.NinjaScript.AddOns
             });
         }
 
+        // ---- Report dashboard (top of the exported report) -----------------------------------
+        private static string Hx(string v) { return System.Net.WebUtility.HtmlEncode(v ?? string.Empty); }
+
+        private static string SvgLineChart(List<DateTime> xs, List<Tuple<string, string, List<double>>> series, int width, int height)
+        {
+            if (xs == null || xs.Count < 2 || series.Count == 0) return "<div class='muted'>Not enough data for a chart.</div>";
+            double min = series.SelectMany(t => t.Item3).DefaultIfEmpty(0).Min(), max = series.SelectMany(t => t.Item3).DefaultIfEmpty(0).Max();
+            min = Math.Min(min, 0); max = Math.Max(max, 0); if (max - min < 1) max = min + 1;
+            int padL = 70, padR = 12, padT = 12, padB = 26;
+            Func<int, double> X = i => padL + (width - padL - padR) * (double)i / (xs.Count - 1);
+            Func<double, double> Y = v => padT + (height - padT - padB) * (max - v) / (max - min);
+            var sb = new StringBuilder("<svg class='chart' viewBox='0 0 " + width + " " + height + "' preserveAspectRatio='none'>");
+            for (int k = 0; k <= 4; k++)
+            {
+                double v = min + (max - min) * k / 4.0; double yy = Y(v);
+                sb.Append("<line x1='" + padL + "' x2='" + (width - padR) + "' y1='" + yy.ToString("0.#", CultureInfo.InvariantCulture) + "' y2='" + yy.ToString("0.#", CultureInfo.InvariantCulture) + "' class='grid'/>");
+                sb.Append("<text x='4' y='" + (yy + 4).ToString("0.#", CultureInfo.InvariantCulture) + "' class='axis'>" + Hx(Cash(v)) + "</text>");
+            }
+            double zero = Y(0); sb.Append("<line x1='" + padL + "' x2='" + (width - padR) + "' y1='" + zero.ToString("0.#", CultureInfo.InvariantCulture) + "' y2='" + zero.ToString("0.#", CultureInfo.InvariantCulture) + "' class='zero'/>");
+            int step = Math.Max(1, xs.Count / 6);
+            for (int i = 0; i < xs.Count; i += step) sb.Append("<text x='" + X(i).ToString("0.#", CultureInfo.InvariantCulture) + "' y='" + (height - 6) + "' class='axis' text-anchor='middle'>" + xs[i].ToString("yyyy-MM-dd") + "</text>");
+            foreach (var t in series)
+            {
+                var pts = new StringBuilder();
+                for (int i = 0; i < t.Item3.Count && i < xs.Count; i++) pts.Append(X(i).ToString("0.#", CultureInfo.InvariantCulture)).Append(',').Append(Y(t.Item3[i]).ToString("0.#", CultureInfo.InvariantCulture)).Append(' ');
+                sb.Append("<polyline fill='none' stroke='" + t.Item2 + "' stroke-width='2.2' points='" + pts.ToString().Trim() + "'><title>" + Hx(t.Item1) + "</title></polyline>");
+            }
+            sb.Append("</svg><div class='legend'>");
+            foreach (var t in series) sb.Append("<span><i style='background:" + t.Item2 + "'></i>" + Hx(t.Item1) + " " + Hx(Cash(t.Item3.Count == 0 ? 0 : t.Item3[t.Item3.Count - 1])) + "</span>");
+            return sb.Append("</div>").ToString();
+        }
+
+        private static string SvgMonthBars(List<Tuple<DateTime, double, double, double>> months, int width, int height)
+        {
+            if (months == null || months.Count == 0) return "<div class='muted'>No monthly money flow yet.</div>";
+            double max = Math.Max(1, months.Max(m => Math.Max(m.Item2, m.Item3))), minNet = Math.Min(0, months.Min(m => m.Item4));
+            double top = Math.Max(max, months.Max(m => m.Item4));
+            int padL = 70, padB = 26, padT = 12;
+            double plotH = height - padT - padB, slot = (width - padL - 10) / (double)months.Count, bw = Math.Max(2, slot * 0.36);
+            Func<double, double> Y = v => padT + plotH * (top - v) / (top - minNet);
+            var sb = new StringBuilder("<svg class='chart' viewBox='0 0 " + width + " " + height + "' preserveAspectRatio='none'>");
+            double zero = Y(0); sb.Append("<line x1='" + padL + "' x2='" + (width - 10) + "' y1='" + zero.ToString("0.#", CultureInfo.InvariantCulture) + "' y2='" + zero.ToString("0.#", CultureInfo.InvariantCulture) + "' class='zero'/>");
+            sb.Append("<text x='4' y='" + (Y(top) + 4).ToString("0.#", CultureInfo.InvariantCulture) + "' class='axis'>" + Hx(Cash(top)) + "</text><text x='4' y='" + (zero + 4).ToString("0.#", CultureInfo.InvariantCulture) + "' class='axis'>$0</text>");
+            var net = new StringBuilder();
+            for (int i = 0; i < months.Count; i++)
+            {
+                var m = months[i]; double x0 = padL + i * slot + slot * 0.1;
+                sb.Append("<rect x='" + x0.ToString("0.#", CultureInfo.InvariantCulture) + "' y='" + Y(m.Item2).ToString("0.#", CultureInfo.InvariantCulture) + "' width='" + bw.ToString("0.#", CultureInfo.InvariantCulture) + "' height='" + Math.Max(0, zero - Y(m.Item2)).ToString("0.#", CultureInfo.InvariantCulture) + "' class='bank'><title>" + m.Item1.ToString("MMM yyyy") + " to bank " + Hx(Cash(m.Item2)) + "</title></rect>");
+                sb.Append("<rect x='" + (x0 + bw).ToString("0.#", CultureInfo.InvariantCulture) + "' y='" + Y(m.Item3).ToString("0.#", CultureInfo.InvariantCulture) + "' width='" + bw.ToString("0.#", CultureInfo.InvariantCulture) + "' height='" + Math.Max(0, zero - Y(m.Item3)).ToString("0.#", CultureInfo.InvariantCulture) + "' class='cost'><title>" + m.Item1.ToString("MMM yyyy") + " cost " + Hx(Cash(m.Item3)) + "</title></rect>");
+                net.Append((x0 + bw).ToString("0.#", CultureInfo.InvariantCulture)).Append(',').Append(Y(m.Item4).ToString("0.#", CultureInfo.InvariantCulture)).Append(' ');
+                if (months.Count <= 24 || i % Math.Max(1, months.Count / 12) == 0) sb.Append("<text x='" + (x0 + bw).ToString("0.#", CultureInfo.InvariantCulture) + "' y='" + (height - 6) + "' class='axis' text-anchor='middle'>" + m.Item1.ToString("MMM yy") + "</text>");
+            }
+            sb.Append("<polyline fill='none' class='netline' points='" + net.ToString().Trim() + "'><title>Net to date</title></polyline></svg>");
+            sb.Append("<div class='legend'><span><i class='bank'></i>To your bank</span><span><i class='cost'></i>Account cost</span><span><i class='netline'></i>Net to date</span></div>");
+            return sb.ToString();
+        }
+
+        private string BuildDashboardHtml(List<KeystoneArcEvent> accepted, KeystoneArcCapitalPolicySummary capital)
+        {
+            var sb = new StringBuilder();
+            bool asian = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            KeystoneArcPoolInsights x = KeystoneArcPoolInsights.Build(accounts, accepted.Where(e => asian || !string.IsNullOrWhiteSpace(e.AssignedVirtualAccount)), config);
+            List<KeystoneArcDayScore> days = KeystoneArcScoreboard.Days(accepted, config);
+            double strategy = days.Sum(d => d.Pnl); int winDays = days.Count(d => d.Pnl > 0);
+            double eq = 0, peak = 0, dd = 0; foreach (var d in days) { eq += d.Pnl; peak = Math.Max(peak, eq); dd = Math.Max(dd, peak - eq); }
+            Func<string, string, string, string, string> card = (label, value, note, cls) => "<div class='card kpi'><div class='label'>" + Hx(label) + "</div><div class='value " + cls + "'>" + Hx(value) + "</div><div class='muted'>" + Hx(note) + "</div></div>";
+            sb.Append("<section id='dashboard' class='dash'><h2>DASHBOARD</h2>");
+            sb.Append("<div class='answer'>").Append(Hx(KeystoneArcPoolInsights.InvestmentAnswer(capital, x))).Append("</div>");
+            sb.Append("<div class='grid kpis'>");
+            sb.Append(card("Strategy P/L (one account)", Cash(strategy), days.Count + (asian ? " nights" : " days") + " • " + (days.Count == 0 ? "—" : (100.0 * winDays / days.Count).ToString("0") + "% winning"), strategy >= 0 ? "green" : "red"));
+            sb.Append(card("Max drawdown", Cash(-dd), "deepest drop of the strategy", "red"));
+            sb.Append(card("To your bank", Cash(x.CashAfterShare), "gross " + Cash(x.Gross) + " before the split", "gold"));
+            sb.Append(card("All account costs", Cash(x.Cost), x.EvaluationPurchases + " accounts bought", "orchid"));
+            sb.Append(card("Net after all costs", Cash(x.Net), x.PositiveMonths + " winning / " + x.NegativeMonths + " losing months", x.Net >= 0 ? "green" : "red"));
+            sb.Append(card("First payout", x.FirstPayoutDate == DateTime.MinValue ? "none" : x.FirstPayoutDate.ToString("yyyy-MM-dd"), x.FirstPayoutAccount + (x.PaidAccounts > 0 ? " • avg " + x.AverageDaysToFirstPayout.ToString("0") + " days to first payout" : ""), "gold"));
+            sb.Append(card("Profitable from", capital != null && capital.ProfitabilityReached ? capital.ProfitabilityDate.ToString("yyyy-MM-dd") : "not reached", "payout cash ≥ every account bought", capital != null && capital.ProfitabilityReached ? "green" : "red"));
+            sb.Append(card("Blowups", x.BlowupEvents.ToString(), "evaluation " + x.EvaluationFails + " • funded " + x.FundedBlowups + " • funded now " + x.FundedNow + " / " + x.Accounts, x.BlowupEvents > 0 ? "red" : "green"));
+            sb.Append("</div>");
+            // Equity charts.
+            var dayList = days.Select(d => d.Day.Date).ToList();
+            var moneyByDay = accounts.SelectMany(a => a.DayHistory).GroupBy(d => d.Day.Date).ToDictionary(g => g.Key, g => g.Sum(d => d.PayoutCashDelta - d.CostDelta));
+            var axis = dayList.Union(moneyByDay.Keys).Distinct().OrderBy(d => d).ToList();
+            var dayPnl = days.ToDictionary(d => d.Day.Date, d => d.Pnl);
+            double cs = 0, cm = 0; var strat = new List<double>(); var money = new List<double>();
+            foreach (DateTime d in axis) { double v; if (dayPnl.TryGetValue(d, out v)) cs += v; if (moneyByDay.TryGetValue(d, out v)) cm += v; strat.Add(cs); money.Add(cm); }
+            sb.Append("<div class='two'><div class='card'><div class='label'>Strategy equity vs cash in your bank (net of all account costs)</div>")
+              .Append(SvgLineChart(axis, new List<Tuple<string, string, List<double>>> { Tuple.Create("Strategy P/L", "#58a6ff", strat), Tuple.Create("Net cash", "#f4c450", money) }, 1000, 260)).Append("</div>");
+            var monthRows = accounts.SelectMany(a => a.DayHistory).GroupBy(d => new DateTime(d.Day.Year, d.Day.Month, 1)).OrderBy(g => g.Key).ToList();
+            var monthBars = new List<Tuple<DateTime, double, double, double>>(); double running = 0;
+            foreach (var g in monthRows) { double bank = g.Sum(d => d.PayoutCashDelta), cost = g.Sum(d => d.CostDelta); running += bank - cost; monthBars.Add(Tuple.Create(g.Key, bank, cost, running)); }
+            sb.Append("<div class='card'><div class='label'>Month by month • money</div>").Append(SvgMonthBars(monthBars, 1000, 260)).Append("</div></div>");
+            // AI analysis.
+            sb.Append("<h2 id='analysis'>AI ANALYSIS • WHAT THE NUMBERS SAY</h2><div class='muted'>Written automatically from this run only. Every sentence points at a number in this report; nothing is predicted. For deeper optimisation use EXPORT FOR CLAUDE in the lab and share the file.</div><div class='insights'>");
+            foreach (KeystoneArcInsight f in KeystoneArcAnalyst.Analyze(accounts, accepted, config, capital))
+                sb.Append("<div class='insight ").Append(f.Level.ToLowerInvariant()).Append("'><div class='tag'>").Append(Hx(f.Level)).Append("</div><div><b>").Append(Hx(f.Title)).Append("</b><br>").Append(Hx(f.Text)).Append("</div></div>");
+            sb.Append("</div>");
+            // Month table.
+            var stratByMonth = days.GroupBy(d => new DateTime(d.Day.Year, d.Day.Month, 1)).ToDictionary(g => g.Key, g => g.ToList());
+            sb.Append("<h2 id='months'>MONTHS</h2><div class='table-wrap'><table><thead><tr><th>#</th><th>Month</th><th>").Append(asian ? "Nights" : "Days").Append("</th><th>Win %</th><th>Strategy P/L</th><th>Payouts</th><th>To bank</th><th>Cost</th><th>Net</th><th>Net to date</th></tr></thead><tbody>");
+            var allMonths = stratByMonth.Keys.Union(monthRows.Select(g => g.Key)).Distinct().OrderBy(m => m).ToList(); running = 0; int mi = 0;
+            foreach (DateTime m in allMonths)
+            {
+                List<KeystoneArcDayScore> md; stratByMonth.TryGetValue(m, out md); md = md ?? new List<KeystoneArcDayScore>();
+                var g = monthRows.FirstOrDefault(r => r.Key == m);
+                double bank = g == null ? 0 : g.Sum(d => d.PayoutCashDelta), cost = g == null ? 0 : g.Sum(d => d.CostDelta); int pays = g == null ? 0 : accounts.Sum(a => a.DayHistory.Where(d => d.Day.Year == m.Year && d.Day.Month == m.Month && d.PayoutCashDelta > 0).Count());
+                running += bank - cost; double p = md.Sum(d => d.Pnl);
+                sb.Append("<tr class='").Append(bank - cost > 0 ? "win" : (bank - cost < 0 ? "loss" : "")).Append("'><td>").Append(++mi).Append("</td><td>").Append(m.ToString("yyyy-MM")).Append("</td><td>").Append(md.Count).Append("</td><td>").Append(md.Count == 0 ? "—" : (100.0 * md.Count(d => d.Pnl > 0) / md.Count).ToString("0") + "%").Append("</td><td class='").Append(p >= 0 ? "green" : "red").Append("'>").Append(Hx(Cash(p))).Append("</td><td>").Append(pays).Append("</td><td class='gold'>").Append(Hx(Cash(bank))).Append("</td><td class='orchid'>").Append(Hx(Cash(cost))).Append("</td><td class='").Append(bank - cost >= 0 ? "green" : "red").Append("'>").Append(Hx(Cash(bank - cost))).Append("</td><td>").Append(Hx(Cash(running))).Append("</td></tr>");
+            }
+            sb.Append("</tbody></table></div>");
+            // Account cards with filters.
+            sb.Append("<h2 id='account-cards'>ACCOUNTS</h2><div class='filters' id='acctFilters'><button class='active' data-f='all'>ALL</button><button data-f='funded'>FUNDED NOW</button><button data-f='eval'>IN EVALUATION</button><button data-f='paid'>PAID</button><button data-f='never'>NEVER PAID</button><button data-f='blown'>HAD BLOWUPS</button><input id='acctSearch' placeholder='search account…'></div><div class='acct-grid' id='acctGrid'>");
+            foreach (KeystoneArcVirtualAccount a in accounts)
+            {
+                string state = a.Funded && !a.Blown ? "funded" : (!a.Funded && !a.Blown && !a.ReplacementPending ? "eval" : "other");
+                int blows = a.FailedEvaluations + a.FailedFunded;
+                string cls = a.Funded && !a.Blown ? "st-funded" : (a.Blown && !a.ReplacementPending ? "st-ended" : "st-eval");
+                sb.Append("<div class='acct ").Append(cls).Append("' data-state='").Append(state).Append("' data-paid='").Append(a.Payouts > 0 ? "1" : "0").Append("' data-blown='").Append(blows > 0 ? "1" : "0").Append("' data-name='").Append(Hx(a.Name.ToLowerInvariant())).Append("'>");
+                sb.Append("<div class='acct-head'><b>").Append(Hx(a.Name)).Append("</b><span>").Append(Hx(AccountLifecycleLabel(a))).Append("</span></div>");
+                sb.Append("<div class='acct-row'><span>Payouts</span><b>").Append(a.Payouts).Append("</b></div>");
+                sb.Append("<div class='acct-row'><span>First → latest</span><b>").Append(a.FirstPayoutDate == DateTime.MinValue ? "—" : a.FirstPayoutDate.ToString("yyyy-MM-dd") + (a.LastPayoutDate > a.FirstPayoutDate ? " → " + a.LastPayoutDate.ToString("yyyy-MM-dd") : "")).Append("</b></div>");
+                sb.Append("<div class='acct-row'><span>To bank / cost</span><b>").Append(Hx(Cash(a.PayoutCash))).Append(" / ").Append(Hx(Cash(a.EvaluationCost))).Append("</b></div>");
+                sb.Append("<div class='acct-row'><span>Net</span><b class='").Append(a.PayoutCash - a.EvaluationCost >= 0 ? "green" : "red").Append("'>").Append(Hx(Cash(a.PayoutCash - a.EvaluationCost))).Append("</b></div>");
+                sb.Append("<div class='acct-row'><span>Blowups</span><b class='").Append(blows > 0 ? "red" : "green").Append("'>").Append(blows).Append("</b></div>");
+                if (a.Funded && !a.Blown) sb.Append("<div class='acct-row'><span>Carry-over balance</span><b>").Append(Hx(Cash(a.FundedBalance))).Append("</b></div>");
+                sb.Append("</div>");
+            }
+            sb.Append("</div><script>(function(){var f='all',q='';var cards=[].slice.call(document.querySelectorAll('#acctGrid .acct'));function show(){cards.forEach(function(c){var ok=f==='all'||(f==='funded'&&c.dataset.state==='funded')||(f==='eval'&&c.dataset.state==='eval')||(f==='paid'&&c.dataset.paid==='1')||(f==='never'&&c.dataset.paid==='0')||(f==='blown'&&c.dataset.blown==='1');if(q&&c.dataset.name.indexOf(q)<0)ok=false;c.style.display=ok?'':'none';});}[].slice.call(document.querySelectorAll('#acctFilters button')).forEach(function(b){b.addEventListener('click',function(){[].slice.call(document.querySelectorAll('#acctFilters button')).forEach(function(o){o.classList.remove('active');});b.classList.add('active');f=b.dataset.f;show();});});document.getElementById('acctSearch').addEventListener('input',function(e){q=e.target.value.toLowerCase();show();});})();</script>");
+            sb.Append("<h2 class='audit-head'>DETAILED AUDIT</h2><div class='muted'>Everything below is the full original audit: every rule, cycle, account and event.</div></section>");
+            return sb.ToString();
+        }
+
         private string BuildEvidencePackageIndex(string evidenceSection)
         {
             string report = BuildHtmlReport();
@@ -11628,9 +11871,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             KeystoneArcRiskSequenceStats propRisk = CalculateWorstVirtualAccountRisk(config.PropStartingBalance);
             var sb = new StringBuilder();
             sb.Append("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>Keystone Arc Research Report</title><style>");
-            sb.Append("html{scroll-behavior:smooth}body{margin:0;background:#0a0f1a;color:#eef4fc;font-family:Segoe UI,Arial,sans-serif;line-height:1.35}.wrap{max-width:1500px;margin:auto;padding:28px}.hero{background:linear-gradient(120deg,#13243c,#1a3144);border:1px solid #2cd7cb;border-radius:14px;padding:24px}.brand{color:#2cd7cb;font-size:13px;font-weight:700;letter-spacing:.08em}.hero h1{margin:4px 0 8px;font-size:29px}.muted{color:#9baec6}.notice{margin-top:16px;border-left:4px solid #f4bf4c;background:#242536;padding:12px;color:#f5d790}.goodnote{margin-top:12px;border-left:4px solid #41d98e;background:#102d29;padding:12px;color:#d5f6e7}.report-nav{position:sticky;top:8px;z-index:3;display:flex;flex-wrap:wrap;gap:7px;margin:14px 0;padding:10px;background:rgba(10,15,26,.94);border:1px solid #283d5b;border-radius:10px;backdrop-filter:blur(5px)}.report-nav a{color:#dff8ff;text-decoration:none;background:#183653;border:1px solid #2cd7cb;border-radius:7px;padding:6px 9px;font-size:12px;font-weight:700}.report-nav a:hover{background:#2cd7cb;color:#08101b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px;margin:18px 0}.card{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:14px}.label{color:#9baec6;font-size:11px;font-weight:700;text-transform:uppercase}.value{font-size:24px;font-weight:700;margin-top:3px}.green{color:#41d98e}.red{color:#ef5c69}.cyan{color:#2cd7cb}.gold{color:#f4bf4c}.orchid{color:#ca75ef}h2{font-size:18px;color:#2cd7cb;margin-top:30px;padding-top:8px}h3{font-size:14px;color:#ca75ef;margin:18px 0 8px}table{width:100%;border-collapse:collapse;background:#131c2d;font-size:12px}th{position:sticky;top:0;background:#1c273d;color:#2cd7cb;text-align:left}th,td{padding:8px;border-bottom:1px solid #283d5b;vertical-align:top}tr.win td{background:#102d29}tr.loss td{background:#321b25}tr.exit td{background:#23263a}.table-wrap{overflow:auto;max-height:540px;border:1px solid #283d5b;border-radius:10px}.mono{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap}.pill{display:inline-block;border:1px solid #365577;border-radius:999px;padding:5px 9px;margin:3px;color:#d7e5f5}.filters{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.filters button{cursor:pointer;background:#183653;color:#dff8ff;border:1px solid #2cd7cb;border-radius:7px;padding:7px 10px;font-weight:700}.filters button:hover,.filters button.active{background:#2cd7cb;color:#08101b}.audit{margin:18px 0;background:#101a2a;border:1px solid #365577;border-radius:10px;overflow:hidden}.audit summary{cursor:pointer;padding:13px;color:#caeefa;background:#15243a;font-weight:700}.audit summary:hover{background:#183653}.audit .inside{padding:0 14px 14px}.hide-row{display:none}.footer{margin-top:28px;color:#9baec6;font-size:12px}pre.cmp{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:12px;overflow:auto;font-size:12px;color:#dff8ff}@media(max-width:700px){.wrap{padding:12px}.hero{padding:16px}.hero h1{font-size:23px}.report-nav{position:static}.value{font-size:21px}}</style></head><body><div class='wrap'>");
+            sb.Append("html{scroll-behavior:smooth}body{margin:0;background:#0a0f1a;color:#eef4fc;font-family:Segoe UI,Arial,sans-serif;line-height:1.35}.wrap{max-width:1500px;margin:auto;padding:28px}.hero{background:linear-gradient(120deg,#13243c,#1a3144);border:1px solid #2cd7cb;border-radius:14px;padding:24px}.brand{color:#2cd7cb;font-size:13px;font-weight:700;letter-spacing:.08em}.hero h1{margin:4px 0 8px;font-size:29px}.muted{color:#9baec6}.notice{margin-top:16px;border-left:4px solid #f4bf4c;background:#242536;padding:12px;color:#f5d790}.goodnote{margin-top:12px;border-left:4px solid #41d98e;background:#102d29;padding:12px;color:#d5f6e7}.report-nav{position:sticky;top:8px;z-index:3;display:flex;flex-wrap:wrap;gap:7px;margin:14px 0;padding:10px;background:rgba(10,15,26,.94);border:1px solid #283d5b;border-radius:10px;backdrop-filter:blur(5px)}.report-nav a{color:#dff8ff;text-decoration:none;background:#183653;border:1px solid #2cd7cb;border-radius:7px;padding:6px 9px;font-size:12px;font-weight:700}.report-nav a:hover{background:#2cd7cb;color:#08101b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:12px;margin:18px 0}.card{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:14px}.label{color:#9baec6;font-size:11px;font-weight:700;text-transform:uppercase}.value{font-size:24px;font-weight:700;margin-top:3px}.green{color:#41d98e}.red{color:#ef5c69}.cyan{color:#2cd7cb}.gold{color:#f4bf4c}.orchid{color:#ca75ef}h2{font-size:18px;color:#2cd7cb;margin-top:30px;padding-top:8px}h3{font-size:14px;color:#ca75ef;margin:18px 0 8px}table{width:100%;border-collapse:collapse;background:#131c2d;font-size:12px}th{position:sticky;top:0;background:#1c273d;color:#2cd7cb;text-align:left}th,td{padding:8px;border-bottom:1px solid #283d5b;vertical-align:top}tr.win td{background:#102d29}tr.loss td{background:#321b25}tr.exit td{background:#23263a}.table-wrap{overflow:auto;max-height:540px;border:1px solid #283d5b;border-radius:10px}.mono{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap}.pill{display:inline-block;border:1px solid #365577;border-radius:999px;padding:5px 9px;margin:3px;color:#d7e5f5}.filters{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.filters button{cursor:pointer;background:#183653;color:#dff8ff;border:1px solid #2cd7cb;border-radius:7px;padding:7px 10px;font-weight:700}.filters button:hover,.filters button.active{background:#2cd7cb;color:#08101b}.audit{margin:18px 0;background:#101a2a;border:1px solid #365577;border-radius:10px;overflow:hidden}.audit summary{cursor:pointer;padding:13px;color:#caeefa;background:#15243a;font-weight:700}.audit summary:hover{background:#183653}.audit .inside{padding:0 14px 14px}.hide-row{display:none}.footer{margin-top:28px;color:#9baec6;font-size:12px}.dash .answer{margin:14px 0;padding:14px 16px;border-radius:12px;background:linear-gradient(90deg,#2a2413,#15151c);border:1px solid #f4c450;color:#f8e7b8;font-weight:700}.kpi .value{font-size:26px}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:1000px){.two{grid-template-columns:1fr}}svg.chart{width:100%;height:260px;background:#0e1422;border-radius:8px;margin-top:8px}svg .grid{stroke:#223049;stroke-width:1}svg .zero{stroke:#56657d;stroke-width:1.2;stroke-dasharray:4 3}svg .axis{fill:#8fa3bd;font-size:11px}svg rect.bank{fill:#41d98e}svg rect.cost{fill:#ca75ef}svg .netline{stroke:#f4c450;stroke-width:2.4;fill:none}.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;color:#b9c7d8;font-size:12px}.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}.legend i.bank{background:#41d98e}.legend i.cost{background:#ca75ef}.legend i.netline{background:#f4c450}.insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:10px;margin:12px 0}.insight{display:flex;gap:12px;background:#131c2d;border:1px solid #283d5b;border-left:5px solid #58a6ff;border-radius:10px;padding:12px;font-size:13px}.insight .tag{font-size:10px;font-weight:800;letter-spacing:.08em;min-width:44px;color:#58a6ff}.insight.good{border-left-color:#41d98e}.insight.good .tag{color:#41d98e}.insight.bad{border-left-color:#ef5c69}.insight.bad .tag{color:#ef5c69}.insight.warn{border-left-color:#f4c450}.insight.warn .tag{color:#f4c450}.filters input{background:#0e1422;color:#eef4fc;border:1px solid #365577;border-radius:7px;padding:7px 10px;min-width:220px}.acct-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.acct{background:#131c2d;border:1px solid #283d5b;border-top:4px solid #58a6ff;border-radius:10px;padding:10px 12px;font-size:12px}.acct.st-funded{border-top-color:#41d98e}.acct.st-ended{border-top-color:#ef5c69}.acct.st-eval{border-top-color:#ca75ef}.acct-head{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}.acct-head span{color:#9baec6;font-size:10px;text-align:right}.acct-row{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dashed #223049}.audit-head{margin-top:40px}pre.cmp{background:#131c2d;border:1px solid #283d5b;border-radius:10px;padding:12px;overflow:auto;font-size:12px;color:#dff8ff}@media(max-width:700px){.wrap{padding:12px}.hero{padding:16px}.hero h1{font-size:23px}.report-nav{position:static}.value{font-size:21px}}</style></head><body><div class='wrap'>");
             sb.Append("<section class='hero'><div class='brand'>KEYSTONE ARC 5M RESEARCH LAB</div><h1>").Append(personalReport ? "Live-Account Historical Research Report" : "Prop Virtual-Pool Historical Research Report").Append("</h1><div class='muted'>").Append(Html(strategyName)).Append(" • ").Append(Html(strategyAudit)).Append("<br>Created ").Append(Html(DateTime.Now.ToString("yyyy-MM-dd HH:mm"))).Append(" • No live orders • Historical-model output</div><div class='notice'><strong>Interpretation boundary.</strong> This report records ").Append(personalReport ? "one historical account using one earliest resolved setup per session date" : (asianReport ? "the selected virtual-account evaluation/funded scenario using copied daily Asian cycles" : "the selected virtual-account evaluation/funded scenario")).Append(". It is not a verified trading strategy, firm-rule determination, or payout forecast.</div><div class='goodnote'><strong>Data state.</strong> ").Append(outcomesVerified ? "The 1-minute outcome series reproduced the selected setup bars, so target/stop/session-close model fields are enabled." : "The selected setup bars loaded, but no matching 1-minute outcome series was proven. This report is limited to setup placement and counts; win/loss, P/L, drawdown, and account math are intentionally disabled.").Append("</div></section>");
-            if (!personalReport) sb.Append(config.EvaluationEnabled < 0 ? "<nav class='report-nav'><a href='#portfolio'>One-Day Scorecard</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#accounts'>Account Allocation</a><a href='#event-audit'>Event Audit</a></nav>" : "<nav class='report-nav'><a href='#portfolio'>Portfolio</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#first-return'>First Returns</a><a href='#payout-accounts'>Payout Accounts</a><a href='#payout-cycles'>Payout Cycles</a><a href='#accounts'>Account Snapshot</a><a href='#event-audit'>Event Audit</a></nav>");
+            if (!personalReport) sb.Append(config.EvaluationEnabled < 0 ? "<nav class='report-nav'><a href='#portfolio'>One-Day Scorecard</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#accounts'>Account Allocation</a><a href='#event-audit'>Event Audit</a></nav>" : "<nav class='report-nav'><a href='#dashboard'>Dashboard</a><a href='#analysis'>AI Analysis</a><a href='#months'>Months</a><a href='#account-cards'>Accounts</a><a href='#portfolio'>Portfolio</a><a href='#research-findings'>Research Findings</a><a href='#daily-session'>Period Performance</a><a href='#first-return'>First Returns</a><a href='#payout-accounts'>Payout Accounts</a><a href='#payout-cycles'>Payout Cycles</a><a href='#accounts'>Account Snapshot</a><a href='#event-audit'>Event Audit</a></nav>");
+            if (!personalReport && accounts.Count > 0 && config.EvaluationEnabled >= 0) sb.Append(BuildDashboardHtml(accepted, capital));
             if (personalReport)
                 sb.Append("<h2>LIVE ACCOUNT • FINAL RESULT</h2><div class='grid'><div class='card'><div class='label'>Tested session days</div><div class='value cyan'>").Append(testedDays).Append("</div><div class='muted'>Selected session-date range.</div></div><div class='card'><div class='label'>Final W / L / session exits</div><div class='value gold'>").Append(liveLedgerReady ? liveWins + " / " + liveLosses + " / " + liveExits : "RUN RESULTS").Append("</div><div class='muted'>One earliest resolved setup per session date only.</div></div><div class='card'><div class='label'>Final live-account range P/L</div><div class='value ").Append(liveAccountGross >= 0 ? "green" : "red").Append("'>").Append(Html(liveLedgerReady ? liveAccountGross.ToString("C0") : "RUN RESULTS")).Append("</div><div class='muted'>Canonical final ledger.</div></div><div class='card'><div class='label'>Starting / ending balance</div><div class='value cyan'>").Append(Html(config.PersonalStartingBalance.ToString("C0"))).Append(" / ").Append(Html((config.PersonalStartingBalance + liveAccountGross).ToString("C0"))).Append("</div><div class='muted'>Ending balance = start + final ledger P/L.</div></div><div class='card'><div class='label'>Later / unavailable setups</div><div class='value cyan'>").Append(liveNotSelected).Append("</div><div class='muted'>Kept as evidence; excluded from final P/L.</div></div><div class='card'><div class='label'>Personal target / stop / lot</div><div class='value gold'>").Append(Html(LiveTargetRiskCardValue(config))).Append("</div><div class='muted'>").Append(Html(LiveOutcomeModelSummary(config))).Append("</div></div></div>");
             else if (config.EvaluationEnabled < 0)
