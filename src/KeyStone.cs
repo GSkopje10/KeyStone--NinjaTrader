@@ -3881,30 +3881,83 @@ namespace NinjaTrader.NinjaScript.AddOns
         // secondary accent (Cyan) used sparingly for section headers, and exactly three
         // semantic colors (Green/Red/Gold) reused everywhere something is good, bad, or
         // pending - rather than many competing bright hues at the same weight.
-        private static readonly SolidColorBrush Bg = ColorBrush(9, 13, 20);
-        private static readonly SolidColorBrush Panel = ColorBrush(16, 23, 34);
-        private static readonly SolidColorBrush Card = ColorBrush(24, 34, 49);
-        private static readonly SolidColorBrush Text = ColorBrush(236, 241, 249);
-        private static readonly SolidColorBrush Muted = ColorBrush(124, 141, 163);
-        private static readonly SolidColorBrush Blue = ColorBrush(74, 163, 255);
-        private static readonly SolidColorBrush Orchid = ColorBrush(163, 137, 247);
-        private static readonly SolidColorBrush Cyan = ColorBrush(45, 201, 190);
-        private static readonly SolidColorBrush Green = ColorBrush(50, 197, 122);
-        private static readonly SolidColorBrush Red = ColorBrush(240, 84, 97);
-        private static readonly SolidColorBrush Gold = ColorBrush(235, 176, 43);
-        private static readonly SolidColorBrush Orange = ColorBrush(240, 133, 58);
+        private static SolidColorBrush Bg = ColorBrush(9, 13, 20);
+        private static SolidColorBrush Panel = ColorBrush(16, 23, 34);
+        private static SolidColorBrush Card = ColorBrush(24, 34, 49);
+        private static SolidColorBrush Text = ColorBrush(236, 241, 249);
+        private static SolidColorBrush Muted = ColorBrush(124, 141, 163);
+        private static SolidColorBrush Blue = ColorBrush(74, 163, 255);
+        private static SolidColorBrush Orchid = ColorBrush(163, 137, 247);
+        private static SolidColorBrush Cyan = ColorBrush(45, 201, 190);
+        private static SolidColorBrush Green = ColorBrush(50, 197, 122);
+        private static SolidColorBrush Red = ColorBrush(240, 84, 97);
+        private static SolidColorBrush Gold = ColorBrush(235, 176, 43);
+        private static SolidColorBrush Orange = ColorBrush(240, 133, 58);
         // Evidence Chart uses a quieter slate palette. Candle bodies stay muted so wicks, exact entry lines,
         // and the small result markers remain readable without the chart looking like a wall of neon labels.
-        private static readonly SolidColorBrush EvidenceBg = ColorBrush(11, 16, 25);
-        private static readonly SolidColorBrush EvidenceGrid = ColorBrush(63, 78, 99);
-        private static readonly SolidColorBrush CandleUp = ColorBrush(43, 150, 116);
-        private static readonly SolidColorBrush CandleDown = ColorBrush(181, 76, 94);
-        private static readonly SolidColorBrush CandleWick = ColorBrush(184, 200, 219);
+        private static SolidColorBrush EvidenceBg = ColorBrush(11, 16, 25);
+        private static SolidColorBrush EvidenceGrid = ColorBrush(63, 78, 99);
+        private static SolidColorBrush CandleUp = ColorBrush(43, 150, 116);
+        private static SolidColorBrush CandleDown = ColorBrush(181, 76, 94);
+        private static SolidColorBrush CandleWick = ColorBrush(184, 200, 219);
         private static readonly SolidColorBrush EntryInk = ColorBrush(17, 55, 92);
         private static readonly SolidColorBrush EntryHalo = ColorBrush(199, 231, 255);
         private static readonly SolidColorBrush WinPurple = ColorBrush(56, 214, 130);
         private static readonly SolidColorBrush LossAmber = ColorBrush(255, 82, 96);
         private static readonly SolidColorBrush ExitIce = ColorBrush(141, 210, 250);
+
+        // --- Themes ------------------------------------------------------------------------
+        // The palette above is the CLASSIC theme. A theme only swaps colours; layouts, numbers and
+        // behaviour are identical. The choice is saved and applied when the lab window opens.
+        private static readonly string[] ThemeNames = { "OBSIDIAN GOLD", "CLASSIC", "DEEP OCEAN", "GRAPHITE", "ROYAL EMERALD" };
+        private static string activeTheme = "OBSIDIAN GOLD";
+
+        private static string ThemeFile() { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArc5MResearch", "theme.txt"); }
+
+        private static string LoadThemePreference()
+        {
+            try { string f = ThemeFile(); if (File.Exists(f)) { string t = File.ReadAllText(f).Trim().ToUpperInvariant(); if (ThemeNames.Contains(t)) return t; } } catch { }
+            return "OBSIDIAN GOLD";
+        }
+
+        private static void SaveThemePreference(string theme)
+        {
+            try { Directory.CreateDirectory(Path.GetDirectoryName(ThemeFile())); File.WriteAllText(ThemeFile(), theme); } catch { }
+        }
+
+        private static void ApplyTheme(string theme)
+        {
+            activeTheme = ThemeNames.Contains(theme) ? theme : "OBSIDIAN GOLD";
+            Func<int, int, int, SolidColorBrush> c = (r, g, b) => ColorBrush((byte)r, (byte)g, (byte)b);
+            switch (activeTheme)
+            {
+                case "CLASSIC":
+                    Bg = c(9, 13, 20); Panel = c(16, 23, 34); Card = c(24, 34, 49); Text = c(236, 241, 249); Muted = c(124, 141, 163);
+                    Blue = c(74, 163, 255); Orchid = c(163, 137, 247); Cyan = c(45, 201, 190); Green = c(50, 197, 122); Red = c(240, 84, 97); Gold = c(235, 176, 43); Orange = c(240, 133, 58);
+                    EvidenceBg = c(11, 16, 25); EvidenceGrid = c(63, 78, 99); CandleUp = c(43, 150, 116); CandleDown = c(181, 76, 94); CandleWick = c(184, 200, 219);
+                    break;
+                case "DEEP OCEAN":
+                    Bg = c(5, 15, 27); Panel = c(9, 25, 43); Card = c(14, 36, 60); Text = c(228, 242, 255); Muted = c(118, 150, 182);
+                    Blue = c(77, 168, 255); Orchid = c(146, 140, 255); Cyan = c(56, 222, 206); Green = c(40, 205, 120); Red = c(255, 97, 105); Gold = c(255, 196, 64); Orange = c(255, 146, 77);
+                    EvidenceBg = c(6, 17, 30); EvidenceGrid = c(40, 72, 104); CandleUp = c(34, 170, 140); CandleDown = c(214, 82, 102); CandleWick = c(170, 200, 228);
+                    break;
+                case "GRAPHITE":
+                    Bg = c(19, 20, 23); Panel = c(28, 30, 34); Card = c(38, 41, 46); Text = c(236, 238, 241); Muted = c(141, 147, 157);
+                    Blue = c(88, 166, 255); Orchid = c(188, 140, 255); Cyan = c(86, 204, 242); Green = c(63, 185, 80); Red = c(248, 81, 73); Gold = c(222, 164, 48); Orange = c(229, 118, 52);
+                    EvidenceBg = c(22, 23, 26); EvidenceGrid = c(64, 68, 76); CandleUp = c(46, 160, 67); CandleDown = c(218, 54, 51); CandleWick = c(190, 196, 204);
+                    break;
+                case "ROYAL EMERALD":
+                    Bg = c(6, 17, 14); Panel = c(11, 28, 23); Card = c(17, 40, 33); Text = c(236, 246, 239); Muted = c(126, 158, 144);
+                    Blue = c(96, 170, 240); Orchid = c(178, 150, 236); Cyan = c(120, 220, 170); Green = c(64, 214, 128); Red = c(240, 92, 96); Gold = c(236, 198, 96); Orange = c(236, 146, 72);
+                    EvidenceBg = c(7, 19, 16); EvidenceGrid = c(46, 78, 66); CandleUp = c(52, 176, 120); CandleDown = c(204, 80, 88); CandleWick = c(186, 212, 198);
+                    break;
+                default: // OBSIDIAN GOLD: black lacquer, champagne headings, gold money, emerald / ruby results
+                    Bg = c(10, 10, 13); Panel = c(18, 18, 23); Card = c(27, 26, 32); Text = c(244, 238, 226); Muted = c(152, 144, 130);
+                    Blue = c(96, 158, 232); Orchid = c(178, 142, 230); Cyan = c(218, 186, 118); Green = c(58, 196, 136); Red = c(232, 84, 96); Gold = c(244, 196, 80); Orange = c(236, 138, 68);
+                    EvidenceBg = c(12, 12, 16); EvidenceGrid = c(74, 66, 52); CandleUp = c(40, 168, 120); CandleDown = c(204, 70, 86); CandleWick = c(206, 196, 178);
+                    break;
+            }
+        }
 
         protected override void OnStateChange()
         {
@@ -4609,6 +4662,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void OpenWindow()
         {
             if (window != null) { if (window.IsVisible) window.Activate(); return; }
+            ApplyTheme(LoadThemePreference());
             window = BuildWindow();
             window.Closing += delegate(object sender, CancelEventArgs args)
             {
@@ -4741,8 +4795,22 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var stack = new StackPanel { Margin = new Thickness(0) };
-            var title = Txt("KEYSTONE ARC", Text, 20, FontWeights.Bold); title.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(title);
+            var title = Txt("KEYSTONE ARC", activeTheme == "CLASSIC" ? Text : Gold, 20, FontWeights.Bold); title.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(title);
+            var accentLine = new Border { Height = 2, Width = 420, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 2), Background = new LinearGradientBrush(Gold.Color, Bg.Color, 0) };
+            stack.Children.Add(accentLine);
             var subtitle = Txt("5M RESEARCH LAB • INDEPENDENT HISTORICAL DETECTION • VIRTUAL POOL • NO LIVE ORDERS • " + KeystoneBuild, Cyan, 9, FontWeights.Bold); subtitle.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(subtitle);
+            var themeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
+            var themeLabel = Txt("THEME", Muted, 9, FontWeights.Bold); themeLabel.Margin = new Thickness(0, 4, 6, 0); themeRow.Children.Add(themeLabel);
+            var themeBox = Select(ThemeNames); themeBox.SelectedItem = activeTheme; themeBox.Width = 150; themeBox.Height = 22; themeBox.FontSize = 10;
+            themeBox.ToolTip = "Colour theme. Only colours change; saved for next time.";
+            themeBox.SelectionChanged += delegate
+            {
+                string chosen = Convert.ToString(themeBox.SelectedItem);
+                if (string.IsNullOrEmpty(chosen) || chosen == activeTheme) return;
+                SaveThemePreference(chosen);
+                UpdateUi("THEME " + chosen + " SAVED • CLOSE LAB and open it again from New → Keystone to apply (results stay in the Run Archive if saved)", Gold);
+            };
+            themeRow.Children.Add(themeBox); stack.Children.Add(themeRow);
             g.Children.Add(stack);
             var newTest = Btn("NEW TEST", Gold); newTest.Width = 106; newTest.Height = 30; newTest.Click += delegate { ConfirmResetForNewTest(); }; resetNewTestButton = newTest; Grid.SetColumn(newTest, 1); g.Children.Add(newTest);
             var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(closeAux, 2); g.Children.Add(closeAux);
