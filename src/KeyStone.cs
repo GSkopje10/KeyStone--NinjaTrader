@@ -4246,6 +4246,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private bool closeConfirmed;
         private UIElement lifecycleControlsPanel, poolAccountsCard, poolDetailCard;
         private StackPanel lifecyclePolicySection, governanceSection;
+        private Border evaluationBlock;
         private readonly List<UIElement> evaluationOnlyControls = new List<UIElement>();
         private readonly List<UIElement> oneDayHiddenControls = new List<UIElement>();
         private readonly List<UIElement> propOnlyControls = new List<UIElement>();
@@ -4454,6 +4455,48 @@ namespace NinjaTrader.NinjaScript.AddOns
                     EvidenceBg = c(12, 12, 16); EvidenceGrid = c(74, 66, 52); CandleUp = c(40, 168, 120); CandleDown = c(204, 70, 86); CandleWick = c(206, 196, 178);
                     break;
             }
+        }
+
+        // Live theme switch: every open Keystone window is walked and each colour of the old theme
+        // is replaced by the same colour role of the new theme. Brushes stay frozen (thread-safe).
+        private static SolidColorBrush[] PaletteBrushes() { return new[] { Bg, Panel, Card, Text, Muted, Blue, Orchid, Cyan, Green, Red, Gold, Orange, EvidenceBg, EvidenceGrid, CandleUp, CandleDown, CandleWick }; }
+        private static readonly string[] ThemeBrushProperties = { "Background", "Foreground", "BorderBrush", "Fill", "Stroke" };
+
+        private void ApplyThemeLive(string chosen)
+        {
+            SolidColorBrush[] before = PaletteBrushes();
+            ApplyTheme(chosen);
+            SolidColorBrush[] after = PaletteBrushes();
+            var map = new Dictionary<object, Brush>();
+            for (int i = 0; i < before.Length; i++) if (before[i] != null && !map.ContainsKey(before[i])) map[before[i]] = after[i];
+            var seen = new HashSet<object>();
+            foreach (Window w in new Window[] { window, evidenceWindow, comparisonWindow, asianOptimizerWindow }) if (w != null) RethemeTree(w, map, seen);
+            try { if (evidenceWindow != null && evidenceWindow.IsVisible) RenderEvidenceChart(); } catch { }
+        }
+
+        private static void RethemeTree(object node, Dictionary<object, Brush> map, HashSet<object> seen)
+        {
+            var d = node as DependencyObject;
+            if (d == null || !seen.Add(d)) return;
+            foreach (string name in ThemeBrushProperties)
+            {
+                try
+                {
+                    System.Reflection.PropertyInfo property = node.GetType().GetProperty(name, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                    if (property == null || !property.CanRead || !property.CanWrite) continue;
+                    object value = property.GetValue(node, null); Brush replacement;
+                    if (value != null && map.TryGetValue(value, out replacement)) property.SetValue(node, replacement, null);
+                }
+                catch { }
+            }
+            var fe = node as FrameworkElement; if (fe != null && fe.ToolTip is DependencyObject) RethemeTree(fe.ToolTip, map, seen);
+            var panel = node as System.Windows.Controls.Panel; if (panel != null) foreach (UIElement child in panel.Children) RethemeTree(child, map, seen);
+            var border = node as Border; if (border != null) RethemeTree(border.Child, map, seen);
+            var viewbox = node as Viewbox; if (viewbox != null) RethemeTree(viewbox.Child, map, seen);
+            var content = node as ContentControl; if (content != null) RethemeTree(content.Content, map, seen);
+            var headered = node as HeaderedContentControl; if (headered != null) RethemeTree(headered.Header, map, seen);
+            var items = node as ItemsControl; if (items != null) foreach (object item in items.Items) RethemeTree(item, map, seen);
+            try { foreach (object child in LogicalTreeHelper.GetChildren(d)) RethemeTree(child, map, seen); } catch { }
         }
 
         protected override void OnStateChange()
@@ -5299,15 +5342,18 @@ namespace NinjaTrader.NinjaScript.AddOns
             var themeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
             var themeLabel = Txt("THEME", Muted, 9, FontWeights.Bold); themeLabel.Margin = new Thickness(0, 4, 6, 0); themeRow.Children.Add(themeLabel);
             var themeBox = Select(ThemeNames); themeBox.SelectedItem = activeTheme; themeBox.Width = 150; themeBox.Height = 22; themeBox.FontSize = 10;
-            themeBox.ToolTip = "Colour theme. Only colours change; saved for next time.";
-            themeBox.SelectionChanged += delegate
+            themeBox.ToolTip = "Colour theme. Only colours change; applied right away and saved for next time.";
+            Action applyChosenTheme = delegate
             {
                 string chosen = Convert.ToString(themeBox.SelectedItem);
-                if (string.IsNullOrEmpty(chosen) || chosen == activeTheme) return;
+                if (string.IsNullOrEmpty(chosen)) return;
                 SaveThemePreference(chosen);
-                UpdateUi("THEME " + chosen + " SAVED • CLOSE LAB and open it again from New → Keystone to apply (results stay in the Run Archive if saved)", Gold);
+                ApplyThemeLive(chosen);
+                UpdateUi("THEME " + chosen + " APPLIED • saved for next time", Green);
             };
-            themeRow.Children.Add(themeBox); stack.Children.Add(themeRow);
+            themeBox.SelectionChanged += delegate { if (Convert.ToString(themeBox.SelectedItem) != activeTheme) applyChosenTheme(); };
+            var applyThemeButton = Btn("APPLY THEME", Blue); applyThemeButton.Height = 22; applyThemeButton.FontSize = 9; applyThemeButton.Margin = new Thickness(6, 0, 0, 0); applyThemeButton.ToolTip = "Re-colour every open Keystone window with the chosen theme now (no restart)."; applyThemeButton.Click += delegate { applyChosenTheme(); };
+            themeRow.Children.Add(themeBox); themeRow.Children.Add(applyThemeButton); stack.Children.Add(themeRow);
             g.Children.Add(stack);
             var newTest = Btn("NEW TEST", Gold); newTest.Width = 106; newTest.Height = 30; newTest.Click += delegate { ConfirmResetForNewTest(); }; resetNewTestButton = newTest; Grid.SetColumn(newTest, 1); g.Children.Add(newTest);
             var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(closeAux, 2); g.Children.Add(closeAux);
@@ -5660,6 +5706,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             RefreshStopModelInputState();
             RefreshAsianRiskInputState();
             RefreshInstrumentSourceText();
+            if (poolBox != null) RefreshLifecycleInputState();
         }
 
         private void RefreshAsianRiskInputState()
@@ -6104,9 +6151,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             coreControls.Children.Add(singleStartBalanceRow);
             fundedRulesPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
             fundedRulesPanel.Children.Add(fundedFailureRow); fundedRulesPanel.Children.Add(fundedDailyLossRow);
-            lifecyclePolicyControls.Children.Add(evalCostRow); lifecyclePolicyControls.Children.Add(payoutThresholdRow); lifecyclePolicyControls.Children.Add(payoutDaysRow); lifecyclePolicyControls.Children.Add(payoutAmountRow); lifecyclePolicyControls.Children.Add(payoutProfitShareRow); lifecyclePolicyControls.Children.Add(qualifyingDayRow);
+            // Pool Settings in three clear blocks: EVALUATION (the paid test), FUNDED (payout rules)
+            // and AFTER A BLOWUP. Every control keeps its single parent.
+            coreControls.Children.Add(evalCostRow);
+            lifecyclePolicyControls.Children.Add(payoutThresholdRow); lifecyclePolicyControls.Children.Add(payoutDaysRow); lifecyclePolicyControls.Children.Add(qualifyingDayRow); lifecyclePolicyControls.Children.Add(payoutAmountRow); lifecyclePolicyControls.Children.Add(payoutProfitShareRow);
             replacementDelayBox = Input("0"); replacementDelayBox.ToolTip = "Calendar days a blown slot waits before its new evaluation starts trading. 0 = next session. 2 = blown Monday, trades again Thursday (time to buy and set up the new account).";
-            governanceControls.Children.Add(evalTierRow); governanceControls.Children.Add(fundedTierRow); governanceControls.Children.Add(PoolRow("BLOWN ACCOUNT", blownAccountBox)); governanceControls.Children.Add(PoolRow("NEW EVAL WAIT DAYS (0 = NEXT SESSION)", replacementDelayBox)); governanceControls.Children.Add(evalStageToggleRow); governanceControls.Children.Add(asianEvalStageToggleRow); governanceControls.Children.Add(replacementGateRow); governanceControls.Children.Add(firmCapToggleRow); governanceControls.Children.Add(firmCapPanel); governanceControls.Children.Add(evalOverridePanel); governanceControls.Children.Add(asianEvalStagePanel);
+            var evalExtraControls = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
+            evalExtraControls.Children.Add(evalTierRow); evalExtraControls.Children.Add(evalStageToggleRow); evalExtraControls.Children.Add(asianEvalStageToggleRow);
+            fundedRulesPanel.Children.Add(fundedTierRow);
+            governanceControls.Children.Add(PoolRow("BLOWN ACCOUNT", blownAccountBox)); governanceControls.Children.Add(PoolRow("NEW EVAL WAIT DAYS (0 = NEXT SESSION)", replacementDelayBox)); governanceControls.Children.Add(replacementGateRow); governanceControls.Children.Add(firmCapToggleRow); governanceControls.Children.Add(firmCapPanel);
             startModeHintText = Txt("DEFAULT: evaluation uses the main Step 1 profit / loss values. Turn on EVAL OVERRIDE only to show evaluation-only target, drawdown, daily, and per-trade limits. DIRECT FUNDED hides evaluation inputs.", Gold, 10, FontWeights.Bold);
             var settingsStack = Stack();
             settingsStack.Children.Add(Txt("POOL SETTINGS • SCENARIO CONTROLS", Cyan, 13, FontWeights.Bold));
@@ -6125,11 +6178,22 @@ namespace NinjaTrader.NinjaScript.AddOns
             settingsStack.Children.Add(new Border { Background = Card, BorderBrush = Cyan, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 2, 0, 6),
                 Child = new ScrollViewer { Content = poolDayText, MaxHeight = 320, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } });
             settingsStack.Children.Add(Txt("CORE", Cyan, 10, FontWeights.Bold)); settingsStack.Children.Add(coreControls);
-            lifecyclePolicySection = Stack(); lifecyclePolicySection.Children.Add(Txt("ACCOUNT COST + PAYOUT RULES", Gold, 10, FontWeights.Bold)); lifecyclePolicySection.Children.Add(lifecyclePolicyControls);
-            evalRulesHeading = Txt("EVALUATION RULES • must pass before an account is funded", Orchid, 10, FontWeights.Bold); lifecyclePolicySection.Children.Add(evalRulesHeading); lifecyclePolicySection.Children.Add(evalRulesPanel);
-            lifecyclePolicySection.Children.Add(Txt("FUNDED RULES • drawdown ends the account (see BLOWN ACCOUNT below)", Green, 10, FontWeights.Bold)); lifecyclePolicySection.Children.Add(fundedRulesPanel);
+            lifecyclePolicySection = Stack();
+            evalRulesHeading = Txt("① EVALUATION • the paid test every new account must pass before it can earn payouts", Orchid, 12, FontWeights.Bold);
+            var evalStack = Stack(); evalStack.Children.Add(evalRulesHeading);
+            evalStack.Children.Add(SettingsExplain("Reach EVAL PROFIT TARGET without losing EVAL MAX DRAWDOWN, with enough QUALIFYING DAYS (a day that makes at least QUALIFYING DAY $). Passed → the account becomes FUNDED. EVALUATION TRADES chooses which setup grades an evaluation takes (e.g. ALL to pass fast)."));
+            evalStack.Children.Add(evalRulesPanel); evalStack.Children.Add(evalExtraControls); evalStack.Children.Add(evalOverridePanel); evalStack.Children.Add(asianEvalStagePanel);
+            evaluationBlock = SettingsBlock(evalStack, Orchid); lifecyclePolicySection.Children.Add(evaluationBlock);
+            var fundedStack = Stack(); fundedStack.Children.Add(Txt("② FUNDED • the account trades for payouts", Green, 12, FontWeights.Bold));
+            fundedStack.Children.Add(SettingsExplain("A payout (WITHDRAWAL $) is taken when the balance reaches PAYOUT BALANCE $ and the account has PAYOUT DAYS qualifying days (each ≥ QUALIFYING DAY $). ACCOUNT SHARE % is what you keep. FUNDED TOTAL DRAWDOWN / DAILY LOSS end or pause the account. FUNDED TRADES chooses which grades a funded account takes (e.g. only the strongest)."));
+            fundedStack.Children.Add(lifecyclePolicyControls); fundedStack.Children.Add(fundedRulesPanel);
+            lifecyclePolicySection.Children.Add(SettingsBlock(fundedStack, Green));
             settingsStack.Children.Add(lifecyclePolicySection);
-            governanceSection = Stack(); governanceSection.Children.Add(Txt("OPTIONAL GOVERNANCE", Orchid, 10, FontWeights.Bold)); governanceSection.Children.Add(governanceControls); settingsStack.Children.Add(governanceSection);
+            governanceSection = Stack();
+            var blowStack = Stack(); blowStack.Children.Add(Txt("③ AFTER A BLOWUP • replacement and money", Red, 12, FontWeights.Bold));
+            blowStack.Children.Add(SettingsExplain("What happens when an account fails: buy a new evaluation (it waits NEW EVAL WAIT DAYS, then must pass again) or end the slot. INVESTMENT ON = only the initial money is spent; later evaluations are bought only from payouts."));
+            blowStack.Children.Add(governanceControls);
+            governanceSection.Children.Add(SettingsBlock(blowStack, Red)); settingsStack.Children.Add(governanceSection);
             settingsStack.Children.Add(controls);
             // This tab owns its compact vertical scrollbar when an evaluation/payout group is
             // expanded. It prevents controls at the bottom from being clipped while leaving the
@@ -7200,7 +7264,9 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void RefreshLifecycleInputState()
         {
-            bool asianCopy = config != null && string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
+            // Asian-only rows follow the loaded study, or the Step 1 strategy choice before a load.
+            bool studyLoaded = loadedEvents != null && loadedEvents.Count > 0;
+            bool asianCopy = studyLoaded ? config != null && string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) : IsAsian75Selected();
             bool oneDay = config != null && config.Start != DateTime.MinValue
                 ? config.OneDayMode == 1
                 : (dateModeBox != null && string.Equals(Convert.ToString(dateModeBox.SelectedItem), "ONE DAY", StringComparison.OrdinalIgnoreCase));
@@ -7229,6 +7295,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (governanceSection != null) governanceSection.Visibility = oneDay ? Visibility.Collapsed : Visibility.Visible;
             for (int i = 0; i < evaluationOnlyControls.Count; i++) evaluationOnlyControls[i].Visibility = evalRulesApply ? Visibility.Visible : Visibility.Collapsed;
             if (evalRulesHeading != null) evalRulesHeading.Visibility = evalRulesApply ? Visibility.Visible : Visibility.Collapsed;
+            if (evaluationBlock != null) evaluationBlock.Visibility = evalRulesApply ? Visibility.Visible : Visibility.Collapsed;
             if (governanceSection != null && singleAccount) governanceSection.Visibility = Visibility.Collapsed;
             bool asianEvalStageVisible = asianCopy && evalRulesApply;
             if (asianEvalStageToggleRow != null) asianEvalStageToggleRow.Visibility = asianEvalStageVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -11333,6 +11400,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 int setups = rows.Count;
                 int wins = rows.Count(x => string.Equals(x.Outcome, "WIN", StringComparison.OrdinalIgnoreCase));
                 int losses = rows.Count(x => (x.Outcome ?? string.Empty).StartsWith("LOSS", StringComparison.OrdinalIgnoreCase));
+                int sessionExits = rows.Count(x => string.Equals(x.Outcome, "SESSION EXIT", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Outcome, "BREAKEVEN", StringComparison.OrdinalIgnoreCase));
                 int accountsAssigned = audit.Where(x => Math.Abs(x.DaySnapshot.DayPnl) > 0.0001).Select(x => x.Account).Distinct(StringComparer.OrdinalIgnoreCase).Count();
                 int profitLocks = audit.Where(x => x.DaySnapshot.DayLocked && x.DaySnapshot.DayPnl >= Math.Max(0, config.DailyGoal)).Select(x => x.Account).Distinct(StringComparer.OrdinalIgnoreCase).Count();
                 int lossLocks = audit.Where(x => x.DaySnapshot.DayLocked && x.DaySnapshot.DayPnl <= -Math.Abs(config.DailyLoss)).Select(x => x.Account).Distinct(StringComparer.OrdinalIgnoreCase).Count();
@@ -11347,19 +11415,26 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (string.Equals(mode, "WEEKLY", StringComparison.OrdinalIgnoreCase)) periodLabel += " → " + key.AddDays(6).ToString("yyyy-MM-dd");
                 var card = new Grid { Background = Panel, Margin = new Thickness(2) };
                 card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); card.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                string header = "#" + periodNumber + "  " + periodLabel + " • " + mode + " • SETUPS " + setups + " • W " + wins + " / L " + losses + (best ? " • BEST POSITIVE PERIOD" : string.Empty);
+                string header = "#" + periodNumber + "  " + periodLabel + " • " + mode + " • SETUPS " + setups + " • W " + wins + " / L " + losses + " / EXIT " + sessionExits + (best ? " • BEST POSITIVE PERIOD" : string.Empty);
                 var headerText = Txt(header, accent, 12, FontWeights.Bold); headerText.Margin = new Thickness(8, 5, 8, 2); headerText.TextWrapping = TextWrapping.Wrap; card.Children.Add(headerText);
                 var metrics = new UniformGrid { Columns = 6, Margin = new Thickness(4, 0, 4, 3) };
                 netToDate += payoutCash - evaluationCost;
                 // Carry-over: what the funded accounts still hold at the end of the period (after payouts and split).
                 double carry = audit.GroupBy(x => x.Account).Select(g => g.OrderBy(x => x.DaySnapshot.Day).Last().DaySnapshot).Where(d => d.FundedAfter && !d.BlownAfter).Sum(d => d.FundedBalanceAfter);
                 bool asianPeriod = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
-                CycleMetric(metrics, "ACCOUNTS TRADING", accounts.Count > 0 && accountsAssigned == accounts.Count ? "ALL " + accounts.Count : accountsAssigned + " / " + accounts.Count, Cyan);
-                CycleMetric(metrics, asianPeriod ? "P/L PER ACCOUNT" : "ASSIGNED P/L", asianPeriod && accountsAssigned > 0 ? Cash(assignedPnl / accountsAssigned) : Cash(assignedPnl), assignedPnl < 0 ? Red : (assignedPnl > 0 ? Green : Muted));
-                CycleMetric(metrics, "TO YOUR BANK", Cash(payoutCash) + (payoutAccounts > 0 ? " • " + payoutAccounts + " acct" : ""), payoutCash > 0 ? Gold : Muted);
-                CycleMetric(metrics, "COST", Cash(evaluationCost), evaluationCost > 0 ? Orchid : Muted);
-                CycleMetric(metrics, "NET TO DATE", Cash(netToDate), netToDate < 0 ? Red : Green);
-                CycleMetric(metrics, "CARRY-OVER BALANCE", Cash(carry), carry > 0 ? Blue : Muted);
+                string periodWord = string.Equals(mode, "MONTHLY", StringComparison.OrdinalIgnoreCase) ? "MONTH" : (string.Equals(mode, "WEEKLY", StringComparison.OrdinalIgnoreCase) ? "WEEK" : "DAY");
+                CycleMetric(metrics, "ACCOUNTS TRADING", accounts.Count > 0 && accountsAssigned == accounts.Count ? "ALL " + accounts.Count : accountsAssigned + " / " + accounts.Count, Cyan,
+                    "How many accounts had at least one trade in this " + periodWord.ToLowerInvariant() + ".");
+                CycleMetric(metrics, asianPeriod ? "TRADES P/L PER ACCOUNT THIS " + periodWord : "TRADES P/L THIS " + periodWord, asianPeriod && accountsAssigned > 0 ? Cash(assignedPnl / accountsAssigned) : Cash(assignedPnl), assignedPnl < 0 ? Red : (assignedPnl > 0 ? Green : Muted),
+                    "Profit / loss of the trades the accounts took in this " + periodWord.ToLowerInvariant() + " (wins, losses and session exits: " + wins + " W / " + losses + " L / " + sessionExits + " EXIT). This is account balance, not cash in your bank yet.");
+                CycleMetric(metrics, "TO YOUR BANK", Cash(payoutCash) + (payoutAccounts > 0 ? " • " + payoutAccounts + " acct" : ""), payoutCash > 0 ? Gold : Muted,
+                    "Payout cash withdrawn in this " + periodWord.ToLowerInvariant() + " after the account share %.");
+                CycleMetric(metrics, "ACCOUNTS BOUGHT (COST)", Cash(evaluationCost), evaluationCost > 0 ? Orchid : Muted,
+                    "Money spent on evaluations / replacement accounts in this " + periodWord.ToLowerInvariant() + ".");
+                CycleMetric(metrics, "NET SINCE START", Cash(netToDate), netToDate < 0 ? Red : Green,
+                    "All payouts minus all account costs from the first day of the test up to the end of this " + periodWord.ToLowerInvariant() + ". Your real money result so far.");
+                CycleMetric(metrics, "PROFIT STILL IN ACCOUNTS", Cash(carry), carry > 0 ? Blue : Muted,
+                    "Balance the funded accounts still hold at the end of this " + periodWord.ToLowerInvariant() + " (after payouts). Not in your bank yet — it can still be paid out or lost.");
                 Grid.SetRow(metrics, 1); card.Children.Add(metrics);
                 string close = "THIS PERIOD NET " + Cash(payoutCash - evaluationCost) + " • PAYOUTS " + payoutCycles + (payoutAccounts > 0 ? " (" + Cash(payoutCash / Math.Max(1, payoutAccounts)) + " per paid account)" : "") + " • ACCOUNTS BOUGHT " + audit.Sum(x => x.EvaluationPurchaseDelta) + " • EVAL PASSES " + audit.GroupBy(x => x.Account).Count(g => g.Max(x => x.DaySnapshot.EvaluationPassesAfter) > g.Min(x => x.DaySnapshot.EvaluationPassesAfter)) + (asianPeriod ? string.Empty : " • PROFIT / LOSS LOCKS " + profitLocks + " / " + lossLocks);
                 var closeText = Txt(close, Gold, 10, FontWeights.Bold); closeText.Margin = new Thickness(8, 0, 8, 5); closeText.TextWrapping = TextWrapping.Wrap; Grid.SetRow(closeText, 2); card.Children.Add(closeText);
@@ -11374,7 +11449,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     string stage = AccountDayPrimaryStage(dayClose);
                     string outcome = paidThisPeriod ? "PAYOUT" : (hitProfit ? "PROFIT LOCK" : (hitLoss ? "LOSS LOCK" : (accountPnl == 0 ? "ACTIVE" : (accountPnl > 0 ? "PROFIT" : "LOSS"))));
                     Brush badgeBrush = paidThisPeriod ? Gold : (hitProfit || accountPnl > 0 ? Green : (hitLoss || accountPnl < 0 ? Red : (stage == "EVALUATION" ? Orchid : Blue)));
-                    var badge = new TextBlock { Text = accountPeriod.Key + " • " + stage + " • " + outcome, Foreground = badgeBrush, FontSize = 9, FontWeight = FontWeights.Bold, Margin = new Thickness(5, 2, 5, 2), TextWrapping = TextWrapping.NoWrap };
+                    var badge = new TextBlock { Text = accountPeriod.Key + " • " + stage + " • " + outcome + " " + Cash(accountPnl), Foreground = badgeBrush, FontSize = 9, FontWeight = FontWeights.Bold, Margin = new Thickness(5, 2, 5, 2), TextWrapping = TextWrapping.NoWrap };
                     accountBadges.Children.Add(new Border { Background = Card, BorderBrush = badgeBrush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Margin = new Thickness(2), Child = badge });
                 }
                 if (accountBadges.Children.Count > 0) { Grid.SetRow(accountBadges, 3); card.Children.Add(accountBadges); }
@@ -11419,8 +11494,41 @@ namespace NinjaTrader.NinjaScript.AddOns
                 : "BALANCE " + stageBalance + " • FULL NET " + Cash(account.PayoutCash - account.EvaluationCost) + " • PAYOUTS " + account.Payouts;
             string line3 = "TRADES " + account.Trades + " • " + account.Wins + "W / " + account.Losses + "L • COST " + Cash(account.EvaluationCost) + " • BLOWOUTS " + (account.FailedEvaluations + account.FailedFunded);
             string line4 = FirstPayoutTimingLine(account);
-            var text = new TextBlock { Text = main + "\n" + line2 + "\n" + line3 + "\n" + line4, Foreground = Text, FontSize = 10, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(7) };
-            var button = new Button { Background = Panel, BorderBrush = stateBrush, BorderThickness = new Thickness(2), Padding = new Thickness(4), MinHeight = 98, Content = text, HorizontalContentAlignment = HorizontalAlignment.Left, Margin = new Thickness(3), ToolTip = "Select " + account.Name + " for its dated payout, blowout, replacement, full-net cash, and assigned-event history." };
+            // Colored account card: stage band, big balance, progress to the next goal, chips.
+            var cardBody = new StackPanel { Margin = new Thickness(0) };
+            var band = new Border { Background = stateBrush, CornerRadius = new CornerRadius(3, 3, 0, 0), Padding = new Thickness(7, 3, 7, 3) };
+            band.Child = new TextBlock { Text = main, Foreground = Bg, FontSize = 11, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap };
+            cardBody.Children.Add(band);
+            bool fundedStage = account.Funded;
+            double stageValue = config.EvaluationEnabled == -2 ? account.StartingBalance + account.TotalPnl : CurrentStageBalance(account);
+            double goal = config.EvaluationEnabled == -2 ? 0 : (fundedStage ? config.PayoutThreshold : config.EvaluationTarget);
+            var balanceRow = new DockPanel { Margin = new Thickness(7, 3, 7, 0) };
+            balanceRow.Children.Add(new TextBlock { Text = stageBalance, Foreground = stageValue < 0 ? Red : stateBrush, FontSize = 18, FontWeight = FontWeights.Bold });
+            if (goal > 0) balanceRow.Children.Add(new TextBlock { Text = "  / " + Cash(goal) + (fundedStage ? " payout balance" : " eval target"), Foreground = Muted, FontSize = 10, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 3) });
+            cardBody.Children.Add(balanceRow);
+            if (goal > 0 && !account.Blown)
+            {
+                double ratio = Math.Max(0, Math.Min(1, stageValue / goal));
+                var track = new Grid { Height = 6, Margin = new Thickness(7, 2, 7, 3) };
+                track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(0.0001, ratio), GridUnitType.Star) });
+                track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(0.0001, 1 - ratio), GridUnitType.Star) });
+                var fill = new Border { Background = stateBrush, CornerRadius = new CornerRadius(3) }; track.Children.Add(fill);
+                var rest = new Border { Background = Panel, CornerRadius = new CornerRadius(3) }; Grid.SetColumn(rest, 1); track.Children.Add(rest);
+                track.ToolTip = (ratio * 100).ToString("0") + "% of the " + (fundedStage ? "payout balance" : "evaluation target");
+                cardBody.Children.Add(track);
+            }
+            var chips = new WrapPanel { Margin = new Thickness(5, 0, 5, 3) };
+            Action<string, Brush> chip = (label, brush) => chips.Children.Add(new Border { BorderBrush = brush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(2), Child = new TextBlock { Text = label, Foreground = brush, FontSize = 9, FontWeight = FontWeights.Bold } });
+            double fullNet = account.PayoutCash - account.EvaluationCost;
+            if (config.EvaluationEnabled != -2) chip("NET " + Cash(fullNet), fullNet < 0 ? Red : Green);
+            chip("PAYOUTS " + account.Payouts + (account.PayoutCash > 0 ? " • " + Cash(account.PayoutCash) : ""), account.Payouts > 0 ? Gold : Muted);
+            chip(account.Trades + " TRADES • " + account.Wins + "W/" + account.Losses + "L", Cyan);
+            chip("COST " + Cash(account.EvaluationCost), Orchid);
+            int blowouts = account.FailedEvaluations + account.FailedFunded;
+            chip("BLOWUPS " + blowouts, blowouts > 0 ? Red : Muted);
+            cardBody.Children.Add(chips);
+            if (!string.IsNullOrWhiteSpace(line4)) { var timing = new TextBlock { Text = line4, Foreground = Muted, FontSize = 9, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(7, 0, 7, 4) }; cardBody.Children.Add(timing); }
+            var button = new Button { Background = Card, BorderBrush = stateBrush, BorderThickness = new Thickness(2), Padding = new Thickness(0), MinHeight = 98, Content = cardBody, HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(3), ToolTip = main + "\n" + line2 + "\n" + line3 + "\nClick for its dated payout, blowout, replacement, full-net cash, and assigned-event history." };
             int selectedIndex = index;
             button.Click += delegate { if (poolAccountList != null) poolAccountList.SelectedIndex = selectedIndex; UpdatePoolDetail(); };
             poolAccountCardStack.Children.Add(button);
@@ -13805,6 +13913,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             parts.Item2.Text = caption;
             parts.Item3.BorderBrush = accent;
         }
+        private static void CycleMetric(Panel parent, string label, string value, Brush accent, string explain)
+        {
+            CycleMetric(parent, label + " ⓘ", value, accent);
+            var tile = parent.Children[parent.Children.Count - 1] as FrameworkElement;
+            if (tile != null) tile.ToolTip = explain;
+        }
         private static void CycleMetric(Panel parent, string label, string value, Brush accent)
         {
             var content = new StackPanel { Margin = new Thickness(5) };
@@ -13825,6 +13939,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         // controls or a hidden lower half of the settings page.
         // A labelled pool-settings field. Checkbox / dropdown rows are wider and checkbox text wraps,
         // so option names are never cut off.
+        private static Border SettingsBlock(UIElement child, Brush accent) { return new Border { Background = Card, BorderBrush = accent, BorderThickness = new Thickness(1, 1, 1, 1), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 4, 0, 4), Child = child }; }
+        private static TextBlock SettingsExplain(string text) { var t = Txt(text, Muted, 10, FontWeights.Normal); t.TextWrapping = TextWrapping.Wrap; t.Margin = new Thickness(2, 1, 2, 4); return t; }
         private static Grid PoolRow(string label, UIElement control)
         {
             bool wide = control is CheckBox || control is ComboBox;

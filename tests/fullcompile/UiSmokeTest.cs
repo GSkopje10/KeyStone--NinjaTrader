@@ -18,6 +18,15 @@ public static class UiSmokeTest
         Environment.SetEnvironmentVariable("HOME", System.IO.Path.GetTempPath());
         var lab = new KeystoneArc5MResearchLab();
         Step("open the lab window (every tab built)", () => Call(lab, "OpenWindow"));
+        Step("live theme switch re-colours the open window", () =>
+        {
+            var win = (System.Windows.Window)lab.GetType().GetField("window", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab);
+            Call(lab, "ApplyThemeLive", "DEEP OCEAN");
+            var bg = lab.GetType().GetField("Bg", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            var panel = lab.GetType().GetField("Panel", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+            if (!ReferenceEquals(win.Background, bg) && !ReferenceEquals(win.Background, panel)) throw new Exception("window background was not re-coloured");
+            Call(lab, "ApplyThemeLive", "OBSIDIAN GOLD");
+        });
         Step("strategy switch to ASIAN / FVG / BH", () => { var box = (System.Windows.Controls.ComboBox)lab.GetType().GetField("strategyBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); foreach (int i in new[] { 1, 2, 0 }) { box.SelectedIndex = i; box.SelectedItem = box.Items[i]; Call(lab, "RefreshStrategyInputState"); } });
         // A pool result through the UI render paths.
         var rng = new Random(2); var ev = new List<KeystoneArcEvent>(); DateTime day = new DateTime(2025, 1, 6);
