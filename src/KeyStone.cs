@@ -88,6 +88,12 @@ namespace NinjaTrader.NinjaScript
         public double FvgLower = double.NaN;
         public double FvgUpper = double.NaN;
         public DateTime FvgFormedTime = DateTime.MinValue;
+        // FVG retest strategy audit: which visit of the box produced the entry, the aggression
+        // before the box (red candles in a row / drop in price), and the box size.
+        public int FvgVisit;
+        public int FvgRedRun;
+        public double FvgDrop;
+        public double FvgGap;
         public string AssignedVirtualAccount;
         public string SkipReason;
         public string ConfigurationKey;
@@ -96,6 +102,19 @@ namespace NinjaTrader.NinjaScript
         // is optional and can exclude a specific row; it is not a second approval requirement.
         public string ReviewState = "ACCEPTED"; // ACCEPTED (eligible), REJECTED, FLAGGED
         public string ReviewNote = string.Empty;
+    }
+
+    // One bullish FVG box and what happened to it (FVG retest strategy). Chart + audit data.
+    public sealed class KeystoneArcFvgZone
+    {
+        public string Symbol;
+        public double Lower, Upper;               // candle 1 high → candle 3 low
+        public DateTime FormedTime;               // candle 3 time
+        public DateTime EndTime = DateTime.MaxValue; // when the box stopped being tradable
+        public string EndReason = "OPEN";         // CLOSED BELOW, RUN AWAY, USED, AGE, SESSION END, OPEN
+        public int Visits, Entries;
+        public int RedRun; public double Drop; public bool Aggressive;
+        public double Height { get { return Upper - Lower; } }
     }
 
     // One row is an auditable scenario, never a trading instruction.  It keeps setup discovery
@@ -596,6 +615,26 @@ namespace NinjaTrader.NinjaScript
         // Retained for snapshot compatibility; new runs calculate this as reversals + x1.
         public int AsianMaxTotalLegsPerInstrument = 4;
 
+        // FVG retest long (StrategyCode "FVG"). See docs/FVG.md. Every rule is a parameter so it
+        // can be tested and optimized; defaults follow the user's description.
+        public double FvgMnqMinGap = 0;          // minimum box height, MNQ points (0 = any gap)
+        public double FvgMgcMinGap = 0;          // minimum box height, MGC points (0 = any gap)
+        public double FvgMinDepthPercent = 25;   // how deep the dip must reach into the box (0 = touch, 50 = midpoint)
+        public double FvgRunAwayMultiple = 2;    // box retired when price runs this many box heights above it (0 = never)
+        public int FvgMaxEntriesPerBox = 1;      // entries one box may give (1 = one use)
+        public int FvgNeedNewDipAfterMiss = 1;   // 1: a green candle whose high is not broken needs a new dip; 0: any later green close re-arms
+        public int FvgZonesOutsideWindow = 1;    // 1: boxes formed before the session window can be traded inside it
+        public int FvgSameSessionOnly = 0;       // 1: a box is only traded in the session it formed
+        public int FvgMaxBoxAgeBars = 0;         // 0 = no age limit
+        public string FvgAggressionMode = "TAG"; // OFF, TAG (record only), REQUIRED
+        public int FvgMnqRedCandles = 3, FvgMgcRedCandles = 3;   // red candles in a row before the box (0 = off)
+        public double FvgMnqDropPoints = 0, FvgMgcDropPoints = 0; // drop before the box in price points (0 = off)
+        public string FvgAggressionCombine = "ANY";
+        public int FvgAllowOneGreenInRun = 1;    // a small green candle does not reset the red run
+        public string FvgStopMode = "FIXED";     // FIXED ($ stop as BH), BOX (below box bottom), GREEN_LOW (below the green candle)
+        public double FvgStopBufferPoints = 0;   // extra points below the box / green low
+        public int FvgMaxQuantity = 20;          // cap for risk-sized positions
+
         // Field-by-field copy (all fields are values or strings).
         public KeystoneArcRunConfig ShallowCopy() { return (KeystoneArcRunConfig)MemberwiseClone(); }
 
@@ -607,7 +646,8 @@ namespace NinjaTrader.NinjaScript
                 PoolSize.ToString(), DailyGoal.ToString("0.00", CultureInfo.InvariantCulture), DailyLoss.ToString("0.00", CultureInfo.InvariantCulture),
                 EvaluationEnabled.ToString(), EvaluationTarget.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyCreditCap.ToString("0.00", CultureInfo.InvariantCulture), EvaluationConsistencyPercent.ToString("0.00", CultureInfo.InvariantCulture), EvaluationFailure.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), EvaluationStageTradeRulesEnabled.ToString(), EvaluationTradeTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), EvaluationTradeStopDollars.ToString("0.00", CultureInfo.InvariantCulture), FundedDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), FundedFailure.ToString("0.00", CultureInfo.InvariantCulture), MinimumPositiveDays.ToString(), MinimumQualifyingDayProfit.ToString("0.00", CultureInfo.InvariantCulture),
                 PayoutThreshold.ToString("0.00", CultureInfo.InvariantCulture), PayoutDaysRequired.ToString(), PayoutAmount.ToString("0.00", CultureInfo.InvariantCulture), EvaluationCost.ToString("0.00", CultureInfo.InvariantCulture), ReplacementsRequirePayoutFunding.ToString(), FirmFundedCapEnabled.ToString(), EvaluationSlotsPerFirm.ToString(), MaxFundedPerFirm.ToString(), PropStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), PersonalStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), AsianStartHhmm.ToString(), AsianEndHhmm.ToString(), AsianMnqInitialDirection ?? string.Empty, AsianMgcInitialDirection ?? string.Empty, AsianRiskMode ?? string.Empty, AsianReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianCombinedStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianDailyLossLimitDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianBreakEvenTriggerDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianStartingQuantity.ToString(), AsianMaxReversalsPerInstrument.ToString(), AsianMnqMaxReversals.ToString(), AsianMgcMaxReversals.ToString(), AsianMaxTotalLegsPerInstrument.ToString(),
-                BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString(), ReplacementDelayDays.ToString() });
+                BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString(), ReplacementDelayDays.ToString(),
+                FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString() });
         }
     }
 
@@ -696,7 +736,7 @@ namespace NinjaTrader.NinjaScript
                 Id = x.Id, Symbol = x.Symbol, SetupClass = x.SetupClass, Direction = x.Direction, StrengthTag = x.StrengthTag,
                 ReferenceTime = x.ReferenceTime, TriggerTime = x.TriggerTime, EntryTime = x.EntryTime, Entry = x.Entry, Stop = x.Stop, Quantity = x.Quantity, StopDistance = x.StopDistance, RiskModel = x.RiskModel,
                 Target = x.Target, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched,
-                SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, AssignedVirtualAccount = x.AssignedVirtualAccount,
+                SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, FvgVisit = x.FvgVisit, FvgRedRun = x.FvgRedRun, FvgDrop = x.FvgDrop, FvgGap = x.FvgGap, AssignedVirtualAccount = x.AssignedVirtualAccount,
                 SkipReason = x.SkipReason, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote,
                 AsianLegNumber = x.AsianLegNumber, AsianCyclePnlAtExit = x.AsianCyclePnlAtExit, AsianCycleWorstAtExit = x.AsianCycleWorstAtExit
             };
@@ -776,6 +816,7 @@ namespace NinjaTrader.NinjaScript
                 var raw = oneMinute.Where(x => string.Equals(x.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.Time).ToList();
                 var bars = directSetupBars == null ? new List<KeystoneArcBar>() : directSetupBars.Where(x => string.Equals(x.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.Time).ToList();
                 if (bars.Count == 0) bars = ToSetupBars(raw, symbol, cfg.SetupMinutes);
+                if (string.Equals(cfg.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectFvgRetest(raw, bars, cfg, symbol)); continue; }
                 int order = 0;
                 DateTime orderDay = DateTime.MinValue;
                 var zones = new List<BullishFvg>();
@@ -1256,6 +1297,149 @@ namespace NinjaTrader.NinjaScript
             return NewEvent(symbol, shortSignal ? "BL" : "BH", reference.Time, trigger.Time, shortSignal ? reference.Low : reference.High, cfg, bars, i, shortSignal ? "SHORT" : "LONG");
         }
 
+        // ---- FVG retest long -------------------------------------------------------------
+        // Box = candle 1 high → candle 3 low when candle 3 low > candle 1 high (any colours).
+        // A later candle dips into the box (depth parameter) without closing below it; the first
+        // green close after the dip is the reference; the next candle breaking that high is the
+        // entry at that high (same entry mechanic as BH). A close below the box kills it; price
+        // running far above retires it; each box gives up to FvgMaxEntriesPerBox entries.
+        private sealed class FvgWork
+        {
+            public KeystoneArcFvgZone Zone; public int FormedIndex;
+            public int State;            // 0 waiting for a dip, 1 dipped (waiting green close), 2 armed (reference set)
+            public double RefHigh, RefLow; public DateTime RefTime; public int RefIndex;
+            public bool Dead;
+        }
+
+        public sealed class FvgScanEntry { public KeystoneArcFvgZone Zone; public int ReferenceIndex, TriggerIndex; public double Entry, GreenLow; public int Visit; }
+
+        public static List<KeystoneArcFvgZone> FvgScan(List<KeystoneArcBar> bars, KeystoneArcRunConfig cfg, string symbol, List<FvgScanEntry> entries)
+        {
+            var zones = new List<KeystoneArcFvgZone>();
+            if (bars == null || cfg == null) return zones;
+            bool mgc = IsMgc(symbol);
+            double minGap = Math.Max(0, mgc ? cfg.FvgMgcMinGap : cfg.FvgMnqMinGap);
+            double depth = Math.Max(0, Math.Min(100, cfg.FvgMinDepthPercent)) / 100.0;
+            string aggression = (cfg.FvgAggressionMode ?? "TAG").ToUpperInvariant();
+            var live = new List<FvgWork>();
+            for (int i = 0; i < bars.Count; i++)
+            {
+                KeystoneArcBar bar = bars[i];
+                bool inWindow = bar.Time >= cfg.Start && bar.Time <= cfg.End && InsideSession(bar.Time, symbol, cfg);
+                DateTime session = SessionGroupingDate(bar.Time, cfg);
+                foreach (FvgWork w in live)
+                {
+                    if (w.Dead || w.FormedIndex >= i) continue;
+                    KeystoneArcFvgZone z = w.Zone;
+                    if (cfg.FvgSameSessionOnly > 0 && SessionGroupingDate(z.FormedTime, cfg) != session) { Retire(w, bars[i - 1].Time, "SESSION END"); continue; }
+                    if (cfg.FvgMaxBoxAgeBars > 0 && i - w.FormedIndex > cfg.FvgMaxBoxAgeBars) { Retire(w, bars[i - 1].Time, "AGE"); continue; }
+                    // 1. Armed: this candle breaking the green candle's high is the entry.
+                    if (w.State == 2)
+                    {
+                        if (bar.High >= w.RefHigh && inWindow && DirectionAllows(symbol, "LONG", cfg))
+                        {
+                            z.Entries++;
+                            if (entries != null) entries.Add(new FvgScanEntry { Zone = z, ReferenceIndex = w.RefIndex, TriggerIndex = i, Entry = w.RefHigh, GreenLow = w.RefLow, Visit = z.Visits });
+                            if (z.Entries >= Math.Max(1, cfg.FvgMaxEntriesPerBox)) { Retire(w, bar.Time, "USED"); continue; }
+                            w.State = 0;
+                        }
+                        else w.State = cfg.FvgNeedNewDipAfterMiss > 0 ? 0 : 1;
+                    }
+                    // 2. A close below the box kills it.
+                    if (bar.Close < z.Lower) { Retire(w, bar.Time, "CLOSED BELOW"); continue; }
+                    // 3. Price running far above the box retires it.
+                    if (cfg.FvgRunAwayMultiple > 0 && w.State != 2 && bar.High > z.Upper + cfg.FvgRunAwayMultiple * Math.Max(z.Height, 1e-9)) { Retire(w, bar.Time, "RUN AWAY"); continue; }
+                    // 4. Dip into the box (deep enough) starts a retest.
+                    bool dipped = bar.Low <= z.Upper - depth * z.Height + 1e-9;
+                    if (dipped && w.State == 0) { w.State = 1; z.Visits++; }
+                    // 5. First green close after the dip (the dip candle itself counts) arms the box.
+                    if (w.State == 1 && bar.Close > bar.Open) { w.State = 2; w.RefHigh = bar.High; w.RefLow = bar.Low; w.RefTime = bar.Time; w.RefIndex = i; }
+                }
+                live.RemoveAll(w => w.Dead);
+                // New box on this candle (candle 3 = this bar).
+                if (i >= 2 && bar.Low > bars[i - 2].High && bar.Low - bars[i - 2].High >= minGap - 1e-9)
+                {
+                    bool formedInside = bar.Time >= cfg.Start && bar.Time <= cfg.End && InsideSession(bar.Time, symbol, cfg);
+                    if (formedInside || (cfg.FvgZonesOutsideWindow > 0 && bar.Time <= cfg.End))
+                    {
+                        int red; double drop; FvgAggression(bars, i - 2, cfg.FvgAllowOneGreenInRun > 0, out red, out drop);
+                        int needRed = Math.Max(0, mgc ? cfg.FvgMgcRedCandles : cfg.FvgMnqRedCandles);
+                        double needDrop = Math.Max(0, mgc ? cfg.FvgMgcDropPoints : cfg.FvgMnqDropPoints);
+                        bool useRed = needRed > 0, useDrop = needDrop > 0;
+                        bool aggressive = (useRed || useDrop) && (string.Equals(cfg.FvgAggressionCombine, "ALL", StringComparison.OrdinalIgnoreCase)
+                            ? (!useRed || red >= needRed) && (!useDrop || drop >= needDrop)
+                            : (useRed && red >= needRed) || (useDrop && drop >= needDrop));
+                        if (aggression != "REQUIRED" || aggressive)
+                        {
+                            var zone = new KeystoneArcFvgZone { Symbol = symbol, Lower = bars[i - 2].High, Upper = bar.Low, FormedTime = bar.Time, RedRun = red, Drop = drop, Aggressive = aggressive };
+                            zones.Add(zone);
+                            live.Add(new FvgWork { Zone = zone, FormedIndex = i });
+                        }
+                    }
+                }
+            }
+            return zones;
+        }
+
+        private static void Retire(FvgWork w, DateTime when, string reason) { w.Dead = true; w.Zone.EndTime = when; w.Zone.EndReason = reason; }
+
+        // Red candles in a row ending at (or just before) candle 1 of the box, and the price drop
+        // from the top of that run to its lowest low. Optionally one small green candle (body
+        // smaller than the red candle after it) does not break the run.
+        private static void FvgAggression(List<KeystoneArcBar> bars, int candle1, bool allowOneGreen, out int red, out double drop)
+        {
+            red = 0; drop = 0;
+            int last = candle1;
+            if (last >= 0 && bars[last].Close >= bars[last].Open) last--;
+            if (last < 0 || bars[last].Close >= bars[last].Open) return;
+            bool greenUsed = false; int first = last;
+            for (int k = last; k >= 0; k--)
+            {
+                KeystoneArcBar b = bars[k];
+                if (b.Close < b.Open) { red++; first = k; continue; }
+                if (allowOneGreen && !greenUsed && k + 1 <= last && k - 1 >= 0 && bars[k - 1].Close < bars[k - 1].Open && Math.Abs(b.Close - b.Open) < Math.Abs(bars[k + 1].Close - bars[k + 1].Open)) { greenUsed = true; continue; }
+                break;
+            }
+            double top = double.MinValue, low = double.MaxValue;
+            for (int k = first; k <= Math.Max(last, candle1); k++) { top = Math.Max(top, bars[k].High); low = Math.Min(low, bars[k].Low); }
+            drop = top > low ? top - low : 0;
+        }
+
+        private static List<KeystoneArcEvent> DetectFvgRetest(List<KeystoneArcBar> raw, List<KeystoneArcBar> bars, KeystoneArcRunConfig cfg, string symbol)
+        {
+            var output = new List<KeystoneArcEvent>();
+            var entries = new List<FvgScanEntry>();
+            FvgScan(bars, cfg, symbol, entries);
+            double pointValue = CashValuePerPriceMove(symbol, cfg);
+            string stopMode = (cfg.FvgStopMode ?? "FIXED").ToUpperInvariant();
+            int order = 0; DateTime orderDay = DateTime.MinValue;
+            foreach (FvgScanEntry x in entries.OrderBy(v => v.TriggerIndex))
+            {
+                KeystoneArcBar green = bars[x.ReferenceIndex], trigger = bars[x.TriggerIndex];
+                KeystoneArcEvent e = NewEvent(symbol, "FVG", green.Time, trigger.Time, x.Entry, cfg, bars, x.TriggerIndex);
+                if (stopMode == "BOX" || stopMode == "GREEN_LOW")
+                {
+                    double stop = (stopMode == "BOX" ? x.Zone.Lower : x.GreenLow) - Math.Max(0, cfg.FvgStopBufferPoints);
+                    double distance = Math.Max(0.0001, x.Entry - stop);
+                    double qty = Math.Max(1, Math.Min(Math.Max(1, cfg.FvgMaxQuantity), Math.Floor(cfg.StopDollars / (distance * pointValue))));
+                    e.Stop = stop; e.StopDistance = distance; e.Quantity = qty;
+                    e.Target = x.Entry + cfg.TargetDollars / Math.Max(0.0001, pointValue * qty);
+                    e.RiskModel = "FVG " + (stopMode == "BOX" ? "BELOW BOX" : "BELOW GREEN CANDLE") + " • RISK-SIZED " + qty + " • PRICE P/L";
+                }
+                DateTime day = SessionGroupingDate(trigger.Time, cfg); if (day != orderDay) { orderDay = day; order = 0; }
+                e.SessionOrder = ++order;
+                e.FvgLower = x.Zone.Lower; e.FvgUpper = x.Zone.Upper; e.FvgFormedTime = x.Zone.FormedTime;
+                e.FvgVisit = x.Visit; e.FvgRedRun = x.Zone.RedRun; e.FvgDrop = x.Zone.Drop; e.FvgGap = x.Zone.Height;
+                e.StrengthTag = x.Zone.Aggressive ? "AGGRESSIVE" : "BASE";
+                e.ReviewNote = "FVG box " + x.Zone.Lower.ToString("0.##", CultureInfo.InvariantCulture) + "–" + x.Zone.Upper.ToString("0.##", CultureInfo.InvariantCulture) + " formed " + x.Zone.FormedTime.ToString("yyyy-MM-dd HH:mm") + " • visit " + x.Visit + " • red run " + x.Zone.RedRun + " • drop " + x.Zone.Drop.ToString("0.##", CultureInfo.InvariantCulture) + (x.Zone.Aggressive ? " • AGGRESSIVE" : "");
+                e.ConfigurationKey = cfg.Snapshot();
+                ResolveOutcome(e, raw, cfg, symbol);
+                ResolveEvaluationStageOutcome(e, raw, cfg, symbol);
+                output.Add(e);
+            }
+            return output;
+        }
+
         private static bool DirectionAllows(string symbol, string direction, KeystoneArcRunConfig cfg)
         {
             string mode = (cfg == null ? "BB" : cfg.DirectionMode ?? "BB").ToUpperInvariant();
@@ -1453,6 +1637,8 @@ namespace NinjaTrader.NinjaScript
             if (sessionEnd > cfg.End) sessionEnd = cfg.End;
             sessionEnd = sessionEnd.AddMinutes(timeOffset);
             double pointValue = CashValuePerPriceMove(symbol, cfg);
+            // FVG box / green-low stops are risk-sized: their P/L is the real price move × size.
+            bool priceBased = e.RiskModel != null && e.RiskModel.StartsWith("FVG ", StringComparison.Ordinal);
             double qty = Math.Max(0.0001, e.Quantity > 0 ? e.Quantity : (IsPersonalAccount(cfg) ? cfg.PersonalLotSize : cfg.Quantity));
             int startIndex = FirstIndexAtOrAfter(raw, e.TriggerTime.AddMinutes(timeOffset));
             if (startIndex < 0) { e.Outcome = "NO ENTRY DATA"; e.GrossPnl = 0; return; }
@@ -1477,7 +1663,7 @@ namespace NinjaTrader.NinjaScript
             if (entryBarStop)
             {
                 e.Outcome = entryBarTarget ? "LOSS SAME-MINUTE STOP-FIRST" : "LOSS ENTRY-MINUTE AMBIGUOUS STOP-FIRST";
-                e.GrossPnl = UsesFixedDollarStop(cfg) ? -Math.Abs(cfg.StopDollars) : EventPnlAtExit(e, e.Stop, pointValue, qty);
+                e.GrossPnl = UsesFixedDollarStop(cfg) && !priceBased ? -Math.Abs(cfg.StopDollars) : EventPnlAtExit(e, e.Stop, pointValue, qty);
                 e.ExitTime = entryBar.Time.AddMinutes(-timeOffset);
                 e.ExitPrice = e.Stop;
                 return;
@@ -1485,7 +1671,7 @@ namespace NinjaTrader.NinjaScript
             if (entryBarTarget)
             {
                 e.Outcome = "WIN";
-                e.GrossPnl = IsPersonalAccount(cfg) ? EventPnlAtExit(e, e.Target, pointValue, qty) : cfg.TargetDollars;
+                e.GrossPnl = IsPersonalAccount(cfg) || priceBased ? EventPnlAtExit(e, e.Target, pointValue, qty) : cfg.TargetDollars;
                 e.ExitTime = entryBar.Time.AddMinutes(-timeOffset);
                 e.ExitPrice = e.Target;
                 return;
@@ -1507,7 +1693,7 @@ namespace NinjaTrader.NinjaScript
                 if (hitTarget && hitStop)
                 {
                     e.Outcome = "LOSS SAME-MINUTE STOP-FIRST";
-                    e.GrossPnl = UsesFixedDollarStop(cfg) ? -Math.Abs(cfg.StopDollars) : EventPnlAtExit(e, e.Stop, pointValue, qty);
+                    e.GrossPnl = UsesFixedDollarStop(cfg) && !priceBased ? -Math.Abs(cfg.StopDollars) : EventPnlAtExit(e, e.Stop, pointValue, qty);
                     e.ExitTime = bar.Time.AddMinutes(-timeOffset);
                     e.ExitPrice = e.Stop;
                     return;
@@ -1515,7 +1701,7 @@ namespace NinjaTrader.NinjaScript
                 if (hitStop)
                 {
                     e.Outcome = "LOSS";
-                    e.GrossPnl = UsesFixedDollarStop(cfg) ? -Math.Abs(cfg.StopDollars) : EventPnlAtExit(e, e.Stop, pointValue, qty);
+                    e.GrossPnl = UsesFixedDollarStop(cfg) && !priceBased ? -Math.Abs(cfg.StopDollars) : EventPnlAtExit(e, e.Stop, pointValue, qty);
                     e.ExitTime = bar.Time.AddMinutes(-timeOffset);
                     e.ExitPrice = e.Stop;
                     return;
@@ -1523,7 +1709,7 @@ namespace NinjaTrader.NinjaScript
                 if (hitTarget)
                 {
                     e.Outcome = "WIN";
-                    e.GrossPnl = IsPersonalAccount(cfg) ? EventPnlAtExit(e, e.Target, pointValue, qty) : cfg.TargetDollars;
+                    e.GrossPnl = IsPersonalAccount(cfg) || priceBased ? EventPnlAtExit(e, e.Target, pointValue, qty) : cfg.TargetDollars;
                     e.ExitTime = bar.Time.AddMinutes(-timeOffset);
                     e.ExitPrice = e.Target;
                     return;
@@ -10845,7 +11031,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private static List<KeystoneArcEvent> CloneEvents(IEnumerable<KeystoneArcEvent> source)
         {
-            return source.Select(x => new KeystoneArcEvent { Id = x.Id, Symbol = x.Symbol, SetupClass = x.SetupClass, Direction = x.Direction, StrengthTag = x.StrengthTag, ReferenceTime = x.ReferenceTime, TriggerTime = x.TriggerTime, EntryTime = x.EntryTime, Entry = x.Entry, Stop = x.Stop, Target = x.Target, Quantity = x.Quantity, StopDistance = x.StopDistance, RiskModel = x.RiskModel, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, EvaluationOutcome = x.EvaluationOutcome, EvaluationExitTime = x.EvaluationExitTime, EvaluationExitPrice = x.EvaluationExitPrice, EvaluationGrossPnl = x.EvaluationGrossPnl, EvaluationTarget = x.EvaluationTarget, EvaluationStop = x.EvaluationStop, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched, SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote }).ToList();
+            return source.Select(x => new KeystoneArcEvent { Id = x.Id, Symbol = x.Symbol, SetupClass = x.SetupClass, Direction = x.Direction, StrengthTag = x.StrengthTag, ReferenceTime = x.ReferenceTime, TriggerTime = x.TriggerTime, EntryTime = x.EntryTime, Entry = x.Entry, Stop = x.Stop, Target = x.Target, Quantity = x.Quantity, StopDistance = x.StopDistance, RiskModel = x.RiskModel, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, EvaluationOutcome = x.EvaluationOutcome, EvaluationExitTime = x.EvaluationExitTime, EvaluationExitPrice = x.EvaluationExitPrice, EvaluationGrossPnl = x.EvaluationGrossPnl, EvaluationTarget = x.EvaluationTarget, EvaluationStop = x.EvaluationStop, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched, SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, FvgVisit = x.FvgVisit, FvgRedRun = x.FvgRedRun, FvgDrop = x.FvgDrop, FvgGap = x.FvgGap, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote }).ToList();
         }
 
         private static KeystoneArcRunConfig CloneConfig(KeystoneArcRunConfig source)
