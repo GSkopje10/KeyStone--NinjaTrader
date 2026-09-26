@@ -3351,6 +3351,79 @@ namespace NinjaTrader.NinjaScript
             return steps;
         }
     }
+    // Live replay state at one minute: open positions marked at that minute's close, realized
+    // P/L so far and the combined total — for any strategy (Asian legs or BH / FVG trades).
+    public sealed class KeystoneArcLiveLine { public string Symbol; public double Realized, Open; public int Closed; public string Position = string.Empty; }
+    public sealed class KeystoneArcLiveState
+    {
+        public DateTime Time; public double Realized, Open, Combined;
+        public List<KeystoneArcLiveLine> Lines = new List<KeystoneArcLiveLine>();
+    }
+
+    public static class KeystoneArcLive
+    {
+        static double PointValue(string symbol) { return (symbol ?? string.Empty).StartsWith("MGC", StringComparison.OrdinalIgnoreCase) ? 10.0 : 2.0; }
+        static bool Resolved(KeystoneArcEvent e) { return e != null && e.EntryTime != DateTime.MinValue && e.Outcome != "NO ENTRY DATA" && e.Outcome != "UNVERIFIED 1M" && !(e.Outcome ?? string.Empty).StartsWith("OUTCOME BLOCKED", StringComparison.OrdinalIgnoreCase); }
+
+        public static KeystoneArcLiveState At(IEnumerable<KeystoneArcEvent> trades, Func<string, DateTime, double?> closeAt, DateTime t)
+        {
+            var state = new KeystoneArcLiveState { Time = t };
+            var list = (trades ?? Enumerable.Empty<KeystoneArcEvent>()).Where(Resolved).ToList();
+            foreach (string symbol in list.Select(e => e.Symbol).Distinct().OrderBy(x => x))
+            {
+                var line = new KeystoneArcLiveLine { Symbol = symbol };
+                var mine = list.Where(e => e.Symbol == symbol).ToList();
+                var closed = mine.Where(e => e.ExitTime != DateTime.MinValue && e.ExitTime <= t).ToList();
+                line.Realized = closed.Sum(e => e.GrossPnl); line.Closed = closed.Count;
+                var open = mine.Where(e => e.EntryTime <= t && (e.ExitTime == DateTime.MinValue || e.ExitTime > t)).ToList();
+                var parts = new List<string>();
+                foreach (KeystoneArcEvent e in open)
+                {
+                    double? mark = closeAt == null ? null : closeAt(symbol, t);
+                    double now = mark ?? e.Entry;
+                    double pnl = (now - e.Entry) * PointValue(symbol) * Math.Max(0.0001, e.Quantity) * (string.Equals(e.Direction, "SHORT", StringComparison.OrdinalIgnoreCase) ? -1 : 1);
+                    line.Open += pnl;
+                    string fmt = symbol.StartsWith("MGC", StringComparison.OrdinalIgnoreCase) ? "0.0" : "0.00";
+                    parts.Add((e.AsianLegNumber > 0 ? "L" + e.AsianLegNumber + " " : e.SetupClass + " ") + e.Direction + " x" + e.Quantity.ToString("0.##", CultureInfo.InvariantCulture) + " @ " + e.Entry.ToString(fmt, CultureInfo.InvariantCulture)
+                        + " • now " + now.ToString(fmt, CultureInfo.InvariantCulture) + (double.IsNaN(e.Stop) || e.Stop == 0 ? "" : " • stop " + e.Stop.ToString(fmt, CultureInfo.InvariantCulture)) + (double.IsNaN(e.Target) || e.Target == 0 || e.AsianLegNumber > 0 ? "" : " • target " + e.Target.ToString(fmt, CultureInfo.InvariantCulture)));
+                }
+                line.Position = parts.Count == 0 ? (mine.Any(e => e.EntryTime > t) ? "FLAT • waiting" : "FLAT • done") : string.Join("  |  ", parts);
+                state.Lines.Add(line);
+                state.Realized += line.Realized; state.Open += line.Open;
+            }
+            state.Combined = state.Realized + state.Open;
+            return state;
+        }
+
+        // Lowest combined value reached at any 1-minute close from the first entry up to t.
+        public static double WorstUntil(IEnumerable<KeystoneArcEvent> trades, Func<string, DateTime, double?> closeAt, IEnumerable<DateTime> minuteCloses, DateTime t)
+        {
+            var list = (trades ?? Enumerable.Empty<KeystoneArcEvent>()).Where(Resolved).ToList();
+            if (list.Count == 0) return 0;
+            DateTime first = list.Min(e => e.EntryTime);
+            double worst = 0;
+            foreach (DateTime m in (minuteCloses ?? Enumerable.Empty<DateTime>()).Where(m => m >= first && m <= t)) worst = Math.Min(worst, At(list, closeAt, m).Combined);
+            return worst;
+        }
+
+        // Event steps for setup strategies (BH / FVG): one step per entry or exit minute.
+        public static List<KeystoneArcReplayStep> TradeSteps(IEnumerable<KeystoneArcEvent> trades)
+        {
+            var steps = new List<KeystoneArcReplayStep>();
+            var list = (trades ?? Enumerable.Empty<KeystoneArcEvent>()).Where(Resolved).OrderBy(e => e.EntryTime).ToList();
+            foreach (DateTime t in list.Select(e => e.EntryTime).Concat(list.Where(e => e.ExitTime != DateTime.MinValue).Select(e => e.ExitTime)).Distinct().OrderBy(x => x))
+            {
+                var step = new KeystoneArcReplayStep { Time = t, Entries = list.Where(e => e.EntryTime == t).ToList(), Exits = list.Where(e => e.ExitTime == t).ToList() };
+                var words = new List<string>();
+                foreach (var e in step.Entries) words.Add(e.Symbol + " " + e.SetupClass + " ENTRY " + e.Direction + " @ " + e.Entry.ToString("0.##", CultureInfo.InvariantCulture));
+                foreach (var e in step.Exits) words.Add(e.Symbol + " " + e.SetupClass + " " + (e.Outcome == "WIN" ? "TARGET" : (e.Outcome ?? "").StartsWith("LOSS") ? "STOP" : "EXIT") + " " + (e.GrossPnl >= 0 ? "+$" : "−$") + Math.Abs(e.GrossPnl).ToString("N0", CultureInfo.InvariantCulture));
+                step.Headline = string.Join(" • ", words);
+                steps.Add(step);
+            }
+            return steps;
+        }
+    }
+
     // ---------------------------------------------------------------------------------------
     // Strategy-only day scoreboard (no accounts): one row per session with setups / legs, wins,
     // losses, P/L, how an Asian night ended; plus totals, streaks and a month-by-month table.
@@ -3958,6 +4031,14 @@ namespace NinjaTrader.NinjaScript.AddOns
         private int evidenceReplayIndex = -1;
         private bool evidenceReplayFollow;
         private DispatcherTimer evidenceReplayTimer;
+        // Bar-by-bar replay: candles after the cursor are hidden; the live box shows every open
+        // position and the combined P/L at the cursor minute. MinValue = replay off.
+        private DateTime evidenceBarCursor = DateTime.MinValue;
+        private bool evidenceCursorFollow;
+        private ComboBox evidenceSpeedBox;
+        private Border evidenceLiveBorder, evidenceLiveTargetFill, evidenceLiveLossFill, evidenceSidePanel;
+        private TextBlock evidenceLiveClock, evidenceLiveCombined, evidenceLiveLines, evidenceLiveTargetText, evidenceLiveLossText;
+        private string evidenceReplayKey = string.Empty;
         private bool evidenceSelectionClickHandled;
         private readonly List<Button> evidenceDateButtons = new List<Button>();
         private int evidenceSelectedDateIndex = -1;
@@ -8451,30 +8532,52 @@ namespace NinjaTrader.NinjaScript.AddOns
             auditRow.Children.Add(evidenceHoverBorder);
             var totalsBorder = new Border { Background = Card, BorderBrush = Cyan, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(8, 0, 0, 0), Child = evidenceMetricsText };
             Grid.SetColumn(totalsBorder, 1); auditRow.Children.Add(totalsBorder); auditStack.Children.Add(auditRow);
-            // Asian replay: step through the night event by event on either instrument tab.
-            evidenceReplayBar = new WrapPanel { Margin = new Thickness(0, 4, 0, 2), Visibility = Visibility.Collapsed };
-            var replayStart = Btn("⏮ START", Card); replayStart.Width = 96; replayStart.Height = 30; replayStart.Foreground = Text; replayStart.ToolTip = "First event of the night"; replayStart.Click += delegate { EvidenceReplayGo(0); };
-            var replayPrev = Btn("◀ PREV", Blue); replayPrev.Width = 96; replayPrev.Height = 30; replayPrev.ToolTip = "Previous event"; replayPrev.Click += delegate { EvidenceReplayGo(evidenceReplayIndex <= 0 ? 0 : evidenceReplayIndex - 1); };
-            evidenceReplayPlayButton = Btn("▶ PLAY", Green); evidenceReplayPlayButton.Width = 110; evidenceReplayPlayButton.Height = 30; evidenceReplayPlayButton.ToolTip = "Animate the night step by step"; evidenceReplayPlayButton.Click += delegate { ToggleEvidenceReplayPlay(); };
-            var replayNext = Btn("NEXT ▶", Blue); replayNext.Width = 96; replayNext.Height = 30; replayNext.ToolTip = "Next event"; replayNext.Click += delegate { EvidenceReplayGo(evidenceReplayIndex + 1); };
-            var replayEnd = Btn("END ⏭", Card); replayEnd.Width = 96; replayEnd.Height = 30; replayEnd.Foreground = Text; replayEnd.ToolTip = "Last event of the night"; replayEnd.Click += delegate { EvidenceReplayGo(int.MaxValue); };
-            var replayExit = Btn("SHOW ALL", Orchid); replayExit.Width = 100; replayExit.Height = 30; replayExit.ToolTip = "Leave replay and show every leg"; replayExit.Click += delegate { StopEvidenceReplay(); };
+            // Replay (every strategy): bar-by-bar playback with speed, event jumps, and a live box.
+            evidenceReplayBar = new WrapPanel { Margin = new Thickness(0, 4, 0, 2) };
+            Func<string, Brush, double, string, Action, Button> rb = delegate(string label, Brush brush, double buttonWidth, string tip, Action act) { var b0 = Btn(label, brush); b0.Width = buttonWidth; b0.Height = 30; b0.Margin = new Thickness(2, 0, 2, 0); b0.ToolTip = tip; if (brush == Card) b0.Foreground = Text; b0.Click += delegate { act(); }; return b0; };
+            var replayStart = rb("⏮ START", Card, 88, "Go to the start of the session (all candles hidden)", delegate { ReplaySetCursor(ReplayFirstBarTime(), true); });
+            var replayPrevEvent = rb("◀◀ EVENT", Blue, 96, "Jump to the previous entry / stop / exit", delegate { ReplayJumpEvent(-1); });
+            var replayPrevBar = rb("◀ BAR", Card, 70, "One candle back", delegate { ReplayStepBar(-1); });
+            evidenceReplayPlayButton = rb("▶ PLAY", Green, 104, "Play candle by candle at the chosen speed", delegate { ToggleEvidenceReplayPlay(); });
+            var replayNextBar = rb("BAR ▶", Card, 70, "One candle forward", delegate { ReplayStepBar(1); });
+            var replayNextEvent = rb("EVENT ▶▶", Blue, 96, "Jump to the next entry / stop / exit", delegate { ReplayJumpEvent(1); });
+            var replayEnd = rb("END ⏭", Card, 80, "Last event of the session", delegate { ReplayJumpEvent(int.MaxValue); });
+            var replayExit = rb("SHOW ALL", Orchid, 92, "Leave replay and show every candle", delegate { StopEvidenceReplay(); });
+            evidenceSpeedBox = Select("1 BAR/S", "2 BARS/S", "5 BARS/S", "10 BARS/S", "30 BARS/S", "60 BARS/S"); evidenceSpeedBox.SelectedIndex = 2; evidenceSpeedBox.Width = 110; evidenceSpeedBox.Height = 28; evidenceSpeedBox.Margin = new Thickness(6, 0, 2, 0);
+            evidenceSpeedBox.SelectionChanged += delegate { if (evidenceReplayTimer != null) evidenceReplayTimer.Interval = ReplayInterval(); };
             evidenceReplayStepText = Txt(string.Empty, Gold, 12, FontWeights.Bold); evidenceReplayStepText.VerticalAlignment = VerticalAlignment.Center; evidenceReplayStepText.Margin = new Thickness(10, 0, 0, 0);
-            foreach (UIElement replayControl in new UIElement[] { replayStart, replayPrev, evidenceReplayPlayButton, replayNext, replayEnd, replayExit, evidenceReplayStepText }) evidenceReplayBar.Children.Add(replayControl);
+            foreach (UIElement replayControl in new UIElement[] { replayStart, replayPrevEvent, replayPrevBar, evidenceReplayPlayButton, replayNextBar, replayNextEvent, replayEnd, evidenceSpeedBox, replayExit, evidenceReplayStepText }) evidenceReplayBar.Children.Add(replayControl);
             auditStack.Children.Add(evidenceReplayBar);
-            evidenceReplayHeadline = Txt(string.Empty, Cyan, 15, FontWeights.Bold);
-            evidenceReplayDetail = Txt(string.Empty, Text, 12, FontWeights.Normal); evidenceReplayDetail.FontFamily = new FontFamily("Consolas"); evidenceReplayDetail.TextWrapping = TextWrapping.NoWrap;
-            var replayContent = new StackPanel(); replayContent.Children.Add(evidenceReplayHeadline); replayContent.Children.Add(evidenceReplayDetail);
-            evidenceReplayBorder = new Border { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(5), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 2, 0, 2), HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed, Child = replayContent };
-            auditStack.Children.Add(evidenceReplayBorder);
+            // Side panel (right of the chart): live replay box, last event, selected setup.
+            var side = new StackPanel { Margin = new Thickness(6, 0, 0, 0) };
+            evidenceLiveClock = Txt(string.Empty, Gold, 13, FontWeights.Bold);
+            evidenceLiveCombined = Txt("$0", Green, 30, FontWeights.Bold);
+            evidenceLiveLines = Txt(string.Empty, Text, 11, FontWeights.Normal); evidenceLiveLines.FontFamily = new FontFamily("Consolas"); evidenceLiveLines.TextWrapping = TextWrapping.Wrap;
+            evidenceLiveTargetText = Txt(string.Empty, Green, 10, FontWeights.Bold); evidenceLiveLossText = Txt(string.Empty, Red, 10, FontWeights.Bold);
+            evidenceLiveTargetFill = new Border { Background = Green, Height = 8, Width = 0, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(4) };
+            evidenceLiveLossFill = new Border { Background = Red, Height = 8, Width = 0, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(4) };
+            var liveStack = new StackPanel();
+            liveStack.Children.Add(Txt("LIVE REPLAY", Muted, 10, FontWeights.Bold)); liveStack.Children.Add(evidenceLiveClock);
+            liveStack.Children.Add(Txt("COMBINED P/L", Muted, 10, FontWeights.Bold)); liveStack.Children.Add(evidenceLiveCombined);
+            liveStack.Children.Add(evidenceLiveTargetText); liveStack.Children.Add(new Border { Background = Panel, Height = 8, Width = 330, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(4), Child = evidenceLiveTargetFill, Margin = new Thickness(0, 2, 0, 6) });
+            liveStack.Children.Add(evidenceLiveLossText); liveStack.Children.Add(new Border { Background = Panel, Height = 8, Width = 330, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(4), Child = evidenceLiveLossFill, Margin = new Thickness(0, 2, 0, 6) });
+            liveStack.Children.Add(evidenceLiveLines);
+            evidenceLiveBorder = new Border { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 8, 12, 10), Margin = new Thickness(0, 0, 0, 6), Visibility = Visibility.Collapsed, Child = liveStack };
+            side.Children.Add(evidenceLiveBorder);
+            evidenceReplayHeadline = Txt(string.Empty, Cyan, 14, FontWeights.Bold); evidenceReplayHeadline.TextWrapping = TextWrapping.Wrap;
+            evidenceReplayDetail = Txt(string.Empty, Text, 11, FontWeights.Normal); evidenceReplayDetail.FontFamily = new FontFamily("Consolas"); evidenceReplayDetail.TextWrapping = TextWrapping.Wrap;
+            var replayContent = new StackPanel(); replayContent.Children.Add(Txt("LAST EVENT", Muted, 10, FontWeights.Bold)); replayContent.Children.Add(evidenceReplayHeadline); replayContent.Children.Add(evidenceReplayDetail);
+            evidenceReplayBorder = new Border { Background = Card, BorderBrush = Cyan, BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 0, 0, 6), Visibility = Visibility.Collapsed, Child = replayContent };
+            side.Children.Add(evidenceReplayBorder);
             evidenceDetailText = Txt("CLICK A W/L/EXIT CIRCLE TO AUDIT ONE SETUP. The chart stays clean until selection: then its exact entry and exit prices appear without covering the candles.", Muted, 11, FontWeights.Normal);
-            evidenceDetailText.FontFamily = new FontFamily("Consolas");
-            evidenceDetailBorder = new Border { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1), Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 3, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = 940, Visibility = Visibility.Collapsed, Child = evidenceDetailText };
-            auditStack.Children.Add(evidenceDetailBorder);
-            evidencePnlText = Txt(string.Empty, Text, 19, FontWeights.Bold);
-            evidencePnlText.FontFamily = new FontFamily("Consolas");
-            evidencePnlBorder = new Border { Background = EvidenceBg, BorderBrush = Cyan, BorderThickness = new Thickness(2), Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 3, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed, Child = evidencePnlText };
-            auditStack.Children.Add(evidencePnlBorder);
+            evidenceDetailText.FontFamily = new FontFamily("Consolas"); evidenceDetailText.TextWrapping = TextWrapping.Wrap;
+            evidenceDetailBorder = new Border { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(0, 0, 0, 6), Child = evidenceDetailText };
+            side.Children.Add(evidenceDetailBorder);
+            evidencePnlText = Txt(string.Empty, Text, 17, FontWeights.Bold);
+            evidencePnlText.FontFamily = new FontFamily("Consolas"); evidencePnlText.TextWrapping = TextWrapping.Wrap;
+            evidencePnlBorder = new Border { Background = EvidenceBg, BorderBrush = Cyan, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 0, 6), Visibility = Visibility.Collapsed, Child = evidencePnlText };
+            side.Children.Add(evidencePnlBorder);
+            evidenceSidePanel = new Border { Width = 370, Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = side } };
             Grid.SetRow(auditStack, 2); root.Children.Add(auditStack);
             evidenceZoom = 1.0; evidenceHorizontalZoom = 1.0; evidenceVerticalZoom = 1.0;
             evidenceCanvas = new Canvas { Background = EvidenceBg, Width = 1200, Height = 620, ClipToBounds = true };
@@ -8589,7 +8692,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             chartHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); chartHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             chartHost.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); chartHost.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             chartHost.Children.Add(evidenceScroll);
-            Grid.SetRow(chartHost, 3); root.Children.Add(chartHost);
+            var chartArea = new Grid();
+            chartArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); chartArea.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            chartArea.Children.Add(chartHost); Grid.SetColumn(evidenceSidePanel, 1); chartArea.Children.Add(evidenceSidePanel);
+            // The chart follows the real space left in the window: nothing can push its time axis
+            // out of view any more.
+            chartHost.SizeChanged += delegate { if (evidenceBars != null && evidenceBars.Count > 0) RequestEvidenceRender(true); };
+            Grid.SetRow(chartArea, 3); root.Children.Add(chartArea);
             w.Content = root;
             evidenceWindow = w;
             evidenceCloseConfirmed = false;
@@ -8600,7 +8709,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (answer != MessageBoxResult.Yes) { args.Cancel = true; return; }
                 evidenceCloseConfirmed = true;
             };
-            w.Closed += delegate { CancelEvidenceRequest(); if (evidenceReplayTimer != null) evidenceReplayTimer.Stop(); evidenceReplayIndex = -1; evidenceReplayDay = DateTime.MinValue; evidenceReplaySteps = new List<KeystoneArcReplayStep>(); evidenceReplayBar = null; evidenceReplayBorder = null; evidenceReplayHeadline = null; evidenceReplayDetail = null; evidenceReplayStepText = null; evidenceReplayPlayButton = null; if (evidenceSelectionTimer != null) evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; if (evidenceRenderQueued) { CompositionTarget.Rendering -= EvidenceRenderTick; evidenceRenderQueued = false; } evidenceFullRenderNeeded = true; evidenceLastAnimatedRenderKey = null; evidencePanOverscrollTransform = null; evidenceCrosshairHLine = null; evidenceCrosshairVLine = null; evidenceCrosshairPriceLabel = null; evidenceCrosshairTimeLabel = null; evidenceLayoutBars = null; evidenceWindow = null; evidenceCanvas = null; evidenceScroll = null; evidenceHorizontalScrollBar = null; evidenceVerticalScrollBar = null; evidenceTabsScroll = null; evidenceDateStrip = null; evidenceDateButtons.Clear(); evidenceSelectedDateIndex = -1; evidenceControlsPanel = null; evidenceDetailBorder = null; evidencePnlBorder = null; evidenceControlsToggle = null; evidenceStatusText = null; evidenceMetricsText = null; evidenceLegendText = null; evidenceZoomText = null; evidenceStudyText = null; evidenceDetailText = null; evidencePnlText = null; selectedEvidenceEvent = null; evidenceInstrumentTabs = null; evidenceTimeframeBox = null; evidencePreviewEvents.Clear(); evidencePreviewOwnLedger = false; evidencePreviewMinutes = 0; evidencePanning = false; pendingEvidenceSelectionAction = null; };
+            w.Closed += delegate { CancelEvidenceRequest(); if (evidenceReplayTimer != null) evidenceReplayTimer.Stop(); evidenceBarCursor = DateTime.MinValue; evidenceReplayKey = string.Empty; evidenceLiveBorder = null; evidenceSidePanel = null; evidenceSpeedBox = null; evidenceReplayIndex = -1; evidenceReplayDay = DateTime.MinValue; evidenceReplaySteps = new List<KeystoneArcReplayStep>(); evidenceReplayBar = null; evidenceReplayBorder = null; evidenceReplayHeadline = null; evidenceReplayDetail = null; evidenceReplayStepText = null; evidenceReplayPlayButton = null; if (evidenceSelectionTimer != null) evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; if (evidenceRenderQueued) { CompositionTarget.Rendering -= EvidenceRenderTick; evidenceRenderQueued = false; } evidenceFullRenderNeeded = true; evidenceLastAnimatedRenderKey = null; evidencePanOverscrollTransform = null; evidenceCrosshairHLine = null; evidenceCrosshairVLine = null; evidenceCrosshairPriceLabel = null; evidenceCrosshairTimeLabel = null; evidenceLayoutBars = null; evidenceWindow = null; evidenceCanvas = null; evidenceScroll = null; evidenceHorizontalScrollBar = null; evidenceVerticalScrollBar = null; evidenceTabsScroll = null; evidenceDateStrip = null; evidenceDateButtons.Clear(); evidenceSelectedDateIndex = -1; evidenceControlsPanel = null; evidenceDetailBorder = null; evidencePnlBorder = null; evidenceControlsToggle = null; evidenceStatusText = null; evidenceMetricsText = null; evidenceLegendText = null; evidenceZoomText = null; evidenceStudyText = null; evidenceDetailText = null; evidencePnlText = null; selectedEvidenceEvent = null; evidenceInstrumentTabs = null; evidenceTimeframeBox = null; evidencePreviewEvents.Clear(); evidencePreviewOwnLedger = false; evidencePreviewMinutes = 0; evidencePanning = false; pendingEvidenceSelectionAction = null; };
             w.Show();
             if (evidenceInstrumentTabs != null && evidenceInstrumentTabs.Items.Count > 0)
             {
@@ -8834,29 +8943,35 @@ namespace NinjaTrader.NinjaScript.AddOns
             // At 100% candles use a normal readable width. A long session therefore opens as a
             // viewport rather than squeezing hundreds of bars into miniature candles; pan or the
             // external time bar moves through it. Price scale changes the visible range only.
-            double chartHeight = Math.Max(420, Math.Min(620, (evidenceWindow == null ? 820 : evidenceWindow.Height) - 365));
-            double width = Math.Max(900, evidenceWindow == null ? 1320 : evidenceWindow.Width - 54);
+            // Size from the space the chart really has (the side panel and toolbars never push the
+            // time axis out of view). Before the first layout pass, fall back to the window size.
+            double hostW = evidenceScroll == null ? 0 : evidenceScroll.ActualWidth, hostH = evidenceScroll == null ? 0 : evidenceScroll.ActualHeight;
+            double chartHeight = hostH > 150 ? hostH - 2 : Math.Max(420, Math.Min(620, (evidenceWindow == null ? 820 : evidenceWindow.Height) - 365));
+            double width = hostW > 300 ? hostW - 2 : Math.Max(900, evidenceWindow == null ? 1320 : evidenceWindow.Width - 54);
             double left = 72, top = 58, right = 78, bottom = 58;
             double baseCandleWidth = chartMinutes <= 1 ? 8 : (chartMinutes <= 5 ? 14 : (chartMinutes <= 30 ? 20 : 30));
             double candleWidth = baseCandleWidth * Math.Max(0.04, Math.Min(40.0, evidenceHorizontalZoom));
             int visibleCount = Math.Max(1, Math.Min(allBars.Count, (int)Math.Floor((width - left - right) / Math.Max(0.35, candleWidth))));
             int lastPossibleFirst = Math.Max(0, allBars.Count - visibleCount);
             evidenceLayoutLastPossibleFirst = lastPossibleFirst;
-            bool asianReplay = config != null && string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
-            if (asianReplay && day != evidenceReplayDay) { EnsureEvidenceReplaySteps(day); UpdateEvidenceReplayPanel(); }
-            if (asianReplay && evidenceReplayFollow && evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count)
+            string replayKeyBefore = evidenceReplayKey;
+            EnsureEvidenceReplaySteps(day);
+            if (replayKeyBefore != evidenceReplayKey) UpdateEvidenceReplayPanel();
+            bool replaying = evidenceBarCursor != DateTime.MinValue;
+            if (replaying && evidenceCursorFollow)
             {
-                // Keep the current replay event in view (about a third from the left).
-                DateTime replayTime = evidenceReplaySteps[evidenceReplayIndex].Time;
-                int replayBar = allBars.FindLastIndex(candle => candle.Time <= replayTime);
-                if (replayBar >= 0 && (replayBar < evidenceFirstVisibleBar || replayBar >= evidenceFirstVisibleBar + visibleCount - 2))
-                    evidenceFirstVisibleBar = Math.Max(0, replayBar - visibleCount / 3);
-                evidenceReplayFollow = false;
+                // Keep the replay cursor in view, about 70% across, like a trading platform replay.
+                int cursorBar = allBars.FindLastIndex(candle => candle.Time <= evidenceBarCursor);
+                if (cursorBar >= 0 && (cursorBar < evidenceFirstVisibleBar || cursorBar >= evidenceFirstVisibleBar + visibleCount - 3))
+                    evidenceFirstVisibleBar = Math.Max(0, cursorBar - (int)(visibleCount * 0.7));
+                evidenceCursorFollow = false;
             }
             evidenceFirstVisibleBar = Math.Max(0, Math.Min(lastPossibleFirst, evidenceFirstVisibleBar));
             List<KeystoneArcBar> bars = allBars.Skip(evidenceFirstVisibleBar).Take(visibleCount).ToList();
-            List<KeystoneArcEvent> marks = allMarks.Where(e => EvidenceEntryBarIndex(bars, e) >= 0).ToList();
-            double rawMin = bars.Min(x => x.Low), rawMax = bars.Max(x => x.High);
+            List<KeystoneArcEvent> marks = allMarks.Where(e => EvidenceEntryBarIndex(bars, e) >= 0 && (!replaying || (e.ExitTime != DateTime.MinValue ? e.ExitTime <= evidenceBarCursor : e.EntryTime <= evidenceBarCursor))).ToList();
+            List<KeystoneArcBar> shownBars = replaying ? bars.Where(b => b.Time <= evidenceBarCursor).ToList() : bars;
+            if (shownBars.Count == 0) shownBars = bars.Take(1).ToList();
+            double rawMin = shownBars.Min(x => x.Low), rawMax = shownBars.Max(x => x.High);
             foreach (KeystoneArcEvent e in marks) { rawMin = Math.Min(rawMin, e.Entry); rawMax = Math.Max(rawMax, e.Entry); }
             double padding = Math.Max((rawMax - rawMin) * 0.09, Math.Max(symbol == "MGC" ? 1.0 : 8.0, 0.0001));
             double rawCenter = (rawMin + rawMax) / 2.0;
@@ -8886,6 +9001,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 KeystoneArcBar b = bars[i]; index[b.Time] = i;
                 double x = left + i * candleWidth + candleWidth / 2.0;
+                if (replaying && b.Time > evidenceBarCursor)
+                {
+                    // Future candles stay hidden during replay; the time axis keeps its labels.
+                    if ((i == 0 || b.Time.Minute % timeLabelMinutes == 0) && (i == 0 || x - lastTimeLabelX >= 52)) { AddCanvasText(b.Time.ToString("HH:mm"), x - 13, chartHeight - bottom + 10, Muted, 9, FontWeights.Normal); lastTimeLabelX = x; }
+                    continue;
+                }
                 Brush bodyBrush = b.Close > b.Open ? CandleUp : (b.Close < b.Open ? CandleDown : Gold);
                 var wick = new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = y(b.High), Y2 = y(b.Low), Stroke = CandleWick, StrokeThickness = 1.25, Opacity = 0.92, ToolTip = EvidenceBarTooltip(b) };
                 wick.MouseMove += delegate { ShowEvidenceHover(b); };
@@ -8905,7 +9026,18 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
             }
             if (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) && chartMinutes == config.SetupMinutes)
-                DrawFvgBoxes(allBars, bars, symbol, left, candleWidth, y);
+                DrawFvgBoxes(replaying ? allBars.Where(b => b.Time <= evidenceBarCursor).ToList() : allBars, replaying ? shownBars : bars, symbol, left, candleWidth, y);
+            if (replaying)
+            {
+                int cursorIndex = bars.FindLastIndex(b => b.Time <= evidenceBarCursor);
+                if (cursorIndex >= 0)
+                {
+                    double cx = left + cursorIndex * candleWidth + candleWidth / 2.0;
+                    evidenceCanvas.Children.Add(new System.Windows.Shapes.Line { X1 = cx, X2 = cx, Y1 = top - 18, Y2 = chartHeight - bottom, Stroke = Gold, StrokeThickness = 1.4, StrokeDashArray = new DoubleCollection { 4, 3 }, Opacity = 0.9, IsHitTestVisible = false });
+                    var tag = AddCanvasText("▶ " + evidenceBarCursor.ToString("HH:mm"), cx + 4, top - 22, Gold, 12, FontWeights.Bold);
+                    if (tag != null) tag.IsHitTestVisible = false;
+                }
+            }
             DateTime testedStart = EvidenceTestStart(day), testedEnd = EvidenceTestEnd(day);
             AddEvidenceRangeBoundary("TEST START", testedStart, bars, left, candleWidth, top, chartHeight - bottom, Cyan);
             AddEvidenceRangeBoundary("TEST END", testedEnd, bars, left, candleWidth, top, chartHeight - bottom, Gold);
@@ -8975,6 +9107,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DrawAsianLegAnnotations(allMarks, bars, left, candleWidth, y, top, chartHeight - bottom, symbol);
             AddCanvasText(symbol + " • TEST WINDOW " + testedStart.ToString("yyyy-MM-dd HH:mm") + " → " + testedEnd.ToString("yyyy-MM-dd HH:mm") + " • " + EvidenceContextMinutes(chartMinutes) + "M LEFT CONTEXT • DIRECT NINJATRADER " + chartMinutes + "M BARS • " + bars.Count + " CANDLES • " + marks.Count + " LEDGER " + (marks.Count == 1 ? "MARK" : "MARKS") + " / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES"), left, 4, Cyan, 12, FontWeights.Bold);
             UpdateEvidenceNavigationBars(allBars, visibleCount);
+            RefreshEvidenceSidePanel();
             SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
             if (selectedEvidenceEvent != null && !marks.Any(record => record.Id == selectedEvidenceEvent.Id)) ClearEvidenceSelection(false);
             // Cache exactly what the lightweight crosshair-only overlay needs, then draw it once
@@ -9260,8 +9393,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void DrawAsianLegAnnotations(List<KeystoneArcEvent> legs, List<KeystoneArcBar> bars, double left, double candleWidth, Func<double, double> y, double plotTop, double plotBottom, string symbol)
         {
             if (legs == null || bars == null || bars.Count == 0) return;
-            KeystoneArcReplayStep current = evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count ? evidenceReplaySteps[evidenceReplayIndex] : null;
-            DateTime cutoff = current == null ? DateTime.MaxValue : current.Time;
+            KeystoneArcReplayStep current = evidenceBarCursor != DateTime.MinValue && evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count ? evidenceReplaySteps[evidenceReplayIndex] : null;
+            DateTime cutoff = evidenceBarCursor != DateTime.MinValue ? evidenceBarCursor : DateTime.MaxValue;
             string priceFormat = symbol == "MGC" ? "0.0" : "0.00";
             DateTime firstTime = bars[0].Time, lastTime = bars[bars.Count - 1].Time;
             Func<DateTime, double> xAt = delegate(DateTime t)
@@ -9296,7 +9429,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (!exited) continue;
                 string result;
                 if (reversalStop) result = "STOP " + money(e.GrossPnl);
-                else if (e.Outcome == "WIN") result = "TARGET " + money(e.GrossPnl);
+                else if (e.Outcome == "WIN") result = "EXIT " + money(e.GrossPnl);
                 else if (e.Outcome == "SESSION EXIT") result = "SESSION END " + money(e.GrossPnl);
                 else if (e.Outcome == "BREAKEVEN GUARD") result = "BREAKEVEN " + money(e.GrossPnl);
                 else result = "LOSS LIMIT " + money(e.GrossPnl);
@@ -9304,15 +9437,20 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     var ring = new System.Windows.Shapes.Ellipse { Width = 18, Height = 18, Stroke = Gold, StrokeThickness = 2.5, IsHitTestVisible = false };
                     Canvas.SetLeft(ring, x2 - 9); Canvas.SetTop(ring, exitY - 9); evidenceCanvas.Children.Add(ring);
-                    AddCanvasText(result + " • CYCLE " + money(current.CombinedPnl), x2 + 11, clampY(exitY - 8), legBrush, 12, FontWeights.Bold);
+                    AddCanvasText(symbol + " " + result, x2 + 11, clampY(exitY - 8), legBrush, 12, FontWeights.Bold);
                 }
                 else AddCanvasText(result, x2 + 4, clampY(longLeg ? exitY + 4 + stagger : exitY - 16 - stagger), legBrush, 9, FontWeights.Bold);
             }
-            if (current != null && cutoff >= firstTime && cutoff <= lastTime)
+            // One cycle label per night close, kept apart from the instrument exits.
+            KeystoneArcEvent closer = legs.Where(x => x.SetupClass == "ASIA75" && x.ExitTime != DateTime.MinValue && x.ExitTime <= cutoff && !(x.ReviewNote ?? string.Empty).StartsWith("REVERSAL LOSS", StringComparison.OrdinalIgnoreCase)).OrderByDescending(x => x.ExitTime).FirstOrDefault();
+            if (closer != null && closer.ExitTime >= firstTime && closer.ExitTime <= lastTime && legs.Where(x => x.SetupClass == "ASIA75").All(x => x.ExitTime != DateTime.MinValue && x.ExitTime <= cutoff))
             {
-                double cx = xAt(cutoff);
-                evidenceCanvas.Children.Add(new System.Windows.Shapes.Line { X1 = cx, Y1 = plotTop, X2 = cx, Y2 = plotBottom, Stroke = Gold, StrokeThickness = 1.4, Opacity = 0.85, IsHitTestVisible = false });
-                AddCanvasText("REPLAY " + cutoff.ToString("HH:mm", CultureInfo.InvariantCulture), cx + 4, plotTop + 2, Gold, 11, FontWeights.Bold);
+                double night = !double.IsNaN(closer.AsianCyclePnlAtExit) ? closer.AsianCyclePnlAtExit : legs.Where(x => x.SetupClass == "ASIA75").Sum(x => x.GrossPnl);
+                string why = closer.Outcome == "WIN" ? "≥ TARGET " + money(config.AsianCycleTargetDollars) + " ✓" : (closer.Outcome == "SESSION EXIT" ? "SESSION END" : (closer.Outcome == "BREAKEVEN GUARD" ? "BREAKEVEN GUARD" : "LOSS LIMIT"));
+                double cx = xAt(closer.ExitTime);
+                var pill = new Border { Background = Card, BorderBrush = night >= 0 ? Green : Red, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 2, 8, 2), IsHitTestVisible = false,
+                    Child = new TextBlock { Text = "BOTH INSTRUMENTS • CYCLE " + money(night) + " " + why, Foreground = night >= 0 ? Green : Red, FontSize = 11, FontWeight = FontWeights.Bold } };
+                Canvas.SetLeft(pill, Math.Max(0, cx - 120)); Canvas.SetTop(pill, plotTop - 26); evidenceCanvas.Children.Add(pill);
             }
         }
 
@@ -9331,65 +9469,176 @@ namespace NinjaTrader.NinjaScript.AddOns
             return DateTime.TryParseExact(evidenceDateBox == null ? string.Empty : evidenceDateBox.Text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out day);
         }
 
-        private void EnsureEvidenceReplaySteps(DateTime day)
+        private bool EvidenceIsAsian() { return config != null && string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase); }
+
+        // Every resolved trade / leg of the chart's session (all instruments: the live box is combined).
+        private List<KeystoneArcEvent> ReplayDayTrades(DateTime day)
         {
-            if (day == evidenceReplayDay) return;
-            evidenceReplayDay = day; evidenceReplayIndex = -1;
-            if (evidenceReplayTimer != null) evidenceReplayTimer.Stop();
-            List<KeystoneArcEvent> night = (evidencePreviewOwnLedger ? evidencePreviewEvents : events).Where(e => e != null && e.SetupClass == "ASIA75" && e.ReferenceTime.Date == day.Date).ToList();
-            evidenceReplaySteps = KeystoneArcAsianReplay.Build(night, LabCloseAt, config == null ? 350 : config.AsianCycleTargetDollars, config == null ? 600 : config.AsianDailyLossLimitDollars);
+            IEnumerable<KeystoneArcEvent> source = evidencePreviewOwnLedger ? evidencePreviewEvents : events;
+            if (EvidenceIsAsian()) return source.Where(e => e != null && e.SetupClass == "ASIA75" && e.ReferenceTime.Date == day.Date).ToList();
+            return source.Where(e => e != null && KeystoneArcEngine.SessionGroupingDate(e.TriggerTime, config).Date == day.Date && string.Equals(e.ReviewState ?? "ACCEPTED", "ACCEPTED", StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
+        private void EnsureEvidenceReplaySteps(DateTime day)
+        {
+            string key = day.ToString("yyyyMMdd") + "|" + (evidencePreviewOwnLedger ? "P" : "L") + "|" + (evidencePreviewOwnLedger ? evidencePreviewEvents.Count : events.Count);
+            if (key == evidenceReplayKey) return;
+            evidenceReplayKey = key; evidenceReplayDay = day; evidenceReplayIndex = -1; evidenceBarCursor = DateTime.MinValue;
+            if (evidenceReplayTimer != null) evidenceReplayTimer.Stop();
+            List<KeystoneArcEvent> trades = ReplayDayTrades(day);
+            evidenceReplaySteps = EvidenceIsAsian()
+                ? KeystoneArcAsianReplay.Build(trades, LabCloseAt, config == null ? 350 : config.AsianCycleTargetDollars, config == null ? 600 : config.AsianDailyLossLimitDollars)
+                : KeystoneArcLive.TradeSteps(trades);
+        }
+
+        private List<KeystoneArcBar> ReplayBars() { return evidenceBars == null ? new List<KeystoneArcBar>() : FilterEvidenceBars(evidenceBars); }
+
+        private DateTime ReplayFirstBarTime()
+        {
+            DateTime day; if (!EvidenceReplayDay(out day)) return DateTime.MinValue;
+            List<KeystoneArcBar> bars = ReplayBars(); if (bars.Count == 0) return DateTime.MinValue;
+            DateTime start = EvidenceTestStart(day);
+            KeystoneArcBar first = bars.FirstOrDefault(b => b.Time >= start) ?? bars[0];
+            return first.Time;
+        }
+
+        private void ReplaySetCursor(DateTime t, bool follow)
+        {
+            DateTime day; if (!EvidenceReplayDay(out day) || t == DateTime.MinValue) return;
+            EnsureEvidenceReplaySteps(day);
+            evidenceBarCursor = t;
+            evidenceReplayIndex = evidenceReplaySteps.FindLastIndex(step => step.Time <= t);
+            evidenceCursorFollow = follow;
+            UpdateEvidenceReplayPanel();
+            RenderEvidenceChart();
+        }
+
+        private void ReplayStepBar(int direction)
+        {
+            List<KeystoneArcBar> bars = ReplayBars(); if (bars.Count == 0) return;
+            if (evidenceBarCursor == DateTime.MinValue) { ReplaySetCursor(ReplayFirstBarTime(), true); return; }
+            int i = bars.FindLastIndex(b => b.Time <= evidenceBarCursor);
+            int next = Math.Max(0, Math.Min(bars.Count - 1, i + direction));
+            if (next == i && evidenceReplayTimer != null && evidenceReplayTimer.IsEnabled) { evidenceReplayTimer.Stop(); UpdateEvidenceReplayPanel(); return; }
+            ReplaySetCursor(bars[next].Time, true);
+        }
+
+        private void ReplayJumpEvent(int direction)
+        {
+            DateTime day; if (!EvidenceReplayDay(out day)) return;
+            EnsureEvidenceReplaySteps(day);
+            if (evidenceReplaySteps.Count == 0) { UpdateEvidenceReplayPanel(); return; }
+            DateTime now = evidenceBarCursor == DateTime.MinValue ? DateTime.MinValue : evidenceBarCursor;
+            KeystoneArcReplayStep target;
+            if (direction == int.MaxValue) target = evidenceReplaySteps[evidenceReplaySteps.Count - 1];
+            else if (direction > 0) target = evidenceReplaySteps.FirstOrDefault(step => step.Time > now) ?? evidenceReplaySteps[evidenceReplaySteps.Count - 1];
+            else target = evidenceReplaySteps.LastOrDefault(step => step.Time < now) ?? evidenceReplaySteps[0];
+            ReplaySetCursor(target.Time, true);
+        }
+
+        // Kept for older call sites: jump to event number index.
         private void EvidenceReplayGo(int index)
         {
             DateTime day; if (!EvidenceReplayDay(out day)) return;
             EnsureEvidenceReplaySteps(day);
-            if (evidenceReplaySteps.Count == 0) { evidenceReplayIndex = -1; UpdateEvidenceReplayPanel(); return; }
-            evidenceReplayIndex = Math.Max(0, Math.Min(evidenceReplaySteps.Count - 1, index));
-            evidenceReplayFollow = true;
-            UpdateEvidenceReplayPanel();
-            RenderEvidenceChart();
+            if (evidenceReplaySteps.Count == 0) { UpdateEvidenceReplayPanel(); return; }
+            ReplaySetCursor(evidenceReplaySteps[Math.Max(0, Math.Min(evidenceReplaySteps.Count - 1, index))].Time, true);
         }
 
         private void StopEvidenceReplay()
         {
             if (evidenceReplayTimer != null) evidenceReplayTimer.Stop();
-            evidenceReplayIndex = -1;
+            evidenceReplayIndex = -1; evidenceBarCursor = DateTime.MinValue;
             UpdateEvidenceReplayPanel();
             RenderEvidenceChart();
+        }
+
+        private TimeSpan ReplayInterval()
+        {
+            int[] speeds = { 1, 2, 5, 10, 30, 60 };
+            int k = evidenceSpeedBox == null ? 2 : Math.Max(0, Math.Min(speeds.Length - 1, evidenceSpeedBox.SelectedIndex));
+            return TimeSpan.FromMilliseconds(1000.0 / speeds[k]);
         }
 
         private void ToggleEvidenceReplayPlay()
         {
             if (evidenceReplayTimer == null)
             {
-                evidenceReplayTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1400) };
-                evidenceReplayTimer.Tick += delegate
-                {
-                    if (evidenceReplayIndex >= evidenceReplaySteps.Count - 1) { evidenceReplayTimer.Stop(); UpdateEvidenceReplayPanel(); return; }
-                    EvidenceReplayGo(evidenceReplayIndex + 1);
-                };
+                evidenceReplayTimer = new DispatcherTimer { Interval = ReplayInterval() };
+                evidenceReplayTimer.Tick += delegate { ReplayStepBar(1); };
             }
             if (evidenceReplayTimer.IsEnabled) { evidenceReplayTimer.Stop(); UpdateEvidenceReplayPanel(); return; }
-            if (evidenceReplayIndex < 0 || evidenceReplayIndex >= evidenceReplaySteps.Count - 1) EvidenceReplayGo(0);
+            List<KeystoneArcBar> bars = ReplayBars();
+            if (evidenceBarCursor == DateTime.MinValue || (bars.Count > 0 && evidenceBarCursor >= bars[bars.Count - 1].Time)) ReplaySetCursor(ReplayFirstBarTime(), true);
+            evidenceReplayTimer.Interval = ReplayInterval();
             evidenceReplayTimer.Start();
             UpdateEvidenceReplayPanel();
         }
 
         private void UpdateEvidenceReplayPanel()
         {
-            bool asian = config != null && string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
-            if (evidenceReplayBar != null) evidenceReplayBar.Visibility = asian ? Visibility.Visible : Visibility.Collapsed;
+            bool active = evidenceBarCursor != DateTime.MinValue;
+            if (evidenceReplayBar != null) evidenceReplayBar.Visibility = Visibility.Visible;
             if (evidenceReplayPlayButton != null) evidenceReplayPlayButton.Content = evidenceReplayTimer != null && evidenceReplayTimer.IsEnabled ? "❚❚ PAUSE" : "▶ PLAY";
-            bool active = asian && evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count;
-            if (evidenceReplayBorder != null) evidenceReplayBorder.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+            bool hasStep = active && evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count;
+            if (evidenceReplayBorder != null) evidenceReplayBorder.Visibility = hasStep ? Visibility.Visible : Visibility.Collapsed;
+            if (evidenceLiveBorder != null) evidenceLiveBorder.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
             if (evidenceReplayStepText != null)
-                evidenceReplayStepText.Text = !asian ? string.Empty : (active ? "STEP " + (evidenceReplayIndex + 1) + " / " + evidenceReplaySteps.Count + " • " + evidenceReplaySteps[evidenceReplayIndex].Time.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " ET • switch MNQ / MGC tabs any time"
-                    : "REPLAY • step through this night event by event (both instruments + combined P/L)");
-            if (!active) return;
-            KeystoneArcReplayStep step = evidenceReplaySteps[evidenceReplayIndex];
-            if (evidenceReplayHeadline != null) { evidenceReplayHeadline.Text = step.Headline; evidenceReplayHeadline.Foreground = step.Headline.Contains("NIGHT CLOSED") ? (step.CombinedPnl >= 0 ? Green : Red) : (step.Headline.Contains("STOP") ? Red : Cyan); }
-            if (evidenceReplayDetail != null) evidenceReplayDetail.Text = step.Detail;
+                evidenceReplayStepText.Text = active ? "REPLAY " + evidenceBarCursor.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " ET • event " + (evidenceReplayIndex + 1) + " / " + evidenceReplaySteps.Count
+                    : "REPLAY • press ▶ PLAY to watch the session candle by candle (" + evidenceReplaySteps.Count + " events)";
+            if (hasStep)
+            {
+                KeystoneArcReplayStep step = evidenceReplaySteps[evidenceReplayIndex];
+                if (evidenceReplayHeadline != null) { evidenceReplayHeadline.Text = step.Time.ToString("HH:mm") + " • " + step.Headline; evidenceReplayHeadline.Foreground = step.Headline.Contains("NIGHT CLOSED") || step.Headline.Contains("TARGET") ? (step.CombinedPnl >= 0 ? Green : Red) : (step.Headline.Contains("STOP") ? Red : Cyan); }
+                if (evidenceReplayDetail != null) evidenceReplayDetail.Text = step.Detail;
+            }
+            UpdateEvidenceLivePanel();
+            RefreshEvidenceSidePanel();
+        }
+
+        private void RefreshEvidenceSidePanel()
+        {
+            if (evidenceSidePanel == null) return;
+            bool show = evidenceBarCursor != DateTime.MinValue || selectedEvidenceEvent != null || (evidencePnlBorder != null && evidencePnlBorder.Visibility == Visibility.Visible);
+            evidenceSidePanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void UpdateEvidenceLivePanel()
+        {
+            if (evidenceLiveBorder == null || evidenceBarCursor == DateTime.MinValue) return;
+            DateTime day; if (!EvidenceReplayDay(out day)) return;
+            List<KeystoneArcEvent> trades = ReplayDayTrades(day);
+            KeystoneArcLiveState st = KeystoneArcLive.At(trades, LabCloseAt, evidenceBarCursor);
+            bool asian = EvidenceIsAsian();
+            // Minute closes from the first entry to the cursor (1-minute series of the instruments traded).
+            var minutes = new SortedSet<DateTime>();
+            foreach (string symbol in trades.Select(e => e.Symbol).Distinct())
+            {
+                List<KeystoneArcBar> oneMinute = string.Equals(symbol, "MGC", StringComparison.OrdinalIgnoreCase) ? mgcBars : mnqBars;
+                if (oneMinute == null || trades.Count == 0) continue;
+                DateTime first = trades.Min(e => e.EntryTime);
+                foreach (KeystoneArcBar b in oneMinute) if (b.Time >= first && b.Time <= evidenceBarCursor) minutes.Add(b.Time);
+            }
+            double worst = KeystoneArcLive.WorstUntil(trades, LabCloseAt, minutes, evidenceBarCursor);
+            double target = asian ? Math.Max(1, config.AsianCycleTargetDollars) : Math.Max(1, config.DailyGoal);
+            double loss = asian ? Math.Max(1, Math.Abs(config.AsianDailyLossLimitDollars)) : Math.Max(1, Math.Abs(config.DailyLoss));
+            List<KeystoneArcBar> bars = ReplayBars();
+            int barIndex = bars.FindLastIndex(b => b.Time <= evidenceBarCursor);
+            evidenceLiveClock.Text = evidenceBarCursor.ToString("ddd yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " ET • CANDLE " + (barIndex + 1) + " / " + bars.Count;
+            evidenceLiveCombined.Text = (st.Combined >= 0 ? "+" : "") + Cash(st.Combined);
+            evidenceLiveCombined.Foreground = st.Combined > 0 ? Green : (st.Combined < 0 ? Red : Text);
+            evidenceLiveTargetText.Text = (asian ? "CYCLE TARGET " : "DAILY GOAL ") + Cash(target) + " • " + Math.Max(0, 100.0 * st.Combined / target).ToString("0", CultureInfo.InvariantCulture) + "%";
+            evidenceLiveTargetFill.Width = 330 * Math.Max(0, Math.Min(1, st.Combined / target));
+            evidenceLiveLossText.Text = "WORST SO FAR " + Cash(worst) + " • " + (asian ? "LOSS LIMIT " : "DAILY LOSS ") + Cash(-loss) + " • " + Math.Min(100, 100.0 * -Math.Min(0, worst) / loss).ToString("0", CultureInfo.InvariantCulture) + "% used";
+            evidenceLiveLossFill.Width = 330 * Math.Max(0, Math.Min(1, -Math.Min(0, st.Combined) / loss));
+            var sb = new StringBuilder();
+            foreach (KeystoneArcLiveLine line in st.Lines)
+                sb.AppendLine(line.Symbol + "  realized " + Cash(line.Realized) + " • open " + Cash(line.Open) + " • closed " + line.Closed).AppendLine("   " + line.Position);
+            if (st.Lines.Count == 0) sb.AppendLine("No trade on this session.");
+            evidenceLiveLines.Text = sb.ToString().TrimEnd();
+            bool closedNow = evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count && evidenceReplaySteps[evidenceReplayIndex].Time == evidenceBarCursor;
+            evidenceLiveBorder.BorderBrush = closedNow ? (evidenceReplaySteps[evidenceReplayIndex].Headline.Contains("STOP") ? Red : Gold) : Gold;
+            evidenceLiveBorder.BorderThickness = new Thickness(closedNow ? 3 : 1.5);
         }
 
         // FVG strategy: every box found on the displayed timeframe, from the candle that formed it

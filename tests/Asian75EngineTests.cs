@@ -195,6 +195,26 @@ public static class Asian75EngineTests
             Check(steps.All(st => st.Detail.Contains("MNQ ") && st.Detail.Contains("MGC ") && st.Detail.Contains("COMBINED P/L")), "every step shows both instruments and the combined P/L", "");
             Check(steps.Select(st => st.WorstCombined).Zip(steps.Select(st => st.WorstCombined).Skip(1), (a, b) => b <= a).All(x => x), "worst-so-far never improves", "");
         }
+        // Live replay state: open leg marked at the minute close, realized so far, worst so far.
+        {
+            DateTime t0 = new DateTime(2026, 3, 1, 18, 0, 0);
+            var legs = new List<KeystoneArcEvent>
+            {
+                new KeystoneArcEvent { Symbol = "MNQ", SetupClass = "ASIA75", Direction = "LONG", Quantity = 1, Entry = 100, Stop = 62.5, EntryTime = t0, ExitTime = t0.AddMinutes(10), ExitPrice = 62.5, GrossPnl = -75, Outcome = "LOSS", AsianLegNumber = 1 },
+                new KeystoneArcEvent { Symbol = "MNQ", SetupClass = "ASIA75", Direction = "SHORT", Quantity = 2, Entry = 62, Stop = 80.75, EntryTime = t0.AddMinutes(11), ExitTime = t0.AddMinutes(30), ExitPrice = 0, GrossPnl = 248, Outcome = "WIN", AsianLegNumber = 2 }
+            };
+            Func<string, DateTime, double?> close = (sym, t) => t < t0.AddMinutes(10) ? 90 : (t < t0.AddMinutes(20) ? 70 : 20);
+            var s5 = KeystoneArcLive.At(legs, close, t0.AddMinutes(5));
+            Check(Math.Abs(s5.Open - (-20)) < 0.01 && Math.Abs(s5.Realized) < 0.01, "live: open L1 long marked at the minute close (90 → −$20)", s5.Open + " / " + s5.Realized);
+            var s15 = KeystoneArcLive.At(legs, close, t0.AddMinutes(15));
+            Check(Math.Abs(s15.Realized + 75) < 0.01 && Math.Abs(s15.Open - (62 - 70) * 2 * 2) < 0.01 && s15.Lines[0].Position.StartsWith("L2 SHORT x2"), "live: after the stop, realized −$75 and the reversed short is open", s15.Realized + " / " + s15.Open + " / " + s15.Lines[0].Position);
+            var s40 = KeystoneArcLive.At(legs, close, t0.AddMinutes(40));
+            Check(Math.Abs(s40.Combined - 173) < 0.01 && s40.Lines[0].Position.StartsWith("FLAT"), "live: night closed, combined = sum of legs", s40.Combined.ToString());
+            var minutes = Enumerable.Range(0, 41).Select(i => t0.AddMinutes(i));
+            double worst = KeystoneArcLive.WorstUntil(legs, close, minutes, t0.AddMinutes(40));
+            Check(Math.Abs(worst - (-107)) < 0.01, "live: worst combined so far across the minute closes (−$107)", worst.ToString());
+            Check(KeystoneArcLive.TradeSteps(legs).Count == 4, "trade steps: one per entry / exit minute", KeystoneArcLive.TradeSteps(legs).Count.ToString());
+        }
         Console.WriteLine(failures == 0 ? "\nALL ASIAN 75 TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
