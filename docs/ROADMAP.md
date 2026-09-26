@@ -29,6 +29,11 @@ and chart labels differ per strategy.
 - [ ] Session-end timestamp for every Asian cycle (which session it ended in) in report
 
 ## B. Pool settings — fast testing
+- [ ] INSTRUMENT switch on the results screen (MNQ / MGC / BOTH) for every strategy: re-runs
+      the pool with the same rules without going back to Configure; day stepping, charts and
+      boxes show the selected instrument(s). BOTH on BH: each setup goes to the next available
+      account (MNQ and MGC setups share the rotation). Both instruments are loaded once so
+      switching is instant; if an instrument was never loaded the lab loads it first
 - [x] PREV / NEXT day buttons in Pool Settings (26e): instantly show that day's result without going
       back to Configure; OPEN CHART jumps to that day
 - [x] "Setups only" checkbox: win/loss per day, totals, streaks, month-by-month (26e)
