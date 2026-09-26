@@ -56,18 +56,45 @@ Aggression before the FVG is preferred but not required (aggressive ones are bet
 | Stop | zone bottom / green-candle low / fixed $ (parameter) |
 | Target | fixed $ / R multiple (parameter) |
 
-## Open questions for the user
+## Answers from the user (2026-09-26)
 
-1. Timeframes: is the FVG found on the **same** timeframe as the entry candles (1M FVG → 1M
-   entries), or always on the **5-minute** chart with entries on the chosen timeframe? (Lab can
-   offer both.)
-2. Can the candle that goes into the zone be the green confirmation itself if it closes green?
-3. If the candle after the green one does **not** break its high, does the setup wait for the
-   next green close (new reference), or is that retest finished?
-4. How long does a zone stay valid — same session only, or can yesterday's zone be traded today?
-5. After an entry from a zone, must price retest again before the next entry, or can the next
-   green candle + break (without a new retest) be another entry?
-6. "Market close" for the window: 15:55 ET (as BH/Asian) or 17:00 ET?
-7. What counts as "aggression": e.g. X red candles in a row, or a drop of ≥ N points within
-   M candles before the FVG?
-8. Must the FVG's middle candle be green (displacement candle), or any 3 candles with a gap?
+1. **Timeframe**: the timeframe chosen at the start is used for everything — FVG detection,
+   retest, green confirmation and entry. No mixing.
+2. **Green dip candle counts**: the first green candle that dips into the zone is itself the
+   confirmation.
+3. **No break on the next candle**: option. Default = wait for another dip / touch into the zone,
+   then a new green close.
+4. **Zone reuse**: a zone is fresh until used. Once it has been touched and price moved away
+   (entry or not), it is not traded again by default. Parameter: how many times a zone may be
+   reused (default 1 = one use).
+5. **After an entry**: wait for the next **new** FVG; same rules.
+6. **Time zone**: always New York time for every strategy (user lives in NM, 2 hours behind,
+   but everything is NY). CME Globex closes 17:00 ET (daily halt 17:00–18:00); the last 5-minute
+   candle is 16:55–17:00. Reference times: pre-NY session 08:00, NY stock open 09:30.
+   Session window start/end are parameters (default 08:00 → 16:55 ET last entry, flat by close).
+7. **Aggression**: examples coming. Two parameter types: N bearish candles before the reversal,
+   or a downside move of ≥ $X / points before the reversal. Plus OFF / TAG ONLY / REQUIRED.
+8. **Candle colors**: any colors — only the gap matters (candle 3 low > candle 1 high).
+
+## Resulting default logic
+
+```
+for each bar on the selected timeframe (NY time, inside the session window):
+  new bullish FVG (bar[i].Low > bar[i-2].High)      -> fresh zone [bar[i-2].High, bar[i].Low]
+  zone: any close < bottom                          -> dead
+  zone fresh, bar low inside zone deep enough       -> retest started (zone now "used")
+     bar closes green                               -> confirmation (reference = bar high)
+     else wait; later bar closes green (no close below bottom) -> confirmation
+  next bar high > reference                         -> ENTRY long at reference; zone finished
+  next bar does not break                           -> default: need another dip into zone, then
+                                                       a new green close (option: any green close)
+  price leaves the zone without an entry            -> zone finished (reuse parameter, default 1)
+  after an entry                                    -> only a NEW FVG can give the next entry
+```
+
+## Still open
+
+- Aggression definition (examples tomorrow).
+- Risk defaults (stop / target / size) — to decide and optimize.
+- "Moved away" for a used zone without entry: proposal = zone is finished once a later candle
+  closes above the zone top after the retest without an entry being triggered.
