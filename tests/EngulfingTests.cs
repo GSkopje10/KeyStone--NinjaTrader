@@ -86,6 +86,16 @@ public static class EngulfingTests
             Check(ev.Count == 1 && Math.Abs(ev[0].Stop - 96.0) < 1e-9 && Math.Abs(ev[0].Quantity - 3) < 1e-9 && ev[0].RiskModel.StartsWith("ENG "), "CANDLE stop below the engulfing wick, auto size", ev.Count > 0 ? ev[0].Stop + " x" + ev[0].Quantity + " " + ev[0].RiskModel : "none");
             Check(ev.Count == 1 && ev[0].Outcome == "SESSION EXIT", "no stop/target inside the flat minutes after entry → session exit (signal candle low not counted)", ev.Count > 0 ? ev[0].Outcome : "");
         }
+        // 7. Commission + slippage are subtracted from every resolved trade.
+        {
+            var c = new List<double[]> { C(100, 100.2, 99.8, 100), C(100, 101.5, 99.9, 101.4), C(101.4, 102.6, 101.3, 102.5), C(102.5, 102.9, 100.9, 101.0) };
+            c.Add(C(101.0, 101.1, 99.5, 99.8)); c.AddRange(Flat(99.8, 3));
+            var gross = Cfg(); gross.TargetDollars = 10; gross.StopDollars = 20;
+            var net = Cfg(); net.TargetDollars = 10; net.StopDollars = 20; net.CommissionPerContract = 1.5; net.SlippageTicks = 1;
+            var a = Run(c, gross); var b = Run(c, net);
+            // MGC, 1 contract: $1.50 + 2 sides × 1 tick × $1.00 = $3.50.
+            Check(a.Count == 1 && b.Count == 1 && Math.Abs((a[0].GrossPnl - b[0].GrossPnl) - 3.5) < 1e-9, "commission $1.50 + 1 tick slippage per side = $3.50 less per MGC contract", a.Count > 0 && b.Count > 0 ? a[0].GrossPnl + " vs " + b[0].GrossPnl : "");
+        }
         Console.WriteLine(failures == 0 ? "\nALL ENGULFING TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

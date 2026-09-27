@@ -566,6 +566,8 @@ namespace NinjaTrader.NinjaScript
         // Price of a direct-funded account (START = DIRECT FUNDED). 0 = same as EvaluationCost.
         // Replacements after a blowup are always evaluations and cost EvaluationCost.
         public double DirectFundedCost = 0;
+        // Trading costs (0 = off): round-trip commission $ per contract, slippage ticks per side.
+        public double CommissionPerContract = 0, SlippageTicks = 0;
         public double InitialAccountCost() { return EvaluationEnabled == 0 && DirectFundedCost > 0 ? DirectFundedCost : EvaluationCost; }
         // DIRECT FUNDED after a blowup. 0 (engine default, original behaviour): the slot buys an evaluation
         // and trades the evaluation rules until it passes. 1 (the lab's direct-funded mode): the slot is
@@ -699,7 +701,7 @@ namespace NinjaTrader.NinjaScript
                 EvaluationEnabled.ToString(), EvaluationTarget.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyCreditCap.ToString("0.00", CultureInfo.InvariantCulture), EvaluationConsistencyPercent.ToString("0.00", CultureInfo.InvariantCulture), EvaluationFailure.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), EvaluationStageTradeRulesEnabled.ToString(), EvaluationTradeTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), EvaluationTradeStopDollars.ToString("0.00", CultureInfo.InvariantCulture), FundedDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), FundedFailure.ToString("0.00", CultureInfo.InvariantCulture), MinimumPositiveDays.ToString(), MinimumQualifyingDayProfit.ToString("0.00", CultureInfo.InvariantCulture),
                 PayoutThreshold.ToString("0.00", CultureInfo.InvariantCulture), PayoutDaysRequired.ToString(), PayoutAmount.ToString("0.00", CultureInfo.InvariantCulture), EvaluationCost.ToString("0.00", CultureInfo.InvariantCulture), ReplacementsRequirePayoutFunding.ToString(), FirmFundedCapEnabled.ToString(), EvaluationSlotsPerFirm.ToString(), MaxFundedPerFirm.ToString(), PropStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), PersonalStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), AsianStartHhmm.ToString(), AsianEndHhmm.ToString(), AsianMnqInitialDirection ?? string.Empty, AsianMgcInitialDirection ?? string.Empty, AsianRiskMode ?? string.Empty, AsianReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianCombinedStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianDailyLossLimitDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianBreakEvenTriggerDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianStartingQuantity.ToString(), AsianMaxReversalsPerInstrument.ToString(), AsianMnqMaxReversals.ToString(), AsianMgcMaxReversals.ToString(), AsianMaxTotalLegsPerInstrument.ToString(),
                 BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString(), ReplacementDelayDays.ToString(),
-                DirectFundedCost.ToString("0.00", CultureInfo.InvariantCulture), EngDirection ?? string.Empty, EngMinRun.ToString(), EngMaxRun.ToString(), EngStrength ?? string.Empty, EngMnqMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngMgcMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngDtRun.ToString(), EngStopMode ?? string.Empty, EngStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), EngMaxQuantity.ToString(), EngTargetMode ?? string.Empty,
+                DirectFundedCost.ToString("0.00", CultureInfo.InvariantCulture), CommissionPerContract.ToString("0.00", CultureInfo.InvariantCulture), SlippageTicks.ToString("0.##", CultureInfo.InvariantCulture), EngDirection ?? string.Empty, EngMinRun.ToString(), EngMaxRun.ToString(), EngStrength ?? string.Empty, EngMnqMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngMgcMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngDtRun.ToString(), EngStopMode ?? string.Empty, EngStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), EngMaxQuantity.ToString(), EngTargetMode ?? string.Empty,
                 string.Join("/", new[] { EngTargetRDT, EngTargetRA, EngTargetRB, EngTargetRC, EngStopPointsDT, EngTargetPointsDT, EngStopPointsA, EngTargetPointsA, EngStopPointsB, EngTargetPointsB, EngStopPointsC, EngTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))), DirectReplacementMode.ToString(), DirectRefundDays.ToString(), DirectReplacementCost.ToString("0.00", CultureInfo.InvariantCulture), FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString(), FvgTargetMode ?? string.Empty, FvgTargetRA.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRB.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRC.ToString("0.##", CultureInfo.InvariantCulture), EvalTierFilter ?? string.Empty, FundedTierFilter ?? string.Empty, FvgMergeStacked.ToString(), FvgMergedDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRDT.ToString("0.##", CultureInfo.InvariantCulture), string.Join("/", new[] { FvgStopPointsDT, FvgTargetPointsDT, FvgStopPointsA, FvgTargetPointsA, FvgStopPointsB, FvgTargetPointsB, FvgStopPointsC, FvgTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))) });
         }
     }
@@ -859,6 +861,37 @@ namespace NinjaTrader.NinjaScript
         }
 
         public static List<KeystoneArcEvent> DetectAndResolve(List<KeystoneArcBar> oneMinute, List<KeystoneArcBar> directSetupBars, KeystoneArcRunConfig cfg)
+        {
+            List<KeystoneArcEvent> result = DetectAndResolveCore(oneMinute, directSetupBars, cfg);
+            ApplyTradingCosts(result, cfg);
+            return result;
+        }
+
+        // Real-world costs on every resolved trade: round-trip commission per contract plus
+        // slippage (ticks per side, entry and exit). 0 / 0 (default) = the original gross model.
+        public static double TradingCost(KeystoneArcEvent e, KeystoneArcRunConfig cfg)
+        {
+            if (e == null || cfg == null || (cfg.CommissionPerContract <= 0 && cfg.SlippageTicks <= 0)) return 0;
+            double qty = Math.Max(0, e.Quantity > 0 ? e.Quantity : cfg.Quantity);
+            double tickValue = IsMgc(e.Symbol) ? 1.0 : 0.5; // MGC 0.1 × $10, MNQ 0.25 × $2
+            return qty * (Math.Max(0, cfg.CommissionPerContract) + 2 * Math.Max(0, cfg.SlippageTicks) * tickValue);
+        }
+
+        private static void ApplyTradingCosts(List<KeystoneArcEvent> events, KeystoneArcRunConfig cfg)
+        {
+            if (events == null || cfg == null || (cfg.CommissionPerContract <= 0 && cfg.SlippageTicks <= 0)) return;
+            foreach (KeystoneArcEvent e in events)
+            {
+                string o = e.Outcome ?? string.Empty;
+                bool traded = o == "WIN" || o.StartsWith("LOSS", StringComparison.OrdinalIgnoreCase) || o == "SESSION EXIT" || o == "BREAKEVEN";
+                if (!traded) continue;
+                double cost = TradingCost(e, cfg);
+                e.GrossPnl -= cost;
+                if (!string.IsNullOrEmpty(e.EvaluationOutcome) && e.EvaluationOutcome != "OPEN") e.EvaluationGrossPnl -= cost;
+            }
+        }
+
+        private static List<KeystoneArcEvent> DetectAndResolveCore(List<KeystoneArcBar> oneMinute, List<KeystoneArcBar> directSetupBars, KeystoneArcRunConfig cfg)
         {
             var events = new List<KeystoneArcEvent>();
             if (oneMinute == null || cfg == null) return events;
@@ -4607,7 +4640,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Window comparisonWindow;
         private TextBlock statusText, workflowText, summaryText, poolText, lifecycleText, eventText, setupStatsText, mathText, reviewDetailText, poolDetailText, savedDataText, sessionHintText, strategyRuleText, strategyWorkflowText, reviewLedgerText, reviewPositionText, poolResultBanner, startModeHintText, instrumentSourceText, resultScopeText, resultsHeadingText, poolAccountsHeadingText, poolDetailHeadingText, poolTimelineHeadingText, poolGrossWithdrawalMetric, poolNetCashMetric, poolEvaluationCostMetric, poolNetCashAfterCostMetric, poolInitialInvestmentMetric, poolPayoutAfterInitialMetric, poolCapitalAvailabilityMetric, poolFirmCapMetric, poolPayoutCycleMetric, poolFundedMetric, poolReplacementMetric, poolBlownMetric, rangeEligibleMetric, rangeAssignedMetric, rangePnlMetric, rangePurchasesMetric, rangeCostMetric, rangeNetCashAfterCostMetric, rangeInitialInvestmentMetric, rangePayoutAfterInitialMetric, rangeCapitalAvailabilityMetric, rangeBlowoutMetric, oneDayEligibleMetric, oneDayAssignedMetric, oneDayAccountsTradedMetric, oneDayProfitLockedMetric, oneDayLossLockedMetric, oneDayUnusedMetric, oneDaySkippedMetric, oneDayPnlMetric, oneDayRangeSummaryText, accountBalanceMetric, accountPayoutCashMetric, accountCostMetric, accountNetCashAfterCostMetric, accountPayoutCyclesMetric, accountBlowoutMetric, accountLatestBlowoutMetric, accountLifecycleMetric, accountPnlMetric, accountTradesMetric, accountFirstPayoutMetric, accountFirstPayoutDaysMetric, oneDayAccountBalanceMetric, oneDayAccountPnlMetric, oneDayAccountTradesMetric, oneDayAccountStateMetric, oneDayAccountWindowMetric, oneDayAccountLimitsMetric, firstReturnDashboardText, dailySessionScoreboardText, comparisonStatusText, comparisonSummaryText, comparisonMatrixText;
         private TextBlock evidenceStatusText, evidenceLegendText, evidenceZoomText, evidencePnlText, evidenceStudyText, evidenceMetricsText, comparisonBusyText;
-        private TextBox mnqBox, mgcBox, startBox, endBox, targetBox, stopBox, mnqStopOffsetBox, mgcStopOffsetBox, dailyGoalBox, dailyLossBox, asianStartTimeBox, asianEndTimeBox, asianReversalLossBox, asianMnqPriceMoveBox, asianMgcPriceMoveBox, asianCycleTargetBox, asianCombinedStopBox, asianDailyLossBox, asianInstrumentStopBox, asianMnqInstrumentStopBox, asianMgcInstrumentStopBox, asianBreakEvenBox, asianStartingQuantityBox, asianMaxReversalsBox, asianMnqMaxReversalsBox, asianMgcMaxReversalsBox, mnqStrongRedBox, mnqStrongDeclineBox, mgcStrongRedBox, mgcStrongDeclineBox, evalTargetBox, evalTradeTargetBox, evalTradeStopBox, payoutThresholdBox, payoutAmountBox, payoutProfitShareBox, mnqStartBox, mgcStartBox, customStartBox, endTimeBox, quantityBox, personalLotBox, mnqCashValueBox, mgcCashValueBox, mnqTargetMoveBox, mgcTargetMoveBox, mnqStandardStopMoveBox, mgcStandardStopMoveBox, personalMaxRiskBox, breakEvenMoveBox, evalDailyCapBox, evalConsistencyBox, evalFailureBox, evalDailyLossBox, fundedDailyLossBox, fundedFailureBox, payoutDaysBox, minimumDaysBox, minimumQualifyingDayBox, evalCostBox, directFundedCostBox, directReplacementCostBox, directRefundDaysBox, firmEvalSlotsBox, firmMaxFundedBox, propStartingBalanceBox, personalStartingBalanceBox, reviewNoteBox;
+        private TextBox mnqBox, mgcBox, startBox, endBox, targetBox, stopBox, mnqStopOffsetBox, mgcStopOffsetBox, dailyGoalBox, dailyLossBox, asianStartTimeBox, asianEndTimeBox, asianReversalLossBox, asianMnqPriceMoveBox, asianMgcPriceMoveBox, asianCycleTargetBox, asianCombinedStopBox, asianDailyLossBox, asianInstrumentStopBox, asianMnqInstrumentStopBox, asianMgcInstrumentStopBox, asianBreakEvenBox, asianStartingQuantityBox, asianMaxReversalsBox, asianMnqMaxReversalsBox, asianMgcMaxReversalsBox, mnqStrongRedBox, mnqStrongDeclineBox, mgcStrongRedBox, mgcStrongDeclineBox, evalTargetBox, evalTradeTargetBox, evalTradeStopBox, payoutThresholdBox, payoutAmountBox, payoutProfitShareBox, mnqStartBox, mgcStartBox, customStartBox, endTimeBox, quantityBox, personalLotBox, mnqCashValueBox, mgcCashValueBox, mnqTargetMoveBox, mgcTargetMoveBox, mnqStandardStopMoveBox, mgcStandardStopMoveBox, personalMaxRiskBox, breakEvenMoveBox, evalDailyCapBox, evalConsistencyBox, evalFailureBox, evalDailyLossBox, fundedDailyLossBox, fundedFailureBox, payoutDaysBox, minimumDaysBox, minimumQualifyingDayBox, evalCostBox, commissionBox, slippageBox, directFundedCostBox, directReplacementCostBox, directRefundDaysBox, firmEvalSlotsBox, firmMaxFundedBox, propStartingBalanceBox, personalStartingBalanceBox, reviewNoteBox;
         private TextBox evidenceDateBox;
         private ComboBox strategyBox, scopeBox, accountPathBox, directionBox, bhFilterBox, bhStrongCombineBox, stopModeBox, poolBox, sessionBox, accountStartModeBox, poolStateFilterBox, payoutCycleMonthFilterBox, chartReviewScopeBox, evidenceInstrumentBox, evidenceTimeframeBox, evidenceScopeBox, evidenceBarsBox, evidenceSessionFilterBox, evidenceStrengthBox, timeframeBox, dateModeBox, comparisonInstrumentBox, comparisonTimeframeBox, comparisonPoolBox, comparisonModeBox, comparisonSessionBox, asianDirectionBox, asianMnqDirectionBox, asianMgcDirectionBox, asianRiskModeBox;
         private TabControl evidenceInstrumentTabs;
@@ -6134,6 +6167,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             engModel.Children.Add(engAdvanced);
             engStrategyControls.Clear(); engStrategyControls.Add(engModel);
             bhStrategyControls.Add(stopModeRow); bhStrategyControls.Add(propQuantityRow); bhStrategyControls.Add(propTargetRow); bhStrategyControls.Add(propStopRow); bhStrategyControls.Add(dailyGoalRow); bhStrategyControls.Add(dailyLossRow); bhStrategyControls.Add(mnqLowOffsetRow); bhStrategyControls.Add(mgcLowOffsetRow); bhStrategyControls.Add(propModeNote); bhStrategyControls.Add(bhModelNote);
+            commissionBox = Input("0"); slippageBox = Input("0"); WatchConfigurationInput(commissionBox); WatchConfigurationInput(slippageBox);
+            commissionBox.ToolTip = "Round-trip commission + fees in $ per contract (e.g. 1.24 for a micro at many prop firms). Subtracted from every trade. 0 = off.";
+            slippageBox.ToolTip = "Slippage in ticks on entry AND on exit (MNQ tick $0.50, MGC tick $1.00 per contract). 0 = perfect fills.";
+            var costRow = new UniformGrid { Columns = 2, Margin = new Thickness(0, 2, 0, 2) };
+            costRow.Children.Add(Row("COMMISSION $ / CONTRACT (ROUND TRIP)", commissionBox)); costRow.Children.Add(Row("SLIPPAGE TICKS / SIDE", slippageBox));
+            model.Children.Add(costRow);
             model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel);
             sessionHintText = Txt("NY OPEN: begins at the first 09:30 ET setup bar and ends at 15:55 ET.", Cyan, 10, FontWeights.Bold); data.Children.Add(sessionHintText);
             // Start right under the settings: no scrolling down to section 3.
@@ -13274,7 +13313,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 config.EvaluationTradeTargetDollars = config.TargetDollars;
                 config.EvaluationTradeStopDollars = config.StopDollars;
             }
-            config.FundedDailyLoss = NumberAllowZero(fundedDailyLossBox, 0); config.FundedFailure = Number(fundedFailureBox, 2000); config.PayoutDaysRequired = Integer(payoutDaysBox, 5); config.MinimumPositiveDays = Integer(minimumDaysBox, 2); config.MinimumQualifyingDayProfit = NumberAllowZero(minimumQualifyingDayBox, 150); config.EvaluationCost = Number(evalCostBox, 120); config.DirectFundedCost = NumberAllowZero(directFundedCostBox, 120);
+            config.FundedDailyLoss = NumberAllowZero(fundedDailyLossBox, 0); config.FundedFailure = Number(fundedFailureBox, 2000); config.PayoutDaysRequired = Integer(payoutDaysBox, 5); config.MinimumPositiveDays = Integer(minimumDaysBox, 2); config.MinimumQualifyingDayProfit = NumberAllowZero(minimumQualifyingDayBox, 150); config.CommissionPerContract = Math.Max(0, NumberAllowZero(commissionBox, 0)); config.SlippageTicks = Math.Max(0, NumberAllowZero(slippageBox, 0));
+            config.EvaluationCost = Number(evalCostBox, 120); config.DirectFundedCost = NumberAllowZero(directFundedCostBox, 120);
             config.DirectReplacementMode = 1; config.DirectReplacementCost = NumberAllowZero(directReplacementCostBox, 120); config.DirectRefundDays = Math.Max(0, Integer(directRefundDaysBox, 3)); config.ReplacementsRequirePayoutFunding = replacementFundingGateBox != null && replacementFundingGateBox.IsChecked == true ? 1 : 0;
             config.FirmFundedCapEnabled = config.EvaluationEnabled >= 0 && firmFundedCapBox != null && firmFundedCapBox.IsChecked == true ? 1 : 0;
             config.BlownAccountReplacement = blownAccountBox != null && blownAccountBox.SelectedIndex == 1 ? 0 : 1;
@@ -14491,6 +14531,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (fundedDailyLossBox != null) fundedDailyLossBox.Text = "0";
             if (fundedFailureBox != null) fundedFailureBox.Text = "2000";
             if (evalCostBox != null) evalCostBox.Text = "120";
+            if (commissionBox != null) commissionBox.Text = "0"; if (slippageBox != null) slippageBox.Text = "0";
             if (directFundedCostBox != null) directFundedCostBox.Text = "120";
             if (directReplacementCostBox != null) directReplacementCostBox.Text = "120";
             if (directRefundDaysBox != null) directRefundDaysBox.Text = "3";
