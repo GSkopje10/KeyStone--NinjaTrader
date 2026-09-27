@@ -673,6 +673,16 @@ namespace NinjaTrader.NinjaScript
         // 123 ENGULFING (buy and sell). A run of EngMinRun+ candles of one colour, then a candle that
         // closes beyond the last run candle's body (WICK = beyond its wick too; SWEEP = its wick also
         // takes the extreme of the last two run candles). Entry at the close of that candle.
+        // LAST-HOUR RELAY: the move from the Globex open (18:00 the evening before) to RelaySignalHhmm,
+        // in multiples of the 20-day average daily range. Above +threshold → buy at RelayEntryHhmm,
+        // below −threshold → sell; out at RelayExitHhmm. Protective stop = RelayStopFraction × average range.
+        public int RelaySignalHhmm = 1000, RelayEntryHhmm = 1525, RelayExitHhmm = 1555, RelayRangeDays = 20, RelayConfirm = 0;
+        public double RelayThreshold = 0.25, RelayStopFraction = 0.15; public string RelayDirection = "BOTH";
+        // VWAP SNAP-BACK: session VWAP from 09:30 with σ bands. Between VwapStartHhmm and VwapEndHhmm a
+        // setup bar closes beyond VwapBandSigma; the next bar makes no new extreme and closes back toward
+        // VWAP → enter against the stretch. Stop beyond the extreme, target the 1σ band or VWAP.
+        public int VwapStartHhmm = 1030, VwapEndHhmm = 1430, VwapMaxTradesPerDay = 2, VwapTrendDays = 20;
+        public double VwapBandSigma = 2.5, VwapTrendFilter = 1.8, VwapStopBufferPoints = 0; public string VwapTarget = "BAND1", VwapDirection = "BOTH";
         public string EngDirection = "BOTH";          // BOTH / BUY / SELL
         public int EngMinRun = 2, EngMaxRun = 0;       // 0 = no maximum
         public string EngStrength = "ALL";            // ALL / WICK (wick or sweep) / SWEEP / SWEEP_WICK
@@ -701,7 +711,7 @@ namespace NinjaTrader.NinjaScript
                 EvaluationEnabled.ToString(), EvaluationTarget.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyCreditCap.ToString("0.00", CultureInfo.InvariantCulture), EvaluationConsistencyPercent.ToString("0.00", CultureInfo.InvariantCulture), EvaluationFailure.ToString("0.00", CultureInfo.InvariantCulture), EvaluationDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), EvaluationStageTradeRulesEnabled.ToString(), EvaluationTradeTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), EvaluationTradeStopDollars.ToString("0.00", CultureInfo.InvariantCulture), FundedDailyLoss.ToString("0.00", CultureInfo.InvariantCulture), FundedFailure.ToString("0.00", CultureInfo.InvariantCulture), MinimumPositiveDays.ToString(), MinimumQualifyingDayProfit.ToString("0.00", CultureInfo.InvariantCulture),
                 PayoutThreshold.ToString("0.00", CultureInfo.InvariantCulture), PayoutDaysRequired.ToString(), PayoutAmount.ToString("0.00", CultureInfo.InvariantCulture), EvaluationCost.ToString("0.00", CultureInfo.InvariantCulture), ReplacementsRequirePayoutFunding.ToString(), FirmFundedCapEnabled.ToString(), EvaluationSlotsPerFirm.ToString(), MaxFundedPerFirm.ToString(), PropStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), PersonalStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), AsianStartHhmm.ToString(), AsianEndHhmm.ToString(), AsianMnqInitialDirection ?? string.Empty, AsianMgcInitialDirection ?? string.Empty, AsianRiskMode ?? string.Empty, AsianReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianCombinedStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianDailyLossLimitDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianBreakEvenTriggerDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianStartingQuantity.ToString(), AsianMaxReversalsPerInstrument.ToString(), AsianMnqMaxReversals.ToString(), AsianMgcMaxReversals.ToString(), AsianMaxTotalLegsPerInstrument.ToString(),
                 BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString(), ReplacementDelayDays.ToString(),
-                DirectFundedCost.ToString("0.00", CultureInfo.InvariantCulture), CommissionPerContract.ToString("0.00", CultureInfo.InvariantCulture), SlippageTicks.ToString("0.##", CultureInfo.InvariantCulture), EngDirection ?? string.Empty, EngMinRun.ToString(), EngMaxRun.ToString(), EngStrength ?? string.Empty, EngMnqMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngMgcMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngDtRun.ToString(), EngStopMode ?? string.Empty, EngStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), EngMaxQuantity.ToString(), EngTargetMode ?? string.Empty,
+                DirectFundedCost.ToString("0.00", CultureInfo.InvariantCulture), string.Join("/", new[] { RelaySignalHhmm, RelayEntryHhmm, RelayExitHhmm, RelayRangeDays, RelayConfirm, VwapStartHhmm, VwapEndHhmm, VwapMaxTradesPerDay, VwapTrendDays }.Select(v => v.ToString(CultureInfo.InvariantCulture))), string.Join("/", new[] { RelayThreshold, RelayStopFraction, VwapBandSigma, VwapTrendFilter, VwapStopBufferPoints }.Select(v => v.ToString("0.###", CultureInfo.InvariantCulture))), (RelayDirection ?? "") + "/" + (VwapTarget ?? "") + "/" + (VwapDirection ?? ""), CommissionPerContract.ToString("0.00", CultureInfo.InvariantCulture), SlippageTicks.ToString("0.##", CultureInfo.InvariantCulture), EngDirection ?? string.Empty, EngMinRun.ToString(), EngMaxRun.ToString(), EngStrength ?? string.Empty, EngMnqMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngMgcMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngDtRun.ToString(), EngStopMode ?? string.Empty, EngStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), EngMaxQuantity.ToString(), EngTargetMode ?? string.Empty,
                 string.Join("/", new[] { EngTargetRDT, EngTargetRA, EngTargetRB, EngTargetRC, EngStopPointsDT, EngTargetPointsDT, EngStopPointsA, EngTargetPointsA, EngStopPointsB, EngTargetPointsB, EngStopPointsC, EngTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))), DirectReplacementMode.ToString(), DirectRefundDays.ToString(), DirectReplacementCost.ToString("0.00", CultureInfo.InvariantCulture), FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString(), FvgTargetMode ?? string.Empty, FvgTargetRA.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRB.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRC.ToString("0.##", CultureInfo.InvariantCulture), EvalTierFilter ?? string.Empty, FundedTierFilter ?? string.Empty, FvgMergeStacked.ToString(), FvgMergedDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRDT.ToString("0.##", CultureInfo.InvariantCulture), string.Join("/", new[] { FvgStopPointsDT, FvgTargetPointsDT, FvgStopPointsA, FvgTargetPointsA, FvgStopPointsB, FvgTargetPointsB, FvgStopPointsC, FvgTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))) });
         }
     }
@@ -904,6 +914,8 @@ namespace NinjaTrader.NinjaScript
                 if (bars.Count == 0) bars = ToSetupBars(raw, symbol, cfg.SetupMinutes);
                 if (string.Equals(cfg.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectFvgRetest(raw, bars, cfg, symbol)); continue; }
                 if (string.Equals(cfg.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectEngulfing(raw, bars, cfg, symbol)); continue; }
+                if (string.Equals(cfg.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectLastHourRelay(raw, cfg, symbol)); continue; }
+                if (string.Equals(cfg.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectVwapSnapBack(raw, bars, cfg, symbol)); continue; }
                 int order = 0;
                 DateTime orderDay = DateTime.MinValue;
                 var zones = new List<BullishFvg>();
@@ -1687,6 +1699,122 @@ namespace NinjaTrader.NinjaScript
             return output;
         }
 
+        private static DateTime AtHhmm(DateTime date, int hhmm) { return date.Date.AddHours(hhmm / 100).AddMinutes(hhmm % 100); }
+        private static int LastIndexAtOrBefore(List<KeystoneArcBar> bars, DateTime t)
+        {
+            int lo = 0, hi = bars.Count - 1, found = -1;
+            while (lo <= hi) { int mid = (lo + hi) / 2; if (bars[mid].Time <= t) { found = mid; lo = mid + 1; } else hi = mid - 1; }
+            return found;
+        }
+
+        // LAST-HOUR RELAY (intraday momentum): one decision a day from 1-minute bars.
+        private static List<KeystoneArcEvent> DetectLastHourRelay(List<KeystoneArcBar> raw, KeystoneArcRunConfig cfg, string symbol)
+        {
+            var output = new List<KeystoneArcEvent>();
+            if (raw == null || raw.Count < 100) return output;
+            double pv = CashValuePerPriceMove(symbol, cfg);
+            string dir = (cfg.RelayDirection ?? "BOTH").ToUpperInvariant();
+            // Day D = the NY day of the 10:00 signal; it starts at the 18:00 Globex open the evening before.
+            var days = raw.Where(b => b.Time.DayOfWeek != DayOfWeek.Saturday && b.Time.DayOfWeek != DayOfWeek.Sunday && b.Time.Hour * 100 + b.Time.Minute >= 930 && b.Time.Hour < 17).Select(b => b.Time.Date).Distinct().OrderBy(d => d).ToList();
+            var ranges = new Dictionary<DateTime, double>();
+            foreach (DateTime d in days)
+            {
+                int a = LastIndexAtOrBefore(raw, AtHhmm(d.AddDays(-1), 1700)) + 1, z = LastIndexAtOrBefore(raw, AtHhmm(d, 1600));
+                if (z >= a && a >= 0) { double hi = double.MinValue, lo = double.MaxValue; for (int i = a; i <= z; i++) { hi = Math.Max(hi, raw[i].High); lo = Math.Min(lo, raw[i].Low); } ranges[d] = hi - lo; }
+            }
+            var ctx = new KeystoneArcRunConfig(); ctx = cfg.ShallowCopy(); ctx.EndTime = cfg.RelayExitHhmm;
+            for (int k = 0; k < days.Count; k++)
+            {
+                DateTime d = days[k];
+                DateTime entryTime = AtHhmm(d, cfg.RelayEntryHhmm);
+                if (entryTime < cfg.Start || entryTime > cfg.End) continue;
+                var prior = days.Take(k).Where(x => ranges.ContainsKey(x)).Reverse().Take(Math.Max(1, cfg.RelayRangeDays)).Select(x => ranges[x]).ToList();
+                if (prior.Count < 5) continue;
+                double avgRange = prior.Average(); if (avgRange <= 0) continue;
+                int anchorIdx = LastIndexAtOrBefore(raw, AtHhmm(d.AddDays(-1), 1700)) + 1;
+                int signalIdx = LastIndexAtOrBefore(raw, AtHhmm(d, cfg.RelaySignalHhmm));
+                int entryIdx = LastIndexAtOrBefore(raw, entryTime);
+                if (anchorIdx < 0 || anchorIdx >= raw.Count || signalIdx < anchorIdx || entryIdx <= signalIdx) continue;
+                if (raw[entryIdx].Time.Date != d || raw[entryIdx].Time < entryTime.AddMinutes(-5) || raw[signalIdx].Time.Date != d) continue;
+                double anchor = raw[anchorIdx].Open, atSignal = raw[signalIdx].Close, entry = raw[entryIdx].Close;
+                double signal = (atSignal - anchor) / avgRange;
+                if (Math.Abs(signal) < cfg.RelayThreshold) continue;
+                bool buy = signal > 0;
+                if ((buy && dir == "SELL") || (!buy && dir == "BUY")) continue;
+                if (cfg.RelayConfirm > 0 && Math.Sign(entry - atSignal) != Math.Sign(signal)) continue;
+                double sign = buy ? 1 : -1, stopDist = Math.Max(0.25, cfg.RelayStopFraction * avgRange);
+                KeystoneArcEvent e = NewEvent(symbol, "RLY", raw[signalIdx].Time, raw[entryIdx].Time, entry, cfg, null, -1, buy ? "LONG" : "SHORT");
+                double qty = Math.Max(1, Math.Min(Math.Max(1, cfg.EngMaxQuantity), Math.Floor(cfg.StopDollars / (stopDist * pv))));
+                e.Quantity = qty; e.Stop = entry - sign * stopDist; e.StopDistance = stopDist; e.Target = entry + sign * avgRange * 20; // time exit, no real target
+                e.StrengthTag = Math.Abs(signal) >= 2 * cfg.RelayThreshold ? "STRONG" : "BASE";
+                e.FeatureAtr = avgRange; e.FeatureDipPercent = Math.Min(150, Math.Abs(signal) * 100); e.FeatureGreenBody = Math.Abs(signal);
+                e.RiskModel = "RLY TIME EXIT " + cfg.RelayExitHhmm.ToString("0000") + " • PROTECTIVE STOP " + stopDist.ToString("0.##", CultureInfo.InvariantCulture) + " PTS • AUTO SIZE " + qty + " • PRICE P/L";
+                e.ReviewNote = "LAST-HOUR RELAY • open→" + cfg.RelaySignalHhmm.ToString("0000") + " move " + (atSignal - anchor).ToString("+0.##;-0.##", CultureInfo.InvariantCulture) + " pts = " + signal.ToString("+0.00;-0.00", CultureInfo.InvariantCulture) + " × the " + prior.Count + "-day average range (" + avgRange.ToString("0.##", CultureInfo.InvariantCulture) + ") → " + (buy ? "BUY" : "SELL") + " at " + cfg.RelayEntryHhmm.ToString("0000") + ", out at " + cfg.RelayExitHhmm.ToString("0000");
+                e.SessionOrder = 1; e.ConfigurationKey = cfg.Snapshot();
+                ResolveOutcome(e, raw, ctx, symbol, true);
+                ResolveEvaluationStageOutcome(e, raw, ctx, symbol, true);
+                output.Add(e);
+            }
+            return output;
+        }
+
+        // VWAP SNAP-BACK (midday mean reversion) on the selected setup timeframe.
+        private static List<KeystoneArcEvent> DetectVwapSnapBack(List<KeystoneArcBar> raw, List<KeystoneArcBar> bars, KeystoneArcRunConfig cfg, string symbol)
+        {
+            var output = new List<KeystoneArcEvent>();
+            if (bars == null || bars.Count < 10) return output;
+            double pv = CashValuePerPriceMove(symbol, cfg);
+            string dir = (cfg.VwapDirection ?? "BOTH").ToUpperInvariant();
+            bool anyVolume = bars.Any(b => b.Volume > 0);
+            var byDay = bars.Where(b => b.Time.Hour * 100 + b.Time.Minute > 930 && b.Time.Hour * 100 + b.Time.Minute <= 1600).GroupBy(b => b.Time.Date).OrderBy(g => g.Key).ToList();
+            var firstHour = new Dictionary<DateTime, double>();
+            foreach (var g in byDay) { var fh = g.Where(b => b.Time.Hour * 100 + b.Time.Minute <= 1030).ToList(); if (fh.Count > 0) firstHour[g.Key] = fh.Max(b => b.High) - fh.Min(b => b.Low); }
+            for (int k = 0; k < byDay.Count; k++)
+            {
+                var day = byDay[k].ToList();
+                if (day.Count < 5 || day[0].Time.Date.AddHours(16) < cfg.Start || day[0].Time > cfg.End) continue;
+                var prior = byDay.Take(k).Where(g => firstHour.ContainsKey(g.Key)).Reverse().Take(Math.Max(1, cfg.VwapTrendDays)).Select(g => firstHour[g.Key]).ToList();
+                double fhToday; if (!firstHour.TryGetValue(byDay[k].Key, out fhToday)) continue;
+                if (cfg.VwapTrendFilter > 0 && prior.Count >= 5 && fhToday > cfg.VwapTrendFilter * prior.Average()) continue; // trend day: stay out
+                double sumW = 0, sumPV = 0, sumP2V = 0; int trades = 0;
+                for (int i = 0; i < day.Count; i++)
+                {
+                    KeystoneArcBar b = day[i];
+                    double tp = (b.High + b.Low + b.Close) / 3.0, w = anyVolume ? Math.Max(1, b.Volume) : 1;
+                    sumW += w; sumPV += tp * w; sumP2V += tp * tp * w;
+                    double vwap = sumPV / sumW, sigma = Math.Sqrt(Math.Max(0, sumP2V / sumW - vwap * vwap));
+                    if (i < 1 || sigma <= 0 || trades >= Math.Max(1, cfg.VwapMaxTradesPerDay)) continue;
+                    int hhmm = b.Time.Hour * 100 + b.Time.Minute;
+                    if (hhmm <= cfg.VwapStartHhmm || hhmm > cfg.VwapEndHhmm) continue;
+                    if (b.Time < cfg.Start || b.Time > cfg.End) continue;
+                    KeystoneArcBar s = day[i - 1];
+                    double upper = vwap + cfg.VwapBandSigma * sigma, lower = vwap - cfg.VwapBandSigma * sigma;
+                    // Up-stretch → sell when the next bar makes no new high and closes lower; mirror for down-stretch.
+                    bool sell = s.Close > upper && b.High <= s.High && b.Close < s.Close && dir != "BUY";
+                    bool buy = s.Close < lower && b.Low >= s.Low && b.Close > s.Close && dir != "SELL";
+                    if (!sell && !buy) continue;
+                    double sign = buy ? 1 : -1, entry = b.Close;
+                    double extreme = buy ? Math.Min(s.Low, b.Low) : Math.Max(s.High, b.High);
+                    double stop = extreme - sign * Math.Max(0, cfg.VwapStopBufferPoints), dist = Math.Max(0.0001, Math.Abs(entry - stop));
+                    double target = string.Equals(cfg.VwapTarget, "VWAP", StringComparison.OrdinalIgnoreCase) ? vwap : vwap - sign * sigma;
+                    if ((target - entry) * sign <= 0) continue; // already back inside the target band
+                    KeystoneArcEvent e = NewEvent(symbol, "VWP", s.Time, b.Time, entry, cfg, bars, -1, buy ? "LONG" : "SHORT");
+                    double qty = Math.Max(1, Math.Min(Math.Max(1, cfg.EngMaxQuantity), Math.Floor(cfg.StopDollars / (dist * pv))));
+                    e.Quantity = qty; e.Stop = stop; e.StopDistance = dist; e.Target = target;
+                    double stretch = Math.Abs(s.Close - vwap) / sigma;
+                    e.StrengthTag = stretch >= cfg.VwapBandSigma + 0.5 ? "STRONG" : "BASE";
+                    e.FeatureAtr = sigma; e.FeatureDipPercent = Math.Min(150, stretch * 30); e.FeatureGreenBody = b.High - b.Low <= 0 ? 0 : Math.Abs(b.Close - b.Open) / (b.High - b.Low);
+                    e.RiskModel = "VWP STOP BEYOND THE STRETCH • TARGET " + (string.Equals(cfg.VwapTarget, "VWAP", StringComparison.OrdinalIgnoreCase) ? "VWAP" : "1σ BAND") + " • AUTO SIZE " + qty + " • PRICE P/L";
+                    e.ReviewNote = "VWAP SNAP-BACK • stretch " + stretch.ToString("0.0", CultureInfo.InvariantCulture) + "σ " + (sell ? "above" : "below") + " VWAP " + vwap.ToString("0.00", CultureInfo.InvariantCulture) + " • next bar made no new " + (sell ? "high" : "low") + " and closed back → " + (sell ? "SELL" : "BUY") + " at the close • target " + target.ToString("0.00", CultureInfo.InvariantCulture);
+                    e.SessionOrder = ++trades; e.ConfigurationKey = cfg.Snapshot();
+                    ResolveOutcome(e, raw, cfg, symbol, true);
+                    ResolveEvaluationStageOutcome(e, raw, cfg, symbol, true);
+                    output.Add(e);
+                }
+            }
+            return output;
+        }
+
         private static bool DirectionAllows(string symbol, string direction, KeystoneArcRunConfig cfg)
         {
             string mode = (cfg == null ? "BB" : cfg.DirectionMode ?? "BB").ToUpperInvariant();
@@ -1885,7 +2013,7 @@ namespace NinjaTrader.NinjaScript
             sessionEnd = sessionEnd.AddMinutes(timeOffset);
             double pointValue = CashValuePerPriceMove(symbol, cfg);
             // FVG box / green-low stops are risk-sized: their P/L is the real price move × size.
-            bool priceBased = e.RiskModel != null && (e.RiskModel.StartsWith("FVG ", StringComparison.Ordinal) || e.RiskModel.StartsWith("ENG ", StringComparison.Ordinal));
+            bool priceBased = e.RiskModel != null && (e.RiskModel.StartsWith("FVG ", StringComparison.Ordinal) || e.RiskModel.StartsWith("ENG ", StringComparison.Ordinal) || e.RiskModel.StartsWith("RLY ", StringComparison.Ordinal) || e.RiskModel.StartsWith("VWP ", StringComparison.Ordinal));
             double qty = Math.Max(0.0001, e.Quantity > 0 ? e.Quantity : (IsPersonalAccount(cfg) ? cfg.PersonalLotSize : cfg.Quantity));
             int startIndex = FirstIndexAtOrAfter(raw, e.TriggerTime.AddMinutes(timeOffset));
             if (startIndex < 0) { e.Outcome = "NO ENTRY DATA"; e.GrossPnl = 0; return; }

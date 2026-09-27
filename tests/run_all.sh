@@ -14,6 +14,9 @@ mono "$here/.build/fvg.exe" | tail -1
 rm -f "$here/.build/eng.exe"
 "$root/tools/compile_engine.sh" "$here/.build/eng.exe" "$here/EngulfingTests.cs"
 mono "$here/.build/eng.exe" | tail -1
+rm -f "$here/.build/new.exe"
+"$root/tools/compile_engine.sh" "$here/.build/new.exe" "$here/NewStrategyTests.cs"
+mono "$here/.build/new.exe" | tail -1
 rm -f "$here/.build/snap.exe"
 "$root/tools/compile_engine.sh" "$here/.build/snap.exe" "$here/LifecycleSnapshot.cs" "$here/SnapshotRunner.cs"
 mono "$here/.build/snap.exe" "$here/.build/snapshot.txt"
