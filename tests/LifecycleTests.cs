@@ -316,6 +316,22 @@ public static class LifecycleTests
             var accLegacy = KeystoneArcEngine.SimulatePool(LifecycleSnapshot.BhEvents(8), legacy);
             Check(accLegacy.Sum(a => a.EvaluationPasses) + accLegacy.Sum(a => a.FailedEvaluations) > 0 || accLegacy.Sum(a => a.FailedFunded) == 0, "engine default keeps the original direct-funded replacement (new evaluation)");
         }
+        // 22. NO HEDGING: never opposite directions on the same instrument across the pool (other instrument is fine).
+        {
+            DateTime d = new DateTime(2025, 2, 3, 10, 0, 0);
+            Func<string, string, string, int, int, KeystoneArcEvent> mk = (id, sym, dir, start, len) => new KeystoneArcEvent { Id = id, Symbol = sym, Direction = dir, SetupClass = "ENG", TriggerTime = d.AddMinutes(start), EntryTime = d.AddMinutes(start), ExitTime = d.AddMinutes(start + len), Outcome = "WIN", GrossPnl = 100, Quantity = 1, ReviewState = "ACCEPTED" };
+            var evs = new List<KeystoneArcEvent> { mk("A", "MNQ", "LONG", 0, 30), mk("B", "MNQ", "SHORT", 10, 10), mk("C", "MGC", "SHORT", 12, 10), mk("D", "MNQ", "LONG", 15, 5), mk("E", "MNQ", "SHORT", 40, 5) };
+            foreach (bool copy in new[] { false, true })
+            {
+                var cfg = LifecycleSnapshot.Cfg("BH", 0, 0, 0); cfg.PoolSize = 4; cfg.AllowMultipleSetupsPerDay = 1; cfg.CopyGroupSize = copy ? 2 : 0;
+                var list = evs.Select(e => e.CopyForPool()).ToList();
+                KeystoneArcEngine.SimulatePool(list, cfg);
+                Func<string, KeystoneArcEvent> get = id => list.First(e => e.Id == id);
+                Console.WriteLine((copy ? "groups" : "rotation") + ": " + string.Join(" | ", list.Select(e => e.Id + " " + e.Symbol + " " + e.Direction + " → " + (string.IsNullOrEmpty(e.AssignedVirtualAccount) ? "SKIP " + e.SkipReason : e.AssignedVirtualAccount))));
+                Check(!string.IsNullOrEmpty(get("A").AssignedVirtualAccount) && string.IsNullOrEmpty(get("B").AssignedVirtualAccount) && (get("B").SkipReason ?? "").StartsWith("NO HEDGING"), (copy ? "groups" : "rotation") + ": MNQ SHORT blocked while an MNQ LONG is open");
+                Check(!string.IsNullOrEmpty(get("C").AssignedVirtualAccount) && (copy || !string.IsNullOrEmpty(get("D").AssignedVirtualAccount)) && !(get("D").SkipReason ?? "").StartsWith("NO HEDGING") && !string.IsNullOrEmpty(get("E").AssignedVirtualAccount), (copy ? "groups" : "rotation") + ": MGC opposite direction, same-direction MNQ and a later MNQ short (after the long closed) are allowed");
+            }
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
