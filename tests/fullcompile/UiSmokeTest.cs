@@ -37,7 +37,7 @@ public static class UiSmokeTest
             start.SelectedIndex = 0; start.SelectedItem = start.Items[0]; Call(lab, "RefreshLifecycleInputState");
             if (evBlock.Visibility != System.Windows.Visibility.Visible || dir.Visibility != System.Windows.Visibility.Collapsed) throw new Exception("evaluation mode shows direct-funded settings");
         });
-        Step("strategy switch to ASIAN / FVG / BH", () => { var box = (System.Windows.Controls.ComboBox)lab.GetType().GetField("strategyBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); foreach (int i in new[] { 1, 2, 0 }) { box.SelectedIndex = i; box.SelectedItem = box.Items[i]; Call(lab, "RefreshStrategyInputState"); } });
+        Step("strategy switch to ASIAN / FVG / BH", () => { var box = (System.Windows.Controls.ComboBox)lab.GetType().GetField("strategyBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); foreach (int i in new[] { 1, 2, 3, 0 }) { box.SelectedIndex = i; box.SelectedItem = box.Items[i]; Call(lab, "RefreshStrategyInputState"); } });
         // A pool result through the UI render paths.
         var rng = new Random(2); var ev = new List<KeystoneArcEvent>(); DateTime day = new DateTime(2025, 1, 6);
         for (int d = 0; d < 120; d++) { var s = day.AddDays(d); if (s.DayOfWeek == DayOfWeek.Saturday || s.DayOfWeek == DayOfWeek.Sunday) continue; for (int k = 0; k < 3; k++) { var t = s.AddHours(9).AddMinutes(35 + k * 40); bool w = rng.NextDouble() < 0.5; ev.Add(new KeystoneArcEvent { Id = "E" + d + k, Symbol = k % 2 == 0 ? "MNQ" : "MGC", SetupClass = "BH", TriggerTime = t, EntryTime = t, ReferenceTime = t, ExitTime = t.AddMinutes(20), Outcome = w ? "WIN" : "LOSS", GrossPnl = w ? 1500 : -500, Quantity = 10, Entry = 100, ReviewState = "ACCEPTED" }); } }
@@ -66,7 +66,7 @@ public static class UiSmokeTest
         Step("top boxes for every tab", () => { var tabs = (System.Windows.Controls.TabControl)lab.GetType().GetField("resultViewTabs", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); for (int i = 0; i < tabs.Items.Count; i++) { tabs.SelectedIndex = i; tabs.SelectedItem = tabs.Items[i]; Call(lab, "UpdateTopTilesForTab"); } });
         Step("report html", () => Call(lab, "BuildHtmlReport"));
         // Evidence chart + replay on real detected setups from random-walk bars.
-        foreach (string strategy in new[] { "BH", "FVG", "ASIAN75" })
+        foreach (string strategy in new[] { "BH", "FVG", "ENG", "ASIAN75" })
         {
             var lab2 = new KeystoneArc5MResearchLab();
             Call(lab2, "OpenWindow");
@@ -112,7 +112,7 @@ public static class UiSmokeTest
             {
                 if (asian) return;
                 Call(lab2, "RequestEvidenceBars");
-                string other = strategy == "FVG" ? "evidenceOverlayBhBox" : "evidenceOverlayFvgBox";
+                string other = strategy == "BH" ? "evidenceOverlayFvgBox" : "evidenceOverlayBhBox";
                 var box = (System.Windows.Controls.CheckBox)lab2.GetType().GetField(other, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
                 box.IsChecked = true; Call(lab2, "RenderEvidenceChart");
                 string line = (string)lab2.GetType().GetField("evidenceDayCompareLine", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);

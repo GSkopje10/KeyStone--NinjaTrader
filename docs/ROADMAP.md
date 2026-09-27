@@ -142,3 +142,8 @@ and chart labels differ per strategy.
 - [x] First Return redesign (summary, days-to-first-payout chart, sortable account cards)
 - [x] Payout Cycles: WHAT MATTERS strip + one compact row per payout date
 - [x] Asian: no grade / stop-target suggestions, strategy names fixed in findings and chart
+
+## K. Build 27i (2026-09-27)
+- [x] 123 ENGULFING buy / sell strategy (docs/ENGULFING.md) with all pool / payout / report / chart features
+- [x] Prop NO HEDGING rule for every strategy (same instrument never long and short at once)
+- [x] Chart: always-visible TIMEFRAME buttons; SHOW ENGULFING overlay; COMPARE STRATEGIES includes ENGULFING
