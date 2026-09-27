@@ -4287,6 +4287,189 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    public sealed class KeystoneArcPeriodRow
+    {
+        public string Label = string.Empty; public DateTime Start, End;
+        public int Setups, Wins, Losses, Exits, Days, GreenDays;
+        public double TradePnl, WinRate, PerSetup, WorstDay, MaxDrawdown;
+        // The loaded (continuous) pool during this period.
+        public int Payouts, Blowups; public double ToBank, Cost, Net;
+        // This period alone with brand-new accounts bought on its first day.
+        public bool FreshRan; public int FreshPayouts, FreshBlowups, FreshPasses, FreshDaysToFirstPayout = -1; public double FreshToBank, FreshCost, FreshNet;
+        public bool Best, Worst;
+    }
+
+    // MONTHS / WEEKS: the same loaded setups and settings, split by calendar period.
+    public static class KeystoneArcPeriods
+    {
+        public static DateTime PeriodStart(DateTime day, string mode)
+        {
+            DateTime d = day.Date;
+            if (string.Equals(mode, "WEEK", StringComparison.OrdinalIgnoreCase)) return d.AddDays(-((7 + (int)d.DayOfWeek - 1) % 7));
+            return new DateTime(d.Year, d.Month, 1);
+        }
+
+        public static List<KeystoneArcPeriodRow> Build(List<KeystoneArcEvent> events, List<KeystoneArcVirtualAccount> accounts, KeystoneArcRunConfig cfg, string mode, bool fresh, DateTime from, DateTime to)
+        {
+            var rows = new List<KeystoneArcPeriodRow>();
+            if (events == null || cfg == null) return rows;
+            bool week = string.Equals(mode, "WEEK", StringComparison.OrdinalIgnoreCase);
+            Func<KeystoneArcEvent, DateTime> dayOf = e => KeystoneArcEngine.SessionGroupingDate(e.TriggerTime, cfg).Date;
+            var accepted = events.Where(e => string.Equals(e.ReviewState ?? "ACCEPTED", "ACCEPTED", StringComparison.OrdinalIgnoreCase) && dayOf(e) >= from.Date && dayOf(e) <= to.Date).ToList();
+            foreach (var g in accepted.GroupBy(e => PeriodStart(dayOf(e), mode)).OrderBy(g => g.Key))
+            {
+                DateTime start = g.Key, end = week ? start.AddDays(6) : start.AddMonths(1).AddDays(-1);
+                var r = new KeystoneArcPeriodRow { Start = start, End = end, Label = week ? start.ToString("MMM dd", CultureInfo.InvariantCulture) + " – " + end.ToString("MMM dd", CultureInfo.InvariantCulture) : start.ToString("MMM yyyy", CultureInfo.InvariantCulture) };
+                var done = g.Where(KeystoneArcStrategyCompare.Resolved).OrderBy(e => e.EntryTime).ToList();
+                r.Setups = g.Count(); r.Wins = done.Count(e => e.Outcome == "WIN"); r.Losses = done.Count(e => (e.Outcome ?? "").StartsWith("LOSS", StringComparison.OrdinalIgnoreCase)); r.Exits = done.Count - r.Wins - r.Losses;
+                r.TradePnl = done.Sum(e => e.GrossPnl); r.WinRate = done.Count == 0 ? 0 : 100.0 * r.Wins / done.Count; r.PerSetup = done.Count == 0 ? 0 : r.TradePnl / done.Count;
+                var byDay = done.GroupBy(dayOf).Select(d => d.Sum(e => e.GrossPnl)).ToList();
+                r.Days = byDay.Count; r.GreenDays = byDay.Count(v => v > 0); r.WorstDay = byDay.DefaultIfEmpty(0).Min();
+                double eq = 0, peak = 0; foreach (var e in done) { eq += e.GrossPnl; peak = Math.Max(peak, eq); r.MaxDrawdown = Math.Max(r.MaxDrawdown, peak - eq); }
+                if (accounts != null)
+                    foreach (var a in accounts.Where(a => a != null && a.DayHistory != null))
+                    {
+                        var hist = a.DayHistory.OrderBy(d => d.Day).ToList();
+                        int payoutsBefore = hist.Where(d => d.Day.Date < start).Select(d => d.PayoutsAfter).DefaultIfEmpty(0).Last();
+                        var inside = hist.Where(d => d.Day.Date >= start && d.Day.Date <= end).ToList();
+                        if (inside.Count == 0) continue;
+                        r.Payouts += Math.Max(0, inside.Last().PayoutsAfter - payoutsBefore);
+                        r.ToBank += inside.Sum(d => d.PayoutCashDelta); r.Cost += inside.Sum(d => d.CostDelta);
+                        bool wasBlown = hist.Where(d => d.Day.Date < start).Select(d => d.BlownAfter).DefaultIfEmpty(false).Last();
+                        foreach (var d in inside) { if (d.BlownAfter && !wasBlown) r.Blowups++; wasBlown = d.BlownAfter; }
+                    }
+                r.Net = r.ToBank - r.Cost;
+                if (fresh && cfg.EvaluationEnabled >= 0)
+                {
+                    KeystoneArcRunConfig c = cfg.ShallowCopy(); c.Start = start; c.End = end.AddDays(1).AddMinutes(-1);
+                    var acc = KeystoneArcEngine.SimulatePool(g.Select(e => e.CopyForPool()).ToList(), c);
+                    r.FreshRan = true; r.FreshPayouts = acc.Sum(a => a.Payouts); r.FreshBlowups = acc.Sum(a => a.FailedEvaluations + a.FailedFunded); r.FreshPasses = acc.Sum(a => a.EvaluationPasses);
+                    r.FreshToBank = acc.Sum(a => a.PayoutCash); r.FreshCost = acc.Sum(a => a.EvaluationCost); r.FreshNet = r.FreshToBank - r.FreshCost;
+                    var firsts = acc.Select(KeystoneArcEngine.GetFirstPayoutTiming).Where(t => t.HasPayout).Select(t => (t.FirstPayoutDate.Date - start).TotalDays).ToList();
+                    if (firsts.Count > 0) r.FreshDaysToFirstPayout = (int)firsts.Min();
+                }
+                rows.Add(r);
+            }
+            if (rows.Count > 1)
+            {
+                bool freshPays = rows.Any(x => x.FreshRan && x.FreshNet > 0);
+                Func<KeystoneArcPeriodRow, double> key = x => freshPays ? x.FreshNet : x.TradePnl;
+                var best = rows.OrderByDescending(key).First(); var worst = rows.OrderBy(key).First();
+                if (key(best) > 0) best.Best = true;
+                if (key(worst) < key(best)) worst.Worst = true;
+            }
+            return rows;
+        }
+
+        public static string Table(List<KeystoneArcPeriodRow> rows, string title)
+        {
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var sb = new StringBuilder(title + "\n");
+            sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-18} {1,6} {2,12} {3,5} {4,10} {5,9} {6,9} | {7,7} {8,7} {9,10} | {10,12} {11,7} {12,9}", "PERIOD", "SETUPS", "W/L/EXIT", "WIN%", "TRADE P/L", "WORSTDAY", "MAX DD", "PAYOUTS", "BLOWUPS", "POOL NET", "ALONE NET", "PAYOUTS", "1ST PAY"));
+            foreach (var r in rows)
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-18} {1,6} {2,12} {3,4:0}% {4,10} {5,9} {6,9} | {7,7} {8,7} {9,10} | {10,12} {11,7} {12,9}", (r.Best ? "★ " : r.Worst ? "✖ " : "  ") + r.Label, r.Setups, r.Wins + "/" + r.Losses + "/" + r.Exits, r.WinRate, m(r.TradePnl), m(r.WorstDay), m(-r.MaxDrawdown), r.Payouts, r.Blowups, m(r.Net),
+                    r.FreshRan ? m(r.FreshNet) : "—", r.FreshRan ? r.FreshPayouts.ToString(CultureInfo.InvariantCulture) : "—", r.FreshDaysToFirstPayout >= 0 ? r.FreshDaysToFirstPayout + "d" : "—"));
+            return sb.ToString().TrimEnd();
+        }
+    }
+
+    public sealed class KeystoneArcSessionRow
+    {
+        public string Label = string.Empty; public int StartHhmm, EndHhmm;
+        public int Setups, Wins, Losses; public double TradePnl, WinRate, PerSetup, ProfitFactor, MaxDrawdown, WorstDay;
+        public int FirstN, LaterN; public double FirstPerSetup, LaterPerSetup;
+        public bool PoolRan; public double PoolNet; public int PoolPayouts, PoolBlowups;
+        public bool Best, Loaded = true;
+    }
+
+    public sealed class KeystoneArcSessionReport
+    {
+        public List<KeystoneArcSessionRow> Windows = new List<KeystoneArcSessionRow>();
+        public List<KeystoneArcSessionRow> Hours = new List<KeystoneArcSessionRow>();
+        public DateTime Split; public string Verdict = string.Empty;
+    }
+
+    // SESSION FINDER: the loaded setups filtered by entry time of day (NY). Ranked by quality per
+    // setup (not by pool totals, which are capped by how many trades the accounts can take).
+    // Honesty check: the best window is picked on the first two thirds of the range and then
+    // shown on the last third it was not picked on.
+    public static class KeystoneArcSessions
+    {
+        public static readonly Tuple<string, int, int>[] Windows =
+        {
+            Tuple.Create("ASIA 18:00–03:00", 1800, 300), Tuple.Create("LONDON 03:00–08:00", 300, 800), Tuple.Create("PRE-NY 08:00–09:30", 800, 930),
+            Tuple.Create("NY OPEN 09:30–11:00", 930, 1100), Tuple.Create("MIDDAY 11:00–14:00", 1100, 1400), Tuple.Create("AFTERNOON 14:00–17:00", 1400, 1700),
+            Tuple.Create("NY 08:00–11:00", 800, 1100), Tuple.Create("NY DAY 09:30–16:00", 930, 1600)
+        };
+
+        public static bool Inside(DateTime t, int start, int end)
+        {
+            int hhmm = t.Hour * 100 + t.Minute;
+            return start <= end ? hhmm >= start && hhmm < end : hhmm >= start || hhmm < end;
+        }
+
+        static KeystoneArcSessionRow Stats(string label, int start, int end, List<KeystoneArcEvent> done, DateTime split, KeystoneArcRunConfig cfg)
+        {
+            var r = new KeystoneArcSessionRow { Label = label, StartHhmm = start, EndHhmm = end };
+            var rows = done.Where(e => Inside(e.EntryTime, start, end)).ToList();
+            r.Setups = rows.Count; r.Wins = rows.Count(e => e.Outcome == "WIN"); r.Losses = rows.Count(e => (e.Outcome ?? "").StartsWith("LOSS", StringComparison.OrdinalIgnoreCase));
+            r.TradePnl = rows.Sum(e => e.GrossPnl); r.WinRate = rows.Count == 0 ? 0 : 100.0 * r.Wins / rows.Count; r.PerSetup = rows.Count == 0 ? 0 : r.TradePnl / rows.Count;
+            double gw = rows.Where(e => e.GrossPnl > 0).Sum(e => e.GrossPnl), gl = -rows.Where(e => e.GrossPnl < 0).Sum(e => e.GrossPnl);
+            r.ProfitFactor = gl <= 0 ? (gw > 0 ? 99 : 0) : gw / gl;
+            double eq = 0, peak = 0; foreach (var e in rows) { eq += e.GrossPnl; peak = Math.Max(peak, eq); r.MaxDrawdown = Math.Max(r.MaxDrawdown, peak - eq); }
+            r.WorstDay = rows.GroupBy(e => KeystoneArcEngine.SessionGroupingDate(e.TriggerTime, cfg).Date).Select(g => g.Sum(e => e.GrossPnl)).DefaultIfEmpty(0).Min();
+            var first = rows.Where(e => e.EntryTime < split).ToList(); var later = rows.Where(e => e.EntryTime >= split).ToList();
+            r.FirstN = first.Count; r.LaterN = later.Count;
+            r.FirstPerSetup = first.Count == 0 ? 0 : first.Average(e => e.GrossPnl); r.LaterPerSetup = later.Count == 0 ? 0 : later.Average(e => e.GrossPnl);
+            return r;
+        }
+
+        public static KeystoneArcSessionReport Build(List<KeystoneArcEvent> events, KeystoneArcRunConfig cfg, bool runPool)
+        {
+            var rep = new KeystoneArcSessionReport();
+            if (events == null || cfg == null) return rep;
+            var done = events.Where(e => KeystoneArcStrategyCompare.Resolved(e) && string.Equals(e.ReviewState ?? "ACCEPTED", "ACCEPTED", StringComparison.OrdinalIgnoreCase)).OrderBy(e => e.EntryTime).ToList();
+            if (done.Count == 0) { rep.Verdict = "No finished setups to rank."; return rep; }
+            DateTime a = done.First().EntryTime, b = done.Last().EntryTime;
+            rep.Split = a.AddTicks((long)((b - a).Ticks * (2.0 / 3.0))).Date;
+            var loadedHours = new HashSet<int>(done.Select(e => e.EntryTime.Hour));
+            foreach (var w in Windows)
+            {
+                var r = Stats(w.Item1, w.Item2, w.Item3, done, rep.Split, cfg);
+                r.Loaded = r.Setups > 0;
+                if (runPool && r.Setups > 0 && cfg.EvaluationEnabled >= 0)
+                {
+                    var acc = KeystoneArcEngine.SimulatePool(events.Where(e => Inside(e.EntryTime == DateTime.MinValue ? e.TriggerTime : e.EntryTime, w.Item2, w.Item3) && string.Equals(e.ReviewState ?? "ACCEPTED", "ACCEPTED", StringComparison.OrdinalIgnoreCase)).Select(e => e.CopyForPool()).ToList(), cfg);
+                    r.PoolRan = true; r.PoolNet = acc.Sum(x => x.PayoutCash - x.EvaluationCost); r.PoolPayouts = acc.Sum(x => x.Payouts); r.PoolBlowups = acc.Sum(x => x.FailedEvaluations + x.FailedFunded);
+                }
+                rep.Windows.Add(r);
+            }
+            for (int h = 0; h < 24; h++) if (loadedHours.Contains(h)) rep.Hours.Add(Stats(h.ToString("00") + ":00", h * 100, h * 100 + 100 > 2400 ? 0 : (h + 1) * 100 % 2400, done, rep.Split, cfg));
+            // Pick on the first part only (at least 15 setups there), then show the later part.
+            var pick = rep.Windows.Where(r => r.FirstN >= 15).OrderByDescending(r => r.FirstPerSetup).FirstOrDefault();
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            if (pick == null) { rep.Verdict = "Not enough setups per window to pick a session (need 15+ in the first part of the range). Load a longer range or FULL GLOBEX."; return rep; }
+            pick.Best = true;
+            bool held = pick.LaterN >= 5 && pick.LaterPerSetup > 0;
+            rep.Verdict = "BEST SESSION (picked on data before " + rep.Split.ToString("yyyy-MM-dd") + "): " + pick.Label + " • " + m(pick.FirstPerSetup) + " per setup there (" + pick.FirstN + " setups). ON THE LATER DATA IT WAS NOT PICKED ON: " + m(pick.LaterPerSetup) + " per setup (" + pick.LaterN + " setups) → " +
+                (pick.LaterN < 5 ? "too few later setups to confirm." : held ? "HELD UP — a real candidate." : "DID NOT HOLD — likely luck; do not trade this window on its own.");
+            if (loadedHours.Count < 18) rep.Verdict += " (Only " + loadedHours.Count + " hours of the day were loaded; load FULL GLOBEX to compare every session.)";
+            return rep;
+        }
+
+        public static string Table(KeystoneArcSessionReport rep)
+        {
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var sb = new StringBuilder();
+            sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-24} {1,6} {2,5} {3,9} {4,5} {5,10} {6,9} | {7,11} {8,11} | {9,10} {10,7}", "SESSION (NY)", "SETUPS", "WIN%", "PER SETUP", "PF", "TRADE P/L", "MAX DD", "FIRST PART", "LATER PART", "POOL NET", "PAYOUTS"));
+            foreach (var r in rep.Windows)
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-24} {1,6} {2,4:0}% {3,9} {4,5:0.00} {5,10} {6,9} | {7,11} {8,11} | {9,10} {10,7}", (r.Best ? "★ " : "  ") + r.Label, r.Setups, r.WinRate, m(r.PerSetup), r.ProfitFactor, m(r.TradePnl), m(-r.MaxDrawdown), r.FirstN == 0 ? "—" : m(r.FirstPerSetup), r.LaterN == 0 ? "—" : m(r.LaterPerSetup), r.PoolRan ? m(r.PoolNet) : "—", r.PoolRan ? r.PoolPayouts.ToString(CultureInfo.InvariantCulture) : "—"));
+            sb.AppendLine(rep.Verdict);
+            if (rep.Hours.Count > 0) sb.Append("BY HOUR (per setup): " + string.Join("  ", rep.Hours.Select(h => h.Label.Substring(0, 2) + " " + m(h.PerSetup) + "(" + h.Setups + ")")));
+            return sb.ToString().TrimEnd();
+        }
+    }
+
     public sealed class KeystoneArcInsight
     {
         public string Level;   // GOOD, WARN, BAD, IDEA

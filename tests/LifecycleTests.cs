@@ -332,6 +332,27 @@ public static class LifecycleTests
                 Check(!string.IsNullOrEmpty(get("C").AssignedVirtualAccount) && (copy || !string.IsNullOrEmpty(get("D").AssignedVirtualAccount)) && !(get("D").SkipReason ?? "").StartsWith("NO HEDGING") && !string.IsNullOrEmpty(get("E").AssignedVirtualAccount), (copy ? "groups" : "rotation") + ": MGC opposite direction, same-direction MNQ and a later MNQ short (after the long closed) are allowed");
             }
         }
+        // 23. MONTHS / WEEKS and SESSION FINDER.
+        {
+            var cfg = LifecycleSnapshot.Cfg("BH", 1, 0, 0); cfg.PoolSize = 5;
+            var ev = LifecycleSnapshot.BhEvents(8).ToList();
+            var acc = KeystoneArcEngine.SimulatePool(ev.Select(e => e.CopyForPool()).ToList(), cfg);
+            DateTime from = ev.Min(e => e.TriggerTime).Date, to = ev.Max(e => e.TriggerTime).Date;
+            var months = KeystoneArcPeriods.Build(ev, acc, cfg, "MONTH", true, from, to);
+            Console.WriteLine(KeystoneArcPeriods.Table(months, "MONTHS"));
+            Check(months.Count >= 2 && months.Sum(m => m.Setups) == ev.Count && Math.Abs(months.Sum(m => m.TradePnl) - ev.Where(KeystoneArcStrategyCompare.Resolved).Sum(e => e.GrossPnl)) < 0.01, "months add up to the whole range (setups and trade P/L)");
+            Check(months.All(m => m.FreshRan) && months.Count(m => m.Best) <= 1 && months.Count(m => m.Worst) <= 1, "each month also runs alone with new accounts; one best / one worst");
+            double poolNet = acc.Sum(a => a.PayoutCash - a.EvaluationCost);
+            Check(Math.Abs(months.Sum(m => m.Net) - poolNet) < 0.01, "continuous pool net per month adds up to the pool total", months.Sum(m => m.Net) + " vs " + poolNet);
+            var weeks = KeystoneArcPeriods.Build(ev, acc, cfg, "WEEK", false, months[0].Start, months[0].End);
+            Check(weeks.Count >= 3 && weeks.Sum(w => w.Setups) == months[0].Setups, "weeks of a month add up to the month", weeks.Count + " weeks");
+            var shifted = ev.Select((e, i) => { var c = e.CopyForPool(); int h = new[] { 3, 9, 10, 13 }[i % 4]; c.TriggerTime = c.TriggerTime.Date.AddHours(h).AddMinutes(5); c.EntryTime = c.TriggerTime; c.ExitTime = c.TriggerTime.AddMinutes(20); if (h == 10 && c.GrossPnl < 0) { c.GrossPnl = 800; c.Outcome = "WIN"; } return c; }).ToList();
+            var sess = KeystoneArcSessions.Build(shifted, cfg, true);
+            Console.WriteLine(KeystoneArcSessions.Table(sess));
+            var best = sess.Windows.FirstOrDefault(w => w.Best);
+            Check(best != null && best.Label.StartsWith("NY OPEN"), "session finder finds the window that really wins (10:00 setups)", best == null ? "none" : best.Label);
+            Check(sess.Verdict.Contains("HELD UP") && sess.Hours.Count == 4, "picked on the first part, confirmed on the later part; hour table has only loaded hours", sess.Verdict);
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
