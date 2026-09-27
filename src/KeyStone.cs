@@ -4760,7 +4760,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-27i • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-27j • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -9749,14 +9749,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Side panel (right of the chart): live replay box, last event, selected setup.
             var side = new StackPanel { Margin = new Thickness(6, 0, 0, 0) };
             evidenceLiveClock = Txt(string.Empty, Gold, 13, FontWeights.Bold);
-            evidenceLiveCombined = Txt("$0", Green, 30, FontWeights.Bold);
+            evidenceLiveCombined = Txt("$0", Green, 30, FontWeights.Bold); evidenceLiveCombined.TextWrapping = TextWrapping.Wrap;
             evidenceLiveLines = Txt(string.Empty, Text, 11, FontWeights.Normal); evidenceLiveLines.FontFamily = new FontFamily("Consolas"); evidenceLiveLines.TextWrapping = TextWrapping.Wrap;
             evidenceLiveTargetText = Txt(string.Empty, Green, 10, FontWeights.Bold); evidenceLiveLossText = Txt(string.Empty, Red, 10, FontWeights.Bold);
             evidenceLiveTargetFill = new Border { Background = Green, Height = 8, Width = 0, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(4) };
             evidenceLiveLossFill = new Border { Background = Red, Height = 8, Width = 0, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(4) };
             var liveStack = new StackPanel();
             liveStack.Children.Add(Txt("LIVE REPLAY", Muted, 10, FontWeights.Bold)); liveStack.Children.Add(evidenceLiveClock);
-            liveStack.Children.Add(Txt("COMBINED P/L", Muted, 10, FontWeights.Bold)); liveStack.Children.Add(evidenceLiveCombined);
+            evidenceLiveCaption = Txt("COMBINED P/L", Muted, 10, FontWeights.Bold);
+            liveStack.Children.Add(evidenceLiveCaption); liveStack.Children.Add(evidenceLiveCombined);
             liveStack.Children.Add(evidenceLiveTargetText); liveStack.Children.Add(new Border { Background = Panel, Height = 8, Width = 330, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(4), Child = evidenceLiveTargetFill, Margin = new Thickness(0, 2, 0, 6) });
             liveStack.Children.Add(evidenceLiveLossText); liveStack.Children.Add(new Border { Background = Panel, Height = 8, Width = 330, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(4), Child = evidenceLiveLossFill, Margin = new Thickness(0, 2, 0, 6) });
             liveStack.Children.Add(evidenceLiveLines);
@@ -10954,11 +10955,71 @@ namespace NinjaTrader.NinjaScript.AddOns
             evidenceSidePanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        private TextBlock evidenceLiveCaption;
+
+        // BH / FVG / ENGULFING: every setup stands alone, so the live box shows the setup in play
+        // (entry, stop, target, live P/L, progress to target / stop) and the day's setups one by one.
+        // No combined P/L, daily goal or daily loss here — those belong to accounts (pool) or Asian.
+        private void UpdateSetupLivePanel(List<KeystoneArcEvent> trades)
+        {
+            List<KeystoneArcBar> bars = ReplayBars();
+            int barIndex = bars.FindLastIndex(b => b.Time <= evidenceBarCursor);
+            evidenceLiveClock.Text = evidenceBarCursor.ToString("ddd yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " ET • CANDLE " + (barIndex + 1) + " / " + bars.Count;
+            Func<KeystoneArcEvent, DateTime> entryOf = e => e.EntryTime == DateTime.MinValue ? e.TriggerTime : e.EntryTime;
+            Func<KeystoneArcEvent, bool> isShort = e => string.Equals(e.Direction, "SHORT", StringComparison.OrdinalIgnoreCase);
+            Func<string, double> pvOf = sym => string.Equals(sym, "MGC", StringComparison.OrdinalIgnoreCase) ? 10.0 : 2.0;
+            List<KeystoneArcEvent> started = trades.Where(e => entryOf(e) <= evidenceBarCursor).OrderBy(entryOf).ToList();
+            List<KeystoneArcEvent> open = started.Where(e => e.ExitTime == DateTime.MinValue || e.ExitTime > evidenceBarCursor).ToList();
+            KeystoneArcEvent current = open.LastOrDefault();
+            string fmt = "0.00";
+            if (evidenceLiveCaption != null) evidenceLiveCaption.Text = current == null ? "SETUP IN PLAY" : "SETUP IN PLAY • " + current.Symbol + " " + (isShort(current) ? "SHORT" : "LONG") + (string.IsNullOrEmpty(current.QualityTier) ? "" : " • GRADE " + current.QualityTier);
+            if (current == null)
+            {
+                evidenceLiveCombined.Text = "FLAT"; evidenceLiveCombined.Foreground = Muted;
+                evidenceLiveTargetText.Text = started.Count == 0 ? "waiting for the first setup of the session" : "no setup open right now";
+                evidenceLiveTargetFill.Width = 0; evidenceLiveLossText.Text = string.Empty; evidenceLiveLossFill.Width = 0;
+            }
+            else
+            {
+                double? now = LabCloseAt(current.Symbol, evidenceBarCursor);
+                double price = now ?? current.Entry, sign = isShort(current) ? -1 : 1;
+                double pnl = (price - current.Entry) * sign * pvOf(current.Symbol) * Math.Max(0.0001, current.Quantity);
+                double risk = Math.Abs(current.Entry - current.Stop);
+                evidenceLiveCombined.Text = (pnl >= 0 ? "+" : "") + Cash(pnl) + (risk > 0 ? "  (" + ((price - current.Entry) * sign / risk).ToString("+0.0;-0.0", CultureInfo.InvariantCulture) + "R)" : "");
+                evidenceLiveCombined.Foreground = pnl > 0 ? Green : (pnl < 0 ? Red : Text);
+                double toTarget = Math.Abs(current.Target - current.Entry) <= 0 ? 0 : Math.Max(0, Math.Min(1, (price - current.Entry) * sign / Math.Abs(current.Target - current.Entry)));
+                double toStop = risk <= 0 ? 0 : Math.Max(0, Math.Min(1, (current.Entry - price) * sign / risk));
+                evidenceLiveTargetText.Text = "TARGET " + current.Target.ToString(fmt, CultureInfo.InvariantCulture) + " • " + (toTarget * 100).ToString("0", CultureInfo.InvariantCulture) + "% of the way";
+                evidenceLiveTargetFill.Width = 330 * toTarget;
+                evidenceLiveLossText.Text = "STOP " + current.Stop.ToString(fmt, CultureInfo.InvariantCulture) + " • " + (toStop * 100).ToString("0", CultureInfo.InvariantCulture) + "% of the way";
+                evidenceLiveLossFill.Width = 330 * toStop;
+            }
+            var sb = new StringBuilder();
+            if (current != null) sb.AppendLine("ENTRY " + current.Entry.ToString(fmt, CultureInfo.InvariantCulture) + " at " + entryOf(current).ToString("HH:mm") + " • x" + current.Quantity.ToString("0.##", CultureInfo.InvariantCulture) + (open.Count > 1 ? " • " + (open.Count - 1) + " more setup(s) open" : "")).AppendLine();
+            int w = 0, l = 0, x = 0;
+            sb.AppendLine("SETUPS THIS SESSION (each one on its own):");
+            foreach (KeystoneArcEvent e in started)
+            {
+                bool closed = e.ExitTime != DateTime.MinValue && e.ExitTime <= evidenceBarCursor;
+                string result = !closed ? "OPEN" : (e.Outcome == "WIN" ? "WIN " : ((e.Outcome ?? "").StartsWith("LOSS") ? "LOSS" : "EXIT")) + " " + (e.GrossPnl >= 0 ? "+" : "") + Cash(e.GrossPnl);
+                if (closed) { if (e.Outcome == "WIN") w++; else if ((e.Outcome ?? "").StartsWith("LOSS")) l++; else x++; }
+                sb.AppendLine(entryOf(e).ToString("HH:mm") + " " + e.Symbol + " " + (isShort(e) ? "SHORT" : "LONG ") + " @ " + e.Entry.ToString(fmt, CultureInfo.InvariantCulture) + (string.IsNullOrEmpty(e.QualityTier) ? "" : " [" + e.QualityTier + "]") + " → " + result);
+            }
+            if (started.Count == 0) sb.AppendLine("none yet");
+            else sb.AppendLine().Append(started.Count + " setups • " + w + " W / " + l + " L / " + x + " exit • " + open.Count + " open. Accounts and daily limits are applied in the pool, not here.");
+            evidenceLiveLines.Text = sb.ToString().TrimEnd();
+            bool closedNow = evidenceReplayIndex >= 0 && evidenceReplayIndex < evidenceReplaySteps.Count && evidenceReplaySteps[evidenceReplayIndex].Time == evidenceBarCursor;
+            evidenceLiveBorder.BorderBrush = closedNow ? (evidenceReplaySteps[evidenceReplayIndex].Headline.Contains("STOP") ? Red : Gold) : Gold;
+            evidenceLiveBorder.BorderThickness = new Thickness(closedNow ? 3 : 1.5);
+        }
+
         private void UpdateEvidenceLivePanel()
         {
             if (evidenceLiveBorder == null || evidenceBarCursor == DateTime.MinValue) return;
             DateTime day; if (!EvidenceReplayDay(out day)) return;
             List<KeystoneArcEvent> trades = ReplayDayTrades(day);
+            if (!EvidenceIsAsian()) { UpdateSetupLivePanel(trades); return; }
+            if (evidenceLiveCaption != null) evidenceLiveCaption.Text = "COMBINED P/L";
             KeystoneArcLiveState st = KeystoneArcLive.At(trades, LabCloseAt, evidenceBarCursor);
             bool asian = EvidenceIsAsian();
             // Minute closes from the first entry to the cursor (1-minute series of the instruments traded).
