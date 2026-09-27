@@ -96,6 +96,26 @@ public static class EngulfingTests
             // MGC, 1 contract: $1.50 + 2 sides × 1 tick × $1.00 = $3.50.
             Check(a.Count == 1 && b.Count == 1 && Math.Abs((a[0].GrossPnl - b[0].GrossPnl) - 3.5) < 1e-9, "commission $1.50 + 1 tick slippage per side = $3.50 less per MGC contract", a.Count > 0 && b.Count > 0 ? a[0].GrossPnl + " vs " + b[0].GrossPnl : "");
         }
+        // 8. On random 1-minute and 5-minute data every marker lands on its engulfing candle (chart rule:
+        //    the last close-stamped bar at or before the entry time), for buys and sells.
+        foreach (int tf in new[] { 1, 5 })
+        {
+            var rnd = new Random(7); var one = new List<KeystoneArcBar>(); double p = 3000;
+            for (int i = 0; i < 1500; i++) { double o = p; p += (rnd.NextDouble() - 0.5) * 3; one.Add(new KeystoneArcBar { Symbol = "MGC", Time = T0.AddMinutes(i + 1), Open = o, Close = p, High = Math.Max(o, p) + rnd.NextDouble(), Low = Math.Min(o, p) - rnd.NextDouble() }); }
+            var setup = tf == 1 ? one : KeystoneArcEngine.ToSetupBars(one, "MGC", tf);
+            var cfg = Cfg(); cfg.SetupMinutes = tf; cfg.End = T0.AddDays(2);
+            var ev = KeystoneArcEngine.DetectAndResolve(one, setup, cfg);
+            int bad = 0;
+            foreach (var e in ev)
+            {
+                int idx = setup.FindLastIndex(b => b.Time <= e.EntryTime);
+                var c = setup[idx]; var last = setup[idx - 1];
+                bool buy = e.Direction == "LONG";
+                bool ok = Math.Abs(c.Close - e.Entry) < 1e-9 && (buy ? c.Close > c.Open && c.Close > last.Open && last.Close < last.Open : c.Close < c.Open && c.Close < last.Open && last.Close > last.Open);
+                if (!ok) bad++;
+            }
+            Check(ev.Count > 5 && ev.Any(e => e.Direction == "SHORT") && bad == 0, tf + "M: every marker sits on its engulfing candle (" + ev.Count + " setups, buys and sells)", bad + " wrong");
+        }
         Console.WriteLine(failures == 0 ? "\nALL ENGULFING TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

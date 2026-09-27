@@ -147,3 +147,12 @@ and chart labels differ per strategy.
 - [x] 123 ENGULFING buy / sell strategy (docs/ENGULFING.md) with all pool / payout / report / chart features
 - [x] Prop NO HEDGING rule for every strategy (same instrument never long and short at once)
 - [x] Chart: always-visible TIMEFRAME buttons; SHOW ENGULFING overlay; COMPARE STRATEGIES includes ENGULFING
+
+## L. Build 27k (2026-09-27)
+- [x] Commission + slippage per contract (Step 1)
+- [x] MONTHS & SESSIONS tab: months (pool + alone), weeks, session finder with an honesty check; report + export
+- [x] LIVE ACCOUNT tab: personal account on the same setups (risk %, grade filter, daily cap, stops, withdrawals)
+- [x] FULL GLOBEX to the 17:00 close; partial one-day data never cached; chart warns on short data
+- [x] Engulfing markers on the signal candle; off-screen setups no longer pile on the first candle
+- [x] docs/PLAYBOOK.md — Claude's own strategy (ORSR) and prop / live approach
+- [ ] Next: build ORSR (5th strategy), real-data search from an EXPORT FOR CLAUDE upload
