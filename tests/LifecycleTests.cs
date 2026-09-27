@@ -353,6 +353,28 @@ public static class LifecycleTests
             Check(best != null && best.Label.StartsWith("NY OPEN"), "session finder finds the window that really wins (10:00 setups)", best == null ? "none" : best.Label);
             Check(sess.Verdict.Contains("HELD UP") && sess.Hours.Count == 4, "picked on the first part, confirmed on the later part; hour table has only loaded hours", sess.Verdict);
         }
+        // 24. LIVE ACCOUNT: risk % sizing, one trade a day, daily / monthly stops, ruin.
+        {
+            var cfg = LifecycleSnapshot.Cfg("BH", 0, 0, 0);
+            DateTime d0 = new DateTime(2025, 3, 3, 9, 35, 0);
+            Func<int, int, double, string, KeystoneArcEvent> mk = (dayN, minute, pnl, tier) => new KeystoneArcEvent { Id = dayN + "_" + minute, Symbol = "MNQ", SetupClass = "BH", TriggerTime = d0.AddDays(dayN).AddMinutes(minute), EntryTime = d0.AddDays(dayN).AddMinutes(minute), ExitTime = d0.AddDays(dayN).AddMinutes(minute + 5), Outcome = pnl > 0 ? "WIN" : "LOSS", GrossPnl = pnl, Quantity = 5, StopDistance = 50, QualityTier = tier, ReviewState = "ACCEPTED" };
+            // Setup risk = 50 pts × $2 × 5 = $500; a +$1,000 win is +2R.
+            var ev = new List<KeystoneArcEvent> { mk(0, 0, 1000, "A"), mk(0, 30, -500, "A"), mk(1, 0, -500, "C"), mk(1, 20, -500, "A"), mk(2, 0, 1000, "A") };
+            var set = new KeystoneArcLiveSettings { StartBalance = 2000, RiskPercent = 1, MaxTradesPerDay = 1, Compound = false, DailyStopPercent = 0, MonthlyStopPercent = 0 };
+            var r = KeystoneArcLiveAccount.Simulate(ev, cfg, set);
+            Console.WriteLine(KeystoneArcLiveAccount.Summary(r, set));
+            // risk $20 per trade: day0 +40 (2nd trade skipped by cap), day1 −20 (first setup), day2 +40.
+            Check(r.Trades == 3 && Math.Abs(r.FinalBalance - 2060) < 0.01 && r.SkippedDailyCap == 2, "1% risk of $2,000 = $20 per 1R; one trade a day", r.FinalBalance + " trades " + r.Trades);
+            set.TierFilter = "A"; var ra = KeystoneArcLiveAccount.Simulate(ev, cfg, set);
+            Check(ra.SkippedTier == 1 && Math.Abs(ra.FinalBalance - 2060) < 0.01, "grade A only skips the C setup and takes the next A that day", ra.FinalBalance.ToString());
+            var losers = Enumerable.Range(0, 30).Select(i => mk(i, 0, -500, "A")).ToList();
+            var big = new KeystoneArcLiveSettings { StartBalance = 1000, RiskPercent = 25, Compound = false, MonthlyStopPercent = 0, DailyStopPercent = 0 };
+            var rr = KeystoneArcLiveAccount.Simulate(losers, cfg, big);
+            Check(rr.Ruined && rr.FinalBalance == 0 && rr.Trades == 4, "25% risk: four losses lose the whole account (the balance is the drawdown)", rr.Trades + " trades");
+            var stop = new KeystoneArcLiveSettings { StartBalance = 1000, RiskPercent = 2, Compound = true, MonthlyStopPercent = 6, DailyStopPercent = 0 };
+            var rs = KeystoneArcLiveAccount.Simulate(losers, cfg, stop);
+            Check(!rs.Ruined && rs.Months.Any(mo => mo.Stopped) && rs.SkippedMonthlyStop > 0, "monthly stop −6% ends trading for the rest of the month", rs.Trades + " trades, skipped " + rs.SkippedMonthlyStop);
+        }
         Console.WriteLine(failures == 0 ? "\nALL LIFECYCLE TESTS PASSED" : "\n" + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

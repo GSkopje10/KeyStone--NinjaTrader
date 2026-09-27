@@ -42,7 +42,7 @@ public static class EngulfingTests
             c.AddRange(Flat(98.7, 5));
             var ev = Run(c, Cfg());
             Check(ev.Count == 1 && ev[0].Direction == "LONG" && ev[0].StrengthTag == "BODY" && Math.Abs(ev[0].Entry - 98.7) < 1e-9, "red, red, green closing above the 2nd body → BUY at the close (BODY)", ev.Count + " " + (ev.Count > 0 ? ev[0].StrengthTag : ""));
-            Check(ev.Count == 1 && ev[0].EntryTime == T0.AddMinutes(4), "market entry on the next 1-minute bar after the signal close", ev.Count > 0 ? ev[0].EntryTime.ToString("HH:mm") : "");
+            Check(ev.Count == 1 && ev[0].EntryTime == T0.AddMinutes(3), "entry at the signal candle's close (marker on the engulfing candle)", ev.Count > 0 ? ev[0].EntryTime.ToString("HH:mm") : "");
         }
         // 2. Green closes inside the 2nd body (below its open) → no setup.
         {

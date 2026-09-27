@@ -1905,7 +1905,8 @@ namespace NinjaTrader.NinjaScript
             }
             if (entryIndex < 0) { e.Outcome = "NO ENTRY DATA"; e.GrossPnl = 0; return; }
             KeystoneArcBar entryBar = raw[entryIndex];
-            e.EntryTime = entryBar.Time.AddMinutes(-timeOffset);
+            // Market entry happens at the signal candle's close (its time); the next minute only fills it.
+            e.EntryTime = marketEntry ? e.TriggerTime : entryBar.Time.AddMinutes(-timeOffset);
             e.PeakAfterEntry = entryBar.High;
             e.TroughAfterEntry = entryBar.Low;
             bool entryBarTarget = IsShort(e) ? entryBar.Low <= e.Target : entryBar.High >= e.Target;
@@ -4466,6 +4467,108 @@ namespace NinjaTrader.NinjaScript
                 sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-24} {1,6} {2,4:0}% {3,9} {4,5:0.00} {5,10} {6,9} | {7,11} {8,11} | {9,10} {10,7}", (r.Best ? "★ " : "  ") + r.Label, r.Setups, r.WinRate, m(r.PerSetup), r.ProfitFactor, m(r.TradePnl), m(-r.MaxDrawdown), r.FirstN == 0 ? "—" : m(r.FirstPerSetup), r.LaterN == 0 ? "—" : m(r.LaterPerSetup), r.PoolRan ? m(r.PoolNet) : "—", r.PoolRan ? r.PoolPayouts.ToString(CultureInfo.InvariantCulture) : "—"));
             sb.AppendLine(rep.Verdict);
             if (rep.Hours.Count > 0) sb.Append("BY HOUR (per setup): " + string.Join("  ", rep.Hours.Select(h => h.Label.Substring(0, 2) + " " + m(h.PerSetup) + "(" + h.Setups + ")")));
+            return sb.ToString().TrimEnd();
+        }
+    }
+
+    public sealed class KeystoneArcLiveSettings
+    {
+        public double StartBalance = 2000, RiskPercent = 1, DailyStopPercent = 2, MonthlyStopPercent = 6, WithdrawPercent = 0;
+        public int MaxTradesPerDay = 1; public string TierFilter = "ALL"; public bool Compound = true;
+    }
+
+    public sealed class KeystoneArcLiveMonth { public DateTime Month; public double StartBalance, EndBalance, Pnl, Withdrawn, ReturnPercent; public int Trades, Wins, Losses; public bool Stopped; }
+
+    public sealed class KeystoneArcLiveResult
+    {
+        public double FinalBalance, Withdrawn, ReturnPercent, MaxDrawdownPercent, WorstDayPercent, PeakBalance;
+        public int Trades, Wins, Losses, SkippedTier, SkippedDailyCap, SkippedDailyStop, SkippedMonthlyStop, SkippedAfterRuin;
+        public bool Ruined; public DateTime RuinDate = DateTime.MinValue;
+        public List<Tuple<DateTime, double>> Equity = new List<Tuple<DateTime, double>>();
+        public List<KeystoneArcLiveMonth> Months = new List<KeystoneArcLiveMonth>();
+        public List<KeystoneArcEvent> Taken = new List<KeystoneArcEvent>();
+    }
+
+    // LIVE ACCOUNT (personal, e.g. MT5 NAS100 / XAUUSD CFD): no targets, payouts or rotation. The balance is
+    // the whole drawdown. Each trade risks RiskPercent of the balance: its result is the setup's own
+    // result scaled by (risk $ ÷ the setup's risk $), so contract specs do not matter. One account,
+    // the strongest setups only, a daily trade cap and daily / monthly loss stops.
+    public static class KeystoneArcLiveAccount
+    {
+        static double SetupRisk(KeystoneArcEvent e, KeystoneArcRunConfig cfg)
+        {
+            double pv = string.Equals(e.Symbol, "MGC", StringComparison.OrdinalIgnoreCase) ? 10.0 : 2.0;
+            double risk = e.StopDistance > 0 ? e.StopDistance * pv * Math.Max(1, e.Quantity) : 0;
+            if (risk <= 0 && e.Stop > 0 && e.Entry > 0) risk = Math.Abs(e.Entry - e.Stop) * pv * Math.Max(1, e.Quantity);
+            if (risk <= 0 && cfg != null) risk = Math.Abs(cfg.StopDollars);
+            return Math.Max(1, risk);
+        }
+
+        public static KeystoneArcLiveResult Simulate(List<KeystoneArcEvent> events, KeystoneArcRunConfig cfg, KeystoneArcLiveSettings set)
+        {
+            var r = new KeystoneArcLiveResult();
+            if (events == null || cfg == null || set == null) return r;
+            double balance = Math.Max(1, set.StartBalance), peak = balance;
+            r.PeakBalance = balance;
+            Func<KeystoneArcEvent, DateTime> dayOf = e => KeystoneArcEngine.SessionGroupingDate(e.TriggerTime, cfg).Date;
+            var done = events.Where(e => KeystoneArcStrategyCompare.Resolved(e) && string.Equals(e.ReviewState ?? "ACCEPTED", "ACCEPTED", StringComparison.OrdinalIgnoreCase)).OrderBy(e => e.EntryTime).ToList();
+            DateTime day = DateTime.MinValue, month = DateTime.MinValue; double dayStart = balance, monthStart = balance; int dayTrades = 0; bool dayStopped = false, monthStopped = false;
+            KeystoneArcLiveMonth cur = null;
+            DateTime openUntil = DateTime.MinValue;
+            Action closeMonth = () =>
+            {
+                if (cur == null) return;
+                cur.EndBalance = balance;
+                if (set.WithdrawPercent > 0 && cur.EndBalance > cur.StartBalance && !r.Ruined)
+                {
+                    double w = (cur.EndBalance - cur.StartBalance) * Math.Min(100, set.WithdrawPercent) / 100.0;
+                    balance -= w; cur.Withdrawn = w; r.Withdrawn += w; cur.EndBalance = balance; peak = Math.Max(balance, peak - w);
+                }
+                cur.ReturnPercent = cur.StartBalance <= 0 ? 0 : 100.0 * cur.Pnl / cur.StartBalance;
+                r.Months.Add(cur);
+            };
+            foreach (var e in done)
+            {
+                DateTime d = dayOf(e); DateTime m = new DateTime(d.Year, d.Month, 1);
+                if (m != month) { closeMonth(); month = m; monthStart = balance; monthStopped = false; cur = new KeystoneArcLiveMonth { Month = m, StartBalance = balance }; }
+                if (d != day)
+                {
+                    if (day != DateTime.MinValue) { r.Equity.Add(Tuple.Create(day, balance)); r.WorstDayPercent = Math.Min(r.WorstDayPercent, dayStart <= 0 ? 0 : 100.0 * (balance - dayStart) / dayStart); }
+                    day = d; dayStart = balance; dayTrades = 0; dayStopped = false;
+                }
+                if (r.Ruined) { r.SkippedAfterRuin++; continue; }
+                if (!KeystoneArcQualityLearner.TierAllowed(set.TierFilter, e.QualityTier)) { r.SkippedTier++; continue; }
+                if (monthStopped) { r.SkippedMonthlyStop++; continue; }
+                if (dayStopped) { r.SkippedDailyStop++; continue; }
+                if (dayTrades >= Math.Max(1, set.MaxTradesPerDay)) { r.SkippedDailyCap++; continue; }
+                if (e.EntryTime < openUntil) { r.SkippedDailyCap++; continue; } // one position at a time
+                double riskDollars = (set.Compound ? balance : set.StartBalance) * Math.Max(0, set.RiskPercent) / 100.0;
+                double pnl = e.GrossPnl * riskDollars / SetupRisk(e, cfg);
+                balance += pnl; dayTrades++; r.Trades++; if (pnl > 0) r.Wins++; else if (pnl < 0) r.Losses++;
+                cur.Trades++; cur.Pnl += pnl; if (pnl > 0) cur.Wins++; else if (pnl < 0) cur.Losses++;
+                openUntil = e.ExitTime == DateTime.MinValue ? e.EntryTime : e.ExitTime;
+                var t = e.CopyForPool(); t.GrossPnl = pnl; t.AssignedVirtualAccount = "LIVE"; r.Taken.Add(t);
+                peak = Math.Max(peak, balance); r.PeakBalance = Math.Max(r.PeakBalance, balance);
+                r.MaxDrawdownPercent = Math.Max(r.MaxDrawdownPercent, peak <= 0 ? 0 : 100.0 * (peak - balance) / peak);
+                if (set.DailyStopPercent > 0 && balance <= dayStart * (1 - set.DailyStopPercent / 100.0)) dayStopped = true;
+                if (set.MonthlyStopPercent > 0 && balance <= monthStart * (1 - set.MonthlyStopPercent / 100.0)) { monthStopped = true; cur.Stopped = true; }
+                if (balance <= 0) { r.Ruined = true; r.RuinDate = d; balance = 0; }
+            }
+            if (day != DateTime.MinValue) { r.Equity.Add(Tuple.Create(day, balance)); r.WorstDayPercent = Math.Min(r.WorstDayPercent, dayStart <= 0 ? 0 : 100.0 * (balance - dayStart) / dayStart); }
+            closeMonth();
+            r.FinalBalance = balance;
+            r.ReturnPercent = 100.0 * (balance + r.Withdrawn - set.StartBalance) / Math.Max(1, set.StartBalance);
+            return r;
+        }
+
+        public static string Summary(KeystoneArcLiveResult r, KeystoneArcLiveSettings set)
+        {
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var sb = new StringBuilder();
+            sb.AppendLine("LIVE ACCOUNT • start " + m(set.StartBalance) + " • risk " + set.RiskPercent.ToString("0.##", CultureInfo.InvariantCulture) + "% per trade" + (set.Compound ? " (of the current balance)" : " (of the start balance)") + " • max " + set.MaxTradesPerDay + " trade(s)/day • setups " + set.TierFilter + " • daily stop " + set.DailyStopPercent.ToString("0.#", CultureInfo.InvariantCulture) + "% • monthly stop " + set.MonthlyStopPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%");
+            sb.AppendLine("RESULT • balance " + m(r.FinalBalance) + (r.Withdrawn > 0 ? " + withdrawn " + m(r.Withdrawn) : "") + " • return " + r.ReturnPercent.ToString("0.#", CultureInfo.InvariantCulture) + "% • max drawdown " + r.MaxDrawdownPercent.ToString("0.#", CultureInfo.InvariantCulture) + "% • worst day " + r.WorstDayPercent.ToString("0.#", CultureInfo.InvariantCulture) + "% • " + r.Trades + " trades (" + r.Wins + " W / " + r.Losses + " L)" + (r.Ruined ? " • ACCOUNT LOST on " + r.RuinDate.ToString("yyyy-MM-dd") : ""));
+            sb.AppendLine("SKIPPED • grade filter " + r.SkippedTier + " • daily trade cap / position open " + r.SkippedDailyCap + " • daily stop " + r.SkippedDailyStop + " • monthly stop " + r.SkippedMonthlyStop);
+            foreach (var mo in r.Months) sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0:MMM yyyy}  {1,8}  {2,6:0.0}%  {3,3} trades {4}/{5}{6}{7}", mo.Month, m(mo.Pnl), mo.ReturnPercent, mo.Trades, mo.Wins, mo.Losses, mo.Stopped ? "  MONTHLY STOP HIT" : "", mo.Withdrawn > 0 ? "  withdrew " + m(mo.Withdrawn) : ""));
             return sb.ToString().TrimEnd();
         }
     }
@@ -7166,6 +7269,26 @@ namespace NinjaTrader.NinjaScript.AddOns
             monthsScroll.AddHandler(Mouse.PreviewMouseWheelEvent, new MouseWheelEventHandler(delegate(object sender, MouseWheelEventArgs args) { monthsScroll.ScrollToVerticalOffset(Math.Max(0, monthsScroll.VerticalOffset - args.Delta / 1.5)); args.Handled = true; }), true);
             Grid.SetRow(monthsScroll, 2); monthsPanel.Children.Add(monthsScroll);
             resultViews.Items.Add(new TabItem { Header = "MONTHS & SESSIONS", Background = Gold, Foreground = Bg, Content = PanelCard(monthsPanel) });
+            // LIVE ACCOUNT: the personal account (e.g. MT5 NAS100 / XAUUSD) run on the same setups.
+            var livePanel = new Grid { Margin = new Thickness(4) };
+            livePanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); livePanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); livePanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            livePanel.Children.Add(Txt("LIVE ACCOUNT • YOUR PERSONAL ACCOUNT ON THE SAME SETUPS • NO TARGETS, NO PAYOUTS, THE BALANCE IS THE DRAWDOWN", Green, 13, FontWeights.Bold));
+            var liveInputs = new WrapPanel { Margin = new Thickness(0, 2, 0, 2) };
+            liveStartBox = Input("2000"); liveRiskBox = Input("1"); liveMaxTradesBox = Input("1"); liveDailyStopBox = Input("2"); liveMonthlyStopBox = Input("6"); liveWithdrawBox = Input("0");
+            liveTierBox = Select("ALL SETUPS", "GRADE A + B (+DT)", "GRADE A (+DT)", "DOUBLE TROUBLE ONLY"); liveTierBox.SelectedIndex = 2;
+            liveCompoundBox = new CheckBox { Content = "RISK % OF THE CURRENT BALANCE (grows with the account)", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
+            liveStartBox.ToolTip = "Money in the account. Losing all of it is the only 'drawdown' — no prop rules."; liveRiskBox.ToolTip = "Risk per trade in % (the loss if the stop is hit). 0.5–1% is professional; above 2% grows fast but can wipe the account.";
+            liveMaxTradesBox.ToolTip = "Most trades per day (1 = only the first strongest setup)."; liveTierBox.ToolTip = "Which setups the live account takes. Grades are learned walk-forward.";
+            liveDailyStopBox.ToolTip = "Stop trading for the day after losing this % of the day's starting balance (0 = off)."; liveMonthlyStopBox.ToolTip = "Stop trading for the rest of the month after losing this % (0 = off)."; liveWithdrawBox.ToolTip = "Withdraw this % of each profitable month (0 = keep compounding).";
+            foreach (var pr in new[] { Tuple.Create("START BALANCE $", (UIElement)liveStartBox), Tuple.Create("RISK % / TRADE", (UIElement)liveRiskBox), Tuple.Create("MAX TRADES / DAY", (UIElement)liveMaxTradesBox), Tuple.Create("SETUPS", (UIElement)liveTierBox), Tuple.Create("DAILY STOP %", (UIElement)liveDailyStopBox), Tuple.Create("MONTHLY STOP %", (UIElement)liveMonthlyStopBox), Tuple.Create("WITHDRAW % OF PROFIT MONTHS", (UIElement)liveWithdrawBox), Tuple.Create("SIZING", (UIElement)liveCompoundBox) })
+                liveInputs.Children.Add(PoolRow(pr.Item1, pr.Item2));
+            var liveRun = Btn("RUN LIVE ACCOUNT", Green); liveRun.Height = 30; liveRun.Width = 200; liveRun.Click += delegate { RenderLiveAccount(); }; liveInputs.Children.Add(liveRun);
+            Grid.SetRow(liveInputs, 1); livePanel.Children.Add(liveInputs);
+            liveAccountStack = new StackPanel { Margin = new Thickness(2) };
+            var liveScroll = new ScrollViewer { Background = Card, BorderBrush = Green, BorderThickness = new Thickness(1), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = liveAccountStack, Margin = new Thickness(3) };
+            liveScroll.AddHandler(Mouse.PreviewMouseWheelEvent, new MouseWheelEventHandler(delegate(object sender, MouseWheelEventArgs args) { liveScroll.ScrollToVerticalOffset(Math.Max(0, liveScroll.VerticalOffset - args.Delta / 1.5)); args.Handled = true; }), true);
+            Grid.SetRow(liveScroll, 2); livePanel.Children.Add(liveScroll);
+            resultViews.Items.Add(new TabItem { Header = "LIVE ACCOUNT", Background = Green, Foreground = Bg, Content = PanelCard(livePanel) });
             var cyclePanel = new Grid(); cyclePanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); cyclePanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); cyclePanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             var cycleHeader = new Grid(); cycleHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); cycleHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             cycleHeader.Children.Add(Txt("PAYOUT CYCLE DASHBOARD • DATED, SIMULTANEOUS PAYOUT EVENTS", Cyan, 13, FontWeights.Bold));
@@ -9593,6 +9716,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                         DateTime pf = KeystoneArcEngine.SessionGroupingDate(cfg.Start, cfg), pt = KeystoneArcEngine.SessionGroupingDate(cfg.End, cfg);
                         summary.AppendLine(KeystoneArcPeriods.Table(KeystoneArcPeriods.Build(ledger, acc, cfg, "MONTH", cfg.EvaluationEnabled >= 0, pf, pt), "MONTHS"));
                         if (!string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase)) summary.AppendLine(KeystoneArcSessions.Table(KeystoneArcSessions.Build(ledger, cfg, cfg.EvaluationEnabled >= 0)));
+                        KeystoneArcLiveSettings exportLive = lastLiveSettings ?? new KeystoneArcLiveSettings { TierFilter = "A" };
+                        summary.AppendLine(KeystoneArcLiveAccount.Summary(KeystoneArcLiveAccount.Simulate(ledger, cfg, exportLive), exportLive));
                     }
                     catch (Exception ex) { summary.AppendLine("MONTHS / SESSIONS not available: " + ex.Message); }
                     foreach (KeystoneArcInsight f in exportPlan.Cards) summary.AppendLine("[" + f.Level + "] " + f.Title + ": " + f.Text);
@@ -11561,7 +11686,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (bars[i].Time > entryTime) break;
                 result = i;
             }
-            return result >= 0 ? result : bars.FindIndex(b => b.Time >= entryTime);
+            if (result >= 0) return result;
+            // Entry inside the first (close-stamped) bar only; setups further left are off screen.
+            TimeSpan step = bars.Count > 1 ? bars[1].Time - bars[0].Time : TimeSpan.FromMinutes(1);
+            return bars[0].Time - entryTime < step ? 0 : -1;
         }
 
         private void ToggleEvidenceControls()
@@ -11845,11 +11973,69 @@ namespace NinjaTrader.NinjaScript.AddOns
             RequestTabRender("PERFORMANCE PERIODS", RenderDailySessionScoreboard);
             lastMonthRows = null; lastSessionReport = null;
             RequestTabRender("MONTHS & SESSIONS", RenderMonthsAndSessions);
+            lastLiveResult = null; RequestTabRender("LIVE ACCOUNT", RenderLiveAccount);
             RenderResearchFindings();
         }
 
         private readonly Dictionary<string, Action> deferredTabRenders = new Dictionary<string, Action>(StringComparer.OrdinalIgnoreCase);
-        private StackPanel monthsSessionsStack;
+        private StackPanel monthsSessionsStack, liveAccountStack;
+        private TextBox liveStartBox, liveRiskBox, liveMaxTradesBox, liveDailyStopBox, liveMonthlyStopBox, liveWithdrawBox;
+        private ComboBox liveTierBox; private CheckBox liveCompoundBox;
+        private KeystoneArcLiveResult lastLiveResult; private KeystoneArcLiveSettings lastLiveSettings;
+
+        private KeystoneArcLiveSettings ReadLiveSettings()
+        {
+            return new KeystoneArcLiveSettings
+            {
+                StartBalance = Math.Max(1, Number(liveStartBox, 2000)), RiskPercent = Math.Max(0.01, Number(liveRiskBox, 1)), MaxTradesPerDay = Math.Max(1, Integer(liveMaxTradesBox, 1)),
+                DailyStopPercent = Math.Max(0, NumberAllowZero(liveDailyStopBox, 2)), MonthlyStopPercent = Math.Max(0, NumberAllowZero(liveMonthlyStopBox, 6)), WithdrawPercent = Math.Max(0, NumberAllowZero(liveWithdrawBox, 0)),
+                TierFilter = liveTierBox == null ? "A" : new[] { "ALL", "AB", "A", "DT" }[Math.Max(0, Math.Min(3, liveTierBox.SelectedIndex))], Compound = liveCompoundBox == null || liveCompoundBox.IsChecked == true
+            };
+        }
+
+        private void RenderLiveAccount()
+        {
+            if (liveAccountStack == null) return;
+            liveAccountStack.Children.Clear();
+            if (events == null || events.Count == 0 || config == null) { liveAccountStack.Children.Add(Txt("RUN A TEST FIRST • the live account uses the setups of the loaded test.", Muted, 11, FontWeights.Bold)); return; }
+            KeystoneArcLiveSettings set = ReadLiveSettings();
+            KeystoneArcLiveResult r = KeystoneArcLiveAccount.Simulate(events, config, set);
+            lastLiveResult = r; lastLiveSettings = set;
+            var tiles = new UniformGrid { Columns = 5, Margin = new Thickness(2) };
+            CycleMetric(tiles, "BALANCE NOW", Cash(r.FinalBalance) + (r.Withdrawn > 0 ? " + " + Cash(r.Withdrawn) + " out" : ""), r.FinalBalance >= set.StartBalance ? Green : Red, "End balance (plus withdrawals) from a start of " + Cash(set.StartBalance) + ".");
+            CycleMetric(tiles, "RETURN", r.ReturnPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%", r.ReturnPercent >= 0 ? Green : Red, "Total gain on the start balance, withdrawals included.");
+            CycleMetric(tiles, "WORST DRAWDOWN", "−" + r.MaxDrawdownPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%", r.MaxDrawdownPercent > 20 ? Red : Gold, "Deepest fall from a balance high. Above ~20% is hard to sit through live.");
+            CycleMetric(tiles, "TRADES", r.Trades + " • " + r.Wins + "W / " + r.Losses + "L", Cyan, "Trades the live account took after the grade filter, the daily cap and the stops.");
+            CycleMetric(tiles, r.Ruined ? "ACCOUNT LOST" : "WORST DAY", r.Ruined ? r.RuinDate.ToString("yyyy-MM-dd") : r.WorstDayPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%", r.Ruined ? Red : Orange, r.Ruined ? "The balance reached zero on this day." : "Worst single day in % of that day's starting balance.");
+            liveAccountStack.Children.Add(tiles);
+            if (r.Equity.Count > 1)
+            {
+                liveAccountStack.Children.Add(Txt("BALANCE OVER TIME", Cyan, 12, FontWeights.Bold));
+                var canvas = new Canvas { Height = 170, Width = 1000, Background = Panel, Margin = new Thickness(4), HorizontalAlignment = HorizontalAlignment.Left, ClipToBounds = true };
+                double min = Math.Min(set.StartBalance, r.Equity.Min(x => x.Item2)), max = Math.Max(set.StartBalance, r.Equity.Max(x => x.Item2)); if (max - min < 1) max = min + 1;
+                Func<int, double> px = i => 8 + i * (984.0 / Math.Max(1, r.Equity.Count - 1)); Func<double, double> py = v => 160 - (v - min) / (max - min) * 150;
+                var line = new System.Windows.Shapes.Polyline { Stroke = r.FinalBalance >= set.StartBalance ? Green : Red, StrokeThickness = 2 };
+                for (int i = 0; i < r.Equity.Count; i++) line.Points.Add(new Point(px(i), py(r.Equity[i].Item2)));
+                canvas.Children.Add(new System.Windows.Shapes.Line { X1 = 8, X2 = 992, Y1 = py(set.StartBalance), Y2 = py(set.StartBalance), Stroke = Muted, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 4, 3 } });
+                canvas.Children.Add(line);
+                var lo = new TextBlock { Text = Cash(min), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(lo, 10); Canvas.SetTop(lo, 150); canvas.Children.Add(lo);
+                var hi = new TextBlock { Text = Cash(max), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(hi, 10); Canvas.SetTop(hi, 2); canvas.Children.Add(hi);
+                liveAccountStack.Children.Add(canvas);
+            }
+            double[] w = { 120, 110, 110, 100, 90, 110, 160 };
+            string[] head = { "MONTH", "START", "P/L", "RETURN", "TRADES", "W / L", "NOTE" };
+            liveAccountStack.Children.Add(Txt("MONTH BY MONTH", Cyan, 12, FontWeights.Bold));
+            liveAccountStack.Children.Add(TableRow(head, head.Select(h => (Brush)Muted).ToArray(), w, true));
+            foreach (var mo in r.Months)
+            {
+                string[] cells = { mo.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture), Cash(mo.StartBalance), Cash(mo.Pnl), mo.ReturnPercent.ToString("0.0", CultureInfo.InvariantCulture) + "%", mo.Trades.ToString(CultureInfo.InvariantCulture), mo.Wins + " / " + mo.Losses, (mo.Stopped ? "monthly stop hit " : "") + (mo.Withdrawn > 0 ? "withdrew " + Cash(mo.Withdrawn) : "") };
+                Brush[] colors = { Gold, Text, mo.Pnl >= 0 ? Green : Red, mo.Pnl >= 0 ? Green : Red, Text, Text, mo.Stopped ? Red : Muted };
+                liveAccountStack.Children.Add(new Border { Background = Panel, BorderBrush = mo.Pnl >= 0 ? Card : Red, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Margin = new Thickness(2, 1, 2, 1), Child = TableRow(cells, colors, w, false) });
+            }
+            var note = Txt("SKIPPED • grade filter " + r.SkippedTier + " • daily trade cap / a position still open " + r.SkippedDailyCap + " • daily stop " + r.SkippedDailyStop + " • monthly stop " + r.SkippedMonthlyStop +
+                "\nEach trade risks RISK % of the balance: its result is the setup's own result scaled to that risk, so NAS100 / XAUUSD CFD lot sizes do not change the answer (only very small balances can be limited by the 0.01-lot minimum). Commission / slippage from Step 1 are included. Hedging is not simulated: a hedge that fully offsets the position is the same money as the stop, only later and with spread and swap costs.", Muted, 10, FontWeights.Normal);
+            note.TextWrapping = TextWrapping.Wrap; liveAccountStack.Children.Add(note);
+        }
         private List<KeystoneArcPeriodRow> lastMonthRows;
         private KeystoneArcSessionReport lastSessionReport;
         private DateTime selectedWeeksMonth = DateTime.MinValue;
@@ -14013,6 +14199,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 sb.Append("</tbody></table></div>");
                 if (lastSessionReport.Hours.Count > 0) sb.Append("<div class='mono'>").Append(Hx("BY HOUR (per setup): " + string.Join("  ", lastSessionReport.Hours.Select(h => h.Label.Substring(0, 2) + ":00 " + Cash(h.PerSetup) + " (" + h.Setups + ")")))).Append("</div>");
             }
+            // LIVE ACCOUNT.
+            KeystoneArcLiveSettings liveSet = lastLiveSettings ?? ReadLiveSettings();
+            KeystoneArcLiveResult liveRes = lastLiveResult ?? KeystoneArcLiveAccount.Simulate(events, config, liveSet);
+            sb.Append("<h2 id='live-account'>LIVE ACCOUNT • personal account on the same setups</h2><pre class='cmp'>").Append(Hx(KeystoneArcLiveAccount.Summary(liveRes, liveSet))).Append("</pre>");
             // AI analysis.
             sb.Append("<h2 id='analysis'>AI ANALYSIS • WHAT THE NUMBERS SAY</h2><div class='muted'>Written automatically from this run only. Every sentence points at a number in this report; nothing is predicted. For deeper optimisation use EXPORT FOR CLAUDE in the lab and share the file.</div><div class='insights'>");
             foreach (KeystoneArcInsight f in KeystoneArcAnalyst.Analyze(accounts, accepted, config, capital))

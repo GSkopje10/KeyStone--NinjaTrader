@@ -72,6 +72,14 @@ public static class UiSmokeTest
             if (monthRows == null || monthRows.Count < 3 || st.Children.Count < 10) throw new Exception("months tab not built");
             Set(lab, "selectedWeeksMonth", monthRows[1].Start); Call(lab, "RenderMonthsAndSessions");
         });
+        Step("live account tab (risk %, grade filter, stops, equity chart, months)", () =>
+        {
+            Call(lab, "RenderLiveAccount");
+            var st = (System.Windows.Controls.StackPanel)lab.GetType().GetField("liveAccountStack", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab);
+            var res = (KeystoneArcLiveResult)lab.GetType().GetField("lastLiveResult", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab);
+            Console.WriteLine("      live trades " + (res == null ? -1 : res.Trades) + " • elements " + st.Children.Count);
+            if (res == null || st.Children.Count < 4) throw new Exception("live account tab not built");
+        });
         Step("top boxes for every tab", () => { var tabs = (System.Windows.Controls.TabControl)lab.GetType().GetField("resultViewTabs", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); for (int i = 0; i < tabs.Items.Count; i++) { tabs.SelectedIndex = i; tabs.SelectedItem = tabs.Items[i]; Call(lab, "UpdateTopTilesForTab"); } });
         Step("report html", () => Call(lab, "BuildHtmlReport"));
         // Evidence chart + replay on real detected setups from random-walk bars.
