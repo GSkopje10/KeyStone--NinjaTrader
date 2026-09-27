@@ -63,6 +63,15 @@ public static class UiSmokeTest
             if (paid == 0) throw new Exception("test pool had no payouts");
             Set(lab, "accounts", accounts); Set(lab, "events", ev);
         });
+        Step("months & sessions tab (months, weeks drill-down, session finder)", () =>
+        {
+            Call(lab, "RenderMonthsAndSessions");
+            var st = (System.Windows.Controls.StackPanel)lab.GetType().GetField("monthsSessionsStack", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab);
+            var monthRows = (List<KeystoneArcPeriodRow>)lab.GetType().GetField("lastMonthRows", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab);
+            Console.WriteLine("      months " + (monthRows == null ? 0 : monthRows.Count) + " • elements " + st.Children.Count);
+            if (monthRows == null || monthRows.Count < 3 || st.Children.Count < 10) throw new Exception("months tab not built");
+            Set(lab, "selectedWeeksMonth", monthRows[1].Start); Call(lab, "RenderMonthsAndSessions");
+        });
         Step("top boxes for every tab", () => { var tabs = (System.Windows.Controls.TabControl)lab.GetType().GetField("resultViewTabs", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); for (int i = 0; i < tabs.Items.Count; i++) { tabs.SelectedIndex = i; tabs.SelectedItem = tabs.Items[i]; Call(lab, "UpdateTopTilesForTab"); } });
         Step("report html", () => Call(lab, "BuildHtmlReport"));
         // Evidence chart + replay on real detected setups from random-walk bars.
