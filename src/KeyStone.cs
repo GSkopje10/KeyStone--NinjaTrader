@@ -6097,7 +6097,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             bhFilterBox = Select("ALL VALID BH • BASE RULE"); bhFilterBox.SelectedIndex = 0; bhFilterBox.Visibility = Visibility.Collapsed;
             // These are fixed Eastern-Time research labels, not a claim that any window is
             // better. CUSTOM remains available for an exact user-defined start/end range.
-            sessionBox = Select("NY OPEN 09:30-15:55", "NY EARLY 08:00-15:55", "ASIA 19:00-03:00", "LONDON 03:00-11:30", "FULL GLOBEX 18:00-15:55", "INSTRUMENT DEFAULT", "CUSTOM RANGE", "ASIAN CYCLE • CONFIGURED TIME"); sessionBox.SelectedIndex = 0;
+            sessionBox = Select("NY OPEN 09:30-15:55", "NY EARLY 08:00-15:55", "ASIA 19:00-03:00", "LONDON 03:00-11:30", "FULL GLOBEX 18:00-16:55", "INSTRUMENT DEFAULT", "CUSTOM RANGE", "ASIAN CYCLE • CONFIGURED TIME"); sessionBox.SelectedIndex = 0;
             dateModeBox = Select("ONE DAY", "DATE RANGE"); dateModeBox.SelectedIndex = 0;
             timeframeBox = Select("1 MINUTE SETUPS", "5 MINUTE SETUPS", "15 MINUTE SETUPS", "30 MINUTE SETUPS", "60 MINUTE SETUPS", "240 MINUTE SETUPS"); timeframeBox.SelectedIndex = 1;
             sessionBox.SelectionChanged += delegate { RefreshSessionInputs(); InvalidateConfigurationApproval(); };
@@ -6560,14 +6560,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (display == "NY EARLY 08:00-15:55") { customStartBox.Text = "800"; endTimeBox.Text = "1555"; }
             if (display == "ASIA 19:00-03:00") { customStartBox.Text = "1900"; endTimeBox.Text = "300"; }
             if (display == "LONDON 03:00-11:30") { customStartBox.Text = "300"; endTimeBox.Text = "1130"; }
-            if (display == "FULL GLOBEX 18:00-15:55") { customStartBox.Text = "1800"; endTimeBox.Text = "1555"; }
+            if (display == "FULL GLOBEX 18:00-16:55") { customStartBox.Text = "1800"; endTimeBox.Text = "1655"; }
             if (display == "ASIAN CYCLE • CONFIGURED TIME") { customStartBox.Text = "1800"; endTimeBox.Text = "1555"; }
             customStartBox.IsEnabled = editable;
             endTimeBox.IsEnabled = editable;
             for (int i = 0; i < customSessionControls.Count; i++)
                 if (customSessionControls[i] != null) customSessionControls[i].Visibility = editable ? Visibility.Visible : Visibility.Collapsed;
             if (sessionHintText == null) return;
-            if (display == "FULL GLOBEX 18:00-15:55") sessionHintText.Text = "FULL GLOBEX: fixed 18:00 ET → 15:55 ET next day. The 17:00-18:00 CME maintenance break is outside this research window.";
+            if (display == "FULL GLOBEX 18:00-16:55") sessionHintText.Text = "FULL GLOBEX: the whole trading day, 18:00 ET → the 17:00 ET close next day (last 5M bar 16:55–17:00). The 17:00-18:00 CME maintenance break is outside this research window.";
             else if (display == "ASIAN CYCLE • CONFIGURED TIME") sessionHintText.Text = "ASIAN CYCLE BACKTEST: set the exact entry and end HHMM in the Asian parameter panel. Each chosen time uses direct 1-minute data; no prior-close or nearest-bar substitute is used.";
             else if (display == "ASIA 19:00-03:00") sessionHintText.Text = "ASIA: fixed 19:00 ET → 03:00 ET next day. This is a named research label; it is not an exchange-defined quality rating.";
             else if (display == "LONDON 03:00-11:30") sessionHintText.Text = "LONDON: fixed 03:00 ET → 11:30 ET. Use CUSTOM around the U.S./UK daylight-saving transition weeks if exact London-local alignment is needed.";
@@ -8499,7 +8499,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Keep only receipts that cover the requested range; a partial history (NinjaTrader
             // still downloading, or a contract segment) is never frozen into saved data.
             DateTime first = list.Min(b => b.Time), last = list.Max(b => b.Time);
-            if (first > item.Start.AddDays(5) || last < item.End.AddDays(-5)) return;
+            // Tolerance grows with the range (weekends / holidays at the edges of long ranges), but a
+            // one- or two-day request must really reach its end: a receipt that stops at midnight
+            // (still downloading, or loaded while the session was live) must not be reused later.
+            double spanDays = Math.Max(0, (item.End - item.Start).TotalDays);
+            TimeSpan tolerance = spanDays <= 3 ? TimeSpan.FromHours(2) : TimeSpan.FromDays(Math.Min(5, Math.Max(1, spanDays * 0.1)));
+            if (first > item.Start + tolerance || last < item.End - tolerance) return;
             try
             {
                 lock (savedBarsLock)
@@ -9861,7 +9866,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             evidenceTimeframeBox.SelectionChanged += delegate { paintTf(); };
             paintTf();
-            compactHeader.Children.Add(tfStrip);
+            // The replay bar already carries a TIMEFRAME row next to START; the strip is kept off
+            // the header so the chart does not show two identical rows.
             evidenceDateBox = Input(preferredDay.ToString("yyyy-MM-dd"));
             // Evidence always starts with every detected setup from the exact test ledger and full tested session.
             // Outcome switches below are purely view filters; they never alter the actual stored run.
@@ -10690,7 +10696,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             AddCanvasText(symbol + " • TEST WINDOW " + testedStart.ToString("yyyy-MM-dd HH:mm") + " → " + testedEnd.ToString("yyyy-MM-dd HH:mm") + " • " + EvidenceContextMinutes(chartMinutes) + "M LEFT CONTEXT • DIRECT NINJATRADER " + chartMinutes + "M BARS • " + bars.Count + " CANDLES • " + marks.Count + " LEDGER " + (marks.Count == 1 ? "MARK" : "MARKS") + " / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES"), left, 4, Cyan, 12, FontWeights.Bold);
             UpdateEvidenceNavigationBars(allBars, visibleCount);
             RefreshEvidenceSidePanel();
-            SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"))) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
+            DateTime expectedEnd = TradingSessionEnd(day);
+            DateTime lastLoaded = allBars[allBars.Count - 1].Time;
+            bool dataShort = lastLoaded < expectedEnd.AddMinutes(-Math.Max(30, chartMinutes * 3)) && expectedEnd < DateTime.Now.AddHours(-1);
+            if (dataShort)
+            {
+                SetEvidenceStatus("⚠ LOADED DATA ENDS AT " + lastLoaded.ToString("HH:mm") + " BUT THIS SESSION RUNS TO " + expectedEnd.ToString("HH:mm") + " • the research data for this day is incomplete (setups after " + lastLoaded.ToString("HH:mm") + " are missing). Press CLEAR SAVED DATA in Step 1 and run the test again.", Red);
+            }
+            else SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"))) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
             if (selectedEvidenceEvent != null && !marks.Any(record => record.Id == selectedEvidenceEvent.Id)) ClearEvidenceSelection(false);
             // Cache exactly what the lightweight crosshair-only overlay needs, then draw it once
             // on top of the freshly rebuilt chart. Every subsequent pure-hover MouseMove reuses
@@ -15123,7 +15136,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             if (config == null || config.Start == DateTime.MinValue) return "CURRENT STUDY • configure a date, session, instruments, and setup timeframe.";
             bool asian = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
-            string setup = asian ? "ASIAN CYCLE BACKTEST • COPY" : (config.EnableBh == 1 && config.EnableFvg == 1 ? "BH + FVG" : (config.EnableBh == 1 ? "BH" : "FVG"));
+            string setup = asian ? "ASIAN CYCLE BACKTEST • COPY" : StrategyDisplayName();
             string detail = asian
                 ? config.AsianStartHhmm.ToString("0000") + " ET " + config.AsianMnqInitialDirection + " MNQ / " + config.AsianMgcInitialDirection + " MGC • " + (config.AsianRiskMode == "PRICE" ? "PRICE-MOVE REVERSALS" : "FIXED-CASH REVERSALS")
                 : (string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH"));

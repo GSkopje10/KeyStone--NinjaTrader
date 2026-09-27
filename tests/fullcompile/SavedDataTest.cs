@@ -32,7 +32,16 @@ public static class SavedDataTest
         labType.GetMethod("StoreSavedBars", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, new[] { item, (object)bars });
         bool partialSkipped = mem.Count == 0;
         Console.WriteLine((partialSkipped ? "PASS" : "FAIL") + "  a receipt that does not cover the range is not saved");
-        bool ok = inMemory && same && partialSkipped;
+        // One Full Globex session (18:00 → 16:55 next day) whose receipt stops at midnight must not be saved.
+        itemType.GetField("Start").SetValue(item, new DateTime(2026, 9, 24, 18, 0, 0));
+        itemType.GetField("End").SetValue(item, new DateTime(2026, 9, 25, 16, 55, 0));
+        var night = new List<KeystoneArcBar>();
+        for (DateTime t = new DateTime(2026, 9, 24, 18, 5, 0); t <= new DateTime(2026, 9, 25, 0, 0, 0); t = t.AddMinutes(5)) night.Add(new KeystoneArcBar { Symbol = "MNQ", Time = t, Open = 1, High = 2, Low = 0.5, Close = 1.5 });
+        mem.Clear();
+        labType.GetMethod("StoreSavedBars", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, new[] { item, (object)night });
+        bool dayPartialSkipped = mem.Count == 0;
+        Console.WriteLine((dayPartialSkipped ? "PASS" : "FAIL") + "  a one-day receipt that stops at midnight is not saved");
+        bool ok = inMemory && same && partialSkipped && dayPartialSkipped;
         Console.WriteLine(ok ? "SAVED DATA TEST PASSED" : "SAVED DATA TEST FAILED");
         return ok ? 0 : 1;
     }
