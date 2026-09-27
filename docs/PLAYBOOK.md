@@ -32,6 +32,28 @@ sees in engulfing and double-trouble setups, but anchored to time and real liqui
 **Parameters to optimise in the lab.** OR length (5 / 15 / 30 min), sweep size, reclaim candle
 timeframe (1 / 5 min), decision-window end, T1/T2 split, A+ only vs all, skip-day thresholds.
 
+## 1b. Two more brand-new strategies (BUILT in build 27l — Step 1 strategy list)
+
+### LAST-HOUR RELAY (intraday momentum) — strategy code RLY
+How the day starts tends to show how it ends: when the market moves strongly from the 18:00 Globex
+open to 10:00 ET, the last half hour tends to continue that direction (documented "intraday momentum"
+in index futures — late-day rebalancing and hedging follow the day's move). Rules: signal = move from
+the Globex open to 10:00 ÷ the 20-day average daily range; above +0.25 → BUY at 15:25, below −0.25 →
+SELL; out at 15:55. Protective stop 0.15 × average range, auto size to the Step 2 STOP $. Option: the
+afternoon (10:00 → 15:25) must agree. One decision a day, ~30 minutes in the market, uses 1-minute bars
+(load FULL GLOBEX). Not related to candle patterns, so it diversifies BH / FVG / engulfing.
+
+### VWAP SNAP-BACK (midday mean reversion) — strategy code VWP
+Between 10:30 and 14:30, price stretched far from the day's VWAP usually snaps partway back once the
+push fails. Rules: session VWAP from 09:30 with σ bands; a candle closes beyond 2.5σ; the next candle
+makes no new extreme and closes back toward VWAP → enter against the stretch at its close. Stop beyond
+the extreme (auto size), target the 1σ band (or VWAP). Skip trend days (first hour wider than 1.8× its
+20-day average). Max 2 trades a day. Works in the quiet middle of the day when the other strategies
+are idle; high win rate with small targets suits evaluations.
+
+Both run through the same pool, payouts, MONTHS & SESSIONS, LIVE ACCOUNT, COMPARE STRATEGIES and the
+report. They are untested on real data — they must pass the gates below like everything else.
+
 ## 2. How I would run the two baskets
 
 ### Prop firms (the money is replaceable; the process is not)

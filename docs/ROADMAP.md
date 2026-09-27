@@ -156,3 +156,7 @@ and chart labels differ per strategy.
 - [x] Engulfing markers on the signal candle; off-screen setups no longer pile on the first candle
 - [x] docs/PLAYBOOK.md — Claude's own strategy (ORSR) and prop / live approach
 - [ ] Next: build ORSR (5th strategy), real-data search from an EXPORT FOR CLAUDE upload
+
+## M. Build 27l (2026-09-28)
+- [x] LAST-HOUR RELAY (RLY) and VWAP SNAP-BACK (VWP) strategies — engines, tests, Step 1 panels, compare, report
+- [ ] Next: ORSR (opening range sweep & reclaim); real-data search once data is available

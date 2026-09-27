@@ -5207,7 +5207,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-27k • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-28l • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -5272,6 +5272,10 @@ namespace NinjaTrader.NinjaScript.AddOns
         private ComboBox engDirectionBox, engStrengthBox, engStopModeBox, engTargetModeBox;
         private TextBox engMinRunBox, engMaxRunBox, engMnqMinBodyBox, engMgcMinBodyBox, engDtRunBox, engBufferBox, engMaxQtyBox, engTargetRDTBox, engTargetRABox, engTargetRBBox, engTargetRCBox;
         private UIElement engPointsPanel, stopModeRowRef;
+        private readonly List<UIElement> relayStrategyControls = new List<UIElement>(), vwapStrategyControls = new List<UIElement>();
+        private TextBox relaySignalBox, relayEntryBox, relayExitBox, relayThresholdBox, relayStopBox, relayDaysBox, vwapStartBox, vwapEndBox, vwapSigmaBox, vwapTrendBox, vwapMaxBox, vwapBufferBox;
+        private ComboBox relayDirectionBox, vwapDirectionBox, vwapTargetBox; private CheckBox relayConfirmBox;
+        private bool relaySessionDefaultApplied, vwapSessionDefaultApplied;
         private CheckBox fvgMergeBox;
         private TextBox copyGroupSizeBox;
         private string lastAccountComparison = string.Empty;
@@ -6318,7 +6322,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             RefreshOpenChartInstruments();
             string defaultDay = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var data = Stack(); data.Children.Add(Txt("1. DATA, SETUPS & SESSION", Gold, 13, FontWeights.Bold));
-            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "123 ENGULFING • BUY / SELL"); strategyBox.SelectedIndex = 0;
+            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "123 ENGULFING • BUY / SELL", "LAST-HOUR RELAY • TIME MOMENTUM", "VWAP SNAP-BACK • MIDDAY REVERSION"); strategyBox.SelectedIndex = 0;
             scopeBox = Select("MNQ", "MGC", "BOTH"); scopeBox.SelectedIndex = 0;
             accountPathBox = Select("PROP • VIRTUAL POOL"); accountPathBox.SelectedIndex = 0; accountPathBox.Visibility = Visibility.Collapsed;
             // Keystone is intentionally one setup lab in this revision: long BH only.
@@ -6580,6 +6584,31 @@ namespace NinjaTrader.NinjaScript.AddOns
             engAdvanced.Children.Add(Row("STOP BUFFER POINTS", engBufferBox)); engAdvanced.Children.Add(Row("MAX CONTRACTS (AUTO SIZE)", engMaxQtyBox));
             engModel.Children.Add(engAdvanced);
             engStrategyControls.Clear(); engStrategyControls.Add(engModel);
+            // LAST-HOUR RELAY panel.
+            var relayModel = Stack(); relayModel.Margin = new Thickness(0, 4, 0, 2);
+            relayModel.Children.Add(Txt("LAST-HOUR RELAY • TIME MOMENTUM", Orchid, 11, FontWeights.Bold));
+            relayModel.Children.Add(Txt("The move from the 18:00 Globex open to 10:00 ET, in multiples of the 20-day average daily range. Above +THRESHOLD → BUY at 15:25; below −THRESHOLD → SELL; out at 15:55. One decision a day, uses the 1-minute bars (load FULL GLOBEX). Protective stop = STOP FRACTION × the average range; auto size to the Step 2 STOP $.", Muted, 10, FontWeights.Normal));
+            relaySignalBox = Input("1000"); relayEntryBox = Input("1525"); relayExitBox = Input("1555"); relayThresholdBox = Input("0.25"); relayStopBox = Input("0.15"); relayDaysBox = Input("20");
+            relayDirectionBox = Select("BOTH • BUY AND SELL", "BUY ONLY", "SELL ONLY"); relayDirectionBox.SelectedIndex = 0;
+            relayConfirmBox = new CheckBox { Content = "THE AFTERNOON MUST AGREE (10:00 → 15:25 in the same direction)", IsChecked = false, Foreground = Text, Margin = new Thickness(6) };
+            foreach (TextBox box in new[] { relaySignalBox, relayEntryBox, relayExitBox, relayThresholdBox, relayStopBox, relayDaysBox }) WatchConfigurationInput(box);
+            relayDirectionBox.SelectionChanged += delegate { InvalidateConfigurationApproval(); }; relayConfirmBox.Checked += delegate { InvalidateConfigurationApproval(); }; relayConfirmBox.Unchecked += delegate { InvalidateConfigurationApproval(); };
+            relayModel.Children.Add(Row("DIRECTION", relayDirectionBox)); relayModel.Children.Add(Row("SIGNAL TIME HHMM", relaySignalBox)); relayModel.Children.Add(Row("ENTRY TIME HHMM", relayEntryBox)); relayModel.Children.Add(Row("EXIT TIME HHMM", relayExitBox));
+            relayModel.Children.Add(Row("THRESHOLD (× AVERAGE DAILY RANGE)", relayThresholdBox)); relayModel.Children.Add(Row("PROTECTIVE STOP (× AVERAGE RANGE)", relayStopBox)); relayModel.Children.Add(Row("AVERAGE RANGE DAYS", relayDaysBox)); relayModel.Children.Add(Row("CONFIRMATION", relayConfirmBox));
+            relayStrategyControls.Clear(); relayStrategyControls.Add(relayModel);
+            // VWAP SNAP-BACK panel.
+            var vwapModel = Stack(); vwapModel.Margin = new Thickness(0, 4, 0, 2);
+            vwapModel.Children.Add(Txt("VWAP SNAP-BACK • MIDDAY REVERSION", Orchid, 11, FontWeights.Bold));
+            vwapModel.Children.Add(Txt("Session VWAP from 09:30 with σ bands. Between 10:30 and 14:30 a candle closes beyond the BAND; the next candle makes no new extreme and closes back toward VWAP → enter against the stretch at its close. Stop beyond the extreme (auto size), target the 1σ band or VWAP. Days whose first hour is much wider than usual (trend days) are skipped.", Muted, 10, FontWeights.Normal));
+            vwapStartBox = Input("1030"); vwapEndBox = Input("1430"); vwapSigmaBox = Input("2.5"); vwapTrendBox = Input("1.8"); vwapMaxBox = Input("2"); vwapBufferBox = Input("0");
+            vwapDirectionBox = Select("BOTH • BUY AND SELL", "BUY ONLY", "SELL ONLY"); vwapDirectionBox.SelectedIndex = 0;
+            vwapTargetBox = Select("1σ BAND (take the quick part)", "VWAP (full snap-back)"); vwapTargetBox.SelectedIndex = 0;
+            foreach (TextBox box in new[] { vwapStartBox, vwapEndBox, vwapSigmaBox, vwapTrendBox, vwapMaxBox, vwapBufferBox }) WatchConfigurationInput(box);
+            foreach (ComboBox box in new[] { vwapDirectionBox, vwapTargetBox }) box.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
+            vwapModel.Children.Add(Row("DIRECTION", vwapDirectionBox)); vwapModel.Children.Add(Row("TARGET", vwapTargetBox)); vwapModel.Children.Add(Row("BAND σ (STRETCH NEEDED)", vwapSigmaBox));
+            vwapModel.Children.Add(Row("WINDOW START HHMM", vwapStartBox)); vwapModel.Children.Add(Row("WINDOW END HHMM", vwapEndBox)); vwapModel.Children.Add(Row("MAX TRADES / DAY", vwapMaxBox));
+            vwapModel.Children.Add(Row("SKIP DAY IF FIRST HOUR > × AVERAGE (0 = OFF)", vwapTrendBox)); vwapModel.Children.Add(Row("STOP BUFFER POINTS", vwapBufferBox));
+            vwapStrategyControls.Clear(); vwapStrategyControls.Add(vwapModel);
             bhStrategyControls.Add(stopModeRow); bhStrategyControls.Add(propQuantityRow); bhStrategyControls.Add(propTargetRow); bhStrategyControls.Add(propStopRow); bhStrategyControls.Add(dailyGoalRow); bhStrategyControls.Add(dailyLossRow); bhStrategyControls.Add(mnqLowOffsetRow); bhStrategyControls.Add(mgcLowOffsetRow); bhStrategyControls.Add(propModeNote); bhStrategyControls.Add(bhModelNote);
             commissionBox = Input("0"); slippageBox = Input("0"); WatchConfigurationInput(commissionBox); WatchConfigurationInput(slippageBox);
             commissionBox.ToolTip = "Round-trip commission + fees in $ per contract (e.g. 1.24 for a micro at many prop firms). Subtracted from every trade. 0 = off.";
@@ -6587,7 +6616,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var costRow = new UniformGrid { Columns = 2, Margin = new Thickness(0, 2, 0, 2) };
             costRow.Children.Add(Row("COMMISSION $ / CONTRACT (ROUND TRIP)", commissionBox)); costRow.Children.Add(Row("SLIPPAGE TICKS / SIDE", slippageBox));
             model.Children.Add(costRow);
-            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel);
+            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel); model.Children.Add(relayModel); model.Children.Add(vwapModel);
             sessionHintText = Txt("NY OPEN: begins at the first 09:30 ET setup bar and ends at 15:55 ET.", Cyan, 10, FontWeights.Bold); data.Children.Add(sessionHintText);
             // Start right under the settings: no scrolling down to section 3.
             quickStartButton = Btn("▶ START RESEARCH • LOAD + DETECT", Green); quickStartButton.Height = 44; quickStartButton.FontSize = 15; quickStartButton.Margin = new Thickness(6, 14, 6, 4);
@@ -6642,6 +6671,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("FVG", StringComparison.OrdinalIgnoreCase);
         }
 
+        private bool IsRelaySelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("LAST-HOUR RELAY", StringComparison.OrdinalIgnoreCase); }
+        private bool IsVwapSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("VWAP SNAP-BACK", StringComparison.OrdinalIgnoreCase); }
+
         private bool IsEngulfingSelected()
         {
             return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("123 ENGULFING", StringComparison.OrdinalIgnoreCase);
@@ -6661,8 +6693,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             for (int i = 0; i < fvgStrategyControls.Count; i++) if (fvgStrategyControls[i] != null) fvgStrategyControls[i].Visibility = fvg ? Visibility.Visible : Visibility.Collapsed;
             bool eng = IsEngulfingSelected();
             for (int i = 0; i < engStrategyControls.Count; i++) if (engStrategyControls[i] != null) engStrategyControls[i].Visibility = eng ? Visibility.Visible : Visibility.Collapsed;
-            // BH stop modes belong to BH only; FVG and ENGULFING have their own stop choices.
-            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng ? Visibility.Collapsed : Visibility.Visible;
+            bool relay = IsRelaySelected(), vwapPick = IsVwapSelected();
+            for (int i = 0; i < relayStrategyControls.Count; i++) if (relayStrategyControls[i] != null) relayStrategyControls[i].Visibility = relay ? Visibility.Visible : Visibility.Collapsed;
+            for (int i = 0; i < vwapStrategyControls.Count; i++) if (vwapStrategyControls[i] != null) vwapStrategyControls[i].Visibility = vwapPick ? Visibility.Visible : Visibility.Collapsed;
+            // Relay needs the evening Globex open → default FULL GLOBEX; VWAP snap-back is an NY-day strategy.
+            if (relay && !relaySessionDefaultApplied && sessionBox != null) { sessionBox.SelectedIndex = 4; relaySessionDefaultApplied = true; }
+            if (!relay) relaySessionDefaultApplied = false;
+            if (vwapPick && !vwapSessionDefaultApplied && sessionBox != null) { sessionBox.SelectedIndex = 0; vwapSessionDefaultApplied = true; }
+            if (!vwapPick) vwapSessionDefaultApplied = false;
+            // BH stop modes belong to BH only; the other strategies have their own stop choices.
+            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng || relay || vwapPick ? Visibility.Collapsed : Visibility.Visible;
             // FVG default window: pre-NY 08:00 ET to the 16:55 ET close (editable custom range).
             if (fvg && !fvgSessionDefaultApplied && sessionBox != null && customStartBox != null && endTimeBox != null) { sessionBox.SelectedIndex = 6; customStartBox.Text = "800"; endTimeBox.Text = "1655"; fvgSessionDefaultApplied = true; }
             if (!fvg) fvgSessionDefaultApplied = false;
@@ -6698,6 +6738,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                 strategyWorkflowText.Text = asian
                     ? "ASIAN = no setup search. At the exact selected 1-minute opening bar, every selected instrument enters in the selected direction. A fixed reversal loss closes that leg; the next one-minute open reverses direction and adds one micro. The combined target, daily loss, or session end closes the cycle. For BOTH, MNQ and MGC must both have the exact opening bar—Keystone never substitutes a nearby price or silently tests only one instrument."
                     : "BH = red candle → bullish reference → next high break. Every detected setup is automatically included in the research ledger and virtual pool. The review screen is for chart inspection or excluding a specific setup only.";
+            }
+            if (relay || vwapPick)
+            {
+                if (strategyRuleText != null) { strategyRuleText.Foreground = Orchid; strategyRuleText.Text = relay ? "LAST-HOUR RELAY RULE: how the day starts tends to show how it ends. Strong move from the Globex open to 10:00 → trade the same direction from 15:25 to 15:55. One decision a day." : "VWAP SNAP-BACK RULE: midday stretches far beyond VWAP usually snap partway back once the push fails. Stretch beyond the band → no new extreme → enter back toward VWAP."; }
+                if (strategyWorkflowText != null) strategyWorkflowText.Text = "Every entry (buy and sell) is kept in the ledger, drawn on the chart, resolved on 1-minute data and runs through the same pool, payouts, months & sessions, live account and reports. Prop pools never trade the same instrument long and short at the same time.";
             }
             if (eng)
             {
@@ -6764,7 +6809,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void RefreshStopModelInputState()
         {
             string selected = stopModeBox == null ? string.Empty : Convert.ToString(stopModeBox.SelectedItem);
-            bool low = selected.IndexOf("BELOW 3-CANDLE LOW", StringComparison.OrdinalIgnoreCase) >= 0 && !IsAsian75Selected() && !IsFvgSelected() && !IsEngulfingSelected();
+            bool low = selected.IndexOf("BELOW 3-CANDLE LOW", StringComparison.OrdinalIgnoreCase) >= 0 && !IsAsian75Selected() && !IsFvgSelected() && !IsEngulfingSelected() && !IsRelaySelected() && !IsVwapSelected();
             bool autoRiskLot = false;
             for (int i = 0; i < lowStopControls.Count; i++)
                 if (lowStopControls[i] != null) lowStopControls[i].Visibility = low ? Visibility.Visible : Visibility.Collapsed;
@@ -6919,7 +6964,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool asian = IsAsian75Selected();
             quickStartButton.Content = researchSubmissionLocked
                 ? "↻ RUN THIS TEST AGAIN • same settings (or change a setting to start a new one)"
-                : "▶ " + (IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
+                : "▶ " + (IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
         }
 
         private void ConfirmAndStartResearch()
@@ -9766,7 +9811,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 string text;
                 try
                 {
-                    foreach (string strategy in new[] { "BH", "FVG", "ENG" })
+                    foreach (string strategy in new[] { "BH", "FVG", "ENG", "RLY", "VWP" })
                     {
                         KeystoneArcRunConfig c = KeystoneArcStrategyCompare.ConfigFor(cfg, strategy);
                         List<KeystoneArcEvent> ledger = string.Equals(cfg.StrategyCode, strategy, StringComparison.OrdinalIgnoreCase) ? current : BuildDetectorLedger(c);
@@ -10632,7 +10677,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string OverlayOwnCode()
         {
             string code = config == null ? "BH" : (config.StrategyCode ?? "BH").ToUpperInvariant();
-            return code == "FVG" || code == "ENG" ? code : "BH";
+            return code == "FVG" || code == "ENG" || code == "RLY" || code == "VWP" ? code : "BH";
         }
 
         private void DrawStrategyOverlays(string symbol, DateTime day, int minutes, List<KeystoneArcEvent> primary, List<KeystoneArcBar> bars, double left, double candleWidth, Func<double, double> y, double plotBottom, bool replaying)
@@ -10956,7 +11001,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 SetEvidenceStatus("⚠ LOADED DATA ENDS AT " + lastLoaded.ToString("HH:mm") + " BUT THIS SESSION RUNS TO " + expectedEnd.ToString("HH:mm") + " • the research data for this day is incomplete (setups after " + lastLoaded.ToString("HH:mm") + " are missing). Press CLEAR SAVED DATA in Step 1 and run the test again.", Red);
             }
-            else SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"))) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
+            else SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"))) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
             if (selectedEvidenceEvent != null && !marks.Any(record => record.Id == selectedEvidenceEvent.Id)) ClearEvidenceSelection(false);
             // Cache exactly what the lightweight crosshair-only overlay needs, then draw it once
             // on top of the freshly rebuilt chart. Every subsequent pure-hover MouseMove reuses
@@ -12879,7 +12924,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string StrategyDisplayName()
         {
             string code = config == null ? "BH" : (config.StrategyCode ?? "BH").ToUpperInvariant();
-            return code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : "BH"));
+            return code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : (code == "RLY" ? "LAST-HOUR RELAY" : (code == "VWP" ? "VWAP SNAP-BACK" : "BH"))));
         }
 
         private void RenderFirstReturnAccountDetail(KeystoneArcVirtualAccount account, KeystoneArcFirstReturnRow row, string startLabel)
@@ -13802,7 +13847,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (config.Scope != "MNQ" && config.Scope != "MGC" && config.Scope != "BOTH") config.Scope = asian75 ? "BOTH" : "MNQ";
             config.AccountPath = "PROP";
             bool fvgStrategy = !asian75 && IsFvgSelected();
-            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : "BH"));
+            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : (IsRelaySelected() ? "RLY" : (IsVwapSelected() ? "VWP" : "BH"))));
+            config.RelaySignalHhmm = Integer(relaySignalBox, 1000); config.RelayEntryHhmm = Integer(relayEntryBox, 1525); config.RelayExitHhmm = Integer(relayExitBox, 1555);
+            config.RelayThreshold = Math.Max(0, NumberAllowZero(relayThresholdBox, 0.25)); config.RelayStopFraction = Math.Max(0.01, Number(relayStopBox, 0.15)); config.RelayRangeDays = Math.Max(5, Integer(relayDaysBox, 20));
+            config.RelayDirection = relayDirectionBox == null ? "BOTH" : new[] { "BOTH", "BUY", "SELL" }[Math.Max(0, Math.Min(2, relayDirectionBox.SelectedIndex))]; config.RelayConfirm = relayConfirmBox != null && relayConfirmBox.IsChecked == true ? 1 : 0;
+            config.VwapStartHhmm = Integer(vwapStartBox, 1030); config.VwapEndHhmm = Integer(vwapEndBox, 1430); config.VwapBandSigma = Math.Max(0.5, Number(vwapSigmaBox, 2.5)); config.VwapTrendFilter = Math.Max(0, NumberAllowZero(vwapTrendBox, 1.8));
+            config.VwapMaxTradesPerDay = Math.Max(1, Integer(vwapMaxBox, 2)); config.VwapStopBufferPoints = Math.Max(0, NumberAllowZero(vwapBufferBox, 0));
+            config.VwapDirection = vwapDirectionBox == null ? "BOTH" : new[] { "BOTH", "BUY", "SELL" }[Math.Max(0, Math.Min(2, vwapDirectionBox.SelectedIndex))]; config.VwapTarget = vwapTargetBox != null && vwapTargetBox.SelectedIndex == 1 ? "VWAP" : "BAND1";
             config.EngDirection = engDirectionBox == null ? "BOTH" : (engDirectionBox.SelectedIndex == 1 ? "BUY" : (engDirectionBox.SelectedIndex == 2 ? "SELL" : "BOTH"));
             config.EngStrength = engStrengthBox == null ? "ALL" : new[] { "ALL", "WICK", "SWEEP", "SWEEP_WICK" }[Math.Max(0, Math.Min(3, engStrengthBox.SelectedIndex))];
             config.EngMinRun = Math.Max(1, Integer(engMinRunBox, 2)); config.EngMaxRun = Math.Max(0, Integer(engMaxRunBox, 0));
@@ -13911,7 +13962,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 (stopDisplay == "LIVE BELOW 3-CANDLE LOW • AUTO-RISK LOT" ? "LIVE_LOW_AUTO_RISK" :
                 (stopDisplay == "PROP BELOW 3-CANDLE LOW • RISK-SIZED" ? "BELOW_SETUP_LOW" : "STANDARD")));
             // FVG and ENGULFING use their own stop choices; a hidden BH stop mode must not leak in.
-            if ((IsFvgSelected() || IsEngulfingSelected()) && !IsAsian75Selected() && string.Equals(config.StopMode, "BELOW_SETUP_LOW", StringComparison.OrdinalIgnoreCase)) config.StopMode = "STANDARD";
+            if ((IsFvgSelected() || IsEngulfingSelected() || IsRelaySelected() || IsVwapSelected()) && !IsAsian75Selected() && string.Equals(config.StopMode, "BELOW_SETUP_LOW", StringComparison.OrdinalIgnoreCase)) config.StopMode = "STANDARD";
             config.MnqStopOffsetPoints = NumberAllowZero(mnqStopOffsetBox, 5); config.MgcStopOffsetPoints = NumberAllowZero(mgcStopOffsetBox, 1);
             config.PersonalLotSize = Number(personalLotBox, 0); config.MnqCashPerPointPerLot = Number(mnqCashValueBox, 0); config.MgcCashPerPointPerLot = Number(mgcCashValueBox, 0);
             config.MnqTargetMove = Number(mnqTargetMoveBox, 0); config.MgcTargetMove = Number(mgcTargetMoveBox, 0); config.MnqStandardStopMove = Number(mnqStandardStopMoveBox, 0); config.MgcStandardStopMove = Number(mgcStandardStopMoveBox, 0);
@@ -14485,7 +14536,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             int exits = all.Count(x => x.Outcome == "SESSION EXIT");
             int noEntry = all.Count(x => x.Outcome == "NO ENTRY DATA");
             bool asianReport = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
-            string strategyName = asianReport ? "Asian Cycle Backtest • Copy Trading" : (string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 Engulfing • Buy / Sell" : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG Retest • Long" : "BH Long • Break-High"));
+            string strategyName = asianReport ? "Asian Cycle Backtest • Copy Trading" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "Last-Hour Relay • Time Momentum" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP Snap-Back • Midday Reversion" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 Engulfing • Buy / Sell" : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG Retest • Long" : "BH Long • Break-High"));
             string strategyAudit = asianReport ? "MNQ + MGC • exact " + config.AsianStartHhmm.ToString("0000") + " ET simultaneous start • " + config.AsianMnqInitialDirection + " MNQ / " + config.AsianMgcInitialDirection + " MGC • " + (config.AsianRiskMode == "PRICE" ? "instrument price-move reversal limits" : "fixed cash reversal limits") + " • next-minute opposite entry • +1 micro per leg • combined boundaries close-confirmed" : "red candle • bullish reference close • immediate next-bar high break";
             int poolWins = accepted.Count(x => x.Outcome == "WIN");
             int poolLosses = accepted.Count(x => x.Outcome.StartsWith("LOSS", StringComparison.OrdinalIgnoreCase));
@@ -14535,7 +14586,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 sb.Append("<h2 id='portfolio'>One-day virtual-account scorecard</h2><div class='grid'><div class='card'><div class='label'>Eligible / assigned / skipped</div><div class='value cyan'>").Append(accepted.Count).Append(" / ").Append(assigned).Append(" / ").Append(skipped).Append("</div><div class='muted'>Only assigned rows contribute to the account result.</div></div><div class='card'><div class='label'>Assigned W / L / exits</div><div class='value gold'>").Append(wins).Append(" / ").Append(losses).Append(" / ").Append(exits).Append("</div><div class='muted'>Historical outcomes after account allocation.</div></div><div class='card'><div class='label'>Accounts traded / unused</div><div class='value cyan'>").Append(oneDayTraded).Append(" / ").Append(Math.Max(0, accounts.Count - oneDayTraded)).Append("</div><div class='muted'>Every account can receive more trades only until its selected daily lock.</div></div><div class='card'><div class='label'>Profit locks / loss locks</div><div class='value ").Append(oneDayLossLocks > 0 ? "red" : "green").Append("'>").Append(oneDayProfitLocks).Append(" / ").Append(oneDayLossLocks).Append("</div><div class='muted'>Profit lock ").Append(Html(config.DailyGoal.ToString("C0"))).Append(" • loss lock -").Append(Html(Math.Abs(config.DailyLoss).ToString("C0"))).Append(".</div></div><div class='card'><div class='label'>Assigned model P/L</div><div class='value ").Append(oneDayPnl < 0 ? "red" : "green").Append("'>").Append(Html(oneDayPnl.ToString("C0"))).Append("</div><div class='muted'>No payout, evaluation cost, replacement, or blowout lifecycle is used for a one-day study.</div></div></div>");
             }
             else
-                sb.Append("<h2>At-a-glance result</h2><div class='grid'><div class='card'><div class='label'>Strategy</div><div class='value cyan'>").Append(Html(asianReport ? "ASIAN CYCLE COPY" : (string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH")))).Append("</div><div class='muted'>").Append(Html(asianReport ? strategyAudit : BhAggressionSummary(config))).Append("</div></div><div class='card'><div class='label'>Resolved W / L / exits</div><div class='value gold'>").Append(outcomesVerified ? wins + " / " + losses + " / " + exits : "BLOCKED").Append("</div><div class='muted'>").Append(asianReport ? "Resolved daily-cycle legs; before copy allocation." : "All detected setups; before account allocation.").Append("</div></div><div class='card'><div class='label'>All-outcome model P/L</div><div class='value ").Append(gross >= 0 ? "green" : "red").Append("'>").Append(Html(outcomesVerified ? gross.ToString("C0") : "NOT AVAILABLE")).Append("</div><div class='muted'>Historical model only.</div></div><div class='card'><div class='label'>Pool assigned / skipped</div><div class='value cyan'>").Append(assigned).Append(" / ").Append(skipped).Append("</div><div class='muted'>").Append(asianReport ? "Every resolved daily cycle is copied to active accounts." : "Eligible setups only.").Append("</div></div><div class='card'><div class='label'>Evaluation passes / currently funded</div><div class='value orchid'>").Append(evaluationPasses).Append(" / ").Append(currentlyFunded).Append("</div><div class='muted'>Selected scenario mechanics.</div></div><div class='card'><div class='label'>Payout cash</div><div class='value ").Append(payoutCash > 0 ? "green" : "gold").Append("'>").Append(Html(payoutCash.ToString("C0"))).Append("</div><div class='muted'>").Append(Html(payoutExplanation)).Append("</div></div></div>");
+                sb.Append("<h2>At-a-glance result</h2><div class='grid'><div class='card'><div class='label'>Strategy</div><div class='value cyan'>").Append(Html(asianReport ? "ASIAN CYCLE COPY" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH")))).Append("</div><div class='muted'>").Append(Html(asianReport ? strategyAudit : BhAggressionSummary(config))).Append("</div></div><div class='card'><div class='label'>Resolved W / L / exits</div><div class='value gold'>").Append(outcomesVerified ? wins + " / " + losses + " / " + exits : "BLOCKED").Append("</div><div class='muted'>").Append(asianReport ? "Resolved daily-cycle legs; before copy allocation." : "All detected setups; before account allocation.").Append("</div></div><div class='card'><div class='label'>All-outcome model P/L</div><div class='value ").Append(gross >= 0 ? "green" : "red").Append("'>").Append(Html(outcomesVerified ? gross.ToString("C0") : "NOT AVAILABLE")).Append("</div><div class='muted'>Historical model only.</div></div><div class='card'><div class='label'>Pool assigned / skipped</div><div class='value cyan'>").Append(assigned).Append(" / ").Append(skipped).Append("</div><div class='muted'>").Append(asianReport ? "Every resolved daily cycle is copied to active accounts." : "Eligible setups only.").Append("</div></div><div class='card'><div class='label'>Evaluation passes / currently funded</div><div class='value orchid'>").Append(evaluationPasses).Append(" / ").Append(currentlyFunded).Append("</div><div class='muted'>Selected scenario mechanics.</div></div><div class='card'><div class='label'>Payout cash</div><div class='value ").Append(payoutCash > 0 ? "green" : "gold").Append("'>").Append(Html(payoutCash.ToString("C0"))).Append("</div><div class='muted'>").Append(Html(payoutExplanation)).Append("</div></div></div>");
             if (!personalReport) AppendPortfolioCashHtml(sb, capital, config, accounts);
             if (!personalReport && loadedScope == "BOTH" && loadedEvents.Count > 0)
             {
@@ -15212,7 +15263,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             foreach (var pair in new[] { Tuple.Create(engMinRunBox, "2"), Tuple.Create(engMaxRunBox, "0"), Tuple.Create(engMnqMinBodyBox, "0"), Tuple.Create(engMgcMinBodyBox, "0"), Tuple.Create(engDtRunBox, "3"), Tuple.Create(engBufferBox, "0"), Tuple.Create(engMaxQtyBox, "20"), Tuple.Create(engTargetRDTBox, "3"), Tuple.Create(engTargetRABox, "3"), Tuple.Create(engTargetRBBox, "2"), Tuple.Create(engTargetRCBox, "1.5") }) if (pair.Item1 != null) pair.Item1.Text = pair.Item2;
             string[] engPtsReset = { "10", "15", "10", "15", "5", "10", "5", "10" };
             for (int k = 0; k < 8; k++) if (engPtsBoxes[k] != null) engPtsBoxes[k].Text = engPtsReset[k];
-            foreach (ComboBox box in new[] { engDirectionBox, engStrengthBox, engStopModeBox, engTargetModeBox }) if (box != null) box.SelectedIndex = 0;
+            foreach (ComboBox box in new[] { engDirectionBox, engStrengthBox, engStopModeBox, engTargetModeBox, relayDirectionBox, vwapDirectionBox, vwapTargetBox }) if (box != null) box.SelectedIndex = 0;
+            foreach (var pair in new[] { Tuple.Create(relaySignalBox, "1000"), Tuple.Create(relayEntryBox, "1525"), Tuple.Create(relayExitBox, "1555"), Tuple.Create(relayThresholdBox, "0.25"), Tuple.Create(relayStopBox, "0.15"), Tuple.Create(relayDaysBox, "20"), Tuple.Create(vwapStartBox, "1030"), Tuple.Create(vwapEndBox, "1430"), Tuple.Create(vwapSigmaBox, "2.5"), Tuple.Create(vwapTrendBox, "1.8"), Tuple.Create(vwapMaxBox, "2"), Tuple.Create(vwapBufferBox, "0") }) if (pair.Item1 != null) pair.Item1.Text = pair.Item2;
+            if (relayConfirmBox != null) relayConfirmBox.IsChecked = false;
             foreach (var pair in new[] { Tuple.Create(fvgMnqMinGapBox, "0"), Tuple.Create(fvgMgcMinGapBox, "0"), Tuple.Create(fvgDepthBox, "25"), Tuple.Create(fvgRunAwayBox, "2"), Tuple.Create(fvgMaxEntriesBox, "3"), Tuple.Create(fvgMaxAgeBox, "0"), Tuple.Create(fvgMnqRedBox, "3"), Tuple.Create(fvgMgcRedBox, "3"), Tuple.Create(fvgMnqDropBox, "0"), Tuple.Create(fvgMgcDropBox, "0"), Tuple.Create(fvgStopBufferBox, "0"), Tuple.Create(fvgMaxQtyBox, "20") }) if (pair.Item1 != null) pair.Item1.Text = pair.Item2;
             foreach (ComboBox box in new[] { fvgMissBox, fvgOutsideBox, fvgLifetimeBox, fvgAggressionBox, fvgCombineBox, fvgStopModeBox }) if (box != null) box.SelectedIndex = 0;
             if (fvgOneGreenBox != null) fvgOneGreenBox.IsChecked = true;
@@ -15457,14 +15510,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             string setup = asian ? "ASIAN CYCLE BACKTEST • COPY" : StrategyDisplayName();
             string detail = asian
                 ? config.AsianStartHhmm.ToString("0000") + " ET " + config.AsianMnqInitialDirection + " MNQ / " + config.AsianMgcInitialDirection + " MGC • " + (config.AsianRiskMode == "PRICE" ? "PRICE-MOVE REVERSALS" : "FIXED-CASH REVERSALS")
-                : (string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH"));
+                : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH" : "ALL VALID BH"));
             return "CURRENT STUDY • SESSION DATE(S) " + SessionDateLabel(config) + " • DATA WINDOW " + config.Start.ToString("yyyy-MM-dd HH:mm") + " → " + config.End.ToString("yyyy-MM-dd HH:mm") + " • " + config.Scope + " • " + config.SessionMode + " • " + config.SetupMinutes + "M • " + setup + " • " + detail;
         }
 
         private string BuildEvidenceStudyLabel()
         {
             if (config == null || config.Start == DateTime.MinValue) return "CURRENT TEST RANGE • not configured";
-            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")));
+            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")));
             return "CURRENT TEST RANGE • " + SessionDateLabel(config) + " • " + config.Scope + " • " + config.SessionMode + " • " + config.SetupMinutes + "-MINUTE SETUPS • " + setup + " • SELECT A DATE TAB BELOW TO INSPECT ONE COMPLETE SESSION";
         }
         private static void GetConfiguredSessionBounds(DateTime firstDate, DateTime lastDate, KeystoneArcRunConfig cfg, out DateTime start, out DateTime end)
