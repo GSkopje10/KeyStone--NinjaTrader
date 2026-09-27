@@ -41,7 +41,26 @@ public static class SavedDataTest
         labType.GetMethod("StoreSavedBars", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, new[] { item, (object)night });
         bool dayPartialSkipped = mem.Count == 0;
         Console.WriteLine((dayPartialSkipped ? "PASS" : "FAIL") + "  a one-day receipt that stops at midnight is not saved");
-        bool ok = inMemory && same && partialSkipped && dayPartialSkipped;
+        // The same midnight-truncated receipt queues one continuation 00:00 → 16:55 that is merged
+        // into the series; a complete receipt and a long real gap queue nothing.
+        var queueType = typeof(Queue<>).MakeGenericType(itemType);
+        var queue = Activator.CreateInstance(queueType);
+        labType.GetField("historicalRequestQueue", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(lab, queue);
+        labType.GetField("historicalRequestDetails", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(lab, new List<string>());
+        var cont = labType.GetMethod("QueueMidnightContinuation", BindingFlags.NonPublic | BindingFlags.Instance);
+        cont.Invoke(lab, new[] { item, (object)night });
+        int queued = (int)queueType.GetProperty("Count").GetValue(queue);
+        object next = queued == 1 ? queueType.GetMethod("Dequeue").Invoke(queue, null) : null;
+        bool continuation = next != null && (DateTime)itemType.GetField("Start").GetValue(next) == new DateTime(2026, 9, 25) && (DateTime)itemType.GetField("End").GetValue(next) == new DateTime(2026, 9, 25, 16, 55, 0) && (bool)itemType.GetField("Append").GetValue(next);
+        Console.WriteLine((continuation ? "PASS" : "FAIL") + "  a Full Globex receipt that stops at midnight queues the 00:00 → 16:55 continuation");
+        var fullDay = new List<KeystoneArcBar>(night);
+        for (DateTime t = new DateTime(2026, 9, 25, 0, 5, 0); t <= new DateTime(2026, 9, 25, 16, 55, 0); t = t.AddMinutes(5)) fullDay.Add(new KeystoneArcBar { Symbol = "MNQ", Time = t, Open = 1, High = 2, Low = 0.5, Close = 1.5 });
+        cont.Invoke(lab, new[] { item, (object)fullDay });
+        itemType.GetField("Start").SetValue(item, new DateTime(2026, 9, 14, 18, 0, 0));
+        cont.Invoke(lab, new[] { item, (object)bars });
+        bool noExtra = (int)queueType.GetProperty("Count").GetValue(queue) == 0;
+        Console.WriteLine((noExtra ? "PASS" : "FAIL") + "  a complete receipt or a long real gap queues no continuation");
+        bool ok = inMemory && same && partialSkipped && dayPartialSkipped && continuation && noExtra;
         Console.WriteLine(ok ? "SAVED DATA TEST PASSED" : "SAVED DATA TEST FAILED");
         return ok ? 0 : 1;
     }

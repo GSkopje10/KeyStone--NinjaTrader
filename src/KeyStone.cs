@@ -5207,7 +5207,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-28l • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-28m • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -9182,7 +9182,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (item == null || list == null || list.Count == 0) { detail = "0 bars"; return false; }
             List<KeystoneArcBar> ordered = list.Where(x => x != null && x.Time != DateTime.MinValue).OrderBy(x => x.Time).ToList();
             if (ordered.Count == 0) { detail = "0 timestamped bars"; return false; }
-            DateTime expectedStart = item.ContractRolloverSegment || config == null || config.Start == DateTime.MinValue ? item.Start : config.Start;
+            DateTime expectedStart = item.ContractRolloverSegment || item.Append || config == null || config.Start == DateTime.MinValue ? item.Start : config.Start;
             DateTime expectedEnd = item.End;
             double requestedMinutes = Math.Max(1, (expectedEnd - expectedStart).TotalMinutes);
             // A rollover boundary can land across a market weekend/holiday. The final merged
@@ -9235,6 +9235,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             // merged history. MGC alone advances through its already-defined recovery sequence
             // when a non-zero response covers only a fragment of the requested range.
             bool requiresRecovery = error != ErrorCode.NoError || emptyReceipt || incompleteMgcReceipt;
+            // An after-midnight continuation that comes back empty (holiday, no data yet) never
+            // triggers the full-range fallbacks and never clears the part already received.
+            if (requiresRecovery && item.Append)
+            {
+                historicalRequestDetails.Add(key + " " + item.Minutes + "M " + (isSetupRequest ? "setup" : "outcome") + " after-midnight continuation returned no usable bars (" + failureReason + ") • the part before midnight is kept.");
+                if (pendingRequests == 0) StartNextHistoricalRequest(); else UpdateWorkflowState();
+                return;
+            }
             if (requiresRecovery && QueueSingleHistoricalFallback(item, failureReason))
             {
                 UpdateUi("RETRYING " + key + " " + item.Minutes + "M HISTORY • controlled " + (incompleteMgcReceipt ? "partial-range" : "zero-bar") + " fallback", Gold);
@@ -9263,9 +9271,26 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (isSetupRequest) mgcSetupBars = MergeRequestedBars(item.Append ? mgcSetupBars : null, list); else mgcBars = MergeRequestedBars(item.Append ? mgcBars : null, list);
                 historicalRequestDetails.Add("MGC " + (isSetupRequest ? config.SetupMinutes + "M setup" : "1M outcome") + " response: " + (list == null ? 0 : list.Count) + " bars.");
             }
+            if (!requiresRecovery) QueueMidnightContinuation(item, list);
             UpdateUi("LOADING NINJATRADER HISTORY • " + historicalRequestCompleted + " / " + Math.Max(historicalRequestTotal, historicalRequestCompleted) + " request segments completed", Gold);
             if (pendingRequests == 0) StartNextHistoricalRequest();
             else UpdateWorkflowState();
+        }
+
+        // Some NinjaTrader data connections stop a request that crosses midnight at 00:00, so a Full
+        // Globex session (18:00 → 16:55 next day) came back with only its evening. When the receipt
+        // ends at a midnight and less than a day of the requested range is left, the rest is
+        // requested as a continuation and merged into the same series (the Evidence Chart already
+        // loads its sessions this way). Longer gaps are left alone: those are real data gaps.
+        private void QueueMidnightContinuation(HistoricalRequestWorkItem item, List<KeystoneArcBar> list)
+        {
+            if (item == null || list == null || list.Count == 0 || item.ContractRolloverSegment) return;
+            DateTime last = list.Max(b => b.Time), next = last.TimeOfDay == TimeSpan.Zero ? last : last.Date.AddDays(1);
+            if (next <= item.Start || next > item.End || item.End > DateTime.Now || item.End - next > TimeSpan.FromDays(1)) return;
+            if (item.End - last < TimeSpan.FromMinutes(Math.Max(120, item.Minutes * 3))) return;
+            historicalRequestQueue.Enqueue(new HistoricalRequestWorkItem { Key = item.Key, Instrument = item.Instrument, Start = next, End = item.End, Minutes = item.Minutes, IsSetupRequest = item.IsSetupRequest, TradingHours = item.TradingHours, TradingHoursSource = item.TradingHoursSource, Append = true, FallbackInstrument = null, FallbackStage = item.FallbackStage, Run = item.Run });
+            historicalRequestTotal++;
+            historicalRequestDetails.Add(item.Key + " " + item.Minutes + "M " + (item.IsSetupRequest ? "setup" : "outcome") + " receipt stopped at " + last.ToString("yyyy-MM-dd HH:mm") + " • continuation queued " + next.ToString("yyyy-MM-dd HH:mm") + " → " + item.End.ToString("yyyy-MM-dd HH:mm") + ".");
         }
 
         private static List<KeystoneArcBar> MergeRequestedBars(List<KeystoneArcBar> existing, List<KeystoneArcBar> incoming)
@@ -10767,10 +10792,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                     // A request that crosses midnight can be truncated by some data adapters.
                     // Complete the following calendar-day portion before rendering the selected
                     // 18:00-to-close trading session, rather than displaying a misleading half-day.
+                    // A receipt whose last close-stamped candle is 00:00 stopped exactly at midnight.
                     if (!append && list.Count > 0 && evidenceRequestSessionEnd > list.Last().Time.Date)
                     {
                         evidenceRequestFirstPart = list;
-                        DateTime continuationStart = evidenceRequestFirstPart.Count == 0 ? day.Date.AddDays(1) : evidenceRequestFirstPart.Last().Time.Date.AddDays(1);
+                        DateTime lastPart = evidenceRequestFirstPart.Last().Time;
+                        DateTime continuationStart = lastPart.TimeOfDay == TimeSpan.Zero ? lastPart : lastPart.Date.AddDays(1);
                         if (continuationStart <= evidenceRequestSessionEnd)
                         {
                             SetEvidenceStatus("LOADING CONTINUATION AFTER MIDNIGHT • completing " + previewMinutes + "M session bars through " + evidenceRequestSessionEnd.ToString("MM-dd HH:mm"), Gold);
