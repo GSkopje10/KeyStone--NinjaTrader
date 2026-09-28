@@ -1,4 +1,4 @@
-# HELIX ROTATION • prop basket math (build 28n)
+# HELIX ROTATION • prop basket math (build 28o)
 
 Strategy choice **HELIX ROTATION • PROP BASKET MATH** in Step 1. Reverse-engineers the Manus
 "9:30 LL" random rotation so we can decide, on real NinjaTrader data, whether it is worth automating.
@@ -40,3 +40,16 @@ the trades lose, yet the Manus account rules still end far positive: withdrawals
 firm's money while the loss per account is capped at its price. Whether that survives real
 firm rules (evaluation cost and pass rate, trailing drawdown, consistency, payout caps, account
 limits) is exactly what to test on real data before automating.
+
+## Build 28o
+- Settings use the same label | control rows as every strategy. SESSION list fills the HELIX times
+  (NY OPEN, NY EARLY, LONDON, ASIA, FULL GLOBEX, CUSTOM); weekday filter; end-of-day drawdown only
+  (trails the best closing balance, stops at start + $100); one "new account trades after N sessions"
+  field (0 = next payout check, Manus). A day where MNQ or MGC data is missing is listed and not traded.
+- Step 3: PROFITABLE / NOT PROFITABLE banner, six boxes, tabs always on screen, every tab in coloured
+  cards and paged tables. Step 1: left column stays, right settings scroll on their own.
+- Chart: band per basket on both instruments (account + combined result, MNQ | MGC), hover/click for
+  the full basket, the same basket stays selected when switching MNQ ↔ MGC, replay shows baskets the
+  minute they open (IN) and a live box with both legs, take profit / stop progress and the day's log.
+  SHOW INFO folds the study line and candle boxes away; date tabs list trading days only.
+- Buttons with light colours use dark text (all windows).

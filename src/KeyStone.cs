@@ -5008,6 +5008,8 @@ namespace NinjaTrader.NinjaScript
         public int PayoutMinDays = 0, MaxPayouts = 0;
         public int AutoReplace = 1; public string ReplaceTiming = "NEXT_REVIEW"; public int ReplaceDelaySessions = 1; public int MaxPurchases = 0;
         public string Label = "YOUR SETTINGS";
+        public string Weekdays = "12345";                                    // days that trade: 1 = Monday … 5 = Friday
+        public double MinRealBarShare = 0.6;                                 // a day is skipped when a used instrument has fewer real minutes than this
 
         public KeystoneHelixConfig Copy()
         {
@@ -5095,7 +5097,8 @@ namespace NinjaTrader.NinjaScript
         public List<KeystoneHelixPayout> Payouts = new List<KeystoneHelixPayout>();
         public List<KeystoneHelixExpense> Expenses = new List<KeystoneHelixExpense>();
         public List<string> Notes = new List<string>();
-        public int MinutesUsed, FilledMinutes, SkippedDays;
+        public List<string> SkippedDays = new List<string>();               // "yyyy-MM-dd • why"
+        public int MinutesUsed, FilledMinutes;
         public double PayoutGross { get { return Payouts.Sum(p => p.Gross); } }
         public double PayoutCash { get { return Payouts.Sum(p => p.Cash); } }
         public double ExpenseTotal { get { return Expenses.Sum(e => e.Amount); } }
@@ -5246,6 +5249,23 @@ namespace NinjaTrader.NinjaScript
             if (minutes == null || minutes.Count == 0 || (cfg.UseMnq != 1 && cfg.UseMgc != 1)) { result.Notes.Add("No minutes or no instrument selected."); return result; }
             var dates = new List<DateTime>();
             var ranges = SessionRanges(minutes, cfg, dates);
+            // Weekday filter and missing-data guard: a day where MNQ or MGC has too few real
+            // 1-minute bars is not traded (its price would be carried flat and fake the basket).
+            for (int k = ranges.Count - 1; k >= 0; k--)
+            {
+                DateTime d = dates[k]; int lo0 = ranges[k][0], hi0 = ranges[k][1], n = hi0 - lo0 + 1, realM = 0, realG = 0;
+                for (int q = lo0; q <= hi0; q++) { if (minutes[q].HasMnq) realM++; if (minutes[q].HasMgc) realG++; }
+                string why = null;
+                int dow = d.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)d.DayOfWeek;
+                if (cfg.UseMnq == 1 && realM < n * cfg.MinRealBarShare) why = "MNQ has only " + realM + " of " + n + " minutes";
+                else if (cfg.UseMgc == 1 && realG < n * cfg.MinRealBarShare) why = "MGC has only " + realG + " of " + n + " minutes";
+                bool weekdayOff = (cfg.Weekdays ?? "12345").IndexOf((char)('0' + dow)) < 0;
+                if (weekdayOff || why != null)
+                {
+                    if (why != null) result.SkippedDays.Insert(0, d.ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture) + " • " + why + " • not traded");
+                    ranges.RemoveAt(k); dates.RemoveAt(k);
+                }
+            }
             var rng = new System.Random(cfg.RandomSeed);
             var slots = new List<Slot>();
             int purchases = 0, rotationId = 0, pointer = 0;
@@ -5954,7 +5974,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-28n • HELIX ROTATION (PROP BASKET MATH) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-28o • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -7064,7 +7084,6 @@ namespace NinjaTrader.NinjaScript.AddOns
             heading.Children.Add(Txt("Complete the steps in order. The next step stays locked until the previous step is valid. Keystone only requests historical data; it cannot place an order or access an account.", Muted, 11, FontWeights.Normal));
             root.Children.Add(PanelCard(heading));
 
-            var setupCards = new UniformGrid { Columns = 2, Margin = new Thickness(0, 0, 0, 8) };
 
             RefreshOpenChartInstruments();
             string defaultDay = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -7370,7 +7389,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             quickStartButton.Click += delegate { ConfirmAndStartResearch(); };
             data.Children.Add(quickStartButton);
 
-            setupCards.Children.Add(PanelCard(data)); setupCards.Children.Add(PanelCard(model)); root.Children.Add(setupCards);
+            // Two columns that scroll on their own: the data / session / START column stays put while
+            // the longer strategy settings on the right scroll.
+            var leftColumn = new StackPanel(); leftColumn.Children.Add(PanelCard(data));
+            var rightColumn = PanelCard(model);
 
             var workflow = Stack(); workflow.Children.Add(Txt("3. START RESEARCH", Orchid, 13, FontWeights.Bold));
             strategyWorkflowText = Txt("BH = red candle → bullish reference → next high break. Every detected setup is automatically included in the research ledger and virtual pool. The review screen is for chart inspection or excluding a specific setup only.", Text, 11, FontWeights.Normal); strategyWorkflowText.TextWrapping = TextWrapping.Wrap; workflow.Children.Add(strategyWorkflowText);
@@ -7380,7 +7402,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             summaryText = Txt("NEXT: choose the test settings above, then click START RESEARCH. Keystone locks the screen while it loads and detects.", Gold, 11, FontWeights.Bold); workflow.Children.Add(summaryText);
             eventText = Txt("No candidate ledger yet.", Text, 10, FontWeights.Normal); workflow.Children.Add(eventText);
             setupStatsText = Txt("RAW SETUP TOTALS: waiting for Step 3. This count is independent of virtual accounts and rotation.", Cyan, 10, FontWeights.Bold); setupStatsText.TextWrapping = TextWrapping.Wrap; workflow.Children.Add(setupStatsText);
-            root.Children.Add(PanelCard(workflow));
+            leftColumn.Children.Add(PanelCard(workflow));
 
             RefreshSessionInputs();
             RefreshDateInputs();
@@ -7389,7 +7411,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             RefreshStopModelInputState();
             RefreshStrategyInputState();
             RefreshAsianDerivedInputs();
-            return PanelCard(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = root, Margin = new Thickness(2) });
+            var page = new Grid { Margin = new Thickness(2) };
+            page.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); page.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            page.Children.Add(root);
+            var columns = new Grid();
+            columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var leftScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = leftColumn };
+            var rightScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = rightColumn };
+            Grid.SetColumn(rightScroll, 1); columns.Children.Add(leftScroll); columns.Children.Add(rightScroll);
+            Grid.SetRow(columns, 1); page.Children.Add(columns);
+            return PanelCard(page);
         }
 
         private void UpdateFvgPointsPreview()
@@ -7471,7 +7502,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 if (asian && sessionBox.SelectedIndex != 7) sessionBox.SelectedIndex = 7;
                 if (!asian && sessionBox.SelectedIndex == 7) sessionBox.SelectedIndex = 0;
-                sessionBox.IsEnabled = !asian && !helix;
+                sessionBox.IsEnabled = !asian;
             }
             if (strategyRuleText != null)
             {
@@ -8256,7 +8287,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Inner lists keep their own scrollbars because the tab area has a fixed height.
             var resultsPage = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             resultViews.Height = 620;
-            resultsPage.SizeChanged += delegate { if (resultsPage.ActualHeight > 200) resultViews.Height = Math.Max(480, resultsPage.ActualHeight - 12); };
+            resultsPageScroll = resultsPage; resultsTopPanel = top;
+            resultsPage.SizeChanged += delegate { if (resultsPage.ActualHeight > 200) resultViews.Height = Math.Max(480, resultsPage.ActualHeight - 12); SizeHelixHost(); };
+            top.SizeChanged += delegate { SizeHelixHost(); };
             Border resultsCard = PanelCard(resultsPage);
             resultsCard.VerticalAlignment = VerticalAlignment.Stretch;
             resultsCard.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -10902,7 +10935,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             var compactHeader = new StackPanel { Margin = new Thickness(2) };
             var headerLine = new Grid(); headerLine.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); headerLine.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             headerLine.Children.Add(Txt("KEYSTONE ARC • DIRECT EVIDENCE CHART", Cyan, 18, FontWeights.Bold));
-            evidenceControlsToggle = Btn("SHOW CONTROLS", Blue); evidenceControlsToggle.Width = 130; evidenceControlsToggle.Height = 28; evidenceControlsToggle.FontSize = 10; evidenceControlsToggle.Click += delegate { ToggleEvidenceControls(); }; Grid.SetColumn(evidenceControlsToggle, 1); headerLine.Children.Add(evidenceControlsToggle);
+            evidenceControlsToggle = Btn("SHOW CONTROLS", Blue); evidenceControlsToggle.Width = 130; evidenceControlsToggle.Height = 28; evidenceControlsToggle.FontSize = 10; evidenceControlsToggle.Click += delegate { ToggleEvidenceControls(); };
+            evidenceInfoToggle = Btn("SHOW INFO", Cyan); evidenceInfoToggle.Width = 110; evidenceInfoToggle.Height = 28; evidenceInfoToggle.FontSize = 10; evidenceInfoToggle.ToolTip = "Show or hide the study line and the candle / totals boxes (hidden = more room for the chart)."; evidenceInfoToggle.Click += delegate { evidenceInfoVisible = !evidenceInfoVisible; ApplyEvidenceInfoVisibility(); };
+            var headerButtons = new StackPanel { Orientation = Orientation.Horizontal }; headerButtons.Children.Add(evidenceInfoToggle); headerButtons.Children.Add(evidenceControlsToggle);
+            Grid.SetColumn(headerButtons, 1); headerLine.Children.Add(headerButtons);
             compactHeader.Children.Add(headerLine);
             evidenceStatusText = Txt("CHOOSE A DATE INSIDE THE LOADED RANGE, THEN DRAW THE SELECTED SETUP BARS.", Gold, 10, FontWeights.Bold); compactHeader.Children.Add(evidenceStatusText);
             evidenceMetricsText = Txt("SESSION TOTALS • waiting for selected instrument and date", Muted, 11, FontWeights.Bold);
@@ -11021,7 +11057,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 DateTime tabDay = evidenceDays[dayIndex];
                 Button dateButton = Btn(EvidenceSessionTabLabel(tabDay), Card);
-                dateButton.Tag = tabDay.ToString("yyyy-MM-dd"); dateButton.Width = 118; dateButton.Height = 36; dateButton.FontSize = 10; dateButton.Margin = new Thickness(2, 2, 2, 2); dateButton.Foreground = Cyan;
+                dateButton.Tag = tabDay.ToString("yyyy-MM-dd"); dateButton.Width = 118; dateButton.Height = 34; dateButton.FontSize = 11.5; dateButton.Margin = new Thickness(2, 2, 2, 2); dateButton.Foreground = Text;
                 dateButton.Click += delegate { SelectEvidenceSessionDate(Convert.ToString(dateButton.Tag), true); };
                 evidenceDateButtons.Add(dateButton); evidenceDateStrip.Children.Add(dateButton);
             }
@@ -11105,6 +11141,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             evidencePnlText.FontFamily = new FontFamily("Consolas"); evidencePnlText.TextWrapping = TextWrapping.Wrap;
             evidencePnlBorder = new Border { Background = EvidenceBg, BorderBrush = Cyan, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 0, 6), Visibility = Visibility.Collapsed, Child = evidencePnlText };
             side.Children.Add(evidencePnlBorder);
+            ApplyEvidenceInfoVisibility();
             evidenceSidePanel = new Border { Width = 370, Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = side } };
             Grid.SetRow(auditStack, 2); root.Children.Add(auditStack);
             evidenceZoom = 1.0; evidenceHorizontalZoom = 1.0; evidenceVerticalZoom = 1.0;
@@ -11637,7 +11674,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             evidenceFirstVisibleBar = Math.Max(0, Math.Min(lastPossibleFirst, evidenceFirstVisibleBar));
             List<KeystoneArcBar> bars = allBars.Skip(evidenceFirstVisibleBar).Take(visibleCount).ToList();
-            List<KeystoneArcEvent> marks = allMarks.Where(e => EvidenceEntryBarIndex(bars, e) >= 0 && (!replaying || (e.ExitTime != DateTime.MinValue ? e.ExitTime <= evidenceBarCursor : e.EntryTime <= evidenceBarCursor))).ToList();
+            HelixKeepSelection(symbol, allMarks);
+            bool helixChart = HelixStudy();
+            List<KeystoneArcEvent> marks = allMarks.Where(e => EvidenceEntryBarIndex(bars, e) >= 0 && (!replaying || (helixChart ? e.EntryTime <= evidenceBarCursor : (e.ExitTime != DateTime.MinValue ? e.ExitTime <= evidenceBarCursor : e.EntryTime <= evidenceBarCursor)))).ToList();
             List<KeystoneArcBar> shownBars = replaying ? bars.Where(b => b.Time <= evidenceBarCursor).ToList() : bars;
             if (shownBars.Count == 0) shownBars = bars.Take(1).ToList();
             double rawMin = shownBars.Min(x => x.Low), rawMax = shownBars.Max(x => x.High);
@@ -11760,7 +11799,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // A setup-only marker is a long-entry candidate, not a sell signal.  The prior
                 // "S" label was ambiguous and made every unresolved marker look like SELL.
                 string resultShort = groupedEvents.Count == 1 ? EvidenceDisplayTag(e) : groupedEvents.Count.ToString(CultureInfo.InvariantCulture);
-                if (groupedEvents.Count > 1 && !allLiveSkipped) resultBrush = groupWins > 0 && groupLosses == 0 && groupExits == 0 ? WinPurple : (groupLosses > 0 && groupWins == 0 && groupExits == 0 ? LossAmber : Cyan);
+                // HELIX replay: a basket still open at the cursor shows as IN (gold) — its result is not known yet.
+                bool helixOpenNow = helixChart && replaying && groupedEvents.All(g => g.ExitTime > evidenceBarCursor);
+                if (helixOpenNow) { resultShort = "IN"; resultBrush = Gold; }
+                if (groupedEvents.Count > 1 && !allLiveSkipped && !helixOpenNow) resultBrush = groupWins > 0 && groupLosses == 0 && groupExits == 0 ? WinPurple : (groupLosses > 0 && groupWins == 0 && groupExits == 0 ? LossAmber : Cyan);
                 Border pin = AddCanvasResultCircle(resultShort, pinX, pinY, resultBrush, selectedMark, pulseOn, animateMarkers, markerGroupIndex);
                 pin.ToolTip = (shortMark ? "SHORT " : "LONG ") + (allLiveSkipped ? "VALID DETECTED SETUP • RAW " + e.Outcome + " • NOT SELECTED IN FINAL LIVE LEDGER" : (groupedEvents.Count == 1 ? e.Outcome : (groupedEvents.Count + " setups on this exact entry bar • " + groupWins + " W / " + groupLosses + " L / " + groupExits + " session exit")));
                 selectEvent(pin);
@@ -11994,7 +12036,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (config == null || config.Start == DateTime.MinValue || config.End == DateTime.MinValue) return result;
             DateTime first = KeystoneArcEngine.SessionGroupingDate(config.Start, config).Date;
             DateTime last = KeystoneArcEngine.SessionGroupingDate(config.End, config).Date;
-            for (DateTime day = first; day <= last && (maximum <= 0 || result.Count < maximum); day = day.AddDays(1)) result.Add(day);
+            if (HelixStudy() && helixResult != null && helixResult.Days.Count > 0) { result.AddRange(helixResult.Days.Select(d => d.Day).Where(d => d >= first && d <= last)); if (result.Count > 0) return result; }
+            bool overnight = KeystoneArcEngine.UsesOvernightSessionDate(config);
+            for (DateTime day = first; day <= last && (maximum <= 0 || result.Count < maximum); day = day.AddDays(1))
+            {
+                // No market on Saturday; Sunday only opens in the evening (overnight sessions).
+                if (day.DayOfWeek == DayOfWeek.Saturday || (day.DayOfWeek == DayOfWeek.Sunday && !overnight)) continue;
+                result.Add(day);
+            }
             if (result.Count == 0) result.Add(KeystoneArcEngine.SessionGroupingDate(config.Start, config).Date);
             return result;
         }
@@ -12355,6 +12404,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void UpdateEvidenceLivePanel()
         {
             if (evidenceLiveBorder == null || evidenceBarCursor == DateTime.MinValue) return;
+            if (HelixStudy()) { UpdateHelixLivePanel(); return; }
             DateTime day; if (!EvidenceReplayDay(out day)) return;
             List<KeystoneArcEvent> trades = ReplayDayTrades(day);
             if (!EvidenceIsAsian()) { UpdateSetupLivePanel(trades); return; }
@@ -12721,6 +12771,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             if (evidencePnlBorder != null) { evidencePnlBorder.BorderBrush = outcomeAccent; evidencePnlBorder.Visibility = Visibility.Visible; }
             if (evidenceDetailBorder != null) evidenceDetailBorder.Visibility = Visibility.Visible;
+            if (HelixStudy()) HelixFillDetail(e);
             if (changed && evidenceCanvas != null && evidenceBars != null && evidenceBars.Count > 0) RenderEvidenceChart();
             BeginEvidenceSelectionPulse();
         }
@@ -12752,6 +12803,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void ClearEvidenceSelection(bool render)
         {
+            if (render) helixSelectedBasketId = 0;   // a click on empty chart clears the linked MNQ/MGC selection
             if (evidenceSelectionTimer != null) { evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; }
             selectedEvidenceEvent = null; evidenceSelectionPulseOn = false; evidenceSelectionPulse = 0;
             if (evidenceDetailText != null) { evidenceDetailText.Text = "CLICK A W/L/EXIT CIRCLE TO AUDIT ONE SETUP. Click an open chart area or another result circle to clear or replace the selected entry."; evidenceDetailText.Foreground = Muted; }
@@ -16423,7 +16475,14 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static TextBlock Txt(string text, Brush brush, double size, FontWeight weight) { return new TextBlock { Text = text, Foreground = brush, FontSize = size, FontWeight = weight, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6) }; }
         private static TextBox Input(string value) { return new TextBox { Text = value, Background = Card, Foreground = Text, Margin = new Thickness(6), Padding = new Thickness(5) }; }
         private static ComboBox Select(params string[] values) { var x = new ComboBox { Background = Card, Foreground = Text, Margin = new Thickness(6) }; foreach (string s in values) x.Items.Add(s); return x; }
-        private static Button Btn(string text, Brush brush) { return new Button { Content = text, Background = brush, Foreground = Text, FontWeight = FontWeights.Bold, Height = 32, Margin = new Thickness(4) }; }
+        private static Button Btn(string text, Brush brush) { return new Button { Content = text, Background = brush, Foreground = IsLightBrush(brush) ? Bg : Text, FontWeight = FontWeights.Bold, Height = 32, Margin = new Thickness(4) }; }
+        // Light buttons (gold, cyan, green, blue, orchid) get dark text; dark and red ones keep light text.
+        private static bool IsLightBrush(Brush brush)
+        {
+            var solid = brush as SolidColorBrush; if (solid == null) return false;
+            Color c = solid.Color;
+            return (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0 > 0.52;
+        }
         private static StackPanel Stack() { return new StackPanel { Margin = new Thickness(8) }; }
         private static Grid TwoColumns() { var g = new Grid { Margin = new Thickness(6) }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); return g; }
         private static Border PanelCard(UIElement child) { return new Border { Background = Panel, BorderBrush = Card, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(6), Margin = new Thickness(6), Child = child }; }
@@ -16456,14 +16515,16 @@ namespace NinjaTrader.NinjaScript.AddOns
         // the math, proof tests, setup finder, Manus check). The chart shows every basket.
         // =================================================================================
         private readonly List<UIElement> helixStrategyControls = new List<UIElement>();
-        private ComboBox helixMnqDirBox, helixMgcDirBox, helixDayStartBox, helixExitModelBox, helixStartModeBox, helixEvalDdBox, helixFundedDdBox, helixCalendarBox, helixReplaceBox, helixEvalLockBox, helixFundedLockBox;
+        private ComboBox helixMnqDirBox, helixMgcDirBox, helixExitModelBox, helixStartModeBox, helixCalendarBox, helixEvalLockBox, helixFundedLockBox;
         private CheckBox helixLinkRandomBox, helixAutoReplaceBox, helixEvalShrinkBox, helixFundedShrinkBox;
+        private CheckBox[] helixDayBoxes = new CheckBox[5];
         private TextBox helixStartBox, helixLastEntryBox, helixEndBox, helixPauseBox, helixAccountsBox, helixCommissionBox, helixSlippageBox, helixRandomRunsBox;
-        private TextBox helixDirectCostBox, helixEvalCostBox, helixActivationBox, helixEvalTargetBox, helixEvalMaxLossBox, helixEvalMinDaysBox, helixEvalConsistencyBox, helixFundedMaxLossBox, helixTrailStopBox, helixFundedDelayBox;
+        private TextBox helixDirectCostBox, helixEvalCostBox, helixActivationBox, helixEvalTargetBox, helixEvalMaxLossBox, helixEvalMinDaysBox, helixEvalConsistencyBox, helixFundedMaxLossBox, helixFundedDelayBox;
         private TextBox helixPayoutEveryBox, helixPayoutMinProfitBox, helixPayoutFractionBox, helixPayoutCapBox, helixPayoutSplitBox, helixPayoutMinAmountBox, helixPayoutMinDaysBox, helixMaxPayoutsBox, helixReplaceDelayBox, helixMaxPurchasesBox;
         private TextBox[] helixEvalRuleBoxes = new TextBox[7], helixFundedRuleBoxes = new TextBox[7];
-        private StackPanel helixEvalSection, helixDirectCostRow;
-        private TextBlock helixPresetText;
+        private StackPanel helixEvalSection;
+        private Grid helixDirectCostRow, helixLinkField;
+        private TextBlock helixPresetText, helixSessionNote;
         private KeystoneHelixResult helixResult;
         private List<KeystoneHelixMinute> helixMinutes;
         private string helixMinutesKey = string.Empty;
@@ -16472,143 +16533,149 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Dictionary<int, KeystoneHelixRotation> helixRotationById = new Dictionary<int, KeystoneHelixRotation>();
         private Grid helixResultsHost;
         private UIElement normalResultActions, normalResultClearRow;
+        private ScrollViewer resultsPageScroll;
+        private FrameworkElement resultsTopPanel;
         private Visibility oneDayMetricsVisibilityBeforeHelix = Visibility.Collapsed;
         private bool helixResultsMode;
         private TabControl helixTabs;
-        private TextBlock helixVerdictText, helixNetTile, helixCashTile, helixExpenseTile, helixBasketTile, helixTradingTile, helixBlowTile, helixLowTile, helixFirstTile;
+        private Border helixVerdictCard;
+        private TextBlock helixVerdictHead, helixVerdictSub, helixWarningText;
+        private TextBlock helixCashTile, helixSpentTile, helixAccountsTile, helixBasketTile, helixTradingTile, helixLowTile;
         private Button helixRerunButton, helixProofButton, helixChartButton, helixReportButton;
 
-        private bool IsHelixSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("HELIX ROTATION", StringComparison.OrdinalIgnoreCase); }
-        private bool HelixStudy() { return config != null && string.Equals(config.StrategyCode, "HLX", StringComparison.OrdinalIgnoreCase); }
-
-        private static StackPanel HelixField(string label, UIElement control, string tip)
+        // ---- Step 1 panel --------------------------------------------------------------------
+        // Same label | control rows as every other strategy's settings.
+        private static Grid HelixField(string label, UIElement control, string tip)
         {
-            var s = new StackPanel { Margin = new Thickness(3, 1, 3, 1) };
-            var t = new TextBlock { Text = label, Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap };
-            s.Children.Add(t);
-            var fe = control as FrameworkElement; if (fe != null) { fe.Margin = new Thickness(0, 1, 0, 1); if (!string.IsNullOrEmpty(tip)) fe.ToolTip = tip; }
-            s.Children.Add(control);
-            if (!string.IsNullOrEmpty(tip)) s.ToolTip = tip;
-            return s;
+            var row = Row(label, control);
+            if (!string.IsNullOrEmpty(tip)) { row.ToolTip = tip; var fe = control as FrameworkElement; if (fe != null) fe.ToolTip = tip; }
+            return row;
         }
 
-        private static UniformGrid HelixGrid(int columns) { return new UniformGrid { Columns = columns, Margin = new Thickness(4, 1, 4, 3) }; }
+        private static StackPanel HelixGrid(int columns) { return new StackPanel(); }
 
-        private StackPanel HelixSection(string title, Brush accent, string note)
+        private StackPanel HelixSection(string title, Brush accent, string note, out StackPanel body)
         {
-            var s = new StackPanel { Margin = new Thickness(0, 5, 0, 2) };
-            s.Children.Add(Txt(title, accent, 11, FontWeights.Bold));
-            if (!string.IsNullOrEmpty(note)) { var n = Txt(note, Muted, 9, FontWeights.Normal); n.Margin = new Thickness(6, 0, 6, 2); s.Children.Add(n); }
-            return s;
+            body = new StackPanel { Margin = new Thickness(0, 4, 0, 2) };
+            body.Children.Add(Txt(title, accent, 11, FontWeights.Bold));
+            if (!string.IsNullOrEmpty(note)) body.Children.Add(Txt(note, Muted, 10, FontWeights.Normal));
+            return body;
         }
 
-        private UniformGrid HelixStageGrid(TextBox[] boxes, out ComboBox lockBox, out CheckBox shrinkBox, string[] defaults)
+        private StackPanel HelixStageGrid(TextBox[] boxes, out ComboBox lockBox, out CheckBox shrinkBox, string[] defaults)
         {
             var g = HelixGrid(4);
-            string[] labels = { "MNQ CONTRACTS", "MGC CONTRACTS", "BASKET TARGET $", "BASKET STOP $", "DAY TARGET $ (LOCK / SHRINK)", "MAX LOSSES A DAY (0 = NO LIMIT)", "DAY STOP $ (0 = OFF)" };
-            string[] tips = { "Micro contracts of MNQ in every basket ($2 per point each).", "Micro contracts of MGC in every basket ($10 per point each).", "The basket closes when MNQ + MGC together are up this many $.", "The basket closes when MNQ + MGC together are down this many $.", "Used by the DAILY TARGET lock and by SHRINK TARGET.", "The account stops for the day after this many losing baskets. 0 = keeps trying until liquidated (Manus).", "The account stops for the day at this day loss; a basket's stop is cut so the day never goes past it." };
+            string[] labels = { "MNQ CONTRACTS", "MGC CONTRACTS", "BASKET TARGET $", "BASKET STOP $", "DAY TARGET $", "MAX LOSSES A DAY (0 = NO LIMIT)", "DAY STOP $ (0 = OFF)" };
+            string[] tips = { "Micro contracts of MNQ in every basket ($2 per point each).", "Micro contracts of MGC in every basket ($10 per point each).", "The basket closes when MNQ + MGC together are up this many $.", "The basket closes when MNQ + MGC together are down this many $.", "Used by the DAY TARGET lock and by SHRINK TARGET.", "The account stops for the day after this many losing baskets. 0 = keeps trying until liquidated (Manus).", "The account stops for the day at this day loss." };
             for (int i = 0; i < 7; i++) { boxes[i] = Input(defaults[i]); g.Children.Add(HelixField(labels[i], boxes[i], tips[i])); }
-            lockBox = Select("FIRST WIN • lock after the first winning basket", "DAY POSITIVE • lock once the day is above $0", "DAY TARGET • lock at the day target", "NO LOCK • keep rotating");
-            lockBox.SelectedIndex = 0;
-            g.Children.Add(HelixField("PROFIT LOCK", lockBox, "When an account stops for the day after making money. FIRST WIN = Manus rule."));
-            shrinkBox = new CheckBox { Content = "SHRINK TARGET TO WHAT IS LEFT OF THE DAY TARGET", IsChecked = false, Foreground = Text, FontSize = 9 };
+            lockBox = Select("FIRST WIN", "DAY POSITIVE", "DAY TARGET", "NO LOCK"); lockBox.SelectedIndex = 0;
+            g.Children.Add(HelixField("ACCOUNT STOPS FOR THE DAY AT", lockBox, "FIRST WIN = after its first winning basket (Manus). DAY POSITIVE = once its day is above $0. DAY TARGET = at the day target. NO LOCK = keeps rotating."));
+            shrinkBox = new CheckBox { Content = "LAST BASKET ONLY AIMS FOR WHAT IS LEFT OF THE DAY TARGET", IsChecked = false, Foreground = Text, FontSize = 9 };
             var s = new StackPanel(); s.Children.Add(shrinkBox); g.Children.Add(s);
             return g;
         }
 
         private UIElement BuildHelixPanel()
         {
-            var panel = Stack(); panel.Margin = new Thickness(0, 4, 0, 2);
-            panel.Children.Add(Txt("HELIX ROTATION • PROP BASKET MATH", Orchid, 12, FontWeights.Bold));
-            panel.Children.Add(Txt("One basket at a time: MNQ and MGC open together on one account, in the directions you choose. The basket closes on its COMBINED $ target or $ stop; after the pause the next account opens the next basket. Every account lives a full prop life (evaluation or direct funded → payouts → liquidation → replacement) with every cost. Uses verified 1-minute bars, New York time. Scope, timeframe and session are set automatically (both instruments, 1M, the window below).", Muted, 10, FontWeights.Normal));
+            var panel = new StackPanel { Margin = new Thickness(0, 4, 0, 2) };
+            panel.Children.Add(Txt("HELIX ROTATION • PROP BASKET MATH", Orchid, 13, FontWeights.Bold));
+            panel.Children.Add(Txt("One account trades at a time. MNQ + MGC open together; the basket closes on its combined $ target or $ stop, then after the pause the NEXT account opens the next basket (A01 → A02 → A03 …). Not copy trading. Every account lives a full prop life with every cost.", Muted, 10, FontWeights.Normal));
             var presets = new WrapPanel { Margin = new Thickness(4, 2, 4, 2) };
-            var manus10 = Btn("PRESET • MANUS 9:30 LL (10 ACCOUNTS)", Cyan); manus10.Height = 26; manus10.FontSize = 9;
-            var manus20 = Btn("PRESET • MANUS 9:30 LL (20 ACCOUNTS)", Cyan); manus20.Height = 26; manus20.FontSize = 9;
-            var real = Btn("PRESET • EVALUATION START + REAL COSTS", Gold); real.Height = 26; real.FontSize = 9;
-            manus10.ToolTip = manus20.ToolTip = "The rules found in the Manus workbook: BUY MNQ + BUY MGC at 09:30, +$1,000 / −$500 basket, lock after the first win, $2,000 cushion, $500 per account, payout review every 5 sessions (balance ≥ $4,000 → $2,000, you keep 80%), no commission or slippage.";
-            real.ToolTip = "Same basket, but accounts start in an evaluation, trailing drawdown, commission and 1-tick slippage. Edit every number to match your firm.";
-            manus10.Click += delegate { ApplyHelixPreset(KeystoneHelix.ManusPreset(DateTime.MinValue, DateTime.MaxValue, 10), "MANUS 9:30 LL • 10 ACCOUNTS"); };
-            manus20.Click += delegate { ApplyHelixPreset(KeystoneHelix.ManusPreset(DateTime.MinValue, DateTime.MaxValue, 20), "MANUS 9:30 LL • 20 ACCOUNTS"); };
+            var manus10 = Btn("MANUS 9:30 • 10 ACCOUNTS", Cyan); var manus20 = Btn("MANUS 9:30 • 20 ACCOUNTS", Cyan); var real = Btn("EVALUATION START + REAL COSTS", Gold);
+            foreach (var b in new[] { manus10, manus20, real }) { b.Height = 26; b.FontSize = 10; b.Padding = new Thickness(10, 0, 10, 0); presets.Children.Add(b); }
+            manus10.ToolTip = manus20.ToolTip = "Manus workbook rules: BUY MNQ + BUY MGC from 09:30, +$1,000 / −$500 basket, account stops after its first win, $2,000 max loss, $500 per account, payout review every 5 sessions (profit ≥ $2,000 → $2,000, you keep 80%), no commission or slippage.";
+            real.ToolTip = "Same basket, but accounts start in an evaluation, commission and 1-tick slippage. Edit every number to match your firm.";
+            manus10.Click += delegate { ApplyHelixPreset(KeystoneHelix.ManusPreset(DateTime.MinValue, DateTime.MaxValue, 10), "MANUS 9:30 • 10 ACCOUNTS"); };
+            manus20.Click += delegate { ApplyHelixPreset(KeystoneHelix.ManusPreset(DateTime.MinValue, DateTime.MaxValue, 20), "MANUS 9:30 • 20 ACCOUNTS"); };
             real.Click += delegate { ApplyHelixPreset(HelixRealisticPreset(), "EVALUATION START + REAL COSTS"); };
-            presets.Children.Add(manus10); presets.Children.Add(manus20); presets.Children.Add(real);
-            panel.Children.Add(presets);
-            helixPresetText = Txt("Defaults = the Manus 9:30 LL rules. Edit anything; changes apply on the next run (no reload needed from Step 3 → RE-RUN).", Green, 9, FontWeights.Bold); helixPresetText.Margin = new Thickness(6, 0, 6, 2); panel.Children.Add(helixPresetText);
+            panel.Children.Add(Txt("PRESETS", Muted, 9, FontWeights.Bold)); panel.Children.Add(presets);
+            helixPresetText = Txt("Defaults = the Manus 9:30 rules. Change anything; in Step 3 press RE-RUN (no reload).", Green, 9.5, FontWeights.Bold); helixPresetText.Margin = new Thickness(6, 0, 6, 2); panel.Children.Add(helixPresetText);
 
-            var basket = HelixSection("BASKET • DIRECTIONS AND SESSION", Cyan, "Directions per instrument. RANDOM flips a coin per basket (LINK = both legs share the coin). ALTERNATE flips every basket. OFF leaves the instrument out.");
+            StackPanel body;
+            var basket = HelixSection("1 • BASKET AND SESSION", Cyan, "Pick a SESSION on the left (NY OPEN, LONDON, ASIA, CUSTOM …) to fill the times, or type your own times here.", out body);
             var bg = HelixGrid(4);
             helixMnqDirBox = Select("BUY", "SELL", "RANDOM", "ALTERNATE", "OFF"); helixMnqDirBox.SelectedIndex = 0;
             helixMgcDirBox = Select("BUY", "SELL", "RANDOM", "ALTERNATE", "OFF"); helixMgcDirBox.SelectedIndex = 0;
-            helixLinkRandomBox = new CheckBox { Content = "LINK RANDOM LEGS", IsChecked = false, Foreground = Text, FontSize = 9 };
+            helixLinkRandomBox = new CheckBox { Content = "SAME COIN FOR BOTH", IsChecked = false, Foreground = Text, FontSize = 9 };
             helixStartBox = Input("930"); helixLastEntryBox = Input("1559"); helixEndBox = Input("1600"); helixPauseBox = Input("2");
-            helixDayStartBox = Select("FIRST ACCOUNT EVERY DAY", "CONTINUE THE ROTATION"); helixDayStartBox.SelectedIndex = 0;
-            bg.Children.Add(HelixField("MNQ DIRECTION", helixMnqDirBox, null)); bg.Children.Add(HelixField("MGC DIRECTION", helixMgcDirBox, null));
-            var linkHolder = new StackPanel(); linkHolder.Children.Add(helixLinkRandomBox); bg.Children.Add(HelixField("RANDOM", linkHolder, null));
-            bg.Children.Add(HelixField("EACH DAY STARTS WITH", helixDayStartBox, "Manus starts every day with account 1."));
-            bg.Children.Add(HelixField("FIRST BASKET HHMM (ET)", helixStartBox, "The first basket of the day opens at this minute (at the open of the next 1-minute bar)."));
-            bg.Children.Add(HelixField("LAST NEW BASKET HHMM", helixLastEntryBox, "No new basket opens after this time."));
-            bg.Children.Add(HelixField("FORCE CLOSE HHMM", helixEndBox, "Any open basket is closed at this minute's close (Manus: 16:00)."));
-            bg.Children.Add(HelixField("PAUSE BETWEEN BASKETS (MIN)", helixPauseBox, "Minutes between one basket closing and the next account opening (Manus app: 120 seconds)."));
-            basket.Children.Add(bg);
+            bg.Children.Add(HelixField("MNQ DIRECTION", helixMnqDirBox, "BUY, SELL, RANDOM (coin per basket), ALTERNATE (flips every basket) or OFF (leave MNQ out)."));
+            bg.Children.Add(HelixField("MGC DIRECTION", helixMgcDirBox, null));
+            bg.Children.Add(HelixField("PAUSE BETWEEN BASKETS (MIN)", helixPauseBox, "Minutes between one basket closing and the next account opening (Manus app: 2 minutes)."));
+            var linkHolder = new StackPanel(); linkHolder.Children.Add(helixLinkRandomBox);
+            helixLinkField = HelixField("RANDOM LEGS", linkHolder, "Only for RANDOM: ticked = one coin decides both legs (both buy or both sell).");
+            bg.Children.Add(helixLinkField);
+            bg.Children.Add(HelixField("FIRST BASKET (HHMM ET)", helixStartBox, "The first basket of the day opens at this minute."));
+            bg.Children.Add(HelixField("LAST NEW BASKET", helixLastEntryBox, "No new basket opens after this time."));
+            bg.Children.Add(HelixField("FORCE CLOSE", helixEndBox, "An open basket is closed at this minute."));
+            var days = new StackPanel { Orientation = Orientation.Horizontal };
+            string[] dayNames = { "MO", "TU", "WE", "TH", "FR" };
+            for (int i = 0; i < 5; i++) { helixDayBoxes[i] = new CheckBox { Content = dayNames[i], IsChecked = true, Foreground = Text, FontSize = 9, Margin = new Thickness(0, 0, 4, 0) }; days.Children.Add(helixDayBoxes[i]); }
+            bg.Children.Add(HelixField("TRADE ON", days, "Untick a weekday to skip it (the setup finder shows which days work)."));
+            body.Children.Add(bg);
+            helixSessionNote = Txt(string.Empty, Gold, 9.5, FontWeights.Bold); helixSessionNote.Margin = new Thickness(6, 0, 6, 0); body.Children.Add(helixSessionNote);
             panel.Children.Add(basket);
 
-            var accountsSection = HelixSection("ACCOUNTS, FIRM AND COSTS", Gold, "DIRECT = accounts are bought already funded (Manus). EVALUATION = each account first has to pass; the evaluation section appears.");
+            var accountsSection = HelixSection("2 • ACCOUNTS AND COSTS", Gold, "DIRECT FUNDED = accounts are bought already funded (Manus). EVALUATION FIRST = each account must pass first (the evaluation box appears). Drawdown: END OF DAY (trails the best closing balance, stops at start + $100).", out body);
             var ag = HelixGrid(4);
             helixAccountsBox = Input("10"); helixStartModeBox = Select("DIRECT FUNDED", "EVALUATION FIRST"); helixStartModeBox.SelectedIndex = 0;
             helixDirectCostBox = Input("500"); helixFundedMaxLossBox = Input("2000");
-            helixFundedDdBox = Select("STATIC", "TRAILING END OF DAY", "TRAILING INTRADAY"); helixFundedDdBox.SelectedIndex = 0; helixTrailStopBox = Input("100");
             helixCommissionBox = Input("0"); helixSlippageBox = Input("0");
-            helixExitModelBox = Select("STRICT • stop first when a minute touches both", "NEUTRAL • judge on minute closes"); helixExitModelBox.SelectedIndex = 0;
+            helixExitModelBox = Select("STRICT (stop first)", "NEUTRAL (minute close)"); helixExitModelBox.SelectedIndex = 0;
             ag.Children.Add(HelixField("ACCOUNTS IN THE ROTATION", helixAccountsBox, null));
             ag.Children.Add(HelixField("ACCOUNTS START AS", helixStartModeBox, null));
-            helixDirectCostRow = HelixField("DIRECT FUNDED ACCOUNT COST $", helixDirectCostBox, "Paid for every direct funded account, first ones and replacements.");
+            helixDirectCostRow = HelixField("PRICE PER ACCOUNT $", helixDirectCostBox, "Paid for every direct funded account: the first ones and every replacement.");
             ag.Children.Add(helixDirectCostRow);
-            ag.Children.Add(HelixField("FUNDED MAX LOSS (CUSHION) $", helixFundedMaxLossBox, "The account is liquidated when it is down this much from its start (static) or from its high (trailing)."));
-            ag.Children.Add(HelixField("FUNDED DRAWDOWN", helixFundedDdBox, null));
-            ag.Children.Add(HelixField("TRAILING STOPS AT START + $", helixTrailStopBox, "Trailing modes: the liquidation level stops rising at start + this amount."));
-            ag.Children.Add(HelixField("COMMISSION $ PER CONTRACT PER SIDE", helixCommissionBox, "e.g. 0.62 → $1.24 round trip per micro. 0 = Manus (no costs)."));
-            ag.Children.Add(HelixField("SLIPPAGE TICKS PER SIDE", helixSlippageBox, "Worse fill on entry and on exit, every leg (MNQ tick $0.50, MGC tick $1). 0 = Manus."));
+            ag.Children.Add(HelixField("MAX LOSS (END OF DAY) $", helixFundedMaxLossBox, "The account is liquidated when its balance falls this far below its best closing balance (the line stops rising at start + $100)."));
+            ag.Children.Add(HelixField("COMMISSION $ / CONTRACT / SIDE", helixCommissionBox, "e.g. 0.62 → $1.24 round trip per micro. 0 = Manus."));
+            ag.Children.Add(HelixField("SLIPPAGE TICKS / SIDE", helixSlippageBox, "Worse fill on entry and exit, every leg (MNQ tick $0.50, MGC tick $1). 0 = Manus."));
             ag.Children.Add(HelixField("FILLS INSIDE A MINUTE", helixExitModelBox, "1-minute bars cannot show which came first inside a minute. STRICT counts a minute that touched both as the stop."));
-            accountsSection.Children.Add(ag);
+            body.Children.Add(ag);
             panel.Children.Add(accountsSection);
 
-            helixEvalSection = HelixSection("EVALUATION (ONLY WHEN ACCOUNTS START AS EVALUATION)", Orchid, "Passing needs the target, the minimum days and (if set) the consistency rule: the best day may be at most this % of the profit.");
+            helixEvalSection = new StackPanel();
+            var evalBox = HelixSection("3 • EVALUATION", Orchid, "Passing needs the target, the minimum days and (if set) consistency: the best day may be at most this % of the profit.", out body);
             var eg = HelixGrid(4);
             helixEvalCostBox = Input("100"); helixActivationBox = Input("0"); helixEvalTargetBox = Input("3000"); helixEvalMaxLossBox = Input("2000"); helixEvalMinDaysBox = Input("2"); helixEvalConsistencyBox = Input("50"); helixFundedDelayBox = Input("0");
-            helixEvalDdBox = Select("STATIC", "TRAILING END OF DAY", "TRAILING INTRADAY"); helixEvalDdBox.SelectedIndex = 1;
-            eg.Children.Add(HelixField("EVALUATION COST $", helixEvalCostBox, null)); eg.Children.Add(HelixField("ACTIVATION FEE $ (ON PASS)", helixActivationBox, null));
-            eg.Children.Add(HelixField("EVALUATION TARGET $", helixEvalTargetBox, null)); eg.Children.Add(HelixField("EVALUATION MAX LOSS $", helixEvalMaxLossBox, null));
-            eg.Children.Add(HelixField("EVALUATION DRAWDOWN", helixEvalDdBox, null)); eg.Children.Add(HelixField("MINIMUM TRADING DAYS", helixEvalMinDaysBox, null));
+            eg.Children.Add(HelixField("EVALUATION PRICE $", helixEvalCostBox, null)); eg.Children.Add(HelixField("ACTIVATION FEE $ (ON PASS)", helixActivationBox, null));
+            eg.Children.Add(HelixField("TARGET $", helixEvalTargetBox, null)); eg.Children.Add(HelixField("MAX LOSS (END OF DAY) $", helixEvalMaxLossBox, null));
+            eg.Children.Add(HelixField("MINIMUM DAYS", helixEvalMinDaysBox, null));
             eg.Children.Add(HelixField("CONSISTENCY % (0 = OFF)", helixEvalConsistencyBox, "50 = the best day can be at most half of the profit (with a $3,000 target: 2 days minimum, max $1,500 a day)."));
-            eg.Children.Add(HelixField("SESSIONS FROM PASS TO FUNDED", helixFundedDelayBox, null));
-            helixEvalSection.Children.Add(eg);
-            helixEvalSection.Children.Add(Txt("EVALUATION BASKET RULES (can be more aggressive than funded)", Orchid, 10, FontWeights.Bold));
-            helixEvalSection.Children.Add(HelixStageGrid(helixEvalRuleBoxes, out helixEvalLockBox, out helixEvalShrinkBox, new[] { "10", "10", "1500", "500", "1500", "0", "0" }));
+            eg.Children.Add(HelixField("DAYS FROM PASS TO FUNDED", helixFundedDelayBox, null));
+            body.Children.Add(eg);
+            body.Children.Add(Txt("EVALUATION BASKET (can be more aggressive than funded)", Orchid, 10, FontWeights.Bold));
+            body.Children.Add(HelixStageGrid(helixEvalRuleBoxes, out helixEvalLockBox, out helixEvalShrinkBox, new[] { "10", "10", "1500", "500", "1500", "0", "0" }));
+            helixEvalSection.Children.Add(evalBox);
             panel.Children.Add(helixEvalSection);
 
-            var funded = HelixSection("FUNDED BASKET RULES", Green, "The basket every funded account trades. Manus: 10 + 10 micros, +$1,000 / −$500, lock after the first win, no loss limit.");
-            funded.Children.Add(HelixStageGrid(helixFundedRuleBoxes, out helixFundedLockBox, out helixFundedShrinkBox, new[] { "10", "10", "1000", "500", "1000", "0", "0" }));
+            var funded = HelixSection("4 • FUNDED BASKET", Green, "Manus: 10 + 10 micros, +$1,000 / −$500, the account stops after its first win, no loss limit.", out body);
+            body.Children.Add(HelixStageGrid(helixFundedRuleBoxes, out helixFundedLockBox, out helixFundedShrinkBox, new[] { "10", "10", "1000", "500", "1000", "0", "0" }));
             panel.Children.Add(funded);
 
-            var payouts = HelixSection("PAYOUTS AND REPLACEMENTS", Blue, "POOL = every N sessions the whole pool is reviewed (Manus: 5). ACCOUNT = each account after N trading days since its last payout. Gross = FRACTION % of the balance above the liquidation level, capped, never more than the profit.");
+            var payouts = HelixSection("5 • PAYOUTS AND REPLACEMENTS", Blue, "Payout = WITHDRAW % of the balance above the liquidation line, capped, never more than the profit. Liquidated accounts are replaced automatically.", out body);
             var pg = HelixGrid(4);
-            helixPayoutEveryBox = Input("5"); helixCalendarBox = Select("POOL • EVERY N SESSIONS", "ACCOUNT • N DAYS SINCE LAST PAYOUT"); helixCalendarBox.SelectedIndex = 0;
+            helixPayoutEveryBox = Input("5"); helixCalendarBox = Select("WHOLE POOL EVERY N SESSIONS", "EACH ACCOUNT AFTER N DAYS"); helixCalendarBox.SelectedIndex = 0;
             helixPayoutMinProfitBox = Input("2000"); helixPayoutFractionBox = Input("50"); helixPayoutCapBox = Input("2000"); helixPayoutSplitBox = Input("80"); helixPayoutMinAmountBox = Input("0"); helixPayoutMinDaysBox = Input("0"); helixMaxPayoutsBox = Input("0");
-            helixAutoReplaceBox = new CheckBox { Content = "BUY A REPLACEMENT", IsChecked = true, Foreground = Text, FontSize = 9 };
-            helixReplaceBox = Select("AT THE NEXT PAYOUT REVIEW (MANUS)", "AFTER N SESSIONS"); helixReplaceBox.SelectedIndex = 0; helixReplaceDelayBox = Input("1"); helixMaxPurchasesBox = Input("0");
-            pg.Children.Add(HelixField("PAYOUT REVIEW EVERY N", helixPayoutEveryBox, null)); pg.Children.Add(HelixField("REVIEW CALENDAR", helixCalendarBox, null));
-            pg.Children.Add(HelixField("PROFIT NEEDED FOR A PAYOUT $", helixPayoutMinProfitBox, "Manus: balance $4,000 with a $2,000 cushion = +$2,000 profit."));
-            pg.Children.Add(HelixField("WITHDRAW % OF BALANCE ABOVE LIQUIDATION", helixPayoutFractionBox, null));
+            helixAutoReplaceBox = new CheckBox { Content = "BUY A NEW ONE", IsChecked = true, Foreground = Text, FontSize = 9 };
+            helixReplaceDelayBox = Input("0"); helixMaxPurchasesBox = Input("0");
+            pg.Children.Add(HelixField("PAYOUT CHECK EVERY N", helixPayoutEveryBox, null)); pg.Children.Add(HelixField("CHECKED FOR", helixCalendarBox, "WHOLE POOL = every N sessions all accounts are checked (Manus: 5). EACH ACCOUNT = N trading days after its last payout."));
+            pg.Children.Add(HelixField("PROFIT NEEDED $", helixPayoutMinProfitBox, "Manus: +$2,000 (balance $4,000 with a $2,000 max loss)."));
+            pg.Children.Add(HelixField("WITHDRAW %", helixPayoutFractionBox, null));
             pg.Children.Add(HelixField("PAYOUT CAP $", helixPayoutCapBox, null)); pg.Children.Add(HelixField("YOUR SPLIT %", helixPayoutSplitBox, null));
-            pg.Children.Add(HelixField("MINIMUM PAYOUT $", helixPayoutMinAmountBox, null)); pg.Children.Add(HelixField("MIN TRADING DAYS SINCE LAST PAYOUT", helixPayoutMinDaysBox, null));
-            pg.Children.Add(HelixField("MAX PAYOUTS PER ACCOUNT (0 = NO LIMIT)", helixMaxPayoutsBox, null));
-            var repHolder = new StackPanel(); repHolder.Children.Add(helixAutoReplaceBox); pg.Children.Add(HelixField("LIQUIDATED ACCOUNTS", repHolder, null));
-            pg.Children.Add(HelixField("REPLACEMENT TIMING", helixReplaceBox, null)); pg.Children.Add(HelixField("REPLACEMENT AFTER N SESSIONS", helixReplaceDelayBox, null));
-            pg.Children.Add(HelixField("MAX ACCOUNTS EVER BOUGHT (0 = NO LIMIT)", helixMaxPurchasesBox, "A budget: after this many purchases no more replacements are bought."));
-            helixRandomRunsBox = Input("20"); pg.Children.Add(HelixField("RANDOM RUNS IN PROOF TESTS", helixRandomRunsBox, "How many random coin sequences the proof tests run (more = slower, steadier)."));
-            payouts.Children.Add(pg);
+            pg.Children.Add(HelixField("MINIMUM PAYOUT $", helixPayoutMinAmountBox, null)); pg.Children.Add(HelixField("MIN DAYS BETWEEN PAYOUTS", helixPayoutMinDaysBox, null));
+            pg.Children.Add(HelixField("MAX PAYOUTS PER ACCOUNT (0 = ANY)", helixMaxPayoutsBox, null));
+            var repHolder = new StackPanel(); repHolder.Children.Add(helixAutoReplaceBox); pg.Children.Add(HelixField("LIQUIDATED ACCOUNT", repHolder, null));
+            pg.Children.Add(HelixField("NEW ACCOUNT TRADES AFTER N SESSIONS", helixReplaceDelayBox, "0 = at the next payout check (Manus). 3 = the new account starts trading 3 sessions later."));
+            pg.Children.Add(HelixField("BUDGET: MAX ACCOUNTS BOUGHT (0 = ANY)", helixMaxPurchasesBox, "After this many purchases no more replacements are bought."));
+            helixRandomRunsBox = Input("20"); pg.Children.Add(HelixField("RANDOM RUNS IN PROOF TESTS", helixRandomRunsBox, "How many random coin sequences the proof tests run."));
+            body.Children.Add(pg);
             panel.Children.Add(payouts);
 
             helixStartModeBox.SelectionChanged += delegate { RefreshHelixInputs(); };
+            helixMnqDirBox.SelectionChanged += delegate { RefreshHelixInputs(); };
+            helixMgcDirBox.SelectionChanged += delegate { RefreshHelixInputs(); };
+            if (sessionBox != null) sessionBox.SelectionChanged += delegate { ApplyHelixSessionChoice(); };
+            if (customStartBox != null) customStartBox.TextChanged += delegate { ApplyHelixSessionChoice(); };
+            if (endTimeBox != null) endTimeBox.TextChanged += delegate { ApplyHelixSessionChoice(); };
             RefreshHelixInputs();
             helixStrategyControls.Clear(); helixStrategyControls.Add(panel);
             panel.Visibility = Visibility.Collapsed;
@@ -16620,13 +16687,33 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool eval = helixStartModeBox != null && helixStartModeBox.SelectedIndex == 1;
             if (helixEvalSection != null) helixEvalSection.Visibility = eval ? Visibility.Visible : Visibility.Collapsed;
             if (helixDirectCostRow != null) helixDirectCostRow.Visibility = eval ? Visibility.Collapsed : Visibility.Visible;
+            bool random = (helixMnqDirBox != null && helixMnqDirBox.SelectedIndex == 2) || (helixMgcDirBox != null && helixMgcDirBox.SelectedIndex == 2);
+            if (helixLinkField != null) helixLinkField.Visibility = random ? Visibility.Visible : Visibility.Hidden;
+        }
+
+        // The SESSION list on the left fills the HELIX times (still editable).
+        private void ApplyHelixSessionChoice()
+        {
+            if (!IsHelixSelected() || sessionBox == null || helixStartBox == null) return;
+            string v = Convert.ToString(sessionBox.SelectedItem ?? string.Empty).ToUpperInvariant();
+            int s = -1, e = -1;
+            if (v.StartsWith("NY OPEN")) { s = 930; e = 1555; }
+            else if (v.StartsWith("NY EARLY")) { s = 800; e = 1555; }
+            else if (v.StartsWith("ASIA 1")) { s = 1900; e = 300; }
+            else if (v.StartsWith("LONDON")) { s = 300; e = 1130; }
+            else if (v.StartsWith("FULL GLOBEX")) { s = 1800; e = 1655; }
+            else if (v.StartsWith("CUSTOM")) { s = Integer(customStartBox, 930); e = Integer(endTimeBox, 1600); }
+            if (s < 0 || !IsValidHhmm(s) || !IsValidHhmm(e)) return;
+            int em = e / 100 * 60 + e % 100 - 1; if (em < 0) em += 1440;
+            helixStartBox.Text = s.ToString("0000"); helixEndBox.Text = e.ToString("0000"); helixLastEntryBox.Text = (em / 60 * 100 + em % 60).ToString("0000");
+            if (helixSessionNote != null) helixSessionNote.Text = "SESSION " + Convert.ToString(sessionBox.SelectedItem) + " → first basket " + KeystoneHelix.Hhmm(s) + ", force close " + KeystoneHelix.Hhmm(e) + (s > e ? " (overnight: the session belongs to the day it ends)" : string.Empty);
         }
 
         private static KeystoneHelixConfig HelixRealisticPreset()
         {
             var c = KeystoneHelix.ManusPreset(DateTime.MinValue, DateTime.MaxValue, 10);
-            c.Label = "EVALUATION START + REAL COSTS"; c.StartMode = "EVAL"; c.EvalCost = 100; c.ActivationCost = 0; c.EvalTarget = 3000; c.EvalMaxLoss = 2000; c.EvalDrawdown = "TRAILING_EOD"; c.EvalMinDays = 2; c.EvalConsistency = 50;
-            c.FundedDrawdown = "TRAILING_EOD"; c.TrailStopAt = 100; c.CommissionPerSide = 0.62; c.SlippageTicks = 1; c.ReplaceTiming = "AFTER_DELAY"; c.ReplaceDelaySessions = 1;
+            c.Label = "EVALUATION START + REAL COSTS"; c.StartMode = "EVAL"; c.EvalCost = 100; c.ActivationCost = 0; c.EvalTarget = 3000; c.EvalMaxLoss = 2000; c.EvalMinDays = 2; c.EvalConsistency = 50;
+            c.CommissionPerSide = 0.62; c.SlippageTicks = 1; c.ReplaceTiming = "AFTER_DELAY"; c.ReplaceDelaySessions = 1;
             c.PayoutCalendar = "ACCOUNT"; c.PayoutEverySessions = 5; c.PayoutMinProfit = 2000; c.PayoutFraction = 50; c.PayoutCap = 2000; c.PayoutSplit = 90; c.PayoutMinAmount = 500;
             c.Eval = new KeystoneHelixStageRules { MnqContracts = 10, MgcContracts = 10, RotationTarget = 1500, RotationStop = 500, LockMode = "DAILY_TARGET", DailyTarget = 1500, ShrinkTarget = 1 };
             return c;
@@ -16634,7 +16721,6 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private static string[] HelixDirections = { "BUY", "SELL", "RANDOM", "ALTERNATE", "OFF" };
         private static string[] HelixLocks = { "FIRST_WIN", "FIRST_PROFIT", "DAILY_TARGET", "NONE" };
-        private static string[] HelixDrawdowns = { "STATIC", "TRAILING_EOD", "TRAILING_INTRADAY" };
         private static string N0(double v) { return v.ToString("0.##", CultureInfo.InvariantCulture); }
 
         private void ApplyHelixPreset(KeystoneHelixConfig c, string label)
@@ -16644,15 +16730,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             helixMgcDirBox.SelectedIndex = Math.Max(0, Array.IndexOf(HelixDirections, c.UseMgc == 1 ? c.MgcDirection : "OFF"));
             helixLinkRandomBox.IsChecked = c.LinkRandom == 1;
             helixStartBox.Text = c.SessionStartHhmm.ToString("0000"); helixLastEntryBox.Text = c.LastEntryHhmm.ToString("0000"); helixEndBox.Text = c.SessionEndHhmm.ToString("0000"); helixPauseBox.Text = c.PauseMinutes.ToString();
-            helixDayStartBox.SelectedIndex = c.DayStart == "CONTINUE" ? 1 : 0;
+            for (int i = 0; i < 5; i++) helixDayBoxes[i].IsChecked = (c.Weekdays ?? "12345").IndexOf((char)('1' + i)) >= 0;
             helixAccountsBox.Text = c.Accounts.ToString(); helixStartModeBox.SelectedIndex = c.StartMode == "EVAL" ? 1 : 0; helixDirectCostBox.Text = N0(c.DirectCost);
-            helixFundedMaxLossBox.Text = N0(c.FundedMaxLoss); helixFundedDdBox.SelectedIndex = Math.Max(0, Array.IndexOf(HelixDrawdowns, c.FundedDrawdown)); helixTrailStopBox.Text = N0(c.TrailStopAt);
+            helixFundedMaxLossBox.Text = N0(c.FundedMaxLoss);
             helixCommissionBox.Text = N0(c.CommissionPerSide); helixSlippageBox.Text = N0(c.SlippageTicks); helixExitModelBox.SelectedIndex = c.ExitModel == "NEUTRAL" ? 1 : 0;
             helixEvalCostBox.Text = N0(c.EvalCost); helixActivationBox.Text = N0(c.ActivationCost); helixEvalTargetBox.Text = N0(c.EvalTarget); helixEvalMaxLossBox.Text = N0(c.EvalMaxLoss);
-            helixEvalDdBox.SelectedIndex = Math.Max(0, Array.IndexOf(HelixDrawdowns, c.EvalDrawdown)); helixEvalMinDaysBox.Text = c.EvalMinDays.ToString(); helixEvalConsistencyBox.Text = N0(c.EvalConsistency); helixFundedDelayBox.Text = c.FundedDelaySessions.ToString();
+            helixEvalMinDaysBox.Text = c.EvalMinDays.ToString(); helixEvalConsistencyBox.Text = N0(c.EvalConsistency); helixFundedDelayBox.Text = c.FundedDelaySessions.ToString();
             helixPayoutEveryBox.Text = c.PayoutEverySessions.ToString(); helixCalendarBox.SelectedIndex = c.PayoutCalendar == "ACCOUNT" ? 1 : 0; helixPayoutMinProfitBox.Text = N0(c.PayoutMinProfit); helixPayoutFractionBox.Text = N0(c.PayoutFraction);
             helixPayoutCapBox.Text = N0(c.PayoutCap); helixPayoutSplitBox.Text = N0(c.PayoutSplit); helixPayoutMinAmountBox.Text = N0(c.PayoutMinAmount); helixPayoutMinDaysBox.Text = c.PayoutMinDays.ToString(); helixMaxPayoutsBox.Text = c.MaxPayouts.ToString();
-            helixAutoReplaceBox.IsChecked = c.AutoReplace == 1; helixReplaceBox.SelectedIndex = c.ReplaceTiming == "NEXT_REVIEW" ? 0 : 1; helixReplaceDelayBox.Text = c.ReplaceDelaySessions.ToString(); helixMaxPurchasesBox.Text = c.MaxPurchases.ToString();
+            helixAutoReplaceBox.IsChecked = c.AutoReplace == 1; helixReplaceDelayBox.Text = c.ReplaceTiming == "NEXT_REVIEW" ? "0" : c.ReplaceDelaySessions.ToString(); helixMaxPurchasesBox.Text = c.MaxPurchases.ToString();
             Action<KeystoneHelixStageRules, TextBox[], ComboBox, CheckBox> stage = delegate(KeystoneHelixStageRules r, TextBox[] b, ComboBox lk, CheckBox sh)
             {
                 b[0].Text = r.MnqContracts.ToString(); b[1].Text = r.MgcContracts.ToString(); b[2].Text = N0(r.RotationTarget); b[3].Text = N0(r.RotationStop); b[4].Text = N0(r.DailyTarget); b[5].Text = r.MaxLossesPerDay.ToString(); b[6].Text = N0(r.DailyStop);
@@ -16661,7 +16747,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             stage(c.Eval, helixEvalRuleBoxes, helixEvalLockBox, helixEvalShrinkBox);
             stage(c.Funded, helixFundedRuleBoxes, helixFundedLockBox, helixFundedShrinkBox);
             RefreshHelixInputs();
-            if (helixPresetText != null) helixPresetText.Text = "PRESET APPLIED • " + label + " • every value below can be edited.";
+            if (helixPresetText != null) helixPresetText.Text = "PRESET • " + label + " • every value below can be edited.";
             UpdateUi("HELIX PRESET • " + label, Green);
         }
 
@@ -16680,19 +16766,23 @@ namespace NinjaTrader.NinjaScript.AddOns
                 int hs, hl, he;
                 if (!HelixHhmm(helixStartBox, 930, out hs) || !HelixHhmm(helixLastEntryBox, 1559, out hl) || !HelixHhmm(helixEndBox, 1600, out he)) { error = "use HHMM times from 0000 to 2359"; return false; }
                 c.SessionStartHhmm = hs; c.LastEntryHhmm = hl; c.SessionEndHhmm = he;
-                c.PauseMinutes = Integer(helixPauseBox, 2); c.DayStart = helixDayStartBox.SelectedIndex == 1 ? "CONTINUE" : "FIRST";
+                c.PauseMinutes = Integer(helixPauseBox, 2); c.DayStart = "FIRST";
+                var sb = new StringBuilder(); for (int i = 0; i < 5; i++) if (helixDayBoxes[i] == null || helixDayBoxes[i].IsChecked != false) sb.Append((char)('1' + i));
+                if (sb.Length == 0) { error = "tick at least one weekday"; return false; }
+                c.Weekdays = sb.ToString();
                 c.ExitModel = helixExitModelBox.SelectedIndex == 1 ? "NEUTRAL" : "STRICT";
                 c.CommissionPerSide = NumberAllowZero(helixCommissionBox, 0); c.SlippageTicks = NumberAllowZero(helixSlippageBox, 0);
                 c.Accounts = Math.Max(1, Math.Min(200, Integer(helixAccountsBox, 10)));
                 c.StartMode = helixStartModeBox.SelectedIndex == 1 ? "EVAL" : "DIRECT";
                 c.DirectCost = NumberAllowZero(helixDirectCostBox, 500); c.EvalCost = NumberAllowZero(helixEvalCostBox, 100); c.ActivationCost = NumberAllowZero(helixActivationBox, 0);
-                c.EvalTarget = Number(helixEvalTargetBox, 3000); c.EvalMaxLoss = Number(helixEvalMaxLossBox, 2000); c.EvalDrawdown = HelixDrawdowns[Math.Max(0, helixEvalDdBox.SelectedIndex)];
+                c.EvalTarget = Number(helixEvalTargetBox, 3000); c.EvalMaxLoss = Number(helixEvalMaxLossBox, 2000); c.EvalDrawdown = "TRAILING_EOD";
                 c.EvalMinDays = Integer(helixEvalMinDaysBox, 2); c.EvalConsistency = NumberAllowZero(helixEvalConsistencyBox, 0); c.FundedDelaySessions = Integer(helixFundedDelayBox, 0);
-                c.FundedMaxLoss = Number(helixFundedMaxLossBox, 2000); c.FundedDrawdown = HelixDrawdowns[Math.Max(0, helixFundedDdBox.SelectedIndex)]; c.TrailStopAt = NumberAllowZero(helixTrailStopBox, 100);
+                c.FundedMaxLoss = Number(helixFundedMaxLossBox, 2000); c.FundedDrawdown = "TRAILING_EOD"; c.TrailStopAt = 100;
                 c.PayoutEverySessions = Math.Max(1, Integer(helixPayoutEveryBox, 5)); c.PayoutCalendar = helixCalendarBox.SelectedIndex == 1 ? "ACCOUNT" : "POOL";
                 c.PayoutMinProfit = NumberAllowZero(helixPayoutMinProfitBox, 2000); c.PayoutFraction = Number(helixPayoutFractionBox, 50); c.PayoutCap = NumberAllowZero(helixPayoutCapBox, 2000); c.PayoutSplit = Number(helixPayoutSplitBox, 80);
                 c.PayoutMinAmount = NumberAllowZero(helixPayoutMinAmountBox, 0); c.PayoutMinDays = Integer(helixPayoutMinDaysBox, 0); c.MaxPayouts = Integer(helixMaxPayoutsBox, 0);
-                c.AutoReplace = helixAutoReplaceBox.IsChecked == true ? 1 : 0; c.ReplaceTiming = helixReplaceBox.SelectedIndex == 1 ? "AFTER_DELAY" : "NEXT_REVIEW"; c.ReplaceDelaySessions = Math.Max(1, Integer(helixReplaceDelayBox, 1)); c.MaxPurchases = Integer(helixMaxPurchasesBox, 0);
+                int delay = Integer(helixReplaceDelayBox, 0);
+                c.AutoReplace = helixAutoReplaceBox.IsChecked == true ? 1 : 0; c.ReplaceTiming = delay <= 0 ? "NEXT_REVIEW" : "AFTER_DELAY"; c.ReplaceDelaySessions = Math.Max(1, delay); c.MaxPurchases = Integer(helixMaxPurchasesBox, 0);
                 Func<TextBox[], ComboBox, CheckBox, KeystoneHelixStageRules> stage = delegate(TextBox[] b, ComboBox lk, CheckBox sh)
                 {
                     return new KeystoneHelixStageRules { MnqContracts = Integer(b[0], 10), MgcContracts = Integer(b[1], 10), RotationTarget = Number(b[2], 1000), RotationStop = Number(b[3], 500), DailyTarget = Number(b[4], 1000), MaxLossesPerDay = Integer(b[5], 0), DailyStop = NumberAllowZero(b[6], 0), LockMode = HelixLocks[Math.Max(0, lk.SelectedIndex)], ShrinkTarget = sh.IsChecked == true ? 1 : 0 };
@@ -16708,15 +16798,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             return true;
         }
 
-        // Data window the loader must fetch for the Helix session (an hour of context before it).
-        private static void HelixLoadWindow(int startHhmm, int endHhmm, out int loadStart, out int loadEnd)
-        {
-            int startMinutes = startHhmm / 100 * 60 + startHhmm % 100;
-            int context = Math.Max(0, startMinutes - 60);
-            loadStart = startHhmm <= endHhmm ? Math.Min(800, context / 60 * 100 + context % 60) : (context / 60 * 100 + context % 60);
-            loadEnd = endHhmm;
-        }
-
+        // ---- Step 3 HELIX view -------------------------------------------------------------------
         private void SetHelixResultsMode(bool on)
         {
             if (helixResultsHost == null) return;
@@ -16731,46 +16813,490 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (normalResultClearRow != null) normalResultClearRow.Visibility = normal;
             if (poolResultBanner != null) poolResultBanner.Visibility = normal;
             if (instrumentSplitText != null && on) instrumentSplitText.Visibility = Visibility.Collapsed;
-            if (resultsHeadingText != null) resultsHeadingText.Text = on ? "HELIX ROTATION • COMBINED BASKET RESULTS" : "PROP VIRTUAL-POOL RESULTS • ALL ELIGIBLE SETUPS";
+            if (resultsHeadingText != null) resultsHeadingText.Text = on ? "HELIX ROTATION • RESULTS" : "PROP VIRTUAL-POOL RESULTS • ALL ELIGIBLE SETUPS";
+            SizeHelixHost();
+        }
+
+        // The HELIX view is exactly one window tall: its tab strip is always on screen and only the
+        // inside of a tab scrolls.
+        private void SizeHelixHost()
+        {
+            if (helixResultsHost == null || !helixResultsMode) return;
+            double page = resultsPageScroll == null ? 0 : resultsPageScroll.ActualHeight, top = resultsTopPanel == null ? 0 : resultsTopPanel.ActualHeight;
+            helixResultsHost.Height = page > 200 ? Math.Max(420, page - top - 18) : 640;
         }
 
         private UIElement BuildHelixResultsHost()
         {
             var g = new Grid { Visibility = Visibility.Collapsed };
-            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            for (int i = 0; i < 3; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            var actions = new UniformGrid { Columns = 4, Margin = new Thickness(0, 2, 0, 2) };
-            helixRerunButton = Btn("RE-RUN • STEP 1 HELIX SETTINGS", Green); helixRerunButton.ToolTip = "Reads the HELIX settings in Step 1 again and re-runs on the bars already loaded (no reload).";
-            helixProofButton = Btn("RUN PROOF TESTS", Orchid); helixProofButton.ToolTip = "Directions (BUY/SELL/RANDOM), instruments, fills, costs, halves of the period, start times, pauses and account counts — is it the method, the market, luck or costs?";
-            helixChartButton = Btn("SHOW BASKETS ON THE CHART", Blue);
-            helixReportButton = Btn("EXPORT HELIX REPORT", Gold);
+            // verdict + actions
+            var head = new Grid(); head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var verdictStack = new StackPanel();
+            helixVerdictHead = new TextBlock { Text = "RUN HELIX", Foreground = Gold, FontSize = 22, FontWeight = FontWeights.Bold };
+            helixVerdictSub = new TextBlock { Text = "Choose HELIX ROTATION in Step 1 and press START.", Foreground = Text, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+            helixWarningText = new TextBlock { Text = string.Empty, Foreground = Gold, FontSize = 10, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+            verdictStack.Children.Add(helixVerdictHead); verdictStack.Children.Add(helixVerdictSub); verdictStack.Children.Add(helixWarningText);
+            head.Children.Add(verdictStack);
+            var actions = new UniformGrid { Columns = 2, Margin = new Thickness(8, 0, 0, 0), Width = 430 };
+            helixRerunButton = Btn("RE-RUN WITH STEP 1 SETTINGS", Green); helixRerunButton.ToolTip = "Reads the HELIX settings in Step 1 again and re-runs on the bars already loaded (no reload).";
+            helixProofButton = Btn("RUN PROOF TESTS", Orchid); helixProofButton.ToolTip = "BUY/SELL/RANDOM directions, instruments, fills, costs, halves of the period, start times, pauses and account counts.";
+            helixChartButton = Btn("BASKETS ON THE CHART", Blue);
+            helixReportButton = Btn("EXPORT REPORT", Gold);
+            foreach (var b in new[] { helixRerunButton, helixProofButton, helixChartButton, helixReportButton }) { b.Height = 30; b.FontSize = 11; actions.Children.Add(b); }
             helixRerunButton.Click += delegate { RunHelix(); };
             helixProofButton.Click += delegate { RunHelixProof(); };
             helixChartButton.Click += delegate { OpenHelixChart(null); };
             helixReportButton.Click += delegate { ExportHelixReport(); };
-            actions.Children.Add(helixRerunButton); actions.Children.Add(helixProofButton); actions.Children.Add(helixChartButton); actions.Children.Add(helixReportButton);
-            g.Children.Add(actions);
-            var tiles = new UniformGrid { Columns = 4, Margin = new Thickness(0, 2, 0, 2) };
-            helixNetTile = MetricTile(tiles, "NET AFTER ALL COSTS", "$0", "your payout cash − every account purchase", Green, 64, 20);
-            helixCashTile = MetricTile(tiles, "PAYOUT CASH", "$0", "your share of every payout", Gold, 64, 20);
-            helixExpenseTile = MetricTile(tiles, "ACCOUNT EXPENSES", "$0", "evaluations, activations, direct accounts, replacements", Red, 64, 20);
-            helixBasketTile = MetricTile(tiles, "BASKETS W / L", "0 / 0", "win rate vs the break-even win rate", Cyan, 64, 20);
-            helixTradingTile = MetricTile(tiles, "COMBINED TRADING P/L", "$0", "MNQ + MGC after costs, every account", Blue, 64, 20);
-            helixBlowTile = MetricTile(tiles, "LIQUIDATED / FAILED", "0", "accounts that hit their max loss", Red, 64, 20);
-            helixLowTile = MetricTile(tiles, "MOST CASH NEEDED", "$0", "the deepest your cash went (what you must fund)", Orchid, 64, 20);
-            helixFirstTile = MetricTile(tiles, "FIRST PAYOUT", "—", "first day cash arrived", Green, 64, 20);
+            Grid.SetColumn(actions, 1); head.Children.Add(actions);
+            helixVerdictCard = new Border { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(5, 1.5, 1.5, 1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 10, 8), Margin = new Thickness(2, 2, 2, 4), Child = head };
+            g.Children.Add(helixVerdictCard);
+            var tiles = new UniformGrid { Columns = 6, Margin = new Thickness(0, 0, 0, 2) };
+            helixCashTile = MetricTile(tiles, "CASH IN", "$0", "your share of every payout", Green, 58, 19);
+            helixSpentTile = MetricTile(tiles, "SPENT ON ACCOUNTS", "$0", "every account bought", Red, 58, 19);
+            helixAccountsTile = MetricTile(tiles, "ACCOUNTS", "0", "bought • liquidated • paid", Orchid, 58, 19);
+            helixBasketTile = MetricTile(tiles, "BASKETS WON", "0%", "vs the win rate needed", Cyan, 58, 19);
+            helixTradingTile = MetricTile(tiles, "TRADING P/L", "$0", "MNQ + MGC, all accounts", Blue, 58, 19);
+            helixLowTile = MetricTile(tiles, "MONEY NEEDED", "$0", "deepest point of your cash", Gold, 58, 19);
             Grid.SetRow(tiles, 1); g.Children.Add(tiles);
-            helixVerdictText = Txt("Run HELIX from Step 1 to see the results.", Gold, 11, FontWeights.Bold); helixVerdictText.Margin = new Thickness(4, 1, 4, 2);
-            Grid.SetRow(helixVerdictText, 2); g.Children.Add(helixVerdictText);
             helixTabs = new TabControl { Background = Panel, BorderBrush = Orchid, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-            foreach (string h in new[] { "OVERVIEW", "BASKETS", "DAYS & TIMES", "ACCOUNTS & PAYOUTS", "EXPENSES & CASH", "THE MATH", "PROOF TESTS", "SETUP FINDER", "MANUS CHECK" })
-                helixTabs.Items.Add(new TabItem { Header = h, Background = Panel, Foreground = Text, Content = Txt("Run HELIX to fill this tab.", Muted, 11, FontWeights.Normal) });
+            Brush[] tabColors = { Cyan, Blue, Gold, Green, Red, Orchid, Orchid, Green, Gold };
+            string[] tabNames = { "OVERVIEW", "BASKETS", "DAYS & TIMES", "ACCOUNTS & PAYOUTS", "EXPENSES & CASH", "THE MATH", "PROOF TESTS", "SETUP FINDER", "MANUS CHECK" };
+            for (int i = 0; i < tabNames.Length; i++)
+                helixTabs.Items.Add(new TabItem { Header = tabNames[i], Background = tabColors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Run HELIX to fill this tab.", Muted, 11, FontWeights.Normal) });
             Grid.SetRow(helixTabs, 3); g.Children.Add(helixTabs);
             helixResultsHost = g;
             return g;
         }
+
+        // Card, table and page helpers (same look as the other result tabs).
+        private static Border HelixCard(string title, string value, string sub, Brush accent, double width)
+        {
+            var st = new StackPanel { Margin = new Thickness(2) };
+            st.Children.Add(new TextBlock { Text = title, Foreground = accent, FontSize = 9.5, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap });
+            st.Children.Add(new TextBlock { Text = value, Foreground = accent, FontSize = 18, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 1) });
+            if (!string.IsNullOrEmpty(sub)) st.Children.Add(new TextBlock { Text = sub, Foreground = Text, FontSize = 9.5, TextWrapping = TextWrapping.Wrap, Opacity = 0.85 });
+            return new Border { Background = Card, BorderBrush = accent, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 5, 8, 6), Margin = new Thickness(3), Width = width, Child = st };
+        }
+
+        private static TextBlock HelixTitle(string text, Brush brush)
+        {
+            return new TextBlock { Text = text, Foreground = brush, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 10, 4, 3), TextWrapping = TextWrapping.Wrap };
+        }
+
+        private static TextBlock HelixNote(string text) { return new TextBlock { Text = text, Foreground = Muted, FontSize = 10, Margin = new Thickness(6, 0, 6, 4), TextWrapping = TextWrapping.Wrap }; }
+
+        private static ScrollViewer HelixScroll(UIElement content) { return new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Content = content, Padding = new Thickness(4) }; }
+
+        private Border HelixRow(string[] cells, Brush[] colors, double[] widths, Brush accent, Action onClick)
+        {
+            var row = new Border { Background = Panel, BorderBrush = accent, BorderThickness = new Thickness(4, 1, 1, 1), CornerRadius = new CornerRadius(4), Margin = new Thickness(2, 1, 2, 1), Child = TableRow(cells, colors, widths, false) };
+            if (onClick != null) { row.Cursor = System.Windows.Input.Cursors.Hand; row.ToolTip = "Click to open this day on the chart"; row.MouseLeftButtonUp += delegate { onClick(); }; }
+            return row;
+        }
+
+        private UIElement HelixHeader(string[] head, double[] widths) { return TableRow(head, head.Select(h => (Brush)Gold).ToArray(), widths, true); }
+
+        // A table of any length shown one page at a time (fast even with thousands of rows).
+        private UIElement HelixPaged(string[] head, double[] widths, int count, Func<int, Border> row, int pageSize, bool startAtEnd)
+        {
+            var wrap = new StackPanel();
+            var body = new StackPanel();
+            int pages = Math.Max(1, (count + pageSize - 1) / pageSize);
+            int page = startAtEnd ? pages - 1 : 0;
+            var label = new TextBlock { Foreground = Cyan, FontSize = 10.5, FontWeight = FontWeights.Bold, Margin = new Thickness(10, 7, 6, 0) };
+            var first = Btn("⏮", Card); var prev = Btn("◀ PREVIOUS", Card); var next = Btn("NEXT ▶", Card); var last = Btn("⏭", Card);
+            foreach (var b in new[] { first, prev, next, last }) { b.Height = 26; b.FontSize = 10; b.Padding = new Thickness(10, 0, 10, 0); }
+            Action draw = null;
+            draw = delegate
+            {
+                body.Children.Clear(); body.Children.Add(HelixHeader(head, widths));
+                int a = page * pageSize, z = Math.Min(count, a + pageSize);
+                for (int i = a; i < z; i++) body.Children.Add(row(i));
+                label.Text = count == 0 ? "NO ROWS" : "ROWS " + (a + 1).ToString("N0") + "–" + z.ToString("N0") + " OF " + count.ToString("N0") + " • PAGE " + (page + 1) + " / " + pages;
+                first.IsEnabled = prev.IsEnabled = page > 0; next.IsEnabled = last.IsEnabled = page < pages - 1;
+            };
+            first.Click += delegate { page = 0; draw(); }; prev.Click += delegate { if (page > 0) { page--; draw(); } };
+            next.Click += delegate { if (page < pages - 1) { page++; draw(); } }; last.Click += delegate { page = pages - 1; draw(); };
+            if (pages > 1) { var nav = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 2, 2, 2) }; nav.Children.Add(first); nav.Children.Add(prev); nav.Children.Add(next); nav.Children.Add(last); nav.Children.Add(label); wrap.Children.Add(nav); }
+            else wrap.Children.Add(label);
+            wrap.Children.Add(body);
+            draw();
+            return wrap;
+        }
+
+        private static Brush MoneyBrush(double v) { return v > 0 ? Green : (v < 0 ? Red : Muted); }
+
+        private void RenderHelixResults()
+        {
+            var r = helixResult; if (r == null || helixTabs == null) return;
+            var c = r.Config;
+            double be = KeystoneHelix.BreakEvenWinRate(r);
+            bool profit = r.NetCash > 0;
+            int months = Math.Max(1, KeystoneHelix.Months(r).Count);
+            int paid = r.Lives.Count(l => l.Payouts > 0);
+            helixVerdictHead.Text = (r.Rotations.Count == 0 ? "NO BASKETS" : profit ? "PROFITABLE  •  " : "NOT PROFITABLE  •  ") + (r.Rotations.Count == 0 ? string.Empty : (r.NetCash > 0 ? "+" : string.Empty) + Cash(r.NetCash));
+            helixVerdictHead.Foreground = r.Rotations.Count == 0 ? Gold : (profit ? Green : Red);
+            helixVerdictCard.BorderBrush = helixVerdictHead.Foreground;
+            helixVerdictSub.Text = r.Rotations.Count == 0 ? HelixVerdict(r)
+                : r.Days.Count + " sessions (" + r.Days[0].Day.ToString("MMM d, yyyy", CultureInfo.InvariantCulture) + " → " + r.Days[r.Days.Count - 1].Day.ToString("MMM d, yyyy", CultureInfo.InvariantCulture) + ") • about " + Cash(r.NetCash / months) + " a month • " + r.Lives.Count + " accounts bought, " + r.FundedBlowups + " liquidated, " + paid + " ever paid • baskets won " + Pct(r.WinRate) + " (need " + Pct(be) + ")"
+                  + (r.TradingNet <= 0 && profit ? " • the trades lost: the profit comes from the payout rules" : string.Empty) + " • press RUN PROOF TESTS before trusting it.";
+            var warn = new List<string>();
+            if (r.SkippedDays.Count > 0) warn.Add("⚠ " + r.SkippedDays.Count + " day(s) not traded because MNQ or MGC data is missing: " + string.Join(" | ", r.SkippedDays.Take(4)) + (r.SkippedDays.Count > 4 ? " …" : string.Empty));
+            if (r.Days.Count > 0 && r.Days.Count < 60) warn.Add("⚠ only " + r.Days.Count + " sessions: too short to judge — test at least a year.");
+            helixWarningText.Text = string.Join("\n", warn); helixWarningText.Visibility = warn.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            UpdateMetricTile(helixCashTile, "CASH IN • " + r.Payouts.Count + " PAYOUTS", Cash(r.PayoutCash), "gross " + Cash(r.PayoutGross) + " • you keep " + N0(c.PayoutSplit) + "%", Green);
+            UpdateMetricTile(helixSpentTile, "SPENT • " + r.Lives.Count + " ACCOUNTS", Cash(r.ExpenseTotal), "first " + Math.Min(r.Lives.Count, c.Accounts) + " + " + Math.Max(0, r.Lives.Count - c.Accounts) + " replacements", Red);
+            UpdateMetricTile(helixAccountsTile, "ACCOUNTS BLOWN / PAID", r.FundedBlowups + r.EvalFails + " / " + paid, (c.StartMode == "EVAL" ? r.EvalPasses + " evaluations passed • " : string.Empty) + r.Lives.Count(l => l.Status == "FUNDED") + " funded at the end", Orchid);
+            UpdateMetricTile(helixBasketTile, "BASKETS WON", Pct(r.WinRate), r.Wins + " W / " + r.Losses + " L • need " + Pct(be), r.WinRate > be ? Green : Red);
+            UpdateMetricTile(helixTradingTile, "TRADING P/L", Cash(r.TradingNet), "MNQ " + Cash(r.Rotations.Sum(x => x.MnqPnl)) + " • MGC " + Cash(r.Rotations.Sum(x => x.MgcPnl)), MoneyBrush(r.TradingNet));
+            UpdateMetricTile(helixLowTile, "MONEY NEEDED", Cash(-r.LowestCash()), r.FirstPayout == DateTime.MinValue ? "no payout yet" : "first payout " + r.FirstPayout.ToString("MMM d", CultureInfo.InvariantCulture), Gold);
+            SetHelixTab("OVERVIEW", HelixOverview(r));
+            SetHelixTab("BASKETS", HelixBasketsView(r, "ALL"));
+            SetHelixTab("DAYS & TIMES", HelixDaysView(r));
+            SetHelixTab("ACCOUNTS & PAYOUTS", HelixAccountsView(r));
+            SetHelixTab("EXPENSES & CASH", HelixExpensesView(r));
+            SetHelixTab("THE MATH", HelixMathView(r));
+            SetHelixTab("PROOF TESTS", HelixProofView());
+            SetHelixTab("SETUP FINDER", HelixFinderView());
+            SetHelixTab("MANUS CHECK", HelixManusView(r));
+            SizeHelixHost();
+        }
+
+        private UIElement HelixOverview(KeystoneHelixResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            var c = r.Config;
+            root.Children.Add(HelixNote("SETTINGS • " + c.Describe() + " • funded basket " + c.Funded.Label() + " • payout check " + (c.PayoutCalendar == "POOL" ? "every " + c.PayoutEverySessions + " sessions" : "each account after " + c.PayoutEverySessions + " days") + ", needs +" + Cash(c.PayoutMinProfit) + ", cap " + Cash(c.PayoutCap)));
+            // where the money went
+            root.Children.Add(HelixTitle("WHERE THE MONEY WENT", Cyan));
+            var flow = new WrapPanel();
+            flow.Children.Add(HelixCard("1 • TRADING (ALL ACCOUNTS)", Cash(r.TradingNet), "MNQ " + Cash(r.Rotations.Sum(x => x.MnqPnl)) + " • MGC " + Cash(r.Rotations.Sum(x => x.MgcPnl)) + (r.CommissionTotal > 0 ? " • commission " + Cash(-r.CommissionTotal) : string.Empty), MoneyBrush(r.TradingNet), 220));
+            flow.Children.Add(HelixCard("2 • WITHDRAWN", Cash(r.PayoutGross), r.Payouts.Count + " payouts from the accounts", Gold, 200));
+            flow.Children.Add(HelixCard("3 • YOUR CASH", Cash(r.PayoutCash), "your " + N0(c.PayoutSplit) + "% share", Green, 200));
+            flow.Children.Add(HelixCard("4 • ACCOUNTS BOUGHT", "−" + Cash(r.ExpenseTotal), r.Lives.Count + " × " + Cash(r.Lives.Count == 0 ? 0 : r.ExpenseTotal / r.Lives.Count), Red, 200));
+            flow.Children.Add(HelixCard("= NET", Cash(r.NetCash), "about " + Cash(r.NetCash / Math.Max(1, KeystoneHelix.Months(r).Count)) + " a month", MoneyBrush(r.NetCash), 200));
+            root.Children.Add(flow);
+            // cash curve
+            root.Children.Add(HelixTitle("YOUR CASH DAY BY DAY (green) • TRADING P/L OF ALL ACCOUNTS (blue)", Green));
+            var canvas = new Canvas { Width = 1000, Height = 230, Background = EvidenceBg, Margin = new Thickness(4) };
+            var cashLine = new System.Windows.Shapes.Polyline { Stroke = Green, StrokeThickness = 2.4, Points = new PointCollection() };
+            var tradeLine = new System.Windows.Shapes.Polyline { Stroke = Blue, StrokeThickness = 1.3, Opacity = 0.85, Points = new PointCollection() };
+            double run = 0, trade = 0; var cashVals = new List<double>(); var tradeVals = new List<double>();
+            foreach (var d in r.Days) { run += d.PayoutCash - d.Expenses; trade += d.Net; cashVals.Add(run); tradeVals.Add(trade); }
+            if (cashVals.Count > 1)
+            {
+                double min = Math.Min(0, Math.Min(cashVals.Min(), tradeVals.Min())), max = Math.Max(1, Math.Max(cashVals.Max(), tradeVals.Max()));
+                Func<double, double> y = v => 14 + (max - v) / Math.Max(1, max - min) * 196;
+                for (int i = 0; i < cashVals.Count; i++) { double x = 70 + i * 900.0 / Math.Max(1, cashVals.Count - 1); cashLine.Points.Add(new Point(x, y(cashVals[i]))); tradeLine.Points.Add(new Point(x, y(tradeVals[i]))); }
+                canvas.Children.Add(new System.Windows.Shapes.Line { X1 = 70, X2 = 970, Y1 = y(0), Y2 = y(0), Stroke = Muted, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 3, 3 } });
+                canvas.Children.Add(tradeLine); canvas.Children.Add(cashLine);
+                Action<string, double, double, Brush> label = delegate(string t, double x, double yy, Brush b) { var tb = new TextBlock { Text = t, Foreground = b, FontSize = 10, FontWeight = FontWeights.Bold }; Canvas.SetLeft(tb, x); Canvas.SetTop(tb, yy); canvas.Children.Add(tb); };
+                label(Cash(max), 4, 8, Muted); label("$0", 4, y(0) - 7, Muted); label(Cash(min), 4, 204, Muted);
+                label("cash " + Cash(cashVals[cashVals.Count - 1]), 880, y(cashVals[cashVals.Count - 1]) - 16, Green);
+                label(r.Days[0].Day.ToString("MMM d", CultureInfo.InvariantCulture), 70, 214, Muted); label(r.Days[r.Days.Count - 1].Day.ToString("MMM d, yyyy", CultureInfo.InvariantCulture), 900, 214, Muted);
+            }
+            root.Children.Add(canvas);
+            // months
+            var months = KeystoneHelix.Months(r);
+            root.Children.Add(HelixTitle("MONTH BY MONTH", Gold));
+            double[] w = { 90, 70, 80, 70, 100, 100, 100, 80, 100, 80, 100, 110 };
+            string[] head = { "MONTH", "SESSIONS", "BASKETS", "WON", "MNQ", "MGC", "TRADING", "PAYOUTS", "CASH IN", "BOUGHT", "SPENT", "NET CASH" };
+            root.Children.Add(HelixHeader(head, w));
+            foreach (var m in months)
+            {
+                double wr = m.Wins + m.Losses == 0 ? 0 : (double)m.Wins / (m.Wins + m.Losses);
+                root.Children.Add(HelixRow(new[] { m.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture), m.Sessions.ToString(), m.Rotations.ToString(), Pct(wr), Cash(m.MnqPnl), Cash(m.MgcPnl), Cash(m.TradingNet), m.Payouts.ToString(), Cash(m.PayoutCash), m.Purchases.ToString(), Cash(m.Expenses), Cash(m.NetCash) },
+                    new[] { Gold, Text, Text, Text, MoneyBrush(m.MnqPnl), MoneyBrush(m.MgcPnl), MoneyBrush(m.TradingNet), Gold, Green, Text, Red, MoneyBrush(m.NetCash) }, w, MoneyBrush(m.NetCash), null));
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement HelixBasketsView(KeystoneHelixResult r, string filter)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            var all = r.Rotations;
+            var rot = filter == "WINS" ? all.Where(x => x.Reason == "TARGET").ToList() : filter == "LOSSES" ? all.Where(x => x.Reason != "TARGET" && x.Reason != "SESSION END").ToList() : filter == "SESSION END" ? all.Where(x => x.Reason == "SESSION END").ToList() : filter == "LIQUIDATIONS" ? all.Where(x => x.Reason == "LIQUIDATED").ToList() : all;
+            var cards = new WrapPanel();
+            var wins = all.Where(x => x.Reason == "TARGET").ToList(); var losses = all.Where(x => x.Reason != "TARGET" && x.Reason != "SESSION END").ToList();
+            cards.Children.Add(HelixCard("BASKETS", all.Count.ToString("N0"), Math.Round((double)all.Count / Math.Max(1, r.Days.Count), 1) + " a day", Cyan, 150));
+            cards.Children.Add(HelixCard("WINS", wins.Count.ToString("N0"), "avg " + Cash(wins.Select(x => x.Net).DefaultIfEmpty(0).Average()) + " in " + wins.Select(x => (double)x.Minutes).DefaultIfEmpty(0).Average().ToString("0") + " min", Green, 170));
+            cards.Children.Add(HelixCard("LOSSES", losses.Count.ToString("N0"), "avg " + Cash(losses.Select(x => x.Net).DefaultIfEmpty(0).Average()) + " in " + losses.Select(x => (double)x.Minutes).DefaultIfEmpty(0).Average().ToString("0") + " min", Red, 170));
+            cards.Children.Add(HelixCard("LIQUIDATIONS", all.Count(x => x.Reason == "LIQUIDATED").ToString(), "baskets that ended an account", Red, 170));
+            cards.Children.Add(HelixCard("TOUCHED BOTH IN 1 MINUTE", all.Count(x => x.Ambiguous).ToString(), r.Config.ExitModel == "STRICT" ? "counted as losses (STRICT)" : "judged on minute closes", Gold, 190));
+            root.Children.Add(cards);
+            var filters = new WrapPanel { Margin = new Thickness(2, 4, 2, 2) };
+            foreach (string f in new[] { "ALL", "WINS", "LOSSES", "LIQUIDATIONS", "SESSION END" })
+            {
+                string pick = f; var b = Btn(f, f == filter ? Cyan : Card); b.Height = 26; b.FontSize = 10; b.Padding = new Thickness(12, 0, 12, 0);
+                b.Click += delegate { SetHelixTab("BASKETS", HelixBasketsView(helixResult, pick)); };
+                filters.Children.Add(b);
+            }
+            filters.Children.Add(HelixNote("click a basket to open its day on the chart • newest page first"));
+            root.Children.Add(filters);
+            double[] w = { 60, 118, 76, 44, 104, 50, 50, 84, 84, 92, 104, 150, 86 };
+            string[] head = { "#", "DAY", "ACCOUNT", "TRY", "IN → OUT", "MIN", "DIR", "MNQ", "MGC", "BASKET", "RESULT", "THEN", "BALANCE" };
+            root.Children.Add(HelixPaged(head, w, rot.Count, i =>
+            {
+                var x = rot[i];
+                Brush res = x.Reason == "TARGET" ? Green : (x.Reason == "SESSION END" ? ExitIce : Red);
+                return HelixRow(new[] { x.Id.ToString(), x.Day.ToString("MMM d ddd", CultureInfo.InvariantCulture), x.Account, x.AccountTry.ToString(), Hm(x.EntryTime) + " → " + Hm(x.ExitTime), x.Minutes.ToString(), (x.MnqDir > 0 ? "B" : x.MnqDir < 0 ? "S" : "-") + " " + (x.MgcDir > 0 ? "B" : x.MgcDir < 0 ? "S" : "-"), Cash(x.MnqPnl), Cash(x.MgcPnl), Cash(x.Net), x.Reason + (x.Ambiguous ? " *" : string.Empty), x.After, Cash(x.BalanceAfter) },
+                    new[] { Muted, Text, Gold, Text, Text, Muted, Cyan, MoneyBrush(x.MnqPnl), MoneyBrush(x.MgcPnl), MoneyBrush(x.Net), res, x.After.StartsWith("ACCOUNT LIQ") ? Red : (x.After.StartsWith("LOCKED") ? Green : Muted), Text }, w, res, delegate { OpenHelixChart(x); });
+            }, 150, true));
+            return HelixScroll(root);
+        }
+
+        private WrapPanel HelixBucketCards(string group, Func<string, string> rename, double be)
+        {
+            var wrap = new WrapPanel();
+            var b = helixBuckets.Where(x => x.Group == group).OrderBy(x => x.Name).ToList();
+            foreach (var x in b)
+            {
+                Brush accent = x.Count < 10 ? Muted : (x.Net > 0 && x.WinRate > be ? Green : (x.Net < 0 ? Red : Gold));
+                wrap.Children.Add(HelixCard(rename == null ? x.Name : rename(x.Name), Pct(x.WinRate) + " won", x.Count + " baskets • " + Cash(x.Net) + " • avg " + Cash(x.AvgNet), accent, 170));
+            }
+            return wrap;
+        }
+
+        private UIElement HelixDaysView(KeystoneHelixResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            double be = KeystoneHelix.BreakEvenWinRate(r);
+            root.Children.Add(HelixNote("GREEN = won more often than needed (" + Pct(be) + ") and made money • RED = lost money • GOLD = in between • GREY = too few baskets"));
+            root.Children.Add(HelixTitle("BY START TIME (half hour of the basket's entry)", Cyan)); root.Children.Add(HelixBucketCards("ENTRY HALF-HOUR", null, be));
+            root.Children.Add(HelixTitle("BY WEEKDAY", Gold)); root.Children.Add(HelixBucketCards("WEEKDAY", n => n.Substring(0, 1) + n.Substring(1).ToLowerInvariant(), be));
+            root.Children.Add(HelixTitle("BY THE ACCOUNT'S TRY OF THE DAY", Orchid)); root.Children.Add(HelixBucketCards("ACCOUNT TRY TODAY", n => n + " TRY", be));
+            root.Children.Add(HelixTitle("BY THE POOL'S BASKET NUMBER OF THE DAY", Blue)); root.Children.Add(HelixBucketCards("POOL BASKET # TODAY", n => "BASKET " + n, be));
+            if (r.SkippedDays.Count > 0) { root.Children.Add(HelixTitle("DAYS NOT TRADED (MISSING DATA)", Red)); foreach (var s in r.SkippedDays) root.Children.Add(HelixNote(s)); }
+            var days = r.Days;
+            root.Children.Add(HelixTitle("EVERY SESSION • " + days.Count + " • positive " + days.Count(d => d.Net > 0) + " • negative " + days.Count(d => d.Net < 0) + " • best " + Cash(days.Select(d => d.Net).DefaultIfEmpty(0).Max()) + " • worst " + Cash(days.Select(d => d.Net).DefaultIfEmpty(0).Min()), Green));
+            double[] w = { 118, 66, 70, 90, 90, 96, 60, 60, 70, 90, 90, 118, 150 };
+            string[] head = { "DAY", "BASKETS", "W / L", "MNQ", "MGC", "NET", "LOCKS", "LIQ", "PAYOUTS", "CASH IN", "SPENT", "FIRST → LAST", "DAY ENDED" };
+            root.Children.Add(HelixPaged(head, w, days.Count, i =>
+            {
+                var d = days[i];
+                return HelixRow(new[] { d.Day.ToString("MMM d ddd", CultureInfo.InvariantCulture), d.Rotations.ToString(), d.Wins + " / " + d.Losses, Cash(d.MnqPnl), Cash(d.MgcPnl), Cash(d.Net), d.Locks.ToString(), d.Blowups.ToString(), d.Payouts.ToString(), Cash(d.PayoutCash), Cash(d.Expenses), Hm(d.FirstEntry) + " → " + Hm(d.LastExit), d.EndReason },
+                    new[] { Gold, Text, Text, MoneyBrush(d.MnqPnl), MoneyBrush(d.MgcPnl), MoneyBrush(d.Net), Green, d.Blowups > 0 ? Red : Muted, Gold, Green, d.Expenses > 0 ? Red : Muted, Text, Muted }, w, MoneyBrush(d.Net), delegate { var f = r.Rotations.FirstOrDefault(x => x.Day == d.Day); if (f != null) OpenHelixChart(f); });
+            }, 60, true));
+            return HelixScroll(root);
+        }
+
+        private UIElement HelixAccountsView(KeystoneHelixResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            var lives = r.Lives; int paid = lives.Count(l => l.Payouts > 0);
+            var ended = lives.Where(l => l.Status == "BLOWN" || l.Status == "FAILED EVAL").ToList();
+            var cards = new WrapPanel();
+            cards.Children.Add(HelixCard("ACCOUNTS BOUGHT", lives.Count.ToString(), Math.Min(lives.Count, r.Config.Accounts) + " at the start + " + Math.Max(0, lives.Count - r.Config.Accounts) + " replacements", Cyan, 190));
+            cards.Children.Add(HelixCard("EVER PAID", paid + " (" + Pct(lives.Count == 0 ? 0 : (double)paid / lives.Count) + ")", r.Payouts.Count + " payouts • " + (lives.Count == 0 ? 0 : (double)r.Payouts.Count / lives.Count).ToString("0.00") + " per account", Green, 190));
+            cards.Children.Add(HelixCard("LIQUIDATED", r.FundedBlowups.ToString(), ended.Count(l => l.Payouts == 0) + " never paid anything", Red, 180));
+            if (r.Config.StartMode == "EVAL") cards.Children.Add(HelixCard("EVALUATIONS", r.EvalPasses + " passed / " + r.EvalFails + " failed", "pass rate " + Pct(r.EvalPasses + r.EvalFails == 0 ? 0 : (double)r.EvalPasses / (r.EvalPasses + r.EvalFails)), Orchid, 200));
+            cards.Children.Add(HelixCard("AVERAGE LIFE", (ended.Count == 0 ? 0 : ended.Average(l => l.TradingDays)).ToString("0.0") + " days", "trading days until liquidation • longest " + lives.Select(l => l.TradingDays).DefaultIfEmpty(0).Max(), Gold, 190));
+            cards.Children.Add(HelixCard("NET PER ACCOUNT", Cash(lives.Count == 0 ? 0 : r.NetCash / lives.Count), "cash " + Cash(lives.Count == 0 ? 0 : r.PayoutCash / lives.Count) + " − price " + Cash(lives.Count == 0 ? 0 : r.ExpenseTotal / lives.Count), MoneyBrush(r.NetCash), 190));
+            root.Children.Add(cards);
+            root.Children.Add(HelixTitle("EVERY ACCOUNT • GREEN paid and alive • GOLD paid then liquidated • RED liquidated without a payout • BLUE alive, no payout yet", Cyan));
+            var wrap = new WrapPanel();
+            foreach (var l in lives.Take(400))
+            {
+                bool blown = l.Status == "BLOWN" || l.Status == "FAILED EVAL";
+                Brush accent = blown ? (l.Payouts > 0 ? Gold : Red) : (l.Payouts > 0 ? Green : Blue);
+                string life = l.Bought.ToString("MMM d", CultureInfo.InvariantCulture) + (blown ? " → " + l.EndDate.ToString("MMM d", CultureInfo.InvariantCulture) : " → still trading");
+                wrap.Children.Add(HelixCard(l.Id + " • " + (blown ? (l.Status == "FAILED EVAL" ? "FAILED EVAL" : "LIQUIDATED") : l.Status), Cash(l.PayoutCash - l.Cost), life + " (" + l.TradingDays + " days)\n" + l.Rotations + " baskets • " + l.Wins + " W / " + l.Losses + " L\n" + l.Payouts + " payouts • cash " + Cash(l.PayoutCash) + " • price " + Cash(l.Cost), accent, 205));
+            }
+            root.Children.Add(wrap);
+            if (lives.Count > 400) root.Children.Add(HelixNote("First 400 accounts shown; the report lists all " + lives.Count + "."));
+            root.Children.Add(HelixTitle("EVERY PAYOUT • " + r.Payouts.Count + " • gross " + Cash(r.PayoutGross) + " • your cash " + Cash(r.PayoutCash), Green));
+            double[] w = { 130, 90, 60, 110, 100, 100, 110 };
+            string[] head = { "DAY", "ACCOUNT", "NO.", "BALANCE BEFORE", "GROSS", "YOUR CASH", "LEFT IN ACCOUNT" };
+            var pays = r.Payouts;
+            root.Children.Add(HelixPaged(head, w, pays.Count, i => { var p = pays[i]; return HelixRow(new[] { p.Day.ToString("MMM d ddd, yyyy", CultureInfo.InvariantCulture), p.Account, "#" + p.Number, Cash(p.BalanceBefore), Cash(p.Gross), Cash(p.Cash), Cash(p.BalanceAfter) }, new[] { Gold, Text, Muted, Text, Gold, Green, Text }, w, Green, null); }, 80, false));
+            return HelixScroll(root);
+        }
+
+        private UIElement HelixExpensesView(KeystoneHelixResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            int buys = r.Lives.Count;
+            var cards = new WrapPanel();
+            cards.Children.Add(HelixCard("TOTAL SPENT", Cash(r.ExpenseTotal), buys + " accounts", Red, 170));
+            foreach (var g in r.Expenses.GroupBy(e => e.Kind)) cards.Children.Add(HelixCard(g.Key, Cash(g.Sum(e => e.Amount)), g.Count() + " × " + Cash(g.Average(e => e.Amount)), Red, 170));
+            cards.Children.Add(HelixCard("CASH IN", Cash(r.PayoutCash), r.Payouts.Count + " payouts", Green, 170));
+            cards.Children.Add(HelixCard("CASH PER PAYOUT", Cash(r.Payouts.Count == 0 ? 0 : r.PayoutCash / r.Payouts.Count), "cost per payout " + Cash(r.Payouts.Count == 0 ? 0 : r.ExpenseTotal / r.Payouts.Count), Gold, 180));
+            cards.Children.Add(HelixCard("MONEY NEEDED", Cash(-r.LowestCash()), "the most you are down before payouts catch up", Orchid, 200));
+            cards.Children.Add(HelixCard("NET", Cash(r.NetCash), r.NetCash > 0 ? "profitable" : "not profitable", MoneyBrush(r.NetCash), 170));
+            root.Children.Add(cards);
+            root.Children.Add(HelixTitle("CASH BY MONTH", Gold));
+            double[] w = { 100, 80, 110, 80, 110, 110, 120, 90 };
+            string[] head = { "MONTH", "PAYOUTS", "CASH IN", "BOUGHT", "SPENT", "NET", "RUNNING TOTAL", "LIQUIDATED" };
+            root.Children.Add(HelixHeader(head, w));
+            double cum = 0;
+            foreach (var m in KeystoneHelix.Months(r))
+            {
+                cum += m.NetCash;
+                root.Children.Add(HelixRow(new[] { m.Month.ToString("MMM yyyy", CultureInfo.InvariantCulture), m.Payouts.ToString(), Cash(m.PayoutCash), m.Purchases.ToString(), Cash(m.Expenses), Cash(m.NetCash), Cash(cum), m.Blowups.ToString() }, new[] { Gold, Text, Green, Text, Red, MoneyBrush(m.NetCash), MoneyBrush(cum), m.Blowups > 0 ? Red : Muted }, w, MoneyBrush(m.NetCash), null));
+            }
+            root.Children.Add(HelixTitle("EVERY PURCHASE", Red));
+            double[] w2 = { 140, 100, 160, 100 };
+            var ex = r.Expenses;
+            root.Children.Add(HelixPaged(new[] { "DAY", "ACCOUNT", "WHAT", "PRICE" }, w2, ex.Count, i => { var e = ex[i]; return HelixRow(new[] { e.Day.ToString("MMM d ddd, yyyy", CultureInfo.InvariantCulture), e.Account, e.Kind, Cash(e.Amount) }, new[] { Gold, Text, Text, Red }, w2, Red, null); }, 80, false));
+            return HelixScroll(root);
+        }
+
+        private UIElement HelixMathView(KeystoneHelixResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            var c = r.Config; double be = KeystoneHelix.BreakEvenWinRate(r);
+            double t = c.Funded.RotationTarget, s = c.Funded.RotationStop;
+            double reach, pays; double v0 = KeystoneHelix.ZeroEdgeValuePerAccount(c, out reach, out pays);
+            var lives = r.Lives;
+            root.Children.Add(HelixTitle("1 • THE BASKET", Cyan));
+            var a = new WrapPanel();
+            a.Children.Add(HelixCard("WIN RATE NEEDED", Pct(be), "+" + Cash(t) + " / −" + Cash(s) + " → a basket must win " + Pct(s / (t + s)) + " before costs", Gold, 240));
+            a.Children.Add(HelixCard("YOUR BASKETS WON", Pct(r.WinRate), r.Wins + " wins / " + r.Losses + " losses", r.WinRate > be ? Green : Red, 200));
+            a.Children.Add(HelixCard("EDGE PER BASKET", Cash(r.Rotations.Count == 0 ? 0 : r.TradingNet / r.Rotations.Count), "trading P/L ÷ baskets", MoneyBrush(r.TradingNet), 200));
+            a.Children.Add(HelixCard("WHAT RANDOM GIVES", Pct(s / (t + s)), "random entries have no edge; above it with BUY and below with SELL = the market's direction", Muted, 280));
+            root.Children.Add(a);
+            root.Children.Add(HelixTitle("2 • THE ACCOUNT (why prop rules can pay without an edge)", Orchid));
+            var b = new WrapPanel();
+            b.Children.Add(HelixCard("PAYOUT BEFORE LIQUIDATION", Pct(reach), "a coin flip reaches +" + Cash(c.PayoutMinProfit) + " before losing " + Cash(c.FundedMaxLoss), Orchid, 260));
+            b.Children.Add(HelixCard("RULES ALONE, PER ACCOUNT", Cash(v0), "≈ " + pays.ToString("0.0") + " payouts × your cash − the price (rough)", MoneyBrush(v0), 260));
+            b.Children.Add(HelixCard("WHY", "firm money out", "payouts are the firm's money; your loss per account is only its price", Gold, 260));
+            root.Children.Add(b);
+            root.Children.Add(HelixTitle("3 • WHAT YOUR ACCOUNTS DID", Green));
+            var d = new WrapPanel();
+            int paid = lives.Count(l => l.Payouts > 0);
+            d.Children.Add(HelixCard("PAID AT LEAST ONCE", Pct(lives.Count == 0 ? 0 : (double)paid / lives.Count), paid + " of " + lives.Count + " accounts", paid > 0 ? Green : Red, 200));
+            d.Children.Add(HelixCard("PAYOUTS PER ACCOUNT", (lives.Count == 0 ? 0 : (double)r.Payouts.Count / lives.Count).ToString("0.00"), "the rules-alone math expects ≈ " + pays.ToString("0.0"), Gold, 220));
+            d.Children.Add(HelixCard("NET PER ACCOUNT BOUGHT", Cash(lives.Count == 0 ? 0 : r.NetCash / lives.Count), "cash " + Cash(lives.Count == 0 ? 0 : r.PayoutCash / lives.Count) + " − price " + Cash(lives.Count == 0 ? 0 : r.ExpenseTotal / lives.Count), MoneyBrush(r.NetCash), 240));
+            root.Children.Add(d);
+            root.Children.Add(HelixTitle("4 • WHAT CAN BREAK IT", Red));
+            foreach (string line in new[] { "Real firm rules (consistency, payout caps, minimum days, drawdown) — set yours in Step 1.", "Firms limit how many accounts one person may hold and may review rotation behaviour — check your firm's terms.", "Costs — PROOF TESTS runs double costs.", "Market direction — PROOF TESTS compares BUY/BUY with SELL/SELL and RANDOM.", "1-minute bars cannot show the order inside a minute: " + r.Rotations.Count(x => x.Ambiguous) + " baskets touched both (STRICT counts them as losses)." })
+                root.Children.Add(HelixNote("• " + line));
+            return HelixScroll(root);
+        }
+
+        private UIElement HelixProofView()
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            if (helixProofRows == null || helixProofRows.Count == 0)
+            {
+                root.Children.Add(HelixTitle("PROOF TESTS ARE NOT RUN YET", Orchid));
+                root.Children.Add(HelixNote("The same bars and settings are run again with: BUY/BUY, SELL/SELL, BUY/SELL, SELL/BUY and RANDOM directions (many coin sequences) • MNQ only and MGC only • the other fill model, no costs, double costs • the first and second half of the period • other start times, pauses and account counts. If SELL/SELL and RANDOM make money too, the profit comes from the account rules. If only BUY makes money, it came from the market going up."));
+                var run = Btn("RUN PROOF TESTS NOW", Orchid); run.Height = 34; run.Width = 260; run.HorizontalAlignment = HorizontalAlignment.Left; run.Click += delegate { RunHelixProof(); };
+                root.Children.Add(run);
+                return HelixScroll(root);
+            }
+            var rows = helixProofRows; var bse = rows.First(x => x.IsBase);
+            Func<string, KeystoneHelixProofRow> find = label => rows.FirstOrDefault(x => x.Label == label);
+            var buy = find("BUY MNQ + BUY MGC"); var sell = find("SELL MNQ + SELL MGC"); var rnd = rows.FirstOrDefault(x => x.Group == "RANDOM" && x.Label.StartsWith("RANDOM DIRECTIONS"));
+            var cards = new WrapPanel();
+            cards.Children.Add(HelixCard("YOUR SETTINGS", Cash(bse.NetCash), bse.Payouts + " payouts • " + bse.Blowups + " liquidated", MoneyBrush(bse.NetCash), 190));
+            if (buy != null) cards.Children.Add(HelixCard("BUY + BUY", Cash(buy.NetCash), "won " + Pct(buy.WinRate), MoneyBrush(buy.NetCash), 160));
+            if (sell != null) cards.Children.Add(HelixCard("SELL + SELL", Cash(sell.NetCash), "won " + Pct(sell.WinRate), MoneyBrush(sell.NetCash), 160));
+            if (rnd != null) cards.Children.Add(HelixCard("RANDOM (ZERO EDGE)", Cash(rnd.NetCash), "10%–90%: " + Cash(rnd.Low) + " … " + Cash(rnd.High), MoneyBrush(rnd.NetCash), 230));
+            foreach (var h in rows.Where(x => x.Group == "PERIOD")) cards.Children.Add(HelixCard(h.Label.StartsWith("FIRST") ? "FIRST HALF" : "SECOND HALF", Cash(h.NetCash), h.Label.Substring(h.Label.IndexOf(' ', h.Label.IndexOf(' ') + 1) + 1), MoneyBrush(h.NetCash), 200));
+            var c2 = find("COSTS × 2"); if (c2 != null) cards.Children.Add(HelixCard("DOUBLE COSTS", Cash(c2.NetCash), "bad fills stress test", MoneyBrush(c2.NetCash), 170));
+            root.Children.Add(cards);
+            root.Children.Add(HelixTitle("WHAT IT MEANS", Gold));
+            foreach (string line in HelixProofVerdict(rows).Split('\n').Skip(1).Where(x => x.Trim().Length > 0)) root.Children.Add(HelixNote(line));
+            double[] w = { 300, 110, 180, 100, 100, 110, 70, 70, 70 };
+            string[] head = { "TEST", "NET", "RANDOM 10% … 90%", "CASH IN", "SPENT", "TRADING", "WON", "PAYOUTS", "LIQ" };
+            foreach (var g in rows.GroupBy(x => x.Group))
+            {
+                root.Children.Add(HelixTitle(g.Key, g.Key == "BASE" ? Gold : Cyan));
+                root.Children.Add(HelixHeader(head, w));
+                foreach (var p in g) root.Children.Add(HelixRow(new[] { p.Label + (string.IsNullOrEmpty(p.Note) || p.Group == "BASE" ? string.Empty : "  (" + p.Note + ")"), Cash(p.NetCash), p.Group == "RANDOM" && p.Low != p.High ? Cash(p.Low) + " … " + Cash(p.High) : string.Empty, Cash(p.PayoutCash), Cash(p.Expenses), Cash(p.TradingNet), Pct(p.WinRate), p.Payouts.ToString(), p.Blowups.ToString() },
+                    new[] { p.IsBase ? Gold : Text, MoneyBrush(p.NetCash), Muted, Green, Red, MoneyBrush(p.TradingNet), Text, Gold, Red }, w, p.IsBase ? Gold : MoneyBrush(p.NetCash), null));
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement HelixFinderView()
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            if (helixBuckets == null || helixBuckets.Count == 0) { root.Children.Add(HelixNote("No baskets to analyse yet.")); return HelixScroll(root); }
+            root.Children.Add(HelixNote("Every basket's situation at entry, found on the FIRST 2/3 of the dates and checked on the LAST 1/3. Only conditions that were better (or worse) in BOTH parts count. Try one: pick that time as the SESSION, or untick that weekday, then RE-RUN."));
+            var strong = helixBuckets.Where(b => b.Verdict == "STRONGER • HOLDS").OrderByDescending(b => b.LateRate).ToList();
+            var weak = helixBuckets.Where(b => b.Verdict == "WEAKER • AVOID").OrderBy(b => b.LateRate).ToList();
+            root.Children.Add(HelixTitle("STRONGER • HELD ON LATER DATA (" + strong.Count + ")", Green));
+            var sw = new WrapPanel();
+            foreach (var b in strong) sw.Children.Add(HelixCard(b.Group, b.Name, "won " + Pct(b.EarlyRate) + " → later " + Pct(b.LateRate) + "\n" + b.Count + " baskets • avg " + Cash(b.AvgNet), Green, 230));
+            if (strong.Count == 0) sw.Children.Add(HelixNote("None yet: no condition was better in both parts."));
+            root.Children.Add(sw);
+            root.Children.Add(HelixTitle("WEAKER • AVOID (" + weak.Count + ")", Red));
+            var ww = new WrapPanel();
+            foreach (var b in weak) ww.Children.Add(HelixCard(b.Group, b.Name, "won " + Pct(b.EarlyRate) + " → later " + Pct(b.LateRate) + "\n" + b.Count + " baskets • avg " + Cash(b.AvgNet), Red, 230));
+            if (weak.Count == 0) ww.Children.Add(HelixNote("None."));
+            root.Children.Add(ww);
+            root.Children.Add(HelixTitle("EVERY CONDITION", Cyan));
+            double[] w = { 190, 190, 80, 80, 90, 90, 100, 90, 160 };
+            string[] head = { "GROUP", "CONDITION", "BASKETS", "WON", "FIRST 2/3", "LAST 1/3", "NET", "AVERAGE", "VERDICT" };
+            root.Children.Add(HelixHeader(head, w));
+            foreach (var b in helixBuckets.OrderBy(b => b.Group).ThenBy(b => b.Name))
+            {
+                Brush v = b.Verdict.StartsWith("STRONGER") ? Green : b.Verdict.StartsWith("WEAKER") ? Red : Muted;
+                root.Children.Add(HelixRow(new[] { b.Group, b.Name, b.Count.ToString(), Pct(b.WinRate), Pct(b.EarlyRate), Pct(b.LateRate), Cash(b.Net), Cash(b.AvgNet), b.Verdict }, new[] { Muted, Text, Text, Text, Text, Text, MoneyBrush(b.Net), MoneyBrush(b.AvgNet), v }, w, v, null));
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement HelixManusView(KeystoneHelixResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            bool twenty = r.Config.Accounts >= 20;
+            var manus = KeystoneHelix.ParseManus(twenty ? KeystoneHelixManusReference.Pool20 : KeystoneHelixManusReference.Pool10);
+            var cmp = KeystoneHelix.CompareManus(r, manus);
+            var both = cmp.Where(x => x.HasManus && x.HasKeystone).ToList();
+            root.Children.Add(HelixNote("The Manus workbook (9:30, " + (twenty ? "20" : "10") + " accounts, NOT confirmed, " + manus.First().Day.ToString("MMM yyyy", CultureInfo.InvariantCulture) + " → " + manus.Last().Day.ToString("MMM yyyy", CultureInfo.InvariantCulture) + ") against this run, day by day. For a fair check use the MANUS preset: Manus had no commission or slippage and a fixed (not end-of-day) max loss, so its accounts lived longer and traded different baskets."));
+            if (both.Count == 0) { root.Children.Add(HelixTitle("NO SESSIONS IN COMMON • load a range inside the workbook", Gold)); return HelixScroll(root); }
+            double mSum = both.Sum(x => x.Manus), kSum = both.Sum(x => x.Keystone);
+            int same = both.Count(x => Math.Sign(x.Manus) == Math.Sign(x.Keystone));
+            double m1 = both.Average(x => x.Manus), m2 = both.Average(x => x.Keystone);
+            double cov = both.Sum(x => (x.Manus - m1) * (x.Keystone - m2)), v1 = both.Sum(x => Math.Pow(x.Manus - m1, 2)), v2 = both.Sum(x => Math.Pow(x.Keystone - m2, 2));
+            double corr = v1 <= 0 || v2 <= 0 ? 0 : cov / Math.Sqrt(v1 * v2);
+            int mw = both.Sum(x => x.ManusWins), ml = both.Sum(x => x.ManusLosses), kw = both.Sum(x => x.KeystoneWins), kl = both.Sum(x => x.KeystoneLosses);
+            bool close = corr > 0.8 && Math.Abs(kSum - mSum) < Math.Abs(mSum) * 0.2;
+            var cards = new WrapPanel();
+            cards.Children.Add(HelixCard("VERDICT", close ? "MATCHES" : corr > 0.5 ? "PARTLY MATCHES" : "DOES NOT MATCH", close ? "Keystone reproduces the Manus days" : "the Manus numbers were not reproduced on your NinjaTrader data", close ? Green : corr > 0.5 ? Gold : Red, 260));
+            cards.Children.Add(HelixCard("SESSIONS IN BOTH", both.Count.ToString(), "only Manus " + cmp.Count(x => x.HasManus && !x.HasKeystone) + " • only Keystone " + cmp.Count(x => !x.HasManus && x.HasKeystone), Cyan, 200));
+            cards.Children.Add(HelixCard("MANUS TRADING P/L", Cash(mSum), "won " + Pct(mw + ml == 0 ? 0 : (double)mw / (mw + ml)) + " (" + mw + " / " + ml + ")", MoneyBrush(mSum), 200));
+            cards.Children.Add(HelixCard("KEYSTONE TRADING P/L", Cash(kSum), "won " + Pct(kw + kl == 0 ? 0 : (double)kw / (kw + kl)) + " (" + kw + " / " + kl + ")", MoneyBrush(kSum), 200));
+            cards.Children.Add(HelixCard("SAME DIRECTION DAYS", Pct((double)same / both.Count), same + " of " + both.Count + " • correlation " + corr.ToString("0.00", CultureInfo.InvariantCulture), Gold, 220));
+            root.Children.Add(cards);
+            root.Children.Add(HelixTitle("BY MONTH", Gold));
+            double[] w = { 110, 70, 120, 120, 120 };
+            root.Children.Add(HelixHeader(new[] { "MONTH", "DAYS", "MANUS", "KEYSTONE", "DIFFERENCE" }, w));
+            foreach (var g in both.GroupBy(x => new DateTime(x.Day.Year, x.Day.Month, 1)))
+            {
+                double a = g.Sum(x => x.Manus), k = g.Sum(x => x.Keystone);
+                root.Children.Add(HelixRow(new[] { g.Key.ToString("MMM yyyy", CultureInfo.InvariantCulture), g.Count().ToString(), Cash(a), Cash(k), Cash(k - a) }, new[] { Gold, Text, MoneyBrush(a), MoneyBrush(k), MoneyBrush(k - a) }, w, Math.Sign(a) == Math.Sign(k) ? Green : Red, null));
+            }
+            root.Children.Add(HelixTitle("BY DAY", Cyan));
+            double[] w2 = { 130, 110, 110, 110, 90, 90 };
+            root.Children.Add(HelixPaged(new[] { "DAY", "MANUS", "KEYSTONE", "DIFFERENCE", "MANUS W/L", "KEYST. W/L" }, w2, cmp.Count, i =>
+            {
+                var x = cmp[i];
+                return HelixRow(new[] { x.Day.ToString("MMM d ddd, yyyy", CultureInfo.InvariantCulture), x.HasManus ? Cash(x.Manus) : "—", x.HasKeystone ? Cash(x.Keystone) : "—", x.HasManus && x.HasKeystone ? Cash(x.Keystone - x.Manus) : "—", x.HasManus ? x.ManusWins + " / " + x.ManusLosses : "—", x.HasKeystone ? x.KeystoneWins + " / " + x.KeystoneLosses : "—" },
+                    new[] { Gold, MoneyBrush(x.Manus), MoneyBrush(x.Keystone), MoneyBrush(x.Keystone - x.Manus), Text, Text }, w2, x.HasManus && x.HasKeystone ? (Math.Sign(x.Manus) == Math.Sign(x.Keystone) ? Green : Red) : Muted, null);
+            }, 80, false));
+            return HelixScroll(root);
+        }
+        private bool IsHelixSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("HELIX ROTATION", StringComparison.OrdinalIgnoreCase); }
+        private bool HelixStudy() { return config != null && string.Equals(config.StrategyCode, "HLX", StringComparison.OrdinalIgnoreCase); }
+
+
+
+        // Data window the loader must fetch for the Helix session (an hour of context before it).
+        private static void HelixLoadWindow(int startHhmm, int endHhmm, out int loadStart, out int loadEnd)
+        {
+            int startMinutes = startHhmm / 100 * 60 + startHhmm % 100;
+            int context = Math.Max(0, startMinutes - 60);
+            loadStart = startHhmm <= endHhmm ? Math.Min(800, context / 60 * 100 + context % 60) : (context / 60 * 100 + context % 60);
+            loadEnd = endHhmm;
+        }
+
+
 
         private void RunHelix()
         {
@@ -16850,32 +17376,6 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static string Pct(double v) { return (v * 100).ToString("0.0", CultureInfo.InvariantCulture) + "%"; }
         private static string Hm(DateTime t) { return t == DateTime.MinValue ? "—" : t.ToString("HH:mm", CultureInfo.InvariantCulture); }
 
-        private void RenderHelixResults()
-        {
-            var r = helixResult; if (r == null || helixTabs == null) return;
-            var c = r.Config;
-            double be = KeystoneHelix.BreakEvenWinRate(r);
-            double lowest = r.LowestCash();
-            UpdateMetricTile(helixNetTile, "NET AFTER ALL COSTS", Cash(r.NetCash), "payout cash " + Cash(r.PayoutCash) + " − purchases " + Cash(r.ExpenseTotal), r.NetCash >= 0 ? Green : Red);
-            UpdateMetricTile(helixCashTile, "PAYOUT CASH • " + r.Payouts.Count + " PAYOUTS", Cash(r.PayoutCash), "gross withdrawals " + Cash(r.PayoutGross) + " • your " + N0(c.PayoutSplit) + "%", Gold);
-            UpdateMetricTile(helixExpenseTile, "ACCOUNT EXPENSES • " + r.Lives.Count + " BOUGHT", Cash(r.ExpenseTotal), r.Expenses.GroupBy(e => e.Kind).Select(g => g.Key.ToLowerInvariant() + " " + Cash(g.Sum(e => e.Amount))).DefaultIfEmpty("none").Aggregate((a, b) => a + " • " + b), Red);
-            UpdateMetricTile(helixBasketTile, "BASKETS W / L / END", r.Wins + " / " + r.Losses + " / " + r.SessionExits, "win rate " + Pct(r.WinRate) + " • break-even " + Pct(be) + (r.WinRate > be ? " • ABOVE" : " • BELOW"), r.WinRate > be ? Green : Red);
-            UpdateMetricTile(helixTradingTile, "COMBINED TRADING P/L", Cash(r.TradingNet), "MNQ " + Cash(r.Rotations.Sum(x => x.MnqPnl)) + " • MGC " + Cash(r.Rotations.Sum(x => x.MgcPnl)) + " • costs " + Cash(r.CommissionTotal), r.TradingNet >= 0 ? Blue : Red);
-            UpdateMetricTile(helixBlowTile, "LIQUIDATED / FAILED EVAL", r.FundedBlowups + " / " + r.EvalFails, r.EvalPasses + " evaluations passed • " + r.Lives.Count(l => l.Status == "FUNDED") + " funded at the end", Red);
-            UpdateMetricTile(helixLowTile, "MOST CASH NEEDED", Cash(-lowest), "your cash went down to " + Cash(lowest) + " before payouts covered the purchases", Orchid);
-            DateTime fp = r.FirstPayout;
-            UpdateMetricTile(helixFirstTile, "FIRST PAYOUT", fp == DateTime.MinValue ? "NONE" : fp.ToString("yyyy-MM-dd"), fp == DateTime.MinValue ? "no account reached the payout rules" : ((r.Days.Count(d => d.Day <= fp)) + " sessions after the start"), fp == DateTime.MinValue ? Red : Green);
-            if (helixVerdictText != null) { helixVerdictText.Text = HelixVerdict(r); helixVerdictText.Foreground = r.NetCash > 0 ? Green : Gold; }
-            SetHelixTab("OVERVIEW", HelixOverview(r));
-            SetHelixTab("BASKETS", HelixBasketsView(r));
-            SetHelixTab("DAYS & TIMES", HelixDaysView(r));
-            SetHelixTab("ACCOUNTS & PAYOUTS", HelixAccountsView(r));
-            SetHelixTab("EXPENSES & CASH", HelixExpensesView(r));
-            SetHelixTab("THE MATH", HelixTextView(HelixMathText(r)));
-            SetHelixTab("PROOF TESTS", HelixProofView());
-            SetHelixTab("SETUP FINDER", HelixFinderView());
-            SetHelixTab("MANUS CHECK", HelixManusView(r));
-        }
 
         private void SetHelixTab(string header, UIElement content)
         {
@@ -16893,159 +17393,17 @@ namespace NinjaTrader.NinjaScript.AddOns
             return "VERDICT • " + edge + ". " + money + source + " Run PROOF TESTS before trusting it: they show whether it holds with SELL, RANDOM directions, costs and other periods.";
         }
 
-        private UIElement HelixTextView(string text)
-        {
-            var t = Txt(text, Text, 11, FontWeights.Normal); t.FontFamily = new FontFamily("Consolas"); t.Margin = new Thickness(8);
-            return new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = t };
-        }
 
         // Header + a virtualised list (thousands of rows stay fast).
-        private UIElement HelixListView(string header, string columns, List<string> rows, Action<int> onOpen)
-        {
-            var g = new Grid();
-            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            var h = Txt(header, Cyan, 11, FontWeights.Bold); g.Children.Add(h);
-            var cols = Txt(columns, Gold, 11, FontWeights.Bold); cols.FontFamily = new FontFamily("Consolas"); cols.TextWrapping = TextWrapping.NoWrap; cols.Margin = new Thickness(10, 0, 6, 0); Grid.SetRow(cols, 1); g.Children.Add(cols);
-            var list = new ListBox { Background = Card, Foreground = Text, FontFamily = new FontFamily("Consolas"), FontSize = 11, BorderBrush = Panel, Margin = new Thickness(4) };
-            list.ItemsSource = rows;
-            if (onOpen != null) { list.MouseDoubleClick += delegate { if (list.SelectedIndex >= 0) onOpen(list.SelectedIndex); }; list.ToolTip = "Double-click a row to open that day on the chart."; }
-            Grid.SetRow(list, 2); g.Children.Add(list);
-            return g;
-        }
 
-        private UIElement HelixSplitView(UIElement top, UIElement bottom, double topShare)
-        {
-            var g = new Grid();
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(topShare, GridUnitType.Star) });
-            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1 - topShare, GridUnitType.Star) });
-            g.Children.Add(top); Grid.SetRow(bottom, 1); g.Children.Add(bottom);
-            return g;
-        }
 
         private static string Col(string s, int w) { s = s ?? string.Empty; return s.Length >= w ? s.Substring(0, w) : s.PadRight(w); }
         private static string ColR(string s, int w) { s = s ?? string.Empty; return s.Length >= w ? s.Substring(0, w) : s.PadLeft(w); }
 
-        private UIElement HelixOverview(KeystoneHelixResult r)
-        {
-            var root = new StackPanel { Margin = new Thickness(6) };
-            var c = r.Config;
-            root.Children.Add(Txt("SETTINGS • " + c.Describe(), Cyan, 11, FontWeights.Bold));
-            root.Children.Add(Txt("FUNDED BASKET • " + c.Funded.Label() + (c.StartMode == "EVAL" ? "\nEVALUATION BASKET • " + c.Eval.Label() + " • target " + Cash(c.EvalTarget) + ", max loss " + Cash(c.EvalMaxLoss) + " " + c.EvalDrawdown + ", " + c.EvalMinDays + " days min" + (c.EvalConsistency > 0 ? ", consistency " + N0(c.EvalConsistency) + "%" : string.Empty) : string.Empty) + "\nPAYOUTS • " + (c.PayoutCalendar == "POOL" ? "pool review every " + c.PayoutEverySessions + " sessions" : "each account after " + c.PayoutEverySessions + " trading days") + " • needs +" + Cash(c.PayoutMinProfit) + " • withdraw " + N0(c.PayoutFraction) + "% above liquidation, cap " + Cash(c.PayoutCap) + " • you keep " + N0(c.PayoutSplit) + "% • cushion " + Cash(c.FundedMaxLoss) + " " + c.FundedDrawdown, Muted, 10, FontWeights.Normal));
-            // cash curve + trading curve
-            var canvas = new Canvas { Width = 980, Height = 250, Background = EvidenceBg, Margin = new Thickness(4) };
-            var cashLine = new System.Windows.Shapes.Polyline { Stroke = Green, StrokeThickness = 2, Points = new PointCollection() };
-            var tradeLine = new System.Windows.Shapes.Polyline { Stroke = Blue, StrokeThickness = 1.2, Opacity = 0.8, Points = new PointCollection() };
-            double run = 0, trade = 0; var cashVals = new List<double>(); var tradeVals = new List<double>();
-            foreach (var d in r.Days) { run += d.PayoutCash - d.Expenses; trade += d.Net; cashVals.Add(run); tradeVals.Add(trade); }
-            if (cashVals.Count > 1)
-            {
-                double min = Math.Min(0, Math.Min(cashVals.Min(), tradeVals.Min())), max = Math.Max(1, Math.Max(cashVals.Max(), tradeVals.Max()));
-                Func<double, double> y = v => 18 + (max - v) / Math.Max(1, max - min) * 210;
-                for (int i = 0; i < cashVals.Count; i++) { double x = 60 + i * 900.0 / Math.Max(1, cashVals.Count - 1); cashLine.Points.Add(new Point(x, y(cashVals[i]))); tradeLine.Points.Add(new Point(x, y(tradeVals[i]))); }
-                canvas.Children.Add(new System.Windows.Shapes.Line { X1 = 60, X2 = 960, Y1 = y(0), Y2 = y(0), Stroke = Muted, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 3, 3 } });
-                canvas.Children.Add(tradeLine); canvas.Children.Add(cashLine);
-                var t1 = new TextBlock { Text = "YOUR CASH (payouts − purchases) " + Cash(cashVals[cashVals.Count - 1]), Foreground = Green, FontSize = 10, FontWeight = FontWeights.Bold }; Canvas.SetLeft(t1, 64); Canvas.SetTop(t1, 0); canvas.Children.Add(t1);
-                var t2 = new TextBlock { Text = "COMBINED TRADING P/L " + Cash(tradeVals[tradeVals.Count - 1]), Foreground = Blue, FontSize = 10, FontWeight = FontWeights.Bold }; Canvas.SetLeft(t2, 420); Canvas.SetTop(t2, 0); canvas.Children.Add(t2);
-                var t3 = new TextBlock { Text = Cash(max), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(t3, 2); Canvas.SetTop(t3, 12); canvas.Children.Add(t3);
-                var t4 = new TextBlock { Text = Cash(min), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(t4, 2); Canvas.SetTop(t4, 222); canvas.Children.Add(t4);
-                var t5 = new TextBlock { Text = r.Days[0].Day.ToString("yyyy-MM-dd") + "  →  " + r.Days[r.Days.Count - 1].Day.ToString("yyyy-MM-dd"), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(t5, 60); Canvas.SetTop(t5, 234); canvas.Children.Add(t5);
-            }
-            root.Children.Add(canvas);
-            // months as bars
-            var months = KeystoneHelix.Months(r);
-            root.Children.Add(Txt("MONTHS • net cash (payout cash − purchases) • green = positive", Gold, 11, FontWeights.Bold));
-            var bars = new Canvas { Width = 980, Height = 150, Background = EvidenceBg, Margin = new Thickness(4) };
-            if (months.Count > 0)
-            {
-                double m = Math.Max(1, months.Max(x => Math.Abs(x.NetCash)));
-                double w = Math.Max(4, Math.Min(40, 900.0 / months.Count - 3));
-                for (int i = 0; i < months.Count; i++)
-                {
-                    double v = months[i].NetCash, h = Math.Abs(v) / m * 55, x = 50 + i * (w + 3);
-                    var rect = new System.Windows.Shapes.Rectangle { Width = w, Height = Math.Max(1, h), Fill = v >= 0 ? Green : Red, ToolTip = months[i].Month.ToString("yyyy-MM") + " • net cash " + Cash(v) + " • payouts " + months[i].Payouts + " • purchases " + months[i].Purchases + " • trading " + Cash(months[i].TradingNet) };
-                    Canvas.SetLeft(rect, x); Canvas.SetTop(rect, v >= 0 ? 70 - h : 70); bars.Children.Add(rect);
-                    if (months.Count <= 40 || i % 3 == 0) { var lb = new TextBlock { Text = months[i].Month.ToString("MMM yy", CultureInfo.InvariantCulture), Foreground = Muted, FontSize = 8 }; Canvas.SetLeft(lb, x - 2); Canvas.SetTop(lb, 130); bars.Children.Add(lb); }
-                }
-                bars.Children.Add(new System.Windows.Shapes.Line { X1 = 46, X2 = 960, Y1 = 70, Y2 = 70, Stroke = Muted, StrokeThickness = 1 });
-            }
-            root.Children.Add(bars);
-            var monthRows = months.Select(m => Col(m.Month.ToString("yyyy-MM"), 9) + ColR(m.Sessions.ToString(), 5) + ColR(m.Rotations.ToString(), 7) + ColR(Pct(m.Wins + m.Losses == 0 ? 0 : (double)m.Wins / (m.Wins + m.Losses)), 8) + ColR(Cash(m.MnqPnl), 11) + ColR(Cash(m.MgcPnl), 11) + ColR(Cash(m.TradingNet), 11) + ColR(m.Payouts.ToString(), 6) + ColR(Cash(m.PayoutCash), 10) + ColR(m.Purchases.ToString(), 6) + ColR(Cash(m.Expenses), 10) + ColR(Cash(m.NetCash), 11) + ColR(m.Blowups.ToString(), 6)).ToList();
-            var monthText = Txt(Col("MONTH", 9) + ColR("SES", 5) + ColR("BSKTS", 7) + ColR("WIN%", 8) + ColR("MNQ", 11) + ColR("MGC", 11) + ColR("TRADING", 11) + ColR("PAYS", 6) + ColR("CASH", 10) + ColR("BUYS", 6) + ColR("EXPENSE", 10) + ColR("NET CASH", 11) + ColR("LIQ", 6) + "\n" + string.Join("\n", monthRows), Text, 11, FontWeights.Normal);
-            monthText.FontFamily = new FontFamily("Consolas"); monthText.TextWrapping = TextWrapping.NoWrap;
-            root.Children.Add(monthText);
-            var notes = new List<string>();
-            notes.Add("DATA • " + r.Days.Count + " sessions • " + r.MinutesUsed.ToString("N0") + " minutes in the window" + (r.FilledMinutes > 0 ? " • " + r.FilledMinutes.ToString("N0") + " minutes where one instrument had no bar (its last price was carried)" : string.Empty));
-            notes.Add("1-MINUTE LIMIT • " + r.Rotations.Count(x => x.Ambiguous) + " baskets had a minute that touched both target and stop; " + (r.Config.ExitModel == "STRICT" ? "they count as losses (STRICT)." : "NEUTRAL judges on minute closes."));
-            root.Children.Add(Txt(string.Join("\n", notes), Muted, 10, FontWeights.Normal));
-            return new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Content = root };
-        }
 
-        private UIElement HelixBasketsView(KeystoneHelixResult r)
-        {
-            var rot = r.Rotations;
-            var rows = rot.Select(x => ColR(x.Id.ToString(), 6) + "  " + Col(x.Day.ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture), 15) + Col(x.Account, 8) + Col(x.Stage == "EVAL" ? "EVAL" : "FUND", 5) + ColR(x.AccountTry.ToString(), 3) + "  " + Hm(x.EntryTime) + "→" + Hm(x.ExitTime) + ColR(x.Minutes + "m", 6) + "  " + Col((x.MnqDir > 0 ? "B" : x.MnqDir < 0 ? "S" : "-") + (x.MgcDir > 0 ? "B" : x.MgcDir < 0 ? "S" : "-"), 3) + ColR(Cash(x.MnqPnl), 9) + ColR(Cash(x.MgcPnl), 9) + ColR(Cash(x.Net), 9) + "  " + Col(x.Reason + (x.Ambiguous ? "*" : string.Empty), 12) + Col(x.After, 24) + ColR(Cash(x.BalanceAfter), 9)).ToList();
-            string header = "BASKETS • " + rot.Count.ToString("N0") + " • wins " + r.Wins + " • losses " + r.Losses + " • session ends " + r.SessionExits + " • average win " + Cash(rot.Where(x => x.Reason == "TARGET").Select(x => x.Net).DefaultIfEmpty(0).Average()) + " in " + rot.Where(x => x.Reason == "TARGET").Select(x => (double)x.Minutes).DefaultIfEmpty(0).Average().ToString("0") + " min • average loss " + Cash(rot.Where(x => x.Reason != "TARGET" && x.Reason != "SESSION END").Select(x => x.Net).DefaultIfEmpty(0).Average()) + " in " + rot.Where(x => x.Reason != "TARGET" && x.Reason != "SESSION END").Select(x => (double)x.Minutes).DefaultIfEmpty(0).Average().ToString("0") + " min • * = a minute touched both • double-click → chart";
-            string cols = ColR("#", 6) + "  " + Col("DAY", 15) + Col("ACCOUNT", 8) + Col("STG", 5) + ColR("TRY", 3) + "  " + Col("IN→OUT", 11) + ColR("TIME", 6) + "  " + Col("DIR", 3) + ColR("MNQ", 9) + ColR("MGC", 9) + ColR("BASKET", 9) + "  " + Col("RESULT", 12) + Col("THEN", 24) + ColR("BALANCE", 9);
-            return HelixListView(header, cols, rows, i => { if (i >= 0 && i < rot.Count) OpenHelixChart(rot[i]); });
-        }
 
-        private UIElement HelixDaysView(KeystoneHelixResult r)
-        {
-            var days = r.Days;
-            var rows = days.Select(d => Col(d.Day.ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture), 15) + ColR(d.Rotations.ToString(), 5) + ColR(d.Wins.ToString(), 4) + ColR(d.Losses.ToString(), 4) + ColR(d.Exits.ToString(), 3) + ColR(Cash(d.MnqPnl), 10) + ColR(Cash(d.MgcPnl), 10) + ColR(Cash(d.Net), 10) + ColR(d.Locks.ToString(), 5) + ColR(d.Blowups.ToString(), 4) + ColR(d.Payouts.ToString(), 4) + ColR(Cash(d.PayoutCash), 9) + ColR(Cash(d.Expenses), 9) + "  " + Hm(d.FirstEntry) + "→" + Hm(d.LastExit) + "  " + Col(d.EndReason, 18) + ColR(d.ActiveEnd.ToString(), 4) + ColR(d.WaitingEnd.ToString(), 4)).ToList();
-            string cols = Col("DAY", 15) + ColR("BSK", 5) + ColR("W", 4) + ColR("L", 4) + ColR("E", 3) + ColR("MNQ", 10) + ColR("MGC", 10) + ColR("NET", 10) + ColR("LCK", 5) + ColR("LIQ", 4) + ColR("PAY", 4) + ColR("CASH", 9) + ColR("BUYS $", 9) + "  " + Col("FIRST→LAST", 11) + "  " + Col("DAY ENDED", 18) + ColR("ACT", 4) + ColR("WAIT", 4);
-            int pos = days.Count(d => d.Net > 0), neg = days.Count(d => d.Net < 0);
-            string header = "SESSIONS • " + days.Count + " • positive " + pos + " • negative " + neg + " • best " + Cash(days.Select(d => d.Net).DefaultIfEmpty(0).Max()) + " • worst " + Cash(days.Select(d => d.Net).DefaultIfEmpty(0).Min()) + " • average baskets a day " + days.Select(d => (double)d.Rotations).DefaultIfEmpty(0).Average().ToString("0.0") + " • double-click → chart";
-            var top = HelixListView(header, cols, rows, i => { if (i >= 0 && i < days.Count) { var first = r.Rotations.FirstOrDefault(x => x.Day == days[i].Day); if (first != null) OpenHelixChart(first); } });
-            // time tables
-            var sb = new StringBuilder();
-            Action<string> table = delegate(string group)
-            {
-                var b = helixBuckets.Where(x => x.Group == group).OrderBy(x => x.Name).ToList(); if (b.Count == 0) return;
-                sb.AppendLine(group + " • baskets • win % • net • average");
-                foreach (var x in b) sb.AppendLine("  " + Col(x.Name, 14) + ColR(x.Count.ToString(), 7) + ColR(Pct(x.WinRate), 8) + ColR(Cash(x.Net), 12) + ColR(Cash(x.AvgNet), 9));
-                sb.AppendLine();
-            };
-            table("ENTRY HALF-HOUR"); table("WEEKDAY"); table("ACCOUNT TRY TODAY"); table("POOL BASKET # TODAY");
-            var rot = r.Rotations;
-            if (rot.Count > 0)
-            {
-                sb.AppendLine("TIME IN A BASKET");
-                sb.AppendLine("  wins   average " + rot.Where(x => x.Reason == "TARGET").Select(x => (double)x.Minutes).DefaultIfEmpty(0).Average().ToString("0") + " min • losses average " + rot.Where(x => x.Reason != "TARGET" && x.Reason != "SESSION END").Select(x => (double)x.Minutes).DefaultIfEmpty(0).Average().ToString("0") + " min");
-                sb.AppendLine("  day ends: " + string.Join(" • ", r.Days.GroupBy(d => d.EndReason).Select(g => g.Key + " " + g.Count())));
-            }
-            var bottom = HelixTextView(sb.ToString());
-            return HelixSplitView(top, bottom, 0.55);
-        }
 
-        private UIElement HelixAccountsView(KeystoneHelixResult r)
-        {
-            var lives = r.Lives;
-            var rows = lives.Select(l => Col(l.Id, 8) + Col(l.StartMode, 7) + Col(l.Bought.ToString("yyyy-MM-dd"), 11) + Col(l.PassDate == DateTime.MinValue ? "—" : l.PassDate.ToString("yyyy-MM-dd"), 11) + Col(l.FundedDate == DateTime.MinValue ? "—" : l.FundedDate.ToString("yyyy-MM-dd"), 11) + Col(l.EndDate == DateTime.MinValue ? "—" : l.EndDate.ToString("yyyy-MM-dd"), 11) + Col(l.Status, 17) + ColR(l.TradingDays.ToString(), 5) + ColR(l.Rotations.ToString(), 6) + ColR(l.Wins.ToString(), 5) + ColR(l.Losses.ToString(), 5) + ColR(l.Payouts.ToString(), 5) + ColR(Cash(l.PayoutCash), 10) + ColR(Cash(l.Cost), 8) + ColR(Cash(l.PayoutCash - l.Cost), 10) + ColR(Cash(l.Balance), 9)).ToList();
-            string cols = Col("ACCOUNT", 8) + Col("START", 7) + Col("BOUGHT", 11) + Col("PASSED", 11) + Col("FUNDED", 11) + Col("ENDED", 11) + Col("STATUS", 17) + ColR("DAYS", 5) + ColR("BSKT", 6) + ColR("W", 5) + ColR("L", 5) + ColR("PAYS", 5) + ColR("CASH", 10) + ColR("COST", 8) + ColR("NET", 10) + ColR("BAL", 9);
-            int paid = lives.Count(l => l.Payouts > 0);
-            string header = "ACCOUNT LIVES • " + lives.Count + " bought • " + paid + " paid at least once (" + Pct(lives.Count == 0 ? 0 : (double)paid / lives.Count) + ") • liquidated " + r.FundedBlowups + " • failed evaluations " + r.EvalFails + " • longest life " + lives.Select(l => l.TradingDays).DefaultIfEmpty(0).Max() + " trading days • most payouts " + lives.Select(l => l.Payouts).DefaultIfEmpty(0).Max();
-            var top = HelixListView(header, cols, rows, null);
-            var pays = r.Payouts.Select(p => Col(p.Day.ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture), 15) + Col(p.Account, 8) + ColR("#" + p.Number, 4) + ColR(Cash(p.BalanceBefore), 10) + ColR(Cash(p.Gross), 9) + ColR(Cash(p.Cash), 9) + ColR(Cash(p.BalanceAfter), 10)).ToList();
-            var bottom = HelixListView("PAYOUTS • " + r.Payouts.Count + " • gross " + Cash(r.PayoutGross) + " • your cash " + Cash(r.PayoutCash) + " • reviews with a payout " + r.Days.Count(d => d.Payouts > 0) + " of " + r.Days.Count(d => d.Review), Col("DAY", 15) + Col("ACCOUNT", 8) + ColR("NO", 4) + ColR("BEFORE", 10) + ColR("GROSS", 9) + ColR("CASH", 9) + ColR("KEPT", 10), pays, null);
-            return HelixSplitView(top, bottom, 0.55);
-        }
 
-        private UIElement HelixExpensesView(KeystoneHelixResult r)
-        {
-            var months = KeystoneHelix.Months(r);
-            double cum = 0;
-            var rows = new List<string>();
-            foreach (var m in months) { cum += m.NetCash; rows.Add(Col(m.Month.ToString("yyyy-MM"), 9) + ColR(m.Payouts.ToString(), 6) + ColR(Cash(m.PayoutCash), 11) + ColR(m.Purchases.ToString(), 6) + ColR(Cash(m.Expenses), 11) + ColR(Cash(m.NetCash), 11) + ColR(Cash(cum), 12) + ColR(m.Blowups.ToString(), 6)); }
-            int buys = r.Lives.Count;
-            string header = "CASH BY MONTH • payouts in, account purchases out • total spent " + Cash(r.ExpenseTotal) + " on " + buys + " accounts (" + Cash(buys == 0 ? 0 : r.ExpenseTotal / buys) + " each) • cash per payout " + Cash(r.Payouts.Count == 0 ? 0 : r.PayoutCash / r.Payouts.Count) + " • cost per payout " + Cash(r.Payouts.Count == 0 ? 0 : r.ExpenseTotal / r.Payouts.Count) + " • most cash needed " + Cash(-r.LowestCash());
-            var top = HelixListView(header, Col("MONTH", 9) + ColR("PAYS", 6) + ColR("CASH IN", 11) + ColR("BUYS", 6) + ColR("SPENT", 11) + ColR("NET", 11) + ColR("RUNNING", 12) + ColR("LIQ", 6), rows, null);
-            var ex = r.Expenses.Select(e => Col(e.Day.ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture), 15) + Col(e.Account, 8) + Col(e.Kind, 16) + ColR(Cash(e.Amount), 9)).ToList();
-            var bottom = HelixListView("EVERY PURCHASE • " + string.Join(" • ", r.Expenses.GroupBy(e => e.Kind).Select(g => g.Key.ToLowerInvariant() + " " + g.Count() + " × = " + Cash(g.Sum(e => e.Amount)))), Col("DAY", 15) + Col("ACCOUNT", 8) + Col("WHAT", 16) + ColR("$", 9), ex, null);
-            return HelixSplitView(top, bottom, 0.55);
-        }
 
         private static string HelixMathText(KeystoneHelixResult r)
         {
@@ -17091,15 +17449,6 @@ namespace NinjaTrader.NinjaScript.AddOns
             return sb.ToString();
         }
 
-        private UIElement HelixProofView()
-        {
-            if (helixProofRows == null || helixProofRows.Count == 0)
-                return HelixTextView("PROOF TESTS are not run yet.\n\nPress RUN PROOF TESTS above. The same data and settings are re-run with:\n  • BUY/BUY, SELL/SELL, BUY/SELL, SELL/BUY and RANDOM directions (many coin sequences)\n  • MNQ only and MGC only\n  • the other fill model, no costs and double costs\n  • the first and the second half of the period (fresh accounts)\n  • different first-basket times, pauses and account counts\n\nIf SELL/SELL and RANDOM make money too, the profit comes from the account rules. If only BUY makes money, it comes from the market's direction in this period.");
-            var rows = helixProofRows;
-            var lines = rows.Select(p => Col(p.Group, 11) + Col(p.Label, 44) + ColR(Cash(p.NetCash), 11) + (p.Group == "RANDOM" && p.Low != p.High ? ColR(Cash(p.Low) + ".." + Cash(p.High), 22) : ColR(string.Empty, 22)) + ColR(Cash(p.PayoutCash), 11) + ColR(Cash(p.Expenses), 10) + ColR(Cash(p.TradingNet), 11) + ColR(Pct(p.WinRate), 7) + ColR(p.Payouts.ToString(), 6) + ColR(p.Blowups.ToString(), 6) + "  " + p.Note).ToList();
-            string cols = Col("GROUP", 11) + Col("TEST", 44) + ColR("NET", 11) + ColR("RANDOM 10%..90%", 22) + ColR("CASH", 11) + ColR("SPENT", 10) + ColR("TRADING", 11) + ColR("WIN%", 7) + ColR("PAYS", 6) + ColR("LIQ", 6) + "  NOTE";
-            return HelixSplitView(HelixTextView(HelixProofVerdict(rows)), HelixListView("EVERY PROOF RUN (same bars; accounts start fresh in each run)", cols, lines, null), 0.35);
-        }
 
         private static string HelixProofVerdict(List<KeystoneHelixProofRow> rows)
         {
@@ -17121,54 +17470,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             return sb.ToString();
         }
 
-        private UIElement HelixFinderView()
-        {
-            if (helixBuckets == null || helixBuckets.Count == 0) return HelixTextView("No baskets to analyse yet.");
-            var strong = helixBuckets.Where(b => b.Verdict == "STRONGER • HOLDS").OrderByDescending(b => b.LateRate).ToList();
-            var weak = helixBuckets.Where(b => b.Verdict == "WEAKER • AVOID").OrderBy(b => b.LateRate).ToList();
-            var sb = new StringBuilder();
-            sb.AppendLine("SETUP FINDER • every basket's situation at entry, found on the first 2/3 of the dates and checked on the last 1/3.");
-            sb.AppendLine("Only conditions that were better (or worse) in BOTH parts count. This is how 'random' becomes 'trade only confirmed baskets'.");
-            sb.AppendLine();
-            sb.AppendLine("STRONGER • HOLDS ON LATER DATA (" + strong.Count + ")");
-            foreach (var b in strong.Take(12)) sb.AppendLine("  " + Col(b.Group, 22) + Col(b.Name, 22) + " win " + Pct(b.EarlyRate) + " → later " + Pct(b.LateRate) + " • " + b.Count + " baskets • avg " + Cash(b.AvgNet));
-            if (strong.Count == 0) sb.AppendLine("  none yet — no condition was better in both parts.");
-            sb.AppendLine();
-            sb.AppendLine("WEAKER • AVOID (" + weak.Count + ")");
-            foreach (var b in weak.Take(12)) sb.AppendLine("  " + Col(b.Group, 22) + Col(b.Name, 22) + " win " + Pct(b.EarlyRate) + " → later " + Pct(b.LateRate) + " • " + b.Count + " baskets • avg " + Cash(b.AvgNet));
-            if (weak.Count == 0) sb.AppendLine("  none.");
-            var rows = helixBuckets.OrderBy(b => b.Group).ThenBy(b => b.Name).Select(b => Col(b.Group, 22) + Col(b.Name, 22) + ColR(b.Count.ToString(), 7) + ColR(Pct(b.WinRate), 8) + ColR(Pct(b.EarlyRate), 8) + ColR(Pct(b.LateRate), 8) + ColR(Cash(b.Net), 11) + ColR(Cash(b.AvgNet), 9) + "  " + b.Verdict).ToList();
-            return HelixSplitView(HelixTextView(sb.ToString()), HelixListView("EVERY CONDITION", Col("GROUP", 22) + Col("CONDITION", 22) + ColR("BSKTS", 7) + ColR("WIN%", 8) + ColR("FIRST", 8) + ColR("LATER", 8) + ColR("NET", 11) + ColR("AVG", 9) + "  VERDICT", rows, null), 0.45);
-        }
 
-        private UIElement HelixManusView(KeystoneHelixResult r)
-        {
-            bool twenty = r.Config.Accounts >= 20;
-            var manus = KeystoneHelix.ParseManus(twenty ? KeystoneHelixManusReference.Pool20 : KeystoneHelixManusReference.Pool10);
-            var cmp = KeystoneHelix.CompareManus(r, manus);
-            var both = cmp.Where(x => x.HasManus && x.HasKeystone).ToList();
-            var sb = new StringBuilder();
-            sb.AppendLine("MANUS CHECK • the Manus workbook (9:30 LL, " + (twenty ? "20" : "10") + " accounts, NOT confirmed) against this run, day by day. Manus has no commission or slippage: compare with the MANUS preset.");
-            if (both.Count == 0) sb.AppendLine("No overlapping sessions. The workbook covers " + manus.First().Day.ToString("yyyy-MM-dd") + " → " + manus.Last().Day.ToString("yyyy-MM-dd") + "; load a range inside it.");
-            else
-            {
-                double mSum = both.Sum(x => x.Manus), kSum = both.Sum(x => x.Keystone);
-                int sameSign = both.Count(x => Math.Sign(x.Manus) == Math.Sign(x.Keystone));
-                double mean1 = both.Average(x => x.Manus), mean2 = both.Average(x => x.Keystone);
-                double cov = both.Sum(x => (x.Manus - mean1) * (x.Keystone - mean2)), v1 = both.Sum(x => Math.Pow(x.Manus - mean1, 2)), v2 = both.Sum(x => Math.Pow(x.Keystone - mean2, 2));
-                double corr = v1 <= 0 || v2 <= 0 ? 0 : cov / Math.Sqrt(v1 * v2);
-                int mw = both.Sum(x => x.ManusWins), ml = both.Sum(x => x.ManusLosses), kw = both.Sum(x => x.KeystoneWins), kl = both.Sum(x => x.KeystoneLosses);
-                sb.AppendLine("Sessions in both: " + both.Count + " • Manus trading P/L " + Cash(mSum) + " • Keystone (before commission) " + Cash(kSum) + " • difference " + Cash(kSum - mSum));
-                sb.AppendLine("Same direction days " + sameSign + " of " + both.Count + " (" + Pct((double)sameSign / both.Count) + ") • day-by-day correlation " + corr.ToString("0.00", CultureInfo.InvariantCulture));
-                sb.AppendLine("Basket wins / losses: Manus " + mw + " / " + ml + " (" + Pct(mw + ml == 0 ? 0 : (double)mw / (mw + ml)) + ") • Keystone " + kw + " / " + kl + " (" + Pct(kw + kl == 0 ? 0 : (double)kw / (kw + kl)) + ")");
-                sb.AppendLine(corr > 0.8 && Math.Abs(kSum - mSum) < Math.Abs(mSum) * 0.2 ? "→ CLOSE MATCH: Keystone reproduces the Manus days." : corr > 0.5 ? "→ PARTLY MATCHES: same shape, different size (fills, entry minute, pause or contract sizes differ)." : "→ DOES NOT MATCH: the Manus numbers could not be reproduced with these rules on your NinjaTrader data.");
-                sb.AppendLine("Only in Manus: " + cmp.Count(x => x.HasManus && !x.HasKeystone) + " sessions • only in Keystone: " + cmp.Count(x => !x.HasManus && x.HasKeystone) + " sessions.");
-            }
-            var monthly = both.GroupBy(x => new DateTime(x.Day.Year, x.Day.Month, 1)).Select(g => Col(g.Key.ToString("yyyy-MM"), 9) + ColR(g.Count().ToString(), 5) + ColR(Cash(g.Sum(x => x.Manus)), 11) + ColR(Cash(g.Sum(x => x.Keystone)), 11) + ColR(Cash(g.Sum(x => x.Keystone - x.Manus)), 11)).ToList();
-            var daily = cmp.Select(x => Col(x.Day.ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture), 15) + ColR(x.HasManus ? Cash(x.Manus) : "—", 10) + ColR(x.HasKeystone ? Cash(x.Keystone) : "—", 10) + ColR(x.HasManus && x.HasKeystone ? Cash(x.Keystone - x.Manus) : "—", 10) + ColR(x.HasManus ? x.ManusWins + "/" + x.ManusLosses : "—", 8) + ColR(x.HasKeystone ? x.KeystoneWins + "/" + x.KeystoneLosses : "—", 8)).ToList();
-            var right = HelixSplitView(HelixListView("BY MONTH", Col("MONTH", 9) + ColR("DAYS", 5) + ColR("MANUS", 11) + ColR("KEYSTONE", 11) + ColR("DIFF", 11), monthly, null), HelixListView("BY DAY", Col("DAY", 15) + ColR("MANUS", 10) + ColR("KEYSTONE", 10) + ColR("DIFF", 10) + ColR("M W/L", 8) + ColR("K W/L", 8), daily, null), 0.4);
-            return HelixSplitView(HelixTextView(sb.ToString()), right, 0.3);
-        }
 
         private void RunHelixProof()
         {
@@ -17205,37 +17507,6 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (idx >= 0) reviewList.SelectedIndex = idx;
             }
             OpenEvidenceChart();
-        }
-
-        // Chart: a shaded band from each basket's entry to its exit, labelled with the account and the
-        // combined basket result; the pins on the candles are this instrument's leg.
-        private void DrawHelixBaskets(List<KeystoneArcEvent> marks, List<KeystoneArcBar> bars, double left, double candleWidth, double top, double bottom, bool replaying)
-        {
-            if (bars == null || bars.Count == 0 || marks == null) return;
-            int slot = 0;
-            foreach (var g in marks.GroupBy(e => e.SessionOrder).OrderBy(g => g.Key))
-            {
-                KeystoneHelixRotation r;
-                if (!helixRotationById.TryGetValue(g.Key, out r)) continue;
-                if (replaying && r.EntryTime > evidenceBarCursor) continue;
-                bool open = replaying && r.ExitTime > evidenceBarCursor;
-                DateTime endTime = open ? evidenceBarCursor : r.ExitTime;
-                int i0 = bars.FindIndex(b => b.Time >= r.EntryTime), i1 = bars.FindLastIndex(b => b.Time <= endTime);
-                if (i0 < 0 || i1 < 0 || i1 < i0) continue;
-                double x0 = left + i0 * candleWidth + candleWidth / 2.0, x1 = left + i1 * candleWidth + candleWidth / 2.0;
-                Brush brush = open ? Gold : (r.Reason == "TARGET" ? WinPurple : (r.Reason == "SESSION END" ? ExitIce : LossAmber));
-                var band = new System.Windows.Shapes.Rectangle { Width = Math.Max(2, x1 - x0), Height = Math.Max(4, bottom - top), Fill = brush, Opacity = 0.07, IsHitTestVisible = false };
-                Canvas.SetLeft(band, x0); Canvas.SetTop(band, top); evidenceCanvas.Children.Add(band);
-                evidenceCanvas.Children.Add(new System.Windows.Shapes.Line { X1 = x1, X2 = x1, Y1 = top, Y2 = bottom, Stroke = brush, StrokeThickness = 1, Opacity = 0.45, StrokeDashArray = new DoubleCollection { 2, 3 }, IsHitTestVisible = false });
-                if (x1 - x0 >= 34)
-                {
-                    double ly = top + 2 + (slot % 2) * 13;
-                    var label = AddCanvasText(r.Account.Substring(0, Math.Min(3, r.Account.Length)) + " " + (open ? "OPEN" : Cash(r.Net)), x0 + 2, ly, brush, 9, FontWeights.Bold);
-                    if (label != null) { label.IsHitTestVisible = false; }
-                    if (x1 - x0 >= 90 && !open) { var legs = AddCanvasText("MNQ " + Cash(r.MnqPnl) + " | MGC " + Cash(r.MgcPnl), x0 + 2, bottom - 14 - (slot % 2) * 12, Muted, 8, FontWeights.Normal); if (legs != null) legs.IsHitTestVisible = false; }
-                }
-                slot++;
-            }
         }
 
         private void ExportHelixReport()
@@ -17337,6 +17608,156 @@ namespace NinjaTrader.NinjaScript.AddOns
             foreach (var x in r.Rotations) sb.Append("<tr>").Append(HelixCell(x.Id.ToString(), null)).Append(HelixCell(x.Day.ToString("yyyy-MM-dd"), null)).Append(HelixCell(x.Account, null)).Append(HelixCell(x.Stage, null)).Append(HelixCell(x.AccountTry.ToString(), null)).Append(HelixCell(Hm(x.EntryTime), null)).Append(HelixCell(Hm(x.ExitTime), null)).Append(HelixCell(x.Minutes.ToString(), null)).Append(HelixCell(x.MnqQty == 0 ? "—" : (x.MnqDir > 0 ? "BUY " : "SELL ") + x.MnqQty, null)).Append(HelixCell(x.MgcQty == 0 ? "—" : (x.MgcDir > 0 ? "BUY " : "SELL ") + x.MgcQty, null)).Append(HelixCell(x.MnqQty == 0 ? "—" : x.MnqEntry.ToString("0.00") + "→" + x.MnqExit.ToString("0.00"), null)).Append(HelixCell(x.MgcQty == 0 ? "—" : x.MgcEntry.ToString("0.0") + "→" + x.MgcExit.ToString("0.0"), null)).Append(HelixCell(Cash(x.MnqPnl), MoneyClass(x.MnqPnl))).Append(HelixCell(Cash(x.MgcPnl), MoneyClass(x.MgcPnl))).Append(HelixCell(Cash(x.Commission), null)).Append(HelixCell(Cash(x.Net), MoneyClass(x.Net))).Append(HelixCell(x.Reason + (x.Ambiguous ? "*" : string.Empty), null)).Append(HelixCell(x.After, "muted")).Append(HelixCell(Cash(x.BalanceAfter), null)).Append("</tr>");
             sb.Append("</table></div><p class='muted'>* a minute touched both the target and the stop; STRICT fills count it as the stop. 1-minute bars, New York time. Historical model only.</p></main></body></html>");
             return sb.ToString();
+        }
+
+        // ---- HELIX on the evidence chart ------------------------------------------------------------
+        private int helixSelectedBasketId;
+        private static bool evidenceInfoVisible;
+        private Button evidenceInfoToggle;
+
+        private KeystoneHelixMinute HelixMinuteAt(DateTime t)
+        {
+            if (helixMinutes == null || helixMinutes.Count == 0) return null;
+            int lo = 0, hi = helixMinutes.Count - 1, found = -1;
+            while (lo <= hi) { int mid = (lo + hi) / 2; if (helixMinutes[mid].Time <= t) { found = mid; lo = mid + 1; } else hi = mid - 1; }
+            return found < 0 ? null : helixMinutes[found];
+        }
+
+        // Open basket value at a minute close: MNQ leg, MGC leg and combined (before exit costs).
+        private void HelixValueAt(KeystoneHelixRotation r, DateTime t, out double mnq, out double mgc)
+        {
+            mnq = 0; mgc = 0;
+            var m = HelixMinuteAt(t); if (m == null) return;
+            if (r.MnqQty > 0) mnq = r.MnqDir * (m.MnqC - r.MnqEntry) * KeystoneHelix.MnqPoint * r.MnqQty;
+            if (r.MgcQty > 0) mgc = r.MgcDir * (m.MgcC - r.MgcEntry) * KeystoneHelix.MgcPoint * r.MgcQty;
+        }
+
+        private static string Signed(double v) { return (v > 0 ? "+" : string.Empty) + Cash(v); }
+
+        private static string HelixBasketText(KeystoneHelixRotation r)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("BASKET #" + r.Id + " • " + r.Account + " (" + r.Stage + ") • try " + r.AccountTry + " of the day");
+            sb.AppendLine("TIME   " + Hm(r.EntryTime) + " → " + Hm(r.ExitTime) + " • " + r.Minutes + " min");
+            if (r.MnqQty > 0) sb.AppendLine("MNQ    " + (r.MnqDir > 0 ? "BUY " : "SELL ") + r.MnqQty + " @ " + r.MnqEntry.ToString("0.00") + " → " + r.MnqExit.ToString("0.00") + " = " + Signed(r.MnqPnl));
+            if (r.MgcQty > 0) sb.AppendLine("MGC    " + (r.MgcDir > 0 ? "BUY " : "SELL ") + r.MgcQty + " @ " + r.MgcEntry.ToString("0.0") + " → " + r.MgcExit.ToString("0.0") + " = " + Signed(r.MgcPnl));
+            if (r.Commission > 0) sb.AppendLine("COSTS  " + Cash(-r.Commission));
+            sb.AppendLine("TOTAL  " + Signed(r.Net) + " • " + r.Reason + (r.Ambiguous ? " (the minute touched both)" : string.Empty));
+            sb.AppendLine("TAKE PROFIT +" + Cash(r.Target) + " • STOP −" + Cash(r.Stop) + " (combined)");
+            sb.AppendLine("WHILE OPEN best " + Signed(r.Mfe) + " • worst " + Signed(r.Mae));
+            sb.Append("THEN   " + r.After + " • balance " + Cash(r.BalanceAfter));
+            return sb.ToString();
+        }
+
+        private void HelixFillDetail(KeystoneArcEvent e)
+        {
+            KeystoneHelixRotation r;
+            if (e == null || !helixRotationById.TryGetValue(e.SessionOrder, out r)) return;
+            helixSelectedBasketId = r.Id;
+            Brush accent = r.Reason == "TARGET" ? WinPurple : (r.Reason == "SESSION END" ? ExitIce : LossAmber);
+            if (evidenceDetailText != null) { evidenceDetailText.Text = HelixBasketText(r); evidenceDetailText.Foreground = accent; }
+            if (evidenceDetailBorder != null) { evidenceDetailBorder.BorderBrush = accent; evidenceDetailBorder.Visibility = Visibility.Visible; }
+            if (evidencePnlText != null) { evidencePnlText.Foreground = accent; evidencePnlText.Text = (r.Reason == "TARGET" ? "WIN" : r.Reason == "SESSION END" ? "SESSION END" : "LOSS") + " • BASKET " + Signed(r.Net) + "\nMNQ " + Signed(r.MnqPnl) + "  +  MGC " + Signed(r.MgcPnl); }
+            if (evidencePnlBorder != null) { evidencePnlBorder.BorderBrush = accent; evidencePnlBorder.Visibility = Visibility.Visible; }
+        }
+
+        // The same basket stays selected when you switch between the MNQ and MGC chart.
+        private void HelixKeepSelection(string symbol, List<KeystoneArcEvent> allMarks)
+        {
+            if (!HelixStudy() || helixSelectedBasketId <= 0) return;
+            if (selectedEvidenceEvent != null && string.Equals(selectedEvidenceEvent.Symbol, symbol, StringComparison.OrdinalIgnoreCase) && selectedEvidenceEvent.SessionOrder == helixSelectedBasketId) return;
+            var twin = allMarks.FirstOrDefault(e => e.SessionOrder == helixSelectedBasketId && string.Equals(e.Symbol, symbol, StringComparison.OrdinalIgnoreCase));
+            if (twin == null) return;
+            selectedEvidenceEvent = twin; HelixFillDetail(twin);
+        }
+
+        // Chart: one band per basket from entry to exit on BOTH charts, labelled with the account and
+        // the combined result; hover for the full basket, click to select it (both charts follow).
+        private void DrawHelixBaskets(List<KeystoneArcEvent> marks, List<KeystoneArcBar> bars, double left, double candleWidth, double top, double bottom, bool replaying)
+        {
+            if (bars == null || bars.Count == 0 || marks == null) return;
+            int slot = 0;
+            foreach (var g in marks.GroupBy(e => e.SessionOrder).OrderBy(g => g.Key))
+            {
+                KeystoneHelixRotation r;
+                if (!helixRotationById.TryGetValue(g.Key, out r)) continue;
+                if (replaying && r.EntryTime > evidenceBarCursor) continue;
+                bool open = replaying && r.ExitTime > evidenceBarCursor;
+                DateTime endTime = open ? evidenceBarCursor : r.ExitTime;
+                int i0 = bars.FindIndex(b => b.Time >= r.EntryTime), i1 = bars.FindLastIndex(b => b.Time <= endTime);
+                if (i0 < 0 || i1 < 0 || i1 < i0) continue;
+                double x0 = left + i0 * candleWidth + candleWidth / 2.0, x1 = left + i1 * candleWidth + candleWidth / 2.0;
+                Brush brush = open ? Gold : (r.Reason == "TARGET" ? WinPurple : (r.Reason == "SESSION END" ? ExitIce : LossAmber));
+                bool selected = r.Id == helixSelectedBasketId;
+                double openM = 0, openG = 0; if (open) HelixValueAt(r, evidenceBarCursor, out openM, out openG);
+                string tip = open ? "BASKET #" + r.Id + " • " + r.Account + " • OPEN since " + Hm(r.EntryTime) + "\nMNQ " + Signed(openM) + " • MGC " + Signed(openG) + " • combined " + Signed(openM + openG) + "\ntake profit +" + Cash(r.Target) + " • stop −" + Cash(r.Stop) : HelixBasketText(r);
+                var band = new System.Windows.Shapes.Rectangle { Width = Math.Max(3, x1 - x0 + (open ? 0 : candleWidth * 0.5)), Height = Math.Max(4, bottom - top), Fill = brush, Opacity = selected ? 0.22 : 0.09, ToolTip = tip, Stroke = selected ? brush : null, StrokeThickness = selected ? 1.5 : 0 };
+                KeystoneArcEvent leg = g.FirstOrDefault();
+                band.PreviewMouseLeftButtonDown += delegate { evidenceSelectionClickHandled = true; pendingEvidenceSelectionAction = delegate { ShowEvidenceEventDetail(leg); }; };
+                Canvas.SetLeft(band, x0 - candleWidth * 0.25); Canvas.SetTop(band, top); evidenceCanvas.Children.Add(band);
+                double ly = top + 2 + (slot % 3) * 12;
+                string label = r.Account.Substring(0, Math.Min(3, r.Account.Length)) + " " + (open ? Signed(openM + openG) : Signed(r.Net));
+                var tag = AddCanvasText(label, x0 + 1, ly, brush, 9, FontWeights.Bold); if (tag != null) { tag.IsHitTestVisible = false; tag.Opacity = 0.95; }
+                if (x1 - x0 >= 70 || selected)
+                {
+                    var legs = AddCanvasText("MNQ " + Signed(open ? openM : r.MnqPnl) + " | MGC " + Signed(open ? openG : r.MgcPnl) + (open ? string.Empty : " • " + r.Minutes + "m"), x0 + 1, bottom - 14 - (slot % 2) * 12, selected ? brush : Muted, 8.5, FontWeights.Bold);
+                    if (legs != null) legs.IsHitTestVisible = false;
+                }
+                slot++;
+            }
+        }
+
+        // Live replay box for HELIX: the open basket (both legs + combined, distance to take profit
+        // and stop) and every basket of the day so far.
+        private void UpdateHelixLivePanel()
+        {
+            DateTime day; if (!EvidenceReplayDay(out day) || helixResult == null) return;
+            DateTime cur = evidenceBarCursor;
+            var rots = helixResult.Rotations.Where(x => x.Day == day).ToList();
+            var open = rots.FirstOrDefault(x => x.EntryTime <= cur && x.ExitTime > cur);
+            var done = rots.Where(x => x.ExitTime <= cur).ToList();
+            evidenceLiveBorder.Visibility = Visibility.Visible;
+            evidenceLiveClock.Text = cur.ToString("ddd yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " ET";
+            var sb = new StringBuilder();
+            if (open != null)
+            {
+                double m, g; HelixValueAt(open, cur, out m, out g); double v = m + g;
+                evidenceLiveCaption.Text = "BASKET #" + open.Id + " • " + open.Account + " • try " + open.AccountTry + " • open " + (int)(cur - open.EntryTime).TotalMinutes + " min";
+                evidenceLiveCombined.Text = Signed(v); evidenceLiveCombined.Foreground = v > 0 ? Green : (v < 0 ? Red : Text);
+                evidenceLiveTargetText.Text = "TAKE PROFIT +" + Cash(open.Target) + " • " + Math.Max(0, 100.0 * v / Math.Max(1, open.Target)).ToString("0") + "% of the way";
+                evidenceLiveTargetFill.Width = 330 * Math.Max(0, Math.Min(1, v / Math.Max(1, open.Target)));
+                evidenceLiveLossText.Text = "STOP −" + Cash(open.Stop) + " • " + Math.Max(0, 100.0 * -v / Math.Max(1, open.Stop)).ToString("0") + "% of the way";
+                evidenceLiveLossFill.Width = 330 * Math.Max(0, Math.Min(1, -v / Math.Max(1, open.Stop)));
+                if (open.MnqQty > 0) sb.AppendLine("MNQ " + (open.MnqDir > 0 ? "BUY " : "SELL ") + open.MnqQty + " @ " + open.MnqEntry.ToString("0.00") + " → " + Signed(m));
+                if (open.MgcQty > 0) sb.AppendLine("MGC " + (open.MgcDir > 0 ? "BUY " : "SELL ") + open.MgcQty + " @ " + open.MgcEntry.ToString("0.0") + " → " + Signed(g));
+                sb.AppendLine();
+            }
+            else
+            {
+                var next = rots.FirstOrDefault(x => x.EntryTime > cur);
+                evidenceLiveCaption.Text = "NO BASKET OPEN";
+                evidenceLiveCombined.Text = "FLAT"; evidenceLiveCombined.Foreground = Muted;
+                evidenceLiveTargetText.Text = next == null ? "no more baskets today" : "NEXT • " + next.Account + " opens at " + Hm(next.EntryTime);
+                evidenceLiveLossText.Text = string.Empty; evidenceLiveTargetFill.Width = 0; evidenceLiveLossFill.Width = 0;
+            }
+            double dayNet = done.Sum(x => x.Net);
+            sb.AppendLine("TODAY SO FAR • " + done.Count(x => x.Reason == "TARGET") + " W / " + done.Count(x => x.Reason != "TARGET" && x.Reason != "SESSION END") + " L • " + Signed(dayNet));
+            foreach (var x in done.AsEnumerable().Reverse())
+                sb.AppendLine(Hm(x.EntryTime) + "→" + Hm(x.ExitTime) + " " + x.Minutes + "m " + x.Account.Substring(0, Math.Min(3, x.Account.Length)) + " " + Signed(x.Net).PadLeft(7) + " " + (x.Reason == "TARGET" ? "TP" : x.Reason == "SESSION END" ? "END" : x.Reason == "LIQUIDATED" ? "LIQ" : "SL") + "  MNQ " + Signed(x.MnqPnl) + " MGC " + Signed(x.MgcPnl));
+            evidenceLiveLines.Text = sb.ToString().TrimEnd();
+            bool closedNow = done.Any(x => x.ExitTime == cur);
+            var last = done.LastOrDefault();
+            evidenceLiveBorder.BorderBrush = closedNow && last != null ? (last.Reason == "TARGET" ? Green : Red) : Gold;
+            evidenceLiveBorder.BorderThickness = new Thickness(closedNow ? 3 : 1.5);
+        }
+
+        // SHOW / HIDE INFO: the study line and the candle / totals boxes fold away so the chart gets the room.
+        private void ApplyEvidenceInfoVisibility()
+        {
+            Visibility v = evidenceInfoVisible ? Visibility.Visible : Visibility.Collapsed;
+            var study = evidenceStudyText == null ? null : evidenceStudyText.Parent as UIElement; if (study != null) study.Visibility = v;
+            var audit = evidenceHoverBorder == null ? null : evidenceHoverBorder.Parent as UIElement; if (audit != null) audit.Visibility = v;
+            if (evidenceInfoToggle != null) evidenceInfoToggle.Content = evidenceInfoVisible ? "HIDE INFO" : "SHOW INFO";
         }
     }
 }

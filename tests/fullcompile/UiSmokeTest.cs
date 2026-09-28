@@ -227,6 +227,25 @@ public static class UiSmokeTest
                 Call(lab3, "ReplayJumpEvent", 1); Call(lab3, "UpdateEvidenceLivePanel"); Call(lab3, "StopEvidenceReplay");
                 var res = (KeystoneHelixResult)G("helixResult"); Call(lab3, "OpenHelixChart", res.Rotations[res.Rotations.Count - 1]);
             });
+            Step("HELIX: selecting a basket on MNQ selects the same basket on MGC; live box and info toggle", () =>
+            {
+                var res = (KeystoneHelixResult)G("helixResult");
+                var evs = (List<KeystoneArcEvent>)G("events");
+                var mnqLeg = evs.First(e => e.Symbol == "MNQ");
+                Call(lab3, "ShowEvidenceEventDetail", mnqLeg);
+                var box = (System.Windows.Controls.ComboBox)G("evidenceInstrumentBox"); box.SelectedItem = "MGC";
+                ((System.Windows.Controls.TextBox)G("evidenceDateBox")).Text = mnqLeg.TriggerTime.ToString("yyyy-MM-dd");
+                Call(lab3, "RequestEvidenceBars"); Call(lab3, "RenderEvidenceChart");
+                var sel = (KeystoneArcEvent)G("selectedEvidenceEvent");
+                Console.WriteLine("      selected after switch: " + (sel == null ? "none" : sel.Symbol + " basket " + sel.SessionOrder) + " • detail: " + ((System.Windows.Controls.TextBlock)G("evidencePnlText")).Text.Replace("\n", " | "));
+                if (sel == null || sel.Symbol != "MGC" || sel.SessionOrder != mnqLeg.SessionOrder) throw new Exception("linked selection did not follow to MGC");
+                if (!((System.Windows.Controls.TextBlock)G("evidencePnlText")).Text.Contains("MGC")) throw new Exception("detail does not show both legs");
+                Call(lab3, "ReplaySetCursor", mnqLeg.EntryTime.AddMinutes(1), true); Call(lab3, "UpdateEvidenceLivePanel");
+                string live = ((System.Windows.Controls.TextBlock)G("evidenceLiveLines")).Text;
+                Console.WriteLine("      live box: " + ((System.Windows.Controls.TextBlock)G("evidenceLiveCaption")).Text + " • " + live.Split('\n')[0]);
+                Call(lab3, "StopEvidenceReplay");
+                var info = (System.Windows.Controls.Button)G("evidenceInfoToggle"); Call(lab3, "ApplyEvidenceInfoVisibility");
+            });
             Step("HELIX: report html", () =>
             {
                 var res = (KeystoneHelixResult)G("helixResult");

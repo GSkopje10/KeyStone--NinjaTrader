@@ -117,6 +117,18 @@ public static class HelixTests
         var lastDay = r.Rotations.Where(x => x.Day == days[3]).ToList();
         Check(lastDay.Count == 6 && lastDay.Last().Reason == "LIQUIDATED" && Math.Abs(lastDay.Last().BalanceAfter - 100) < 0.01, "trailing EOD: +3,000 then losses liquidate at start + $100 (" + lastDay.Count + " baskets)");
 
+        // 8b. a day where MGC is missing is not traded; the weekday filter skips days
+        mnq = new List<KeystoneArcBar>(); mgc = new List<KeystoneArcBar>();
+        days = Weekdays(new DateTime(2025, 5, 12), 5);
+        foreach (var d in days) AddDay(mnq, mgc, d, i => 1.0, i => 0.1);
+        mgc.RemoveAll(b => b.Time.Date == days[2] && b.Time.Hour >= 10);           // Wednesday: MGC stops at 10:00
+        cfg = Plain(2);
+        r = KeystoneHelix.Run(KeystoneHelix.Align(mnq, mgc), cfg);
+        Check(r.Days.Count == 4 && !r.Rotations.Any(x => x.Day == days[2]) && r.SkippedDays.Count == 1 && r.SkippedDays[0].Contains("MGC"), "a day with missing MGC bars is listed and not traded (" + string.Join(" | ", r.SkippedDays) + ")");
+        cfg.Weekdays = "135";
+        r = KeystoneHelix.Run(KeystoneHelix.Align(mnq, mgc), cfg);
+        Check(r.Days.All(d => d.Day.DayOfWeek == DayOfWeek.Monday || d.Day.DayOfWeek == DayOfWeek.Friday) && r.Days.Count == 2, "weekday filter: only Monday and Friday traded (Wednesday has no MGC)");
+
         // 9. proof tests and the Manus reference
         mnq = new List<KeystoneArcBar>(); mgc = new List<KeystoneArcBar>();
         var rnd = new Random(3);
