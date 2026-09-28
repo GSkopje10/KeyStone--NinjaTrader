@@ -158,6 +158,98 @@ public static class UiSmokeTest
             });
             Step(strategy + ": switch instrument view to MNQ", () => { Call(lab2, "RenderPoolLedger"); });
         }
+        // HELIX ROTATION: strategy choice → Step 1 panel → run on 1M MNQ + MGC → Step 3 HELIX view, proof tests, chart, report.
+        {
+            var lab3 = new KeystoneArc5MResearchLab();
+            Call(lab3, "OpenWindow");
+            Func<string, object> G = n => lab3.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab3);
+            Step("HELIX: strategy choice shows its panel, forces BOTH + 1M, hides BH inputs", () =>
+            {
+                var box = (System.Windows.Controls.ComboBox)G("strategyBox"); int idx = -1;
+                for (int i = 0; i < box.Items.Count; i++) if (Convert.ToString(box.Items[i]).StartsWith("HELIX ROTATION")) idx = i;
+                if (idx < 0) throw new Exception("HELIX ROTATION is not a strategy choice");
+                box.SelectedIndex = idx; box.SelectedItem = box.Items[idx]; Call(lab3, "RefreshStrategyInputState");
+                var panel = ((List<System.Windows.UIElement>)G("helixStrategyControls"))[0];
+                var scope = (System.Windows.Controls.ComboBox)G("scopeBox");
+                if (panel.Visibility != System.Windows.Visibility.Visible) throw new Exception("HELIX panel hidden");
+                if (scope.SelectedIndex != 2) throw new Exception("scope not BOTH");
+                var bh = (List<System.Windows.UIElement>)G("bhStrategyControls"); if (bh.Any(x => x != null && x.Visibility == System.Windows.Visibility.Visible)) throw new Exception("BH inputs still visible");
+                Call(lab3, "ApplyHelixPreset", KeystoneHelix.ManusPreset(DateTime.MinValue, DateTime.MaxValue, 10), "TEST");
+                var startMode = (System.Windows.Controls.ComboBox)G("helixStartModeBox"); startMode.SelectedIndex = 1; startMode.SelectedItem = startMode.Items[1]; Call(lab3, "RefreshHelixInputs");
+                if (((System.Windows.Controls.StackPanel)G("helixEvalSection")).Visibility != System.Windows.Visibility.Visible) throw new Exception("evaluation section hidden in EVAL mode");
+                startMode.SelectedIndex = 0; startMode.SelectedItem = startMode.Items[0]; Call(lab3, "RefreshHelixInputs");
+                if (((System.Windows.Controls.StackPanel)G("helixEvalSection")).Visibility != System.Windows.Visibility.Collapsed) throw new Exception("evaluation section visible in DIRECT mode");
+            });
+            var c3 = (KeystoneArcRunConfig)G("config");
+            c3.StrategyCode = "HLX"; c3.Scope = "BOTH"; c3.SetupMinutes = 1; c3.SessionMode = "CUSTOM"; c3.CustomStart = 800; c3.EndTime = 1600; c3.OutcomeModelEnabled = 1;
+            c3.Start = new DateTime(2025, 3, 3, 8, 0, 0); c3.End = new DateTime(2025, 3, 14, 16, 0, 0);
+            var r3 = new Random(5); var m = new List<KeystoneArcBar>(); var g = new List<KeystoneArcBar>(); double pm = 20000, pg = 2900;
+            for (DateTime d = new DateTime(2025, 3, 3); d <= new DateTime(2025, 3, 14); d = d.AddDays(1))
+            {
+                if (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday) continue;
+                for (DateTime t = d.AddHours(8).AddMinutes(1); t <= d.AddHours(16); t = t.AddMinutes(1))
+                {
+                    double om = pm, og = pg; pm += (r3.NextDouble() - 0.49) * 12; pg += (r3.NextDouble() - 0.49) * 1.6;
+                    m.Add(new KeystoneArcBar { Symbol = "MNQ", Time = t, Open = om, Close = pm, High = Math.Max(om, pm) + r3.NextDouble() * 3, Low = Math.Min(om, pm) - r3.NextDouble() * 3 });
+                    g.Add(new KeystoneArcBar { Symbol = "MGC", Time = t, Open = og, Close = pg, High = Math.Max(og, pg) + r3.NextDouble() * 0.4, Low = Math.Min(og, pg) - r3.NextDouble() * 0.4 });
+                }
+            }
+            Set(lab3, "mnqBars", m); Set(lab3, "mgcBars", g); Set(lab3, "mnqSetupBars", m); Set(lab3, "mgcSetupBars", g);
+            Func<bool> wait = () => { for (int i = 0; i < 1200 && (bool)G("isProcessing"); i++) System.Threading.Thread.Sleep(50); return !(bool)G("isProcessing"); };
+            Step("HELIX: run → Step 3 switches to the HELIX view with every tab filled", () =>
+            {
+                Call(lab3, "RunHelix"); if (!wait()) throw new Exception("HELIX run did not finish");
+                var res = (KeystoneHelixResult)G("helixResult"); if (res == null || res.Rotations.Count == 0) throw new Exception("no baskets");
+                var evs = (List<KeystoneArcEvent>)G("events");
+                Console.WriteLine("      baskets " + res.Rotations.Count + " • ledger legs " + evs.Count + " • payouts " + res.Payouts.Count + " • net " + res.NetCash);
+                if (evs.Count != res.Rotations.Count * 2) throw new Exception("each basket must give an MNQ and an MGC leg");
+                if (((System.Windows.Controls.Grid)G("helixResultsHost")).Visibility != System.Windows.Visibility.Visible) throw new Exception("HELIX view not shown");
+                if (((System.Windows.Controls.TabControl)G("resultViewTabs")).Visibility != System.Windows.Visibility.Collapsed) throw new Exception("normal pool tabs still shown");
+                var tabs = (System.Windows.Controls.TabControl)G("helixTabs");
+                foreach (object item in tabs.Items) { var t = (System.Windows.Controls.TabItem)item; if (t.Content is System.Windows.Controls.TextBlock && ((System.Windows.Controls.TextBlock)t.Content).Text.StartsWith("Run HELIX")) throw new Exception(t.Header + " not filled"); }
+            });
+            Step("HELIX: proof tests fill their tab", () =>
+            {
+                ((System.Windows.Controls.TextBox)G("helixRandomRunsBox")).Text = "4";
+                Call(lab3, "RunHelixProof"); if (!wait()) throw new Exception("proof tests did not finish");
+                var rows = (List<KeystoneHelixProofRow>)G("helixProofRows");
+                Console.WriteLine("      proof rows " + (rows == null ? 0 : rows.Count));
+                if (rows == null || rows.Count < 20) throw new Exception("proof rows missing");
+            });
+            Step("HELIX: chart draws baskets, replay runs", () =>
+            {
+                Call(lab3, "OpenHelixChart", new object[] { null }); Call(lab3, "RequestEvidenceBars"); Call(lab3, "RenderEvidenceChart");
+                var canvas = (System.Windows.Controls.Canvas)G("evidenceCanvas");
+                Console.WriteLine("      chart elements " + canvas.Children.Count);
+                if (canvas.Children.Count < 60) throw new Exception("chart did not draw");
+                Call(lab3, "ReplaySetCursor", Call(lab3, "ReplayFirstBarTime"), true);
+                for (int i = 0; i < 90; i++) Call(lab3, "ReplayStepBar", 1);
+                Call(lab3, "ReplayJumpEvent", 1); Call(lab3, "UpdateEvidenceLivePanel"); Call(lab3, "StopEvidenceReplay");
+                var res = (KeystoneHelixResult)G("helixResult"); Call(lab3, "OpenHelixChart", res.Rotations[res.Rotations.Count - 1]);
+            });
+            Step("HELIX: report html", () =>
+            {
+                var res = (KeystoneHelixResult)G("helixResult");
+                string html = (string)typeof(KeystoneArc5MResearchLab).GetMethod("BuildHelixReport", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { res, G("helixProofRows"), G("helixBuckets") });
+                System.IO.Directory.CreateDirectory(".build"); System.IO.File.WriteAllText(".build/report_HLX.html", html);
+                Console.WriteLine("      report " + html.Length + " chars");
+                if (html.Length < 20000 || !html.Contains("Proof tests") || !html.Contains("Every basket")) throw new Exception("report incomplete");
+            });
+            Step("HELIX: data window loaded for the HELIX session (an hour of context, 08:00 at the latest)", () =>
+            {
+                var mi = typeof(KeystoneArc5MResearchLab).GetMethod("HelixLoadWindow", BindingFlags.Static | BindingFlags.NonPublic);
+                var a1 = new object[] { 930, 1600, 0, 0 }; mi.Invoke(null, a1);
+                var a2 = new object[] { 1800, 300, 0, 0 }; mi.Invoke(null, a2);
+                var a3 = new object[] { 1300, 1555, 0, 0 }; mi.Invoke(null, a3);
+                Console.WriteLine("      09:30-16:00 → " + a1[2] + "-" + a1[3] + " • 18:00-03:00 → " + a2[2] + "-" + a2[3] + " • 13:00-15:55 → " + a3[2] + "-" + a3[3]);
+                if ((int)a1[2] != 800 || (int)a1[3] != 1600 || (int)a2[2] != 1700 || (int)a2[3] != 300 || (int)a3[2] != 800) throw new Exception("wrong load window");
+            });
+            Step("HELIX: another strategy's run switches Step 3 back to the normal pool view", () =>
+            {
+                Call(lab3, "SetHelixResultsMode", false);
+                if (((System.Windows.Controls.TabControl)G("resultViewTabs")).Visibility != System.Windows.Visibility.Visible) throw new Exception("normal tabs not restored");
+            });
+        }
         Console.WriteLine(failures == 0 ? "UI SMOKE TEST PASSED" : "UI SMOKE TEST: " + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
