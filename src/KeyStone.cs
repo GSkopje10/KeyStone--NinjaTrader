@@ -5974,7 +5974,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-28o • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-28p • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -6969,7 +6969,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             confirmationOverlay = new Border { Background = Bg, Child = confirmationCard, Visibility = Visibility.Collapsed };
             host.Children.Add(confirmationOverlay);
             activityTimer = new DispatcherTimer(DispatcherPriority.Background, w.Dispatcher) { Interval = TimeSpan.FromMilliseconds(350) };
-            activityTimer.Tick += delegate { if (!operationBusy || activityText == null) return; activityFrame = (activityFrame + 1) % 4; activityText.Text = operationMessage + new string('.', activityFrame + 1) + "\n\nPlease wait. Buttons and tabs are locked until this finishes."; };
+            activityTimer.Tick += delegate { if (!operationBusy || activityText == null) return; activityFrame = (activityFrame + 1) % 4; activityText.Text = operationMessage + new string('.', activityFrame + 1) + "\n\n" + BusyProgressText() + "\n\nPlease wait. Buttons and tabs are locked until this finishes."; };
             w.Content = host;
             // ResultsTab creates lifecycle controls while the lab window is built. Apply their
             // initial visibility now, rather than waiting for a later selection event.
@@ -6977,8 +6977,30 @@ namespace NinjaTrader.NinjaScript.AddOns
             return w;
         }
 
+        private DateTime busyStartedUtc = DateTime.UtcNow;
+
+        // Live progress inside the busy box (the status line underneath is covered while it is open).
+        private string BusyProgressText()
+        {
+            var sb = new StringBuilder();
+            TimeSpan elapsed = DateTime.UtcNow - busyStartedUtc;
+            sb.Append("ELAPSED ").Append(((int)elapsed.TotalMinutes).ToString("00")).Append(":").Append(elapsed.Seconds.ToString("00"));
+            if (historicalRequestTotal > 0 && (pendingRequests > 0 || historicalRequestQueue.Count > 0))
+            {
+                sb.Append("  •  DATA PIECES ").Append(historicalRequestCompleted).Append(" / ").Append(Math.Max(historicalRequestTotal, historicalRequestCompleted)).Append(" DONE");
+                long bars = (long)mnqSetupBars.Count + mgcSetupBars.Count + mnqBars.Count + mgcBars.Count;
+                if (bars > 0) sb.Append("  •  ").Append(bars.ToString("N0")).Append(" BARS READ");
+                HistoricalRequestWorkItem item = currentHistoricalItem;
+                if (item != null) sb.Append("\nNOW READING ").Append(item.Key).Append(" ").Append(item.Minutes).Append("M ").Append(item.IsSetupRequest ? "SETUP" : "1-MINUTE PRICE PATH").Append(" • ").Append(item.Start.ToString("yyyy-MM-dd")).Append(" → ").Append(item.End.ToString("yyyy-MM-dd"));
+                sb.Append("\nReading NinjaTrader's own history on this PC (nothing is downloaded). A long range is slow only the first time: afterwards it loads from SAVED DATA in seconds.");
+            }
+            else if (statusText != null && !string.IsNullOrWhiteSpace(statusText.Text)) sb.Append("\n").Append(statusText.Text);
+            return sb.ToString();
+        }
+
         private void BeginBusy(string message)
         {
+            busyStartedUtc = DateTime.UtcNow;
             operationBusy = true;
             operationMessage = message ?? "WORKING";
             activityFrame = 0;
