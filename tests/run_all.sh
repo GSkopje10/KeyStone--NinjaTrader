@@ -17,6 +17,9 @@ mono "$here/.build/eng.exe" | tail -1
 rm -f "$here/.build/new.exe"
 "$root/tools/compile_engine.sh" "$here/.build/new.exe" "$here/NewStrategyTests.cs"
 mono "$here/.build/new.exe" | tail -1
+rm -f "$here/.build/golden.exe"
+"$root/tools/compile_engine.sh" "$here/.build/golden.exe" "$here/GoldenTests.cs"
+mono "$here/.build/golden.exe" | tail -1
 rm -f "$here/.build/helix.exe"
 "$root/tools/compile_engine.sh" "$here/.build/helix.exe" "$here/HelixTests.cs"
 mono "$here/.build/helix.exe" | tail -1
@@ -29,5 +32,5 @@ rm -f "$here/.build/bhsnap.exe"
 mono "$here/.build/bhsnap.exe" "$here/.build/bh_detection.txt"
 cmp -s "$here/.build/bh_detection.txt" "$here/bh_detection_baseline.txt" && echo "BH DETECTION SNAPSHOT IDENTICAL TO BASELINE ($(grep -c '|' "$here/bh_detection_baseline.txt") setups)" || { echo "BH DETECTION CHANGED — diff tests/.build/bh_detection.txt tests/bh_detection_baseline.txt"; exit 1; }
 ( cd "$here/fullcompile" && mcs -langversion:6 -nowarn:67,169,414,649,618,219,168,162,1998,429,108,114 -r:System.Core.dll -out:.build/saved.exe Stubs.cs NinjaStubs.cs ../../src/KeyStone.cs SavedDataTest.cs >/dev/null && mono .build/saved.exe | tail -1 )
-( cd "$here/fullcompile" && mcs -langversion:6 -nowarn:67,169,414,649,618,219,168,162,1998,429,108,114 -r:System.Core.dll -out:.build/report.exe Stubs.cs NinjaStubs.cs ../../src/KeyStone.cs ReportPreview.cs >/dev/null && for s in BH ASIAN75 FVG ENG RLY VWP; do mono .build/report.exe .build/report_$s.html $s | sed "s/^/$s /"; done )
+( cd "$here/fullcompile" && mcs -langversion:6 -nowarn:67,169,414,649,618,219,168,162,1998,429,108,114 -r:System.Core.dll -out:.build/report.exe Stubs.cs NinjaStubs.cs ../../src/KeyStone.cs ReportPreview.cs >/dev/null && for s in BH ASIAN75 FVG ENG RLY VWP GLD; do mono .build/report.exe .build/report_$s.html $s | sed "s/^/$s /"; done )
 ( cd "$here/fullcompile" && mcs -langversion:6 -nowarn:67,169,414,649,618,219,168,162,1998,429,108,114 -r:System.Core.dll -out:.build/ui.exe Stubs.cs NinjaStubs.cs ../../src/KeyStone.cs UiSmokeTest.cs >/dev/null && mono .build/ui.exe | tail -1 )

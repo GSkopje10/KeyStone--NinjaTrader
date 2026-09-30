@@ -699,6 +699,24 @@ namespace NinjaTrader.NinjaScript
         public string EvalTierFilter = "ALL";
         public string FundedTierFilter = "ALL";
 
+        // GOLDEN SETUP: the first BH or bullish FVG after the open, one trade a day (Build 28q).
+        public int GoldenMnqStart = 930, GoldenMgcStart = 800, GoldenLastEntry = 1555, GoldenClose = 1555;
+        public int GoldenUseBh = 1;
+        public string GoldenFvgMode = "CLOSE";          // CLOSE = enter at the close of candle 3 • BREAK = touch + break (like BH) • OFF
+        public string GoldenAggression = "TAG";         // OFF • TAG (record + compare) • REQUIRED (only after a push down)
+        public double GoldenMnqDropPoints = 30, GoldenMgcDropPoints = 3;
+        public double GoldenMnqTargetPoints = 100, GoldenMgcTargetPoints = 10;
+        public string GoldenStopMode = "PATTERN";       // PATTERN = below the pattern's low • FIXED = fixed points
+        public double GoldenMnqStopPoints = 50, GoldenMgcStopPoints = 5, GoldenMnqStopBuffer = 0, GoldenMgcStopBuffer = 0;
+        public double GoldenMnqMaxStop = 0, GoldenMgcMaxStop = 0;   // 0 = any size; bigger pattern stops are skipped
+        public int GoldenMnqQuantity = 5, GoldenMgcQuantity = 10;
+        public int GoldenMaxTradesPerDay = 1;           // 1 = the first setup only; 2-3 = another try after a loss (a win ends the day)
+        public string GoldenKey()
+        {
+            return string.Join("/", new[] { GoldenMnqStart, GoldenMgcStart, GoldenLastEntry, GoldenClose, GoldenUseBh, GoldenMnqQuantity, GoldenMgcQuantity, GoldenMaxTradesPerDay }.Select(v => v.ToString(CultureInfo.InvariantCulture)))
+                + "/" + GoldenFvgMode + "/" + GoldenAggression + "/" + GoldenStopMode + "/" + string.Join("/", new[] { GoldenMnqDropPoints, GoldenMgcDropPoints, GoldenMnqTargetPoints, GoldenMgcTargetPoints, GoldenMnqStopPoints, GoldenMgcStopPoints, GoldenMnqStopBuffer, GoldenMgcStopBuffer, GoldenMnqMaxStop, GoldenMgcMaxStop }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture)));
+        }
+
         // Field-by-field copy (all fields are values or strings).
         public KeystoneArcRunConfig ShallowCopy() { return (KeystoneArcRunConfig)MemberwiseClone(); }
 
@@ -712,7 +730,7 @@ namespace NinjaTrader.NinjaScript
                 PayoutThreshold.ToString("0.00", CultureInfo.InvariantCulture), PayoutDaysRequired.ToString(), PayoutAmount.ToString("0.00", CultureInfo.InvariantCulture), EvaluationCost.ToString("0.00", CultureInfo.InvariantCulture), ReplacementsRequirePayoutFunding.ToString(), FirmFundedCapEnabled.ToString(), EvaluationSlotsPerFirm.ToString(), MaxFundedPerFirm.ToString(), PropStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), PersonalStartingBalance.ToString("0.00", CultureInfo.InvariantCulture), AsianStartHhmm.ToString(), AsianEndHhmm.ToString(), AsianMnqInitialDirection ?? string.Empty, AsianMgcInitialDirection ?? string.Empty, AsianRiskMode ?? string.Empty, AsianReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcReversalPriceMove.ToString("0.00", CultureInfo.InvariantCulture), AsianCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianCombinedStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianDailyLossLimitDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMnqInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianMgcInstrumentStopLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianBreakEvenTriggerDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianStartingQuantity.ToString(), AsianMaxReversalsPerInstrument.ToString(), AsianMnqMaxReversals.ToString(), AsianMgcMaxReversals.ToString(), AsianMaxTotalLegsPerInstrument.ToString(),
                 BlownAccountReplacement.ToString(), EvalQualifyingDaysConsecutive.ToString(), EvaluationMinTradingDays.ToString(), AsianEvalStageEnabled.ToString(), AsianEvalCycleTargetDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalReversalLossDollars.ToString("0.00", CultureInfo.InvariantCulture), AsianEvalMaxReversals.ToString(), ReplacementDelayDays.ToString(),
                 DirectFundedCost.ToString("0.00", CultureInfo.InvariantCulture), string.Join("/", new[] { RelaySignalHhmm, RelayEntryHhmm, RelayExitHhmm, RelayRangeDays, RelayConfirm, VwapStartHhmm, VwapEndHhmm, VwapMaxTradesPerDay, VwapTrendDays }.Select(v => v.ToString(CultureInfo.InvariantCulture))), string.Join("/", new[] { RelayThreshold, RelayStopFraction, VwapBandSigma, VwapTrendFilter, VwapStopBufferPoints }.Select(v => v.ToString("0.###", CultureInfo.InvariantCulture))), (RelayDirection ?? "") + "/" + (VwapTarget ?? "") + "/" + (VwapDirection ?? ""), CommissionPerContract.ToString("0.00", CultureInfo.InvariantCulture), SlippageTicks.ToString("0.##", CultureInfo.InvariantCulture), EngDirection ?? string.Empty, EngMinRun.ToString(), EngMaxRun.ToString(), EngStrength ?? string.Empty, EngMnqMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngMgcMinBody.ToString("0.##", CultureInfo.InvariantCulture), EngDtRun.ToString(), EngStopMode ?? string.Empty, EngStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), EngMaxQuantity.ToString(), EngTargetMode ?? string.Empty,
-                string.Join("/", new[] { EngTargetRDT, EngTargetRA, EngTargetRB, EngTargetRC, EngStopPointsDT, EngTargetPointsDT, EngStopPointsA, EngTargetPointsA, EngStopPointsB, EngTargetPointsB, EngStopPointsC, EngTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))), DirectReplacementMode.ToString(), DirectRefundDays.ToString(), DirectReplacementCost.ToString("0.00", CultureInfo.InvariantCulture), FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString(), FvgTargetMode ?? string.Empty, FvgTargetRA.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRB.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRC.ToString("0.##", CultureInfo.InvariantCulture), EvalTierFilter ?? string.Empty, FundedTierFilter ?? string.Empty, FvgMergeStacked.ToString(), FvgMergedDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRDT.ToString("0.##", CultureInfo.InvariantCulture), string.Join("/", new[] { FvgStopPointsDT, FvgTargetPointsDT, FvgStopPointsA, FvgTargetPointsA, FvgStopPointsB, FvgTargetPointsB, FvgStopPointsC, FvgTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))) });
+                string.Join("/", new[] { EngTargetRDT, EngTargetRA, EngTargetRB, EngTargetRC, EngStopPointsDT, EngTargetPointsDT, EngStopPointsA, EngTargetPointsA, EngStopPointsB, EngTargetPointsB, EngStopPointsC, EngTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))), DirectReplacementMode.ToString(), DirectRefundDays.ToString(), DirectReplacementCost.ToString("0.00", CultureInfo.InvariantCulture), FvgMnqMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMgcMinGap.ToString("0.####", CultureInfo.InvariantCulture), FvgMinDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgRunAwayMultiple.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxEntriesPerBox.ToString(), FvgNeedNewDipAfterMiss.ToString(), FvgZonesOutsideWindow.ToString(), FvgSameSessionOnly.ToString(), FvgMaxBoxAgeBars.ToString(), FvgAggressionMode ?? string.Empty, FvgMnqRedCandles.ToString(), FvgMgcRedCandles.ToString(), FvgMnqDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMgcDropPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgAggressionCombine ?? string.Empty, FvgAllowOneGreenInRun.ToString(), FvgStopMode ?? string.Empty, FvgStopBufferPoints.ToString("0.##", CultureInfo.InvariantCulture), FvgMaxQuantity.ToString(), FvgTargetMode ?? string.Empty, FvgTargetRA.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRB.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRC.ToString("0.##", CultureInfo.InvariantCulture), EvalTierFilter ?? string.Empty, FundedTierFilter ?? string.Empty, FvgMergeStacked.ToString(), FvgMergedDepthPercent.ToString("0.##", CultureInfo.InvariantCulture), FvgTargetRDT.ToString("0.##", CultureInfo.InvariantCulture), string.Join("/", new[] { FvgStopPointsDT, FvgTargetPointsDT, FvgStopPointsA, FvgTargetPointsA, FvgStopPointsB, FvgTargetPointsB, FvgStopPointsC, FvgTargetPointsC }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture))) }) + (StrategyCode == "GLD" ? "|GLD:" + GoldenKey() : string.Empty);
         }
     }
 
@@ -916,6 +934,7 @@ namespace NinjaTrader.NinjaScript
                 if (string.Equals(cfg.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectEngulfing(raw, bars, cfg, symbol)); continue; }
                 if (string.Equals(cfg.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectLastHourRelay(raw, cfg, symbol)); continue; }
                 if (string.Equals(cfg.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectVwapSnapBack(raw, bars, cfg, symbol)); continue; }
+                if (string.Equals(cfg.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectGolden(raw, bars, cfg, symbol)); continue; }
                 int order = 0;
                 DateTime orderDay = DateTime.MinValue;
                 var zones = new List<BullishFvg>();
@@ -1394,6 +1413,106 @@ namespace NinjaTrader.NinjaScript
             bool shortSignal = shortCandidate && !longCandidate;
             if (string.Equals(cfg.BhAggressionFilter, "STRONGER", StringComparison.OrdinalIgnoreCase) && !PassesStrongerBhAggression(bars, i, symbol, cfg, shortSignal)) return null;
             return NewEvent(symbol, shortSignal ? "BL" : "BH", reference.Time, trigger.Time, shortSignal ? reference.Low : reference.High, cfg, bars, i, shortSignal ? "SHORT" : "LONG");
+        }
+
+        // ---- GOLDEN SETUP --------------------------------------------------------------------
+        // MNQ from 09:30, MGC from 08:00 (settings): the FIRST bullish setup whose candles all form
+        // after the start — BH (the unchanged BH rule) or a bullish FVG (entry at candle 3's close,
+        // or touch + break like BH). Target / stop in points; stop below the pattern's low (or fixed).
+        // The push down before it (points from the start price, red candles in a row) is measured for
+        // every setup: TAG compares with / without, REQUIRED trades only setups that had it.
+        // One trade a day by default; with more tries a loss allows the next setup, a win ends the day.
+        private static List<KeystoneArcEvent> DetectGolden(List<KeystoneArcBar> raw, List<KeystoneArcBar> bars, KeystoneArcRunConfig cfg, string symbol)
+        {
+            var output = new List<KeystoneArcEvent>();
+            if (raw == null || bars == null || bars.Count < 3) return output;
+            bool mgc = IsMgc(symbol);
+            int startHhmm = mgc ? cfg.GoldenMgcStart : cfg.GoldenMnqStart;
+            double target = Math.Max(0.01, mgc ? cfg.GoldenMgcTargetPoints : cfg.GoldenMnqTargetPoints);
+            double dropNeeded = Math.Max(0, mgc ? cfg.GoldenMgcDropPoints : cfg.GoldenMnqDropPoints);
+            double buffer = Math.Max(0, mgc ? cfg.GoldenMgcStopBuffer : cfg.GoldenMnqStopBuffer);
+            double fixedStop = Math.Max(0.01, mgc ? cfg.GoldenMgcStopPoints : cfg.GoldenMnqStopPoints);
+            double maxStop = Math.Max(0, mgc ? cfg.GoldenMgcMaxStop : cfg.GoldenMnqMaxStop);
+            int qty = Math.Max(1, mgc ? cfg.GoldenMgcQuantity : cfg.GoldenMnqQuantity);
+            string fvgMode = (cfg.GoldenFvgMode ?? "CLOSE").ToUpperInvariant();
+            string aggression = (cfg.GoldenAggression ?? "TAG").ToUpperInvariant();
+            // BH detection with its own rules, restricted to this instrument's window (long only).
+            KeystoneArcRunConfig bhCfg = cfg.ShallowCopy();
+            bhCfg.SessionMode = "CUSTOM"; bhCfg.CustomStart = startHhmm; bhCfg.EndTime = cfg.GoldenLastEntry; bhCfg.DirectionMode = "BB";
+            string fmt = mgc ? "0.0" : "0.00";
+            DateTime day = DateTime.MinValue, busyUntil = DateTime.MinValue;
+            int taken = 0, startIndex = -1; bool dayDone = false; double startOpen = double.NaN;
+            var zones = new List<BullishFvg>();
+            for (int i = 2; i < bars.Count; i++)
+            {
+                KeystoneArcBar cur = bars[i];
+                if (cur.Time < cfg.Start) continue;
+                if (cur.Time > cfg.End) break;
+                if (cur.Time.Date != day) { day = cur.Time.Date; taken = 0; dayDone = false; startIndex = -1; startOpen = double.NaN; zones.Clear(); busyUntil = DateTime.MinValue; }
+                DateTime startClock = day.AddHours(startHhmm / 100).AddMinutes(startHhmm % 100);
+                DateTime lastEntry = day.AddHours(cfg.GoldenLastEntry / 100).AddMinutes(cfg.GoldenLastEntry % 100);
+                if (cur.Time <= startClock) continue;                        // candles that end by the start are pre-open
+                if (startIndex < 0)
+                {
+                    // The first candle after the start (it may sit before the scan's first index).
+                    int k = i; while (k - 1 >= 0 && bars[k - 1].Time > startClock && bars[k - 1].Time.Date == day) k--;
+                    startIndex = k; startOpen = bars[k].Open;
+                }
+                bool patternAfterStart = i - 2 >= startIndex;                 // every pattern candle formed after the start
+                KeystoneArcEvent pick = null; string kind = null; double patternLow = double.NaN; bool marketEntry = false;
+                if (!dayDone && taken < Math.Max(1, cfg.GoldenMaxTradesPerDay) && cur.Time <= lastEntry && cur.Time > busyUntil && patternAfterStart)
+                {
+                    KeystoneArcEvent bh = cfg.GoldenUseBh == 1 ? DetectBhBreak(bars, i, bhCfg, symbol) : null;
+                    if (bh != null && string.Equals(bh.Direction, "LONG", StringComparison.OrdinalIgnoreCase)) { pick = bh; kind = "BH"; patternLow = Math.Min(bars[i - 2].Low, bars[i - 1].Low); }
+                    KeystoneArcEvent fvg = null; double fvgLow = double.NaN; bool fvgMarket = false;
+                    if (fvgMode == "CLOSE" && cur.Low > bars[i - 2].High)
+                    {
+                        fvg = NewEvent(symbol, "FVG", cur.Time, cur.Time, cur.Close, bhCfg, bars, i);
+                        fvg.FvgLower = bars[i - 2].High; fvg.FvgUpper = cur.Low; fvg.FvgFormedTime = cur.Time;
+                        fvgLow = Math.Min(bars[i - 2].Low, Math.Min(bars[i - 1].Low, cur.Low)); fvgMarket = true;
+                    }
+                    else if (fvgMode == "BREAK")
+                    {
+                        fvg = ResolveFvgBreak(cur, zones, bhCfg, symbol, bars, i);
+                        if (fvg != null) { int f = bars.FindIndex(b => b.Time == fvg.FvgFormedTime); fvgLow = f >= 2 ? Math.Min(bars[f - 2].Low, Math.Min(bars[f - 1].Low, bars[f].Low)) : fvg.FvgLower; for (int q = Math.Max(0, f); q < i; q++) fvgLow = Math.Min(fvgLow, bars[q].Low); }
+                    }
+                    if (fvg != null && pick != null) { kind = "DT"; patternLow = Math.Min(patternLow, fvgLow); }   // both on the same candle: BH fills first (inside the candle)
+                    else if (fvg != null) { pick = fvg; kind = "FVG"; patternLow = fvgLow; marketEntry = fvgMarket; }
+                }
+                if (pick != null)
+                {
+                    // Push down before the setup: start price → lowest low before the trigger candle; red candles in a row before it.
+                    double low = double.MaxValue; for (int q = startIndex; q < i; q++) low = Math.Min(low, bars[q].Low);
+                    double drop = double.IsNaN(startOpen) || low == double.MaxValue ? 0 : Math.Max(0, startOpen - low);
+                    int red = 0; for (int q = i - 2; q >= startIndex && bars[q].Close < bars[q].Open; q--) red++;   // red candles in a row after the start, ending at the pattern's first candle
+                    bool aggressive = drop >= dropNeeded && dropNeeded > 0 || (dropNeeded <= 0 && red >= 2);
+                    double entry = pick.Entry;
+                    double stop = string.Equals(cfg.GoldenStopMode, "FIXED", StringComparison.OrdinalIgnoreCase) ? entry - fixedStop : patternLow - buffer;
+                    double stopPts = entry - stop;
+                    bool skip = (aggression == "REQUIRED" && !aggressive) || stopPts <= 0 || (maxStop > 0 && stopPts > maxStop);
+                    if (!skip)
+                    {
+                        pick.SetupClass = kind; pick.Quantity = qty; pick.Stop = stop; pick.Target = entry + target; pick.StopDistance = stopPts;
+                        pick.RiskModel = "GLD " + kind + " • +" + target.ToString("0.##", CultureInfo.InvariantCulture) + " PTS";
+                        pick.StrengthTag = aggressive ? "AGGR" : "BASE";
+                        pick.FvgDrop = drop; pick.FvgRedRun = red;
+                        pick.SessionOrder = taken + 1;
+                        pick.ConfigurationKey = cfg.Snapshot();
+                        KeystoneArcRunConfig outCfg = cfg.ShallowCopy(); outCfg.EndTime = cfg.GoldenClose;
+                        ResolveOutcome(pick, raw, outCfg, symbol, marketEntry);
+                        pick.ReviewNote = "GOLDEN • " + (taken == 0 ? "first" : (taken + 1) == 2 ? "2nd" : "3rd") + " setup after " + (startHhmm / 100).ToString("00") + ":" + (startHhmm % 100).ToString("00") + " • " + (kind == "DT" ? "BH + FVG" : kind)
+                            + " • push down " + drop.ToString(fmt, CultureInfo.InvariantCulture) + " pts" + (red > 0 ? " (" + red + " red)" : string.Empty) + (aggressive ? " = AGGRESSION" : " = no aggression")
+                            + " • entry " + entry.ToString(fmt, CultureInfo.InvariantCulture) + " • target " + pick.Target.ToString(fmt, CultureInfo.InvariantCulture) + " (+" + target.ToString("0.##", CultureInfo.InvariantCulture) + ")"
+                            + " • stop " + stop.ToString(fmt, CultureInfo.InvariantCulture) + " (−" + stopPts.ToString(fmt, CultureInfo.InvariantCulture) + ")";
+                        output.Add(pick);
+                        taken++;
+                        if (pick.Outcome == "WIN" || pick.Outcome == "SESSION EXIT" || pick.ExitTime == DateTime.MinValue) dayDone = true;
+                        busyUntil = pick.ExitTime == DateTime.MinValue ? DateTime.MaxValue : pick.ExitTime;
+                    }
+                }
+                if (fvgMode == "BREAK") { UpdateFvgTouchState(cur, zones, bhCfg); if (patternAfterStart) DetectNewBullishFvg(bars, i, zones); }
+            }
+            return output;
         }
 
         // ---- FVG retest long -------------------------------------------------------------
@@ -2013,7 +2132,7 @@ namespace NinjaTrader.NinjaScript
             sessionEnd = sessionEnd.AddMinutes(timeOffset);
             double pointValue = CashValuePerPriceMove(symbol, cfg);
             // FVG box / green-low stops are risk-sized: their P/L is the real price move × size.
-            bool priceBased = e.RiskModel != null && (e.RiskModel.StartsWith("FVG ", StringComparison.Ordinal) || e.RiskModel.StartsWith("ENG ", StringComparison.Ordinal) || e.RiskModel.StartsWith("RLY ", StringComparison.Ordinal) || e.RiskModel.StartsWith("VWP ", StringComparison.Ordinal));
+            bool priceBased = e.RiskModel != null && (e.RiskModel.StartsWith("GLD ", StringComparison.Ordinal) || e.RiskModel.StartsWith("FVG ", StringComparison.Ordinal) || e.RiskModel.StartsWith("ENG ", StringComparison.Ordinal) || e.RiskModel.StartsWith("RLY ", StringComparison.Ordinal) || e.RiskModel.StartsWith("VWP ", StringComparison.Ordinal));
             double qty = Math.Max(0.0001, e.Quantity > 0 ? e.Quantity : (IsPersonalAccount(cfg) ? cfg.PersonalLotSize : cfg.Quantity));
             int startIndex = FirstIndexAtOrAfter(raw, e.TriggerTime.AddMinutes(timeOffset));
             if (startIndex < 0) { e.Outcome = "NO ENTRY DATA"; e.GrossPnl = 0; return; }
@@ -4841,6 +4960,36 @@ namespace NinjaTrader.NinjaScript
             return plan;
         }
 
+        // GOLDEN SETUP: does the push down matter, BH vs FVG, and how big the stops are.
+        private static void AddGoldenInsights(List<KeystoneArcInsight> list, List<KeystoneArcEvent> ev)
+        {
+            if (ev.Count == 0) return;
+            Func<IEnumerable<KeystoneArcEvent>, string> line = delegate(IEnumerable<KeystoneArcEvent> set)
+            {
+                var l = set.ToList(); if (l.Count == 0) return "none";
+                int w = l.Count(e => e.Outcome == "WIN"), lo = l.Count(e => e.Outcome != null && e.Outcome.StartsWith("LOSS"));
+                return l.Count + " trades • " + w + " W / " + lo + " L / " + (l.Count - w - lo) + " end • " + P(100.0 * w / Math.Max(1, w + lo)) + " won • " + M(l.Sum(e => e.GrossPnl));
+            };
+            foreach (string sym in new[] { "MNQ", "MGC" })
+            {
+                var s = ev.Where(e => string.Equals(e.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); if (s.Count == 0) continue;
+                var aggr = s.Where(e => e.StrengthTag == "AGGR").ToList(); var calm = s.Where(e => e.StrengthTag != "AGGR").ToList();
+                double wa = aggr.Count == 0 ? 0 : 100.0 * aggr.Count(e => e.Outcome == "WIN") / Math.Max(1, aggr.Count(e => e.Outcome == "WIN" || (e.Outcome ?? "").StartsWith("LOSS")));
+                double wc = calm.Count == 0 ? 0 : 100.0 * calm.Count(e => e.Outcome == "WIN") / Math.Max(1, calm.Count(e => e.Outcome == "WIN" || (e.Outcome ?? "").StartsWith("LOSS")));
+                Add(list, aggr.Sum(e => e.GrossPnl) > calm.Sum(e => e.GrossPnl) ? "GOOD" : "IDEA", sym + " • WITH vs WITHOUT A PUSH DOWN", "With aggression: " + line(aggr) + ". Without: " + line(calm) + "." + (aggr.Count >= 20 && calm.Count >= 20 ? (wa > wc + 5 ? " The push down clearly helps — try PUSH DOWN = REQUIRED." : wc > wa + 5 ? " Setups without a push down did better here." : " Little difference so far.") : " Needs more trades to judge."));
+                Add(list, "IDEA", sym + " • BH vs FVG", "BH: " + line(s.Where(e => e.SetupClass == "BH")) + ". FVG: " + line(s.Where(e => e.SetupClass == "FVG")) + ". Both on one candle: " + line(s.Where(e => e.SetupClass == "DT")) + ".");
+                var stops = s.Where(e => e.StopDistance > 0).Select(e => e.StopDistance).OrderBy(x => x).ToList();
+                if (stops.Count > 0)
+                {
+                    double med = stops[stops.Count / 2], big = stops[Math.Min(stops.Count - 1, (int)(stops.Count * 0.9))];
+                    var small = s.Where(e => e.StopDistance > 0 && e.StopDistance <= med).ToList(); var large = s.Where(e => e.StopDistance > med).ToList();
+                    Add(list, "IDEA", sym + " • STOP SIZE", "Typical stop " + med.ToString("0.##", CultureInfo.InvariantCulture) + " pts (90% are under " + big.ToString("0.##", CultureInfo.InvariantCulture) + "). Small stops: " + line(small) + ". Big stops: " + line(large) + ". If big stops lose, set SKIP IF THE STOP IS BIGGER THAN.");
+                }
+                var byTry = s.GroupBy(e => e.SessionOrder).OrderBy(g => g.Key).ToList();
+                if (byTry.Count > 1) Add(list, "IDEA", sym + " • FIRST vs LATER TRIES", string.Join(" • ", byTry.Select(g => (g.Key == 1 ? "1st" : g.Key == 2 ? "2nd" : g.Key + "th") + ": " + line(g))));
+            }
+        }
+
         public static List<KeystoneArcInsight> Analyze(List<KeystoneArcVirtualAccount> accounts, IEnumerable<KeystoneArcEvent> events, KeystoneArcRunConfig cfg, KeystoneArcCapitalPolicySummary capital)
         {
             var list = new List<KeystoneArcInsight>();
@@ -4853,6 +5002,7 @@ namespace NinjaTrader.NinjaScript
             var acc = accounts ?? new List<KeystoneArcVirtualAccount>();
             KeystoneArcPoolInsights x = acc.Count > 0 ? KeystoneArcPoolInsights.Build(acc, ev, cfg) : null;
 
+            if (string.Equals(cfg.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase)) AddGoldenInsights(list, ev);
             // 1. Strategy edge (no accounts).
             if (days.Count > 0)
             {
@@ -5974,7 +6124,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-28p • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-30q • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -7110,7 +7260,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             RefreshOpenChartInstruments();
             string defaultDay = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var data = Stack(); data.Children.Add(Txt("1. DATA, SETUPS & SESSION", Gold, 13, FontWeights.Bold));
-            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "123 ENGULFING • BUY / SELL", "LAST-HOUR RELAY • TIME MOMENTUM", "VWAP SNAP-BACK • MIDDAY REVERSION", "HELIX ROTATION • PROP BASKET MATH"); strategyBox.SelectedIndex = 0;
+            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "123 ENGULFING • BUY / SELL", "LAST-HOUR RELAY • TIME MOMENTUM", "VWAP SNAP-BACK • MIDDAY REVERSION", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN"); strategyBox.SelectedIndex = 0;
             scopeBox = Select("MNQ", "MGC", "BOTH"); scopeBox.SelectedIndex = 0;
             accountPathBox = Select("PROP • VIRTUAL POOL"); accountPathBox.SelectedIndex = 0; accountPathBox.Visibility = Visibility.Collapsed;
             // Keystone is intentionally one setup lab in this revision: long BH only.
@@ -7404,7 +7554,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var costRow = new UniformGrid { Columns = 2, Margin = new Thickness(0, 2, 0, 2) };
             costRow.Children.Add(Row("COMMISSION $ / CONTRACT (ROUND TRIP)", commissionBox)); costRow.Children.Add(Row("SLIPPAGE TICKS / SIDE", slippageBox));
             model.Children.Add(costRow);
-            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel); model.Children.Add(relayModel); model.Children.Add(vwapModel); model.Children.Add(BuildHelixPanel());
+            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel); model.Children.Add(relayModel); model.Children.Add(vwapModel); model.Children.Add(BuildHelixPanel()); model.Children.Add(BuildGoldenPanel());
             sessionHintText = Txt("NY OPEN: begins at the first 09:30 ET setup bar and ends at 15:55 ET.", Cyan, 10, FontWeights.Bold); data.Children.Add(sessionHintText);
             // Start right under the settings: no scrolling down to section 3.
             quickStartButton = Btn("▶ START RESEARCH • LOAD + DETECT", Green); quickStartButton.Height = 44; quickStartButton.FontSize = 15; quickStartButton.Margin = new Thickness(6, 14, 6, 4);
@@ -7490,6 +7640,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool helix = IsHelixSelected();
             for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = asian || helix ? Visibility.Collapsed : Visibility.Visible;
             for (int i = 0; i < helixStrategyControls.Count; i++) if (helixStrategyControls[i] != null) helixStrategyControls[i].Visibility = helix ? Visibility.Visible : Visibility.Collapsed;
+            bool golden = IsGoldenSelected();
+            for (int i = 0; i < goldenStrategyControls.Count; i++) if (goldenStrategyControls[i] != null) goldenStrategyControls[i].Visibility = golden ? Visibility.Visible : Visibility.Collapsed;
+            if (golden) for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = Visibility.Collapsed;
+            if (golden && !goldenDefaultsApplied) { if (scopeBox != null) scopeBox.SelectedIndex = 2; if (timeframeBox != null) timeframeBox.SelectedIndex = 1; goldenDefaultsApplied = true; }
+            if (!golden) goldenDefaultsApplied = false;
             for (int i = 0; i < asianStrategyControls.Count; i++) if (asianStrategyControls[i] != null) asianStrategyControls[i].Visibility = asian ? Visibility.Visible : Visibility.Collapsed;
             bool fvg = IsFvgSelected();
             for (int i = 0; i < fvgStrategyControls.Count; i++) if (fvgStrategyControls[i] != null) fvgStrategyControls[i].Visibility = fvg ? Visibility.Visible : Visibility.Collapsed;
@@ -7504,7 +7659,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (vwapPick && !vwapSessionDefaultApplied && sessionBox != null) { sessionBox.SelectedIndex = 0; vwapSessionDefaultApplied = true; }
             if (!vwapPick) vwapSessionDefaultApplied = false;
             // BH stop modes belong to BH only; the other strategies have their own stop choices.
-            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng || relay || vwapPick || helix ? Visibility.Collapsed : Visibility.Visible;
+            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng || relay || vwapPick || helix || golden ? Visibility.Collapsed : Visibility.Visible;
             // FVG default window: pre-NY 08:00 ET to the 16:55 ET close (editable custom range).
             if (fvg && !fvgSessionDefaultApplied && sessionBox != null && customStartBox != null && endTimeBox != null) { sessionBox.SelectedIndex = 6; customStartBox.Text = "800"; endTimeBox.Text = "1655"; fvgSessionDefaultApplied = true; }
             if (!fvg) fvgSessionDefaultApplied = false;
@@ -7547,6 +7702,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 if (strategyRuleText != null) { strategyRuleText.Foreground = Orchid; strategyRuleText.Text = relay ? "LAST-HOUR RELAY RULE: how the day starts tends to show how it ends. Strong move from the Globex open to 10:00 → trade the same direction from 15:25 to 15:55. One decision a day." : "VWAP SNAP-BACK RULE: midday stretches far beyond VWAP usually snap partway back once the push fails. Stretch beyond the band → no new extreme → enter back toward VWAP."; }
                 if (strategyWorkflowText != null) strategyWorkflowText.Text = "Every entry (buy and sell) is kept in the ledger, drawn on the chart, resolved on 1-minute data and runs through the same pool, payouts, months & sessions, live account and reports. Prop pools never trade the same instrument long and short at the same time.";
+            }
+            if (golden)
+            {
+                if (strategyRuleText != null) { strategyRuleText.Foreground = Gold; strategyRuleText.Text = "GOLDEN RULE: MNQ from 09:30, MGC from 08:00 (editable). The FIRST bullish setup whose candles all form after the start — BH (red → green reference → next candle breaks its high) or a bullish 5-minute FVG (candle 3 low above candle 1 high) — is the one trade of the day. Target MNQ +100 pts, MGC +10 pts; stop below the pattern's low. The push down before it (points from the start price + red candles in a row) is measured on every setup."; }
+                if (strategyWorkflowText != null) strategyWorkflowText.Text = "GOLDEN = one trade a day per instrument. Every entry is kept in the ledger with its push down, drawn on the chart, resolved on 1-minute data and runs through the same pool, payouts, months & sessions and reports. RESEARCH FINDINGS compares setups with and without the push down, BH vs FVG, and stop sizes.";
             }
             if (helix)
             {
@@ -7773,7 +7933,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool asian = IsAsian75Selected();
             quickStartButton.Content = researchSubmissionLocked
                 ? "↻ RUN THIS TEST AGAIN • same settings (or change a setting to start a new one)"
-                : "▶ " + (IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
+                : "▶ " + (IsGoldenSelected() ? "START RESEARCH • LOAD + FIND THE GOLDEN SETUPS" : IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
         }
 
         private void ConfirmAndStartResearch()
@@ -11521,7 +11681,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string OverlayOwnCode()
         {
             string code = config == null ? "BH" : (config.StrategyCode ?? "BH").ToUpperInvariant();
-            return code == "FVG" || code == "ENG" || code == "RLY" || code == "VWP" ? code : "BH";
+            return code == "FVG" || code == "ENG" || code == "RLY" || code == "VWP" || code == "GLD" ? code : "BH";
         }
 
         private void DrawStrategyOverlays(string symbol, DateTime day, int minutes, List<KeystoneArcEvent> primary, List<KeystoneArcBar> bars, double left, double candleWidth, Func<double, double> y, double plotBottom, bool replaying)
@@ -11853,7 +12013,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 SetEvidenceStatus("⚠ LOADED DATA ENDS AT " + lastLoaded.ToString("HH:mm") + " BUT THIS SESSION RUNS TO " + expectedEnd.ToString("HH:mm") + " • the research data for this day is incomplete (setups after " + lastLoaded.ToString("HH:mm") + " are missing). Press CLEAR SAVED DATA in Step 1 and run the test again.", Red);
             }
-            else SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (HelixStudy() ? "HELIX ROTATION BASKETS" : string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"))) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
+            else SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (HelixStudy() ? "HELIX ROTATION BASKETS" : string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase) ? "GOLDEN SETUP" : string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"))) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
             if (selectedEvidenceEvent != null && !marks.Any(record => record.Id == selectedEvidenceEvent.Id)) ClearEvidenceSelection(false);
             // Cache exactly what the lightweight crosshair-only overlay needs, then draw it once
             // on top of the freshly rebuilt chart. Every subsequent pure-hover MouseMove reuses
@@ -13786,7 +13946,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string StrategyDisplayName()
         {
             string code = config == null ? "BH" : (config.StrategyCode ?? "BH").ToUpperInvariant();
-            return code == "HLX" ? "HELIX ROTATION" : code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : (code == "RLY" ? "LAST-HOUR RELAY" : (code == "VWP" ? "VWAP SNAP-BACK" : "BH"))));
+            return code == "GLD" ? "GOLDEN SETUP" : code == "HLX" ? "HELIX ROTATION" : code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : (code == "RLY" ? "LAST-HOUR RELAY" : (code == "VWP" ? "VWAP SNAP-BACK" : "BH"))));
         }
 
         private void RenderFirstReturnAccountDetail(KeystoneArcVirtualAccount account, KeystoneArcFirstReturnRow row, string startLabel)
@@ -14709,7 +14869,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (config.Scope != "MNQ" && config.Scope != "MGC" && config.Scope != "BOTH") config.Scope = asian75 ? "BOTH" : "MNQ";
             config.AccountPath = "PROP";
             bool fvgStrategy = !asian75 && IsFvgSelected();
-            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : (IsRelaySelected() ? "RLY" : (IsVwapSelected() ? "VWP" : (IsHelixSelected() ? "HLX" : "BH")))));
+            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : (IsRelaySelected() ? "RLY" : (IsVwapSelected() ? "VWP" : (IsHelixSelected() ? "HLX" : (IsGoldenSelected() ? "GLD" : "BH"))))));
             if (config.StrategyCode == "HLX") config.Scope = "BOTH";
             config.RelaySignalHhmm = Integer(relaySignalBox, 1000); config.RelayEntryHhmm = Integer(relayEntryBox, 1525); config.RelayExitHhmm = Integer(relayExitBox, 1555);
             config.RelayThreshold = Math.Max(0, NumberAllowZero(relayThresholdBox, 0.25)); config.RelayStopFraction = Math.Max(0.01, Number(relayStopBox, 0.15)); config.RelayRangeDays = Math.Max(5, Integer(relayDaysBox, 20));
@@ -14798,6 +14958,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.AsianMgcInitialDirection = asianDirection;
             config.AsianRiskMode = asianRiskModeBox != null && Convert.ToString(asianRiskModeBox.SelectedItem).StartsWith("PRICE", StringComparison.OrdinalIgnoreCase) ? "PRICE" : "CASH";
             if (asian75) { config.CustomStart = config.AsianStartHhmm; config.EndTime = config.AsianEndHhmm; }
+            if (config.StrategyCode == "GLD" && !ReadGoldenConfig()) return false;
             if (config.StrategyCode == "HLX")
             {
                 int hs = Integer(helixStartBox, 930), he = Integer(helixEndBox, 1600), ls, le;
@@ -15407,7 +15568,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             int exits = all.Count(x => x.Outcome == "SESSION EXIT");
             int noEntry = all.Count(x => x.Outcome == "NO ENTRY DATA");
             bool asianReport = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
-            string strategyName = asianReport ? "Asian Cycle Backtest • Copy Trading" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "Last-Hour Relay • Time Momentum" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP Snap-Back • Midday Reversion" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 Engulfing • Buy / Sell" : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG Retest • Long" : "BH Long • Break-High"));
+            string strategyName = asianReport ? "Asian Cycle Backtest • Copy Trading" : string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase) ? "Golden Setup • First BH / FVG After The Open" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "Last-Hour Relay • Time Momentum" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP Snap-Back • Midday Reversion" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 Engulfing • Buy / Sell" : (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG Retest • Long" : "BH Long • Break-High"));
             string strategyAudit = asianReport ? "MNQ + MGC • exact " + config.AsianStartHhmm.ToString("0000") + " ET simultaneous start • " + config.AsianMnqInitialDirection + " MNQ / " + config.AsianMgcInitialDirection + " MGC • " + (config.AsianRiskMode == "PRICE" ? "instrument price-move reversal limits" : "fixed cash reversal limits") + " • next-minute opposite entry • +1 micro per leg • combined boundaries close-confirmed" : "red candle • bullish reference close • immediate next-bar high break";
             int poolWins = accepted.Count(x => x.Outcome == "WIN");
             int poolLosses = accepted.Count(x => x.Outcome.StartsWith("LOSS", StringComparison.OrdinalIgnoreCase));
@@ -16389,7 +16550,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string BuildEvidenceStudyLabel()
         {
             if (config == null || config.Start == DateTime.MinValue) return "CURRENT TEST RANGE • not configured";
-            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (HelixStudy() ? "HELIX ROTATION BASKETS" : string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")));
+            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (HelixStudy() ? "HELIX ROTATION BASKETS" : string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase) ? "GOLDEN SETUP" : string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")));
             return "CURRENT TEST RANGE • " + SessionDateLabel(config) + " • " + config.Scope + " • " + config.SessionMode + " • " + config.SetupMinutes + "-MINUTE SETUPS • " + setup + " • SELECT A DATE TAB BELOW TO INSPECT ONE COMPLETE SESSION";
         }
         private static void GetConfiguredSessionBounds(DateTime firstDate, DateTime lastDate, KeystoneArcRunConfig cfg, out DateTime start, out DateTime end)
@@ -17780,6 +17941,88 @@ namespace NinjaTrader.NinjaScript.AddOns
             var study = evidenceStudyText == null ? null : evidenceStudyText.Parent as UIElement; if (study != null) study.Visibility = v;
             var audit = evidenceHoverBorder == null ? null : evidenceHoverBorder.Parent as UIElement; if (audit != null) audit.Visibility = v;
             if (evidenceInfoToggle != null) evidenceInfoToggle.Content = evidenceInfoVisible ? "HIDE INFO" : "SHOW INFO";
+        }
+
+        // =================================================================================
+        // GOLDEN SETUP • Step 1 settings (same row style as the other strategies)
+        // =================================================================================
+        private readonly List<UIElement> goldenStrategyControls = new List<UIElement>();
+        private bool goldenDefaultsApplied;
+        private TextBox goldenMnqStartBox, goldenMgcStartBox, goldenLastEntryBox, goldenCloseBox, goldenMnqDropBox, goldenMgcDropBox, goldenMnqTargetBox, goldenMgcTargetBox, goldenMnqStopBox, goldenMgcStopBox, goldenMnqBufferBox, goldenMgcBufferBox, goldenMnqMaxStopBox, goldenMgcMaxStopBox, goldenMnqQtyBox, goldenMgcQtyBox, goldenTriesBox;
+        private ComboBox goldenFvgBox, goldenAggressionBox, goldenStopBox;
+        private CheckBox goldenBhBox;
+        private TextBlock goldenPreviewText;
+
+        private bool IsGoldenSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("GOLDEN SETUP", StringComparison.OrdinalIgnoreCase); }
+
+        private UIElement BuildGoldenPanel()
+        {
+            var panel = Stack(); panel.Margin = new Thickness(0, 4, 0, 2);
+            panel.Children.Add(Txt("GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN", Gold, 11, FontWeights.Bold));
+            panel.Children.Add(Txt("The first bullish setup after the start time is the one trade of the day for that instrument: BH or a bullish FVG, whichever forms first. The push down before it is measured on every setup so the results show whether aggression really makes the difference.", Muted, 10, FontWeights.Normal));
+            goldenMnqStartBox = Input("930"); goldenMgcStartBox = Input("800"); goldenLastEntryBox = Input("1555"); goldenCloseBox = Input("1555");
+            goldenBhBox = new CheckBox { Content = "BH SETUPS", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
+            goldenFvgBox = Select("CANDLE 3 CLOSE • enter when the FVG forms", "TOUCH + BREAK • like BH", "OFF • BH only"); goldenFvgBox.SelectedIndex = 0;
+            goldenAggressionBox = Select("MEASURE + COMPARE (take every setup)", "REQUIRED • only after a push down", "OFF"); goldenAggressionBox.SelectedIndex = 0;
+            goldenMnqDropBox = Input("30"); goldenMgcDropBox = Input("3");
+            goldenMnqTargetBox = Input("100"); goldenMgcTargetBox = Input("10");
+            goldenStopBox = Select("BELOW THE PATTERN'S LOW", "FIXED POINTS"); goldenStopBox.SelectedIndex = 0;
+            goldenMnqStopBox = Input("50"); goldenMgcStopBox = Input("5"); goldenMnqBufferBox = Input("0"); goldenMgcBufferBox = Input("0"); goldenMnqMaxStopBox = Input("0"); goldenMgcMaxStopBox = Input("0");
+            goldenMnqQtyBox = Input("5"); goldenMgcQtyBox = Input("10"); goldenTriesBox = Input("1");
+            foreach (TextBox box in new[] { goldenMnqStartBox, goldenMgcStartBox, goldenLastEntryBox, goldenCloseBox, goldenMnqDropBox, goldenMgcDropBox, goldenMnqTargetBox, goldenMgcTargetBox, goldenMnqStopBox, goldenMgcStopBox, goldenMnqBufferBox, goldenMgcBufferBox, goldenMnqMaxStopBox, goldenMgcMaxStopBox, goldenMnqQtyBox, goldenMgcQtyBox, goldenTriesBox }) { WatchConfigurationInput(box); box.TextChanged += delegate { UpdateGoldenPreview(); }; }
+            foreach (ComboBox box in new[] { goldenFvgBox, goldenAggressionBox, goldenStopBox }) box.SelectionChanged += delegate { InvalidateConfigurationApproval(); UpdateGoldenPreview(); };
+            goldenBhBox.Checked += delegate { InvalidateConfigurationApproval(); }; goldenBhBox.Unchecked += delegate { InvalidateConfigurationApproval(); };
+            panel.Children.Add(Txt("WHEN", Cyan, 10, FontWeights.Bold));
+            panel.Children.Add(Row("MNQ STARTS AT (HHMM ET)", goldenMnqStartBox)); panel.Children.Add(Row("MGC STARTS AT (HHMM ET)", goldenMgcStartBox));
+            panel.Children.Add(Row("NO NEW TRADE AFTER", goldenLastEntryBox)); panel.Children.Add(Row("CLOSE AN OPEN TRADE AT", goldenCloseBox));
+            panel.Children.Add(Row("TRADES A DAY PER INSTRUMENT (1 = first setup only)", goldenTriesBox));
+            panel.Children.Add(Txt("WHICH SETUPS", Cyan, 10, FontWeights.Bold));
+            panel.Children.Add(Row("BH", goldenBhBox)); panel.Children.Add(Row("BULLISH FVG", goldenFvgBox));
+            panel.Children.Add(Row("PUSH DOWN BEFORE THE SETUP", goldenAggressionBox));
+            panel.Children.Add(Row("MNQ PUSH DOWN = AT LEAST (POINTS)", goldenMnqDropBox)); panel.Children.Add(Row("MGC PUSH DOWN = AT LEAST (POINTS)", goldenMgcDropBox));
+            panel.Children.Add(Txt("TARGET, STOP, SIZE", Cyan, 10, FontWeights.Bold));
+            panel.Children.Add(Row("MNQ TARGET (POINTS)", goldenMnqTargetBox)); panel.Children.Add(Row("MGC TARGET (POINTS)", goldenMgcTargetBox));
+            panel.Children.Add(Row("STOP", goldenStopBox));
+            panel.Children.Add(Row("MNQ FIXED STOP (POINTS)", goldenMnqStopBox)); panel.Children.Add(Row("MGC FIXED STOP (POINTS)", goldenMgcStopBox));
+            panel.Children.Add(Row("MNQ EXTRA POINTS BELOW THE PATTERN", goldenMnqBufferBox)); panel.Children.Add(Row("MGC EXTRA POINTS BELOW THE PATTERN", goldenMgcBufferBox));
+            panel.Children.Add(Row("MNQ SKIP IF THE STOP IS BIGGER THAN (0 = ANY)", goldenMnqMaxStopBox)); panel.Children.Add(Row("MGC SKIP IF THE STOP IS BIGGER THAN (0 = ANY)", goldenMgcMaxStopBox));
+            panel.Children.Add(Row("MNQ CONTRACTS", goldenMnqQtyBox)); panel.Children.Add(Row("MGC CONTRACTS", goldenMgcQtyBox));
+            goldenPreviewText = Txt(string.Empty, Green, 10, FontWeights.Bold); panel.Children.Add(goldenPreviewText);
+            UpdateGoldenPreview();
+            goldenStrategyControls.Clear(); goldenStrategyControls.Add(panel);
+            panel.Visibility = Visibility.Collapsed;
+            return panel;
+        }
+
+        private void UpdateGoldenPreview()
+        {
+            if (goldenPreviewText == null) return;
+            double mt = Number(goldenMnqTargetBox, 100), gt = Number(goldenMgcTargetBox, 10); int mq = Math.Max(1, Integer(goldenMnqQtyBox, 5)), gq = Math.Max(1, Integer(goldenMgcQtyBox, 10));
+            goldenPreviewText.Text = "A WIN = MNQ " + N0(mt) + " pts × $2 × " + mq + " = " + Cash(mt * 2 * mq) + "  •  MGC " + N0(gt) + " pts × $10 × " + gq + " = " + Cash(gt * 10 * gq) + ((goldenStopBox != null && goldenStopBox.SelectedIndex == 1) ? "  •  A LOSS = MNQ " + Cash(-Number(goldenMnqStopBox, 50) * 2 * mq) + " / MGC " + Cash(-Number(goldenMgcStopBox, 5) * 10 * gq) : "  •  a loss depends on the pattern's low (shown on every trade)");
+        }
+
+        private bool ReadGoldenConfig()
+        {
+            int ms = Integer(goldenMnqStartBox, 930), gs = Integer(goldenMgcStartBox, 800), le = Integer(goldenLastEntryBox, 1555), cl = Integer(goldenCloseBox, 1555);
+            if (!IsValidHhmm(ms) || !IsValidHhmm(gs) || !IsValidHhmm(le) || !IsValidHhmm(cl)) { UpdateUi("GOLDEN TIME ERROR • USE HHMM FROM 0000 TO 2359", Red); return false; }
+            config.GoldenMnqStart = ms; config.GoldenMgcStart = gs; config.GoldenLastEntry = le; config.GoldenClose = cl;
+            config.GoldenUseBh = goldenBhBox == null || goldenBhBox.IsChecked != false ? 1 : 0;
+            config.GoldenFvgMode = goldenFvgBox == null ? "CLOSE" : new[] { "CLOSE", "BREAK", "OFF" }[Math.Max(0, Math.Min(2, goldenFvgBox.SelectedIndex))];
+            if (config.GoldenUseBh == 0 && config.GoldenFvgMode == "OFF") { UpdateUi("GOLDEN • choose BH, FVG or both", Red); return false; }
+            config.GoldenAggression = goldenAggressionBox == null ? "TAG" : new[] { "TAG", "REQUIRED", "OFF" }[Math.Max(0, Math.Min(2, goldenAggressionBox.SelectedIndex))];
+            config.GoldenMnqDropPoints = NumberAllowZero(goldenMnqDropBox, 30); config.GoldenMgcDropPoints = NumberAllowZero(goldenMgcDropBox, 3);
+            config.GoldenMnqTargetPoints = Number(goldenMnqTargetBox, 100); config.GoldenMgcTargetPoints = Number(goldenMgcTargetBox, 10);
+            config.GoldenStopMode = goldenStopBox != null && goldenStopBox.SelectedIndex == 1 ? "FIXED" : "PATTERN";
+            config.GoldenMnqStopPoints = Number(goldenMnqStopBox, 50); config.GoldenMgcStopPoints = Number(goldenMgcStopBox, 5);
+            config.GoldenMnqStopBuffer = NumberAllowZero(goldenMnqBufferBox, 0); config.GoldenMgcStopBuffer = NumberAllowZero(goldenMgcBufferBox, 0);
+            config.GoldenMnqMaxStop = NumberAllowZero(goldenMnqMaxStopBox, 0); config.GoldenMgcMaxStop = NumberAllowZero(goldenMgcMaxStopBox, 0);
+            config.GoldenMnqQuantity = Math.Max(1, Integer(goldenMnqQtyBox, 5)); config.GoldenMgcQuantity = Math.Max(1, Integer(goldenMgcQtyBox, 10));
+            config.GoldenMaxTradesPerDay = Math.Max(1, Math.Min(5, Integer(goldenTriesBox, 1)));
+            // Load from the earliest start to 16:55 (or later close) — the same window as the FVG
+            // default, so bars already saved by an FVG / BH test are reused without a new read.
+            int first = Math.Min(config.Scope == "MGC" ? gs : ms, config.Scope == "MNQ" ? ms : gs);
+            config.SessionMode = "CUSTOM"; config.CustomStart = Math.Min(800, first); config.EndTime = Math.Max(1655, cl);
+            return true;
         }
     }
 }
