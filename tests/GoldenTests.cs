@@ -30,7 +30,7 @@ public static class GoldenTests
     {
         return new KeystoneArcRunConfig
         {
-            StrategyCode = "GLD", Scope = scope, SetupMinutes = 1, SessionMode = "INSTRUMENT_DEFAULT", EndTime = 1555, MnqStart = 930, MgcStart = 800,
+            StrategyCode = "GLD", GoldenMnqMinGap = 0, GoldenMgcMinGap = 0, GoldenSkipStopOverTarget = 0, Scope = scope, SetupMinutes = 1, SessionMode = "INSTRUMENT_DEFAULT", EndTime = 1555, MnqStart = 930, MgcStart = 800,
             Start = new DateTime(2026, 3, 10), End = new DateTime(2026, 3, 11), OutcomeModelEnabled = 1, Quantity = 1, TargetDollars = 1500, StopDollars = 500
         };
     }
@@ -119,6 +119,22 @@ public static class GoldenTests
             var bars = Day("MNQ", new DateTime(2026, 3, 10, 9, 30, 0), MnqBh(), 120, 2.0);
             var e = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).First();
             Check(e.Stop == 19928, "FIXED stop: entry − 40 pts = 19928 (" + e.Stop + ")");
+        }
+        // 6b. minimum FVG gap and "skip if the stop is bigger than the target"
+        {
+            var cfg = Cfg("MGC"); cfg.GoldenUseBh = 0; cfg.GoldenMgcMinGap = 1.0;
+            var c = new List<double[]>
+            {
+                C(2010, 2010.5, 2009.8, 2010), C(2010, 2010.2, 2006, 2006.5), C(2006.5, 2006.8, 2003, 2003.4),
+                C(2003.4, 2004, 2002.8, 2003.9), C(2003.9, 2007, 2003.8, 2006.8), C(2006.8, 2008, 2004.5, 2007.6),   // gap 0.5 (2004 → 2004.5)
+            };
+            var bars = Day("MGC", new DateTime(2026, 3, 10, 8, 0, 0), c, 60, 0.3);
+            Check(KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).Count == 0, "minimum gap 1.0: a 0.5-point FVG is ignored");
+            cfg.GoldenMgcMinGap = 0.5;
+            var e = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).FirstOrDefault();
+            Check(e != null && e.GoldenStartTime == new DateTime(2026, 3, 10, 8, 0, 0) && e.GoldenLowPrice == 2002.8 && e.GoldenPatternTime == new DateTime(2026, 3, 10, 8, 3, 0), "chart labels: start 08:00, push-down low 2002.8, pattern candle 1 at 08:03", e == null ? "none" : e.GoldenStartTime.ToString("HH:mm") + " " + e.GoldenLowPrice + " " + e.GoldenPatternTime.ToString("HH:mm"));
+            cfg.GoldenSkipStopOverTarget = 1; cfg.GoldenMgcTargetPoints = 3;   // stop 4.8 > target 3
+            Check(KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).Count == 0, "a stop (4.8) bigger than the target (3) is skipped");
         }
         // 7. Settings are part of the run key
         {

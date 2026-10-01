@@ -111,6 +111,13 @@ public static class UiSmokeTest
                 Call(lab2, "OpenEvidenceChart"); Call(lab2, "RequestEvidenceBars"); Call(lab2, "RenderEvidenceChart");
                 var canvas = (System.Windows.Controls.Canvas)lab2.GetType().GetField("evidenceCanvas", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
                 int full = canvas.Children.Count;
+                if (strategy == "GLD" && ev2.Count > 0)
+                {
+                    int labels = 0;
+                    foreach (var child in canvas.Children) { var b = child as System.Windows.Controls.Border; var tb = b == null ? null : b.Child as System.Windows.Controls.TextBlock; if (tb != null && tb.Text != null && (tb.Text.StartsWith("GOLDEN") || tb.Text.StartsWith("TP ") || tb.Text.StartsWith("SL "))) labels++; }
+                    Console.WriteLine("      golden labels on the chart: " + labels);
+                    if (labels < 3) throw new Exception("GOLDEN labels (start / TP / SL / result) not drawn");
+                }
                 Call(lab2, "ReplaySetCursor", Call(lab2, "ReplayFirstBarTime"), true);
                 int start = canvas.Children.Count;
                 Console.WriteLine("      chart elements: all candles " + full + " • replay at start " + start);

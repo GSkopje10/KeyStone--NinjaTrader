@@ -20,3 +20,13 @@ setup after the start time.**
   the push down, BH vs FVG, stop sizes, first vs later tries.
 - Data window: earliest start → 16:55, the same as the FVG default, so saved bars are reused.
 - Tests: `tests/GoldenTests.cs`.
+
+## Build 30r
+- **Minimum FVG gap** (candle 3 low − candle 1 high): MNQ ≥ 5 pts, MGC ≥ 1 pt by default. Smaller gaps are ignored.
+- **Skip a setup whose stop is bigger than its target** (on by default).
+- **Chart labels** for every GOLDEN trade: gold START line at the start time; PUSH DOWN line from the start
+  price to the low before the setup (red = aggression, grey dashed = none); FVG gold box with candles
+  1 / 2 / 3, or BH RED / REF / BREAK with the reference-high line; ENTRY, TP (green) and SL (red) lines until
+  the exit; result tag "GOLDEN FVG • WIN $1,000 10:12". In replay each part appears when it happened.
+- **LIVE ACCOUNT • USE THE STRATEGY'S OWN CONTRACTS** (on by default for GOLDEN): one real account, the
+  strategy's contracts (no % sizing), one position per instrument, so MNQ and MGC can be open together.
