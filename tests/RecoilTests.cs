@@ -155,6 +155,48 @@ public static class RecoilTests
             string html = KeystoneRecoilStudy.Html(r, grids, null, 5000);
             Check(html.Contains("RISK GRID") && html.Contains("EVERY BLOWUP") && html.Contains("EVERY LADDER"), "REPORT: HTML with the grid, the blowups and every ladder");
         }
+        // 12. PROP: payouts, a blowup and its replacement, evaluations, copy trading, rotation
+        {
+            Func<DateTime, double, double, KeystoneRecoilCycle> L = (day, net, worst) => new KeystoneRecoilCycle { Id = day.Day, Day = day, Symbol = "MNQ", Dir = 1, PointValue = 2, Reason = net > 0 ? "TARGET" : "BLOWUP", Net = net, MaeValue = worst, MfeValue = Math.Max(0, net), Commission = 4.96, ExitTime = day.AddHours(11), Fills = new List<KeystoneRecoilFill> { new KeystoneRecoilFill { Time = day.AddHours(10), Price = 19900, Qty = 1, TotalQty = 1 } } };
+            var d0 = new DateTime(2026, 3, 2);
+            var run = new KeystoneRecoilResult { Config = Cfg() };
+            for (int i = 0; i < 4; i++) { run.Days.Add(d0.AddDays(i)); run.Cycles.Add(L(d0.AddDays(i), 395.04, -300)); }
+            run.Days.Add(d0.AddDays(4)); run.Cycles.Add(L(d0.AddDays(4), -2006.96, -2000));
+            run.Days.Add(d0.AddDays(5)); run.Cycles.Add(L(d0.AddDays(5), 395.04, -100));
+            var pc = new KeystoneRecoilPropConfig { StartMode = "DIRECT", DirectCost = 500, FundedMaxLoss = 2000, FundedDrawdown = "STATIC", PayoutEveryDays = 2, PayoutMinProfit = 500, PayoutPercent = 50, PayoutCap = 2000, PayoutSplit = 90, PayoutMinAmount = 100, Groups = new List<KeystoneRecoilAccountGroup> { new KeystoneRecoilAccountGroup { Name = "A", Accounts = 1, Mode = "SINGLE" } } };
+            var g = pc.Groups[0];
+            var pr = KeystoneRecoilProp.Run(new List<Tuple<KeystoneRecoilAccountGroup, KeystoneRecoilResult>> { Tuple.Create(g, run) }, pc, new List<KeystoneHelixMinute>());
+            var p1 = pr.Payouts.First();
+            Check(p1.Day == d0.AddDays(1) && Eq(p1.Gross, 395.04) && Eq(p1.Amount, 395.04 * 0.9), "PROP: payout after 2 days = 50% of $790.08 = $395.04 gross, you keep 90%", p1.Day.ToString("MM-dd") + " " + p1.Gross + " " + p1.Amount);
+            // day 3-4: +790.08 → balance 395.04 + 790.08 = 1185.12 → payout 592.56 on day 4; day 5: −2000 worst vs room 592.56+2000 → not liquidated
+            Check(pr.Payouts.Count == 2 && Eq(pr.Payouts[1].Gross, 592.56), "PROP: 2nd payout 50% of $1,185.12", pr.Payouts.Count + " " + (pr.Payouts.Count > 1 ? pr.Payouts[1].Gross.ToString() : ""));
+            Check(pr.FundedBlowups == 0 && pr.Purchases == 1, "PROP: the −$2,000 ladder did not blow an account with $592.56 of profit (room $2,592.56)", pr.FundedBlowups + " blown, " + pr.Purchases + " bought");
+            Check(Eq(pr.NetCash, (395.04 + 592.56) * 0.9 - 500), "PROP: your cash = payouts × 90% − $500", pr.NetCash.ToString());
+            // a fresh account (room $2,000) IS blown by the same ladder → replaced
+            var run2 = new KeystoneRecoilResult { Config = Cfg() }; run2.Days.Add(d0); run2.Cycles.Add(L(d0, -2006.96, -2000)); run2.Days.Add(d0.AddDays(1)); run2.Cycles.Add(L(d0.AddDays(1), 395.04, -10));
+            var pr2 = KeystoneRecoilProp.Run(new List<Tuple<KeystoneRecoilAccountGroup, KeystoneRecoilResult>> { Tuple.Create(g, run2) }, pc, new List<KeystoneHelixMinute>());
+            Check(pr2.FundedBlowups == 1 && pr2.Purchases == 2 && Eq(pr2.ExpenseTotal, 1000) && pr2.Trades[0].Liquidated && Eq(pr2.Trades[0].Pnl, -2000 - 4.96) && pr2.Trades[1].Account.EndsWith("-02"), "PROP: a fresh account is blown at −$2,000 and replaced the same evening ($500 + $500)", pr2.FundedBlowups + " " + pr2.Purchases + " " + pr2.ExpenseTotal + " " + pr2.Trades[0].Pnl + " " + string.Join(",", pr2.Trades.Select(t => t.Account + " " + t.Reason)));
+            // evaluation: pass at +$790 after 2 days, funded the next day with activation
+            var pe = pc.Copy(); pe.StartMode = "EVAL"; pe.EvalCost = 100; pe.ActivationCost = 130; pe.EvalTarget = 790; pe.EvalMaxLoss = 2000; pe.EvalDrawdown = "EOD"; pe.EvalMinDays = 2;
+            var pr3 = KeystoneRecoilProp.Run(new List<Tuple<KeystoneRecoilAccountGroup, KeystoneRecoilResult>> { Tuple.Create(pe.Groups[0], run) }, pe, new List<KeystoneHelixMinute>());
+            var life = pr3.Lives[0];
+            Check(life.PassDate == d0.AddDays(1) && life.FundedDate == d0.AddDays(2) && Eq(pr3.ExpenseTotal, 230), "EVAL: passed day 2 (+$790.08 ≥ $790, 2 days), funded day 3, $100 + $130 activation", life.PassDate.ToString("MM-dd") + " " + life.FundedDate.ToString("MM-dd") + " " + pr3.ExpenseTotal);
+            // copy trading: 3 accounts each take every ladder
+            var pcopy = pc.Copy(); pcopy.Groups[0].Accounts = 3; pcopy.Groups[0].Mode = "COPY";
+            var pr4 = KeystoneRecoilProp.Run(new List<Tuple<KeystoneRecoilAccountGroup, KeystoneRecoilResult>> { Tuple.Create(pcopy.Groups[0], run) }, pcopy, new List<KeystoneHelixMinute>());
+            Check(pr4.Trades.Count(t => t.Day == d0) == 3 && pr4.Purchases == 3, "COPY: 3 accounts each take the ladder", pr4.Trades.Count(t => t.Day == d0).ToString());
+            // rotation: each fill of the real ladder (example 2) goes to the next account with its own $400 target
+            var c2 = Ladder(); c2.Add(C(19600, 19810, 19590, 19805));
+            var bars2 = Bars("MNQ", D, c2, 2.0); var mins2 = KeystoneHelix.Align(bars2, new List<KeystoneArcBar>());
+            var lad = KeystoneRecoil.Run(mins2, Cfg());
+            var prot = pc.Copy(); prot.Groups[0].Accounts = 4; prot.Groups[0].Mode = "ROTATION";
+            var pr5 = KeystoneRecoilProp.Run(new List<Tuple<KeystoneRecoilAccountGroup, KeystoneRecoilResult>> { Tuple.Create(prot.Groups[0], lad) }, prot, mins2);
+            Check(pr5.Trades.Count == 4 && pr5.Trades.Select(t => t.Account).Distinct().Count() == 4, "ROTATION: the 4 entries went to 4 different accounts", string.Join(",", pr5.Trades.Select(t => t.Account + " " + t.Reason + " " + t.Pnl.ToString("0"))));
+            var lastAcct = pr5.Trades.First(t => t.FillIndex == 3);
+            Check(lastAcct.Reason == "TARGET" || lastAcct.Reason == "SESSION END", "ROTATION: the account that bought 19600 rides the bounce on its own (+$400 needs 19800)", lastAcct.Reason + " " + lastAcct.Pnl);
+            var single = KeystoneRecoilProp.ResolveSingle(mins2, "MNQ", 1, 19600, 1, 2, D.AddMinutes(4), 400, 2000, D.Date.AddHours(16), 0, 0);
+            Check(single.Reason == "TARGET" && Eq(single.ExitPrice, 19800) && Eq(single.Pnl, 400), "SINGLE POSITION: 1 MNQ from 19600 with $400 target exits at 19800", single.Reason + " " + single.ExitPrice);
+        }
         Console.WriteLine(failures == 0 ? "ALL RECOIL TESTS PASSED" : failures + " RECOIL TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

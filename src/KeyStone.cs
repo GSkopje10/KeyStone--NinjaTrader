@@ -7101,6 +7101,275 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- RECOIL prop simulation (Build 30x): evaluation fees, funded accounts, payouts, copy / rotation, groups by session ----
+    // The money that counts is your cash: payouts you receive minus every evaluation / activation / account you buy.
+    // A ladder's loss only matters through the account it blows (and the fee to replace it).
+    public sealed class KeystoneRecoilAccountGroup
+    {
+        public string Name = "A"; public int Enabled = 1, Accounts = 5;
+        public string Mode = "SINGLE";       // SINGLE: one account trades the whole day's ladders, the next account the next day • COPY: every account copies every ladder • ROTATION: each entry / add goes to the next account
+        public int StartHhmm = 930, LastEntryHhmm = 1500, CloseHhmm = 1600;
+        public KeystoneRecoilAccountGroup Copy() { return (KeystoneRecoilAccountGroup)MemberwiseClone(); }
+        public string Label() { return Name + " • " + Accounts + " accounts • " + (Mode == "COPY" ? "COPY TRADING" : Mode == "ROTATION" ? "ROTATION (each add → next account)" : "ONE ACCOUNT A DAY") + " • " + KeystoneRecoilConfig.Hhmm(StartHhmm) + "–" + KeystoneRecoilConfig.Hhmm(CloseHhmm); }
+    }
+
+    public sealed class KeystoneRecoilPropConfig
+    {
+        public string StartMode = "EVAL";    // EVAL (buy an evaluation, pass it, then funded) • DIRECT (buy a funded account)
+        public double EvalCost = 100, ActivationCost = 0, DirectCost = 500;
+        public double EvalTarget = 3000, EvalMaxLoss = 2000; public string EvalDrawdown = "EOD"; public int EvalMinDays = 1; public double EvalConsistency = 0;
+        public double FundedMaxLoss = 2000; public string FundedDrawdown = "EOD"; public double TrailLockAt = 100; public double DailyLossLimit = 0;
+        public int PayoutEveryDays = 5; public double PayoutMinProfit = 1000, PayoutPercent = 50, PayoutCap = 2000, PayoutSplit = 90, PayoutMinAmount = 500; public int MaxPayouts = 0;
+        public int AutoReplace = 1, MaxPurchases = 0;
+        public double RotationTarget = 0;    // ROTATION: $ target of each account's own position (0 = the ladder target)
+        public List<KeystoneRecoilAccountGroup> Groups = new List<KeystoneRecoilAccountGroup> { new KeystoneRecoilAccountGroup() };
+        public KeystoneRecoilPropConfig Copy() { var c = (KeystoneRecoilPropConfig)MemberwiseClone(); c.Groups = Groups.Select(g => g.Copy()).ToList(); return c; }
+        public string Describe()
+        {
+            Func<double, string> m = v => "$" + v.ToString("N0", CultureInfo.InvariantCulture);
+            return (StartMode == "EVAL" ? "evaluation " + m(EvalCost) + (ActivationCost > 0 ? " + activation " + m(ActivationCost) : "") + " • pass +" + m(EvalTarget) + " (max loss " + m(EvalMaxLoss) + " " + EvalDrawdown + (EvalMinDays > 1 ? ", " + EvalMinDays + " days min" : "") + (EvalConsistency > 0 ? ", best day ≤ " + EvalConsistency.ToString("0") + "%" : "") + ")" : "funded account " + m(DirectCost))
+                + " • funded max loss " + m(FundedMaxLoss) + " " + FundedDrawdown + (FundedDrawdown != "STATIC" ? " (locks at +" + m(TrailLockAt) + ")" : "") + (DailyLossLimit > 0 ? " • daily loss " + m(DailyLossLimit) : "")
+                + " • payout every " + PayoutEveryDays + " trading days when profit ≥ " + m(PayoutMinProfit) + ": " + PayoutPercent.ToString("0") + "% up to " + m(PayoutCap) + " (min " + m(PayoutMinAmount) + "), you keep " + PayoutSplit.ToString("0") + "%" + (MaxPayouts > 0 ? " • max " + MaxPayouts + " payouts" : "")
+                + " • " + (AutoReplace == 1 ? "replace lost accounts" + (MaxPurchases > 0 ? " (max " + MaxPurchases + " purchases)" : "") : "no replacement");
+        }
+    }
+
+    public sealed class KeystoneRecoilLife
+    {
+        public string Id = string.Empty, Group = string.Empty, Status = "EVAL", EndReason = string.Empty;
+        public int Slot, Instance, Payouts, Trades, Wins, Losses, TradingDays;
+        public DateTime Bought, PassDate = DateTime.MinValue, FundedDate = DateTime.MinValue, EndDate = DateTime.MinValue;
+        public double Cost, PayoutGross, PayoutCash, Balance, TradingNet;
+    }
+    public sealed class KeystoneRecoilPropTrade { public DateTime Day, Entry, Exit; public string Account = string.Empty, Group = string.Empty, Symbol = string.Empty, Stage = string.Empty, Reason = string.Empty; public int LadderId, FillIndex = -1, Qty; public double Pnl, Worst, BalanceAfter; public bool Liquidated; }
+    public sealed class KeystoneRecoilPropMoney { public DateTime Day; public string Account = string.Empty, Kind = string.Empty; public double Amount, Gross; }
+    public sealed class KeystoneRecoilPropDay { public DateTime Day; public double Trading, PayoutCash, Expenses; public int Trades, Blowups, Passes, Payouts, Purchases, Active; }
+
+    public sealed class KeystoneRecoilPropResult
+    {
+        public KeystoneRecoilPropConfig Config;
+        public List<KeystoneRecoilLife> Lives = new List<KeystoneRecoilLife>();
+        public List<KeystoneRecoilPropTrade> Trades = new List<KeystoneRecoilPropTrade>();
+        public List<KeystoneRecoilPropMoney> Payouts = new List<KeystoneRecoilPropMoney>(), Expenses = new List<KeystoneRecoilPropMoney>();
+        public List<KeystoneRecoilPropDay> Days = new List<KeystoneRecoilPropDay>();
+        public List<string> Notes = new List<string>();
+        public double PayoutCash { get { return Payouts.Sum(p => p.Amount); } }
+        public double PayoutGross { get { return Payouts.Sum(p => p.Gross); } }
+        public double ExpenseTotal { get { return Expenses.Sum(e => e.Amount); } }
+        public double NetCash { get { return PayoutCash - ExpenseTotal; } }
+        public int Purchases { get { return Lives.Count; } }
+        public int Passes { get { return Lives.Count(l => l.PassDate != DateTime.MinValue); } }
+        public int EvalFails { get { return Lives.Count(l => l.Status == "FAILED EVAL"); } }
+        public int FundedBlowups { get { return Lives.Count(l => l.Status == "BLOWN"); } }
+        public int Paid { get { return Lives.Count(l => l.Payouts > 0); } }
+        public double PerPurchase { get { return Purchases == 0 ? 0 : NetCash / Purchases; } }
+        public double LowestCash() { double run = 0, low = 0; foreach (var d in Days) { run += d.PayoutCash - d.Expenses; low = Math.Min(low, run); } return low; }
+    }
+
+    public sealed class KeystoneRecoilSingle { public DateTime Exit = DateTime.MinValue; public double ExitPrice, Pnl, Worst, Best; public string Reason = string.Empty; }
+
+    public static class KeystoneRecoilProp
+    {
+        sealed class Acct
+        {
+            public KeystoneRecoilLife Life; public string GroupName; public int Slot;
+            public bool Eval, Waiting; public double Balance, HwmEod, HwmIntra, BestDay, DayPnl, ProfitDays; public int DaysTraded, DaysSincePayout; public bool TradedToday;
+            public DateTime BusyUntil = DateTime.MinValue;
+            public bool Active { get { return Life != null && !Waiting && (Life.Status == "EVAL" || Life.Status == "FUNDED"); } }
+        }
+
+        static double Threshold(Acct a, KeystoneRecoilPropConfig c)
+        {
+            double maxLoss = a.Eval ? c.EvalMaxLoss : c.FundedMaxLoss; string mode = a.Eval ? c.EvalDrawdown : c.FundedDrawdown;
+            if (mode == "STATIC") return -maxLoss;
+            double hwm = mode == "INTRADAY" ? a.HwmIntra : a.HwmEod;
+            return Math.Min(hwm - maxLoss, c.TrailLockAt);
+        }
+        // Room before the account is liquidated (and before its daily loss limit).
+        static double Room(Acct a, KeystoneRecoilPropConfig c)
+        {
+            double room = a.Balance - Threshold(a, c);
+            if (c.DailyLossLimit > 0) room = Math.Min(room, c.DailyLossLimit + a.DayPnl);
+            return Math.Max(0, room);
+        }
+
+        // A single position on its own (ROTATION): its own $ target and stop, the same conservative minute rules as the ladder.
+        public static KeystoneRecoilSingle ResolveSingle(List<KeystoneHelixMinute> minutes, string symbol, int dir, double price, int qty, double pv, DateTime fillTime, double targetDollars, double stopDollars, DateTime close, double commissionPerSide, double slipTicks)
+        {
+            var r = new KeystoneRecoilSingle();
+            bool mg = symbol == "MGC"; double tick = mg ? KeystoneRecoil.MgcTick : KeystoneRecoil.MnqTick;
+            double tp = price + dir * targetDollars / (qty * pv), sp = price - dir * stopDollars / (qty * pv);
+            Func<double, double> val = px => dir * (px - price) * qty * pv;
+            int lo = 0, hi = minutes.Count - 1, k0 = minutes.Count;
+            while (lo <= hi) { int mid = (lo + hi) / 2; if (minutes[mid].Time >= fillTime) { k0 = mid; hi = mid - 1; } else lo = mid + 1; }
+            double comm = commissionPerSide * 2 * qty, slip = slipTicks * tick * pv * qty;
+            DateTime lastT = fillTime; double lastC = price;
+            for (int k = k0; k < minutes.Count; k++)
+            {
+                var m = minutes[k]; if (m.Time > close) break;
+                if (!(mg ? m.HasMgc : m.HasMnq)) continue;
+                double o = mg ? m.MgcO : m.MnqO, h = mg ? m.MgcH : m.MnqH, l = mg ? m.MgcL : m.MnqL, cl = mg ? m.MgcC : m.MnqC;
+                double adv = dir > 0 ? l : h, fav = dir > 0 ? h : l;
+                bool entryMinute = m.Time == fillTime;
+                r.Worst = Math.Min(r.Worst, val(adv)); r.Best = Math.Max(r.Best, val(entryMinute ? cl : fav));
+                if (!entryMinute)
+                {
+                    if (dir * (o - sp) <= 0) { r.Exit = m.Time; r.ExitPrice = o; r.Reason = "STOP"; r.Pnl = val(o) - comm - slip; return r; }
+                    if (dir * (o - tp) >= 0) { r.Exit = m.Time; r.ExitPrice = o; r.Reason = "TARGET"; r.Pnl = val(o) - comm; return r; }
+                }
+                if (dir * (adv - sp) <= 0) { r.Exit = m.Time; r.ExitPrice = sp; r.Reason = "STOP"; r.Pnl = val(sp) - comm - slip; return r; }
+                if (entryMinute ? dir * (cl - tp) >= 0 : dir * (fav - tp) >= 0) { r.Exit = m.Time; r.ExitPrice = tp; r.Reason = "TARGET"; r.Pnl = val(tp) - comm; return r; }
+                lastT = m.Time; lastC = cl;
+            }
+            r.Exit = lastT; r.ExitPrice = lastC; r.Reason = "SESSION END"; r.Pnl = val(lastC) - comm - slip; return r;
+        }
+
+        public static KeystoneRecoilPropResult Run(List<Tuple<KeystoneRecoilAccountGroup, KeystoneRecoilResult>> runs, KeystoneRecoilPropConfig c, List<KeystoneHelixMinute> minutes)
+        {
+            var res = new KeystoneRecoilPropResult { Config = c };
+            var groups = runs.Where(x => x.Item1.Enabled == 1 && x.Item1.Accounts > 0).ToList();
+            if (groups.Count == 0) { res.Notes.Add("No account group is switched on."); return res; }
+            var days = groups.SelectMany(x => x.Item2.Days).Distinct().OrderBy(d => d).ToList();
+            var slots = new Dictionary<string, List<Acct>>();
+            var pointers = new Dictionary<string, int>();
+            int purchases = 0;
+            Func<Acct, DateTime, bool> buy = (a, day) =>
+            {
+                if (c.MaxPurchases > 0 && purchases >= c.MaxPurchases) return false;
+                purchases++;
+                int inst = res.Lives.Count(l => l.Group == a.GroupName && l.Slot == a.Slot + 1) + 1;
+                bool eval = c.StartMode == "EVAL";
+                a.Life = new KeystoneRecoilLife { Id = a.GroupName + (a.Slot + 1).ToString("00") + "-" + inst.ToString("00"), Group = a.GroupName, Slot = a.Slot + 1, Instance = inst, Bought = day, Status = eval ? "EVAL" : "FUNDED", Cost = eval ? c.EvalCost : c.DirectCost };
+                if (!eval) a.Life.FundedDate = day;
+                res.Lives.Add(a.Life);
+                res.Expenses.Add(new KeystoneRecoilPropMoney { Day = day, Account = a.Life.Id, Kind = eval ? "EVALUATION" : "FUNDED ACCOUNT", Amount = a.Life.Cost });
+                a.Eval = eval; a.Waiting = false; a.Balance = 0; a.HwmEod = 0; a.HwmIntra = 0; a.BestDay = 0; a.DaysTraded = 0; a.DaysSincePayout = 0; a.BusyUntil = DateTime.MinValue;
+                return true;
+            };
+            DateTime first = days.Count > 0 ? days[0] : DateTime.Today;
+            foreach (var g in groups)
+            {
+                var list = new List<Acct>();
+                for (int k = 0; k < g.Item1.Accounts; k++) { var a = new Acct { GroupName = g.Item1.Name, Slot = k }; buy(a, first); list.Add(a); }
+                slots[g.Item1.Name] = list; pointers[g.Item1.Name] = 0;
+            }
+            foreach (var day in days)
+            {
+                var row = new KeystoneRecoilPropDay { Day = day };
+                foreach (var list in slots.Values) foreach (var a in list) { a.DayPnl = 0; a.TradedToday = false; if (a.Waiting && a.Life != null && a.Life.Status == "PASSED") { a.Waiting = false; a.Eval = false; a.Life.Status = "FUNDED"; a.Life.FundedDate = day; a.Balance = 0; a.HwmEod = 0; a.HwmIntra = 0; a.DaysSincePayout = 0; if (c.ActivationCost > 0) { a.Life.Cost += c.ActivationCost; res.Expenses.Add(new KeystoneRecoilPropMoney { Day = day, Account = a.Life.Id, Kind = "ACTIVATION", Amount = c.ActivationCost }); row.Expenses += c.ActivationCost; } } }
+                if (day == first) row.Expenses += res.Expenses.Where(e => e.Day == day && e.Kind != "ACTIVATION").Sum(e => e.Amount);
+                foreach (var g in groups)
+                {
+                    var grp = g.Item1; var list = slots[grp.Name];
+                    var ladders = g.Item2.Cycles.Where(x => x.Day == day && x.Fills.Count > 0).OrderBy(x => x.EntryTime).ToList();
+                    if (ladders.Count == 0) continue;
+                    Action<Acct, KeystoneRecoilPropTrade> book = (a, t) =>
+                    {
+                        a.Balance += t.Pnl; a.DayPnl += t.Pnl; a.Life.TradingNet += t.Pnl; a.Life.Trades++; if (t.Pnl > 0) a.Life.Wins++; else a.Life.Losses++; a.TradedToday = true;
+                        t.BalanceAfter = a.Balance; t.Stage = a.Eval ? "EVAL" : "FUNDED"; res.Trades.Add(t); row.Trading += t.Pnl; row.Trades++;
+                        if (t.Liquidated)
+                        {
+                            a.Life.Status = a.Eval ? "FAILED EVAL" : "BLOWN"; a.Life.EndDate = day; a.Life.EndReason = t.Reason; a.Life.Balance = a.Balance; row.Blowups++;
+                            a.Waiting = true;
+                        }
+                    };
+                    if (grp.Mode == "ROTATION")
+                    {
+                        // Every fill of every ladder goes to the next free account; each holds its own position.
+                        var fills = ladders.SelectMany(x => x.Fills.Select((f, i) => Tuple.Create(x, f, i))).OrderBy(t => t.Item2.Time).ToList();
+                        foreach (var f in fills)
+                        {
+                            Acct a = null; int p = pointers[grp.Name];
+                            for (int s = 0; s < list.Count; s++) { var cand = list[(p + s) % list.Count]; if (cand.Active && cand.BusyUntil <= f.Item2.Time) { a = cand; pointers[grp.Name] = (p + s + 1) % list.Count; break; } }
+                            if (a == null) { res.Notes.Add(day.ToString("yyyy-MM-dd") + " " + grp.Name + " • fill " + f.Item2.Time.ToString("HH:mm") + " skipped: no free account"); continue; }
+                            var cy = f.Item1; double room = Room(a, c);
+                            double target = c.RotationTarget > 0 ? c.RotationTarget : g.Item2.Config.TargetDollars;
+                            var one = ResolveSingle(minutes, cy.Symbol, cy.Dir, f.Item2.Price, f.Item2.Qty, cy.PointValue, f.Item2.Time, target, room, day.AddHours(grp.CloseHhmm / 100).AddMinutes(grp.CloseHhmm % 100), g.Item2.Config.CommissionPerSide, g.Item2.Config.SlippageTicks);
+                            a.BusyUntil = one.Exit;
+                            if ((a.Eval ? c.EvalDrawdown : c.FundedDrawdown) == "INTRADAY") a.HwmIntra = Math.Max(a.HwmIntra, a.Balance + one.Best);
+                            bool liq = one.Reason == "STOP";
+                            book(a, new KeystoneRecoilPropTrade { Day = day, Entry = f.Item2.Time, Exit = one.Exit, Account = a.Life.Id, Group = grp.Name, Symbol = cy.Symbol, LadderId = cy.Id, FillIndex = f.Item3, Qty = f.Item2.Qty, Pnl = one.Pnl, Worst = one.Worst, Reason = liq ? "LIQUIDATED" : one.Reason, Liquidated = liq });
+                        }
+                        continue;
+                    }
+                    // SINGLE: today's account trades every ladder of the day • COPY: every active account trades every ladder.
+                    List<Acct> takers;
+                    if (grp.Mode == "COPY") takers = list.Where(a => a.Active).ToList();
+                    else
+                    {
+                        Acct a = null; int p = pointers[grp.Name];
+                        for (int s = 0; s < list.Count; s++) { var cand = list[(p + s) % list.Count]; if (cand.Active) { a = cand; pointers[grp.Name] = (p + s + 1) % list.Count; break; } }
+                        takers = a == null ? new List<Acct>() : new List<Acct> { a };
+                    }
+                    // Ladders that overlap in time are one exposure: the account's worst moment is the SUM of their worst moments (a safe overestimate).
+                    var clusters = new List<List<KeystoneRecoilCycle>>();
+                    foreach (var x in ladders.OrderBy(x => x.EntryTime)) { if (clusters.Count > 0 && clusters[clusters.Count - 1].Any(y => y.ExitTime > x.EntryTime)) clusters[clusters.Count - 1].Add(x); else clusters.Add(new List<KeystoneRecoilCycle> { x }); }
+                    foreach (var a in takers)
+                        foreach (var cl in clusters)
+                        {
+                            if (!a.Active) break;
+                            double worst = cl.Sum(x => x.MaeValue), best = cl.Sum(x => x.MfeValue), room = Room(a, c);
+                            if ((a.Eval ? c.EvalDrawdown : c.FundedDrawdown) == "INTRADAY") { a.HwmIntra = Math.Max(a.HwmIntra, a.Balance + best); room = Room(a, c); }
+                            if (worst <= -room)
+                            {
+                                double costs = cl.Sum(x => x.Commission + x.Slippage);
+                                book(a, new KeystoneRecoilPropTrade { Day = day, Entry = cl[0].EntryTime, Exit = cl.Max(x => x.ExitTime), Account = a.Life.Id, Group = grp.Name, Symbol = string.Join("+", cl.Select(x => x.Symbol).Distinct()), LadderId = cl[0].Id, Qty = cl.Sum(x => x.MaxQty), Pnl = -room - costs, Worst = worst, Reason = "LIQUIDATED", Liquidated = true });
+                                break;
+                            }
+                            foreach (var x in cl)
+                                book(a, new KeystoneRecoilPropTrade { Day = day, Entry = x.EntryTime, Exit = x.ExitTime, Account = a.Life.Id, Group = grp.Name, Symbol = x.Symbol, LadderId = x.Id, Qty = x.MaxQty, Pnl = x.Net, Worst = x.MaeValue, Reason = x.Win ? "TARGET" : x.Reason });
+                        }
+                }
+                // End of day: trailing drawdown, evaluation pass, payouts, replacements.
+                foreach (var list in slots.Values)
+                    foreach (var a in list)
+                    {
+                        if (a.Life == null) continue;
+                        if (a.Active)
+                        {
+                            if (a.TradedToday) { a.DaysTraded++; a.Life.TradingDays++; a.DaysSincePayout++; if (a.DayPnl > a.BestDay) a.BestDay = a.DayPnl; }
+                            a.HwmEod = Math.Max(a.HwmEod, a.Balance); a.HwmIntra = Math.Max(a.HwmIntra, a.Balance);
+                            if (a.Eval)
+                            {
+                                bool consistent = c.EvalConsistency <= 0 || a.Balance <= 0 || a.BestDay <= a.Balance * c.EvalConsistency / 100.0;
+                                if (a.Balance >= c.EvalTarget && a.DaysTraded >= Math.Max(1, c.EvalMinDays) && consistent) { a.Life.Status = "PASSED"; a.Life.PassDate = day; a.Waiting = true; row.Passes++; }
+                            }
+                            else if (a.DaysSincePayout >= Math.Max(1, c.PayoutEveryDays) && a.Balance >= c.PayoutMinProfit)
+                            {
+                                double gross = Math.Min(c.PayoutCap > 0 ? c.PayoutCap : double.MaxValue, a.Balance * c.PayoutPercent / 100.0);
+                                if (gross >= c.PayoutMinAmount && gross > 0)
+                                {
+                                    double cash = gross * c.PayoutSplit / 100.0;
+                                    a.Balance -= gross; a.DaysSincePayout = 0; a.Life.Payouts++; a.Life.PayoutGross += gross; a.Life.PayoutCash += cash;
+                                    res.Payouts.Add(new KeystoneRecoilPropMoney { Day = day, Account = a.Life.Id, Kind = "PAYOUT " + a.Life.Payouts, Amount = cash, Gross = gross });
+                                    row.PayoutCash += cash; row.Payouts++;
+                                    if (c.MaxPayouts > 0 && a.Life.Payouts >= c.MaxPayouts) { a.Life.Status = "DONE"; a.Life.EndReason = "MAX PAYOUTS"; a.Life.EndDate = day; a.Waiting = true; }
+                                }
+                            }
+                            a.Life.Balance = a.Balance;
+                        }
+                        // a lost / finished account is replaced for the next session
+                        if (a.Waiting && a.Life.Status != "PASSED" && c.AutoReplace == 1)
+                        {
+                            double before = res.ExpenseTotal;
+                            if (buy(a, day)) { row.Purchases++; row.Expenses += res.ExpenseTotal - before; }
+                        }
+                    }
+                row.Active = slots.Values.Sum(l => l.Count(a => a.Active));
+                res.Days.Add(row);
+            }
+            return res;
+        }
+
+        public static string Verdict(KeystoneRecoilPropResult r)
+        {
+            if (r.Days.Count == 0) return "NO PROP RESULT • no ladders on the loaded days.";
+            Func<double, string> m = KeystoneRecoilStudy.Cash;
+            return (r.NetCash > 0 ? "PROFITABLE • " : "NOT PROFITABLE • ") + "you end " + (r.NetCash >= 0 ? "+" : "") + m(r.NetCash) + " after buying " + r.Purchases + " accounts (" + m(r.ExpenseTotal) + ") and receiving " + r.Payouts.Count + " payouts (" + m(r.PayoutCash) + ")"
+                + " • per account bought " + (r.PerPurchase >= 0 ? "+" : "") + m(r.PerPurchase) + " • " + r.Passes + " evaluations passed, " + r.EvalFails + " failed, " + r.FundedBlowups + " funded accounts blown, " + r.Paid + " accounts ever paid • the most you were down: " + m(r.LowestCash()) + ".";
+        }
+    }
+
     public static class KeystoneHelixManusReference
     {
         public const string Pool10 = "20240102,-2565,4,14,0,19;20240103,265,6,12,1,19;20240104,325,2,3,0,6;20240105,75,3,7,1,11;20240108,6300,6,0,0,7;20240109,2400,4,4,0,9;20240110,1500,3,4,0,8;20240111,655,7,14,0,22;20240112,-760,3,9,0,13;20240116,650,6,12,1,19;20240117,70,5,11,0,17;20240118,3685,6,6,0,13;20240119,4540,6,4,0,11;20240122,-465,4,9,0,14;20240123,1975,4,5,0,10;20240124,-1445,4,11,0,16;20240125,-1215,1,6,0,8;20240126,-520,3,7,0,11;20240129,2635,4,3,0,8;20240130,-1915,1,6,2,8;20240131,-1500,5,13,3,18;20240201,3000,5,4,0,9;20240202,3000,5,4,0,9;20240205,690,4,7,0,12;20240206,-525,1,5,0,7;20240207,1450,4,6,0,11;20240208,1025,1,1,0,3;20240209,2760,4,2,0,7;20240212,-675,1,4,0,6;20240213,-245,5,11,0,17;20240214,1830,5,7,0,13;20240215,945,3,5,0,9;20240216,-225,5,11,1,17;20240220,-370,5,12,0,18;20240221,885,3,6,0,10;20240222,2730,5,5,0,11;20240223,-500,2,5,1,8;20240226,285,3,5,1,9;20240227,-370,2,5,0,8;20240228,-265,1,4,0,6;20240229,500,3,5,0,8;20240301,7500,8,1,0,9;20240304,910,2,2,0,5;20240305,-3540,3,14,0,18;20240306,2510,8,11,0,20;20240307,2675,4,2,0,7;20240308,-2000,8,20,2,28;20240311,430,5,9,0,15;20240312,3360,7,8,0,16;20240313,-590,3,8,0,12;20240314,0,7,14,0,21;20240315,-1450,5,13,0,19;20240318,-200,3,6,0,10;20240319,3035,5,5,0,11;20240320,5500,9,7,1,16;20240321,-3715,2,11,0,14;20240322,-245,1,3,0,5;20240325,800,2,2,0,5;20240326,-2670,1,7,0,9;20240327,170,3,6,0,10;20240328,555,2,3,0,6;20240401,-250,3,8,1,12;20240402,2550,6,7,0,14;20240403,4705,7,6,0,14;20240404,-7375,1,17,0,19;20240405,7000,9,4,0,13;20240408,450,5,9,0,15;20240409,1045,7,13,0,21;20240410,2000,9,14,1,23;20240411,7000,9,4,0,13;20240412,-5500,7,25,2,32;20240415,-1500,5,13,2,18;20240416,2000,5,6,0,11;20240417,-3000,6,18,0,24;20240418,0,5,10,1,15;20240419,-4000,4,16,1,20;20240422,-500,3,7,1,10;20240423,2500,3,1,0,4;20240424,-1150,4,10,0,15;20240425,5500,8,5,0,13;20240426,3025,6,6,0,13;20240429,95,3,7,0,11;20240430,-5000,3,16,0,19;20240501,3000,9,12,1,21;20240502,3035,7,8,0,16;20240503,1620,7,11,0,19;20240506,2305,3,2,0,6;20240507,-515,0,2,0,3;20240508,1830,3,2,0,6;20240509,3145,4,3,0,8;20240510,-485,3,7,0,11;20240513,-1115,2,6,0,9;20240514,3245,6,5,0,12;20240515,5755,8,5,0,14;20240516,15,3,5,0,9;20240517,1335,4,7,0,12;20240520,3385,4,2,0,7;20240521,1695,2,1,0,4;20240522,-2405,3,12,0,16;20240523,-5595,5,22,0,28;20240524,1125,4,6,0,11;20240528,550,5,10,1,16;20240529,640,4,7,1,12;20240530,-2285,3,10,0,14;20240531,-1500,6,15,2,21;20240603,-500,5,11,1,16;20240604,-1500,4,11,1,15;20240605,2500,4,3,0,7;20240606,580,3,5,0,9;20240607,-2815,4,13,0,18;20240610,2960,5,4,0,10;20240611,4455,5,3,0,9;20240612,1000,7,12,1,19;20240613,-1235,4,10,0,15;20240614,2950,5,6,0,12;20240617,4790,7,4,0,12;20240618,1425,2,2,0,5;20240620,-1500,7,17,2,24;20240621,-2330,5,14,0,20;20240624,-2640,4,13,1,18;20240625,2565,5,6,0,12;20240626,1525,5,7,0,13;20240627,1970,5,7,1,13;20240628,-1985,6,15,1,22;20240701,1500,7,11,1,18;20240702,3500,7,7,0,14;20240705,4500,7,5,0,12;20240708,-245,4,9,0,14;20240709,-685,4,10,0,15;20240710,1915,4,4,0,9;20240711,-5500,8,27,1,35;20240712,5500,8,5,1,13;20240715,500,7,13,1,20;20240716,2000,7,10,0,17;20240717,-5000,6,22,1,28;20240718,-5000,4,18,2,22;20240719,-500,4,9,0,13;20240722,0,3,6,1,9;20240723,1000,6,10,1,16;20240724,-8370,2,21,1,24;20240725,-500,5,11,0,16;20240726,500,4,7,1,11;20240729,500,3,5,1,8;20240730,-3000,7,20,1,27;20240731,2500,7,9,0,16;20240801,-1500,5,13,2,18;20240802,0,4,8,1,12;20240805,3500,4,1,0,5;20240806,3500,7,7,0,14;20240807,-4500,6,21,1,27;20240808,4000,6,4,0,10;20240809,1000,6,10,0,16;20240812,3000,6,6,0,12;20240813,5585,8,5,0,14;20240814,1235,8,14,1,23;20240815,4960,7,5,0,13;20240816,3945,7,6,0,14;20240819,6720,8,3,0,12;20240820,-900,6,13,0,20;20240821,3420,9,12,0,22;20240822,-5935,5,23,1,29;20240823,2000,7,10,2,17;20240826,-2965,4,15,0,20;20240827,4145,6,4,0,11;20240828,-1120,6,14,0,21;20240829,3500,7,7,0,14;20240830,-1000,7,16,0,23;20240903,-6790,4,22,1,27;20240904,4500,9,9,0,18;20240905,3000,9,12,0,21;20240906,-7325,6,27,2,34;20240909,2500,7,9,0,16;20240910,1500,7,11,0,18;20240911,2500,8,11,0,19;20240912,4500,8,7,0,15;20240913,2945,6,7,0,14;20240916,1715,6,10,0,17;20240917,-1000,7,16,1,23;20240918,3500,9,11,0,20;20240919,2305,8,12,0,21;20240920,2165,7,9,0,17;20240923,-10,3,7,1,11;20240924,4115,7,6,0,14;20240925,960,4,7,0,12;20240926,-1595,5,13,0,19;20240927,-3985,2,12,0,15;20240930,500,7,13,2,20;20241001,-2000,6,16,1,22;20241002,1380,6,9,0,16;20241003,3500,7,7,0,14;20241004,-1000,6,14,1,20;20241007,-2085,2,9,0,12;20241008,2500,6,7,0,13;20241009,3380,5,4,0,10;20241010,2330,7,9,0,17;20241011,2555,4,3,0,8;20241014,1870,5,6,0,12;20241015,-3000,7,20,2,27;20241016,-320,5,11,0,17;20241017,-1310,5,13,0,19;20241018,920,3,5,0,9;20241021,1000,8,14,0,22;20241022,3545,6,4,0,11;20241023,-4490,4,18,0,23;20241024,820,5,8,1,14;20241025,545,6,11,0,18;20241028,-1285,1,5,0,7;20241029,5500,8,5,1,13;20241030,-1160,5,13,0,19;20241031,-5000,6,22,1,28;20241101,1500,6,9,2,15;20241104,1500,6,9,0,15;20241105,2875,5,6,0,12;20241106,4500,8,7,0,15;20241107,6000,8,4,0,12;20241108,-245,2,4,0,7;20241111,-745,3,8,0,12;20241112,-1370,5,13,0,19;20241113,-1575,6,16,2,23;20241114,500,8,15,0,23;20241115,-5305,3,16,0,20;20241118,1735,6,9,0,16;20241119,5000,7,4,1,11;20241120,2000,9,14,0,23;20241121,500,9,17,0,26;20241122,5000,9,8,0,17;20250102,2000,8,12,1,20;20250103,3000,8,10,0,18;20250106,1335,5,8,0,14;20250107,-2500,8,21,1,29;20250108,-1000,7,16,1,23;20250110,-2500,7,19,0,26;20250113,1000,7,12,0,19;20250114,-1000,8,18,1,26;20250115,2500,7,9,1,16;20250116,-1000,6,14,1,20;20250117,-30,5,11,0,17;20250121,1500,6,9,0,15;20250122,1700,3,3,0,7;20250123,4265,5,3,0,9;20250124,-2420,3,12,0,16;20250127,-500,7,15,2,22;20250128,3000,7,8,0,15;20250129,-500,8,17,0,25;20250130,2000,8,12,0,20;20250131,500,6,11,2,17;20250203,2500,6,7,0,13;20250204,4500,6,3,0,9;20250205,3210,7,8,0,16;20250206,2115,7,10,0,18;20250207,-1000,8,18,0,26;20250210,2500,4,3,0,8;20250211,1620,5,7,0,13;20250212,5000,9,8,1,17;20250213,5000,9,8,0,17;20250214,-2335,4,12,0,17;20250218,1620,6,9,0,16;20250219,935,4,7,0,12;20250220,795,8,15,1,24;20250221,-7325,5,25,1,31;20250224,-1500,7,17,1,24;20250225,-6000,5,22,2,27;20250226,3500,5,3,0,8;20250227,-2500,7,19,0,26;20250228,3500,7,7,0,14;20250303,1000,7,12,0,19;20250304,0,7,14,0,21;20250305,500,6,11,1,17;20250306,0,8,16,1,24;20250307,-500,7,15,1,22;20250310,-5500,6,23,1,29;20250311,2000,5,6,1,11;20250312,-500,5,11,0,16;20250313,500,7,13,1,20;20250314,3500,7,7,0,14;20250317,1000,6,10,1,16;20250318,-500,6,13,0,19;20250319,500,5,9,1,14;20250320,2500,8,11,0,19;20250321,3000,8,10,0,18;20250324,795,5,9,0,15;20250325,1930,3,3,0,7;20250326,-5180,5,20,0,26;20250327,3000,8,10,2,18;20250328,-4930,6,23,0,30;20250331,1500,7,11,1,18;20250401,1500,7,11,0,18;20250402,5000,7,4,0,11;20250403,2500,8,11,1,19;20250404,-1000,7,16,1,23;20250407,4000,7,6,0,13;20250408,4500,7,5,0,12;20250409,4000,7,6,0,13;20250410,2000,9,14,1,23;20250411,1500,8,13,1,21;20250414,-4000,6,20,2,26;20250415,2000,6,8,0,14;20250416,2000,6,8,0,14;20250417,-3500,7,21,1,28;20250421,-3500,5,17,2,22;20250422,1500,5,7,0,12;20250423,0,4,8,1,12;20250424,3500,4,1,0,5;20250425,5500,9,7,0,16;20250428,1500,9,15,0,24;20250429,4500,9,9,0,18;20250430,4000,9,10,0,19;20250501,1500,9,15,0,24;20250502,825,7,13,0,21;20250505,2275,6,7,0,14;20250506,5500,10,9,0,19;20250507,500,10,19,0,29;20250508,-4180,6,20,1,27;20250509,-2085,4,12,1,17;20250512,1595,6,10,0,17;20250513,5510,7,2,0,10;20250514,1640,7,12,0,20;20250515,5000,8,6,0,14;20250516,1815,6,10,0,17;20250519,5920,8,6,0,15;20250520,6000,9,6,0,15;20250521,1000,10,18,0,28;20250522,-450,9,19,0,29;20250523,4295,9,10,0,20;20250527,4730,5,2,0,8;20250528,-2640,3,11,1,15;20250529,-2800,6,19,1,26;20250530,0,8,16,0,24;20250612,2965,5,5,0,11;20250613,500,7,13,1,20;20250616,140,5,11,0,17;20250617,-1740,4,12,0,17;20250618,1500,7,11,0,18;20250620,-2075,5,15,0,21;20250623,3500,8,9,2,17;20250624,3350,5,3,0,9;20250625,1410,3,5,0,9;20250626,3460,5,4,0,10;20250627,2030,6,8,0,15;20250630,3000,5,4,0,9;20250701,-2110,4,12,0,17;20250702,4775,5,1,0,7;20250707,2150,7,10,0,18;20250708,-1465,5,13,0,19;20250709,3710,5,4,0,10;20250710,230,5,10,1,16;20250711,1810,6,8,0,15;20250714,1485,4,5,0,10;20250715,-3000,3,12,0,15;20250716,1500,8,13,1,21;20250717,4900,5,1,0,7;20250718,-1875,0,4,0,5;20250721,3120,4,2,0,7;20250722,810,6,11,0,18;20250723,660,4,8,1,13;20250724,1535,4,4,0,9;20250725,945,3,4,0,8;20250728,40,2,4,0,7;20250729,-1705,2,8,1,11;20250730,-1635,5,14,3,20;20250731,-5880,5,22,0,28;20250801,-500,5,11,1,16;20250804,4000,5,2,0,7;20250805,-2530,6,17,1,24;20250806,4950,7,5,0,13;20250807,-2500,7,19,1,26;20250808,4500,7,5,0,12;20250811,-1360,3,10,0,14;20250812,4595,6,4,0,11;20250813,-1105,3,9,0,13;20250814,1000,7,12,1,19;20250815,-1280,3,9,0,13;20250818,205,5,9,1,15;20250819,-5190,3,18,0,22;20250820,-1000,8,18,0,26;20250821,1500,7,11,1,18;20250822,5500,7,3,0,10;20250825,720,4,6,0,11;20250826,4240,6,5,0,12;20250827,4090,6,4,0,11;20250828,4000,7,6,0,13;20250829,1040,6,11,0,18;20250902,3000,8,10,1,18;20250903,-40,6,13,0,20;20250904,4110,8,8,0,17;20250905,-500,9,19,0,28;20250908,2235,6,9,0,16;20250909,-565,6,14,1,21;20250910,-1935,3,11,0,15;20250911,2535,6,6,0,13;20250912,910,3,4,0,8;20250915,5370,7,4,0,12;20250916,-1280,2,7,0,10;20250917,0,9,18,1,27;20250918,720,6,11,0,18;20250919,4275,6,3,0,10;20250922,5745,6,0,0,7;20250923,-3740,5,18,0,24;20250924,-4075,3,15,0,19;20250925,3000,9,12,1,21;20250926,3500,8,9,1,17;20250929,880,6,10,0,17;20250930,2500,6,7,2,13;20251001,3500,7,7,0,14;20251002,-3000,6,18,1,24;20251003,0,6,12,0,18;20251006,2500,6,7,0,13;20251007,-3000,6,18,0,24;20251008,4945,8,6,0,15;20251009,-5500,7,25,3,32;20251010,-2500,6,17,1,23;20251013,2500,5,5,1,10;20251014,3500,5,3,0,8;20251015,-1000,7,16,1,23;20251016,3500,7,7,0,14;20251017,0,6,12,1,18;20251020,4000,6,4,0,10;20251021,-3000,6,18,0,24;20251022,-1000,9,20,0,29;20251023,3500,8,9,1,17;20251024,3000,8,10,0,18;20251027,1000,8,14,0,22;20251028,5000,8,6,0,14;20251029,-500,10,21,0,31;20251030,3000,9,12,1,21;20251031,-3500,8,23,1,31;20251103,-500,7,15,1,22;20251104,2000,6,8,1,14;20251105,2500,7,9,0,16;20251106,-3500,6,19,1,25;20251107,1500,6,9,0,15;20251110,1500,6,9,0,15;20251111,500,6,11,0,17;20251112,2500,9,13,1,22;20251113,-2500,7,19,2,26;20251114,5000,7,4,0,11;20251117,3500,7,7,0,14;20251118,-1500,6,15,1,21;20251119,3500,8,9,1,17;20251120,-1500,7,17,1,24;20251121,1500,6,9,1,15;20251124,3500,6,5,0,11;20251125,1000,6,10,0,16;20251126,5500,9,7,0,16;20260102,-2500,9,23,0,32;20260105,5000,9,8,0,17;20260106,5500,9,7,0,16;20260107,5000,9,8,0,17;20260108,500,10,19,0,29;20260109,5000,10,10,0,20;20260112,5500,10,9,0,19;20260113,-1000,9,20,1,29;20260114,-1500,8,19,1,27;20260115,-2500,7,19,1,26;20260116,-1000,7,16,0,23;20260120,2000,7,10,0,17;20260121,1500,7,11,0,18;20260122,3500,7,7,0,14;20260123,5000,10,10,0,20;20260126,4000,10,12,0,22;20260127,4000,10,12,0,22;20260128,4500,10,11,0,21;20260130,2000,10,16,0,26;20260202,4500,10,11,0,21;20260203,-2000,9,22,1,31;20260204,1000,9,16,0,25;20260205,1500,8,13,1,21;20260206,3500,8,9,0,17;20260209,5500,9,7,0,16;20260210,-1000,8,18,1,26;20260211,0,8,16,0,24;20260212,-7000,6,26,2,32;20260213,1500,6,9,0,15;20260217,-500,8,17,0,25;20260218,6000,8,4,0,12;20260219,4500,8,7,0,15;20260220,5000,8,6,0,14;20260223,2500,8,11,0,19;20260224,5000,10,10,0,20;20260225,6500,10,7,0,17;20260226,1500,10,17,0,27;20260227,4500,10,11,0,21;20260302,5000,10,10,0,20;20260303,-500,10,21,0,31;20260304,4500,10,11,0,21;20260305,2000,9,14,1,23;20260306,5500,9,7,0,16;20260309,1000,9,16,0,25;20260310,4000,9,10,0,19;20260311,2500,9,13,0,22;20260312,-2000,8,20,1,28;20260313,-2500,8,21,0,29;20260316,1500,8,13,0,21;20260317,0,8,16,1,24;20260318,2000,8,12,0,20;20260319,3000,8,10,0,18;20260320,-4500,8,25,0,33;20260323,5500,8,5,0,13;20260324,4000,10,12,0,22;20260325,4000,10,12,0,22;20260326,3500,9,11,1,20;20260327,2500,9,13,0,22;20260330,-1000,9,20,0,29;20260331,5500,9,7,0,16;20260401,5000,9,8,0,17;20260402,6000,9,6,0,15;20260406,4500,9,9,0,18;20260407,-1500,9,21,0,30;20260408,0,10,20,0,30;20260409,4000,10,12,0,22;20260410,2500,9,13,1,22;20260413,500,9,17,0,26;20260414,4500,9,9,0,18;20260415,4000,9,10,0,19;20260416,3000,9,12,0,21;20260417,5000,9,8,0,17;20260420,-1000,8,18,1,26;20260421,-1000,8,18,0,26;20260422,2500,9,13,0,22;20260423,2500,9,13,0,22;20260424,4000,9,10,0,19;20260427,-30,6,14,0,21;20260428,2500,8,11,1,19;20260429,2000,8,12,1,20;20260430,-1000,8,18,0,26;20260501,7500,8,1,0,9;20260504,0,8,16,0,24;20260505,680,6,11,0,18;20260506,6000,10,8,0,18;20260507,-500,9,19,1,28;20260508,4000,9,10,0,19;20260511,4500,9,9,0,18;20260512,-3500,8,23,1,31;20260513,1000,9,16,0,25;20260514,4500,9,9,0,18;20260515,3000,9,12,0,21;20260518,-1000,9,20,0,29;20260519,1500,9,15,0,24;20260520,4000,10,12,0,22;20260521,3000,9,12,1,21;20260522,4500,9,9,0,18;20260526,2000,8,12,1,20;20260527,0,8,16,0,24;20260528,4500,9,9,0,18;20260529,2000,9,14,0,23;20260601,3000,9,12,0,21;20260602,1500,9,15,0,24;20260603,3000,9,12,0,21;20260604,1000,9,16,1,25;20260605,-2000,9,22,0,31;20260608,1500,9,15,0,24;20260609,-2000,7,18,2,25;20260610,3500,7,7,0,14;20260611,4000,8,8,0,16;20260612,2500,8,11,0,19;20260615,3500,8,9,0,17;20260616,-1500,7,17,1,24;20260617,1000,6,10,1,16;20260807,1500,7,11,1,18;20260810,2000,7,10,0,17;20260811,-500,7,15,0,22;20260812,1500,7,11,0,18;20260813,3500,7,7,0,14;20260814,-1360,6,16,0,23";
@@ -7361,7 +7630,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
