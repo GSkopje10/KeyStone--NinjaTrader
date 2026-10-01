@@ -30,3 +30,23 @@ setup after the start time.**
   the exit; result tag "GOLDEN FVG • WIN $1,000 10:12". In replay each part appears when it happened.
 - **LIVE ACCOUNT • USE THE STRATEGY'S OWN CONTRACTS** (on by default for GOLDEN): one real account, the
   strategy's contracts (no % sizing), one position per instrument, so MNQ and MGC can be open together.
+
+## Build 30s • GOLDEN ENTRY STUDY (no prop rules)
+Goal: find the winning entries first; accounts (live, prop, rotation, copy) come later.
+- **Hold until target or stop** (default): trades carry overnight and into the next days. The data window becomes the
+  full trading day (18:00 → 17:00) so the overnight path is loaded. "Close at the time below" is still an option.
+- **Strictly the first setup** (default): if a filter skips the day's first setup, no trade that day for that instrument.
+  "Take the next setup" is the alternative. The FVG minimum gap defines what an FVG is (a sliver is not a setup).
+- **Evening start**: a start time 1800 or later belongs to the next trading day's session (18:00 → 17:00).
+- **Step 3 for GOLDEN** shows the study instead of the prop pool:
+  - FILTERS (setup type, push down, red candles, FVG gap, max stop, stop > target, entry hours, weekdays, tries,
+    account start, one trade open per instrument), applied live to the entries already found (no new detection);
+  - MNQ • MGC • BOTH comparison and WHAT MAKES THE DIFFERENCE (groups whose win rate differs by 8+ points);
+  - WHAT MAKES WINNERS: every condition grouped (setup, push down, red candles, gap, stop size, hour, minutes after
+    the start, weekday, try, how it ended, year, month) for MNQ, MGC and BOTH;
+  - TARGET × STOP: each entry replayed on its 1-minute path for fixed stops / the pattern stop and targets; the best
+    cell and your setting, for all years and each year;
+  - ONE ACCOUNT: start balance + each trade with the strategy's contracts, balance curve, months;
+  - EVERY ENTRY: all first setups, filtered ones in grey with the reason; click opens the chart.
+  - EXPORT STUDY writes an HTML report and a CSV of every entry to the KeystoneArc5MResearch folder.
+- Strategy list now: BH, ASIAN 75, FVG, HELIX, GOLDEN (123 ENGULFING, LAST-HOUR RELAY, VWAP SNAP-BACK hidden; code kept).

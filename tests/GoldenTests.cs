@@ -136,6 +136,58 @@ public static class GoldenTests
             cfg.GoldenSkipStopOverTarget = 1; cfg.GoldenMgcTargetPoints = 3;   // stop 4.8 > target 3
             Check(KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).Count == 0, "a stop (4.8) bigger than the target (3) is skipped");
         }
+        // 8. HOLD: a trade still open at the close carries to the next day (target hit the next morning)
+        {
+            var cfg = Cfg("MNQ"); cfg.End = new DateTime(2026, 3, 12);
+            var bars = Day("MNQ", new DateTime(2026, 3, 10, 9, 30, 0), MnqBh(), 120, 0.0);
+            bars.AddRange(Day("MNQ", new DateTime(2026, 3, 11, 9, 31, 0), new List<double[]> { C(19990, 19991, 19989, 19990) }, 70, 2.0));
+            var held = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).First();
+            Check(held.Outcome == "WIN" && held.ExitTime.Date == new DateTime(2026, 3, 11) && KeystoneGoldenStudy.HeldOvernight(held), "HOLD: still open at the close → WIN the next day", held.Outcome + " " + held.ExitTime.ToString("MM-dd HH:mm"));
+            cfg.GoldenHold = 0;
+            var closed = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).First();
+            Check(closed.Outcome == "SESSION EXIT" && closed.ExitTime.Date == new DateTime(2026, 3, 10), "CLOSE AT SESSION END: the same trade is closed on day 1", closed.Outcome + " " + closed.ExitTime.ToString("MM-dd HH:mm"));
+        }
+        // 9. Strictly the first setup: a filtered first setup means no trade that day
+        {
+            var cfg = Cfg("MNQ"); cfg.GoldenAggression = "REQUIRED"; cfg.GoldenMnqDropPoints = 80; cfg.GoldenMaxTradesPerDay = 1;
+            var c = MnqBh();
+            c.Add(C(19990, 19991, 19930, 19935)); c.Add(C(19935, 19936, 19920, 19925)); c.Add(C(19925, 19940, 19923, 19938)); c.Add(C(19938, 19950, 19930, 19948));
+            var bars = Day("MNQ", new DateTime(2026, 3, 10, 9, 30, 0), c, 120, 2.0);
+            Check(KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).Count == 0, "STRICT FIRST: the first BH has too little push down → no trade that day");
+            cfg.GoldenStrictFirst = 0;
+            var next = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg);
+            Check(next.Count == 1 && next[0].Entry == 19940, "TAKE THE NEXT: the second BH (push down 90) is taken", string.Join(",", next.Select(x => x.Entry)));
+        }
+        // 10. Evening start (18:00) belongs to the next trading day's session
+        {
+            var cfg = Cfg("MGC"); cfg.GoldenUseBh = 0; cfg.GoldenMgcStart = 1800; cfg.Start = new DateTime(2026, 3, 9);
+            var c = new List<double[]> { C(2010, 2010.5, 2009.8, 2010), C(2010, 2010.2, 2006, 2006.5), C(2006.5, 2006.8, 2003, 2003.4), C(2003.4, 2004, 2002.8, 2003.9), C(2003.9, 2007, 2003.8, 2006.8), C(2006.8, 2008, 2004.5, 2007.6) };
+            var bars = Day("MGC", new DateTime(2026, 3, 9, 18, 0, 0), c, 60, 0.3);
+            var e = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).FirstOrDefault();
+            Check(e != null && e.EntryTime == new DateTime(2026, 3, 9, 18, 5, 0) && e.Outcome == "WIN" && KeystoneArcEngine.GoldenSessionDay(e.EntryTime) == new DateTime(2026, 3, 10), "EVENING START 18:00: FVG at 18:05, part of Tuesday's session", e == null ? "none" : e.EntryTime.ToString("MM-dd HH:mm") + " " + e.Outcome);
+            // 11. run up before each stop level is recorded for the TARGET × STOP grid
+            Check(e != null && e.GoldenRunBeforeStop != null && e.GoldenRunBeforeStop.Length == KeystoneGoldenStudy.StopLevels("MGC").Length + 1 && e.GoldenRunBeforeStop[0] >= 10 && !e.GoldenStopHit[0], "EXCURSION: run up ≥ 10 before a 1-point stop", e == null || e.GoldenRunBeforeStop == null ? "none" : e.GoldenRunBeforeStop[0] + " " + e.GoldenStopHit[0]);
+        }
+        // 12. The study: filters, comparison, grid, one account, export
+        {
+            var cfg = Cfg("MNQ"); cfg.GoldenMaxTradesPerDay = 2;
+            var c = MnqBh();
+            c.Add(C(19990, 19991, 19930, 19935)); c.Add(C(19935, 19936, 19920, 19925)); c.Add(C(19925, 19940, 19923, 19938)); c.Add(C(19938, 19950, 19930, 19948));
+            var bars = Day("MNQ", new DateTime(2026, 3, 10, 9, 30, 0), c, 120, 2.0);
+            var ev = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg);
+            var f = KeystoneGoldenStudy.FromConfig(cfg);
+            var r = KeystoneGoldenStudy.Run(ev, f, cfg);
+            Check(r.Kept.Count == 2 && r.Mnq.Wins == 1 && r.Mnq.Losses == 1 && r.Both.Entries == 2, "STUDY: 2 entries, 1 W / 1 L", r.Kept.Count + " " + r.Mnq.Wins + "/" + r.Mnq.Losses);
+            Check(Math.Abs(r.AccountMnq.End - (f.StartBalance + ev.Sum(x => x.GrossPnl))) < 0.01, "STUDY: one account = start + every trade", r.AccountMnq.End.ToString());
+            Check(r.Grids.Count >= 2 && r.Grids[0].Yours != null && r.Grids[0].Yours.Wins + r.Grids[0].Yours.Losses == 2, "STUDY: the target × stop grid has your setting (pattern stop, +100)");
+            Check(r.Grids[0].Yours.Wins == r.Mnq.Wins && r.Grids[0].Yours.Losses == r.Mnq.Losses, "STUDY: the grid's pattern-stop cell = the real outcomes", r.Grids[0].Yours.Wins + "/" + r.Grids[0].Yours.Losses);
+            f.MaxTries = 1;
+            Check(KeystoneGoldenStudy.Run(ev, f, cfg).Kept.Count == 1, "STUDY FILTER: 1 try a day keeps only the first");
+            f.MaxTries = 5; f.Setup = "FVG";
+            var none = KeystoneGoldenStudy.Run(ev, f, cfg);
+            Check(none.Kept.Count == 0 && none.FilteredOut.ContainsKey("SETUP TYPE"), "STUDY FILTER: FVG only → the first BH is filtered and the day is used up");
+            Check(KeystoneGoldenStudy.Html(r, KeystoneGoldenStudy.FromConfig(cfg), "test").Contains("GOLDEN ENTRY STUDY") && KeystoneGoldenStudy.Csv(r).Split('\n').Count(l => l.Trim().Length > 0) == ev.Count + 1, "STUDY: HTML report and CSV export");
+        }
         // 7. Settings are part of the run key
         {
             var a = Cfg("MNQ"); var b = Cfg("MNQ"); b.GoldenMnqTargetPoints = 80;

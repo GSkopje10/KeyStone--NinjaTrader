@@ -37,7 +37,7 @@ public static class UiSmokeTest
             start.SelectedIndex = 0; start.SelectedItem = start.Items[0]; Call(lab, "RefreshLifecycleInputState");
             if (evBlock.Visibility != System.Windows.Visibility.Visible || dir.Visibility != System.Windows.Visibility.Collapsed) throw new Exception("evaluation mode shows direct-funded settings");
         });
-        Step("strategy switch to every strategy (incl. HELIX and GOLDEN)", () => { var box = (System.Windows.Controls.ComboBox)lab.GetType().GetField("strategyBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); foreach (int i in new[] { 1, 2, 3, 4, 5, 6, 7, 0 }) { box.SelectedIndex = i; box.SelectedItem = box.Items[i]; Call(lab, "RefreshStrategyInputState"); } });
+        Step("strategy switch to every strategy (incl. HELIX and GOLDEN)", () => { var box = (System.Windows.Controls.ComboBox)lab.GetType().GetField("strategyBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); foreach (int i in Enumerable.Range(1, box.Items.Count - 1).Concat(new[] { 0 })) { box.SelectedIndex = i; box.SelectedItem = box.Items[i]; Call(lab, "RefreshStrategyInputState"); } });
         // A pool result through the UI render paths.
         var rng = new Random(2); var ev = new List<KeystoneArcEvent>(); DateTime day = new DateTime(2025, 1, 6);
         for (int d = 0; d < 120; d++) { var s = day.AddDays(d); if (s.DayOfWeek == DayOfWeek.Saturday || s.DayOfWeek == DayOfWeek.Sunday) continue; for (int k = 0; k < 3; k++) { var t = s.AddHours(9).AddMinutes(35 + k * 40); bool w = rng.NextDouble() < 0.5; ev.Add(new KeystoneArcEvent { Id = "E" + d + k, Symbol = k % 2 == 0 ? "MNQ" : "MGC", SetupClass = "BH", TriggerTime = t, EntryTime = t, ReferenceTime = t, ExitTime = t.AddMinutes(20), Outcome = w ? "WIN" : "LOSS", GrossPnl = w ? 1500 : -500, Quantity = 10, Entry = 100, ReviewState = "ACCEPTED" }); } }
@@ -124,6 +124,22 @@ public static class UiSmokeTest
                 if (full < 60 || start >= full) throw new Exception("chart did not draw, or replay did not hide future candles");
                 Call(lab2, "StopEvidenceReplay");
             });
+            if (strategy == "GLD")
+                Step("GLD: entry study view (filters, compare, winners, target × stop, one account, entries)", () =>
+                {
+                    Call(lab2, "ShowGoldenStudy", ev2, c);
+                    var study = (KeystoneGoldenStudyResult)lab2.GetType().GetField("goldenStudy", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    var tabs = (System.Windows.Controls.TabControl)lab2.GetType().GetField("goldenTabs", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    Console.WriteLine("      study: " + study.All.Count + " entries • kept " + study.Kept.Count + " • grids " + study.Grids.Count + " • tabs " + tabs.Items.Count);
+                    foreach (System.Windows.Controls.TabItem t in tabs.Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("tab not filled: " + t.Header + " • " + ((System.Windows.Controls.TextBlock)lab2.GetType().GetField("goldenVerdictSub", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2)).Text);
+                    var setup = (System.Windows.Controls.ComboBox)lab2.GetType().GetField("gfSetupBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    setup.SelectedIndex = 1; setup.SelectedItem = setup.Items[1]; Call(lab2, "RunGoldenStudy");
+                    var bhOnly = (KeystoneGoldenStudyResult)lab2.GetType().GetField("goldenStudy", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    if (bhOnly.Kept.Any(e => e.SetupClass != "BH")) throw new Exception("BH ONLY filter kept other setups");
+                    setup.SelectedIndex = 0; setup.SelectedItem = setup.Items[0]; Call(lab2, "RunGoldenStudy");
+                    if (!(bool)lab2.GetType().GetField("goldenResultsMode", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2)) throw new Exception("study mode off");
+                    Call(lab2, "SetGoldenResultsMode", false);
+                });
             Step(strategy + ": bar-by-bar replay, event jumps, play/pause, live box, show all", () =>
             {
                 Call(lab2, "ReplaySetCursor", Call(lab2, "ReplayFirstBarTime"), true);

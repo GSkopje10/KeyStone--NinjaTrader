@@ -102,6 +102,11 @@ namespace NinjaTrader.NinjaScript
         // GOLDEN SETUP chart labels: the start (time + price), the push-down low and the pattern's first candle.
         public DateTime GoldenStartTime = DateTime.MinValue, GoldenLowTime = DateTime.MinValue, GoldenPatternTime = DateTime.MinValue;
         public double GoldenStartPrice = double.NaN, GoldenLowPrice = double.NaN;
+        // GOLDEN study: per stop level (KeystoneGoldenStudy stop levels + the pattern stop last), the best
+        // run up (points above the entry) before that stop was hit, and whether it was hit before the data ended.
+        public double[] GoldenRunBeforeStop;
+        public bool[] GoldenStopHit;
+        public string GoldenSkipReason = string.Empty;
         public string AssignedVirtualAccount;
         public string SkipReason;
         public string ConfigurationKey;
@@ -716,9 +721,11 @@ namespace NinjaTrader.NinjaScript
         public int GoldenMaxTradesPerDay = 1;           // 1 = the first setup only; 2-3 = another try after a loss (a win ends the day)
         public double GoldenMnqMinGap = 5, GoldenMgcMinGap = 1;   // FVG: candle 3 low must be at least this far above candle 1 high (0 = any sliver)
         public int GoldenSkipStopOverTarget = 1;        // 1 = skip a setup whose stop is bigger than its target
+        public int GoldenHold = 1;                      // 1 = hold until the target or the stop (overnight, next days) • 0 = close at GoldenClose
+        public int GoldenStrictFirst = 1;               // 1 = only the day's first setup: if a filter skips it, no trade that day • 0 = take the next one
         public string GoldenKey()
         {
-            return string.Join("/", new[] { GoldenMnqStart, GoldenMgcStart, GoldenLastEntry, GoldenClose, GoldenUseBh, GoldenMnqQuantity, GoldenMgcQuantity, GoldenMaxTradesPerDay, GoldenSkipStopOverTarget }.Select(v => v.ToString(CultureInfo.InvariantCulture)))
+            return string.Join("/", new[] { GoldenMnqStart, GoldenMgcStart, GoldenLastEntry, GoldenClose, GoldenUseBh, GoldenMnqQuantity, GoldenMgcQuantity, GoldenMaxTradesPerDay, GoldenSkipStopOverTarget, GoldenHold, GoldenStrictFirst }.Select(v => v.ToString(CultureInfo.InvariantCulture)))
                 + "/" + GoldenFvgMode + "/" + GoldenAggression + "/" + GoldenStopMode + "/" + string.Join("/", new[] { GoldenMnqDropPoints, GoldenMgcDropPoints, GoldenMnqTargetPoints, GoldenMgcTargetPoints, GoldenMnqStopPoints, GoldenMgcStopPoints, GoldenMnqStopBuffer, GoldenMgcStopBuffer, GoldenMnqMaxStop, GoldenMgcMaxStop, GoldenMnqMinGap, GoldenMgcMinGap }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture)));
         }
 
@@ -1427,6 +1434,40 @@ namespace NinjaTrader.NinjaScript
         // The push down before it (points from the start price, red candles in a row) is measured for
         // every setup: TAG compares with / without, REQUIRED trades only setups that had it.
         // One trade a day by default; with more tries a loss allows the next setup, a win ends the day.
+        // GOLDEN session day: a trading day runs 18:00 (previous evening) → 17:00, so a start after 18:00
+        // belongs to the next day's session. The clock of HHMM inside that session day.
+        internal static DateTime GoldenSessionDay(DateTime t) { return t.Hour >= 18 ? t.Date.AddDays(1) : t.Date; }
+        internal static DateTime GoldenClock(DateTime sessionDay, int hhmm) { return (hhmm >= 1800 ? sessionDay.AddDays(-1) : sessionDay).AddHours(hhmm / 100).AddMinutes(hhmm % 100); }
+
+        // Walk the 1-minute bars from the entry: for every stop level (study levels + the pattern stop), the best run up
+        // before that stop was touched (stop first when a minute touches both, like the outcome rule).
+        private static void GoldenExcursion(KeystoneArcEvent e, List<KeystoneArcBar> raw, KeystoneArcRunConfig cfg, string symbol, bool marketEntry)
+        {
+            if (e == null || raw == null || raw.Count == 0 || e.EntryTime == DateTime.MinValue || double.IsNaN(e.Entry)) return;
+            int offset = IsMgc(symbol) ? cfg.MgcOutcomeTimeOffsetMinutes : cfg.MnqOutcomeTimeOffsetMinutes;
+            int idx;
+            if (marketEntry) { idx = FirstIndexAtOrAfter(raw, e.TriggerTime.AddMinutes(offset)); while (idx >= 0 && idx < raw.Count && raw[idx].Time <= e.TriggerTime.AddMinutes(offset)) idx++; }
+            else idx = FirstIndexAtOrAfter(raw, e.EntryTime.AddMinutes(offset));
+            if (idx < 0 || idx >= raw.Count) return;
+            double[] levels = KeystoneGoldenStudy.StopLevels(symbol);
+            int n = levels.Length + 1;
+            var stops = new double[n]; Array.Copy(levels, stops, levels.Length); stops[n - 1] = Math.Max(0, e.Entry - e.Stop);
+            double enough = Math.Max(KeystoneGoldenStudy.TargetLevels(symbol).Max(), e.Target - e.Entry);
+            var run = new double[n]; var hit = new bool[n]; var done = new bool[n]; int left = n;
+            for (int i = idx; i < raw.Count && left > 0; i++)
+            {
+                KeystoneArcBar b = raw[i];
+                for (int k = 0; k < n; k++)
+                {
+                    if (done[k]) continue;
+                    if (b.Low <= e.Entry - stops[k] + 1e-9) { hit[k] = true; done[k] = true; left--; continue; }
+                    run[k] = Math.Max(run[k], b.High - e.Entry);
+                    if (run[k] >= enough) { done[k] = true; left--; }
+                }
+            }
+            e.GoldenRunBeforeStop = run; e.GoldenStopHit = hit;
+        }
+
         private static List<KeystoneArcEvent> DetectGolden(List<KeystoneArcBar> raw, List<KeystoneArcBar> bars, KeystoneArcRunConfig cfg, string symbol)
         {
             var output = new List<KeystoneArcEvent>();
@@ -1454,14 +1495,16 @@ namespace NinjaTrader.NinjaScript
                 KeystoneArcBar cur = bars[i];
                 if (cur.Time < cfg.Start) continue;
                 if (cur.Time > cfg.End) break;
-                if (cur.Time.Date != day) { day = cur.Time.Date; taken = 0; dayDone = false; startIndex = -1; startOpen = double.NaN; zones.Clear(); busyUntil = DateTime.MinValue; }
-                DateTime startClock = day.AddHours(startHhmm / 100).AddMinutes(startHhmm % 100);
-                DateTime lastEntry = day.AddHours(cfg.GoldenLastEntry / 100).AddMinutes(cfg.GoldenLastEntry % 100);
+                DateTime sessionDay = GoldenSessionDay(cur.Time);
+                if (sessionDay != day) { day = sessionDay; taken = 0; dayDone = false; startIndex = -1; startOpen = double.NaN; zones.Clear(); busyUntil = DateTime.MinValue; }
+                DateTime startClock = GoldenClock(day, startHhmm);
+                DateTime lastEntry = GoldenClock(day, cfg.GoldenLastEntry);
+                if (lastEntry <= startClock) lastEntry = lastEntry.AddDays(1);
                 if (cur.Time <= startClock) continue;                        // candles that end by the start are pre-open
                 if (startIndex < 0)
                 {
                     // The first candle after the start (it may sit before the scan's first index).
-                    int k = i; while (k - 1 >= 0 && bars[k - 1].Time > startClock && bars[k - 1].Time.Date == day) k--;
+                    int k = i; while (k - 1 >= 0 && bars[k - 1].Time > startClock && GoldenSessionDay(bars[k - 1].Time) == day) k--;
                     startIndex = k; startOpen = bars[k].Open;
                 }
                 bool patternAfterStart = i - 2 >= startIndex;                 // every pattern candle formed after the start
@@ -1474,16 +1517,17 @@ namespace NinjaTrader.NinjaScript
                     if (fvgMode == "CLOSE" && cur.Low > bars[i - 2].High && cur.Low - bars[i - 2].High >= minGap - 1e-9)
                     {
                         fvg = NewEvent(symbol, "FVG", cur.Time, cur.Time, cur.Close, bhCfg, bars, i);
-                        fvg.FvgLower = bars[i - 2].High; fvg.FvgUpper = cur.Low; fvg.FvgFormedTime = cur.Time;
+                        fvg.FvgLower = bars[i - 2].High; fvg.FvgUpper = cur.Low; fvg.FvgFormedTime = cur.Time; fvg.FvgGap = cur.Low - bars[i - 2].High;
                         fvgLow = Math.Min(bars[i - 2].Low, Math.Min(bars[i - 1].Low, cur.Low)); fvgMarket = true;
                     }
                     else if (fvgMode == "BREAK")
                     {
                         fvg = ResolveFvgBreak(cur, zones, bhCfg, symbol, bars, i);
                         if (fvg != null && fvg.FvgUpper - fvg.FvgLower < minGap - 1e-9) fvg = null;
+                        if (fvg != null) fvg.FvgGap = fvg.FvgUpper - fvg.FvgLower;
                         if (fvg != null) { int f = bars.FindIndex(b => b.Time == fvg.FvgFormedTime); fvgLow = f >= 2 ? Math.Min(bars[f - 2].Low, Math.Min(bars[f - 1].Low, bars[f].Low)) : fvg.FvgLower; for (int q = Math.Max(0, f); q < i; q++) fvgLow = Math.Min(fvgLow, bars[q].Low); }
                     }
-                    if (fvg != null && pick != null) { kind = "DT"; patternLow = Math.Min(patternLow, fvgLow); }   // both on the same candle: BH fills first (inside the candle)
+                    if (fvg != null && pick != null) { kind = "DT"; patternLow = Math.Min(patternLow, fvgLow); pick.FvgGap = fvg.FvgGap; }   // both on the same candle: BH fills first (inside the candle)
                     else if (fvg != null) { pick = fvg; kind = "FVG"; patternLow = fvgLow; marketEntry = fvgMarket; }
                 }
                 if (pick != null)
@@ -1497,6 +1541,8 @@ namespace NinjaTrader.NinjaScript
                     double stop = string.Equals(cfg.GoldenStopMode, "FIXED", StringComparison.OrdinalIgnoreCase) ? entry - fixedStop : patternLow - buffer;
                     double stopPts = entry - stop;
                     bool skip = (aggression == "REQUIRED" && !aggressive) || stopPts <= 0 || (maxStop > 0 && stopPts > maxStop) || (cfg.GoldenSkipStopOverTarget == 1 && stopPts > target + 1e-9);
+                    // Strictly the first setup: a setup a filter skips still uses up the day.
+                    if (skip && cfg.GoldenStrictFirst == 1) dayDone = true;
                     if (!skip)
                     {
                         pick.SetupClass = kind; pick.Quantity = qty; pick.Stop = stop; pick.Target = entry + target; pick.StopDistance = stopPts;
@@ -1509,7 +1555,9 @@ namespace NinjaTrader.NinjaScript
                         pick.SessionOrder = taken + 1;
                         pick.ConfigurationKey = cfg.Snapshot();
                         KeystoneArcRunConfig outCfg = cfg.ShallowCopy(); outCfg.EndTime = cfg.GoldenClose;
-                        ResolveOutcome(pick, raw, outCfg, symbol, marketEntry);
+                        // HOLD: no session close — the trade runs until the target or the stop, overnight and into the next days.
+                        ResolveOutcome(pick, raw, outCfg, symbol, marketEntry, cfg.GoldenHold == 1 ? raw[raw.Count - 1].Time : default(DateTime));
+                        GoldenExcursion(pick, raw, cfg, symbol, marketEntry);
                         pick.ReviewNote = "GOLDEN • " + (taken == 0 ? "first" : (taken + 1) == 2 ? "2nd" : "3rd") + " setup after " + (startHhmm / 100).ToString("00") + ":" + (startHhmm % 100).ToString("00") + " • " + (kind == "DT" ? "BH + FVG" : kind)
                             + " • push down " + drop.ToString(fmt, CultureInfo.InvariantCulture) + " pts" + (red > 0 ? " (" + red + " red)" : string.Empty) + (aggressive ? " = AGGRESSION" : " = no aggression")
                             + " • entry " + entry.ToString(fmt, CultureInfo.InvariantCulture) + " • target " + pick.Target.ToString(fmt, CultureInfo.InvariantCulture) + " (+" + target.ToString("0.##", CultureInfo.InvariantCulture) + ")"
@@ -1517,6 +1565,7 @@ namespace NinjaTrader.NinjaScript
                         output.Add(pick);
                         taken++;
                         if (pick.Outcome == "WIN" || pick.Outcome == "SESSION EXIT" || pick.ExitTime == DateTime.MinValue) dayDone = true;
+                        if (cfg.GoldenHold == 1 && pick.ExitTime != DateTime.MinValue && GoldenSessionDay(pick.ExitTime) != day) dayDone = true;   // still open when the session ended
                         busyUntil = pick.ExitTime == DateTime.MinValue ? DateTime.MaxValue : pick.ExitTime;
                     }
                 }
@@ -2124,7 +2173,7 @@ namespace NinjaTrader.NinjaScript
             return !IsPersonalAccount(cfg) && string.Equals(cfg.StopMode, "STANDARD", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static void ResolveOutcome(KeystoneArcEvent e, List<KeystoneArcBar> raw, KeystoneArcRunConfig cfg, string symbol, bool marketEntry = false)
+        private static void ResolveOutcome(KeystoneArcEvent e, List<KeystoneArcBar> raw, KeystoneArcRunConfig cfg, string symbol, bool marketEntry = false, DateTime endOverride = default(DateTime))
         {
             if (cfg.OutcomeModelEnabled == 0)
             {
@@ -2139,6 +2188,7 @@ namespace NinjaTrader.NinjaScript
             int triggerHhmm = e.TriggerTime.Hour * 100 + e.TriggerTime.Minute;
             if (cfg.EndTime < triggerHhmm) sessionEnd = sessionEnd.AddDays(1);
             if (sessionEnd > cfg.End) sessionEnd = cfg.End;
+            if (endOverride != default(DateTime)) sessionEnd = endOverride.AddMinutes(-timeOffset);   // GOLDEN hold: until the data ends
             sessionEnd = sessionEnd.AddMinutes(timeOffset);
             double pointValue = CashValuePerPriceMove(symbol, cfg);
             // FVG box / green-low stops are risk-sized: their P/L is the real price move × size.
@@ -5125,6 +5175,471 @@ namespace NinjaTrader.NinjaScript
     // evaluation (optional) → funded → payouts → liquidation → replacement, with every cost.
     // Everything is simulated on verified 1-minute bars (close-stamped, New York time).
     // =====================================================================================
+    // ---- GOLDEN ENTRY STUDY (Build 30s) ------------------------------------------------------------
+    // Not prop rules, not money management: every GOLDEN entry held until its target or stop, then the
+    // filters, the MNQ / MGC / BOTH comparison, what the winners have in common, a target × stop grid
+    // per year and one plain account with the strategy's own contracts.
+    public sealed class KeystoneGoldenFilter
+    {
+        public string Setup = "ALL";                       // ALL • BH • FVG • DT (BH + FVG on the same candle)
+        public double MnqMinDrop, MgcMinDrop;              // push down before the entry, points (0 = any)
+        public int MinRed;                                 // red candles in a row before the pattern (0 = any)
+        public double MnqMinGap, MgcMinGap;                // FVG gap, points (BH setups have no gap and pass)
+        public double MnqMaxStop, MgcMaxStop;              // pattern stop, points (0 = any)
+        public bool SkipStopOverTarget;
+        public int FromHhmm = 0, ToHhmm = 2359;            // entry clock (ET); From > To wraps past midnight
+        public bool[] Weekdays = { true, true, true, true, true, true, true };   // index = DayOfWeek
+        public int MaxTries = 5;
+        public bool StrictFirst = true;                    // a filtered try ends that instrument's day
+        public bool OnePositionPerInstrument = true;
+        public double StartBalance = 5000;
+        public string Key()
+        {
+            return string.Join("|", new object[] { Setup, MnqMinDrop, MgcMinDrop, MinRed, MnqMinGap, MgcMinGap, MnqMaxStop, MgcMaxStop, SkipStopOverTarget, FromHhmm, ToHhmm, string.Join("", Weekdays.Select(w => w ? "1" : "0")), MaxTries, StrictFirst, OnePositionPerInstrument, StartBalance }.Select(o => Convert.ToString(o, CultureInfo.InvariantCulture)));
+        }
+    }
+
+    public sealed class KeystoneGoldenStats
+    {
+        public string Label = string.Empty;
+        public int Entries, Wins, Losses, Open, Overnight;
+        public double NetPoints, NetCash, WinPoints, LossPoints, RunBeforeStopSum, DrawBeforeTargetSum, HoldHoursSum;
+        public double WinRate { get { return Wins + Losses == 0 ? 0 : 100.0 * Wins / (Wins + Losses); } }
+        public double AvgWinPoints { get { return Wins == 0 ? 0 : WinPoints / Wins; } }
+        public double AvgLossPoints { get { return Losses == 0 ? 0 : LossPoints / Losses; } }
+        public double AvgRunBeforeStop { get { return Losses == 0 ? 0 : RunBeforeStopSum / Losses; } }
+        public double AvgDrawBeforeTarget { get { return Wins == 0 ? 0 : DrawBeforeTargetSum / Wins; } }
+        public double AvgHoldHours { get { return Wins + Losses == 0 ? 0 : HoldHoursSum / (Wins + Losses); } }
+        public double CashPerEntry { get { return Entries == 0 ? 0 : NetCash / Entries; } }
+    }
+
+    public sealed class KeystoneGoldenGroup { public string Group = string.Empty; public int Order; public KeystoneGoldenStats Mnq = new KeystoneGoldenStats(), Mgc = new KeystoneGoldenStats(), Both = new KeystoneGoldenStats(); }
+    public sealed class KeystoneGoldenBreakdown { public string Title = string.Empty, Note = string.Empty; public List<KeystoneGoldenGroup> Rows = new List<KeystoneGoldenGroup>(); }
+    public sealed class KeystoneGoldenCell { public double Stop, Target; public bool Pattern; public int Wins, Losses, Open; public double NetPoints, NetCash; public double WinRate { get { return Wins + Losses == 0 ? 0 : 100.0 * Wins / (Wins + Losses); } } }
+    public sealed class KeystoneGoldenGrid { public string Symbol = string.Empty, Year = "ALL"; public int Entries; public double[] Stops = new double[0], Targets = new double[0]; public KeystoneGoldenCell[,] Cells; public KeystoneGoldenCell Best, Yours; }
+    public sealed class KeystoneGoldenInsight { public string Text = string.Empty; public double Lift; public bool Good; }
+
+    public sealed class KeystoneGoldenAccount
+    {
+        public double Start, End, Peak, MaxDrawdown, MaxDrawdownPercent;
+        public int Trades, Wins, Losses, Open, SkippedOpen;
+        public List<KeystoneArcEvent> Taken = new List<KeystoneArcEvent>();
+        public List<Tuple<DateTime, double>> Equity = new List<Tuple<DateTime, double>>();
+        public List<Tuple<DateTime, double, int, int>> Months = new List<Tuple<DateTime, double, int, int>>();   // month, P/L, wins, losses
+    }
+
+    public sealed class KeystoneGoldenStudyResult
+    {
+        public List<KeystoneArcEvent> All = new List<KeystoneArcEvent>(), Kept = new List<KeystoneArcEvent>();
+        public Dictionary<KeystoneArcEvent, string> Reasons = new Dictionary<KeystoneArcEvent, string>();
+        public KeystoneGoldenStats Mnq, Mgc, Both;
+        public KeystoneGoldenAccount AccountMnq, AccountMgc, AccountBoth;
+        public List<KeystoneGoldenBreakdown> Breakdowns = new List<KeystoneGoldenBreakdown>();
+        public List<KeystoneGoldenGrid> Grids = new List<KeystoneGoldenGrid>();   // per symbol: ALL years first, then each year
+        public List<KeystoneGoldenInsight> Insights = new List<KeystoneGoldenInsight>();
+        public Dictionary<string, int> FilteredOut = new Dictionary<string, int>();
+        public string Verdict = string.Empty;
+        public bool Hold;
+    }
+
+    public static class KeystoneGoldenStudy
+    {
+        static readonly double[] MnqStops = { 10, 20, 30, 40, 50, 60, 80, 100, 150 }, MgcStops = { 1, 2, 3, 4, 5, 6, 8, 10, 15 };
+        static readonly double[] MnqTargets = { 20, 30, 40, 50, 60, 80, 100, 120, 150, 200 }, MgcTargets = { 2, 3, 4, 5, 6, 8, 10, 12, 15, 20 };
+        public static bool IsMgc(string s) { return string.Equals(s, "MGC", StringComparison.OrdinalIgnoreCase); }
+        public static double[] StopLevels(string symbol) { return IsMgc(symbol) ? MgcStops : MnqStops; }
+        public static double[] TargetLevels(string symbol) { return IsMgc(symbol) ? MgcTargets : MnqTargets; }
+        public static double PointValue(string symbol) { return IsMgc(symbol) ? 10.0 : 2.0; }
+        public static string Fmt(string symbol, double v) { return v.ToString(IsMgc(symbol) ? "0.0" : "0.##", CultureInfo.InvariantCulture); }
+
+        // The detection settings that find every first setup with no filter, so the filters can be tried afterwards.
+        public static KeystoneArcRunConfig UnfilteredConfig(KeystoneArcRunConfig cfg)
+        {
+            var c = cfg.ShallowCopy();
+            // The FVG minimum gap stays: it defines what counts as an FVG (a sliver is not a setup and does not use up the day).
+            c.GoldenSkipStopOverTarget = 0; c.GoldenMnqMaxStop = 0; c.GoldenMgcMaxStop = 0;
+            if (string.Equals(c.GoldenAggression, "REQUIRED", StringComparison.OrdinalIgnoreCase)) c.GoldenAggression = "TAG";
+            c.GoldenStrictFirst = 1;
+            return c;
+        }
+
+        // The filters that match the Step 1 settings.
+        public static KeystoneGoldenFilter FromConfig(KeystoneArcRunConfig cfg)
+        {
+            var f = new KeystoneGoldenFilter();
+            if (cfg == null) return f;
+            f.MnqMinGap = cfg.GoldenMnqMinGap; f.MgcMinGap = cfg.GoldenMgcMinGap;
+            f.MnqMaxStop = cfg.GoldenMnqMaxStop; f.MgcMaxStop = cfg.GoldenMgcMaxStop;
+            f.SkipStopOverTarget = cfg.GoldenSkipStopOverTarget == 1;
+            if (string.Equals(cfg.GoldenAggression, "REQUIRED", StringComparison.OrdinalIgnoreCase)) { f.MnqMinDrop = cfg.GoldenMnqDropPoints; f.MgcMinDrop = cfg.GoldenMgcDropPoints; }
+            f.MaxTries = Math.Max(1, cfg.GoldenMaxTradesPerDay);
+            f.StrictFirst = cfg.GoldenStrictFirst == 1;
+            return f;
+        }
+
+        public static bool IsWin(KeystoneArcEvent e) { return e.Outcome == "WIN"; }
+        public static bool IsLoss(KeystoneArcEvent e) { return (e.Outcome ?? string.Empty).StartsWith("LOSS", StringComparison.Ordinal); }
+        public static bool Traded(KeystoneArcEvent e) { return e != null && e.EntryTime != DateTime.MinValue && !double.IsNaN(e.ExitPrice) && e.ExitTime != DateTime.MinValue && (IsWin(e) || IsLoss(e) || e.Outcome == "SESSION EXIT" || e.Outcome == "BREAKEVEN"); }
+        public static double Points(KeystoneArcEvent e) { return Traded(e) ? (e.ExitPrice - e.Entry) : 0; }
+        public static double TargetPoints(KeystoneArcEvent e) { return e.Target - e.Entry; }
+        public static double StopPoints(KeystoneArcEvent e) { return e.Entry - e.Stop; }
+        public static bool HeldOvernight(KeystoneArcEvent e) { return Traded(e) && KeystoneArcEngine.GoldenSessionDay(e.ExitTime) != KeystoneArcEngine.GoldenSessionDay(e.EntryTime); }
+        static DateTime EntryClock(KeystoneArcEvent e) { return e.EntryTime == DateTime.MinValue ? e.TriggerTime : e.EntryTime; }
+
+        public static string Reason(KeystoneArcEvent e, KeystoneGoldenFilter f)
+        {
+            bool mgc = IsMgc(e.Symbol);
+            string kind = e.SetupClass ?? string.Empty;
+            if (f.Setup != "ALL" && !string.Equals(f.Setup, kind, StringComparison.OrdinalIgnoreCase)) return "SETUP TYPE";
+            double minDrop = mgc ? f.MgcMinDrop : f.MnqMinDrop;
+            if (minDrop > 0 && e.FvgDrop < minDrop - 1e-9) return "PUSH DOWN TOO SMALL";
+            if (f.MinRed > 0 && e.FvgRedRun < f.MinRed) return "TOO FEW RED CANDLES";
+            double minGap = mgc ? f.MgcMinGap : f.MnqMinGap;
+            if (minGap > 0 && (kind == "FVG" || kind == "DT") && e.FvgGap < minGap - 1e-9) return "FVG GAP TOO SMALL";
+            double maxStop = mgc ? f.MgcMaxStop : f.MnqMaxStop;
+            if (maxStop > 0 && StopPoints(e) > maxStop + 1e-9) return "STOP TOO BIG";
+            if (f.SkipStopOverTarget && StopPoints(e) > TargetPoints(e) + 1e-9) return "STOP BIGGER THAN TARGET";
+            DateTime t = EntryClock(e); int hhmm = t.Hour * 100 + t.Minute;
+            bool inHours = f.FromHhmm <= f.ToHhmm ? hhmm >= f.FromHhmm && hhmm <= f.ToHhmm : hhmm >= f.FromHhmm || hhmm <= f.ToHhmm;
+            if (!inHours) return "OUTSIDE THE ENTRY HOURS";
+            if (f.Weekdays != null && f.Weekdays.Length == 7 && !f.Weekdays[(int)KeystoneArcEngine.GoldenSessionDay(t).DayOfWeek]) return "WEEKDAY OFF";
+            return string.Empty;
+        }
+
+        public static KeystoneGoldenStudyResult Run(List<KeystoneArcEvent> all, KeystoneGoldenFilter f, KeystoneArcRunConfig cfg)
+        {
+            var r = new KeystoneGoldenStudyResult();
+            r.Hold = cfg == null || cfg.GoldenHold == 1;
+            r.All = (all ?? new List<KeystoneArcEvent>()).Where(e => e != null && (e.RiskModel ?? string.Empty).StartsWith("GLD ", StringComparison.Ordinal)).OrderBy(EntryClock).ThenBy(e => e.Symbol).ToList();
+            // Filters in the order the day happened: a filtered try ends that day (strictly first), and only the first N tries count.
+            foreach (var day in r.All.GroupBy(e => (e.Symbol ?? string.Empty) + "|" + KeystoneArcEngine.GoldenSessionDay(EntryClock(e)).ToString("yyyyMMdd")))
+            {
+                bool ended = false; int tries = 0;
+                foreach (var e in day.OrderBy(EntryClock))
+                {
+                    string why = ended ? "DAY ALREADY USED" : Reason(e, f);
+                    if (why.Length == 0 && tries >= Math.Max(1, f.MaxTries)) why = "TRIES PER DAY";
+                    if (why.Length == 0 && !Traded(e)) why = "NO FILL / NO 1M DATA";
+                    if (why.Length > 0) { r.Reasons[e] = why; if (f.StrictFirst) ended = true; int c; r.FilteredOut.TryGetValue(why, out c); r.FilteredOut[why] = c + 1; continue; }
+                    tries++; r.Kept.Add(e);
+                }
+            }
+            r.Kept = r.Kept.OrderBy(EntryClock).ToList();
+            r.Mnq = Stats("MNQ", r.Kept.Where(e => !IsMgc(e.Symbol)));
+            r.Mgc = Stats("MGC", r.Kept.Where(e => IsMgc(e.Symbol)));
+            r.Both = Stats("BOTH", r.Kept);
+            r.AccountMnq = Account(r.Kept.Where(e => !IsMgc(e.Symbol)).ToList(), f);
+            r.AccountMgc = Account(r.Kept.Where(e => IsMgc(e.Symbol)).ToList(), f);
+            r.AccountBoth = Account(r.Kept, f);
+            double mnqT = cfg == null ? 100 : cfg.GoldenMnqTargetPoints, mgcT = cfg == null ? 10 : cfg.GoldenMgcTargetPoints;
+            r.Breakdowns = Breakdowns(r.Kept, mnqT, mgcT);
+            foreach (string sym in new[] { "MNQ", "MGC" })
+            {
+                var list = r.Kept.Where(e => string.Equals(e.Symbol, sym, StringComparison.OrdinalIgnoreCase) && e.GoldenRunBeforeStop != null).ToList();
+                if (list.Count == 0) continue;
+                r.Grids.Add(Grid(sym, "ALL", list, sym == "MGC" ? mgcT : mnqT));
+                foreach (var y in list.GroupBy(e => EntryClock(e).Year).OrderBy(g => g.Key)) r.Grids.Add(Grid(sym, y.Key.ToString(CultureInfo.InvariantCulture), y.ToList(), sym == "MGC" ? mgcT : mnqT));
+            }
+            r.Insights = Insights(r);
+            r.Verdict = Verdict(r);
+            return r;
+        }
+
+        public static KeystoneGoldenStats Stats(string label, IEnumerable<KeystoneArcEvent> list)
+        {
+            var s = new KeystoneGoldenStats { Label = label };
+            foreach (var e in list)
+            {
+                s.Entries++;
+                double pts = Points(e);
+                s.NetPoints += pts; s.NetCash += e.GrossPnl;
+                if (IsWin(e))
+                {
+                    s.Wins++; s.WinPoints += pts;
+                    if (!double.IsNaN(e.TroughAfterEntry)) s.DrawBeforeTargetSum += Math.Max(0, e.Entry - e.TroughAfterEntry);
+                }
+                else if (IsLoss(e))
+                {
+                    s.Losses++; s.LossPoints += pts;
+                    if (!double.IsNaN(e.PeakAfterEntry)) s.RunBeforeStopSum += Math.Max(0, e.PeakAfterEntry - e.Entry);
+                }
+                else s.Open++;
+                if (IsWin(e) || IsLoss(e)) s.HoldHoursSum += Math.Max(0, (e.ExitTime - e.EntryTime).TotalHours);
+                if (HeldOvernight(e)) s.Overnight++;
+            }
+            return s;
+        }
+
+        // One plain account: start balance + each trade's own result (strategy contracts); optional one position per instrument.
+        public static KeystoneGoldenAccount Account(List<KeystoneArcEvent> kept, KeystoneGoldenFilter f)
+        {
+            var a = new KeystoneGoldenAccount { Start = f.StartBalance };
+            var openUntil = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in kept.OrderBy(EntryClock))
+            {
+                DateTime busy;
+                if (f.OnePositionPerInstrument && openUntil.TryGetValue(e.Symbol ?? string.Empty, out busy) && EntryClock(e) < busy) { a.SkippedOpen++; continue; }
+                openUntil[e.Symbol ?? string.Empty] = e.ExitTime == DateTime.MinValue ? DateTime.MaxValue : e.ExitTime;
+                a.Taken.Add(e); a.Trades++;
+                if (IsWin(e)) a.Wins++; else if (IsLoss(e)) a.Losses++; else a.Open++;
+            }
+            double bal = a.Start, peak = a.Start;
+            a.Equity.Add(Tuple.Create(a.Taken.Count == 0 ? DateTime.MinValue : EntryClock(a.Taken[0]), bal));
+            foreach (var e in a.Taken.OrderBy(x => x.ExitTime))
+            {
+                bal += e.GrossPnl; peak = Math.Max(peak, bal);
+                a.Equity.Add(Tuple.Create(e.ExitTime, bal));
+                if (peak - bal > a.MaxDrawdown) { a.MaxDrawdown = peak - bal; a.MaxDrawdownPercent = peak <= 0 ? 0 : 100.0 * (peak - bal) / peak; }
+            }
+            a.End = bal; a.Peak = peak;
+            foreach (var m in a.Taken.GroupBy(e => new DateTime(e.ExitTime.Year, e.ExitTime.Month, 1)).OrderBy(g => g.Key))
+                a.Months.Add(Tuple.Create(m.Key, m.Sum(x => x.GrossPnl), m.Count(IsWin), m.Count(IsLoss)));
+            return a;
+        }
+
+        static string Band(double v, double[] edges, string[] labels) { for (int i = 0; i < edges.Length; i++) if (v < edges[i] - 1e-9) return labels[i]; return labels[labels.Length - 1]; }
+
+        public static List<KeystoneGoldenBreakdown> Breakdowns(List<KeystoneArcEvent> kept, double mnqTarget, double mgcTarget)
+        {
+            var output = new List<KeystoneGoldenBreakdown>();
+            Func<KeystoneArcEvent, double> tgt = e => Math.Max(0.01, TargetPoints(e));
+            string mq = mnqTarget.ToString("0.##", CultureInfo.InvariantCulture), mg = mgcTarget.ToString("0.##", CultureInfo.InvariantCulture);
+            Func<double, string> both = pct => (mnqTarget * pct).ToString("0.##", CultureInfo.InvariantCulture) + " / " + (mgcTarget * pct).ToString("0.##", CultureInfo.InvariantCulture);
+            Action<string, string, Func<KeystoneArcEvent, Tuple<int, string>>> add = (title, note, key) =>
+            {
+                var b = new KeystoneGoldenBreakdown { Title = title, Note = note };
+                foreach (var g in kept.GroupBy(e => key(e)).OrderBy(g => g.Key.Item1).ThenBy(g => g.Key.Item2))
+                    b.Rows.Add(new KeystoneGoldenGroup { Group = g.Key.Item2, Order = g.Key.Item1, Mnq = Stats("MNQ", g.Where(e => !IsMgc(e.Symbol))), Mgc = Stats("MGC", g.Where(e => IsMgc(e.Symbol))), Both = Stats("BOTH", g) });
+                output.Add(b);
+            };
+            add("SETUP", "BH = red → green reference → break of its high • FVG = candle 3 low above candle 1 high • BH + FVG = both on the same candle", e => Tuple.Create(e.SetupClass == "BH" ? 0 : e.SetupClass == "FVG" ? 1 : 2, e.SetupClass == "DT" ? "BH + FVG" : e.SetupClass));
+            double[] dropEdges = { 0.15, 0.30, 0.60, 1.0 };
+            add("PUSH DOWN BEFORE THE ENTRY", "points from the start price down to the low before the setup, as a share of the target (MNQ / MGC points shown)", e =>
+            {
+                double r = e.FvgDrop / tgt(e); int i = 0; while (i < dropEdges.Length && r >= dropEdges[i] - 1e-9) i++;
+                string[] names = { "UNDER " + both(0.15), both(0.15) + " – " + both(0.30), both(0.30) + " – " + both(0.60), both(0.60) + " – " + both(1.0), both(1.0) + " OR MORE" };
+                return Tuple.Create(i, names[i]);
+            });
+            add("RED CANDLES IN A ROW BEFORE THE PATTERN", "the push down candles right before the setup", e => Tuple.Create(Math.Min(4, e.FvgRedRun), e.FvgRedRun >= 4 ? "4 OR MORE" : e.FvgRedRun.ToString(CultureInfo.InvariantCulture)));
+            double[] gapEdges = { 0.05, 0.10, 0.20 };
+            add("FVG GAP SIZE", "candle 3 low − candle 1 high, as a share of the target (MNQ / MGC points shown)", e =>
+            {
+                if (e.SetupClass == "BH") return Tuple.Create(-1, "BH (NO GAP)");
+                double r = e.FvgGap / tgt(e); int i = 0; while (i < gapEdges.Length && r >= gapEdges[i] - 1e-9) i++;
+                string[] names = { "UNDER " + both(0.05), both(0.05) + " – " + both(0.10), both(0.10) + " – " + both(0.20), both(0.20) + " OR MORE" };
+                return Tuple.Create(i, names[i]);
+            });
+            double[] stopEdges = { 0.25, 0.50, 0.75, 1.0001 };
+            add("STOP SIZE (vs THE TARGET)", "distance from the entry to the stop below the pattern", e =>
+            {
+                double r = StopPoints(e) / tgt(e); int i = 0; while (i < stopEdges.Length && r >= stopEdges[i] - 1e-9) i++;
+                string[] names = { "UNDER 25% (" + both(0.25) + ")", "25–50%", "50–75%", "75–100%", "BIGGER THAN THE TARGET" };
+                return Tuple.Create(i, names[i]);
+            });
+            add("ENTRY HOUR (ET)", "the clock hour of the entry", e => { DateTime t = EntryClock(e); int k = (t.Hour + 6) % 24; return Tuple.Create(k, t.Hour.ToString("00") + ":00"); });
+            add("MINUTES AFTER THE START", "how long after the start time the setup came", e =>
+            {
+                double m = e.GoldenStartTime == DateTime.MinValue ? 0 : (EntryClock(e) - e.GoldenStartTime).TotalMinutes;
+                double[] edges = { 15, 30, 60, 120, 240 }; string[] names = { "FIRST 15 MIN", "15–30 MIN", "30–60 MIN", "1–2 HOURS", "2–4 HOURS", "4+ HOURS" };
+                int i = 0; while (i < edges.Length && m >= edges[i]) i++; return Tuple.Create(i, names[i]);
+            });
+            add("WEEKDAY", "the trading day of the entry", e => { var d = KeystoneArcEngine.GoldenSessionDay(EntryClock(e)).DayOfWeek; return Tuple.Create(((int)d + 6) % 7, d.ToString().ToUpperInvariant()); });
+            add("TRY OF THE DAY", "1 = the first setup; 2+ = the next setup after a loss", e => Tuple.Create(Math.Max(1, e.SessionOrder), "TRY " + Math.Max(1, e.SessionOrder)));
+            add("HOW IT ENDED", "same session, carried overnight, or still open when the data ended", e => Tuple.Create(!(IsWin(e) || IsLoss(e)) ? 2 : HeldOvernight(e) ? 1 : 0, !(IsWin(e) || IsLoss(e)) ? "STILL OPEN AT DATA END" : HeldOvernight(e) ? "CLOSED A LATER DAY" : "CLOSED THE SAME DAY"));
+            add("YEAR", "volatility changes year to year", e => Tuple.Create(EntryClock(e).Year, EntryClock(e).Year.ToString(CultureInfo.InvariantCulture)));
+            add("MONTH", "month of the entry", e => { DateTime t = EntryClock(e); return Tuple.Create(t.Year * 100 + t.Month, t.ToString("yyyy-MM", CultureInfo.InvariantCulture)); });
+            return output;
+        }
+
+        // TARGET × STOP: every kept entry replayed on its own 1-minute path for each fixed stop (and the pattern stop) and target.
+        public static KeystoneGoldenGrid Grid(string symbol, string year, List<KeystoneArcEvent> list, double yourTarget)
+        {
+            double[] stops = StopLevels(symbol), targets = TargetLevels(symbol);
+            if (!targets.Any(t => Math.Abs(t - yourTarget) < 1e-9)) targets = targets.Concat(new[] { yourTarget }).OrderBy(t => t).ToArray();
+            var g = new KeystoneGoldenGrid { Symbol = symbol, Year = year, Entries = list.Count, Stops = stops, Targets = targets, Cells = new KeystoneGoldenCell[stops.Length + 1, targets.Length] };
+            for (int s = 0; s <= stops.Length; s++)
+                for (int t = 0; t < targets.Length; t++)
+                {
+                    bool pattern = s == stops.Length;
+                    var c = new KeystoneGoldenCell { Stop = pattern ? 0 : stops[s], Target = targets[t], Pattern = pattern };
+                    foreach (var e in list)
+                    {
+                        if (e.GoldenRunBeforeStop == null || e.GoldenRunBeforeStop.Length != stops.Length + 1) continue;
+                        double run = e.GoldenRunBeforeStop[s]; bool hit = e.GoldenStopHit[s];
+                        double stopPts = pattern ? StopPoints(e) : stops[s];
+                        double cash = PointValue(symbol) * Math.Max(1, e.Quantity);
+                        if (run >= targets[t] - 1e-9) { c.Wins++; c.NetPoints += targets[t]; c.NetCash += targets[t] * cash; }
+                        else if (hit) { c.Losses++; c.NetPoints -= stopPts; c.NetCash -= stopPts * cash; }
+                        else c.Open++;
+                    }
+                    g.Cells[s, t] = c;
+                    if (g.Best == null || c.NetCash > g.Best.NetCash) g.Best = c;
+                    if (pattern && Math.Abs(targets[t] - yourTarget) < 1e-9) g.Yours = c;
+                }
+            return g;
+        }
+
+        static List<KeystoneGoldenInsight> Insights(KeystoneGoldenStudyResult r)
+        {
+            var output = new List<KeystoneGoldenInsight>();
+            foreach (string sym in new[] { "MNQ", "MGC" })
+            {
+                var all = sym == "MNQ" ? r.Mnq : r.Mgc;
+                if (all.Wins + all.Losses < 10) continue;
+                foreach (var b in r.Breakdowns.Where(x => x.Title != "MONTH" && x.Title != "YEAR" && x.Title != "HOW IT ENDED"))   // conditions known at the entry only
+                    foreach (var g in b.Rows)
+                    {
+                        var s = sym == "MNQ" ? g.Mnq : g.Mgc;
+                        if (s.Wins + s.Losses < Math.Max(6, (all.Wins + all.Losses) / 12)) continue;
+                        double lift = s.WinRate - all.WinRate;
+                        if (Math.Abs(lift) < 8) continue;
+                        output.Add(new KeystoneGoldenInsight
+                        {
+                            Lift = lift, Good = lift > 0,
+                            Text = sym + " • " + b.Title + " = " + g.Group + " → wins " + s.WinRate.ToString("0", CultureInfo.InvariantCulture) + "% (" + s.Wins + "/" + (s.Wins + s.Losses) + ") vs " + all.WinRate.ToString("0", CultureInfo.InvariantCulture) + "% overall • net " + Cash(s.NetCash)
+                        });
+                    }
+            }
+            return output.OrderByDescending(i => Math.Abs(i.Lift)).Take(16).ToList();
+        }
+
+        public static string Cash(double v) { return (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture); }
+
+        static string Verdict(KeystoneGoldenStudyResult r)
+        {
+            if (r.All.Count == 0) return "No GOLDEN entries in this range. Check the start times and that the data loaded.";
+            var parts = new List<string>();
+            foreach (var s in new[] { r.Mnq, r.Mgc }) if (s.Entries > 0)
+                parts.Add(s.Label + ": " + s.Entries + " entries, wins " + s.WinRate.ToString("0", CultureInfo.InvariantCulture) + "% (" + s.Wins + " W / " + s.Losses + " L" + (s.Open > 0 ? " / " + s.Open + " open" : "") + "), net " + Fmt(s.Label, s.NetPoints) + " pts = " + Cash(s.NetCash));
+            return string.Join("   •   ", parts) + (r.Kept.Count < r.All.Count ? "   •   filters removed " + (r.All.Count - r.Kept.Count) + " of " + r.All.Count + " first setups" : string.Empty);
+        }
+
+        // ---- export -------------------------------------------------------------------------------
+        public static string Csv(KeystoneGoldenStudyResult r)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("kept,filtered_reason,symbol,session_day,entry_time,setup,try,push_down_pts,red_candles,fvg_gap_pts,entry,target,stop,target_pts,stop_pts,outcome,exit_time,exit_price,points,cash,run_up_before_exit_pts,drawdown_before_exit_pts,held_overnight,hold_hours");
+            foreach (var e in r.All)
+            {
+                string why; r.Reasons.TryGetValue(e, out why);
+                Func<double, string> n = v => double.IsNaN(v) ? "" : v.ToString("0.##", CultureInfo.InvariantCulture);
+                sb.AppendLine(string.Join(",", new[]
+                {
+                    string.IsNullOrEmpty(why) ? "1" : "0", why ?? "", e.Symbol, KeystoneArcEngine.GoldenSessionDay(EntryClock(e)).ToString("yyyy-MM-dd"), EntryClock(e).ToString("yyyy-MM-dd HH:mm"), e.SetupClass == "DT" ? "BH+FVG" : e.SetupClass, e.SessionOrder.ToString(CultureInfo.InvariantCulture),
+                    n(e.FvgDrop), e.FvgRedRun.ToString(CultureInfo.InvariantCulture), e.SetupClass == "BH" ? "" : n(e.FvgGap), n(e.Entry), n(e.Target), n(e.Stop), n(TargetPoints(e)), n(StopPoints(e)), e.Outcome,
+                    e.ExitTime == DateTime.MinValue ? "" : e.ExitTime.ToString("yyyy-MM-dd HH:mm"), n(e.ExitPrice), n(Points(e)), n(e.GrossPnl),
+                    double.IsNaN(e.PeakAfterEntry) ? "" : n(e.PeakAfterEntry - e.Entry), double.IsNaN(e.TroughAfterEntry) ? "" : n(e.Entry - e.TroughAfterEntry), HeldOvernight(e) ? "1" : "0", Traded(e) ? n((e.ExitTime - e.EntryTime).TotalHours) : ""
+                }));
+            }
+            return sb.ToString();
+        }
+
+        static string H(string s) { return System.Net.WebUtility.HtmlEncode(s ?? string.Empty); }
+        static string Pc(double v) { return v.ToString("0", CultureInfo.InvariantCulture) + "%"; }
+        static string Cls(double v) { return v > 0 ? "g" : v < 0 ? "r" : "m"; }
+
+        public static string Html(KeystoneGoldenStudyResult r, KeystoneGoldenFilter f, string title)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>GOLDEN entry study</title><style>")
+              .Append("body{background:#0d1017;color:#e8e3d3;font-family:Segoe UI,Arial,sans-serif;margin:0;padding:18px}h1{color:#f2c14e;margin:0 0 4px}h2{color:#f2c14e;margin:26px 0 6px;font-size:17px}")
+              .Append(".sub{color:#9aa4b5;font-size:13px}.cards{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}.card{background:#161b26;border:1.5px solid #2d3546;border-radius:8px;padding:10px 14px;min-width:200px}")
+              .Append(".card b{display:block;font-size:12px;color:#9aa4b5}.card span{font-size:21px;font-weight:700}table{border-collapse:collapse;margin:6px 0 4px;font-size:12.5px}th{background:#1d2433;color:#f2c14e;padding:5px 8px;text-align:right}th:first-child,td:first-child{text-align:left}")
+              .Append("td{padding:4px 8px;border-bottom:1px solid #222a39;text-align:right}.g{color:#38d682}.r{color:#ff5260}.m{color:#9aa4b5}.c{color:#5bc8f5}.note{color:#9aa4b5;font-size:12px}.hl{outline:2px solid #f2c14e}.wrap{overflow-x:auto}</style></head><body>");
+            sb.Append("<h1>GOLDEN ENTRY STUDY</h1><div class='sub'>").Append(H(title)).Append("<br>").Append(r.Hold ? "Every trade held until its target or its stop (overnight and later days); no prop rules." : "Trades closed at the session close time.").Append("</div>");
+            sb.Append("<p>").Append(H(r.Verdict)).Append("</p>");
+            sb.Append("<h2>MNQ vs MGC vs BOTH</h2><div class='wrap'><table><tr><th></th><th>MNQ</th><th>MGC</th><th>BOTH</th></tr>");
+            foreach (var row in CompareRows(r)) sb.Append("<tr><td>").Append(H(row[0])).Append("</td><td>").Append(H(row[1])).Append("</td><td>").Append(H(row[2])).Append("</td><td>").Append(H(row[3])).Append("</td></tr>");
+            sb.Append("</table></div>");
+            if (r.FilteredOut.Count > 0) { sb.Append("<p class='note'>Filtered out: ").Append(H(string.Join(" • ", r.FilteredOut.OrderByDescending(k => k.Value).Select(k => k.Key + " " + k.Value)))).Append("</p>"); }
+            if (r.Insights.Count > 0)
+            {
+                sb.Append("<h2>WHAT MAKES THE DIFFERENCE</h2><ul>");
+                foreach (var i in r.Insights) sb.Append("<li class='").Append(i.Good ? "g" : "r").Append("'>").Append(H(i.Text)).Append("</li>");
+                sb.Append("</ul>");
+            }
+            foreach (var b in r.Breakdowns)
+            {
+                sb.Append("<h2>").Append(H(b.Title)).Append("</h2><div class='note'>").Append(H(b.Note)).Append("</div><div class='wrap'><table><tr><th>GROUP</th><th>MNQ n</th><th>MNQ win</th><th>MNQ net</th><th>MGC n</th><th>MGC win</th><th>MGC net</th><th>BOTH n</th><th>BOTH win</th><th>BOTH net</th></tr>");
+                foreach (var g in b.Rows)
+                {
+                    sb.Append("<tr><td>").Append(H(g.Group)).Append("</td>");
+                    foreach (var s in new[] { g.Mnq, g.Mgc, g.Both })
+                        sb.Append("<td>").Append(s.Entries).Append("</td><td class='").Append(s.Wins + s.Losses == 0 ? "m" : "c").Append("'>").Append(s.Wins + s.Losses == 0 ? "–" : Pc(s.WinRate)).Append("</td><td class='").Append(Cls(s.NetCash)).Append("'>").Append(s.Entries == 0 ? "–" : Cash(s.NetCash)).Append("</td>");
+                    sb.Append("</tr>");
+                }
+                sb.Append("</table></div>");
+            }
+            sb.Append("<h2>TARGET × STOP (one account, the strategy's contracts)</h2><div class='note'>Each cell replays every kept entry on its own 1-minute path: a fixed stop in points (rows) or the pattern stop (last row) and a target in points (columns). Win % • net $. The outlined cell is your Step 1 setting.</div>");
+            foreach (var g in r.Grids)
+            {
+                sb.Append("<h3 class='c'>").Append(H(g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year) + " • " + g.Entries + " entries")).Append(g.Best == null ? "" : H(" • best: target " + Fmt(g.Symbol, g.Best.Target) + " / stop " + (g.Best.Pattern ? "pattern" : Fmt(g.Symbol, g.Best.Stop)) + " = " + Cash(g.Best.NetCash))).Append("</h3><div class='wrap'><table><tr><th>STOP \\ TARGET</th>");
+                foreach (double t in g.Targets) sb.Append("<th>+").Append(Fmt(g.Symbol, t)).Append("</th>");
+                sb.Append("</tr>");
+                for (int s = 0; s <= g.Stops.Length; s++)
+                {
+                    sb.Append("<tr><td>").Append(s == g.Stops.Length ? "PATTERN" : "−" + Fmt(g.Symbol, g.Stops[s])).Append("</td>");
+                    for (int t = 0; t < g.Targets.Length; t++)
+                    {
+                        var c = g.Cells[s, t];
+                        sb.Append("<td class='").Append(Cls(c.NetCash)).Append(c == g.Yours ? " hl" : "").Append("'>").Append(Pc(c.WinRate)).Append("<br>").Append(Cash(c.NetCash)).Append("</td>");
+                    }
+                    sb.Append("</tr>");
+                }
+                sb.Append("</table></div>");
+            }
+            sb.Append("<h2>ONE ACCOUNT</h2><div class='note'>Start ").Append(Cash(f.StartBalance)).Append(f.OnePositionPerInstrument ? " • one position per instrument (a setup while a trade is still open is skipped)" : " • every entry taken").Append("</div><div class='wrap'><table><tr><th></th><th>START</th><th>END</th><th>TRADES</th><th>W / L</th><th>MAX DRAWDOWN</th><th>SKIPPED (OPEN)</th></tr>");
+            foreach (var a in new[] { Tuple.Create("MNQ", r.AccountMnq), Tuple.Create("MGC", r.AccountMgc), Tuple.Create("BOTH", r.AccountBoth) })
+                sb.Append("<tr><td>").Append(a.Item1).Append("</td><td>").Append(Cash(a.Item2.Start)).Append("</td><td class='").Append(Cls(a.Item2.End - a.Item2.Start)).Append("'>").Append(Cash(a.Item2.End)).Append("</td><td>").Append(a.Item2.Trades).Append("</td><td>").Append(a.Item2.Wins + " / " + a.Item2.Losses).Append("</td><td class='r'>").Append(Cash(-a.Item2.MaxDrawdown)).Append("</td><td>").Append(a.Item2.SkippedOpen).Append("</td></tr>");
+            sb.Append("</table></div>");
+            sb.Append("<h2>EVERY ENTRY</h2><div class='wrap'><table><tr><th>DATE</th><th>TIME</th><th>INST</th><th>SETUP</th><th>TRY</th><th>PUSH</th><th>RED</th><th>GAP</th><th>ENTRY</th><th>STOP PTS</th><th>RESULT</th><th>PTS</th><th>$</th><th>RUN UP</th><th>DRAW DOWN</th><th>EXIT</th><th>FILTER</th></tr>");
+            foreach (var e in r.All)
+            {
+                string why; r.Reasons.TryGetValue(e, out why);
+                sb.Append("<tr class='").Append(string.IsNullOrEmpty(why) ? "" : "m").Append("'><td>").Append(EntryClock(e).ToString("yyyy-MM-dd ddd")).Append("</td><td>").Append(EntryClock(e).ToString("HH:mm")).Append("</td><td>").Append(e.Symbol).Append("</td><td>").Append(e.SetupClass == "DT" ? "BH+FVG" : e.SetupClass).Append("</td><td>").Append(e.SessionOrder)
+                  .Append("</td><td>").Append(Fmt(e.Symbol, e.FvgDrop)).Append("</td><td>").Append(e.FvgRedRun).Append("</td><td>").Append(e.SetupClass == "BH" ? "–" : Fmt(e.Symbol, e.FvgGap)).Append("</td><td>").Append(Fmt(e.Symbol, e.Entry)).Append("</td><td>").Append(Fmt(e.Symbol, StopPoints(e)))
+                  .Append("</td><td class='").Append(IsWin(e) ? "g" : IsLoss(e) ? "r" : "m").Append("'>").Append(H(OutcomeText(e, r.Hold))).Append("</td><td class='").Append(Cls(Points(e))).Append("'>").Append(Fmt(e.Symbol, Points(e))).Append("</td><td class='").Append(Cls(e.GrossPnl)).Append("'>").Append(Cash(e.GrossPnl))
+                  .Append("</td><td>").Append(double.IsNaN(e.PeakAfterEntry) ? "–" : Fmt(e.Symbol, e.PeakAfterEntry - e.Entry)).Append("</td><td>").Append(double.IsNaN(e.TroughAfterEntry) ? "–" : Fmt(e.Symbol, e.Entry - e.TroughAfterEntry)).Append("</td><td>").Append(e.ExitTime == DateTime.MinValue ? "–" : e.ExitTime.ToString("MM-dd HH:mm")).Append("</td><td class='m'>").Append(H(why ?? "")).Append("</td></tr>");
+            }
+            sb.Append("</table></div></body></html>");
+            return sb.ToString();
+        }
+
+        public static string OutcomeText(KeystoneArcEvent e, bool hold)
+        {
+            if (IsWin(e)) return HeldOvernight(e) ? "WIN (NEXT DAY+)" : "WIN";
+            if (IsLoss(e)) return HeldOvernight(e) ? "LOSS (NEXT DAY+)" : "LOSS";
+            if (e.Outcome == "SESSION EXIT") return hold ? "STILL OPEN (DATA END)" : "CLOSED AT SESSION END";
+            return e.Outcome ?? string.Empty;
+        }
+
+        public static List<string[]> CompareRows(KeystoneGoldenStudyResult r)
+        {
+            var s = new[] { r.Mnq, r.Mgc, r.Both }; var a = new[] { r.AccountMnq, r.AccountMgc, r.AccountBoth };
+            var rows = new List<string[]>();
+            Action<string, Func<KeystoneGoldenStats, int, string>> add = (name, fn) => rows.Add(new[] { name, fn(s[0], 0), fn(s[1], 1), fn(s[2], 2) });
+            Func<int, string> sym = i => i == 1 ? "MGC" : "MNQ";
+            add("ENTRIES", (x, i) => x.Entries.ToString(CultureInfo.InvariantCulture));
+            add("WINS / LOSSES / OPEN", (x, i) => x.Wins + " / " + x.Losses + " / " + x.Open);
+            add("WIN RATE", (x, i) => x.Wins + x.Losses == 0 ? "–" : Pc(x.WinRate));
+            add("NET POINTS", (x, i) => i == 2 ? "–" : Fmt(sym(i), x.NetPoints));
+            add("NET $ (strategy contracts)", (x, i) => Cash(x.NetCash));
+            add("$ PER ENTRY", (x, i) => Cash(x.CashPerEntry));
+            add("AVG WIN (POINTS)", (x, i) => i == 2 ? "–" : Fmt(sym(i), x.AvgWinPoints));
+            add("AVG LOSS (POINTS)", (x, i) => i == 2 ? "–" : Fmt(sym(i), x.AvgLossPoints));
+            add("LOSERS: BEST RUN UP BEFORE THE STOP", (x, i) => i == 2 ? "–" : Fmt(sym(i), x.AvgRunBeforeStop) + " pts");
+            add("WINNERS: WORST DIP BEFORE THE TARGET", (x, i) => i == 2 ? "–" : Fmt(sym(i), x.AvgDrawBeforeTarget) + " pts");
+            add("AVG TIME IN THE TRADE", (x, i) => x.AvgHoldHours.ToString("0.#", CultureInfo.InvariantCulture) + " h");
+            add("CLOSED A LATER DAY", (x, i) => x.Overnight.ToString(CultureInfo.InvariantCulture));
+            rows.Add(new[] { "ONE ACCOUNT: START → END", Cash(a[0].Start) + " → " + Cash(a[0].End), Cash(a[1].Start) + " → " + Cash(a[1].End), Cash(a[2].Start) + " → " + Cash(a[2].End) });
+            rows.Add(new[] { "ONE ACCOUNT: MAX DRAWDOWN", Cash(-a[0].MaxDrawdown), Cash(-a[1].MaxDrawdown), Cash(-a[2].MaxDrawdown) });
+            rows.Add(new[] { "ONE ACCOUNT: BEST / WORST MONTH", MonthText(a[0]), MonthText(a[1]), MonthText(a[2]) });
+            return rows;
+        }
+
+        static string MonthText(KeystoneGoldenAccount a) { return a.Months.Count == 0 ? "–" : Cash(a.Months.Max(m => m.Item2)) + " / " + Cash(a.Months.Min(m => m.Item2)); }
+    }
+
     public sealed class KeystoneHelixStageRules
     {
         public int MnqContracts = 10, MgcContracts = 10;
@@ -6138,7 +6653,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-30r • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-30s • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -7274,7 +7789,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             RefreshOpenChartInstruments();
             string defaultDay = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var data = Stack(); data.Children.Add(Txt("1. DATA, SETUPS & SESSION", Gold, 13, FontWeights.Bold));
-            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "123 ENGULFING • BUY / SELL", "LAST-HOUR RELAY • TIME MOMENTUM", "VWAP SNAP-BACK • MIDDAY REVERSION", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN"); strategyBox.SelectedIndex = 0;
+            // 123 ENGULFING, LAST-HOUR RELAY and VWAP SNAP-BACK are hidden (never tested); their engines stay in the file.
+            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN"); strategyBox.SelectedIndex = 0;
             scopeBox = Select("MNQ", "MGC", "BOTH"); scopeBox.SelectedIndex = 0;
             accountPathBox = Select("PROP • VIRTUAL POOL"); accountPathBox.SelectedIndex = 0; accountPathBox.Visibility = Visibility.Collapsed;
             // Keystone is intentionally one setup lab in this revision: long BH only.
@@ -8137,6 +8653,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var resultViews = resultViewTabs = new TabControl { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
             Grid.SetRow(resultViews, 3); root.Children.Add(resultViews);
             var helixHost = BuildHelixResultsHost(); Grid.SetRow(helixHost, 1); Grid.SetRowSpan(helixHost, 3); root.Children.Add(helixHost);
+            var goldenHost = BuildGoldenResultsHost(); Grid.SetRow(goldenHost, 1); Grid.SetRowSpan(goldenHost, 3); root.Children.Add(goldenHost);
             resultViews.SelectionChanged += (sender, args) => { if (args != null && args.OriginalSource == resultViewTabs) { RunDeferredTabRender(); UpdateTopTilesForTab(); } };
             var body = new Grid { MinHeight = 0 };
             // Keep the default settings view short enough to read without a page scroll.  The
@@ -8486,8 +9003,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             var resultsPage = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             resultViews.Height = 620;
             resultsPageScroll = resultsPage; resultsTopPanel = top;
-            resultsPage.SizeChanged += delegate { if (resultsPage.ActualHeight > 200) resultViews.Height = Math.Max(480, resultsPage.ActualHeight - 12); SizeHelixHost(); };
-            top.SizeChanged += delegate { SizeHelixHost(); };
+            resultsPage.SizeChanged += delegate { if (resultsPage.ActualHeight > 200) resultViews.Height = Math.Max(480, resultsPage.ActualHeight - 12); SizeHelixHost(); SizeGoldenHost(); };
+            top.SizeChanged += delegate { SizeHelixHost(); SizeGoldenHost(); };
             Border resultsCard = PanelCard(resultsPage);
             resultsCard.VerticalAlignment = VerticalAlignment.Stretch;
             resultsCard.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -10504,8 +11021,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (isProcessing) { UpdateUi("PROCESSING IS ALREADY RUNNING • WAIT FOR STATUS", Gold); return; }
             if (!ConfigurationStillApproved()) { UpdateUi("CONFIGURATION CHANGED • CONFIRM STEP 1 AND REQUEST HISTORY AGAIN", Gold); UpdateWorkflowState(); return; }
             if (!HasSelectedData()) { UpdateUi("STEP 2 REQUIRED • REQUEST COMPLETE HISTORY FOR THE SELECTED SCOPE FIRST", Red); UpdateWorkflowState(); return; }
-            if (HelixStudy()) { RunHelix(); return; }
+            if (HelixStudy()) { SetGoldenResultsMode(false); RunHelix(); return; }
             SetHelixResultsMode(false);
+            if (!GoldenStudyRun()) SetGoldenResultsMode(false);
             KeystoneArcRunConfig workerConfig = CloneConfig(config);
             isProcessing = true;
             bool asianBacktest = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase);
@@ -10516,10 +11034,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 List<KeystoneArcEvent> generated;
+                List<KeystoneArcEvent> goldenUnfiltered = null;
                 List<KeystoneArcVirtualAccount> generatedAccounts = new List<KeystoneArcVirtualAccount>();
                 try
                 {
                     generated = BuildDetectorLedger(workerConfig);
+                    // GOLDEN: the same entries with no filter, so Step 3 can try every filter without a new detection.
+                    if (string.Equals(workerConfig.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase)) goldenUnfiltered = BuildDetectorLedger(KeystoneGoldenStudy.UnfilteredConfig(workerConfig));
                     // Allocation is intentionally not run during detection; Step 3 applies the selected prop scenario.
                 }
                 catch (Exception ex) { DispatchToLab(delegate { isProcessing = false; EndBusy(); UpdateUi("DETECTION ERROR • " + ex.Message, Red); UpdateWorkflowState(); }); return; }
@@ -10547,6 +11068,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                     UpdateWorkflowState();
                     if (events.Count > 0 && workspaceTabs != null) workspaceTabs.SelectedIndex = 1;
                     if (resultViewTabs != null) resultViewTabs.SelectedIndex = 0;
+                    if (goldenUnfiltered != null)
+                    {
+                        // GOLDEN opens straight on its own study (no prop pool).
+                        ShowGoldenStudy(goldenUnfiltered, workerConfig);
+                        UpdateUi("GOLDEN ENTRY STUDY READY • " + goldenStudy.Kept.Count + " ENTRIES AFTER FILTERS (" + goldenUnfiltered.Count + " FIRST SETUPS FOUND) • Step 3 shows the results, filters and comparisons", Green);
+                        if (workspaceTabs != null && resultsTab != null) { resultsTab.IsEnabled = true; workspaceTabs.SelectedIndex = 2; }
+                    }
                     poolDayIndex = -1; RenderPoolDayPanel(); RefreshInstrumentViewControls();
                 });
             });
@@ -12432,7 +12960,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 bool closed = e.ExitTime != DateTime.MinValue && e.ExitTime <= cutoff;
                 string kind = e.SetupClass == "DT" ? "BH + FVG" : e.SetupClass;
                 Brush res = !closed ? Gold : (e.Outcome == "WIN" ? WinPurple : ((e.Outcome ?? string.Empty).StartsWith("LOSS") ? LossAmber : ExitIce));
-                string resultText = "GOLDEN " + (e.SessionOrder > 1 ? "#" + e.SessionOrder + " " : string.Empty) + kind + " • " + (closed ? e.Outcome + " " + Cash(e.GrossPnl) + " " + e.ExitTime.ToString("HH:mm") : "IN TRADE");
+                string resultText = "GOLDEN " + (e.SessionOrder > 1 ? "#" + e.SessionOrder + " " : string.Empty) + kind + " • " + (closed ? e.Outcome + " " + Cash(e.GrossPnl) + " " + e.ExitTime.ToString(e.ExitTime.Date != trigger.Date ? "MMM d HH:mm" : "HH:mm", CultureInfo.InvariantCulture) : (e.ExitTime != DateTime.MinValue && e.ExitTime > lastBar ? "STILL OPEN → closes " + e.ExitTime.ToString("MMM d HH:mm", CultureInfo.InvariantCulture) : "IN TRADE"));
                 double topY = Math.Min(y(double.IsNaN(e.Target) ? e.Entry : e.Target), entryY) - 26;
                 tag(resultText, ex, topY, res, res);
             }
@@ -15328,7 +15856,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private static List<KeystoneArcEvent> CloneEvents(IEnumerable<KeystoneArcEvent> source)
         {
-            return source.Select(x => new KeystoneArcEvent { Id = x.Id, Symbol = x.Symbol, SetupClass = x.SetupClass, Direction = x.Direction, StrengthTag = x.StrengthTag, ReferenceTime = x.ReferenceTime, TriggerTime = x.TriggerTime, EntryTime = x.EntryTime, Entry = x.Entry, Stop = x.Stop, Target = x.Target, Quantity = x.Quantity, StopDistance = x.StopDistance, RiskModel = x.RiskModel, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, EvaluationOutcome = x.EvaluationOutcome, EvaluationExitTime = x.EvaluationExitTime, EvaluationExitPrice = x.EvaluationExitPrice, EvaluationGrossPnl = x.EvaluationGrossPnl, EvaluationTarget = x.EvaluationTarget, EvaluationStop = x.EvaluationStop, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched, SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, FvgVisit = x.FvgVisit, FvgRedRun = x.FvgRedRun, FvgDrop = x.FvgDrop, FvgGap = x.FvgGap, QualityScore = x.QualityScore, QualityTier = x.QualityTier, FeatureAtr = x.FeatureAtr, FeatureDipPercent = x.FeatureDipPercent, FeatureGreenBody = x.FeatureGreenBody, GoldenStartTime = x.GoldenStartTime, GoldenLowTime = x.GoldenLowTime, GoldenPatternTime = x.GoldenPatternTime, GoldenStartPrice = x.GoldenStartPrice, GoldenLowPrice = x.GoldenLowPrice, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote }).ToList();
+            return source.Select(x => new KeystoneArcEvent { Id = x.Id, Symbol = x.Symbol, SetupClass = x.SetupClass, Direction = x.Direction, StrengthTag = x.StrengthTag, ReferenceTime = x.ReferenceTime, TriggerTime = x.TriggerTime, EntryTime = x.EntryTime, Entry = x.Entry, Stop = x.Stop, Target = x.Target, Quantity = x.Quantity, StopDistance = x.StopDistance, RiskModel = x.RiskModel, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, EvaluationOutcome = x.EvaluationOutcome, EvaluationExitTime = x.EvaluationExitTime, EvaluationExitPrice = x.EvaluationExitPrice, EvaluationGrossPnl = x.EvaluationGrossPnl, EvaluationTarget = x.EvaluationTarget, EvaluationStop = x.EvaluationStop, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched, SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, FvgVisit = x.FvgVisit, FvgRedRun = x.FvgRedRun, FvgDrop = x.FvgDrop, FvgGap = x.FvgGap, QualityScore = x.QualityScore, QualityTier = x.QualityTier, FeatureAtr = x.FeatureAtr, FeatureDipPercent = x.FeatureDipPercent, FeatureGreenBody = x.FeatureGreenBody, GoldenStartTime = x.GoldenStartTime, GoldenLowTime = x.GoldenLowTime, GoldenPatternTime = x.GoldenPatternTime, GoldenStartPrice = x.GoldenStartPrice, GoldenLowPrice = x.GoldenLowPrice, GoldenRunBeforeStop = x.GoldenRunBeforeStop, GoldenStopHit = x.GoldenStopHit, GoldenSkipReason = x.GoldenSkipReason, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote }).ToList();
         }
 
         private static KeystoneArcRunConfig CloneConfig(KeystoneArcRunConfig source)
@@ -16329,6 +16857,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             ClearCurrentResearch(true);
             helixResult = null; helixProofRows = null; helixMinutes = null; helixMinutesKey = string.Empty; helixBuckets = new List<KeystoneHelixBucket>(); helixRotationById.Clear(); SetHelixResultsMode(false);
+            goldenStudyAll = new List<KeystoneArcEvent>(); goldenStudy = null; SetGoldenResultsMode(false);
             config = new KeystoneArcRunConfig();
             configuredMnqInstrument = null; configuredMgcInstrument = null;
             mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false;
@@ -17114,6 +17643,490 @@ namespace NinjaTrader.NinjaScript.AddOns
             return true;
         }
 
+        // ---- Step 3 GOLDEN ENTRY STUDY -------------------------------------------------------------
+        // No prop rules: every GOLDEN entry held to its target or stop, filters tried live on the loaded
+        // entries, MNQ / MGC / BOTH side by side, what the winners share, target × stop per year, one account.
+        private Grid goldenResultsHost;
+        private bool goldenResultsMode;
+        private Visibility oneDayMetricsVisibilityBeforeGolden = Visibility.Collapsed;
+        private List<KeystoneArcEvent> goldenStudyAll = new List<KeystoneArcEvent>();
+        private KeystoneGoldenStudyResult goldenStudy;
+        private KeystoneArcRunConfig goldenStudyConfig;
+        private TextBlock goldenVerdictHead, goldenVerdictSub, goldenFilterNote;
+        private Border goldenVerdictCard;
+        private WrapPanel goldenTiles;
+        private TabControl goldenTabs;
+        private ComboBox gfSetupBox;
+        private TextBox gfMnqDropBox, gfMgcDropBox, gfRedBox, gfMnqGapBox, gfMgcGapBox, gfMnqStopBox, gfMgcStopBox, gfFromBox, gfToBox, gfTriesBox, gfStartBox;
+        private CheckBox gfSkipBox, gfOneBox;
+        private CheckBox[] gfDayBoxes;
+        private DispatcherTimer goldenFilterTimer;
+        private bool goldenFilterLoading;
+        private int goldenGridIndex;
+
+        private bool GoldenStudyRun() { return config != null && string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase); }
+
+        private void SetGoldenResultsMode(bool on)
+        {
+            if (goldenResultsHost == null) return;
+            if (on && helixResultsMode) SetHelixResultsMode(false);
+            if (on && !goldenResultsMode && oneDayPoolMetrics != null) oneDayMetricsVisibilityBeforeGolden = oneDayPoolMetrics.Visibility;
+            bool was = goldenResultsMode;
+            goldenResultsMode = on;
+            goldenResultsHost.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            if (!on && !was) return;
+            Visibility normal = on ? Visibility.Collapsed : Visibility.Visible;
+            if (poolLifecycleMetrics != null) poolLifecycleMetrics.Visibility = normal;
+            if (oneDayPoolMetrics != null) oneDayPoolMetrics.Visibility = on ? Visibility.Collapsed : oneDayMetricsVisibilityBeforeGolden;
+            if (resultViewTabs != null) resultViewTabs.Visibility = normal;
+            if (normalResultActions != null) normalResultActions.Visibility = normal;
+            if (normalResultClearRow != null) normalResultClearRow.Visibility = normal;
+            if (poolResultBanner != null) poolResultBanner.Visibility = normal;
+            if (instrumentSplitText != null && on) instrumentSplitText.Visibility = Visibility.Collapsed;
+            if (resultsHeadingText != null) resultsHeadingText.Text = on ? "GOLDEN ENTRY STUDY • NO PROP RULES • EVERY ENTRY HELD TO ITS TARGET OR STOP" : "PROP VIRTUAL-POOL RESULTS • ALL ELIGIBLE SETUPS";
+            SizeGoldenHost();
+        }
+
+        private void SizeGoldenHost()
+        {
+            if (goldenResultsHost == null || !goldenResultsMode) return;
+            double page = resultsPageScroll == null ? 0 : resultsPageScroll.ActualHeight, top = resultsTopPanel == null ? 0 : resultsTopPanel.ActualHeight;
+            goldenResultsHost.Height = page > 200 ? Math.Max(520, page - top - 18) : 760;
+        }
+
+        private UIElement BuildGoldenResultsHost()
+        {
+            var g = new Grid { Visibility = Visibility.Collapsed };
+            for (int i = 0; i < 3; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            // verdict + actions
+            var head = new Grid(); head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var verdict = new StackPanel();
+            goldenVerdictHead = new TextBlock { Text = "GOLDEN ENTRY STUDY", Foreground = Gold, FontSize = 20, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap };
+            goldenVerdictSub = new TextBlock { Text = "Choose GOLDEN SETUP in Step 1 and press START.", Foreground = Text, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+            verdict.Children.Add(goldenVerdictHead); verdict.Children.Add(goldenVerdictSub);
+            head.Children.Add(verdict);
+            var actions = new UniformGrid { Columns = 2, Margin = new Thickness(8, 0, 0, 0), Width = 430 };
+            var reset = Btn("FILTERS = STEP 1 SETTINGS", Orchid); reset.ToolTip = "Put the filters back to the Step 1 GOLDEN settings.";
+            var export = Btn("EXPORT STUDY (HTML + CSV)", Gold); export.ToolTip = "Writes the full study (every table and every entry) as an HTML report and a CSV of every entry.";
+            var chart = Btn("ENTRIES ON THE CHART", Blue);
+            var verify = Btn("ENTRY LIST (STEP 2)", Cyan);
+            foreach (var b in new[] { reset, export, chart, verify }) { b.Height = 30; b.FontSize = 11; actions.Children.Add(b); }
+            reset.Click += delegate { LoadGoldenFilter(KeystoneGoldenStudy.FromConfig(goldenStudyConfig ?? config)); RunGoldenStudy(); };
+            export.Click += delegate { ExportGoldenStudy(); };
+            chart.Click += delegate { OpenGoldenEntryChart(null); };
+            verify.Click += delegate { if (workspaceTabs != null) workspaceTabs.SelectedIndex = 1; };
+            Grid.SetColumn(actions, 1); head.Children.Add(actions);
+            goldenVerdictCard = new Border { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(5, 1.5, 1.5, 1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 10, 8), Margin = new Thickness(2, 2, 2, 4), Child = head };
+            g.Children.Add(goldenVerdictCard);
+            // filters
+            gfSetupBox = Select("ALL SETUPS", "BH ONLY", "FVG ONLY", "BH + FVG SAME CANDLE ONLY"); gfSetupBox.SelectedIndex = 0;
+            gfMnqDropBox = Input("0"); gfMgcDropBox = Input("0"); gfRedBox = Input("0");
+            gfMnqGapBox = Input("0"); gfMgcGapBox = Input("0"); gfMnqStopBox = Input("0"); gfMgcStopBox = Input("0");
+            gfFromBox = Input("0000"); gfToBox = Input("2359"); gfTriesBox = Input("5"); gfStartBox = Input("5000");
+            gfSkipBox = new CheckBox { Content = "SKIP STOP > TARGET", Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
+            gfOneBox = new CheckBox { Content = "ONE TRADE OPEN PER INSTRUMENT", IsChecked = true, Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
+            var days = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            string[] dayNames = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
+            gfDayBoxes = new CheckBox[7];
+            for (int d = 0; d < 7; d++)
+            {
+                gfDayBoxes[d] = new CheckBox { Content = dayNames[d], IsChecked = true, Foreground = Text, Margin = new Thickness(3, 6, 3, 6) };
+                if (d >= 1 && d <= 5) days.Children.Add(gfDayBoxes[d]);
+            }
+            foreach (TextBox box in new[] { gfMnqDropBox, gfMgcDropBox, gfRedBox, gfMnqGapBox, gfMgcGapBox, gfMnqStopBox, gfMgcStopBox, gfFromBox, gfToBox, gfTriesBox, gfStartBox }) box.TextChanged += delegate { QueueGoldenStudy(); };
+            gfSetupBox.SelectionChanged += delegate { QueueGoldenStudy(); };
+            foreach (CheckBox box in new[] { gfSkipBox, gfOneBox }.Concat(gfDayBoxes)) { box.Checked += delegate { QueueGoldenStudy(); }; box.Unchecked += delegate { QueueGoldenStudy(); }; }
+            var filters = new UniformGrid { Columns = 4 };
+            filters.Children.Add(Row("SETUP", gfSetupBox));
+            filters.Children.Add(Row("MNQ PUSH DOWN AT LEAST", gfMnqDropBox));
+            filters.Children.Add(Row("MGC PUSH DOWN AT LEAST", gfMgcDropBox));
+            filters.Children.Add(Row("RED CANDLES IN A ROW AT LEAST", gfRedBox));
+            filters.Children.Add(Row("MNQ FVG GAP AT LEAST", gfMnqGapBox));
+            filters.Children.Add(Row("MGC FVG GAP AT LEAST", gfMgcGapBox));
+            filters.Children.Add(Row("MNQ STOP AT MOST (0 = ANY)", gfMnqStopBox));
+            filters.Children.Add(Row("MGC STOP AT MOST (0 = ANY)", gfMgcStopBox));
+            filters.Children.Add(Row("ENTRY FROM (HHMM ET)", gfFromBox));
+            filters.Children.Add(Row("ENTRY UNTIL (HHMM ET)", gfToBox));
+            filters.Children.Add(Row("TRIES A DAY (UP TO STEP 1)", gfTriesBox));
+            filters.Children.Add(Row("RISK", gfSkipBox));
+            filters.Children.Add(Row("WEEKDAYS", days));
+            filters.Children.Add(Row("ONE ACCOUNT START $", gfStartBox));
+            filters.Children.Add(Row("ONE ACCOUNT", gfOneBox));
+            var filterStack = new StackPanel();
+            filterStack.Children.Add(new TextBlock { Text = "FILTERS • change any value and every table below updates (no reload, no new detection)", Foreground = Cyan, FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 0, 4, 2) });
+            filterStack.Children.Add(filters);
+            goldenFilterNote = new TextBlock { Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6, 2, 6, 0) };
+            filterStack.Children.Add(goldenFilterNote);
+            var filterCard = new Border { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(6), Margin = new Thickness(2, 0, 2, 4), Child = filterStack };
+            Grid.SetRow(filterCard, 1); g.Children.Add(filterCard);
+            goldenTiles = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
+            Grid.SetRow(goldenTiles, 2); g.Children.Add(goldenTiles);
+            goldenTabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            Brush[] tabColors = { Gold, Green, Cyan, Blue, Orchid };
+            string[] tabNames = { "MNQ • MGC • BOTH", "WHAT MAKES WINNERS", "TARGET × STOP", "ONE ACCOUNT", "EVERY ENTRY" };
+            for (int i = 0; i < tabNames.Length; i++)
+                goldenTabs.Items.Add(new TabItem { Header = tabNames[i], Background = tabColors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Run GOLDEN SETUP to fill this tab.", Muted, 11, FontWeights.Normal) });
+            Grid.SetRow(goldenTabs, 3); g.Children.Add(goldenTabs);
+            goldenResultsHost = g;
+            return g;
+        }
+
+        private void SetGoldenTab(string name, UIElement content)
+        {
+            if (goldenTabs == null) return;
+            foreach (TabItem t in goldenTabs.Items) if (Convert.ToString(t.Header) == name) { t.Content = HelixScroll(content); return; }
+        }
+
+        private void LoadGoldenFilter(KeystoneGoldenFilter f)
+        {
+            if (gfSetupBox == null || f == null) return;
+            goldenFilterLoading = true;
+            gfSetupBox.SelectedIndex = f.Setup == "BH" ? 1 : f.Setup == "FVG" ? 2 : f.Setup == "DT" ? 3 : 0;
+            Func<double, string> n = v => v.ToString("0.##", CultureInfo.InvariantCulture);
+            gfMnqDropBox.Text = n(f.MnqMinDrop); gfMgcDropBox.Text = n(f.MgcMinDrop); gfRedBox.Text = f.MinRed.ToString(CultureInfo.InvariantCulture);
+            gfMnqGapBox.Text = n(f.MnqMinGap); gfMgcGapBox.Text = n(f.MgcMinGap); gfMnqStopBox.Text = n(f.MnqMaxStop); gfMgcStopBox.Text = n(f.MgcMaxStop);
+            gfFromBox.Text = f.FromHhmm.ToString("0000", CultureInfo.InvariantCulture); gfToBox.Text = f.ToHhmm.ToString("0000", CultureInfo.InvariantCulture);
+            gfTriesBox.Text = f.MaxTries.ToString(CultureInfo.InvariantCulture); gfStartBox.Text = n(f.StartBalance);
+            gfSkipBox.IsChecked = f.SkipStopOverTarget; gfOneBox.IsChecked = f.OnePositionPerInstrument;
+            for (int d = 0; d < 7; d++) gfDayBoxes[d].IsChecked = f.Weekdays[d];
+            goldenFilterLoading = false;
+        }
+
+        private KeystoneGoldenFilter ReadGoldenFilter()
+        {
+            var f = new KeystoneGoldenFilter();
+            if (gfSetupBox == null) return f;
+            f.Setup = new[] { "ALL", "BH", "FVG", "DT" }[Math.Max(0, Math.Min(3, gfSetupBox.SelectedIndex))];
+            f.MnqMinDrop = NumberAllowZero(gfMnqDropBox, 0); f.MgcMinDrop = NumberAllowZero(gfMgcDropBox, 0); f.MinRed = Math.Max(0, Integer(gfRedBox, 0));
+            f.MnqMinGap = NumberAllowZero(gfMnqGapBox, 0); f.MgcMinGap = NumberAllowZero(gfMgcGapBox, 0);
+            f.MnqMaxStop = NumberAllowZero(gfMnqStopBox, 0); f.MgcMaxStop = NumberAllowZero(gfMgcStopBox, 0);
+            int from = Integer(gfFromBox, 0), to = Integer(gfToBox, 2359);
+            f.FromHhmm = IsValidHhmm(from) ? from : 0; f.ToHhmm = IsValidHhmm(to) ? to : 2359;
+            f.MaxTries = Math.Max(1, Integer(gfTriesBox, 5));
+            f.StartBalance = Math.Max(1, NumberAllowZero(gfStartBox, 5000));
+            f.SkipStopOverTarget = gfSkipBox.IsChecked == true; f.OnePositionPerInstrument = gfOneBox.IsChecked == true;
+            for (int d = 0; d < 7; d++) f.Weekdays[d] = gfDayBoxes[d].IsChecked == true;
+            f.StrictFirst = goldenStudyConfig == null || goldenStudyConfig.GoldenStrictFirst == 1;
+            return f;
+        }
+
+        private void QueueGoldenStudy()
+        {
+            if (goldenFilterLoading || !goldenResultsMode) return;
+            if (goldenFilterTimer == null)
+            {
+                goldenFilterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+                goldenFilterTimer.Tick += delegate { goldenFilterTimer.Stop(); RunGoldenStudy(); };
+            }
+            goldenFilterTimer.Stop(); goldenFilterTimer.Start();
+        }
+
+        // Called when a GOLDEN run finishes: the entries with no filter, then the Step 1 filters on top.
+        private void ShowGoldenStudy(List<KeystoneArcEvent> unfiltered, KeystoneArcRunConfig runConfig)
+        {
+            goldenStudyAll = unfiltered ?? new List<KeystoneArcEvent>();
+            goldenStudyConfig = runConfig;
+            goldenGridIndex = 0;
+            SetGoldenResultsMode(true);
+            LoadGoldenFilter(KeystoneGoldenStudy.FromConfig(runConfig));
+            RunGoldenStudy();
+        }
+
+        private void RunGoldenStudy()
+        {
+            if (goldenTabs == null) return;
+            try
+            {
+                var f = ReadGoldenFilter();
+                goldenStudy = KeystoneGoldenStudy.Run(goldenStudyAll, f, goldenStudyConfig ?? config);
+                RenderGoldenStudy(goldenStudy, f);
+            }
+            catch (Exception ex) { if (goldenVerdictSub != null) { goldenVerdictSub.Text = "GOLDEN STUDY ERROR • " + ex.Message; goldenVerdictSub.Foreground = Red; } }
+        }
+
+        private void RenderGoldenStudy(KeystoneGoldenStudyResult r, KeystoneGoldenFilter f)
+        {
+            var c = goldenStudyConfig ?? config;
+            bool any = r.Kept.Count > 0;
+            double net = r.Both.NetCash;
+            goldenVerdictHead.Text = r.All.Count == 0 ? "NO GOLDEN ENTRIES" : r.Kept.Count + " ENTRIES  •  WINS " + Pct(r.Both.WinRate) + "  •  NET " + (net > 0 ? "+" : string.Empty) + Cash(net);
+            goldenVerdictHead.Foreground = !any ? Gold : (net > 0 ? Green : Red);
+            goldenVerdictCard.BorderBrush = goldenVerdictHead.Foreground;
+            goldenVerdictSub.Foreground = Text;
+            goldenVerdictSub.Text = r.Verdict + "\n" + (r.Hold ? "Every trade is held until its target or its stop — overnight and into the next days, like a live account. A trade still open when the data ends is counted at its last price."
+                : "Trades are closed at " + (c == null ? 1555 : c.GoldenClose).ToString("00:00", CultureInfo.InvariantCulture) + " (Step 1 setting). Choose HOLD in Step 1 to let them run to the target or stop.")
+                + "  Target MNQ +" + (c == null ? 100 : c.GoldenMnqTargetPoints).ToString("0.##", CultureInfo.InvariantCulture) + " / MGC +" + (c == null ? 10 : c.GoldenMgcTargetPoints).ToString("0.##", CultureInfo.InvariantCulture) + " pts • stop " + (c != null && c.GoldenStopMode == "FIXED" ? "fixed" : "below the pattern") + " • MNQ " + (c == null ? 5 : c.GoldenMnqQuantity) + " / MGC " + (c == null ? 10 : c.GoldenMgcQuantity) + " contracts.";
+            goldenFilterNote.Text = (f.StrictFirst ? "STRICTLY THE FIRST SETUP: a setup the filters skip uses up that instrument's day (the next setup is not taken). " : "")
+                + "The FVG minimum gap of Step 1 defines what counts as an FVG; here it can only be raised. "
+                + (r.FilteredOut.Count == 0 ? "Nothing filtered out." : "Filtered out: " + string.Join(" • ", r.FilteredOut.OrderByDescending(k => k.Value).Select(k => k.Key + " " + k.Value)) + ".");
+            goldenTiles.Children.Clear();
+            foreach (var s in new[] { r.Mnq, r.Mgc, r.Both })
+            {
+                if (s.Label != "BOTH" && s.Entries == 0) continue;
+                Brush accent = s.Label == "MNQ" ? Blue : s.Label == "MGC" ? Gold : Green;
+                goldenTiles.Children.Add(HelixCard(s.Label + " • " + s.Entries + " ENTRIES", (s.Wins + s.Losses == 0 ? "–" : Pct(s.WinRate)) + "  " + Cash(s.NetCash), s.Wins + " W / " + s.Losses + " L" + (s.Open > 0 ? " / " + s.Open + " open" : "") + (s.Label == "BOTH" ? string.Empty : " • net " + KeystoneGoldenStudy.Fmt(s.Label, s.NetPoints) + " pts"), accent, 250));
+            }
+            var acct = r.AccountBoth;
+            goldenTiles.Children.Add(HelixCard("ONE ACCOUNT • " + (r.Mnq.Entries > 0 && r.Mgc.Entries > 0 ? "MNQ + MGC" : r.Mnq.Entries > 0 ? "MNQ" : "MGC"), Cash(acct.Start) + " → " + Cash(acct.End), "max drawdown " + Cash(-acct.MaxDrawdown) + " • " + acct.Trades + " trades" + (acct.SkippedOpen > 0 ? " • " + acct.SkippedOpen + " skipped (a trade was open)" : string.Empty), MoneyBrush(acct.End - acct.Start), 300));
+            goldenTiles.Children.Add(HelixCard("FILTERED OUT", (r.All.Count - r.Kept.Count) + " / " + r.All.Count, "first setups the filters removed", Orchid, 190));
+            SetGoldenTab("MNQ • MGC • BOTH", GoldenCompareView(r));
+            SetGoldenTab("WHAT MAKES WINNERS", GoldenWinnersView(r));
+            SetGoldenTab("TARGET × STOP", GoldenGridView(r));
+            SetGoldenTab("ONE ACCOUNT", GoldenAccountView(r, f));
+            SetGoldenTab("EVERY ENTRY", GoldenEntriesView(r));
+            SizeGoldenHost();
+        }
+
+        private UIElement GoldenCompareView(KeystoneGoldenStudyResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle("MNQ vs MGC vs BOTH", Gold));
+            root.Children.Add(HelixNote("Same filters, same period. Run with INSTRUMENT = BOTH in Step 1 to fill the MNQ and MGC columns together."));
+            double[] w = { 300, 200, 200, 200 };
+            root.Children.Add(HelixHeader(new[] { "", "MNQ", "MGC", "BOTH" }, w));
+            foreach (var row in KeystoneGoldenStudy.CompareRows(r))
+            {
+                Brush[] colors = { Muted, Blue, Gold, Green };
+                if (row[0].StartsWith("NET $", StringComparison.Ordinal) || row[0].StartsWith("$ PER", StringComparison.Ordinal))
+                {
+                    var s = new[] { r.Mnq, r.Mgc, r.Both };
+                    for (int i = 0; i < 3; i++) colors[i + 1] = MoneyBrush(row[0].StartsWith("NET", StringComparison.Ordinal) ? s[i].NetCash : s[i].CashPerEntry);
+                }
+                root.Children.Add(HelixRow(row, colors, w, Card, null));
+            }
+            root.Children.Add(HelixTitle("WHAT MAKES THE DIFFERENCE (win rate of a group vs all entries)", Green));
+            if (r.Insights.Count == 0) root.Children.Add(HelixNote("Not enough entries yet for a clear difference (each group needs at least 6 finished trades and a gap of 8+ points of win rate). Load a longer range."));
+            foreach (var i in r.Insights)
+                root.Children.Add(new Border { Background = Card, BorderBrush = i.Good ? Green : Red, BorderThickness = new Thickness(4, 1, 1, 1), CornerRadius = new CornerRadius(4), Margin = new Thickness(2, 1, 2, 1), Padding = new Thickness(8, 4, 8, 4),
+                    Child = new TextBlock { Text = (i.Good ? "▲ " : "▼ ") + i.Text, Foreground = i.Good ? Green : Red, FontSize = 11.5, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap } });
+            return root;
+        }
+
+        private UIElement GoldenWinnersView(KeystoneGoldenStudyResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixNote("Every kept entry grouped by one condition at a time. Win % counts finished trades (target or stop). Net $ uses the strategy's contracts. Green = better than that instrument's average, red = worse."));
+            double[] w = { 250, 54, 66, 96, 54, 66, 96, 54, 66, 96 };
+            string[] head = { "GROUP", "MNQ", "WIN %", "NET", "MGC", "WIN %", "NET", "BOTH", "WIN %", "NET" };
+            foreach (var b in r.Breakdowns)
+            {
+                if (b.Rows.Count == 0) continue;
+                root.Children.Add(HelixTitle(b.Title, Cyan));
+                root.Children.Add(HelixNote(b.Note));
+                root.Children.Add(HelixHeader(head, w));
+                foreach (var g in b.Rows)
+                {
+                    Func<KeystoneGoldenStats, KeystoneGoldenStats, Brush> rate = (s, all) => s.Wins + s.Losses == 0 ? Muted : (s.WinRate >= all.WinRate + 5 ? Green : (s.WinRate <= all.WinRate - 5 ? Red : Text));
+                    Func<KeystoneGoldenStats, string> pct = s => s.Wins + s.Losses == 0 ? "–" : Pct(s.WinRate);
+                    Func<KeystoneGoldenStats, string> cash = s => s.Entries == 0 ? "–" : Cash(s.NetCash);
+                    string[] cells = { g.Group, g.Mnq.Entries.ToString(), pct(g.Mnq), cash(g.Mnq), g.Mgc.Entries.ToString(), pct(g.Mgc), cash(g.Mgc), g.Both.Entries.ToString(), pct(g.Both), cash(g.Both) };
+                    Brush[] colors = { Text, Muted, rate(g.Mnq, r.Mnq), MoneyBrush(g.Mnq.NetCash), Muted, rate(g.Mgc, r.Mgc), MoneyBrush(g.Mgc.NetCash), Muted, rate(g.Both, r.Both), MoneyBrush(g.Both.NetCash) };
+                    root.Children.Add(HelixRow(cells, colors, w, g.Both.NetCash > 0 ? Green : (g.Both.NetCash < 0 ? Red : Card), null));
+                }
+            }
+            return root;
+        }
+
+        private UIElement GoldenGridView(KeystoneGoldenStudyResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixNote("Every kept entry replayed on its own 1-minute path with a fixed stop (rows, points below the entry) or the pattern stop (last row) and a target (columns, points above). Each cell: win % and net $ for one account with the strategy's contracts, held until the target or the stop. The gold cell is your Step 1 setting; the green outline is the best cell."));
+            if (r.Grids.Count == 0) { root.Children.Add(HelixNote("No entries with a 1-minute path yet.")); return root; }
+            // best per year
+            root.Children.Add(HelixTitle("BEST TARGET / STOP PER YEAR (volatility changes)", Gold));
+            double[] bw = { 130, 70, 110, 110, 70, 110, 140 };
+            root.Children.Add(HelixHeader(new[] { "INSTRUMENT", "ENTRIES", "BEST TARGET", "BEST STOP", "WIN %", "BEST NET", "YOUR SETTING NET" }, bw));
+            foreach (var g in r.Grids)
+            {
+                if (g.Best == null) continue;
+                string[] cells = { g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year), g.Entries.ToString(), "+" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Target), g.Best.Pattern ? "PATTERN" : "−" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Stop), Pct(g.Best.WinRate), Cash(g.Best.NetCash), g.Yours == null ? "–" : Cash(g.Yours.NetCash) };
+                Brush[] colors = { g.Symbol == "MNQ" ? Blue : Gold, Muted, Cyan, Cyan, Text, MoneyBrush(g.Best.NetCash), g.Yours == null ? Muted : MoneyBrush(g.Yours.NetCash) };
+                root.Children.Add(HelixRow(cells, colors, bw, g.Year == "ALL" ? Gold : Card, null));
+            }
+            // one grid at a time
+            var pick = Select(r.Grids.Select(g => g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year) + " • " + g.Entries + " entries").ToArray());
+            pick.Width = 320; pick.HorizontalAlignment = HorizontalAlignment.Left;
+            var gridHost = new StackPanel();
+            Action draw = delegate
+            {
+                gridHost.Children.Clear();
+                int idx = Math.Max(0, Math.Min(r.Grids.Count - 1, pick.SelectedIndex));
+                goldenGridIndex = idx;
+                gridHost.Children.Add(GoldenGridTable(r.Grids[idx]));
+            };
+            pick.SelectedIndex = Math.Max(0, Math.Min(r.Grids.Count - 1, goldenGridIndex));
+            pick.SelectionChanged += delegate { draw(); };
+            root.Children.Add(HelixTitle("TARGET × STOP TABLE", Cyan));
+            root.Children.Add(Row("SHOW", pick));
+            root.Children.Add(gridHost);
+            draw();
+            return root;
+        }
+
+        private UIElement GoldenGridTable(KeystoneGoldenGrid g)
+        {
+            var table = new Grid { Margin = new Thickness(2, 4, 2, 4), HorizontalAlignment = HorizontalAlignment.Left };
+            table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            foreach (double t in g.Targets) table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(84) });
+            for (int s = 0; s <= g.Stops.Length + 1; s++) table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Action<UIElement, int, int> put = (el, row, col) => { Grid.SetRow(el, row); Grid.SetColumn(el, col); table.Children.Add(el); };
+            put(new TextBlock { Text = "STOP \\ TARGET", Foreground = Gold, FontSize = 10, FontWeight = FontWeights.Bold, Margin = new Thickness(4) }, 0, 0);
+            for (int t = 0; t < g.Targets.Length; t++) put(new TextBlock { Text = "+" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Targets[t]), Foreground = Green, FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(4), HorizontalAlignment = HorizontalAlignment.Center }, 0, t + 1);
+            double maxAbs = 1; foreach (var c in g.Cells) if (c != null) maxAbs = Math.Max(maxAbs, Math.Abs(c.NetCash));
+            for (int s = 0; s <= g.Stops.Length; s++)
+            {
+                put(new TextBlock { Text = s == g.Stops.Length ? "PATTERN" : "−" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Stops[s]), Foreground = Red, FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(4), VerticalAlignment = VerticalAlignment.Center }, s + 1, 0);
+                for (int t = 0; t < g.Targets.Length; t++)
+                {
+                    var c = g.Cells[s, t];
+                    bool yours = c == g.Yours, best = c == g.Best;
+                    var cell = new Border
+                    {
+                        Background = Card, BorderBrush = yours ? Gold : (best ? Green : Panel), BorderThickness = new Thickness(yours || best ? 2.5 : 1), CornerRadius = new CornerRadius(3), Margin = new Thickness(1), Padding = new Thickness(2, 3, 2, 3),
+                        ToolTip = "stop " + (c.Pattern ? "below the pattern" : KeystoneGoldenStudy.Fmt(g.Symbol, c.Stop) + " pts") + " • target +" + KeystoneGoldenStudy.Fmt(g.Symbol, c.Target) + " pts\n" + c.Wins + " wins • " + c.Losses + " losses" + (c.Open > 0 ? " • " + c.Open + " still open" : "") + "\nnet " + KeystoneGoldenStudy.Fmt(g.Symbol, c.NetPoints) + " pts = " + Cash(c.NetCash) + (yours ? "\nYOUR STEP 1 SETTING" : "") + (best ? "\nBEST CELL" : "")
+                    };
+                    var st = new StackPanel();
+                    st.Children.Add(new TextBlock { Text = c.Wins + c.Losses == 0 ? "–" : Pct(c.WinRate), Foreground = Text, FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center });
+                    st.Children.Add(new TextBlock { Text = Cash(c.NetCash), Foreground = MoneyBrush(c.NetCash), FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, Opacity = 0.55 + 0.45 * Math.Abs(c.NetCash) / maxAbs });
+                    cell.Child = st;
+                    put(cell, s + 1, t + 1);
+                }
+            }
+            var wrap = new StackPanel();
+            wrap.Children.Add(HelixNote(g.Symbol + " • " + (g.Year == "ALL" ? "all years" : g.Year) + " • " + g.Entries + " entries" + (g.Best == null ? "" : " • best: +" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Target) + " / " + (g.Best.Pattern ? "pattern stop" : "−" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Stop)) + " = " + Cash(g.Best.NetCash)) + (g.Yours == null ? "" : " • your setting = " + Cash(g.Yours.NetCash))));
+            wrap.Children.Add(table);
+            return wrap;
+        }
+
+        private UIElement GoldenAccountView(KeystoneGoldenStudyResult r, KeystoneGoldenFilter f)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixNote("One plain trading account: start " + Cash(f.StartBalance) + " + every kept entry's own result with the strategy's contracts (MNQ " + (goldenStudyConfig == null ? 5 : goldenStudyConfig.GoldenMnqQuantity) + ", MGC " + (goldenStudyConfig == null ? 10 : goldenStudyConfig.GoldenMgcQuantity) + "). No evaluation, payout or prop rule. " + (f.OnePositionPerInstrument ? "One trade open per instrument: a new setup while the last one is still open (held overnight) is skipped; MNQ and MGC can be open together." : "Every entry is taken, even while another is open.")));
+            var cards = new WrapPanel();
+            foreach (var t in new[] { Tuple.Create("MNQ", r.AccountMnq, Blue), Tuple.Create("MGC", r.AccountMgc, Gold), Tuple.Create("BOTH", r.AccountBoth, Green) })
+            {
+                var a = t.Item2; if (a.Trades == 0 && t.Item1 != "BOTH") continue;
+                cards.Children.Add(HelixCard(t.Item1 + " ACCOUNT", Cash(a.Start) + " → " + Cash(a.End), a.Trades + " trades • " + a.Wins + " W / " + a.Losses + " L" + (a.Open > 0 ? " / " + a.Open + " open" : "") + " • max drawdown " + Cash(-a.MaxDrawdown) + " (" + a.MaxDrawdownPercent.ToString("0.#", CultureInfo.InvariantCulture) + "%)" + (a.SkippedOpen > 0 ? " • skipped " + a.SkippedOpen : ""), t.Item3, 330));
+            }
+            root.Children.Add(cards);
+            root.Children.Add(HelixTitle("BALANCE AFTER EVERY CLOSED TRADE", Cyan));
+            root.Children.Add(GoldenEquityChart(r));
+            root.Children.Add(HelixTitle("MONTHS", Gold));
+            double[] w = { 120, 110, 80, 110, 80, 110, 80 };
+            root.Children.Add(HelixHeader(new[] { "MONTH", "MNQ", "W / L", "MGC", "W / L", "BOTH", "W / L" }, w));
+            var months = r.AccountBoth.Months.Select(m => m.Item1).Concat(r.AccountMnq.Months.Select(m => m.Item1)).Concat(r.AccountMgc.Months.Select(m => m.Item1)).Distinct().OrderBy(m => m).ToList();
+            foreach (var m in months)
+            {
+                Func<KeystoneGoldenAccount, Tuple<DateTime, double, int, int>> at = a => a.Months.FirstOrDefault(x => x.Item1 == m);
+                var q = at(r.AccountMnq); var g = at(r.AccountMgc); var b = at(r.AccountBoth);
+                string[] cells = { m.ToString("MMM yyyy", CultureInfo.InvariantCulture), q == null ? "–" : Cash(q.Item2), q == null ? "" : q.Item3 + " / " + q.Item4, g == null ? "–" : Cash(g.Item2), g == null ? "" : g.Item3 + " / " + g.Item4, b == null ? "–" : Cash(b.Item2), b == null ? "" : b.Item3 + " / " + b.Item4 };
+                Brush[] colors = { Text, q == null ? Muted : MoneyBrush(q.Item2), Muted, g == null ? Muted : MoneyBrush(g.Item2), Muted, b == null ? Muted : MoneyBrush(b.Item2), Muted };
+                root.Children.Add(HelixRow(cells, colors, w, b == null ? Card : (b.Item2 >= 0 ? Green : Red), null));
+            }
+            return root;
+        }
+
+        private UIElement GoldenEquityChart(KeystoneGoldenStudyResult r)
+        {
+            double width = 900, height = 220, padL = 70, padR = 12, padT = 10, padB = 24;
+            var canvas = new Canvas { Width = width, Height = height, Background = Card, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(2) };
+            var series = new[] { Tuple.Create(r.AccountMnq, (Brush)Blue, "MNQ"), Tuple.Create(r.AccountMgc, (Brush)Gold, "MGC"), Tuple.Create(r.AccountBoth, (Brush)Green, "BOTH") }.Where(s => s.Item1.Trades > 0).ToList();
+            if (series.Count == 0) { canvas.Children.Add(new TextBlock { Text = "No trades.", Foreground = Muted, Margin = new Thickness(10) }); return canvas; }
+            var pts = series.SelectMany(s => s.Item1.Equity.Where(e => e.Item1 != DateTime.MinValue)).ToList();
+            DateTime t0 = pts.Min(p => p.Item1), t1 = pts.Max(p => p.Item1); if (t1 <= t0) t1 = t0.AddDays(1);
+            double lo = series.Min(s => s.Item1.Equity.Min(e => e.Item2)), hi = series.Max(s => s.Item1.Equity.Max(e => e.Item2)); if (hi - lo < 1) { hi += 1; lo -= 1; }
+            Func<DateTime, double> X = t => padL + (width - padL - padR) * (t - t0).TotalSeconds / (t1 - t0).TotalSeconds;
+            Func<double, double> Y = v => padT + (height - padT - padB) * (hi - v) / (hi - lo);
+            for (int k = 0; k <= 4; k++)
+            {
+                double v = lo + (hi - lo) * k / 4.0;
+                var tb = new TextBlock { Text = Cash(v), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(tb, 4); Canvas.SetTop(tb, Y(v) - 7); canvas.Children.Add(tb);
+                canvas.Children.Add(new System.Windows.Shapes.Line { X1 = padL, X2 = width - padR, Y1 = Y(v), Y2 = Y(v), Stroke = Panel, StrokeThickness = 1 });
+            }
+            double start = series[0].Item1.Start;
+            canvas.Children.Add(new System.Windows.Shapes.Line { X1 = padL, X2 = width - padR, Y1 = Y(start), Y2 = Y(start), Stroke = Muted, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 4, 3 } });
+            foreach (var s in series)
+            {
+                var line = new System.Windows.Shapes.Polyline { Stroke = s.Item2, StrokeThickness = 2, Points = new PointCollection() };
+                double prevY = Y(s.Item1.Start);
+                line.Points.Add(new Point(padL, prevY));
+                foreach (var e in s.Item1.Equity.Where(e => e.Item1 != DateTime.MinValue)) { line.Points.Add(new Point(X(e.Item1), prevY)); prevY = Y(e.Item2); line.Points.Add(new Point(X(e.Item1), prevY)); }
+                canvas.Children.Add(line);
+            }
+            double lx = padL + 6;
+            foreach (var s in series) { var tb = new TextBlock { Text = "■ " + s.Item3 + " " + Cash(s.Item1.End), Foreground = s.Item2, FontSize = 10, FontWeight = FontWeights.Bold }; Canvas.SetLeft(tb, lx); Canvas.SetTop(tb, padT); canvas.Children.Add(tb); lx += 130; }
+            var a = new TextBlock { Text = t0.ToString("MMM d, yyyy", CultureInfo.InvariantCulture), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(a, padL); Canvas.SetTop(a, height - 16); canvas.Children.Add(a);
+            var z = new TextBlock { Text = t1.ToString("MMM d, yyyy", CultureInfo.InvariantCulture), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(z, width - padR - 70); Canvas.SetTop(z, height - 16); canvas.Children.Add(z);
+            return canvas;
+        }
+
+        private UIElement GoldenEntriesView(KeystoneGoldenStudyResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixNote("Every first setup the detector found (and the next tries after a loss). Grey rows were removed by the filters, with the reason. RUN UP = best points above the entry before the exit • DIP = worst points below the entry before the exit. Click a row to open that day on the chart."));
+            double[] w = { 112, 50, 46, 70, 38, 64, 40, 54, 84, 60, 150, 70, 90, 62, 56, 96, 170 };
+            string[] head = { "DAY", "TIME", "INST", "SETUP", "TRY", "PUSH", "RED", "GAP", "ENTRY", "STOP", "RESULT", "PTS", "$", "RUN UP", "DIP", "EXIT", "FILTERED OUT BECAUSE" };
+            var rows = r.All;
+            root.Children.Add(HelixPaged(head, w, rows.Count, i =>
+            {
+                var e = rows[i]; string why; r.Reasons.TryGetValue(e, out why); bool kept = string.IsNullOrEmpty(why);
+                DateTime t = e.EntryTime == DateTime.MinValue ? e.TriggerTime : e.EntryTime;
+                string sym = e.Symbol ?? string.Empty;
+                bool win = KeystoneGoldenStudy.IsWin(e), loss = KeystoneGoldenStudy.IsLoss(e);
+                string[] cells =
+                {
+                    KeystoneArcEngine.GoldenSessionDay(t).ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture), t.ToString("HH:mm"), sym, e.SetupClass == "DT" ? "BH+FVG" : e.SetupClass, e.SessionOrder.ToString(),
+                    KeystoneGoldenStudy.Fmt(sym, e.FvgDrop), e.FvgRedRun.ToString(), e.SetupClass == "BH" ? "–" : KeystoneGoldenStudy.Fmt(sym, e.FvgGap), KeystoneGoldenStudy.Fmt(sym, e.Entry), KeystoneGoldenStudy.Fmt(sym, KeystoneGoldenStudy.StopPoints(e)),
+                    KeystoneGoldenStudy.OutcomeText(e, r.Hold), KeystoneGoldenStudy.Fmt(sym, KeystoneGoldenStudy.Points(e)), Cash(e.GrossPnl),
+                    double.IsNaN(e.PeakAfterEntry) ? "–" : KeystoneGoldenStudy.Fmt(sym, e.PeakAfterEntry - e.Entry), double.IsNaN(e.TroughAfterEntry) ? "–" : KeystoneGoldenStudy.Fmt(sym, e.Entry - e.TroughAfterEntry),
+                    e.ExitTime == DateTime.MinValue ? "–" : e.ExitTime.ToString("MM-dd HH:mm"), why ?? string.Empty
+                };
+                Brush res = win ? Green : (loss ? Red : Cyan);
+                Brush[] colors = cells.Select(x => kept ? Text : Muted).ToArray();
+                if (kept) { colors[2] = sym == "MGC" ? Gold : Blue; colors[10] = res; colors[11] = MoneyBrush(KeystoneGoldenStudy.Points(e)); colors[12] = MoneyBrush(e.GrossPnl); }
+                colors[16] = Orchid;
+                var row = HelixRow(cells, colors, w, kept ? res : Panel, () => OpenGoldenEntryChart(e));
+                if (!kept) row.Opacity = 0.62;
+                return row;
+            }, 60, false));
+            return root;
+        }
+
+        private void OpenGoldenEntryChart(KeystoneArcEvent e)
+        {
+            if (events.Count == 0 && goldenStudyAll.Count == 0) { UpdateUi("RUN GOLDEN SETUP FIRST", Gold); return; }
+            if (e != null && reviewList != null)
+            {
+                int idx = reviewRows.FindIndex(x => x.TriggerTime == e.TriggerTime && string.Equals(x.Symbol, e.Symbol, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0) reviewList.SelectedIndex = idx;
+            }
+            if (e != null && evidenceWindow != null && evidenceWindow.IsVisible)
+            {
+                SelectEvidenceSessionDate(KeystoneArcEngine.SessionGroupingDate(e.TriggerTime, config).ToString("yyyy-MM-dd"), true);
+                evidenceWindow.Activate(); return;
+            }
+            OpenEvidenceChart();
+        }
+
+        private void ExportGoldenStudy()
+        {
+            if (goldenStudy == null) { UpdateUi("RUN GOLDEN SETUP FIRST", Gold); return; }
+            try
+            {
+                string dir = DataDirectory(); Directory.CreateDirectory(dir);
+                string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                var c = goldenStudyConfig ?? config;
+                string title = (c == null ? "" : c.Scope + " • " + c.Start.ToString("yyyy-MM-dd") + " → " + c.End.ToString("yyyy-MM-dd") + " • start MNQ " + c.GoldenMnqStart.ToString("0000") + " / MGC " + c.GoldenMgcStart.ToString("0000") + " • target MNQ +" + c.GoldenMnqTargetPoints.ToString("0.##", CultureInfo.InvariantCulture) + " / MGC +" + c.GoldenMgcTargetPoints.ToString("0.##", CultureInfo.InvariantCulture)) + " • generated " + DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+                string html = Path.Combine(dir, "KeystoneArc_Golden_Study_" + stamp + ".html");
+                string csv = Path.Combine(dir, "KeystoneArc_Golden_Entries_" + stamp + ".csv");
+                File.WriteAllText(html, KeystoneGoldenStudy.Html(goldenStudy, ReadGoldenFilter(), title), Encoding.UTF8);
+                File.WriteAllText(csv, KeystoneGoldenStudy.Csv(goldenStudy), Encoding.UTF8);
+                UpdateUi("EXPORTED GOLDEN STUDY • " + html + " • entries CSV " + csv, Green);
+            }
+            catch (Exception ex) { UpdateUi("GOLDEN EXPORT ERROR • " + ex.Message, Red); }
+        }
+
         // ---- Step 3 HELIX view -------------------------------------------------------------------
         private void SetHelixResultsMode(bool on)
         {
@@ -17647,6 +18660,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     researchRunCompleted = true; unsavedResearch = events.Count > 0;
                     KeystoneArcHub.Publish(new List<KeystoneArcEvent>(), config);
                     RenderEvents(); RebuildReviewList();
+                    SetGoldenResultsMode(false);
                     SetHelixResultsMode(true);
                     RenderHelixResults();
                     isProcessing = false; EndBusy();
@@ -18082,7 +19096,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<UIElement> goldenStrategyControls = new List<UIElement>();
         private bool goldenDefaultsApplied;
         private TextBox goldenMnqStartBox, goldenMgcStartBox, goldenLastEntryBox, goldenCloseBox, goldenMnqDropBox, goldenMgcDropBox, goldenMnqTargetBox, goldenMgcTargetBox, goldenMnqStopBox, goldenMgcStopBox, goldenMnqBufferBox, goldenMgcBufferBox, goldenMnqMaxStopBox, goldenMgcMaxStopBox, goldenMnqQtyBox, goldenMgcQtyBox, goldenTriesBox;
-        private ComboBox goldenFvgBox, goldenAggressionBox, goldenStopBox;
+        private ComboBox goldenFvgBox, goldenAggressionBox, goldenStopBox, goldenHoldBox, goldenFirstBox;
         private CheckBox goldenBhBox, goldenSkipBigStopBox;
         private TextBox goldenMnqGapBox, goldenMgcGapBox;
         private TextBlock goldenPreviewText;
@@ -18105,6 +19119,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             goldenMnqQtyBox = Input("5"); goldenMgcQtyBox = Input("10"); goldenTriesBox = Input("1");
             goldenMnqGapBox = Input("5"); goldenMgcGapBox = Input("1");
             goldenSkipBigStopBox = new CheckBox { Content = "SKIP A SETUP WHOSE STOP IS BIGGER THAN ITS TARGET", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
+            goldenHoldBox = Select("HOLD UNTIL THE TARGET OR THE STOP (overnight, next days) • loads the full session", "CLOSE AT THE TIME BELOW (same day)"); goldenHoldBox.SelectedIndex = 0;
+            goldenFirstBox = Select("STRICTLY THE FIRST SETUP • if a filter skips it, no trade that day", "TAKE THE NEXT SETUP when the first one is skipped"); goldenFirstBox.SelectedIndex = 0;
+            foreach (ComboBox box in new[] { goldenHoldBox, goldenFirstBox }) box.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
             WatchConfigurationInput(goldenMnqGapBox); WatchConfigurationInput(goldenMgcGapBox);
             goldenSkipBigStopBox.Checked += delegate { InvalidateConfigurationApproval(); }; goldenSkipBigStopBox.Unchecked += delegate { InvalidateConfigurationApproval(); };
             foreach (TextBox box in new[] { goldenMnqStartBox, goldenMgcStartBox, goldenLastEntryBox, goldenCloseBox, goldenMnqDropBox, goldenMgcDropBox, goldenMnqTargetBox, goldenMgcTargetBox, goldenMnqStopBox, goldenMgcStopBox, goldenMnqBufferBox, goldenMgcBufferBox, goldenMnqMaxStopBox, goldenMgcMaxStopBox, goldenMnqQtyBox, goldenMgcQtyBox, goldenTriesBox }) { WatchConfigurationInput(box); box.TextChanged += delegate { UpdateGoldenPreview(); }; }
@@ -18112,7 +19129,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             goldenBhBox.Checked += delegate { InvalidateConfigurationApproval(); }; goldenBhBox.Unchecked += delegate { InvalidateConfigurationApproval(); };
             panel.Children.Add(Txt("WHEN", Cyan, 10, FontWeights.Bold));
             panel.Children.Add(Row("MNQ STARTS AT (HHMM ET)", goldenMnqStartBox)); panel.Children.Add(Row("MGC STARTS AT (HHMM ET)", goldenMgcStartBox));
-            panel.Children.Add(Row("NO NEW TRADE AFTER", goldenLastEntryBox)); panel.Children.Add(Row("CLOSE AN OPEN TRADE AT", goldenCloseBox));
+            panel.Children.Add(Txt("Start 1800 or later = the evening open (it belongs to the next trading day, 18:00 → 17:00).", Muted, 9.5, FontWeights.Normal));
+            panel.Children.Add(Row("NO NEW TRADE AFTER", goldenLastEntryBox));
+            panel.Children.Add(Row("AN OPEN TRADE", goldenHoldBox)); panel.Children.Add(Row("CLOSE AN OPEN TRADE AT", goldenCloseBox));
+            panel.Children.Add(Row("WHICH SETUP OF THE DAY", goldenFirstBox));
             panel.Children.Add(Row("TRADES A DAY PER INSTRUMENT (1 = first setup only)", goldenTriesBox));
             panel.Children.Add(Txt("WHICH SETUPS", Cyan, 10, FontWeights.Bold));
             panel.Children.Add(Row("BH", goldenBhBox)); panel.Children.Add(Row("BULLISH FVG", goldenFvgBox));
@@ -18160,10 +19180,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.GoldenMaxTradesPerDay = Math.Max(1, Math.Min(5, Integer(goldenTriesBox, 1)));
             config.GoldenMnqMinGap = NumberAllowZero(goldenMnqGapBox, 5); config.GoldenMgcMinGap = NumberAllowZero(goldenMgcGapBox, 1);
             config.GoldenSkipStopOverTarget = goldenSkipBigStopBox == null || goldenSkipBigStopBox.IsChecked != false ? 1 : 0;
+            config.GoldenHold = goldenHoldBox == null || goldenHoldBox.SelectedIndex != 1 ? 1 : 0;
+            config.GoldenStrictFirst = goldenFirstBox == null || goldenFirstBox.SelectedIndex != 1 ? 1 : 0;
             // Load from the earliest start to 16:55 (or later close) — the same window as the FVG
             // default, so bars already saved by an FVG / BH test are reused without a new read.
             int first = Math.Min(config.Scope == "MGC" ? gs : ms, config.Scope == "MNQ" ? ms : gs);
-            config.SessionMode = "CUSTOM"; config.CustomStart = Math.Min(800, first); config.EndTime = Math.Max(1655, cl);
+            bool evening = (config.Scope != "MGC" && ms >= 1800) || (config.Scope != "MNQ" && gs >= 1800);
+            // HOLD (trades carry overnight) or an evening start needs the whole trading day: 18:00 → 17:00.
+            if (config.GoldenHold == 1 || evening) { config.SessionMode = "FULL_GLOBEX"; config.CustomStart = 1800; config.EndTime = 1655; }
+            else { config.SessionMode = "CUSTOM"; config.CustomStart = Math.Min(800, first); config.EndTime = Math.Max(1655, cl); }
             return true;
         }
     }
