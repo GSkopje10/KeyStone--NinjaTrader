@@ -722,10 +722,11 @@ namespace NinjaTrader.NinjaScript
         public double GoldenMnqMinGap = 5, GoldenMgcMinGap = 1;   // FVG: candle 3 low must be at least this far above candle 1 high (0 = any sliver)
         public int GoldenSkipStopOverTarget = 1;        // 1 = skip a setup whose stop is bigger than its target
         public int GoldenHold = 1;                      // 1 = hold until the target or the stop (overnight, next days) • 0 = close at GoldenClose
+        public int GoldenTakeAll = 0;                   // study only: every setup of the day (e.g. every 5M FVG), not only the first
         public int GoldenStrictFirst = 1;               // 1 = only the day's first setup: if a filter skips it, no trade that day • 0 = take the next one
         public string GoldenKey()
         {
-            return string.Join("/", new[] { GoldenMnqStart, GoldenMgcStart, GoldenLastEntry, GoldenClose, GoldenUseBh, GoldenMnqQuantity, GoldenMgcQuantity, GoldenMaxTradesPerDay, GoldenSkipStopOverTarget, GoldenHold, GoldenStrictFirst }.Select(v => v.ToString(CultureInfo.InvariantCulture)))
+            return string.Join("/", new[] { GoldenMnqStart, GoldenMgcStart, GoldenLastEntry, GoldenClose, GoldenUseBh, GoldenMnqQuantity, GoldenMgcQuantity, GoldenMaxTradesPerDay, GoldenSkipStopOverTarget, GoldenHold, GoldenStrictFirst, GoldenTakeAll }.Select(v => v.ToString(CultureInfo.InvariantCulture)))
                 + "/" + GoldenFvgMode + "/" + GoldenAggression + "/" + GoldenStopMode + "/" + string.Join("/", new[] { GoldenMnqDropPoints, GoldenMgcDropPoints, GoldenMnqTargetPoints, GoldenMgcTargetPoints, GoldenMnqStopPoints, GoldenMgcStopPoints, GoldenMnqStopBuffer, GoldenMgcStopBuffer, GoldenMnqMaxStop, GoldenMgcMaxStop, GoldenMnqMinGap, GoldenMgcMinGap }.Select(v => v.ToString("0.##", CultureInfo.InvariantCulture)));
         }
 
@@ -1509,7 +1510,8 @@ namespace NinjaTrader.NinjaScript
                 }
                 bool patternAfterStart = i - 2 >= startIndex;                 // every pattern candle formed after the start
                 KeystoneArcEvent pick = null; string kind = null; double patternLow = double.NaN; bool marketEntry = false;
-                if (!dayDone && taken < Math.Max(1, cfg.GoldenMaxTradesPerDay) && cur.Time <= lastEntry && cur.Time > busyUntil && patternAfterStart)
+                bool takeAll = cfg.GoldenTakeAll == 1;
+                if ((takeAll || (!dayDone && taken < Math.Max(1, cfg.GoldenMaxTradesPerDay) && cur.Time > busyUntil)) && cur.Time <= lastEntry && patternAfterStart)
                 {
                     KeystoneArcEvent bh = cfg.GoldenUseBh == 1 ? DetectBhBreak(bars, i, bhCfg, symbol) : null;
                     if (bh != null && string.Equals(bh.Direction, "LONG", StringComparison.OrdinalIgnoreCase)) { pick = bh; kind = "BH"; patternLow = Math.Min(bars[i - 2].Low, bars[i - 1].Low); }
@@ -1542,7 +1544,7 @@ namespace NinjaTrader.NinjaScript
                     double stopPts = entry - stop;
                     bool skip = (aggression == "REQUIRED" && !aggressive) || stopPts <= 0 || (maxStop > 0 && stopPts > maxStop) || (cfg.GoldenSkipStopOverTarget == 1 && stopPts > target + 1e-9);
                     // Strictly the first setup: a setup a filter skips still uses up the day.
-                    if (skip && cfg.GoldenStrictFirst == 1) dayDone = true;
+                    if (skip && cfg.GoldenStrictFirst == 1 && !takeAll) dayDone = true;
                     if (!skip)
                     {
                         pick.SetupClass = kind; pick.Quantity = qty; pick.Stop = stop; pick.Target = entry + target; pick.StopDistance = stopPts;
@@ -1558,7 +1560,7 @@ namespace NinjaTrader.NinjaScript
                         // HOLD: no session close — the trade runs until the target or the stop, overnight and into the next days.
                         ResolveOutcome(pick, raw, outCfg, symbol, marketEntry, cfg.GoldenHold == 1 ? raw[raw.Count - 1].Time : default(DateTime));
                         GoldenExcursion(pick, raw, cfg, symbol, marketEntry);
-                        pick.ReviewNote = "GOLDEN • " + (taken == 0 ? "first" : (taken + 1) == 2 ? "2nd" : "3rd") + " setup after " + (startHhmm / 100).ToString("00") + ":" + (startHhmm % 100).ToString("00") + " • " + (kind == "DT" ? "BH + FVG" : kind)
+                        pick.ReviewNote = "GOLDEN • " + (takeAll ? "#" + (taken + 1) : taken == 0 ? "first" : (taken + 1) == 2 ? "2nd" : "3rd") + " setup after " + (startHhmm / 100).ToString("00") + ":" + (startHhmm % 100).ToString("00") + " • " + (kind == "DT" ? "BH + FVG" : kind)
                             + " • push down " + drop.ToString(fmt, CultureInfo.InvariantCulture) + " pts" + (red > 0 ? " (" + red + " red)" : string.Empty) + (aggressive ? " = AGGRESSION" : " = no aggression")
                             + " • entry " + entry.ToString(fmt, CultureInfo.InvariantCulture) + " • target " + pick.Target.ToString(fmt, CultureInfo.InvariantCulture) + " (+" + target.ToString("0.##", CultureInfo.InvariantCulture) + ")"
                             + " • stop " + stop.ToString(fmt, CultureInfo.InvariantCulture) + " (−" + stopPts.ToString(fmt, CultureInfo.InvariantCulture) + ")";
@@ -5193,6 +5195,7 @@ namespace NinjaTrader.NinjaScript
         public bool StrictFirst = true;                    // a filtered try ends that instrument's day
         public bool OnePositionPerInstrument = true;
         public double StartBalance = 5000;
+        public KeystoneGoldenFilter Copy() { var c = (KeystoneGoldenFilter)MemberwiseClone(); c.Weekdays = (bool[])Weekdays.Clone(); return c; }
         public string Key()
         {
             return string.Join("|", new object[] { Setup, MnqMinDrop, MgcMinDrop, MinRed, MnqMinGap, MgcMinGap, MnqMaxStop, MgcMaxStop, SkipStopOverTarget, FromHhmm, ToHhmm, string.Join("", Weekdays.Select(w => w ? "1" : "0")), MaxTries, StrictFirst, OnePositionPerInstrument, StartBalance }.Select(o => Convert.ToString(o, CultureInfo.InvariantCulture)));
@@ -5240,6 +5243,7 @@ namespace NinjaTrader.NinjaScript
         public Dictionary<string, int> FilteredOut = new Dictionary<string, int>();
         public string Verdict = string.Empty;
         public bool Hold;
+        public string Universe = "FIRST";
     }
 
     public static class KeystoneGoldenStudy
@@ -5261,6 +5265,45 @@ namespace NinjaTrader.NinjaScript
             if (string.Equals(c.GoldenAggression, "REQUIRED", StringComparison.OrdinalIgnoreCase)) c.GoldenAggression = "TAG";
             c.GoldenStrictFirst = 1;
             return c;
+        }
+
+        // Which entries the study looks at (each is its own detection run on the loaded bars).
+        public static readonly string[] Universes = { "FIRST", "FIRST_BH", "FIRST_FVG", "EVERY_FVG" };
+        public static string UniverseName(string u)
+        {
+            switch (u)
+            {
+                case "FIRST_BH": return "FIRST BH OF THE DAY";
+                case "FIRST_FVG": return "FIRST 5M FVG OF THE DAY";
+                case "EVERY_FVG": return "EVERY 5M FVG (all day)";
+                default: return "FIRST SETUP OF THE DAY (BH or FVG, Step 1)";
+            }
+        }
+        public static KeystoneArcRunConfig UniverseConfig(KeystoneArcRunConfig cfg, string u)
+        {
+            var c = UnfilteredConfig(cfg);
+            if (u == "FIRST_BH") { c.GoldenUseBh = 1; c.GoldenFvgMode = "OFF"; }
+            else if (u == "FIRST_FVG" || u == "EVERY_FVG")
+            {
+                c.GoldenUseBh = 0; if (string.Equals(c.GoldenFvgMode, "OFF", StringComparison.OrdinalIgnoreCase)) c.GoldenFvgMode = "CLOSE";
+                if (u == "EVERY_FVG") { c.GoldenTakeAll = 1; c.GoldenMaxTradesPerDay = 999; }
+            }
+            return c;
+        }
+
+        // The same filters on every set of entries, side by side (setup type is the set itself).
+        public static List<KeystoneGoldenStudyResult> CompareUniverses(Dictionary<string, List<KeystoneArcEvent>> sets, KeystoneGoldenFilter f, KeystoneArcRunConfig cfg)
+        {
+            var output = new List<KeystoneGoldenStudyResult>();
+            if (sets == null) return output;
+            foreach (string u in Universes)
+            {
+                List<KeystoneArcEvent> list; if (!sets.TryGetValue(u, out list) || list == null) continue;
+                var copy = f.Copy(); copy.Setup = "ALL";
+                if (u == "EVERY_FVG") copy.MaxTries = 999;
+                output.Add(Run(list, copy, cfg, u));
+            }
+            return output;
         }
 
         // The filters that match the Step 1 settings.
@@ -5306,9 +5349,10 @@ namespace NinjaTrader.NinjaScript
             return string.Empty;
         }
 
-        public static KeystoneGoldenStudyResult Run(List<KeystoneArcEvent> all, KeystoneGoldenFilter f, KeystoneArcRunConfig cfg)
+        public static KeystoneGoldenStudyResult Run(List<KeystoneArcEvent> all, KeystoneGoldenFilter f, KeystoneArcRunConfig cfg, string universe = "FIRST")
         {
-            var r = new KeystoneGoldenStudyResult();
+            var r = new KeystoneGoldenStudyResult { Universe = universe ?? "FIRST" };
+            bool every = r.Universe == "EVERY_FVG";
             r.Hold = cfg == null || cfg.GoldenHold == 1;
             r.All = (all ?? new List<KeystoneArcEvent>()).Where(e => e != null && (e.RiskModel ?? string.Empty).StartsWith("GLD ", StringComparison.Ordinal)).OrderBy(EntryClock).ThenBy(e => e.Symbol).ToList();
             // Filters in the order the day happened: a filtered try ends that day (strictly first), and only the first N tries count.
@@ -5317,8 +5361,8 @@ namespace NinjaTrader.NinjaScript
                 bool ended = false; int tries = 0;
                 foreach (var e in day.OrderBy(EntryClock))
                 {
-                    string why = ended ? "DAY ALREADY USED" : Reason(e, f);
-                    if (why.Length == 0 && tries >= Math.Max(1, f.MaxTries)) why = "TRIES PER DAY";
+                    string why = ended && !every ? "DAY ALREADY USED" : Reason(e, f);
+                    if (why.Length == 0 && !every && tries >= Math.Max(1, f.MaxTries)) why = "TRIES PER DAY";
                     if (why.Length == 0 && !Traded(e)) why = "NO FILL / NO 1M DATA";
                     if (why.Length > 0) { r.Reasons[e] = why; if (f.StrictFirst) ended = true; int c; r.FilteredOut.TryGetValue(why, out c); r.FilteredOut[why] = c + 1; continue; }
                     tries++; r.Kept.Add(e);
@@ -5554,7 +5598,7 @@ namespace NinjaTrader.NinjaScript
         static string Pc(double v) { return v.ToString("0", CultureInfo.InvariantCulture) + "%"; }
         static string Cls(double v) { return v > 0 ? "g" : v < 0 ? "r" : "m"; }
 
-        public static string Html(KeystoneGoldenStudyResult r, KeystoneGoldenFilter f, string title)
+        public static string Html(KeystoneGoldenStudyResult r, KeystoneGoldenFilter f, string title, List<KeystoneGoldenStudyResult> compare = null)
         {
             var sb = new StringBuilder();
             sb.Append("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>GOLDEN entry study</title><style>")
@@ -5563,7 +5607,16 @@ namespace NinjaTrader.NinjaScript
               .Append(".card b{display:block;font-size:12px;color:#9aa4b5}.card span{font-size:21px;font-weight:700}table{border-collapse:collapse;margin:6px 0 4px;font-size:12.5px}th{background:#1d2433;color:#f2c14e;padding:5px 8px;text-align:right}th:first-child,td:first-child{text-align:left}")
               .Append("td{padding:4px 8px;border-bottom:1px solid #222a39;text-align:right}.g{color:#38d682}.r{color:#ff5260}.m{color:#9aa4b5}.c{color:#5bc8f5}.note{color:#9aa4b5;font-size:12px}.hl{outline:2px solid #f2c14e}.wrap{overflow-x:auto}</style></head><body>");
             sb.Append("<h1>GOLDEN ENTRY STUDY</h1><div class='sub'>").Append(H(title)).Append("<br>").Append(r.Hold ? "Every trade held until its target or its stop (overnight and later days); no prop rules." : "Trades closed at the session close time.").Append("</div>");
-            sb.Append("<p>").Append(H(r.Verdict)).Append("</p>");
+            sb.Append("<p><b>ENTRIES: ").Append(H(UniverseName(r.Universe))).Append("</b> • ").Append(H(r.Verdict)).Append("</p>");
+            if (compare != null && compare.Count > 1)
+            {
+                sb.Append("<h2>WHICH ENTRIES • same filters, one live account</h2><div class='wrap'><table><tr><th>ENTRIES</th>");
+                var rows = UniverseRows(compare);
+                foreach (var c in compare) sb.Append("<th>").Append(H(UniverseName(c.Universe))).Append("</th>");
+                sb.Append("</tr>");
+                foreach (var row in rows) { sb.Append("<tr><td>").Append(H(row[0])).Append("</td>"); for (int i = 1; i < row.Length; i++) sb.Append("<td>").Append(H(row[i])).Append("</td>"); sb.Append("</tr>"); }
+                sb.Append("</table></div>");
+            }
             sb.Append("<h2>MNQ vs MGC vs BOTH</h2><div class='wrap'><table><tr><th></th><th>MNQ</th><th>MGC</th><th>BOTH</th></tr>");
             foreach (var row in CompareRows(r)) sb.Append("<tr><td>").Append(H(row[0])).Append("</td><td>").Append(H(row[1])).Append("</td><td>").Append(H(row[2])).Append("</td><td>").Append(H(row[3])).Append("</td></tr>");
             sb.Append("</table></div>");
@@ -5656,6 +5709,25 @@ namespace NinjaTrader.NinjaScript
             rows.Add(new[] { "ONE ACCOUNT: START → END", Cash(a[0].Start) + " → " + Cash(a[0].End), Cash(a[1].Start) + " → " + Cash(a[1].End), Cash(a[2].Start) + " → " + Cash(a[2].End) });
             rows.Add(new[] { "ONE ACCOUNT: MAX DRAWDOWN", Cash(-a[0].MaxDrawdown), Cash(-a[1].MaxDrawdown), Cash(-a[2].MaxDrawdown) });
             rows.Add(new[] { "ONE ACCOUNT: BEST / WORST MONTH", MonthText(a[0]), MonthText(a[1]), MonthText(a[2]) });
+            return rows;
+        }
+
+        // Rows of the WHICH ENTRIES comparison: one column per set of entries.
+        public static List<string[]> UniverseRows(List<KeystoneGoldenStudyResult> list)
+        {
+            var rows = new List<string[]>();
+            Action<string, Func<KeystoneGoldenStudyResult, string>> add = (name, fn) => rows.Add(new[] { name }.Concat(list.Select(fn)).ToArray());
+            add("ENTRIES KEPT / FOUND", x => x.Kept.Count + " / " + x.All.Count);
+            add("WINS / LOSSES / OPEN", x => x.Both.Wins + " / " + x.Both.Losses + " / " + x.Both.Open);
+            add("WIN RATE", x => x.Both.Wins + x.Both.Losses == 0 ? "–" : Pc(x.Both.WinRate));
+            add("NEEDED TO BREAK EVEN", x => x.Both.Wins == 0 || x.Both.Losses == 0 ? "–" : Pc(100.0 * Math.Abs(x.Both.AvgLossPoints) / (Math.Abs(x.Both.AvgLossPoints) + x.Both.AvgWinPoints)));
+            add("NET $ (every entry)", x => Cash(x.Both.NetCash));
+            add("$ PER ENTRY", x => Cash(x.Both.CashPerEntry));
+            add("MNQ • MGC NET", x => Cash(x.Mnq.NetCash) + " • " + Cash(x.Mgc.NetCash));
+            add("ONE LIVE ACCOUNT: TRADES TAKEN", x => x.AccountBoth.Trades + (x.AccountBoth.SkippedOpen > 0 ? " (" + x.AccountBoth.SkippedOpen + " skipped: a trade was open)" : ""));
+            add("ONE LIVE ACCOUNT: START → END", x => Cash(x.AccountBoth.Start) + " → " + Cash(x.AccountBoth.End));
+            add("ONE LIVE ACCOUNT: MAX DRAWDOWN", x => Cash(-x.AccountBoth.MaxDrawdown));
+            add("ONE LIVE ACCOUNT: BEST / WORST MONTH", x => MonthText(x.AccountBoth));
             return rows;
         }
 
@@ -6675,7 +6747,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-30u • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-30v • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -11057,13 +11129,18 @@ namespace NinjaTrader.NinjaScript.AddOns
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 List<KeystoneArcEvent> generated;
-                List<KeystoneArcEvent> goldenUnfiltered = null;
+                Dictionary<string, List<KeystoneArcEvent>> goldenUnfiltered = null;
                 List<KeystoneArcVirtualAccount> generatedAccounts = new List<KeystoneArcVirtualAccount>();
                 try
                 {
                     generated = BuildDetectorLedger(workerConfig);
                     // GOLDEN: the same entries with no filter, so Step 3 can try every filter without a new detection.
-                    if (string.Equals(workerConfig.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase)) goldenUnfiltered = BuildDetectorLedger(KeystoneGoldenStudy.UnfilteredConfig(workerConfig));
+                    // Also: the first BH, the first FVG and every 5M FVG of each day, so Step 3 can compare them.
+                    if (string.Equals(workerConfig.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase))
+                    {
+                        goldenUnfiltered = new Dictionary<string, List<KeystoneArcEvent>>();
+                        foreach (string u in KeystoneGoldenStudy.Universes) goldenUnfiltered[u] = BuildDetectorLedger(KeystoneGoldenStudy.UniverseConfig(workerConfig, u));
+                    }
                     // Allocation is intentionally not run during detection; Step 3 applies the selected prop scenario.
                 }
                 catch (Exception ex) { DispatchToLab(delegate { isProcessing = false; EndBusy(); UpdateUi("DETECTION ERROR • " + ex.Message, Red); UpdateWorkflowState(); }); return; }
@@ -11095,7 +11172,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     {
                         // GOLDEN opens straight on its own study (no prop pool).
                         ShowGoldenStudy(goldenUnfiltered, workerConfig);
-                        UpdateUi("GOLDEN ENTRY STUDY READY • " + goldenStudy.Kept.Count + " ENTRIES AFTER FILTERS (" + goldenUnfiltered.Count + " FIRST SETUPS FOUND) • Step 3 shows the results, filters and comparisons", Green);
+                        UpdateUi("GOLDEN ENTRY STUDY READY • " + goldenStudy.Kept.Count + " ENTRIES AFTER FILTERS (" + goldenUnfiltered["FIRST"].Count + " FIRST SETUPS • " + goldenUnfiltered["FIRST_BH"].Count + " FIRST BH • " + goldenUnfiltered["FIRST_FVG"].Count + " FIRST FVG • " + goldenUnfiltered["EVERY_FVG"].Count + " FVGs IN ALL) • Step 3 shows the results, filters and comparisons", Green);
                         if (workspaceTabs != null && resultsTab != null) { resultsTab.IsEnabled = true; workspaceTabs.SelectedIndex = 2; }
                     }
                     poolDayIndex = -1; RenderPoolDayPanel(); RefreshInstrumentViewControls();
@@ -17706,6 +17783,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private bool goldenResultsMode;
         private Visibility oneDayMetricsVisibilityBeforeGolden = Visibility.Collapsed;
         private List<KeystoneArcEvent> goldenStudyAll = new List<KeystoneArcEvent>();
+        private Dictionary<string, List<KeystoneArcEvent>> goldenStudySets = new Dictionary<string, List<KeystoneArcEvent>>();
+        private List<KeystoneGoldenStudyResult> goldenCompare = new List<KeystoneGoldenStudyResult>();
+        private ComboBox gfUniverseBox;
         private KeystoneGoldenStudyResult goldenStudy;
         private KeystoneArcRunConfig goldenStudyConfig;
         private TextBlock goldenVerdictHead, goldenVerdictSub, goldenFilterNote;
@@ -17822,6 +17902,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 sp.Children.Add(control); return sp;
             };
             gfSetupBox.MinWidth = 230;
+            gfUniverseBox = Select(KeystoneGoldenStudy.Universes.Select(KeystoneGoldenStudy.UniverseName).ToArray()); gfUniverseBox.SelectedIndex = 0; gfUniverseBox.MinWidth = 330;
+            gfUniverseBox.SelectionChanged += delegate { QueueGoldenStudy(); };
+            choices.Children.Add(pair("ENTRIES", gfUniverseBox));
             choices.Children.Add(pair("SETUP", gfSetupBox));
             choices.Children.Add(pair("WEEKDAYS", days));
             choices.Children.Add(pair("RISK", gfSkipBox));
@@ -17846,8 +17929,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             Grid.SetColumn(goldenSlimText, 1); slim.Children.Add(goldenSlimText);
             Grid.SetRow(slim, 3); g.Children.Add(slim);
             goldenTabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-            Brush[] tabColors = { Gold, Green, Cyan, Blue, Orchid };
-            string[] tabNames = { "MNQ • MGC • BOTH", "WHAT MAKES WINNERS", "TARGET × STOP", "ONE ACCOUNT", "EVERY ENTRY" };
+            Brush[] tabColors = { Red, Gold, Green, Cyan, Blue, Orchid };
+            string[] tabNames = { "WHICH ENTRIES", "MNQ • MGC • BOTH", "WHAT MAKES WINNERS", "TARGET × STOP", "ONE ACCOUNT", "EVERY ENTRY" };
             for (int i = 0; i < tabNames.Length; i++)
                 goldenTabs.Items.Add(new TabItem { Header = tabNames[i], Background = tabColors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Run GOLDEN SETUP to fill this tab.", Muted, 11, FontWeights.Normal) });
             Grid.SetRow(goldenTabs, 4); g.Children.Add(goldenTabs);
@@ -17921,9 +18004,11 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
 
         // Called when a GOLDEN run finishes: the entries with no filter, then the Step 1 filters on top.
-        private void ShowGoldenStudy(List<KeystoneArcEvent> unfiltered, KeystoneArcRunConfig runConfig)
+        private void ShowGoldenStudy(Dictionary<string, List<KeystoneArcEvent>> sets, KeystoneArcRunConfig runConfig)
         {
-            goldenStudyAll = unfiltered ?? new List<KeystoneArcEvent>();
+            goldenStudySets = sets ?? new Dictionary<string, List<KeystoneArcEvent>>();
+            List<KeystoneArcEvent> first; goldenStudyAll = goldenStudySets.TryGetValue("FIRST", out first) && first != null ? first : new List<KeystoneArcEvent>();
+            if (gfUniverseBox != null) { goldenFilterLoading = true; gfUniverseBox.SelectedIndex = 0; goldenFilterLoading = false; }
             goldenStudyConfig = runConfig;
             goldenGridIndex = 0;
             SetGoldenResultsMode(true);
@@ -17937,7 +18022,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             try
             {
                 var f = ReadGoldenFilter();
-                goldenStudy = KeystoneGoldenStudy.Run(goldenStudyAll, f, goldenStudyConfig ?? config);
+                string u = KeystoneGoldenStudy.Universes[Math.Max(0, Math.Min(KeystoneGoldenStudy.Universes.Length - 1, gfUniverseBox == null ? 0 : gfUniverseBox.SelectedIndex))];
+                List<KeystoneArcEvent> set;
+                if (!goldenStudySets.TryGetValue(u, out set) || set == null) { set = goldenStudyAll; u = "FIRST"; }
+                goldenStudy = KeystoneGoldenStudy.Run(set, f, goldenStudyConfig ?? config, u);
+                goldenCompare = KeystoneGoldenStudy.CompareUniverses(goldenStudySets, f, goldenStudyConfig ?? config);
                 RenderGoldenStudy(goldenStudy, f);
             }
             catch (Exception ex) { if (goldenVerdictSub != null) { goldenVerdictSub.Text = "GOLDEN STUDY ERROR • " + ex.Message; goldenVerdictSub.Foreground = Red; } }
@@ -17948,7 +18037,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var c = goldenStudyConfig ?? config;
             bool any = r.Kept.Count > 0;
             double net = r.Both.NetCash;
-            goldenVerdictHead.Text = r.All.Count == 0 ? "NO GOLDEN ENTRIES" : r.Kept.Count + " ENTRIES  •  WINS " + GPct(r.Both.WinRate) + "  •  NET " + (net > 0 ? "+" : string.Empty) + Cash(net);
+            goldenVerdictHead.Text = r.All.Count == 0 ? "NO GOLDEN ENTRIES" : KeystoneGoldenStudy.UniverseName(r.Universe) + "  •  " + r.Kept.Count + " ENTRIES  •  WINS " + GPct(r.Both.WinRate) + "  •  NET " + (net > 0 ? "+" : string.Empty) + Cash(net);
             goldenVerdictHead.Foreground = !any ? Gold : (net > 0 ? Green : Red);
             goldenVerdictCard.BorderBrush = goldenVerdictHead.Foreground;
             if (goldenSlimText != null) { goldenSlimText.Text = goldenVerdictHead.Text + "   •   " + r.Verdict; goldenSlimText.Foreground = goldenVerdictHead.Foreground; }
@@ -17969,12 +18058,45 @@ namespace NinjaTrader.NinjaScript.AddOns
             var acct = r.AccountBoth;
             goldenTiles.Children.Add(HelixCard("ONE ACCOUNT • " + (r.Mnq.Entries > 0 && r.Mgc.Entries > 0 ? "MNQ + MGC" : r.Mnq.Entries > 0 ? "MNQ" : "MGC"), Cash(acct.Start) + " → " + Cash(acct.End), "max drawdown " + Cash(-acct.MaxDrawdown) + " • " + acct.Trades + " trades" + (acct.SkippedOpen > 0 ? " • " + acct.SkippedOpen + " skipped (a trade was open)" : string.Empty), MoneyBrush(acct.End - acct.Start), 300));
             goldenTiles.Children.Add(HelixCard("FILTERED OUT", (r.All.Count - r.Kept.Count) + " / " + r.All.Count, "first setups the filters removed", Orchid, 190));
+            SetGoldenTab("WHICH ENTRIES", GoldenUniverseView(r));
             SetGoldenTab("MNQ • MGC • BOTH", GoldenCompareView(r));
             SetGoldenTab("WHAT MAKES WINNERS", GoldenWinnersView(r));
             SetGoldenTab("TARGET × STOP", GoldenGridView(r));
             SetGoldenTab("ONE ACCOUNT", GoldenAccountView(r, f));
             SetGoldenTab("EVERY ENTRY", GoldenEntriesView(r));
             SizeGoldenHost();
+        }
+
+        private UIElement GoldenUniverseView(KeystoneGoldenStudyResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle("WHICH ENTRIES • the same filters on each set, one live account", Gold));
+            root.Children.Add(HelixNote("FIRST SETUP = the day's first BH or FVG (Step 1 rule). FIRST BH / FIRST FVG = the first of that kind each day, even if the other came earlier. EVERY 5M FVG = every bullish FVG of the day is an entry. Every trade is held to its target or stop. ONE LIVE ACCOUNT takes them in time order with the strategy's contracts; " + (gfOneBox != null && gfOneBox.IsChecked == true ? "a new entry while that instrument still has a trade open is skipped (untick ONE TRADE OPEN to take them all)." : "every entry is taken, even while another is open.") + " The SETUP filter does not apply here (each column is one setup type). Pick a set in ENTRIES above to open it in every other tab."));
+            if (goldenCompare == null || goldenCompare.Count == 0) { root.Children.Add(HelixNote("Run GOLDEN SETUP again to fill this comparison.")); return root; }
+            var w = new List<double> { 300 }; var head = new List<string> { "" };
+            foreach (var c in goldenCompare) { w.Add(250); head.Add(KeystoneGoldenStudy.UniverseName(c.Universe)); }
+            root.Children.Add(HelixHeader(head.ToArray(), w.ToArray()));
+            foreach (var row in KeystoneGoldenStudy.UniverseRows(goldenCompare))
+            {
+                var colors = new List<Brush> { Muted };
+                for (int i = 0; i < goldenCompare.Count; i++)
+                {
+                    var c = goldenCompare[i];
+                    Brush b = Text;
+                    if (row[0].StartsWith("NET", StringComparison.Ordinal)) b = MoneyBrush(c.Both.NetCash);
+                    else if (row[0].StartsWith("$ PER", StringComparison.Ordinal)) b = MoneyBrush(c.Both.CashPerEntry);
+                    else if (row[0].Contains("START → END")) b = MoneyBrush(c.AccountBoth.End - c.AccountBoth.Start);
+                    else if (row[0].Contains("DRAWDOWN")) b = Red;
+                    else if (row[0] == "WIN RATE") b = Cyan;
+                    if (c.Universe == r.Universe && b == Text) b = Gold;
+                    colors.Add(b);
+                }
+                root.Children.Add(HelixRow(row, colors.ToArray(), w.ToArray(), Card, null));
+            }
+            var best = goldenCompare.Where(c => c.Kept.Count >= 20).OrderByDescending(c => c.AccountBoth.End).FirstOrDefault();
+            root.Children.Add(HelixTitle(best == null ? "Fewer than 20 entries in every set — load a longer range before choosing." : "BEST ONE-ACCOUNT RESULT: " + KeystoneGoldenStudy.UniverseName(best.Universe) + " → " + Cash(best.AccountBoth.End) + " (from " + Cash(best.AccountBoth.Start) + ", max drawdown " + Cash(-best.AccountBoth.MaxDrawdown) + ")", best == null ? Gold : MoneyBrush(best.AccountBoth.End - best.AccountBoth.Start)));
+            root.Children.Add(HelixNote("A set is only an edge if its win rate is above the BREAK EVEN row and it holds in each year (TARGET × STOP tab → per year)."));
+            return root;
         }
 
         private UIElement GoldenCompareView(KeystoneGoldenStudyResult r)
@@ -18240,7 +18362,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 string title = (c == null ? "" : c.Scope + " • " + c.Start.ToString("yyyy-MM-dd") + " → " + c.End.ToString("yyyy-MM-dd") + " • start MNQ " + c.GoldenMnqStart.ToString("0000") + " / MGC " + c.GoldenMgcStart.ToString("0000") + " • target MNQ +" + c.GoldenMnqTargetPoints.ToString("0.##", CultureInfo.InvariantCulture) + " / MGC +" + c.GoldenMgcTargetPoints.ToString("0.##", CultureInfo.InvariantCulture)) + " • generated " + DateTime.Now.ToString("yyyy-MM-dd HH:mm");
                 string html = Path.Combine(dir, "KeystoneArc_Golden_Study_" + stamp + ".html");
                 string csv = Path.Combine(dir, "KeystoneArc_Golden_Entries_" + stamp + ".csv");
-                File.WriteAllText(html, KeystoneGoldenStudy.Html(goldenStudy, ReadGoldenFilter(), title), Encoding.UTF8);
+                File.WriteAllText(html, KeystoneGoldenStudy.Html(goldenStudy, ReadGoldenFilter(), title, goldenCompare), Encoding.UTF8);
                 File.WriteAllText(csv, KeystoneGoldenStudy.Csv(goldenStudy), Encoding.UTF8);
                 UpdateUi("EXPORTED GOLDEN STUDY • " + html + " • entries CSV " + csv, Green);
             }

@@ -133,7 +133,15 @@ public static class UiSmokeTest
             if (strategy == "GLD")
                 Step("GLD: entry study view (filters, compare, winners, target × stop, one account, entries)", () =>
                 {
-                    Call(lab2, "ShowGoldenStudy", ev2, c);
+                    var sets = new Dictionary<string, List<KeystoneArcEvent>>();
+                    foreach (string u in KeystoneGoldenStudy.Universes) sets[u] = KeystoneArcEngine.DetectAndResolve(m1, m5, KeystoneGoldenStudy.UniverseConfig(c, u)).Concat(KeystoneArcEngine.DetectAndResolve(g1, g5, KeystoneGoldenStudy.UniverseConfig(c, u))).ToList();
+                    Call(lab2, "ShowGoldenStudy", sets, c);
+                    var uni = (System.Windows.Controls.ComboBox)lab2.GetType().GetField("gfUniverseBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    uni.SelectedIndex = 3; uni.SelectedItem = uni.Items[3]; Call(lab2, "RunGoldenStudy");
+                    var everyFvg = (KeystoneGoldenStudyResult)lab2.GetType().GetField("goldenStudy", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    Console.WriteLine("      every 5M FVG: " + everyFvg.All.Count + " • first FVG: " + sets["FIRST_FVG"].Count + " • first BH: " + sets["FIRST_BH"].Count);
+                    if (everyFvg.Universe != "EVERY_FVG" || everyFvg.All.Count < sets["FIRST_FVG"].Count) throw new Exception("EVERY 5M FVG set not used");
+                    uni.SelectedIndex = 0; uni.SelectedItem = uni.Items[0]; Call(lab2, "RunGoldenStudy");
                     var study = (KeystoneGoldenStudyResult)lab2.GetType().GetField("goldenStudy", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
                     var tabs = (System.Windows.Controls.TabControl)lab2.GetType().GetField("goldenTabs", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
                     Console.WriteLine("      study: " + study.All.Count + " entries • kept " + study.Kept.Count + " • grids " + study.Grids.Count + " • tabs " + tabs.Items.Count);

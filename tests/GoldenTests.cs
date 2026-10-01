@@ -188,6 +188,24 @@ public static class GoldenTests
             Check(none.Kept.Count == 0 && none.FilteredOut.ContainsKey("SETUP TYPE"), "STUDY FILTER: FVG only → the first BH is filtered and the day is used up");
             Check(KeystoneGoldenStudy.Html(r, KeystoneGoldenStudy.FromConfig(cfg), "test").Contains("GOLDEN ENTRY STUDY") && KeystoneGoldenStudy.Csv(r).Split('\n').Count(l => l.Trim().Length > 0) == ev.Count + 1, "STUDY: HTML report and CSV export");
         }
+        // 13. Entry sets: first BH, first FVG, every 5M FVG — compared with the same filters
+        {
+            var cfg = Cfg("MGC");
+            var c = new List<double[]> { C(2010, 2010.5, 2009.8, 2010), C(2010, 2010.2, 2006, 2006.5), C(2006.5, 2006.8, 2003, 2003.4), C(2003.4, 2004, 2002.8, 2003.9), C(2003.9, 2007, 2003.8, 2006.8), C(2006.8, 2008, 2004.5, 2007.6) };
+            var bars = Day("MGC", new DateTime(2026, 3, 10, 8, 0, 0), c, 60, 0.3);
+            var sets = new Dictionary<string, List<KeystoneArcEvent>>();
+            foreach (string u in KeystoneGoldenStudy.Universes) sets[u] = KeystoneArcEngine.DetectAndResolve(bars, bars, KeystoneGoldenStudy.UniverseConfig(cfg, u));
+            Check(sets["FIRST_FVG"].Count == 1 && sets["FIRST_FVG"][0].SetupClass == "FVG", "FIRST FVG OF THE DAY: one entry", sets["FIRST_FVG"].Count.ToString());
+            Check(sets["EVERY_FVG"].Count >= 2 && sets["EVERY_FVG"].All(e => e.SetupClass == "FVG") && sets["EVERY_FVG"][0].Entry == 2007.6, "EVERY 5M FVG: every FVG of the day is an entry (" + sets["EVERY_FVG"].Count + ")");
+            Check(sets["FIRST_BH"].All(e => e.SetupClass == "BH" || e.SetupClass == "DT"), "FIRST BH OF THE DAY: BH entries only");
+            var f = KeystoneGoldenStudy.FromConfig(cfg);
+            var cmp = KeystoneGoldenStudy.CompareUniverses(sets, f, cfg);
+            var every = cmp.First(x => x.Universe == "EVERY_FVG");
+            Check(cmp.Count == 4 && every.Kept.Count == sets["EVERY_FVG"].Count(KeystoneGoldenStudy.Traded), "COMPARE: four sets; every FVG kept (no 'day already used')", every.Kept.Count + " of " + sets["EVERY_FVG"].Count);
+            f.OnePositionPerInstrument = true;
+            Check(every.AccountBoth.SkippedOpen > 0 && every.AccountBoth.Trades < every.Kept.Count, "ONE LIVE ACCOUNT: FVGs while a trade is open are skipped (" + every.AccountBoth.SkippedOpen + ")");
+            Check(KeystoneGoldenStudy.Html(every, f, "t", cmp).Contains("WHICH ENTRIES"), "REPORT: the comparison table is in the HTML");
+        }
         // 7. Settings are part of the run key
         {
             var a = Cfg("MNQ"); var b = Cfg("MNQ"); b.GoldenMnqTargetPoints = 80;

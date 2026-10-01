@@ -50,3 +50,9 @@ Goal: find the winning entries first; accounts (live, prop, rotation, copy) come
   - EVERY ENTRY: all first setups, filtered ones in grey with the reason; click opens the chart.
   - EXPORT STUDY writes an HTML report and a CSV of every entry to the KeystoneArc5MResearch folder.
 - Strategy list now: BH, ASIAN 75, FVG, HELIX, GOLDEN (123 ENGULFING, LAST-HOUR RELAY, VWAP SNAP-BACK hidden; code kept).
+
+## Build 30v • WHICH ENTRIES
+Every GOLDEN run now also detects, on the same bars: the first BH of each day, the first 5M FVG of each day
+(even when a BH came first) and EVERY 5M FVG of the day. Step 3 → ENTRIES picks the set for every tab; the
+WHICH ENTRIES tab shows all four side by side with the same filters, the break-even win rate and one live
+account (one trade open per instrument, or take all). The export includes the comparison.
