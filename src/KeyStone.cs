@@ -5333,6 +5333,22 @@ namespace NinjaTrader.NinjaScript
             r.AccountBoth = Account(r.Kept, f);
             double mnqT = cfg == null ? 100 : cfg.GoldenMnqTargetPoints, mgcT = cfg == null ? 10 : cfg.GoldenMgcTargetPoints;
             r.Breakdowns = Breakdowns(r.Kept, mnqT, mgcT);
+            // MONTH lists every month of the tested range, also months with no kept entry.
+            var monthTable = r.Breakdowns.FirstOrDefault(b => b.Title == "MONTH");
+            if (monthTable != null && r.All.Count > 0)
+            {
+                DateTime m0 = r.All.Min(EntryClock), m1 = r.All.Max(EntryClock);
+                if (cfg != null && cfg.Start.Year > 1900 && cfg.Start < m0) m0 = cfg.Start;
+                if (cfg != null && cfg.End.Year < 9000 && cfg.End > m1) m1 = cfg.End;
+                for (DateTime m = new DateTime(m0.Year, m0.Month, 1); m <= m1; m = m.AddMonths(1))
+                {
+                    int key = m.Year * 100 + m.Month;
+                    if (monthTable.Rows.Any(x => x.Order == key)) continue;
+                    int found = r.All.Count(e => EntryClock(e).Year == m.Year && EntryClock(e).Month == m.Month);
+                    monthTable.Rows.Add(new KeystoneGoldenGroup { Order = key, Group = m.ToString("yyyy-MM", CultureInfo.InvariantCulture) + (found == 0 ? "  (no setup found)" : "  (all " + found + " filtered out)") });
+                }
+                monthTable.Rows = monthTable.Rows.OrderBy(x => x.Order).ToList();
+            }
             foreach (string sym in new[] { "MNQ", "MGC" })
             {
                 var list = r.Kept.Where(e => string.Equals(e.Symbol, sym, StringComparison.OrdinalIgnoreCase) && e.GoldenRunBeforeStop != null).ToList();
@@ -5560,11 +5576,15 @@ namespace NinjaTrader.NinjaScript
             }
             foreach (var b in r.Breakdowns)
             {
-                sb.Append("<h2>").Append(H(b.Title)).Append("</h2><div class='note'>").Append(H(b.Note)).Append("</div><div class='wrap'><table><tr><th>GROUP</th><th>MNQ n</th><th>MNQ win</th><th>MNQ net</th><th>MGC n</th><th>MGC win</th><th>MGC net</th><th>BOTH n</th><th>BOTH win</th><th>BOTH net</th></tr>");
+                bool hasMnq = r.Mnq.Entries > 0, hasMgc = r.Mgc.Entries > 0, hasBoth = hasMnq && hasMgc;
+                sb.Append("<h2>").Append(H(b.Title)).Append("</h2><div class='note'>").Append(H(b.Note)).Append("</div><div class='wrap'><table><tr><th>GROUP</th>");
+                foreach (string name in new[] { hasMnq ? "MNQ" : null, hasMgc ? "MGC" : null, hasBoth ? "BOTH" : null }.Where(x => x != null))
+                    sb.Append("<th>").Append(name).Append(" n</th><th>").Append(name).Append(" win</th><th>").Append(name).Append(" net</th>");
+                sb.Append("</tr>");
                 foreach (var g in b.Rows)
                 {
                     sb.Append("<tr><td>").Append(H(g.Group)).Append("</td>");
-                    foreach (var s in new[] { g.Mnq, g.Mgc, g.Both })
+                    foreach (var s in new[] { hasMnq ? g.Mnq : null, hasMgc ? g.Mgc : null, hasBoth ? g.Both : null }.Where(x => x != null))
                         sb.Append("<td>").Append(s.Entries).Append("</td><td class='").Append(s.Wins + s.Losses == 0 ? "m" : "c").Append("'>").Append(s.Wins + s.Losses == 0 ? "–" : Pc(s.WinRate)).Append("</td><td class='").Append(Cls(s.NetCash)).Append("'>").Append(s.Entries == 0 ? "–" : Cash(s.NetCash)).Append("</td>");
                     sb.Append("</tr>");
                 }
@@ -5573,7 +5593,9 @@ namespace NinjaTrader.NinjaScript
             sb.Append("<h2>TARGET × STOP (one account, the strategy's contracts)</h2><div class='note'>Each cell replays every kept entry on its own 1-minute path: a fixed stop in points (rows) or the pattern stop (last row) and a target in points (columns). Win % • net $. The outlined cell is your Step 1 setting.</div>");
             foreach (var g in r.Grids)
             {
-                sb.Append("<h3 class='c'>").Append(H(g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year) + " • " + g.Entries + " entries")).Append(g.Best == null ? "" : H(" • best: target " + Fmt(g.Symbol, g.Best.Target) + " / stop " + (g.Best.Pattern ? "pattern" : Fmt(g.Symbol, g.Best.Stop)) + " = " + Cash(g.Best.NetCash))).Append("</h3><div class='wrap'><table><tr><th>STOP \\ TARGET</th>");
+                sb.Append("<h3 class='c'>").Append(H(g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year) + " • " + g.Entries + " entries")).Append(g.Best == null ? "" : H(" • best: target " + Fmt(g.Symbol, g.Best.Target) + " / stop " + (g.Best.Pattern ? "pattern" : Fmt(g.Symbol, g.Best.Stop)) + " = " + Cash(g.Best.NetCash))).Append("</h3>");
+                if (g.Entries < 30) sb.Append("<div class='r'>Only ").Append(g.Entries).Append(" entries: too few to trust the best cell — one or two trades decide it. Use a longer range or fewer filters.</div>");
+                sb.Append("<div class='wrap'><table><tr><th>STOP \\ TARGET</th>");
                 foreach (double t in g.Targets) sb.Append("<th>+").Append(Fmt(g.Symbol, t)).Append("</th>");
                 sb.Append("</tr>");
                 for (int s = 0; s <= g.Stops.Length; s++)
@@ -6653,7 +6675,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-30t • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-30u • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -17984,22 +18006,32 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             var root = new StackPanel { Margin = new Thickness(4) };
             root.Children.Add(HelixNote("Every kept entry grouped by one condition at a time. Win % counts finished trades (target or stop). Net $ uses the strategy's contracts. Green = better than that instrument's average, red = worse."));
-            double[] w = { 250, 54, 66, 96, 54, 66, 96, 54, 66, 96 };
-            string[] head = { "GROUP", "MNQ", "WIN %", "NET", "MGC", "WIN %", "NET", "BOTH", "WIN %", "NET" };
+            // Only the instruments that have entries get columns (BOTH only when MNQ and MGC both traded).
+            var sets = new List<Tuple<string, Func<KeystoneGoldenGroup, KeystoneGoldenStats>, KeystoneGoldenStats>>();
+            if (r.Mnq.Entries > 0) sets.Add(Tuple.Create("MNQ", (Func<KeystoneGoldenGroup, KeystoneGoldenStats>)(g => g.Mnq), r.Mnq));
+            if (r.Mgc.Entries > 0) sets.Add(Tuple.Create("MGC", (Func<KeystoneGoldenGroup, KeystoneGoldenStats>)(g => g.Mgc), r.Mgc));
+            if (r.Mnq.Entries > 0 && r.Mgc.Entries > 0) sets.Add(Tuple.Create("BOTH", (Func<KeystoneGoldenGroup, KeystoneGoldenStats>)(g => g.Both), r.Both));
+            if (sets.Count == 0) { root.Children.Add(HelixNote("No entries kept by the filters.")); return root; }
+            var w = new List<double> { 280 }; var head = new List<string> { "GROUP" };
+            foreach (var t in sets) { w.AddRange(new double[] { 90, 90, 120 }); head.AddRange(new[] { t.Item1 + " ENTRIES", "WIN %", "NET $" }); }
             foreach (var b in r.Breakdowns)
             {
                 if (b.Rows.Count == 0) continue;
                 root.Children.Add(HelixTitle(b.Title, Cyan));
                 root.Children.Add(HelixNote(b.Note));
-                root.Children.Add(HelixHeader(head, w));
+                root.Children.Add(HelixHeader(head.ToArray(), w.ToArray()));
                 foreach (var g in b.Rows)
                 {
-                    Func<KeystoneGoldenStats, KeystoneGoldenStats, Brush> rate = (s, all) => s.Wins + s.Losses == 0 ? Muted : (s.WinRate >= all.WinRate + 5 ? Green : (s.WinRate <= all.WinRate - 5 ? Red : Text));
-                    Func<KeystoneGoldenStats, string> pct = s => s.Wins + s.Losses == 0 ? "–" : GPct(s.WinRate);
-                    Func<KeystoneGoldenStats, string> cash = s => s.Entries == 0 ? "–" : Cash(s.NetCash);
-                    string[] cells = { g.Group, g.Mnq.Entries.ToString(), pct(g.Mnq), cash(g.Mnq), g.Mgc.Entries.ToString(), pct(g.Mgc), cash(g.Mgc), g.Both.Entries.ToString(), pct(g.Both), cash(g.Both) };
-                    Brush[] colors = { Text, Muted, rate(g.Mnq, r.Mnq), MoneyBrush(g.Mnq.NetCash), Muted, rate(g.Mgc, r.Mgc), MoneyBrush(g.Mgc.NetCash), Muted, rate(g.Both, r.Both), MoneyBrush(g.Both.NetCash) };
-                    root.Children.Add(HelixRow(cells, colors, w, g.Both.NetCash > 0 ? Green : (g.Both.NetCash < 0 ? Red : Card), null));
+                    var cells = new List<string> { g.Group }; var colors = new List<Brush> { Text };
+                    foreach (var t in sets)
+                    {
+                        var st = t.Item2(g); var all = t.Item3;
+                        cells.Add(st.Entries.ToString()); colors.Add(st.Entries == 0 ? Muted : Text);
+                        cells.Add(st.Wins + st.Losses == 0 ? "–" : GPct(st.WinRate)); colors.Add(st.Wins + st.Losses == 0 ? Muted : (st.WinRate >= all.WinRate + 5 ? Green : (st.WinRate <= all.WinRate - 5 ? Red : Text)));
+                        cells.Add(st.Entries == 0 ? "–" : Cash(st.NetCash)); colors.Add(MoneyBrush(st.NetCash));
+                    }
+                    var main = sets[sets.Count - 1].Item2(g);
+                    root.Children.Add(HelixRow(cells.ToArray(), colors.ToArray(), w.ToArray(), main.NetCash > 0 ? Green : (main.NetCash < 0 ? Red : Card), null));
                 }
             }
             return root;
@@ -18071,6 +18103,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
             }
             var wrap = new StackPanel();
+            if (g.Entries < 30) wrap.Children.Add(new TextBlock { Text = "ONLY " + g.Entries + " ENTRIES • too few to trust the best cell (one or two trades decide it). Use a longer range or fewer filters.", Foreground = Red, FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(6, 2, 6, 2), TextWrapping = TextWrapping.Wrap });
             wrap.Children.Add(HelixNote(g.Symbol + " • " + (g.Year == "ALL" ? "all years" : g.Year) + " • " + g.Entries + " entries" + (g.Best == null ? "" : " • best: +" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Target) + " / " + (g.Best.Pattern ? "pattern stop" : "−" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Stop)) + " = " + Cash(g.Best.NetCash)) + (g.Yours == null ? "" : " • your setting = " + Cash(g.Yours.NetCash))));
             wrap.Children.Add(table);
             return wrap;
