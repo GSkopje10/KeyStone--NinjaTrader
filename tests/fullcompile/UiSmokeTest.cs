@@ -307,6 +307,86 @@ public static class UiSmokeTest
                 if (((System.Windows.Controls.TabControl)G("resultViewTabs")).Visibility != System.Windows.Visibility.Visible) throw new Exception("normal tabs not restored");
             });
         }
+        // RECOIL • ADD TO LOSERS: choice → Step 1 panel → run on 1M MNQ + MGC → Step 3 view, chart ladders, replay live box, report.
+        {
+            var lab4 = new KeystoneArc5MResearchLab();
+            Call(lab4, "OpenWindow");
+            Func<string, object> G = n => lab4.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab4);
+            Step("RECOIL: strategy choice shows its panel and the ladder preview", () =>
+            {
+                var box = (System.Windows.Controls.ComboBox)G("strategyBox"); int idx = -1;
+                for (int i = 0; i < box.Items.Count; i++) if (Convert.ToString(box.Items[i]).StartsWith("RECOIL")) idx = i;
+                if (idx < 0) throw new Exception("RECOIL is not a strategy choice");
+                box.SelectedIndex = idx; box.SelectedItem = box.Items[idx]; Call(lab4, "RefreshStrategyInputState");
+                var panel = ((List<System.Windows.UIElement>)G("recoilStrategyControls"))[0];
+                if (panel.Visibility != System.Windows.Visibility.Visible) throw new Exception("RECOIL panel hidden");
+                string prev = ((System.Windows.Controls.TextBlock)G("rcPreviewText")).Text;
+                Console.WriteLine("      " + prev.Split('\n')[0] + " … " + prev.Split('\n').First(l => l.Contains("BLOWUP")).Trim());
+                if (!prev.Contains("BLOWUP at -400")) throw new Exception("preview: MNQ blowup should be 400 pts below the first entry");
+            });
+            var c4 = (KeystoneArcRunConfig)G("config");
+            c4.StrategyCode = "RCL"; c4.Scope = "BOTH"; c4.SetupMinutes = 1; c4.SessionMode = "CUSTOM"; c4.CustomStart = 800; c4.EndTime = 1600; c4.OutcomeModelEnabled = 1;
+            c4.Start = new DateTime(2025, 3, 3, 8, 0, 0); c4.End = new DateTime(2025, 3, 14, 16, 0, 0);
+            ((System.Windows.Controls.TextBox)G("rcMnqTriggerBox")).Text = "30"; ((System.Windows.Controls.TextBox)G("rcMnqStepBox")).Text = "30";
+            ((System.Windows.Controls.TextBox)G("rcMgcTriggerBox")).Text = "4"; ((System.Windows.Controls.TextBox)G("rcMgcStepBox")).Text = "4";
+            ((System.Windows.Controls.TextBox)G("rcTargetBox")).Text = "120"; ((System.Windows.Controls.TextBox)G("rcMaxDdBox")).Text = "600";
+            var r4 = new Random(11); var m4 = new List<KeystoneArcBar>(); var g4 = new List<KeystoneArcBar>(); double pm4 = 20000, pg4 = 2900;
+            for (DateTime d = new DateTime(2025, 3, 3); d <= new DateTime(2025, 3, 14); d = d.AddDays(1))
+            {
+                if (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday) continue;
+                for (DateTime t = d.AddHours(8).AddMinutes(1); t <= d.AddHours(16); t = t.AddMinutes(1))
+                {
+                    double om = pm4, og = pg4; pm4 += (r4.NextDouble() - 0.5) * 14; pg4 += (r4.NextDouble() - 0.5) * 1.8;
+                    m4.Add(new KeystoneArcBar { Symbol = "MNQ", Time = t, Open = om, Close = pm4, High = Math.Max(om, pm4) + r4.NextDouble() * 3, Low = Math.Min(om, pm4) - r4.NextDouble() * 3 });
+                    g4.Add(new KeystoneArcBar { Symbol = "MGC", Time = t, Open = og, Close = pg4, High = Math.Max(og, pg4) + r4.NextDouble() * 0.4, Low = Math.Min(og, pg4) - r4.NextDouble() * 0.4 });
+                }
+            }
+            Set(lab4, "mnqBars", m4); Set(lab4, "mgcBars", g4); Set(lab4, "mnqSetupBars", m4); Set(lab4, "mgcSetupBars", g4);
+            Func<bool> wait4 = () => { for (int i = 0; i < 1200 && (bool)G("isProcessing"); i++) System.Threading.Thread.Sleep(50); return !(bool)G("isProcessing"); };
+            Step("RECOIL: run → Step 3 RECOIL view with every tab filled, MNQ / MGC / BOTH compared", () =>
+            {
+                Call(lab4, "RunRecoil"); if (!wait4()) throw new Exception("RECOIL run did not finish");
+                var res = (KeystoneRecoilResult)G("recoilResult"); if (res == null || res.Cycles.Count == 0) throw new Exception("no ladders");
+                var evs = (List<KeystoneArcEvent>)G("events");
+                var cmp = (System.Collections.IList)G("recoilCompare"); var grids = (System.Collections.IList)G("recoilGrids");
+                Console.WriteLine("      ladders " + res.Cycles.Count + " (won " + res.Wins + ", blown " + res.Blowups + ") • ledger rows " + evs.Count + " • compare " + cmp.Count + " • grids " + grids.Count + " • net " + res.Net.ToString("0"));
+                if (evs.Count != res.Cycles.Count || cmp.Count != 3 || grids.Count < 2) throw new Exception("ledger / compare / grid missing");
+                if (((System.Windows.Controls.Grid)G("recoilResultsHost")).Visibility != System.Windows.Visibility.Visible) throw new Exception("RECOIL view not shown");
+                foreach (object item in ((System.Windows.Controls.TabControl)G("recoilTabs")).Items) { var t = (System.Windows.Controls.TabItem)item; if (t.Content is System.Windows.Controls.TextBlock) throw new Exception(t.Header + " not filled"); }
+                Call(lab4, "SetRecoilSummaryHidden", true); Call(lab4, "SetRecoilSummaryHidden", false);
+            });
+            Step("RECOIL: chart draws the ladders; replay with the live box; clicking a ladder fills the detail", () =>
+            {
+                var res = (KeystoneRecoilResult)G("recoilResult");
+                var deep = res.Cycles.OrderByDescending(x => x.Entries).First();
+                Call(lab4, "OpenRecoilChart", deep); Call(lab4, "RequestEvidenceBars");
+                ((System.Windows.Controls.TextBox)G("evidenceDateBox")).Text = deep.Day.ToString("yyyy-MM-dd");
+                var ib = (System.Windows.Controls.ComboBox)G("evidenceInstrumentBox"); if (ib != null) ib.SelectedItem = deep.Symbol;
+                Call(lab4, "RequestEvidenceBars"); Call(lab4, "RenderEvidenceChart");
+                var canvas = (System.Windows.Controls.Canvas)G("evidenceCanvas");
+                int tags = 0; foreach (var ch in canvas.Children) { var b = ch as System.Windows.Controls.Border; var tb = b == null ? null : b.Child as System.Windows.Controls.TextBlock; if (tb != null && tb.Text != null && (tb.Text.StartsWith("START ") || tb.Text.StartsWith("TP ") || tb.Text.Contains(" → "))) tags++; }
+                Console.WriteLine("      chart elements " + canvas.Children.Count + " • ladder labels " + tags + " • ladder " + deep.Symbol + " " + deep.Day.ToString("MM-dd") + " " + deep.Entries + " entries");
+                if (tags < 3) throw new Exception("ladder labels not drawn");
+                Call(lab4, "ShowEvidenceEventDetail", ((List<KeystoneArcEvent>)G("events")).First(e => e.SessionOrder == deep.Id));
+                if (!((System.Windows.Controls.TextBlock)G("evidenceDetailText")).Text.Contains("RECOIL LADDER")) throw new Exception("detail not filled");
+                Call(lab4, "ReplaySetCursor", deep.Fills[deep.Fills.Count - 1].Time, true); Call(lab4, "UpdateEvidenceLivePanel");
+                string live = ((System.Windows.Controls.TextBlock)G("evidenceLiveLines")).Text;
+                Console.WriteLine("      live box: " + ((System.Windows.Controls.TextBlock)G("evidenceLiveCaption")).Text + " • " + live.Split('\n')[0]);
+                if (!live.Contains("contracts") && !live.Contains("TODAY")) throw new Exception("live box empty");
+                for (int i = 0; i < 30; i++) Call(lab4, "ReplayStepBar", 1);
+                Call(lab4, "StopEvidenceReplay");
+            });
+            Step("RECOIL: report html and leaving RECOIL restores the normal view", () =>
+            {
+                var res = (KeystoneRecoilResult)G("recoilResult");
+                string html = KeystoneRecoilStudy.Html(res, (List<KeystoneRecoilGrid>)G("recoilGrids"), (List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>>)G("recoilCompare"), 5000);
+                System.IO.Directory.CreateDirectory(".build"); System.IO.File.WriteAllText(".build/report_RCL.html", html);
+                Console.WriteLine("      report " + html.Length + " chars");
+                if (!html.Contains("RISK GRID") || !html.Contains("MNQ ONLY")) throw new Exception("report incomplete");
+                Call(lab4, "SetRecoilResultsMode", false);
+                if (((System.Windows.Controls.TabControl)G("resultViewTabs")).Visibility != System.Windows.Visibility.Visible) throw new Exception("normal tabs not restored");
+            });
+        }
         Console.WriteLine(failures == 0 ? "UI SMOKE TEST PASSED" : "UI SMOKE TEST: " + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }

@@ -23,6 +23,9 @@ mono "$here/.build/golden.exe" | tail -1
 rm -f "$here/.build/helix.exe"
 "$root/tools/compile_engine.sh" "$here/.build/helix.exe" "$here/HelixTests.cs"
 mono "$here/.build/helix.exe" | tail -1
+rm -f "$here/.build/recoil.exe"
+"$root/tools/compile_engine.sh" "$here/.build/recoil.exe" "$here/RecoilTests.cs"
+mono "$here/.build/recoil.exe" | tail -1
 rm -f "$here/.build/snap.exe"
 "$root/tools/compile_engine.sh" "$here/.build/snap.exe" "$here/LifecycleSnapshot.cs" "$here/SnapshotRunner.cs"
 mono "$here/.build/snap.exe" "$here/.build/snapshot.txt"

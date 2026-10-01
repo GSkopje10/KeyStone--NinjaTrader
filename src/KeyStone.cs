@@ -6487,6 +6487,620 @@ namespace NinjaTrader.NinjaScript
 
     // Manus workbook "NinjaTrader.xlsx" (9:30 AM LL pools, NOT confirmed): per day
     // yyyyMMdd,pnl,target locks,rotation stops,liquidations,attempts. Used only by the MANUS CHECK.
+    // ---- RECOIL • ADD TO LOSERS (Build 30w) ------------------------------------------------------
+    // From the start time the instrument must move TRIGGER points away from its start price; then we
+    // enter AGAINST the move (down → BUY, up → SELL) and add contracts every STEP points further against
+    // us, up to MAX ENTRIES. Every contract keeps its own fill price: P/L = direction × Σ (price − fill) ×
+    // qty × $ per point. The ladder closes at its profit target, at the maximum drawdown, or at the close.
+    // Fills on 1-minute bars, conservatively: entries / adds are limit orders (a gap fills at the open,
+    // never better than the bar allows), the stop is checked before the target inside a minute, and a
+    // target after an add in the same minute only counts when the minute CLOSES beyond it.
+    public sealed class KeystoneRecoilConfig
+    {
+        public DateTime Start = DateTime.MinValue, End = DateTime.MaxValue;   // session dates, inclusive
+        public int UseMnq = 1, UseMgc = 0;
+        public int MnqStartHhmm = 930, MgcStartHhmm = 930, LastEntryHhmm = 1500, CloseHhmm = 1600;
+        public double MnqTrigger = 100, MgcTrigger = 20, MnqStep = 100, MgcStep = 20;
+        public string Ladder = "ONE";                 // ONE: +1 contract per add (1,2,3,4) • STEP: add 1,2,3,4 (1,3,6,10) • DOUBLE: 1,1,2,4 (1,2,4,8)
+        public int MaxEntries = 4, BaseQty = 1;
+        public string TargetMode = "DOLLARS";         // DOLLARS for the whole ladder • POINTS from the average price
+        public double TargetDollars = 400, MnqTargetPoints = 50, MgcTargetPoints = 10;
+        public string DrawdownMode = "SHARED";        // SHARED: MNQ + MGC together (and the day's closed cycles) • SPLIT: each instrument its own
+        public double MaxDrawdown = 2000, MnqMaxDrawdown = 2000, MgcMaxDrawdown = 2000;
+        public int CyclesPerDay = 1;                  // after a win a new cycle starts from the exit price
+        public double MnqPointValue = 2, MgcPointValue = 10;   // $ per point per contract (CFD: $ per point per lot)
+        public double CommissionPerSide = 0.62, SlippageTicks = 1;
+        public string Weekdays = "12345";
+        public KeystoneRecoilConfig Copy() { return (KeystoneRecoilConfig)MemberwiseClone(); }
+        public static string Hhmm(int v) { return (v / 100).ToString("00") + ":" + (v % 100).ToString("00"); }
+        public string Instruments() { return UseMnq == 1 && UseMgc == 1 ? "MNQ + MGC" : UseMgc == 1 ? "MGC" : "MNQ"; }
+        public string LadderText()
+        {
+            var q = new List<int>(); int tot = 0;
+            for (int k = 0; k < Math.Max(1, MaxEntries); k++) { tot += KeystoneRecoil.AddQty(this, k); q.Add(tot); }
+            return string.Join(" → ", q.Select(x => x.ToString(CultureInfo.InvariantCulture))) + " contracts";
+        }
+        public string Describe()
+        {
+            Func<double, string> n = v => v.ToString("0.##", CultureInfo.InvariantCulture);
+            return Instruments() + " • start " + (UseMnq == 1 ? "MNQ " + Hhmm(MnqStartHhmm) : "") + (UseMnq == 1 && UseMgc == 1 ? " / " : "") + (UseMgc == 1 ? "MGC " + Hhmm(MgcStartHhmm) : "") + " • last entry " + Hhmm(LastEntryHhmm) + " • close " + Hhmm(CloseHhmm)
+                + " • trigger / add every " + (UseMnq == 1 ? "MNQ " + n(MnqTrigger) + "/" + n(MnqStep) : "") + (UseMnq == 1 && UseMgc == 1 ? " • " : "") + (UseMgc == 1 ? "MGC " + n(MgcTrigger) + "/" + n(MgcStep) : "") + " pts • ladder " + LadderText()
+                + " • target " + (TargetMode == "POINTS" ? "+" + n(MnqTargetPoints) + " / " + n(MgcTargetPoints) + " pts from the average" : "$" + n(TargetDollars)) + " • max drawdown " + (DrawdownMode == "SPLIT" && UseMnq == 1 && UseMgc == 1 ? "MNQ $" + n(MnqMaxDrawdown) + " / MGC $" + n(MgcMaxDrawdown) : "$" + n(MaxDrawdown) + (UseMnq == 1 && UseMgc == 1 ? " shared" : ""))
+                + " • " + CyclesPerDay + " cycle(s)/day • costs $" + n(CommissionPerSide) + "/side + " + n(SlippageTicks) + " tick on market exits";
+        }
+    }
+
+    public sealed class KeystoneRecoilFill { public DateTime Time; public double Price, Level, Avg, TargetPrice, StopPrice; public int Qty, TotalQty; public bool Gap; }
+
+    public sealed class KeystoneRecoilCycle
+    {
+        public int Id, CycleInDay, Dir;
+        public DateTime Day, AnchorTime, ExitTime = DateTime.MinValue, LowestTime = DateTime.MinValue, BestAfterLowestTime = DateTime.MinValue;
+        public string Symbol = string.Empty, Reason = string.Empty;
+        public double AnchorPrice, TriggerLevel, ExitPrice, Gross, Commission, Slippage, Net, PointValue, Step, MaeValue, MfeValue, AvgAtExit;
+        public double LowestPrice = double.NaN, BestAfterLowest = double.NaN, FullLadderAtLowest, FullLadderAtBest; public int FullLadderEntries;
+        public bool Ambiguous;
+        public List<KeystoneRecoilFill> Fills = new List<KeystoneRecoilFill>();
+        public int Entries { get { return Fills.Count; } }
+        public int MaxQty { get { return Fills.Count == 0 ? 0 : Fills[Fills.Count - 1].TotalQty; } }
+        public bool Win { get { return Reason == "TARGET"; } }
+        public bool Blown { get { return Reason == "BLOWUP"; } }
+        public DateTime EntryTime { get { return Fills.Count == 0 ? DateTime.MinValue : Fills[0].Time; } }
+        public string Side { get { return Dir > 0 ? "BUY" : "SELL"; } }
+    }
+
+    public sealed class KeystoneRecoilResult
+    {
+        public KeystoneRecoilConfig Config;
+        public List<KeystoneRecoilCycle> Cycles = new List<KeystoneRecoilCycle>();
+        public List<DateTime> Days = new List<DateTime>();
+        public Dictionary<string, int> NoTriggerDays = new Dictionary<string, int>();
+        public List<string> SkippedDays = new List<string>();
+        public List<string> Notes = new List<string>();
+        public double Net { get { return Cycles.Sum(c => c.Net); } }
+        public int Wins { get { return Cycles.Count(c => c.Win); } }
+        public int Blowups { get { return Cycles.Count(c => c.Blown); } }
+        public int SessionEnds { get { return Cycles.Count(c => c.Reason == "SESSION END"); } }
+    }
+
+    public static class KeystoneRecoil
+    {
+        public const double MnqTick = 0.25, MgcTick = 0.1;
+
+        public static int AddQty(KeystoneRecoilConfig c, int k)
+        {
+            int b = Math.Max(1, c.BaseQty);
+            string m = (c.Ladder ?? "ONE").ToUpperInvariant();
+            if (m == "STEP") return b * (k + 1);
+            if (m == "DOUBLE") return k == 0 ? b : b * (1 << Math.Min(20, k - 1));
+            return b;
+        }
+
+        static DateTime Clock(DateTime day, int hhmm) { return day.Date.AddHours(hhmm / 100).AddMinutes(hhmm % 100); }
+
+        // One open ladder.
+        sealed class Leg
+        {
+            public string Symbol; public bool Mgc; public double Pv, Tick, Trigger, Step, OwnDd, TargetPts;
+            public int StartHhmm;
+            public bool Active, Waiting, DayDone; public int CyclesToday;
+            public double Anchor; public DateTime AnchorTime;
+            public KeystoneRecoilCycle Cycle;
+            public double S, Q;               // Σ price×qty and Σ qty of the fills
+            public double Avg { get { return Q <= 0 ? double.NaN : S / Q; } }
+            public int NextAdd { get { return Cycle == null ? 0 : Cycle.Fills.Count; } }
+        }
+
+        static double O(KeystoneHelixMinute m, Leg l) { return l.Mgc ? m.MgcO : m.MnqO; }
+        static double H(KeystoneHelixMinute m, Leg l) { return l.Mgc ? m.MgcH : m.MnqH; }
+        static double L(KeystoneHelixMinute m, Leg l) { return l.Mgc ? m.MgcL : m.MnqL; }
+        static double C(KeystoneHelixMinute m, Leg l) { return l.Mgc ? m.MgcC : m.MnqC; }
+        static bool Real(KeystoneHelixMinute m, Leg l) { return l.Mgc ? m.HasMgc : m.HasMnq; }
+
+        // P/L of the ladder at a price: direction × Σ (price − fill) × qty × $/point.
+        public static double Value(KeystoneRecoilCycle c, double price)
+        {
+            double v = 0; foreach (var f in c.Fills) v += c.Dir * (price - f.Price) * f.Qty * c.PointValue; return v;
+        }
+        static double Value(Leg l, double price) { return l.Cycle.Dir * (l.Q * price - l.S) * l.Pv; }
+        static double LevelOf(Leg l, int k) { return l.Cycle.Fills[0].Price - l.Cycle.Dir * k * l.Step; }
+        static double TargetPrice(Leg l, KeystoneRecoilConfig c)
+        {
+            if (c.TargetMode == "POINTS") return l.Avg + l.Cycle.Dir * l.TargetPts;
+            return l.Avg + l.Cycle.Dir * c.TargetDollars / (l.Q * l.Pv);
+        }
+        // Price where the ladder (with every add that fills on the way) reaches −dd: S, Q advance through the add levels.
+        static double StopPrice(Leg l, KeystoneRecoilConfig c, double dd, out int addsBefore)
+        {
+            double S = l.S, Q = l.Q; int k = l.NextAdd; addsBefore = 0; int dir = l.Cycle.Dir;
+            while (true)
+            {
+                double s = (S - dir * dd / l.Pv) / Q;
+                if (k < c.MaxEntries)
+                {
+                    double lv = LevelOf(l, k);
+                    if (dir * (s - lv) <= 0) { int q = AddQty(c, k); S += lv * q; Q += q; k++; addsBefore++; continue; }
+                }
+                return s;
+            }
+        }
+        static void AddFill(Leg l, KeystoneRecoilConfig c, DateTime t, double price, double level, bool gap)
+        {
+            int q = AddQty(c, l.Cycle.Fills.Count);
+            l.S += price * q; l.Q += q;
+            var f = new KeystoneRecoilFill { Time = t, Price = price, Level = level, Qty = q, TotalQty = (int)l.Q, Avg = l.Avg, Gap = gap };
+            l.Cycle.Fills.Add(f);
+            f.TargetPrice = TargetPrice(l, c);
+            int ignored; f.StopPrice = c.DrawdownMode == "SHARED" && c.UseMnq == 1 && c.UseMgc == 1 ? double.NaN : StopPrice(l, c, l.OwnDd, out ignored);
+        }
+        // Adds whose level the price reached (adverse side), filled at their level (or at the open on a gap).
+        static void FillAddsTo(Leg l, KeystoneRecoilConfig c, DateTime t, double price, bool atOpen)
+        {
+            while (l.NextAdd < c.MaxEntries)
+            {
+                double lv = LevelOf(l, l.NextAdd);
+                if (l.Cycle.Dir * (price - lv) > 0) break;
+                AddFill(l, c, t, atOpen ? price : lv, lv, atOpen);
+            }
+        }
+        static void Track(Leg l, double adv, double fav)
+        {
+            l.Cycle.MaeValue = Math.Min(l.Cycle.MaeValue, Value(l, adv));
+            l.Cycle.MfeValue = Math.Max(l.Cycle.MfeValue, Value(l, fav));
+        }
+
+        static void Close(Leg l, KeystoneRecoilConfig c, DateTime t, double price, string reason, bool market, KeystoneRecoilResult r)
+        {
+            var cy = l.Cycle;
+            cy.ExitTime = t; cy.ExitPrice = price; cy.Reason = reason; cy.AvgAtExit = l.Avg;
+            cy.Gross = Value(l, price);
+            cy.Commission = c.CommissionPerSide * 2 * l.Q;
+            cy.Slippage = market ? c.SlippageTicks * l.Tick * l.Pv * l.Q : 0;
+            cy.Net = cy.Gross - cy.Commission - cy.Slippage;
+            r.Cycles.Add(cy);
+            l.Active = false; l.Cycle = null; l.S = 0; l.Q = 0; l.CyclesToday++;
+            if (reason == "TARGET" && l.CyclesToday < Math.Max(1, c.CyclesPerDay)) { l.Waiting = true; l.Anchor = price; l.AnchorTime = t; }
+            else l.DayDone = true;
+        }
+
+        public static KeystoneRecoilResult Run(List<KeystoneHelixMinute> minutes, KeystoneRecoilConfig cfg)
+        {
+            var r = new KeystoneRecoilResult { Config = cfg };
+            if (minutes == null || minutes.Count == 0 || (cfg.UseMnq != 1 && cfg.UseMgc != 1)) { r.Notes.Add("No minutes or no instrument selected."); return r; }
+            bool both = cfg.UseMnq == 1 && cfg.UseMgc == 1, shared = both && cfg.DrawdownMode != "SPLIT";
+            int firstStart = Math.Min(cfg.UseMnq == 1 ? cfg.MnqStartHhmm : 2359, cfg.UseMgc == 1 ? cfg.MgcStartHhmm : 2359);
+            int id = 0;
+            r.NoTriggerDays["MNQ"] = 0; r.NoTriggerDays["MGC"] = 0;
+            int k0 = 0;
+            while (k0 < minutes.Count)
+            {
+                DateTime day = minutes[k0].Time.Date;
+                int k1 = k0; while (k1 < minutes.Count && minutes[k1].Time.Date == day) k1++;
+                int dow = day.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)day.DayOfWeek;
+                bool tradeDay = day >= cfg.Start.Date && day <= cfg.End.Date && (cfg.Weekdays ?? "12345").IndexOf((char)('0' + dow)) >= 0;
+                if (tradeDay) RunDay(minutes, k0, k1, day, cfg, shared, firstStart, r, ref id);
+                k0 = k1;
+            }
+            return r;
+        }
+
+        static void RunDay(List<KeystoneHelixMinute> minutes, int lo, int hi, DateTime day, KeystoneRecoilConfig cfg, bool shared, int firstStart, KeystoneRecoilResult r, ref int id)
+        {
+            DateTime close = Clock(day, cfg.CloseHhmm), lastEntry = Clock(day, cfg.LastEntryHhmm);
+            var legs = new List<Leg>();
+            if (cfg.UseMnq == 1) legs.Add(new Leg { Symbol = "MNQ", Mgc = false, Pv = cfg.MnqPointValue, Tick = MnqTick, Trigger = cfg.MnqTrigger, Step = cfg.MnqStep, OwnDd = shared ? cfg.MaxDrawdown : (cfg.UseMgc == 1 ? cfg.MnqMaxDrawdown : cfg.MaxDrawdown), TargetPts = cfg.MnqTargetPoints, StartHhmm = cfg.MnqStartHhmm });
+            if (cfg.UseMgc == 1) legs.Add(new Leg { Symbol = "MGC", Mgc = true, Pv = cfg.MgcPointValue, Tick = MgcTick, Trigger = cfg.MgcTrigger, Step = cfg.MgcStep, OwnDd = shared ? cfg.MaxDrawdown : (cfg.UseMnq == 1 ? cfg.MgcMaxDrawdown : cfg.MaxDrawdown), TargetPts = cfg.MgcTargetPoints, StartHhmm = cfg.MgcStartHhmm });
+            // A day counts only when every used instrument has real minutes after its start.
+            bool any = false; var noData = new HashSet<string>();
+            foreach (var l in legs)
+            {
+                DateTime st = Clock(day, l.StartHhmm);
+                int a = -1; for (int k = lo; k < hi; k++) if (minutes[k].Time > st && minutes[k].Time <= close && Real(minutes[k], l)) { a = k; break; }
+                if (a < 0) { l.DayDone = true; noData.Add(l.Symbol); continue; }
+                any = true;
+                // Start price: the open of the first minute after the start time.
+                l.Anchor = O(minutes[a], l); l.AnchorTime = minutes[a].Time.AddMinutes(-1); l.Waiting = true;
+            }
+            if (!any) return;
+            if (legs.Any(l => l.DayDone)) { r.SkippedDays.Add(day.ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture) + " • " + string.Join(", ", legs.Where(l => l.DayDone).Select(l => l.Symbol)) + " has no data after the start"); if (legs.All(l => l.DayDone)) return; }
+            r.Days.Add(day);
+            double dayRealized = 0;
+            var triggered = new HashSet<string>();
+            int lastIdx = lo; for (int k = lo; k < hi; k++) if (minutes[k].Time <= close) lastIdx = k;
+            for (int k = lo; k < hi; k++)
+            {
+                var m = minutes[k];
+                if (m.Time > close) break;
+                bool isLast = k == lastIdx;
+                // 1. waiting legs: the trigger
+                foreach (var l in legs)
+                {
+                    if (!l.Waiting || l.DayDone || !Real(m, l)) continue;
+                    if (m.Time <= Clock(day, l.StartHhmm) || m.Time <= l.AnchorTime) continue;
+                    if (m.Time.AddMinutes(-1) >= lastEntry) { l.Waiting = false; l.DayDone = true; continue; }
+                    double up = l.Anchor + l.Trigger, dn = l.Anchor - l.Trigger, o = O(m, l);
+                    int dir = 0; double price = double.NaN, level = double.NaN; bool gap = false, amb = false;
+                    if (o >= up) { dir = -1; price = o; level = up; gap = true; }
+                    else if (o <= dn) { dir = 1; price = o; level = dn; gap = true; }
+                    else
+                    {
+                        bool hu = H(m, l) >= up, hd = L(m, l) <= dn;
+                        if (hu && hd) { amb = true; if (Math.Abs(o - up) <= Math.Abs(o - dn)) hd = false; else hu = false; }
+                        if (hu) { dir = -1; price = up; level = up; } else if (hd) { dir = 1; price = dn; level = dn; }
+                    }
+                    if (dir == 0) continue;
+                    l.Waiting = false; l.Active = true; triggered.Add(l.Symbol);
+                    l.Cycle = new KeystoneRecoilCycle { Id = ++id, Day = day, Symbol = l.Symbol, Dir = dir, AnchorTime = l.AnchorTime, AnchorPrice = l.Anchor, TriggerLevel = level, PointValue = l.Pv, Step = l.Step, CycleInDay = l.CyclesToday + 1, Ambiguous = amb };
+                    l.S = 0; l.Q = 0;
+                    AddFill(l, cfg, m.Time, price, level, gap);
+                    // Rest of the entry minute: the move that triggered us continues to the bar's extreme
+                    // (adds on the way); a target only if the minute closes beyond it.
+                    double adv = dir > 0 ? L(m, l) : H(m, l);
+                    if (!shared)
+                    {
+                        int before; double sp = StopPrice(l, cfg, l.OwnDd, out before);
+                        if (dir * (adv - sp) <= 0) { for (int q = 0; q < before; q++) AddFill(l, cfg, m.Time, LevelOf(l, l.NextAdd), LevelOf(l, l.NextAdd), false); Track(l, sp, price); Close(l, cfg, m.Time, sp - dir * cfg.SlippageTicks * 0, "BLOWUP", true, r); continue; }
+                    }
+                    FillAddsTo(l, cfg, m.Time, adv, false);
+                    Track(l, adv, C(m, l));
+                    double tp = TargetPrice(l, cfg);
+                    if (dir * (C(m, l) - tp) >= 0) { Close(l, cfg, m.Time, tp, "TARGET", false, r); dayRealized += r.Cycles[r.Cycles.Count - 1].Net; }
+                }
+                // 2. open ladders (the per-minute steps skip the minute a ladder started: it was handled above)
+                var open = legs.Where(l => l.Active && l.Cycle != null && l.Cycle.Fills.Count > 0 && l.Cycle.Fills[0].Time < m.Time && Real(m, l)).ToList();
+                if (legs.Any(l => l.Active && l.Cycle != null))
+                {
+                    // gaps at the open: adds fill at the open
+                    foreach (var l in open) FillAddsTo(l, cfg, m.Time, O(m, l), true);
+                    if (shared)
+                    {
+                        var all = legs.Where(l => l.Active && l.Cycle != null).ToList();
+                        Func<Leg, double> openRef = l => open.Contains(l) ? O(m, l) : (l.Cycle.Fills[0].Time == m.Time ? l.Cycle.Fills[0].Price : LastPrice(minutes, k, l));
+                        double openSum = all.Sum(l => Value(l, openRef(l))) + dayRealized;
+                        if (openSum <= -cfg.MaxDrawdown)
+                        {
+                            foreach (var l in all.ToList()) { double px = openRef(l); Track(l, px, px); Close(l, cfg, m.Time, px, "BLOWUP", true, r); }
+                            continue;
+                        }
+                        // worst case inside the minute: every leg at its adverse extreme, adds filled on the way
+                        var worst = new Dictionary<Leg, double>();
+                        foreach (var l in all)
+                        {
+                            if (!Real(m, l)) { worst[l] = Value(l, LastPrice(minutes, k, l)); continue; }
+                            double adv = l.Cycle.Dir > 0 ? L(m, l) : H(m, l);
+                            double S = l.S, Q = l.Q; int n = l.NextAdd;
+                            while (n < cfg.MaxEntries) { double lv = LevelOf(l, n); if (l.Cycle.Dir * (adv - lv) > 0) break; int q = AddQty(cfg, n); S += lv * q; Q += q; n++; }
+                            worst[l] = l.Cycle.Dir * (Q * adv - S) * l.Pv;
+                        }
+                        double worstSum = worst.Values.Sum() + dayRealized;
+                        if (worstSum <= -cfg.MaxDrawdown)
+                        {
+                            // Both closed when the two together reach −MAX DRAWDOWN; each leg's share of the loss follows its worst case.
+                            // A leg still positive at its worst keeps that value; the rest of the loss is split by the losing legs' worst case.
+                            double lossToShare = -cfg.MaxDrawdown - dayRealized, negSum = worst.Values.Where(v => v < 0).Sum(), posSum = worst.Values.Where(v => v >= 0).Sum();
+                            foreach (var l in all.ToList())
+                            {
+                                if (Real(m, l)) FillAddsTo(l, cfg, m.Time, l.Cycle.Dir > 0 ? L(m, l) : H(m, l), false);
+                                double share = worst[l] >= 0 ? worst[l] : (negSum < 0 ? (lossToShare - posSum) * worst[l] / negSum : 0);
+                                double px = (l.S + l.Cycle.Dir * share / l.Pv) / l.Q;
+                                Track(l, px, px); Close(l, cfg, m.Time, px, "BLOWUP", true, r);
+                            }
+                            continue;
+                        }
+                    }
+                    foreach (var l in open)
+                    {
+                        if (!l.Active) continue;
+                        int dir = l.Cycle.Dir; double o = O(m, l), adv = dir > 0 ? L(m, l) : H(m, l), fav = dir > 0 ? H(m, l) : L(m, l), cl = C(m, l);
+                        if (!shared)
+                        {
+                            if (Value(l, o) <= -l.OwnDd) { Track(l, o, o); Close(l, cfg, m.Time, o, "BLOWUP", true, r); continue; }
+                        }
+                        double tpOpen = TargetPrice(l, cfg);
+                        if (dir * (o - tpOpen) >= 0) { Track(l, o, o); Close(l, cfg, m.Time, o, "TARGET", false, r); dayRealized += r.Cycles[r.Cycles.Count - 1].Net; continue; }
+                        if (!shared)
+                        {
+                            int before; double sp = StopPrice(l, cfg, l.OwnDd, out before);
+                            if (dir * (adv - sp) <= 0)
+                            {
+                                for (int q = 0; q < before; q++) { double lv = LevelOf(l, l.NextAdd); AddFill(l, cfg, m.Time, lv, lv, false); }
+                                Track(l, sp, fav); Close(l, cfg, m.Time, sp, "BLOWUP", true, r); continue;
+                            }
+                        }
+                        // high-first (target before any add) …
+                        double tpBefore = TargetPrice(l, cfg);
+                        if (dir * (fav - tpBefore) >= 0) { Track(l, o, tpBefore); Close(l, cfg, m.Time, tpBefore, "TARGET", false, r); dayRealized += r.Cycles[r.Cycles.Count - 1].Net; continue; }
+                        // … else the adds on the way down, and a target after them only if the minute closes beyond it
+                        int had = l.NextAdd;
+                        FillAddsTo(l, cfg, m.Time, adv, false);
+                        Track(l, adv, fav);
+                        if (l.NextAdd > had)
+                        {
+                            double tpAfter = TargetPrice(l, cfg);
+                            if (dir * (cl - tpAfter) >= 0) { Close(l, cfg, m.Time, tpAfter, "TARGET", false, r); dayRealized += r.Cycles[r.Cycles.Count - 1].Net; continue; }
+                        }
+                    }
+                }
+                // 3. the close
+                if (isLast)
+                    foreach (var l in legs.Where(x => x.Active && x.Cycle != null).ToList())
+                    {
+                        double px = Real(m, l) ? C(m, l) : LastPrice(minutes, k, l);
+                        Close(l, cfg, m.Time, px - l.Cycle.Dir * 0, "SESSION END", true, r);
+                    }
+            }
+            foreach (var l in legs) if (!triggered.Contains(l.Symbol) && !noData.Contains(l.Symbol)) r.NoTriggerDays[l.Symbol] = r.NoTriggerDays[l.Symbol] + 1;
+            // Bounce study: from the entry to the close, the worst price, the best price after it and what the
+            // full ladder (every add the worst price reached, no stop) would have been worth there.
+            foreach (var cy in r.Cycles.Where(c => c.Day == day))
+            {
+                bool mg = cy.Symbol == "MGC"; double worst = double.NaN, best = double.NaN; DateTime wt = DateTime.MinValue, bt = DateTime.MinValue;
+                for (int k = lo; k < hi; k++)
+                {
+                    var m = minutes[k]; if (m.Time > close) break; if (m.Time < cy.EntryTime || !(mg ? m.HasMgc : m.HasMnq)) continue;
+                    double adv = cy.Dir > 0 ? (mg ? m.MgcL : m.MnqL) : (mg ? m.MgcH : m.MnqH);
+                    if (double.IsNaN(worst) || cy.Dir * (adv - worst) < 0) { worst = adv; wt = m.Time; best = double.NaN; bt = DateTime.MinValue; }
+                    double fav = cy.Dir > 0 ? (mg ? m.MgcH : m.MnqH) : (mg ? m.MgcL : m.MnqL);
+                    if (m.Time > wt && (double.IsNaN(best) || cy.Dir * (fav - best) > 0)) { best = fav; bt = m.Time; }
+                }
+                cy.LowestPrice = worst; cy.LowestTime = wt; cy.BestAfterLowest = best; cy.BestAfterLowestTime = bt;
+                if (!double.IsNaN(worst) && cy.Fills.Count > 0)
+                {
+                    double S = 0, Q = 0; int n = 0;
+                    for (; n < cfg.MaxEntries; n++)
+                    {
+                        double lv = n == 0 ? cy.Fills[0].Price : cy.Fills[0].Price - cy.Dir * n * cy.Step;
+                        if (n > 0 && cy.Dir * (worst - lv) > 0) break;
+                        int q = AddQty(cfg, n); S += (n < cy.Fills.Count ? cy.Fills[n].Price : lv) * q; Q += q;
+                    }
+                    cy.FullLadderEntries = n;
+                    cy.FullLadderAtLowest = cy.Dir * (Q * worst - S) * cy.PointValue;
+                    cy.FullLadderAtBest = double.IsNaN(best) ? cy.FullLadderAtLowest : cy.Dir * (Q * best - S) * cy.PointValue;
+                }
+            }
+        }
+
+        static double LastPrice(List<KeystoneHelixMinute> minutes, int k, Leg l)
+        {
+            for (int q = k; q >= 0; q--) if (Real(minutes[q], l)) return C(minutes[q], l);
+            return l.Avg;
+        }
+    }
+
+    // ---- RECOIL study: setups only, steps reached, bounces, risk grid, one live account -----------------
+    public sealed class KeystoneRecoilStats
+    {
+        public string Label = string.Empty;
+        public int Cycles, Wins, Blowups, SessionEnds, Days, NoTrigger;
+        public double Net, WinNet, LossNet, Commission;
+        public double WinRate { get { return Wins + Blowups + SessionEnds == 0 ? 0 : 100.0 * Wins / (Wins + Blowups + SessionEnds); } }
+        public double AvgWin { get { return Wins == 0 ? 0 : WinNet / Wins; } }
+        public double AvgLoss { get { int n = Cycles - Wins; return n == 0 ? 0 : LossNet / n; } }
+        public double BreakEven { get { double w = AvgWin, l = Math.Abs(AvgLoss); return w + l <= 0 ? 0 : 100.0 * l / (w + l); } }
+        public double PerCycle { get { return Cycles == 0 ? 0 : Net / Cycles; } }
+    }
+    public sealed class KeystoneRecoilStepRow { public int Entries; public int Cycles, Wins, Blowups, SessionEnds; public double Net, AvgBounce, AvgFullAtBest, AvgWorst; }
+    public sealed class KeystoneRecoilGroup { public string Group = string.Empty; public int Order; public KeystoneRecoilStats Stats; }
+    public sealed class KeystoneRecoilBreakdown { public string Title = string.Empty, Note = string.Empty; public List<KeystoneRecoilGroup> Rows = new List<KeystoneRecoilGroup>(); }
+    public sealed class KeystoneRecoilGridCell { public double Distance, Target; public int Cycles, Wins, Blowups; public double Net, WorstDay; public double WinRate { get { return Cycles == 0 ? 0 : 100.0 * Wins / Cycles; } } }
+    public sealed class KeystoneRecoilGrid { public string Symbol = string.Empty, Year = "ALL"; public double[] Distances = new double[0], Targets = new double[0]; public KeystoneRecoilGridCell[,] Cells; public KeystoneRecoilGridCell Best, Yours; }
+    public sealed class KeystoneRecoilAccount
+    {
+        public double Start, End, Peak, MaxDrawdown, Low; public int Trades, Wins, Blowups; public bool Ruined; public DateTime RuinDate = DateTime.MinValue;
+        public List<Tuple<DateTime, double>> Equity = new List<Tuple<DateTime, double>>();
+        public List<Tuple<DateTime, double, int, int>> Months = new List<Tuple<DateTime, double, int, int>>();
+    }
+
+    public static class KeystoneRecoilStudy
+    {
+        public static string Cash(double v) { return (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture); }
+        public static string Pc(double v) { return v.ToString("0", CultureInfo.InvariantCulture) + "%"; }
+
+        public static KeystoneRecoilStats Stats(string label, IEnumerable<KeystoneRecoilCycle> cycles, int days = 0, int noTrigger = 0)
+        {
+            var s = new KeystoneRecoilStats { Label = label, Days = days, NoTrigger = noTrigger };
+            foreach (var c in cycles)
+            {
+                s.Cycles++; s.Net += c.Net; s.Commission += c.Commission + c.Slippage;
+                if (c.Win) { s.Wins++; s.WinNet += c.Net; } else { s.LossNet += c.Net; if (c.Blown) s.Blowups++; else s.SessionEnds++; }
+            }
+            return s;
+        }
+
+        public static List<KeystoneRecoilStepRow> Steps(List<KeystoneRecoilCycle> cycles, int maxEntries)
+        {
+            var rows = new List<KeystoneRecoilStepRow>();
+            for (int n = 1; n <= Math.Max(1, maxEntries); n++)
+            {
+                var g = cycles.Where(c => c.Entries == n).ToList();
+                rows.Add(new KeystoneRecoilStepRow
+                {
+                    Entries = n, Cycles = g.Count, Wins = g.Count(c => c.Win), Blowups = g.Count(c => c.Blown), SessionEnds = g.Count(c => c.Reason == "SESSION END"), Net = g.Sum(c => c.Net),
+                    AvgBounce = g.Where(c => !double.IsNaN(c.BestAfterLowest)).Select(c => c.Dir * (c.BestAfterLowest - c.LowestPrice)).DefaultIfEmpty(0).Average(),
+                    AvgFullAtBest = g.Select(c => c.FullLadderAtBest).DefaultIfEmpty(0).Average(),
+                    AvgWorst = g.Select(c => c.MaeValue).DefaultIfEmpty(0).Average()
+                });
+            }
+            return rows;
+        }
+
+        public static List<KeystoneRecoilBreakdown> Breakdowns(List<KeystoneRecoilCycle> cycles)
+        {
+            var output = new List<KeystoneRecoilBreakdown>();
+            Action<string, string, Func<KeystoneRecoilCycle, Tuple<int, string>>> add = (title, note, key) =>
+            {
+                var b = new KeystoneRecoilBreakdown { Title = title, Note = note };
+                foreach (var g in cycles.GroupBy(key).OrderBy(g => g.Key.Item1).ThenBy(g => g.Key.Item2)) b.Rows.Add(new KeystoneRecoilGroup { Group = g.Key.Item2, Order = g.Key.Item1, Stats = Stats(g.Key.Item2, g) });
+                output.Add(b);
+            };
+            add("INSTRUMENT", "each instrument's own ladders", c => Tuple.Create(c.Symbol == "MNQ" ? 0 : 1, c.Symbol));
+            add("SIDE", "BUY = the market fell first • SELL = it rose first", c => Tuple.Create(c.Dir > 0 ? 0 : 1, c.Dir > 0 ? "BUY (after a drop)" : "SELL (after a rise)"));
+            add("ENTRIES USED", "how deep the ladder went", c => Tuple.Create(c.Entries, c.Entries + (c.Entries == 1 ? " entry" : " entries") + " (" + c.MaxQty + " contracts)"));
+            add("TRIGGER HOUR (ET)", "when the first entry filled", c => Tuple.Create(c.EntryTime.Hour, c.EntryTime.ToString("HH") + ":00"));
+            add("WEEKDAY", "trading day", c => Tuple.Create(((int)c.Day.DayOfWeek + 6) % 7, c.Day.DayOfWeek.ToString().ToUpperInvariant()));
+            add("CYCLE OF THE DAY", "1 = the first ladder of the day", c => Tuple.Create(c.CycleInDay, "CYCLE " + c.CycleInDay));
+            add("YEAR", "volatility changes year to year", c => Tuple.Create(c.Day.Year, c.Day.Year.ToString(CultureInfo.InvariantCulture)));
+            add("MONTH", "month", c => Tuple.Create(c.Day.Year * 100 + c.Day.Month, c.Day.ToString("yyyy-MM", CultureInfo.InvariantCulture)));
+            return output;
+        }
+
+        public static double[] Distances(string symbol, double yours)
+        {
+            var d = symbol == "MGC" ? new double[] { 10, 15, 20, 25, 30, 40 } : new double[] { 50, 75, 100, 125, 150, 200 };
+            return d.Contains(yours) || yours <= 0 ? d : d.Concat(new[] { yours }).OrderBy(x => x).ToArray();
+        }
+        public static double[] Targets(double yours)
+        {
+            var t = new double[] { 100, 200, 300, 400, 600, 800, 1000 };
+            return t.Contains(yours) || yours <= 0 ? t : t.Concat(new[] { yours }).OrderBy(x => x).ToArray();
+        }
+
+        // Re-run the ladder for every trigger/add distance × $ target on one instrument (all years, then each year).
+        public static List<KeystoneRecoilGrid> Grids(List<KeystoneHelixMinute> minutes, KeystoneRecoilConfig cfg, string symbol)
+        {
+            bool mgc = symbol == "MGC";
+            double yourD = mgc ? cfg.MgcStep : cfg.MnqStep, yourT = cfg.TargetDollars;
+            double[] ds = Distances(symbol, yourD), ts = Targets(yourT);
+            var runs = new KeystoneRecoilResult[ds.Length, ts.Length];
+            var years = new SortedSet<int>();
+            for (int a = 0; a < ds.Length; a++)
+                for (int b = 0; b < ts.Length; b++)
+                {
+                    var c = cfg.Copy(); c.UseMnq = mgc ? 0 : 1; c.UseMgc = mgc ? 1 : 0; c.TargetMode = "DOLLARS"; c.TargetDollars = ts[b];
+                    if (mgc) { c.MgcTrigger = ds[a] * (cfg.MgcStep <= 0 ? 1 : cfg.MgcTrigger / cfg.MgcStep); c.MgcStep = ds[a]; } else { c.MnqTrigger = ds[a] * (cfg.MnqStep <= 0 ? 1 : cfg.MnqTrigger / cfg.MnqStep); c.MnqStep = ds[a]; }
+                    if (c.DrawdownMode == "SPLIT") c.MaxDrawdown = mgc ? cfg.MgcMaxDrawdown : cfg.MnqMaxDrawdown;
+                    runs[a, b] = KeystoneRecoil.Run(minutes, c);
+                    foreach (var cy in runs[a, b].Cycles) years.Add(cy.Day.Year);
+                }
+            var output = new List<KeystoneRecoilGrid>();
+            foreach (string year in new[] { "ALL" }.Concat(years.Select(y => y.ToString(CultureInfo.InvariantCulture))))
+            {
+                var g = new KeystoneRecoilGrid { Symbol = symbol, Year = year, Distances = ds, Targets = ts, Cells = new KeystoneRecoilGridCell[ds.Length, ts.Length] };
+                for (int a = 0; a < ds.Length; a++)
+                    for (int b = 0; b < ts.Length; b++)
+                    {
+                        var list = runs[a, b].Cycles.Where(x => year == "ALL" || x.Day.Year.ToString(CultureInfo.InvariantCulture) == year).ToList();
+                        var cell = new KeystoneRecoilGridCell { Distance = ds[a], Target = ts[b], Cycles = list.Count, Wins = list.Count(x => x.Win), Blowups = list.Count(x => x.Blown), Net = list.Sum(x => x.Net), WorstDay = list.GroupBy(x => x.Day).Select(d => d.Sum(x => x.Net)).DefaultIfEmpty(0).Min() };
+                        g.Cells[a, b] = cell;
+                        if (g.Best == null || cell.Net > g.Best.Net) g.Best = cell;
+                        if (Math.Abs(ds[a] - yourD) < 1e-9 && Math.Abs(ts[b] - yourT) < 1e-9) g.Yours = cell;
+                    }
+                output.Add(g);
+            }
+            return output;
+        }
+
+        // One live account: every ladder's net added when it closes; the account is lost at zero.
+        public static KeystoneRecoilAccount Account(List<KeystoneRecoilCycle> cycles, double start)
+        {
+            var a = new KeystoneRecoilAccount { Start = start, Low = start };
+            double bal = start, peak = start;
+            foreach (var c in cycles.OrderBy(x => x.ExitTime))
+            {
+                if (a.Ruined) break;
+                bal += c.Net; a.Trades++; if (c.Win) a.Wins++; if (c.Blown) a.Blowups++;
+                peak = Math.Max(peak, bal); a.MaxDrawdown = Math.Max(a.MaxDrawdown, peak - bal); a.Low = Math.Min(a.Low, bal);
+                a.Equity.Add(Tuple.Create(c.ExitTime, bal));
+                if (bal <= 0) { a.Ruined = true; a.RuinDate = c.ExitTime; }
+            }
+            a.End = bal; a.Peak = peak;
+            foreach (var m in cycles.Where(c => a.Equity.Count > 0 && c.ExitTime <= a.Equity[a.Equity.Count - 1].Item1).GroupBy(c => new DateTime(c.Day.Year, c.Day.Month, 1)).OrderBy(g => g.Key))
+                a.Months.Add(Tuple.Create(m.Key, m.Sum(x => x.Net), m.Count(x => x.Win), m.Count(x => x.Blown)));
+            return a;
+        }
+
+        public static string Verdict(KeystoneRecoilResult r, KeystoneRecoilStats s)
+        {
+            if (r.Cycles.Count == 0) return "NO LADDERS • the trigger move never came in the loaded data (or the window has no bars). Check the dates, start time and trigger distance.";
+            string edge = s.WinRate > s.BreakEven + 1 ? "wins MORE often than it needs to" : s.WinRate < s.BreakEven - 1 ? "wins LESS often than it needs to" : "wins about as often as it needs to";
+            return s.Cycles + " ladders on " + s.Days + " days (" + (r.NoTriggerDays.Values.Sum()) + " instrument-days without the trigger move) • won " + Pc(s.WinRate) + " (" + s.Wins + "), blown " + s.Blowups + ", closed at the end " + s.SessionEnds
+                + " • average win " + Cash(s.AvgWin) + " vs average loss " + Cash(s.AvgLoss) + " → break-even " + Pc(s.BreakEven) + ": it " + edge + " • net " + Cash(s.Net) + " (" + Cash(s.PerCycle) + " a ladder).";
+        }
+
+        static string H(string s) { return System.Net.WebUtility.HtmlEncode(s ?? string.Empty); }
+        static string Cl(double v) { return v > 0 ? "g" : v < 0 ? "r" : "m"; }
+        static string Sg(double v) { return (v > 0 ? "+" : "") + Cash(v); }
+
+        // The full RECOIL report: verdict, MNQ/MGC/BOTH, steps, blowups and bounces, the grid per year, one live account, breakdowns, every ladder.
+        public static string Html(KeystoneRecoilResult r, List<KeystoneRecoilGrid> grids, List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>> compare, double startBalance)
+        {
+            var c = r.Config; var s = Stats("ALL", r.Cycles, r.Days.Count, r.NoTriggerDays.Values.Sum()); var a = Account(r.Cycles, startBalance);
+            var sb = new StringBuilder();
+            sb.Append("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>RECOIL report</title><style>")
+              .Append("body{background:#0d1017;color:#e8e3d3;font-family:Segoe UI,Arial,sans-serif;margin:0;padding:18px}h1{color:#f2c14e;margin:0 0 4px}h2{color:#f2c14e;margin:26px 0 6px;font-size:17px}h3{color:#5bc8f5}")
+              .Append(".sub{color:#9aa4b5;font-size:13px}.cards{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}.card{background:#161b26;border:1.5px solid #2d3546;border-radius:8px;padding:10px 14px;min-width:200px}.card b{display:block;font-size:12px;color:#9aa4b5}.card span{font-size:21px;font-weight:700}")
+              .Append("table{border-collapse:collapse;margin:6px 0 4px;font-size:12.5px}th{background:#1d2433;color:#f2c14e;padding:5px 8px;text-align:right}th:first-child,td:first-child{text-align:left}td{padding:4px 8px;border-bottom:1px solid #222a39;text-align:right}")
+              .Append(".g{color:#38d682}.r{color:#ff5260}.m{color:#9aa4b5}.c{color:#5bc8f5}.note{color:#9aa4b5;font-size:12px}.hl{outline:2px solid #f2c14e}.best{outline:2px solid #38d682}.wrap{overflow-x:auto}.verdict{background:#161b26;border-left:5px solid #f2c14e;padding:10px 14px;border-radius:6px}</style></head><body>");
+            sb.Append("<h1>RECOIL • ADD TO LOSERS</h1><div class='sub'>Historical research only • generated ").Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm")).Append("<br>").Append(H(c.Describe())).Append("</div>");
+            sb.Append("<div class='cards'>");
+            Action<string, string, string> card = (t, v, cls) => sb.Append("<div class='card'><b>").Append(H(t)).Append("</b><span class='").Append(cls).Append("'>").Append(H(v)).Append("</span></div>");
+            card("LADDERS", s.Cycles + " on " + s.Days + " days", "c"); card("WON • NEEDED", Pc(s.WinRate) + " • " + Pc(s.BreakEven), s.WinRate >= s.BreakEven ? "g" : "r"); card("BLOWN", s.Blowups.ToString(), "r"); card("NET AFTER COSTS", Sg(s.Net), Cl(s.Net)); card("ONE LIVE ACCOUNT", Cash(a.Start) + " → " + Cash(a.End), Cl(a.End - a.Start));
+            sb.Append("</div><p class='verdict'>").Append(H(Verdict(r, s))).Append("</p>");
+            if (compare != null && compare.Count > 0)
+            {
+                sb.Append("<h2>MNQ ONLY vs MGC ONLY vs BOTH</h2><div class='wrap'><table><tr><th></th>"); foreach (var x in compare) sb.Append("<th>").Append(H(x.Item1)).Append("</th>"); sb.Append("</tr>");
+                Action<string, Func<KeystoneRecoilStats, KeystoneRecoilAccount, string>> row = (n, f) => { sb.Append("<tr><td>").Append(H(n)).Append("</td>"); foreach (var x in compare) sb.Append("<td>").Append(H(f(x.Item2, x.Item3))).Append("</td>"); sb.Append("</tr>"); };
+                row("LADDERS", (x, y) => x.Cycles.ToString()); row("WON / BLOWN / AT CLOSE", (x, y) => x.Wins + " / " + x.Blowups + " / " + x.SessionEnds); row("WIN RATE • NEEDED", (x, y) => Pc(x.WinRate) + " • " + Pc(x.BreakEven));
+                row("NET AFTER COSTS", (x, y) => Sg(x.Net)); row("AVG WIN • AVG LOSS", (x, y) => Sg(x.AvgWin) + " • " + Sg(x.AvgLoss)); row("ONE LIVE ACCOUNT", (x, y) => Cash(y.Start) + " → " + Cash(y.End)); row("MAX DRAWDOWN", (x, y) => Cash(-y.MaxDrawdown) + (y.Ruined ? " • LOST" : ""));
+                sb.Append("</table></div>");
+            }
+            sb.Append("<h2>HOW DEEP THE LADDERS WENT</h2><div class='note'>BOUNCE = points from the worst price to the best price after it (until the close). FULL LADDER AT BEST = the position with every add the worst price reached, no stop, valued at that best price.</div><div class='wrap'><table><tr><th>ENTRIES</th><th>LADDERS</th><th>WON</th><th>BLOWN</th><th>AT CLOSE</th><th>NET</th><th>AVG BOUNCE PTS</th><th>FULL LADDER AT BEST</th></tr>");
+            foreach (var x in Steps(r.Cycles, c.MaxEntries)) sb.Append("<tr><td>").Append(x.Entries).Append("</td><td>").Append(x.Cycles).Append("</td><td class='g'>").Append(x.Wins).Append("</td><td class='r'>").Append(x.Blowups).Append("</td><td>").Append(x.SessionEnds).Append("</td><td class='").Append(Cl(x.Net)).Append("'>").Append(Sg(x.Net)).Append("</td><td>").Append(x.AvgBounce.ToString("0.#", CultureInfo.InvariantCulture)).Append("</td><td class='").Append(Cl(x.AvgFullAtBest)).Append("'>").Append(Sg(x.AvgFullAtBest)).Append("</td></tr>");
+            sb.Append("</table></div>");
+            var blown = r.Cycles.Where(x => x.Blown).ToList();
+            sb.Append("<h2>EVERY BLOWUP AND WHAT CAME AFTER</h2>");
+            if (blown.Count == 0) sb.Append("<p class='note'>No ladder was blown.</p>");
+            else
+            {
+                sb.Append("<div class='wrap'><table><tr><th>DAY</th><th>INST</th><th>SIDE</th><th>BLOWN AT</th><th>WORST</th><th>BEST AFTER</th><th>FULL LADDER WORST</th><th>FULL LADDER BEST</th></tr>");
+                foreach (var x in blown) sb.Append("<tr><td>").Append(x.Day.ToString("yyyy-MM-dd ddd")).Append("</td><td>").Append(x.Symbol).Append("</td><td>").Append(x.Side).Append("</td><td class='r'>").Append(x.ExitTime.ToString("HH:mm")).Append(" ").Append(x.ExitPrice.ToString("0.##", CultureInfo.InvariantCulture)).Append("</td><td>").Append(double.IsNaN(x.LowestPrice) ? "—" : x.LowestPrice.ToString("0.##", CultureInfo.InvariantCulture)).Append("</td><td>").Append(double.IsNaN(x.BestAfterLowest) ? "—" : x.BestAfterLowest.ToString("0.##", CultureInfo.InvariantCulture)).Append("</td><td class='r'>").Append(Sg(x.FullLadderAtLowest)).Append("</td><td class='").Append(Cl(x.FullLadderAtBest)).Append("'>").Append(Sg(x.FullLadderAtBest)).Append("</td></tr>");
+                sb.Append("</table></div>");
+            }
+            if (grids != null && grids.Count > 0)
+            {
+                sb.Append("<h2>RISK GRID • ADD DISTANCE × TARGET</h2><div class='note'>Every add distance (rows) × $ target (columns) re-run on the same minutes. Cell: ladders • win % • blowups, then net after costs. Gold = your setting, green = best.</div>");
+                foreach (var g in grids)
+                {
+                    sb.Append("<h3>").Append(H(g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year))).Append(g.Best == null ? "" : H(" • best: add every " + g.Best.Distance.ToString("0.##", CultureInfo.InvariantCulture) + " pts, target " + Cash(g.Best.Target) + " = " + Sg(g.Best.Net))).Append("</h3><div class='wrap'><table><tr><th>ADD EVERY \\ TARGET</th>");
+                    foreach (double t in g.Targets) sb.Append("<th>").Append(Cash(t)).Append("</th>"); sb.Append("</tr>");
+                    for (int d = 0; d < g.Distances.Length; d++)
+                    {
+                        sb.Append("<tr><td>").Append(g.Distances[d].ToString("0.##", CultureInfo.InvariantCulture)).Append(" pts</td>");
+                        for (int t = 0; t < g.Targets.Length; t++) { var x = g.Cells[d, t]; sb.Append("<td class='").Append(Cl(x.Net)).Append(x == g.Yours ? " hl" : x == g.Best ? " best" : "").Append("'>").Append(x.Cycles == 0 ? "no ladder" : x.Cycles + " • " + Pc(x.WinRate) + " • " + x.Blowups + "✕<br>" + Sg(x.Net)).Append("</td>"); }
+                        sb.Append("</tr>");
+                    }
+                    sb.Append("</table></div>");
+                }
+            }
+            sb.Append("<h2>ONE LIVE ACCOUNT</h2><p>").Append(H("Start " + Cash(a.Start) + " → end " + Cash(a.End) + " • max drawdown " + Cash(-a.MaxDrawdown) + " • lowest balance " + Cash(a.Low) + (a.Ruined ? " • LOST on " + a.RuinDate.ToString("yyyy-MM-dd") : ""))).Append("</p><div class='wrap'><table><tr><th>MONTH</th><th>NET</th><th>WON</th><th>BLOWN</th></tr>");
+            foreach (var m in a.Months) sb.Append("<tr><td>").Append(m.Item1.ToString("MMM yyyy", CultureInfo.InvariantCulture)).Append("</td><td class='").Append(Cl(m.Item2)).Append("'>").Append(Sg(m.Item2)).Append("</td><td>").Append(m.Item3).Append("</td><td>").Append(m.Item4).Append("</td></tr>");
+            sb.Append("</table></div>");
+            foreach (var b in Breakdowns(r.Cycles))
+            {
+                sb.Append("<h2>").Append(H(b.Title)).Append("</h2><div class='note'>").Append(H(b.Note)).Append("</div><div class='wrap'><table><tr><th>GROUP</th><th>LADDERS</th><th>WON</th><th>BLOWN</th><th>WIN %</th><th>NET</th></tr>");
+                foreach (var g in b.Rows) sb.Append("<tr><td>").Append(H(g.Group)).Append("</td><td>").Append(g.Stats.Cycles).Append("</td><td>").Append(g.Stats.Wins).Append("</td><td>").Append(g.Stats.Blowups).Append("</td><td>").Append(Pc(g.Stats.WinRate)).Append("</td><td class='").Append(Cl(g.Stats.Net)).Append("'>").Append(Sg(g.Stats.Net)).Append("</td></tr>");
+                sb.Append("</table></div>");
+            }
+            sb.Append("<h2>EVERY LADDER</h2><div class='wrap'><table><tr><th>DAY</th><th>INST</th><th>SIDE</th><th>START</th><th>FILLS</th><th>AVERAGE</th><th>EXIT</th><th>RESULT</th><th>NET</th><th>WORST OPEN</th></tr>");
+            foreach (var x in r.Cycles.OrderBy(x => x.EntryTime))
+                sb.Append("<tr><td>").Append(x.Day.ToString("yyyy-MM-dd ddd")).Append("</td><td>").Append(x.Symbol).Append("</td><td>").Append(x.Side).Append("</td><td>").Append(x.AnchorPrice.ToString("0.##", CultureInfo.InvariantCulture)).Append("</td><td>").Append(H(string.Join(" • ", x.Fills.Select(z => z.Time.ToString("HH:mm") + " " + z.Qty + "@" + z.Price.ToString("0.##", CultureInfo.InvariantCulture))))).Append("</td><td>").Append(x.AvgAtExit.ToString("0.##", CultureInfo.InvariantCulture)).Append("</td><td>").Append(x.ExitTime.ToString("HH:mm")).Append(" ").Append(x.ExitPrice.ToString("0.##", CultureInfo.InvariantCulture)).Append("</td><td class='").Append(x.Win ? "g" : x.Blown ? "r" : "c").Append("'>").Append(x.Win ? "TARGET" : x.Reason).Append("</td><td class='").Append(Cl(x.Net)).Append("'>").Append(Sg(x.Net)).Append("</td><td class='r'>").Append(Sg(x.MaeValue)).Append("</td></tr>");
+            sb.Append("</table></div></body></html>");
+            return sb.ToString();
+        }
+
+        public static string Csv(KeystoneRecoilResult r)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("id,day,symbol,cycle,side,start_price,trigger_level,entries,max_contracts,fills,avg_at_exit,exit_time,exit_price,reason,gross,costs,net,worst_open_pl,best_open_pl,lowest,lowest_time,best_after_lowest,best_time,full_ladder_at_lowest,full_ladder_at_best");
+            Func<double, string> n = v => double.IsNaN(v) ? "" : v.ToString("0.##", CultureInfo.InvariantCulture);
+            foreach (var c in r.Cycles)
+                sb.AppendLine(string.Join(",", new[] { c.Id.ToString(), c.Day.ToString("yyyy-MM-dd"), c.Symbol, c.CycleInDay.ToString(), c.Side, n(c.AnchorPrice), n(c.TriggerLevel), c.Entries.ToString(), c.MaxQty.ToString(),
+                    "\"" + string.Join(" | ", c.Fills.Select(f => f.Time.ToString("HH:mm") + " " + f.Qty + "@" + n(f.Price))) + "\"", n(c.AvgAtExit), c.ExitTime.ToString("yyyy-MM-dd HH:mm"), n(c.ExitPrice), c.Reason, n(c.Gross), n(c.Commission + c.Slippage), n(c.Net),
+                    n(c.MaeValue), n(c.MfeValue), n(c.LowestPrice), c.LowestTime == DateTime.MinValue ? "" : c.LowestTime.ToString("HH:mm"), n(c.BestAfterLowest), c.BestAfterLowestTime == DateTime.MinValue ? "" : c.BestAfterLowestTime.ToString("HH:mm"), n(c.FullLadderAtLowest), n(c.FullLadderAtBest) }));
+            return sb.ToString();
+        }
+    }
+
     public static class KeystoneHelixManusReference
     {
         public const string Pool10 = "20240102,-2565,4,14,0,19;20240103,265,6,12,1,19;20240104,325,2,3,0,6;20240105,75,3,7,1,11;20240108,6300,6,0,0,7;20240109,2400,4,4,0,9;20240110,1500,3,4,0,8;20240111,655,7,14,0,22;20240112,-760,3,9,0,13;20240116,650,6,12,1,19;20240117,70,5,11,0,17;20240118,3685,6,6,0,13;20240119,4540,6,4,0,11;20240122,-465,4,9,0,14;20240123,1975,4,5,0,10;20240124,-1445,4,11,0,16;20240125,-1215,1,6,0,8;20240126,-520,3,7,0,11;20240129,2635,4,3,0,8;20240130,-1915,1,6,2,8;20240131,-1500,5,13,3,18;20240201,3000,5,4,0,9;20240202,3000,5,4,0,9;20240205,690,4,7,0,12;20240206,-525,1,5,0,7;20240207,1450,4,6,0,11;20240208,1025,1,1,0,3;20240209,2760,4,2,0,7;20240212,-675,1,4,0,6;20240213,-245,5,11,0,17;20240214,1830,5,7,0,13;20240215,945,3,5,0,9;20240216,-225,5,11,1,17;20240220,-370,5,12,0,18;20240221,885,3,6,0,10;20240222,2730,5,5,0,11;20240223,-500,2,5,1,8;20240226,285,3,5,1,9;20240227,-370,2,5,0,8;20240228,-265,1,4,0,6;20240229,500,3,5,0,8;20240301,7500,8,1,0,9;20240304,910,2,2,0,5;20240305,-3540,3,14,0,18;20240306,2510,8,11,0,20;20240307,2675,4,2,0,7;20240308,-2000,8,20,2,28;20240311,430,5,9,0,15;20240312,3360,7,8,0,16;20240313,-590,3,8,0,12;20240314,0,7,14,0,21;20240315,-1450,5,13,0,19;20240318,-200,3,6,0,10;20240319,3035,5,5,0,11;20240320,5500,9,7,1,16;20240321,-3715,2,11,0,14;20240322,-245,1,3,0,5;20240325,800,2,2,0,5;20240326,-2670,1,7,0,9;20240327,170,3,6,0,10;20240328,555,2,3,0,6;20240401,-250,3,8,1,12;20240402,2550,6,7,0,14;20240403,4705,7,6,0,14;20240404,-7375,1,17,0,19;20240405,7000,9,4,0,13;20240408,450,5,9,0,15;20240409,1045,7,13,0,21;20240410,2000,9,14,1,23;20240411,7000,9,4,0,13;20240412,-5500,7,25,2,32;20240415,-1500,5,13,2,18;20240416,2000,5,6,0,11;20240417,-3000,6,18,0,24;20240418,0,5,10,1,15;20240419,-4000,4,16,1,20;20240422,-500,3,7,1,10;20240423,2500,3,1,0,4;20240424,-1150,4,10,0,15;20240425,5500,8,5,0,13;20240426,3025,6,6,0,13;20240429,95,3,7,0,11;20240430,-5000,3,16,0,19;20240501,3000,9,12,1,21;20240502,3035,7,8,0,16;20240503,1620,7,11,0,19;20240506,2305,3,2,0,6;20240507,-515,0,2,0,3;20240508,1830,3,2,0,6;20240509,3145,4,3,0,8;20240510,-485,3,7,0,11;20240513,-1115,2,6,0,9;20240514,3245,6,5,0,12;20240515,5755,8,5,0,14;20240516,15,3,5,0,9;20240517,1335,4,7,0,12;20240520,3385,4,2,0,7;20240521,1695,2,1,0,4;20240522,-2405,3,12,0,16;20240523,-5595,5,22,0,28;20240524,1125,4,6,0,11;20240528,550,5,10,1,16;20240529,640,4,7,1,12;20240530,-2285,3,10,0,14;20240531,-1500,6,15,2,21;20240603,-500,5,11,1,16;20240604,-1500,4,11,1,15;20240605,2500,4,3,0,7;20240606,580,3,5,0,9;20240607,-2815,4,13,0,18;20240610,2960,5,4,0,10;20240611,4455,5,3,0,9;20240612,1000,7,12,1,19;20240613,-1235,4,10,0,15;20240614,2950,5,6,0,12;20240617,4790,7,4,0,12;20240618,1425,2,2,0,5;20240620,-1500,7,17,2,24;20240621,-2330,5,14,0,20;20240624,-2640,4,13,1,18;20240625,2565,5,6,0,12;20240626,1525,5,7,0,13;20240627,1970,5,7,1,13;20240628,-1985,6,15,1,22;20240701,1500,7,11,1,18;20240702,3500,7,7,0,14;20240705,4500,7,5,0,12;20240708,-245,4,9,0,14;20240709,-685,4,10,0,15;20240710,1915,4,4,0,9;20240711,-5500,8,27,1,35;20240712,5500,8,5,1,13;20240715,500,7,13,1,20;20240716,2000,7,10,0,17;20240717,-5000,6,22,1,28;20240718,-5000,4,18,2,22;20240719,-500,4,9,0,13;20240722,0,3,6,1,9;20240723,1000,6,10,1,16;20240724,-8370,2,21,1,24;20240725,-500,5,11,0,16;20240726,500,4,7,1,11;20240729,500,3,5,1,8;20240730,-3000,7,20,1,27;20240731,2500,7,9,0,16;20240801,-1500,5,13,2,18;20240802,0,4,8,1,12;20240805,3500,4,1,0,5;20240806,3500,7,7,0,14;20240807,-4500,6,21,1,27;20240808,4000,6,4,0,10;20240809,1000,6,10,0,16;20240812,3000,6,6,0,12;20240813,5585,8,5,0,14;20240814,1235,8,14,1,23;20240815,4960,7,5,0,13;20240816,3945,7,6,0,14;20240819,6720,8,3,0,12;20240820,-900,6,13,0,20;20240821,3420,9,12,0,22;20240822,-5935,5,23,1,29;20240823,2000,7,10,2,17;20240826,-2965,4,15,0,20;20240827,4145,6,4,0,11;20240828,-1120,6,14,0,21;20240829,3500,7,7,0,14;20240830,-1000,7,16,0,23;20240903,-6790,4,22,1,27;20240904,4500,9,9,0,18;20240905,3000,9,12,0,21;20240906,-7325,6,27,2,34;20240909,2500,7,9,0,16;20240910,1500,7,11,0,18;20240911,2500,8,11,0,19;20240912,4500,8,7,0,15;20240913,2945,6,7,0,14;20240916,1715,6,10,0,17;20240917,-1000,7,16,1,23;20240918,3500,9,11,0,20;20240919,2305,8,12,0,21;20240920,2165,7,9,0,17;20240923,-10,3,7,1,11;20240924,4115,7,6,0,14;20240925,960,4,7,0,12;20240926,-1595,5,13,0,19;20240927,-3985,2,12,0,15;20240930,500,7,13,2,20;20241001,-2000,6,16,1,22;20241002,1380,6,9,0,16;20241003,3500,7,7,0,14;20241004,-1000,6,14,1,20;20241007,-2085,2,9,0,12;20241008,2500,6,7,0,13;20241009,3380,5,4,0,10;20241010,2330,7,9,0,17;20241011,2555,4,3,0,8;20241014,1870,5,6,0,12;20241015,-3000,7,20,2,27;20241016,-320,5,11,0,17;20241017,-1310,5,13,0,19;20241018,920,3,5,0,9;20241021,1000,8,14,0,22;20241022,3545,6,4,0,11;20241023,-4490,4,18,0,23;20241024,820,5,8,1,14;20241025,545,6,11,0,18;20241028,-1285,1,5,0,7;20241029,5500,8,5,1,13;20241030,-1160,5,13,0,19;20241031,-5000,6,22,1,28;20241101,1500,6,9,2,15;20241104,1500,6,9,0,15;20241105,2875,5,6,0,12;20241106,4500,8,7,0,15;20241107,6000,8,4,0,12;20241108,-245,2,4,0,7;20241111,-745,3,8,0,12;20241112,-1370,5,13,0,19;20241113,-1575,6,16,2,23;20241114,500,8,15,0,23;20241115,-5305,3,16,0,20;20241118,1735,6,9,0,16;20241119,5000,7,4,1,11;20241120,2000,9,14,0,23;20241121,500,9,17,0,26;20241122,5000,9,8,0,17;20250102,2000,8,12,1,20;20250103,3000,8,10,0,18;20250106,1335,5,8,0,14;20250107,-2500,8,21,1,29;20250108,-1000,7,16,1,23;20250110,-2500,7,19,0,26;20250113,1000,7,12,0,19;20250114,-1000,8,18,1,26;20250115,2500,7,9,1,16;20250116,-1000,6,14,1,20;20250117,-30,5,11,0,17;20250121,1500,6,9,0,15;20250122,1700,3,3,0,7;20250123,4265,5,3,0,9;20250124,-2420,3,12,0,16;20250127,-500,7,15,2,22;20250128,3000,7,8,0,15;20250129,-500,8,17,0,25;20250130,2000,8,12,0,20;20250131,500,6,11,2,17;20250203,2500,6,7,0,13;20250204,4500,6,3,0,9;20250205,3210,7,8,0,16;20250206,2115,7,10,0,18;20250207,-1000,8,18,0,26;20250210,2500,4,3,0,8;20250211,1620,5,7,0,13;20250212,5000,9,8,1,17;20250213,5000,9,8,0,17;20250214,-2335,4,12,0,17;20250218,1620,6,9,0,16;20250219,935,4,7,0,12;20250220,795,8,15,1,24;20250221,-7325,5,25,1,31;20250224,-1500,7,17,1,24;20250225,-6000,5,22,2,27;20250226,3500,5,3,0,8;20250227,-2500,7,19,0,26;20250228,3500,7,7,0,14;20250303,1000,7,12,0,19;20250304,0,7,14,0,21;20250305,500,6,11,1,17;20250306,0,8,16,1,24;20250307,-500,7,15,1,22;20250310,-5500,6,23,1,29;20250311,2000,5,6,1,11;20250312,-500,5,11,0,16;20250313,500,7,13,1,20;20250314,3500,7,7,0,14;20250317,1000,6,10,1,16;20250318,-500,6,13,0,19;20250319,500,5,9,1,14;20250320,2500,8,11,0,19;20250321,3000,8,10,0,18;20250324,795,5,9,0,15;20250325,1930,3,3,0,7;20250326,-5180,5,20,0,26;20250327,3000,8,10,2,18;20250328,-4930,6,23,0,30;20250331,1500,7,11,1,18;20250401,1500,7,11,0,18;20250402,5000,7,4,0,11;20250403,2500,8,11,1,19;20250404,-1000,7,16,1,23;20250407,4000,7,6,0,13;20250408,4500,7,5,0,12;20250409,4000,7,6,0,13;20250410,2000,9,14,1,23;20250411,1500,8,13,1,21;20250414,-4000,6,20,2,26;20250415,2000,6,8,0,14;20250416,2000,6,8,0,14;20250417,-3500,7,21,1,28;20250421,-3500,5,17,2,22;20250422,1500,5,7,0,12;20250423,0,4,8,1,12;20250424,3500,4,1,0,5;20250425,5500,9,7,0,16;20250428,1500,9,15,0,24;20250429,4500,9,9,0,18;20250430,4000,9,10,0,19;20250501,1500,9,15,0,24;20250502,825,7,13,0,21;20250505,2275,6,7,0,14;20250506,5500,10,9,0,19;20250507,500,10,19,0,29;20250508,-4180,6,20,1,27;20250509,-2085,4,12,1,17;20250512,1595,6,10,0,17;20250513,5510,7,2,0,10;20250514,1640,7,12,0,20;20250515,5000,8,6,0,14;20250516,1815,6,10,0,17;20250519,5920,8,6,0,15;20250520,6000,9,6,0,15;20250521,1000,10,18,0,28;20250522,-450,9,19,0,29;20250523,4295,9,10,0,20;20250527,4730,5,2,0,8;20250528,-2640,3,11,1,15;20250529,-2800,6,19,1,26;20250530,0,8,16,0,24;20250612,2965,5,5,0,11;20250613,500,7,13,1,20;20250616,140,5,11,0,17;20250617,-1740,4,12,0,17;20250618,1500,7,11,0,18;20250620,-2075,5,15,0,21;20250623,3500,8,9,2,17;20250624,3350,5,3,0,9;20250625,1410,3,5,0,9;20250626,3460,5,4,0,10;20250627,2030,6,8,0,15;20250630,3000,5,4,0,9;20250701,-2110,4,12,0,17;20250702,4775,5,1,0,7;20250707,2150,7,10,0,18;20250708,-1465,5,13,0,19;20250709,3710,5,4,0,10;20250710,230,5,10,1,16;20250711,1810,6,8,0,15;20250714,1485,4,5,0,10;20250715,-3000,3,12,0,15;20250716,1500,8,13,1,21;20250717,4900,5,1,0,7;20250718,-1875,0,4,0,5;20250721,3120,4,2,0,7;20250722,810,6,11,0,18;20250723,660,4,8,1,13;20250724,1535,4,4,0,9;20250725,945,3,4,0,8;20250728,40,2,4,0,7;20250729,-1705,2,8,1,11;20250730,-1635,5,14,3,20;20250731,-5880,5,22,0,28;20250801,-500,5,11,1,16;20250804,4000,5,2,0,7;20250805,-2530,6,17,1,24;20250806,4950,7,5,0,13;20250807,-2500,7,19,1,26;20250808,4500,7,5,0,12;20250811,-1360,3,10,0,14;20250812,4595,6,4,0,11;20250813,-1105,3,9,0,13;20250814,1000,7,12,1,19;20250815,-1280,3,9,0,13;20250818,205,5,9,1,15;20250819,-5190,3,18,0,22;20250820,-1000,8,18,0,26;20250821,1500,7,11,1,18;20250822,5500,7,3,0,10;20250825,720,4,6,0,11;20250826,4240,6,5,0,12;20250827,4090,6,4,0,11;20250828,4000,7,6,0,13;20250829,1040,6,11,0,18;20250902,3000,8,10,1,18;20250903,-40,6,13,0,20;20250904,4110,8,8,0,17;20250905,-500,9,19,0,28;20250908,2235,6,9,0,16;20250909,-565,6,14,1,21;20250910,-1935,3,11,0,15;20250911,2535,6,6,0,13;20250912,910,3,4,0,8;20250915,5370,7,4,0,12;20250916,-1280,2,7,0,10;20250917,0,9,18,1,27;20250918,720,6,11,0,18;20250919,4275,6,3,0,10;20250922,5745,6,0,0,7;20250923,-3740,5,18,0,24;20250924,-4075,3,15,0,19;20250925,3000,9,12,1,21;20250926,3500,8,9,1,17;20250929,880,6,10,0,17;20250930,2500,6,7,2,13;20251001,3500,7,7,0,14;20251002,-3000,6,18,1,24;20251003,0,6,12,0,18;20251006,2500,6,7,0,13;20251007,-3000,6,18,0,24;20251008,4945,8,6,0,15;20251009,-5500,7,25,3,32;20251010,-2500,6,17,1,23;20251013,2500,5,5,1,10;20251014,3500,5,3,0,8;20251015,-1000,7,16,1,23;20251016,3500,7,7,0,14;20251017,0,6,12,1,18;20251020,4000,6,4,0,10;20251021,-3000,6,18,0,24;20251022,-1000,9,20,0,29;20251023,3500,8,9,1,17;20251024,3000,8,10,0,18;20251027,1000,8,14,0,22;20251028,5000,8,6,0,14;20251029,-500,10,21,0,31;20251030,3000,9,12,1,21;20251031,-3500,8,23,1,31;20251103,-500,7,15,1,22;20251104,2000,6,8,1,14;20251105,2500,7,9,0,16;20251106,-3500,6,19,1,25;20251107,1500,6,9,0,15;20251110,1500,6,9,0,15;20251111,500,6,11,0,17;20251112,2500,9,13,1,22;20251113,-2500,7,19,2,26;20251114,5000,7,4,0,11;20251117,3500,7,7,0,14;20251118,-1500,6,15,1,21;20251119,3500,8,9,1,17;20251120,-1500,7,17,1,24;20251121,1500,6,9,1,15;20251124,3500,6,5,0,11;20251125,1000,6,10,0,16;20251126,5500,9,7,0,16;20260102,-2500,9,23,0,32;20260105,5000,9,8,0,17;20260106,5500,9,7,0,16;20260107,5000,9,8,0,17;20260108,500,10,19,0,29;20260109,5000,10,10,0,20;20260112,5500,10,9,0,19;20260113,-1000,9,20,1,29;20260114,-1500,8,19,1,27;20260115,-2500,7,19,1,26;20260116,-1000,7,16,0,23;20260120,2000,7,10,0,17;20260121,1500,7,11,0,18;20260122,3500,7,7,0,14;20260123,5000,10,10,0,20;20260126,4000,10,12,0,22;20260127,4000,10,12,0,22;20260128,4500,10,11,0,21;20260130,2000,10,16,0,26;20260202,4500,10,11,0,21;20260203,-2000,9,22,1,31;20260204,1000,9,16,0,25;20260205,1500,8,13,1,21;20260206,3500,8,9,0,17;20260209,5500,9,7,0,16;20260210,-1000,8,18,1,26;20260211,0,8,16,0,24;20260212,-7000,6,26,2,32;20260213,1500,6,9,0,15;20260217,-500,8,17,0,25;20260218,6000,8,4,0,12;20260219,4500,8,7,0,15;20260220,5000,8,6,0,14;20260223,2500,8,11,0,19;20260224,5000,10,10,0,20;20260225,6500,10,7,0,17;20260226,1500,10,17,0,27;20260227,4500,10,11,0,21;20260302,5000,10,10,0,20;20260303,-500,10,21,0,31;20260304,4500,10,11,0,21;20260305,2000,9,14,1,23;20260306,5500,9,7,0,16;20260309,1000,9,16,0,25;20260310,4000,9,10,0,19;20260311,2500,9,13,0,22;20260312,-2000,8,20,1,28;20260313,-2500,8,21,0,29;20260316,1500,8,13,0,21;20260317,0,8,16,1,24;20260318,2000,8,12,0,20;20260319,3000,8,10,0,18;20260320,-4500,8,25,0,33;20260323,5500,8,5,0,13;20260324,4000,10,12,0,22;20260325,4000,10,12,0,22;20260326,3500,9,11,1,20;20260327,2500,9,13,0,22;20260330,-1000,9,20,0,29;20260331,5500,9,7,0,16;20260401,5000,9,8,0,17;20260402,6000,9,6,0,15;20260406,4500,9,9,0,18;20260407,-1500,9,21,0,30;20260408,0,10,20,0,30;20260409,4000,10,12,0,22;20260410,2500,9,13,1,22;20260413,500,9,17,0,26;20260414,4500,9,9,0,18;20260415,4000,9,10,0,19;20260416,3000,9,12,0,21;20260417,5000,9,8,0,17;20260420,-1000,8,18,1,26;20260421,-1000,8,18,0,26;20260422,2500,9,13,0,22;20260423,2500,9,13,0,22;20260424,4000,9,10,0,19;20260427,-30,6,14,0,21;20260428,2500,8,11,1,19;20260429,2000,8,12,1,20;20260430,-1000,8,18,0,26;20260501,7500,8,1,0,9;20260504,0,8,16,0,24;20260505,680,6,11,0,18;20260506,6000,10,8,0,18;20260507,-500,9,19,1,28;20260508,4000,9,10,0,19;20260511,4500,9,9,0,18;20260512,-3500,8,23,1,31;20260513,1000,9,16,0,25;20260514,4500,9,9,0,18;20260515,3000,9,12,0,21;20260518,-1000,9,20,0,29;20260519,1500,9,15,0,24;20260520,4000,10,12,0,22;20260521,3000,9,12,1,21;20260522,4500,9,9,0,18;20260526,2000,8,12,1,20;20260527,0,8,16,0,24;20260528,4500,9,9,0,18;20260529,2000,9,14,0,23;20260601,3000,9,12,0,21;20260602,1500,9,15,0,24;20260603,3000,9,12,0,21;20260604,1000,9,16,1,25;20260605,-2000,9,22,0,31;20260608,1500,9,15,0,24;20260609,-2000,7,18,2,25;20260610,3500,7,7,0,14;20260611,4000,8,8,0,16;20260612,2500,8,11,0,19;20260615,3500,8,9,0,17;20260616,-1500,7,17,1,24;20260617,1000,6,10,1,16;20260807,1500,7,11,1,18;20260810,2000,7,10,0,17;20260811,-500,7,15,0,22;20260812,1500,7,11,0,18;20260813,3500,7,7,0,14;20260814,-1360,6,16,0,23";
@@ -6747,7 +7361,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-30v • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -7885,7 +8499,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             string defaultDay = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var data = Stack(); data.Children.Add(Txt("1. DATA, SETUPS & SESSION", Gold, 13, FontWeights.Bold));
             // 123 ENGULFING, LAST-HOUR RELAY and VWAP SNAP-BACK are hidden (never tested); their engines stay in the file.
-            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN"); strategyBox.SelectedIndex = 0;
+            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN", "RECOIL • ADD TO LOSERS"); strategyBox.SelectedIndex = 0;
             scopeBox = Select("MNQ", "MGC", "BOTH"); scopeBox.SelectedIndex = 0;
             accountPathBox = Select("PROP • VIRTUAL POOL"); accountPathBox.SelectedIndex = 0; accountPathBox.Visibility = Visibility.Collapsed;
             // Keystone is intentionally one setup lab in this revision: long BH only.
@@ -8179,7 +8793,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var costRow = new UniformGrid { Columns = 2, Margin = new Thickness(0, 2, 0, 2) };
             costRow.Children.Add(Row("COMMISSION $ / CONTRACT (ROUND TRIP)", commissionBox)); costRow.Children.Add(Row("SLIPPAGE TICKS / SIDE", slippageBox));
             model.Children.Add(costRow);
-            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel); model.Children.Add(relayModel); model.Children.Add(vwapModel); model.Children.Add(BuildHelixPanel()); model.Children.Add(BuildGoldenPanel());
+            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel); model.Children.Add(relayModel); model.Children.Add(vwapModel); model.Children.Add(BuildHelixPanel()); model.Children.Add(BuildGoldenPanel()); model.Children.Add(BuildRecoilPanel());
             sessionHintText = Txt("NY OPEN: begins at the first 09:30 ET setup bar and ends at 15:55 ET.", Cyan, 10, FontWeights.Bold); data.Children.Add(sessionHintText);
             // Start right under the settings: no scrolling down to section 3.
             quickStartButton = Btn("▶ START RESEARCH • LOAD + DETECT", Green); quickStartButton.Height = 44; quickStartButton.FontSize = 15; quickStartButton.Margin = new Thickness(6, 14, 6, 4);
@@ -8268,6 +8882,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool golden = IsGoldenSelected();
             for (int i = 0; i < goldenStrategyControls.Count; i++) if (goldenStrategyControls[i] != null) goldenStrategyControls[i].Visibility = golden ? Visibility.Visible : Visibility.Collapsed;
             if (golden) for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = Visibility.Collapsed;
+            bool recoil = IsRecoilSelected();
+            for (int i = 0; i < recoilStrategyControls.Count; i++) if (recoilStrategyControls[i] != null) recoilStrategyControls[i].Visibility = recoil ? Visibility.Visible : Visibility.Collapsed;
+            if (recoil) for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = Visibility.Collapsed;
             if (golden && !goldenDefaultsApplied) { if (scopeBox != null) scopeBox.SelectedIndex = 2; if (timeframeBox != null) timeframeBox.SelectedIndex = 1; if (liveFixedBox != null) liveFixedBox.IsChecked = true; goldenDefaultsApplied = true; }
             if (!golden) goldenDefaultsApplied = false;
             for (int i = 0; i < asianStrategyControls.Count; i++) if (asianStrategyControls[i] != null) asianStrategyControls[i].Visibility = asian ? Visibility.Visible : Visibility.Collapsed;
@@ -8284,7 +8901,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (vwapPick && !vwapSessionDefaultApplied && sessionBox != null) { sessionBox.SelectedIndex = 0; vwapSessionDefaultApplied = true; }
             if (!vwapPick) vwapSessionDefaultApplied = false;
             // BH stop modes belong to BH only; the other strategies have their own stop choices.
-            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng || relay || vwapPick || helix || golden ? Visibility.Collapsed : Visibility.Visible;
+            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng || relay || vwapPick || helix || golden || recoil ? Visibility.Collapsed : Visibility.Visible;
             // FVG default window: pre-NY 08:00 ET to the 16:55 ET close (editable custom range).
             if (fvg && !fvgSessionDefaultApplied && sessionBox != null && customStartBox != null && endTimeBox != null) { sessionBox.SelectedIndex = 6; customStartBox.Text = "800"; endTimeBox.Text = "1655"; fvgSessionDefaultApplied = true; }
             if (!fvg) fvgSessionDefaultApplied = false;
@@ -8297,7 +8914,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (!asian) asianScopeDefaultApplied = false;
                 scopeBox.IsEnabled = true;
             }
-            if (timeframeBox != null) { if (asian || helix) timeframeBox.SelectedIndex = 0; timeframeBox.IsEnabled = !asian && !helix; }
+            if (timeframeBox != null) { if (asian || helix || recoil) timeframeBox.SelectedIndex = 0; timeframeBox.IsEnabled = !asian && !helix && !recoil; }
             // HELIX always loads both instruments on 1-minute bars; its own window decides the session.
             if (helix && scopeBox != null) { scopeBox.SelectedIndex = 2; scopeBox.IsEnabled = false; }
             if (sessionBox != null)
@@ -8332,6 +8949,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 if (strategyRuleText != null) { strategyRuleText.Foreground = Gold; strategyRuleText.Text = "GOLDEN RULE: MNQ from 09:30, MGC from 08:00 (editable). The FIRST bullish setup whose candles all form after the start — BH (red → green reference → next candle breaks its high) or a bullish 5-minute FVG (candle 3 low above candle 1 high) — is the one trade of the day. Target MNQ +100 pts, MGC +10 pts; stop below the pattern's low. The push down before it (points from the start price + red candles in a row) is measured on every setup."; }
                 if (strategyWorkflowText != null) strategyWorkflowText.Text = "GOLDEN = one trade a day per instrument. Every entry is kept in the ledger with its push down, drawn on the chart, resolved on 1-minute data and runs through the same pool, payouts, months & sessions and reports. RESEARCH FINDINGS compares setups with and without the push down, BH vs FVG, and stop sizes.";
+            }
+            if (recoil)
+            {
+                if (strategyRuleText != null) { strategyRuleText.Foreground = Orchid; strategyRuleText.Text = "RECOIL RULE: from the start time wait for a move of TRIGGER points; enter AGAINST it (down → BUY, up → SELL) and add every STEP points further against you (1 → 2 → 3 → 4 contracts by default). Out at the profit target, at the max drawdown (the blowup) or at the close. MNQ only, MGC only or BOTH (shared or split drawdown). 1-minute bars, New York time."; }
+                if (strategyWorkflowText != null) strategyWorkflowText.Text = "RECOIL = add to losers. START loads 1-minute bars and runs every ladder; Step 3 switches to the RECOIL view (overview, steps & bounces, risk grid, one live account, every ladder, breakdowns). Change the settings and press RE-RUN in Step 3 — no reload. Prop accounts (evaluation, payouts, copy, rotation, groups by session) come next.";
             }
             if (helix)
             {
@@ -8558,7 +9180,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool asian = IsAsian75Selected();
             quickStartButton.Content = researchSubmissionLocked
                 ? "↻ RUN THIS TEST AGAIN • same settings (or change a setting to start a new one)"
-                : "▶ " + (IsGoldenSelected() ? "START RESEARCH • LOAD + FIND THE GOLDEN SETUPS" : IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
+                : "▶ " + (IsRecoilSelected() ? "START RECOIL • LOAD 1M BARS + RUN EVERY LADDER" : IsGoldenSelected() ? "START RESEARCH • LOAD + FIND THE GOLDEN SETUPS" : IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
         }
 
         private void ConfirmAndStartResearch()
@@ -8620,6 +9242,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (researchPackageButton != null) researchPackageButton.IsEnabled = simulated && !busy;
             if (workflowText == null) return;
             if (busy) workflowText.Text = "WORKING: " + (string.IsNullOrWhiteSpace(operationMessage) ? "processing" : operationMessage) + ". Wait for the completion message.";
+            else if (RecoilStudy() && detected && recoilResult != null) workflowText.Text = "RECOIL COMPLETE: read Step 3 (overview, steps & bounces, risk grid, one live account, every ladder, breakdowns). Open the chart and press PLAY to watch each ladder fill. Change settings in Step 1 and press RE-RUN (no reload).";
             else if (HelixStudy() && detected && helixResult != null) workflowText.Text = "HELIX COMPLETE: read Step 3 (overview, baskets, days & times, accounts & payouts, expenses, the math). Press RUN PROOF TESTS before trusting it; change HELIX settings in Step 1 and press RE-RUN (no reload).";
             else if (!approved) workflowText.Text = "NEXT: choose the date, session, timeframe, and risk inputs, then click START RESEARCH.";
             else if (requestActive) workflowText.Text = "WORKING: NinjaTrader history is loading. The research ledger builds automatically when it finishes.";
@@ -8749,6 +9372,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             Grid.SetRow(resultViews, 3); root.Children.Add(resultViews);
             var helixHost = BuildHelixResultsHost(); Grid.SetRow(helixHost, 1); Grid.SetRowSpan(helixHost, 3); root.Children.Add(helixHost);
             var goldenHost = BuildGoldenResultsHost(); Grid.SetRow(goldenHost, 1); Grid.SetRowSpan(goldenHost, 3); root.Children.Add(goldenHost);
+            var recoilHost = BuildRecoilResultsHost(); Grid.SetRow(recoilHost, 1); Grid.SetRowSpan(recoilHost, 3); root.Children.Add(recoilHost);
             resultViews.SelectionChanged += (sender, args) => { if (args != null && args.OriginalSource == resultViewTabs) { RunDeferredTabRender(); UpdateTopTilesForTab(); } };
             var body = new Grid { MinHeight = 0 };
             // Keep the default settings view short enough to read without a page scroll.  The
@@ -9098,8 +9722,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             var resultsPage = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             resultViews.Height = 620;
             resultsPageScroll = resultsPage; resultsTopPanel = top;
-            resultsPage.SizeChanged += delegate { if (resultsPage.ActualHeight > 200) resultViews.Height = Math.Max(480, resultsPage.ActualHeight - 12); SizeHelixHost(); SizeGoldenHost(); };
-            top.SizeChanged += delegate { SizeHelixHost(); SizeGoldenHost(); };
+            resultsPage.SizeChanged += delegate { if (resultsPage.ActualHeight > 200) resultViews.Height = Math.Max(480, resultsPage.ActualHeight - 12); SizeHelixHost(); SizeGoldenHost(); SizeRecoilHost(); };
+            top.SizeChanged += delegate { SizeHelixHost(); SizeGoldenHost(); SizeRecoilHost(); };
             Border resultsCard = PanelCard(resultsPage);
             resultsCard.VerticalAlignment = VerticalAlignment.Stretch;
             resultsCard.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -11116,7 +11740,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (isProcessing) { UpdateUi("PROCESSING IS ALREADY RUNNING • WAIT FOR STATUS", Gold); return; }
             if (!ConfigurationStillApproved()) { UpdateUi("CONFIGURATION CHANGED • CONFIRM STEP 1 AND REQUEST HISTORY AGAIN", Gold); UpdateWorkflowState(); return; }
             if (!HasSelectedData()) { UpdateUi("STEP 2 REQUIRED • REQUEST COMPLETE HISTORY FOR THE SELECTED SCOPE FIRST", Red); UpdateWorkflowState(); return; }
-            if (HelixStudy()) { SetGoldenResultsMode(false); RunHelix(); return; }
+            if (HelixStudy()) { SetGoldenResultsMode(false); SetRecoilResultsMode(false); RunHelix(); return; }
+            if (RecoilStudy()) { SetGoldenResultsMode(false); RunRecoil(); return; }
+            SetRecoilResultsMode(false);
             SetHelixResultsMode(false);
             if (!GoldenStudyRun()) SetGoldenResultsMode(false);
             KeystoneArcRunConfig workerConfig = CloneConfig(config);
@@ -12482,7 +13108,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             double width = hostW > 300 ? hostW - 2 : Math.Max(900, evidenceWindow == null ? 1320 : evidenceWindow.Width - 54);
             double left = 72, top = 58, right = 78, bottom = 58;
             double baseCandleWidth = chartMinutes <= 1 ? 8 : (chartMinutes <= 5 ? 14 : (chartMinutes <= 30 ? 20 : 30));
-            if (evidenceGoldenFitPending && GoldenStudyRun() && allBars.Count > 1)
+            if (evidenceGoldenFitPending && (GoldenStudyRun() || RecoilStudy()) && allBars.Count > 1)
             {
                 // GOLDEN: open on the Step 1 window (instrument start → close); earlier bars stay one drag away.
                 evidenceGoldenFitPending = false;
@@ -12662,6 +13288,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase))
                 DrawAsianLegAnnotations(allMarks, bars, left, candleWidth, y, top, chartHeight - bottom, symbol);
             else if (HelixStudy()) DrawHelixBaskets(allMarks, bars, left, candleWidth, top, chartHeight - bottom, replaying);
+            else if (RecoilStudy()) DrawRecoilLadders(allMarks, bars, left, candleWidth, y, top, chartHeight - bottom, replaying);
             else
             {
                 if (string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase)) DrawGoldenOverlay(allMarks, bars, left, candleWidth, y, top, chartHeight - bottom);
@@ -12677,7 +13304,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 SetEvidenceStatus("⚠ LOADED DATA ENDS AT " + lastLoaded.ToString("HH:mm") + " BUT THIS SESSION RUNS TO " + expectedEnd.ToString("HH:mm") + " • the research data for this day is incomplete (setups after " + lastLoaded.ToString("HH:mm") + " are missing). Press CLEAR SAVED DATA in Step 1 and run the test again.", Red);
             }
-            else SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (HelixStudy() ? "HELIX ROTATION BASKETS" : string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase) ? "GOLDEN SETUP" : string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"))) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
+            else SetEvidenceStatus("DIRECT " + chartMinutes + "M EVIDENCE READY • " + bars.Count + " OF " + allBars.Count + " CANDLES • " + marks.Count + " SETUPS / " + markerGroups.Count + " ENTRY-BAR " + (markerGroups.Count == 1 ? "BADGE" : "BADGES") + " • " + (HelixStudy() ? "HELIX ROTATION BASKETS" : RecoilStudy() ? "RECOIL LADDERS" : string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase) ? "GOLDEN SETUP" : string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH"))) + " • DRAG THE PLOT TO PAN • ZOOM ON THE BOTTOM/RIGHT AXES", Green);
             if (selectedEvidenceEvent != null && !marks.Any(record => record.Id == selectedEvidenceEvent.Id)) ClearEvidenceSelection(false);
             // Cache exactly what the lightweight crosshair-only overlay needs, then draw it once
             // on top of the freshly rebuilt chart. Every subsequent pure-hover MouseMove reuses
@@ -12975,6 +13602,14 @@ namespace NinjaTrader.NinjaScript.AddOns
         // The GOLDEN window of a chart day: 30 minutes before the instrument's start → the close time (+10 min).
         private void GoldenChartWindow(string symbol, List<KeystoneArcBar> bars, out DateTime from, out DateTime to)
         {
+            if (RecoilStudy())
+            {
+                var rc = recoilConfig ?? (recoilResult == null ? null : recoilResult.Config);
+                DateTime d0 = bars[bars.Count - 1].Time.Date;
+                int rst = rc == null ? 930 : (string.Equals(symbol, "MGC", StringComparison.OrdinalIgnoreCase) ? rc.MgcStartHhmm : rc.MnqStartHhmm), rcl = rc == null ? 1600 : rc.CloseHhmm;
+                from = d0.AddHours(rst / 100).AddMinutes(rst % 100 - 30); to = d0.AddHours(rcl / 100).AddMinutes(rcl % 100 + 5);
+                return;
+            }
             DateTime sd = KeystoneArcEngine.GoldenSessionDay(bars[bars.Count - 1].Time);
             int st = string.Equals(symbol, "MGC", StringComparison.OrdinalIgnoreCase) ? config.GoldenMgcStart : config.GoldenMnqStart;
             from = KeystoneArcEngine.GoldenClock(sd, st).AddMinutes(-30);
@@ -13201,9 +13836,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             DateTime day; if (!EvidenceReplayDay(out day)) return DateTime.MinValue;
             List<KeystoneArcBar> bars = ReplayBars(); if (bars.Count == 0) return DateTime.MinValue;
             DateTime start = EvidenceTestStart(day);
-            if (GoldenStudyRun() && bars.Count > 1)
+            if ((GoldenStudyRun() || RecoilStudy()) && bars.Count > 1)
             {
-                // GOLDEN replay starts half an hour before the instrument's start time.
+                // GOLDEN / RECOIL replay starts half an hour before the instrument's start time.
                 DateTime from, to; GoldenChartWindow(bars[bars.Count - 1].Symbol, bars, out from, out to);
                 if (from > start) start = from;
             }
@@ -13380,6 +14015,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             if (evidenceLiveBorder == null || evidenceBarCursor == DateTime.MinValue) return;
             if (HelixStudy()) { UpdateHelixLivePanel(); return; }
+            if (RecoilStudy()) { UpdateRecoilLivePanel(); return; }
             DateTime day; if (!EvidenceReplayDay(out day)) return;
             List<KeystoneArcEvent> trades = ReplayDayTrades(day);
             if (!EvidenceIsAsian()) { UpdateSetupLivePanel(trades); return; }
@@ -13747,6 +14383,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (evidencePnlBorder != null) { evidencePnlBorder.BorderBrush = outcomeAccent; evidencePnlBorder.Visibility = Visibility.Visible; }
             if (evidenceDetailBorder != null) evidenceDetailBorder.Visibility = Visibility.Visible;
             if (HelixStudy()) HelixFillDetail(e);
+            if (RecoilStudy()) RecoilFillDetail(e);
             if (changed && evidenceCanvas != null && evidenceBars != null && evidenceBars.Count > 0) RenderEvidenceChart();
             BeginEvidenceSelectionPulse();
         }
@@ -14740,7 +15377,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string StrategyDisplayName()
         {
             string code = config == null ? "BH" : (config.StrategyCode ?? "BH").ToUpperInvariant();
-            return code == "GLD" ? "GOLDEN SETUP" : code == "HLX" ? "HELIX ROTATION" : code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : (code == "RLY" ? "LAST-HOUR RELAY" : (code == "VWP" ? "VWAP SNAP-BACK" : "BH"))));
+            return code == "RCL" ? "RECOIL • ADD TO LOSERS" : code == "GLD" ? "GOLDEN SETUP" : code == "HLX" ? "HELIX ROTATION" : code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : (code == "RLY" ? "LAST-HOUR RELAY" : (code == "VWP" ? "VWAP SNAP-BACK" : "BH"))));
         }
 
         private void RenderFirstReturnAccountDetail(KeystoneArcVirtualAccount account, KeystoneArcFirstReturnRow row, string startLabel)
@@ -15663,7 +16300,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (config.Scope != "MNQ" && config.Scope != "MGC" && config.Scope != "BOTH") config.Scope = asian75 ? "BOTH" : "MNQ";
             config.AccountPath = "PROP";
             bool fvgStrategy = !asian75 && IsFvgSelected();
-            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : (IsRelaySelected() ? "RLY" : (IsVwapSelected() ? "VWP" : (IsHelixSelected() ? "HLX" : (IsGoldenSelected() ? "GLD" : "BH"))))));
+            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : (IsRelaySelected() ? "RLY" : (IsVwapSelected() ? "VWP" : (IsHelixSelected() ? "HLX" : (IsGoldenSelected() ? "GLD" : (IsRecoilSelected() ? "RCL" : "BH")))))));
             if (config.StrategyCode == "HLX") config.Scope = "BOTH";
             config.RelaySignalHhmm = Integer(relaySignalBox, 1000); config.RelayEntryHhmm = Integer(relayEntryBox, 1525); config.RelayExitHhmm = Integer(relayExitBox, 1555);
             config.RelayThreshold = Math.Max(0, NumberAllowZero(relayThresholdBox, 0.25)); config.RelayStopFraction = Math.Max(0.01, Number(relayStopBox, 0.15)); config.RelayRangeDays = Math.Max(5, Integer(relayDaysBox, 20));
@@ -15753,6 +16390,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.AsianRiskMode = asianRiskModeBox != null && Convert.ToString(asianRiskModeBox.SelectedItem).StartsWith("PRICE", StringComparison.OrdinalIgnoreCase) ? "PRICE" : "CASH";
             if (asian75) { config.CustomStart = config.AsianStartHhmm; config.EndTime = config.AsianEndHhmm; }
             if (config.StrategyCode == "GLD" && !ReadGoldenConfig()) return false;
+            if (config.StrategyCode == "RCL")
+            {
+                KeystoneRecoilConfig rcc; string rerr;
+                if (!ReadRecoilConfig(out rcc, out rerr)) { UpdateUi("RECOIL SETTINGS ERROR • " + rerr, Red); return false; }
+                int ls, le; HelixLoadWindow(Math.Min(rcc.UseMnq == 1 ? rcc.MnqStartHhmm : 2359, rcc.UseMgc == 1 ? rcc.MgcStartHhmm : 2359), rcc.CloseHhmm, out ls, out le);
+                config.SessionMode = "CUSTOM"; config.CustomStart = ls; config.EndTime = le; config.SetupMinutes = 1;
+            }
             if (config.StrategyCode == "HLX")
             {
                 int hs = Integer(helixStartBox, 930), he = Integer(helixEndBox, 1600), ls, le;
@@ -16991,6 +17635,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             ClearCurrentResearch(true);
             helixResult = null; helixProofRows = null; helixMinutes = null; helixMinutesKey = string.Empty; helixBuckets = new List<KeystoneHelixBucket>(); helixRotationById.Clear(); SetHelixResultsMode(false);
             goldenStudyAll = new List<KeystoneArcEvent>(); goldenStudy = null; SetGoldenResultsMode(false);
+            recoilResult = null; recoilCycleById.Clear(); recoilGrids = new List<KeystoneRecoilGrid>(); recoilCompare = new List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>>(); SetRecoilResultsMode(false);
             config = new KeystoneArcRunConfig();
             configuredMnqInstrument = null; configuredMgcInstrument = null;
             mnqSetupFromOpenChart = false; mgcSetupFromOpenChart = false; mnqSetupDerivedFromOpenOneMinute = false; mgcSetupDerivedFromOpenOneMinute = false; mnqOutcomeFromOpenChart = false; mgcOutcomeFromOpenChart = false;
@@ -17345,7 +17990,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string BuildEvidenceStudyLabel()
         {
             if (config == null || config.Start == DateTime.MinValue) return "CURRENT TEST RANGE • not configured";
-            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (HelixStudy() ? "HELIX ROTATION BASKETS" : string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase) ? "GOLDEN SETUP" : string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")));
+            string setup = string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 REVERSAL • COPY • FIXED 1M" : (HelixStudy() ? "HELIX ROTATION BASKETS" : RecoilStudy() ? "RECOIL LADDERS" : string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase) ? "GOLDEN SETUP" : string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) ? "ASIAN 75 CYCLE" : (string.Equals(config.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase) ? "LAST-HOUR RELAY" : string.Equals(config.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase) ? "VWAP SNAP-BACK" : string.Equals(config.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase) ? "123 ENGULFING" : string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase) ? "FVG RETEST" : (config.BhAggressionFilter == "STRONGER" ? "STRONGER BH FILTER" : "ALL VALID BH")));
             return "CURRENT TEST RANGE • " + SessionDateLabel(config) + " • " + config.Scope + " • " + config.SessionMode + " • " + config.SetupMinutes + "-MINUTE SETUPS • " + setup + " • SELECT A DATE TAB BELOW TO INSPECT ONE COMPLETE SESSION";
         }
         private static void GetConfiguredSessionBounds(DateTime firstDate, DateTime lastDate, KeystoneArcRunConfig cfg, out DateTime start, out DateTime end)
@@ -18902,7 +19547,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     researchRunCompleted = true; unsavedResearch = events.Count > 0;
                     KeystoneArcHub.Publish(new List<KeystoneArcEvent>(), config);
                     RenderEvents(); RebuildReviewList();
-                    SetGoldenResultsMode(false);
+                    SetGoldenResultsMode(false); SetRecoilResultsMode(false);
                     SetHelixResultsMode(true);
                     RenderHelixResults();
                     isProcessing = false; EndBusy();
@@ -19330,6 +19975,684 @@ namespace NinjaTrader.NinjaScript.AddOns
             var study = evidenceStudyText == null ? null : evidenceStudyText.Parent as UIElement; if (study != null) study.Visibility = v;
             var audit = evidenceHoverBorder == null ? null : evidenceHoverBorder.Parent as UIElement; if (audit != null) audit.Visibility = v;
             if (evidenceInfoToggle != null) evidenceInfoToggle.Content = evidenceInfoVisible ? "HIDE INFO" : "SHOW INFO";
+        }
+
+        // =================================================================================
+        // RECOIL • ADD TO LOSERS • Step 1 settings, run, Step 3 results, chart ladders, live replay box
+        // =================================================================================
+        private readonly List<UIElement> recoilStrategyControls = new List<UIElement>();
+        private TextBox rcMnqStartBox, rcMgcStartBox, rcLastEntryBox, rcCloseBox, rcMnqTriggerBox, rcMgcTriggerBox, rcMnqStepBox, rcMgcStepBox, rcMaxEntriesBox, rcBaseQtyBox,
+            rcTargetBox, rcMnqTargetPtsBox, rcMgcTargetPtsBox, rcMaxDdBox, rcMnqDdBox, rcMgcDdBox, rcCyclesBox, rcMnqPvBox, rcMgcPvBox, rcCommissionBox, rcSlipBox, rcStartBalanceBox;
+        private ComboBox rcLadderBox, rcTargetModeBox, rcDdModeBox;
+        private CheckBox rcSameStartBox;
+        private TextBlock rcPreviewText;
+        private KeystoneRecoilResult recoilResult;
+        private KeystoneRecoilConfig recoilConfig;
+        private List<KeystoneRecoilGrid> recoilGrids = new List<KeystoneRecoilGrid>();
+        private List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>> recoilCompare = new List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>>();
+        private Dictionary<int, KeystoneRecoilCycle> recoilCycleById = new Dictionary<int, KeystoneRecoilCycle>();
+        private List<KeystoneHelixMinute> recoilMinutes; private string recoilMinutesKey = string.Empty;
+        private int recoilSelectedId, recoilGridIndex;
+        private Grid recoilResultsHost; private bool recoilResultsMode; private Visibility oneDayMetricsVisibilityBeforeRecoil = Visibility.Collapsed;
+        private TextBlock recoilVerdictHead, recoilVerdictSub, recoilSlimText; private Border recoilVerdictCard; private WrapPanel recoilTiles; private TabControl recoilTabs;
+        private Button recoilSummaryToggle; private bool recoilSummaryHidden;
+
+        private bool IsRecoilSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("RECOIL", StringComparison.OrdinalIgnoreCase); }
+        private bool RecoilStudy() { return config != null && string.Equals(config.StrategyCode, "RCL", StringComparison.OrdinalIgnoreCase); }
+
+        private UIElement BuildRecoilPanel()
+        {
+            var panel = Stack(); panel.Margin = new Thickness(0, 4, 0, 2);
+            panel.Children.Add(Txt("RECOIL • ADD TO LOSERS", Orchid, 13, FontWeights.Bold));
+            panel.Children.Add(Txt("From the start time, wait for the price to move TRIGGER points up or down. Enter AGAINST the move (down → BUY, up → SELL), add contracts every STEP points further against you up to MAX ENTRIES. The ladder closes at its profit target, at the maximum drawdown, or at the close. Each contract keeps its own fill price — the average and the P/L are exact.", Muted, 10, FontWeights.Normal));
+            rcMnqStartBox = Input("930"); rcMgcStartBox = Input("930"); rcLastEntryBox = Input("1500"); rcCloseBox = Input("1600");
+            rcSameStartBox = new CheckBox { Content = "MNQ AND MGC START LOOKING AT THE SAME TIME", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
+            rcMnqTriggerBox = Input("100"); rcMgcTriggerBox = Input("20"); rcMnqStepBox = Input("100"); rcMgcStepBox = Input("20");
+            rcLadderBox = Select("+1 EACH ADD • 1 → 2 → 3 → 4", "GROWING • 1 → 3 → 6 → 10", "DOUBLING • 1 → 2 → 4 → 8"); rcLadderBox.SelectedIndex = 0;
+            rcMaxEntriesBox = Input("4"); rcBaseQtyBox = Input("1");
+            rcTargetModeBox = Select("$ FOR THE WHOLE LADDER", "POINTS FROM THE AVERAGE PRICE"); rcTargetModeBox.SelectedIndex = 0;
+            rcTargetBox = Input("400"); rcMnqTargetPtsBox = Input("50"); rcMgcTargetPtsBox = Input("10");
+            rcMaxDdBox = Input("2000"); rcDdModeBox = Select("SHARED • MNQ + MGC TOGETHER", "SPLIT • EACH INSTRUMENT ITS OWN"); rcDdModeBox.SelectedIndex = 0;
+            rcMnqDdBox = Input("2000"); rcMgcDdBox = Input("2000"); rcCyclesBox = Input("1");
+            rcMnqPvBox = Input("2"); rcMgcPvBox = Input("10"); rcCommissionBox = Input("0.62"); rcSlipBox = Input("1"); rcStartBalanceBox = Input("5000");
+            foreach (TextBox b in new[] { rcMnqStartBox, rcMgcStartBox, rcLastEntryBox, rcCloseBox, rcMnqTriggerBox, rcMgcTriggerBox, rcMnqStepBox, rcMgcStepBox, rcMaxEntriesBox, rcBaseQtyBox, rcTargetBox, rcMnqTargetPtsBox, rcMgcTargetPtsBox, rcMaxDdBox, rcMnqDdBox, rcMgcDdBox, rcCyclesBox, rcMnqPvBox, rcMgcPvBox, rcCommissionBox, rcSlipBox, rcStartBalanceBox })
+            { WatchConfigurationInput(b); b.TextChanged += delegate { UpdateRecoilPreview(); }; }
+            foreach (ComboBox b in new[] { rcLadderBox, rcTargetModeBox, rcDdModeBox }) b.SelectionChanged += delegate { InvalidateConfigurationApproval(); UpdateRecoilPreview(); };
+            rcSameStartBox.Checked += delegate { InvalidateConfigurationApproval(); UpdateRecoilPreview(); }; rcSameStartBox.Unchecked += delegate { InvalidateConfigurationApproval(); UpdateRecoilPreview(); };
+            panel.Children.Add(Txt("1 • WHEN (NEW YORK TIME, HHMM)", Cyan, 10, FontWeights.Bold));
+            panel.Children.Add(Row("MNQ STARTS LOOKING AT", rcMnqStartBox)); panel.Children.Add(Row("MGC STARTS LOOKING AT", rcMgcStartBox)); panel.Children.Add(Row("BOTH", rcSameStartBox));
+            panel.Children.Add(Row("NO NEW LADDER AFTER", rcLastEntryBox)); panel.Children.Add(Row("CLOSE EVERYTHING AT", rcCloseBox));
+            panel.Children.Add(Row("LADDERS A DAY PER INSTRUMENT (a new one only after a win)", rcCyclesBox));
+            panel.Children.Add(Txt("2 • TRIGGER AND ADDS (POINTS)", Cyan, 10, FontWeights.Bold));
+            panel.Children.Add(Row("MNQ: ENTER AFTER A MOVE OF", rcMnqTriggerBox)); panel.Children.Add(Row("MNQ: ADD EVERY", rcMnqStepBox));
+            panel.Children.Add(Row("MGC: ENTER AFTER A MOVE OF", rcMgcTriggerBox)); panel.Children.Add(Row("MGC: ADD EVERY", rcMgcStepBox));
+            panel.Children.Add(Row("LADDER", rcLadderBox)); panel.Children.Add(Row("MAX ENTRIES (FIRST + ADDS)", rcMaxEntriesBox)); panel.Children.Add(Row("FIRST ENTRY CONTRACTS", rcBaseQtyBox));
+            panel.Children.Add(Txt("3 • EXIT", Cyan, 10, FontWeights.Bold));
+            panel.Children.Add(Row("PROFIT TARGET", rcTargetModeBox)); panel.Children.Add(Row("TARGET $ (WHOLE LADDER)", rcTargetBox));
+            panel.Children.Add(Row("MNQ TARGET POINTS (FROM THE AVERAGE)", rcMnqTargetPtsBox)); panel.Children.Add(Row("MGC TARGET POINTS (FROM THE AVERAGE)", rcMgcTargetPtsBox));
+            panel.Children.Add(Row("MAX DRAWDOWN $ (THE BLOWUP)", rcMaxDdBox)); panel.Children.Add(Row("WITH BOTH INSTRUMENTS", rcDdModeBox));
+            panel.Children.Add(Row("SPLIT: MNQ MAX DRAWDOWN $", rcMnqDdBox)); panel.Children.Add(Row("SPLIT: MGC MAX DRAWDOWN $", rcMgcDdBox));
+            panel.Children.Add(Txt("4 • MONEY", Cyan, 10, FontWeights.Bold));
+            panel.Children.Add(Row("MNQ $ PER POINT PER CONTRACT (CFD: PER LOT)", rcMnqPvBox)); panel.Children.Add(Row("MGC $ PER POINT PER CONTRACT (CFD: PER LOT)", rcMgcPvBox));
+            panel.Children.Add(Row("COMMISSION $ PER CONTRACT PER SIDE", rcCommissionBox)); panel.Children.Add(Row("SLIPPAGE TICKS ON STOP / CLOSE EXITS", rcSlipBox));
+            panel.Children.Add(Row("ONE LIVE ACCOUNT START $", rcStartBalanceBox));
+            rcPreviewText = Txt(string.Empty, Green, 10, FontWeights.Bold); rcPreviewText.FontFamily = new FontFamily("Consolas"); panel.Children.Add(rcPreviewText);
+            UpdateRecoilPreview();
+            recoilStrategyControls.Clear(); recoilStrategyControls.Add(panel);
+            panel.Visibility = Visibility.Collapsed;
+            return panel;
+        }
+
+        // The ladder in numbers before the run: each entry, the average, the open P/L there and where it blows up.
+        private void UpdateRecoilPreview()
+        {
+            if (rcPreviewText == null) return;
+            if (rcSameStartBox != null && rcMgcStartBox != null && rcMnqStartBox != null) { rcMgcStartBox.IsEnabled = rcSameStartBox.IsChecked != true; if (rcSameStartBox.IsChecked == true && rcMgcStartBox.Text != rcMnqStartBox.Text) rcMgcStartBox.Text = rcMnqStartBox.Text; }
+            KeystoneRecoilConfig c; string err;
+            if (!ReadRecoilConfig(out c, out err, false)) { rcPreviewText.Text = "⚠ " + err; rcPreviewText.Foreground = Red; return; }
+            var sb = new StringBuilder();
+            foreach (string sym in new[] { "MNQ", "MGC" })
+            {
+                bool mg = sym == "MGC"; double step = mg ? c.MgcStep : c.MnqStep, pv = mg ? c.MgcPointValue : c.MnqPointValue, dd = c.DrawdownMode == "SPLIT" ? (mg ? c.MgcMaxDrawdown : c.MnqMaxDrawdown) : c.MaxDrawdown;
+                sb.AppendLine(sym + " (BUY example, first entry at 0, $" + pv.ToString("0.##") + "/pt):");
+                double S = 0, Q = 0;
+                for (int k = 0; k < c.MaxEntries; k++)
+                {
+                    double px = -k * step; int q = KeystoneRecoil.AddQty(c, k); S += px * q; Q += q;
+                    double avg = S / Q, pl = (Q * px - S) * pv, tp = c.TargetMode == "POINTS" ? avg + (mg ? c.MgcTargetPoints : c.MnqTargetPoints) : avg + c.TargetDollars / (Q * pv);
+                    sb.AppendLine("  " + (k == 0 ? "ENTRY" : "ADD " + k).PadRight(6) + " @ " + px.ToString("0.#").PadLeft(6) + "  +" + q + " = " + Q.ToString("0").PadLeft(3) + " contracts  avg " + avg.ToString("0.#").PadLeft(7) + "  open P/L " + Signed(pl).PadLeft(8) + "  target at " + tp.ToString("0.#"));
+                }
+                double blow = (S - dd / pv) / Q;
+                sb.AppendLine("  BLOWUP at " + blow.ToString("0.#") + " (" + (-blow).ToString("0.#") + " pts below the first entry) = −" + Cash(dd) + (blow > -(c.MaxEntries - 1) * step ? "  ⚠ before the last add" : ""));
+            }
+            rcPreviewText.Text = sb.ToString().TrimEnd(); rcPreviewText.Foreground = Green;
+        }
+
+        private bool ReadRecoilConfig(out KeystoneRecoilConfig c, out string error, bool strict = true)
+        {
+            c = new KeystoneRecoilConfig(); error = null;
+            int ms = Integer(rcMnqStartBox, 930), gs = rcSameStartBox != null && rcSameStartBox.IsChecked == true ? ms : Integer(rcMgcStartBox, 930), le = Integer(rcLastEntryBox, 1500), cl = Integer(rcCloseBox, 1600);
+            if (!IsValidHhmm(ms) || !IsValidHhmm(gs) || !IsValidHhmm(le) || !IsValidHhmm(cl)) { error = "times must be HHMM from 0000 to 2359"; return false; }
+            if (cl <= Math.Min(ms, gs) || le > cl) { error = "the close must be after the start and the last entry not after the close (same day)"; return false; }
+            c.MnqStartHhmm = ms; c.MgcStartHhmm = gs; c.LastEntryHhmm = le; c.CloseHhmm = cl;
+            c.MnqTrigger = Number(rcMnqTriggerBox, 100); c.MgcTrigger = Number(rcMgcTriggerBox, 20); c.MnqStep = Number(rcMnqStepBox, 100); c.MgcStep = Number(rcMgcStepBox, 20);
+            c.Ladder = new[] { "ONE", "STEP", "DOUBLE" }[Math.Max(0, Math.Min(2, rcLadderBox == null ? 0 : rcLadderBox.SelectedIndex))];
+            c.MaxEntries = Math.Max(1, Math.Min(12, Integer(rcMaxEntriesBox, 4))); c.BaseQty = Math.Max(1, Integer(rcBaseQtyBox, 1));
+            c.TargetMode = rcTargetModeBox != null && rcTargetModeBox.SelectedIndex == 1 ? "POINTS" : "DOLLARS";
+            c.TargetDollars = Number(rcTargetBox, 400); c.MnqTargetPoints = Number(rcMnqTargetPtsBox, 50); c.MgcTargetPoints = Number(rcMgcTargetPtsBox, 10);
+            c.MaxDrawdown = Number(rcMaxDdBox, 2000); c.DrawdownMode = rcDdModeBox != null && rcDdModeBox.SelectedIndex == 1 ? "SPLIT" : "SHARED";
+            c.MnqMaxDrawdown = Number(rcMnqDdBox, 2000); c.MgcMaxDrawdown = Number(rcMgcDdBox, 2000);
+            c.CyclesPerDay = Math.Max(1, Integer(rcCyclesBox, 1));
+            c.MnqPointValue = Number(rcMnqPvBox, 2); c.MgcPointValue = Number(rcMgcPvBox, 10); c.CommissionPerSide = NumberAllowZero(rcCommissionBox, 0.62); c.SlippageTicks = NumberAllowZero(rcSlipBox, 1);
+            string scope = config == null ? "MNQ" : (config.Scope ?? "MNQ");
+            if (scopeBox != null && !strict) scope = Convert.ToString(scopeBox.SelectedItem ?? scope);
+            c.UseMnq = scope == "MGC" ? 0 : 1; c.UseMgc = scope == "MNQ" ? 0 : 1;
+            if (config != null && config.Start > DateTime.MinValue) c.Start = config.Start.Date;
+            if (config != null && config.End < DateTime.MaxValue && config.End > DateTime.MinValue) c.End = config.End.Date;
+            if (c.MnqTrigger <= 0 || c.MgcTrigger <= 0 || c.MnqStep <= 0 || c.MgcStep <= 0) { error = "trigger and add distances must be above 0"; return false; }
+            if (c.MaxDrawdown <= 0) { error = "max drawdown must be above 0"; return false; }
+            return true;
+        }
+
+        private void RunRecoil()
+        {
+            if (isProcessing) { UpdateUi("PROCESSING IS ALREADY RUNNING • WAIT FOR STATUS", Gold); return; }
+            KeystoneRecoilConfig rc; string error;
+            if (!ReadRecoilConfig(out rc, out error)) { UpdateUi("RECOIL SETTINGS ERROR • " + error, Red); return; }
+            if ((rc.UseMnq == 1 && mnqBars.Count == 0) || (rc.UseMgc == 1 && mgcBars.Count == 0)) { UpdateUi("RECOIL NEEDS VERIFIED 1-MINUTE BARS FOR " + (rc.UseMnq == 1 && mnqBars.Count == 0 ? "MNQ" : "MGC") + " • press START with RECOIL selected", Red); return; }
+            double startBalance = Math.Max(1, Number(rcStartBalanceBox, 5000));
+            var mnqCopy = rc.UseMnq == 1 ? new List<KeystoneArcBar>(mnqBars) : new List<KeystoneArcBar>(); var mgcCopy = rc.UseMgc == 1 ? new List<KeystoneArcBar>(mgcBars) : new List<KeystoneArcBar>();
+            string key = mnqCopy.Count + "|" + mgcCopy.Count + "|" + (mnqCopy.Count > 0 ? mnqCopy[0].Time.Ticks + "|" + mnqCopy[mnqCopy.Count - 1].Time.Ticks : "0") + "|" + (mgcCopy.Count > 0 ? mgcCopy[0].Time.Ticks + "|" + mgcCopy[mgcCopy.Count - 1].Time.Ticks : "0");
+            List<KeystoneHelixMinute> cached = key == recoilMinutesKey ? recoilMinutes : null;
+            isProcessing = true;
+            BeginBusy("RECOIL • RUNNING EVERY LADDER + THE RISK GRID");
+            UpdateUi("RECOIL RUNNING • " + rc.Describe(), Gold);
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                List<KeystoneHelixMinute> minutes = null; KeystoneRecoilResult result = null; var grids = new List<KeystoneRecoilGrid>(); var compare = new List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>>(); string failure = null;
+                try
+                {
+                    minutes = cached ?? KeystoneHelix.Align(mnqCopy, mgcCopy);
+                    result = KeystoneRecoil.Run(minutes, rc);
+                    if (rc.UseMnq == 1) grids.AddRange(KeystoneRecoilStudy.Grids(minutes, rc, "MNQ"));
+                    if (rc.UseMgc == 1) grids.AddRange(KeystoneRecoilStudy.Grids(minutes, rc, "MGC"));
+                    // MNQ only • MGC only • BOTH with the same settings (when both are loaded)
+                    if (rc.UseMnq == 1 && rc.UseMgc == 1)
+                        foreach (var t in new[] { Tuple.Create("MNQ ONLY", 1, 0), Tuple.Create("MGC ONLY", 0, 1), Tuple.Create("BOTH", 1, 1) })
+                        {
+                            var c = rc.Copy(); c.UseMnq = t.Item2; c.UseMgc = t.Item3;
+                            if (c.UseMgc == 0 && rc.DrawdownMode == "SPLIT") c.MaxDrawdown = rc.MnqMaxDrawdown;
+                            if (c.UseMnq == 0 && rc.DrawdownMode == "SPLIT") c.MaxDrawdown = rc.MgcMaxDrawdown;
+                            var rr = t.Item1 == "BOTH" ? result : KeystoneRecoil.Run(minutes, c);
+                            compare.Add(Tuple.Create(t.Item1, KeystoneRecoilStudy.Stats(t.Item1, rr.Cycles, rr.Days.Count, rr.NoTriggerDays.Values.Sum()), KeystoneRecoilStudy.Account(rr.Cycles, startBalance)));
+                        }
+                }
+                catch (Exception ex) { failure = ex.Message; }
+                DispatchToLab(delegate
+                {
+                    if (failure != null || result == null) { isProcessing = false; EndBusy(); UpdateUi("RECOIL ERROR • " + failure, Red); UpdateWorkflowState(); return; }
+                    recoilMinutes = minutes; recoilMinutesKey = key; recoilResult = result; recoilConfig = rc; recoilGrids = grids; recoilCompare = compare; recoilGridIndex = 0;
+                    recoilCycleById = result.Cycles.ToDictionary(x => x.Id);
+                    events = RecoilEvents(result);
+                    loadedEvents = events; loadedScope = config.Scope; viewScope = config.Scope;
+                    accounts = new List<KeystoneArcVirtualAccount>();
+                    researchRunCompleted = true; unsavedResearch = events.Count > 0;
+                    KeystoneArcHub.Publish(new List<KeystoneArcEvent>(), config);
+                    RenderEvents(); RebuildReviewList();
+                    SetGoldenResultsMode(false); SetHelixResultsMode(false);
+                    SetRecoilResultsMode(true);
+                    RenderRecoilResults();
+                    isProcessing = false; EndBusy();
+                    if (evidenceWindow != null) { evidenceOverlayCache.Clear(); RenderEvidenceChart(); }
+                    var s = KeystoneRecoilStudy.Stats("ALL", result.Cycles, result.Days.Count);
+                    UpdateUi("RECOIL COMPLETE • " + result.Cycles.Count + " LADDERS ON " + result.Days.Count + " DAYS • WON " + KeystoneRecoilStudy.Pc(s.WinRate) + " • BLOWN " + s.Blowups + " • NET " + Cash(s.Net) + " • Step 3 shows everything", s.Net >= 0 ? Green : Gold);
+                    UpdateWorkflowState();
+                    if (workspaceTabs != null && resultsTab != null) { resultsTab.IsEnabled = true; workspaceTabs.SelectedIndex = 2; }
+                });
+            });
+        }
+
+        // One ledger row per ladder (pins, replay steps, review list, exports).
+        private List<KeystoneArcEvent> RecoilEvents(KeystoneRecoilResult r)
+        {
+            var list = new List<KeystoneArcEvent>();
+            foreach (var c in r.Cycles)
+            {
+                if (c.Fills.Count == 0) continue;
+                var last = c.Fills[c.Fills.Count - 1];
+                list.Add(new KeystoneArcEvent
+                {
+                    Id = "RCL-" + c.Id.ToString("00000"), Symbol = c.Symbol, SetupClass = "RCL", Direction = c.Dir > 0 ? "LONG" : "SHORT", StrengthTag = c.Entries + " ENTRIES",
+                    ReferenceTime = c.AnchorTime, TriggerTime = c.Fills[0].Time, EntryTime = c.Fills[0].Time, Entry = c.Fills[0].Price,
+                    Stop = double.IsNaN(last.StopPrice) ? double.NaN : last.StopPrice, Target = last.TargetPrice, Quantity = c.MaxQty, StopDistance = double.IsNaN(last.StopPrice) ? 0 : Math.Abs(c.Fills[0].Price - last.StopPrice),
+                    RiskModel = "RCL LADDER", ExitTime = c.ExitTime, ExitPrice = c.ExitPrice, Outcome = c.Win ? "WIN" : (c.Reason == "SESSION END" ? "SESSION EXIT" : "LOSS"), GrossPnl = c.Net,
+                    PeakAfterEntry = c.MfeValue, TroughAfterEntry = c.MaeValue, SessionOrder = c.Id, ReviewState = "ACCEPTED", ReviewNote = RecoilCycleText(c)
+                });
+            }
+            return list;
+        }
+
+        private string RecoilCycleText(KeystoneRecoilCycle c)
+        {
+            string f = c.Symbol == "MGC" ? "0.0" : "0.00";
+            var sb = new StringBuilder();
+            sb.AppendLine("RECOIL LADDER #" + c.Id + " • " + c.Symbol + " • " + c.Day.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • ladder " + c.CycleInDay + " of the day");
+            sb.AppendLine("START " + c.AnchorPrice.ToString(f) + " at " + Hm(c.AnchorTime) + " → moved " + (c.Dir > 0 ? "DOWN" : "UP") + " to " + c.TriggerLevel.ToString(f) + " → " + c.Side);
+            foreach (var x in c.Fills) sb.AppendLine("  " + Hm(x.Time) + "  " + (x == c.Fills[0] ? c.Side : "ADD") + " " + x.Qty + " @ " + x.Price.ToString(f) + (x.Gap ? " (gap)" : "") + " → " + x.TotalQty + " contracts, average " + x.Avg.ToString(f) + " • target " + x.TargetPrice.ToString(f) + (double.IsNaN(x.StopPrice) ? " • blowup = shared $ drawdown" : " • blowup " + x.StopPrice.ToString(f)));
+            sb.AppendLine("EXIT " + Hm(c.ExitTime) + " @ " + c.ExitPrice.ToString(f) + " • " + (c.Win ? "TARGET" : c.Reason) + (c.Ambiguous ? " (the trigger minute touched both sides)" : "") + " • gross " + Signed(c.Gross) + " − costs " + Cash(c.Commission + c.Slippage) + " = " + Signed(c.Net));
+            sb.AppendLine("WORST OPEN P/L " + Signed(c.MaeValue) + " • BEST " + Signed(c.MfeValue));
+            if (!double.IsNaN(c.LowestPrice))
+                sb.Append("BOUNCE • the worst price until the close was " + c.LowestPrice.ToString(f) + " (" + Hm(c.LowestTime) + "); after it the best was " + (double.IsNaN(c.BestAfterLowest) ? "—" : c.BestAfterLowest.ToString(f) + " (" + Hm(c.BestAfterLowestTime) + ")")
+                    + " • the full ladder (" + c.FullLadderEntries + " entries, no stop) would have been " + Signed(c.FullLadderAtLowest) + " at the worst and " + Signed(c.FullLadderAtBest) + " at the best");
+            return sb.ToString().TrimEnd();
+        }
+
+        // ---- Step 3 RECOIL view ------------------------------------------------------------------
+        private void SetRecoilResultsMode(bool on)
+        {
+            if (recoilResultsHost == null) return;
+            if (on && helixResultsMode) SetHelixResultsMode(false);
+            if (on && goldenResultsMode) SetGoldenResultsMode(false);
+            if (on && !recoilResultsMode && oneDayPoolMetrics != null) oneDayMetricsVisibilityBeforeRecoil = oneDayPoolMetrics.Visibility;
+            bool was = recoilResultsMode;
+            if (!on && recoilSummaryHidden) SetRecoilSummaryHidden(false);
+            recoilResultsMode = on;
+            recoilResultsHost.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            if (!on && !was) return;
+            Visibility normal = on ? Visibility.Collapsed : Visibility.Visible;
+            if (poolLifecycleMetrics != null) poolLifecycleMetrics.Visibility = normal;
+            if (oneDayPoolMetrics != null) oneDayPoolMetrics.Visibility = on ? Visibility.Collapsed : oneDayMetricsVisibilityBeforeRecoil;
+            if (resultViewTabs != null) resultViewTabs.Visibility = normal;
+            if (normalResultActions != null) normalResultActions.Visibility = normal;
+            if (normalResultClearRow != null) normalResultClearRow.Visibility = normal;
+            if (poolResultBanner != null) poolResultBanner.Visibility = normal;
+            if (instrumentSplitText != null && on) instrumentSplitText.Visibility = Visibility.Collapsed;
+            if (resultsHeadingText != null) resultsHeadingText.Text = on ? "RECOIL • ADD TO LOSERS • SETUPS, RISK GRID AND ONE LIVE ACCOUNT" : "PROP VIRTUAL-POOL RESULTS • ALL ELIGIBLE SETUPS";
+            SizeRecoilHost();
+        }
+
+        private void SizeRecoilHost()
+        {
+            if (recoilResultsHost == null || !recoilResultsMode) return;
+            double page = resultsPageScroll == null ? 0 : resultsPageScroll.ActualHeight, top = resultsTopPanel == null ? 0 : resultsTopPanel.ActualHeight;
+            recoilResultsHost.Height = page > 200 ? Math.Max(520, page - top - 18) : 760;
+        }
+
+        private void SetRecoilSummaryHidden(bool hide)
+        {
+            recoilSummaryHidden = hide;
+            Visibility v = hide ? Visibility.Collapsed : Visibility.Visible;
+            if (recoilVerdictCard != null) recoilVerdictCard.Visibility = v;
+            if (recoilTiles != null) recoilTiles.Visibility = v;
+            if (resultsTopPanel != null && recoilResultsMode) resultsTopPanel.Visibility = v;
+            if (recoilSummaryToggle != null) recoilSummaryToggle.Content = hide ? "▼ SHOW SUMMARY" : "▲ FULL SCREEN TABLES";
+            if (resultsPageScroll != null) resultsPageScroll.ScrollToTop();
+            SizeRecoilHost();
+        }
+
+        private UIElement BuildRecoilResultsHost()
+        {
+            var g = new Grid { Visibility = Visibility.Collapsed };
+            for (int i = 0; i < 3; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var head = new Grid(); head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var verdict = new StackPanel();
+            recoilVerdictHead = new TextBlock { Text = "RECOIL", Foreground = Gold, FontSize = 20, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap };
+            recoilVerdictSub = new TextBlock { Text = "Choose RECOIL in Step 1 and press START.", Foreground = Text, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+            verdict.Children.Add(recoilVerdictHead); verdict.Children.Add(recoilVerdictSub); head.Children.Add(verdict);
+            var actions = new UniformGrid { Columns = 2, Margin = new Thickness(8, 0, 0, 0), Width = 430 };
+            var rerun = Btn("RE-RUN WITH STEP 1 SETTINGS", Green); rerun.ToolTip = "Reads the RECOIL settings in Step 1 again and re-runs on the bars already loaded (no reload).";
+            var export = Btn("EXPORT REPORT (HTML + CSV)", Gold);
+            var chart = Btn("LADDERS ON THE CHART", Blue);
+            var verify = Btn("LADDER LIST (STEP 2)", Cyan);
+            foreach (var b in new[] { rerun, export, chart, verify }) { b.Height = 30; b.FontSize = 11; actions.Children.Add(b); }
+            rerun.Click += delegate { RunRecoil(); };
+            export.Click += delegate { ExportRecoilReport(); };
+            chart.Click += delegate { OpenRecoilChart(null); };
+            verify.Click += delegate { if (workspaceTabs != null) workspaceTabs.SelectedIndex = 1; };
+            Grid.SetColumn(actions, 1); head.Children.Add(actions);
+            recoilVerdictCard = new Border { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(5, 1.5, 1.5, 1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 10, 8), Margin = new Thickness(2, 2, 2, 4), Child = head };
+            g.Children.Add(recoilVerdictCard);
+            recoilTiles = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) }; Grid.SetRow(recoilTiles, 1); g.Children.Add(recoilTiles);
+            var slim = new Grid { Margin = new Thickness(2, 0, 2, 2) };
+            slim.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); slim.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            recoilSummaryToggle = Btn("▲ FULL SCREEN TABLES", Cyan); recoilSummaryToggle.Height = 28; recoilSummaryToggle.FontSize = 11; recoilSummaryToggle.Padding = new Thickness(12, 0, 12, 0);
+            recoilSummaryToggle.Click += delegate { SetRecoilSummaryHidden(!recoilSummaryHidden); };
+            slim.Children.Add(recoilSummaryToggle);
+            recoilSlimText = new TextBlock { Foreground = Gold, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 4, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            Grid.SetColumn(recoilSlimText, 1); slim.Children.Add(recoilSlimText);
+            Grid.SetRow(slim, 2); g.Children.Add(slim);
+            recoilTabs = new TabControl { Background = Panel, BorderBrush = Orchid, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            Brush[] colors = { Gold, Green, Cyan, Blue, Orchid, Red };
+            string[] names = { "OVERVIEW", "STEPS & BOUNCES", "RISK GRID", "ONE LIVE ACCOUNT", "EVERY LADDER", "BREAKDOWNS" };
+            for (int i = 0; i < names.Length; i++) recoilTabs.Items.Add(new TabItem { Header = names[i], Background = colors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Run RECOIL to fill this tab.", Muted, 11, FontWeights.Normal) });
+            foreach (TabItem t in recoilTabs.Items) t.PreviewMouseLeftButtonDown += delegate { if (!recoilSummaryHidden) SetRecoilSummaryHidden(true); };
+            Grid.SetRow(recoilTabs, 3); g.Children.Add(recoilTabs);
+            recoilResultsHost = g;
+            return g;
+        }
+
+        private void SetRecoilTab(string name, UIElement content)
+        {
+            if (recoilTabs == null) return;
+            foreach (TabItem t in recoilTabs.Items) if (Convert.ToString(t.Header) == name) { t.Content = HelixScroll(content); return; }
+        }
+
+        private void RenderRecoilResults()
+        {
+            var r = recoilResult; if (r == null || recoilTabs == null) return;
+            var c = recoilConfig ?? r.Config;
+            var s = KeystoneRecoilStudy.Stats("ALL", r.Cycles, r.Days.Count, r.NoTriggerDays.Values.Sum());
+            double startBalance = Math.Max(1, Number(rcStartBalanceBox, 5000));
+            var acct = KeystoneRecoilStudy.Account(r.Cycles, startBalance);
+            recoilVerdictHead.Text = r.Cycles.Count == 0 ? "NO LADDERS" : r.Cycles.Count + " LADDERS  •  WON " + KeystoneRecoilStudy.Pc(s.WinRate) + " (NEED " + KeystoneRecoilStudy.Pc(s.BreakEven) + ")  •  NET " + Signed(s.Net);
+            recoilVerdictHead.Foreground = r.Cycles.Count == 0 ? Gold : (s.Net > 0 ? Green : Red);
+            recoilVerdictCard.BorderBrush = recoilVerdictHead.Foreground;
+            recoilVerdictSub.Text = KeystoneRecoilStudy.Verdict(r, s) + "\n" + c.Describe() + "\nThis is the ladder itself (setups only + one live account). Prop accounts — evaluation fees, payouts, copy trading, rotation and account groups by session — come in the next part.";
+            recoilSlimText.Text = recoilVerdictHead.Text + "   •   " + c.Instruments() + " • " + c.LadderText(); recoilSlimText.Foreground = recoilVerdictHead.Foreground;
+            recoilTiles.Children.Clear();
+            recoilTiles.Children.Add(HelixCard("LADDERS • " + c.Instruments(), r.Cycles.Count.ToString(), s.Days + " days • " + r.NoTriggerDays.Values.Sum() + " instrument-days without the move", Cyan, 230));
+            recoilTiles.Children.Add(HelixCard("WON AT THE TARGET", s.Wins + " • " + KeystoneRecoilStudy.Pc(s.WinRate), "average " + Signed(s.AvgWin) + " • break-even win rate " + KeystoneRecoilStudy.Pc(s.BreakEven), Green, 230));
+            recoilTiles.Children.Add(HelixCard("BLOWN AT THE MAX DRAWDOWN", s.Blowups.ToString(), "closed at the end of the day: " + s.SessionEnds + " • average loss " + Signed(s.AvgLoss), Red, 250));
+            recoilTiles.Children.Add(HelixCard("NET AFTER COSTS", Signed(s.Net), Signed(s.PerCycle) + " a ladder • costs " + Cash(s.Commission), MoneyBrush(s.Net), 220));
+            recoilTiles.Children.Add(HelixCard("ONE LIVE ACCOUNT", Cash(acct.Start) + " → " + Cash(acct.End), "max drawdown " + Cash(-acct.MaxDrawdown) + (acct.Ruined ? " • LOST " + acct.RuinDate.ToString("yyyy-MM-dd") : ""), MoneyBrush(acct.End - acct.Start), 260));
+            SetRecoilTab("OVERVIEW", RecoilOverviewView(r, s));
+            SetRecoilTab("STEPS & BOUNCES", RecoilStepsView(r));
+            SetRecoilTab("RISK GRID", RecoilGridView());
+            SetRecoilTab("ONE LIVE ACCOUNT", RecoilAccountView(r, acct));
+            SetRecoilTab("EVERY LADDER", RecoilLaddersView(r));
+            SetRecoilTab("BREAKDOWNS", RecoilBreakdownView(r));
+            SizeRecoilHost();
+        }
+
+        private UIElement RecoilOverviewView(KeystoneRecoilResult r, KeystoneRecoilStats s)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle("THE LADDER", Gold));
+            root.Children.Add(HelixNote((recoilConfig ?? r.Config).Describe()));
+            if (recoilCompare.Count > 0)
+            {
+                root.Children.Add(HelixTitle("MNQ ONLY vs MGC ONLY vs BOTH (same settings)", Cyan));
+                double[] w = { 300, 220, 220, 220 };
+                root.Children.Add(HelixHeader(new[] { "" }.Concat(recoilCompare.Select(x => x.Item1)).ToArray(), w));
+                Func<string, Func<KeystoneRecoilStats, KeystoneRecoilAccount, string>, Func<KeystoneRecoilStats, KeystoneRecoilAccount, Brush>, UIElement> row = (name, val, col) =>
+                    HelixRow(new[] { name }.Concat(recoilCompare.Select(x => val(x.Item2, x.Item3))).ToArray(), new Brush[] { Muted }.Concat(recoilCompare.Select(x => col(x.Item2, x.Item3))).ToArray(), w, Card, null);
+                root.Children.Add(row("LADDERS", (a, b) => a.Cycles.ToString(), (a, b) => Text));
+                root.Children.Add(row("WON / BLOWN / CLOSED AT THE END", (a, b) => a.Wins + " / " + a.Blowups + " / " + a.SessionEnds, (a, b) => Text));
+                root.Children.Add(row("WIN RATE • NEEDED", (a, b) => KeystoneRecoilStudy.Pc(a.WinRate) + " • " + KeystoneRecoilStudy.Pc(a.BreakEven), (a, b) => a.WinRate >= a.BreakEven ? Green : Red));
+                root.Children.Add(row("NET AFTER COSTS", (a, b) => Signed(a.Net), (a, b) => MoneyBrush(a.Net)));
+                root.Children.Add(row("AVERAGE WIN • AVERAGE LOSS", (a, b) => Signed(a.AvgWin) + " • " + Signed(a.AvgLoss), (a, b) => Text));
+                root.Children.Add(row("ONE LIVE ACCOUNT: START → END", (a, b) => Cash(b.Start) + " → " + Cash(b.End), (a, b) => MoneyBrush(b.End - b.Start)));
+                root.Children.Add(row("ONE LIVE ACCOUNT: MAX DRAWDOWN", (a, b) => Cash(-b.MaxDrawdown) + (b.Ruined ? " • LOST" : ""), (a, b) => Red));
+            }
+            root.Children.Add(HelixTitle("WHAT IT MEANS", Green));
+            root.Children.Add(HelixNote("Adding to a loser wins often (a small bounce to the target) and loses rarely but big (the whole max drawdown). It pays only if the win rate is above the break-even rate — " + KeystoneRecoilStudy.Pc(s.BreakEven) + " here (average loss ÷ (average win + average loss)). STEPS & BOUNCES shows how deep ladders go and what the bounce was worth; RISK GRID tries every add distance × target on the same days, per year."));
+            if (r.SkippedDays.Count > 0) { root.Children.Add(HelixTitle("DAYS WITH MISSING DATA (" + r.SkippedDays.Count + ")", Red)); foreach (var d in r.SkippedDays.Take(40)) root.Children.Add(HelixNote(d)); }
+            return root;
+        }
+
+        private UIElement RecoilStepsView(KeystoneRecoilResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            var c = recoilConfig ?? r.Config;
+            root.Children.Add(HelixTitle("HOW DEEP THE LADDERS WENT", Gold));
+            root.Children.Add(HelixNote("Each row = ladders that used exactly that many entries. BOUNCE = points from the worst price to the best price after it (until the close). FULL LADDER AT THE BEST = what the position (every add the worst price reached, no stop) was worth at that best price — the reversal you would have caught by holding."));
+            double[] w = { 200, 80, 80, 80, 90, 120, 130, 170 };
+            root.Children.Add(HelixHeader(new[] { "ENTRIES (CONTRACTS)", "LADDERS", "WON", "BLOWN", "AT CLOSE", "NET", "AVG BOUNCE PTS", "FULL LADDER AT BEST" }, w));
+            int tot = 0;
+            foreach (var row in KeystoneRecoilStudy.Steps(r.Cycles, c.MaxEntries))
+            {
+                tot += KeystoneRecoil.AddQty(c, row.Entries - 1);
+                root.Children.Add(HelixRow(new[] { row.Entries + " (" + tot + ")", row.Cycles.ToString(), row.Wins.ToString(), row.Blowups.ToString(), row.SessionEnds.ToString(), Signed(row.Net), row.AvgBounce.ToString("0.#", CultureInfo.InvariantCulture), Signed(row.AvgFullAtBest) },
+                    new Brush[] { Text, Text, Green, Red, Cyan, MoneyBrush(row.Net), Cyan, MoneyBrush(row.AvgFullAtBest) }, w, row.Blowups > 0 ? Red : (row.Wins > 0 ? Green : Card), null));
+            }
+            var blown = r.Cycles.Where(x => x.Blown).ToList();
+            root.Children.Add(HelixTitle("AFTER A BLOWUP: DID THE PRICE COME BACK?", Red));
+            if (blown.Count == 0) root.Children.Add(HelixNote("No ladder was blown."));
+            else
+            {
+                int back = blown.Count(x => !double.IsNaN(x.BestAfterLowest) && x.Dir * (x.BestAfterLowest - x.AvgAtExit) >= 0);
+                root.Children.Add(HelixNote(blown.Count + " blowups • the price came back to the ladder's average later that day on " + back + " of them • average full ladder at the best price after the low: " + Signed(blown.Average(x => x.FullLadderAtBest)) + " (what holding without a stop would have given — with a much deeper drawdown: average " + Signed(blown.Average(x => x.FullLadderAtLowest)) + " at the worst)."));
+                double[] bw = { 120, 60, 70, 110, 110, 130, 150, 150 };
+                root.Children.Add(HelixHeader(new[] { "DAY", "INST", "SIDE", "BLOWN AT", "WORST", "BEST AFTER", "FULL LADDER WORST", "FULL LADDER BEST" }, bw));
+                foreach (var x in blown.OrderBy(x => x.Day))
+                {
+                    string f = x.Symbol == "MGC" ? "0.0" : "0.00";
+                    root.Children.Add(HelixRow(new[] { x.Day.ToString("yyyy-MM-dd"), x.Symbol, x.Side, Hm(x.ExitTime) + " " + x.ExitPrice.ToString(f), double.IsNaN(x.LowestPrice) ? "—" : x.LowestPrice.ToString(f), double.IsNaN(x.BestAfterLowest) ? "—" : x.BestAfterLowest.ToString(f), Signed(x.FullLadderAtLowest), Signed(x.FullLadderAtBest) },
+                        new Brush[] { Text, x.Symbol == "MGC" ? Gold : Blue, Text, Red, Red, Cyan, Red, MoneyBrush(x.FullLadderAtBest) }, bw, Red, () => OpenRecoilChart(x)));
+                }
+            }
+            return root;
+        }
+
+        private UIElement RecoilGridView()
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixNote("Every add distance (rows; the trigger keeps your trigger ÷ add ratio) × $ target (columns) re-run on the same days and minutes. Each cell: win % • net after costs • blowups. Gold = your Step 1 setting, green outline = the best cell. All years first, then each year (volatility changes)."));
+            if (recoilGrids.Count == 0) { root.Children.Add(HelixNote("No grid yet.")); return root; }
+            root.Children.Add(HelixTitle("BEST PER YEAR", Gold));
+            double[] bw = { 150, 120, 110, 80, 90, 120, 140 };
+            root.Children.Add(HelixHeader(new[] { "INSTRUMENT", "BEST ADD EVERY", "BEST TARGET", "WIN %", "BLOWN", "BEST NET", "YOUR SETTING NET" }, bw));
+            foreach (var g in recoilGrids)
+            {
+                if (g.Best == null) continue;
+                root.Children.Add(HelixRow(new[] { g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year), g.Best.Distance.ToString("0.##") + " pts", Cash(g.Best.Target), KeystoneRecoilStudy.Pc(g.Best.WinRate), g.Best.Blowups.ToString(), Signed(g.Best.Net), g.Yours == null ? "—" : Signed(g.Yours.Net) },
+                    new Brush[] { g.Symbol == "MGC" ? Gold : Blue, Cyan, Cyan, Text, Red, MoneyBrush(g.Best.Net), g.Yours == null ? Muted : MoneyBrush(g.Yours.Net) }, bw, g.Year == "ALL" ? Gold : Card, null));
+            }
+            var pick = Select(recoilGrids.Select(g => g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year)).ToArray()); pick.Width = 300; pick.HorizontalAlignment = HorizontalAlignment.Left;
+            var host = new StackPanel();
+            Action draw = delegate { host.Children.Clear(); int i = Math.Max(0, Math.Min(recoilGrids.Count - 1, pick.SelectedIndex)); recoilGridIndex = i; host.Children.Add(RecoilGridTable(recoilGrids[i])); };
+            pick.SelectedIndex = Math.Max(0, Math.Min(recoilGrids.Count - 1, recoilGridIndex)); pick.SelectionChanged += delegate { draw(); };
+            root.Children.Add(HelixTitle("ADD DISTANCE × TARGET", Cyan)); root.Children.Add(Row("SHOW", pick)); root.Children.Add(host); draw();
+            return root;
+        }
+
+        private UIElement RecoilGridTable(KeystoneRecoilGrid g)
+        {
+            var table = new Grid { Margin = new Thickness(2, 4, 2, 4), HorizontalAlignment = HorizontalAlignment.Left };
+            table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+            foreach (double t in g.Targets) table.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            for (int i = 0; i <= g.Distances.Length; i++) table.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Action<UIElement, int, int> put = (el, rr, cc) => { Grid.SetRow(el, rr); Grid.SetColumn(el, cc); table.Children.Add(el); };
+            put(new TextBlock { Text = "ADD EVERY \\ TARGET", Foreground = Gold, FontSize = 10, FontWeight = FontWeights.Bold, Margin = new Thickness(4) }, 0, 0);
+            for (int t = 0; t < g.Targets.Length; t++) put(new TextBlock { Text = Cash(g.Targets[t]), Foreground = Green, FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(4), HorizontalAlignment = HorizontalAlignment.Center }, 0, t + 1);
+            double maxAbs = 1; foreach (var c in g.Cells) if (c != null) maxAbs = Math.Max(maxAbs, Math.Abs(c.Net));
+            for (int d = 0; d < g.Distances.Length; d++)
+            {
+                put(new TextBlock { Text = g.Distances[d].ToString("0.##") + " pts", Foreground = Cyan, FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(4), VerticalAlignment = VerticalAlignment.Center }, d + 1, 0);
+                for (int t = 0; t < g.Targets.Length; t++)
+                {
+                    var c = g.Cells[d, t]; bool yours = c == g.Yours, best = c == g.Best;
+                    var st = new StackPanel();
+                    st.Children.Add(new TextBlock { Text = c.Cycles == 0 ? "no ladder" : c.Cycles + " • " + KeystoneRecoilStudy.Pc(c.WinRate) + " • " + c.Blowups + "✕", Foreground = c.Cycles == 0 ? Muted : Text, FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center });
+                    st.Children.Add(new TextBlock { Text = Signed(c.Net), Foreground = MoneyBrush(c.Net), FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, Opacity = 0.55 + 0.45 * Math.Abs(c.Net) / maxAbs });
+                    put(new Border { Background = Card, BorderBrush = yours ? Gold : (best ? Green : Panel), BorderThickness = new Thickness(yours || best ? 2.5 : 1), CornerRadius = new CornerRadius(3), Margin = new Thickness(1), Padding = new Thickness(2, 3, 2, 3), Child = st,
+                        ToolTip = "add every " + g.Distances[d].ToString("0.##") + " pts • target " + Cash(g.Targets[t]) + "\n" + c.Cycles + " ladders • " + c.Wins + " won • " + c.Blowups + " blown\nnet " + Signed(c.Net) + " • worst day " + Signed(c.WorstDay) + (yours ? "\nYOUR STEP 1 SETTING" : "") + (best ? "\nBEST CELL" : "") }, d + 1, t + 1);
+                }
+            }
+            var wrap = new StackPanel();
+            wrap.Children.Add(HelixNote(g.Symbol + " • " + (g.Year == "ALL" ? "all years" : g.Year) + (g.Best == null ? "" : " • best: add every " + g.Best.Distance.ToString("0.##") + " pts, target " + Cash(g.Best.Target) + " = " + Signed(g.Best.Net)) + (g.Yours == null ? "" : " • yours = " + Signed(g.Yours.Net))));
+            wrap.Children.Add(table);
+            return wrap;
+        }
+
+        private UIElement RecoilAccountView(KeystoneRecoilResult r, KeystoneRecoilAccount a)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            var c = recoilConfig ?? r.Config;
+            root.Children.Add(HelixNote("One real account (forex-lot style: $ per point per contract/lot from Step 1 — MNQ $" + c.MnqPointValue.ToString("0.##") + ", MGC $" + c.MgcPointValue.ToString("0.##") + "). Start " + Cash(a.Start) + "; every ladder's net is added when it closes. The account is lost at $0."));
+            var cards = new WrapPanel();
+            cards.Children.Add(HelixCard("START → END", Cash(a.Start) + " → " + Cash(a.End), a.Trades + " ladders • " + a.Wins + " won • " + a.Blowups + " blown", MoneyBrush(a.End - a.Start), 300));
+            cards.Children.Add(HelixCard("MAX DRAWDOWN", Cash(-a.MaxDrawdown), "lowest balance " + Cash(a.Low) + " • peak " + Cash(a.Peak), Red, 260));
+            if (a.Ruined) cards.Children.Add(HelixCard("ACCOUNT LOST", a.RuinDate.ToString("yyyy-MM-dd"), "the balance reached $0", Red, 220));
+            root.Children.Add(cards);
+            root.Children.Add(HelixTitle("BALANCE AFTER EVERY LADDER", Cyan));
+            root.Children.Add(RecoilEquityChart(a));
+            root.Children.Add(HelixTitle("MONTHS", Gold));
+            double[] w = { 120, 120, 80, 80 };
+            root.Children.Add(HelixHeader(new[] { "MONTH", "NET", "WON", "BLOWN" }, w));
+            foreach (var m in a.Months) root.Children.Add(HelixRow(new[] { m.Item1.ToString("MMM yyyy", CultureInfo.InvariantCulture), Signed(m.Item2), m.Item3.ToString(), m.Item4.ToString() }, new Brush[] { Text, MoneyBrush(m.Item2), Green, Red }, w, m.Item2 >= 0 ? Green : Red, null));
+            return root;
+        }
+
+        private UIElement RecoilEquityChart(KeystoneRecoilAccount a)
+        {
+            double width = 900, height = 220, padL = 70, padR = 12, padT = 10, padB = 24;
+            var canvas = new Canvas { Width = width, Height = height, Background = Card, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(2) };
+            if (a.Equity.Count == 0) { canvas.Children.Add(new TextBlock { Text = "No ladders.", Foreground = Muted, Margin = new Thickness(10) }); return canvas; }
+            DateTime t0 = a.Equity[0].Item1, t1 = a.Equity[a.Equity.Count - 1].Item1; if (t1 <= t0) t1 = t0.AddDays(1);
+            double lo = Math.Min(a.Start, a.Equity.Min(e => e.Item2)), hi = Math.Max(a.Start, a.Equity.Max(e => e.Item2)); if (hi - lo < 1) { hi += 1; lo -= 1; }
+            Func<DateTime, double> X = t => padL + (width - padL - padR) * (t - t0).TotalSeconds / (t1 - t0).TotalSeconds;
+            Func<double, double> Y = v => padT + (height - padT - padB) * (hi - v) / (hi - lo);
+            for (int k = 0; k <= 4; k++) { double v = lo + (hi - lo) * k / 4.0; var tb = new TextBlock { Text = Cash(v), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(tb, 4); Canvas.SetTop(tb, Y(v) - 7); canvas.Children.Add(tb); }
+            canvas.Children.Add(new System.Windows.Shapes.Line { X1 = padL, X2 = width - padR, Y1 = Y(a.Start), Y2 = Y(a.Start), Stroke = Muted, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 4, 3 } });
+            var line = new System.Windows.Shapes.Polyline { Stroke = a.End >= a.Start ? Green : Red, StrokeThickness = 2, Points = new PointCollection() };
+            double prev = Y(a.Start); line.Points.Add(new Point(padL, prev));
+            foreach (var e in a.Equity) { line.Points.Add(new Point(X(e.Item1), prev)); prev = Y(e.Item2); line.Points.Add(new Point(X(e.Item1), prev)); }
+            canvas.Children.Add(line);
+            var l0 = new TextBlock { Text = t0.ToString("MMM d, yyyy", CultureInfo.InvariantCulture), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(l0, padL); Canvas.SetTop(l0, height - 16); canvas.Children.Add(l0);
+            var l1 = new TextBlock { Text = t1.ToString("MMM d, yyyy", CultureInfo.InvariantCulture), Foreground = Muted, FontSize = 9 }; Canvas.SetLeft(l1, width - padR - 70); Canvas.SetTop(l1, height - 16); canvas.Children.Add(l1);
+            return canvas;
+        }
+
+        private UIElement RecoilLaddersView(KeystoneRecoilResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixNote("Every ladder with every fill. Click a row to open that day on the chart (the ladder is drawn: start, trigger, each add, the average, target and blowup lines, the exit)."));
+            double[] w = { 112, 50, 46, 56, 84, 64, 260, 84, 70, 110, 96, 110 };
+            string[] head = { "DAY", "INST", "#", "SIDE", "START", "ENTRIES", "FILLS (TIME QTY@PRICE)", "AVERAGE", "EXIT", "RESULT", "NET", "WORST OPEN" };
+            var rows = r.Cycles.OrderBy(x => x.EntryTime).ToList();
+            root.Children.Add(HelixPaged(head, w, rows.Count, i =>
+            {
+                var x = rows[i]; string f = x.Symbol == "MGC" ? "0.0" : "0.00";
+                Brush res = x.Win ? Green : (x.Blown ? Red : Cyan);
+                string[] cells = { x.Day.ToString("yyyy-MM-dd ddd", CultureInfo.InvariantCulture), x.Symbol, x.CycleInDay.ToString(), x.Side, x.AnchorPrice.ToString(f), x.Entries + " (" + x.MaxQty + ")", string.Join("  ", x.Fills.Select(z => Hm(z.Time) + " " + z.Qty + "@" + z.Price.ToString(f))), x.AvgAtExit.ToString(f), Hm(x.ExitTime), x.Win ? "TARGET" : x.Reason, Signed(x.Net), Signed(x.MaeValue) };
+                Brush[] colors = cells.Select(z => (Brush)Text).ToArray(); colors[1] = x.Symbol == "MGC" ? Gold : Blue; colors[9] = res; colors[10] = MoneyBrush(x.Net); colors[11] = Red;
+                return HelixRow(cells, colors, w, res, () => OpenRecoilChart(x));
+            }, 60, false));
+            return root;
+        }
+
+        private UIElement RecoilBreakdownView(KeystoneRecoilResult r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixNote("Every ladder grouped by one condition at a time. Win % = ladders closed at the target. Green rows made money."));
+            double[] w = { 240, 80, 70, 70, 80, 120, 120, 120 };
+            foreach (var b in KeystoneRecoilStudy.Breakdowns(r.Cycles))
+            {
+                if (b.Rows.Count == 0) continue;
+                root.Children.Add(HelixTitle(b.Title, Cyan)); root.Children.Add(HelixNote(b.Note));
+                root.Children.Add(HelixHeader(new[] { "GROUP", "LADDERS", "WON", "BLOWN", "WIN %", "NET", "AVG WIN", "AVG LOSS" }, w));
+                foreach (var g in b.Rows)
+                {
+                    var s = g.Stats;
+                    root.Children.Add(HelixRow(new[] { g.Group, s.Cycles.ToString(), s.Wins.ToString(), s.Blowups.ToString(), KeystoneRecoilStudy.Pc(s.WinRate), Signed(s.Net), Signed(s.AvgWin), Signed(s.AvgLoss) },
+                        new Brush[] { Text, Text, Green, Red, s.WinRate >= s.BreakEven ? Green : Red, MoneyBrush(s.Net), Green, Red }, w, s.Net > 0 ? Green : (s.Net < 0 ? Red : Card), null));
+                }
+            }
+            return root;
+        }
+
+        private void OpenRecoilChart(KeystoneRecoilCycle cy)
+        {
+            if (events.Count == 0) { UpdateUi("RUN RECOIL FIRST", Gold); return; }
+            if (cy != null)
+            {
+                recoilSelectedId = cy.Id;
+                if (reviewList != null) { int idx = reviewRows.FindIndex(e => e.SessionOrder == cy.Id); if (idx >= 0) reviewList.SelectedIndex = idx; }
+                if (evidenceWindow != null && evidenceWindow.IsVisible) { SelectEvidenceSessionDate(cy.Day.ToString("yyyy-MM-dd"), true); evidenceWindow.Activate(); return; }
+            }
+            OpenEvidenceChart();
+        }
+
+        private void ExportRecoilReport()
+        {
+            if (recoilResult == null) { UpdateUi("RUN RECOIL FIRST", Gold); return; }
+            try
+            {
+                string dir = DataDirectory(); Directory.CreateDirectory(dir);
+                string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                string html = Path.Combine(dir, "KeystoneArc_Recoil_Report_" + stamp + ".html"), csv = Path.Combine(dir, "KeystoneArc_Recoil_Ladders_" + stamp + ".csv");
+                File.WriteAllText(html, KeystoneRecoilStudy.Html(recoilResult, recoilGrids, recoilCompare, Math.Max(1, Number(rcStartBalanceBox, 5000))), Encoding.UTF8);
+                File.WriteAllText(csv, KeystoneRecoilStudy.Csv(recoilResult), Encoding.UTF8);
+                UpdateUi("EXPORTED RECOIL REPORT • " + html + " • ladders CSV " + csv, Green);
+            }
+            catch (Exception ex) { UpdateUi("RECOIL EXPORT ERROR • " + ex.Message, Red); }
+        }
+
+        // ---- chart -------------------------------------------------------------------------------
+        private void RecoilFillDetail(KeystoneArcEvent e)
+        {
+            KeystoneRecoilCycle c;
+            if (e == null || !recoilCycleById.TryGetValue(e.SessionOrder, out c)) return;
+            recoilSelectedId = c.Id;
+            Brush accent = c.Win ? WinPurple : (c.Reason == "SESSION END" ? ExitIce : LossAmber);
+            if (evidenceDetailText != null) { evidenceDetailText.Text = RecoilCycleText(c); evidenceDetailText.Foreground = accent; }
+            if (evidenceDetailBorder != null) { evidenceDetailBorder.BorderBrush = accent; evidenceDetailBorder.Visibility = Visibility.Visible; }
+            if (evidencePnlText != null) { evidencePnlText.Foreground = accent; evidencePnlText.Text = (c.Win ? "WIN" : c.Reason) + " • " + Signed(c.Net) + "\n" + c.Side + " " + c.Entries + " entries • " + c.MaxQty + " contracts • avg " + c.AvgAtExit.ToString(c.Symbol == "MGC" ? "0.0" : "0.00"); }
+            if (evidencePnlBorder != null) { evidencePnlBorder.BorderBrush = accent; evidencePnlBorder.Visibility = Visibility.Visible; }
+        }
+
+        // Each ladder: start price → trigger, every fill with its size, the average (steps at each add), the target
+        // and blowup lines (they move with each add), the exit. In replay everything appears when it happened.
+        private void DrawRecoilLadders(List<KeystoneArcEvent> marks, List<KeystoneArcBar> bars, double left, double candleWidth, Func<double, double> y, double plotTop, double plotBottom, bool replaying)
+        {
+            if (evidenceCanvas == null || bars == null || bars.Count == 0 || marks == null) return;
+            DateTime cutoff = replaying ? evidenceBarCursor : DateTime.MaxValue, firstBar = bars[0].Time, lastBar = bars[bars.Count - 1].Time;
+            Func<DateTime, double> xAt = t => { int i = bars.FindIndex(b => b.Time >= t); if (i < 0) i = t > lastBar ? bars.Count : 0; return left + i * candleWidth + candleWidth / 2.0; };
+            Action<double, double, double, double, Brush, double, bool> line = (x1, y1, x2, y2, brush, th, dash) =>
+            {
+                var l = new System.Windows.Shapes.Line { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = brush, StrokeThickness = th, Opacity = 0.9, IsHitTestVisible = false };
+                if (dash) l.StrokeDashArray = new DoubleCollection { 5, 3 };
+                evidenceCanvas.Children.Add(l);
+            };
+            Action<string, double, double, Brush> tag = (text, x, yy, brush) =>
+            {
+                var b = new Border { Background = Card, BorderBrush = brush, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3), Padding = new Thickness(3, 0, 3, 0), IsHitTestVisible = false, Child = new TextBlock { Text = text, Foreground = brush, FontSize = 10, FontWeight = FontWeights.Bold } };
+                Canvas.SetLeft(b, x); Canvas.SetTop(b, Math.Max(plotTop, Math.Min(plotBottom - 16, yy))); evidenceCanvas.Children.Add(b);
+            };
+            foreach (var id in marks.Select(e => e.SessionOrder).Distinct())
+            {
+                KeystoneRecoilCycle c; if (!recoilCycleById.TryGetValue(id, out c) || c.Fills.Count == 0) continue;
+                if (c.Fills[0].Time > cutoff || c.ExitTime < firstBar || c.AnchorTime > lastBar) continue;
+                string f = c.Symbol == "MGC" ? "0.0" : "0.00";
+                bool selected = c.Id == recoilSelectedId;
+                bool closed = c.ExitTime <= cutoff;
+                DateTime end = closed ? c.ExitTime : cutoff;
+                // start price and the trigger move
+                double ax = xAt(c.AnchorTime.AddMinutes(1)) - candleWidth / 2.0, tx = xAt(c.Fills[0].Time);
+                line(ax, y(c.AnchorPrice), tx, y(c.AnchorPrice), Muted, 1, true);
+                line(ax, y(c.TriggerLevel), tx, y(c.TriggerLevel), Gold, 1, true);
+                tag("START " + c.AnchorPrice.ToString(f) + " • " + (c.Dir > 0 ? "−" : "+") + Math.Abs(c.TriggerLevel - c.AnchorPrice).ToString("0.##") + " → " + c.Side, ax + 2, y(c.AnchorPrice) - (c.Dir > 0 ? 18 : -4), Gold);
+                var fills = c.Fills.Where(z => z.Time <= cutoff).ToList();
+                for (int k = 0; k < fills.Count; k++)
+                {
+                    var z = fills[k];
+                    DateTime segEnd = k + 1 < fills.Count ? fills[k + 1].Time : end;
+                    double x0 = xAt(z.Time), x1 = Math.Max(x0 + candleWidth, xAt(segEnd));
+                    line(x0, y(z.Avg), x1, y(z.Avg), Cyan, selected ? 2 : 1.5, false);
+                    line(x0, y(z.TargetPrice), x1, y(z.TargetPrice), Green, 1.2, true);
+                    if (!double.IsNaN(z.StopPrice)) line(x0, y(z.StopPrice), x1, y(z.StopPrice), Red, 1.2, true);
+                    var dot = new System.Windows.Shapes.Ellipse { Width = 9, Height = 9, Fill = c.Dir > 0 ? Green : Red, Stroke = Text, StrokeThickness = 1, IsHitTestVisible = false };
+                    Canvas.SetLeft(dot, x0 - 4.5); Canvas.SetTop(dot, y(z.Price) - 4.5); evidenceCanvas.Children.Add(dot);
+                    tag((k == 0 ? c.Side + " " : "+") + z.Qty + " @ " + z.Price.ToString(f) + " → " + z.TotalQty + " • avg " + z.Avg.ToString(f), x0 + 6, y(z.Price) + (c.Dir > 0 ? 4 : -18), c.Dir > 0 ? Green : Red);
+                }
+                if (fills.Count > 0)
+                {
+                    var lastF = fills[fills.Count - 1]; double xr = Math.Max(xAt(lastF.Time) + candleWidth, xAt(end));
+                    tag("TP " + lastF.TargetPrice.ToString(f), xr + 3, y(lastF.TargetPrice) - 8, Green);
+                    tag(double.IsNaN(lastF.StopPrice) ? "BLOWUP = SHARED −" + Cash((recoilConfig ?? recoilResult.Config).MaxDrawdown) : "BLOWUP " + lastF.StopPrice.ToString(f), xr + 3, double.IsNaN(lastF.StopPrice) ? y(lastF.Avg) + 4 : y(lastF.StopPrice) - 8, Red);
+                    // next add level while the ladder is open
+                    int n = c.Fills.IndexOf(lastF) + 1;
+                    if (!closed && n < (recoilConfig ?? recoilResult.Config).MaxEntries) { double nl = c.Fills[0].Price - c.Dir * n * c.Step; line(xAt(lastF.Time), y(nl), xr, y(nl), Muted, 1, true); tag("NEXT ADD " + nl.ToString(f), xr + 3, y(nl) - 8, Muted); }
+                }
+                if (closed)
+                {
+                    Brush res = c.Win ? WinPurple : (c.Reason == "SESSION END" ? ExitIce : LossAmber);
+                    double ex = xAt(c.ExitTime);
+                    var sq = new System.Windows.Shapes.Rectangle { Width = 10, Height = 10, Fill = res, Stroke = Text, StrokeThickness = 1, IsHitTestVisible = false };
+                    Canvas.SetLeft(sq, ex - 5); Canvas.SetTop(sq, y(c.ExitPrice) - 5); evidenceCanvas.Children.Add(sq);
+                    tag((c.Win ? "TARGET " : c.Reason + " ") + Signed(c.Net) + " • " + c.MaxQty + " contracts • " + Hm(c.ExitTime), ex + 7, y(c.ExitPrice) + (c.Win ? -18 : 4), res);
+                }
+            }
+        }
+
+        // Live replay box: every open ladder (contracts, average, open P/L, distance to the target and to the blowup) and the day's log.
+        private void UpdateRecoilLivePanel()
+        {
+            DateTime day; if (!EvidenceReplayDay(out day) || recoilResult == null) return;
+            DateTime cur = evidenceBarCursor;
+            var cfg = recoilConfig ?? recoilResult.Config;
+            var today = recoilResult.Cycles.Where(x => x.Day == day && x.Fills.Count > 0).OrderBy(x => x.EntryTime).ToList();
+            var open = today.Where(x => x.EntryTime <= cur && x.ExitTime > cur).ToList();
+            var done = today.Where(x => x.ExitTime <= cur).ToList();
+            evidenceLiveBorder.Visibility = Visibility.Visible;
+            evidenceLiveClock.Text = cur.ToString("ddd yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " ET";
+            var sb = new StringBuilder();
+            double openSum = 0, targetSum = 0, minStopRoom = double.MaxValue;
+            foreach (var c in open)
+            {
+                var fills = c.Fills.Where(z => z.Time <= cur).ToList(); if (fills.Count == 0) continue;
+                double px = LabCloseAt(c.Symbol, cur) ?? fills[fills.Count - 1].Price;
+                double v = fills.Sum(z => c.Dir * (px - z.Price) * z.Qty * c.PointValue);
+                var lf = fills[fills.Count - 1]; string f = c.Symbol == "MGC" ? "0.0" : "0.00";
+                openSum += v; targetSum += cfg.TargetMode == "POINTS" ? Math.Abs(lf.TargetPrice - lf.Avg) * lf.TotalQty * c.PointValue : cfg.TargetDollars;
+                double room = double.IsNaN(lf.StopPrice) ? cfg.MaxDrawdown + v : Math.Abs(px - lf.StopPrice) * lf.TotalQty * c.PointValue;
+                minStopRoom = Math.Min(minStopRoom, room);
+                sb.AppendLine(c.Symbol + " " + c.Side + " " + lf.TotalQty + " contracts • avg " + lf.Avg.ToString(f) + " • now " + px.ToString(f) + " → " + Signed(v));
+                sb.AppendLine("   target " + lf.TargetPrice.ToString(f) + " (" + Math.Abs(lf.TargetPrice - px).ToString("0.##") + " pts away) • " + (double.IsNaN(lf.StopPrice) ? "shared blowup at −" + Cash(cfg.MaxDrawdown) : "blowup " + lf.StopPrice.ToString(f) + " (" + Math.Abs(px - lf.StopPrice).ToString("0.##") + " pts away)"));
+                int n = fills.Count; if (n < cfg.MaxEntries) sb.AppendLine("   next add " + (c.Fills[0].Price - c.Dir * n * c.Step).ToString(f) + " (+" + KeystoneRecoil.AddQty(cfg, n) + ")");
+            }
+            if (open.Count > 0)
+            {
+                evidenceLiveCaption.Text = "LADDERS OPEN • " + string.Join(" + ", open.Select(x => x.Symbol + " " + x.Fills.Count(z => z.Time <= cur) + "/" + cfg.MaxEntries));
+                evidenceLiveCombined.Text = Signed(openSum); evidenceLiveCombined.Foreground = openSum > 0 ? Green : (openSum < 0 ? Red : Text);
+                evidenceLiveTargetText.Text = "TARGET +" + Cash(targetSum) + " • " + Math.Max(0, 100.0 * openSum / Math.Max(1, targetSum)).ToString("0") + "% of the way";
+                evidenceLiveTargetFill.Width = 330 * Math.Max(0, Math.Min(1, openSum / Math.Max(1, targetSum)));
+                double ddUsed = cfg.MaxDrawdown <= 0 ? 0 : -openSum / cfg.MaxDrawdown;
+                evidenceLiveLossText.Text = "MAX DRAWDOWN −" + Cash(cfg.MaxDrawdown) + " • " + Math.Max(0, 100.0 * ddUsed).ToString("0") + "% used";
+                evidenceLiveLossFill.Width = 330 * Math.Max(0, Math.Min(1, ddUsed));
+                sb.AppendLine();
+            }
+            else
+            {
+                var next = today.FirstOrDefault(x => x.EntryTime > cur);
+                evidenceLiveCaption.Text = "NO LADDER OPEN";
+                evidenceLiveCombined.Text = "FLAT"; evidenceLiveCombined.Foreground = Muted;
+                evidenceLiveTargetText.Text = next == null ? "waiting for the trigger move (or no more ladders today)" : "NEXT • " + next.Symbol + " " + next.Side + " at " + Hm(next.EntryTime);
+                evidenceLiveLossText.Text = string.Empty; evidenceLiveTargetFill.Width = 0; evidenceLiveLossFill.Width = 0;
+            }
+            sb.AppendLine("TODAY SO FAR • " + done.Count(x => x.Win) + " won / " + done.Count(x => x.Blown) + " blown • " + Signed(done.Sum(x => x.Net)));
+            foreach (var x in today.Where(z => z.EntryTime <= cur))
+            {
+                string f = x.Symbol == "MGC" ? "0.0" : "0.00";
+                foreach (var z in x.Fills.Where(q => q.Time <= cur)) sb.AppendLine(Hm(z.Time) + " " + x.Symbol + " " + (z == x.Fills[0] ? x.Side : "ADD") + " " + z.Qty + " @ " + z.Price.ToString(f) + " → " + z.TotalQty + " (avg " + z.Avg.ToString(f) + ")");
+                if (x.ExitTime <= cur) sb.AppendLine(Hm(x.ExitTime) + " " + x.Symbol + " " + (x.Win ? "TARGET" : x.Reason) + " @ " + x.ExitPrice.ToString(f) + " → " + Signed(x.Net));
+            }
+            evidenceLiveLines.Text = sb.ToString().TrimEnd();
+            bool closedNow = done.Any(x => x.ExitTime == cur); var last = done.LastOrDefault();
+            evidenceLiveBorder.BorderBrush = closedNow && last != null ? (last.Win ? Green : Red) : Gold;
+            evidenceLiveBorder.BorderThickness = new Thickness(closedNow ? 3 : 1.5);
         }
 
         // =================================================================================
