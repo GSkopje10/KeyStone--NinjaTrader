@@ -6653,7 +6653,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-30s • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-09-30t • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -6703,6 +6703,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         // position and the combined P/L at the cursor minute. MinValue = replay off.
         private DateTime evidenceBarCursor = DateTime.MinValue;
         private bool evidenceCursorFollow;
+        private bool evidenceGoldenFitPending = true;   // GOLDEN: open each chart day on the chosen start → close window
         private ComboBox evidenceSpeedBox;
         private Border evidenceLiveBorder, evidenceLiveTargetFill, evidenceLiveLossFill, evidenceSidePanel;
         private TextBlock evidenceLiveClock, evidenceLiveCombined, evidenceLiveLines, evidenceLiveTargetText, evidenceLiveLossText;
@@ -12289,7 +12290,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             evidenceHorizontalZoom = 1.0; evidenceVerticalZoom = 1.0; evidenceZoom = 1.0;
             evidenceFirstVisibleBar = 0; evidencePriceCenter = double.NaN; evidenceVisiblePriceRange = 0;
-            evidenceCrosshairVisible = false;
+            evidenceCrosshairVisible = false; evidenceGoldenFitPending = true;
             UpdateEvidenceZoomText();
         }
 
@@ -12382,6 +12383,18 @@ namespace NinjaTrader.NinjaScript.AddOns
             double width = hostW > 300 ? hostW - 2 : Math.Max(900, evidenceWindow == null ? 1320 : evidenceWindow.Width - 54);
             double left = 72, top = 58, right = 78, bottom = 58;
             double baseCandleWidth = chartMinutes <= 1 ? 8 : (chartMinutes <= 5 ? 14 : (chartMinutes <= 30 ? 20 : 30));
+            if (evidenceGoldenFitPending && GoldenStudyRun() && allBars.Count > 1)
+            {
+                // GOLDEN: open on the Step 1 window (instrument start → close); earlier bars stay one drag away.
+                evidenceGoldenFitPending = false;
+                DateTime from, to; GoldenChartWindow(symbol, allBars, out from, out to);
+                int a = allBars.FindIndex(b => b.Time > from), z = allBars.FindLastIndex(b => b.Time <= to);
+                if (a >= 0 && z > a)
+                {
+                    evidenceHorizontalZoom = Math.Max(0.04, Math.Min(40.0, (width - left - right) / ((z - a + 1) * baseCandleWidth)));
+                    evidenceFirstVisibleBar = a; evidencePriceCenter = double.NaN;
+                }
+            }
             double candleWidth = baseCandleWidth * Math.Max(0.04, Math.Min(40.0, evidenceHorizontalZoom));
             int visibleCount = Math.Max(1, Math.Min(allBars.Count, (int)Math.Floor((width - left - right) / Math.Max(0.35, candleWidth))));
             int lastPossibleFirst = Math.Max(0, allBars.Count - visibleCount);
@@ -12412,7 +12425,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             { if (!double.IsNaN(e.Target)) rawMax = Math.Max(rawMax, e.Target); if (!double.IsNaN(e.Stop)) rawMin = Math.Min(rawMin, e.Stop); }
             double padding = Math.Max((rawMax - rawMin) * 0.09, Math.Max(symbol == "MGC" ? 1.0 : 8.0, 0.0001));
             double rawCenter = (rawMin + rawMax) / 2.0;
-            if (double.IsNaN(evidencePriceCenter)) evidencePriceCenter = rawCenter;
+            // Replay follows the price: the candles drawn so far always stay in view.
+            if (double.IsNaN(evidencePriceCenter) || replaying) evidencePriceCenter = rawCenter;
             double halfRange = Math.Max(0.0001, (rawMax - rawMin + padding * 2.0) / Math.Max(0.04, Math.Min(40.0, evidenceVerticalZoom)) / 2.0);
             double min = evidencePriceCenter - halfRange, max = evidencePriceCenter + halfRange;
             evidenceVisiblePriceRange = max - min;
@@ -12859,6 +12873,16 @@ namespace NinjaTrader.NinjaScript.AddOns
         // current step, a cursor at that minute, and full labels + a highlight on the current event.
         // GOLDEN SETUP labels: start line, push down, the pattern (FVG box + candles 1/2/3 or BH RED / REF / BREAK),
         // entry, target and stop lines until the exit, and the result. In replay each part appears when it happened.
+        // The GOLDEN window of a chart day: 30 minutes before the instrument's start → the close time (+10 min).
+        private void GoldenChartWindow(string symbol, List<KeystoneArcBar> bars, out DateTime from, out DateTime to)
+        {
+            DateTime sd = KeystoneArcEngine.GoldenSessionDay(bars[bars.Count - 1].Time);
+            int st = string.Equals(symbol, "MGC", StringComparison.OrdinalIgnoreCase) ? config.GoldenMgcStart : config.GoldenMnqStart;
+            from = KeystoneArcEngine.GoldenClock(sd, st).AddMinutes(-30);
+            to = KeystoneArcEngine.GoldenClock(sd, Math.Max(config.GoldenClose, config.GoldenLastEntry)).AddMinutes(10);
+            if (to <= from) to = to.AddDays(1);
+        }
+
         private void DrawGoldenOverlay(List<KeystoneArcEvent> events, List<KeystoneArcBar> bars, double left, double candleWidth, Func<double, double> y, double plotTop, double plotBottom)
         {
             if (evidenceCanvas == null || bars == null || bars.Count == 0 || events == null) return;
@@ -12888,7 +12912,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                     Child = new TextBlock { Text = text, Foreground = fore, FontSize = 10, FontWeight = FontWeights.Bold } };
                 Canvas.SetLeft(b, x); Canvas.SetTop(b, Math.Max(plotTop, Math.Min(plotBottom - 16, yy))); evidenceCanvas.Children.Add(b);
             };
-            foreach (KeystoneArcEvent e in events.Where(x => (x.RiskModel ?? string.Empty).StartsWith("GLD ", StringComparison.Ordinal)).OrderBy(x => x.TriggerTime))
+            // Labels for the entry you click (W / L pin or a ledger row); in replay for each entry once it has happened.
+            KeystoneArcEvent picked = selectedEvidenceEvent;
+            Func<KeystoneArcEvent, bool> show = x => (picked != null && (ReferenceEquals(x, picked) || (x.Id == picked.Id && x.TriggerTime == picked.TriggerTime)))
+                || (evidenceBarCursor != DateTime.MinValue && (x.EntryTime != DateTime.MinValue ? x.EntryTime : x.TriggerTime) <= evidenceBarCursor);
+            foreach (KeystoneArcEvent e in events.Where(x => (x.RiskModel ?? string.Empty).StartsWith("GLD ", StringComparison.Ordinal) && show(x)).OrderBy(x => x.TriggerTime))
             {
                 DateTime trigger = e.EntryTime != DateTime.MinValue ? e.EntryTime : e.TriggerTime;
                 if (e.GoldenStartTime > lastBar || (e.ExitTime != DateTime.MinValue && e.ExitTime < firstBar)) continue;
@@ -13074,6 +13102,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             DateTime day; if (!EvidenceReplayDay(out day)) return DateTime.MinValue;
             List<KeystoneArcBar> bars = ReplayBars(); if (bars.Count == 0) return DateTime.MinValue;
             DateTime start = EvidenceTestStart(day);
+            if (GoldenStudyRun() && bars.Count > 1)
+            {
+                // GOLDEN replay starts half an hour before the instrument's start time.
+                DateTime from, to; GoldenChartWindow(bars[bars.Count - 1].Symbol, bars, out from, out to);
+                if (from > start) start = from;
+            }
             KeystoneArcBar first = bars.FirstOrDefault(b => b.Time >= start) ?? bars[0];
             return first.Time;
         }
@@ -17663,6 +17697,13 @@ namespace NinjaTrader.NinjaScript.AddOns
         private DispatcherTimer goldenFilterTimer;
         private bool goldenFilterLoading;
         private int goldenGridIndex;
+        private bool goldenSummaryHidden;
+        private UIElement goldenFilterCard;
+        private Button goldenSummaryToggle;
+        private TextBlock goldenSlimText;
+
+        // Win rates in the GOLDEN study are already percentages (0–100).
+        private static string GPct(double v) { return v.ToString("0", CultureInfo.InvariantCulture) + "%"; }
 
         private bool GoldenStudyRun() { return config != null && string.Equals(config.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase); }
 
@@ -17672,6 +17713,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (on && helixResultsMode) SetHelixResultsMode(false);
             if (on && !goldenResultsMode && oneDayPoolMetrics != null) oneDayMetricsVisibilityBeforeGolden = oneDayPoolMetrics.Visibility;
             bool was = goldenResultsMode;
+            if (!on && goldenSummaryHidden) SetGoldenSummaryHidden(false);
             goldenResultsMode = on;
             goldenResultsHost.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             if (!on && !was) return;
@@ -17697,7 +17739,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private UIElement BuildGoldenResultsHost()
         {
             var g = new Grid { Visibility = Visibility.Collapsed };
-            for (int i = 0; i < 3; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            for (int i = 0; i < 4; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             // verdict + actions
             var head = new Grid(); head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -17724,7 +17766,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             gfMnqDropBox = Input("0"); gfMgcDropBox = Input("0"); gfRedBox = Input("0");
             gfMnqGapBox = Input("0"); gfMgcGapBox = Input("0"); gfMnqStopBox = Input("0"); gfMgcStopBox = Input("0");
             gfFromBox = Input("0000"); gfToBox = Input("2359"); gfTriesBox = Input("5"); gfStartBox = Input("5000");
-            gfSkipBox = new CheckBox { Content = "SKIP STOP > TARGET", Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
+            gfSkipBox = new CheckBox { Content = "SKIP A SETUP WHOSE STOP IS BIGGER THAN ITS TARGET", Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
             gfOneBox = new CheckBox { Content = "ONE TRADE OPEN PER INSTRUMENT", IsChecked = true, Foreground = Text, Margin = new Thickness(6), VerticalAlignment = VerticalAlignment.Center };
             var days = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             string[] dayNames = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
@@ -17738,7 +17780,6 @@ namespace NinjaTrader.NinjaScript.AddOns
             gfSetupBox.SelectionChanged += delegate { QueueGoldenStudy(); };
             foreach (CheckBox box in new[] { gfSkipBox, gfOneBox }.Concat(gfDayBoxes)) { box.Checked += delegate { QueueGoldenStudy(); }; box.Unchecked += delegate { QueueGoldenStudy(); }; }
             var filters = new UniformGrid { Columns = 4 };
-            filters.Children.Add(Row("SETUP", gfSetupBox));
             filters.Children.Add(Row("MNQ PUSH DOWN AT LEAST", gfMnqDropBox));
             filters.Children.Add(Row("MGC PUSH DOWN AT LEAST", gfMgcDropBox));
             filters.Children.Add(Row("RED CANDLES IN A ROW AT LEAST", gfRedBox));
@@ -17749,27 +17790,62 @@ namespace NinjaTrader.NinjaScript.AddOns
             filters.Children.Add(Row("ENTRY FROM (HHMM ET)", gfFromBox));
             filters.Children.Add(Row("ENTRY UNTIL (HHMM ET)", gfToBox));
             filters.Children.Add(Row("TRIES A DAY (UP TO STEP 1)", gfTriesBox));
-            filters.Children.Add(Row("RISK", gfSkipBox));
-            filters.Children.Add(Row("WEEKDAYS", days));
             filters.Children.Add(Row("ONE ACCOUNT START $", gfStartBox));
-            filters.Children.Add(Row("ONE ACCOUNT", gfOneBox));
+            // Choices with long names sit on one line of their own so nothing is cut off.
+            var choices = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
+            Func<string, UIElement, UIElement> pair = (label, control) =>
+            {
+                var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 0, 18, 0) };
+                sp.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+                sp.Children.Add(control); return sp;
+            };
+            gfSetupBox.MinWidth = 230;
+            choices.Children.Add(pair("SETUP", gfSetupBox));
+            choices.Children.Add(pair("WEEKDAYS", days));
+            choices.Children.Add(pair("RISK", gfSkipBox));
+            choices.Children.Add(pair("ONE ACCOUNT", gfOneBox));
             var filterStack = new StackPanel();
             filterStack.Children.Add(new TextBlock { Text = "FILTERS • change any value and every table below updates (no reload, no new detection)", Foreground = Cyan, FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 0, 4, 2) });
+            filterStack.Children.Add(choices);
             filterStack.Children.Add(filters);
             goldenFilterNote = new TextBlock { Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6, 2, 6, 0) };
             filterStack.Children.Add(goldenFilterNote);
             var filterCard = new Border { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(6), Margin = new Thickness(2, 0, 2, 4), Child = filterStack };
-            Grid.SetRow(filterCard, 1); g.Children.Add(filterCard);
+            Grid.SetRow(filterCard, 1); g.Children.Add(filterCard); goldenFilterCard = filterCard;
             goldenTiles = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
             Grid.SetRow(goldenTiles, 2); g.Children.Add(goldenTiles);
+            // Slim bar: the summary in one line + the button that gives the tables the whole screen.
+            var slim = new Grid { Margin = new Thickness(2, 0, 2, 2) };
+            slim.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); slim.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            goldenSummaryToggle = Btn("▲ FULL SCREEN TABLES", Cyan); goldenSummaryToggle.Height = 28; goldenSummaryToggle.FontSize = 11; goldenSummaryToggle.Padding = new Thickness(12, 0, 12, 0);
+            goldenSummaryToggle.Click += delegate { SetGoldenSummaryHidden(!goldenSummaryHidden); };
+            slim.Children.Add(goldenSummaryToggle);
+            goldenSlimText = new TextBlock { Foreground = Gold, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 4, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+            Grid.SetColumn(goldenSlimText, 1); slim.Children.Add(goldenSlimText);
+            Grid.SetRow(slim, 3); g.Children.Add(slim);
             goldenTabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
             Brush[] tabColors = { Gold, Green, Cyan, Blue, Orchid };
             string[] tabNames = { "MNQ • MGC • BOTH", "WHAT MAKES WINNERS", "TARGET × STOP", "ONE ACCOUNT", "EVERY ENTRY" };
             for (int i = 0; i < tabNames.Length; i++)
                 goldenTabs.Items.Add(new TabItem { Header = tabNames[i], Background = tabColors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Run GOLDEN SETUP to fill this tab.", Muted, 11, FontWeights.Normal) });
-            Grid.SetRow(goldenTabs, 3); g.Children.Add(goldenTabs);
+            Grid.SetRow(goldenTabs, 4); g.Children.Add(goldenTabs);
+            // Clicking a tab gives the tables the whole screen (filters and summary fold away).
+            foreach (TabItem t in goldenTabs.Items) t.PreviewMouseLeftButtonDown += delegate { if (!goldenSummaryHidden) SetGoldenSummaryHidden(true); };
             goldenResultsHost = g;
             return g;
+        }
+
+        private void SetGoldenSummaryHidden(bool hide)
+        {
+            goldenSummaryHidden = hide;
+            Visibility v = hide ? Visibility.Collapsed : Visibility.Visible;
+            if (goldenVerdictCard != null) goldenVerdictCard.Visibility = v;
+            if (goldenFilterCard != null) goldenFilterCard.Visibility = v;
+            if (goldenTiles != null) goldenTiles.Visibility = v;
+            if (resultsTopPanel != null && goldenResultsMode) resultsTopPanel.Visibility = v;
+            if (goldenSummaryToggle != null) goldenSummaryToggle.Content = hide ? "▼ SHOW FILTERS & SUMMARY" : "▲ FULL SCREEN TABLES";
+            if (resultsPageScroll != null) resultsPageScroll.ScrollToTop();
+            SizeGoldenHost();
         }
 
         private void SetGoldenTab(string name, UIElement content)
@@ -17850,9 +17926,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             var c = goldenStudyConfig ?? config;
             bool any = r.Kept.Count > 0;
             double net = r.Both.NetCash;
-            goldenVerdictHead.Text = r.All.Count == 0 ? "NO GOLDEN ENTRIES" : r.Kept.Count + " ENTRIES  •  WINS " + Pct(r.Both.WinRate) + "  •  NET " + (net > 0 ? "+" : string.Empty) + Cash(net);
+            goldenVerdictHead.Text = r.All.Count == 0 ? "NO GOLDEN ENTRIES" : r.Kept.Count + " ENTRIES  •  WINS " + GPct(r.Both.WinRate) + "  •  NET " + (net > 0 ? "+" : string.Empty) + Cash(net);
             goldenVerdictHead.Foreground = !any ? Gold : (net > 0 ? Green : Red);
             goldenVerdictCard.BorderBrush = goldenVerdictHead.Foreground;
+            if (goldenSlimText != null) { goldenSlimText.Text = goldenVerdictHead.Text + "   •   " + r.Verdict; goldenSlimText.Foreground = goldenVerdictHead.Foreground; }
             goldenVerdictSub.Foreground = Text;
             goldenVerdictSub.Text = r.Verdict + "\n" + (r.Hold ? "Every trade is held until its target or its stop — overnight and into the next days, like a live account. A trade still open when the data ends is counted at its last price."
                 : "Trades are closed at " + (c == null ? 1555 : c.GoldenClose).ToString("00:00", CultureInfo.InvariantCulture) + " (Step 1 setting). Choose HOLD in Step 1 to let them run to the target or stop.")
@@ -17865,7 +17942,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 if (s.Label != "BOTH" && s.Entries == 0) continue;
                 Brush accent = s.Label == "MNQ" ? Blue : s.Label == "MGC" ? Gold : Green;
-                goldenTiles.Children.Add(HelixCard(s.Label + " • " + s.Entries + " ENTRIES", (s.Wins + s.Losses == 0 ? "–" : Pct(s.WinRate)) + "  " + Cash(s.NetCash), s.Wins + " W / " + s.Losses + " L" + (s.Open > 0 ? " / " + s.Open + " open" : "") + (s.Label == "BOTH" ? string.Empty : " • net " + KeystoneGoldenStudy.Fmt(s.Label, s.NetPoints) + " pts"), accent, 250));
+                goldenTiles.Children.Add(HelixCard(s.Label + " • " + s.Entries + " ENTRIES", (s.Wins + s.Losses == 0 ? "–" : GPct(s.WinRate)) + "  " + Cash(s.NetCash), s.Wins + " W / " + s.Losses + " L" + (s.Open > 0 ? " / " + s.Open + " open" : "") + (s.Label == "BOTH" ? string.Empty : " • net " + KeystoneGoldenStudy.Fmt(s.Label, s.NetPoints) + " pts"), accent, 250));
             }
             var acct = r.AccountBoth;
             goldenTiles.Children.Add(HelixCard("ONE ACCOUNT • " + (r.Mnq.Entries > 0 && r.Mgc.Entries > 0 ? "MNQ + MGC" : r.Mnq.Entries > 0 ? "MNQ" : "MGC"), Cash(acct.Start) + " → " + Cash(acct.End), "max drawdown " + Cash(-acct.MaxDrawdown) + " • " + acct.Trades + " trades" + (acct.SkippedOpen > 0 ? " • " + acct.SkippedOpen + " skipped (a trade was open)" : string.Empty), MoneyBrush(acct.End - acct.Start), 300));
@@ -17918,7 +17995,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 foreach (var g in b.Rows)
                 {
                     Func<KeystoneGoldenStats, KeystoneGoldenStats, Brush> rate = (s, all) => s.Wins + s.Losses == 0 ? Muted : (s.WinRate >= all.WinRate + 5 ? Green : (s.WinRate <= all.WinRate - 5 ? Red : Text));
-                    Func<KeystoneGoldenStats, string> pct = s => s.Wins + s.Losses == 0 ? "–" : Pct(s.WinRate);
+                    Func<KeystoneGoldenStats, string> pct = s => s.Wins + s.Losses == 0 ? "–" : GPct(s.WinRate);
                     Func<KeystoneGoldenStats, string> cash = s => s.Entries == 0 ? "–" : Cash(s.NetCash);
                     string[] cells = { g.Group, g.Mnq.Entries.ToString(), pct(g.Mnq), cash(g.Mnq), g.Mgc.Entries.ToString(), pct(g.Mgc), cash(g.Mgc), g.Both.Entries.ToString(), pct(g.Both), cash(g.Both) };
                     Brush[] colors = { Text, Muted, rate(g.Mnq, r.Mnq), MoneyBrush(g.Mnq.NetCash), Muted, rate(g.Mgc, r.Mgc), MoneyBrush(g.Mgc.NetCash), Muted, rate(g.Both, r.Both), MoneyBrush(g.Both.NetCash) };
@@ -17940,7 +18017,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             foreach (var g in r.Grids)
             {
                 if (g.Best == null) continue;
-                string[] cells = { g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year), g.Entries.ToString(), "+" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Target), g.Best.Pattern ? "PATTERN" : "−" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Stop), Pct(g.Best.WinRate), Cash(g.Best.NetCash), g.Yours == null ? "–" : Cash(g.Yours.NetCash) };
+                string[] cells = { g.Symbol + " • " + (g.Year == "ALL" ? "ALL YEARS" : g.Year), g.Entries.ToString(), "+" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Target), g.Best.Pattern ? "PATTERN" : "−" + KeystoneGoldenStudy.Fmt(g.Symbol, g.Best.Stop), GPct(g.Best.WinRate), Cash(g.Best.NetCash), g.Yours == null ? "–" : Cash(g.Yours.NetCash) };
                 Brush[] colors = { g.Symbol == "MNQ" ? Blue : Gold, Muted, Cyan, Cyan, Text, MoneyBrush(g.Best.NetCash), g.Yours == null ? Muted : MoneyBrush(g.Yours.NetCash) };
                 root.Children.Add(HelixRow(cells, colors, bw, g.Year == "ALL" ? Gold : Card, null));
             }
@@ -17987,7 +18064,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         ToolTip = "stop " + (c.Pattern ? "below the pattern" : KeystoneGoldenStudy.Fmt(g.Symbol, c.Stop) + " pts") + " • target +" + KeystoneGoldenStudy.Fmt(g.Symbol, c.Target) + " pts\n" + c.Wins + " wins • " + c.Losses + " losses" + (c.Open > 0 ? " • " + c.Open + " still open" : "") + "\nnet " + KeystoneGoldenStudy.Fmt(g.Symbol, c.NetPoints) + " pts = " + Cash(c.NetCash) + (yours ? "\nYOUR STEP 1 SETTING" : "") + (best ? "\nBEST CELL" : "")
                     };
                     var st = new StackPanel();
-                    st.Children.Add(new TextBlock { Text = c.Wins + c.Losses == 0 ? "–" : Pct(c.WinRate), Foreground = Text, FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center });
+                    st.Children.Add(new TextBlock { Text = c.Wins + c.Losses == 0 ? "–" : GPct(c.WinRate), Foreground = Text, FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center });
                     st.Children.Add(new TextBlock { Text = Cash(c.NetCash), Foreground = MoneyBrush(c.NetCash), FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, Opacity = 0.55 + 0.45 * Math.Abs(c.NetCash) / maxAbs });
                     cell.Child = st;
                     put(cell, s + 1, t + 1);
@@ -18013,15 +18090,25 @@ namespace NinjaTrader.NinjaScript.AddOns
             root.Children.Add(HelixTitle("BALANCE AFTER EVERY CLOSED TRADE", Cyan));
             root.Children.Add(GoldenEquityChart(r));
             root.Children.Add(HelixTitle("MONTHS", Gold));
-            double[] w = { 120, 110, 80, 110, 80, 110, 80 };
+            double[] w = { 120, 110, 80, 110, 80, 200, 80 };
             root.Children.Add(HelixHeader(new[] { "MONTH", "MNQ", "W / L", "MGC", "W / L", "BOTH", "W / L" }, w));
-            var months = r.AccountBoth.Months.Select(m => m.Item1).Concat(r.AccountMnq.Months.Select(m => m.Item1)).Concat(r.AccountMgc.Months.Select(m => m.Item1)).Distinct().OrderBy(m => m).ToList();
+            // Every month of the tested range, also the ones with no kept trade (shown as NO TRADES).
+            var months = new List<DateTime>();
+            var c0 = goldenStudyConfig ?? config;
+            DateTime m0 = r.All.Count > 0 ? r.All.Min(e => e.TriggerTime) : (c0 == null ? DateTime.Today : c0.Start);
+            DateTime m1 = r.All.Count > 0 ? r.All.Max(e => e.ExitTime == DateTime.MinValue ? e.TriggerTime : e.ExitTime) : m0;
+            if (c0 != null && c0.Start > DateTime.MinValue.AddYears(1) && c0.Start < m0) m0 = c0.Start;
+            if (c0 != null && c0.End < DateTime.MaxValue.AddYears(-1) && c0.End > m1) m1 = c0.End;
+            for (DateTime m = new DateTime(m0.Year, m0.Month, 1); m <= m1 && months.Count < 600; m = m.AddMonths(1)) months.Add(m);
             foreach (var m in months)
             {
                 Func<KeystoneGoldenAccount, Tuple<DateTime, double, int, int>> at = a => a.Months.FirstOrDefault(x => x.Item1 == m);
                 var q = at(r.AccountMnq); var g = at(r.AccountMgc); var b = at(r.AccountBoth);
-                string[] cells = { m.ToString("MMM yyyy", CultureInfo.InvariantCulture), q == null ? "–" : Cash(q.Item2), q == null ? "" : q.Item3 + " / " + q.Item4, g == null ? "–" : Cash(g.Item2), g == null ? "" : g.Item3 + " / " + g.Item4, b == null ? "–" : Cash(b.Item2), b == null ? "" : b.Item3 + " / " + b.Item4 };
+                int found = r.All.Count(e => e.TriggerTime.Year == m.Year && e.TriggerTime.Month == m.Month), kept = r.Kept.Count(e => e.TriggerTime.Year == m.Year && e.TriggerTime.Month == m.Month);
+                string none = found == 0 ? "NO SETUP FOUND" : (kept == 0 ? "ALL " + found + " FILTERED OUT" : "–");
+                string[] cells = { m.ToString("MMM yyyy", CultureInfo.InvariantCulture), q == null ? "–" : Cash(q.Item2), q == null ? "" : q.Item3 + " / " + q.Item4, g == null ? "–" : Cash(g.Item2), g == null ? "" : g.Item3 + " / " + g.Item4, b == null ? none : Cash(b.Item2), b == null ? "" : b.Item3 + " / " + b.Item4 };
                 Brush[] colors = { Text, q == null ? Muted : MoneyBrush(q.Item2), Muted, g == null ? Muted : MoneyBrush(g.Item2), Muted, b == null ? Muted : MoneyBrush(b.Item2), Muted };
+                if (b == null) colors[5] = Muted;
                 root.Children.Add(HelixRow(cells, colors, w, b == null ? Card : (b.Item2 >= 0 ? Green : Red), null));
             }
             return root;

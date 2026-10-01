@@ -113,10 +113,16 @@ public static class UiSmokeTest
                 int full = canvas.Children.Count;
                 if (strategy == "GLD" && ev2.Count > 0)
                 {
+                    // labels show for the clicked entry
+                    var bars = (List<KeystoneArcBar>)lab2.GetType().GetField("evidenceBars", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    var pick = ev2.FirstOrDefault(e => bars.Count > 0 && e.Symbol == bars[0].Symbol && e.TriggerTime >= bars[0].Time && e.TriggerTime <= bars[bars.Count - 1].Time);
+                    if (pick != null) { lab2.GetType().GetField("selectedEvidenceEvent", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(lab2, pick); Call(lab2, "RenderEvidenceChart"); }
                     int labels = 0;
                     foreach (var child in canvas.Children) { var b = child as System.Windows.Controls.Border; var tb = b == null ? null : b.Child as System.Windows.Controls.TextBlock; if (tb != null && tb.Text != null && (tb.Text.StartsWith("GOLDEN") || tb.Text.StartsWith("TP ") || tb.Text.StartsWith("SL "))) labels++; }
                     Console.WriteLine("      golden labels on the chart: " + labels);
-                    if (labels < 3) throw new Exception("GOLDEN labels (start / TP / SL / result) not drawn");
+                    if (pick != null && labels < 3) throw new Exception("GOLDEN labels (start / TP / SL / result) not drawn for the clicked entry");
+                    lab2.GetType().GetField("selectedEvidenceEvent", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(lab2, null); Call(lab2, "RenderEvidenceChart");
+                    full = canvas.Children.Count;
                 }
                 Call(lab2, "ReplaySetCursor", Call(lab2, "ReplayFirstBarTime"), true);
                 int start = canvas.Children.Count;
@@ -138,6 +144,7 @@ public static class UiSmokeTest
                     if (bhOnly.Kept.Any(e => e.SetupClass != "BH")) throw new Exception("BH ONLY filter kept other setups");
                     setup.SelectedIndex = 0; setup.SelectedItem = setup.Items[0]; Call(lab2, "RunGoldenStudy");
                     if (!(bool)lab2.GetType().GetField("goldenResultsMode", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2)) throw new Exception("study mode off");
+                    Call(lab2, "SetGoldenSummaryHidden", true); Call(lab2, "SetGoldenSummaryHidden", false);
                     Call(lab2, "SetGoldenResultsMode", false);
                 });
             Step(strategy + ": bar-by-bar replay, event jumps, play/pause, live box, show all", () =>
