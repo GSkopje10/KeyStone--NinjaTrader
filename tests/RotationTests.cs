@@ -43,6 +43,10 @@ public static class RotationTests
         var sellCfg = cfg.Copy(); sellCfg.Direction = "SELL";
         var r4 = KeystoneRotation.Run(Flat(day, o), sellCfg);
         Check(r4.Trades.Count >= 1 && r4.Trades[0].Reason == "STOP" && Eq(r4.Trades[0].Pnl, -500), "SELL SELL on the same up move → STOP");
+        // a target hit after commission (+$1,000 − $49.60) still ends the account's day at a $1,000 daily target (no $0 rotations after it)
+        var dayCfg = cfg.Copy(); dayCfg.CommissionPerSide = 0.62; dayCfg.DailyTarget = 1000; dayCfg.Accounts = 1;
+        var r6 = KeystoneRotation.Run(Flat(day, o), dayCfg);
+        Check(r6.Trades.Count == 1 && Eq(r6.Trades[0].Pnl, 950.4), "a +$1,000 rotation (= +$950.40 after $49.60 commission) ends the $1,000 day: no $0 rotations after it", r6.Trades.Count + " " + string.Join(",", r6.Trades.Select(t => t.Reason + " " + t.Pnl.ToString("0.00"))));
         // costs: 40 contracts × 2 × $0.62 = $49.60 per rotation; slippage 1 tick on stops = 20×$0.50 + 20×$1 = $30
         var costCfg = cfg.Copy(); costCfg.CommissionPerSide = 0.62; costCfg.SlippageTicks = 1;
         var r5 = KeystoneRotation.Run(Flat(day, o2), costCfg);
