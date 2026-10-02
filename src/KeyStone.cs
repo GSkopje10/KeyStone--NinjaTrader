@@ -7491,6 +7491,259 @@ namespace NinjaTrader.NinjaScript
     // A business calculator for prop firms: evaluations are expenses, payouts are revenue. It simulates the whole
     // life of every evaluation you buy (evaluation → funded → payouts → blown / retired → buy again) under a firm's
     // rules and your daily plan, with days from a coin flip (no strategy) or from a real strategy run (RECOIL days).
+    // ---- REAL BRACKET (build 10-03c) ---------------------------------------------------------------
+    // One trade a day with fixed rules: at the entry time (New York) buy or sell at the next minute's open, attach a
+    // target and a stop in points, close at the close time if neither is hit. Every day is replayed on real 1-minute
+    // bars; when one minute touches both the target and the stop, the STOP counts first. Days without the exact entry
+    // minute or the direction candle are no-trade days (no price is ever invented).
+    public sealed class KeystoneBracketMinuteDay
+    {
+        public DateTime Day; public string Symbol = string.Empty;
+        public int[] Minute;                       // minute of the day of each bar's close stamp (e.g. 9:31 → 571)
+        public double[] O, H, L, C;
+    }
+
+    public sealed class KeystoneBracketPath
+    {
+        public DateTime Day; public bool Ok; public int Dir; public double Entry, CloseMove; public int N;
+        public double[] Fav, Adv;                  // running best / worst excursion in points (in the trade's direction) up to each minute
+        public string Why = string.Empty;
+    }
+
+    public sealed class KeystoneBracketSet
+    {
+        public string Symbol = "MNQ"; public int EntryHhmm = 935, CloseHhmm = 1555; public string Direction = "FOLLOW5";
+        public List<KeystoneBracketPath> Days = new List<KeystoneBracketPath>();
+        public double PointValue { get { return Symbol == "MGC" ? 10 : 2; } }
+        public double Tick { get { return Symbol == "MGC" ? 0.1 : 0.25; } }
+        public double CostPerContract { get { return 2 * 0.62 + Tick * PointValue; } }   // commission both sides + 1 tick slippage
+        public int Traded { get { return Days.Count(d => d.Ok); } }
+        public KeystoneBracketSet Subset(Func<KeystoneBracketPath, bool> keep) { var s = (KeystoneBracketSet)MemberwiseClone(); s.Days = Days.Where(keep).ToList(); return s; }
+        public string RuleText() { return Symbol + " • enter at " + KeystoneBracket.Hm(EntryHhmm) + " ET • " + KeystoneBracket.DirectionText(Direction) + " • close at " + KeystoneBracket.Hm(CloseHhmm) + " if nothing is hit"; }
+    }
+
+    public static class KeystoneBracket
+    {
+        public static readonly string[] Directions = { "FOLLOW5", "FADE5", "FOLLOW30", "FADE30", "LONG", "SHORT" };
+        public static string DirectionText(string d)
+        {
+            switch (d)
+            {
+                case "FOLLOW5": return "same way as the last 5-minute candle (green = buy, red = sell)";
+                case "FADE5": return "against the last 5-minute candle (green = sell, red = buy)";
+                case "FOLLOW30": return "same way as the last 30 minutes";
+                case "FADE30": return "against the last 30 minutes";
+                case "LONG": return "always buy";
+                case "SHORT": return "always sell";
+            }
+            return d;
+        }
+        public static string DirectionShort(string d) { switch (d) { case "FOLLOW5": return "FOLLOW 5M CANDLE"; case "FADE5": return "FADE 5M CANDLE"; case "FOLLOW30": return "FOLLOW LAST 30 MIN"; case "FADE30": return "FADE LAST 30 MIN"; case "LONG": return "ALWAYS BUY"; case "SHORT": return "ALWAYS SELL"; } return d; }
+        public static string Hm(int hhmm) { return (hhmm / 100).ToString("00") + ":" + (hhmm % 100).ToString("00"); }
+        static int Min(int hhmm) { return hhmm / 100 * 60 + hhmm % 100; }
+
+        // Group close-stamped 1-minute bars of one symbol by New York date.
+        public static List<KeystoneBracketMinuteDay> Days(IEnumerable<KeystoneArcBar> bars, string symbol)
+        {
+            var output = new List<KeystoneBracketMinuteDay>();
+            foreach (var g in bars.Where(b => b != null).GroupBy(b => b.Time.Date).OrderBy(g => g.Key))
+            {
+                var list = g.OrderBy(b => b.Time).ToList();
+                output.Add(new KeystoneBracketMinuteDay
+                {
+                    Day = g.Key, Symbol = symbol, Minute = list.Select(b => b.Time.Hour * 60 + b.Time.Minute).ToArray(),
+                    O = list.Select(b => b.Open).ToArray(), H = list.Select(b => b.High).ToArray(), L = list.Select(b => b.Low).ToArray(), C = list.Select(b => b.Close).ToArray()
+                });
+            }
+            return output;
+        }
+
+        // Is this a 1-minute series? (median gap between bars of the same day = 1 minute)
+        public static bool IsOneMinute(List<KeystoneArcBar> bars)
+        {
+            if (bars == null || bars.Count < 30) return false;
+            var gaps = new List<double>();
+            for (int i = 1; i < Math.Min(bars.Count, 400); i++) if (bars[i].Time.Date == bars[i - 1].Time.Date) gaps.Add((bars[i].Time - bars[i - 1].Time).TotalMinutes);
+            if (gaps.Count < 20) return false; gaps.Sort(); return Math.Abs(gaps[gaps.Count / 2] - 1) < 0.01;
+        }
+
+        public static KeystoneBracketPath Path(KeystoneBracketMinuteDay d, int entryHhmm, int closeHhmm, string direction)
+        {
+            var p = new KeystoneBracketPath { Day = d.Day };
+            int em = Min(entryHhmm), cm = Min(closeHhmm);
+            int e = Array.IndexOf(d.Minute, em + 1);          // the bar from entry → entry + 1 minute (we fill at its open)
+            if (e < 0) { p.Why = "no " + Hm(entryHhmm) + " minute"; return p; }
+            int dir = 0;
+            if (direction == "LONG") dir = 1; else if (direction == "SHORT") dir = -1;
+            else
+            {
+                int span = direction.EndsWith("30") ? 30 : 5;
+                int a = Array.IndexOf(d.Minute, em - span + 1), z = Array.IndexOf(d.Minute, em);
+                if (a < 0 || z < 0 || z < a) { p.Why = "no complete candle before " + Hm(entryHhmm); return p; }
+                double move = d.C[z] - d.O[a];
+                if (Math.Abs(move) < 1e-9) { p.Why = "flat candle"; return p; }
+                dir = Math.Sign(move); if (direction.StartsWith("FADE")) dir = -dir;
+            }
+            int last = -1; for (int i = e; i < d.Minute.Length && d.Minute[i] <= cm; i++) last = i;
+            if (last < e) { p.Why = "no bars before " + Hm(closeHhmm); return p; }
+            int n = last - e + 1; p.Fav = new double[n]; p.Adv = new double[n];
+            double entry = d.O[e], fav = double.MinValue, adv = double.MinValue;
+            for (int i = 0; i < n; i++)
+            {
+                double f = dir > 0 ? d.H[e + i] - entry : entry - d.L[e + i], a = dir > 0 ? entry - d.L[e + i] : d.H[e + i] - entry;
+                fav = Math.Max(fav, f); adv = Math.Max(adv, a); p.Fav[i] = fav; p.Adv[i] = adv;
+            }
+            p.Ok = true; p.Dir = dir; p.Entry = entry; p.N = n; p.CloseMove = dir * (d.C[last] - entry);
+            return p;
+        }
+
+        public static KeystoneBracketSet Build(List<KeystoneBracketMinuteDay> days, string symbol, int entryHhmm, int closeHhmm, string direction)
+        {
+            var s = new KeystoneBracketSet { Symbol = symbol, EntryHhmm = entryHhmm, CloseHhmm = closeHhmm, Direction = direction };
+            foreach (var d in days) s.Days.Add(Path(d, entryHhmm, closeHhmm, direction));
+            return s;
+        }
+
+        static int First(double[] runningMax, double level) { int lo = 0, hi = runningMax.Length; while (lo < hi) { int mid = (lo + hi) / 2; if (runningMax[mid] >= level - 1e-9) hi = mid; else lo = mid + 1; } return lo; }
+
+        // One day of the bracket: +target / −stop in points, else the close. Returns P/L in points and the worst / best open points.
+        public static void Resolve(KeystoneBracketPath p, double target, double stop, out double pts, out double worst, out double best, out string how)
+        {
+            int iS = First(p.Adv, stop), iT = First(p.Fav, target);
+            if (iS < p.N && iS <= iT) { pts = -stop; worst = -stop; best = Math.Min(target, Math.Max(0, p.Fav[iS])); how = "STOP"; return; }
+            if (iT < p.N) { pts = target; worst = -Math.Max(0, p.Adv[iT]); best = target; how = "TARGET"; return; }
+            pts = p.CloseMove; worst = -Math.Max(0, p.Adv[p.N - 1]); best = Math.Max(0, p.Fav[p.N - 1]); how = "CLOSE";
+        }
+
+        public static double Points(double dollars, int contracts, KeystoneBracketSet s, bool up)
+        {
+            double raw = dollars / (Math.Max(1, contracts) * s.PointValue) / s.Tick;
+            return Math.Max(1, up ? Math.Ceiling(raw - 1e-9) : Math.Floor(raw + 1e-9)) * s.Tick;
+        }
+        static double RoundTick(double pts, KeystoneBracketSet s) { return Math.Max(1, Math.Round(pts / s.Tick)) * s.Tick; }
+
+        // The day for an account in its state: evaluation or funded size; on the evaluation's last day aim only for what is
+        // left; never risk more than the room left above the floor.
+        public static KeystonePropDay Day(KeystoneBracketPath p, KeystonePropRules r, KeystonePropPlan plan, KeystonePropPlanner.Account a)
+        {
+            var s = plan.Bracket;
+            if (p == null || !p.Ok) return new KeystonePropDay { Day = p == null ? DateTime.MinValue : p.Day, Traded = false };
+            int c = Math.Max(1, a.Funded ? plan.FundContracts : plan.EvalContracts);
+            double k = c * s.PointValue, cost = c * s.CostPerContract;
+            double tPts = RoundTick((a.Funded ? plan.FundTarget : plan.EvalTarget) / k, s), sPts = RoundTick((a.Funded ? plan.FundStop : plan.EvalStop) / k, s);
+            if (!a.Funded)
+            {
+                double left = r.Target - a.Bal;
+                if (left > 0 && left < tPts * k)
+                {
+                    double need = Points(left + cost, c, s, true);
+                    bool consistent = r.Consistency <= 0 || Math.Max(a.Best, need * k - cost) <= r.Consistency / 100.0 * Math.Max(r.Target, a.Bal + need * k - cost) + 1e-9;
+                    if (consistent) tPts = Math.Min(tPts, need);
+                }
+            }
+            double room = a.Room(r) - cost;
+            if (sPts * k > room) sPts = Math.Max(s.Tick, Math.Floor(room / k / s.Tick) * s.Tick);
+            double pts, worst, best; string how; Resolve(p, tPts, sPts, out pts, out worst, out best, out how);
+            return new KeystonePropDay { Day = p.Day, Pnl = pts * k - cost, Worst = worst * k - cost, Best = best * k, Traded = true };
+        }
+
+        // How the days end with one size: target / stop / closed at the close time, and the average close.
+        public static string Tally(KeystoneBracketSet s, double targetDollars, double stopDollars, int contracts)
+        {
+            int t = 0, st = 0, cl = 0; double closeSum = 0; double k = Math.Max(1, contracts) * s.PointValue;
+            double tp = Math.Max(1, Math.Round(targetDollars / k / s.Tick)) * s.Tick, sp = Math.Max(1, Math.Round(stopDollars / k / s.Tick)) * s.Tick;
+            foreach (var p in s.Days.Where(d => d.Ok)) { double pts, w, b; string how; Resolve(p, tp, sp, out pts, out w, out b, out how); if (how == "TARGET") t++; else if (how == "STOP") st++; else { cl++; closeSum += pts * k; } }
+            int n = Math.Max(1, t + st + cl);
+            return "+" + tp.ToString("0.##", CultureInfo.InvariantCulture) + " / −" + sp.ToString("0.##", CultureInfo.InvariantCulture) + " pts: target " + t + " days (" + (100.0 * t / n).ToString("0") + "%) • stop " + st + " (" + (100.0 * st / n).ToString("0") + "%) • closed at " + Hm(s.CloseHhmm) + " " + cl + " (" + (100.0 * cl / n).ToString("0") + "%, average " + (cl == 0 ? "$0" : (closeSum / cl < 0 ? "−$" : "+$") + Math.Abs(closeSum / cl).ToString("N0", CultureInfo.InvariantCulture)) + ")";
+        }
+
+        public static string PlanText(KeystonePropPlan p)
+        {
+            var s = p.Bracket; if (s == null) return "REAL BRACKET (no data)";
+            Func<double, int, string> leg = (dollars, c) => RoundTick(dollars / (Math.Max(1, c) * s.PointValue), s).ToString(s.Symbol == "MGC" ? "0.0" : "0.##", CultureInfo.InvariantCulture);
+            Func<double, string> m = v => "$" + v.ToString("N0", CultureInfo.InvariantCulture);
+            return s.Symbol + " • " + Hm(s.EntryHhmm) + " • " + DirectionShort(s.Direction) + " • evaluation " + p.EvalContracts + " × +" + leg(p.EvalTarget, p.EvalContracts) + " / −" + leg(p.EvalStop, p.EvalContracts) + " pts (" + m(p.EvalTarget) + " / " + m(p.EvalStop) + ") • funded " + p.FundContracts + " × +" + leg(p.FundTarget, p.FundContracts) + " / −" + leg(p.FundStop, p.FundContracts) + " pts (" + m(p.FundTarget) + " / " + m(p.FundStop) + ")";
+        }
+
+        // The rule written as steps a person can follow.
+        public static List<string> RuleSteps(KeystonePropPlan p)
+        {
+            var s = p.Bracket; var steps = new List<string>(); if (s == null) return steps;
+            Func<double, int, string> leg = (dollars, c) => RoundTick(dollars / (Math.Max(1, c) * s.PointValue), s).ToString(s.Symbol == "MGC" ? "0.0" : "0.##", CultureInfo.InvariantCulture);
+            Func<double, string> m = v => "$" + v.ToString("N0", CultureInfo.InvariantCulture);
+            steps.Add("1. Instrument " + s.Symbol + ". One trade a day. Nothing before " + Hm(s.EntryHhmm) + " New York time.");
+            steps.Add("2. At " + Hm(s.EntryHhmm) + ": " + DirectionText(s.Direction) + ". Market order.");
+            steps.Add("3. EVALUATION: " + p.EvalContracts + " contracts • target +" + leg(p.EvalTarget, p.EvalContracts) + " points (" + m(p.EvalTarget) + ") • stop −" + leg(p.EvalStop, p.EvalContracts) + " points (" + m(p.EvalStop) + "). If you need less than the target to pass, aim only for what is left. Never set the stop past the account's floor.");
+            steps.Add("4. FUNDED: " + p.FundContracts + " contract" + (p.FundContracts == 1 ? "" : "s") + " • target +" + leg(p.FundTarget, p.FundContracts) + " points (" + m(p.FundTarget) + ") • stop −" + leg(p.FundStop, p.FundContracts) + " points (" + m(p.FundStop) + ").");
+            steps.Add("5. If neither is hit, close at " + Hm(s.CloseHhmm) + ". Do not move the stop or the target. Done for the day.");
+            steps.Add("6. Payout when allowed. Account lost → buy the next evaluation the next day.");
+            return steps;
+        }
+
+        // Entry times tried by the sweet spot.
+        public static int[] Times(string symbol) { return symbol == "MGC" ? new[] { 800, 830, 900, 935, 1000, 1030, 1100, 1300 } : new[] { 935, 945, 1000, 1030, 1100, 1300, 1400 }; }
+        public static int[] EvalContracts(string symbol) { return symbol == "MGC" ? new[] { 1, 2, 3, 5 } : new[] { 2, 3, 5, 10 }; }
+        public static int[] FundContracts(string symbol) { return symbol == "MGC" ? new[] { 1 } : new[] { 1, 2 }; }
+
+        // SWEET SPOT on real prices: (1) every entry time × direction with your plan's sizes → the best rules;
+        // (2) for the best rules every evaluation and funded size → ranked by the value of one evaluation, with the value per year.
+        public static List<KeystonePropPlanResult> SweetSpot(List<KeystoneBracketMinuteDay> days, string symbol, int closeHhmm, KeystonePropRules r, KeystonePropPlan basePlan, int n, int seed, Action<string> progress)
+        {
+            // (1) entry rules, all CPU cores (every simulation has its own random stream → same answer every time)
+            var rules = new List<Tuple<int, string>>(); foreach (int t in Times(symbol)) foreach (string dir in Directions) rules.Add(Tuple.Create(t, dir));
+            var sets = new KeystoneBracketSet[rules.Count]; var values = new double[rules.Count]; int done = 0;
+            int nA = Math.Max(300, n / 3);
+            System.Threading.Tasks.Parallel.For(0, rules.Count, i =>
+            {
+                var set = Build(days, symbol, rules[i].Item1, closeHhmm, rules[i].Item2); values[i] = double.MinValue;
+                if (set.Traded >= 10) { var p = basePlan.Copy(); p.Source = "BRACKET"; p.Bracket = set; sets[i] = set; values[i] = KeystonePropPlanner.Evaluate(r, p, null, nA, seed).ValuePerEval; }
+                int d = System.Threading.Interlocked.Increment(ref done); if (progress != null) progress("entry rules " + d + " / " + rules.Count);
+            });
+            // (2) sizes for the best 4 rules
+            var plans = new List<KeystonePropPlan>();
+            foreach (int i in Enumerable.Range(0, rules.Count).Where(i => sets[i] != null).OrderByDescending(i => values[i]).Take(4))
+                foreach (int ec in EvalContracts(symbol))
+                    foreach (double eT in new[] { 1000.0, 1500 })
+                        foreach (double eS in new[] { 1000.0, 1500, 2000 })
+                            foreach (int fc in FundContracts(symbol))
+                                foreach (double fT in new[] { 200.0, 300 })
+                                    foreach (double fS in new[] { 300.0, 600, 1000 })
+                                    {
+                                        if (eS > r.MaxDrawdown || fS > r.MaxDrawdown) continue;
+                                        var p = basePlan.Copy(); p.Source = "BRACKET"; p.Bracket = sets[i]; p.EvalContracts = ec; p.EvalTarget = eT; p.EvalStop = eS; p.FundContracts = fc; p.FundTarget = fT; p.FundStop = fS;
+                                        plans.Add(p);
+                                    }
+            var results = new KeystonePropPlanResult[plans.Count]; done = 0;
+            int nB = Math.Max(250, n / 4);
+            System.Threading.Tasks.Parallel.For(0, plans.Count, i =>
+            {
+                var res = KeystonePropPlanner.Evaluate(r, plans[i], null, nB, seed); res.Label = PlanText(plans[i]); results[i] = res;
+                int d = System.Threading.Interlocked.Increment(ref done); if (progress != null && d % 25 == 0) progress("sizes " + d + " / " + plans.Count);
+            });
+            var output = results.OrderByDescending(x => x.ValuePerEval).ToList();
+            if (progress != null) progress("checking the best 25 year by year");
+            var top = output.Take(25).ToList();
+            System.Threading.Tasks.Parallel.ForEach(top, res => YearCheck(res, r, Math.Max(250, n / 4), seed));
+            return output;
+        }
+
+        // Value of one evaluation using only each year's days (the same rule must work in every year, not only overall).
+        public static void YearCheck(KeystonePropPlanResult res, KeystonePropRules r, int n, int seed)
+        {
+            var p = res.Plan; if (p == null || p.Bracket == null) return;
+            var parts = new List<string>(); bool every = true;
+            foreach (int y in p.Bracket.Days.Where(d => d.Ok).Select(d => d.Day.Year).Distinct().OrderBy(y => y))
+            {
+                var q = p.Copy(); q.Bracket = p.Bracket.Subset(d => d.Day.Year == y);
+                if (q.Bracket.Traded < 10) continue;
+                double v = KeystonePropPlanner.Evaluate(r, q, null, n, seed).ValuePerEval;
+                res.YearValues[y] = v; if (v <= 0) every = false;
+                parts.Add(y + " " + (v < 0 ? "−$" : "+$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture));
+            }
+            res.EveryYear = every && parts.Count > 0; res.YearText = string.Join(" • ", parts);
+        }
+    }
+
     public sealed class KeystonePropRules
     {
         public string Name = "50K • 50% CONSISTENCY";
@@ -7522,7 +7775,9 @@ namespace NinjaTrader.NinjaScript
 
     public sealed class KeystonePropPlan
     {
-        public string Source = "COIN";             // COIN (no strategy) • REAL (days from a real strategy run)
+        public string Source = "COIN";             // COIN (no strategy) • REAL (days from a real strategy run) • BRACKET (one bracket trade a day on real 1-minute bars)
+        public KeystoneBracketSet Bracket;         // BRACKET: the entry rule replayed on every loaded day
+        public int EvalContracts = 5, FundContracts = 1;   // BRACKET: contracts; EvalTarget / EvalStop / FundTarget / FundStop are the dollar sizes
         public double EvalTarget = 1500, EvalStop = 2000, FundTarget = 200, FundStop = 1000;   // COIN: the day ends at +target or −stop (the stop never goes past the account's room)
         public double Edge = 0;                    // COIN: extra win chance in % points (0 = pure luck)
         public double DayCost = 5;                 // commission / slippage per trading day
@@ -7531,6 +7786,7 @@ namespace NinjaTrader.NinjaScript
         public string Describe()
         {
             Func<double, string> m = v => "$" + v.ToString("N0", CultureInfo.InvariantCulture);
+            if (Source == "BRACKET") return "REAL BRACKET • " + KeystoneBracket.PlanText(this);
             if (Source == "REAL") return "REAL DAYS • evaluation size ×" + EvalSize.ToString("0.##") + (EvalDayStop > 0 ? " (day stop " + m(EvalDayStop) + ")" : "") + " • funded size ×" + FundSize.ToString("0.##") + (FundDayStop > 0 ? " (day stop " + m(FundDayStop) + ")" : "");
             return "COIN FLIP" + (Edge != 0 ? " + " + Edge.ToString("0.#") + "% edge" : " (no edge)") + " • evaluation days +" + m(EvalTarget) + " / −" + m(EvalStop) + " • funded days +" + m(FundTarget) + " / −" + m(FundStop) + " • costs " + m(DayCost) + "/day";
         }
@@ -7546,6 +7802,7 @@ namespace NinjaTrader.NinjaScript
         public double PassRate, AvgDaysToPass, FundedValue, AvgPayouts, ValuePerEval, LosingShare, AvgFundedDays;
         public double Median, P90; public int LongestFailStreak95;
         public string Label = string.Empty;
+        public Dictionary<int, double> YearValues = new Dictionary<int, double>(); public bool EveryYear; public string YearText = string.Empty;   // BRACKET sweet spot: value of one evaluation per year
     }
 
     public sealed class KeystonePropProgram
@@ -7583,6 +7840,11 @@ namespace NinjaTrader.NinjaScript
 
         public static DaySource Source(KeystonePropRules r, KeystonePropPlan p, List<KeystonePropDay> real)
         {
+            if (p.Source == "BRACKET" && p.Bracket != null && p.Bracket.Days.Count > 0)
+            {
+                var paths = p.Bracket.Days.ToArray();
+                return (rng, a) => KeystoneBracket.Day(paths[rng.Next(paths.Length)], r, p, a);
+            }
             if (p.Source == "REAL" && real != null && real.Count > 0)
             {
                 var days = real.ToArray();
@@ -7748,13 +8010,16 @@ namespace NinjaTrader.NinjaScript
         public static List<KeystonePropYear> History(KeystonePropRules r, KeystonePropPlan p, List<KeystonePropDay> real)
         {
             var rows = new Dictionary<int, KeystonePropYear>();
-            if (real == null || real.Count == 0) return new List<KeystonePropYear>();
+            var order = new List<Tuple<DateTime, Func<Account, KeystonePropDay>>>();
+            if (p.Source == "BRACKET" && p.Bracket != null) foreach (var path in p.Bracket.Days.OrderBy(x => x.Day)) { var pp = path; order.Add(Tuple.Create(pp.Day, (Func<Account, KeystonePropDay>)(acc => KeystoneBracket.Day(pp, r, p, acc)))); }
+            else if (real != null) foreach (var d1 in real.OrderBy(x => x.Day)) { var dd = d1; order.Add(Tuple.Create(dd.Day, (Func<Account, KeystonePropDay>)(acc => Scale(dd, acc.Funded ? p.FundSize : p.EvalSize, acc.Funded ? p.FundDayStop : p.EvalDayStop)))); }
+            if (order.Count == 0) return new List<KeystonePropYear>();
             Func<int, KeystonePropYear> Y = y => { KeystonePropYear v; if (!rows.TryGetValue(y, out v)) { v = new KeystonePropYear { Year = y }; rows[y] = v; } return v; };
-            var a = NewEval(r); Y(real[0].Day.Year).Bought++; Y(real[0].Day.Year).Spent += r.EvalCost;
-            foreach (var d0 in real.OrderBy(x => x.Day))
+            var a = NewEval(r); Y(order[0].Item1.Year).Bought++; Y(order[0].Item1.Year).Spent += r.EvalCost;
+            foreach (var step in order)
             {
-                var y = Y(d0.Day.Year);
-                var d = Scale(d0, a.Funded ? p.FundSize : p.EvalSize, a.Funded ? p.FundDayStop : p.EvalDayStop);
+                var y = Y(step.Item1.Year);
+                var d = step.Item2(a);
                 bool wasFunded = a.Funded; double before = a.Spent;
                 double got = Step(a, r, d); y.Cash += got; if (got > 0) y.Payouts++;
                 if (!wasFunded && a.Funded) { y.Passed++; y.Spent += a.Spent - before; }
@@ -7843,6 +8108,13 @@ namespace NinjaTrader.NinjaScript
             sb.Append("<h1>KEYSTONE ARC • PROP PLANNER</h1><div class='n'>Historical research only • ").Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)).Append(" • days: ").Append(e(source)).Append("</div>");
             sb.Append("<p class='n'>").Append(e(x.Rules.Describe())).Append("<br>").Append(e(x.Plan.Describe())).Append("</p>");
             sb.Append("<div class='v' style='border-color:").Append(c(x.ValuePerEval)).Append("'>").Append(e(Verdict(x))).Append("</div>");
+            if (x.Plan != null && x.Plan.Source == "BRACKET" && x.Plan.Bracket != null)
+            {
+                var bd = x.Plan.Bracket.Days.Where(d => d.Ok).ToList();
+                sb.Append("<h2>THE RULE TO FOLLOW</h2><div class='n'>Tested on ").Append(bd.Count).Append(" trading days").Append(bd.Count > 0 ? " from " + bd.Min(d => d.Day).ToString("yyyy-MM-dd") + " to " + bd.Max(d => d.Day).ToString("yyyy-MM-dd") : "").Append(" • real 1-minute bars • stop counts first when a minute touches both</div><ol>");
+                foreach (var step in KeystoneBracket.RuleSteps(x.Plan)) sb.Append("<li>").Append(e(step.Substring(step.IndexOf(' ') + 1))).Append("</li>");
+                sb.Append("</ol>");
+            }
             sb.Append("<div class='cards'>");
             foreach (var t in new[] { Tuple.Create("PASS RATE", x.PassRate.ToString("0.0") + "%"), Tuple.Create("DAYS TO PASS", x.AvgDaysToPass.ToString("0.0")), Tuple.Create("A FUNDED ACCOUNT PAYS", m(x.FundedValue)), Tuple.Create("PAYOUTS PER FUNDED", x.AvgPayouts.ToString("0.0")), Tuple.Create("VALUE OF ONE EVALUATION", m(x.ValuePerEval)), Tuple.Create("EVALUATIONS THAT LOSE MONEY", x.LosingShare.ToString("0") + "%"), Tuple.Create("FAILS IN A ROW (95%)", x.LongestFailStreak95.ToString()) })
                 sb.Append("<div class='card'><span class='n'>").Append(t.Item1).Append("</span><b>").Append(e(t.Item2)).Append("</b></div>");
@@ -7863,8 +8135,8 @@ namespace NinjaTrader.NinjaScript
             }
             if (sweet != null && sweet.Count > 0)
             {
-                sb.Append("<h2>SWEET SPOT • best plans first</h2><div class='wrap'><table><tr><th>#</th><th>PLAN</th><th>PASS</th><th>DAYS</th><th>FUNDED PAYS</th><th>VALUE / EVAL</th><th>LOSING EVALS</th><th>FAILS IN A ROW</th></tr>");
-                for (int i = 0; i < Math.Min(30, sweet.Count); i++) { var s = sweet[i]; sb.Append("<tr><td>").Append(i + 1).Append("</td><td>").Append(e(s.Label)).Append("</td><td>").Append(s.PassRate.ToString("0")).Append("%</td><td>").Append(s.AvgDaysToPass.ToString("0.0")).Append("</td><td>").Append(m(s.FundedValue)).Append("</td><td style='color:").Append(c(s.ValuePerEval)).Append("'>").Append(m(s.ValuePerEval)).Append("</td><td>").Append(s.LosingShare.ToString("0")).Append("%</td><td>").Append(s.LongestFailStreak95).Append("</td></tr>"); }
+                sb.Append("<h2>SWEET SPOT • best plans first</h2><div class='wrap'><table><tr><th>#</th><th>PLAN</th><th>PASS</th><th>DAYS</th><th>FUNDED PAYS</th><th>VALUE / EVAL</th><th>LOSING EVALS</th><th>FAILS IN A ROW</th><th>BY YEAR</th></tr>");
+                for (int i = 0; i < Math.Min(30, sweet.Count); i++) { var s = sweet[i]; sb.Append("<tr><td>").Append(i + 1).Append("</td><td>").Append(e(s.Label)).Append("</td><td>").Append(s.PassRate.ToString("0")).Append("%</td><td>").Append(s.AvgDaysToPass.ToString("0.0")).Append("</td><td>").Append(m(s.FundedValue)).Append("</td><td style='color:").Append(c(s.ValuePerEval)).Append("'>").Append(m(s.ValuePerEval)).Append("</td><td>").Append(s.LosingShare.ToString("0")).Append("%</td><td>").Append(s.LongestFailStreak95).Append("</td><td style='color:").Append(s.YearText.Length == 0 ? "#9aa4b2" : (s.EveryYear ? "#3fd28b" : "#ff6b6b")).Append("'>").Append(e(s.YearText.Length == 0 ? "—" : (s.EveryYear ? "✓ " : "✗ ") + s.YearText)).Append("</td></tr>"); }
                 sb.Append("</table></div>");
             }
             sb.Append("<h2>HOW TO READ IT</h2><p class='n'>").Append(e(HowItWorks())).Append("</p></body></html>");
@@ -7875,7 +8147,7 @@ namespace NinjaTrader.NinjaScript
         {
             return "Evaluations are the expense, payouts are the income. Each simulated evaluation is bought, traded day by day under the firm's rules (target, trailing drawdown that stops at the lock level, consistency, minimum days), and if it passes it becomes a funded account that is traded until it is lost or reaches the payout limit. Every 5 days of at least the qualifying profit pays the payout percent of the profit (up to the cap) and you keep your split. "
                  + "VALUE OF ONE EVALUATION = average cash received − average cost. Above zero the business makes money in the long run; below zero it loses no matter how many accounts you run. "
-                 + "COIN FLIP means no strategy at all: a day ends at +target or −stop with the fair chance stop ÷ (target + stop) — the pure prop-firm math (the famous 32.65% for 2 days of +1,500 / −2,000). REAL days come from a strategy run (RECOIL) and are drawn at random from its history. "
+                 + "COIN FLIP means no strategy at all: a day ends at +target or −stop with the fair chance stop ÷ (target + stop) — the pure prop-firm math (the famous 32.65% for 2 days of +1,500 / −2,000). REAL days come from a strategy run (RECOIL) and are drawn at random from its history. REAL BRACKET replays one bracket trade a day (entry time, direction rule, target and stop in points) on every loaded 1-minute day; when a minute touches both the target and the stop the stop counts first, and days without the exact entry minute are skipped. The SWEET SPOT checks every rule year by year: a rule that only works in one year is luck, a rule that is positive in every year is a candidate. "
                  + "SEPARATE = every account trades its own days (diversified). COPY = every account takes the same trades (the same result × accounts: bigger swings, same value per evaluation). ROTATION = one stream of trades shared by the accounts in turn. MONEY NEEDED = the deepest the cash went in 19 of 20 simulations — have that much ready. Limits: an evaluation is dropped after 150 trading days and a funded account is retired after 250 (about a year), so a strong strategy's funded value is a one-year value.";
         }
     }
@@ -8140,7 +8412,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -9279,7 +9551,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             string defaultDay = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var data = Stack(); data.Children.Add(Txt("1. DATA, SETUPS & SESSION", Gold, 13, FontWeights.Bold));
             // 123 ENGULFING, LAST-HOUR RELAY and VWAP SNAP-BACK are hidden (never tested); their engines stay in the file.
-            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN", "RECOIL • ADD TO LOSERS"); strategyBox.SelectedIndex = 0;
+            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN", "RECOIL • ADD TO LOSERS", "PROP BRACKET • ONE TRADE A DAY (PROP PLANNER)"); strategyBox.SelectedIndex = 0;
             scopeBox = Select("MNQ", "MGC", "BOTH"); scopeBox.SelectedIndex = 0;
             accountPathBox = Select("PROP • VIRTUAL POOL"); accountPathBox.SelectedIndex = 0; accountPathBox.Visibility = Visibility.Collapsed;
             // Keystone is intentionally one setup lab in this revision: long BH only.
@@ -9573,7 +9845,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var costRow = new UniformGrid { Columns = 2, Margin = new Thickness(0, 2, 0, 2) };
             costRow.Children.Add(Row("COMMISSION $ / CONTRACT (ROUND TRIP)", commissionBox)); costRow.Children.Add(Row("SLIPPAGE TICKS / SIDE", slippageBox));
             model.Children.Add(costRow);
-            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel); model.Children.Add(relayModel); model.Children.Add(vwapModel); model.Children.Add(BuildHelixPanel()); model.Children.Add(BuildGoldenPanel()); model.Children.Add(BuildRecoilPanel());
+            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel); model.Children.Add(relayModel); model.Children.Add(vwapModel); model.Children.Add(BuildHelixPanel()); model.Children.Add(BuildGoldenPanel()); model.Children.Add(BuildRecoilPanel()); model.Children.Add(BuildBracketPanel());
             sessionHintText = Txt("NY OPEN: begins at the first 09:30 ET setup bar and ends at 15:55 ET.", Cyan, 10, FontWeights.Bold); data.Children.Add(sessionHintText);
             // Start right under the settings: no scrolling down to section 3.
             quickStartButton = Btn("▶ START RESEARCH • LOAD + DETECT", Green); quickStartButton.Height = 44; quickStartButton.FontSize = 15; quickStartButton.Margin = new Thickness(6, 14, 6, 4);
@@ -9665,6 +9937,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool recoil = IsRecoilSelected();
             for (int i = 0; i < recoilStrategyControls.Count; i++) if (recoilStrategyControls[i] != null) recoilStrategyControls[i].Visibility = recoil ? Visibility.Visible : Visibility.Collapsed;
             if (recoil) for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = Visibility.Collapsed;
+            bool bracket = IsBracketSelected();
+            for (int i = 0; i < bracketStrategyControls.Count; i++) if (bracketStrategyControls[i] != null) bracketStrategyControls[i].Visibility = bracket ? Visibility.Visible : Visibility.Collapsed;
+            if (bracket) for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = Visibility.Collapsed;
+            if (bracket && !bracketDefaultsApplied) { if (scopeBox != null) scopeBox.SelectedIndex = 2; bracketDefaultsApplied = true; }
+            if (!bracket) bracketDefaultsApplied = false;
             if (golden && !goldenDefaultsApplied) { if (scopeBox != null) scopeBox.SelectedIndex = 2; if (timeframeBox != null) timeframeBox.SelectedIndex = 1; if (liveFixedBox != null) liveFixedBox.IsChecked = true; goldenDefaultsApplied = true; }
             if (!golden) goldenDefaultsApplied = false;
             for (int i = 0; i < asianStrategyControls.Count; i++) if (asianStrategyControls[i] != null) asianStrategyControls[i].Visibility = asian ? Visibility.Visible : Visibility.Collapsed;
@@ -9681,7 +9958,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (vwapPick && !vwapSessionDefaultApplied && sessionBox != null) { sessionBox.SelectedIndex = 0; vwapSessionDefaultApplied = true; }
             if (!vwapPick) vwapSessionDefaultApplied = false;
             // BH stop modes belong to BH only; the other strategies have their own stop choices.
-            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng || relay || vwapPick || helix || golden || recoil ? Visibility.Collapsed : Visibility.Visible;
+            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng || relay || vwapPick || helix || golden || recoil || bracket ? Visibility.Collapsed : Visibility.Visible;
             // FVG default window: pre-NY 08:00 ET to the 16:55 ET close (editable custom range).
             if (fvg && !fvgSessionDefaultApplied && sessionBox != null && customStartBox != null && endTimeBox != null) { sessionBox.SelectedIndex = 6; customStartBox.Text = "800"; endTimeBox.Text = "1655"; fvgSessionDefaultApplied = true; }
             if (!fvg) fvgSessionDefaultApplied = false;
@@ -9694,7 +9971,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (!asian) asianScopeDefaultApplied = false;
                 scopeBox.IsEnabled = true;
             }
-            if (timeframeBox != null) { if (asian || helix || recoil) timeframeBox.SelectedIndex = 0; timeframeBox.IsEnabled = !asian && !helix && !recoil; }
+            if (timeframeBox != null) { if (asian || helix || recoil || bracket) timeframeBox.SelectedIndex = 0; timeframeBox.IsEnabled = !asian && !helix && !recoil && !bracket; }
             // HELIX always loads both instruments on 1-minute bars; its own window decides the session.
             if (helix && scopeBox != null) { scopeBox.SelectedIndex = 2; scopeBox.IsEnabled = false; }
             if (sessionBox != null)
@@ -9960,7 +10237,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool asian = IsAsian75Selected();
             quickStartButton.Content = researchSubmissionLocked
                 ? "↻ RUN THIS TEST AGAIN • same settings (or change a setting to start a new one)"
-                : "▶ " + (IsRecoilSelected() ? "START RECOIL • LOAD 1M BARS + RUN EVERY LADDER" : IsGoldenSelected() ? "START RESEARCH • LOAD + FIND THE GOLDEN SETUPS" : IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
+                : "▶ " + (IsBracketSelected() ? "START • LOAD 1M BARS + OPEN THE PROP PLANNER" : IsRecoilSelected() ? "START RECOIL • LOAD 1M BARS + RUN EVERY LADDER" : IsGoldenSelected() ? "START RESEARCH • LOAD + FIND THE GOLDEN SETUPS" : IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
         }
 
         private void ConfirmAndStartResearch()
@@ -12522,6 +12799,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (!HasSelectedData()) { UpdateUi("STEP 2 REQUIRED • REQUEST COMPLETE HISTORY FOR THE SELECTED SCOPE FIRST", Red); UpdateWorkflowState(); return; }
             if (HelixStudy()) { SetGoldenResultsMode(false); SetRecoilResultsMode(false); RunHelix(); return; }
             if (RecoilStudy()) { SetGoldenResultsMode(false); RunRecoil(); return; }
+            if (BracketStudy()) { OpenBracketPlanner(); return; }
             SetRecoilResultsMode(false);
             SetHelixResultsMode(false);
             if (!GoldenStudyRun()) SetGoldenResultsMode(false);
@@ -16157,7 +16435,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string StrategyDisplayName()
         {
             string code = config == null ? "BH" : (config.StrategyCode ?? "BH").ToUpperInvariant();
-            return code == "RCL" ? "RECOIL • ADD TO LOSERS" : code == "GLD" ? "GOLDEN SETUP" : code == "HLX" ? "HELIX ROTATION" : code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : (code == "RLY" ? "LAST-HOUR RELAY" : (code == "VWP" ? "VWAP SNAP-BACK" : "BH"))));
+            return code == "BRK" ? "PROP BRACKET" : code == "RCL" ? "RECOIL • ADD TO LOSERS" : code == "GLD" ? "GOLDEN SETUP" : code == "HLX" ? "HELIX ROTATION" : code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : (code == "RLY" ? "LAST-HOUR RELAY" : (code == "VWP" ? "VWAP SNAP-BACK" : "BH"))));
         }
 
         private void RenderFirstReturnAccountDetail(KeystoneArcVirtualAccount account, KeystoneArcFirstReturnRow row, string startLabel)
@@ -17080,7 +17358,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (config.Scope != "MNQ" && config.Scope != "MGC" && config.Scope != "BOTH") config.Scope = asian75 ? "BOTH" : "MNQ";
             config.AccountPath = "PROP";
             bool fvgStrategy = !asian75 && IsFvgSelected();
-            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : (IsRelaySelected() ? "RLY" : (IsVwapSelected() ? "VWP" : (IsHelixSelected() ? "HLX" : (IsGoldenSelected() ? "GLD" : (IsRecoilSelected() ? "RCL" : "BH")))))));
+            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : (IsRelaySelected() ? "RLY" : (IsVwapSelected() ? "VWP" : (IsHelixSelected() ? "HLX" : (IsGoldenSelected() ? "GLD" : (IsRecoilSelected() ? "RCL" : (IsBracketSelected() ? "BRK" : "BH"))))))));
             if (config.StrategyCode == "HLX") config.Scope = "BOTH";
             config.RelaySignalHhmm = Integer(relaySignalBox, 1000); config.RelayEntryHhmm = Integer(relayEntryBox, 1525); config.RelayExitHhmm = Integer(relayExitBox, 1555);
             config.RelayThreshold = Math.Max(0, NumberAllowZero(relayThresholdBox, 0.25)); config.RelayStopFraction = Math.Max(0.01, Number(relayStopBox, 0.15)); config.RelayRangeDays = Math.Max(5, Integer(relayDaysBox, 20));
@@ -17175,6 +17453,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                 KeystoneRecoilConfig rcc; string rerr;
                 if (!ReadRecoilConfig(out rcc, out rerr)) { UpdateUi("RECOIL SETTINGS ERROR • " + rerr, Red); return false; }
                 int ls, le; HelixLoadWindow(Math.Min(rcc.UseMnq == 1 ? rcc.MnqStartHhmm : 2359, rcc.UseMgc == 1 ? rcc.MgcStartHhmm : 2359), rcc.CloseHhmm, out ls, out le);
+                config.SessionMode = "CUSTOM"; config.CustomStart = ls; config.EndTime = le; config.SetupMinutes = 1;
+            }
+            if (config.StrategyCode == "BRK")
+            {
+                int ls, le; HelixLoadWindow(800, 1600, out ls, out le);
                 config.SessionMode = "CUSTOM"; config.CustomStart = ls; config.EndTime = le; config.SetupMinutes = 1;
             }
             if (config.StrategyCode == "HLX")
@@ -20778,6 +21061,20 @@ namespace NinjaTrader.NinjaScript.AddOns
         private TextBlock recoilVerdictHead, recoilVerdictSub, recoilSlimText; private Border recoilVerdictCard; private WrapPanel recoilTiles; private TabControl recoilTabs;
         private Button recoilSummaryToggle; private bool recoilSummaryHidden;
 
+        private bool IsBracketSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("PROP BRACKET", StringComparison.OrdinalIgnoreCase); }
+        private bool BracketStudy() { return config != null && string.Equals(config.StrategyCode, "BRK", StringComparison.OrdinalIgnoreCase); }
+        private readonly List<UIElement> bracketStrategyControls = new List<UIElement>();
+        private bool bracketDefaultsApplied;
+        private UIElement BuildBracketPanel()
+        {
+            var panel = Stack(); panel.Margin = new Thickness(0, 4, 0, 2);
+            panel.Children.Add(Txt("PROP BRACKET • ONE TRADE A DAY", Gold, 13, FontWeights.Bold));
+            panel.Children.Add(Txt("START loads real 1-minute bars 07:00–16:00 New York for the dates above (MNQ, MGC or BOTH) and opens the PROP PLANNER with REAL BRACKET days. There you choose (or let FIND SWEET SPOT choose) the entry time, the direction rule, the contracts and the target / stop for the evaluation and the funded account. Every day is replayed on the 1-minute bars; when a minute touches both the target and the stop, the stop counts first. The session choice above is not used — the planner's entry and close times decide.", Muted, 10, FontWeights.Normal));
+            panel.Children.Add(Txt("TIP: 2 years or more (e.g. 2024-01-01 → today) so the sweet spot can check that a rule worked in EVERY year, not just one lucky stretch.", Cyan, 10, FontWeights.Bold));
+            bracketStrategyControls.Clear(); bracketStrategyControls.Add(panel);
+            panel.Visibility = Visibility.Collapsed;
+            return panel;
+        }
         private bool IsRecoilSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("RECOIL", StringComparison.OrdinalIgnoreCase); }
         private bool RecoilStudy() { return config != null && string.Equals(config.StrategyCode, "RCL", StringComparison.OrdinalIgnoreCase); }
 
@@ -21370,6 +21667,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             w.Left = wa.X + (wa.Width - w.Width) / 2; w.Top = wa.Y + Math.Max(0, (wa.Height - w.Height) / 2);
         }
 
+        // PROP BRACKET in Step 1: the bars are loaded → open the planner on REAL BRACKET days.
+        private void OpenBracketPlanner()
+        {
+            bool m = KeystoneBracket.IsOneMinute(mnqBars), g = KeystoneBracket.IsOneMinute(mgcBars);
+            if (!m && !g) { UpdateUi("PROP BRACKET NEEDS 1-MINUTE BARS • press START with PROP BRACKET selected", Red); return; }
+            if (propPlannerWindow != null) { propPlannerWindow.Close(); propPlannerWindow = null; }
+            OpenPropPlanner("BRACKET");
+            UpdateUi("PROP BRACKET • 1-MINUTE BARS READY (" + (m ? "MNQ " + mnqBars.Select(b => b.Time.Date).Distinct().Count() + " days" : "") + (m && g ? " • " : "") + (g ? "MGC " + mgcBars.Select(b => b.Time.Date).Distinct().Count() + " days" : "") + ") • the PROP PLANNER is open on REAL BRACKET: press FIND SWEET SPOT, then RUN THIS PLAN", Green);
+        }
+
         private void OpenPropPlanner(string preferredSource)
         {
             if (propPlannerWindow != null) { propPlannerWindow.Activate(); return; }
@@ -21423,33 +21730,81 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
 
             var planBlock = block("2. HOW YOU TRADE (THE DAYS)", Cyan);
-            var sources = new List<string> { "COIN FLIP • NO STRATEGY (PURE MATH)" };
-            if (recoilResult != null) { var syms = recoilResult.Cycles.Select(c => c.Symbol).Distinct().OrderBy(s => s).ToList(); foreach (var s in syms) sources.Add("RECOIL DAYS • " + s); if (syms.Count > 1) sources.Add("RECOIL DAYS • BOTH"); }
+            // Day sources: COIN (pure math) • REAL BRACKET on the lab's 1-minute bars • RECOIL days from the last RECOIL run.
+            var sources = new List<string> { "COIN FLIP • NO STRATEGY (PURE MATH)" }; var kinds = new List<string> { "COIN" };
+            var labBars = new Dictionary<string, List<KeystoneArcBar>>();
+            if (KeystoneBracket.IsOneMinute(mnqBars)) labBars["MNQ"] = new List<KeystoneArcBar>(mnqBars);
+            if (KeystoneBracket.IsOneMinute(mgcBars)) labBars["MGC"] = new List<KeystoneArcBar>(mgcBars);
+            foreach (var s in labBars.Keys.OrderByDescending(x => x == "MNQ")) { sources.Add("REAL BRACKET • " + s + " (ONE TRADE A DAY)"); kinds.Add("BRACKET:" + s); }
+            if (recoilResult != null) { var syms = recoilResult.Cycles.Select(c => c.Symbol).Distinct().OrderBy(s => s).ToList(); foreach (var s in syms) { sources.Add("RECOIL DAYS • " + s); kinds.Add("RECOIL:" + s); } if (syms.Count > 1) { sources.Add("RECOIL DAYS • BOTH"); kinds.Add("RECOIL:BOTH"); } }
             var sourceBox = Select(sources.ToArray()); sourceBox.SelectedIndex = 0;
-            if (!string.IsNullOrEmpty(preferredSource)) for (int i = 0; i < sources.Count; i++) if (sources[i].EndsWith(preferredSource)) { sourceBox.SelectedIndex = i; break; }
-            var sourceNote = SettingsExplain(recoilResult == null ? "Run RECOIL in the lab first to plan with its real days (they are drawn at random from its history)." : "RECOIL loaded: " + recoilResult.Days.Count + " days, " + recoilResult.Cycles.Count + " ladders • " + recoilResult.Config.Describe());
-            planBlock.Children.Add(Row("DAYS COME FROM", sourceBox)); planBlock.Children.Add(sourceNote);
-            var eTBox = Input("1500"); var eSBox = Input("2000"); var fTBox = Input("200"); var fSBox = Input("1000"); var edgeBox = Input("0"); var dayCostBox = Input("5");
-            var eKBox = Input("1"); var eStopBox = Input("0"); var fKBox = Input("1"); var fStopBox = Input("0");
-            eTBox.ToolTip = "COIN: an evaluation day ends at +this…"; eSBox.ToolTip = "…or −this (never more than the room left)."; fTBox.ToolTip = "COIN: a funded day ends at +this…"; fSBox.ToolTip = "…or −this.";
-            edgeBox.ToolTip = "COIN: extra win chance in % points over pure luck (0 = no edge, 5 = you win 5% more often than fair)."; dayCostBox.ToolTip = "Commissions and slippage per trading day.";
-            eKBox.ToolTip = "REAL: contracts multiplier in the evaluation (2 = double size)."; eStopBox.ToolTip = "REAL: stop the day at −this in the evaluation (0 = none)."; fKBox.ToolTip = "REAL: contracts multiplier in the funded account."; fStopBox.ToolTip = "REAL: stop the day at −this in the funded account (0 = none).";
-            var coinRows = new StackPanel(); var realRows = new StackPanel();
-            foreach (var t in new[] { Tuple.Create("EVALUATION DAY TARGET +$", eTBox), Tuple.Create("EVALUATION DAY STOP −$", eSBox), Tuple.Create("FUNDED DAY TARGET +$", fTBox), Tuple.Create("FUNDED DAY STOP −$", fSBox), Tuple.Create("EDGE (% POINTS)", edgeBox), Tuple.Create("COSTS PER DAY $", dayCostBox) }) coinRows.Children.Add(Row(t.Item1, t.Item2));
-            foreach (var t in new[] { Tuple.Create("EVALUATION SIZE ×", eKBox), Tuple.Create("EVALUATION DAY STOP −$ (0 = NONE)", eStopBox), Tuple.Create("FUNDED SIZE ×", fKBox), Tuple.Create("FUNDED DAY STOP −$ (0 = NONE)", fStopBox) }) realRows.Children.Add(Row(t.Item1, t.Item2));
-            planBlock.Children.Add(coinRows); planBlock.Children.Add(realRows);
-            Action refreshSource = delegate { bool real = sourceBox.SelectedIndex > 0; coinRows.Visibility = real ? Visibility.Collapsed : Visibility.Visible; realRows.Visibility = real ? Visibility.Visible : Visibility.Collapsed; };
-            sourceBox.SelectionChanged += delegate { refreshSource(); }; refreshSource();
-            Func<KeystonePropPlan> readPlan = () => new KeystonePropPlan
+            if (!string.IsNullOrEmpty(preferredSource)) for (int i = 0; i < kinds.Count; i++) if (kinds[i] == preferredSource || (preferredSource == "BRACKET" && kinds[i].StartsWith("BRACKET")) || kinds[i] == "RECOIL:" + preferredSource) { sourceBox.SelectedIndex = i; break; }
+            Func<string> kind = () => kinds[Math.Max(0, Math.Min(kinds.Count - 1, sourceBox.SelectedIndex))];
+            Func<string, string> dataText = sym =>
             {
-                Source = sourceBox.SelectedIndex > 0 ? "REAL" : "COIN", EvalTarget = Math.Max(1, PropNum(eTBox, 1500)), EvalStop = Math.Max(1, PropNum(eSBox, 2000)), FundTarget = Math.Max(1, PropNum(fTBox, 200)), FundStop = Math.Max(1, PropNum(fSBox, 1000)),
-                Edge = Math.Min(40, PropNum(edgeBox, 0)), DayCost = PropNum(dayCostBox, 5), EvalSize = Math.Max(0.1, PropNum(eKBox, 1)), FundSize = Math.Max(0.1, PropNum(fKBox, 1)), EvalDayStop = PropNum(eStopBox, 0), FundDayStop = PropNum(fStopBox, 0)
+                List<KeystoneArcBar> bl; if (!labBars.TryGetValue(sym, out bl) || bl.Count == 0) return string.Empty;
+                return sym + " 1-minute bars loaded in the lab: " + bl.Min(x => x.Time).ToString("yyyy-MM-dd") + " → " + bl.Max(x => x.Time).ToString("yyyy-MM-dd") + " • " + bl.Select(x => x.Time.Date).Distinct().Count() + " days • " + bl.Min(x => x.Time.Hour * 100 + x.Time.Minute).ToString("0000") + "–" + bl.Max(x => x.Time.Hour * 100 + x.Time.Minute).ToString("0000") + " ET";
+            };
+            var sourceNote = SettingsExplain("");
+            planBlock.Children.Add(Row("DAYS COME FROM", sourceBox)); planBlock.Children.Add(sourceNote);
+            var eTBox = Input("1500"); var eSBox = Input("2000"); var fTBox = Input("200"); var fSBox = Input("600"); var edgeBox = Input("0"); var dayCostBox = Input("5");
+            var eKBox = Input("1"); var eStopBox = Input("0"); var fKBox = Input("1"); var fStopBox = Input("0");
+            var entryBox = Input("935"); var closeBox = Input("1555"); var dirBox = Select(KeystoneBracket.Directions.Select(KeystoneBracket.DirectionShort).ToArray()); dirBox.SelectedIndex = 0; var eCBox = Input("5"); var fCBox = Input("1");
+            eTBox.ToolTip = "The evaluation day's target in dollars."; eSBox.ToolTip = "The evaluation day's stop in dollars (never more than the room left above the floor)."; fTBox.ToolTip = "The funded day's target in dollars."; fSBox.ToolTip = "The funded day's stop in dollars.";
+            edgeBox.ToolTip = "COIN: extra win chance in % points over pure luck (0 = no edge, 5 = you win 5% more often than fair)."; dayCostBox.ToolTip = "COIN: commissions and slippage per trading day.";
+            eKBox.ToolTip = "RECOIL: contracts multiplier in the evaluation (2 = double size)."; eStopBox.ToolTip = "RECOIL: stop the day at −this in the evaluation (0 = none)."; fKBox.ToolTip = "RECOIL: contracts multiplier in the funded account."; fStopBox.ToolTip = "RECOIL: stop the day at −this in the funded account (0 = none).";
+            entryBox.ToolTip = "BRACKET: entry time HHMM New York (the fill is the next minute's open). 935 = after the first 5-minute candle of the NY open.";
+            closeBox.ToolTip = "BRACKET: close the trade at this time if neither the target nor the stop was hit.";
+            dirBox.ToolTip = "BRACKET: which way to trade. FOLLOW 5M CANDLE = the way the 5 minutes before the entry closed (green = buy). FADE = the opposite.";
+            eCBox.ToolTip = "BRACKET: contracts in the evaluation. Points = dollars ÷ (contracts × point value: MNQ $2, MGC $10)."; fCBox.ToolTip = "BRACKET: contracts in the funded account.";
+            var bracketRows = new StackPanel(); var dollarRows = new StackPanel(); var coinRows = new StackPanel(); var realRows = new StackPanel();
+            foreach (var t in new[] { Tuple.Create("ENTRY TIME (HHMM, NY)", (UIElement)entryBox), Tuple.Create("DIRECTION", (UIElement)dirBox), Tuple.Create("CLOSE AT (HHMM, NY)", (UIElement)closeBox), Tuple.Create("EVALUATION CONTRACTS", (UIElement)eCBox), Tuple.Create("FUNDED CONTRACTS", (UIElement)fCBox) }) bracketRows.Children.Add(Row(t.Item1, t.Item2));
+            foreach (var t in new[] { Tuple.Create("EVALUATION DAY TARGET +$", eTBox), Tuple.Create("EVALUATION DAY STOP −$", eSBox), Tuple.Create("FUNDED DAY TARGET +$", fTBox), Tuple.Create("FUNDED DAY STOP −$", fSBox) }) dollarRows.Children.Add(Row(t.Item1, t.Item2));
+            var pointsNote = SettingsExplain(""); dollarRows.Children.Add(pointsNote);
+            foreach (var t in new[] { Tuple.Create("EDGE (% POINTS)", edgeBox), Tuple.Create("COSTS PER DAY $", dayCostBox) }) coinRows.Children.Add(Row(t.Item1, t.Item2));
+            foreach (var t in new[] { Tuple.Create("EVALUATION SIZE ×", eKBox), Tuple.Create("EVALUATION DAY STOP −$ (0 = NONE)", eStopBox), Tuple.Create("FUNDED SIZE ×", fKBox), Tuple.Create("FUNDED DAY STOP −$ (0 = NONE)", fStopBox) }) realRows.Children.Add(Row(t.Item1, t.Item2));
+            planBlock.Children.Add(bracketRows); planBlock.Children.Add(dollarRows); planBlock.Children.Add(coinRows); planBlock.Children.Add(realRows);
+            Action refreshPoints = delegate
+            {
+                string kd = kind(); if (!kd.StartsWith("BRACKET")) { pointsNote.Text = ""; return; }
+                string sym = kd.Substring(8); double pv = sym == "MGC" ? 10 : 2; int ec = Math.Max(1, (int)PropNum(eCBox, 5)), fc = Math.Max(1, (int)PropNum(fCBox, 1));
+                string fmt = sym == "MGC" ? "0.0" : "0.##";
+                pointsNote.Text = "IN POINTS: evaluation +" + (PropNum(eTBox, 1500) / (ec * pv)).ToString(fmt, CultureInfo.InvariantCulture) + " / −" + (PropNum(eSBox, 2000) / (ec * pv)).ToString(fmt, CultureInfo.InvariantCulture) + " with " + ec + " " + sym + " • funded +" + (PropNum(fTBox, 200) / (fc * pv)).ToString(fmt, CultureInfo.InvariantCulture) + " / −" + (PropNum(fSBox, 600) / (fc * pv)).ToString(fmt, CultureInfo.InvariantCulture) + " with " + fc + " • costs " + (2 * 0.62 + (sym == "MGC" ? 1.0 : 0.5)).ToString("0.00", CultureInfo.InvariantCulture) + " $ per contract (commission + 1 tick).";
+            };
+            Action refreshSource = delegate
+            {
+                string kd = kind();
+                bracketRows.Visibility = kd.StartsWith("BRACKET") ? Visibility.Visible : Visibility.Collapsed;
+                dollarRows.Visibility = kd.StartsWith("RECOIL") ? Visibility.Collapsed : Visibility.Visible;
+                coinRows.Visibility = kd == "COIN" ? Visibility.Visible : Visibility.Collapsed;
+                realRows.Visibility = kd.StartsWith("RECOIL") ? Visibility.Visible : Visibility.Collapsed;
+                if (kd == "COIN") sourceNote.Text = "PURE MATH: every day ends at +target or −stop by chance (no strategy, no dates). Use it to see if the firm's rules can be beaten at all. For a real rule with dates and times choose REAL BRACKET" + (labBars.Count == 0 ? " — to get it: in the lab choose PROP BRACKET in Step 1, pick the dates and MNQ / MGC / BOTH, press START." : ".");
+                else if (kd.StartsWith("BRACKET")) sourceNote.Text = "ONE BRACKET TRADE A DAY replayed on every day the lab loaded (dates and hours come from the lab's Step 1). " + dataText(kd.Substring(8)) + ". FIND SWEET SPOT tries every entry time × direction × size and checks each year.";
+                else sourceNote.Text = recoilResult == null ? "" : "RECOIL loaded: " + recoilResult.Days.Count + " days, " + recoilResult.Cycles.Count + " ladders • " + recoilResult.Config.Describe();
+                refreshPoints();
+            };
+            sourceBox.SelectionChanged += delegate { refreshSource(); };
+            foreach (var tb in new[] { eTBox, eSBox, fTBox, fSBox, eCBox, fCBox }) tb.TextChanged += delegate { refreshPoints(); };
+            refreshSource();
+            var minuteDays = new Dictionary<string, List<KeystoneBracketMinuteDay>>();
+            Func<string, List<KeystoneBracketMinuteDay>> daysFor = sym => { lock (minuteDays) { List<KeystoneBracketMinuteDay> md; if (!minuteDays.TryGetValue(sym, out md)) { md = KeystoneBracket.Days(labBars[sym], sym); minuteDays[sym] = md; } return md; } };
+            Func<KeystonePropPlan> readPlan = () =>
+            {
+                string kd = kind();
+                var p = new KeystonePropPlan
+                {
+                    Source = kd == "COIN" ? "COIN" : (kd.StartsWith("BRACKET") ? "BRACKET" : "REAL"), EvalTarget = Math.Max(1, PropNum(eTBox, 1500)), EvalStop = Math.Max(1, PropNum(eSBox, 2000)), FundTarget = Math.Max(1, PropNum(fTBox, 200)), FundStop = Math.Max(1, PropNum(fSBox, 600)),
+                    Edge = Math.Min(40, PropNum(edgeBox, 0)), DayCost = PropNum(dayCostBox, 5), EvalSize = Math.Max(0.1, PropNum(eKBox, 1)), FundSize = Math.Max(0.1, PropNum(fKBox, 1)), EvalDayStop = PropNum(eStopBox, 0), FundDayStop = PropNum(fStopBox, 0),
+                    EvalContracts = Math.Max(1, (int)PropNum(eCBox, 5)), FundContracts = Math.Max(1, (int)PropNum(fCBox, 1))
+                };
+                return p;
             };
             Func<List<KeystonePropDay>> readDays = () =>
             {
-                if (sourceBox.SelectedIndex <= 0 || recoilResult == null) return null;
-                string s = sources[Math.Min(sources.Count - 1, sourceBox.SelectedIndex)]; return KeystonePropPlanner.DaysFromRecoil(recoilResult, s.Substring(s.LastIndexOf(' ') + 1));
+                string kd = kind(); if (!kd.StartsWith("RECOIL") || recoilResult == null) return null;
+                return KeystonePropPlanner.DaysFromRecoil(recoilResult, kd.Substring(7));
             };
+            Func<string> readDir = () => KeystoneBracket.Directions[Math.Max(0, Math.Min(KeystoneBracket.Directions.Length - 1, dirBox.SelectedIndex))];
 
             var prog = block("3. YOUR PROGRAM", Green);
             var slotsBox = Input("5"); var monthsBox = Input("12"); var simsBox = Input("4000");
@@ -21476,7 +21831,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             string[] names = { "THIS PLAN", "SEPARATE • COPY • ROTATION", "HISTORY BY YEAR", "SWEET SPOT", "HOW IT WORKS" };
             Brush[] colors = { Gold, Green, Cyan, Orchid, Blue };
             for (int i = 0; i < names.Length; i++) tabs.Items.Add(new TabItem { Header = names[i], Background = colors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Press RUN THIS PLAN.", Muted, 11, FontWeights.Normal) });
-            Action<int, UIElement> setTab = (i, content) => { ((TabItem)tabs.Items[i]).Content = HelixScroll(content); };
+            Action<int, UIElement> setTab = (i, content) => { var sv = HelixScroll(content); if (i == 0 || i == 4) sv.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; ((TabItem)tabs.Items[i]).Content = sv; };
             var how = new StackPanel(); how.Children.Add(HelixTitle("HOW IT WORKS", Blue)); how.Children.Add(Txt(KeystonePropPlanner.HowItWorks(), Text, 12, FontWeights.Normal));
             how.Children.Add(HelixTitle("THE PURE LUCK BENCHMARK", Gold));
             how.Children.Add(Txt("Passing a $3,000 target with a $2,000 drawdown in 2 days of +$1,500 with no edge: " + (100 * KeystonePropPlanner.CoinPassChance(3000, 2000, 2)).ToString("0.00") + "% • in 3 days: " + (100 * KeystonePropPlanner.CoinPassChance(3000, 2000, 3)).ToString("0.00") + "% • in 5 days: " + (100 * KeystonePropPlanner.CoinPassChance(3000, 2000, 5)).ToString("0.00") + "%. Fewer, bigger days pass more often; the consistency rule decides how few days you are allowed.", Text, 12, FontWeights.Normal));
@@ -21497,6 +21852,17 @@ namespace NinjaTrader.NinjaScript.AddOns
                 cards.Children.Add(HelixCard("VALUE OF ONE EVALUATION", Signed(x.ValuePerEval), "after its " + Cash(x.Rules.EvalCost) + " cost • the number that decides it", MoneyBrush(x.ValuePerEval), 230));
                 cards.Children.Add(HelixCard("EVALUATIONS THAT LOSE MONEY", x.LosingShare.ToString("0") + "%", "normal — the winners pay for them", Gold, 200));
                 cards.Children.Add(HelixCard("FAILS IN A ROW (WORST 1 IN 20)", x.LongestFailStreak95.ToString(), "= " + Cash(x.LongestFailStreak95 * x.Rules.EvalCost) + " in evaluations before a pass", Red, 230));
+                if (x.Plan.Source == "BRACKET" && x.Plan.Bracket != null)
+                {
+                    var bs = x.Plan.Bracket; var okDays = bs.Days.Where(d => d.Ok).ToList();
+                    var rule = new StackPanel();
+                    rule.Children.Add(Txt("THE RULE TO FOLLOW", Gold, 14, FontWeights.Bold));
+                    rule.Children.Add(Txt("Tested on " + okDays.Count + " trading days" + (okDays.Count > 0 ? " from " + okDays.Min(d => d.Day).ToString("yyyy-MM-dd") + " to " + okDays.Max(d => d.Day).ToString("yyyy-MM-dd") : "") + " (" + (bs.Days.Count - okDays.Count) + " loaded days had no trade: missing minute or flat candle) • real 1-minute bars • if a minute touches both, the stop counts", Muted, 10.5, FontWeights.Normal));
+                    foreach (var step in KeystoneBracket.RuleSteps(x.Plan)) rule.Children.Add(Txt(step, Text, 12.5, FontWeights.Bold));
+                    rule.Children.Add(Txt("HOW THE DAYS ENDED • evaluation size " + KeystoneBracket.Tally(bs, x.Plan.EvalTarget, x.Plan.EvalStop, x.Plan.EvalContracts), Cyan, 11, FontWeights.Normal));
+                    rule.Children.Add(Txt("HOW THE DAYS ENDED • funded size " + KeystoneBracket.Tally(bs, x.Plan.FundTarget, x.Plan.FundStop, x.Plan.FundContracts), Cyan, 11, FontWeights.Normal));
+                    p1.Children.Add(new Border { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6, 10, 8), Margin = new Thickness(2, 0, 2, 6), Child = rule });
+                }
                 p1.Children.Add(cards);
                 if (luck != null)
                 {
@@ -21527,7 +21893,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 setTab(1, p2);
 
                 var p3 = new StackPanel();
-                if (years == null || years.Count == 0) p3.Children.Add(HelixNote("History by year needs REAL days: run RECOIL in the lab, then choose RECOIL DAYS in DAYS COME FROM."));
+                if (years == null || years.Count == 0) p3.Children.Add(HelixNote("History by year needs real days: choose REAL BRACKET (after loading 1-minute bars with PROP BRACKET in the lab's Step 1) or RECOIL DAYS in DAYS COME FROM."));
                 else
                 {
                     p3.Children.Add(HelixNote("One account slot walking the real days in calendar order: buy an evaluation, trade it, when it is lost buy the next one. With " + (programs.Count > 0 ? programs[0].Slots : 1) + " COPIED accounts multiply every number by " + (programs.Count > 0 ? programs[0].Slots : 1) + "."));
@@ -21544,13 +21910,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 var p = new StackPanel();
                 if (list == null || list.Count == 0) { p.Children.Add(HelixNote("Press FIND SWEET SPOT.")); setTab(3, p); return; }
-                p.Children.Add(HelixNote("Every plan below was simulated with the same firm rules and ranked by VALUE / EVAL (what one evaluation is worth after its cost). Click a row to load that plan into the settings and run it."));
-                double[] w5 = { 40, 420, 70, 64, 110, 110, 100, 90 };
-                p.Children.Add(HelixPaged(new[] { "#", "PLAN", "PASS", "DAYS", "FUNDED PAYS", "VALUE / EVAL", "LOSING EVALS", "FAILS IN A ROW" }, w5, list.Count, i =>
+                bool br = list[0].Plan != null && list[0].Plan.Source == "BRACKET";
+                p.Children.Add(HelixNote("Every plan below was simulated with the same firm rules and ranked by VALUE / EVAL (what one evaluation is worth after its cost). Click a row to load that plan into the settings and run it." + (br ? " BY YEAR = the same rule on each year's days alone (top 25): ✓ positive in every year = a real candidate • ✗ = it needed one lucky year. Prefer the best ✓ over a higher ✗." : "")));
+                if (br) { var bestEvery = list.FirstOrDefault(s => s.EveryYear); p.Children.Add(Txt(bestEvery == null ? "NO RULE WAS POSITIVE IN EVERY YEAR — the ranking is luck; do not trade it." : "BEST RULE THAT WORKED IN EVERY YEAR: #" + (list.IndexOf(bestEvery) + 1) + " • " + bestEvery.Label + " • " + Signed(bestEvery.ValuePerEval) + " per evaluation • " + bestEvery.YearText, bestEvery == null ? Red : Green, 12.5, FontWeights.Bold)); }
+                double[] w5 = br ? new double[] { 40, 640, 60, 56, 100, 100, 90, 70, 330 } : new double[] { 40, 420, 70, 64, 110, 110, 100, 90, 10 };
+                p.Children.Add(HelixPaged(new[] { "#", "PLAN", "PASS", "DAYS", "FUNDED PAYS", "VALUE / EVAL", "LOSING EVALS", "FAILS IN A ROW", br ? "BY YEAR" : "" }, w5, list.Count, i =>
                 {
                     var s = list[i];
-                    return HelixRow(new[] { (i + 1).ToString(), s.Label, s.PassRate.ToString("0") + "%", s.AvgDaysToPass.ToString("0.0"), Cash(s.FundedValue), Signed(s.ValuePerEval), s.LosingShare.ToString("0") + "%", s.LongestFailStreak95.ToString() },
-                        new[] { Gold, Text, Text, Text, Text, MoneyBrush(s.ValuePerEval), Text, Text }, w5, i == 0 ? Gold : MoneyBrush(s.ValuePerEval), delegate { if (applyPlanAndRun != null) applyPlanAndRun(s.Plan); });
+                    string yr = s.YearText.Length == 0 ? (br ? "—" : "") : (s.EveryYear ? "✓ " : "✗ ") + s.YearText;
+                    return HelixRow(new[] { (i + 1).ToString(), s.Label, s.PassRate.ToString("0") + "%", s.AvgDaysToPass.ToString("0.0"), Cash(s.FundedValue), Signed(s.ValuePerEval), s.LosingShare.ToString("0") + "%", s.LongestFailStreak95.ToString(), yr },
+                        new[] { Gold, Text, Text, Text, Text, MoneyBrush(s.ValuePerEval), Text, Text, s.YearText.Length == 0 ? Muted : (s.EveryYear ? Green : Red) }, w5, i == 0 ? Gold : MoneyBrush(s.ValuePerEval), delegate { if (applyPlanAndRun != null) applyPlanAndRun(s.Plan); });
                 }, 40, false));
                 setTab(3, p);
             };
@@ -21560,6 +21929,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (busy) return;
                 var rules = readRules(); var plan = readPlan(); var days = readDays();
                 if (plan.Source == "REAL" && (days == null || days.Count(d => d.Traded) == 0)) { status.Text = "NO RECOIL DAYS • run RECOIL in the lab first (or choose COIN FLIP)."; status.Foreground = Red; return; }
+                string bSym = kind().StartsWith("BRACKET") ? kind().Substring(8) : null; int bEntry = (int)PropNum(entryBox, 935), bClose = (int)PropNum(closeBox, 1555); string bDir = readDir();
+                if (bSym != null && (!IsValidHhmm(bEntry) || !IsValidHhmm(bClose) || bClose <= bEntry)) { status.Text = "BRACKET TIME ERROR • entry and close are HHMM New York time, close after entry (e.g. 935 and 1555)."; status.Foreground = Red; return; }
                 int n = Math.Max(500, Math.Min(50000, (int)PropNum(simsBox, 4000))), slots = Math.Max(1, Math.Min(100, (int)PropNum(slotsBox, 5))), months = Math.Max(1, Math.Min(60, (int)PropNum(monthsBox, 12)));
                 string source = sources[Math.Max(0, Math.Min(sources.Count - 1, sourceBox.SelectedIndex))];
                 busy = true; runBtn.IsEnabled = sweetBtn.IsEnabled = false; status.Text = "RUNNING • " + n.ToString("N0") + " evaluations + " + slots + " accounts × 3 ways × " + months + " months…"; status.Foreground = Gold;
@@ -21568,10 +21939,15 @@ namespace NinjaTrader.NinjaScript.AddOns
                     KeystonePropPlanResult x = null, luck = null; var programs = new List<KeystonePropProgram>(); var years = new List<KeystonePropYear>(); string failure = null;
                     try
                     {
+                        if (bSym != null)
+                        {
+                            plan.Bracket = KeystoneBracket.Build(daysFor(bSym), bSym, bEntry, bClose, bDir);
+                            if (plan.Bracket.Traded == 0) throw new Exception("no trades • the entry time " + KeystoneBracket.Hm(bEntry) + " is outside the loaded hours (" + dataText(bSym) + ")");
+                        }
                         x = KeystonePropPlanner.Evaluate(rules, plan, days, n, 17);
                         int runs = Math.Max(200, Math.Min(2000, 400000 / Math.Max(1, slots * months)));
                         foreach (var mode in new[] { "SEPARATE", "COPY", "ROTATION" }) programs.Add(KeystonePropPlanner.Program(rules, plan, days, mode, slots, months * 21, runs, 23));
-                        if (plan.Source == "REAL") { years = KeystonePropPlanner.History(rules, plan, days); var coin = plan.Copy(); coin.Source = "COIN"; luck = KeystonePropPlanner.Evaluate(rules, coin, null, n, 17); }
+                        if (plan.Source == "REAL" || plan.Source == "BRACKET") { years = KeystonePropPlanner.History(rules, plan, days); var coin = plan.Copy(); coin.Source = "COIN"; coin.DayCost = plan.Source == "BRACKET" ? plan.Bracket.CostPerContract * plan.EvalContracts : plan.DayCost; luck = KeystonePropPlanner.Evaluate(rules, coin, null, n, 17); }
                     }
                     catch (Exception ex) { failure = ex.Message; }
                     Action done = delegate
@@ -21592,6 +21968,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 eTBox.Text = p.EvalTarget.ToString("0", CultureInfo.InvariantCulture); eSBox.Text = p.EvalStop.ToString("0", CultureInfo.InvariantCulture); fTBox.Text = p.FundTarget.ToString("0", CultureInfo.InvariantCulture); fSBox.Text = p.FundStop.ToString("0", CultureInfo.InvariantCulture);
                 eKBox.Text = p.EvalSize.ToString("0.##", CultureInfo.InvariantCulture); eStopBox.Text = p.EvalDayStop.ToString("0", CultureInfo.InvariantCulture); fKBox.Text = p.FundSize.ToString("0.##", CultureInfo.InvariantCulture); fStopBox.Text = p.FundDayStop.ToString("0", CultureInfo.InvariantCulture);
+                eCBox.Text = p.EvalContracts.ToString(CultureInfo.InvariantCulture); fCBox.Text = p.FundContracts.ToString(CultureInfo.InvariantCulture);
+                if (p.Bracket != null) { entryBox.Text = p.Bracket.EntryHhmm.ToString(CultureInfo.InvariantCulture); closeBox.Text = p.Bracket.CloseHhmm.ToString(CultureInfo.InvariantCulture); dirBox.SelectedIndex = Math.Max(0, Array.IndexOf(KeystoneBracket.Directions, p.Bracket.Direction)); }
             };
             applyPlanAndRun = p => { applyPlan(p); run(); };
 
@@ -21601,20 +21979,30 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var rules = readRules(); var plan = readPlan(); var days = readDays();
                 if (plan.Source == "REAL" && (days == null || days.Count(d => d.Traded) == 0)) { status.Text = "NO RECOIL DAYS • run RECOIL in the lab first (or choose COIN FLIP)."; status.Foreground = Red; return; }
                 int n = Math.Max(300, Math.Min(5000, (int)PropNum(simsBox, 4000) / 2));
-                busy = true; runBtn.IsEnabled = sweetBtn.IsEnabled = false; status.Text = "SEARCHING THE SWEET SPOT • every plan × " + n.ToString("N0") + " evaluations…"; status.Foreground = Gold;
+                string bSym = kind().StartsWith("BRACKET") ? kind().Substring(8) : null; int bClose = (int)PropNum(closeBox, 1555);
+                busy = true; runBtn.IsEnabled = sweetBtn.IsEnabled = false; status.Text = bSym != null ? "SEARCHING THE SWEET SPOT ON REAL " + bSym + " PRICES • every entry time × direction, then every size, then each year (uses all CPU cores, about a minute)…" : "SEARCHING THE SWEET SPOT • every plan × " + n.ToString("N0") + " evaluations…"; status.Foreground = Gold;
+                Action<string> progress = msg => { Action u = delegate { if (busy) status.Text = "SEARCHING THE SWEET SPOT ON REAL " + bSym + " PRICES • " + msg + "…"; }; if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) u(); else w.Dispatcher.BeginInvoke(u); };
                 System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
                     List<KeystonePropPlanResult> list = null; string failure = null;
-                    try { list = KeystonePropPlanner.SweetSpot(rules, plan, days, n, 31); } catch (Exception ex) { failure = ex.Message; }
+                    try
+                    {
+                        if (bSym != null) { list = KeystoneBracket.SweetSpot(daysFor(bSym), bSym, IsValidHhmm(bClose) ? bClose : 1555, rules, plan, n, 31, progress); if (list.Count == 0) throw new Exception("fewer than 10 trading days for every entry time • load more dates (" + dataText(bSym) + ")"); }
+                        else list = KeystonePropPlanner.SweetSpot(rules, plan, days, n, 31);
+                    }
+                    catch (Exception ex) { failure = ex.Message; }
                     Action done = delegate
                     {
                         busy = false; runBtn.IsEnabled = sweetBtn.IsEnabled = true;
                         if (failure != null || list == null) { status.Text = "SWEET SPOT ERROR • " + failure; status.Foreground = Red; return; }
                         renderSweet(list);
                         useBtn.IsEnabled = list.Count > 0; propLastSweet = list;
-                        var b = list[0];
-                        status.Text = "SWEET SPOT • #1 " + b.Label + " • one evaluation worth " + Signed(b.ValuePerEval) + " • pass " + b.PassRate.ToString("0") + "% • press USE BEST PLAN or click any row";
+                        var b = list[0]; var every = list.FirstOrDefault(s => s.EveryYear);
+                        int tradedDays = b.Plan != null && b.Plan.Bracket != null ? b.Plan.Bracket.Traded : 0;
+                        if (bSym != null && every != null) b = every;
+                        status.Text = (bSym != null ? (every != null ? "SWEET SPOT • BEST RULE THAT WORKED EVERY YEAR: " : "SWEET SPOT • NO RULE WORKED IN EVERY YEAR • #1 ") : "SWEET SPOT • #1 ") + b.Label + " • one evaluation worth " + Signed(b.ValuePerEval) + " • pass " + b.PassRate.ToString("0") + "% • press USE BEST PLAN or click any row";
                         status.Foreground = b.ValuePerEval > 0 ? Green : Red;
+                        if (bSym != null && tradedDays < 120) { status.Text = "WARNING: ONLY " + tradedDays + " TRADING DAYS LOADED — far too few to trust; load 2 years in Step 1. " + status.Text; status.Foreground = Gold; }
                         tabs.SelectedIndex = 3;
                     };
                     if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
@@ -21622,7 +22010,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             sweetBtn.Click += delegate { sweet(); };
             runBtn.Click += delegate { run(); };
-            useBtn.Click += delegate { if (propLastSweet.Count > 0) applyPlanAndRun(propLastSweet[0].Plan); };
+            useBtn.Click += delegate { if (propLastSweet.Count > 0) applyPlanAndRun((propLastSweet.FirstOrDefault(s => s.EveryYear) ?? propLastSweet[0]).Plan); };
             exportBtn.Click += delegate
             {
                 if (propLastResult == null) { status.Text = "RUN THIS PLAN FIRST"; status.Foreground = Gold; return; }

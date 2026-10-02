@@ -38,3 +38,24 @@ how many evaluations fail; below zero more accounts only lose faster.
 - Payouts: N days ≥ the good-day amount → payout % of the profit, capped, × your split; the counter restarts.
 - COPY = exactly N × one account (same days on every copy) — same value per evaluation, N× the swings and the money needed.
 - Limits: an evaluation is dropped after 150 trading days, a funded account retired after 250.
+
+## REAL BRACKET — a real rule instead of a coin flip (build 10-03c)
+**Where the dates come from:** the lab's Step 1. Choose **PROP BRACKET • ONE TRADE A DAY** as the strategy, pick the dates
+(2 years or more) and MNQ / MGC / BOTH, press START. The lab loads real 1-minute bars 07:00–16:00 New York and opens the planner
+with **REAL BRACKET • MNQ** (or MGC) as the day source. (Any 1-minute load — e.g. RECOIL — also offers REAL BRACKET.)
+
+**The rule:** one trade a day. At the ENTRY TIME (New York) trade in the DIRECTION rule's way at the next minute's open, with a
+target and a stop. Close at the CLOSE time if neither is hit. Sizes are dollars + contracts → points (MNQ $2/pt, MGC $10/pt,
+rounded to the tick). Costs: commission $0.62 per side + 1 tick per contract.
+- Directions: FOLLOW 5M CANDLE (the 5 minutes before the entry; green = buy), FADE 5M CANDLE, FOLLOW / FADE LAST 30 MIN, ALWAYS BUY, ALWAYS SELL.
+- Evaluation's last day: aim only for what is left to the target (when the consistency rule allows). The stop never goes past the floor.
+- A minute that touches both the target and the stop counts as the STOP. A day without the exact entry minute or the direction
+  candle is a no-trade day (no price is invented).
+
+**THIS PLAN** shows THE RULE TO FOLLOW as numbered steps, the dates it was tested on, how the days ended (target / stop / close %)
+for the evaluation and the funded size, and the same plan with pure luck for comparison. **HISTORY BY YEAR** walks the real days in order.
+
+**FIND SWEET SPOT (REAL BRACKET):** (1) every entry time × direction with your sizes; (2) for the best 4 rules every evaluation
+size (contracts × $1,000/$1,500 target × $1,000/$1,500/$2,000 stop) and funded size (contracts × $200/$300 × $300/$600/$1,000);
+(3) the best 25 are re-run on each year's days alone. ✓ = positive in every year (a candidate), ✗ = needed a lucky year.
+USE BEST PLAN takes the best ✓ rule. Fewer than 120 loaded trading days → a warning: the result cannot be trusted.

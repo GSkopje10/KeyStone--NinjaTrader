@@ -428,6 +428,32 @@ public static class UiSmokeTest
                 if (G("propPlannerWindow") == null) throw new Exception("header open failed");
                 Set(lab4, "propPlannerWindow", null);
             });
+            Step("PROP BRACKET: Step 1 choice → planner on REAL BRACKET days → run, rule card, years, sweet spot", () =>
+            {
+                var box = (System.Windows.Controls.ComboBox)G("strategyBox"); int bi = -1; for (int i = 0; i < box.Items.Count; i++) if (Convert.ToString(box.Items[i]).StartsWith("PROP BRACKET")) bi = i;
+                if (bi < 0) throw new Exception("PROP BRACKET missing from the strategy list");
+                box.SelectedIndex = bi; box.SelectedItem = box.Items[bi]; Call(lab4, "RefreshStrategyInputState");
+                if (!(bool)Call(lab4, "IsBracketSelected")) throw new Exception("not selected");
+                Set(lab4, "propLastResult", null);
+                Call(lab4, "OpenBracketPlanner");
+                if (G("propPlannerWindow") == null) throw new Exception("planner not opened");
+                ((Action)G("propPlannerRun"))();
+                for (int i = 0; i < 600 && G("propLastResult") == null; i++) System.Threading.Thread.Sleep(100);
+                var x = (KeystonePropPlanResult)G("propLastResult"); if (x == null) throw new Exception("bracket plan did not finish • " + ((System.Windows.Controls.TextBlock)G("propPlannerStatus")).Text);
+                Console.WriteLine("      " + x.Plan.Describe() + " • traded days " + x.Plan.Bracket.Traded + " • pass " + x.PassRate.ToString("0.0") + "% • value " + x.ValuePerEval.ToString("0"));
+                if (x.Plan.Source != "BRACKET" || x.Plan.Bracket.Traded == 0 || ((List<KeystonePropYear>)G("propLastYears")).Count == 0) throw new Exception("bracket plan incomplete");
+                var tabs = (System.Windows.Controls.TabControl)G("propPlannerTabs");
+                foreach (System.Windows.Controls.TabItem t in tabs.Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("tab not filled: " + t.Header);
+                Set(lab4, "propLastSweet", new List<KeystonePropPlanResult>());
+                ((Action)G("propPlannerSweet"))();
+                for (int i = 0; i < 1800 && ((List<KeystonePropPlanResult>)G("propLastSweet")).Count == 0 && !((System.Windows.Controls.TextBlock)G("propPlannerStatus")).Text.Contains("ERROR"); i++) System.Threading.Thread.Sleep(100);
+                var sweet = (List<KeystonePropPlanResult>)G("propLastSweet"); if (sweet.Count == 0) throw new Exception("bracket sweet spot did not finish • " + ((System.Windows.Controls.TextBlock)G("propPlannerStatus")).Text);
+                Console.WriteLine("      sweet " + sweet.Count + " • #1 " + sweet[0].Label + " • " + sweet[0].YearText);
+                if (sweet[0].Plan.Source != "BRACKET" || sweet[0].YearText.Length == 0) throw new Exception("sweet spot not on bracket days");
+                System.IO.File.WriteAllText(".build/report_PROP_BRACKET.html", KeystonePropPlanner.Html(x, (List<KeystonePropProgram>)G("propLastPrograms"), (List<KeystonePropYear>)G("propLastYears"), sweet, "REAL BRACKET"));
+                Set(lab4, "propPlannerWindow", null);
+                box.SelectedIndex = 0; box.SelectedItem = box.Items[0]; Call(lab4, "RefreshStrategyInputState");
+            });
         }
         Console.WriteLine(failures == 0 ? "UI SMOKE TEST PASSED" : "UI SMOKE TEST: " + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;

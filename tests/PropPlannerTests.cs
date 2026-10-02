@@ -16,6 +16,18 @@ public static class PropPlannerTests
     static bool Eq(double a, double b) { return Math.Abs(a - b) < 0.005; }
     static KeystonePropDay Day(double pnl, double worst = double.NaN) { return new KeystonePropDay { Pnl = pnl, Worst = double.IsNaN(worst) ? Math.Min(0, pnl) : worst, Best = Math.Max(0, pnl), Traded = true }; }
 
+    static KeystoneArcBar B(DateTime t, double o, double h, double l, double c) { return new KeystoneArcBar { Symbol = "MNQ", Time = t, Open = o, High = h, Low = l, Close = c }; }
+    // A NY day of close-stamped 1-minute bars 07:01 → 16:00, flat at 20000 unless a minute is overridden.
+    static List<KeystoneArcBar> FlatDay(DateTime day, Dictionary<int, double[]> overrides, double tail = 20000)
+    {
+        var list = new List<KeystoneArcBar>();
+        for (int m = 7 * 60 + 1; m <= 16 * 60; m++)
+        {
+            double[] v; var t = day.Date.AddMinutes(m);
+            if (overrides.TryGetValue(m, out v)) list.Add(B(t, v[0], v[1], v[2], v[3])); else list.Add(B(t, tail, tail + 1, tail - 1, tail));
+        }
+        return list;
+    }
     public static int Main()
     {
         var r = new KeystonePropRules();   // 50K: target 3,000, EOD 2,000 locking at +100, 50% consistency, 5 × $150 → 50% up to 2,000, 90%
@@ -113,6 +125,63 @@ public static class PropPlannerTests
             string html = KeystonePropPlanner.Html(x, progs, new List<KeystonePropYear> { new KeystonePropYear { Year = 2025, Bought = 3, Spent = 360 } }, KeystonePropPlanner.SweetSpot(r, plan, null, 100, 3), "COIN FLIP");
             Check(html.Contains("PROP PLANNER") && html.Contains("SEPARATE") && html.Contains("2025") && html.Contains("SWEET SPOT") && html.EndsWith("</html>"), "HTML report has the plan, programs, years and sweet spot");
             Check(KeystonePropPlanner.Verdict(x).Length > 40, "verdict text", KeystonePropPlanner.Verdict(x));
+        }
+        // 10. REAL BRACKET on hand-made bars
+        {
+            var day = new DateTime(2025, 3, 4);
+            // 09:31-09:35 green candle (19990 → 20000); 09:36 opens 20000 (entry), later 09:50 reaches +150
+            var o = new Dictionary<int, double[]> { { 9 * 60 + 31, new[] { 19990.0, 19995, 19989, 19994 } }, { 9 * 60 + 35, new[] { 19998.0, 20001, 19997, 20000 } }, { 9 * 60 + 50, new[] { 20000.0, 20151, 19999, 20140 } } };
+            var days = KeystoneBracket.Days(FlatDay(day, o), "MNQ");
+            var p = KeystoneBracket.Path(days[0], 935, 1555, "FOLLOW5");
+            Check(p.Ok && p.Dir == 1 && Eq(p.Entry, 20000), "bracket: green 09:30-09:35 candle → BUY at the 09:36 open 20000", p.Why + " dir " + p.Dir + " entry " + p.Entry);
+            double pts, worst, best; string how;
+            KeystoneBracket.Resolve(p, 150, 200, out pts, out worst, out best, out how);
+            Check(how == "TARGET" && Eq(pts, 150), "bracket: +150 reached at 09:50 → TARGET", how + " " + pts);
+            var fade = KeystoneBracket.Path(days[0], 935, 1555, "FADE5");
+            KeystoneBracket.Resolve(fade, 150, 200, out pts, out worst, out best, out how);
+            Check(fade.Dir == -1 && how == "CLOSE" && Eq(pts, 0) && Eq(worst, -151), "bracket: FADE sells 20000; the spike is 151 against (< 200 stop) → closes at 15:55 at 20000 = 0, worst −151", how + " " + pts + " " + worst);
+            // both in one minute → stop first
+            var o2 = new Dictionary<int, double[]>(o); o2[9 * 60 + 50] = new[] { 20000.0, 20160, 19790, 20000 };
+            var p2 = KeystoneBracket.Path(KeystoneBracket.Days(FlatDay(day, o2), "MNQ")[0], 935, 1555, "LONG");
+            KeystoneBracket.Resolve(p2, 150, 200, out pts, out worst, out best, out how);
+            Check(how == "STOP" && Eq(pts, -200), "bracket: a minute touching +160 and −210 counts as the STOP", how + " " + pts);
+            // missing entry minute → no trade
+            var gap = FlatDay(day, o).Where(b => b.Time != day.Date.AddMinutes(9 * 60 + 36)).ToList();
+            Check(!KeystoneBracket.Path(KeystoneBracket.Days(gap, "MNQ")[0], 935, 1555, "LONG").Ok, "bracket: no 09:36 bar → no trade (no invented price)");
+            // dollars: evaluation 5 MNQ, $1,500 / $2,000 = 150 / 200 points; costs 5 × (1.24 + 0.50)
+            var bplan = new KeystonePropPlan { Source = "BRACKET", Bracket = new KeystoneBracketSet { Symbol = "MNQ", Days = new List<KeystoneBracketPath> { p } }, EvalContracts = 5, EvalTarget = 1500, EvalStop = 2000, FundContracts = 1, FundTarget = 200, FundStop = 600 };
+            var acct = KeystonePropPlanner.NewEval(r);
+            var d1 = KeystoneBracket.Day(p, r, bplan, acct);
+            Check(Eq(d1.Pnl, 1500 - 5 * 1.74) && d1.Traded, "bracket: evaluation day = 5 × 150 pts × $2 − costs = $1,491.30", d1.Pnl.ToString("0.00"));
+            acct.Bal = 2900; acct.Best = 1450; acct.Days = 2;
+            var d2 = KeystoneBracket.Day(p, r, bplan, acct);
+            Check(d2.Pnl > 100 && d2.Pnl < 120, "bracket: $100 left → aim only for 11 points (+$110 − costs)", d2.Pnl.ToString("0.00"));
+            var funded = new KeystonePropPlanner.Account { Funded = true };
+            Check(Eq(KeystoneBracket.Day(p, r, bplan, funded).Pnl, 200 - 1.74), "bracket: funded 1 × 100 pts = $200 − costs");
+            var close = new KeystonePropPlanner.Account { Bal = -1500, Hwm = 0 };   // room 500 → the stop shrinks to fit
+            var d3 = KeystoneBracket.Day(p2, r, bplan, close);
+            Check(d3.Pnl < 0 && d3.Pnl > -500 && d3.Worst > -500, "bracket: with $500 of room the stop shrinks so the account survives", d3.Pnl.ToString("0.00"));
+            Check(KeystoneBracket.RuleSteps(bplan).Count == 6 && KeystoneBracket.PlanText(bplan).Contains("150"), "bracket: the rule as steps + bplan text", KeystoneBracket.PlanText(bplan));
+            // random-walk years with an up-drift at 10:00 → the sweet spot runs, ranks and checks every year
+            var rng = new Random(9); var all = new List<KeystoneArcBar>();
+            for (var dd = new DateTime(2024, 1, 2); dd < new DateTime(2025, 12, 31); dd = dd.AddDays(1))
+            {
+                if (dd.DayOfWeek == DayOfWeek.Saturday || dd.DayOfWeek == DayOfWeek.Sunday) continue;
+                double px = 20000;
+                for (int m = 7 * 60 + 1; m <= 16 * 60; m++) { double o3 = px; px += (rng.NextDouble() - 0.5) * 12 + (m > 600 ? 0.4 : 0); all.Add(B(dd.Date.AddMinutes(m), o3, Math.Max(o3, px) + 1, Math.Min(o3, px) - 1, px)); }
+            }
+            Check(KeystoneBracket.IsOneMinute(all), "bracket: 1-minute series detected");
+            var md = KeystoneBracket.Days(all, "MNQ");
+            var set = KeystoneBracket.Build(md, "MNQ", 1000, 1555, "LONG");
+            var lp = bplan.Copy(); lp.Bracket = set;
+            var bev = KeystonePropPlanner.Evaluate(r, lp, null, 1000, 3);
+            var hist = KeystonePropPlanner.History(r, lp, null);
+            Console.WriteLine("      " + set.Traded + " days • pass " + bev.PassRate.ToString("0") + "% • value " + bev.ValuePerEval.ToString("0")); Check(set.Traded > 400 && bev.Evaluations == 1000 && hist.Count == 2, "bracket: 2 years replayed, evaluated and walked year by year", set.Traded + " days • pass " + bev.PassRate.ToString("0") + "% • value " + bev.ValuePerEval.ToString("0") + " • " + string.Join(" | ", hist.Select(h => h.Year + " " + h.Net.ToString("0"))));
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var sweet = KeystoneBracket.SweetSpot(md, "MNQ", 1555, r, bplan, 800, 5, null); Console.WriteLine("      " + sweet.Count + " plans in " + sw.ElapsedMilliseconds + " ms • #1 " + sweet[0].Label + " • " + sweet[0].YearText);
+            Check(sweet.Count > 100 && sweet[0].YearText.Contains("2024") && sweet[0].YearText.Contains("2025") && sweet[0].Plan.Bracket.Direction == "LONG", "bracket sweet spot finds the up-drift (ALWAYS BUY) and checks each year", sweet.Count + " plans in " + sw.ElapsedMilliseconds + " ms • #1 " + sweet[0].Label + " • " + sweet[0].YearText);
+            string html = KeystonePropPlanner.Html(sweet[0], new List<KeystonePropProgram>(), hist, sweet, "REAL BRACKET • MNQ");
+            Check(html.Contains("THE RULE TO FOLLOW") && html.Contains("BY YEAR"), "bracket report shows the rule and the year check");
         }
         Console.WriteLine(failures == 0 ? "ALL PROP PLANNER TESTS PASSED" : failures + " PROP PLANNER TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
