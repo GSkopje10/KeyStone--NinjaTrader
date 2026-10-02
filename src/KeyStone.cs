@@ -107,6 +107,11 @@ namespace NinjaTrader.NinjaScript
         public double[] GoldenRunBeforeStop;
         public bool[] GoldenStopHit;
         public string GoldenSkipReason = string.Empty;
+        // MOVE STUDY (GOLDEN): from the entry to the session close, no target / stop — how far price went for us (MFE),
+        // against us (MAE), against us before the best point, where it closed, and for each move level the worst point
+        // against us before that level was first reached (NaN = never reached).
+        public double MoveMfe = double.NaN, MoveMae = double.NaN, MoveMaeBeforeMfe = double.NaN, MoveClose = double.NaN; public int MoveMfeMinutes;
+        public double[] MoveHeat;
         public string AssignedVirtualAccount;
         public string SkipReason;
         public string ConfigurationKey;
@@ -834,7 +839,8 @@ namespace NinjaTrader.NinjaScript
                 Target = x.Target, ExitTime = x.ExitTime, ExitPrice = x.ExitPrice, Outcome = x.Outcome, GrossPnl = x.GrossPnl, PeakAfterEntry = x.PeakAfterEntry, TroughAfterEntry = x.TroughAfterEntry, TargetTouched = x.TargetTouched, StopTouched = x.StopTouched,
                 SessionOrder = x.SessionOrder, FvgLower = x.FvgLower, FvgUpper = x.FvgUpper, FvgFormedTime = x.FvgFormedTime, FvgVisit = x.FvgVisit, FvgRedRun = x.FvgRedRun, FvgDrop = x.FvgDrop, FvgGap = x.FvgGap, QualityScore = x.QualityScore, QualityTier = x.QualityTier, FeatureAtr = x.FeatureAtr, FeatureDipPercent = x.FeatureDipPercent, FeatureGreenBody = x.FeatureGreenBody, AssignedVirtualAccount = x.AssignedVirtualAccount,
                 SkipReason = x.SkipReason, ConfigurationKey = x.ConfigurationKey, ReviewState = x.ReviewState, ReviewNote = x.ReviewNote,
-                AsianLegNumber = x.AsianLegNumber, AsianCyclePnlAtExit = x.AsianCyclePnlAtExit, AsianCycleWorstAtExit = x.AsianCycleWorstAtExit
+                AsianLegNumber = x.AsianLegNumber, AsianCyclePnlAtExit = x.AsianCyclePnlAtExit, AsianCycleWorstAtExit = x.AsianCycleWorstAtExit,
+                GoldenRunBeforeStop = x.GoldenRunBeforeStop, GoldenStopHit = x.GoldenStopHit, MoveMfe = x.MoveMfe, MoveMae = x.MoveMae, MoveMaeBeforeMfe = x.MoveMaeBeforeMfe, MoveClose = x.MoveClose, MoveMfeMinutes = x.MoveMfeMinutes, MoveHeat = x.MoveHeat
             };
         }
     }
@@ -1469,6 +1475,19 @@ namespace NinjaTrader.NinjaScript
             e.GoldenRunBeforeStop = run; e.GoldenStopHit = hit;
         }
 
+        // MOVE STUDY: walk the 1-minute bars from the fill to the session close (same fill minute as the outcome rule).
+        // Conservative: the adverse move of a minute counts before the favourable move of the same minute.
+        internal static void GoldenMove(KeystoneArcEvent e, List<KeystoneArcBar> raw, KeystoneArcRunConfig cfg, string symbol, bool marketEntry, DateTime close)
+        {
+            if (e == null || raw == null || raw.Count == 0 || e.EntryTime == DateTime.MinValue || double.IsNaN(e.Entry)) return;
+            int offset = IsMgc(symbol) ? cfg.MgcOutcomeTimeOffsetMinutes : cfg.MnqOutcomeTimeOffsetMinutes;
+            int idx;
+            if (marketEntry) { idx = FirstIndexAtOrAfter(raw, e.TriggerTime.AddMinutes(offset)); while (idx >= 0 && idx < raw.Count && raw[idx].Time <= e.TriggerTime.AddMinutes(offset)) idx++; }
+            else idx = FirstIndexAtOrAfter(raw, e.EntryTime.AddMinutes(offset));
+            if (idx < 0 || idx >= raw.Count || raw[idx].Time > close.AddMinutes(offset)) return;
+            KeystoneMoveStudy.Walk(e, raw, idx, 1, close.AddMinutes(offset), symbol);
+        }
+
         private static List<KeystoneArcEvent> DetectGolden(List<KeystoneArcBar> raw, List<KeystoneArcBar> bars, KeystoneArcRunConfig cfg, string symbol)
         {
             var output = new List<KeystoneArcEvent>();
@@ -1560,6 +1579,8 @@ namespace NinjaTrader.NinjaScript
                         // HOLD: no session close — the trade runs until the target or the stop, overnight and into the next days.
                         ResolveOutcome(pick, raw, outCfg, symbol, marketEntry, cfg.GoldenHold == 1 ? raw[raw.Count - 1].Time : default(DateTime));
                         GoldenExcursion(pick, raw, cfg, symbol, marketEntry);
+                        DateTime moveClose = GoldenClock(day, cfg.GoldenClose); if (moveClose <= pick.EntryTime) moveClose = moveClose.AddDays(1);
+                        GoldenMove(pick, raw, cfg, symbol, marketEntry, moveClose);
                         pick.ReviewNote = "GOLDEN • " + (takeAll ? "#" + (taken + 1) : taken == 0 ? "first" : (taken + 1) == 2 ? "2nd" : "3rd") + " setup after " + (startHhmm / 100).ToString("00") + ":" + (startHhmm % 100).ToString("00") + " • " + (kind == "DT" ? "BH + FVG" : kind)
                             + " • push down " + drop.ToString(fmt, CultureInfo.InvariantCulture) + " pts" + (red > 0 ? " (" + red + " red)" : string.Empty) + (aggressive ? " = AGGRESSION" : " = no aggression")
                             + " • entry " + entry.ToString(fmt, CultureInfo.InvariantCulture) + " • target " + pick.Target.ToString(fmt, CultureInfo.InvariantCulture) + " (+" + target.ToString("0.##", CultureInfo.InvariantCulture) + ")"
@@ -5246,6 +5267,300 @@ namespace NinjaTrader.NinjaScript
         public string Universe = "FIRST";
     }
 
+    // ---- MOVE STUDY (build 10-03e) -----------------------------------------------------------------
+    // No fixed target or stop: every detected entry is followed to the session close and measured — how far price went
+    // for us, against us, against us before the best point, where it closed. Compared by entry set × instrument × year,
+    // against a no-setup baseline (buy at the start time every day). The target / stop in points (and dollars) are then
+    // chosen FROM those movements, per year and overall; the best sets are explained by their features (why).
+    public sealed class KeystoneMoveRow
+    {
+        public string Set = string.Empty, Symbol = string.Empty, Kind = string.Empty; public bool Aggr; public DateTime Time; public int Year;
+        public double Entry, Gap, Drop, Mfe, Mae, MaeBefore, Close; public int MfeMinutes; public double[] Heat;
+    }
+
+    public sealed class KeystoneMoveStats
+    {
+        public string Label = string.Empty; public int N;
+        public double UpPct, CloseMed, CloseAvg, MfeP25, MfeP50, MfeP75, MfeP90, MaeP50, MaeP75, MaeP90, BeforeP50, BeforeP75, MfeMinutesMed;
+        public double[] ReachPct, HeatMed;
+    }
+
+    public sealed class KeystoneMoveBracket { public double Tp, Sl, PerTradePts, Dollars, WinPct, LossPct, ClosePct; public int N; }
+
+    public sealed class KeystoneMoveGroup
+    {
+        public string Set = string.Empty, Symbol = string.Empty; public List<KeystoneMoveRow> Rows = new List<KeystoneMoveRow>();
+        public KeystoneMoveStats All; public List<KeystoneMoveStats> Years = new List<KeystoneMoveStats>();
+        public KeystoneMoveBracket Best; public Dictionary<int, KeystoneMoveBracket> BestByYear = new Dictionary<int, KeystoneMoveBracket>(), BestOnYear = new Dictionary<int, KeystoneMoveBracket>();
+        public bool EveryYear; public double PerYearDollars, WorstYearDollars;
+        public string Name { get { return KeystoneMoveStudy.SetName(Set) + " • " + Symbol; } }
+    }
+
+    public sealed class KeystoneMoveBucket { public string Factor = string.Empty, Bucket = string.Empty; public KeystoneMoveStats Stats; public double Dollars; }
+
+    public static class KeystoneMoveStudy
+    {
+        static readonly double[] MnqLevels = { 10, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200, 250, 300 }, MgcLevels = { 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 25, 30 };
+        static readonly double[] MnqStops = { 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 150, 200 }, MgcStops = { 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 15, 20 };
+        public static bool IsMgc(string s) { return string.Equals(s, "MGC", StringComparison.OrdinalIgnoreCase); }
+        public static double[] Levels(string symbol) { return IsMgc(symbol) ? MgcLevels : MnqLevels; }
+        public static double[] Stops(string symbol) { return IsMgc(symbol) ? MgcStops : MnqStops; }
+        public static double PointValue(string symbol) { return IsMgc(symbol) ? 10.0 : 2.0; }
+        public static double Cost(string symbol) { return 2 * 0.62 + (IsMgc(symbol) ? 0.1 * 10 : 0.25 * 2); }   // per contract: commission both sides + 1 tick
+        public static string F(string symbol, double v) { return double.IsNaN(v) ? "–" : v.ToString(IsMgc(symbol) ? "0.0" : "0.#", CultureInfo.InvariantCulture); }
+        public const string Baseline = "BASELINE";
+        public static string SetName(string set)
+        {
+            if (set == Baseline) return "NO SETUP • BUY AT THE START TIME";
+            bool aggr = set.EndsWith("+AGGR"); string core = aggr ? set.Substring(0, set.Length - 5) : set;
+            string name = KeystoneGoldenStudy.Universes.Contains(core) ? KeystoneGoldenStudy.UniverseName(core) : core;
+            return aggr ? name + " • AGGRESSION ONLY" : name;
+        }
+
+        // The walk shared by every strategy: from the fill minute to the close, in the trade's direction (1 = long, −1 = short).
+        public static void Walk(KeystoneArcEvent e, List<KeystoneArcBar> raw, int idx, int dir, DateTime closeLimit, string symbol)
+        {
+            double[] levels = Levels(symbol); var heat = new double[levels.Length]; for (int k = 0; k < heat.Length; k++) heat[k] = double.NaN;
+            double mfe = 0, mae = 0, maeBefore = 0, last = e.Entry; int mfeAt = 0, n = 0;
+            for (int i = idx; i < raw.Count && raw[i].Time <= closeLimit; i++, n++)
+            {
+                var b = raw[i];
+                double up = dir > 0 ? b.High - e.Entry : e.Entry - b.Low, down = dir > 0 ? e.Entry - b.Low : b.High - e.Entry;
+                mae = Math.Max(mae, down);
+                if (up > mfe) { mfe = up; maeBefore = mae; mfeAt = (int)(b.Time - raw[idx].Time).TotalMinutes + 1; }
+                for (int k = 0; k < levels.Length; k++) if (double.IsNaN(heat[k]) && up >= levels[k] - 1e-9) heat[k] = mae;
+                last = b.Close;
+            }
+            if (n == 0) return;
+            e.MoveMfe = mfe; e.MoveMae = mae; e.MoveMaeBeforeMfe = maeBefore; e.MoveClose = dir * (last - e.Entry); e.MoveMfeMinutes = mfeAt; e.MoveHeat = heat;
+        }
+
+        static int FirstAtOrAfter(List<KeystoneArcBar> raw, DateTime t) { int lo = 0, hi = raw.Count; while (lo < hi) { int mid = (lo + hi) / 2; if (raw[mid].Time >= t) hi = mid; else lo = mid + 1; } return lo; }
+
+        // ANY strategy's entries (BH, FVG, ASIAN legs, RECOIL…): measured from the entry minute to closeHhmm the same day
+        // (New York), long or short. Entries already measured (GOLDEN) are kept.
+        public static int MeasureAll(List<KeystoneArcEvent> events, List<KeystoneArcBar> oneMinute, int closeHhmm)
+        {
+            int measured = 0; if (events == null || oneMinute == null) return 0;
+            var bySym = oneMinute.GroupBy(b => (b.Symbol ?? "").ToUpperInvariant()).ToDictionary(g => g.Key, g => g.OrderBy(b => b.Time).ToList());
+            foreach (var e in events)
+            {
+                if (e == null || e.EntryTime == DateTime.MinValue || double.IsNaN(e.Entry) || e.Entry <= 0) continue;
+                if (e.MoveHeat != null) { measured++; continue; }
+                List<KeystoneArcBar> raw; if (!bySym.TryGetValue((e.Symbol ?? "").ToUpperInvariant(), out raw) || raw.Count == 0) continue;
+                DateTime close = e.EntryTime.Date.AddHours(closeHhmm / 100).AddMinutes(closeHhmm % 100); if (close <= e.EntryTime) close = close.AddDays(1);
+                int idx = FirstAtOrAfter(raw, e.EntryTime); if (idx >= raw.Count || raw[idx].Time > close) continue;
+                Walk(e, raw, idx, string.Equals(e.Direction, "SHORT", StringComparison.OrdinalIgnoreCase) ? -1 : 1, close, e.Symbol);
+                if (e.MoveHeat != null) measured++;
+            }
+            return measured;
+        }
+
+        public static KeystoneMoveRow Row(string set, KeystoneArcEvent e)
+        {
+            if (e == null || e.MoveHeat == null || double.IsNaN(e.MoveMfe)) return null;
+            DateTime t = e.EntryTime == DateTime.MinValue ? e.TriggerTime : e.EntryTime;
+            return new KeystoneMoveRow { Set = set, Symbol = e.Symbol, Kind = e.SetupClass ?? "", Aggr = e.StrengthTag == "AGGR", Time = t, Year = t.Year, Entry = e.Entry, Gap = e.FvgGap, Drop = e.FvgDrop, Mfe = e.MoveMfe, Mae = e.MoveMae, MaeBefore = e.MoveMaeBeforeMfe, Close = e.MoveClose, MfeMinutes = e.MoveMfeMinutes, Heat = e.MoveHeat };
+        }
+
+        // The same measurement with no setup: buy at the open of the first minute after the start time, every day.
+        public static List<KeystoneMoveRow> BaselineRows(List<KeystoneArcBar> raw, string symbol, int startHhmm, int closeHhmm)
+        {
+            var output = new List<KeystoneMoveRow>(); if (raw == null) return output;
+            double[] levels = Levels(symbol);
+            int sm = startHhmm / 100 * 60 + startHhmm % 100, cm = closeHhmm / 100 * 60 + closeHhmm % 100;
+            foreach (var g in raw.Where(b => string.Equals(b.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).GroupBy(b => b.Time.Date).OrderBy(g => g.Key))
+            {
+                var list = g.Where(b => { int m = b.Time.Hour * 60 + b.Time.Minute; return m > sm && m <= cm; }).OrderBy(b => b.Time).ToList();
+                if (list.Count < 10 || list[0].Time.Hour * 60 + list[0].Time.Minute != sm + 1) continue;      // the exact first minute must exist
+                double entry = list[0].Open, mfe = 0, mae = 0, before = 0; int at = 0; var heat = new double[levels.Length]; for (int k = 0; k < heat.Length; k++) heat[k] = double.NaN;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var b = list[i]; mae = Math.Max(mae, entry - b.Low); double up = b.High - entry;
+                    if (up > mfe) { mfe = up; before = mae; at = i + 1; }
+                    for (int k = 0; k < levels.Length; k++) if (double.IsNaN(heat[k]) && up >= levels[k] - 1e-9) heat[k] = mae;
+                }
+                output.Add(new KeystoneMoveRow { Set = Baseline, Symbol = symbol, Kind = "START", Time = list[0].Time, Year = list[0].Time.Year, Entry = entry, Mfe = mfe, Mae = mae, MaeBefore = before, Close = list[list.Count - 1].Close - entry, MfeMinutes = at, Heat = heat });
+            }
+            return output;
+        }
+
+        static double Pct(List<double> sorted, double p) { if (sorted.Count == 0) return double.NaN; double i = p * (sorted.Count - 1); int a = (int)Math.Floor(i), b = Math.Min(sorted.Count - 1, a + 1); return sorted[a] + (sorted[b] - sorted[a]) * (i - a); }
+
+        public static KeystoneMoveStats Stats(string label, List<KeystoneMoveRow> rows, string symbol)
+        {
+            var s = new KeystoneMoveStats { Label = label, N = rows.Count }; double[] levels = Levels(symbol);
+            s.ReachPct = new double[levels.Length]; s.HeatMed = new double[levels.Length];
+            if (rows.Count == 0) { for (int k = 0; k < levels.Length; k++) s.HeatMed[k] = double.NaN; s.UpPct = s.CloseMed = s.CloseAvg = s.MfeP25 = s.MfeP50 = s.MfeP75 = s.MfeP90 = s.MaeP50 = s.MaeP75 = s.MaeP90 = s.BeforeP50 = s.BeforeP75 = s.MfeMinutesMed = double.NaN; return s; }
+            Func<Func<KeystoneMoveRow, double>, List<double>> sorted = f => rows.Select(f).OrderBy(v => v).ToList();
+            var mfe = sorted(r => r.Mfe); var mae = sorted(r => r.Mae); var close = sorted(r => r.Close); var before = sorted(r => r.MaeBefore); var mins = sorted(r => r.MfeMinutes);
+            s.UpPct = 100.0 * rows.Count(r => r.Close > 0) / rows.Count; s.CloseMed = Pct(close, 0.5); s.CloseAvg = rows.Average(r => r.Close);
+            s.MfeP25 = Pct(mfe, 0.25); s.MfeP50 = Pct(mfe, 0.5); s.MfeP75 = Pct(mfe, 0.75); s.MfeP90 = Pct(mfe, 0.9);
+            s.MaeP50 = Pct(mae, 0.5); s.MaeP75 = Pct(mae, 0.75); s.MaeP90 = Pct(mae, 0.9); s.BeforeP50 = Pct(before, 0.5); s.BeforeP75 = Pct(before, 0.75); s.MfeMinutesMed = Pct(mins, 0.5);
+            for (int k = 0; k < levels.Length; k++)
+            {
+                var reached = rows.Where(r => r.Heat != null && k < r.Heat.Length && !double.IsNaN(r.Heat[k])).Select(r => r.Heat[k]).OrderBy(v => v).ToList();
+                s.ReachPct[k] = 100.0 * reached.Count / rows.Count; s.HeatMed[k] = Pct(reached, 0.5);
+            }
+            return s;
+        }
+
+        // Target tp / stop sl in points on these measured moves (stop first when the same minute reached both): win +tp, loss −sl,
+        // otherwise closed at the session close. Dollars per 1 contract after costs.
+        public static KeystoneMoveBracket Bracket(List<KeystoneMoveRow> rows, string symbol, double tp, double sl)
+        {
+            var b = new KeystoneMoveBracket { Tp = tp, Sl = sl, N = rows.Count }; if (rows.Count == 0) return b;
+            int k = Array.IndexOf(Levels(symbol), tp); double sum = 0; int w = 0, l = 0, c = 0;
+            foreach (var r in rows)
+            {
+                double h = k >= 0 && r.Heat != null && k < r.Heat.Length ? r.Heat[k] : double.NaN;
+                if (!double.IsNaN(h) && h < sl - 1e-9) { sum += tp; w++; }
+                else if (!double.IsNaN(h) || r.Mae >= sl - 1e-9) { sum -= sl; l++; }
+                else { sum += Math.Max(-sl, r.Close); c++; }
+            }
+            b.PerTradePts = sum / rows.Count; b.Dollars = b.PerTradePts * PointValue(symbol) - Cost(symbol);
+            b.WinPct = 100.0 * w / rows.Count; b.LossPct = 100.0 * l / rows.Count; b.ClosePct = 100.0 * c / rows.Count;
+            return b;
+        }
+
+        public static KeystoneMoveBracket BestBracket(List<KeystoneMoveRow> rows, string symbol)
+        {
+            KeystoneMoveBracket best = null;
+            foreach (double tp in Levels(symbol)) foreach (double sl in Stops(symbol)) { var b = Bracket(rows, symbol, tp, sl); if (best == null || b.Dollars > best.Dollars + 1e-9) best = b; }
+            return best ?? new KeystoneMoveBracket();
+        }
+
+        public static KeystoneMoveGroup Group(string set, string symbol, List<KeystoneMoveRow> rows)
+        {
+            var g = new KeystoneMoveGroup { Set = set, Symbol = symbol, Rows = rows.OrderBy(r => r.Time).ToList() };
+            g.All = Stats("ALL YEARS", g.Rows, symbol); g.Best = BestBracket(g.Rows, symbol);
+            var years = g.Rows.Select(r => r.Year).Distinct().OrderBy(y => y).ToList(); bool every = true; double worst = double.MaxValue; int counted = 0;
+            foreach (int y in years)
+            {
+                var yr = g.Rows.Where(r => r.Year == y).ToList();
+                g.Years.Add(Stats(y.ToString(), yr, symbol)); g.BestByYear[y] = BestBracket(yr, symbol);
+                var on = Bracket(yr, symbol, g.Best.Tp, g.Best.Sl); g.BestOnYear[y] = on;
+                if (yr.Count >= 10) { counted++; if (on.Dollars <= 0) every = false; worst = Math.Min(worst, on.Dollars); }
+            }
+            g.EveryYear = every && counted > 0; g.WorstYearDollars = counted == 0 ? double.NaN : worst;
+            double spanYears = g.Rows.Count < 2 ? 1 : Math.Max(0.25, (g.Rows[g.Rows.Count - 1].Time - g.Rows[0].Time).TotalDays / 365.25);
+            g.PerYearDollars = g.Best.Dollars * g.Rows.Count / spanYears;
+            return g;
+        }
+
+        // Every entry set × instrument (+ aggression-only versions) + the no-setup baseline; ranked: works every year first, then $ per year.
+        public static List<KeystoneMoveGroup> Run(Dictionary<string, List<KeystoneArcEvent>> sets, List<KeystoneMoveRow> baseline)
+        {
+            var groups = new List<KeystoneMoveGroup>();
+            foreach (var kv in sets ?? new Dictionary<string, List<KeystoneArcEvent>>())
+            {
+                var rows = (kv.Value ?? new List<KeystoneArcEvent>()).Select(e => Row(kv.Key, e)).Where(r => r != null).ToList();
+                foreach (string sym in new[] { "MNQ", "MGC" })
+                {
+                    var mine = rows.Where(r => string.Equals(r.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); if (mine.Count == 0) continue;
+                    groups.Add(Group(kv.Key, sym, mine));
+                    var aggr = mine.Where(r => r.Aggr).ToList();
+                    if (aggr.Count >= 10 && aggr.Count < mine.Count) groups.Add(Group(kv.Key + "+AGGR", sym, aggr));
+                }
+            }
+            foreach (string sym in new[] { "MNQ", "MGC" }) { var b = (baseline ?? new List<KeystoneMoveRow>()).Where(r => r.Symbol == sym).ToList(); if (b.Count > 0) groups.Add(Group(Baseline, sym, b)); }
+            return groups.OrderByDescending(g => g.EveryYear && g.Rows.Count >= 20).ThenByDescending(g => g.PerYearDollars).ToList();
+        }
+
+        // WHY: the same group split by what was known at the entry, each bucket measured with the group's best target / stop.
+        public static List<KeystoneMoveBucket> Why(KeystoneMoveGroup g)
+        {
+            var output = new List<KeystoneMoveBucket>(); var rows = g.Rows; string sym = g.Symbol; if (rows.Count == 0) return output;
+            Action<string, Func<KeystoneMoveRow, string>, IEnumerable<string>> add = (factor, key, order) =>
+            {
+                foreach (string b in order)
+                {
+                    var part = rows.Where(r => key(r) == b).ToList(); if (part.Count == 0) continue;
+                    output.Add(new KeystoneMoveBucket { Factor = factor, Bucket = b, Stats = Stats(b, part, sym), Dollars = Bracket(part, sym, g.Best.Tp, g.Best.Sl).Dollars });
+                }
+            };
+            add("SETUP", r => r.Kind == "DT" ? "BH + FVG SAME CANDLE" : r.Kind, rows.Select(r => r.Kind == "DT" ? "BH + FVG SAME CANDLE" : r.Kind).Distinct().OrderBy(x => x));
+            add("AGGRESSION (PUSH DOWN BEFORE)", r => r.Aggr ? "WITH AGGRESSION" : "WITHOUT", new[] { "WITH AGGRESSION", "WITHOUT" });
+            add("ENTRY HOUR", r => r.Time.Hour.ToString("00") + ":00", rows.Select(r => r.Time.Hour.ToString("00") + ":00").Distinct().OrderBy(x => x));
+            add("WEEKDAY", r => r.Time.DayOfWeek.ToString().ToUpperInvariant(), new[] { "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY" });
+            Action<string, Func<KeystoneMoveRow, double>> terciles = (factor, val) =>
+            {
+                var vals = rows.Select(val).Where(v => !double.IsNaN(v) && v > 0).OrderBy(v => v).ToList(); if (vals.Count < 15) return;
+                double a = Pct(vals, 1.0 / 3), b = Pct(vals, 2.0 / 3);
+                Func<KeystoneMoveRow, string> key = r => { double v = val(r); if (double.IsNaN(v) || v <= 0) return "NONE"; return v <= a ? "SMALL (≤ " + F(sym, a) + ")" : v <= b ? "MEDIUM (≤ " + F(sym, b) + ")" : "LARGE (> " + F(sym, b) + ")"; };
+                add(factor, key, new[] { "SMALL (≤ " + F(sym, a) + ")", "MEDIUM (≤ " + F(sym, b) + ")", "LARGE (> " + F(sym, b) + ")", "NONE" });
+            };
+            terciles("FVG GAP SIZE (POINTS)", r => r.Gap);
+            terciles("PUSH DOWN BEFORE THE SETUP (POINTS)", r => r.Drop);
+            add("YEAR", r => r.Year.ToString(), rows.Select(r => r.Year.ToString()).Distinct().OrderBy(x => x));
+            return output;
+        }
+
+        public static string Verdict(List<KeystoneMoveGroup> groups)
+        {
+            if (groups == null || groups.Count == 0) return "No measured entries yet.";
+            var top = groups[0]; var bases = groups.Where(g => g.Set == Baseline).ToDictionary(g => g.Symbol);
+            KeystoneMoveGroup b; string vsBase = bases.TryGetValue(top.Symbol, out b) ? " The no-setup baseline (buy at the start every day) makes " + (b.Best.Dollars < 0 ? "−$" : "$") + Math.Abs(b.Best.Dollars).ToString("N0", CultureInfo.InvariantCulture) + " per trade at its own best target / stop" + (top.Best.Dollars > b.Best.Dollars ? " — the setup adds " + (top.Best.Dollars - b.Best.Dollars).ToString("N0", CultureInfo.InvariantCulture) + " $ per trade." : " — the setup does NOT beat buying blindly.") : "";
+            return (top.EveryYear ? "BEST: " : "NOTHING WORKED IN EVERY YEAR. HIGHEST: ") + top.Name + " • target +" + F(top.Symbol, top.Best.Tp) + " / stop −" + F(top.Symbol, top.Best.Sl) + " pts • " + (top.Best.Dollars < 0 ? "−$" : "$") + Math.Abs(top.Best.Dollars).ToString("N1", CultureInfo.InvariantCulture) + " per trade per contract • about " + (top.PerYearDollars < 0 ? "−$" : "$") + Math.Abs(top.PerYearDollars).ToString("N0", CultureInfo.InvariantCulture) + " a year per contract • ended up on " + top.All.UpPct.ToString("0") + "% of the days." + vsBase;
+        }
+
+        public static string Csv(List<KeystoneMoveGroup> groups)
+        {
+            var sb = new StringBuilder();
+            var anyLevels = MnqLevels.Length >= MgcLevels.Length ? MnqLevels.Length : MgcLevels.Length;
+            sb.Append("set,symbol,date,time,year,setup,aggression,entry,fvg_gap,push_down,max_for_us,max_against,against_before_best,close_vs_entry,minutes_to_best");
+            for (int k = 0; k < anyLevels; k++) sb.Append(",level_").Append(k + 1).Append("_pts,level_").Append(k + 1).Append("_against_before");
+            sb.AppendLine();
+            foreach (var g in groups.Where(x => !x.Set.EndsWith("+AGGR")))
+            {
+                var lv = Levels(g.Symbol);
+                foreach (var r in g.Rows)
+                {
+                    sb.Append(g.Set).Append(',').Append(g.Symbol).Append(',').Append(r.Time.ToString("yyyy-MM-dd")).Append(',').Append(r.Time.ToString("HH:mm")).Append(',').Append(r.Year).Append(',').Append(r.Kind).Append(',').Append(r.Aggr ? "AGGR" : "").Append(',')
+                      .Append(r.Entry.ToString(CultureInfo.InvariantCulture)).Append(',').Append(r.Gap.ToString("0.##", CultureInfo.InvariantCulture)).Append(',').Append(r.Drop.ToString("0.##", CultureInfo.InvariantCulture)).Append(',')
+                      .Append(r.Mfe.ToString("0.##", CultureInfo.InvariantCulture)).Append(',').Append(r.Mae.ToString("0.##", CultureInfo.InvariantCulture)).Append(',').Append(r.MaeBefore.ToString("0.##", CultureInfo.InvariantCulture)).Append(',').Append(r.Close.ToString("0.##", CultureInfo.InvariantCulture)).Append(',').Append(r.MfeMinutes);
+                    for (int k = 0; k < anyLevels; k++) sb.Append(',').Append(k < lv.Length ? lv[k].ToString(CultureInfo.InvariantCulture) : "").Append(',').Append(k < lv.Length && r.Heat != null && k < r.Heat.Length && !double.IsNaN(r.Heat[k]) ? r.Heat[k].ToString("0.##", CultureInfo.InvariantCulture) : "");
+                    sb.AppendLine();
+                }
+            }
+            return sb.ToString();
+        }
+
+        public static string Html(List<KeystoneMoveGroup> groups, string range)
+        {
+            Func<string, string> e = s => (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+            Func<double, string> m = v => double.IsNaN(v) ? "–" : (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N1", CultureInfo.InvariantCulture);
+            Func<double, string> c = v => v > 0 ? "#3fd28b" : (v < 0 ? "#ff6b6b" : "#9aa4b2");
+            var sb = new StringBuilder();
+            sb.Append("<!doctype html><html><head><meta charset='utf-8'><title>Keystone Move Study</title><style>body{background:#0d1117;color:#e6edf3;font-family:Segoe UI,Arial,sans-serif;margin:0;padding:18px}h1{color:#f2c94c}h2{color:#56ccf2;margin:22px 0 6px}h3{color:#f2c94c;margin:14px 0 4px}.n{color:#9aa4b2;font-size:13px}.v{border:2px solid #f2c94c;border-radius:8px;padding:10px 14px;margin:10px 0;font-weight:600}table{border-collapse:collapse;width:100%;font-size:12.5px;margin-bottom:8px}th{color:#f2c94c;text-align:left;border-bottom:1px solid #30363d;padding:4px}td{padding:4px;border-bottom:1px solid #21262d}.wrap{overflow-x:auto}</style></head><body>");
+            sb.Append("<h1>KEYSTONE ARC • MOVE STUDY</h1><div class='n'>").Append(e(range)).Append(" • every entry followed to the session close on 1-minute bars (no target, no stop) • dollars per 1 contract after costs (MNQ $").Append(Cost("MNQ").ToString("0.00")).Append(", MGC $").Append(Cost("MGC").ToString("0.00")).Append(" per round trip) • historical research only</div>");
+            sb.Append("<div class='v'>").Append(e(Verdict(groups))).Append("</div>");
+            sb.Append("<h2>RANKING • every entry set × instrument</h2><div class='wrap'><table><tr><th>#</th><th>ENTRIES</th><th>N</th><th>ENDED UP</th><th>MEDIAN FOR US</th><th>MEDIAN AGAINST</th><th>AGAINST BEFORE BEST</th><th>BEST TARGET / STOP</th><th>WIN / LOSS / CLOSED</th><th>$ / TRADE</th><th>$ / YEAR</th><th>SAME TARGET / STOP EACH YEAR</th></tr>");
+            int i = 0;
+            foreach (var g in groups) { i++; sb.Append("<tr><td>").Append(i).Append("</td><td>").Append(e(g.Name)).Append("</td><td>").Append(g.Rows.Count).Append("</td><td>").Append(g.All.UpPct.ToString("0")).Append("%</td><td>+").Append(F(g.Symbol, g.All.MfeP50)).Append("</td><td>−").Append(F(g.Symbol, g.All.MaeP50)).Append("</td><td>−").Append(F(g.Symbol, g.All.BeforeP50)).Append("</td><td>+").Append(F(g.Symbol, g.Best.Tp)).Append(" / −").Append(F(g.Symbol, g.Best.Sl)).Append("</td><td>").Append(g.Best.WinPct.ToString("0")).Append(" / ").Append(g.Best.LossPct.ToString("0")).Append(" / ").Append(g.Best.ClosePct.ToString("0")).Append("%</td><td style='color:").Append(c(g.Best.Dollars)).Append("'>").Append(m(g.Best.Dollars)).Append("</td><td style='color:").Append(c(g.PerYearDollars)).Append("'>").Append(m(g.PerYearDollars)).Append("</td><td style='color:").Append(g.EveryYear ? "#3fd28b" : "#ff6b6b").Append("'>").Append(g.EveryYear ? "✓ " : "✗ ").Append(e(string.Join(" • ", g.BestOnYear.Select(kv => kv.Key + " " + m(kv.Value.Dollars) + " (" + kv.Value.N + ")")))).Append("</td></tr>"); }
+            sb.Append("</table></div>");
+            foreach (var g in groups.Where(x => x.Set != Baseline).Take(6).Concat(groups.Where(x => x.Set == Baseline)))
+            {
+                sb.Append("<h2>").Append(e(g.Name)).Append("</h2><h3>YEAR BY YEAR (points)</h3><div class='wrap'><table><tr><th>YEAR</th><th>N</th><th>ENDED UP</th><th>CLOSE (MEDIAN)</th><th>FOR US 50% / 75% / 90%</th><th>AGAINST 50% / 75% / 90%</th><th>AGAINST BEFORE BEST 50% / 75%</th><th>BEST TARGET / STOP THAT YEAR</th><th>$ / TRADE THAT YEAR</th><th>OVERALL TARGET / STOP THAT YEAR</th></tr>");
+                foreach (var s in new[] { g.All }.Concat(g.Years))
+                {
+                    int y; KeystoneMoveBracket by = null, on = null; if (int.TryParse(s.Label, out y)) { g.BestByYear.TryGetValue(y, out by); g.BestOnYear.TryGetValue(y, out on); } else { by = g.Best; on = g.Best; }
+                    sb.Append("<tr><td>").Append(s.Label).Append("</td><td>").Append(s.N).Append("</td><td>").Append(s.UpPct.ToString("0")).Append("%</td><td>").Append(F(g.Symbol, s.CloseMed)).Append("</td><td>").Append(F(g.Symbol, s.MfeP50)).Append(" / ").Append(F(g.Symbol, s.MfeP75)).Append(" / ").Append(F(g.Symbol, s.MfeP90)).Append("</td><td>").Append(F(g.Symbol, s.MaeP50)).Append(" / ").Append(F(g.Symbol, s.MaeP75)).Append(" / ").Append(F(g.Symbol, s.MaeP90)).Append("</td><td>").Append(F(g.Symbol, s.BeforeP50)).Append(" / ").Append(F(g.Symbol, s.BeforeP75)).Append("</td><td>").Append(by == null ? "–" : "+" + F(g.Symbol, by.Tp) + " / −" + F(g.Symbol, by.Sl)).Append("</td><td style='color:").Append(by == null ? "#9aa4b2" : c(by.Dollars)).Append("'>").Append(by == null ? "–" : m(by.Dollars)).Append("</td><td style='color:").Append(on == null ? "#9aa4b2" : c(on.Dollars)).Append("'>").Append(on == null ? "–" : m(on.Dollars)).Append("</td></tr>");
+                }
+                sb.Append("</table></div><h3>HOW FAR DID IT GO</h3><div class='wrap'><table><tr><th>MOVE FOR US</th><th>REACHED (ALL)</th>");
+                foreach (var s in g.Years) sb.Append("<th>").Append(s.Label).Append("</th>");
+                sb.Append("<th>AGAINST US BEFORE REACHING IT (MEDIAN)</th></tr>");
+                var lv = Levels(g.Symbol);
+                for (int k = 0; k < lv.Length; k++) { sb.Append("<tr><td>+").Append(F(g.Symbol, lv[k])).Append("</td><td>").Append(g.All.ReachPct[k].ToString("0")).Append("%</td>"); foreach (var s in g.Years) sb.Append("<td>").Append(s.ReachPct[k].ToString("0")).Append("%</td>"); sb.Append("<td>−").Append(F(g.Symbol, g.All.HeatMed[k])).Append("</td></tr>"); }
+                sb.Append("</table></div><h3>WHY • the same entries split by what was known at the entry ($ / trade at +").Append(F(g.Symbol, g.Best.Tp)).Append(" / −").Append(F(g.Symbol, g.Best.Sl)).Append(")</h3><div class='wrap'><table><tr><th>FACTOR</th><th>BUCKET</th><th>N</th><th>ENDED UP</th><th>FOR US (MEDIAN)</th><th>AGAINST (MEDIAN)</th><th>$ / TRADE</th></tr>");
+                foreach (var w in Why(g)) sb.Append("<tr><td>").Append(e(w.Factor)).Append("</td><td>").Append(e(w.Bucket)).Append("</td><td>").Append(w.Stats.N).Append("</td><td>").Append(w.Stats.UpPct.ToString("0")).Append("%</td><td>+").Append(F(g.Symbol, w.Stats.MfeP50)).Append("</td><td>−").Append(F(g.Symbol, w.Stats.MaeP50)).Append("</td><td style='color:").Append(c(w.Dollars)).Append("'>").Append(m(w.Dollars)).Append("</td></tr>");
+                sb.Append("</table></div>");
+            }
+            sb.Append("<h2>HOW TO READ IT</h2><p class='n'>FOR US = the highest point above the entry before the close • AGAINST = the lowest point below the entry before the close • AGAINST BEFORE BEST = how far it went against us before reaching its best point (the stop you needed to hold it) • ENDED UP = closed above the entry. BEST TARGET / STOP = the pair (from the measured moves) that made the most per trade: win if the target came before the stop, loss if the stop came first (the same minute counts as the stop), otherwise closed at the session close. SAME TARGET / STOP EACH YEAR = that overall pair applied to each year alone: ✓ if every year was positive. Compare every set with the NO SETUP baseline: a setup is only worth trading if it beats buying blindly at the start time.</p></body></html>");
+            return sb.ToString();
+        }
+    }
+
     public static class KeystoneGoldenStudy
     {
         static readonly double[] MnqStops = { 10, 20, 30, 40, 50, 60, 80, 100, 150 }, MgcStops = { 1, 2, 3, 4, 5, 6, 8, 10, 15 };
@@ -8503,7 +8818,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -8707,7 +9022,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var map = new Dictionary<object, Brush>();
             for (int i = 0; i < before.Length; i++) if (before[i] != null && !map.ContainsKey(before[i])) map[before[i]] = after[i];
             var seen = new HashSet<object>();
-            foreach (Window w in new Window[] { window, evidenceWindow, comparisonWindow, asianOptimizerWindow, propPlannerWindow }) if (w != null) RethemeTree(w, map, seen);
+            foreach (Window w in new Window[] { window, evidenceWindow, comparisonWindow, asianOptimizerWindow, propPlannerWindow, moveStudyWindow }) if (w != null) RethemeTree(w, map, seen);
             try { if (evidenceWindow != null && evidenceWindow.IsVisible) RenderEvidenceChart(); } catch { }
         }
 
@@ -9449,7 +9764,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (unsavedResearch) ShowCloseConfirmation();
                 else ShowSavedCloseConfirmation();
             };
-            window.Closed += delegate { CancelRequests(); CancelEvidenceRequest(); try { if (evidenceWindow != null) evidenceWindow.Close(); } catch { } try { if (propPlannerWindow != null) propPlannerWindow.Close(); } catch { } if (activityTimer != null) activityTimer.Stop(); window = null; closeConfirmed = false; };
+            window.Closed += delegate { CancelRequests(); CancelEvidenceRequest(); try { if (evidenceWindow != null) evidenceWindow.Close(); } catch { } try { if (propPlannerWindow != null) propPlannerWindow.Close(); } catch { } try { if (moveStudyWindow != null) moveStudyWindow.Close(); } catch { } if (activityTimer != null) activityTimer.Stop(); window = null; closeConfirmed = false; };
             window.Show();
             UpdateUi("READY • VIRTUAL/HISTORICAL RESEARCH ONLY • NO ACCOUNT OR ORDER ACCESS", Blue);
             UpdateWorkflowState();
@@ -9592,7 +9907,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private UIElement Header()
         {
-            var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var stack = new StackPanel { Margin = new Thickness(0) };
             var title = Txt("KEYSTONE ARC", activeTheme == "CLASSIC" ? Text : Gold, 20, FontWeights.Bold); title.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(title);
             var accentLine = new Border { Height = 2, Width = 420, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 2), Background = new LinearGradientBrush(Gold.Color, Bg.Color, 0) };
@@ -9615,9 +9930,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             themeRow.Children.Add(themeBox); themeRow.Children.Add(applyThemeButton); stack.Children.Add(themeRow);
             g.Children.Add(stack);
             var newTest = Btn("NEW TEST", Gold); newTest.Width = 106; newTest.Height = 30; newTest.Click += delegate { ConfirmResetForNewTest(); }; resetNewTestButton = newTest; Grid.SetColumn(newTest, 1); g.Children.Add(newTest);
+            var moveBtn = Btn("MOVE STUDY", Gold); moveBtn.Width = 118; moveBtn.Height = 30; moveBtn.FontSize = 10; moveBtn.ToolTip = "One test for every strategy: follow each entry of the last run to the close (for us / against us), compare sets, instruments, years and the no-setup baseline, pick target / stop from the moves."; moveBtn.Click += delegate { OpenMoveStudy(); };
             var planner = Btn("PROP PLANNER", Green); planner.Width = 118; planner.Height = 30; planner.FontSize = 10; planner.ToolTip = "The business math of prop firms: pass rate, what a funded account pays, the value of one evaluation, separate vs copy vs rotation, sweet spot"; planner.Click += delegate { OpenPropPlanner(null); };
-            var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(planner, 2); g.Children.Add(planner); Grid.SetColumn(closeAux, 3); g.Children.Add(closeAux);
-            var close = Btn("CLOSE LAB", Red); close.Width = 96; close.MinWidth = 96; close.MaxWidth = 96; close.Height = 30; close.FontSize = 10; close.ToolTip = "Close the entire Keystone Arc workspace"; close.Click += delegate { window.Close(); }; Grid.SetColumn(close, 4); g.Children.Add(close);
+            var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(moveBtn, 2); g.Children.Add(moveBtn); Grid.SetColumn(planner, 3); g.Children.Add(planner); Grid.SetColumn(closeAux, 4); g.Children.Add(closeAux);
+            var close = Btn("CLOSE LAB", Red); close.Width = 96; close.MinWidth = 96; close.MaxWidth = 96; close.Height = 30; close.FontSize = 10; close.ToolTip = "Close the entire Keystone Arc workspace"; close.Click += delegate { window.Close(); }; Grid.SetColumn(close, 5); g.Children.Add(close);
             return g;
         }
 
@@ -21775,6 +22091,149 @@ namespace NinjaTrader.NinjaScript.AddOns
             w.MinWidth = Math.Min(w.MinWidth, w.Width); w.MinHeight = Math.Min(w.MinHeight, w.Height);
             w.WindowStartupLocation = WindowStartupLocation.Manual;
             w.Left = wa.X + (wa.Width - w.Width) / 2; w.Top = wa.Y + Math.Max(0, (wa.Height - w.Height) / 2);
+        }
+
+
+        // ---- MOVE STUDY window: ONE way to test every strategy -------------------------------------------
+        // Takes the entries of the last run (GOLDEN: every entry set; any other strategy: its entries), follows each one
+        // to the close on the 1-minute bars, compares with buying blindly at the start, and derives target / stop from the moves.
+        private Window moveStudyWindow; private List<KeystoneMoveGroup> moveStudyGroups = new List<KeystoneMoveGroup>(); private string moveStudyRange = string.Empty;
+        private TextBlock moveStudyStatus; private Action moveStudyRun;
+
+        private void OpenMoveStudy()
+        {
+            if (moveStudyWindow != null) { moveStudyWindow.Activate(); if (moveStudyRun != null) moveStudyRun(); return; }
+            var w = new Window { Title = "KEYSTONE ARC • MOVE STUDY", Width = 1500, Height = 900, MinWidth = 900, MinHeight = 560, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            FitWindowToScreen(w);
+            var root = new Grid { Margin = new Thickness(10) };
+            for (int i = 0; i < 3; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var head = new StackPanel();
+            head.Children.Add(Txt("MOVE STUDY • HOW FAR DID PRICE GO AFTER EACH ENTRY", Gold, 20, FontWeights.Bold));
+            head.Children.Add(Txt("No target, no stop: every entry of the last run is followed to the close on real 1-minute bars — how far it went FOR us, AGAINST us, against us BEFORE its best point, and where it closed. Compared by entry set, instrument and year, and against buying blindly at the start time. The target and stop are then picked FROM those moves, per year. The same test for every strategy: run any strategy in the lab (dates, instruments, session in Step 1), then press MEASURE here.", Muted, 11, FontWeights.Normal));
+            Grid.SetRow(head, 0); root.Children.Add(head);
+            var bar = new WrapPanel { Margin = new Thickness(0, 4, 0, 2) };
+            int defClose = config == null ? 1555 : (config.GoldenClose > 0 ? config.GoldenClose : config.EndTime);
+            var closeBox = Input(defClose.ToString("0000")); closeBox.Width = 70; closeBox.ToolTip = "Follow every entry until this time (HHMM, New York) the same day — the market close you trade to.";
+            var mnqStart = Input((config == null ? 930 : config.GoldenMnqStart).ToString("0000")); mnqStart.Width = 70; mnqStart.ToolTip = "Baseline: buy MNQ at this time every day (no setup).";
+            var mgcStart = Input((config == null ? 800 : config.GoldenMgcStart).ToString("0000")); mgcStart.Width = 70; mgcStart.ToolTip = "Baseline: buy MGC at this time every day (no setup).";
+            Func<string, UIElement, UIElement> pair = (label, c) => { var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 12, 0) }; sp.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center }); sp.Children.Add(c); return sp; };
+            var measureBtn = Btn("MEASURE THE LAST RUN", Green); measureBtn.Width = 220; var exportBtn = Btn("EXPORT (HTML + EVERY ENTRY CSV)", Blue); exportBtn.Width = 260; var fullBtn = Btn("FULL SCREEN", Card); fullBtn.Width = 120;
+            fullBtn.Click += delegate { bool full = w.WindowState == WindowState.Maximized; w.WindowState = full ? WindowState.Normal : WindowState.Maximized; fullBtn.Content = full ? "FULL SCREEN" : "NORMAL SIZE"; };
+            bar.Children.Add(pair("FOLLOW UNTIL ", closeBox)); bar.Children.Add(pair("BASELINE MNQ BUY AT ", mnqStart)); bar.Children.Add(pair("MGC BUY AT ", mgcStart));
+            bar.Children.Add(measureBtn); bar.Children.Add(exportBtn); bar.Children.Add(fullBtn);
+            Grid.SetRow(bar, 1); root.Children.Add(bar);
+            var status = Txt("PRESS MEASURE THE LAST RUN.", Gold, 12.5, FontWeights.Bold); status.Margin = new Thickness(2, 2, 2, 4); Grid.SetRow(status, 2); root.Children.Add(status);
+            var body = new StackPanel(); var scroll = HelixScroll(body); Grid.SetRow(scroll, 3); root.Children.Add(scroll);
+            KeystoneMoveGroup selected = null;
+            Action render = null;
+            render = delegate
+            {
+                body.Children.Clear(); var groups = moveStudyGroups;
+                if (groups.Count == 0) { body.Children.Add(HelixNote("Nothing measured yet. In the lab run a strategy (GOLDEN compares every entry set at once), then press MEASURE THE LAST RUN.")); return; }
+                if (selected == null || !groups.Contains(selected)) selected = groups.FirstOrDefault(g => g.Set != KeystoneMoveStudy.Baseline) ?? groups[0];
+                var verdictColor = groups[0].EveryYear && groups[0].Best.Dollars > 0 ? Green : Red;
+                body.Children.Add(new Border { Background = Card, BorderBrush = verdictColor, BorderThickness = new Thickness(5, 1.5, 1.5, 1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 10, 8), Margin = new Thickness(2, 2, 2, 6), Child = Txt(KeystoneMoveStudy.Verdict(groups), verdictColor, 14, FontWeights.Bold) });
+                body.Children.Add(HelixTitle("RANKING • every entry set × instrument (click a row for its details below)", Gold));
+                body.Children.Add(HelixNote("$ = per trade with 1 contract after costs, at the BEST TARGET / STOP picked from these moves. SAME T/S EACH YEAR = that pair on each year alone (✓ = positive every year). Compare every set with NO SETUP: a setup is only worth trading if it beats buying blindly."));
+                double[] wr = { 34, 430, 56, 74, 86, 86, 96, 130, 120, 90, 100, 360 };
+                body.Children.Add(HelixHeader(new[] { "#", "ENTRIES", "N", "ENDED UP", "FOR US (MED)", "AGAINST (MED)", "AGAINST BEFORE BEST", "BEST TARGET / STOP", "WIN / LOSS / CLOSED", "$ / TRADE", "$ / YEAR", "SAME T/S EACH YEAR" }, wr));
+                for (int i = 0; i < groups.Count; i++)
+                {
+                    var g = groups[i]; string sym = g.Symbol; bool baseRow = g.Set == KeystoneMoveStudy.Baseline;
+                    var row = HelixRow(new[] { (i + 1).ToString(), g.Name, g.Rows.Count.ToString(), g.All.UpPct.ToString("0") + "%", "+" + KeystoneMoveStudy.F(sym, g.All.MfeP50), "−" + KeystoneMoveStudy.F(sym, g.All.MaeP50), "−" + KeystoneMoveStudy.F(sym, g.All.BeforeP50), "+" + KeystoneMoveStudy.F(sym, g.Best.Tp) + " / −" + KeystoneMoveStudy.F(sym, g.Best.Sl), g.Best.WinPct.ToString("0") + " / " + g.Best.LossPct.ToString("0") + " / " + g.Best.ClosePct.ToString("0") + "%", Signed(g.Best.Dollars), Signed(g.PerYearDollars), (g.EveryYear ? "✓ " : "✗ ") + string.Join(" • ", g.BestOnYear.Select(kv => kv.Key + " " + Signed(kv.Value.Dollars))) },
+                        new[] { Gold, baseRow ? Muted : (g == selected ? Gold : Text), Text, Text, Green, Red, Red, Cyan, Text, MoneyBrush(g.Best.Dollars), MoneyBrush(g.PerYearDollars), g.EveryYear ? Green : Red }, wr, g == selected ? Gold : (baseRow ? Muted : MoneyBrush(g.Best.Dollars)), null);
+                    var gg = g; row.Cursor = System.Windows.Input.Cursors.Hand; row.ToolTip = "Show this set's details"; row.MouseLeftButtonUp += delegate { selected = gg; render(); };
+                    body.Children.Add(row);
+                }
+                var s = selected; string sy = s.Symbol;
+                body.Children.Add(HelixTitle("DETAILS • " + s.Name + " • " + s.Rows.Count + " entries", Cyan));
+                body.Children.Add(HelixNote("Points. FOR US / AGAINST: 50% of the days went at least this far (75% / 90% columns: the bigger days). AGAINST BEFORE BEST = the stop you needed to stay in until the best point. BEST TARGET / STOP THAT YEAR = picked on that year alone; OVERALL T/S = the all-years pair (+" + KeystoneMoveStudy.F(sy, s.Best.Tp) + " / −" + KeystoneMoveStudy.F(sy, s.Best.Sl) + ") on that year."));
+                double[] wy = { 90, 56, 80, 90, 170, 170, 150, 160, 110, 140 };
+                body.Children.Add(HelixHeader(new[] { "YEAR", "N", "ENDED UP", "CLOSE (MED)", "FOR US 50/75/90%", "AGAINST 50/75/90%", "AGAINST BEFORE BEST", "BEST T/S THAT YEAR", "$ / TRADE", "OVERALL T/S $" }, wy));
+                foreach (var st in new[] { s.All }.Concat(s.Years))
+                {
+                    int y; KeystoneMoveBracket by = s.Best, on = s.Best; if (int.TryParse(st.Label, out y)) { s.BestByYear.TryGetValue(y, out by); s.BestOnYear.TryGetValue(y, out on); }
+                    body.Children.Add(HelixRow(new[] { st.Label, st.N.ToString(), st.UpPct.ToString("0") + "%", KeystoneMoveStudy.F(sy, st.CloseMed), KeystoneMoveStudy.F(sy, st.MfeP50) + " / " + KeystoneMoveStudy.F(sy, st.MfeP75) + " / " + KeystoneMoveStudy.F(sy, st.MfeP90), KeystoneMoveStudy.F(sy, st.MaeP50) + " / " + KeystoneMoveStudy.F(sy, st.MaeP75) + " / " + KeystoneMoveStudy.F(sy, st.MaeP90), KeystoneMoveStudy.F(sy, st.BeforeP50) + " / " + KeystoneMoveStudy.F(sy, st.BeforeP75), by == null ? "–" : "+" + KeystoneMoveStudy.F(sy, by.Tp) + " / −" + KeystoneMoveStudy.F(sy, by.Sl), by == null ? "–" : Signed(by.Dollars), on == null ? "–" : Signed(on.Dollars) },
+                        new[] { st.Label == "ALL YEARS" ? Gold : Text, Text, Text, MoneyBrush(st.CloseMed), Green, Red, Red, Cyan, by == null ? Muted : MoneyBrush(by.Dollars), on == null ? Muted : MoneyBrush(on.Dollars) }, wy, st.Label == "ALL YEARS" ? Gold : Card, null));
+                }
+                body.Children.Add(HelixTitle("HOW FAR DID IT GO • % of entries that reached each move for us (and how far against us first)", Cyan));
+                var lv = KeystoneMoveStudy.Levels(sy); var wl = new List<double> { 110, 110 }; var hl = new List<string> { "MOVE FOR US", "ALL YEARS" };
+                foreach (var st in s.Years) { wl.Add(80); hl.Add(st.Label); } wl.Add(220); hl.Add("AGAINST US BEFORE IT (MEDIAN)");
+                body.Children.Add(HelixHeader(hl.ToArray(), wl.ToArray()));
+                for (int k = 0; k < lv.Length; k++)
+                {
+                    var cells = new List<string> { "+" + KeystoneMoveStudy.F(sy, lv[k]) + " pts ($" + (lv[k] * KeystoneMoveStudy.PointValue(sy)).ToString("N0") + ")", s.All.ReachPct[k].ToString("0") + "%" }; var cols = new List<Brush> { Gold, Text };
+                    foreach (var st in s.Years) { cells.Add(st.ReachPct[k].ToString("0") + "%"); cols.Add(Text); }
+                    cells.Add("−" + KeystoneMoveStudy.F(sy, s.All.HeatMed[k])); cols.Add(Red);
+                    body.Children.Add(HelixRow(cells.ToArray(), cols.ToArray(), wl.ToArray(), Card, null));
+                }
+                body.Children.Add(HelixTitle("WHY • the same entries split by what was known at the entry ($ / trade at +" + KeystoneMoveStudy.F(sy, s.Best.Tp) + " / −" + KeystoneMoveStudy.F(sy, s.Best.Sl) + ")", Orchid));
+                double[] ww = { 300, 230, 56, 80, 110, 110, 100 };
+                body.Children.Add(HelixHeader(new[] { "FACTOR", "BUCKET", "N", "ENDED UP", "FOR US (MED)", "AGAINST (MED)", "$ / TRADE" }, ww));
+                string lastFactor = null;
+                foreach (var b in KeystoneMoveStudy.Why(s))
+                {
+                    body.Children.Add(HelixRow(new[] { b.Factor == lastFactor ? "" : b.Factor, b.Bucket, b.Stats.N.ToString(), b.Stats.UpPct.ToString("0") + "%", "+" + KeystoneMoveStudy.F(sy, b.Stats.MfeP50), "−" + KeystoneMoveStudy.F(sy, b.Stats.MaeP50), Signed(b.Dollars) },
+                        new[] { Gold, Text, Text, Text, Green, Red, MoneyBrush(b.Dollars) }, ww, b.Stats.N < 15 ? Muted : MoneyBrush(b.Dollars), null));
+                    lastFactor = b.Factor;
+                }
+            };
+            bool busy = false;
+            Action run = delegate
+            {
+                if (busy) return;
+                int close = (int)PropNum(closeBox, 1555), ms = (int)PropNum(mnqStart, 930), gs = (int)PropNum(mgcStart, 800);
+                if (!IsValidHhmm(close) || !IsValidHhmm(ms) || !IsValidHhmm(gs)) { status.Text = "TIME ERROR • use HHMM New York (e.g. 1555, 930, 800)."; status.Foreground = Red; return; }
+                var oneMinute = new List<KeystoneArcBar>(); if (KeystoneBracket.IsOneMinute(mnqBars)) oneMinute.AddRange(mnqBars); if (KeystoneBracket.IsOneMinute(mgcBars)) oneMinute.AddRange(mgcBars);
+                var sets = new Dictionary<string, List<KeystoneArcEvent>>();
+                bool golden = config != null && config.StrategyCode == "GLD" && goldenStudySets != null && goldenStudySets.Count > 0;
+                if (golden) foreach (var kv in goldenStudySets) sets[kv.Key] = kv.Value == null ? new List<KeystoneArcEvent>() : new List<KeystoneArcEvent>(kv.Value);
+                else if (events != null && events.Count > 0) sets[StrategyDisplayName()] = new List<KeystoneArcEvent>(events);
+                if (sets.Count == 0 || oneMinute.Count == 0) { status.Text = sets.Count == 0 ? "NO ENTRIES • run a strategy in the lab first (GOLDEN compares every entry set at once)." : "NO 1-MINUTE BARS LOADED • run the strategy in the lab first."; status.Foreground = Red; return; }
+                busy = true; measureBtn.IsEnabled = false; status.Text = "MEASURING every entry to " + KeystoneBracket.Hm(close) + " + the no-setup baseline…"; status.Foreground = Gold;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    List<KeystoneMoveGroup> groups = null; string failure = null, range = string.Empty;
+                    try
+                    {
+                        if (!golden) foreach (var kv in sets) KeystoneMoveStudy.MeasureAll(kv.Value, oneMinute, close);
+                        var baseline = new List<KeystoneMoveRow>();
+                        foreach (var sym in new[] { "MNQ", "MGC" }) if (oneMinute.Any(b => b.Symbol == sym)) baseline.AddRange(KeystoneMoveStudy.BaselineRows(oneMinute, sym, sym == "MGC" ? gs : ms, close));
+                        groups = KeystoneMoveStudy.Run(sets, baseline);
+                        range = oneMinute.Min(b => b.Time).ToString("yyyy-MM-dd") + " → " + oneMinute.Max(b => b.Time).ToString("yyyy-MM-dd") + " • " + (golden ? "GOLDEN (every entry set)" : StrategyDisplayName()) + " • followed until " + KeystoneBracket.Hm(close);
+                    }
+                    catch (Exception ex) { failure = ex.Message; }
+                    Action done = delegate
+                    {
+                        busy = false; measureBtn.IsEnabled = true;
+                        if (failure != null || groups == null) { status.Text = "MOVE STUDY ERROR • " + failure; status.Foreground = Red; return; }
+                        moveStudyGroups = groups; moveStudyRange = range; selected = null; render();
+                        int measured = groups.Where(g => g.Set != KeystoneMoveStudy.Baseline && !g.Set.EndsWith("+AGGR")).Sum(g => g.Rows.Count);
+                        status.Text = "MEASURED " + measured + " ENTRIES • " + range + (measured == 0 ? " • no entry had 1-minute bars until the close (check FOLLOW UNTIL)" : "");
+                        status.Foreground = measured > 0 ? Green : Red;
+                    };
+                    if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
+                });
+            };
+            measureBtn.Click += delegate { run(); };
+            exportBtn.Click += delegate
+            {
+                if (moveStudyGroups.Count == 0) { status.Text = "MEASURE FIRST"; status.Foreground = Gold; return; }
+                try
+                {
+                    string dir = DataDirectory(); Directory.CreateDirectory(dir); string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                    string html = Path.Combine(dir, "KeystoneArc_MoveStudy_" + stamp + ".html"), csv = Path.Combine(dir, "KeystoneArc_MoveStudy_" + stamp + "_entries.csv");
+                    File.WriteAllText(html, KeystoneMoveStudy.Html(moveStudyGroups, moveStudyRange), Encoding.UTF8); File.WriteAllText(csv, KeystoneMoveStudy.Csv(moveStudyGroups), Encoding.UTF8);
+                    status.Text = "EXPORTED • " + html + " + " + Path.GetFileName(csv) + " • attach both to Claude"; status.Foreground = Green;
+                }
+                catch (Exception ex) { status.Text = "EXPORT ERROR • " + ex.Message; status.Foreground = Red; }
+            };
+            render();
+            w.Content = root; moveStudyWindow = w; moveStudyStatus = status; moveStudyRun = run;
+            w.Closed += delegate { moveStudyWindow = null; moveStudyRun = null; moveStudyStatus = null; };
+            w.Show();
+            run();
         }
 
         // PROP BRACKET in Step 1: the bars are loaded → open the planner on REAL BRACKET days.

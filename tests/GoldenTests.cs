@@ -58,6 +58,7 @@ public static class GoldenTests
             var ev = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg);
             Check(ev.Count == 1, "MNQ: one trade a day (" + ev.Count + ")");
             var e = ev.FirstOrDefault();
+            Check(e != null && e.MoveHeat != null && e.MoveMfe > 0 && !double.IsNaN(e.MoveClose), "MOVE STUDY: the GOLDEN entry is measured to the close (for us " + (e == null ? 0 : e.MoveMfe) + ", against " + (e == null ? 0 : e.MoveMae) + ")");
             Check(e != null && e.SetupClass == "BH" && e.Entry == 19968 && e.Target == 20068 && e.Stop == 19945, "MNQ: BH entry 19968, target +100 = 20068, stop below the pattern 19945", e == null ? "" : e.SetupClass + " " + e.Entry + " " + e.Target + " " + e.Stop);
             Check(e != null && e.Outcome == "WIN" && Math.Abs(e.GrossPnl - 100 * 2 * 5) < 0.01, "MNQ: WIN = 100 pts × $2 × 5 contracts = $1,000", e == null ? "" : e.Outcome + " " + e.GrossPnl);
             Check(e != null && e.StrengthTag == "AGGR" && e.FvgDrop >= 50 && e.FvgRedRun == 3, "MNQ: push down measured from the 09:30 price (" + (e == null ? 0 : e.FvgDrop) + " pts, " + (e == null ? 0 : e.FvgRedRun) + " red) = AGGRESSION");

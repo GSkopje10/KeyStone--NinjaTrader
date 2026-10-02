@@ -428,6 +428,18 @@ public static class UiSmokeTest
                 if (G("propPlannerWindow") == null) throw new Exception("header open failed");
                 Set(lab4, "propPlannerWindow", null);
             });
+            Step("MOVE STUDY: one test for any strategy — measures the last run's entries + baseline, ranking, details, export", () =>
+            {
+                Call(lab4, "OpenMoveStudy");
+                for (int i = 0; i < 600 && ((System.Collections.ICollection)G("moveStudyGroups")).Count == 0 && !((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text.Contains("ERROR") && !((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text.StartsWith("NO "); i++) System.Threading.Thread.Sleep(100);
+                var groups = (List<KeystoneMoveGroup>)G("moveStudyGroups");
+                Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text);
+                if (groups.Count == 0) throw new Exception("nothing measured");
+                Console.WriteLine("      " + KeystoneMoveStudy.Verdict(groups));
+                if (!groups.Any(g => g.Set == KeystoneMoveStudy.Baseline) || !groups.Any(g => g.Set != KeystoneMoveStudy.Baseline && g.Rows.Count > 0)) throw new Exception("missing the strategy or the baseline");
+                System.IO.File.WriteAllText(".build/report_MOVE.html", KeystoneMoveStudy.Html(groups, (string)G("moveStudyRange")));
+                Set(lab4, "moveStudyWindow", null);
+            });
             Step("PROP BRACKET: Step 1 choice → planner on REAL BRACKET days → run, rule card, years, sweet spot", () =>
             {
                 var box = (System.Windows.Controls.ComboBox)G("strategyBox"); int bi = -1; for (int i = 0; i < box.Items.Count; i++) if (Convert.ToString(box.Items[i]).StartsWith("PROP BRACKET")) bi = i;
