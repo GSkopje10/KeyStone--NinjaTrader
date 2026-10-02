@@ -7487,6 +7487,399 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- PROP PLANNER (build 10-03) -----------------------------------------------------------------
+    // A business calculator for prop firms: evaluations are expenses, payouts are revenue. It simulates the whole
+    // life of every evaluation you buy (evaluation → funded → payouts → blown / retired → buy again) under a firm's
+    // rules and your daily plan, with days from a coin flip (no strategy) or from a real strategy run (RECOIL days).
+    public sealed class KeystonePropRules
+    {
+        public string Name = "50K • 50% CONSISTENCY";
+        public double EvalCost = 120, Activation = 0, Target = 3000, MaxDrawdown = 2000, LockAt = 100;
+        public string Drawdown = "EOD";            // EOD (trails the best end-of-day balance) • INTRADAY (trails the best open balance) • STATIC
+        public double Consistency = 50;            // % — the best day may be at most this share of the total profit (0 = no rule)
+        public int MinDays = 2;
+        public double DailyLoss = 0;               // firm daily loss limit (0 = none)
+        public int PayoutDays = 5; public double QualifyingDay = 150, PayoutPercent = 50, PayoutCap = 2000, PayoutMin = 0, Split = 90; public int MaxPayouts = 0;
+        public KeystonePropRules Copy() { return (KeystonePropRules)MemberwiseClone(); }
+        public static List<KeystonePropRules> Presets()
+        {
+            return new List<KeystonePropRules>
+            {
+                new KeystonePropRules { Name = "50K • 50% CONSISTENCY", Consistency = 50, MinDays = 2 },
+                new KeystonePropRules { Name = "50K • 40% CONSISTENCY", Consistency = 40, MinDays = 3 },
+                new KeystonePropRules { Name = "50K • 35% CONSISTENCY", Consistency = 35, MinDays = 3 },
+                new KeystonePropRules { Name = "25K • 1,250 DD / 1,500 TARGET", EvalCost = 90, Target = 1500, MaxDrawdown = 1250, Consistency = 50, MinDays = 2, PayoutCap = 1000 },
+            };
+        }
+        public string Describe()
+        {
+            Func<double, string> m = v => "$" + v.ToString("N0", CultureInfo.InvariantCulture);
+            return Name + " • evaluation " + m(EvalCost) + (Activation > 0 ? " + activation " + m(Activation) : "") + " • target " + m(Target) + " • max drawdown " + m(MaxDrawdown) + " " + Drawdown + (Drawdown != "STATIC" ? " (stops trailing at +" + m(LockAt) + ")" : "")
+                + (Consistency > 0 ? " • best day ≤ " + Consistency.ToString("0") + "% of the profit" : "") + (MinDays > 1 ? " • " + MinDays + " days min" : "") + (DailyLoss > 0 ? " • daily loss " + m(DailyLoss) : "")
+                + " • payout after " + PayoutDays + " days of ≥ " + m(QualifyingDay) + ": " + PayoutPercent.ToString("0") + "% of the profit up to " + m(PayoutCap) + ", you keep " + Split.ToString("0") + "%" + (MaxPayouts > 0 ? " • max " + MaxPayouts + " payouts" : "");
+        }
+    }
+
+    public sealed class KeystonePropPlan
+    {
+        public string Source = "COIN";             // COIN (no strategy) • REAL (days from a real strategy run)
+        public double EvalTarget = 1500, EvalStop = 2000, FundTarget = 200, FundStop = 1000;   // COIN: the day ends at +target or −stop (the stop never goes past the account's room)
+        public double Edge = 0;                    // COIN: extra win chance in % points (0 = pure luck)
+        public double DayCost = 5;                 // commission / slippage per trading day
+        public double EvalSize = 1, FundSize = 1, EvalDayStop = 0, FundDayStop = 0;   // REAL: size multiplier and an optional day stop (0 = none)
+        public KeystonePropPlan Copy() { return (KeystonePropPlan)MemberwiseClone(); }
+        public string Describe()
+        {
+            Func<double, string> m = v => "$" + v.ToString("N0", CultureInfo.InvariantCulture);
+            if (Source == "REAL") return "REAL DAYS • evaluation size ×" + EvalSize.ToString("0.##") + (EvalDayStop > 0 ? " (day stop " + m(EvalDayStop) + ")" : "") + " • funded size ×" + FundSize.ToString("0.##") + (FundDayStop > 0 ? " (day stop " + m(FundDayStop) + ")" : "");
+            return "COIN FLIP" + (Edge != 0 ? " + " + Edge.ToString("0.#") + "% edge" : " (no edge)") + " • evaluation days +" + m(EvalTarget) + " / −" + m(EvalStop) + " • funded days +" + m(FundTarget) + " / −" + m(FundStop) + " • costs " + m(DayCost) + "/day";
+        }
+    }
+
+    public sealed class KeystonePropDay { public DateTime Day; public double Pnl, Worst, Best; public bool Traded; }
+
+    public sealed class KeystonePropLife { public bool Passed; public int EvalDays, FundedDays, Payouts; public double Spent, Cash; public double Net { get { return Cash - Spent; } } }
+
+    public sealed class KeystonePropPlanResult
+    {
+        public KeystonePropRules Rules; public KeystonePropPlan Plan; public int Evaluations;
+        public double PassRate, AvgDaysToPass, FundedValue, AvgPayouts, ValuePerEval, LosingShare, AvgFundedDays;
+        public double Median, P90; public int LongestFailStreak95;
+        public string Label = string.Empty;
+    }
+
+    public sealed class KeystonePropProgram
+    {
+        public string Mode = "SEPARATE"; public int Slots, Days, Runs;
+        public double P10, P50, P90, NegativeChance, MoneyNeeded95, AvgSpent, AvgCash, AvgBought, AvgPassed, AvgPayouts;
+        public List<double> MedianCurve = new List<double>();   // cash by month (median run)
+    }
+
+    public sealed class KeystonePropYear { public int Year; public int Bought, Passed, Payouts, Blown; public double Spent, Cash; public double Net { get { return Cash - Spent; } } }
+
+    public static class KeystonePropPlanner
+    {
+        // One account (evaluation or funded) as a state machine, one trading day at a time.
+        public sealed class Account
+        {
+            public bool Funded, Dead; public double Bal, Hwm, HwmIntra, Best; public int Days, Qualifying, Payouts, FundedDays;
+            public double Spent, Cash; public bool PassedEval;
+            public double Threshold(KeystonePropRules r)
+            {
+                if (r.Drawdown == "STATIC") return -r.MaxDrawdown;
+                double h = r.Drawdown == "INTRADAY" ? HwmIntra : Hwm;
+                return Math.Min(h - r.MaxDrawdown, r.LockAt);
+            }
+            public double Room(KeystonePropRules r)
+            {
+                double room = Bal - Threshold(r);
+                if (r.DailyLoss > 0) room = Math.Min(room, r.DailyLoss);
+                return Math.Max(0, room);
+            }
+        }
+
+        // A day's outcome for an account in its current state.
+        public delegate KeystonePropDay DaySource(Random rng, Account a);
+
+        public static DaySource Source(KeystonePropRules r, KeystonePropPlan p, List<KeystonePropDay> real)
+        {
+            if (p.Source == "REAL" && real != null && real.Count > 0)
+            {
+                var days = real.ToArray();
+                return (rng, a) =>
+                {
+                    var d = days[rng.Next(days.Length)];
+                    return Scale(d, a.Funded ? p.FundSize : p.EvalSize, a.Funded ? p.FundDayStop : p.EvalDayStop);
+                };
+            }
+            return (rng, a) => Coin(rng, r, p, a);
+        }
+
+        public static KeystonePropDay Scale(KeystonePropDay d, double k, double dayStop)
+        {
+            var x = new KeystonePropDay { Day = d.Day, Pnl = d.Pnl * k, Worst = d.Worst * k, Best = d.Best * k, Traded = d.Traded };
+            if (dayStop > 0 && x.Worst <= -dayStop) { x.Pnl = -dayStop; x.Worst = -dayStop; }
+            return x;
+        }
+
+        // Coin flip with no edge: the day ends at +T or −S, winning S / (T + S) of the time. The evaluation's last day aims
+        // only for what is left; the stop never goes past the account's room (you cannot lose more than the account).
+        public static KeystonePropDay Coin(Random rng, KeystonePropRules r, KeystonePropPlan p, Account a)
+        {
+            double T = a.Funded ? p.FundTarget : p.EvalTarget, S = a.Funded ? p.FundStop : p.EvalStop;
+            if (!a.Funded)
+            {
+                double left = r.Target - a.Bal;
+                bool consistentAtTarget = r.Consistency <= 0 || Math.Max(a.Best, Math.Min(T, left)) <= r.Consistency / 100.0 * Math.Max(r.Target, a.Bal + Math.Min(T, left));
+                if (left > 0 && left < T && consistentAtTarget) T = left + p.DayCost;
+            }
+            S = Math.Min(S, Math.Max(1, a.Room(r) - p.DayCost));
+            double win = S / (T + S) + p.Edge / 100.0;
+            bool w = rng.NextDouble() < win;
+            return new KeystonePropDay { Pnl = (w ? T : -S) - p.DayCost, Worst = w ? 0 : -S - p.DayCost, Best = w ? T : 0, Traded = true };
+        }
+
+        // Apply one day to an account. Returns cash received today (payout) — spending is tracked on the account.
+        public static double Step(Account a, KeystonePropRules r, KeystonePropDay d)
+        {
+            if (a.Dead) return 0;
+            if (r.Drawdown == "INTRADAY") a.HwmIntra = Math.Max(a.HwmIntra, a.Bal + Math.Max(0, d.Best));
+            double thr = a.Threshold(r), room = a.Room(r);
+            double pnl = d.Pnl;
+            if (d.Worst <= -room + 1e-9 || a.Bal + pnl <= thr + 1e-9) { a.Bal = a.Bal - room; a.Dead = true; if (a.Funded) a.FundedDays++; else a.Days++; return 0; }
+            a.Bal += pnl;
+            if (d.Traded) { if (a.Funded) a.FundedDays++; else a.Days++; }
+            a.Hwm = Math.Max(a.Hwm, a.Bal); a.HwmIntra = Math.Max(a.HwmIntra, a.Bal);
+            if (!a.Funded)
+            {
+                a.Best = Math.Max(a.Best, pnl);
+                bool consistent = r.Consistency <= 0 || a.Best <= r.Consistency / 100.0 * a.Bal + 1e-9;
+                if (a.Bal >= r.Target && a.Days >= Math.Max(1, r.MinDays) && consistent)
+                {
+                    a.PassedEval = true; a.Funded = true; a.Spent += r.Activation;
+                    a.Bal = 0; a.Hwm = 0; a.HwmIntra = 0; a.Best = 0; a.Qualifying = 0;
+                }
+                return 0;
+            }
+            if (pnl >= r.QualifyingDay) a.Qualifying++;
+            if (a.Qualifying >= Math.Max(1, r.PayoutDays) && a.Bal > 0)
+            {
+                double g = Math.Min(r.PayoutCap > 0 ? r.PayoutCap : double.MaxValue, a.Bal * r.PayoutPercent / 100.0);
+                if (g >= r.PayoutMin && g > 0)
+                {
+                    a.Bal -= g; a.Payouts++; a.Qualifying = 0;
+                    double cash = g * r.Split / 100.0; a.Cash += cash;
+                    if (r.MaxPayouts > 0 && a.Payouts >= r.MaxPayouts) a.Dead = true;
+                    return cash;
+                }
+            }
+            return 0;
+        }
+
+        public static Account NewEval(KeystonePropRules r) { return new Account { Spent = r.EvalCost }; }
+
+        // The whole life of one evaluation purchase.
+        public static KeystonePropLife Life(Random rng, KeystonePropRules r, DaySource src, int maxEvalDays = 150, int maxFundedDays = 250)
+        {
+            var a = NewEval(r);
+            int guard = 0;
+            while (!a.Dead && guard++ < maxEvalDays + maxFundedDays + 50)
+            {
+                if (!a.Funded && a.Days >= maxEvalDays) break;
+                if (a.Funded && a.FundedDays >= maxFundedDays) break;
+                Step(a, r, src(rng, a));
+            }
+            return new KeystonePropLife { Passed = a.PassedEval, EvalDays = a.Days, FundedDays = a.FundedDays, Payouts = a.Payouts, Spent = a.Spent, Cash = a.Cash };
+        }
+
+        public static KeystonePropPlanResult Evaluate(KeystonePropRules r, KeystonePropPlan p, List<KeystonePropDay> real, int n, int seed)
+        {
+            var rng = new Random(seed); var src = Source(r, p, real);
+            var lives = new List<KeystonePropLife>(n);
+            for (int i = 0; i < n; i++) lives.Add(Life(rng, r, src));
+            var passed = lives.Where(l => l.Passed).ToList();
+            var nets = lives.Select(l => l.Net).OrderBy(v => v).ToList();
+            // longest run of failed evaluations in 100 bought (95th percentile), from the pass rate
+            double pr = n == 0 ? 0 : (double)passed.Count / n; var streaks = new List<int>();
+            for (int t = 0; t < 400; t++) { int run = 0, best = 0; for (int k = 0; k < 100; k++) { if (rng.NextDouble() < pr) run = 0; else { run++; best = Math.Max(best, run); } } streaks.Add(best); }
+            streaks.Sort();
+            return new KeystonePropPlanResult
+            {
+                Rules = r, Plan = p, Evaluations = n, PassRate = 100.0 * pr,
+                AvgDaysToPass = passed.Count == 0 ? 0 : passed.Average(l => (double)l.EvalDays),
+                FundedValue = passed.Count == 0 ? 0 : passed.Average(l => l.Cash), AvgPayouts = passed.Count == 0 ? 0 : passed.Average(l => (double)l.Payouts),
+                AvgFundedDays = passed.Count == 0 ? 0 : passed.Average(l => (double)l.FundedDays),
+                ValuePerEval = lives.Average(l => l.Net), LosingShare = 100.0 * lives.Count(l => l.Net < 0) / Math.Max(1, n),
+                Median = nets[nets.Count / 2], P90 = nets[(int)(nets.Count * 0.9)], LongestFailStreak95 = streaks[(int)(streaks.Count * 0.95)]
+            };
+        }
+
+        // A program: SLOTS accounts running at once for DAYS trading days; a dead account is replaced the next day.
+        // SEPARATE: every slot gets its own days • COPY: every slot takes the same trades (one account × slots) •
+        // ROTATION: one shared stream of days, the slots take turns (one account trades per day).
+        public static KeystonePropProgram Program(KeystonePropRules r, KeystonePropPlan p, List<KeystonePropDay> real, string mode, int slots, int days, int runs, int seed)
+        {
+            var rng = new Random(seed); var src = Source(r, p, real);
+            var finals = new List<double>(); var lows = new List<double>(); var curves = new List<double[]>();
+            double spent = 0, cash = 0, bought = 0, passed = 0, pays = 0;
+            int months = Math.Max(1, (days + 20) / 21);
+            for (int run = 0; run < runs; run++)
+            {
+                int n = mode == "COPY" ? 1 : Math.Max(1, slots); double mult = mode == "COPY" ? Math.Max(1, slots) : 1;
+                var accts = new Account[n]; double c = 0, low = 0, rs = 0, rc = 0; int rb = 0, rp = 0, rpay = 0;
+                for (int i = 0; i < n; i++) { accts[i] = NewEval(r); c -= r.EvalCost * mult; rs += r.EvalCost * mult; rb++; }
+                low = Math.Min(low, c);
+                var curve = new double[months]; int turn = 0;
+                for (int d = 0; d < days; d++)
+                {
+                    if (mode == "ROTATION")
+                    {
+                        var a = accts[turn % n]; turn++;
+                        bool wasFunded = a.Funded; double before = a.Spent;
+                        double got = Step(a, r, src(rng, a)) * mult; c += got; rc += got; if (got > 0) rpay++;
+                        if (!wasFunded && a.Funded) { rp++; c -= (a.Spent - before) * mult; rs += (a.Spent - before) * mult; }
+                    }
+                    else
+                        for (int i = 0; i < n; i++)
+                        {
+                            var a = accts[i]; bool wasFunded = a.Funded; double before = a.Spent;
+                            double got = Step(a, r, src(rng, a)) * mult; c += got; rc += got; if (got > 0) rpay++;
+                            if (!wasFunded && a.Funded) { rp++; c -= (a.Spent - before) * mult; rs += (a.Spent - before) * mult; }
+                        }
+                    for (int i = 0; i < n; i++) if (accts[i].Dead) { accts[i] = NewEval(r); c -= r.EvalCost * mult; rs += r.EvalCost * mult; rb++; }
+                    low = Math.Min(low, c);
+                    curve[Math.Min(months - 1, d / 21)] = c;
+                }
+                finals.Add(c); lows.Add(low); curves.Add(curve);
+                spent += rs; cash += rc; bought += rb * mult; passed += rp * mult; pays += rpay * mult;
+            }
+            var f = finals.OrderBy(v => v).ToList(); var lw = lows.OrderBy(v => v).ToList();
+            var prog = new KeystonePropProgram
+            {
+                Mode = mode, Slots = slots, Days = days, Runs = runs,
+                P10 = f[(int)(f.Count * 0.1)], P50 = f[f.Count / 2], P90 = f[(int)(f.Count * 0.9)], NegativeChance = 100.0 * f.Count(v => v < 0) / f.Count,
+                MoneyNeeded95 = -lw[(int)(lw.Count * 0.05)], AvgSpent = spent / runs, AvgCash = cash / runs, AvgBought = bought / runs, AvgPassed = passed / runs, AvgPayouts = pays / runs
+            };
+            for (int m = 0; m < months; m++) prog.MedianCurve.Add(curves.Select(cv => cv[m]).OrderBy(v => v).ElementAt(curves.Count / 2));
+            return prog;
+        }
+
+        // One account slot walking the real days in calendar order: buy, trade, replace when it dies. Per year.
+        public static List<KeystonePropYear> History(KeystonePropRules r, KeystonePropPlan p, List<KeystonePropDay> real)
+        {
+            var rows = new Dictionary<int, KeystonePropYear>();
+            if (real == null || real.Count == 0) return new List<KeystonePropYear>();
+            Func<int, KeystonePropYear> Y = y => { KeystonePropYear v; if (!rows.TryGetValue(y, out v)) { v = new KeystonePropYear { Year = y }; rows[y] = v; } return v; };
+            var a = NewEval(r); Y(real[0].Day.Year).Bought++; Y(real[0].Day.Year).Spent += r.EvalCost;
+            foreach (var d0 in real.OrderBy(x => x.Day))
+            {
+                var y = Y(d0.Day.Year);
+                var d = Scale(d0, a.Funded ? p.FundSize : p.EvalSize, a.Funded ? p.FundDayStop : p.EvalDayStop);
+                bool wasFunded = a.Funded; double before = a.Spent;
+                double got = Step(a, r, d); y.Cash += got; if (got > 0) y.Payouts++;
+                if (!wasFunded && a.Funded) { y.Passed++; y.Spent += a.Spent - before; }
+                if (a.Dead) { if (a.Funded) y.Blown++; a = NewEval(r); y.Bought++; y.Spent += r.EvalCost; }
+            }
+            return rows.Values.OrderBy(v => v.Year).ToList();
+        }
+
+        // SWEET SPOT: many evaluation × funded plans, ranked by value per evaluation bought.
+        public static List<KeystonePropPlanResult> SweetSpot(KeystonePropRules r, KeystonePropPlan basePlan, List<KeystonePropDay> real, int n, int seed)
+        {
+            var output = new List<KeystonePropPlanResult>();
+            if (basePlan.Source == "REAL")
+            {
+                foreach (double ek in new[] { 1.0, 2, 3, 4, 6 })
+                    foreach (double es in new[] { 0.0, 1000, 1500 })
+                        foreach (double fk in new[] { 1.0, 2 })
+                            foreach (double fs in new[] { 0.0, 500, 1000 })
+                            {
+                                var p = basePlan.Copy(); p.EvalSize = ek; p.EvalDayStop = es; p.FundSize = fk; p.FundDayStop = fs;
+                                var res = Evaluate(r, p, real, n, seed); res.Label = "evaluation ×" + ek + (es > 0 ? " stop $" + es.ToString("N0") : "") + " • funded ×" + fk + (fs > 0 ? " stop $" + fs.ToString("N0") : "");
+                                output.Add(res);
+                            }
+            }
+            else
+            {
+                double c = r.Consistency > 0 ? r.Consistency / 100.0 * r.Target : r.Target;
+                var evalTargets = new[] { 0.25, 0.33, 0.5 }.Select(x => Math.Round(Math.Min(c, r.Target * x) / 50) * 50).Where(x => x > 0).Distinct().ToList();
+                foreach (double eT in evalTargets)
+                    foreach (double eS in new[] { 0.25, 0.5, 0.75, 1.0 }.Select(x => Math.Round(r.MaxDrawdown * x / 50) * 50).Distinct())
+                        foreach (double fT in new[] { Math.Max(r.QualifyingDay + 50, 200), 300, 500 }.Distinct())
+                            foreach (double fS in new[] { 0.15, 0.3, 0.5, 1.0 }.Select(x => Math.Round(r.MaxDrawdown * x / 50) * 50).Distinct())
+                            {
+                                var p = basePlan.Copy(); p.EvalTarget = eT; p.EvalStop = eS; p.FundTarget = fT; p.FundStop = fS;
+                                var res = Evaluate(r, p, real, n, seed); res.Label = "evaluation +" + eT.ToString("N0") + " / −" + eS.ToString("N0") + " • funded +" + fT.ToString("N0") + " / −" + fS.ToString("N0");
+                                output.Add(res);
+                            }
+            }
+            return output.OrderByDescending(x => x.ValuePerEval).ToList();
+        }
+
+        // Days from a RECOIL run: one row per loaded trading day (0 on days without a ladder), net of all ladders,
+        // the worst moment = the sum of the ladders' worst open P/L (a safe overestimate when two overlap).
+        public static List<KeystonePropDay> DaysFromRecoil(KeystoneRecoilResult r, string symbol)
+        {
+            var output = new List<KeystonePropDay>();
+            if (r == null) return output;
+            var bySym = r.Cycles.Where(c => symbol == "BOTH" || string.Equals(c.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).GroupBy(c => c.Day).ToDictionary(g => g.Key, g => g.ToList());
+            foreach (var day in r.Days.Distinct().OrderBy(d => d))
+            {
+                List<KeystoneRecoilCycle> list;
+                if (bySym.TryGetValue(day, out list)) output.Add(new KeystonePropDay { Day = day, Pnl = list.Sum(c => c.Net), Worst = Math.Min(0, list.Sum(c => c.MaeValue)), Best = Math.Max(0, list.Sum(c => c.MfeValue)), Traded = true });
+                else output.Add(new KeystonePropDay { Day = day, Traded = false });
+            }
+            return output;
+        }
+
+        // The pure-luck pass chance of passing in N equal days (the famous 32.65%): (S / (T + S))^N.
+        public static double CoinPassChance(double target, double drawdown, int days)
+        {
+            double T = target / Math.Max(1, days), S = drawdown;
+            return Math.Pow(S / (T + S), Math.Max(1, days));
+        }
+
+        // The plain-language verdict for one plan.
+        public static string Verdict(KeystonePropPlanResult x)
+        {
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            double cost = x.Rules.EvalCost + x.Rules.Activation * x.PassRate / 100.0;
+            if (x.ValuePerEval > 0)
+                return "PROFITABLE PLAN • every " + m(x.Rules.EvalCost) + " evaluation is worth " + m(x.ValuePerEval) + " after its cost. About " + x.PassRate.ToString("0") + " in 100 pass; a passed account pays " + m(x.FundedValue) + " on average (" + x.AvgPayouts.ToString("0.0") + " payouts) before it is lost. Expect up to " + x.LongestFailStreak95 + " failed evaluations in a row (" + m(x.LongestFailStreak95 * x.Rules.EvalCost) + ") — keep that money aside.";
+            return "LOSING PLAN • every evaluation costs " + m(-x.ValuePerEval) + " on average. " + x.PassRate.ToString("0") + "% pass and a funded account pays only " + m(x.FundedValue) + " — not enough to pay for the " + (x.PassRate > 0 ? (100.0 / x.PassRate).ToString("0.0") : "∞") + " evaluations it takes to get one. Try FIND SWEET SPOT.";
+        }
+
+        public static string Html(KeystonePropPlanResult x, List<KeystonePropProgram> programs, List<KeystonePropYear> years, List<KeystonePropPlanResult> sweet, string source)
+        {
+            Func<string, string> e = s => (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            Func<double, string> c = v => v > 0 ? "#3fd28b" : (v < 0 ? "#ff6b6b" : "#9aa4b2");
+            var sb = new StringBuilder();
+            sb.Append("<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Keystone Prop Planner</title><style>")
+              .Append("body{background:#0d1117;color:#e6edf3;font-family:Segoe UI,Arial,sans-serif;margin:0;padding:18px}h1{color:#f2c94c;margin:0 0 4px}h2{color:#56ccf2;margin:22px 0 6px}")
+              .Append(".n{color:#9aa4b2;font-size:13px}.v{border:2px solid;border-radius:8px;padding:12px 14px;margin:12px 0;font-size:15px;font-weight:600}")
+              .Append(".cards{display:flex;flex-wrap:wrap;gap:8px}.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;min-width:150px}.card b{display:block;font-size:20px}")
+              .Append("table{border-collapse:collapse;width:100%;font-size:13px}th{color:#f2c94c;text-align:left;border-bottom:1px solid #30363d;padding:5px}td{padding:5px;border-bottom:1px solid #21262d}.wrap{overflow-x:auto}</style></head><body>");
+            sb.Append("<h1>KEYSTONE ARC • PROP PLANNER</h1><div class='n'>Historical research only • ").Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)).Append(" • days: ").Append(e(source)).Append("</div>");
+            sb.Append("<p class='n'>").Append(e(x.Rules.Describe())).Append("<br>").Append(e(x.Plan.Describe())).Append("</p>");
+            sb.Append("<div class='v' style='border-color:").Append(c(x.ValuePerEval)).Append("'>").Append(e(Verdict(x))).Append("</div>");
+            sb.Append("<div class='cards'>");
+            foreach (var t in new[] { Tuple.Create("PASS RATE", x.PassRate.ToString("0.0") + "%"), Tuple.Create("DAYS TO PASS", x.AvgDaysToPass.ToString("0.0")), Tuple.Create("A FUNDED ACCOUNT PAYS", m(x.FundedValue)), Tuple.Create("PAYOUTS PER FUNDED", x.AvgPayouts.ToString("0.0")), Tuple.Create("VALUE OF ONE EVALUATION", m(x.ValuePerEval)), Tuple.Create("EVALUATIONS THAT LOSE MONEY", x.LosingShare.ToString("0") + "%"), Tuple.Create("FAILS IN A ROW (95%)", x.LongestFailStreak95.ToString()) })
+                sb.Append("<div class='card'><span class='n'>").Append(t.Item1).Append("</span><b>").Append(e(t.Item2)).Append("</b></div>");
+            sb.Append("</div>");
+            if (programs != null && programs.Count > 0)
+            {
+                sb.Append("<h2>SEPARATE vs COPY vs ROTATION</h2><div class='wrap'><table><tr><th>HOW</th><th>ACCOUNTS</th><th>MONTHS</th><th>EVALS BOUGHT</th><th>PASSED</th><th>PAYOUTS</th><th>SPENT</th><th>RECEIVED</th><th>TYPICAL</th><th>BAD (1 IN 10)</th><th>GOOD (1 IN 10)</th><th>CHANCE OF LOSING</th><th>MONEY NEEDED</th></tr>");
+                foreach (var p in programs)
+                    sb.Append("<tr><td>").Append(p.Mode).Append("</td><td>").Append(p.Slots).Append("</td><td>").Append(p.MedianCurve.Count).Append("</td><td>").Append(p.AvgBought.ToString("0")).Append("</td><td>").Append(p.AvgPassed.ToString("0.0")).Append("</td><td>").Append(p.AvgPayouts.ToString("0.0")).Append("</td><td>").Append(m(p.AvgSpent)).Append("</td><td>").Append(m(p.AvgCash))
+                      .Append("</td><td style='color:").Append(c(p.P50)).Append("'>").Append(m(p.P50)).Append("</td><td style='color:").Append(c(p.P10)).Append("'>").Append(m(p.P10)).Append("</td><td style='color:").Append(c(p.P90)).Append("'>").Append(m(p.P90)).Append("</td><td>").Append(p.NegativeChance.ToString("0")).Append("%</td><td>").Append(m(p.MoneyNeeded95)).Append("</td></tr>");
+                sb.Append("</table></div>");
+            }
+            if (years != null && years.Count > 0)
+            {
+                sb.Append("<h2>HISTORY BY YEAR (one account slot walking the real days in order)</h2><div class='wrap'><table><tr><th>YEAR</th><th>EVALS BOUGHT</th><th>PASSED</th><th>PAYOUTS</th><th>FUNDED BLOWN</th><th>SPENT</th><th>RECEIVED</th><th>NET</th></tr>");
+                foreach (var y in years) sb.Append("<tr><td>").Append(y.Year).Append("</td><td>").Append(y.Bought).Append("</td><td>").Append(y.Passed).Append("</td><td>").Append(y.Payouts).Append("</td><td>").Append(y.Blown).Append("</td><td>").Append(m(y.Spent)).Append("</td><td>").Append(m(y.Cash)).Append("</td><td style='color:").Append(c(y.Net)).Append("'>").Append(m(y.Net)).Append("</td></tr>");
+                sb.Append("</table></div>");
+            }
+            if (sweet != null && sweet.Count > 0)
+            {
+                sb.Append("<h2>SWEET SPOT • best plans first</h2><div class='wrap'><table><tr><th>#</th><th>PLAN</th><th>PASS</th><th>DAYS</th><th>FUNDED PAYS</th><th>VALUE / EVAL</th><th>LOSING EVALS</th><th>FAILS IN A ROW</th></tr>");
+                for (int i = 0; i < Math.Min(30, sweet.Count); i++) { var s = sweet[i]; sb.Append("<tr><td>").Append(i + 1).Append("</td><td>").Append(e(s.Label)).Append("</td><td>").Append(s.PassRate.ToString("0")).Append("%</td><td>").Append(s.AvgDaysToPass.ToString("0.0")).Append("</td><td>").Append(m(s.FundedValue)).Append("</td><td style='color:").Append(c(s.ValuePerEval)).Append("'>").Append(m(s.ValuePerEval)).Append("</td><td>").Append(s.LosingShare.ToString("0")).Append("%</td><td>").Append(s.LongestFailStreak95).Append("</td></tr>"); }
+                sb.Append("</table></div>");
+            }
+            sb.Append("<h2>HOW TO READ IT</h2><p class='n'>").Append(e(HowItWorks())).Append("</p></body></html>");
+            return sb.ToString();
+        }
+
+        public static string HowItWorks()
+        {
+            return "Evaluations are the expense, payouts are the income. Each simulated evaluation is bought, traded day by day under the firm's rules (target, trailing drawdown that stops at the lock level, consistency, minimum days), and if it passes it becomes a funded account that is traded until it is lost or reaches the payout limit. Every 5 days of at least the qualifying profit pays the payout percent of the profit (up to the cap) and you keep your split. "
+                 + "VALUE OF ONE EVALUATION = average cash received − average cost. Above zero the business makes money in the long run; below zero it loses no matter how many accounts you run. "
+                 + "COIN FLIP means no strategy at all: a day ends at +target or −stop with the fair chance stop ÷ (target + stop) — the pure prop-firm math (the famous 32.65% for 2 days of +1,500 / −2,000). REAL days come from a strategy run (RECOIL) and are drawn at random from its history. "
+                 + "SEPARATE = every account trades its own days (diversified). COPY = every account takes the same trades (the same result × accounts: bigger swings, same value per evaluation). ROTATION = one stream of trades shared by the accounts in turn. MONEY NEEDED = the deepest the cash went in 19 of 20 simulations — have that much ready. Limits: an evaluation is dropped after 150 trading days and a funded account is retired after 250 (about a year), so a strong strategy's funded value is a one-year value.";
+        }
+    }
+
     public static class KeystoneHelixManusReference
     {
         public const string Pool10 = "20240102,-2565,4,14,0,19;20240103,265,6,12,1,19;20240104,325,2,3,0,6;20240105,75,3,7,1,11;20240108,6300,6,0,0,7;20240109,2400,4,4,0,9;20240110,1500,3,4,0,8;20240111,655,7,14,0,22;20240112,-760,3,9,0,13;20240116,650,6,12,1,19;20240117,70,5,11,0,17;20240118,3685,6,6,0,13;20240119,4540,6,4,0,11;20240122,-465,4,9,0,14;20240123,1975,4,5,0,10;20240124,-1445,4,11,0,16;20240125,-1215,1,6,0,8;20240126,-520,3,7,0,11;20240129,2635,4,3,0,8;20240130,-1915,1,6,2,8;20240131,-1500,5,13,3,18;20240201,3000,5,4,0,9;20240202,3000,5,4,0,9;20240205,690,4,7,0,12;20240206,-525,1,5,0,7;20240207,1450,4,6,0,11;20240208,1025,1,1,0,3;20240209,2760,4,2,0,7;20240212,-675,1,4,0,6;20240213,-245,5,11,0,17;20240214,1830,5,7,0,13;20240215,945,3,5,0,9;20240216,-225,5,11,1,17;20240220,-370,5,12,0,18;20240221,885,3,6,0,10;20240222,2730,5,5,0,11;20240223,-500,2,5,1,8;20240226,285,3,5,1,9;20240227,-370,2,5,0,8;20240228,-265,1,4,0,6;20240229,500,3,5,0,8;20240301,7500,8,1,0,9;20240304,910,2,2,0,5;20240305,-3540,3,14,0,18;20240306,2510,8,11,0,20;20240307,2675,4,2,0,7;20240308,-2000,8,20,2,28;20240311,430,5,9,0,15;20240312,3360,7,8,0,16;20240313,-590,3,8,0,12;20240314,0,7,14,0,21;20240315,-1450,5,13,0,19;20240318,-200,3,6,0,10;20240319,3035,5,5,0,11;20240320,5500,9,7,1,16;20240321,-3715,2,11,0,14;20240322,-245,1,3,0,5;20240325,800,2,2,0,5;20240326,-2670,1,7,0,9;20240327,170,3,6,0,10;20240328,555,2,3,0,6;20240401,-250,3,8,1,12;20240402,2550,6,7,0,14;20240403,4705,7,6,0,14;20240404,-7375,1,17,0,19;20240405,7000,9,4,0,13;20240408,450,5,9,0,15;20240409,1045,7,13,0,21;20240410,2000,9,14,1,23;20240411,7000,9,4,0,13;20240412,-5500,7,25,2,32;20240415,-1500,5,13,2,18;20240416,2000,5,6,0,11;20240417,-3000,6,18,0,24;20240418,0,5,10,1,15;20240419,-4000,4,16,1,20;20240422,-500,3,7,1,10;20240423,2500,3,1,0,4;20240424,-1150,4,10,0,15;20240425,5500,8,5,0,13;20240426,3025,6,6,0,13;20240429,95,3,7,0,11;20240430,-5000,3,16,0,19;20240501,3000,9,12,1,21;20240502,3035,7,8,0,16;20240503,1620,7,11,0,19;20240506,2305,3,2,0,6;20240507,-515,0,2,0,3;20240508,1830,3,2,0,6;20240509,3145,4,3,0,8;20240510,-485,3,7,0,11;20240513,-1115,2,6,0,9;20240514,3245,6,5,0,12;20240515,5755,8,5,0,14;20240516,15,3,5,0,9;20240517,1335,4,7,0,12;20240520,3385,4,2,0,7;20240521,1695,2,1,0,4;20240522,-2405,3,12,0,16;20240523,-5595,5,22,0,28;20240524,1125,4,6,0,11;20240528,550,5,10,1,16;20240529,640,4,7,1,12;20240530,-2285,3,10,0,14;20240531,-1500,6,15,2,21;20240603,-500,5,11,1,16;20240604,-1500,4,11,1,15;20240605,2500,4,3,0,7;20240606,580,3,5,0,9;20240607,-2815,4,13,0,18;20240610,2960,5,4,0,10;20240611,4455,5,3,0,9;20240612,1000,7,12,1,19;20240613,-1235,4,10,0,15;20240614,2950,5,6,0,12;20240617,4790,7,4,0,12;20240618,1425,2,2,0,5;20240620,-1500,7,17,2,24;20240621,-2330,5,14,0,20;20240624,-2640,4,13,1,18;20240625,2565,5,6,0,12;20240626,1525,5,7,0,13;20240627,1970,5,7,1,13;20240628,-1985,6,15,1,22;20240701,1500,7,11,1,18;20240702,3500,7,7,0,14;20240705,4500,7,5,0,12;20240708,-245,4,9,0,14;20240709,-685,4,10,0,15;20240710,1915,4,4,0,9;20240711,-5500,8,27,1,35;20240712,5500,8,5,1,13;20240715,500,7,13,1,20;20240716,2000,7,10,0,17;20240717,-5000,6,22,1,28;20240718,-5000,4,18,2,22;20240719,-500,4,9,0,13;20240722,0,3,6,1,9;20240723,1000,6,10,1,16;20240724,-8370,2,21,1,24;20240725,-500,5,11,0,16;20240726,500,4,7,1,11;20240729,500,3,5,1,8;20240730,-3000,7,20,1,27;20240731,2500,7,9,0,16;20240801,-1500,5,13,2,18;20240802,0,4,8,1,12;20240805,3500,4,1,0,5;20240806,3500,7,7,0,14;20240807,-4500,6,21,1,27;20240808,4000,6,4,0,10;20240809,1000,6,10,0,16;20240812,3000,6,6,0,12;20240813,5585,8,5,0,14;20240814,1235,8,14,1,23;20240815,4960,7,5,0,13;20240816,3945,7,6,0,14;20240819,6720,8,3,0,12;20240820,-900,6,13,0,20;20240821,3420,9,12,0,22;20240822,-5935,5,23,1,29;20240823,2000,7,10,2,17;20240826,-2965,4,15,0,20;20240827,4145,6,4,0,11;20240828,-1120,6,14,0,21;20240829,3500,7,7,0,14;20240830,-1000,7,16,0,23;20240903,-6790,4,22,1,27;20240904,4500,9,9,0,18;20240905,3000,9,12,0,21;20240906,-7325,6,27,2,34;20240909,2500,7,9,0,16;20240910,1500,7,11,0,18;20240911,2500,8,11,0,19;20240912,4500,8,7,0,15;20240913,2945,6,7,0,14;20240916,1715,6,10,0,17;20240917,-1000,7,16,1,23;20240918,3500,9,11,0,20;20240919,2305,8,12,0,21;20240920,2165,7,9,0,17;20240923,-10,3,7,1,11;20240924,4115,7,6,0,14;20240925,960,4,7,0,12;20240926,-1595,5,13,0,19;20240927,-3985,2,12,0,15;20240930,500,7,13,2,20;20241001,-2000,6,16,1,22;20241002,1380,6,9,0,16;20241003,3500,7,7,0,14;20241004,-1000,6,14,1,20;20241007,-2085,2,9,0,12;20241008,2500,6,7,0,13;20241009,3380,5,4,0,10;20241010,2330,7,9,0,17;20241011,2555,4,3,0,8;20241014,1870,5,6,0,12;20241015,-3000,7,20,2,27;20241016,-320,5,11,0,17;20241017,-1310,5,13,0,19;20241018,920,3,5,0,9;20241021,1000,8,14,0,22;20241022,3545,6,4,0,11;20241023,-4490,4,18,0,23;20241024,820,5,8,1,14;20241025,545,6,11,0,18;20241028,-1285,1,5,0,7;20241029,5500,8,5,1,13;20241030,-1160,5,13,0,19;20241031,-5000,6,22,1,28;20241101,1500,6,9,2,15;20241104,1500,6,9,0,15;20241105,2875,5,6,0,12;20241106,4500,8,7,0,15;20241107,6000,8,4,0,12;20241108,-245,2,4,0,7;20241111,-745,3,8,0,12;20241112,-1370,5,13,0,19;20241113,-1575,6,16,2,23;20241114,500,8,15,0,23;20241115,-5305,3,16,0,20;20241118,1735,6,9,0,16;20241119,5000,7,4,1,11;20241120,2000,9,14,0,23;20241121,500,9,17,0,26;20241122,5000,9,8,0,17;20250102,2000,8,12,1,20;20250103,3000,8,10,0,18;20250106,1335,5,8,0,14;20250107,-2500,8,21,1,29;20250108,-1000,7,16,1,23;20250110,-2500,7,19,0,26;20250113,1000,7,12,0,19;20250114,-1000,8,18,1,26;20250115,2500,7,9,1,16;20250116,-1000,6,14,1,20;20250117,-30,5,11,0,17;20250121,1500,6,9,0,15;20250122,1700,3,3,0,7;20250123,4265,5,3,0,9;20250124,-2420,3,12,0,16;20250127,-500,7,15,2,22;20250128,3000,7,8,0,15;20250129,-500,8,17,0,25;20250130,2000,8,12,0,20;20250131,500,6,11,2,17;20250203,2500,6,7,0,13;20250204,4500,6,3,0,9;20250205,3210,7,8,0,16;20250206,2115,7,10,0,18;20250207,-1000,8,18,0,26;20250210,2500,4,3,0,8;20250211,1620,5,7,0,13;20250212,5000,9,8,1,17;20250213,5000,9,8,0,17;20250214,-2335,4,12,0,17;20250218,1620,6,9,0,16;20250219,935,4,7,0,12;20250220,795,8,15,1,24;20250221,-7325,5,25,1,31;20250224,-1500,7,17,1,24;20250225,-6000,5,22,2,27;20250226,3500,5,3,0,8;20250227,-2500,7,19,0,26;20250228,3500,7,7,0,14;20250303,1000,7,12,0,19;20250304,0,7,14,0,21;20250305,500,6,11,1,17;20250306,0,8,16,1,24;20250307,-500,7,15,1,22;20250310,-5500,6,23,1,29;20250311,2000,5,6,1,11;20250312,-500,5,11,0,16;20250313,500,7,13,1,20;20250314,3500,7,7,0,14;20250317,1000,6,10,1,16;20250318,-500,6,13,0,19;20250319,500,5,9,1,14;20250320,2500,8,11,0,19;20250321,3000,8,10,0,18;20250324,795,5,9,0,15;20250325,1930,3,3,0,7;20250326,-5180,5,20,0,26;20250327,3000,8,10,2,18;20250328,-4930,6,23,0,30;20250331,1500,7,11,1,18;20250401,1500,7,11,0,18;20250402,5000,7,4,0,11;20250403,2500,8,11,1,19;20250404,-1000,7,16,1,23;20250407,4000,7,6,0,13;20250408,4500,7,5,0,12;20250409,4000,7,6,0,13;20250410,2000,9,14,1,23;20250411,1500,8,13,1,21;20250414,-4000,6,20,2,26;20250415,2000,6,8,0,14;20250416,2000,6,8,0,14;20250417,-3500,7,21,1,28;20250421,-3500,5,17,2,22;20250422,1500,5,7,0,12;20250423,0,4,8,1,12;20250424,3500,4,1,0,5;20250425,5500,9,7,0,16;20250428,1500,9,15,0,24;20250429,4500,9,9,0,18;20250430,4000,9,10,0,19;20250501,1500,9,15,0,24;20250502,825,7,13,0,21;20250505,2275,6,7,0,14;20250506,5500,10,9,0,19;20250507,500,10,19,0,29;20250508,-4180,6,20,1,27;20250509,-2085,4,12,1,17;20250512,1595,6,10,0,17;20250513,5510,7,2,0,10;20250514,1640,7,12,0,20;20250515,5000,8,6,0,14;20250516,1815,6,10,0,17;20250519,5920,8,6,0,15;20250520,6000,9,6,0,15;20250521,1000,10,18,0,28;20250522,-450,9,19,0,29;20250523,4295,9,10,0,20;20250527,4730,5,2,0,8;20250528,-2640,3,11,1,15;20250529,-2800,6,19,1,26;20250530,0,8,16,0,24;20250612,2965,5,5,0,11;20250613,500,7,13,1,20;20250616,140,5,11,0,17;20250617,-1740,4,12,0,17;20250618,1500,7,11,0,18;20250620,-2075,5,15,0,21;20250623,3500,8,9,2,17;20250624,3350,5,3,0,9;20250625,1410,3,5,0,9;20250626,3460,5,4,0,10;20250627,2030,6,8,0,15;20250630,3000,5,4,0,9;20250701,-2110,4,12,0,17;20250702,4775,5,1,0,7;20250707,2150,7,10,0,18;20250708,-1465,5,13,0,19;20250709,3710,5,4,0,10;20250710,230,5,10,1,16;20250711,1810,6,8,0,15;20250714,1485,4,5,0,10;20250715,-3000,3,12,0,15;20250716,1500,8,13,1,21;20250717,4900,5,1,0,7;20250718,-1875,0,4,0,5;20250721,3120,4,2,0,7;20250722,810,6,11,0,18;20250723,660,4,8,1,13;20250724,1535,4,4,0,9;20250725,945,3,4,0,8;20250728,40,2,4,0,7;20250729,-1705,2,8,1,11;20250730,-1635,5,14,3,20;20250731,-5880,5,22,0,28;20250801,-500,5,11,1,16;20250804,4000,5,2,0,7;20250805,-2530,6,17,1,24;20250806,4950,7,5,0,13;20250807,-2500,7,19,1,26;20250808,4500,7,5,0,12;20250811,-1360,3,10,0,14;20250812,4595,6,4,0,11;20250813,-1105,3,9,0,13;20250814,1000,7,12,1,19;20250815,-1280,3,9,0,13;20250818,205,5,9,1,15;20250819,-5190,3,18,0,22;20250820,-1000,8,18,0,26;20250821,1500,7,11,1,18;20250822,5500,7,3,0,10;20250825,720,4,6,0,11;20250826,4240,6,5,0,12;20250827,4090,6,4,0,11;20250828,4000,7,6,0,13;20250829,1040,6,11,0,18;20250902,3000,8,10,1,18;20250903,-40,6,13,0,20;20250904,4110,8,8,0,17;20250905,-500,9,19,0,28;20250908,2235,6,9,0,16;20250909,-565,6,14,1,21;20250910,-1935,3,11,0,15;20250911,2535,6,6,0,13;20250912,910,3,4,0,8;20250915,5370,7,4,0,12;20250916,-1280,2,7,0,10;20250917,0,9,18,1,27;20250918,720,6,11,0,18;20250919,4275,6,3,0,10;20250922,5745,6,0,0,7;20250923,-3740,5,18,0,24;20250924,-4075,3,15,0,19;20250925,3000,9,12,1,21;20250926,3500,8,9,1,17;20250929,880,6,10,0,17;20250930,2500,6,7,2,13;20251001,3500,7,7,0,14;20251002,-3000,6,18,1,24;20251003,0,6,12,0,18;20251006,2500,6,7,0,13;20251007,-3000,6,18,0,24;20251008,4945,8,6,0,15;20251009,-5500,7,25,3,32;20251010,-2500,6,17,1,23;20251013,2500,5,5,1,10;20251014,3500,5,3,0,8;20251015,-1000,7,16,1,23;20251016,3500,7,7,0,14;20251017,0,6,12,1,18;20251020,4000,6,4,0,10;20251021,-3000,6,18,0,24;20251022,-1000,9,20,0,29;20251023,3500,8,9,1,17;20251024,3000,8,10,0,18;20251027,1000,8,14,0,22;20251028,5000,8,6,0,14;20251029,-500,10,21,0,31;20251030,3000,9,12,1,21;20251031,-3500,8,23,1,31;20251103,-500,7,15,1,22;20251104,2000,6,8,1,14;20251105,2500,7,9,0,16;20251106,-3500,6,19,1,25;20251107,1500,6,9,0,15;20251110,1500,6,9,0,15;20251111,500,6,11,0,17;20251112,2500,9,13,1,22;20251113,-2500,7,19,2,26;20251114,5000,7,4,0,11;20251117,3500,7,7,0,14;20251118,-1500,6,15,1,21;20251119,3500,8,9,1,17;20251120,-1500,7,17,1,24;20251121,1500,6,9,1,15;20251124,3500,6,5,0,11;20251125,1000,6,10,0,16;20251126,5500,9,7,0,16;20260102,-2500,9,23,0,32;20260105,5000,9,8,0,17;20260106,5500,9,7,0,16;20260107,5000,9,8,0,17;20260108,500,10,19,0,29;20260109,5000,10,10,0,20;20260112,5500,10,9,0,19;20260113,-1000,9,20,1,29;20260114,-1500,8,19,1,27;20260115,-2500,7,19,1,26;20260116,-1000,7,16,0,23;20260120,2000,7,10,0,17;20260121,1500,7,11,0,18;20260122,3500,7,7,0,14;20260123,5000,10,10,0,20;20260126,4000,10,12,0,22;20260127,4000,10,12,0,22;20260128,4500,10,11,0,21;20260130,2000,10,16,0,26;20260202,4500,10,11,0,21;20260203,-2000,9,22,1,31;20260204,1000,9,16,0,25;20260205,1500,8,13,1,21;20260206,3500,8,9,0,17;20260209,5500,9,7,0,16;20260210,-1000,8,18,1,26;20260211,0,8,16,0,24;20260212,-7000,6,26,2,32;20260213,1500,6,9,0,15;20260217,-500,8,17,0,25;20260218,6000,8,4,0,12;20260219,4500,8,7,0,15;20260220,5000,8,6,0,14;20260223,2500,8,11,0,19;20260224,5000,10,10,0,20;20260225,6500,10,7,0,17;20260226,1500,10,17,0,27;20260227,4500,10,11,0,21;20260302,5000,10,10,0,20;20260303,-500,10,21,0,31;20260304,4500,10,11,0,21;20260305,2000,9,14,1,23;20260306,5500,9,7,0,16;20260309,1000,9,16,0,25;20260310,4000,9,10,0,19;20260311,2500,9,13,0,22;20260312,-2000,8,20,1,28;20260313,-2500,8,21,0,29;20260316,1500,8,13,0,21;20260317,0,8,16,1,24;20260318,2000,8,12,0,20;20260319,3000,8,10,0,18;20260320,-4500,8,25,0,33;20260323,5500,8,5,0,13;20260324,4000,10,12,0,22;20260325,4000,10,12,0,22;20260326,3500,9,11,1,20;20260327,2500,9,13,0,22;20260330,-1000,9,20,0,29;20260331,5500,9,7,0,16;20260401,5000,9,8,0,17;20260402,6000,9,6,0,15;20260406,4500,9,9,0,18;20260407,-1500,9,21,0,30;20260408,0,10,20,0,30;20260409,4000,10,12,0,22;20260410,2500,9,13,1,22;20260413,500,9,17,0,26;20260414,4500,9,9,0,18;20260415,4000,9,10,0,19;20260416,3000,9,12,0,21;20260417,5000,9,8,0,17;20260420,-1000,8,18,1,26;20260421,-1000,8,18,0,26;20260422,2500,9,13,0,22;20260423,2500,9,13,0,22;20260424,4000,9,10,0,19;20260427,-30,6,14,0,21;20260428,2500,8,11,1,19;20260429,2000,8,12,1,20;20260430,-1000,8,18,0,26;20260501,7500,8,1,0,9;20260504,0,8,16,0,24;20260505,680,6,11,0,18;20260506,6000,10,8,0,18;20260507,-500,9,19,1,28;20260508,4000,9,10,0,19;20260511,4500,9,9,0,18;20260512,-3500,8,23,1,31;20260513,1000,9,16,0,25;20260514,4500,9,9,0,18;20260515,3000,9,12,0,21;20260518,-1000,9,20,0,29;20260519,1500,9,15,0,24;20260520,4000,10,12,0,22;20260521,3000,9,12,1,21;20260522,4500,9,9,0,18;20260526,2000,8,12,1,20;20260527,0,8,16,0,24;20260528,4500,9,9,0,18;20260529,2000,9,14,0,23;20260601,3000,9,12,0,21;20260602,1500,9,15,0,24;20260603,3000,9,12,0,21;20260604,1000,9,16,1,25;20260605,-2000,9,22,0,31;20260608,1500,9,15,0,24;20260609,-2000,7,18,2,25;20260610,3500,7,7,0,14;20260611,4000,8,8,0,16;20260612,2500,8,11,0,19;20260615,3500,8,9,0,17;20260616,-1500,7,17,1,24;20260617,1000,6,10,1,16;20260807,1500,7,11,1,18;20260810,2000,7,10,0,17;20260811,-500,7,15,0,22;20260812,1500,7,11,0,18;20260813,3500,7,7,0,14;20260814,-1360,6,16,0,23";
@@ -7747,7 +8140,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -7951,7 +8344,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var map = new Dictionary<object, Brush>();
             for (int i = 0; i < before.Length; i++) if (before[i] != null && !map.ContainsKey(before[i])) map[before[i]] = after[i];
             var seen = new HashSet<object>();
-            foreach (Window w in new Window[] { window, evidenceWindow, comparisonWindow, asianOptimizerWindow }) if (w != null) RethemeTree(w, map, seen);
+            foreach (Window w in new Window[] { window, evidenceWindow, comparisonWindow, asianOptimizerWindow, propPlannerWindow }) if (w != null) RethemeTree(w, map, seen);
             try { if (evidenceWindow != null && evidenceWindow.IsVisible) RenderEvidenceChart(); } catch { }
         }
 
@@ -8693,7 +9086,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (unsavedResearch) ShowCloseConfirmation();
                 else ShowSavedCloseConfirmation();
             };
-            window.Closed += delegate { CancelRequests(); CancelEvidenceRequest(); try { if (evidenceWindow != null) evidenceWindow.Close(); } catch { } if (activityTimer != null) activityTimer.Stop(); window = null; closeConfirmed = false; };
+            window.Closed += delegate { CancelRequests(); CancelEvidenceRequest(); try { if (evidenceWindow != null) evidenceWindow.Close(); } catch { } try { if (propPlannerWindow != null) propPlannerWindow.Close(); } catch { } if (activityTimer != null) activityTimer.Stop(); window = null; closeConfirmed = false; };
             window.Show();
             UpdateUi("READY • VIRTUAL/HISTORICAL RESEARCH ONLY • NO ACCOUNT OR ORDER ACCESS", Blue);
             UpdateWorkflowState();
@@ -8836,7 +9229,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private UIElement Header()
         {
-            var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var stack = new StackPanel { Margin = new Thickness(0) };
             var title = Txt("KEYSTONE ARC", activeTheme == "CLASSIC" ? Text : Gold, 20, FontWeights.Bold); title.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(title);
             var accentLine = new Border { Height = 2, Width = 420, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 2), Background = new LinearGradientBrush(Gold.Color, Bg.Color, 0) };
@@ -8859,8 +9252,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             themeRow.Children.Add(themeBox); themeRow.Children.Add(applyThemeButton); stack.Children.Add(themeRow);
             g.Children.Add(stack);
             var newTest = Btn("NEW TEST", Gold); newTest.Width = 106; newTest.Height = 30; newTest.Click += delegate { ConfirmResetForNewTest(); }; resetNewTestButton = newTest; Grid.SetColumn(newTest, 1); g.Children.Add(newTest);
-            var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(closeAux, 2); g.Children.Add(closeAux);
-            var close = Btn("CLOSE LAB", Red); close.Width = 96; close.MinWidth = 96; close.MaxWidth = 96; close.Height = 30; close.FontSize = 10; close.ToolTip = "Close the entire Keystone Arc workspace"; close.Click += delegate { window.Close(); }; Grid.SetColumn(close, 3); g.Children.Add(close);
+            var planner = Btn("PROP PLANNER", Green); planner.Width = 118; planner.Height = 30; planner.FontSize = 10; planner.ToolTip = "The business math of prop firms: pass rate, what a funded account pays, the value of one evaluation, separate vs copy vs rotation, sweet spot"; planner.Click += delegate { OpenPropPlanner(null); };
+            var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(planner, 2); g.Children.Add(planner); Grid.SetColumn(closeAux, 3); g.Children.Add(closeAux);
+            var close = Btn("CLOSE LAB", Red); close.Width = 96; close.MinWidth = 96; close.MaxWidth = 96; close.Height = 30; close.FontSize = 10; close.ToolTip = "Close the entire Keystone Arc workspace"; close.Click += delegate { window.Close(); }; Grid.SetColumn(close, 4); g.Children.Add(close);
             return g;
         }
 
@@ -20659,7 +21053,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             var export = Btn("EXPORT REPORT (HTML + CSV)", Gold);
             var chart = Btn("LADDERS ON THE CHART", Blue);
             var verify = Btn("LADDER LIST (STEP 2)", Cyan);
-            foreach (var b in new[] { rerun, export, chart, verify }) { b.Height = 30; b.FontSize = 11; actions.Children.Add(b); }
+            var planWith = Btn("PROP PLANNER WITH THESE DAYS", Orchid); planWith.ToolTip = "Open the PROP PLANNER with the RECOIL days as the source: pass rate, payouts, value of one evaluation, separate vs copy vs rotation, history by year.";
+            planWith.Click += delegate { if (propPlannerWindow != null) { propPlannerWindow.Close(); propPlannerWindow = null; } string sym = recoilResult == null ? null : (recoilResult.Cycles.Select(c => c.Symbol).Distinct().Count() > 1 ? "BOTH" : recoilResult.Cycles.Select(c => c.Symbol).FirstOrDefault()); OpenPropPlanner(sym); };
+            foreach (var b in new[] { rerun, export, chart, verify, planWith }) { b.Height = 30; b.FontSize = 11; actions.Children.Add(b); }
             rerun.Click += delegate { RunRecoil(); };
             export.Click += delegate { ExportRecoilReport(); };
             chart.Click += delegate { OpenRecoilChart(null); };
@@ -20949,6 +21345,291 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             catch (Exception ex) { UpdateUi("RECOIL EXPORT ERROR • " + ex.Message, Red); }
         }
+
+        // ---- PROP PLANNER window -------------------------------------------------------------------
+        // A separate window: firm rules + your day plan → pass rate, what a funded account pays, the value of one
+        // evaluation, separate vs copy vs rotation, history by year (real days) and the SWEET SPOT ranking.
+        private Window propPlannerWindow;
+        private KeystonePropPlanResult propLastResult; private List<KeystonePropProgram> propLastPrograms = new List<KeystonePropProgram>();
+        private List<KeystonePropYear> propLastYears = new List<KeystonePropYear>(); private List<KeystonePropPlanResult> propLastSweet = new List<KeystonePropPlanResult>(); private string propLastSource = string.Empty;
+
+        private static double PropNum(TextBox box, double fallback)
+        {
+            double v; return box != null && double.TryParse((box.Text ?? string.Empty).Replace("$", "").Replace(",", "").Replace("%", "").Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out v) && v >= 0 ? v : fallback;
+        }
+
+        private void OpenPropPlanner(string preferredSource)
+        {
+            if (propPlannerWindow != null) { propPlannerWindow.Activate(); return; }
+            var w = new Window { Title = "KEYSTONE ARC • PROP PLANNER", Width = 1420, Height = 880, MinWidth = 1000, MinHeight = 620, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            var root = new Grid { Margin = new Thickness(10) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(440) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var header = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+            header.Children.Add(Txt("PROP PLANNER • THE BUSINESS MATH", Gold, 20, FontWeights.Bold));
+            header.Children.Add(Txt("Evaluations are the expense, payouts are the income. Pick the firm's rules and how you trade the evaluation and the funded account; the planner buys thousands of simulated evaluations and tells you what one evaluation is worth, how many accounts to run and how (separate, copy, rotation), and the money you need. Historical research only — no orders, no accounts.", Muted, 11, FontWeights.Normal));
+            Grid.SetRow(header, 0); Grid.SetColumnSpan(header, 2); root.Children.Add(header);
+
+            // ---- settings (left) ----
+            var set = new StackPanel();
+            Func<string, Brush, StackPanel> block = (title, brush) => { var s = new StackPanel(); s.Children.Add(Txt(title, brush, 13, FontWeights.Bold)); set.Children.Add(new Border { Background = Card, BorderBrush = brush, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 4, 6, 6), Margin = new Thickness(0, 0, 6, 6), Child = s }); return s; };
+            var presets = KeystonePropRules.Presets();
+            var firm = block("1. FIRM RULES", Gold);
+            var presetBox = Select(presets.Select(p => p.Name).ToArray()); presetBox.SelectedIndex = 0;
+            var costBox = Input("120"); var actBox = Input("0"); var targetBox = Input("3000"); var ddBox = Input("2000"); var ddTypeBox = Select("EOD", "INTRADAY", "STATIC"); ddTypeBox.SelectedIndex = 0; var lockBox = Input("100");
+            var consBox = Input("50"); var minDaysBox = Input("2"); var dailyBox = Input("0"); var payDaysBox = Input("5"); var qualBox = Input("150"); var payPctBox = Input("50"); var capBox = Input("2000"); var splitBox = Input("90"); var maxPayBox = Input("0");
+            costBox.ToolTip = "What one evaluation costs you."; actBox.ToolTip = "Activation fee paid when an evaluation passes (0 = none).";
+            ddTypeBox.ToolTip = "EOD = the floor follows your best end-of-day balance • INTRADAY = it follows the best open balance • STATIC = it never moves.";
+            lockBox.ToolTip = "The floor stops trailing once it reaches this profit (e.g. +100 = the floor locks at start + $100).";
+            consBox.ToolTip = "The best day may be at most this % of the total profit to pass (0 = no rule)."; dailyBox.ToolTip = "Firm daily loss limit (0 = none).";
+            qualBox.ToolTip = "A funded day counts toward a payout when it makes at least this."; payPctBox.ToolTip = "Share of the account profit you can withdraw at each payout."; maxPayBox.ToolTip = "The account is closed after this many payouts (0 = no limit).";
+            firm.Children.Add(Row("FIRM PRESET", presetBox));
+            foreach (var t in new[] { Tuple.Create("EVALUATION COST $", (UIElement)costBox), Tuple.Create("ACTIVATION FEE $", (UIElement)actBox), Tuple.Create("PROFIT TARGET $", (UIElement)targetBox), Tuple.Create("MAX DRAWDOWN $", (UIElement)ddBox), Tuple.Create("DRAWDOWN TYPE", (UIElement)ddTypeBox), Tuple.Create("FLOOR STOPS AT +$", (UIElement)lockBox), Tuple.Create("CONSISTENCY % (BEST DAY)", (UIElement)consBox), Tuple.Create("MIN DAYS TO PASS", (UIElement)minDaysBox), Tuple.Create("DAILY LOSS LIMIT $", (UIElement)dailyBox), Tuple.Create("PAYOUT AFTER N GOOD DAYS", (UIElement)payDaysBox), Tuple.Create("GOOD DAY = AT LEAST $", (UIElement)qualBox), Tuple.Create("PAYOUT % OF PROFIT", (UIElement)payPctBox), Tuple.Create("PAYOUT CAP $", (UIElement)capBox), Tuple.Create("YOUR SPLIT %", (UIElement)splitBox), Tuple.Create("MAX PAYOUTS (0 = NONE)", (UIElement)maxPayBox) })
+                firm.Children.Add(Row(t.Item1, t.Item2));
+            Action<KeystonePropRules> showRules = r =>
+            {
+                costBox.Text = r.EvalCost.ToString("0.##", CultureInfo.InvariantCulture); actBox.Text = r.Activation.ToString("0.##", CultureInfo.InvariantCulture); targetBox.Text = r.Target.ToString("0", CultureInfo.InvariantCulture); ddBox.Text = r.MaxDrawdown.ToString("0", CultureInfo.InvariantCulture); ddTypeBox.SelectedIndex = Math.Max(0, new[] { "EOD", "INTRADAY", "STATIC" }.ToList().IndexOf(r.Drawdown)); lockBox.Text = r.LockAt.ToString("0", CultureInfo.InvariantCulture);
+                consBox.Text = r.Consistency.ToString("0", CultureInfo.InvariantCulture); minDaysBox.Text = r.MinDays.ToString(CultureInfo.InvariantCulture); dailyBox.Text = r.DailyLoss.ToString("0", CultureInfo.InvariantCulture); payDaysBox.Text = r.PayoutDays.ToString(CultureInfo.InvariantCulture); qualBox.Text = r.QualifyingDay.ToString("0", CultureInfo.InvariantCulture);
+                payPctBox.Text = r.PayoutPercent.ToString("0", CultureInfo.InvariantCulture); capBox.Text = r.PayoutCap.ToString("0", CultureInfo.InvariantCulture); splitBox.Text = r.Split.ToString("0", CultureInfo.InvariantCulture); maxPayBox.Text = r.MaxPayouts.ToString(CultureInfo.InvariantCulture);
+            };
+            presetBox.SelectionChanged += delegate { if (presetBox.SelectedIndex >= 0) showRules(presets[presetBox.SelectedIndex]); };
+            Func<KeystonePropRules> readRulesRaw = () => new KeystonePropRules
+            {
+                EvalCost = PropNum(costBox, 120), Activation = PropNum(actBox, 0), Target = Math.Max(1, PropNum(targetBox, 3000)), MaxDrawdown = Math.Max(1, PropNum(ddBox, 2000)), Drawdown = new[] { "EOD", "INTRADAY", "STATIC" }[Math.Max(0, Math.Min(2, ddTypeBox.SelectedIndex))], LockAt = PropNum(lockBox, 100),
+                Consistency = Math.Min(100, PropNum(consBox, 50)), MinDays = (int)PropNum(minDaysBox, 2), DailyLoss = PropNum(dailyBox, 0), PayoutDays = Math.Max(1, (int)PropNum(payDaysBox, 5)), QualifyingDay = PropNum(qualBox, 150),
+                PayoutPercent = Math.Min(100, PropNum(payPctBox, 50)), PayoutCap = PropNum(capBox, 2000), Split = Math.Min(100, PropNum(splitBox, 90)), MaxPayouts = (int)PropNum(maxPayBox, 0)
+            };
+            Func<KeystonePropRules> readRules = () =>
+            {
+                var r = readRulesRaw(); var pre = presetBox.SelectedIndex >= 0 ? presets[presetBox.SelectedIndex] : null;
+                r.Name = pre == null ? "CUSTOM RULES" : (pre.Describe().Substring(pre.Name.Length) == r.Describe().Substring(r.Name.Length) ? pre.Name : pre.Name + " • EDITED");
+                return r;
+            };
+
+            var planBlock = block("2. HOW YOU TRADE (THE DAYS)", Cyan);
+            var sources = new List<string> { "COIN FLIP • NO STRATEGY (PURE MATH)" };
+            if (recoilResult != null) { var syms = recoilResult.Cycles.Select(c => c.Symbol).Distinct().OrderBy(s => s).ToList(); foreach (var s in syms) sources.Add("RECOIL DAYS • " + s); if (syms.Count > 1) sources.Add("RECOIL DAYS • BOTH"); }
+            var sourceBox = Select(sources.ToArray()); sourceBox.SelectedIndex = 0;
+            if (!string.IsNullOrEmpty(preferredSource)) for (int i = 0; i < sources.Count; i++) if (sources[i].EndsWith(preferredSource)) { sourceBox.SelectedIndex = i; break; }
+            var sourceNote = SettingsExplain(recoilResult == null ? "Run RECOIL in the lab first to plan with its real days (they are drawn at random from its history)." : "RECOIL loaded: " + recoilResult.Days.Count + " days, " + recoilResult.Cycles.Count + " ladders • " + recoilResult.Config.Describe());
+            planBlock.Children.Add(Row("DAYS COME FROM", sourceBox)); planBlock.Children.Add(sourceNote);
+            var eTBox = Input("1500"); var eSBox = Input("2000"); var fTBox = Input("200"); var fSBox = Input("1000"); var edgeBox = Input("0"); var dayCostBox = Input("5");
+            var eKBox = Input("1"); var eStopBox = Input("0"); var fKBox = Input("1"); var fStopBox = Input("0");
+            eTBox.ToolTip = "COIN: an evaluation day ends at +this…"; eSBox.ToolTip = "…or −this (never more than the room left)."; fTBox.ToolTip = "COIN: a funded day ends at +this…"; fSBox.ToolTip = "…or −this.";
+            edgeBox.ToolTip = "COIN: extra win chance in % points over pure luck (0 = no edge, 5 = you win 5% more often than fair)."; dayCostBox.ToolTip = "Commissions and slippage per trading day.";
+            eKBox.ToolTip = "REAL: contracts multiplier in the evaluation (2 = double size)."; eStopBox.ToolTip = "REAL: stop the day at −this in the evaluation (0 = none)."; fKBox.ToolTip = "REAL: contracts multiplier in the funded account."; fStopBox.ToolTip = "REAL: stop the day at −this in the funded account (0 = none).";
+            var coinRows = new StackPanel(); var realRows = new StackPanel();
+            foreach (var t in new[] { Tuple.Create("EVALUATION DAY TARGET +$", eTBox), Tuple.Create("EVALUATION DAY STOP −$", eSBox), Tuple.Create("FUNDED DAY TARGET +$", fTBox), Tuple.Create("FUNDED DAY STOP −$", fSBox), Tuple.Create("EDGE (% POINTS)", edgeBox), Tuple.Create("COSTS PER DAY $", dayCostBox) }) coinRows.Children.Add(Row(t.Item1, t.Item2));
+            foreach (var t in new[] { Tuple.Create("EVALUATION SIZE ×", eKBox), Tuple.Create("EVALUATION DAY STOP −$ (0 = NONE)", eStopBox), Tuple.Create("FUNDED SIZE ×", fKBox), Tuple.Create("FUNDED DAY STOP −$ (0 = NONE)", fStopBox) }) realRows.Children.Add(Row(t.Item1, t.Item2));
+            planBlock.Children.Add(coinRows); planBlock.Children.Add(realRows);
+            Action refreshSource = delegate { bool real = sourceBox.SelectedIndex > 0; coinRows.Visibility = real ? Visibility.Collapsed : Visibility.Visible; realRows.Visibility = real ? Visibility.Visible : Visibility.Collapsed; };
+            sourceBox.SelectionChanged += delegate { refreshSource(); }; refreshSource();
+            Func<KeystonePropPlan> readPlan = () => new KeystonePropPlan
+            {
+                Source = sourceBox.SelectedIndex > 0 ? "REAL" : "COIN", EvalTarget = Math.Max(1, PropNum(eTBox, 1500)), EvalStop = Math.Max(1, PropNum(eSBox, 2000)), FundTarget = Math.Max(1, PropNum(fTBox, 200)), FundStop = Math.Max(1, PropNum(fSBox, 1000)),
+                Edge = Math.Min(40, PropNum(edgeBox, 0)), DayCost = PropNum(dayCostBox, 5), EvalSize = Math.Max(0.1, PropNum(eKBox, 1)), FundSize = Math.Max(0.1, PropNum(fKBox, 1)), EvalDayStop = PropNum(eStopBox, 0), FundDayStop = PropNum(fStopBox, 0)
+            };
+            Func<List<KeystonePropDay>> readDays = () =>
+            {
+                if (sourceBox.SelectedIndex <= 0 || recoilResult == null) return null;
+                string s = sources[Math.Min(sources.Count - 1, sourceBox.SelectedIndex)]; return KeystonePropPlanner.DaysFromRecoil(recoilResult, s.Substring(s.LastIndexOf(' ') + 1));
+            };
+
+            var prog = block("3. YOUR PROGRAM", Green);
+            var slotsBox = Input("5"); var monthsBox = Input("12"); var simsBox = Input("4000");
+            slotsBox.ToolTip = "Accounts running at the same time (most firms allow 5 funded). A lost account is replaced with a new evaluation the next day.";
+            monthsBox.ToolTip = "How long the program runs (21 trading days a month)."; simsBox.ToolTip = "Simulated evaluations per plan (more = steadier numbers, slower).";
+            prog.Children.Add(Row("ACCOUNTS AT ONCE", slotsBox)); prog.Children.Add(Row("MONTHS", monthsBox)); prog.Children.Add(Row("SIMULATED EVALUATIONS", simsBox));
+            prog.Children.Add(SettingsExplain("SEPARATE = each account trades its own days • COPY = all accounts take the same trades • ROTATION = the accounts take turns on one stream of trades."));
+            var setScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = set };
+            Grid.SetRow(setScroll, 1); root.Children.Add(setScroll);
+
+            // ---- results (right) ----
+            var right = new Grid(); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var actions = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 2) };
+            var runBtn = Btn("RUN THIS PLAN", Green); var sweetBtn = Btn("FIND SWEET SPOT", Gold); var useBtn = Btn("USE BEST PLAN", Cyan); var exportBtn = Btn("EXPORT REPORT (HTML)", Blue);
+            runBtn.ToolTip = "Simulate the plan on the left: one evaluation's value, separate vs copy vs rotation, history by year.";
+            sweetBtn.ToolTip = "Try many evaluation and funded plans under these firm rules and rank them by the value of one evaluation.";
+            useBtn.ToolTip = "Put the #1 sweet-spot plan into the settings and run it."; useBtn.IsEnabled = false;
+            foreach (var b in new[] { runBtn, sweetBtn, useBtn, exportBtn }) { b.Height = 34; b.FontSize = 11.5; actions.Children.Add(b); }
+            right.Children.Add(actions);
+            var status = Txt("PRESS RUN THIS PLAN (or FIND SWEET SPOT).", Gold, 12, FontWeights.Bold); status.Margin = new Thickness(4, 2, 4, 4); Grid.SetRow(status, 1); right.Children.Add(status);
+            var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            string[] names = { "THIS PLAN", "SEPARATE • COPY • ROTATION", "HISTORY BY YEAR", "SWEET SPOT", "HOW IT WORKS" };
+            Brush[] colors = { Gold, Green, Cyan, Orchid, Blue };
+            for (int i = 0; i < names.Length; i++) tabs.Items.Add(new TabItem { Header = names[i], Background = colors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Press RUN THIS PLAN.", Muted, 11, FontWeights.Normal) });
+            Action<int, UIElement> setTab = (i, content) => { ((TabItem)tabs.Items[i]).Content = HelixScroll(content); };
+            var how = new StackPanel(); how.Children.Add(HelixTitle("HOW IT WORKS", Blue)); how.Children.Add(Txt(KeystonePropPlanner.HowItWorks(), Text, 12, FontWeights.Normal));
+            how.Children.Add(HelixTitle("THE PURE LUCK BENCHMARK", Gold));
+            how.Children.Add(Txt("Passing a $3,000 target with a $2,000 drawdown in 2 days of +$1,500 with no edge: " + (100 * KeystonePropPlanner.CoinPassChance(3000, 2000, 2)).ToString("0.00") + "% • in 3 days: " + (100 * KeystonePropPlanner.CoinPassChance(3000, 2000, 3)).ToString("0.00") + "% • in 5 days: " + (100 * KeystonePropPlanner.CoinPassChance(3000, 2000, 5)).ToString("0.00") + "%. Fewer, bigger days pass more often; the consistency rule decides how few days you are allowed.", Text, 12, FontWeights.Normal));
+            setTab(4, how);
+            Grid.SetRow(tabs, 2); right.Children.Add(tabs);
+            Grid.SetRow(right, 1); Grid.SetColumn(right, 1); root.Children.Add(right);
+
+            bool busy = false;
+            Action<KeystonePropPlanResult, List<KeystonePropProgram>, List<KeystonePropYear>, KeystonePropPlanResult, string> renderPlan = (x, programs, years, luck, source) =>
+            {
+                var p1 = new StackPanel();
+                Brush vb = x.ValuePerEval > 0 ? Green : Red;
+                p1.Children.Add(new Border { Background = Card, BorderBrush = vb, BorderThickness = new Thickness(5, 1.5, 1.5, 1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 10, 8), Margin = new Thickness(2, 2, 2, 6), Child = Txt(KeystonePropPlanner.Verdict(x), vb, 14, FontWeights.Bold) });
+                var cards = new WrapPanel();
+                cards.Children.Add(HelixCard("PASS RATE", x.PassRate.ToString("0.0") + "%", "of " + x.Evaluations.ToString("N0") + " simulated evaluations", x.PassRate >= 30 ? Green : Gold, 190));
+                cards.Children.Add(HelixCard("DAYS TO PASS", x.AvgDaysToPass.ToString("0.0"), "trading days on average (passed ones)", Cyan, 190));
+                cards.Children.Add(HelixCard("A FUNDED ACCOUNT PAYS YOU", Cash(x.FundedValue), x.AvgPayouts.ToString("0.0") + " payouts over " + x.AvgFundedDays.ToString("0") + " days before it is lost", MoneyBrush(x.FundedValue), 230));
+                cards.Children.Add(HelixCard("VALUE OF ONE EVALUATION", Signed(x.ValuePerEval), "after its " + Cash(x.Rules.EvalCost) + " cost • the number that decides it", MoneyBrush(x.ValuePerEval), 230));
+                cards.Children.Add(HelixCard("EVALUATIONS THAT LOSE MONEY", x.LosingShare.ToString("0") + "%", "normal — the winners pay for them", Gold, 200));
+                cards.Children.Add(HelixCard("FAILS IN A ROW (WORST 1 IN 20)", x.LongestFailStreak95.ToString(), "= " + Cash(x.LongestFailStreak95 * x.Rules.EvalCost) + " in evaluations before a pass", Red, 230));
+                p1.Children.Add(cards);
+                if (luck != null)
+                {
+                    p1.Children.Add(HelixTitle("REAL DAYS vs PURE LUCK", Cyan));
+                    p1.Children.Add(HelixNote("The same firm rules with no strategy (coin flip, the coin plan in the settings): pass " + luck.PassRate.ToString("0.0") + "% • a funded account pays " + Cash(luck.FundedValue) + " • one evaluation is worth " + Signed(luck.ValuePerEval) + ". Real days: pass " + x.PassRate.ToString("0.0") + "% • pays " + Cash(x.FundedValue) + " • worth " + Signed(x.ValuePerEval) + ". " + (x.ValuePerEval > luck.ValuePerEval ? "The strategy beats pure luck by " + Cash(x.ValuePerEval - luck.ValuePerEval) + " per evaluation." : "The strategy does NOT beat pure luck here — the firm's math alone does better.")));
+                }
+                p1.Children.Add(HelixTitle("THE RULES AND THE PLAN", Gold)); p1.Children.Add(HelixNote(x.Rules.Describe())); p1.Children.Add(HelixNote(x.Plan.Describe() + " • days from " + source));
+                setTab(0, p1);
+
+                var p2 = new StackPanel();
+                p2.Children.Add(HelixNote("The same number of accounts run three ways for " + (programs.Count > 0 ? programs[0].MedianCurve.Count : 0) + " months; a lost account is replaced with a new evaluation the next day. TYPICAL = the middle result of many simulated years • BAD / GOOD = 1 in 10 ends at or below / above • MONEY NEEDED = the deepest your cash went (worst 1 in 20) — have it ready before you start."));
+                double[] w2 = { 110, 76, 84, 70, 74, 92, 92, 100, 104, 104, 84, 104 };
+                p2.Children.Add(HelixHeader(new[] { "HOW", "ACCOUNTS", "EVALS BOUGHT", "PASSED", "PAYOUTS", "SPENT", "RECEIVED", "TYPICAL", "BAD (1 IN 10)", "GOOD (1 IN 10)", "LOSE MONEY", "MONEY NEEDED" }, w2));
+                foreach (var p in programs)
+                    p2.Children.Add(HelixRow(new[] { p.Mode, p.Slots.ToString(), p.AvgBought.ToString("0"), p.AvgPassed.ToString("0.0"), p.AvgPayouts.ToString("0.0"), Cash(p.AvgSpent), Cash(p.AvgCash), Signed(p.P50), Signed(p.P10), Signed(p.P90), p.NegativeChance.ToString("0") + "%", Cash(p.MoneyNeeded95) },
+                        new[] { Text, Text, Text, Text, Text, Red, Green, MoneyBrush(p.P50), MoneyBrush(p.P10), MoneyBrush(p.P90), p.NegativeChance > 25 ? Red : Text, Gold }, w2, MoneyBrush(p.P50), null));
+                if (programs.Count == 3)
+                {
+                    var best = programs.OrderByDescending(p => p.P10).First();
+                    p2.Children.Add(HelixTitle("WHICH WAY", Green));
+                    p2.Children.Add(HelixNote("Safest: " + best.Mode + " (its bad case is " + Signed(best.P10) + "). COPY makes the same money per evaluation as one account × " + programs[1].Slots + " — so its swings are " + programs[1].Slots + "× bigger and it needs " + Cash(programs[1].MoneyNeeded95) + " ready vs " + Cash(programs[0].MoneyNeeded95) + " for SEPARATE. ROTATION trades one account per day, so it buys and earns slowest."));
+                    p2.Children.Add(HelixTitle("CASH BY MONTH (TYPICAL RUN)", Cyan));
+                    double[] w3 = { 90, 130, 130, 130 };
+                    p2.Children.Add(HelixHeader(new[] { "MONTH", "SEPARATE", "COPY", "ROTATION" }, w3));
+                    for (int m = 0; m < programs[0].MedianCurve.Count; m++)
+                        p2.Children.Add(HelixRow(new[] { (m + 1).ToString(), Signed(programs[0].MedianCurve[m]), Signed(programs[1].MedianCurve[m]), Signed(programs[2].MedianCurve[m]) }, new[] { Text, MoneyBrush(programs[0].MedianCurve[m]), MoneyBrush(programs[1].MedianCurve[m]), MoneyBrush(programs[2].MedianCurve[m]) }, w3, Card, null));
+                }
+                setTab(1, p2);
+
+                var p3 = new StackPanel();
+                if (years == null || years.Count == 0) p3.Children.Add(HelixNote("History by year needs REAL days: run RECOIL in the lab, then choose RECOIL DAYS in DAYS COME FROM."));
+                else
+                {
+                    p3.Children.Add(HelixNote("One account slot walking the real days in calendar order: buy an evaluation, trade it, when it is lost buy the next one. With " + (programs.Count > 0 ? programs[0].Slots : 1) + " COPIED accounts multiply every number by " + (programs.Count > 0 ? programs[0].Slots : 1) + "."));
+                    double[] w4 = { 70, 110, 80, 80, 110, 100, 110, 110 };
+                    p3.Children.Add(HelixHeader(new[] { "YEAR", "EVALS BOUGHT", "PASSED", "PAYOUTS", "FUNDED LOST", "SPENT", "RECEIVED", "NET" }, w4));
+                    foreach (var y in years) p3.Children.Add(HelixRow(new[] { y.Year.ToString(), y.Bought.ToString(), y.Passed.ToString(), y.Payouts.ToString(), y.Blown.ToString(), Cash(y.Spent), Cash(y.Cash), Signed(y.Net) }, new[] { Text, Text, Text, Text, Text, Red, Green, MoneyBrush(y.Net) }, w4, MoneyBrush(y.Net), null));
+                    double tot = years.Sum(y => y.Net);
+                    p3.Children.Add(HelixRow(new[] { "TOTAL", years.Sum(y => y.Bought).ToString(), years.Sum(y => y.Passed).ToString(), years.Sum(y => y.Payouts).ToString(), years.Sum(y => y.Blown).ToString(), Cash(years.Sum(y => y.Spent)), Cash(years.Sum(y => y.Cash)), Signed(tot) }, new[] { Gold, Gold, Gold, Gold, Gold, Red, Green, MoneyBrush(tot) }, w4, Gold, null));
+                }
+                setTab(2, p3);
+            };
+
+            Action<List<KeystonePropPlanResult>> renderSweet = list =>
+            {
+                var p = new StackPanel();
+                if (list == null || list.Count == 0) { p.Children.Add(HelixNote("Press FIND SWEET SPOT.")); setTab(3, p); return; }
+                p.Children.Add(HelixNote("Every plan below was simulated with the same firm rules and ranked by VALUE / EVAL (what one evaluation is worth after its cost). Click a row to load that plan into the settings and run it."));
+                double[] w5 = { 40, 420, 70, 64, 110, 110, 100, 90 };
+                p.Children.Add(HelixPaged(new[] { "#", "PLAN", "PASS", "DAYS", "FUNDED PAYS", "VALUE / EVAL", "LOSING EVALS", "FAILS IN A ROW" }, w5, list.Count, i =>
+                {
+                    var s = list[i];
+                    return HelixRow(new[] { (i + 1).ToString(), s.Label, s.PassRate.ToString("0") + "%", s.AvgDaysToPass.ToString("0.0"), Cash(s.FundedValue), Signed(s.ValuePerEval), s.LosingShare.ToString("0") + "%", s.LongestFailStreak95.ToString() },
+                        new[] { Gold, Text, Text, Text, Text, MoneyBrush(s.ValuePerEval), Text, Text }, w5, i == 0 ? Gold : MoneyBrush(s.ValuePerEval), delegate { if (applyPlanAndRun != null) applyPlanAndRun(s.Plan); });
+                }, 40, false));
+                setTab(3, p);
+            };
+
+            Action run = delegate
+            {
+                if (busy) return;
+                var rules = readRules(); var plan = readPlan(); var days = readDays();
+                if (plan.Source == "REAL" && (days == null || days.Count(d => d.Traded) == 0)) { status.Text = "NO RECOIL DAYS • run RECOIL in the lab first (or choose COIN FLIP)."; status.Foreground = Red; return; }
+                int n = Math.Max(500, Math.Min(50000, (int)PropNum(simsBox, 4000))), slots = Math.Max(1, Math.Min(100, (int)PropNum(slotsBox, 5))), months = Math.Max(1, Math.Min(60, (int)PropNum(monthsBox, 12)));
+                string source = sources[Math.Max(0, Math.Min(sources.Count - 1, sourceBox.SelectedIndex))];
+                busy = true; runBtn.IsEnabled = sweetBtn.IsEnabled = false; status.Text = "RUNNING • " + n.ToString("N0") + " evaluations + " + slots + " accounts × 3 ways × " + months + " months…"; status.Foreground = Gold;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    KeystonePropPlanResult x = null, luck = null; var programs = new List<KeystonePropProgram>(); var years = new List<KeystonePropYear>(); string failure = null;
+                    try
+                    {
+                        x = KeystonePropPlanner.Evaluate(rules, plan, days, n, 17);
+                        int runs = Math.Max(200, Math.Min(2000, 400000 / Math.Max(1, slots * months)));
+                        foreach (var mode in new[] { "SEPARATE", "COPY", "ROTATION" }) programs.Add(KeystonePropPlanner.Program(rules, plan, days, mode, slots, months * 21, runs, 23));
+                        if (plan.Source == "REAL") { years = KeystonePropPlanner.History(rules, plan, days); var coin = plan.Copy(); coin.Source = "COIN"; luck = KeystonePropPlanner.Evaluate(rules, coin, null, n, 17); }
+                    }
+                    catch (Exception ex) { failure = ex.Message; }
+                    Action done = delegate
+                    {
+                        busy = false; runBtn.IsEnabled = sweetBtn.IsEnabled = true;
+                        if (failure != null || x == null) { status.Text = "PLANNER ERROR • " + failure; status.Foreground = Red; return; }
+                        renderPlan(x, programs, years, luck, source);
+                        propLastPrograms = programs; propLastYears = years; propLastSource = source; propLastResult = x;
+                        status.Text = "DONE • one evaluation is worth " + Signed(x.ValuePerEval) + " • pass " + x.PassRate.ToString("0.0") + "% • " + slots + " separate accounts for " + months + " months: typical " + Signed(programs[0].P50) + ", money needed " + Cash(programs[0].MoneyNeeded95);
+                        status.Foreground = x.ValuePerEval > 0 ? Green : Red;
+                        tabs.SelectedIndex = 0;
+                    };
+                    if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
+                });
+            };
+
+            Action<KeystonePropPlan> applyPlan = p =>
+            {
+                eTBox.Text = p.EvalTarget.ToString("0", CultureInfo.InvariantCulture); eSBox.Text = p.EvalStop.ToString("0", CultureInfo.InvariantCulture); fTBox.Text = p.FundTarget.ToString("0", CultureInfo.InvariantCulture); fSBox.Text = p.FundStop.ToString("0", CultureInfo.InvariantCulture);
+                eKBox.Text = p.EvalSize.ToString("0.##", CultureInfo.InvariantCulture); eStopBox.Text = p.EvalDayStop.ToString("0", CultureInfo.InvariantCulture); fKBox.Text = p.FundSize.ToString("0.##", CultureInfo.InvariantCulture); fStopBox.Text = p.FundDayStop.ToString("0", CultureInfo.InvariantCulture);
+            };
+            applyPlanAndRun = p => { applyPlan(p); run(); };
+
+            Action sweet = delegate
+            {
+                if (busy) return;
+                var rules = readRules(); var plan = readPlan(); var days = readDays();
+                if (plan.Source == "REAL" && (days == null || days.Count(d => d.Traded) == 0)) { status.Text = "NO RECOIL DAYS • run RECOIL in the lab first (or choose COIN FLIP)."; status.Foreground = Red; return; }
+                int n = Math.Max(300, Math.Min(5000, (int)PropNum(simsBox, 4000) / 2));
+                busy = true; runBtn.IsEnabled = sweetBtn.IsEnabled = false; status.Text = "SEARCHING THE SWEET SPOT • every plan × " + n.ToString("N0") + " evaluations…"; status.Foreground = Gold;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    List<KeystonePropPlanResult> list = null; string failure = null;
+                    try { list = KeystonePropPlanner.SweetSpot(rules, plan, days, n, 31); } catch (Exception ex) { failure = ex.Message; }
+                    Action done = delegate
+                    {
+                        busy = false; runBtn.IsEnabled = sweetBtn.IsEnabled = true;
+                        if (failure != null || list == null) { status.Text = "SWEET SPOT ERROR • " + failure; status.Foreground = Red; return; }
+                        renderSweet(list);
+                        useBtn.IsEnabled = list.Count > 0; propLastSweet = list;
+                        var b = list[0];
+                        status.Text = "SWEET SPOT • #1 " + b.Label + " • one evaluation worth " + Signed(b.ValuePerEval) + " • pass " + b.PassRate.ToString("0") + "% • press USE BEST PLAN or click any row";
+                        status.Foreground = b.ValuePerEval > 0 ? Green : Red;
+                        tabs.SelectedIndex = 3;
+                    };
+                    if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
+                });
+            };
+            sweetBtn.Click += delegate { sweet(); };
+            runBtn.Click += delegate { run(); };
+            useBtn.Click += delegate { if (propLastSweet.Count > 0) applyPlanAndRun(propLastSweet[0].Plan); };
+            exportBtn.Click += delegate
+            {
+                if (propLastResult == null) { status.Text = "RUN THIS PLAN FIRST"; status.Foreground = Gold; return; }
+                try
+                {
+                    string dir = DataDirectory(); Directory.CreateDirectory(dir);
+                    string html = Path.Combine(dir, "KeystoneArc_PropPlanner_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".html");
+                    File.WriteAllText(html, KeystonePropPlanner.Html(propLastResult, propLastPrograms, propLastYears, propLastSweet, propLastSource), Encoding.UTF8);
+                    status.Text = "EXPORTED • " + html; status.Foreground = Green;
+                }
+                catch (Exception ex) { status.Text = "EXPORT ERROR • " + ex.Message; status.Foreground = Red; }
+            };
+            renderSweet(propLastSweet);
+
+            w.Content = root; propPlannerWindow = w;
+            w.Closed += delegate { propPlannerWindow = null; applyPlanAndRun = null; propPlannerRun = null; propPlannerSweet = null; };
+            w.Show();
+            propPlannerRun = run; propPlannerSweet = sweet; propPlannerTabs = tabs; propPlannerStatus = status;
+        }
+        private Action<KeystonePropPlan> applyPlanAndRun;
+        private TabControl propPlannerTabs; private TextBlock propPlannerStatus;
+        private Action propPlannerRun, propPlannerSweet;   // the open planner's RUN / FIND SWEET SPOT (used by the smoke test)
 
         // ---- chart -------------------------------------------------------------------------------
         private void RecoilFillDetail(KeystoneArcEvent e)

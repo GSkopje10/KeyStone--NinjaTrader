@@ -406,6 +406,28 @@ public static class UiSmokeTest
                 Call(lab4, "SetRecoilResultsMode", false);
                 if (((System.Windows.Controls.TabControl)G("resultViewTabs")).Visibility != System.Windows.Visibility.Visible) throw new Exception("normal tabs not restored");
             });
+            Step("PROP PLANNER: opens with the RECOIL days, runs the plan and the sweet spot, exports", () =>
+            {
+                Call(lab4, "OpenPropPlanner", "BOTH");
+                var pw = (System.Windows.Window)G("propPlannerWindow"); if (pw == null) throw new Exception("planner window not created");
+                Func<bool> waitPlan = () => { for (int i = 0; i < 600; i++) { if (G("propLastResult") != null) return true; System.Threading.Thread.Sleep(100); } return false; };
+                ((Action)G("propPlannerRun"))(); if (!waitPlan()) throw new Exception("plan did not finish • " + ((System.Windows.Controls.TextBlock)G("propPlannerStatus")).Text);
+                var x = (KeystonePropPlanResult)G("propLastResult"); var progs = (List<KeystonePropProgram>)G("propLastPrograms"); var years = (List<KeystonePropYear>)G("propLastYears");
+                Console.WriteLine("      " + x.Plan.Describe() + " • pass " + x.PassRate.ToString("0.0") + "% • value/eval " + x.ValuePerEval.ToString("0") + " • programs " + progs.Count + " • years " + years.Count);
+                if (x.Plan.Source != "REAL" || progs.Count != 3 || years.Count == 0) throw new Exception("plan incomplete");
+                var tabs = (System.Windows.Controls.TabControl)G("propPlannerTabs");
+                foreach (System.Windows.Controls.TabItem t in tabs.Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("tab not filled: " + t.Header);
+                ((Action)G("propPlannerSweet"))();
+                for (int i = 0; i < 1200 && ((List<KeystonePropPlanResult>)G("propLastSweet")).Count == 0; i++) System.Threading.Thread.Sleep(100);
+                var sweet = (List<KeystonePropPlanResult>)G("propLastSweet"); if (sweet.Count == 0) throw new Exception("sweet spot did not finish");
+                Console.WriteLine("      sweet spot " + sweet.Count + " plans • #1 " + sweet[0].Label + " → " + sweet[0].ValuePerEval.ToString("0"));
+                string html = KeystonePropPlanner.Html(x, progs, years, sweet, "RECOIL DAYS • BOTH");
+                System.IO.File.WriteAllText(".build/report_PROP.html", html);
+                Set(lab4, "propPlannerWindow", null);
+                Call(lab4, "OpenPropPlanner", (string)null);
+                if (G("propPlannerWindow") == null) throw new Exception("header open failed");
+                Set(lab4, "propPlannerWindow", null);
+            });
         }
         Console.WriteLine(failures == 0 ? "UI SMOKE TEST PASSED" : "UI SMOKE TEST: " + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
