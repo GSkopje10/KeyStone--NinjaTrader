@@ -8140,7 +8140,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -21358,10 +21358,23 @@ namespace NinjaTrader.NinjaScript.AddOns
             double v; return box != null && double.TryParse((box.Text ?? string.Empty).Replace("$", "").Replace(",", "").Replace("%", "").Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out v) && v >= 0 ? v : fallback;
         }
 
+        // Keep a window inside the screen's work area (taskbar excluded) so its title bar and maximize button stay reachable
+        // on laptops and scaled displays.
+        private static void FitWindowToScreen(Window w)
+        {
+            var wa = SystemParameters.WorkArea;
+            if (wa.Width < 400 || wa.Height < 300) return;
+            w.Width = Math.Min(w.Width, wa.Width - 16); w.Height = Math.Min(w.Height, wa.Height - 16);
+            w.MinWidth = Math.Min(w.MinWidth, w.Width); w.MinHeight = Math.Min(w.MinHeight, w.Height);
+            w.WindowStartupLocation = WindowStartupLocation.Manual;
+            w.Left = wa.X + (wa.Width - w.Width) / 2; w.Top = wa.Y + Math.Max(0, (wa.Height - w.Height) / 2);
+        }
+
         private void OpenPropPlanner(string preferredSource)
         {
             if (propPlannerWindow != null) { propPlannerWindow.Activate(); return; }
-            var w = new Window { Title = "KEYSTONE ARC • PROP PLANNER", Width = 1420, Height = 880, MinWidth = 1000, MinHeight = 620, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            var w = new Window { Title = "KEYSTONE ARC • PROP PLANNER", Width = 1420, Height = 880, MinWidth = 900, MinHeight = 560, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            FitWindowToScreen(w);
             var root = new Grid { Margin = new Thickness(10) };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -21449,12 +21462,14 @@ namespace NinjaTrader.NinjaScript.AddOns
 
             // ---- results (right) ----
             var right = new Grid(); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            var actions = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 2) };
+            var actions = new UniformGrid { Columns = 5, Margin = new Thickness(0, 0, 0, 2) };
+            var fullBtn = Btn("FULL SCREEN", Card); fullBtn.ToolTip = "Fill the screen / back to the normal size.";
+            fullBtn.Click += delegate { bool full = w.WindowState == WindowState.Maximized; w.WindowState = full ? WindowState.Normal : WindowState.Maximized; fullBtn.Content = full ? "FULL SCREEN" : "NORMAL SIZE"; };
             var runBtn = Btn("RUN THIS PLAN", Green); var sweetBtn = Btn("FIND SWEET SPOT", Gold); var useBtn = Btn("USE BEST PLAN", Cyan); var exportBtn = Btn("EXPORT REPORT (HTML)", Blue);
             runBtn.ToolTip = "Simulate the plan on the left: one evaluation's value, separate vs copy vs rotation, history by year.";
             sweetBtn.ToolTip = "Try many evaluation and funded plans under these firm rules and rank them by the value of one evaluation.";
             useBtn.ToolTip = "Put the #1 sweet-spot plan into the settings and run it."; useBtn.IsEnabled = false;
-            foreach (var b in new[] { runBtn, sweetBtn, useBtn, exportBtn }) { b.Height = 34; b.FontSize = 11.5; actions.Children.Add(b); }
+            foreach (var b in new[] { runBtn, sweetBtn, useBtn, exportBtn, fullBtn }) { b.Height = 34; b.FontSize = 11.5; actions.Children.Add(b); }
             right.Children.Add(actions);
             var status = Txt("PRESS RUN THIS PLAN (or FIND SWEET SPOT).", Gold, 12, FontWeights.Bold); status.Margin = new Thickness(4, 2, 4, 4); Grid.SetRow(status, 1); right.Children.Add(status);
             var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
