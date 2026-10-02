@@ -56,3 +56,7 @@ Every GOLDEN run now also detects, on the same bars: the first BH of each day, t
 (even when a BH came first) and EVERY 5M FVG of the day. Step 3 → ENTRIES picks the set for every tab; the
 WHICH ENTRIES tab shows all four side by side with the same filters, the break-even win rate and one live
 account (one trade open per instrument, or take all). The export includes the comparison.
+
+## Build 10-03g
+- FVG entry default is now **RETEST + BREAK**: the gap forms (candle 3 low above candle 1 high), price comes back into the gap without closing below it, a green candle closes (after a red touch the next candle must close green), the next candle breaks that green high → entry at that high. CANDLE 3 CLOSE (enter the moment the gap forms) is still selectable.
+- MOVE STUDY opens automatically after every GOLDEN run.

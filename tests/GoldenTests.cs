@@ -51,6 +51,29 @@ public static class GoldenTests
 
     public static int Main()
     {
+        // 0. FVG RETEST + BREAK (the FVG entry): the gap forms 08:01-08:03, price comes back into it, a green candle
+        //    closes, the next candle breaks that green high → entry there; NOT at candle 3's close.
+        {
+            var gold = new List<double[]>
+            {
+                C(1999, 1999.5, 1998.5, 1999),     // 08:00 stamp = pre-open
+                C(2000, 2001, 1999, 2000.5),       // 08:01 candle 1 (high 2001)
+                C(2000.5, 2005, 2000.4, 2004.8),   // 08:02 candle 2
+                C(2004.8, 2006, 2002, 2005.5),     // 08:03 candle 3 (low 2002 > 2001 → gap 2001-2002)
+                C(2005.5, 2007, 2005, 2006.5),     // 08:04
+                C(2006.5, 2006.6, 2001.5, 2003),   // 08:05 red dip into the gap, closes above it
+                C(2003, 2004, 2002.5, 2003.8),     // 08:06 green → reference high 2004
+                C(2003.8, 2006, 2003.5, 2005.8),   // 08:07 breaks 2004 → ENTRY 2004
+            };
+            var cfgR = Cfg("MGC"); cfgR.GoldenUseBh = 0; cfgR.GoldenFvgMode = "BREAK";
+            var barsR = Day("MGC", new DateTime(2026, 3, 10, 8, 0, 0), gold, 120, 0.2);
+            var evR = KeystoneArcEngine.DetectAndResolve(barsR, barsR, cfgR);
+            var r0 = evR.FirstOrDefault();
+            Check(evR.Count == 1 && r0.SetupClass == "FVG" && Math.Abs(r0.Entry - 2004) < 0.001 && r0.TriggerTime.Hour == 8 && r0.TriggerTime.Minute == 7, "FVG RETEST + BREAK: entry 2004 at 08:07 after the dip into the gap (not 2005.5 at candle 3)", evR.Count + " " + (r0 == null ? "" : r0.SetupClass + " " + r0.Entry + " " + r0.TriggerTime.ToString("HH:mm")));
+            var cfgC = Cfg("MGC"); cfgC.GoldenUseBh = 0; cfgC.GoldenFvgMode = "CLOSE";
+            var evC = KeystoneArcEngine.DetectAndResolve(barsR, barsR, cfgC);
+            Check(evC.Count == 1 && Math.Abs(evC[0].Entry - 2005.5) < 0.001, "CANDLE 3 CLOSE (the old default) enters 2005.5 at 08:03", evC.Count > 0 ? evC[0].Entry.ToString() : "none");
+        }
         // 1. MNQ: first BH after the open, push down, +100 target reached → WIN
         {
             var cfg = Cfg("MNQ");
