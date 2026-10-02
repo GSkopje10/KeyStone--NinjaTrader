@@ -197,6 +197,24 @@ public static class RecoilTests
             var single = KeystoneRecoilProp.ResolveSingle(mins2, "MNQ", 1, 19600, 1, 2, D.AddMinutes(4), 400, 2000, D.Date.AddHours(16), 0, 0);
             Check(single.Reason == "TARGET" && Eq(single.ExitPrice, 19800) && Eq(single.Pnl, 400), "SINGLE POSITION: 1 MNQ from 19600 with $400 target exits at 19800", single.Reason + " " + single.ExitPrice);
         }
+        // 13. STOP AND REVERSE: BUY 1 → (−100) SELL 2 → (−100) BUY 3 → (−100) SELL 4; the target makes the whole cycle +$400
+        {
+            var cfg = Cfg(); cfg.Mode = "REVERSE";
+            Check(cfg.LadderText().StartsWith("1 → 2 → 3 → 4"), "REVERSE sizes 1 → 2 → 3 → 4", cfg.LadderText());
+            // A: BUY 19900 loses at 19800 (−$200) → SELL 2 @ 19800, target (400+200)/(2×2) = 150 pts → 19650
+            var a = new List<double[]> { C(20000, 20005, 19990, 19995), C(19995, 19996, 19895, 19900), C(19900, 19905, 19795, 19800), C(19800, 19802, 19700, 19705), C(19705, 19706, 19645, 19650) };
+            var ca = Run(cfg, Bars("MNQ", D, a)).Cycles.Single();
+            Check(ca.Fills.Count == 2 && ca.Fills[0].Dir == 1 && ca.Fills[1].Dir == -1 && ca.Fills[1].Qty == 2 && ca.Fills[1].Price == 19800 && Eq(ca.Fills[1].TargetPrice, 19650) && Eq(ca.Fills[1].StopPrice, 19900), "REVERSE: SELL 2 @ 19800 after the −$200 loss, target 19650, stop 19900", string.Join(" | ", ca.Fills.Select(f => f.Dir + " " + f.Qty + "@" + f.Price + " tp " + f.TargetPrice + " sl " + f.StopPrice)));
+            Check(ca.Reason == "TARGET" && Eq(ca.Gross, 400) && Eq(ca.Net, 400 - 0.62 * 2 * 3 - 0.25 * 2 * 1), "REVERSE: WIN = −$200 + 2 × 150 pts × $2 = +$400 (costs: 3 contracts round trip + 1 tick on the stopped step)", ca.Reason + " " + ca.Gross + " " + ca.Net);
+            Check(Eq(KeystoneRecoil.Value(ca, 19700), -200 + 2 * 100 * 2), "REVERSE: open P/L at 19700 = −$200 + $400 = +$200", KeystoneRecoil.Value(ca, 19700).ToString());
+            // C: every step loses → −200 −400 −600 −800 = −$2,000
+            var c = new List<double[]> { C(20000, 20005, 19990, 19995), C(19995, 19996, 19895, 19900), C(19900, 19905, 19795, 19800), C(19800, 19905, 19798, 19900), C(19900, 19902, 19795, 19800), C(19800, 19905, 19798, 19900) };
+            var cc = Run(cfg, Bars("MNQ", D, c)).Cycles.Single();
+            Check(cc.Fills.Count == 4 && cc.Fills.Select(f => f.Qty).SequenceEqual(new[] { 1, 2, 3, 4 }) && cc.Fills.Select(f => f.Dir).SequenceEqual(new[] { 1, -1, 1, -1 }), "REVERSE: 4 steps, alternating BUY / SELL", string.Join(",", cc.Fills.Select(f => f.Dir * f.Qty)));
+            Check(cc.Reason == "BLOWUP" && Eq(cc.Gross, -2000), "REVERSE: all 4 steps lose → −$2,000 (−200 −400 −600 −800)", cc.Reason + " " + cc.Gross);
+            // the same day with ADD for comparison stays a valid run
+            Check(Run(Cfg(), Bars("MNQ", D, c)).Cycles.Count == 1, "ADD on the same bars still works");
+        }
         Console.WriteLine(failures == 0 ? "ALL RECOIL TESTS PASSED" : failures + " RECOIL TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

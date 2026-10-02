@@ -376,6 +376,26 @@ public static class UiSmokeTest
                 for (int i = 0; i < 30; i++) Call(lab4, "ReplayStepBar", 1);
                 Call(lab4, "StopEvidenceReplay");
             });
+            Step("RECOIL: STOP AND REVERSE mode runs, compares with ADD and draws its steps", () =>
+            {
+                var mode = (System.Windows.Controls.ComboBox)G("rcModeBox"); mode.SelectedIndex = 1; mode.SelectedItem = mode.Items[1]; Call(lab4, "UpdateRecoilPreview");
+                string prev = ((System.Windows.Controls.TextBlock)G("rcPreviewText")).Text;
+                if (!prev.Contains("STEP 2  SELL 2")) throw new Exception("reverse preview missing: " + prev.Split('\n')[1]);
+                Call(lab4, "RunRecoil"); if (!wait4()) throw new Exception("REVERSE run did not finish");
+                var res = (KeystoneRecoilResult)G("recoilResult");
+                var modes = (System.Collections.IList)G("recoilModeCompare");
+                Console.WriteLine("      reverse cycles " + res.Cycles.Count + " (won " + res.Wins + ", lost all steps " + res.Blowups + ") • net " + res.Net.ToString("0") + " • modes compared " + modes.Count);
+                if (res.Cycles.Count == 0 || res.Cycles.Any(x => x.Mode != "REVERSE") || modes.Count != 2) throw new Exception("reverse run wrong");
+                var multi = res.Cycles.OrderByDescending(x => x.Entries).First();
+                Call(lab4, "OpenRecoilChart", multi);
+                ((System.Windows.Controls.TextBox)G("evidenceDateBox")).Text = multi.Day.ToString("yyyy-MM-dd");
+                var ib = (System.Windows.Controls.ComboBox)G("evidenceInstrumentBox"); if (ib != null) ib.SelectedItem = multi.Symbol;
+                Call(lab4, "RequestEvidenceBars"); Call(lab4, "RenderEvidenceChart");
+                Call(lab4, "ReplaySetCursor", multi.Fills[multi.Fills.Count - 1].Time, true); Call(lab4, "UpdateEvidenceLivePanel");
+                Console.WriteLine("      live: " + ((System.Windows.Controls.TextBlock)G("evidenceLiveLines")).Text.Split('\n')[0]);
+                Call(lab4, "StopEvidenceReplay");
+                mode.SelectedIndex = 0; mode.SelectedItem = mode.Items[0];
+            });
             Step("RECOIL: report html and leaving RECOIL restores the normal view", () =>
             {
                 var res = (KeystoneRecoilResult)G("recoilResult");

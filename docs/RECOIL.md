@@ -40,3 +40,14 @@ shows contracts, average, open P/L, distance to the target and the blowup, and t
 2. Prop simulation: evaluation fee, funded, payouts, copy trading, rotation (each add on another account) and
    account groups by session. 3. Report and analyst verdict on the prop math.
 Tests: `tests/RecoilTests.cs` (ladder math to the cent).
+
+## Build 10-02y • STOP AND REVERSE
+Step 1 → AFTER EVERY STEP POINTS AGAINST US: ADD TO THE LOSER (ladder) or STOP AND REVERSE.
+REVERSE: the first trade (1 contract, against the trigger move) is closed after STEP points against it and the
+next size (2, then 3, then 4) opens the OTHER way at that price. The target makes the whole cycle +TARGET $ (it
+covers the closed steps), e.g. MNQ 100-pt steps, $400: step 2 needs +150 pts, step 3 +167, step 4 +200.
+All four steps losing = −$2,000 (−200 −400 −600 −800). Every run also runs the other mode on the same days:
+OVERVIEW shows ADD vs REVERSE side by side (and the export includes it).
+Minute model (REVERSE): each 1-minute bar is walked open → the extreme nearer the open → the other extreme →
+close; stops and targets are hit at their exact prices along that path; stops are market (1 tick slippage).
+With BOTH instruments REVERSE uses each instrument's own drawdown.

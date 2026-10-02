@@ -6508,6 +6508,7 @@ namespace NinjaTrader.NinjaScript
         public string DrawdownMode = "SHARED";        // SHARED: MNQ + MGC together (and the day's closed cycles) • SPLIT: each instrument its own
         public double MaxDrawdown = 2000, MnqMaxDrawdown = 2000, MgcMaxDrawdown = 2000;
         public int CyclesPerDay = 1;                  // after a win a new cycle starts from the exit price
+        public string Mode = "ADD";                   // ADD: add to the loser • REVERSE: after STEP points against, close and reverse with the next size (1 → 2 → 3 → 4)
         public double MnqPointValue = 2, MgcPointValue = 10;   // $ per point per contract (CFD: $ per point per lot)
         public double CommissionPerSide = 0.62, SlippageTicks = 1;
         public string Weekdays = "12345";
@@ -6517,24 +6518,25 @@ namespace NinjaTrader.NinjaScript
         public string LadderText()
         {
             var q = new List<int>(); int tot = 0;
-            for (int k = 0; k < Math.Max(1, MaxEntries); k++) { tot += KeystoneRecoil.AddQty(this, k); q.Add(tot); }
+            for (int k = 0; k < Math.Max(1, MaxEntries); k++) { tot += KeystoneRecoil.AddQty(this, k); q.Add(Mode == "REVERSE" ? KeystoneRecoil.ReverseQty(this, k) : tot); }
             return string.Join(" → ", q.Select(x => x.ToString(CultureInfo.InvariantCulture))) + " contracts";
         }
         public string Describe()
         {
             Func<double, string> n = v => v.ToString("0.##", CultureInfo.InvariantCulture);
-            return Instruments() + " • start " + (UseMnq == 1 ? "MNQ " + Hhmm(MnqStartHhmm) : "") + (UseMnq == 1 && UseMgc == 1 ? " / " : "") + (UseMgc == 1 ? "MGC " + Hhmm(MgcStartHhmm) : "") + " • last entry " + Hhmm(LastEntryHhmm) + " • close " + Hhmm(CloseHhmm)
-                + " • trigger / add every " + (UseMnq == 1 ? "MNQ " + n(MnqTrigger) + "/" + n(MnqStep) : "") + (UseMnq == 1 && UseMgc == 1 ? " • " : "") + (UseMgc == 1 ? "MGC " + n(MgcTrigger) + "/" + n(MgcStep) : "") + " pts • ladder " + LadderText()
-                + " • target " + (TargetMode == "POINTS" ? "+" + n(MnqTargetPoints) + " / " + n(MgcTargetPoints) + " pts from the average" : "$" + n(TargetDollars)) + " • max drawdown " + (DrawdownMode == "SPLIT" && UseMnq == 1 && UseMgc == 1 ? "MNQ $" + n(MnqMaxDrawdown) + " / MGC $" + n(MgcMaxDrawdown) : "$" + n(MaxDrawdown) + (UseMnq == 1 && UseMgc == 1 ? " shared" : ""))
+            return (Mode == "REVERSE" ? "STOP AND REVERSE • " : "ADD TO LOSERS • ") + Instruments() + " • start " + (UseMnq == 1 ? "MNQ " + Hhmm(MnqStartHhmm) : "") + (UseMnq == 1 && UseMgc == 1 ? " / " : "") + (UseMgc == 1 ? "MGC " + Hhmm(MgcStartHhmm) : "") + " • last entry " + Hhmm(LastEntryHhmm) + " • close " + Hhmm(CloseHhmm)
+                + " • trigger / add every " + (UseMnq == 1 ? "MNQ " + n(MnqTrigger) + "/" + n(MnqStep) : "") + (UseMnq == 1 && UseMgc == 1 ? " • " : "") + (UseMgc == 1 ? "MGC " + n(MgcTrigger) + "/" + n(MgcStep) : "") + " pts • " + (Mode == "REVERSE" ? "sizes " + LadderText().Replace(" contracts", "") + " (each step the other way)" : "ladder " + LadderText())
+                + " • target " + (TargetMode == "POINTS" ? "+" + n(MnqTargetPoints) + " / " + n(MgcTargetPoints) + " pts from the average" : "$" + n(TargetDollars)) + " • max drawdown " + (DrawdownMode == "SPLIT" && UseMnq == 1 && UseMgc == 1 ? "MNQ $" + n(MnqMaxDrawdown) + " / MGC $" + n(MgcMaxDrawdown) : "$" + n(MaxDrawdown) + (UseMnq == 1 && UseMgc == 1 ? (Mode == "REVERSE" ? " each" : " shared") : ""))
                 + " • " + CyclesPerDay + " cycle(s)/day • costs $" + n(CommissionPerSide) + "/side + " + n(SlippageTicks) + " tick on market exits";
         }
     }
 
-    public sealed class KeystoneRecoilFill { public DateTime Time; public double Price, Level, Avg, TargetPrice, StopPrice; public int Qty, TotalQty; public bool Gap; }
+    public sealed class KeystoneRecoilFill { public DateTime Time; public double Price, Level, Avg, TargetPrice, StopPrice; public int Qty, TotalQty, Dir; public bool Gap; }
 
     public sealed class KeystoneRecoilCycle
     {
         public int Id, CycleInDay, Dir;
+        public string Mode = "ADD";        // ADD or REVERSE (each fill is then one step, the other way, closing the step before it)
         public DateTime Day, AnchorTime, ExitTime = DateTime.MinValue, LowestTime = DateTime.MinValue, BestAfterLowestTime = DateTime.MinValue;
         public string Symbol = string.Empty, Reason = string.Empty;
         public double AnchorPrice, TriggerLevel, ExitPrice, Gross, Commission, Slippage, Net, PointValue, Step, MaeValue, MfeValue, AvgAtExit;
@@ -6586,7 +6588,8 @@ namespace NinjaTrader.NinjaScript
             public bool Active, Waiting, DayDone; public int CyclesToday;
             public double Anchor; public DateTime AnchorTime;
             public KeystoneRecoilCycle Cycle;
-            public double S, Q;               // Σ price×qty and Σ qty of the fills
+            public double S, Q;               // Σ price×qty and Σ qty of the fills (REVERSE: the open step only)
+            public double Realized, RevComm, RevSlip;   // REVERSE: P/L, commission and slippage of the closed steps
             public double Avg { get { return Q <= 0 ? double.NaN : S / Q; } }
             public int NextAdd { get { return Cycle == null ? 0 : Cycle.Fills.Count; } }
         }
@@ -6598,10 +6601,21 @@ namespace NinjaTrader.NinjaScript
         static bool Real(KeystoneHelixMinute m, Leg l) { return l.Mgc ? m.HasMgc : m.HasMnq; }
 
         // P/L of the ladder at a price: direction × Σ (price − fill) × qty × $/point.
-        public static double Value(KeystoneRecoilCycle c, double price)
+        public static double Value(KeystoneRecoilCycle c, double price) { return Value(c, price, DateTime.MaxValue); }
+        // P/L at a price counting only the fills made by time t. REVERSE: every step before the last was closed at the next step's price.
+        public static double Value(KeystoneRecoilCycle c, double price, DateTime t)
         {
-            double v = 0; foreach (var f in c.Fills) v += c.Dir * (price - f.Price) * f.Qty * c.PointValue; return v;
+            var fs = c.Fills.Where(f => f.Time <= t).ToList();
+            double v = 0;
+            if (c.Mode == "REVERSE")
+            {
+                for (int k = 0; k < fs.Count; k++) { var f = fs[k]; double exit = k + 1 < fs.Count ? fs[k + 1].Price : price; v += f.Dir * (exit - f.Price) * f.Qty * c.PointValue; }
+                return v;
+            }
+            foreach (var f in fs) v += c.Dir * (price - f.Price) * f.Qty * c.PointValue; return v;
         }
+        // STOP AND REVERSE sizes: step k uses the ladder's k-th total (1, 2, 3, 4 with +1 each).
+        public static int ReverseQty(KeystoneRecoilConfig c, int k) { int t = 0; for (int i = 0; i <= k; i++) t += AddQty(c, i); return t; }
         static double Value(Leg l, double price) { return l.Cycle.Dir * (l.Q * price - l.S) * l.Pv; }
         static double LevelOf(Leg l, int k) { return l.Cycle.Fills[0].Price - l.Cycle.Dir * k * l.Step; }
         static double TargetPrice(Leg l, KeystoneRecoilConfig c)
@@ -6628,7 +6642,7 @@ namespace NinjaTrader.NinjaScript
         {
             int q = AddQty(c, l.Cycle.Fills.Count);
             l.S += price * q; l.Q += q;
-            var f = new KeystoneRecoilFill { Time = t, Price = price, Level = level, Qty = q, TotalQty = (int)l.Q, Avg = l.Avg, Gap = gap };
+            var f = new KeystoneRecoilFill { Time = t, Price = price, Level = level, Qty = q, TotalQty = (int)l.Q, Dir = l.Cycle.Dir, Avg = l.Avg, Gap = gap };
             l.Cycle.Fills.Add(f);
             f.TargetPrice = TargetPrice(l, c);
             int ignored; f.StopPrice = c.DrawdownMode == "SHARED" && c.UseMnq == 1 && c.UseMgc == 1 ? double.NaN : StopPrice(l, c, l.OwnDd, out ignored);
@@ -6649,6 +6663,102 @@ namespace NinjaTrader.NinjaScript
             l.Cycle.MfeValue = Math.Max(l.Cycle.MfeValue, Value(l, fav));
         }
 
+        // ---- STOP AND REVERSE -------------------------------------------------------------------
+        // Step k: ReverseQty(k) contracts in direction (−1)^k × the first direction. Stop STEP points against (never past the
+        // max drawdown left); the target makes the WHOLE cycle +TARGET $ (it covers the closed steps' losses).
+        static void AddReverseFill(Leg l, KeystoneRecoilConfig c, DateTime t, double price, int dir, bool gap)
+        {
+            int k = l.Cycle.Fills.Count, q = ReverseQty(c, k);
+            l.S = price * q; l.Q = q;
+            double room = l.OwnDd + l.Realized;
+            double stopPts = Math.Min(l.Step, Math.Max(0, room) / (q * l.Pv));
+            var f = new KeystoneRecoilFill { Time = t, Price = price, Level = price, Qty = q, TotalQty = q, Dir = dir, Avg = price, Gap = gap };
+            f.TargetPrice = c.TargetMode == "POINTS" ? price + dir * l.TargetPts : price + dir * (c.TargetDollars - l.Realized) / (q * l.Pv);
+            f.StopPrice = price - dir * stopPts;
+            l.Cycle.Fills.Add(f);
+        }
+        static double RevValue(Leg l, double price) { var f = l.Cycle.Fills[l.Cycle.Fills.Count - 1]; return l.Realized + f.Dir * (price - f.Price) * f.Qty * l.Pv; }
+        // The open step is stopped at a price: book it; reverse with the next size, or end the cycle (BLOWUP) when no step is left.
+        static bool ReverseStep(Leg l, KeystoneRecoilConfig c, DateTime t, double price, bool gap, KeystoneRecoilResult r)
+        {
+            var f = l.Cycle.Fills[l.Cycle.Fills.Count - 1];
+            bool last = l.Cycle.Fills.Count >= c.MaxEntries || l.OwnDd + RevValue(l, price) <= 1e-6;
+            if (last) { CloseReverse(l, c, t, price, "BLOWUP", true, r); return false; }
+            l.Realized += f.Dir * (price - f.Price) * f.Qty * l.Pv;
+            l.RevComm += c.CommissionPerSide * 2 * f.Qty; l.RevSlip += c.SlippageTicks * l.Tick * l.Pv * f.Qty;
+            AddReverseFill(l, c, t, price, -f.Dir, gap);
+            return true;
+        }
+        static void CloseReverse(Leg l, KeystoneRecoilConfig c, DateTime t, double price, string reason, bool market, KeystoneRecoilResult r)
+        {
+            var cy = l.Cycle; var f = cy.Fills[cy.Fills.Count - 1];
+            cy.ExitTime = t; cy.ExitPrice = price; cy.Reason = reason; cy.AvgAtExit = f.Price;
+            cy.Gross = RevValue(l, price);
+            cy.Commission = l.RevComm + c.CommissionPerSide * 2 * f.Qty;
+            cy.Slippage = l.RevSlip + (market ? c.SlippageTicks * l.Tick * l.Pv * f.Qty : 0);
+            cy.Net = cy.Gross - cy.Commission - cy.Slippage;
+            r.Cycles.Add(cy);
+            l.Active = false; l.Cycle = null; l.S = 0; l.Q = 0; l.Realized = 0; l.RevComm = 0; l.RevSlip = 0; l.CyclesToday++;
+            if (reason == "TARGET" && l.CyclesToday < Math.Max(1, c.CyclesPerDay)) { l.Waiting = true; l.Anchor = price; l.AnchorTime = t; }
+            else l.DayDone = true;
+        }
+        // One minute of an open STOP AND REVERSE cycle, walked along the minute's price path: open → the extreme nearer the
+        // open → the other extreme → close. On each straight piece the open step's stop (adverse) or target (favourable) is
+        // hit at its exact price; a stop reverses there and the rest of the piece continues with the new step.
+        static void ReverseMinute(Leg l, KeystoneRecoilConfig c, KeystoneHelixMinute m, bool entryMinute, KeystoneRecoilResult r)
+        {
+            double o = O(m, l), hi = H(m, l), lo = L(m, l), cl = C(m, l);
+            bool lowFirst = Math.Abs(o - lo) < Math.Abs(hi - o);
+            double e1 = lowFirst ? lo : hi, e2 = lowFirst ? hi : lo;
+            double cur; var path = new List<double>();
+            if (entryMinute)
+            {
+                var f0 = l.Cycle.Fills[0];
+                bool trigByE1 = f0.Dir > 0 ? lowFirst : !lowFirst;   // a BUY was triggered on the way to the low
+                cur = f0.Price;
+                if (f0.Gap) { path.Add(e1); path.Add(e2); path.Add(cl); }
+                else if (trigByE1) { path.Add(e1); path.Add(e2); path.Add(cl); }
+                else { path.Add(e2); path.Add(cl); }
+            }
+            else
+            {
+                while (l.Active)
+                {
+                    var f = l.Cycle.Fills[l.Cycle.Fills.Count - 1];
+                    if (f.Dir * (o - f.StopPrice) <= 0) { if (!ReverseStep(l, c, m.Time, o, true, r)) return; continue; }
+                    if (f.Dir * (o - f.TargetPrice) >= 0) { CloseReverse(l, c, m.Time, o, "TARGET", false, r); return; }
+                    break;
+                }
+                cur = o; path.Add(e1); path.Add(e2); path.Add(cl);
+            }
+            foreach (double p in path) { if (!ReverseWalk(l, c, m, cur, p, r)) return; cur = p; }
+        }
+        static bool ReverseWalk(Leg l, KeystoneRecoilConfig c, KeystoneHelixMinute m, double a, double b, KeystoneRecoilResult r)
+        {
+            int guard = 0;
+            while (l.Active && guard++ < 50)
+            {
+                var f = l.Cycle.Fills[l.Cycle.Fills.Count - 1]; int d = f.Dir;
+                if (d * (b - a) < 0)
+                {
+                    if (d * (b - f.StopPrice) <= 0 && d * (a - f.StopPrice) >= 0)
+                    {
+                        l.Cycle.MaeValue = Math.Min(l.Cycle.MaeValue, RevValue(l, f.StopPrice));
+                        if (!ReverseStep(l, c, m.Time, f.StopPrice, false, r)) return false;
+                        a = l.Cycle.Fills[l.Cycle.Fills.Count - 1].Price; continue;
+                    }
+                    l.Cycle.MaeValue = Math.Min(l.Cycle.MaeValue, RevValue(l, b)); return true;
+                }
+                if (d * (b - f.TargetPrice) >= 0 && d * (a - f.TargetPrice) <= 0)
+                {
+                    l.Cycle.MfeValue = Math.Max(l.Cycle.MfeValue, RevValue(l, f.TargetPrice));
+                    CloseReverse(l, c, m.Time, f.TargetPrice, "TARGET", false, r); return false;
+                }
+                l.Cycle.MfeValue = Math.Max(l.Cycle.MfeValue, RevValue(l, b)); return true;
+            }
+            return l.Active;
+        }
+
         static void Close(Leg l, KeystoneRecoilConfig c, DateTime t, double price, string reason, bool market, KeystoneRecoilResult r)
         {
             var cy = l.Cycle;
@@ -6667,7 +6777,7 @@ namespace NinjaTrader.NinjaScript
         {
             var r = new KeystoneRecoilResult { Config = cfg };
             if (minutes == null || minutes.Count == 0 || (cfg.UseMnq != 1 && cfg.UseMgc != 1)) { r.Notes.Add("No minutes or no instrument selected."); return r; }
-            bool both = cfg.UseMnq == 1 && cfg.UseMgc == 1, shared = both && cfg.DrawdownMode != "SPLIT";
+            bool both = cfg.UseMnq == 1 && cfg.UseMgc == 1, shared = both && cfg.DrawdownMode != "SPLIT" && cfg.Mode != "REVERSE";
             int firstStart = Math.Min(cfg.UseMnq == 1 ? cfg.MnqStartHhmm : 2359, cfg.UseMgc == 1 ? cfg.MgcStartHhmm : 2359);
             int id = 0;
             r.NoTriggerDays["MNQ"] = 0; r.NoTriggerDays["MGC"] = 0;
@@ -6730,8 +6840,9 @@ namespace NinjaTrader.NinjaScript
                     }
                     if (dir == 0) continue;
                     l.Waiting = false; l.Active = true; triggered.Add(l.Symbol);
-                    l.Cycle = new KeystoneRecoilCycle { Id = ++id, Day = day, Symbol = l.Symbol, Dir = dir, AnchorTime = l.AnchorTime, AnchorPrice = l.Anchor, TriggerLevel = level, PointValue = l.Pv, Step = l.Step, CycleInDay = l.CyclesToday + 1, Ambiguous = amb };
-                    l.S = 0; l.Q = 0;
+                    l.Cycle = new KeystoneRecoilCycle { Id = ++id, Day = day, Symbol = l.Symbol, Dir = dir, Mode = cfg.Mode == "REVERSE" ? "REVERSE" : "ADD", AnchorTime = l.AnchorTime, AnchorPrice = l.Anchor, TriggerLevel = level, PointValue = l.Pv, Step = l.Step, CycleInDay = l.CyclesToday + 1, Ambiguous = amb };
+                    l.S = 0; l.Q = 0; l.Realized = 0; l.RevComm = 0; l.RevSlip = 0;
+                    if (cfg.Mode == "REVERSE") { AddReverseFill(l, cfg, m.Time, price, dir, gap); ReverseMinute(l, cfg, m, true, r); continue; }
                     AddFill(l, cfg, m.Time, price, level, gap);
                     // Rest of the entry minute: the move that triggered us continues to the bar's extreme
                     // (adds on the way); a target only if the minute closes beyond it.
@@ -6747,6 +6858,12 @@ namespace NinjaTrader.NinjaScript
                     if (dir * (C(m, l) - tp) >= 0) { Close(l, cfg, m.Time, tp, "TARGET", false, r); dayRealized += r.Cycles[r.Cycles.Count - 1].Net; }
                 }
                 // 2. open ladders (the per-minute steps skip the minute a ladder started: it was handled above)
+                if (cfg.Mode == "REVERSE")
+                {
+                    foreach (var l in legs.Where(x => x.Active && x.Cycle != null && x.Cycle.Fills[0].Time < m.Time && Real(m, x)).ToList()) ReverseMinute(l, cfg, m, false, r);
+                    if (isLast) foreach (var l in legs.Where(x => x.Active && x.Cycle != null).ToList()) CloseReverse(l, cfg, m.Time, Real(m, l) ? C(m, l) : LastPrice(minutes, k, l), "SESSION END", true, r);
+                    continue;
+                }
                 var open = legs.Where(l => l.Active && l.Cycle != null && l.Cycle.Fills.Count > 0 && l.Cycle.Fills[0].Time < m.Time && Real(m, l)).ToList();
                 if (legs.Any(l => l.Active && l.Cycle != null))
                 {
@@ -6832,7 +6949,7 @@ namespace NinjaTrader.NinjaScript
             foreach (var l in legs) if (!triggered.Contains(l.Symbol) && !noData.Contains(l.Symbol)) r.NoTriggerDays[l.Symbol] = r.NoTriggerDays[l.Symbol] + 1;
             // Bounce study: from the entry to the close, the worst price, the best price after it and what the
             // full ladder (every add the worst price reached, no stop) would have been worth there.
-            foreach (var cy in r.Cycles.Where(c => c.Day == day))
+            foreach (var cy in r.Cycles.Where(c => c.Day == day && c.Mode != "REVERSE"))
             {
                 bool mg = cy.Symbol == "MGC"; double worst = double.NaN, best = double.NaN; DateTime wt = DateTime.MinValue, bt = DateTime.MinValue;
                 for (int k = lo; k < hi; k++)
@@ -7630,7 +7747,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-09-30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-02y • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -20252,7 +20369,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<UIElement> recoilStrategyControls = new List<UIElement>();
         private TextBox rcMnqStartBox, rcMgcStartBox, rcLastEntryBox, rcCloseBox, rcMnqTriggerBox, rcMgcTriggerBox, rcMnqStepBox, rcMgcStepBox, rcMaxEntriesBox, rcBaseQtyBox,
             rcTargetBox, rcMnqTargetPtsBox, rcMgcTargetPtsBox, rcMaxDdBox, rcMnqDdBox, rcMgcDdBox, rcCyclesBox, rcMnqPvBox, rcMgcPvBox, rcCommissionBox, rcSlipBox, rcStartBalanceBox;
-        private ComboBox rcLadderBox, rcTargetModeBox, rcDdModeBox;
+        private ComboBox rcLadderBox, rcTargetModeBox, rcDdModeBox, rcModeBox;
+        private List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>> recoilModeCompare = new List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>>();
         private CheckBox rcSameStartBox;
         private TextBlock rcPreviewText;
         private KeystoneRecoilResult recoilResult;
@@ -20278,6 +20396,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             rcSameStartBox = new CheckBox { Content = "MNQ AND MGC START LOOKING AT THE SAME TIME", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
             rcMnqTriggerBox = Input("100"); rcMgcTriggerBox = Input("20"); rcMnqStepBox = Input("100"); rcMgcStepBox = Input("20");
             rcLadderBox = Select("+1 EACH ADD • 1 → 2 → 3 → 4", "GROWING • 1 → 3 → 6 → 10", "DOUBLING • 1 → 2 → 4 → 8"); rcLadderBox.SelectedIndex = 0;
+            rcModeBox = Select("ADD TO THE LOSER • ladder 1 → 2 → 3 → 4 contracts", "STOP AND REVERSE • 1, then 2 the other way, 3, 4"); rcModeBox.SelectedIndex = 0;
             rcMaxEntriesBox = Input("4"); rcBaseQtyBox = Input("1");
             rcTargetModeBox = Select("$ FOR THE WHOLE LADDER", "POINTS FROM THE AVERAGE PRICE"); rcTargetModeBox.SelectedIndex = 0;
             rcTargetBox = Input("400"); rcMnqTargetPtsBox = Input("50"); rcMgcTargetPtsBox = Input("10");
@@ -20286,13 +20405,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             rcMnqPvBox = Input("2"); rcMgcPvBox = Input("10"); rcCommissionBox = Input("0.62"); rcSlipBox = Input("1"); rcStartBalanceBox = Input("5000");
             foreach (TextBox b in new[] { rcMnqStartBox, rcMgcStartBox, rcLastEntryBox, rcCloseBox, rcMnqTriggerBox, rcMgcTriggerBox, rcMnqStepBox, rcMgcStepBox, rcMaxEntriesBox, rcBaseQtyBox, rcTargetBox, rcMnqTargetPtsBox, rcMgcTargetPtsBox, rcMaxDdBox, rcMnqDdBox, rcMgcDdBox, rcCyclesBox, rcMnqPvBox, rcMgcPvBox, rcCommissionBox, rcSlipBox, rcStartBalanceBox })
             { WatchConfigurationInput(b); b.TextChanged += delegate { UpdateRecoilPreview(); }; }
-            foreach (ComboBox b in new[] { rcLadderBox, rcTargetModeBox, rcDdModeBox }) b.SelectionChanged += delegate { InvalidateConfigurationApproval(); UpdateRecoilPreview(); };
+            foreach (ComboBox b in new[] { rcLadderBox, rcTargetModeBox, rcDdModeBox, rcModeBox }) b.SelectionChanged += delegate { InvalidateConfigurationApproval(); UpdateRecoilPreview(); };
             rcSameStartBox.Checked += delegate { InvalidateConfigurationApproval(); UpdateRecoilPreview(); }; rcSameStartBox.Unchecked += delegate { InvalidateConfigurationApproval(); UpdateRecoilPreview(); };
             panel.Children.Add(Txt("1 • WHEN (NEW YORK TIME, HHMM)", Cyan, 10, FontWeights.Bold));
             panel.Children.Add(Row("MNQ STARTS LOOKING AT", rcMnqStartBox)); panel.Children.Add(Row("MGC STARTS LOOKING AT", rcMgcStartBox)); panel.Children.Add(Row("BOTH", rcSameStartBox));
             panel.Children.Add(Row("NO NEW LADDER AFTER", rcLastEntryBox)); panel.Children.Add(Row("CLOSE EVERYTHING AT", rcCloseBox));
             panel.Children.Add(Row("LADDERS A DAY PER INSTRUMENT (a new one only after a win)", rcCyclesBox));
-            panel.Children.Add(Txt("2 • TRIGGER AND ADDS (POINTS)", Cyan, 10, FontWeights.Bold));
+            panel.Children.Add(Txt("2 • TRIGGER AND WHAT HAPPENS AFTER A LOSS (POINTS)", Cyan, 10, FontWeights.Bold));
+            panel.Children.Add(Row("AFTER EVERY STEP POINTS AGAINST US", rcModeBox));
+            panel.Children.Add(Txt("ADD = keep the position and add one more. REVERSE = close it (a loss) and open the next size the other way; the target makes the WHOLE cycle +TARGET $. Each run also runs the other mode on the same days for the comparison.", Muted, 9.5, FontWeights.Normal));
             panel.Children.Add(Row("MNQ: ENTER AFTER A MOVE OF", rcMnqTriggerBox)); panel.Children.Add(Row("MNQ: ADD EVERY", rcMnqStepBox));
             panel.Children.Add(Row("MGC: ENTER AFTER A MOVE OF", rcMgcTriggerBox)); panel.Children.Add(Row("MGC: ADD EVERY", rcMgcStepBox));
             panel.Children.Add(Row("LADDER", rcLadderBox)); panel.Children.Add(Row("MAX ENTRIES (FIRST + ADDS)", rcMaxEntriesBox)); panel.Children.Add(Row("FIRST ENTRY CONTRACTS", rcBaseQtyBox));
@@ -20320,6 +20441,21 @@ namespace NinjaTrader.NinjaScript.AddOns
             KeystoneRecoilConfig c; string err;
             if (!ReadRecoilConfig(out c, out err, false)) { rcPreviewText.Text = "⚠ " + err; rcPreviewText.Foreground = Red; return; }
             var sb = new StringBuilder();
+            if (c.Mode == "REVERSE")
+            {
+                foreach (string sym in new[] { "MNQ", "MGC" })
+                {
+                    bool mg = sym == "MGC"; double step = mg ? c.MgcStep : c.MnqStep, pv = mg ? c.MgcPointValue : c.MnqPointValue; double lost = 0;
+                    sb.AppendLine(sym + " STOP AND REVERSE (first trade a BUY, $" + pv.ToString("0.##") + "/pt):");
+                    for (int k = 0; k < c.MaxEntries; k++)
+                    {
+                        int q = KeystoneRecoil.ReverseQty(c, k); double need = c.TargetMode == "POINTS" ? (mg ? c.MgcTargetPoints : c.MnqTargetPoints) : (c.TargetDollars + lost) / (q * pv);
+                        sb.AppendLine("  STEP " + (k + 1) + "  " + (k % 2 == 0 ? "BUY " : "SELL") + " " + q + "  target needs +" + need.ToString("0.#") + " pts • stop " + step.ToString("0.#") + " pts = −" + Cash(step * q * pv) + " • lost so far if stopped " + Cash(-(lost + step * q * pv)));
+                        lost += step * q * pv;
+                    }
+                }
+                rcPreviewText.Text = sb.ToString().TrimEnd(); rcPreviewText.Foreground = Green; return;
+            }
             foreach (string sym in new[] { "MNQ", "MGC" })
             {
                 bool mg = sym == "MGC"; double step = mg ? c.MgcStep : c.MnqStep, pv = mg ? c.MgcPointValue : c.MnqPointValue, dd = c.DrawdownMode == "SPLIT" ? (mg ? c.MgcMaxDrawdown : c.MnqMaxDrawdown) : c.MaxDrawdown;
@@ -20352,6 +20488,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             c.MaxDrawdown = Number(rcMaxDdBox, 2000); c.DrawdownMode = rcDdModeBox != null && rcDdModeBox.SelectedIndex == 1 ? "SPLIT" : "SHARED";
             c.MnqMaxDrawdown = Number(rcMnqDdBox, 2000); c.MgcMaxDrawdown = Number(rcMgcDdBox, 2000);
             c.CyclesPerDay = Math.Max(1, Integer(rcCyclesBox, 1));
+            c.Mode = rcModeBox != null && rcModeBox.SelectedIndex == 1 ? "REVERSE" : "ADD";
             c.MnqPointValue = Number(rcMnqPvBox, 2); c.MgcPointValue = Number(rcMgcPvBox, 10); c.CommissionPerSide = NumberAllowZero(rcCommissionBox, 0.62); c.SlippageTicks = NumberAllowZero(rcSlipBox, 1);
             string scope = config == null ? "MNQ" : (config.Scope ?? "MNQ");
             if (scopeBox != null && !strict) scope = Convert.ToString(scopeBox.SelectedItem ?? scope);
@@ -20378,11 +20515,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             UpdateUi("RECOIL RUNNING • " + rc.Describe(), Gold);
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                List<KeystoneHelixMinute> minutes = null; KeystoneRecoilResult result = null; var grids = new List<KeystoneRecoilGrid>(); var compare = new List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>>(); string failure = null;
+                List<KeystoneHelixMinute> minutes = null; KeystoneRecoilResult result = null; var grids = new List<KeystoneRecoilGrid>(); var compare = new List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>>(); var modes = new List<Tuple<string, KeystoneRecoilStats, KeystoneRecoilAccount>>(); string failure = null;
                 try
                 {
                     minutes = cached ?? KeystoneHelix.Align(mnqCopy, mgcCopy);
                     result = KeystoneRecoil.Run(minutes, rc);
+                    // The other mode on the same days: ADD vs STOP AND REVERSE.
+                    var other = rc.Copy(); other.Mode = rc.Mode == "REVERSE" ? "ADD" : "REVERSE";
+                    var otherRun = KeystoneRecoil.Run(minutes, other);
+                    foreach (var t in rc.Mode == "REVERSE" ? new[] { Tuple.Create("ADD TO LOSERS", otherRun), Tuple.Create("STOP AND REVERSE", result) } : new[] { Tuple.Create("ADD TO LOSERS", result), Tuple.Create("STOP AND REVERSE", otherRun) })
+                        modes.Add(Tuple.Create(t.Item1, KeystoneRecoilStudy.Stats(t.Item1, t.Item2.Cycles, t.Item2.Days.Count, t.Item2.NoTriggerDays.Values.Sum()), KeystoneRecoilStudy.Account(t.Item2.Cycles, startBalance)));
                     if (rc.UseMnq == 1) grids.AddRange(KeystoneRecoilStudy.Grids(minutes, rc, "MNQ"));
                     if (rc.UseMgc == 1) grids.AddRange(KeystoneRecoilStudy.Grids(minutes, rc, "MGC"));
                     // MNQ only • MGC only • BOTH with the same settings (when both are loaded)
@@ -20400,7 +20542,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DispatchToLab(delegate
                 {
                     if (failure != null || result == null) { isProcessing = false; EndBusy(); UpdateUi("RECOIL ERROR • " + failure, Red); UpdateWorkflowState(); return; }
-                    recoilMinutes = minutes; recoilMinutesKey = key; recoilResult = result; recoilConfig = rc; recoilGrids = grids; recoilCompare = compare; recoilGridIndex = 0;
+                    recoilMinutes = minutes; recoilMinutesKey = key; recoilResult = result; recoilConfig = rc; recoilGrids = grids; recoilCompare = compare; recoilModeCompare = modes; recoilGridIndex = 0;
                     recoilCycleById = result.Cycles.ToDictionary(x => x.Id);
                     events = RecoilEvents(result);
                     loadedEvents = events; loadedScope = config.Scope; viewScope = config.Scope;
@@ -20445,9 +20587,12 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             string f = c.Symbol == "MGC" ? "0.0" : "0.00";
             var sb = new StringBuilder();
-            sb.AppendLine("RECOIL LADDER #" + c.Id + " • " + c.Symbol + " • " + c.Day.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • ladder " + c.CycleInDay + " of the day");
+            sb.AppendLine((c.Mode == "REVERSE" ? "RECOIL STOP-AND-REVERSE #" : "RECOIL LADDER #") + c.Id + " • " + c.Symbol + " • " + c.Day.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • ladder " + c.CycleInDay + " of the day");
             sb.AppendLine("START " + c.AnchorPrice.ToString(f) + " at " + Hm(c.AnchorTime) + " → moved " + (c.Dir > 0 ? "DOWN" : "UP") + " to " + c.TriggerLevel.ToString(f) + " → " + c.Side);
-            foreach (var x in c.Fills) sb.AppendLine("  " + Hm(x.Time) + "  " + (x == c.Fills[0] ? c.Side : "ADD") + " " + x.Qty + " @ " + x.Price.ToString(f) + (x.Gap ? " (gap)" : "") + " → " + x.TotalQty + " contracts, average " + x.Avg.ToString(f) + " • target " + x.TargetPrice.ToString(f) + (double.IsNaN(x.StopPrice) ? " • blowup = shared $ drawdown" : " • blowup " + x.StopPrice.ToString(f)));
+            foreach (var x in c.Fills)
+                sb.AppendLine(c.Mode == "REVERSE"
+                    ? "  " + Hm(x.Time) + "  " + (x == c.Fills[0] ? "" : "REVERSE → ") + (x.Dir > 0 ? "BUY " : "SELL ") + x.Qty + " @ " + x.Price.ToString(f) + (x.Gap ? " (gap)" : "") + " • target " + x.TargetPrice.ToString(f) + " • stop " + x.StopPrice.ToString(f)
+                    : "  " + Hm(x.Time) + "  " + (x == c.Fills[0] ? c.Side : "ADD") + " " + x.Qty + " @ " + x.Price.ToString(f) + (x.Gap ? " (gap)" : "") + " → " + x.TotalQty + " contracts, average " + x.Avg.ToString(f) + " • target " + x.TargetPrice.ToString(f) + (double.IsNaN(x.StopPrice) ? " • blowup = shared $ drawdown" : " • blowup " + x.StopPrice.ToString(f)));
             sb.AppendLine("EXIT " + Hm(c.ExitTime) + " @ " + c.ExitPrice.ToString(f) + " • " + (c.Win ? "TARGET" : c.Reason) + (c.Ambiguous ? " (the trigger minute touched both sides)" : "") + " • gross " + Signed(c.Gross) + " − costs " + Cash(c.Commission + c.Slippage) + " = " + Signed(c.Net));
             sb.AppendLine("WORST OPEN P/L " + Signed(c.MaeValue) + " • BEST " + Signed(c.MfeValue));
             if (!double.IsNaN(c.LowestPrice))
@@ -20579,6 +20724,22 @@ namespace NinjaTrader.NinjaScript.AddOns
             var root = new StackPanel { Margin = new Thickness(4) };
             root.Children.Add(HelixTitle("THE LADDER", Gold));
             root.Children.Add(HelixNote((recoilConfig ?? r.Config).Describe()));
+            if (recoilModeCompare.Count == 2)
+            {
+                root.Children.Add(HelixTitle("ADD TO LOSERS vs STOP AND REVERSE (same days, same trigger, sizes, target and drawdown)", Orchid));
+                double[] mw = { 300, 260, 260 };
+                root.Children.Add(HelixHeader(new[] { "" }.Concat(recoilModeCompare.Select(x => x.Item1 + ((recoilConfig ?? r.Config).Mode == (x.Item1.StartsWith("ADD") ? "ADD" : "REVERSE") ? " (SHOWN)" : ""))).ToArray(), mw));
+                Func<string, Func<KeystoneRecoilStats, KeystoneRecoilAccount, string>, Func<KeystoneRecoilStats, KeystoneRecoilAccount, Brush>, UIElement> mrow = (name, val, col) =>
+                    HelixRow(new[] { name }.Concat(recoilModeCompare.Select(x => val(x.Item2, x.Item3))).ToArray(), new Brush[] { Muted }.Concat(recoilModeCompare.Select(x => col(x.Item2, x.Item3))).ToArray(), mw, Card, null);
+                root.Children.Add(mrow("CYCLES", (a, b) => a.Cycles.ToString(), (a, b) => Text));
+                root.Children.Add(mrow("WON / LOST ALL STEPS / CLOSED AT THE END", (a, b) => a.Wins + " / " + a.Blowups + " / " + a.SessionEnds, (a, b) => Text));
+                root.Children.Add(mrow("WIN RATE • NEEDED", (a, b) => KeystoneRecoilStudy.Pc(a.WinRate) + " • " + KeystoneRecoilStudy.Pc(a.BreakEven), (a, b) => a.WinRate >= a.BreakEven ? Green : Red));
+                root.Children.Add(mrow("NET AFTER COSTS", (a, b) => Signed(a.Net), (a, b) => MoneyBrush(a.Net)));
+                root.Children.Add(mrow("AVERAGE WIN • AVERAGE LOSS", (a, b) => Signed(a.AvgWin) + " • " + Signed(a.AvgLoss), (a, b) => Text));
+                root.Children.Add(mrow("ONE LIVE ACCOUNT: START → END", (a, b) => Cash(b.Start) + " → " + Cash(b.End), (a, b) => MoneyBrush(b.End - b.Start)));
+                root.Children.Add(mrow("ONE LIVE ACCOUNT: MAX DRAWDOWN", (a, b) => Cash(-b.MaxDrawdown) + (b.Ruined ? " • LOST" : ""), (a, b) => Red));
+                root.Children.Add(HelixNote("To see every table, chart and grid for the other mode, switch AFTER EVERY STEP POINTS AGAINST US in Step 1 and press RE-RUN."));
+            }
             if (recoilCompare.Count > 0)
             {
                 root.Children.Add(HelixTitle("MNQ ONLY vs MGC ONLY vs BOTH (same settings)", Cyan));
@@ -20782,7 +20943,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 string dir = DataDirectory(); Directory.CreateDirectory(dir);
                 string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
                 string html = Path.Combine(dir, "KeystoneArc_Recoil_Report_" + stamp + ".html"), csv = Path.Combine(dir, "KeystoneArc_Recoil_Ladders_" + stamp + ".csv");
-                File.WriteAllText(html, KeystoneRecoilStudy.Html(recoilResult, recoilGrids, recoilCompare, Math.Max(1, Number(rcStartBalanceBox, 5000))), Encoding.UTF8);
+                File.WriteAllText(html, KeystoneRecoilStudy.Html(recoilResult, recoilGrids, recoilModeCompare.Concat(recoilCompare).ToList(), Math.Max(1, Number(rcStartBalanceBox, 5000))), Encoding.UTF8);
                 File.WriteAllText(csv, KeystoneRecoilStudy.Csv(recoilResult), Encoding.UTF8);
                 UpdateUi("EXPORTED RECOIL REPORT • " + html + " • ladders CSV " + csv, Green);
             }
@@ -20842,18 +21003,20 @@ namespace NinjaTrader.NinjaScript.AddOns
                     line(x0, y(z.Avg), x1, y(z.Avg), Cyan, selected ? 2 : 1.5, false);
                     line(x0, y(z.TargetPrice), x1, y(z.TargetPrice), Green, 1.2, true);
                     if (!double.IsNaN(z.StopPrice)) line(x0, y(z.StopPrice), x1, y(z.StopPrice), Red, 1.2, true);
-                    var dot = new System.Windows.Shapes.Ellipse { Width = 9, Height = 9, Fill = c.Dir > 0 ? Green : Red, Stroke = Text, StrokeThickness = 1, IsHitTestVisible = false };
+                    int zd = z.Dir == 0 ? c.Dir : z.Dir;
+                    var dot = new System.Windows.Shapes.Ellipse { Width = 9, Height = 9, Fill = zd > 0 ? Green : Red, Stroke = Text, StrokeThickness = 1, IsHitTestVisible = false };
                     Canvas.SetLeft(dot, x0 - 4.5); Canvas.SetTop(dot, y(z.Price) - 4.5); evidenceCanvas.Children.Add(dot);
-                    tag((k == 0 ? c.Side + " " : "+") + z.Qty + " @ " + z.Price.ToString(f) + " → " + z.TotalQty + " • avg " + z.Avg.ToString(f), x0 + 6, y(z.Price) + (c.Dir > 0 ? 4 : -18), c.Dir > 0 ? Green : Red);
+                    string lbl = c.Mode == "REVERSE" ? (k == 0 ? "" : "REVERSE → ") + (zd > 0 ? "BUY " : "SELL ") + z.Qty + " @ " + z.Price.ToString(f) : (k == 0 ? c.Side + " " : "+") + z.Qty + " @ " + z.Price.ToString(f) + " → " + z.TotalQty + " • avg " + z.Avg.ToString(f);
+                    tag(lbl, x0 + 6, y(z.Price) + (zd > 0 ? 4 : -18), zd > 0 ? Green : Red);
                 }
                 if (fills.Count > 0)
                 {
                     var lastF = fills[fills.Count - 1]; double xr = Math.Max(xAt(lastF.Time) + candleWidth, xAt(end));
                     tag("TP " + lastF.TargetPrice.ToString(f), xr + 3, y(lastF.TargetPrice) - 8, Green);
-                    tag(double.IsNaN(lastF.StopPrice) ? "BLOWUP = SHARED −" + Cash((recoilConfig ?? recoilResult.Config).MaxDrawdown) : "BLOWUP " + lastF.StopPrice.ToString(f), xr + 3, double.IsNaN(lastF.StopPrice) ? y(lastF.Avg) + 4 : y(lastF.StopPrice) - 8, Red);
+                    tag(double.IsNaN(lastF.StopPrice) ? "BLOWUP = SHARED −" + Cash((recoilConfig ?? recoilResult.Config).MaxDrawdown) : (c.Mode == "REVERSE" ? (n0(c, lastF) ? "LAST STOP " : "STOP → REVERSE ") : "BLOWUP ") + lastF.StopPrice.ToString(f), xr + 3, double.IsNaN(lastF.StopPrice) ? y(lastF.Avg) + 4 : y(lastF.StopPrice) - 8, Red);
                     // next add level while the ladder is open
                     int n = c.Fills.IndexOf(lastF) + 1;
-                    if (!closed && n < (recoilConfig ?? recoilResult.Config).MaxEntries) { double nl = c.Fills[0].Price - c.Dir * n * c.Step; line(xAt(lastF.Time), y(nl), xr, y(nl), Muted, 1, true); tag("NEXT ADD " + nl.ToString(f), xr + 3, y(nl) - 8, Muted); }
+                    if (!closed && c.Mode != "REVERSE" && n < (recoilConfig ?? recoilResult.Config).MaxEntries) { double nl = c.Fills[0].Price - c.Dir * n * c.Step; line(xAt(lastF.Time), y(nl), xr, y(nl), Muted, 1, true); tag("NEXT ADD " + nl.ToString(f), xr + 3, y(nl) - 8, Muted); }
                 }
                 if (closed)
                 {
@@ -20865,6 +21028,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
             }
         }
+
+        private bool n0(KeystoneRecoilCycle c, KeystoneRecoilFill f) { return c.Fills.IndexOf(f) + 1 >= (recoilConfig ?? recoilResult.Config).MaxEntries; }
 
         // Live replay box: every open ladder (contracts, average, open P/L, distance to the target and to the blowup) and the day's log.
         private void UpdateRecoilLivePanel()
@@ -20883,14 +21048,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 var fills = c.Fills.Where(z => z.Time <= cur).ToList(); if (fills.Count == 0) continue;
                 double px = LabCloseAt(c.Symbol, cur) ?? fills[fills.Count - 1].Price;
-                double v = fills.Sum(z => c.Dir * (px - z.Price) * z.Qty * c.PointValue);
+                double v = KeystoneRecoil.Value(c, px, cur);
                 var lf = fills[fills.Count - 1]; string f = c.Symbol == "MGC" ? "0.0" : "0.00";
                 openSum += v; targetSum += cfg.TargetMode == "POINTS" ? Math.Abs(lf.TargetPrice - lf.Avg) * lf.TotalQty * c.PointValue : cfg.TargetDollars;
                 double room = double.IsNaN(lf.StopPrice) ? cfg.MaxDrawdown + v : Math.Abs(px - lf.StopPrice) * lf.TotalQty * c.PointValue;
                 minStopRoom = Math.Min(minStopRoom, room);
-                sb.AppendLine(c.Symbol + " " + c.Side + " " + lf.TotalQty + " contracts • avg " + lf.Avg.ToString(f) + " • now " + px.ToString(f) + " → " + Signed(v));
-                sb.AppendLine("   target " + lf.TargetPrice.ToString(f) + " (" + Math.Abs(lf.TargetPrice - px).ToString("0.##") + " pts away) • " + (double.IsNaN(lf.StopPrice) ? "shared blowup at −" + Cash(cfg.MaxDrawdown) : "blowup " + lf.StopPrice.ToString(f) + " (" + Math.Abs(px - lf.StopPrice).ToString("0.##") + " pts away)"));
-                int n = fills.Count; if (n < cfg.MaxEntries) sb.AppendLine("   next add " + (c.Fills[0].Price - c.Dir * n * c.Step).ToString(f) + " (+" + KeystoneRecoil.AddQty(cfg, n) + ")");
+                sb.AppendLine(c.Symbol + " " + (c.Mode == "REVERSE" ? "STEP " + fills.Count + " " + (lf.Dir > 0 ? "BUY" : "SELL") : c.Side) + " " + lf.TotalQty + " contracts • " + (c.Mode == "REVERSE" ? "entry " : "avg ") + lf.Avg.ToString(f) + " • now " + px.ToString(f) + " → cycle " + Signed(v));
+                sb.AppendLine("   target " + lf.TargetPrice.ToString(f) + " (" + Math.Abs(lf.TargetPrice - px).ToString("0.##") + " pts away) • " + (double.IsNaN(lf.StopPrice) ? "shared blowup at −" + Cash(cfg.MaxDrawdown) : (c.Mode == "REVERSE" ? (fills.Count >= cfg.MaxEntries ? "last stop " : "stop → reverse ") : "blowup ") + lf.StopPrice.ToString(f) + " (" + Math.Abs(px - lf.StopPrice).ToString("0.##") + " pts away)"));
+                int n = fills.Count; if (c.Mode != "REVERSE" && n < cfg.MaxEntries) sb.AppendLine("   next add " + (c.Fills[0].Price - c.Dir * n * c.Step).ToString(f) + " (+" + KeystoneRecoil.AddQty(cfg, n) + ")");
             }
             if (open.Count > 0)
             {
@@ -20915,7 +21080,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             foreach (var x in today.Where(z => z.EntryTime <= cur))
             {
                 string f = x.Symbol == "MGC" ? "0.0" : "0.00";
-                foreach (var z in x.Fills.Where(q => q.Time <= cur)) sb.AppendLine(Hm(z.Time) + " " + x.Symbol + " " + (z == x.Fills[0] ? x.Side : "ADD") + " " + z.Qty + " @ " + z.Price.ToString(f) + " → " + z.TotalQty + " (avg " + z.Avg.ToString(f) + ")");
+                foreach (var z in x.Fills.Where(q => q.Time <= cur)) sb.AppendLine(x.Mode == "REVERSE" ? Hm(z.Time) + " " + x.Symbol + " " + (z == x.Fills[0] ? "" : "REVERSE → ") + (z.Dir > 0 ? "BUY " : "SELL ") + z.Qty + " @ " + z.Price.ToString(f) : Hm(z.Time) + " " + x.Symbol + " " + (z == x.Fills[0] ? x.Side : "ADD") + " " + z.Qty + " @ " + z.Price.ToString(f) + " → " + z.TotalQty + " (avg " + z.Avg.ToString(f) + ")");
                 if (x.ExitTime <= cur) sb.AppendLine(Hm(x.ExitTime) + " " + x.Symbol + " " + (x.Win ? "TARGET" : x.Reason) + " @ " + x.ExitPrice.ToString(f) + " → " + Signed(x.Net));
             }
             evidenceLiveLines.Text = sb.ToString().TrimEnd();
