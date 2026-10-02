@@ -26,6 +26,9 @@ mono "$here/.build/helix.exe" | tail -1
 rm -f "$here/.build/recoil.exe"
 "$root/tools/compile_engine.sh" "$here/.build/recoil.exe" "$here/RecoilTests.cs"
 mono "$here/.build/recoil.exe" | tail -1
+rm -f "$here/.build/fes.exe"
+"$root/tools/compile_engine.sh" "$here/.build/fes.exe" "$here/FvgEntryStudyTests.cs"
+mono "$here/.build/fes.exe" | tail -1
 rm -f "$here/.build/move.exe"
 "$root/tools/compile_engine.sh" "$here/.build/move.exe" "$here/MoveStudyTests.cs"
 mono "$here/.build/move.exe" | tail -1

@@ -431,6 +431,12 @@ public static class UiSmokeTest
             Step("MOVE STUDY: one test for any strategy — measures the last run's entries + baseline, ranking, details, export", () =>
             {
                 Call(lab4, "OpenMoveStudy");
+                for (int i = 0; i < 600 && !((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text.StartsWith("MEASURED") && !((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text.Contains("ERROR"); i++) System.Threading.Thread.Sleep(100);
+                Console.WriteLine("      FVG study: " + ((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text);
+                if (!((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text.StartsWith("MEASURED")) throw new Exception("FVG study did not finish");
+                var srcBox = (System.Windows.Controls.ComboBox)G("moveStudySourceBox"); srcBox.SelectedIndex = 1; srcBox.SelectedItem = srcBox.Items[1];
+                Set(lab4, "moveStudyGroups", new List<KeystoneMoveGroup>());
+                ((Action)G("moveStudyRun"))();
                 for (int i = 0; i < 600 && ((System.Collections.ICollection)G("moveStudyGroups")).Count == 0 && !((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text.Contains("ERROR") && !((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text.StartsWith("NO "); i++) System.Threading.Thread.Sleep(100);
                 var groups = (List<KeystoneMoveGroup>)G("moveStudyGroups");
                 Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("moveStudyStatus")).Text);

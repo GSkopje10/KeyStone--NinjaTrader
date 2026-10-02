@@ -5467,10 +5467,140 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- FIRST 5M FVG ENTRY STUDY (build 10-03h) -----------------------------------------------------
+    // Per instrument and day: the FIRST bullish 5-minute FVG formed after the start time (all 3 candles after the start;
+    // gap = candle 3 low above candle 1 high, at least MinGap points). Each entry variation is its own set:
+    //   TOUCH (limit at the gap top) • 25% DIP • 50% DIP (limits inside the gap) • GREEN CLOSE + BREAK (a candle touches the gap
+    //   without closing below it, a green 5M candle closes — after a red touch the next one must be green — the next 5M candle
+    //   breaks that green high = entry at that high) • PRIOR FVG TOUCH / 50%: an FVG formed earlier (18:00 the evening before →
+    //   the start) still untouched at the start, that the opening candles (first N minutes) dip into.
+    // Fills on 1-minute bars (a limit fills at the level, or at the open when the minute opens through it). No BH. Every
+    // entry is then measured to the close by the MOVE STUDY (the fill minute's favourable move is not counted — conservative).
+    public sealed class KeystoneFvgStudyConfig
+    {
+        public int MnqStart = 930, MgcStart = 800, Close = 1555, PriorMinutes = 30;
+        public double MnqMinGap = 5, MgcMinGap = 1, MnqAggr = 30, MgcAggr = 3;
+    }
+
+    public static class KeystoneFvgEntryStudy
+    {
+        public const string Touch = "FIRST 5M FVG • TOUCH THE GAP TOP", Dip25 = "FIRST 5M FVG • 25% DIP INTO THE GAP", Dip50 = "FIRST 5M FVG • 50% DIP (GAP MIDDLE)", Break = "FIRST 5M FVG • GREEN CLOSE + BREAK OF ITS HIGH", PriorTouch = "PRIOR UNTOUCHED FVG • OPENING CANDLES TOUCH IT", Prior50 = "PRIOR UNTOUCHED FVG • OPENING CANDLES DIP TO 50%";
+        public static readonly string[] Sets = { Touch, Dip25, Dip50, Break, PriorTouch, Prior50 };
+
+        sealed class Gap { public double Low, High; public DateTime Formed; public int Index; public double Height { get { return High - Low; } } }
+
+        // 5-minute candles from close-stamped 1-minute bars (a 5M candle ends on a multiple of 5 minutes).
+        public static List<KeystoneArcBar> FiveMinute(List<KeystoneArcBar> one)
+        {
+            var output = new List<KeystoneArcBar>(); KeystoneArcBar cur = null; DateTime curEnd = DateTime.MinValue;
+            foreach (var b in one)
+            {
+                int m = b.Time.Minute % 5; DateTime end = m == 0 ? b.Time : b.Time.AddMinutes(5 - m);
+                if (cur == null || end != curEnd) { if (cur != null) output.Add(cur); cur = new KeystoneArcBar { Symbol = b.Symbol, Time = end, Open = b.Open, High = b.High, Low = b.Low, Close = b.Close }; curEnd = end; }
+                else { cur.High = Math.Max(cur.High, b.High); cur.Low = Math.Min(cur.Low, b.Low); cur.Close = b.Close; }
+            }
+            if (cur != null) output.Add(cur);
+            return output;
+        }
+
+        static int FirstAfter(List<KeystoneArcBar> raw, DateTime t) { int lo = 0, hi = raw.Count; while (lo < hi) { int mid = (lo + hi) / 2; if (raw[mid].Time > t) hi = mid; else lo = mid + 1; } return lo; }
+
+        // First 1-minute bar after `after` (up to `until`) that trades down to `level`: fill at the level or at the open if it opened below.
+        static bool LimitFill(List<KeystoneArcBar> raw, DateTime after, DateTime until, double level, out int idx, out double fill)
+        {
+            idx = -1; fill = double.NaN;
+            for (int i = FirstAfter(raw, after); i < raw.Count && raw[i].Time <= until; i++)
+                if (raw[i].Low <= level + 1e-9) { idx = i; fill = Math.Min(level, raw[i].Open); return true; }
+            return false;
+        }
+
+        public static Dictionary<string, List<KeystoneArcEvent>> Run(List<KeystoneArcBar> oneMinute, KeystoneFvgStudyConfig c)
+        {
+            var sets = Sets.ToDictionary(s => s, s => new List<KeystoneArcEvent>());
+            if (oneMinute == null) return sets;
+            foreach (var sg in oneMinute.GroupBy(b => (b.Symbol ?? "").ToUpperInvariant()))
+            {
+                string sym = sg.Key; if (sym != "MNQ" && sym != "MGC") continue;
+                var raw = sg.OrderBy(b => b.Time).ToList(); var five = FiveMinute(raw);
+                int startHhmm = sym == "MGC" ? c.MgcStart : c.MnqStart; double minGap = sym == "MGC" ? c.MgcMinGap : c.MnqMinGap, aggrPts = sym == "MGC" ? c.MgcAggr : c.MnqAggr;
+                foreach (var day in raw.Select(b => b.Time.Date).Distinct().OrderBy(d => d))
+                {
+                    if (day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday) continue;
+                    DateTime start = day.AddHours(startHhmm / 100).AddMinutes(startHhmm % 100), close = day.AddHours(c.Close / 100).AddMinutes(c.Close % 100), evening = day.AddDays(-1).AddHours(18);
+                    if (close <= start) continue;
+                    int s0 = five.FindIndex(b => b.Time > start); if (s0 < 0 || five[s0].Time > close) continue;
+                    double startOpen = five[s0].Open;
+                    // ---- the first FVG after the start (all three candles after it)
+                    Gap first = null;
+                    for (int i = s0 + 2; i < five.Count && five[i].Time <= close; i++)
+                        if (five[i].Low > five[i - 2].High && five[i].Low - five[i - 2].High >= minGap - 1e-9) { first = new Gap { Low = five[i - 2].High, High = five[i].Low, Formed = five[i].Time, Index = i }; break; }
+                    if (first != null)
+                    {
+                        double low = double.MaxValue; for (int q = s0; q <= first.Index - 2; q++) low = Math.Min(low, five[q].Low);
+                        double drop = low == double.MaxValue ? 0 : Math.Max(0, startOpen - low);
+                        Action<string, int, double, DateTime> add = (set, idx, fill, trig) =>
+                        {
+                            var e = new KeystoneArcEvent { Symbol = sym, Direction = "LONG", SetupClass = "FVG", TriggerTime = trig, EntryTime = raw[idx].Time, Entry = fill, FvgLower = first.Low, FvgUpper = first.High, FvgGap = first.Height, FvgDrop = drop, FvgFormedTime = first.Formed, StrengthTag = drop >= aggrPts ? "AGGR" : "BASE", ReviewNote = set };
+                            KeystoneMoveStudy.Walk(e, raw, idx, 1, close, sym, true); if (e.MoveHeat != null) sets[set].Add(e);
+                        };
+                        int fi; double fp;
+                        if (LimitFill(raw, first.Formed, close, first.High, out fi, out fp)) add(Touch, fi, fp, first.Formed);
+                        if (LimitFill(raw, first.Formed, close, first.High - 0.25 * first.Height, out fi, out fp)) add(Dip25, fi, fp, first.Formed);
+                        if (LimitFill(raw, first.Formed, close, first.High - 0.5 * first.Height, out fi, out fp)) add(Dip50, fi, fp, first.Formed);
+                        // green close + break of its high (one attempt, like the lab's FVG rule)
+                        for (int k = first.Index + 1; k < five.Count && five[k].Time <= close; k++)
+                        {
+                            var b = five[k]; if (b.Close < first.Low) break;
+                            if (b.Low > first.High) continue;                          // not back in the gap yet
+                            int refIdx = b.Close > b.Open ? k : (k + 1 < five.Count && five[k + 1].Close > five[k + 1].Open && five[k + 1].Close >= first.Low ? k + 1 : -1);
+                            if (refIdx < 0 || refIdx + 1 >= five.Count || five[refIdx + 1].Time > close) break;
+                            var refBar = five[refIdx]; var trig = five[refIdx + 1];
+                            if (trig.High >= refBar.High)
+                            {
+                                for (int i = FirstAfter(raw, refBar.Time); i < raw.Count && raw[i].Time <= trig.Time; i++)
+                                    if (raw[i].High >= refBar.High) { add(Break, i, Math.Max(refBar.High, raw[i].Open), trig.Time); break; }
+                            }
+                            break;
+                        }
+                    }
+                    // ---- prior untouched FVG: formed 18:00 the evening before → the start, not traded into before the start
+                    var prior = new List<Gap>();
+                    for (int i = 2; i < five.Count && five[i].Time <= start; i++)
+                    {
+                        if (five[i - 2].Time - TimeSpan.FromMinutes(5) < evening) continue;
+                        if (five[i].Low > five[i - 2].High && five[i].Low - five[i - 2].High >= minGap - 1e-9) prior.Add(new Gap { Low = five[i - 2].High, High = five[i].Low, Formed = five[i].Time, Index = i });
+                    }
+                    if (prior.Count > 0)
+                    {
+                        DateTime startRaw = start;
+                        prior = prior.Where(g => { for (int q = g.Index + 1; q < five.Count && five[q].Time <= startRaw; q++) if (five[q].Low <= g.High) return false; return true; }).ToList();
+                        // the opening candles: the first touch of any untouched prior gap within PriorMinutes after the start
+                        DateTime until = start.AddMinutes(Math.Max(5, c.PriorMinutes));
+                        for (int i = FirstAfter(raw, start); i < raw.Count && raw[i].Time <= until && prior.Count > 0; i++)
+                        {
+                            var hit = prior.Where(g => raw[i].Low <= g.High + 1e-9).OrderByDescending(g => g.High).FirstOrDefault();
+                            if (hit == null) continue;
+                            double drop = Math.Max(0, startOpen - raw[i].Low);
+                            Action<string, int, double> addPrior = (set, idx, fill) =>
+                            {
+                                var e = new KeystoneArcEvent { Symbol = sym, Direction = "LONG", SetupClass = "PRIOR FVG", TriggerTime = raw[idx].Time, EntryTime = raw[idx].Time, Entry = fill, FvgLower = hit.Low, FvgUpper = hit.High, FvgGap = hit.Height, FvgDrop = drop, FvgFormedTime = hit.Formed, StrengthTag = drop >= aggrPts ? "AGGR" : "BASE", ReviewNote = set };
+                                KeystoneMoveStudy.Walk(e, raw, idx, 1, close, sym, true); if (e.MoveHeat != null) sets[set].Add(e);
+                            };
+                            addPrior(PriorTouch, i, Math.Min(hit.High, raw[i].Open));
+                            int fi; double fp; if (LimitFill(raw, raw[i].Time.AddMinutes(-1), until, hit.High - 0.5 * hit.Height, out fi, out fp)) addPrior(Prior50, fi, fp);
+                            break;
+                        }
+                    }
+                }
+            }
+            return sets;
+        }
+    }
+
     public sealed class KeystoneMoveRow
     {
         public string Set = string.Empty, Symbol = string.Empty, Kind = string.Empty; public bool Aggr; public DateTime Time; public int Year;
-        public double Entry, Gap, Drop, Mfe, Mae, MaeBefore, Close; public int MfeMinutes; public double[] Heat;
+        public double Entry, Gap, Drop, Mfe, Mae, MaeBefore, Close, GapLow, GapHigh; public int MfeMinutes; public double[] Heat;
     }
 
     public sealed class KeystoneMoveStats
@@ -5513,7 +5643,7 @@ namespace NinjaTrader.NinjaScript
         }
 
         // The walk shared by every strategy: from the fill minute to the close, in the trade's direction (1 = long, −1 = short).
-        public static void Walk(KeystoneArcEvent e, List<KeystoneArcBar> raw, int idx, int dir, DateTime closeLimit, string symbol)
+        public static void Walk(KeystoneArcEvent e, List<KeystoneArcBar> raw, int idx, int dir, DateTime closeLimit, string symbol, bool skipFillMinuteGain = false)
         {
             double[] levels = Levels(symbol); var heat = new double[levels.Length]; for (int k = 0; k < heat.Length; k++) heat[k] = double.NaN;
             double mfe = 0, mae = 0, maeBefore = 0, last = e.Entry; int mfeAt = 0, n = 0;
@@ -5521,6 +5651,7 @@ namespace NinjaTrader.NinjaScript
             {
                 var b = raw[i];
                 double up = dir > 0 ? b.High - e.Entry : e.Entry - b.Low, down = dir > 0 ? e.Entry - b.Low : b.High - e.Entry;
+                if (skipFillMinuteGain && i == idx) up = 0;   // a limit / stop fill: the minute's high may have come before the fill
                 mae = Math.Max(mae, down);
                 if (up > mfe) { mfe = up; maeBefore = mae; mfeAt = (int)(b.Time - raw[idx].Time).TotalMinutes + 1; }
                 for (int k = 0; k < levels.Length; k++) if (double.IsNaN(heat[k]) && up >= levels[k] - 1e-9) heat[k] = mae;
@@ -5555,7 +5686,7 @@ namespace NinjaTrader.NinjaScript
         {
             if (e == null || e.MoveHeat == null || double.IsNaN(e.MoveMfe)) return null;
             DateTime t = e.EntryTime == DateTime.MinValue ? e.TriggerTime : e.EntryTime;
-            return new KeystoneMoveRow { Set = set, Symbol = e.Symbol, Kind = e.SetupClass ?? "", Aggr = e.StrengthTag == "AGGR", Time = t, Year = t.Year, Entry = e.Entry, Gap = e.FvgGap, Drop = e.FvgDrop, Mfe = e.MoveMfe, Mae = e.MoveMae, MaeBefore = e.MoveMaeBeforeMfe, Close = e.MoveClose, MfeMinutes = e.MoveMfeMinutes, Heat = e.MoveHeat };
+            return new KeystoneMoveRow { Set = set, Symbol = e.Symbol, Kind = e.SetupClass ?? "", Aggr = e.StrengthTag == "AGGR", Time = t, Year = t.Year, Entry = e.Entry, Gap = e.FvgGap, GapLow = e.FvgLower, GapHigh = e.FvgUpper, Drop = e.FvgDrop, Mfe = e.MoveMfe, Mae = e.MoveMae, MaeBefore = e.MoveMaeBeforeMfe, Close = e.MoveClose, MfeMinutes = e.MoveMfeMinutes, Heat = e.MoveHeat };
         }
 
         // The same measurement with no setup: buy at the open of the first minute after the start time, every day.
@@ -9013,7 +9144,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -10154,7 +10285,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             string defaultDay = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var data = Stack(); data.Children.Add(Txt("1. DATA, SETUPS & SESSION", Gold, 13, FontWeights.Bold));
             // 123 ENGULFING, LAST-HOUR RELAY and VWAP SNAP-BACK are hidden (never tested); their engines stay in the file.
-            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN", "RECOIL • ADD TO LOSERS", "PROP BRACKET • ONE TRADE A DAY (PROP PLANNER)"); strategyBox.SelectedIndex = 0;
+            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN", "RECOIL • ADD TO LOSERS", "PROP BRACKET • 1-MINUTE MNQ + MGC FOR THE STUDIES (FVG STUDY • ROTATION • PLANNER)"); strategyBox.SelectedIndex = 0;
             scopeBox = Select("MNQ", "MGC", "BOTH"); scopeBox.SelectedIndex = 0;
             accountPathBox = Select("PROP • VIRTUAL POOL"); accountPathBox.SelectedIndex = 0; accountPathBox.Visibility = Visibility.Collapsed;
             // Keystone is intentionally one setup lab in this revision: long BH only.
@@ -13402,7 +13533,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (!HasSelectedData()) { UpdateUi("STEP 2 REQUIRED • REQUEST COMPLETE HISTORY FOR THE SELECTED SCOPE FIRST", Red); UpdateWorkflowState(); return; }
             if (HelixStudy()) { SetGoldenResultsMode(false); SetRecoilResultsMode(false); RunHelix(); return; }
             if (RecoilStudy()) { SetGoldenResultsMode(false); RunRecoil(); return; }
-            if (BracketStudy()) { OpenBracketPlanner(); return; }
+            if (BracketStudy()) { if (moveStudyWindow != null) { moveStudyWindow.Close(); moveStudyWindow = null; } OpenMoveStudy(); UpdateUi("1-MINUTE MNQ + MGC LOADED • MOVE STUDY is open on the FIRST 5M FVG STUDY (the ROTATION TESTER and PROP PLANNER use the same bars)", Green); return; }
             SetRecoilResultsMode(false);
             SetHelixResultsMode(false);
             if (!GoldenStudyRun()) SetGoldenResultsMode(false);
@@ -20325,8 +20456,6 @@ namespace NinjaTrader.NinjaScript.AddOns
             SetGoldenResultsMode(true);
             LoadGoldenFilter(KeystoneGoldenStudy.FromConfig(runConfig));
             RunGoldenStudy();
-            // The movement data (for us / against us to the close, per set × instrument × year) opens right away.
-            try { if (moveStudyWindow == null) OpenMoveStudy(); else if (moveStudyRun != null) moveStudyRun(); } catch { }
         }
 
         private void RunGoldenStudy()
@@ -22296,7 +22425,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         // Takes the entries of the last run (GOLDEN: every entry set; any other strategy: its entries), follows each one
         // to the close on the 1-minute bars, compares with buying blindly at the start, and derives target / stop from the moves.
         private Window moveStudyWindow; private List<KeystoneMoveGroup> moveStudyGroups = new List<KeystoneMoveGroup>(); private string moveStudyRange = string.Empty;
-        private TextBlock moveStudyStatus; private Action moveStudyRun;
+        private TextBlock moveStudyStatus; private Action moveStudyRun; private ComboBox moveStudySourceBox;
 
         private void OpenMoveStudy()
         {
@@ -22313,12 +22442,18 @@ namespace NinjaTrader.NinjaScript.AddOns
             var bar = new WrapPanel { Margin = new Thickness(0, 4, 0, 2) };
             int defClose = config == null ? 1555 : (config.GoldenClose > 0 ? config.GoldenClose : config.EndTime);
             var closeBox = Input(defClose.ToString("0000")); closeBox.Width = 70; closeBox.ToolTip = "Follow every entry until this time (HHMM, New York) the same day — the market close you trade to.";
-            var mnqStart = Input((config == null ? 930 : config.GoldenMnqStart).ToString("0000")); mnqStart.Width = 70; mnqStart.ToolTip = "Baseline: buy MNQ at this time every day (no setup).";
-            var mgcStart = Input((config == null ? 800 : config.GoldenMgcStart).ToString("0000")); mgcStart.Width = 70; mgcStart.ToolTip = "Baseline: buy MGC at this time every day (no setup).";
+            var mnqStart = Input((config == null ? 930 : config.GoldenMnqStart).ToString("0000")); mnqStart.Width = 70; mnqStart.ToolTip = "MNQ start: the first FVG must form after it; the no-setup baseline buys MNQ at this time.";
+            var mgcStart = Input((config == null ? 800 : config.GoldenMgcStart).ToString("0000")); mgcStart.Width = 70; mgcStart.ToolTip = "MGC start: the first FVG must form after it; the no-setup baseline buys MGC at this time.";
             Func<string, UIElement, UIElement> pair = (label, c) => { var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 12, 0) }; sp.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center }); sp.Children.Add(c); return sp; };
-            var measureBtn = Btn("MEASURE THE LAST RUN", Green); measureBtn.Width = 220; var exportBtn = Btn("EXPORT (HTML + EVERY ENTRY CSV)", Blue); exportBtn.Width = 260; var fullBtn = Btn("FULL SCREEN", Card); fullBtn.Width = 120;
+            var sourceBox = Select("FIRST 5M FVG STUDY • MNQ + MGC • every entry variation (touch • 25% • 50% • green close + break • prior FVG)", "THE LAST RUN IN THE LAB (any strategy)"); sourceBox.Width = 560;
+            var mnqGap = Input("5"); mnqGap.Width = 50; mnqGap.ToolTip = "MNQ: smallest gap (points) that counts as an FVG.";
+            var mgcGap = Input("1"); mgcGap.Width = 50; mgcGap.ToolTip = "MGC: smallest gap (points) that counts as an FVG.";
+            var priorMin = Input("30"); priorMin.Width = 50; priorMin.ToolTip = "PRIOR FVG: the opening candles = this many minutes after the start.";
+            var measureBtn = Btn("MEASURE", Green); measureBtn.Width = 140; var exportBtn = Btn("EXPORT (HTML + EVERY ENTRY CSV)", Blue); exportBtn.Width = 260; var fullBtn = Btn("FULL SCREEN", Card); fullBtn.Width = 120;
             fullBtn.Click += delegate { bool full = w.WindowState == WindowState.Maximized; w.WindowState = full ? WindowState.Normal : WindowState.Maximized; fullBtn.Content = full ? "FULL SCREEN" : "NORMAL SIZE"; };
-            bar.Children.Add(pair("FOLLOW UNTIL ", closeBox)); bar.Children.Add(pair("BASELINE MNQ BUY AT ", mnqStart)); bar.Children.Add(pair("MGC BUY AT ", mgcStart));
+            bar.Children.Add(pair("MEASURE ", sourceBox));
+            bar.Children.Add(pair("MNQ START ", mnqStart)); bar.Children.Add(pair("MGC START ", mgcStart)); bar.Children.Add(pair("FOLLOW UNTIL ", closeBox));
+            bar.Children.Add(pair("MIN GAP MNQ ", mnqGap)); bar.Children.Add(pair("MGC ", mgcGap)); bar.Children.Add(pair("PRIOR FVG: FIRST MIN ", priorMin));
             bar.Children.Add(measureBtn); bar.Children.Add(exportBtn); bar.Children.Add(fullBtn);
             Grid.SetRow(bar, 1); root.Children.Add(bar);
             var status = Txt("PRESS MEASURE THE LAST RUN.", Gold, 12.5, FontWeights.Bold); status.Margin = new Thickness(2, 2, 2, 4); Grid.SetRow(status, 2); root.Children.Add(status);
@@ -22376,6 +22511,15 @@ namespace NinjaTrader.NinjaScript.AddOns
                         new[] { Gold, Text, Text, Text, Green, Red, MoneyBrush(b.Dollars) }, ww, b.Stats.N < 15 ? Muted : MoneyBrush(b.Dollars), null));
                     lastFactor = b.Factor;
                 }
+                body.Children.Add(HelixTitle("EVERY ENTRY • " + s.Rows.Count + " (check them on your NinjaTrader chart: date, time, entry price)", Gold));
+                double[] we = { 120, 70, 90, 110, 90, 90, 100, 100, 130, 100, 100 };
+                var rowsE = s.Rows;
+                body.Children.Add(HelixPaged(new[] { "DATE", "TIME", "ENTRY", "GAP (LOW–HIGH)", "GAP PTS", "PUSH DOWN", "FOR US", "AGAINST", "AGAINST BEFORE BEST", "CLOSE", "BEST AT (MIN)" }, we, rowsE.Count, i =>
+                {
+                    var r = rowsE[i];
+                    return HelixRow(new[] { r.Time.ToString("yyyy-MM-dd ddd"), r.Time.ToString("HH:mm"), KeystoneMoveStudy.F(sy, r.Entry), r.GapHigh > r.GapLow ? KeystoneMoveStudy.F(sy, r.GapLow) + " – " + KeystoneMoveStudy.F(sy, r.GapHigh) : "–", KeystoneMoveStudy.F(sy, r.Gap), KeystoneMoveStudy.F(sy, r.Drop) + (r.Aggr ? " AGGR" : ""), "+" + KeystoneMoveStudy.F(sy, r.Mfe), "−" + KeystoneMoveStudy.F(sy, r.Mae), "−" + KeystoneMoveStudy.F(sy, r.MaeBefore), (r.Close >= 0 ? "+" : "") + KeystoneMoveStudy.F(sy, r.Close), r.MfeMinutes.ToString() },
+                        new[] { Text, Text, Gold, Muted, Text, r.Aggr ? Orchid : Muted, Green, Red, Red, r.Close >= 0 ? Green : Red, Muted }, we, r.Close >= 0 ? Green : Red, null);
+                }, 50, false));
             };
             bool busy = false;
             Action run = delegate
@@ -22385,21 +22529,25 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (!IsValidHhmm(close) || !IsValidHhmm(ms) || !IsValidHhmm(gs)) { status.Text = "TIME ERROR • use HHMM New York (e.g. 1555, 930, 800)."; status.Foreground = Red; return; }
                 var oneMinute = new List<KeystoneArcBar>(); if (KeystoneBracket.IsOneMinute(mnqBars)) oneMinute.AddRange(mnqBars); if (KeystoneBracket.IsOneMinute(mgcBars)) oneMinute.AddRange(mgcBars);
                 var sets = new Dictionary<string, List<KeystoneArcEvent>>();
-                bool golden = config != null && config.StrategyCode == "GLD" && goldenStudySets != null && goldenStudySets.Count > 0;
-                if (golden) foreach (var kv in goldenStudySets) sets[kv.Key] = kv.Value == null ? new List<KeystoneArcEvent>() : new List<KeystoneArcEvent>(kv.Value);
+                bool fvgStudy = sourceBox.SelectedIndex <= 0;
+                bool golden = !fvgStudy && config != null && config.StrategyCode == "GLD" && goldenStudySets != null && goldenStudySets.Count > 0;
+                var fvgCfg = new KeystoneFvgStudyConfig { MnqStart = ms, MgcStart = gs, Close = close, MnqMinGap = PropNum(mnqGap, 5), MgcMinGap = PropNum(mgcGap, 1), PriorMinutes = Math.Max(5, (int)PropNum(priorMin, 30)) };
+                if (fvgStudy) { foreach (var s in KeystoneFvgEntryStudy.Sets) sets[s] = new List<KeystoneArcEvent>(); }
+                else if (golden) foreach (var kv in goldenStudySets) sets[kv.Key] = kv.Value == null ? new List<KeystoneArcEvent>() : new List<KeystoneArcEvent>(kv.Value);
                 else if (events != null && events.Count > 0) sets[StrategyDisplayName()] = new List<KeystoneArcEvent>(events);
-                if (sets.Count == 0 || oneMinute.Count == 0) { status.Text = sets.Count == 0 ? "NO ENTRIES • run a strategy in the lab first (GOLDEN compares every entry set at once)." : "NO 1-MINUTE BARS LOADED • run the strategy in the lab first."; status.Foreground = Red; return; }
+                if (sets.Count == 0 || oneMinute.Count == 0) { status.Text = oneMinute.Count == 0 ? "NO 1-MINUTE BARS LOADED • lab Step 1: PROP BRACKET (1-minute MNQ + MGC), BOTH, your dates, START — then MEASURE." : "NO ENTRIES • run a strategy in the lab first."; status.Foreground = Red; return; }
                 busy = true; measureBtn.IsEnabled = false; status.Text = "MEASURING every entry to " + KeystoneBracket.Hm(close) + " + the no-setup baseline…"; status.Foreground = Gold;
                 System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
                     List<KeystoneMoveGroup> groups = null; string failure = null, range = string.Empty;
                     try
                     {
-                        if (!golden) foreach (var kv in sets) KeystoneMoveStudy.MeasureAll(kv.Value, oneMinute, close);
+                        if (fvgStudy) { var found = KeystoneFvgEntryStudy.Run(oneMinute, fvgCfg); sets.Clear(); foreach (var kv in found) sets[kv.Key] = kv.Value; }
+                        else if (!golden) foreach (var kv in sets) KeystoneMoveStudy.MeasureAll(kv.Value, oneMinute, close);
                         var baseline = new List<KeystoneMoveRow>();
                         foreach (var sym in new[] { "MNQ", "MGC" }) if (oneMinute.Any(b => b.Symbol == sym)) baseline.AddRange(KeystoneMoveStudy.BaselineRows(oneMinute, sym, sym == "MGC" ? gs : ms, close));
                         groups = KeystoneMoveStudy.Run(sets, baseline);
-                        range = oneMinute.Min(b => b.Time).ToString("yyyy-MM-dd") + " → " + oneMinute.Max(b => b.Time).ToString("yyyy-MM-dd") + " • " + (golden ? "GOLDEN (every entry set)" : StrategyDisplayName()) + " • followed until " + KeystoneBracket.Hm(close);
+                        range = oneMinute.Min(b => b.Time).ToString("yyyy-MM-dd") + " → " + oneMinute.Max(b => b.Time).ToString("yyyy-MM-dd") + " • " + (fvgStudy ? "FIRST 5M FVG STUDY (MNQ from " + KeystoneBracket.Hm(ms) + ", MGC from " + KeystoneBracket.Hm(gs) + ", min gap " + fvgCfg.MnqMinGap.ToString("0.##") + " / " + fvgCfg.MgcMinGap.ToString("0.##") + ")" : golden ? "GOLDEN (every entry set)" : StrategyDisplayName()) + " • followed until " + KeystoneBracket.Hm(close);
                     }
                     catch (Exception ex) { failure = ex.Message; }
                     Action done = delegate
@@ -22428,7 +22576,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 catch (Exception ex) { status.Text = "EXPORT ERROR • " + ex.Message; status.Foreground = Red; }
             };
             render();
-            w.Content = root; moveStudyWindow = w; moveStudyStatus = status; moveStudyRun = run;
+            w.Content = root; moveStudyWindow = w; moveStudyStatus = status; moveStudyRun = run; moveStudySourceBox = sourceBox;
             w.Closed += delegate { moveStudyWindow = null; moveStudyRun = null; moveStudyStatus = null; };
             w.Show();
             run();
