@@ -5272,6 +5272,201 @@ namespace NinjaTrader.NinjaScript
     // for us, against us, against us before the best point, where it closed. Compared by entry set × instrument × year,
     // against a no-setup baseline (buy at the start time every day). The target / stop in points (and dollars) are then
     // chosen FROM those movements, per year and overall; the best sets are explained by their features (why).
+    // ---- ROTATION TESTER (build 10-03f) -------------------------------------------------------------
+    // The live rotation tool replayed on history: MNQ and MGC opened together (BUY BUY / SELL SELL / random / a fast
+    // confirmation), one combined target and stop per rotation, a 3-tier profit lock, a pause, then the next account takes
+    // the next rotation. Each account has a daily target, a daily stop and a two-loss lock, and is a prop evaluation
+    // (target, trailing EOD drawdown that stops at +100, consistency). Real 1-minute bars, both instruments on the same
+    // minute; inside a minute the worst combined price (both at their adverse extremes) counts before the best.
+    public sealed class KeystoneRotationConfig
+    {
+        public int StartHhmm = 930, EndHhmm = 1555, MnqQty = 20, MgcQty = 20, PauseMinutes = 1, Accounts = 20, MaxLossesPerDay = 2, Seed = 7;
+        public string Direction = "BUY";           // BUY • SELL • RANDOM • FOLLOW5 (both instruments' last 5 min agree → that way) • FADE5 (against it)
+        public double RotationTarget = 1000, RotationStop = 500, DailyTarget = 2000, DailyStop = 2000;
+        public string LockTiers = "500:150,700:350,900:750";   // peak trigger : locked profit
+        public double CommissionPerSide = 0.62; public int SlippageTicks = 1;
+        public KeystonePropRules Rules = new KeystonePropRules();
+        public KeystoneRotationConfig Copy() { var c = (KeystoneRotationConfig)MemberwiseClone(); c.Rules = Rules.Copy(); return c; }
+        public List<Tuple<double, double>> Tiers()
+        {
+            var list = new List<Tuple<double, double>>();
+            foreach (var part in (LockTiers ?? "").Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var kv = part.Split(':'); double a, b;
+                if (kv.Length == 2 && double.TryParse(kv[0], NumberStyles.Any, CultureInfo.InvariantCulture, out a) && double.TryParse(kv[1], NumberStyles.Any, CultureInfo.InvariantCulture, out b) && a > 0 && b < a) list.Add(Tuple.Create(a, b));
+            }
+            return list.OrderBy(t => t.Item1).ToList();
+        }
+        public string Describe()
+        {
+            Func<double, string> m = v => "$" + v.ToString("N0", CultureInfo.InvariantCulture);
+            return KeystoneRotation.DirectionName(Direction) + " • " + MnqQty + " MNQ + " + MgcQty + " MGC • rotation +" + m(RotationTarget) + " / −" + m(RotationStop) + (Tiers().Count > 0 ? " • locks " + LockTiers : "") + " • pause " + PauseMinutes + " min • " + KeystoneBracket.Hm(StartHhmm) + "–" + KeystoneBracket.Hm(EndHhmm) + " • " + Accounts + " accounts • day +" + m(DailyTarget) + " / −" + m(DailyStop) + (MaxLossesPerDay > 0 ? " / " + MaxLossesPerDay + " losses" : "");
+        }
+    }
+
+    public sealed class KeystoneRotationTrade { public DateTime Entry, Exit; public int Account, Dir; public double Pnl, Peak; public string Reason = string.Empty; }
+
+    public sealed class KeystoneRotationDay { public DateTime Day; public int Rotations, Wins, Losses, Passed, Blown, Bought; public double Net, Costs; }
+
+    public sealed class KeystoneRotationResult
+    {
+        public KeystoneRotationConfig Config; public List<KeystoneRotationDay> Days = new List<KeystoneRotationDay>(); public List<KeystoneRotationTrade> Trades = new List<KeystoneRotationTrade>();
+        public int Bought, Passed, Blown; public double Spent, Net, Costs; public List<int> DaysToPass = new List<int>();
+        public string Label = string.Empty;
+        public int Rotations { get { return Trades.Count; } }
+        public double WinPct { get { return Trades.Count == 0 ? 0 : 100.0 * Trades.Count(t => t.Pnl > 0) / Trades.Count; } }
+        public double PerRotation { get { return Trades.Count == 0 ? 0 : Trades.Average(t => t.Pnl); } }
+        public double CostPerPass { get { return Passed == 0 ? double.PositiveInfinity : Spent / Passed; } }
+        public double PassRate { get { return Bought == 0 ? 0 : 100.0 * Passed / Bought; } }
+        public Dictionary<int, double[]> ByYear = new Dictionary<int, double[]>();   // year → { bought, passed, spent, net, rotations }
+    }
+
+    public static class KeystoneRotation
+    {
+        public static readonly string[] Directions = { "BUY", "SELL", "RANDOM", "FOLLOW5", "FADE5" };
+        public static string DirectionName(string d) { switch (d) { case "BUY": return "BUY BUY"; case "SELL": return "SELL SELL"; case "RANDOM": return "RANDOM BUY BUY / SELL SELL"; case "FOLLOW5": return "CONFIRM: BOTH UP 5 MIN → BUY, BOTH DOWN → SELL"; case "FADE5": return "CONFIRM: BOTH UP 5 MIN → SELL, BOTH DOWN → BUY"; } return d; }
+
+        sealed class Acct { public double Bal, Hwm, Best, DayPnl; public int DayLosses, Days, Id; public bool Locked, Dead, Passed, TradedToday; public DateTime Started; }
+
+        static double Threshold(Acct a, KeystonePropRules r) { return r.Drawdown == "STATIC" ? -r.MaxDrawdown : Math.Min(a.Hwm - r.MaxDrawdown, r.LockAt); }
+
+        public static KeystoneRotationResult Run(List<KeystoneHelixMinute> minutes, KeystoneRotationConfig c)
+        {
+            var res = new KeystoneRotationResult { Config = c }; var r = c.Rules; var rng = new Random(c.Seed); var tiers = c.Tiers();
+            double km = 2.0 * c.MnqQty, kg = 10.0 * c.MgcQty;
+            double cost = 2 * c.CommissionPerSide * (c.MnqQty + c.MgcQty), slip = c.SlippageTicks * (0.25 * km + 0.1 * kg);
+            int sm = c.StartHhmm / 100 * 60 + c.StartHhmm % 100, em = c.EndHhmm / 100 * 60 + c.EndHhmm % 100;
+            var accts = new List<Acct>(); int nextId = 1;
+            Func<DateTime, Acct> buy = day => { var a = new Acct { Id = nextId++, Started = day }; res.Bought++; res.Spent += r.EvalCost; return a; };
+            int turn = 0;
+            foreach (var g in minutes.Where(x => x.HasMnq && x.HasMgc).GroupBy(x => x.Time.Date).OrderBy(x => x.Key))
+            {
+                var day = new KeystoneRotationDay { Day = g.Key }; int boughtBefore = res.Bought;
+                // replace dead or passed accounts, keep the pool at its size
+                for (int i = accts.Count - 1; i >= 0; i--) if (accts[i].Dead || accts[i].Passed) accts.RemoveAt(i);
+                while (accts.Count < Math.Max(1, c.Accounts)) accts.Add(buy(g.Key));
+                foreach (var a in accts) { a.DayPnl = 0; a.DayLosses = 0; a.Locked = false; a.TradedToday = false; }
+                var bars = g.Where(x => { int m = x.Time.Hour * 60 + x.Time.Minute; return m > sm && m <= em; }).OrderBy(x => x.Time).ToList();
+                var all = g.OrderBy(x => x.Time).ToList();
+                int i0 = 0; DateTime nextAllowed = DateTime.MinValue;
+                while (i0 < bars.Count)
+                {
+                    var b0 = bars[i0];
+                    if (b0.Time < nextAllowed) { i0++; continue; }
+                    // next account in turn that can still trade today
+                    Acct acct = null; for (int k = 0; k < accts.Count; k++) { var a = accts[(turn + k) % accts.Count]; if (!a.Locked && !a.Dead && !a.Passed) { acct = a; turn = (turn + k + 1) % accts.Count; break; } }
+                    if (acct == null) break;
+                    // direction
+                    int dir = 1;
+                    if (c.Direction == "SELL") dir = -1; else if (c.Direction == "RANDOM") dir = rng.NextDouble() < 0.5 ? 1 : -1;
+                    else if (c.Direction == "FOLLOW5" || c.Direction == "FADE5")
+                    {
+                        int j = all.FindIndex(x => x.Time == b0.Time); if (j < 5) { i0++; continue; }
+                        double dm = all[j - 1].MnqC - all[j - 5].MnqO, dg = all[j - 1].MgcC - all[j - 5].MgcO;
+                        if (Math.Sign(dm) == 0 || Math.Sign(dm) != Math.Sign(dg)) { i0++; continue; }   // no agreement → wait a minute
+                        dir = Math.Sign(dm) * (c.Direction == "FADE5" ? -1 : 1);
+                    }
+                    double eM = b0.MnqO, eG = b0.MgcO;
+                    Func<double, double, double> val = (pm, pg) => dir * ((pm - eM) * km + (pg - eG) * kg);
+                    double target = Math.Min(c.RotationTarget, c.DailyTarget > 0 ? c.DailyTarget - acct.DayPnl : double.MaxValue);
+                    double stop = Math.Min(c.RotationStop, c.DailyStop > 0 ? c.DailyStop + acct.DayPnl : double.MaxValue);
+                    double room = acct.Bal - Threshold(acct, r) - cost; stop = Math.Min(stop, Math.Max(1, room));
+                    double peak = 0, floor = -stop, pnl = 0; string reason = null; int i = i0; DateTime exitT = b0.Time;
+                    for (; i < bars.Count; i++)
+                    {
+                        var b = bars[i];
+                        double worst = dir > 0 ? val(b.MnqL, b.MgcL) : val(b.MnqH, b.MgcH), best = dir > 0 ? val(b.MnqH, b.MgcH) : val(b.MnqL, b.MgcL), close = val(b.MnqC, b.MgcC);
+                        if (worst <= floor + 1e-9) { pnl = floor - slip; reason = floor > -stop + 1e-9 ? "LOCK" : "STOP"; exitT = b.Time; break; }
+                        peak = Math.Max(peak, best);
+                        foreach (var t in tiers) if (peak >= t.Item1 - 1e-9) floor = Math.Max(floor, t.Item2);
+                        if (best >= target - 1e-9) { pnl = target; reason = "TARGET"; exitT = b.Time; break; }
+                        if (close <= floor + 1e-9) { pnl = floor - slip; reason = "LOCK"; exitT = b.Time; break; }
+                        if (i == bars.Count - 1) { pnl = close - slip; reason = "SESSION END"; exitT = b.Time; break; }
+                    }
+                    if (reason == null) break;
+                    pnl -= cost; res.Costs += cost + (reason == "TARGET" ? 0 : slip); day.Costs += cost;
+                    res.Trades.Add(new KeystoneRotationTrade { Entry = b0.Time, Exit = exitT, Account = acct.Id, Dir = dir, Pnl = pnl, Peak = peak, Reason = reason });
+                    day.Rotations++; if (pnl > 0) day.Wins++; else { day.Losses++; acct.DayLosses++; }
+                    acct.DayPnl += pnl; acct.Bal += pnl; acct.TradedToday = true; day.Net += pnl;
+                    if (acct.Bal <= Threshold(acct, r) + 1e-6) { acct.Dead = true; res.Blown++; day.Blown++; }
+                    if ((c.DailyTarget > 0 && acct.DayPnl >= c.DailyTarget - 1e-6) || (c.DailyStop > 0 && acct.DayPnl <= -c.DailyStop + 1e-6) || (c.MaxLossesPerDay > 0 && acct.DayLosses >= c.MaxLossesPerDay)) acct.Locked = true;
+                    nextAllowed = exitT.AddMinutes(Math.Max(1, c.PauseMinutes));
+                    i0 = i + 1;
+                }
+                // end of day: trailing floor, pass check
+                foreach (var a in accts.Where(x => x.TradedToday && !x.Dead))
+                {
+                    a.Days++; a.Best = Math.Max(a.Best, a.DayPnl); a.Hwm = Math.Max(a.Hwm, a.Bal);
+                    bool consistent = r.Consistency <= 0 || a.Best <= r.Consistency / 100.0 * a.Bal + 1e-9;
+                    if (a.Bal >= r.Target && a.Days >= Math.Max(1, r.MinDays) && consistent) { a.Passed = true; res.Passed++; day.Passed++; res.DaysToPass.Add(a.Days); }
+                }
+                day.Bought = res.Bought - boughtBefore; res.Days.Add(day);
+                double[] y; if (!res.ByYear.TryGetValue(g.Key.Year, out y)) { y = new double[5]; res.ByYear[g.Key.Year] = y; }
+                y[0] += day.Bought; y[1] += day.Passed; y[2] += day.Bought * r.EvalCost; y[3] += day.Net; y[4] += day.Rotations;
+            }
+            res.Net = res.Trades.Sum(t => t.Pnl);
+            res.Label = c.Describe();
+            return res;
+        }
+
+        // Search: direction × window × contracts × target / stop × pause, ranked by the cost of one passed evaluation (all CPU cores).
+        public static List<KeystoneRotationResult> Optimize(List<KeystoneHelixMinute> minutes, KeystoneRotationConfig basis, Action<string> progress)
+        {
+            var configs = new List<KeystoneRotationConfig>();
+            var windows = new[] { Tuple.Create(930, 1100), Tuple.Create(930, 1555), Tuple.Create(1000, 1200), Tuple.Create(1300, 1555), Tuple.Create(800, 930) };
+            foreach (string d in Directions)
+                foreach (var win in windows)
+                    foreach (int q in new[] { 5, 10, 20 })
+                        foreach (double tp in new[] { 500.0, 1000, 1500 })
+                            foreach (double sl in new[] { 250.0, 500, 1000 })
+                                foreach (int pause in new[] { 1, 5, 15 })
+                                {
+                                    var c = basis.Copy(); c.Direction = d; c.StartHhmm = win.Item1; c.EndHhmm = win.Item2; c.MnqQty = q; c.MgcQty = q; c.RotationTarget = tp; c.RotationStop = sl; c.PauseMinutes = pause;
+                                    configs.Add(c);
+                                }
+            var results = new KeystoneRotationResult[configs.Count]; int done = 0;
+            System.Threading.Tasks.Parallel.For(0, configs.Count, i =>
+            {
+                var rr = Run(minutes, configs[i]); results[i] = rr;
+                int d = System.Threading.Interlocked.Increment(ref done); if (progress != null && d % 50 == 0) progress(d + " / " + configs.Count);
+            });
+            return results.Where(x => x != null).OrderBy(x => x.Passed >= 5 ? 0 : 1).ThenBy(x => x.CostPerPass).ThenByDescending(x => x.Passed).ToList();
+        }
+
+        // When do MNQ and MGC move together? Per 30-minute slot: % of 5-minute windows where both moved the same way,
+        // and the average combined $ move (both legs, the chosen contracts) — the fuel a combined target needs.
+        public static List<string[]> Together(List<KeystoneHelixMinute> minutes, int mnqQty, int mgcQty)
+        {
+            var rows = new List<string[]>(); var slots = new Dictionary<int, List<Tuple<bool, double>>>();
+            foreach (var g in minutes.Where(x => x.HasMnq && x.HasMgc).GroupBy(x => x.Time.Date))
+            {
+                var list = g.OrderBy(x => x.Time).ToList();
+                for (int i = 4; i < list.Count; i += 5)
+                {
+                    if ((list[i].Time - list[i - 4].Time).TotalMinutes > 4.5) continue;
+                    double dm = list[i].MnqC - list[i - 4].MnqO, dg = list[i].MgcC - list[i - 4].MgcO;
+                    int slot = (list[i - 4].Time.Hour * 60 + list[i - 4].Time.Minute - 1) / 30 * 30;
+                    List<Tuple<bool, double>> s; if (!slots.TryGetValue(slot, out s)) { s = new List<Tuple<bool, double>>(); slots[slot] = s; }
+                    s.Add(Tuple.Create(Math.Sign(dm) != 0 && Math.Sign(dm) == Math.Sign(dg), Math.Abs(dm * 2 * mnqQty) + Math.Abs(dg * 10 * mgcQty)));
+                }
+            }
+            foreach (var kv in slots.OrderBy(k => k.Key))
+            {
+                if (kv.Value.Count < 20) continue;
+                int h = kv.Key / 60, m = kv.Key % 60;
+                rows.Add(new[] { h.ToString("00") + ":" + m.ToString("00") + "–" + ((kv.Key + 30) / 60 % 24).ToString("00") + ":" + ((kv.Key + 30) % 60).ToString("00"), kv.Value.Count.ToString(), (100.0 * kv.Value.Count(t => t.Item1) / kv.Value.Count).ToString("0") + "%", "$" + kv.Value.Average(t => t.Item2).ToString("N0", CultureInfo.InvariantCulture), "$" + kv.Value.Where(t => t.Item1).Select(t => t.Item2).DefaultIfEmpty(0).Average().ToString("N0", CultureInfo.InvariantCulture) });
+            }
+            return rows;
+        }
+
+        public static string Verdict(KeystoneRotationResult x)
+        {
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            if (x.Passed == 0) return "NO EVALUATION PASSED • " + x.Bought + " bought (" + m(x.Spent) + ") • " + x.Rotations + " rotations, " + x.WinPct.ToString("0") + "% won, " + m(x.PerRotation) + " per rotation after costs.";
+            return "1 PASSED EVALUATION COSTS " + m(x.CostPerPass) + " • " + x.Passed + " passed of " + x.Bought + " bought (" + x.PassRate.ToString("0") + "%) in " + (x.DaysToPass.Count == 0 ? 0 : x.DaysToPass.Average()).ToString("0.0") + " trading days on average • " + x.Rotations + " rotations, " + x.WinPct.ToString("0") + "% won, " + m(x.PerRotation) + " per rotation after costs (costs " + m(x.Costs) + ").";
+        }
+    }
+
     public sealed class KeystoneMoveRow
     {
         public string Set = string.Empty, Symbol = string.Empty, Kind = string.Empty; public bool Aggr; public DateTime Time; public int Year;
@@ -8818,7 +9013,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -9022,7 +9217,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var map = new Dictionary<object, Brush>();
             for (int i = 0; i < before.Length; i++) if (before[i] != null && !map.ContainsKey(before[i])) map[before[i]] = after[i];
             var seen = new HashSet<object>();
-            foreach (Window w in new Window[] { window, evidenceWindow, comparisonWindow, asianOptimizerWindow, propPlannerWindow, moveStudyWindow }) if (w != null) RethemeTree(w, map, seen);
+            foreach (Window w in new Window[] { window, evidenceWindow, comparisonWindow, asianOptimizerWindow, propPlannerWindow, moveStudyWindow, rotationWindow }) if (w != null) RethemeTree(w, map, seen);
             try { if (evidenceWindow != null && evidenceWindow.IsVisible) RenderEvidenceChart(); } catch { }
         }
 
@@ -9764,7 +9959,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (unsavedResearch) ShowCloseConfirmation();
                 else ShowSavedCloseConfirmation();
             };
-            window.Closed += delegate { CancelRequests(); CancelEvidenceRequest(); try { if (evidenceWindow != null) evidenceWindow.Close(); } catch { } try { if (propPlannerWindow != null) propPlannerWindow.Close(); } catch { } try { if (moveStudyWindow != null) moveStudyWindow.Close(); } catch { } if (activityTimer != null) activityTimer.Stop(); window = null; closeConfirmed = false; };
+            window.Closed += delegate { CancelRequests(); CancelEvidenceRequest(); try { if (evidenceWindow != null) evidenceWindow.Close(); } catch { } try { if (propPlannerWindow != null) propPlannerWindow.Close(); } catch { } try { if (moveStudyWindow != null) moveStudyWindow.Close(); } catch { } try { if (rotationWindow != null) rotationWindow.Close(); } catch { } if (activityTimer != null) activityTimer.Stop(); window = null; closeConfirmed = false; };
             window.Show();
             UpdateUi("READY • VIRTUAL/HISTORICAL RESEARCH ONLY • NO ACCOUNT OR ORDER ACCESS", Blue);
             UpdateWorkflowState();
@@ -9907,7 +10102,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private UIElement Header()
         {
-            var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var stack = new StackPanel { Margin = new Thickness(0) };
             var title = Txt("KEYSTONE ARC", activeTheme == "CLASSIC" ? Text : Gold, 20, FontWeights.Bold); title.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(title);
             var accentLine = new Border { Height = 2, Width = 420, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 2), Background = new LinearGradientBrush(Gold.Color, Bg.Color, 0) };
@@ -9931,9 +10126,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             g.Children.Add(stack);
             var newTest = Btn("NEW TEST", Gold); newTest.Width = 106; newTest.Height = 30; newTest.Click += delegate { ConfirmResetForNewTest(); }; resetNewTestButton = newTest; Grid.SetColumn(newTest, 1); g.Children.Add(newTest);
             var moveBtn = Btn("MOVE STUDY", Gold); moveBtn.Width = 118; moveBtn.Height = 30; moveBtn.FontSize = 10; moveBtn.ToolTip = "One test for every strategy: follow each entry of the last run to the close (for us / against us), compare sets, instruments, years and the no-setup baseline, pick target / stop from the moves."; moveBtn.Click += delegate { OpenMoveStudy(); };
+            var rotBtn = Btn("ROTATION TESTER", Orchid); rotBtn.Width = 128; rotBtn.Height = 30; rotBtn.FontSize = 10; rotBtn.ToolTip = "Your MNQ + MGC rotation (BUY BUY / SELL SELL / random / confirm) replayed on history with accounts in turn and evaluations; optimizer for target, stop, contracts, pause, window."; rotBtn.Click += delegate { OpenRotationTester(); };
             var planner = Btn("PROP PLANNER", Green); planner.Width = 118; planner.Height = 30; planner.FontSize = 10; planner.ToolTip = "The business math of prop firms: pass rate, what a funded account pays, the value of one evaluation, separate vs copy vs rotation, sweet spot"; planner.Click += delegate { OpenPropPlanner(null); };
-            var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(moveBtn, 2); g.Children.Add(moveBtn); Grid.SetColumn(planner, 3); g.Children.Add(planner); Grid.SetColumn(closeAux, 4); g.Children.Add(closeAux);
-            var close = Btn("CLOSE LAB", Red); close.Width = 96; close.MinWidth = 96; close.MaxWidth = 96; close.Height = 30; close.FontSize = 10; close.ToolTip = "Close the entire Keystone Arc workspace"; close.Click += delegate { window.Close(); }; Grid.SetColumn(close, 5); g.Children.Add(close);
+            var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(moveBtn, 2); g.Children.Add(moveBtn); Grid.SetColumn(rotBtn, 3); g.Children.Add(rotBtn); Grid.SetColumn(planner, 4); g.Children.Add(planner); Grid.SetColumn(closeAux, 5); g.Children.Add(closeAux);
+            var close = Btn("CLOSE LAB", Red); close.Width = 96; close.MinWidth = 96; close.MaxWidth = 96; close.Height = 30; close.FontSize = 10; close.ToolTip = "Close the entire Keystone Arc workspace"; close.Click += delegate { window.Close(); }; Grid.SetColumn(close, 6); g.Children.Add(close);
             return g;
         }
 
@@ -22234,6 +22430,183 @@ namespace NinjaTrader.NinjaScript.AddOns
             w.Closed += delegate { moveStudyWindow = null; moveStudyRun = null; moveStudyStatus = null; };
             w.Show();
             run();
+        }
+
+
+        // ---- ROTATION TESTER window -------------------------------------------------------------------------
+        private Window rotationWindow; private KeystoneRotationResult rotationLast; private List<KeystoneRotationResult> rotationOpt = new List<KeystoneRotationResult>();
+        private TextBlock rotationStatus; private Action rotationRun, rotationOptimize;
+
+        private void OpenRotationTester()
+        {
+            if (rotationWindow != null) { rotationWindow.Activate(); return; }
+            var w = new Window { Title = "KEYSTONE ARC • ROTATION TESTER", Width = 1500, Height = 900, MinWidth = 900, MinHeight = 560, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            FitWindowToScreen(w);
+            var root = new Grid { Margin = new Thickness(10) };
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(420) }); root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var head = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+            head.Children.Add(Txt("ROTATION TESTER • MNQ + MGC TOGETHER, ACCOUNTS IN TURN", Gold, 20, FontWeights.Bold));
+            head.Children.Add(Txt("Your live rotation replayed on real 1-minute history: both instruments opened on the same minute, one combined target / stop / profit lock per rotation, a pause, then the next account. Every account is an evaluation (rules below) with its daily target, daily stop and two-loss lock. Data: load MNQ + MGC 1-minute bars in the lab (Step 1: PROP BRACKET, BOTH, your dates, START), then RUN here. Inside a minute the worst combined price counts first; 1-minute bars cannot see seconds (pause and minimum hold are rounded to whole minutes).", Muted, 11, FontWeights.Normal));
+            Grid.SetRow(head, 0); Grid.SetColumnSpan(head, 2); root.Children.Add(head);
+            var set = new StackPanel();
+            Func<string, Brush, StackPanel> block = (title, brush) => { var s = new StackPanel(); s.Children.Add(Txt(title, brush, 13, FontWeights.Bold)); set.Children.Add(new Border { Background = Card, BorderBrush = brush, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 4, 6, 6), Margin = new Thickness(0, 0, 6, 6), Child = s }); return s; };
+            var b1 = block("1. ROTATION", Gold);
+            var dirBox = Select(KeystoneRotation.Directions.Select(KeystoneRotation.DirectionName).ToArray()); dirBox.SelectedIndex = 0;
+            var mnqQ = Input("20"); var mgcQ = Input("20"); var tp = Input("1000"); var sl = Input("500"); var tiers = Input("500:150,700:350,900:750"); var pause = Input("1"); var start = Input("930"); var end = Input("1555");
+            tiers.ToolTip = "Profit-lock ladder: peak $ : locked $, comma separated (empty = off). 500:150 = after +$500 the rotation cannot close below +$150.";
+            pause.ToolTip = "Minutes between rotations (1 = the next minute; 1-minute bars cannot test seconds).";
+            foreach (var t in new[] { Tuple.Create("DIRECTION", (UIElement)dirBox), Tuple.Create("MNQ CONTRACTS", (UIElement)mnqQ), Tuple.Create("MGC CONTRACTS", (UIElement)mgcQ), Tuple.Create("TARGET $ PER ROTATION", (UIElement)tp), Tuple.Create("STOP $ PER ROTATION", (UIElement)sl), Tuple.Create("PROFIT-LOCK TIERS", (UIElement)tiers), Tuple.Create("PAUSE (MINUTES)", (UIElement)pause), Tuple.Create("FIRST ROTATION AFTER (HHMM)", (UIElement)start), Tuple.Create("LAST MINUTE (HHMM)", (UIElement)end) }) b1.Children.Add(Row(t.Item1, t.Item2));
+            var b2 = block("2. ACCOUNTS • DAILY POLICY", Cyan);
+            var accts = Input("20"); var dTarget = Input("2000"); var dStop = Input("2000"); var losses = Input("2"); var comm = Input("0.62"); var slipT = Input("1");
+            foreach (var t in new[] { Tuple.Create("ACCOUNTS IN TURN", accts), Tuple.Create("DAILY TARGET $ / ACCOUNT", dTarget), Tuple.Create("DAILY STOP $ / ACCOUNT", dStop), Tuple.Create("LOSSES THAT LOCK THE DAY", losses), Tuple.Create("COMMISSION $ / CONTRACT / SIDE", comm), Tuple.Create("SLIPPAGE TICKS ON STOP / LOCK", slipT) }) b2.Children.Add(Row(t.Item1, t.Item2));
+            var b3 = block("3. EVALUATION RULES", Green);
+            var eCost = Input("120"); var eTarget = Input("3000"); var eDd = Input("2000"); var eCons = Input("50"); var eMin = Input("2");
+            foreach (var t in new[] { Tuple.Create("EVALUATION COST $", eCost), Tuple.Create("PROFIT TARGET $", eTarget), Tuple.Create("MAX DRAWDOWN $ (EOD, STOPS AT +100)", eDd), Tuple.Create("CONSISTENCY % (BEST DAY)", eCons), Tuple.Create("MIN DAYS", eMin) }) b3.Children.Add(Row(t.Item1, t.Item2));
+            var setScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = set };
+            Grid.SetRow(setScroll, 1); root.Children.Add(setScroll);
+            Func<KeystoneRotationConfig> read = () => new KeystoneRotationConfig
+            {
+                Direction = KeystoneRotation.Directions[Math.Max(0, dirBox.SelectedIndex)], MnqQty = (int)PropNum(mnqQ, 20), MgcQty = (int)PropNum(mgcQ, 20), RotationTarget = Math.Max(1, PropNum(tp, 1000)), RotationStop = Math.Max(1, PropNum(sl, 500)), LockTiers = tiers.Text ?? "",
+                PauseMinutes = Math.Max(1, (int)PropNum(pause, 1)), StartHhmm = (int)PropNum(start, 930), EndHhmm = (int)PropNum(end, 1555), Accounts = Math.Max(1, Math.Min(200, (int)PropNum(accts, 20))), DailyTarget = PropNum(dTarget, 2000), DailyStop = PropNum(dStop, 2000), MaxLossesPerDay = (int)PropNum(losses, 2),
+                CommissionPerSide = PropNum(comm, 0.62), SlippageTicks = (int)PropNum(slipT, 1),
+                Rules = new KeystonePropRules { EvalCost = PropNum(eCost, 120), Target = Math.Max(1, PropNum(eTarget, 3000)), MaxDrawdown = Math.Max(1, PropNum(eDd, 2000)), Consistency = PropNum(eCons, 50), MinDays = (int)PropNum(eMin, 2) }
+            };
+            Action<KeystoneRotationConfig> apply = c =>
+            {
+                dirBox.SelectedIndex = Math.Max(0, Array.IndexOf(KeystoneRotation.Directions, c.Direction)); mnqQ.Text = c.MnqQty.ToString(); mgcQ.Text = c.MgcQty.ToString(); tp.Text = c.RotationTarget.ToString("0"); sl.Text = c.RotationStop.ToString("0");
+                pause.Text = c.PauseMinutes.ToString(); start.Text = c.StartHhmm.ToString(); end.Text = c.EndHhmm.ToString();
+            };
+            var right = new Grid(); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var actions = new UniformGrid { Columns = 4 };
+            var runBtn = Btn("RUN THIS ROTATION", Green); var optBtn = Btn("OPTIMIZE (2,025 COMBINATIONS)", Gold); var expBtn = Btn("EXPORT CSV", Blue); var fullBtn = Btn("FULL SCREEN", Card);
+            fullBtn.Click += delegate { bool full = w.WindowState == WindowState.Maximized; w.WindowState = full ? WindowState.Normal : WindowState.Maximized; fullBtn.Content = full ? "FULL SCREEN" : "NORMAL SIZE"; };
+            foreach (var b in new[] { runBtn, optBtn, expBtn, fullBtn }) { b.Height = 34; b.FontSize = 11.5; actions.Children.Add(b); }
+            right.Children.Add(actions);
+            var status = Txt("PRESS RUN THIS ROTATION.", Gold, 12.5, FontWeights.Bold); status.Margin = new Thickness(4, 2, 4, 4); Grid.SetRow(status, 1); right.Children.Add(status);
+            var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            string[] names = { "RESULT", "EVERY DAY", "MNQ + MGC TOGETHER", "OPTIMIZER", "HOW IT WORKS" }; Brush[] colors = { Gold, Cyan, Green, Orchid, Blue };
+            for (int i = 0; i < names.Length; i++) tabs.Items.Add(new TabItem { Header = names[i], Background = colors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Press RUN THIS ROTATION.", Muted, 11, FontWeights.Normal) });
+            Action<int, UIElement> setTab = (i, content) => { var sv = HelixScroll(content); if (i == 0 || i == 4) sv.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; ((TabItem)tabs.Items[i]).Content = sv; };
+            var how = new StackPanel();
+            how.Children.Add(Txt("HOW THE TESTER WORKS", Blue, 14, FontWeights.Bold));
+            how.Children.Add(Txt("• A rotation opens MNQ and MGC on the same minute's open, both the same way (BUY BUY / SELL SELL; RANDOM flips a coin; CONFIRM waits until both instruments moved the same way over the last 5 minutes). • Combined P/L = MNQ points × $2 × contracts + MGC points × $10 × contracts. • Each minute: if the worst combined price (both legs at their bad extremes) reaches the stop or the locked floor → out there (slippage on that exit); otherwise the peak and the lock tiers update; if the best combined price reaches the target → out at the target; if the minute closes below the new floor → out at the floor. • The target shrinks to what is left of the account's daily target; the stop shrinks to what is left of its daily stop and never goes past the evaluation's floor. • After a rotation: pause, then the next account in turn. An account stops for the day at its daily target, daily stop or after N losses. • End of day: the evaluation floor trails the best balance (stops at +$100); passed accounts and blown accounts are replaced by new evaluations the next day. • 1 PASSED EVALUATION COSTS = evaluations bought ÷ evaluations passed × the price — the number that decides the plan. • Honest limits: 1-minute bars cannot see seconds, so 25 vs 45 second pauses and the 11-second hold cannot be told apart; real fills on 20 + 20 contracts can be worse than 1 tick; a random direction has no edge — only the rules (locks, daily target, pause) and the prop math can make it pay, so check every year in the OPTIMIZER.", Text, 12, FontWeights.Normal));
+            setTab(4, how);
+            Grid.SetRow(tabs, 2); right.Children.Add(tabs);
+            Grid.SetRow(right, 1); Grid.SetColumn(right, 1); root.Children.Add(right);
+            List<KeystoneHelixMinute> cache = null; string cacheKey = null; bool busy = false;
+            Func<List<KeystoneHelixMinute>> minutes = () =>
+            {
+                if (!KeystoneBracket.IsOneMinute(mnqBars) || !KeystoneBracket.IsOneMinute(mgcBars)) return null;
+                string key = mnqBars.Count + "|" + mgcBars.Count + "|" + mnqBars[0].Time.Ticks + "|" + mgcBars[mgcBars.Count - 1].Time.Ticks;
+                if (key != cacheKey) { cache = KeystoneHelix.Align(new List<KeystoneArcBar>(mnqBars), new List<KeystoneArcBar>(mgcBars)); cacheKey = key; }
+                return cache;
+            };
+            Action<KeystoneRotationResult> render = x =>
+            {
+                var p = new StackPanel(); Brush vb = x.Passed > 0 && x.CostPerPass < x.Config.Rules.EvalCost * 4 ? Green : (x.Passed > 0 ? Gold : Red);
+                p.Children.Add(new Border { Background = Card, BorderBrush = vb, BorderThickness = new Thickness(5, 1.5, 1.5, 1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8, 10, 8), Margin = new Thickness(2, 2, 2, 6), Child = Txt(KeystoneRotation.Verdict(x), vb, 14, FontWeights.Bold) });
+                p.Children.Add(HelixNote(x.Config.Describe() + " • evaluation " + Cash(x.Config.Rules.EvalCost) + ", target " + Cash(x.Config.Rules.Target) + ", drawdown " + Cash(x.Config.Rules.MaxDrawdown) + " • " + x.Days.Count + " days " + (x.Days.Count > 0 ? x.Days[0].Day.ToString("yyyy-MM-dd") + " → " + x.Days[x.Days.Count - 1].Day.ToString("yyyy-MM-dd") : "")));
+                var cards = new WrapPanel();
+                cards.Children.Add(HelixCard("1 PASSED EVALUATION COSTS", x.Passed == 0 ? "never" : Cash(x.CostPerPass), x.Passed + " passed of " + x.Bought + " bought (" + x.PassRate.ToString("0") + "%)", vb, 230));
+                cards.Children.Add(HelixCard("DAYS TO PASS", x.DaysToPass.Count == 0 ? "–" : x.DaysToPass.Average().ToString("0.0"), "trading days per passed account", Cyan, 200));
+                cards.Children.Add(HelixCard("ROTATIONS", x.Rotations.ToString("N0"), x.WinPct.ToString("0") + "% won • " + (x.Days.Count == 0 ? 0 : (double)x.Rotations / x.Days.Count).ToString("0.0") + " a day", Text, 200));
+                cards.Children.Add(HelixCard("PER ROTATION AFTER COSTS", Signed(x.PerRotation), "costs paid " + Cash(x.Costs), MoneyBrush(x.PerRotation), 220));
+                cards.Children.Add(HelixCard("BLOWN EVALUATIONS", x.Blown.ToString(), "hit the drawdown floor", Red, 200));
+                foreach (string reason in new[] { "TARGET", "STOP", "LOCK", "SESSION END" }) { var list = x.Trades.Where(t => t.Reason == reason).ToList(); if (list.Count > 0) cards.Children.Add(HelixCard(reason, list.Count + " (" + (100.0 * list.Count / Math.Max(1, x.Rotations)).ToString("0") + "%)", "average " + Signed(list.Average(t => t.Pnl)), reason == "TARGET" ? Green : (reason == "STOP" ? Red : Gold), 180)); }
+                p.Children.Add(cards);
+                p.Children.Add(HelixTitle("YEAR BY YEAR", Cyan));
+                double[] wy = { 80, 110, 90, 90, 130, 130, 130, 110 };
+                p.Children.Add(HelixHeader(new[] { "YEAR", "EVALS BOUGHT", "PASSED", "PASS %", "SPENT", "COST / PASS", "ROTATION NET", "ROTATIONS" }, wy));
+                foreach (var kv in x.ByYear.OrderBy(k => k.Key)) { var y = kv.Value; p.Children.Add(HelixRow(new[] { kv.Key.ToString(), y[0].ToString("0"), y[1].ToString("0"), (y[0] == 0 ? 0 : 100 * y[1] / y[0]).ToString("0") + "%", Cash(y[2]), y[1] == 0 ? "never" : Cash(y[2] / y[1]), Signed(y[3]), y[4].ToString("0") }, new[] { Gold, Text, Text, Text, Red, y[1] == 0 ? Red : Green, MoneyBrush(y[3]), Text }, wy, Card, null)); }
+                setTab(0, p);
+                var d = new StackPanel(); double[] wd = { 110, 90, 70, 70, 80, 80, 80, 120, 110 };
+                d.Children.Add(HelixPaged(new[] { "DAY", "ROTATIONS", "WON", "LOST", "PASSED", "BLOWN", "BOUGHT", "NET (ALL ACCTS)", "COSTS" }, wd, x.Days.Count, i => { var y = x.Days[i]; return HelixRow(new[] { y.Day.ToString("yyyy-MM-dd ddd"), y.Rotations.ToString(), y.Wins.ToString(), y.Losses.ToString(), y.Passed.ToString(), y.Blown.ToString(), y.Bought.ToString(), Signed(y.Net), Cash(y.Costs) }, new[] { Text, Text, Green, Red, Green, Red, Text, MoneyBrush(y.Net), Muted }, wd, MoneyBrush(y.Net), null); }, 60, true));
+                setTab(1, d);
+            };
+            Action<List<KeystoneRotationResult>> renderOpt = list =>
+            {
+                var p = new StackPanel();
+                p.Children.Add(HelixNote("Every direction × window × contracts × target / stop × pause on the loaded days, ranked by the cost of one passed evaluation (at least 5 passes first). BY YEAR = cost per pass in each year — a combination that only works in one year is luck. Click a row to load it on the left and run it."));
+                double[] wo = { 34, 640, 80, 80, 110, 110, 330 };
+                p.Children.Add(HelixPaged(new[] { "#", "COMBINATION", "PASSED", "PASS %", "COST / PASS", "PER ROTATION", "BY YEAR (COST / PASS)" }, wo, list.Count, i =>
+                {
+                    var x = list[i]; string by = string.Join(" • ", x.ByYear.OrderBy(k => k.Key).Select(k => k.Key + " " + (k.Value[1] == 0 ? "never" : Cash(k.Value[2] / k.Value[1]))));
+                    var row = HelixRow(new[] { (i + 1).ToString(), x.Label, x.Passed.ToString(), x.PassRate.ToString("0") + "%", x.Passed == 0 ? "never" : Cash(x.CostPerPass), Signed(x.PerRotation), by }, new[] { Gold, Text, Text, Text, x.Passed == 0 ? Red : Green, MoneyBrush(x.PerRotation), x.ByYear.Values.All(v => v[1] > 0) ? Green : Red }, wo, i == 0 ? Gold : (x.Passed == 0 ? Red : Green), null);
+                    var cfg = x.Config; row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { apply(cfg); if (rotationRun != null) rotationRun(); };
+                    return row;
+                }, 40, false));
+                setTab(3, p);
+            };
+            Action run = delegate
+            {
+                if (busy) return; var c = read(); var mins = minutes();
+                if (mins == null) { status.Text = "NEEDS MNQ + MGC 1-MINUTE BARS • lab Step 1: PROP BRACKET, BOTH, your dates, START — then RUN here."; status.Foreground = Red; return; }
+                busy = true; runBtn.IsEnabled = optBtn.IsEnabled = false; status.Text = "RUNNING • " + c.Describe(); status.Foreground = Gold;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    KeystoneRotationResult x = null; List<string[]> together = null; string failure = null;
+                    try { x = KeystoneRotation.Run(mins, c); together = KeystoneRotation.Together(mins, c.MnqQty, c.MgcQty); } catch (Exception ex) { failure = ex.Message; }
+                    Action done = delegate
+                    {
+                        busy = false; runBtn.IsEnabled = optBtn.IsEnabled = true;
+                        if (failure != null || x == null) { status.Text = "ROTATION ERROR • " + failure; status.Foreground = Red; return; }
+                        render(x); rotationLast = x;
+                        var tg = new StackPanel(); tg.Children.Add(HelixNote("Every 5 minutes of the loaded days, grouped by time of day (New York): how often MNQ and MGC moved the SAME way (both up or both down) and how big the combined move was with " + c.MnqQty + " MNQ + " + c.MgcQty + " MGC. Rotate where TOGETHER is high and the move is big enough for your target."));
+                        double[] wt = { 130, 90, 120, 170, 200 }; tg.Children.Add(HelixHeader(new[] { "TIME", "5-MIN SAMPLES", "TOGETHER", "AVERAGE COMBINED MOVE", "WHEN TOGETHER" }, wt));
+                        foreach (var row in together) { double pct; double.TryParse(row[2].TrimEnd('%'), out pct); tg.Children.Add(HelixRow(row, new[] { Gold, Text, pct >= 60 ? Green : (pct >= 50 ? Text : Red), Cyan, Green }, wt, pct >= 60 ? Green : Card, null)); }
+                        setTab(2, tg);
+                        status.Text = "DONE • " + KeystoneRotation.Verdict(x); status.Foreground = x.Passed > 0 ? Green : Red; tabs.SelectedIndex = 0;
+                    };
+                    if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
+                });
+            };
+            Action optimize = delegate
+            {
+                if (busy) return; var c = read(); var mins = minutes();
+                if (mins == null) { status.Text = "NEEDS MNQ + MGC 1-MINUTE BARS • lab Step 1: PROP BRACKET, BOTH, your dates, START."; status.Foreground = Red; return; }
+                busy = true; runBtn.IsEnabled = optBtn.IsEnabled = false; status.Text = "OPTIMIZING • 2,025 combinations on every loaded day (all CPU cores, a few minutes)…"; status.Foreground = Gold;
+                Action<string> progress = msg => { Action u = delegate { if (busy) status.Text = "OPTIMIZING • " + msg + " combinations…"; }; if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) u(); else w.Dispatcher.BeginInvoke(u); };
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    List<KeystoneRotationResult> list = null; string failure = null;
+                    try { list = KeystoneRotation.Optimize(mins, c, progress); foreach (var x in list.Skip(40)) x.Trades = new List<KeystoneRotationTrade>(); } catch (Exception ex) { failure = ex.Message; }
+                    Action done = delegate
+                    {
+                        busy = false; runBtn.IsEnabled = optBtn.IsEnabled = true;
+                        if (failure != null || list == null || list.Count == 0) { status.Text = "OPTIMIZER ERROR • " + failure; status.Foreground = Red; return; }
+                        renderOpt(list); rotationOpt = list;
+                        var b = list[0]; status.Text = "OPTIMIZER • #1 " + b.Label + " • " + KeystoneRotation.Verdict(b); status.Foreground = b.Passed > 0 ? Green : Red; tabs.SelectedIndex = 3;
+                    };
+                    if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
+                });
+            };
+            runBtn.Click += delegate { run(); }; optBtn.Click += delegate { optimize(); };
+            expBtn.Click += delegate
+            {
+                if (rotationLast == null && rotationOpt.Count == 0) { status.Text = "RUN FIRST"; status.Foreground = Gold; return; }
+                try
+                {
+                    string dir = DataDirectory(); Directory.CreateDirectory(dir); string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss"); var sb = new StringBuilder(); var written = new List<string>();
+                    if (rotationLast != null)
+                    {
+                        sb.AppendLine("# " + rotationLast.Label); sb.AppendLine("# " + KeystoneRotation.Verdict(rotationLast)); sb.AppendLine("entry,exit,account,direction,reason,pnl,peak");
+                        foreach (var t in rotationLast.Trades) sb.Append(t.Entry.ToString("yyyy-MM-dd HH:mm")).Append(',').Append(t.Exit.ToString("yyyy-MM-dd HH:mm")).Append(',').Append(t.Account).Append(',').Append(t.Dir > 0 ? "BUY" : "SELL").Append(',').Append(t.Reason).Append(',').Append(t.Pnl.ToString("0.00", CultureInfo.InvariantCulture)).Append(',').Append(t.Peak.ToString("0.00", CultureInfo.InvariantCulture)).AppendLine();
+                        string f = Path.Combine(dir, "KeystoneArc_Rotation_" + stamp + "_rotations.csv"); File.WriteAllText(f, sb.ToString(), Encoding.UTF8); written.Add(Path.GetFileName(f));
+                    }
+                    if (rotationOpt.Count > 0)
+                    {
+                        sb.Clear(); sb.AppendLine("rank,combination,bought,passed,pass_pct,cost_per_pass,per_rotation,rotations,by_year");
+                        for (int i = 0; i < rotationOpt.Count; i++) { var x = rotationOpt[i]; sb.Append(i + 1).Append(",\"").Append(x.Label).Append("\",").Append(x.Bought).Append(',').Append(x.Passed).Append(',').Append(x.PassRate.ToString("0.0", CultureInfo.InvariantCulture)).Append(',').Append(x.Passed == 0 ? "" : x.CostPerPass.ToString("0", CultureInfo.InvariantCulture)).Append(',').Append(x.PerRotation.ToString("0.00", CultureInfo.InvariantCulture)).Append(',').Append(x.Days.Sum(d => d.Rotations)).Append(",\"").Append(string.Join(" ", x.ByYear.OrderBy(k => k.Key).Select(k => k.Key + ":" + k.Value[1] + "/" + k.Value[0]))).AppendLine("\""); }
+                        string f = Path.Combine(dir, "KeystoneArc_Rotation_" + stamp + "_optimizer.csv"); File.WriteAllText(f, sb.ToString(), Encoding.UTF8); written.Add(Path.GetFileName(f));
+                    }
+                    status.Text = "EXPORTED to " + dir + " • " + string.Join(" + ", written) + " • attach to Claude"; status.Foreground = Green;
+                }
+                catch (Exception ex) { status.Text = "EXPORT ERROR • " + ex.Message; status.Foreground = Red; }
+            };
+            w.Content = root; rotationWindow = w; rotationStatus = status; rotationRun = run; rotationOptimize = optimize;
+            w.Closed += delegate { rotationWindow = null; rotationRun = null; rotationOptimize = null; rotationStatus = null; };
+            w.Show();
         }
 
         // PROP BRACKET in Step 1: the bars are loaded → open the planner on REAL BRACKET days.

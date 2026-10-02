@@ -440,6 +440,20 @@ public static class UiSmokeTest
                 System.IO.File.WriteAllText(".build/report_MOVE.html", KeystoneMoveStudy.Html(groups, (string)G("moveStudyRange")));
                 Set(lab4, "moveStudyWindow", null);
             });
+            Step("ROTATION TESTER: MNQ + MGC rotation on the loaded bars, result tabs, optimizer", () =>
+            {
+                Call(lab4, "OpenRotationTester");
+                Set(lab4, "rotationLast", null);
+                ((Action)G("rotationRun"))();
+                for (int i = 0; i < 600 && G("rotationLast") == null && !((System.Windows.Controls.TextBlock)G("rotationStatus")).Text.Contains("ERROR") && !((System.Windows.Controls.TextBlock)G("rotationStatus")).Text.StartsWith("NEEDS"); i++) System.Threading.Thread.Sleep(100);
+                var x = (KeystoneRotationResult)G("rotationLast"); Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("rotationStatus")).Text);
+                if (x == null || x.Rotations == 0) throw new Exception("no rotations");
+                ((Action)G("rotationOptimize"))();
+                for (int i = 0; i < 1800 && ((System.Collections.ICollection)G("rotationOpt")).Count == 0 && !((System.Windows.Controls.TextBlock)G("rotationStatus")).Text.Contains("ERROR"); i++) System.Threading.Thread.Sleep(100);
+                Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("rotationStatus")).Text);
+                if (((System.Collections.ICollection)G("rotationOpt")).Count != 2025) throw new Exception("optimizer");
+                Set(lab4, "rotationWindow", null);
+            });
             Step("PROP BRACKET: Step 1 choice → planner on REAL BRACKET days → run, rule card, years, sweet spot", () =>
             {
                 var box = (System.Windows.Controls.ComboBox)G("strategyBox"); int bi = -1; for (int i = 0; i < box.Items.Count; i++) if (Convert.ToString(box.Items[i]).StartsWith("PROP BRACKET")) bi = i;
