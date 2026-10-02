@@ -180,7 +180,20 @@ public static class PropPlannerTests
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var sweet = KeystoneBracket.SweetSpot(md, "MNQ", 1555, r, bplan, 800, 5, null); Console.WriteLine("      " + sweet.Count + " plans in " + sw.ElapsedMilliseconds + " ms • #1 " + sweet[0].Label + " • " + sweet[0].YearText);
             Check(sweet.Count > 100 && sweet[0].YearText.Contains("2024") && sweet[0].YearText.Contains("2025") && sweet[0].Plan.Bracket.Direction == "LONG", "bracket sweet spot finds the up-drift (ALWAYS BUY) and checks each year", sweet.Count + " plans in " + sw.ElapsedMilliseconds + " ms • #1 " + sweet[0].Label + " • " + sweet[0].YearText);
+            Check(sweet.Any(x => Eq(x.Plan.FundTarget, 800) && x.Plan.FundContracts == 4), "bracket sweet spot also tries the $800-a-day max-payout pace with 4 contracts");
             string html = KeystonePropPlanner.Html(sweet[0], new List<KeystonePropProgram>(), hist, sweet, "REAL BRACKET • MNQ");
+            // PROOF TEST: save the top rules, re-run them on 2025 only, round-trip through the text format
+            var saved = sweet.Take(5).Select((x, i) => KeystoneBracket.SavedRule.From(x, KeystoneBracket.RangeText(md.Where(d => d.Day.Year == 2024).ToList()), i + 1)).ToList();
+            var back = saved.Select(x => KeystoneBracket.SavedRule.FromLine(x.ToLine())).ToList();
+            Check(back.All(x => x != null) && back[0].Entry == saved[0].Entry && back[0].Direction == saved[0].Direction && Eq(back[0].ES, saved[0].ES) && back[0].FoundRange == saved[0].FoundRange, "proof: saved rules survive the file format", saved[0].ToLine());
+            var newer = md.Where(d => d.Day.Year == 2025).ToList();
+            var proof = KeystoneBracket.ProofTest(newer, back, r, bplan, 400, 7);
+            Check(proof.Count == 5 && proof.All(t => t.Item2.Plan.Bracket.Traded > 200) && proof[0].Item2.ValuePerEval > 0, "proof: the up-drift rule still works on the other year", proof[0].Item2.Label + " → " + proof[0].Item2.ValuePerEval.ToString("0"));
+            Check(!KeystoneBracket.Overlaps(back[0].FoundRange, KeystoneBracket.RangeText(newer)) && KeystoneBracket.Overlaps("2024-01-01 → 2024-12-31", "2024-06-01 → 2025-01-31"), "proof: overlap check", back[0].FoundRange + " vs " + KeystoneBracket.RangeText(newer));
+            string csv = KeystoneBracket.DayCsv(proof[0].Item2.Plan);
+            Check(csv.Split('\n').Length > 250 && csv.Contains("TARGET") && csv.StartsWith("date,traded"), "proof: one CSV row per day with both sizes' results");
+            string ph = KeystonePropPlanner.Html(proof[0].Item2, new List<KeystonePropProgram>(), null, sweet, "REAL BRACKET • MNQ", proof, KeystoneBracket.RangeText(newer), "2024");
+            Check(ph.Contains("PROOF TEST") && ph.Contains("new data the rules never saw") && ph.Contains("<td>" + sweet.Count + "</td>") && ph.Contains("all " + sweet.Count + " plans"), "proof: report has the proof table and every sweet spot row");
             Check(html.Contains("THE RULE TO FOLLOW") && html.Contains("BY YEAR"), "bracket report shows the rule and the year check");
         }
         Console.WriteLine(failures == 0 ? "ALL PROP PLANNER TESTS PASSED" : failures + " PROP PLANNER TEST(S) FAILED");

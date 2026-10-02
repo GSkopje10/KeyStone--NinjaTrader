@@ -7682,8 +7682,10 @@ namespace NinjaTrader.NinjaScript
 
         // Entry times tried by the sweet spot.
         public static int[] Times(string symbol) { return symbol == "MGC" ? new[] { 800, 830, 900, 935, 1000, 1030, 1100, 1300 } : new[] { 935, 945, 1000, 1030, 1100, 1300, 1400 }; }
-        public static int[] EvalContracts(string symbol) { return symbol == "MGC" ? new[] { 1, 2, 3, 5 } : new[] { 2, 3, 5, 10 }; }
-        public static int[] FundContracts(string symbol) { return symbol == "MGC" ? new[] { 1 } : new[] { 1, 2 }; }
+        public static int[] EvalContracts(string symbol) { return symbol == "MGC" ? new[] { 1, 2, 3 } : new[] { 2, 3, 5 }; }
+        public static int[] FundContracts(string symbol) { return symbol == "MGC" ? new[] { 1, 2 } : new[] { 1, 2, 4 }; }
+        // Funded day targets: small safe days ($200 / $300) up to the MAX-PAYOUT pace: $2,000 cap = 50% of $4,000 → $800 a day for 5 days.
+        public static readonly double[] FundTargets = { 200, 300, 500, 800 };
 
         // SWEET SPOT on real prices: (1) every entry time × direction with your plan's sizes → the best rules;
         // (2) for the best rules every evaluation and funded size → ranked by the value of one evaluation, with the value per year.
@@ -7701,12 +7703,12 @@ namespace NinjaTrader.NinjaScript
             });
             // (2) sizes for the best 4 rules
             var plans = new List<KeystonePropPlan>();
-            foreach (int i in Enumerable.Range(0, rules.Count).Where(i => sets[i] != null).OrderByDescending(i => values[i]).Take(4))
+            foreach (int i in Enumerable.Range(0, rules.Count).Where(i => sets[i] != null).OrderByDescending(i => values[i]).Take(3))
                 foreach (int ec in EvalContracts(symbol))
                     foreach (double eT in new[] { 1000.0, 1500 })
                         foreach (double eS in new[] { 1000.0, 1500, 2000 })
                             foreach (int fc in FundContracts(symbol))
-                                foreach (double fT in new[] { 200.0, 300 })
+                                foreach (double fT in FundTargets)
                                     foreach (double fS in new[] { 300.0, 600, 1000 })
                                     {
                                         if (eS > r.MaxDrawdown || fS > r.MaxDrawdown) continue;
@@ -7725,6 +7727,82 @@ namespace NinjaTrader.NinjaScript
             var top = output.Take(25).ToList();
             System.Threading.Tasks.Parallel.ForEach(top, res => YearCheck(res, r, Math.Max(250, n / 4), seed));
             return output;
+        }
+
+
+        // ---- PROOF TEST: rules found by a sweet spot, saved, then re-run on data they never saw ----
+        public sealed class SavedRule
+        {
+            public string Symbol = "MNQ", Direction = "FOLLOW5", FoundRange = string.Empty, FoundYears = string.Empty; public int Entry = 935, Close = 1555, EvalC = 2, FundC = 1;
+            public double ET = 1500, ES = 2000, FT = 300, FS = 1000, FoundValue; public bool FoundEveryYear; public int Rank;
+            public string ToLine() { return string.Join(";", new[] { Symbol, Entry.ToString(CultureInfo.InvariantCulture), Close.ToString(CultureInfo.InvariantCulture), Direction, EvalC.ToString(CultureInfo.InvariantCulture), ET.ToString(CultureInfo.InvariantCulture), ES.ToString(CultureInfo.InvariantCulture), FundC.ToString(CultureInfo.InvariantCulture), FT.ToString(CultureInfo.InvariantCulture), FS.ToString(CultureInfo.InvariantCulture), FoundValue.ToString("0.##", CultureInfo.InvariantCulture), FoundEveryYear ? "1" : "0", FoundRange.Replace(";", ","), FoundYears.Replace(";", ","), Rank.ToString(CultureInfo.InvariantCulture) }); }
+            public static SavedRule FromLine(string line)
+            {
+                var f = (line ?? string.Empty).Split(';'); if (f.Length < 15) return null;
+                try
+                {
+                    Func<int, double> d = i => double.Parse(f[i], CultureInfo.InvariantCulture);
+                    return new SavedRule { Symbol = f[0], Entry = (int)d(1), Close = (int)d(2), Direction = f[3], EvalC = (int)d(4), ET = d(5), ES = d(6), FundC = (int)d(7), FT = d(8), FS = d(9), FoundValue = d(10), FoundEveryYear = f[11] == "1", FoundRange = f[12], FoundYears = f[13], Rank = (int)d(14) };
+                }
+                catch { return null; }
+            }
+            public static SavedRule From(KeystonePropPlanResult r, string range, int rank)
+            {
+                var p = r.Plan; var s = p.Bracket;
+                return new SavedRule { Symbol = s.Symbol, Entry = s.EntryHhmm, Close = s.CloseHhmm, Direction = s.Direction, EvalC = p.EvalContracts, ET = p.EvalTarget, ES = p.EvalStop, FundC = p.FundContracts, FT = p.FundTarget, FS = p.FundStop, FoundValue = r.ValuePerEval, FoundEveryYear = r.EveryYear, FoundRange = range, FoundYears = r.YearText, Rank = rank };
+            }
+            public KeystonePropPlan Plan(KeystonePropPlan basePlan, List<KeystoneBracketMinuteDay> days)
+            {
+                var p = basePlan.Copy(); p.Source = "BRACKET"; p.Bracket = Build(days, Symbol, Entry, Close, Direction);
+                p.EvalContracts = EvalC; p.EvalTarget = ET; p.EvalStop = ES; p.FundContracts = FundC; p.FundTarget = FT; p.FundStop = FS; return p;
+            }
+        }
+
+        public static string RangeText(List<KeystoneBracketMinuteDay> days) { return days == null || days.Count == 0 ? "" : days[0].Day.ToString("yyyy-MM-dd") + " → " + days[days.Count - 1].Day.ToString("yyyy-MM-dd"); }
+
+        // Do two "yyyy-MM-dd → yyyy-MM-dd" ranges overlap? (then the proof is not on new data)
+        public static bool Overlaps(string a, string b)
+        {
+            DateTime a0, a1, b0, b1;
+            if (!ParseRange(a, out a0, out a1) || !ParseRange(b, out b0, out b1)) return false;
+            return a0 <= b1 && b0 <= a1;
+        }
+        static bool ParseRange(string s, out DateTime x, out DateTime y)
+        {
+            x = y = DateTime.MinValue; var parts = (s ?? string.Empty).Split(new[] { " → " }, StringSplitOptions.None); if (parts.Length != 2) return false;
+            return DateTime.TryParseExact(parts[0].Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out x) && DateTime.TryParseExact(parts[1].Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out y);
+        }
+
+        // Every saved rule on the days loaded now (all CPU cores), with the value per year.
+        public static List<Tuple<SavedRule, KeystonePropPlanResult>> ProofTest(List<KeystoneBracketMinuteDay> days, List<SavedRule> saved, KeystonePropRules r, KeystonePropPlan basePlan, int n, int seed)
+        {
+            var res = new KeystonePropPlanResult[saved.Count];
+            System.Threading.Tasks.Parallel.For(0, saved.Count, i =>
+            {
+                var p = saved[i].Plan(basePlan, days);
+                var x = KeystonePropPlanner.Evaluate(r, p, null, n, seed); x.Label = PlanText(p); YearCheck(x, r, n, seed); res[i] = x;
+            });
+            return Enumerable.Range(0, saved.Count).Select(i => Tuple.Create(saved[i], res[i])).ToList();
+        }
+
+        // One row per loaded day: what the rule did with the evaluation size and with the funded size (no account state).
+        public static string DayCsv(KeystonePropPlan p)
+        {
+            var s = p.Bracket; var sb = new StringBuilder();
+            sb.AppendLine("date,traded,why_no_trade,direction,entry_price,eval_result,eval_points,eval_dollars,funded_result,funded_points,funded_dollars,worst_points_before_exit_eval");
+            if (s == null) return sb.ToString();
+            Func<double, int, double> pts = (dollars, c) => RoundTick(dollars / (Math.Max(1, c) * s.PointValue), s);
+            double eT = pts(p.EvalTarget, p.EvalContracts), eS = pts(p.EvalStop, p.EvalContracts), fT = pts(p.FundTarget, p.FundContracts), fS = pts(p.FundStop, p.FundContracts);
+            foreach (var d in s.Days.OrderBy(x => x.Day))
+            {
+                if (!d.Ok) { sb.Append(d.Day.ToString("yyyy-MM-dd")).Append(",0,").Append((d.Why ?? "").Replace(",", " ")).AppendLine(",,,,,,,,,"); continue; }
+                double ep, ew, eb, fp, fw, fb; string eh, fh; Resolve(d, eT, eS, out ep, out ew, out eb, out eh); Resolve(d, fT, fS, out fp, out fw, out fb, out fh);
+                sb.Append(d.Day.ToString("yyyy-MM-dd")).Append(",1,,").Append(d.Dir > 0 ? "BUY" : "SELL").Append(',').Append(d.Entry.ToString(CultureInfo.InvariantCulture))
+                  .Append(',').Append(eh).Append(',').Append(ep.ToString("0.##", CultureInfo.InvariantCulture)).Append(',').Append((ep * p.EvalContracts * s.PointValue - p.EvalContracts * s.CostPerContract).ToString("0.00", CultureInfo.InvariantCulture))
+                  .Append(',').Append(fh).Append(',').Append(fp.ToString("0.##", CultureInfo.InvariantCulture)).Append(',').Append((fp * p.FundContracts * s.PointValue - p.FundContracts * s.CostPerContract).ToString("0.00", CultureInfo.InvariantCulture))
+                  .Append(',').Append(ew.ToString("0.##", CultureInfo.InvariantCulture)).AppendLine();
+            }
+            return sb.ToString();
         }
 
         // Value of one evaluation using only each year's days (the same rule must work in every year, not only overall).
@@ -8096,6 +8174,11 @@ namespace NinjaTrader.NinjaScript
 
         public static string Html(KeystonePropPlanResult x, List<KeystonePropProgram> programs, List<KeystonePropYear> years, List<KeystonePropPlanResult> sweet, string source)
         {
+            return Html(x, programs, years, sweet, source, null, string.Empty, string.Empty);
+        }
+
+        public static string Html(KeystonePropPlanResult x, List<KeystonePropProgram> programs, List<KeystonePropYear> years, List<KeystonePropPlanResult> sweet, string source, List<Tuple<KeystoneBracket.SavedRule, KeystonePropPlanResult>> proof, string proofRange, string sweetRange)
+        {
             Func<string, string> e = s => (s ?? string.Empty).Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
             Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
             Func<double, string> c = v => v > 0 ? "#3fd28b" : (v < 0 ? "#ff6b6b" : "#9aa4b2");
@@ -8133,10 +8216,18 @@ namespace NinjaTrader.NinjaScript
                 foreach (var y in years) sb.Append("<tr><td>").Append(y.Year).Append("</td><td>").Append(y.Bought).Append("</td><td>").Append(y.Passed).Append("</td><td>").Append(y.Payouts).Append("</td><td>").Append(y.Blown).Append("</td><td>").Append(m(y.Spent)).Append("</td><td>").Append(m(y.Cash)).Append("</td><td style='color:").Append(c(y.Net)).Append("'>").Append(m(y.Net)).Append("</td></tr>");
                 sb.Append("</table></div>");
             }
+            if (proof != null && proof.Count > 0)
+            {
+                int held = proof.Count(t => t.Item2.ValuePerEval > 0);
+                sb.Append("<h2>PROOF TEST • saved rules on data loaded now (").Append(e(proofRange)).Append(")</h2><div class='n'>").Append(held).Append(" of ").Append(proof.Count).Append(" rules stayed profitable. Found on ").Append(e(proof[0].Item1.FoundRange)).Append(KeystoneBracket.Overlaps(proof[0].Item1.FoundRange, proofRange) ? " — WARNING: the ranges overlap, this is not new data." : " — new data the rules never saw.").Append("</div><div class='wrap'><table><tr><th>#</th><th>RULE</th><th>FOUND: VALUE / EVAL</th><th>NOW: PASS</th><th>NOW: FUNDED PAYS</th><th>NOW: VALUE / EVAL</th><th>NOW: BY YEAR</th></tr>");
+                foreach (var t in proof) sb.Append("<tr><td>").Append(t.Item1.Rank).Append("</td><td>").Append(e(t.Item2.Label)).Append("</td><td>").Append(m(t.Item1.FoundValue)).Append(" ").Append(e(t.Item1.FoundYears)).Append("</td><td>").Append(t.Item2.PassRate.ToString("0")).Append("%</td><td>").Append(m(t.Item2.FundedValue)).Append("</td><td style='color:").Append(c(t.Item2.ValuePerEval)).Append("'>").Append(m(t.Item2.ValuePerEval)).Append("</td><td style='color:").Append(t.Item2.EveryYear ? "#3fd28b" : "#ff6b6b").Append("'>").Append(e(t.Item2.YearText)).Append("</td></tr>");
+                sb.Append("</table></div>");
+            }
             if (sweet != null && sweet.Count > 0)
             {
+                if (!string.IsNullOrEmpty(sweetRange)) sb.Append("<div class='n'>Sweet spot searched on ").Append(e(sweetRange)).Append(" • all ").Append(sweet.Count).Append(" plans</div>");
                 sb.Append("<h2>SWEET SPOT • best plans first</h2><div class='wrap'><table><tr><th>#</th><th>PLAN</th><th>PASS</th><th>DAYS</th><th>FUNDED PAYS</th><th>VALUE / EVAL</th><th>LOSING EVALS</th><th>FAILS IN A ROW</th><th>BY YEAR</th></tr>");
-                for (int i = 0; i < Math.Min(30, sweet.Count); i++) { var s = sweet[i]; sb.Append("<tr><td>").Append(i + 1).Append("</td><td>").Append(e(s.Label)).Append("</td><td>").Append(s.PassRate.ToString("0")).Append("%</td><td>").Append(s.AvgDaysToPass.ToString("0.0")).Append("</td><td>").Append(m(s.FundedValue)).Append("</td><td style='color:").Append(c(s.ValuePerEval)).Append("'>").Append(m(s.ValuePerEval)).Append("</td><td>").Append(s.LosingShare.ToString("0")).Append("%</td><td>").Append(s.LongestFailStreak95).Append("</td><td style='color:").Append(s.YearText.Length == 0 ? "#9aa4b2" : (s.EveryYear ? "#3fd28b" : "#ff6b6b")).Append("'>").Append(e(s.YearText.Length == 0 ? "—" : (s.EveryYear ? "✓ " : "✗ ") + s.YearText)).Append("</td></tr>"); }
+                for (int i = 0; i < sweet.Count; i++) { var s = sweet[i]; sb.Append("<tr><td>").Append(i + 1).Append("</td><td>").Append(e(s.Label)).Append("</td><td>").Append(s.PassRate.ToString("0")).Append("%</td><td>").Append(s.AvgDaysToPass.ToString("0.0")).Append("</td><td>").Append(m(s.FundedValue)).Append("</td><td style='color:").Append(c(s.ValuePerEval)).Append("'>").Append(m(s.ValuePerEval)).Append("</td><td>").Append(s.LosingShare.ToString("0")).Append("%</td><td>").Append(s.LongestFailStreak95).Append("</td><td style='color:").Append(s.YearText.Length == 0 ? "#9aa4b2" : (s.EveryYear ? "#3fd28b" : "#ff6b6b")).Append("'>").Append(e(s.YearText.Length == 0 ? "—" : (s.EveryYear ? "✓ " : "✗ ") + s.YearText)).Append("</td></tr>"); }
                 sb.Append("</table></div>");
             }
             sb.Append("<h2>HOW TO READ IT</h2><p class='n'>").Append(e(HowItWorks())).Append("</p></body></html>");
@@ -8412,7 +8503,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -21649,6 +21740,25 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Window propPlannerWindow;
         private KeystonePropPlanResult propLastResult; private List<KeystonePropProgram> propLastPrograms = new List<KeystonePropProgram>();
         private List<KeystonePropYear> propLastYears = new List<KeystonePropYear>(); private List<KeystonePropPlanResult> propLastSweet = new List<KeystonePropPlanResult>(); private string propLastSource = string.Empty;
+        private string propLastSweetRange = string.Empty, propLastProofRange = string.Empty; private List<Tuple<KeystoneBracket.SavedRule, KeystonePropPlanResult>> propLastProof = new List<Tuple<KeystoneBracket.SavedRule, KeystonePropPlanResult>>();
+        private static string PropSavedRulesFile() { return Path.Combine(DataDirectory(), "PropPlanner_SavedRules.txt"); }
+        private static List<KeystoneBracket.SavedRule> LoadSavedRules()
+        {
+            var list = new List<KeystoneBracket.SavedRule>();
+            try { if (File.Exists(PropSavedRulesFile())) foreach (var line in File.ReadAllLines(PropSavedRulesFile())) { if (line.StartsWith("#")) continue; var r = KeystoneBracket.SavedRule.FromLine(line); if (r != null) list.Add(r); } } catch { }
+            return list;
+        }
+        // Keep the newest sweet spot's best rules per instrument (other instruments' rules stay).
+        private static void StoreSavedRules(string symbol, List<KeystoneBracket.SavedRule> rules)
+        {
+            try
+            {
+                var keep = LoadSavedRules().Where(r => r.Symbol != symbol).ToList(); keep.AddRange(rules);
+                Directory.CreateDirectory(DataDirectory());
+                File.WriteAllLines(PropSavedRulesFile(), new[] { "# Keystone PROP PLANNER saved rules • symbol;entry;close;direction;evalC;evalT$;evalS$;fundC;fundT$;fundS$;foundValue;everyYear;foundRange;foundYears;rank" }.Concat(keep.Select(r => r.ToLine())).ToArray());
+            }
+            catch { }
+        }
 
         private static double PropNum(TextBox box, double fallback)
         {
@@ -21817,25 +21927,26 @@ namespace NinjaTrader.NinjaScript.AddOns
 
             // ---- results (right) ----
             var right = new Grid(); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            var actions = new UniformGrid { Columns = 5, Margin = new Thickness(0, 0, 0, 2) };
+            var actions = new UniformGrid { Columns = 6, Margin = new Thickness(0, 0, 0, 2) };
             var fullBtn = Btn("FULL SCREEN", Card); fullBtn.ToolTip = "Fill the screen / back to the normal size.";
             fullBtn.Click += delegate { bool full = w.WindowState == WindowState.Maximized; w.WindowState = full ? WindowState.Normal : WindowState.Maximized; fullBtn.Content = full ? "FULL SCREEN" : "NORMAL SIZE"; };
             var runBtn = Btn("RUN THIS PLAN", Green); var sweetBtn = Btn("FIND SWEET SPOT", Gold); var useBtn = Btn("USE BEST PLAN", Cyan); var exportBtn = Btn("EXPORT REPORT (HTML)", Blue);
             runBtn.ToolTip = "Simulate the plan on the left: one evaluation's value, separate vs copy vs rotation, history by year.";
             sweetBtn.ToolTip = "Try many evaluation and funded plans under these firm rules and rank them by the value of one evaluation.";
             useBtn.ToolTip = "Put the #1 sweet-spot plan into the settings and run it."; useBtn.IsEnabled = false;
-            foreach (var b in new[] { runBtn, sweetBtn, useBtn, exportBtn, fullBtn }) { b.Height = 34; b.FontSize = 11.5; actions.Children.Add(b); }
+            var proofBtn = Btn("PROOF TEST", Red); proofBtn.ToolTip = "Re-run the best rules saved by the last FIND SWEET SPOT on the data loaded now. Load dates the rules never saw (e.g. 2023–2024) to see if they really hold.";
+            foreach (var b in new[] { runBtn, sweetBtn, proofBtn, useBtn, exportBtn, fullBtn }) { b.Height = 34; b.FontSize = 11; actions.Children.Add(b); }
             right.Children.Add(actions);
             var status = Txt("PRESS RUN THIS PLAN (or FIND SWEET SPOT).", Gold, 12, FontWeights.Bold); status.Margin = new Thickness(4, 2, 4, 4); Grid.SetRow(status, 1); right.Children.Add(status);
             var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-            string[] names = { "THIS PLAN", "SEPARATE • COPY • ROTATION", "HISTORY BY YEAR", "SWEET SPOT", "HOW IT WORKS" };
-            Brush[] colors = { Gold, Green, Cyan, Orchid, Blue };
+            string[] names = { "THIS PLAN", "SEPARATE • COPY • ROTATION", "HISTORY BY YEAR", "SWEET SPOT", "PROOF TEST", "HOW IT WORKS" };
+            Brush[] colors = { Gold, Green, Cyan, Orchid, Red, Blue };
             for (int i = 0; i < names.Length; i++) tabs.Items.Add(new TabItem { Header = names[i], Background = colors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Press RUN THIS PLAN.", Muted, 11, FontWeights.Normal) });
-            Action<int, UIElement> setTab = (i, content) => { var sv = HelixScroll(content); if (i == 0 || i == 4) sv.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; ((TabItem)tabs.Items[i]).Content = sv; };
+            Action<int, UIElement> setTab = (i, content) => { var sv = HelixScroll(content); if (i == 0 || i == 5) sv.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; ((TabItem)tabs.Items[i]).Content = sv; };
             var how = new StackPanel(); how.Children.Add(HelixTitle("HOW IT WORKS", Blue)); how.Children.Add(Txt(KeystonePropPlanner.HowItWorks(), Text, 12, FontWeights.Normal));
             how.Children.Add(HelixTitle("THE PURE LUCK BENCHMARK", Gold));
             how.Children.Add(Txt("Passing a $3,000 target with a $2,000 drawdown in 2 days of +$1,500 with no edge: " + (100 * KeystonePropPlanner.CoinPassChance(3000, 2000, 2)).ToString("0.00") + "% • in 3 days: " + (100 * KeystonePropPlanner.CoinPassChance(3000, 2000, 3)).ToString("0.00") + "% • in 5 days: " + (100 * KeystonePropPlanner.CoinPassChance(3000, 2000, 5)).ToString("0.00") + "%. Fewer, bigger days pass more often; the consistency rule decides how few days you are allowed.", Text, 12, FontWeights.Normal));
-            setTab(4, how);
+            setTab(5, how);
             Grid.SetRow(tabs, 2); right.Children.Add(tabs);
             Grid.SetRow(right, 1); Grid.SetColumn(right, 1); root.Children.Add(right);
 
@@ -21850,6 +21961,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 cards.Children.Add(HelixCard("DAYS TO PASS", x.AvgDaysToPass.ToString("0.0"), "trading days on average (passed ones)", Cyan, 190));
                 cards.Children.Add(HelixCard("A FUNDED ACCOUNT PAYS YOU", Cash(x.FundedValue), x.AvgPayouts.ToString("0.0") + " payouts over " + x.AvgFundedDays.ToString("0") + " days before it is lost", MoneyBrush(x.FundedValue), 230));
                 cards.Children.Add(HelixCard("VALUE OF ONE EVALUATION", Signed(x.ValuePerEval), "after its " + Cash(x.Rules.EvalCost) + " cost • the number that decides it", MoneyBrush(x.ValuePerEval), 230));
+                cards.Children.Add(HelixCard("WHILE FUNDED, PER WEEK", Cash(x.AvgFundedDays > 0 ? x.FundedValue / x.AvgFundedDays * 5 : 0), "cash per funded account per 5 trading days (max pace: $1,800 = $2,000 cap × 90%)", Cyan, 230));
                 cards.Children.Add(HelixCard("EVALUATIONS THAT LOSE MONEY", x.LosingShare.ToString("0") + "%", "normal — the winners pay for them", Gold, 200));
                 cards.Children.Add(HelixCard("FAILS IN A ROW (WORST 1 IN 20)", x.LongestFailStreak95.ToString(), "= " + Cash(x.LongestFailStreak95 * x.Rules.EvalCost) + " in evaluations before a pass", Red, 230));
                 if (x.Plan.Source == "BRACKET" && x.Plan.Bracket != null)
@@ -21997,6 +22109,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                         if (failure != null || list == null) { status.Text = "SWEET SPOT ERROR • " + failure; status.Foreground = Red; return; }
                         renderSweet(list);
                         useBtn.IsEnabled = list.Count > 0; propLastSweet = list;
+                        propLastSweetRange = bSym != null ? bSym + " " + KeystoneBracket.RangeText(daysFor(bSym)) : "COIN";
+                        if (bSym != null) StoreSavedRules(bSym, list.Take(25).Select((x, i) => KeystoneBracket.SavedRule.From(x, KeystoneBracket.RangeText(daysFor(bSym)), i + 1)).ToList());
                         var b = list[0]; var every = list.FirstOrDefault(s => s.EveryYear);
                         int tradedDays = b.Plan != null && b.Plan.Bracket != null ? b.Plan.Bracket.Traded : 0;
                         if (bSym != null && every != null) b = every;
@@ -22008,6 +22122,53 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
                 });
             };
+            Action<List<Tuple<KeystoneBracket.SavedRule, KeystonePropPlanResult>>, string> renderProof = (proof, range) =>
+            {
+                var p = new StackPanel();
+                if (proof == null || proof.Count == 0) { p.Children.Add(HelixNote("PROOF TEST re-runs the best rules saved by your last FIND SWEET SPOT on the data loaded now. 1) Run FIND SWEET SPOT on one period (e.g. 2025–2026). 2) In the lab load dates the rules never saw (e.g. 2023-01-01 → 2024-12-31) with PROP BRACKET. 3) Press PROOF TEST.")); setTab(4, p); return; }
+                int held = proof.Count(t => t.Item2.ValuePerEval > 0), every = proof.Count(t => t.Item2.EveryYear);
+                bool overlap = KeystoneBracket.Overlaps(proof[0].Item1.FoundRange, range);
+                p.Children.Add(Txt(overlap ? "WARNING: the rules were found on " + proof[0].Item1.FoundRange + " and the data now is " + range + " — they overlap, so this is NOT a proof. Load dates the rules never saw." : held + " OF " + proof.Count + " SAVED RULES STAYED PROFITABLE ON NEW DATA (" + range + ") • " + every + " positive in every year. Found on " + proof[0].Item1.FoundRange + ".", overlap ? Red : (held * 2 >= proof.Count ? Green : Red), 14, FontWeights.Bold));
+                var best = proof.Where(t => t.Item2.EveryYear).OrderByDescending(t => t.Item2.ValuePerEval).FirstOrDefault();
+                p.Children.Add(Txt(best == null ? "No saved rule was positive in every year of the new data — none of them is proven." : "STRONGEST ON NEW DATA: " + best.Item2.Label + " • " + Signed(best.Item2.ValuePerEval) + " per evaluation (found: " + Signed(best.Item1.FoundValue) + ") • " + best.Item2.YearText, best == null ? Red : Green, 12.5, FontWeights.Bold));
+                p.Children.Add(HelixNote("FOUND = what the sweet spot measured on its own dates • NOW = the same rule on the data loaded now. A real edge keeps most of its value on new data; a lucky fit falls to zero or below. Click a row to load the rule and run it."));
+                double[] wp = { 36, 600, 210, 60, 100, 110, 280, 70 };
+                p.Children.Add(HelixHeader(new[] { "#", "RULE", "FOUND: VALUE / EVAL", "PASS", "FUNDED PAYS", "NOW: VALUE", "NOW: BY YEAR", "HOLDS?" }, wp));
+                foreach (var t in proof)
+                {
+                    var tt = t; bool ok = tt.Item2.ValuePerEval > 0;
+                    p.Children.Add(HelixRow(new[] { tt.Item1.Rank.ToString(), tt.Item2.Label, Signed(tt.Item1.FoundValue) + (tt.Item1.FoundEveryYear ? " ✓" : ""), tt.Item2.PassRate.ToString("0") + "%", Cash(tt.Item2.FundedValue), Signed(tt.Item2.ValuePerEval), (tt.Item2.EveryYear ? "✓ " : "✗ ") + tt.Item2.YearText, ok ? (tt.Item2.EveryYear ? "YES" : "PARTLY") : "NO" },
+                        new[] { Gold, Text, Muted, Text, Text, MoneyBrush(tt.Item2.ValuePerEval), tt.Item2.EveryYear ? Green : Red, ok ? (tt.Item2.EveryYear ? Green : Gold) : Red }, wp, ok ? (tt.Item2.EveryYear ? Green : Gold) : Red, delegate { if (applyPlanAndRun != null) applyPlanAndRun(tt.Item2.Plan); }));
+                }
+                setTab(4, p);
+            };
+            Action proofRun = delegate
+            {
+                if (busy) return;
+                string kd = kind();
+                if (!kd.StartsWith("BRACKET")) { status.Text = "PROOF TEST needs REAL BRACKET days: load dates in the lab with PROP BRACKET, choose REAL BRACKET in DAYS COME FROM."; status.Foreground = Red; return; }
+                string sym = kd.Substring(8);
+                var saved = LoadSavedRules().Where(r => r.Symbol == sym).OrderBy(r => r.Rank).ToList();
+                if (saved.Count == 0) { status.Text = "NO SAVED " + sym + " RULES • run FIND SWEET SPOT on another period first (e.g. 2025–2026); its best 25 rules are saved for the proof."; status.Foreground = Red; return; }
+                var rules = readRules(); var plan = readPlan(); int n = Math.Max(500, Math.Min(4000, (int)PropNum(simsBox, 4000) / 2));
+                busy = true; runBtn.IsEnabled = sweetBtn.IsEnabled = proofBtn.IsEnabled = false; status.Text = "PROOF TEST • " + saved.Count + " saved " + sym + " rules (found on " + saved[0].FoundRange + ") on the data loaded now…"; status.Foreground = Gold;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    List<Tuple<KeystoneBracket.SavedRule, KeystonePropPlanResult>> proof = null; string failure = null, range = string.Empty;
+                    try { var md = daysFor(sym); range = KeystoneBracket.RangeText(md); proof = KeystoneBracket.ProofTest(md, saved, rules, plan, n, 41); } catch (Exception ex) { failure = ex.Message; }
+                    Action done = delegate
+                    {
+                        busy = false; runBtn.IsEnabled = sweetBtn.IsEnabled = proofBtn.IsEnabled = true;
+                        if (failure != null || proof == null) { status.Text = "PROOF TEST ERROR • " + failure; status.Foreground = Red; return; }
+                        renderProof(proof, range); propLastProof = proof; propLastProofRange = range;
+                        int held = proof.Count(t => t.Item2.ValuePerEval > 0);
+                        status.Text = "PROOF TEST • " + held + " of " + proof.Count + " rules stayed profitable on " + range + (KeystoneBracket.Overlaps(saved[0].FoundRange, range) ? " (WARNING: overlaps the dates they were found on)" : " (new data)") + " • see the PROOF TEST tab";
+                        status.Foreground = held * 2 >= proof.Count ? Green : Red; tabs.SelectedIndex = 4;
+                    };
+                    if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
+                });
+            };
+            proofBtn.Click += delegate { proofRun(); };
             sweetBtn.Click += delegate { sweet(); };
             runBtn.Click += delegate { run(); };
             useBtn.Click += delegate { if (propLastSweet.Count > 0) applyPlanAndRun((propLastSweet.FirstOrDefault(s => s.EveryYear) ?? propLastSweet[0]).Plan); };
@@ -22018,21 +22179,32 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     string dir = DataDirectory(); Directory.CreateDirectory(dir);
                     string html = Path.Combine(dir, "KeystoneArc_PropPlanner_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".html");
-                    File.WriteAllText(html, KeystonePropPlanner.Html(propLastResult, propLastPrograms, propLastYears, propLastSweet, propLastSource), Encoding.UTF8);
-                    status.Text = "EXPORTED • " + html; status.Foreground = Green;
+                    File.WriteAllText(html, KeystonePropPlanner.Html(propLastResult, propLastPrograms, propLastYears, propLastSweet, propLastSource, propLastProof, propLastProofRange, propLastSweetRange), Encoding.UTF8);
+                    string csv = null;
+                    if (propLastResult.Plan != null && propLastResult.Plan.Bracket != null) { csv = Path.ChangeExtension(html, null) + "_days.csv"; File.WriteAllText(csv, KeystoneBracket.DayCsv(propLastResult.Plan), Encoding.UTF8); }
+                    status.Text = "EXPORTED • " + html + (csv != null ? " + every day: " + Path.GetFileName(csv) : "") + " • attach these files to Claude"; status.Foreground = Green;
                 }
                 catch (Exception ex) { status.Text = "EXPORT ERROR • " + ex.Message; status.Foreground = Red; }
             };
-            renderSweet(propLastSweet);
+            // The sweet spot list belongs to the data it was searched on: hide it when other data is loaded now.
+            if (propLastSweetRange != "COIN" && propLastSweet.Count > 0)
+            {
+                bool same = false; foreach (var sym in labBars.Keys) if (propLastSweetRange == sym + " " + KeystoneBracket.RangeText(daysFor(sym))) same = true;
+                if (!same) { propLastSweet = new List<KeystonePropPlanResult>(); propLastSweetRange = string.Empty; }
+            }
+            renderSweet(propLastSweet); useBtn.IsEnabled = propLastSweet.Count > 0;
+            renderProof(null, string.Empty); propLastProof = new List<Tuple<KeystoneBracket.SavedRule, KeystonePropPlanResult>>(); propLastProofRange = string.Empty;
+            // Keep the last rule and firm rules you ran (a new data load must not reset them).
+            if (propLastResult != null) { showRules(propLastResult.Rules); applyPlan(propLastResult.Plan); refreshPoints(); }
 
             w.Content = root; propPlannerWindow = w;
-            w.Closed += delegate { propPlannerWindow = null; applyPlanAndRun = null; propPlannerRun = null; propPlannerSweet = null; };
+            w.Closed += delegate { propPlannerWindow = null; applyPlanAndRun = null; propPlannerRun = null; propPlannerSweet = null; propPlannerProof = null; };
             w.Show();
-            propPlannerRun = run; propPlannerSweet = sweet; propPlannerTabs = tabs; propPlannerStatus = status;
+            propPlannerRun = run; propPlannerSweet = sweet; propPlannerTabs = tabs; propPlannerStatus = status; propPlannerProof = proofRun;
         }
         private Action<KeystonePropPlan> applyPlanAndRun;
         private TabControl propPlannerTabs; private TextBlock propPlannerStatus;
-        private Action propPlannerRun, propPlannerSweet;   // the open planner's RUN / FIND SWEET SPOT (used by the smoke test)
+        private Action propPlannerRun, propPlannerSweet, propPlannerProof;   // the open planner's RUN / FIND SWEET SPOT (used by the smoke test)
 
         // ---- chart -------------------------------------------------------------------------------
         private void RecoilFillDetail(KeystoneArcEvent e)

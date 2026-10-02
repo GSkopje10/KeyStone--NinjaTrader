@@ -450,6 +450,11 @@ public static class UiSmokeTest
                 var sweet = (List<KeystonePropPlanResult>)G("propLastSweet"); if (sweet.Count == 0) throw new Exception("bracket sweet spot did not finish • " + ((System.Windows.Controls.TextBlock)G("propPlannerStatus")).Text);
                 Console.WriteLine("      sweet " + sweet.Count + " • #1 " + sweet[0].Label + " • " + sweet[0].YearText);
                 if (sweet[0].Plan.Source != "BRACKET" || sweet[0].YearText.Length == 0) throw new Exception("sweet spot not on bracket days");
+                ((Action)G("propPlannerProof"))();
+                for (int i = 0; i < 1200 && ((System.Collections.ICollection)G("propLastProof")).Count == 0 && !((System.Windows.Controls.TextBlock)G("propPlannerStatus")).Text.Contains("ERROR"); i++) System.Threading.Thread.Sleep(100);
+                if (((System.Collections.ICollection)G("propLastProof")).Count == 0) throw new Exception("proof test did not finish • " + ((System.Windows.Controls.TextBlock)G("propPlannerStatus")).Text);
+                Console.WriteLine("      proof: " + ((System.Windows.Controls.TextBlock)G("propPlannerStatus")).Text);
+                if (((System.Windows.Controls.TabControl)G("propPlannerTabs")).Items.Count != 6) throw new Exception("planner tabs");
                 System.IO.File.WriteAllText(".build/report_PROP_BRACKET.html", KeystonePropPlanner.Html(x, (List<KeystonePropProgram>)G("propLastPrograms"), (List<KeystonePropYear>)G("propLastYears"), sweet, "REAL BRACKET"));
                 Set(lab4, "propPlannerWindow", null);
                 box.SelectedIndex = 0; box.SelectedItem = box.Items[0]; Call(lab4, "RefreshStrategyInputState");

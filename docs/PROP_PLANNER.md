@@ -59,3 +59,14 @@ for the evaluation and the funded size, and the same plan with pure luck for com
 size (contracts × $1,000/$1,500 target × $1,000/$1,500/$2,000 stop) and funded size (contracts × $200/$300 × $300/$600/$1,000);
 (3) the best 25 are re-run on each year's days alone. ✓ = positive in every year (a candidate), ✗ = needed a lucky year.
 USE BEST PLAN takes the best ✓ rule. Fewer than 120 loaded trading days → a warning: the result cannot be trusted.
+
+## PROOF TEST + max-payout pace (build 10-03d)
+- Every REAL BRACKET **FIND SWEET SPOT** saves its best 25 rules to `Documents\KeystoneArc5MResearch\PropPlanner_SavedRules.txt`
+  (per instrument, with the dates they were found on).
+- **PROOF TEST** re-runs those saved rules on the data loaded now and shows FOUND value vs NOW value, per year, HOLDS? YES / PARTLY / NO.
+  If the dates overlap the dates the rules were found on, it says so: that is not a proof.
+- The sweet spot also tries funded days of $500 and **$800** (the max-payout pace: $2,000 cap = 50% of $4,000 in 5 days) with
+  up to 4 MNQ / 2 MGC, so the data decides between small safe days and the max payout.
+- THIS PLAN shows **WHILE FUNDED, PER WEEK** (cash per funded account per 5 trading days; max $1,800).
+- EXPORT writes the full report (every sweet spot row + the proof table) and `..._days.csv` with every day of the rule.
+- The planner keeps your last rule and firm rules when it reopens; a sweet spot from other dates is no longer shown.
