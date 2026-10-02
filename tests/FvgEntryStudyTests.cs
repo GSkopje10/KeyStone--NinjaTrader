@@ -50,7 +50,9 @@ public static class FvgEntryStudyTests
         Check(pt != null && Eq(pt.Entry, 1995) && pt.EntryTime == day.AddHours(8).AddMinutes(1) && Eq(pt.FvgUpper, 1995), "PRIOR FVG: the overnight gap 1990.5–1995 untouched at 08:00; the opening candle touches it → 1995 at 08:01", pt == null ? "none" : pt.Entry + " " + pt.EntryTime.ToString("HH:mm"));
         Check(sets[KeystoneFvgEntryStudy.Prior50].Count == 0, "PRIOR 50%: 1992.75 never reached in the first 30 minutes");
         Check(touch.MoveHeat != null && touch.MoveMfe > 5 && Eq(touch.MoveMae, 0.5) && touch.MoveClose > 5, "measured to the close: for us > +5, against −0.5 (the 1997.5 low), closed up", touch.MoveMfe + " " + touch.MoveMae + " " + touch.MoveClose);
-        Check(sets.Values.SelectMany(x => x).All(e => e.SetupClass != "BH"), "no BH anywhere");
+        Check(sets.Where(kv => kv.Key != KeystoneFvgEntryStudy.FirstBh).SelectMany(kv => kv.Value).All(e => e.SetupClass != "BH"), "no BH in the FVG sets");
+        var bh = sets[KeystoneFvgEntryStudy.FirstBh].SingleOrDefault();
+        Check(bh != null && Eq(bh.Entry, 1996) && bh.EntryTime == day.AddHours(8).AddMinutes(12), "FIRST 5M BH (own set, for comparison): red 08:05 → green 08:10 (high 1996) → broken at 08:12", bh == null ? "none" : bh.Entry + " " + bh.EntryTime.ToString("HH:mm"));
         var groups = KeystoneMoveStudy.Run(sets, KeystoneMoveStudy.BaselineRows(bars, "MGC", 800, 1555));
         Check(groups.Any(g => g.Set == KeystoneFvgEntryStudy.Break) && groups.Any(g => g.Set == KeystoneMoveStudy.Baseline), "the sets go straight into the MOVE STUDY ranking", string.Join(" | ", groups.Select(g => g.Name)));
         Console.WriteLine(failures == 0 ? "ALL FVG ENTRY STUDY TESTS PASSED" : failures + " FVG ENTRY STUDY TEST(S) FAILED");

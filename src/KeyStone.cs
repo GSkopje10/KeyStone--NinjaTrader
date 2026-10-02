@@ -5484,8 +5484,8 @@ namespace NinjaTrader.NinjaScript
 
     public static class KeystoneFvgEntryStudy
     {
-        public const string Touch = "FIRST 5M FVG • TOUCH THE GAP TOP", Dip25 = "FIRST 5M FVG • 25% DIP INTO THE GAP", Dip50 = "FIRST 5M FVG • 50% DIP (GAP MIDDLE)", Break = "FIRST 5M FVG • GREEN CLOSE + BREAK OF ITS HIGH", PriorTouch = "PRIOR UNTOUCHED FVG • OPENING CANDLES TOUCH IT", Prior50 = "PRIOR UNTOUCHED FVG • OPENING CANDLES DIP TO 50%";
-        public static readonly string[] Sets = { Touch, Dip25, Dip50, Break, PriorTouch, Prior50 };
+        public const string Touch = "FIRST 5M FVG • TOUCH THE GAP TOP", Dip25 = "FIRST 5M FVG • 25% DIP INTO THE GAP", Dip50 = "FIRST 5M FVG • 50% DIP (GAP MIDDLE)", Break = "FIRST 5M FVG • GREEN CLOSE + BREAK OF ITS HIGH", PriorTouch = "PRIOR UNTOUCHED FVG • OPENING CANDLES TOUCH IT", Prior50 = "PRIOR UNTOUCHED FVG • OPENING CANDLES DIP TO 50%", FirstBh = "FIRST 5M BH • RED → GREEN → BREAK OF THE GREEN HIGH";
+        public static readonly string[] Sets = { Touch, Dip25, Dip50, Break, PriorTouch, Prior50, FirstBh };
 
         sealed class Gap { public double Low, High; public DateTime Formed; public int Index; public double Height { get { return High - Low; } } }
 
@@ -5562,6 +5562,22 @@ namespace NinjaTrader.NinjaScript
                             }
                             break;
                         }
+                    }
+                    // ---- for comparison: the first 5M BH after the start (red candle → green reference → the next candle breaks the green high)
+                    for (int i = s0 + 2; i < five.Count && five[i].Time <= close; i++)
+                    {
+                        var red = five[i - 2]; var grn = five[i - 1]; var trg = five[i];
+                        if (!(red.Close < red.Open && grn.Close > grn.Open && trg.High >= grn.High)) continue;
+                        double lowB = double.MaxValue; for (int q = s0; q <= i - 2; q++) lowB = Math.Min(lowB, five[q].Low);
+                        double dropB = lowB == double.MaxValue ? 0 : Math.Max(0, startOpen - lowB);
+                        for (int m = FirstAfter(raw, grn.Time); m < raw.Count && raw[m].Time <= trg.Time; m++)
+                            if (raw[m].High >= grn.High)
+                            {
+                                var e = new KeystoneArcEvent { Symbol = sym, Direction = "LONG", SetupClass = "BH", TriggerTime = trg.Time, EntryTime = raw[m].Time, Entry = Math.Max(grn.High, raw[m].Open), FvgDrop = dropB, StrengthTag = dropB >= aggrPts ? "AGGR" : "BASE", ReviewNote = FirstBh };
+                                KeystoneMoveStudy.Walk(e, raw, m, 1, close, sym, true); if (e.MoveHeat != null) sets[FirstBh].Add(e);
+                                break;
+                            }
+                        break;
                     }
                     // ---- prior untouched FVG: formed 18:00 the evening before → the start, not traded into before the start
                     var prior = new List<Gap>();
@@ -9144,7 +9160,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuild = "BUILD 2026-10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03i";
+        private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START → MOVE STUDY opens with every entry";
+        private const string KeystoneBuild = "BUILD 2026-10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -10235,10 +10253,10 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var stack = new StackPanel { Margin = new Thickness(0) };
-            var title = Txt("KEYSTONE ARC", activeTheme == "CLASSIC" ? Text : Gold, 20, FontWeights.Bold); title.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(title);
+            var title = Txt("KEYSTONE ARC  •  " + KeystoneBuildShort, activeTheme == "CLASSIC" ? Text : Gold, 20, FontWeights.Bold); title.Margin = new Thickness(0, 0, 0, 0); title.ToolTip = KeystoneBuild; stack.Children.Add(title);
             var accentLine = new Border { Height = 2, Width = 420, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 2), Background = new LinearGradientBrush(Gold.Color, Bg.Color, 0) };
             stack.Children.Add(accentLine);
-            var subtitle = Txt("5M RESEARCH LAB • INDEPENDENT HISTORICAL DETECTION • VIRTUAL POOL • NO LIVE ORDERS • " + KeystoneBuild, Cyan, 9, FontWeights.Bold); subtitle.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(subtitle);
+            var subtitle = Txt(KeystoneStartHere, Gold, 12, FontWeights.Bold); subtitle.ToolTip = "Historical research only • no live orders • every build: " + KeystoneBuild; subtitle.Margin = new Thickness(0, 0, 0, 0); stack.Children.Add(subtitle);
             var themeRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
             var themeLabel = Txt("THEME", Muted, 9, FontWeights.Bold); themeLabel.Margin = new Thickness(0, 4, 6, 0); themeRow.Children.Add(themeLabel);
             var themeBox = Select(ThemeNames); themeBox.SelectedItem = activeTheme; themeBox.Width = 150; themeBox.Height = 22; themeBox.FontSize = 10;
@@ -10285,7 +10303,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             string defaultDay = DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var data = Stack(); data.Children.Add(Txt("1. DATA, SETUPS & SESSION", Gold, 13, FontWeights.Bold));
             // 123 ENGULFING, LAST-HOUR RELAY and VWAP SNAP-BACK are hidden (never tested); their engines stay in the file.
-            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN", "RECOIL • ADD TO LOSERS", "PROP BRACKET • 1-MINUTE MNQ + MGC FOR THE STUDIES (FVG STUDY • ROTATION • PLANNER)"); strategyBox.SelectedIndex = 0;
+            strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN", "RECOIL • ADD TO LOSERS", "PROP BRACKET • 1-MINUTE MNQ + MGC FOR THE STUDIES (FVG STUDY • ROTATION • PLANNER)");
+            strategyBox.Items.Insert(0, "FIRST 5M FVG STUDY • MNQ 09:30 + MGC 08:00 • EVERY ENTRY MEASURED"); strategyBox.SelectedIndex = 0; strategyBox.SelectedIndex = 0;
             scopeBox = Select("MNQ", "MGC", "BOTH"); scopeBox.SelectedIndex = 0;
             accountPathBox = Select("PROP • VIRTUAL POOL"); accountPathBox.SelectedIndex = 0; accountPathBox.Visibility = Visibility.Collapsed;
             // Keystone is intentionally one setup lab in this revision: long BH only.
@@ -10971,7 +10990,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool asian = IsAsian75Selected();
             quickStartButton.Content = researchSubmissionLocked
                 ? "↻ RUN THIS TEST AGAIN • same settings (or change a setting to start a new one)"
-                : "▶ " + (IsBracketSelected() ? "START • LOAD 1M BARS + OPEN THE PROP PLANNER" : IsRecoilSelected() ? "START RECOIL • LOAD 1M BARS + RUN EVERY LADDER" : IsGoldenSelected() ? "START RESEARCH • LOAD + FIND THE GOLDEN SETUPS" : IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
+                : "▶ " + (IsBracketSelected() ? "START • LOAD 1-MINUTE MNQ + MGC → FIRST 5M FVG STUDY" : IsRecoilSelected() ? "START RECOIL • LOAD 1M BARS + RUN EVERY LADDER" : IsGoldenSelected() ? "START RESEARCH • LOAD + FIND THE GOLDEN SETUPS" : IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
         }
 
         private void ConfirmAndStartResearch()
@@ -21795,14 +21814,16 @@ namespace NinjaTrader.NinjaScript.AddOns
         private TextBlock recoilVerdictHead, recoilVerdictSub, recoilSlimText; private Border recoilVerdictCard; private WrapPanel recoilTiles; private TabControl recoilTabs;
         private Button recoilSummaryToggle; private bool recoilSummaryHidden;
 
-        private bool IsBracketSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("PROP BRACKET", StringComparison.OrdinalIgnoreCase); }
+        private bool IsBracketSelected() { string s = Convert.ToString(strategyBox == null ? null : strategyBox.SelectedItem ?? string.Empty); return s.StartsWith("PROP BRACKET", StringComparison.OrdinalIgnoreCase) || s.StartsWith("FIRST 5M FVG STUDY", StringComparison.OrdinalIgnoreCase); }
         private bool BracketStudy() { return config != null && string.Equals(config.StrategyCode, "BRK", StringComparison.OrdinalIgnoreCase); }
         private readonly List<UIElement> bracketStrategyControls = new List<UIElement>();
         private bool bracketDefaultsApplied;
         private UIElement BuildBracketPanel()
         {
             var panel = Stack(); panel.Margin = new Thickness(0, 4, 0, 2);
-            panel.Children.Add(Txt("PROP BRACKET • ONE TRADE A DAY", Gold, 13, FontWeights.Bold));
+            panel.Children.Add(Txt("FIRST 5M FVG STUDY • START LOADS 1-MINUTE MNQ + MGC, THEN MOVE STUDY OPENS", Gold, 13, FontWeights.Bold));
+            panel.Children.Add(Txt("MNQ from 09:30, MGC from 08:00 (change them in MOVE STUDY). Sets compared side by side, each instrument separately: first FVG touch • 25% • 50% • green close + break • prior untouched FVG (touch, 50%) • first 5M BH. Every entry is followed to the close: points for / against / before the best / close, per year, vs buying at the start. End the range yesterday so the data is saved for next time.", Text, 10.5, FontWeights.Normal));
+            panel.Children.Add(Txt("PROP BRACKET (same 1-minute load) also feeds the ROTATION TESTER and the PROP PLANNER buttons.", Muted, 10, FontWeights.Bold));
             panel.Children.Add(Txt("START loads real 1-minute bars 07:00–16:00 New York for the dates above (MNQ, MGC or BOTH) and opens the PROP PLANNER with REAL BRACKET days. There you choose (or let FIND SWEET SPOT choose) the entry time, the direction rule, the contracts and the target / stop for the evaluation and the funded account. Every day is replayed on the 1-minute bars; when a minute touches both the target and the stop, the stop counts first. The session choice above is not used — the planner's entry and close times decide.", Muted, 10, FontWeights.Normal));
             panel.Children.Add(Txt("TIP: 2 years or more (e.g. 2024-01-01 → today) so the sweet spot can check that a rule worked in EVERY year, not just one lucky stretch.", Cyan, 10, FontWeights.Bold));
             bracketStrategyControls.Clear(); bracketStrategyControls.Add(panel);
