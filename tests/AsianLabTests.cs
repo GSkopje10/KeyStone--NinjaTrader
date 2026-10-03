@@ -36,7 +36,24 @@ public static class AsianLabTests
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var res = KeystoneAsianLab.Run(bars, g, rules, null, null);
         Console.WriteLine("      " + res.Rows.Count + " combinations × " + res.Nights + " nights in " + sw.ElapsedMilliseconds + " ms • #1 " + res.Rows[0].Label + " • prop " + res.Rows[0].P.PropNet.ToString("0") + " • plain " + res.Rows[0].P.Net.ToString("0"));
-        Check(res.Rows.Count == combos.Count && res.Nights > 400, "every combination measured on every night", res.Rows.Count + " / " + res.Nights);
+        int trendRows = res.Rows.Count(r => KeystoneAsianLab.IsTrend(r.Combo));
+        Check(res.Rows.Count - trendRows == combos.Count && trendRows == 3 * 2 * 2 * 2 * 2 && res.Nights > 400, "every combination measured on every night (+ one TREND row per setting group)", res.Rows.Count + " = " + combos.Count + " + " + trendRows + " / " + res.Nights);
+        Check(res.Coverage.Count == 4 && res.Coverage.All(c => c.NightsOpened > 150), "data coverage per instrument and year", string.Join(" ", res.Coverage.Select(c => c.Symbol + c.Year + ":" + c.NightsOpened)));
+        // TREND: every night is the LONG or SHORT night of the same settings, chosen from the previous 20 nights' prices only
+        var tr = res.Rows.First(r => KeystoneAsianLab.IsTrend(r.Combo) && r.Combo.Scope == "MGC" && r.Combo.StartingQuantity == 1 && r.Combo.LegLoss == 75 && r.Combo.Reversals == 3 && r.Combo.Target == 400);
+        var lg = res.Rows.First(r => !KeystoneAsianLab.IsTrend(r.Combo) && r.Combo.Scope == "MGC" && r.Combo.MgcDirection == "LONG" && r.Combo.StartingQuantity == 1 && r.Combo.LegLoss == 75 && r.Combo.Reversals == 3 && r.Combo.Target == 400).Nights.ToDictionary(n => n.Date);
+        var sh = res.Rows.First(r => !KeystoneAsianLab.IsTrend(r.Combo) && r.Combo.Scope == "MGC" && r.Combo.MgcDirection == "SHORT" && r.Combo.StartingQuantity == 1 && r.Combo.LegLoss == 75 && r.Combo.Reversals == 3 && r.Combo.Target == 400).Nights.ToDictionary(n => n.Date);
+        var gold = bars.Where(b => b.Symbol == "MGC").ToList(); var dates = new List<DateTime>(); var px = new List<double>();
+        foreach (var d in lg.Keys.OrderBy(x => x)) { var open = d.AddHours(18); var prior = gold.LastOrDefault(b => b.Time <= open); if (prior == null) continue; dates.Add(d); px.Add(prior.Close); }
+        int matched = 0, longs = 0;
+        for (int i = 20; i < dates.Count; i++)
+        {
+            double avg = 0; for (int k = i - 20; k < i; k++) avg += px[k]; avg /= 20; bool up = px[i] >= avg; if (up) longs++;
+            var want = up ? lg[dates[i]] : sh[dates[i]]; var got = tr.Nights.FirstOrDefault(n => n.Date == dates[i]);
+            if (got != null && Eq(got.Net, want.Net) && got.MgcLegs == want.MgcLegs) matched++;
+        }
+        Console.WriteLine("      TREND 20d on MGC: " + tr.Nights.Count + " nights (" + longs + " long) • prop " + tr.P.PropNet.ToString("0") + " plain " + tr.P.Net.ToString("0") + " • fixed LONG plain " + lg.Values.Sum(n => n.Net).ToString("0") + " / SHORT " + sh.Values.Sum(n => n.Net).ToString("0"));
+        Check(matched == dates.Count - 20 && tr.Nights.Count == dates.Count - 20, "TREND row = each night's LONG or SHORT result by the 20-night average (no look-ahead)", matched + " / " + (dates.Count - 20));
         // the lab's night = the engine's own legs
         var pick = res.Rows.First(r => r.Combo.Scope == "BOTH" && r.Combo.MnqDirection == "LONG" && r.Combo.MgcDirection == "LONG" && r.Combo.StartingQuantity == 1 && r.Combo.LegLoss == 75 && r.Combo.Reversals == 3 && r.Combo.Target == 400);
         var cfg = pick.Combo.Apply(new KeystoneArcRunConfig()); cfg.Start = new DateTime(2024, 1, 1); cfg.End = new DateTime(2025, 12, 2);

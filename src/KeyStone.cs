@@ -5990,11 +5990,17 @@ namespace NinjaTrader.NinjaScript
         public int EndHhmm = 1555;
         public double CostPerContract = 1.00;        // round trip per contract
         public double InSampleShare = 0.7;           // rows are judged again on the last 30% of nights they were not ranked on
+        // TREND: when LONG and SHORT are both tested, extra rows pick each night's direction from the instrument's trend:
+        // LONG when the price before the open is above the average of the previous N session closes, else SHORT (no look-ahead).
+        public List<int> TrendDays = new List<int> { 20 };
     }
+
+    public sealed class KeystoneAsianCoverage { public string Symbol = string.Empty; public int Year, DaysWithBars, NightsOpened; }
 
     public sealed class KeystoneAsianNight
     {
-        public DateTime Date, EndTime; public double Net, Mnq, Mgc, Worst, Best; public int MnqLegs, MgcLegs, Contracts; public string End = string.Empty;
+        public DateTime Date, EndTime; public double Net, Mnq, Mgc, Worst, Best; public int MnqLegs, MgcLegs, Contracts; public string End = string.Empty, Dir = string.Empty;
+        public KeystoneAsianNight With(string dir) { var n = (KeystoneAsianNight)MemberwiseClone(); n.Dir = dir; return n; }
         public bool Target { get { return End == "TAKE PROFIT"; } }
     }
 
@@ -6009,13 +6015,16 @@ namespace NinjaTrader.NinjaScript
     public sealed class KeystoneAsianNightSide { public string Symbol = string.Empty; public int Legs, MaxQty; public double Pnl, Peak, Low; public DateTime PeakTime, LowTime; }
     public sealed class KeystoneAsianNightSummary { public List<KeystoneAsianNightSide> Sides = new List<KeystoneAsianNightSide>(); public KeystoneAsianNightSide Combined = new KeystoneAsianNightSide { Symbol = "COMBINED" }; public string End = string.Empty; public DateTime EndTime; }
 
-    public sealed class KeystoneAsianLabResult { public List<KeystoneAsianLabRow> Rows = new List<KeystoneAsianLabRow>(); public KeystonePropRules Rules; public int Combinations, Nights; public DateTime First, Last, SplitAt; public bool Cancelled; }
+    public sealed class KeystoneAsianLabResult { public List<KeystoneAsianLabRow> Rows = new List<KeystoneAsianLabRow>(); public KeystonePropRules Rules; public int Combinations, Nights; public DateTime First, Last, SplitAt; public bool Cancelled; public List<KeystoneAsianCoverage> Coverage = new List<KeystoneAsianCoverage>(); }
 
     public static class KeystoneAsianLab
     {
+        public static bool IsTrend(KeystoneArcAsianCombo c) { return c != null && ((c.MnqDirection ?? "").StartsWith("TREND") || (c.MgcDirection ?? "").StartsWith("TREND")); }
+        static string DirName(string d) { return (d ?? "").StartsWith("TREND") ? "TREND " + d.Substring(5) + "d" : d; }
+
         public static string Name(KeystoneArcAsianCombo c)
         {
-            string dir = c.Scope == "BOTH" ? (c.MnqDirection == c.MgcDirection ? c.MnqDirection : "MNQ " + c.MnqDirection + " / MGC " + c.MgcDirection) : (c.Scope == "MNQ" ? c.MnqDirection : c.MgcDirection);
+            string dir = c.Scope == "BOTH" ? (c.MnqDirection == c.MgcDirection ? DirName(c.MnqDirection) : "MNQ " + DirName(c.MnqDirection) + " / MGC " + DirName(c.MgcDirection)) : DirName(c.Scope == "MNQ" ? c.MnqDirection : c.MgcDirection);
             return c.Scope + " • " + dir + " • " + c.StartingQuantity + " micro" + (c.StartingQuantity == 1 ? "" : "s") + " • leg $" + c.LegLoss.ToString("0") + " • " + c.Reversals + " rev • TP $" + c.Target.ToString("0") + " • max loss " + (c.DailyLossLimit > 0 ? "$" + c.DailyLossLimit.ToString("0") : "AUTO") + (c.StartHhmm != 1800 ? " • " + c.StartHhmm.ToString("0000") : "");
         }
 
@@ -6027,7 +6036,8 @@ namespace NinjaTrader.NinjaScript
                 if ((scope != "MGC" && !hasMnq) || (scope != "MNQ" && !hasMgc)) continue;
                 var dirs = new List<Tuple<string, string>>();
                 foreach (string d in g.Directions.Distinct()) dirs.Add(Tuple.Create(d, d));
-                if (scope == "BOTH" && g.MixedBoth) { dirs.Add(Tuple.Create("LONG", "SHORT")); dirs.Add(Tuple.Create("SHORT", "LONG")); }
+                bool trendNeedsMixed = g.TrendDays != null && g.TrendDays.Count > 0 && g.Directions.Contains("LONG") && g.Directions.Contains("SHORT");
+                if (scope == "BOTH" && (g.MixedBoth || trendNeedsMixed)) { dirs.Add(Tuple.Create("LONG", "SHORT")); dirs.Add(Tuple.Create("SHORT", "LONG")); }
                 foreach (var d in dirs) foreach (int q in g.Quantities.Distinct()) foreach (double loss in g.LegLosses.Distinct()) foreach (int rev in g.Reversals.Distinct())
                 foreach (double tp in g.Targets.Distinct()) foreach (double ml in g.MaxLosses.Distinct()) foreach (int st in g.StartTimes.Distinct())
                     list.Add(new KeystoneArcAsianCombo { Scope = scope, MnqDirection = d.Item1, MgcDirection = d.Item2, RiskMode = "CASH", LegLoss = loss, Reversals = rev, Target = tp, DailyLossLimit = ml, StartingQuantity = Math.Max(1, q), StartHhmm = st, EndHhmm = g.EndHhmm });
@@ -6100,8 +6110,82 @@ namespace NinjaTrader.NinjaScript
                 int k = System.Threading.Interlocked.Increment(ref done); if (progress != null) progress(k, combos.Count);
             });
             res.Cancelled = cancelled != null && cancelled();
-            res.Rows = rows.Where(r => r != null).OrderByDescending(r => r.P.PropNet).ThenByDescending(r => r.P.Net).ToList();
+            var all = rows.Where(r => r != null).ToList();
+            if (!res.Cancelled) all.AddRange(TrendRows(all, bars, g, rules, res.SplitAt));
+            if (!g.MixedBoth) all = all.Where(r => r.Combo.Scope != "BOTH" || r.Combo.MnqDirection == r.Combo.MgcDirection || IsTrend(r.Combo)).ToList();   // mixed rows were only helpers for TREND
+            res.Rows = all.OrderByDescending(r => r.P.PropNet).ThenByDescending(r => r.P.Net).ToList();
+            // data coverage per instrument and year: a missing instrument must be obvious, not silently tested on a few nights
+            foreach (string sym in new[] { "MNQ", "MGC" })
+            {
+                if (sym == "MNQ" ? !hasMnq : !hasMgc) continue;
+                var cfg = new KeystoneArcAsianCombo { Scope = sym, StartHhmm = g.StartTimes.Count > 0 ? g.StartTimes[0] : 1800, EndHhmm = g.EndHhmm, MnqDirection = "LONG", MgcDirection = "LONG", RiskMode = "CASH", LegLoss = 75, Reversals = 1, Target = 100, StartingQuantity = 1 }.Apply(new KeystoneArcRunConfig());
+                foreach (var y in KeystoneArcEngine.PrepareAsian75Sessions(bars, cfg).GroupBy(x => x.SessionDate.Year).OrderBy(x => x.Key))
+                    res.Coverage.Add(new KeystoneAsianCoverage { Symbol = sym, Year = y.Key, DaysWithBars = y.Count(), NightsOpened = y.Count(x => x.OpeningComplete) });
+            }
             return res;
+        }
+
+        // Price just before each session's open, per instrument (last 1-minute close at or before the open).
+        static Dictionary<DateTime, double> OpenPrices(List<KeystoneArcBar> bars, string symbol, IEnumerable<DateTime> nights, int startHhmm)
+        {
+            var list = bars.Where(b => string.Equals(b.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).OrderBy(b => b.Time).ToList(); var output = new Dictionary<DateTime, double>();
+            foreach (DateTime d in nights)
+            {
+                DateTime open = d.Date.AddHours(startHhmm / 100).AddMinutes(startHhmm % 100);
+                int lo = 0, hi = list.Count - 1, f = -1; while (lo <= hi) { int mid = (lo + hi) / 2; if (list[mid].Time <= open) { f = mid; lo = mid + 1; } else hi = mid - 1; }
+                if (f >= 0) output[d.Date] = list[f].Close;
+            }
+            return output;
+        }
+
+        // +1 LONG / −1 SHORT per night from the previous N nights' prices only.
+        public static Dictionary<DateTime, int> TrendSignal(Dictionary<DateTime, double> prices, int n)
+        {
+            var output = new Dictionary<DateTime, int>(); var keys = prices.Keys.OrderBy(k => k).ToList();
+            for (int i = n; i < keys.Count; i++)
+            {
+                double avg = 0; for (int k = i - n; k < i; k++) avg += prices[keys[k]]; avg /= n;
+                output[keys[i]] = prices[keys[i]] >= avg ? 1 : -1;
+            }
+            return output;
+        }
+
+        // TREND rows: each night taken from the LONG or SHORT run of the same settings by the trend that night (cycles are independent per night).
+        static List<KeystoneAsianLabRow> TrendRows(List<KeystoneAsianLabRow> rows, List<KeystoneArcBar> bars, KeystoneAsianLabGrid g, KeystonePropRules rules, DateTime splitAt)
+        {
+            var output = new List<KeystoneAsianLabRow>();
+            if (g.TrendDays == null || g.TrendDays.Count == 0 || !g.Directions.Contains("LONG") || !g.Directions.Contains("SHORT")) return output;
+            Func<KeystoneArcAsianCombo, string> baseKey = c => c.Scope + "|" + c.StartingQuantity + "|" + c.LegLoss + "|" + c.Reversals + "|" + c.Target + "|" + c.DailyLossLimit + "|" + c.StartHhmm;
+            var byKey = rows.GroupBy(r => baseKey(r.Combo)).ToList();
+            var dates = rows.SelectMany(r => r.Nights.Select(x => x.Date)).Distinct().OrderBy(d => d).ToList();
+            foreach (int start in g.StartTimes.Distinct())
+            {
+                var mnqP = OpenPrices(bars, "MNQ", dates, start); var mgcP = OpenPrices(bars, "MGC", dates, start);
+                foreach (int n in g.TrendDays.Where(x => x > 1).Distinct())
+                {
+                    var sMnq = TrendSignal(mnqP, n); var sMgc = TrendSignal(mgcP, n);
+                    foreach (var grp in byKey.Where(k => k.First().Combo.StartHhmm == start))
+                    {
+                        var c0 = grp.First().Combo; var variants = grp.ToDictionary(r => r.Combo.MnqDirection + "/" + r.Combo.MgcDirection, r => r.Nights.ToDictionary(x => x.Date));
+                        var nights = new List<KeystoneAsianNight>();
+                        foreach (DateTime d in dates)
+                        {
+                            int sa, sb; bool hasA = sMnq.TryGetValue(d, out sa), hasB = sMgc.TryGetValue(d, out sb);
+                            string mnqDir = c0.Scope == "MGC" ? "LONG" : (hasA ? (sa > 0 ? "LONG" : "SHORT") : null);
+                            string mgcDir = c0.Scope == "MNQ" ? "LONG" : (hasB ? (sb > 0 ? "LONG" : "SHORT") : null);
+                            if (mnqDir == null || mgcDir == null) continue;   // not enough history yet for the average: no trade
+                            if (c0.Scope == "MNQ") mgcDir = mnqDir; if (c0.Scope == "MGC") mnqDir = mgcDir;
+                            Dictionary<DateTime, KeystoneAsianNight> src; KeystoneAsianNight night;
+                            if (variants.TryGetValue(mnqDir + "/" + mgcDir, out src) && src.TryGetValue(d, out night)) nights.Add(night.With(c0.Scope == "MNQ" ? mnqDir : c0.Scope == "MGC" ? mgcDir : (mnqDir == mgcDir ? mnqDir : "MNQ " + mnqDir + " / MGC " + mgcDir)));
+                        }
+                        if (nights.Count == 0) continue;
+                        var tc = new KeystoneArcAsianCombo { Scope = c0.Scope, MnqDirection = c0.Scope == "MGC" ? "LONG" : "TREND" + n, MgcDirection = c0.Scope == "MNQ" ? "LONG" : "TREND" + n, RiskMode = "CASH", LegLoss = c0.LegLoss, Reversals = c0.Reversals, Target = c0.Target, DailyLossLimit = c0.DailyLossLimit, StartingQuantity = c0.StartingQuantity, StartHhmm = c0.StartHhmm, EndHhmm = c0.EndHhmm };
+                        if (c0.Scope == "MNQ") tc.MgcDirection = tc.MnqDirection; if (c0.Scope == "MGC") tc.MnqDirection = tc.MgcDirection;
+                        output.Add(Row(tc, nights, rules, splitAt, false, 300));
+                    }
+                }
+            }
+            return output;
         }
 
         // The selected row in full: every account, the day ledger and the curves, 2,000 random-order evaluations.
@@ -6252,6 +6336,12 @@ namespace NinjaTrader.NinjaScript
         {
             var lines = new List<string>(); if (res == null || res.Rows.Count == 0) return lines;
             Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var cov = res.Coverage.GroupBy(c => c.Symbol).Select(g => new { Symbol = g.Key, Nights = g.Sum(x => x.NightsOpened), Years = g.Count() }).ToList();
+            if (cov.Count == 2 && Math.Min(cov[0].Nights, cov[1].Nights) < 0.8 * Math.Max(cov[0].Nights, cov[1].Nights))
+            {
+                var low = cov.OrderBy(c => c.Nights).First(); var high = cov.OrderBy(c => c.Nights).Last();
+                lines.Add("WARNING • DATA: " + low.Symbol + " has only " + low.Nights + " nights vs " + high.Nights + " for " + high.Symbol + " — every " + low.Symbol + " and BOTH result is measured on less data. See DATA COVERAGE below and reload " + low.Symbol + " before trusting those rows.");
+            }
             var top = res.Rows[0];
             int profitable = res.Rows.Count(r => r.P.PropNet > 0);
             lines.Add(profitable + " of " + res.Rows.Count + " combinations made money for prop over " + res.Nights + " nights (" + res.First.ToString("yyyy-MM-dd") + " → " + res.Last.ToString("yyyy-MM-dd") + ").");
@@ -6265,6 +6355,20 @@ namespace NinjaTrader.NinjaScript
             }
             var robust = res.Rows.Where(r => r.P.PropNet > 0 && r.OutSampleNet > 0 && r.YearsUp == r.Years).OrderByDescending(r => r.P.PropNet).FirstOrDefault();
             lines.Add(robust != null ? "STRONGEST (profitable every year AND on the unseen last 30%): " + robust.Label + " → " + m(robust.P.PropNet) + "." : "No combination was profitable in every year AND on the unseen last 30% — nothing here is proven yet.");
+            var trendBest = res.Rows.Where(r => IsTrend(r.Combo)).OrderByDescending(r => r.P.PropNet).FirstOrDefault();
+            if (trendBest != null)
+            {
+                var same = res.Rows.Where(r => !IsTrend(r.Combo) && r.Combo.Scope == trendBest.Combo.Scope && r.Combo.StartingQuantity == trendBest.Combo.StartingQuantity && r.Combo.LegLoss == trendBest.Combo.LegLoss && r.Combo.Reversals == trendBest.Combo.Reversals && r.Combo.Target == trendBest.Combo.Target && r.Combo.DailyLossLimit == trendBest.Combo.DailyLossLimit && r.Combo.StartHhmm == trendBest.Combo.StartHhmm && (r.Combo.Scope != "BOTH" || r.Combo.MnqDirection == r.Combo.MgcDirection)).ToList();
+                lines.Add("TREND (direction chosen every night from the trend): best " + trendBest.Label + " → prop " + m(trendBest.P.PropNet) + ", plain " + m(trendBest.P.Net) + ", years + " + trendBest.YearsUp + "/" + trendBest.Years + ", unseen 30% " + m(trendBest.OutSampleNet)
+                    + (same.Count > 0 ? " • the same settings with a fixed direction: " + string.Join(" / ", same.Select(x => (x.Combo.Scope == "MGC" ? x.Combo.MgcDirection : x.Combo.MnqDirection) + " " + m(x.P.PropNet) + " (plain " + m(x.P.Net) + ")")) : ""));
+                int trendWins = 0, pairs = 0;
+                foreach (var t in res.Rows.Where(r => IsTrend(r.Combo)))
+                {
+                    var fixedRows = res.Rows.Where(r => !IsTrend(r.Combo) && r.Combo.Scope == t.Combo.Scope && r.Combo.StartingQuantity == t.Combo.StartingQuantity && r.Combo.LegLoss == t.Combo.LegLoss && r.Combo.Reversals == t.Combo.Reversals && r.Combo.Target == t.Combo.Target && r.Combo.DailyLossLimit == t.Combo.DailyLossLimit && r.Combo.StartHhmm == t.Combo.StartHhmm && (r.Combo.Scope != "BOTH" || r.Combo.MnqDirection == r.Combo.MgcDirection)).ToList();
+                    if (fixedRows.Count == 0) continue; pairs++; if (t.P.Net > fixedRows.Max(x => x.P.Net)) trendWins++;
+                }
+                if (pairs > 0) lines.Add("TREND beat BOTH fixed directions (plain account) in " + trendWins + " of " + pairs + " settings.");
+            }
             var byRev = res.Rows.GroupBy(r => r.Combo.Reversals).OrderBy(g => g.Key).Select(g => g.Key + " rev: median " + m(g.Select(r => r.P.PropNet).OrderBy(v => v).ElementAt(g.Count() / 2)) + ", " + g.Average(r => (double)Blowups(r)).ToString("0.0") + " accounts lost, " + g.Average(r => 100.0 * r.TargetNights / Math.Max(1, r.Nights.Count)).ToString("0") + "% take-profit nights").ToList();
             if (byRev.Count > 1) lines.Add("REVERSALS TRADE-OFF (more legs = more take-profit nights but bigger full losses): " + string.Join(" • ", byRev));
             foreach (var imp in Impacts(res.Rows).GroupBy(x => x.Setting))
@@ -9823,9 +9927,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-03q";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03r";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -22980,6 +23084,20 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             root.Children.Add(HelixTitle("WHAT THE NUMBERS SAY", Gold));
             foreach (string line in KeystoneAsianLab.Advice(res)) root.Children.Add(new TextBlock { Text = "• " + line, Foreground = line.StartsWith("WARNING") || line.StartsWith("No combination") ? Red : line.StartsWith("STRONGEST") || line.StartsWith("BEST") ? Green : Text, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6, 2, 6, 2) });
+            if (res.Coverage.Count > 0)
+            {
+                root.Children.Add(HelixTitle("DATA COVERAGE • nights the cycle could open, per instrument and year", Gold));
+                var yrs = res.Coverage.Select(c => c.Year).Distinct().OrderBy(y => y).ToList();
+                var cw = new List<double> { 80 }; cw.AddRange(yrs.Select(y => 90.0)); var hd = new List<string> { "" }; hd.AddRange(yrs.Select(y => y.ToString()));
+                root.Children.Add(HelixHeader(hd.ToArray(), cw.ToArray()));
+                foreach (var g in res.Coverage.GroupBy(c => c.Symbol))
+                {
+                    var covCells = new List<string> { g.Key }; var cols = new List<Brush> { Gold };
+                    foreach (int y in yrs) { var cv = g.FirstOrDefault(x => x.Year == y); covCells.Add(cv == null ? "0" : cv.NightsOpened + (cv.DaysWithBars > cv.NightsOpened ? " (" + (cv.DaysWithBars - cv.NightsOpened) + " no open)" : "")); cols.Add(cv == null || cv.NightsOpened < 150 ? Red : Text); }
+                    root.Children.Add(HelixRow(covCells.ToArray(), cols.ToArray(), cw.ToArray(), Card, null));
+                }
+                root.Children.Add(HelixNote("About 250 nights per full year is normal. A red cell = that instrument's data is missing or its 18:00 opening bar was not found (\"no open\"); reload it before trusting its rows."));
+            }
             root.Children.Add(HelixTitle("WHICH VALUE OF EACH SETTING WINS (all combinations with that value)", Gold));
             root.Children.Add(HelixNote("MEDIAN = the middle prop result of every combination using that value: a value that is good on the median is good in general, not just in one lucky row. FIRST PAYOUT = average days to the first payout of the rows that got paid."));
             double[] w = { 160, 90, 70, 110, 120, 120, 130, 120, 130 };
@@ -23174,13 +23292,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             var root = new StackPanel { Margin = new Thickness(4) };
             root.Children.Add(HelixTitle(r.Label + " • EVERY NIGHT (newest first)", Gold));
             root.Children.Add(HelixNote("Click a night to open the chart on it. The chart shows the combination that is APPLIED to the lab — press APPLY TO LAB first if this is a different one (instant, no reload)."));
-            double[] w = { 120, 70, 70, 80, 100, 100, 110, 100, 100, 150, 110 };
-            root.Children.Add(HelixHeader(new[] { "NIGHT", "MNQ LEGS", "MGC LEGS", "CONTRACTS", "MNQ", "MGC", "COMBINED", "LOWEST", "HIGHEST", "ENDED", "AT" }, w));
+            bool trend = KeystoneAsianLab.IsTrend(r.Combo);
+            double[] w = { 120, 140, 70, 70, 80, 100, 100, 110, 100, 100, 150, 110 };
+            root.Children.Add(HelixHeader(new[] { "NIGHT", "DIRECTION", "MNQ LEGS", "MGC LEGS", "CONTRACTS", "MNQ", "MGC", "COMBINED", "LOWEST", "HIGHEST", "ENDED", "AT" }, w));
+            string fixedDir = r.Combo.Scope == "MGC" ? r.Combo.MgcDirection : r.Combo.MnqDirection == r.Combo.MgcDirection || r.Combo.Scope == "MNQ" ? r.Combo.MnqDirection : "MNQ " + r.Combo.MnqDirection + " / MGC " + r.Combo.MgcDirection;
             foreach (var n in r.Nights.OrderByDescending(x => x.Date))
             {
                 var nn = n;
-                var row = HelixRow(new[] { n.Date.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture), n.MnqLegs == 0 ? "–" : n.MnqLegs.ToString(), n.MgcLegs == 0 ? "–" : n.MgcLegs.ToString(), n.Contracts.ToString(), Signed(n.Mnq), Signed(n.Mgc), Signed(n.Net), Signed(n.Worst), Signed(n.Best), n.End, n.EndTime == DateTime.MinValue ? "" : n.EndTime.ToString("ddd HH:mm", CultureInfo.InvariantCulture) },
-                    new[] { Gold, Text, Text, Text, MoneyBrush(n.Mnq), MoneyBrush(n.Mgc), MoneyBrush(n.Net), Red, Green, n.Target ? Green : n.End == "SESSION END" ? Cyan : Red, Muted }, w, MoneyBrush(n.Net), null);
+                string nd = trend ? n.Dir : fixedDir;
+                var row = HelixRow(new[] { n.Date.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture), nd, n.MnqLegs == 0 ? "–" : n.MnqLegs.ToString(), n.MgcLegs == 0 ? "–" : n.MgcLegs.ToString(), n.Contracts.ToString(), Signed(n.Mnq), Signed(n.Mgc), Signed(n.Net), Signed(n.Worst), Signed(n.Best), n.End, n.EndTime == DateTime.MinValue ? "" : n.EndTime.ToString("ddd HH:mm", CultureInfo.InvariantCulture) },
+                    new[] { Gold, nd.Contains("SHORT") && !nd.Contains("LONG") ? Red : nd.Contains("LONG") && !nd.Contains("SHORT") ? Green : Orchid, Text, Text, Text, MoneyBrush(n.Mnq), MoneyBrush(n.Mgc), MoneyBrush(n.Net), Red, Green, n.Target ? Green : n.End == "SESSION END" ? Cyan : Red, Muted }, w, MoneyBrush(n.Net), null);
                 row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { ShowAsianNightOnChart(nn.Date, r.Combo.Scope == "MGC" ? "MGC" : "MNQ"); };
                 root.Children.Add(row);
             }
@@ -23201,6 +23322,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private bool ApplyAsianLabRow(KeystoneAsianLabRow r)
         {
             if (r == null) return false; var c = r.Combo;
+            if (KeystoneAsianLab.IsTrend(c)) { UpdateUi("A TREND row changes direction every night • Step 1 has one fixed direction, so it cannot be applied • its nights are in NIGHTS (each with the direction it took)", Gold); if (asianLabStatus != null) { asianLabStatus.Text = "TREND rows cannot be applied: Step 1 has one fixed direction. Read its nights in NIGHTS."; asianLabStatus.Foreground = Gold; } return false; }
             if (!EvidenceIsAsian() || loadedEvents == null || loadedEvents.Count == 0 || string.IsNullOrEmpty(loadedScope)) { UpdateUi("RUN ASIAN 75 IN STEP 1 FIRST (the math lab uses its bars)", Gold); return false; }
             if (loadedScope != "BOTH" && loadedScope != c.Scope) { UpdateUi("ONLY " + loadedScope + " IS LOADED • choose BOTH in Step 1 to apply a " + c.Scope + " combination", Gold); return false; }
             if (operationBusy || isProcessing) { UpdateUi("WAIT FOR THE CURRENT OPERATION TO FINISH", Gold); return false; }
@@ -23255,8 +23377,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             foreach (var x in KeystoneAsianLab.Impacts(res.Rows)) sb.AppendLine(string.Join(",", new[] { x.Setting, x.Value, x.Rows.ToString(), x.Profitable.ToString(), f(x.Median), f(x.Best), f(x.AvgFirstPayoutDays) }));
             if (asianLabSelected != null)
             {
-                sb.AppendLine(); sb.AppendLine("# EVERY NIGHT • " + asianLabSelected.Label); sb.AppendLine("night,mnq_legs,mgc_legs,contracts,mnq,mgc,combined,lowest,highest,ended,at");
-                foreach (var n in asianLabSelected.Nights) sb.AppendLine(string.Join(",", new[] { n.Date.ToString("yyyy-MM-dd"), n.MnqLegs.ToString(), n.MgcLegs.ToString(), n.Contracts.ToString(), f(n.Mnq), f(n.Mgc), f(n.Net), f(n.Worst), f(n.Best), n.End, n.EndTime == DateTime.MinValue ? "" : n.EndTime.ToString("yyyy-MM-dd HH:mm") }));
+                sb.AppendLine(); sb.AppendLine("# EVERY NIGHT • " + asianLabSelected.Label); sb.AppendLine("night,direction,mnq_legs,mgc_legs,contracts,mnq,mgc,combined,lowest,highest,ended,at");
+                foreach (var n in asianLabSelected.Nights) sb.AppendLine(string.Join(",", new[] { n.Date.ToString("yyyy-MM-dd"), "\"" + (KeystoneAsianLab.IsTrend(asianLabSelected.Combo) ? n.Dir : asianLabSelected.Combo.MnqDirection + "/" + asianLabSelected.Combo.MgcDirection) + "\"", n.MnqLegs.ToString(), n.MgcLegs.ToString(), n.Contracts.ToString(), f(n.Mnq), f(n.Mgc), f(n.Net), f(n.Worst), f(n.Best), n.End, n.EndTime == DateTime.MinValue ? "" : n.EndTime.ToString("yyyy-MM-dd HH:mm") }));
                 sb.AppendLine(); sb.AppendLine("# EVERY ACCOUNT • " + asianLabSelected.Label); sb.AppendLine("no,bought,passed,first_payout,ended,payouts,cash,spent,status");
                 foreach (var a in asianLabSelected.P.Accounts) sb.AppendLine(string.Join(",", new[] { a.No.ToString(), a.Bought.ToString("yyyy-MM-dd"), a.PassedOn == DateTime.MinValue ? "" : a.PassedOn.ToString("yyyy-MM-dd"), a.PayoutDates.Count == 0 ? "" : a.PayoutDates[0].ToString("yyyy-MM-dd"), a.Ended == DateTime.MinValue ? "" : a.Ended.ToString("yyyy-MM-dd"), a.Payouts.ToString(), f(a.Cash), f(a.Spent), a.Status }));
             }
@@ -23324,12 +23446,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             var mineNow = MathLabMineCombo(); asianLabMine = mineNow;
             var qty = box("STARTING MICROS", "1,2" + (mineNow.StartingQuantity > 2 ? "," + mineNow.StartingQuantity : ""), 70); var loss = box("LEG LOSS $", "75,100,150" + (new[] { "75", "100", "150" }.Contains(curLoss) ? "" : "," + curLoss), 120); var rev = box("REVERSALS", "2,3,4" + (new[] { "2", "3", "4" }.Contains(curRev) ? "" : "," + curRev), 80);
             var tp = box("TAKE PROFIT $", "200,350,500" + (new[] { "200", "350", "500" }.Contains(curTp) ? "" : "," + curTp), 120); var maxLoss = box("MAX COMBINED LOSS $ (0 = AUTO)", "0" + (mineNow.DailyLossLimit > 0 ? "," + mineNow.DailyLossLimit.ToString("0.##", CultureInfo.InvariantCulture) : ""), 90);
+            var trendBox = box("TREND DAYS (0 = OFF)", "20", 70); trendBox.ToolTip = "With LONG and SHORT both in DIRECTIONS, extra rows choose each night's direction: LONG when the price before the open is above the average of the last N session prices, else SHORT. Several values: 10,20,50.";
             var start = box("START HHMM", asianStartTimeBox == null ? "1800" : asianStartTimeBox.Text, 70); var end = box("END HHMM", asianEndTimeBox == null ? "1555" : asianEndTimeBox.Text, 60); var cost = box("COST $ PER CONTRACT (ROUND TRIP)", "1.00", 60);
             var presets = KeystonePropRules.Presets(); var rulesBox = Select(presets.Select(p => p.Name).ToArray()); rulesBox.SelectedIndex = 0; rulesBox.Width = 250;
             var evalBox = box("EVALUATION $", "120", 60); var actBox = box("ACTIVATION $", "0", 60);
             var inputs = new WrapPanel { Margin = new Thickness(0, 4, 0, 2) };
             Action<string, UIElement> add = delegate(string l, UIElement e) { var sp = new StackPanel { Margin = new Thickness(2, 0, 6, 0) }; sp.Children.Add(Txt(l, Muted, 9.5, FontWeights.Bold)); sp.Children.Add(e); inputs.Children.Add(sp); };
-            add("INSTRUMENTS", scopes); add("DIRECTIONS", dirs); add(" ", mixed); add("STARTING MICROS", qty); add("LEG LOSS $", loss); add("REVERSALS", rev); add("TAKE PROFIT $", tp); add("MAX LOSS $ (0=AUTO)", maxLoss); add("START", start); add("END", end); add("COST $/CONTRACT", cost);
+            add("INSTRUMENTS", scopes); add("DIRECTIONS", dirs); add(" ", mixed); add("STARTING MICROS", qty); add("LEG LOSS $", loss); add("REVERSALS", rev); add("TAKE PROFIT $", tp); add("MAX LOSS $ (0=AUTO)", maxLoss); add("TREND DAYS", trendBox); add("START", start); add("END", end); add("COST $/CONTRACT", cost);
             add("FIRM RULES", rulesBox); add("EVALUATION $", evalBox); add("ACTIVATION $", actBox);
             var buttons = new WrapPanel();
             var runBtn = Btn("RUN", Gold); runBtn.Width = 120; var cancelBtn = Btn("CANCEL", Red); var applyBtn = Btn("APPLY SELECTED TO LAB (CHART + POOL, NO RELOAD)", Green); var expBtn = Btn("EXPORT HTML + CSV", Orchid);
@@ -23351,7 +23474,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     Scopes = ParseWords(scopes.Text, new[] { "MNQ", "MGC", "BOTH" }, "BOTH"), Directions = ParseWords(dirs.Text, new[] { "LONG", "SHORT" }, "LONG"), MixedBoth = mixed.IsChecked == true,
                     Quantities = ParseNumbers(qty.Text, 1).Select(v => Math.Max(1, (int)Math.Round(v))).Distinct().ToList(), LegLosses = ParseNumbers(loss.Text, 75).Where(v => v > 0).ToList(), Reversals = ParseNumbers(rev.Text, 3).Select(v => (int)Math.Round(v)).Distinct().ToList(),
-                    Targets = ParseNumbers(tp.Text, 350).Where(v => v > 0).ToList(), MaxLosses = ParseNumbers(maxLoss.Text, 0), StartTimes = ParseNumbers(start.Text, 1800).Select(v => (int)v).Where(IsValidHhmm).Distinct().ToList(), EndHhmm = Math.Max(0, Integer(end, 1555)), CostPerContract = NumberAllowZero(cost, 1)
+                    Targets = ParseNumbers(tp.Text, 350).Where(v => v > 0).ToList(), MaxLosses = ParseNumbers(maxLoss.Text, 0), StartTimes = ParseNumbers(start.Text, 1800).Select(v => (int)v).Where(IsValidHhmm).Distinct().ToList(), EndHhmm = Math.Max(0, Integer(end, 1555)), CostPerContract = NumberAllowZero(cost, 1),
+                    TrendDays = ParseNumbers(trendBox.Text, 0).Select(v => (int)Math.Round(v)).Where(v => v > 1).Distinct().ToList()
                 };
                 if (g.LegLosses.Count == 0 || g.Targets.Count == 0 || g.StartTimes.Count == 0) { status.Text = "CHECK THE LISTS • leg loss and take profit must be above 0, times HHMM"; status.Foreground = Red; return; }
                 var rules = presets[Math.Max(0, rulesBox.SelectedIndex)].Copy(); rules.EvalCost = NumberAllowZero(evalBox, 120); rules.Activation = NumberAllowZero(actBox, 0);
