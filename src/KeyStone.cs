@@ -717,7 +717,7 @@ namespace NinjaTrader.NinjaScript
         // MICRO A DAY: 1 micro at the session open (18:00 New York), held all day (every session) to the take profit or the close.
         public string MadDirection = "BUY"; public double MadMnqTarget = 0, MadMgcTarget = 0; public int MadQty = 1, MadOpenHhmm = 1800, MadCloseHhmm = 1659;
         public int GoldenUseBh = 1;
-        public string GoldenFvgMode = "CLOSE";          // CLOSE = enter at the close of candle 3 • BREAK = touch + break (like BH) • OFF
+        public string GoldenFvgMode = "CLOSE";          // CLOSE = enter at the close of candle 3 • BREAK = touch + break (like BH) • DIP50 = limit at the gap's middle, stop below candle 1 • OFF
         public string GoldenAggression = "TAG";         // OFF • TAG (record + compare) • REQUIRED (only after a push down)
         public double GoldenMnqDropPoints = 30, GoldenMgcDropPoints = 3;
         public double GoldenMnqTargetPoints = 100, GoldenMgcTargetPoints = 10;
@@ -1566,13 +1566,14 @@ namespace NinjaTrader.NinjaScript
             DateTime day = DateTime.MinValue, busyUntil = DateTime.MinValue;
             int taken = 0, startIndex = -1; bool dayDone = false; double startOpen = double.NaN;
             var zones = new List<BullishFvg>();
+            var dipZones = new List<double[]>();   // DIP50: { gap low, gap high, candle-1 low, formed index, state 0 open / 1 used / 2 dead }
             for (int i = 2; i < bars.Count; i++)
             {
                 KeystoneArcBar cur = bars[i];
                 if (cur.Time < cfg.Start) continue;
                 if (cur.Time > cfg.End) break;
                 DateTime sessionDay = GoldenSessionDay(cur.Time);
-                if (sessionDay != day) { day = sessionDay; taken = 0; dayDone = false; startIndex = -1; startOpen = double.NaN; zones.Clear(); busyUntil = DateTime.MinValue; }
+                if (sessionDay != day) { day = sessionDay; taken = 0; dayDone = false; startIndex = -1; startOpen = double.NaN; zones.Clear(); dipZones.Clear(); busyUntil = DateTime.MinValue; }
                 DateTime startClock = GoldenClock(day, startHhmm);
                 DateTime lastEntry = GoldenClock(day, cfg.GoldenLastEntry);
                 if (lastEntry <= startClock) lastEntry = lastEntry.AddDays(1);
@@ -1598,6 +1599,23 @@ namespace NinjaTrader.NinjaScript
                         fvg = NewEvent(symbol, "FVG", cur.Time, cur.Time, cur.Close, bhCfg, bars, i);
                         fvg.FvgLower = bars[i - 2].High; fvg.FvgUpper = cur.Low; fvg.FvgFormedTime = cur.Time; fvg.FvgGap = cur.Low - bars[i - 2].High;
                         fvgLow = Math.Min(bars[i - 2].Low, Math.Min(bars[i - 1].Low, cur.Low)); fvgMarket = true;
+                    }
+                    else if (fvgMode == "DIP50")
+                    {
+                        // 50% TAP: a gap formed on an earlier candle; this candle trades down to its middle → limit fill at the middle
+                        // (or at the minute's open when it opened below), stop below the low of the gap's first candle.
+                        foreach (var z in dipZones.Where(z => z[4] == 0 && z[3] < i).OrderByDescending(z => z[3]))
+                        {
+                            double mid = (z[0] + z[1]) / 2.0; if (cur.Low > mid + 1e-9) continue;
+                            int lo = 0, hi = raw.Count - 1, from = raw.Count; while (lo <= hi) { int mid2 = (lo + hi) / 2; if (raw[mid2].Time > bars[i - 1].Time) { from = mid2; hi = mid2 - 1; } else lo = mid2 + 1; }
+                            int fillAt = -1; for (int q = from; q < raw.Count && raw[q].Time <= cur.Time; q++) if (raw[q].Low <= mid + 1e-9) { fillAt = q; break; }
+                            if (fillAt < 0) continue;
+                            double px = Math.Min(mid, raw[fillAt].Open);
+                            fvg = NewEvent(symbol, "FVG", raw[fillAt].Time, raw[fillAt].Time, px, bhCfg, bars, i);
+                            int f = (int)z[3]; fvg.FvgLower = z[0]; fvg.FvgUpper = z[1]; fvg.FvgFormedTime = bars[f].Time; fvg.FvgGap = z[1] - z[0];
+                            fvgLow = z[2]; fvgMarket = false; z[4] = 1;
+                            break;
+                        }
                     }
                     else if (fvgMode == "BREAK")
                     {
@@ -1625,7 +1643,7 @@ namespace NinjaTrader.NinjaScript
                     if (!skip)
                     {
                         pick.SetupClass = kind; pick.Quantity = qty; pick.Stop = stop; pick.Target = entry + target; pick.StopDistance = stopPts;
-                        pick.RiskModel = "GLD " + kind + " • +" + target.ToString("0.##", CultureInfo.InvariantCulture) + " PTS";
+                        pick.RiskModel = "GLD " + kind + (kind == "FVG" && fvgMode == "DIP50" ? " • 50% TAP" : "") + " • +" + target.ToString("0.##", CultureInfo.InvariantCulture) + " PTS";
                         pick.StrengthTag = aggressive ? "AGGR" : "BASE";
                         pick.FvgDrop = drop; pick.FvgRedRun = red;
                         int lowIndex = startIndex; for (int q = startIndex; q < i; q++) if (bars[q].Low < bars[lowIndex].Low) lowIndex = q;
@@ -1651,6 +1669,11 @@ namespace NinjaTrader.NinjaScript
                     }
                 }
                 if (fvgMode == "BREAK") { UpdateFvgTouchState(cur, zones, bhCfg); if (fvgPatternOk) DetectNewBullishFvg(bars, i, zones); }
+                if (fvgMode == "DIP50")
+                {
+                    foreach (var z in dipZones) if (z[4] == 0 && cur.Close < z[0] && z[3] < i) z[4] = 2;     // closed below the gap before a tap: dead
+                    if (fvgPatternOk && cur.Low > bars[i - 2].High && cur.Low - bars[i - 2].High >= minGap - 1e-9) dipZones.Add(new[] { bars[i - 2].High, cur.Low, bars[i - 2].Low, i, 0.0 });
+                }
             }
             return output;
         }
@@ -2298,6 +2321,8 @@ namespace NinjaTrader.NinjaScript
             e.PeakAfterEntry = entryBar.High;
             e.TroughAfterEntry = entryBar.Low;
             bool entryBarTarget = IsShort(e) ? entryBar.Low <= e.Target : entryBar.High >= e.Target;
+            // A limit fill on a dip (GOLDEN 50% TAP): that minute's high may have printed before the fill — it cannot reach the target.
+            if ((e.RiskModel ?? string.Empty).Contains("50% TAP")) entryBarTarget = false;
             bool entryBarStop = IsShort(e) ? entryBar.High >= e.Stop : entryBar.Low <= e.Stop;
             e.TargetTouched = entryBarTarget ? 1 : 0;
             e.StopTouched = entryBarStop ? 1 : 0;
@@ -5902,6 +5927,7 @@ namespace NinjaTrader.NinjaScript
                 else if (c3.Time > last) z.Status = "AFTER THE LAST ENTRY TIME";
                 else if (dayTrades.Count > 0 && c3.Time >= dayTrades[0].EntryTime && cfg.GoldenTakeAll != 1) z.Status = "AFTER THE DAY'S TRADE (" + Math.Max(1, cfg.GoldenMaxTradesPerDay) + " a day)";
                 else if (string.Equals(cfg.GoldenFvgMode, "CLOSE", StringComparison.OrdinalIgnoreCase)) z.Status = "NOT TAKEN • a filter (max stop / aggression / strict first)";
+                else if (string.Equals(cfg.GoldenFvgMode, "DIP50", StringComparison.OrdinalIgnoreCase)) z.Status = "NOT TAPPED TO 50% (or closed below the gap first, or a filter)";
                 else z.Status = dayTrades.Count > 0 ? "NO RETEST → GREEN CLOSE → BREAK BEFORE THE TRADE" : "NO RETEST → GREEN CLOSE → BREAK (or a filter)";
                 output.Add(z);
             }
@@ -5952,7 +5978,8 @@ namespace NinjaTrader.NinjaScript
             {
                 var c = KeystoneGoldenStudy.UnfilteredConfig(basis); c.StrategyCode = "GLD"; c.GoldenTakeAll = 1; c.GoldenMaxTradesPerDay = 999; c.GoldenHold = 0;
                 if (kind == "BH") { c.GoldenUseBh = 1; c.GoldenFvgMode = "OFF"; }
-                else { c.GoldenUseBh = kind == "FVG+BH" ? 1 : 0; if (string.Equals(c.GoldenFvgMode, "OFF", StringComparison.OrdinalIgnoreCase)) c.GoldenFvgMode = "BREAK"; }
+                else if (kind.StartsWith("FVG50")) { c.GoldenUseBh = kind == "FVG50+BH" ? 1 : 0; c.GoldenFvgMode = "DIP50"; }
+                else { c.GoldenUseBh = kind == "FVG+BH" ? 1 : 0; if (string.Equals(c.GoldenFvgMode, "OFF", StringComparison.OrdinalIgnoreCase) || string.Equals(c.GoldenFvgMode, "DIP50", StringComparison.OrdinalIgnoreCase)) c.GoldenFvgMode = "BREAK"; }
                 var list = new List<KeystoneArcEvent>();
                 foreach (var kv in raws)
                 {
@@ -10552,9 +10579,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-03x";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03y";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -24066,10 +24093,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             goldenLab = new LabState { Name = "GOLDEN PROP SIMULATION", GridGroup = "EXIT", GridRows = "SETUPS", GridCols = "TRADES A DAY" };
             var st = goldenLab; Action<string, UIElement> add; var inputs = LabInputs(out add);
             Func<string, double, TextBox> box = (v, w) => { var t = Input(v); t.Width = w; return t; };
-            var setupsB = box("FVG,BH,FVG+BH", 130); var perDayB = box("1,2,3", 70); var yoursB = new CheckBox { Content = "ALSO YOUR STUDY'S KEPT ENTRIES", IsChecked = true, Foreground = Text, Margin = new Thickness(4, 14, 8, 2) };
+            var setupsB = box("FVG,FVG50,BH,FVG+BH,FVG50+BH", 200); setupsB.ToolTip = "FVG = retest + break (or candle 3 close if chosen in Step 1) • FVG50 = 50% tap, stop below candle 1 • BH • FVG+BH • FVG50+BH"; var perDayB = box("1,2,3", 70); var yoursB = new CheckBox { Content = "ALSO YOUR STUDY'S KEPT ENTRIES", IsChecked = true, Foreground = Text, Margin = new Thickness(4, 14, 8, 2) };
             var exits = box("SAME DAY,HOLD", 130); var mnqTp = box("50,100,150,200", 130); var mnqSl = box("PATTERN,50,100,150", 150); var mgcTp = box("5,10,15,20", 110); var mgcSl = box("PATTERN,5,10,15", 130); var qty = box("1,3,5", 80); var closeB = box("1555", 60);
             var presets = KeystonePropRules.Presets(); var rulesBox = Select(presets.Select(p => p.Name).ToArray()); rulesBox.SelectedIndex = 0; rulesBox.Width = 240; var evalBox = box("120", 60); var actBox = box("0", 60);
-            add("SETUPS (FVG, BH, FVG+BH)", setupsB); add("TRADES A DAY", perDayB); add(" ", yoursB); add("EXIT (SAME DAY, HOLD)", exits); add("MNQ TARGETS", mnqTp); add("MNQ STOPS (PATTERN or pts)", mnqSl); add("MGC TARGETS", mgcTp); add("MGC STOPS (PATTERN or pts)", mgcSl); add("CONTRACTS", qty); add("SAME DAY CLOSE", closeB);
+            add("SETUPS (FVG, FVG50, BH, FVG+BH, FVG50+BH)", setupsB); add("TRADES A DAY", perDayB); add(" ", yoursB); add("EXIT (SAME DAY, HOLD)", exits); add("MNQ TARGETS", mnqTp); add("MNQ STOPS (PATTERN or pts)", mnqSl); add("MGC TARGETS", mgcTp); add("MGC STOPS (PATTERN or pts)", mgcSl); add("CONTRACTS", qty); add("SAME DAY CLOSE", closeB);
             add("FIRM RULES", rulesBox); add("EVALUATION $", evalBox); add("ACTIVATION $", actBox);
             Func<TextBox, List<double>> stops = t => { var l = ParseNumbers(t.Text.ToUpperInvariant().Replace("PATTERN", "0"), 0).Distinct().ToList(); return l; };
             st.Advice = () => KeystoneGoldenLab.Advice(st.Rows, st.Days);
@@ -24088,7 +24115,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var raws = bars.GroupBy(b => (b.Symbol ?? "").ToUpperInvariant()).ToDictionary(x => x.Key, x => x.OrderBy(b => b.Time).ToList());
                     var setupBars = new Dictionary<string, List<KeystoneArcBar>>();
                     foreach (var kv in raws) { var given = kv.Key == "MGC" ? setupMgc : setupMnq; setupBars[kv.Key] = given != null && given.Count > 2 && !KeystoneBracket.IsOneMinute(given) ? given : KeystoneEngLab.Candles(kv.Value, Math.Max(1, basis.SetupMinutes)); }
-                    var kinds = ParseWords(setupsB.Text, new[] { "FVG", "BH", "FVG+BH" }, "FVG");
+                    var kinds = ParseWords(setupsB.Text, new[] { "FVG", "FVG50", "BH", "FVG+BH", "FVG50+BH" }, "FVG");
                     var sets = KeystoneGoldenLab.Candidates(raws, setupBars, basis, kinds);
                     if (includeYours && goldenStudy != null && goldenStudy.Kept.Count > 0) sets["YOUR STUDY"] = goldenStudy.Kept.Where(e => e.EntryTime != DateTime.MinValue).ToList();
                     var rows = KeystoneGoldenLab.Rows(sets, rules, g, raws, progress, cancelled, out f, out l, out sp, out d);
@@ -26508,7 +26535,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             panel.Children.Add(Txt("The first bullish setup after the start time is the one trade of the day for that instrument: BH or a bullish FVG, whichever forms first. The push down before it is measured on every setup so the results show whether aggression really makes the difference.", Muted, 10, FontWeights.Normal));
             goldenMnqStartBox = Input("930"); goldenMgcStartBox = Input("800"); goldenLastEntryBox = Input("1555"); goldenCloseBox = Input("1555");
             goldenBhBox = new CheckBox { Content = "BH SETUPS", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
-            goldenFvgBox = Select("RETEST + BREAK • price comes back into the gap, a green candle closes, the next candle breaks its high", "CANDLE 3 CLOSE • enter the moment the gap forms (no retest)", "OFF • BH only"); goldenFvgBox.SelectedIndex = 0;
+            goldenFvgBox = Select("RETEST + BREAK • price comes back into the gap, a green candle closes, the next candle breaks its high", "CANDLE 3 CLOSE • enter the moment the gap forms (no retest)", "50% TAP • a limit at the middle of the gap fills when price taps it • stop below candle 1's low", "OFF • BH only"); goldenFvgBox.SelectedIndex = 0;
             goldenAggressionBox = Select("MEASURE + COMPARE (take every setup)", "REQUIRED • only after a push down", "OFF"); goldenAggressionBox.SelectedIndex = 0;
             goldenMnqDropBox = Input("30"); goldenMgcDropBox = Input("3");
             goldenMnqTargetBox = Input("100"); goldenMgcTargetBox = Input("10");
@@ -26567,7 +26594,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (!IsValidHhmm(ms) || !IsValidHhmm(gs) || !IsValidHhmm(le) || !IsValidHhmm(cl)) { UpdateUi("GOLDEN TIME ERROR • USE HHMM FROM 0000 TO 2359", Red); return false; }
             config.GoldenMnqStart = ms; config.GoldenMgcStart = gs; config.GoldenLastEntry = le; config.GoldenClose = cl;
             config.GoldenUseBh = goldenBhBox == null || goldenBhBox.IsChecked != false ? 1 : 0;
-            config.GoldenFvgMode = goldenFvgBox == null ? "BREAK" : new[] { "BREAK", "CLOSE", "OFF" }[Math.Max(0, Math.Min(2, goldenFvgBox.SelectedIndex))];
+            config.GoldenFvgMode = goldenFvgBox == null ? "BREAK" : new[] { "BREAK", "CLOSE", "DIP50", "OFF" }[Math.Max(0, Math.Min(3, goldenFvgBox.SelectedIndex))];
             if (config.GoldenUseBh == 0 && config.GoldenFvgMode == "OFF") { UpdateUi("GOLDEN • choose BH, FVG or both", Red); return false; }
             config.GoldenAggression = goldenAggressionBox == null ? "TAG" : new[] { "TAG", "REQUIRED", "OFF" }[Math.Max(0, Math.Min(2, goldenAggressionBox.SelectedIndex))];
             config.GoldenMnqDropPoints = NumberAllowZero(goldenMnqDropBox, 30); config.GoldenMgcDropPoints = NumberAllowZero(goldenMgcDropBox, 3);

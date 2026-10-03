@@ -100,6 +100,18 @@ public static class FvgLabTests
         var prow = KeystoneGoldenLab.Rows(new Dictionary<string, List<KeystoneArcEvent>> { { "FVG", day3 } }, new KeystonePropRules(), new KeystoneGoldenLab.Grid { Exits = new List<string> { "SAME DAY" }, MnqTargets = new List<double> { 40 }, MnqStops = new List<double> { 0 }, Contracts = new List<int> { 1 }, PerDay = new List<int> { 1, 3 } }, new Dictionary<string, List<KeystoneArcBar>> { { "MNQ", pr } }, null, null, out pf, out pl, out psp, out pdd);
         var one = prow.First(x => x.Get("TRADES A DAY") == "MAX 1/DAY"); var three = prow.First(x => x.Get("TRADES A DAY") == "MAX 3/DAY");
         Check(one.Trades.Count == 1 && one.Trades[0].Outcome == "STOP" && three.Trades.Count == 2 && three.Trades[1].Outcome == "TARGET", "TRADES A DAY: max 1 = the first (a loss); max 3 = the loss, then the next setup wins and ends the day", one.Trades.Count + " / " + three.Trades.Count + " " + string.Join(",", three.Trades.Select(t => t.Outcome)));
+        // GOLDEN 50% TAP: gap 09:35 → 09:45 (candle 1 low 19989.5), price dips to the gap's middle at 09:50 → long at the middle, stop below candle 1's low
+        var tap = new List<KeystoneArcBar>(); var td0 = new DateTime(2025, 3, 4, 9, 0, 0); double prevClose = 20000;
+        Action<DateTime, double> addBar = (tt, cl) => { tap.Add(new KeystoneArcBar { Symbol = "MNQ", Time = tt, Open = prevClose, Close = cl, High = Math.Max(prevClose, cl) + 0.5, Low = Math.Min(prevClose, cl) - 0.5 }); prevClose = cl; };
+        for (int m = 1; m <= 30; m++) addBar(td0.AddMinutes(m), 20000);
+        double[] seq = { 20000, 19995, 19990, 19998, 20004, 20010, 20015, 20020, 20025, 20030, 20032, 20035, 20036, 20038, 20040, 20036, 20030, 20024, 20018, 20014 };
+        for (int m = 0; m < seq.Length; m++) addBar(td0.AddMinutes(31 + m), seq[m]);
+        for (int m = 51; m <= 400; m++) addBar(td0.AddMinutes(m), Math.Min(20070, prevClose + 1));
+        var tapCfg = new KeystoneArcRunConfig { StrategyCode = "GLD", Scope = "MNQ", SetupMinutes = 5, OutcomeModelEnabled = 1, GoldenUseBh = 0, GoldenFvgMode = "DIP50", GoldenMnqStart = 930, GoldenLastEntry = 1555, GoldenClose = 1555, GoldenHold = 0, GoldenMnqTargetPoints = 40, GoldenMnqMinGap = 5, GoldenStopMode = "PATTERN", GoldenMnqStopBuffer = 0, GoldenMaxTradesPerDay = 1, Start = new DateTime(2025, 3, 4), End = new DateTime(2025, 3, 5) };
+        var tapEv = KeystoneArcEngine.DetectAndResolve(tap, KeystoneEngLab.Candles(tap, 5), tapCfg);
+        var te = tapEv.FirstOrDefault();
+        Console.WriteLine("      50% TAP: " + (te == null ? "no entry" : te.SetupClass + " entry " + te.Entry + " at " + te.EntryTime.ToString("HH:mm") + " stop " + te.Stop + " gap " + te.FvgLower + "-" + te.FvgUpper + " → " + te.Outcome + " " + te.ExitPrice));
+        Check(te != null && Eq(te.Entry, 20017) && te.EntryTime == td0.AddMinutes(50) && Eq(te.Stop, 19989.5) && te.Outcome == "WIN" && Eq(te.ExitPrice, 20057), "GOLDEN 50% TAP: limit at the gap's middle (20017) when price taps it, stop below candle 1's low (19989.5), target +40");
         Console.WriteLine(failures == 0 ? "ALL FVG LAB TESTS PASSED" : failures + " FVG LAB TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
