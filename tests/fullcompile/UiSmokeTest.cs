@@ -140,6 +140,40 @@ public static class UiSmokeTest
                     if (!headLine.Contains("CANDLES • 1 LEDGER MARK")) throw new Exception("replay hides the held MICRO A DAY entry: " + headLine);
                     Call(lab2, "StopEvidenceReplay");
                 });
+            if (strategy == "MAD")
+                Step("IDEAS: a typed idea (09:30 open, then every 1-minute FVG with rotation) → rows, every tab, trades on the chart", () =>
+                {
+                    Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    Call(lab2, "OpenIdeasLab", false);
+                    var st = F("ideasLab"); var T = st.GetType(); Func<string, object> S = n => T.GetField(n).GetValue(st);
+                    foreach (string idea in new[] { "BOTH AT 0930 BUY,SELL TP 10,20 SL 10,NONE", "BOTH FVG 1 EITHER,BUY,SELL SESSION NY,ALL GAP 1,3 TP 5,10 SL C1,5 ACCOUNTS 1,3" })
+                    {
+                        ((System.Windows.Controls.TextBox)F("ideasLineBox")).Text = idea;
+                        ((System.Windows.Controls.TextBlock)S("Status")).Text = "";
+                        ((Action)S("Run"))();
+                        for (int i = 0; i < 900 && !((System.Windows.Controls.TextBlock)S("Status")).Text.Contains(" ROWS • ") && !((System.Windows.Controls.TextBlock)S("Status")).Text.StartsWith("ERROR") && !((System.Windows.Controls.TextBlock)S("Status")).Text.StartsWith("NO "); i++) System.Threading.Thread.Sleep(100);
+                        var rows = (List<KeystoneLabRow>)S("Rows");
+                        Console.WriteLine("      " + idea + " → " + ((System.Windows.Controls.TextBlock)S("Status")).Text);
+                        Console.WriteLine("        best: " + string.Join(" | ", rows.Take(3).Select(x => x.Label + " plain " + x.P.Net.ToString("0") + " prop " + x.P.PropNet.ToString("0"))));
+                        if (rows.Count == 0 || !rows.Any(x => x.Get("INSTRUMENT") == "BOTH")) throw new Exception("IDEAS produced no (BOTH) rows: " + ((System.Windows.Controls.TextBlock)S("Status")).Text);
+                        foreach (System.Windows.Controls.TabItem t in ((System.Windows.Controls.TabControl)S("Tabs")).Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("IDEAS tab not filled: " + t.Header);
+                        var csv = (string)Call(lab2, "LabCsv", st); var html = (string)Call(lab2, "LabHtml", st);
+                        if (!csv.Contains("WALK-FORWARD") || !html.Contains("DOES IT ADAPT")) throw new Exception("IDEAS export incomplete");
+                        var pick = rows.FirstOrDefault(x => x.Get("INSTRUMENT") == "MNQ" && x.Trades.Any(t => t.Dir < 0) && (idea.Contains("AT") || x.Rotate == 3)) ?? rows.First(x => x.Get("INSTRUMENT") == "MNQ");
+                        Call(lab2, "ShowLabSelected", st, pick, false);
+                        var tr = pick.Trades.First();
+                        Call(lab2, "ShowIdeaRowOnChart", pick, tr);
+                        var iday = KeystoneArcEngine.SessionGroupingDate(tr.EntryTime, c);
+                        ((System.Windows.Controls.TextBox)F("evidenceDateBox")).Text = iday.ToString("yyyy-MM-dd");
+                        Call(lab2, "RequestEvidenceBars");
+                        var marks = (List<KeystoneArcEvent>)Call(lab2, "EvidenceEvents", "MNQ", iday);
+                        var replay = (List<KeystoneArcEvent>)Call(lab2, "ReplayDayTrades", iday);
+                        Call(lab2, "RenderEvidenceChart");
+                        Console.WriteLine("        chart " + iday.ToString("yyyy-MM-dd") + ": " + marks.Count + " idea trades (" + marks.Count(e => e.Direction == "SHORT") + " sells), replay " + replay.Count + (pick.Rotate > 1 ? " • accounts " + string.Join(",", marks.Select(e => e.AssignedVirtualAccount).Distinct()) : ""));
+                        if (marks.Count == 0 || marks.Any(e => e.SetupClass != "IDEA") || replay.Count == 0) throw new Exception("idea trades not on the chart / replay");
+                        if (idea.Contains("FVG") && !rows.Any(x => x.Rotate == 3 && x.P.Bought >= 1)) throw new Exception("rotation rows missing");
+                    }
+                });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {
                 Call(lab2, "OpenEvidenceChart"); Call(lab2, "RequestEvidenceBars"); Call(lab2, "RenderEvidenceChart");
