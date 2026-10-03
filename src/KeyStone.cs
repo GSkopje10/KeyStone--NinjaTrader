@@ -6145,6 +6145,70 @@ namespace NinjaTrader.NinjaScript
             return s;
         }
 
+        // ---- WALK-FORWARD: does re-choosing the settings every year work? Each year uses ONLY the years before it. ----
+        public sealed class WalkYear { public int Year; public KeystoneAsianLabRow Chosen, Hindsight; public double ChosenPlain, ChosenProp, HindPlain, HindProp, MinePlain, MineProp; public int ChosenPassed, ChosenPayouts, Nights; }
+        public sealed class WalkResult { public List<WalkYear> Years = new List<WalkYear>(); public KeystoneMicroRow Adaptive = new KeystoneMicroRow(), Mine, BestFixed; public KeystoneAsianLabRow BestFixedRow; public int Lookback; public int YearsUp; }
+
+        static KeystoneMicroRow Prop(IEnumerable<KeystoneAsianNight> nights, KeystonePropRules rules, bool detail)
+        {
+            var p = new KeystoneMicroRow { Days = nights.OrderBy(n => n.Date).Select(n => new KeystonePropDay { Day = n.Date.AddDays(1), Pnl = n.Net, Worst = Math.Min(0, n.Worst), Best = Math.Max(0, n.Best), Traded = true }).ToList() };
+            p.Trades = p.Days.Count; p.Wins = p.Days.Count(d => d.Pnl > 0);
+            KeystoneMicroADay.FillDays(p, rules, 0, 1, 1, detail);
+            return p;
+        }
+
+        public static KeystoneAsianLabRow FindRow(KeystoneAsianLabResult res, KeystoneArcAsianCombo m)
+        {
+            if (res == null || m == null) return null;
+            return res.Rows.FirstOrDefault(r => r.Combo.Scope == m.Scope && r.Combo.StartingQuantity == m.StartingQuantity && r.Combo.LegLoss == m.LegLoss && r.Combo.Reversals == m.Reversals && r.Combo.Target == m.Target
+                && r.Combo.DailyLossLimit == m.DailyLossLimit && r.Combo.StartHhmm == m.StartHhmm && (m.Scope == "MGC" || r.Combo.MnqDirection == m.MnqDirection) && (m.Scope == "MNQ" || r.Combo.MgcDirection == m.MgcDirection));
+        }
+
+        // lookback = years of history used to choose (0 = every year before). The choice ranks by the prop result of a fresh
+        // evaluation slot on those years, then plain net. The ADAPTIVE account trades each year's choice, one continuous slot.
+        public static WalkResult WalkForward(KeystoneAsianLabResult res, KeystonePropRules rules, int lookback, KeystoneAsianLabRow mine)
+        {
+            var w = new WalkResult { Lookback = lookback }; if (res == null || res.Rows.Count == 0) return w;
+            var years = res.Rows.SelectMany(r => r.Nights).Select(n => n.Date.Year).Distinct().OrderBy(y => y).ToList();
+            var stitched = new List<KeystoneAsianNight>();
+            foreach (int y in years.Skip(1))
+            {
+                int from = lookback <= 0 ? years[0] : y - lookback;
+                var scored = res.Rows.Select(r => new { Row = r, Train = r.Nights.Where(n => n.Date.Year >= from && n.Date.Year < y).ToList(), Test = r.Nights.Where(n => n.Date.Year == y).ToList() }).Where(x => x.Train.Count > 0 && x.Test.Count > 0).ToList();
+                if (scored.Count == 0) continue;
+                var trained = scored.Select(x => new { x.Row, x.Test, P = Prop(x.Train, rules, false) }).OrderByDescending(x => x.P.PropNet).ThenByDescending(x => x.P.Net).ToList();
+                var pick = trained[0];
+                var test = Prop(pick.Test, rules, false);
+                var hind = scored.Select(x => new { x.Row, P = Prop(x.Test, rules, false) }).OrderByDescending(x => x.P.PropNet).ThenByDescending(x => x.P.Net).First();
+                var wy = new WalkYear { Year = y, Chosen = pick.Row, ChosenPlain = test.Net, ChosenProp = test.PropNet, ChosenPassed = test.Passed, ChosenPayouts = test.Payouts, Nights = pick.Test.Count, Hindsight = hind.Row, HindPlain = hind.P.Net, HindProp = hind.P.PropNet };
+                if (mine != null) { var mt = Prop(mine.Nights.Where(n => n.Date.Year == y), rules, false); wy.MinePlain = mt.Net; wy.MineProp = mt.PropNet; }
+                w.Years.Add(wy); stitched.AddRange(pick.Test);
+            }
+            w.YearsUp = w.Years.Count(x => x.ChosenProp > 0);
+            w.Adaptive = Prop(stitched, rules, true);
+            if (w.Years.Count > 0)
+            {
+                var tested = new HashSet<int>(w.Years.Select(x => x.Year));
+                if (mine != null) w.Mine = Prop(mine.Nights.Where(n => tested.Contains(n.Date.Year)), rules, false);
+                var fixedBest = res.Rows.Select(r => new { r, P = Prop(r.Nights.Where(n => tested.Contains(n.Date.Year)), rules, false) }).OrderByDescending(x => x.P.PropNet).First();
+                w.BestFixed = fixedBest.P; w.BestFixedRow = fixedBest.r;
+            }
+            return w;
+        }
+
+        public static string WalkVerdict(WalkResult w)
+        {
+            if (w == null || w.Years.Count == 0) return "Load at least two calendar years: the walk-forward chooses each year's settings from the years before it.";
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            string a = "ADAPTIVE (re-chosen every year from " + (w.Lookback <= 0 ? "all earlier years" : "the last " + w.Lookback + " year" + (w.Lookback == 1 ? "" : "s")) + ", never looking ahead): prop " + m(w.Adaptive.PropNet) + ", plain " + m(w.Adaptive.Net) + ", positive in " + w.YearsUp + " of " + w.Years.Count + " years. ";
+            if (w.Adaptive.PropNet > 0 && w.YearsUp * 2 > w.Years.Count) a += "→ The strategy ADAPTS: choosing the settings from the past would have made money going forward.";
+            else if (w.Adaptive.PropNet > 0) a += "→ Made money overall but lost in most years: fragile, depends on one or two good years.";
+            else a += "→ It does NOT adapt: the settings that worked last year did not work the next year. The best rows in RANKING are hindsight.";
+            if (w.BestFixed != null) a += " For comparison, the single best fixed row in hindsight made " + m(w.BestFixed.PropNet) + " (" + w.BestFixedRow.Label + ") — you could only have known that afterwards.";
+            if (w.Mine != null) a += " YOUR SETUP over the same years: prop " + m(w.Mine.PropNet) + ", plain " + m(w.Mine.Net) + ".";
+            return a;
+        }
+
         // Which value of each setting wins most often: count, % of rows that made money for prop, median and best prop net.
         public sealed class Impact { public string Setting = string.Empty, Value = string.Empty; public int Rows, Profitable; public double Median, Best, AvgFirstPayoutDays, AvgBlowups, AvgFullLossNights; }
         // Accounts lost: failed evaluations + funded accounts that hit the drawdown.
@@ -9759,9 +9823,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-03p";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03q";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -22850,13 +22914,70 @@ namespace NinjaTrader.NinjaScript.AddOns
             SetAsianLabTab("COPY TRADING", MicroCopyView(r.P, asianLabRules)); SetAsianLabTab("LEGS", AsianLabLegsView(r)); SetAsianLabTab("MONTHS", MicroMonthsView(r.P));
             SetAsianLabTab("YEARS & PERIODS", AsianLabYearsView(r)); SetAsianLabTab("NIGHTS", AsianLabNightsView(r));
             if (asianLabStatus != null) { asianLabStatus.Text = "SELECTED • " + r.Label + " • prop " + Signed(r.P.PropNet) + " • plain " + Signed(r.P.Net) + " (MNQ " + Signed(r.MnqNet) + " / MGC " + Signed(r.MgcNet) + ") • APPLY TO LAB puts it on the chart and in the pool (no reload)"; asianLabStatus.Foreground = MoneyBrush(r.P.PropNet); }
-            if (jump && asianLabTabs != null) asianLabTabs.SelectedIndex = 2;
+            if (jump && asianLabTabs != null) asianLabTabs.SelectedIndex = 3;
+        }
+
+        // The Asian settings in Step 1 (your setup), as a math-lab combination.
+        private KeystoneArcAsianCombo MathLabMineCombo()
+        {
+            string scope = loadedScope == "MNQ" || loadedScope == "MGC" ? loadedScope : Convert.ToString(scopeBox == null ? "BOTH" : scopeBox.SelectedItem ?? "BOTH");
+            if (scope != "MNQ" && scope != "MGC") scope = "BOTH";
+            return new KeystoneArcAsianCombo
+            {
+                Scope = scope, MnqDirection = Convert.ToString(asianMnqDirectionBox == null ? "LONG" : asianMnqDirectionBox.SelectedItem ?? "LONG"), MgcDirection = Convert.ToString(asianMgcDirectionBox == null ? "LONG" : asianMgcDirectionBox.SelectedItem ?? "LONG"), RiskMode = "CASH",
+                StartingQuantity = Math.Max(1, Integer(asianStartingQuantityBox, 1)), LegLoss = Number(asianReversalLossBox, 75), Reversals = Integer(asianMaxReversalsBox, 4), Target = Number(asianCycleTargetBox, 350),
+                DailyLossLimit = asianDailyLossManual ? Number(asianDailyLossBox, 0) : 0, StartHhmm = Integer(asianStartTimeBox, 1800), EndHhmm = Integer(asianEndTimeBox, 1555)
+            };
+        }
+        private KeystoneArcAsianCombo asianLabMine;
+        private int asianLabLookback = 1;
+
+        private UIElement AsianLabWalkView()
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var res = asianLabResult; if (res == null) return root;
+            var mine = KeystoneAsianLab.FindRow(res, asianLabMine);
+            root.Children.Add(HelixTitle("DOES THE STRATEGY ADAPT? • WALK-FORWARD, ONE YEAR AT A TIME, NEVER LOOKING AHEAD", Gold));
+            root.Children.Add(HelixNote("Every year the market moves differently. At the start of each year this picks the combination that did best on the earlier years ONLY, trades it for that year, and moves on. That is what you could really have done. If this makes money, re-tuning every year works; if only the RANKING's hindsight rows make money, the strategy is fitting the past."));
+            var bar = new WrapPanel();
+            bar.Children.Add(Txt("CHOOSE FROM", Muted, 11, FontWeights.Bold));
+            foreach (var opt in new[] { Tuple.Create("LAST YEAR", 1), Tuple.Create("LAST 2 YEARS", 2), Tuple.Create("ALL EARLIER YEARS", 0) })
+            { var o = opt; var b = Btn(o.Item1, asianLabLookback == o.Item2 ? Gold : Card); b.Height = 26; b.FontSize = 10; b.Padding = new Thickness(12, 0, 12, 0); b.Click += delegate { asianLabLookback = o.Item2; SetAsianLabTab("ADAPTS EACH YEAR?", AsianLabWalkView()); }; bar.Children.Add(b); }
+            root.Children.Add(bar);
+            var w = KeystoneAsianLab.WalkForward(res, asianLabRules, asianLabLookback, mine);
+            var verdict = new TextBlock { Text = KeystoneAsianLab.WalkVerdict(w), Foreground = w.Adaptive.PropNet > 0 && w.YearsUp * 2 > w.Years.Count ? Green : Red, FontSize = 13, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6, 6, 6, 6) };
+            root.Children.Add(verdict);
+            if (w.Years.Count == 0) return HelixScroll(root);
+            var cards = new WrapPanel();
+            cards.Children.Add(HelixCard("ADAPTIVE • RE-CHOSEN EVERY YEAR", Signed(w.Adaptive.PropNet), "plain " + Signed(w.Adaptive.Net) + " • " + w.Adaptive.Passed + " passed / " + w.Adaptive.Bought + " • " + w.Adaptive.Payouts + " payouts" + (w.Adaptive.Stats.HasPayout ? " • 1st payout " + w.Adaptive.Stats.CalendarDaysToFirstPayout + " d" : ""), MoneyBrush(w.Adaptive.PropNet), 300));
+            if (w.Mine != null) cards.Children.Add(HelixCard("YOUR SETUP • FIXED", Signed(w.Mine.PropNet), mine.Label + " • plain " + Signed(w.Mine.Net), MoneyBrush(w.Mine.PropNet), 300));
+            else cards.Children.Add(HelixCard("YOUR SETUP", "not in the lists", "add your Step 1 values to the boxes above and RUN", Muted, 260));
+            if (w.BestFixed != null) cards.Children.Add(HelixCard("BEST FIXED • HINDSIGHT ONLY", Signed(w.BestFixed.PropNet), w.BestFixedRow.Label + " • known only afterwards", Muted, 300));
+            root.Children.Add(cards);
+            double[] cw = { 60, 380, 100, 100, 70, 70, 380, 100, 100, 100 };
+            root.Children.Add(HelixHeader(new[] { "YEAR", "CHOSEN FROM THE YEARS BEFORE", "PLAIN", "PROP", "PASSED", "PAYOUTS", "BEST THAT YEAR (HINDSIGHT)", "ITS PROP", "YOURS PLAIN", "YOURS PROP" }, cw));
+            foreach (var y in w.Years)
+            {
+                var row = HelixRow(new[] { y.Year.ToString(), y.Chosen.Label, Signed(y.ChosenPlain), Signed(y.ChosenProp), y.ChosenPassed.ToString(), y.ChosenPayouts.ToString(), y.Hindsight.Label, Signed(y.HindProp), mine == null ? "–" : Signed(y.MinePlain), mine == null ? "–" : Signed(y.MineProp) },
+                    new[] { Gold, Text, MoneyBrush(y.ChosenPlain), MoneyBrush(y.ChosenProp), Green, Green, Muted, MoneyBrush(y.HindProp), MoneyBrush(y.MinePlain), MoneyBrush(y.MineProp) }, cw, MoneyBrush(y.ChosenProp), null);
+                var yy = y; row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { ShowAsianLabSelected(yy.Chosen, false); };
+                root.Children.Add(row);
+            }
+            int changes = w.Years.Skip(1).Select((y, i) => y.Chosen.Label != w.Years[i].Chosen.Label).Count(x => x);
+            root.Children.Add(HelixNote("The chosen settings changed " + changes + " time" + (changes == 1 ? "" : "s") + " in " + w.Years.Count + " years; the hindsight best changed " + w.Years.Skip(1).Select((y, i) => y.Hindsight.Label != w.Years[i].Hindsight.Label).Count(x => x) + " times. Settings that keep changing mean the market rewards different things each year."));
+            if (w.Adaptive.PropCurve.Count > 1) root.Children.Add(MicroChart("ADAPTIVE ACCOUNT • CASH − SPENT (one evaluation slot trading each year's choice)", w.Adaptive.PropCurve.Select(p => p.Item1).ToList(), Tuple.Create("ADAPTIVE", (Brush)Gold, w.Adaptive.PropCurve.Select(p => p.Item2).ToList())));
+            return HelixScroll(root);
         }
 
         private UIElement AsianLabAdviceView()
         {
             var root = new StackPanel { Margin = new Thickness(4) }; var res = asianLabResult; if (res == null) return root;
             if (res.Nights < 120) root.Children.Add(new Border { Background = Card, BorderBrush = Red, BorderThickness = new Thickness(2), Padding = new Thickness(10), Margin = new Thickness(4), Child = Txt("ONLY " + res.Nights + " NIGHTS LOADED • load several years (e.g. 2020-01-01 → yesterday) before trusting any of this.", Red, 13, FontWeights.Bold) });
+            var mineRow = KeystoneAsianLab.FindRow(res, asianLabMine);
+            if (mineRow != null)
+            {
+                var mc = HelixCard("YOUR SETUP • rank " + (res.Rows.IndexOf(mineRow) + 1) + " of " + res.Rows.Count, Signed(mineRow.P.PropNet), mineRow.Label + " • plain " + Signed(mineRow.P.Net) + " • " + mineRow.P.Passed + " passed, " + mineRow.P.Payouts + " payouts" + (mineRow.P.Stats.HasPayout ? " • 1st payout " + mineRow.P.Stats.CalendarDaysToFirstPayout + " d" : " • never paid") + " • years + " + mineRow.YearsUp + "/" + mineRow.Years, MoneyBrush(mineRow.P.PropNet), 700);
+                mc.Cursor = System.Windows.Input.Cursors.Hand; mc.MouseLeftButtonUp += delegate { ShowAsianLabSelected(mineRow, true); }; root.Children.Add(mc);
+            }
             root.Children.Add(HelixTitle("WHAT THE NUMBERS SAY", Gold));
             foreach (string line in KeystoneAsianLab.Advice(res)) root.Children.Add(new TextBlock { Text = "• " + line, Foreground = line.StartsWith("WARNING") || line.StartsWith("No combination") ? Red : line.StartsWith("STRONGEST") || line.StartsWith("BEST") ? Green : Text, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6, 2, 6, 2) });
             root.Children.Add(HelixTitle("WHICH VALUE OF EACH SETTING WINS (all combinations with that value)", Gold));
@@ -23200,8 +23321,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             string curLoss = asianReversalLossBox == null ? "75" : asianReversalLossBox.Text, curRev = asianMaxReversalsBox == null ? "4" : asianMaxReversalsBox.Text, curTp = asianCycleTargetBox == null ? "350" : asianCycleTargetBox.Text;
             var scopes = box("INSTRUMENTS", loadedScope == "MNQ" ? "MNQ" : loadedScope == "MGC" ? "MGC" : "MNQ,MGC,BOTH", 130); var dirs = box("DIRECTIONS", "LONG,SHORT", 110);
             var mixed = new CheckBox { Content = "BOTH: ALSO MNQ/MGC OPPOSITE", Foreground = Text, Margin = new Thickness(6, 8, 6, 0), IsChecked = false };
-            var qty = box("STARTING MICROS", "1,2", 70); var loss = box("LEG LOSS $", "75,100,150" + (new[] { "75", "100", "150" }.Contains(curLoss) ? "" : "," + curLoss), 120); var rev = box("REVERSALS", "2,3,4" + (new[] { "2", "3", "4" }.Contains(curRev) ? "" : "," + curRev), 80);
-            var tp = box("TAKE PROFIT $", "200,350,500" + (new[] { "200", "350", "500" }.Contains(curTp) ? "" : "," + curTp), 120); var maxLoss = box("MAX COMBINED LOSS $ (0 = AUTO)", "0", 80);
+            var mineNow = MathLabMineCombo(); asianLabMine = mineNow;
+            var qty = box("STARTING MICROS", "1,2" + (mineNow.StartingQuantity > 2 ? "," + mineNow.StartingQuantity : ""), 70); var loss = box("LEG LOSS $", "75,100,150" + (new[] { "75", "100", "150" }.Contains(curLoss) ? "" : "," + curLoss), 120); var rev = box("REVERSALS", "2,3,4" + (new[] { "2", "3", "4" }.Contains(curRev) ? "" : "," + curRev), 80);
+            var tp = box("TAKE PROFIT $", "200,350,500" + (new[] { "200", "350", "500" }.Contains(curTp) ? "" : "," + curTp), 120); var maxLoss = box("MAX COMBINED LOSS $ (0 = AUTO)", "0" + (mineNow.DailyLossLimit > 0 ? "," + mineNow.DailyLossLimit.ToString("0.##", CultureInfo.InvariantCulture) : ""), 90);
             var start = box("START HHMM", asianStartTimeBox == null ? "1800" : asianStartTimeBox.Text, 70); var end = box("END HHMM", asianEndTimeBox == null ? "1555" : asianEndTimeBox.Text, 60); var cost = box("COST $ PER CONTRACT (ROUND TRIP)", "1.00", 60);
             var presets = KeystonePropRules.Presets(); var rulesBox = Select(presets.Select(p => p.Name).ToArray()); rulesBox.SelectedIndex = 0; rulesBox.Width = 250;
             var evalBox = box("EVALUATION $", "120", 60); var actBox = box("ACTIVATION $", "0", 60);
@@ -23217,8 +23339,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             Grid.SetRow(top, 1); root.Children.Add(top);
             var status = Txt("Set the lists and press RUN.", Gold, 12.5, FontWeights.Bold); status.TextWrapping = TextWrapping.Wrap; Grid.SetRow(status, 2); root.Children.Add(status);
             var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top };
-            string[] names = { "ADVICE", "RANKING", "CHARTS", "EVALS & FUNDED", "SIZE & SPEED", "COPY TRADING", "LEGS", "MONTHS", "YEARS & PERIODS", "NIGHTS" };
-            var colors = new Brush[] { Green, Gold, Green, Cyan, Orange, Orchid, Gold, Gold, Cyan, Green };
+            string[] names = { "ADVICE", "ADAPTS EACH YEAR?", "RANKING", "CHARTS", "EVALS & FUNDED", "SIZE & SPEED", "COPY TRADING", "LEGS", "MONTHS", "YEARS & PERIODS", "NIGHTS" };
+            var colors = new Brush[] { Green, Orange, Gold, Green, Cyan, Orange, Orchid, Gold, Gold, Cyan, Green };
             for (int i = 0; i < names.Length; i++) tabs.Items.Add(new TabItem { Header = names[i], Background = colors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Press RUN.", Muted, 12, FontWeights.Normal) });
             Grid.SetRow(tabs, 3); root.Children.Add(tabs); asianLabTabs = tabs;
             Action run = delegate
@@ -23233,6 +23355,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 };
                 if (g.LegLosses.Count == 0 || g.Targets.Count == 0 || g.StartTimes.Count == 0) { status.Text = "CHECK THE LISTS • leg loss and take profit must be above 0, times HHMM"; status.Foreground = Red; return; }
                 var rules = presets[Math.Max(0, rulesBox.SelectedIndex)].Copy(); rules.EvalCost = NumberAllowZero(evalBox, 120); rules.Activation = NumberAllowZero(actBox, 0);
+                asianLabMine = MathLabMineCombo();
                 int count = KeystoneAsianLab.Combos(g, oneMinute.Any(b => b.Symbol != "MGC"), oneMinute.Any(b => b.Symbol == "MGC")).Count;
                 if (count == 0) { status.Text = "NO COMBINATIONS • the instruments in the list are not loaded"; status.Foreground = Red; return; }
                 if (count > 3000 && MessageBox.Show(count.ToString("N0") + " combinations can take several minutes. Run them?", "Asian math lab", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
@@ -23257,7 +23380,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         if (failure != null || res == null) { status.Text = "ERROR • " + failure; status.Foreground = Red; return; }
                         asianLabRules = rules; asianLabResult = res; asianLabSelected = null;
                         if (res.Rows.Count > 0) ShowAsianLabSelected(res.Rows[0], false);
-                        SetAsianLabTab("ADVICE", AsianLabAdviceView()); SetAsianLabTab("RANKING", AsianLabRankingView()); tabs.SelectedIndex = 0;
+                        SetAsianLabTab("ADVICE", AsianLabAdviceView()); SetAsianLabTab("RANKING", AsianLabRankingView()); SetAsianLabTab("ADAPTS EACH YEAR?", AsianLabWalkView()); tabs.SelectedIndex = 0;
                         var best = res.Rows.FirstOrDefault();
                         status.Text = (res.Cancelled ? "CANCELLED • " : "") + res.Rows.Count + " COMBINATIONS • " + res.Nights + " nights " + res.First.ToString("yyyy-MM-dd") + " → " + res.Last.ToString("yyyy-MM-dd") + " • " + (sw.ElapsedMilliseconds / 1000) + " s" + (best != null ? " • #1 " + best.Label + " • prop " + Signed(best.P.PropNet) : "");
                         status.Foreground = best != null && best.P.PropNet > 0 ? Green : Red;

@@ -84,3 +84,14 @@ Every combination runs through the same `SimulateAsian75Sessions` engine the lab
 **Chart:** the Asian side panel has a **THIS NIGHT** box. It shows legs, max size, P/L, highest peak and lowest point for MNQ, MGC and combined, and follows the replay cursor.
 
 **Instrument views:** MNQ / MGC / BOTH give the same numbers whatever the click order. The max combined loss is your typed number, or the automatic value for that view.
+
+### ADAPTS EACH YEAR? (build 10-03q)
+This is a walk-forward test. For every year, the math lab picks the combination that did best on the earlier years only (choose from: last year, last 2 years, or all earlier years). It trades that combination for the year, then moves on to the next.
+
+The tab compares three results:
+- **ADAPTIVE:** the stitched result of each year's choice, run as one continuous prop slot. This is what you could really have done.
+- **YOUR SETUP:** your Step 1 settings, kept fixed.
+- **BEST FIXED:** the single best row over all years, which you could only have known afterwards.
+
+Your Step 1 values are always added to the input lists and marked "YOUR SETUP • rank X of N" on the ADVICE tab.
+If ADAPTIVE loses while the hindsight rows win, the strategy is fitting the past.

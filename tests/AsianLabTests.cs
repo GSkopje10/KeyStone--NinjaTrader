@@ -73,6 +73,17 @@ public static class AsianLabTests
         var advice = KeystoneAsianLab.Advice(res); var imp = KeystoneAsianLab.Impacts(res.Rows);
         foreach (var a in advice.Take(4)) Console.WriteLine("      " + a);
         Check(advice.Count >= 8 && imp.Select(x => x.Setting).Distinct().Count() >= 6, "advice + which value of each setting wins", advice.Count + " lines, " + imp.Select(x => x.Setting).Distinct().Count() + " settings");
+        // WALK-FORWARD: 2025 settings chosen from 2024 only, then traded in 2025
+        var mine = KeystoneAsianLab.FindRow(res, pick.Combo);
+        Check(mine == pick || (mine != null && mine.Label == pick.Label), "your setup is found among the rows");
+        var wf = KeystoneAsianLab.WalkForward(res, rules, 1, mine);
+        var wy = wf.Years.Single();
+        var best2024 = res.Rows.OrderByDescending(r => { var p = new KeystoneMicroRow { Days = r.Nights.Where(n => n.Date.Year == 2024).Select(n => new KeystonePropDay { Day = n.Date.AddDays(1), Pnl = n.Net, Worst = Math.Min(0, n.Worst), Best = Math.Max(0, n.Best), Traded = true }).ToList() }; KeystoneMicroADay.FillDays(p, rules, 0, 1, 1, false); return p.PropNet * 1e6 + p.Net; }).First();
+        Console.WriteLine("      walk-forward 2025: chose " + wy.Chosen.Label + " (best of 2024) → prop " + wy.ChosenProp.ToString("0") + " plain " + wy.ChosenPlain.ToString("0") + " • hindsight best 2025 " + wy.HindProp.ToString("0") + " • yours " + wy.MineProp.ToString("0"));
+        Console.WriteLine("      " + KeystoneAsianLab.WalkVerdict(wf));
+        Check(wy.Year == 2025 && wy.Chosen.Label == best2024.Label, "2025's settings are chosen from 2024 only (no look-ahead)");
+        Check(Eq(wf.Adaptive.Net, wy.ChosenPlain) && Eq(wf.Adaptive.Net, wy.Chosen.Nights.Where(n => n.Date.Year == 2025).Sum(n => n.Net)), "adaptive account = the chosen settings' 2025 nights");
+        Check(wy.HindProp >= wy.ChosenProp - 0.01 && wf.BestFixed != null && wf.Mine != null && Eq(wf.Mine.Net, mine.Nights.Where(n => n.Date.Year == 2025).Sum(n => n.Net)), "hindsight ≥ adaptive; your setup measured on the same years");
         Console.WriteLine(failures == 0 ? "ALL ASIAN LAB TESTS PASSED" : failures + " ASIAN LAB TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
