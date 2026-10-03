@@ -229,6 +229,24 @@ public static class UiSmokeTest
                 if (bars.Count < 20) throw new Exception("derived 15M view is empty");
             });
             Step(strategy + ": switch instrument view to MNQ", () => { Call(lab2, "RenderPoolLedger"); });
+            if (strategy == "FVG")
+                Step("FVG + ENGULFING MATH LABS: run on the loaded 1-minute bars, fill every tab, export", () =>
+                {
+                    Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    foreach (var labDef in new[] { Tuple.Create("OpenFvgLab", "fvgLab"), Tuple.Create("OpenEngulfingLab", "engLab") })
+                    {
+                        Call(lab2, labDef.Item1, false);
+                        var st = F(labDef.Item2); var T = st.GetType(); Func<string, object> S = n => T.GetField(n).GetValue(st);
+                        ((Action)S("Run"))();
+                        for (int i = 0; i < 900 && !((System.Windows.Controls.TextBlock)S("Status")).Text.Contains(" ROWS • "); i++) System.Threading.Thread.Sleep(100);
+                        var rows = (System.Collections.ICollection)S("Rows");
+                        Console.WriteLine("      " + labDef.Item2 + ": " + ((System.Windows.Controls.TextBlock)S("Status")).Text);
+                        if (rows.Count == 0) throw new Exception(labDef.Item2 + " produced no rows");
+                        foreach (System.Windows.Controls.TabItem t in ((System.Windows.Controls.TabControl)S("Tabs")).Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception(labDef.Item2 + " tab not filled: " + t.Header);
+                        var csv = (string)Call(lab2, "LabCsv", st); var html = (string)Call(lab2, "LabHtml", st);
+                        if (!csv.Contains("WALK-FORWARD") || !html.Contains("DOES IT ADAPT")) throw new Exception(labDef.Item2 + " export incomplete");
+                    }
+                });
             if (asian)
                 Step("ASIAN75: MATH LAB runs every combination, fills every tab, applies a row to the lab (no reload), night box on the chart", () =>
                 {
