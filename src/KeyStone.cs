@@ -5874,6 +5874,71 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- GOLDEN → PROP: the GOLDEN study's kept entries through evaluations, funded accounts and payouts ----------------
+    // AS TESTED = each trade exactly as the study resolved it (may be held overnight). FLAT BY <close> = a trade still open at the
+    // close of its entry day is closed at that minute's 1-minute close (what an intraday prop rule forces). Per 1 micro, × contracts.
+    public static class KeystoneGoldenLab
+    {
+        public static KeystoneLabTrade Unit(KeystoneArcEvent e, bool flat, int closeHhmm, Func<string, DateTime, double?> closeAt)
+        {
+            if (!KeystoneGoldenStudy.Traded(e)) return null;
+            string sym = (e.Symbol ?? "").ToUpperInvariant(); double pv = KeystoneMoveStudy.PointValue(sym), dir = e.Direction == "SHORT" ? -1 : 1;
+            DateTime exitT = e.ExitTime; double exit = e.ExitPrice; string outcome = KeystoneGoldenStudy.IsWin(e) ? "TARGET" : KeystoneGoldenStudy.IsLoss(e) ? "STOP" : "CLOSE";
+            DateTime close = e.EntryTime.Date.AddHours(closeHhmm / 100).AddMinutes(closeHhmm % 100);
+            if (flat && exitT > close && e.EntryTime < close)
+            {
+                double? c = closeAt == null ? null : closeAt(sym, close);
+                if (!c.HasValue) return null;
+                exit = c.Value; exitT = close; outcome = "CLOSE";
+            }
+            double worstPts = double.IsNaN(e.TroughAfterEntry) || double.IsNaN(e.PeakAfterEntry) ? Math.Max(0, -dir * (exit - e.Entry)) : (dir > 0 ? e.Entry - e.TroughAfterEntry : e.PeakAfterEntry - e.Entry);
+            var t = new KeystoneLabTrade { Symbol = sym, Day = exitT.Date, EntryTime = e.EntryTime, ExitTime = exitT, Entry = e.Entry, Exit = exit, Outcome = outcome, Qty = 1 };
+            t.Points = dir * (exit - e.Entry); t.Net = t.Points * pv - KeystoneMoveStudy.Cost(sym); t.Worst = -Math.Max(0, worstPts) * pv; t.Best = Math.Max(0, dir > 0 ? e.PeakAfterEntry - e.Entry : e.Entry - e.TroughAfterEntry) * pv;
+            if (double.IsNaN(t.Best)) t.Best = 0;
+            return t;
+        }
+
+        public static List<KeystoneLabRow> Rows(KeystoneGoldenStudyResult study, KeystonePropRules rules, IEnumerable<int> contracts, int closeHhmm, Func<string, DateTime, double?> closeAt, out DateTime first, out DateTime last, out DateTime split, out int days)
+        {
+            var rows = new List<KeystoneLabRow>(); first = last = split = DateTime.MinValue; days = 0;
+            if (study == null || study.Kept.Count == 0) return rows;
+            var dates = study.Kept.Where(KeystoneGoldenStudy.Traded).Select(e => e.EntryTime.Date).Distinct().OrderBy(d => d).ToList(); if (dates.Count == 0) return rows;
+            first = dates[0]; last = dates[dates.Count - 1]; split = dates[Math.Min(dates.Count - 1, (int)(dates.Count * 0.7))]; days = dates.Count;
+            foreach (bool flat in new[] { false, true })
+            {
+                var units = study.Kept.Select(e => Unit(e, flat, closeHhmm, closeAt)).Where(t => t != null).OrderBy(t => t.EntryTime).ToList();
+                foreach (string inst in new[] { "MNQ", "MGC", "BOTH" })
+                {
+                    var mine = units.Where(t => inst == "BOTH" || t.Symbol == inst).ToList(); if (mine.Count == 0 || (inst == "BOTH" && mine.Select(t => t.Symbol).Distinct().Count() < 2)) continue;
+                    foreach (int q in contracts.Distinct())
+                    {
+                        var r = new KeystoneLabRow();
+                        r.Settings.Add(Tuple.Create("INSTRUMENT", inst)); r.Settings.Add(Tuple.Create("HOLD", flat ? "FLAT BY " + closeHhmm.ToString("0000") : "AS TESTED (OVERNIGHT OK)")); r.Settings.Add(Tuple.Create("CONTRACTS", q + "x"));
+                        r.Trades = mine.Select(t => KeystoneLab.Scale(t, q)).ToList();
+                        KeystoneLab.Fill(r, rules, split, false, 300);
+                        rows.Add(r);
+                    }
+                }
+            }
+            return rows.OrderByDescending(r => r.P.PropNet).ToList();
+        }
+
+        public static List<string> Advice(List<KeystoneLabRow> rows, int days)
+        {
+            var lines = new List<string>(); if (rows.Count == 0) return lines;
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            foreach (string inst in rows.Select(r => r.Get("INSTRUMENT")).Distinct())
+            {
+                var q = rows.Where(r => r.Get("INSTRUMENT") == inst).ToList();
+                var asTested = q.Where(r => !r.Get("HOLD").StartsWith("FLAT")).OrderByDescending(r => r.P.PropNet).FirstOrDefault(); var flat = q.Where(r => r.Get("HOLD").StartsWith("FLAT")).OrderByDescending(r => r.P.PropNet).FirstOrDefault();
+                if (asTested != null) lines.Add(inst + " • AS TESTED (overnight holds): best " + asTested.Label + " → prop " + m(asTested.P.PropNet) + " (" + asTested.P.Passed + " passed / " + asTested.P.Bought + ", " + asTested.P.Payouts + " payouts" + (asTested.P.Stats.HasPayout ? ", 1st payout " + asTested.P.Stats.CalendarDaysToFirstPayout + " d" : "") + ") • plain " + m(asTested.P.Net) + " • years + " + asTested.YearsUp + "/" + asTested.Years);
+                if (flat != null) lines.Add(inst + " • FLAT BY THE CLOSE (what an intraday prop rule allows): best " + flat.Label + " → prop " + m(flat.P.PropNet) + " (" + flat.P.Passed + " passed / " + flat.P.Bought + ", " + flat.P.Payouts + " payouts) • plain " + m(flat.P.Net) + " • years + " + flat.YearsUp + "/" + flat.Years);
+                if (asTested != null && flat != null && asTested.P.Net > 0 && flat.P.Net <= 0) lines.Add("WARNING • " + inst + ": the profit comes from holding overnight — closed at the end of the day the same entries lose. Only use it where the firm allows overnight holds (or on a live account).");
+            }
+            return lines;
+        }
+    }
+
     // ---- 5M FVG MATH LAB: the first 5-minute FVG entries (each style) × target × stop × contracts, MNQ and MGC separately ----
     public sealed class KeystoneFvgLabGrid
     {
@@ -10366,9 +10431,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-03u";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03v";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -21649,7 +21714,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             Grid.SetRow(goldenTiles, 2); g.Children.Add(goldenTiles);
             // Slim bar: the summary in one line + the button that gives the tables the whole screen.
             var slim = new Grid { Margin = new Thickness(2, 0, 2, 2) };
-            slim.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); slim.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            slim.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); slim.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); slim.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var goldenPropButton = Btn("PROP SIMULATION • EVALS • PAYOUTS • FLIP", Green); goldenPropButton.Height = 28; goldenPropButton.FontSize = 11; goldenPropButton.Padding = new Thickness(12, 0, 12, 0);
+            goldenPropButton.Click += delegate { OpenGoldenPropLab(true); }; Grid.SetColumn(goldenPropButton, 2); slim.Children.Add(goldenPropButton);
             goldenSummaryToggle = Btn("▲ FULL SCREEN TABLES", Cyan); goldenSummaryToggle.Height = 28; goldenSummaryToggle.FontSize = 11; goldenSummaryToggle.Padding = new Thickness(12, 0, 12, 0);
             goldenSummaryToggle.Click += delegate { SetGoldenSummaryHidden(!goldenSummaryHidden); };
             slim.Children.Add(goldenSummaryToggle);
@@ -23846,6 +23913,33 @@ namespace NinjaTrader.NinjaScript.AddOns
                 },
                 () => { var r = presets[Math.Max(0, rulesBox.SelectedIndex)].Copy(); r.EvalCost = NumberAllowZero(evalBox, 120); r.Activation = NumberAllowZero(actBox, 0); return r; },
                 () => { var g = grid(); if (!IsValidHhmm(g.Study.MnqStart) || !IsValidHhmm(g.Study.MgcStart) || !IsValidHhmm(g.Study.Close)) return "TIMES MUST BE HHMM"; if (g.Sets.Count == 0 || g.MnqTargets.Count == 0 || g.MgcTargets.Count == 0 || g.MnqStops.Count == 0 || g.MgcStops.Count == 0) return "CHOOSE AT LEAST ONE ENTRY STYLE, TARGET AND STOP"; return null; },
+                autoRun);
+        }
+
+        private LabState goldenLab;
+        private void OpenGoldenPropLab(bool autoRun = false)
+        {
+            if (goldenLab != null && goldenLab.Win != null) { goldenLab.Win.Activate(); if (autoRun && goldenLab.Run != null) goldenLab.Run(); return; }
+            goldenLab = new LabState { Name = "GOLDEN PROP SIMULATION", GridGroup = "", GridRows = "CONTRACTS", GridCols = "HOLD" };
+            var st = goldenLab; Action<string, UIElement> add; var inputs = LabInputs(out add);
+            var qty = Input("1,2,3,4,5"); qty.Width = 100; var closeB = Input("1555"); closeB.Width = 60;
+            var presets = KeystonePropRules.Presets(); var rulesBox = Select(presets.Select(p => p.Name).ToArray()); rulesBox.SelectedIndex = 0; rulesBox.Width = 240; var evalBox = Input("120"); evalBox.Width = 60; var actBox = Input("0"); actBox.Width = 60;
+            add("CONTRACTS", qty); add("FLAT BY (HHMM)", closeB); add("FIRM RULES", rulesBox); add("EVALUATION $", evalBox); add("ACTIVATION $", actBox);
+            st.Advice = () => KeystoneGoldenLab.Advice(st.Rows, st.Days);
+            OpenLabWindow(st, "GOLDEN PROP SIMULATION",
+                "The GOLDEN study's kept entries (your filters, entries, targets and stops) through evaluations, funded accounts and payouts — AS TESTED (trades may be held overnight) and FLAT BY the close (a trade still open at the end of its day is closed at that minute's 1-minute close, as an intraday prop rule forces). MNQ, MGC and BOTH, 1–5 micros, plain + prop + years + walk-forward + FLIP.",
+                inputs,
+                (bars, progress, cancelled, rules) =>
+                {
+                    DateTime f, l, sp; int d; int cl = Integer(closeB, 1555);
+                    var mnq = mnqBars; var mgc = mgcBars;
+                    Func<string, DateTime, double?> closeAt = (sym, t) => { var list = sym == "MGC" ? mgc : mnq; if (list == null || list.Count == 0) return null; int lo = 0, hi = list.Count - 1, found = -1; while (lo <= hi) { int mid = (lo + hi) / 2; if (list[mid].Time <= t) { found = mid; lo = mid + 1; } else hi = mid - 1; } return found < 0 || list[found].Time < t.AddMinutes(-30) ? (double?)null : list[found].Close; };
+                    var rows = KeystoneGoldenLab.Rows(goldenStudy, rules, ParseNumbers(qty.Text, 1).Select(v => Math.Max(1, (int)Math.Round(v))), cl, closeAt, out f, out l, out sp, out d);
+                    if (progress != null) progress(1, 1);
+                    return new LabState { Rows = rows, First = f, Last = l, SplitAt = sp, Days = d, Note = (goldenStudy == null ? 0 : goldenStudy.Kept.Count) + " kept entries from the GOLDEN study (" + (goldenStudy == null ? "" : goldenStudy.Universe) + ")" };
+                },
+                () => { var r = presets[Math.Max(0, rulesBox.SelectedIndex)].Copy(); r.EvalCost = NumberAllowZero(evalBox, 120); r.Activation = NumberAllowZero(actBox, 0); return r; },
+                () => goldenStudy == null || goldenStudy.Kept.Count == 0 ? "RUN THE GOLDEN STUDY FIRST (Step 1 → GOLDEN SETUP → START)" : (!IsValidHhmm(Integer(closeB, 1555)) ? "FLAT BY must be HHMM" : null),
                 autoRun);
         }
 

@@ -48,3 +48,9 @@ This is your own account, not a prop account. It uses the selected row's real tr
 
 **Hedging is not used:** a long and a short on the same instrument cancel each other.
 - **FLIP tab in the ASIAN MATH LAB too** (build 10-03u): each row exactly as tested; its starting micros are the size.
+
+## GOLDEN study → PROP SIMULATION (build 10-03v)
+The green button on the GOLDEN study bar runs the study's kept entries through evaluations, funded accounts and payouts, in the same lab window.
+- **AS TESTED:** trades may be held overnight.
+- **FLAT BY 15:55:** a trade still open at the end of its day is closed at that minute's 1-minute close, as an intraday prop rule forces.
+- Rows: MNQ / MGC / BOTH × 1–5 micros.

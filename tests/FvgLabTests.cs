@@ -63,6 +63,12 @@ public static class FvgLabTests
         Check(adv.Count >= 9 && adv.Any(l => l.StartsWith("MNQ • YOUR TARGET")) && adv.Any(l => l.StartsWith("MGC • YOUR TARGET")), "advice per instrument including your targets (MNQ 100, gold 10)");
         var imp = KeystoneLab.Impacts(res.Rows.Where(r => r.Get("INSTRUMENT") == "MGC").ToList());
         Check(imp.Select(x => x.Setting).Distinct().Count() == 4, "which ENTRY / TARGET / STOP / CONTRACTS value wins", string.Join(",", imp.Select(x => x.Setting).Distinct()));
+        // GOLDEN → PROP: an overnight winner becomes a 15:55 close when the account must be flat
+        var gEv = new KeystoneArcEvent { Symbol = "MNQ", Direction = "LONG", SetupClass = "FVG", EntryTime = new DateTime(2025, 3, 3, 10, 0, 0), TriggerTime = new DateTime(2025, 3, 3, 10, 0, 0), Entry = 20000, ExitPrice = 20100, ExitTime = new DateTime(2025, 3, 4, 3, 0, 0), Outcome = "WIN", PeakAfterEntry = 20100, TroughAfterEntry = 19970, Quantity = 1 };
+        var asIs = KeystoneGoldenLab.Unit(gEv, false, 1555, (sym, tt) => 19990);
+        var flatT = KeystoneGoldenLab.Unit(gEv, true, 1555, (sym, tt) => tt == new DateTime(2025, 3, 3, 15, 55, 0) ? 19990 : (double?)null);
+        Check(asIs != null && asIs.Outcome == "TARGET" && Eq(asIs.Points, 100) && asIs.Day == new DateTime(2025, 3, 4), "golden as tested: the overnight target counts on its exit day (+100)");
+        Check(flatT != null && flatT.Outcome == "CLOSE" && Eq(flatT.Points, -10) && flatT.ExitTime == new DateTime(2025, 3, 3, 15, 55, 0) && Eq(flatT.Worst, -60), "golden flat by 15:55: the same trade is closed at the 15:55 close (−10 pts), worst point kept (−30 pts = −$60)", flatT == null ? "null" : flatT.Outcome + " " + flatT.Points + " " + flatT.Worst);
         Console.WriteLine(failures == 0 ? "ALL FVG LAB TESTS PASSED" : failures + " FVG LAB TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

@@ -229,6 +229,21 @@ public static class UiSmokeTest
                 if (bars.Count < 20) throw new Exception("derived 15M view is empty");
             });
             Step(strategy + ": switch instrument view to MNQ", () => { Call(lab2, "RenderPoolLedger"); });
+            if (strategy == "GLD")
+                Step("GLD: PROP SIMULATION of the golden entries (as tested vs flat by the close)", () =>
+                {
+                    Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    if (F("goldenStudy") == null) { Console.WriteLine("      (no golden study in this run)"); return; }
+                    Call(lab2, "OpenGoldenPropLab", false);
+                    var st = F("goldenLab"); var T = st.GetType(); Func<string, object> S = n => T.GetField(n).GetValue(st);
+                    ((Action)S("Run"))();
+                    for (int i = 0; i < 300 && !((System.Windows.Controls.TextBlock)S("Status")).Text.Contains(" ROWS • "); i++) System.Threading.Thread.Sleep(100);
+                    Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)S("Status")).Text);
+                    var rows = (List<KeystoneLabRow>)S("Rows");
+                    Console.WriteLine("      " + string.Join(" | ", rows.Take(4).Select(x => x.Label + " prop " + x.P.PropNet.ToString("0") + " plain " + x.P.Net.ToString("0"))));
+                    if (rows.Count == 0 || !rows.Any(x => x.Get("HOLD").StartsWith("FLAT")) || !rows.Any(x => x.Get("HOLD").StartsWith("AS TESTED"))) throw new Exception("golden prop rows missing");
+                    foreach (System.Windows.Controls.TabItem t in ((System.Windows.Controls.TabControl)S("Tabs")).Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("golden prop tab not filled: " + t.Header);
+                });
             if (strategy == "FVG")
                 Step("FVG + ENGULFING MATH LABS: run on the loaded 1-minute bars, fill every tab, export", () =>
                 {
