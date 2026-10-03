@@ -31,6 +31,12 @@ public static class NewsTests
         Check(ff.Count == 2 && ff[0].Title == "CPI m/m" && ff[0].Time == new DateTime(2026, 10, 14, 8, 30, 0) && ff[0].Impact == "HIGH", "ForexFactory feed parsed");
         Check(KeystoneNews.ForSession(ff, new DateTime(2026, 10, 14), true).Count == 1, "only USD news counts for MNQ / MGC");
         Check(KeystoneNews.ParseCsv(new[] { KeystoneNews.ToCsv(ff[0]) })[0].Time == ff[0].Time, "write → read the file keeps the time");
+        string html = "<li><a href=\"/news.release/archives/cpi_09112025.htm\">Consumer Price Index for August 2025</a> (<a href=\"/news.release/archives/cpi_09112025.pdf\">PDF</a>)</li><li><a href=\"/news.release/archives/cpi_08122025.htm\">July 2025</a></li><a href=\"/news.release/archives/cpi_08122025.htm\">dup</a>";
+        var bls = KeystoneNews.ParseBlsArchive(html, "cpi", "CPI (BLS)");
+        Check(bls.Count == 2 && bls[1].Time == new DateTime(2025, 9, 11, 8, 30, 0) && KeystoneNews.Tag(bls[0]) == "CPI", "BLS archive: release days from the file names, 08:30, no duplicates", bls.Count.ToString());
+        var emp = KeystoneNews.ParseBlsArchive("<a href=\"/news.release/archives/empsit_11202025.htm\">x</a>", "empsit", "NON-FARM PAYROLLS (BLS)");
+        var comb = KeystoneNews.Combine(KeystoneNews.BuiltIn(new DateTime(2025, 11, 1), new DateTime(2025, 11, 30)), emp);
+        Check(comb.Count(e => KeystoneNews.Tag(e) == "NFP") == 1 && comb.Any(e => e.Time == new DateTime(2025, 11, 20, 8, 30, 0)), "the real BLS payrolls day replaces the rule date of that month (Nov 2025 shutdown delay)");
         LiveMathChecks.Run((ok, name, detail) => Check(ok, name, detail));
         Console.WriteLine(failures == 0 ? "ALL NEWS TESTS PASSED" : failures + " NEWS TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
