@@ -88,9 +88,18 @@ public static class FvgLabTests
         for (int i = 0; i < 1500; i++) { var tt = g0.AddMinutes(i); double px = i < 1200 ? 20000 + (i % 7) : 20000 + (i - 1200) * 0.5; gr.Add(new KeystoneArcBar { Symbol = "MNQ", Time = tt, Open = px, High = px + 1, Low = px - 1, Close = px }); }
         var gs = new KeystoneGoldenStudyResult(); gs.Kept.Add(new KeystoneArcEvent { Symbol = "MNQ", Direction = "LONG", SetupClass = "FVG", EntryTime = g0, TriggerTime = g0, Entry = 20000, Stop = 19950, Outcome = "WIN" });
         DateTime gf, gl, gsp; int gd;
-        var grows = KeystoneGoldenLab.Rows(gs, new KeystonePropRules(), new KeystoneGoldenLab.Grid { MnqTargets = new List<double> { 100 }, MnqStops = new List<double> { 0 }, Contracts = new List<int> { 1 } }, new Dictionary<string, List<KeystoneArcBar>> { { "MNQ", gr } }, null, null, out gf, out gl, out gsp, out gd);
+        var grows = KeystoneGoldenLab.Rows(new Dictionary<string, List<KeystoneArcEvent>> { { "YOUR STUDY", gs.Kept } }, new KeystonePropRules(), new KeystoneGoldenLab.Grid { MnqTargets = new List<double> { 100 }, MnqStops = new List<double> { 0 }, Contracts = new List<int> { 1 } }, new Dictionary<string, List<KeystoneArcBar>> { { "MNQ", gr } }, null, null, out gf, out gl, out gsp, out gd);
         var same = grows.First(x => x.Get("EXIT") == "SAME DAY").Trades[0]; var hold = grows.First(x => x.Get("EXIT") == "HOLD").Trades[0];
         Check(same.Outcome == "CLOSE" && same.ExitTime == new DateTime(2025, 3, 3, 15, 55, 0) && hold.Outcome == "TARGET" && hold.ExitTime.Date == new DateTime(2025, 3, 4) && grows.All(x => x.Get("STOP") == "SL PATTERN"), "golden grid: SAME DAY closes at 15:55, HOLD reaches the target the next day; PATTERN = the setup's own stop", same.Outcome + " " + same.ExitTime + " / " + hold.Outcome + " " + hold.ExitTime);
+        // TRADES A DAY: 10:00 entry loses, 10:30 entry wins, 11:00 entry → MAX 1 takes only the first; MAX 3 takes two (a win ends the day)
+        var pr = new List<KeystoneArcBar>(); var p0 = new DateTime(2025, 3, 5, 9, 31, 0);
+        for (int i = 0; i < 400; i++) { var tt = p0.AddMinutes(i); double px = tt < new DateTime(2025, 3, 5, 10, 20, 0) ? 20000 - (i * 2) : 19902 + (tt - new DateTime(2025, 3, 5, 10, 20, 0)).TotalMinutes * 3; pr.Add(new KeystoneArcBar { Symbol = "MNQ", Time = tt, Open = px, High = px + 1, Low = px - 1, Close = px }); }
+        Func<int, double, KeystoneArcEvent> ev = (min, px) => new KeystoneArcEvent { Symbol = "MNQ", Direction = "LONG", SetupClass = "FVG", EntryTime = p0.AddMinutes(min), TriggerTime = p0.AddMinutes(min), Entry = px, Stop = px - 20 };
+        var day3 = new List<KeystoneArcEvent> { ev(29, pr[29].Close), ev(59, pr[59].Close), ev(89, pr[89].Close) };
+        DateTime pf, pl, psp; int pdd;
+        var prow = KeystoneGoldenLab.Rows(new Dictionary<string, List<KeystoneArcEvent>> { { "FVG", day3 } }, new KeystonePropRules(), new KeystoneGoldenLab.Grid { Exits = new List<string> { "SAME DAY" }, MnqTargets = new List<double> { 40 }, MnqStops = new List<double> { 0 }, Contracts = new List<int> { 1 }, PerDay = new List<int> { 1, 3 } }, new Dictionary<string, List<KeystoneArcBar>> { { "MNQ", pr } }, null, null, out pf, out pl, out psp, out pdd);
+        var one = prow.First(x => x.Get("TRADES A DAY") == "MAX 1/DAY"); var three = prow.First(x => x.Get("TRADES A DAY") == "MAX 3/DAY");
+        Check(one.Trades.Count == 1 && one.Trades[0].Outcome == "STOP" && three.Trades.Count == 2 && three.Trades[1].Outcome == "TARGET", "TRADES A DAY: max 1 = the first (a loss); max 3 = the loss, then the next setup wins and ends the day", one.Trades.Count + " / " + three.Trades.Count + " " + string.Join(",", three.Trades.Select(t => t.Outcome)));
         Console.WriteLine(failures == 0 ? "ALL FVG LAB TESTS PASSED" : failures + " FVG LAB TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
