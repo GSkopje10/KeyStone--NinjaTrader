@@ -6414,6 +6414,138 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- PATTERN ENGINE ("similar moments"): every past moment as a fingerprint of how price got there, and what came next ----
+    // Fingerprint at a minute (only bars up to that minute): the path of the last 30 minutes (10 points), the last six 5-minute
+    // moves, where price sits in the day's range, the move since the session open, and how busy the market is — all in units of
+    // the recent 1-minute range (ATR), so 2020 and 2026 compare fairly. Outcome: in the next 30 minutes, did price move
+    // +3 ATR before −3 ATR (up first), the other way (down first), or neither (a minute touching both = neither).
+    // A query only uses moments from EARLIER days at a similar time of day — never the future.
+    public sealed class KeystoneAnalogIndex
+    {
+        public string Symbol = "MNQ"; public int Dim = KeystoneAnalog.Dim, Sessions;
+        public readonly List<float> Feats = new List<float>(); public readonly List<int> Tod = new List<int>(), DayKey = new List<int>(); public readonly List<sbyte> Outcome = new List<sbyte>(); public readonly List<float> EndMove = new List<float>(), Barrier = new List<float>();
+        public readonly List<int>[] Buckets = Enumerable.Range(0, 288).Select(i => new List<int>()).ToArray();   // 5-minute buckets of the 24 h day
+        public int Count { get { return Tod.Count; } }
+    }
+    public sealed class KeystoneAnalogAnswer { public int Neighbors, Up, Down, None, PoolUp, PoolDown, Pool; public double AvgEnd, AvgBarrier; public double UpShare { get { return Up + Down == 0 ? 0.5 : Up / (double)(Up + Down); } } public double BaseUp { get { return PoolUp + PoolDown == 0 ? 0.5 : PoolUp / (double)(PoolUp + PoolDown); } } }
+    public sealed class KeystoneAnalogYear { public int Year, Calls, Wins, Losses; public double R, BaseHit; public double Hit { get { return Wins + Losses == 0 ? 0 : Wins / (double)(Wins + Losses); } } }
+    public sealed class KeystoneAnalogReport
+    {
+        public int Queries, Calls, Wins, Losses, TrainSamples; public double R, BaseHit; public string Verdict = string.Empty;
+        public List<KeystoneAnalogYear> Years = new List<KeystoneAnalogYear>();
+        public double[] CalPredicted = new double[10], CalRealized = new double[10]; public int[] CalCount = new int[10];
+        public double Hit { get { return Wins + Losses == 0 ? 0 : Wins / (double)(Wins + Losses); } }
+    }
+    public static class KeystoneAnalog
+    {
+        public const int Lookback = 30, Horizon = 30, Dim = 20; public static int Step = 2; public static double BarrierAtr = 3.0;
+        static int TodOf(DateTime t) { var m = (int)((t.TimeOfDay.TotalMinutes + 360) % 1440); return m; }   // minutes since 18:00 New York
+        public static int DayKeyOf(DateTime session) { return session.Year * 10000 + session.Month * 100 + session.Day; }
+        public static double Atr(List<KeystoneArcBar> s, int i) { double sum = 0; int n = 0; for (int k = Math.Max(0, i - Lookback + 1); k <= i; k++) { sum += s[k].High - s[k].Low; n++; } return n == 0 ? 0 : sum / n; }
+
+        // the fingerprint of minute i of a session (bars 0 … i only); null before 30 minutes of the session
+        public static float[] Fingerprint(List<KeystoneArcBar> s, int i)
+        {
+            if (s == null || i < Lookback || i >= s.Count) return null;
+            double atr = Math.Max(1e-6, Atr(s, i)), c = s[i].Close; var f = new float[Dim]; int n = 0;
+            for (int k = 3; k <= 30; k += 3) f[n++] = (float)((s[i - k].Close - c) / atr / 4);                 // the path: 10 points
+            for (int k = 0; k < 6; k++) { int a = i - 5 * k, b = a - 5; f[n++] = b >= 0 ? (float)((s[a].Close - s[b].Close) / atr / 3) : 0; }   // six 5-minute moves
+            double hi = double.MinValue, lo = double.MaxValue; for (int k = 0; k <= i; k++) { hi = Math.Max(hi, s[k].High); lo = Math.Min(lo, s[k].Low); }
+            f[n++] = (float)(hi > lo ? (c - lo) / (hi - lo) * 2 - 1 : 0);                                          // where in the day's range
+            f[n++] = (float)Math.Max(-3, Math.Min(3, (c - s[0].Open) / atr / 20));                                 // move since the session open
+            double atrDay = 0; for (int k = 0; k <= i; k++) atrDay += s[k].High - s[k].Low; atrDay /= (i + 1);
+            f[n++] = (float)Math.Max(-2, Math.Min(2, Math.Log(atr / Math.Max(1e-6, atrDay))));                     // busier / quieter than today so far
+            f[n++] = (float)((s[i].Close - s[i].Open) / atr / 2);                                                   // the last candle
+            return f;
+        }
+        // +1 up first, −1 down first, 0 neither (or both in one minute); endMove = the close after the horizon, in barriers
+        public static int Outcome(List<KeystoneArcBar> s, int i, double barrier, out double endMove)
+        {
+            endMove = 0; double c = s[i].Close; int last = Math.Min(s.Count - 1, i + Horizon);
+            for (int k = i + 1; k <= last; k++)
+            {
+                bool up = s[k].High >= c + barrier, dn = s[k].Low <= c - barrier;
+                if (up && dn) { endMove = (s[last].Close - c) / barrier; return 0; }
+                if (up) { endMove = 1; return 1; }
+                if (dn) { endMove = -1; return -1; }
+            }
+            endMove = last > i ? (s[last].Close - c) / barrier : 0; return 0;
+        }
+        // adds one session (call in date order); only moments with a full horizon ahead
+        public static void AddSession(KeystoneAnalogIndex idx, List<KeystoneArcBar> s, DateTime session)
+        {
+            if (s == null || s.Count < Lookback + Horizon + 5) return; idx.Sessions++; int key = DayKeyOf(session);
+            for (int i = Lookback; i + Horizon < s.Count; i += Step)
+            {
+                var f = Fingerprint(s, i); if (f == null) continue; double barrier = BarrierAtr * Math.Max(1e-6, Atr(s, i)), end; int o = Outcome(s, i, barrier, out end);
+                int id = idx.Count; idx.Feats.AddRange(f); idx.Tod.Add(TodOf(s[i].Time)); idx.DayKey.Add(key); idx.Outcome.Add((sbyte)o); idx.EndMove.Add((float)end); idx.Barrier.Add((float)barrier);
+                idx.Buckets[idx.Tod[id] / 5].Add(id);
+            }
+        }
+        // the k nearest moments of earlier days within ±window minutes of the time of day
+        public static KeystoneAnalogAnswer Query(KeystoneAnalogIndex idx, float[] f, DateTime at, int beforeDayKey, int k, int window)
+        {
+            var ans = new KeystoneAnalogAnswer(); if (idx == null || f == null) return ans; int tod = TodOf(at);
+            var bestD = new double[k]; var bestI = new int[k]; int filled = 0; double worst = double.MaxValue;
+            for (int b = (tod - window) / 5 - 1; b <= (tod + window) / 5 + 1; b++)
+            {
+                var list = idx.Buckets[((b % 288) + 288) % 288];
+                foreach (int id in list)
+                {
+                    if (idx.DayKey[id] >= beforeDayKey) break;                 // days were added in order: the rest are not earlier
+                    int dt = Math.Abs(idx.Tod[id] - tod); if (Math.Min(dt, 1440 - dt) > window) continue;
+                    ans.Pool++; if (idx.Outcome[id] > 0) ans.PoolUp++; else if (idx.Outcome[id] < 0) ans.PoolDown++;
+                    double d = 0; int o = id * idx.Dim; for (int j = 0; j < idx.Dim; j++) { double x = idx.Feats[o + j] - f[j]; d += x * x; if (filled == k && d >= worst) break; }
+                    if (filled < k) { bestD[filled] = d; bestI[filled] = id; filled++; if (filled == k) worst = bestD.Max(); }
+                    else if (d < worst) { int wi = Array.IndexOf(bestD, worst); bestD[wi] = d; bestI[wi] = id; worst = bestD.Max(); }
+                }
+            }
+            ans.Neighbors = filled;
+            for (int n = 0; n < filled; n++) { int id = bestI[n]; if (idx.Outcome[id] > 0) ans.Up++; else if (idx.Outcome[id] < 0) ans.Down++; else ans.None++; ans.AvgEnd += idx.EndMove[id]; ans.AvgBarrier += idx.Barrier[id]; }
+            if (filled > 0) { ans.AvgEnd /= filled; ans.AvgBarrier /= filled; }
+            return ans;
+        }
+        // walk forward: every moment of a later day is judged only from the days before it. A call = up share ≥ threshold (buy) or
+        // ≤ 1 − threshold (sell) with enough resolved neighbours; win = the called side came first. Baseline = the same side's share in the
+        // time-of-day pool (what you would get by always calling that side at that time).
+        public static KeystoneAnalogReport WalkForward(KeystoneAnalogIndex idx, int queryEveryMin, double threshold, int k, int window, int minTrainDays, int fromTod, int toTod, Action<int, int> progress)
+        {
+            var rep = new KeystoneAnalogReport(); if (idx == null || idx.Count == 0) return rep;
+            var days = idx.DayKey.Distinct().ToList(); var firstTest = days.Count > minTrainDays ? days[minTrainDays] : int.MaxValue;
+            var years = new Dictionary<int, KeystoneAnalogYear>(); double baseSum = 0; int every = Math.Max(1, queryEveryMin / Step);
+            int total = 0; for (int id = 0; id < idx.Count; id++) if (idx.DayKey[id] >= firstTest) total++;
+            int done = 0, lastDay = -1, sinceDay = 0;
+            for (int id = 0; id < idx.Count; id++)
+            {
+                if (idx.DayKey[id] < firstTest) continue; done++;
+                if (idx.DayKey[id] != lastDay) { lastDay = idx.DayKey[id]; sinceDay = 0; } else sinceDay++;
+                if (sinceDay % every != 0) continue; int tod = idx.Tod[id]; if (tod < fromTod || tod > toTod) continue;
+                var f = new float[idx.Dim]; for (int j = 0; j < idx.Dim; j++) f[j] = idx.Feats[id * idx.Dim + j];
+                var at = new DateTime(2000, 1, 1).AddMinutes(tod + 18 * 60);
+                var a = Query(idx, f, at, idx.DayKey[id], k, window); rep.Queries++;
+                if (a.Up + a.Down < k / 3) continue;
+                double p = a.UpShare; int bin = Math.Max(0, Math.Min(9, (int)(p * 10)));
+                rep.CalCount[bin]++; rep.CalPredicted[bin] += p; if (idx.Outcome[id] > 0) rep.CalRealized[bin] += 1; else if (idx.Outcome[id] == 0) rep.CalRealized[bin] += 0.5;
+                int call = p >= threshold ? 1 : p <= 1 - threshold ? -1 : 0; if (call == 0) continue;
+                int o = idx.Outcome[id]; double r = o == call ? 1 : o == -call ? -1 : call * idx.EndMove[id];
+                double baseHit = call > 0 ? a.BaseUp : 1 - a.BaseUp;
+                rep.Calls++; rep.R += r; baseSum += baseHit; if (o == call) rep.Wins++; else if (o == -call) rep.Losses++;
+                int y = idx.DayKey[id] / 10000; KeystoneAnalogYear yr; if (!years.TryGetValue(y, out yr)) years[y] = yr = new KeystoneAnalogYear { Year = y };
+                yr.Calls++; yr.R += r; yr.BaseHit += baseHit; if (o == call) yr.Wins++; else if (o == -call) yr.Losses++;
+                if (progress != null && rep.Queries % 200 == 0) progress(done, total);
+            }
+            rep.TrainSamples = idx.Count; rep.BaseHit = rep.Calls == 0 ? 0 : baseSum / rep.Calls;
+            foreach (var yr in years.Values) yr.BaseHit = yr.Calls == 0 ? 0 : yr.BaseHit / yr.Calls;
+            rep.Years = years.Values.OrderBy(x => x.Year).ToList();
+            for (int b = 0; b < 10; b++) if (rep.CalCount[b] > 0) { rep.CalPredicted[b] /= rep.CalCount[b]; rep.CalRealized[b] /= rep.CalCount[b]; }
+            double edge = rep.Hit - rep.BaseHit; int goodYears = rep.Years.Count(x => x.Calls >= 20 && x.Hit > x.BaseHit && x.R > 0), judgedYears = rep.Years.Count(x => x.Calls >= 20);
+            rep.Verdict = rep.Calls < 100 ? "NOT ENOUGH CALLS TO JUDGE (" + rep.Calls + ") — load more history or lower the threshold"
+                : edge >= 0.02 && rep.R > 0 && goodYears * 2 > judgedYears ? "PROMISING • similar moments beat the baseline by " + (100 * edge).ToString("0.0") + " points and made " + (rep.R / rep.Calls).ToString("+0.00;-0.00") + "R a call, positive in " + goodYears + " of " + judgedYears + " years"
+                : "NO RELIABLE EDGE • hit " + (100 * rep.Hit).ToString("0.0") + "% vs baseline " + (100 * rep.BaseHit).ToString("0.0") + "% • " + (rep.Calls == 0 ? 0 : rep.R / rep.Calls).ToString("+0.00;-0.00") + "R a call — the history does not predict this horizon better than chance";
+            return rep;
+        }
+    }
+
     public sealed class KeystoneIdea
     {
         public List<string> Symbols = new List<string>(); public List<int> Times = new List<int>(); public List<string> Dirs = new List<string>();
@@ -11764,9 +11896,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-04o";
+        private const string KeystoneBuildShort = "BUILD 2026-10-04p";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-04o • NO SHADED TARGET / STOP ZONES: THE POSITION LINE + PRICE TAG PULSE GREEN / RED • ✕ ON STOP / TARGET / ORDER LINES • REMOVE STOP / TARGET FROM THE RIGHT-CLICK MENU • LINE, RAY, RECTANGLE, FVG BUTTONS ON THE TOP TOOLBAR • BUILD 2026-10-04n • FULL DATE + WEEKDAY IN THE HEADER • CLICK A DRAWING TO SELECT IT, DELETE KEY REMOVES IT, ESC UNSELECTS • DATA LIBRARY OPENS AGAIN (ILLEGAL PATH CHARACTER FIX) • LOAD ALL 6 YEARS IN THE BACKGROUND (ONE QUEUE, NEWEST FIRST, STUDIO STAYS USABLE, PROGRESS IN THE STUDIO, STOP / RESUME) • PICK A DAY: EVERY WEEKDAY OF 6 YEARS WITH ONLY ITS NEWS (NO RANGES — NO BIAS), SAVED ● / NOT YET ○, RANDOM DAY • BUILD 2026-10-04m • STRATEGY BOX (WHICH STRATEGY, MODE, TODAY WON / LOST / OPEN) • SETUP COACH: THE STRATEGY ON THE 20 SAVED DAYS BEFORE → BEST TARGET IN R, HOW OFTEN IT WAS REACHED FIRST, R A TRADE, BUYS vs SELLS • A NEW SETUP BLINKS + SOUND WITH TAKE / SKIP, TARGET AND CONTRACTS FOR YOUR RISK $ • AUTO + SMART USES THE COACH • ONE CLEAN DASHED PLAN FOR THE NEWEST SETUP (NO DOUBLE BACKGROUND) • BUILD 2026-10-04l • DRAWING PALETTE (HORIZONTAL / VERTICAL LINE, TREND, RAY, RECTANGLE, FVG BOX WITH 50% LINE, FIBONACCI, ARROWS, TEXT, LONG / SHORT) • 10 COLOURS + LINE WIDTH • DRAG A DRAWING TO MOVE IT • RIGHT-CLICK MENU (LIMIT / STOP ORDERS AT THE PRICE, TP / SL HERE, CLOSE, DRAW, COLOUR, WIDTH, TEXT, COPY, DELETE, CHART TEMPLATE, TIMEFRAME, RESET) • 9 CHART TEMPLATES + HOLLOW CANDLES • SHARP PIXEL CANDLES • DRAG THE POSITION LINE FOR TP / SL • QUICK CONTRACTS, BRACKET PRESETS, BREAKEVEN, REVERSE, FLATTEN MNQ + MGC • GO TO NOW BUTTON • BUILD 2026-10-04k • LOAD DAY NO LONGER LOSES THE TYPED DATE AFTER A NINJATRADER DOWNLOAD • DATA LIBRARY: MONTH TILES (CLICK MONTHS / YEARS, QUICK 3M / 12M / 3Y / 6Y / EVERY GAP, DOWNLOAD SELECTED) + ERROR TEXT INSTEAD OF A CRASH • PICK A DAY (EVERY SAVED DAY WITH FOMC / NFP / CPI TAGS, NY RANGE + MOVE, FILTERS) • ◀ BACK IN TIME (−1 / −10 MIN, ← →) • CLOSE CONFIRMATION ON EVERY WINDOW • LIVE DESK READ ONLY (ACCOUNTS, GROUPS DRAG + DROP, DRAWDOWN ROOM, TARGET) • BUILD 2026-10-04j • STUDIO: ANY DATE → LOAD DAY GETS IT FROM NINJATRADER AND SAVES IT FOR EVERY NEXT LOAD • PREV / NEXT DAY ANY WEEKDAY • ONE-CLICK TIMEFRAME BUTTONS (KEYS 1–9) • HIGH-IMPACT NEWS: CORNER BOX WITH COUNTDOWN, NEWS LINES ON THE CHART, NEWS LOCK ± MIN + FLAT BEFORE NEWS (FOMC + PAYROLLS BUILT IN, FOREXFACTORY WEEK FEED, YOUR NEWS.CSV) • DATA IN ITS OWN FOLDER Documents\\KeystoneArcData (REPORTS STAY IN KeystoneArc5MResearch; OLD DATA MOVED) • DOWNLOAD WATCHDOG 120 S • BUILD 2026-10-04i • LAUNCHER (BACKTEST STUDIO • RESEARCH LAB • DATA LIBRARY • LIVE DESK LOCKED) • DATA LIBRARY: THE STUDIO'S OWN 1-MINUTE BARS (COVERAGE PER YEAR, MISSING DAYS, DOWNLOAD ANY RANGE WEEK BY WEEK, NO STEP 1) • STUDIO REMEMBERS THE DAY, SETTINGS, TIMEFRAMES AND DRAWINGS • ACCOUNT BLOWN PROMPT: NEW ACCOUNT CONTINUES THE SAME DAY • STRATEGY MODE SIGNALS / AUTO + ME • ENTRY BOX • BUILD 2026-10-04h • REPLAY TRADER v3: MNQ + MGC TABS ON ONE CLOCK AND ONE ACCOUNT, TRADINGVIEW-STYLE CHART (WHEEL ZOOM AT THE MOUSE, DRAG ANYWHERE INCL. SPACE ON THE RIGHT, PRICE / TIME AXIS STRETCH, CROSSHAIR), DRAWING TOOLBAR (LINE, TREND, RECTANGLE, LONG / SHORT R:R TOOL), TARGET / STOP ZONES + ANIMATED P/L BOX, REALISTIC TICK PATH, PREV / NEXT DAY, FULL WINDOW • BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-04p • TP ⇕ / SL ⇕ HANDLES ON THE POSITION LINE (DRAG UP / DOWN) • NO AUTOMATIC STOP / TARGET: THE BRACKET BOXES START AT 0 AND CLEAR WHEN A TRADE CLOSES • PATTERN ENGINE (SIMILAR MOMENTS): EVERY SAVED MINUTE AS A FINGERPRINT + WHAT CAME NEXT • PATTERN LAB: HONEST WALK-FORWARD TEST vs THE BASELINE, EACH YEAR, CALIBRATION • STUDIO SIMILAR MOMENTS BOX (UP-FIRST vs BASELINE, BLINKS GREEN / RED ON A CLEAR EDGE, NO LOOK-AHEAD) • BUILD 2026-10-04o • NO SHADED TARGET / STOP ZONES: THE POSITION LINE + PRICE TAG PULSE GREEN / RED • ✕ ON STOP / TARGET / ORDER LINES • REMOVE STOP / TARGET FROM THE RIGHT-CLICK MENU • LINE, RAY, RECTANGLE, FVG BUTTONS ON THE TOP TOOLBAR • BUILD 2026-10-04n • FULL DATE + WEEKDAY IN THE HEADER • CLICK A DRAWING TO SELECT IT, DELETE KEY REMOVES IT, ESC UNSELECTS • DATA LIBRARY OPENS AGAIN (ILLEGAL PATH CHARACTER FIX) • LOAD ALL 6 YEARS IN THE BACKGROUND (ONE QUEUE, NEWEST FIRST, STUDIO STAYS USABLE, PROGRESS IN THE STUDIO, STOP / RESUME) • PICK A DAY: EVERY WEEKDAY OF 6 YEARS WITH ONLY ITS NEWS (NO RANGES — NO BIAS), SAVED ● / NOT YET ○, RANDOM DAY • BUILD 2026-10-04m • STRATEGY BOX (WHICH STRATEGY, MODE, TODAY WON / LOST / OPEN) • SETUP COACH: THE STRATEGY ON THE 20 SAVED DAYS BEFORE → BEST TARGET IN R, HOW OFTEN IT WAS REACHED FIRST, R A TRADE, BUYS vs SELLS • A NEW SETUP BLINKS + SOUND WITH TAKE / SKIP, TARGET AND CONTRACTS FOR YOUR RISK $ • AUTO + SMART USES THE COACH • ONE CLEAN DASHED PLAN FOR THE NEWEST SETUP (NO DOUBLE BACKGROUND) • BUILD 2026-10-04l • DRAWING PALETTE (HORIZONTAL / VERTICAL LINE, TREND, RAY, RECTANGLE, FVG BOX WITH 50% LINE, FIBONACCI, ARROWS, TEXT, LONG / SHORT) • 10 COLOURS + LINE WIDTH • DRAG A DRAWING TO MOVE IT • RIGHT-CLICK MENU (LIMIT / STOP ORDERS AT THE PRICE, TP / SL HERE, CLOSE, DRAW, COLOUR, WIDTH, TEXT, COPY, DELETE, CHART TEMPLATE, TIMEFRAME, RESET) • 9 CHART TEMPLATES + HOLLOW CANDLES • SHARP PIXEL CANDLES • DRAG THE POSITION LINE FOR TP / SL • QUICK CONTRACTS, BRACKET PRESETS, BREAKEVEN, REVERSE, FLATTEN MNQ + MGC • GO TO NOW BUTTON • BUILD 2026-10-04k • LOAD DAY NO LONGER LOSES THE TYPED DATE AFTER A NINJATRADER DOWNLOAD • DATA LIBRARY: MONTH TILES (CLICK MONTHS / YEARS, QUICK 3M / 12M / 3Y / 6Y / EVERY GAP, DOWNLOAD SELECTED) + ERROR TEXT INSTEAD OF A CRASH • PICK A DAY (EVERY SAVED DAY WITH FOMC / NFP / CPI TAGS, NY RANGE + MOVE, FILTERS) • ◀ BACK IN TIME (−1 / −10 MIN, ← →) • CLOSE CONFIRMATION ON EVERY WINDOW • LIVE DESK READ ONLY (ACCOUNTS, GROUPS DRAG + DROP, DRAWDOWN ROOM, TARGET) • BUILD 2026-10-04j • STUDIO: ANY DATE → LOAD DAY GETS IT FROM NINJATRADER AND SAVES IT FOR EVERY NEXT LOAD • PREV / NEXT DAY ANY WEEKDAY • ONE-CLICK TIMEFRAME BUTTONS (KEYS 1–9) • HIGH-IMPACT NEWS: CORNER BOX WITH COUNTDOWN, NEWS LINES ON THE CHART, NEWS LOCK ± MIN + FLAT BEFORE NEWS (FOMC + PAYROLLS BUILT IN, FOREXFACTORY WEEK FEED, YOUR NEWS.CSV) • DATA IN ITS OWN FOLDER Documents\\KeystoneArcData (REPORTS STAY IN KeystoneArc5MResearch; OLD DATA MOVED) • DOWNLOAD WATCHDOG 120 S • BUILD 2026-10-04i • LAUNCHER (BACKTEST STUDIO • RESEARCH LAB • DATA LIBRARY • LIVE DESK LOCKED) • DATA LIBRARY: THE STUDIO'S OWN 1-MINUTE BARS (COVERAGE PER YEAR, MISSING DAYS, DOWNLOAD ANY RANGE WEEK BY WEEK, NO STEP 1) • STUDIO REMEMBERS THE DAY, SETTINGS, TIMEFRAMES AND DRAWINGS • ACCOUNT BLOWN PROMPT: NEW ACCOUNT CONTINUES THE SAME DAY • STRATEGY MODE SIGNALS / AUTO + ME • ENTRY BOX • BUILD 2026-10-04h • REPLAY TRADER v3: MNQ + MGC TABS ON ONE CLOCK AND ONE ACCOUNT, TRADINGVIEW-STYLE CHART (WHEEL ZOOM AT THE MOUSE, DRAG ANYWHERE INCL. SPACE ON THE RIGHT, PRICE / TIME AXIS STRETCH, CROSSHAIR), DRAWING TOOLBAR (LINE, TREND, RECTANGLE, LONG / SHORT R:R TOOL), TARGET / STOP ZONES + ANIMATED P/L BOX, REALISTIC TICK PATH, PREV / NEXT DAY, FULL WINDOW • BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -25623,7 +25755,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public string Symbol = string.Empty; public List<KeystoneArcBar> All = new List<KeystoneArcBar>(); public KeystoneReplayTrader Trader; public int Tf = 1;
             public double Spacing = 9, RightOffset = 14, PCenter, PRange; public bool Follow = true, PriceAuto = true; public int LastCount, SavedFills, Pulse;
             public List<KeystoneReplaySignal> Signals = new List<KeystoneReplaySignal>(); public List<ReplayDrawing> Drawings = new List<ReplayDrawing>();
-            public Canvas Canvas; public Border Hit; public TextBlock PosText; public StackPanel TradesList; public TextBox Qty, Price, Sl, Tp; public ComboBox OrderType, TfBox; public List<Button> TfButtons = new List<Button>(); public List<Border> Swatches = new List<Border>(); public KeystoneCoachReport Coach; public string CoachKey = string.Empty; public KeystoneReplaySignal LastAlert; public Action<string> SetTool; public string Tool = "CURSOR"; public ReplayDrawing Moving, Selected; public DateTime MoveT1, MoveT2, MoveDownTime; public double MoveP1, MoveP2, MoveDownPrice;
+            public Canvas Canvas; public Border Hit; public TextBlock PosText; public StackPanel TradesList; public TextBox Qty, Price, Sl, Tp; public ComboBox OrderType, TfBox; public List<Button> TfButtons = new List<Button>(); public List<Border> Swatches = new List<Border>(); public KeystoneCoachReport Coach; public KeystoneAnalogAnswer Sim; public int SimKey = -1, LastPos; public double SimBarrier; public string CoachKey = string.Empty; public KeystoneReplaySignal LastAlert; public Action<string> SetTool; public string Tool = "CURSOR"; public ReplayDrawing Moving, Selected; public DateTime MoveT1, MoveT2, MoveDownTime; public double MoveP1, MoveP2, MoveDownPrice;
             public double PlotW = 1000, PlotH = 500, Top = 8, AxisW = 84, TimeH = 24, Hi = 1, Lo = 0; public List<KeystoneArcBar> Candles = new List<KeystoneArcBar>();
             public bool MouseOver; public double MouseX, MouseY; public ReplayDrawing Preview;
             public string Drag; public double DownX, DownY, Ro0, Pc0, Pr0, S0; public KeystoneReplayOrder DragOrder; public bool Moved;
@@ -25678,13 +25810,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             var riskBox = Input(wsGet("risk", "200")); riskBox.Width = 60; riskBox.ToolTip = "Coach: $ you want to risk on one trade (contracts = this ÷ stop pts × point value).";
             var smartBox = new CheckBox { Content = "SMART", IsChecked = wsGet("smart", "0") == "1", Foreground = Text, Margin = new Thickness(4, 16, 6, 0), ToolTip = "AUTO uses the coach: its best target, contracts for your RISK $, and skips setups that lost on the last 20 days." };
             var soundBox = new CheckBox { Content = "SOUND", IsChecked = wsGet("sound", "1") == "1", Foreground = Text, Margin = new Thickness(4, 16, 6, 0), ToolTip = "A sound when a setup of the chosen strategy appears." };
+            var patternBtn = small("PATTERN LAB", Orchid); patternBtn.ToolTip = "Does history predict the next 30 minutes? The walk-forward test of SIMILAR MOMENTS on your saved data.";
             var libraryBtn = small("DATA LIBRARY", Blue); libraryBtn.ToolTip = "What is saved on this PC, and download / update any date range for MNQ and MGC (no Step 1 needed).";
             var pickBtn = small("PICK A DAY", Gold); pickBtn.ToolTip = "Every saved day with its news (FOMC / NFP / CPI …), the New York range and move — filter and click one.";
             add("DATE (ANY DAY)", dateBox, top); top.Children.Add(pickBtn); add("SAVED DAYS (NEWS)", dayBox, top); add("START (NY)", startBox, top); top.Children.Add(prevDayBtn); top.Children.Add(loadBtn); top.Children.Add(nextDayBtn); add("SPEED", speedBox, top); top.Children.Add(back10Btn); top.Children.Add(backBtn); top.Children.Add(playBtn); top.Children.Add(stepBtn); top.Children.Add(skipBtn);
             add("ACCOUNT $ (= MAX DD)", startBalBox, top); top.Children.Add(newAccBtn); top.Children.Add(endBtn);
             add("DAY GOAL $", goalBox, top); add("DAY LOSS $", lossLimitBox, top); top.Children.Add(stopAtGoalBox); add("MAX QTY", maxQtyBox, top);
             var dayTitle = new TextBlock { Text = "", Foreground = Gold, FontSize = 20, FontWeight = FontWeights.Bold, Margin = new Thickness(10, 10, 10, 0), VerticalAlignment = VerticalAlignment.Center };
-            add("STRATEGY", signalBox, top); add("MODE", modeBox, top); add("RISK $ / TRADE", riskBox, top); top.Children.Add(smartBox); top.Children.Add(soundBox); add("NEWS LOCK ± MIN", newsLockBox, top); top.Children.Add(newsFlatBox); top.Children.Add(libraryBtn); top.Children.Add(dayTitle);
+            add("STRATEGY", signalBox, top); add("MODE", modeBox, top); add("RISK $ / TRADE", riskBox, top); top.Children.Add(smartBox); top.Children.Add(soundBox); add("NEWS LOCK ± MIN", newsLockBox, top); top.Children.Add(newsFlatBox); top.Children.Add(libraryBtn); top.Children.Add(patternBtn); top.Children.Add(dayTitle);
             Grid.SetRow(top, 0); root.Children.Add(top);
             // ---- clock, goal box, account
             var info = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
@@ -25720,7 +25853,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             Grid.SetRow(newsBox, 3); root.Children.Add(newsBox);
             var stratText = new TextBlock { Text = "", Foreground = Text, FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxWidth = 520 };
             var stratBox = new Border { Background = Tint(Bg, 225), BorderBrush = Cyan, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6, 10, 6), Child = stratText, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(60, 44, 0, 0), IsHitTestVisible = false, Visibility = Visibility.Collapsed };
-            Grid.SetRow(stratBox, 3); root.Children.Add(stratBox);
+            var simText = new TextBlock { Text = "", Foreground = Text, FontSize = 12, TextWrapping = TextWrapping.Wrap, MaxWidth = 520 };
+            var simBox = new Border { Background = Tint(Bg, 225), BorderBrush = Card, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6, 10, 6), Child = simText, Margin = new Thickness(0, 6, 0, 0), Visibility = Visibility.Collapsed };
+            stratBox.Margin = new Thickness(0); stratBox.HorizontalAlignment = HorizontalAlignment.Left;
+            var leftStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(60, 44, 0, 0), IsHitTestVisible = false };
+            leftStack.Children.Add(stratBox); leftStack.Children.Add(simBox);
+            Grid.SetRow(leftStack, 3); root.Children.Add(leftStack);
             w.Content = root;
 
             // ---- shared state: one clock, one account
@@ -25814,6 +25952,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 double W = cv.ActualWidth > 100 ? cv.ActualWidth : 1200, H = cv.ActualHeight > 100 ? cv.ActualHeight : 620;
                 pn.PlotW = W - pn.AxisW; pn.PlotH = H - pn.Top - pn.TimeH;
                 var r = pn.Trader;
+                // a stop / target belongs to one trade: when the position is closed the boxes go back to 0 (no automatic bracket)
+                if (r != null) { if (pn.LastPos != 0 && r.Position == 0 && (NumberAllowZero(pn.Sl, 0) > 0 || NumberAllowZero(pn.Tp, 0) > 0)) { pn.Sl.Text = "0"; pn.Tp.Text = "0"; } pn.LastPos = r.Position; }
                 if (r == null) { cv.Children.Add(new TextBlock { Text = KeystoneStudioStore.Sessions(sfolder, pn.Symbol).Count == 0 ? pn.Symbol + " • NO DATA SAVED YET • DATA LIBRARY → download " + pn.Symbol : pn.Symbol + (session != DateTime.MinValue ? " • NO " + pn.Symbol + " DATA FOR " + session.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " (DATA LIBRARY)" : " • LOAD DAY"), Foreground = Muted, FontSize = 18, Margin = new Thickness(20) }); return; }
                 var cs = r.Candles(pn.Tf);
                 if (!pn.Follow && pn.LastCount > 0 && cs.Count > pn.LastCount) pn.RightOffset -= cs.Count - pn.LastCount;   // panned back: keep the view still while new candles arrive
@@ -25962,7 +26102,15 @@ namespace NinjaTrader.NinjaScript.AddOns
                     int dir = Math.Sign(r.Position); double entryX = Math.Max(0, xOfIndex(pn, indexOfTime(pn, r.PositionTime))), yE = yOf(pn, r.AvgPrice);
                     // no shaded zones: the position line and the price tag pulse green (in profit) or red (losing)
                     pn.Pulse++; bool beat = (pn.Pulse / 6) % 2 == 0; Brush pnlBrush = r.Unrealized >= 0 ? Green : Red;
-                    axisTag(r.AvgPrice, beat ? pnlBrush : Blue, (dir > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " • " + Signed(r.Unrealized) + (r.StopPts <= 0 || r.TargetPts <= 0 ? "  ⇕ drag for " + (r.TargetPts <= 0 && r.StopPts <= 0 ? "TP / SL" : r.TargetPts <= 0 ? "TP" : "SL") : ""), true);
+                    axisTag(r.AvgPrice, beat ? pnlBrush : Blue, (dir > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " • " + Signed(r.Unrealized), true);
+                    // drag handles: pull a target / stop out of the position line (shown while not set)
+                    double yP = yOf(pn, r.AvgPrice);
+                    foreach (var hd in new[] { Tuple.Create(r.TargetPts <= 0, "TP ⇕", (Brush)Green, pn.PlotW - 118.0), Tuple.Create(r.StopPts <= 0, "SL ⇕", (Brush)Red, pn.PlotW - 72.0) })
+                    {
+                        if (!hd.Item1) continue;
+                        var hb = new Border { Width = 42, Height = 18, Background = hd.Item3, CornerRadius = new CornerRadius(3), Child = new TextBlock { Text = hd.Item2, Foreground = Bg, FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }, ToolTip = "drag up / down" };
+                        System.Windows.Controls.Canvas.SetLeft(hb, hd.Item4); System.Windows.Controls.Canvas.SetTop(hb, yP - 9); cv.Children.Add(hb);
+                    }
                     if (r.TargetPts > 0) { axisTag(r.AvgPrice + dir * r.TargetPts, Green, "TARGET +" + fmt(r.TargetPts) + " pts • " + Cash(r.TargetPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)", false); closeX(r.AvgPrice + dir * r.TargetPts, Green); }
                     if (r.StopPts > 0) { axisTag(r.AvgPrice - dir * r.StopPts, Red, "STOP −" + fmt(r.StopPts) + " pts • −" + Cash(r.StopPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)", false); closeX(r.AvgPrice - dir * r.StopPts, Red); }
                 }
@@ -25990,7 +26138,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
             };
 
-            Action renderInfo = delegate
+            Action renderInfo = null; renderInfo = delegate
             {
                 double net = dayNet();
                 if (simTime != DateTime.MinValue && active != null)
@@ -26043,6 +26191,35 @@ namespace NinjaTrader.NinjaScript.AddOns
                         + "\n" + (c == null ? "COACH: learning from the 20 days before…" : !c.Ready ? "COACH: only " + c.Signals + " setups in the " + c.Days + " days before — not enough to judge" :
                            "COACH (last " + c.Days + " days, " + c.Signals + " setups): best target " + c.BestR.ToString("0.#", CultureInfo.InvariantCulture) + "R • reached first " + (100 * c.HitRate).ToString("0") + "% • " + (c.Expectancy >= 0 ? "+" : "") + c.Expectancy.ToString("0.00", CultureInfo.InvariantCulture) + "R a trade (buys " + c.BuyExpectancy.ToString("+0.00;-0.00", CultureInfo.InvariantCulture) + " • sells " + c.SellExpectancy.ToString("+0.00;-0.00", CultureInfo.InvariantCulture) + ")");
                     stratText.Foreground = c != null && c.Ready ? (c.Expectancy > 0 ? Text : Gold) : Muted; stratBox.BorderBrush = c != null && c.Ready && c.Expectancy > 0 ? Green : Cyan;
+                }
+                // SIMILAR MOMENTS: the 100 closest moments of earlier days at this time of day, and what came next (once per new minute)
+                if (at0 == null || session == DateTime.MinValue) simBox.Visibility = Visibility.Collapsed;
+                else
+                {
+                    simBox.Visibility = Visibility.Visible; KeystoneAnalogIndex aidx; analogIndexes.TryGetValue(active.Symbol, out aidx);
+                    if (aidx == null) { simText.Text = "PATTERN MEMORY • " + (analogBuilding.Contains(active.Symbol) ? "building from your saved " + active.Symbol + " days…" : "needs 60+ saved days of " + active.Symbol + " (LOAD ALL 6 YEARS)"); simText.Foreground = Muted; simBox.BorderBrush = Card; DateTime lastTry; if (!analogBuilding.Contains(active.Symbol) && (!analogLastTry.TryGetValue(active.Symbol, out lastTry) || (DateTime.Now - lastTry).TotalSeconds > 60)) { analogLastTry[active.Symbol] = DateTime.Now; EnsureAnalogIndex(active.Symbol, w.Dispatcher, delegate { renderInfo(); }); } }
+                    else
+                    {
+                        int bi = at0.BarIndex - 1;
+                        if (active.SimKey != bi)
+                        {
+                            active.SimKey = bi; var fp = KeystoneAnalog.Fingerprint(at0.Bars, bi);
+                            active.Sim = fp == null ? null : KeystoneAnalog.Query(aidx, fp, at0.Bars[bi].Time, KeystoneAnalog.DayKeyOf(session), 100, 30);
+                            active.SimBarrier = bi >= 0 ? KeystoneAnalog.BarrierAtr * KeystoneAnalog.Atr(at0.Bars, bi) : 0;
+                        }
+                        var a = active.Sim; string lab; analogVerdicts.TryGetValue(active.Symbol, out lab);
+                        if (a == null || a.Up + a.Down < 30) { simText.Text = "SIMILAR MOMENTS • " + (a == null ? "starts 30 minutes into the session" : "too few comparable moments here (" + (a.Up + a.Down) + ")"); simText.Foreground = Muted; simBox.BorderBrush = Card; }
+                        else
+                        {
+                            double edge = 100 * (a.UpShare - a.BaseUp); bool strong = Math.Abs(edge) >= 8; bool on = DateTime.Now.Millisecond < 500;
+                            simText.Text = "SIMILAR MOMENTS • the " + a.Neighbors + " closest of " + a.Pool.ToString("N0", CultureInfo.InvariantCulture) + " earlier moments at this time\n"
+                                + "▲ +" + fmt(active.SimBarrier) + " first: " + (100.0 * a.Up / a.Neighbors).ToString("0") + "% • ▼ −" + fmt(active.SimBarrier) + " first: " + (100.0 * a.Down / a.Neighbors).ToString("0") + "% • neither " + (100.0 * a.None / a.Neighbors).ToString("0") + "% (next 30 min)\n"
+                                + "UP-FIRST SHARE " + (100 * a.UpShare).ToString("0") + "% vs " + (100 * a.BaseUp).ToString("0") + "% normally at this time → " + (edge >= 0 ? "▲ +" : "▼ ") + edge.ToString("0") + " pts" + (strong ? (edge > 0 ? "  BUY SIDE FAVOURED" : "  SELL SIDE FAVOURED") : "  no clear edge")
+                                + "\n" + (string.IsNullOrEmpty(lab) ? "untested — run PATTERN LAB to see if this beats chance on your history" : "PATTERN LAB: " + lab);
+                            simText.Foreground = strong ? (edge > 0 ? Green : Red) : Text;
+                            simBox.BorderBrush = strong ? (on ? (edge > 0 ? Green : Red) : Bg) : Card; simBox.Background = strong && on ? Tint(edge > 0 ? Green : Red, 50) : Tint(Bg, 225);
+                        }
+                    }
                 }
                 // ENTRY box: the strategy's latest entry the clock has reached on the visible instrument (never a future one)
                 var at = active == null ? null : active.Trader;
@@ -26231,7 +26408,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 pn.TfBox = Select(tfNames); pn.TfBox.SelectedIndex = Math.Max(0, Math.Min(tfNames.Length - 1, ParseStudioInt(wsGet(sym + ".tf", "0"), 0))); pn.Tf = tfMinutes[pn.TfBox.SelectedIndex]; pn.TfBox.SelectionChanged += delegate { pn.Tf = tfMinutes[Math.Max(0, pn.TfBox.SelectedIndex)]; for (int k = 0; k < pn.TfButtons.Count; k++) pn.TfButtons[k].Background = k == pn.TfBox.SelectedIndex ? Gold : Card; pn.LastCount = 0; pn.Follow = true; pn.RightOffset = 14; render(pn); renderInfo(); };
                 for (int k = 0; k < pn.TfButtons.Count; k++) pn.TfButtons[k].Background = k == pn.TfBox.SelectedIndex ? Gold : Card;
                 pn.Qty = Input(wsGet(sym + ".qty", "1")); pn.Qty.Width = 50; pn.OrderType = Select("MARKET", "LIMIT", "STOP"); pn.OrderType.SelectedIndex = 0; pn.OrderType.Width = 90; pn.Price = Input(""); pn.Price.Width = 90; pn.Price.ToolTip = "LIMIT / STOP price — or click the chart";
-                pn.Sl = Input(wsGet(sym + ".sl", "0")); pn.Sl.Width = 60; pn.Tp = Input(wsGet(sym + ".tp", "0")); pn.Tp.Width = 60;
+                pn.Sl = Input("0"); pn.Sl.Width = 60; pn.Tp = Input("0"); pn.Tp.Width = 60;
                 var r1 = new WrapPanel(); add("CONTRACTS", pn.Qty, r1); add("ORDER", pn.OrderType, r1); side.Children.Add(r1);
                 var r2 = new WrapPanel(); add("PRICE", pn.Price, r2); add("STOP PTS", pn.Sl, r2); add("TARGET PTS", pn.Tp, r2); side.Children.Add(r2);
                 var buy = Btn("BUY", Green); var sell = Btn("SELL", Red); foreach (var b in new[] { buy, sell }) { b.Height = 40; b.Width = 112; b.FontSize = 16; b.Margin = new Thickness(2, 6, 2, 2); }
@@ -26336,7 +26513,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                             if (ox != null) { r.Orders.Remove(ox); pn.Drag = null; status.Text = pn.Symbol + " ORDER CANCELLED"; status.Foreground = Gold; render(pn); return; }
                             if (r.Position != 0 && r.StopPts > 0 && near(r.AvgPrice - dir * r.StopPts)) pn.Drag = "STOP";
                             else if (r.Position != 0 && r.TargetPts > 0 && near(r.AvgPrice + dir * r.TargetPts)) pn.Drag = "TARGET";
-                            else if (r.Position != 0 && near(r.AvgPrice)) pn.Drag = "BRACKET";   // pull a TP / SL out of the position line
+                            else if (r.Position != 0 && r.TargetPts <= 0 && Math.Abs(yOf(pn, r.AvgPrice) - pt.Y) <= 10 && pt.X >= pn.PlotW - 120 && pt.X <= pn.PlotW - 74) pn.Drag = "TARGET";
+                            else if (r.Position != 0 && r.StopPts <= 0 && Math.Abs(yOf(pn, r.AvgPrice) - pt.Y) <= 10 && pt.X >= pn.PlotW - 74 && pt.X <= pn.PlotW - 28) pn.Drag = "STOP";
+                            else if (r.Position != 0 && Math.Abs(yOf(pn, r.AvgPrice) - pt.Y) <= 8) pn.Drag = "BRACKET";   // pull a TP / SL out of the position line
                             else
                             {
                                 var o = r.Orders.FirstOrDefault(x => near(x.Price)); if (o != null) { pn.Drag = "ORDER"; pn.DragOrder = o; }
@@ -26360,8 +26539,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else if (pn.Drag == "PRICEAXIS") { pn.PriceAuto = false; pn.PCenter = pn.Pc0; pn.PRange = Math.Max(r.Tick * 4, pn.Pr0 * Math.Exp(dy / 160.0)); }
                     else if (pn.Drag == "TIMEAXIS") { pn.Spacing = Math.Max(1.5, Math.Min(60, pn.S0 * Math.Exp(-dx / 160.0))); }
                     else if (pn.Drag == "DRAW" && pn.Preview != null) { pn.Preview.T2 = timeOfIndex(pn, indexAt(pn, pt.X)); pn.Preview.P2 = px; }
-                    else if (pn.Drag == "STOP" && r.Position != 0) pn.Sl.Text = Math.Max(r.Tick, -Math.Sign(r.Position) * (px - r.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
-                    else if (pn.Drag == "TARGET" && r.Position != 0) pn.Tp.Text = Math.Max(r.Tick, Math.Sign(r.Position) * (px - r.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
+                    else if (pn.Drag == "STOP" && r.Position != 0 && pn.Moved) pn.Sl.Text = Math.Max(r.Tick, -Math.Sign(r.Position) * (px - r.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
+                    else if (pn.Drag == "TARGET" && r.Position != 0 && pn.Moved) pn.Tp.Text = Math.Max(r.Tick, Math.Sign(r.Position) * (px - r.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
                     else if (pn.Drag == "ORDER" && pn.DragOrder != null) pn.DragOrder.Price = px;
                     else if (pn.Drag == "BRACKET" && r.Position != 0 && pn.Moved) pn.Drag = Math.Sign(r.Position) * (px - r.AvgPrice) > 0 ? "TARGET" : "STOP";
                     else if (pn.Drag == "MOVEDRAW" && pn.Moving != null)
@@ -26525,6 +26704,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 foreach (var pn in panes)
                 {
                     var bars = KeystoneStudioStore.Load(sfolder, pn.Symbol, session, session);
+                    pn.SimKey = -1; pn.Sim = null;
                     pn.Trader = bars.Count >= 10 ? new KeystoneReplayTrader(bars, pn.Symbol, 60) : null; pn.SavedFills = 0; pn.LastCount = 0; pn.Follow = true; pn.RightOffset = 14; pn.PriceAuto = true;
                     if (pn.Trader == null) { parts.Add(pn.Symbol + " no data"); continue; }
                     pn.Trader.JumpTo(at); if (pn.Trader.Finished) pn.Trader = new KeystoneReplayTrader(bars, pn.Symbol, 60);
@@ -26611,6 +26791,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             w.Closed += delegate { timer.Stop(); if (!dayBanked) endDay(); saveWorkspace(); SaveStudioDrawings(panes); studioDataChanged = null; replayTraderNewAccount = null; replayTraderRewind = null; replayTraderLoad = null; replayTraderFlat = null; replayTraderOrder = null; replayTraderStep = null; replayTraderEnd = null; replayTraderWindow = null; replayTraderTimer = null; replayTrader = null; };
             replayTraderLoad = loadClick; replayTraderEnd = endDay; replayTraderStep = stepMinutes; replayTraderNewAccount = newAccount;
             libraryBtn.Click += delegate { OpenDataLibrary(); };
+            patternBtn.Click += delegate { OpenPatternLab(); };
             pickBtn.Click += delegate { OpenDayPicker(d => { dateBox.Text = d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); loadClick(); }); };
             // the Data Library (or the background import) saved new sessions: refresh the day list, keep the chosen day
             studioDataChanged = delegate
@@ -26798,6 +26979,107 @@ namespace NinjaTrader.NinjaScript.AddOns
                 int n = 0; try { n = ImportLabCacheIntoStudio(); } catch { }
                 if (dispatcher != null) dispatcher.BeginInvoke(new Action(delegate { if (n > 0) { if (studioDataChanged != null) studioDataChanged(); if (dataLibraryRefresh != null) dataLibraryRefresh(); } if (done != null) done(n); }));
             });
+        }
+
+        // ---- PATTERN MEMORY: the similar-moments index per instrument, built from the studio's saved days (background) ------------
+        private readonly Dictionary<string, KeystoneAnalogIndex> analogIndexes = new Dictionary<string, KeystoneAnalogIndex>();
+        private readonly HashSet<string> analogBuilding = new HashSet<string>(); private readonly Dictionary<string, string> analogVerdicts = new Dictionary<string, string>();
+        private readonly Dictionary<string, int> analogBuiltFrom = new Dictionary<string, int>(); private readonly Dictionary<string, DateTime> analogLastTry = new Dictionary<string, DateTime>();
+        private void EnsureAnalogIndex(string sym, Dispatcher disp, Action done)
+        {
+            var sessions = KeystoneStudioStore.Sessions(StudioFolder(), sym).Where(kv => kv.Value >= 60).Select(kv => kv.Key).OrderBy(d => d).ToList();
+            int have; if (sessions.Count < 60 || analogBuilding.Contains(sym) || (analogIndexes.ContainsKey(sym) && analogBuiltFrom.TryGetValue(sym, out have) && have == sessions.Count)) { if (done != null && analogIndexes.ContainsKey(sym)) done(); return; }
+            analogBuilding.Add(sym); string folder = StudioFolder();
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                var idx = new KeystoneAnalogIndex { Symbol = sym };
+                try
+                {
+                    foreach (var month in sessions.GroupBy(d => new DateTime(d.Year, d.Month, 1)).OrderBy(g => g.Key))
+                    {
+                        var bars = KeystoneStudioStore.Load(folder, sym, month.First(), month.Last());
+                        foreach (var g in bars.GroupBy(b => KeystoneStudioStore.SessionOf(b.Time)).OrderBy(g => g.Key)) KeystoneAnalog.AddSession(idx, g.ToList(), g.Key);
+                    }
+                }
+                catch { }
+                Action apply = delegate { analogBuilding.Remove(sym); analogIndexes[sym] = idx; analogBuiltFrom[sym] = sessions.Count; if (done != null) done(); };
+                if (disp != null) disp.BeginInvoke(apply); else apply();
+            });
+        }
+
+        // ---- PATTERN LAB: the honest test — does "similar moments" predict the next 30 minutes better than the baseline? -------------
+        private Window patternLabWindow; private Action<string> patternLabRun;
+        private void OpenPatternLab()
+        {
+            if (patternLabWindow != null) { patternLabWindow.Activate(); return; }
+            var w = new Window { Title = "KEYSTONE ARC • PATTERN LAB", Width = 1100, Height = 860, MinWidth = 720, MinHeight = 480, Background = Bg, Foreground = Text, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            patternLabWindow = w;
+            var stack = new StackPanel { Margin = new Thickness(16) };
+            stack.Children.Add(Txt("PATTERN LAB • SIMILAR MOMENTS", Orchid, 22, FontWeights.Bold));
+            stack.Children.Add(new TextBlock { Text = "Every saved minute (every 2 minutes) becomes a fingerprint: the last 30 minutes' path, the last six 5-minute moves, where price sits in the day's range, the move since the open, how busy the market is — scaled by the recent 1-minute range (ATR). The outcome is what came next in 30 minutes: +3 ATR first, −3 ATR first, or neither.\nWALK FORWARD: each test moment is judged ONLY from the days before it, among moments at a similar time of day (±30 min). A call = the closest moments' up-first share at or above the threshold (buy) or at or below 1 − threshold (sell). The BASELINE is what you would get by always taking that side at that time of day. Only beating the baseline means anything.", Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 10) });
+            Action<string, UIElement, System.Windows.Controls.Panel> add = (l, e, p) => { var sp = new StackPanel { Margin = new Thickness(0, 0, 10, 0) }; sp.Children.Add(new TextBlock { Text = l, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(e); p.Children.Add(sp); };
+            var form = new WrapPanel();
+            var symBox = Select("MNQ", "MGC"); symBox.SelectedIndex = 0; symBox.Width = 90;
+            var hoursBox = Select("NEW YORK 09:30–16:00", "ALL 24 HOURS"); hoursBox.SelectedIndex = 0; hoursBox.Width = 190;
+            var everyBox = Input("15"); everyBox.Width = 50; var thrBox = Input("0.60"); thrBox.Width = 60; var kBox = Input("100"); kBox.Width = 60; var minDaysBox = Input("60"); minDaysBox.Width = 60;
+            var run = Btn("RUN THE TEST", Green); run.Height = 32; run.Margin = new Thickness(0, 12, 0, 0); run.Padding = new Thickness(18, 0, 18, 0);
+            add("INSTRUMENT", symBox, form); add("HOURS", hoursBox, form); add("A TEST EVERY … MIN", everyBox, form); add("CALL AT ≥ (0.5–0.9)", thrBox, form); add("CLOSEST MOMENTS (K)", kBox, form); add("FIRST TEST AFTER … DAYS", minDaysBox, form); form.Children.Add(run);
+            stack.Children.Add(form);
+            var status = new TextBlock { Text = "Needs at least 100 saved days (LOAD ALL 6 YEARS gives ~1,500). The test runs in the background; it can take a few minutes.", Foreground = Cyan, FontSize = 12.5, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 6) };
+            stack.Children.Add(status);
+            var results = new StackPanel(); stack.Children.Add(results);
+            w.Content = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            bool running = false;
+            Action<KeystoneAnalogReport, string> show = (rep, sym) =>
+            {
+                results.Children.Clear();
+                bool good = rep.Verdict.StartsWith("PROMISING");
+                results.Children.Add(new Border { Background = Card, BorderBrush = good ? Green : Gold, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(6), Padding = new Thickness(12), Margin = new Thickness(0, 4, 0, 10), Child = new TextBlock { Text = sym + " • " + rep.Verdict, Foreground = good ? Green : Gold, FontSize = 16, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap } });
+                results.Children.Add(new TextBlock { Text = rep.TrainSamples.ToString("N0", CultureInfo.InvariantCulture) + " moments in memory • " + rep.Queries.ToString("N0", CultureInfo.InvariantCulture) + " tested • " + rep.Calls.ToString("N0", CultureInfo.InvariantCulture) + " calls • right " + (100 * rep.Hit).ToString("0.0") + "% (baseline " + (100 * rep.BaseHit).ToString("0.0") + "%) • " + (rep.Calls == 0 ? 0 : rep.R / rep.Calls).ToString("+0.00;-0.00") + "R a call before costs (1R = the 3-ATR barrier)", Foreground = Text, FontSize = 13, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) });
+                results.Children.Add(Txt("EACH YEAR (judged only from the years before)", Gold, 13, FontWeights.Bold));
+                var yg = new Grid { Margin = new Thickness(0, 4, 0, 12) }; foreach (var wd in new[] { 70.0, 90, 110, 110, 110, 120 }) yg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(wd) });
+                int row = 0; Action<string[], Brush> yrow = (cells, br) => { yg.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); for (int c = 0; c < cells.Length; c++) { var tb = new TextBlock { Text = cells[c], Foreground = br, FontSize = 12, Margin = new Thickness(0, 2, 8, 2), FontWeight = row == 0 ? FontWeights.Bold : FontWeights.Normal }; Grid.SetRow(tb, row); Grid.SetColumn(tb, c); yg.Children.Add(tb); } row++; };
+                yrow(new[] { "YEAR", "CALLS", "RIGHT", "BASELINE", "EDGE", "R A CALL" }, Muted);
+                foreach (var y in rep.Years) yrow(new[] { y.Year.ToString(), y.Calls.ToString("N0"), (100 * y.Hit).ToString("0.0") + "%", (100 * y.BaseHit).ToString("0.0") + "%", (100 * (y.Hit - y.BaseHit)).ToString("+0.0;-0.0") + " pts", (y.Calls == 0 ? 0 : y.R / y.Calls).ToString("+0.00;-0.00") }, y.Hit > y.BaseHit && y.R > 0 ? Green : Red);
+                results.Children.Add(yg);
+                results.Children.Add(Txt("CALIBRATION • when the closest moments said X% up-first, how often was it up-first? (a good model: the two columns match)", Gold, 13, FontWeights.Bold));
+                var cg = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+                for (int b = 0; b < 10; b++) if (rep.CalCount[b] >= 30) cg.Children.Add(new TextBlock { Text = "said " + (b * 10) + "–" + (b * 10 + 10) + "% (avg " + (100 * rep.CalPredicted[b]).ToString("0") + "%) → happened " + (100 * rep.CalRealized[b]).ToString("0") + "%   (" + rep.CalCount[b].ToString("N0") + " moments)", Foreground = Math.Abs(rep.CalPredicted[b] - rep.CalRealized[b]) <= 0.05 ? Green : Text, FontSize = 12, FontFamily = new FontFamily("Consolas") });
+                results.Children.Add(cg);
+                results.Children.Add(new TextBlock { Text = "\nHow to read it: an edge of +2 to +5 points over the baseline that holds in most years is already valuable for many small trades; a model that is right 70% when the baseline is also 70% has no edge. Costs (commission + 1 tick) are not in the R yet.", Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap });
+            };
+            patternLabRun = sym =>
+            {
+                if (running) return; running = true; run.IsEnabled = false;
+                int every = Math.Max(2, Integer(everyBox, 15)), k = Math.Max(20, Integer(kBox, 100)), minDays = Math.Max(20, Integer(minDaysBox, 60)); double thr = Math.Max(0.5, Math.Min(0.95, NumberAllowZero(thrBox, 0.6)));
+                bool ny = hoursBox.SelectedIndex == 0; var disp = w.Dispatcher;
+                status.Text = "BUILDING THE PATTERN MEMORY FROM YOUR SAVED " + sym + " DAYS…"; status.Foreground = Cyan;
+                EnsureAnalogIndex(sym, disp, delegate
+                {
+                    KeystoneAnalogIndex idx; if (!analogIndexes.TryGetValue(sym, out idx) || idx.Sessions < 100) { running = false; run.IsEnabled = true; status.Text = "NOT ENOUGH DATA • " + (idx == null ? 0 : idx.Sessions) + " saved days of " + sym + " (needs 100+) • LOAD ALL 6 YEARS first"; status.Foreground = Red; return; }
+                    status.Text = "TESTING " + idx.Count.ToString("N0", CultureInfo.InvariantCulture) + " moments from " + idx.Sessions + " days… (background)";
+                    System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        KeystoneAnalogReport rep = null; string err = null;
+                        try { rep = KeystoneAnalog.WalkForward(idx, every, thr, k, 30, minDays, ny ? 930 : 0, ny ? 1320 : 1440, (d, t) => { if (disp != null) disp.BeginInvoke(new Action(delegate { status.Text = "TESTING… " + (t == 0 ? 0 : 100 * d / t) + "%"; })); }); }
+                        catch (Exception ex) { err = ex.Message; }
+                        Action fin = delegate
+                        {
+                            running = false; run.IsEnabled = true;
+                            if (err != null) { status.Text = "TEST FAILED • " + err; status.Foreground = Red; return; }
+                            status.Text = "DONE • " + sym + " • " + DateTime.Now.ToString("HH:mm"); status.Foreground = Green;
+                            analogVerdicts[sym] = rep.Verdict.StartsWith("PROMISING") ? "PROMISING (" + (100 * (rep.Hit - rep.BaseHit)).ToString("+0.0") + " pts over baseline)" : rep.Verdict.StartsWith("NO RELIABLE") ? "NO RELIABLE EDGE on your history — treat the box as information only" : "not enough calls to judge";
+                            show(rep, sym);
+                        };
+                        if (disp != null) disp.BeginInvoke(fin); else fin();
+                    });
+                });
+                if (!analogBuilding.Contains(sym) && !analogIndexes.ContainsKey(sym)) { running = false; run.IsEnabled = true; status.Text = "NOT ENOUGH DATA • needs 100+ saved days of " + sym + " • LOAD ALL 6 YEARS first"; status.Foreground = Red; }
+            };
+            run.Click += delegate { patternLabRun(Convert.ToString(symBox.Items[Math.Max(0, symBox.SelectedIndex)])); };
+            AskBeforeClosing(w, "PATTERN LAB", () => "Close the PATTERN LAB?" + (running ? " The running test stops showing here." : ""));
+            w.Closed += delegate { patternLabWindow = null; patternLabRun = null; };
+            w.Show();
         }
 
         // ---- PICK A DAY: every weekday of the last 6 years with ONLY its news (no ranges or moves — nothing to bias the trade) ----
@@ -27063,6 +27345,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             cards.Children.Add(card("BACKTEST STUDIO", "Trade any past day minute by minute on MNQ and MGC: one clock, one account, TradingView-style charts, drawings, limit / stop orders. Every strategy can mark its entries (SIGNALS) or trade by itself (AUTO) while you trade too. Saves its own data, account, journal and workspace.", Green, delegate { OpenReplayTrader(); }, true));
             cards.Children.Add(card("RESEARCH LAB", "The math: Step 1 tests, every strategy, prop pool (evaluations, funded, payouts, rotation), optimizers, MATH LABS, IDEAS, reports and exports.", Gold, delegate { OpenWindow(); }, true));
+            cards.Children.Add(card("PATTERN LAB", "Similar moments: every past minute as a fingerprint of how price got there, and what came next. The walk-forward test shows honestly whether history predicts the next 30 minutes better than chance on your data.", Orchid, delegate { OpenPatternLab(); }, true));
             cards.Children.Add(card("DATA LIBRARY", "1-minute bars saved on this PC for the studio: what is there, what is missing, download or update any date range (MNQ, MGC). No Step 1 needed.", Blue, delegate { OpenDataLibrary(); }, true));
             cards.Children.Add(card("LIVE DESK", "Your prop-firm accounts connected in NinjaTrader: balance, today, positions, drawdown room, target progress, groups (drag and drop, rename). READ ONLY for now — copier / rotation orders need your approval.", Orange, delegate { OpenLiveDesk(); }, true));
             stack.Children.Add(cards);

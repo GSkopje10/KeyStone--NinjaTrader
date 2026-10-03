@@ -68,6 +68,9 @@ mono "$here/.build/news.exe" | tail -1
 rm -f "$here/.build/coach.exe"
 "$root/tools/compile_engine.sh" "$here/.build/coach.exe" "$here/CoachTests.cs"
 mono "$here/.build/coach.exe" | tail -1
+rm -f "$here/.build/analog.exe"
+"$root/tools/compile_engine.sh" "$here/.build/analog.exe" "$here/AnalogTests.cs"
+mono "$here/.build/analog.exe" | tail -1
 rm -f "$here/.build/game.exe"
 "$root/tools/compile_engine.sh" "$here/.build/game.exe" "$here/LifecycleSnapshot.cs" "$here/GameOptimizerTests.cs"
 mono "$here/.build/game.exe" | tail -1

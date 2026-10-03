@@ -244,6 +244,8 @@ public static class UiSmokeTest
                         win2.Close();
                     }
                     Console.WriteLine("      launcher, data library, live desk: each asks before closing");
+                    Call(lab2, "OpenPatternLab"); ((Action<string>)F("patternLabRun"))("MNQ");
+                    Console.WriteLine("      PATTERN LAB opened and asked for a test (" + KeystoneStudioStore.Sessions(studio, "MNQ").Count + " saved MNQ days here — too few, it says so)");
                 });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {
