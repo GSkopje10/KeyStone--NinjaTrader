@@ -5794,6 +5794,86 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- FLIP: a small live account from START to GOAL on a tested trade stream (any math-lab row) ----------------------
+    // Sizing: RISK % of the balance per trade (contracts = balance × risk ÷ the worst loss one contract had in the stream, at least 1)
+    // or FIXED contracts. A trade's worst open loss counts (the account dies intratrade, not only at the close).
+    // REPLAY: the whole history in order — at GOAL withdraw (GOAL − START) and restart at START; below BUST re-deposit START.
+    // ODDS: from every possible start trade, does it reach GOAL before BUST?
+    public sealed class KeystoneFlipRow
+    {
+        public string Sizing = string.Empty; public double RiskPct; public int Fixed;
+        public int Flips, Busts, Trades; public double Withdrawn, Deposited, MaxContracts; public List<double> DaysPerFlip = new List<double>();
+        public double ReachPct, BustPct, OpenPct, MedianTradesToGoal, MedianDaysToGoal; public int Starts;
+        public double Net { get { return Withdrawn - Deposited; } }
+        public double MedianDaysPerFlip { get { if (DaysPerFlip.Count == 0) return 0; var s = DaysPerFlip.OrderBy(v => v).ToList(); return s[s.Count / 2]; } }
+    }
+
+    public static class KeystoneFlip
+    {
+        public sealed class Unit { public DateTime Time; public double Net, Worst; }
+
+        public static List<Unit> Units(IEnumerable<KeystoneLabTrade> trades) { return trades.OrderBy(t => t.EntryTime).Select(t => new Unit { Time = t.EntryTime, Net = t.Net / Math.Max(1, t.Qty), Worst = Math.Min(t.Worst / Math.Max(1, t.Qty), t.Net / Math.Max(1, t.Qty)) }).ToList(); }
+
+        static int Size(double balance, double riskPct, int fixedQty, double unitRisk, int maxQty)
+        {
+            if (fixedQty > 0) return fixedQty;
+            return Math.Max(1, Math.Min(maxQty, (int)Math.Floor(balance * riskPct / 100.0 / Math.Max(1, unitRisk))));
+        }
+
+        // One account from trade index i: +1 reached the goal, −1 busted, 0 ran out of data; trades and days used.
+        static int From(List<Unit> u, int i, double start, double goal, double bust, double riskPct, int fixedQty, double unitRisk, int maxQty, out int used, out double days, out double maxQ)
+        {
+            double bal = start; used = 0; days = 0; maxQ = 0;
+            for (int k = i; k < u.Count; k++)
+            {
+                int q = Size(bal, riskPct, fixedQty, unitRisk, maxQty); maxQ = Math.Max(maxQ, q); used++;
+                if (bal + q * u[k].Worst <= bust) { days = (u[k].Time - u[i].Time).TotalDays; return -1; }
+                bal += q * u[k].Net;
+                if (bal <= bust) { days = (u[k].Time - u[i].Time).TotalDays; return -1; }
+                if (bal >= goal) { days = (u[k].Time - u[i].Time).TotalDays; return 1; }
+            }
+            return 0;
+        }
+
+        public static KeystoneFlipRow Run(List<Unit> u, double start, double goal, double bust, double riskPct, int fixedQty, int maxQty = 50)
+        {
+            var row = new KeystoneFlipRow { RiskPct = riskPct, Fixed = fixedQty, Sizing = fixedQty > 0 ? fixedQty + " micro" + (fixedQty == 1 ? "" : "s") + " fixed" : riskPct.ToString("0.#", CultureInfo.InvariantCulture) + "% risk per trade" };
+            if (u == null || u.Count == 0 || goal <= start || bust >= start) return row;
+            double unitRisk = Math.Max(1, -u.Min(x => x.Worst));
+            // replay: flip after flip through the whole history
+            int i = 0; row.Deposited = start;
+            while (i < u.Count)
+            {
+                int used; double days, mq; int r = From(u, i, start, goal, bust, riskPct, fixedQty, unitRisk, maxQty, out used, out days, out mq);
+                row.MaxContracts = Math.Max(row.MaxContracts, mq); row.Trades += used;
+                if (r == 1) { row.Flips++; row.Withdrawn += goal - start; row.DaysPerFlip.Add(days); }
+                else if (r == -1) { row.Busts++; row.Deposited += start; }
+                else { row.Withdrawn += 0; break; }
+                i += Math.Max(1, used);
+            }
+            // odds from every start (sampled to at most 400 starts)
+            int step = Math.Max(1, u.Count / 400); var tToGoal = new List<double>(); var dToGoal = new List<double>(); int reach = 0, bustN = 0, open = 0;
+            for (int s = 0; s < u.Count; s += step)
+            {
+                int used; double days, mq; int r = From(u, s, start, goal, bust, riskPct, fixedQty, unitRisk, maxQty, out used, out days, out mq);
+                if (r == 1) { reach++; tToGoal.Add(used); dToGoal.Add(days); } else if (r == -1) bustN++; else open++;
+            }
+            row.Starts = reach + bustN + open;
+            if (row.Starts > 0) { row.ReachPct = 100.0 * reach / row.Starts; row.BustPct = 100.0 * bustN / row.Starts; row.OpenPct = 100.0 * open / row.Starts; }
+            if (tToGoal.Count > 0) { tToGoal.Sort(); dToGoal.Sort(); row.MedianTradesToGoal = tToGoal[tToGoal.Count / 2]; row.MedianDaysToGoal = dToGoal[dToGoal.Count / 2]; }
+            // the replay deposit: the last account still running is counted as spent (honest), the withdrawn flips as cash
+            return row;
+        }
+
+        public static List<KeystoneFlipRow> Grid(List<Unit> u, double start, double goal, double bust, IEnumerable<double> riskPcts, IEnumerable<int> fixedQtys)
+        {
+            var list = new List<KeystoneFlipRow>();
+            foreach (double r in riskPcts.Where(x => x > 0).Distinct()) list.Add(Run(u, start, goal, bust, r, 0));
+            foreach (int q in fixedQtys.Where(x => x > 0).Distinct()) list.Add(Run(u, start, goal, bust, 0, q));
+            return list.OrderByDescending(x => x.Net).ToList();
+        }
+    }
+
     // ---- 5M FVG MATH LAB: the first 5-minute FVG entries (each style) × target × stop × contracts, MNQ and MGC separately ----
     public sealed class KeystoneFvgLabGrid
     {
@@ -10286,9 +10366,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-03s";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03t";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -23371,7 +23451,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public List<KeystoneLabRow> For(string sym) { return Rows.Where(r => r.Get("INSTRUMENT") == sym).ToList(); }
         }
         private LabState fvgLab, engLab;
-        private static readonly string[] LabTabs = { "ADVICE", "ADAPTS EACH YEAR?", "RANKING", "GRID", "CHARTS", "EVALS & FUNDED", "COPY TRADING", "MONTHS", "YEARS", "TRADES" };
+        private static readonly string[] LabTabs = { "ADVICE", "ADAPTS EACH YEAR?", "RANKING", "GRID", "CHARTS", "EVALS & FUNDED", "COPY TRADING", "MONTHS", "YEARS", "TRADES", "FLIP (LIVE ACCOUNT)" };
 
         private void SetLabTab(LabState st, string header, UIElement content) { if (st == null || st.Tabs == null) return; foreach (TabItem t in st.Tabs.Items) if (Convert.ToString(t.Header) == header || (header == "GRID" && Convert.ToString(t.Tag) == "GRID")) { t.Content = content; return; } }
 
@@ -23381,7 +23461,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             KeystoneLab.Fill(r, st.Rules, st.SplitAt, true, 2000);
             st.Selected = r;
             SetLabTab(st, "CHARTS", MicroChartsView(r.P)); SetLabTab(st, "EVALS & FUNDED", MicroPropView(r.P, st.Rules)); SetLabTab(st, "COPY TRADING", MicroCopyView(r.P, st.Rules));
-            SetLabTab(st, "MONTHS", MicroMonthsView(r.P)); SetLabTab(st, "YEARS", LabYearsView(st, r)); SetLabTab(st, "TRADES", LabTradesView(st, r));
+            SetLabTab(st, "MONTHS", MicroMonthsView(r.P)); SetLabTab(st, "YEARS", LabYearsView(st, r)); SetLabTab(st, "TRADES", LabTradesView(st, r)); SetLabTab(st, "FLIP (LIVE ACCOUNT)", LabFlipView(st, r));
             if (st.Status != null) { st.Status.Text = "SELECTED • " + r.Label + " • prop " + Signed(r.P.PropNet) + " • plain " + Signed(r.P.Net) + " • " + r.Trades.Count + " trades: " + r.Wins + " targets / " + r.Losses + " stops / " + r.Closes + " at the close"; st.Status.Foreground = MoneyBrush(r.P.PropNet); }
             if (jump && st.Tabs != null) st.Tabs.SelectedIndex = 4;
         }
@@ -23508,6 +23588,52 @@ namespace NinjaTrader.NinjaScript.AddOns
             return HelixScroll(root);
         }
 
+        private string flipStart = "500", flipGoal = "1500", flipBust = "100", flipRisk = "5,10,20,30", flipFixed = "1,2,3";
+
+        // FLIP: a small live account from START to GOAL with this row's real trades, every sizing; then the best rows for flipping.
+        private UIElement LabFlipView(LabState st, KeystoneLabRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle("FLIP A LIVE ACCOUNT • " + r.Label, Gold));
+            root.Children.Add(HelixNote("Your own account (no prop rules): start with START, take every trade of this row in order, and when the balance reaches GOAL withdraw the profit and start again at START. Below BUST the account is lost and START is deposited again. RISK % = contracts sized to that % of the balance on the worst loss one contract had here (compounding); FIXED = always that many micros. The worst open loss of each trade counts. ODDS = from every possible start date: reached the goal first / busted first / still open at the end of the data. Same instrument, one position at a time — hedging the same instrument only cancels itself out, so it is not used."));
+            var bar = new WrapPanel(); Action<string, UIElement> add; var inputs = LabInputs(out add);
+            var sB = Input(flipStart); sB.Width = 80; var gB = Input(flipGoal); gB.Width = 80; var bB = Input(flipBust); bB.Width = 70; var rB = Input(flipRisk); rB.Width = 120; var fB = Input(flipFixed); fB.Width = 90;
+            add("START $", sB); add("GOAL $", gB); add("BUST BELOW $", bB); add("RISK % PER TRADE", rB); add("FIXED MICROS", fB);
+            var go = Btn("RECALCULATE", Gold); add(" ", go); root.Children.Add(inputs);
+            var outPanel = new StackPanel(); root.Children.Add(outPanel);
+            Action calc = delegate
+            {
+                flipStart = sB.Text; flipGoal = gB.Text; flipBust = bB.Text; flipRisk = rB.Text; flipFixed = fB.Text;
+                double start = Number(sB, 500), goal = Number(gB, 1500), bust = NumberAllowZero(bB, 100);
+                outPanel.Children.Clear();
+                if (goal <= start || bust >= start) { outPanel.Children.Add(Txt("GOAL must be above START, BUST below START.", Red, 12, FontWeights.Bold)); return; }
+                var risks = ParseNumbers(rB.Text, 10).Where(v => v > 0 && v <= 100).ToList(); var fixedQ = ParseNumbers(fB.Text, 1).Select(v => (int)Math.Round(v)).Where(v => v > 0).ToList();
+                var grid = KeystoneFlip.Grid(KeystoneFlip.Units(r.Trades), start, goal, bust, risks, fixedQ);
+                double[] w = { 170, 70, 70, 120, 120, 120, 110, 90, 90, 90, 110, 110 };
+                outPanel.Children.Add(HelixHeader(new[] { "SIZING", "FLIPS", "BUSTS", "WITHDRAWN", "DEPOSITED", "NET CASH", "DAYS / FLIP", "REACH %", "BUST %", "OPEN %", "TRADES TO GOAL", "MAX MICROS" }, w));
+                foreach (var x in grid)
+                    outPanel.Children.Add(HelixRow(new[] { x.Sizing, x.Flips.ToString(), x.Busts.ToString(), Cash(x.Withdrawn), Cash(x.Deposited), Signed(x.Net), x.Flips == 0 ? "–" : x.MedianDaysPerFlip.ToString("0"), x.ReachPct.ToString("0") + "%", x.BustPct.ToString("0") + "%", x.OpenPct.ToString("0") + "%", x.MedianTradesToGoal.ToString("0"), x.MaxContracts.ToString("0") },
+                        new[] { Gold, Green, Red, Green, Red, MoneyBrush(x.Net), Cyan, Green, Red, Muted, Text, Text }, w, MoneyBrush(x.Net), null));
+                var best = grid.FirstOrDefault();
+                if (best != null) outPanel.Children.Add(new TextBlock { Text = best.Net > 0 && best.ReachPct > best.BustPct ? "BEST SIZING HERE: " + best.Sizing + " • " + best.Flips + " flips vs " + best.Busts + " busts over the whole history, net " + Signed(best.Net) + " • " + best.ReachPct.ToString("0") + "% of start dates reached " + Cash(goal) + " before busting." : "NO SIZING FLIPS THIS ROW PROFITABLY: busting is at least as likely as reaching the goal. Do not flip with it.", Foreground = best.Net > 0 && best.ReachPct > best.BustPct ? Green : Red, FontSize = 13, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6) });
+                // the best rows of this instrument for flipping (rows that made money on the plain account)
+                outPanel.Children.Add(HelixTitle("BEST " + r.Get("INSTRUMENT") + " ROWS FOR FLIPPING (top 40 plain-profitable rows, best sizing each)", Gold));
+                var cand = st.For(r.Get("INSTRUMENT")).Where(x => x.P.Net > 0).OrderByDescending(x => x.P.Net).Take(40).Select(x => new { Row = x, F = KeystoneFlip.Grid(KeystoneFlip.Units(x.Trades), start, goal, bust, risks, fixedQ).First() }).OrderByDescending(x => x.F.Net).Take(15).ToList();
+                if (cand.Count == 0) { outPanel.Children.Add(HelixNote("No row of this instrument made money on a plain account — nothing to flip with.")); return; }
+                double[] w2 = { 420, 160, 70, 70, 120, 100, 90, 90 };
+                outPanel.Children.Add(HelixHeader(new[] { "ROW", "BEST SIZING", "FLIPS", "BUSTS", "NET CASH", "DAYS / FLIP", "REACH %", "BUST %" }, w2));
+                foreach (var c in cand)
+                {
+                    var row = HelixRow(new[] { c.Row.Label, c.F.Sizing, c.F.Flips.ToString(), c.F.Busts.ToString(), Signed(c.F.Net), c.F.Flips == 0 ? "–" : c.F.MedianDaysPerFlip.ToString("0"), c.F.ReachPct.ToString("0") + "%", c.F.BustPct.ToString("0") + "%" },
+                        new[] { Text, Gold, Green, Red, MoneyBrush(c.F.Net), Cyan, Green, Red }, w2, MoneyBrush(c.F.Net), null);
+                    var rr = c.Row; row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { ShowLabSelected(st, rr, false); if (st.Tabs != null) st.Tabs.SelectedIndex = st.Tabs.Items.Count - 1; };
+                    outPanel.Children.Add(row);
+                }
+            };
+            go.Click += delegate { calc(); }; calc();
+            return HelixScroll(root);
+        }
+
         private UIElement LabYearsView(LabState st, KeystoneLabRow r)
         {
             var root = new StackPanel { Margin = new Thickness(4) };
@@ -23620,7 +23746,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var top = new StackPanel(); top.Children.Add(inputs); top.Children.Add(buttons); Grid.SetRow(top, 1); root.Children.Add(top);
             var status = Txt("Set the lists and press RUN.", Gold, 12.5, FontWeights.Bold); status.TextWrapping = TextWrapping.Wrap; Grid.SetRow(status, 2); root.Children.Add(status);
             var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top };
-            var colors = new Brush[] { Green, Orange, Gold, Cyan, Green, Cyan, Orchid, Gold, Cyan, Green };
+            var colors = new Brush[] { Green, Orange, Gold, Cyan, Green, Cyan, Orchid, Gold, Cyan, Green, Red };
             for (int i = 0; i < LabTabs.Length; i++) tabs.Items.Add(new TabItem { Header = LabTabs[i] == "GRID" ? st.GridRows + " × " + st.GridCols : LabTabs[i], Tag = LabTabs[i], Background = colors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Press RUN.", Muted, 12, FontWeights.Normal) });
             Grid.SetRow(tabs, 3); root.Children.Add(tabs);
             st.Tabs = tabs; st.Status = status; st.Win = w;

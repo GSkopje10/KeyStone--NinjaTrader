@@ -31,3 +31,19 @@ Open them with the **MATH LABS** header button. A lab also opens and runs by its
 - **EXPORT HTML + CSV:** send both files to Claude.
 
 **What counts as proven:** plain profit in the early 70% AND in the unseen last 30%, prop positive in every year, AND the walk-forward positive in most years. The advice calls this **STRONGEST**. If nothing qualifies, the lab says "no proven edge yet".
+
+## FLIP (LIVE ACCOUNT) tab (build 10-03t)
+This is your own account, not a prop account. It uses the selected row's real trades, in order.
+
+**Inputs:** START $, GOAL $, BUST BELOW $, RISK % per trade (a list), FIXED MICROS (a list).
+
+**Rules:**
+- **Sizing:** RISK % sizes contracts as balance × risk ÷ the worst loss one contract had in this row, so they grow with the balance. FIXED always trades that many micros.
+- **The worst open loss of each trade counts.** A trade that dips past the bust level and then wins still busts the account.
+
+**Results:**
+- **REPLAY:** the whole history played in order. At GOAL, withdraw (GOAL − START) and restart; below BUST, deposit START again. It shows flips, busts, withdrawn, deposited, net cash and median days per flip.
+- **ODDS:** from every possible start date, the share that reached GOAL first, busted first, or was still open at the end of the data.
+- **BEST ROWS FOR FLIPPING:** the 40 best plain-profitable rows of that instrument, each with its best sizing.
+
+**Hedging is not used:** a long and a short on the same instrument cancel each other.
