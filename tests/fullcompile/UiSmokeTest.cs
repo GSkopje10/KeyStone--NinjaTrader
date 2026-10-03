@@ -83,7 +83,7 @@ public static class UiSmokeTest
         Step("top boxes for every tab", () => { var tabs = (System.Windows.Controls.TabControl)lab.GetType().GetField("resultViewTabs", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab); for (int i = 0; i < tabs.Items.Count; i++) { tabs.SelectedIndex = i; tabs.SelectedItem = tabs.Items[i]; Call(lab, "UpdateTopTilesForTab"); } });
         Step("report html", () => Call(lab, "BuildHtmlReport"));
         // Evidence chart + replay on real detected setups from random-walk bars.
-        foreach (string strategy in new[] { "BH", "FVG", "ENG", "RLY", "VWP", "GLD", "ASIAN75" })
+        foreach (string strategy in new[] { "BH", "FVG", "ENG", "RLY", "VWP", "GLD", "ASIAN75", "MAD" })
         {
             var lab2 = new KeystoneArc5MResearchLab();
             Call(lab2, "OpenWindow");
@@ -91,6 +91,7 @@ public static class UiSmokeTest
             bool asian = strategy == "ASIAN75";
             c.StrategyCode = strategy; c.Scope = "BOTH"; c.SetupMinutes = asian ? 1 : 5; c.SessionMode = asian ? "ASIAN75" : "NY_OPEN"; c.CustomStart = 930; c.EndTime = 1555; c.EnableBh = strategy == "BH" ? 1 : 0; c.OutcomeModelEnabled = 1;
             c.Start = new DateTime(2025, 3, 3, asian ? 18 : 9, asian ? 0 : 30, 0); c.End = new DateTime(2025, 3, 7, 15, 55, 0); c.PoolSize = 5; c.EvaluationEnabled = 1; c.TargetDollars = 300; c.StopDollars = 200; c.Quantity = 2;
+            if (strategy == "MAD") { c.SetupMinutes = 1; c.SessionMode = "CUSTOM"; c.CustomStart = 1800; c.EndTime = 1659; c.MadOpenHhmm = 1800; c.MadCloseHhmm = 1659; c.MadMnqTarget = 40; c.MadMgcTarget = 0; c.MadQty = 1; c.Quantity = 1; c.Start = new DateTime(2025, 3, 2, 18, 0, 0); c.End = new DateTime(2025, 3, 7, 16, 59, 0); }
             var r = new Random(9); var m1 = new List<KeystoneArcBar>(); var g1 = new List<KeystoneArcBar>(); double pm = 20000, pg = 2900;
             for (DateTime t = strategy == "RLY" ? new DateTime(2025, 1, 26, 18, 1, 0) : new DateTime(2025, 3, 2, 18, 1, 0); t < new DateTime(2025, 3, 8); t = t.AddMinutes(1))
             {
@@ -106,6 +107,19 @@ public static class UiSmokeTest
             foreach (var e in ev2) e.ReviewState = "ACCEPTED";
             Set(lab2, "events", ev2); Set(lab2, "loadedEvents", ev2); Set(lab2, "loadedScope", "BOTH");
             Set(lab2, "accounts", KeystoneArcEngine.SimulatePool(ev2, c));
+            if (strategy == "MAD")
+                Step("MAD: MICRO A DAY sessions → pool without NaN, live box, COMPARE every version", () =>
+                {
+                    Console.WriteLine("      " + ev2.Count + " sessions • " + string.Join(" | ", ev2.Take(3).Select(e => e.Symbol + " " + e.Direction + " " + e.Outcome + " " + e.GrossPnl.ToString("0"))));
+                    if (ev2.Count < 6 || ev2.Any(e => e.SetupClass != "MAD" || double.IsNaN(e.GrossPnl))) throw new Exception("MAD events");
+                    foreach (var a in (System.Collections.IEnumerable)lab2.GetType().GetField("accounts", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2))
+                        foreach (var f in a.GetType().GetFields()) if (f.FieldType == typeof(double) && double.IsNaN((double)f.GetValue(a))) throw new Exception("NaN in the pool: " + f.Name);
+                    Call(lab2, "OpenMicroCompare");
+                    for (int i = 0; i < 600 && ((System.Collections.ICollection)lab2.GetType().GetField("microCompareRows", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2)).Count == 0; i++) System.Threading.Thread.Sleep(100);
+                    var rows = (List<KeystoneMicroRow>)lab2.GetType().GetField("microCompareRows", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    Console.WriteLine("      compare: " + rows.Count + " versions • " + ((System.Windows.Controls.TextBlock)lab2.GetType().GetField("microCompareStatus", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2)).Text);
+                    if (rows.Count != 36) throw new Exception("compare rows " + rows.Count);
+                });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {
                 Call(lab2, "OpenEvidenceChart"); Call(lab2, "RequestEvidenceBars"); Call(lab2, "RenderEvidenceChart");
@@ -165,7 +179,7 @@ public static class UiSmokeTest
             });
             Step(strategy + ": other strategy on the same chart day + day compare + range ledger", () =>
             {
-                if (asian) return;
+                if (asian || strategy == "MAD") return;
                 Call(lab2, "RequestEvidenceBars");
                 string other = strategy == "BH" ? "evidenceOverlayFvgBox" : "evidenceOverlayBhBox";
                 var box = (System.Windows.Controls.CheckBox)lab2.GetType().GetField(other, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);

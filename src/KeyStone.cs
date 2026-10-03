@@ -714,6 +714,8 @@ namespace NinjaTrader.NinjaScript
 
         // GOLDEN SETUP: the first BH or bullish FVG after the open, one trade a day (Build 28q).
         public int GoldenMnqStart = 930, GoldenMgcStart = 800, GoldenLastEntry = 1555, GoldenClose = 1555;
+        // MICRO A DAY: 1 micro at the session open (18:00 New York), held all day (every session) to the take profit or the close.
+        public string MadDirection = "BUY"; public double MadMnqTarget = 0, MadMgcTarget = 0; public int MadQty = 1, MadOpenHhmm = 1800, MadCloseHhmm = 1659;
         public int GoldenUseBh = 1;
         public string GoldenFvgMode = "CLOSE";          // CLOSE = enter at the close of candle 3 • BREAK = touch + break (like BH) • OFF
         public string GoldenAggression = "TAG";         // OFF • TAG (record + compare) • REQUIRED (only after a push down)
@@ -740,7 +742,7 @@ namespace NinjaTrader.NinjaScript
 
         public string Snapshot()
         {
-            return string.Join("|", new[] {
+            return (StrategyCode == "MAD" ? "MAD/" + MadDirection + "/" + MadMnqTarget.ToString("0.##", CultureInfo.InvariantCulture) + "/" + MadMgcTarget.ToString("0.##", CultureInfo.InvariantCulture) + "/" + MadQty + "/" + MadOpenHhmm + "/" + MadCloseHhmm + "|" : "") + string.Join("|", new[] {
                 Scope, AccountPath ?? string.Empty, MnqName ?? string.Empty, MgcName ?? string.Empty, Start.ToString("yyyyMMdd"), End.ToString("yyyyMMdd"), OneDayMode.ToString(), SetupMinutes.ToString(), StrategyCode ?? string.Empty, EnableBh.ToString(), EnableFvg.ToString(), DirectionMode ?? string.Empty, BhAggressionFilter ?? string.Empty, MnqStrongRedCandles.ToString(), MnqStrongDeclinePoints.ToString("0.00", CultureInfo.InvariantCulture), MgcStrongRedCandles.ToString(), MgcStrongDeclineDollars.ToString("0.00", CultureInfo.InvariantCulture), BhStrongCombine ?? string.Empty, SessionMode, CustomStart.ToString(), MnqStart.ToString(), MgcStart.ToString(), EndTime.ToString(),
                 Quantity.ToString(), TargetDollars.ToString("0.00", CultureInfo.InvariantCulture), StopDollars.ToString("0.00", CultureInfo.InvariantCulture), StopMode ?? string.Empty, MnqStopOffsetPoints.ToString("0.00", CultureInfo.InvariantCulture), MgcStopOffsetPoints.ToString("0.00", CultureInfo.InvariantCulture), PersonalLotSize.ToString("0.00", CultureInfo.InvariantCulture), MnqCashPerPointPerLot.ToString("0.00", CultureInfo.InvariantCulture), MgcCashPerPointPerLot.ToString("0.00", CultureInfo.InvariantCulture), MnqTargetMove.ToString("0.00", CultureInfo.InvariantCulture), MgcTargetMove.ToString("0.00", CultureInfo.InvariantCulture), MnqStandardStopMove.ToString("0.00", CultureInfo.InvariantCulture), MgcStandardStopMove.ToString("0.00", CultureInfo.InvariantCulture), PersonalMaxRiskDollars.ToString("0.00", CultureInfo.InvariantCulture), BreakEvenEnabled.ToString(), BreakEvenTriggerMove.ToString("0.00", CultureInfo.InvariantCulture), OutcomeModelEnabled.ToString(), MnqOutcomeTimeOffsetMinutes.ToString(), MgcOutcomeTimeOffsetMinutes.ToString(), MnqOutcomeSource ?? string.Empty, MgcOutcomeSource ?? string.Empty,
                 PoolSize.ToString(), DailyGoal.ToString("0.00", CultureInfo.InvariantCulture), DailyLoss.ToString("0.00", CultureInfo.InvariantCulture),
@@ -954,6 +956,7 @@ namespace NinjaTrader.NinjaScript
                 if (string.Equals(cfg.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectLastHourRelay(raw, cfg, symbol)); continue; }
                 if (string.Equals(cfg.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectVwapSnapBack(raw, bars, cfg, symbol)); continue; }
                 if (string.Equals(cfg.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectGolden(raw, bars, cfg, symbol)); continue; }
+                if (string.Equals(cfg.StrategyCode, "MAD", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectMicroADay(raw, cfg, symbol)); continue; }
                 int order = 0;
                 DateTime orderDay = DateTime.MinValue;
                 var zones = new List<BullishFvg>();
@@ -1473,6 +1476,58 @@ namespace NinjaTrader.NinjaScript
                 }
             }
             e.GoldenRunBeforeStop = run; e.GoldenStopHit = hit;
+        }
+
+        // ---- MICRO A DAY ------------------------------------------------------------------------------
+        // Every trading session: at the open (18:00 New York by default) buy or sell MadQty micros at the open of the first
+        // 1-minute bar (it must start within 15 minutes of the open — holidays / missing data = no trade). No stop, no adding,
+        // no management: out at the take profit (points, 0 = none) or at the close (16:59 the next day by default).
+        // When one minute reaches the take profit the exit is the take-profit price; the deepest point against us is recorded.
+        public static List<KeystoneArcEvent> DetectMicroADayPublic(List<KeystoneArcBar> raw, KeystoneArcRunConfig cfg, string symbol) { return DetectMicroADay(raw, cfg, symbol); }
+        internal static List<KeystoneArcEvent> DetectMicroADay(List<KeystoneArcBar> raw, KeystoneArcRunConfig cfg, string symbol)
+        {
+            var output = new List<KeystoneArcEvent>(); if (raw == null || raw.Count == 0) return output;
+            bool sell = string.Equals(cfg.MadDirection, "SELL", StringComparison.OrdinalIgnoreCase); double sign = sell ? -1 : 1;
+            double tp = Math.Max(0, IsMgc(symbol) ? cfg.MadMgcTarget : cfg.MadMnqTarget); int qty = Math.Max(1, cfg.MadQty);
+            double pv = CashValuePerPriceMove(symbol, cfg);
+            int openM = cfg.MadOpenHhmm / 100 * 60 + cfg.MadOpenHhmm % 100, closeM = cfg.MadCloseHhmm / 100 * 60 + cfg.MadCloseHhmm % 100;
+            bool overnight = closeM <= openM;
+            var days = raw.Select(b => { var o = b.Time.Date.AddMinutes(openM); return b.Time > o ? o : (overnight ? o.AddDays(-1) : o); }).Distinct().OrderBy(d => d).ToList();
+            int idx = 0;
+            foreach (DateTime open in days)
+            {
+                DateTime close = open.Date.AddDays(overnight ? 1 : 0).AddMinutes(closeM);
+                if (open < cfg.Start.AddMinutes(-1) || close > cfg.End.AddDays(1)) continue;
+                while (idx < raw.Count && raw[idx].Time <= open) idx++;
+                if (idx >= raw.Count) break;
+                if (raw[idx].Time > open.AddMinutes(15) || raw[idx].Time > close) continue;      // no bar at the open (holiday / no data)
+                var first = raw[idx]; double entry = first.Open;
+                var e = new KeystoneArcEvent
+                {
+                    Id = "KA|" + symbol + "|MAD|" + (sell ? "SHORT" : "LONG") + "|" + open.Ticks.ToString(CultureInfo.InvariantCulture), Symbol = symbol, SetupClass = "MAD", Direction = sell ? "SHORT" : "LONG",
+                    ReferenceTime = open, TriggerTime = open, EntryTime = open, Entry = entry, Quantity = qty, Stop = double.NaN, StopDistance = 0,
+                    Target = tp > 0 ? entry + sign * tp : double.NaN, RiskModel = "MAD " + (sell ? "SELL" : "BUY") + " " + qty + " • " + (tp > 0 ? "+" + tp.ToString("0.##", CultureInfo.InvariantCulture) + " PTS OR THE CLOSE" : "HOLD TO THE CLOSE"),
+                    PeakAfterEntry = first.High, TroughAfterEntry = first.Low, Outcome = "OPEN", StrengthTag = sell ? "SELL" : "BUY"
+                };
+                int j = idx; double exit = double.NaN; DateTime exitTime = DateTime.MinValue;
+                for (; j < raw.Count && raw[j].Time <= close; j++)
+                {
+                    var b = raw[j]; e.PeakAfterEntry = Math.Max(e.PeakAfterEntry, b.High); e.TroughAfterEntry = Math.Min(e.TroughAfterEntry, b.Low);
+                    if (tp > 0 && (sell ? b.Low <= e.Target : b.High >= e.Target)) { exit = e.Target; exitTime = b.Time; e.Outcome = "WIN"; e.TargetTouched = 1; break; }
+                    exit = b.Close; exitTime = b.Time;
+                }
+                if (double.IsNaN(exit)) continue;
+                if (e.Outcome != "WIN") e.Outcome = "SESSION EXIT";
+                e.ExitPrice = exit; e.ExitTime = exitTime; e.GrossPnl = sign * (exit - entry) * pv * qty;
+                double worst = sell ? e.PeakAfterEntry - entry : entry - e.TroughAfterEntry, best = sell ? entry - e.TroughAfterEntry : e.PeakAfterEntry - entry;
+                e.ReviewNote = "MICRO A DAY • " + (sell ? "SELL " : "BUY ") + qty + " " + symbol + " at the " + KeystoneBracket.Hm(cfg.MadOpenHhmm) + " open " + entry.ToString(IsMgc(symbol) ? "0.0" : "0.00", CultureInfo.InvariantCulture)
+                    + " • " + (e.Outcome == "WIN" ? "take profit +" + tp.ToString("0.##", CultureInfo.InvariantCulture) + " pts at " + exitTime.ToString("ddd HH:mm") : "closed at " + exitTime.ToString("ddd HH:mm") + " " + (sign * (exit - entry) >= 0 ? "+" : "") + (sign * (exit - entry)).ToString("0.##", CultureInfo.InvariantCulture) + " pts")
+                    + " • worst against −" + worst.ToString("0.##", CultureInfo.InvariantCulture) + " pts (" + (worst * pv * qty).ToString("C0") + ") • best +" + best.ToString("0.##", CultureInfo.InvariantCulture) + " pts";
+                e.ConfigurationKey = cfg.Snapshot();
+                output.Add(e);
+                idx = Math.Max(idx, j);
+            }
+            return output;
         }
 
         // MOVE STUDY: walk the 1-minute bars from the fill to the session close (same fill minute as the outcome rule).
@@ -5618,6 +5673,73 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- MICRO A DAY • COMPARE ------------------------------------------------------------------------
+    // Every version on the same loaded days: BUY / SELL × MNQ / MGC / BOTH × take profit (or hold to the close).
+    // Per version: the plain 1-micro account (net, worst drawdown, longest time under water) and one prop account slot
+    // walking the days in order (evaluations bought, passed, payouts, funded accounts lost, cash − spent), per year.
+    public sealed class KeystoneMicroRow
+    {
+        public string Direction = "BUY", Instruments = "MNQ", TakeProfit = string.Empty; public double MnqTp, MgcTp;
+        public int Trades, Wins; public double Net, MaxDrawdown, AvgWorst; public int LongestUnderwaterDays;
+        public int Bought, Passed, Payouts, FundedLost; public double Spent, Cash;
+        public Dictionary<int, double> NetByYear = new Dictionary<int, double>(), PropByYear = new Dictionary<int, double>();
+        public double PropNet { get { return Cash - Spent; } }
+        public string Label { get { return Direction + " • " + Instruments + " • " + TakeProfit; } }
+    }
+
+    public static class KeystoneMicroADay
+    {
+        public static readonly double[] MnqTps = { 0, 25, 50, 75, 100, 150 }, MgcTps = { 0, 5, 10, 15, 20, 30 };
+
+        public static List<KeystoneMicroRow> Compare(List<KeystoneArcBar> oneMinute, KeystoneArcRunConfig basis, KeystonePropRules rules)
+        {
+            var rows = new List<KeystoneMicroRow>(); if (oneMinute == null || oneMinute.Count == 0) return rows;
+            bool hasMnq = oneMinute.Any(b => b.Symbol == "MNQ"), hasMgc = oneMinute.Any(b => b.Symbol == "MGC");
+            var combos = new List<Tuple<string, string, int>>();
+            foreach (string dir in new[] { "BUY", "SELL" })
+                foreach (string inst in new[] { "MNQ", "MGC", "BOTH" })
+                {
+                    if ((inst == "MNQ" && !hasMnq) || (inst == "MGC" && !hasMgc) || (inst == "BOTH" && !(hasMnq && hasMgc))) continue;
+                    for (int t = 0; t < MnqTps.Length; t++) combos.Add(Tuple.Create(dir, inst, t));
+                }
+            var results = new KeystoneMicroRow[combos.Count];
+            System.Threading.Tasks.Parallel.For(0, combos.Count, i =>
+            {
+                var c = combos[i]; var cfg = basis.ShallowCopy(); cfg.StrategyCode = "MAD"; cfg.MadDirection = c.Item1; cfg.MadMnqTarget = MnqTps[c.Item3]; cfg.MadMgcTarget = MgcTps[c.Item3];
+                var bars = oneMinute.Where(b => c.Item2 == "BOTH" || b.Symbol == c.Item2).ToList();
+                var events = new List<KeystoneArcEvent>();
+                foreach (var g in bars.GroupBy(b => b.Symbol)) events.AddRange(KeystoneArcEngine.DetectMicroADayPublic(g.OrderBy(b => b.Time).ToList(), cfg, g.Key));
+                var row = new KeystoneMicroRow { Direction = c.Item1, Instruments = c.Item2, MnqTp = cfg.MadMnqTarget, MgcTp = cfg.MadMgcTarget };
+                row.TakeProfit = c.Item3 == 0 ? "HOLD TO THE CLOSE" : (c.Item2 == "MNQ" ? "TP +" + cfg.MadMnqTarget + " PTS" : c.Item2 == "MGC" ? "TP +" + cfg.MadMgcTarget + " PTS" : "TP MNQ +" + cfg.MadMnqTarget + " / MGC +" + cfg.MadMgcTarget);
+                // one row per session: both instruments added together
+                var days = new List<KeystonePropDay>();
+                foreach (var d in events.GroupBy(e => e.TriggerTime).OrderBy(d => d.Key))
+                {
+                    double pnl = 0, worst = 0, best = 0;
+                    foreach (var e in d)
+                    {
+                        bool s = e.Direction == "SHORT"; double pv = e.Symbol == "MGC" ? 10 : 2, q = Math.Max(1, e.Quantity);
+                        double net = e.GrossPnl - q * KeystoneMoveStudy.Cost(e.Symbol); pnl += net; row.Trades++; if (net > 0) row.Wins++;
+                        worst += -(s ? e.PeakAfterEntry - e.Entry : e.Entry - e.TroughAfterEntry) * pv * q; best += (s ? e.Entry - e.TroughAfterEntry : e.PeakAfterEntry - e.Entry) * pv * q;
+                    }
+                    days.Add(new KeystonePropDay { Day = d.Key.Date.AddDays(1), Pnl = pnl, Worst = Math.Min(0, worst), Best = Math.Max(0, best), Traded = true });
+                }
+                double eq = 0, peak = 0; DateTime peakDay = DateTime.MinValue; int longest = 0;
+                foreach (var d in days)
+                {
+                    eq += d.Pnl; double y; row.NetByYear.TryGetValue(d.Day.Year, out y); row.NetByYear[d.Day.Year] = y + d.Pnl;
+                    if (eq >= peak) { peak = eq; peakDay = d.Day; } else { row.MaxDrawdown = Math.Max(row.MaxDrawdown, peak - eq); if (peakDay != DateTime.MinValue) longest = Math.Max(longest, (int)(d.Day - peakDay).TotalDays); }
+                }
+                row.Net = eq; row.LongestUnderwaterDays = longest; row.AvgWorst = days.Count == 0 ? 0 : days.Average(d => d.Worst);
+                var plan = new KeystonePropPlan { Source = "REAL", EvalSize = 1, FundSize = 1 };
+                foreach (var y in KeystonePropPlanner.History(rules, plan, days))
+                { row.Bought += y.Bought; row.Passed += y.Passed; row.Payouts += y.Payouts; row.FundedLost += y.Blown; row.Spent += y.Spent; row.Cash += y.Cash; row.PropByYear[y.Year] = y.Net; }
+                results[i] = row;
+            });
+            return results.Where(r => r != null).OrderByDescending(r => r.PropNet).ThenByDescending(r => r.Net).ToList();
+        }
+    }
+
     public sealed class KeystoneMoveRow
     {
         public string Set = string.Empty, Symbol = string.Empty, Kind = string.Empty; public bool Aggr; public DateTime Time; public int Year;
@@ -9165,9 +9287,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-03m";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03n";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -10113,7 +10235,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (unsavedResearch) ShowCloseConfirmation();
                 else ShowSavedCloseConfirmation();
             };
-            window.Closed += delegate { CancelRequests(); CancelEvidenceRequest(); try { if (evidenceWindow != null) evidenceWindow.Close(); } catch { } try { if (propPlannerWindow != null) propPlannerWindow.Close(); } catch { } try { if (moveStudyWindow != null) moveStudyWindow.Close(); } catch { } try { if (rotationWindow != null) rotationWindow.Close(); } catch { } if (activityTimer != null) activityTimer.Stop(); window = null; closeConfirmed = false; };
+            window.Closed += delegate { toolWindowsClosingWithLab = true; CancelRequests(); CancelEvidenceRequest(); try { if (evidenceWindow != null) evidenceWindow.Close(); } catch { } try { if (propPlannerWindow != null) propPlannerWindow.Close(); } catch { } try { if (moveStudyWindow != null) moveStudyWindow.Close(); } catch { } try { if (rotationWindow != null) rotationWindow.Close(); } catch { } try { if (microCompareWindow != null) microCompareWindow.Close(); } catch { } if (activityTimer != null) activityTimer.Stop(); window = null; closeConfirmed = false; toolWindowsClosingWithLab = false; };
             window.Show();
             UpdateUi("READY • VIRTUAL/HISTORICAL RESEARCH ONLY • NO ACCOUNT OR ORDER ACCESS", Blue);
             UpdateWorkflowState();
@@ -10309,7 +10431,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var data = Stack(); data.Children.Add(Txt("1. DATA, SETUPS & SESSION", Gold, 13, FontWeights.Bold));
             // 123 ENGULFING, LAST-HOUR RELAY and VWAP SNAP-BACK are hidden (never tested); their engines stay in the file.
             strategyBox = Select("BH • BREAK-HIGH LONG", "ASIAN 75 REVERSAL • COPY TRADING", "FVG • RETEST + BREAK LONG", "HELIX ROTATION • PROP BASKET MATH", "GOLDEN SETUP • FIRST BH / FVG AFTER THE OPEN", "RECOIL • ADD TO LOSERS", "PROP BRACKET • 1-MINUTE MNQ + MGC FOR THE STUDIES (FVG STUDY • ROTATION • PLANNER)");
-            strategyBox.Items.Insert(0, "FIRST 5M FVG STUDY • MNQ 09:30 + MGC 08:00 • EVERY ENTRY MEASURED"); strategyBox.Items.Insert(1, "ROTATION • MNQ + MGC TOGETHER • ACCOUNTS IN TURN (ROTATION TESTER)"); strategyBox.SelectedIndex = 0; strategyBox.SelectedIndex = 0;
+            strategyBox.Items.Insert(0, "FIRST 5M FVG STUDY • MNQ 09:30 + MGC 08:00 • EVERY ENTRY MEASURED"); strategyBox.Items.Insert(1, "ROTATION • MNQ + MGC TOGETHER • ACCOUNTS IN TURN (ROTATION TESTER)"); strategyBox.Items.Insert(2, "MICRO A DAY • 1 MICRO AT THE 18:00 OPEN, HELD ALL DAY"); strategyBox.SelectedIndex = 0; strategyBox.SelectedIndex = 0;
             scopeBox = Select("MNQ", "MGC", "BOTH"); scopeBox.SelectedIndex = 0;
             accountPathBox = Select("PROP • VIRTUAL POOL"); accountPathBox.SelectedIndex = 0; accountPathBox.Visibility = Visibility.Collapsed;
             // Keystone is intentionally one setup lab in this revision: long BH only.
@@ -10603,7 +10725,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var costRow = new UniformGrid { Columns = 2, Margin = new Thickness(0, 2, 0, 2) };
             costRow.Children.Add(Row("COMMISSION $ / CONTRACT (ROUND TRIP)", commissionBox)); costRow.Children.Add(Row("SLIPPAGE TICKS / SIDE", slippageBox));
             model.Children.Add(costRow);
-            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel); model.Children.Add(relayModel); model.Children.Add(vwapModel); model.Children.Add(BuildHelixPanel()); model.Children.Add(BuildGoldenPanel()); model.Children.Add(BuildRecoilPanel()); model.Children.Add(BuildBracketPanel());
+            model.Children.Add(stopModeRow); model.Children.Add(propQuantityRow); model.Children.Add(propTargetRow); model.Children.Add(propStopRow); model.Children.Add(dailyGoalRow); model.Children.Add(dailyLossRow); model.Children.Add(mnqLowOffsetRow); model.Children.Add(mgcLowOffsetRow); model.Children.Add(propModeNote); model.Children.Add(bhModelNote); model.Children.Add(asianModel); model.Children.Add(fvgModel); model.Children.Add(engModel); model.Children.Add(relayModel); model.Children.Add(vwapModel); model.Children.Add(BuildHelixPanel()); model.Children.Add(BuildGoldenPanel()); model.Children.Add(BuildRecoilPanel()); model.Children.Add(BuildBracketPanel()); model.Children.Add(BuildMadPanel());
             sessionHintText = Txt("NY OPEN: begins at the first 09:30 ET setup bar and ends at 15:55 ET.", Cyan, 10, FontWeights.Bold); data.Children.Add(sessionHintText);
             // Start right under the settings: no scrolling down to section 3.
             quickStartButton = Btn("▶ START RESEARCH • LOAD + DETECT", Green); quickStartButton.Height = 44; quickStartButton.FontSize = 15; quickStartButton.Margin = new Thickness(6, 14, 6, 4);
@@ -10695,6 +10817,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool recoil = IsRecoilSelected();
             for (int i = 0; i < recoilStrategyControls.Count; i++) if (recoilStrategyControls[i] != null) recoilStrategyControls[i].Visibility = recoil ? Visibility.Visible : Visibility.Collapsed;
             if (recoil) for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = Visibility.Collapsed;
+            bool mad = IsMadSelected();
+            for (int i = 0; i < madStrategyControls.Count; i++) if (madStrategyControls[i] != null) madStrategyControls[i].Visibility = mad ? Visibility.Visible : Visibility.Collapsed;
+            if (mad) for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = Visibility.Collapsed;
             bool bracket = IsBracketSelected();
             for (int i = 0; i < bracketStrategyControls.Count; i++) if (bracketStrategyControls[i] != null) bracketStrategyControls[i].Visibility = bracket ? Visibility.Visible : Visibility.Collapsed;
             if (bracket) for (int i = 0; i < bhStrategyControls.Count; i++) if (bhStrategyControls[i] != null) bhStrategyControls[i].Visibility = Visibility.Collapsed;
@@ -10716,7 +10841,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (vwapPick && !vwapSessionDefaultApplied && sessionBox != null) { sessionBox.SelectedIndex = 0; vwapSessionDefaultApplied = true; }
             if (!vwapPick) vwapSessionDefaultApplied = false;
             // BH stop modes belong to BH only; the other strategies have their own stop choices.
-            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng || relay || vwapPick || helix || golden || recoil || bracket ? Visibility.Collapsed : Visibility.Visible;
+            if (stopModeRowRef != null) stopModeRowRef.Visibility = asian || fvg || eng || relay || vwapPick || helix || golden || recoil || bracket || mad ? Visibility.Collapsed : Visibility.Visible;
             // FVG default window: pre-NY 08:00 ET to the 16:55 ET close (editable custom range).
             if (fvg && !fvgSessionDefaultApplied && sessionBox != null && customStartBox != null && endTimeBox != null) { sessionBox.SelectedIndex = 6; customStartBox.Text = "800"; endTimeBox.Text = "1655"; fvgSessionDefaultApplied = true; }
             if (!fvg) fvgSessionDefaultApplied = false;
@@ -10729,7 +10854,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (!asian) asianScopeDefaultApplied = false;
                 scopeBox.IsEnabled = true;
             }
-            if (timeframeBox != null) { if (asian || helix || recoil || bracket) timeframeBox.SelectedIndex = 0; timeframeBox.IsEnabled = !asian && !helix && !recoil && !bracket; }
+            if (timeframeBox != null) { if (asian || helix || recoil || bracket || mad) timeframeBox.SelectedIndex = 0; timeframeBox.IsEnabled = !asian && !helix && !recoil && !bracket && !mad; }
             // HELIX always loads both instruments on 1-minute bars; its own window decides the session.
             if (helix && scopeBox != null) { scopeBox.SelectedIndex = 2; scopeBox.IsEnabled = false; }
             if (sessionBox != null)
@@ -10995,7 +11120,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool asian = IsAsian75Selected();
             quickStartButton.Content = researchSubmissionLocked
                 ? "↻ RUN THIS TEST AGAIN • same settings (or change a setting to start a new one)"
-                : "▶ " + (IsRotationSelected() ? "START • LOAD 1-MINUTE MNQ + MGC → ROTATION TESTER" : IsBracketSelected() ? "START • LOAD 1-MINUTE MNQ + MGC → FIRST 5M FVG STUDY" : IsRecoilSelected() ? "START RECOIL • LOAD 1M BARS + RUN EVERY LADDER" : IsGoldenSelected() ? "START RESEARCH • LOAD + FIND THE GOLDEN SETUPS" : IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
+                : "▶ " + (IsMadSelected() ? "START MICRO A DAY • LOAD 1-MINUTE BARS + RUN EVERY SESSION" : IsRotationSelected() ? "START • LOAD 1-MINUTE MNQ + MGC → ROTATION TESTER" : IsBracketSelected() ? "START • LOAD 1-MINUTE MNQ + MGC → FIRST 5M FVG STUDY" : IsRecoilSelected() ? "START RECOIL • LOAD 1M BARS + RUN EVERY LADDER" : IsGoldenSelected() ? "START RESEARCH • LOAD + FIND THE GOLDEN SETUPS" : IsHelixSelected() ? "START HELIX • LOAD MNQ + MGC 1M + ROTATE BASKETS" : IsRelaySelected() ? "START RESEARCH • LOAD + FIND RELAY TRADES" : IsVwapSelected() ? "START RESEARCH • LOAD + FIND SNAP-BACK TRADES" : IsEngulfingSelected() ? "START RESEARCH • LOAD + FIND ENGULFING ENTRIES" : IsFvgSelected() ? "START RESEARCH • LOAD + FIND FVG ENTRIES" : (asian ? "START BACKTEST • LOAD + RUN CYCLES" : "START RESEARCH • LOAD + DETECT"));
         }
 
         private void ConfirmAndStartResearch()
@@ -13557,8 +13682,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (!HasSelectedData()) { UpdateUi("STEP 2 REQUIRED • REQUEST COMPLETE HISTORY FOR THE SELECTED SCOPE FIRST", Red); UpdateWorkflowState(); return; }
             if (HelixStudy()) { SetGoldenResultsMode(false); SetRecoilResultsMode(false); RunHelix(); return; }
             if (RecoilStudy()) { SetGoldenResultsMode(false); RunRecoil(); return; }
-            if (BracketStudy() && IsRotationSelected()) { if (rotationWindow != null) { rotationWindow.Close(); rotationWindow = null; } OpenRotationTester(); UpdateUi("1-MINUTE MNQ + MGC LOADED • ROTATION TESTER is open: set your rotation, press RUN THIS ROTATION, then OPTIMIZE", Green); return; }
-            if (BracketStudy()) { if (moveStudyWindow != null) { moveStudyWindow.Close(); moveStudyWindow = null; } OpenMoveStudy(); UpdateUi("1-MINUTE MNQ + MGC LOADED • MOVE STUDY is open on the FIRST 5M FVG STUDY (the ROTATION TESTER and PROP PLANNER use the same bars)", Green); return; }
+            if (BracketStudy() && IsRotationSelected()) { if (rotationWindow != null) { CloseToolQuietly(rotationWindow); rotationWindow = null; } OpenRotationTester(); UpdateUi("1-MINUTE MNQ + MGC LOADED • ROTATION TESTER is open: set your rotation, press RUN THIS ROTATION, then OPTIMIZE", Green); return; }
+            if (BracketStudy()) { if (moveStudyWindow != null) { CloseToolQuietly(moveStudyWindow); moveStudyWindow = null; } OpenMoveStudy(); UpdateUi("1-MINUTE MNQ + MGC LOADED • MOVE STUDY is open on the FIRST 5M FVG STUDY (the ROTATION TESTER and PROP PLANNER use the same bars)", Green); return; }
             SetRecoilResultsMode(false);
             SetHelixResultsMode(false);
             if (!GoldenStudyRun()) SetGoldenResultsMode(false);
@@ -13596,6 +13721,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         events[i].ReviewState = "ACCEPTED";
                         if (asianBacktest)
                             events[i].ReviewNote = (events[i].ReviewNote ?? string.Empty) + (string.IsNullOrWhiteSpace(events[i].ReviewNote) ? "" : " • ") + "AUTO-INCLUDED: resolved Asian daily-cycle leg";
+                        else if (events[i].SetupClass == "MAD") events[i].ReviewNote = (events[i].ReviewNote ?? string.Empty) + " • AUTO-INCLUDED";
                         else events[i].ReviewNote = "AUTO-INCLUDED: detector-qualified setup";
                     }
                     accounts = generatedAccounts ?? new List<KeystoneArcVirtualAccount>(); researchRunCompleted = true; unsavedResearch = events.Count > 0; isProcessing = false;
@@ -13611,6 +13737,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     UpdateWorkflowState();
                     if (events.Count > 0 && workspaceTabs != null) workspaceTabs.SelectedIndex = 1;
                     if (resultViewTabs != null) resultViewTabs.SelectedIndex = 0;
+                    if (MadStudy() && events.Count > 0) { try { OpenMicroCompare(); } catch { } }
                     if (goldenUnfiltered != null)
                     {
                         // GOLDEN opens straight on its own study (no prop pool).
@@ -15799,14 +15926,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                 double? now = LabCloseAt(current.Symbol, evidenceBarCursor);
                 double price = now ?? current.Entry, sign = isShort(current) ? -1 : 1;
                 double pnl = (price - current.Entry) * sign * pvOf(current.Symbol) * Math.Max(0.0001, current.Quantity);
-                double risk = Math.Abs(current.Entry - current.Stop);
+                double risk = double.IsNaN(current.Stop) ? 0 : Math.Abs(current.Entry - current.Stop);
                 evidenceLiveCombined.Text = (pnl >= 0 ? "+" : "") + Cash(pnl) + (risk > 0 ? "  (" + ((price - current.Entry) * sign / risk).ToString("+0.0;-0.0", CultureInfo.InvariantCulture) + "R)" : "");
                 evidenceLiveCombined.Foreground = pnl > 0 ? Green : (pnl < 0 ? Red : Text);
-                double toTarget = Math.Abs(current.Target - current.Entry) <= 0 ? 0 : Math.Max(0, Math.Min(1, (price - current.Entry) * sign / Math.Abs(current.Target - current.Entry)));
+                double toTarget = double.IsNaN(current.Target) || Math.Abs(current.Target - current.Entry) <= 0 ? 0 : Math.Max(0, Math.Min(1, (price - current.Entry) * sign / Math.Abs(current.Target - current.Entry)));
                 double toStop = risk <= 0 ? 0 : Math.Max(0, Math.Min(1, (current.Entry - price) * sign / risk));
-                evidenceLiveTargetText.Text = "TARGET " + current.Target.ToString(fmt, CultureInfo.InvariantCulture) + " • " + (toTarget * 100).ToString("0", CultureInfo.InvariantCulture) + "% of the way";
+                evidenceLiveTargetText.Text = double.IsNaN(current.Target) ? "NO TARGET • held to the close" : "TARGET " + current.Target.ToString(fmt, CultureInfo.InvariantCulture) + " • " + (toTarget * 100).ToString("0", CultureInfo.InvariantCulture) + "% of the way";
                 evidenceLiveTargetFill.Width = 330 * toTarget;
-                evidenceLiveLossText.Text = "STOP " + current.Stop.ToString(fmt, CultureInfo.InvariantCulture) + " • " + (toStop * 100).ToString("0", CultureInfo.InvariantCulture) + "% of the way";
+                evidenceLiveLossText.Text = double.IsNaN(current.Stop) ? "NO STOP • open " + (pnl >= 0 ? "+" : "") + Cash(pnl) : "STOP " + current.Stop.ToString(fmt, CultureInfo.InvariantCulture) + " • " + (toStop * 100).ToString("0", CultureInfo.InvariantCulture) + "% of the way";
                 evidenceLiveLossFill.Width = 330 * toStop;
             }
             var sb = new StringBuilder();
@@ -17194,7 +17321,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private string StrategyDisplayName()
         {
             string code = config == null ? "BH" : (config.StrategyCode ?? "BH").ToUpperInvariant();
-            return code == "BRK" ? "PROP BRACKET" : code == "RCL" ? "RECOIL • ADD TO LOSERS" : code == "GLD" ? "GOLDEN SETUP" : code == "HLX" ? "HELIX ROTATION" : code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : (code == "RLY" ? "LAST-HOUR RELAY" : (code == "VWP" ? "VWAP SNAP-BACK" : "BH"))));
+            return code == "MAD" ? "MICRO A DAY" : code == "BRK" ? "PROP BRACKET" : code == "RCL" ? "RECOIL • ADD TO LOSERS" : code == "GLD" ? "GOLDEN SETUP" : code == "HLX" ? "HELIX ROTATION" : code == "ASIAN75" ? "ASIAN 75" : (code == "FVG" ? "FVG" : (code == "ENG" ? "123 ENGULFING" : (code == "RLY" ? "LAST-HOUR RELAY" : (code == "VWP" ? "VWAP SNAP-BACK" : "BH"))));
         }
 
         private void RenderFirstReturnAccountDetail(KeystoneArcVirtualAccount account, KeystoneArcFirstReturnRow row, string startLabel)
@@ -18117,7 +18244,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (config.Scope != "MNQ" && config.Scope != "MGC" && config.Scope != "BOTH") config.Scope = asian75 ? "BOTH" : "MNQ";
             config.AccountPath = "PROP";
             bool fvgStrategy = !asian75 && IsFvgSelected();
-            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : (IsRelaySelected() ? "RLY" : (IsVwapSelected() ? "VWP" : (IsHelixSelected() ? "HLX" : (IsGoldenSelected() ? "GLD" : (IsRecoilSelected() ? "RCL" : (IsBracketSelected() ? "BRK" : "BH"))))))));
+            config.StrategyCode = asian75 ? "ASIAN75" : (fvgStrategy ? "FVG" : (IsEngulfingSelected() ? "ENG" : (IsRelaySelected() ? "RLY" : (IsVwapSelected() ? "VWP" : (IsHelixSelected() ? "HLX" : (IsGoldenSelected() ? "GLD" : (IsRecoilSelected() ? "RCL" : (IsBracketSelected() ? "BRK" : (IsMadSelected() ? "MAD" : "BH")))))))));
             if (config.StrategyCode == "HLX") config.Scope = "BOTH";
             config.RelaySignalHhmm = Integer(relaySignalBox, 1000); config.RelayEntryHhmm = Integer(relayEntryBox, 1525); config.RelayExitHhmm = Integer(relayExitBox, 1555);
             config.RelayThreshold = Math.Max(0, NumberAllowZero(relayThresholdBox, 0.25)); config.RelayStopFraction = Math.Max(0.01, Number(relayStopBox, 0.15)); config.RelayRangeDays = Math.Max(5, Integer(relayDaysBox, 20));
@@ -18214,6 +18341,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 int ls, le; HelixLoadWindow(Math.Min(rcc.UseMnq == 1 ? rcc.MnqStartHhmm : 2359, rcc.UseMgc == 1 ? rcc.MgcStartHhmm : 2359), rcc.CloseHhmm, out ls, out le);
                 config.SessionMode = "CUSTOM"; config.CustomStart = ls; config.EndTime = le; config.SetupMinutes = 1;
             }
+            if (config.StrategyCode == "MAD" && !ReadMadConfig()) return false;
             if (config.StrategyCode == "BRK")
             {
                 int ls, le; HelixLoadWindow(800, 1600, out ls, out le);
@@ -21820,6 +21948,110 @@ namespace NinjaTrader.NinjaScript.AddOns
         private TextBlock recoilVerdictHead, recoilVerdictSub, recoilSlimText; private Border recoilVerdictCard; private WrapPanel recoilTiles; private TabControl recoilTabs;
         private Button recoilSummaryToggle; private bool recoilSummaryHidden;
 
+        // ---- MICRO A DAY: Step 1 panel + COMPARE window ----------------------------------------------------
+        private bool IsMadSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("MICRO A DAY", StringComparison.OrdinalIgnoreCase); }
+        private bool MadStudy() { return config != null && string.Equals(config.StrategyCode, "MAD", StringComparison.OrdinalIgnoreCase); }
+        private readonly List<UIElement> madStrategyControls = new List<UIElement>();
+        private ComboBox madDirectionBox; private TextBox madMnqTpBox, madMgcTpBox, madQtyBox, madOpenBox, madCloseBox;
+
+        private UIElement BuildMadPanel()
+        {
+            var panel = Stack(); panel.Margin = new Thickness(0, 4, 0, 2);
+            panel.Children.Add(Txt("MICRO A DAY • 1 MICRO AT THE SESSION OPEN, HELD ALL DAY", Gold, 13, FontWeights.Bold));
+            panel.Children.Add(Txt("Every session at the open (18:00 New York) buy or sell 1 micro per instrument at the first 1-minute bar's open. No stop, no adding, no management: out at the take profit or at the close (16:59 the next day). INSTRUMENTS above: MNQ, MGC or BOTH. Results go to the normal virtual pool, chart and report; COMPARE runs every version at once (BUY / SELL × MNQ / MGC / BOTH × take profits) with payouts, blowups and each year.", Muted, 10, FontWeights.Normal));
+            madDirectionBox = Select("BUY", "SELL"); madDirectionBox.SelectedIndex = 0;
+            madMnqTpBox = Input("0"); madMgcTpBox = Input("0"); madQtyBox = Input("1"); madOpenBox = Input("1800"); madCloseBox = Input("1659");
+            madMnqTpBox.ToolTip = "MNQ take profit in points (0 = hold to the close)."; madMgcTpBox.ToolTip = "MGC take profit in points (0 = hold to the close).";
+            panel.Children.Add(Row("DIRECTION", madDirectionBox)); panel.Children.Add(Row("MNQ TAKE PROFIT (POINTS, 0 = HOLD)", madMnqTpBox)); panel.Children.Add(Row("MGC TAKE PROFIT (POINTS, 0 = HOLD)", madMgcTpBox));
+            panel.Children.Add(Row("MICROS PER INSTRUMENT", madQtyBox)); panel.Children.Add(Row("OPEN (HHMM, NY)", madOpenBox)); panel.Children.Add(Row("CLOSE (HHMM, NY, NEXT DAY)", madCloseBox));
+            var cmp = Btn("COMPARE EVERY VERSION (USES THE LOADED BARS)", Gold); cmp.Click += delegate { OpenMicroCompare(); }; panel.Children.Add(cmp);
+            madDirectionBox.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
+            foreach (var b in new[] { madMnqTpBox, madMgcTpBox, madQtyBox, madOpenBox, madCloseBox }) WatchConfigurationInput(b);
+            madStrategyControls.Clear(); madStrategyControls.Add(panel); panel.Visibility = Visibility.Collapsed;
+            return panel;
+        }
+
+        private bool ReadMadConfig()
+        {
+            int open = Integer(madOpenBox, 1800), close = Integer(madCloseBox, 1659);
+            if (!IsValidHhmm(open) || !IsValidHhmm(close)) { UpdateUi("MICRO A DAY TIME ERROR • USE HHMM FROM 0000 TO 2359", Red); return false; }
+            config.MadDirection = madDirectionBox != null && madDirectionBox.SelectedIndex == 1 ? "SELL" : "BUY";
+            config.MadMnqTarget = Math.Max(0, NumberAllowZero(madMnqTpBox, 0)); config.MadMgcTarget = Math.Max(0, NumberAllowZero(madMgcTpBox, 0));
+            config.MadQty = Math.Max(1, Integer(madQtyBox, 1)); config.MadOpenHhmm = open; config.MadCloseHhmm = close;
+            config.Quantity = config.MadQty;
+            config.SessionMode = "CUSTOM"; config.CustomStart = open; config.EndTime = close; config.SetupMinutes = 1;
+            return true;
+        }
+
+        private Window microCompareWindow; private List<KeystoneMicroRow> microCompareRows = new List<KeystoneMicroRow>(); private TextBlock microCompareStatus;
+
+        private void OpenMicroCompare()
+        {
+            if (microCompareWindow != null) { CloseToolQuietly(microCompareWindow); microCompareWindow = null; }
+            var w = new Window { Title = "KEYSTONE ARC • MICRO A DAY • COMPARE", Width = 1500, Height = 880, MinWidth = 900, MinHeight = 560, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            FitWindowToScreen(w);
+            var root = new Grid { Margin = new Thickness(10) };
+            for (int i = 0; i < 2; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var head = new StackPanel();
+            head.Children.Add(Txt("MICRO A DAY • EVERY VERSION ON THE SAME DAYS", Gold, 20, FontWeights.Bold));
+            head.Children.Add(Txt("1 micro per instrument at the " + KeystoneBracket.Hm(config == null ? 1800 : config.MadOpenHhmm) + " open, held all day to the take profit or the close, no stop. PLAIN ACCOUNT = 1 micro each, every session, after costs. PROP = one evaluation slot walking the days in order ($120 evaluation, $3,000 target, $2,000 trailing drawdown, 50% consistency; funded payouts after 5 days of $150+, 50% up to $2,000, 90% split; a lost account is replaced).", Muted, 11, FontWeights.Normal));
+            Grid.SetRow(head, 0); root.Children.Add(head);
+            var status = Txt("MEASURING every version…", Gold, 12.5, FontWeights.Bold); Grid.SetRow(status, 1); root.Children.Add(status);
+            var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top };
+            var rankPanel = new StackPanel(); var yearPanel = new StackPanel();
+            tabs.Items.Add(new TabItem { Header = "RANKING", Background = Gold, Foreground = Bg, FontWeight = FontWeights.Bold, Content = HelixScroll(rankPanel) });
+            tabs.Items.Add(new TabItem { Header = "EACH YEAR (CLICKED ROW)", Background = Cyan, Foreground = Bg, FontWeight = FontWeights.Bold, Content = HelixScroll(yearPanel) });
+            Grid.SetRow(tabs, 2); root.Children.Add(tabs);
+            Action<KeystoneMicroRow> showYear = r =>
+            {
+                yearPanel.Children.Clear(); yearPanel.Children.Add(HelixTitle(r.Label, Cyan));
+                double[] wy = { 90, 160, 160 }; yearPanel.Children.Add(HelixHeader(new[] { "YEAR", "PLAIN ACCOUNT NET", "PROP: CASH − SPENT" }, wy));
+                foreach (int y in r.NetByYear.Keys.Union(r.PropByYear.Keys).OrderBy(x => x))
+                {
+                    double a, b; r.NetByYear.TryGetValue(y, out a); r.PropByYear.TryGetValue(y, out b);
+                    yearPanel.Children.Add(HelixRow(new[] { y.ToString(), Signed(a), Signed(b) }, new[] { Gold, MoneyBrush(a), MoneyBrush(b) }, wy, Card, null));
+                }
+                tabs.SelectedIndex = 1;
+            };
+            var oneMinute = new List<KeystoneArcBar>(); if (KeystoneBracket.IsOneMinute(mnqBars)) oneMinute.AddRange(mnqBars); if (KeystoneBracket.IsOneMinute(mgcBars)) oneMinute.AddRange(mgcBars);
+            var basis = config == null ? new KeystoneArcRunConfig() : CloneConfig(config); basis.StrategyCode = "MAD";
+            if (oneMinute.Count == 0) { status.Text = "NO 1-MINUTE BARS LOADED • Step 1: MICRO A DAY, BOTH, your dates, START — then COMPARE."; status.Foreground = Red; }
+            else
+            {
+                oneMinute = oneMinute.OrderBy(b => b.Time).ToList(); basis.Start = oneMinute[0].Time.AddMinutes(-1); basis.End = oneMinute[oneMinute.Count - 1].Time.AddDays(1);
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    List<KeystoneMicroRow> rows = null; string failure = null;
+                    try { rows = KeystoneMicroADay.Compare(oneMinute, basis, new KeystonePropRules()); } catch (Exception ex) { failure = ex.Message; }
+                    Action done = delegate
+                    {
+                        if (failure != null || rows == null) { status.Text = "COMPARE ERROR • " + failure; status.Foreground = Red; return; }
+                        microCompareRows = rows; rankPanel.Children.Clear();
+                        rankPanel.Children.Add(HelixNote("Ranked by PROP cash − spent. Click a row for each year. TRADES = sessions × instruments. WORST DD = the deepest drop of the plain account; UNDER WATER = the longest time (calendar days) from a high back to a new high."));
+                        double[] wr = { 34, 380, 70, 70, 110, 110, 100, 80, 90, 80, 80, 90, 120 };
+                        rankPanel.Children.Add(HelixHeader(new[] { "#", "VERSION", "TRADES", "WON", "PLAIN NET", "WORST DD", "UNDER WATER", "EVALS", "PASSED", "PAYOUTS", "FUNDED LOST", "SPENT", "PROP CASH − SPENT" }, wr));
+                        for (int i = 0; i < rows.Count; i++)
+                        {
+                            var r = rows[i];
+                            var row = HelixRow(new[] { (i + 1).ToString(), r.Label, r.Trades.ToString(), (r.Trades == 0 ? 0 : 100.0 * r.Wins / r.Trades).ToString("0") + "%", Signed(r.Net), Cash(r.MaxDrawdown), r.LongestUnderwaterDays + " d", r.Bought.ToString(), r.Passed.ToString(), r.Payouts.ToString(), r.FundedLost.ToString(), Cash(r.Spent), Signed(r.PropNet) },
+                                new[] { Gold, Text, Text, Text, MoneyBrush(r.Net), Red, Muted, Text, Green, Green, Red, Red, MoneyBrush(r.PropNet) }, wr, i == 0 ? Gold : MoneyBrush(r.PropNet), null);
+                            var rr = r; row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { showYear(rr); };
+                            rankPanel.Children.Add(row);
+                        }
+                        if (rows.Count > 0) { showYear(rows[0]); tabs.SelectedIndex = 0; }
+                        status.Text = rows.Count + " VERSIONS • " + oneMinute[0].Time.ToString("yyyy-MM-dd") + " → " + oneMinute[oneMinute.Count - 1].Time.ToString("yyyy-MM-dd") + (rows.Count > 0 ? " • #1 " + rows[0].Label + " • prop " + Signed(rows[0].PropNet) + " • plain " + Signed(rows[0].Net) : "");
+                        status.Foreground = rows.Count > 0 && rows[0].PropNet > 0 ? Green : Red;
+                    };
+                    if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
+                });
+            }
+            ConfirmToolClose(w, "MICRO A DAY COMPARE");
+            w.Content = root; microCompareWindow = w; microCompareStatus = status;
+            w.Closed += delegate { microCompareWindow = null; microCompareStatus = null; };
+            w.Show();
+        }
+
         private bool IsBracketSelected() { string s = Convert.ToString(strategyBox == null ? null : strategyBox.SelectedItem ?? string.Empty); return s.StartsWith("PROP BRACKET", StringComparison.OrdinalIgnoreCase) || s.StartsWith("FIRST 5M FVG STUDY", StringComparison.OrdinalIgnoreCase) || IsRotationSelected(); }
         private bool IsRotationSelected() { return strategyBox != null && Convert.ToString(strategyBox.SelectedItem ?? string.Empty).StartsWith("ROTATION •", StringComparison.OrdinalIgnoreCase); }
         private bool BracketStudy() { return config != null && string.Equals(config.StrategyCode, "BRK", StringComparison.OrdinalIgnoreCase); }
@@ -22113,7 +22345,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var chart = Btn("LADDERS ON THE CHART", Blue);
             var verify = Btn("LADDER LIST (STEP 2)", Cyan);
             var planWith = Btn("PROP PLANNER WITH THESE DAYS", Orchid); planWith.ToolTip = "Open the PROP PLANNER with the RECOIL days as the source: pass rate, payouts, value of one evaluation, separate vs copy vs rotation, history by year.";
-            planWith.Click += delegate { if (propPlannerWindow != null) { propPlannerWindow.Close(); propPlannerWindow = null; } string sym = recoilResult == null ? null : (recoilResult.Cycles.Select(c => c.Symbol).Distinct().Count() > 1 ? "BOTH" : recoilResult.Cycles.Select(c => c.Symbol).FirstOrDefault()); OpenPropPlanner(sym); };
+            planWith.Click += delegate { if (propPlannerWindow != null) { CloseToolQuietly(propPlannerWindow); propPlannerWindow = null; } string sym = recoilResult == null ? null : (recoilResult.Cycles.Select(c => c.Symbol).Distinct().Count() > 1 ? "BOTH" : recoilResult.Cycles.Select(c => c.Symbol).FirstOrDefault()); OpenPropPlanner(sym); };
             foreach (var b in new[] { rerun, export, chart, verify, planWith }) { b.Height = 30; b.FontSize = 11; actions.Children.Add(b); }
             rerun.Click += delegate { RunRecoil(); };
             export.Click += delegate { ExportRecoilReport(); };
@@ -22452,6 +22684,17 @@ namespace NinjaTrader.NinjaScript.AddOns
         // ---- MOVE STUDY window: ONE way to test every strategy -------------------------------------------
         // Takes the entries of the last run (GOLDEN: every entry set; any other strategy: its entries), follows each one
         // to the close on the 1-minute bars, compares with buying blindly at the start, and derives target / stop from the moves.
+        // Tool windows ask before the X closes them (their results live only in memory); the lab closing them skips the question.
+        private bool toolWindowsClosingWithLab;
+        private void CloseToolQuietly(Window w) { bool was = toolWindowsClosingWithLab; toolWindowsClosingWithLab = true; try { w.Close(); } finally { toolWindowsClosingWithLab = was; } }
+        private void ConfirmToolClose(Window w, string name)
+        {
+            w.Closing += delegate(object sender, CancelEventArgs args)
+            {
+                if (toolWindowsClosingWithLab) return;
+                if (MessageBox.Show("Close " + name + "? Its results are not saved unless you exported them.", "Close " + name, MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) args.Cancel = true;
+            };
+        }
         private Window moveStudyWindow; private List<KeystoneMoveGroup> moveStudyGroups = new List<KeystoneMoveGroup>(); private string moveStudyRange = string.Empty;
         private TextBlock moveStudyStatus; private Action moveStudyRun; private ComboBox moveStudySourceBox;
 
@@ -22611,6 +22854,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 catch (Exception ex) { status.Text = "EXPORT ERROR • " + ex.Message; status.Foreground = Red; }
             };
             render();
+            ConfirmToolClose(w, "MOVE STUDY");
             w.Content = root; moveStudyWindow = w; moveStudyStatus = status; moveStudyRun = run; moveStudySourceBox = sourceBox;
             w.Closed += delegate { moveStudyWindow = null; moveStudyRun = null; moveStudyStatus = null; };
             w.Show();
@@ -22792,6 +23036,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 catch (Exception ex) { status.Text = "EXPORT ERROR • " + ex.Message; status.Foreground = Red; }
             };
+            ConfirmToolClose(w, "ROTATION TESTER");
             w.Content = root; rotationWindow = w; rotationStatus = status; rotationRun = run; rotationOptimize = optimize;
             w.Closed += delegate { rotationWindow = null; rotationRun = null; rotationOptimize = null; rotationStatus = null; };
             w.Show();
@@ -22802,7 +23047,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             bool m = KeystoneBracket.IsOneMinute(mnqBars), g = KeystoneBracket.IsOneMinute(mgcBars);
             if (!m && !g) { UpdateUi("PROP BRACKET NEEDS 1-MINUTE BARS • press START with PROP BRACKET selected", Red); return; }
-            if (propPlannerWindow != null) { propPlannerWindow.Close(); propPlannerWindow = null; }
+            if (propPlannerWindow != null) { CloseToolQuietly(propPlannerWindow); propPlannerWindow = null; }
             OpenPropPlanner("BRACKET");
             UpdateUi("PROP BRACKET • 1-MINUTE BARS READY (" + (m ? "MNQ " + mnqBars.Select(b => b.Time.Date).Distinct().Count() + " days" : "") + (m && g ? " • " : "") + (g ? "MGC " + mgcBars.Select(b => b.Time.Date).Distinct().Count() + " days" : "") + ") • the PROP PLANNER is open on REAL BRACKET: press FIND SWEET SPOT, then RUN THIS PLAN", Green);
         }
@@ -23217,6 +23462,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Keep the last rule and firm rules you ran (a new data load must not reset them).
             if (propLastResult != null) { showRules(propLastResult.Rules); applyPlan(propLastResult.Plan); refreshPoints(); }
 
+            ConfirmToolClose(w, "PROP PLANNER");
             w.Content = root; propPlannerWindow = w;
             w.Closed += delegate { propPlannerWindow = null; applyPlanAndRun = null; propPlannerRun = null; propPlannerSweet = null; propPlannerProof = null; };
             w.Show();
