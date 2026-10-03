@@ -47,3 +47,4 @@ This is your own account, not a prop account. It uses the selected row's real tr
 - **BEST ROWS FOR FLIPPING:** the 40 best plain-profitable rows of that instrument, each with its best sizing.
 
 **Hedging is not used:** a long and a short on the same instrument cancel each other.
+- **FLIP tab in the ASIAN MATH LAB too** (build 10-03u): each row exactly as tested; its starting micros are the size.
