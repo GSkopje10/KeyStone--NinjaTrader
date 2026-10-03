@@ -61,6 +61,49 @@ public static class MicroADayTests
         var bh = cmp.First(r => r.Direction == "BUY" && r.Instruments == "MNQ" && r.MnqTp == 0); var sh = cmp.First(r => r.Direction == "SELL" && r.Instruments == "MNQ" && r.MnqTp == 0);
         Check(Math.Abs(bh.Net + sh.Net + 2 * bh.Trades * KeystoneMoveStudy.Cost("MNQ")) < 1, "hold to the close: BUY and SELL are exact mirrors (minus costs)", bh.Net + " vs " + sh.Net);
         Check(bh.NetByYear.Count == 2 && bh.MaxDrawdown >= 0 && bh.Bought >= 1, "per year, worst drawdown, prop history are filled");
+        // RESULTS: the fast walker = the detector; accounts = prop history; moves add up; best take profit grid; copy trading
+        var sorted = all.OrderBy(b => b.Time).ToList();
+        var mnqOnly = sorted.Where(b => b.Symbol == "MNQ").ToList();
+        foreach (double tp in new[] { 0.0, 50 })
+        {
+            var cfgTp = Cfg("SELL", tp, 0); cfgTp.Start = basis.Start; cfgTp.End = basis.End;
+            var det = KeystoneArcEngine.DetectMicroADayPublic(mnqOnly, cfgTp, "MNQ");
+            var fast = KeystoneMicroADay.Sessions(mnqOnly, cfgTp, "MNQ").Select(x => KeystoneMicroADay.Trade(mnqOnly, x, true, tp, 1)).ToList();
+            bool same = det.Count == fast.Count && det.Zip(fast, (x, y) => Eq(x.Entry, y.Entry) && Eq(x.ExitPrice, y.Exit) && x.ExitTime == y.ExitTime && (x.Outcome == "WIN") == y.Hit && Eq(x.GrossPnl - KeystoneMoveStudy.Cost("MNQ"), y.Net)).All(v => v);
+            Check(same, "results walker = the detector trade for trade (SELL, TP " + tp + ")", det.Count + " vs " + fast.Count);
+        }
+        var res = KeystoneMicroADay.Run(sorted, basis, new KeystonePropRules());
+        var top = res.Rows[0];
+        Check(top.Accounts.Count == top.Bought && top.Accounts.Sum(a => a.Payouts) == top.Payouts && Math.Abs(top.Accounts.Sum(a => a.Cash) - top.Cash) < 0.01 && Math.Abs(top.Accounts.Sum(a => a.Spent) - top.Spent) < 0.01, "account list = prop history (bought, payouts, cash, spent)", top.Accounts.Count + " vs " + top.Bought);
+        Check(top.PropCurve.Count == top.Days.Count && Math.Abs(top.PropCurve.Last().Item2 - top.PropNet) < 0.01, "prop cash curve ends at cash − spent", top.PropCurve.Last().Item2 + " vs " + top.PropNet);
+        var holdBuy = KeystoneMicroADay.Sessions(mnqOnly, basis, "MNQ").Select(x => KeystoneMicroADay.Trade(mnqOnly, x, false, 0, 1)).Sum(t => t.Points);
+        var segs = res.Moves.Where(m => m.Symbol == "MNQ" && !m.Hour).ToList(); var hrs = res.Moves.Where(m => m.Symbol == "MNQ" && m.Hour).ToList();
+        Check(segs.Count == 3 && Math.Abs(segs.Sum(m => m.SumPts) - holdBuy) < 0.01 && Math.Abs(hrs.Sum(m => m.SumPts) - holdBuy) < 0.01 && hrs.Count == 23, "Asia + London + New York = every hour = the whole held move", segs.Sum(m => m.SumPts) + " / " + hrs.Sum(m => m.SumPts) + " / " + holdBuy + " • hours " + hrs.Count);
+        Check(res.Grid.Count == 4 * 31, "take profit grid: MNQ / MGC × BUY / SELL × 31 take profits", res.Grid.Count.ToString());
+        var g100 = res.Grid.First(x => x.Symbol == "MNQ" && x.Direction == "BUY" && x.Tp == 100); var r100 = res.Rows.First(x => x.Instruments == "MNQ" && x.Direction == "BUY" && x.MnqTp == 100);
+        Check(Eq(g100.Net, r100.Net) && Eq(g100.PropNet, r100.PropNet), "grid TP 100 = the BUY MNQ TP 100 version", g100.Net + " vs " + r100.Net);
+        var copy5 = KeystoneMicroADay.Slots(res.Rules, top.Days, "COPY", 5, 0);
+        Check(copy5.Bought == 5 * top.Bought && Math.Abs(copy5.Net - 5 * top.PropNet) < 0.01 && Math.Abs(copy5.MoneyNeeded - 5 * top.MoneyNeeded) < 0.01, "COPY × 5 = one account × 5 (spent, cash, money needed)", copy5.Net + " vs " + 5 * top.PropNet);
+        var stag = KeystoneMicroADay.Slots(res.Rules, top.Days, "STAGGERED", 3, 5);
+        Check(stag.Bought >= 3 && stag.MoneyNeeded >= res.Rules.EvalCost, "STAGGERED × 3 runs three accounts", stag.Bought + " • need " + stag.MoneyNeeded);
+        Check(top.PassRate >= 0 && top.Bought >= 1 && res.Sessions > 400, "random-order pass rate + sessions counted", res.Sessions.ToString());
+        var paidRow = res.Rows.FirstOrDefault(x => x.Payouts > 0);
+        if (paidRow != null)
+        {
+            var st = paidRow.Stats; var firstPay = paidRow.Ledger.First(l => l.Payouts > 0);
+            Console.WriteLine("      first payout " + st.FirstPayout.ToString("yyyy-MM-dd") + " after " + st.SessionsToFirstPayout + " sessions / " + st.CalendarDaysToFirstPayout + " days, spent $" + st.SpentToFirstPayout + " on " + st.EvalsToFirstPayout + " evaluations • payouts in a row " + st.PayoutsInARow);
+            Check(st.HasPayout && st.FirstPayout == firstPay.Day && Math.Abs(st.SpentToFirstPayout - paidRow.Ledger.TakeWhile(l => l != firstPay).Sum(l => l.Spent) - firstPay.Spent) < 0.01 && st.EvalsToFirstPayout >= 1, "first payout: date, sessions, money spent before it");
+            Check(paidRow.Ledger.Sum(l => l.Payouts) == paidRow.Payouts && Math.Abs(paidRow.Ledger.Sum(l => l.Spent) - paidRow.Spent) < 0.01 && Math.Abs(paidRow.Ledger.Sum(l => l.Cash) - paidRow.Cash) < 0.01, "day ledger adds up to the totals (payouts, spent, cash)");
+            Check(st.PayoutsInARow >= st.MostPayoutsOneAccount && st.MostPayoutsOneAccount >= 1 && st.Months >= 20, "payouts in a row ≥ most payouts on one account; months counted", st.PayoutsInARow + " " + st.MostPayoutsOneAccount + " " + st.Months);
+        }
+        else Check(false, "a version with payouts exists in the drift data");
+        var sizes = KeystoneMicroADay.Sizes(top, res.Rules);
+        var one = sizes.First(x => x.EvalK == 1 && x.FundK == 1).Row; var five = sizes.First(x => x.EvalK == 5 && x.FundK == 1).Row;
+        Console.WriteLine("      size 1/1: first payout after " + one.Stats.SessionsToFirstPayout + " sessions • size 5/1: " + five.Stats.SessionsToFirstPayout + " sessions, " + five.Bought + " evaluations");
+        Check(sizes.Count == 28 && Eq(one.PropNet, top.PropNet) && one.Bought == top.Bought, "SIZE & SPEED: 7 evaluation × 4 funded sizes; 1/1 = the version itself", sizes.Count + " " + one.PropNet + " vs " + top.PropNet);
+        var big = KeystoneMicroADay.Run(sorted, basis, res.Rules, 5, 1);
+        var bigTop = big.Rows.First(x => x.Label == top.Label);
+        Check(Eq(bigTop.PropNet, five.PropNet) && bigTop.Bought == five.Bought && Eq(bigTop.Net, top.Net), "Run with 5 micros in the evaluation = SIZE row 5/1; the plain account stays 1 micro", bigTop.PropNet + " vs " + five.PropNet);
         Console.WriteLine(failures == 0 ? "ALL MICRO A DAY TESTS PASSED" : failures + " MICRO A DAY TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

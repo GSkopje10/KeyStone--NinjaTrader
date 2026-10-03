@@ -133,12 +133,12 @@ namespace System.Windows
         public double Top { get; set; }
         public System.Windows.Media.ImageSource Icon { get; set; }
         public event EventHandler Closed, Activated, Deactivated, ContentRendered;
+        public bool Activate() { return true; }
         public event System.ComponentModel.CancelEventHandler Closing;
         public void Show() { }
         public bool? ShowDialog() { return true; }
         public void Close() { }
         public void Hide() { }
-        public bool Activate() { return true; }
     }
     public static class MessageBox
     {

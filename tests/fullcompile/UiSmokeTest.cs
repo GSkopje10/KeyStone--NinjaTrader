@@ -119,6 +119,26 @@ public static class UiSmokeTest
                     var rows = (List<KeystoneMicroRow>)lab2.GetType().GetField("microCompareRows", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
                     Console.WriteLine("      compare: " + rows.Count + " versions • " + ((System.Windows.Controls.TextBlock)lab2.GetType().GetField("microCompareStatus", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2)).Text);
                     if (rows.Count != 36) throw new Exception("compare rows " + rows.Count);
+                    var tabsM = (System.Windows.Controls.TabControl)lab2.GetType().GetField("microTabs", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    foreach (System.Windows.Controls.TabItem t in tabsM.Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("results tab not filled: " + t.Header);
+                    Console.WriteLine("      results tabs: " + string.Join(" • ", tabsM.Items.Cast<System.Windows.Controls.TabItem>().Select(t => t.Header)));
+                    var csv = (string)Call(lab2, "MicroCsv"); var html = (string)Call(lab2, "MicroHtml");
+                    if (!csv.Contains("TAKE PROFIT GRID") || !html.Contains("FIRST PAYOUT") || !html.Contains("<svg")) throw new Exception("export / html report incomplete");
+                    // the chart shows the MICRO A DAY trade of the selected session
+                    var first = ev2.OrderBy(e => e.TriggerTime).First(e => e.Symbol == "MNQ");
+                    Call(lab2, "OpenEvidenceChart");
+                    ((System.Windows.Controls.TextBox)lab2.GetType().GetField("evidenceDateBox", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2)).Text = KeystoneArcEngine.SessionGroupingDate(first.TriggerTime, c).ToString("yyyy-MM-dd");
+                    Call(lab2, "RequestEvidenceBars");
+                    var marks = (List<KeystoneArcEvent>)Call(lab2, "EvidenceEvents", "MNQ", KeystoneArcEngine.SessionGroupingDate(first.TriggerTime, c));
+                    Console.WriteLine("      chart day " + KeystoneArcEngine.SessionGroupingDate(first.TriggerTime, c).ToString("yyyy-MM-dd") + " • MAD trades on it: " + marks.Count);
+                    if (marks.Count == 0) throw new Exception("MICRO A DAY trade not on the chart");
+                    Call(lab2, "RenderEvidenceChart");
+                    Call(lab2, "ReplaySetCursor", first.TriggerTime.AddMinutes(90), true);
+                    var cv = (System.Windows.Controls.Canvas)lab2.GetType().GetField("evidenceCanvas", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    string headLine = cv.Children.OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text ?? "").FirstOrDefault(t => t.Contains("LEDGER MARK")) ?? "";
+                    Console.WriteLine("      replay 90 min after the open: " + headLine.Substring(Math.Max(0, headLine.IndexOf("CANDLES"))));
+                    if (!headLine.Contains("CANDLES • 1 LEDGER MARK")) throw new Exception("replay hides the held MICRO A DAY entry: " + headLine);
+                    Call(lab2, "StopEvidenceReplay");
                 });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {

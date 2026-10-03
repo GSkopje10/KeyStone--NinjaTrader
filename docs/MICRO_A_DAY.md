@@ -16,3 +16,26 @@
 ## Rules
 - A day needs a bar within 15 minutes of the open; otherwise there is no trade that day.
 - Prices come only from the 1-minute bars. Nothing is made up.
+
+## Results window (build 10-03o)
+Bar at the top:
+- firm rules preset, evaluation $ and activation $
+- **MICROS: EVALUATION / FUNDED**: how many micros to trade in each phase (the plain account stays at 1)
+- RE-RUN, **EXPORT HTML + CSV** (the HTML report opens in your browser), **GO TO LAB STEP 3** (the pool, first return, payout cycles and the chart with replay for the run you started)
+
+Tabs:
+- **RANKING**: the best version for prop, for the plain account, for MNQ only, MGC only and BOTH. Filter by ALL / MNQ / MGC / BOTH / BUY / SELL and sort by prop, plain, value per evaluation or pass %. Click a row to select that version in every other tab.
+- **CHARTS**: plain account and drawdown, prop cash − spent, copy ×1/×5/×10, and every day's result.
+- **EVALS & FUNDED**:
+  - money: bought, passed, failed, funded lost, payouts, spent, cash, money needed
+  - first payout: the date, days and sessions it took, money spent and evaluations bought before it
+  - payouts in a row, failed evaluations in a row, months in profit
+  - the random-order pass chance
+  - every account
+- **SIZE & SPEED**: 7 evaluation sizes × 4 funded sizes, sorted by the fastest first payout, with what each costs.
+- **COPY TRADING**: COPY (the same trade on N accounts) and STAGGERED (each account starts 5 sessions later), for 1–20 accounts, with whether it fits the $10K budget.
+- **MONTHS**: trading P&L, bought, passed, payouts, lost, spent, cash in, net and running total per month and per year.
+- **BEST TAKE PROFIT**: each instrument and direction alone, 31 take profits each, per year; ★ marks the best.
+- **SESSIONS & HOURS**: Asia / London / New York and every hour (average points, up days), plus when the take profit was hit.
+- **DAYS**: by weekday, and every trade. Click a trade to open the chart on that session.
+- **EACH YEAR**: the selected version, and every version's prop result per year.

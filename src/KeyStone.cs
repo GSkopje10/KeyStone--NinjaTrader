@@ -5680,21 +5680,226 @@ namespace NinjaTrader.NinjaScript
     public sealed class KeystoneMicroRow
     {
         public string Direction = "BUY", Instruments = "MNQ", TakeProfit = string.Empty; public double MnqTp, MgcTp;
-        public int Trades, Wins; public double Net, MaxDrawdown, AvgWorst; public int LongestUnderwaterDays;
-        public int Bought, Passed, Payouts, FundedLost; public double Spent, Cash;
+        public int Trades, Wins; public double Net, MaxDrawdown, AvgWorst, WorstDay, BestDay; public int LongestUnderwaterDays;
+        public int Bought, Passed, Payouts, FundedLost; public double Spent, Cash, MoneyNeeded;
+        public double PassRate, ValuePerEval, AvgDaysToPass, FundedValue;     // random order of the same days (2,000 evaluations)
         public Dictionary<int, double> NetByYear = new Dictionary<int, double>(), PropByYear = new Dictionary<int, double>();
+        public List<KeystoneMicroTrade> TradeList = new List<KeystoneMicroTrade>();
+        public List<KeystonePropDay> Days = new List<KeystonePropDay>();
+        public List<KeystoneMicroAccount> Accounts = new List<KeystoneMicroAccount>();
+        public List<Tuple<DateTime, double>> PropCurve = new List<Tuple<DateTime, double>>();
+        public List<KeystoneMicroLedger> Ledger = new List<KeystoneMicroLedger>(); public KeystoneMicroStats Stats = new KeystoneMicroStats();
         public double PropNet { get { return Cash - Spent; } }
+        public bool EveryYear { get { return PropByYear.Count > 0 && PropByYear.Values.All(v => v > 0); } }
         public string Label { get { return Direction + " • " + Instruments + " • " + TakeProfit; } }
+    }
+
+    public sealed class KeystoneMicroSession { public string Symbol = string.Empty; public DateTime Open, Close; public int From, To; public double Entry; }
+
+    public sealed class KeystoneMicroTrade
+    {
+        public string Symbol = string.Empty; public bool Sell, Hit; public DateTime Open, ExitTime; public double Entry, Exit, Tp, Points, Net, Worst, Best; public int Qty = 1;
+        public string Outcome { get { return Hit ? "TAKE PROFIT" : "CLOSE"; } }
+    }
+
+    public sealed class KeystoneMicroAccount { public int No; public DateTime Bought, PassedOn = DateTime.MinValue, Ended = DateTime.MinValue; public int EvalDays, FundedDays, Payouts, BoughtIndex, PassedIndex = -1; public double Cash, Spent, PayoutGross; public string Status = "OPEN"; public List<DateTime> PayoutDates = new List<DateTime>(); public List<int> PayoutIndexes = new List<int>(); }
+
+    // One session of the prop slot: what happened that day (for months, profit vs expenses).
+    public sealed class KeystoneMicroLedger { public DateTime Day; public double Pnl, Cash, Spent; public int Bought, Passed, Payouts, Lost, Failed; }
+
+    // The questions that decide a prop plan: how long and how much until the first payout, payouts in a row, months.
+    public sealed class KeystoneMicroStats
+    {
+        public bool HasPayout; public DateTime FirstPayout; public int CalendarDaysToFirstPayout, SessionsToFirstPayout, EvalsToFirstPayout; public double SpentToFirstPayout, FirstPayoutCash;
+        public double AvgSessionsBuyToFirstPayout, AvgSessionsPassToFirstPayout, AvgSessionsBetweenPayouts, AvgPayout, BiggestPayout;
+        public int MostPayoutsOneAccount, PayoutsInARow, LongestFailStreak, FundedWithoutPayout; public double AvgEvalSessionsToPass, AvgFundedLife;
+        public int MonthsPositive, Months; public double BestMonth, WorstMonth;
+    }
+
+    public sealed class KeystoneMicroTpRow { public string Symbol = string.Empty, Direction = string.Empty; public double Tp; public int Trades, Hits; public double Net, MaxDrawdown, PropNet; public int Passed, Payouts, Bought; public Dictionary<int, double> NetByYear = new Dictionary<int, double>(); public bool EveryYear { get { return NetByYear.Count > 0 && NetByYear.Values.All(v => v > 0); } } }
+
+    public sealed class KeystoneMicroMove { public string Symbol = string.Empty, Name = string.Empty; public bool Hour; public int Days, Up; public double SumPts, AbsPts; public double AvgPts { get { return Days == 0 ? 0 : SumPts / Days; } } public double UpPct { get { return Days == 0 ? 0 : 100.0 * Up / Days; } } }
+
+    public sealed class KeystoneMicroSlots { public string Mode = string.Empty; public int Slots; public int Bought, Passed, Payouts, FundedLost; public double Spent, Cash, MoneyNeeded; public double Net { get { return Cash - Spent; } } }
+
+    public sealed class KeystoneMicroResult
+    {
+        public List<KeystoneMicroRow> Rows = new List<KeystoneMicroRow>(); public List<KeystoneMicroTpRow> Grid = new List<KeystoneMicroTpRow>(); public List<KeystoneMicroMove> Moves = new List<KeystoneMicroMove>();
+        public int Sessions; public DateTime First, Last; public KeystonePropRules Rules; public double EvalK = 1, FundK = 1;
     }
 
     public static class KeystoneMicroADay
     {
         public static readonly double[] MnqTps = { 0, 25, 50, 75, 100, 150 }, MgcTps = { 0, 5, 10, 15, 20, 30 };
+        public static double[] GridTps(string symbol) { var list = new List<double>(); for (int i = 0; i <= 30; i++) list.Add(KeystoneMoveStudy.IsMgc(symbol) ? i * 2.0 : i * 10.0); return list.ToArray(); }
 
-        public static List<KeystoneMicroRow> Compare(List<KeystoneArcBar> oneMinute, KeystoneArcRunConfig basis, KeystonePropRules rules)
+        // The sessions the detector trades: open = first 1-minute bar after the open time (within 15 minutes), close = the last bar ≤ close time.
+        public static List<KeystoneMicroSession> Sessions(List<KeystoneArcBar> raw, KeystoneArcRunConfig cfg, string symbol)
         {
-            var rows = new List<KeystoneMicroRow>(); if (oneMinute == null || oneMinute.Count == 0) return rows;
-            bool hasMnq = oneMinute.Any(b => b.Symbol == "MNQ"), hasMgc = oneMinute.Any(b => b.Symbol == "MGC");
+            var output = new List<KeystoneMicroSession>(); if (raw == null || raw.Count == 0) return output;
+            int openM = cfg.MadOpenHhmm / 100 * 60 + cfg.MadOpenHhmm % 100, closeM = cfg.MadCloseHhmm / 100 * 60 + cfg.MadCloseHhmm % 100; bool overnight = closeM <= openM;
+            var days = raw.Select(b => { var o = b.Time.Date.AddMinutes(openM); return b.Time > o ? o : (overnight ? o.AddDays(-1) : o); }).Distinct().OrderBy(d => d).ToList();
+            int idx = 0;
+            foreach (DateTime open in days)
+            {
+                DateTime close = open.Date.AddDays(overnight ? 1 : 0).AddMinutes(closeM);
+                if (open < cfg.Start.AddMinutes(-1) || close > cfg.End.AddDays(1)) continue;
+                while (idx < raw.Count && raw[idx].Time <= open) idx++;
+                if (idx >= raw.Count) break;
+                if (raw[idx].Time > open.AddMinutes(15) || raw[idx].Time > close) continue;
+                int j = idx; while (j + 1 < raw.Count && raw[j + 1].Time <= close) j++;
+                output.Add(new KeystoneMicroSession { Symbol = symbol, Open = open, Close = close, From = idx, To = j, Entry = raw[idx].Open });
+                idx = j;
+            }
+            return output;
+        }
+
+        // One trade on one session: the same walk as the detector (take profit on the touch, else the last close), net of costs.
+        public static KeystoneMicroTrade Trade(List<KeystoneArcBar> raw, KeystoneMicroSession s, bool sell, double tp, int qty)
+        {
+            double sign = sell ? -1 : 1, pv = KeystoneMoveStudy.PointValue(s.Symbol), target = s.Entry + sign * tp, hi = raw[s.From].High, lo = raw[s.From].Low, exit = s.Entry; DateTime at = raw[s.From].Time; bool hit = false;
+            for (int j = s.From; j <= s.To; j++)
+            {
+                var b = raw[j]; hi = Math.Max(hi, b.High); lo = Math.Min(lo, b.Low);
+                if (tp > 0 && (sell ? b.Low <= target : b.High >= target)) { exit = target; at = b.Time; hit = true; break; }
+                exit = b.Close; at = b.Time;
+            }
+            var t = new KeystoneMicroTrade { Symbol = s.Symbol, Sell = sell, Hit = hit, Open = s.Open, ExitTime = at, Entry = s.Entry, Exit = exit, Tp = tp, Qty = qty, Points = sign * (exit - s.Entry) };
+            t.Net = t.Points * pv * qty - qty * KeystoneMoveStudy.Cost(s.Symbol);
+            t.Worst = -(sell ? hi - s.Entry : s.Entry - lo) * pv * qty; t.Best = (sell ? s.Entry - lo : hi - s.Entry) * pv * qty;
+            return t;
+        }
+
+        // Session days for the prop simulation: both instruments of one session added together (the day = the session's trading date).
+        public static List<KeystonePropDay> DaysOf(IEnumerable<KeystoneMicroTrade> trades)
+        {
+            return trades.GroupBy(t => t.Open).OrderBy(g => g.Key).Select(g => new KeystonePropDay { Day = g.Key.Date.AddDays(1), Pnl = g.Sum(t => t.Net), Worst = Math.Min(0, g.Sum(t => t.Worst)), Best = Math.Max(0, g.Sum(t => t.Best)), Traded = true }).ToList();
+        }
+
+        // Every account one slot buys, walking the days in order (identical totals to KeystonePropPlanner.History). Curve = cash − spent after each day.
+        public static List<KeystoneMicroAccount> Accounts(KeystonePropRules r, List<KeystonePropDay> days, List<Tuple<DateTime, double>> curve, List<KeystoneMicroLedger> ledger = null, double evalK = 1, double fundK = 1)
+        {
+            var list = new List<KeystoneMicroAccount>(); if (days == null || days.Count == 0) return list;
+            var a = KeystonePropPlanner.NewEval(r); var acc = new KeystoneMicroAccount { No = 1, Bought = days[0].Day, Spent = r.EvalCost, BoughtIndex = 0 }; list.Add(acc);
+            double cum = -r.EvalCost;
+            for (int i = 0; i < days.Count; i++)
+            {
+                var d = days[i]; var L = new KeystoneMicroLedger { Day = d.Day, Pnl = d.Pnl };
+                if (i == 0) { L.Bought++; L.Spent += r.EvalCost; }
+                bool wasFunded = a.Funded; double before = a.Spent;
+                double got = KeystonePropPlanner.Step(a, r, KeystonePropPlanner.Scale(d, a.Funded ? fundK : evalK, 0));
+                if (got > 0) { acc.Payouts++; acc.Cash += got; acc.PayoutGross += got / Math.Max(0.01, r.Split / 100.0); cum += got; acc.PayoutDates.Add(d.Day); acc.PayoutIndexes.Add(i); L.Payouts++; L.Cash += got; }
+                if (!wasFunded && a.Funded) { acc.PassedOn = d.Day; acc.PassedIndex = i; acc.Spent += a.Spent - before; cum -= a.Spent - before; L.Passed++; L.Spent += a.Spent - before; }
+                acc.EvalDays = a.Days; acc.FundedDays = a.FundedDays;
+                if (a.Dead)
+                {
+                    acc.Ended = d.Day; acc.Status = a.Funded ? (r.MaxPayouts > 0 && a.Payouts >= r.MaxPayouts ? "MAX PAYOUTS" : "FUNDED LOST") : "FAILED EVALUATION";
+                    if (acc.Status == "FUNDED LOST") L.Lost++; else if (acc.Status == "FAILED EVALUATION") L.Failed++;
+                    a = KeystonePropPlanner.NewEval(r); acc = new KeystoneMicroAccount { No = list.Count + 1, Bought = d.Day, Spent = r.EvalCost, BoughtIndex = i + 1 }; list.Add(acc); cum -= r.EvalCost; L.Bought++; L.Spent += r.EvalCost;
+                }
+                else acc.Status = a.Funded ? "FUNDED (OPEN)" : "IN EVALUATION";
+                if (curve != null) curve.Add(Tuple.Create(d.Day, cum));
+                if (ledger != null) ledger.Add(L);
+            }
+            return list;
+        }
+
+        public static KeystoneMicroStats Stats(List<KeystoneMicroAccount> accounts, List<KeystoneMicroLedger> ledger)
+        {
+            var s = new KeystoneMicroStats(); if (accounts == null || accounts.Count == 0 || ledger == null || ledger.Count == 0) return s;
+            var firstAcc = accounts.Where(a => a.PayoutIndexes.Count > 0).OrderBy(a => a.PayoutIndexes[0]).FirstOrDefault();
+            if (firstAcc != null)
+            {
+                int idx = firstAcc.PayoutIndexes[0]; s.HasPayout = true; s.FirstPayout = ledger[idx].Day;
+                s.CalendarDaysToFirstPayout = (int)(ledger[idx].Day - ledger[0].Day).TotalDays; s.SessionsToFirstPayout = idx + 1;
+                s.SpentToFirstPayout = ledger.Take(idx + 1).Sum(l => l.Spent); s.EvalsToFirstPayout = accounts.Count(a => a.BoughtIndex <= idx); s.FirstPayoutCash = ledger[idx].Cash;
+            }
+            var paid = accounts.Where(a => a.PayoutIndexes.Count > 0).ToList();
+            s.AvgSessionsBuyToFirstPayout = paid.Count == 0 ? 0 : paid.Average(a => (double)(a.PayoutIndexes[0] - a.BoughtIndex + 1));
+            s.AvgSessionsPassToFirstPayout = paid.Count == 0 ? 0 : paid.Average(a => (double)(a.PayoutIndexes[0] - a.PassedIndex));
+            var gaps = accounts.SelectMany(a => a.PayoutIndexes.Skip(1).Select((v, k) => (double)(v - a.PayoutIndexes[k]))).ToList(); s.AvgSessionsBetweenPayouts = gaps.Count == 0 ? 0 : gaps.Average();
+            var cashes = ledger.Where(l => l.Payouts > 0).Select(l => l.Cash).ToList(); s.AvgPayout = cashes.Count == 0 ? 0 : cashes.Average(); s.BiggestPayout = cashes.Count == 0 ? 0 : cashes.Max();
+            s.MostPayoutsOneAccount = accounts.Max(a => a.Payouts);
+            int run = 0; foreach (var l in ledger) { if (l.Payouts > 0) { run += l.Payouts; s.PayoutsInARow = Math.Max(s.PayoutsInARow, run); } if (l.Lost > 0) run = 0; }
+            int fails = 0; foreach (var a in accounts) { if (a.Status == "FAILED EVALUATION") { fails++; s.LongestFailStreak = Math.Max(s.LongestFailStreak, fails); } else if (a.PassedIndex >= 0) fails = 0; }
+            s.FundedWithoutPayout = accounts.Count(a => a.PassedIndex >= 0 && a.Payouts == 0 && a.Status == "FUNDED LOST");
+            var passed = accounts.Where(a => a.PassedIndex >= 0).ToList(); s.AvgEvalSessionsToPass = passed.Count == 0 ? 0 : passed.Average(a => (double)a.EvalDays);
+            var ended = passed.Where(a => a.Status == "FUNDED LOST").ToList(); s.AvgFundedLife = ended.Count == 0 ? 0 : ended.Average(a => (double)a.FundedDays);
+            var months = ledger.GroupBy(l => new DateTime(l.Day.Year, l.Day.Month, 1)).Select(g => g.Sum(l => l.Cash - l.Spent)).ToList();
+            s.Months = months.Count; s.MonthsPositive = months.Count(v => v > 0); s.BestMonth = months.Count == 0 ? 0 : months.Max(); s.WorstMonth = months.Count == 0 ? 0 : months.Min();
+            return s;
+        }
+
+        // Several accounts: COPY = every account takes the same trades from the same day (one account × n) •
+        // STAGGERED = account k starts k × gap sessions later, so the accounts are at different points of their life.
+        public static KeystoneMicroSlots Slots(KeystonePropRules r, List<KeystonePropDay> days, string mode, int n, int gap, double evalK = 1, double fundK = 1)
+        {
+            var res = new KeystoneMicroSlots { Mode = mode, Slots = n }; if (days == null || days.Count == 0) return res;
+            var total = new double[days.Count]; int slots = mode == "COPY" ? 1 : n; double mult = mode == "COPY" ? n : 1;
+            for (int k = 0; k < slots; k++)
+            {
+                int start = Math.Min(days.Count - 1, k * Math.Max(1, gap)); var curve = new List<Tuple<DateTime, double>>();
+                var accts = Accounts(r, days.Skip(start).ToList(), curve, null, evalK, fundK);
+                for (int i = 0; i < days.Count; i++) total[i] += mult * (i < start ? 0 : curve[i - start].Item2);
+                res.Bought += (int)mult * accts.Count; res.Passed += (int)mult * accts.Count(x => x.PassedOn != DateTime.MinValue); res.Payouts += (int)mult * accts.Sum(x => x.Payouts);
+                res.FundedLost += (int)mult * accts.Count(x => x.Status == "FUNDED LOST"); res.Spent += mult * accts.Sum(x => x.Spent); res.Cash += mult * accts.Sum(x => x.Cash);
+            }
+            res.MoneyNeeded = Math.Max(0, -total.DefaultIfEmpty(0).Min());
+            return res;
+        }
+
+        static void Fill(KeystoneMicroRow row, KeystonePropRules rules, bool random, double evalK = 1, double fundK = 1)
+        {
+            row.Days = DaysOf(row.TradeList);
+            double eq = 0, peak = 0; DateTime peakDay = DateTime.MinValue; int longest = 0;
+            foreach (var d in row.Days)
+            {
+                eq += d.Pnl; double y; row.NetByYear.TryGetValue(d.Day.Year, out y); row.NetByYear[d.Day.Year] = y + d.Pnl;
+                if (eq >= peak) { peak = eq; peakDay = d.Day; } else { row.MaxDrawdown = Math.Max(row.MaxDrawdown, peak - eq); if (peakDay != DateTime.MinValue) longest = Math.Max(longest, (int)(d.Day - peakDay).TotalDays); }
+            }
+            row.Net = eq; row.LongestUnderwaterDays = longest; row.AvgWorst = row.Days.Count == 0 ? 0 : row.Days.Average(d => d.Worst);
+            row.WorstDay = row.Days.Count == 0 ? 0 : row.Days.Min(d => d.Pnl); row.BestDay = row.Days.Count == 0 ? 0 : row.Days.Max(d => d.Pnl);
+            row.Trades = row.TradeList.Count; row.Wins = row.TradeList.Count(t => t.Net > 0);
+            var plan = new KeystonePropPlan { Source = "REAL", EvalSize = evalK, FundSize = fundK };
+            foreach (var y in KeystonePropPlanner.History(rules, plan, row.Days))
+            { row.Bought += y.Bought; row.Passed += y.Passed; row.Payouts += y.Payouts; row.FundedLost += y.Blown; row.Spent += y.Spent; row.Cash += y.Cash; row.PropByYear[y.Year] = y.Net; }
+            row.PropCurve = new List<Tuple<DateTime, double>>(); row.Ledger = new List<KeystoneMicroLedger>(); row.Accounts = Accounts(rules, row.Days, row.PropCurve, row.Ledger, evalK, fundK); row.Stats = Stats(row.Accounts, row.Ledger);
+            row.MoneyNeeded = Math.Max(0, -row.PropCurve.Select(p => p.Item2).DefaultIfEmpty(0).Min());
+            if (random && row.Days.Count >= 10)
+            {
+                var ev = KeystonePropPlanner.Evaluate(rules, plan, row.Days, 2000, 7);
+                row.PassRate = ev.PassRate; row.ValuePerEval = ev.ValuePerEval; row.AvgDaysToPass = ev.AvgDaysToPass; row.FundedValue = ev.FundedValue;
+            }
+        }
+
+        public static List<KeystoneMicroRow> Compare(List<KeystoneArcBar> oneMinute, KeystoneArcRunConfig basis, KeystonePropRules rules) { return Run(oneMinute, basis, rules).Rows; }
+
+        // SIZE & SPEED: the same days traded with more micros in the evaluation and in the funded account.
+        public sealed class SizeRow { public double EvalK, FundK; public KeystoneMicroRow Row; }
+        public static readonly double[] EvalSizes = { 1, 2, 3, 5, 8, 10, 15 }, FundSizes = { 1, 2, 3, 5 };
+        public static List<SizeRow> Sizes(KeystoneMicroRow basis, KeystonePropRules rules)
+        {
+            var combos = EvalSizes.SelectMany(e => FundSizes.Select(f => Tuple.Create(e, f))).ToList(); var output = new SizeRow[combos.Count];
+            System.Threading.Tasks.Parallel.For(0, combos.Count, i =>
+            {
+                var row = new KeystoneMicroRow { Direction = basis.Direction, Instruments = basis.Instruments, TakeProfit = basis.TakeProfit, MnqTp = basis.MnqTp, MgcTp = basis.MgcTp, TradeList = basis.TradeList };
+                Fill(row, rules, true, combos[i].Item1, combos[i].Item2);
+                output[i] = new SizeRow { EvalK = combos[i].Item1, FundK = combos[i].Item2, Row = row };
+            });
+            return output.ToList();
+        }
+
+        public static KeystoneMicroResult Run(List<KeystoneArcBar> oneMinute, KeystoneArcRunConfig basis, KeystonePropRules rules, double evalK = 1, double fundK = 1)
+        {
+            var res = new KeystoneMicroResult { Rules = rules, EvalK = evalK, FundK = fundK }; if (oneMinute == null || oneMinute.Count == 0) return res;
+            int qty = Math.Max(1, basis.MadQty);
+            var bars = oneMinute.GroupBy(b => b.Symbol).ToDictionary(g => g.Key, g => g.OrderBy(b => b.Time).ToList());
+            var sessions = bars.ToDictionary(kv => kv.Key, kv => Sessions(kv.Value, basis, kv.Key));
+            bool hasMnq = sessions.ContainsKey("MNQ") && sessions["MNQ"].Count > 0, hasMgc = sessions.ContainsKey("MGC") && sessions["MGC"].Count > 0;
+            var allOpens = sessions.Values.SelectMany(l => l.Select(s => s.Open)).Distinct().OrderBy(d => d).ToList();
+            res.Sessions = allOpens.Count; if (allOpens.Count > 0) { res.First = allOpens[0]; res.Last = allOpens[allOpens.Count - 1]; }
+            Func<string, bool, double, List<KeystoneMicroTrade>> trades = (sym, sell, tp) => { List<KeystoneMicroSession> ss; return sessions.TryGetValue(sym, out ss) ? ss.Select(s => Trade(bars[sym], s, sell, tp, qty)).ToList() : new List<KeystoneMicroTrade>(); };
+            // 36 versions
             var combos = new List<Tuple<string, string, int>>();
             foreach (string dir in new[] { "BUY", "SELL" })
                 foreach (string inst in new[] { "MNQ", "MGC", "BOTH" })
@@ -5702,42 +5907,59 @@ namespace NinjaTrader.NinjaScript
                     if ((inst == "MNQ" && !hasMnq) || (inst == "MGC" && !hasMgc) || (inst == "BOTH" && !(hasMnq && hasMgc))) continue;
                     for (int t = 0; t < MnqTps.Length; t++) combos.Add(Tuple.Create(dir, inst, t));
                 }
-            var results = new KeystoneMicroRow[combos.Count];
+            var rows = new KeystoneMicroRow[combos.Count];
             System.Threading.Tasks.Parallel.For(0, combos.Count, i =>
             {
-                var c = combos[i]; var cfg = basis.ShallowCopy(); cfg.StrategyCode = "MAD"; cfg.MadDirection = c.Item1; cfg.MadMnqTarget = MnqTps[c.Item3]; cfg.MadMgcTarget = MgcTps[c.Item3];
-                var bars = oneMinute.Where(b => c.Item2 == "BOTH" || b.Symbol == c.Item2).ToList();
-                var events = new List<KeystoneArcEvent>();
-                foreach (var g in bars.GroupBy(b => b.Symbol)) events.AddRange(KeystoneArcEngine.DetectMicroADayPublic(g.OrderBy(b => b.Time).ToList(), cfg, g.Key));
-                var row = new KeystoneMicroRow { Direction = c.Item1, Instruments = c.Item2, MnqTp = cfg.MadMnqTarget, MgcTp = cfg.MadMgcTarget };
-                row.TakeProfit = c.Item3 == 0 ? "HOLD TO THE CLOSE" : (c.Item2 == "MNQ" ? "TP +" + cfg.MadMnqTarget + " PTS" : c.Item2 == "MGC" ? "TP +" + cfg.MadMgcTarget + " PTS" : "TP MNQ +" + cfg.MadMnqTarget + " / MGC +" + cfg.MadMgcTarget);
-                // one row per session: both instruments added together
-                var days = new List<KeystonePropDay>();
-                foreach (var d in events.GroupBy(e => e.TriggerTime).OrderBy(d => d.Key))
-                {
-                    double pnl = 0, worst = 0, best = 0;
-                    foreach (var e in d)
-                    {
-                        bool s = e.Direction == "SHORT"; double pv = e.Symbol == "MGC" ? 10 : 2, q = Math.Max(1, e.Quantity);
-                        double net = e.GrossPnl - q * KeystoneMoveStudy.Cost(e.Symbol); pnl += net; row.Trades++; if (net > 0) row.Wins++;
-                        worst += -(s ? e.PeakAfterEntry - e.Entry : e.Entry - e.TroughAfterEntry) * pv * q; best += (s ? e.Entry - e.TroughAfterEntry : e.PeakAfterEntry - e.Entry) * pv * q;
-                    }
-                    days.Add(new KeystonePropDay { Day = d.Key.Date.AddDays(1), Pnl = pnl, Worst = Math.Min(0, worst), Best = Math.Max(0, best), Traded = true });
-                }
-                double eq = 0, peak = 0; DateTime peakDay = DateTime.MinValue; int longest = 0;
-                foreach (var d in days)
-                {
-                    eq += d.Pnl; double y; row.NetByYear.TryGetValue(d.Day.Year, out y); row.NetByYear[d.Day.Year] = y + d.Pnl;
-                    if (eq >= peak) { peak = eq; peakDay = d.Day; } else { row.MaxDrawdown = Math.Max(row.MaxDrawdown, peak - eq); if (peakDay != DateTime.MinValue) longest = Math.Max(longest, (int)(d.Day - peakDay).TotalDays); }
-                }
-                row.Net = eq; row.LongestUnderwaterDays = longest; row.AvgWorst = days.Count == 0 ? 0 : days.Average(d => d.Worst);
-                var plan = new KeystonePropPlan { Source = "REAL", EvalSize = 1, FundSize = 1 };
-                foreach (var y in KeystonePropPlanner.History(rules, plan, days))
-                { row.Bought += y.Bought; row.Passed += y.Passed; row.Payouts += y.Payouts; row.FundedLost += y.Blown; row.Spent += y.Spent; row.Cash += y.Cash; row.PropByYear[y.Year] = y.Net; }
-                results[i] = row;
+                var c = combos[i]; bool sell = c.Item1 == "SELL";
+                var row = new KeystoneMicroRow { Direction = c.Item1, Instruments = c.Item2, MnqTp = MnqTps[c.Item3], MgcTp = MgcTps[c.Item3] };
+                row.TakeProfit = c.Item3 == 0 ? "HOLD TO THE CLOSE" : (c.Item2 == "MNQ" ? "TP +" + row.MnqTp + " PTS" : c.Item2 == "MGC" ? "TP +" + row.MgcTp + " PTS" : "TP MNQ +" + row.MnqTp + " / MGC +" + row.MgcTp);
+                if (c.Item2 != "MGC") row.TradeList.AddRange(trades("MNQ", sell, row.MnqTp));
+                if (c.Item2 != "MNQ") row.TradeList.AddRange(trades("MGC", sell, row.MgcTp));
+                Fill(row, rules, true, evalK, fundK);
+                rows[i] = row;
             });
-            return results.Where(r => r != null).OrderByDescending(r => r.PropNet).ThenByDescending(r => r.Net).ToList();
+            res.Rows = rows.Where(r => r != null).OrderByDescending(r => r.PropNet).ThenByDescending(r => r.Net).ToList();
+            // take-profit grid: each instrument alone, 31 take profits each way
+            var grid = new List<Tuple<string, bool, double>>();
+            foreach (string sym in new[] { "MNQ", "MGC" }) if (sym == "MNQ" ? hasMnq : hasMgc) foreach (bool sell in new[] { false, true }) foreach (double tp in GridTps(sym)) grid.Add(Tuple.Create(sym, sell, tp));
+            var gridRows = new KeystoneMicroTpRow[grid.Count];
+            System.Threading.Tasks.Parallel.For(0, grid.Count, i =>
+            {
+                var g = grid[i]; var row = new KeystoneMicroRow(); row.TradeList = trades(g.Item1, g.Item2, g.Item3); Fill(row, rules, false, evalK, fundK);
+                gridRows[i] = new KeystoneMicroTpRow { Symbol = g.Item1, Direction = g.Item2 ? "SELL" : "BUY", Tp = g.Item3, Trades = row.Trades, Hits = row.TradeList.Count(t => t.Hit), Net = row.Net, MaxDrawdown = row.MaxDrawdown, PropNet = row.PropNet, Passed = row.Passed, Payouts = row.Payouts, Bought = row.Bought, NetByYear = row.NetByYear };
+            });
+            res.Grid = gridRows.ToList();
+            foreach (var kv in sessions) res.Moves.AddRange(Moves(bars[kv.Key], kv.Value, kv.Key));
+            return res;
         }
+
+        // Where the day's move happens (BUY points; SELL is the mirror): Asia (open → 03:00), London (03:00 → 09:30), New York (09:30 → close), and every hour.
+        public static List<KeystoneMicroMove> Moves(List<KeystoneArcBar> raw, List<KeystoneMicroSession> sessions, string symbol)
+        {
+            var seg = new[] { new KeystoneMicroMove { Symbol = symbol, Name = "ASIA • OPEN → 03:00" }, new KeystoneMicroMove { Symbol = symbol, Name = "LONDON • 03:00 → 09:30" }, new KeystoneMicroMove { Symbol = symbol, Name = "NEW YORK • 09:30 → CLOSE" } };
+            var hours = new Dictionary<int, KeystoneMicroMove>();
+            foreach (var s in sessions)
+            {
+                DateTime day = s.Open.Date.AddDays(s.Open.Hour >= 12 ? 1 : 0); var cuts = new[] { day.AddHours(3), day.AddHours(9.5), s.Close };
+                double last = s.Entry; int k = 0; double hourStart = s.Entry; int hourKey = s.Open.Hour; double prevClose = s.Entry;
+                for (int j = s.From; j <= s.To; j++)
+                {
+                    var b = raw[j];
+                    while (k < 2 && b.Time > cuts[k]) { if (cuts[k] > s.Open && cuts[k] < s.Close) Add(seg[k], prevClose - last); last = prevClose; k++; }
+                    int h = (b.Time.AddMinutes(-1)).Hour;
+                    if (h != hourKey) { AddHour(hours, symbol, hourKey, prevClose - hourStart); hourStart = prevClose; hourKey = h; }
+                    prevClose = b.Close;
+                }
+                while (k < 2) { if (cuts[k] > s.Open && cuts[k] < s.Close) Add(seg[k], prevClose - last); last = prevClose; k++; }
+                Add(seg[2], prevClose - last); AddHour(hours, symbol, hourKey, prevClose - hourStart);
+            }
+            var output = seg.ToList();
+            int startHour = sessions.Count > 0 ? sessions[0].Open.Hour : 18;
+            output.AddRange(hours.Values.OrderBy(h => (int.Parse(h.Name.Substring(0, 2)) - startHour + 24) % 24));
+            return output;
+        }
+        static void Add(KeystoneMicroMove m, double pts) { m.Days++; if (pts > 0) m.Up++; m.SumPts += pts; m.AbsPts += Math.Abs(pts); }
+        static void AddHour(Dictionary<int, KeystoneMicroMove> hours, string symbol, int h, double pts) { KeystoneMicroMove m; if (!hours.TryGetValue(h, out m)) { m = new KeystoneMicroMove { Symbol = symbol, Hour = true, Name = h.ToString("00") + ":00" }; hours[h] = m; } Add(m, pts); }
     }
 
     public sealed class KeystoneMoveRow
@@ -9287,9 +9509,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-03n";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03o";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -10495,7 +10717,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             asianMgcDirectionBox = Select("LONG", "SHORT"); asianMgcDirectionBox.SelectedIndex = 0;
             asianRiskModeBox = Select("FIXED CASH PER LEG", "PRICE MOVE PER LEG"); asianRiskModeBox.SelectedIndex = 0;
             asianReversalLossBox = Input("75"); asianMnqPriceMoveBox = Input("37.5"); asianMgcPriceMoveBox = Input("7.5");
-            asianCycleTargetBox = Input("350"); asianCombinedStopBox = Input("0"); asianDailyLossBox = Input("600"); asianDailyLossBox.IsReadOnly = true; asianInstrumentStopBox = Input("0"); asianMnqInstrumentStopBox = Input("0"); asianMgcInstrumentStopBox = Input("0"); asianBreakEvenBox = Input("0"); asianStartingQuantityBox = Input("1"); asianMaxReversalsBox = Input("4"); asianMnqMaxReversalsBox = Input("4"); asianMgcMaxReversalsBox = Input("4");
+            asianCycleTargetBox = Input("350"); asianCombinedStopBox = Input("0"); asianDailyLossBox = Input("600"); asianDailyLossBox.ToolTip = "Automatic (reversal legs × fixed loss × instruments) until you type your own number. Clear the box to go back to automatic."; asianDailyLossBox.TextChanged += delegate { if (!asianDailyLossUpdating) { asianDailyLossManual = !string.IsNullOrWhiteSpace(asianDailyLossBox.Text); if (!asianDailyLossManual) RefreshAsianDerivedInputs(); } }; asianInstrumentStopBox = Input("0"); asianMnqInstrumentStopBox = Input("0"); asianMgcInstrumentStopBox = Input("0"); asianBreakEvenBox = Input("0"); asianStartingQuantityBox = Input("1"); asianMaxReversalsBox = Input("4"); asianMnqMaxReversalsBox = Input("4"); asianMgcMaxReversalsBox = Input("4");
             // Retained fields are not rendered and are not read in the prop-only configuration path.
             personalStartingBalanceBox = Input("0"); personalLotBox = Input("1.00"); mnqCashValueBox = Input("1.00"); mgcCashValueBox = Input("1.00");
             mnqTargetMoveBox = Input("10"); mgcTargetMoveBox = Input("10"); mnqStandardStopMoveBox = Input("5"); mgcStandardStopMoveBox = Input("5"); personalMaxRiskBox = Input("500"); breakEvenMoveBox = Input("0");
@@ -10541,7 +10763,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             UIElement asianMgcPriceMoveRow = Row("MGC STOP DISTANCE / LEG (POINTS • 7.5 = $75 AT x1)", asianMgcPriceMoveBox);
             UIElement asianCycleTargetRow = Row("ASIAN COMBINED DAILY PROFIT TARGET $", asianCycleTargetBox);
             UIElement asianCombinedStopRow = Row("ADVANCED COMBINED CYCLE STOP $ (0=OFF)", asianCombinedStopBox);
-            UIElement asianDailyLossRow = Row("AUTO MAX COMBINED REVERSAL LOSS $", asianDailyLossBox);
+            UIElement asianDailyLossRow = Row("MAX COMBINED REVERSAL LOSS $ (AUTO UNTIL YOU TYPE • EMPTY = AUTO)", asianDailyLossBox);
             UIElement asianInstrumentStopRow = Row("LEGACY MAX LOSS / INSTRUMENT $", asianInstrumentStopBox);
             UIElement asianMnqInstrumentStopRow = Row("MNQ MAX LOSS / DAY $ (0=OFF)", asianMnqInstrumentStopBox);
             UIElement asianMgcInstrumentStopRow = Row("MGC MAX LOSS / DAY $ (0=OFF)", asianMgcInstrumentStopBox);
@@ -10566,7 +10788,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Retained only for compatibility with old snapshots; the current Asian tester uses
             // one shared cash stop and one shared reversal count for both instruments.
             asianInstrumentStopRow.Visibility = Visibility.Collapsed; asianMnqInstrumentStopRow.Visibility = Visibility.Collapsed; asianMgcInstrumentStopRow.Visibility = Visibility.Collapsed; asianMnqDirectionRow.Visibility = Visibility.Collapsed; asianMgcDirectionRow.Visibility = Visibility.Collapsed; asianCombinedStopRow.Visibility = Visibility.Collapsed; asianMnqPriceMoveRow.Visibility = Visibility.Collapsed; asianMgcPriceMoveRow.Visibility = Visibility.Collapsed; asianMnqMaxReversalsRow.Visibility = Visibility.Collapsed; asianMgcMaxReversalsRow.Visibility = Visibility.Collapsed;
-            asianModel.Children.Add(Txt("ONE DAILY CYCLE: MNQ and MGC enter together at the exact selected 1-minute bar (18:00 by default). Every stop closes that leg at the fixed cash loss, reverses at the next 1-minute open, and adds one micro. The shared reversal count applies separately to MNQ and MGC. AUTO MAX COMBINED REVERSAL LOSS = reversal legs × fixed loss × 2 instruments; it is a visible protection ceiling, while the combined profit target closes the daily cycle. Each completed cycle is copied to active virtual accounts; no rotation is used.", Orchid, 10, FontWeights.Bold));
+            asianModel.Children.Add(Txt("ONE DAILY CYCLE: MNQ and MGC enter together at the exact selected 1-minute bar (18:00 by default). Every stop closes that leg at the fixed cash loss, reverses at the next 1-minute open, and adds one micro. The shared reversal count applies separately to MNQ and MGC. MAX COMBINED REVERSAL LOSS = reversal legs × fixed loss × 2 instruments automatically, or your own number when you type one; it is the protection ceiling, while the combined profit target closes the daily cycle. Each completed cycle is copied to active virtual accounts; no rotation is used.", Orchid, 10, FontWeights.Bold));
             asianStrategyControls.Clear(); asianStrategyControls.Add(asianModel);
             var fvgModel = Stack(); fvgModel.Margin = new Thickness(0, 4, 0, 2);
             fvgModel.Children.Add(Txt("FVG RETEST • BOX RULES", Orchid, 11, FontWeights.Bold));
@@ -10924,6 +11146,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             for (int i = 0; i < asianPriceRiskControls.Count; i++) if (asianPriceRiskControls[i] != null) asianPriceRiskControls[i].Visibility = price ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        private bool asianDailyLossManual, asianDailyLossUpdating;
         private void RefreshAsianDerivedInputs()
         {
             if (asianDailyLossBox == null) return;
@@ -10932,7 +11155,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             string scope = scopeBox == null ? "BOTH" : Convert.ToString(scopeBox.SelectedItem ?? "BOTH");
             bool price = asianRiskModeBox != null && Convert.ToString(asianRiskModeBox.SelectedItem).StartsWith("PRICE", StringComparison.OrdinalIgnoreCase);
             double combined = KeystoneArcEngine.AsianAutoDailyLossLimit(price ? "PRICE" : "CASH", (scope ?? "BOTH").ToUpperInvariant(), loss, Number(asianMnqPriceMoveBox, 37.5), Number(asianMgcPriceMoveBox, 7.5), reversals);
-            asianDailyLossBox.Text = combined.ToString("0.##", CultureInfo.InvariantCulture);
+            if (!asianDailyLossManual) { asianDailyLossUpdating = true; try { asianDailyLossBox.Text = combined.ToString("0.##", CultureInfo.InvariantCulture); } finally { asianDailyLossUpdating = false; } }
             if (asianMnqMaxReversalsBox != null) asianMnqMaxReversalsBox.Text = reversals.ToString(CultureInfo.InvariantCulture);
             if (asianMgcMaxReversalsBox != null) asianMgcMaxReversalsBox.Text = reversals.ToString(CultureInfo.InvariantCulture);
         }
@@ -15084,7 +15307,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             List<KeystoneArcBar> bars = allBars.Skip(evidenceFirstVisibleBar).Take(visibleCount).ToList();
             HelixKeepSelection(symbol, allMarks);
             bool helixChart = HelixStudy();
-            List<KeystoneArcEvent> marks = allMarks.Where(e => EvidenceEntryBarIndex(bars, e) >= 0 && (!replaying || (helixChart ? e.EntryTime <= evidenceBarCursor : (e.ExitTime != DateTime.MinValue ? e.ExitTime <= evidenceBarCursor : e.EntryTime <= evidenceBarCursor)))).ToList();
+            List<KeystoneArcEvent> marks = allMarks.Where(e => EvidenceEntryBarIndex(bars, e) >= 0 && (!replaying || (helixChart || e.SetupClass == "MAD" ? e.EntryTime <= evidenceBarCursor : (e.ExitTime != DateTime.MinValue ? e.ExitTime <= evidenceBarCursor : e.EntryTime <= evidenceBarCursor)))).ToList();
             List<KeystoneArcBar> shownBars = replaying ? bars.Where(b => b.Time <= evidenceBarCursor).ToList() : bars;
             if (shownBars.Count == 0) shownBars = bars.Take(1).ToList();
             double rawMin = shownBars.Min(x => x.Low), rawMax = shownBars.Max(x => x.High);
@@ -19632,7 +19855,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (asianMgcPriceMoveBox != null) asianMgcPriceMoveBox.Text = "7.5";
             if (asianCycleTargetBox != null) asianCycleTargetBox.Text = "350";
             if (asianCombinedStopBox != null) asianCombinedStopBox.Text = "0";
-            if (asianDailyLossBox != null) asianDailyLossBox.Text = "600";
+            if (asianDailyLossBox != null) { asianDailyLossManual = false; asianDailyLossUpdating = true; try { asianDailyLossBox.Text = "600"; } finally { asianDailyLossUpdating = false; } }
             if (asianInstrumentStopBox != null) asianInstrumentStopBox.Text = "0";
             if (asianMnqInstrumentStopBox != null) asianMnqInstrumentStopBox.Text = "0";
             if (asianMgcInstrumentStopBox != null) asianMgcInstrumentStopBox.Text = "0";
@@ -21984,72 +22207,526 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
 
         private Window microCompareWindow; private List<KeystoneMicroRow> microCompareRows = new List<KeystoneMicroRow>(); private TextBlock microCompareStatus;
+        private KeystoneMicroResult microResult; private KeystoneMicroRow microSelected; private TabControl microTabs; private string microFilter = "ALL", microSort = "PROP";
+        private Action microRerun;
+
+        // A line chart over the days: each series = (title, brush, values by day).
+        private UIElement MicroChart(string title, List<DateTime> days, params Tuple<string, Brush, List<double>>[] series)
+        {
+            var box = new StackPanel();
+            box.Children.Add(HelixTitle(title, Gold));
+            var canvas = new Canvas { Width = 1100, Height = 250, Background = EvidenceBg, Margin = new Thickness(4) };
+            var all = series.SelectMany(s => s.Item3).ToList();
+            if (all.Count < 2 || days.Count < 2) { box.Children.Add(HelixNote("Not enough days for a chart.")); return box; }
+            double min = Math.Min(0, all.Min()), max = Math.Max(1, all.Max());
+            Func<double, double> y = v => 14 + (max - v) / Math.Max(1, max - min) * 210;
+            canvas.Children.Add(new System.Windows.Shapes.Line { X1 = 80, X2 = 1080, Y1 = y(0), Y2 = y(0), Stroke = Muted, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 3, 3 } });
+            Action<string, double, double, Brush> label = delegate(string t, double x, double yy, Brush b) { var tb = new TextBlock { Text = t, Foreground = b, FontSize = 10, FontWeight = FontWeights.Bold }; Canvas.SetLeft(tb, x); Canvas.SetTop(tb, yy); canvas.Children.Add(tb); };
+            int ly = 0;
+            foreach (var s in series)
+            {
+                var line = new System.Windows.Shapes.Polyline { Stroke = s.Item2, StrokeThickness = 2, Points = new PointCollection() };
+                for (int i = 0; i < s.Item3.Count; i++) line.Points.Add(new Point(80 + i * 1000.0 / Math.Max(1, s.Item3.Count - 1), y(s.Item3[i])));
+                canvas.Children.Add(line);
+                if (s.Item3.Count > 0) label(s.Item1 + " " + Signed(s.Item3[s.Item3.Count - 1]), 90, 2 + 13 * ly++, s.Item2);
+            }
+            label(Cash(max), 4, 10, Muted); label("$0", 4, y(0) - 7, Muted); label(Cash(min), 4, 222, Muted);
+            label(days[0].ToString("MMM yyyy", CultureInfo.InvariantCulture), 80, 234, Muted); label(days[days.Count - 1].ToString("MMM d, yyyy", CultureInfo.InvariantCulture), 990, 234, Muted);
+            int y0 = days[0].Year; for (int i = 1; i < days.Count; i++) if (days[i].Year != days[i - 1].Year) { double x = 80 + i * 1000.0 / Math.Max(1, days.Count - 1); canvas.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = 14, Y2 = 224, Stroke = Card, StrokeThickness = 1 }); label(days[i].Year.ToString(), x + 2, 224, Muted); }
+            box.Children.Add(canvas);
+            return box;
+        }
+
+        private static string MicroPts(string sym, double v) { return (v > 0 ? "+" : "") + v.ToString(sym == "MGC" ? "0.0" : "0.#", CultureInfo.InvariantCulture); }
+
+        private void SetMicroTab(string header, UIElement content)
+        {
+            if (microTabs == null) return;
+            foreach (TabItem t in microTabs.Items) if (Convert.ToString(t.Header) == header) { t.Content = content; return; }
+        }
+
+        private void ShowMicroSelected(KeystoneMicroRow r, bool jump)
+        {
+            if (r == null || microResult == null) return;
+            microSelected = r;
+            SetMicroTab("CHARTS", MicroChartsView(r)); SetMicroTab("EVALS & FUNDED", MicroPropView(r)); SetMicroTab("COPY TRADING", MicroCopyView(r));
+            SetMicroTab("SESSIONS & HOURS", MicroSessionsView(r)); SetMicroTab("DAYS", MicroDaysView(r)); SetMicroTab("EACH YEAR", MicroYearsView(r)); SetMicroTab("MONTHS", MicroMonthsView(r));
+            SetMicroTab("SIZE & SPEED", Txt("Measuring every size for " + r.Label + "…", Muted, 12, FontWeights.Normal));
+            var rules = microResult.Rules; var win = microCompareWindow;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                List<KeystoneMicroADay.SizeRow> sizes = null; try { sizes = KeystoneMicroADay.Sizes(r, rules); } catch { }
+                Action done = delegate { if (microSelected == r && sizes != null) SetMicroTab("SIZE & SPEED", MicroSizeView(r, sizes)); };
+                if (win == null || win.Dispatcher == null || win.Dispatcher.CheckAccess()) done(); else win.Dispatcher.BeginInvoke(done);
+            });
+            if (microCompareStatus != null) microCompareStatus.Text = "SELECTED • " + r.Label + " • plain " + Signed(r.Net) + " • prop " + Signed(r.PropNet) + " (" + r.Passed + " passed / " + r.Bought + " bought, " + r.Payouts + " payouts) • click another row in RANKING to switch";
+            if (jump && microTabs != null) microTabs.SelectedIndex = 1;
+        }
+
+        private UIElement MicroRankingView()
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var res = microResult; if (res == null) return root;
+            if (res.Sessions < 60) root.Children.Add(new Border { Background = Card, BorderBrush = Red, BorderThickness = new Thickness(2), Padding = new Thickness(10), Margin = new Thickness(4), Child = Txt("ONLY " + res.Sessions + " SESSION" + (res.Sessions == 1 ? "" : "S") + " LOADED (" + res.First.ToString("yyyy-MM-dd") + " → " + res.Last.ToString("yyyy-MM-dd") + ") • these numbers mean nothing yet. Step 1: set the date range to several years (e.g. 2020-01-01 → yesterday) and START again.", Red, 13, FontWeights.Bold) });
+            var cards = new WrapPanel();
+            Func<IEnumerable<KeystoneMicroRow>, KeystoneMicroRow> best = q => q.OrderByDescending(x => x.PropNet).FirstOrDefault();
+            var bp = best(res.Rows); var bn = res.Rows.OrderByDescending(x => x.Net).FirstOrDefault(); var bq = best(res.Rows.Where(x => x.Instruments == "MNQ")); var bg = best(res.Rows.Where(x => x.Instruments == "MGC")); var bb = best(res.Rows.Where(x => x.Instruments == "BOTH"));
+            Action<string, KeystoneMicroRow, bool> card = delegate(string t, KeystoneMicroRow x, bool prop)
+            {
+                if (x == null) return; var c = HelixCard(t, prop ? Signed(x.PropNet) : Signed(x.Net), x.Label + (prop ? " • " + x.Passed + " passed, " + x.Payouts + " payouts" + (x.EveryYear ? " • EVERY YEAR +" : "") : " • worst drawdown " + Cash(x.MaxDrawdown)), MoneyBrush(prop ? x.PropNet : x.Net), 250);
+                var xx = x; c.Cursor = System.Windows.Input.Cursors.Hand; c.MouseLeftButtonUp += delegate { ShowMicroSelected(xx, true); }; cards.Children.Add(c);
+            };
+            card("BEST FOR PROP", bp, true); card("BEST PLAIN ACCOUNT", bn, false); card("BEST MNQ ONLY", bq, true); card("BEST MGC ONLY", bg, true); card("BEST BOTH", bb, true);
+            cards.Children.Add(HelixCard("TESTED", res.Sessions + " sessions", res.First.ToString("yyyy-MM-dd") + " → " + res.Last.ToString("yyyy-MM-dd") + " • " + res.Rows.Count + " versions", Cyan, 220));
+            root.Children.Add(cards);
+            var filters = new WrapPanel { Margin = new Thickness(2, 4, 2, 2) };
+            foreach (string f in new[] { "ALL", "MNQ ONLY", "MGC ONLY", "BOTH", "BUY", "SELL" })
+            { string pick = f; var b = Btn(f, f == microFilter ? Cyan : Card); b.Height = 26; b.FontSize = 10; b.Padding = new Thickness(12, 0, 12, 0); b.Click += delegate { microFilter = pick; SetMicroTab("RANKING", MicroRankingView()); }; filters.Children.Add(b); }
+            filters.Children.Add(Txt("   SORT BY", Muted, 10, FontWeights.Bold));
+            foreach (string f in new[] { "PROP", "PLAIN", "VALUE / EVAL", "PASS %" })
+            { string pick = f; var b = Btn(f, f == microSort ? Gold : Card); b.Height = 26; b.FontSize = 10; b.Padding = new Thickness(12, 0, 12, 0); b.Click += delegate { microSort = pick; SetMicroTab("RANKING", MicroRankingView()); }; filters.Children.Add(b); }
+            root.Children.Add(filters);
+            IEnumerable<KeystoneMicroRow> rows = res.Rows;
+            if (microFilter == "MNQ ONLY") rows = rows.Where(x => x.Instruments == "MNQ"); else if (microFilter == "MGC ONLY") rows = rows.Where(x => x.Instruments == "MGC"); else if (microFilter == "BOTH") rows = rows.Where(x => x.Instruments == "BOTH");
+            else if (microFilter == "BUY") rows = rows.Where(x => x.Direction == "BUY"); else if (microFilter == "SELL") rows = rows.Where(x => x.Direction == "SELL");
+            rows = microSort == "PLAIN" ? rows.OrderByDescending(x => x.Net) : microSort == "VALUE / EVAL" ? rows.OrderByDescending(x => x.ValuePerEval) : microSort == "PASS %" ? rows.OrderByDescending(x => x.PassRate) : rows.OrderByDescending(x => x.PropNet).ThenByDescending(x => x.Net);
+            root.Children.Add(HelixNote("Click a row: CHARTS, EVALS & FUNDED, COPY TRADING, SESSIONS & HOURS, DAYS and EACH YEAR switch to that version. PROP = one account slot walking the days in order (a lost account is replaced the next day). PASS % and VALUE / EVAL = 2,000 evaluations on the same days in random order. NEED = the most money out of pocket at any time."));
+            double[] wr = { 30, 330, 60, 55, 100, 90, 70, 55, 60, 65, 60, 70, 80, 90, 90, 110, 70 };
+            root.Children.Add(HelixHeader(new[] { "#", "VERSION", "TRADES", "WON", "PLAIN NET", "WORST DD", "UNDER", "EVALS", "PASSED", "PAYOUTS", "LOST", "PASS %", "VALUE/EVAL", "SPENT", "NEED", "PROP NET", "EVERY YR" }, wr));
+            int i = 0;
+            foreach (var r in rows)
+            {
+                i++;
+                var row = HelixRow(new[] { i.ToString(), r.Label, r.Trades.ToString(), (r.Trades == 0 ? 0 : 100.0 * r.Wins / r.Trades).ToString("0") + "%", Signed(r.Net), Cash(r.MaxDrawdown), r.LongestUnderwaterDays + " d", r.Bought.ToString(), r.Passed.ToString(), r.Payouts.ToString(), r.FundedLost.ToString(), r.PassRate.ToString("0") + "%", Signed(r.ValuePerEval), Cash(r.Spent), Cash(r.MoneyNeeded), Signed(r.PropNet), r.EveryYear ? "YES" : "no" },
+                    new[] { Gold, Text, Text, Text, MoneyBrush(r.Net), Red, Muted, Text, Green, Green, Red, Text, MoneyBrush(r.ValuePerEval), Red, Orange, MoneyBrush(r.PropNet), r.EveryYear ? Green : Muted }, wr, r == microSelected ? Gold : MoneyBrush(r.PropNet), null);
+                var rr = r; row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { ShowMicroSelected(rr, true); SetMicroTab("RANKING", MicroRankingView()); };
+                root.Children.Add(row);
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement MicroChartsView(KeystoneMicroRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle(r.Label, Cyan));
+            var days = r.Days.Select(d => d.Day).ToList(); double eq = 0, peak = 0; var eqs = new List<double>(); var dd = new List<double>();
+            foreach (var d in r.Days) { eq += d.Pnl; peak = Math.Max(peak, eq); eqs.Add(eq); dd.Add(eq - peak); }
+            root.Children.Add(MicroChart("PLAIN ACCOUNT • 1 micro each session, after costs (green) • drawdown from the high (red)", days, Tuple.Create("NET", (Brush)Green, eqs), Tuple.Create("DRAWDOWN", (Brush)Red, dd)));
+            root.Children.Add(MicroChart("PROP • YOUR CASH − WHAT YOU SPENT ON EVALUATIONS, DAY BY DAY (one account slot, replaced when lost)", r.PropCurve.Select(p => p.Item1).ToList(), Tuple.Create("CASH − SPENT", (Brush)Gold, r.PropCurve.Select(p => p.Item2).ToList())));
+            // copy trading curves
+            var curves = new List<Tuple<string, Brush, List<double>>>(); var cols = new Brush[] { Gold, Cyan, Orchid };
+            int ci = 0; foreach (int n in new[] { 1, 5, 10 }) { curves.Add(Tuple.Create("COPY ×" + n, cols[ci++], r.PropCurve.Select(p => p.Item2 * n).ToList())); }
+            root.Children.Add(MicroChart("COPY TRADING • the same trade on 1, 5 and 10 accounts", r.PropCurve.Select(p => p.Item1).ToList(), curves.ToArray()));
+            // P&L per day histogram (as bars)
+            root.Children.Add(HelixTitle("EVERY DAY'S RESULT (one bar a day)", Gold));
+            var c = new Canvas { Width = 1100, Height = 160, Background = EvidenceBg, Margin = new Thickness(4) };
+            if (r.Days.Count > 0)
+            {
+                double m = Math.Max(1, r.Days.Max(d => Math.Abs(d.Pnl))); double w = 1000.0 / r.Days.Count;
+                for (int i = 0; i < r.Days.Count; i++) { double v = r.Days[i].Pnl, h = Math.Abs(v) / m * 70; var rect = new System.Windows.Shapes.Rectangle { Width = Math.Max(1, w - 0.3), Height = Math.Max(0.5, h), Fill = v >= 0 ? Green : Red }; Canvas.SetLeft(rect, 80 + i * w); Canvas.SetTop(rect, v >= 0 ? 80 - h : 80); c.Children.Add(rect); }
+                var t1 = new TextBlock { Text = "best day " + Signed(r.BestDay), Foreground = Green, FontSize = 10 }; Canvas.SetLeft(t1, 4); Canvas.SetTop(t1, 4); c.Children.Add(t1);
+                var t2 = new TextBlock { Text = "worst day " + Signed(r.WorstDay), Foreground = Red, FontSize = 10 }; Canvas.SetLeft(t2, 4); Canvas.SetTop(t2, 140); c.Children.Add(t2);
+            }
+            root.Children.Add(c);
+            return HelixScroll(root);
+        }
+
+        private UIElement MicroPropView(KeystoneMicroRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var rules = microResult.Rules;
+            root.Children.Add(HelixTitle(r.Label + " • " + rules.Name, Cyan));
+            root.Children.Add(HelixNote(rules.Describe()));
+            var cards = new WrapPanel();
+            int failedEval = r.Accounts.Count(a => a.Status == "FAILED EVALUATION"), open = r.Accounts.Count(a => a.Status == "IN EVALUATION" || a.Status == "FUNDED (OPEN)");
+            double evalSpend = r.Accounts.Count * rules.EvalCost, activation = r.Spent - evalSpend;
+            cards.Children.Add(HelixCard("EVALUATIONS BOUGHT", r.Bought.ToString(), Cash(evalSpend) + " at " + Cash(rules.EvalCost) + " each" + (activation > 0 ? " + activation " + Cash(activation) : ""), Red, 210));
+            cards.Children.Add(HelixCard("PASSED", r.Passed.ToString(), (r.Bought == 0 ? 0 : 100.0 * r.Passed / r.Bought).ToString("0") + "% in date order • " + r.PassRate.ToString("0") + "% in random order", Green, 210));
+            cards.Children.Add(HelixCard("FAILED EVALUATIONS", failedEval.ToString(), "blown before the target", Red, 190));
+            cards.Children.Add(HelixCard("FUNDED LOST", r.FundedLost.ToString(), "funded accounts that hit the drawdown", Red, 190));
+            cards.Children.Add(HelixCard("PAYOUTS", r.Payouts.ToString(), "you received " + Cash(r.Cash) + " (gross " + Cash(r.Accounts.Sum(a => a.PayoutGross)) + ")", Green, 220));
+            cards.Children.Add(HelixCard("NET", Signed(r.PropNet), "cash − everything spent", MoneyBrush(r.PropNet), 180));
+            cards.Children.Add(HelixCard("MONEY NEEDED", Cash(r.MoneyNeeded), "most out of pocket at one time", Orange, 190));
+            cards.Children.Add(HelixCard("STILL RUNNING AT THE END", open.ToString(), "evaluation or funded", Muted, 180));
+            root.Children.Add(cards);
+            var st = r.Stats;
+            root.Children.Add(HelixTitle("PAYOUTS • HOW LONG AND HOW MUCH", Green));
+            var pc = new WrapPanel();
+            if (st.HasPayout)
+            {
+                pc.Children.Add(HelixCard("FIRST PAYOUT", st.FirstPayout.ToString("yyyy-MM-dd"), st.CalendarDaysToFirstPayout + " calendar days • " + st.SessionsToFirstPayout + " sessions after the first evaluation", Green, 240));
+                pc.Children.Add(HelixCard("SPENT BEFORE THE FIRST PAYOUT", Cash(st.SpentToFirstPayout), st.EvalsToFirstPayout + " evaluation" + (st.EvalsToFirstPayout == 1 ? "" : "s") + " bought • first payout " + Cash(st.FirstPayoutCash), Red, 240));
+            }
+            else pc.Children.Add(HelixCard("FIRST PAYOUT", "NEVER", "no account was paid in this range", Red, 220));
+            pc.Children.Add(HelixCard("EVALUATION → PASS", st.AvgEvalSessionsToPass.ToString("0.0") + " sessions", "average, passed accounts", Cyan, 200));
+            pc.Children.Add(HelixCard("BOUGHT → FIRST PAYOUT", st.AvgSessionsBuyToFirstPayout.ToString("0.0") + " sessions", "average per paid account • pass → payout " + st.AvgSessionsPassToFirstPayout.ToString("0.0"), Cyan, 230));
+            pc.Children.Add(HelixCard("BETWEEN PAYOUTS", st.AvgSessionsBetweenPayouts.ToString("0.0") + " sessions", "same account", Cyan, 180));
+            pc.Children.Add(HelixCard("AVERAGE PAYOUT", Cash(st.AvgPayout), "biggest " + Cash(st.BiggestPayout) + " (your share)", Green, 190));
+            pc.Children.Add(HelixCard("PAYOUTS IN A ROW", st.PayoutsInARow.ToString(), "before a funded account was lost • most on one account " + st.MostPayoutsOneAccount, Green, 230));
+            pc.Children.Add(HelixCard("FAILED EVALUATIONS IN A ROW", st.LongestFailStreak.ToString(), "worst streak = " + Cash(st.LongestFailStreak * rules.EvalCost), Red, 220));
+            pc.Children.Add(HelixCard("FUNDED, LOST WITHOUT A PAYOUT", st.FundedWithoutPayout.ToString(), "funded life " + st.AvgFundedLife.ToString("0") + " sessions on average", Red, 230));
+            pc.Children.Add(HelixCard("MONTHS IN PROFIT", st.MonthsPositive + " / " + st.Months, "best " + Signed(st.BestMonth) + " • worst " + Signed(st.WorstMonth), MoneyBrush(st.MonthsPositive * 2 - st.Months), 220));
+            root.Children.Add(pc);
+            if (r.Days.Count >= 10)
+            {
+                root.Children.Add(HelixTitle("RANDOM ORDER • 2,000 EVALUATIONS ON THE SAME DAYS SHUFFLED", Gold));
+                var rc = new WrapPanel();
+                rc.Children.Add(HelixCard("PASS CHANCE", r.PassRate.ToString("0.0") + "%", "of evaluations bought", Green, 190));
+                rc.Children.Add(HelixCard("DAYS TO PASS", r.AvgDaysToPass.ToString("0.0"), "average, when it passes", Cyan, 170));
+                rc.Children.Add(HelixCard("A FUNDED ACCOUNT PAYS", Cash(r.FundedValue), "on average before it is lost", Green, 210));
+                rc.Children.Add(HelixCard("VALUE OF ONE EVALUATION", Signed(r.ValuePerEval), "after its " + Cash(rules.EvalCost) + " cost", MoneyBrush(r.ValuePerEval), 220));
+                root.Children.Add(rc);
+            }
+            root.Children.Add(HelixTitle("EVERY ACCOUNT (date order)", Gold));
+            double[] w = { 50, 100, 100, 100, 70, 80, 70, 100, 90, 100, 170 };
+            root.Children.Add(HelixHeader(new[] { "#", "BOUGHT", "PASSED", "ENDED", "EVAL DAYS", "FUNDED DAYS", "PAYOUTS", "CASH", "SPENT", "NET", "STATUS" }, w));
+            foreach (var a in r.Accounts)
+            {
+                double net = a.Cash - a.Spent;
+                root.Children.Add(HelixRow(new[] { a.No.ToString(), a.Bought.ToString("yyyy-MM-dd"), a.PassedOn == DateTime.MinValue ? "–" : a.PassedOn.ToString("yyyy-MM-dd"), a.Ended == DateTime.MinValue ? "–" : a.Ended.ToString("yyyy-MM-dd"), a.EvalDays.ToString(), a.FundedDays.ToString(), a.Payouts.ToString(), Cash(a.Cash), Cash(a.Spent), Signed(net), a.Status },
+                    new[] { Gold, Text, Green, Text, Text, Text, Green, Green, Red, MoneyBrush(net), a.Status == "FAILED EVALUATION" || a.Status == "FUNDED LOST" ? Red : Cyan }, w, MoneyBrush(net), null));
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement MicroCopyView(KeystoneMicroRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var rules = microResult.Rules;
+            root.Children.Add(HelixTitle(r.Label + " • COPY TRADING", Cyan));
+            root.Children.Add(HelixNote("COPY = every account takes the same trade from the same day: all numbers × accounts, and they pass and blow up together. STAGGERED = account 2 starts 5 sessions after account 1, account 3 five after that…: the same trades but the accounts are at different points of their life, so they do not all die on the same day. NEED = the most money out of pocket at one time (compare with your $10,000 budget)."));
+            double[] w = { 120, 80, 80, 80, 80, 80, 110, 110, 110, 120, 90 };
+            root.Children.Add(HelixHeader(new[] { "PLAN", "ACCOUNTS", "BOUGHT", "PASSED", "PAYOUTS", "LOST", "SPENT", "CASH", "NEED", "NET", "≤ $10K" }, w));
+            foreach (string mode in new[] { "COPY", "STAGGERED" })
+                foreach (int n in new[] { 1, 2, 3, 5, 10, 20 })
+                {
+                    if (mode == "STAGGERED" && n == 1) continue;
+                    var s = KeystoneMicroADay.Slots(rules, r.Days, mode, n, 5);
+                    root.Children.Add(HelixRow(new[] { mode, n.ToString(), s.Bought.ToString(), s.Passed.ToString(), s.Payouts.ToString(), s.FundedLost.ToString(), Cash(s.Spent), Cash(s.Cash), Cash(s.MoneyNeeded), Signed(s.Net), s.MoneyNeeded <= 10000 ? "YES" : "NO" },
+                        new[] { Gold, Text, Text, Green, Green, Red, Red, Green, Orange, MoneyBrush(s.Net), s.MoneyNeeded <= 10000 ? Green : Red }, w, MoneyBrush(s.Net), null));
+                }
+            return HelixScroll(root);
+        }
+
+        private UIElement MicroTpView()
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var res = microResult;
+            root.Children.Add(HelixNote("Each instrument alone, 1 micro, 31 take profits from HOLD (0) up. HIT % = days the take profit was reached before the close. PROP NET = one account slot in date order with your firm rules. EVERY YEAR = the plain account made money in every year. The best take profit of each line is marked ★."));
+            foreach (string sym in new[] { "MNQ", "MGC" })
+                foreach (string dir in new[] { "BUY", "SELL" })
+                {
+                    var list = res.Grid.Where(g => g.Symbol == sym && g.Direction == dir).OrderBy(g => g.Tp).ToList(); if (list.Count == 0) continue;
+                    var bestProp = list.OrderByDescending(g => g.PropNet).First(); var bestNet = list.OrderByDescending(g => g.Net).First();
+                    root.Children.Add(HelixTitle(dir + " " + sym + " • best for prop: " + (bestProp.Tp == 0 ? "HOLD" : "+" + bestProp.Tp + " pts") + " (" + Signed(bestProp.PropNet) + ") • best plain: " + (bestNet.Tp == 0 ? "HOLD" : "+" + bestNet.Tp + " pts") + " (" + Signed(bestNet.Net) + ")", dir == "BUY" ? Green : Red));
+                    var years = list.SelectMany(g => g.NetByYear.Keys).Distinct().OrderBy(y => y).ToList();
+                    var w = new List<double> { 90, 70, 70, 100, 90, 70, 70, 100, 70 }; w.AddRange(years.Select(y => 80.0));
+                    var head = new List<string> { "TAKE PROFIT", "TRADES", "HIT %", "PLAIN NET", "WORST DD", "PASSED", "PAYOUTS", "PROP NET", "EVERY YR" }; head.AddRange(years.Select(y => y.ToString()));
+                    root.Children.Add(HelixHeader(head.ToArray(), w.ToArray()));
+                    foreach (var g in list)
+                    {
+                        var cells = new List<string> { (g == bestProp ? "★ " : "") + (g.Tp == 0 ? "HOLD" : "+" + g.Tp.ToString("0.#", CultureInfo.InvariantCulture)), g.Trades.ToString(), (g.Trades == 0 ? 0 : 100.0 * g.Hits / g.Trades).ToString("0") + "%", Signed(g.Net), Cash(g.MaxDrawdown), g.Passed.ToString(), g.Payouts.ToString(), Signed(g.PropNet), g.EveryYear ? "YES" : "no" };
+                        var colors = new List<Brush> { g == bestProp ? Gold : Text, Text, Cyan, MoneyBrush(g.Net), Red, Green, Green, MoneyBrush(g.PropNet), g.EveryYear ? Green : Muted };
+                        foreach (int y in years) { double v; g.NetByYear.TryGetValue(y, out v); cells.Add(Signed(v)); colors.Add(MoneyBrush(v)); }
+                        root.Children.Add(HelixRow(cells.ToArray(), colors.ToArray(), w.ToArray(), g == bestProp ? Gold : MoneyBrush(g.PropNet), null));
+                    }
+                }
+            return HelixScroll(root);
+        }
+
+        private UIElement MicroSessionsView(KeystoneMicroRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var res = microResult;
+            root.Children.Add(HelixNote("Where the held day's move happens, in points for a BUY (a SELL earns the opposite). UP DAYS = share of days the price rose in that part. A big average with a high UP DAYS share is the session that pays the held micro."));
+            foreach (string sym in new[] { "MNQ", "MGC" })
+            {
+                var moves = res.Moves.Where(m => m.Symbol == sym).ToList(); if (moves.Count == 0) continue;
+                double pv = KeystoneMoveStudy.PointValue(sym);
+                root.Children.Add(HelixTitle(sym + " • SESSIONS", Gold));
+                double[] w = { 230, 70, 80, 110, 110, 120, 130 };
+                root.Children.Add(HelixHeader(new[] { "PART OF THE DAY", "DAYS", "UP DAYS", "AVG PTS (BUY)", "AVG $ (1 MICRO)", "TOTAL $ BUY", "TOTAL $ SELL" }, w));
+                foreach (var m in moves.Where(x => !x.Hour))
+                    root.Children.Add(HelixRow(new[] { m.Name, m.Days.ToString(), m.UpPct.ToString("0") + "%", MicroPts(sym, m.AvgPts), Signed(m.AvgPts * pv), Signed(m.SumPts * pv), Signed(-m.SumPts * pv) }, new[] { Gold, Text, m.UpPct >= 50 ? Green : Red, MoneyBrush(m.AvgPts), MoneyBrush(m.AvgPts), MoneyBrush(m.SumPts), MoneyBrush(-m.SumPts) }, w, MoneyBrush(m.SumPts), null));
+                root.Children.Add(HelixTitle(sym + " • EVERY HOUR (New York time)", Gold));
+                root.Children.Add(HelixHeader(new[] { "HOUR", "DAYS", "UP DAYS", "AVG PTS (BUY)", "AVG $ (1 MICRO)", "TOTAL $ BUY", "AVG SIZE PTS" }, w));
+                foreach (var m in moves.Where(x => x.Hour))
+                    root.Children.Add(HelixRow(new[] { m.Name, m.Days.ToString(), m.UpPct.ToString("0") + "%", MicroPts(sym, m.AvgPts), Signed(m.AvgPts * pv), Signed(m.SumPts * pv), (m.Days == 0 ? 0 : m.AbsPts / m.Days).ToString(sym == "MGC" ? "0.0" : "0.#", CultureInfo.InvariantCulture) }, new[] { Gold, Text, m.UpPct >= 50 ? Green : Red, MoneyBrush(m.AvgPts), MoneyBrush(m.AvgPts), MoneyBrush(m.SumPts), Muted }, w, MoneyBrush(m.SumPts), null));
+            }
+            var hits = r.TradeList.Where(t => t.Hit).ToList();
+            root.Children.Add(HelixTitle(r.Label + " • WHEN THE TAKE PROFIT WAS HIT", Cyan));
+            if (hits.Count == 0) root.Children.Add(HelixNote(r.MnqTp == 0 && r.MgcTp == 0 ? "This version holds to the close (no take profit)." : "The take profit was never reached."));
+            else
+            {
+                double[] w2 = { 230, 90, 90 };
+                root.Children.Add(HelixHeader(new[] { "WHEN", "HITS", "SHARE" }, w2));
+                Func<KeystoneMicroTrade, string> part = t => { var day = t.Open.Date.AddDays(t.Open.Hour >= 12 ? 1 : 0); return t.ExitTime <= day.AddHours(3) ? "ASIA • OPEN → 03:00" : t.ExitTime <= day.AddHours(9.5) ? "LONDON • 03:00 → 09:30" : "NEW YORK • 09:30 → CLOSE"; };
+                foreach (var g in hits.GroupBy(part).OrderBy(g => g.Min(t => t.ExitTime.TimeOfDay.TotalMinutes < 18 * 60 ? t.ExitTime.TimeOfDay.TotalMinutes + 1440 : t.ExitTime.TimeOfDay.TotalMinutes)))
+                    root.Children.Add(HelixRow(new[] { g.Key, g.Count().ToString(), (100.0 * g.Count() / hits.Count).ToString("0") + "%" }, new[] { Gold, Text, Cyan }, w2, Cyan, null));
+                foreach (var g in hits.GroupBy(t => t.ExitTime.AddMinutes(-1).Hour).OrderBy(g => (g.Key - 18 + 24) % 24))
+                    root.Children.Add(HelixRow(new[] { "  " + g.Key.ToString("00") + ":00 hour", g.Count().ToString(), (100.0 * g.Count() / hits.Count).ToString("0") + "%" }, new[] { Muted, Text, Cyan }, w2, Card, null));
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement MicroDaysView(KeystoneMicroRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle(r.Label + " • BY WEEKDAY (the session's trading day)", Gold));
+            double[] w = { 120, 70, 70, 110, 110, 110 };
+            root.Children.Add(HelixHeader(new[] { "DAY", "DAYS", "WON", "AVG", "TOTAL", "WORST" }, w));
+            foreach (var g in r.Days.GroupBy(d => d.Day.DayOfWeek).OrderBy(g => ((int)g.Key + 6) % 7))
+            {
+                double tot = g.Sum(d => d.Pnl);
+                root.Children.Add(HelixRow(new[] { g.Key.ToString().ToUpperInvariant(), g.Count().ToString(), (100.0 * g.Count(d => d.Pnl > 0) / g.Count()).ToString("0") + "%", Signed(g.Average(d => d.Pnl)), Signed(tot), Signed(g.Min(d => d.Pnl)) }, new[] { Gold, Text, Text, MoneyBrush(tot), MoneyBrush(tot), Red }, w, MoneyBrush(tot), null));
+            }
+            root.Children.Add(HelixTitle("EVERY TRADE (newest first)", Gold));
+            double[] w2 = { 150, 60, 60, 100, 100, 150, 110, 90, 100, 100 };
+            root.Children.Add(HelixHeader(new[] { "OPEN", "INSTR", "SIDE", "ENTRY", "EXIT", "EXIT TIME", "OUTCOME", "POINTS", "NET", "WORST OPEN" }, w2));
+            root.Children.Add(HelixNote("Click a trade to open the chart on that session (the chart shows the trades of the run you started in Step 1: " + (config == null ? "" : config.MadDirection + " • TP MNQ " + config.MadMnqTarget + " / MGC " + config.MadMgcTarget) + ")."));
+            foreach (var t in r.TradeList.OrderByDescending(t => t.Open).ThenBy(t => t.Symbol))
+            {
+                var tt = t;
+                var tr = HelixRow(new[] { t.Open.ToString("ddd yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), t.Symbol, t.Sell ? "SELL" : "BUY", t.Entry.ToString(t.Symbol == "MGC" ? "0.0" : "0.00", CultureInfo.InvariantCulture), t.Exit.ToString(t.Symbol == "MGC" ? "0.0" : "0.00", CultureInfo.InvariantCulture), t.ExitTime.ToString("ddd HH:mm", CultureInfo.InvariantCulture), t.Outcome, MicroPts(t.Symbol, t.Points), Signed(t.Net), Signed(t.Worst) },
+                    new[] { Gold, Text, t.Sell ? Red : Green, Text, Text, Muted, t.Hit ? Green : Cyan, MoneyBrush(t.Points), MoneyBrush(t.Net), Red }, w2, MoneyBrush(t.Net), null);
+                tr.Cursor = System.Windows.Input.Cursors.Hand; tr.MouseLeftButtonUp += delegate { ShowMicroTradeOnChart(tt); };
+                root.Children.Add(tr);
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement MicroYearsView(KeystoneMicroRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var res = microResult;
+            root.Children.Add(HelixTitle(r.Label, Cyan));
+            double[] wy = { 90, 160, 160 }; root.Children.Add(HelixHeader(new[] { "YEAR", "PLAIN ACCOUNT NET", "PROP: CASH − SPENT" }, wy));
+            foreach (int y in r.NetByYear.Keys.Union(r.PropByYear.Keys).OrderBy(x => x))
+            {
+                double a, b; r.NetByYear.TryGetValue(y, out a); r.PropByYear.TryGetValue(y, out b);
+                root.Children.Add(HelixRow(new[] { y.ToString(), Signed(a), Signed(b) }, new[] { Gold, MoneyBrush(a), MoneyBrush(b) }, wy, Card, null));
+            }
+            var years = res.Rows.SelectMany(x => x.PropByYear.Keys).Distinct().OrderBy(y => y).ToList();
+            root.Children.Add(HelixTitle("EVERY VERSION • PROP CASH − SPENT PER YEAR", Gold));
+            var w = new List<double> { 330 }; w.AddRange(years.Select(y => 90.0)); w.Add(100);
+            var head = new List<string> { "VERSION" }; head.AddRange(years.Select(y => y.ToString())); head.Add("TOTAL");
+            root.Children.Add(HelixHeader(head.ToArray(), w.ToArray()));
+            foreach (var x in res.Rows)
+            {
+                var cells = new List<string> { x.Label }; var colors = new List<Brush> { x == r ? Gold : Text };
+                foreach (int y in years) { double v; x.PropByYear.TryGetValue(y, out v); cells.Add(Signed(v)); colors.Add(MoneyBrush(v)); }
+                cells.Add(Signed(x.PropNet)); colors.Add(MoneyBrush(x.PropNet));
+                var xx = x; var row = HelixRow(cells.ToArray(), colors.ToArray(), w.ToArray(), x == r ? Gold : MoneyBrush(x.PropNet), null); row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { ShowMicroSelected(xx, false); };
+                root.Children.Add(row);
+            }
+            return HelixScroll(root);
+        }
+
+        private void ShowMicroTradeOnChart(KeystoneMicroTrade t)
+        {
+            if (t == null || config == null) return;
+            if (evidenceWindow == null) OpenEvidenceChart(); else evidenceWindow.Activate();
+            if (evidenceInstrumentTabs != null)
+                for (int i = 0; i < evidenceInstrumentTabs.Items.Count; i++) { var tab = evidenceInstrumentTabs.Items[i] as TabItem; if (tab != null && Convert.ToString(tab.Header).StartsWith(t.Symbol)) { evidenceInstrumentTabs.SelectedIndex = i; break; } }
+            if (evidenceInstrumentBox != null) evidenceInstrumentBox.SelectedItem = t.Symbol;
+            SelectEvidenceSessionDate(KeystoneArcEngine.SessionGroupingDate(t.Open, config).ToString("yyyy-MM-dd"), true);
+        }
+
+        private UIElement MicroMonthsView(KeystoneMicroRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle(r.Label + " • MONTH BY MONTH • PROFIT vs EXPENSES", Gold));
+            root.Children.Add(HelixNote("TRADING = the plain account (1 micro each). PROP: evaluations bought, passed, payouts, accounts lost, what you spent, the cash you received and the month's net; RUNNING = cash − spent since the start."));
+            double[] w = { 100, 70, 110, 70, 70, 70, 70, 100, 100, 110, 120 };
+            root.Children.Add(HelixHeader(new[] { "MONTH", "SESSIONS", "TRADING", "BOUGHT", "PASSED", "PAYOUTS", "LOST", "SPENT", "CASH IN", "MONTH NET", "RUNNING" }, w));
+            double run = 0;
+            foreach (var g in r.Ledger.GroupBy(l => new DateTime(l.Day.Year, l.Day.Month, 1)).OrderBy(g => g.Key))
+            {
+                double spent = g.Sum(l => l.Spent), cash = g.Sum(l => l.Cash), net = cash - spent, tr = g.Sum(l => l.Pnl); run += net;
+                root.Children.Add(HelixRow(new[] { g.Key.ToString("MMM yyyy", CultureInfo.InvariantCulture), g.Count().ToString(), Signed(tr), g.Sum(l => l.Bought).ToString(), g.Sum(l => l.Passed).ToString(), g.Sum(l => l.Payouts).ToString(), (g.Sum(l => l.Lost) + g.Sum(l => l.Failed)).ToString(), Cash(spent), Cash(cash), Signed(net), Signed(run) },
+                    new[] { Gold, Text, MoneyBrush(tr), Text, Green, Green, Red, Red, Green, MoneyBrush(net), MoneyBrush(run) }, w, MoneyBrush(net), null));
+            }
+            root.Children.Add(HelixTitle("YEAR BY YEAR", Gold));
+            root.Children.Add(HelixHeader(new[] { "YEAR", "SESSIONS", "TRADING", "BOUGHT", "PASSED", "PAYOUTS", "LOST", "SPENT", "CASH IN", "YEAR NET", "" }, w));
+            foreach (var g in r.Ledger.GroupBy(l => l.Day.Year).OrderBy(g => g.Key))
+            {
+                double spent = g.Sum(l => l.Spent), cash = g.Sum(l => l.Cash), net = cash - spent, tr = g.Sum(l => l.Pnl);
+                root.Children.Add(HelixRow(new[] { g.Key.ToString(), g.Count().ToString(), Signed(tr), g.Sum(l => l.Bought).ToString(), g.Sum(l => l.Passed).ToString(), g.Sum(l => l.Payouts).ToString(), (g.Sum(l => l.Lost) + g.Sum(l => l.Failed)).ToString(), Cash(spent), Cash(cash), Signed(net), "" },
+                    new[] { Gold, Text, MoneyBrush(tr), Text, Green, Green, Red, Red, Green, MoneyBrush(net), Muted }, w, MoneyBrush(net), null));
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement MicroSizeView(KeystoneMicroRow r, List<KeystoneMicroADay.SizeRow> sizes)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle(r.Label + " • HOW MANY MICROS? (same days, same entries)", Gold));
+            root.Children.Add(HelixNote("Each row trades the same sessions with more micros: EVAL = micros while in the evaluation (passes faster, blows up more), FUNDED = micros once funded. Sorted by the fastest first payout among the plans that make money. The worst open drawdown of the day is scaled too, so a bigger size dies on the same dips."));
+            var paid = sizes.Where(x => x.Row.Stats.HasPayout && x.Row.PropNet > 0).OrderBy(x => x.Row.Stats.CalendarDaysToFirstPayout).ToList();
+            var bestNet = sizes.OrderByDescending(x => x.Row.PropNet).First();
+            var cards = new WrapPanel();
+            if (paid.Count > 0) { var f = paid[0]; cards.Children.Add(HelixCard("FASTEST PROFITABLE FIRST PAYOUT", f.Row.Stats.CalendarDaysToFirstPayout + " days", f.EvalK + " micros in the evaluation, " + f.FundK + " funded • net " + Signed(f.Row.PropNet) + " • spent " + Cash(f.Row.Spent), Green, 300)); }
+            cards.Children.Add(HelixCard("MOST MONEY", Signed(bestNet.Row.PropNet), bestNet.EvalK + " micros in the evaluation, " + bestNet.FundK + " funded • first payout " + (bestNet.Row.Stats.HasPayout ? bestNet.Row.Stats.CalendarDaysToFirstPayout + " days" : "never"), MoneyBrush(bestNet.Row.PropNet), 300));
+            root.Children.Add(cards);
+            double[] w = { 60, 70, 110, 90, 120, 70, 70, 70, 70, 100, 100, 110, 80 };
+            root.Children.Add(HelixHeader(new[] { "EVAL", "FUNDED", "1ST PAYOUT", "SESSIONS", "SPENT BEFORE", "EVALS", "PASSED", "PAYOUTS", "LOST", "SPENT", "CASH", "NET", "PASS %" }, w));
+            foreach (var x in sizes.OrderBy(x => x.Row.Stats.HasPayout ? x.Row.Stats.CalendarDaysToFirstPayout : int.MaxValue).ThenByDescending(x => x.Row.PropNet))
+            {
+                var q = x.Row; var s2 = q.Stats;
+                root.Children.Add(HelixRow(new[] { x.EvalK.ToString("0"), x.FundK.ToString("0"), s2.HasPayout ? s2.CalendarDaysToFirstPayout + " days" : "never", s2.HasPayout ? s2.SessionsToFirstPayout.ToString() : "–", s2.HasPayout ? Cash(s2.SpentToFirstPayout) : "–", q.Bought.ToString(), q.Passed.ToString(), q.Payouts.ToString(), (q.FundedLost + q.Accounts.Count(a => a.Status == "FAILED EVALUATION")).ToString(), Cash(q.Spent), Cash(q.Cash), Signed(q.PropNet), q.PassRate.ToString("0") + "%" },
+                    new[] { Gold, Gold, s2.HasPayout ? (s2.CalendarDaysToFirstPayout <= 30 ? Green : s2.CalendarDaysToFirstPayout <= 60 ? Gold : Orange) : Red, Text, Red, Text, Green, Green, Red, Red, Green, MoneyBrush(q.PropNet), Cyan }, w, MoneyBrush(q.PropNet), null));
+            }
+            return HelixScroll(root);
+        }
+
+        // HTML report: every tab of the selected version + the ranking, with SVG charts (opens in any browser).
+        private string MicroHtml()
+        {
+            var res = microResult; var r = microSelected ?? (res == null ? null : res.Rows.FirstOrDefault()); if (res == null || r == null) return string.Empty;
+            Func<string, string> H = x => System.Net.WebUtility.HtmlEncode(x ?? string.Empty);
+            Func<double, string> M = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            Func<double, string> C = v => v > 0 ? "g" : v < 0 ? "r" : "";
+            var sb = new StringBuilder();
+            sb.Append("<!doctype html><html><head><meta charset='utf-8'><title>Micro A Day</title><style>body{background:#0d0f14;color:#e8e6df;font:13px Segoe UI,Arial;margin:20px}h1{color:#ebb02b}h2{color:#ebb02b;margin-top:28px}table{border-collapse:collapse;margin:6px 0}td,th{padding:4px 9px;border-bottom:1px solid #2a2e38;text-align:right}th{color:#ebb02b;text-align:right}td:first-child,th:first-child{text-align:left}.g{color:#32c57a}.r{color:#f05461}.n{color:#9aa0aa}.cards{display:flex;flex-wrap:wrap;gap:8px}.card{border:1px solid #ebb02b;border-radius:6px;padding:8px 12px;min-width:170px}.card b{display:block;font-size:20px}</style></head><body>");
+            sb.Append("<h1>MICRO A DAY • ").Append(H(r.Label)).Append("</h1><p class='n'>").Append(res.Sessions).Append(" sessions ").Append(res.First.ToString("yyyy-MM-dd")).Append(" → ").Append(res.Last.ToString("yyyy-MM-dd")).Append(" • ").Append(H(res.Rules.Describe())).Append(" • ").Append(res.EvalK).Append(" micros in the evaluation, ").Append(res.FundK).Append(" funded</p>");
+            var st = r.Stats;
+            sb.Append("<div class='cards'>");
+            Action<string, string, string> card = (t, v, sub) => sb.Append("<div class='card'>").Append(H(t)).Append("<b>").Append(H(v)).Append("</b><span class='n'>").Append(H(sub)).Append("</span></div>");
+            card("PROP NET", M(r.PropNet), r.Passed + " passed / " + r.Bought + " bought • " + r.Payouts + " payouts");
+            card("PLAIN ACCOUNT", M(r.Net), "worst drawdown " + M(r.MaxDrawdown));
+            card("FIRST PAYOUT", st.HasPayout ? st.CalendarDaysToFirstPayout + " days" : "never", st.HasPayout ? st.FirstPayout.ToString("yyyy-MM-dd") + " • spent " + M(st.SpentToFirstPayout) + " before it" : "");
+            card("PAYOUTS IN A ROW", st.PayoutsInARow.ToString(), "most on one account " + st.MostPayoutsOneAccount);
+            card("AVERAGE PAYOUT", M(st.AvgPayout), "every " + st.AvgSessionsBetweenPayouts.ToString("0.0") + " sessions");
+            card("MONEY NEEDED", M(r.MoneyNeeded), "most out of pocket at once");
+            card("MONTHS IN PROFIT", st.MonthsPositive + " / " + st.Months, "best " + M(st.BestMonth) + " • worst " + M(st.WorstMonth));
+            card("RANDOM ORDER", r.PassRate.ToString("0") + "% pass", "value of one evaluation " + M(r.ValuePerEval));
+            sb.Append("</div>");
+            Action<string, List<double>, string> svg = (title, vals, color) =>
+            {
+                sb.Append("<h2>").Append(H(title)).Append("</h2>");
+                if (vals.Count < 2) return; double mn = Math.Min(0, vals.Min()), mx = Math.Max(1, vals.Max());
+                sb.Append("<svg width='1100' height='240' style='background:#141821'><line x1='60' x2='1080' y1='").Append((14 + (mx - 0) / (mx - mn) * 200).ToString("0.#", CultureInfo.InvariantCulture)).Append("' y2='").Append((14 + (mx - 0) / (mx - mn) * 200).ToString("0.#", CultureInfo.InvariantCulture)).Append("' stroke='#555' stroke-dasharray='3,3'/><polyline fill='none' stroke='").Append(color).Append("' stroke-width='2' points='");
+                for (int i = 0; i < vals.Count; i++) sb.Append((60 + i * 1020.0 / (vals.Count - 1)).ToString("0.#", CultureInfo.InvariantCulture)).Append(',').Append((14 + (mx - vals[i]) / (mx - mn) * 200).ToString("0.#", CultureInfo.InvariantCulture)).Append(' ');
+                sb.Append("'/><text x='4' y='20' fill='#9aa0aa' font-size='11'>").Append(M(mx)).Append("</text><text x='4' y='218' fill='#9aa0aa' font-size='11'>").Append(M(mn)).Append("</text></svg>");
+            };
+            double eq = 0; svg("PLAIN ACCOUNT (1 micro each session, after costs)", r.Days.Select(d => eq += d.Pnl).ToList(), "#32c57a");
+            svg("PROP • CASH − SPENT", r.PropCurve.Select(p => p.Item2).ToList(), "#ebb02b");
+            sb.Append("<h2>MONTH BY MONTH • PROFIT vs EXPENSES</h2><table><tr><th>MONTH</th><th>SESSIONS</th><th>TRADING</th><th>BOUGHT</th><th>PASSED</th><th>PAYOUTS</th><th>LOST</th><th>SPENT</th><th>CASH IN</th><th>NET</th><th>RUNNING</th></tr>");
+            double runN = 0;
+            foreach (var g in r.Ledger.GroupBy(l => new DateTime(l.Day.Year, l.Day.Month, 1)).OrderBy(g => g.Key))
+            {
+                double sp = g.Sum(l => l.Spent), ca = g.Sum(l => l.Cash), tr = g.Sum(l => l.Pnl); runN += ca - sp;
+                sb.Append("<tr><td>").Append(g.Key.ToString("MMM yyyy", CultureInfo.InvariantCulture)).Append("</td><td>").Append(g.Count()).Append("</td><td class='").Append(C(tr)).Append("'>").Append(M(tr)).Append("</td><td>").Append(g.Sum(l => l.Bought)).Append("</td><td>").Append(g.Sum(l => l.Passed)).Append("</td><td>").Append(g.Sum(l => l.Payouts)).Append("</td><td>").Append(g.Sum(l => l.Lost + l.Failed)).Append("</td><td class='r'>").Append(M(sp)).Append("</td><td class='g'>").Append(M(ca)).Append("</td><td class='").Append(C(ca - sp)).Append("'>").Append(M(ca - sp)).Append("</td><td class='").Append(C(runN)).Append("'>").Append(M(runN)).Append("</td></tr>");
+            }
+            sb.Append("</table><h2>EVERY ACCOUNT</h2><table><tr><th>#</th><th>BOUGHT</th><th>PASSED</th><th>FIRST PAYOUT</th><th>ENDED</th><th>PAYOUTS</th><th>CASH</th><th>SPENT</th><th>STATUS</th></tr>");
+            foreach (var a in r.Accounts) sb.Append("<tr><td>").Append(a.No).Append("</td><td>").Append(a.Bought.ToString("yyyy-MM-dd")).Append("</td><td>").Append(a.PassedOn == DateTime.MinValue ? "–" : a.PassedOn.ToString("yyyy-MM-dd")).Append("</td><td>").Append(a.PayoutDates.Count == 0 ? "–" : a.PayoutDates[0].ToString("yyyy-MM-dd")).Append("</td><td>").Append(a.Ended == DateTime.MinValue ? "–" : a.Ended.ToString("yyyy-MM-dd")).Append("</td><td>").Append(a.Payouts).Append("</td><td class='g'>").Append(M(a.Cash)).Append("</td><td class='r'>").Append(M(a.Spent)).Append("</td><td>").Append(H(a.Status)).Append("</td></tr>");
+            sb.Append("</table><h2>RANKING • EVERY VERSION</h2><table><tr><th>VERSION</th><th>TRADES</th><th>PLAIN NET</th><th>WORST DD</th><th>EVALS</th><th>PASSED</th><th>PAYOUTS</th><th>1ST PAYOUT</th><th>SPENT</th><th>PROP NET</th><th>EVERY YEAR</th></tr>");
+            foreach (var x in res.Rows) sb.Append("<tr><td>").Append(H(x.Label)).Append("</td><td>").Append(x.Trades).Append("</td><td class='").Append(C(x.Net)).Append("'>").Append(M(x.Net)).Append("</td><td class='r'>").Append(M(x.MaxDrawdown)).Append("</td><td>").Append(x.Bought).Append("</td><td>").Append(x.Passed).Append("</td><td>").Append(x.Payouts).Append("</td><td>").Append(x.Stats.HasPayout ? x.Stats.CalendarDaysToFirstPayout + " d" : "never").Append("</td><td class='r'>").Append(M(x.Spent)).Append("</td><td class='").Append(C(x.PropNet)).Append("'>").Append(M(x.PropNet)).Append("</td><td>").Append(x.EveryYear ? "YES" : "no").Append("</td></tr>");
+            sb.Append("</table><h2>BEST TAKE PROFIT (each instrument alone)</h2><table><tr><th>LINE</th><th>BEST FOR PROP</th><th>PROP NET</th><th>BEST PLAIN</th><th>PLAIN NET</th></tr>");
+            foreach (var g in res.Grid.GroupBy(x => x.Direction + " " + x.Symbol)) { var bp = g.OrderByDescending(x => x.PropNet).First(); var bn = g.OrderByDescending(x => x.Net).First(); sb.Append("<tr><td>").Append(H(g.Key)).Append("</td><td>").Append(bp.Tp == 0 ? "HOLD" : "+" + bp.Tp).Append("</td><td class='").Append(C(bp.PropNet)).Append("'>").Append(M(bp.PropNet)).Append("</td><td>").Append(bn.Tp == 0 ? "HOLD" : "+" + bn.Tp).Append("</td><td class='").Append(C(bn.Net)).Append("'>").Append(M(bn.Net)).Append("</td></tr>"); }
+            sb.Append("</table><h2>SESSIONS (BUY points)</h2><table><tr><th>PART</th><th>DAYS</th><th>UP DAYS</th><th>AVG PTS</th><th>TOTAL PTS</th></tr>");
+            foreach (var m in res.Moves.Where(x => !x.Hour)) sb.Append("<tr><td>").Append(H(m.Symbol + " " + m.Name)).Append("</td><td>").Append(m.Days).Append("</td><td>").Append(m.UpPct.ToString("0")).Append("%</td><td class='").Append(C(m.AvgPts)).Append("'>").Append(m.AvgPts.ToString("0.##", CultureInfo.InvariantCulture)).Append("</td><td class='").Append(C(m.SumPts)).Append("'>").Append(m.SumPts.ToString("0.#", CultureInfo.InvariantCulture)).Append("</td></tr>");
+            sb.Append("</table></body></html>");
+            return sb.ToString();
+        }
+
+        private string MicroCsv()
+        {
+            var sb = new StringBuilder(); var res = microResult; if (res == null) return string.Empty;
+            sb.AppendLine("# MICRO A DAY • " + res.Sessions + " sessions " + res.First.ToString("yyyy-MM-dd") + " -> " + res.Last.ToString("yyyy-MM-dd") + " • " + res.Rules.Describe().Replace(',', ' '));
+            sb.AppendLine("rank,version,trades,won_pct,plain_net,worst_dd,underwater_days,evals,passed,payouts,funded_lost,spent,cash,prop_net,money_needed,pass_pct_random,value_per_eval,every_year,prop_by_year");
+            for (int i = 0; i < res.Rows.Count; i++)
+            {
+                var r = res.Rows[i]; Func<double, string> f = v => v.ToString("0.##", CultureInfo.InvariantCulture);
+                sb.AppendLine(string.Join(",", new[] { (i + 1).ToString(), "\"" + r.Label + "\"", r.Trades.ToString(), f(r.Trades == 0 ? 0 : 100.0 * r.Wins / r.Trades), f(r.Net), f(r.MaxDrawdown), r.LongestUnderwaterDays.ToString(), r.Bought.ToString(), r.Passed.ToString(), r.Payouts.ToString(), r.FundedLost.ToString(), f(r.Spent), f(r.Cash), f(r.PropNet), f(r.MoneyNeeded), f(r.PassRate), f(r.ValuePerEval), r.EveryYear ? "yes" : "no", "\"" + string.Join(" ", r.PropByYear.OrderBy(k => k.Key).Select(k => k.Key + ":" + f(k.Value))) + "\"" }));
+            }
+            sb.AppendLine(); sb.AppendLine("# TAKE PROFIT GRID"); sb.AppendLine("symbol,direction,tp,trades,hits,plain_net,worst_dd,passed,payouts,prop_net,net_by_year");
+            foreach (var g in res.Grid) sb.AppendLine(string.Join(",", new[] { g.Symbol, g.Direction, g.Tp.ToString(CultureInfo.InvariantCulture), g.Trades.ToString(), g.Hits.ToString(), g.Net.ToString("0.##", CultureInfo.InvariantCulture), g.MaxDrawdown.ToString("0.##", CultureInfo.InvariantCulture), g.Passed.ToString(), g.Payouts.ToString(), g.PropNet.ToString("0.##", CultureInfo.InvariantCulture), "\"" + string.Join(" ", g.NetByYear.OrderBy(k => k.Key).Select(k => k.Key + ":" + k.Value.ToString("0", CultureInfo.InvariantCulture))) + "\"" }));
+            sb.AppendLine(); sb.AppendLine("# SESSIONS AND HOURS (BUY points)"); sb.AppendLine("symbol,part,days,up_pct,avg_pts,total_pts");
+            foreach (var m in res.Moves) sb.AppendLine(string.Join(",", new[] { m.Symbol, "\"" + m.Name + "\"", m.Days.ToString(), m.UpPct.ToString("0.#", CultureInfo.InvariantCulture), m.AvgPts.ToString("0.###", CultureInfo.InvariantCulture), m.SumPts.ToString("0.##", CultureInfo.InvariantCulture) }));
+            if (microSelected != null)
+            {
+                sb.AppendLine(); sb.AppendLine("# EVERY TRADE • " + microSelected.Label); sb.AppendLine("open,symbol,side,entry,exit,exit_time,outcome,points,net,worst_open,best_open");
+                foreach (var t in microSelected.TradeList.OrderBy(t => t.Open)) sb.AppendLine(string.Join(",", new[] { t.Open.ToString("yyyy-MM-dd HH:mm"), t.Symbol, t.Sell ? "SELL" : "BUY", t.Entry.ToString(CultureInfo.InvariantCulture), t.Exit.ToString(CultureInfo.InvariantCulture), t.ExitTime.ToString("yyyy-MM-dd HH:mm"), t.Outcome, t.Points.ToString("0.##", CultureInfo.InvariantCulture), t.Net.ToString("0.##", CultureInfo.InvariantCulture), t.Worst.ToString("0.##", CultureInfo.InvariantCulture), t.Best.ToString("0.##", CultureInfo.InvariantCulture) }));
+                sb.AppendLine(); sb.AppendLine("# EVERY ACCOUNT • " + microSelected.Label); sb.AppendLine("no,bought,passed,ended,eval_days,funded_days,payouts,cash,spent,status");
+                foreach (var a in microSelected.Accounts) sb.AppendLine(string.Join(",", new[] { a.No.ToString(), a.Bought.ToString("yyyy-MM-dd"), a.PassedOn == DateTime.MinValue ? "" : a.PassedOn.ToString("yyyy-MM-dd"), a.Ended == DateTime.MinValue ? "" : a.Ended.ToString("yyyy-MM-dd"), a.EvalDays.ToString(), a.FundedDays.ToString(), a.Payouts.ToString(), a.Cash.ToString("0.##", CultureInfo.InvariantCulture), a.Spent.ToString("0.##", CultureInfo.InvariantCulture), a.Status }));
+            }
+            return sb.ToString();
+        }
 
         private void OpenMicroCompare()
         {
             if (microCompareWindow != null) { CloseToolQuietly(microCompareWindow); microCompareWindow = null; }
-            var w = new Window { Title = "KEYSTONE ARC • MICRO A DAY • COMPARE", Width = 1500, Height = 880, MinWidth = 900, MinHeight = 560, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            var w = new Window { Title = "KEYSTONE ARC • MICRO A DAY • RESULTS", Width = 1500, Height = 900, MinWidth = 900, MinHeight = 560, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
             FitWindowToScreen(w);
             var root = new Grid { Margin = new Thickness(10) };
-            for (int i = 0; i < 2; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            for (int i = 0; i < 3; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             var head = new StackPanel();
-            head.Children.Add(Txt("MICRO A DAY • EVERY VERSION ON THE SAME DAYS", Gold, 20, FontWeights.Bold));
-            head.Children.Add(Txt("1 micro per instrument at the " + KeystoneBracket.Hm(config == null ? 1800 : config.MadOpenHhmm) + " open, held all day to the take profit or the close, no stop. PLAIN ACCOUNT = 1 micro each, every session, after costs. PROP = one evaluation slot walking the days in order ($120 evaluation, $3,000 target, $2,000 trailing drawdown, 50% consistency; funded payouts after 5 days of $150+, 50% up to $2,000, 90% split; a lost account is replaced).", Muted, 11, FontWeights.Normal));
+            head.Children.Add(Txt("MICRO A DAY • RESULTS", Gold, 20, FontWeights.Bold));
+            head.Children.Add(Txt("This window compares every version. The run you started (" + (config == null ? "" : config.MadDirection + ", TP MNQ " + config.MadMnqTarget + " / MGC " + config.MadMgcTarget) + ") is also in the lab: STEP 3 SIMULATION RESULTS (pool, first return, payout cycles, months) and the chart with replay — use GO TO LAB STEP 3.", Cyan, 11, FontWeights.Bold));
+            head.Children.Add(Txt("1 micro per instrument at the " + KeystoneBracket.Hm(config == null ? 1800 : config.MadOpenHhmm) + " open, held through every session to the take profit or the close, no stop, no adding. Every version on the same days: BUY / SELL × MNQ / MGC / BOTH × take profits.", Muted, 11, FontWeights.Normal));
             Grid.SetRow(head, 0); root.Children.Add(head);
-            var status = Txt("MEASURING every version…", Gold, 12.5, FontWeights.Bold); Grid.SetRow(status, 1); root.Children.Add(status);
+            var bar = new WrapPanel { Margin = new Thickness(0, 4, 0, 4) };
+            var presets = KeystonePropRules.Presets(); var rulesBox = Select(presets.Select(p => p.Name).ToArray()); rulesBox.SelectedIndex = 0; rulesBox.Width = 280;
+            var evalBox = Input("120"); evalBox.Width = 70; var actBox = Input("0"); actBox.Width = 70;
+            var evalKBox = Input("1"); evalKBox.Width = 50; var fundKBox = Input("1"); fundKBox.Width = 50;
+            evalKBox.ToolTip = "Micros per instrument while the account is in the evaluation (the plain account stays 1 micro)."; fundKBox.ToolTip = "Micros per instrument once the account is funded.";
+            var rerun = Btn("RE-RUN WITH THESE RULES", Gold); var export = Btn("EXPORT HTML + CSV", Orchid);
+            var toLab = Btn("GO TO LAB STEP 3 • POOL, CHART, REPLAY, FIRST RETURN", Cyan); toLab.Click += delegate { if (window != null) window.Activate(); if (workspaceTabs != null) workspaceTabs.SelectedIndex = 2; };
+            bar.Children.Add(Txt("FIRM RULES", Gold, 11, FontWeights.Bold)); bar.Children.Add(rulesBox); bar.Children.Add(Txt("EVALUATION $", Muted, 11, FontWeights.Bold)); bar.Children.Add(evalBox);
+            bar.Children.Add(Txt("ACTIVATION $", Muted, 11, FontWeights.Bold)); bar.Children.Add(actBox);
+            bar.Children.Add(Txt("MICROS: EVALUATION", Muted, 11, FontWeights.Bold)); bar.Children.Add(evalKBox); bar.Children.Add(Txt("FUNDED", Muted, 11, FontWeights.Bold)); bar.Children.Add(fundKBox);
+            bar.Children.Add(rerun); bar.Children.Add(export); bar.Children.Add(toLab);
+            Grid.SetRow(bar, 1); root.Children.Add(bar);
+            var status = Txt("MEASURING every version…", Gold, 12.5, FontWeights.Bold); status.TextWrapping = TextWrapping.Wrap; Grid.SetRow(status, 2); root.Children.Add(status);
             var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top };
-            var rankPanel = new StackPanel(); var yearPanel = new StackPanel();
-            tabs.Items.Add(new TabItem { Header = "RANKING", Background = Gold, Foreground = Bg, FontWeight = FontWeights.Bold, Content = HelixScroll(rankPanel) });
-            tabs.Items.Add(new TabItem { Header = "EACH YEAR (CLICKED ROW)", Background = Cyan, Foreground = Bg, FontWeight = FontWeights.Bold, Content = HelixScroll(yearPanel) });
-            Grid.SetRow(tabs, 2); root.Children.Add(tabs);
-            Action<KeystoneMicroRow> showYear = r =>
-            {
-                yearPanel.Children.Clear(); yearPanel.Children.Add(HelixTitle(r.Label, Cyan));
-                double[] wy = { 90, 160, 160 }; yearPanel.Children.Add(HelixHeader(new[] { "YEAR", "PLAIN ACCOUNT NET", "PROP: CASH − SPENT" }, wy));
-                foreach (int y in r.NetByYear.Keys.Union(r.PropByYear.Keys).OrderBy(x => x))
-                {
-                    double a, b; r.NetByYear.TryGetValue(y, out a); r.PropByYear.TryGetValue(y, out b);
-                    yearPanel.Children.Add(HelixRow(new[] { y.ToString(), Signed(a), Signed(b) }, new[] { Gold, MoneyBrush(a), MoneyBrush(b) }, wy, Card, null));
-                }
-                tabs.SelectedIndex = 1;
-            };
+            var colors = new Brush[] { Gold, Green, Cyan, Orange, Orchid, Gold, Gold, Orange, Cyan, Green };
+            string[] names = { "RANKING", "CHARTS", "EVALS & FUNDED", "SIZE & SPEED", "COPY TRADING", "MONTHS", "BEST TAKE PROFIT", "SESSIONS & HOURS", "DAYS", "EACH YEAR" };
+            for (int i = 0; i < names.Length; i++) tabs.Items.Add(new TabItem { Header = names[i], Background = colors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Measuring…", Muted, 12, FontWeights.Normal) });
+            Grid.SetRow(tabs, 3); root.Children.Add(tabs); microTabs = tabs;
             var oneMinute = new List<KeystoneArcBar>(); if (KeystoneBracket.IsOneMinute(mnqBars)) oneMinute.AddRange(mnqBars); if (KeystoneBracket.IsOneMinute(mgcBars)) oneMinute.AddRange(mgcBars);
             var basis = config == null ? new KeystoneArcRunConfig() : CloneConfig(config); basis.StrategyCode = "MAD";
-            if (oneMinute.Count == 0) { status.Text = "NO 1-MINUTE BARS LOADED • Step 1: MICRO A DAY, BOTH, your dates, START — then COMPARE."; status.Foreground = Red; }
-            else
+            Action run = null;
+            run = delegate
             {
-                oneMinute = oneMinute.OrderBy(b => b.Time).ToList(); basis.Start = oneMinute[0].Time.AddMinutes(-1); basis.End = oneMinute[oneMinute.Count - 1].Time.AddDays(1);
+                if (oneMinute.Count == 0) { status.Text = "NO 1-MINUTE BARS LOADED • Step 1: MICRO A DAY, BOTH, your dates (several years, ending yesterday), START — this window opens by itself."; status.Foreground = Red; return; }
+                var rules = presets[Math.Max(0, rulesBox.SelectedIndex)].Copy(); rules.EvalCost = Math.Max(0, NumberAllowZero(evalBox, 120)); rules.Activation = Math.Max(0, NumberAllowZero(actBox, 0));
+                double evalK = Math.Max(1, Number(evalKBox, 1)), fundK = Math.Max(1, Number(fundKBox, 1));
+                status.Text = "MEASURING every version, 124 take profits, sessions, accounts…"; status.Foreground = Gold; rerun.IsEnabled = false;
+                var bars = oneMinute.OrderBy(b => b.Time).ToList(); basis.Start = bars[0].Time.AddMinutes(-1); basis.End = bars[bars.Count - 1].Time.AddDays(1);
                 System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
-                    List<KeystoneMicroRow> rows = null; string failure = null;
-                    try { rows = KeystoneMicroADay.Compare(oneMinute, basis, new KeystonePropRules()); } catch (Exception ex) { failure = ex.Message; }
+                    KeystoneMicroResult res = null; string failure = null;
+                    try { res = KeystoneMicroADay.Run(bars, basis, rules, evalK, fundK); } catch (Exception ex) { failure = ex.Message; }
                     Action done = delegate
                     {
-                        if (failure != null || rows == null) { status.Text = "COMPARE ERROR • " + failure; status.Foreground = Red; return; }
-                        microCompareRows = rows; rankPanel.Children.Clear();
-                        rankPanel.Children.Add(HelixNote("Ranked by PROP cash − spent. Click a row for each year. TRADES = sessions × instruments. WORST DD = the deepest drop of the plain account; UNDER WATER = the longest time (calendar days) from a high back to a new high."));
-                        double[] wr = { 34, 380, 70, 70, 110, 110, 100, 80, 90, 80, 80, 90, 120 };
-                        rankPanel.Children.Add(HelixHeader(new[] { "#", "VERSION", "TRADES", "WON", "PLAIN NET", "WORST DD", "UNDER WATER", "EVALS", "PASSED", "PAYOUTS", "FUNDED LOST", "SPENT", "PROP CASH − SPENT" }, wr));
-                        for (int i = 0; i < rows.Count; i++)
-                        {
-                            var r = rows[i];
-                            var row = HelixRow(new[] { (i + 1).ToString(), r.Label, r.Trades.ToString(), (r.Trades == 0 ? 0 : 100.0 * r.Wins / r.Trades).ToString("0") + "%", Signed(r.Net), Cash(r.MaxDrawdown), r.LongestUnderwaterDays + " d", r.Bought.ToString(), r.Passed.ToString(), r.Payouts.ToString(), r.FundedLost.ToString(), Cash(r.Spent), Signed(r.PropNet) },
-                                new[] { Gold, Text, Text, Text, MoneyBrush(r.Net), Red, Muted, Text, Green, Green, Red, Red, MoneyBrush(r.PropNet) }, wr, i == 0 ? Gold : MoneyBrush(r.PropNet), null);
-                            var rr = r; row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { showYear(rr); };
-                            rankPanel.Children.Add(row);
-                        }
-                        if (rows.Count > 0) { showYear(rows[0]); tabs.SelectedIndex = 0; }
-                        status.Text = rows.Count + " VERSIONS • " + oneMinute[0].Time.ToString("yyyy-MM-dd") + " → " + oneMinute[oneMinute.Count - 1].Time.ToString("yyyy-MM-dd") + (rows.Count > 0 ? " • #1 " + rows[0].Label + " • prop " + Signed(rows[0].PropNet) + " • plain " + Signed(rows[0].Net) : "");
-                        status.Foreground = rows.Count > 0 && rows[0].PropNet > 0 ? Green : Red;
+                        rerun.IsEnabled = true;
+                        if (failure != null || res == null) { status.Text = "ERROR • " + failure; status.Foreground = Red; return; }
+                        microResult = res; microSelected = null;
+                        SetMicroTab("BEST TAKE PROFIT", MicroTpView());
+                        if (res.Rows.Count > 0) ShowMicroSelected(res.Rows[0], false);
+                        SetMicroTab("RANKING", MicroRankingView()); tabs.SelectedIndex = 0;
+                        var top = res.Rows.FirstOrDefault();
+                        status.Text = (res.Sessions < 60 ? "⚠ ONLY " + res.Sessions + " SESSIONS — choose a longer date range • " : "") + res.Rows.Count + " VERSIONS • " + res.Sessions + " sessions " + res.First.ToString("yyyy-MM-dd") + " → " + res.Last.ToString("yyyy-MM-dd") + " • " + rules.Name + " • " + evalK + " micros in the evaluation, " + fundK + " funded" + (top != null ? " • #1 " + top.Label + " • prop " + Signed(top.PropNet) + " • plain " + Signed(top.Net) : "");
+                        status.Foreground = res.Sessions < 60 ? Red : top != null && top.PropNet > 0 ? Green : Red;
+                        microCompareRows = res.Rows;
                     };
                     if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
                 });
-            }
-            ConfirmToolClose(w, "MICRO A DAY COMPARE");
-            w.Content = root; microCompareWindow = w; microCompareStatus = status;
-            w.Closed += delegate { microCompareWindow = null; microCompareStatus = null; };
+            };
+            rerun.Click += delegate { run(); };
+            export.Click += delegate
+            {
+                if (microResult == null) { status.Text = "RUN FIRST"; status.Foreground = Gold; return; }
+                try
+                {
+                    string dir = DataDirectory(); Directory.CreateDirectory(dir); string stem = Path.Combine(dir, "KeystoneArc_MicroADay_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+                    File.WriteAllText(stem + ".csv", MicroCsv(), Encoding.UTF8); File.WriteAllText(stem + ".html", MicroHtml(), Encoding.UTF8);
+                    status.Text = "EXPORTED " + stem + ".html + .csv • open the HTML in your browser, attach both to Claude"; status.Foreground = Green;
+                    try { System.Diagnostics.Process.Start(stem + ".html"); } catch { }
+                }
+                catch (Exception ex) { status.Text = "EXPORT ERROR • " + ex.Message; status.Foreground = Red; }
+            };
+            ConfirmToolClose(w, "MICRO A DAY RESULTS");
+            w.Content = root; microCompareWindow = w; microCompareStatus = status; microRerun = run;
+            w.Closed += delegate { microCompareWindow = null; microCompareStatus = null; microTabs = null; microRerun = null; };
             w.Show();
+            run();
         }
 
         private bool IsBracketSelected() { string s = Convert.ToString(strategyBox == null ? null : strategyBox.SelectedItem ?? string.Empty); return s.StartsWith("PROP BRACKET", StringComparison.OrdinalIgnoreCase) || s.StartsWith("FIRST 5M FVG STUDY", StringComparison.OrdinalIgnoreCase) || IsRotationSelected(); }
