@@ -21,6 +21,7 @@ public static class IdeasTests
 
     public static int Main()
     {
+        DateTime fi0, la0, sp0; int n0;
         // ---- parse
         var p = KeystoneIdeas.Parse("BOTH FVG 1 EITHER SL C1,10 ACCOUNTS 3");
         Check(p.IsFvg && p.Error == "" && p.Symbols.Count == 2 && p.Dirs.SequenceEqual(new[] { "EITHER" }) && p.MnqSl.SequenceEqual(new[] { -1.0, 10 }) && p.MgcSl.SequenceEqual(new[] { -1.0, 1 }) && p.Accounts.SequenceEqual(new[] { 3 }), "parse: BOTH FVG 1 EITHER SL C1,10 ACCOUNTS 3 (gold stop C1 / 1)", p.Error);
@@ -59,6 +60,39 @@ public static class IdeasTests
         Check(!KeystoneIdeas.FvgTrades(f, "MNQ", 1, "CLOSE", 1100, 1555, -1, 2, 4, -1).Any(t => t.EntryTime < d1.AddHours(11)), "outside the session window: no trade");
         var half = KeystoneIdeas.FvgTrades(f, "MNQ", 1, "50", 930, 1555, -1, 2, 4, -1).FirstOrDefault(t => t.Dir == 1);
         Check(half != null && half.Entry == 101.5, "FILL 50: limit at the gap's middle (101.5)", half == null ? "none" : half.Entry.ToString());
+
+        // ---- new fills: 25% / 40% into the gap (from candle 3's low), strict, close + break
+        var q25 = KeystoneIdeas.FvgTrades(f, "MNQ", 1, "25", 930, 1555, -1, 2, 4, -1, 0, 0, false).FirstOrDefault(t => t.Dir == 1);
+        Check(q25 != null && Math.Abs(q25.Entry - 102) < 1e-9, "FILL 25: limit at 102.25 (25% into the gap); 10:05 opens at 102 below it → filled at 102", q25 == null ? "none" : q25.Entry.ToString());
+        var q40 = KeystoneIdeas.FvgTrades(f, "MNQ", 1, "40", 930, 1555, -1, 2, 4, -1, 0, 0, false).FirstOrDefault(t => t.Dir == 1);
+        Check(q40 != null && Math.Abs(q40.Entry - 101.8) < 1e-9, "FILL 40: 101.8", q40 == null ? "none" : q40.Entry.ToString());
+        var st50 = KeystoneIdeas.FvgTrades(f, "MNQ", 1, "50", 930, 1555, -1, 2, 4, -1, 0, 0, true).FirstOrDefault(t => t.Dir == 1 && t.EntryTime < d1.AddHours(10).AddMinutes(30));
+        Check(st50 != null && st50.EntryTime == d1.AddHours(10).AddMinutes(5) && st50.Entry == 101.5, "STRICT 50: the 10:05 low 101 trades through 101.5 → filled at 101.5", st50 == null ? "none" : st50.EntryTime + " " + st50.Entry);
+        var brk = Day("MNQ", d1, new Dictionary<int, KeystoneArcBar> {
+            { 1001, B("MNQ", d1.AddHours(10).AddMinutes(1), 99, 100, 98, 100) }, { 1002, B("MNQ", d1.AddHours(10).AddMinutes(2), 100, 106, 99, 105) },
+            { 1003, B("MNQ", d1.AddHours(10).AddMinutes(3), 105, 108, 103, 107) }, { 1004, B("MNQ", d1.AddHours(10).AddMinutes(4), 107, 107.5, 102.5, 103) },
+            { 1005, B("MNQ", d1.AddHours(10).AddMinutes(5), 103, 104.5, 102.75, 104) }, { 1006, B("MNQ", d1.AddHours(10).AddMinutes(6), 104, 110, 103.5, 109) } });
+        var cb = KeystoneIdeas.FvgTrades(brk, "MNQ", 1, "BREAK", 930, 1555, -1, 2, 4, -1, 0, 0, false).FirstOrDefault(t => t.Dir == 1 && t.EntryTime < d1.AddHours(10).AddMinutes(30));
+        Check(cb != null && cb.EntryTime == d1.AddHours(10).AddMinutes(6) && cb.Entry == 104.5 && cb.Stop == 98, "CLOSE + BREAK: back into the gap at 10:04, 10:05 closes green, 10:06 breaks its high 104.5 → in at 104.5, stop below candle 1 (98)", cb == null ? "none" : cb.EntryTime + " " + cb.Entry + " " + cb.Outcome);
+        // ---- breakeven + partial on a hand-made path: in at 100, up to 108, back down to 95
+        var path = Day("MNQ", d1, new Dictionary<int, KeystoneArcBar> { { 931, B("MNQ", d1.AddHours(9).AddMinutes(31), 100, 101, 99.5, 100.5) }, { 932, B("MNQ", d1.AddHours(9).AddMinutes(32), 100.5, 108, 100.25, 107) }, { 933, B("MNQ", d1.AddHours(9).AddMinutes(33), 107, 107, 95, 95) } });
+        var plain = KeystoneIdeas.Trades(path, "MNQ", 930, "AT", 0, "BUY", 20, 4, 1555);
+        var beT = KeystoneIdeas.Trades(path, "MNQ", 930, "AT", 0, "BUY", 20, 4, 1555, 5, 0);
+        var part = KeystoneIdeas.Trades(path, "MNQ", 930, "AT", 0, "BUY", 20, 4, 1555, 0, 6);
+        Check(plain[0].Outcome == "STOP" && plain[0].Points == -4, "no breakeven: +8 then back → stopped −4");
+        Check(beT[0].Outcome == "STOP" && beT[0].Exit == 100 && beT[0].Points == 0, "BE 5: after +8 the stop sits at the entry → out at 100 (0 points)", beT[0].Exit + " " + beT[0].Points);
+        Check(Math.Abs(part[0].Points - 1) < 1e-9, "PARTIAL 6: half at +6, half stopped −4 → +1 point average", part[0].Points.ToString());
+        // ---- day target per account: an account that banked $X today takes no more setups
+        var day3 = new List<KeystoneLabTrade> { T(1, 0, 5), T(1, 10, 15), T(1, 20, 25) };   // +$10 each, sequential
+        var dsl = new List<int>(); var dr = KeystoneIdeas.Rotate(day3, "EITHER", 1, dsl, 1, 15, 0);
+        Check(dr.Count == 2, "DAYTARGET $15 on 1 account: after 2 × $10 the account is done for the day", dr.Count.ToString());
+        var dr2 = KeystoneIdeas.Rotate(day3, "EITHER", 2, new List<int>(), 1, 15, 0);
+        Check(dr2.Count == 3, "2 accounts: the 3rd setup goes to the other account");
+        var ip = KeystoneIdeas.Parse("MNQ FVG 1 FILL CLOSE,25,40,50,BREAK STRICT BE 0,10 PARTIAL 0,10 DAYTARGET 0,500 DAYSTOP 0,300 TP 20 SL C1 ACCOUNTS 3");
+        Check(ip.Error == "" && ip.Fills.Count == 5 && ip.Strict && ip.MnqBe.SequenceEqual(new[] { 0.0, 10 }) && ip.MgcBe.SequenceEqual(new[] { 0.0, 1 }) && ip.DayTarget.Count == 2, "parse: FILL / STRICT / BE / PARTIAL / DAYTARGET / DAYSTOP", ip.Error);
+        Check(KeystoneIdeas.Parse("MNQ AT 0930 DAYTARGET 500").Error != "", "DAYTARGET only for FVG ideas");
+        var fr2 = KeystoneIdeas.Run(KeystoneIdeas.Parse("MNQ FVG 1 EITHER GAP 2 FILL CLOSE,BREAK TP 4 SL C1 BE 0,2 ACCOUNTS 2 DAYTARGET 0,100"), brk, new KeystonePropRules(), null, null, out fi0, out la0, out sp0, out n0);
+        Check(fr2.Count > 0 && fr2.All(r => r.Get("BREAKEVEN") != "" && r.Get("DAY LIMIT") != "") && fr2.Any(r => r.Get("ENTRY").Contains("CLOSE+BREAK")), "run shows ENTRY / BREAKEVEN / DAY LIMIT columns", fr2.Count + " rows");
 
         // ---- rotation + direction lock
         var c = new List<KeystoneLabTrade> { T(1, 0, 30), T(-1, 10, 20), T(1, 15, 40), T(-1, 45, 50) };

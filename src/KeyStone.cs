@@ -717,6 +717,7 @@ namespace NinjaTrader.NinjaScript
         // MICRO A DAY: 1 micro at the session open (18:00 New York), held all day (every session) to the take profit or the close.
         public string MadDirection = "BUY"; public double MadMnqTarget = 0, MadMgcTarget = 0; public int MadQty = 1, MadOpenHhmm = 1800, MadCloseHhmm = 1659;
         public int GoldenUseBh = 1;
+        public string TradeSide = "BUY";                // FVG + GOLDEN: BUY (the original long setups) • SELL (the same rules mirrored: break of the low) • BOTH
         public string GoldenFvgMode = "CLOSE";          // CLOSE = enter at the close of candle 3 • BREAK = touch + break (like BH) • DIP50 = limit at the gap's middle, stop below candle 1 • OFF
         public string GoldenAggression = "TAG";         // OFF • TAG (record + compare) • REQUIRED (only after a push down)
         public double GoldenMnqDropPoints = 30, GoldenMgcDropPoints = 3;
@@ -941,6 +942,48 @@ namespace NinjaTrader.NinjaScript
             }
         }
 
+        // SELL setups = the same detector on the price mirrored around K (open/high/low/close → K − open / K − low / K − high /
+        // K − close): a bullish gap / break of a high there is a bearish gap / break of a low here. The events are mapped back
+        // (prices K − x, SHORT). The BUY path is untouched, so the long results stay exactly as they were.
+        public static List<KeystoneArcBar> Mirror(List<KeystoneArcBar> bars, double k)
+        {
+            return bars.Select(b => new KeystoneArcBar { Symbol = b.Symbol, Time = b.Time, Open = k - b.Open, High = k - b.Low, Low = k - b.High, Close = k - b.Close, Volume = b.Volume }).ToList();
+        }
+
+        public static double MirrorConstant(List<KeystoneArcBar> a, List<KeystoneArcBar> b)
+        {
+            double hi = Math.Max(a == null || a.Count == 0 ? 0 : a.Max(x => x.High), b == null || b.Count == 0 ? 0 : b.Max(x => x.High));
+            return 2 * Math.Ceiling(hi + 1);
+        }
+
+        public static void Unmirror(KeystoneArcEvent e, double k)
+        {
+            Func<double, double> m = x => double.IsNaN(x) ? x : k - x;
+            e.Entry = m(e.Entry); e.Stop = m(e.Stop); e.Target = m(e.Target); e.ExitPrice = m(e.ExitPrice);
+            e.EvaluationExitPrice = m(e.EvaluationExitPrice); e.EvaluationTarget = m(e.EvaluationTarget); e.EvaluationStop = m(e.EvaluationStop);
+            double peak = e.PeakAfterEntry; e.PeakAfterEntry = m(e.TroughAfterEntry); e.TroughAfterEntry = m(peak);
+            double lo = e.FvgLower; e.FvgLower = m(e.FvgUpper); e.FvgUpper = m(lo);
+            e.GoldenStartPrice = m(e.GoldenStartPrice); e.GoldenLowPrice = m(e.GoldenLowPrice);
+            e.Direction = "SHORT";
+            e.Id = (e.Id ?? string.Empty).Contains("|LONG|") ? e.Id.Replace("|LONG|", "|SHORT|") : (e.Id ?? string.Empty) + "|SHORT";
+            if (!string.IsNullOrEmpty(e.RiskModel)) e.RiskModel = e.RiskModel + " • SELL (BREAK OF THE LOW)";
+        }
+
+        private static List<KeystoneArcEvent> Sided(List<KeystoneArcBar> raw, List<KeystoneArcBar> bars, KeystoneArcRunConfig cfg, Func<List<KeystoneArcBar>, List<KeystoneArcBar>, List<KeystoneArcEvent>> detect)
+        {
+            string side = (cfg.TradeSide ?? "BUY").ToUpperInvariant(); var output = new List<KeystoneArcEvent>();
+            if (side != "SELL") output.AddRange(detect(raw, bars));
+            if (side == "SELL" || side == "BOTH")
+            {
+                double k = MirrorConstant(raw, bars);
+                var mr = Mirror(raw, k); var mb = ReferenceEquals(raw, bars) ? mr : Mirror(bars, k);
+                var sells = detect(mr, mb); foreach (var e in sells) Unmirror(e, k);
+                output.AddRange(sells);
+                if (side == "BOTH") output = output.OrderBy(e => e.TriggerTime).ToList();
+            }
+            return output;
+        }
+
         private static List<KeystoneArcEvent> DetectAndResolveCore(List<KeystoneArcBar> oneMinute, List<KeystoneArcBar> directSetupBars, KeystoneArcRunConfig cfg)
         {
             var events = new List<KeystoneArcEvent>();
@@ -952,11 +995,11 @@ namespace NinjaTrader.NinjaScript
                 var raw = oneMinute.Where(x => string.Equals(x.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.Time).ToList();
                 var bars = directSetupBars == null ? new List<KeystoneArcBar>() : directSetupBars.Where(x => string.Equals(x.Symbol, symbol, StringComparison.OrdinalIgnoreCase)).OrderBy(x => x.Time).ToList();
                 if (bars.Count == 0) bars = ToSetupBars(raw, symbol, cfg.SetupMinutes);
-                if (string.Equals(cfg.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectFvgRetest(raw, bars, cfg, symbol)); continue; }
+                if (string.Equals(cfg.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase)) { events.AddRange(Sided(raw, bars, cfg, (r, b) => DetectFvgRetest(r, b, cfg, symbol))); continue; }
                 if (string.Equals(cfg.StrategyCode, "ENG", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectEngulfing(raw, bars, cfg, symbol)); continue; }
                 if (string.Equals(cfg.StrategyCode, "RLY", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectLastHourRelay(raw, cfg, symbol)); continue; }
                 if (string.Equals(cfg.StrategyCode, "VWP", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectVwapSnapBack(raw, bars, cfg, symbol)); continue; }
-                if (string.Equals(cfg.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectGolden(raw, bars, cfg, symbol)); continue; }
+                if (string.Equals(cfg.StrategyCode, "GLD", StringComparison.OrdinalIgnoreCase)) { events.AddRange(Sided(raw, bars, cfg, (r, b) => DetectGolden(r, b, cfg, symbol))); continue; }
                 if (string.Equals(cfg.StrategyCode, "MAD", StringComparison.OrdinalIgnoreCase)) { events.AddRange(DetectMicroADay(raw, cfg, symbol)); continue; }
                 int order = 0;
                 DateTime orderDay = DateTime.MinValue;
@@ -5702,6 +5745,115 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- REPLAY TRADER engine: a session replayed tick by tick from the loaded 1-minute bars ------------------------------
+    // Inside each minute the price walks open → the nearer-in-time extreme → the other extreme → close (a down-closing
+    // minute visits its high first, an up-closing minute its low first) in small steps. That path is SIMULATED: 1-minute
+    // bars do not record the order of the ticks inside the minute. Buy / sell at the current price, optional stop / target in
+    // points (checked on every step), flat at the end of the session; costs = commission both sides + 1 tick per contract.
+    public sealed class KeystoneReplayFill { public DateTime EntryTime, ExitTime; public string Symbol = string.Empty, Side = string.Empty, Reason = string.Empty; public int Qty; public double Entry, Exit, Points, Net; }
+
+    public sealed class KeystoneReplayTrader
+    {
+        public readonly List<KeystoneArcBar> Bars; public readonly string Symbol; public readonly int StepsPerBar;
+        public int BarIndex, Step; public double Price; public DateTime Time;
+        public int Position; public double AvgPrice, StopPts, TargetPts, Realized; public DateTime PositionTime;
+        public List<KeystoneReplayFill> Fills = new List<KeystoneReplayFill>();
+        readonly double pv, cost, tick;
+
+        public KeystoneReplayTrader(List<KeystoneArcBar> sessionBars, string symbol, int stepsPerBar)
+        {
+            Bars = sessionBars ?? new List<KeystoneArcBar>(); Symbol = (symbol ?? "MNQ").ToUpperInvariant(); StepsPerBar = Math.Max(4, stepsPerBar);
+            pv = KeystoneMoveStudy.PointValue(Symbol); cost = KeystoneMoveStudy.Cost(Symbol); tick = KeystoneMoveStudy.IsMgc(Symbol) ? 0.1 : 0.25;
+            BarIndex = 0; Step = 0; if (Bars.Count > 0) { Price = Bars[0].Open; Time = Bars[0].Time.AddMinutes(-1); }
+        }
+
+        public bool Finished { get { return BarIndex >= Bars.Count; } }
+        public double Unrealized { get { return Position == 0 ? 0 : (Price - AvgPrice) * Position * pv; } }
+        public double DayNet { get { return Realized + Unrealized; } }
+
+        // The simulated price at step k (0 … StepsPerBar) of a 1-minute bar.
+        public static double PathPrice(KeystoneArcBar b, int k, int steps, double tick)
+        {
+            bool highFirst = b.Close < b.Open || (b.Close == b.Open && b.High - b.Open < b.Open - b.Low);
+            double a = highFirst ? b.High : b.Low, c = highFirst ? b.Low : b.High;
+            double l0 = Math.Abs(a - b.Open), l1 = Math.Abs(c - a), l2 = Math.Abs(b.Close - c), total = l0 + l1 + l2;
+            if (total <= 0 || steps < 3) return b.Close;
+            // the steps where the walk stands exactly on the first extreme (k1) and the second (k2)
+            int k1 = Math.Max(1, Math.Min(steps - 2, (int)Math.Round(steps * l0 / total))), k2 = Math.Max(k1 + 1, Math.Min(steps - 1, (int)Math.Round(steps * (l0 + l1) / total)));
+            double p = k <= 0 ? b.Open : k >= steps ? b.Close : k <= k1 ? b.Open + (a - b.Open) * k / k1 : k <= k2 ? a + (c - a) * (k - k1) / (double)(k2 - k1) : c + (b.Close - c) * (k - k2) / (double)(steps - k2);
+            return Math.Round(p / tick) * tick;
+        }
+
+        // The candles so far in the chosen timeframe, the last one still forming (its close = the current price).
+        public List<KeystoneArcBar> Candles(int minutes)
+        {
+            var done = Bars.Take(BarIndex).ToList();
+            if (!Finished && Step > 0) { var b = Bars[BarIndex]; var part = new KeystoneArcBar { Symbol = b.Symbol, Time = b.Time, Open = b.Open, High = b.Open, Low = b.Open, Close = Price };
+                for (int k = 0; k <= Step; k++) { double p = PathPrice(b, k, StepsPerBar, tick); part.High = Math.Max(part.High, p); part.Low = Math.Min(part.Low, p); } done.Add(part); }
+            return KeystoneEngLab.Candles(done, Math.Max(1, minutes));
+        }
+
+        // One step forward; returns false at the end of the session (an open position is closed at the last price).
+        public bool Advance()
+        {
+            if (Finished) return false;
+            var b = Bars[BarIndex]; Step++;
+            Price = PathPrice(b, Step, StepsPerBar, tick); Time = b.Time.AddMinutes(-1).AddSeconds(60.0 * Step / StepsPerBar);
+            CheckBracket();
+            if (Step >= StepsPerBar) { Step = 0; BarIndex++; Time = b.Time; }
+            if (Finished && Position != 0) CloseAll("SESSION END");
+            return !Finished;
+        }
+
+        public void JumpTo(DateTime t) { while (!Finished && Bars[BarIndex].Time <= t) { Step = 0; Price = Bars[BarIndex].Close; Time = Bars[BarIndex].Time; BarIndex++; if (Position != 0) CheckBracketBar(Bars[BarIndex - 1]); } }
+
+        void CheckBracketBar(KeystoneArcBar b)
+        {
+            for (int k = 1; k <= StepsPerBar && Position != 0; k++) { Price = PathPrice(b, k, StepsPerBar, tick); CheckBracket(); }
+            Price = b.Close;
+        }
+
+        void CheckBracket()
+        {
+            if (Position == 0) return; int dir = Math.Sign(Position);
+            if (StopPts > 0 && dir * (Price - AvgPrice) <= -StopPts + 1e-9) { Price = AvgPrice - dir * StopPts; CloseAll("STOP"); return; }
+            if (TargetPts > 0 && dir * (Price - AvgPrice) >= TargetPts - 1e-9) { Price = AvgPrice + dir * TargetPts; CloseAll("TARGET"); }
+        }
+
+        public void Buy(int qty) { Trade(Math.Max(1, qty)); }
+        public void Sell(int qty) { Trade(-Math.Max(1, qty)); }
+
+        void Trade(int signedQty)
+        {
+            if (Finished && Bars.Count > 0) return;
+            if (Position != 0 && Math.Sign(Position) != Math.Sign(signedQty))
+            {
+                int closing = Math.Min(Math.Abs(Position), Math.Abs(signedQty));
+                Record(closing, "MANUAL"); Position += Math.Sign(signedQty) * closing; signedQty -= Math.Sign(signedQty) * closing;
+                if (Position == 0) AvgPrice = 0;
+            }
+            if (signedQty == 0) return;
+            if (Position == 0) { PositionTime = Time; AvgPrice = Price; Position = signedQty; }
+            else { AvgPrice = (AvgPrice * Math.Abs(Position) + Price * Math.Abs(signedQty)) / (Math.Abs(Position) + Math.Abs(signedQty)); Position += signedQty; }
+        }
+
+        public void CloseAll(string reason) { if (Position != 0) { Record(Math.Abs(Position), reason); Position = 0; AvgPrice = 0; } }
+
+        void Record(int qty, string reason)
+        {
+            int dir = Math.Sign(Position); double pts = dir * (Price - AvgPrice), net = pts * pv * qty - cost * qty;
+            Realized += net;
+            Fills.Add(new KeystoneReplayFill { Symbol = Symbol, Side = dir > 0 ? "BUY" : "SELL", Qty = qty, Entry = AvgPrice, Exit = Price, EntryTime = PositionTime, ExitTime = Time, Points = pts, Net = net, Reason = reason });
+        }
+
+        // The journal: one CSV line per finished trade (appended), so every replayed day is kept.
+        public static string JournalLine(DateTime session, KeystoneReplayFill f)
+        {
+            return string.Join(",", session.ToString("yyyy-MM-dd"), f.Symbol, f.Side, f.Qty, f.EntryTime.ToString("yyyy-MM-dd HH:mm:ss"), f.Entry.ToString(CultureInfo.InvariantCulture), f.ExitTime.ToString("yyyy-MM-dd HH:mm:ss"), f.Exit.ToString(CultureInfo.InvariantCulture), f.Points.ToString("0.##", CultureInfo.InvariantCulture), f.Net.ToString("0.00", CultureInfo.InvariantCulture), f.Reason);
+        }
+        public const string JournalHeader = "session,symbol,side,qty,entry_time,entry,exit_time,exit,points,net,reason";
+    }
+
     // ---- IDEAS: one typed line → every combination on the loaded 1-minute bars ---------------------------------------
     // Examples: MNQ AT 0930 BUY,SELL TP 25,50,100,150,200 SL 25,50,100,NONE EXIT 1555
     //           MNQ MGC AT 0930 ORB 15,30 BUY,SELL TP 50,100 SL 50 MGCTP 5,10 MGCSL 5 QTY 1,2
@@ -5720,6 +5872,8 @@ namespace NinjaTrader.NinjaScript
         public List<double> MnqTp = new List<double>(), MnqSl = new List<double>(), MgcTp = new List<double>(), MgcSl = new List<double>(); public List<int> Qty = new List<int> { 1 };
         public List<string> Fills = new List<string>(); public List<double> MnqGap = new List<double>(), MgcGap = new List<double>(); public List<int> Accounts = new List<int>();
         public List<Tuple<string, int, int>> Windows = new List<Tuple<string, int, int>>();
+        public List<double> MnqBe = new List<double>(), MgcBe = new List<double>(), MnqPartial = new List<double>(), MgcPartial = new List<double>(), DayTarget = new List<double>(), DayStop = new List<double>();
+        public bool Strict;
         public int Exit = 1555; public bool ExitSet; public string Error = string.Empty, Text = string.Empty;
         public bool IsFvg { get { return Entry == "FVG"; } }
     }
@@ -5749,7 +5903,14 @@ namespace NinjaTrader.NinjaScript
                 else if (t == "AT") { foreach (var p in next().Split(',')) { int h = Hhmm(p); if (h < 0) idea.Error = "AT needs a time like 0930"; else idea.Times.Add(h); } }
                 else if (t == "ORB" || t == "FADE") { idea.Entry = t; idea.Ranges = Nums(next()).Select(v => (int)v).Where(v => v > 0).ToList(); if (idea.Ranges.Count == 0) idea.Error = t + " needs minutes, e.g. ORB 15"; }
                 else if (t == "FVG") { idea.Entry = "FVG"; idea.Ranges = i + 1 < w.Length && IsNums(w[i + 1]) ? Nums(next()).Select(v => (int)v).Where(v => v >= 1 && v <= 240).Distinct().ToList() : new List<int> { 1 }; if (idea.Ranges.Count == 0) idea.Error = "FVG needs candle minutes, e.g. FVG 1 or FVG 1,5"; }
-                else if (t == "FILL") { foreach (var p in next().Split(',')) { string f = p == "50%" ? "50" : p; if (f == "CLOSE" || f == "50") { if (!idea.Fills.Contains(f)) idea.Fills.Add(f); } else idea.Error = "FILL is CLOSE or 50"; } }
+                else if (t == "FILL") { foreach (var p in next().Split(',')) { string f = p.TrimEnd('%'); if (f == "CLOSE" || f == "BREAK" || f == "25" || f == "40" || f == "50") { if (!idea.Fills.Contains(f)) idea.Fills.Add(f); } else idea.Error = "FILL is CLOSE, 25, 40, 50 or BREAK"; } }
+                else if (t == "STRICT") idea.Strict = true;
+                else if (t == "BE") idea.MnqBe = Nums(next()).Where(v => v >= 0).ToList();
+                else if (t == "MGCBE") idea.MgcBe = Nums(next()).Where(v => v >= 0).ToList();
+                else if (t == "PARTIAL") idea.MnqPartial = Nums(next()).Where(v => v >= 0).ToList();
+                else if (t == "MGCPARTIAL") idea.MgcPartial = Nums(next()).Where(v => v >= 0).ToList();
+                else if (t == "DAYTARGET") idea.DayTarget = Nums(next()).Where(v => v >= 0).ToList();
+                else if (t == "DAYSTOP") idea.DayStop = Nums(next()).Where(v => v >= 0).ToList();
                 else if (t == "GAP") idea.MnqGap = Nums(next()).Where(v => v >= 0).ToList();
                 else if (t == "MGCGAP") idea.MgcGap = Nums(next()).Where(v => v >= 0).ToList();
                 else if (t == "ACCOUNTS" || t == "ACCOUNT") idea.Accounts = Nums(next()).Select(v => Math.Max(1, Math.Min(20, (int)v))).Distinct().ToList();
@@ -5762,11 +5923,11 @@ namespace NinjaTrader.NinjaScript
                 else if (t == "MGCSL") idea.MgcSl = Nums(next());
                 else if (t == "EXIT") { int h = Hhmm(next()); if (h < 0) idea.Error = "EXIT needs a time like 1555"; else { idea.Exit = h; idea.ExitSet = true; } }
                 else if (t == "QTY" || t == "CONTRACTS") idea.Qty = Nums(next()).Select(v => Math.Max(1, (int)v)).Distinct().ToList();
-                else idea.Error = "I don't know the word \"" + t + "\" (use MNQ MGC BOTH AT BUY SELL EITHER ORB FADE FVG FILL GAP SESSION FROM TO ACCOUNTS TP SL MGCTP MGCSL EXIT QTY)";
+                else idea.Error = "I don't know the word \"" + t + "\" (use MNQ MGC BOTH AT BUY SELL EITHER ORB FADE FVG FILL STRICT GAP SESSION FROM TO ACCOUNTS DAYTARGET DAYSTOP TP SL BE PARTIAL MGCTP MGCSL MGCBE MGCPARTIAL EXIT QTY)";
             }
             if (idea.Symbols.Count == 0) idea.Symbols = new List<string> { "MNQ" };
             if (idea.Times.Count == 0) idea.Times.Add(930);
-            bool hasTp = idea.MnqTp.Count > 0, hasSl = idea.MnqSl.Count > 0, hasGap = idea.MnqGap.Count > 0, hasMgcGap = idea.MgcGap.Count > 0;
+            bool hasTp = idea.MnqTp.Count > 0, hasSl = idea.MnqSl.Count > 0, hasGap = idea.MnqGap.Count > 0, hasMgcGap = idea.MgcGap.Count > 0, hasBe = idea.MnqBe.Count > 0, hasPartial = idea.MnqPartial.Count > 0;
             if (idea.IsFvg)
             {
                 if (idea.Dirs.Count == 0) idea.Dirs = new List<string> { "EITHER", "BUY", "SELL" };
@@ -5791,6 +5952,12 @@ namespace NinjaTrader.NinjaScript
             if (idea.MgcTp.Count == 0) idea.MgcTp = goldOnly && hasTp ? idea.MnqTp.ToList() : idea.MnqTp.Select(v => v / 10.0).ToList();
             if (idea.MgcSl.Count == 0) idea.MgcSl = goldOnly && hasSl ? idea.MnqSl.ToList() : idea.MnqSl.Select(v => v < 0 ? -1 : v / 10.0).ToList();
             if (idea.IsFvg && goldOnly && hasGap && !hasMgcGap) idea.MgcGap = idea.MnqGap.ToList();
+            if (idea.MnqBe.Count == 0) idea.MnqBe.Add(0); if (idea.MnqPartial.Count == 0) idea.MnqPartial.Add(0);
+            if (idea.MgcBe.Count == 0) idea.MgcBe = goldOnly && hasBe ? idea.MnqBe.ToList() : idea.MnqBe.Select(v => v / 10.0).ToList();
+            if (idea.MgcPartial.Count == 0) idea.MgcPartial = goldOnly && hasPartial ? idea.MnqPartial.ToList() : idea.MnqPartial.Select(v => v / 10.0).ToList();
+            if (idea.DayTarget.Count == 0) idea.DayTarget.Add(0); if (idea.DayStop.Count == 0) idea.DayStop.Add(0);
+            if (!idea.IsFvg && (idea.DayTarget.Any(v => v > 0) || idea.DayStop.Any(v => v > 0))) idea.Error = "DAYTARGET / DAYSTOP are for FVG ideas (several trades a day)";
+            if (!idea.IsFvg && idea.Fills.Count > 0) idea.Error = "FILL is for FVG ideas";
             if (idea.Entry == "AT") idea.Ranges = new List<int> { 0 };
             if (idea.MnqTp.Count == 0 || idea.MgcTp.Count == 0) idea.Error = "TP needs at least one target above 0";
             return idea;
@@ -5799,10 +5966,12 @@ namespace NinjaTrader.NinjaScript
         public static string Describe(KeystoneIdea i)
         {
             string sl = string.Join(",", i.MnqSl.Select(v => StopName(v).Replace("SL ", "").Replace("NO STOP", "NONE"))), msl = string.Join(",", i.MgcSl.Select(v => StopName(v).Replace("SL ", "").Replace("NO STOP", "NONE")));
-            string entry = i.IsFvg ? "every " + string.Join("/", i.Ranges) + "-minute FVG (gap ≥ " + string.Join("/", i.MnqGap.Select(Pts)) + (i.Symbols.Contains("MGC") ? ", gold ≥ " + string.Join("/", i.MgcGap.Select(Pts)) : "") + ") • fill " + string.Join("/", i.Fills.Select(f => f == "50" ? "50% limit" : "candle-3 close")) + " • " + string.Join(", ", i.Windows.Select(x => x.Item1 + " " + Hm(x.Item2) + "–" + Hm(x.Item3))) + " • " + string.Join("/", i.Accounts) + " account(s) rotating"
+            string entry = i.IsFvg ? "every " + string.Join("/", i.Ranges) + "-minute FVG (gap ≥ " + string.Join("/", i.MnqGap.Select(Pts)) + (i.Symbols.Contains("MGC") ? ", gold ≥ " + string.Join("/", i.MgcGap.Select(Pts)) : "") + ") • fill " + string.Join("/", i.Fills.Select(f => f == "CLOSE" ? "candle-3 close" : f == "BREAK" ? "back in the gap, close our way, then the break" : f + "% limit")) + " • " + string.Join(", ", i.Windows.Select(x => x.Item1 + " " + Hm(x.Item2) + "–" + Hm(x.Item3))) + " • " + string.Join("/", i.Accounts) + " account(s) rotating"
                 : (i.Entry == "AT" ? "enter at " : i.Entry + " " + string.Join("/", i.Ranges) + " min after ") + string.Join(", ", i.Times.Select(Hm));
             return string.Join(" + ", i.Symbols) + " • " + entry + " • " + string.Join(" / ", i.Dirs) + " • MNQ TP " + string.Join(",", i.MnqTp.Select(Pts)) + " SL " + sl
-                + (i.Symbols.Contains("MGC") ? " • MGC TP " + string.Join(",", i.MgcTp.Select(Pts)) + " SL " + msl : "") + " • exit " + (i.IsFvg && !i.ExitSet ? "session end" : Hm(i.Exit)) + " • " + string.Join(",", i.Qty) + " contract(s)";
+                + (i.Symbols.Contains("MGC") ? " • MGC TP " + string.Join(",", i.MgcTp.Select(Pts)) + " SL " + msl : "") + " • exit " + (i.IsFvg && !i.ExitSet ? "session end" : Hm(i.Exit)) + " • " + string.Join(",", i.Qty) + " contract(s)"
+                + (i.MnqBe.Any(v => v > 0) ? " • breakeven after +" + string.Join("/", i.MnqBe.Select(v => v == 0 ? "OFF" : Pts(v))) : "") + (i.MnqPartial.Any(v => v > 0) ? " • half off at +" + string.Join("/", i.MnqPartial.Select(v => v == 0 ? "OFF" : Pts(v))) : "")
+                + (i.DayTarget.Any(v => v > 0) || i.DayStop.Any(v => v > 0) ? " • each account stops for the day at +$" + string.Join("/", i.DayTarget.Select(v => v == 0 ? "OFF" : v.ToString("0"))) + " / −$" + string.Join("/", i.DayStop.Select(v => v == 0 ? "OFF" : v.ToString("0"))) : "") + (i.Strict ? " • STRICT limit fills (price must trade 1 tick through)" : "");
         }
 
         static int After(List<KeystoneArcBar> raw, DateTime t) { int lo = 0, hi = raw.Count - 1, f = -1; while (lo <= hi) { int m = (lo + hi) / 2; if (raw[m].Time > t) { f = m; hi = m - 1; } else lo = m + 1; } return f; }
@@ -5814,6 +5983,11 @@ namespace NinjaTrader.NinjaScript
         // The trades of one instrument × time × entry × range × direction × target × stop (1 contract).
         public static List<KeystoneLabTrade> Trades(List<KeystoneArcBar> raw, string sym, int hhmm, string entry, int range, string dir, double tp, double sl, int exitHhmm)
         {
+            return Trades(raw, sym, hhmm, entry, range, dir, tp, sl, exitHhmm, 0, 0);
+        }
+
+        public static List<KeystoneLabTrade> Trades(List<KeystoneArcBar> raw, string sym, int hhmm, string entry, int range, string dir, double tp, double sl, int exitHhmm, double be, double partial)
+        {
             var output = new List<KeystoneLabTrade>(); if (raw == null || raw.Count == 0) return output;
             double stop = sl > 0 ? sl : 1e9;
             foreach (var day in raw.Select(b => b.Time.Date).Distinct())
@@ -5824,7 +5998,7 @@ namespace NinjaTrader.NinjaScript
                 if (entry == "AT")
                 {
                     int d = dir == "BUY" ? 1 : -1;
-                    output.Add(Dated(KeystoneLab.Bracket(raw, k, raw[k].Open, d, tp, stop, close, sym, true)));
+                    output.Add(Dated(KeystoneLab.Bracket(raw, k, raw[k].Open, d, tp, stop, close, sym, true, be, partial)));
                     continue;
                 }
                 DateTime rangeEnd = at.AddMinutes(range); double hi = double.MinValue, lo = double.MaxValue; int j = k;
@@ -5838,13 +6012,13 @@ namespace NinjaTrader.NinjaScript
                     {
                         if ((breakUp && dir != "BUY") || (!breakUp && dir != "SELL")) break;      // the first break decides the day
                         double px = breakUp ? Math.Max(hi, b.Open) : Math.Min(lo, b.Open);
-                        output.Add(Dated(KeystoneLab.Bracket(raw, j, px, breakUp ? 1 : -1, tp, stop, close, sym, false)));
+                        output.Add(Dated(KeystoneLab.Bracket(raw, j, px, breakUp ? 1 : -1, tp, stop, close, sym, false, be, partial)));
                     }
                     else
                     {
                         if ((breakUp && dir != "SELL") || (!breakUp && dir != "BUY")) break;      // FADE: sell the break up, buy the break down
                         double px = breakUp ? Math.Max(hi, b.Open) : Math.Min(lo, b.Open);
-                        output.Add(Dated(KeystoneLab.Bracket(raw, j, px, breakUp ? -1 : 1, tp, stop, close, sym, false)));
+                        output.Add(Dated(KeystoneLab.Bracket(raw, j, px, breakUp ? -1 : 1, tp, stop, close, sym, false, be, partial)));
                     }
                     break;
                 }
@@ -5868,8 +6042,17 @@ namespace NinjaTrader.NinjaScript
         // reach the target). SL C1 = just beyond candle 1 (its low for a buy). Out at the target, the stop or the exit time.
         public static List<KeystoneLabTrade> FvgTrades(List<KeystoneArcBar> raw, string sym, int tf, string fill, int from, int to, int exitHhmm, double gap, double tp, double sl)
         {
+            return FvgTrades(raw, sym, tf, fill, from, to, exitHhmm, gap, tp, sl, 0, 0, false);
+        }
+
+        // FILL: CLOSE = market when candle 3 closes • 25 / 40 / 50 = a limit that far into the gap (from its near edge), waiting
+        // 60 minutes, while the candle is still moving • BREAK = price comes back into the gap, a candle closes our way, then the
+        // break of its high (low for a sell) — cancelled if price goes beyond candle 1 first. STRICT = a limit fills only when
+        // price trades one tick through it. be / partial: see KeystoneLab.Bracket.
+        public static List<KeystoneLabTrade> FvgTrades(List<KeystoneArcBar> raw, string sym, int tf, string fill, int from, int to, int exitHhmm, double gap, double tp, double sl, double be, double partial, bool strict)
+        {
             var output = new List<KeystoneLabTrade>(); if (raw == null || raw.Count < 3) return output;
-            var c = KeystoneEngLab.Candles(raw, Math.Max(1, tf));
+            var c = KeystoneEngLab.Candles(raw, Math.Max(1, tf)); double tick = KeystoneMoveStudy.IsMgc(sym) ? 0.1 : 0.25;
             for (int i = 2; i < c.Count; i++)
             {
                 var c1 = c[i - 2]; var c3 = c[i];
@@ -5879,22 +6062,41 @@ namespace NinjaTrader.NinjaScript
                 DateTime close = end;
                 if (exitHhmm >= 0) { close = c3.Time.Date.AddHours(exitHhmm / 100).AddMinutes(exitHhmm % 100); if (close <= c3.Time) close = close.AddDays(1); }
                 int k = After(raw, c3.Time); if (k < 0 || raw[k].Time > c3.Time.AddMinutes(15) || raw[k].Time > close) continue;
-                double far = dir > 0 ? c1.Low : c1.High;
-                if (fill == "50")
+                double far = dir > 0 ? c1.Low : c1.High, near = dir > 0 ? c3.Low : c3.High, edge = dir > 0 ? c1.High : c1.Low;   // near = where price re-enters the gap
+                Func<double, double> stopOf = px => sl < 0 ? dir * (px - far) : sl > 0 ? sl : 1e9;
+                DateTime until = c3.Time.AddMinutes(LimitMinutes);
+                if (fill == "CLOSE")
                 {
-                    double mid = dir > 0 ? (c1.High + c3.Low) / 2 : (c3.High + c1.Low) / 2; DateTime until = c3.Time.AddMinutes(LimitMinutes);
+                    double px = raw[k].Open, stop = stopOf(px);
+                    if (stop > 0) output.Add(Dated(KeystoneLab.Bracket(raw, k, px, dir, tp, stop, close, sym, true, be, partial)));
+                }
+                else if (fill == "BREAK")
+                {
+                    bool touched = false; double trigger = double.NaN;
                     for (int j = k; j < raw.Count && raw[j].Time <= close && raw[j].Time <= until; j++)
                     {
-                        var b = raw[j]; if (dir > 0 ? b.Low > mid : b.High < mid) continue;
-                        double px = dir > 0 ? Math.Min(mid, b.Open) : Math.Max(mid, b.Open), stop = sl < 0 ? dir * (px - far) : sl > 0 ? sl : 1e9;
-                        if (stop > 0) output.Add(Dated(KeystoneLab.Bracket(raw, j, px, dir, tp, stop, close, sym, false)));
-                        break;
+                        var b = raw[j];
+                        if (!double.IsNaN(trigger) && (dir > 0 ? b.High > trigger : b.Low < trigger))
+                        {
+                            double px = dir > 0 ? Math.Max(trigger, b.Open) : Math.Min(trigger, b.Open), stop = stopOf(px);
+                            if (stop > 0) output.Add(Dated(KeystoneLab.Bracket(raw, j, px, dir, tp, stop, close, sym, false, be, partial)));
+                            break;
+                        }
+                        if (dir > 0 ? b.Low < far : b.High > far) break;                               // beyond candle 1: the setup failed
+                        if (dir > 0 ? b.Low <= near : b.High >= near) touched = true;
+                        if (touched && (dir > 0 ? b.Close > b.Open : b.Close < b.Open)) trigger = dir > 0 ? b.High : b.Low;   // the latest candle closing our way
                     }
                 }
                 else
                 {
-                    double px = raw[k].Open, stop = sl < 0 ? dir * (px - far) : sl > 0 ? sl : 1e9;
-                    if (stop > 0) output.Add(Dated(KeystoneLab.Bracket(raw, k, px, dir, tp, stop, close, sym, true)));
+                    double f = fill == "25" ? 0.25 : fill == "40" ? 0.40 : 0.50, level = near - dir * f * Math.Abs(near - edge), need = strict ? level - dir * tick : level;
+                    for (int j = k; j < raw.Count && raw[j].Time <= close && raw[j].Time <= until; j++)
+                    {
+                        var b = raw[j]; if (dir > 0 ? b.Low > need + 1e-9 : b.High < need - 1e-9) continue;
+                        double px = dir > 0 ? Math.Min(level, b.Open) : Math.Max(level, b.Open), stop = stopOf(px);
+                        if (stop > 0) output.Add(Dated(KeystoneLab.Bracket(raw, j, px, dir, tp, stop, close, sym, false, be, partial)));
+                        break;
+                    }
                 }
             }
             return output.OrderBy(t => t.EntryTime).ToList();
@@ -5905,15 +6107,30 @@ namespace NinjaTrader.NinjaScript
         // with every account busy the setup is skipped. slots[i] = the account (0-based) of the i-th taken trade.
         public static List<KeystoneLabTrade> Rotate(List<KeystoneLabTrade> candidates, string dir, int accounts, List<int> slots)
         {
+            return Rotate(candidates, dir, accounts, slots, 1, 0, 0);
+        }
+
+        // dayTarget / dayStop ($, 0 = off, at qty contracts): an account that has banked +dayTarget (or lost dayStop) today takes no
+        // more setups until the next session; the setup goes to the next free account instead.
+        public static List<KeystoneLabTrade> Rotate(List<KeystoneLabTrade> candidates, string dir, int accounts, List<int> slots, int qty, double dayTarget, double dayStop)
+        {
             var taken = new List<KeystoneLabTrade>(); var open = new List<Tuple<KeystoneLabTrade, int>>(); int next = 0; accounts = Math.Max(1, accounts);
+            var today = new List<Tuple<KeystoneLabTrade, int>>(); DateTime day = DateTime.MinValue;
             foreach (var t in candidates)
             {
                 if ((dir == "BUY" && t.Dir < 0) || (dir == "SELL" && t.Dir > 0)) continue;
+                if (t.Day != day) { day = t.Day; today.Clear(); }
                 open.RemoveAll(o => o.Item1.ExitTime < t.EntryTime);
                 if (open.Any(o => o.Item1.Dir != t.Dir) || open.Count >= accounts) continue;
                 for (int s = 0; s < accounts; s++)
                 {
                     int slot = (next + s) % accounts; if (open.Any(o => o.Item2 == slot)) continue;
+                    if (dayTarget > 0 || dayStop > 0)
+                    {
+                        double banked = today.Where(o => o.Item2 == slot && o.Item1.ExitTime < t.EntryTime).Sum(o => o.Item1.Net) * Math.Max(1, qty);
+                        if ((dayTarget > 0 && banked >= dayTarget) || (dayStop > 0 && banked <= -dayStop)) continue;
+                    }
+                    today.Add(Tuple.Create(t, slot));
                     taken.Add(t); slots.Add(slot); open.Add(Tuple.Create(t, slot)); next = slot + 1; break;
                 }
             }
@@ -5931,48 +6148,55 @@ namespace NinjaTrader.NinjaScript
             Func<string, int> nTp = s => s == "MGC" ? idea.MgcTp.Count : idea.MnqTp.Count, nSl = s => s == "MGC" ? idea.MgcSl.Count : idea.MnqSl.Count, nGap = s => !idea.IsFvg ? 1 : s == "MGC" ? idea.MgcGap.Count : idea.MnqGap.Count;
             // one job = one candidate trade list: sym, time or window, range / candle minutes, fill, direction (AT/ORB/FADE only), gap, tp, sl
             var jobs = new List<int[]>(); var syms = raws.Keys.OrderByDescending(s => s == "MNQ").ToList(); var fills = idea.IsFvg ? idea.Fills : new List<string> { "" };
+            Func<string, int, double> beOf = (s, e) => s == "MGC" ? idea.MgcBe[e] : idea.MnqBe[e], partOf = (s, e) => s == "MGC" ? idea.MgcPartial[e] : idea.MnqPartial[e];
             for (int s = 0; s < syms.Count; s++)
                 for (int t = 0; t < (idea.IsFvg ? idea.Windows.Count : idea.Times.Count); t++) for (int r = 0; r < idea.Ranges.Count; r++) for (int f = 0; f < fills.Count; f++)
                     for (int d = 0; d < (idea.IsFvg ? 1 : idea.Dirs.Count); d++) for (int g = 0; g < nGap(syms[s]); g++)
-                        for (int a = 0; a < nTp(syms[s]); a++) for (int b = 0; b < nSl(syms[s]); b++) jobs.Add(new[] { s, t, r, f, d, g, a, b });
+                        for (int a = 0; a < nTp(syms[s]); a++) for (int b = 0; b < nSl(syms[s]); b++) for (int e = 0; e < idea.MnqBe.Count; e++) for (int pa = 0; pa < idea.MnqPartial.Count; pa++)
+                            jobs.Add(new[] { s, t, r, f, d, g, a, b, e, pa });
             var res = new List<KeystoneLabTrade>[jobs.Count]; int done = 0;
             System.Threading.Tasks.Parallel.For(0, jobs.Count, (i, state) =>
             {
                 if (cancelled != null && cancelled()) { state.Stop(); return; }
                 var j = jobs[i]; string sym = syms[j[0]];
                 res[i] = idea.IsFvg
-                    ? FvgTrades(raws[sym], sym, idea.Ranges[j[2]], fills[j[3]], idea.Windows[j[1]].Item2, idea.Windows[j[1]].Item3, idea.ExitSet ? idea.Exit : -1, gapOf(sym, j[5]), tpOf(sym, j[6]), slOf(sym, j[7]))
-                    : Trades(raws[sym], sym, idea.Times[j[1]], idea.Entry, idea.Ranges[j[2]], idea.Dirs[j[4]], tpOf(sym, j[6]), slOf(sym, j[7]), idea.Exit);
+                    ? FvgTrades(raws[sym], sym, idea.Ranges[j[2]], fills[j[3]], idea.Windows[j[1]].Item2, idea.Windows[j[1]].Item3, idea.ExitSet ? idea.Exit : -1, gapOf(sym, j[5]), tpOf(sym, j[6]), slOf(sym, j[7]), beOf(sym, j[8]), partOf(sym, j[9]), idea.Strict)
+                    : Trades(raws[sym], sym, idea.Times[j[1]], idea.Entry, idea.Ranges[j[2]], idea.Dirs[j[4]], tpOf(sym, j[6]), slOf(sym, j[7]), idea.Exit, beOf(sym, j[8]), partOf(sym, j[9]));
                 int c = System.Threading.Interlocked.Increment(ref done); if (progress != null) progress(c, jobs.Count);
             });
             Func<int, string> entryName = r => idea.Entry == "AT" ? "AT" : idea.IsFvg ? "FVG " + r + "M" : idea.Entry + " " + r + "M";
+            Func<string, string> fillName = f => f == "CLOSE" ? " CLOSE" : f == "BREAK" ? " CLOSE+BREAK" : " " + f + "%" + (idea.Strict ? " STRICT" : "");
+            bool showBe = idea.MnqBe.Count > 1 || idea.MnqBe[0] > 0, showPartial = idea.MnqPartial.Count > 1 || idea.MnqPartial[0] > 0, showDay = idea.IsFvg && (idea.DayTarget.Count > 1 || idea.DayStop.Count > 1 || idea.DayTarget[0] > 0 || idea.DayStop[0] > 0);
+            var dayLimits = idea.DayTarget.SelectMany(a => idea.DayStop.Select(b => Tuple.Create(a, b))).ToList();
             for (int i = 0; i < jobs.Count; i++)
             {
                 if (res[i] == null || res[i].Count == 0) continue; var j = jobs[i]; string sym = syms[j[0]];
                 double tp = tpOf(sym, j[6]), sl = slOf(sym, j[7]);
                 foreach (string dir in idea.IsFvg ? idea.Dirs : new List<string> { idea.Dirs[j[4]] })
                     foreach (int n in idea.Accounts)
-                    {
-                        var slots = new List<int>(); var picked = idea.IsFvg ? Rotate(res[i], dir, n, slots) : res[i];
-                        if (picked.Count == 0) continue;
                         foreach (int q in idea.Qty)
+                        foreach (var lim in idea.IsFvg ? dayLimits : new List<Tuple<double, double>> { Tuple.Create(0.0, 0.0) })
                         {
+                            var slots = new List<int>(); var picked = idea.IsFvg ? Rotate(res[i], dir, n, slots, q, lim.Item1, lim.Item2) : res[i];
+                            if (picked.Count == 0) continue;
                             var r = new KeystoneLabRow();
                             r.Settings.Add(Tuple.Create("INSTRUMENT", sym));
                             r.Settings.Add(idea.IsFvg ? Tuple.Create("SESSION", idea.Windows[j[1]].Item1) : Tuple.Create("TIME", idea.Times[j[1]].ToString("0000")));
-                            r.Settings.Add(Tuple.Create("ENTRY", entryName(idea.Ranges[j[2]]) + (idea.IsFvg ? (fills[j[3]] == "50" ? " 50%" : " CLOSE") : "")));
+                            r.Settings.Add(Tuple.Create("ENTRY", entryName(idea.Ranges[j[2]]) + (idea.IsFvg ? fillName(fills[j[3]]) : "")));
                             r.Settings.Add(Tuple.Create("DIRECTION", dir));
                             if (idea.IsFvg) r.Settings.Add(Tuple.Create("GAP", "GAP " + Pts(gapOf(sym, j[5]))));
                             r.Settings.Add(Tuple.Create("TARGET", "TP " + Pts(tp))); r.Settings.Add(Tuple.Create("STOP", StopName(sl)));
+                            if (showBe) r.Settings.Add(Tuple.Create("BREAKEVEN", beOf(sym, j[8]) > 0 ? "BE +" + Pts(beOf(sym, j[8])) : "NO BE"));
+                            if (showPartial) r.Settings.Add(Tuple.Create("PARTIAL", partOf(sym, j[9]) > 0 && partOf(sym, j[9]) < tp ? "HALF +" + Pts(partOf(sym, j[9])) : "NO PARTIAL"));
                             if (idea.IsFvg) r.Settings.Add(Tuple.Create("ACCOUNTS", n == 1 ? "1 ACCOUNT" : n + " ACCOUNTS"));
+                            if (showDay) r.Settings.Add(Tuple.Create("DAY LIMIT", (lim.Item1 > 0 ? "+$" + lim.Item1.ToString("0") : "NO TARGET") + " / " + (lim.Item2 > 0 ? "−$" + lim.Item2.ToString("0") : "NO STOP")));
                             r.Settings.Add(Tuple.Create("CONTRACTS", q + "x"));
                             r.Trades = q == 1 ? picked : picked.Select(t => KeystoneLab.Scale(t, q)).ToList();
                             if (idea.IsFvg && n > 1) { r.Rotate = n; r.Slots = slots; }
-                            r.PairKey = string.Join("|", j[1], j[2], j[3], dir, j[5], j[6], j[7], n, q);
+                            r.PairKey = string.Join("|", j[1], j[2], j[3], dir, j[5], j[6], j[7], j[8], j[9], n, q, lim.Item1, lim.Item2);
                             KeystoneLab.Fill(r, rules, sp, false, 0);
                             rows.Add(r);
                         }
-                    }
             }
             // BOTH: MNQ + MGC with the same time/session, entry, direction, accounts and the same position in the gap / target / stop lists
             if (raws.Count == 2)
@@ -5984,7 +6208,7 @@ namespace NinjaTrader.NinjaScript
                     {
                         string v = s.Item2, mv = m.Get(s.Item1);
                         if (s.Item1 == "INSTRUMENT") v = "BOTH";
-                        else if (s.Item1 == "TARGET" || s.Item1 == "STOP" || s.Item1 == "GAP") v = v == mv ? v : v + " / " + mv.Replace("TP ", "").Replace("SL ", "").Replace("GAP ", "");
+                        else if (s.Item1 == "TARGET" || s.Item1 == "STOP" || s.Item1 == "GAP" || s.Item1 == "BREAKEVEN" || s.Item1 == "PARTIAL") v = v == mv ? v : v + " / " + mv.Replace("TP ", "").Replace("SL ", "").Replace("GAP ", "").Replace("BE +", "").Replace("HALF +", "");
                         b.Settings.Add(Tuple.Create(s.Item1, v));
                     }
                     var both = g.Trades.Select((t, k) => Tuple.Create(t, g.Slots.Count > k ? g.Slots[k] : 0)).Concat(m.Trades.Select((t, k) => Tuple.Create(t, m.Slots.Count > k ? m.Slots[k] : 0))).OrderBy(x => x.Item1.EntryTime).ToList();
@@ -5993,6 +6217,19 @@ namespace NinjaTrader.NinjaScript
                     rows.Add(b);
                 }
             return rows.OrderByDescending(r => r.P.Net).ThenByDescending(r => r.P.PropNet).ToList();
+        }
+
+        // How far price went our way before it turned: on the losing trades (they reached the stop or closed red) how many were
+        // first well in profit — the case for a breakeven stop or a partial — and the typical best move of all trades.
+        public static string Reversal(KeystoneLabRow r)
+        {
+            var t = r.Trades.Where(x => !double.IsNaN(x.Target) && x.Target != x.Entry).ToList(); if (t.Count < 20) return null;
+            Func<KeystoneLabTrade, double> best = x => x.Best / Math.Max(1e-9, KeystoneMoveStudy.PointValue(x.Symbol) * Math.Max(1, x.Qty)), tgt = x => Math.Abs(x.Target - x.Entry);
+            var losers = t.Where(x => x.Net <= 0).ToList(); if (losers.Count == 0) return "no losing trades";
+            double half = losers.Count(x => best(x) >= 0.5 * tgt(x)) * 100.0 / losers.Count, quarter = losers.Count(x => best(x) >= 0.25 * tgt(x)) * 100.0 / losers.Count;
+            var lb = losers.Select(best).OrderBy(v => v).ToList(); double med = lb[lb.Count / 2], tp = t.Select(tgt).OrderBy(v => v).ElementAt(t.Count / 2);
+            return quarter.ToString("0") + "% of the " + losers.Count + " losing trades were first +" + Pts(0.25 * tp) + " pts (¼ of the target) in profit, " + half.ToString("0") + "% were +" + Pts(0.5 * tp) + " (½) • median best move of a loser +" + Pts(med) + " pts"
+                + (half >= 30 ? " → a breakeven or a partial near +" + Pts(Math.Round(0.5 * tp, 1)) + " is worth testing (BE / PARTIAL)" : quarter < 20 ? " → losers rarely go our way first: breakeven would not help much" : "");
         }
 
         // How busy a row is: trades per trading day, per account, and the average win / loss.
@@ -6024,6 +6261,7 @@ namespace NinjaTrader.NinjaScript
                     }
                 }
                 var robust = q.Where(r => r.P.Net > 0 && r.InSampleNet > 0 && r.OutSampleNet > 0 && r.P.NetByYear.Count > 0 && r.P.NetByYear.Values.All(v => v > 0)).OrderByDescending(r => r.P.Net).FirstOrDefault();
+                var rev = Reversal(best); if (rev != null) lines.Add(inst + " • BEFORE THE REVERSAL (" + best.Label + "): " + rev);
                 lines.Add(robust != null ? inst + " • STRONGEST (money EVERY year and in both halves): " + robust.Label + " → " + m(robust.P.Net) + " plain, " + m(robust.P.PropNet) + " prop" : inst + " • No row made money in every year — this idea is not proven for " + inst + ".");
             }
             if (rows.Any(r => r.Rotate > 1)) lines.Add("ACCOUNTS n: every account is its own evaluation → funded life with only the setups it was given; the prop numbers add the accounts up. The plain-account numbers are every trade on one account.");
@@ -6130,7 +6368,16 @@ namespace NinjaTrader.NinjaScript
         // favourable extreme may have come before the fill).
         public static KeystoneLabTrade Bracket(List<KeystoneArcBar> raw, int idx, double entry, int dir, double target, double stop, DateTime close, string symbol, bool fillMinuteCanTarget)
         {
+            return Bracket(raw, idx, entry, dir, target, stop, close, symbol, fillMinuteCanTarget, 0, 0);
+        }
+
+        // be > 0: once price has gone be points our way, the stop moves to the entry (from the next minute on).
+        // partial > 0 (below the target): half the position is taken off at +partial points; the other half runs to the target,
+        // the stop (or the entry after a breakeven move) or the close. A minute touching the stop and a profit level = the stop.
+        public static KeystoneLabTrade Bracket(List<KeystoneArcBar> raw, int idx, double entry, int dir, double target, double stop, DateTime close, string symbol, bool fillMinuteCanTarget, double be, double partial)
+        {
             double pv = KeystoneMoveStudy.PointValue(symbol), tp = entry + dir * target, sl = entry - dir * stop, mae = 0, mfe = 0; var t = new KeystoneLabTrade { Symbol = symbol, Entry = entry, EntryTime = raw[idx].Time, Day = raw[idx].Time.Date, Dir = dir, Target = tp, Stop = stop >= 1e8 ? double.NaN : sl };
+            bool half = partial > 0 && partial < target, halfTaken = false;
             for (int i = idx; i < raw.Count && raw[i].Time <= close; i++)
             {
                 var b = raw[i]; bool fill = i == idx; double adverse = dir > 0 ? b.Low : b.High, favour = dir > 0 ? b.High : b.Low;
@@ -6140,12 +6387,15 @@ namespace NinjaTrader.NinjaScript
                     t.Exit = gap ? b.Open : sl; t.ExitTime = b.Time; t.Outcome = "STOP"; mae = Math.Max(mae, dir * (entry - t.Exit)); break;
                 }
                 mae = Math.Max(mae, dir * (entry - adverse));
-                if ((fillMinuteCanTarget || !fill) && (dir > 0 ? favour >= tp - 1e-9 : favour <= tp + 1e-9)) { t.Exit = tp; t.ExitTime = b.Time; t.Outcome = "TARGET"; mfe = Math.Max(mfe, target); break; }
-                if (fillMinuteCanTarget || !fill) mfe = Math.Max(mfe, dir * (favour - entry));
+                bool canFavour = fillMinuteCanTarget || !fill;
+                if (canFavour && half && !halfTaken && dir * (favour - entry) >= partial - 1e-9) halfTaken = true;
+                if (canFavour && (dir > 0 ? favour >= tp - 1e-9 : favour <= tp + 1e-9)) { t.Exit = tp; t.ExitTime = b.Time; t.Outcome = "TARGET"; mfe = Math.Max(mfe, target); break; }
+                if (canFavour) mfe = Math.Max(mfe, dir * (favour - entry));
+                if (be > 0 && canFavour && dir * (favour - entry) >= be - 1e-9) sl = dir > 0 ? Math.Max(sl, entry) : Math.Min(sl, entry);
                 t.Exit = b.Close; t.ExitTime = b.Time; t.Outcome = "CLOSE";
             }
             if (t.Outcome == "") { t.Exit = entry; t.ExitTime = t.EntryTime; t.Outcome = "CLOSE"; }
-            t.Points = dir * (t.Exit - entry); t.Net = t.Points * pv - KeystoneMoveStudy.Cost(symbol); t.Worst = -mae * pv; t.Best = mfe * pv;
+            t.Points = halfTaken ? 0.5 * partial + 0.5 * dir * (t.Exit - entry) : dir * (t.Exit - entry); t.Net = t.Points * pv - KeystoneMoveStudy.Cost(symbol); t.Worst = -mae * pv; t.Best = mfe * pv;
             return t;
         }
 
@@ -6349,6 +6599,7 @@ namespace NinjaTrader.NinjaScript
             public List<double> MnqStops = new List<double> { 0, 50, 100, 150 }, MgcStops = new List<double> { 0, 5, 10, 15 };   // 0 = the PATTERN stop
             public List<int> Contracts = new List<int> { 1, 3, 5 };
             public List<int> PerDay = new List<int> { 1 };      // most trades a day: a win ends the day, a loss allows the next setup
+            public List<string> Sides = new List<string> { "BUY" };   // BUY • SELL • EITHER (both, one position at a time)
             public int CloseHhmm = 1555;
         }
 
@@ -6393,26 +6644,28 @@ namespace NinjaTrader.NinjaScript
                 while (lo <= hi) { int mid = (lo + hi) / 2; if (raw[mid].Time >= e.EntryTime) { f = mid; hi = mid - 1; } else lo = mid + 1; }
                 if (f >= 0 && (raw[f].Time - e.EntryTime).TotalMinutes <= 5) idx[e] = f;
             }
-            var jobs = new List<Tuple<string, string, string, double, double, int>>();
+            var jobs = new List<Tuple<string, string, string, double, double, int, string>>();
+            bool anySell = all.Any(e => e.Direction == "SHORT"); var sides = anySell ? (g.Sides.Count == 0 ? new List<string> { "BUY" } : g.Sides.Distinct().ToList()) : new List<string> { "BUY" };
             foreach (var set in sets.Keys) foreach (string sym in new[] { "MNQ", "MGC" }) if (raws.ContainsKey(sym) && sets[set].Any(e => e.Symbol == sym))
-                foreach (string ex in g.Exits.Distinct()) foreach (double tp in sym == "MGC" ? g.MgcTargets : g.MnqTargets) foreach (double sl in sym == "MGC" ? g.MgcStops : g.MnqStops) foreach (int pd in g.PerDay.Distinct())
-                    jobs.Add(Tuple.Create(set, sym, ex, tp, sl, Math.Max(1, pd)));
+                foreach (string ex in g.Exits.Distinct()) foreach (double tp in sym == "MGC" ? g.MgcTargets : g.MnqTargets) foreach (double sl in sym == "MGC" ? g.MgcStops : g.MnqStops) foreach (int pd in g.PerDay.Distinct()) foreach (string side in sides)
+                    jobs.Add(Tuple.Create(set, sym, ex, tp, sl, Math.Max(1, pd), side));
             var perJob = new List<KeystoneLabTrade>[jobs.Count]; int done = 0;
             System.Threading.Tasks.Parallel.For(0, jobs.Count, (i, state) =>
             {
                 if (cancelled != null && cancelled()) { state.Stop(); return; }
                 var j = jobs[i]; var raw = raws[j.Item2]; var list = new List<KeystoneLabTrade>(); DateTime busy = DateTime.MinValue;
-                foreach (var day in sets[j.Item1].Where(x => x.Symbol == j.Item2).GroupBy(x => KeystoneArcEngine.GoldenSessionDay(x.EntryTime)).OrderBy(x => x.Key))
+                foreach (var day in sets[j.Item1].Where(x => x.Symbol == j.Item2 && (j.Item7 == "EITHER" || (j.Item7 == "SELL") == (x.Direction == "SHORT"))).GroupBy(x => KeystoneArcEngine.GoldenSessionDay(x.EntryTime)).OrderBy(x => x.Key))
                 {
                     int count = 0;
                     foreach (var e in day.OrderBy(x => x.EntryTime))
                     {
                         if (count >= j.Item6) break;
                         int k; if (!idx.TryGetValue(e, out k) || e.EntryTime < busy) continue;
-                        double stopPts = j.Item5 > 0 ? j.Item5 : (double.IsNaN(e.Stop) ? double.NaN : e.Entry - e.Stop); if (double.IsNaN(stopPts) || stopPts <= 0) continue;
+                        int dirE = e.Direction == "SHORT" ? -1 : 1;
+                        double stopPts = j.Item5 > 0 ? j.Item5 : (double.IsNaN(e.Stop) ? double.NaN : dirE * (e.Entry - e.Stop)); if (double.IsNaN(stopPts) || stopPts <= 0) continue;
                         DateTime close = j.Item3 == "HOLD" ? DateTime.MaxValue : e.EntryTime.Date.AddHours(g.CloseHhmm / 100).AddMinutes(g.CloseHhmm % 100);
                         if (e.EntryTime >= close) continue;
-                        var t = KeystoneLab.Bracket(raw, k, e.Entry, 1, j.Item4, stopPts, close, j.Item2, false);
+                        var t = KeystoneLab.Bracket(raw, k, e.Entry, dirE, j.Item4, stopPts, close, j.Item2, false);
                         t.Day = t.ExitTime.Date; list.Add(t); busy = t.ExitTime; count++;
                         if (t.Net > 0) break;                                              // a win ends the day
                     }
@@ -6426,7 +6679,7 @@ namespace NinjaTrader.NinjaScript
                 foreach (int q in g.Contracts.Distinct())
                 {
                     var r = new KeystoneLabRow();
-                    r.Settings.Add(Tuple.Create("INSTRUMENT", j.Item2)); r.Settings.Add(Tuple.Create("SETUPS", j.Item1)); r.Settings.Add(Tuple.Create("TRADES A DAY", "MAX " + j.Item6 + "/DAY"));
+                    r.Settings.Add(Tuple.Create("INSTRUMENT", j.Item2)); if (anySell) r.Settings.Add(Tuple.Create("DIRECTION", j.Item7)); r.Settings.Add(Tuple.Create("SETUPS", j.Item1)); r.Settings.Add(Tuple.Create("TRADES A DAY", "MAX " + j.Item6 + "/DAY"));
                     r.Settings.Add(Tuple.Create("EXIT", j.Item3));
                     r.Settings.Add(Tuple.Create("TARGET", "TP " + j.Item4.ToString("0.##", CultureInfo.InvariantCulture))); r.Settings.Add(Tuple.Create("STOP", j.Item5 > 0 ? "SL " + j.Item5.ToString("0.##", CultureInfo.InvariantCulture) : "SL PATTERN"));
                     r.Settings.Add(Tuple.Create("CONTRACTS", q + "x"));
@@ -6448,8 +6701,8 @@ namespace NinjaTrader.NinjaScript
                 var plain = q.OrderByDescending(r => r.P.Net).First(); var prop = q.OrderByDescending(r => r.P.PropNet).First();
                 lines.Add(inst + " • MOST MONEY (plain account): " + plain.Label + " → " + m(plain.P.Net) + " • worst drawdown " + m(plain.P.MaxDrawdown) + " • years + " + plain.P.NetByYear.Values.Count(v => v > 0) + "/" + plain.P.NetByYear.Count + " • unseen 30% " + m(plain.OutSampleNet));
                 lines.Add(inst + " • MOST MONEY (prop): " + prop.Label + " → " + m(prop.P.PropNet) + " (" + prop.P.Passed + " passed / " + prop.P.Bought + ", " + prop.P.Payouts + " payouts" + (prop.P.Stats.HasPayout ? ", 1st payout " + prop.P.Stats.CalendarDaysToFirstPayout + " d" : "") + ")");
-                foreach (string key in new[] { "SETUPS", "TRADES A DAY" })
-                    foreach (var grp in q.GroupBy(r => r.Get(key)).OrderBy(x => x.Key))
+                foreach (string key in new[] { "DIRECTION", "SETUPS", "TRADES A DAY" })
+                    foreach (var grp in q.GroupBy(r => r.Get(key)).Where(x => x.Key != string.Empty).OrderBy(x => x.Key))
                     {
                         var bb = grp.OrderByDescending(r => r.P.Net).First(); var md = grp.Select(r => r.P.Net).OrderBy(v => v).ToList();
                         lines.Add(inst + " • " + key + " " + grp.Key + ": best " + m(bb.P.Net) + " plain / " + m(bb.P.PropNet) + " prop (" + bb.Trades.Count + " trades, " + bb.Label + ") • median " + m(md[md.Count / 2]));
@@ -10962,9 +11215,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-04a";
+        private const string KeystoneBuildShort = "BUILD 2026-10-04b";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -11940,11 +12193,23 @@ namespace NinjaTrader.NinjaScript.AddOns
             var footer = Stack(); footer.Margin = new Thickness(0);
             workflowText = new TextBlock { Text = "NEXT: complete Step 1 configuration", Foreground = Gold, FontWeight = FontWeights.Bold, FontSize = 9, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 2, 0) };
             statusText = new TextBlock { Text = "READY", Foreground = Blue, FontWeight = FontWeights.Bold, FontSize = 9, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 2, 0) };
-            footer.Children.Add(workflowText); footer.Children.Add(statusText);
+            showLoaderButton = Btn("SHOW LOADER", Gold); showLoaderButton.Height = 22; showLoaderButton.FontSize = 9; showLoaderButton.HorizontalAlignment = HorizontalAlignment.Left; showLoaderButton.Visibility = Visibility.Collapsed;
+            showLoaderButton.Click += delegate { loaderHidden = false; showLoaderButton.Visibility = Visibility.Collapsed; if (operationBusy && activityOverlay != null) activityOverlay.Visibility = Visibility.Visible; };
+            footer.Children.Add(workflowText); footer.Children.Add(statusText); footer.Children.Add(showLoaderButton);
             Grid.SetRow(footer, 2); root.Children.Add(footer);
             host.Children.Add(root);
             activityText = new TextBlock { Text = "WORKING", Foreground = Text, FontSize = 16, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(20) };
-            var activityCard = new Border { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8), Padding = new Thickness(24), Child = activityText, Width = 520, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            // While NinjaTrader loads: stop the load (to change the dates) — a confirmation asks first; KEEP continues loading.
+            stopLoadButton = Btn("STOP LOADING • CHANGE DATES", Red); stopLoadButton.Height = 34; stopLoadButton.Margin = new Thickness(20, 0, 20, 10); stopLoadButton.Visibility = Visibility.Collapsed;
+            stopLoadButton.Click += delegate
+            {
+                ShowConfirmation("STOP THIS LOAD?", "The data load stops now and nothing from it is used. Change the dates (or anything else) in Step 1, confirm, and press REQUEST — it starts from the beginning. Data that already finished loading earlier stays saved, so it comes back fast.\n\nKEEP = continue this load.", "STOP + START OVER", Red,
+                    delegate { CancelRequests(); EndBusy(); if (workspaceTabs != null) workspaceTabs.SelectedIndex = 0; UpdateUi("LOAD STOPPED • change the dates in Step 1, confirm, then REQUEST again (it starts from the beginning)", Gold); UpdateWorkflowState(); });
+            };
+            keepWorkingButton = Btn("KEEP WORKING • HIDE THIS WHILE IT LOADS", Blue); keepWorkingButton.Height = 30; keepWorkingButton.Margin = new Thickness(20, 0, 20, 10); keepWorkingButton.Visibility = Visibility.Collapsed;
+            keepWorkingButton.Click += delegate { loaderHidden = true; if (activityOverlay != null) activityOverlay.Visibility = Visibility.Collapsed; if (showLoaderButton != null) showLoaderButton.Visibility = Visibility.Visible; };
+            var activityStack = new StackPanel(); activityStack.Children.Add(activityText); activityStack.Children.Add(stopLoadButton); activityStack.Children.Add(keepWorkingButton);
+            var activityCard = new Border { Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8), Padding = new Thickness(24), Child = activityStack, Width = 520, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             activityOverlay = new Border { Background = Bg, Child = activityCard, Visibility = Visibility.Collapsed };
             host.Children.Add(activityOverlay);
             confirmationTitleText = new TextBlock { Text = "CONFIRM", Foreground = Gold, FontSize = 17, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8) };
@@ -11960,7 +12225,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             confirmationOverlay = new Border { Background = Bg, Child = confirmationCard, Visibility = Visibility.Collapsed };
             host.Children.Add(confirmationOverlay);
             activityTimer = new DispatcherTimer(DispatcherPriority.Background, w.Dispatcher) { Interval = TimeSpan.FromMilliseconds(350) };
-            activityTimer.Tick += delegate { if (!operationBusy || activityText == null) return; activityFrame = (activityFrame + 1) % 4; activityText.Text = operationMessage + new string('.', activityFrame + 1) + "\n\n" + BusyProgressText() + "\n\nPlease wait. Buttons and tabs are locked until this finishes."; };
+            activityTimer.Tick += delegate { bool loadingNow = operationBusy && (historicalRequestActive || historicalRequestQueue.Count > 0 || pendingRequests > 0); if (stopLoadButton != null) stopLoadButton.Visibility = loadingNow ? Visibility.Visible : Visibility.Collapsed; if (keepWorkingButton != null) keepWorkingButton.Visibility = loadingNow ? Visibility.Visible : Visibility.Collapsed;
+                if (loaderHidden && operationBusy && statusText != null) { string prog = (BusyProgressText() ?? string.Empty).Split('\n').FirstOrDefault() ?? string.Empty; statusText.Text = "LOADING IN THE BACKGROUND • " + operationMessage + (prog.Length > 0 ? " • " + prog : "") + " • SHOW LOADER to see it / stop it"; statusText.Foreground = Gold; } if (!operationBusy || activityText == null) return; activityFrame = (activityFrame + 1) % 4; activityText.Text = operationMessage + new string('.', activityFrame + 1) + "\n\n" + BusyProgressText() + "\n\nPlease wait. Buttons and tabs are locked until this finishes."; };
             w.Content = host;
             // ResultsTab creates lifecycle controls while the lab window is built. Apply their
             // initial visibility now, rather than waiting for a later selection event.
@@ -11992,7 +12258,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void BeginBusy(string message)
         {
             busyStartedUtc = DateTime.UtcNow;
-            operationBusy = true;
+            operationBusy = true; loaderHidden = false; if (showLoaderButton != null) showLoaderButton.Visibility = Visibility.Collapsed;
             operationMessage = message ?? "WORKING";
             activityFrame = 0;
             if (activityText != null) activityText.Text = operationMessage + ".\n\nPlease wait. Buttons and tabs are locked until this finishes.";
@@ -12003,7 +12269,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void EndBusy()
         {
-            operationBusy = false;
+            operationBusy = false; loaderHidden = false; if (showLoaderButton != null) showLoaderButton.Visibility = Visibility.Collapsed;
             operationMessage = string.Empty;
             if (activityTimer != null) activityTimer.Stop();
             if (activityOverlay != null) activityOverlay.Visibility = Visibility.Collapsed;
@@ -12264,6 +12530,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             fvgMissBox.ToolTip = "If the candle after the green candle does not break its high: wait for a new dip into the box (default), or accept any later green close.";
             fvgAggressionBox.ToolTip = "Aggression = red candles in a row and/or a price drop just before the box. TAG ONLY keeps every box and records it; REQUIRED keeps only aggressive boxes.";
             // Simple view: the rules that matter most. Everything else sits under ADVANCED.
+            fvgSideBox = Select("BUY • bullish FVG retest (the original)", "SELL • bearish FVG retest, break of a low (mirrored)", "BUY + SELL • both"); fvgSideBox.SelectedIndex = 0; fvgSideBox.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
+            fvgModel.Children.Add(Row("BUY / SELL", fvgSideBox));
             fvgModel.Children.Add(Row("STOP", fvgStopModeBox));
             fvgModel.Children.Add(Txt("AUTO SIZE: contracts = RISK $ (Step 2 STOP $) ÷ stop distance, so every trade risks the same money. FIXED: your Step 2 contract size, $ target and $ stop.", Muted, 10, FontWeights.Normal));
             fvgTargetModeBox = Select("BY GRADE: A 3R • B 2R • C 1.5R", "FIXED $ (STEP 2 TARGET)"); fvgTargetModeBox.SelectedIndex = 0; fvgTargetModeBox.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
@@ -12857,6 +13125,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             for (int i = 0; i < saveButtons.Count; i++) saveButtons[i].IsEnabled = detected && !busy;
             for (int i = 0; i < exportButtons.Count; i++) exportButtons[i].IsEnabled = detected && !busy;
             if (researchPackageButton != null) researchPackageButton.IsEnabled = simulated && !busy;
+            if (researchDataOnlyButton != null) researchDataOnlyButton.IsEnabled = simulated && !busy;
             if (workflowText == null) return;
             if (busy) workflowText.Text = "WORKING: " + (string.IsNullOrWhiteSpace(operationMessage) ? "processing" : operationMessage) + ". Wait for the completion message.";
             else if (RecoilStudy() && detected && recoilResult != null) workflowText.Text = "RECOIL COMPLETE: read Step 3 (overview, steps & bounces, risk grid, one live account, every ladder, breakdowns). Open the chart and press PLAY to watch each ladder fill. Change settings in Step 1 and press RE-RUN (no reload).";
@@ -12939,7 +13208,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             runPoolButton = Btn("RUN VIRTUAL POOL", Green); runPoolButton.IsEnabled = false; runPoolButton.Click += delegate { SimulatePool(); };
             clearPoolButton = Btn("CLEAR POOL RESULTS", Red); clearPoolButton.IsEnabled = false; clearPoolButton.Click += delegate { ClearPoolResults(); };
             evidenceAfterPoolButton = Btn("SHOW CHART SETUPS", Blue); evidenceAfterPoolButton.IsEnabled = false; evidenceAfterPoolButton.Click += delegate { OpenEvidenceChart(); };
-            researchPackageButton = Btn("EXPORT RESEARCH PACKAGE", Orchid); researchPackageButton.IsEnabled = false; researchPackageButton.Click += delegate { ExportEvidencePackage(); }; exportButtons.Add(researchPackageButton);
+            researchPackageButton = Btn("EXPORT RESEARCH PACKAGE", Orchid); researchPackageButton.IsEnabled = false; researchPackageButton.ToolTip = "Everything + one SVG chart per session (slow on years of data)"; researchPackageButton.Click += delegate { ExportEvidencePackage(true); }; exportButtons.Add(researchPackageButton);
+            researchDataOnlyButton = Btn("EXPORT DATA ONLY (FAST)", Gold); researchDataOnlyButton.IsEnabled = false; researchDataOnlyButton.Height = 27; researchDataOnlyButton.Margin = new Thickness(8, 0, 2, 0); researchDataOnlyButton.ToolTip = "The web report and every CSV, without the per-session charts — seconds instead of minutes"; researchDataOnlyButton.Click += delegate { ExportEvidencePackage(false); }; exportButtons.Add(researchDataOnlyButton);
             comparisonRunButton = Btn("COMPARE TIMEFRAMES", Cyan); comparisonRunButton.IsEnabled = false; comparisonRunButton.Click += delegate { OpenComparisonWorkbench(); };
             actions.Children.Add(runPoolButton); actions.Children.Add(evidenceAfterPoolButton); actions.Children.Add(comparisonRunButton); actions.Children.Add(researchPackageButton); top.Children.Add(actions); normalResultActions = actions;
             var clearRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 1) }; clearPoolButton.Height = 27; clearRow.Children.Add(clearPoolButton);
@@ -12947,6 +13217,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             viewMnqButton = Btn("MNQ", Blue); viewMgcButton = Btn("MGC", Gold); viewBothButton = Btn("BOTH", Cyan); compareInstrumentsButton = Btn("COMPARE MNQ vs MGC vs BOTH", Orchid);
             foreach (Button b in new[] { viewMnqButton, viewMgcButton, viewBothButton }) { b.Height = 27; b.Width = 78; b.Margin = new Thickness(2, 0, 2, 0); b.IsEnabled = false; clearRow.Children.Add(b); }
             compareInstrumentsButton.Height = 27; compareInstrumentsButton.Margin = new Thickness(8, 0, 2, 0); compareInstrumentsButton.IsEnabled = false; clearRow.Children.Add(compareInstrumentsButton);
+            clearRow.Children.Add(researchDataOnlyButton);
             var compareAccountsButton = Btn("COMPARE ACCOUNTS", Green); compareAccountsButton.Height = 27; compareAccountsButton.Margin = new Thickness(8, 0, 2, 0); compareAccountsButton.Click += delegate { CompareAccountCounts(); };
             compareAccountsButton.ToolTip = "Runs the pool with 1, 2, 3, 5, 10, 20 accounts, copy to all and copy groups — same setups and settings — and marks the best (★).";
             clearRow.Children.Add(compareAccountsButton);
@@ -14585,7 +14856,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly object savedBarsLock = new object();
         private HistoricalRequestWorkItem currentHistoricalItem;
         private DispatcherTimer loadWatchdog;
-        private CheckBox reuseSavedDataBox;
+        private CheckBox reuseSavedDataBox; private Button stopLoadButton, researchDataOnlyButton, keepWorkingButton, showLoaderButton; private bool loaderHidden;
 
         private static string SavedBarsKey(HistoricalRequestWorkItem item)
         {
@@ -14619,7 +14890,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 lock (savedBarsLock) { List<KeystoneArcBar> hit; if (savedBarsMemory.TryGetValue(key, out hit)) return CopyBars(hit, item.Key); }
                 string file = SavedBarsFile(key);
-                if (!File.Exists(file)) return null;
+                if (!File.Exists(file)) { var stored = LoadFromBarStore(item); if (stored != null) { lock (savedBarsLock) savedBarsMemory[key] = CopyBars(stored, item.Key); } return stored; }
                 var list = new List<KeystoneArcBar>();
                 using (var reader = new BinaryReader(File.OpenRead(file)))
                 {
@@ -14665,6 +14936,79 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 if (File.Exists(file)) File.Delete(file);
                 File.Move(temp, file);
+                MergeIntoBarStore(item, list);
+            }
+            catch { }
+        }
+
+        // ---- BAR STORE: one file per instrument contract × timeframe × trading hours holding every bar ever loaded and the
+        // ranges it covers. A later test whose dates are inside a stored range loads from disk in seconds, whatever its dates.
+        private static readonly object barStoreLock = new object();
+        private static string BarStoreKey(HistoricalRequestWorkItem item)
+        {
+            if (item == null || item.Instrument == null) return null;
+            string hours = item.TradingHours == null ? (item.TradingHoursSource ?? string.Empty) : (item.TradingHours.Name ?? item.TradingHoursSource ?? string.Empty);
+            return "store1|" + item.Key + "|" + item.Instrument.FullName + "|" + item.Minutes + "|" + hours;
+        }
+
+        private static bool ReadBarStore(string file, string storeKey, List<Tuple<DateTime, DateTime>> ranges, List<KeystoneArcBar> bars, string symbol)
+        {
+            if (!File.Exists(file)) return false;
+            using (var reader = new BinaryReader(File.OpenRead(file)))
+            {
+                if (reader.ReadString() != storeKey) return false;
+                int nr = reader.ReadInt32(); for (int i = 0; i < nr; i++) ranges.Add(Tuple.Create(new DateTime(reader.ReadInt64()), new DateTime(reader.ReadInt64())));
+                if (bars == null) return true;
+                int n = reader.ReadInt32(); bars.Capacity = n;
+                for (int i = 0; i < n; i++) bars.Add(new KeystoneArcBar { Time = new DateTime(reader.ReadInt64()), Symbol = symbol, Open = reader.ReadDouble(), High = reader.ReadDouble(), Low = reader.ReadDouble(), Close = reader.ReadDouble(), Volume = reader.ReadInt64() });
+            }
+            return true;
+        }
+
+        private static List<KeystoneArcBar> LoadFromBarStore(HistoricalRequestWorkItem item)
+        {
+            string storeKey = BarStoreKey(item); if (storeKey == null) return null;
+            try
+            {
+                lock (barStoreLock)
+                {
+                    string file = SavedBarsFile(storeKey); var ranges = new List<Tuple<DateTime, DateTime>>();
+                    if (!ReadBarStore(file, storeKey, ranges, null, item.Key)) return null;
+                    if (!ranges.Any(r => r.Item1 <= item.Start && r.Item2 >= item.End)) return null;
+                    var all = new List<KeystoneArcBar>(); ranges.Clear(); ReadBarStore(file, storeKey, ranges, all, item.Key);
+                    var slice = all.Where(b => b.Time >= item.Start && b.Time <= item.End).ToList();
+                    return slice.Count == 0 ? null : slice;
+                }
+            }
+            catch { return null; }
+        }
+
+        private static void MergeIntoBarStore(HistoricalRequestWorkItem item, List<KeystoneArcBar> list)
+        {
+            string storeKey = BarStoreKey(item); if (storeKey == null || list == null || list.Count == 0) return;
+            try
+            {
+                lock (barStoreLock)
+                {
+                    string file = SavedBarsFile(storeKey); var ranges = new List<Tuple<DateTime, DateTime>>(); var bars = new List<KeystoneArcBar>();
+                    try { if (!ReadBarStore(file, storeKey, ranges, bars, item.Key)) { ranges.Clear(); bars.Clear(); } } catch { ranges.Clear(); bars.Clear(); }
+                    bars = bars.Where(b => b.Time < item.Start || b.Time > item.End).Concat(list).OrderBy(b => b.Time).ToList();
+                    ranges.Add(Tuple.Create(item.Start, item.End));
+                    var merged = new List<Tuple<DateTime, DateTime>>();
+                    foreach (var r in ranges.OrderBy(r => r.Item1))
+                    {
+                        if (merged.Count > 0 && r.Item1 <= merged[merged.Count - 1].Item2.AddMinutes(1)) { var last = merged[merged.Count - 1]; merged[merged.Count - 1] = Tuple.Create(last.Item1, r.Item2 > last.Item2 ? r.Item2 : last.Item2); }
+                        else merged.Add(r);
+                    }
+                    Directory.CreateDirectory(Path.GetDirectoryName(file)); string temp = file + ".tmp";
+                    using (var writer = new BinaryWriter(File.Create(temp)))
+                    {
+                        writer.Write(storeKey); writer.Write(merged.Count); foreach (var r in merged) { writer.Write(r.Item1.Ticks); writer.Write(r.Item2.Ticks); }
+                        writer.Write(bars.Count); foreach (var b in bars) { writer.Write(b.Time.Ticks); writer.Write(b.Open); writer.Write(b.High); writer.Write(b.Low); writer.Write(b.Close); writer.Write(b.Volume); }
+                    }
+                    if (File.Exists(file)) File.Delete(file);
+                    File.Move(temp, file);
+                }
             }
             catch { }
         }
@@ -20034,6 +20378,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.FvgMnqDropPoints = Math.Max(0, NumberAllowZero(fvgMnqDropBox, 0)); config.FvgMgcDropPoints = Math.Max(0, NumberAllowZero(fvgMgcDropBox, 0));
             config.FvgAggressionCombine = fvgCombineBox != null && fvgCombineBox.SelectedIndex == 1 ? "ALL" : "ANY";
             config.FvgAllowOneGreenInRun = fvgOneGreenBox == null || fvgOneGreenBox.IsChecked != false ? 1 : 0;
+            if (string.Equals(config.StrategyCode, "FVG", StringComparison.OrdinalIgnoreCase)) config.TradeSide = fvgSideBox == null ? "BUY" : new[] { "BUY", "SELL", "BOTH" }[Math.Max(0, Math.Min(2, fvgSideBox.SelectedIndex))];
             config.FvgStopMode = fvgStopModeBox == null ? "FORMATION_LOW" : (fvgStopModeBox.SelectedIndex == 1 ? "BOX" : (fvgStopModeBox.SelectedIndex == 2 ? "GREEN_LOW" : (fvgStopModeBox.SelectedIndex == 3 ? "FIXED" : (fvgStopModeBox.SelectedIndex == 4 ? "POINTS" : "FORMATION_LOW"))));
             Func<TextBox, double, double> pts = (box, d) => Math.Max(0.01, Number(box, d));
             config.FvgStopPointsDT = pts(fvgPtsBoxes[0], 10); config.FvgTargetPointsDT = pts(fvgPtsBoxes[1], 15); config.FvgStopPointsA = pts(fvgPtsBoxes[2], 10); config.FvgTargetPointsA = pts(fvgPtsBoxes[3], 15);
@@ -20390,7 +20735,9 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         // Exports browser-openable SVG evidence charts instead of opaque screenshot pixels.  The files retain
         // the exact requested bars, entry prices, outcomes, and labels, and remain sharp when zoomed or printed.
-        private void ExportEvidencePackage()
+        private void ExportEvidencePackage() { ExportEvidencePackage(true); }
+
+        private void ExportEvidencePackage(bool charts)
         {
             if (events.Count == 0) { UpdateUi("RUN DETECTION BEFORE EVIDENCE EXPORT", Red); return; }
             if (operationBusy || isProcessing) { UpdateUi("WAIT FOR THE ACTIVE OPERATION BEFORE EVIDENCE EXPORT", Gold); return; }
@@ -20400,7 +20747,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             KeystoneArcRunConfig cfgCopy = CloneConfig(config);
             string rangeName = SessionDateLabel(cfgCopy).Replace(" → ", "_to_").Replace(" ", "_");
             string root = Path.Combine(DataDirectory(), "KeystoneEvidence_" + rangeName + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
-            BeginBusy("EXPORTING EVIDENCE PACKAGE");
+            if (!charts) root += "_DATA";
+            BeginBusy(charts ? "EXPORTING EVIDENCE PACKAGE" : "EXPORTING DATA ONLY (NO CHARTS)");
             UpdateUi("EXPORTING INSTRUMENT FOLDERS, SESSION CHARTS, AND HTML LEDGERS", Gold);
             // The CSVs and the index page read the lab's controls: WPF allows that only on the lab's thread
             // ("the calling thread cannot access this object"). The slow SVG session charts are written in the background.
@@ -20412,8 +20760,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                 try
                 {
                     Directory.CreateDirectory(root);
-                    written += ExportInstrumentEvidence(root, "MNQ", mnqCopy, eventCopy, cfgCopy, manifest);
-                    written += ExportInstrumentEvidence(root, "MGC", mgcCopy, eventCopy, cfgCopy, manifest);
+                    if (charts)
+                    {
+                        written += ExportInstrumentEvidence(root, "MNQ", mnqCopy, eventCopy, cfgCopy, manifest);
+                        written += ExportInstrumentEvidence(root, "MGC", mgcCopy, eventCopy, cfgCopy, manifest);
+                    }
+                    else manifest.Append("<li>DATA ONLY export: session charts were skipped (use EXPORT RESEARCH PACKAGE for them). events.csv holds every setup.</li>");
                     manifest.Append("</ul><p class='footer'>Charts written: ").Append(written).Append(". This page contains the run summary, account/payout scenario data, filters, comparisons, and detailed ledger; MNQ/MGC folders contain linked visual charts and machine-readable rows.</p>");
                 }
                 catch (Exception ex) { failure = ex.Message; }
@@ -20434,7 +20786,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         File.WriteAllText(Path.Combine(root, "balance_matrix.csv"), BalanceMatrixCsv(), Encoding.UTF8);
                         File.WriteAllText(Path.Combine(root, "capital_policy.csv"), CapitalPolicyCsv(), Encoding.UTF8);
                         File.WriteAllText(Path.Combine(root, "index.html"), BuildEvidencePackageIndex(manifest.ToString()), Encoding.UTF8);
-                        result = "EVIDENCE PACKAGE READY • OPEN index.html • " + written + " SVG SESSION CHART(S) • ONE MAIN WEBSITE + MNQ/MGC ASSET FOLDERS • " + root;
+                        result = "EVIDENCE PACKAGE READY • OPEN index.html • " + (charts ? written + " SVG SESSION CHART(S) • ONE MAIN WEBSITE + MNQ/MGC ASSET FOLDERS • " : "DATA ONLY (no charts) • ") + root;
                     }
                     catch (Exception ex) { result = "EVIDENCE EXPORT ERROR • " + ex.Message; }
                     EndBusy();
@@ -24074,7 +24426,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private void OpenMathLabChooser()
         {
-            var w = new Window { Title = "KEYSTONE ARC • MATH LABS", Width = 560, Height = 440, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            var w = new Window { Title = "KEYSTONE ARC • MATH LABS", Width = 580, Height = 530, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
             var st = new StackPanel { Margin = new Thickness(14) };
             st.Children.Add(Txt("MATH LABS • they use the bars already loaded in Step 1", Gold, 14, FontWeights.Bold));
             Action<string, string, Brush, Action> item = delegate(string title, string sub, Brush b, Action open)
@@ -24083,6 +24435,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 st.Children.Add(Txt(sub, Muted, 10, FontWeights.Normal));
             };
             item("IDEAS • TYPE A STRATEGY IN WORDS", "Any 1-minute bars loaded in Step 1 (e.g. MICRO A DAY, BOTH, 2020 → yesterday). Open, ORB, fade, every 1-minute FVG with account rotation…", Green, delegate { OpenIdeasLab(); });
+            item("REPLAY TRADER • TRADE A REAL DAY", "Pick a loaded day, press PLAY and trade it with BUY / SELL / CLOSE; P/L live, every trade saved to the journal.", Orange, delegate { OpenReplayTrader(); });
             item("ASIAN 75 MATH LAB", "Load: ASIAN 75 REVERSAL, BOTH, your dates.", Cyan, delegate { OpenAsianLab(); });
             item("5M FVG MATH LAB", "Load: FIRST 5M FVG STUDY, BOTH, your dates (1-minute bars).", Gold, delegate { OpenFvgLab(); });
             item("123 ENGULFING MATH LAB", "Load: 123 ENGULFING, BOTH, your dates (1-minute bars; every timeframe is built from them).", Orchid, delegate { OpenEngulfingLab(); });
@@ -24504,9 +24857,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             var st = goldenLab; Action<string, UIElement> add; var inputs = LabInputs(out add);
             Func<string, double, TextBox> box = (v, w) => { var t = Input(v); t.Width = w; return t; };
             var setupsB = box("FVG,FVG50,BH,FVG+BH,FVG50+BH", 200); setupsB.ToolTip = "FVG = retest + break (or candle 3 close if chosen in Step 1) • FVG50 = 50% tap, stop below candle 1 • BH • FVG+BH • FVG50+BH"; var perDayB = box("1,2,3", 70); var yoursB = new CheckBox { Content = "ALSO YOUR STUDY'S KEPT ENTRIES", IsChecked = true, Foreground = Text, Margin = new Thickness(4, 14, 8, 2) };
+            var sidesB = box(config != null && config.TradeSide == "SELL" ? "SELL" : config != null && config.TradeSide == "BOTH" ? "BUY,SELL,EITHER" : "BUY,SELL,EITHER", 140); sidesB.ToolTip = "BUY = bullish setups (break of a high) • SELL = bearish setups (break of a low) • EITHER = both, one position at a time";
             var exits = box("SAME DAY,HOLD", 130); var mnqTp = box("50,100,150,200", 130); var mnqSl = box("PATTERN,50,100,150", 150); var mgcTp = box("5,10,15,20", 110); var mgcSl = box("PATTERN,5,10,15", 130); var qty = box("1,3,5", 80); var closeB = box("1555", 60);
             var presets = KeystonePropRules.Presets(); var rulesBox = Select(presets.Select(p => p.Name).ToArray()); rulesBox.SelectedIndex = 0; rulesBox.Width = 240; var evalBox = box("120", 60); var actBox = box("0", 60);
-            add("SETUPS (FVG, FVG50, BH, FVG+BH, FVG50+BH)", setupsB); add("TRADES A DAY", perDayB); add(" ", yoursB); add("EXIT (SAME DAY, HOLD)", exits); add("MNQ TARGETS", mnqTp); add("MNQ STOPS (PATTERN or pts)", mnqSl); add("MGC TARGETS", mgcTp); add("MGC STOPS (PATTERN or pts)", mgcSl); add("CONTRACTS", qty); add("SAME DAY CLOSE", closeB);
+            add("SETUPS (FVG, FVG50, BH, FVG+BH, FVG50+BH)", setupsB); add("SIDES (BUY, SELL, EITHER)", sidesB); add("TRADES A DAY", perDayB); add(" ", yoursB); add("EXIT (SAME DAY, HOLD)", exits); add("MNQ TARGETS", mnqTp); add("MNQ STOPS (PATTERN or pts)", mnqSl); add("MGC TARGETS", mgcTp); add("MGC STOPS (PATTERN or pts)", mgcSl); add("CONTRACTS", qty); add("SAME DAY CLOSE", closeB);
             add("FIRM RULES", rulesBox); add("EVALUATION $", evalBox); add("ACTIVATION $", actBox);
             Func<TextBox, List<double>> stops = t => { var l = ParseNumbers(t.Text.ToUpperInvariant().Replace("PATTERN", "0"), 0).Distinct().ToList(); return l; };
             st.Advice = () => KeystoneGoldenLab.Advice(st.Rows, st.Days);
@@ -24521,7 +24875,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var g = new KeystoneGoldenLab.Grid { Exits = ParseWords(exits.Text.Replace("SAME DAY", "SAME_DAY"), new[] { "SAME_DAY", "HOLD" }, "SAME_DAY").Select(x => x.Replace("_", " ")).ToList(),
                         MnqTargets = ParseNumbers(mnqTp.Text, 100).Where(v => v > 0).ToList(), MgcTargets = ParseNumbers(mgcTp.Text, 10).Where(v => v > 0).ToList(), MnqStops = stops(mnqSl), MgcStops = stops(mgcSl),
                         Contracts = ParseNumbers(qty.Text, 1).Select(v => Math.Max(1, (int)Math.Round(v))).Distinct().ToList(), CloseHhmm = Integer(closeB, 1555),
-                        PerDay = ParseNumbers(perDayB.Text, 1).Select(v => Math.Max(1, (int)Math.Round(v))).Distinct().ToList() };
+                        PerDay = ParseNumbers(perDayB.Text, 1).Select(v => Math.Max(1, (int)Math.Round(v))).Distinct().ToList(), Sides = ParseWords(sidesB.Text, new[] { "BUY", "SELL", "EITHER" }, "BUY") };
+                    bool wantSell = g.Sides.Contains("SELL") || g.Sides.Contains("EITHER"), wantBuy = g.Sides.Contains("BUY") || g.Sides.Contains("EITHER");
+                    basis.TradeSide = wantSell ? (wantBuy ? "BOTH" : "SELL") : "BUY";
                     var raws = bars.GroupBy(b => (b.Symbol ?? "").ToUpperInvariant()).ToDictionary(x => x.Key, x => x.OrderBy(b => b.Time).ToList());
                     var setupBars = new Dictionary<string, List<KeystoneArcBar>>();
                     foreach (var kv in raws) { var given = kv.Key == "MGC" ? setupMgc : setupMnq; setupBars[kv.Key] = given != null && given.Count > 2 && !KeystoneBracket.IsOneMinute(given) ? given : KeystoneEngLab.Candles(kv.Value, Math.Max(1, basis.SetupMinutes)); }
@@ -24536,10 +24892,211 @@ namespace NinjaTrader.NinjaScript.AddOns
                 autoRun);
         }
 
+        // ---- REPLAY TRADER window: pick a loaded session, press PLAY, trade it with BUY / SELL / CLOSE ----------------------
+        private Window replayTraderWindow; private KeystoneReplayTrader replayTrader; private DispatcherTimer replayTraderTimer; private Action replayTraderLoad, replayTraderFlat; private Action<int> replayTraderOrder, replayTraderStep;
+        private static string ReplayJournalFile() { return Path.Combine(DataDirectory(), "ReplayJournal.csv"); }
+
+        private void OpenReplayTrader()
+        {
+            if (replayTraderWindow != null) { replayTraderWindow.Activate(); return; }
+            var loaded = new Dictionary<string, List<KeystoneArcBar>>();
+            if (KeystoneBracket.IsOneMinute(mnqBars) && mnqBars.Count > 0) loaded["MNQ"] = mnqBars.OrderBy(b => b.Time).ToList();
+            if (KeystoneBracket.IsOneMinute(mgcBars) && mgcBars.Count > 0) loaded["MGC"] = mgcBars.OrderBy(b => b.Time).ToList();
+            var w = new Window { Title = "KEYSTONE ARC • REPLAY TRADER", Width = 1500, Height = 920, MinWidth = 900, MinHeight = 600, Background = Bg, Foreground = Text, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            FitWindowToScreen(w); replayTraderWindow = w;
+            var root = new Grid { Margin = new Thickness(10) };
+            for (int i = 0; i < 4; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var head = new StackPanel(); head.Children.Add(Txt("REPLAY TRADER • trade a real day candle by candle", Gold, 20, FontWeights.Bold));
+            head.Children.Add(Txt("Built from the 1-minute bars loaded in Step 1 (not NinjaTrader playback). Inside each minute the price walks open → high/low → close in small steps: the real minute's open, high, low and close are exact; the order of the ticks inside the minute is simulated (1-minute bars do not record it). Every closed trade is saved to " + ReplayJournalFile() + ".", Muted, 11, FontWeights.Normal));
+            Grid.SetRow(head, 0); root.Children.Add(head);
+            Action<string, UIElement, Panel> add = (l, e, p) => { var sp = new StackPanel { Margin = new Thickness(2, 0, 8, 0) }; sp.Children.Add(new TextBlock { Text = l, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(e); p.Children.Add(sp); };
+            var row1 = new WrapPanel { Margin = new Thickness(0, 6, 0, 2) };
+            var instBox = Select(loaded.Count == 0 ? new[] { "NO DATA" } : loaded.Keys.ToArray()); instBox.SelectedIndex = 0; instBox.Width = 90;
+            var dayBox = new ComboBox { Width = 190 }; var startBox = Input("0930"); startBox.Width = 60;
+            var tfBox = Select("1M", "2M", "3M", "5M", "15M"); tfBox.SelectedIndex = 0; tfBox.Width = 70;
+            var speedBox = Select("FAST • 1 MIN = 0.25 S", "1 MIN = 1 S", "1 MIN = 3 S", "1 MIN = 10 S", "1 MIN = 30 S", "REAL TIME • 1 MIN = 60 S"); speedBox.SelectedIndex = 1; speedBox.Width = 190;
+            var loadBtn = Btn("LOAD DAY", Cyan); var playBtn = Btn("▶ PLAY", Green); var stepBtn = Btn("+1 MIN", Card); var skipBtn = Btn("+10 MIN", Card);
+            foreach (var b in new[] { loadBtn, playBtn, stepBtn, skipBtn }) { b.Height = 30; b.Margin = new Thickness(4, 14, 4, 0); b.Padding = new Thickness(12, 0, 12, 0); }
+            add("INSTRUMENT", instBox, row1); add("SESSION (18:00 → 17:00)", dayBox, row1); add("START AT (HHMM)", startBox, row1); add("CANDLES", tfBox, row1); add("SPEED", speedBox, row1);
+            row1.Children.Add(loadBtn); row1.Children.Add(playBtn); row1.Children.Add(stepBtn); row1.Children.Add(skipBtn);
+            Grid.SetRow(row1, 1); root.Children.Add(row1);
+            var row2 = new WrapPanel { Margin = new Thickness(0, 4, 0, 4) };
+            var qtyBox = Input("1"); qtyBox.Width = 50; var slBox = Input("0"); slBox.Width = 60; var tpBox = Input("0"); tpBox.Width = 60;
+            var buyBtn = Btn("BUY", Green); var sellBtn = Btn("SELL", Red); var flatBtn = Btn("CLOSE", Gold);
+            foreach (var b in new[] { buyBtn, sellBtn, flatBtn }) { b.Height = 36; b.Width = 110; b.FontSize = 15; b.Margin = new Thickness(4, 12, 4, 0); }
+            add("CONTRACTS", qtyBox, row2); add("STOP PTS (0 = NONE)", slBox, row2); add("TARGET PTS (0 = NONE)", tpBox, row2);
+            row2.Children.Add(buyBtn); row2.Children.Add(sellBtn); row2.Children.Add(flatBtn);
+            var pnl = new TextBlock { Text = "LOAD A DAY", Foreground = Gold, FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(16, 14, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            row2.Children.Add(pnl);
+            Grid.SetRow(row2, 2); root.Children.Add(row2);
+            var status = Txt(loaded.Count == 0 ? "NO 1-MINUTE BARS LOADED • Step 1: load a strategy that uses 1-minute bars (e.g. MICRO A DAY, BOTH) for the dates you want to trade." : "Choose a session and press LOAD DAY.", loaded.Count == 0 ? Red : Cyan, 12, FontWeights.Bold);
+            status.TextWrapping = TextWrapping.Wrap; Grid.SetRow(status, 3); root.Children.Add(status);
+            var body = new Grid(); body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(380) });
+            var canvas = new Canvas { Background = Panel, ClipToBounds = true, MinHeight = 400 };
+            var chartBorder = new Border { BorderBrush = Card, BorderThickness = new Thickness(1), Child = canvas, Margin = new Thickness(0, 4, 6, 0) }; Grid.SetColumn(chartBorder, 0); body.Children.Add(chartBorder);
+            var side = new StackPanel(); var sideScroll = new ScrollViewer { Content = side, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 4, 0, 0) }; Grid.SetColumn(sideScroll, 1); body.Children.Add(sideScroll);
+            Grid.SetRow(body, 4); root.Children.Add(body);
+            w.Content = root;
+
+            Func<string, List<DateTime>> sessions = sym => { List<KeystoneArcBar> l; return loaded.TryGetValue(sym, out l) ? l.GroupBy(b => KeystoneIdeas.SessionDay(b.Time.AddMinutes(-1))).Where(g => g.Count() >= 60).Select(g => g.Key).OrderByDescending(d => d).ToList() : new List<DateTime>(); };
+            Action fillDays = delegate
+            {
+                dayBox.Items.Clear(); foreach (var d in sessions((instBox.SelectedIndex >= 0 && instBox.SelectedIndex < instBox.Items.Count ? Convert.ToString(instBox.Items[instBox.SelectedIndex]) : string.Empty))) dayBox.Items.Add(d.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture));
+                if (dayBox.Items.Count > 0) dayBox.SelectedIndex = 0;
+            };
+            fillDays(); instBox.SelectionChanged += delegate { fillDays(); };
+            Func<int> tf = () => new[] { 1, 2, 3, 5, 15 }[Math.Max(0, tfBox.SelectedIndex)];
+            Func<double> barSeconds = () => new[] { 0.25, 1, 3, 10, 30, 60 }[Math.Max(0, speedBox.SelectedIndex)];
+            DateTime session = DateTime.MinValue; int savedFills = 0;
+
+            Action renderSide = delegate
+            {
+                side.Children.Clear();
+                side.Children.Add(HelixTitle("TODAY'S TRADES", Gold));
+                if (replayTrader != null)
+                    foreach (var f in replayTrader.Fills.AsEnumerable().Reverse())
+                        side.Children.Add(new TextBlock { Text = f.ExitTime.ToString("HH:mm:ss") + "  " + f.Side + " " + f.Qty + "  " + f.Entry.ToString("0.##", CultureInfo.InvariantCulture) + " → " + f.Exit.ToString("0.##", CultureInfo.InvariantCulture) + "  " + Signed(f.Net) + "  " + f.Reason, Foreground = MoneyBrush(f.Net), FontFamily = new FontFamily("Consolas"), FontSize = 11, Margin = new Thickness(4, 1, 4, 1) });
+                side.Children.Add(HelixTitle("SAVED DAYS (JOURNAL)", Cyan));
+                try
+                {
+                    if (File.Exists(ReplayJournalFile()))
+                    {
+                        var rows = File.ReadAllLines(ReplayJournalFile()).Skip(1).Select(l => l.Split(',')).Where(c => c.Length >= 10).ToList();
+                        double total = 0;
+                        foreach (var g in rows.GroupBy(c => c[0] + " " + c[1]).OrderByDescending(g => g.Key))
+                        {
+                            double net = g.Sum(c => double.Parse(c[9], CultureInfo.InvariantCulture)); total += net;
+                            side.Children.Add(new TextBlock { Text = g.Key + " • " + g.Count() + " trades • " + g.Count(c => double.Parse(c[9], CultureInfo.InvariantCulture) > 0) + " won • " + Signed(net), Foreground = MoneyBrush(net), FontSize = 11.5, Margin = new Thickness(4, 1, 4, 1) });
+                        }
+                        side.Children.Insert(side.Children.Count - rows.GroupBy(c => c[0] + " " + c[1]).Count(), new TextBlock { Text = "ALL SAVED DAYS: " + Signed(total) + " (" + rows.Count + " trades)", Foreground = MoneyBrush(total), FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 2, 4, 4) });
+                    }
+                    else side.Children.Add(Txt("No saved trades yet.", Muted, 11, FontWeights.Normal));
+                }
+                catch (Exception ex) { side.Children.Add(Txt("Journal unreadable: " + ex.Message, Red, 11, FontWeights.Normal)); }
+            };
+
+            Action saveNewFills = delegate
+            {
+                if (replayTrader == null || replayTrader.Fills.Count <= savedFills) return;
+                try
+                {
+                    Directory.CreateDirectory(DataDirectory()); bool fresh = !File.Exists(ReplayJournalFile());
+                    using (var sw = new StreamWriter(ReplayJournalFile(), true, Encoding.UTF8))
+                    {
+                        if (fresh) sw.WriteLine(KeystoneReplayTrader.JournalHeader);
+                        foreach (var f in replayTrader.Fills.Skip(savedFills)) sw.WriteLine(KeystoneReplayTrader.JournalLine(session, f));
+                    }
+                    savedFills = replayTrader.Fills.Count; renderSide();
+                }
+                catch (Exception ex) { status.Text = "COULD NOT SAVE THE JOURNAL • " + ex.Message; status.Foreground = Red; }
+            };
+
+            Action render = delegate
+            {
+                canvas.Children.Clear(); if (replayTrader == null) return;
+                double W = canvas.ActualWidth > 50 ? canvas.ActualWidth : 1080, H = canvas.ActualHeight > 50 ? canvas.ActualHeight : 560, right = 80, top = 14, bottom = 26;
+                var candles = replayTrader.Candles(tf()); var view = candles.Skip(Math.Max(0, candles.Count - 90)).ToList();
+                var r = replayTrader;
+                if (view.Count == 0) { canvas.Children.Add(new TextBlock { Text = "Press ▶ PLAY", Foreground = Muted, FontSize = 16 }); return; }
+                double hi = view.Max(b => b.High), lo = view.Min(b => b.Low);
+                if (r.Position != 0) { hi = Math.Max(hi, r.AvgPrice); lo = Math.Min(lo, r.AvgPrice); }
+                double pad = Math.Max((hi - lo) * 0.08, 1); hi += pad; lo -= pad;
+                Func<double, double> y = p => top + (hi - p) / (hi - lo) * (H - top - bottom);
+                double cw = (W - right - 10) / 90.0;
+                for (int i = 0; i < view.Count; i++)
+                {
+                    var b = view[i]; double x = 6 + i * cw + cw / 2; bool upC = b.Close >= b.Open; var brush = upC ? Green : Red;
+                    canvas.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = y(b.High), Y2 = y(b.Low), Stroke = brush, StrokeThickness = 1 });
+                    var rect = new System.Windows.Shapes.Rectangle { Width = Math.Max(2, cw * 0.7), Height = Math.Max(1, Math.Abs(y(b.Open) - y(b.Close))), Fill = brush };
+                    System.Windows.Controls.Canvas.SetLeft(rect, x - Math.Max(2, cw * 0.7) / 2); System.Windows.Controls.Canvas.SetTop(rect, Math.Min(y(b.Open), y(b.Close))); canvas.Children.Add(rect);
+                    if (i % 15 == 0) { var tl = new TextBlock { Text = b.Time.AddMinutes(-tf()).ToString("HH:mm"), Foreground = Muted, FontSize = 9.5 }; System.Windows.Controls.Canvas.SetLeft(tl, x - 12); System.Windows.Controls.Canvas.SetTop(tl, H - bottom + 6); canvas.Children.Add(tl); }
+                }
+                Action<double, Brush, string> level = (p, br, label) =>
+                {
+                    canvas.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = W - right, Y1 = y(p), Y2 = y(p), Stroke = br, StrokeThickness = 1.2, StrokeDashArray = new DoubleCollection { 4, 3 } });
+                    var t = new TextBlock { Text = label + " " + p.ToString("0.00", CultureInfo.InvariantCulture), Foreground = br, FontSize = 10.5, FontWeight = FontWeights.Bold }; System.Windows.Controls.Canvas.SetLeft(t, W - right + 4); System.Windows.Controls.Canvas.SetTop(t, y(p) - 8); canvas.Children.Add(t);
+                };
+                for (int k = 0; k <= 6; k++) { double p = lo + (hi - lo) * k / 6.0; var t = new TextBlock { Text = p.ToString("0.00", CultureInfo.InvariantCulture), Foreground = Muted, FontSize = 9.5 }; System.Windows.Controls.Canvas.SetLeft(t, W - right + 4); System.Windows.Controls.Canvas.SetTop(t, y(p) - 7); canvas.Children.Add(t); }
+                level(r.Price, Gold, "NOW");
+                if (r.Position != 0)
+                {
+                    int dir = Math.Sign(r.Position); level(r.AvgPrice, Cyan, dir > 0 ? "LONG" : "SHORT");
+                    if (r.StopPts > 0) level(r.AvgPrice - dir * r.StopPts, Red, "STOP");
+                    if (r.TargetPts > 0) level(r.AvgPrice + dir * r.TargetPts, Green, "TARGET");
+                }
+                pnl.Text = r.Time.ToString("HH:mm:ss") + " • " + r.Price.ToString("0.00", CultureInfo.InvariantCulture) + "  •  " + (r.Position == 0 ? "FLAT" : (r.Position > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " @ " + r.AvgPrice.ToString("0.00", CultureInfo.InvariantCulture) + " OPEN " + Signed(r.Unrealized)) + "  •  TODAY " + Signed(r.DayNet) + " (" + r.Fills.Count + " trades)";
+                pnl.Foreground = MoneyBrush(r.DayNet);
+            };
+
+            var timer = new DispatcherTimer(DispatcherPriority.Normal, w.Dispatcher); replayTraderTimer = timer;
+            Action setSpeed = delegate { timer.Interval = TimeSpan.FromMilliseconds(Math.Max(15, barSeconds() * 1000.0 / (replayTrader == null ? 12 : replayTrader.StepsPerBar))); };
+            timer.Tick += delegate
+            {
+                if (replayTrader == null) { timer.Stop(); return; }
+                int before = replayTrader.Fills.Count; bool more = replayTrader.Advance();
+                if (replayTrader.Fills.Count != before) { saveNewFills(); var f = replayTrader.Fills.Last(); status.Text = f.Reason + " • " + f.Side + " " + f.Qty + " closed " + Signed(f.Net); status.Foreground = MoneyBrush(f.Net); }
+                render();
+                if (!more) { timer.Stop(); playBtn.Content = "▶ PLAY"; status.Text = "SESSION FINISHED • saved: " + replayTrader.Fills.Count + " trades, " + Signed(replayTrader.Realized) + " • pick another day"; status.Foreground = MoneyBrush(replayTrader.Realized); }
+            };
+            speedBox.SelectionChanged += delegate { setSpeed(); }; tfBox.SelectionChanged += delegate { render(); };
+            canvas.SizeChanged += delegate { render(); };
+
+            Action loadClick = delegate
+            {
+                timer.Stop(); playBtn.Content = "▶ PLAY";
+                if (replayTrader != null && replayTrader.Position != 0) { replayTrader.CloseAll("DAY CHANGED"); saveNewFills(); }
+                string sym = (instBox.SelectedIndex >= 0 && instBox.SelectedIndex < instBox.Items.Count ? Convert.ToString(instBox.Items[instBox.SelectedIndex]) : string.Empty); List<KeystoneArcBar> all; if (!loaded.TryGetValue(sym, out all) || dayBox.SelectedIndex < 0) { status.Text = "NO DATA FOR " + sym; status.Foreground = Red; return; }
+                session = sessions(sym)[dayBox.SelectedIndex];
+                var bars = all.Where(b => KeystoneIdeas.SessionDay(b.Time.AddMinutes(-1)) == session).ToList();
+                replayTrader = new KeystoneReplayTrader(bars, sym, 12); savedFills = 0;
+                int hhmm = Integer(startBox, 930); if (IsValidHhmm(hhmm)) { var at = (hhmm >= 1800 ? session.AddDays(-1) : session).AddHours(hhmm / 100).AddMinutes(hhmm % 100); replayTrader.JumpTo(at); if (replayTrader.Finished) replayTrader = new KeystoneReplayTrader(bars, sym, 12); }
+                setSpeed(); render(); renderSide();
+                status.Text = sym + " • " + session.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • " + bars.Count + " minutes • starts " + replayTrader.Time.ToString("HH:mm") + " • press ▶ PLAY"; status.Foreground = Cyan;
+            };
+            loadBtn.Click += delegate { loadClick(); };
+            Action togglePlay = delegate
+            {
+                if (replayTrader == null) { status.Text = "LOAD A DAY FIRST"; status.Foreground = Gold; return; }
+                if (timer.IsEnabled) { timer.Stop(); playBtn.Content = "▶ PLAY"; } else { setSpeed(); timer.Start(); playBtn.Content = "❚❚ PAUSE"; }
+            };
+            playBtn.Click += delegate { togglePlay(); };
+            Action<int> stepMinutes = n =>
+            {
+                if (replayTrader == null) return; int before = replayTrader.Fills.Count;
+                for (int i = 0; i < n * replayTrader.StepsPerBar && replayTrader.Advance(); i++) { }
+                if (replayTrader.Fills.Count != before) saveNewFills(); render();
+            };
+            stepBtn.Click += delegate { stepMinutes(1); }; skipBtn.Click += delegate { stepMinutes(10); };
+            Action readBracket = delegate { if (replayTrader == null) return; replayTrader.StopPts = NumberAllowZero(slBox, 0); replayTrader.TargetPts = NumberAllowZero(tpBox, 0); render(); };
+            slBox.TextChanged += delegate { readBracket(); }; tpBox.TextChanged += delegate { readBracket(); };
+            Action<int> order = sign =>
+            {
+                if (replayTrader == null || replayTrader.Finished) { status.Text = "LOAD A DAY AND PRESS PLAY"; status.Foreground = Gold; return; }
+                int q = Math.Max(1, Integer(qtyBox, 1)); int before = replayTrader.Fills.Count;
+                if (sign > 0) replayTrader.Buy(q); else replayTrader.Sell(q);
+                readBracket(); if (replayTrader.Fills.Count != before) saveNewFills();
+                status.Text = (sign > 0 ? "BOUGHT " : "SOLD ") + q + " at " + replayTrader.Price.ToString("0.00", CultureInfo.InvariantCulture); status.Foreground = sign > 0 ? Green : Red; render();
+            };
+            buyBtn.Click += delegate { order(1); }; sellBtn.Click += delegate { order(-1); };
+            Action flat = delegate { if (replayTrader == null) return; replayTrader.CloseAll("MANUAL"); saveNewFills(); render(); };
+            flatBtn.Click += delegate { flat(); };
+            // keyboard: B = buy, S = sell, C = close, space = play / pause (not while typing in a box)
+            w.KeyDown += (s2, e2) => { if (e2.OriginalSource is TextBox) return; if (e2.Key == System.Windows.Input.Key.B) order(1); else if (e2.Key == System.Windows.Input.Key.S) order(-1); else if (e2.Key == System.Windows.Input.Key.C) flat(); else if (e2.Key == System.Windows.Input.Key.Space) { togglePlay(); e2.Handled = true; } };
+            w.Closed += delegate { timer.Stop(); if (replayTrader != null && replayTrader.Position != 0) { replayTrader.CloseAll("WINDOW CLOSED"); saveNewFills(); } replayTraderLoad = null; replayTraderFlat = null; replayTraderOrder = null; replayTraderStep = null; replayTraderWindow = null; replayTraderTimer = null; replayTrader = null; };
+            replayTraderLoad = loadClick; replayTraderOrder = order; replayTraderStep = stepMinutes; replayTraderFlat = flat;
+            renderSide();
+            w.Show();
+        }
+
         // ---- IDEAS: type a strategy in words, test every combination on the loaded 1-minute bars --------------------------
         private LabState ideasLab; private TextBox ideasLineBox; private List<KeystoneArcEvent> ideaChartEvents; private string ideaChartLabel = string.Empty;
         private static readonly string[][] IdeaPresets =
         {
+            new[] { "BEST SO FAR (6 months) • MNQ NY 1-min FVG limit 25/40/50%, buys + sells, $ day target", "MNQ FVG 1 EITHER,BUY,SELL SESSION NY FILL 25,40,50 GAP 3 TP 30,40 SL C1 ACCOUNTS 1,3 QTY 1,5 DAYTARGET 0,1000,1500" },
+            new[] { "ENTRY STYLES • candle close vs 25 / 40 / 50% touch vs close + break (strict fills)", "MNQ FVG 1 EITHER SESSION NY FILL CLOSE,25,40,50,BREAK STRICT GAP 3 TP 20,30,40 SL C1 ACCOUNTS 1" },
+            new[] { "RISK • breakeven + partials + $ day target / stop per account", "MNQ FVG 1 EITHER SESSION NY FILL 50 GAP 3 TP 30 SL C1 BE 0,10,15 PARTIAL 0,15 ACCOUNTS 1,3 QTY 5 DAYTARGET 0,500,1000,1500 DAYSTOP 0,500" },
+            new[] { "ASIA ROTATION • MNQ 18:00–03:00 1-min FVG, 3 accounts × 5 micros", "MNQ FVG 1 EITHER SESSION ASIA FILL CLOSE,50,BREAK GAP 1 TP 40,60 SL 20,30 ACCOUNTS 3 QTY 5 DAYTARGET 0,1500" },
             new[] { "YOUR EXAMPLE • 09:30 open: SELL vs BUY, targets 25 → 200", "MNQ AT 0930 BUY,SELL TP 25,50,100,150,200 SL 25,50,100,NONE EXIT 1555" },
             new[] { "ROTATION • every 1-minute FVG, sells too, 1/3/5 accounts", "BOTH FVG 1 EITHER,BUY,SELL SESSION NY GAP 2,5 TP 10,20,40 SL C1,10,20 ACCOUNTS 1,3,5" },
             new[] { "ROTATION • which session: Asia, London or New York", "BOTH FVG 1 EITHER,BUY,SELL SESSION ASIA,LONDON,NY GAP 3 TP 15,30 SL C1 ACCOUNTS 3" },
@@ -24570,7 +25127,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var pick = Select(IdeaPresets.Select(p => p[0]).ToArray()); pick.SelectedIndex = 0; pick.Width = 430;
             var meaning = new TextBlock { Foreground = Cyan, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Width = 1400, Margin = new Thickness(2, 4, 2, 0) };
             var data = new TextBlock { Text = IdeasDataLine(), Foreground = Muted, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, Width = 1400, Margin = new Thickness(2, 2, 2, 0) };
-            var words = new TextBlock { Text = "WORDS • MNQ MGC BOTH • AT 0930[,1000] • BUY SELL EITHER (FVG: both sides, never against an open trade) • ORB n / FADE n (n-minute opening range) • FVG n (every n-minute gap) • FILL CLOSE,50 • GAP pts • SESSION ASIA,LONDON,NY,ALL or FROM 0930 TO 1100 • ACCOUNTS n (each setup → next free account) • TP pts • SL pts / NONE / C1 (beyond the FVG's 1st candle) • MGCTP / MGCSL / MGCGAP (gold; default MNQ ÷ 10) • EXIT 1555 • QTY 1,2", Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap, Width = 1400, Margin = new Thickness(2, 2, 2, 0) };
+            var words = new TextBlock { Text = "WORDS • MNQ MGC BOTH • AT 0930[,1000] • BUY SELL EITHER (FVG: both sides, never against an open trade) • ORB n / FADE n (n-minute opening range) • FVG n (every n-minute gap) • FILL CLOSE,25,40,50,BREAK (+ STRICT) • BE pts (stop to entry) • PARTIAL pts (half off) • DAYTARGET $ / DAYSTOP $ per account • GAP pts • SESSION ASIA,LONDON,NY,ALL or FROM 0930 TO 1100 • ACCOUNTS n (each setup → next free account) • TP pts • SL pts / NONE / C1 (beyond the FVG's 1st candle) • MGCTP / MGCSL / MGCGAP (gold; default MNQ ÷ 10) • EXIT 1555 • QTY 1,2", Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap, Width = 1400, Margin = new Thickness(2, 2, 2, 0) };
             Action explain = delegate
             {
                 var idea = KeystoneIdeas.Parse(line.Text);
@@ -27022,6 +27579,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<UIElement> goldenStrategyControls = new List<UIElement>();
         private bool goldenDefaultsApplied;
         private TextBox goldenMnqStartBox, goldenMgcStartBox, goldenLastEntryBox, goldenCloseBox, goldenMnqDropBox, goldenMgcDropBox, goldenMnqTargetBox, goldenMgcTargetBox, goldenMnqStopBox, goldenMgcStopBox, goldenMnqBufferBox, goldenMgcBufferBox, goldenMnqMaxStopBox, goldenMgcMaxStopBox, goldenMnqQtyBox, goldenMgcQtyBox, goldenTriesBox;
+        private ComboBox goldenSideBox, fvgSideBox;
         private ComboBox goldenFvgBox, goldenAggressionBox, goldenStopBox, goldenHoldBox, goldenFirstBox, goldenOpenGapBox;
         private CheckBox goldenBhBox, goldenSkipBigStopBox;
         private TextBox goldenMnqGapBox, goldenMgcGapBox;
@@ -27037,6 +27595,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             goldenMnqStartBox = Input("930"); goldenMgcStartBox = Input("800"); goldenLastEntryBox = Input("1555"); goldenCloseBox = Input("1555");
             goldenBhBox = new CheckBox { Content = "BH SETUPS", IsChecked = true, Foreground = Text, Margin = new Thickness(6) };
             goldenFvgBox = Select("RETEST + BREAK • price comes back into the gap, a green candle closes, the next candle breaks its high", "CANDLE 3 CLOSE • enter the moment the gap forms (no retest)", "50% TAP • a limit at the middle of the gap fills when price taps it • stop below candle 1's low", "OFF • BH only"); goldenFvgBox.SelectedIndex = 0;
+            goldenSideBox = Select("BUY • bullish FVG / BH, break of a high (the original)", "SELL • bearish FVG / BH, break of a low (the same rules mirrored)", "BUY + SELL • both"); goldenSideBox.SelectedIndex = 0; goldenSideBox.SelectionChanged += delegate { InvalidateConfigurationApproval(); };
             goldenAggressionBox = Select("MEASURE + COMPARE (take every setup)", "REQUIRED • only after a push down", "OFF"); goldenAggressionBox.SelectedIndex = 0;
             goldenMnqDropBox = Input("30"); goldenMgcDropBox = Input("3");
             goldenMnqTargetBox = Input("100"); goldenMgcTargetBox = Input("10");
@@ -27063,7 +27622,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             panel.Children.Add(Row("WHICH SETUP OF THE DAY", goldenFirstBox));
             panel.Children.Add(Row("TRADES A DAY PER INSTRUMENT (1 = first setup only)", goldenTriesBox));
             panel.Children.Add(Txt("WHICH SETUPS", Cyan, 10, FontWeights.Bold));
-            panel.Children.Add(Row("BH", goldenBhBox)); panel.Children.Add(Row("BULLISH FVG", goldenFvgBox));
+            panel.Children.Add(Row("BUY / SELL", goldenSideBox));
+            panel.Children.Add(Row("BH", goldenBhBox)); panel.Children.Add(Row("FVG (sells: the mirror)", goldenFvgBox));
             panel.Children.Add(Row("MNQ FVG GAP AT LEAST (POINTS)", goldenMnqGapBox)); panel.Children.Add(Row("MGC FVG GAP AT LEAST (POINTS)", goldenMgcGapBox));
             panel.Children.Add(Row("PUSH DOWN BEFORE THE SETUP", goldenAggressionBox));
             panel.Children.Add(Row("MNQ PUSH DOWN = AT LEAST (POINTS)", goldenMnqDropBox)); panel.Children.Add(Row("MGC PUSH DOWN = AT LEAST (POINTS)", goldenMgcDropBox));
@@ -27094,6 +27654,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             int ms = Integer(goldenMnqStartBox, 930), gs = Integer(goldenMgcStartBox, 800), le = Integer(goldenLastEntryBox, 1555), cl = Integer(goldenCloseBox, 1555);
             if (!IsValidHhmm(ms) || !IsValidHhmm(gs) || !IsValidHhmm(le) || !IsValidHhmm(cl)) { UpdateUi("GOLDEN TIME ERROR • USE HHMM FROM 0000 TO 2359", Red); return false; }
             config.GoldenMnqStart = ms; config.GoldenMgcStart = gs; config.GoldenLastEntry = le; config.GoldenClose = cl;
+            config.TradeSide = goldenSideBox == null ? "BUY" : new[] { "BUY", "SELL", "BOTH" }[Math.Max(0, Math.Min(2, goldenSideBox.SelectedIndex))];
             config.GoldenUseBh = goldenBhBox == null || goldenBhBox.IsChecked != false ? 1 : 0;
             config.GoldenFvgMode = goldenFvgBox == null ? "BREAK" : new[] { "BREAK", "CLOSE", "DIP50", "OFF" }[Math.Max(0, Math.Min(3, goldenFvgBox.SelectedIndex))];
             if (config.GoldenUseBh == 0 && config.GoldenFvgMode == "OFF") { UpdateUi("GOLDEN • choose BH, FVG or both", Red); return false; }

@@ -18,7 +18,11 @@ walk-forward, FLIP). In TRADES, click a trade to open the chart on that day with
 | `BUY` `SELL` `EITHER` | sides; EITHER (FVG only) takes both sides but never against an open trade |
 | `ORB n` / `FADE n` | first break of the n-minute range after the time / the opposite side of that break |
 | `FVG n` | every n-minute fair value gap (bullish: candle 3's low above candle 1's high; bearish: the mirror) |
-| `FILL CLOSE,50` | FVG: in when candle 3 closes, or a limit at the gap's middle (waits 60 minutes) |
+| `FILL CLOSE,25,40,50,BREAK` | FVG: in when candle 3 closes • a limit 25 / 40 / 50% into the gap (from its near edge, waits 60 minutes) • BREAK = price comes back into the gap, a candle closes our way, then the break of its high (low for a sell); cancelled beyond candle 1 |
+| `STRICT` | limit fills only when price trades one tick through the level (no fill on a touch) |
+| `BE pts` / `MGCBE` | breakeven: after +pts the stop moves to the entry (0 = off) |
+| `PARTIAL pts` / `MGCPARTIAL` | half the position off at +pts, the rest to the target / stop |
+| `DAYTARGET $` / `DAYSTOP $` | FVG: an account that banked +$ (or lost $) today takes no more setups that day |
 | `GAP pts` / `MGCGAP pts` | minimum gap size (stronger vs weaker gaps) |
 | `SESSION ASIA,LONDON,NY,ALL` | FVG windows 18:00–03:00, 03:00–09:30, 09:30–15:55, 18:00–15:55 |
 | `FROM 0930 TO 1100` | your own window |
@@ -52,3 +56,22 @@ walk-forward, FLIP). In TRADES, click a trade to open the chart on that day with
 
 None of these is proven. Each is a question for the data, and the ADVICE tab says which rows made money
 in every year.
+
+## Results on the first real export (Apr 2 → Oct 2 2026, 6 months — NOT proof)
+
+- 1-minute FVG at the candle-3 close in New York: 0 of 243 combinations made money (costs + noise).
+- The same setups with a limit 25 / 40 / 50% into the gap: about +$7,800 per micro (TP 30–40, stop past
+  candle 1, buys + sells, 1 account), 6 of 7 months up. With STRICT fills: +$5,843 — the edge is not only
+  touch fills.
+- A $1,000–1,500 day target per account kept most of the money with a smaller drawdown; breakeven and
+  partials lowered the results on this data.
+- Asia (18:00–03:00) MNQ 1-minute FVG, 3 accounts × 5 micros: positive but front-loaded.
+- Gold 1-minute FVG: nothing made money.
+
+## Replay trader
+
+MATH LABS → REPLAY TRADER. Pick an instrument and a loaded session, a start time and a speed, press ▶ PLAY.
+BUY / SELL / CLOSE (keys B / S / C, space = play / pause), contracts, optional stop / target in points.
+The real minute's open, high, low and close are exact; the order of the ticks inside a minute is simulated
+(1-minute bars do not record it). Every closed trade is appended to Documents\KeystoneArc5MResearch\ReplayJournal.csv
+and the SAVED DAYS list shows each day's result and the total.

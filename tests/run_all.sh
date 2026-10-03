@@ -53,6 +53,12 @@ mono "$here/.build/mad.exe" | tail -1
 rm -f "$here/.build/ideas.exe"
 "$root/tools/compile_engine.sh" "$here/.build/ideas.exe" "$here/IdeasTests.cs"
 mono "$here/.build/ideas.exe" | tail -1
+rm -f "$here/.build/sides.exe"
+"$root/tools/compile_engine.sh" "$here/.build/sides.exe" "$here/SidesTests.cs"
+mono "$here/.build/sides.exe" | tail -1
+rm -f "$here/.build/rtrade.exe"
+"$root/tools/compile_engine.sh" "$here/.build/rtrade.exe" "$here/ReplayTraderTests.cs"
+mono "$here/.build/rtrade.exe" | tail -1
 rm -f "$here/.build/prop.exe"
 "$root/tools/compile_engine.sh" "$here/.build/prop.exe" "$here/PropPlannerTests.cs"
 mono "$here/.build/prop.exe" | tail -1

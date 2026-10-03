@@ -174,6 +174,26 @@ public static class UiSmokeTest
                         if (idea.Contains("FVG") && !rows.Any(x => x.Rotate == 3 && x.P.Bought >= 1)) throw new Exception("rotation rows missing");
                     }
                 });
+            if (strategy == "MAD")
+                Step("REPLAY TRADER: load a loaded day, play, buy, target / close, journal saved", () =>
+                {
+                    Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    string journal = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArc5MResearch", "ReplayJournal.csv");
+                    if (System.IO.File.Exists(journal)) System.IO.File.Delete(journal);
+                    Call(lab2, "OpenReplayTrader");
+                    ((Action)F("replayTraderLoad"))();
+                    var rt = (KeystoneReplayTrader)F("replayTrader");
+                    if (rt != null && rt.Finished) throw new Exception("the loaded day starts finished");
+                    if (rt == null || rt.Bars.Count == 0) throw new Exception("no day loaded");
+                    ((Action<int>)F("replayTraderStep"))(5);
+                    ((Action<int>)F("replayTraderOrder"))(1);
+                    double entry = rt.AvgPrice; ((Action<int>)F("replayTraderStep"))(20);
+                    ((Action)F("replayTraderFlat"))();
+                    ((Action<int>)F("replayTraderOrder"))(-1); ((Action<int>)F("replayTraderStep"))(10); ((Action)F("replayTraderFlat"))();
+                    var lines = System.IO.File.ReadAllLines(journal);
+                    Console.WriteLine("      " + rt.Symbol + " " + rt.Bars.Count + " minutes • bought " + entry + " • " + rt.Fills.Count + " trades • today " + rt.Realized.ToString("0.00") + " • journal lines " + lines.Length);
+                    if (rt.Fills.Count != 2 || lines.Length != 3 || rt.Fills[0].Side != "BUY" || rt.Fills[1].Side != "SELL") throw new Exception("replay trades / journal wrong");
+                });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {
                 Call(lab2, "OpenEvidenceChart"); Call(lab2, "RequestEvidenceBars"); Call(lab2, "RenderEvidenceChart");
