@@ -6,6 +6,19 @@ namespace NinjaTrader.Cbi
 {
     public enum ErrorCode { NoError, UserAbort, Panic, LogOnFailed, Unknown }
     public class MasterInstrument { public string Name { get; set; } public double TickSize { get; set; } public double PointValue { get; set; } public DateTime GetNextExpiry(DateTime d) { return d; } }
+    public enum AccountItem { CashValue, NetLiquidation, RealizedProfitLoss, UnrealizedProfitLoss, TotalCashBalance }
+    public enum Currency { UsDollar }
+    public enum MarketPosition { Flat, Long, Short }
+    public class Position { public Instrument Instrument { get; set; } public MarketPosition MarketPosition { get; set; } public int Quantity { get; set; } public double AveragePrice { get; set; } }
+    public class Account
+    {
+        public static readonly System.Collections.ObjectModel.Collection<Account> All = new System.Collections.ObjectModel.Collection<Account>();
+        public string Name { get; set; }
+        public object Connection { get; set; }
+        public Dictionary<AccountItem, double> StubValues = new Dictionary<AccountItem, double>();
+        public double Get(AccountItem item, Currency currency) { double v; return StubValues.TryGetValue(item, out v) ? v : 0; }
+        public List<Position> Positions = new List<Position>();
+    }
     public class Instrument
     {
         public string FullName { get; set; }

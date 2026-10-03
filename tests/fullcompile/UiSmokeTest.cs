@@ -223,6 +223,27 @@ public static class UiSmokeTest
                     var dl = (Action<string, DateTime, DateTime, bool>)F("dataLibraryDownload");
                     dl("BOTH", new DateTime(2026, 9, 1), new DateTime(2026, 9, 20), false);
                     Console.WriteLine("      DATA LIBRARY opened, download queued (no NinjaTrader feed here: the contract lookup answers nothing)");
+                    // LIVE DESK: accounts from NinjaTrader's list, a new group, a card moved into it, saved to LiveDesk.txt
+                    string deskFile = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(studio), "LiveDesk.txt"); if (System.IO.File.Exists(deskFile)) System.IO.File.Delete(deskFile);
+                    NinjaTrader.Cbi.Account.All.Clear();
+                    var apex = new NinjaTrader.Cbi.Account { Name = "APEX-123-01" }; apex.StubValues[NinjaTrader.Cbi.AccountItem.NetLiquidation] = 51200; apex.StubValues[NinjaTrader.Cbi.AccountItem.RealizedProfitLoss] = 350;
+                    apex.Positions.Add(new NinjaTrader.Cbi.Position { MarketPosition = NinjaTrader.Cbi.MarketPosition.Long, Quantity = 2, AveragePrice = 21000 });
+                    NinjaTrader.Cbi.Account.All.Add(apex); NinjaTrader.Cbi.Account.All.Add(new NinjaTrader.Cbi.Account { Name = "Sim101" });
+                    Call(lab2, "OpenLiveDesk");
+                    var made = ((Func<string, string>)F("liveDeskNewGroup"))("MORNING");
+                    ((Action<string, string>)F("liveDeskMove"))("APEX-123-01", made);
+                    ((Action)F("liveDeskRefresh"))();
+                    var desk = System.IO.File.ReadAllLines(deskFile);
+                    Console.WriteLine("      LIVE DESK: " + string.Join(" / ", desk));
+                    if (!desk.Contains("GROUP|MORNING") || !desk.Any(l => l.StartsWith("ACCOUNT|APEX-123-01|") && l.Contains("|MORNING|"))) throw new Exception("live desk group / move not saved");
+                    // every window asks before the X closes it
+                    foreach (var wn in new[] { "launcherWindow", "dataLibraryWindow", "liveDeskWindow" })
+                    {
+                        var win2 = (System.Windows.Window)F(wn); var closingHandlers = typeof(System.Windows.Window).GetField("Closing", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(win2);
+                        if (closingHandlers == null) throw new Exception(wn + " closes without asking");
+                        win2.Close();
+                    }
+                    Console.WriteLine("      launcher, data library, live desk: each asks before closing");
                 });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {

@@ -88,7 +88,15 @@ namespace System.Windows
         public event System.Windows.Input.MouseWheelEventHandler MouseWheel, PreviewMouseWheel;
         public event System.Windows.Input.KeyEventHandler KeyDown, KeyUp, PreviewKeyDown;
         public event RoutedEventHandler GotFocus, LostFocus;
+        public bool AllowDrop { get; set; }
+        public event DragEventHandler DragEnter, DragLeave, DragOver, Drop;
     }
+    public enum DragDropEffects { None = 0, Copy = 1, Move = 2, Link = 4, Scroll = -2147483648, All = -2147483645 }
+    public interface IDataObject { object GetData(Type format); bool GetDataPresent(Type format); }
+    public class DataObject : IDataObject { object d; public DataObject(object data) { d = data; } public object GetData(Type f) { return d != null && f.IsInstanceOfType(d) ? d : null; } public bool GetDataPresent(Type f) { return d != null && f.IsInstanceOfType(d); } }
+    public class DragEventArgs : RoutedEventArgs { public DragEventArgs(object data) { Data = new DataObject(data); } public IDataObject Data { get; private set; } public DragDropEffects Effects { get; set; } }
+    public delegate void DragEventHandler(object sender, DragEventArgs e);
+    public static class DragDrop { public static DragDropEffects DoDragDrop(DependencyObject source, object data, DragDropEffects allowed) { return DragDropEffects.None; } }
     public class FrameworkElement : UIElement
     {
         public Thickness Margin { get; set; }
@@ -145,7 +153,7 @@ namespace System.Windows
         public static MessageBoxResult Show(string text) { return MessageBoxResult.OK; }
         public static MessageBoxResult Show(string text, string caption) { return MessageBoxResult.OK; }
         public static MessageBoxResult Show(string text, string caption, MessageBoxButton b) { return MessageBoxResult.OK; }
-        public static MessageBoxResult Show(string text, string caption, MessageBoxButton b, MessageBoxImage i) { return MessageBoxResult.OK; }
+        public static MessageBoxResult Show(string text, string caption, MessageBoxButton b, MessageBoxImage i) { return b == MessageBoxButton.YesNo ? MessageBoxResult.Yes : MessageBoxResult.OK; }
         public static MessageBoxResult Show(Window owner, string text, string caption, MessageBoxButton b, MessageBoxImage i) { return MessageBoxResult.OK; }
     }
     public static class SystemParameters { public static double PrimaryScreenWidth { get { return 1920; } } public static double PrimaryScreenHeight { get { return 1080; } } public static Rect WorkArea { get { return new Rect(); } } public static double MinimumHorizontalDragDistance { get { return 4; } } public static double MinimumVerticalDragDistance { get { return 4; } } }

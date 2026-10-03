@@ -31,7 +31,21 @@ public static class NewsTests
         Check(ff.Count == 2 && ff[0].Title == "CPI m/m" && ff[0].Time == new DateTime(2026, 10, 14, 8, 30, 0) && ff[0].Impact == "HIGH", "ForexFactory feed parsed");
         Check(KeystoneNews.ForSession(ff, new DateTime(2026, 10, 14), true).Count == 1, "only USD news counts for MNQ / MGC");
         Check(KeystoneNews.ParseCsv(new[] { KeystoneNews.ToCsv(ff[0]) })[0].Time == ff[0].Time, "write → read the file keeps the time");
+        LiveMathChecks.Run((ok, name, detail) => Check(ok, name, detail));
         Console.WriteLine(failures == 0 ? "ALL NEWS TESTS PASSED" : failures + " NEWS TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
+    }
+}
+
+public static class LiveMathChecks
+{
+    // run from NewsTests.Main
+    public static int Run(Action<bool, string, string> check)
+    {
+        check(KeystoneLiveMath.Room(50000, 50000, 50000, 2500, true) == 2500, "a fresh 50K with $2,500 drawdown has $2,500 room", "");
+        check(KeystoneLiveMath.Room(51000, 51500, 50000, 2500, false) == 2000, "trailing: peak 51,500 → floor 49,000 → room at 51,000 = 2,000", KeystoneLiveMath.Room(51000, 51500, 50000, 2500, false).ToString());
+        check(KeystoneLiveMath.Room(53000, 54000, 50000, 2500, true) == 3000, "stops at start: the floor stays at 50,000 once reached", KeystoneLiveMath.Room(53000, 54000, 50000, 2500, true).ToString());
+        check(Math.Abs(KeystoneLiveMath.Progress(51500, 50000, 3000) - 0.5) < 1e-9 && KeystoneLiveMath.Progress(49000, 50000, 3000) == 0, "target progress 1,500 of 3,000 = 50%", "");
+        return 0;
     }
 }
