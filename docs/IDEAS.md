@@ -68,9 +68,45 @@ in every year.
 - Asia (18:00–03:00) MNQ 1-minute FVG, 3 accounts × 5 micros: positive but front-loaded.
 - Gold 1-minute FVG: nothing made money.
 
+## Launcher, Backtest Studio, Data Library (build 2026-10-04i)
+
+The Keystone Arc menu item now opens a LAUNCHER:
+
+| card | what it is |
+|---|---|
+| BACKTEST STUDIO | the replay trader below, with its own data, account, journal and workspace |
+| RESEARCH LAB | the old lab window (Step 1 tests, pool, optimizers, MATH LABS, IDEAS) |
+| DATA LIBRARY | the studio's saved 1-minute bars: coverage per year, missing weekdays, DOWNLOAD any range |
+| LIVE DESK | locked — this add-on places no orders; it needs your written approval first |
+
+Data Library:
+
+- Files: `Documents\KeystoneArc5MResearch\Studio\MNQ\yyyy-MM.bars` (and `MGC`). One file per session month.
+  A session (18:00 → 17:00 NY) is always in one file.
+- A merge replaces whole sessions only, and only with a copy that has at least as many minutes.
+  Two contracts are never mixed inside a day, and a thin contract never overwrites a good day.
+- DOWNLOAD asks NinjaTrader week by week (Sunday → Saturday) for 1-minute bars of that week's contract.
+  - Contract: an open chart's contract if its date fits, else the expiry after the week + 14 days (MNQ) / + 10 days (MGC).
+  - A near-empty week is asked once more on the next contract.
+- ONLY WEEKS NOT SAVED YET skips complete weeks and weeks already asked (holiday weeks are not asked again).
+- COPY FROM THE LAB copies the lab's loaded bars and every 1-minute file the lab saved before.
+  The studio's first open does this by itself.
+
+Studio:
+
+- Remembers between opens: the session, start time, speed, strategy, mode, day goal / loss, max qty, the tab,
+  and per instrument the candles, contracts, stop and target (`Studio\Workspace.txt`).
+- Drawings are kept per instrument across days (`Studio\Drawings.txt`).
+- STRATEGY + MODE:
+  - SIGNALS: the entries appear on the chart and in the ENTRY box (grade, stop, target, R); you decide.
+  - AUTO: the strategy trades its own entries; your BUY / SELL / CLOSE work at the same time.
+    AUTO skips an entry while a position is open on that instrument.
+- ACCOUNT BLOWN: a prompt over the charts. Type the next account's balance and press START NEW ACCOUNT + CONTINUE.
+  The old day is banked into the old account, and the same day continues from the same minute.
+
 ## Replay trader
 
-MATH LABS → REPLAY TRADER (opens full screen). One tab per instrument (MNQ, MGC) on ONE New York clock and ONE
+MATH LABS → REPLAY TRADER, or LAUNCHER → BACKTEST STUDIO (opens full screen). One tab per instrument (MNQ, MGC) on ONE New York clock and ONE
 account — switch tabs and trade both. Pick a session (◀ PREV DAY / NEXT DAY ▶ load the neighbouring day after saving
 the current one), a start time, LOAD DAY, ▶ PLAY.
 

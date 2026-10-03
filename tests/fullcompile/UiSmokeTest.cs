@@ -182,7 +182,12 @@ public static class UiSmokeTest
                     if (System.IO.File.Exists(journal)) System.IO.File.Delete(journal);
                     string accountFile = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(journal), "ReplayAccount.txt"), daysFile = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(journal), "ReplayDays.csv");
                     if (System.IO.File.Exists(accountFile)) System.IO.File.Delete(accountFile); if (System.IO.File.Exists(daysFile)) System.IO.File.Delete(daysFile);
+                    string studio = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(journal), "Studio"); if (System.IO.Directory.Exists(studio)) System.IO.Directory.Delete(studio, true);
+                    Call(lab2, "OpenLauncher");
                     Call(lab2, "OpenReplayTrader");
+                    int stored = KeystoneStudioStore.Sessions(studio, "MNQ").Count;
+                    Console.WriteLine("      studio store: MNQ " + stored + " sessions, MGC " + KeystoneStudioStore.Sessions(studio, "MGC").Count + " (copied from the lab's bars)");
+                    if (stored == 0) throw new Exception("the lab's 1-minute bars were not copied into the studio store");
                     ((Action)F("replayTraderLoad"))();
                     var rt = (KeystoneReplayTrader)F("replayTrader");
                     if (rt != null && rt.Finished) throw new Exception("the loaded day starts finished");
@@ -199,6 +204,25 @@ public static class UiSmokeTest
                     var acc = System.IO.File.ReadAllText(accountFile).Split(','); double bal = double.Parse(acc[1], System.Globalization.CultureInfo.InvariantCulture);
                     Console.WriteLine("      END DAY → account " + bal.ToString("0.00") + " of " + acc[0] + " • days file lines " + System.IO.File.ReadAllLines(daysFile).Length);
                     if (Math.Abs(bal - (2000 + rt.Realized)) > 0.01 || System.IO.File.ReadAllLines(daysFile).Length != 2) throw new Exception("END DAY did not bank the day into the account");
+                    // a new account in the middle of a day: the same day goes on from the same minute, trading works
+                    ((Action)F("replayTraderLoad"))(); ((Action<int>)F("replayTraderStep"))(30);
+                    var before = (KeystoneReplayTrader)F("replayTrader"); DateTime at = before.Time;
+                    ((Action<double>)F("replayTraderNewAccount"))(5000);
+                    var rt2 = (KeystoneReplayTrader)F("replayTrader");
+                    if (rt2 == null || rt2.Finished || rt2.Fills.Count != 0 || Math.Abs((rt2.Time - at).TotalMinutes) > 1.01) throw new Exception("NEW ACCOUNT did not continue the day at " + at + " (" + (rt2 == null ? "none" : rt2.Time.ToString()) + ")");
+                    ((Action<int>)F("replayTraderOrder"))(1);
+                    if (rt2.Position != 1) throw new Exception("cannot trade after NEW ACCOUNT");
+                    var acc2 = System.IO.File.ReadAllText(accountFile).Split(',');
+                    Console.WriteLine("      NEW ACCOUNT 5000 mid-day → continues " + rt2.Time.ToString("HH:mm") + " • bought 1 • account file " + acc2[0] + "," + acc2[1]);
+                    if (acc2[0] != "5000") throw new Exception("new account not saved");
+                    ((Action)F("replayTraderEnd"))();
+                    var win = (System.Windows.Window)F("replayTraderWindow"); win.Close();
+                    if (!System.IO.File.Exists(System.IO.Path.Combine(studio, "Workspace.txt"))) throw new Exception("studio workspace not saved on close");
+                    Console.WriteLine("      workspace saved: " + string.Join(" ", System.IO.File.ReadAllLines(System.IO.Path.Combine(studio, "Workspace.txt")).Take(4)));
+                    Call(lab2, "OpenDataLibrary");
+                    var dl = (Action<string, DateTime, DateTime, bool>)F("dataLibraryDownload");
+                    dl("BOTH", new DateTime(2026, 9, 1), new DateTime(2026, 9, 20), false);
+                    Console.WriteLine("      DATA LIBRARY opened, download queued (no NinjaTrader feed here: the contract lookup answers nothing)");
                 });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {

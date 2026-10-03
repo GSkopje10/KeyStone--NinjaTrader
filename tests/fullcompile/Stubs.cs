@@ -137,7 +137,7 @@ namespace System.Windows
         public event System.ComponentModel.CancelEventHandler Closing;
         public void Show() { }
         public bool? ShowDialog() { return true; }
-        public void Close() { }
+        public void Close() { var c = new System.ComponentModel.CancelEventArgs(); if (Closing != null) Closing(this, c); if (c.Cancel) return; if (Closed != null) Closed(this, EventArgs.Empty); }
         public void Hide() { }
     }
     public static class MessageBox
