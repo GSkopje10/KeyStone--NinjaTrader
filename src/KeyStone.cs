@@ -5313,9 +5313,10 @@ namespace NinjaTrader.NinjaScript
         public KeystoneRotationConfig Config; public List<KeystoneRotationDay> Days = new List<KeystoneRotationDay>(); public List<KeystoneRotationTrade> Trades = new List<KeystoneRotationTrade>();
         public int Bought, Passed, Blown; public double Spent, Net, Costs; public List<int> DaysToPass = new List<int>();
         public string Label = string.Empty;
-        public int Rotations { get { return Trades.Count; } }
-        public double WinPct { get { return Trades.Count == 0 ? 0 : 100.0 * Trades.Count(t => t.Pnl > 0) / Trades.Count; } }
-        public double PerRotation { get { return Trades.Count == 0 ? 0 : Trades.Average(t => t.Pnl); } }
+        public int RotCount, WinCount; public double PnlSum;   // kept when the trade list is dropped (optimizer)
+        public int Rotations { get { return RotCount; } }
+        public double WinPct { get { return RotCount == 0 ? 0 : 100.0 * WinCount / RotCount; } }
+        public double PerRotation { get { return RotCount == 0 ? 0 : PnlSum / RotCount; } }
         public double CostPerPass { get { return Passed == 0 ? double.PositiveInfinity : Spent / Passed; } }
         public double PassRate { get { return Bought == 0 ? 0 : 100.0 * Passed / Bought; } }
         public Dictionary<int, double[]> ByYear = new Dictionary<int, double[]>();   // year → { bought, passed, spent, net, rotations }
@@ -5347,7 +5348,7 @@ namespace NinjaTrader.NinjaScript
                 while (accts.Count < Math.Max(1, c.Accounts)) accts.Add(buy(g.Key));
                 foreach (var a in accts) { a.DayPnl = 0; a.DayLosses = 0; a.Locked = false; a.TradedToday = false; }
                 var bars = g.Where(x => { int m = x.Time.Hour * 60 + x.Time.Minute; return m > sm && m <= em; }).OrderBy(x => x.Time).ToList();
-                var all = g.OrderBy(x => x.Time).ToList();
+                var all = g.OrderBy(x => x.Time).ToList(); var at = new Dictionary<DateTime, int>(); for (int q = 0; q < all.Count; q++) at[all[q].Time] = q;
                 int i0 = 0; DateTime nextAllowed = DateTime.MinValue;
                 while (i0 < bars.Count)
                 {
@@ -5361,7 +5362,7 @@ namespace NinjaTrader.NinjaScript
                     if (c.Direction == "SELL") dir = -1; else if (c.Direction == "RANDOM") dir = rng.NextDouble() < 0.5 ? 1 : -1;
                     else if (c.Direction == "FOLLOW5" || c.Direction == "FADE5")
                     {
-                        int j = all.FindIndex(x => x.Time == b0.Time); if (j < 5) { i0++; continue; }
+                        int j; if (!at.TryGetValue(b0.Time, out j) || j < 5) { i0++; continue; }
                         double dm = all[j - 1].MnqC - all[j - 5].MnqO, dg = all[j - 1].MgcC - all[j - 5].MgcO;
                         if (Math.Sign(dm) == 0 || Math.Sign(dm) != Math.Sign(dg)) { i0++; continue; }   // no agreement → wait a minute
                         dir = Math.Sign(dm) * (c.Direction == "FADE5" ? -1 : 1);
@@ -5406,13 +5407,14 @@ namespace NinjaTrader.NinjaScript
                 double[] y; if (!res.ByYear.TryGetValue(g.Key.Year, out y)) { y = new double[5]; res.ByYear[g.Key.Year] = y; }
                 y[0] += day.Bought; y[1] += day.Passed; y[2] += day.Bought * r.EvalCost; y[3] += day.Net; y[4] += day.Rotations;
             }
-            res.Net = res.Trades.Sum(t => t.Pnl);
+            res.Net = res.Trades.Sum(t => t.Pnl); res.RotCount = res.Trades.Count; res.WinCount = res.Trades.Count(t => t.Pnl > 0); res.PnlSum = res.Net;
             res.Label = c.Describe();
             return res;
         }
 
         // Search: direction × window × contracts × target / stop × pause, ranked by the cost of one passed evaluation (all CPU cores).
-        public static List<KeystoneRotationResult> Optimize(List<KeystoneHelixMinute> minutes, KeystoneRotationConfig basis, Action<string> progress)
+        public static List<KeystoneRotationResult> Optimize(List<KeystoneHelixMinute> minutes, KeystoneRotationConfig basis, Action<string> progress) { return Optimize(minutes, basis, progress, null); }
+        public static List<KeystoneRotationResult> Optimize(List<KeystoneHelixMinute> minutes, KeystoneRotationConfig basis, Action<string> progress, Func<bool> cancelled)
         {
             var configs = new List<KeystoneRotationConfig>();
             var windows = new[] { Tuple.Create(930, 1100), Tuple.Create(930, 1555), Tuple.Create(1000, 1200), Tuple.Create(1300, 1555), Tuple.Create(800, 930) };
@@ -5429,7 +5431,8 @@ namespace NinjaTrader.NinjaScript
             var results = new KeystoneRotationResult[configs.Count]; int done = 0;
             System.Threading.Tasks.Parallel.For(0, configs.Count, i =>
             {
-                var rr = Run(minutes, configs[i]); results[i] = rr;
+                if (cancelled != null && cancelled()) return;
+                var rr = Run(minutes, configs[i]); rr.Trades = new List<KeystoneRotationTrade>(); results[i] = rr;   // summary only (memory)
                 int d = System.Threading.Interlocked.Increment(ref done); if (progress != null && d % 50 == 0) progress(d + " / " + configs.Count);
             });
             return results.Where(x => x != null).OrderBy(x => x.Passed >= 5 ? 0 : 1).ThenBy(x => x.CostPerPass).ThenByDescending(x => x.Passed).ToList();
@@ -9162,9 +9165,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-03k";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03l";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -22653,10 +22656,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                 pause.Text = c.PauseMinutes.ToString(); start.Text = c.StartHhmm.ToString(); end.Text = c.EndHhmm.ToString();
             };
             var right = new Grid(); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); right.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            var actions = new UniformGrid { Columns = 4 };
+            var actions = new UniformGrid { Columns = 5 };
+            bool cancelOpt = false; var cancelBtn = Btn("CANCEL", Red); cancelBtn.IsEnabled = false; cancelBtn.ToolTip = "Stop the optimizer; the combinations finished so far are shown.";
+            cancelBtn.Click += delegate { cancelOpt = true; cancelBtn.IsEnabled = false; };
             var runBtn = Btn("RUN THIS ROTATION", Green); var optBtn = Btn("OPTIMIZE (2,025 COMBINATIONS)", Gold); var expBtn = Btn("EXPORT CSV", Blue); var fullBtn = Btn("FULL SCREEN", Card);
             fullBtn.Click += delegate { bool full = w.WindowState == WindowState.Maximized; w.WindowState = full ? WindowState.Normal : WindowState.Maximized; fullBtn.Content = full ? "FULL SCREEN" : "NORMAL SIZE"; };
-            foreach (var b in new[] { runBtn, optBtn, expBtn, fullBtn }) { b.Height = 34; b.FontSize = 11.5; actions.Children.Add(b); }
+            foreach (var b in new[] { runBtn, optBtn, cancelBtn, expBtn, fullBtn }) { b.Height = 34; b.FontSize = 11.5; actions.Children.Add(b); }
             right.Children.Add(actions);
             var status = Txt("PRESS RUN THIS ROTATION.", Gold, 12.5, FontWeights.Bold); status.Margin = new Thickness(4, 2, 4, 4); Grid.SetRow(status, 1); right.Children.Add(status);
             var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top, VerticalContentAlignment = VerticalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
@@ -22740,18 +22745,19 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 if (busy) return; var c = read(); var mins = minutes();
                 if (mins == null) { status.Text = "NEEDS MNQ + MGC 1-MINUTE BARS • lab Step 1: PROP BRACKET, BOTH, your dates, START."; status.Foreground = Red; return; }
-                busy = true; runBtn.IsEnabled = optBtn.IsEnabled = false; status.Text = "OPTIMIZING • 2,025 combinations on every loaded day (all CPU cores, a few minutes)…"; status.Foreground = Gold;
+                busy = true; cancelOpt = false; cancelBtn.IsEnabled = true; runBtn.IsEnabled = optBtn.IsEnabled = false; status.Text = "OPTIMIZING • 2,025 combinations on every loaded day (all CPU cores, a few minutes) • CANCEL stops it…"; status.Foreground = Gold;
                 Action<string> progress = msg => { Action u = delegate { if (busy) status.Text = "OPTIMIZING • " + msg + " combinations…"; }; if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) u(); else w.Dispatcher.BeginInvoke(u); };
                 System.Threading.ThreadPool.QueueUserWorkItem(delegate
                 {
                     List<KeystoneRotationResult> list = null; string failure = null;
-                    try { list = KeystoneRotation.Optimize(mins, c, progress); foreach (var x in list.Skip(40)) x.Trades = new List<KeystoneRotationTrade>(); } catch (Exception ex) { failure = ex.Message; }
+                    try { list = KeystoneRotation.Optimize(mins, c, progress, () => cancelOpt); } catch (Exception ex) { failure = ex.Message; }
                     Action done = delegate
                     {
-                        busy = false; runBtn.IsEnabled = optBtn.IsEnabled = true;
+                        busy = false; runBtn.IsEnabled = optBtn.IsEnabled = true; cancelBtn.IsEnabled = false;
+                        if (failure == null && list != null && list.Count == 0 && cancelOpt) { status.Text = "OPTIMIZER CANCELLED before the first combination finished."; status.Foreground = Gold; return; }
                         if (failure != null || list == null || list.Count == 0) { status.Text = "OPTIMIZER ERROR • " + failure; status.Foreground = Red; return; }
                         renderOpt(list); rotationOpt = list;
-                        var b = list[0]; status.Text = "OPTIMIZER • #1 " + b.Label + " • " + KeystoneRotation.Verdict(b); status.Foreground = b.Passed > 0 ? Green : Red; tabs.SelectedIndex = 3;
+                        var b = list[0]; status.Text = (cancelOpt ? "OPTIMIZER CANCELLED • " + list.Count + " combinations finished • " : "") + "OPTIMIZER • #1 " + b.Label + " • " + KeystoneRotation.Verdict(b); status.Foreground = b.Passed > 0 ? Green : Red; tabs.SelectedIndex = 3;
                     };
                     if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
                 });
