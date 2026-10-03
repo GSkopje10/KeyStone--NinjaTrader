@@ -53,6 +53,12 @@ public static class SidesTests
             bool sane = sell.Where(e => e.Outcome == "WIN").All(e => e.Target < e.Entry && e.Stop > e.Entry && e.ExitPrice <= e.Entry) && sell.All(e => double.IsNaN(e.Stop) || e.Stop > e.Entry);
             Check(sane, fvg + ": sell prices are real prices (stop above, target below the entry)");
         }
+        // BH: the same mirror at the top of the engine
+        Func<string, KeystoneArcRunConfig> bh = side => new KeystoneArcRunConfig { StrategyCode = "BH", TradeSide = side, EnableBh = 1, EnableFvg = 0, Scope = "MNQ", SetupMinutes = 1, SessionMode = "INSTRUMENT_DEFAULT", EndTime = 1555, MnqStart = 930, MgcStart = 800, Start = new DateTime(2026, 3, 9), End = new DateTime(2026, 3, 14), OutcomeModelEnabled = 1, Quantity = 1, TargetDollars = 500, StopDollars = 250 };
+        var bBuy = KeystoneArcEngine.DetectAndResolve(bars, bars, bh("BUY")); var bSell = KeystoneArcEngine.DetectAndResolve(bars, bars, bh("SELL")); var bBoth = KeystoneArcEngine.DetectAndResolve(bars, bars, bh("BOTH"));
+        Check(bBuy.Count > 0 && bSell.Count > 0 && bSell.All(e => e.Direction == "SHORT") && bBuy.All(e => e.Direction == "LONG"), "BH: buys and SELLS (break of a low)", bBuy.Count + " / " + bSell.Count);
+        Check(bBoth.Count == bBuy.Count + bSell.Count && bBoth.Where(e => e.Direction == "LONG").Select(e => e.Id + e.GrossPnl).SequenceEqual(bBuy.Select(e => e.Id + e.GrossPnl)), "BH BOTH = the unchanged buys + the sells");
+        Check(bSell.Where(e => e.Outcome == "WIN").All(e => e.Target < e.Entry) && bSell.Where(e => !double.IsNaN(e.Stop)).All(e => e.Stop > e.Entry), "BH sell prices: stop above, target below");
         Console.WriteLine(failures == 0 ? "ALL SIDES TESTS PASSED" : failures + " SIDES TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

@@ -299,6 +299,22 @@ public static class UiSmokeTest
                     foreach (System.Windows.Controls.TabItem t in ((System.Windows.Controls.TabControl)S("Tabs")).Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("golden prop tab not filled: " + t.Header);
                 });
             if (strategy == "FVG")
+                Step("PROP GAME OPTIMIZER: the loaded pool through every choice, ranked by net cash, apply the best row", () =>
+                {
+                    Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    ((KeystoneArcRunConfig)F("config")).OneDayMode = 0;
+                    Call(lab2, "OpenGameOptimizer");
+                    var boxes = (System.Windows.Controls.TextBox[])F("gameBoxes");
+                    boxes[0].Text = "EVALUATION,DIRECT FUNDED"; boxes[1].Text = "BOTH,MNQ"; boxes[2].Text = "ALL,BEST"; boxes[3].Text = "1,2"; boxes[4].Text = "1000"; boxes[5].Text = "500"; boxes[6].Text = "5";
+                    ((Action)F("gameRun"))();
+                    var st = (System.Windows.Controls.TextBlock)F("gameStatus");
+                    for (int i = 0; i < 600 && !st.Text.Contains(" COMBINATIONS • ") && !st.Text.StartsWith("ERROR") && !st.Text.StartsWith("POOL") && !st.Text.StartsWith("THE OPT") && !st.Text.StartsWith("WAIT"); i++) System.Threading.Thread.Sleep(100);
+                    var rows = (List<KeystoneArcGameRow>)F("gameRows");
+                    Console.WriteLine("      " + st.Text + (rows.Count > 0 ? " • #1 " + rows[0].Label : ""));
+                    if (rows.Count == 0) throw new Exception("optimizer produced no rows: " + st.Text);
+                    if (!rows.Any(x => x.Start == "DIRECT FUNDED") || !rows.Any(x => x.Start == "EVALUATION") || !rows.Any(x => x.Size == 2)) throw new Exception("optimizer grid incomplete");
+                });
+            if (strategy == "FVG")
                 Step("FVG + ENGULFING MATH LABS: run on the loaded 1-minute bars, fill every tab, export", () =>
                 {
                     Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
