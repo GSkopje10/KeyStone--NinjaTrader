@@ -180,6 +180,8 @@ public static class UiSmokeTest
                     Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
                     string journal = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArc5MResearch", "ReplayJournal.csv");
                     if (System.IO.File.Exists(journal)) System.IO.File.Delete(journal);
+                    string accountFile = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(journal), "ReplayAccount.txt"), daysFile = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(journal), "ReplayDays.csv");
+                    if (System.IO.File.Exists(accountFile)) System.IO.File.Delete(accountFile); if (System.IO.File.Exists(daysFile)) System.IO.File.Delete(daysFile);
                     Call(lab2, "OpenReplayTrader");
                     ((Action)F("replayTraderLoad"))();
                     var rt = (KeystoneReplayTrader)F("replayTrader");
@@ -193,6 +195,10 @@ public static class UiSmokeTest
                     var lines = System.IO.File.ReadAllLines(journal);
                     Console.WriteLine("      " + rt.Symbol + " " + rt.Bars.Count + " minutes • bought " + entry + " • " + rt.Fills.Count + " trades • today " + rt.Realized.ToString("0.00") + " • journal lines " + lines.Length);
                     if (rt.Fills.Count != 2 || lines.Length != 3 || rt.Fills[0].Side != "BUY" || rt.Fills[1].Side != "SELL") throw new Exception("replay trades / journal wrong");
+                    ((Action)F("replayTraderEnd"))();
+                    var acc = System.IO.File.ReadAllText(accountFile).Split(','); double bal = double.Parse(acc[1], System.Globalization.CultureInfo.InvariantCulture);
+                    Console.WriteLine("      END DAY → account " + bal.ToString("0.00") + " of " + acc[0] + " • days file lines " + System.IO.File.ReadAllLines(daysFile).Length);
+                    if (Math.Abs(bal - (2000 + rt.Realized)) > 0.01 || System.IO.File.ReadAllLines(daysFile).Length != 2) throw new Exception("END DAY did not bank the day into the account");
                 });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {

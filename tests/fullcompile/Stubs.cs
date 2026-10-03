@@ -84,7 +84,7 @@ namespace System.Windows
         public void BeginAnimation(DependencyProperty p, System.Windows.Media.Animation.AnimationTimeline a) { }
         public static readonly DependencyProperty OpacityProperty = new DependencyProperty();
         public event System.Windows.Input.MouseButtonEventHandler MouseLeftButtonDown, MouseLeftButtonUp, MouseRightButtonDown, MouseRightButtonUp, MouseDown, MouseUp, PreviewMouseLeftButtonDown, PreviewMouseDown;
-        public event System.Windows.Input.MouseEventHandler MouseMove, MouseEnter, MouseLeave, PreviewMouseMove;
+        public event System.Windows.Input.MouseEventHandler MouseMove, MouseEnter, MouseLeave, PreviewMouseMove, LostMouseCapture;
         public event System.Windows.Input.MouseWheelEventHandler MouseWheel, PreviewMouseWheel;
         public event System.Windows.Input.KeyEventHandler KeyDown, KeyUp, PreviewKeyDown;
         public event RoutedEventHandler GotFocus, LostFocus;

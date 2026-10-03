@@ -11326,9 +11326,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-04d";
+        private const string KeystoneBuildShort = "BUILD 2026-10-04e";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -25123,7 +25123,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
 
         // ---- REPLAY TRADER window: pick a loaded session, press PLAY, trade it with BUY / SELL / CLOSE ----------------------
-        private Window replayTraderWindow; private KeystoneReplayTrader replayTrader; private DispatcherTimer replayTraderTimer; private Action replayTraderLoad, replayTraderFlat; private Action<int> replayTraderOrder, replayTraderStep;
+        private Window replayTraderWindow; private KeystoneReplayTrader replayTrader; private DispatcherTimer replayTraderTimer; private Action replayTraderLoad, replayTraderFlat, replayTraderEnd; private Action<int> replayTraderOrder, replayTraderStep;
         private static string ReplayJournalFile() { return Path.Combine(DataDirectory(), "ReplayJournal.csv"); }
 
         // 1-minute bars already saved on this PC by earlier loads (the saved-data cache and the bar store): the biggest file per
@@ -25180,10 +25180,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             Grid.SetRow(row1, 1); root.Children.Add(row1);
             var row2 = new WrapPanel { Margin = new Thickness(0, 4, 0, 4) };
             var qtyBox = Input("1"); qtyBox.Width = 50; var slBox = Input("0"); slBox.Width = 60; var tpBox = Input("0"); tpBox.Width = 60;
-            var buyBtn = Btn("BUY", Green); var sellBtn = Btn("SELL", Red); var flatBtn = Btn("CLOSE", Gold);
+            var buyBtn = Btn("BUY", Green); var sellBtn = Btn("SELL", Red); var flatBtn = Btn("CLOSE", Gold); var endBtn = Btn("END DAY + SAVE", Orchid); var liveBtn = Btn("LIVE ▶|", Cyan); var newAccBtn = Btn("NEW ACCOUNT", Card);
             foreach (var b in new[] { buyBtn, sellBtn, flatBtn }) { b.Height = 36; b.Width = 110; b.FontSize = 15; b.Margin = new Thickness(4, 12, 4, 0); }
+            foreach (var b in new[] { endBtn, liveBtn, newAccBtn }) { b.Height = 30; b.Margin = new Thickness(4, 14, 4, 0); b.Padding = new Thickness(10, 0, 10, 0); }
+            var startBalBox = Input("2000"); startBalBox.Width = 80; startBalBox.ToolTip = "One account: its starting balance is the whole drawdown — at $0 the account is blown. It carries over from day to day until NEW ACCOUNT.";
             add("CONTRACTS", qtyBox, row2); add("STOP PTS (0 = NONE)", slBox, row2); add("TARGET PTS (0 = NONE)", tpBox, row2);
-            row2.Children.Add(buyBtn); row2.Children.Add(sellBtn); row2.Children.Add(flatBtn);
+            row2.Children.Add(buyBtn); row2.Children.Add(sellBtn); row2.Children.Add(flatBtn); row2.Children.Add(endBtn);
+            add("ACCOUNT START $ (= MAX DRAWDOWN)", startBalBox, row1); row1.Children.Add(newAccBtn); row1.Children.Add(liveBtn);
             var pnl = new TextBlock { Text = "LOAD A DAY", Foreground = Gold, FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(16, 14, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             row2.Children.Add(pnl);
             Grid.SetRow(row2, 2); root.Children.Add(row2);
@@ -25206,6 +25209,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             Func<int> tf = () => new[] { 1, 2, 3, 5, 15 }[Math.Max(0, tfBox.SelectedIndex)];
             Func<double> barSeconds = () => new[] { 0.25, 1, 3, 10, 30, 60 }[Math.Max(0, speedBox.SelectedIndex)];
             DateTime session = DateTime.MinValue; int savedFills = 0;
+            // one account across days: start = the whole drawdown; the balance is saved after every finished day
+            string accountFile = Path.Combine(DataDirectory(), "ReplayAccount.txt"); double accStart = 2000, accBalance = 2000; bool blown = false, dayBanked = true;
+            try { if (File.Exists(accountFile)) { var a = File.ReadAllText(accountFile).Split(','); accStart = double.Parse(a[0], CultureInfo.InvariantCulture); accBalance = double.Parse(a[1], CultureInfo.InvariantCulture); blown = a.Length > 2 && a[2] == "1"; startBalBox.Text = accStart.ToString("0", CultureInfo.InvariantCulture); } } catch { }
+            Action saveAccount = delegate { try { Directory.CreateDirectory(DataDirectory()); File.WriteAllText(accountFile, accStart.ToString(CultureInfo.InvariantCulture) + "," + accBalance.ToString(CultureInfo.InvariantCulture) + "," + (blown ? "1" : "0")); } catch { } };
+            int viewCount = 90, viewOffset = 0; double lastCw = 10; bool dragging = false; double dragX = 0; int dragOffset0 = 0;
 
             Action renderSide = delegate
             {
@@ -25253,21 +25261,22 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 canvas.Children.Clear(); if (replayTrader == null) return;
                 double W = canvas.ActualWidth > 50 ? canvas.ActualWidth : 1080, H = canvas.ActualHeight > 50 ? canvas.ActualHeight : 560, right = 80, top = 14, bottom = 26;
-                var candles = replayTrader.Candles(tf()); var view = candles.Skip(Math.Max(0, candles.Count - 90)).ToList();
+                var candles = replayTrader.Candles(tf()); viewOffset = Math.Max(0, Math.Min(viewOffset, Math.Max(0, candles.Count - 5)));
+                int endIdx = candles.Count - viewOffset; var view = candles.Skip(Math.Max(0, endIdx - viewCount)).Take(Math.Min(viewCount, endIdx)).ToList();
                 var r = replayTrader;
                 if (view.Count == 0) { canvas.Children.Add(new TextBlock { Text = "Press ▶ PLAY", Foreground = Muted, FontSize = 16 }); return; }
                 double hi = view.Max(b => b.High), lo = view.Min(b => b.Low);
                 if (r.Position != 0) { hi = Math.Max(hi, r.AvgPrice); lo = Math.Min(lo, r.AvgPrice); }
                 double pad = Math.Max((hi - lo) * 0.08, 1); hi += pad; lo -= pad;
                 Func<double, double> y = p => top + (hi - p) / (hi - lo) * (H - top - bottom);
-                double cw = (W - right - 10) / 90.0;
+                double cw = (W - right - 10) / Math.Max(10, viewCount); lastCw = cw;
                 for (int i = 0; i < view.Count; i++)
                 {
                     var b = view[i]; double x = 6 + i * cw + cw / 2; bool upC = b.Close >= b.Open; var brush = upC ? Green : Red;
                     canvas.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = y(b.High), Y2 = y(b.Low), Stroke = brush, StrokeThickness = 1 });
                     var rect = new System.Windows.Shapes.Rectangle { Width = Math.Max(2, cw * 0.7), Height = Math.Max(1, Math.Abs(y(b.Open) - y(b.Close))), Fill = brush };
                     System.Windows.Controls.Canvas.SetLeft(rect, x - Math.Max(2, cw * 0.7) / 2); System.Windows.Controls.Canvas.SetTop(rect, Math.Min(y(b.Open), y(b.Close))); canvas.Children.Add(rect);
-                    if (i % 15 == 0) { var tl = new TextBlock { Text = b.Time.AddMinutes(-tf()).ToString("HH:mm"), Foreground = Muted, FontSize = 9.5 }; System.Windows.Controls.Canvas.SetLeft(tl, x - 12); System.Windows.Controls.Canvas.SetTop(tl, H - bottom + 6); canvas.Children.Add(tl); }
+                    if (i % Math.Max(1, viewCount / 6) == 0) { var tl = new TextBlock { Text = b.Time.AddMinutes(-tf()).ToString("HH:mm"), Foreground = Muted, FontSize = 9.5 }; System.Windows.Controls.Canvas.SetLeft(tl, x - 12); System.Windows.Controls.Canvas.SetTop(tl, H - bottom + 6); canvas.Children.Add(tl); }
                 }
                 Action<double, Brush, string> level = (p, br, label) =>
                 {
@@ -25275,26 +25284,49 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var t = new TextBlock { Text = label + " " + p.ToString("0.00", CultureInfo.InvariantCulture), Foreground = br, FontSize = 10.5, FontWeight = FontWeights.Bold }; System.Windows.Controls.Canvas.SetLeft(t, W - right + 4); System.Windows.Controls.Canvas.SetTop(t, y(p) - 8); canvas.Children.Add(t);
                 };
                 for (int k = 0; k <= 6; k++) { double p = lo + (hi - lo) * k / 6.0; var t = new TextBlock { Text = p.ToString("0.00", CultureInfo.InvariantCulture), Foreground = Muted, FontSize = 9.5 }; System.Windows.Controls.Canvas.SetLeft(t, W - right + 4); System.Windows.Controls.Canvas.SetTop(t, y(p) - 7); canvas.Children.Add(t); }
-                level(r.Price, Gold, "NOW");
+                if (viewOffset == 0) level(r.Price, Gold, "NOW"); else { var back = new TextBlock { Text = "◀ " + viewOffset + " candles back • LIVE ▶| to return", Foreground = Cyan, FontSize = 11, FontWeight = FontWeights.Bold }; System.Windows.Controls.Canvas.SetLeft(back, 8); System.Windows.Controls.Canvas.SetTop(back, 2); canvas.Children.Add(back); }
                 if (r.Position != 0)
                 {
                     int dir = Math.Sign(r.Position); level(r.AvgPrice, Cyan, dir > 0 ? "LONG" : "SHORT");
                     if (r.StopPts > 0) level(r.AvgPrice - dir * r.StopPts, Red, "STOP");
                     if (r.TargetPts > 0) level(r.AvgPrice + dir * r.TargetPts, Green, "TARGET");
                 }
-                pnl.Text = r.Time.ToString("HH:mm:ss") + " • " + r.Price.ToString("0.00", CultureInfo.InvariantCulture) + "  •  " + (r.Position == 0 ? "FLAT" : (r.Position > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " @ " + r.AvgPrice.ToString("0.00", CultureInfo.InvariantCulture) + " OPEN " + Signed(r.Unrealized)) + "  •  TODAY " + Signed(r.DayNet) + " (" + r.Fills.Count + " trades)";
-                pnl.Foreground = MoneyBrush(r.DayNet);
+                pnl.Text = r.Time.ToString("HH:mm:ss") + " • " + r.Price.ToString("0.00", CultureInfo.InvariantCulture) + "  •  " + (r.Position == 0 ? "FLAT" : (r.Position > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " @ " + r.AvgPrice.ToString("0.00", CultureInfo.InvariantCulture) + " OPEN " + Signed(r.Unrealized)) + "  •  TODAY " + Signed(r.DayNet) + " (" + r.Fills.Count + " trades)  •  ACCOUNT " + Cash(accBalance + (dayBanked ? 0 : r.DayNet)) + " of " + Cash(accStart) + (blown ? " • BLOWN" : "");
+                pnl.Foreground = blown ? Red : MoneyBrush(r.DayNet);
             };
 
             var timer = new DispatcherTimer(DispatcherPriority.Normal, w.Dispatcher); replayTraderTimer = timer;
+            Action endDay = delegate
+            {
+                if (replayTrader == null || dayBanked) return;
+                timer.Stop(); playBtn.Content = "▶ PLAY";
+                replayTrader.CloseAll("END OF DAY"); saveNewFills();
+                accBalance += replayTrader.Realized; dayBanked = true; if (accBalance <= 0) blown = true; saveAccount();
+                try
+                {
+                    string daysFile = Path.Combine(DataDirectory(), "ReplayDays.csv"); bool fresh = !File.Exists(daysFile);
+                    using (var sw = new StreamWriter(daysFile, true, Encoding.UTF8)) { if (fresh) sw.WriteLine("session,symbol,trades,won,net,account_after,account_start"); sw.WriteLine(string.Join(",", session.ToString("yyyy-MM-dd"), replayTrader.Symbol, replayTrader.Fills.Count, replayTrader.Fills.Count(f => f.Net > 0), replayTrader.Realized.ToString("0.00", CultureInfo.InvariantCulture), accBalance.ToString("0.00", CultureInfo.InvariantCulture), accStart.ToString("0", CultureInfo.InvariantCulture))); }
+                }
+                catch { }
+                status.Text = "DAY SAVED • " + replayTrader.Fills.Count + " trades • " + Signed(replayTrader.Realized) + " • account " + Cash(accBalance) + " of " + Cash(accStart) + (blown ? " • ACCOUNT BLOWN — press NEW ACCOUNT" : " • load the next day"); status.Foreground = blown ? Red : MoneyBrush(replayTrader.Realized);
+            };
+            Action checkBlown = delegate
+            {
+                if (replayTrader == null || dayBanked || blown) return;
+                if (accBalance + replayTrader.DayNet <= 0)
+                {
+                    replayTrader.CloseAll("ACCOUNT BLOWN"); saveNewFills(); blown = true; endDay();
+                    status.Text = "ACCOUNT BLOWN • the " + Cash(accStart) + " drawdown is used up • press NEW ACCOUNT to start again"; status.Foreground = Red;
+                }
+            };
             Action setSpeed = delegate { timer.Interval = TimeSpan.FromMilliseconds(Math.Max(15, barSeconds() * 1000.0 / (replayTrader == null ? 12 : replayTrader.StepsPerBar))); };
             timer.Tick += delegate
             {
                 if (replayTrader == null) { timer.Stop(); return; }
-                int before = replayTrader.Fills.Count; bool more = replayTrader.Advance();
+                int before = replayTrader.Fills.Count; bool more = replayTrader.Advance(); checkBlown(); if (replayTrader == null) return;
                 if (replayTrader.Fills.Count != before) { saveNewFills(); var f = replayTrader.Fills.Last(); status.Text = f.Reason + " • " + f.Side + " " + f.Qty + " closed " + Signed(f.Net); status.Foreground = MoneyBrush(f.Net); }
                 render();
-                if (!more) { timer.Stop(); playBtn.Content = "▶ PLAY"; status.Text = "SESSION FINISHED • saved: " + replayTrader.Fills.Count + " trades, " + Signed(replayTrader.Realized) + " • pick another day"; status.Foreground = MoneyBrush(replayTrader.Realized); }
+                if (!more) { timer.Stop(); playBtn.Content = "▶ PLAY"; endDay(); }
             };
             speedBox.SelectionChanged += delegate { setSpeed(); }; tfBox.SelectionChanged += delegate { render(); };
             canvas.SizeChanged += delegate { render(); };
@@ -25302,11 +25334,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             Action loadClick = delegate
             {
                 timer.Stop(); playBtn.Content = "▶ PLAY";
-                if (replayTrader != null && replayTrader.Position != 0) { replayTrader.CloseAll("DAY CHANGED"); saveNewFills(); }
+                if (replayTrader != null && !dayBanked) endDay();
                 string sym = (instBox.SelectedIndex >= 0 && instBox.SelectedIndex < instBox.Items.Count ? Convert.ToString(instBox.Items[instBox.SelectedIndex]) : string.Empty); List<KeystoneArcBar> all; if (!loaded.TryGetValue(sym, out all) || dayBox.SelectedIndex < 0) { status.Text = "NO DATA FOR " + sym; status.Foreground = Red; return; }
                 session = sessions(sym)[dayBox.SelectedIndex];
                 var bars = all.Where(b => KeystoneIdeas.SessionDay(b.Time.AddMinutes(-1)) == session).ToList();
-                replayTrader = new KeystoneReplayTrader(bars, sym, 12); savedFills = 0;
+                replayTrader = new KeystoneReplayTrader(bars, sym, 12); savedFills = 0; dayBanked = false; viewOffset = 0;
                 int hhmm = Integer(startBox, 930); if (IsValidHhmm(hhmm)) { var at = (hhmm >= 1800 ? session.AddDays(-1) : session).AddHours(hhmm / 100).AddMinutes(hhmm % 100); replayTrader.JumpTo(at); if (replayTrader.Finished) replayTrader = new KeystoneReplayTrader(bars, sym, 12); }
                 setSpeed(); render(); renderSide();
                 status.Text = sym + " • " + session.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • " + bars.Count + " minutes • starts " + replayTrader.Time.ToString("HH:mm") + " • press ▶ PLAY"; status.Foreground = Cyan;
@@ -25321,27 +25353,41 @@ namespace NinjaTrader.NinjaScript.AddOns
             Action<int> stepMinutes = n =>
             {
                 if (replayTrader == null) return; int before = replayTrader.Fills.Count;
-                for (int i = 0; i < n * replayTrader.StepsPerBar && replayTrader.Advance(); i++) { }
-                if (replayTrader.Fills.Count != before) saveNewFills(); render();
+                for (int i = 0; i < n * replayTrader.StepsPerBar && !dayBanked && replayTrader.Advance(); i++) checkBlown();
+                if (replayTrader.Fills.Count != before) saveNewFills(); if (replayTrader.Finished) endDay(); render();
             };
             stepBtn.Click += delegate { stepMinutes(1); }; skipBtn.Click += delegate { stepMinutes(10); };
             Action readBracket = delegate { if (replayTrader == null) return; replayTrader.StopPts = NumberAllowZero(slBox, 0); replayTrader.TargetPts = NumberAllowZero(tpBox, 0); render(); };
             slBox.TextChanged += delegate { readBracket(); }; tpBox.TextChanged += delegate { readBracket(); };
             Action<int> order = sign =>
             {
-                if (replayTrader == null || replayTrader.Finished) { status.Text = "LOAD A DAY AND PRESS PLAY"; status.Foreground = Gold; return; }
+                if (blown) { status.Text = "ACCOUNT BLOWN • press NEW ACCOUNT"; status.Foreground = Red; return; }
+                if (replayTrader == null || replayTrader.Finished || dayBanked) { status.Text = "LOAD A DAY AND PRESS PLAY"; status.Foreground = Gold; return; }
                 int q = Math.Max(1, Integer(qtyBox, 1)); int before = replayTrader.Fills.Count;
                 if (sign > 0) replayTrader.Buy(q); else replayTrader.Sell(q);
-                readBracket(); if (replayTrader.Fills.Count != before) saveNewFills();
+                readBracket(); if (replayTrader.Fills.Count != before) saveNewFills(); checkBlown();
                 status.Text = (sign > 0 ? "BOUGHT " : "SOLD ") + q + " at " + replayTrader.Price.ToString("0.00", CultureInfo.InvariantCulture); status.Foreground = sign > 0 ? Green : Red; render();
             };
             buyBtn.Click += delegate { order(1); }; sellBtn.Click += delegate { order(-1); };
             Action flat = delegate { if (replayTrader == null) return; replayTrader.CloseAll("MANUAL"); saveNewFills(); render(); };
             flatBtn.Click += delegate { flat(); };
+            endBtn.Click += delegate { endDay(); render(); };
+            liveBtn.Click += delegate { viewOffset = 0; render(); };
+            newAccBtn.Click += delegate
+            {
+                if (replayTrader != null && !dayBanked) endDay();
+                accStart = Math.Max(1, NumberAllowZero(startBalBox, 2000)); accBalance = accStart; blown = false; saveAccount();
+                status.Text = "NEW ACCOUNT • " + Cash(accStart) + " (this is the whole drawdown) • load a day"; status.Foreground = Green; render();
+            };
+            // chart: wheel = zoom (fewer / more candles), drag = scroll back / forward in time, LIVE = back to the newest candle
+            canvas.PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs args) { viewCount = Math.Max(15, Math.Min(600, (int)Math.Round(viewCount * (args.Delta > 0 ? 0.85 : 1.18)))); render(); args.Handled = true; };
+            canvas.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs args) { dragging = true; dragX = args.GetPosition(canvas).X; dragOffset0 = viewOffset; canvas.CaptureMouse(); };
+            canvas.MouseMove += delegate(object sender, MouseEventArgs args) { if (!dragging) return; viewOffset = Math.Max(0, dragOffset0 + (int)Math.Round((args.GetPosition(canvas).X - dragX) / Math.Max(1, lastCw))); render(); };
+            canvas.MouseLeftButtonUp += delegate { dragging = false; canvas.ReleaseMouseCapture(); }; canvas.LostMouseCapture += delegate { dragging = false; };
             // keyboard: B = buy, S = sell, C = close, space = play / pause (not while typing in a box)
             w.KeyDown += (s2, e2) => { if (e2.OriginalSource is TextBox) return; if (e2.Key == System.Windows.Input.Key.B) order(1); else if (e2.Key == System.Windows.Input.Key.S) order(-1); else if (e2.Key == System.Windows.Input.Key.C) flat(); else if (e2.Key == System.Windows.Input.Key.Space) { togglePlay(); e2.Handled = true; } };
-            w.Closed += delegate { timer.Stop(); if (replayTrader != null && replayTrader.Position != 0) { replayTrader.CloseAll("WINDOW CLOSED"); saveNewFills(); } replayTraderLoad = null; replayTraderFlat = null; replayTraderOrder = null; replayTraderStep = null; replayTraderWindow = null; replayTraderTimer = null; replayTrader = null; };
-            replayTraderLoad = loadClick; replayTraderOrder = order; replayTraderStep = stepMinutes; replayTraderFlat = flat;
+            w.Closed += delegate { timer.Stop(); if (replayTrader != null && !dayBanked) endDay(); replayTraderLoad = null; replayTraderFlat = null; replayTraderOrder = null; replayTraderStep = null; replayTraderWindow = null; replayTraderTimer = null; replayTrader = null; };
+            replayTraderLoad = loadClick; replayTraderEnd = endDay; replayTraderOrder = order; replayTraderStep = stepMinutes; replayTraderFlat = flat;
             renderSide();
             w.Show();
         }
