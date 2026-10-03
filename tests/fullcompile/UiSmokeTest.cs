@@ -178,11 +178,11 @@ public static class UiSmokeTest
                 Step("REPLAY TRADER: load a loaded day, play, buy, target / close, journal saved", () =>
                 {
                     Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
-                    string journal = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArc5MResearch", "ReplayJournal.csv");
+                    string journal = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArcData", "Studio", "ReplayJournal.csv");
                     if (System.IO.File.Exists(journal)) System.IO.File.Delete(journal);
                     string accountFile = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(journal), "ReplayAccount.txt"), daysFile = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(journal), "ReplayDays.csv");
                     if (System.IO.File.Exists(accountFile)) System.IO.File.Delete(accountFile); if (System.IO.File.Exists(daysFile)) System.IO.File.Delete(daysFile);
-                    string studio = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(journal), "Studio"); if (System.IO.Directory.Exists(studio)) System.IO.Directory.Delete(studio, true);
+                    string studio = System.IO.Path.GetDirectoryName(journal); if (System.IO.Directory.Exists(studio)) System.IO.Directory.Delete(studio, true);
                     Call(lab2, "OpenLauncher");
                     Call(lab2, "OpenReplayTrader");
                     int stored = KeystoneStudioStore.Sessions(studio, "MNQ").Count;

@@ -68,6 +68,32 @@ in every year.
 - Asia (18:00–03:00) MNQ 1-minute FVG, 3 accounts × 5 micros: positive but front-loaded.
 - Gold 1-minute FVG: nothing made money.
 
+## Build 2026-10-04j: load from NinjaTrader, news, data folder
+
+- **Any day:** type a DATE and press LOAD DAY.
+  - A saved day loads at once.
+  - A day that is not saved yet comes from NinjaTrader (the same source as the lab's loader), as its whole week, and
+    is saved. Every next load of that week is instant.
+  - ◀ PREV DAY / NEXT DAY ▶ go to any weekday the same way.
+  - A day with no data (a holiday, or no history on the connection) says so.
+- **Timeframes:** one-click buttons 1M … D above each chart; keys 1–9 do the same.
+- **High-impact news (USD):**
+  - A box in the chart's corner counts down to the next news on the replay clock, and lists the day's news.
+  - A dashed line marks each news minute on the chart.
+  - NEWS LOCK ± MIN (prop rule) blocks new trades and AUTO entries that many minutes around a news; closing still works.
+  - FLAT BEFORE NEWS closes everything when the lock window starts.
+  - **Sources:**
+    - FOMC dates 2019–2026 and payrolls (rule-based date) are built in.
+    - The ForexFactory week feed (this + next week) is added to `News.csv` at most once an hour, so the file grows week by week.
+    - Older CPI / PPI / retail-sales dates: add lines to `News.csv` (`2024-06-12,08:30,USD,HIGH,CPI`).
+    - A payrolls line in the file replaces the rule date of that month.
+- **Data folder:** `Documents\KeystoneArcData` holds:
+  - `DataCache` (the lab's saved bars) and `Studio` (bars, account, journal, days, workspace, drawings);
+  - `News.csv`.
+
+  Reports and exports stay in `Documents\KeystoneArc5MResearch`, so you can delete those without losing data.
+  The first start moves the old data folders over.
+
 ## Launcher, Backtest Studio, Data Library (build 2026-10-04i)
 
 The Keystone Arc menu item now opens a LAUNCHER:
@@ -81,7 +107,7 @@ The Keystone Arc menu item now opens a LAUNCHER:
 
 Data Library:
 
-- Files: `Documents\KeystoneArc5MResearch\Studio\MNQ\yyyy-MM.bars` (and `MGC`). One file per session month.
+- Files: `Documents\KeystoneArcData\Studio\MNQ\yyyy-MM.bars` (and `MGC`). One file per session month.
   A session (18:00 → 17:00 NY) is always in one file.
 - A merge replaces whole sessions only, and only with a copy that has at least as many minutes.
   Two contracts are never mixed inside a day, and a thin contract never overwrites a good day.

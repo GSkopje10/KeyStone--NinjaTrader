@@ -216,7 +216,7 @@ namespace System.Windows.Input
 {
     public enum MouseButtonState { Released, Pressed }
     public enum MouseButton { Left, Middle, Right, XButton1, XButton2 }
-    public enum Key { None, Left, Right, Up, Down, Space, Home, End, Escape, Enter, Return, PageUp, PageDown, Add, Subtract, OemPlus, OemMinus, B, C, S }
+    public enum Key { None, Left, Right, Up, Down, Space, Home, End, Escape, Enter, Return, PageUp, PageDown, Add, Subtract, OemPlus, OemMinus, B, C, S, D0, D1, D2, D3, D4, D5, D6, D7, D8, D9 }
     [Flags] public enum ModifierKeys { None = 0, Alt = 1, Control = 2, Shift = 4, Windows = 8 }
     public class Cursor { }
     public static class Cursors { public static Cursor Arrow, Hand, SizeAll, SizeWE, SizeNS, Cross, IBeam, Wait, ScrollAll, ScrollWE, ScrollNS, None; }

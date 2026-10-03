@@ -6214,6 +6214,107 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- HIGH-IMPACT NEWS: built-in FOMC dates + rule-based NFP, your News.csv, and the ForexFactory week feed -------------
+    // All times are New York. A day's news = the events of its session (18:00 the evening before → 17:00).
+    public sealed class KeystoneNewsEvent { public DateTime Time; public string Title = string.Empty, Currency = "USD", Impact = "HIGH", Source = string.Empty; }
+    public static class KeystoneNews
+    {
+        // FOMC statement days (14:00 NY, press conference 14:30), 2019 → 2026, from the Fed's published calendars.
+        public static readonly string[] FomcDates =
+        {
+            "2019-01-30", "2019-03-20", "2019-05-01", "2019-06-19", "2019-07-31", "2019-09-18", "2019-10-30", "2019-12-11",
+            "2020-01-29", "2020-04-29", "2020-06-10", "2020-07-29", "2020-09-16", "2020-11-05", "2020-12-16",
+            "2021-01-27", "2021-03-17", "2021-04-28", "2021-06-16", "2021-07-28", "2021-09-22", "2021-11-03", "2021-12-15",
+            "2022-01-26", "2022-03-16", "2022-05-04", "2022-06-15", "2022-07-27", "2022-09-21", "2022-11-02", "2022-12-14",
+            "2023-02-01", "2023-03-22", "2023-05-03", "2023-06-14", "2023-07-26", "2023-09-20", "2023-11-01", "2023-12-13",
+            "2024-01-31", "2024-03-20", "2024-05-01", "2024-06-12", "2024-07-31", "2024-09-18", "2024-11-07", "2024-12-18",
+            "2025-01-29", "2025-03-19", "2025-05-07", "2025-06-18", "2025-07-30", "2025-09-17", "2025-10-29", "2025-12-10",
+            "2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17", "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09"
+        };
+        static DateTime D(string s) { return DateTime.ParseExact(s, "yyyy-MM-dd", CultureInfo.InvariantCulture); }
+
+        // Non-farm payrolls: the third Friday after the week (Sun → Sat) that holds the 12th of the month before; Jan 1 moves a
+        // week later, a July 3 / 4 holiday moves it to the Thursday before. Your News.csv overrides it (shutdowns, delays).
+        public static DateTime NfpDate(int year, int month)
+        {
+            var prev = new DateTime(year, month, 1).AddMonths(-1); var twelfth = new DateTime(prev.Year, prev.Month, 12);
+            var weekEnd = twelfth.AddDays(6 - (int)twelfth.DayOfWeek); var d = weekEnd.AddDays(20);
+            if (d.Month == 1 && d.Day == 1) d = d.AddDays(7);
+            if (d.Month == 7 && (d.Day == 4 || (d.Day == 3 && new DateTime(d.Year, 7, 4).DayOfWeek == DayOfWeek.Saturday))) d = d.AddDays(-1);
+            return d;
+        }
+
+        public static List<KeystoneNewsEvent> BuiltIn(DateTime from, DateTime to)
+        {
+            var list = new List<KeystoneNewsEvent>();
+            foreach (var s in FomcDates)
+            {
+                var d = D(s); if (d < from.Date || d > to.Date) continue;
+                list.Add(new KeystoneNewsEvent { Time = d.AddHours(14), Title = "FOMC RATE DECISION", Source = "BUILT-IN" });
+                list.Add(new KeystoneNewsEvent { Time = d.AddHours(14).AddMinutes(30), Title = "FOMC PRESS CONFERENCE", Source = "BUILT-IN" });
+            }
+            foreach (var e in new[] { Tuple.Create("2020-03-03 10:00", "FED EMERGENCY RATE CUT"), Tuple.Create("2020-03-15 17:00", "FED EMERGENCY RATE CUT") })
+            {
+                var t = DateTime.ParseExact(e.Item1, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture); if (t >= from.Date && t <= to.Date.AddDays(1)) list.Add(new KeystoneNewsEvent { Time = t, Title = e.Item2, Source = "BUILT-IN" });
+            }
+            for (var m = new DateTime(from.Year, from.Month, 1); m <= to; m = m.AddMonths(1))
+            {
+                var d = NfpDate(m.Year, m.Month); if (d < from.Date || d > to.Date) continue;
+                list.Add(new KeystoneNewsEvent { Time = d.AddHours(8).AddMinutes(30), Title = "NON-FARM PAYROLLS (date by rule)", Source = "RULE" });
+            }
+            return list.OrderBy(e => e.Time).ToList();
+        }
+
+        // News.csv: date,time (NY),currency,impact,title — e.g. 2026-10-14,08:30,USD,HIGH,CPI. Lines starting with # are notes.
+        public static List<KeystoneNewsEvent> ParseCsv(IEnumerable<string> lines)
+        {
+            var list = new List<KeystoneNewsEvent>();
+            foreach (var raw in lines ?? new string[0])
+            {
+                var l = (raw ?? string.Empty).Trim(); if (l == "" || l.StartsWith("#")) continue;
+                var a = l.Split(','); if (a.Length < 5) continue; DateTime t;
+                if (!DateTime.TryParseExact(a[0].Trim() + " " + a[1].Trim(), new[] { "yyyy-MM-dd HH:mm", "yyyy-MM-dd H:mm" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out t)) continue;
+                list.Add(new KeystoneNewsEvent { Time = t, Currency = a[2].Trim().ToUpperInvariant(), Impact = a[3].Trim().ToUpperInvariant(), Title = string.Join(",", a.Skip(4)).Trim(), Source = "FILE" });
+            }
+            return list;
+        }
+        public static string ToCsv(KeystoneNewsEvent e) { return e.Time.ToString("yyyy-MM-dd,HH:mm", CultureInfo.InvariantCulture) + "," + e.Currency + "," + e.Impact + "," + (e.Title ?? string.Empty).Replace(",", " "); }
+
+        // The ForexFactory week feed (JSON array of {title, country, date with offset, impact}). toNy converts the offset time.
+        public static List<KeystoneNewsEvent> ParseForexFactory(string json, Func<DateTimeOffset, DateTime> toNy)
+        {
+            var list = new List<KeystoneNewsEvent>(); if (string.IsNullOrEmpty(json)) return list;
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(json, "\\{[^{}]*\\}"))
+            {
+                var f = new Dictionary<string, string>();
+                foreach (System.Text.RegularExpressions.Match kv in System.Text.RegularExpressions.Regex.Matches(m.Value, "\"(\\w+)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\""))
+                    f[kv.Groups[1].Value] = kv.Groups[2].Value.Replace("\\/", "/").Replace("\\\"", "\"");
+                string date, title, country, impact; DateTimeOffset at;
+                if (!f.TryGetValue("date", out date) || !f.TryGetValue("title", out title) || !DateTimeOffset.TryParse(date, CultureInfo.InvariantCulture, DateTimeStyles.None, out at)) continue;
+                f.TryGetValue("country", out country); f.TryGetValue("impact", out impact);
+                list.Add(new KeystoneNewsEvent { Time = toNy(at), Title = title, Currency = (country ?? "").ToUpperInvariant(), Impact = (impact ?? "").ToUpperInvariant(), Source = "FOREXFACTORY" });
+            }
+            return list;
+        }
+
+        // Built-in + file: a file / feed event at the same minute replaces a built-in one; any payrolls line in a month replaces the rule date.
+        public static List<KeystoneNewsEvent> Combine(List<KeystoneNewsEvent> builtIn, List<KeystoneNewsEvent> file)
+        {
+            file = file ?? new List<KeystoneNewsEvent>();
+            Func<string, bool> isNfp = t => { var u = (t ?? "").ToUpperInvariant(); return u.Contains("NON-FARM") || u.Contains("NONFARM") || u.Contains("NFP"); };
+            var nfpMonths = new HashSet<DateTime>(file.Where(e => isNfp(e.Title)).Select(e => new DateTime(e.Time.Year, e.Time.Month, 1)));
+            var fileMinutes = new HashSet<DateTime>(file.Select(e => e.Time));
+            var keep = (builtIn ?? new List<KeystoneNewsEvent>()).Where(e => !(e.Source == "RULE" && nfpMonths.Contains(new DateTime(e.Time.Year, e.Time.Month, 1))) && !fileMinutes.Contains(e.Time));
+            return keep.Concat(file).GroupBy(e => e.Time.Ticks + "|" + (e.Title ?? "").ToUpperInvariant() + "|" + e.Currency).Select(g => g.Last()).OrderBy(e => e.Time).ToList();
+        }
+
+        public static List<KeystoneNewsEvent> ForSession(List<KeystoneNewsEvent> all, DateTime session, bool highOnly)
+        {
+            DateTime a = session.Date.AddDays(-1).AddHours(18), b = session.Date.AddHours(17);
+            return (all ?? new List<KeystoneNewsEvent>()).Where(e => e.Time >= a && e.Time <= b && (e.Currency == "USD" || e.Currency == "ALL") && (!highOnly || e.Impact == "HIGH")).OrderBy(e => e.Time).ToList();
+        }
+    }
+
     public sealed class KeystoneIdea
     {
         public List<string> Symbols = new List<string>(); public List<int> Times = new List<int>(); public List<string> Dirs = new List<string>();
@@ -11564,9 +11665,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-04i";
+        private const string KeystoneBuildShort = "BUILD 2026-10-04j";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-04i • LAUNCHER (BACKTEST STUDIO • RESEARCH LAB • DATA LIBRARY • LIVE DESK LOCKED) • DATA LIBRARY: THE STUDIO'S OWN 1-MINUTE BARS (COVERAGE PER YEAR, MISSING DAYS, DOWNLOAD ANY RANGE WEEK BY WEEK, NO STEP 1) • STUDIO REMEMBERS THE DAY, SETTINGS, TIMEFRAMES AND DRAWINGS • ACCOUNT BLOWN PROMPT: NEW ACCOUNT CONTINUES THE SAME DAY • STRATEGY MODE SIGNALS / AUTO + ME • ENTRY BOX • BUILD 2026-10-04h • REPLAY TRADER v3: MNQ + MGC TABS ON ONE CLOCK AND ONE ACCOUNT, TRADINGVIEW-STYLE CHART (WHEEL ZOOM AT THE MOUSE, DRAG ANYWHERE INCL. SPACE ON THE RIGHT, PRICE / TIME AXIS STRETCH, CROSSHAIR), DRAWING TOOLBAR (LINE, TREND, RECTANGLE, LONG / SHORT R:R TOOL), TARGET / STOP ZONES + ANIMATED P/L BOX, REALISTIC TICK PATH, PREV / NEXT DAY, FULL WINDOW • BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-04j • STUDIO: ANY DATE → LOAD DAY GETS IT FROM NINJATRADER AND SAVES IT FOR EVERY NEXT LOAD • PREV / NEXT DAY ANY WEEKDAY • ONE-CLICK TIMEFRAME BUTTONS (KEYS 1–9) • HIGH-IMPACT NEWS: CORNER BOX WITH COUNTDOWN, NEWS LINES ON THE CHART, NEWS LOCK ± MIN + FLAT BEFORE NEWS (FOMC + PAYROLLS BUILT IN, FOREXFACTORY WEEK FEED, YOUR NEWS.CSV) • DATA IN ITS OWN FOLDER Documents\\KeystoneArcData (REPORTS STAY IN KeystoneArc5MResearch; OLD DATA MOVED) • DOWNLOAD WATCHDOG 120 S • BUILD 2026-10-04i • LAUNCHER (BACKTEST STUDIO • RESEARCH LAB • DATA LIBRARY • LIVE DESK LOCKED) • DATA LIBRARY: THE STUDIO'S OWN 1-MINUTE BARS (COVERAGE PER YEAR, MISSING DAYS, DOWNLOAD ANY RANGE WEEK BY WEEK, NO STEP 1) • STUDIO REMEMBERS THE DAY, SETTINGS, TIMEFRAMES AND DRAWINGS • ACCOUNT BLOWN PROMPT: NEW ACCOUNT CONTINUES THE SAME DAY • STRATEGY MODE SIGNALS / AUTO + ME • ENTRY BOX • BUILD 2026-10-04h • REPLAY TRADER v3: MNQ + MGC TABS ON ONE CLOCK AND ONE ACCOUNT, TRADINGVIEW-STYLE CHART (WHEEL ZOOM AT THE MOUSE, DRAG ANYWHERE INCL. SPACE ON THE RIGHT, PRICE / TIME AXIS STRETCH, CROSSHAIR), DRAWING TOOLBAR (LINE, TREND, RECTANGLE, LONG / SHORT R:R TOOL), TARGET / STOP ZONES + ANIMATED P/L BOX, REALISTIC TICK PATH, PREV / NEXT DAY, FULL WINDOW • BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -15221,7 +15322,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes(key));
                 string name = BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
-                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArc5MResearch", "DataCache", name + ".bars");
+                return Path.Combine(LabCacheFolder(), name + ".bars");
             }
         }
 
@@ -15369,7 +15470,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             try
             {
                 lock (savedBarsLock) savedBarsMemory.Clear();
-                string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArc5MResearch", "DataCache");
+                string folder = LabCacheFolder();
                 if (Directory.Exists(folder)) foreach (string f in Directory.GetFiles(folder, "*.bars")) { File.Delete(f); files++; }
             }
             catch (Exception ex) { UpdateUi("COULD NOT CLEAR SAVED DATA • " + ex.Message, Red); return; }
@@ -25363,7 +25464,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         // ---- REPLAY TRADER window: pick a loaded session, press PLAY, trade it with BUY / SELL / CLOSE ----------------------
         private Window replayTraderWindow; private KeystoneReplayTrader replayTrader; private DispatcherTimer replayTraderTimer; private Action replayTraderLoad, replayTraderFlat, replayTraderEnd; private Action<int> replayTraderOrder, replayTraderStep;
         private Action<double> replayTraderNewAccount; private Action studioDataChanged;
-        private static string ReplayJournalFile() { return Path.Combine(DataDirectory(), "ReplayJournal.csv"); }
+        private static string ReplayJournalFile() { return Path.Combine(StudioFolder(), "ReplayJournal.csv"); }
 
         // 1-minute bars already saved on this PC by earlier loads (the saved-data cache and the bar store): the biggest file per
         // instrument, so the replay trader works without loading anything first.
@@ -25371,7 +25472,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             try
             {
-                string folder = Path.Combine(DataDirectory(), "DataCache"); if (!Directory.Exists(folder)) return null;
+                string folder = LabCacheFolder(); if (!Directory.Exists(folder)) return null;
                 foreach (var f in new DirectoryInfo(folder).GetFiles("*.bars").OrderByDescending(x => x.Length))
                 {
                     using (var reader = new BinaryReader(File.OpenRead(f.FullName)))
@@ -25397,7 +25498,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public string Symbol = string.Empty; public List<KeystoneArcBar> All = new List<KeystoneArcBar>(); public KeystoneReplayTrader Trader; public int Tf = 1;
             public double Spacing = 9, RightOffset = 14, PCenter, PRange; public bool Follow = true, PriceAuto = true; public int LastCount, SavedFills, Pulse;
             public List<KeystoneReplaySignal> Signals = new List<KeystoneReplaySignal>(); public List<ReplayDrawing> Drawings = new List<ReplayDrawing>();
-            public Canvas Canvas; public Border Hit; public TextBlock PosText; public StackPanel TradesList; public TextBox Qty, Price, Sl, Tp; public ComboBox OrderType, TfBox; public string Tool = "CURSOR";
+            public Canvas Canvas; public Border Hit; public TextBlock PosText; public StackPanel TradesList; public TextBox Qty, Price, Sl, Tp; public ComboBox OrderType, TfBox; public List<Button> TfButtons = new List<Button>(); public string Tool = "CURSOR";
             public double PlotW = 1000, PlotH = 500, Top = 8, AxisW = 84, TimeH = 24, Hi = 1, Lo = 0; public List<KeystoneArcBar> Candles = new List<KeystoneArcBar>();
             public bool MouseOver; public double MouseX, MouseY; public ReplayDrawing Preview;
             public string Drag; public double DownX, DownY, Ro0, Pc0, Pr0, S0; public KeystoneReplayOrder DragOrder; public bool Moved;
@@ -25428,6 +25529,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             var dayBox = new ComboBox { Width = 160 }; foreach (var d in sessionList) dayBox.Items.Add(d.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture)); if (dayBox.Items.Count > 0) dayBox.SelectedIndex = 0;
             { int k = sessionList.IndexOf(ParseStudioDate(wsGet("session", ""))); if (k >= 0) dayBox.SelectedIndex = k; }
             var startBox = Input(wsGet("start", "0930")); startBox.Width = 56;
+            // any date: saved → loads at once; not saved yet → LOAD DAY asks NinjaTrader for that week and keeps it
+            DateTime lastWeekday = DateTime.Today.AddDays(-1); while (lastWeekday.DayOfWeek == DayOfWeek.Saturday || lastWeekday.DayOfWeek == DayOfWeek.Sunday) lastWeekday = lastWeekday.AddDays(-1);
+            var dateBox = Input(wsGet("session", sessionList.Count > 0 ? sessionList[0].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : lastWeekday.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))); dateBox.Width = 100;
+            dateBox.ToolTip = "Any date (yyyy-MM-dd). Not saved yet = LOAD DAY gets that week from NinjaTrader and saves it for every next load.";
+            dayBox.SelectionChanged += delegate { if (dayBox.SelectedIndex >= 0 && dayBox.SelectedIndex < sessionList.Count) dateBox.Text = sessionList[dayBox.SelectedIndex].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); };
+            var newsLockBox = Input(wsGet("newslock", "0")); newsLockBox.Width = 44; newsLockBox.ToolTip = "Prop rule: no new trades this many minutes before and after a high-impact news (0 = off).";
+            var newsFlatBox = new CheckBox { Content = "FLAT BEFORE NEWS", IsChecked = wsGet("newsflat", "0") == "1", Foreground = Text, Margin = new Thickness(4, 16, 6, 0), ToolTip = "Closes every position and order when the news lock window starts." };
             string[] speedNames = { "REAL TIME • 1 MIN = 60 S", "2× • 30 S", "5× • 12 S", "10× • 6 S", "20× • 3 S", "60× • 1 S", "240× • 0.25 S" }; double[] speedSeconds = { 60, 30, 12, 6, 3, 1, 0.25 };
             var speedBox = Select(speedNames); speedBox.SelectedIndex = Math.Max(0, Math.Min(speedNames.Length - 1, ParseStudioInt(wsGet("speed", "0"), 0))); speedBox.Width = 180;
             var loadBtn = small("LOAD DAY", Cyan); var prevDayBtn = small("◀ PREV DAY", Card); var nextDayBtn = small("NEXT DAY ▶", Card); var playBtn = small("▶ PLAY", Green); var stepBtn = small("+1 MIN", Card); var skipBtn = small("+10 MIN", Card);
@@ -25439,10 +25547,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             var modeBox = Select("SIGNALS • I DECIDE", "AUTO • STRATEGY TRADES + ME"); modeBox.SelectedIndex = wsGet("mode", "0") == "1" ? 1 : 0; modeBox.Width = 210;
             modeBox.ToolTip = "SIGNALS: the strategy's entries appear on the chart (▲ / ▼, grade A / B / C) and in the ENTRY box; you trade.\nAUTO: the strategy takes its own entries with its stop and target; your BUY / SELL / CLOSE keep working at the same time.";
             var libraryBtn = small("DATA LIBRARY", Blue); libraryBtn.ToolTip = "What is saved on this PC, and download / update any date range for MNQ and MGC (no Step 1 needed).";
-            add("SESSION (18:00 → 17:00 NY)", dayBox, top); add("START (NY)", startBox, top); top.Children.Add(prevDayBtn); top.Children.Add(loadBtn); top.Children.Add(nextDayBtn); add("SPEED", speedBox, top); top.Children.Add(playBtn); top.Children.Add(stepBtn); top.Children.Add(skipBtn);
+            add("DATE (ANY DAY)", dateBox, top); add("SAVED DAYS", dayBox, top); add("START (NY)", startBox, top); top.Children.Add(prevDayBtn); top.Children.Add(loadBtn); top.Children.Add(nextDayBtn); add("SPEED", speedBox, top); top.Children.Add(playBtn); top.Children.Add(stepBtn); top.Children.Add(skipBtn);
             add("ACCOUNT $ (= MAX DD)", startBalBox, top); top.Children.Add(newAccBtn); top.Children.Add(endBtn);
             add("DAY GOAL $", goalBox, top); add("DAY LOSS $", lossLimitBox, top); top.Children.Add(stopAtGoalBox); add("MAX QTY", maxQtyBox, top);
-            add("STRATEGY", signalBox, top); add("MODE", modeBox, top); top.Children.Add(libraryBtn);
+            add("STRATEGY", signalBox, top); add("MODE", modeBox, top); add("NEWS LOCK ± MIN", newsLockBox, top); top.Children.Add(newsFlatBox); top.Children.Add(libraryBtn);
             Grid.SetRow(top, 0); root.Children.Add(top);
             // ---- clock, goal box, account
             var info = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
@@ -25452,7 +25560,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var goalGrid = new Grid { Width = 320, Height = 24 }; goalGrid.Children.Add(goalFill); goalGrid.Children.Add(goalText);
             var goalBorder = new Border { BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4), Child = goalGrid, Background = Card, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center };
             var accText = new TextBlock { Text = "", Foreground = Gold, FontSize = 15, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
-            var status = new TextBlock { Text = sessionList.Count == 0 ? "NO DATA YET • press DATA LIBRARY and download MNQ / MGC 1-minute bars for any dates (or run a Step 1 test with 1-minute bars once)." + (firstOpen ? " Looking for 1-minute data the lab saved earlier…" : "") : "Pick a session and press LOAD DAY." + (labImport != "" ? " • " + labImport : ""), Foreground = sessionList.Count == 0 ? Red : Cyan, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 900 };
+            var status = new TextBlock { Text = sessionList.Count == 0 ? "NOTHING SAVED YET • type a DATE and press LOAD DAY: the studio gets that week from NinjaTrader and saves it (DATA LIBRARY = many months at once)." + (firstOpen ? " Looking for 1-minute data the lab saved earlier…" : "") : "Pick a session and press LOAD DAY." + (labImport != "" ? " • " + labImport : ""), Foreground = sessionList.Count == 0 ? Red : Cyan, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 900 };
             var entryText = new TextBlock { Text = "", Foreground = Text, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 520 };
             var entryBorder = new Border { BorderBrush = Cyan, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4), Child = entryText, Background = Card, Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             info.Children.Add(clock); info.Children.Add(goalBorder); info.Children.Add(accText); info.Children.Add(entryBorder); info.Children.Add(status);
@@ -25472,13 +25580,16 @@ namespace NinjaTrader.NinjaScript.AddOns
             var blownCard = new Border { Background = Panel, BorderBrush = Red, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8), Padding = new Thickness(24), Child = blownStack, MaxWidth = 560, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             var blownOverlay = new Border { Background = Tint(Bg, 200), Child = blownCard, Visibility = Visibility.Collapsed };
             Grid.SetRow(blownOverlay, 3); root.Children.Add(blownOverlay);
+            var newsText = new TextBlock { Text = "", Foreground = Text, FontSize = 13, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, MaxWidth = 330 };
+            var newsBox = new Border { Background = Tint(Bg, 225), BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6, 10, 6), Child = newsText, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 44, 350, 0), IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+            Grid.SetRow(newsBox, 3); root.Children.Add(newsBox);
             w.Content = root;
 
             // ---- shared state: one clock, one account
             DateTime session = DateTime.MinValue, simTime = DateTime.MinValue; bool dayBanked = true, dayLocked = false, blown = false;
-            string accountFile = Path.Combine(DataDirectory(), "ReplayAccount.txt"); double accStart = 2000, accBalance = 2000;
+            string accountFile = Path.Combine(StudioFolder(), "ReplayAccount.txt"); double accStart = 2000, accBalance = 2000;
             try { if (File.Exists(accountFile)) { var a = File.ReadAllText(accountFile).Split(','); accStart = double.Parse(a[0], CultureInfo.InvariantCulture); accBalance = double.Parse(a[1], CultureInfo.InvariantCulture); blown = a.Length > 2 && a[2] == "1"; startBalBox.Text = accStart.ToString("0", CultureInfo.InvariantCulture); } } catch { }
-            Action saveAccount = delegate { try { Directory.CreateDirectory(DataDirectory()); File.WriteAllText(accountFile, accStart.ToString(CultureInfo.InvariantCulture) + "," + accBalance.ToString(CultureInfo.InvariantCulture) + "," + (blown ? "1" : "0")); } catch { } };
+            Action saveAccount = delegate { try { Directory.CreateDirectory(StudioFolder()); File.WriteAllText(accountFile, accStart.ToString(CultureInfo.InvariantCulture) + "," + accBalance.ToString(CultureInfo.InvariantCulture) + "," + (blown ? "1" : "0")); } catch { } };
             Action showBlown = delegate
             {
                 blownBal.Text = accStart.ToString("0", CultureInfo.InvariantCulture);
@@ -25486,6 +25597,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 blownOverlay.Visibility = Visibility.Visible;
             };
             var panes = new List<ReplayPane>(); ReplayPane active = null;
+            var newsAll = LoadStudioNews(); var sessionNews = new List<KeystoneNewsEvent>();
+            // the high-impact news whose lock window (± NEWS LOCK minutes) holds t, or null
+            Func<DateTime, KeystoneNewsEvent> newsLockAt = t => { double m = NumberAllowZero(newsLockBox, 0); if (m <= 0) return null; return sessionNews.FirstOrDefault(e => Math.Abs((t - e.Time).TotalMinutes) <= m); };
             Func<double> dayNet = () => panes.Where(p => p.Trader != null).Sum(p => p.Trader.DayNet);
             Func<double> realized = () => panes.Where(p => p.Trader != null).Sum(p => p.Trader.Realized);
             string[] tfNames = { "1M", "2M", "3M", "5M", "15M", "30M", "1H", "4H", "D" }; int[] tfMinutes = { 1, 2, 3, 5, 15, 30, 60, 240, 1440 };
@@ -25495,7 +25609,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (pn.Trader == null || pn.Trader.Fills.Count <= pn.SavedFills) return;
                 try
                 {
-                    Directory.CreateDirectory(DataDirectory()); bool fresh = !File.Exists(ReplayJournalFile());
+                    Directory.CreateDirectory(StudioFolder()); bool fresh = !File.Exists(ReplayJournalFile());
                     using (var sw = new StreamWriter(ReplayJournalFile(), true, Encoding.UTF8)) { if (fresh) sw.WriteLine(KeystoneReplayTrader.JournalHeader); foreach (var f in pn.Trader.Fills.Skip(pn.SavedFills)) sw.WriteLine(KeystoneReplayTrader.JournalLine(session, f)); }
                     pn.SavedFills = pn.Trader.Fills.Count;
                 }
@@ -25578,6 +25692,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                     System.Windows.Controls.Canvas.SetLeft(tag, pn.PlotW + 2); System.Windows.Controls.Canvas.SetTop(tag, y - 8); cv.Children.Add(tag);
                     if (!string.IsNullOrEmpty(label)) { var lt = new Border { Background = Tint(Bg, 210), BorderBrush = br, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(4, 0, 4, 0), Child = new TextBlock { Text = label, Foreground = br, FontSize = 10.5, FontWeight = FontWeights.Bold } }; System.Windows.Controls.Canvas.SetLeft(lt, pn.PlotW - 260); System.Windows.Controls.Canvas.SetTop(lt, y - 9); cv.Children.Add(lt); }
                 };
+                // high-impact news of the day: a dashed line at its minute
+                foreach (var ne in sessionNews)
+                {
+                    double nx = xOfIndex(pn, indexOfTime(pn, ne.Time.AddMinutes(1))) - pn.Spacing / 2; if (nx < 0 || nx > pn.PlotW) continue;
+                    cv.Children.Add(new System.Windows.Shapes.Line { X1 = nx, X2 = nx, Y1 = pn.Top, Y2 = pn.Top + pn.PlotH, Stroke = Orange, StrokeThickness = 1.3, StrokeDashArray = new DoubleCollection { 6, 4 } });
+                    var nl = new Border { Background = Orange, CornerRadius = new CornerRadius(2), Padding = new Thickness(3, 0, 3, 0), Child = new TextBlock { Text = "NEWS " + ne.Time.ToString("HH:mm") + " " + ne.Title, Foreground = Bg, FontSize = 10, FontWeight = FontWeights.Bold } };
+                    System.Windows.Controls.Canvas.SetLeft(nl, nx + 3); System.Windows.Controls.Canvas.SetTop(nl, pn.Top + 2); cv.Children.Add(nl);
+                }
                 // drawings (time / price coordinates, so they follow zoom and scroll)
                 foreach (var d in pn.Drawings.Concat(pn.Preview != null ? new[] { pn.Preview } : new ReplayDrawing[0]))
                 {
@@ -25657,6 +25779,25 @@ namespace NinjaTrader.NinjaScript.AddOns
                 else { double f = lossLim > 0 ? Math.Min(1, -net / lossLim) : 0; goalFill.Width = 320 * f; goalFill.Fill = Red; goalText.Text = lossLim > 0 ? "LOSS LIMIT " + Cash(lossLim) + " • " + Signed(net) + " (" + (100 * -net / lossLim).ToString("0") + "%)" : "LOSS • " + Signed(net); }
                 goalText.Foreground = goalFill.Width > 160 ? Bg : Text; if (dayLocked) goalText.Text += " • LOCKED";
                 accText.Text = "ACCOUNT " + Cash(accBalance + (dayBanked ? 0 : net)) + " of " + Cash(accStart) + (blown ? " • BLOWN" : ""); accText.Foreground = blown ? Red : MoneyBrush(accBalance + (dayBanked ? 0 : net) - accStart);
+                // NEWS box: today's high-impact news with a countdown on the replay clock
+                if (session == DateTime.MinValue || simTime == DateTime.MinValue) newsBox.Visibility = Visibility.Collapsed;
+                else
+                {
+                    newsBox.Visibility = Visibility.Visible;
+                    if (sessionNews.Count == 0) { newsText.Text = "NO HIGH-IMPACT NEWS TODAY"; newsText.Foreground = Muted; newsBox.BorderBrush = Card; }
+                    else
+                    {
+                        var nxt = sessionNews.FirstOrDefault(e => e.Time.AddMinutes(15) >= simTime); var lockE = newsLockAt(simTime);
+                        string listToday = string.Join(" • ", sessionNews.Select(e => e.Time.ToString("HH:mm") + " " + e.Title));
+                        if (nxt == null) { newsText.Text = "NEWS DONE FOR TODAY\n" + listToday; newsText.Foreground = Muted; newsBox.BorderBrush = Card; }
+                        else
+                        {
+                            var left = nxt.Time - simTime; string when = left > TimeSpan.Zero ? "IN " + ((int)left.TotalHours).ToString("00") + ":" + left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00") : "NOW • " + ((int)(-left.TotalMinutes)) + " MIN AGO";
+                            newsText.Text = "⚠ " + nxt.Time.ToString("HH:mm") + " " + nxt.Title + "\n" + when + (lockE != null ? " • NEWS LOCK: NO NEW TRADES" : "") + "\nTODAY: " + listToday;
+                            bool close = left.TotalMinutes <= 15; newsText.Foreground = lockE != null || close ? Red : Gold; newsBox.BorderBrush = lockE != null || close ? Red : Gold;
+                        }
+                    }
+                }
                 // ENTRY box: the strategy's latest entry the clock has reached on the visible instrument (never a future one)
                 var at = active == null ? null : active.Trader;
                 if (signalBox.SelectedIndex <= 0 || at == null) entryBorder.Visibility = Visibility.Collapsed;
@@ -25690,7 +25831,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 double day = realized(); accBalance += day; dayBanked = true; if (accBalance <= 0) blown = true; saveAccount();
                 try
                 {
-                    string daysFile = Path.Combine(DataDirectory(), "ReplayDays.csv"); bool fresh = !File.Exists(daysFile);
+                    string daysFile = Path.Combine(StudioFolder(), "ReplayDays.csv"); bool fresh = !File.Exists(daysFile);
                     using (var sw = new StreamWriter(daysFile, true, Encoding.UTF8))
                     {
                         if (fresh) sw.WriteLine("session,symbol,trades,won,net,account_after,account_start");
@@ -25711,6 +25852,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 if (dayLocked) return;
                 double goal = NumberAllowZero(goalBox, 0), lossLim = NumberAllowZero(lossLimitBox, 0);
+                var nl0 = newsLockAt(simTime);
+                if (nl0 != null && newsFlatBox.IsChecked == true && panes.Any(p => p.Trader != null && (p.Trader.Position != 0 || p.Trader.Orders.Count > 0)))
+                {
+                    foreach (var pn in panes.Where(p => p.Trader != null)) { pn.Trader.CancelOrders(); pn.Trader.CloseAll("NEWS " + nl0.Time.ToString("HH:mm")); saveFills(pn); }
+                    status.Text = "FLAT FOR THE NEWS • " + nl0.Time.ToString("HH:mm") + " " + nl0.Title; status.Foreground = Orange;
+                }
                 bool hitGoal = goal > 0 && stopAtGoalBox.IsChecked == true && net >= goal, hitLoss = lossLim > 0 && net <= -lossLim;
                 if (!hitGoal && !hitLoss) return;
                 foreach (var pn in panes.Where(p => p.Trader != null)) { pn.Trader.CancelOrders(); pn.Trader.CloseAll(hitGoal ? "DAY GOAL" : "DAY LOSS LIMIT"); saveFills(pn); }
@@ -25719,6 +25866,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             Action<ReplayPane> autoTrade = pn =>
             {
                 if (modeBox.SelectedIndex != 1 || dayLocked || blown || pn.Trader == null) return; var r = pn.Trader;
+                var nlA = newsLockAt(r.Time); if (nlA != null) { foreach (var sg in pn.Signals.Where(x => !x.Taken && x.Time <= r.Time)) { sg.Taken = true; status.Text = "AUTO " + pn.Symbol + " • skipped: NEWS LOCK " + nlA.Time.ToString("HH:mm") + " " + nlA.Title; status.Foreground = Orange; } return; }
                 foreach (var sg in pn.Signals.Where(x => !x.Taken && x.Time <= r.Time && x.Time > r.Time.AddMinutes(-2)))
                 {
                     sg.Taken = true; if (r.Position != 0) { status.Text = "AUTO " + pn.Symbol + " • " + sg.Tag + " skipped: a position is already open (yours or AUTO's)"; status.Foreground = Gold; continue; }
@@ -25774,13 +25922,24 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var cv = new Canvas { Background = Panel, ClipToBounds = true, IsHitTestVisible = false }; pn.Canvas = cv;
                 var hit = new Border { Background = System.Windows.Media.Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Cross, Focusable = true }; pn.Hit = hit;
                 var chartGrid = new Grid(); chartGrid.Children.Add(cv); chartGrid.Children.Add(hit);
-                Grid.SetColumn(chartGrid, 1); grid.Children.Add(chartGrid);
+                // timeframes: one click (keys 1 … 9 too)
+                var tfStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 3) }; var tfButtons = new List<Button>();
+                for (int ti = 0; ti < tfNames.Length; ti++)
+                {
+                    int tix = ti; var tb = Btn(tfNames[ti], Card); tb.Height = 26; tb.MinWidth = 44; tb.FontSize = 12; tb.Margin = new Thickness(0, 0, 3, 0); tb.Padding = new Thickness(8, 0, 8, 0); tb.ToolTip = "Candles " + tfNames[ti] + " (key " + (ti + 1) + ")";
+                    tb.Click += delegate { pn.TfBox.SelectedIndex = tix; }; tfButtons.Add(tb); tfStrip.Children.Add(tb);
+                }
+                pn.TfButtons = tfButtons;
+                var chartCol = new Grid(); chartCol.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); chartCol.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                Grid.SetRow(tfStrip, 0); chartCol.Children.Add(tfStrip); Grid.SetRow(chartGrid, 1); chartCol.Children.Add(chartGrid);
+                Grid.SetColumn(chartCol, 1); grid.Children.Add(chartCol);
                 // order panel
                 var side = new StackPanel { Margin = new Thickness(6, 2, 4, 2) };
                 side.Children.Add(new TextBlock { Text = sym, Foreground = Gold, FontSize = 18, FontWeight = FontWeights.Bold });
-                pn.TfBox = Select(tfNames); pn.TfBox.SelectedIndex = Math.Max(0, Math.Min(tfNames.Length - 1, ParseStudioInt(wsGet(sym + ".tf", "0"), 0))); pn.Tf = tfMinutes[pn.TfBox.SelectedIndex]; pn.TfBox.SelectionChanged += delegate { pn.Tf = tfMinutes[Math.Max(0, pn.TfBox.SelectedIndex)]; pn.LastCount = 0; pn.Follow = true; pn.RightOffset = 14; render(pn); renderInfo(); };
+                pn.TfBox = Select(tfNames); pn.TfBox.SelectedIndex = Math.Max(0, Math.Min(tfNames.Length - 1, ParseStudioInt(wsGet(sym + ".tf", "0"), 0))); pn.Tf = tfMinutes[pn.TfBox.SelectedIndex]; pn.TfBox.SelectionChanged += delegate { pn.Tf = tfMinutes[Math.Max(0, pn.TfBox.SelectedIndex)]; for (int k = 0; k < pn.TfButtons.Count; k++) pn.TfButtons[k].Background = k == pn.TfBox.SelectedIndex ? Gold : Card; pn.LastCount = 0; pn.Follow = true; pn.RightOffset = 14; render(pn); renderInfo(); };
                 var liveBtn = Btn("LIVE ▶|", Cyan); liveBtn.Height = 26; liveBtn.Click += delegate { pn.Follow = true; pn.RightOffset = 14; pn.PriceAuto = true; render(pn); };
-                var tfRow = new WrapPanel(); add("CANDLES", pn.TfBox, tfRow); tfRow.Children.Add(liveBtn); side.Children.Add(tfRow);
+                for (int k = 0; k < pn.TfButtons.Count; k++) pn.TfButtons[k].Background = k == pn.TfBox.SelectedIndex ? Gold : Card;
+                var tfRow = new WrapPanel(); tfRow.Children.Add(liveBtn); side.Children.Add(tfRow);
                 pn.Qty = Input(wsGet(sym + ".qty", "1")); pn.Qty.Width = 50; pn.OrderType = Select("MARKET", "LIMIT", "STOP"); pn.OrderType.SelectedIndex = 0; pn.OrderType.Width = 90; pn.Price = Input(""); pn.Price.Width = 90; pn.Price.ToolTip = "LIMIT / STOP price — or click the chart";
                 pn.Sl = Input(wsGet(sym + ".sl", "0")); pn.Sl.Width = 60; pn.Tp = Input(wsGet(sym + ".tp", "0")); pn.Tp.Width = 60;
                 var r1 = new WrapPanel(); add("CONTRACTS", pn.Qty, r1); add("ORDER", pn.OrderType, r1); side.Children.Add(r1);
@@ -25803,6 +25962,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (blown) { status.Text = "ACCOUNT BLOWN • NEW ACCOUNT"; status.Foreground = Red; showBlown(); return; }
                     if (r == null || r.Finished || dayBanked) { status.Text = "LOAD A DAY AND PRESS PLAY"; status.Foreground = Gold; return; }
                     if (dayLocked) { status.Text = "LOCKED FOR TODAY (goal or loss limit) • END DAY + SAVE"; status.Foreground = Gold; return; }
+                    var nlO = newsLockAt(r.Time); if (nlO != null && Math.Sign(r.Position) != -sign) { status.Text = "NEWS LOCK • " + nlO.Time.ToString("HH:mm") + " " + nlO.Title + " • no new trades ±" + NumberAllowZero(newsLockBox, 0) + " min (closing is allowed)"; status.Foreground = Orange; return; }
                     int q = Math.Max(1, Integer(pn.Qty, 1)), maxQ = Math.Max(1, Integer(maxQtyBox, 20)), pending = r.Orders.Where(o => o.Dir == sign).Sum(o => o.Qty);
                     if (Math.Sign(r.Position) != -sign && Math.Abs(r.Position) + pending + q > maxQ) { status.Text = "MAX " + maxQ + " CONTRACTS • " + pn.Symbol + " holds " + Math.Abs(r.Position) + (pending > 0 ? " (+" + pending + " working)" : ""); status.Foreground = Gold; return; }
                     string type = Convert.ToString(pn.OrderType.Items[Math.Max(0, pn.OrderType.SelectedIndex)]);
@@ -25912,18 +26072,46 @@ namespace NinjaTrader.NinjaScript.AddOns
             Action saveWorkspace = delegate
             {
                 var v = new Dictionary<string, string>();
-                if (session != DateTime.MinValue) v["session"] = session.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                if (session != DateTime.MinValue) v["session"] = session.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); else if (ParseStudioDate(dateBox.Text) != DateTime.MinValue) v["session"] = dateBox.Text.Trim();
                 v["start"] = startBox.Text.Trim(); v["speed"] = speedBox.SelectedIndex.ToString(CultureInfo.InvariantCulture); v["signal"] = signalBox.SelectedIndex.ToString(CultureInfo.InvariantCulture); v["mode"] = modeBox.SelectedIndex.ToString(CultureInfo.InvariantCulture);
-                v["goal"] = goalBox.Text.Trim(); v["loss"] = lossLimitBox.Text.Trim(); v["maxqty"] = maxQtyBox.Text.Trim(); v["stopgoal"] = stopAtGoalBox.IsChecked == true ? "1" : "0"; v["tab"] = Math.Max(0, tabs.SelectedIndex).ToString(CultureInfo.InvariantCulture);
+                v["newslock"] = newsLockBox.Text.Trim(); v["newsflat"] = newsFlatBox.IsChecked == true ? "1" : "0"; v["goal"] = goalBox.Text.Trim(); v["loss"] = lossLimitBox.Text.Trim(); v["maxqty"] = maxQtyBox.Text.Trim(); v["stopgoal"] = stopAtGoalBox.IsChecked == true ? "1" : "0"; v["tab"] = Math.Max(0, tabs.SelectedIndex).ToString(CultureInfo.InvariantCulture);
                 foreach (var pn in panes) { v[pn.Symbol + ".tf"] = Math.Max(0, pn.TfBox.SelectedIndex).ToString(CultureInfo.InvariantCulture); v[pn.Symbol + ".qty"] = pn.Qty.Text.Trim(); v[pn.Symbol + ".sl"] = pn.Sl.Text.Trim(); v[pn.Symbol + ".tp"] = pn.Tp.Text.Trim(); }
                 WriteStudioWorkspace(v);
             };
-            Action loadClick = delegate
+            var askedNinja = new HashSet<DateTime>(); bool fetching = false;
+            Action loadClick = null;
+            loadClick = delegate
             {
+                if (fetching) { status.Text = "STILL GETTING THE DAY FROM NINJATRADER…"; status.Foreground = Gold; return; }
                 timer.Stop(); playBtn.Content = "▶ PLAY";
                 if (!dayBanked) endDay();
-                if (dayBox.SelectedIndex < 0 || dayBox.SelectedIndex >= sessionList.Count) { status.Text = "NO SESSION"; status.Foreground = Red; return; }
-                session = sessionList[dayBox.SelectedIndex]; int hhmm = Integer(startBox, 930); DateTime at = IsValidHhmm(hhmm) ? (hhmm >= 1800 ? session.AddDays(-1) : session).AddHours(hhmm / 100).AddMinutes(hhmm % 100) : session.AddDays(-1).AddHours(18);
+                DateTime want = ParseStudioDate(dateBox.Text);
+                if (want == DateTime.MinValue) { status.Text = "DATE: type yyyy-MM-dd (or pick a SAVED DAY)"; status.Foreground = Red; return; }
+                if (want.DayOfWeek == DayOfWeek.Saturday) want = want.AddDays(-1); else if (want.DayOfWeek == DayOfWeek.Sunday) want = want.AddDays(1);
+                dateBox.Text = want.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                // not saved (or only partly): get the whole week from NinjaTrader once, save it, then load
+                var missingSyms = studioSymbols.Where(x => { int c; return !KeystoneStudioStore.Sessions(sfolder, x).TryGetValue(want, out c) || c < 60; }).ToList();
+                if (missingSyms.Count > 0 && !askedNinja.Contains(want) && want <= DateTime.Today)
+                {
+                    askedNinja.Add(want); fetching = true; var weekStart = want.AddDays(-(int)want.DayOfWeek); var wk = KeystoneStudioStore.Weeks(weekStart, weekStart.AddDays(6)).First();
+                    status.Text = "GETTING " + string.Join(" + ", missingSyms) + " " + want.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " (its week) FROM NINJATRADER… it is saved for every next load"; status.Foreground = Cyan;
+                    var notes = new List<string>(); int pending = missingSyms.Count;
+                    foreach (var sym in missingSyms)
+                    {
+                        var symx = sym;
+                        FetchWeekIntoStudio(w.Dispatcher, symx, wk.Item1, wk.Item2, 0, (changed, days, message, ok) =>
+                        {
+                            notes.Add(symx + ": " + message);
+                            if (--pending > 0) return;
+                            fetching = false; if (studioDataChanged != null) studioDataChanged();
+                            loadClick();
+                            if (session != want) { status.Text = "NINJATRADER HAS NO DATA FOR " + want.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • " + string.Join(" • ", notes) + " • is the data feed connected? holiday?"; status.Foreground = Red; }
+                        });
+                    }
+                    return;
+                }
+                if (missingSyms.Count == studioSymbols.Length) { status.Text = "NO DATA FOR " + want.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " (NinjaTrader gave none — holiday, future date, or no history on this connection)"; status.Foreground = Red; foreach (var pn in panes) { pn.Trader = null; render(pn); } return; }
+                session = want; { int k = sessionList.IndexOf(want); if (k >= 0 && dayBox.SelectedIndex != k) dayBox.SelectedIndex = k; } int hhmm = Integer(startBox, 930); DateTime at = IsValidHhmm(hhmm) ? (hhmm >= 1800 ? session.AddDays(-1) : session).AddHours(hhmm / 100).AddMinutes(hhmm % 100) : session.AddDays(-1).AddHours(18);
                 var parts = new List<string>(); DateTime earliest = DateTime.MaxValue;
                 foreach (var pn in panes)
                 {
@@ -25941,12 +26129,22 @@ namespace NinjaTrader.NinjaScript.AddOns
                 replayTrader = active == null ? null : active.Trader;
                 resetClock(); foreach (var pn in panes) render(pn); renderInfo();
                 status.Text = session.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • " + string.Join(" • ", parts) + " • starts " + simTime.ToString("HH:mm") + " NY • ▶ PLAY" + (blown ? " • the account is BLOWN: NEW ACCOUNT" : ""); status.Foreground = blown ? Red : Cyan;
-                saveWorkspace(); if (blown) showBlown();
+                sessionNews = KeystoneNews.ForSession(newsAll, session, true);
+                if (sessionNews.Count > 0) status.Text += " • NEWS: " + string.Join(", ", sessionNews.Select(e => e.Time.ToString("HH:mm") + " " + e.Title));
+                saveWorkspace(); renderInfo(); if (blown) showBlown();
             };
             loadBtn.Click += delegate { loadClick(); };
             // the list is newest first: NEXT DAY = the later date, PREV DAY = the earlier one (the current day is saved first)
-            prevDayBtn.Click += delegate { if (dayBox.SelectedIndex < dayBox.Items.Count - 1) { dayBox.SelectedIndex = dayBox.SelectedIndex + 1; loadClick(); } else { status.Text = "NO EARLIER DAY LOADED"; status.Foreground = Gold; } };
-            nextDayBtn.Click += delegate { if (dayBox.SelectedIndex > 0) { dayBox.SelectedIndex = dayBox.SelectedIndex - 1; loadClick(); } else { status.Text = "THIS IS THE LATEST DAY LOADED"; status.Foreground = Gold; } };
+            // the weekday before / after (saved or not: a day not saved yet comes from NinjaTrader)
+            Action<int> stepDay = dir =>
+            {
+                var d = ParseStudioDate(dateBox.Text); if (d == DateTime.MinValue) d = session != DateTime.MinValue ? session : lastWeekday;
+                do d = d.AddDays(dir); while (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday);
+                if (d > DateTime.Today) { status.Text = "THAT IS THE FUTURE"; status.Foreground = Gold; return; }
+                dateBox.Text = d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); loadClick();
+            };
+            prevDayBtn.Click += delegate { stepDay(-1); };
+            nextDayBtn.Click += delegate { stepDay(1); };
             Action togglePlay = delegate
             {
                 if (dayBanked) { status.Text = "LOAD A DAY FIRST"; status.Foreground = Gold; return; }
@@ -25978,7 +26176,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             blownLook.Click += delegate { blownOverlay.Visibility = Visibility.Collapsed; };
             Func<ReplayPane, Tuple<Action<int>, Action>> paneActions = pn => (Tuple<Action<int>, Action>)pn.Hit.Tag;
             // keyboard (the visible instrument): B = buy, S = sell, C = close, space = play / pause; not while typing, no key repeat
-            w.KeyDown += (s2, e2) => { if (e2.OriginalSource is TextBox || e2.IsRepeat || active == null) return; var acts = paneActions(active); if (e2.Key == System.Windows.Input.Key.B) acts.Item1(1); else if (e2.Key == System.Windows.Input.Key.S) acts.Item1(-1); else if (e2.Key == System.Windows.Input.Key.C) acts.Item2(); else if (e2.Key == System.Windows.Input.Key.Space) { togglePlay(); e2.Handled = true; } };
+            w.KeyDown += (s2, e2) => { if (e2.OriginalSource is TextBox || e2.IsRepeat || active == null) return; var acts = paneActions(active); if (e2.Key == System.Windows.Input.Key.B) acts.Item1(1); else if (e2.Key == System.Windows.Input.Key.S) acts.Item1(-1); else if (e2.Key == System.Windows.Input.Key.C) acts.Item2(); else if (e2.Key == System.Windows.Input.Key.Space) { togglePlay(); e2.Handled = true; } else if (e2.Key >= System.Windows.Input.Key.D1 && e2.Key <= System.Windows.Input.Key.D9) active.TfBox.SelectedIndex = (int)e2.Key - (int)System.Windows.Input.Key.D1; };
             w.Closed += delegate { timer.Stop(); if (!dayBanked) endDay(); saveWorkspace(); SaveStudioDrawings(panes); studioDataChanged = null; replayTraderNewAccount = null; replayTraderLoad = null; replayTraderFlat = null; replayTraderOrder = null; replayTraderStep = null; replayTraderEnd = null; replayTraderWindow = null; replayTraderTimer = null; replayTrader = null; };
             replayTraderLoad = loadClick; replayTraderEnd = endDay; replayTraderStep = stepMinutes; replayTraderNewAccount = newAccount;
             libraryBtn.Click += delegate { OpenDataLibrary(); };
@@ -25990,7 +26188,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 int k = sessionList.IndexOf(keep); dayBox.SelectedIndex = k >= 0 ? k : (sessionList.Count > 0 ? 0 : -1);
                 if (dayBanked) { status.Text = sessionList.Count + " sessions saved for the studio • pick one and LOAD DAY"; status.Foreground = Cyan; foreach (var pn in panes) render(pn); }
             };
-            if (firstOpen) ImportLabCacheIntoStudioAsync(w.Dispatcher);
+            if (firstOpen) ImportLabCacheIntoStudioAsync(w.Dispatcher, n => { if (sessionList.Count == 0 && dayBanked) { status.Text = (n > 0 ? n + " days copied from the lab's saved data • pick one and LOAD DAY" : "No saved lab data found • type a DATE and press LOAD DAY: it comes from NinjaTrader and is saved"); status.Foreground = Cyan; } });
+            // news: the ForexFactory week feed (this + next week) is added to News.csv at most once an hour
+            FetchNewsAsync(w.Dispatcher, msg => { newsAll = LoadStudioNews(); if (session != DateTime.MinValue) sessionNews = KeystoneNews.ForSession(newsAll, session, true); renderInfo(); });
             if (blown) showBlown();
             replayTraderOrder = sign => { if (active != null) paneActions(active).Item1(sign); };
             replayTraderFlat = delegate { if (active != null) paneActions(active).Item2(); };
@@ -25999,7 +26199,41 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
 
         // ---- BACKTEST STUDIO: its own data, workspace and drawings (Documents\KeystoneArc5MResearch\Studio) ------------------
-        private static string StudioFolder() { return Path.Combine(DataDirectory(), "Studio"); }
+        private static string StudioFolder() { return Path.Combine(DataStoreDirectory(), "Studio"); }
+
+        // DATA lives in Documents\KeystoneArcData (bars, studio account / journal / workspace, news) — apart from the reports and
+        // exports in Documents\KeystoneArc5MResearch, so deleting reports never deletes data. The first call moves old data over.
+        private static bool dataStoreMoved; private static readonly object dataStoreLock = new object();
+        private static string DataStoreDirectory()
+        {
+            string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "KeystoneArcData");
+            lock (dataStoreLock)
+            {
+                if (dataStoreMoved) return root; dataStoreMoved = true;
+                try
+                {
+                    string old = DataDirectory(); Directory.CreateDirectory(root);
+                    foreach (var sub in new[] { "DataCache", "Studio" })
+                    {
+                        string from = Path.Combine(old, sub), to = Path.Combine(root, sub); if (!Directory.Exists(from)) continue;
+                        if (!Directory.Exists(to)) { Directory.Move(from, to); continue; }
+                        foreach (var f in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+                        {
+                            string target = Path.Combine(to, f.Substring(from.Length).TrimStart(Path.DirectorySeparatorChar)); Directory.CreateDirectory(Path.GetDirectoryName(target));
+                            if (!File.Exists(target)) File.Move(f, target);
+                        }
+                    }
+                    foreach (var name in new[] { "ReplayAccount.txt", "ReplayDays.csv", "ReplayJournal.csv" })
+                    {
+                        string from = Path.Combine(old, name), to = Path.Combine(root, "Studio", name);
+                        if (File.Exists(from) && !File.Exists(to)) { Directory.CreateDirectory(Path.GetDirectoryName(to)); File.Move(from, to); }
+                    }
+                }
+                catch { }
+            }
+            return root;
+        }
+        private static string LabCacheFolder() { return Path.Combine(DataStoreDirectory(), "DataCache"); }
         private static int ParseStudioInt(string text, int fallback) { int v; return int.TryParse((text ?? string.Empty).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out v) ? v : fallback; }
         private static DateTime ParseStudioDate(string text) { DateTime d; return DateTime.TryParseExact((text ?? string.Empty).Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d) ? d : DateTime.MinValue; }
 
@@ -26067,7 +26301,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         // Every 1-minute file the lab saved before (DataCache), one file at a time; per session the copy with the most minutes stays.
         private static IEnumerable<List<KeystoneArcBar>> LabCacheOneMinuteFiles(string symbol)
         {
-            string folder = Path.Combine(DataDirectory(), "DataCache"); if (!Directory.Exists(folder)) yield break;
+            string folder = LabCacheFolder(); if (!Directory.Exists(folder)) yield break;
             foreach (var f in new DirectoryInfo(folder).GetFiles("*.bars").OrderBy(x => x.LastWriteTimeUtc))
             {
                 List<KeystoneArcBar> list = null;
@@ -26095,12 +26329,102 @@ namespace NinjaTrader.NinjaScript.AddOns
             return total;
         }
 
-        private void ImportLabCacheIntoStudioAsync(Dispatcher dispatcher)
+        private void ImportLabCacheIntoStudioAsync(Dispatcher dispatcher, Action<int> done)
         {
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 int n = 0; try { n = ImportLabCacheIntoStudio(); } catch { }
-                if (n > 0 && dispatcher != null) dispatcher.BeginInvoke(new Action(delegate { if (studioDataChanged != null) studioDataChanged(); if (dataLibraryRefresh != null) dataLibraryRefresh(); }));
+                if (dispatcher != null) dispatcher.BeginInvoke(new Action(delegate { if (n > 0) { if (studioDataChanged != null) studioDataChanged(); if (dataLibraryRefresh != null) dataLibraryRefresh(); } if (done != null) done(n); }));
+            });
+        }
+
+        // ---- the studio's link to NinjaTrader: one week of 1-minute bars for one instrument, saved into the studio store -----
+        // Same source as the lab's loader (open chart contract when its date fits, else the dated contract of that week).
+        // done(changed days, days received, message, ok) runs on the dispatcher; a request that never answers ends after 120 s.
+        private readonly List<BarsRequest> studioFetchRequests = new List<BarsRequest>();
+        private void FetchWeekIntoStudio(Dispatcher disp, string sym, DateTime a, DateTime b, int attempt, Action<int, int, string, bool> done)
+        {
+            Action<Action> later = x => { if (disp == null) x(); else disp.BeginInvoke(x); };
+            string source; Instrument inst = null; bool mgc = KeystoneMoveStudy.IsMgc(sym);
+            try { inst = ResolveDynamicInstrument(sym, a.AddDays(attempt == 0 ? (mgc ? 10 : 14) : (mgc ? 70 : 105)), out source); } catch (Exception ex) { source = ex.Message; }
+            if (inst == null) { done(0, 0, "NO CONTRACT • " + source, false); return; }
+            string hoursSource; TradingHours hours = null; try { hours = ResolveRequestTradingHours(sym, 1, out hoursSource); } catch { }
+            BarsRequest request;
+            try { request = new BarsRequest(inst, a, b) { BarsPeriod = new BarsPeriod { BarsPeriodType = BarsPeriodType.Minute, Value = 1 }, TradingHours = hours, MergePolicy = MergePolicy.UseGlobalSettings }; }
+            catch (Exception ex) { done(0, 0, "REQUEST ERROR • " + ex.Message, false); return; }
+            bool[] finished = { false }; string instName = inst.FullName;
+            lock (studioFetchRequests) studioFetchRequests.Add(request);
+            DispatcherTimer watchdog = null;
+            if (disp != null)
+            {
+                watchdog = new DispatcherTimer(DispatcherPriority.Normal, disp) { Interval = TimeSpan.FromSeconds(120) };
+                watchdog.Tick += delegate { watchdog.Stop(); if (finished[0]) return; finished[0] = true; done(0, 0, instName + " • NO ANSWER FROM NINJATRADER IN 120 S", false); };
+                watchdog.Start();
+            }
+            request.Request(delegate(BarsRequest reply, ErrorCode error, string message)
+            {
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    var list = new List<KeystoneArcBar>(); string problem = null; int changed = 0;
+                    try
+                    {
+                        if (error != ErrorCode.NoError || reply == null || reply.Bars == null) problem = error + " " + message;
+                        else for (int i = 0; i < reply.Bars.Count; i++) list.Add(new KeystoneArcBar { Time = reply.Bars.GetTime(i), Symbol = sym, Open = reply.Bars.GetOpen(i), High = reply.Bars.GetHigh(i), Low = reply.Bars.GetLow(i), Close = reply.Bars.GetClose(i), Volume = reply.Bars.GetVolume(i) });
+                        if (list.Count > 0) changed = KeystoneStudioStore.Merge(StudioFolder(), sym, list.Where(x => x.Time > a && x.Time <= b));
+                    }
+                    catch (Exception ex) { problem = ex.Message; }
+                    try { if (reply != null) reply.Dispose(); } catch { }
+                    lock (studioFetchRequests) studioFetchRequests.Remove(request);
+                    int days = list.GroupBy(x => KeystoneStudioStore.SessionOf(x.Time)).Count(g => g.Count() >= 60);
+                    later(delegate
+                    {
+                        if (watchdog != null) watchdog.Stop(); if (finished[0]) return; finished[0] = true;
+                        done(changed, days, problem == null ? instName + " • " + list.Count + " minutes, " + days + " days, " + changed + " saved" : instName + " • ERROR " + problem, problem == null);
+                    });
+                });
+            });
+        }
+
+        // ---- news: Documents\KeystoneArcData\News.csv (yours to edit) + built-in FOMC / payrolls --------------------------------
+        private static string NewsFile() { return Path.Combine(DataStoreDirectory(), "News.csv"); }
+        private static List<KeystoneNewsEvent> LoadStudioNews()
+        {
+            var file = new List<KeystoneNewsEvent>();
+            try { if (File.Exists(NewsFile())) file = KeystoneNews.ParseCsv(File.ReadAllLines(NewsFile())); } catch { }
+            return KeystoneNews.Combine(KeystoneNews.BuiltIn(new DateTime(2019, 1, 1), DateTime.Today.AddDays(400)), file);
+        }
+        private static DateTime NewYorkTime(DateTimeOffset at)
+        {
+            foreach (var id in new[] { "Eastern Standard Time", "America/New_York" })
+            {
+                try { return TimeZoneInfo.ConvertTime(at, TimeZoneInfo.FindSystemTimeZoneById(id)).DateTime; } catch { }
+            }
+            return at.ToLocalTime().DateTime;
+        }
+        private static int FetchForexFactoryNews(bool force)
+        {
+            string stamp = Path.Combine(DataStoreDirectory(), "News.fetched.txt");
+            try { if (!force && File.Exists(stamp) && (DateTime.UtcNow - File.GetLastWriteTimeUtc(stamp)).TotalMinutes < 60) return 0; } catch { }
+            var found = new List<KeystoneNewsEvent>();
+            try { System.Net.ServicePointManager.SecurityProtocol |= (System.Net.SecurityProtocolType)3072; } catch { }
+            foreach (var url in new[] { "https://nfs.faireconomy.media/ff_calendar_thisweek.json", "https://nfs.faireconomy.media/ff_calendar_nextweek.json" })
+            {
+                try { using (var wc = new System.Net.WebClient()) { wc.Headers.Add("User-Agent", "KeystoneArc"); found.AddRange(KeystoneNews.ParseForexFactory(wc.DownloadString(url), NewYorkTime)); } } catch { }
+            }
+            Directory.CreateDirectory(DataStoreDirectory()); try { File.WriteAllText(stamp, DateTime.UtcNow.ToString("o")); } catch { }
+            var keep = found.Where(e => e.Currency == "USD" && (e.Impact == "HIGH" || e.Impact == "MEDIUM")).ToList(); if (keep.Count == 0) return 0;
+            var have = new HashSet<string>(); try { if (File.Exists(NewsFile())) foreach (var l in File.ReadAllLines(NewsFile())) have.Add(l.Trim()); } catch { }
+            var add = keep.Select(KeystoneNews.ToCsv).Where(l => !have.Contains(l)).ToList(); if (add.Count == 0) return 0;
+            bool fresh = !File.Exists(NewsFile());
+            File.AppendAllLines(NewsFile(), (fresh ? new[] { "# date,time (New York),currency,impact (HIGH / MEDIUM),title — add your own lines; FOMC + payrolls are built in" } : new string[0]).Concat(add));
+            return add.Count;
+        }
+        private void FetchNewsAsync(Dispatcher dispatcher, Action<string> done)
+        {
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                int n = 0; string err = null; try { n = FetchForexFactoryNews(false); } catch (Exception ex) { err = ex.Message; }
+                if (dispatcher != null && (n > 0 || err != null)) dispatcher.BeginInvoke(new Action(delegate { if (done != null) done(err ?? (n + " news added")); }));
             });
         }
 
@@ -26147,7 +26471,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             for (int i = 0; i < 4; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             var head = new StackPanel(); head.Children.Add(Txt("DATA LIBRARY", Blue, 22, FontWeights.Bold));
-            head.Children.Add(new TextBlock { Text = "The Backtest Studio's own 1-minute bars, saved in " + Path.Combine(StudioFolder(), "<instrument>") + ". Download once; the studio opens with them every time. A day is replaced only by a fuller copy of the same day, so contracts are never mixed inside a day.", Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 8) });
+            head.Children.Add(new TextBlock { Text = "The Backtest Studio's own 1-minute bars, from NinjaTrader, saved in " + Path.Combine(StudioFolder(), "<instrument>") + " — a DATA folder apart from the reports (" + DataDirectory() + "), so deleting reports never deletes data. Download once; the studio opens with them every time. A day is replaced only by a fuller copy of the same day, so contracts are never mixed inside a day.", Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 8) });
             Grid.SetRow(head, 0); root.Children.Add(head);
             var coverage = new StackPanel { Margin = new Thickness(0, 0, 0, 10) }; Grid.SetRow(coverage, 1); root.Children.Add(coverage);
             Action<string, UIElement, System.Windows.Controls.Panel> add = (l, e, p) => { var sp = new StackPanel { Margin = new Thickness(2, 0, 8, 0) }; sp.Children.Add(new TextBlock { Text = l, Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold }); sp.Children.Add(e); p.Children.Add(sp); };
@@ -26198,12 +26522,31 @@ namespace NinjaTrader.NinjaScript.AddOns
                     coverage.Children.Add(line);
                 }
             };
+            // news
+            var newsLine = new TextBlock { Foreground = Text, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
+            Action refreshNews = delegate
+            {
+                var all = LoadStudioNews(); int high = all.Count(e => e.Impact == "HIGH");
+                var nextNews = all.FirstOrDefault(e => e.Time >= DateTime.Now && e.Impact == "HIGH");
+                newsLine.Text = "NEWS • " + high + " high-impact USD events known (FOMC 2019–2026 + payrolls built in, the rest from the ForexFactory week feed and your News.csv)" + (nextNews != null ? " • next: " + nextNews.Time.ToString("ddd MM-dd HH:mm") + " " + nextNews.Title : "") + ". CPI / PPI / retail sales etc. of past years: add lines to News.csv (date,time,USD,HIGH,title).";
+            };
+            var newsUpdate = Btn("UPDATE NEWS NOW", Card); newsUpdate.Height = 26; newsUpdate.Margin = new Thickness(0, 4, 6, 0);
+            var newsOpen = Btn("OPEN NEWS FILE", Card); newsOpen.Height = 26; newsOpen.Margin = new Thickness(0, 4, 6, 0);
+            newsUpdate.Click += delegate
+            {
+                var disp = w.Dispatcher; newsLine.Text = "GETTING THIS + NEXT WEEK FROM FOREXFACTORY…";
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate { int n = 0; string err = null; try { n = FetchForexFactoryNews(true); } catch (Exception ex) { err = ex.Message; } if (disp != null) disp.BeginInvoke(new Action(delegate { refreshNews(); addLog(err != null ? "NEWS UPDATE FAILED • " + err : "NEWS • " + n + " new lines in News.csv", err != null ? Red : Green); })); });
+            };
+            newsOpen.Click += delegate { try { if (!File.Exists(NewsFile())) { Directory.CreateDirectory(DataStoreDirectory()); File.WriteAllText(NewsFile(), "# date,time (New York),currency,impact (HIGH / MEDIUM),title — e.g. 2026-10-14,08:30,USD,HIGH,CPI\r\n"); } System.Diagnostics.Process.Start(NewsFile()); } catch (Exception ex) { addLog("COULD NOT OPEN News.csv • " + ex.Message, Red); } };
+            var newsRow = new WrapPanel(); newsRow.Children.Add(newsUpdate); newsRow.Children.Add(newsOpen);
+            var newsStack = new StackPanel(); newsStack.Children.Add(newsLine); newsStack.Children.Add(newsRow);
+            head.Children.Add(newsStack); refreshNews();
             dataLibraryRefresh = refresh; refresh();
 
             // the download queue: one week per request, the contract of that week (open chart contract first, then the expiry
             // after the week + 10 days); a near-empty week is asked once more on the next contract
             var queue = new Queue<Tuple<string, DateTime, DateTime, int>>(); int done = 0, total = 0, daysSaved = 0;
-            Action next = null; Action<Action> later = a => { var d = w.Dispatcher; if (d == null) a(); else d.BeginInvoke(a); };
+            Action next = null;
             Action finish = delegate
             {
                 dataLibraryBusy = false; go.IsEnabled = true; stop.IsEnabled = false; dataLibraryRequest = null;
@@ -26215,43 +26558,15 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (dataLibraryStop || queue.Count == 0) { finish(); return; }
                 var item = queue.Dequeue(); string sym = item.Item1; DateTime a = item.Item2, b = item.Item3; int attempt = item.Item4;
                 progress.Text = "DOWNLOADING " + sym + " " + a.ToString("yyyy-MM-dd") + " → " + b.ToString("yyyy-MM-dd") + " • week " + (done + 1) + " of " + total + " • " + daysSaved + " days saved"; progress.Foreground = Cyan;
-                string source; Instrument inst = null;
-                try { inst = ResolveDynamicInstrument(sym, a.AddDays(attempt == 0 ? (KeystoneMoveStudy.IsMgc(sym) ? 10 : 14) : (KeystoneMoveStudy.IsMgc(sym) ? 70 : 105)), out source); } catch (Exception ex) { source = ex.Message; }
-                if (inst == null) { addLog(sym + " " + a.ToString("yyyy-MM-dd") + " • NO CONTRACT • " + source, Red); done++; later(next); return; }
-                string hoursSource; TradingHours hours = null; try { hours = ResolveRequestTradingHours(sym, 1, out hoursSource); } catch { hoursSource = "Default 24 x 7"; }
-                BarsRequest request;
-                try { request = new BarsRequest(inst, a, b) { BarsPeriod = new BarsPeriod { BarsPeriodType = BarsPeriodType.Minute, Value = 1 }, TradingHours = hours, MergePolicy = MergePolicy.UseGlobalSettings }; }
-                catch (Exception ex) { addLog(sym + " " + a.ToString("yyyy-MM-dd") + " • REQUEST ERROR • " + ex.Message, Red); done++; later(next); return; }
-                dataLibraryRequest = request; string instName = inst.FullName;
-                request.Request(delegate(BarsRequest reply, ErrorCode error, string message)
+                FetchWeekIntoStudio(w.Dispatcher, sym, a, b, attempt, (changed, days, message, ok) =>
                 {
-                    System.Threading.ThreadPool.QueueUserWorkItem(delegate
-                    {
-                        var list = new List<KeystoneArcBar>(); string problem = null; int changed = 0;
-                        try
-                        {
-                            if (error != ErrorCode.NoError || reply == null || reply.Bars == null) problem = error + " " + message;
-                            else for (int i = 0; i < reply.Bars.Count; i++) list.Add(new KeystoneArcBar { Time = reply.Bars.GetTime(i), Symbol = sym, Open = reply.Bars.GetOpen(i), High = reply.Bars.GetHigh(i), Low = reply.Bars.GetLow(i), Close = reply.Bars.GetClose(i), Volume = reply.Bars.GetVolume(i) });
-                            if (list.Count > 0) changed = KeystoneStudioStore.Merge(StudioFolder(), sym, list.Where(x => x.Time > a && x.Time <= b));
-                        }
-                        catch (Exception ex) { problem = ex.Message; }
-                        try { if (reply != null) reply.Dispose(); } catch { }
-                        later(delegate
-                        {
-                            int days = list.GroupBy(x => KeystoneStudioStore.SessionOf(x.Time)).Count(g => g.Count() >= 60);
-                            bool thin = problem == null && days < 2 && a.AddDays(4) < DateTime.Today;
-                            if (thin && attempt == 0) { addLog(sym + " " + a.ToString("yyyy-MM-dd") + " • " + instName + " gave " + list.Count + " minutes → trying the next contract", Gold); queue = new Queue<Tuple<string, DateTime, DateTime, int>>(new[] { Tuple.Create(sym, a, b, 1) }.Concat(queue)); next(); return; }
-                            done++; daysSaved += changed;
-                            if (problem != null) addLog(sym + " " + a.ToString("yyyy-MM-dd") + " • " + instName + " • ERROR " + problem, Red);
-                            else
-                            {
-                                addLog(sym + " " + a.ToString("yyyy-MM-dd") + " → " + b.ToString("MM-dd") + " • " + instName + " • " + list.Count + " minutes, " + days + " days • " + changed + " saved / improved", days > 0 ? Green : Muted);
-                                if (b.Date < DateTime.Today) KeystoneStudioStore.MarkRequested(StudioFolder(), sym, KeystoneStudioStore.WeekKey(a.AddDays(1)));
-                            }
-                            if (done % 8 == 0) { refresh(); if (studioDataChanged != null) studioDataChanged(); }
-                            next();
-                        });
-                    });
+                    bool thin = ok && days < 2 && a.AddDays(4) < DateTime.Today;
+                    if (thin && attempt == 0) { addLog(sym + " " + a.ToString("yyyy-MM-dd") + " • " + message + " → trying the next contract", Gold); queue = new Queue<Tuple<string, DateTime, DateTime, int>>(new[] { Tuple.Create(sym, a, b, 1) }.Concat(queue)); next(); return; }
+                    done++; daysSaved += changed;
+                    addLog(sym + " " + a.ToString("yyyy-MM-dd") + " → " + b.ToString("MM-dd") + " • " + message, !ok ? Red : days > 0 ? Green : Muted);
+                    if (ok && b.Date < DateTime.Today) KeystoneStudioStore.MarkRequested(StudioFolder(), sym, KeystoneStudioStore.WeekKey(a.AddDays(1)));
+                    if (done % 8 == 0) { refresh(); if (studioDataChanged != null) studioDataChanged(); }
+                    next();
                 });
             };
             dataLibraryDownload = (symChoice, from, to, onlyMissing) =>
