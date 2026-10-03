@@ -70,24 +70,21 @@ in every year.
 
 ## Replay trader
 
-MATH LABS → REPLAY TRADER. It opens with the 1-minute bars loaded in Step 1, or with the bars saved on this PC by
-earlier loads. Pick an instrument, a session (18:00 → 17:00 New York), a start time and LOAD DAY, then ▶ PLAY.
+MATH LABS → REPLAY TRADER (opens full screen). One tab per instrument (MNQ, MGC) on ONE New York clock and ONE
+account — switch tabs and trade both. Pick a session (◀ PREV DAY / NEXT DAY ▶ load the neighbouring day after saving
+the current one), a start time, LOAD DAY, ▶ PLAY.
 
-- Speed follows the wall clock: REAL TIME = one minute of chart per 60 seconds; 2× … 240× are exact multiples.
-- The clock shows New York time and how long until the current candle closes (1M … 4H, D).
-- Mouse wheel = zoom, drag = scroll back / forward, LIVE ▶| = back to the newest candle.
-- Orders: MARKET, LIMIT or STOP (click the chart to set the price), contracts, stop / target in points. Drag the
-  STOP, TARGET or a working order's line to move it. CANCEL ORDERS removes the working orders. Keys B / S / C,
-  space = play / pause.
-- Tools: horizontal lines and trend lines (two clicks), CLEAR DRAWINGS.
-- One account: ACCOUNT START $ is the whole drawdown — at $0 the account is blown. The balance carries over from
-  day to day (Documents\KeystoneArc5MResearch\ReplayAccount.txt) until NEW ACCOUNT. END DAY + SAVE closes the day:
-  every trade is in ReplayJournal.csv and each day in ReplayDays.csv.
-- Each minute's open, high, low and close are real; the order of the ticks inside a minute is simulated.
-- SIGNALS (STRATEGY): MANUAL, 1M / 5M FVG 50% limit, 1M FVG candle close, FVG retest + break, BH, GOLDEN, ASIAN 75 —
-  buys and sells. ▲ / ▼ appear only when the replay clock reaches them (no peeking); A / B / C = the lab's setup
-  grade where it has one (learned from the 45 days before the replayed day). While a signal runs its stop and target
-  are drawn. AUTO TRADE THE SIGNALS takes each one (when flat) with its own stop and target.
-- DAY GOAL $ / DAY LOSS LIMIT $: the box fills yellow toward the goal (green when reached) and red toward the loss
-  limit. Reaching either flattens and locks the day (STOP THE DAY AT THE GOAL can be unticked). MAX CONTRACTS caps the
-  position; a held key no longer stacks orders.
+- Data: your NinjaTrader 1-minute bars. Each minute's open, high, low and close are real; inside the minute the price
+  moves along a realistic wiggling path (seeded, so the same day replays the same way) that never leaves the real
+  high / low. REAL TIME = 60 seconds a minute; 2× … 240×.
+- Chart (TradingView-style): mouse wheel = zoom at the mouse; drag = scroll, including empty space to the right of the
+  last candle; drag the price axis = stretch it (double-click = auto); drag the time axis = zoom; double-click the
+  chart = back to LIVE; crosshair with price + time.
+- Left toolbar: cursor, horizontal line, trend line, rectangle, LONG / SHORT position tool (entry → target, stop at
+  half = 2 : 1, with points and $), clear. Right-click a drawing deletes it.
+- Right panel per instrument: candles 1M … D, contracts, MARKET / LIMIT / STOP (click the chart for the price), stop /
+  target points, BUY / SELL, close, cancel orders, the position and today's trades.
+- In a trade: green target zone, red stop zone, a pulsing P/L box between the entry and the price; drag the STOP and
+  TARGET lines; right-click an order line cancels it.
+- Top bar: account $ (= the whole drawdown, blown at $0, carries over), day goal / loss limit box (yellow → green,
+  red), max contracts, strategy signals (▲ / ▼, A / B / C) and AUTO TRADE, END DAY + SAVE. Keys B / S / C, space.

@@ -5935,11 +5935,25 @@ namespace NinjaTrader.NinjaScript
         {
             bool highFirst = b.Close < b.Open || (b.Close == b.Open && b.High - b.Open < b.Open - b.Low);
             double a = highFirst ? b.High : b.Low, c = highFirst ? b.Low : b.High;
-            double l0 = Math.Abs(a - b.Open), l1 = Math.Abs(c - a), l2 = Math.Abs(b.Close - c), total = l0 + l1 + l2;
+            double l0 = Math.Abs(a - b.Open), l1 = Math.Abs(c - a), l2 = Math.Abs(b.Close - c), total = l0 + l1 + l2, range = b.High - b.Low;
             if (total <= 0 || steps < 3) return b.Close;
             // the steps where the walk stands exactly on the first extreme (k1) and the second (k2)
             int k1 = Math.Max(1, Math.Min(steps - 2, (int)Math.Round(steps * l0 / total))), k2 = Math.Max(k1 + 1, Math.Min(steps - 1, (int)Math.Round(steps * (l0 + l1) / total)));
-            double p = k <= 0 ? b.Open : k >= steps ? b.Close : k <= k1 ? b.Open + (a - b.Open) * k / k1 : k <= k2 ? a + (c - a) * (k - k1) / (double)(k2 - k1) : c + (b.Close - c) * (k - k2) / (double)(steps - k2);
+            if (k <= 0) return b.Open; if (k >= steps) return b.Close; if (k == k1) return a; if (k == k2) return c;
+            double from, to; int ka, kb; int leg;
+            if (k < k1) { from = b.Open; to = a; ka = 0; kb = k1; leg = 0; } else if (k < k2) { from = a; to = c; ka = k1; kb = k2; leg = 1; } else { from = c; to = b.Close; ka = k2; kb = steps; leg = 2; }
+            double t = (k - ka) / (double)Math.Max(1, kb - ka), p = from + (to - from) * t;
+            // realistic wiggle: smooth swings that vanish at the leg's ends + one-tick jitter (seeded by the minute, so a replay
+            // is the same every time); kept inside the minute's real high / low, so the open, high, low and close stay exact
+            unchecked
+            {
+                long seed = b.Time.Ticks / 600000000L * 31 + leg * 7 + 1; Func<long, double> rnd = n => { long x = (seed * 6364136223846793005L + n * 1442695040888963407L) >> 11; return (x & 0xFFFFF) / (double)0xFFFFF; };
+                double f1 = 2 + 3 * rnd(1), f2 = 5 + 4 * rnd(2), ph1 = 6.283 * rnd(3), ph2 = 6.283 * rnd(4), amp = 0.22 * range;
+                p += amp * Math.Sin(Math.PI * t) * (0.65 * Math.Sin(6.283 * f1 * t + ph1) + 0.35 * Math.Sin(6.283 * f2 * t + ph2));
+                p += (rnd(100 + k) - 0.5) * 2 * tick;
+            }
+            double lo = Math.Min(from, to) - 0.2 * range, hi = Math.Max(from, to) + 0.2 * range;
+            p = Math.Max(Math.Max(lo, b.Low), Math.Min(Math.Min(hi, b.High), p));
             return Math.Round(p / tick) * tick;
         }
 
@@ -5980,6 +5994,13 @@ namespace NinjaTrader.NinjaScript
             CheckOrders(); CheckBracket();
             if (Step >= StepsPerBar) { Step = 0; BarIndex++; Time = b.Time; }
             if (Finished) { Orders.Clear(); if (Position != 0) CloseAll("SESSION END"); }
+            return !Finished;
+        }
+
+        // Advance until the replay clock reaches t (several instruments stay on one clock); false at the end of the session.
+        public bool AdvanceTo(DateTime t, int maxSteps)
+        {
+            int n = 0; while (!Finished && Time < t && n < maxSteps) { Advance(); n++; }
             return !Finished;
         }
 
@@ -11393,9 +11414,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-04g";
+        private const string KeystoneBuildShort = "BUILD 2026-10-04h";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-04h • REPLAY TRADER v3: MNQ + MGC TABS ON ONE CLOCK AND ONE ACCOUNT, TRADINGVIEW-STYLE CHART (WHEEL ZOOM AT THE MOUSE, DRAG ANYWHERE INCL. SPACE ON THE RIGHT, PRICE / TIME AXIS STRETCH, CROSSHAIR), DRAWING TOOLBAR (LINE, TREND, RECTANGLE, LONG / SHORT R:R TOOL), TARGET / STOP ZONES + ANIMATED P/L BOX, REALISTIC TICK PATH, PREV / NEXT DAY, FULL WINDOW • BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -25218,6 +25239,21 @@ namespace NinjaTrader.NinjaScript.AddOns
             return null;
         }
 
+        // ---- REPLAY TRADER v3: one tab per instrument on one clock and one account; a TradingView-style chart in each tab --
+        private sealed class ReplayDrawing { public string Kind = "HLINE"; public DateTime T1, T2; public double P1, P2; }
+        private sealed class ReplayPane
+        {
+            public string Symbol = string.Empty; public List<KeystoneArcBar> All = new List<KeystoneArcBar>(); public KeystoneReplayTrader Trader; public int Tf = 1;
+            public double Spacing = 9, RightOffset = 14, PCenter, PRange; public bool Follow = true, PriceAuto = true; public int LastCount, SavedFills, Pulse;
+            public List<KeystoneReplaySignal> Signals = new List<KeystoneReplaySignal>(); public List<ReplayDrawing> Drawings = new List<ReplayDrawing>();
+            public Canvas Canvas; public Border Hit; public TextBlock PosText; public StackPanel TradesList; public TextBox Qty, Price, Sl, Tp; public ComboBox OrderType, TfBox; public string Tool = "CURSOR";
+            public double PlotW = 1000, PlotH = 500, Top = 8, AxisW = 84, TimeH = 24, Hi = 1, Lo = 0; public List<KeystoneArcBar> Candles = new List<KeystoneArcBar>();
+            public bool MouseOver; public double MouseX, MouseY; public ReplayDrawing Preview;
+            public string Drag; public double DownX, DownY, Ro0, Pc0, Pr0, S0; public KeystoneReplayOrder DragOrder; public bool Moved;
+        }
+
+        private static SolidColorBrush Tint(SolidColorBrush b, byte alpha) { var x = new SolidColorBrush(Color.FromArgb(alpha, b.Color.R, b.Color.G, b.Color.B)); x.Freeze(); return x; }
+
         private void OpenReplayTrader()
         {
             if (replayTraderWindow != null) { replayTraderWindow.Activate(); return; }
@@ -25226,391 +25262,505 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (KeystoneBracket.IsOneMinute(mgcBars) && mgcBars.Count > 0) loaded["MGC"] = mgcBars.OrderBy(b => b.Time).ToList();
             string fromDisk = string.Empty;
             foreach (string sym in new[] { "MNQ", "MGC" }) if (!loaded.ContainsKey(sym)) { var saved = SavedOneMinuteBars(sym); if (saved != null) { loaded[sym] = saved; fromDisk += (fromDisk == "" ? "" : ", ") + sym; } }
-            var w = new Window { Title = "KEYSTONE ARC • REPLAY TRADER", Width = 1560, Height = 940, MinWidth = 900, MinHeight = 600, Background = Bg, Foreground = Text, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
-            FitWindowToScreen(w); replayTraderWindow = w;
-            var root = new Grid { Margin = new Thickness(10) };
-            for (int i = 0; i < 5; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var w = new Window { Title = "KEYSTONE ARC • REPLAY TRADER", Width = 1600, Height = 960, MinWidth = 900, MinHeight = 600, Background = Bg, Foreground = Text, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true, WindowState = WindowState.Maximized };
+            replayTraderWindow = w;
+            var root = new Grid { Margin = new Thickness(6) };
+            for (int i = 0; i < 3; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            var head = new StackPanel(); head.Children.Add(Txt("REPLAY TRADER • trade a real day candle by candle (New York time)", Gold, 20, FontWeights.Bold));
-            head.Children.Add(Txt("Built from the saved / loaded 1-minute bars. Each minute's open, high, low and close are real; the path inside the minute is simulated (open → high/low → close). Mouse wheel = zoom • drag = scroll • LIVE = newest candle • drag the STOP / TARGET / order lines • click the chart to set a LIMIT / STOP price • keys B / S / C, space = play / pause. Every trade → " + ReplayJournalFile(), Muted, 11, FontWeights.Normal));
-            Grid.SetRow(head, 0); root.Children.Add(head);
-            Action<string, UIElement, Panel> add = (l, e, p) => { var sp = new StackPanel { Margin = new Thickness(2, 0, 8, 0) }; sp.Children.Add(new TextBlock { Text = l, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(e); p.Children.Add(sp); };
-            // row 1: day, candles, speed, account
-            var row1 = new WrapPanel { Margin = new Thickness(0, 6, 0, 2) };
-            var instBox = Select(loaded.Count == 0 ? new[] { "NO DATA" } : loaded.Keys.ToArray()); instBox.SelectedIndex = 0; instBox.Width = 90;
-            var dayBox = new ComboBox { Width = 180 }; var startBox = Input("0930"); startBox.Width = 60;
-            string[] tfNames = { "1M", "2M", "3M", "5M", "15M", "30M", "1H", "4H", "D" }; int[] tfMinutes = { 1, 2, 3, 5, 15, 30, 60, 240, 1440 };
-            var tfBox = Select(tfNames); tfBox.SelectedIndex = 0; tfBox.Width = 70;
-            string[] speedNames = { "REAL TIME • 1 MIN = 60 S", "2× • 1 MIN = 30 S", "5× • 1 MIN = 12 S", "10× • 1 MIN = 6 S", "20× • 1 MIN = 3 S", "60× • 1 MIN = 1 S", "240× • 1 MIN = 0.25 S" }; double[] speedSeconds = { 60, 30, 12, 6, 3, 1, 0.25 };
-            var speedBox = Select(speedNames); speedBox.SelectedIndex = 0; speedBox.Width = 200;
-            var loadBtn = Btn("LOAD DAY", Cyan); var playBtn = Btn("▶ PLAY", Green); var stepBtn = Btn("+1 MIN", Card); var skipBtn = Btn("+10 MIN", Card);
-            var startBalBox = Input("2000"); startBalBox.Width = 80; startBalBox.ToolTip = "One account: its starting balance is the whole drawdown — at $0 the account is blown. It carries over from day to day until NEW ACCOUNT.";
-            var newAccBtn = Btn("NEW ACCOUNT", Card); var liveBtn = Btn("LIVE ▶|", Cyan);
-            foreach (var b in new[] { loadBtn, playBtn, stepBtn, skipBtn, newAccBtn, liveBtn }) { b.Height = 30; b.Margin = new Thickness(4, 14, 4, 0); b.Padding = new Thickness(12, 0, 12, 0); }
-            add("INSTRUMENT", instBox, row1); add("SESSION (18:00 → 17:00 NY)", dayBox, row1); add("START AT (HHMM NY)", startBox, row1); add("CANDLES", tfBox, row1); add("SPEED", speedBox, row1);
-            row1.Children.Add(loadBtn); row1.Children.Add(playBtn); row1.Children.Add(stepBtn); row1.Children.Add(skipBtn);
-            add("ACCOUNT START $ (= MAX DRAWDOWN)", startBalBox, row1); row1.Children.Add(newAccBtn); row1.Children.Add(liveBtn);
-            Grid.SetRow(row1, 1); root.Children.Add(row1);
-            // row 2: orders
-            var row2 = new WrapPanel { Margin = new Thickness(0, 4, 0, 4) };
-            var qtyBox = Input("1"); qtyBox.Width = 50; var orderTypeBox = Select("MARKET", "LIMIT", "STOP"); orderTypeBox.SelectedIndex = 0; orderTypeBox.Width = 90; var priceBox = Input(""); priceBox.Width = 90; priceBox.ToolTip = "LIMIT / STOP price — or click the chart";
-            var slBox = Input("0"); slBox.Width = 60; var tpBox = Input("0"); tpBox.Width = 60;
-            var buyBtn = Btn("BUY", Green); var sellBtn = Btn("SELL", Red); var flatBtn = Btn("CLOSE", Gold); var cancelOrdersBtn = Btn("CANCEL ORDERS", Card); var endBtn = Btn("END DAY + SAVE", Orchid);
-            foreach (var b in new[] { buyBtn, sellBtn, flatBtn }) { b.Height = 36; b.Width = 100; b.FontSize = 15; b.Margin = new Thickness(4, 12, 4, 0); }
-            foreach (var b in new[] { cancelOrdersBtn, endBtn }) { b.Height = 30; b.Margin = new Thickness(4, 14, 4, 0); b.Padding = new Thickness(10, 0, 10, 0); }
-            var drawBox = Select("DRAW: OFF", "HORIZONTAL LINE", "TREND LINE"); drawBox.SelectedIndex = 0; drawBox.Width = 150; var clearDrawBtn = Btn("CLEAR DRAWINGS", Card); clearDrawBtn.Height = 30; clearDrawBtn.Margin = new Thickness(4, 14, 4, 0); clearDrawBtn.Padding = new Thickness(10, 0, 10, 0);
-            add("CONTRACTS", qtyBox, row2); add("ORDER", orderTypeBox, row2); add("PRICE (LIMIT / STOP)", priceBox, row2); add("STOP PTS (0 = NONE)", slBox, row2); add("TARGET PTS (0 = NONE)", tpBox, row2);
-            row2.Children.Add(buyBtn); row2.Children.Add(sellBtn); row2.Children.Add(flatBtn); row2.Children.Add(cancelOrdersBtn); row2.Children.Add(endBtn);
-            add("TOOLS", drawBox, row2); row2.Children.Add(clearDrawBtn);
-            var maxQtyBox = Input("20"); maxQtyBox.Width = 50; maxQtyBox.ToolTip = "The most contracts the position may hold (a held key or many clicks cannot stack more)";
-            var goalBox = Input("500"); goalBox.Width = 70; var lossLimitBox = Input("500"); lossLimitBox.Width = 70;
-            var stopAtGoalBox = new CheckBox { Content = "STOP THE DAY AT THE GOAL", IsChecked = true, Foreground = Text, Margin = new Thickness(4, 16, 8, 0) };
-            var signalBox = Select(KeystoneReplaySignals.Names); signalBox.SelectedIndex = 0; signalBox.Width = 290;
-            var autoBox = new CheckBox { Content = "AUTO TRADE THE SIGNALS", IsChecked = false, Foreground = Text, Margin = new Thickness(4, 16, 8, 0) };
-            add("MAX CONTRACTS", maxQtyBox, row2); add("DAY GOAL $ (0 = OFF)", goalBox, row2); add("DAY LOSS LIMIT $ (0 = OFF)", lossLimitBox, row2); row2.Children.Add(stopAtGoalBox);
-            add("SIGNALS (STRATEGY)", signalBox, row2); row2.Children.Add(autoBox);
-            Grid.SetRow(row2, 2); root.Children.Add(row2);
-            var clockRow = new WrapPanel { Margin = new Thickness(0, 2, 0, 2) };
-            var clock = new TextBlock { Text = "NY --:--:--", Foreground = Cyan, FontSize = 20, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(4, 0, 18, 0) };
-            var pnl = new TextBlock { Text = "LOAD A DAY", Foreground = Gold, FontSize = 18, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
-            var goalFill = new System.Windows.Shapes.Rectangle { Fill = Gold, Width = 0, Height = 26, HorizontalAlignment = HorizontalAlignment.Left };
+            Action<string, UIElement, System.Windows.Controls.Panel> add = (l, e, p) => { var sp = new StackPanel { Margin = new Thickness(2, 0, 6, 0) }; sp.Children.Add(new TextBlock { Text = l, Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold }); sp.Children.Add(e); p.Children.Add(sp); };
+            Func<string, Brush, Button> small = (t, b) => { var x = Btn(t, b); x.Height = 28; x.FontSize = 11; x.Margin = new Thickness(3, 12, 3, 0); x.Padding = new Thickness(10, 0, 10, 0); return x; };
+            // ---- top bar: day, speed, account, day limits, strategy
+            var top = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
+            var sessionList = loaded.Values.SelectMany(l => l.GroupBy(b => KeystoneIdeas.SessionDay(b.Time.AddMinutes(-1))).Where(g => g.Count() >= 60).Select(g => g.Key)).Distinct().OrderByDescending(d => d).ToList();
+            var dayBox = new ComboBox { Width = 160 }; foreach (var d in sessionList) dayBox.Items.Add(d.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture)); if (dayBox.Items.Count > 0) dayBox.SelectedIndex = 0;
+            var startBox = Input("0930"); startBox.Width = 56;
+            string[] speedNames = { "REAL TIME • 1 MIN = 60 S", "2× • 30 S", "5× • 12 S", "10× • 6 S", "20× • 3 S", "60× • 1 S", "240× • 0.25 S" }; double[] speedSeconds = { 60, 30, 12, 6, 3, 1, 0.25 };
+            var speedBox = Select(speedNames); speedBox.SelectedIndex = 0; speedBox.Width = 180;
+            var loadBtn = small("LOAD DAY", Cyan); var prevDayBtn = small("◀ PREV DAY", Card); var nextDayBtn = small("NEXT DAY ▶", Card); var playBtn = small("▶ PLAY", Green); var stepBtn = small("+1 MIN", Card); var skipBtn = small("+10 MIN", Card);
+            var startBalBox = Input("2000"); startBalBox.Width = 70; var newAccBtn = small("NEW ACCOUNT", Card); var endBtn = small("END DAY + SAVE", Orchid);
+            var goalBox = Input("500"); goalBox.Width = 60; var lossLimitBox = Input("500"); lossLimitBox.Width = 60; var maxQtyBox = Input("20"); maxQtyBox.Width = 44;
+            var stopAtGoalBox = new CheckBox { Content = "STOP AT GOAL", IsChecked = true, Foreground = Text, Margin = new Thickness(4, 16, 6, 0) };
+            var signalBox = Select(KeystoneReplaySignals.Names); signalBox.SelectedIndex = 0; signalBox.Width = 250;
+            var autoBox = new CheckBox { Content = "AUTO TRADE", IsChecked = false, Foreground = Text, Margin = new Thickness(4, 16, 6, 0) };
+            add("SESSION (18:00 → 17:00 NY)", dayBox, top); add("START (NY)", startBox, top); top.Children.Add(prevDayBtn); top.Children.Add(loadBtn); top.Children.Add(nextDayBtn); add("SPEED", speedBox, top); top.Children.Add(playBtn); top.Children.Add(stepBtn); top.Children.Add(skipBtn);
+            add("ACCOUNT $ (= MAX DD)", startBalBox, top); top.Children.Add(newAccBtn); top.Children.Add(endBtn);
+            add("DAY GOAL $", goalBox, top); add("DAY LOSS $", lossLimitBox, top); top.Children.Add(stopAtGoalBox); add("MAX QTY", maxQtyBox, top);
+            add("STRATEGY SIGNALS", signalBox, top); top.Children.Add(autoBox);
+            Grid.SetRow(top, 0); root.Children.Add(top);
+            // ---- clock, goal box, account
+            var info = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
+            var clock = new TextBlock { Text = "NY --:--:--", Foreground = Cyan, FontSize = 18, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(4, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center };
+            var goalFill = new System.Windows.Shapes.Rectangle { Fill = Gold, Width = 0, Height = 24, HorizontalAlignment = HorizontalAlignment.Left };
             var goalText = new TextBlock { Text = "DAY GOAL", Foreground = Text, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
-            var goalGrid = new Grid { Width = 300, Height = 26 }; goalGrid.Children.Add(goalFill); goalGrid.Children.Add(goalText);
-            var goalBorder = new Border { BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4), Child = goalGrid, Background = Card, Margin = new Thickness(0, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
-            clockRow.Children.Add(clock); clockRow.Children.Add(goalBorder); clockRow.Children.Add(pnl);
-            Grid.SetRow(clockRow, 3); root.Children.Add(clockRow);
-            var status = Txt(loaded.Count == 0 ? "NO 1-MINUTE BARS • none loaded and none saved on this PC yet: run any Step 1 test with 1-minute bars once (e.g. FVG RETEST 1M or MICRO A DAY, BOTH, your dates) — after that the replay trader opens with them every time." : "Choose a session and press LOAD DAY." + (fromDisk != "" ? " (" + fromDisk + " from the data saved on this PC by earlier loads)" : ""), loaded.Count == 0 ? Red : Cyan, 12, FontWeights.Bold);
-            status.TextWrapping = TextWrapping.Wrap; Grid.SetRow(status, 4); root.Children.Add(status);
-            var body = new Grid(); body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(380) });
-            var canvas = new Canvas { Background = Panel, ClipToBounds = true, MinHeight = 400, Cursor = System.Windows.Input.Cursors.Cross };
-            var chartBorder = new Border { BorderBrush = Card, BorderThickness = new Thickness(1), Child = canvas, Margin = new Thickness(0, 4, 6, 0) }; Grid.SetColumn(chartBorder, 0); body.Children.Add(chartBorder);
-            var side = new StackPanel(); var sideScroll = new ScrollViewer { Content = side, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 4, 0, 0) }; Grid.SetColumn(sideScroll, 1); body.Children.Add(sideScroll);
-            Grid.SetRow(body, 5); root.Children.Add(body);
+            var goalGrid = new Grid { Width = 320, Height = 24 }; goalGrid.Children.Add(goalFill); goalGrid.Children.Add(goalText);
+            var goalBorder = new Border { BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4), Child = goalGrid, Background = Card, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center };
+            var accText = new TextBlock { Text = "", Foreground = Gold, FontSize = 15, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
+            var status = new TextBlock { Text = loaded.Count == 0 ? "NO 1-MINUTE BARS • run any Step 1 test with 1-minute bars once (e.g. FVG RETEST 1M, BOTH, your dates); after that the replay opens with them every time." : "Pick a session and press LOAD DAY." + (fromDisk != "" ? " (" + fromDisk + " from the data saved on this PC)" : ""), Foreground = loaded.Count == 0 ? Red : Cyan, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 900 };
+            info.Children.Add(clock); info.Children.Add(goalBorder); info.Children.Add(accText); info.Children.Add(status);
+            Grid.SetRow(info, 1); root.Children.Add(info);
+            var tabs = new TabControl { Background = Panel, BorderBrush = Card, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0) };
+            Grid.SetRow(tabs, 3); root.Children.Add(tabs);
             w.Content = root;
 
-            Func<string> symNow = () => instBox.SelectedIndex >= 0 && instBox.SelectedIndex < instBox.Items.Count ? Convert.ToString(instBox.Items[instBox.SelectedIndex]) : string.Empty;
-            Func<string, List<DateTime>> sessions = sym => { List<KeystoneArcBar> l; return loaded.TryGetValue(sym, out l) ? l.GroupBy(b => KeystoneIdeas.SessionDay(b.Time.AddMinutes(-1))).Where(g => g.Count() >= 60).Select(g => g.Key).OrderByDescending(d => d).ToList() : new List<DateTime>(); };
-            Action fillDays = delegate
-            {
-                dayBox.Items.Clear(); foreach (var d in sessions(symNow())) dayBox.Items.Add(d.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture));
-                if (dayBox.Items.Count > 0) dayBox.SelectedIndex = 0;
-            };
-            fillDays(); instBox.SelectionChanged += delegate { fillDays(); };
-            Func<int> tf = () => tfMinutes[Math.Max(0, Math.Min(tfMinutes.Length - 1, tfBox.SelectedIndex))];
-            Func<double> barSeconds = () => speedSeconds[Math.Max(0, Math.Min(speedSeconds.Length - 1, speedBox.SelectedIndex))];
-            DateTime session = DateTime.MinValue; int savedFills = 0;
-            string accountFile = Path.Combine(DataDirectory(), "ReplayAccount.txt"); double accStart = 2000, accBalance = 2000; bool blown = false, dayBanked = true;
+            // ---- shared state: one clock, one account
+            DateTime session = DateTime.MinValue, simTime = DateTime.MinValue; bool dayBanked = true, dayLocked = false, blown = false;
+            string accountFile = Path.Combine(DataDirectory(), "ReplayAccount.txt"); double accStart = 2000, accBalance = 2000;
             try { if (File.Exists(accountFile)) { var a = File.ReadAllText(accountFile).Split(','); accStart = double.Parse(a[0], CultureInfo.InvariantCulture); accBalance = double.Parse(a[1], CultureInfo.InvariantCulture); blown = a.Length > 2 && a[2] == "1"; startBalBox.Text = accStart.ToString("0", CultureInfo.InvariantCulture); } } catch { }
             Action saveAccount = delegate { try { Directory.CreateDirectory(DataDirectory()); File.WriteAllText(accountFile, accStart.ToString(CultureInfo.InvariantCulture) + "," + accBalance.ToString(CultureInfo.InvariantCulture) + "," + (blown ? "1" : "0")); } catch { } };
-            // view + chart geometry of the last render (mouse ↔ price / time)
-            int viewCount = 90, viewOffset = 0; double lastCw = 10, gHi = 1, gLo = 0, gTop = 14, gPlot = 1, gRight = 80, gW = 1000; List<KeystoneArcBar> gView = new List<KeystoneArcBar>();
-            Func<double, double> priceAt = y => gHi - (y - gTop) / Math.Max(1, gPlot) * (gHi - gLo);
-            Func<double, double> yOf = p => gTop + (gHi - p) / Math.Max(1e-9, gHi - gLo) * gPlot;
-            Func<double, DateTime> timeAt = x => { if (gView.Count == 0) return DateTime.MinValue; int i = (int)Math.Floor((x - 6) / Math.Max(1, lastCw)); return gView[0].Time.AddMinutes((double)i * tf()); };
-            Func<DateTime, double> xOfTime = t => gView.Count == 0 ? -1 : 6 + ((t - gView[0].Time).TotalMinutes / tf()) * lastCw + lastCw / 2;
-            var signals = new List<KeystoneReplaySignal>(); bool dayLocked = false;
-            Action buildSignals = delegate
-            {
-                signals = new List<KeystoneReplaySignal>(); if (replayTrader == null || signalBox.SelectedIndex <= 0) return;
-                List<KeystoneArcBar> allBars; var first = replayTrader.Bars.Count > 0 ? replayTrader.Bars[0].Time : DateTime.MinValue;
-                var prior = loaded.TryGetValue(replayTrader.Symbol, out allBars) ? allBars.Where(b => b.Time < first && b.Time >= first.AddDays(-45)).ToList() : null;
-                signals = KeystoneReplaySignals.Build(signalBox.SelectedIndex, replayTrader.Bars, replayTrader.Symbol, CloneConfig(config), NumberAllowZero(tpBox, 0), prior);
-            };
-            var hLines = new List<double>(); var trendLines = new List<Tuple<DateTime, double, DateTime, double>>(); Tuple<DateTime, double> trendStart = null;
+            var panes = new List<ReplayPane>(); ReplayPane active = null;
+            Func<double> dayNet = () => panes.Where(p => p.Trader != null).Sum(p => p.Trader.DayNet);
+            Func<double> realized = () => panes.Where(p => p.Trader != null).Sum(p => p.Trader.Realized);
+            string[] tfNames = { "1M", "2M", "3M", "5M", "15M", "30M", "1H", "4H", "D" }; int[] tfMinutes = { 1, 2, 3, 5, 15, 30, 60, 240, 1440 };
 
-            Action renderSide = delegate
+            Action<ReplayPane> saveFills = pn =>
             {
-                side.Children.Clear();
-                side.Children.Add(HelixTitle("ACCOUNT", Gold));
-                side.Children.Add(new TextBlock { Text = Cash(accBalance + (replayTrader != null && !dayBanked ? replayTrader.DayNet : 0)) + " of " + Cash(accStart) + (blown ? " • BLOWN" : ""), Foreground = blown ? Red : MoneyBrush(accBalance - accStart), FontSize = 16, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 0, 4, 6) });
-                if (replayTrader != null && replayTrader.Orders.Count > 0)
-                {
-                    side.Children.Add(HelixTitle("WORKING ORDERS", Cyan));
-                    foreach (var o in replayTrader.Orders) side.Children.Add(new TextBlock { Text = o.Label + " @ " + o.Price.ToString("0.00", CultureInfo.InvariantCulture), Foreground = o.Dir > 0 ? Green : Red, FontFamily = new FontFamily("Consolas"), FontSize = 11.5, Margin = new Thickness(4, 1, 4, 1) });
-                }
-                side.Children.Add(HelixTitle("TODAY'S TRADES", Gold));
-                if (replayTrader != null)
-                    foreach (var f in replayTrader.Fills.AsEnumerable().Reverse())
-                        side.Children.Add(new TextBlock { Text = f.ExitTime.ToString("HH:mm:ss") + "  " + f.Side + " " + f.Qty + "  " + f.Entry.ToString("0.##", CultureInfo.InvariantCulture) + " → " + f.Exit.ToString("0.##", CultureInfo.InvariantCulture) + "  " + Signed(f.Net) + "  " + f.Reason, Foreground = MoneyBrush(f.Net), FontFamily = new FontFamily("Consolas"), FontSize = 11, Margin = new Thickness(4, 1, 4, 1) });
-                side.Children.Add(HelixTitle("SAVED DAYS (JOURNAL)", Cyan));
-                try
-                {
-                    if (File.Exists(ReplayJournalFile()))
-                    {
-                        var rows = File.ReadAllLines(ReplayJournalFile()).Skip(1).Select(l => l.Split(',')).Where(c => c.Length >= 10).ToList(); double total = rows.Sum(c => double.Parse(c[9], CultureInfo.InvariantCulture));
-                        side.Children.Add(new TextBlock { Text = "ALL SAVED DAYS: " + Signed(total) + " (" + rows.Count + " trades)", Foreground = MoneyBrush(total), FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 2, 4, 4) });
-                        foreach (var g in rows.GroupBy(c => c[0] + " " + c[1]).OrderByDescending(g => g.Key))
-                        {
-                            double net = g.Sum(c => double.Parse(c[9], CultureInfo.InvariantCulture));
-                            side.Children.Add(new TextBlock { Text = g.Key + " • " + g.Count() + " trades • " + g.Count(c => double.Parse(c[9], CultureInfo.InvariantCulture) > 0) + " won • " + Signed(net), Foreground = MoneyBrush(net), FontSize = 11.5, Margin = new Thickness(4, 1, 4, 1) });
-                        }
-                    }
-                    else side.Children.Add(Txt("No saved trades yet.", Muted, 11, FontWeights.Normal));
-                }
-                catch (Exception ex) { side.Children.Add(Txt("Journal unreadable: " + ex.Message, Red, 11, FontWeights.Normal)); }
-            };
-
-            Action saveNewFills = delegate
-            {
-                if (replayTrader == null || replayTrader.Fills.Count <= savedFills) return;
+                if (pn.Trader == null || pn.Trader.Fills.Count <= pn.SavedFills) return;
                 try
                 {
                     Directory.CreateDirectory(DataDirectory()); bool fresh = !File.Exists(ReplayJournalFile());
-                    using (var sw = new StreamWriter(ReplayJournalFile(), true, Encoding.UTF8))
-                    {
-                        if (fresh) sw.WriteLine(KeystoneReplayTrader.JournalHeader);
-                        foreach (var f in replayTrader.Fills.Skip(savedFills)) sw.WriteLine(KeystoneReplayTrader.JournalLine(session, f));
-                    }
-                    savedFills = replayTrader.Fills.Count; renderSide();
+                    using (var sw = new StreamWriter(ReplayJournalFile(), true, Encoding.UTF8)) { if (fresh) sw.WriteLine(KeystoneReplayTrader.JournalHeader); foreach (var f in pn.Trader.Fills.Skip(pn.SavedFills)) sw.WriteLine(KeystoneReplayTrader.JournalLine(session, f)); }
+                    pn.SavedFills = pn.Trader.Fills.Count;
                 }
                 catch (Exception ex) { status.Text = "COULD NOT SAVE THE JOURNAL • " + ex.Message; status.Foreground = Red; }
             };
 
-            // the NY clock and the time left in the current candle of the chosen timeframe
-            Action updateClock = delegate
+            // ---- chart geometry (per pane)
+            Func<ReplayPane, double, double> xOfIndex = (pn, idx) => pn.PlotW - (pn.Candles.Count - 1 - idx + pn.RightOffset + 0.5) * pn.Spacing;
+            Func<ReplayPane, double, double> indexAt = (pn, x) => pn.Candles.Count - 1 - ((pn.PlotW - x) / pn.Spacing - pn.RightOffset - 0.5);
+            Func<ReplayPane, double, double> yOf = (pn, p) => pn.Top + (pn.Hi - p) / Math.Max(1e-9, pn.Hi - pn.Lo) * pn.PlotH;
+            Func<ReplayPane, double, double> priceAt = (pn, y) => pn.Hi - (y - pn.Top) / Math.Max(1, pn.PlotH) * (pn.Hi - pn.Lo);
+            Func<ReplayPane, DateTime, double> indexOfTime = (pn, t) =>
             {
-                if (replayTrader == null) { clock.Text = "NY --:--:--"; return; }
-                DateTime t = replayTrader.Time; int m = tf(); DateTime closeAt;
-                if (m >= 1440) closeAt = replayTrader.Bars.Count > 0 ? replayTrader.Bars[replayTrader.Bars.Count - 1].Time : t;
-                else { double tod = t.TimeOfDay.TotalMinutes; closeAt = t.Date.AddMinutes(Math.Ceiling((tod + 1e-6) / m) * m); }
-                var left = closeAt - t; if (left < TimeSpan.Zero) left = TimeSpan.Zero;
-                clock.Text = "NY " + t.ToString("ddd HH:mm:ss", CultureInfo.InvariantCulture) + "  •  " + tfNames[Math.Max(0, tfBox.SelectedIndex)] + " closes in " + (left.TotalHours >= 1 ? ((int)left.TotalHours) + ":" + left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00") : left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00"));
+                var c = pn.Candles; if (c.Count == 0) return 0; double m = pn.Tf;
+                if (t >= c[c.Count - 1].Time) return c.Count - 1 + (t - c[c.Count - 1].Time).TotalMinutes / m;
+                if (t <= c[0].Time) return (t - c[0].Time).TotalMinutes / m;
+                int lo = 0, hi = c.Count - 1; while (lo < hi) { int mid = (lo + hi) / 2; if (c[mid].Time >= t) hi = mid; else lo = mid + 1; }
+                return lo - Math.Min(1, (c[lo].Time - t).TotalMinutes / m);
             };
-
-            Action render = delegate
+            Func<ReplayPane, double, DateTime> timeOfIndex = (pn, idx) =>
             {
-                canvas.Children.Clear(); updateClock(); if (replayTrader == null) return;
-                double W = canvas.ActualWidth > 50 ? canvas.ActualWidth : 1080, H = canvas.ActualHeight > 50 ? canvas.ActualHeight : 560, right = 86, top = 18, bottom = 26;
-                var r = replayTrader; var candles = r.Candles(tf()); viewOffset = Math.Max(0, Math.Min(viewOffset, Math.Max(0, candles.Count - 3)));
-                int endIdx = candles.Count - viewOffset; var view = candles.Skip(Math.Max(0, endIdx - viewCount)).Take(Math.Min(viewCount, endIdx)).ToList();
-                if (view.Count == 0) { canvas.Children.Add(new TextBlock { Text = "Press ▶ PLAY", Foreground = Muted, FontSize = 16 }); return; }
-                double hi = view.Max(b => b.High), lo = view.Min(b => b.Low);
-                if (r.Position != 0) { hi = Math.Max(hi, r.AvgPrice); lo = Math.Min(lo, r.AvgPrice); }
-                double pad = Math.Max((hi - lo) * 0.08, r.Tick * 8); hi += pad; lo -= pad;
-                gHi = hi; gLo = lo; gTop = top; gPlot = H - top - bottom; gRight = right; gW = W; gView = view;
-                double cw = (W - right - 10) / Math.Max(10, viewCount); lastCw = cw;
-                for (int i = 0; i < view.Count; i++)
+                var c = pn.Candles; if (c.Count == 0) return simTime; int L = c.Count - 1;
+                if (idx >= L) return c[L].Time.AddMinutes((idx - L) * pn.Tf); if (idx <= 0) return c[0].Time.AddMinutes(idx * pn.Tf);
+                int j = (int)Math.Ceiling(idx); return c[j].Time.AddMinutes(-(j - idx) * pn.Tf);
+            };
+            Func<double, string> fmt = p => p.ToString("0.00", CultureInfo.InvariantCulture);
+
+            Action<ReplayPane> render = null;
+            render = pn =>
+            {
+                var cv = pn.Canvas; if (cv == null) return; cv.Children.Clear();
+                double W = cv.ActualWidth > 100 ? cv.ActualWidth : 1200, H = cv.ActualHeight > 100 ? cv.ActualHeight : 620;
+                pn.PlotW = W - pn.AxisW; pn.PlotH = H - pn.Top - pn.TimeH;
+                var r = pn.Trader;
+                if (r == null) { cv.Children.Add(new TextBlock { Text = pn.Symbol + " • LOAD DAY", Foreground = Muted, FontSize = 18, Margin = new Thickness(20) }); return; }
+                var cs = r.Candles(pn.Tf);
+                if (!pn.Follow && pn.LastCount > 0 && cs.Count > pn.LastCount) pn.RightOffset -= cs.Count - pn.LastCount;   // panned back: keep the view still while new candles arrive
+                pn.LastCount = cs.Count; pn.Candles = cs;
+                int L = cs.Count - 1, i0 = Math.Max(0, (int)Math.Floor(indexAt(pn, 0))), i1 = Math.Min(L, (int)Math.Ceiling(indexAt(pn, pn.PlotW)));
+                // price scale: auto = the visible candles (+ the open position); manual after dragging the price axis
+                double hi = double.MinValue, lo = double.MaxValue; for (int i = i0; i <= i1; i++) { hi = Math.Max(hi, cs[i].High); lo = Math.Min(lo, cs[i].Low); }
+                if (hi == double.MinValue) { hi = r.Price + 10 * r.Tick; lo = r.Price - 10 * r.Tick; }
+                if (pn.PriceAuto) { double pad = Math.Max((hi - lo) * 0.08, r.Tick * 8); pn.Hi = hi + pad; pn.Lo = lo - pad; pn.PCenter = (pn.Hi + pn.Lo) / 2; pn.PRange = pn.Hi - pn.Lo; }
+                else { pn.Hi = pn.PCenter + pn.PRange / 2; pn.Lo = pn.PCenter - pn.PRange / 2; }
+                // grid + price axis
+                double rawStep = (pn.Hi - pn.Lo) / 8, mag = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(1e-9, rawStep)))), step = new[] { 1, 2, 2.5, 5, 10 }.Select(v => v * mag).First(v => v >= rawStep);
+                var gridBrush = Tint(Card, 160);
+                for (double p = Math.Ceiling(pn.Lo / step) * step; p <= pn.Hi; p += step)
                 {
-                    var b = view[i]; double x = 6 + i * cw + cw / 2; bool upC = b.Close >= b.Open; var brush = upC ? Green : Red; double bw = Math.Max(1.5, cw * 0.7);
-                    canvas.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = yOf(b.High), Y2 = yOf(b.Low), Stroke = brush, StrokeThickness = 1 });
-                    var rect = new System.Windows.Shapes.Rectangle { Width = bw, Height = Math.Max(1, Math.Abs(yOf(b.Open) - yOf(b.Close))), Fill = brush };
-                    System.Windows.Controls.Canvas.SetLeft(rect, x - bw / 2); System.Windows.Controls.Canvas.SetTop(rect, Math.Min(yOf(b.Open), yOf(b.Close))); canvas.Children.Add(rect);
-                    if (i % Math.Max(1, viewCount / 6) == 0) { var tl = new TextBlock { Text = (tf() >= 1440 ? b.Time.ToString("MM-dd") : b.Time.AddMinutes(-tf()).ToString("HH:mm")), Foreground = Muted, FontSize = 9.5 }; System.Windows.Controls.Canvas.SetLeft(tl, x - 12); System.Windows.Controls.Canvas.SetTop(tl, H - bottom + 6); canvas.Children.Add(tl); }
+                    double y = yOf(pn, p); cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = y, Y2 = y, Stroke = gridBrush, StrokeThickness = 1 });
+                    var t = new TextBlock { Text = fmt(p), Foreground = Muted, FontSize = 10 }; System.Windows.Controls.Canvas.SetLeft(t, pn.PlotW + 6); System.Windows.Controls.Canvas.SetTop(t, y - 7); cv.Children.Add(t);
                 }
-                Action<double, Brush, string, double> level = (p, br, label, thick) =>
+                int every = Math.Max(1, (int)Math.Ceiling(110 / pn.Spacing));
+                for (int i = i0; i <= i1; i++)
                 {
-                    if (p < lo || p > hi) return;
-                    canvas.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = W - right, Y1 = yOf(p), Y2 = yOf(p), Stroke = br, StrokeThickness = thick, StrokeDashArray = new DoubleCollection { 4, 3 } });
-                    var t = new TextBlock { Text = label + " " + p.ToString("0.00", CultureInfo.InvariantCulture), Foreground = br, FontSize = 10.5, FontWeight = FontWeights.Bold, Background = Bg }; System.Windows.Controls.Canvas.SetLeft(t, W - right + 2); System.Windows.Controls.Canvas.SetTop(t, yOf(p) - 8); canvas.Children.Add(t);
+                    if (i % every != 0) continue; double x = xOfIndex(pn, i);
+                    cv.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = pn.Top, Y2 = pn.Top + pn.PlotH, Stroke = gridBrush, StrokeThickness = 1 });
+                    var t = new TextBlock { Text = pn.Tf >= 1440 ? cs[i].Time.ToString("MM-dd") : cs[i].Time.AddMinutes(-pn.Tf).ToString("HH:mm"), Foreground = Muted, FontSize = 10 }; System.Windows.Controls.Canvas.SetLeft(t, x - 14); System.Windows.Controls.Canvas.SetTop(t, pn.Top + pn.PlotH + 5); cv.Children.Add(t);
+                }
+                cv.Children.Add(new System.Windows.Shapes.Line { X1 = pn.PlotW, X2 = pn.PlotW, Y1 = 0, Y2 = H, Stroke = Card, StrokeThickness = 1 });
+                // candles
+                double bw = Math.Max(1, pn.Spacing * 0.72);
+                for (int i = i0; i <= i1; i++)
+                {
+                    var b = cs[i]; double x = xOfIndex(pn, i); bool upC = b.Close >= b.Open; var br = upC ? Green : Red;
+                    cv.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = yOf(pn, b.High), Y2 = yOf(pn, b.Low), Stroke = br, StrokeThickness = 1 });
+                    var body = new System.Windows.Shapes.Rectangle { Width = bw, Height = Math.Max(1, Math.Abs(yOf(pn, b.Open) - yOf(pn, b.Close))), Fill = br };
+                    System.Windows.Controls.Canvas.SetLeft(body, x - bw / 2); System.Windows.Controls.Canvas.SetTop(body, Math.Min(yOf(pn, b.Open), yOf(pn, b.Close))); cv.Children.Add(body);
+                }
+                Action<double, double, double, double, Brush, double> rect = (x1, y1, x2, y2, fill, op) =>
+                {
+                    var rc = new System.Windows.Shapes.Rectangle { Width = Math.Max(1, Math.Abs(x2 - x1)), Height = Math.Max(1, Math.Abs(y2 - y1)), Fill = fill, Opacity = op };
+                    System.Windows.Controls.Canvas.SetLeft(rc, Math.Min(x1, x2)); System.Windows.Controls.Canvas.SetTop(rc, Math.Min(y1, y2)); cv.Children.Add(rc);
                 };
-                for (int k = 0; k <= 6; k++) { double p = lo + (hi - lo) * k / 6.0; var t = new TextBlock { Text = p.ToString("0.00", CultureInfo.InvariantCulture), Foreground = Muted, FontSize = 9.5 }; System.Windows.Controls.Canvas.SetLeft(t, W - right + 4); System.Windows.Controls.Canvas.SetTop(t, yOf(p) - 7); canvas.Children.Add(t); }
-                foreach (var hl in hLines) level(hl, Orchid, "LINE", 1);
-                foreach (var tlne in trendLines) canvas.Children.Add(new System.Windows.Shapes.Line { X1 = xOfTime(tlne.Item1), Y1 = yOf(tlne.Item2), X2 = xOfTime(tlne.Item3), Y2 = yOf(tlne.Item4), Stroke = Orchid, StrokeThickness = 1.6 });
-                foreach (var o in r.Orders) level(o.Price, o.Dir > 0 ? Green : Red, o.Label, 1.4);
-                // strategy signals reached by the replay clock: ▲ buy / ▼ sell at the entry, A / B / C = setup strength (A = strongest)
-                foreach (var sg in signals.Where(x => x.Time <= r.Time))
+                Action<double, Brush, string, bool> axisTag = (p, br, label, solidLine) =>
                 {
-                    double x = xOfTime(sg.Time); if (x < 0 || x > W - right) continue;
-                    Brush tierBrush = sg.Tier == "A" || sg.Tier == "DT" ? Gold : sg.Tier == "B" ? Cyan : sg.Dir > 0 ? Green : Red;
-                    var mk = new TextBlock { Text = (sg.Dir > 0 ? "▲" : "▼") + (sg.Tier != "" && sg.Tier != "N" ? sg.Tier : ""), Foreground = tierBrush, FontSize = 14, FontWeight = FontWeights.Bold, ToolTip = sg.Tag + (sg.Tier != "" ? " • grade " + sg.Tier : "") + " • " + (sg.Dir > 0 ? "BUY" : "SELL") + " " + sg.Entry.ToString("0.00", CultureInfo.InvariantCulture) + (double.IsNaN(sg.Stop) ? "" : " • stop " + sg.Stop.ToString("0.00", CultureInfo.InvariantCulture)) + (double.IsNaN(sg.Target) ? "" : " • target " + sg.Target.ToString("0.00", CultureInfo.InvariantCulture)) };
-                    System.Windows.Controls.Canvas.SetLeft(mk, x - 6); System.Windows.Controls.Canvas.SetTop(mk, sg.Dir > 0 ? yOf(sg.Entry) + 4 : yOf(sg.Entry) - 22); canvas.Children.Add(mk);
-                    if (r.Time < sg.Exit)   // still running: its stop and target
+                    double y = yOf(pn, p); if (y < pn.Top - 2 || y > pn.Top + pn.PlotH + 2) return;
+                    cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = y, Y2 = y, Stroke = br, StrokeThickness = solidLine ? 1.4 : 1, StrokeDashArray = solidLine ? null : new DoubleCollection { 4, 3 } });
+                    var tag = new Border { Background = br, CornerRadius = new CornerRadius(2), Padding = new Thickness(3, 0, 3, 0), Child = new TextBlock { Text = fmt(p), Foreground = Bg, FontSize = 10.5, FontWeight = FontWeights.Bold } };
+                    System.Windows.Controls.Canvas.SetLeft(tag, pn.PlotW + 2); System.Windows.Controls.Canvas.SetTop(tag, y - 8); cv.Children.Add(tag);
+                    if (!string.IsNullOrEmpty(label)) { var lt = new Border { Background = Tint(Bg, 210), BorderBrush = br, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(2), Padding = new Thickness(4, 0, 4, 0), Child = new TextBlock { Text = label, Foreground = br, FontSize = 10.5, FontWeight = FontWeights.Bold } }; System.Windows.Controls.Canvas.SetLeft(lt, pn.PlotW - 260); System.Windows.Controls.Canvas.SetTop(lt, y - 9); cv.Children.Add(lt); }
+                };
+                // drawings (time / price coordinates, so they follow zoom and scroll)
+                foreach (var d in pn.Drawings.Concat(pn.Preview != null ? new[] { pn.Preview } : new ReplayDrawing[0]))
+                {
+                    double x1 = xOfIndex(pn, indexOfTime(pn, d.T1)), x2 = xOfIndex(pn, indexOfTime(pn, d.T2)), y1 = yOf(pn, d.P1), y2 = yOf(pn, d.P2);
+                    if (d.Kind == "HLINE") { cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = y1, Y2 = y1, Stroke = Orchid, StrokeThickness = 1.4 }); var t = new Border { Background = Orchid, Padding = new Thickness(3, 0, 3, 0), Child = new TextBlock { Text = fmt(d.P1), Foreground = Bg, FontSize = 10.5, FontWeight = FontWeights.Bold } }; System.Windows.Controls.Canvas.SetLeft(t, pn.PlotW + 2); System.Windows.Controls.Canvas.SetTop(t, y1 - 8); cv.Children.Add(t); }
+                    else if (d.Kind == "TREND") cv.Children.Add(new System.Windows.Shapes.Line { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = Orchid, StrokeThickness = 1.6 });
+                    else if (d.Kind == "RECT") { rect(x1, y1, x2, y2, Orchid, 0.16); var o = new System.Windows.Shapes.Rectangle { Width = Math.Max(1, Math.Abs(x2 - x1)), Height = Math.Max(1, Math.Abs(y2 - y1)), Stroke = Orchid, StrokeThickness = 1.2 }; System.Windows.Controls.Canvas.SetLeft(o, Math.Min(x1, x2)); System.Windows.Controls.Canvas.SetTop(o, Math.Min(y1, y2)); cv.Children.Add(o); }
+                    else if (d.Kind == "LONG" || d.Kind == "SHORT")
                     {
-                        if (!double.IsNaN(sg.Stop)) canvas.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = W - right, Y1 = yOf(sg.Stop), Y2 = yOf(sg.Stop), Stroke = Red, StrokeThickness = 1, Opacity = 0.7, StrokeDashArray = new DoubleCollection { 2, 3 } });
-                        if (!double.IsNaN(sg.Target)) canvas.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = W - right, Y1 = yOf(sg.Target), Y2 = yOf(sg.Target), Stroke = Green, StrokeThickness = 1, Opacity = 0.7, StrokeDashArray = new DoubleCollection { 2, 3 } });
+                        // risk / reward tool: entry = first point, target = second point, stop = half the distance on the other side (2 : 1)
+                        double entry = d.P1, target = d.P2, stopP = entry - (target - entry) / 2; double xr = Math.Max(x2, x1 + 60);
+                        rect(x1, yOf(pn, entry), xr, yOf(pn, target), Green, 0.22); rect(x1, yOf(pn, entry), xr, yOf(pn, stopP), Red, 0.22);
+                        double pv = KeystoneMoveStudy.PointValue(pn.Symbol);
+                        var lt = new TextBlock { Text = "TARGET " + (target - entry >= 0 ? "+" : "") + fmt(target - entry) + " pts (" + Cash(Math.Abs(target - entry) * pv) + ") • STOP " + fmt(Math.Abs(entry - stopP)) + " pts • R 2.0", Foreground = Text, FontSize = 10, FontWeight = FontWeights.Bold };
+                        System.Windows.Controls.Canvas.SetLeft(lt, x1 + 3); System.Windows.Controls.Canvas.SetTop(lt, Math.Min(yOf(pn, target), yOf(pn, stopP)) - 15); cv.Children.Add(lt);
                     }
                 }
-                if (viewOffset == 0) level(r.Price, Gold, "NOW", 1.2);
-                else { var back = new TextBlock { Text = "◀ " + viewOffset + " candles back • LIVE ▶| to return", Foreground = Cyan, FontSize = 11, FontWeight = FontWeights.Bold }; System.Windows.Controls.Canvas.SetLeft(back, 8); System.Windows.Controls.Canvas.SetTop(back, 2); canvas.Children.Add(back); }
+                // strategy signals the replay clock has reached: ▲ buy / ▼ sell (A / B / C = the lab's grade)
+                foreach (var sg in pn.Signals.Where(x => x.Time <= r.Time))
+                {
+                    double x = xOfIndex(pn, indexOfTime(pn, sg.Time.AddMinutes(1))); if (x < 0 || x > pn.PlotW) continue;
+                    Brush tb = sg.Tier == "A" || sg.Tier == "DT" ? Gold : sg.Tier == "B" ? Cyan : sg.Dir > 0 ? Green : Red;
+                    var mk = new TextBlock { Text = (sg.Dir > 0 ? "▲" : "▼") + (sg.Tier != "" && sg.Tier != "N" ? sg.Tier : ""), Foreground = tb, FontSize = 14, FontWeight = FontWeights.Bold };
+                    System.Windows.Controls.Canvas.SetLeft(mk, x - 6); System.Windows.Controls.Canvas.SetTop(mk, sg.Dir > 0 ? yOf(pn, sg.Entry) + 6 : yOf(pn, sg.Entry) - 24); cv.Children.Add(mk);
+                    if (r.Time < sg.Exit && !double.IsNaN(sg.Stop) && !double.IsNaN(sg.Target)) { rect(x, yOf(pn, sg.Entry), pn.PlotW, yOf(pn, sg.Target), Green, 0.08); rect(x, yOf(pn, sg.Entry), pn.PlotW, yOf(pn, sg.Stop), Red, 0.08); }
+                }
+                // working orders
+                foreach (var o in r.Orders) axisTag(o.Price, o.Dir > 0 ? Cyan : Orange, o.Label + " @ " + fmt(o.Price) + "  (drag • right-click = cancel)", false);
+                // the position: entry, target zone (green), stop zone (red) and the live P/L box between the entry and the price
                 if (r.Position != 0)
                 {
-                    int dir = Math.Sign(r.Position); level(r.AvgPrice, Cyan, (dir > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position), 1.6);
-                    if (r.StopPts > 0) level(r.AvgPrice - dir * r.StopPts, Red, "STOP ⇕", 2);
-                    if (r.TargetPts > 0) level(r.AvgPrice + dir * r.TargetPts, Green, "TARGET ⇕", 2);
+                    int dir = Math.Sign(r.Position); double entryX = Math.Max(0, xOfIndex(pn, indexOfTime(pn, r.PositionTime))), yE = yOf(pn, r.AvgPrice);
+                    if (r.TargetPts > 0) rect(entryX, yE, pn.PlotW, yOf(pn, r.AvgPrice + dir * r.TargetPts), Green, 0.16);
+                    if (r.StopPts > 0) rect(entryX, yE, pn.PlotW, yOf(pn, r.AvgPrice - dir * r.StopPts), Red, 0.16);
+                    pn.Pulse++; double pulse = 0.28 + 0.14 * Math.Sin(pn.Pulse * 0.35);
+                    rect(entryX, yE, pn.PlotW, yOf(pn, r.Price), r.Unrealized >= 0 ? Green : Red, pulse);
+                    axisTag(r.AvgPrice, Blue, (dir > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " • " + Signed(r.Unrealized), true);
+                    if (r.TargetPts > 0) axisTag(r.AvgPrice + dir * r.TargetPts, Green, "TARGET +" + fmt(r.TargetPts) + " pts • " + Cash(r.TargetPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)", false);
+                    if (r.StopPts > 0) axisTag(r.AvgPrice - dir * r.StopPts, Red, "STOP −" + fmt(r.StopPts) + " pts • −" + Cash(r.StopPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)", false);
                 }
-                pnl.Text = r.Price.ToString("0.00", CultureInfo.InvariantCulture) + "  •  " + (r.Position == 0 ? "FLAT" : (r.Position > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " @ " + r.AvgPrice.ToString("0.00", CultureInfo.InvariantCulture) + " OPEN " + Signed(r.Unrealized)) + "  •  TODAY " + Signed(r.DayNet) + " (" + r.Fills.Count + " trades)  •  ACCOUNT " + Cash(accBalance + (dayBanked ? 0 : r.DayNet)) + " of " + Cash(accStart) + (blown ? " • BLOWN" : "");
-                pnl.Foreground = blown ? Red : MoneyBrush(r.DayNet);
-                // the day goal box fills yellow toward the goal (green once reached) and red toward the loss limit
-                double goal = NumberAllowZero(goalBox, 0), lossLim = NumberAllowZero(lossLimitBox, 0), net = r.DayNet;
-                if (net >= 0) { double f = goal > 0 ? Math.Min(1, net / goal) : 0; goalFill.Width = 300 * f; goalFill.Fill = goal > 0 && net >= goal ? Green : Gold; goalText.Text = goal > 0 ? "DAY GOAL " + Cash(goal) + " • " + Signed(net) + " (" + (100 * net / goal).ToString("0") + "%)" + (net >= goal ? " ✓" : "") : "DAY GOAL OFF • " + Signed(net); }
-                else { double f = lossLim > 0 ? Math.Min(1, -net / lossLim) : 0; goalFill.Width = 300 * f; goalFill.Fill = Red; goalText.Text = lossLim > 0 ? "LOSS LIMIT " + Cash(lossLim) + " • " + Signed(net) + " (" + (100 * -net / lossLim).ToString("0") + "%)" : "LOSS • " + Signed(net); }
-                goalText.Foreground = goalFill.Width > 150 ? Bg : Text;
-                if (dayLocked) goalText.Text += " • LOCKED";
+                // the last price
+                bool lastUp = cs.Count == 0 || cs[cs.Count - 1].Close >= cs[cs.Count - 1].Open;
+                axisTag(r.Price, lastUp ? Green : Red, "", false);
+                // crosshair
+                if (pn.MouseOver && pn.Drag == null && pn.MouseX < pn.PlotW && pn.MouseY > pn.Top && pn.MouseY < pn.Top + pn.PlotH)
+                {
+                    var ch = Tint(Text, 120);
+                    cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = pn.MouseY, Y2 = pn.MouseY, Stroke = ch, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 3, 3 } });
+                    cv.Children.Add(new System.Windows.Shapes.Line { X1 = pn.MouseX, X2 = pn.MouseX, Y1 = pn.Top, Y2 = pn.Top + pn.PlotH, Stroke = ch, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 3, 3 } });
+                    var pt = new Border { Background = Muted, Padding = new Thickness(3, 0, 3, 0), Child = new TextBlock { Text = fmt(priceAt(pn, pn.MouseY)), Foreground = Bg, FontSize = 10.5, FontWeight = FontWeights.Bold } }; System.Windows.Controls.Canvas.SetLeft(pt, pn.PlotW + 2); System.Windows.Controls.Canvas.SetTop(pt, pn.MouseY - 8); cv.Children.Add(pt);
+                    var tt = new Border { Background = Muted, Padding = new Thickness(3, 0, 3, 0), Child = new TextBlock { Text = timeOfIndex(pn, indexAt(pn, pn.MouseX)).ToString("ddd HH:mm"), Foreground = Bg, FontSize = 10.5, FontWeight = FontWeights.Bold } }; System.Windows.Controls.Canvas.SetLeft(tt, pn.MouseX - 30); System.Windows.Controls.Canvas.SetTop(tt, pn.Top + pn.PlotH + 3); cv.Children.Add(tt);
+                }
+                if (!pn.Follow) { var back = new Border { Background = Cyan, CornerRadius = new CornerRadius(3), Padding = new Thickness(6, 1, 6, 1), Child = new TextBlock { Text = "▶| back to LIVE (double-click)", Foreground = Bg, FontSize = 11, FontWeight = FontWeights.Bold } }; System.Windows.Controls.Canvas.SetLeft(back, pn.PlotW - 200); System.Windows.Controls.Canvas.SetTop(back, pn.Top + pn.PlotH - 26); cv.Children.Add(back); }
+                if (!pn.PriceAuto) { var am = new TextBlock { Text = "PRICE SCALE: MANUAL (double-click the price axis = auto)", Foreground = Muted, FontSize = 10 }; System.Windows.Controls.Canvas.SetLeft(am, 6); System.Windows.Controls.Canvas.SetTop(am, pn.Top); cv.Children.Add(am); }
+                // the pane's side panel
+                if (pn.PosText != null) { pn.PosText.Text = (r.Position == 0 ? "FLAT" : (r.Position > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " @ " + fmt(r.AvgPrice) + "\nOPEN " + Signed(r.Unrealized)) + "\nTODAY " + Signed(r.DayNet) + " • " + r.Fills.Count + " trades" + (r.Orders.Count > 0 ? "\n" + r.Orders.Count + " working order(s)" : ""); pn.PosText.Foreground = MoneyBrush(r.DayNet); }
+                if (pn.TradesList != null && pn.TradesList.Children.Count != r.Fills.Count)
+                {
+                    pn.TradesList.Children.Clear();
+                    foreach (var f in r.Fills.AsEnumerable().Reverse()) pn.TradesList.Children.Add(new TextBlock { Text = f.ExitTime.ToString("HH:mm:ss") + " " + f.Side + " " + f.Qty + " " + Signed(f.Net) + " " + f.Reason, Foreground = MoneyBrush(f.Net), FontFamily = new FontFamily("Consolas"), FontSize = 10.5 });
+                }
             };
 
+            Action renderInfo = delegate
+            {
+                double net = dayNet();
+                if (simTime != DateTime.MinValue && active != null)
+                {
+                    int m = active.Tf; DateTime closeAt;
+                    if (m >= 1440) closeAt = active.Trader != null && active.Trader.Bars.Count > 0 ? active.Trader.Bars[active.Trader.Bars.Count - 1].Time : simTime;
+                    else closeAt = simTime.Date.AddMinutes(Math.Ceiling((simTime.TimeOfDay.TotalMinutes + 1e-6) / m) * m);
+                    var left = closeAt - simTime; if (left < TimeSpan.Zero) left = TimeSpan.Zero;
+                    clock.Text = "NY " + simTime.ToString("ddd HH:mm:ss", CultureInfo.InvariantCulture) + " • " + tfNames[Array.IndexOf(tfMinutes, m) < 0 ? 0 : Array.IndexOf(tfMinutes, m)] + " closes " + (left.TotalHours >= 1 ? ((int)left.TotalHours) + ":" + left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00") : left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00"));
+                }
+                double goal = NumberAllowZero(goalBox, 0), lossLim = NumberAllowZero(lossLimitBox, 0);
+                if (net >= 0) { double f = goal > 0 ? Math.Min(1, net / goal) : 0; goalFill.Width = 320 * f; goalFill.Fill = goal > 0 && net >= goal ? Green : Gold; goalText.Text = goal > 0 ? "DAY GOAL " + Cash(goal) + " • " + Signed(net) + " (" + (100 * net / goal).ToString("0") + "%)" + (net >= goal ? " ✓" : "") : "DAY GOAL OFF • " + Signed(net); }
+                else { double f = lossLim > 0 ? Math.Min(1, -net / lossLim) : 0; goalFill.Width = 320 * f; goalFill.Fill = Red; goalText.Text = lossLim > 0 ? "LOSS LIMIT " + Cash(lossLim) + " • " + Signed(net) + " (" + (100 * -net / lossLim).ToString("0") + "%)" : "LOSS • " + Signed(net); }
+                goalText.Foreground = goalFill.Width > 160 ? Bg : Text; if (dayLocked) goalText.Text += " • LOCKED";
+                accText.Text = "ACCOUNT " + Cash(accBalance + (dayBanked ? 0 : net)) + " of " + Cash(accStart) + (blown ? " • BLOWN" : ""); accText.Foreground = blown ? Red : MoneyBrush(accBalance + (dayBanked ? 0 : net) - accStart);
+            };
+            Action renderAll = delegate { foreach (var pn in panes) if (pn == active) render(pn); renderInfo(); };
+
             var timer = new DispatcherTimer(DispatcherPriority.Normal, w.Dispatcher) { Interval = TimeSpan.FromMilliseconds(40) }; replayTraderTimer = timer;
-            DateTime playWall = DateTime.UtcNow; long stepsDone = 0;
-            Action resetClock = delegate { playWall = DateTime.UtcNow; stepsDone = 0; };
+            DateTime playWall = DateTime.UtcNow, playSim = DateTime.MinValue;
+            Func<double> barSeconds = () => speedSeconds[Math.Max(0, Math.Min(speedSeconds.Length - 1, speedBox.SelectedIndex))];
+            Action resetClock = delegate { playWall = DateTime.UtcNow; playSim = simTime; };
+
             Action endDay = delegate
             {
-                if (replayTrader == null || dayBanked) return;
-                timer.Stop(); playBtn.Content = "▶ PLAY";
-                replayTrader.CancelOrders(); replayTrader.CloseAll("END OF DAY"); saveNewFills();
-                accBalance += replayTrader.Realized; dayBanked = true; if (accBalance <= 0) blown = true; saveAccount();
+                if (dayBanked) return; timer.Stop(); playBtn.Content = "▶ PLAY";
+                foreach (var pn in panes.Where(p => p.Trader != null)) { pn.Trader.CancelOrders(); pn.Trader.CloseAll("END OF DAY"); saveFills(pn); }
+                double day = realized(); accBalance += day; dayBanked = true; if (accBalance <= 0) blown = true; saveAccount();
                 try
                 {
                     string daysFile = Path.Combine(DataDirectory(), "ReplayDays.csv"); bool fresh = !File.Exists(daysFile);
-                    using (var sw = new StreamWriter(daysFile, true, Encoding.UTF8)) { if (fresh) sw.WriteLine("session,symbol,trades,won,net,account_after,account_start"); sw.WriteLine(string.Join(",", session.ToString("yyyy-MM-dd"), replayTrader.Symbol, replayTrader.Fills.Count, replayTrader.Fills.Count(f => f.Net > 0), replayTrader.Realized.ToString("0.00", CultureInfo.InvariantCulture), accBalance.ToString("0.00", CultureInfo.InvariantCulture), accStart.ToString("0", CultureInfo.InvariantCulture))); }
+                    using (var sw = new StreamWriter(daysFile, true, Encoding.UTF8))
+                    {
+                        if (fresh) sw.WriteLine("session,symbol,trades,won,net,account_after,account_start");
+                        foreach (var pn in panes.Where(p => p.Trader != null && p.Trader.Fills.Count > 0)) sw.WriteLine(string.Join(",", session.ToString("yyyy-MM-dd"), pn.Symbol, pn.Trader.Fills.Count, pn.Trader.Fills.Count(f => f.Net > 0), pn.Trader.Realized.ToString("0.00", CultureInfo.InvariantCulture), accBalance.ToString("0.00", CultureInfo.InvariantCulture), accStart.ToString("0", CultureInfo.InvariantCulture)));
+                    }
                 }
                 catch { }
-                renderSide();
-                status.Text = "DAY SAVED • " + replayTrader.Fills.Count + " trades • " + Signed(replayTrader.Realized) + " • account " + Cash(accBalance) + " of " + Cash(accStart) + (blown ? " • ACCOUNT BLOWN — press NEW ACCOUNT" : " • load the next day"); status.Foreground = blown ? Red : MoneyBrush(replayTrader.Realized);
+                status.Text = "DAY SAVED • " + panes.Where(p => p.Trader != null).Sum(p => p.Trader.Fills.Count) + " trades • " + Signed(day) + " • account " + Cash(accBalance) + " of " + Cash(accStart) + (blown ? " • ACCOUNT BLOWN — NEW ACCOUNT" : " • load the next day"); status.Foreground = blown ? Red : MoneyBrush(day);
+                renderAll();
             };
-            Action checkDayLock = delegate
+            Action checkLimits = delegate
             {
-                if (replayTrader == null || dayLocked || dayBanked) return;
-                double goal = NumberAllowZero(goalBox, 0), lossLim = NumberAllowZero(lossLimitBox, 0), net = replayTrader.DayNet;
+                if (dayBanked) return; double net = dayNet();
+                if (!blown && accBalance + net <= 0)
+                {
+                    foreach (var pn in panes.Where(p => p.Trader != null)) { pn.Trader.CancelOrders(); pn.Trader.CloseAll("ACCOUNT BLOWN"); saveFills(pn); }
+                    blown = true; endDay(); status.Text = "ACCOUNT BLOWN • the " + Cash(accStart) + " drawdown is used up • NEW ACCOUNT"; status.Foreground = Red; return;
+                }
+                if (dayLocked) return;
+                double goal = NumberAllowZero(goalBox, 0), lossLim = NumberAllowZero(lossLimitBox, 0);
                 bool hitGoal = goal > 0 && stopAtGoalBox.IsChecked == true && net >= goal, hitLoss = lossLim > 0 && net <= -lossLim;
                 if (!hitGoal && !hitLoss) return;
-                replayTrader.CancelOrders(); replayTrader.CloseAll(hitGoal ? "DAY GOAL" : "DAY LOSS LIMIT"); saveNewFills(); dayLocked = true;
-                status.Text = (hitGoal ? "DAY GOAL REACHED • " : "DAY LOSS LIMIT HIT • ") + Signed(replayTrader.Realized) + " • flat and locked for today (END DAY + SAVE, then the next day)"; status.Foreground = hitGoal ? Green : Red;
+                foreach (var pn in panes.Where(p => p.Trader != null)) { pn.Trader.CancelOrders(); pn.Trader.CloseAll(hitGoal ? "DAY GOAL" : "DAY LOSS LIMIT"); saveFills(pn); }
+                dayLocked = true; status.Text = (hitGoal ? "DAY GOAL REACHED • " : "DAY LOSS LIMIT • ") + Signed(realized()) + " • flat and locked for today (END DAY + SAVE)"; status.Foreground = hitGoal ? Green : Red;
             };
-            Action checkBlown = delegate
+            Action<ReplayPane> autoTrade = pn =>
             {
-                if (replayTrader == null || dayBanked || blown) return;
-                if (accBalance + replayTrader.DayNet <= 0)
+                if (autoBox.IsChecked != true || dayLocked || blown || pn.Trader == null) return; var r = pn.Trader;
+                foreach (var sg in pn.Signals.Where(x => !x.Taken && x.Time <= r.Time && x.Time > r.Time.AddMinutes(-2)))
                 {
-                    replayTrader.CancelOrders(); replayTrader.CloseAll("ACCOUNT BLOWN"); saveNewFills(); blown = true; endDay();
-                    status.Text = "ACCOUNT BLOWN • the " + Cash(accStart) + " drawdown is used up • press NEW ACCOUNT to start again"; status.Foreground = Red;
+                    sg.Taken = true; if (r.Position != 0) continue;
+                    int q = Math.Max(1, Math.Min(Integer(pn.Qty, 1), Math.Max(1, Integer(maxQtyBox, 20)))); if (sg.Dir > 0) r.Buy(q); else r.Sell(q);
+                    if (!double.IsNaN(sg.Stop)) pn.Sl.Text = Math.Max(r.Tick, Math.Abs(r.AvgPrice - sg.Stop)).ToString("0.##", CultureInfo.InvariantCulture);
+                    if (!double.IsNaN(sg.Target)) pn.Tp.Text = Math.Max(r.Tick, Math.Abs(sg.Target - r.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
+                    status.Text = "AUTO " + pn.Symbol + " • " + sg.Tag + (sg.Tier != "" && sg.Tier != "N" ? " grade " + sg.Tier : "") + " • " + (sg.Dir > 0 ? "BOUGHT " : "SOLD ") + q + " @ " + fmt(r.AvgPrice); status.Foreground = sg.Dir > 0 ? Green : Red;
                 }
             };
-            // advance n steps; trade events (fills, stops, targets) are reported and saved
-            Func<long, bool> advance = n =>
+            // move the shared clock to t: every instrument steps to the same New York time
+            Action<DateTime> advanceTo = t =>
             {
-                if (replayTrader == null) return false; int before = replayTrader.Fills.Count, ordersBefore = replayTrader.Orders.Count; bool more = true;
-                for (long i = 0; i < n && more && !dayBanked; i++)
+                if (dayBanked) return; bool any = false;
+                foreach (var pn in panes.Where(p => p.Trader != null))
                 {
-                    more = replayTrader.Advance(); checkBlown(); if (replayTrader == null || dayBanked) break;
-                    checkDayLock();
-                    if (autoBox.IsChecked == true && !dayLocked && !blown)
-                        foreach (var sg in signals.Where(x => !x.Taken && x.Time <= replayTrader.Time && x.Time > replayTrader.Time.AddMinutes(-2)))
-                        {
-                            sg.Taken = true; if (replayTrader.Position != 0) continue;
-                            int q = Math.Max(1, Math.Min(Integer(qtyBox, 1), Math.Max(1, Integer(maxQtyBox, 20))));
-                            if (sg.Dir > 0) replayTrader.Buy(q); else replayTrader.Sell(q);
-                            if (!double.IsNaN(sg.Stop)) slBox.Text = Math.Max(replayTrader.Tick, Math.Abs(replayTrader.AvgPrice - sg.Stop)).ToString("0.##", CultureInfo.InvariantCulture);
-                            if (!double.IsNaN(sg.Target)) tpBox.Text = Math.Max(replayTrader.Tick, Math.Abs(sg.Target - replayTrader.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
-                            status.Text = "AUTO • " + sg.Tag + (sg.Tier != "" ? " grade " + sg.Tier : "") + " • " + (sg.Dir > 0 ? "BOUGHT " : "SOLD ") + q + " @ " + replayTrader.AvgPrice.ToString("0.00", CultureInfo.InvariantCulture); status.Foreground = sg.Dir > 0 ? Green : Red;
-                        }
+                    int before = pn.Trader.Fills.Count; var r = pn.Trader;
+                    while (!r.Finished && r.Time < t && !dayBanked) { r.Advance(); checkLimits(); autoTrade(pn); if (dayBanked) break; }
+                    if (r.Fills.Count != before) { saveFills(pn); var f = r.Fills.Last(); status.Text = pn.Symbol + " • " + f.Reason + " • " + f.Side + " " + f.Qty + " closed " + Signed(f.Net); status.Foreground = MoneyBrush(f.Net); }
+                    if (!r.Finished) any = true;
                 }
-                if (replayTrader == null) return false;
-                if (replayTrader.Fills.Count != before) { saveNewFills(); var f = replayTrader.Fills.Last(); status.Text = f.Reason + " • " + f.Side + " " + f.Qty + " closed " + Signed(f.Net); status.Foreground = MoneyBrush(f.Net); }
-                else if (replayTrader.Orders.Count != ordersBefore) { status.Text = "ORDER FILLED • " + (replayTrader.Position > 0 ? "LONG " : "SHORT ") + Math.Abs(replayTrader.Position) + " @ " + replayTrader.AvgPrice.ToString("0.00", CultureInfo.InvariantCulture); status.Foreground = Cyan; renderSide(); }
-                if (replayTrader.Finished && !dayBanked) endDay();
-                return more;
+                simTime = t;
+                if (!any && !dayBanked) endDay();
             };
-            // calibrated: the number of steps follows the wall clock (60 steps a minute), not the timer's tick count
             timer.Tick += delegate
             {
-                if (replayTrader == null) { timer.Stop(); return; }
-                double due = (DateTime.UtcNow - playWall).TotalSeconds * replayTrader.StepsPerBar / barSeconds();
-                long n = Math.Min(20000, (long)Math.Floor(due) - stepsDone);
-                if (n > 0) { stepsDone += n; bool more = advance(n); render(); if (!more || dayBanked) { timer.Stop(); playBtn.Content = "▶ PLAY"; } }
+                if (dayBanked) { timer.Stop(); playBtn.Content = "▶ PLAY"; return; }
+                var target = playSim.AddSeconds((DateTime.UtcNow - playWall).TotalSeconds * 60.0 / barSeconds());
+                if (target > simTime) advanceTo(target);
+                renderAll();
             };
-            speedBox.SelectionChanged += delegate { resetClock(); }; tfBox.SelectionChanged += delegate { render(); };
-            signalBox.SelectionChanged += delegate { buildSignals(); render(); if (replayTrader != null) { status.Text = signalBox.SelectedIndex <= 0 ? "MANUAL • no signals" : signals.Count + " signals today • ▲ buy / ▼ sell, A = strongest, B, C • they appear when the replay clock reaches them"; status.Foreground = Cyan; } };
-            canvas.SizeChanged += delegate { render(); };
+            speedBox.SelectionChanged += delegate { resetClock(); };
+
+            // ---- one tab per instrument
+            Func<string, ReplayPane> buildPane = sym =>
+            {
+                var pn = new ReplayPane { Symbol = sym, All = loaded[sym] };
+                var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) });
+                // drawing toolbar
+                var tools = new StackPanel { Margin = new Thickness(2) };
+                var toolDefs = new[] { Tuple.Create("↖", "CURSOR", "Cursor: drag = scroll, wheel = zoom, drag the price axis = stretch, drag STOP / TARGET / order lines"), Tuple.Create("─", "HLINE", "Horizontal line (click)"), Tuple.Create("╱", "TREND", "Trend line (drag)"), Tuple.Create("▭", "RECT", "Rectangle (drag)"), Tuple.Create("▲", "LONG", "Long position tool: drag from the entry to the target (stop = half, 2 : 1)"), Tuple.Create("▼", "SHORT", "Short position tool: drag from the entry down to the target"), Tuple.Create("✕", "CLEAR", "Delete every drawing (right-click a drawing deletes one)") };
+                var toolButtons = new List<Button>();
+                foreach (var td in toolDefs)
+                {
+                    var tdd = td; var b = Btn(td.Item1, td.Item2 == "CURSOR" ? Gold : Card); b.Width = 38; b.Height = 34; b.FontSize = 16; b.Margin = new Thickness(2, 2, 2, 2); b.ToolTip = td.Item3; toolButtons.Add(b); tools.Children.Add(b);
+                    b.Click += delegate
+                    {
+                        if (tdd.Item2 == "CLEAR") { pn.Drawings.Clear(); render(pn); return; }
+                        pn.Tool = tdd.Item2; for (int k = 0; k < toolButtons.Count; k++) toolButtons[k].Background = toolDefs[k].Item2 == pn.Tool ? Gold : Card;
+                    };
+                }
+                Grid.SetColumn(tools, 0); grid.Children.Add(tools);
+                // chart: the canvas draws, a transparent layer on top takes the mouse
+                var cv = new Canvas { Background = Panel, ClipToBounds = true, IsHitTestVisible = false }; pn.Canvas = cv;
+                var hit = new Border { Background = System.Windows.Media.Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Cross, Focusable = true }; pn.Hit = hit;
+                var chartGrid = new Grid(); chartGrid.Children.Add(cv); chartGrid.Children.Add(hit);
+                Grid.SetColumn(chartGrid, 1); grid.Children.Add(chartGrid);
+                // order panel
+                var side = new StackPanel { Margin = new Thickness(6, 2, 4, 2) };
+                side.Children.Add(new TextBlock { Text = sym, Foreground = Gold, FontSize = 18, FontWeight = FontWeights.Bold });
+                pn.TfBox = Select(tfNames); pn.TfBox.SelectedIndex = 0; pn.TfBox.SelectionChanged += delegate { pn.Tf = tfMinutes[Math.Max(0, pn.TfBox.SelectedIndex)]; pn.LastCount = 0; pn.Follow = true; pn.RightOffset = 14; render(pn); renderInfo(); };
+                var liveBtn = Btn("LIVE ▶|", Cyan); liveBtn.Height = 26; liveBtn.Click += delegate { pn.Follow = true; pn.RightOffset = 14; pn.PriceAuto = true; render(pn); };
+                var tfRow = new WrapPanel(); add("CANDLES", pn.TfBox, tfRow); tfRow.Children.Add(liveBtn); side.Children.Add(tfRow);
+                pn.Qty = Input("1"); pn.Qty.Width = 50; pn.OrderType = Select("MARKET", "LIMIT", "STOP"); pn.OrderType.SelectedIndex = 0; pn.OrderType.Width = 90; pn.Price = Input(""); pn.Price.Width = 90; pn.Price.ToolTip = "LIMIT / STOP price — or click the chart";
+                pn.Sl = Input("0"); pn.Sl.Width = 60; pn.Tp = Input("0"); pn.Tp.Width = 60;
+                var r1 = new WrapPanel(); add("CONTRACTS", pn.Qty, r1); add("ORDER", pn.OrderType, r1); side.Children.Add(r1);
+                var r2 = new WrapPanel(); add("PRICE", pn.Price, r2); add("STOP PTS", pn.Sl, r2); add("TARGET PTS", pn.Tp, r2); side.Children.Add(r2);
+                var buy = Btn("BUY", Green); var sell = Btn("SELL", Red); foreach (var b in new[] { buy, sell }) { b.Height = 40; b.Width = 112; b.FontSize = 16; b.Margin = new Thickness(2, 6, 2, 2); }
+                var bs = new WrapPanel(); bs.Children.Add(buy); bs.Children.Add(sell); side.Children.Add(bs);
+                var flatB = Btn("CLOSE POSITION", Gold); flatB.Height = 30; flatB.Margin = new Thickness(2, 2, 2, 2); var cancelB = Btn("CANCEL ORDERS", Card); cancelB.Height = 30; cancelB.Margin = new Thickness(2, 2, 2, 2);
+                side.Children.Add(flatB); side.Children.Add(cancelB);
+                pn.PosText = new TextBlock { Text = "FLAT", Foreground = Text, FontSize = 14, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 8, 2, 6), TextWrapping = TextWrapping.Wrap }; side.Children.Add(pn.PosText);
+                side.Children.Add(new TextBlock { Text = "TRADES TODAY", Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold });
+                pn.TradesList = new StackPanel(); side.Children.Add(pn.TradesList);
+                side.Children.Add(new TextBlock { Text = "\nMouse: wheel = zoom • drag = scroll (space on the right too) • drag the price axis = stretch, double-click it = auto • double-click the chart = LIVE • drag STOP / TARGET / order lines • right-click an order = cancel, a drawing = delete • with LIMIT / STOP chosen, a click sets the price.", Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap });
+                var sideScroll = new ScrollViewer { Content = side, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+                Grid.SetColumn(sideScroll, 2); grid.Children.Add(sideScroll);
+                Action readBracket = delegate { if (pn.Trader == null) return; pn.Trader.StopPts = NumberAllowZero(pn.Sl, 0); pn.Trader.TargetPts = NumberAllowZero(pn.Tp, 0); render(pn); };
+                pn.Sl.TextChanged += delegate { readBracket(); }; pn.Tp.TextChanged += delegate { readBracket(); };
+                Action<int> order = sign =>
+                {
+                    var r = pn.Trader;
+                    if (blown) { status.Text = "ACCOUNT BLOWN • NEW ACCOUNT"; status.Foreground = Red; return; }
+                    if (r == null || r.Finished || dayBanked) { status.Text = "LOAD A DAY AND PRESS PLAY"; status.Foreground = Gold; return; }
+                    if (dayLocked) { status.Text = "LOCKED FOR TODAY (goal or loss limit) • END DAY + SAVE"; status.Foreground = Gold; return; }
+                    int q = Math.Max(1, Integer(pn.Qty, 1)), maxQ = Math.Max(1, Integer(maxQtyBox, 20)), pending = r.Orders.Where(o => o.Dir == sign).Sum(o => o.Qty);
+                    if (Math.Sign(r.Position) != -sign && Math.Abs(r.Position) + pending + q > maxQ) { status.Text = "MAX " + maxQ + " CONTRACTS • " + pn.Symbol + " holds " + Math.Abs(r.Position) + (pending > 0 ? " (+" + pending + " working)" : ""); status.Foreground = Gold; return; }
+                    string type = Convert.ToString(pn.OrderType.Items[Math.Max(0, pn.OrderType.SelectedIndex)]);
+                    if (type != "MARKET")
+                    {
+                        double px; if (!double.TryParse(pn.Price.Text.Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out px) || px <= 0) { status.Text = "CLICK THE CHART (or type a price) for the " + type + " order"; status.Foreground = Gold; return; }
+                        var o = r.Place(type, sign, q, px); readBracket(); status.Text = pn.Symbol + " WORKING • " + o.Label + " @ " + fmt(o.Price); status.Foreground = Cyan; render(pn); return;
+                    }
+                    int before = r.Fills.Count; if (sign > 0) r.Buy(q); else r.Sell(q);
+                    readBracket(); if (r.Fills.Count != before) saveFills(pn); checkLimits();
+                    status.Text = pn.Symbol + (sign > 0 ? " BOUGHT " : " SOLD ") + q + " @ " + fmt(r.Price); status.Foreground = sign > 0 ? Green : Red; render(pn); renderInfo();
+                };
+                buy.Click += delegate { order(1); }; sell.Click += delegate { order(-1); };
+                Action flat = delegate { if (pn.Trader == null) return; pn.Trader.CloseAll("MANUAL"); saveFills(pn); render(pn); renderInfo(); };
+                flatB.Click += delegate { flat(); }; cancelB.Click += delegate { if (pn.Trader == null) return; pn.Trader.CancelOrders(); render(pn); };
+                pn.Hit.Tag = Tuple.Create<Action<int>, Action>(order, flat);
+                // ---- mouse
+                hit.MouseWheel += delegate(object sender, MouseWheelEventArgs args)
+                {
+                    var pt = args.GetPosition(hit); double idx = indexAt(pn, Math.Min(pt.X, pn.PlotW));
+                    pn.Spacing = Math.Max(1.5, Math.Min(60, pn.Spacing * (args.Delta > 0 ? 1.15 : 1 / 1.15)));
+                    pn.RightOffset = (pn.PlotW - Math.Min(pt.X, pn.PlotW)) / pn.Spacing - (pn.Candles.Count - 1 - idx) - 0.5;   // the candle under the mouse stays put
+                    pn.Follow = pn.RightOffset > -0.5; render(pn); args.Handled = true;
+                };
+                hit.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs args)
+                {
+                    var pt = args.GetPosition(hit); pn.DownX = pt.X; pn.DownY = pt.Y; pn.Moved = false; pn.Ro0 = pn.RightOffset; pn.Pc0 = pn.PCenter; pn.Pr0 = pn.PRange; pn.S0 = pn.Spacing; pn.DragOrder = null;
+                    var r = pn.Trader; hit.Focus();
+                    if (args.ClickCount == 2) { if (pt.X > pn.PlotW) pn.PriceAuto = true; else { pn.Follow = true; pn.RightOffset = 14; } render(pn); return; }
+                    if (pt.X > pn.PlotW) pn.Drag = "PRICEAXIS";
+                    else if (pt.Y > pn.Top + pn.PlotH) pn.Drag = "TIMEAXIS";
+                    else if (pn.Tool != "CURSOR" && r != null)
+                    {
+                        var at = timeOfIndex(pn, indexAt(pn, pt.X)); double px = Math.Round(priceAt(pn, pt.Y) / r.Tick) * r.Tick;
+                        if (pn.Tool == "HLINE") { pn.Drawings.Add(new ReplayDrawing { Kind = "HLINE", T1 = at, T2 = at, P1 = px, P2 = px }); pn.Drag = null; render(pn); return; }
+                        pn.Preview = new ReplayDrawing { Kind = pn.Tool, T1 = at, T2 = at, P1 = px, P2 = px }; pn.Drag = "DRAW";
+                    }
+                    else
+                    {
+                        pn.Drag = "PAN";
+                        if (r != null)
+                        {
+                            Func<double, bool> near = p => Math.Abs(yOf(pn, p) - pt.Y) <= 6; int dir = Math.Sign(r.Position);
+                            if (r.Position != 0 && r.StopPts > 0 && near(r.AvgPrice - dir * r.StopPts)) pn.Drag = "STOP";
+                            else if (r.Position != 0 && r.TargetPts > 0 && near(r.AvgPrice + dir * r.TargetPts)) pn.Drag = "TARGET";
+                            else { var o = r.Orders.FirstOrDefault(x => near(x.Price)); if (o != null) { pn.Drag = "ORDER"; pn.DragOrder = o; } }
+                        }
+                    }
+                    hit.CaptureMouse(); args.Handled = true;
+                };
+                hit.MouseMove += delegate(object sender, MouseEventArgs args)
+                {
+                    var pt = args.GetPosition(hit); pn.MouseOver = true; pn.MouseX = pt.X; pn.MouseY = pt.Y; var r = pn.Trader;
+                    if (pn.Drag == null || r == null) { if (!timer.IsEnabled) render(pn); return; }
+                    double dx = pt.X - pn.DownX, dy = pt.Y - pn.DownY; if (Math.Abs(dx) + Math.Abs(dy) > 3) pn.Moved = true;
+                    double px = Math.Round(priceAt(pn, pt.Y) / r.Tick) * r.Tick;
+                    if (pn.Drag == "PAN") { pn.RightOffset = pn.Ro0 - dx / pn.Spacing; pn.Follow = pn.RightOffset > -0.5; if (!pn.PriceAuto) pn.PCenter = pn.Pc0 + dy * pn.PRange / Math.Max(1, pn.PlotH); }
+                    else if (pn.Drag == "PRICEAXIS") { pn.PriceAuto = false; pn.PCenter = pn.Pc0; pn.PRange = Math.Max(r.Tick * 4, pn.Pr0 * Math.Exp(dy / 160.0)); }
+                    else if (pn.Drag == "TIMEAXIS") { pn.Spacing = Math.Max(1.5, Math.Min(60, pn.S0 * Math.Exp(-dx / 160.0))); }
+                    else if (pn.Drag == "DRAW" && pn.Preview != null) { pn.Preview.T2 = timeOfIndex(pn, indexAt(pn, pt.X)); pn.Preview.P2 = px; }
+                    else if (pn.Drag == "STOP" && r.Position != 0) pn.Sl.Text = Math.Max(r.Tick, -Math.Sign(r.Position) * (px - r.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
+                    else if (pn.Drag == "TARGET" && r.Position != 0) pn.Tp.Text = Math.Max(r.Tick, Math.Sign(r.Position) * (px - r.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
+                    else if (pn.Drag == "ORDER" && pn.DragOrder != null) pn.DragOrder.Price = px;
+                    render(pn);
+                };
+                hit.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs args)
+                {
+                    var pt = args.GetPosition(hit); var r = pn.Trader; string was = pn.Drag; pn.Drag = null; hit.ReleaseMouseCapture();
+                    if (was == "DRAW" && pn.Preview != null) { if (pn.Moved) pn.Drawings.Add(pn.Preview); pn.Preview = null; }
+                    else if (was == "PAN" && !pn.Moved && r != null && pn.OrderType.SelectedIndex > 0) { pn.Price.Text = fmt(Math.Round(priceAt(pn, pt.Y) / r.Tick) * r.Tick); status.Text = pn.Symbol + " PRICE " + pn.Price.Text + " • BUY or SELL places the " + Convert.ToString(pn.OrderType.Items[pn.OrderType.SelectedIndex]) + " order"; status.Foreground = Cyan; }
+                    render(pn);
+                };
+                hit.MouseRightButtonDown += delegate(object sender, MouseButtonEventArgs args)
+                {
+                    var pt = args.GetPosition(hit); var r = pn.Trader; if (r == null) return;
+                    var o = r.Orders.FirstOrDefault(x => Math.Abs(yOf(pn, x.Price) - pt.Y) <= 6); if (o != null) { r.Orders.Remove(o); status.Text = pn.Symbol + " ORDER CANCELLED"; status.Foreground = Gold; render(pn); return; }
+                    var hitD = pn.Drawings.LastOrDefault(d =>
+                    {
+                        double x1 = xOfIndex(pn, indexOfTime(pn, d.T1)), x2 = xOfIndex(pn, indexOfTime(pn, d.T2)), y1 = yOf(pn, d.P1), y2 = yOf(pn, d.P2);
+                        if (d.Kind == "HLINE") return Math.Abs(y1 - pt.Y) <= 6;
+                        if (d.Kind == "TREND") { double len = Math.Sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)); if (len < 1) return false; double u = ((pt.X - x1) * (x2 - x1) + (pt.Y - y1) * (y2 - y1)) / (len * len); if (u < 0 || u > 1) return false; double px2 = x1 + u * (x2 - x1), py = y1 + u * (y2 - y1); return Math.Sqrt((pt.X - px2) * (pt.X - px2) + (pt.Y - py) * (pt.Y - py)) <= 6; }
+                        double yb = d.Kind == "RECT" ? y2 : yOf(pn, d.P1 - (d.P2 - d.P1) / 2);
+                        return pt.X >= Math.Min(x1, x2) - 4 && pt.X <= Math.Max(Math.Max(x1, x2), x1 + 60) + 4 && pt.Y >= Math.Min(Math.Min(y1, y2), yb) - 4 && pt.Y <= Math.Max(Math.Max(y1, y2), yb) + 4;
+                    });
+                    if (hitD != null) { pn.Drawings.Remove(hitD); render(pn); }
+                };
+                hit.MouseLeave += delegate { pn.MouseOver = false; if (!timer.IsEnabled) render(pn); };
+                cv.SizeChanged += delegate { render(pn); };
+                var tab = new TabItem { Header = sym, Content = grid, Background = Card, Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 14 };
+                tabs.Items.Add(tab); panes.Add(pn); return pn;
+            };
+            foreach (string sym in new[] { "MNQ", "MGC" }) if (loaded.ContainsKey(sym)) buildPane(sym);
+            if (panes.Count > 0) { active = panes[0]; tabs.SelectedIndex = 0; }
+            tabs.SelectionChanged += delegate { if (tabs.SelectedIndex >= 0 && tabs.SelectedIndex < panes.Count) { active = panes[tabs.SelectedIndex]; replayTrader = active.Trader; render(active); renderInfo(); } };
+
+            Action<ReplayPane> buildSignals = pn =>
+            {
+                pn.Signals = new List<KeystoneReplaySignal>(); if (pn.Trader == null || signalBox.SelectedIndex <= 0) return;
+                var first = pn.Trader.Bars.Count > 0 ? pn.Trader.Bars[0].Time : DateTime.MinValue;
+                var prior = pn.All.Where(b => b.Time < first && b.Time >= first.AddDays(-45)).ToList();
+                pn.Signals = KeystoneReplaySignals.Build(signalBox.SelectedIndex, pn.Trader.Bars, pn.Symbol, CloneConfig(config), NumberAllowZero(pn.Tp, 0), prior);
+            };
+            signalBox.SelectionChanged += delegate { foreach (var pn in panes) buildSignals(pn); renderAll(); status.Text = signalBox.SelectedIndex <= 0 ? "MANUAL • no signals" : string.Join(" • ", panes.Select(p => p.Symbol + " " + p.Signals.Count + " signals")) + " today • ▲ buy / ▼ sell (A = strongest) • they appear when the clock reaches them"; status.Foreground = Cyan; };
 
             Action loadClick = delegate
             {
                 timer.Stop(); playBtn.Content = "▶ PLAY";
-                if (replayTrader != null && !dayBanked) endDay();
-                string sym = symNow(); List<KeystoneArcBar> all; if (!loaded.TryGetValue(sym, out all) || dayBox.SelectedIndex < 0) { status.Text = "NO DATA FOR " + sym; status.Foreground = Red; return; }
-                session = sessions(sym)[dayBox.SelectedIndex];
-                var bars = all.Where(b => KeystoneIdeas.SessionDay(b.Time.AddMinutes(-1)) == session).ToList();
-                replayTrader = new KeystoneReplayTrader(bars, sym, 60); savedFills = 0; dayBanked = false; dayLocked = false; viewOffset = 0; trendStart = null;
-                int hhmm = Integer(startBox, 930); if (IsValidHhmm(hhmm)) { var at = (hhmm >= 1800 ? session.AddDays(-1) : session).AddHours(hhmm / 100).AddMinutes(hhmm % 100); replayTrader.JumpTo(at); if (replayTrader.Finished) replayTrader = new KeystoneReplayTrader(bars, sym, 60); }
-                buildSignals(); resetClock(); render(); renderSide();
-                status.Text = (signals.Count > 0 ? signals.Count + " " + Convert.ToString(signalBox.Items[signalBox.SelectedIndex]).Split('•')[0].Trim() + " SIGNALS TODAY (shown when the clock reaches them) • " : "") + sym + " • " + session.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • " + bars.Count + " minutes • starts " + replayTrader.Time.ToString("HH:mm") + " NY • press ▶ PLAY" + (blown ? " • the account is BLOWN: press NEW ACCOUNT to trade" : ""); status.Foreground = blown ? Red : Cyan;
+                if (!dayBanked) endDay();
+                if (dayBox.SelectedIndex < 0 || dayBox.SelectedIndex >= sessionList.Count) { status.Text = "NO SESSION"; status.Foreground = Red; return; }
+                session = sessionList[dayBox.SelectedIndex]; int hhmm = Integer(startBox, 930); DateTime at = IsValidHhmm(hhmm) ? (hhmm >= 1800 ? session.AddDays(-1) : session).AddHours(hhmm / 100).AddMinutes(hhmm % 100) : session.AddDays(-1).AddHours(18);
+                var parts = new List<string>(); DateTime earliest = DateTime.MaxValue;
+                foreach (var pn in panes)
+                {
+                    var bars = pn.All.Where(b => KeystoneIdeas.SessionDay(b.Time.AddMinutes(-1)) == session).ToList();
+                    pn.Trader = bars.Count >= 10 ? new KeystoneReplayTrader(bars, pn.Symbol, 60) : null; pn.SavedFills = 0; pn.LastCount = 0; pn.Follow = true; pn.RightOffset = 14; pn.PriceAuto = true; pn.Drawings.Clear();
+                    if (pn.Trader == null) { parts.Add(pn.Symbol + " no data"); continue; }
+                    pn.Trader.JumpTo(at); if (pn.Trader.Finished) pn.Trader = new KeystoneReplayTrader(bars, pn.Symbol, 60);
+                    pn.Trader.StopPts = NumberAllowZero(pn.Sl, 0); pn.Trader.TargetPts = NumberAllowZero(pn.Tp, 0);
+                    buildSignals(pn); parts.Add(pn.Symbol + " " + bars.Count + " min" + (pn.Signals.Count > 0 ? ", " + pn.Signals.Count + " signals" : ""));
+                    if (pn.Trader.Time < earliest) earliest = pn.Trader.Time;
+                }
+                simTime = earliest == DateTime.MaxValue ? at : earliest; dayBanked = panes.All(p => p.Trader == null); dayLocked = false;
+                foreach (var pn in panes.Where(p => p.Trader != null)) pn.Trader.AdvanceTo(simTime, 100000);
+                replayTrader = active == null ? null : active.Trader;
+                resetClock(); foreach (var pn in panes) render(pn); renderInfo();
+                status.Text = session.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • " + string.Join(" • ", parts) + " • starts " + simTime.ToString("HH:mm") + " NY • ▶ PLAY" + (blown ? " • the account is BLOWN: NEW ACCOUNT" : ""); status.Foreground = blown ? Red : Cyan;
             };
             loadBtn.Click += delegate { loadClick(); };
+            // the list is newest first: NEXT DAY = the later date, PREV DAY = the earlier one (the current day is saved first)
+            prevDayBtn.Click += delegate { if (dayBox.SelectedIndex < dayBox.Items.Count - 1) { dayBox.SelectedIndex = dayBox.SelectedIndex + 1; loadClick(); } else { status.Text = "NO EARLIER DAY LOADED"; status.Foreground = Gold; } };
+            nextDayBtn.Click += delegate { if (dayBox.SelectedIndex > 0) { dayBox.SelectedIndex = dayBox.SelectedIndex - 1; loadClick(); } else { status.Text = "THIS IS THE LATEST DAY LOADED"; status.Foreground = Gold; } };
             Action togglePlay = delegate
             {
-                if (replayTrader == null || dayBanked) { status.Text = "LOAD A DAY FIRST"; status.Foreground = Gold; return; }
+                if (dayBanked) { status.Text = "LOAD A DAY FIRST"; status.Foreground = Gold; return; }
                 if (timer.IsEnabled) { timer.Stop(); playBtn.Content = "▶ PLAY"; } else { resetClock(); timer.Start(); playBtn.Content = "❚❚ PAUSE"; }
             };
             playBtn.Click += delegate { togglePlay(); };
-            Action<int> stepMinutes = n => { if (replayTrader == null) return; advance((long)n * replayTrader.StepsPerBar); resetClock(); render(); };
+            Action<int> stepMinutes = n => { if (dayBanked) return; advanceTo(simTime.AddMinutes(n)); resetClock(); renderAll(); };
             stepBtn.Click += delegate { stepMinutes(1); }; skipBtn.Click += delegate { stepMinutes(10); };
-            Action readBracket = delegate { if (replayTrader == null) return; replayTrader.StopPts = NumberAllowZero(slBox, 0); replayTrader.TargetPts = NumberAllowZero(tpBox, 0); render(); };
-            slBox.TextChanged += delegate { readBracket(); }; tpBox.TextChanged += delegate { readBracket(); };
-            Action<int> order = sign =>
-            {
-                if (blown) { status.Text = "ACCOUNT BLOWN • press NEW ACCOUNT"; status.Foreground = Red; return; }
-                if (replayTrader == null || replayTrader.Finished || dayBanked) { status.Text = "LOAD A DAY AND PRESS PLAY"; status.Foreground = Gold; return; }
-                if (dayLocked) { status.Text = "LOCKED FOR TODAY (goal or loss limit reached) • END DAY + SAVE, then the next day"; status.Foreground = Gold; return; }
-                int q = Math.Max(1, Integer(qtyBox, 1)); int before = replayTrader.Fills.Count; string type = Convert.ToString(orderTypeBox.Items[Math.Max(0, orderTypeBox.SelectedIndex)]);
-                int maxQ = Math.Max(1, Integer(maxQtyBox, 20)), pending = replayTrader.Orders.Where(o => o.Dir == sign).Sum(o => o.Qty);
-                if (Math.Sign(replayTrader.Position) != -sign && Math.Abs(replayTrader.Position) + pending + q > maxQ) { status.Text = "MAX CONTRACTS " + maxQ + " • the position already holds " + Math.Abs(replayTrader.Position) + (pending > 0 ? " (+" + pending + " working)" : ""); status.Foreground = Gold; return; }
-                if (type != "MARKET")
-                {
-                    double px; if (!double.TryParse(priceBox.Text.Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out px) || px <= 0) { status.Text = "TYPE A PRICE (or click the chart) for the " + type + " order"; status.Foreground = Gold; return; }
-                    var o = replayTrader.Place(type, sign, q, px); readBracket(); renderSide(); render();
-                    status.Text = "WORKING • " + o.Label + " @ " + o.Price.ToString("0.00", CultureInfo.InvariantCulture) + " (drag its line to move it • CANCEL ORDERS removes it)"; status.Foreground = Cyan; return;
-                }
-                if (sign > 0) replayTrader.Buy(q); else replayTrader.Sell(q);
-                readBracket(); if (replayTrader.Fills.Count != before) saveNewFills(); checkBlown();
-                status.Text = (sign > 0 ? "BOUGHT " : "SOLD ") + q + " at " + replayTrader.Price.ToString("0.00", CultureInfo.InvariantCulture); status.Foreground = sign > 0 ? Green : Red; render(); renderSide();
-            };
-            buyBtn.Click += delegate { order(1); }; sellBtn.Click += delegate { order(-1); };
-            Action flat = delegate { if (replayTrader == null) return; replayTrader.CloseAll("MANUAL"); saveNewFills(); render(); renderSide(); };
-            flatBtn.Click += delegate { flat(); };
-            cancelOrdersBtn.Click += delegate { if (replayTrader == null) return; replayTrader.CancelOrders(); render(); renderSide(); status.Text = "ORDERS CANCELLED"; status.Foreground = Gold; };
-            endBtn.Click += delegate { endDay(); render(); };
-            liveBtn.Click += delegate { viewOffset = 0; render(); };
-            clearDrawBtn.Click += delegate { hLines.Clear(); trendLines.Clear(); trendStart = null; render(); };
+            endBtn.Click += delegate { endDay(); };
             newAccBtn.Click += delegate
             {
-                if (replayTrader != null && !dayBanked) endDay();
-                accStart = Math.Max(1, NumberAllowZero(startBalBox, 2000)); accBalance = accStart; blown = false; saveAccount(); renderSide();
-                status.Text = "NEW ACCOUNT • " + Cash(accStart) + " (this is the whole drawdown) • load a day"; status.Foreground = Green; render();
+                if (!dayBanked) endDay();
+                accStart = Math.Max(1, NumberAllowZero(startBalBox, 2000)); accBalance = accStart; blown = false; saveAccount(); renderInfo();
+                status.Text = "NEW ACCOUNT • " + Cash(accStart) + " = the whole drawdown • load a day"; status.Foreground = Green;
             };
-
-            // mouse: wheel = zoom • drag empty chart = scroll • drag STOP / TARGET / order line = move it • click = drawing tool or LIMIT / STOP price
-            string dragWhat = null; KeystoneReplayOrder dragOrder = null; double downX = 0, downY = 0; int dragOffset0 = 0; bool mouseDown = false;
-            canvas.PreviewMouseWheel += delegate(object sender, MouseWheelEventArgs args) { viewCount = Math.Max(10, Math.Min(600, (int)Math.Round(viewCount * (args.Delta > 0 ? 0.85 : 1.18)))); render(); args.Handled = true; };
-            canvas.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs args)
-            {
-                var pt = args.GetPosition(canvas); downX = pt.X; downY = pt.Y; mouseDown = true; dragOffset0 = viewOffset; dragWhat = "PAN"; dragOrder = null;
-                var r = replayTrader;
-                if (r != null)
-                {
-                    Func<double, bool> near = p => Math.Abs(yOf(p) - pt.Y) <= 6;
-                    int dir = Math.Sign(r.Position);
-                    if (r.Position != 0 && r.StopPts > 0 && near(r.AvgPrice - dir * r.StopPts)) dragWhat = "STOP";
-                    else if (r.Position != 0 && r.TargetPts > 0 && near(r.AvgPrice + dir * r.TargetPts)) dragWhat = "TARGET";
-                    else { var o = r.Orders.FirstOrDefault(x => near(x.Price)); if (o != null) { dragWhat = "ORDER"; dragOrder = o; } }
-                }
-                canvas.CaptureMouse();
-            };
-            canvas.MouseMove += delegate(object sender, MouseEventArgs args)
-            {
-                if (!mouseDown || replayTrader == null) return; var pt = args.GetPosition(canvas); var r = replayTrader; double px = Math.Round(priceAt(pt.Y) / r.Tick) * r.Tick;
-                if (dragWhat == "PAN") { viewOffset = Math.Max(0, dragOffset0 + (int)Math.Round((pt.X - downX) / Math.Max(1, lastCw))); render(); }
-                else if (dragWhat == "STOP" && r.Position != 0) { double d = Math.Max(r.Tick, -Math.Sign(r.Position) * (px - r.AvgPrice)); slBox.Text = d.ToString("0.##", CultureInfo.InvariantCulture); }
-                else if (dragWhat == "TARGET" && r.Position != 0) { double d = Math.Max(r.Tick, Math.Sign(r.Position) * (px - r.AvgPrice)); tpBox.Text = d.ToString("0.##", CultureInfo.InvariantCulture); }
-                else if (dragWhat == "ORDER" && dragOrder != null) { dragOrder.Price = px; render(); }
-            };
-            canvas.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs args)
-            {
-                if (!mouseDown) return; mouseDown = false; canvas.ReleaseMouseCapture(); var pt = args.GetPosition(canvas);
-                bool click = Math.Abs(pt.X - downX) < 4 && Math.Abs(pt.Y - downY) < 4;
-                if (dragWhat == "ORDER") renderSide();
-                if (click && dragWhat == "PAN" && replayTrader != null && pt.X < gW - gRight)
-                {
-                    double px = Math.Round(priceAt(pt.Y) / replayTrader.Tick) * replayTrader.Tick; int tool = drawBox.SelectedIndex;
-                    if (tool == 1) { hLines.Add(px); render(); }
-                    else if (tool == 2) { var at = Tuple.Create(timeAt(pt.X), px); if (trendStart == null) { trendStart = at; status.Text = "TREND LINE • click the second point"; status.Foreground = Orchid; } else { trendLines.Add(Tuple.Create(trendStart.Item1, trendStart.Item2, at.Item1, at.Item2)); trendStart = null; render(); } }
-                    else if (orderTypeBox.SelectedIndex > 0) { priceBox.Text = px.ToString("0.00", CultureInfo.InvariantCulture); status.Text = "PRICE " + priceBox.Text + " • press BUY or SELL for the " + Convert.ToString(orderTypeBox.Items[orderTypeBox.SelectedIndex]) + " order"; status.Foreground = Cyan; }
-                }
-                dragWhat = null; dragOrder = null;
-            };
-            canvas.LostMouseCapture += delegate { mouseDown = false; };
-            // keyboard: B = buy, S = sell, C = close, space = play / pause (not while typing in a box)
-            w.KeyDown += (s2, e2) => { if (e2.OriginalSource is TextBox || e2.IsRepeat) return; if (e2.Key == System.Windows.Input.Key.B) order(1); else if (e2.Key == System.Windows.Input.Key.S) order(-1); else if (e2.Key == System.Windows.Input.Key.C) flat(); else if (e2.Key == System.Windows.Input.Key.Space) { togglePlay(); e2.Handled = true; } };
-            w.Closed += delegate { timer.Stop(); if (replayTrader != null && !dayBanked) endDay(); replayTraderLoad = null; replayTraderFlat = null; replayTraderOrder = null; replayTraderStep = null; replayTraderEnd = null; replayTraderWindow = null; replayTraderTimer = null; replayTrader = null; };
-            replayTraderLoad = loadClick; replayTraderEnd = endDay; replayTraderOrder = order; replayTraderStep = stepMinutes; replayTraderFlat = flat;
-            renderSide();
+            Func<ReplayPane, Tuple<Action<int>, Action>> paneActions = pn => (Tuple<Action<int>, Action>)pn.Hit.Tag;
+            // keyboard (the visible instrument): B = buy, S = sell, C = close, space = play / pause; not while typing, no key repeat
+            w.KeyDown += (s2, e2) => { if (e2.OriginalSource is TextBox || e2.IsRepeat || active == null) return; var acts = paneActions(active); if (e2.Key == System.Windows.Input.Key.B) acts.Item1(1); else if (e2.Key == System.Windows.Input.Key.S) acts.Item1(-1); else if (e2.Key == System.Windows.Input.Key.C) acts.Item2(); else if (e2.Key == System.Windows.Input.Key.Space) { togglePlay(); e2.Handled = true; } };
+            w.Closed += delegate { timer.Stop(); if (!dayBanked) endDay(); replayTraderLoad = null; replayTraderFlat = null; replayTraderOrder = null; replayTraderStep = null; replayTraderEnd = null; replayTraderWindow = null; replayTraderTimer = null; replayTrader = null; };
+            replayTraderLoad = loadClick; replayTraderEnd = endDay; replayTraderStep = stepMinutes;
+            replayTraderOrder = sign => { if (active != null) paneActions(active).Item1(sign); };
+            replayTraderFlat = delegate { if (active != null) paneActions(active).Item2(); };
+            renderInfo();
             w.Show();
         }
 
