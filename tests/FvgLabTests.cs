@@ -69,6 +69,28 @@ public static class FvgLabTests
         var flatT = KeystoneGoldenLab.Unit(gEv, true, 1555, (sym, tt) => tt == new DateTime(2025, 3, 3, 15, 55, 0) ? 19990 : (double?)null);
         Check(asIs != null && asIs.Outcome == "TARGET" && Eq(asIs.Points, 100) && asIs.Day == new DateTime(2025, 3, 4), "golden as tested: the overnight target counts on its exit day (+100)");
         Check(flatT != null && flatT.Outcome == "CLOSE" && Eq(flatT.Points, -10) && flatT.ExitTime == new DateTime(2025, 3, 3, 15, 55, 0) && Eq(flatT.Worst, -60), "golden flat by 15:55: the same trade is closed at the 15:55 close (−10 pts), worst point kept (−30 pts = −$60)", flatT == null ? "null" : flatT.Outcome + " " + flatT.Points + " " + flatT.Worst);
+        // FVG MAP: every bullish 5M gap on the chart with its reason
+        var mb = new List<KeystoneArcBar>(); var d0 = new DateTime(2025, 3, 3, 9, 0, 0); double[][] ohlc = {
+            new[] { 100.0, 102, 99, 101 }, new[] { 101.0, 104, 100, 103 }, new[] { 103.0, 110, 108, 109 },   // 09:05-09:15: gap 102→108 before 09:30
+            new[] { 109.0, 110, 107, 108 }, new[] { 108.0, 109, 106, 107 }, new[] { 107.0, 108, 105, 106 },
+            new[] { 106.0, 107, 104, 105 }, new[] { 105.0, 112, 104, 111 }, new[] { 111.0, 120, 110, 119 },   // 09:35 c1 (H107) … 09:45 c3 (L110): gap 3 (< 5)
+            new[] { 119.0, 121, 118, 120 }, new[] { 120.0, 130, 128, 129 } };                               // 09:50 c1 H121 → 10:00 c3 L128: gap 7
+        for (int i = 0; i < ohlc.Length; i++) mb.Add(new KeystoneArcBar { Symbol = "MNQ", Time = d0.AddMinutes(5 * (i + 1)), Open = ohlc[i][0], High = ohlc[i][1], Low = ohlc[i][2], Close = ohlc[i][3] });
+        var mapCfg = new KeystoneArcRunConfig { GoldenMnqStart = 930, GoldenMnqMinGap = 5, GoldenLastEntry = 1555, GoldenFvgMode = "BREAK", GoldenMaxTradesPerDay = 1 };
+        var map = KeystoneGoldenFvgMap.Scan(mb, "MNQ", mapCfg, new List<KeystoneArcEvent>());
+        Console.WriteLine("      FVG map: " + string.Join(" | ", map.Select(z => mb[z.C3].Time.ToString("HH:mm") + " " + z.Low + "-" + z.High + " " + z.Status)));
+        Check(map.Any(z => z.Status.StartsWith("STARTED BEFORE")) && map.Any(z => z.Status.StartsWith("GAP 3 < MIN 5")) && map.Any(z => z.Status.StartsWith("NO RETEST")), "FVG map labels every gap: before the start, too small, or no retest/break");
+        var takenEv = new KeystoneArcEvent { Symbol = "MNQ", SetupClass = "FVG", EntryTime = d0.AddMinutes(70), FvgFormedTime = d0.AddMinutes(55), RiskModel = "GLD FVG" };
+        var map2 = KeystoneGoldenFvgMap.Scan(mb, "MNQ", mapCfg, new List<KeystoneArcEvent> { takenEv });
+        Check(map2.Count(z => z.Taken) == 1 && map2.First(z => z.Taken).Formed == d0.AddMinutes(55), "the traded gap is marked TAKEN");
+        // GOLDEN PROP GRID: one entry at 10:00, target reached only the next morning → HOLD = TARGET, SAME DAY = out at 15:55
+        var gr = new List<KeystoneArcBar>(); var g0 = new DateTime(2025, 3, 3, 10, 0, 0);
+        for (int i = 0; i < 1500; i++) { var tt = g0.AddMinutes(i); double px = i < 1200 ? 20000 + (i % 7) : 20000 + (i - 1200) * 0.5; gr.Add(new KeystoneArcBar { Symbol = "MNQ", Time = tt, Open = px, High = px + 1, Low = px - 1, Close = px }); }
+        var gs = new KeystoneGoldenStudyResult(); gs.Kept.Add(new KeystoneArcEvent { Symbol = "MNQ", Direction = "LONG", SetupClass = "FVG", EntryTime = g0, TriggerTime = g0, Entry = 20000, Stop = 19950, Outcome = "WIN" });
+        DateTime gf, gl, gsp; int gd;
+        var grows = KeystoneGoldenLab.Rows(gs, new KeystonePropRules(), new KeystoneGoldenLab.Grid { MnqTargets = new List<double> { 100 }, MnqStops = new List<double> { 0 }, Contracts = new List<int> { 1 } }, new Dictionary<string, List<KeystoneArcBar>> { { "MNQ", gr } }, null, null, out gf, out gl, out gsp, out gd);
+        var same = grows.First(x => x.Get("EXIT") == "SAME DAY").Trades[0]; var hold = grows.First(x => x.Get("EXIT") == "HOLD").Trades[0];
+        Check(same.Outcome == "CLOSE" && same.ExitTime == new DateTime(2025, 3, 3, 15, 55, 0) && hold.Outcome == "TARGET" && hold.ExitTime.Date == new DateTime(2025, 3, 4) && grows.All(x => x.Get("STOP") == "SL PATTERN"), "golden grid: SAME DAY closes at 15:55, HOLD reaches the target the next day; PATTERN = the setup's own stop", same.Outcome + " " + same.ExitTime + " / " + hold.Outcome + " " + hold.ExitTime);
         Console.WriteLine(failures == 0 ? "ALL FVG LAB TESTS PASSED" : failures + " FVG LAB TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

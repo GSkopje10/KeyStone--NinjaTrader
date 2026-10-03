@@ -230,7 +230,7 @@ public static class UiSmokeTest
             });
             Step(strategy + ": switch instrument view to MNQ", () => { Call(lab2, "RenderPoolLedger"); });
             if (strategy == "GLD")
-                Step("GLD: PROP SIMULATION of the golden entries (as tested vs flat by the close)", () =>
+                Step("GLD: PROP SIMULATION of the golden entries (same day vs hold × target × stop × contracts)", () =>
                 {
                     Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
                     if (F("goldenStudy") == null) { Console.WriteLine("      (no golden study in this run)"); return; }
@@ -241,7 +241,7 @@ public static class UiSmokeTest
                     Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)S("Status")).Text);
                     var rows = (List<KeystoneLabRow>)S("Rows");
                     Console.WriteLine("      " + string.Join(" | ", rows.Take(4).Select(x => x.Label + " prop " + x.P.PropNet.ToString("0") + " plain " + x.P.Net.ToString("0"))));
-                    if (rows.Count == 0 || !rows.Any(x => x.Get("HOLD").StartsWith("FLAT")) || !rows.Any(x => x.Get("HOLD").StartsWith("AS TESTED"))) throw new Exception("golden prop rows missing");
+                    if (rows.Count == 0 || !rows.Any(x => x.Get("EXIT") == "SAME DAY") || !rows.Any(x => x.Get("EXIT") == "HOLD")) throw new Exception("golden prop rows missing");
                     foreach (System.Windows.Controls.TabItem t in ((System.Windows.Controls.TabControl)S("Tabs")).Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("golden prop tab not filled: " + t.Header);
                 });
             if (strategy == "FVG")
