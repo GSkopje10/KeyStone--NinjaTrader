@@ -165,6 +165,8 @@ namespace System.Windows.Media.Effects { public class Effect { } public class Dr
 
 namespace System.Windows.Media
 {
+    public enum EdgeMode { Unspecified, Aliased }
+    public static class RenderOptions { public static void SetEdgeMode(System.Windows.DependencyObject o, EdgeMode m) { } }
     public struct Color
     {
         public byte A, R, G, B;
@@ -409,6 +411,7 @@ namespace System.Windows.Controls
     public class MenuItem : HeaderedItemsControlCompat { public event RoutedEventHandler Click; public object Icon { get; set; } }
     public class HeaderedItemsControlCompat : ItemsControl { public object Header { get; set; } }
     public class Separator : Control { }
+    public class ContextMenu : ItemsControl { public bool IsOpen { get; set; } public UIElement PlacementTarget { get; set; } }
     public class Border : FrameworkElement
     {
         public Brush Background { get; set; } public Brush BorderBrush { get; set; } public Thickness BorderThickness { get; set; }

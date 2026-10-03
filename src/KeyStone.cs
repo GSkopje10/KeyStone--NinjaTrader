@@ -11704,9 +11704,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-04k";
+        private const string KeystoneBuildShort = "BUILD 2026-10-04l";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-04k • LOAD DAY NO LONGER LOSES THE TYPED DATE AFTER A NINJATRADER DOWNLOAD • DATA LIBRARY: MONTH TILES (CLICK MONTHS / YEARS, QUICK 3M / 12M / 3Y / 6Y / EVERY GAP, DOWNLOAD SELECTED) + ERROR TEXT INSTEAD OF A CRASH • PICK A DAY (EVERY SAVED DAY WITH FOMC / NFP / CPI TAGS, NY RANGE + MOVE, FILTERS) • ◀ BACK IN TIME (−1 / −10 MIN, ← →) • CLOSE CONFIRMATION ON EVERY WINDOW • LIVE DESK READ ONLY (ACCOUNTS, GROUPS DRAG + DROP, DRAWDOWN ROOM, TARGET) • BUILD 2026-10-04j • STUDIO: ANY DATE → LOAD DAY GETS IT FROM NINJATRADER AND SAVES IT FOR EVERY NEXT LOAD • PREV / NEXT DAY ANY WEEKDAY • ONE-CLICK TIMEFRAME BUTTONS (KEYS 1–9) • HIGH-IMPACT NEWS: CORNER BOX WITH COUNTDOWN, NEWS LINES ON THE CHART, NEWS LOCK ± MIN + FLAT BEFORE NEWS (FOMC + PAYROLLS BUILT IN, FOREXFACTORY WEEK FEED, YOUR NEWS.CSV) • DATA IN ITS OWN FOLDER Documents\\KeystoneArcData (REPORTS STAY IN KeystoneArc5MResearch; OLD DATA MOVED) • DOWNLOAD WATCHDOG 120 S • BUILD 2026-10-04i • LAUNCHER (BACKTEST STUDIO • RESEARCH LAB • DATA LIBRARY • LIVE DESK LOCKED) • DATA LIBRARY: THE STUDIO'S OWN 1-MINUTE BARS (COVERAGE PER YEAR, MISSING DAYS, DOWNLOAD ANY RANGE WEEK BY WEEK, NO STEP 1) • STUDIO REMEMBERS THE DAY, SETTINGS, TIMEFRAMES AND DRAWINGS • ACCOUNT BLOWN PROMPT: NEW ACCOUNT CONTINUES THE SAME DAY • STRATEGY MODE SIGNALS / AUTO + ME • ENTRY BOX • BUILD 2026-10-04h • REPLAY TRADER v3: MNQ + MGC TABS ON ONE CLOCK AND ONE ACCOUNT, TRADINGVIEW-STYLE CHART (WHEEL ZOOM AT THE MOUSE, DRAG ANYWHERE INCL. SPACE ON THE RIGHT, PRICE / TIME AXIS STRETCH, CROSSHAIR), DRAWING TOOLBAR (LINE, TREND, RECTANGLE, LONG / SHORT R:R TOOL), TARGET / STOP ZONES + ANIMATED P/L BOX, REALISTIC TICK PATH, PREV / NEXT DAY, FULL WINDOW • BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-04l • DRAWING PALETTE (HORIZONTAL / VERTICAL LINE, TREND, RAY, RECTANGLE, FVG BOX WITH 50% LINE, FIBONACCI, ARROWS, TEXT, LONG / SHORT) • 10 COLOURS + LINE WIDTH • DRAG A DRAWING TO MOVE IT • RIGHT-CLICK MENU (LIMIT / STOP ORDERS AT THE PRICE, TP / SL HERE, CLOSE, DRAW, COLOUR, WIDTH, TEXT, COPY, DELETE, CHART TEMPLATE, TIMEFRAME, RESET) • 9 CHART TEMPLATES + HOLLOW CANDLES • SHARP PIXEL CANDLES • DRAG THE POSITION LINE FOR TP / SL • QUICK CONTRACTS, BRACKET PRESETS, BREAKEVEN, REVERSE, FLATTEN MNQ + MGC • GO TO NOW BUTTON • BUILD 2026-10-04k • LOAD DAY NO LONGER LOSES THE TYPED DATE AFTER A NINJATRADER DOWNLOAD • DATA LIBRARY: MONTH TILES (CLICK MONTHS / YEARS, QUICK 3M / 12M / 3Y / 6Y / EVERY GAP, DOWNLOAD SELECTED) + ERROR TEXT INSTEAD OF A CRASH • PICK A DAY (EVERY SAVED DAY WITH FOMC / NFP / CPI TAGS, NY RANGE + MOVE, FILTERS) • ◀ BACK IN TIME (−1 / −10 MIN, ← →) • CLOSE CONFIRMATION ON EVERY WINDOW • LIVE DESK READ ONLY (ACCOUNTS, GROUPS DRAG + DROP, DRAWDOWN ROOM, TARGET) • BUILD 2026-10-04j • STUDIO: ANY DATE → LOAD DAY GETS IT FROM NINJATRADER AND SAVES IT FOR EVERY NEXT LOAD • PREV / NEXT DAY ANY WEEKDAY • ONE-CLICK TIMEFRAME BUTTONS (KEYS 1–9) • HIGH-IMPACT NEWS: CORNER BOX WITH COUNTDOWN, NEWS LINES ON THE CHART, NEWS LOCK ± MIN + FLAT BEFORE NEWS (FOMC + PAYROLLS BUILT IN, FOREXFACTORY WEEK FEED, YOUR NEWS.CSV) • DATA IN ITS OWN FOLDER Documents\\KeystoneArcData (REPORTS STAY IN KeystoneArc5MResearch; OLD DATA MOVED) • DOWNLOAD WATCHDOG 120 S • BUILD 2026-10-04i • LAUNCHER (BACKTEST STUDIO • RESEARCH LAB • DATA LIBRARY • LIVE DESK LOCKED) • DATA LIBRARY: THE STUDIO'S OWN 1-MINUTE BARS (COVERAGE PER YEAR, MISSING DAYS, DOWNLOAD ANY RANGE WEEK BY WEEK, NO STEP 1) • STUDIO REMEMBERS THE DAY, SETTINGS, TIMEFRAMES AND DRAWINGS • ACCOUNT BLOWN PROMPT: NEW ACCOUNT CONTINUES THE SAME DAY • STRATEGY MODE SIGNALS / AUTO + ME • ENTRY BOX • BUILD 2026-10-04h • REPLAY TRADER v3: MNQ + MGC TABS ON ONE CLOCK AND ONE ACCOUNT, TRADINGVIEW-STYLE CHART (WHEEL ZOOM AT THE MOUSE, DRAG ANYWHERE INCL. SPACE ON THE RIGHT, PRICE / TIME AXIS STRETCH, CROSSHAIR), DRAWING TOOLBAR (LINE, TREND, RECTANGLE, LONG / SHORT R:R TOOL), TARGET / STOP ZONES + ANIMATED P/L BOX, REALISTIC TICK PATH, PREV / NEXT DAY, FULL WINDOW • BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -25533,13 +25533,37 @@ namespace NinjaTrader.NinjaScript.AddOns
         }
 
         // ---- REPLAY TRADER v3: one tab per instrument on one clock and one account; a TradingView-style chart in each tab --
-        private sealed class ReplayDrawing { public string Kind = "HLINE"; public DateTime T1, T2; public double P1, P2; }
+        private sealed class ReplayDrawing { public string Kind = "HLINE"; public DateTime T1, T2; public double P1, P2; public string Color = "#E040FB"; public double Width = 1.5; public string Text = string.Empty; }
+        // chart templates: background, grid, candles, text
+        private sealed class ChartTheme { public string Name; public SolidColorBrush Bg, Grid, Up, Down, Text; public bool Hollow; }
+        private static SolidColorBrush HexBrush(string hex)
+        {
+            try
+            {
+                string h = (hex ?? "").TrimStart('#'); if (h.Length == 6) h = "FF" + h;
+                var b = new SolidColorBrush(Color.FromArgb(Convert.ToByte(h.Substring(0, 2), 16), Convert.ToByte(h.Substring(2, 2), 16), Convert.ToByte(h.Substring(4, 2), 16), Convert.ToByte(h.Substring(6, 2), 16))); b.Freeze(); return b;
+            }
+            catch { return new SolidColorBrush(Color.FromRgb(255, 0, 255)); }
+        }
+        private static readonly string[][] ChartThemeDefs =
+        {
+            new[] { "TRADINGVIEW DARK", "#131722", "#1E222D", "#26A69A", "#EF5350", "#B2B5BE", "0" },
+            new[] { "TRADINGVIEW LIGHT", "#FFFFFF", "#F0F3FA", "#089981", "#F23645", "#131722", "0" },
+            new[] { "KEYSTONE", "", "", "", "", "", "0" },
+            new[] { "MIDNIGHT NEON", "#0B1020", "#18203A", "#4CC9F0", "#F72585", "#9AA4C7", "0" },
+            new[] { "OCEAN", "#0E1A2B", "#1A2B42", "#2EC4B6", "#FF9F1C", "#A9BCD0", "0" },
+            new[] { "MONO HOLLOW", "#101010", "#202020", "#E0E0E0", "#6B6B6B", "#A0A0A0", "1" },
+            new[] { "MATRIX", "#050A05", "#0F1F0F", "#39FF14", "#FF3B30", "#7CFC9A", "0" },
+            new[] { "SUNSET", "#1A1423", "#2B2236", "#FFD166", "#EF476F", "#E0D6F0", "0" },
+            new[] { "BLUE / ORANGE", "#0F1621", "#1C2633", "#3A86FF", "#FB8500", "#B8C4D6", "0" },
+        };
+        private static readonly string[] DrawPalette = { "#E040FB", "#FFD166", "#2EC4B6", "#3A86FF", "#26A69A", "#EF5350", "#FB8500", "#FFFFFF", "#9E9E9E", "#7CFC9A" };
         private sealed class ReplayPane
         {
             public string Symbol = string.Empty; public List<KeystoneArcBar> All = new List<KeystoneArcBar>(); public KeystoneReplayTrader Trader; public int Tf = 1;
             public double Spacing = 9, RightOffset = 14, PCenter, PRange; public bool Follow = true, PriceAuto = true; public int LastCount, SavedFills, Pulse;
             public List<KeystoneReplaySignal> Signals = new List<KeystoneReplaySignal>(); public List<ReplayDrawing> Drawings = new List<ReplayDrawing>();
-            public Canvas Canvas; public Border Hit; public TextBlock PosText; public StackPanel TradesList; public TextBox Qty, Price, Sl, Tp; public ComboBox OrderType, TfBox; public List<Button> TfButtons = new List<Button>(); public string Tool = "CURSOR";
+            public Canvas Canvas; public Border Hit; public TextBlock PosText; public StackPanel TradesList; public TextBox Qty, Price, Sl, Tp; public ComboBox OrderType, TfBox; public List<Button> TfButtons = new List<Button>(); public List<Border> Swatches = new List<Border>(); public Action<string> SetTool; public string Tool = "CURSOR"; public ReplayDrawing Moving; public DateTime MoveT1, MoveT2, MoveDownTime; public double MoveP1, MoveP2, MoveDownPrice;
             public double PlotW = 1000, PlotH = 500, Top = 8, AxisW = 84, TimeH = 24, Hi = 1, Lo = 0; public List<KeystoneArcBar> Candles = new List<KeystoneArcBar>();
             public bool MouseOver; public double MouseX, MouseY; public ReplayDrawing Preview;
             public string Drag; public double DownX, DownY, Ro0, Pc0, Pr0, S0; public KeystoneReplayOrder DragOrder; public bool Moved;
@@ -25644,6 +25668,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             var panes = new List<ReplayPane>(); ReplayPane active = null;
             var newsAll = LoadStudioNews(); var sessionNews = new List<KeystoneNewsEvent>();
+            var themes = ChartThemeDefs.Select(t => t[1] == "" ? new ChartTheme { Name = t[0], Bg = Panel, Grid = Tint(Card, 160), Up = Green, Down = Red, Text = Muted } : new ChartTheme { Name = t[0], Bg = HexBrush(t[1]), Grid = HexBrush(t[2]), Up = HexBrush(t[3]), Down = HexBrush(t[4]), Text = HexBrush(t[5]), Hollow = t[6] == "1" }).ToList();
+            int themeIndex = Math.Max(0, themes.FindIndex(t => t.Name == wsGet("theme", "TRADINGVIEW DARK"))); bool hollowUp = wsGet("hollow", "0") == "1";
+            Action saveWorkspace = null; string drawColor = wsGet("drawcolor", "#E040FB"); double drawWidth = 1.5; var brushCache = new Dictionary<string, SolidColorBrush>();
+            Func<string, SolidColorBrush> colorOf = hex => { SolidColorBrush b; if (!brushCache.TryGetValue(hex ?? "", out b)) brushCache[hex ?? ""] = b = HexBrush(hex); return b; };
             // the high-impact news whose lock window (± NEWS LOCK minutes) holds t, or null
             Func<DateTime, KeystoneNewsEvent> newsLockAt = t => { double m = NumberAllowZero(newsLockBox, 0); if (m <= 0) return null; return sessionNews.FirstOrDefault(e => Math.Abs((t - e.Time).TotalMinutes) <= m); };
             Func<double> dayNet = () => panes.Where(p => p.Trader != null).Sum(p => p.Trader.DayNet);
@@ -25682,6 +25710,25 @@ namespace NinjaTrader.NinjaScript.AddOns
                 int j = (int)Math.Ceiling(idx); return c[j].Time.AddMinutes(-(j - idx) * pn.Tf);
             };
             Func<double, string> fmt = p => p.ToString("0.00", CultureInfo.InvariantCulture);
+            // the drawing under the mouse (the last drawn wins), or null
+            Func<ReplayPane, double, double, ReplayDrawing> drawingAt = null;
+            drawingAt = (pn, mx, my) => pn.Drawings.LastOrDefault(d =>
+            {
+                double x1 = xOfIndex(pn, indexOfTime(pn, d.T1)), x2 = xOfIndex(pn, indexOfTime(pn, d.T2)), y1 = yOf(pn, d.P1), y2 = yOf(pn, d.P2);
+                Func<double, double, double, double, bool> nearSeg = (ax, ay, bx, by) => { double len2 = (bx - ax) * (bx - ax) + (by - ay) * (by - ay); if (len2 < 1) return Math.Abs(mx - ax) + Math.Abs(my - ay) <= 8; double u = Math.Max(0, Math.Min(1, ((mx - ax) * (bx - ax) + (my - ay) * (by - ay)) / len2)); double qx = ax + u * (bx - ax), qy = ay + u * (by - ay); return Math.Sqrt((mx - qx) * (mx - qx) + (my - qy) * (my - qy)) <= 6; };
+                switch (d.Kind)
+                {
+                    case "HLINE": return Math.Abs(y1 - my) <= 6;
+                    case "VLINE": return Math.Abs(x1 - mx) <= 6;
+                    case "TREND": return nearSeg(x1, y1, x2, y2);
+                    case "RAY": { if (Math.Abs(x2 - x1) < 0.5) return nearSeg(x1, y1, x2, y2); double ex = x2 > x1 ? pn.PlotW : 0; return nearSeg(x1, y1, ex, y1 + (y2 - y1) * (ex - x1) / (x2 - x1)); }
+                    case "ARROWUP": case "ARROWDN": case "TEXT": return mx >= x1 - 12 && mx <= x1 + (d.Kind == "TEXT" ? 8 * Math.Max(4, (d.Text ?? "").Length) : 14) && my >= y1 - 26 && my <= y1 + 26;
+                    case "FVG": return mx >= Math.Min(x1, x2) - 4 && mx <= pn.PlotW && my >= Math.Min(y1, y2) - 4 && my <= Math.Max(y1, y2) + 4;
+                    case "FIB": return mx >= Math.Min(x1, x2) - 4 && mx <= Math.Max(Math.Max(x1, x2), Math.Min(x1, x2) + 80) + 4 && my >= Math.Min(y1, y2) - 4 && my <= Math.Max(y1, y2) + 4;
+                    case "RECT": return mx >= Math.Min(x1, x2) - 4 && mx <= Math.Max(x1, x2) + 4 && my >= Math.Min(y1, y2) - 4 && my <= Math.Max(y1, y2) + 4;
+                    default: { double yb = yOf(pn, d.P1 - (d.P2 - d.P1) / 2); return mx >= Math.Min(x1, x2) - 4 && mx <= Math.Max(Math.Max(x1, x2), x1 + 60) + 4 && my >= Math.Min(Math.Min(y1, y2), yb) - 4 && my <= Math.Max(Math.Max(y1, y2), yb) + 4; }
+                }
+            });
 
             Action<ReplayPane> render = null;
             render = pn =>
@@ -25702,28 +25749,33 @@ namespace NinjaTrader.NinjaScript.AddOns
                 else { pn.Hi = pn.PCenter + pn.PRange / 2; pn.Lo = pn.PCenter - pn.PRange / 2; }
                 // grid + price axis
                 double rawStep = (pn.Hi - pn.Lo) / 8, mag = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(1e-9, rawStep)))), step = new[] { 1, 2, 2.5, 5, 10 }.Select(v => v * mag).First(v => v >= rawStep);
-                var gridBrush = Tint(Card, 160);
+                var th = themes[themeIndex]; cv.Background = th.Bg; var gridBrush = th.Grid; var axisText = th.Text;
                 for (double p = Math.Ceiling(pn.Lo / step) * step; p <= pn.Hi; p += step)
                 {
                     double y = yOf(pn, p); cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = y, Y2 = y, Stroke = gridBrush, StrokeThickness = 1 });
-                    var t = new TextBlock { Text = fmt(p), Foreground = Muted, FontSize = 10 }; System.Windows.Controls.Canvas.SetLeft(t, pn.PlotW + 6); System.Windows.Controls.Canvas.SetTop(t, y - 7); cv.Children.Add(t);
+                    var t = new TextBlock { Text = fmt(p), Foreground = axisText, FontSize = 10 }; System.Windows.Controls.Canvas.SetLeft(t, pn.PlotW + 6); System.Windows.Controls.Canvas.SetTop(t, y - 7); cv.Children.Add(t);
                 }
                 int every = Math.Max(1, (int)Math.Ceiling(110 / pn.Spacing));
                 for (int i = i0; i <= i1; i++)
                 {
                     if (i % every != 0) continue; double x = xOfIndex(pn, i);
                     cv.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = pn.Top, Y2 = pn.Top + pn.PlotH, Stroke = gridBrush, StrokeThickness = 1 });
-                    var t = new TextBlock { Text = pn.Tf >= 1440 ? cs[i].Time.ToString("MM-dd") : cs[i].Time.AddMinutes(-pn.Tf).ToString("HH:mm"), Foreground = Muted, FontSize = 10 }; System.Windows.Controls.Canvas.SetLeft(t, x - 14); System.Windows.Controls.Canvas.SetTop(t, pn.Top + pn.PlotH + 5); cv.Children.Add(t);
+                    var t = new TextBlock { Text = pn.Tf >= 1440 ? cs[i].Time.ToString("MM-dd") : cs[i].Time.AddMinutes(-pn.Tf).ToString("HH:mm"), Foreground = axisText, FontSize = 10 }; System.Windows.Controls.Canvas.SetLeft(t, x - 14); System.Windows.Controls.Canvas.SetTop(t, pn.Top + pn.PlotH + 5); cv.Children.Add(t);
                 }
                 cv.Children.Add(new System.Windows.Shapes.Line { X1 = pn.PlotW, X2 = pn.PlotW, Y1 = 0, Y2 = H, Stroke = Card, StrokeThickness = 1 });
                 // candles
                 double bw = Math.Max(1, pn.Spacing * 0.72);
                 for (int i = i0; i <= i1; i++)
                 {
-                    var b = cs[i]; double x = xOfIndex(pn, i); bool upC = b.Close >= b.Open; var br = upC ? Green : Red;
-                    cv.Children.Add(new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = yOf(pn, b.High), Y2 = yOf(pn, b.Low), Stroke = br, StrokeThickness = 1 });
-                    var body = new System.Windows.Shapes.Rectangle { Width = bw, Height = Math.Max(1, Math.Abs(yOf(pn, b.Open) - yOf(pn, b.Close))), Fill = br };
-                    System.Windows.Controls.Canvas.SetLeft(body, x - bw / 2); System.Windows.Controls.Canvas.SetTop(body, Math.Min(yOf(pn, b.Open), yOf(pn, b.Close))); cv.Children.Add(body);
+                    var b = cs[i]; double x = xOfIndex(pn, i); bool upC = b.Close >= b.Open; var br = upC ? th.Up : th.Down; bool hollow = upC && (th.Hollow || hollowUp);
+                    // whole-pixel candles (odd body width, wick in the middle, aliased edges) = sharp like TradingView
+                    double cx = Math.Round(x); int bwi = Math.Max(1, (int)Math.Round(bw)); if (bwi > 2 && bwi % 2 == 0) bwi--;
+                    var wick = new System.Windows.Shapes.Line { X1 = cx + 0.5, X2 = cx + 0.5, Y1 = Math.Round(yOf(pn, b.High)), Y2 = Math.Round(yOf(pn, b.Low)) + 1, Stroke = br, StrokeThickness = 1 };
+                    RenderOptions.SetEdgeMode(wick, EdgeMode.Aliased); cv.Children.Add(wick);
+                    double yTop = Math.Round(Math.Min(yOf(pn, b.Open), yOf(pn, b.Close))), yBot = Math.Round(Math.Max(yOf(pn, b.Open), yOf(pn, b.Close)));
+                    var body = new System.Windows.Shapes.Rectangle { Width = bwi, Height = Math.Max(1, yBot - yTop), Fill = hollow ? th.Bg : br, Stroke = hollow ? br : null, StrokeThickness = hollow ? 1 : 0 };
+                    RenderOptions.SetEdgeMode(body, EdgeMode.Aliased);
+                    System.Windows.Controls.Canvas.SetLeft(body, cx - (bwi - 1) / 2); System.Windows.Controls.Canvas.SetTop(body, yTop); cv.Children.Add(body);
                 }
                 Action<double, double, double, double, Brush, double> rect = (x1, y1, x2, y2, fill, op) =>
                 {
@@ -25750,9 +25802,34 @@ namespace NinjaTrader.NinjaScript.AddOns
                 foreach (var d in pn.Drawings.Concat(pn.Preview != null ? new[] { pn.Preview } : new ReplayDrawing[0]))
                 {
                     double x1 = xOfIndex(pn, indexOfTime(pn, d.T1)), x2 = xOfIndex(pn, indexOfTime(pn, d.T2)), y1 = yOf(pn, d.P1), y2 = yOf(pn, d.P2);
-                    if (d.Kind == "HLINE") { cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = y1, Y2 = y1, Stroke = Orchid, StrokeThickness = 1.4 }); var t = new Border { Background = Orchid, Padding = new Thickness(3, 0, 3, 0), Child = new TextBlock { Text = fmt(d.P1), Foreground = Bg, FontSize = 10.5, FontWeight = FontWeights.Bold } }; System.Windows.Controls.Canvas.SetLeft(t, pn.PlotW + 2); System.Windows.Controls.Canvas.SetTop(t, y1 - 8); cv.Children.Add(t); }
-                    else if (d.Kind == "TREND") cv.Children.Add(new System.Windows.Shapes.Line { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = Orchid, StrokeThickness = 1.6 });
-                    else if (d.Kind == "RECT") { rect(x1, y1, x2, y2, Orchid, 0.16); var o = new System.Windows.Shapes.Rectangle { Width = Math.Max(1, Math.Abs(x2 - x1)), Height = Math.Max(1, Math.Abs(y2 - y1)), Stroke = Orchid, StrokeThickness = 1.2 }; System.Windows.Controls.Canvas.SetLeft(o, Math.Min(x1, x2)); System.Windows.Controls.Canvas.SetTop(o, Math.Min(y1, y2)); cv.Children.Add(o); }
+                    var dc = colorOf(d.Color); double dw = d.Width <= 0 ? 1.5 : d.Width;
+                    Action<double, double, double, double> outline = (ax, ay, bx, by) => { var o = new System.Windows.Shapes.Rectangle { Width = Math.Max(1, Math.Abs(bx - ax)), Height = Math.Max(1, Math.Abs(by - ay)), Stroke = dc, StrokeThickness = dw }; System.Windows.Controls.Canvas.SetLeft(o, Math.Min(ax, bx)); System.Windows.Controls.Canvas.SetTop(o, Math.Min(ay, by)); cv.Children.Add(o); };
+                    Action<double, double, string, double> label = (lx, ly, txt, size) => { var tb = new TextBlock { Text = txt, Foreground = dc, FontSize = size, FontWeight = FontWeights.Bold }; System.Windows.Controls.Canvas.SetLeft(tb, lx); System.Windows.Controls.Canvas.SetTop(tb, ly); cv.Children.Add(tb); };
+                    if (d.Kind == "HLINE") { cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = y1, Y2 = y1, Stroke = dc, StrokeThickness = dw }); var t = new Border { Background = dc, Padding = new Thickness(3, 0, 3, 0), Child = new TextBlock { Text = fmt(d.P1), Foreground = Bg, FontSize = 10.5, FontWeight = FontWeights.Bold } }; System.Windows.Controls.Canvas.SetLeft(t, pn.PlotW + 2); System.Windows.Controls.Canvas.SetTop(t, y1 - 8); cv.Children.Add(t); if (!string.IsNullOrEmpty(d.Text)) label(6, y1 - 16, d.Text, 11); }
+                    else if (d.Kind == "VLINE") cv.Children.Add(new System.Windows.Shapes.Line { X1 = x1, X2 = x1, Y1 = pn.Top, Y2 = pn.Top + pn.PlotH, Stroke = dc, StrokeThickness = dw });
+                    else if (d.Kind == "TREND") cv.Children.Add(new System.Windows.Shapes.Line { X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, Stroke = dc, StrokeThickness = dw });
+                    else if (d.Kind == "RAY") { double ex = x2, ey = y2; if (Math.Abs(x2 - x1) > 0.5) { ex = pn.PlotW; ey = y1 + (y2 - y1) * (pn.PlotW - x1) / (x2 - x1); if (x2 < x1) { ex = 0; ey = y1 + (y2 - y1) * (0 - x1) / (x2 - x1); } } cv.Children.Add(new System.Windows.Shapes.Line { X1 = x1, Y1 = y1, X2 = ex, Y2 = ey, Stroke = dc, StrokeThickness = dw }); }
+                    else if (d.Kind == "RECT") { rect(x1, y1, x2, y2, dc, 0.16); outline(x1, y1, x2, y2); }
+                    else if (d.Kind == "FVG")
+                    {
+                        // a gap box that runs to the right edge, with its 50% line
+                        double left = Math.Min(x1, x2); rect(left, y1, pn.PlotW, y2, dc, 0.20); outline(left, y1, pn.PlotW, y2);
+                        double ym = (y1 + y2) / 2; cv.Children.Add(new System.Windows.Shapes.Line { X1 = left, X2 = pn.PlotW, Y1 = ym, Y2 = ym, Stroke = dc, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 4, 3 } });
+                        label(left + 4, Math.Min(y1, y2) + 1, "FVG " + fmt(Math.Min(d.P1, d.P2)) + " – " + fmt(Math.Max(d.P1, d.P2)) + (string.IsNullOrEmpty(d.Text) ? "" : " • " + d.Text), 10);
+                    }
+                    else if (d.Kind == "FIB")
+                    {
+                        double left = Math.Min(x1, x2), right = Math.Max(Math.Max(x1, x2), left + 80);
+                        foreach (var lv in new[] { 0, 0.236, 0.382, 0.5, 0.618, 0.786, 1 })
+                        {
+                            double pr = d.P2 + (d.P1 - d.P2) * lv, yy = yOf(pn, pr);
+                            cv.Children.Add(new System.Windows.Shapes.Line { X1 = left, X2 = right, Y1 = yy, Y2 = yy, Stroke = dc, StrokeThickness = lv == 0.5 || lv == 0.618 ? dw + 0.5 : 1, Opacity = lv == 0 || lv == 1 ? 1 : 0.8 });
+                            label(right + 4, yy - 8, lv.ToString("0.###", CultureInfo.InvariantCulture) + " (" + fmt(pr) + ")", 10);
+                        }
+                        rect(left, yOf(pn, d.P2 + (d.P1 - d.P2) * 0.5), right, yOf(pn, d.P2 + (d.P1 - d.P2) * 0.618), dc, 0.12);
+                    }
+                    else if (d.Kind == "ARROWUP" || d.Kind == "ARROWDN") label(x1 - 9, d.Kind == "ARROWUP" ? y1 : y1 - 24, d.Kind == "ARROWUP" ? "▲" : "▼", 18 + dw * 2);
+                    else if (d.Kind == "TEXT") label(x1, y1 - 10, string.IsNullOrEmpty(d.Text) ? "note" : d.Text, 12 + dw);
                     else if (d.Kind == "LONG" || d.Kind == "SHORT")
                     {
                         // risk / reward tool: entry = first point, target = second point, stop = half the distance on the other side (2 : 1)
@@ -25782,7 +25859,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (r.StopPts > 0) rect(entryX, yE, pn.PlotW, yOf(pn, r.AvgPrice - dir * r.StopPts), Red, 0.16);
                     pn.Pulse++; double pulse = 0.28 + 0.14 * Math.Sin(pn.Pulse * 0.35);
                     rect(entryX, yE, pn.PlotW, yOf(pn, r.Price), r.Unrealized >= 0 ? Green : Red, pulse);
-                    axisTag(r.AvgPrice, Blue, (dir > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " • " + Signed(r.Unrealized), true);
+                    axisTag(r.AvgPrice, Blue, (dir > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " • " + Signed(r.Unrealized) + (r.StopPts <= 0 || r.TargetPts <= 0 ? "  ⇕ drag for " + (r.TargetPts <= 0 && r.StopPts <= 0 ? "TP / SL" : r.TargetPts <= 0 ? "TP" : "SL") : ""), true);
                     if (r.TargetPts > 0) axisTag(r.AvgPrice + dir * r.TargetPts, Green, "TARGET +" + fmt(r.TargetPts) + " pts • " + Cash(r.TargetPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)", false);
                     if (r.StopPts > 0) axisTag(r.AvgPrice - dir * r.StopPts, Red, "STOP −" + fmt(r.StopPts) + " pts • −" + Cash(r.StopPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)", false);
                 }
@@ -25952,18 +26029,29 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(46) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) });
                 // drawing toolbar
                 var tools = new StackPanel { Margin = new Thickness(2) };
-                var toolDefs = new[] { Tuple.Create("↖", "CURSOR", "Cursor: drag = scroll, wheel = zoom, drag the price axis = stretch, drag STOP / TARGET / order lines"), Tuple.Create("─", "HLINE", "Horizontal line (click)"), Tuple.Create("╱", "TREND", "Trend line (drag)"), Tuple.Create("▭", "RECT", "Rectangle (drag)"), Tuple.Create("▲", "LONG", "Long position tool: drag from the entry to the target (stop = half, 2 : 1)"), Tuple.Create("▼", "SHORT", "Short position tool: drag from the entry down to the target"), Tuple.Create("✕", "CLEAR", "Delete every drawing (right-click a drawing deletes one)") };
+                var toolDefs = new[] { Tuple.Create("↖", "CURSOR", "Cursor: drag = scroll, wheel = zoom, drag a drawing = move it, drag the price axis = stretch, drag STOP / TARGET / order lines"), Tuple.Create("─", "HLINE", "Horizontal line (click)"), Tuple.Create("│", "VLINE", "Vertical line (click)"), Tuple.Create("╱", "TREND", "Trend line (drag)"), Tuple.Create("↗", "RAY", "Ray: a line that runs on to the edge (drag)"), Tuple.Create("▭", "RECT", "Rectangle (drag)"), Tuple.Create("▤", "FVG", "FVG box: drag over the gap — it runs to the right edge with its 50% line"), Tuple.Create("≡", "FIB", "Fibonacci retracement: drag from the swing start to the swing end"), Tuple.Create("⬆", "ARROWUP", "Arrow up (click)"), Tuple.Create("⬇", "ARROWDN", "Arrow down (click)"), Tuple.Create("T", "TEXT", "Text (click, then type)"), Tuple.Create("▲", "LONG", "Long position tool: drag from the entry to the target (stop = half, 2 : 1)"), Tuple.Create("▼", "SHORT", "Short position tool: drag from the entry down to the target"), Tuple.Create("✕", "CLEAR", "Delete every drawing on this instrument (right-click a drawing = its own menu)") };
                 var toolButtons = new List<Button>();
                 foreach (var td in toolDefs)
                 {
-                    var tdd = td; var b = Btn(td.Item1, td.Item2 == "CURSOR" ? Gold : Card); b.Width = 38; b.Height = 34; b.FontSize = 16; b.Margin = new Thickness(2, 2, 2, 2); b.ToolTip = td.Item3; toolButtons.Add(b); tools.Children.Add(b);
+                    var tdd = td; var b = Btn(td.Item1, td.Item2 == "CURSOR" ? Gold : Card); b.Width = 38; b.Height = 30; b.FontSize = 15; b.Margin = new Thickness(2, 1, 2, 1); b.ToolTip = td.Item3; toolButtons.Add(b); tools.Children.Add(b);
                     b.Click += delegate
                     {
-                        if (tdd.Item2 == "CLEAR") { pn.Drawings.Clear(); SaveStudioDrawings(panes); render(pn); return; }
+                        if (tdd.Item2 == "CLEAR") { if (pn.Drawings.Count == 0 || MessageBox.Show("Delete all " + pn.Drawings.Count + " drawings on " + pn.Symbol + "?", "Drawings", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return; pn.Drawings.Clear(); SaveStudioDrawings(panes); render(pn); return; }
                         pn.Tool = tdd.Item2; for (int k = 0; k < toolButtons.Count; k++) toolButtons[k].Background = toolDefs[k].Item2 == pn.Tool ? Gold : Card;
                     };
                 }
-                Grid.SetColumn(tools, 0); grid.Children.Add(tools);
+                pn.SetTool = tool => { pn.Tool = tool; for (int k = 0; k < toolButtons.Count; k++) toolButtons[k].Background = toolDefs[k].Item2 == pn.Tool ? Gold : Card; };
+                // colour for new drawings (right-click a drawing to recolour it)
+                var swatches = new WrapPanel { Width = 42, Margin = new Thickness(2, 6, 0, 0) }; var swatchBorders = new List<Border>();
+                foreach (var hex in DrawPalette)
+                {
+                    string hx = hex; var sw = new Border { Width = 17, Height = 17, Margin = new Thickness(1), Background = colorOf(hx), BorderBrush = hx == drawColor ? Text : Panel, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(3), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "Colour for new drawings" };
+                    sw.MouseLeftButtonUp += delegate { drawColor = hx; foreach (var p2 in panes) foreach (var x in p2.Swatches) x.BorderBrush = Equals(x.Tag, drawColor) ? Text : Panel; };
+                    sw.Tag = hx; swatchBorders.Add(sw); swatches.Children.Add(sw);
+                }
+                pn.Swatches = swatchBorders; tools.Children.Add(swatches);
+                var toolScroll = new ScrollViewer { Content = tools, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+                Grid.SetColumn(toolScroll, 0); grid.Children.Add(toolScroll);
                 // chart: the canvas draws, a transparent layer on top takes the mouse
                 var cv = new Canvas { Background = Panel, ClipToBounds = true, IsHitTestVisible = false }; pn.Canvas = cv;
                 var hit = new Border { Background = System.Windows.Media.Brushes.Transparent, Cursor = System.Windows.Input.Cursors.Cross, Focusable = true }; pn.Hit = hit;
@@ -25976,6 +26064,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                     tb.Click += delegate { pn.TfBox.SelectedIndex = tix; }; tfButtons.Add(tb); tfStrip.Children.Add(tb);
                 }
                 pn.TfButtons = tfButtons;
+                var nowBtn = Btn("⏭ GO TO NOW", Cyan); nowBtn.Height = 26; nowBtn.FontSize = 12; nowBtn.Margin = new Thickness(14, 0, 3, 0); nowBtn.Padding = new Thickness(10, 0, 10, 0);
+                nowBtn.ToolTip = "Scrolls back to the current replay candle and keeps following it, auto price scale (same as double-clicking the chart). The chart follows by itself unless you scrolled back.";
+                nowBtn.Click += delegate { pn.Follow = true; pn.RightOffset = 14; pn.PriceAuto = true; render(pn); };
+                tfStrip.Children.Add(nowBtn);
                 var chartCol = new Grid(); chartCol.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); chartCol.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
                 Grid.SetRow(tfStrip, 0); chartCol.Children.Add(tfStrip); Grid.SetRow(chartGrid, 1); chartCol.Children.Add(chartGrid);
                 Grid.SetColumn(chartCol, 1); grid.Children.Add(chartCol);
@@ -25983,21 +26075,37 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var side = new StackPanel { Margin = new Thickness(6, 2, 4, 2) };
                 side.Children.Add(new TextBlock { Text = sym, Foreground = Gold, FontSize = 18, FontWeight = FontWeights.Bold });
                 pn.TfBox = Select(tfNames); pn.TfBox.SelectedIndex = Math.Max(0, Math.Min(tfNames.Length - 1, ParseStudioInt(wsGet(sym + ".tf", "0"), 0))); pn.Tf = tfMinutes[pn.TfBox.SelectedIndex]; pn.TfBox.SelectionChanged += delegate { pn.Tf = tfMinutes[Math.Max(0, pn.TfBox.SelectedIndex)]; for (int k = 0; k < pn.TfButtons.Count; k++) pn.TfButtons[k].Background = k == pn.TfBox.SelectedIndex ? Gold : Card; pn.LastCount = 0; pn.Follow = true; pn.RightOffset = 14; render(pn); renderInfo(); };
-                var liveBtn = Btn("LIVE ▶|", Cyan); liveBtn.Height = 26; liveBtn.Click += delegate { pn.Follow = true; pn.RightOffset = 14; pn.PriceAuto = true; render(pn); };
                 for (int k = 0; k < pn.TfButtons.Count; k++) pn.TfButtons[k].Background = k == pn.TfBox.SelectedIndex ? Gold : Card;
-                var tfRow = new WrapPanel(); tfRow.Children.Add(liveBtn); side.Children.Add(tfRow);
                 pn.Qty = Input(wsGet(sym + ".qty", "1")); pn.Qty.Width = 50; pn.OrderType = Select("MARKET", "LIMIT", "STOP"); pn.OrderType.SelectedIndex = 0; pn.OrderType.Width = 90; pn.Price = Input(""); pn.Price.Width = 90; pn.Price.ToolTip = "LIMIT / STOP price — or click the chart";
                 pn.Sl = Input(wsGet(sym + ".sl", "0")); pn.Sl.Width = 60; pn.Tp = Input(wsGet(sym + ".tp", "0")); pn.Tp.Width = 60;
                 var r1 = new WrapPanel(); add("CONTRACTS", pn.Qty, r1); add("ORDER", pn.OrderType, r1); side.Children.Add(r1);
                 var r2 = new WrapPanel(); add("PRICE", pn.Price, r2); add("STOP PTS", pn.Sl, r2); add("TARGET PTS", pn.Tp, r2); side.Children.Add(r2);
                 var buy = Btn("BUY", Green); var sell = Btn("SELL", Red); foreach (var b in new[] { buy, sell }) { b.Height = 40; b.Width = 112; b.FontSize = 16; b.Margin = new Thickness(2, 6, 2, 2); }
+                // contracts in one click
+                var qtyRow = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
+                foreach (var qv in new[] { 1, 2, 3, 5, 10 }) { int qq = qv; var qb = Btn(qv.ToString(CultureInfo.InvariantCulture), Card); qb.Height = 24; qb.Width = 40; qb.FontSize = 11; qb.Margin = new Thickness(0, 0, 3, 0); qb.ToolTip = qv + " contracts"; qb.Click += delegate { pn.Qty.Text = qq.ToString(CultureInfo.InvariantCulture); }; qtyRow.Children.Add(qb); }
+                side.Children.Add(qtyRow);
+                // bracket presets (stop / target points), like an ATM template
+                bool mgcPane = KeystoneMoveStudy.IsMgc(sym);
+                var brRow = new WrapPanel { Margin = new Thickness(0, 3, 0, 0) };
+                foreach (var pr in mgcPane ? new[] { "OFF", "2/4", "3/6", "5/10" } : new[] { "OFF", "10/20", "20/40", "30/60" })
+                {
+                    string prr = pr; var pb = Btn(pr, Card); pb.Height = 24; pb.FontSize = 10.5; pb.Margin = new Thickness(0, 0, 3, 0); pb.Padding = new Thickness(6, 0, 6, 0); pb.ToolTip = pr == "OFF" ? "No stop / target" : "Stop " + pr.Split('/')[0] + " pts • target " + pr.Split('/')[1] + " pts";
+                    pb.Click += delegate { if (prr == "OFF") { pn.Sl.Text = "0"; pn.Tp.Text = "0"; } else { pn.Sl.Text = prr.Split('/')[0]; pn.Tp.Text = prr.Split('/')[1]; } };
+                    brRow.Children.Add(pb);
+                }
+                side.Children.Add(new TextBlock { Text = "BRACKET (STOP / TARGET PTS)", Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 4, 0, 0) }); side.Children.Add(brRow);
                 var bs = new WrapPanel(); bs.Children.Add(buy); bs.Children.Add(sell); side.Children.Add(bs);
                 var flatB = Btn("CLOSE POSITION", Gold); flatB.Height = 30; flatB.Margin = new Thickness(2, 2, 2, 2); var cancelB = Btn("CANCEL ORDERS", Card); cancelB.Height = 30; cancelB.Margin = new Thickness(2, 2, 2, 2);
-                side.Children.Add(flatB); side.Children.Add(cancelB);
+                var beB = Btn("BREAKEVEN", Card); beB.Height = 28; beB.Width = 112; beB.Margin = new Thickness(2, 2, 2, 2); beB.ToolTip = "Moves the stop to the entry (1 tick of room).";
+                var revB = Btn("REVERSE", Card); revB.Height = 28; revB.Width = 112; revB.Margin = new Thickness(2, 2, 2, 2); revB.ToolTip = "Closes the position and opens the same size the other way.";
+                var flatAllB = Btn("FLATTEN MNQ + MGC", Red); flatAllB.Height = 28; flatAllB.Margin = new Thickness(2, 2, 2, 2); flatAllB.ToolTip = "Closes every position and cancels every order on both tabs.";
+                var row3 = new WrapPanel(); row3.Children.Add(beB); row3.Children.Add(revB);
+                side.Children.Add(flatB); side.Children.Add(cancelB); side.Children.Add(row3); side.Children.Add(flatAllB);
                 pn.PosText = new TextBlock { Text = "FLAT", Foreground = Text, FontSize = 14, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 8, 2, 6), TextWrapping = TextWrapping.Wrap }; side.Children.Add(pn.PosText);
                 side.Children.Add(new TextBlock { Text = "TRADES TODAY", Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold });
                 pn.TradesList = new StackPanel(); side.Children.Add(pn.TradesList);
-                side.Children.Add(new TextBlock { Text = "\nMouse: wheel = zoom • drag = scroll (space on the right too) • drag the price axis = stretch, double-click it = auto • double-click the chart = LIVE • drag STOP / TARGET / order lines • right-click an order = cancel, a drawing = delete • with LIMIT / STOP chosen, a click sets the price.", Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap });
+                side.Children.Add(new TextBlock { Text = "\nMouse: wheel = zoom • drag = scroll (space on the right too) • drag the price axis = stretch, double-click it = auto • double-click the chart = GO TO NOW • drag STOP / TARGET / order lines • drag the position line = pull out a TP / SL • drag a drawing = move it • RIGHT-CLICK = menu: limit / stop orders at that price, TP / SL here, drawing tools, colours, chart templates, timeframes • with LIMIT / STOP chosen, a click sets the price.", Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap });
                 var sideScroll = new ScrollViewer { Content = side, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
                 Grid.SetColumn(sideScroll, 2); grid.Children.Add(sideScroll);
                 Action readBracket = delegate { if (pn.Trader == null) return; pn.Trader.StopPts = NumberAllowZero(pn.Sl, 0); pn.Trader.TargetPts = NumberAllowZero(pn.Tp, 0); render(pn); };
@@ -26024,6 +26132,16 @@ namespace NinjaTrader.NinjaScript.AddOns
                 buy.Click += delegate { order(1); }; sell.Click += delegate { order(-1); };
                 Action flat = delegate { if (pn.Trader == null) return; pn.Trader.CloseAll("MANUAL"); saveFills(pn); render(pn); renderInfo(); };
                 flatB.Click += delegate { flat(); }; cancelB.Click += delegate { if (pn.Trader == null) return; pn.Trader.CancelOrders(); render(pn); };
+                beB.Click += delegate { var r = pn.Trader; if (r == null || r.Position == 0) { status.Text = "NO POSITION"; status.Foreground = Gold; return; } pn.Sl.Text = r.Tick.ToString("0.##", CultureInfo.InvariantCulture); status.Text = pn.Symbol + " STOP AT BREAKEVEN (" + fmt(r.AvgPrice - Math.Sign(r.Position) * r.Tick) + ")"; status.Foreground = Cyan; };
+                revB.Click += delegate
+                {
+                    var r = pn.Trader; if (r == null || r.Position == 0 || r.Finished || dayBanked) { status.Text = "NO POSITION TO REVERSE"; status.Foreground = Gold; return; }
+                    if (dayLocked || blown) { status.Text = "LOCKED • only closing is allowed"; status.Foreground = Gold; return; }
+                    var nl = newsLockAt(r.Time); if (nl != null) { status.Text = "NEWS LOCK • " + nl.Title + " • no new trades"; status.Foreground = Orange; return; }
+                    int q = Math.Abs(r.Position), sign = -Math.Sign(r.Position), before = r.Fills.Count; if (sign > 0) r.Buy(2 * q); else r.Sell(2 * q);
+                    readBracket(); if (r.Fills.Count != before) saveFills(pn); checkLimits(); status.Text = pn.Symbol + " REVERSED → " + (sign > 0 ? "LONG " : "SHORT ") + q + " @ " + fmt(r.Price); status.Foreground = sign > 0 ? Green : Red; render(pn); renderInfo();
+                };
+                flatAllB.Click += delegate { foreach (var p2 in panes.Where(x => x.Trader != null)) { p2.Trader.CancelOrders(); p2.Trader.CloseAll("FLATTEN ALL"); saveFills(p2); render(p2); } renderInfo(); status.Text = "FLAT ON MNQ + MGC"; status.Foreground = Gold; };
                 pn.Hit.Tag = Tuple.Create<Action<int>, Action>(order, flat);
                 // ---- mouse
                 hit.MouseWheel += delegate(object sender, MouseWheelEventArgs args)
@@ -26043,8 +26161,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else if (pn.Tool != "CURSOR" && r != null)
                     {
                         var at = timeOfIndex(pn, indexAt(pn, pt.X)); double px = Math.Round(priceAt(pn, pt.Y) / r.Tick) * r.Tick;
-                        if (pn.Tool == "HLINE") { pn.Drawings.Add(new ReplayDrawing { Kind = "HLINE", T1 = at, T2 = at, P1 = px, P2 = px }); SaveStudioDrawings(panes); pn.Drag = null; render(pn); return; }
-                        pn.Preview = new ReplayDrawing { Kind = pn.Tool, T1 = at, T2 = at, P1 = px, P2 = px }; pn.Drag = "DRAW";
+                        if (pn.Tool == "HLINE" || pn.Tool == "VLINE" || pn.Tool == "ARROWUP" || pn.Tool == "ARROWDN" || pn.Tool == "TEXT")
+                        {
+                            var nd = new ReplayDrawing { Kind = pn.Tool, T1 = at, T2 = at, P1 = px, P2 = px, Color = drawColor, Width = drawWidth };
+                            if (pn.Tool == "TEXT") { nd.Text = AskStudioText(w, "TEXT ON THE CHART", "note"); if (string.IsNullOrEmpty(nd.Text)) { pn.Drag = null; return; } }
+                            pn.Drawings.Add(nd); SaveStudioDrawings(panes); pn.Drag = null; pn.SetTool("CURSOR"); render(pn); return;
+                        }
+                        pn.Preview = new ReplayDrawing { Kind = pn.Tool, T1 = at, T2 = at, P1 = px, P2 = px, Color = drawColor, Width = drawWidth }; pn.Drag = "DRAW";
                     }
                     else
                     {
@@ -26054,7 +26177,16 @@ namespace NinjaTrader.NinjaScript.AddOns
                             Func<double, bool> near = p => Math.Abs(yOf(pn, p) - pt.Y) <= 6; int dir = Math.Sign(r.Position);
                             if (r.Position != 0 && r.StopPts > 0 && near(r.AvgPrice - dir * r.StopPts)) pn.Drag = "STOP";
                             else if (r.Position != 0 && r.TargetPts > 0 && near(r.AvgPrice + dir * r.TargetPts)) pn.Drag = "TARGET";
-                            else { var o = r.Orders.FirstOrDefault(x => near(x.Price)); if (o != null) { pn.Drag = "ORDER"; pn.DragOrder = o; } }
+                            else if (r.Position != 0 && near(r.AvgPrice)) pn.Drag = "BRACKET";   // pull a TP / SL out of the position line
+                            else
+                            {
+                                var o = r.Orders.FirstOrDefault(x => near(x.Price)); if (o != null) { pn.Drag = "ORDER"; pn.DragOrder = o; }
+                                else
+                                {
+                                    var dd = drawingAt(pn, pt.X, pt.Y);
+                                    if (dd != null) { pn.Drag = "MOVEDRAW"; pn.Moving = dd; pn.MoveT1 = dd.T1; pn.MoveT2 = dd.T2; pn.MoveP1 = dd.P1; pn.MoveP2 = dd.P2; pn.MoveDownTime = timeOfIndex(pn, indexAt(pn, pt.X)); pn.MoveDownPrice = priceAt(pn, pt.Y); }
+                                }
+                            }
                         }
                     }
                     hit.CaptureMouse(); args.Handled = true;
@@ -26072,28 +26204,80 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else if (pn.Drag == "STOP" && r.Position != 0) pn.Sl.Text = Math.Max(r.Tick, -Math.Sign(r.Position) * (px - r.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
                     else if (pn.Drag == "TARGET" && r.Position != 0) pn.Tp.Text = Math.Max(r.Tick, Math.Sign(r.Position) * (px - r.AvgPrice)).ToString("0.##", CultureInfo.InvariantCulture);
                     else if (pn.Drag == "ORDER" && pn.DragOrder != null) pn.DragOrder.Price = px;
+                    else if (pn.Drag == "BRACKET" && r.Position != 0 && pn.Moved) pn.Drag = Math.Sign(r.Position) * (px - r.AvgPrice) > 0 ? "TARGET" : "STOP";
+                    else if (pn.Drag == "MOVEDRAW" && pn.Moving != null)
+                    {
+                        var dt = timeOfIndex(pn, indexAt(pn, pt.X)) - pn.MoveDownTime; double dp = Math.Round((priceAt(pn, pt.Y) - pn.MoveDownPrice) / r.Tick) * r.Tick;
+                        pn.Moving.T1 = pn.MoveT1 + dt; pn.Moving.T2 = pn.MoveT2 + dt; pn.Moving.P1 = pn.MoveP1 + dp; pn.Moving.P2 = pn.MoveP2 + dp;
+                    }
                     render(pn);
                 };
                 hit.MouseLeftButtonUp += delegate(object sender, MouseButtonEventArgs args)
                 {
                     var pt = args.GetPosition(hit); var r = pn.Trader; string was = pn.Drag; pn.Drag = null; hit.ReleaseMouseCapture();
-                    if (was == "DRAW" && pn.Preview != null) { if (pn.Moved) { pn.Drawings.Add(pn.Preview); SaveStudioDrawings(panes); } pn.Preview = null; }
+                    if (was == "DRAW" && pn.Preview != null) { if (pn.Moved) { pn.Drawings.Add(pn.Preview); SaveStudioDrawings(panes); pn.SetTool("CURSOR"); } pn.Preview = null; }
+                    else if (was == "MOVEDRAW") { if (pn.Moved) SaveStudioDrawings(panes); pn.Moving = null; }
                     else if (was == "PAN" && !pn.Moved && r != null && pn.OrderType.SelectedIndex > 0) { pn.Price.Text = fmt(Math.Round(priceAt(pn, pt.Y) / r.Tick) * r.Tick); status.Text = pn.Symbol + " PRICE " + pn.Price.Text + " • BUY or SELL places the " + Convert.ToString(pn.OrderType.Items[pn.OrderType.SelectedIndex]) + " order"; status.Foreground = Cyan; }
                     render(pn);
                 };
-                hit.MouseRightButtonDown += delegate(object sender, MouseButtonEventArgs args)
+                hit.MouseRightButtonUp += delegate(object sender, MouseButtonEventArgs args)
                 {
-                    var pt = args.GetPosition(hit); var r = pn.Trader; if (r == null) return;
-                    var o = r.Orders.FirstOrDefault(x => Math.Abs(yOf(pn, x.Price) - pt.Y) <= 6); if (o != null) { r.Orders.Remove(o); status.Text = pn.Symbol + " ORDER CANCELLED"; status.Foreground = Gold; render(pn); return; }
-                    var hitD = pn.Drawings.LastOrDefault(d =>
+                    var pt = args.GetPosition(hit); var r = pn.Trader; args.Handled = true;
+                    var cm = new ContextMenu(); Func<string, Action, MenuItem> mi = (h, a) => { var m = new MenuItem { Header = h }; if (a != null) m.Click += delegate { a(); }; return m; };
+                    double px = r == null ? priceAt(pn, pt.Y) : Math.Round(priceAt(pn, pt.Y) / r.Tick) * r.Tick;
+                    var o = r == null ? null : r.Orders.FirstOrDefault(x => Math.Abs(yOf(pn, x.Price) - pt.Y) <= 6);
+                    var dHit = drawingAt(pn, pt.X, pt.Y);
+                    if (o != null)
                     {
-                        double x1 = xOfIndex(pn, indexOfTime(pn, d.T1)), x2 = xOfIndex(pn, indexOfTime(pn, d.T2)), y1 = yOf(pn, d.P1), y2 = yOf(pn, d.P2);
-                        if (d.Kind == "HLINE") return Math.Abs(y1 - pt.Y) <= 6;
-                        if (d.Kind == "TREND") { double len = Math.Sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)); if (len < 1) return false; double u = ((pt.X - x1) * (x2 - x1) + (pt.Y - y1) * (y2 - y1)) / (len * len); if (u < 0 || u > 1) return false; double px2 = x1 + u * (x2 - x1), py = y1 + u * (y2 - y1); return Math.Sqrt((pt.X - px2) * (pt.X - px2) + (pt.Y - py) * (pt.Y - py)) <= 6; }
-                        double yb = d.Kind == "RECT" ? y2 : yOf(pn, d.P1 - (d.P2 - d.P1) / 2);
-                        return pt.X >= Math.Min(x1, x2) - 4 && pt.X <= Math.Max(Math.Max(x1, x2), x1 + 60) + 4 && pt.Y >= Math.Min(Math.Min(y1, y2), yb) - 4 && pt.Y <= Math.Max(Math.Max(y1, y2), yb) + 4;
-                    });
-                    if (hitD != null) { pn.Drawings.Remove(hitD); SaveStudioDrawings(panes); render(pn); }
+                        cm.Items.Add(mi("Cancel " + o.Label + " @ " + fmt(o.Price), delegate { r.Orders.Remove(o); status.Text = pn.Symbol + " ORDER CANCELLED"; status.Foreground = Gold; render(pn); }));
+                        cm.Items.Add(mi("Cancel all orders", delegate { r.CancelOrders(); render(pn); }));
+                    }
+                    else if (dHit != null)
+                    {
+                        var colors = mi("Colour", null); foreach (var hex in DrawPalette) { string hx = hex; var cmi = mi("■ " + hx, delegate { dHit.Color = hx; SaveStudioDrawings(panes); render(pn); }); cmi.Foreground = colorOf(hx); colors.Items.Add(cmi); } cm.Items.Add(colors);
+                        var widths = mi("Line width", null); foreach (var wv in new[] { 1.0, 1.5, 2.5, 4.0 }) { double wvv = wv; widths.Items.Add(mi((dHit.Width == wv ? "✓ " : "") + wv.ToString("0.#", CultureInfo.InvariantCulture), delegate { dHit.Width = wvv; SaveStudioDrawings(panes); render(pn); })); } cm.Items.Add(widths);
+                        cm.Items.Add(mi(string.IsNullOrEmpty(dHit.Text) ? "Add text / label…" : "Edit text…", delegate { var t = AskStudioText(w, "TEXT", string.IsNullOrEmpty(dHit.Text) ? "" : dHit.Text); if (t != null) { dHit.Text = t; SaveStudioDrawings(panes); render(pn); } }));
+                        cm.Items.Add(mi("Copy (same place, then drag it)", delegate { pn.Drawings.Add(new ReplayDrawing { Kind = dHit.Kind, T1 = dHit.T1, T2 = dHit.T2, P1 = dHit.P1, P2 = dHit.P2, Color = dHit.Color, Width = dHit.Width, Text = dHit.Text }); SaveStudioDrawings(panes); render(pn); }));
+                        cm.Items.Add(new Separator());
+                        cm.Items.Add(mi("Delete this drawing", delegate { pn.Drawings.Remove(dHit); SaveStudioDrawings(panes); render(pn); }));
+                    }
+                    else
+                    {
+                        if (r != null && !r.Finished && !dayBanked)
+                        {
+                            Action<string, int> at = (type, sign) => { int keep = pn.OrderType.SelectedIndex; pn.OrderType.SelectedIndex = type == "LIMIT" ? 1 : 2; pn.Price.Text = fmt(px); ((Tuple<Action<int>, Action>)pn.Hit.Tag).Item1(sign); pn.OrderType.SelectedIndex = keep; };
+                            string q = Math.Max(1, Integer(pn.Qty, 1)).ToString(CultureInfo.InvariantCulture);
+                            if (px < r.Price) { cm.Items.Add(mi("Buy " + q + " LIMIT @ " + fmt(px), delegate { at("LIMIT", 1); })); cm.Items.Add(mi("Sell " + q + " STOP @ " + fmt(px), delegate { at("STOP", -1); })); }
+                            else { cm.Items.Add(mi("Sell " + q + " LIMIT @ " + fmt(px), delegate { at("LIMIT", -1); })); cm.Items.Add(mi("Buy " + q + " STOP @ " + fmt(px), delegate { at("STOP", 1); })); }
+                            if (r.Position != 0)
+                            {
+                                int dir = Math.Sign(r.Position); double dist = Math.Abs(px - r.AvgPrice); bool profitSide = dir * (px - r.AvgPrice) > 0;
+                                cm.Items.Add(new Separator());
+                                if (profitSide) cm.Items.Add(mi("Take profit here (" + fmt(dist) + " pts)", delegate { pn.Tp.Text = Math.Max(r.Tick, dist).ToString("0.##", CultureInfo.InvariantCulture); }));
+                                else cm.Items.Add(mi("Stop loss here (" + fmt(dist) + " pts)", delegate { pn.Sl.Text = Math.Max(r.Tick, dist).ToString("0.##", CultureInfo.InvariantCulture); }));
+                                cm.Items.Add(mi("Close position", delegate { ((Tuple<Action<int>, Action>)pn.Hit.Tag).Item2(); }));
+                            }
+                            if (r.Orders.Count > 0) cm.Items.Add(mi("Cancel all orders", delegate { r.CancelOrders(); render(pn); }));
+                            cm.Items.Add(new Separator());
+                        }
+                        var draw = mi("Draw", null);
+                        foreach (var td in new[] { Tuple.Create("HLINE", "Horizontal line"), Tuple.Create("VLINE", "Vertical line"), Tuple.Create("TREND", "Trend line"), Tuple.Create("RAY", "Ray"), Tuple.Create("RECT", "Rectangle"), Tuple.Create("FVG", "FVG box"), Tuple.Create("FIB", "Fibonacci retracement"), Tuple.Create("ARROWUP", "Arrow up"), Tuple.Create("ARROWDN", "Arrow down"), Tuple.Create("TEXT", "Text"), Tuple.Create("LONG", "Long position"), Tuple.Create("SHORT", "Short position") })
+                        {
+                            var tdd = td; draw.Items.Add(mi(td.Item2, delegate { pn.SetTool(tdd.Item1); status.Text = tdd.Item2.ToUpperInvariant() + " • " + (new[] { "HLINE", "VLINE", "ARROWUP", "ARROWDN", "TEXT" }.Contains(tdd.Item1) ? "click" : "drag") + " on the chart"; status.Foreground = Cyan; }));
+                        }
+                        cm.Items.Add(draw);
+                        if (r != null) cm.Items.Add(mi("Horizontal line @ " + fmt(px), delegate { pn.Drawings.Add(new ReplayDrawing { Kind = "HLINE", T1 = simTime, T2 = simTime, P1 = px, P2 = px, Color = drawColor, Width = drawWidth }); SaveStudioDrawings(panes); render(pn); }));
+                        var tmpl = mi("Chart template", null);
+                        for (int k = 0; k < themes.Count; k++) { int kk = k; tmpl.Items.Add(mi((k == themeIndex ? "✓ " : "") + themes[k].Name, delegate { themeIndex = kk; foreach (var p2 in panes) render(p2); saveWorkspace(); })); }
+                        tmpl.Items.Add(new Separator()); tmpl.Items.Add(mi((hollowUp ? "✓ " : "") + "Hollow up candles", delegate { hollowUp = !hollowUp; foreach (var p2 in panes) render(p2); saveWorkspace(); }));
+                        cm.Items.Add(tmpl);
+                        var tfm = mi("Timeframe", null); for (int k = 0; k < tfNames.Length; k++) { int kk = k; tfm.Items.Add(mi((pn.TfBox.SelectedIndex == k ? "✓ " : "") + tfNames[k], delegate { pn.TfBox.SelectedIndex = kk; })); } cm.Items.Add(tfm);
+                        var wsub = mi("Line width (new drawings)", null); foreach (var wv in new[] { 1.0, 1.5, 2.5, 4.0 }) { double wvv = wv; wsub.Items.Add(mi((drawWidth == wv ? "✓ " : "") + wv.ToString("0.#", CultureInfo.InvariantCulture), delegate { drawWidth = wvv; })); } cm.Items.Add(wsub);
+                        cm.Items.Add(new Separator());
+                        cm.Items.Add(mi("Reset chart (auto scale + live)", delegate { pn.Follow = true; pn.RightOffset = 14; pn.PriceAuto = true; render(pn); }));
+                        if (pn.Drawings.Count > 0) cm.Items.Add(mi("Remove all drawings (" + pn.Drawings.Count + ")", delegate { if (MessageBox.Show("Delete all " + pn.Drawings.Count + " drawings on " + pn.Symbol + "?", "Drawings", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return; pn.Drawings.Clear(); SaveStudioDrawings(panes); render(pn); }));
+                    }
+                    cm.PlacementTarget = hit; cm.IsOpen = true;
                 };
                 hit.MouseLeave += delegate { pn.MouseOver = false; if (!timer.IsEnabled) render(pn); };
                 cv.SizeChanged += delegate { render(pn); };
@@ -26115,12 +26299,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             modeBox.SelectionChanged += delegate { renderInfo(); status.Text = modeBox.SelectedIndex == 1 ? "AUTO • the strategy takes its own entries (stop + target from the setup); your BUY / SELL / CLOSE still work" + (signalBox.SelectedIndex <= 0 ? " • choose a STRATEGY first" : "") : "SIGNALS • the strategy marks its entries, you decide"; status.Foreground = Cyan; };
             signalBox.SelectionChanged += delegate { foreach (var pn in panes) { buildSignals(pn); if (pn.Trader != null) foreach (var sg in pn.Signals) if (sg.Time <= pn.Trader.Time) sg.Taken = true; } renderAll(); status.Text = signalBox.SelectedIndex <= 0 ? "MANUAL • no signals" : string.Join(" • ", panes.Select(p => p.Symbol + " " + p.Signals.Count + " signals")) + " today • ▲ buy / ▼ sell (A = strongest) • they appear when the clock reaches them"; status.Foreground = Cyan; };
 
-            Action saveWorkspace = delegate
+            saveWorkspace = delegate
             {
                 var v = new Dictionary<string, string>();
                 if (session != DateTime.MinValue) v["session"] = session.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); else if (ParseStudioDate(dateBox.Text) != DateTime.MinValue) v["session"] = dateBox.Text.Trim();
                 v["start"] = startBox.Text.Trim(); v["speed"] = speedBox.SelectedIndex.ToString(CultureInfo.InvariantCulture); v["signal"] = signalBox.SelectedIndex.ToString(CultureInfo.InvariantCulture); v["mode"] = modeBox.SelectedIndex.ToString(CultureInfo.InvariantCulture);
-                v["newslock"] = newsLockBox.Text.Trim(); v["newsflat"] = newsFlatBox.IsChecked == true ? "1" : "0"; v["goal"] = goalBox.Text.Trim(); v["loss"] = lossLimitBox.Text.Trim(); v["maxqty"] = maxQtyBox.Text.Trim(); v["stopgoal"] = stopAtGoalBox.IsChecked == true ? "1" : "0"; v["tab"] = Math.Max(0, tabs.SelectedIndex).ToString(CultureInfo.InvariantCulture);
+                v["theme"] = themes[themeIndex].Name; v["hollow"] = hollowUp ? "1" : "0"; v["drawcolor"] = drawColor; v["newslock"] = newsLockBox.Text.Trim(); v["newsflat"] = newsFlatBox.IsChecked == true ? "1" : "0"; v["goal"] = goalBox.Text.Trim(); v["loss"] = lossLimitBox.Text.Trim(); v["maxqty"] = maxQtyBox.Text.Trim(); v["stopgoal"] = stopAtGoalBox.IsChecked == true ? "1" : "0"; v["tab"] = Math.Max(0, tabs.SelectedIndex).ToString(CultureInfo.InvariantCulture);
                 foreach (var pn in panes) { v[pn.Symbol + ".tf"] = Math.Max(0, pn.TfBox.SelectedIndex).ToString(CultureInfo.InvariantCulture); v[pn.Symbol + ".qty"] = pn.Qty.Text.Trim(); v[pn.Symbol + ".sl"] = pn.Sl.Text.Trim(); v[pn.Symbol + ".tp"] = pn.Tp.Text.Trim(); }
                 WriteStudioWorkspace(v);
             };
@@ -26273,6 +26457,20 @@ namespace NinjaTrader.NinjaScript.AddOns
         // ---- BACKTEST STUDIO: its own data, workspace and drawings (Documents\KeystoneArc5MResearch\Studio) ------------------
         private static string StudioFolder() { return Path.Combine(DataStoreDirectory(), "Studio"); }
 
+        // a small "type the text" box; null = cancelled
+        private string AskStudioText(Window owner, string title, string start)
+        {
+            var d = new Window { Title = title, Width = 420, Height = 170, Background = Bg, Foreground = Text, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = owner, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false };
+            var box = Input(start ?? ""); box.FontSize = 15; box.Margin = new Thickness(0, 8, 0, 10);
+            var ok = Btn("OK", Green); ok.Height = 30; ok.Width = 90; ok.Margin = new Thickness(0, 0, 8, 0); var cancel = Btn("CANCEL", Card); cancel.Height = 30; cancel.Width = 90;
+            string result = null; ok.Click += delegate { result = box.Text; d.Close(); }; cancel.Click += delegate { d.Close(); };
+            box.KeyDown += (s2, e2) => { if (e2.Key == System.Windows.Input.Key.Enter) { result = box.Text; d.Close(); } };
+            var sp = new StackPanel { Margin = new Thickness(14) }; sp.Children.Add(Txt(title, Gold, 13, FontWeights.Bold)); sp.Children.Add(box);
+            var row = new WrapPanel(); row.Children.Add(ok); row.Children.Add(cancel); sp.Children.Add(row);
+            d.Content = sp; box.Focus(); d.ShowDialog();
+            return result;
+        }
+
         // DATA lives in Documents\KeystoneArcData (bars, studio account / journal / workspace, news) — apart from the reports and
         // exports in Documents\KeystoneArc5MResearch, so deleting reports never deletes data. The first call moves old data over.
         private static bool dataStoreMoved; private static readonly object dataStoreLock = new object();
@@ -26330,7 +26528,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 foreach (var l in File.ReadAllLines(f))
                 {
                     var a = l.Split('|'); if (a.Length < 6 || !string.Equals(a[0], symbol, StringComparison.OrdinalIgnoreCase)) continue;
-                    list.Add(new ReplayDrawing { Kind = a[1], T1 = new DateTime(long.Parse(a[2], CultureInfo.InvariantCulture)), P1 = double.Parse(a[3], CultureInfo.InvariantCulture), T2 = new DateTime(long.Parse(a[4], CultureInfo.InvariantCulture)), P2 = double.Parse(a[5], CultureInfo.InvariantCulture) });
+                    var d = new ReplayDrawing { Kind = a[1], T1 = new DateTime(long.Parse(a[2], CultureInfo.InvariantCulture)), P1 = double.Parse(a[3], CultureInfo.InvariantCulture), T2 = new DateTime(long.Parse(a[4], CultureInfo.InvariantCulture)), P2 = double.Parse(a[5], CultureInfo.InvariantCulture) };
+                    if (a.Length >= 9) { d.Color = a[6]; d.Width = double.Parse(a[7], CultureInfo.InvariantCulture); d.Text = a[8].Replace("\\n", "\n"); }
+                    list.Add(d);
                 }
             }
             catch { }
@@ -26341,7 +26541,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             try
             {
                 Directory.CreateDirectory(StudioFolder());
-                File.WriteAllLines(Path.Combine(StudioFolder(), "Drawings.txt"), panes.SelectMany(pn => pn.Drawings.Select(d => string.Join("|", pn.Symbol, d.Kind, d.T1.Ticks.ToString(CultureInfo.InvariantCulture), d.P1.ToString("R", CultureInfo.InvariantCulture), d.T2.Ticks.ToString(CultureInfo.InvariantCulture), d.P2.ToString("R", CultureInfo.InvariantCulture)))).ToArray());
+                File.WriteAllLines(Path.Combine(StudioFolder(), "Drawings.txt"), panes.SelectMany(pn => pn.Drawings.Select(d => string.Join("|", pn.Symbol, d.Kind, d.T1.Ticks.ToString(CultureInfo.InvariantCulture), d.P1.ToString("R", CultureInfo.InvariantCulture), d.T2.Ticks.ToString(CultureInfo.InvariantCulture), d.P2.ToString("R", CultureInfo.InvariantCulture), d.Color, d.Width.ToString("R", CultureInfo.InvariantCulture), (d.Text ?? "").Replace("|", "/").Replace("\n", "\\n")))).ToArray());
             }
             catch { }
         }
