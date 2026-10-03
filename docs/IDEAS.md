@@ -70,8 +70,17 @@ in every year.
 
 ## Replay trader
 
-MATH LABS → REPLAY TRADER. Pick an instrument and a loaded session, a start time and a speed, press ▶ PLAY.
-BUY / SELL / CLOSE (keys B / S / C, space = play / pause), contracts, optional stop / target in points.
-The real minute's open, high, low and close are exact; the order of the ticks inside a minute is simulated
-(1-minute bars do not record it). Every closed trade is appended to Documents\KeystoneArc5MResearch\ReplayJournal.csv
-and the SAVED DAYS list shows each day's result and the total.
+MATH LABS → REPLAY TRADER. It opens with the 1-minute bars loaded in Step 1, or with the bars saved on this PC by
+earlier loads. Pick an instrument, a session (18:00 → 17:00 New York), a start time and LOAD DAY, then ▶ PLAY.
+
+- Speed follows the wall clock: REAL TIME = one minute of chart per 60 seconds; 2× … 240× are exact multiples.
+- The clock shows New York time and how long until the current candle closes (1M … 4H, D).
+- Mouse wheel = zoom, drag = scroll back / forward, LIVE ▶| = back to the newest candle.
+- Orders: MARKET, LIMIT or STOP (click the chart to set the price), contracts, stop / target in points. Drag the
+  STOP, TARGET or a working order's line to move it. CANCEL ORDERS removes the working orders. Keys B / S / C,
+  space = play / pause.
+- Tools: horizontal lines and trend lines (two clicks), CLEAR DRAWINGS.
+- One account: ACCOUNT START $ is the whole drawdown — at $0 the account is blown. The balance carries over from
+  day to day (Documents\KeystoneArc5MResearch\ReplayAccount.txt) until NEW ACCOUNT. END DAY + SAVE closes the day:
+  every trade is in ReplayJournal.csv and each day in ReplayDays.csv.
+- Each minute's open, high, low and close are real; the order of the ticks inside a minute is simulated.
