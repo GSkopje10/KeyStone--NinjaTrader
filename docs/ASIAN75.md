@@ -48,3 +48,39 @@ Developer tooling (Linux/mono, no NinjaTrader needed):
 - `tests/build_engine.sh tests/Asian75EngineTests.cs` — engine + optimizer tests.
 - `tools/optimize_asian75.sh --help` — the same optimizer from the command line on NinjaTrader
   export files or `--synthetic` random-walk data.
+
+## ASIAN MATH LAB (build 10-03p)
+
+Open it with the **ASIAN MATH LAB** button in the header. It also opens and runs by itself after every Asian run. It uses the bars already loaded and downloads nothing.
+
+**Inputs.** Type one value or a list in each box:
+- instruments (MNQ, MGC, BOTH)
+- directions, and optionally BOTH with opposite directions
+- starting micros
+- leg loss $, reversals, take profit $
+- max combined loss (0 = AUTO)
+- start / end time, and cost per contract
+- firm rules, evaluation $ and activation $
+
+Every combination runs through the same `SimulateAsian75Sessions` engine the lab uses. Then it goes through the prop rules, using the same code as the PROP PLANNER and MICRO A DAY.
+
+**Tabs:**
+- **ADVICE:**
+  - written conclusions, including whether the best row also worked on the unseen last 30% and in every year
+  - which value of each setting wins (median prop result, accounts lost, full-loss nights)
+  - a **REVERSALS × TAKE PROFIT** grid: more legs win more nights but lose more accounts, and the grid shows that trade-off directly
+- **RANKING:** best cards; filter by MNQ / MGC / BOTH / LONG / SHORT; sort by prop, plain, first payout, pass %, unseen 30% or smallest drawdown.
+- **CHARTS:** combined vs MNQ vs MGC night by night, plus the prop and copy curves.
+- **EVALS & FUNDED:** first payout (the days it took and the money spent before it), payouts in a row, failed evaluations in a row, and every account.
+- **SIZE & SPEED:** every starting size × leg loss that was tested (real simulations, not multiplied), sorted by the fastest first payout.
+- **COPY TRADING**, **LEGS** (how nights ended, highest leg, each instrument), **MONTHS** (profit vs expenses).
+- **YEARS & PERIODS:** each year, the early 70% vs the unseen 30%, and Period A vs Period B on any dates.
+- **NIGHTS:** every night. Click one to open the chart on it.
+
+**Buttons:**
+- **APPLY SELECTED TO LAB:** writes the row into the Asian settings, re-runs the cycle on the loaded bars and recalculates the pool. The chart and replay then show it. There's no reload.
+- **EXPORT HTML + CSV.**
+
+**Chart:** the Asian side panel has a **THIS NIGHT** box. It shows legs, max size, P/L, highest peak and lowest point for MNQ, MGC and combined, and follows the replay cursor.
+
+**Instrument views:** MNQ / MGC / BOTH give the same numbers whatever the click order. The max combined loss is your typed number, or the automatic value for that view.

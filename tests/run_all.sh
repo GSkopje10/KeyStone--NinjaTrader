@@ -35,6 +35,9 @@ mono "$here/.build/move.exe" | tail -1
 rm -f "$here/.build/rot.exe"
 "$root/tools/compile_engine.sh" "$here/.build/rot.exe" "$here/RotationTests.cs"
 mono "$here/.build/rot.exe" | tail -1
+rm -f "$here/.build/alab.exe"
+"$root/tools/compile_engine.sh" "$here/.build/alab.exe" "$here/AsianLabTests.cs"
+mono "$here/.build/alab.exe" | tail -1
 rm -f "$here/.build/mad.exe"
 "$root/tools/compile_engine.sh" "$here/.build/mad.exe" "$here/MicroADayTests.cs"
 mono "$here/.build/mad.exe" | tail -1

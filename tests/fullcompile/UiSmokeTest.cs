@@ -229,6 +229,50 @@ public static class UiSmokeTest
                 if (bars.Count < 20) throw new Exception("derived 15M view is empty");
             });
             Step(strategy + ": switch instrument view to MNQ", () => { Call(lab2, "RenderPoolLedger"); });
+            if (asian)
+                Step("ASIAN75: MATH LAB runs every combination, fills every tab, applies a row to the lab (no reload), night box on the chart", () =>
+                {
+                    Func<string, object> F = n => lab2.GetType().GetField(n, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    var sbox = (System.Windows.Controls.ComboBox)F("strategyBox");
+                    for (int i = 0; i < sbox.Items.Count; i++) if (Convert.ToString(sbox.Items[i]).StartsWith("ASIAN 75")) { sbox.SelectedIndex = i; sbox.SelectedItem = sbox.Items[i]; }
+                    Call(lab2, "OpenAsianLab", false);
+                    ((Action)F("asianLabRun"))();
+                    for (int i = 0; i < 600 && !((System.Windows.Controls.TextBlock)F("asianLabStatus")).Text.Contains(" COMBINATIONS • "); i++) System.Threading.Thread.Sleep(100);
+                    var res = (KeystoneAsianLabResult)F("asianLabResult");
+                    if (res == null || res.Rows.Count == 0) throw new Exception("math lab did not run: " + ((System.Windows.Controls.TextBlock)F("asianLabStatus")).Text);
+                    var tabsA = (System.Windows.Controls.TabControl)F("asianLabTabs");
+                    foreach (System.Windows.Controls.TabItem t in tabsA.Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("math lab tab not filled: " + t.Header);
+                    Console.WriteLine("      " + res.Rows.Count + " combinations × " + res.Nights + " nights • tabs: " + string.Join(" • ", tabsA.Items.Cast<System.Windows.Controls.TabItem>().Select(t => t.Header)));
+                    var csv = (string)Call(lab2, "AsianLabCsv"); var html = (string)Call(lab2, "AsianLabHtml");
+                    if (!csv.Contains("WHICH VALUE WINS") || !html.Contains("WHAT THE NUMBERS SAY")) throw new Exception("math lab export incomplete");
+                    var pick = res.Rows.First(x => x.Combo.Scope == "MNQ");
+                    Call(lab2, "ShowAsianLabSelected", pick, false);
+                    bool ok = (bool)Call(lab2, "ApplyAsianLabRow", pick);
+                    var cfgNow = (KeystoneArcRunConfig)F("config"); var evNow = (List<KeystoneArcEvent>)F("events");
+                    double labNet = evNow.Sum(e => e.GrossPnl), expected = pick.Nights.Sum(n => n.Net) + pick.Nights.Sum(n => n.Contracts) * 1.0;
+                    Console.WriteLine("      applied " + pick.Label + " → " + ok + " • lab legs " + evNow.Count + " gross " + labNet.ToString("0") + " vs math lab " + expected.ToString("0") + " • scope " + cfgNow.Scope + " • status " + ((System.Windows.Controls.TextBlock)F("statusText")).Text);
+                    if (!ok || (string)F("viewScope") != "MNQ" || evNow.Any(e => e.Symbol != "MNQ") || Math.Abs(labNet - expected) > 0.5) throw new Exception("apply to lab did not reproduce the math lab row");
+                    Call(lab2, "OpenEvidenceChart");
+                    var night = evNow.OrderBy(e => e.ReferenceTime).First().ReferenceTime.Date;
+                    ((System.Windows.Controls.TextBox)F("evidenceDateBox")).Text = night.ToString("yyyy-MM-dd");
+                    Call(lab2, "RequestEvidenceBars"); Call(lab2, "RenderEvidenceChart");
+                    var nightText = (System.Windows.Controls.TextBlock)F("evidenceAsianNightText");
+                    Console.WriteLine("      chart night box:\n        " + (nightText == null ? "(none)" : nightText.Text.Replace("\n", "\n        ")));
+                    if (nightText == null || !nightText.Text.Contains("MNQ") || !nightText.Text.Contains("COMBINED") || !nightText.Text.Contains("highest")) throw new Exception("night summary missing on the chart");
+                });
+            if (asian)
+                Step("ASIAN75: MNQ / MGC / BOTH views give the same numbers whatever the click order", () =>
+                {
+                    var a1 = c.ShallowCopy(); a1.Scope = "BOTH"; a1.AsianDailyLossLimitDollars = 600;
+                    var a2 = c.ShallowCopy(); a2.Scope = "BOTH"; a2.AsianDailyLossLimitDollars = 300;   // what an earlier MNQ click used to leave behind
+                    var v1 = (List<KeystoneArcEvent>)Call(lab2, "EventsForInstrumentView", "MGC", a1, 0.0);
+                    var v2 = (List<KeystoneArcEvent>)Call(lab2, "EventsForInstrumentView", "MGC", a2, 0.0);
+                    double n1 = v1.Sum(e => e.GrossPnl), n2 = v2.Sum(e => e.GrossPnl);
+                    Console.WriteLine("      MGC view after BOTH: " + v1.Count + " legs " + n1.ToString("0") + " • after an MNQ click: " + v2.Count + " legs " + n2.ToString("0"));
+                    if (v1.Count != v2.Count || Math.Abs(n1 - n2) > 0.01) throw new Exception("MGC view depends on the click order");
+                    var m = (List<KeystoneArcEvent>)Call(lab2, "EventsForInstrumentView", "MGC", a1, 900.0);
+                    Console.WriteLine("      typed max loss $900 → " + m.Count + " legs " + m.Sum(e => e.GrossPnl).ToString("0"));
+                });
         }
         // HELIX ROTATION: strategy choice → Step 1 panel → run on 1M MNQ + MGC → Step 3 HELIX view, proof tests, chart, report.
         {

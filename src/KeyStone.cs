@@ -5851,6 +5851,16 @@ namespace NinjaTrader.NinjaScript
         static void Fill(KeystoneMicroRow row, KeystonePropRules rules, bool random, double evalK = 1, double fundK = 1)
         {
             row.Days = DaysOf(row.TradeList);
+            row.Trades = row.TradeList.Count; row.Wins = row.TradeList.Count(t => t.Net > 0);
+            FillDays(row, rules, random ? 2000 : 0, evalK, fundK, true);
+        }
+
+        // Plain account + prop history from ready-made days (one per session). detail = keep the account list, the day
+        // ledger and the curve (for the selected row); without it only the totals and the payout facts are kept (rankings).
+        public static void FillDays(KeystoneMicroRow row, KeystonePropRules rules, int randomLives, double evalK, double fundK, bool detail)
+        {
+            row.NetByYear = new Dictionary<int, double>(); row.PropByYear = new Dictionary<int, double>(); row.MaxDrawdown = 0;
+            row.Bought = row.Passed = row.Payouts = row.FundedLost = 0; row.Spent = row.Cash = 0;
             double eq = 0, peak = 0; DateTime peakDay = DateTime.MinValue; int longest = 0;
             foreach (var d in row.Days)
             {
@@ -5859,15 +5869,18 @@ namespace NinjaTrader.NinjaScript
             }
             row.Net = eq; row.LongestUnderwaterDays = longest; row.AvgWorst = row.Days.Count == 0 ? 0 : row.Days.Average(d => d.Worst);
             row.WorstDay = row.Days.Count == 0 ? 0 : row.Days.Min(d => d.Pnl); row.BestDay = row.Days.Count == 0 ? 0 : row.Days.Max(d => d.Pnl);
-            row.Trades = row.TradeList.Count; row.Wins = row.TradeList.Count(t => t.Net > 0);
             var plan = new KeystonePropPlan { Source = "REAL", EvalSize = evalK, FundSize = fundK };
             foreach (var y in KeystonePropPlanner.History(rules, plan, row.Days))
             { row.Bought += y.Bought; row.Passed += y.Passed; row.Payouts += y.Payouts; row.FundedLost += y.Blown; row.Spent += y.Spent; row.Cash += y.Cash; row.PropByYear[y.Year] = y.Net; }
-            row.PropCurve = new List<Tuple<DateTime, double>>(); row.Ledger = new List<KeystoneMicroLedger>(); row.Accounts = Accounts(rules, row.Days, row.PropCurve, row.Ledger, evalK, fundK); row.Stats = Stats(row.Accounts, row.Ledger);
-            row.MoneyNeeded = Math.Max(0, -row.PropCurve.Select(p => p.Item2).DefaultIfEmpty(0).Min());
-            if (random && row.Days.Count >= 10)
+            var curve = new List<Tuple<DateTime, double>>(); var ledger = new List<KeystoneMicroLedger>();
+            var accounts = Accounts(rules, row.Days, curve, ledger, evalK, fundK);
+            row.Stats = Stats(accounts, ledger);
+            row.MoneyNeeded = Math.Max(0, -curve.Select(p => p.Item2).DefaultIfEmpty(0).Min());
+            if (detail) { row.Accounts = accounts; row.Ledger = ledger; row.PropCurve = curve; }
+            else { row.Accounts = new List<KeystoneMicroAccount>(); row.Ledger = new List<KeystoneMicroLedger>(); row.PropCurve = new List<Tuple<DateTime, double>>(); }
+            if (randomLives > 0 && row.Days.Count >= 10)
             {
-                var ev = KeystonePropPlanner.Evaluate(rules, plan, row.Days, 2000, 7);
+                var ev = KeystonePropPlanner.Evaluate(rules, plan, row.Days, randomLives, 7);
                 row.PassRate = ev.PassRate; row.ValuePerEval = ev.ValuePerEval; row.AvgDaysToPass = ev.AvgDaysToPass; row.FundedValue = ev.FundedValue;
             }
         }
@@ -5960,6 +5973,243 @@ namespace NinjaTrader.NinjaScript
         }
         static void Add(KeystoneMicroMove m, double pts) { m.Days++; if (pts > 0) m.Up++; m.SumPts += pts; m.AbsPts += Math.Abs(pts); }
         static void AddHour(Dictionary<int, KeystoneMicroMove> hours, string symbol, int h, double pts) { KeystoneMicroMove m; if (!hours.TryGetValue(h, out m)) { m = new KeystoneMicroMove { Symbol = symbol, Hour = true, Name = h.ToString("00") + ":00" }; hours[h] = m; } Add(m, pts); }
+    }
+
+    // ---- ASIAN MATH LAB: every combination of the Asian cycle on the loaded 1-minute bars, with prop accounts --------
+    public sealed class KeystoneAsianLabGrid
+    {
+        public List<string> Scopes = new List<string> { "MNQ", "MGC", "BOTH" };
+        public List<string> Directions = new List<string> { "LONG", "SHORT" };
+        public bool MixedBoth;                       // BOTH also tries MNQ LONG / MGC SHORT and the reverse
+        public List<int> Quantities = new List<int> { 1, 2 };
+        public List<double> LegLosses = new List<double> { 75, 100, 150 };
+        public List<int> Reversals = new List<int> { 2, 3, 4 };
+        public List<double> Targets = new List<double> { 200, 350, 500 };
+        public List<double> MaxLosses = new List<double> { 0 };   // 0 = AUTO (reversal legs × leg loss × instruments)
+        public List<int> StartTimes = new List<int> { 1800 };
+        public int EndHhmm = 1555;
+        public double CostPerContract = 1.00;        // round trip per contract
+        public double InSampleShare = 0.7;           // rows are judged again on the last 30% of nights they were not ranked on
+    }
+
+    public sealed class KeystoneAsianNight
+    {
+        public DateTime Date, EndTime; public double Net, Mnq, Mgc, Worst, Best; public int MnqLegs, MgcLegs, Contracts; public string End = string.Empty;
+        public bool Target { get { return End == "TAKE PROFIT"; } }
+    }
+
+    public sealed class KeystoneAsianLabRow
+    {
+        public KeystoneArcAsianCombo Combo; public KeystoneMicroRow P = new KeystoneMicroRow(); public List<KeystoneAsianNight> Nights = new List<KeystoneAsianNight>();
+        public double MnqNet, MgcNet, InSampleNet, OutSampleNet, AvgFullLoss; public int TargetNights, LossNights, AllStoppedNights, SessionEndNights, TargetAfterReversal, YearsUp, Years;
+        public int[] EndLegs = new int[8];        // nights by the highest leg reached (either instrument), index 1..7
+        public string Label { get { return KeystoneAsianLab.Name(Combo); } }
+    }
+
+    public sealed class KeystoneAsianNightSide { public string Symbol = string.Empty; public int Legs, MaxQty; public double Pnl, Peak, Low; public DateTime PeakTime, LowTime; }
+    public sealed class KeystoneAsianNightSummary { public List<KeystoneAsianNightSide> Sides = new List<KeystoneAsianNightSide>(); public KeystoneAsianNightSide Combined = new KeystoneAsianNightSide { Symbol = "COMBINED" }; public string End = string.Empty; public DateTime EndTime; }
+
+    public sealed class KeystoneAsianLabResult { public List<KeystoneAsianLabRow> Rows = new List<KeystoneAsianLabRow>(); public KeystonePropRules Rules; public int Combinations, Nights; public DateTime First, Last, SplitAt; public bool Cancelled; }
+
+    public static class KeystoneAsianLab
+    {
+        public static string Name(KeystoneArcAsianCombo c)
+        {
+            string dir = c.Scope == "BOTH" ? (c.MnqDirection == c.MgcDirection ? c.MnqDirection : "MNQ " + c.MnqDirection + " / MGC " + c.MgcDirection) : (c.Scope == "MNQ" ? c.MnqDirection : c.MgcDirection);
+            return c.Scope + " • " + dir + " • " + c.StartingQuantity + " micro" + (c.StartingQuantity == 1 ? "" : "s") + " • leg $" + c.LegLoss.ToString("0") + " • " + c.Reversals + " rev • TP $" + c.Target.ToString("0") + " • max loss " + (c.DailyLossLimit > 0 ? "$" + c.DailyLossLimit.ToString("0") : "AUTO") + (c.StartHhmm != 1800 ? " • " + c.StartHhmm.ToString("0000") : "");
+        }
+
+        public static List<KeystoneArcAsianCombo> Combos(KeystoneAsianLabGrid g, bool hasMnq, bool hasMgc)
+        {
+            var list = new List<KeystoneArcAsianCombo>();
+            foreach (string scope in g.Scopes.Distinct())
+            {
+                if ((scope != "MGC" && !hasMnq) || (scope != "MNQ" && !hasMgc)) continue;
+                var dirs = new List<Tuple<string, string>>();
+                foreach (string d in g.Directions.Distinct()) dirs.Add(Tuple.Create(d, d));
+                if (scope == "BOTH" && g.MixedBoth) { dirs.Add(Tuple.Create("LONG", "SHORT")); dirs.Add(Tuple.Create("SHORT", "LONG")); }
+                foreach (var d in dirs) foreach (int q in g.Quantities.Distinct()) foreach (double loss in g.LegLosses.Distinct()) foreach (int rev in g.Reversals.Distinct())
+                foreach (double tp in g.Targets.Distinct()) foreach (double ml in g.MaxLosses.Distinct()) foreach (int st in g.StartTimes.Distinct())
+                    list.Add(new KeystoneArcAsianCombo { Scope = scope, MnqDirection = d.Item1, MgcDirection = d.Item2, RiskMode = "CASH", LegLoss = loss, Reversals = rev, Target = tp, DailyLossLimit = ml, StartingQuantity = Math.Max(1, q), StartHhmm = st, EndHhmm = g.EndHhmm });
+            }
+            return list;
+        }
+
+        // One night per session from the cycle's legs (the engine's own events): net after costs, each instrument, legs, how it ended.
+        public static List<KeystoneAsianNight> Nights(List<KeystoneArcEvent> events, double costPerContract)
+        {
+            var output = new List<KeystoneAsianNight>();
+            foreach (var g in events.Where(e => e.SetupClass == "ASIA75").GroupBy(e => e.ReferenceTime.Date).OrderBy(g => g.Key))
+            {
+                var n = new KeystoneAsianNight { Date = g.Key };
+                foreach (var e in g)
+                {
+                    double q = Math.Max(1, e.Quantity), net = e.GrossPnl - q * costPerContract; n.Net += net; n.Contracts += (int)Math.Round(q);
+                    bool mgc = (e.Symbol ?? "").StartsWith("MGC", StringComparison.OrdinalIgnoreCase);
+                    if (mgc) { n.Mgc += net; n.MgcLegs = Math.Max(n.MgcLegs, e.AsianLegNumber); } else { n.Mnq += net; n.MnqLegs = Math.Max(n.MnqLegs, e.AsianLegNumber); }
+                    if (!double.IsNaN(e.AsianCycleWorstAtExit)) n.Worst = Math.Min(n.Worst, e.AsianCycleWorstAtExit); if (!double.IsNaN(e.AsianCyclePnlAtExit)) n.Best = Math.Max(n.Best, e.AsianCyclePnlAtExit);
+                    if (e.ExitTime > n.EndTime) n.EndTime = e.ExitTime;
+                }
+                var closing = g.Where(e => !(e.ReviewNote ?? "").StartsWith("REVERSAL LOSS", StringComparison.OrdinalIgnoreCase)).OrderBy(e => e.ExitTime).FirstOrDefault();
+                n.End = closing == null ? "ALL LEGS STOPPED" : closing.Outcome == "WIN" ? "TAKE PROFIT" : closing.Outcome == "SESSION EXIT" ? "SESSION END" : closing.Outcome == "BREAKEVEN GUARD" ? "BREAKEVEN" : "MAX LOSS";
+                n.Worst = Math.Min(n.Worst - n.Contracts * costPerContract, n.Net);
+                output.Add(n);
+            }
+            return output;
+        }
+
+        public static KeystoneAsianLabRow Row(KeystoneArcAsianCombo c, List<KeystoneAsianNight> nights, KeystonePropRules rules, DateTime splitAt, bool detail, int randomLives)
+        {
+            var row = new KeystoneAsianLabRow { Combo = c, Nights = nights };
+            row.P.Direction = "ASIAN"; row.P.Instruments = c.StartHhmm.ToString("0000"); row.P.TakeProfit = Name(c);
+            row.P.Days = nights.Select(n => new KeystonePropDay { Day = n.Date.AddDays(1), Pnl = n.Net, Worst = Math.Min(0, n.Worst), Best = Math.Max(0, n.Best), Traded = true }).ToList();
+            row.P.Trades = nights.Count; row.P.Wins = nights.Count(n => n.Net > 0);
+            KeystoneMicroADay.FillDays(row.P, rules, randomLives, 1, 1, detail);
+            row.MnqNet = nights.Sum(n => n.Mnq); row.MgcNet = nights.Sum(n => n.Mgc);
+            row.TargetNights = nights.Count(n => n.End == "TAKE PROFIT"); row.LossNights = nights.Count(n => n.End == "MAX LOSS"); row.AllStoppedNights = nights.Count(n => n.End == "ALL LEGS STOPPED"); row.SessionEndNights = nights.Count(n => n.End == "SESSION END");
+            row.TargetAfterReversal = nights.Count(n => n.End == "TAKE PROFIT" && Math.Max(n.MnqLegs, n.MgcLegs) > 1);
+            var full = nights.Where(n => n.End == "MAX LOSS" || n.End == "ALL LEGS STOPPED").ToList(); row.AvgFullLoss = full.Count == 0 ? 0 : full.Average(n => n.Net);
+            foreach (var n in nights) row.EndLegs[Math.Min(7, Math.Max(1, Math.Max(n.MnqLegs, n.MgcLegs)))]++;
+            row.InSampleNet = nights.Where(n => n.Date < splitAt).Sum(n => n.Net); row.OutSampleNet = nights.Where(n => n.Date >= splitAt).Sum(n => n.Net);
+            row.Years = row.P.PropByYear.Count; row.YearsUp = row.P.PropByYear.Values.Count(v => v > 0);
+            return row;
+        }
+
+        public static KeystoneAsianLabResult Run(List<KeystoneArcBar> oneMinute, KeystoneAsianLabGrid g, KeystonePropRules rules, Action<int, int> progress, Func<bool> cancelled)
+        {
+            var res = new KeystoneAsianLabResult { Rules = rules };
+            var bars = (oneMinute ?? new List<KeystoneArcBar>()).Where(b => b != null).OrderBy(b => b.Time).ToList(); if (bars.Count == 0) return res;
+            bool hasMnq = bars.Any(b => !(b.Symbol ?? "").StartsWith("MGC", StringComparison.OrdinalIgnoreCase)), hasMgc = bars.Any(b => (b.Symbol ?? "").StartsWith("MGC", StringComparison.OrdinalIgnoreCase));
+            var combos = Combos(g, hasMnq, hasMgc); res.Combinations = combos.Count; if (combos.Count == 0) return res;
+            var prepared = new Dictionary<string, List<KeystoneArcEngine.Asian75Session>>();
+            foreach (var key in combos.Select(c => new { c.Scope, c.StartHhmm }).Distinct())
+            {
+                var cfg = new KeystoneArcAsianCombo { Scope = key.Scope, StartHhmm = key.StartHhmm, EndHhmm = g.EndHhmm, MnqDirection = "LONG", MgcDirection = "LONG", RiskMode = "CASH", LegLoss = 75, Reversals = 1, Target = 100, StartingQuantity = 1 }.Apply(new KeystoneArcRunConfig());
+                prepared[key.Scope + "|" + key.StartHhmm] = KeystoneArcEngine.PrepareAsian75Sessions(bars, cfg);
+            }
+            var dates = prepared.Values.SelectMany(l => l.Where(x => x.OpeningComplete).Select(x => x.SessionDate)).Distinct().OrderBy(d => d).ToList();
+            res.Nights = dates.Count; if (dates.Count > 0) { res.First = dates[0]; res.Last = dates[dates.Count - 1]; res.SplitAt = dates[Math.Min(dates.Count - 1, (int)(dates.Count * g.InSampleShare))]; }
+            var rows = new KeystoneAsianLabRow[combos.Count]; int done = 0;
+            var options = new System.Threading.Tasks.ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) };
+            System.Threading.Tasks.Parallel.For(0, combos.Count, options, (i, state) =>
+            {
+                if (cancelled != null && cancelled()) { state.Stop(); return; }
+                var c = combos[i]; var cfg = c.Apply(new KeystoneArcRunConfig());
+                var events = KeystoneArcEngine.SimulateAsian75Sessions(prepared[c.Scope + "|" + c.StartHhmm], cfg);
+                rows[i] = Row(c, Nights(events, g.CostPerContract), rules, res.SplitAt, false, 300);
+                int k = System.Threading.Interlocked.Increment(ref done); if (progress != null) progress(k, combos.Count);
+            });
+            res.Cancelled = cancelled != null && cancelled();
+            res.Rows = rows.Where(r => r != null).OrderByDescending(r => r.P.PropNet).ThenByDescending(r => r.P.Net).ToList();
+            return res;
+        }
+
+        // The selected row in full: every account, the day ledger and the curves, 2,000 random-order evaluations.
+        public static void Detail(KeystoneAsianLabRow row, KeystonePropRules rules, DateTime splitAt) { var full = Row(row.Combo, row.Nights, rules, splitAt, true, 2000); row.P = full.P; }
+
+        // The chart's night: legs, P/L, highest peak and lowest point per instrument and combined (marked on 1-minute closes).
+        public static KeystoneAsianNightSummary NightSummary(List<KeystoneArcEvent> legs, Func<string, DateTime, double?> closeAt, IEnumerable<DateTime> minutes, DateTime until)
+        {
+            var s = new KeystoneAsianNightSummary(); var list = (legs ?? new List<KeystoneArcEvent>()).Where(e => e != null && e.SetupClass == "ASIA75").OrderBy(e => e.EntryTime).ToList(); if (list.Count == 0) return s;
+            var symbols = list.Select(e => e.Symbol).Distinct().OrderBy(x => x).ToList();
+            foreach (string sym in symbols) s.Sides.Add(new KeystoneAsianNightSide { Symbol = sym });
+            DateTime first = list.Min(e => e.EntryTime), last = list.Max(e => e.ExitTime); if (until < last) last = until;
+            var times = minutes.Where(t => t >= first && t <= last).Distinct().OrderBy(t => t).ToList(); if (times.Count == 0 || times[times.Count - 1] != last) times.Add(last);
+            bool firstMark = true;
+            foreach (DateTime t in times)
+            {
+                double combined = 0;
+                foreach (var side in s.Sides)
+                {
+                    double v = 0;
+                    foreach (var e in list.Where(e => e.Symbol == side.Symbol && e.EntryTime <= t))
+                    {
+                        if (e.ExitTime != DateTime.MinValue && e.ExitTime <= t) v += e.GrossPnl;
+                        else { double? c = closeAt(side.Symbol, t); if (c.HasValue) v += (c.Value - e.Entry) * ((side.Symbol ?? "").StartsWith("MGC", StringComparison.OrdinalIgnoreCase) ? 10.0 : 2.0) * e.Quantity * (e.Direction == "SHORT" ? -1 : 1); }
+                    }
+                    if (firstMark || v > side.Peak) { side.Peak = v; side.PeakTime = t; } if (firstMark || v < side.Low) { side.Low = v; side.LowTime = t; }
+                    side.Pnl = v; combined += v;
+                }
+                if (firstMark || combined > s.Combined.Peak) { s.Combined.Peak = combined; s.Combined.PeakTime = t; } if (firstMark || combined < s.Combined.Low) { s.Combined.Low = combined; s.Combined.LowTime = t; }
+                s.Combined.Pnl = combined; firstMark = false;
+            }
+            foreach (var side in s.Sides)
+            {
+                var mine = list.Where(e => e.Symbol == side.Symbol && e.EntryTime <= until).ToList();
+                side.Legs = mine.Count == 0 ? 0 : mine.Max(e => e.AsianLegNumber); side.MaxQty = mine.Count == 0 ? 0 : (int)mine.Max(e => e.Quantity);
+            }
+            s.Combined.Legs = s.Sides.Sum(x => x.Legs); s.Combined.MaxQty = s.Sides.Sum(x => x.MaxQty);
+            var closing = list.Where(e => !(e.ReviewNote ?? "").StartsWith("REVERSAL LOSS", StringComparison.OrdinalIgnoreCase)).OrderBy(e => e.ExitTime).FirstOrDefault();
+            if (list.Max(e => e.ExitTime) <= until) { s.EndTime = list.Max(e => e.ExitTime); s.End = closing == null ? "ALL LEGS STOPPED" : closing.Outcome == "WIN" ? "TAKE PROFIT" : closing.Outcome == "SESSION EXIT" ? "SESSION END" : closing.Outcome == "BREAKEVEN GUARD" ? "BREAKEVEN" : "MAX LOSS"; }
+            else s.End = "RUNNING";
+            return s;
+        }
+
+        // Which value of each setting wins most often: count, % of rows that made money for prop, median and best prop net.
+        public sealed class Impact { public string Setting = string.Empty, Value = string.Empty; public int Rows, Profitable; public double Median, Best, AvgFirstPayoutDays, AvgBlowups, AvgFullLossNights; }
+        // Accounts lost: failed evaluations + funded accounts that hit the drawdown.
+        public static int Blowups(KeystoneAsianLabRow r) { return Math.Max(0, r.P.Bought - r.P.Passed - 1) + r.P.FundedLost; }
+
+        // REVERSALS × TAKE PROFIT: the best combination of each pair (over the other settings) — the trade-off in one table.
+        public sealed class Cell { public int Reversals; public double Target; public KeystoneAsianLabRow Best; }
+        public static List<Cell> Matrix(List<KeystoneAsianLabRow> rows)
+        {
+            return rows.GroupBy(r => new { r.Combo.Reversals, r.Combo.Target }).Select(g => new Cell { Reversals = g.Key.Reversals, Target = g.Key.Target, Best = g.OrderByDescending(r => r.P.PropNet).First() }).OrderBy(c => c.Reversals).ThenBy(c => c.Target).ToList();
+        }
+
+        public static List<Impact> Impacts(List<KeystoneAsianLabRow> rows)
+        {
+            var output = new List<Impact>();
+            var settings = new List<Tuple<string, Func<KeystoneArcAsianCombo, string>>>
+            {
+                Tuple.Create("INSTRUMENTS", (Func<KeystoneArcAsianCombo, string>)(c => c.Scope)),
+                Tuple.Create("DIRECTION", (Func<KeystoneArcAsianCombo, string>)(c => c.Scope == "MGC" ? c.MgcDirection : c.Scope == "MNQ" || c.MnqDirection == c.MgcDirection ? c.MnqDirection : "MIXED")),
+                Tuple.Create("STARTING MICROS", (Func<KeystoneArcAsianCombo, string>)(c => c.StartingQuantity.ToString())),
+                Tuple.Create("LEG LOSS $", (Func<KeystoneArcAsianCombo, string>)(c => c.LegLoss.ToString("0"))),
+                Tuple.Create("REVERSALS", (Func<KeystoneArcAsianCombo, string>)(c => c.Reversals.ToString())),
+                Tuple.Create("TAKE PROFIT $", (Func<KeystoneArcAsianCombo, string>)(c => c.Target.ToString("0"))),
+                Tuple.Create("MAX LOSS $", (Func<KeystoneArcAsianCombo, string>)(c => c.DailyLossLimit > 0 ? c.DailyLossLimit.ToString("0") : "AUTO")),
+                Tuple.Create("START", (Func<KeystoneArcAsianCombo, string>)(c => c.StartHhmm.ToString("0000"))),
+            };
+            foreach (var st in settings)
+            {
+                var groups = rows.GroupBy(r => st.Item2(r.Combo)).ToList(); if (groups.Count < 2) continue;
+                foreach (var g in groups.OrderBy(g => g.Key.Length).ThenBy(g => g.Key))
+                {
+                    var nets = g.Select(r => r.P.PropNet).OrderBy(v => v).ToList(); var paid = g.Where(r => r.P.Stats.HasPayout).ToList();
+                    output.Add(new Impact { Setting = st.Item1, Value = g.Key, Rows = nets.Count, Profitable = nets.Count(v => v > 0), Median = nets[nets.Count / 2], Best = nets[nets.Count - 1], AvgFirstPayoutDays = paid.Count == 0 ? 0 : paid.Average(r => (double)r.P.Stats.CalendarDaysToFirstPayout), AvgBlowups = g.Average(r => (double)Blowups(r)), AvgFullLossNights = g.Average(r => (double)(r.LossNights + r.AllStoppedNights)) });
+                }
+            }
+            return output;
+        }
+
+        // Plain-language advice from the numbers (no guessing): the best rows, whether they held up, and which values win.
+        public static List<string> Advice(KeystoneAsianLabResult res)
+        {
+            var lines = new List<string>(); if (res == null || res.Rows.Count == 0) return lines;
+            Func<double, string> m = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var top = res.Rows[0];
+            int profitable = res.Rows.Count(r => r.P.PropNet > 0);
+            lines.Add(profitable + " of " + res.Rows.Count + " combinations made money for prop over " + res.Nights + " nights (" + res.First.ToString("yyyy-MM-dd") + " → " + res.Last.ToString("yyyy-MM-dd") + ").");
+            lines.Add("BEST: " + top.Label + " → prop " + m(top.P.PropNet) + " (" + top.P.Passed + " passed of " + top.P.Bought + " evaluations, " + top.P.Payouts + " payouts" + (top.P.Stats.HasPayout ? ", first payout after " + top.P.Stats.CalendarDaysToFirstPayout + " days" : ", no payout") + ").");
+            lines.Add(top.OutSampleNet > 0 ? "It also made money on the last 30% of nights (" + m(top.OutSampleNet) + ") — the ranking did not depend only on the early data." : "WARNING: on the last 30% of nights it lost " + m(top.OutSampleNet) + " — the best row may be a lucky fit to the early data.");
+            lines.Add(top.YearsUp == top.Years ? "It made money in every year tested (" + top.Years + ")." : "It made money in " + top.YearsUp + " of " + top.Years + " years — check EACH YEAR before trusting it.");
+            foreach (string sc in new[] { "MNQ", "MGC", "BOTH" })
+            {
+                var b = res.Rows.Where(r => r.Combo.Scope == sc).OrderByDescending(r => r.P.PropNet).FirstOrDefault();
+                if (b != null) lines.Add("Best " + sc + ": " + b.Label + " → " + m(b.P.PropNet) + " • plain " + m(b.P.Net) + " • " + (b.P.Stats.HasPayout ? "first payout " + b.P.Stats.CalendarDaysToFirstPayout + " days" : "never paid"));
+            }
+            var robust = res.Rows.Where(r => r.P.PropNet > 0 && r.OutSampleNet > 0 && r.YearsUp == r.Years).OrderByDescending(r => r.P.PropNet).FirstOrDefault();
+            lines.Add(robust != null ? "STRONGEST (profitable every year AND on the unseen last 30%): " + robust.Label + " → " + m(robust.P.PropNet) + "." : "No combination was profitable in every year AND on the unseen last 30% — nothing here is proven yet.");
+            var byRev = res.Rows.GroupBy(r => r.Combo.Reversals).OrderBy(g => g.Key).Select(g => g.Key + " rev: median " + m(g.Select(r => r.P.PropNet).OrderBy(v => v).ElementAt(g.Count() / 2)) + ", " + g.Average(r => (double)Blowups(r)).ToString("0.0") + " accounts lost, " + g.Average(r => 100.0 * r.TargetNights / Math.Max(1, r.Nights.Count)).ToString("0") + "% take-profit nights").ToList();
+            if (byRev.Count > 1) lines.Add("REVERSALS TRADE-OFF (more legs = more take-profit nights but bigger full losses): " + string.Join(" • ", byRev));
+            foreach (var imp in Impacts(res.Rows).GroupBy(x => x.Setting))
+            {
+                var best = imp.OrderByDescending(x => x.Median).First(); var worst = imp.OrderBy(x => x.Median).First();
+                lines.Add(imp.Key + ": " + best.Value + " is best on the median (" + m(best.Median) + ", " + best.Profitable + "/" + best.Rows + " profitable)" + (worst.Value != best.Value ? " • " + worst.Value + " is worst (" + m(worst.Median) + ")" : ""));
+            }
+            return lines;
+        }
     }
 
     public sealed class KeystoneMoveRow
@@ -9509,9 +9759,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-03o";
+        private const string KeystoneBuildShort = "BUILD 2026-10-03p";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -10600,7 +10850,7 @@ namespace NinjaTrader.NinjaScript.AddOns
 
         private UIElement Header()
         {
-            var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var g = new Grid { VerticalAlignment = VerticalAlignment.Top }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var stack = new StackPanel { Margin = new Thickness(0) };
             var title = Txt("KEYSTONE ARC  •  " + KeystoneBuildShort, activeTheme == "CLASSIC" ? Text : Gold, 20, FontWeights.Bold); title.Margin = new Thickness(0, 0, 0, 0); title.ToolTip = KeystoneBuild; stack.Children.Add(title);
             var accentLine = new Border { Height = 2, Width = 420, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 2), Background = new LinearGradientBrush(Gold.Color, Bg.Color, 0) };
@@ -10625,9 +10875,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             var newTest = Btn("NEW TEST", Gold); newTest.Width = 106; newTest.Height = 30; newTest.Click += delegate { ConfirmResetForNewTest(); }; resetNewTestButton = newTest; Grid.SetColumn(newTest, 1); g.Children.Add(newTest);
             var moveBtn = Btn("MOVE STUDY", Gold); moveBtn.Width = 118; moveBtn.Height = 30; moveBtn.FontSize = 10; moveBtn.ToolTip = "One test for every strategy: follow each entry of the last run to the close (for us / against us), compare sets, instruments, years and the no-setup baseline, pick target / stop from the moves."; moveBtn.Click += delegate { OpenMoveStudy(); };
             var rotBtn = Btn("ROTATION TESTER", Orchid); rotBtn.Width = 128; rotBtn.Height = 30; rotBtn.FontSize = 10; rotBtn.ToolTip = "Your MNQ + MGC rotation (BUY BUY / SELL SELL / random / confirm) replayed on history with accounts in turn and evaluations; optimizer for target, stop, contracts, pause, window."; rotBtn.Click += delegate { OpenRotationTester(); };
+            var asianLabBtn = Btn("ASIAN MATH LAB", Cyan); asianLabBtn.Width = 128; asianLabBtn.Height = 30; asianLabBtn.FontSize = 10; asianLabBtn.ToolTip = "Every Asian 75 combination (instruments, direction, micros, leg loss, reversals, take profit, max loss) on the bars you loaded, with evaluations, funded accounts, payouts, copy trading and advice."; asianLabBtn.Click += delegate { OpenAsianLab(); }; Grid.SetColumn(asianLabBtn, 4); asianLabBtn.Margin = new Thickness(4, 0, 4, 0); g.Children.Add(asianLabBtn);
             var planner = Btn("PROP PLANNER", Green); planner.Width = 118; planner.Height = 30; planner.FontSize = 10; planner.ToolTip = "The business math of prop firms: pass rate, what a funded account pays, the value of one evaluation, separate vs copy vs rotation, sweet spot"; planner.Click += delegate { OpenPropPlanner(null); };
-            var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(moveBtn, 2); g.Children.Add(moveBtn); Grid.SetColumn(rotBtn, 3); g.Children.Add(rotBtn); Grid.SetColumn(planner, 4); g.Children.Add(planner); Grid.SetColumn(closeAux, 5); g.Children.Add(closeAux);
-            var close = Btn("CLOSE LAB", Red); close.Width = 96; close.MinWidth = 96; close.MaxWidth = 96; close.Height = 30; close.FontSize = 10; close.ToolTip = "Close the entire Keystone Arc workspace"; close.Click += delegate { window.Close(); }; Grid.SetColumn(close, 6); g.Children.Add(close);
+            var closeAux = Btn("CLOSE CHARTS", Blue); closeAux.Width = 118; closeAux.Height = 30; closeAux.FontSize = 10; closeAux.ToolTip = "Close the Evidence Chart and Range Comparison windows; the Keystone workspace stays open"; closeAux.Click += delegate { CloseAuxiliaryWindows(); }; Grid.SetColumn(moveBtn, 2); g.Children.Add(moveBtn); Grid.SetColumn(rotBtn, 3); g.Children.Add(rotBtn); Grid.SetColumn(planner, 5); g.Children.Add(planner); Grid.SetColumn(closeAux, 6); g.Children.Add(closeAux);
+            var close = Btn("CLOSE LAB", Red); close.Width = 96; close.MinWidth = 96; close.MaxWidth = 96; close.Height = 30; close.FontSize = 10; close.ToolTip = "Close the entire Keystone Arc workspace"; close.Click += delegate { window.Close(); }; Grid.SetColumn(close, 7); g.Children.Add(close);
             return g;
         }
 
@@ -11572,7 +11823,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             fundedTierBox = Select("ALL SETUPS", "GRADE A + B (+ DOUBLE TROUBLE)", "GRADE A (+ DOUBLE TROUBLE)", "DOUBLE TROUBLE ONLY"); fundedTierBox.SelectedIndex = 0;
             evalTierBox.ToolTip = "Which setups evaluation accounts take. Grades A/B/C are learned from earlier finished setups only (no look-ahead). N (not enough history yet) is traded only with ALL SETUPS.";
             fundedTierBox.ToolTip = "Which setups funded accounts take — e.g. evaluations trade everything to pass fast, funded accounts only the strongest.";
-            var evalTierRow = PoolRow("EVALUATION TRADES", evalTierBox); var fundedTierRow = PoolRow("FUNDED TRADES", fundedTierBox);
+            var evalTierRow = PoolRow("EVALUATION TRADES", evalTierBox); var fundedTierRow = PoolRow("FUNDED TRADES", fundedTierBox); bhGradeRows.Clear(); bhGradeRows.Add(evalTierRow); bhGradeRows.Add(fundedTierRow);
             var firmCapToggleRow = PoolRow("FIRM CAP MODEL", firmFundedCapBox);
             var firmCapPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2), Visibility = Visibility.Collapsed };
             firmCapPanel.Children.Add(PoolRow("EVAL SLOTS / FIRM", firmEvalSlotsBox)); firmCapPanel.Children.Add(PoolRow("MAX FUNDED / FIRM", firmMaxFundedBox));
@@ -12769,6 +13020,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             SetComparisonBusy(false, null);
         }
 
+        private readonly List<UIElement> bhGradeRows = new List<UIElement>();
         private void RefreshLifecycleInputState()
         {
             // Asian-only rows follow the loaded study, or the Step 1 strategy choice before a load.
@@ -12780,6 +13032,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             // Show every prop control first; the specific rules below then hide what does not apply
             // (running this last used to re-show BH-only evaluation boxes on Asian studies).
             for (int i = 0; i < propOnlyControls.Count; i++) propOnlyControls[i].Visibility = Visibility.Visible;
+            // Setup grades / Double Trouble belong to BH; an Asian cycle has no grades.
+            foreach (UIElement gradeRow in bhGradeRows) gradeRow.Visibility = asianCopy ? Visibility.Collapsed : Visibility.Visible;
             bool singleAccount = poolBox != null && string.Equals(Convert.ToString(poolBox.SelectedItem), "1", StringComparison.OrdinalIgnoreCase);
             bool evaluationFirst = !singleAccount && (accountStartModeBox == null || !string.Equals(Convert.ToString(accountStartModeBox.SelectedItem), "DIRECT FUNDED", StringComparison.OrdinalIgnoreCase));
             // Evaluation rules matter for evaluation-first studies and for the replacement
@@ -13938,7 +14192,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DispatchToLab(delegate
                 {
                     events = generated ?? new List<KeystoneArcEvent>();
-                    loadedEvents = events; loadedScope = workerConfig.Scope; viewScope = workerConfig.Scope; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastAccountRows = new List<KeystoneArcPoolScenario>(); lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>();
+                    loadedEvents = events; loadedScope = workerConfig.Scope; viewScope = workerConfig.Scope; loadedAsianLoss = workerConfig.AsianDailyLossLimitDollars; lastInstrumentComparison = string.Empty; lastAccountComparison = string.Empty; lastAccountRows = new List<KeystoneArcPoolScenario>(); lastStrategyComparison = string.Empty; lastStrategyRows = new List<KeystoneArcStrategyRow>();
                     for (int i = 0; i < events.Count; i++)
                     {
                         events[i].ReviewState = "ACCEPTED";
@@ -13961,6 +14215,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (events.Count > 0 && workspaceTabs != null) workspaceTabs.SelectedIndex = 1;
                     if (resultViewTabs != null) resultViewTabs.SelectedIndex = 0;
                     if (MadStudy() && events.Count > 0) { try { OpenMicroCompare(); } catch { } }
+                    if (asianBacktest && events.Count > 0) { try { OpenAsianLab(true); } catch { } }
                     if (goldenUnfiltered != null)
                     {
                         // GOLDEN opens straight on its own study (no prop pool).
@@ -14056,17 +14311,19 @@ namespace NinjaTrader.NinjaScript.AddOns
         private void ApplyInstrumentView(KeystoneArcRunConfig cfg)
         {
             if (cfg == null || string.IsNullOrEmpty(viewScope) || string.IsNullOrEmpty(loadedScope)) return;
-            string before = cfg.Scope;
             cfg.Scope = viewScope;
-            // Asian AUTO daily loss scales with the number of instruments: re-derive it when the
-            // box still holds the automatic value of the loaded scope.
-            if (string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) && before != viewScope)
-            {
-                int reversals = Math.Max(1, cfg.AsianMaxReversalsPerInstrument);
-                double autoLoaded = KeystoneArcEngine.AsianAutoDailyLossLimit(cfg.AsianRiskMode, before, cfg.AsianReversalLossDollars, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, reversals);
-                if (Math.Abs(cfg.AsianDailyLossLimitDollars - autoLoaded) < 0.01)
-                    cfg.AsianDailyLossLimitDollars = KeystoneArcEngine.AsianAutoDailyLossLimit(cfg.AsianRiskMode, viewScope, cfg.AsianReversalLossDollars, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, reversals);
-            }
+            if (string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase)) cfg.AsianDailyLossLimitDollars = AsianLossForScope(cfg, viewScope, AsianManualLoss());
+        }
+
+        // One rule for every instrument view (no carry-over between clicks): your own max combined loss when you typed
+        // one, else the automatic value of THAT view (reversal legs × leg loss × its instruments).
+        private double loadedAsianLoss;
+        private double AsianManualLoss() { return asianDailyLossManual ? Number(asianDailyLossBox, 0) : 0; }
+        private static double AsianLossForScope(KeystoneArcRunConfig cfg, string scope, double manual)
+        {
+            if (manual > 0) return manual;
+            int reversals = Math.Max(1, cfg.AsianMaxReversalsPerInstrument);
+            return Math.Max(1, KeystoneArcEngine.AsianAutoDailyLossLimit(cfg.AsianRiskMode, scope, cfg.AsianReversalLossDollars, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, reversals));
         }
 
         private void RefreshInstrumentViewControls()
@@ -14110,14 +14367,15 @@ namespace NinjaTrader.NinjaScript.AddOns
             instrumentSplitText.Visibility = Visibility.Visible;
         }
 
-        private List<KeystoneArcEvent> EventsForInstrumentView(string scope, KeystoneArcRunConfig baseConfig)
+        private List<KeystoneArcEvent> EventsForInstrumentView(string scope, KeystoneArcRunConfig baseConfig, double asianManual = -1)
         {
-            if (scope == loadedScope) return loadedEvents;
+            if (scope == loadedScope && !(string.Equals(baseConfig.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) && asianManual >= 0 && Math.Abs(AsianLossForScope(baseConfig, scope, asianManual) - loadedAsianLoss) > 0.01)) return loadedEvents;
             if (!string.Equals(baseConfig.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase))
                 return loadedEvents.Where(e => string.Equals(e.Symbol, scope, StringComparison.OrdinalIgnoreCase)).ToList();
             // Asian: a single-instrument cycle is a different cycle (its own target / limits), so
             // it is re-simulated from the loaded 1-minute bars instead of filtering BOTH legs.
             KeystoneArcRunConfig cfg = CloneConfig(baseConfig); cfg.Scope = scope;
+            if (asianManual >= 0) cfg.AsianDailyLossLimitDollars = AsianLossForScope(cfg, scope, asianManual);
             List<KeystoneArcBar> bars = scope == "MNQ" ? mnqBars : (scope == "MGC" ? mgcBars : mnqBars.Concat(mgcBars).OrderBy(b => b.Time).ThenBy(b => b.Symbol, StringComparer.OrdinalIgnoreCase).ToList());
             List<KeystoneArcEvent> generated = KeystoneArcEngine.DetectAndResolve(bars, bars, cfg).OrderBy(x => x.EntryTime).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ToList();
             foreach (KeystoneArcEvent e in generated) { e.ReviewState = "ACCEPTED"; e.ReviewNote = "AUTO-INCLUDED: resolved Asian daily-cycle leg (" + scope + " view)"; }
@@ -14131,12 +14389,12 @@ namespace NinjaTrader.NinjaScript.AddOns
             if (loadedScope != "BOTH" && scope != loadedScope) { UpdateUi("ONLY " + loadedScope + " WAS LOADED • CHOOSE BOTH IN STEP 1 TO SWITCH INSTRUMENTS", Gold); return; }
             if (scope == (viewScope ?? loadedScope) && accounts.Count > 0) { UpdateUi(scope + " IS ALREADY SHOWN", Green); return; }
             bool rerunPool = accounts.Count > 0;
-            KeystoneArcRunConfig baseConfig = CloneConfig(config); baseConfig.Scope = loadedScope;
+            KeystoneArcRunConfig baseConfig = CloneConfig(config); baseConfig.Scope = loadedScope; double manual = AsianManualLoss();
             BeginBusy("SWITCHING TO " + scope);
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
                 List<KeystoneArcEvent> view;
-                try { view = EventsForInstrumentView(scope, baseConfig); }
+                try { view = EventsForInstrumentView(scope, baseConfig, manual); }
                 catch (Exception ex) { DispatchToLab(delegate { EndBusy(); UpdateUi("SWITCH ERROR • " + ex.Message, Red); }); return; }
                 DispatchToLab(delegate
                 {
@@ -14163,7 +14421,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             config.Start = loadedStart; config.End = loadedEnd; config.OneDayMode = loadedOneDay; config.SessionMode = loadedSession; config.CustomStart = ls; config.EndTime = le;
             config.EvaluationEnabled = config.PoolSize == 1 ? -2 : (loadedOneDay == 1 ? -1 : (accountStartModeBox != null && string.Equals(Convert.ToString(accountStartModeBox.SelectedItem), "DIRECT FUNDED", StringComparison.OrdinalIgnoreCase) ? 0 : 1));
             ApplyInstrumentView(config);
-            KeystoneArcRunConfig baseConfig = CloneConfig(config); baseConfig.Scope = loadedScope;
+            KeystoneArcRunConfig baseConfig = CloneConfig(config); baseConfig.Scope = loadedScope; double manualLoss = AsianManualLoss();
             BeginBusy("COMPARING MNQ • MGC • BOTH WITH THE SAME SETTINGS");
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
@@ -14175,13 +14433,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                     foreach (string scope in new[] { "MNQ", "MGC", "BOTH" })
                     {
                         KeystoneArcRunConfig cfg = CloneConfig(baseConfig); cfg.Scope = scope;
-                        if (string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase) && scope != loadedScope)
-                        {
-                            int reversals = Math.Max(1, cfg.AsianMaxReversalsPerInstrument);
-                            double autoLoaded = KeystoneArcEngine.AsianAutoDailyLossLimit(cfg.AsianRiskMode, loadedScope, cfg.AsianReversalLossDollars, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, reversals);
-                            if (Math.Abs(cfg.AsianDailyLossLimitDollars - autoLoaded) < 0.01) cfg.AsianDailyLossLimitDollars = KeystoneArcEngine.AsianAutoDailyLossLimit(cfg.AsianRiskMode, scope, cfg.AsianReversalLossDollars, cfg.AsianMnqReversalPriceMove, cfg.AsianMgcReversalPriceMove, reversals);
-                        }
-                        List<KeystoneArcEvent> ev = CloneEvents(EventsForInstrumentView(scope, cfg).Where(x => string.Equals(x.ReviewState, "ACCEPTED", StringComparison.OrdinalIgnoreCase)));
+                        if (string.Equals(cfg.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase)) cfg.AsianDailyLossLimitDollars = AsianLossForScope(cfg, scope, manualLoss);
+                        List<KeystoneArcEvent> ev = CloneEvents(EventsForInstrumentView(scope, cfg, manualLoss).Where(x => string.Equals(x.ReviewState, "ACCEPTED", StringComparison.OrdinalIgnoreCase)));
                         List<KeystoneArcVirtualAccount> acc = KeystoneArcEngine.SimulatePool(ev, cfg);
                         KeystoneArcCapitalPolicySummary cap = KeystoneArcEngine.BuildCapitalPolicySummary(acc, cfg);
                         KeystoneArcPoolInsights ins = KeystoneArcPoolInsights.Build(acc, null, cfg);
@@ -14747,6 +15000,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             liveStack.Children.Add(evidenceLiveLines);
             evidenceLiveBorder = new Border { Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 8, 12, 10), Margin = new Thickness(0, 0, 0, 6), Visibility = Visibility.Collapsed, Child = liveStack };
             side.Children.Add(evidenceLiveBorder);
+            evidenceAsianNightText = Txt(string.Empty, Text, 11, FontWeights.Normal); evidenceAsianNightText.FontFamily = new FontFamily("Consolas"); evidenceAsianNightText.TextWrapping = TextWrapping.Wrap;
+            var nightStack = new StackPanel(); nightStack.Children.Add(Txt("THIS NIGHT • MNQ, MGC AND COMBINED", Muted, 10, FontWeights.Bold)); nightStack.Children.Add(evidenceAsianNightText);
+            evidenceAsianNightBorder = new Border { Background = Card, BorderBrush = Orchid, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 6, 10, 8), Margin = new Thickness(0, 0, 0, 6), Visibility = Visibility.Collapsed, Child = nightStack };
+            side.Children.Add(evidenceAsianNightBorder);
             evidenceReplayHeadline = Txt(string.Empty, Cyan, 14, FontWeights.Bold); evidenceReplayHeadline.TextWrapping = TextWrapping.Wrap;
             evidenceReplayDetail = Txt(string.Empty, Text, 11, FontWeights.Normal); evidenceReplayDetail.FontFamily = new FontFamily("Consolas"); evidenceReplayDetail.TextWrapping = TextWrapping.Wrap;
             var replayContent = new StackPanel(); replayContent.Children.Add(Txt("LAST EVENT", Muted, 10, FontWeights.Bold)); replayContent.Children.Add(evidenceReplayHeadline); replayContent.Children.Add(evidenceReplayDetail);
@@ -14903,7 +15160,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (answer != MessageBoxResult.Yes) { args.Cancel = true; return; }
                 evidenceCloseConfirmed = true;
             };
-            w.Closed += delegate { CancelEvidenceRequest(); if (evidenceReplayTimer != null) evidenceReplayTimer.Stop(); evidenceBarCursor = DateTime.MinValue; evidenceReplayKey = string.Empty; evidenceLiveBorder = null; evidenceSidePanel = null; evidenceSpeedBox = null; evidenceReplayIndex = -1; evidenceReplayDay = DateTime.MinValue; evidenceReplaySteps = new List<KeystoneArcReplayStep>(); evidenceReplayBar = null; evidenceReplayBorder = null; evidenceReplayHeadline = null; evidenceReplayDetail = null; evidenceReplayStepText = null; evidenceReplayPlayButton = null; if (evidenceSelectionTimer != null) evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; if (evidenceRenderQueued) { CompositionTarget.Rendering -= EvidenceRenderTick; evidenceRenderQueued = false; } evidenceFullRenderNeeded = true; evidenceLastAnimatedRenderKey = null; evidencePanOverscrollTransform = null; evidenceCrosshairHLine = null; evidenceCrosshairVLine = null; evidenceCrosshairPriceLabel = null; evidenceCrosshairTimeLabel = null; evidenceLayoutBars = null; evidenceWindow = null; evidenceCanvas = null; evidenceScroll = null; evidenceHorizontalScrollBar = null; evidenceVerticalScrollBar = null; evidenceTabsScroll = null; evidenceDateStrip = null; evidenceDateButtons.Clear(); evidenceSelectedDateIndex = -1; evidenceControlsPanel = null; evidenceDetailBorder = null; evidencePnlBorder = null; evidenceControlsToggle = null; evidenceStatusText = null; evidenceMetricsText = null; evidenceLegendText = null; evidenceZoomText = null; evidenceStudyText = null; evidenceDetailText = null; evidencePnlText = null; selectedEvidenceEvent = null; evidenceInstrumentTabs = null; evidenceTimeframeBox = null; evidencePreviewEvents.Clear(); evidencePreviewOwnLedger = false; evidencePreviewMinutes = 0; evidencePanning = false; pendingEvidenceSelectionAction = null; };
+            w.Closed += delegate { CancelEvidenceRequest(); if (evidenceReplayTimer != null) evidenceReplayTimer.Stop(); evidenceBarCursor = DateTime.MinValue; evidenceReplayKey = string.Empty; evidenceLiveBorder = null; evidenceAsianNightBorder = null; evidenceAsianNightText = null; evidenceAsianNightKey = string.Empty; evidenceSidePanel = null; evidenceSpeedBox = null; evidenceReplayIndex = -1; evidenceReplayDay = DateTime.MinValue; evidenceReplaySteps = new List<KeystoneArcReplayStep>(); evidenceReplayBar = null; evidenceReplayBorder = null; evidenceReplayHeadline = null; evidenceReplayDetail = null; evidenceReplayStepText = null; evidenceReplayPlayButton = null; if (evidenceSelectionTimer != null) evidenceSelectionTimer.Stop(); evidenceSelectionTimer = null; if (evidenceRenderQueued) { CompositionTarget.Rendering -= EvidenceRenderTick; evidenceRenderQueued = false; } evidenceFullRenderNeeded = true; evidenceLastAnimatedRenderKey = null; evidencePanOverscrollTransform = null; evidenceCrosshairHLine = null; evidenceCrosshairVLine = null; evidenceCrosshairPriceLabel = null; evidenceCrosshairTimeLabel = null; evidenceLayoutBars = null; evidenceWindow = null; evidenceCanvas = null; evidenceScroll = null; evidenceHorizontalScrollBar = null; evidenceVerticalScrollBar = null; evidenceTabsScroll = null; evidenceDateStrip = null; evidenceDateButtons.Clear(); evidenceSelectedDateIndex = -1; evidenceControlsPanel = null; evidenceDetailBorder = null; evidencePnlBorder = null; evidenceControlsToggle = null; evidenceStatusText = null; evidenceMetricsText = null; evidenceLegendText = null; evidenceZoomText = null; evidenceStudyText = null; evidenceDetailText = null; evidencePnlText = null; selectedEvidenceEvent = null; evidenceInstrumentTabs = null; evidenceTimeframeBox = null; evidencePreviewEvents.Clear(); evidencePreviewOwnLedger = false; evidencePreviewMinutes = 0; evidencePanning = false; pendingEvidenceSelectionAction = null; };
             w.Show();
             if (evidenceInstrumentTabs != null && evidenceInstrumentTabs.Items.Count > 0)
             {
@@ -15264,6 +15521,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool animateMarkers = !string.Equals(renderKey, evidenceLastAnimatedRenderKey, StringComparison.Ordinal);
             evidenceLastAnimatedRenderKey = renderKey;
             List<KeystoneArcEvent> allMarks = EvidenceEvents(symbol, day);
+            UpdateAsianNightSummary(day);
             UpdateEvidenceSessionMetrics(symbol, day);
             // At 100% candles use a normal readable width. A long session therefore opens as a
             // viewport rather than squeezing hundreds of bars into miniature candles; pan or the
@@ -15972,6 +16230,42 @@ namespace NinjaTrader.NinjaScript.AddOns
         private bool EvidenceReplayDay(out DateTime day)
         {
             return DateTime.TryParseExact(evidenceDateBox == null ? string.Empty : evidenceDateBox.Text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out day);
+        }
+
+        private TextBlock evidenceAsianNightText; private Border evidenceAsianNightBorder; private string evidenceAsianNightKey = string.Empty;
+
+        // Minute stamps of one instrument between two times (binary search: the loaded list can hold years of bars).
+        private static IEnumerable<DateTime> MinuteStamps(List<KeystoneArcBar> list, DateTime from, DateTime to)
+        {
+            if (list == null || list.Count == 0) yield break;
+            int lo = 0, hi = list.Count - 1, first = list.Count;
+            while (lo <= hi) { int mid = (lo + hi) / 2; if (list[mid].Time >= from) { first = mid; hi = mid - 1; } else lo = mid + 1; }
+            for (int i = first; i < list.Count && list[i].Time <= to; i++) yield return list[i].Time;
+        }
+
+        private void UpdateAsianNightSummary(DateTime day)
+        {
+            if (evidenceAsianNightBorder == null) return;
+            if (!EvidenceIsAsian()) { evidenceAsianNightBorder.Visibility = Visibility.Collapsed; return; }
+            List<KeystoneArcEvent> legs = ReplayDayTrades(day);
+            evidenceAsianNightBorder.Visibility = Visibility.Visible;
+            if (legs.Count == 0) { evidenceAsianNightText.Text = "No cycle on this night (no opening bar)."; evidenceAsianNightKey = string.Empty; return; }
+            DateTime until = evidenceBarCursor == DateTime.MinValue ? DateTime.MaxValue : evidenceBarCursor;
+            string key = day.ToString("yyyyMMdd") + "|" + until.Ticks + "|" + legs.Count + "|" + legs.Sum(e => e.GrossPnl).ToString("0.##", CultureInfo.InvariantCulture);
+            if (key == evidenceAsianNightKey) return; evidenceAsianNightKey = key;
+            DateTime from = legs.Min(e => e.EntryTime), to = legs.Max(e => e.ExitTime);
+            var minutes = MinuteStamps(mnqBars, from, to).Concat(MinuteStamps(mgcBars, from, to));
+            var s2 = KeystoneAsianLab.NightSummary(legs, LabCloseAt, minutes, until);
+            Func<double, string> m = v => (v < 0 ? "-$" : "+$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            var sb = new StringBuilder();
+            sb.AppendLine(day.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " • " + (s2.End == "RUNNING" ? "RUNNING (replay " + until.ToString("HH:mm") + ")" : s2.End + " " + s2.EndTime.ToString("ddd HH:mm", CultureInfo.InvariantCulture)));
+            sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-9}{1,5}{2,5}{3,8}", "", "LEGS", "MAX", "P/L"));
+            foreach (var x in s2.Sides.Concat(new[] { s2.Combined }))
+            {
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "{0,-9}{1,5}{2,5}{3,8}", x.Symbol, x.Legs, x.MaxQty > 0 ? "x" + x.MaxQty : "", m(x.Pnl)));
+                sb.AppendLine(string.Format(CultureInfo.InvariantCulture, "  highest {0} {1:HH:mm} • lowest {2} {3:HH:mm}", m(x.Peak), x.PeakTime, m(x.Low), x.LowTime));
+            }
+            evidenceAsianNightText.Text = sb.ToString().TrimEnd();
         }
 
         private bool EvidenceIsAsian() { return config != null && string.Equals(config.StrategyCode, "ASIAN75", StringComparison.OrdinalIgnoreCase); }
@@ -18855,36 +19149,43 @@ namespace NinjaTrader.NinjaScript.AddOns
             string root = Path.Combine(DataDirectory(), "KeystoneEvidence_" + rangeName + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
             BeginBusy("EXPORTING EVIDENCE PACKAGE");
             UpdateUi("EXPORTING INSTRUMENT FOLDERS, SESSION CHARTS, AND HTML LEDGERS", Gold);
+            // The CSVs and the index page read the lab's controls: WPF allows that only on the lab's thread
+            // ("the calling thread cannot access this object"). The slow SVG session charts are written in the background.
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                string result;
+                string failure = null; int written = 0;
+                var manifest = new StringBuilder();
+                    manifest.Append("<h2>Evidence charts and raw ledgers</h2><div class='card'><strong>One package, one starting page.</strong> The links below open each instrument's SVG session charts and CSV ledger. Charts are generated from the selected direct NinjaTrader setup bars; they are a research record for visual validation, not proof that the detector or outcome model is correct.</div><p><a href='events.csv'>Complete event ledger CSV</a> • <a href='research_findings.csv'>Evidence-only research findings CSV</a> • <a href='first_returns.csv'>First-return dashboard CSV</a> • <a href='payout_accounts.csv'>Payout-account profitability CSV</a> • <a href='daily_selected_session.csv'>Daily selected-session scoreboard CSV</a> • <a href='account_snapshot.csv'>Account snapshot CSV</a> • <a href='account_days.csv'>Daily lifecycle CSV</a> • <a href='payout_cycles.csv'>Payout-cycle dashboard CSV</a> • <a href='balance_matrix.csv'>Balance matrix CSV</a> • <a href='capital_policy.csv'>Initial-investment and replacement policy CSV</a></p><ul>");
                 try
                 {
                     Directory.CreateDirectory(root);
-                    File.WriteAllText(Path.Combine(root, "events.csv"), EventCsv(eventCopy), Encoding.UTF8);
-                    File.WriteAllText(Path.Combine(root, "account_snapshot.csv"), AccountCsv(), Encoding.UTF8);
-                    File.WriteAllText(Path.Combine(root, "account_days.csv"), AccountDayCsv(), Encoding.UTF8);
-                    File.WriteAllText(Path.Combine(root, "first_returns.csv"), FirstReturnCsv(), Encoding.UTF8);
-                    File.WriteAllText(Path.Combine(root, "payout_accounts.csv"), PayoutAccountCsv(), Encoding.UTF8);
-                    File.WriteAllText(Path.Combine(root, "daily_selected_session.csv"), DailySessionScoreCsv(), Encoding.UTF8);
-                    File.WriteAllText(Path.Combine(root, "research_findings.csv"), ResearchFindingsCsv(), Encoding.UTF8);
-                    File.WriteAllText(Path.Combine(root, "payout_cycles.csv"), PayoutCycleCsv(), Encoding.UTF8);
-                    File.WriteAllText(Path.Combine(root, "balance_matrix.csv"), BalanceMatrixCsv(), Encoding.UTF8);
-                    File.WriteAllText(Path.Combine(root, "capital_policy.csv"), CapitalPolicyCsv(), Encoding.UTF8);
-                    var manifest = new StringBuilder();
-                    manifest.Append("<h2>Evidence charts and raw ledgers</h2><div class='card'><strong>One package, one starting page.</strong> The links below open each instrument's SVG session charts and CSV ledger. Charts are generated from the selected direct NinjaTrader setup bars; they are a research record for visual validation, not proof that the detector or outcome model is correct.</div><p><a href='events.csv'>Complete event ledger CSV</a> • <a href='research_findings.csv'>Evidence-only research findings CSV</a> • <a href='first_returns.csv'>First-return dashboard CSV</a> • <a href='payout_accounts.csv'>Payout-account profitability CSV</a> • <a href='daily_selected_session.csv'>Daily selected-session scoreboard CSV</a> • <a href='account_snapshot.csv'>Account snapshot CSV</a> • <a href='account_days.csv'>Daily lifecycle CSV</a> • <a href='payout_cycles.csv'>Payout-cycle dashboard CSV</a> • <a href='balance_matrix.csv'>Balance matrix CSV</a> • <a href='capital_policy.csv'>Initial-investment and replacement policy CSV</a></p><ul>");
-                    int written = 0;
                     written += ExportInstrumentEvidence(root, "MNQ", mnqCopy, eventCopy, cfgCopy, manifest);
                     written += ExportInstrumentEvidence(root, "MGC", mgcCopy, eventCopy, cfgCopy, manifest);
                     manifest.Append("</ul><p class='footer'>Charts written: ").Append(written).Append(". This page contains the run summary, account/payout scenario data, filters, comparisons, and detailed ledger; MNQ/MGC folders contain linked visual charts and machine-readable rows.</p>");
-                    File.WriteAllText(Path.Combine(root, "index.html"), BuildEvidencePackageIndex(manifest.ToString()), Encoding.UTF8);
-                    result = "EVIDENCE PACKAGE READY • OPEN index.html • " + written + " SVG SESSION CHART(S) • ONE MAIN WEBSITE + MNQ/MGC ASSET FOLDERS • " + root;
                 }
-                catch (Exception ex) { result = "EVIDENCE EXPORT ERROR • " + ex.Message; }
+                catch (Exception ex) { failure = ex.Message; }
                 DispatchToLab(delegate
                 {
+                    string result;
+                    try
+                    {
+                        if (failure != null) throw new Exception(failure);
+                        File.WriteAllText(Path.Combine(root, "events.csv"), EventCsv(eventCopy), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "account_snapshot.csv"), AccountCsv(), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "account_days.csv"), AccountDayCsv(), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "first_returns.csv"), FirstReturnCsv(), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "payout_accounts.csv"), PayoutAccountCsv(), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "daily_selected_session.csv"), DailySessionScoreCsv(), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "research_findings.csv"), ResearchFindingsCsv(), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "payout_cycles.csv"), PayoutCycleCsv(), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "balance_matrix.csv"), BalanceMatrixCsv(), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "capital_policy.csv"), CapitalPolicyCsv(), Encoding.UTF8);
+                        File.WriteAllText(Path.Combine(root, "index.html"), BuildEvidencePackageIndex(manifest.ToString()), Encoding.UTF8);
+                        result = "EVIDENCE PACKAGE READY • OPEN index.html • " + written + " SVG SESSION CHART(S) • ONE MAIN WEBSITE + MNQ/MGC ASSET FOLDERS • " + root;
+                    }
+                    catch (Exception ex) { result = "EVIDENCE EXPORT ERROR • " + ex.Message; }
                     EndBusy();
-                    if (result.StartsWith("EVIDENCE PACKAGE READY")) { unsavedResearch = false; RefreshSavedRuns(); UpdateUi(result + " • RUN ARCHIVE UPDATED", Green); }
+                    if (result.StartsWith("EVIDENCE PACKAGE READY")) { unsavedResearch = false; RefreshSavedRuns(); UpdateUi(result + " • RUN ARCHIVE UPDATED", Green); try { System.Diagnostics.Process.Start(Path.Combine(root, "index.html")); } catch { } }
                     else UpdateUi(result, Red);
                 });
             });
@@ -21715,7 +22016,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     helixMinutes = minutes; helixMinutesKey = key; helixResult = result; helixBuckets = buckets ?? new List<KeystoneHelixBucket>(); helixProofRows = null;
                     helixRotationById = result.Rotations.ToDictionary(r => r.Id);
                     events = HelixEvents(result);
-                    loadedEvents = events; loadedScope = config.Scope; viewScope = config.Scope;
+                    loadedEvents = events; loadedScope = config.Scope; viewScope = config.Scope; loadedAsianLoss = config.AsianDailyLossLimitDollars;
                     accounts = new List<KeystoneArcVirtualAccount>();
                     researchRunCompleted = true; unsavedResearch = events.Count > 0;
                     KeystoneArcHub.Publish(new List<KeystoneArcEvent>(), config);
@@ -22330,9 +22631,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             return HelixScroll(root);
         }
 
-        private UIElement MicroPropView(KeystoneMicroRow r)
+        private UIElement MicroPropView(KeystoneMicroRow r, KeystonePropRules rulesOverride = null)
         {
-            var root = new StackPanel { Margin = new Thickness(4) }; var rules = microResult.Rules;
+            var root = new StackPanel { Margin = new Thickness(4) }; var rules = rulesOverride ?? microResult.Rules;
             root.Children.Add(HelixTitle(r.Label + " • " + rules.Name, Cyan));
             root.Children.Add(HelixNote(rules.Describe()));
             var cards = new WrapPanel();
@@ -22387,9 +22688,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             return HelixScroll(root);
         }
 
-        private UIElement MicroCopyView(KeystoneMicroRow r)
+        private UIElement MicroCopyView(KeystoneMicroRow r, KeystonePropRules rulesOverride = null)
         {
-            var root = new StackPanel { Margin = new Thickness(4) }; var rules = microResult.Rules;
+            var root = new StackPanel { Margin = new Thickness(4) }; var rules = rulesOverride ?? microResult.Rules;
             root.Children.Add(HelixTitle(r.Label + " • COPY TRADING", Cyan));
             root.Children.Add(HelixNote("COPY = every account takes the same trade from the same day: all numbers × accounts, and they pass and blow up together. STAGGERED = account 2 starts 5 sessions after account 1, account 3 five after that…: the same trades but the accounts are at different points of their life, so they do not all die on the same day. NEED = the most money out of pocket at one time (compare with your $10,000 budget)."));
             double[] w = { 120, 80, 80, 80, 80, 80, 110, 110, 110, 120, 90 };
@@ -22514,6 +22815,475 @@ namespace NinjaTrader.NinjaScript.AddOns
                 root.Children.Add(row);
             }
             return HelixScroll(root);
+        }
+
+        // ---- ASIAN MATH LAB window: every combination on the loaded bars, prop accounts, advice, apply to the lab --------
+        private Window asianLabWindow; private KeystoneAsianLabResult asianLabResult; private KeystoneAsianLabRow asianLabSelected; private TabControl asianLabTabs; private TextBlock asianLabStatus;
+        private string asianLabFilter = "ALL", asianLabSort = "PROP"; private bool asianLabCancel; private KeystonePropRules asianLabRules = new KeystonePropRules(); private Action asianLabRun;
+
+        private static List<double> ParseNumbers(string text, double fallback)
+        {
+            var list = new List<double>();
+            foreach (string part in (text ?? string.Empty).Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)) { double v; if (double.TryParse(part, NumberStyles.Any, CultureInfo.InvariantCulture, out v) && v >= 0) list.Add(v); }
+            if (list.Count == 0) list.Add(fallback);
+            return list.Distinct().ToList();
+        }
+        private static List<string> ParseWords(string text, string[] allowed, string fallback)
+        {
+            var list = (text ?? string.Empty).ToUpperInvariant().Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).Where(x => allowed.Contains(x)).Distinct().ToList();
+            if (list.Count == 0) list.Add(fallback);
+            return list;
+        }
+
+        private void SetAsianLabTab(string header, UIElement content)
+        {
+            if (asianLabTabs == null) return;
+            foreach (TabItem t in asianLabTabs.Items) if (Convert.ToString(t.Header) == header) { t.Content = content; return; }
+        }
+
+        private void ShowAsianLabSelected(KeystoneAsianLabRow r, bool jump)
+        {
+            if (r == null || asianLabResult == null) return;
+            KeystoneAsianLab.Detail(r, asianLabRules, asianLabResult.SplitAt);
+            asianLabSelected = r;
+            SetAsianLabTab("CHARTS", AsianLabChartsView(r)); SetAsianLabTab("EVALS & FUNDED", MicroPropView(r.P, asianLabRules)); SetAsianLabTab("SIZE & SPEED", AsianLabSizeView(r));
+            SetAsianLabTab("COPY TRADING", MicroCopyView(r.P, asianLabRules)); SetAsianLabTab("LEGS", AsianLabLegsView(r)); SetAsianLabTab("MONTHS", MicroMonthsView(r.P));
+            SetAsianLabTab("YEARS & PERIODS", AsianLabYearsView(r)); SetAsianLabTab("NIGHTS", AsianLabNightsView(r));
+            if (asianLabStatus != null) { asianLabStatus.Text = "SELECTED • " + r.Label + " • prop " + Signed(r.P.PropNet) + " • plain " + Signed(r.P.Net) + " (MNQ " + Signed(r.MnqNet) + " / MGC " + Signed(r.MgcNet) + ") • APPLY TO LAB puts it on the chart and in the pool (no reload)"; asianLabStatus.Foreground = MoneyBrush(r.P.PropNet); }
+            if (jump && asianLabTabs != null) asianLabTabs.SelectedIndex = 2;
+        }
+
+        private UIElement AsianLabAdviceView()
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var res = asianLabResult; if (res == null) return root;
+            if (res.Nights < 120) root.Children.Add(new Border { Background = Card, BorderBrush = Red, BorderThickness = new Thickness(2), Padding = new Thickness(10), Margin = new Thickness(4), Child = Txt("ONLY " + res.Nights + " NIGHTS LOADED • load several years (e.g. 2020-01-01 → yesterday) before trusting any of this.", Red, 13, FontWeights.Bold) });
+            root.Children.Add(HelixTitle("WHAT THE NUMBERS SAY", Gold));
+            foreach (string line in KeystoneAsianLab.Advice(res)) root.Children.Add(new TextBlock { Text = "• " + line, Foreground = line.StartsWith("WARNING") || line.StartsWith("No combination") ? Red : line.StartsWith("STRONGEST") || line.StartsWith("BEST") ? Green : Text, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6, 2, 6, 2) });
+            root.Children.Add(HelixTitle("WHICH VALUE OF EACH SETTING WINS (all combinations with that value)", Gold));
+            root.Children.Add(HelixNote("MEDIAN = the middle prop result of every combination using that value: a value that is good on the median is good in general, not just in one lucky row. FIRST PAYOUT = average days to the first payout of the rows that got paid."));
+            double[] w = { 160, 90, 70, 110, 120, 120, 130, 120, 130 };
+            root.Children.Add(HelixHeader(new[] { "SETTING", "VALUE", "ROWS", "PROFITABLE", "MEDIAN PROP", "BEST PROP", "FIRST PAYOUT", "ACCOUNTS LOST", "FULL-LOSS NIGHTS" }, w));
+            foreach (var g in KeystoneAsianLab.Impacts(res.Rows).GroupBy(x => x.Setting))
+            {
+                var best = g.OrderByDescending(x => x.Median).First();
+                foreach (var x in g)
+                    root.Children.Add(HelixRow(new[] { x.Setting, (x == best ? "★ " : "") + x.Value, x.Rows.ToString(), x.Profitable + " (" + (100.0 * x.Profitable / Math.Max(1, x.Rows)).ToString("0") + "%)", Signed(x.Median), Signed(x.Best), x.AvgFirstPayoutDays > 0 ? x.AvgFirstPayoutDays.ToString("0") + " d" : "–", x.AvgBlowups.ToString("0.0"), x.AvgFullLossNights.ToString("0") },
+                        new[] { Muted, x == best ? Gold : Text, Text, Text, MoneyBrush(x.Median), MoneyBrush(x.Best), Cyan, Red, Red }, w, x == best ? Gold : Card, null));
+            }
+            var cells = KeystoneAsianLab.Matrix(res.Rows); var tps = cells.Select(c => c.Target).Distinct().OrderBy(v => v).ToList();
+            if (cells.Select(c => c.Reversals).Distinct().Count() > 1 || tps.Count > 1)
+            {
+                root.Children.Add(HelixTitle("REVERSALS × TAKE PROFIT • best prop result of each pair • accounts lost • first payout (click a cell)", Gold));
+                root.Children.Add(HelixNote("Read across: a bigger take profit needs more legs to reach it. Read down: more reversals rescue more nights but one bad night costs more and blows more accounts. The best cell balances both."));
+                var cw = new List<double> { 110 }; cw.AddRange(tps.Select(t => 190.0));
+                var hd = new List<string> { "REVERSALS" }; hd.AddRange(tps.Select(t => "TP $" + t.ToString("0")));
+                root.Children.Add(HelixHeader(hd.ToArray(), cw.ToArray()));
+                var top = cells.OrderByDescending(c => c.Best.P.PropNet).First();
+                foreach (var rv in cells.Select(c => c.Reversals).Distinct().OrderBy(v => v))
+                {
+                    var line = new WrapPanel(); line.Children.Add(new Border { Width = 110, Padding = new Thickness(6), Child = Txt(rv + " rev (" + (rv + 1) + " legs)", Gold, 11, FontWeights.Bold) });
+                    foreach (double t in tps)
+                    {
+                        var cell = cells.FirstOrDefault(c => c.Reversals == rv && c.Target == t);
+                        if (cell == null) { line.Children.Add(new Border { Width = 190 }); continue; }
+                        var b = cell.Best; var st = new StackPanel();
+                        st.Children.Add(Txt(Signed(b.P.PropNet), MoneyBrush(b.P.PropNet), 14, FontWeights.Bold));
+                        st.Children.Add(Txt(KeystoneAsianLab.Blowups(b) + " lost • " + (b.P.Stats.HasPayout ? "1st pay " + b.P.Stats.CalendarDaysToFirstPayout + " d" : "never paid"), Text, 10, FontWeights.Normal));
+                        st.Children.Add(Txt(b.Combo.Scope + " • " + b.Combo.StartingQuantity + "x • leg $" + b.Combo.LegLoss.ToString("0"), Muted, 9.5, FontWeights.Normal));
+                        var bd = new Border { Width = 186, Margin = new Thickness(2), Padding = new Thickness(6, 4, 6, 4), Background = Card, BorderBrush = cell == top ? Gold : MoneyBrush(b.P.PropNet), BorderThickness = new Thickness(cell == top ? 2.5 : 1), CornerRadius = new CornerRadius(5), Child = st, Cursor = System.Windows.Input.Cursors.Hand };
+                        var bb = b; bd.MouseLeftButtonUp += delegate { ShowAsianLabSelected(bb, true); };
+                        line.Children.Add(bd);
+                    }
+                    root.Children.Add(line);
+                }
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement AsianLabRankingView()
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var res = asianLabResult; if (res == null) return root;
+            var cards = new WrapPanel();
+            Action<string, KeystoneAsianLabRow> card = delegate(string t, KeystoneAsianLabRow x)
+            {
+                if (x == null) return; var c = HelixCard(t, Signed(x.P.PropNet), x.Label + " • " + x.P.Passed + " passed, " + x.P.Payouts + " payouts" + (x.P.Stats.HasPayout ? " • 1st payout " + x.P.Stats.CalendarDaysToFirstPayout + " d" : " • never paid"), MoneyBrush(x.P.PropNet), 270);
+                var xx = x; c.Cursor = System.Windows.Input.Cursors.Hand; c.MouseLeftButtonUp += delegate { ShowAsianLabSelected(xx, true); }; cards.Children.Add(c);
+            };
+            card("BEST FOR PROP", res.Rows.FirstOrDefault());
+            card("STRONGEST • EVERY YEAR + UNSEEN 30%", res.Rows.Where(r => r.P.PropNet > 0 && r.OutSampleNet > 0 && r.YearsUp == r.Years).OrderByDescending(r => r.P.PropNet).FirstOrDefault());
+            card("FASTEST FIRST PAYOUT (PROFITABLE)", res.Rows.Where(r => r.P.PropNet > 0 && r.P.Stats.HasPayout).OrderBy(r => r.P.Stats.CalendarDaysToFirstPayout).FirstOrDefault());
+            foreach (string sc in new[] { "MNQ", "MGC", "BOTH" }) card("BEST " + sc, res.Rows.Where(r => r.Combo.Scope == sc).OrderByDescending(r => r.P.PropNet).FirstOrDefault());
+            root.Children.Add(cards);
+            var filters = new WrapPanel { Margin = new Thickness(2, 4, 2, 2) };
+            foreach (string f in new[] { "ALL", "MNQ", "MGC", "BOTH", "LONG", "SHORT" })
+            { string pick = f; var b = Btn(f, f == asianLabFilter ? Cyan : Card); b.Height = 26; b.FontSize = 10; b.Padding = new Thickness(12, 0, 12, 0); b.Click += delegate { asianLabFilter = pick; SetAsianLabTab("RANKING", AsianLabRankingView()); }; filters.Children.Add(b); }
+            filters.Children.Add(Txt("   SORT BY", Muted, 10, FontWeights.Bold));
+            foreach (string f in new[] { "PROP", "PLAIN", "FIRST PAYOUT", "PASS %", "UNSEEN 30%", "SMALLEST DD" })
+            { string pick = f; var b = Btn(f, f == asianLabSort ? Gold : Card); b.Height = 26; b.FontSize = 10; b.Padding = new Thickness(12, 0, 12, 0); b.Click += delegate { asianLabSort = pick; SetAsianLabTab("RANKING", AsianLabRankingView()); }; filters.Children.Add(b); }
+            root.Children.Add(filters);
+            IEnumerable<KeystoneAsianLabRow> rows = res.Rows;
+            if (asianLabFilter == "MNQ" || asianLabFilter == "MGC" || asianLabFilter == "BOTH") rows = rows.Where(r => r.Combo.Scope == asianLabFilter);
+            else if (asianLabFilter == "LONG" || asianLabFilter == "SHORT") rows = rows.Where(r => (r.Combo.Scope == "MGC" ? r.Combo.MgcDirection : r.Combo.MnqDirection) == asianLabFilter && (r.Combo.Scope != "BOTH" || r.Combo.MgcDirection == asianLabFilter));
+            rows = asianLabSort == "PLAIN" ? rows.OrderByDescending(r => r.P.Net) : asianLabSort == "FIRST PAYOUT" ? rows.OrderBy(r => r.P.Stats.HasPayout ? r.P.Stats.CalendarDaysToFirstPayout : int.MaxValue).ThenByDescending(r => r.P.PropNet)
+                : asianLabSort == "PASS %" ? rows.OrderByDescending(r => r.P.PassRate) : asianLabSort == "UNSEEN 30%" ? rows.OrderByDescending(r => r.OutSampleNet) : asianLabSort == "SMALLEST DD" ? rows.OrderBy(r => r.P.MaxDrawdown) : rows.OrderByDescending(r => r.P.PropNet).ThenByDescending(r => r.P.Net);
+            var list = rows.ToList();
+            root.Children.Add(HelixNote("Click a row: every other tab switches to it. NIGHTS / WIN = nights in profit • TP = nights closed at the take profit • PLAIN = one account trading every night after $" + "costs • PROP = one evaluation slot in date order, a lost account replaced • UNSEEN 30% = the last 30% of nights • YEARS+ = years the prop result was positive. " + (list.Count > 300 ? "Showing the first 300 of " + list.Count + " (use the filters)." : list.Count + " rows.")));
+            double[] w = { 34, 400, 60, 55, 55, 95, 85, 85, 85, 55, 60, 65, 70, 80, 100, 95, 60 };
+            root.Children.Add(HelixHeader(new[] { "#", "COMBINATION", "NIGHTS", "WIN", "TP", "PLAIN NET", "MNQ", "MGC", "WORST DD", "EVALS", "PASSED", "PAYOUTS", "1ST PAY", "SPENT", "PROP NET", "UNSEEN 30%", "YEARS+" }, w));
+            for (int i = 0; i < Math.Min(300, list.Count); i++)
+            {
+                var r = list[i];
+                var row = HelixRow(new[] { (i + 1).ToString(), r.Label, r.Nights.Count.ToString(), (r.Nights.Count == 0 ? 0 : 100.0 * r.P.Wins / r.Nights.Count).ToString("0") + "%", (r.Nights.Count == 0 ? 0 : 100.0 * r.TargetNights / r.Nights.Count).ToString("0") + "%", Signed(r.P.Net), Signed(r.MnqNet), Signed(r.MgcNet), Cash(r.P.MaxDrawdown), r.P.Bought.ToString(), r.P.Passed.ToString(), r.P.Payouts.ToString(), r.P.Stats.HasPayout ? r.P.Stats.CalendarDaysToFirstPayout + " d" : "never", Cash(r.P.Spent), Signed(r.P.PropNet), Signed(r.OutSampleNet), r.YearsUp + "/" + r.Years },
+                    new[] { Gold, Text, Text, Text, Cyan, MoneyBrush(r.P.Net), MoneyBrush(r.MnqNet), MoneyBrush(r.MgcNet), Red, Text, Green, Green, Cyan, Red, MoneyBrush(r.P.PropNet), MoneyBrush(r.OutSampleNet), r.YearsUp == r.Years && r.Years > 0 ? Green : Muted }, w, r == asianLabSelected ? Gold : MoneyBrush(r.P.PropNet), null);
+                var rr = r; row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { ShowAsianLabSelected(rr, true); SetAsianLabTab("RANKING", AsianLabRankingView()); };
+                root.Children.Add(row);
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement AsianLabChartsView(KeystoneAsianLabRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle(r.Label, Cyan));
+            var days = r.Nights.Select(n => n.Date).ToList(); double c = 0, m = 0, g = 0; var comb = new List<double>(); var mnq = new List<double>(); var mgc = new List<double>();
+            foreach (var n in r.Nights) { c += n.Net; m += n.Mnq; g += n.Mgc; comb.Add(c); mnq.Add(m); mgc.Add(g); }
+            var series = new List<Tuple<string, Brush, List<double>>> { Tuple.Create("COMBINED", (Brush)Green, comb) };
+            if (r.Combo.Scope != "MGC") series.Add(Tuple.Create("MNQ", (Brush)Cyan, mnq)); if (r.Combo.Scope != "MNQ") series.Add(Tuple.Create("MGC", (Brush)Gold, mgc));
+            root.Children.Add(MicroChart("PLAIN ACCOUNT NIGHT BY NIGHT • combined and each instrument inside the cycle (after costs)", days, series.ToArray()));
+            root.Children.Add(MicroChartsView(r.P));
+            return HelixScroll(root);
+        }
+
+        private UIElement AsianLabSizeView(KeystoneAsianLabRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var c = r.Combo;
+            root.Children.Add(HelixTitle("SIZE & SPEED • " + c.Scope + " • " + (c.Scope == "MGC" ? c.MgcDirection : c.MnqDirection) + " • " + c.Reversals + " rev • TP $" + c.Target.ToString("0") + " • every starting size × leg loss you tested", Gold));
+            root.Children.Add(HelixNote("Each row is a real simulation (more micros = a tighter stop for the same $ leg loss, not just bigger numbers). Sorted by the fastest first payout. To test more sizes, add them in STARTING MICROS / LEG LOSS above and RUN again."));
+            var same = asianLabResult.Rows.Where(x => x.Combo.Scope == c.Scope && x.Combo.MnqDirection == c.MnqDirection && x.Combo.MgcDirection == c.MgcDirection && x.Combo.Reversals == c.Reversals && x.Combo.Target == c.Target && x.Combo.DailyLossLimit == c.DailyLossLimit && x.Combo.StartHhmm == c.StartHhmm)
+                .OrderBy(x => x.P.Stats.HasPayout ? x.P.Stats.CalendarDaysToFirstPayout : int.MaxValue).ThenByDescending(x => x.P.PropNet).ToList();
+            double[] w = { 70, 90, 110, 90, 120, 70, 70, 75, 70, 100, 100, 110, 80 };
+            root.Children.Add(HelixHeader(new[] { "MICROS", "LEG LOSS", "1ST PAYOUT", "SESSIONS", "SPENT BEFORE", "EVALS", "PASSED", "PAYOUTS", "LOST", "SPENT", "CASH", "NET", "WORST DD" }, w));
+            foreach (var x in same)
+            {
+                var s2 = x.P.Stats;
+                var row = HelixRow(new[] { x.Combo.StartingQuantity.ToString(), "$" + x.Combo.LegLoss.ToString("0"), s2.HasPayout ? s2.CalendarDaysToFirstPayout + " days" : "never", s2.HasPayout ? s2.SessionsToFirstPayout.ToString() : "–", s2.HasPayout ? Cash(s2.SpentToFirstPayout) : "–", x.P.Bought.ToString(), x.P.Passed.ToString(), x.P.Payouts.ToString(), x.P.FundedLost.ToString(), Cash(x.P.Spent), Cash(x.P.Cash), Signed(x.P.PropNet), Cash(x.P.MaxDrawdown) },
+                    new[] { Gold, Gold, s2.HasPayout ? (s2.CalendarDaysToFirstPayout <= 30 ? Green : s2.CalendarDaysToFirstPayout <= 60 ? Gold : Orange) : Red, Text, Red, Text, Green, Green, Red, Red, Green, MoneyBrush(x.P.PropNet), Red }, w, x == r ? Gold : MoneyBrush(x.P.PropNet), null);
+                var xx = x; row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { ShowAsianLabSelected(xx, false); };
+                root.Children.Add(row);
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement AsianLabLegsView(KeystoneAsianLabRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle(r.Label + " • HOW THE NIGHTS ENDED", Gold));
+            var cards = new WrapPanel(); int n = Math.Max(1, r.Nights.Count);
+            cards.Children.Add(HelixCard("TAKE PROFIT", r.TargetNights + " (" + (100.0 * r.TargetNights / n).ToString("0") + "%)", r.TargetAfterReversal + " of them only after a reversal", Green, 210));
+            cards.Children.Add(HelixCard("MAX COMBINED LOSS", r.LossNights.ToString(), "nights stopped by the max loss", Red, 200));
+            cards.Children.Add(HelixCard("ALL LEGS STOPPED", r.AllStoppedNights.ToString(), "every reversal leg lost", Red, 190));
+            cards.Children.Add(HelixCard("SESSION END", r.SessionEndNights.ToString(), "closed at the end time", Cyan, 180));
+            cards.Children.Add(HelixCard("A FULL LOSS COSTS", Signed(r.AvgFullLoss), "average of max-loss + all-stopped nights", Red, 220));
+            root.Children.Add(cards);
+            double[] w = { 160, 80, 90, 110, 110, 110 };
+            root.Children.Add(HelixHeader(new[] { "HIGHEST LEG", "NIGHTS", "SHARE", "AVG NET", "TAKE PROFIT", "TOTAL" }, w));
+            for (int leg = 1; leg <= 7; leg++)
+            {
+                var q = r.Nights.Where(x => Math.Min(7, Math.Max(1, Math.Max(x.MnqLegs, x.MgcLegs))) == leg).ToList(); if (q.Count == 0) continue;
+                double tot = q.Sum(x => x.Net);
+                root.Children.Add(HelixRow(new[] { "LEG " + leg + (leg == 1 ? " (no reversal)" : " (" + (leg - 1) + " reversal" + (leg == 2 ? "" : "s") + ")"), q.Count.ToString(), (100.0 * q.Count / n).ToString("0") + "%", Signed(q.Average(x => x.Net)), q.Count(x => x.Target).ToString(), Signed(tot) }, new[] { Gold, Text, Cyan, MoneyBrush(tot), Green, MoneyBrush(tot) }, w, MoneyBrush(tot), null));
+            }
+            foreach (string sym in new[] { "MNQ", "MGC" })
+            {
+                if ((sym == "MNQ" && r.Combo.Scope == "MGC") || (sym == "MGC" && r.Combo.Scope == "MNQ")) continue;
+                root.Children.Add(HelixTitle(sym + " • LEGS PER NIGHT AND ITS P/L INSIDE THE CYCLE", sym == "MNQ" ? Cyan : Gold));
+                root.Children.Add(HelixHeader(new[] { "LEGS", "NIGHTS", "SHARE", "AVG " + sym, "WON", "TOTAL " + sym }, w));
+                foreach (var g in r.Nights.GroupBy(x => sym == "MNQ" ? x.MnqLegs : x.MgcLegs).OrderBy(g => g.Key))
+                {
+                    double tot = g.Sum(x => sym == "MNQ" ? x.Mnq : x.Mgc);
+                    root.Children.Add(HelixRow(new[] { g.Key + " leg" + (g.Key == 1 ? "" : "s"), g.Count().ToString(), (100.0 * g.Count() / n).ToString("0") + "%", Signed(tot / g.Count()), g.Count(x => (sym == "MNQ" ? x.Mnq : x.Mgc) > 0).ToString(), Signed(tot) }, new[] { Gold, Text, Cyan, MoneyBrush(tot), Green, MoneyBrush(tot) }, w, MoneyBrush(tot), null));
+                }
+            }
+            return HelixScroll(root);
+        }
+
+        private UIElement AsianLabYearsView(KeystoneAsianLabRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) }; var res = asianLabResult;
+            root.Children.Add(HelixTitle(r.Label + " • EACH YEAR", Gold));
+            double[] w = { 90, 70, 70, 110, 100, 100, 100, 80, 80, 110 };
+            root.Children.Add(HelixHeader(new[] { "YEAR", "NIGHTS", "TP %", "PLAIN NET", "MNQ", "MGC", "WORST NIGHT", "PASSED", "PAYOUTS", "PROP NET" }, w));
+            foreach (var g in r.Nights.GroupBy(x => x.Date.Year).OrderBy(g => g.Key))
+            {
+                double net = g.Sum(x => x.Net), prop; r.P.PropByYear.TryGetValue(g.Key, out prop);
+                int passed = r.P.Ledger.Where(l => l.Day.Year == g.Key).Sum(l => l.Passed), pays = r.P.Ledger.Where(l => l.Day.Year == g.Key).Sum(l => l.Payouts);
+                root.Children.Add(HelixRow(new[] { g.Key.ToString(), g.Count().ToString(), (100.0 * g.Count(x => x.Target) / g.Count()).ToString("0") + "%", Signed(net), Signed(g.Sum(x => x.Mnq)), Signed(g.Sum(x => x.Mgc)), Signed(g.Min(x => x.Net)), passed.ToString(), pays.ToString(), Signed(prop) },
+                    new[] { Gold, Text, Cyan, MoneyBrush(net), MoneyBrush(g.Sum(x => x.Mnq)), MoneyBrush(g.Sum(x => x.Mgc)), Red, Green, Green, MoneyBrush(prop) }, w, MoneyBrush(prop), null));
+            }
+            root.Children.Add(HelixTitle("EARLY 70% vs UNSEEN LAST 30% (split " + res.SplitAt.ToString("yyyy-MM-dd") + ")", Gold));
+            root.Children.Add(HelixNote("The ranking used every night. A combination that only works in the early part was fitted to the past; one that also works in the last 30% is more likely real."));
+            root.Children.Add(HelixRow(new[] { "EARLY 70%", Signed(r.InSampleNet) }, new[] { Gold, MoneyBrush(r.InSampleNet) }, new double[] { 200, 150 }, MoneyBrush(r.InSampleNet), null));
+            root.Children.Add(HelixRow(new[] { "UNSEEN 30%", Signed(r.OutSampleNet) }, new[] { Gold, MoneyBrush(r.OutSampleNet) }, new double[] { 200, 150 }, MoneyBrush(r.OutSampleNet), null));
+            // period A vs B
+            root.Children.Add(HelixTitle("COMPARE TWO PERIODS (any dates inside the loaded range)", Gold));
+            var bar = new WrapPanel(); var aFrom = Input(res.First.ToString("yyyy-MM-dd")); var aTo = Input(res.SplitAt.AddDays(-1).ToString("yyyy-MM-dd")); var bFrom = Input(res.SplitAt.ToString("yyyy-MM-dd")); var bTo = Input(res.Last.ToString("yyyy-MM-dd"));
+            foreach (var tb in new[] { aFrom, aTo, bFrom, bTo }) tb.Width = 110;
+            var go = Btn("COMPARE", Gold); var outPanel = new StackPanel();
+            bar.Children.Add(Txt("A", Cyan, 12, FontWeights.Bold)); bar.Children.Add(aFrom); bar.Children.Add(aTo); bar.Children.Add(Txt("   B", Orchid, 12, FontWeights.Bold)); bar.Children.Add(bFrom); bar.Children.Add(bTo); bar.Children.Add(go);
+            root.Children.Add(bar); root.Children.Add(outPanel);
+            Action compare = delegate
+            {
+                outPanel.Children.Clear(); double[] w2 = { 90, 100, 70, 60, 110, 100, 100, 100, 70, 70, 80, 110 };
+                outPanel.Children.Add(HelixHeader(new[] { "PERIOD", "FROM", "NIGHTS", "TP %", "PLAIN NET", "MNQ", "MGC", "WORST DD", "PASSED", "PAYOUTS", "1ST PAY", "PROP NET" }, w2));
+                foreach (var p in new[] { Tuple.Create("A", aFrom.Text, aTo.Text, Cyan), Tuple.Create("B", bFrom.Text, bTo.Text, Orchid) })
+                {
+                    DateTime f, t; if (!DateTime.TryParse(p.Item2, CultureInfo.InvariantCulture, DateTimeStyles.None, out f) || !DateTime.TryParse(p.Item3, CultureInfo.InvariantCulture, DateTimeStyles.None, out t)) { outPanel.Children.Add(HelixNote("PERIOD " + p.Item1 + ": use YYYY-MM-DD")); continue; }
+                    var nights = r.Nights.Where(x => x.Date >= f && x.Date <= t).ToList(); if (nights.Count == 0) { outPanel.Children.Add(HelixNote("PERIOD " + p.Item1 + ": no nights")); continue; }
+                    var sub = KeystoneAsianLab.Row(r.Combo, nights, asianLabRules, DateTime.MaxValue, false, 0);
+                    outPanel.Children.Add(HelixRow(new[] { p.Item1, f.ToString("yyyy-MM-dd"), nights.Count.ToString(), (100.0 * sub.TargetNights / nights.Count).ToString("0") + "%", Signed(sub.P.Net), Signed(sub.MnqNet), Signed(sub.MgcNet), Cash(sub.P.MaxDrawdown), sub.P.Passed.ToString(), sub.P.Payouts.ToString(), sub.P.Stats.HasPayout ? sub.P.Stats.CalendarDaysToFirstPayout + " d" : "never", Signed(sub.P.PropNet) },
+                        new[] { p.Item4, Text, Text, Cyan, MoneyBrush(sub.P.Net), MoneyBrush(sub.MnqNet), MoneyBrush(sub.MgcNet), Red, Green, Green, Cyan, MoneyBrush(sub.P.PropNet) }, w2, p.Item4, null));
+                }
+            };
+            go.Click += delegate { compare(); }; compare();
+            return HelixScroll(root);
+        }
+
+        private UIElement AsianLabNightsView(KeystoneAsianLabRow r)
+        {
+            var root = new StackPanel { Margin = new Thickness(4) };
+            root.Children.Add(HelixTitle(r.Label + " • EVERY NIGHT (newest first)", Gold));
+            root.Children.Add(HelixNote("Click a night to open the chart on it. The chart shows the combination that is APPLIED to the lab — press APPLY TO LAB first if this is a different one (instant, no reload)."));
+            double[] w = { 120, 70, 70, 80, 100, 100, 110, 100, 100, 150, 110 };
+            root.Children.Add(HelixHeader(new[] { "NIGHT", "MNQ LEGS", "MGC LEGS", "CONTRACTS", "MNQ", "MGC", "COMBINED", "LOWEST", "HIGHEST", "ENDED", "AT" }, w));
+            foreach (var n in r.Nights.OrderByDescending(x => x.Date))
+            {
+                var nn = n;
+                var row = HelixRow(new[] { n.Date.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture), n.MnqLegs == 0 ? "–" : n.MnqLegs.ToString(), n.MgcLegs == 0 ? "–" : n.MgcLegs.ToString(), n.Contracts.ToString(), Signed(n.Mnq), Signed(n.Mgc), Signed(n.Net), Signed(n.Worst), Signed(n.Best), n.End, n.EndTime == DateTime.MinValue ? "" : n.EndTime.ToString("ddd HH:mm", CultureInfo.InvariantCulture) },
+                    new[] { Gold, Text, Text, Text, MoneyBrush(n.Mnq), MoneyBrush(n.Mgc), MoneyBrush(n.Net), Red, Green, n.Target ? Green : n.End == "SESSION END" ? Cyan : Red, Muted }, w, MoneyBrush(n.Net), null);
+                row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { ShowAsianNightOnChart(nn.Date, r.Combo.Scope == "MGC" ? "MGC" : "MNQ"); };
+                root.Children.Add(row);
+            }
+            return HelixScroll(root);
+        }
+
+        private void ShowAsianNightOnChart(DateTime night, string symbol)
+        {
+            if (config == null) return;
+            if (evidenceWindow == null) OpenEvidenceChart(); else evidenceWindow.Activate();
+            if (evidenceInstrumentTabs != null)
+                for (int i = 0; i < evidenceInstrumentTabs.Items.Count; i++) { var tab = evidenceInstrumentTabs.Items[i] as TabItem; if (tab != null && Convert.ToString(tab.Header).StartsWith(symbol)) { evidenceInstrumentTabs.SelectedIndex = i; break; } }
+            if (evidenceInstrumentBox != null) evidenceInstrumentBox.SelectedItem = symbol;
+            SelectEvidenceSessionDate(night.ToString("yyyy-MM-dd"), true);
+        }
+
+        // Puts a combination into the Asian settings and re-runs the cycle, the pool and the chart on the bars already loaded.
+        private bool ApplyAsianLabRow(KeystoneAsianLabRow r)
+        {
+            if (r == null) return false; var c = r.Combo;
+            if (!EvidenceIsAsian() || loadedEvents == null || loadedEvents.Count == 0 || string.IsNullOrEmpty(loadedScope)) { UpdateUi("RUN ASIAN 75 IN STEP 1 FIRST (the math lab uses its bars)", Gold); return false; }
+            if (loadedScope != "BOTH" && loadedScope != c.Scope) { UpdateUi("ONLY " + loadedScope + " IS LOADED • choose BOTH in Step 1 to apply a " + c.Scope + " combination", Gold); return false; }
+            if (operationBusy || isProcessing) { UpdateUi("WAIT FOR THE CURRENT OPERATION TO FINISH", Gold); return false; }
+            if (asianDirectionBox != null) asianDirectionBox.SelectedItem = c.Scope == "MGC" ? c.MgcDirection : c.MnqDirection;
+            if (asianMnqDirectionBox != null) asianMnqDirectionBox.SelectedItem = c.MnqDirection; if (asianMgcDirectionBox != null) asianMgcDirectionBox.SelectedItem = c.MgcDirection;
+            if (asianRiskModeBox != null) asianRiskModeBox.SelectedIndex = 0;
+            if (asianReversalLossBox != null) asianReversalLossBox.Text = c.LegLoss.ToString("0.##", CultureInfo.InvariantCulture);
+            if (asianMaxReversalsBox != null) asianMaxReversalsBox.Text = c.Reversals.ToString(CultureInfo.InvariantCulture);
+            if (asianCycleTargetBox != null) asianCycleTargetBox.Text = c.Target.ToString("0.##", CultureInfo.InvariantCulture);
+            if (asianStartingQuantityBox != null) asianStartingQuantityBox.Text = c.StartingQuantity.ToString(CultureInfo.InvariantCulture);
+            if (asianStartTimeBox != null) asianStartTimeBox.Text = c.StartHhmm.ToString("0000", CultureInfo.InvariantCulture);
+            if (asianEndTimeBox != null) asianEndTimeBox.Text = c.EndHhmm.ToString("0000", CultureInfo.InvariantCulture);
+            if (asianBreakEvenBox != null) asianBreakEvenBox.Text = "0"; if (asianCombinedStopBox != null) asianCombinedStopBox.Text = "0";
+            if (asianDailyLossBox != null)
+            {
+                if (c.DailyLossLimit > 0) { asianDailyLossManual = true; asianDailyLossUpdating = true; try { asianDailyLossBox.Text = c.DailyLossLimit.ToString("0.##", CultureInfo.InvariantCulture); } finally { asianDailyLossUpdating = false; } }
+                else asianDailyLossManual = false;
+            }
+            RefreshAsianDerivedInputs();
+            // The loaded range, data and pool settings stay; only the Asian cycle settings change (the pool re-reads its own settings).
+            DateTime loadedStart = config.Start, loadedEnd = config.End; int loadedOneDay = config.OneDayMode;
+            c.Apply(config); config.Start = loadedStart; config.End = loadedEnd; config.OneDayMode = loadedOneDay; config.AsianInstrumentStopLossDollars = 0; config.AsianMnqInstrumentStopLossDollars = 0; config.AsianMgcInstrumentStopLossDollars = 0; config.AsianCombinedStopLossDollars = 0; config.AsianBreakEvenTriggerDollars = 0;
+            double manual = AsianManualLoss();
+            var cfgLoaded = CloneConfig(config); cfgLoaded.Scope = loadedScope; cfgLoaded.AsianDailyLossLimitDollars = AsianLossForScope(cfgLoaded, loadedScope, manual);
+            var bars = loadedScope == "MNQ" ? mnqBars : loadedScope == "MGC" ? mgcBars : mnqBars.Concat(mgcBars).OrderBy(b => b.Time).ThenBy(b => b.Symbol, StringComparer.OrdinalIgnoreCase).ToList();
+            var fresh = KeystoneArcEngine.DetectAndResolve(bars, bars, cfgLoaded).OrderBy(x => x.EntryTime).ThenBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase).ToList();
+            foreach (var e in fresh) { e.ReviewState = "ACCEPTED"; e.ReviewNote = "AUTO-INCLUDED: resolved Asian daily-cycle leg (math lab)"; }
+            loadedEvents = fresh; loadedAsianLoss = cfgLoaded.AsianDailyLossLimitDollars;
+            viewScope = c.Scope; config.Scope = c.Scope; config.AsianDailyLossLimitDollars = AsianLossForScope(config, c.Scope, manual);
+            events = c.Scope == loadedScope ? loadedEvents : EventsForInstrumentView(c.Scope, cfgLoaded, manual);
+            for (int i = 0; i < events.Count; i++) { events[i].AssignedVirtualAccount = string.Empty; events[i].SkipReason = string.Empty; }
+            accounts = new List<KeystoneArcVirtualAccount>(); evidenceReplayKey = string.Empty;
+            RebuildReviewList(); RenderEvents(); BuildMathReader(); RenderResearchFindings(); poolDayIndex = -1; RenderPoolDayPanel(); RefreshInstrumentViewControls();
+            UpdateUi("APPLIED FROM THE MATH LAB (no reload) • " + r.Label + " • " + events.Count + " legs • recalculating the pool", Green);
+            if (evidenceWindow != null) RequestEvidenceBars();
+            SimulatePool();
+            return true;
+        }
+
+        private string AsianLabCsv()
+        {
+            var res = asianLabResult; if (res == null) return string.Empty; var sb = new StringBuilder(); Func<double, string> f = v => v.ToString("0.##", CultureInfo.InvariantCulture);
+            sb.AppendLine("# ASIAN MATH LAB • " + res.Nights + " nights " + res.First.ToString("yyyy-MM-dd") + " -> " + res.Last.ToString("yyyy-MM-dd") + " • unseen 30% from " + res.SplitAt.ToString("yyyy-MM-dd") + " • " + res.Rules.Describe().Replace(',', ' '));
+            sb.AppendLine("rank,scope,mnq_dir,mgc_dir,micros,leg_loss,reversals,take_profit,max_loss,start,nights,win_nights,tp_nights,plain_net,mnq_net,mgc_net,worst_dd,evals,passed,payouts,funded_lost,spent,cash,prop_net,first_payout_days,spent_before_first_payout,payouts_in_a_row,money_needed,early70_net,unseen30_net,years_up,years,prop_by_year");
+            for (int i = 0; i < res.Rows.Count; i++)
+            {
+                var r = res.Rows[i]; var c = r.Combo;
+                sb.AppendLine(string.Join(",", new[] { (i + 1).ToString(), c.Scope, c.MnqDirection, c.MgcDirection, c.StartingQuantity.ToString(), f(c.LegLoss), c.Reversals.ToString(), f(c.Target), c.DailyLossLimit > 0 ? f(c.DailyLossLimit) : "AUTO", c.StartHhmm.ToString("0000"), r.Nights.Count.ToString(), r.P.Wins.ToString(), r.TargetNights.ToString(), f(r.P.Net), f(r.MnqNet), f(r.MgcNet), f(r.P.MaxDrawdown), r.P.Bought.ToString(), r.P.Passed.ToString(), r.P.Payouts.ToString(), r.P.FundedLost.ToString(), f(r.P.Spent), f(r.P.Cash), f(r.P.PropNet), r.P.Stats.HasPayout ? r.P.Stats.CalendarDaysToFirstPayout.ToString() : "", r.P.Stats.HasPayout ? f(r.P.Stats.SpentToFirstPayout) : "", r.P.Stats.PayoutsInARow.ToString(), f(r.P.MoneyNeeded), f(r.InSampleNet), f(r.OutSampleNet), r.YearsUp.ToString(), r.Years.ToString(), "\"" + string.Join(" ", r.P.PropByYear.OrderBy(k => k.Key).Select(k => k.Key + ":" + f(k.Value))) + "\"" }));
+            }
+            sb.AppendLine(); sb.AppendLine("# ADVICE"); foreach (string a in KeystoneAsianLab.Advice(res)) sb.AppendLine("\"" + a.Replace("\"", "'") + "\"");
+            sb.AppendLine(); sb.AppendLine("# WHICH VALUE WINS"); sb.AppendLine("setting,value,rows,profitable,median_prop,best_prop,avg_first_payout_days");
+            foreach (var x in KeystoneAsianLab.Impacts(res.Rows)) sb.AppendLine(string.Join(",", new[] { x.Setting, x.Value, x.Rows.ToString(), x.Profitable.ToString(), f(x.Median), f(x.Best), f(x.AvgFirstPayoutDays) }));
+            if (asianLabSelected != null)
+            {
+                sb.AppendLine(); sb.AppendLine("# EVERY NIGHT • " + asianLabSelected.Label); sb.AppendLine("night,mnq_legs,mgc_legs,contracts,mnq,mgc,combined,lowest,highest,ended,at");
+                foreach (var n in asianLabSelected.Nights) sb.AppendLine(string.Join(",", new[] { n.Date.ToString("yyyy-MM-dd"), n.MnqLegs.ToString(), n.MgcLegs.ToString(), n.Contracts.ToString(), f(n.Mnq), f(n.Mgc), f(n.Net), f(n.Worst), f(n.Best), n.End, n.EndTime == DateTime.MinValue ? "" : n.EndTime.ToString("yyyy-MM-dd HH:mm") }));
+                sb.AppendLine(); sb.AppendLine("# EVERY ACCOUNT • " + asianLabSelected.Label); sb.AppendLine("no,bought,passed,first_payout,ended,payouts,cash,spent,status");
+                foreach (var a in asianLabSelected.P.Accounts) sb.AppendLine(string.Join(",", new[] { a.No.ToString(), a.Bought.ToString("yyyy-MM-dd"), a.PassedOn == DateTime.MinValue ? "" : a.PassedOn.ToString("yyyy-MM-dd"), a.PayoutDates.Count == 0 ? "" : a.PayoutDates[0].ToString("yyyy-MM-dd"), a.Ended == DateTime.MinValue ? "" : a.Ended.ToString("yyyy-MM-dd"), a.Payouts.ToString(), f(a.Cash), f(a.Spent), a.Status }));
+            }
+            return sb.ToString();
+        }
+
+        private string AsianLabHtml()
+        {
+            var res = asianLabResult; var r = asianLabSelected ?? (res == null ? null : res.Rows.FirstOrDefault()); if (res == null || r == null) return string.Empty;
+            if (r.P.Ledger.Count == 0) KeystoneAsianLab.Detail(r, asianLabRules, res.SplitAt);
+            Func<string, string> H = x => System.Net.WebUtility.HtmlEncode(x ?? string.Empty);
+            Func<double, string> M = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture);
+            Func<double, string> C = v => v > 0 ? "g" : v < 0 ? "r" : "";
+            var sb = new StringBuilder();
+            sb.Append("<!doctype html><html><head><meta charset='utf-8'><title>Asian Math Lab</title><style>body{background:#0d0f14;color:#e8e6df;font:13px Segoe UI,Arial;margin:20px}h1,h2{color:#ebb02b}table{border-collapse:collapse;margin:6px 0}td,th{padding:4px 9px;border-bottom:1px solid #2a2e38;text-align:right}th{color:#ebb02b}td:first-child,th:first-child{text-align:left}.g{color:#32c57a}.r{color:#f05461}.n{color:#9aa0aa}.cards{display:flex;flex-wrap:wrap;gap:8px}.card{border:1px solid #ebb02b;border-radius:6px;padding:8px 12px;min-width:170px}.card b{display:block;font-size:20px}li{margin:3px 0}</style></head><body>");
+            sb.Append("<h1>ASIAN MATH LAB</h1><p class='n'>").Append(res.Rows.Count).Append(" combinations • ").Append(res.Nights).Append(" nights ").Append(res.First.ToString("yyyy-MM-dd")).Append(" → ").Append(res.Last.ToString("yyyy-MM-dd")).Append(" • ").Append(H(res.Rules.Describe())).Append("</p>");
+            sb.Append("<h2>WHAT THE NUMBERS SAY</h2><ul>"); foreach (string a in KeystoneAsianLab.Advice(res)) sb.Append("<li>").Append(H(a)).Append("</li>"); sb.Append("</ul>");
+            sb.Append("<h2>SELECTED • ").Append(H(r.Label)).Append("</h2><div class='cards'>");
+            Action<string, string, string> card = (t, v, sub) => sb.Append("<div class='card'>").Append(H(t)).Append("<b>").Append(H(v)).Append("</b><span class='n'>").Append(H(sub)).Append("</span></div>");
+            var st = r.P.Stats;
+            card("PROP NET", M(r.P.PropNet), r.P.Passed + " passed / " + r.P.Bought + " bought • " + r.P.Payouts + " payouts");
+            card("PLAIN", M(r.P.Net), "MNQ " + M(r.MnqNet) + " • MGC " + M(r.MgcNet));
+            card("FIRST PAYOUT", st.HasPayout ? st.CalendarDaysToFirstPayout + " days" : "never", st.HasPayout ? "spent " + M(st.SpentToFirstPayout) + " before it" : "");
+            card("PAYOUTS IN A ROW", st.PayoutsInARow.ToString(), "failed evaluations in a row " + st.LongestFailStreak);
+            card("TAKE PROFIT NIGHTS", (100.0 * r.TargetNights / Math.Max(1, r.Nights.Count)).ToString("0") + "%", "full loss nights " + (r.LossNights + r.AllStoppedNights) + " • avg " + M(r.AvgFullLoss));
+            card("UNSEEN LAST 30%", M(r.OutSampleNet), "early 70% " + M(r.InSampleNet));
+            card("MONEY NEEDED", M(r.P.MoneyNeeded), "most out of pocket at once");
+            sb.Append("</div>");
+            double eq = 0; var vals = r.Nights.Select(n => eq += n.Net).ToList();
+            if (vals.Count > 1)
+            {
+                double mn = Math.Min(0, vals.Min()), mx = Math.Max(1, vals.Max());
+                sb.Append("<h2>PLAIN ACCOUNT NIGHT BY NIGHT</h2><svg width='1100' height='240' style='background:#141821'><polyline fill='none' stroke='#32c57a' stroke-width='2' points='");
+                for (int i = 0; i < vals.Count; i++) sb.Append((60 + i * 1020.0 / (vals.Count - 1)).ToString("0.#", CultureInfo.InvariantCulture)).Append(',').Append((14 + (mx - vals[i]) / (mx - mn) * 200).ToString("0.#", CultureInfo.InvariantCulture)).Append(' ');
+                sb.Append("'/><text x='4' y='20' fill='#9aa0aa' font-size='11'>").Append(M(mx)).Append("</text><text x='4' y='218' fill='#9aa0aa' font-size='11'>").Append(M(mn)).Append("</text></svg>");
+            }
+            sb.Append("<h2>EACH YEAR</h2><table><tr><th>YEAR</th><th>NIGHTS</th><th>PLAIN</th><th>MNQ</th><th>MGC</th><th>PROP</th></tr>");
+            foreach (var g in r.Nights.GroupBy(x => x.Date.Year).OrderBy(g => g.Key)) { double p; r.P.PropByYear.TryGetValue(g.Key, out p); double net = g.Sum(x => x.Net); sb.Append("<tr><td>").Append(g.Key).Append("</td><td>").Append(g.Count()).Append("</td><td class='").Append(C(net)).Append("'>").Append(M(net)).Append("</td><td>").Append(M(g.Sum(x => x.Mnq))).Append("</td><td>").Append(M(g.Sum(x => x.Mgc))).Append("</td><td class='").Append(C(p)).Append("'>").Append(M(p)).Append("</td></tr>"); }
+            sb.Append("</table><h2>MONTH BY MONTH • PROFIT vs EXPENSES</h2><table><tr><th>MONTH</th><th>TRADING</th><th>BOUGHT</th><th>PASSED</th><th>PAYOUTS</th><th>SPENT</th><th>CASH IN</th><th>NET</th></tr>");
+            foreach (var g in r.P.Ledger.GroupBy(l => new DateTime(l.Day.Year, l.Day.Month, 1)).OrderBy(g => g.Key)) { double sp = g.Sum(l => l.Spent), ca = g.Sum(l => l.Cash), tr = g.Sum(l => l.Pnl); sb.Append("<tr><td>").Append(g.Key.ToString("MMM yyyy", CultureInfo.InvariantCulture)).Append("</td><td class='").Append(C(tr)).Append("'>").Append(M(tr)).Append("</td><td>").Append(g.Sum(l => l.Bought)).Append("</td><td>").Append(g.Sum(l => l.Passed)).Append("</td><td>").Append(g.Sum(l => l.Payouts)).Append("</td><td class='r'>").Append(M(sp)).Append("</td><td class='g'>").Append(M(ca)).Append("</td><td class='").Append(C(ca - sp)).Append("'>").Append(M(ca - sp)).Append("</td></tr>"); }
+            sb.Append("</table><h2>TOP 50 COMBINATIONS</h2><table><tr><th>COMBINATION</th><th>PLAIN</th><th>MNQ</th><th>MGC</th><th>WORST DD</th><th>PASSED</th><th>PAYOUTS</th><th>1ST PAY</th><th>PROP</th><th>UNSEEN 30%</th><th>YEARS+</th></tr>");
+            foreach (var x in res.Rows.Take(50)) sb.Append("<tr><td>").Append(H(x.Label)).Append("</td><td class='").Append(C(x.P.Net)).Append("'>").Append(M(x.P.Net)).Append("</td><td>").Append(M(x.MnqNet)).Append("</td><td>").Append(M(x.MgcNet)).Append("</td><td class='r'>").Append(M(x.P.MaxDrawdown)).Append("</td><td>").Append(x.P.Passed).Append("</td><td>").Append(x.P.Payouts).Append("</td><td>").Append(x.P.Stats.HasPayout ? x.P.Stats.CalendarDaysToFirstPayout + " d" : "never").Append("</td><td class='").Append(C(x.P.PropNet)).Append("'>").Append(M(x.P.PropNet)).Append("</td><td class='").Append(C(x.OutSampleNet)).Append("'>").Append(M(x.OutSampleNet)).Append("</td><td>").Append(x.YearsUp).Append("/").Append(x.Years).Append("</td></tr>");
+            sb.Append("</table><h2>WHICH VALUE WINS</h2><table><tr><th>SETTING</th><th>VALUE</th><th>ROWS</th><th>PROFITABLE</th><th>MEDIAN</th><th>BEST</th></tr>");
+            foreach (var x in KeystoneAsianLab.Impacts(res.Rows)) sb.Append("<tr><td>").Append(H(x.Setting)).Append("</td><td>").Append(H(x.Value)).Append("</td><td>").Append(x.Rows).Append("</td><td>").Append(x.Profitable).Append("</td><td class='").Append(C(x.Median)).Append("'>").Append(M(x.Median)).Append("</td><td class='").Append(C(x.Best)).Append("'>").Append(M(x.Best)).Append("</td></tr>");
+            sb.Append("</table></body></html>");
+            return sb.ToString();
+        }
+
+        private void OpenAsianLab(bool autoRun = false)
+        {
+            if (asianLabWindow != null) { asianLabWindow.Activate(); if (autoRun && asianLabRun != null) asianLabRun(); return; }
+            var w = new Window { Title = "KEYSTONE ARC • ASIAN MATH LAB", Width = 1560, Height = 940, MinWidth = 960, MinHeight = 600, Background = Bg, Foreground = Text, ResizeMode = ResizeMode.CanResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = true };
+            FitWindowToScreen(w);
+            var root = new Grid { Margin = new Thickness(10) };
+            for (int i = 0; i < 3; i++) root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            var head = new StackPanel();
+            head.Children.Add(Txt("ASIAN MATH LAB • EVERY COMBINATION ON THE BARS YOU LOADED", Gold, 20, FontWeights.Bold));
+            head.Children.Add(Txt("Type one value or a list (e.g. 75,100,150) in each box and press RUN: every combination runs through the same Asian engine as the lab (same legs, stops and reversals on real 1-minute bars), then through the prop rules: evaluations, funded accounts, payouts. Nothing is re-downloaded. APPLY TO LAB puts the selected combination on the chart (replay) and in the pool instantly.", Muted, 11, FontWeights.Normal));
+            Grid.SetRow(head, 0); root.Children.Add(head);
+            Func<string, string, double, TextBox> box = (label, value, width) => { var t = Input(value); t.Width = width; t.ToolTip = label; return t; };
+            string curLoss = asianReversalLossBox == null ? "75" : asianReversalLossBox.Text, curRev = asianMaxReversalsBox == null ? "4" : asianMaxReversalsBox.Text, curTp = asianCycleTargetBox == null ? "350" : asianCycleTargetBox.Text;
+            var scopes = box("INSTRUMENTS", loadedScope == "MNQ" ? "MNQ" : loadedScope == "MGC" ? "MGC" : "MNQ,MGC,BOTH", 130); var dirs = box("DIRECTIONS", "LONG,SHORT", 110);
+            var mixed = new CheckBox { Content = "BOTH: ALSO MNQ/MGC OPPOSITE", Foreground = Text, Margin = new Thickness(6, 8, 6, 0), IsChecked = false };
+            var qty = box("STARTING MICROS", "1,2", 70); var loss = box("LEG LOSS $", "75,100,150" + (new[] { "75", "100", "150" }.Contains(curLoss) ? "" : "," + curLoss), 120); var rev = box("REVERSALS", "2,3,4" + (new[] { "2", "3", "4" }.Contains(curRev) ? "" : "," + curRev), 80);
+            var tp = box("TAKE PROFIT $", "200,350,500" + (new[] { "200", "350", "500" }.Contains(curTp) ? "" : "," + curTp), 120); var maxLoss = box("MAX COMBINED LOSS $ (0 = AUTO)", "0", 80);
+            var start = box("START HHMM", asianStartTimeBox == null ? "1800" : asianStartTimeBox.Text, 70); var end = box("END HHMM", asianEndTimeBox == null ? "1555" : asianEndTimeBox.Text, 60); var cost = box("COST $ PER CONTRACT (ROUND TRIP)", "1.00", 60);
+            var presets = KeystonePropRules.Presets(); var rulesBox = Select(presets.Select(p => p.Name).ToArray()); rulesBox.SelectedIndex = 0; rulesBox.Width = 250;
+            var evalBox = box("EVALUATION $", "120", 60); var actBox = box("ACTIVATION $", "0", 60);
+            var inputs = new WrapPanel { Margin = new Thickness(0, 4, 0, 2) };
+            Action<string, UIElement> add = delegate(string l, UIElement e) { var sp = new StackPanel { Margin = new Thickness(2, 0, 6, 0) }; sp.Children.Add(Txt(l, Muted, 9.5, FontWeights.Bold)); sp.Children.Add(e); inputs.Children.Add(sp); };
+            add("INSTRUMENTS", scopes); add("DIRECTIONS", dirs); add(" ", mixed); add("STARTING MICROS", qty); add("LEG LOSS $", loss); add("REVERSALS", rev); add("TAKE PROFIT $", tp); add("MAX LOSS $ (0=AUTO)", maxLoss); add("START", start); add("END", end); add("COST $/CONTRACT", cost);
+            add("FIRM RULES", rulesBox); add("EVALUATION $", evalBox); add("ACTIVATION $", actBox);
+            var buttons = new WrapPanel();
+            var runBtn = Btn("RUN", Gold); runBtn.Width = 120; var cancelBtn = Btn("CANCEL", Red); var applyBtn = Btn("APPLY SELECTED TO LAB (CHART + POOL, NO RELOAD)", Green); var expBtn = Btn("EXPORT HTML + CSV", Orchid);
+            var toLab = Btn("GO TO LAB STEP 3", Cyan); toLab.Click += delegate { if (window != null) window.Activate(); if (workspaceTabs != null) workspaceTabs.SelectedIndex = 2; };
+            buttons.Children.Add(runBtn); buttons.Children.Add(cancelBtn); buttons.Children.Add(applyBtn); buttons.Children.Add(expBtn); buttons.Children.Add(toLab);
+            var top = new StackPanel(); top.Children.Add(inputs); top.Children.Add(buttons);
+            Grid.SetRow(top, 1); root.Children.Add(top);
+            var status = Txt("Set the lists and press RUN.", Gold, 12.5, FontWeights.Bold); status.TextWrapping = TextWrapping.Wrap; Grid.SetRow(status, 2); root.Children.Add(status);
+            var tabs = new TabControl { Background = Panel, BorderBrush = Gold, BorderThickness = new Thickness(1), TabStripPlacement = Dock.Top };
+            string[] names = { "ADVICE", "RANKING", "CHARTS", "EVALS & FUNDED", "SIZE & SPEED", "COPY TRADING", "LEGS", "MONTHS", "YEARS & PERIODS", "NIGHTS" };
+            var colors = new Brush[] { Green, Gold, Green, Cyan, Orange, Orchid, Gold, Gold, Cyan, Green };
+            for (int i = 0; i < names.Length; i++) tabs.Items.Add(new TabItem { Header = names[i], Background = colors[i], Foreground = Bg, FontWeight = FontWeights.Bold, Content = Txt("Press RUN.", Muted, 12, FontWeights.Normal) });
+            Grid.SetRow(tabs, 3); root.Children.Add(tabs); asianLabTabs = tabs;
+            Action run = delegate
+            {
+                var oneMinute = new List<KeystoneArcBar>(); if (KeystoneBracket.IsOneMinute(mnqBars)) oneMinute.AddRange(mnqBars); if (KeystoneBracket.IsOneMinute(mgcBars)) oneMinute.AddRange(mgcBars);
+                if (oneMinute.Count == 0) { status.Text = "NO 1-MINUTE BARS LOADED • Step 1: ASIAN 75 REVERSAL, BOTH, your dates (e.g. 2020-01-01 → yesterday), START — then open the math lab."; status.Foreground = Red; return; }
+                var g = new KeystoneAsianLabGrid
+                {
+                    Scopes = ParseWords(scopes.Text, new[] { "MNQ", "MGC", "BOTH" }, "BOTH"), Directions = ParseWords(dirs.Text, new[] { "LONG", "SHORT" }, "LONG"), MixedBoth = mixed.IsChecked == true,
+                    Quantities = ParseNumbers(qty.Text, 1).Select(v => Math.Max(1, (int)Math.Round(v))).Distinct().ToList(), LegLosses = ParseNumbers(loss.Text, 75).Where(v => v > 0).ToList(), Reversals = ParseNumbers(rev.Text, 3).Select(v => (int)Math.Round(v)).Distinct().ToList(),
+                    Targets = ParseNumbers(tp.Text, 350).Where(v => v > 0).ToList(), MaxLosses = ParseNumbers(maxLoss.Text, 0), StartTimes = ParseNumbers(start.Text, 1800).Select(v => (int)v).Where(IsValidHhmm).Distinct().ToList(), EndHhmm = Math.Max(0, Integer(end, 1555)), CostPerContract = NumberAllowZero(cost, 1)
+                };
+                if (g.LegLosses.Count == 0 || g.Targets.Count == 0 || g.StartTimes.Count == 0) { status.Text = "CHECK THE LISTS • leg loss and take profit must be above 0, times HHMM"; status.Foreground = Red; return; }
+                var rules = presets[Math.Max(0, rulesBox.SelectedIndex)].Copy(); rules.EvalCost = NumberAllowZero(evalBox, 120); rules.Activation = NumberAllowZero(actBox, 0);
+                int count = KeystoneAsianLab.Combos(g, oneMinute.Any(b => b.Symbol != "MGC"), oneMinute.Any(b => b.Symbol == "MGC")).Count;
+                if (count == 0) { status.Text = "NO COMBINATIONS • the instruments in the list are not loaded"; status.Foreground = Red; return; }
+                if (count > 3000 && MessageBox.Show(count.ToString("N0") + " combinations can take several minutes. Run them?", "Asian math lab", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                asianLabCancel = false; runBtn.IsEnabled = false; status.Text = "RUNNING " + count.ToString("N0") + " combinations on " + oneMinute.Select(b => b.Time.Date).Distinct().Count() + " days of bars…"; status.Foreground = Gold;
+                var bars = oneMinute.OrderBy(b => b.Time).ToList(); var sw = System.Diagnostics.Stopwatch.StartNew();
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    KeystoneAsianLabResult res = null; string failure = null; int lastShown = 0;
+                    try
+                    {
+                        res = KeystoneAsianLab.Run(bars, g, rules, (done, total) =>
+                        {
+                            if (done - lastShown < Math.Max(1, total / 50) && done != total) return; lastShown = done;
+                            Action p = delegate { if (asianLabStatus != null && !asianLabCancel) asianLabStatus.Text = "RUNNING • " + done + " / " + total + " combinations • " + (sw.ElapsedMilliseconds / 1000) + " s"; };
+                            if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) p(); else w.Dispatcher.BeginInvoke(p);
+                        }, () => asianLabCancel);
+                    }
+                    catch (Exception ex) { failure = ex.Message; }
+                    Action done2 = delegate
+                    {
+                        runBtn.IsEnabled = true;
+                        if (failure != null || res == null) { status.Text = "ERROR • " + failure; status.Foreground = Red; return; }
+                        asianLabRules = rules; asianLabResult = res; asianLabSelected = null;
+                        if (res.Rows.Count > 0) ShowAsianLabSelected(res.Rows[0], false);
+                        SetAsianLabTab("ADVICE", AsianLabAdviceView()); SetAsianLabTab("RANKING", AsianLabRankingView()); tabs.SelectedIndex = 0;
+                        var best = res.Rows.FirstOrDefault();
+                        status.Text = (res.Cancelled ? "CANCELLED • " : "") + res.Rows.Count + " COMBINATIONS • " + res.Nights + " nights " + res.First.ToString("yyyy-MM-dd") + " → " + res.Last.ToString("yyyy-MM-dd") + " • " + (sw.ElapsedMilliseconds / 1000) + " s" + (best != null ? " • #1 " + best.Label + " • prop " + Signed(best.P.PropNet) : "");
+                        status.Foreground = best != null && best.P.PropNet > 0 ? Green : Red;
+                    };
+                    if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done2(); else w.Dispatcher.BeginInvoke(done2);
+                });
+            };
+            runBtn.Click += delegate { run(); }; cancelBtn.Click += delegate { asianLabCancel = true; status.Text = "CANCELLING…"; };
+            applyBtn.Click += delegate { if (asianLabSelected == null) { status.Text = "RUN, then click a row"; status.Foreground = Gold; return; } if (ApplyAsianLabRow(asianLabSelected)) { status.Text = "APPLIED TO THE LAB • " + asianLabSelected.Label + " • the chart, replay and Step 3 pool now show it"; status.Foreground = Green; } };
+            expBtn.Click += delegate
+            {
+                if (asianLabResult == null) { status.Text = "RUN FIRST"; status.Foreground = Gold; return; }
+                try
+                {
+                    string dir = DataDirectory(); Directory.CreateDirectory(dir); string stem = Path.Combine(dir, "KeystoneArc_AsianLab_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+                    File.WriteAllText(stem + ".csv", AsianLabCsv(), Encoding.UTF8); File.WriteAllText(stem + ".html", AsianLabHtml(), Encoding.UTF8);
+                    status.Text = "EXPORTED " + stem + ".html + .csv • attach both to Claude"; status.Foreground = Green;
+                    try { System.Diagnostics.Process.Start(stem + ".html"); } catch { }
+                }
+                catch (Exception ex) { status.Text = "EXPORT ERROR • " + ex.Message; status.Foreground = Red; }
+            };
+            ConfirmToolClose(w, "ASIAN MATH LAB");
+            w.Content = root; asianLabWindow = w; asianLabStatus = status; asianLabRun = run;
+            w.Closed += delegate { asianLabWindow = null; asianLabTabs = null; asianLabStatus = null; asianLabCancel = true; asianLabRun = null; };
+            w.Show();
+            if (autoRun) run();
         }
 
         private void ShowMicroTradeOnChart(KeystoneMicroTrade t)
@@ -22907,7 +23677,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     recoilMinutes = minutes; recoilMinutesKey = key; recoilResult = result; recoilConfig = rc; recoilGrids = grids; recoilCompare = compare; recoilModeCompare = modes; recoilGridIndex = 0;
                     recoilCycleById = result.Cycles.ToDictionary(x => x.Id);
                     events = RecoilEvents(result);
-                    loadedEvents = events; loadedScope = config.Scope; viewScope = config.Scope;
+                    loadedEvents = events; loadedScope = config.Scope; viewScope = config.Scope; loadedAsianLoss = config.AsianDailyLossLimitDollars;
                     accounts = new List<KeystoneArcVirtualAccount>();
                     researchRunCompleted = true; unsavedResearch = events.Count > 0;
                     KeystoneArcHub.Publish(new List<KeystoneArcEvent>(), config);
