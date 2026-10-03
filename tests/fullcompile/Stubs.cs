@@ -230,7 +230,7 @@ namespace System.Windows.Input
     }
     public class MouseButtonEventArgs : MouseEventArgs { public int ClickCount { get { return 1; } } public MouseButton ChangedButton { get { return MouseButton.Left; } } public MouseButtonState ButtonState { get { return MouseButtonState.Pressed; } } }
     public class MouseWheelEventArgs : MouseEventArgs { public int Delta { get { return 0; } } }
-    public class KeyEventArgs : InputEventArgs { public Key Key { get { return Key.None; } } }
+    public class KeyEventArgs : InputEventArgs { public Key Key { get { return Key.None; } } public bool IsRepeat { get { return false; } } }
     public delegate void MouseEventHandler(object sender, MouseEventArgs e);
     public delegate void MouseButtonEventHandler(object sender, MouseButtonEventArgs e);
     public delegate void MouseWheelEventHandler(object sender, MouseWheelEventArgs e);

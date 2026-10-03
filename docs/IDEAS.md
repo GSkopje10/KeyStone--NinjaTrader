@@ -84,3 +84,10 @@ earlier loads. Pick an instrument, a session (18:00 → 17:00 New York), a start
   day to day (Documents\KeystoneArc5MResearch\ReplayAccount.txt) until NEW ACCOUNT. END DAY + SAVE closes the day:
   every trade is in ReplayJournal.csv and each day in ReplayDays.csv.
 - Each minute's open, high, low and close are real; the order of the ticks inside a minute is simulated.
+- SIGNALS (STRATEGY): MANUAL, 1M / 5M FVG 50% limit, 1M FVG candle close, FVG retest + break, BH, GOLDEN, ASIAN 75 —
+  buys and sells. ▲ / ▼ appear only when the replay clock reaches them (no peeking); A / B / C = the lab's setup
+  grade where it has one (learned from the 45 days before the replayed day). While a signal runs its stop and target
+  are drawn. AUTO TRADE THE SIGNALS takes each one (when flat) with its own stop and target.
+- DAY GOAL $ / DAY LOSS LIMIT $: the box fills yellow toward the goal (green when reached) and red toward the loss
+  limit. Reaching either flattens and locks the day (STOP THE DAY AT THE GOAL can be unticked). MAX CONTRACTS caps the
+  position; a held key no longer stacks orders.
