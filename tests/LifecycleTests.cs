@@ -89,7 +89,7 @@ public static class LifecycleTests
         // 7. Non-consecutive qualifying days option.
         {
             var pnl = new double[] { 2000, -100, 2000, -100, 400 };
-            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 1, 1, 0); cfg.PoolSize = 1; cfg.EvaluationDailyCreditCap = 5000;
+            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 1, 1, 0); cfg.PoolSize = 1; cfg.EvaluationDailyCreditCap = 5000; cfg.EvalQualifyingDaysConsecutive = 1;
             var strict = KeystoneArcEngine.SimulatePool(Nights(pnl), cfg)[0];
             cfg.EvalQualifyingDaysConsecutive = 0;
             var loose = KeystoneArcEngine.SimulatePool(Nights(pnl), cfg)[0];
