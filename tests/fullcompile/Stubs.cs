@@ -462,3 +462,8 @@ namespace System.ComponentModel.DataAnnotations
     [AttributeUsage(AttributeTargets.All)] public sealed class RangeAttribute : Attribute { public RangeAttribute(int a, int b) { } public RangeAttribute(double a, double b) { } }
     [AttributeUsage(AttributeTargets.All)] public sealed class DisplayAttribute : Attribute { public string Name { get; set; } public string GroupName { get; set; } public int Order { get; set; } public string Description { get; set; } }
 }
+
+namespace Microsoft.Win32
+{
+    public class OpenFileDialog { public string Filter { get; set; } public string Title { get; set; } public string FileName { get; set; } public bool Multiselect { get; set; } public string[] FileNames { get { return new string[0]; } } public bool? ShowDialog() { return false; } public bool? ShowDialog(System.Windows.Window owner) { return false; } }
+}

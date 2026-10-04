@@ -1,0 +1,105 @@
+Days: 1460  (MNQ full sessions with a 09:30 candle)
+Bull / bear / doji: 645 / 595 / 220  (44% bull • 41% bear)
+Median first-candle range: 28 pts  (11.3% of the day's typical range)
+Next 5 min continued: 42%  (reversed 40% • no follow-through 18%)
+Avg move in its direction after 5 min: -0.4 pts  (after 1 min -0.9 • 15 min +1.2 • 30 min +4.0)
+Scalp versions profitable 2024–26: 23 of 336  (profitable in 2020–23: 22 • in both: 6)
+Best scalp on 2020–23: +7.2 → -7.1 $/trade  (WITH the 1st candle • bear 1st candle only • hold 5 min • no stop / target (2020–23 → 2024–26, per micro))
+
+== The first candle, every year
+   Year | Days | Bull % | Bear % | Doji % | Median range pts | Avg range pts
+   2020 | 48 | 44% | 42% | 15% | 17 | 18
+   2021 | 247 | 46% | 37% | 17% | 22 | 24
+   2022 | 245 | 53% | 33% | 14% | 32 | 32
+   2023 | 244 | 49% | 36% | 15% | 23 | 23
+   2024 | 244 | 37% | 50% | 13% | 25 | 26
+   2025 | 244 | 40% | 46% | 14% | 34 | 38
+   2026 | 188 | 39% | 44% | 17% | 56 | 60
+
+== What came next • the 5 minutes after the first candle
+   First candle | Days | STRAIGHT UP | UP (CHOPPY) | SIDEWAYS | WHIPSAW | DOWN (CHOPPY) | STRAIGHT DOWN
+   BULL | 645 | 27% | 0% | 4% | 42% | 0% | 27%
+   BEAR | 595 | 22% | 1% | 6% | 45% | 1% | 26%
+   DOJI | 220 | 25% | 1% | 4% | 44% | 1% | 25%
+
+== What came next • the 15 minutes after the first candle
+   First candle | Days | STRAIGHT UP | UP (CHOPPY) | SIDEWAYS | WHIPSAW | DOWN (CHOPPY) | STRAIGHT DOWN
+   BULL | 645 | 27% | 1% | 6% | 41% | 1% | 24%
+   BEAR | 595 | 24% | 1% | 6% | 44% | 0% | 26%
+   DOJI | 220 | 24% | 0% | 8% | 41% | 0% | 26%
+
+== What came next • the 30 minutes after the first candle
+   First candle | Days | STRAIGHT UP | UP (CHOPPY) | SIDEWAYS | WHIPSAW | DOWN (CHOPPY) | STRAIGHT DOWN
+   BULL | 645 | 27% | 0% | 8% | 41% | 1% | 22%
+   BEAR | 595 | 23% | 1% | 7% | 42% | 2% | 26%
+   DOJI | 220 | 26% | 0% | 10% | 36% | 2% | 25%
+
+== Did it reverse right after?
+   First candle | Days | Continued | Reversed | No follow-through | 2nd candle same colour | 2nd candle opposite | Avg pts 1 min | Avg pts 5 min | Avg pts 15 min
+   BULL | 645 | 41% | 41% | 18% | 49% | 51% | -1.2 | -1.8 | +0.6
+   BEAR | 595 | 43% | 39% | 18% | 50% | 50% | -0.5 | +1.0 | +1.8
+
+== Points in the first candle's direction • per year
+   Year | Days | +1 min | +2 min | +3 min | +5 min | +15 min | +30 min | Continued %
+   2020 | 41 | -0.3 | -1.7 | +3.4 | +5.4 | +2.5 | -0.4 | 49%
+   2021 | 204 | -0.2 | +0.2 | +0.2 | +2.1 | -0.9 | +0.9 | 47%
+   2022 | 211 | -1.5 | -2.6 | -1.0 | +0.2 | +1.1 | +4.5 | 47%
+   2023 | 207 | -0.1 | +1.4 | +0.3 | +0.8 | +3.5 | +1.8 | 40%
+   2024 | 212 | -1.4 | -1.4 | -0.9 | -0.6 | -3.2 | +2.0 | 36%
+   2025 | 209 | -3.0 | -1.5 | +0.3 | -1.1 | +6.1 | +5.3 | 40%
+   2026 | 156 | +1.3 | -2.8 | -1.8 | -6.6 | +0.1 | +12.5 | 40%
+
+== Points in the first candle's direction • per month (all years)
+   Month | Days | Bull % | +1 min | +5 min | +15 min | Continued % | Reversed %
+   Jan | 107 | 57% | -0.2 | +0.9 | +4.3 | 47% | 37%
+   Feb | 98 | 58% | +0.6 | -4.6 | -1.6 | 41% | 46%
+   Mar | 109 | 51% | +0.6 | +6.1 | +1.9 | 50% | 28%
+   Apr | 99 | 43% | -2.0 | -2.1 | -2.7 | 36% | 43%
+   May | 104 | 51% | +0.4 | +3.8 | +10.0 | 45% | 34%
+   Jun | 100 | 56% | -5.0 | -3.4 | +0.7 | 45% | 43%
+   Jul | 105 | 55% | -0.1 | -4.6 | -5.0 | 42% | 44%
+   Aug | 107 | 56% | +0.3 | -1.4 | +2.5 | 36% | 41%
+   Sep | 103 | 50% | -0.8 | -2.0 | -3.6 | 41% | 47%
+   Oct | 111 | 42% | -1.2 | -0.4 | +3.6 | 36% | 40%
+   Nov | 93 | 48% | -1.2 | +0.1 | +5.8 | 41% | 43%
+   Dec | 104 | 56% | -2.1 | +1.7 | -1.7 | 45% | 38%
+
+== Before the open: any warning signs?
+   Known at 09:29 | Days | 1st candle bull % | Continued % | Reversed % | Avg pts +5 min | Same direction as the sign %
+   All days | 1460 | 44% | 42% | 40% | -0.4 | 
+   Gap up vs yesterday's close | 802 | 43% | 41% | 41% | -1.2 | 51%
+   Gap down | 656 | 46% | 43% | 39% | +0.4 | 46%
+   Big gap (> 10% of typical range) up | 654 | 44% | 42% | 41% | -0.4 | 51%
+   Big gap down | 520 | 47% | 42% | 40% | -0.3 | 45%
+   Overnight (18:00 → 09:29) up | 793 | 43% | 41% | 41% | -0.3 | 51%
+   Overnight down | 664 | 45% | 43% | 40% | -0.4 | 47%
+   Last 30 min before the open up | 727 | 44% | 44% | 40% | +0.9 | 52%
+   Last 30 min down | 725 | 44% | 40% | 40% | -1.7 | 48%
+   Last 5 min (09:25 → 09:29) up | 707 | 42% | 40% | 42% | -0.4 | 50%
+   Last 5 min down | 746 | 46% | 43% | 38% | -0.6 | 46%
+   Yesterday closed up | 785 | 42% | 41% | 40% | -0.3 | 50%
+   Yesterday closed down | 673 | 47% | 43% | 40% | -0.5 | 45%
+   08:30 news spike (8:30–8:35 range > 10% of typical) | 617 | 45% | 39% | 44% | -1.7 | 
+   Payrolls Friday | 68 | 40% | 50% | 31% | +4.5 | 
+   Monday | 277 | 52% | 41% | 43% | -3.3 | 
+   Friday | 271 | 42% | 42% | 38% | +0.3 | 
+   Big first candle (top 25% of size) | 366 | 47% | 44% | 42% | -1.3 | 
+   Small first candle (bottom 25%) | 366 | 43% | 40% | 38% | +0.2 | 
+
+== Quick scalps at 09:31 • the 15 best by 2020–23
+   Scalp | Trades | Win % | $ / trade | 2020–23 $ / trade | 2024–26 $ / trade | 2021 | 2022 | 2023 | 2024 | 2025 | 2026
+   WITH the 1st candle • bear 1st candle only • hold 5 min • no stop / target | 595 | 50% | -0.4 | +7.2 | -7.1 | +554 | +1253 | -386 | -130 | -507 | -1612
+   WITH the 1st candle • bear 1st candle only • hold 5 min • stop 15 / target 30 pts | 595 | 36% | -2.4 | +1.5 | -5.9 | +376 | +413 | -591 | -699 | -873 | -300
+   AGAINST the 1st candle • big 1st candle • hold 3 min • no stop / target | 419 | 48% | +1.0 | +2.5 | 0.0 | +166 | +305 | +150 | +74 | -1004 | +922
+   AGAINST the 1st candle • gap agrees • hold 1 min • no stop / target | 602 | 50% | +2.1 | +0.9 | +3.5 | -115 | +668 | -295 | +88 | +623 | +288
+   WITH the 1st candle • bear 1st candle only • hold 3 min • no stop / target | 595 | 51% | -1.8 | +1.3 | -4.6 | +117 | +368 | -501 | -431 | -616 | -411
+   AGAINST the 1st candle • gap agrees • hold 1 min • stop 30 / target 15 pts | 602 | 50% | +0.9 | +0.6 | +1.1 | -128 | +628 | -326 | -18 | +609 | -268
+   WITH the 1st candle • bear 1st candle only • hold 3 min • stop 15 / target 30 pts | 595 | 37% | -2.3 | +0.6 | -4.9 | +290 | +284 | -485 | -507 | -753 | -294
+   AGAINST the 1st candle • gap agrees • hold 1 min • stop 20 / target 10 pts | 602 | 47% | +0.4 | +0.5 | +0.4 | -116 | +486 | -246 | -86 | +330 | -129
+   AGAINST the 1st candle • gap agrees • hold 1 min • stop 20 / target 20 pts | 602 | 47% | +0.4 | +0.5 | +0.4 | -116 | +486 | -246 | -86 | +330 | -129
+   AGAINST the 1st candle • bull 1st candle only • hold 2 min • no stop / target | 645 | 47% | 0.0 | +0.4 | -0.6 | -119 | +919 | -762 | +87 | -230 | -8
+   WITH the 1st candle • bear 1st candle only • hold 1 min • stop 10 / target 10 pts | 595 | 37% | -1.4 | +0.2 | -2.8 | +177 | +187 | -198 | -414 | -558 | +94
+   WITH the 1st candle • bear 1st candle only • hold 1 min • stop 10 / target 20 pts | 595 | 37% | -1.4 | +0.2 | -2.8 | +177 | +187 | -198 | -414 | -558 | +94
+   WITH the 1st candle • bear 1st candle only • hold 2 min • stop 15 / target 30 pts | 595 | 40% | -1.9 | +0.3 | -3.9 | +56 | +328 | -248 | -292 | -745 | -206
+   AGAINST the 1st candle • gap agrees • hold 1 min • stop 15 / target 30 pts | 602 | 43% | -0.5 | +0.3 | -1.4 | -70 | +396 | -273 | -126 | +229 | -504
+   AGAINST the 1st candle • big 1st candle • hold 2 min • no stop / target | 419 | 48% | +1.1 | +0.5 | +1.6 | -209 | +294 | -1 | +31 | -690 | +1034
