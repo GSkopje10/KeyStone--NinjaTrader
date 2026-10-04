@@ -1,0 +1,175 @@
+<title>Break of High Study</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~70ch) with full-width evidence tables and charts; verdict first, then rule, proof, plans, risks. */
+:root {
+  --bg: #f3f4f1;          /* chart paper */
+  --panel: #ffffff;
+  --ink: #17202b;         /* slate ink */
+  --muted: #5d6a78;
+  --rule: #d9ddd6;
+  --accent: #b7791f;      /* studio gold, darkened for paper */
+  --up: #1f8a5b;
+  --down: #c2414b;
+  --chip: #eef0ea;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f151c; --panel: #151d26; --ink: #e6ebf0; --muted: #94a2b2; --rule: #26313d; --accent: #e8b04b; --up: #3fbf86; --down: #ef6b74; --chip: #1b2530; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #0f151c; --panel: #151d26; --ink: #e6ebf0; --muted: #94a2b2; --rule: #26313d; --accent: #e8b04b; --up: #3fbf86; --down: #ef6b74; --chip: #1b2530; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+.wrap { max-width: 980px; margin: 0 auto; padding: 40px 20px 72px; display: grid; gap: 44px; }
+.col { max-width: 70ch; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 3.1rem); font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: 1.6rem; font-weight: 800; margin-bottom: 12px; }
+h3 { font-size: 1.12rem; font-weight: 600; margin: 18px 0 6px; }
+p { margin: 0 0 12px; }
+.eyebrow { font: 600 0.74rem/1.2 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; }
+.lede { font-size: 1.14rem; color: var(--ink); max-width: 66ch; }
+.muted { color: var(--muted); }
+.num, td, .mono { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 0.92em; }
+.up { color: var(--up); } .down { color: var(--down); }
+section { display: grid; gap: 6px; }
+
+.verdict { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 22px 24px; display: grid; gap: 14px; }
+.verdict ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+
+.rule-steps { counter-reset: s; list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 10px; }
+.rule-steps li { counter-increment: s; display: grid; grid-template-columns: 2.2em 1fr; gap: 10px; align-items: start; }
+.rule-steps li::before { content: counter(s); font: 600 0.9rem/1.9 var(--mono); color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; width: 1.9em; text-align: center; }
+
+.tablebox { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font: 600 0.72rem/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--chip); }
+th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 210px; }
+tr:last-child td { border-bottom: 0; }
+tr.pick td { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.tag { display: inline-block; font: 600 0.68rem/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 7px; border-radius: 99px; border: 1px solid currentColor; margin-left: 6px; vertical-align: 1px; }
+.tag.good { color: var(--up); } .tag.bad { color: var(--down); } .tag.gold { color: var(--accent); }
+
+.chart { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 12px 6px; overflow-x: auto; }
+.chart svg { display: block; width: 100%; min-width: 560px; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font: 0.82rem var(--mono); color: var(--muted); padding: 4px 6px 8px; }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.card .k { font: 600 0.72rem/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.card .big { font: 800 1.5rem/1.2 var(--display); }
+.card p { margin: 0; font-size: 0.95rem; }
+.steps { margin: 6px 0 0; padding-left: 1.3em; display: grid; gap: 6px; }
+footer { font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 16px; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+<main class="wrap">
+  <header class="col">
+    <div class="eyebrow">Keystone Arc • your BH setup • MNQ 5-minute and 1-minute • Oct 2020 – 2 Oct 2026</div>
+    <h1>Break of High: 09:30 or 10:00?</h1>
+    <p class="lede" style="margin-top:14px">I built your setup as an exact rule and ran it on every MNQ day from October 2020 to October 2026. That's 1,536 versions on the 5-minute chart and 648 on the 1-minute chart, each run from both start times. 09:30 beats 10:00 clearly. But the rule taken on every setup has no edge in 2024–2026. The edge in your screenshots comes from which BH you choose, and that part isn't in the rule yet.</p>
+  </header>
+
+  <section class="verdict" aria-label="Verdict">
+    <h2>The answer</h2>
+    <ul>
+      <li><b>09:30 wins the comparison.</b> In 1,217 of the 1,536 rule versions, starting at 09:30 made more than starting at 10:00. On average a version made $2,571 more over the 6 years.</li>
+      <li><b>The plain rule is about break-even.</b> First BH after 09:30, stop under the pattern, 2R target: +$0.90 a trade per micro over 1,460 trades. It made money every year 2021–2025, then lost $4,786 in 2026. The same rule from 10:00 lost $2.60 a trade.</li>
+      <li><b>It does not hold on 2024–2026.</b> Only 153 of 1,536 versions from 09:30 (10%) and 76 from 10:00 (5%) were positive on 2024–26, against 991 and 683 on 2020–23. Of everything I added, only "swept the overnight low" made the 2020–23 numbers better, and it still ended flat on 2024–26.</li>
+      <li><b>1-minute BH scalps lose.</b> Only 11 of 648 versions from 09:30 were positive on 2024–26, averaging −$5.90 a trade. Costs eat 1-minute trades.</li>
+      <li><b>Your screenshots tell a different story from the rule.</b> On the days I could match, you often skip the first BH and take a later one after the sell-off has finished. That choice is the part to capture next (see "What I need from you").</li>
+    </ul>
+  </section>
+
+  <section class="col">
+    <div class="eyebrow">The rule I tested (read from your 72 screenshots)</div>
+    <h2>How the BH was built</h2>
+    <ol class="rule-steps">
+      <li><div>On MNQ 5-minute candles from the start time (09:30 or 10:00): a <b>red candle</b>, then a <b>green reference candle</b>.</div></li>
+      <li><div>The <b>very next candle</b> trades one tick above the reference high: a <b>buy stop</b> there. If the next candle doesn't break the high, the pattern is dropped and the search goes on.</div></li>
+      <li><div>Stop one tick under the low of the red + green candles (or fixed 20 / 40 points). Targets tested: 1R, 2R, 3R, 30, 50 and 100 points, or hold to 15:55.</div></li>
+      <li><div>Filters tested: a pull-back under the 09:30 open, a drop from the day's high of at least 0.1, 0.2 or 0.3 of the 14-day range, a sweep of the overnight low, a big red candle, two red candles in a row, first setup only or up to 3 a day, and last entry at 11:30 or 15:00.</div></li>
+      <li><div>Costs: $1.50 commission and 1 tick of slippage per side. If the stop and target are hit in the same minute, the stop counts first.</div></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="eyebrow">Every year • $ per MNQ micro • 2020 is Oct–Dec only, 2026 is Jan–2 Oct</div>
+    <h2>The same rule, two start times</h2>
+    <div class="chart" role="img" aria-label="BH profit per year: 09:30 start, 10:00 start, and 09:30 with the overnight-low sweep filter">
+      <div class="legend"><span><i style="background:var(--accent)"></i>09:30 • first BH • 2R</span><span><i style="background:var(--muted)"></i>10:00 • first BH • 2R</span><span><i style="background:var(--up)"></i>09:30 • first BH that swept the overnight low • 2R</span></div>
+      <svg id="years" viewBox="0 0 900 300"></svg>
+    </div>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Version</th><th>Trades</th><th>Win %</th><th>$/trade</th><th>2020–23</th><th>2024–26</th><th>2021</th><th>2022</th><th>2023</th><th>2024</th><th>2025</th><th>2026</th><th>Worst DD</th></tr></thead>
+        <tbody>
+          <tr class="pick"><td>09:30 • first BH • stop under pattern • 2R</td><td>1,460</td><td>36%</td><td class="up">+$0.9</td><td class="up">+$4.0</td><td class="down">−$2.7</td><td class="up">+1,177</td><td class="up">+107</td><td class="up">+2,156</td><td class="up">+468</td><td class="up">+2,477</td><td class="down">−4,786</td><td>$6,320</td></tr>
+          <tr><td>10:00 • first BH • stop under pattern • 2R</td><td>1,452</td><td>34%</td><td class="down">−$2.6</td><td class="up">+$2.4</td><td class="down">−$8.3</td><td class="up">+193</td><td class="up">+207</td><td class="up">+1,290</td><td class="down">−3,189</td><td class="down">−4,112</td><td class="up">+1,679</td><td>$9,404</td></tr>
+          <tr><td>09:30 • first BH that swept the overnight low • 2R • until 11:30</td><td>650</td><td>38%</td><td class="up">+$6.6</td><td class="up">+$12.9</td><td class="down">−$1.3</td><td class="up">+1,738</td><td class="up">+103</td><td class="up">+1,723</td><td class="up">+913</td><td class="down">−1,278</td><td class="down">−3</td><td>$2,342</td></tr>
+          <tr><td>09:30 • first BH • stop under pattern • hold to 15:55</td><td>1,461</td><td>28%</td><td class="up">+$5.5</td><td class="up">+$11.4</td><td class="down">−$1.4</td><td class="up">+3,729</td><td class="up">+864</td><td class="up">+3,856</td><td class="up">+1,892</td><td class="up">+1,709</td><td class="down">−4,532</td><td>$6,544</td></tr>
+          <tr><td>10:00 • best version on 2020–23 (drop ≥ 0.2 range + sweep + big red) • 2R</td><td>728</td><td>38%</td><td class="down">−$0.6</td><td class="up">+$10.4</td><td class="down">−$14.5</td><td class="up">+2,113</td><td class="up">+147</td><td class="up">+895</td><td class="down">−799</td><td class="down">−3,292</td><td class="down">−594</td><td>$6,671</td></tr>
+          <tr><td>For comparison: ★ Opening Range Break 15M (the tested prop rule)</td><td>1,343</td><td>36%</td><td class="up">+$14.0</td><td class="up">+$18.4</td><td class="up">+$8.9</td><td class="up">+6,717</td><td class="up">+7,637</td><td class="down">−974</td><td class="up">+5,372</td><td class="up">+2,724</td><td class="down">−2,572</td><td>$8,236</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="col muted" style="margin-top:8px">All 2,184 versions with every year and both periods are in <span class="mono">docs/research/bh_variants.csv</span> (5-minute) and <span class="mono">docs/research/bh.txt</span> (incl. 1-minute).</p>
+  </section>
+
+  <section class="col">
+    <div class="eyebrow">Your screenshots against the rule</div>
+    <h2>The rule takes the first BH. You often don't.</h2>
+    <p>On 7 screenshot days inside the data, the first BH after 09:30 won once (+$458 on 8 Aug 2024), made $68 once and lost five times (−$49 to −$162). Where the chart times line up, your arrow is often on a <b>later</b> BH, after the sell-off finished. On 21 Jul 2026 the rule's 10:00 entry stopped out in 3 minutes, while your entry at about 10:20 matches the 10:00-start version that hit its 2R target (+$299). On 12 Dec 2025 your first arrow (≈10:35) lost too, matching the rule's 10:37 entry (−$162). Your second arrow at ≈12:05 was the winner.</p>
+    <p>So the screenshots show skill at picking the BH that comes after the selling is done. A mechanical "first BH" rule doesn't do that. Screenshots also mostly show trades that worked, so they can't measure the skipped and losing ones.</p>
+    <p class="muted">Charts from Rithmic (yellow / purple candles) may be in Central time. Tell me which time zone they use, so I can match those days too.</p>
+  </section>
+
+  <section class="col">
+    <div class="eyebrow">What I need from you</div>
+    <h2>Turning your read into a testable rule</h2>
+    <ol class="steps">
+      <li><b>Your trade log, losses included.</b> NinjaTrader → Control Center → Trade Performance → Executions → right-click → Export. Upload it with the same link. It gives the exact time and price of every real entry, so I can measure your actual edge, not just the shown winners.</li>
+      <li><b>How you choose which BH to take.</b> Say it in your own words. For example: "only after the low of the day is in", "after 3+ red candles", "only near an FVG box", "only if it broke the overnight low", "not if it already rallied X points". Each answer becomes a filter I test on all 6 years.</li>
+      <li><b>Your stop and target.</b> Where the stop goes and where you take profit (points, R or a level), and whether you move the stop to break-even.</li>
+    </ol>
+  </section>
+
+  <footer>Harness: <span class="mono">research/Bh.cs</span> • re-run with <span class="mono">research/run.sh</span> (BH mode: <span class="mono">mono research.exe &lt;data&gt; &lt;out&gt; bh</span>). Data: MNQ 1,461 full days. Historical research only.</footer>
+</main>
+
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent, text) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; parent.appendChild(e); return e; }
+  function fmt(v) { var a = Math.abs(v), s = a >= 1000 ? (a / 1000).toFixed(1) + "K" : a.toFixed(0); return (v < 0 ? "−$" : "$") + s; }
+  var years = ["2021", "2022", "2023", "2024", "2025", "2026"];
+  var series = [
+    { color: "var(--accent)", v: [1177, 107, 2156, 468, 2477, -4786] },
+    { color: "var(--muted)", v: [193, 207, 1290, -3189, -4112, 1679] },
+    { color: "var(--up)", v: [1738, 103, 1723, 913, -1278, -3] }
+  ];
+  var svg = document.getElementById("years"), L = 64, R = 884, T = 18, B = 262, lo = -5000, hi = 3000;
+  var y = function (v) { return T + (hi - v) / (hi - lo) * (B - T); };
+  [-5000, -4000, -3000, -2000, -1000, 0, 1000, 2000, 3000].forEach(function (t) {
+    el("line", { x1: L, x2: R, y1: y(t), y2: y(t), stroke: "var(--rule)", "stroke-width": t === 0 ? 1.6 : 1 }, svg);
+    el("text", { x: L - 8, y: y(t) + 4, "text-anchor": "end", fill: "var(--muted)", "font-size": 11, "font-family": "IBM Plex Mono, monospace" }, svg, fmt(t));
+  });
+  var gw = (R - L) / years.length, bw = 30;
+  years.forEach(function (yr, i) {
+    var cx = L + gw * i + gw / 2;
+    el("text", { x: cx, y: B + 22, "text-anchor": "middle", fill: "var(--ink)", "font-size": 12, "font-family": "IBM Plex Mono, monospace" }, svg, yr === "2026" ? "2026*" : yr);
+    series.forEach(function (s, j) {
+      var v = s.v[i], x = cx + (j - 1) * (bw + 6) - bw / 2, top = Math.min(y(v), y(0)), h = Math.abs(y(v) - y(0));
+      el("rect", { x: x, y: top, width: bw, height: Math.max(1, h), fill: s.color, rx: 2 }, svg);
+      el("text", { x: x + bw / 2, y: v >= 0 ? top - 4 : top + h + 12, "text-anchor": "middle", fill: v < 0 ? "var(--down)" : "var(--muted)", "font-size": 9.5, "font-family": "IBM Plex Mono, monospace" }, svg, fmt(v));
+    });
+  });
+})();
+</script>

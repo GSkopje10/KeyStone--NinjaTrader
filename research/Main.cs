@@ -12,7 +12,18 @@ public static class ResearchMain
     public static int Main(string[] args)
     {
         System.Threading.Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-        string data = args[0], outDir = args[1]; if (args.Length > 2) R.ExtraTicks = double.Parse(args[2], CultureInfo.InvariantCulture); Directory.CreateDirectory(outDir);
+        string data = args[0], outDir = args[1];
+        if (args.Length > 3 && args[2] == "bhdays")
+        {
+            var days = R.Load(data, "MNQ"); var want = args[3].Split(',').Select(x => DateTime.Parse(x, CultureInfo.InvariantCulture)).ToList();
+            foreach (var cfg in new[] { new BhCfg { TargetR = 2 }, new BhCfg { TargetR = 0, LastEntry = R.S(15, 0) }, new BhCfg { Start = R.S(10, 0), TargetR = 2 } })
+            {
+                Console.WriteLine("== " + cfg.Name());
+                foreach (var dd in want) { var d = days.FirstOrDefault(x => x.Day == dd); if (d == null) { Console.WriteLine("  " + dd.ToString("yyyy-MM-dd") + " not in the data"); continue; } foreach (var t in Bh.Day(d, cfg)) Console.WriteLine("  " + dd.ToString("yyyy-MM-dd ddd") + " entry " + R.T(t.InSlot) + " @ " + t.Entry + " stop " + t.Stop.ToString("0.00") + " → " + t.Why.Trim() + " " + R.T(t.OutSlot) + " $" + t.Usd.ToString("0")); }
+            }
+            return 0;
+        }
+        if (args.Length > 2 && args[2] == "bh") { Directory.CreateDirectory(outDir); Bh.Run(R.Load(data, "MNQ"), outDir); return 0; } if (args.Length > 2 && args[2] != "bh") R.ExtraTicks = double.Parse(args[2], CultureInfo.InvariantCulture); Directory.CreateDirectory(outDir);
         var all = new List<VResult>(); var cal = new Dictionary<string, List<RDay>>();
         foreach (var sym in new[] { "MNQ", "MGC" })
         {
