@@ -378,6 +378,30 @@
    598  A OPENING DRIVE • 150K FLEX •  eval  3 fund  8 micros | 2024–26: pass  57% in  85d, payouts 0.54, CASH/eval $ 1446, no payout  81% | 2020–23: pass  55% CASH/eval $  948 | worse period $  948
    582  B ORB 15 • 150K FLEX •  eval  2 fund  3 micros | 2024–26: pass  71% in 104d, payouts 0.59, CASH/eval $  932, no payout  57% | 2020–23: pass  83% CASH/eval $  935 | worse period $  932
 
+######## FINAL PLANS • 12 MONTHS FROM EVERY START MONTH (2021-01 … 2025-09)
+P1 BEST VALUE • 150K FLEX • ORB15 • eval 6 / funded 2 micros • payout from +$6,000 • 1 account(s): 12-month net worst $  -1750 • 25% $   -350 • median $   2000 • 75% $   4350 • best $   9750 • losing years 15/57 • evals bought avg 3.8 • payouts avg 1.4 • deepest hole median $700 / worst $3150
+P1 BEST VALUE • 150K FLEX • ORB15 • eval 6 / funded 2 micros • payout from +$6,000 • 5 account(s): 12-month net worst $  -8750 • 25% $  -1750 • median $  10000 • 75% $  21750 • best $  48750 • losing years 15/57 • evals bought avg 19.1 • payouts avg 6.8 • deepest hole median $3500 / worst $15750
+P2 DAILY PAYOUTS • 150K DAILY • ORB15 • eval 6 / funded 2 • 1 account(s): 12-month net worst $  -2723 • 25% $   -471 • median $   1056 • 75% $   3866 • best $   9015 • losing years 19/57 • evals bought avg 3.6 • payouts avg 4.7 • deepest hole median $910 / worst $4095
+P2 DAILY PAYOUTS • 150K DAILY • ORB15 • eval 6 / funded 2 • 5 account(s): 12-month net worst $ -13614 • 25% $  -2353 • median $   5279 • 75% $  19329 • best $  45075 • losing years 19/57 • evals bought avg 18.2 • payouts avg 23.7 • deepest hole median $4550 / worst $20475
+P3 LOW BUDGET • 50K PRO • ORB15 • eval 2 / funded 1 • 1 account(s): 12-month net worst $   -600 • 25% $    -40 • median $    482 • 75% $   1816 • best $   4549 • losing years 15/57 • evals bought avg 2.9 • payouts avg 1.5 • deepest hole median $300 / worst $900
+P3 LOW BUDGET • 50K PRO • ORB15 • eval 2 / funded 1 • 5 account(s): 12-month net worst $  -3000 • 25% $   -201 • median $   2410 • 75% $   9082 • best $  22744 • losing years 15/57 • evals bought avg 14.6 • payouts avg 7.5 • deepest hole median $1500 / worst $4500
+P4 LOW BUDGET • 50K FLEX • ORB15 • eval 2 / funded 1 • payout from +$3,000 • 1 account(s): 12-month net worst $   -600 • 25% $   -150 • median $   1128 • 75% $   2520 • best $   5238 • losing years 15/57 • evals bought avg 3.3 • payouts avg 1.4 • deepest hole median $300 / worst $900
+P4 LOW BUDGET • 50K FLEX • ORB15 • eval 2 / funded 1 • payout from +$3,000 • 5 account(s): 12-month net worst $  -3000 • 25% $   -750 • median $   5639 • 75% $  12599 • best $  26191 • losing years 15/57 • evals bought avg 16.5 • payouts avg 6.8 • deepest hole median $1500 / worst $4500
+P5 STEADY • 150K FLEX • OPENING DRIVE • eval 3 / funded 3 • payout from +$6,000 • 1 account(s): 12-month net worst $  -1750 • 25% $  -1050 • median $   -700 • 75% $   4350 • best $  10450 • losing years 37/57 • evals bought avg 2.5 • payouts avg 0.9 • deepest hole median $700 / worst $1750
+P5 STEADY • 150K FLEX • OPENING DRIVE • eval 3 / funded 3 • payout from +$6,000 • 5 account(s): 12-month net worst $  -8750 • 25% $  -5250 • median $  -3500 • 75% $  21750 • best $  52250 • losing years 37/57 • evals bought avg 12.7 • payouts avg 4.6 • deepest hole median $3500 / worst $8750
+P6 FASTEST PASS • 50K PRO • OPENING DRIVE • eval 4 / funded 1 • 1 account(s): 12-month net worst $  -1500 • 25% $   -324 • median $    275 • 75% $   2736 • best $   5122 • losing years 22/57 • evals bought avg 4.1 • payouts avg 1.7 • deepest hole median $450 / worst $1500
+P6 FASTEST PASS • 50K PRO • OPENING DRIVE • eval 4 / funded 1 • 5 account(s): 12-month net worst $  -7500 • 25% $  -1621 • median $   1373 • 75% $  13681 • best $  25610 • losing years 22/57 • evals bought avg 20.6 • payouts avg 8.3 • deepest hole median $2250 / worst $7500
+
+######## MIXES • 5 ACCOUNTS, 12 MONTHS FROM EVERY START MONTH
+BBBBB (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -8750 • 25% $  -1750 • median $  10000 • 75% $  21750 • best $  48750 • losing years 15/57
+CCCCC (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -7000 • 25% $  -3500 • median $  -1750 • 75% $  10000 • best $  25250 • losing years 32/57
+BBBCC (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -6650 • 25% $  -1750 • median $   6350 • 75% $  13750 • best $  33950 • losing years 17/57
+BBCCA (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -5950 • 25% $    250 • median $   5800 • 75% $  13400 • best $  34650 • losing years 13/57
+BCCCC (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -4900 • 25% $  -2800 • median $    600 • 75% $  11750 • best $  26550 • losing years 24/57
+bbbbb (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -3000 • 25% $   -750 • median $   5639 • 75% $  12599 • best $  26191 • losing years 15/57
+bbbcc (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -2400 • 25% $   -750 • median $   5389 • 75% $   7483 • best $  19406 • losing years 15/57
+ccccc (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -2250 • 25% $  -1500 • median $   -750 • 75% $   4640 • best $  15352 • losing years 38/57
+
 ######## PROGRAMS (all accounts copy the same trades; a dead account is replaced the next day)
 == B ORB 15 • 150K FLEX (payout from $6000) • eval 6 / funded 2 micros
   1 accounts 2021–23: bought   2, passed   2, payouts   6 | net $  15500 = $  431/month | deepest hole $   350 | losing months 1/36

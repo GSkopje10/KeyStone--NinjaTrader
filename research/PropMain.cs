@@ -82,6 +82,50 @@ public static class PropMain
         w.WriteLine("\n######## RANKING (worse-period cash per evaluation minus the assumed price)");
         foreach (var b in best.OrderByDescending(x => x.Item1).Take(25)) w.WriteLine(string.Format("{0,6:0}  {1} • {2} •{3}", b.Item1, b.Item2, b.Item3.Name, b.Item4));
 
+        // FINAL PLANS: start in any month 2021-01 … 2025-09, run 12 months — what a year looked like from every start
+        w.WriteLine("\n######## FINAL PLANS • 12 MONTHS FROM EVERY START MONTH (2021-01 … 2025-09)");
+        Func<string, List<PDay>> S = n => strategies.First(x => x.Item1.StartsWith(n)).Item2;
+        var finals = new[]
+        {
+            Tuple.Create("P1 BEST VALUE • 150K FLEX • ORB15 • eval 6 / funded 2 micros • payout from +$6,000", "B", Flex(150, 6000), 6.0, 2.0),
+            Tuple.Create("P2 DAILY PAYOUTS • 150K DAILY • ORB15 • eval 6 / funded 2", "B", Daily(150), 6.0, 2.0),
+            Tuple.Create("P3 LOW BUDGET • 50K PRO • ORB15 • eval 2 / funded 1", "B", Pro(50), 2.0, 1.0),
+            Tuple.Create("P4 LOW BUDGET • 50K FLEX • ORB15 • eval 2 / funded 1 • payout from +$3,000", "B", Flex(50, 3000), 2.0, 1.0),
+            Tuple.Create("P5 STEADY • 150K FLEX • OPENING DRIVE • eval 3 / funded 3 • payout from +$6,000", "A", Flex(150, 6000), 3.0, 3.0),
+            Tuple.Create("P6 FASTEST PASS • 50K PRO • OPENING DRIVE • eval 4 / funded 1", "A", Pro(50), 4.0, 1.0),
+        };
+        foreach (var f in finals)
+        foreach (int slots in new[] { 1, 5 })
+        {
+            var nets = new List<double>(); var holes = new List<double>(); var buys = new List<int>(); var pays = new List<int>();
+            for (var m = new DateTime(2021, 1, 1); m <= new DateTime(2025, 9, 1); m = m.AddMonths(1))
+            {
+                var p = Prop.Run(S(f.Item2), m, m.AddMonths(12), f.Item3, f.Item4, f.Item5, slots);
+                nets.Add(p.Net); holes.Add(-p.WorstNet); buys.Add(p.Bought); pays.Add(p.Payouts);
+            }
+            nets.Sort(); holes.Sort();
+            Func<List<double>, double, double> q = (l, x) => l[Math.Min(l.Count - 1, (int)(x * (l.Count - 1)))];
+            w.WriteLine(string.Format("{0} • {1} account(s): 12-month net worst ${2,7:0} • 25% ${3,7:0} • median ${4,7:0} • 75% ${5,7:0} • best ${6,7:0} • losing years {7}/{8} • evals bought avg {9:0.0} • payouts avg {10:0.0} • deepest hole median ${11:0} / worst ${12:0}",
+                f.Item1, slots, nets[0], q(nets, 0.25), q(nets, 0.5), q(nets, 0.75), nets[nets.Count - 1], nets.Count(x => x < 0), nets.Count, buys.Average(), pays.Average(), q(holes, 0.5), holes[holes.Count - 1]));
+        }
+
+        // MIXES: each account runs its own rule (accounts are independent, so a mix = the sum of single accounts)
+        w.WriteLine("\n######## MIXES • 5 ACCOUNTS, 12 MONTHS FROM EVERY START MONTH");
+        var singles = new Dictionary<string, Tuple<string, PRules, double, double>>
+        {
+            { "B", Tuple.Create("B", Flex(150, 6000), 6.0, 2.0) }, { "C", Tuple.Create("C", Flex(150, 6000), 3.0, 2.0) }, { "A", Tuple.Create("A", Flex(150, 6000), 3.0, 3.0) },
+            { "b", Tuple.Create("B", Flex(50, 3000), 2.0, 1.0) }, { "c", Tuple.Create("C", Flex(50, 3000), 1.0, 1.0) },
+        };
+        var starts = new List<DateTime>(); for (var m = new DateTime(2021, 1, 1); m <= new DateTime(2025, 9, 1); m = m.AddMonths(1)) starts.Add(m);
+        var one = new Dictionary<string, double[]>();
+        foreach (var kv in singles) one[kv.Key] = starts.Select(m => Prop.Run(S(kv.Value.Item1), m, m.AddMonths(12), kv.Value.Item2, kv.Value.Item3, kv.Value.Item4, 1).Net).ToArray();
+        foreach (var mix in new[] { "BBBBB", "CCCCC", "BBBCC", "BBCCA", "BCCCC", "bbbbb", "bbbcc", "ccccc" })
+        {
+            var nets = starts.Select((m, i) => mix.Sum(ch => one[ch.ToString()][i])).OrderBy(x => x).ToList();
+            w.WriteLine(string.Format("{0} (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst ${1,7:0} • 25% ${2,7:0} • median ${3,7:0} • 75% ${4,7:0} • best ${5,7:0} • losing years {6}/{7}",
+                mix, nets[0], nets[nets.Count / 4], nets[nets.Count / 2], nets[3 * nets.Count / 4], nets[nets.Count - 1], nets.Count(x => x < 0), nets.Count));
+        }
+
         // programs: N accounts copying the signal, replaced when they die
         w.WriteLine("\n######## PROGRAMS (all accounts copy the same trades; a dead account is replaced the next day)");
         foreach (var b in best.Where(x => !x.Item2.StartsWith("Z")).OrderByDescending(x => x.Item1).Take(8))
