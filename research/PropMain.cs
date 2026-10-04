@@ -128,6 +128,8 @@ public static class PropMain
                 mix, nets[0], nets[nets.Count / 4], nets[nets.Count / 2], nets[3 * nets.Count / 4], nets[nets.Count - 1], nets.Count(x => x < 0), nets.Count));
         }
 
+        using (var aw = new StreamWriter(Path.Combine(outDir, "aggressive.txt"))) Aggressive.Run(strategies.Where(x => !x.Item1.StartsWith("Z")).ToDictionary(x => x.Item1.Substring(0, 1), x => x.Item2), aw);
+
         // programs: N accounts copying the signal, replaced when they die
         w.WriteLine("\n######## PROGRAMS (all accounts copy the same trades; a dead account is replaced the next day)");
         foreach (var b in best.Where(x => !x.Item2.StartsWith("Z")).OrderByDescending(x => x.Item1).Take(8))
