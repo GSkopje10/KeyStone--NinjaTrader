@@ -1,0 +1,256 @@
+<title>Keystone Six-Year Playbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~70ch) with full-width evidence tables and charts; verdict first, then rule, proof, plans, risks. */
+:root {
+  --bg: #f3f4f1;          /* chart paper */
+  --panel: #ffffff;
+  --ink: #17202b;         /* slate ink */
+  --muted: #5d6a78;
+  --rule: #d9ddd6;
+  --accent: #b7791f;      /* studio gold, darkened for paper */
+  --up: #1f8a5b;
+  --down: #c2414b;
+  --chip: #eef0ea;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f151c; --panel: #151d26; --ink: #e6ebf0; --muted: #94a2b2; --rule: #26313d; --accent: #e8b04b; --up: #3fbf86; --down: #ef6b74; --chip: #1b2530; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #0f151c; --panel: #151d26; --ink: #e6ebf0; --muted: #94a2b2; --rule: #26313d; --accent: #e8b04b; --up: #3fbf86; --down: #ef6b74; --chip: #1b2530; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font: 16px/1.6 var(--body); }
+.wrap { max-width: 980px; margin: 0 auto; padding: 40px 20px 72px; display: grid; gap: 44px; }
+.col { max-width: 70ch; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2rem, 5vw, 3.1rem); font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: 1.6rem; font-weight: 800; margin-bottom: 12px; }
+h3 { font-size: 1.12rem; font-weight: 600; margin: 18px 0 6px; }
+p { margin: 0 0 12px; }
+.eyebrow { font: 600 0.74rem/1.2 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; }
+.lede { font-size: 1.14rem; color: var(--ink); max-width: 66ch; }
+.muted { color: var(--muted); }
+.num, td, .mono { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 0.92em; }
+.up { color: var(--up); } .down { color: var(--down); }
+section { display: grid; gap: 6px; }
+
+.verdict { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 22px 24px; display: grid; gap: 14px; }
+.verdict ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+
+.rule-steps { counter-reset: s; list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 10px; }
+.rule-steps li { counter-increment: s; display: grid; grid-template-columns: 2.2em 1fr; gap: 10px; align-items: start; }
+.rule-steps li::before { content: counter(s); font: 600 0.9rem/1.9 var(--mono); color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; width: 1.9em; text-align: center; }
+
+.tablebox { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font: 600 0.72rem/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--chip); }
+th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 210px; }
+tr:last-child td { border-bottom: 0; }
+tr.pick td { background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.tag { display: inline-block; font: 600 0.68rem/1.4 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 7px; border-radius: 99px; border: 1px solid currentColor; margin-left: 6px; vertical-align: 1px; }
+.tag.good { color: var(--up); } .tag.bad { color: var(--down); } .tag.gold { color: var(--accent); }
+
+.chart { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 12px 6px; overflow-x: auto; }
+.chart svg { display: block; width: 100%; min-width: 560px; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font: 0.82rem var(--mono); color: var(--muted); padding: 4px 6px 8px; }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.card .k { font: 600 0.72rem/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.card .big { font: 800 1.5rem/1.2 var(--display); }
+.card p { margin: 0; font-size: 0.95rem; }
+.steps { margin: 6px 0 0; padding-left: 1.3em; display: grid; gap: 6px; }
+footer { font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 16px; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<main class="wrap">
+  <header class="col">
+    <div class="eyebrow">Keystone Arc • 6-year research • MNQ + MGC 1-minute bars, Oct 2020 – 2 Oct 2026</div>
+    <h1>The opening range is where the edge is</h1>
+    <p class="lede" style="margin-top:14px">I tested 5,641 rule variants on your uploaded data. Each rule's settings were chosen on 2020–2023 and then judged on 2024–2026, data they never saw. One family held up on the unseen years: trading MNQ in the direction of the first 10–30 minutes after 09:30, with a wide stop. Everything here is built into the studio and the Live Desk.</p>
+  </header>
+
+  <section class="verdict" aria-label="Verdict">
+    <h2>The short version</h2>
+    <ul>
+      <li><b>Edge found, and it is modest.</b> About $9–18 per trade per MNQ micro after costs, on 1,340+ trades. It still holds when slippage is doubled. Most other ideas (gaps, VWAP, yesterday's high/low, Asia session, calendar, MGC rules) looked good on 2020–2023 and then failed on 2024–2026.</li>
+      <li><b>Prop pick: ★ OPENING RANGE BREAK • 15M</b> on Lucid Flex 150K: 6 micros to pass, 2 micros once funded, and ask for a payout only once the balance is +$6,000. The same rule run with zero edge loses money, so the profit comes from the edge, not from the account rules.</li>
+      <li><b>Realistic income:</b> 5 Lucid accounts copying one rule had a <b>median of about $10,000 a year</b> (12-month windows from every start month 2021–2025). <b>15 of 57 windows lost money</b> (worst −$8,750). That is not $20K a month. Scaling means more accounts at more firms, with the same correlated risk.</li>
+      <li><b>Personal account:</b> Opening Drive + ORB 30M 1R at 1 micro each has averaged about $540 a month, with a worst drawdown of about $8,000. $4–5K a month at that risk level needs roughly a $200K account. With $27K, the prop route is where your budget works hardest.</li>
+    </ul>
+  </section>
+
+  <section class="col">
+    <div class="eyebrow">The rule, exactly as the studio trades it</div>
+    <h2>★ Opening Range Break • 15M</h2>
+    <ol class="rule-steps">
+      <li><div>Skip FOMC days and payrolls (first-Friday) days. Measure the high and low of MNQ from <b>09:30 to 09:45</b> New York time.</div></li>
+      <li><div>Place a <b>buy stop one tick above the high</b> and a <b>sell stop one tick below the low</b>. The first to fill wins, and the other is cancelled. Orders that haven't filled by <b>12:15</b> are cancelled: no trade today.</div></li>
+      <li><div>Stop: <b>0.25 × the average 09:30–16:00 range of the last 14 days</b>, measured from the fill. In 2024–26 that was about 60–100 points, a median of <b>$124 per micro</b> and $204 at the 90th percentile.</div></li>
+      <li><div>Target: <b>4 × the stop</b>. Otherwise, <b>flat at 15:55</b>.</div></li>
+      <li><div>Expect to lose most days. 36% of trades win, but the average win is $271 against an average loss of $132. The longest losing streak was 16 in a row.</div></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="eyebrow">Proof • per MNQ micro, after $1.50 commission and 1 tick of slippage per side</div>
+    <h2>The three rules that survived</h2>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Rule</th><th>Trades</th><th>Win %</th><th>2020–23 $/trade</th><th>2024–26 $/trade (unseen)</th><th>+2 ticks slippage</th><th>Longest losing run</th><th>Worst drawdown</th></tr></thead>
+        <tbody>
+          <tr class="pick"><td>★ Opening Range Break 15M<span class="tag gold">prop pick</span></td><td>1,343</td><td>36%</td><td class="up">+$18.4</td><td class="up">+$8.9</td><td class="up">+$6.9</td><td>16</td><td>$8,236</td></tr>
+          <tr><td>★ Opening Drive 10M (direction of the 09:30–09:40 candle)</td><td>1,342</td><td>35%</td><td class="up">+$13.8</td><td class="up">+$17.9</td><td class="up">+$15.9</td><td>19</td><td>$3,850</td></tr>
+          <tr><td>★ Opening Range Break 30M 1R (stop = the range)</td><td>1,404</td><td>55%</td><td class="up">+$10.8</td><td class="up">+$15.2</td><td class="up">+$13.2</td><td>6</td><td>$6,824</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="chart" role="img" aria-label="Profit per year per MNQ micro for the three rules">
+      <div class="legend"><span><i style="background:var(--accent)"></i>ORB 15M</span><span><i style="background:var(--up)"></i>Opening Drive 10M</span><span><i style="background:var(--muted)"></i>ORB 30M 1R</span><span>$ per year, 1 micro • 2026 = Jan–2 Oct</span></div>
+      <svg id="years" viewBox="0 0 900 300"></svg>
+    </div>
+    <p class="col muted" style="margin-top:8px">The ORB 15M is the strongest rule in prop accounts, but its recent years are its weakest: −$974 in 2023 and −$2,572 so far in 2026. The Opening Drive was positive in every full year. The family as a whole is what's robust. 79% of its 10- and 15-minute variants made money on 2024–26, and among wide-stop variants it was 83–87%.</p>
+  </section>
+
+  <section class="col">
+    <div class="eyebrow">What did not work</div>
+    <h2>Most good-looking backtests failed the unseen years</h2>
+    <p>Picking "the best rule so far" each year and trading it the next year lost money on MNQ (−$822 per contract over 2022–26) and on MGC (−$1,764). The same procedure limited to the opening-range family made <span class="up">+$10,857</span>. Gap fades, VWAP stretches, yesterday's high/low, afternoon momentum, weekday and turn-of-month rules, and every MGC rule fell apart after 2023. The one exception was a short-side Asia breakout that only paid off in 2026's gold swings. Your earlier BH lab result (−0.02R over 1,698 setups) fits the same picture.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">Prop accounts • Lucid rules from their help centre, Oct 2026</div>
+    <h2>What a year looked like from every start month</h2>
+    <p class="col">Each row starts a program in every month from Jan 2021 to Sep 2025 (57 starts), runs it for 12 months on the real days in order, and replaces a blown account with a new evaluation the next day. Net = payouts after the 90/10 split minus evaluation fees. Fees are assumed at $150 for a 50K and $350 for a 150K. Balances still sitting in funded accounts are not counted.</p>
+    <div class="chart" role="img" aria-label="12-month net range for each plan with five accounts">
+      <div class="legend"><span>5 accounts • bar = 25th–75th percentile • dot = median • whiskers = worst and best 12 months</span></div>
+      <svg id="plans" viewBox="0 0 900 330"></svg>
+    </div>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Plan (5 accounts, all copying the rule)</th><th>Pass rate</th><th>Worst 12 mo</th><th>Median 12 mo</th><th>Best 12 mo</th><th>Losing 12 mo</th><th>Cash per evaluation</th></tr></thead>
+        <tbody>
+          <tr class="pick"><td>P1 Lucid Flex 150K • ORB15 • eval 6 / funded 2 • payout from +$6K<span class="tag gold">best value</span></td><td>42–46% in ~35 days</td><td class="down">−$8,750</td><td class="up">+$10,000</td><td class="up">+$48,750</td><td>15 / 57</td><td>$2,207–2,520</td></tr>
+          <tr><td>P4 Lucid Flex 50K • ORB15 • eval 2 / funded 1 • payout from +$3K<span class="tag good">low budget</span></td><td>50% in ~36 days</td><td class="down">−$3,000</td><td class="up">+$5,639</td><td class="up">+$26,191</td><td>15 / 57</td><td>$1,122–1,310</td></tr>
+          <tr><td>P3 Lucid Pro 50K • ORB15 • eval 2 / funded 1</td><td>50–51% in ~36 days</td><td class="down">−$3,000</td><td class="up">+$2,410</td><td class="up">+$22,744</td><td>15 / 57</td><td>$1,258–1,334</td></tr>
+          <tr><td>P2 Lucid Daily 150K • ORB15 • eval 6 / funded 2 (daily payouts)</td><td>42–46%</td><td class="down">−$13,614</td><td class="up">+$5,279</td><td class="up">+$45,075</td><td>19 / 57</td><td>$2,281–2,606</td></tr>
+          <tr><td>P6 Lucid Pro 50K • Opening Drive • eval 4 / funded 1<span class="tag">fastest pass</span></td><td>39% in ~9 days</td><td class="down">−$7,500</td><td class="up">+$1,373</td><td class="up">+$25,610</td><td>22 / 57</td><td>$526–572</td></tr>
+          <tr><td>P5 Lucid Flex 150K • Opening Drive • eval 3 / funded 3<span class="tag bad">not recommended</span></td><td>55–57% in ~85 days</td><td class="down">−$8,750</td><td class="down">−$3,500</td><td class="up">+$52,250</td><td>37 / 57</td><td>$1,495–1,991</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="col muted" style="margin-top:8px">The cash-per-evaluation range is the worse and the better of the 2020–23 and 2024–26 periods. Subtract the real price you pay: P1 breaks even at an evaluation price of about $2,200. As a control, the Opening Drive with its edge removed netted between −$234 and +$34 per evaluation after fees, at its best sizes. The account rules alone don’t make money.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">Your budget • $17K + $10K</div>
+    <h2>Four ways to spend it</h2>
+    <div class="grid2">
+      <div class="card"><div class="k">Lowest</div><div class="big">1 × Flex 50K</div><p>P4 with one account: about $150 a try, 2–3 tries a year. Median year +$1,128, worst −$600. A cheap way to prove the rule live.</p></div>
+      <div class="card"><div class="k">Best value</div><div class="big">5 × Flex 150K</div><p>P1 copied on 5 accounts, Lucid's limit for funded accounts. Median year about +$10,000. Keep $16K in reserve, the deepest hole any start month dug.</p></div>
+      <div class="card"><div class="k">Highest</div><div class="big">10 accounts, 2 firms</div><p>P1 at Lucid plus the same plan at a second firm with similar rules. Median year about +$20,000, worst 12 months about −$17,500. Every account takes the same trade, so the bad years hit all of them together.</p></div>
+      <div class="card"><div class="k">Fastest</div><div class="big">Pro 50K, 4 micros</div><p>P6: Lucid Pro has no consistency rule on the evaluation, so it can pass in days (39% pass within ~9 days). Fast but weaker over a year. Use it to get funded quickly, then trade the funded account with ORB15 at 1 micro.</p></div>
+    </div>
+    <p class="col" style="margin-top:12px"><b>One rule per firm.</b> Lucid bans hedging, including across your own accounts. The Opening Drive and ORB15 can take opposite sides on the same morning, so run one rule on all accounts at a firm. If you want a second rule, put it at a different firm.</p>
+  </section>
+
+  <section class="col">
+    <div class="eyebrow">Personal account • conservative</div>
+    <h2>Opening Drive + ORB 30M, 1 micro each</h2>
+    <p>Run together, the two rules had a Sharpe of 1.15 from 2021 to 2026. Average about <b>$540 a month</b> (2021 +$5,785, 2022 +$8,450, 2023 +$3,598, 2024 +$7,060, 2025 +$8,137, 2026 YTD +$5,924). Worst drawdown about $8,000, and 29 of 73 months were down. Stop for the month at −$2,500. Add one micro of each only for every +$15,000 the account grows. At this risk level, $4–5K a month needs about eight times the size, so roughly a $200K account.</p>
+  </section>
+
+  <section class="col">
+    <div class="eyebrow">How to start</div>
+    <h2>From replay to a funded account</h2>
+    <ol class="steps">
+      <li>Compile build <span class="mono">2026-10-05d</span>. In the Backtest Studio, choose <b>★ OPENING RANGE BREAK • 15M (TESTED • PROP PICK)</b>. ⚙ SETTINGS opens with the tested settings. Set contracts, choose AUTO, then CONFIRM + ▶ PLAY. AUTO places both stop orders, cancels the loser, sets the bracket from the fill and goes flat at 15:55.</li>
+      <li>Replay 20+ random days with PICK A DAY. Your replay results should match the research trades, which are listed day by day in <span class="mono">docs/research/trades_B.csv</span>.</li>
+      <li>Buy one Lucid Flex 50K (P4). In the Live Desk, click the account, then PLAYBOOK PLAN → P4. The card shows the size, drawdown, target and daily plan.</li>
+      <li>Trade it exactly: one order pair at 09:45, no overrides. Scale to P1 only after the live results look like the replay.</li>
+    </ol>
+  </section>
+
+  <section class="col">
+    <div class="eyebrow">Limits of this test</div>
+    <h2>What could still go wrong</h2>
+    <ul class="steps">
+      <li>The edge is small compared with its swings. Losing years happen (ORB15: 2023 and 2026 so far), and 2026 is a drawdown right now.</li>
+      <li>Fills come from 1-minute bars. The stop is always assumed to hit first, and targets need a trade through them. Real fast opens can slip more, which is why the +2 ticks column matters.</li>
+      <li>The rule family was found with knowledge of 2024–26 in aggregate. The year-by-year walk-forward (+$10,857) is the cleaner estimate.</li>
+      <li>Firm rules change. Lucid's rules here are from their help centre (see <span class="mono">docs/PROP_RULES.md</span>), evaluation prices are assumptions, and other firms were modelled as variants of these rules.</li>
+      <li>Historical research only. The studio and Live Desk place no live orders.</li>
+    </ul>
+  </section>
+
+  <footer>Files on the research branch: <span class="mono">research/</span> (harness, <span class="mono">research/run.sh</span> re-runs everything) • <span class="mono">docs/research/variants.csv</span> (all 5,641 variants) • <span class="mono">prop.txt</span> (every prop table) • <span class="mono">trades_A/B/C.csv</span> (every trade). Data: MNQ 1,461 and MGC 1,427 full days.</footer>
+</main>
+
+<script>
+(function () {
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent, text) { var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; parent.appendChild(e); return e; }
+  function fmt(v) { var s = Math.abs(v) >= 1000 ? (Math.abs(v) / 1000).toFixed(Math.abs(v) >= 10000 ? 0 : 1) + "K" : Math.abs(v).toFixed(0); return (v < 0 ? "−$" : "$") + s; }
+
+  // per-year $ per micro
+  var years = ["2021", "2022", "2023", "2024", "2025", "2026"];
+  var series = [
+    { name: "ORB 15M", color: "var(--accent)", v: [6717, 7637, -974, 5372, 2724, -2572] },
+    { name: "Opening Drive", color: "var(--up)", v: [3712, 4948, 2497, 2082, 4488, 4582] },
+    { name: "ORB 30M 1R", color: "var(--muted)", v: [2072, 3502, 1102, 4978, 3649, 1342] }
+  ];
+  var svg = document.getElementById("years");
+  var L = 64, R = 884, T = 16, B = 262, lo = -4000, hi = 8000;
+  var y = function (v) { return T + (hi - v) / (hi - lo) * (B - T); };
+  [-4000, -2000, 0, 2000, 4000, 6000, 8000].forEach(function (t) {
+    el("line", { x1: L, x2: R, y1: y(t), y2: y(t), stroke: "var(--rule)", "stroke-width": t === 0 ? 1.5 : 1 }, svg);
+    el("text", { x: L - 8, y: y(t) + 4, "text-anchor": "end", fill: "var(--muted)", "font-size": 11, "font-family": "IBM Plex Mono, monospace" }, svg, fmt(t));
+  });
+  var gw = (R - L) / years.length, bw = 30;
+  years.forEach(function (yr, i) {
+    var cx = L + gw * i + gw / 2;
+    el("text", { x: cx, y: B + 22, "text-anchor": "middle", fill: "var(--ink)", "font-size": 12, "font-family": "IBM Plex Mono, monospace" }, svg, yr === "2026" ? "2026*" : yr);
+    series.forEach(function (s, j) {
+      var v = s.v[i], x = cx + (j - 1) * (bw + 6) - bw / 2, top = Math.min(y(v), y(0)), h = Math.abs(y(v) - y(0));
+      el("rect", { x: x, y: top, width: bw, height: Math.max(1, h), fill: s.color, rx: 2 }, svg);
+      el("text", { x: x + bw / 2, y: v >= 0 ? top - 4 : top + h + 12, "text-anchor": "middle", fill: v < 0 ? "var(--down)" : "var(--muted)", "font-size": 9.5, "font-family": "IBM Plex Mono, monospace" }, svg, fmt(v));
+    });
+  });
+
+  // plan ranges (5 accounts, 12-month net)
+  var plans = [
+    { n: "P1 Flex 150K • ORB15", w: -8750, q1: -1750, m: 10000, q3: 21750, b: 48750, pick: true },
+    { n: "P4 Flex 50K • ORB15", w: -3000, q1: -750, m: 5639, q3: 12599, b: 26191 },
+    { n: "P3 Pro 50K • ORB15", w: -3000, q1: -201, m: 2410, q3: 9082, b: 22744 },
+    { n: "P2 Daily 150K • ORB15", w: -13614, q1: -2353, m: 5279, q3: 19329, b: 45075 },
+    { n: "P6 Pro 50K • Drive", w: -7500, q1: -1621, m: 1373, q3: 13681, b: 25610 },
+    { n: "P5 Flex 150K • Drive", w: -8750, q1: -5250, m: -3500, q3: 21750, b: 52250 }
+  ];
+  var s2 = document.getElementById("plans");
+  var L2 = 190, R2 = 880, T2 = 14, rowH = 46, lo2 = -20000, hi2 = 55000;
+  var x2 = function (v) { return L2 + (v - lo2) / (hi2 - lo2) * (R2 - L2); };
+  var bottom = T2 + rowH * plans.length;
+  [-20000, -10000, 0, 10000, 20000, 30000, 40000, 50000].forEach(function (t) {
+    el("line", { x1: x2(t), x2: x2(t), y1: T2, y2: bottom, stroke: "var(--rule)", "stroke-width": t === 0 ? 1.6 : 1 }, s2);
+    el("text", { x: x2(t), y: bottom + 18, "text-anchor": "middle", fill: "var(--muted)", "font-size": 11, "font-family": "IBM Plex Mono, monospace" }, s2, fmt(t));
+  });
+  plans.forEach(function (p, i) {
+    var cy = T2 + rowH * i + rowH / 2, c = p.pick ? "var(--accent)" : "var(--ink)";
+    el("text", { x: L2 - 12, y: cy + 4, "text-anchor": "end", fill: c, "font-size": 12.5, "font-weight": p.pick ? 600 : 400, "font-family": "IBM Plex Sans, sans-serif" }, s2, p.n);
+    el("line", { x1: x2(p.w), x2: x2(p.b), y1: cy, y2: cy, stroke: "var(--muted)", "stroke-width": 1.5 }, s2);
+    el("line", { x1: x2(p.w), x2: x2(p.w), y1: cy - 6, y2: cy + 6, stroke: "var(--down)", "stroke-width": 2 }, s2);
+    el("line", { x1: x2(p.b), x2: x2(p.b), y1: cy - 6, y2: cy + 6, stroke: "var(--up)", "stroke-width": 2 }, s2);
+    el("rect", { x: x2(p.q1), y: cy - 9, width: Math.max(2, x2(p.q3) - x2(p.q1)), height: 18, rx: 3, fill: p.pick ? "var(--accent)" : "var(--chip)", stroke: p.pick ? "var(--accent)" : "var(--muted)", "fill-opacity": p.pick ? 0.35 : 1 }, s2);
+    el("circle", { cx: x2(p.m), cy: cy, r: 5.5, fill: p.m >= 0 ? "var(--up)" : "var(--down)", stroke: "var(--panel)", "stroke-width": 1.5 }, s2);
+    el("text", { x: x2(p.m), y: cy - 13, "text-anchor": "middle", fill: "var(--ink)", "font-size": 10.5, "font-family": "IBM Plex Mono, monospace" }, s2, fmt(p.m));
+  });
+})();
+</script>

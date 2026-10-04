@@ -393,7 +393,16 @@ P6 FASTEST PASS • 50K PRO • OPENING DRIVE • eval 4 / funded 1 • 1 accoun
 P6 FASTEST PASS • 50K PRO • OPENING DRIVE • eval 4 / funded 1 • 5 account(s): 12-month net worst $  -7500 • 25% $  -1621 • median $   1373 • 75% $  13681 • best $  25610 • losing years 22/57 • evals bought avg 20.6 • payouts avg 8.3 • deepest hole median $2250 / worst $7500
 
 ######## MIXES • 5 ACCOUNTS, 12 MONTHS FROM EVERY START MONTH
+single account B by start year (avg 12-month net): 2021: $3850 • 2022: $2921 • 2023: $-179 • 2024: $3733 • 2025: $856
+single account A by start year (avg 12-month net): 2021: $-483 • 2022: $5042 • 2023: $-642 • 2024: $-1254 • 2025: $6411
+single account C by start year (avg 12-month net): 2021: $-942 • 2022: $317 • 2023: $571 • 2024: $1971 • 2025: $1639
+single account b by start year (avg 12-month net): 2021: $2120 • 2022: $1433 • 2023: $49 • 2024: $2453 • 2025: $991
+single account c by start year (avg 12-month net): 2021: $-288 • 2022: $-86 • 2023: $354 • 2024: $1095 • 2025: $744
 BBBBB (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -8750 • 25% $  -1750 • median $  10000 • 75% $  21750 • best $  48750 • losing years 15/57
+AAAAA (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -8750 • 25% $  -5250 • median $  -3500 • 75% $  21750 • best $  52250 • losing years 37/57
+BBBAA (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -7350 • 25% $   1800 • median $   9050 • 75% $  14450 • best $  50150 • losing years 13/57
+BBAAA (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -6650 • 25% $    850 • median $   5550 • 75% $  14450 • best $  50850 • losing years 14/57
+BBBAC (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -7000 • 25% $    300 • median $   8700 • 75% $  14100 • best $  42050 • losing years 13/57
 CCCCC (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -7000 • 25% $  -3500 • median $  -1750 • 75% $  10000 • best $  25250 • losing years 32/57
 BBBCC (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -6650 • 25% $  -1750 • median $   6350 • 75% $  13750 • best $  33950 • losing years 17/57
 BBCCA (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst $  -5950 • 25% $    250 • median $   5800 • 75% $  13400 • best $  34650 • losing years 13/57

@@ -119,7 +119,9 @@ public static class PropMain
         var starts = new List<DateTime>(); for (var m = new DateTime(2021, 1, 1); m <= new DateTime(2025, 9, 1); m = m.AddMonths(1)) starts.Add(m);
         var one = new Dictionary<string, double[]>();
         foreach (var kv in singles) one[kv.Key] = starts.Select(m => Prop.Run(S(kv.Value.Item1), m, m.AddMonths(12), kv.Value.Item2, kv.Value.Item3, kv.Value.Item4, 1).Net).ToArray();
-        foreach (var mix in new[] { "BBBBB", "CCCCC", "BBBCC", "BBCCA", "BCCCC", "bbbbb", "bbbcc", "ccccc" })
+        foreach (var key in new[] { "B", "A", "C", "b", "c" })
+            w.WriteLine("single account " + key + " by start year (avg 12-month net): " + string.Join(" • ", starts.Select((m, i) => Tuple.Create(m.Year, one[key][i])).GroupBy(x => x.Item1).Select(g => g.Key + ": $" + g.Average(x => x.Item2).ToString("0"))));
+        foreach (var mix in new[] { "BBBBB", "AAAAA", "BBBAA", "BBAAA", "BBBAC", "CCCCC", "BBBCC", "BBCCA", "BCCCC", "bbbbb", "bbbcc", "ccccc" })
         {
             var nets = starts.Select((m, i) => mix.Sum(ch => one[ch.ToString()][i])).OrderBy(x => x).ToList();
             w.WriteLine(string.Format("{0} (B = ORB15 150K, C = ORB30 150K, A = DRIVE 150K, b / c = 50K): 12-month net worst ${1,7:0} • 25% ${2,7:0} • median ${3,7:0} • 75% ${4,7:0} • best ${5,7:0} • losing years {6}/{7}",
