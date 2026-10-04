@@ -1,0 +1,453 @@
+
+######## 25K FLEX (assumed eval $100, target 1250, drawdown 1000)
+== A OPENING DRIVE
+  eval  1 fund  2 micros | 2024–26: pass  55% in  30d, payouts 0.33, CASH/eval $  287, no payout  83% | 2020–23: pass  52% CASH/eval $  303 | worse period $  287
+  eval  1 fund  3 micros | 2024–26: pass  55% in  30d, payouts 0.37, CASH/eval $  327, no payout  83% | 2020–23: pass  52% CASH/eval $  235 | worse period $  235
+  eval  2 fund  3 micros | 2024–26: pass  33% in  13d, payouts 0.20, CASH/eval $  183, no payout  91% | 2020–23: pass  36% CASH/eval $  174 | worse period $  174
+  eval  2 fund  2 micros | 2024–26: pass  33% in  13d, payouts 0.19, CASH/eval $  170, no payout  90% | 2020–23: pass  36% CASH/eval $  211 | worse period $  170
+== Z ZERO-EDGE TWIN of A
+  eval  2 fund  3 micros | 2024–26: pass  19% in   9d, payouts 0.11, CASH/eval $   98, no payout  95% | 2020–23: pass  23% CASH/eval $   68 | worse period $   68
+  eval  2 fund  2 micros | 2024–26: pass  19% in   9d, payouts 0.09, CASH/eval $   77, no payout  94% | 2020–23: pass  23% CASH/eval $   56 | worse period $   56
+  eval  1 fund  4 micros | 2024–26: pass  37% in  26d, payouts 0.07, CASH/eval $   61, no payout  93% | 2020–23: pass  27% CASH/eval $   45 | worse period $   45
+  eval  1 fund  5 micros | 2024–26: pass  37% in  26d, payouts 0.06, CASH/eval $   57, no payout  94% | 2020–23: pass  27% CASH/eval $   45 | worse period $   45
+== B ORB 15
+  eval  1 fund  1 micros | 2024–26: pass  52% in  30d, payouts 0.54, CASH/eval $  354, no payout  74% | 2020–23: pass  58% CASH/eval $  575 | worse period $  354
+  eval  1 fund  2 micros | 2024–26: pass  52% in  30d, payouts 0.33, CASH/eval $  291, no payout  87% | 2020–23: pass  58% CASH/eval $  442 | worse period $  291
+  eval  1 fund  3 micros | 2024–26: pass  52% in  30d, payouts 0.31, CASH/eval $  275, no payout  88% | 2020–23: pass  58% CASH/eval $  338 | worse period $  275
+  eval  1 fund  4 micros | 2024–26: pass  52% in  30d, payouts 0.42, CASH/eval $  380, no payout  89% | 2020–23: pass  58% CASH/eval $  244 | worse period $  244
+== C ORB 30 1R
+  eval  1 fund  1 micros | 2024–26: pass  50% in  28d, payouts 0.64, CASH/eval $  400, no payout  66% | 2020–23: pass  41% CASH/eval $  230 | worse period $  230
+  eval  2 fund  1 micros | 2024–26: pass  35% in   8d, payouts 0.33, CASH/eval $  199, no payout  79% | 2020–23: pass  35% CASH/eval $  144 | worse period $  144
+  eval  3 fund  1 micros | 2024–26: pass  32% in   5d, payouts 0.29, CASH/eval $  171, no payout  82% | 2020–23: pass  30% CASH/eval $  130 | worse period $  130
+  eval  2 fund  2 micros | 2024–26: pass  35% in   8d, payouts 0.17, CASH/eval $  136, no payout  92% | 2020–23: pass  35% CASH/eval $  105 | worse period $  105
+
+######## 25K FLEX (payout from $1500) (assumed eval $100, target 1250, drawdown 1000)
+== A OPENING DRIVE
+  eval  1 fund  2 micros | 2024–26: pass  55% in  30d, payouts 0.33, CASH/eval $  287, no payout  83% | 2020–23: pass  52% CASH/eval $  283 | worse period $  283
+  eval  1 fund  3 micros | 2024–26: pass  55% in  30d, payouts 0.37, CASH/eval $  332, no payout  83% | 2020–23: pass  52% CASH/eval $  231 | worse period $  231
+  eval  2 fund  3 micros | 2024–26: pass  33% in  13d, payouts 0.20, CASH/eval $  184, no payout  91% | 2020–23: pass  36% CASH/eval $  187 | worse period $  184
+  eval  2 fund  2 micros | 2024–26: pass  33% in  13d, payouts 0.19, CASH/eval $  170, no payout  90% | 2020–23: pass  36% CASH/eval $  186 | worse period $  170
+== Z ZERO-EDGE TWIN of A
+  eval  2 fund  3 micros | 2024–26: pass  19% in   9d, payouts 0.11, CASH/eval $   98, no payout  95% | 2020–23: pass  23% CASH/eval $   68 | worse period $   68
+  eval  1 fund  4 micros | 2024–26: pass  37% in  26d, payouts 0.07, CASH/eval $   61, no payout  93% | 2020–23: pass  27% CASH/eval $   45 | worse period $   45
+  eval  1 fund  5 micros | 2024–26: pass  37% in  26d, payouts 0.06, CASH/eval $   57, no payout  94% | 2020–23: pass  27% CASH/eval $   45 | worse period $   45
+  eval  3 fund  3 micros | 2024–26: pass  15% in  10d, payouts 0.09, CASH/eval $   82, no payout  96% | 2020–23: pass  17% CASH/eval $   43 | worse period $   43
+== B ORB 15
+  eval  1 fund  1 micros | 2024–26: pass  52% in  30d, payouts 0.49, CASH/eval $  387, no payout  76% | 2020–23: pass  58% CASH/eval $  697 | worse period $  387
+  eval  2 fund  1 micros | 2024–26: pass  33% in  14d, payouts 0.39, CASH/eval $  304, no payout  85% | 2020–23: pass  42% CASH/eval $  407 | worse period $  304
+  eval  1 fund  2 micros | 2024–26: pass  52% in  30d, payouts 0.32, CASH/eval $  287, no payout  88% | 2020–23: pass  58% CASH/eval $  544 | worse period $  287
+  eval  1 fund  3 micros | 2024–26: pass  52% in  30d, payouts 0.31, CASH/eval $  275, no payout  88% | 2020–23: pass  58% CASH/eval $  337 | worse period $  275
+== C ORB 30 1R
+  eval  1 fund  1 micros | 2024–26: pass  50% in  28d, payouts 0.53, CASH/eval $  410, no payout  73% | 2020–23: pass  41% CASH/eval $  341 | worse period $  341
+  eval  2 fund  1 micros | 2024–26: pass  35% in   8d, payouts 0.30, CASH/eval $  227, no payout  84% | 2020–23: pass  35% CASH/eval $  262 | worse period $  227
+  eval  3 fund  1 micros | 2024–26: pass  32% in   5d, payouts 0.25, CASH/eval $  189, no payout  86% | 2020–23: pass  30% CASH/eval $  219 | worse period $  189
+  eval  4 fund  1 micros | 2024–26: pass  27% in   5d, payouts 0.22, CASH/eval $  166, no payout  88% | 2020–23: pass  24% CASH/eval $  174 | worse period $  166
+
+######## 25K DAILY (daily payouts, intraday trailing when funded) (assumed eval $130, target 1250, drawdown 1000)
+== A OPENING DRIVE
+  eval  1 fund  1 micros | 2024–26: pass  55% in  30d, payouts 0.19, CASH/eval $  116, no payout  85% | 2020–23: pass  52% CASH/eval $  120 | worse period $  116
+  eval  2 fund  1 micros | 2024–26: pass  33% in  13d, payouts 0.16, CASH/eval $  102, no payout  88% | 2020–23: pass  36% CASH/eval $  123 | worse period $  102
+  eval  3 fund  1 micros | 2024–26: pass  23% in  11d, payouts 0.12, CASH/eval $   70, no payout  91% | 2020–23: pass  29% CASH/eval $   86 | worse period $   70
+  eval  4 fund  1 micros | 2024–26: pass  18% in  10d, payouts 0.10, CASH/eval $   62, no payout  93% | 2020–23: pass  24% CASH/eval $   70 | worse period $   62
+== Z ZERO-EDGE TWIN of A
+  eval  2 fund  1 micros | 2024–26: pass  19% in   9d, payouts 0.05, CASH/eval $   31, no payout  96% | 2020–23: pass  23% CASH/eval $   27 | worse period $   27
+  eval  1 fund  1 micros | 2024–26: pass  37% in  26d, payouts 0.04, CASH/eval $   22, no payout  97% | 2020–23: pass  27% CASH/eval $   30 | worse period $   22
+  eval  3 fund  1 micros | 2024–26: pass  15% in  10d, payouts 0.05, CASH/eval $   27, no payout  96% | 2020–23: pass  17% CASH/eval $   17 | worse period $   17
+  eval  4 fund  1 micros | 2024–26: pass  12% in   8d, payouts 0.04, CASH/eval $   25, no payout  97% | 2020–23: pass  12% CASH/eval $   12 | worse period $   12
+== B ORB 15
+  eval  1 fund  1 micros | 2024–26: pass  52% in  30d, payouts 0.42, CASH/eval $  278, no payout  79% | 2020–23: pass  58% CASH/eval $  531 | worse period $  278
+  eval  2 fund  1 micros | 2024–26: pass  33% in  14d, payouts 0.32, CASH/eval $  206, no payout  85% | 2020–23: pass  42% CASH/eval $  362 | worse period $  206
+  eval  3 fund  1 micros | 2024–26: pass  23% in  10d, payouts 0.21, CASH/eval $  137, no payout  91% | 2020–23: pass  32% CASH/eval $  300 | worse period $  137
+  eval  4 fund  1 micros | 2024–26: pass  21% in   9d, payouts 0.19, CASH/eval $  124, no payout  92% | 2020–23: pass  26% CASH/eval $  260 | worse period $  124
+== C ORB 30 1R
+  eval  1 fund  1 micros | 2024–26: pass  50% in  28d, payouts 0.48, CASH/eval $  297, no payout  80% | 2020–23: pass  41% CASH/eval $  417 | worse period $  297
+  eval  2 fund  1 micros | 2024–26: pass  35% in   8d, payouts 0.28, CASH/eval $  170, no payout  87% | 2020–23: pass  35% CASH/eval $  371 | worse period $  170
+  eval  3 fund  1 micros | 2024–26: pass  32% in   5d, payouts 0.28, CASH/eval $  160, no payout  88% | 2020–23: pass  30% CASH/eval $  301 | worse period $  160
+  eval  4 fund  1 micros | 2024–26: pass  27% in   5d, payouts 0.25, CASH/eval $  138, no payout  90% | 2020–23: pass  24% CASH/eval $  235 | worse period $  138
+
+######## 25K PRO (40% consistency, profit goal, buffer) (assumed eval $100, target 1250, drawdown 1000)
+== A OPENING DRIVE
+  eval  4 fund  1 micros | 2024–26: pass  38% in   2d, payouts 0.29, CASH/eval $  222, no payout  83% | 2020–23: pass  37% CASH/eval $  256 | worse period $  222
+  eval  4 fund  2 micros | 2024–26: pass  38% in   2d, payouts 0.23, CASH/eval $  209, no payout  88% | 2020–23: pass  37% CASH/eval $  263 | worse period $  209
+  eval  5 fund  1 micros | 2024–26: pass  35% in   2d, payouts 0.26, CASH/eval $  200, no payout  85% | 2020–23: pass  33% CASH/eval $  222 | worse period $  200
+  eval  6 fund  1 micros | 2024–26: pass  32% in   1d, payouts 0.26, CASH/eval $  198, no payout  85% | 2020–23: pass  33% CASH/eval $  228 | worse period $  198
+== Z ZERO-EDGE TWIN of A
+  eval  5 fund  2 micros | 2024–26: pass  29% in   2d, payouts 0.06, CASH/eval $   52, no payout  95% | 2020–23: pass  27% CASH/eval $   50 | worse period $   50
+  eval  6 fund  2 micros | 2024–26: pass  26% in   1d, payouts 0.05, CASH/eval $   44, no payout  96% | 2020–23: pass  27% CASH/eval $   54 | worse period $   44
+  eval  3 fund  3 micros | 2024–26: pass  32% in   3d, payouts 0.05, CASH/eval $   46, no payout  97% | 2020–23: pass  30% CASH/eval $   44 | worse period $   44
+  eval  3 fund  2 micros | 2024–26: pass  32% in   3d, payouts 0.08, CASH/eval $   67, no payout  95% | 2020–23: pass  30% CASH/eval $   43 | worse period $   43
+== B ORB 15
+  eval  5 fund  1 micros | 2024–26: pass  36% in   2d, payouts 0.46, CASH/eval $  389, no payout  85% | 2020–23: pass  37% CASH/eval $  408 | worse period $  389
+  eval  2 fund  1 micros | 2024–26: pass  42% in   8d, payouts 0.45, CASH/eval $  387, no payout  83% | 2020–23: pass  48% CASH/eval $  484 | worse period $  387
+  eval  4 fund  1 micros | 2024–26: pass  39% in   2d, payouts 0.45, CASH/eval $  379, no payout  83% | 2020–23: pass  41% CASH/eval $  487 | worse period $  379
+  eval  6 fund  1 micros | 2024–26: pass  34% in   2d, payouts 0.45, CASH/eval $  375, no payout  85% | 2020–23: pass  35% CASH/eval $  402 | worse period $  375
+== C ORB 30 1R
+  eval  1 fund  1 micros | 2024–26: pass  51% in  28d, payouts 0.81, CASH/eval $  669, no payout  78% | 2020–23: pass  41% CASH/eval $  422 | worse period $  422
+  eval  2 fund  1 micros | 2024–26: pass  37% in   7d, payouts 0.46, CASH/eval $  369, no payout  85% | 2020–23: pass  37% CASH/eval $  386 | worse period $  369
+  eval  3 fund  1 micros | 2024–26: pass  38% in   4d, payouts 0.44, CASH/eval $  349, no payout  84% | 2020–23: pass  33% CASH/eval $  326 | worse period $  326
+  eval  5 fund  1 micros | 2024–26: pass  37% in   2d, payouts 0.49, CASH/eval $  385, no payout  83% | 2020–23: pass  32% CASH/eval $  317 | worse period $  317
+
+######## 50K FLEX (assumed eval $150, target 3000, drawdown 2000)
+== A OPENING DRIVE
+  eval  1 fund  1 micros | 2024–26: pass  75% in  93d, payouts 0.73, CASH/eval $  467, no payout  51% | 2020–23: pass  54% CASH/eval $  462 | worse period $  462
+  eval  2 fund  4 micros | 2024–26: pass  52% in  33d, payouts 0.26, CASH/eval $  451, no payout  87% | 2020–23: pass  48% CASH/eval $  496 | worse period $  451
+  eval  1 fund  3 micros | 2024–26: pass  75% in  93d, payouts 0.30, CASH/eval $  494, no payout  81% | 2020–23: pass  54% CASH/eval $  431 | worse period $  431
+  eval  1 fund  4 micros | 2024–26: pass  75% in  93d, payouts 0.53, CASH/eval $  957, no payout  81% | 2020–23: pass  54% CASH/eval $  410 | worse period $  410
+== Z ZERO-EDGE TWIN of A
+  eval  3 fund  6 micros | 2024–26: pass  23% in  15d, payouts 0.10, CASH/eval $  184, no payout  94% | 2020–23: pass  23% CASH/eval $  147 | worse period $  147
+  eval  4 fund  6 micros | 2024–26: pass  20% in  11d, payouts 0.10, CASH/eval $  177, no payout  95% | 2020–23: pass  21% CASH/eval $  147 | worse period $  147
+  eval  3 fund  5 micros | 2024–26: pass  23% in  15d, payouts 0.09, CASH/eval $  159, no payout  93% | 2020–23: pass  23% CASH/eval $  124 | worse period $  124
+  eval  4 fund  5 micros | 2024–26: pass  20% in  11d, payouts 0.08, CASH/eval $  142, no payout  94% | 2020–23: pass  21% CASH/eval $  124 | worse period $  124
+== B ORB 15
+  eval  1 fund  1 micros | 2024–26: pass  71% in  68d, payouts 0.99, CASH/eval $  646, no payout  32% | 2020–23: pass  58% CASH/eval $  608 | worse period $  608
+  eval  2 fund  1 micros | 2024–26: pass  50% in  36d, payouts 0.86, CASH/eval $  584, no payout  53% | 2020–23: pass  50% CASH/eval $  641 | worse period $  584
+  eval  1 fund  3 micros | 2024–26: pass  71% in  68d, payouts 0.42, CASH/eval $  583, no payout  72% | 2020–23: pass  58% CASH/eval $  598 | worse period $  583
+  eval  3 fund  6 micros | 2024–26: pass  42% in  23d, payouts 0.31, CASH/eval $  564, no payout  90% | 2020–23: pass  51% CASH/eval $  659 | worse period $  564
+== C ORB 30 1R
+  eval  2 fund  1 micros | 2024–26: pass  49% in  35d, payouts 0.68, CASH/eval $  458, no payout  57% | 2020–23: pass  38% CASH/eval $  307 | worse period $  307
+  eval  2 fund  2 micros | 2024–26: pass  49% in  35d, payouts 0.54, CASH/eval $  503, no payout  63% | 2020–23: pass  38% CASH/eval $  288 | worse period $  288
+  eval  1 fund  1 micros | 2024–26: pass  74% in  84d, payouts 0.98, CASH/eval $  714, no payout  32% | 2020–23: pass  43% CASH/eval $  285 | worse period $  285
+  eval  3 fund  5 micros | 2024–26: pass  38% in  16d, payouts 0.21, CASH/eval $  362, no payout  94% | 2020–23: pass  29% CASH/eval $  251 | worse period $  251
+
+######## 50K FLEX (payout from $3000) (assumed eval $150, target 3000, drawdown 2000)
+== A OPENING DRIVE
+  eval  1 fund  1 micros | 2024–26: pass  75% in  93d, payouts 0.39, CASH/eval $  557, no payout  78% | 2020–23: pass  54% CASH/eval $  819 | worse period $  557
+  eval  2 fund  4 micros | 2024–26: pass  52% in  33d, payouts 0.26, CASH/eval $  458, no payout  87% | 2020–23: pass  48% CASH/eval $  486 | worse period $  458
+  eval  3 fund  1 micros | 2024–26: pass  41% in  20d, payouts 0.58, CASH/eval $  836, no payout  70% | 2020–23: pass  39% CASH/eval $  441 | worse period $  441
+  eval  1 fund  3 micros | 2024–26: pass  75% in  93d, payouts 0.30, CASH/eval $  497, no payout  81% | 2020–23: pass  54% CASH/eval $  411 | worse period $  411
+== Z ZERO-EDGE TWIN of A
+  eval  3 fund  6 micros | 2024–26: pass  23% in  15d, payouts 0.10, CASH/eval $  184, no payout  94% | 2020–23: pass  23% CASH/eval $  147 | worse period $  147
+  eval  4 fund  6 micros | 2024–26: pass  20% in  11d, payouts 0.10, CASH/eval $  177, no payout  95% | 2020–23: pass  21% CASH/eval $  147 | worse period $  147
+  eval  3 fund  5 micros | 2024–26: pass  23% in  15d, payouts 0.09, CASH/eval $  159, no payout  93% | 2020–23: pass  23% CASH/eval $  123 | worse period $  123
+  eval  4 fund  5 micros | 2024–26: pass  20% in  11d, payouts 0.08, CASH/eval $  142, no payout  94% | 2020–23: pass  21% CASH/eval $  123 | worse period $  123
+== B ORB 15
+  eval  2 fund  1 micros | 2024–26: pass  50% in  36d, payouts 0.89, CASH/eval $ 1310, no payout  60% | 2020–23: pass  50% CASH/eval $ 1122 | worse period $ 1122
+  eval  1 fund  1 micros | 2024–26: pass  71% in  68d, payouts 0.80, CASH/eval $ 1183, no payout  62% | 2020–23: pass  58% CASH/eval $ 1052 | worse period $ 1052
+  eval  3 fund  1 micros | 2024–26: pass  42% in  23d, payouts 0.81, CASH/eval $ 1192, no payout  65% | 2020–23: pass  51% CASH/eval $  975 | worse period $  975
+  eval  3 fund  2 micros | 2024–26: pass  42% in  23d, payouts 0.45, CASH/eval $  712, no payout  77% | 2020–23: pass  51% CASH/eval $ 1062 | worse period $  712
+== C ORB 30 1R
+  eval  1 fund  1 micros | 2024–26: pass  74% in  84d, payouts 0.91, CASH/eval $ 1324, no payout  47% | 2020–23: pass  43% CASH/eval $  938 | worse period $  938
+  eval  3 fund  1 micros | 2024–26: pass  38% in  16d, payouts 0.68, CASH/eval $  993, no payout  72% | 2020–23: pass  29% CASH/eval $  813 | worse period $  813
+  eval  2 fund  1 micros | 2024–26: pass  49% in  35d, payouts 0.71, CASH/eval $ 1047, no payout  64% | 2020–23: pass  38% CASH/eval $  793 | worse period $  793
+  eval  2 fund  2 micros | 2024–26: pass  49% in  35d, payouts 0.45, CASH/eval $  707, no payout  78% | 2020–23: pass  38% CASH/eval $  748 | worse period $  707
+
+######## 50K DAILY (daily payouts, intraday trailing when funded) (assumed eval $195, target 3000, drawdown 2000)
+== A OPENING DRIVE
+  eval  1 fund  1 micros | 2024–26: pass  75% in  93d, payouts 0.85, CASH/eval $  539, no payout  75% | 2020–23: pass  54% CASH/eval $  792 | worse period $  539
+  eval  1 fund  2 micros | 2024–26: pass  75% in  93d, payouts 0.81, CASH/eval $  668, no payout  81% | 2020–23: pass  54% CASH/eval $  458 | worse period $  458
+  eval  3 fund  1 micros | 2024–26: pass  41% in  20d, payouts 1.17, CASH/eval $  770, no payout  68% | 2020–23: pass  39% CASH/eval $  430 | worse period $  430
+  eval  2 fund  1 micros | 2024–26: pass  52% in  33d, payouts 1.28, CASH/eval $  837, no payout  63% | 2020–23: pass  48% CASH/eval $  378 | worse period $  378
+== Z ZERO-EDGE TWIN of A
+  eval  3 fund  3 micros | 2024–26: pass  23% in  15d, payouts 0.09, CASH/eval $   98, no payout  95% | 2020–23: pass  23% CASH/eval $   72 | worse period $   72
+  eval  4 fund  3 micros | 2024–26: pass  20% in  11d, payouts 0.09, CASH/eval $   94, no payout  96% | 2020–23: pass  21% CASH/eval $   72 | worse period $   72
+  eval  3 fund  2 micros | 2024–26: pass  23% in  15d, payouts 0.12, CASH/eval $   70, no payout  93% | 2020–23: pass  23% CASH/eval $   73 | worse period $   70
+  eval  4 fund  2 micros | 2024–26: pass  20% in  11d, payouts 0.11, CASH/eval $   71, no payout  94% | 2020–23: pass  21% CASH/eval $   68 | worse period $   68
+== B ORB 15
+  eval  1 fund  1 micros | 2024–26: pass  71% in  68d, payouts 1.70, CASH/eval $ 1189, no payout  57% | 2020–23: pass  58% CASH/eval $  971 | worse period $  971
+  eval  2 fund  1 micros | 2024–26: pass  50% in  36d, payouts 2.44, CASH/eval $ 1662, no payout  58% | 2020–23: pass  50% CASH/eval $  958 | worse period $  958
+  eval  3 fund  1 micros | 2024–26: pass  42% in  23d, payouts 2.28, CASH/eval $ 1520, no payout  64% | 2020–23: pass  51% CASH/eval $  821 | worse period $  821
+  eval  4 fund  1 micros | 2024–26: pass  33% in  15d, payouts 1.52, CASH/eval $ 1029, no payout  74% | 2020–23: pass  43% CASH/eval $  661 | worse period $  661
+== C ORB 30 1R
+  eval  1 fund  1 micros | 2024–26: pass  74% in  84d, payouts 1.69, CASH/eval $ 1300, no payout  39% | 2020–23: pass  43% CASH/eval $ 1229 | worse period $ 1229
+  eval  2 fund  1 micros | 2024–26: pass  49% in  35d, payouts 1.86, CASH/eval $ 1445, no payout  63% | 2020–23: pass  38% CASH/eval $ 1034 | worse period $ 1034
+  eval  3 fund  1 micros | 2024–26: pass  38% in  16d, payouts 1.50, CASH/eval $ 1150, no payout  72% | 2020–23: pass  29% CASH/eval $  944 | worse period $  944
+  eval  5 fund  1 micros | 2024–26: pass  31% in   7d, payouts 1.28, CASH/eval $  967, no payout  76% | 2020–23: pass  30% CASH/eval $  772 | worse period $  772
+
+######## 50K PRO (40% consistency, profit goal, buffer) (assumed eval $150, target 3000, drawdown 2000)
+== A OPENING DRIVE
+  eval  4 fund  1 micros | 2024–26: pass  39% in   9d, payouts 0.51, CASH/eval $  572, no payout  72% | 2020–23: pass  39% CASH/eval $  526 | worse period $  526
+  eval  1 fund  1 micros | 2024–26: pass  75% in  93d, payouts 0.45, CASH/eval $  499, no payout  75% | 2020–23: pass  54% CASH/eval $  660 | worse period $  499
+  eval 10 fund  1 micros | 2024–26: pass  32% in   2d, payouts 0.45, CASH/eval $  510, no payout  75% | 2020–23: pass  32% CASH/eval $  473 | worse period $  473
+  eval  1 fund  3 micros | 2024–26: pass  75% in  93d, payouts 0.26, CASH/eval $  468, no payout  90% | 2020–23: pass  54% CASH/eval $  732 | worse period $  468
+== Z ZERO-EDGE TWIN of A
+  eval 10 fund  3 micros | 2024–26: pass  27% in   2d, payouts 0.06, CASH/eval $  105, no payout  95% | 2020–23: pass  23% CASH/eval $   97 | worse period $   97
+  eval 10 fund  4 micros | 2024–26: pass  27% in   2d, payouts 0.06, CASH/eval $  100, no payout  96% | 2020–23: pass  23% CASH/eval $   94 | worse period $   94
+  eval 10 fund  5 micros | 2024–26: pass  27% in   2d, payouts 0.05, CASH/eval $   88, no payout  96% | 2020–23: pass  23% CASH/eval $   76 | worse period $   76
+  eval  8 fund  3 micros | 2024–26: pass  28% in   2d, payouts 0.07, CASH/eval $  126, no payout  94% | 2020–23: pass  22% CASH/eval $   76 | worse period $   76
+== B ORB 15
+  eval  2 fund  1 micros | 2024–26: pass  51% in  36d, payouts 1.04, CASH/eval $ 1334, no payout  58% | 2020–23: pass  50% CASH/eval $ 1258 | worse period $ 1258
+  eval  3 fund  1 micros | 2024–26: pass  45% in  21d, payouts 1.01, CASH/eval $ 1274, no payout  62% | 2020–23: pass  52% CASH/eval $ 1027 | worse period $ 1027
+  eval  3 fund  2 micros | 2024–26: pass  45% in  21d, payouts 0.58, CASH/eval $  953, no payout  78% | 2020–23: pass  52% CASH/eval $ 1023 | worse period $  953
+  eval  4 fund  1 micros | 2024–26: pass  38% in  10d, payouts 0.76, CASH/eval $  973, no payout  70% | 2020–23: pass  45% CASH/eval $  951 | worse period $  951
+== C ORB 30 1R
+  eval  1 fund  1 micros | 2024–26: pass  74% in  84d, payouts 1.33, CASH/eval $ 1755, no payout  54% | 2020–23: pass  43% CASH/eval $  879 | worse period $  879
+  eval  3 fund  1 micros | 2024–26: pass  39% in  16d, payouts 1.29, CASH/eval $ 1831, no payout  73% | 2020–23: pass  30% CASH/eval $  768 | worse period $  768
+  eval  2 fund  1 micros | 2024–26: pass  49% in  34d, payouts 1.44, CASH/eval $ 2020, no payout  64% | 2020–23: pass  38% CASH/eval $  768 | worse period $  768
+  eval  2 fund  2 micros | 2024–26: pass  49% in  34d, payouts 0.52, CASH/eval $  808, no payout  82% | 2020–23: pass  38% CASH/eval $  731 | worse period $  731
+
+######## 100K FLEX (assumed eval $250, target 6000, drawdown 3000)
+== A OPENING DRIVE
+  eval  2 fund  5 micros | 2024–26: pass  57% in  85d, payouts 0.53, CASH/eval $ 1192, no payout  81% | 2020–23: pass  54% CASH/eval $  654 | worse period $  654
+  eval  1 fund 10 micros | 2024–26: pass  58% in 223d, payouts 0.26, CASH/eval $  585, no payout  91% | 2020–23: pass  62% CASH/eval $  756 | worse period $  585
+  eval  2 fund  2 micros | 2024–26: pass  57% in  85d, payouts 0.54, CASH/eval $  559, no payout  61% | 2020–23: pass  54% CASH/eval $  619 | worse period $  559
+  eval  2 fund  4 micros | 2024–26: pass  57% in  85d, payouts 0.32, CASH/eval $  654, no payout  80% | 2020–23: pass  54% CASH/eval $  543 | worse period $  543
+== Z ZERO-EDGE TWIN of A
+  eval  6 fund  8 micros | 2024–26: pass  18% in  13d, payouts 0.10, CASH/eval $  214, no payout  95% | 2020–23: pass  18% CASH/eval $  168 | worse period $  168
+  eval  6 fund 10 micros | 2024–26: pass  18% in  13d, payouts 0.10, CASH/eval $  214, no payout  95% | 2020–23: pass  18% CASH/eval $  144 | worse period $  144
+  eval  6 fund  5 micros | 2024–26: pass  18% in  13d, payouts 0.08, CASH/eval $  172, no payout  94% | 2020–23: pass  18% CASH/eval $  137 | worse period $  137
+  eval  6 fund  6 micros | 2024–26: pass  18% in  13d, payouts 0.08, CASH/eval $  181, no payout  94% | 2020–23: pass  18% CASH/eval $  135 | worse period $  135
+== B ORB 15
+  eval  1 fund  4 micros | 2024–26: pass  56% in 186d, payouts 0.64, CASH/eval $ 1215, no payout  68% | 2020–23: pass  86% CASH/eval $ 1682 | worse period $ 1215
+  eval  1 fund  3 micros | 2024–26: pass  56% in 186d, payouts 0.65, CASH/eval $ 1114, no payout  66% | 2020–23: pass  86% CASH/eval $ 1694 | worse period $ 1114
+  eval  1 fund  2 micros | 2024–26: pass  56% in 186d, payouts 0.72, CASH/eval $  939, no payout  56% | 2020–23: pass  86% CASH/eval $ 1124 | worse period $  939
+  eval  4 fund  3 micros | 2024–26: pass  42% in  35d, payouts 0.44, CASH/eval $  730, no payout  76% | 2020–23: pass  45% CASH/eval $  800 | worse period $  730
+== C ORB 30 1R
+  eval  1 fund  1 micros | 2024–26: pass  78% in 177d, payouts 0.75, CASH/eval $  583, no payout  54% | 2020–23: pass  61% CASH/eval $  542 | worse period $  542
+  eval  2 fund  1 micros | 2024–26: pass  57% in  77d, payouts 0.78, CASH/eval $  522, no payout  49% | 2020–23: pass  35% CASH/eval $  564 | worse period $  522
+  eval  1 fund  3 micros | 2024–26: pass  78% in 177d, payouts 0.52, CASH/eval $  757, no payout  63% | 2020–23: pass  61% CASH/eval $  407 | worse period $  407
+  eval  3 fund  1 micros | 2024–26: pass  46% in  44d, payouts 0.77, CASH/eval $  518, no payout  57% | 2020–23: pass  35% CASH/eval $  382 | worse period $  382
+
+######## 100K FLEX (payout from $4500) (assumed eval $250, target 6000, drawdown 3000)
+== A OPENING DRIVE
+  eval  2 fund  2 micros | 2024–26: pass  57% in  85d, payouts 0.47, CASH/eval $ 1038, no payout  81% | 2020–23: pass  54% CASH/eval $ 1232 | worse period $ 1038
+  eval  5 fund  2 micros | 2024–26: pass  38% in  22d, payouts 0.51, CASH/eval $ 1104, no payout  82% | 2020–23: pass  34% CASH/eval $  717 | worse period $  717
+  eval  6 fund  2 micros | 2024–26: pass  30% in  16d, payouts 0.39, CASH/eval $  852, no payout  83% | 2020–23: pass  31% CASH/eval $  704 | worse period $  704
+  eval  4 fund  2 micros | 2024–26: pass  39% in  27d, payouts 0.46, CASH/eval $ 1012, no payout  85% | 2020–23: pass  39% CASH/eval $  696 | worse period $  696
+== Z ZERO-EDGE TWIN of A
+  eval  6 fund  8 micros | 2024–26: pass  18% in  13d, payouts 0.10, CASH/eval $  214, no payout  95% | 2020–23: pass  18% CASH/eval $  169 | worse period $  169
+  eval  6 fund  6 micros | 2024–26: pass  18% in  13d, payouts 0.08, CASH/eval $  186, no payout  94% | 2020–23: pass  18% CASH/eval $  160 | worse period $  160
+  eval  6 fund 10 micros | 2024–26: pass  18% in  13d, payouts 0.10, CASH/eval $  214, no payout  95% | 2020–23: pass  18% CASH/eval $  144 | worse period $  144
+  eval  5 fund  6 micros | 2024–26: pass  22% in  17d, payouts 0.08, CASH/eval $  180, no payout  94% | 2020–23: pass  18% CASH/eval $  123 | worse period $  123
+== B ORB 15
+  eval  1 fund  4 micros | 2024–26: pass  56% in 186d, payouts 0.61, CASH/eval $ 1359, no payout  68% | 2020–23: pass  86% CASH/eval $ 1472 | worse period $ 1359
+  eval  4 fund  2 micros | 2024–26: pass  42% in  35d, payouts 0.59, CASH/eval $ 1281, no payout  75% | 2020–23: pass  45% CASH/eval $ 1317 | worse period $ 1281
+  eval  1 fund  3 micros | 2024–26: pass  56% in 186d, payouts 0.51, CASH/eval $ 1149, no payout  74% | 2020–23: pass  86% CASH/eval $ 1805 | worse period $ 1149
+  eval  3 fund  1 micros | 2024–26: pass  47% in  49d, payouts 0.52, CASH/eval $ 1102, no payout  68% | 2020–23: pass  44% CASH/eval $ 1818 | worse period $ 1102
+== C ORB 30 1R
+  eval  2 fund  1 micros | 2024–26: pass  57% in  77d, payouts 0.57, CASH/eval $ 1215, no payout  70% | 2020–23: pass  35% CASH/eval $ 1183 | worse period $ 1183
+  eval  3 fund  1 micros | 2024–26: pass  46% in  44d, payouts 0.63, CASH/eval $ 1347, no payout  66% | 2020–23: pass  35% CASH/eval $ 1122 | worse period $ 1122
+  eval  2 fund  2 micros | 2024–26: pass  57% in  77d, payouts 0.68, CASH/eval $ 1489, no payout  65% | 2020–23: pass  35% CASH/eval $ 1060 | worse period $ 1060
+  eval  4 fund  1 micros | 2024–26: pass  42% in  34d, payouts 0.68, CASH/eval $ 1447, no payout  65% | 2020–23: pass  27% CASH/eval $  926 | worse period $  926
+
+######## 100K DAILY (daily payouts, intraday trailing when funded) (assumed eval $325, target 6000, drawdown 3000)
+== A OPENING DRIVE
+  eval  2 fund  2 micros | 2024–26: pass  57% in  85d, payouts 1.05, CASH/eval $  884, no payout  81% | 2020–23: pass  54% CASH/eval $ 1351 | worse period $  884
+  eval  1 fund  2 micros | 2024–26: pass  58% in 223d, payouts 1.13, CASH/eval $  951, no payout  72% | 2020–23: pass  62% CASH/eval $  759 | worse period $  759
+  eval  5 fund  2 micros | 2024–26: pass  38% in  22d, payouts 1.12, CASH/eval $  922, no payout  83% | 2020–23: pass  34% CASH/eval $  740 | worse period $  740
+  eval  4 fund  2 micros | 2024–26: pass  39% in  27d, payouts 1.02, CASH/eval $  864, no payout  86% | 2020–23: pass  39% CASH/eval $  733 | worse period $  733
+== Z ZERO-EDGE TWIN of A
+  eval  6 fund  3 micros | 2024–26: pass  18% in  13d, payouts 0.13, CASH/eval $  113, no payout  94% | 2020–23: pass  18% CASH/eval $  101 | worse period $  101
+  eval  5 fund  3 micros | 2024–26: pass  22% in  17d, payouts 0.12, CASH/eval $   96, no payout  94% | 2020–23: pass  18% CASH/eval $   89 | worse period $   89
+  eval  6 fund  4 micros | 2024–26: pass  18% in  13d, payouts 0.12, CASH/eval $  145, no payout  94% | 2020–23: pass  18% CASH/eval $   84 | worse period $   84
+  eval  6 fund  5 micros | 2024–26: pass  18% in  13d, payouts 0.09, CASH/eval $  150, no payout  96% | 2020–23: pass  18% CASH/eval $   75 | worse period $   75
+== B ORB 15
+  eval  3 fund  1 micros | 2024–26: pass  47% in  49d, payouts 1.57, CASH/eval $ 1098, no payout  64% | 2020–23: pass  44% CASH/eval $ 1966 | worse period $ 1098
+  eval  4 fund  1 micros | 2024–26: pass  42% in  35d, payouts 1.55, CASH/eval $ 1061, no payout  67% | 2020–23: pass  45% CASH/eval $ 2256 | worse period $ 1061
+  eval  5 fund  1 micros | 2024–26: pass  34% in  25d, payouts 1.29, CASH/eval $  884, no payout  73% | 2020–23: pass  45% CASH/eval $ 2222 | worse period $  884
+  eval  2 fund  1 micros | 2024–26: pass  54% in  64d, payouts 1.09, CASH/eval $  807, no payout  69% | 2020–23: pass  53% CASH/eval $ 1901 | worse period $  807
+== C ORB 30 1R
+  eval  3 fund  2 micros | 2024–26: pass  46% in  44d, payouts 2.72, CASH/eval $ 2343, no payout  69% | 2020–23: pass  35% CASH/eval $ 1869 | worse period $ 1869
+  eval  4 fund  2 micros | 2024–26: pass  42% in  34d, payouts 3.05, CASH/eval $ 2563, no payout  71% | 2020–23: pass  27% CASH/eval $ 1811 | worse period $ 1811
+  eval  5 fund  2 micros | 2024–26: pass  31% in  21d, payouts 2.19, CASH/eval $ 1857, no payout  79% | 2020–23: pass  26% CASH/eval $ 1677 | worse period $ 1677
+  eval  2 fund  2 micros | 2024–26: pass  57% in  77d, payouts 1.95, CASH/eval $ 1640, no payout  69% | 2020–23: pass  35% CASH/eval $ 2208 | worse period $ 1640
+
+######## 100K PRO (40% consistency, profit goal, buffer) (assumed eval $250, target 6000, drawdown 3000)
+== A OPENING DRIVE
+  eval  2 fund  2 micros | 2024–26: pass  57% in  85d, payouts 0.44, CASH/eval $  800, no payout  81% | 2020–23: pass  54% CASH/eval $ 1360 | worse period $  800
+  eval  4 fund  2 micros | 2024–26: pass  40% in  27d, payouts 0.43, CASH/eval $  741, no payout  83% | 2020–23: pass  39% CASH/eval $  721 | worse period $  721
+  eval 10 fund  2 micros | 2024–26: pass  31% in   6d, payouts 0.42, CASH/eval $  700, no payout  82% | 2020–23: pass  31% CASH/eval $  787 | worse period $  700
+  eval  5 fund  2 micros | 2024–26: pass  41% in  21d, payouts 0.47, CASH/eval $  775, no payout  80% | 2020–23: pass  35% CASH/eval $  699 | worse period $  699
+== Z ZERO-EDGE TWIN of A
+  eval 10 fund 10 micros | 2024–26: pass  23% in   4d, payouts 0.04, CASH/eval $   85, no payout  98% | 2020–23: pass  21% CASH/eval $   74 | worse period $   74
+  eval 10 fund  8 micros | 2024–26: pass  23% in   4d, payouts 0.04, CASH/eval $   83, no payout  98% | 2020–23: pass  21% CASH/eval $   72 | worse period $   72
+  eval  6 fund  4 micros | 2024–26: pass  21% in  11d, payouts 0.03, CASH/eval $   71, no payout  98% | 2020–23: pass  19% CASH/eval $   74 | worse period $   71
+  eval 10 fund  5 micros | 2024–26: pass  23% in   4d, payouts 0.06, CASH/eval $  127, no payout  96% | 2020–23: pass  21% CASH/eval $   69 | worse period $   69
+== B ORB 15
+  eval  4 fund  2 micros | 2024–26: pass  42% in  35d, payouts 0.57, CASH/eval $  999, no payout  76% | 2020–23: pass  45% CASH/eval $ 1165 | worse period $  999
+  eval  3 fund  1 micros | 2024–26: pass  48% in  48d, payouts 0.70, CASH/eval $  983, no payout  64% | 2020–23: pass  44% CASH/eval $ 1806 | worse period $  983
+  eval  4 fund  1 micros | 2024–26: pass  42% in  35d, payouts 0.69, CASH/eval $  977, no payout  67% | 2020–23: pass  45% CASH/eval $ 2087 | worse period $  977
+  eval  5 fund  2 micros | 2024–26: pass  35% in  23d, payouts 0.53, CASH/eval $  956, no payout  80% | 2020–23: pass  45% CASH/eval $ 1079 | worse period $  956
+== C ORB 30 1R
+  eval  2 fund  2 micros | 2024–26: pass  57% in  77d, payouts 0.84, CASH/eval $ 1455, no payout  70% | 2020–23: pass  35% CASH/eval $ 1222 | worse period $ 1222
+  eval  3 fund  2 micros | 2024–26: pass  46% in  44d, payouts 1.16, CASH/eval $ 2130, no payout  69% | 2020–23: pass  35% CASH/eval $ 1072 | worse period $ 1072
+  eval  4 fund  2 micros | 2024–26: pass  42% in  34d, payouts 1.25, CASH/eval $ 2310, no payout  71% | 2020–23: pass  27% CASH/eval $ 1021 | worse period $ 1021
+  eval  5 fund  2 micros | 2024–26: pass  32% in  21d, payouts 1.05, CASH/eval $ 1998, no payout  79% | 2020–23: pass  26% CASH/eval $ 1019 | worse period $ 1019
+
+######## 150K FLEX (assumed eval $350, target 9000, drawdown 4500)
+== A OPENING DRIVE
+  eval  3 fund  8 micros | 2024–26: pass  57% in  85d, payouts 0.54, CASH/eval $ 1446, no payout  81% | 2020–23: pass  55% CASH/eval $  948 | worse period $  948
+  eval  2 fund  1 micros | 2024–26: pass  55% in 149d, payouts 1.23, CASH/eval $  902, no payout  45% | 2020–23: pass  74% CASH/eval $  871 | worse period $  871
+  eval  2 fund  4 micros | 2024–26: pass  55% in 149d, payouts 0.51, CASH/eval $  866, no payout  59% | 2020–23: pass  74% CASH/eval $  889 | worse period $  866
+  eval  2 fund 10 micros | 2024–26: pass  55% in 149d, payouts 0.30, CASH/eval $  804, no payout  88% | 2020–23: pass  74% CASH/eval $ 1372 | worse period $  804
+== Z ZERO-EDGE TWIN of A
+  eval  8 fund  8 micros | 2024–26: pass  22% in  16d, payouts 0.11, CASH/eval $  285, no payout  94% | 2020–23: pass  20% CASH/eval $  181 | worse period $  181
+  eval  8 fund 10 micros | 2024–26: pass  22% in  16d, payouts 0.11, CASH/eval $  289, no payout  94% | 2020–23: pass  20% CASH/eval $  173 | worse period $  173
+  eval  8 fund  6 micros | 2024–26: pass  22% in  16d, payouts 0.09, CASH/eval $  215, no payout  94% | 2020–23: pass  20% CASH/eval $  171 | worse period $  171
+  eval 10 fund  6 micros | 2024–26: pass  17% in  12d, payouts 0.09, CASH/eval $  213, no payout  95% | 2020–23: pass  18% CASH/eval $  147 | worse period $  147
+== B ORB 15
+  eval  2 fund  3 micros | 2024–26: pass  71% in 104d, payouts 0.59, CASH/eval $  932, no payout  57% | 2020–23: pass  83% CASH/eval $  935 | worse period $  932
+  eval  6 fund  4 micros | 2024–26: pass  42% in  35d, payouts 0.44, CASH/eval $  924, no payout  76% | 2020–23: pass  46% CASH/eval $ 1080 | worse period $  924
+  eval  6 fund  6 micros | 2024–26: pass  42% in  35d, payouts 0.39, CASH/eval $  920, no payout  81% | 2020–23: pass  46% CASH/eval $ 1311 | worse period $  920
+  eval  5 fund  6 micros | 2024–26: pass  47% in  44d, payouts 0.37, CASH/eval $  910, no payout  83% | 2020–23: pass  45% CASH/eval $ 1166 | worse period $  910
+== C ORB 30 1R
+  eval  3 fund  1 micros | 2024–26: pass  58% in  77d, payouts 1.07, CASH/eval $  800, no payout  44% | 2020–23: pass  35% CASH/eval $  832 | worse period $  800
+  eval  2 fund  1 micros | 2024–26: pass  84% in 119d, payouts 1.53, CASH/eval $ 1167, no payout  19% | 2020–23: pass  49% CASH/eval $  628 | worse period $  628
+  eval  6 fund  1 micros | 2024–26: pass  42% in  34d, payouts 0.84, CASH/eval $  626, no payout  58% | 2020–23: pass  28% CASH/eval $  652 | worse period $  626
+  eval  5 fund  1 micros | 2024–26: pass  44% in  41d, payouts 0.83, CASH/eval $  610, no payout  57% | 2020–23: pass  32% CASH/eval $  773 | worse period $  610
+
+######## 150K FLEX (payout from $6000) (assumed eval $350, target 9000, drawdown 4500)
+== A OPENING DRIVE
+  eval  3 fund  3 micros | 2024–26: pass  57% in  85d, payouts 0.55, CASH/eval $ 1495, no payout  81% | 2020–23: pass  55% CASH/eval $ 1991 | worse period $ 1495
+  eval  3 fund  4 micros | 2024–26: pass  57% in  85d, payouts 0.51, CASH/eval $ 1371, no payout  72% | 2020–23: pass  55% CASH/eval $ 1485 | worse period $ 1371
+  eval  5 fund  2 micros | 2024–26: pass  48% in  38d, payouts 0.52, CASH/eval $ 1398, no payout  69% | 2020–23: pass  43% CASH/eval $ 1331 | worse period $ 1331
+  eval  6 fund  2 micros | 2024–26: pass  39% in  27d, payouts 0.50, CASH/eval $ 1345, no payout  73% | 2020–23: pass  39% CASH/eval $ 1320 | worse period $ 1320
+== Z ZERO-EDGE TWIN of A
+  eval  8 fund  8 micros | 2024–26: pass  22% in  16d, payouts 0.11, CASH/eval $  289, no payout  94% | 2020–23: pass  20% CASH/eval $  236 | worse period $  236
+  eval  8 fund 10 micros | 2024–26: pass  22% in  16d, payouts 0.11, CASH/eval $  289, no payout  94% | 2020–23: pass  20% CASH/eval $  173 | worse period $  173
+  eval  6 fund  8 micros | 2024–26: pass  24% in  23d, payouts 0.07, CASH/eval $  193, no payout  96% | 2020–23: pass  13% CASH/eval $  169 | worse period $  169
+  eval 10 fund  8 micros | 2024–26: pass  17% in  12d, payouts 0.11, CASH/eval $  289, no payout  95% | 2020–23: pass  18% CASH/eval $  169 | worse period $  169
+== B ORB 15
+  eval  6 fund  2 micros | 2024–26: pass  42% in  35d, payouts 0.82, CASH/eval $ 2207, no payout  66% | 2020–23: pass  46% CASH/eval $ 2520 | worse period $ 2207
+  eval  4 fund  2 micros | 2024–26: pass  47% in  53d, payouts 0.88, CASH/eval $ 2363, no payout  64% | 2020–23: pass  45% CASH/eval $ 2191 | worse period $ 2191
+  eval  5 fund  2 micros | 2024–26: pass  47% in  44d, payouts 0.98, CASH/eval $ 2657, no payout  62% | 2020–23: pass  45% CASH/eval $ 2179 | worse period $ 2179
+  eval  3 fund  2 micros | 2024–26: pass  54% in  64d, payouts 0.77, CASH/eval $ 2084, no payout  66% | 2020–23: pass  53% CASH/eval $ 2176 | worse period $ 2084
+== C ORB 30 1R
+  eval  3 fund  2 micros | 2024–26: pass  58% in  77d, payouts 0.84, CASH/eval $ 2275, no payout  54% | 2020–23: pass  35% CASH/eval $ 1906 | worse period $ 1906
+  eval  3 fund  3 micros | 2024–26: pass  58% in  77d, payouts 0.76, CASH/eval $ 2063, no payout  63% | 2020–23: pass  35% CASH/eval $ 1574 | worse period $ 1574
+  eval  4 fund  2 micros | 2024–26: pass  48% in  51d, payouts 0.87, CASH/eval $ 2346, no payout  59% | 2020–23: pass  34% CASH/eval $ 1523 | worse period $ 1523
+  eval  6 fund  2 micros | 2024–26: pass  42% in  34d, payouts 0.90, CASH/eval $ 2442, no payout  63% | 2020–23: pass  28% CASH/eval $ 1520 | worse period $ 1520
+
+######## 150K DAILY (daily payouts, intraday trailing when funded) (assumed eval $455, target 9000, drawdown 4500)
+== A OPENING DRIVE
+  eval  3 fund  3 micros | 2024–26: pass  57% in  85d, payouts 1.17, CASH/eval $ 1379, no payout  72% | 2020–23: pass  55% CASH/eval $ 2038 | worse period $ 1379
+  eval  5 fund  2 micros | 2024–26: pass  48% in  38d, payouts 1.66, CASH/eval $ 1310, no payout  67% | 2020–23: pass  43% CASH/eval $ 1294 | worse period $ 1294
+  eval  6 fund  2 micros | 2024–26: pass  39% in  27d, payouts 1.53, CASH/eval $ 1225, no payout  71% | 2020–23: pass  39% CASH/eval $ 1315 | worse period $ 1225
+  eval  4 fund  2 micros | 2024–26: pass  52% in  51d, payouts 1.54, CASH/eval $ 1184, no payout  66% | 2020–23: pass  39% CASH/eval $ 1168 | worse period $ 1168
+== Z ZERO-EDGE TWIN of A
+  eval  8 fund  5 micros | 2024–26: pass  22% in  16d, payouts 0.17, CASH/eval $  226, no payout  94% | 2020–23: pass  20% CASH/eval $  155 | worse period $  155
+  eval  5 fund  5 micros | 2024–26: pass  23% in  29d, payouts 0.15, CASH/eval $  167, no payout  95% | 2020–23: pass  10% CASH/eval $  141 | worse period $  141
+  eval  8 fund  4 micros | 2024–26: pass  22% in  16d, payouts 0.20, CASH/eval $  223, no payout  93% | 2020–23: pass  20% CASH/eval $  116 | worse period $  116
+  eval  8 fund  6 micros | 2024–26: pass  22% in  16d, payouts 0.12, CASH/eval $  205, no payout  94% | 2020–23: pass  20% CASH/eval $  113 | worse period $  113
+== B ORB 15
+  eval  6 fund  2 micros | 2024–26: pass  42% in  35d, payouts 2.97, CASH/eval $ 2606, no payout  65% | 2020–23: pass  46% CASH/eval $ 2281 | worse period $ 2281
+  eval  8 fund  2 micros | 2024–26: pass  34% in  23d, payouts 2.51, CASH/eval $ 2177, no payout  72% | 2020–23: pass  43% CASH/eval $ 2156 | worse period $ 2156
+  eval  3 fund  2 micros | 2024–26: pass  54% in  64d, payouts 2.16, CASH/eval $ 2130, no payout  63% | 2020–23: pass  53% CASH/eval $ 2113 | worse period $ 2113
+  eval  5 fund  2 micros | 2024–26: pass  47% in  44d, payouts 3.26, CASH/eval $ 2916, no payout  60% | 2020–23: pass  45% CASH/eval $ 2088 | worse period $ 2088
+== C ORB 30 1R
+  eval  3 fund  2 micros | 2024–26: pass  58% in  77d, payouts 2.67, CASH/eval $ 2370, no payout  51% | 2020–23: pass  35% CASH/eval $ 2110 | worse period $ 2110
+  eval  5 fund  2 micros | 2024–26: pass  44% in  41d, payouts 2.89, CASH/eval $ 2508, no payout  66% | 2020–23: pass  32% CASH/eval $ 1806 | worse period $ 1806
+  eval  4 fund  2 micros | 2024–26: pass  48% in  51d, payouts 2.70, CASH/eval $ 2354, no payout  63% | 2020–23: pass  34% CASH/eval $ 1752 | worse period $ 1752
+  eval  6 fund  2 micros | 2024–26: pass  42% in  34d, payouts 2.94, CASH/eval $ 2552, no payout  68% | 2020–23: pass  28% CASH/eval $ 1686 | worse period $ 1686
+
+######## 150K PRO (40% consistency, profit goal, buffer) (assumed eval $350, target 9000, drawdown 4500)
+== A OPENING DRIVE
+  eval  3 fund  4 micros | 2024–26: pass  57% in  85d, payouts 0.46, CASH/eval $ 1218, no payout  81% | 2020–23: pass  55% CASH/eval $ 1089 | worse period $ 1089
+  eval  3 fund  3 micros | 2024–26: pass  57% in  85d, payouts 0.46, CASH/eval $ 1033, no payout  81% | 2020–23: pass  55% CASH/eval $ 1794 | worse period $ 1033
+  eval  6 fund  3 micros | 2024–26: pass  40% in  27d, payouts 0.44, CASH/eval $  932, no payout  83% | 2020–23: pass  39% CASH/eval $  968 | worse period $  932
+  eval  5 fund  3 micros | 2024–26: pass  48% in  38d, payouts 0.43, CASH/eval $  925, no payout  83% | 2020–23: pass  43% CASH/eval $  903 | worse period $  903
+== Z ZERO-EDGE TWIN of A
+  eval  8 fund  5 micros | 2024–26: pass  25% in  14d, payouts 0.03, CASH/eval $   85, no payout  98% | 2020–23: pass  20% CASH/eval $   79 | worse period $   79
+  eval  8 fund  6 micros | 2024–26: pass  25% in  14d, payouts 0.03, CASH/eval $   75, no payout  98% | 2020–23: pass  20% CASH/eval $   86 | worse period $   75
+  eval  8 fund  8 micros | 2024–26: pass  25% in  14d, payouts 0.03, CASH/eval $   75, no payout  98% | 2020–23: pass  20% CASH/eval $   93 | worse period $   75
+  eval  8 fund 10 micros | 2024–26: pass  25% in  14d, payouts 0.03, CASH/eval $   78, no payout  98% | 2020–23: pass  20% CASH/eval $   70 | worse period $   70
+== B ORB 15
+  eval  5 fund  2 micros | 2024–26: pass  48% in  43d, payouts 1.00, CASH/eval $ 1931, no payout  60% | 2020–23: pass  45% CASH/eval $ 2695 | worse period $ 1931
+  eval  6 fund  2 micros | 2024–26: pass  42% in  35d, payouts 0.89, CASH/eval $ 1758, no payout  65% | 2020–23: pass  46% CASH/eval $ 2820 | worse period $ 1758
+  eval  4 fund  2 micros | 2024–26: pass  48% in  53d, payouts 0.91, CASH/eval $ 1729, no payout  61% | 2020–23: pass  45% CASH/eval $ 2202 | worse period $ 1729
+  eval  8 fund  2 micros | 2024–26: pass  36% in  21d, payouts 0.81, CASH/eval $ 1624, no payout  71% | 2020–23: pass  43% CASH/eval $ 2255 | worse period $ 1624
+== C ORB 30 1R
+  eval  5 fund  3 micros | 2024–26: pass  44% in  41d, payouts 1.27, CASH/eval $ 2810, no payout  70% | 2020–23: pass  32% CASH/eval $ 1562 | worse period $ 1562
+  eval  6 fund  3 micros | 2024–26: pass  43% in  34d, payouts 1.38, CASH/eval $ 3099, no payout  71% | 2020–23: pass  28% CASH/eval $ 1508 | worse period $ 1508
+  eval  4 fund  3 micros | 2024–26: pass  48% in  51d, payouts 0.97, CASH/eval $ 2030, no payout  69% | 2020–23: pass  34% CASH/eval $ 1501 | worse period $ 1501
+  eval  8 fund  3 micros | 2024–26: pass  26% in  16d, payouts 0.73, CASH/eval $ 1681, no payout  85% | 2020–23: pass  26% CASH/eval $ 1466 | worse period $ 1466
+
+######## RANKING (worse-period cash per evaluation minus the assumed price)
+  1857  B ORB 15 • 150K FLEX (payout from $6000) •  eval  6 fund  2 micros | 2024–26: pass  42% in  35d, payouts 0.82, CASH/eval $ 2207, no payout  66% | 2020–23: pass  46% CASH/eval $ 2520 | worse period $ 2207
+  1826  B ORB 15 • 150K DAILY (daily payouts, intraday trailing when funded) •  eval  6 fund  2 micros | 2024–26: pass  42% in  35d, payouts 2.97, CASH/eval $ 2606, no payout  65% | 2020–23: pass  46% CASH/eval $ 2281 | worse period $ 2281
+  1655  C ORB 30 1R • 150K DAILY (daily payouts, intraday trailing when funded) •  eval  3 fund  2 micros | 2024–26: pass  58% in  77d, payouts 2.67, CASH/eval $ 2370, no payout  51% | 2020–23: pass  35% CASH/eval $ 2110 | worse period $ 2110
+  1581  B ORB 15 • 150K PRO (40% consistency, profit goal, buffer) •  eval  5 fund  2 micros | 2024–26: pass  48% in  43d, payouts 1.00, CASH/eval $ 1931, no payout  60% | 2020–23: pass  45% CASH/eval $ 2695 | worse period $ 1931
+  1556  C ORB 30 1R • 150K FLEX (payout from $6000) •  eval  3 fund  2 micros | 2024–26: pass  58% in  77d, payouts 0.84, CASH/eval $ 2275, no payout  54% | 2020–23: pass  35% CASH/eval $ 1906 | worse period $ 1906
+  1544  C ORB 30 1R • 100K DAILY (daily payouts, intraday trailing when funded) •  eval  3 fund  2 micros | 2024–26: pass  46% in  44d, payouts 2.72, CASH/eval $ 2343, no payout  69% | 2020–23: pass  35% CASH/eval $ 1869 | worse period $ 1869
+  1212  C ORB 30 1R • 150K PRO (40% consistency, profit goal, buffer) •  eval  5 fund  3 micros | 2024–26: pass  44% in  41d, payouts 1.27, CASH/eval $ 2810, no payout  70% | 2020–23: pass  32% CASH/eval $ 1562 | worse period $ 1562
+  1145  A OPENING DRIVE • 150K FLEX (payout from $6000) •  eval  3 fund  3 micros | 2024–26: pass  57% in  85d, payouts 0.55, CASH/eval $ 1495, no payout  81% | 2020–23: pass  55% CASH/eval $ 1991 | worse period $ 1495
+  1109  B ORB 15 • 100K FLEX (payout from $4500) •  eval  1 fund  4 micros | 2024–26: pass  56% in 186d, payouts 0.61, CASH/eval $ 1359, no payout  68% | 2020–23: pass  86% CASH/eval $ 1472 | worse period $ 1359
+  1108  B ORB 15 • 50K PRO (40% consistency, profit goal, buffer) •  eval  2 fund  1 micros | 2024–26: pass  51% in  36d, payouts 1.04, CASH/eval $ 1334, no payout  58% | 2020–23: pass  50% CASH/eval $ 1258 | worse period $ 1258
+  1034  C ORB 30 1R • 50K DAILY (daily payouts, intraday trailing when funded) •  eval  1 fund  1 micros | 2024–26: pass  74% in  84d, payouts 1.69, CASH/eval $ 1300, no payout  39% | 2020–23: pass  43% CASH/eval $ 1229 | worse period $ 1229
+   972  C ORB 30 1R • 100K PRO (40% consistency, profit goal, buffer) •  eval  2 fund  2 micros | 2024–26: pass  57% in  77d, payouts 0.84, CASH/eval $ 1455, no payout  70% | 2020–23: pass  35% CASH/eval $ 1222 | worse period $ 1222
+   972  B ORB 15 • 50K FLEX (payout from $3000) •  eval  2 fund  1 micros | 2024–26: pass  50% in  36d, payouts 0.89, CASH/eval $ 1310, no payout  60% | 2020–23: pass  50% CASH/eval $ 1122 | worse period $ 1122
+   965  B ORB 15 • 100K FLEX •  eval  1 fund  4 micros | 2024–26: pass  56% in 186d, payouts 0.64, CASH/eval $ 1215, no payout  68% | 2020–23: pass  86% CASH/eval $ 1682 | worse period $ 1215
+   933  C ORB 30 1R • 100K FLEX (payout from $4500) •  eval  2 fund  1 micros | 2024–26: pass  57% in  77d, payouts 0.57, CASH/eval $ 1215, no payout  70% | 2020–23: pass  35% CASH/eval $ 1183 | worse period $ 1183
+   924  A OPENING DRIVE • 150K DAILY (daily payouts, intraday trailing when funded) •  eval  3 fund  3 micros | 2024–26: pass  57% in  85d, payouts 1.17, CASH/eval $ 1379, no payout  72% | 2020–23: pass  55% CASH/eval $ 2038 | worse period $ 1379
+   788  C ORB 30 1R • 50K FLEX (payout from $3000) •  eval  1 fund  1 micros | 2024–26: pass  74% in  84d, payouts 0.91, CASH/eval $ 1324, no payout  47% | 2020–23: pass  43% CASH/eval $  938 | worse period $  938
+   788  A OPENING DRIVE • 100K FLEX (payout from $4500) •  eval  2 fund  2 micros | 2024–26: pass  57% in  85d, payouts 0.47, CASH/eval $ 1038, no payout  81% | 2020–23: pass  54% CASH/eval $ 1232 | worse period $ 1038
+   776  B ORB 15 • 50K DAILY (daily payouts, intraday trailing when funded) •  eval  1 fund  1 micros | 2024–26: pass  71% in  68d, payouts 1.70, CASH/eval $ 1189, no payout  57% | 2020–23: pass  58% CASH/eval $  971 | worse period $  971
+   773  B ORB 15 • 100K DAILY (daily payouts, intraday trailing when funded) •  eval  3 fund  1 micros | 2024–26: pass  47% in  49d, payouts 1.57, CASH/eval $ 1098, no payout  64% | 2020–23: pass  44% CASH/eval $ 1966 | worse period $ 1098
+   749  B ORB 15 • 100K PRO (40% consistency, profit goal, buffer) •  eval  4 fund  2 micros | 2024–26: pass  42% in  35d, payouts 0.57, CASH/eval $  999, no payout  76% | 2020–23: pass  45% CASH/eval $ 1165 | worse period $  999
+   739  A OPENING DRIVE • 150K PRO (40% consistency, profit goal, buffer) •  eval  3 fund  4 micros | 2024–26: pass  57% in  85d, payouts 0.46, CASH/eval $ 1218, no payout  81% | 2020–23: pass  55% CASH/eval $ 1089 | worse period $ 1089
+   729  C ORB 30 1R • 50K PRO (40% consistency, profit goal, buffer) •  eval  1 fund  1 micros | 2024–26: pass  74% in  84d, payouts 1.33, CASH/eval $ 1755, no payout  54% | 2020–23: pass  43% CASH/eval $  879 | worse period $  879
+   598  A OPENING DRIVE • 150K FLEX •  eval  3 fund  8 micros | 2024–26: pass  57% in  85d, payouts 0.54, CASH/eval $ 1446, no payout  81% | 2020–23: pass  55% CASH/eval $  948 | worse period $  948
+   582  B ORB 15 • 150K FLEX •  eval  2 fund  3 micros | 2024–26: pass  71% in 104d, payouts 0.59, CASH/eval $  932, no payout  57% | 2020–23: pass  83% CASH/eval $  935 | worse period $  932
+
+######## PROGRAMS (all accounts copy the same trades; a dead account is replaced the next day)
+== B ORB 15 • 150K FLEX (payout from $6000) • eval 6 / funded 2 micros
+  1 accounts 2021–23: bought   2, passed   2, payouts   6 | net $  15500 = $  431/month | deepest hole $   350 | losing months 1/36
+  1 accounts 2024–26: bought  14, passed   3, payouts   6 | net $  11300 = $  332/month | deepest hole $   350 | losing months 7/34
+  2 accounts 2021–23: bought   4, passed   4, payouts  12 | net $  31000 = $  861/month | deepest hole $   700 | losing months 1/36
+  2 accounts 2024–26: bought  28, passed   6, payouts  12 | net $  22600 = $  665/month | deepest hole $   700 | losing months 7/34
+  3 accounts 2021–23: bought   6, passed   6, payouts  18 | net $  46500 = $ 1292/month | deepest hole $  1050 | losing months 1/36
+  3 accounts 2024–26: bought  42, passed   9, payouts  18 | net $  33900 = $  997/month | deepest hole $  1050 | losing months 7/34
+  5 accounts 2021–23: bought  10, passed  10, payouts  30 | net $  77500 = $ 2153/month | deepest hole $  1750 | losing months 1/36
+  5 accounts 2024–26: bought  70, passed  15, payouts  30 | net $  56500 = $ 1662/month | deepest hole $  1750 | losing months 7/34
+== B ORB 15 • 150K DAILY (daily payouts, intraday trailing when funded) • eval 6 / funded 2 micros
+  1 accounts 2021–23: bought   2, passed   2, payouts  26 | net $  16383 = $  455/month | deepest hole $   455 | losing months 1/36
+  1 accounts 2024–26: bought  16, passed   3, payouts  20 | net $   9223 = $  271/month | deepest hole $   455 | losing months 9/34
+  2 accounts 2021–23: bought   4, passed   4, payouts  52 | net $  32765 = $  910/month | deepest hole $   910 | losing months 1/36
+  2 accounts 2024–26: bought  32, passed   6, payouts  40 | net $  18446 = $  543/month | deepest hole $   910 | losing months 9/34
+  3 accounts 2021–23: bought   6, passed   6, payouts  78 | net $  49148 = $ 1365/month | deepest hole $  1365 | losing months 1/36
+  3 accounts 2024–26: bought  48, passed   9, payouts  60 | net $  27670 = $  814/month | deepest hole $  1365 | losing months 9/34
+  5 accounts 2021–23: bought  10, passed  10, payouts 130 | net $  81913 = $ 2275/month | deepest hole $  2275 | losing months 1/36
+  5 accounts 2024–26: bought  80, passed  15, payouts 100 | net $  46116 = $ 1356/month | deepest hole $  2275 | losing months 9/34
+== C ORB 30 1R • 150K DAILY (daily payouts, intraday trailing when funded) • eval 3 / funded 2 micros
+  1 accounts 2021–23: bought   5, passed   2, payouts   5 | net $    738 = $   21/month | deepest hole $  1820 | losing months 4/36
+  1 accounts 2024–26: bought  10, passed   3, payouts  14 | net $   7611 = $  224/month | deepest hole $   455 | losing months 6/34
+  2 accounts 2021–23: bought  10, passed   4, payouts  10 | net $   1476 = $   41/month | deepest hole $  3640 | losing months 4/36
+  2 accounts 2024–26: bought  20, passed   6, payouts  28 | net $  15222 = $  448/month | deepest hole $   910 | losing months 6/34
+  3 accounts 2021–23: bought  15, passed   6, payouts  15 | net $   2215 = $   62/month | deepest hole $  5460 | losing months 4/36
+  3 accounts 2024–26: bought  30, passed   9, payouts  42 | net $  22832 = $  672/month | deepest hole $  1365 | losing months 6/34
+  5 accounts 2021–23: bought  25, passed  10, payouts  25 | net $   3691 = $  103/month | deepest hole $  9100 | losing months 4/36
+  5 accounts 2024–26: bought  50, passed  15, payouts  70 | net $  38054 = $ 1119/month | deepest hole $  2275 | losing months 6/34
+== B ORB 15 • 150K PRO (40% consistency, profit goal, buffer) • eval 5 / funded 2 micros
+  1 accounts 2021–23: bought   1, passed   1, payouts   8 | net $  17356 = $  482/month | deepest hole $   350 | losing months 0/36
+  1 accounts 2024–26: bought   5, passed   2, payouts   4 | net $   7055 = $  207/month | deepest hole $   350 | losing months 3/34
+  2 accounts 2021–23: bought   2, passed   2, payouts  16 | net $  34711 = $  964/month | deepest hole $   700 | losing months 0/36
+  2 accounts 2024–26: bought  10, passed   4, payouts   8 | net $  14110 = $  415/month | deepest hole $   700 | losing months 3/34
+  3 accounts 2021–23: bought   3, passed   3, payouts  24 | net $  52067 = $ 1446/month | deepest hole $  1050 | losing months 0/36
+  3 accounts 2024–26: bought  15, passed   6, payouts  12 | net $  21165 = $  622/month | deepest hole $  1050 | losing months 3/34
+  5 accounts 2021–23: bought   5, passed   5, payouts  40 | net $  86779 = $ 2411/month | deepest hole $  1750 | losing months 0/36
+  5 accounts 2024–26: bought  25, passed  10, payouts  20 | net $  35275 = $ 1037/month | deepest hole $  1750 | losing months 3/34
+== C ORB 30 1R • 150K FLEX (payout from $6000) • eval 3 / funded 2 micros
+  1 accounts 2021–23: bought   4, passed   1, payouts   2 | net $   4000 = $  111/month | deepest hole $  1400 | losing months 3/36
+  1 accounts 2024–26: bought   8, passed   2, payouts   5 | net $  10700 = $  315/month | deepest hole $   350 | losing months 4/34
+  2 accounts 2021–23: bought   8, passed   2, payouts   4 | net $   8000 = $  222/month | deepest hole $  2800 | losing months 3/36
+  2 accounts 2024–26: bought  16, passed   4, payouts  10 | net $  21400 = $  629/month | deepest hole $   700 | losing months 4/34
+  3 accounts 2021–23: bought  12, passed   3, payouts   6 | net $  12000 = $  333/month | deepest hole $  4200 | losing months 3/36
+  3 accounts 2024–26: bought  24, passed   6, payouts  15 | net $  32100 = $  944/month | deepest hole $  1050 | losing months 4/34
+  5 accounts 2021–23: bought  20, passed   5, payouts  10 | net $  20000 = $  556/month | deepest hole $  7000 | losing months 3/36
+  5 accounts 2024–26: bought  40, passed  10, payouts  25 | net $  53500 = $ 1574/month | deepest hole $  1750 | losing months 4/34
+== C ORB 30 1R • 100K DAILY (daily payouts, intraday trailing when funded) • eval 3 / funded 2 micros
+  1 accounts 2021–23: bought  11, passed   3, payouts   8 | net $   1749 = $   49/month | deepest hole $  2925 | losing months 7/36
+  1 accounts 2024–26: bought  18, passed   3, payouts  23 | net $  12584 = $  370/month | deepest hole $   325 | losing months 10/34
+  2 accounts 2021–23: bought  22, passed   6, payouts  16 | net $   3497 = $   97/month | deepest hole $  5850 | losing months 7/36
+  2 accounts 2024–26: bought  36, passed   6, payouts  46 | net $  25168 = $  740/month | deepest hole $   650 | losing months 10/34
+  3 accounts 2021–23: bought  33, passed   9, payouts  24 | net $   5246 = $  146/month | deepest hole $  8775 | losing months 7/36
+  3 accounts 2024–26: bought  54, passed   9, payouts  69 | net $  37751 = $ 1110/month | deepest hole $   975 | losing months 10/34
+  5 accounts 2021–23: bought  55, passed  15, payouts  40 | net $   8743 = $  243/month | deepest hole $ 14625 | losing months 7/36
+  5 accounts 2024–26: bought  90, passed  15, payouts 115 | net $  62919 = $ 1851/month | deepest hole $  1625 | losing months 10/34
+== C ORB 30 1R • 150K PRO (40% consistency, profit goal, buffer) • eval 5 / funded 3 micros
+  1 accounts 2021–23: bought  11, passed   3, payouts   4 | net $   4734 = $  131/month | deepest hole $  3150 | losing months 7/36
+  1 accounts 2024–26: bought   4, passed   1, payouts   8 | net $  18036 = $  530/month | deepest hole $   350 | losing months 3/34
+  2 accounts 2021–23: bought  22, passed   6, payouts   8 | net $   9468 = $  263/month | deepest hole $  6300 | losing months 7/36
+  2 accounts 2024–26: bought   8, passed   2, payouts  16 | net $  36073 = $ 1061/month | deepest hole $   700 | losing months 3/34
+  3 accounts 2021–23: bought  33, passed   9, payouts  12 | net $  14201 = $  394/month | deepest hole $  9450 | losing months 7/36
+  3 accounts 2024–26: bought  12, passed   3, payouts  24 | net $  54109 = $ 1591/month | deepest hole $  1050 | losing months 3/34
+  5 accounts 2021–23: bought  55, passed  15, payouts  20 | net $  23669 = $  657/month | deepest hole $ 15750 | losing months 7/36
+  5 accounts 2024–26: bought  20, passed   5, payouts  40 | net $  90182 = $ 2652/month | deepest hole $  1750 | losing months 3/34
+== A OPENING DRIVE • 150K FLEX (payout from $6000) • eval 3 / funded 3 micros
+  1 accounts 2021–23: bought   5, passed   2, payouts   5 | net $  11750 = $  326/month | deepest hole $  1050 | losing months 3/36
+  1 accounts 2024–26: bought   9, passed   4, payouts   5 | net $  10350 = $  304/month | deepest hole $  2100 | losing months 7/34
+  2 accounts 2021–23: bought  10, passed   4, payouts  10 | net $  23500 = $  653/month | deepest hole $  2100 | losing months 3/36
+  2 accounts 2024–26: bought  18, passed   8, payouts  10 | net $  20700 = $  609/month | deepest hole $  4200 | losing months 7/34
+  3 accounts 2021–23: bought  15, passed   6, payouts  15 | net $  35250 = $  979/month | deepest hole $  3150 | losing months 3/36
+  3 accounts 2024–26: bought  27, passed  12, payouts  15 | net $  31050 = $  913/month | deepest hole $  6300 | losing months 7/34
+  5 accounts 2021–23: bought  25, passed  10, payouts  25 | net $  58750 = $ 1632/month | deepest hole $  5250 | losing months 3/36
+  5 accounts 2024–26: bought  45, passed  20, payouts  25 | net $  51750 = $ 1522/month | deepest hole $ 10500 | losing months 7/34

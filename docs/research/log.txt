@@ -1,0 +1,144 @@
+MNQ: 1461 full days 2020-10-19 .. 2026-10-02 (1 s)
+MNQ: 2111 variants in 4 s
+MGC: 1427 full days 2020-10-19 .. 2026-10-02 (1 s)
+MGC: 3530 variants in 6 s
+
+TOP BY 2020?2023 (selection) ? 2024?2026 (unseen)
+== MGC ASIA
+  IS t   1.9 n  397 avg     9.7 pf 1.33 | OOS t   0.8 n  294 avg    14.4 pf 1.18 tot     4230 | ASIA 18:00?00:00 break SHORT stop MID time exit 11:00
+  IS t   1.6 n  334 avg     9.3 pf 1.29 | OOS t   1.6 n  225 avg    34.6 pf 1.46 tot     7789 | ASIA 18:00?02:00 break SHORT stop MID time exit 11:00
+  IS t   1.4 n  334 avg     8.7 pf 1.21 | OOS t   1.4 n  225 avg    31.1 pf 1.36 tot     6989 | ASIA 18:00?02:00 break SHORT stop OPP 2R exit 11:00
+  IS t   1.4 n  334 avg     9.2 pf 1.22 | OOS t   1.6 n  225 avg    37.3 pf 1.43 tot     8390 | ASIA 18:00?02:00 break SHORT stop OPP time exit 11:00
+  IS t   1.4 n  334 avg     5.9 pf 1.19 | OOS t   1.0 n  225 avg    16.0 pf 1.22 tot     3601 | ASIA 18:00?02:00 break SHORT stop OPP 1R exit 09:25
+== MGC CAL
+  IS t   1.6 n  142 avg    18.2 pf 1.47 | OOS t  -0.8 n  130 avg   -28.7 pf 0.82 tot    -3729 | Monday hold 18:00?09:29 SHORT
+  IS t   0.5 n  156 avg     4.1 pf 1.11 | OOS t  -1.2 n  134 avg   -27.8 pf 0.73 tot    -3731 | TURN OF MONTH hold 09:30?15:55 SHORT
+  IS t   0.4 n  148 avg     4.5 pf 1.10 | OOS t   0.4 n  128 avg    16.0 pf 1.13 tot     2052 | Thursday hold 18:00?09:29 SHORT
+  IS t   0.1 n  145 avg     0.8 pf 1.01 | OOS t  -1.5 n  127 avg   -74.2 pf 0.65 tot    -9430 | TURN OF MONTH hold 18:00?15:55 SHORT
+== MGC GAP
+  IS t   1.4 n  261 avg     6.1 pf 1.24 | OOS t   0.7 n  222 avg     9.7 pf 1.16 tot     2158 | GAP GO >0.2?ATR down gaps stop 1?gap exit 11:00
+  IS t   1.3 n  205 avg     6.8 pf 1.25 | OOS t   0.3 n  178 avg     4.3 pf 1.06 tot      761 | GAP GO >0.35?ATR down gaps stop 1?gap exit 11:00
+  IS t   1.2 n  309 avg     4.4 pf 1.18 | OOS t   0.7 n  255 avg     8.6 pf 1.15 tot     2191 | GAP GO >0.1?ATR down gaps stop 1?gap exit 11:00
+  IS t   1.0 n  205 avg     6.0 pf 1.21 | OOS t   0.5 n  178 avg     8.2 pf 1.12 tot     1453 | GAP GO >0.35?ATR down gaps stop 2?gap exit 11:00
+  IS t   1.0 n  163 avg     7.0 pf 1.23 | OOS t   0.4 n  139 avg     7.1 pf 1.10 tot      992 | GAP GO >0.5?ATR down gaps stop 2?gap exit 11:00
+== MGC ORB
+  IS t   0.8 n  521 avg     2.4 pf 1.08 | OOS t  -0.1 n  487 avg    -0.8 pf 0.99 tot     -385 | ORB 08:20 15m SHORT stop OPP 2R entries 90m
+  IS t   0.7 n  460 avg     2.4 pf 1.08 | OOS t   0.0 n  428 avg     0.2 pf 1.00 tot       91 | ORB 08:20 60m SHORT stop OPP 1R entries 240m
+  IS t   0.7 n  411 avg     2.3 pf 1.08 | OOS t   0.4 n  375 avg     3.7 pf 1.05 tot     1384 | ORB 08:20 60m SHORT stop OPP 1R entries 90m
+  IS t   0.5 n  574 avg     1.4 pf 1.05 | OOS t  -0.2 n  538 avg    -1.3 pf 0.98 tot     -708 | ORB 08:20 15m SHORT stop OPP 2R entries 240m
+  IS t   0.5 n  757 avg     1.0 pf 1.04 | OOS t  -1.4 n  664 avg    -9.4 pf 0.87 tot    -6221 | ORB 09:30 15m BOTH stop OPP 1.5R entries 240m
+== MGC ORB2
+  IS t   1.3 n  193 avg     5.3 pf 1.26 | OOS t  -1.7 n  269 avg   -13.8 pf 0.75 tot    -3723 | ORB2 08:20 15m break LONG stop 0.15?ATR 4R days NARROW
+  IS t   1.3 n  193 avg     8.1 pf 1.32 | OOS t  -1.5 n  269 avg   -14.1 pf 0.77 tot    -3791 | ORB2 08:20 15m break LONG stop range to 15:55 days NARROW
+  IS t   1.3 n  264 avg     4.8 pf 1.31 | OOS t   0.4 n  239 avg     3.3 pf 1.09 tot      799 | ORB2 09:30 30m opening-candle direction LONG stop 0.10?ATR to 15:55 days NOTWIDE
+  IS t   1.2 n  193 avg     6.8 pf 1.32 | OOS t  -2.5 n  269 avg   -20.0 pf 0.65 tot    -5367 | ORB2 08:20 15m break LONG stop 0.15?ATR to 15:55 days NARROW
+  IS t   1.2 n  103 avg     9.6 pf 1.45 | OOS t  -2.6 n  178 avg   -27.2 pf 0.58 tot    -4845 | ORB2 08:20 30m break BOTH stop 0.15?ATR to 15:55 days NARROW
+== MGC TIME
+  IS t   0.5 n  749 avg     2.3 pf 1.05 | OOS t  -1.3 n  658 avg   -19.7 pf 0.86 tot   -12964 | HOLD 18:00?10:00 SHORT stop 0.5?ATR
+  IS t   0.5 n  761 avg     2.1 pf 1.04 | OOS t  -0.8 n  666 avg   -10.5 pf 0.92 tot    -6965 | HOLD 03:00?14:00 SHORT stop 0.5?ATR
+  IS t   0.4 n  761 avg     1.7 pf 1.03 | OOS t  -0.2 n  666 avg    -2.8 pf 0.98 tot    -1858 | HOLD 03:00?16:44 SHORT stop 0.5?ATR
+  IS t   0.3 n  749 avg     1.2 pf 1.03 | OOS t  -2.3 n  658 avg   -32.4 pf 0.76 tot   -21340 | HOLD 18:00?08:00 SHORT no stop
+  IS t   0.3 n  761 avg     1.6 pf 1.03 | OOS t  -0.8 n  666 avg   -11.9 pf 0.91 tot    -7928 | HOLD 00:00?14:00 SHORT stop 0.5?ATR
+== MGC TREND
+  IS t   0.8 n  159 avg     4.1 pf 1.17 | OOS t   1.4 n  120 avg    22.0 pf 1.39 tot     2646 | TREND 10:30 SHORT stop VWAP 2R
+== MNQ ASIA
+  IS t   1.4 n  329 avg    15.1 pf 1.27 | OOS t  -0.2 n  234 avg    -2.4 pf 0.97 tot     -570 | ASIA 18:00?02:00 break SHORT stop MID time exit 11:00
+  IS t   1.3 n  432 avg    10.6 pf 1.15 | OOS t  -0.9 n  372 avg   -12.3 pf 0.90 tot    -4571 | ASIA 18:00?00:00 break LONG stop OPP 2R exit 11:00
+  IS t   1.2 n  432 avg     8.3 pf 1.14 | OOS t  -1.1 n  372 avg   -14.1 pf 0.87 tot    -5231 | ASIA 18:00?00:00 break LONG stop OPP 1R exit 11:00
+  IS t   1.1 n  381 avg    10.3 pf 1.18 | OOS t  -0.1 n  292 avg    -1.5 pf 0.98 tot     -424 | ASIA 18:00?00:00 break SHORT stop MID time exit 11:00
+  IS t   1.0 n  329 avg    13.1 pf 1.16 | OOS t  -0.6 n  234 avg   -12.4 pf 0.90 tot    -2904 | ASIA 18:00?02:00 break SHORT stop OPP time exit 11:00
+== MNQ CAL
+  IS t   1.2 n  145 avg    17.8 pf 1.30 | OOS t  -2.3 n  130 avg   -79.0 pf 0.56 tot   -10274 | Monday hold 18:00?09:29 SHORT
+  IS t   0.5 n  167 avg    12.6 pf 1.10 | OOS t  -0.5 n  139 avg   -21.3 pf 0.88 tot    -2962 | Wednesday hold 09:30?15:55 SHORT
+  IS t   0.4 n  167 avg     7.4 pf 1.11 | OOS t   2.0 n  139 avg    50.8 pf 1.60 tot     7055 | Wednesday hold 18:00?09:29 LONG
+  IS t   0.4 n  162 avg    11.7 pf 1.09 | OOS t  -2.1 n  136 avg   -85.3 pf 0.61 tot   -11595 | Thursday hold 09:30?15:55 LONG
+  IS t   0.3 n  166 avg     5.5 pf 1.07 | OOS t  -1.8 n  142 avg   -51.6 pf 0.63 tot    -7329 | Tuesday hold 18:00?09:29 LONG
+== MNQ FADE
+  IS t   0.6 n  337 avg     2.2 pf 1.10 | OOS t  -1.3 n  310 avg    -5.5 pf 0.80 tot    -1701 | FAILED BREAK 09:30 60m SHORT target 2R
+  IS t   0.3 n  387 avg     1.0 pf 1.05 | OOS t  -2.6 n  307 avg   -11.5 pf 0.67 tot    -3537 | FAILED BREAK 09:30 15m SHORT target 1R
+  IS t   0.3 n  727 avg     1.0 pf 1.03 | OOS t  -1.2 n  623 avg    -5.4 pf 0.87 tot    -3339 | FAILED BREAK 09:30 15m BOTH target OPP
+== MNQ GAP
+  IS t   2.0 n  229 avg    24.5 pf 1.37 | OOS t  -1.1 n  177 avg   -24.8 pf 0.81 tot    -4394 | GAP GO >0.2?ATR down gaps stop 1?gap exit 11:00
+  IS t   1.6 n  148 avg    27.5 pf 1.37 | OOS t  -1.0 n  128 avg   -28.8 pf 0.80 tot    -3690 | GAP GO >0.35?ATR down gaps stop 1?gap exit 11:00
+  IS t   1.5 n  295 avg    14.3 pf 1.23 | OOS t  -1.3 n  225 avg   -22.8 pf 0.80 tot    -5131 | GAP GO >0.1?ATR down gaps stop 1?gap exit 11:00
+  IS t   1.0 n  229 avg    14.1 pf 1.18 | OOS t  -1.2 n  177 avg   -33.3 pf 0.78 tot    -5897 | GAP GO >0.2?ATR down gaps stop 2?gap exit 11:00
+  IS t   0.9 n  200 avg    12.7 pf 1.17 | OOS t  -1.8 n  227 avg   -42.1 pf 0.72 tot    -9563 | GAP GO >0.5?ATR up+down gaps stop 2?gap exit 11:00
+== MNQ MOMENTUM
+  IS t   3.7 n  532 avg    19.7 pf 1.61 | OOS t  -1.3 n  468 avg   -10.7 pf 0.83 tot    -5005 | FOLLOW move 09:30?15:00 (>0.25?ATR), trade 15:00?15:59
+  IS t   2.6 n  783 avg    11.4 pf 1.32 | OOS t  -1.3 n  677 avg    -8.2 pf 0.85 tot    -5519 | FOLLOW move 09:30?15:00, trade 15:00?15:59
+  IS t   2.5 n  784 avg    11.0 pf 1.31 | OOS t   0.9 n  677 avg     5.4 pf 1.11 tot     3639 | FOLLOW move 09:30?12:00, trade 15:00?15:59
+  IS t   2.5 n  783 avg    10.9 pf 1.31 | OOS t  -1.0 n  677 avg    -6.0 pf 0.89 tot    -4060 | FOLLOW move prev close?15:00, trade 15:00?15:59
+  IS t   1.6 n  782 avg     4.8 pf 1.17 | OOS t  -0.8 n  677 avg    -3.6 pf 0.91 tot    -2453 | REVERSE move prev close?10:00, trade 15:30?15:59
+== MNQ ORB
+  IS t   2.6 n  543 avg    22.0 pf 1.39 | OOS t  -0.6 n  492 avg    -6.9 pf 0.92 tot    -3378 | ORB 09:30 15m SHORT stop MID to 15:55 entries 240m
+  IS t   2.5 n  736 avg    12.2 pf 1.23 | OOS t  -0.2 n  635 avg    -1.5 pf 0.98 tot     -944 | ORB 09:30 60m BOTH stop MID 1R entries 240m
+  IS t   2.5 n  736 avg    19.8 pf 1.26 | OOS t   0.6 n  635 avg     6.9 pf 1.07 tot     4377 | ORB 09:30 60m BOTH stop OPP 2R entries 240m
+  IS t   2.4 n  736 avg    18.7 pf 1.25 | OOS t   0.7 n  635 avg     8.1 pf 1.08 tot     5157 | ORB 09:30 60m BOTH stop OPP 1.5R entries 240m
+  IS t   2.4 n  736 avg    15.7 pf 1.25 | OOS t  -0.1 n  635 avg    -1.3 pf 0.99 tot     -819 | ORB 09:30 60m BOTH stop MID 3R entries 240m
+== MNQ ORB2
+  IS t   2.8 n  489 avg    27.5 pf 1.39 | OOS t   0.4 n  433 avg     4.6 pf 1.05 tot     2011 | ORB2 09:30 15m break SHORT stop 0.25?ATR 4R days NONEWS
+  IS t   2.5 n  705 avg    22.1 pf 1.27 | OOS t   0.9 n  611 avg    11.6 pf 1.10 tot     7064 | ORB2 09:30 30m break BOTH stop range 4R days NONEWS
+  IS t   2.5 n  489 avg    24.6 pf 1.35 | OOS t   0.5 n  433 avg     7.2 pf 1.07 tot     3106 | ORB2 09:30 15m break SHORT stop 0.25?ATR to 15:55 days NONEWS
+  IS t   2.3 n  527 avg    21.7 pf 1.30 | OOS t   0.7 n  469 avg     9.6 pf 1.09 tot     4504 | ORB2 09:30 15m break SHORT stop 0.25?ATR 4R days ALL
+  IS t   2.3 n  705 avg    20.0 pf 1.24 | OOS t   1.1 n  611 avg    14.1 pf 1.13 tot     8632 | ORB2 09:30 30m break BOTH stop range to 15:55 days NONEWS
+== MNQ PDHL
+  IS t   1.0 n  228 avg    10.8 pf 1.17 | OOS t   0.0 n  187 avg     0.4 pf 1.01 tot       81 | BREAK PDH stop 0.2?ATR 3R
+  IS t   0.8 n  221 avg     6.6 pf 1.12 | OOS t  -2.2 n  173 avg   -27.8 pf 0.70 tot    -4805 | FADE PDL stop 0.2?ATR 1R
+  IS t   0.6 n  221 avg     6.2 pf 1.09 | OOS t  -3.5 n  173 avg   -51.7 pf 0.55 tot    -8948 | FADE PDL stop 0.2?ATR 2R
+  IS t   0.4 n  228 avg     2.4 pf 1.06 | OOS t   0.0 n  187 avg     0.4 pf 1.01 tot       83 | BREAK PDH stop 0.1?ATR 3R
+  IS t   0.3 n  221 avg     4.0 pf 1.05 | OOS t  -3.6 n  173 avg   -55.3 pf 0.53 tot    -9565 | FADE PDL stop 0.2?ATR 3R
+== MNQ TIME
+  IS t   2.2 n  784 avg    22.4 pf 1.21 | OOS t   0.4 n  677 avg     7.0 pf 1.05 tot     4723 | HOLD 09:30?16:44 LONG stop 0.5?ATR
+  IS t   1.8 n  784 avg     6.4 pf 1.20 | OOS t  -1.7 n  677 avg    -8.9 pf 0.82 tot    -6010 | HOLD 14:00?15:00 LONG no stop
+  IS t   1.7 n  784 avg    12.6 pf 1.18 | OOS t   0.9 n  675 avg    10.1 pf 1.10 tot     6835 | HOLD 11:00?15:00 LONG no stop
+  IS t   1.6 n  784 avg    15.7 pf 1.15 | OOS t   0.5 n  677 avg     8.5 pf 1.06 tot     5725 | HOLD 09:30?15:55 LONG stop 0.5?ATR
+  IS t   1.5 n  784 avg    12.9 pf 1.15 | OOS t   0.5 n  675 avg     5.8 pf 1.05 tot     3947 | HOLD 11:00?16:44 LONG stop 0.5?ATR
+== MNQ TREND
+  IS t   2.7 n  372 avg    28.2 pf 1.40 | OOS t   0.2 n  325 avg     2.8 pf 1.03 tot      920 | TREND 10:30 BOTH stop ORMID 2R
+  IS t   2.7 n  372 avg    30.0 pf 1.42 | OOS t  -0.1 n  325 avg    -2.3 pf 0.98 tot     -734 | TREND 10:30 BOTH stop ORMID to 15:55
+  IS t   2.6 n  178 avg    41.3 pf 1.60 | OOS t   0.1 n  143 avg     3.4 pf 1.03 tot      493 | TREND 10:30 SHORT stop ORMID 2R
+  IS t   2.5 n  178 avg    41.7 pf 1.59 | OOS t  -0.3 n  143 avg    -8.7 pf 0.93 tot    -1246 | TREND 10:30 SHORT stop ORMID to 15:55
+  IS t   2.4 n  372 avg    24.9 pf 1.37 | OOS t  -0.5 n  325 avg    -6.6 pf 0.94 tot    -2129 | TREND 10:30 BOTH stop VWAP to 15:55
+== MNQ VWAP
+  IS t   2.2 n  704 avg     8.2 pf 1.20 | OOS t  -0.9 n  606 avg    -4.8 pf 0.92 tot    -2893 | VWAP FOLLOW stretch 0.25?ATR BOTH stop 0.5?stretch
+  IS t   2.1 n  131 avg    25.0 pf 1.57 | OOS t   0.2 n  105 avg     3.8 pf 1.05 tot      402 | VWAP FOLLOW stretch 0.5?ATR LONG stop 0.5?stretch
+  IS t   2.0 n  704 avg     9.9 pf 1.18 | OOS t  -1.0 n  606 avg    -7.3 pf 0.91 tot    -4411 | VWAP FOLLOW stretch 0.25?ATR BOTH stop 1?stretch
+  IS t   2.0 n  131 avg    29.9 pf 1.58 | OOS t   0.6 n  105 avg    15.6 pf 1.19 tot     1635 | VWAP FOLLOW stretch 0.5?ATR LONG stop 1?stretch
+  IS t   1.7 n  367 avg     8.6 pf 1.22 | OOS t  -1.7 n  294 avg   -12.5 pf 0.80 tot    -3689 | VWAP FOLLOW stretch 0.25?ATR LONG stop 0.5?stretch
+WALK-FORWARD MNQ any rule: 2022?2026 total $-822 per contract
+    2022:   -3157  (chosen on < 2022, t 3.7) MNQ REVERSE move prev close?10:00 (>0.25?ATR), trade 15:00?15:59
+    2023:    2130  (chosen on < 2023, t 3.2) MNQ FOLLOW move 09:30?15:00 (>0.25?ATR), trade 15:00?15:59
+    2024:   -1157  (chosen on < 2024, t 3.7) MNQ FOLLOW move 09:30?15:00 (>0.25?ATR), trade 15:00?15:59
+    2025:    4553  (chosen on < 2025, t 3.0) MNQ ORB2 09:30 30m break BOTH stop range 4R days NONEWS
+    2026:   -3191  (chosen on < 2026, t 2.9) MNQ ORB2 09:30 30m break BOTH stop range 4R days NONEWS
+
+WALK-FORWARD MGC any rule: 2022?2026 total $-1764 per contract
+    2022:    -405  (chosen on < 2022, t 1.3) MGC HOLD 03:00?11:00 SHORT stop 0.5?ATR
+    2023:    -904  (chosen on < 2023, t 1.9) MGC ASIA 18:00?00:00 break SHORT stop OPP 2R exit 11:00
+    2024:    1179  (chosen on < 2024, t 1.9) MGC ASIA 18:00?00:00 break SHORT stop MID time exit 11:00
+    2025:    -384  (chosen on < 2025, t 2.0) MGC ASIA 18:00?00:00 break SHORT stop MID time exit 11:00
+    2026:   -1251  (chosen on < 2026, t 2.1) MGC ORB2 09:30 30m break LONG stop range to 15:55 days NONEWS
+
+WALK-FORWARD MNQ opening-range family: 2022?2026 total $10857 per contract
+    2022:    7637  (chosen on < 2022, t 2.5) MNQ ORB2 09:30 15m break BOTH stop 0.25?ATR 4R days NONEWS
+    2023:      79  (chosen on < 2023, t 3.1) MNQ ORB2 09:30 15m break SHORT stop 0.25?ATR 4R days NONEWS
+    2024:    1779  (chosen on < 2024, t 2.8) MNQ ORB2 09:30 15m break SHORT stop 0.25?ATR 4R days NONEWS
+    2025:    4553  (chosen on < 2025, t 3.0) MNQ ORB2 09:30 30m break BOTH stop range 4R days NONEWS
+    2026:   -3191  (chosen on < 2026, t 2.9) MNQ ORB2 09:30 30m break BOTH stop range 4R days NONEWS
+
+WALK-FORWARD MGC opening-range family: 2022?2026 total $-941 per contract
+    2022:    -470  (chosen on < 2022, t 0.9) MGC ORB2 09:30 5m break SHORT stop range 2R days NOTWIDE
+    2023:    -615  (chosen on < 2023, t 1.4) MGC ORB2 08:20 30m break SHORT stop range 2R days NOTWIDE
+    2024:    -176  (chosen on < 2024, t 1.4) MGC ORB2 09:30 10m break LONG stop 0.15?ATR to 15:55 days NARROW
+    2025:    1571  (chosen on < 2025, t 1.3) MGC ORB2 09:30 30m opening-candle direction LONG stop 0.25?ATR to 15:55 days NOTWIDE
+    2026:   -1251  (chosen on < 2026, t 2.1) MGC ORB2 09:30 30m break LONG stop range to 15:55 days NONEWS
+
+WALK-FORWARD MGC Asia family: 2022?2026 total $15778 per contract
+    2022:    1262  (chosen on < 2022, t 0.6) MGC ASIA 18:00?00:00 break BOTH stop MID time exit 11:00
+    2023:    -904  (chosen on < 2023, t 1.9) MGC ASIA 18:00?00:00 break SHORT stop OPP 2R exit 11:00
+    2024:    1179  (chosen on < 2024, t 1.9) MGC ASIA 18:00?00:00 break SHORT stop MID time exit 11:00
+    2025:    -384  (chosen on < 2025, t 2.0) MGC ASIA 18:00?00:00 break SHORT stop MID time exit 11:00
+    2026:   14625  (chosen on < 2026, t 1.7) MGC ASIA 18:00?00:00 break BOTH stop OPP time exit 11:00
+
+
+selected pool 857 of 5641; OOS positive 571
