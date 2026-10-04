@@ -35,6 +35,12 @@ public static class ReplayTraderTests
         Check(r2.Position == 1 && r2.Fills.Count == 1 && r2.Fills[0].Side == "SELL", "BUY 2 while short 1 = close the short and go long 1");
         while (r2.Advance()) { }
         Check(r2.Position == 0 && r2.Fills.Last().Reason == "SESSION END" && r2.Fills.Last().Exit == 101, "an open trade is closed at the session end (101)", r2.Fills.Last().Reason + " " + r2.Fills.Last().Exit);
+        var pst = new KeystoneReplayTrader(bars, "MNQ", 12);
+        for (int i = 0; i < 12; i++) pst.Advance(); pst.Buy(1);         // long at 100
+        for (int i = 0; i < 24; i++) pst.Advance();                      // price up to 114
+        pst.StopPts = -8;                                                // a stop past the entry: 108 locks +8
+        while (pst.Position != 0 && pst.Advance()) { }
+        Check(pst.Fills.Count == 1 && pst.Fills[0].Reason == "PROFIT STOP" && pst.Fills[0].Exit == 108, "a stop moved into profit (108) closes the long at +8 on the way down", pst.Fills.Count > 0 ? pst.Fills[0].Reason + " " + pst.Fills[0].Exit : "no fill");
         var c5 = new KeystoneReplayTrader(bars, "MNQ", 12); for (int i = 0; i < 18; i++) c5.Advance();
         var cs = c5.Candles(1);
         Check(cs.Count == 2 && cs[1].Close == c5.Price && cs[1].High <= 106, "the forming candle closes at the current price", cs.Count + " " + cs[1].Close + "/" + c5.Price);
