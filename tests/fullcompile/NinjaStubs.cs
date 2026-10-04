@@ -5,7 +5,7 @@ using System.Collections.Generic;
 namespace NinjaTrader.Cbi
 {
     public enum ErrorCode { NoError, UserAbort, Panic, LogOnFailed, Unknown }
-    public class MasterInstrument { public string Name { get; set; } public double TickSize { get; set; } public double PointValue { get; set; } public DateTime GetNextExpiry(DateTime d) { return d; } }
+    public class MasterInstrument { public string Name { get; set; } public double TickSize { get; set; } public double PointValue { get; set; } public DateTime GetNextExpiry(DateTime d) { return d; } public double RoundToTickSize(double p) { return p; } }
     public enum AccountItem { CashValue, NetLiquidation, RealizedProfitLoss, UnrealizedProfitLoss, TotalCashBalance }
     public enum Currency { UsDollar }
     public enum MarketPosition { Flat, Long, Short }
@@ -18,7 +18,28 @@ namespace NinjaTrader.Cbi
         public Dictionary<AccountItem, double> StubValues = new Dictionary<AccountItem, double>();
         public double Get(AccountItem item, Currency currency) { double v; return StubValues.TryGetValue(item, out v) ? v : 0; }
         public List<Position> Positions = new List<Position>();
+        public List<Order> Orders = new List<Order>();
+        public Order CreateOrder(Instrument instrument, OrderAction action, OrderType orderType, OrderEntry orderEntry, TimeInForce timeInForce, int quantity, double limitPrice, double stopPrice, string oco, string name, DateTime gtd, CustomOrder customOrder) { return new Order { Instrument = instrument, OrderAction = action, OrderType = orderType, Quantity = quantity, LimitPrice = limitPrice, StopPrice = stopPrice, Oco = oco, Name = name }; }
+        public void Submit(IEnumerable<Order> orders) { }
+        public void Change(IEnumerable<Order> orders) { }
+        public void Cancel(IEnumerable<Order> orders) { }
+        public void Flatten(ICollection<Instrument> instruments) { }
+        public event EventHandler<OrderEventArgs> OrderUpdate;
+        public void RaiseStub() { if (OrderUpdate != null) OrderUpdate(this, null); }
     }
+    public enum OrderAction { Buy, BuyToCover, Sell, SellShort }
+    public enum OrderType { Limit, Market, MIT, StopLimit, StopMarket, Unknown }
+    public enum OrderEntry { Automated, Manual }
+    public enum TimeInForce { Day, Gtc, Gtd, Ioc, Opg }
+    public enum OrderState { Accepted, CancelPending, CancelSubmitted, Cancelled, ChangePending, ChangeSubmitted, Filled, Initialized, PartFilled, Rejected, Submitted, TriggerPending, Unknown, Working }
+    public class CustomOrder { }
+    public class Order
+    {
+        public Instrument Instrument { get; set; } public OrderAction OrderAction { get; set; } public OrderType OrderType { get; set; } public OrderState OrderState { get; set; }
+        public int Quantity { get; set; } public int Filled { get; set; } public double AverageFillPrice { get; set; } public double LimitPrice { get; set; } public double StopPrice { get; set; }
+        public double LimitPriceChanged { get; set; } public double StopPriceChanged { get; set; } public int QuantityChanged { get; set; } public string Oco { get; set; } public string Name { get; set; } public string OrderId { get; set; }
+    }
+    public class OrderEventArgs : EventArgs { public Order Order { get; set; } public OrderState OrderState { get; set; } public string Comment { get; set; } }
     public class Instrument
     {
         public string FullName { get; set; }
@@ -145,3 +166,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 }
 
 namespace NinjaTrader.Gui.ControlCenterHost { }
+
+namespace NinjaTrader.Core
+{
+    public static class Globals { public static readonly System.DateTime MaxDate = new System.DateTime(2099, 12, 1); }
+}

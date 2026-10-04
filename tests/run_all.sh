@@ -65,6 +65,9 @@ mono "$here/.build/studio.exe" | tail -1
 rm -f "$here/.build/orb.exe"
 "$root/tools/compile_engine.sh" "$here/.build/orb.exe" "$here/OpeningRangeTests.cs"
 mono "$here/.build/orb.exe" | tail -1
+rm -f "$here/.build/router.exe"
+"$root/tools/compile_engine.sh" "$here/.build/router.exe" "$here/OrderRouterTests.cs"
+mono "$here/.build/router.exe" | tail -1
 rm -f "$here/.build/kreport.exe"
 "$root/tools/compile_engine.sh" "$here/.build/kreport.exe" "$here/ReportTests.cs"
 mono "$here/.build/kreport.exe" | tail -1

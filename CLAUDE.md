@@ -18,7 +18,10 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
 
 ## Guardrails
 
-- Historical research only: no live orders, broker/account access, or Apex/Nexus coupling.
+- Real orders exist ONLY through the studio's REAL ACCOUNT bar (`KeystoneOrderRouter` + `NinjaBroker`), approved by the
+  user: nothing is sent unless the user ARMS it and confirms; keep its limits (max contracts, day loss, day profit cap,
+  runaway guard, reject → disarm) and its tests (`tests/OrderRouterTests.cs`). No other code path may place orders.
+  Research / lab / backtests stay historical; no Apex/Nexus coupling.
 - Do not change BH detection, BH outcome resolution, or the MNQ loader without explicit scope.
   MGC loader changes stay MGC-only. Asian work stays inside the Asian code paths.
 - Never fix a zero result by relaxing the 1-minute outcome gate or inventing prices.
