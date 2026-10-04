@@ -176,6 +176,19 @@ public static class LifecycleTests
             Console.WriteLine(ans);
             Check(ans.Contains("start $240") && ans.Contains("WAS ENOUGH") && ans.Contains("PROFITABLE FROM") && ans.Contains("FINAL NET"), "answer: $240 start was enough, profitable date, final net", ans);
         }
+        // 14b. Cash-flow ledger: own money in vs account purchases recycled from payouts.
+        {
+            var cfg = LifecycleSnapshot.Cfg("ASIAN75", 0, 1, 0); cfg.PoolSize = 2;
+            var acc = KeystoneArcEngine.SimulatePool(Nights(Repeat(900, 8).Concat(Repeat(-900, 4)).ToArray()), cfg);
+            var cap = KeystoneArcEngine.BuildCapitalPolicySummary(acc, cfg);
+            string cf = KeystoneArcPoolInsights.CashFlowAnswer(cap);
+            Console.WriteLine(cf);
+            Check(cap.MaxOutOfPocket >= cap.InitialEvaluationInvestment - 0.01
+                && Math.Abs(cap.AccountsPaidUpfront + cap.AccountsPaidFromPayouts - cap.TotalEvaluationCost) < 0.01
+                && Math.Abs(cap.AccountsPaidFromPayouts + cap.PayoutsWithdrawn - cap.PayoutCashAfterShare) < 0.01 || cap.PayoutCashAfterShare < cap.AccountsPaidFromPayouts,
+                "cash flow: upfront + from payouts = total accounts; reinvested + kept = payouts", cf);
+            Check(cf.Contains("MAX OWN MONEY IN") && cf.Contains("upfront") && cf.Contains("from payouts"), "cash flow line text", cf);
+        }
         // 15. Automatic analysis: front-loaded profits → EDGE FADED; one losing instrument → trade the other.
         {
             var cfg = LifecycleSnapshot.Cfg("ASIAN75", 0, 1, 0); cfg.PoolSize = 2;
