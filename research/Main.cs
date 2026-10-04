@@ -23,6 +23,7 @@ public static class ResearchMain
             }
             return 0;
         }
+        if (args.Length > 2 && args[2] == "bhrot") { Directory.CreateDirectory(outDir); BhRotation.Run(R.Load(data, "MNQ"), outDir); return 0; }
         if (args.Length > 2 && args[2] == "bh") { Directory.CreateDirectory(outDir); Bh.Run(R.Load(data, "MNQ"), outDir); return 0; } if (args.Length > 2 && args[2] != "bh") R.ExtraTicks = double.Parse(args[2], CultureInfo.InvariantCulture); Directory.CreateDirectory(outDir);
         var all = new List<VResult>(); var cal = new Dictionary<string, List<RDay>>();
         foreach (var sym in new[] { "MNQ", "MGC" })
