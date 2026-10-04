@@ -236,6 +236,12 @@ public static class UiSmokeTest
                     var desk = System.IO.File.ReadAllLines(deskFile);
                     Console.WriteLine("      LIVE DESK: " + string.Join(" / ", desk));
                     if (!desk.Contains("GROUP|MORNING") || !desk.Any(l => l.StartsWith("ACCOUNT|APEX-123-01|") && l.Contains("|MORNING|"))) throw new Exception("live desk group / move not saved");
+                    // LIVE TRADING: its own window (real-time data, no replay controls); the BACKTEST STUDIO stays history only
+                    Call(lab2, "OpenLiveTrading");
+                    var liveWin = (System.Windows.Window)F("replayTraderWindow");
+                    if (liveWin == null || !liveWin.Title.Contains("LIVE TRADING")) throw new Exception("LIVE TRADING window did not open");
+                    Console.WriteLine("      LIVE TRADING window opened: " + liveWin.Title);
+                    liveWin.Close(); if (F("replayTraderWindow") != null) throw new Exception("LIVE TRADING window did not close");
                     // every window asks before the X closes it
                     foreach (var wn in new[] { "launcherWindow", "dataLibraryWindow", "liveDeskWindow" })
                     {
