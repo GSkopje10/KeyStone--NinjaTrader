@@ -19,6 +19,7 @@ namespace NinjaTrader.Cbi
         public double Get(AccountItem item, Currency currency) { double v; return StubValues.TryGetValue(item, out v) ? v : 0; }
         public List<Position> Positions = new List<Position>();
         public List<Order> Orders = new List<Order>();
+        public List<Execution> Executions = new List<Execution>();
         public Order CreateOrder(Instrument instrument, OrderAction action, OrderType orderType, OrderEntry orderEntry, TimeInForce timeInForce, int quantity, double limitPrice, double stopPrice, string oco, string name, DateTime gtd, CustomOrder customOrder) { return new Order { Instrument = instrument, OrderAction = action, OrderType = orderType, Quantity = quantity, LimitPrice = limitPrice, StopPrice = stopPrice, Oco = oco, Name = name }; }
         public void Submit(IEnumerable<Order> orders) { }
         public void Change(IEnumerable<Order> orders) { }
@@ -39,6 +40,7 @@ namespace NinjaTrader.Cbi
         public int Quantity { get; set; } public int Filled { get; set; } public double AverageFillPrice { get; set; } public double LimitPrice { get; set; } public double StopPrice { get; set; }
         public double LimitPriceChanged { get; set; } public double StopPriceChanged { get; set; } public int QuantityChanged { get; set; } public string Oco { get; set; } public string Name { get; set; } public string OrderId { get; set; }
     }
+    public class Execution { public string ExecutionId { get; set; } public Instrument Instrument { get; set; } public double Price { get; set; } public int Quantity { get; set; } public MarketPosition MarketPosition { get; set; } public DateTime Time { get; set; } public Order Order { get; set; } }
     public class OrderEventArgs : EventArgs { public Order Order { get; set; } public OrderState OrderState { get; set; } public string Comment { get; set; } }
     public class Instrument
     {

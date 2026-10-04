@@ -6141,6 +6141,11 @@ namespace NinjaTrader.NinjaScript
         public double Tick { get { return tick; } }
         readonly double pv, cost, tick;
         public bool Live { get; private set; }   // LIVE: bars arrive from NinjaTrader's real-time feed (the last one is forming); no replay clock
+        // LINKED to a real account (KeystoneAccountLink): the account is the truth — no simulated fills, no simulated stop / target /
+        // order execution; your actions only change the intent, which the link sends to the account
+        public bool Slave;
+        public void Adopt(int qty, double avg, DateTime now) { if (Position == 0 && qty != 0) PositionTime = Time; Position = qty; AvgPrice = qty == 0 ? 0 : avg; }   // the chart's clock (the bars' time zone)
+        public void AddRealFill(KeystoneReplayFill f) { if (f == null) return; Fills.Add(f); Realized += f.Net; }
 
         // LIVE: the session so far (last bar = the forming one); prices then come in through LiveUpdate
         public static KeystoneReplayTrader LiveStart(List<KeystoneArcBar> sessionSoFar, string symbol, DateTime now)
@@ -6159,7 +6164,7 @@ namespace NinjaTrader.NinjaScript
             else if (bar.Time == Bars[Bars.Count - 1].Time) { var l = Bars[Bars.Count - 1]; l.Open = bar.Open; l.High = bar.High; l.Low = bar.Low; l.Close = bar.Close; l.Volume = bar.Volume; }
             else return;   // an older bar: ignore
             BarIndex = Bars.Count - 1; Step = 1; Price = bar.Close; Time = now;
-            CheckOrders(); CheckBracket();
+            if (!Slave) { CheckOrders(); CheckBracket(); }
         }
 
         public KeystoneReplayTrader(List<KeystoneArcBar> sessionBars, string symbol, int stepsPerBar)
@@ -6284,6 +6289,7 @@ namespace NinjaTrader.NinjaScript
 
         void Record(int qty, string reason)
         {
+            if (Slave) return;   // linked: the real fills make the trades
             int dir = Math.Sign(Position); double pts = dir * (Price - AvgPrice), net = pts * pv * qty - cost * qty;
             Realized += net;
             Fills.Add(new KeystoneReplayFill { Symbol = Symbol, Side = dir > 0 ? "BUY" : "SELL", Qty = qty, Entry = AvgPrice, Exit = Price, EntryTime = PositionTime, ExitTime = Time, Points = pts, Net = net, Reason = reason });
@@ -6297,158 +6303,235 @@ namespace NinjaTrader.NinjaScript
         public const string JournalHeader = "session,symbol,side,qty,entry_time,entry,exit_time,exit,points,net,reason";
     }
 
-    // ---- ORDER ROUTER: mirrors the studio's live position onto a real NinjaTrader account --------------------------------
-    // The studio's own trader stays the plan: whatever it holds — from your clicks or AUTO — the router makes the real account
-    // hold the same, and keeps a real STOP and TARGET working at the broker (one-cancels-other) at the studio's distances from
-    // the REAL fill price. Nothing is sent unless the router is ARMED. Safety: max contracts, a day loss limit (flatten +
-    // disarm), a runaway guard (6 entries in a minute → flatten + disarm), a rejected entry disarms, and a real stop / target
-    // fill is reported back so the studio closes its own position too (the router never re-enters it).
+    // ---- ACCOUNT LINK: the studio's live chart IS the real NinjaTrader account --------------------------------------------
+    // The real account is the truth. Every tick the studio shows its position, average price, stop / target and working
+    // orders — wherever they were placed (the studio, NinjaTrader's Chart Trader / DOM / ATM). What you do in the studio (BUY /
+    // SELL / CLOSE, drag a stop / target / order, BE, ✕, AUTO) is turned into real orders — only while ARMED; unarmed the studio
+    // only WATCHES (and refuses to trade). Every fill is turned into a trade (journal). Safety while armed: max contracts, day
+    // loss limit and day profit cap (flatten + disarm), runaway guard, a rejected order disarms, minimum hold time.
     public sealed class KeystoneBrokerOrder
     {
-        public string Id = string.Empty, Role = string.Empty, Oco = string.Empty;   // Role: ENTRY, STOP, TARGET
-        public int Qty, Filled; public double Price; public bool Done, Rejected, CancelSent; public object Native;
+        public string Id = string.Empty, Kind = "MARKET", Oco = string.Empty, Name = string.Empty;   // Kind: MARKET, LIMIT, STOP
+        public int Side, Qty, Filled; public double Price; public bool Done, Rejected, CancelSent, Ours; public object Native;
     }
+    public sealed class KeystoneExec { public string Id = string.Empty, Name = string.Empty; public DateTime Time; public int SignedQty; public double Price; }
 
     public interface IKeystoneBroker
     {
         bool Connected { get; }
-        int Qty { get; }                 // signed real position in this instrument
+        int Qty { get; }                                  // signed real position in this instrument
         double AvgPrice { get; }
-        double DayPnl { get; }           // the account's realized + unrealized today
+        double DayPnl { get; }                            // the account's realized + open P/L today
         double Tick { get; }
-        List<KeystoneBrokerOrder> Orders { get; }
-        // kind MARKET / STOP / LIMIT; signedQty > 0 buys; returns the order (null = refused by the platform)
-        KeystoneBrokerOrder Submit(string role, string kind, int signedQty, double price, string oco, bool automated);
+        List<KeystoneBrokerOrder> Working();              // every working order on this instrument (the studio's and NinjaTrader's)
+        List<KeystoneExec> Executions();                  // this instrument's executions (any order)
+        KeystoneBrokerOrder Submit(string kind, int signedQty, double price, string oco, bool automated);   // null = refused
         void ChangePrice(KeystoneBrokerOrder o, double price);
         void Cancel(KeystoneBrokerOrder o);
         void Flatten();
     }
 
-    public sealed class KeystoneOrderRouter
+    // Executions → finished trades (average price, partial closes and reversals included).
+    public sealed class KeystoneTradeBuilder
     {
-        public readonly IKeystoneBroker Broker;
+        public int Pos; public double Avg; public DateTime Since; readonly HashSet<string> seen = new HashSet<string>();
+        readonly string symbol; readonly double pv, cost;
+        public KeystoneTradeBuilder(string sym) { symbol = (sym ?? "MNQ").ToUpperInvariant(); pv = KeystoneMoveStudy.PointValue(symbol); cost = KeystoneMoveStudy.Cost(symbol); }
+        // executions already there when the link starts: they set the position, they are not new trades
+        public void Prime(IEnumerable<KeystoneExec> list) { foreach (var e in (list ?? new List<KeystoneExec>()).OrderBy(x => x.Time)) { if (e == null || !seen.Add(e.Id)) continue; Apply(e, null); } }
+        public List<KeystoneReplayFill> Add(IEnumerable<KeystoneExec> list)
+        {
+            var output = new List<KeystoneReplayFill>();
+            foreach (var e in (list ?? new List<KeystoneExec>()).OrderBy(x => x.Time)) { if (e == null || e.SignedQty == 0 || !seen.Add(e.Id)) continue; Apply(e, output); }
+            return output;
+        }
+        public void Anchor(int qty, double avg, DateTime now) { if (qty == Pos && (qty == 0 || Math.Abs(avg - Avg) < 1e-9)) return; if (Pos == 0 && qty != 0) Since = now; Pos = qty; Avg = qty == 0 ? 0 : avg; }
+        void Apply(KeystoneExec e, List<KeystoneReplayFill> output)
+        {
+            int q = e.SignedQty;
+            if (Pos != 0 && Math.Sign(q) != Math.Sign(Pos))
+            {
+                int closing = Math.Min(Math.Abs(Pos), Math.Abs(q)); int dir = Math.Sign(Pos); double pts = dir * (e.Price - Avg);
+                if (output != null) output.Add(new KeystoneReplayFill { Symbol = symbol, Side = dir > 0 ? "BUY" : "SELL", Qty = closing, Entry = Avg, Exit = e.Price, EntryTime = Since, ExitTime = e.Time, Points = pts, Net = pts * pv * closing - cost * closing, Reason = "REAL • " + (e.Name.StartsWith("KEYSTONE") ? "STUDIO" : "NINJATRADER") });
+                Pos += Math.Sign(q) * closing; q -= Math.Sign(q) * closing; if (Pos == 0) Avg = 0;
+            }
+            if (q == 0) return;
+            if (Pos == 0) { Pos = q; Avg = e.Price; Since = e.Time; }
+            else { Avg = (Avg * Math.Abs(Pos) + e.Price * Math.Abs(q)) / (Math.Abs(Pos) + Math.Abs(q)); Pos += q; }
+        }
+    }
+
+    public sealed class KeystoneAccountLink
+    {
+        public readonly IKeystoneBroker Broker; public readonly KeystoneTradeBuilder Trades;
         public bool Armed { get; private set; }
-        public int MaxContracts = 2; public double DayLossLimit = 500, DayProfitCap = 0; public int MinHoldSeconds = 0; public bool Automated;
-        public string State = "NOT ARMED"; public readonly List<string> Log = new List<string>();
-        public Action<string> RealExit;      // the real stop / target closed the position: the studio closes its own too
+        public int MaxContracts = 2, MinHoldSeconds; public double DayLossLimit = 500, DayProfitCap; public bool Automated, AutoStop; public double DefaultStopPts;
+        public string State = "WATCHING", Warning = ""; public bool Pulled; public readonly List<string> Log = new List<string>();
+        public readonly List<KeystoneReplayFill> NewFills = new List<KeystoneReplayFill>();   // real trades not yet saved by the UI
         public Action<string> Disarmed;
-        readonly List<DateTime> entries = new List<DateTime>(); int ocoSeq, expectQty, lastReal; bool suppressUntilFlat; DateTime expectUntil = DateTime.MinValue, realSince = DateTime.MinValue;
+        // the state both sides agreed on last (studio == real); a difference on the studio side = something you did in the studio
+        int sQty; double sStop, sTgt; readonly Dictionary<int, KeystoneBrokerOrder> map = new Dictionary<int, KeystoneBrokerOrder>(); readonly Dictionary<int, double> sPrice = new Dictionary<int, double>();
+        int? pendingQty; bool bracketWanted; DateTime waitUntil = DateTime.MinValue; readonly List<DateTime> sends = new List<DateTime>(); int ocoSeq; DateTime realSince = DateTime.MinValue; int lastReal;
+        readonly HashSet<string> protective = new HashSet<string>(); readonly List<KeystoneBrokerOrder> ours = new List<KeystoneBrokerOrder>(); DateTime bracketWait = DateTime.MinValue;
 
-        public KeystoneOrderRouter(IKeystoneBroker broker) { Broker = broker; }
+        public KeystoneAccountLink(IKeystoneBroker broker, string symbol) { Broker = broker; Trades = new KeystoneTradeBuilder(symbol); try { Trades.Prime(broker.Executions()); } catch { } }
 
-        // Arming needs the studio AND the real account flat in this instrument (the router only manages its own trades).
-        public string Arm(int studioQty, DateTime now)
+        public string Arm(DateTime now)
         {
             if (Broker == null || !Broker.Connected) return "THE ACCOUNT IS NOT CONNECTED IN NINJATRADER";
-            if (studioQty != 0) return "FLATTEN THE STUDIO POSITION FIRST";
-            if (Broker.Qty != 0) return "THE REAL ACCOUNT ALREADY HOLDS " + Broker.Qty + " — CLOSE IT IN NINJATRADER FIRST";
-            if (Broker.Orders.Any(o => !o.Done)) return "THE REAL ACCOUNT HAS WORKING ORDERS FROM THE STUDIO — CANCEL THEM FIRST";
             if (MaxContracts < 1) return "MAX CONTRACTS MUST BE 1 OR MORE";
-            Armed = true; suppressUntilFlat = false; lastReal = 0; entries.Clear(); expectUntil = DateTime.MinValue; State = "ARMED • FLAT";
-            Note(now, "ARMED • max " + MaxContracts + " • day loss limit $" + DayLossLimit.ToString("0", CultureInfo.InvariantCulture) + (MinHoldSeconds > 0 ? " • min hold " + MinHoldSeconds + "s" : "") + (Automated ? " • AUTOMATED" : " • MANUAL"));
+            if (Math.Abs(Broker.Qty) > MaxContracts) return "THE ACCOUNT HOLDS " + Math.Abs(Broker.Qty) + " — MORE THAN MAX QTY " + MaxContracts;
+            Armed = true; sends.Clear(); Note(now, "ARMED • max " + MaxContracts + " • day loss $" + DayLossLimit.ToString("0", CultureInfo.InvariantCulture) + (DayProfitCap > 0 ? " • day cap $" + DayProfitCap.ToString("0", CultureInfo.InvariantCulture) : "") + (MinHoldSeconds > 0 ? " • min hold " + MinHoldSeconds + "s" : ""));
             return null;
         }
-
         public void Disarm(string why, DateTime now, bool flatten)
         {
-            if (!Armed) return; Armed = false;
+            if (!Armed) return; Armed = false; pendingQty = null; bracketWanted = false;
             if (flatten) { try { Broker.Flatten(); } catch { } }
-            State = "DISARMED • " + why; Note(now, State + (flatten ? " • FLATTENED" : ""));
+            Note(now, "DISARMED • " + why + (flatten ? " • FLATTENED" : "")); State = "WATCHING • " + why;
             if (Disarmed != null) Disarmed(why);
         }
-
         void Note(DateTime now, string s) { Log.Add(now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " " + s); if (Log.Count > 300) Log.RemoveAt(0); }
-        double Round(double p) { double t = Broker.Tick > 0 ? Broker.Tick : 0.25; return Math.Round(p / t) * t; }
-        static bool Pending(KeystoneBrokerOrder o) { return o != null && !o.Done; }
+        double Tk { get { return Broker.Tick > 0 ? Broker.Tick : 0.25; } }
+        double Round(double p) { return Math.Round(p / Tk) * Tk; }
         static string Px(double p) { return p.ToString("0.00", CultureInfo.InvariantCulture); }
-
-        // Called on every live tick with what the studio holds now: signed contracts and its stop / target distances in points
-        // (stopPts < 0 = a stop past the entry, locking profit; 0 = none).
-        public void Sync(int studioQty, double stopPts, double targetPts, DateTime now)
+        bool Guard(DateTime now) { sends.RemoveAll(x => (now - x).TotalSeconds > 60); if (sends.Count >= 8) { Disarm("RUNAWAY GUARD: 8 ORDERS IN A MINUTE", now, true); return false; } sends.Add(now); return true; }
+        KeystoneBrokerOrder Send(string kind, int signedQty, double price, string oco, DateTime now, string what)
         {
-            if (!Armed) return;
-            if (!Broker.Connected) { State = "ARMED • CONNECTION LOST — the broker keeps the working stop / target"; return; }
-            int real = Broker.Qty;
-            if (real != 0 && lastReal == 0) realSince = now;
-            // a real stop / target fill closed the position: the studio follows; the router never re-enters it
-            if (real == 0 && lastReal != 0)
-            {
-                var exitFill = Broker.Orders.LastOrDefault(o => (o.Role == "STOP" || o.Role == "TARGET") && o.Filled > 0);
-                if (exitFill != null)
-                {
-                    Note(now, "REAL " + exitFill.Role + " FILLED @ " + Px(exitFill.Price) + " → the studio closes too");
-                    suppressUntilFlat = studioQty != 0; Broker.Orders.RemoveAll(o => o.Done);
-                    if (RealExit != null) RealExit(exitFill.Role);
-                }
-            }
-            lastReal = real;
-            if (DayLossLimit > 0 && Broker.DayPnl <= -Math.Abs(DayLossLimit)) { Disarm("DAY LOSS LIMIT $" + DayLossLimit.ToString("0", CultureInfo.InvariantCulture) + " REACHED", now, true); return; }
-            if (DayProfitCap > 0 && Broker.DayPnl >= DayProfitCap) { Disarm("DAY PROFIT CAP $" + DayProfitCap.ToString("0", CultureInfo.InvariantCulture) + " REACHED (consistency rule) — done for today", now, true); return; }
-            if (Broker.Orders.Any(o => o.Role == "ENTRY" && o.Rejected)) { Disarm("AN ORDER WAS REJECTED BY THE BROKER", now, true); return; }
-            if (suppressUntilFlat) { if (studioQty == 0) suppressUntilFlat = false; else studioQty = 0; }
-            if (Broker.Orders.Any(o => o.Role == "ENTRY" && Pending(o))) { State = "ARMED • ORDER IN FLIGHT"; return; }
-            if (now < expectUntil && real != expectQty) { State = "ARMED • WAITING FOR THE FILL"; return; }
-            Broker.Orders.RemoveAll(o => o.Role == "ENTRY" && o.Done);
+            if (!Guard(now)) return null;
+            var o = Broker.Submit(kind, signedQty, price, oco, Automated);
+            if (o == null) { Disarm("NINJATRADER REFUSED THE ORDER (" + what + ")", now, false); return null; }
+            o.Ours = true; ours.Add(o); if (ours.Count > 200) ours.RemoveAt(0); Note(now, what); return o;
+        }
 
-            int want = Math.Sign(studioQty) * Math.Min(Math.Abs(studioQty), MaxContracts);
-            if (want != real)
+        // protective orders: the working orders on the other side of the position (stop orders = stop, limit orders = target)
+        void Classify(int real, List<KeystoneBrokerOrder> work, out KeystoneBrokerOrder stop, out KeystoneBrokerOrder tgt, out List<KeystoneBrokerOrder> entries)
+        {
+            stop = null; tgt = null; entries = new List<KeystoneBrokerOrder>(); int dir = Math.Sign(real);
+            foreach (var o in work)
             {
-                bool exiting = real != 0 && (want == 0 || Math.Sign(want) != Math.Sign(real) || Math.Abs(want) < Math.Abs(real));
-                if (exiting && MinHoldSeconds > 0 && (now - realSince).TotalSeconds < MinHoldSeconds) { State = "ARMED • HOLDING " + Math.Ceiling(MinHoldSeconds - (now - realSince).TotalSeconds) + "s (min hold rule; the real stop protects)"; return; }
-                entries.RemoveAll(t => (now - t).TotalSeconds > 60);
-                if (entries.Count >= 6) { Disarm("RUNAWAY GUARD: 6 ORDERS IN A MINUTE", now, true); return; }
-                if (want == 0)
+                if (real != 0 && o.Side == -dir && o.Kind == "STOP") { if (stop == null || Math.Abs(o.Price - Broker.AvgPrice) < Math.Abs(stop.Price - Broker.AvgPrice)) stop = o; }
+                else if (real != 0 && o.Side == -dir && o.Kind == "LIMIT") { if (tgt == null || Math.Abs(o.Price - Broker.AvgPrice) < Math.Abs(tgt.Price - Broker.AvgPrice)) tgt = o; }
+                else entries.Add(o);
+            }
+        }
+
+        public void Tick(KeystoneReplayTrader t, DateTime now)
+        {
+            Pulled = false; Warning = "";
+            if (t == null) return;
+            if (!Broker.Connected) { State = "CONNECTION LOST • working orders stay at the broker"; return; }
+            // 1. real fills → trades (the studio's trade list + the journal)
+            try { foreach (var f in Trades.Add(Broker.Executions())) { t.AddRealFill(f); NewFills.Add(f); } } catch { }
+            int real = Broker.Qty; double avg = Broker.AvgPrice; Trades.Anchor(real, avg, now);
+            if (real != 0 && lastReal == 0) realSince = now; lastReal = real;
+            var work = Broker.Working().Where(o => !o.Done && !o.CancelSent).ToList();
+            KeystoneBrokerOrder rStop, rTgt; List<KeystoneBrokerOrder> rEntries; Classify(real, work, out rStop, out rTgt, out rEntries);
+            if (real == 0) foreach (var o in work.Where(o => protective.Contains(o.Id)).ToList()) { Broker.Cancel(o); protective.Remove(o.Id); }   // a leftover leg of our bracket
+            if (map.Values.Any(b => b.Ours && b.Done && b.Filled > 0) && real != 0) bracketWanted = true;   // a studio entry order filled: its stop / target follow
+            // 2. limits
+            double pnl = Broker.DayPnl;
+            if (Armed && DayLossLimit > 0 && pnl <= -Math.Abs(DayLossLimit)) { Disarm("DAY LOSS LIMIT $" + DayLossLimit.ToString("0", CultureInfo.InvariantCulture) + " REACHED", now, true); return; }
+            if (Armed && DayProfitCap > 0 && pnl >= DayProfitCap) { Disarm("DAY PROFIT CAP $" + DayProfitCap.ToString("0", CultureInfo.InvariantCulture) + " REACHED (consistency rule) — done for today", now, true); return; }
+            if (Armed && ours.Any(o => o.Rejected)) { Disarm("AN ORDER WAS REJECTED BY THE BROKER", now, true); return; }
+            if (!Armed && DayProfitCap > 0 && pnl >= DayProfitCap) Warning = "DAY CAP REACHED — stop trading today (consistency)";
+            if (!Armed && DayLossLimit > 0 && pnl <= -Math.Abs(DayLossLimit)) Warning = "DAY LOSS LIMIT REACHED — stop trading today";
+
+            // 3. a size change waiting for its bracket to be cancelled first (reduce / reverse), or for the minimum hold
+            if (pendingQty.HasValue && Armed)
+            {
+                int want = pendingQty.Value; bool exiting = real != 0 && (want == 0 || Math.Sign(want) != Math.Sign(real) || Math.Abs(want) < Math.Abs(real));
+                if (exiting && MinHoldSeconds > 0 && (now - realSince).TotalSeconds < MinHoldSeconds) { State = "ARMED • HOLDING " + Math.Ceiling(MinHoldSeconds - (now - realSince).TotalSeconds) + "s (min hold; the stop protects)"; return; }
+                if (want == real) pendingQty = null;
+                else if (want == 0) { if (!Guard(now)) return; Broker.Flatten(); Note(now, "FLATTEN"); waitUntil = now.AddSeconds(4); bracketWanted = false; pendingQty = null; State = "ARMED • FLATTENING"; return; }
+                else if (exiting && (rStop != null || rTgt != null)) { if (rStop != null) Broker.Cancel(rStop); if (rTgt != null && !rTgt.CancelSent) Broker.Cancel(rTgt); State = "ARMED • CANCELLING THE BRACKET FIRST"; return; }
+                else { Send("MARKET", want - real, 0, "", now, (want - real > 0 ? "BUY " : "SELL ") + Math.Abs(want - real) + " MARKET → " + want); waitUntil = now.AddSeconds(4); pendingQty = null; bracketWanted = t.StopPts != 0 || t.TargetPts > 0; State = "ARMED • ORDER SENT"; return; }
+            }
+            // waiting for the broker: until the real position matches what was sent (max 4 s), the studio keeps your intent
+            if (now < waitUntil && real != sQty) { State = Armed ? "ARMED • WAITING FOR THE FILL" : State; return; }
+
+            // 4. what changed in the studio since the last agreement?
+            bool qtyCh = t.Position != sQty, stopCh = Math.Abs(t.StopPts - sStop) > Tk / 2, tgtCh = Math.Abs(t.TargetPts - sTgt) > Tk / 2;
+            var studioIds = new HashSet<int>(t.Orders.Select(o => o.Id));
+            var newOrders = t.Orders.Where(o => !map.ContainsKey(o.Id)).ToList();
+            var goneOrders = map.Keys.Where(id => !studioIds.Contains(id)).ToList();
+            var moved = t.Orders.Where(o => map.ContainsKey(o.Id) && sPrice.ContainsKey(o.Id) && Math.Abs(sPrice[o.Id] - o.Price) > Tk / 2).ToList();
+            bool studioActed = qtyCh || stopCh || tgtCh || newOrders.Count > 0 || goneOrders.Count > 0 || moved.Count > 0;
+            if (studioActed && !Armed) { Warning = "NOT ARMED — the studio only watches; press ARM to trade from here"; Pull(t, real, avg, rStop, rTgt, rEntries, now); return; }
+            if (studioActed)
+            {
+                // working orders
+                foreach (var o in newOrders) { var b = Send(o.Type == "STOP" ? "STOP" : "LIMIT", o.Dir * Math.Min(o.Qty, MaxContracts), o.Price, "", now, (o.Dir > 0 ? "BUY " : "SELL ") + o.Type + " " + Math.Min(o.Qty, MaxContracts) + " @ " + Px(o.Price)); if (b == null) return; map[o.Id] = b; sPrice[o.Id] = o.Price; }
+                foreach (var id in goneOrders) { var b = map[id]; if (!b.Done && !b.CancelSent) { Broker.Cancel(b); Note(now, "CANCEL " + b.Kind + " @ " + Px(b.Price)); } map.Remove(id); sPrice.Remove(id); }
+                foreach (var o in moved) { Broker.ChangePrice(map[o.Id], Round(o.Price)); sPrice[o.Id] = o.Price; Note(now, "ORDER MOVED → " + Px(o.Price)); }
+                // position
+                if (qtyCh)
                 {
-                    // a full exit: NinjaTrader's flatten cancels the bracket and closes in one step (no race with a stop that
-                    // fills at the same moment, which could otherwise turn a market exit into a new position)
-                    Broker.Flatten(); entries.Add(now); expectQty = 0; expectUntil = now.AddSeconds(4);
-                    Note(now, "FLATTEN → real position 0"); State = "ARMED • FLATTENING"; return;
+                    int want = Math.Sign(t.Position) * Math.Min(Math.Abs(t.Position), MaxContracts); pendingQty = want; sQty = want; sStop = t.StopPts; sTgt = t.TargetPts;
+                    if (want != t.Position) { t.Adopt(want, t.AvgPrice, now); Warning = "CAPPED AT MAX QTY " + MaxContracts; }
+                    State = "ARMED • SENDING"; return;   // sent on the next tick (after the bracket is out of the way when needed)
                 }
-                // a size change or reversal: the old bracket goes first, and the market order waits until it is really gone
-                var old = Broker.Orders.Where(o => o.Role != "ENTRY" && Pending(o)).ToList();
-                if (old.Count > 0) { foreach (var o in old) if (!o.CancelSent && !o.Done) Broker.Cancel(o); State = "ARMED • CANCELLING THE BRACKET FIRST"; return; }
-                var sent = Broker.Submit("ENTRY", "MARKET", want - real, 0, string.Empty, Automated);
-                if (sent == null) { Disarm("NINJATRADER REFUSED THE ORDER", now, false); return; }
-                entries.Add(now); expectQty = want; expectUntil = now.AddSeconds(4);
-                Note(now, (want - real > 0 ? "BUY " : "SELL ") + Math.Abs(want - real) + " MARKET → real position " + want);
-                State = "ARMED • ORDER SENT"; return;
+                // stop / target of the open position
+                if (real != 0 && (stopCh || tgtCh)) SetBracket(t.StopPts, t.TargetPts, real, avg, rStop, rTgt, now);
+                sStop = t.StopPts; sTgt = t.TargetPts; State = "ARMED • SENT"; return;
             }
-            Broker.Orders.RemoveAll(o => o.Done);
-            if (real == 0)
+            // 5. the bracket the studio asked for, once its entry filled
+            if (Armed && bracketWanted && real != 0 && rStop == null && rTgt == null && (t.StopPts != 0 || t.TargetPts > 0)) { bracketWanted = false; SetBracket(t.StopPts, t.TargetPts, real, avg, null, null, now); return; }
+            if (real != 0 && (rStop != null || rTgt != null)) bracketWanted = false;
+            // 6. no stop on a real position (e.g. opened in NinjaTrader)
+            if (real != 0 && rStop == null)
             {
-                foreach (var o in Broker.Orders.Where(Pending).ToList()) if (!o.Done && !o.CancelSent) Broker.Cancel(o);
-                State = "ARMED • FLAT"; return;
+                if (Armed && AutoStop && !bracketWanted && DefaultStopPts > 0 && now >= bracketWait) { int dir = Math.Sign(real); var s = Send("STOP", -dir * Math.Abs(real), Round(avg - dir * DefaultStopPts), "", now, "AUTO STOP " + Px(Round(avg - dir * DefaultStopPts))); if (s != null) protective.Add(s.Id); return; }
+                Warning = "NO STOP ON THE REAL POSITION";
             }
-            int dir = Math.Sign(real), q = Math.Abs(real); double avg = Broker.AvgPrice;
-            double stopPx = stopPts != 0 ? Round(avg - dir * stopPts) : double.NaN;
+            Pull(t, real, avg, rStop, rTgt, rEntries, now);
+            State = (Armed ? "ARMED" : "WATCHING") + (real == 0 ? " • FLAT" : " • " + (real > 0 ? "LONG " : "SHORT ") + Math.Abs(real) + " @ " + Px(avg)) + (rEntries.Count > 0 ? " • " + rEntries.Count + " working" : "");
+        }
+
+        // places / moves / removes the real stop and target for the studio's distances (from the REAL average price)
+        void SetBracket(double stopPts, double tgtPts, int real, double avg, KeystoneBrokerOrder rStop, KeystoneBrokerOrder rTgt, DateTime now)
+        {
+            int dir = Math.Sign(real), q = Math.Abs(real);
             bool holdTarget = MinHoldSeconds > 0 && (now - realSince).TotalSeconds < MinHoldSeconds;
-            double tgtPx = targetPts > 0 && !holdTarget ? Round(avg + dir * targetPts) : double.NaN;
-            var stop = Broker.Orders.FirstOrDefault(o => o.Role == "STOP" && Pending(o)); var tgt = Broker.Orders.FirstOrDefault(o => o.Role == "TARGET" && Pending(o));
-            bool rebuild = (stop != null && (double.IsNaN(stopPx) || stop.Qty != q)) || (tgt != null && (double.IsNaN(tgtPx) || tgt.Qty != q))
-                || (stop == null && !double.IsNaN(stopPx) && tgt != null) || (tgt == null && !double.IsNaN(tgtPx) && stop != null);
-            if (Broker.Orders.Any(o => o.Role != "ENTRY" && o.CancelSent && !o.Done)) { State = "ARMED • WAITING FOR THE BROKER TO CANCEL"; return; }
-            if (rebuild)
+            double sp = stopPts != 0 ? Round(avg - dir * stopPts) : double.NaN, tp = tgtPts > 0 && !holdTarget ? Round(avg + dir * tgtPts) : double.NaN;
+            // a leg added or removed: rebuild the pair (cancelling one leg of a one-cancels-other pair cancels both)
+            bool structure = (rStop == null) != double.IsNaN(sp) || (rTgt == null) != double.IsNaN(tp);
+            if (structure && (rStop != null || rTgt != null))
             {
-                // one-cancels-other: cancelling one leg cancels the other, so a changed structure is rebuilt as a new pair next tick
-                if (stop != null && !stop.CancelSent) Broker.Cancel(stop); if (tgt != null && !tgt.Done && !tgt.CancelSent) Broker.Cancel(tgt);
-                State = "ARMED • REBUILDING THE BRACKET"; return;
+                if (rStop != null) Broker.Cancel(rStop); if (rTgt != null && !rTgt.CancelSent) Broker.Cancel(rTgt);
+                Note(now, "BRACKET CHANGED • rebuilding"); bracketWanted = !double.IsNaN(sp) || !double.IsNaN(tp); bracketWait = now.AddSeconds(4); return;
             }
-            if (stop == null && tgt == null && (!double.IsNaN(stopPx) || !double.IsNaN(tgtPx)))
+            if (structure)
             {
-                string oco = "KA" + now.ToString("HHmmss", CultureInfo.InvariantCulture) + "-" + (++ocoSeq);
-                bool both = !double.IsNaN(stopPx) && !double.IsNaN(tgtPx);
-                if (!double.IsNaN(stopPx)) Broker.Submit("STOP", "STOP", -dir * q, stopPx, both ? oco : string.Empty, Automated);
-                if (!double.IsNaN(tgtPx)) Broker.Submit("TARGET", "LIMIT", -dir * q, tgtPx, both ? oco : string.Empty, Automated);
-                Note(now, "BRACKET" + (double.IsNaN(stopPx) ? "" : " • STOP " + Px(stopPx)) + (double.IsNaN(tgtPx) ? "" : " • TARGET " + Px(tgtPx)));
+                string oco = !double.IsNaN(sp) && !double.IsNaN(tp) ? "KA" + now.ToString("HHmmss", CultureInfo.InvariantCulture) + "-" + (++ocoSeq) : "";
+                if (!double.IsNaN(sp)) { var s = Send("STOP", -dir * q, sp, oco, now, "STOP " + Px(sp)); if (s != null) protective.Add(s.Id); }
+                if (!double.IsNaN(tp)) { var g = Send("LIMIT", -dir * q, tp, oco, now, "TARGET " + Px(tp)); if (g != null) protective.Add(g.Id); }
+                bracketWait = now.AddSeconds(4); return;
             }
-            else
+            if (rStop != null && Math.Abs(rStop.Price - sp) > Tk / 2) { Broker.ChangePrice(rStop, sp); Note(now, "STOP MOVED → " + Px(sp)); }
+            if (rTgt != null && Math.Abs(rTgt.Price - tp) > Tk / 2) { Broker.ChangePrice(rTgt, tp); Note(now, "TARGET MOVED → " + Px(tp)); }
+        }
+
+        // the studio takes the real account's state (position, stop / target distances, working orders)
+        void Pull(KeystoneReplayTrader t, int real, double avg, KeystoneBrokerOrder rStop, KeystoneBrokerOrder rTgt, List<KeystoneBrokerOrder> rEntries, DateTime now)
+        {
+            int dir = Math.Sign(real);
+            double sp = real != 0 && rStop != null ? Math.Round(dir * (avg - rStop.Price) / Tk) * Tk : 0, tp = real != 0 && rTgt != null ? Math.Round(dir * (rTgt.Price - avg) / Tk) * Tk : 0;
+            if (t.Position != real || (real != 0 && Math.Abs(t.AvgPrice - avg) > Tk / 4)) { t.Adopt(real, avg, now); Pulled = true; }
+            // flat: the studio's SL / TP stay as the distances for the next entry; a studio entry waiting for its bracket keeps them too
+            bool keepIntent = real == 0 || (bracketWanted && rStop == null && rTgt == null);
+            if (!keepIntent && (Math.Abs(t.StopPts - sp) > Tk / 4 || Math.Abs(t.TargetPts - tp) > Tk / 4)) { t.StopPts = sp; t.TargetPts = tp; Pulled = true; }
+            // working entry orders: the studio shows exactly the real ones
+            var byReal = map.ToDictionary(kv => kv.Value, kv => kv.Key);
+            foreach (var b in rEntries)
             {
-                double half = (Broker.Tick > 0 ? Broker.Tick : 0.25) / 2;
-                if (stop != null && Math.Abs(stop.Price - stopPx) > half) { Broker.ChangePrice(stop, stopPx); Note(now, "STOP MOVED → " + Px(stopPx)); }
-                if (tgt != null && Math.Abs(tgt.Price - tgtPx) > half) { Broker.ChangePrice(tgt, tgtPx); Note(now, "TARGET MOVED → " + Px(tgtPx)); }
+                int id; KeystoneReplayOrder so;
+                if (byReal.TryGetValue(b, out id) && (so = t.Orders.FirstOrDefault(o => o.Id == id)) != null) { if (Math.Abs(so.Price - b.Price) > Tk / 4 || so.Qty != b.Qty - b.Filled) { so.Price = b.Price; so.Qty = Math.Max(1, b.Qty - b.Filled); Pulled = true; } sPrice[id] = so.Price; continue; }
+                so = t.Place(b.Kind == "STOP" ? "STOP" : "LIMIT", b.Side, Math.Max(1, b.Qty - b.Filled), b.Price); map[so.Id] = b; sPrice[so.Id] = so.Price; Pulled = true;
             }
-            State = "ARMED • " + (dir > 0 ? "LONG " : "SHORT ") + q + " @ " + Px(avg) + (double.IsNaN(stopPx) ? " • NO STOP" : " • STOP " + Px(stopPx))
-                + (double.IsNaN(tgtPx) ? (holdTarget && targetPts > 0 ? " • TARGET AFTER " + MinHoldSeconds + "s" : "") : " • TARGET " + Px(tgtPx));
+            var live = new HashSet<KeystoneBrokerOrder>(rEntries);
+            foreach (var kv in map.Where(kv => !live.Contains(kv.Value)).ToList()) { t.Orders.RemoveAll(o => o.Id == kv.Key); map.Remove(kv.Key); sPrice.Remove(kv.Key); Pulled = true; }
+            sQty = real; sStop = t.StopPts; sTgt = t.TargetPts;
         }
     }
 
@@ -12387,9 +12470,9 @@ namespace NinjaTrader.NinjaScript.AddOns
         private readonly List<KeystoneArcComparisonRow> comparisonRows = new List<KeystoneArcComparisonRow>();
         private readonly List<KeystoneArcOptimizationRow> optimizationRows = new List<KeystoneArcOptimizationRow>();
         // Shown in the header so it is obvious which source version NinjaTrader compiled.
-        private const string KeystoneBuildShort = "BUILD 2026-10-06b";
+        private const string KeystoneBuildShort = "BUILD 2026-10-06c";
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
-        private const string KeystoneBuild = "BUILD 2026-10-06b • MFFU RAPID EOD RULES FROM THE FIRM: MAX 30 MICROS IN TOTAL (MNQ + MGC TOGETHER, ENFORCED), FUNDED: FIRST PAYOUT AT +$2,100, THEN EVERY +$500 • BUILD 2026-10-06a • REAL ACCOUNT BAR IN LIVE: PICK A NINJATRADER ACCOUNT (MFFU RAPID EOD / LUCID / TPT / SIM RULES), ARM → THE STUDIO'S TRADES GO TO IT (MARKET + REAL STOP / TARGET AT THE BROKER, MOVES FOLLOW), MAX QTY, DAY LOSS, DAY PROFIT CAP, MIN HOLD, RUNAWAY GUARD, FLATTEN REAL, ORDER LOG, ACCOUNT LINE (FLOOR / ROOM / TARGET / PAYOUT / CONSISTENCY) • LIVE DESK SHOWS CONNECTED ACCOUNTS ONLY • BUILD 2026-10-05i • LAB CASH FLOW: MAX OWN MONEY IN, ACCOUNTS PAID UPFRONT vs FROM PAYOUTS, PAYOUTS KEPT • NO-COST + LOSING-STRATEGY WARNINGS • OWN $ MAX IN COMPARE STRATEGIES • BUILD 2026-10-05h • ● GO LIVE: NINJATRADER'S REAL-TIME DATA ON THE STUDIO CHART (TODAY + YESTERDAY, FRONT CONTRACT), SIMULATED ACCOUNT ON LIVE PRICES, STRATEGY SIGNALS / AUTO ON LIVE BARS, FINISHED SESSIONS SAVED • BUILD 2026-10-05g • THE PREVIOUS DAY ON THE CHART (YESTERDAY'S SESSION SHADED IN FRONT, PDH / PDL / PDC + OVERNIGHT HIGH / LOW LABELLED, A LEVEL GLOWS WHILE PRICE IS NEAR IT) • BUILD 2026-10-05f • STOP INTO PROFIT: DRAG THE STOP PAST THE ENTRY (PROFIT STOP, GREEN), BE +1 TICK, LOCK ½ PROFIT • BUILD 2026-10-05e • REPORTS WINDOW: IMPORT A STUDY (.kreport.json) — SUMMARY, TABLES, EVERY LABELLED DAY, OPEN A DAY ON THE STUDIO CHART WITH ITS LABELS + TRADES • THE OPENING MINUTE STUDY • CROSSHAIR SHOWS THE CANDLE START TIME (09:30 = THE OPENING CANDLE, LIKE THE TIME AXIS) • BUILD 2026-10-05d • LIVE DESK: PLAYBOOK PLANS PER ACCOUNT (LUCID FLEX / DAILY / PRO + PERSONAL: SIZE, DRAWDOWN, TARGET, CONTRACTS, PAYOUT RULE) • BUILD 2026-10-05c • ⚙ STRATEGY SETTINGS: EVERY STUDIO STRATEGY SHOWS ITS PARAMETERS (ASIAN LEGS / REVERSALS / CYCLE TARGET • BH / FVG TARGETS + STOPS • OPENING RANGE RULES) + CONTRACTS + AUTO / SIGNALS → CONFIRM (+ PLAY): AUTO ENTERS, MANAGES AND EXITS BY ITSELF • BUILD 2026-10-05b • ★ TESTED STRATEGIES FROM THE 6-YEAR RESEARCH: OPENING DRIVE 10M • OPENING RANGE BREAK 15M • 30M 1R (AUTO WORKS STOP ORDERS OCO, BRACKET FROM THE FILL, FLAT 15:55, SKIPS FOMC / PAYROLLS) • BUILD 2026-10-05a • TOGGLE BUTTON TEXT ALWAYS READABLE (SPLIT / PATTERN / CLEAN / TIMEFRAMES) • BUILD 2026-10-04z • CHART HEADER IN ONE ROW (TIMEFRAMES • NOW • SPLIT • PATTERN • CLEAN • MATCHES) • SPLIT ALWAYS REACHABLE (CLICK AGAIN = ONE CHART) • PATTERN BUTTON + ✕ ON THE BOX HIDE IT • BUILD 2026-10-04y • LEFT TOOL STRIP REBUILT TRADINGVIEW-STYLE (FLAT ICON TILES + NAMES, GROUPS, HOVER, GOLD = ACTIVE TOOL, COLOURS UNDER IT) • BUILD 2026-10-04x • LEFT DRAWING TOOLBAR VISIBLE (BIGGER BUTTONS: ICON + NAME — CURSOR, H-LINE, V-LINE, TREND, RAY, RECT, FVG, FIB, ARROWS, TEXT, LONG, SHORT, CLEAR) • BUILD 2026-10-04w • SEND DATA TO CLAUDE COMPRESSES + SPLITS INTO 20 MB PARTS (GITHUB WEB LIMIT) • EVERY WINDOW FITS THE SCREEN (TITLE BAR ALWAYS REACHABLE), DATA LIBRARY SCROLLS • BUILD 2026-10-04v • ONE VERDICT IN THE ENTRY BOX (SETUP + COACH + PATTERN → TAKE / NO TRADE) • CHART LABELS SAY WHICH TARGET (COACH / SETUP) • ▲ BUYS / ▼ SELLS FOR EVERY STRATEGY • ARROW-SHAPED ENTRIES (CYAN BUY / PURPLE SELL) • THE NEWEST SETUP BREATHES SOFTLY WITH A CALLOUT: CONTRACTS, ENTRY, TP / SL, PROBABILITY, WHY • BUILD 2026-10-04u • ◫ SPLIT: TWO TIMEFRAMES SIDE BY SIDE (E.G. 1M + 5M), THE RIGHT ONE WITH ITS OWN TIMEFRAME BUTTONS, SAME CLOCK + TRADE • BUILD 2026-10-04t • PLAN FIXED AT THE READING'S MINUTE CLOSE (NO MORE MOVING TP / SL) • MATCHES WINDOW (THE 20 CLOSEST PAST MOMENTS + MINI CHART BEFORE / AFTER) • CLEAN CHART TOGGLE • PATTERN PLAN NEEDS THE SAME LEAN 3 MINUTES IN A ROW (WAIT 1 / 2 OF 3), CHART LINES NO LONGER LAG THE BOX • DATA LIBRARY: SEND DATA TO CLAUDE (THREE UPLOAD FOLDERS + GITHUB UPLOAD PAGE ON THE RESEARCH BRANCH) • BUILD 2026-10-04s • PREDICTION JOURNAL (EVERY PLAN LOGGED + CHECKED, TRACK RECORD IN THE BOX, PredictionLog.csv) • PATTERN LAB RUNS SAVED AS CSV • THE PATTERN PLAN IS DRAWN ON THE CHART WHILE FLAT (ENTRY / STOP / TARGET, CONTRACTS, $) • PATTERN BOX LOCKS THE PLAN WHILE IN A TRADE (30-MIN EXIT COUNTDOWN) • PATTERN BOX: CYAN ▲ LEAN BUY / PURPLE ▼ LEAN SELL (GREEN / RED ONLY MEAN MONEY) • BUILD 2026-10-04r • SIMILAR MOMENTS GIVES A PLAN + PATTERN BOX SHOW / HIDE + SAYS ITS HORIZON + COLOUR LEGEND • ◀ CANDLE / CANDLE ▶ (WHOLE CANDLES OF THE CHART TIMEFRAME) (SIDE, STOP / TARGET, CONTRACTS FOR RISK $, VALUE AFTER COSTS) OR NO TRADE • CPI / PPI / PAYROLLS HISTORY: BROWSER-LIKE REQUEST, OR CTRL+S THE THREE BLS PAGES INTO KeystoneArcData\\News (THE BUTTON OPENS THEM) • BUILD 2026-10-04q • THIN ROLL-OVER DAYS FIXED: A WEEKDAY UNDER 800 MINUTES ASKS THE NEXT CONTRACTS (DOWNLOADS + LOAD DAY), REPAIR THIN DAYS BUTTON • NO FLASHING: STEADY P/L COLOURS + A P/L BAR ON THE PRICE SCALE, NEW SETUPS FADE OUT WITH A TIMER, SIMILAR-MOMENTS GAUGE • DRAGGING A STOP / TARGET NO LONGER CLOSES THE TRADE (PREVIEW WHILE DRAGGING, PLACED ON RELEASE, REFUSED IF THE PRICE IS ALREADY THROUGH IT) • CPI / PPI / PAYROLLS HISTORY FROM THE BLS ARCHIVES INTO NEWS.CSV • PRACTISE A RANGE (LAST 2 WEEKS / MONTH / RANDOM 2 WEEKS / ANY DATES): DAY AFTER DAY, THEN A RANGE REPORT + CSV • BUILD 2026-10-04p • TP ⇕ / SL ⇕ HANDLES ON THE POSITION LINE (DRAG UP / DOWN) • NO AUTOMATIC STOP / TARGET: THE BRACKET BOXES START AT 0 AND CLEAR WHEN A TRADE CLOSES • PATTERN ENGINE (SIMILAR MOMENTS): EVERY SAVED MINUTE AS A FINGERPRINT + WHAT CAME NEXT • PATTERN LAB: HONEST WALK-FORWARD TEST vs THE BASELINE, EACH YEAR, CALIBRATION • STUDIO SIMILAR MOMENTS BOX (UP-FIRST vs BASELINE, BLINKS GREEN / RED ON A CLEAR EDGE, NO LOOK-AHEAD) • BUILD 2026-10-04o • NO SHADED TARGET / STOP ZONES: THE POSITION LINE + PRICE TAG PULSE GREEN / RED • ✕ ON STOP / TARGET / ORDER LINES • REMOVE STOP / TARGET FROM THE RIGHT-CLICK MENU • LINE, RAY, RECTANGLE, FVG BUTTONS ON THE TOP TOOLBAR • BUILD 2026-10-04n • FULL DATE + WEEKDAY IN THE HEADER • CLICK A DRAWING TO SELECT IT, DELETE KEY REMOVES IT, ESC UNSELECTS • DATA LIBRARY OPENS AGAIN (ILLEGAL PATH CHARACTER FIX) • LOAD ALL 6 YEARS IN THE BACKGROUND (ONE QUEUE, NEWEST FIRST, STUDIO STAYS USABLE, PROGRESS IN THE STUDIO, STOP / RESUME) • PICK A DAY: EVERY WEEKDAY OF 6 YEARS WITH ONLY ITS NEWS (NO RANGES — NO BIAS), SAVED ● / NOT YET ○, RANDOM DAY • BUILD 2026-10-04m • STRATEGY BOX (WHICH STRATEGY, MODE, TODAY WON / LOST / OPEN) • SETUP COACH: THE STRATEGY ON THE 20 SAVED DAYS BEFORE → BEST TARGET IN R, HOW OFTEN IT WAS REACHED FIRST, R A TRADE, BUYS vs SELLS • A NEW SETUP BLINKS + SOUND WITH TAKE / SKIP, TARGET AND CONTRACTS FOR YOUR RISK $ • AUTO + SMART USES THE COACH • ONE CLEAN DASHED PLAN FOR THE NEWEST SETUP (NO DOUBLE BACKGROUND) • BUILD 2026-10-04l • DRAWING PALETTE (HORIZONTAL / VERTICAL LINE, TREND, RAY, RECTANGLE, FVG BOX WITH 50% LINE, FIBONACCI, ARROWS, TEXT, LONG / SHORT) • 10 COLOURS + LINE WIDTH • DRAG A DRAWING TO MOVE IT • RIGHT-CLICK MENU (LIMIT / STOP ORDERS AT THE PRICE, TP / SL HERE, CLOSE, DRAW, COLOUR, WIDTH, TEXT, COPY, DELETE, CHART TEMPLATE, TIMEFRAME, RESET) • 9 CHART TEMPLATES + HOLLOW CANDLES • SHARP PIXEL CANDLES • DRAG THE POSITION LINE FOR TP / SL • QUICK CONTRACTS, BRACKET PRESETS, BREAKEVEN, REVERSE, FLATTEN MNQ + MGC • GO TO NOW BUTTON • BUILD 2026-10-04k • LOAD DAY NO LONGER LOSES THE TYPED DATE AFTER A NINJATRADER DOWNLOAD • DATA LIBRARY: MONTH TILES (CLICK MONTHS / YEARS, QUICK 3M / 12M / 3Y / 6Y / EVERY GAP, DOWNLOAD SELECTED) + ERROR TEXT INSTEAD OF A CRASH • PICK A DAY (EVERY SAVED DAY WITH FOMC / NFP / CPI TAGS, NY RANGE + MOVE, FILTERS) • ◀ BACK IN TIME (−1 / −10 MIN, ← →) • CLOSE CONFIRMATION ON EVERY WINDOW • LIVE DESK READ ONLY (ACCOUNTS, GROUPS DRAG + DROP, DRAWDOWN ROOM, TARGET) • BUILD 2026-10-04j • STUDIO: ANY DATE → LOAD DAY GETS IT FROM NINJATRADER AND SAVES IT FOR EVERY NEXT LOAD • PREV / NEXT DAY ANY WEEKDAY • ONE-CLICK TIMEFRAME BUTTONS (KEYS 1–9) • HIGH-IMPACT NEWS: CORNER BOX WITH COUNTDOWN, NEWS LINES ON THE CHART, NEWS LOCK ± MIN + FLAT BEFORE NEWS (FOMC + PAYROLLS BUILT IN, FOREXFACTORY WEEK FEED, YOUR NEWS.CSV) • DATA IN ITS OWN FOLDER Documents\\KeystoneArcData (REPORTS STAY IN KeystoneArc5MResearch; OLD DATA MOVED) • DOWNLOAD WATCHDOG 120 S • BUILD 2026-10-04i • LAUNCHER (BACKTEST STUDIO • RESEARCH LAB • DATA LIBRARY • LIVE DESK LOCKED) • DATA LIBRARY: THE STUDIO'S OWN 1-MINUTE BARS (COVERAGE PER YEAR, MISSING DAYS, DOWNLOAD ANY RANGE WEEK BY WEEK, NO STEP 1) • STUDIO REMEMBERS THE DAY, SETTINGS, TIMEFRAMES AND DRAWINGS • ACCOUNT BLOWN PROMPT: NEW ACCOUNT CONTINUES THE SAME DAY • STRATEGY MODE SIGNALS / AUTO + ME • ENTRY BOX • BUILD 2026-10-04h • REPLAY TRADER v3: MNQ + MGC TABS ON ONE CLOCK AND ONE ACCOUNT, TRADINGVIEW-STYLE CHART (WHEEL ZOOM AT THE MOUSE, DRAG ANYWHERE INCL. SPACE ON THE RIGHT, PRICE / TIME AXIS STRETCH, CROSSHAIR), DRAWING TOOLBAR (LINE, TREND, RECTANGLE, LONG / SHORT R:R TOOL), TARGET / STOP ZONES + ANIMATED P/L BOX, REALISTIC TICK PATH, PREV / NEXT DAY, FULL WINDOW • BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
+        private const string KeystoneBuild = "BUILD 2026-10-06c • THE LIVE CHART IS THE REAL ACCOUNT: PICK IT IN THE REAL ACCOUNT BAR → ITS POSITION, STOP / TARGET AND WORKING ORDERS SHOW (PLACED IN NINJATRADER TOO), EVERY FILL IN THE JOURNAL (RealJournal.csv, HOLD TIME, FROM STUDIO / NINJATRADER) • ARMED: BUY / SELL / CLOSE, LIMIT / STOP ORDERS, DRAGGING STOP / TARGET / ORDERS, BE, ✕, AUTO ACT ON THE ACCOUNT (ALSO ON ORDERS NINJATRADER PLACED) • NO STOP WARNING + ADD MY STOP + AUTO STOP • 11-SECOND RULE SHARE • BUILD 2026-10-06b • MFFU RAPID EOD RULES FROM THE FIRM: MAX 30 MICROS IN TOTAL (MNQ + MGC TOGETHER, ENFORCED), FUNDED: FIRST PAYOUT AT +$2,100, THEN EVERY +$500 • BUILD 2026-10-06a • REAL ACCOUNT BAR IN LIVE: PICK A NINJATRADER ACCOUNT (MFFU RAPID EOD / LUCID / TPT / SIM RULES), ARM → THE STUDIO'S TRADES GO TO IT (MARKET + REAL STOP / TARGET AT THE BROKER, MOVES FOLLOW), MAX QTY, DAY LOSS, DAY PROFIT CAP, MIN HOLD, RUNAWAY GUARD, FLATTEN REAL, ORDER LOG, ACCOUNT LINE (FLOOR / ROOM / TARGET / PAYOUT / CONSISTENCY) • LIVE DESK SHOWS CONNECTED ACCOUNTS ONLY • BUILD 2026-10-05i • LAB CASH FLOW: MAX OWN MONEY IN, ACCOUNTS PAID UPFRONT vs FROM PAYOUTS, PAYOUTS KEPT • NO-COST + LOSING-STRATEGY WARNINGS • OWN $ MAX IN COMPARE STRATEGIES • BUILD 2026-10-05h • ● GO LIVE: NINJATRADER'S REAL-TIME DATA ON THE STUDIO CHART (TODAY + YESTERDAY, FRONT CONTRACT), SIMULATED ACCOUNT ON LIVE PRICES, STRATEGY SIGNALS / AUTO ON LIVE BARS, FINISHED SESSIONS SAVED • BUILD 2026-10-05g • THE PREVIOUS DAY ON THE CHART (YESTERDAY'S SESSION SHADED IN FRONT, PDH / PDL / PDC + OVERNIGHT HIGH / LOW LABELLED, A LEVEL GLOWS WHILE PRICE IS NEAR IT) • BUILD 2026-10-05f • STOP INTO PROFIT: DRAG THE STOP PAST THE ENTRY (PROFIT STOP, GREEN), BE +1 TICK, LOCK ½ PROFIT • BUILD 2026-10-05e • REPORTS WINDOW: IMPORT A STUDY (.kreport.json) — SUMMARY, TABLES, EVERY LABELLED DAY, OPEN A DAY ON THE STUDIO CHART WITH ITS LABELS + TRADES • THE OPENING MINUTE STUDY • CROSSHAIR SHOWS THE CANDLE START TIME (09:30 = THE OPENING CANDLE, LIKE THE TIME AXIS) • BUILD 2026-10-05d • LIVE DESK: PLAYBOOK PLANS PER ACCOUNT (LUCID FLEX / DAILY / PRO + PERSONAL: SIZE, DRAWDOWN, TARGET, CONTRACTS, PAYOUT RULE) • BUILD 2026-10-05c • ⚙ STRATEGY SETTINGS: EVERY STUDIO STRATEGY SHOWS ITS PARAMETERS (ASIAN LEGS / REVERSALS / CYCLE TARGET • BH / FVG TARGETS + STOPS • OPENING RANGE RULES) + CONTRACTS + AUTO / SIGNALS → CONFIRM (+ PLAY): AUTO ENTERS, MANAGES AND EXITS BY ITSELF • BUILD 2026-10-05b • ★ TESTED STRATEGIES FROM THE 6-YEAR RESEARCH: OPENING DRIVE 10M • OPENING RANGE BREAK 15M • 30M 1R (AUTO WORKS STOP ORDERS OCO, BRACKET FROM THE FILL, FLAT 15:55, SKIPS FOMC / PAYROLLS) • BUILD 2026-10-05a • TOGGLE BUTTON TEXT ALWAYS READABLE (SPLIT / PATTERN / CLEAN / TIMEFRAMES) • BUILD 2026-10-04z • CHART HEADER IN ONE ROW (TIMEFRAMES • NOW • SPLIT • PATTERN • CLEAN • MATCHES) • SPLIT ALWAYS REACHABLE (CLICK AGAIN = ONE CHART) • PATTERN BUTTON + ✕ ON THE BOX HIDE IT • BUILD 2026-10-04y • LEFT TOOL STRIP REBUILT TRADINGVIEW-STYLE (FLAT ICON TILES + NAMES, GROUPS, HOVER, GOLD = ACTIVE TOOL, COLOURS UNDER IT) • BUILD 2026-10-04x • LEFT DRAWING TOOLBAR VISIBLE (BIGGER BUTTONS: ICON + NAME — CURSOR, H-LINE, V-LINE, TREND, RAY, RECT, FVG, FIB, ARROWS, TEXT, LONG, SHORT, CLEAR) • BUILD 2026-10-04w • SEND DATA TO CLAUDE COMPRESSES + SPLITS INTO 20 MB PARTS (GITHUB WEB LIMIT) • EVERY WINDOW FITS THE SCREEN (TITLE BAR ALWAYS REACHABLE), DATA LIBRARY SCROLLS • BUILD 2026-10-04v • ONE VERDICT IN THE ENTRY BOX (SETUP + COACH + PATTERN → TAKE / NO TRADE) • CHART LABELS SAY WHICH TARGET (COACH / SETUP) • ▲ BUYS / ▼ SELLS FOR EVERY STRATEGY • ARROW-SHAPED ENTRIES (CYAN BUY / PURPLE SELL) • THE NEWEST SETUP BREATHES SOFTLY WITH A CALLOUT: CONTRACTS, ENTRY, TP / SL, PROBABILITY, WHY • BUILD 2026-10-04u • ◫ SPLIT: TWO TIMEFRAMES SIDE BY SIDE (E.G. 1M + 5M), THE RIGHT ONE WITH ITS OWN TIMEFRAME BUTTONS, SAME CLOCK + TRADE • BUILD 2026-10-04t • PLAN FIXED AT THE READING'S MINUTE CLOSE (NO MORE MOVING TP / SL) • MATCHES WINDOW (THE 20 CLOSEST PAST MOMENTS + MINI CHART BEFORE / AFTER) • CLEAN CHART TOGGLE • PATTERN PLAN NEEDS THE SAME LEAN 3 MINUTES IN A ROW (WAIT 1 / 2 OF 3), CHART LINES NO LONGER LAG THE BOX • DATA LIBRARY: SEND DATA TO CLAUDE (THREE UPLOAD FOLDERS + GITHUB UPLOAD PAGE ON THE RESEARCH BRANCH) • BUILD 2026-10-04s • PREDICTION JOURNAL (EVERY PLAN LOGGED + CHECKED, TRACK RECORD IN THE BOX, PredictionLog.csv) • PATTERN LAB RUNS SAVED AS CSV • THE PATTERN PLAN IS DRAWN ON THE CHART WHILE FLAT (ENTRY / STOP / TARGET, CONTRACTS, $) • PATTERN BOX LOCKS THE PLAN WHILE IN A TRADE (30-MIN EXIT COUNTDOWN) • PATTERN BOX: CYAN ▲ LEAN BUY / PURPLE ▼ LEAN SELL (GREEN / RED ONLY MEAN MONEY) • BUILD 2026-10-04r • SIMILAR MOMENTS GIVES A PLAN + PATTERN BOX SHOW / HIDE + SAYS ITS HORIZON + COLOUR LEGEND • ◀ CANDLE / CANDLE ▶ (WHOLE CANDLES OF THE CHART TIMEFRAME) (SIDE, STOP / TARGET, CONTRACTS FOR RISK $, VALUE AFTER COSTS) OR NO TRADE • CPI / PPI / PAYROLLS HISTORY: BROWSER-LIKE REQUEST, OR CTRL+S THE THREE BLS PAGES INTO KeystoneArcData\\News (THE BUTTON OPENS THEM) • BUILD 2026-10-04q • THIN ROLL-OVER DAYS FIXED: A WEEKDAY UNDER 800 MINUTES ASKS THE NEXT CONTRACTS (DOWNLOADS + LOAD DAY), REPAIR THIN DAYS BUTTON • NO FLASHING: STEADY P/L COLOURS + A P/L BAR ON THE PRICE SCALE, NEW SETUPS FADE OUT WITH A TIMER, SIMILAR-MOMENTS GAUGE • DRAGGING A STOP / TARGET NO LONGER CLOSES THE TRADE (PREVIEW WHILE DRAGGING, PLACED ON RELEASE, REFUSED IF THE PRICE IS ALREADY THROUGH IT) • CPI / PPI / PAYROLLS HISTORY FROM THE BLS ARCHIVES INTO NEWS.CSV • PRACTISE A RANGE (LAST 2 WEEKS / MONTH / RANDOM 2 WEEKS / ANY DATES): DAY AFTER DAY, THEN A RANGE REPORT + CSV • BUILD 2026-10-04p • TP ⇕ / SL ⇕ HANDLES ON THE POSITION LINE (DRAG UP / DOWN) • NO AUTOMATIC STOP / TARGET: THE BRACKET BOXES START AT 0 AND CLEAR WHEN A TRADE CLOSES • PATTERN ENGINE (SIMILAR MOMENTS): EVERY SAVED MINUTE AS A FINGERPRINT + WHAT CAME NEXT • PATTERN LAB: HONEST WALK-FORWARD TEST vs THE BASELINE, EACH YEAR, CALIBRATION • STUDIO SIMILAR MOMENTS BOX (UP-FIRST vs BASELINE, BLINKS GREEN / RED ON A CLEAR EDGE, NO LOOK-AHEAD) • BUILD 2026-10-04o • NO SHADED TARGET / STOP ZONES: THE POSITION LINE + PRICE TAG PULSE GREEN / RED • ✕ ON STOP / TARGET / ORDER LINES • REMOVE STOP / TARGET FROM THE RIGHT-CLICK MENU • LINE, RAY, RECTANGLE, FVG BUTTONS ON THE TOP TOOLBAR • BUILD 2026-10-04n • FULL DATE + WEEKDAY IN THE HEADER • CLICK A DRAWING TO SELECT IT, DELETE KEY REMOVES IT, ESC UNSELECTS • DATA LIBRARY OPENS AGAIN (ILLEGAL PATH CHARACTER FIX) • LOAD ALL 6 YEARS IN THE BACKGROUND (ONE QUEUE, NEWEST FIRST, STUDIO STAYS USABLE, PROGRESS IN THE STUDIO, STOP / RESUME) • PICK A DAY: EVERY WEEKDAY OF 6 YEARS WITH ONLY ITS NEWS (NO RANGES — NO BIAS), SAVED ● / NOT YET ○, RANDOM DAY • BUILD 2026-10-04m • STRATEGY BOX (WHICH STRATEGY, MODE, TODAY WON / LOST / OPEN) • SETUP COACH: THE STRATEGY ON THE 20 SAVED DAYS BEFORE → BEST TARGET IN R, HOW OFTEN IT WAS REACHED FIRST, R A TRADE, BUYS vs SELLS • A NEW SETUP BLINKS + SOUND WITH TAKE / SKIP, TARGET AND CONTRACTS FOR YOUR RISK $ • AUTO + SMART USES THE COACH • ONE CLEAN DASHED PLAN FOR THE NEWEST SETUP (NO DOUBLE BACKGROUND) • BUILD 2026-10-04l • DRAWING PALETTE (HORIZONTAL / VERTICAL LINE, TREND, RAY, RECTANGLE, FVG BOX WITH 50% LINE, FIBONACCI, ARROWS, TEXT, LONG / SHORT) • 10 COLOURS + LINE WIDTH • DRAG A DRAWING TO MOVE IT • RIGHT-CLICK MENU (LIMIT / STOP ORDERS AT THE PRICE, TP / SL HERE, CLOSE, DRAW, COLOUR, WIDTH, TEXT, COPY, DELETE, CHART TEMPLATE, TIMEFRAME, RESET) • 9 CHART TEMPLATES + HOLLOW CANDLES • SHARP PIXEL CANDLES • DRAG THE POSITION LINE FOR TP / SL • QUICK CONTRACTS, BRACKET PRESETS, BREAKEVEN, REVERSE, FLATTEN MNQ + MGC • GO TO NOW BUTTON • BUILD 2026-10-04k • LOAD DAY NO LONGER LOSES THE TYPED DATE AFTER A NINJATRADER DOWNLOAD • DATA LIBRARY: MONTH TILES (CLICK MONTHS / YEARS, QUICK 3M / 12M / 3Y / 6Y / EVERY GAP, DOWNLOAD SELECTED) + ERROR TEXT INSTEAD OF A CRASH • PICK A DAY (EVERY SAVED DAY WITH FOMC / NFP / CPI TAGS, NY RANGE + MOVE, FILTERS) • ◀ BACK IN TIME (−1 / −10 MIN, ← →) • CLOSE CONFIRMATION ON EVERY WINDOW • LIVE DESK READ ONLY (ACCOUNTS, GROUPS DRAG + DROP, DRAWDOWN ROOM, TARGET) • BUILD 2026-10-04j • STUDIO: ANY DATE → LOAD DAY GETS IT FROM NINJATRADER AND SAVES IT FOR EVERY NEXT LOAD • PREV / NEXT DAY ANY WEEKDAY • ONE-CLICK TIMEFRAME BUTTONS (KEYS 1–9) • HIGH-IMPACT NEWS: CORNER BOX WITH COUNTDOWN, NEWS LINES ON THE CHART, NEWS LOCK ± MIN + FLAT BEFORE NEWS (FOMC + PAYROLLS BUILT IN, FOREXFACTORY WEEK FEED, YOUR NEWS.CSV) • DATA IN ITS OWN FOLDER Documents\\KeystoneArcData (REPORTS STAY IN KeystoneArc5MResearch; OLD DATA MOVED) • DOWNLOAD WATCHDOG 120 S • BUILD 2026-10-04i • LAUNCHER (BACKTEST STUDIO • RESEARCH LAB • DATA LIBRARY • LIVE DESK LOCKED) • DATA LIBRARY: THE STUDIO'S OWN 1-MINUTE BARS (COVERAGE PER YEAR, MISSING DAYS, DOWNLOAD ANY RANGE WEEK BY WEEK, NO STEP 1) • STUDIO REMEMBERS THE DAY, SETTINGS, TIMEFRAMES AND DRAWINGS • ACCOUNT BLOWN PROMPT: NEW ACCOUNT CONTINUES THE SAME DAY • STRATEGY MODE SIGNALS / AUTO + ME • ENTRY BOX • BUILD 2026-10-04h • REPLAY TRADER v3: MNQ + MGC TABS ON ONE CLOCK AND ONE ACCOUNT, TRADINGVIEW-STYLE CHART (WHEEL ZOOM AT THE MOUSE, DRAG ANYWHERE INCL. SPACE ON THE RIGHT, PRICE / TIME AXIS STRETCH, CROSSHAIR), DRAWING TOOLBAR (LINE, TREND, RECTANGLE, LONG / SHORT R:R TOOL), TARGET / STOP ZONES + ANIMATED P/L BOX, REALISTIC TICK PATH, PREV / NEXT DAY, FULL WINDOW • BUILD 2026-10-04g • REPLAY TRADER: STRATEGY SIGNALS (1M / 5M FVG, FVG RETEST, BH, GOLDEN, ASIAN 75 • BUY + SELL • A / B / C) + AUTO TRADE, DAY GOAL BOX (FILLS YELLOW → GREEN, RED TOWARD THE LOSS LIMIT) + DAY LOCKS, MAX CONTRACTS, NO KEY-REPEAT ORDERS • BUILD 2026-10-04f • REPLAY TRADER PRO: SPEED ON THE WALL CLOCK (REAL TIME = 60 S A MINUTE), NY CLOCK + CANDLE COUNTDOWN, 1M → 4H + DAILY, LIMIT / STOP ORDERS (CLICK THE CHART FOR THE PRICE), DRAG STOP / TARGET / ORDER LINES, HORIZONTAL + TREND LINES • BUILD 2026-10-04e • REPLAY TRADER: WHEEL ZOOM + DRAG TO SCROLL + LIVE, ONE ACCOUNT (START $ = WHOLE DRAWDOWN, BLOWN AT $0, CARRIES OVER), END DAY + SAVE, DAYS FILE • BUILD 2026-10-04d • MOVE STUDY DETAILS: SWITCH THE SAME ENTRY MNQ ↔ MGC + OTHER ENTRIES IN ONE CLICK • BUILD 2026-10-04c • PROP GAME OPTIMIZER (EVAL / DIRECT FUNDED × INSTRUMENT × HOURS × SIZE × DAY LOCKS × ACCOUNTS THROUGH THE REAL POOL, RANKED BY CASH, APPLY) • ONE BUY / SELL / BOTH CHOICE UNDER STRATEGY (BH SELLS TOO) • REPLAY TRADER READS THE DATA SAVED ON THIS PC • BUILD 2026-10-04b • SELL SETUPS (GOLDEN FVG / BH + FVG RETEST: BREAK OF THE LOW, MIRRORED; BUY / SELL / BOTH) + SIDES IN THE GOLDEN PROP SIMULATION • IDEAS: FILL CLOSE / 25 / 40 / 50 / CLOSE+BREAK, STRICT FILLS, BREAKEVEN, PARTIALS, $ DAY TARGET / STOP PER ACCOUNT, BEFORE-THE-REVERSAL ADVICE • REPLAY TRADER (TRADE A LOADED DAY TICK BY TICK, JOURNAL) • LOADER: STOP + START OVER, KEEP WORKING WHILE IT LOADS • BAR STORE (ANY RANGE INSIDE SAVED DATA LOADS FROM DISK) • EXPORT DATA ONLY (NO CHARTS) • BUILD 2026-10-04a • POOL EVALUATION PASSES AT THE TARGET LIKE THE FIRMS (A PASS DAY ONLY NEEDS THE QUALIFYING-DAY PROFIT, NOT THE DAILY LOCK; PASS DAYS NO LONGER HAVE TO BE IN A ROW) • LAB PROP DAYS FOLLOW THE REAL INTRADAY PATH (MANY SCALPS NO LONGER ADD UP THEIR WORST POINTS) • BUILD 2026-10-03z • IDEAS: TYPE A STRATEGY IN WORDS (AT / ORB / FADE / EVERY 1-MINUTE FVG BUY + SELL) × EVERY TARGET / STOP • ROTATING PROP ACCOUNTS (EACH SETUP → NEXT FREE ACCOUNT, NOTHING AGAINST AN OPEN DIRECTION) • IDEA TRADES ON THE CHART + REPLAY • NO EMPTY FRIDAY-EVENING / HOLIDAY DATE BUTTONS • BUILD 2026-10-03y • GOLDEN FVG 50% TAP (limit at the middle of the gap, stop below candle 1) + FVG50 / FVG50+BH IN THE PROP SIMULATION • BUILD 2026-10-03x • GOLDEN PROP SIMULATION: EVERY SETUP OF THE DAY (FVG • BH • FVG+BH + YOUR STUDY) × TRADES A DAY (a loss → next setup, a win ends the day) × SAME DAY / HOLD × TARGET × STOP × CONTRACTS • BUILD 2026-10-03w • OPENING CANDLE GAP (FVG may start with the last candle before the start) • GOLDEN FVG MAP ON THE CHART (every gap + why it was / was not taken) • GOLDEN PROP SIMULATION: SAME DAY vs HOLD × TARGET × STOP × CONTRACTS, RANKED BY MONEY • SAME-DAY CLOSE BY DEFAULT • REPORT: ◆ YOURS / ★ BEST LABELS • BUILD 2026-10-03v • GOLDEN STUDY → PROP SIMULATION BUTTON (AS TESTED vs FLAT BY THE CLOSE • MNQ / MGC / BOTH × 1–5 MICROS • EVALS • PAYOUTS • WALK-FORWARD • FLIP) • BUILD 2026-10-03u • FLIP (LIVE ACCOUNT) TAB IN THE ASIAN MATH LAB • BUILD 2026-10-03t • FLIP (LIVE ACCOUNT) TAB IN THE 5M FVG + 123 ENGULFING LABS: START → GOAL, RISK % OR FIXED MICROS, REPLAY OF THE WHOLE HISTORY (FLIPS, BUSTS, NET CASH), ODDS FROM EVERY START DATE, BEST ROWS TO FLIP • BUILD 2026-10-03s • MATH LABS BUTTON • 5M FVG MATH LAB (FIRST 5M FVG ENTRIES × TARGET × STOP × CONTRACTS, MNQ 09:30 / MGC 08:00 SEPARATELY) • 123 ENGULFING MATH LAB (EVERY TIMEFRAME × BUY / SELL / BOTH × SIGNAL × RUN × TARGET × STOP) • ADVICE • WALK-FORWARD • GRIDS • PROP • COPY • MONTHS • YEARS • TRADES • EXPORT • BUILD 2026-10-03r • ASIAN MATH LAB: TREND DIRECTION ROWS (EACH NIGHT LONG/SHORT FROM THE N-NIGHT AVERAGE, NO LOOK-AHEAD) • DATA COVERAGE PER INSTRUMENT AND YEAR + WARNING • NIGHTS SHOW THEIR DIRECTION • BUILD 2026-10-03q • ASIAN MATH LAB: ADAPTS EACH YEAR? (WALK-FORWARD: EACH YEAR CHOSEN FROM THE YEARS BEFORE, NEVER LOOKING AHEAD • YOUR SETUP vs ADAPTIVE vs HINDSIGHT) • YOUR STEP 1 SETUP MARKED AND ALWAYS INCLUDED • BUILD 2026-10-03p • ASIAN MATH LAB (EVERY COMBINATION ON THE LOADED BARS • ADVICE • REVERSALS × TAKE PROFIT • EVALS & FUNDED • SIZE & SPEED • COPY TRADING • LEGS • MONTHS • YEARS & PERIODS • NIGHTS • APPLY TO LAB WITHOUT RELOAD) • ASIAN NIGHT BOX ON THE CHART • MNQ / MGC / BOTH VIEWS NO LONGER DEPEND ON THE CLICK ORDER • EVIDENCE PACKAGE EXPORT THREAD FIX • BH GRADE ROWS HIDDEN FOR ASIAN • BUILD 2026-10-03o • MICRO A DAY RESULTS (RANKING • CHARTS • EVALS & FUNDED • FIRST PAYOUT • PAYOUTS IN A ROW • SIZE & SPEED • COPY TRADING • MONTHS • BEST TAKE PROFIT • SESSIONS & HOURS • DAYS • EACH YEAR • HTML + CSV) • MICRO A DAY ENTRIES IN REPLAY • ASIAN MAX COMBINED LOSS EDITABLE • BUILD 2026-10-03n • MICRO A DAY (1 MICRO AT THE 18:00 OPEN, ALL DAY • POOL • CHART • COMPARE EVERY VERSION) • TOOL WINDOWS ASK BEFORE CLOSING • BUILD 10-03m • MOVE STUDY TABS (RANKING • DETAILS • EVERY ENTRY • HOW TO READ) • BUILD 10-03l • ROTATION OPTIMIZER: CANCEL BUTTON, FASTER, LESS MEMORY • BUILD 10-03k • ROTATION FIX: A TARGET REACHED AFTER COMMISSION ENDS THE ACCOUNT DAY (NO $0 ROTATIONS) • BUILD 10-03j • ROTATION IN THE STRATEGY LIST • BUILD 10-03i • CLEAR HEADER • FIRST 5M FVG STUDY IN THE STRATEGY LIST • FIRST 5M BH SET FOR COMPARISON • BUILD 10-03h • FIRST 5M FVG STUDY (MNQ 09:30 + MGC 08:00 • TOUCH • 25% • 50% • GREEN CLOSE + BREAK • PRIOR UNTOUCHED FVG • NO BH • EVERY ENTRY LISTED • MEASURED TO THE CLOSE) • BUILD 10-03g • GOLDEN FVG = RETEST + BREAK BY DEFAULT (PRICE BACK INTO THE GAP → GREEN CLOSE → BREAK OF ITS HIGH) • MOVE STUDY OPENS AFTER EVERY GOLDEN RUN • BUILD 10-03f • ROTATION TESTER (MNQ + MGC TOGETHER • TARGET / STOP / LOCK TIERS • PAUSE • ACCOUNTS IN TURN • EVALUATIONS • OPTIMIZER • WHEN MNQ + MGC MOVE TOGETHER) • BUILD 10-03e • MOVE STUDY (ONE TEST FOR EVERY STRATEGY: FOR US / AGAINST US TO THE CLOSE • SETS × INSTRUMENT × YEAR • NO-SETUP BASELINE • TARGET / STOP FROM THE MOVES • WHY) • BUILD 10-03d • PROOF TEST (SAVED SWEET-SPOT RULES ON NEW DATA) • $800-A-DAY MAX-PAYOUT PACE IN THE SWEET SPOT • FULL EXPORT + EVERY DAY CSV • PLANNER KEEPS YOUR RULE • BUILD 10-03c • PROP BRACKET (ONE TRADE A DAY ON REAL 1-MINUTE BARS • RULE CARD • SWEET SPOT CHECKED EVERY YEAR) • BUILD 10-03b • PROP PLANNER FITS THE SCREEN + FULL SCREEN BUTTON • BUILD 10-03a • PROP PLANNER (FIRM RULES • COIN FLIP OR RECOIL DAYS • VALUE OF ONE EVALUATION • SEPARATE vs COPY vs ROTATION • HISTORY BY YEAR • SWEET SPOT) • BUILD 10-02z • RECOIL STOP AND REVERSE (1 → 2 → 3 → 4 EACH THE OTHER WAY • COMPARED WITH ADD ON THE SAME DAYS) • BUILD 30x • RECOIL PROP ENGINE (EVAL / FUNDED / PAYOUTS / COPY / ROTATION / GROUPS — SCREENS NEXT) • BUILD 30w • RECOIL • ADD TO LOSERS (LADDER ENGINE • MNQ / MGC / BOTH • STEPS & BOUNCES • RISK GRID • ONE LIVE ACCOUNT • CHART LADDERS + LIVE BOX • REPORT) • GOLDEN WHICH ENTRIES (FIRST SETUP • FIRST BH • FIRST FVG • EVERY 5M FVG ON ONE LIVE ACCOUNT) • GOLDEN REPORT (EVERY MONTH • ONLY TRADED INSTRUMENTS • SMALL-SAMPLE WARNING) • GOLDEN FIXES (WIN % • FULL-SCREEN TABLES • FILTER LAYOUT • EVERY MONTH • CHART OPENS ON YOUR WINDOW • CLICK W/L FOR LABELS • REPLAY FOLLOWS PRICE) • GOLDEN ENTRY STUDY (NO PROP RULES • HOLD TO TARGET/STOP • FILTERS • MNQ vs MGC vs BOTH • WHAT MAKES WINNERS • TARGET × STOP PER YEAR • ONE ACCOUNT • EXPORT) • STRATEGY LIST TRIMMED • GOLDEN LABELS ON THE CHART + MIN GAP + SKIP BIG STOP + LIVE FIXED SIZE • GOLDEN SETUP (FIRST BH / FVG AFTER THE OPEN) • LOADING PROGRESS IN THE BUSY BOX • HELIX V2 (CARDS, LINKED MNQ+MGC CHART, LIVE BASKET BOX) • FULL SESSION AFTER MIDNIGHT • RELAY + VWAP SNAP-BACK • MONTHS & SESSIONS • LIVE ACCOUNT • COSTS • SETUP LIVE BOX • 123 ENGULFING • NO HEDGING • TIMEFRAME BUTTONS • DIRECT FUNDED BLOCK • FIRST RETURN + PAYOUTS REDESIGN • FULL-HEIGHT TABS • FUNDED-NEVER-PAID • DOUBLE TROUBLE • STACKED FVG • COPY GROUPS • COMPARE • CHART=LEDGER • BEST ENTRIES";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -26253,11 +26336,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             public void Stop() { Stopped = true; try { if (Request != null) { if (Handler != null) Request.Update -= Handler; Request.Dispose(); } } catch { } Request = null; }
         }
 
-        // ---- the router's connection to one NinjaTrader account + instrument (the studio's live contract). Order states are read
-        // from NinjaTrader's own Order objects on every sync (no event threads to guard); exits use NinjaTrader's Flatten.
+        // ---- the link's connection to one NinjaTrader account + instrument (the studio's live contract): reads EVERY working order
+        // and execution on it (the studio's and NinjaTrader's own), places / changes / cancels orders, flattens.
         private sealed class NinjaBroker : IKeystoneBroker
         {
-            public readonly Account Acct; public readonly Instrument Inst; readonly List<KeystoneBrokerOrder> orders = new List<KeystoneBrokerOrder>(); int seq;
+            public readonly Account Acct; public readonly Instrument Inst; readonly Dictionary<Order, KeystoneBrokerOrder> wrap = new Dictionary<Order, KeystoneBrokerOrder>(); int seq;
             public NinjaBroker(Account a, Instrument i) { Acct = a; Inst = i; }
             public bool Connected
             {
@@ -26267,50 +26350,85 @@ namespace NinjaTrader.NinjaScript.AddOns
                     string t = Convert.ToString(st ?? "Connected"); return t.IndexOf("Connected", StringComparison.OrdinalIgnoreCase) >= 0 && t.IndexOf("Dis", StringComparison.OrdinalIgnoreCase) < 0;
                 }
             }
+            bool Mine(Instrument i) { return i != null && Inst != null && i.FullName == Inst.FullName; }
+            // a copy of a NinjaTrader collection (they change on other threads)
+            static List<T> Copy<T>(System.Collections.IEnumerable src) { var l = new List<T>(); if (src == null) return l; lock (src) foreach (object x in src) if (x is T) l.Add((T)x); return l; }
             Position Pos()
             {
-                try { foreach (Position p in Acct.Positions) if (p != null && p.Instrument != null && Inst != null && p.Instrument.FullName == Inst.FullName && p.MarketPosition != MarketPosition.Flat) return p; } catch { }
+                try { foreach (Position p in Copy<Position>(Acct.Positions)) if (p != null && Mine(p.Instrument) && p.MarketPosition != MarketPosition.Flat) return p; } catch { }
                 return null;
             }
             public int Qty { get { var p = Pos(); return p == null ? 0 : (p.MarketPosition == MarketPosition.Long ? p.Quantity : -p.Quantity); } }
             public double AvgPrice { get { var p = Pos(); return p == null ? 0 : p.AveragePrice; } }
             public double DayPnl { get { try { return Acct.Get(AccountItem.RealizedProfitLoss, Currency.UsDollar) + Acct.Get(AccountItem.UnrealizedProfitLoss, Currency.UsDollar); } catch { return 0; } } }
             public double Tick { get { try { return Inst.MasterInstrument.TickSize; } catch { return 0.25; } } }
-            public List<KeystoneBrokerOrder> Orders
+            static string KindOf(OrderType t) { return t == OrderType.Market ? "MARKET" : (t == OrderType.StopMarket || t == OrderType.StopLimit) ? "STOP" : "LIMIT"; }
+            void Refresh(KeystoneBrokerOrder o, Order n)
             {
-                get
-                {
-                    foreach (var o in orders)
-                    {
-                        var n = o.Native as Order; if (n == null) continue;
-                        o.Filled = n.Filled; o.Rejected = n.OrderState == OrderState.Rejected;
-                        o.Done = n.OrderState == OrderState.Filled || n.OrderState == OrderState.Cancelled || n.OrderState == OrderState.Rejected;
-                        if (o.Role != "ENTRY" && n.Filled > 0 && n.AverageFillPrice > 0) o.Price = n.AverageFillPrice;
-                    }
-                    return orders;
-                }
+                var st = n.OrderState; o.Filled = n.Filled; o.Rejected = st == OrderState.Rejected;
+                o.Done = st == OrderState.Filled || st == OrderState.Cancelled || st == OrderState.Rejected || st == OrderState.Unknown;
+                if (st == OrderState.CancelPending || st == OrderState.CancelSubmitted) o.CancelSent = true;
+                o.Kind = KindOf(n.OrderType); o.Side = n.OrderAction == OrderAction.Buy || n.OrderAction == OrderAction.BuyToCover ? 1 : -1; o.Qty = n.Quantity; o.Oco = n.Oco ?? ""; o.Name = n.Name ?? "";
+                if (!(st == OrderState.ChangePending || st == OrderState.ChangeSubmitted)) o.Price = o.Kind == "STOP" ? n.StopPrice : o.Kind == "LIMIT" ? n.LimitPrice : 0;
             }
-            public KeystoneBrokerOrder Submit(string role, string kind, int signedQty, double price, string oco, bool automated)
+            public List<KeystoneBrokerOrder> Working()
+            {
+                var list = new List<KeystoneBrokerOrder>();
+                try
+                {
+                    foreach (Order n in Copy<Order>(Acct.Orders))
+                    {
+                        if (n == null || !Mine(n.Instrument)) continue;
+                        KeystoneBrokerOrder o; if (!wrap.TryGetValue(n, out o)) { o = new KeystoneBrokerOrder { Id = "N" + (++seq), Native = n }; wrap[n] = o; }
+                        Refresh(o, n); if (!o.Done) list.Add(o);
+                    }
+                    foreach (var kv in wrap.ToList()) { Refresh(kv.Value, kv.Key); if (kv.Value.Done && wrap.Count > 400) wrap.Remove(kv.Key); }
+                }
+                catch { }
+                return list;
+            }
+            public List<KeystoneExec> Executions()
+            {
+                var list = new List<KeystoneExec>();
+                try
+                {
+                    foreach (Execution e in Copy<Execution>(Acct.Executions))
+                        if (e != null && Mine(e.Instrument) && e.Quantity > 0)
+                            list.Add(new KeystoneExec { Id = e.ExecutionId ?? (e.Time.Ticks + "|" + e.Price), Time = e.Time, Price = e.Price, SignedQty = e.MarketPosition == MarketPosition.Long ? e.Quantity : -e.Quantity, Name = e.Order != null ? (e.Order.Name ?? "") : "" });
+                }
+                catch { }
+                return list;
+            }
+            public KeystoneBrokerOrder Submit(string kind, int signedQty, double price, string oco, bool automated)
             {
                 try
                 {
                     if (Inst != null && price > 0) price = Inst.MasterInstrument.RoundToTickSize(price);
                     OrderType type = kind == "STOP" ? OrderType.StopMarket : kind == "LIMIT" ? OrderType.Limit : OrderType.Market;
                     Order n = Acct.CreateOrder(Inst, signedQty > 0 ? OrderAction.Buy : OrderAction.Sell, type, automated ? OrderEntry.Automated : OrderEntry.Manual,
-                        role == "ENTRY" ? TimeInForce.Day : TimeInForce.Gtc, Math.Abs(signedQty), kind == "LIMIT" ? price : 0, kind == "STOP" ? price : 0, oco ?? string.Empty, "KEYSTONE " + role, NinjaTrader.Core.Globals.MaxDate, null);
+                        kind == "MARKET" ? TimeInForce.Day : TimeInForce.Gtc, Math.Abs(signedQty), kind == "LIMIT" ? price : 0, kind == "STOP" ? price : 0, oco ?? string.Empty, "KEYSTONE " + kind, NinjaTrader.Core.Globals.MaxDate, null);
                     if (n == null) return null;
                     Acct.Submit(new[] { n });
-                    var o = new KeystoneBrokerOrder { Id = "K" + (++seq), Role = role, Qty = Math.Abs(signedQty), Price = price, Oco = oco ?? string.Empty, Native = n }; orders.Add(o); return o;
+                    var o = new KeystoneBrokerOrder { Id = "K" + (++seq), Kind = kind, Side = Math.Sign(signedQty), Qty = Math.Abs(signedQty), Price = price, Oco = oco ?? string.Empty, Name = "KEYSTONE " + kind, Native = n };
+                    wrap[n] = o; return o;
                 }
                 catch { return null; }
             }
             public void ChangePrice(KeystoneBrokerOrder o, double price)
             {
                 var n = o.Native as Order; if (n == null) return;
-                try { price = Inst.MasterInstrument.RoundToTickSize(price); if (n.OrderType == OrderType.StopMarket) n.StopPriceChanged = price; else n.LimitPriceChanged = price; Acct.Change(new[] { n }); o.Price = price; } catch { }
+                try
+                {
+                    price = Inst.MasterInstrument.RoundToTickSize(price);
+                    if (n.OrderType == OrderType.StopMarket) n.StopPriceChanged = price;
+                    else if (n.OrderType == OrderType.StopLimit) { n.LimitPriceChanged = n.LimitPrice + (price - n.StopPrice); n.StopPriceChanged = price; }
+                    else n.LimitPriceChanged = price;
+                    Acct.Change(new[] { n }); o.Price = price;
+                }
+                catch { }
             }
             public void Cancel(KeystoneBrokerOrder o) { var n = o.Native as Order; o.CancelSent = true; if (n == null) return; try { Acct.Cancel(new[] { n }); } catch { } }
-            public void Flatten() { try { Acct.Flatten(new[] { Inst }); } catch { } foreach (var o in orders) o.CancelSent = true; }
+            public void Flatten() { try { Acct.Flatten(new[] { Inst }); } catch { } }
         }
 
         private LiveFeed StartLiveFeed(string sym, Dispatcher disp, Action<LiveFeed> ready)
@@ -26404,7 +26522,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public List<KeystoneReplaySignal> Signals = new List<KeystoneReplaySignal>(); public List<ReplayDrawing> Drawings = new List<ReplayDrawing>();
             public Canvas Canvas; public Border Hit; public TextBlock PosText; public StackPanel TradesList; public TextBox Qty, Price, Sl, Tp; public ComboBox OrderType, TfBox; public List<Button> TfButtons = new List<Button>(); public List<Border> Swatches = new List<Border>(); public KeystoneCoachReport Coach; public KeystoneAnalogAnswer Sim; public int SimKey = -1, LastPos; public double DragPrice; public DateTime LockedAt = DateTime.MinValue; public string LockedPlan = string.Empty; public List<PredRecord> Pending = new List<PredRecord>(); public int LeanSide, LeanStreak; public double SimEntry; public List<Button> CleanButtons = new List<Button>(); public bool IsSplit; public ReplayPane Main, Split; public Action<bool> SetSplit; public List<Button> SplitButtons = new List<Button>(); public FrameworkElement SplitHost; public List<Button> SplitTfButtons = new List<Button>(); public double SimBarrier; public string CoachKey = string.Empty; public KeystoneReplaySignal LastAlert; public Action<string> SetTool; public string Tool = "CURSOR"; public KeystoneReplaySignal AutoOpen; public List<KeystoneReplaySignal> AutoPending = new List<KeystoneReplaySignal>(); public KeystoneReport.Day ReportDay; public string ReportTitle = ""; public List<KeystoneArcBar> PrevBars = new List<KeystoneArcBar>(); public List<KeystoneArcBar> PrevCandles; public int PrevTf = -1; public double Pdh = double.NaN, Pdl = double.NaN, Pdc = double.NaN; public DateTime PrevDay = DateTime.MinValue; public ReplayDrawing Moving, Selected; public DateTime MoveT1, MoveT2, MoveDownTime; public double MoveP1, MoveP2, MoveDownPrice;
             public double PlotW = 1000, PlotH = 500, Top = 8, AxisW = 84, TimeH = 24, Hi = 1, Lo = 0; public List<KeystoneArcBar> Candles = new List<KeystoneArcBar>();
-            public bool MouseOver; public double MouseX, MouseY; public ReplayDrawing Preview; public KeystoneOrderRouter Router;
+            public bool MouseOver; public double MouseX, MouseY; public ReplayDrawing Preview; public KeystoneAccountLink Link;
             public string Drag; public double DownX, DownY, Ro0, Pc0, Pr0, S0; public KeystoneReplayOrder DragOrder; public bool Moved;
         }
 
@@ -26509,10 +26627,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             var realRefreshBtn = small("↻", Card); realRefreshBtn.ToolTip = "Read NinjaTrader's connected accounts again.";
             var realArmBtn = small("ARM REAL ORDERS", Orange); realArmBtn.ToolTip = "Sends the studio's trades (your clicks and AUTO) to the chosen account: market orders + a real stop and target at the broker.";
             var realFlatBtn = small("FLATTEN REAL", Red); var realLogBtn = small("ORDER LOG", Card);
+            var realAddStopBtn = small("⚠ ADD MY STOP", Red); realAddStopBtn.Visibility = Visibility.Collapsed; realAddStopBtn.ToolTip = "The real position has no stop: places one AUTO STOP PTS from the real entry (armed).";
+            var realStopPtsBox = Input(wsGet("realstoppts", "40")); realStopPtsBox.Width = 44; realStopPtsBox.ToolTip = "Stop distance (points) for ADD MY STOP and AUTO STOP.";
+            var realAutoStopBox = new CheckBox { Content = "AUTO STOP", IsChecked = wsGet("realautostop", "0") == "1", Foreground = Text, Margin = new Thickness(4, 16, 6, 0), ToolTip = "Armed: a position opened in NinjaTrader without a stop gets one at once (AUTO STOP PTS from its entry)." };
             var realInfo = new TextBlock { Text = "", Foreground = Text, FontSize = 12.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 12, 0, 0), TextWrapping = TextWrapping.Wrap, MaxWidth = 900 };
             realBar.Children.Add(new TextBlock { Text = "REAL ACCOUNT", Foreground = Orange, FontSize = 15, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 14, 8, 0) });
             add("NINJATRADER ACCOUNT", realAccBox, realBar); realBar.Children.Add(realRefreshBtn); add("FIRM RULES", realPresetBox, realBar); add("MAX QTY", realMaxBox, realBar); add("DAY LOSS $", realLossBox, realBar); add("DAY PROFIT CAP $", realCapBox, realBar); add("MIN HOLD S", realHoldBox, realBar);
-            realBar.Children.Add(realArmBtn); realBar.Children.Add(realFlatBtn); realBar.Children.Add(realLogBtn); realBar.Children.Add(realInfo);
+            add("AUTO STOP PTS", realStopPtsBox, realBar); realBar.Children.Add(realAutoStopBox);
+            realBar.Children.Add(realArmBtn); realBar.Children.Add(realFlatBtn); realBar.Children.Add(realAddStopBtn); realBar.Children.Add(realLogBtn); realBar.Children.Add(realInfo);
             Grid.SetRow(realBar, 2); root.Children.Add(realBar);
             var realKeys = ws.Where(kv => kv.Key.StartsWith("real")).ToDictionary(kv => kv.Key, kv => kv.Value);   // saved with the workspace
             var tabs = new TabControl { Background = Panel, BorderBrush = Card, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0) };
@@ -26969,20 +27091,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (!pn.PriceAuto) { var am = new TextBlock { Text = "PRICE SCALE: MANUAL (double-click the price axis = auto)", Foreground = Muted, FontSize = 10 }; System.Windows.Controls.Canvas.SetLeft(am, 6); System.Windows.Controls.Canvas.SetTop(am, pn.Top + pn.PlotH - 16); cv.Children.Add(am); }
                 // the pane's side panel
                 if (pn.PosText != null) { pn.PosText.Text = (r.Position == 0 ? "FLAT" : (r.Position > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " @ " + fmt(r.AvgPrice) + "\nOPEN " + Signed(r.Unrealized)) + "\nTODAY " + Signed(r.DayNet) + " • " + r.Fills.Count + " trades" + (r.Orders.Count > 0 ? "\n" + r.Orders.Count + " working order(s)" : ""); pn.PosText.Foreground = MoneyBrush(r.DayNet); }
-                // the REAL account (armed): its position at the real fill price and the real stop / target working at the broker (orange)
-                var rtr = pn.IsSplit && pn.Main != null ? pn.Main.Router : pn.Router;
-                if (rtr != null)
-                {
-                    int rq = 0; double ravg = 0; List<KeystoneBrokerOrder> rorders = null;
-                    try { rq = rtr.Broker.Qty; ravg = rtr.Broker.AvgPrice; rorders = rtr.Broker.Orders.Where(o => !o.Done && o.Role != "ENTRY").ToList(); } catch { }
-                    if (rq != 0)
-                    {
-                        double ropen = (r.Price - ravg) * rq * KeystoneMoveStudy.PointValue(pn.Symbol);
-                        axisTag(ravg, Orange, "REAL " + (rq > 0 ? "LONG " : "SHORT ") + Math.Abs(rq) + " @ " + fmt(ravg) + " • " + Signed(ropen), true);
-                        if (rorders != null) foreach (var o in rorders) axisTag(o.Price, Orange, "REAL " + o.Role + " @ " + fmt(o.Price) + " (at the broker)", false);
-                    }
-                    if (pn.PosText != null) pn.PosText.Text += "\n— REAL: " + (rq == 0 ? "FLAT" : (rq > 0 ? "LONG " : "SHORT ") + Math.Abs(rq) + " @ " + fmt(ravg)) + "\n" + rtr.State;
-                }
+                // linked to a real account: the position / stop / target / orders drawn are the account's own
+                var lnk = pn.IsSplit && pn.Main != null ? pn.Main.Link : pn.Link;
+                if (lnk != null && pn.PosText != null) pn.PosText.Text = "● REAL ACCOUNT" + (lnk.Armed ? " • ARMED" : " • WATCHING") + "\n" + pn.PosText.Text + (lnk.Warning != "" ? "\n⚠ " + lnk.Warning : "");
                 if (!pn.IsSplit && pn.Split != null && splitOn) render(pn.Split);
                 if (pn.TradesList != null && pn.TradesList.Children.Count != r.Fills.Count)
                 {
@@ -27713,8 +27824,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 v["preloadasked"] = preloadAsked ? "1" : "0"; v["simbox"] = simShowBox.IsChecked == true ? "1" : "0"; v["buys"] = buysBox.IsChecked == true ? "1" : "0"; v["sells"] = sellsBox.IsChecked == true ? "1" : "0"; v["risk"] = riskBox.Text.Trim(); v["smart"] = smartBox.IsChecked == true ? "1" : "0"; v["sound"] = soundBox.IsChecked == true ? "1" : "0"; v["theme"] = themes[themeIndex].Name; v["hollow"] = hollowUp ? "1" : "0"; v["drawcolor"] = drawColor; v["newslock"] = newsLockBox.Text.Trim(); v["newsflat"] = newsFlatBox.IsChecked == true ? "1" : "0"; v["goal"] = goalBox.Text.Trim(); v["loss"] = lossLimitBox.Text.Trim(); v["maxqty"] = maxQtyBox.Text.Trim(); v["stopgoal"] = stopAtGoalBox.IsChecked == true ? "1" : "0"; v["tab"] = Math.Max(0, tabs.SelectedIndex).ToString(CultureInfo.InvariantCulture);
                 v["split"] = splitOn ? "1" : "0"; v["splittf"] = splitTf.ToString(CultureInfo.InvariantCulture); foreach (var pn in panes) { v[pn.Symbol + ".tf"] = Math.Max(0, pn.TfBox.SelectedIndex).ToString(CultureInfo.InvariantCulture); v[pn.Symbol + ".qty"] = pn.Qty.Text.Trim(); v[pn.Symbol + ".sl"] = pn.Sl.Text.Trim(); v[pn.Symbol + ".tp"] = pn.Tp.Text.Trim(); }
                 foreach (var kv in stratParams) v[kv.Key] = kv.Value;
-                realKeys["realmax"] = realMaxBox.Text.Trim(); realKeys["realloss"] = realLossBox.Text.Trim(); realKeys["realcap"] = realCapBox.Text.Trim(); realKeys["realhold"] = realHoldBox.Text.Trim();
-                if (realAccBox.SelectedItem is string) realKeys["realacc"] = (string)realAccBox.SelectedItem;
+                realKeys["realmax"] = realMaxBox.Text.Trim(); realKeys["realloss"] = realLossBox.Text.Trim(); realKeys["realstoppts"] = realStopPtsBox.Text.Trim(); realKeys["realautostop"] = realAutoStopBox.IsChecked == true ? "1" : "0"; realKeys["realcap"] = realCapBox.Text.Trim(); realKeys["realhold"] = realHoldBox.Text.Trim();
+                if (realAccBox.SelectedItem is string) realKeys["realacc"] = (string)realAccBox.SelectedItem;   // "(SIMULATED ACCOUNT)" or a NinjaTrader account
                 foreach (var kv in realKeys) v[kv.Key] = kv.Value;
                 WriteStudioWorkspace(v);
             };
@@ -27945,7 +28056,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             w.Closed += delegate { timer.Stop(); if (!dayBanked) endDay(); saveWorkspace(); SaveStudioDrawings(panes); studioDataChanged = null; studioShowReportDay = null; studioStartRange = null; replayTraderNewAccount = null; replayTraderRewind = null; replayTraderLoad = null; replayTraderFlat = null; replayTraderOrder = null; replayTraderStep = null; replayTraderEnd = null; replayTraderWindow = null; replayTraderTimer = null; replayTrader = null; };
             // ---- LIVE: NinjaTrader's real-time data on this chart. No replay clock: bars arrive from the feed; trades go to the
             // simulated account (or, once routing is armed, to a NinjaTrader account — see the ACCOUNTS window)
-            Action realTick = null, realStop = null, realLiveStart = null;   // the REAL ACCOUNT bar (wired below)
+            Action realTick = null, realStop = null, realLiveStart = null, realLinkReady = null;   // the REAL ACCOUNT bar (wired below)
             bool liveMode = false; var feeds = new Dictionary<string, LiveFeed>(); var liveTimer = new DispatcherTimer(DispatcherPriority.Normal, w.Dispatcher) { Interval = TimeSpan.FromMilliseconds(250) };
             var replayOnly = new Button[] { loadBtn, prevDayBtn, nextDayBtn, playBtn, candleBackBtn, candleFwdBtn, back10Btn, backBtn, stepBtn, skipBtn, pickBtn };
             Func<DateTime> nyNow = () => { try { return TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, "Eastern Standard Time"); } catch { return DateTime.Now; } };
@@ -27984,12 +28095,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                     autoTrade(pn);
                     if (pn.Trader.Fills.Count != fills) { saveFills(pn); var fl = pn.Trader.Fills.Last(); status.Text = "LIVE " + pn.Symbol + " • " + fl.Reason + " • " + fl.Side + " " + fl.Qty + " closed " + Signed(fl.Net); status.Foreground = MoneyBrush(fl.Net); }
                 }
-                checkLimits();
+                if (!panes.Any(p => p.Link != null)) checkLimits();   // a linked account has its own limits (REAL ACCOUNT bar)
                 if (realTick != null) realTick();   // the real account follows the studio (when armed) + its account line
                 simTime = panes.Where(p => p.Trader != null).Select(p => p.Trader.Time).DefaultIfEmpty(nyNow()).Max();
                 renderAll(); if (newBar || DateTime.Now.Millisecond < 260) renderInfo();
             };
-            w.Closed += delegate { liveTimer.Stop(); foreach (var pn in panes) if (pn.Router != null) { pn.Router.Disarm("STUDIO CLOSED", DateTime.Now, false); pn.Router = null; } foreach (var f in feeds.Values) f.Stop(); feeds.Clear(); };
+            w.Closed += delegate { liveTimer.Stop(); foreach (var pn in panes) if (pn.Link != null) { pn.Link.Disarm("STUDIO CLOSED", DateTime.Now, false); pn.Link = null; } foreach (var f in feeds.Values) f.Stop(); feeds.Clear(); };
             liveBtn.Click += delegate
             {
                 if (liveMode) { stopLive(); return; }
@@ -28014,49 +28125,90 @@ namespace NinjaTrader.NinjaScript.AddOns
                         dayBanked = false; dayLocked = false; dayTitle.Text = "● LIVE • " + today.ToString("dddd d MMMM yyyy", CultureInfo.InvariantCulture).ToUpperInvariant();
                         status.Text = "LIVE • " + string.Join(" • ", feeds.Values.Where(x => x.Ready).Select(x => x.Contract)) + " • SIMULATED until you ARM a real account (REAL ACCOUNT bar)"; status.Foreground = Green;
                         System.Threading.ThreadPool.QueueUserWorkItem(delegate { try { KeystoneStudioStore.Merge(StudioFolder(), pn.Symbol, bars.Where(b => KeystoneStudioStore.SessionOf(b.Time) < today)); } catch { } });   // the finished sessions are kept for practice
+                        if (realLinkReady != null) realLinkReady();
                         if (!liveTimer.IsEnabled) liveTimer.Start(); renderAll(); renderInfo();
                     });
                 }
             };
-            // ---- REAL ACCOUNT: the studio's live trades routed to a NinjaTrader account (KeystoneOrderRouter). Your clicks and AUTO
-            // keep working on the studio's account; once ARMED the real account follows with market orders, a real stop and target
-            // at the broker (from the real fill), FLATTEN for exits, and the limits below. A real stop / target fill closes the studio too.
+            // ---- REAL ACCOUNT: the live chart IS the chosen NinjaTrader account (KeystoneAccountLink). Picking an account links it at
+            // once (WATCHING: its position, stop / target and working orders appear, wherever they were placed, and every fill is
+            // journaled). ARM = the studio's own actions (your clicks, drags, AUTO) become real orders, inside the limits below.
             var watches = new Dictionary<string, KeystoneAccountWatch>(StringComparer.OrdinalIgnoreCase);
-            string watchFile = Path.Combine(StudioFolder(), "AccountWatch.txt");
+            string watchFile = Path.Combine(StudioFolder(), "AccountWatch.txt"), realJournal = Path.Combine(StudioFolder(), "RealJournal.csv");
             try { if (File.Exists(watchFile)) foreach (var l in File.ReadAllLines(watchFile)) { var aw = KeystoneAccountWatch.Parse(l); if (aw != null) watches[aw.Account] = aw; } } catch { }
-            DateTime watchSaved = DateTime.MinValue, realInfoAt = DateTime.MinValue;
+            DateTime watchSaved = DateTime.MinValue, realInfoAt = DateTime.MinValue; string linkedName = null;
             Action saveWatches = delegate { watchSaved = DateTime.Now; try { Directory.CreateDirectory(StudioFolder()); File.WriteAllLines(watchFile, watches.Values.Select(x => x.Serialize()).ToArray()); } catch { } };
             Func<string, Account> findAccount = name => { try { Account[] all; lock (Account.All) all = Account.All.ToArray(); return all.FirstOrDefault(a => a != null && a.Name == name); } catch { return null; } };
             Func<KeystoneFirmPreset> selPreset = () => realPresetBox.SelectedIndex >= 0 && realPresetBox.SelectedIndex < KeystoneFirmRules.Presets.Count ? KeystoneFirmRules.Presets[realPresetBox.SelectedIndex] : null;
-            Func<bool> anyArmed = () => panes.Any(p => p.Router != null && p.Router.Armed);
+            Func<bool> anyArmed = () => panes.Any(p => p.Link != null && p.Link.Armed);
             Action paintArm = delegate { bool on = anyArmed(); realArmBtn.Content = on ? "● ARMED • DISARM" : "ARM REAL ORDERS"; PaintBtn(realArmBtn, on ? Green : Orange); realAccBox.IsEnabled = !on; realPresetBox.IsEnabled = !on; };
+            // the trades the account made: the studio's journal + RealJournal.csv (account, hold time, placed from the studio or NinjaTrader)
+            Action<ReplayPane> journalReal = pn =>
+            {
+                var lkj = pn.Link; if (lkj == null || lkj.NewFills.Count == 0) return;
+                try
+                {
+                    Directory.CreateDirectory(StudioFolder()); bool head = !File.Exists(realJournal);
+                    var lines = lkj.NewFills.Select(f => string.Join(",", linkedName ?? "", f.Symbol, f.Side, f.Qty.ToString(CultureInfo.InvariantCulture), f.EntryTime.ToString("yyyy-MM-dd HH:mm:ss"), f.Entry.ToString(CultureInfo.InvariantCulture), f.ExitTime.ToString("yyyy-MM-dd HH:mm:ss"), f.Exit.ToString(CultureInfo.InvariantCulture), f.Points.ToString("0.##", CultureInfo.InvariantCulture), f.Net.ToString("0.00", CultureInfo.InvariantCulture), ((int)(f.ExitTime - f.EntryTime).TotalSeconds).ToString(CultureInfo.InvariantCulture), f.Reason.Replace("REAL • ", ""))).ToList();
+                    if (head) lines.Insert(0, "account,symbol,side,qty,entry_time,entry,exit_time,exit,points,net_est,hold_s,placed_from");
+                    File.AppendAllLines(realJournal, lines);
+                }
+                catch { }
+                var last = lkj.NewFills.Last(); status.Text = "REAL " + pn.Symbol + " • " + last.Side + " " + last.Qty + " closed " + Signed(last.Net) + " (" + last.Reason.Replace("REAL • ", "from ") + ")"; status.Foreground = MoneyBrush(last.Net);
+                lkj.NewFills.Clear(); saveFills(pn);
+            };
+            Action unlink = delegate
+            {
+                foreach (var pn in panes)
+                {
+                    if (pn.Link == null) continue; pn.Link.Disarm("UNLINKED", DateTime.Now, false); pn.Link = null;
+                    if (pn.Trader != null) { pn.Trader.Slave = false; pn.Trader.Adopt(0, 0, DateTime.Now); pn.Trader.Orders.Clear(); }
+                }
+                linkedName = null; paintArm();
+            };
+            // link every live instrument to the chosen account (watching; ARM to trade)
+            Action<bool> linkPanes = fresh =>
+            {
+                if (fresh) unlink(); if (!liveMode) return;
+                var name = realAccBox.SelectedItem as string; var acc = name == null ? null : findAccount(name); if (acc == null) return;
+                foreach (var pn in panes)
+                {
+                    LiveFeed f; if (pn.Link != null || pn.Trader == null || !feeds.TryGetValue(pn.Symbol, out f) || !f.Ready || f.Inst == null) continue;
+                    if (pn.Trader.Position != 0 || pn.Trader.Orders.Count > 0) { pn.Trader.CancelOrders(); pn.Trader.CloseAll("SIM → REAL ACCOUNT"); saveFills(pn); }   // the simulated position ends here
+                    pn.Trader.Slave = true; pn.Link = new KeystoneAccountLink(new NinjaBroker(acc, f.Inst), pn.Symbol);
+                }
+                linkedName = name; realInfoAt = DateTime.MinValue;
+                status.Text = "LINKED • " + name + " • the chart shows this account (positions, stops, orders from NinjaTrader too) • ARM REAL ORDERS to trade it from here"; status.Foreground = Cyan;
+            };
             Action fillAccounts = delegate
             {
                 string keep = realAccBox.SelectedItem as string; if (keep == null) realKeys.TryGetValue("realacc", out keep);
-                realAccBox.Items.Clear();
+                realAccBox.Items.Clear(); realAccBox.Items.Add("(SIMULATED ACCOUNT)");
                 foreach (var sn in ReadNinjaAccounts().Where(x => x.Connected).OrderBy(x => x.Name)) realAccBox.Items.Add(sn.Name);
-                int k = keep == null ? -1 : realAccBox.Items.IndexOf(keep); realAccBox.SelectedIndex = k >= 0 ? k : (realAccBox.Items.Count > 0 ? 0 : -1);
-                if (realAccBox.Items.Count == 0) { realInfo.Text = "NO CONNECTED ACCOUNT • connect it in NinjaTrader (Connections), then ↻"; realInfo.Foreground = Gold; }
+                int k = keep == null ? -1 : realAccBox.Items.IndexOf(keep); realAccBox.SelectedIndex = k >= 0 ? k : 0;
+                if (realAccBox.Items.Count == 1) { realInfo.Text = "NO CONNECTED ACCOUNT • connect it in NinjaTrader (Connections), then ↻"; realInfo.Foreground = Gold; }
             };
             realAccBox.SelectionChanged += delegate
             {
-                var name = realAccBox.SelectedItem as string; if (name == null) return; string saved; realKeys.TryGetValue("realpreset." + name, out saved);
+                var name = realAccBox.SelectedItem as string; if (name == null) return;
+                if (name.StartsWith("(")) { unlink(); realInfo.Text = "SIMULATED ACCOUNT on live prices"; realInfo.Foreground = Muted; return; }
+                string saved; realKeys.TryGetValue("realpreset." + name, out saved);
                 var pr = KeystoneFirmRules.Find(saved ?? "") ?? KeystoneFirmRules.Guess(name); if (pr != null) realPresetBox.SelectedIndex = KeystoneFirmRules.Presets.IndexOf(pr);
-                realInfoAt = DateTime.MinValue;
+                linkPanes(true);
             };
             realPresetBox.SelectionChanged += delegate
             {
                 var pr = selPreset(); var name = realAccBox.SelectedItem as string; if (pr == null) return;
-                if (name != null) realKeys["realpreset." + name] = pr.Name;
+                if (name != null && !name.StartsWith("(")) realKeys["realpreset." + name] = pr.Name;
                 realCapBox.Text = pr.DayProfitCap.ToString("0", CultureInfo.InvariantCulture); realHoldBox.Text = pr.MinHoldSeconds.ToString(CultureInfo.InvariantCulture);
                 if (Integer(realMaxBox, 2) > Math.Max(1, pr.MaxMicros)) realMaxBox.Text = Math.Max(1, pr.MaxMicros).ToString(CultureInfo.InvariantCulture);
                 realInfoAt = DateTime.MinValue;
             };
             realRefreshBtn.Click += delegate { fillAccounts(); };
-            // the account line: balance, today, the firm's floor and room, target / payout progress, consistency, the router's state
+            // the account line: balance, today, the firm's floor and room, target / payout progress, consistency, the link's state
             Action realLine = delegate
             {
-                var name = realAccBox.SelectedItem as string; var acc = name == null ? null : findAccount(name); var pr = selPreset();
+                var name = linkedName; var acc = name == null ? null : findAccount(name); var pr = selPreset();
                 if (acc == null) return;
                 double bal = 0, today = 0;
                 try { bal = acc.Get(AccountItem.NetLiquidation, Currency.UsDollar); if (bal == 0) bal = acc.Get(AccountItem.CashValue, Currency.UsDollar) + acc.Get(AccountItem.UnrealizedProfitLoss, Currency.UsDollar); } catch { }
@@ -28072,88 +28224,88 @@ namespace NinjaTrader.NinjaScript.AddOns
                     double made = bal - aw.StartBalance;
                     if (pr.Target > 0) parts.Add("TARGET " + Signed(made) + " / " + Cash(pr.Target) + " (" + Math.Max(0, Math.Min(100, 100 * made / pr.Target)).ToString("0", CultureInfo.InvariantCulture) + "%)");
                     if (pr.PayoutBuffer > 0) parts.Add("FUNDED: 1st payout at " + Cash(aw.StartBalance + pr.PayoutBuffer) + ", then every +$500");
-                    if (pr.ConsistencyPct > 0) { double c = aw.ConsistencyPct(); parts.Add("BEST DAY " + c.ToString("0", CultureInfo.InvariantCulture) + "% (max " + pr.ConsistencyPct.ToString("0", CultureInfo.InvariantCulture) + "%) • " + aw.DayProfits().Count(x => x != 0) + " days"); if (c > pr.ConsistencyPct && made > 0) color = Gold; }
+                    if (pr.ConsistencyPct > 0) { double c = aw.ConsistencyPct(); parts.Add("BEST DAY " + c.ToString("0", CultureInfo.InvariantCulture) + "% (max " + pr.ConsistencyPct.ToString("0", CultureInfo.InvariantCulture) + "%)"); if (c > pr.ConsistencyPct && made > 0) color = Gold; }
                     if (pr.DayProfitCap > 0) parts.Add("DAY CAP " + Signed(today) + " / " + Cash(pr.DayProfitCap));
+                    if (pr.MinHoldSeconds > 0)
+                    {
+                        // the firm's hold rule: the share of today's profit from trades held longer than the minimum
+                        var real = panes.Where(p => p.Trader != null).SelectMany(p => p.Trader.Fills).Where(f => f.Reason.StartsWith("REAL") && f.Net > 0).ToList(); double all = real.Sum(f => f.Net);
+                        if (all > 0) parts.Add("PROFIT FROM TRADES > " + pr.MinHoldSeconds + "s: " + (100 * real.Where(f => (f.ExitTime - f.EntryTime).TotalSeconds > pr.MinHoldSeconds).Sum(f => f.Net) / all).ToString("0", CultureInfo.InvariantCulture) + "% (need 50%)");
+                    }
                 }
-                var rs = panes.Where(p => p.Router != null).Select(p => p.Symbol + " " + p.Router.State).ToList();
-                parts.Add(rs.Count == 0 ? "NOT ARMED (studio trades stay simulated)" : string.Join(" • ", rs));
+                var ls = panes.Where(p => p.Link != null).Select(p => p.Symbol + " " + p.Link.State + (p.Link.Warning != "" ? " • ⚠ " + p.Link.Warning : "")).ToList();
+                if (panes.Any(p => p.Link != null && p.Link.Warning != "")) color = Red;
+                parts.Add(string.Join(" • ", ls));
                 realInfo.Text = string.Join("  •  ", parts); realInfo.Foreground = color;
+                realAddStopBtn.Visibility = panes.Any(p => p.Link != null && p.Link.Warning.Contains("NO STOP")) ? Visibility.Visible : Visibility.Collapsed;
             };
             realTick = delegate
             {
                 foreach (var pn in panes)
                 {
-                    var rt = pn.Router; if (rt == null || pn.Trader == null) continue;
-                    rt.Automated = modeBox.SelectedIndex == 1; rt.DayProfitCap = NumberAllowZero(realCapBox, 0); rt.DayLossLimit = NumberAllowZero(realLossBox, 0);
-                    rt.Sync(pn.Trader.Position, pn.Trader.StopPts, pn.Trader.TargetPts, DateTime.Now);
+                    var lk = pn.Link; if (lk == null || pn.Trader == null) continue;
+                    var pr = selPreset(); lk.Automated = modeBox.SelectedIndex == 1 && (pr == null || pr.Automation);
+                    lk.DayProfitCap = NumberAllowZero(realCapBox, 0); lk.DayLossLimit = NumberAllowZero(realLossBox, 0); lk.MaxContracts = Math.Max(1, Integer(realMaxBox, 2)); lk.MinHoldSeconds = Math.Max(0, Integer(realHoldBox, 0));
+                    lk.AutoStop = realAutoStopBox.IsChecked == true; lk.DefaultStopPts = NumberAllowZero(realStopPtsBox, 0);
+                    lk.Tick(pn.Trader, DateTime.Now);
+                    if (lk.Pulled) { pn.Sl.Text = pn.Trader.StopPts == 0 ? "0" : pn.Trader.StopPts.ToString("0.##", CultureInfo.InvariantCulture); pn.Tp.Text = pn.Trader.TargetPts == 0 ? "0" : pn.Trader.TargetPts.ToString("0.##", CultureInfo.InvariantCulture); }
+                    journalReal(pn);
                 }
                 // the firm counts MNQ + MGC together (MFFU: 30 micros in total): over the limit = flatten everything + disarm
-                var prT = selPreset(); int totalReal = panes.Where(p => p.Router != null && p.Router.Armed).Sum(p => { try { return Math.Abs(p.Router.Broker.Qty); } catch { return 0; } });
-                if (prT != null && prT.MaxMicros > 0 && totalReal > prT.MaxMicros) foreach (var pn in panes) if (pn.Router != null) pn.Router.Disarm("OVER " + prT.MaxMicros + " MICROS IN TOTAL (firm limit)", DateTime.Now, true);
+                var prT = selPreset(); int totalReal = panes.Where(p => p.Link != null && p.Link.Armed).Sum(p => { try { return Math.Abs(p.Link.Broker.Qty); } catch { return 0; } });
+                if (prT != null && prT.MaxMicros > 0 && totalReal > prT.MaxMicros) foreach (var pn in panes) if (pn.Link != null) pn.Link.Disarm("OVER " + prT.MaxMicros + " MICROS IN TOTAL (firm limit)", DateTime.Now, true);
                 if ((DateTime.Now - realInfoAt).TotalMilliseconds > 900) { realInfoAt = DateTime.Now; realLine(); }
             };
-            Action<bool> disarmAll = flatten => { foreach (var pn in panes) if (pn.Router != null) pn.Router.Disarm(flatten ? "YOU FLATTENED" : "YOU DISARMED", DateTime.Now, flatten); paintArm(); };
-            realStop = delegate
-            {
-                // leaving LIVE: ask about open real positions (No = keep them, with their real stop / target at the broker)
-                bool open = panes.Any(p => p.Router != null && p.Router.Broker.Qty != 0);
-                if (anyArmed())
-                {
-                    bool flat = open && MessageBox.Show("Leaving LIVE.\n\nClose the REAL position(s) now?\n\nYes = flatten them • No = keep them (their real stop / target stay at the broker)", "KEYSTONE • REAL ACCOUNT", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
-                    disarmAll(flat);
-                }
-                foreach (var pn in panes) pn.Router = null;
-                realBar.Visibility = Visibility.Collapsed; saveWatches();
-            };
+            realStop = delegate { unlink(); realBar.Visibility = Visibility.Collapsed; saveWatches(); };   // leaving LIVE: real positions stay in NinjaTrader with their orders
             realArmBtn.Click += delegate
             {
-                if (anyArmed()) { disarmAll(false); status.Text = "REAL ORDERS DISARMED • open real positions keep their stop / target at the broker"; status.Foreground = Gold; return; }
-                if (!liveMode) { status.Text = "GO LIVE FIRST: real orders only work on live prices"; status.Foreground = Gold; return; }
-                var name = realAccBox.SelectedItem as string; var acc = name == null ? null : findAccount(name); var pr = selPreset();
-                if (acc == null) { status.Text = "PICK A CONNECTED NINJATRADER ACCOUNT (↻ reads them again)"; status.Foreground = Red; return; }
+                if (anyArmed()) { foreach (var pn in panes) if (pn.Link != null) pn.Link.Disarm("YOU DISARMED", DateTime.Now, false); paintArm(); status.Text = "DISARMED • the chart keeps showing the account; nothing is sent from the studio"; status.Foreground = Gold; return; }
+                if (!liveMode) { status.Text = "GO LIVE FIRST"; status.Foreground = Gold; return; }
+                var name = linkedName; var pr = selPreset(); var linked = panes.Where(p => p.Link != null).ToList();
+                if (name == null || linked.Count == 0) { status.Text = "PICK A CONNECTED NINJATRADER ACCOUNT FIRST (↻ reads them again)"; status.Foreground = Red; return; }
                 if (pr != null && !pr.Automation && modeBox.SelectedIndex == 1) { status.Text = pr.Name + " DOES NOT ALLOW AUTOMATION • switch MODE to SIGNALS (you click every trade)"; status.Foreground = Red; return; }
-                var ready = panes.Where(p => p.Trader != null && feeds.ContainsKey(p.Symbol) && feeds[p.Symbol].Ready && feeds[p.Symbol].Inst != null).ToList();
-                if (ready.Count == 0) { status.Text = "NO LIVE INSTRUMENT YET • wait for the live data"; status.Foreground = Gold; return; }
                 int max = Math.Max(1, Integer(realMaxBox, 2));
-                if (pr != null && pr.MaxMicros > 0 && max * ready.Count > pr.MaxMicros) { max = Math.Max(1, pr.MaxMicros / ready.Count); realMaxBox.Text = max.ToString(CultureInfo.InvariantCulture); }   // MNQ + MGC share the firm's total
+                if (pr != null && pr.MaxMicros > 0 && max * linked.Count > pr.MaxMicros) { max = Math.Max(1, pr.MaxMicros / linked.Count); realMaxBox.Text = max.ToString(CultureInfo.InvariantCulture); }   // MNQ + MGC share the firm's total
                 double loss = NumberAllowZero(realLossBox, 0), cap = NumberAllowZero(realCapBox, 0); int hold = Math.Max(0, Integer(realHoldBox, 0));
-                string msg = "ARM REAL ORDERS?\n\nAccount: " + name + (pr == null ? "" : "\nRules: " + pr.Name + "\n" + pr.Notes) + "\n\nInstruments: " + string.Join(", ", ready.Select(p => feeds[p.Symbol].Contract)) +
-                    "\n\nFrom now on every studio trade on these charts — your BUY / SELL / CLOSE and " + (modeBox.SelectedIndex == 1 ? "AUTO (ON)" : "AUTO (off)") + " — is sent to this account as a market order, with a REAL stop and target at the broker (your SL / TP distances from the real fill; dragging them moves the real orders)." +
-                    "\n\nMax " + max + " contract(s) • day loss limit " + Cash(loss) + (cap > 0 ? " • day profit cap " + Cash(cap) : "") + (hold > 0 ? " • min hold " + hold + "s" : "") + " • 6 orders in a minute = stop" +
-                    "\nReaching a limit flattens the account and disarms. Your working limit / stop orders stay in the studio; when one fills, the real account follows at market.";
+                string msg = "ARM REAL ORDERS?\n\nAccount: " + name + (pr == null ? "" : "\nRules: " + pr.Name + "\n" + pr.Notes) + "\n\nInstruments: " + string.Join(", ", linked.Select(p => feeds[p.Symbol].Contract)) +
+                    "\n\nFrom now on what you do on these charts is done on this account: BUY / SELL / CLOSE (market), LIMIT / STOP orders, dragging a stop / target / order, BE +1, LOCK ½, ✕ = cancel" + (modeBox.SelectedIndex == 1 ? ", and AUTO (ON)." : ". AUTO is off.") +
+                    " Your SL / TP become a real stop and target at the broker. Trades you place in NinjaTrader keep showing here." +
+                    "\n\nMax " + max + " contract(s) • day loss limit " + Cash(loss) + (cap > 0 ? " • day profit cap " + Cash(cap) : "") + (hold > 0 ? " • min hold " + hold + "s" : "") + " • 8 orders in a minute = stop" +
+                    "\nA limit reached flattens the account and disarms.";
                 if (MessageBox.Show(msg, "KEYSTONE • REAL ACCOUNT", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-                var made = new List<ReplayPane>(); string err = null;
-                foreach (var pn0 in ready)
+                string err = null;
+                foreach (var pn0 in linked)
                 {
-                    var pn = pn0;
-                    var rt = new KeystoneOrderRouter(new NinjaBroker(acc, feeds[pn.Symbol].Inst)) { MaxContracts = max, DayLossLimit = loss, DayProfitCap = cap, MinHoldSeconds = hold, Automated = modeBox.SelectedIndex == 1 };
-                    err = rt.Arm(pn.Trader.Position, DateTime.Now); if (err != null) { err = pn.Symbol + ": " + err; break; }
-                    rt.RealExit = why => { if (pn.Trader != null && pn.Trader.Position != 0) { pn.Trader.CancelOrders(); pn.Trader.CloseAll("REAL " + why); saveFills(pn); } status.Text = "REAL " + why + " FILLED on " + pn.Symbol + " • the studio closed its position too"; status.Foreground = why == "TARGET" ? Green : Red; };
-                    rt.Disarmed = why => { paintArm(); status.Text = pn.Symbol + " REAL ORDERS OFF • " + why; status.Foreground = Red; try { System.Media.SystemSounds.Exclamation.Play(); } catch { } };
-                    pn.Router = rt; made.Add(pn);
+                    var pn = pn0; var lk = pn.Link; lk.MaxContracts = max; lk.DayLossLimit = loss; lk.DayProfitCap = cap; lk.MinHoldSeconds = hold;
+                    err = lk.Arm(DateTime.Now); if (err != null) { err = pn.Symbol + ": " + err; break; }
+                    lk.Disarmed = why => { paintArm(); status.Text = pn.Symbol + " REAL ORDERS OFF • " + why; status.Foreground = Red; try { System.Media.SystemSounds.Exclamation.Play(); } catch { } };
                 }
-                if (err != null) { foreach (var pn in made) { pn.Router.Disarm("ARM CANCELLED", DateTime.Now, false); pn.Router = null; } status.Text = "NOT ARMED • " + err; status.Foreground = Red; paintArm(); return; }
+                if (err != null) { foreach (var pn in linked) pn.Link.Disarm("ARM CANCELLED", DateTime.Now, false); status.Text = "NOT ARMED • " + err; status.Foreground = Red; paintArm(); return; }
                 saveWorkspace(); paintArm(); realInfoAt = DateTime.MinValue;
-                status.Text = "● ARMED • " + name + " • studio trades now go to the real account"; status.Foreground = Green;
+                status.Text = "● ARMED • " + name + " • the studio trades this account"; status.Foreground = Green;
+            };
+            realAddStopBtn.Click += delegate
+            {
+                double pts = NumberAllowZero(realStopPtsBox, 0);
+                if (!anyArmed()) { status.Text = "ARM REAL ORDERS first — then ADD MY STOP places a " + pts.ToString("0.##", CultureInfo.InvariantCulture) + " pt stop"; status.Foreground = Gold; return; }
+                if (pts <= 0) { status.Text = "SET AUTO STOP PTS (the stop distance) first"; status.Foreground = Gold; return; }
+                foreach (var pn in panes.Where(p => p.Link != null && p.Trader != null && p.Trader.Position != 0 && p.Trader.StopPts == 0)) { pn.Trader.StopPts = pts; pn.Sl.Text = pts.ToString("0.##", CultureInfo.InvariantCulture); }
+                status.Text = "STOP SENT " + pts.ToString("0.##", CultureInfo.InvariantCulture) + " pts from the real entry"; status.Foreground = Cyan;
             };
             realFlatBtn.Click += delegate
             {
-                var name = realAccBox.SelectedItem as string; var acc = name == null ? null : findAccount(name); if (acc == null) return;
+                var name = linkedName; var acc = name == null ? null : findAccount(name); if (acc == null) return;
                 if (MessageBox.Show("FLATTEN " + name + " now (MNQ / MGC positions and their orders)?\nReal orders are also disarmed.", "KEYSTONE • REAL ACCOUNT", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-                foreach (var pn in panes)
-                {
-                    if (pn.Router != null) pn.Router.Disarm("YOU FLATTENED", DateTime.Now, true);
-                    else if (feeds.ContainsKey(pn.Symbol) && feeds[pn.Symbol].Inst != null) new NinjaBroker(acc, feeds[pn.Symbol].Inst).Flatten();
-                    if (pn.Trader != null && pn.Trader.Position != 0) { pn.Trader.CancelOrders(); pn.Trader.CloseAll("FLATTEN REAL"); saveFills(pn); }
-                }
+                foreach (var pn in panes.Where(p => p.Link != null)) { if (pn.Link.Armed) pn.Link.Disarm("YOU FLATTENED", DateTime.Now, true); else pn.Link.Broker.Flatten(); }
                 paintArm(); status.Text = "FLATTENED " + name; status.Foreground = Gold;
             };
             realLogBtn.Click += delegate
             {
-                var lines = panes.Where(p => p.Router != null).SelectMany(p => p.Router.Log.Select(x => p.Symbol + " " + x)).ToList();
-                MessageBox.Show(lines.Count == 0 ? "No real orders in this live session yet." : string.Join("\n", lines.Skip(Math.Max(0, lines.Count - 40))), "KEYSTONE • ORDER LOG", MessageBoxButton.OK, MessageBoxImage.Information);
+                var lines = panes.Where(p => p.Link != null).SelectMany(p => p.Link.Log.Select(x => p.Symbol + " " + x)).ToList();
+                MessageBox.Show((lines.Count == 0 ? "No real orders from the studio in this live session yet." : string.Join("\n", lines.Skip(Math.Max(0, lines.Count - 40)))) + "\n\nEvery real trade is saved in " + realJournal, "KEYSTONE • ORDER LOG", MessageBoxButton.OK, MessageBoxImage.Information);
             };
             realLiveStart = delegate { realBar.Visibility = Visibility.Visible; fillAccounts(); paintArm(); realInfoAt = DateTime.MinValue; };
+            realLinkReady = delegate { var name = realAccBox.SelectedItem as string; if (name != null && !name.StartsWith("(") && panes.Any(p => p.Link == null && p.Trader != null)) linkPanes(false); };   // an instrument whose live data just arrived joins the link
             studioShowReportDay = (repo, day) =>
             {
                 foreach (var pn in panes) { pn.ReportDay = string.Equals(pn.Symbol, repo.Instrument, StringComparison.OrdinalIgnoreCase) ? day : null; pn.ReportTitle = repo.Title; }
@@ -29143,9 +29295,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             cards.Children.Add(card("PATTERN LAB", "Similar moments: every past minute as a fingerprint of how price got there, and what came next. The walk-forward test shows honestly whether history predicts the next 30 minutes better than chance on your data.", Orchid, delegate { OpenPatternLab(); }, true));
             cards.Children.Add(card("REPORTS", "Studies from the 6 years of data (e.g. THE OPENING MINUTE): summary, tables and every labelled day. Import a .kreport.json, filter the days, open any day on the studio chart with its labels and trades.", Orange, delegate { OpenReportsWindow(); }, true));
             cards.Children.Add(card("DATA LIBRARY", "1-minute bars saved on this PC for the studio: what is there, what is missing, download or update any date range (MNQ, MGC). No Step 1 needed.", Blue, delegate { OpenDataLibrary(); }, true));
-            cards.Children.Add(card("LIVE DESK", "Your prop-firm accounts connected in NinjaTrader: balance, today, positions, drawdown room, target progress, groups (drag and drop, rename). READ ONLY for now — copier / rotation orders need your approval.", Orange, delegate { OpenLiveDesk(); }, true));
+            cards.Children.Add(card("LIVE DESK", "Your prop-firm accounts connected in NinjaTrader: balance, today, positions, drawdown room, target progress, groups (drag and drop, rename). TO TRADE AN ACCOUNT: BACKTEST STUDIO → ● GO LIVE → REAL ACCOUNT bar. Copier / groups orders: next — they need your approval.", Orange, delegate { OpenLiveDesk(); }, true));
             stack.Children.Add(cards);
-            stack.Children.Add(new TextBlock { Text = "Nothing here places orders. The studio's trades are simulated on your saved history; the LIVE DESK only reads your NinjaTrader accounts.", Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+            stack.Children.Add(new TextBlock { Text = "Real trading happens only in the BACKTEST STUDIO: ● GO LIVE, pick the account in the REAL ACCOUNT bar (the chart then shows it, trades from NinjaTrader included) and ARM REAL ORDERS. Practice days and the LIVE DESK place no orders.", Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
             w.Content = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             w.Show();
         }
@@ -29273,7 +29425,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             ed.Children.Add(new TextBlock { Text = "Room and target are estimates from YOUR settings here and the highest balance this desk has seen while open — the firm's own dashboard is the final word.", Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) });
             var edScroll = new ScrollViewer { Content = ed, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             Grid.SetRow(edScroll, 1); Grid.SetColumn(edScroll, 1); root.Children.Add(edScroll);
-            var foot = new TextBlock { Text = "READ ONLY • this desk shows your accounts and places NO orders. Copier / rotation (sending orders to groups) is locked until you approve order placement.", Foreground = Gold, FontSize = 11.5, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+            var foot = new TextBlock { Text = "This desk shows your connected accounts and places no orders • to TRADE an account: BACKTEST STUDIO → ● GO LIVE → REAL ACCOUNT bar → ARM • copy to groups: next step", Foreground = Gold, FontSize = 11.5, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
             Grid.SetRow(foot, 2); Grid.SetColumnSpan(foot, 2); root.Children.Add(foot);
             w.Content = root;
 
