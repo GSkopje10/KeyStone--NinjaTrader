@@ -59,8 +59,11 @@ namespace NinjaTrader.Data
         public Bars Bars { get { return null; } }
         public Instrument Instrument { get { return null; } }
         public void Request(Action<BarsRequest, ErrorCode, string> callback) { }
+        public event EventHandler<BarsUpdateEventArgs> Update;
+        public void RaiseUpdate(int a, int b) { if (Update != null) Update(this, new BarsUpdateEventArgs { MinIndex = a, MaxIndex = b }); }
         public void Dispose() { }
     }
+    public class BarsUpdateEventArgs : EventArgs { public int MinIndex { get; set; } public int MaxIndex { get; set; } }
 }
 
 namespace NinjaTrader.Gui

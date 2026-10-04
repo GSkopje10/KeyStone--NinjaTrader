@@ -41,6 +41,13 @@ public static class ReplayTraderTests
         pst.StopPts = -8;                                                // a stop past the entry: 108 locks +8
         while (pst.Position != 0 && pst.Advance()) { }
         Check(pst.Fills.Count == 1 && pst.Fills[0].Reason == "PROFIT STOP" && pst.Fills[0].Exit == 108, "a stop moved into profit (108) closes the long at +8 on the way down", pst.Fills.Count > 0 ? pst.Fills[0].Reason + " " + pst.Fills[0].Exit : "no fill");
+        var lv = KeystoneReplayTrader.LiveStart(bars.Take(2).ToList(), "MNQ", bars[1].Time);
+        Check(lv.Live && lv.Price == 105 && lv.Candles(1).Count == 2, "LIVE: starts at the last bar's close with every bar so far on the chart");
+        lv.Buy(1); lv.StopPts = 5; lv.TargetPts = 20;
+        lv.LiveUpdate(new KeystoneArcBar { Symbol = "MNQ", Time = bars[2].Time, Open = 105, High = 108, Low = 104, Close = 107 }, bars[2].Time.AddSeconds(-30));
+        Check(lv.Position == 1 && lv.Bars.Count == 3 && lv.Price == 107, "LIVE: a new forming bar is added, the position stays");
+        lv.LiveUpdate(new KeystoneArcBar { Symbol = "MNQ", Time = bars[2].Time, Open = 105, High = 108, Low = 99, Close = 99.5 }, bars[2].Time.AddSeconds(-5));
+        Check(lv.Position == 0 && lv.Fills.Count == 1 && lv.Fills[0].Reason == "STOP" && lv.Fills[0].Exit == 100 && lv.Bars.Count == 3, "LIVE: the forming bar updated in place; price through the stop closes at the stop (100)", lv.Fills.Count > 0 ? lv.Fills[0].Reason + " " + lv.Fills[0].Exit : "");
         var c5 = new KeystoneReplayTrader(bars, "MNQ", 12); for (int i = 0; i < 18; i++) c5.Advance();
         var cs = c5.Candles(1);
         Check(cs.Count == 2 && cs[1].Close == c5.Price && cs[1].High <= 106, "the forming candle closes at the current price", cs.Count + " " + cs[1].Close + "/" + c5.Price);
