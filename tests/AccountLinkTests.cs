@@ -150,6 +150,32 @@ public static class AccountLinkTests
             Check(f.Count == 2 && f[0].Qty == 1 && f[0].Points == 10 && f[1].Qty == 1 && f[1].Points == 20 && tb.Pos == -2 && tb.Avg == 120, "buy 2, sell 1, sell 3 → two closes (+10, +20 pts), now short 2 @ 120");
             Check(tb.Add(new[] { new KeystoneExec { Id = "3", Time = tm.AddMinutes(2), SignedQty = -3, Price = 120 } }).Count == 0, "an execution is never counted twice");
         }
+        // 9b. disconnect: studio actions are refused (no stale order after the reconnect); a day lock refuses + can flatten
+        {
+            var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ"); var t = Trader(); l.Arm(t0);
+            b.Conn = false; t.Buy(1); l.Tick(t, t0); b.Conn = true; l.Tick(t, t0.AddSeconds(1)); l.Tick(t, t0.AddSeconds(2));
+            Check(t.Position == 0 && b.Sent.Count == 0, "BUY while the connection is lost → refused, nothing sent after it is back", string.Join(" | ", b.Sent));
+            l.Locked = true; t.Buy(1); l.Tick(t, t0.AddSeconds(3));
+            Check(t.Position == 0 && b.Sent.Count == 0 && l.Warning.Contains("LOCKED"), "LOCKED FOR TODAY → studio BUY refused", l.Warning);
+            l.LockFlatten = true; b.Exec(1, 20000, "Buy"); l.Tick(t, t0.AddSeconds(10));
+            Check(b.Sent.Contains("FLATTEN") && b.Q == 0, "locked + a trade opened in NinjaTrader → closed", string.Join(" | ", b.Sent));
+        }
+        // 9c. live tools: level fade, market hours, gaps + merge, day locks
+        {
+            Check(KeystoneLiveTools.LevelOpacity(KeystoneLiveTools.Near, 100, 110, 15) > 0.3 && KeystoneLiveTools.LevelOpacity(KeystoneLiveTools.Near, 100, 120, 15) == 0 && KeystoneLiveTools.LevelOpacity(KeystoneLiveTools.Always, 100, 500, 15) == 1 && KeystoneLiveTools.LevelOpacity(KeystoneLiveTools.Off, 100, 100, 15) == 0, "levels: NEAR fades in within 15 pts, ALWAYS / OFF");
+            Check(!KeystoneLiveTools.MarketOpen(new DateTime(2026, 10, 6, 17, 30, 0)) && KeystoneLiveTools.MarketOpen(new DateTime(2026, 10, 6, 18, 0, 0)) && !KeystoneLiveTools.MarketOpen(new DateTime(2026, 10, 10, 12, 0, 0)), "market hours: 17:00–18:00 break, Saturday closed");
+            var bars = new List<KeystoneArcBar>(); var b0 = new DateTime(2026, 10, 6, 10, 0, 0);
+            for (int i = 1; i <= 30; i++) if (i < 10 || i > 16) bars.Add(new KeystoneArcBar { Time = b0.AddMinutes(i), Close = i });
+            var g = KeystoneLiveTools.Gaps(bars, b0, b0.AddMinutes(30), 3);
+            Check(g.Count == 1 && g[0].Item1 == b0.AddMinutes(10) && g[0].Item2 == b0.AddMinutes(16), "gap finder: 10:10–10:16 missing", g.Count.ToString());
+            var refill = Enumerable.Range(8, 12).Select(i => new KeystoneArcBar { Time = b0.AddMinutes(i), Close = i }).ToList();
+            int added = KeystoneLiveTools.MergeBars(bars, refill);
+            Check(added == 7 && bars.Count == 30 && bars.Select(x => x.Time).SequenceEqual(bars.Select(x => x.Time).OrderBy(x => x)), "merge: the 7 missing minutes added in order, nothing doubled", added.ToString());
+            var dl = new KeystoneDayLocks(); var u = dl.Lock("MFFU1", new DateTime(2026, 10, 6, 11, 0, 0));
+            Check(u == new DateTime(2026, 10, 6, 18, 0, 0) && dl.IsLocked("MFFU1", new DateTime(2026, 10, 6, 16, 0, 0)) && !dl.IsLocked("MFFU1", new DateTime(2026, 10, 6, 18, 1, 0)), "day lock until 18:00 NY");
+            Check(KeystoneDayLocks.NextOpen(new DateTime(2026, 10, 9, 12, 0, 0)) == new DateTime(2026, 10, 11, 18, 0, 0), "Friday lock → Sunday 18:00");
+            Check(KeystoneDayLocks.Parse(dl.Serialize()).IsLocked("MFFU1", new DateTime(2026, 10, 6, 12, 0, 0)), "locks save and load");
+        }
         // 10. presets + account watch
         {
             var p = KeystoneFirmRules.Guess("MFFUEVREOD723518001");

@@ -48,7 +48,7 @@ namespace System.Windows
     public static class LogicalTreeHelper { public static System.Collections.IEnumerable GetChildren(DependencyObject d) { return new object[0]; } public static DependencyObject GetParent(DependencyObject d) { return null; } }
     public class WindowCollection : List<Window> { }
     public class DependencyObject { public System.Windows.Threading.Dispatcher Dispatcher { get { return null; } } public bool CheckAccess() { return true; } public object GetValue(DependencyProperty p) { return null; } public void SetValue(DependencyProperty p, object v) { } }
-    public class RoutedEventArgs : EventArgs { public bool Handled { get; set; } public object Source { get; set; } public object OriginalSource { get; set; } }
+    public class RoutedEventArgs : EventArgs { public RoutedEventArgs() { } public RoutedEventArgs(RoutedEvent routedEvent) { } public bool Handled { get; set; } public object Source { get; set; } public object OriginalSource { get; set; } }
     public delegate void RoutedEventHandler(object sender, RoutedEventArgs e);
     public class SizeChangedEventArgs : RoutedEventArgs { public Size NewSize { get; set; } public Size PreviousSize { get; set; } public bool WidthChanged { get; set; } public bool HeightChanged { get; set; } }
     public delegate void SizeChangedEventHandler(object sender, SizeChangedEventArgs e);
@@ -57,6 +57,7 @@ namespace System.Windows
     public class ResourceDictionary : Dictionary<object, object> { }
     public class UIElement : DependencyObject
     {
+        public void RaiseEvent(RoutedEventArgs e) { OnRaise(e); } protected virtual void OnRaise(RoutedEventArgs e) { }
         // Stand-in for WPF's single logical parent rule: adding an element that already has a parent throws, as WPF does.
         internal object StubParent;
         internal static void Adopt(object parent, object child) { var e = child as UIElement; if (e == null) return; if (e.StubParent != null && !ReferenceEquals(e.StubParent, parent)) throw new InvalidOperationException("Specified element is already the logical child of another element. Disconnect it first. (" + e.GetType().Name + ")"); e.StubParent = parent; }
@@ -117,7 +118,7 @@ namespace System.Windows
         public System.Windows.Input.Cursor Cursor { get; set; }
         public VerticalAlignment VerticalAlignment { get; set; }
         public HorizontalAlignment HorizontalAlignment { get; set; }
-        public DependencyObject Parent { get { return null; } }
+        public DependencyObject Parent { get { return StubParent as DependencyObject; } }
         public bool IsLoaded { get { return true; } }
         public System.Windows.Media.Transform LayoutTransform { get; set; }
         public FlowDirection FlowDirection { get; set; }
@@ -364,7 +365,7 @@ namespace System.Windows.Controls
         public static void SetVerticalScrollBarVisibility(DependencyObject d, ScrollBarVisibility v) { } public static void SetHorizontalScrollBarVisibility(DependencyObject d, ScrollBarVisibility v) { }
         public static void SetCanContentScroll(DependencyObject d, bool v) { }
     }
-    public class ButtonBase : ContentControl { public event RoutedEventHandler Click; }
+    public class ButtonBase : ContentControl { public static readonly RoutedEvent ClickEvent = new RoutedEvent(); public event RoutedEventHandler Click; protected override void OnRaise(RoutedEventArgs e) { if (Click != null) Click(this, e); } }
     public class Button : ButtonBase { public bool IsDefault { get; set; } public bool IsCancel { get; set; } }
     public class CheckBox : System.Windows.Controls.Primitives.ToggleButton { }
     public class RadioButton : System.Windows.Controls.Primitives.ToggleButton { public string GroupName { get; set; } }
