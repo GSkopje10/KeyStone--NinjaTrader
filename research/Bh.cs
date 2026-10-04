@@ -16,11 +16,12 @@ public sealed class BhCfg
     public bool BelowOpen = false;     // the pattern low must be under the 09:30 open (a real pullback after the open)
     public double Drop = 0;            // the push down: (highest high since the start − pattern low) ≥ Drop × 14-day 09:30–16:00 range (0 = off)
     public bool Sweep = false;         // the pattern low takes out the overnight low (18:00 – 09:29)
+    public int LegMins = 0; public double LegAtr = 0;   // aggression leg: (highest high of the LegMins minutes before the red candle → pattern low) ≥ LegAtr × 14-day range
     public double BigRed = 0;          // the red candle's range ≥ BigRed × 14-day range (0 = off)
     public string Name()
     {
         return "BH " + Min + "M from " + R.T(Start) + " entries until " + R.T(LastEntry) + " • " + (MaxTrades == 1 ? "first setup only" : "up to " + MaxTrades + " a day") + (MinReds > 1 ? " • " + MinReds + "+ reds" : "")
-            + " • stop " + (Stop == "LOW" ? "pattern low" : Stop.Substring(1) + " pts") + " • target " + (TargetPts > 0 ? TargetPts + " pts" : TargetR > 0 ? TargetR + "R" : "15:55") + (BelowOpen ? " • pullback under the open" : "") + (Drop > 0 ? " • drop ≥ " + Drop + "×range" : "") + (Sweep ? " • sweeps the overnight low" : "") + (BigRed > 0 ? " • red candle ≥ " + BigRed + "×range" : "");
+            + " • stop " + (Stop == "LOW" ? "pattern low" : Stop.Substring(1) + " pts") + " • target " + (TargetPts > 0 ? TargetPts + " pts" : TargetR > 0 ? TargetR + "R" : "15:55") + (BelowOpen ? " • pullback under the open" : "") + (Drop > 0 ? " • drop ≥ " + Drop + "×range" : "") + (Sweep ? " • sweeps the overnight low" : "") + (BigRed > 0 ? " • red candle ≥ " + BigRed + "×range" : "") + (LegMins > 0 ? " • aggression leg ≥ " + LegAtr + "×range within " + LegMins + " min" : "");
     }
 }
 
@@ -46,6 +47,7 @@ public static class Bh
                 if (c.BelowOpen && !(patLow < open930)) continue;
                 if (c.Drop > 0 && !(d.Hi(c.Start, refc + M - 1) - patLow >= c.Drop * d.RthAtr)) continue;
                 if (c.Sweep && !(patLow < d.Lo(0, R.S(9, 29)))) continue;
+                if (c.LegMins > 0 && !(d.Hi(Math.Max(0, red - c.LegMins), refc + M - 1) - patLow >= c.LegAtr * d.RthAtr)) continue;
                 if (c.BigRed > 0 && !(d.Hi(red, red + M - 1) - d.Lo(red, red + M - 1) >= c.BigRed * d.RthAtr)) continue;
                 double entry = refHigh + tk;
                 double stopD = c.Stop == "LOW" ? entry - (patLow - tk) : double.Parse(c.Stop.Substring(1), CultureInfo.InvariantCulture);

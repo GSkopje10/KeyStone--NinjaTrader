@@ -7,10 +7,11 @@ using System.Linq;
 
 public static class BhRotation
 {
-    public static void Run(List<RDay> days, string outDir)
+    public static void Run(List<RDay> days, string outDir) { Run(days, outDir, "bh_rotation.txt", null); }
+    public static void Run(List<RDay> days, string outDir, string file, BhCfg[] given)
     {
-        var w = new StreamWriter(Path.Combine(outDir, "bh_rotation.txt"));
-        var cfgs = new[]
+        var w = new StreamWriter(Path.Combine(outDir, file));
+        var cfgs = given ?? new[]
         {
             new BhCfg { Start = R.S(9, 30), LastEntry = R.S(15, 0), MaxTrades = 20, Stop = "LOW", TargetR = 2 },
             new BhCfg { Start = R.S(9, 30), LastEntry = R.S(15, 0), MaxTrades = 20, Stop = "LOW", TargetR = 1 },
