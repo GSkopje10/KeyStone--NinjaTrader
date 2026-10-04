@@ -22,6 +22,8 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   orders placed in NinjaTrader included), approved by the
   user: nothing is sent unless the user ARMS it and confirms; keep its limits (max contracts, day loss, day profit cap,
   runaway guard, reject → disarm) and its tests (`tests/AccountLinkTests.cs`). No other code path may place orders.
+  Exceptions the user asked for, active on a linked account even unarmed: ONE CANCELS OTHER (cancels only) and LOCK FOR
+  TODAY with flatten (confirmed when locking). The COPIER sends orders to follower accounts only after its own ARM COPY confirm.
   Research / lab / backtests stay historical; no Apex/Nexus coupling.
 - Do not change BH detection, BH outcome resolution, or the MNQ loader without explicit scope.
   MGC loader changes stay MGC-only. Asian work stays inside the Asian code paths.

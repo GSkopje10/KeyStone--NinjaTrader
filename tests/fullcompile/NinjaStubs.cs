@@ -40,7 +40,7 @@ namespace NinjaTrader.Cbi
         public int Quantity { get; set; } public int Filled { get; set; } public double AverageFillPrice { get; set; } public double LimitPrice { get; set; } public double StopPrice { get; set; }
         public double LimitPriceChanged { get; set; } public double StopPriceChanged { get; set; } public int QuantityChanged { get; set; } public string Oco { get; set; } public string Name { get; set; } public string OrderId { get; set; }
     }
-    public class Execution { public string ExecutionId { get; set; } public Instrument Instrument { get; set; } public double Price { get; set; } public int Quantity { get; set; } public MarketPosition MarketPosition { get; set; } public DateTime Time { get; set; } public Order Order { get; set; } }
+    public class Execution { public double Commission { get; set; } public string ExecutionId { get; set; } public Instrument Instrument { get; set; } public double Price { get; set; } public int Quantity { get; set; } public MarketPosition MarketPosition { get; set; } public DateTime Time { get; set; } public Order Order { get; set; } }
     public class OrderEventArgs : EventArgs { public Order Order { get; set; } public OrderState OrderState { get; set; } public string Comment { get; set; } }
     public class Instrument
     {

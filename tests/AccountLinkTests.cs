@@ -176,6 +176,53 @@ public static class AccountLinkTests
             Check(KeystoneDayLocks.NextOpen(new DateTime(2026, 10, 9, 12, 0, 0)) == new DateTime(2026, 10, 11, 18, 0, 0), "Friday lock → Sunday 18:00");
             Check(KeystoneDayLocks.Parse(dl.Serialize()).IsLocked("MFFU1", new DateTime(2026, 10, 6, 12, 0, 0)), "locks save and load");
         }
+        // 9d. one cancels the other for orders placed in NinjaTrader too; fees from the reported commissions
+        {
+            var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ"); var t = Trader();
+            b.Exec(1, 20000, "Buy"); var st = b.External("STOP", -1, 19990); var tg = b.External("LIMIT", -1, 20020); l.Tick(t, t0);
+            b.Trigger(st); l.Tick(t, t0.AddSeconds(1));
+            Check(tg.Done && b.Sent.Contains("CANCEL LIMIT"), "NinjaTrader stop + target without OCO: the stop fills → the target is cancelled", string.Join(" | ", b.Sent));
+            b.Sent.Clear(); var e1 = b.External("STOP", 1, 20050); var e2 = b.External("STOP", -1, 19950); l.Tick(t, t0.AddSeconds(2));
+            b.Trigger(e1); l.Tick(t, t0.AddSeconds(3));
+            Check(e2.Done && b.Sent.Contains("CANCEL STOP"), "buy stop + sell stop: one fills → the other is cancelled", string.Join(" | ", b.Sent));
+            var tb = new KeystoneTradeBuilder("MNQ");
+            var f = tb.Add(new[] { new KeystoneExec { Id = "a", Time = t0, SignedQty = 2, Price = 100, Commission = 1.24 }, new KeystoneExec { Id = "b", Time = t0.AddMinutes(1), SignedQty = -2, Price = 110, Commission = 1.24 } });
+            Check(f.Count == 1 && Math.Abs(f[0].Net - (10 * 2 * 2 - 2.48)) < 1e-9, "fees: the real commissions ($2.48) come off the trade", f.Count > 0 ? f[0].Net.ToString() : "none");
+        }
+        // 9e. copier: leader 2 → follower ×0.5 = 1, stop follows, leader flat → follower flat; own stop hit → sits the trade out; pause
+        {
+            var lb = new FakeBroker(); var leader = Trader();
+            var fb = new FakeBroker(); var f = new KeystoneCopyFollower { Account = "F1", Multiplier = 0.5, MaxQty = 3, Link = new KeystoneAccountLink(fb, "MNQ"), Mirror = Trader() }; f.Link.Arm(t0);
+            leader.Adopt(2, 20000, t0); leader.StopPts = 10; leader.TargetPts = 20;
+            KeystoneCopier.Tick(leader, f, t0); KeystoneCopier.Tick(leader, f, t0.AddSeconds(0.25));
+            Check(fb.Sent.SequenceEqual(new[] { "MARKET 1" }), "leader long 2 → follower ×0.5 buys 1", string.Join(" | ", fb.Sent));
+            fb.FillMarket(20001); fb.Sent.Clear(); KeystoneCopier.Tick(leader, f, t0.AddSeconds(1));
+            Check(fb.Sent.SequenceEqual(new[] { "STOP -1 @ 19991 oco", "LIMIT -1 @ 20021 oco" }), "follower gets the leader's stop / target distances from its own fill", string.Join(" | ", fb.Sent));
+            fb.Sent.Clear(); leader.StopPts = -2; KeystoneCopier.Tick(leader, f, t0.AddSeconds(2));
+            Check(fb.Sent.SequenceEqual(new[] { "CHANGE STOP @ 20003" }), "leader moves its stop into profit → follower's stop moves", string.Join(" | ", fb.Sent));
+            fb.Sent.Clear(); leader.Adopt(0, 0, t0); KeystoneCopier.Tick(leader, f, t0.AddSeconds(3)); KeystoneCopier.Tick(leader, f, t0.AddSeconds(3.25));
+            Check(fb.Sent.Contains("FLATTEN") && fb.Q == 0, "leader flat → follower flat", string.Join(" | ", fb.Sent));
+            leader.Time = t0.AddMinutes(10); leader.Adopt(-1, 20050, t0); leader.StopPts = 10; leader.TargetPts = 0; fb.Sent.Clear();
+            KeystoneCopier.Tick(leader, f, t0.AddMinutes(10)); KeystoneCopier.Tick(leader, f, t0.AddMinutes(10).AddSeconds(0.25)); fb.FillMarket(20050); KeystoneCopier.Tick(leader, f, t0.AddMinutes(10).AddSeconds(1));
+            fb.Trigger(fb.All.First(o => o.Kind == "STOP" && !o.Done)); fb.Sent.Clear();
+            for (int i = 2; i < 6; i++) KeystoneCopier.Tick(leader, f, t0.AddMinutes(10).AddSeconds(i));
+            Check(fb.Q == 0 && !fb.Sent.Any(x => x.StartsWith("MARKET")) && f.Status.StartsWith("SAT OUT"), "follower's own stop hit while the leader is still in → sits the trade out", f.Status + " " + string.Join(" | ", fb.Sent));
+            leader.Adopt(0, 0, t0); KeystoneCopier.Tick(leader, f, t0.AddMinutes(11)); f.Paused = true; leader.Time = t0.AddMinutes(20); leader.Adopt(1, 20100, t0); fb.Sent.Clear();
+            KeystoneCopier.Tick(leader, f, t0.AddMinutes(20)); KeystoneCopier.Tick(leader, f, t0.AddMinutes(20).AddSeconds(1));
+            Check(fb.Sent.Count == 0 && f.Status == "PAUSED", "paused follower copies nothing", f.Status);
+            Check(KeystoneCopier.Desired(3, 2, 4) == 4 && KeystoneCopier.Desired(-1, 0.5, 3) == -1, "multiplier × leader size, capped at max, at least 1");
+            var parsed = KeystoneCopier.Parse(KeystoneCopier.Serialize("LEAD", new[] { f })); Check(parsed.Item1 == "LEAD" && parsed.Item2.Count == 1 && parsed.Item2[0].Multiplier == 0.5 && parsed.Item2[0].Paused, "copier groups save and load");
+        }
+        // 9f. the pool: records saved / loaded, stats from daily closes + journal
+        {
+            var a = new KeystonePoolAccount { Account = "MFFU1", Nick = "MFF #1", Firm = "MYFUNDEDFUTURES", Status = "FUNDED", Started = new DateTime(2026, 10, 1), Cost = 112 };
+            a.Payouts.Add(Tuple.Create(new DateTime(2026, 10, 20), 500.0)); a.Payouts.Add(Tuple.Create(new DateTime(2026, 10, 21), 650.0));
+            var back = KeystonePool.Parse(KeystonePool.Serialize(new[] { a, new KeystonePoolAccount { Account = "TPT9", Status = "BLOWN" } }));
+            Check(back.Count == 2 && back[0].Nick == "MFF #1" && back[0].PaidOut == 1150 && back[0].Cost == 112 && back[1].Archived, "pool saves and loads (payouts, cost, blown = archive)");
+            var w = new KeystoneAccountWatch { Account = "MFFU1", StartBalance = 50000 }; w.Observe(new DateTime(2026, 10, 1), 50400); w.Observe(new DateTime(2026, 10, 2), 50300); w.Observe(new DateTime(2026, 10, 3), 50900);
+            var st = KeystonePool.Stats(w, new[] { new[] { "MFFU1", "MNQ", "BUY", "1", "", "", "", "", "10", "19.5" }, new[] { "MFFU1", "MNQ", "SELL", "1", "", "", "", "", "-5", "-11" } });
+            Check(st.Days == 3 && Math.Abs(st.Pnl - 900) < 1e-9 && st.Trades == 2 && st.Wins == 1, "pool stats: 3 days, +$900, 2 trades / 1 win", st.Days + " " + st.Pnl + " " + st.Trades);
+        }
         // 10. presets + account watch
         {
             var p = KeystoneFirmRules.Guess("MFFUEVREOD723518001");
