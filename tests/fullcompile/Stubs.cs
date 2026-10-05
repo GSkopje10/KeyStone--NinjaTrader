@@ -52,11 +52,15 @@ namespace System.Windows
     public delegate void RoutedEventHandler(object sender, RoutedEventArgs e);
     public class SizeChangedEventArgs : RoutedEventArgs { public Size NewSize { get; set; } public Size PreviousSize { get; set; } public bool WidthChanged { get; set; } public bool HeightChanged { get; set; } }
     public delegate void SizeChangedEventHandler(object sender, SizeChangedEventArgs e);
-    public class Setter { public Setter() { } public Setter(DependencyProperty p, object v) { } }
+    public class Setter { public Setter() { } public Setter(DependencyProperty p, object v) { } public Setter(DependencyProperty p, object v, string target) { } }
+    public class Trigger { public DependencyProperty Property { get; set; } public object Value { get; set; } public List<Setter> Setters = new List<Setter>(); }
+    public class TemplateBindingExtension { public TemplateBindingExtension(DependencyProperty p) { } }
+    public class FrameworkElementFactory { public FrameworkElementFactory(Type t) { } public FrameworkElementFactory(Type t, string name) { } public void SetValue(DependencyProperty p, object v) { } public void AppendChild(FrameworkElementFactory c) { } }
+    public class FrameworkTemplate { public FrameworkElementFactory VisualTree { get; set; } public List<Trigger> Triggers = new List<Trigger>(); public void Seal() { } }
     public class Style { public Style() { } public Style(Type t) { } public List<Setter> Setters = new List<Setter>(); }
     public class ResourceDictionary : Dictionary<object, object> { }
     public class UIElement : DependencyObject
-    {
+    { public static readonly DependencyProperty IsMouseOverProperty = new DependencyProperty(), IsEnabledProperty = new DependencyProperty(); 
         public void Measure(Size available) { } public Size DesiredSize { get { return new Size(0, 0); } }
         public void RaiseEvent(RoutedEventArgs e) { OnRaise(e); } protected virtual void OnRaise(RoutedEventArgs e) { }
         // Stand-in for WPF's single logical parent rule: adding an element that already has a parent throws, as WPF does.
@@ -100,7 +104,7 @@ namespace System.Windows
     public delegate void DragEventHandler(object sender, DragEventArgs e);
     public static class DragDrop { public static DragDropEffects DoDragDrop(DependencyObject source, object data, DragDropEffects allowed) { return DragDropEffects.None; } }
     public class FrameworkElement : UIElement
-    {
+    { public static readonly DependencyProperty HorizontalAlignmentProperty = new DependencyProperty(), VerticalAlignmentProperty = new DependencyProperty(); 
         public Thickness Margin { get; set; }
         public double Width { get; set; }
         public double Height { get; set; }
@@ -144,7 +148,7 @@ namespace System.Windows
         public System.Windows.Media.ImageSource Icon { get; set; }
         public event EventHandler Closed, Activated, Deactivated, ContentRendered;
         public bool Activate() { return true; }
-        public event System.ComponentModel.CancelEventHandler Closing; public event EventHandler StateChanged; public void DragMove() { }
+        public bool IsActive { get { return false; } } public event System.ComponentModel.CancelEventHandler Closing; public event EventHandler StateChanged; public void DragMove() { }
         public void Show() { }
         public bool? ShowDialog() { return true; }
         public void Close() { var c = new System.ComponentModel.CancelEventArgs(); if (Closing != null) Closing(this, c); if (c.Cancel) return; if (Closed != null) Closed(this, EventArgs.Empty); }
@@ -341,7 +345,7 @@ namespace System.Windows.Controls
     public class DockPanel : Panel { public bool LastChildFill { get; set; } public static void SetDock(UIElement e, Dock d) { } }
     public class Canvas : Panel { public static void SetLeft(UIElement e, double v) { } public static void SetTop(UIElement e, double v) { } public static void SetRight(UIElement e, double v) { } public static void SetBottom(UIElement e, double v) { } public static double GetLeft(UIElement e) { return 0; } public static double GetTop(UIElement e) { return 0; } }
     public class Control : FrameworkElement
-    {
+    { public static readonly DependencyProperty BackgroundProperty = new DependencyProperty(), PaddingProperty = new DependencyProperty(), BorderBrushProperty = new DependencyProperty(); public ControlTemplate Template { get; set; } 
         public Brush Background { get; set; } public Brush Foreground { get; set; } public Brush BorderBrush { get; set; }
         public Thickness BorderThickness { get; set; } public Thickness Padding { get; set; }
         public FontFamily FontFamily { get; set; } public double FontSize { get; set; } public FontWeight FontWeight { get; set; } public FontStyle FontStyle { get; set; }
@@ -350,6 +354,8 @@ namespace System.Windows.Controls
         public event MouseButtonEventHandlerCompat MouseDoubleClick;
     }
     public delegate void MouseButtonEventHandlerCompat(object sender, System.Windows.Input.MouseButtonEventArgs e);
+    public class ControlTemplate : System.Windows.FrameworkTemplate { public ControlTemplate() { } public ControlTemplate(Type t) { } }
+    public class ContentPresenter : FrameworkElement { }
     public class ContentControl : Control { private object content; protected virtual void OnContentChanged(object oldContent, object newContent) { } public object Content { get { return content; } set { if (ReferenceEquals(content, value)) return; var old = content; UIElement.Release(content); UIElement.Adopt(this, value); content = value; OnContentChanged(old, value); } } }
     public class UserControl : ContentControl { }
     public class Label : ContentControl { }
@@ -372,7 +378,7 @@ namespace System.Windows.Controls
         public static void SetVerticalScrollBarVisibility(DependencyObject d, ScrollBarVisibility v) { } public static void SetHorizontalScrollBarVisibility(DependencyObject d, ScrollBarVisibility v) { }
         public static void SetCanContentScroll(DependencyObject d, bool v) { }
     }
-    public class ButtonBase : ContentControl { public static readonly RoutedEvent ClickEvent = new RoutedEvent(); public event RoutedEventHandler Click; protected override void OnRaise(RoutedEventArgs e) { if (Click != null) Click(this, e); } }
+    public class ButtonBase : ContentControl { public static readonly DependencyProperty IsPressedProperty = new DependencyProperty(); public static readonly RoutedEvent ClickEvent = new RoutedEvent(); public event RoutedEventHandler Click; protected override void OnRaise(RoutedEventArgs e) { if (Click != null) Click(this, e); } }
     public class Button : ButtonBase { public bool IsDefault { get; set; } public bool IsCancel { get; set; } }
     public class CheckBox : System.Windows.Controls.Primitives.ToggleButton { }
     public class RadioButton : System.Windows.Controls.Primitives.ToggleButton { public string GroupName { get; set; } }
@@ -421,7 +427,7 @@ namespace System.Windows.Controls
     public class Separator : Control { }
     public class ContextMenu : ItemsControl { public bool IsOpen { get; set; } public UIElement PlacementTarget { get; set; } }
     public class Border : FrameworkElement
-    {
+    { public static readonly DependencyProperty CornerRadiusProperty = new DependencyProperty(), BackgroundProperty = new DependencyProperty(), BorderBrushProperty = new DependencyProperty(), BorderThicknessProperty = new DependencyProperty(); 
         public Brush Background { get; set; } public Brush BorderBrush { get; set; } public Thickness BorderThickness { get; set; }
         public CornerRadius CornerRadius { get; set; } public Thickness Padding { get; set; }
         private UIElement child; public UIElement Child { get { return child; } set { if (ReferenceEquals(child, value)) return; UIElement.Release(child); UIElement.Adopt(this, value); child = value; } }
