@@ -32,6 +32,9 @@ public static class AiCoachTests
         Check(!junk.Ok && junk.Error.StartsWith("unreadable"), "answer: not JSON → unreadable reply", junk.Error);
         var cut = KeystoneAiCoach.Answer("{\"type\":\"message\",\"content\":[],\"stop_reason\":\"max_tokens\"}");
         Check(!cut.Ok && cut.Error.Contains("cut off"), "answer: max_tokens with no text → cut off", cut.Error);
+        // MY CLAUDE PLAN: one plain-text prompt with the instructions, the earlier answers, the chart state and the question
+        string cli = KeystoneAiCoach.CliPrompt("MNQ last 31150.25", "manage my trade", hist);
+        Check(cli.StartsWith("You are the trading coach") && cli.Contains("do not use any tools") && cli.Contains("YOUR EARLIER ANSWER: first a") && cli.Contains("CHART STATE") && cli.EndsWith("QUESTION: manage my trade"), "plan prompt: instructions, history, chart state, question last", cli.Substring(Math.Max(0, cli.Length - 120)));
         Console.WriteLine(failures == 0 ? "ALL AI COACH TESTS PASSED" : failures + " AI COACH TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
