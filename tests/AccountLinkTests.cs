@@ -53,6 +53,20 @@ public static class AccountLinkTests
     public static int Main()
     {
         var t0 = new DateTime(2026, 10, 6, 9, 45, 0);
+        // 0. TAKE PROFIT step: a resting studio limit for part of the position; when it fills, the bracket is rebuilt for what is left
+        {
+            var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 4 }; var t = Trader();
+            l.Arm(t0); t.StopPts = 10; t.TargetPts = 40; t.Buy(2); l.Tick(t, t0); l.Tick(t, t0.AddSeconds(0.25)); b.FillMarket(20000); l.Tick(t, t0.AddSeconds(1));
+            b.Sent.Clear(); t.Place("LIMIT", -1, 1, 20010); l.Tick(t, t0.AddSeconds(2));
+            Check(b.Sent.SequenceEqual(new[] { "LIMIT -1 @ 20010" }), "TP step: a resting SELL LIMIT 1 @ 20010 next to the bracket", string.Join(" | ", b.Sent));
+            l.Tick(t, t0.AddSeconds(2.5));
+            Check(Math.Abs(t.TargetPts - 40) < 1e-9 && t.Orders.Count == 1 && t.Position == 2, "the bracket target stays the target, the TP step stays a working order", t.TargetPts + " / " + t.Orders.Count);
+            b.Sent.Clear(); b.Trigger(b.All.First(o => o.Kind == "LIMIT" && o.Qty == 1 && !o.Done)); l.Tick(t, t0.AddSeconds(3));
+            Check(b.Q == 1 && b.Sent.Contains("CANCEL STOP"), "TP step filled (1 left) → the stop sized for 2 is cancelled", string.Join(" | ", b.Sent));
+            for (int k = 0; k < 8; k++) l.Tick(t, t0.AddSeconds(5 + k));
+            Check(b.All.Any(o => !o.Done && o.Kind == "STOP" && o.Qty == 1) && b.All.Any(o => !o.Done && o.Kind == "LIMIT" && o.Qty == 1) && !b.All.Any(o => !o.Done && o.Qty == 2), "→ a new stop + target for the 1 left, nothing sized for 2", string.Join(" | ", b.Sent));
+            Check(t.Position == 1 && t.Orders.Count == 0, "the studio shows LONG 1, the TP step is gone (filled)", t.Position + " / " + t.Orders.Count);
+        }
         // 1. watching: a trade placed in NinjaTrader shows in the studio, with its stop; nothing is sent
         {
             var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ"); var t = Trader();
