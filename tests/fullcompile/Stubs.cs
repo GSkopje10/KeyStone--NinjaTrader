@@ -12,6 +12,7 @@ namespace System.Windows
     public enum VerticalAlignment { Top, Center, Bottom, Stretch }
     public enum HorizontalAlignment { Left, Center, Right, Stretch }
     public enum ResizeMode { NoResize, CanMinimize, CanResize, CanResizeWithGrip }
+    public enum WindowStyle { None, SingleBorderWindow, ThreeDBorderWindow, ToolWindow }
     public enum WindowStartupLocation { Manual, CenterScreen, CenterOwner }
     public enum WindowState { Normal, Minimized, Maximized }
     public enum SizeToContent { Manual, Width, Height, WidthAndHeight }
@@ -135,6 +136,7 @@ namespace System.Windows
     }
     public class Window : System.Windows.Controls.ContentControl
     {
+        public WindowStyle WindowStyle { get; set; }
         public string Title { get; set; }
         public ResizeMode ResizeMode { get; set; }
         public WindowStartupLocation WindowStartupLocation { get; set; }
