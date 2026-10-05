@@ -74,6 +74,9 @@ mono "$here/.build/kreport.exe" | tail -1
 rm -f "$here/.build/news.exe"
 "$root/tools/compile_engine.sh" "$here/.build/news.exe" "$here/NewsTests.cs"
 mono "$here/.build/news.exe" | tail -1
+rm -f "$here/.build/aicoach.exe"
+"$root/tools/compile_engine.sh" "$here/.build/aicoach.exe" "$here/AiCoachTests.cs"
+mono "$here/.build/aicoach.exe" | tail -1
 rm -f "$here/.build/coach.exe"
 "$root/tools/compile_engine.sh" "$here/.build/coach.exe" "$here/CoachTests.cs"
 mono "$here/.build/coach.exe" | tail -1
