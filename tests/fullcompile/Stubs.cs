@@ -144,7 +144,7 @@ namespace System.Windows
         public System.Windows.Media.ImageSource Icon { get; set; }
         public event EventHandler Closed, Activated, Deactivated, ContentRendered;
         public bool Activate() { return true; }
-        public event System.ComponentModel.CancelEventHandler Closing;
+        public event System.ComponentModel.CancelEventHandler Closing; public event EventHandler StateChanged; public void DragMove() { }
         public void Show() { }
         public bool? ShowDialog() { return true; }
         public void Close() { var c = new System.ComponentModel.CancelEventArgs(); if (Closing != null) Closing(this, c); if (c.Cancel) return; if (Closed != null) Closed(this, EventArgs.Empty); }
@@ -199,6 +199,10 @@ namespace System.Windows.Media
     public abstract class Geometry : Freezable { public static Geometry Parse(string s) { return null; } }
     public class PointCollection : List<System.Windows.Point> { }
     public class ImageSource { }
+    public class Pen : Freezable { public Pen() { } public Pen(Brush b, double t) { } }
+    public class Drawing : Freezable { }
+    public class GeometryDrawing : Drawing { public GeometryDrawing(Brush b, Pen p, Geometry g) { } }
+    public class DrawingImage : ImageSource { public DrawingImage(Drawing d) { } public void Freeze() { } }
     public static class CompositionTarget { public static event EventHandler Rendering; }
     public static class VisualTreeHelper { public static System.Windows.DependencyObject GetParent(System.Windows.DependencyObject d) { return null; } public static int GetChildrenCount(System.Windows.DependencyObject d) { return 0; } public static System.Windows.DependencyObject GetChild(System.Windows.DependencyObject d, int i) { return null; } }
 }
@@ -346,7 +350,7 @@ namespace System.Windows.Controls
         public event MouseButtonEventHandlerCompat MouseDoubleClick;
     }
     public delegate void MouseButtonEventHandlerCompat(object sender, System.Windows.Input.MouseButtonEventArgs e);
-    public class ContentControl : Control { private object content; public object Content { get { return content; } set { if (ReferenceEquals(content, value)) return; UIElement.Release(content); UIElement.Adopt(this, value); content = value; } } }
+    public class ContentControl : Control { private object content; protected virtual void OnContentChanged(object oldContent, object newContent) { } public object Content { get { return content; } set { if (ReferenceEquals(content, value)) return; var old = content; UIElement.Release(content); UIElement.Adopt(this, value); content = value; OnContentChanged(old, value); } } }
     public class UserControl : ContentControl { }
     public class Label : ContentControl { }
     public class ToolTip : ContentControl { }
@@ -470,4 +474,13 @@ namespace System.ComponentModel.DataAnnotations
 namespace Microsoft.Win32
 {
     public class OpenFileDialog { public string Filter { get; set; } public string Title { get; set; } public string FileName { get; set; } public bool Multiselect { get; set; } public string[] FileNames { get { return new string[0]; } } public bool? ShowDialog() { return false; } public bool? ShowDialog(System.Windows.Window owner) { return false; } }
+}
+
+namespace System.Windows.Shell
+{
+    public class WindowChrome
+    {
+        public double CaptionHeight { get; set; } public System.Windows.Thickness ResizeBorderThickness { get; set; } public System.Windows.Thickness GlassFrameThickness { get; set; } public System.Windows.CornerRadius CornerRadius { get; set; } public bool UseAeroCaptionButtons { get; set; }
+        public static void SetWindowChrome(System.Windows.Window w, WindowChrome c) { } public static void SetIsHitTestVisibleInChrome(System.Windows.UIElement e, bool v) { }
+    }
 }
