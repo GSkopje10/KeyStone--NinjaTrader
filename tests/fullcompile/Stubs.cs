@@ -241,7 +241,7 @@ namespace System.Windows.Input
     public enum Key { None, Left, Right, Up, Down, Space, Home, End, Escape, Enter, Return, PageUp, PageDown, Add, Subtract, OemPlus, OemMinus, B, C, S, Delete, Back, D0, D1, D2, D3, D4, D5, D6, D7, D8, D9 }
     [Flags] public enum ModifierKeys { None = 0, Alt = 1, Control = 2, Shift = 4, Windows = 8 }
     public class Cursor { }
-    public static class Cursors { public static Cursor Arrow, Hand, SizeAll, SizeWE, SizeNS, Cross, IBeam, Wait, ScrollAll, ScrollWE, ScrollNS, None; }
+    public static class Cursors { public static Cursor Arrow, Hand, SizeAll, SizeWE, SizeNS, Cross, IBeam, Wait, ScrollAll, ScrollWE, ScrollNS, None, No; }
     public class InputEventArgs : System.Windows.RoutedEventArgs { public int Timestamp { get; set; } }
     public class MouseEventArgs : InputEventArgs
     {
