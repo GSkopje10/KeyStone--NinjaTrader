@@ -241,6 +241,26 @@ public static class UiSmokeTest
                     var liveWin = (System.Windows.Window)F("replayTraderWindow");
                     if (liveWin == null || !liveWin.Title.Contains("LIVE TRADING")) throw new Exception("LIVE TRADING window did not open");
                     Console.WriteLine("      LIVE TRADING window opened: " + liveWin.Title);
+                    {
+                        // MNQ + MGC side by side and back (the charts move between the tabs and the dual view: one parent at a time), FOCUS on top of it
+                        var all = new List<object>(); Action<object> walk = null;
+                        walk = o =>
+                        {
+                            if (o == null || all.Contains(o)) return; all.Add(o);
+                            var pnl = o as System.Windows.Controls.Panel; if (pnl != null) foreach (var ch0 in pnl.Children.Cast<object>().ToList()) walk(ch0);
+                            var bd = o as System.Windows.Controls.Border; if (bd != null) walk(bd.Child);
+                            var cc = o as System.Windows.Controls.ContentControl; if (cc != null) walk(cc.Content);
+                            var ic = o as System.Windows.Controls.ItemsControl; if (ic != null) foreach (var it in ic.Items.Cast<object>().ToList()) walk(it);
+                        };
+                        walk(liveWin.Content);
+                        Func<string, System.Windows.Controls.Button> btn = t => all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.Content) == t);
+                        var dual = btn("◫ MNQ + MGC"); var focusB = btn("⛶ FOCUS"); if (dual == null || focusB == null) throw new Exception("MNQ + MGC / FOCUS button missing");
+                        Action<System.Windows.Controls.Button> click = b => b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                        click(dual); if (Convert.ToString(dual.Content) != "◫ ONE CHART") throw new Exception("MNQ + MGC did not switch on");
+                        click(focusB); click(focusB); click(dual);
+                        if (Convert.ToString(dual.Content) != "◫ MNQ + MGC") throw new Exception("MNQ + MGC did not switch back");
+                        Console.WriteLine("      MNQ + MGC side by side → one chart again, FOCUS in between: OK");
+                    }
                     liveWin.Close(); if (F("replayTraderWindow") != null) throw new Exception("LIVE TRADING window did not close");
                     // every window asks before the X closes it
                     foreach (var wn in new[] { "launcherWindow", "dataLibraryWindow", "liveDeskWindow" })

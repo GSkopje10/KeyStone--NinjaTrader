@@ -331,6 +331,8 @@ namespace System.Windows.Controls
         public static int GetRow(UIElement e) { return 0; } public static int GetColumn(UIElement e) { return 0; }
     }
     public class StackPanel : Panel { public Orientation Orientation { get; set; } }
+    public enum GridResizeDirection { Auto, Columns, Rows } public enum GridResizeBehavior { BasedOnAlignment, CurrentAndNext, PreviousAndCurrent, PreviousAndNext }
+    public class GridSplitter : Control { public GridResizeDirection ResizeDirection { get; set; } public GridResizeBehavior ResizeBehavior { get; set; } public bool ShowsPreview { get; set; } }
     public class WrapPanel : Panel { public Orientation Orientation { get; set; } public double ItemWidth { get; set; } public double ItemHeight { get; set; } }
     public class DockPanel : Panel { public bool LastChildFill { get; set; } public static void SetDock(UIElement e, Dock d) { } }
     public class Canvas : Panel { public static void SetLeft(UIElement e, double v) { } public static void SetTop(UIElement e, double v) { } public static void SetRight(UIElement e, double v) { } public static void SetBottom(UIElement e, double v) { } public static double GetLeft(UIElement e) { return 0; } public static double GetTop(UIElement e) { return 0; } }
