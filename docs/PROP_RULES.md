@@ -41,3 +41,21 @@ research tests the models as parameter sets, so a firm = one row of numbers.
 
 Prices are not on the help centre (pricing page blocked by Cloudflare): the research uses an editable
 evaluation price and reports results for a range of prices.
+
+## Daily close — when each firm closes open positions (checked 2026-10-05)
+
+All times New York (ET). Every firm opens again at 18:00 ET (Globex). No firm here allows overnight or weekend holds.
+On **holiday early closes** the firms below do NOT auto-close: be flat yourself before the early close or the account is breached.
+
+| Firm | Flat by (ET) | What happens to an open position | Source |
+|---|---|---|---|
+| MyFundedFutures (all plans) | **16:10** | Auto-closed at 16:10 on normal days. Holiday early close: not auto-closed → breach. Do not keep re-sending orders after 16:10 (a fill can disqualify the account). | [MFFU help: Permitted Times to Trade](https://help.myfundedfutures.com/en/articles/9558251-permitted-times-to-trade) |
+| Lucid (Pro / Flex / Daily / Direct) | **16:45** | Auto-flattened at 16:45, not a breach (you get whatever fill is there). | [tradetanto: Lucid rules](https://tradetanto.com/learn/lucid-trading-rules-explained-every-plan-rule-and-limit), [propvator: Lucid hours](https://propvator.com/blog/lucid-trading-trading-hours/) |
+| Take Profit Trader | **16:55** (day ends 17:00) | Auto-closed at 16:55. Holiday sessions: not auto-closed. A product that closes before 17:00 must be flat before its own close or the account is liquidated. | [TPT Rule 4: Approved Products, Approved Hours](https://takeprofittraderhelp.zendesk.com/hc/en-us/articles/15170347090461-Rule-4-Trade-Approved-Products-During-Approved-Hours) |
+| Topstep | **16:10** (15:10 CT) or the product's close if sooner | Must be flat (third-party summary — verify on Topstep before trading it). | [h2tfunding: Topstep close time](https://h2tfunding.com/topstep-trades-closed-by-what-time/) |
+| Apex Trader Funding | **16:59** | Your responsibility to be flat (third-party summary — verify). | [Apex: Futures Trading Times](https://apextraderfunding.com/help-center/getting-started/futures-trading-times/) |
+| Tradeify | **16:59** | Hard stop; exit by ~16:55 with a market order (third-party summary — verify). | [Tradeify: end of day guide](https://tradeify.co/post/end-of-day-trading-strategy-guide-futures-prop-firm-traders) |
+
+In the app: the firm presets carry `FlatBy` (MFFU 16:10, Lucid 16:45, TPT 16:55). LIVE TRADING shows
+"FLAT BY hh:mm NY • n min left" in the TODAY panel from 20 minutes before, plays a sound and shows the rule at
+5 minutes when a position is open. It is a warning only — nothing is closed by the app.
