@@ -240,7 +240,7 @@ public static class AccountLinkTests
         // 10. presets + account watch
         {
             var p = KeystoneFirmRules.Guess("MFFUEVREOD723518001");
-            Check(p != null && p.Dd == 2000 && p.Target == 3000 && p.ConsistencyPct == 40 && p.DayProfitCap == 900 && p.PayoutBuffer == 2100 && p.MaxMicros == 30, "MFFUEVREOD… → MFFU RAPID EOD 50K ($2,000 EOD, $3,000 target, 40% → $900 a day, 30 micros, first payout at +$2,100)");
+            Check(p != null && p.Dd == 2000 && p.Target == 3000 && p.ConsistencyPct == 30 && p.DayProfitCap == 900 && p.PayoutBuffer == 2100 && p.MaxMicros == 30, "MFFUEVREOD… → MFFU RAPID EOD 50K ($2,000 EOD, $3,000 target, 30% → $900 a day, 30 micros, first payout at +$2,100)");
             Check(KeystoneFirmRules.Guess("Sim101").Firm == "SIM", "Sim101 → practice preset");
             Check(!KeystoneFirmRules.Find("TAKE PROFIT TRADER 50K").Automation, "TAKE PROFIT TRADER preset: no automation");
             var w = new KeystoneAccountWatch { Account = "X" }; var d0 = new DateTime(2026, 10, 5);
