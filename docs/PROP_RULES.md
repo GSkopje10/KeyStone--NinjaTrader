@@ -59,3 +59,8 @@ On **holiday early closes** the firms below do NOT auto-close: be flat yourself 
 In the app: the firm presets carry `FlatBy` (MFFU 16:10, Lucid 16:45, TPT 16:55). LIVE TRADING shows
 "FLAT BY hh:mm NY • n min left" in the TODAY panel from 20 minutes before, plays a sound and shows the rule at
 5 minutes when a position is open. It is a warning only — nothing is closed by the app.
+
+## MyFundedFutures consistency (checked 2026-10-06, [MFFU help](https://help.myfundedfutures.com/en/articles/11994562-consistency-rule-at-my-fundedfutures))
+- Rapid EOD: **30%** • Rapid Intraday and Pro: 50% • Pro one-day pass: none • Builder: none in evaluation, 50% in sim funded.
+- Best single day ≤ 30% of the TOTAL evaluation profit (net, losing days included). 50K: $3,000 target → $900 best day passes at exactly $3,000.
+- Exceeding it is NOT a breach: you keep trading until best day ≤ 30% of the total (best day $1,250 → total must reach $4,167).
