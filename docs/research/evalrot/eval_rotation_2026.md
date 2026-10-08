@@ -67,4 +67,36 @@ ROTATE 50: 50 evaluations running, each setup goes to the next one; a passed / b
 | EVERY SETUP | ASIA 18:00–02:00 | 1017 | 24% | 21 | 76 / 106 (42%) | 59 / 97 (38%) | 21 / 29 / 0 | **21** • **19** |
 | EVERY SETUP | ALL 18:00–15:00 | 2364 | 24% | 24 | 122 / 237 (34%) | 129 / 225 (36%) | 24 / 26 / 0 | **17** • **18** |
 
+## MNQ+MGC • 188 sessions • every MNQ and MGC setup in one stream (ONE A DAY = the first of each instrument = up to 2 a day)
+
+### MNQ+MGC • 25K-style (pass +$1,500 • blow −$1,000 EOD)
+| setups | session | trades | win % | losing streak | ROTATE 50: passed / blown (pass %) | FOCUS 1 at a time: passed / blown (pass %) | FIXED 50 bought: passed / blown / open | passes per 50 evals ($5K) rotate • focus |
+|---|---|---|---|---|---|---|---|---|
+| ONE A DAY | NY 09:30–15:00 | 368 | 28% | 17 | 13 / 63 (17%) | 21 / 74 (22%) | 11 / 39 / 0 | **9** • **11** |
+| ONE A DAY | NY OPEN 09:30–11:30 | 368 | 28% | 17 | 13 / 63 (17%) | 21 / 74 (22%) | 11 / 39 / 0 | **9** • **11** |
+| ONE A DAY | LONDON 02:00–09:30 | 371 | 26% | 13 | 23 / 79 (23%) | 31 / 88 (26%) | 13 / 37 / 0 | **11** • **13** |
+| ONE A DAY | ASIA 18:00–02:00 | 369 | 25% | 12 | 21 / 74 (22%) | 22 / 87 (20%) | 10 / 40 / 0 | **11** • **10** |
+| ONE A DAY | ALL 18:00–15:00 | 369 | 25% | 12 | 21 / 74 (22%) | 22 / 87 (20%) | 10 / 40 / 0 | **11** • **10** |
+| EVERY SETUP | NY 09:30–15:00 | 1232 | 28% | 18 | 61 / 261 (19%) | 73 / 227 (24%) | 11 / 39 / 0 | **9** • **12** |
+|  | ↳ ROTATE 50 by month: Jan 5 passed 16 blown • Feb 6 passed 15 blown • Mar 6 passed 33 blown • Apr 7 passed 37 blown • May 8 passed 20 blown • Jun 5 passed 25 blown • Jul 5 passed 44 blown • Aug 8 passed 37 blown • Sep 10 passed 32 blown • Oct 1 passed 2 blown | | | | | | | |
+| EVERY SETUP | NY OPEN 09:30–11:30 | 659 | 28% | 14 | 31 / 125 (20%) | 37 / 129 (22%) | 12 / 38 / 0 | **10** • **11** |
+| EVERY SETUP | LONDON 02:00–09:30 | 2086 | 23% | 29 | 121 / 522 (19%) | 155 / 434 (26%) | 8 / 42 / 0 | **9** • **13** |
+| EVERY SETUP | ASIA 18:00–02:00 | 1984 | 25% | 27 | 143 / 476 (23%) | 161 / 396 (29%) | 14 / 36 / 0 | **12** • **14** |
+| EVERY SETUP | ALL 18:00–15:00 | 4814 | 25% | 27 | 301 / 1147 (21%) | 347 / 936 (27%) | 13 / 37 / 0 | **10** • **14** |
+
+### MNQ+MGC • 50K-style (pass +$1,500 • blow −$2,000 EOD)
+| setups | session | trades | win % | losing streak | ROTATE 50: passed / blown (pass %) | FOCUS 1 at a time: passed / blown (pass %) | FIXED 50 bought: passed / blown / open | passes per 50 evals ($5K) rotate • focus |
+|---|---|---|---|---|---|---|---|---|
+| ONE A DAY | NY 09:30–15:00 | 368 | 28% | 17 | 14 / 19 (42%) | 18 / 35 (34%) | 19 / 31 / 0 | **21** • **17** |
+| ONE A DAY | NY OPEN 09:30–11:30 | 368 | 28% | 17 | 14 / 19 (42%) | 18 / 35 (34%) | 19 / 31 / 0 | **21** • **17** |
+| ONE A DAY | LONDON 02:00–09:30 | 371 | 26% | 13 | 24 / 27 (47%) | 26 / 41 (39%) | 22 / 28 / 0 | **24** • **19** |
+| ONE A DAY | ASIA 18:00–02:00 | 369 | 25% | 12 | 20 / 29 (41%) | 24 / 38 (39%) | 19 / 31 / 0 | **20** • **19** |
+| ONE A DAY | ALL 18:00–15:00 | 369 | 25% | 12 | 20 / 29 (41%) | 24 / 38 (39%) | 19 / 31 / 0 | **20** • **19** |
+| EVERY SETUP | NY 09:30–15:00 | 1232 | 28% | 18 | 57 / 98 (37%) | 66 / 105 (39%) | 16 / 34 / 0 | **18** • **19** |
+|  | ↳ ROTATE 50 by month: Jan 5 passed 0 blown • Feb 5 passed 1 blown • Mar 2 passed 16 blown • Apr 9 passed 13 blown • May 5 passed 10 blown • Jun 6 passed 10 blown • Jul 6 passed 18 blown • Aug 9 passed 11 blown • Sep 9 passed 19 blown • Oct 1 passed 0 blown | | | | | | | |
+| EVERY SETUP | NY OPEN 09:30–11:30 | 659 | 28% | 14 | 30 / 47 (39%) | 36 / 56 (39%) | 22 / 28 / 0 | **19** • **20** |
+| EVERY SETUP | LONDON 02:00–09:30 | 2086 | 23% | 29 | 132 / 228 (37%) | 143 / 206 (41%) | 17 / 33 / 0 | **18** • **20** |
+| EVERY SETUP | ASIA 18:00–02:00 | 1984 | 25% | 27 | 130 / 210 (38%) | 150 / 185 (45%) | 23 / 27 / 0 | **19** • **22** |
+| EVERY SETUP | ALL 18:00–15:00 | 4814 | 25% | 27 | 285 / 520 (35%) | 311 / 437 (42%) | 20 / 30 / 0 | **18** • **21** |
+
 Reading it: a pass needs ONE 3R win (+$1,500) before the account's losses reach its drawdown (25K-style: two losses; 50K-style: four). Pass % = passed ÷ (passed + blown). Each pass is an evaluation passed — not money yet (funded rules, activation fees and payouts come after).

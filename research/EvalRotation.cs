@@ -30,10 +30,12 @@ public static class EvalRotation
         sb.AppendLine("ROTATE 50: 50 evaluations running, each setup goes to the next one; a passed / blown one is replaced at once. FOCUS: one evaluation trades every setup it gets until it passes or blows, then the next one starts. FIXED 50: exactly 50 bought, no replacement (open = never finished by now). Pass % = passed ÷ (passed + blown); passes per 50 evals = pass % × 50 (a $5K budget at $100 an eval).");
         sb.AppendLine();
         var csv = new StringBuilder("symbol,model,mode,session,trades,win_pct,evals_bought,passed,blown,open_at_end,pass_rate,cost,longest_loss_streak,longest_win_streak,fixed50_passed,fixed50_blown,fixed50_open,focus_passed,focus_blown,focus_pass_pct\n");
-        foreach (var sym in bySym.Keys)
+        foreach (var sym in bySym.Keys.Concat(new[] { "MNQ+MGC" }).ToList())
         {
-            var days = bySym[sym].Where(d => d.Day >= from && d.Day <= to).ToList(); var sp = Spec.Of(sym);
-            sb.AppendLine("## " + sym + " • " + days.Count + " sessions");
+            // MNQ+MGC = both instruments' setups in one stream (by time), all going to the same 50 evaluations
+            var syms = sym == "MNQ+MGC" ? bySym.Keys.ToList() : new List<string> { sym };
+            var days = bySym[syms[0]].Where(d => d.Day >= from && d.Day <= to).ToList();
+            sb.AppendLine("## " + sym + " • " + days.Count + " sessions" + (syms.Count > 1 ? " • every MNQ and MGC setup in one stream (ONE A DAY = the first of each instrument = up to 2 a day)" : ""));
             foreach (var m in models)
             {
                 sb.AppendLine();
@@ -44,12 +46,13 @@ public static class EvalRotation
                 foreach (var ses in sessions)
                 {
                     var cfg = new BhCfg { Start = ses.Item2, LastEntry = ses.Item3, MaxTrades = oneADay ? 1 : 20, Stop = "LOW", TargetR = 3 };
-                    var trades = new List<RTrade>(); foreach (var d in days) trades.AddRange(Bh.Day(d, cfg));
+                    var trades = new List<RTrade>(); foreach (var s0 in syms) foreach (var d in bySym[s0].Where(d => d.Day >= from && d.Day <= to)) trades.AddRange(Bh.Day(d, cfg));
+                    trades = trades.OrderBy(t => t.Day).ThenBy(t => t.InSlot).ToList();
                     // $ result of each trade at $500 risk
                     var res = new List<Tuple<RTrade, double, double>>();   // trade, pnl, worst
                     foreach (var t in trades)
                     {
-                        double stopD = Math.Abs(t.Entry - t.Stop); if (stopD <= 0) continue;
+                        var sp = Spec.Of(t.Sym); double stopD = Math.Abs(t.Entry - t.Stop); if (stopD <= 0) continue;
                         int q = (int)Math.Floor(500.0 / (stopD * sp.PointValue)); q = Math.Min(q, m.MaxMicros); if (q < 1) continue;
                         double pnl = q * ((t.Exit - t.Entry) * t.Dir * sp.PointValue - sp.CommissionRt), worst = -q * (t.MaePts * sp.PointValue + sp.CommissionRt);
                         res.Add(Tuple.Create(t, pnl, Math.Min(pnl, worst)));
