@@ -1,0 +1,3 @@
+signals ready: 432 family × symbol × stop sets, 7,842,804 trades (48 s)
+stage 1: 34,152 setups scored on 2021–2024 (49 s)
+stage 2: 164,220 prop lifecycles on 2021–2024 (88 s)
