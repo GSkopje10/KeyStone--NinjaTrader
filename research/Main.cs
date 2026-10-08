@@ -23,6 +23,7 @@ public static class ResearchMain
             }
             return 0;
         }
+        if (args.Length > 2 && args[2] == "evalrot") { var bs = new Dictionary<string, List<RDay>> { { "MNQ", R.Load(data, "MNQ") }, { "MGC", R.Load(data, "MGC") } }; EvalRotation.Run(bs, new DateTime(2026, 1, 1), new DateTime(2026, 12, 31), outDir); return 0; }
         if (args.Length > 2 && args[2] == "tenrstudy") { string sy = args.Length > 3 ? args[3] : "MGC"; TenRStudy.Run(R.Load(data, sy, true), sy, 1.0, 10.0, 10, 1, outDir); return 0; }
         if (args.Length > 2 && args[2] == "tenr") { string sy = args.Length > 3 ? args[3] : "MGC"; double sp = args.Length > 4 ? double.Parse(args[4], CultureInfo.InvariantCulture) : 1.0, tp = args.Length > 5 ? double.Parse(args[5], CultureInfo.InvariantCulture) : 10.0; TenR.Run(R.Load(data, sy), sy, sp, tp, 10, outDir); return 0; }
         if (args.Length > 3 && args[2] == "shots") { Directory.CreateDirectory(outDir); Shots.Run(R.Load(data, "MNQ"), args[3], outDir); return 0; }
