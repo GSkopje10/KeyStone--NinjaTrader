@@ -28,7 +28,9 @@ public static partial class R
     public static string T(int slot) { int m = (slot + 18 * 60) % 1440; return (m / 60).ToString("00") + ":" + (m % 60).ToString("00"); }
     public static readonly DateTime OosStart = new DateTime(2024, 1, 1);
 
-    public static List<RDay> Load(string folder, string sym)
+    public static List<RDay> Load(string folder, string sym) { return Load(folder, sym, false); }
+    // every = every session with at least an hour of bars (not only full days; no ATR needed)
+    public static List<RDay> Load(string folder, string sym, bool every)
     {
         string cache = Path.Combine(folder, sym + ".grid");
         var days = new List<RDay>();
@@ -69,6 +71,7 @@ public static partial class R
                 foreach (var x in days) { bw.Write(x.Day.Ticks); bw.Write(x.Bars); for (int k = 0; k < Slots; k++) { bw.Write(x.O[k]); bw.Write(x.H[k]); bw.Write(x.L[k]); bw.Write(x.C[k]); bw.Write(x.V[k]); } }
             }
         }
+        if (every) { var ev = days.Where(x => x.Bars >= 60).OrderBy(x => x.Day).ToList(); for (int i = 0; i < ev.Count; i++) ev[i].Prev = i > 0 ? ev[i - 1] : null; return ev; }
         // full days only: 800+ minutes and the 09:30–16:00 cash session present
         int s930 = S(9, 30), s1559 = S(15, 59);
         foreach (var x in days) x.Full = x.Bars >= 800 && x.Has(s930) && x.Has(s1559 - 1);
