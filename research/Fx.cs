@@ -71,6 +71,7 @@ public static class Fx
     {
         double z, t, target; int maxLv; double P; int d0, nextDir, pending; double cycle0;
         readonly List<double[]> pos = new List<double[]>();   // dir, lots, entry
+        const double MaxLots = 1000;   // base units (gold: 1000 × 0.01 = 10 lots)
         public Zone(double z, double t, int maxLv) { this.z = z; this.t = t; this.maxLv = maxLv; target = t; }
         public override void Start(double p, int hint) { Cycle(p, hint < 0 ? -1 : 1); }
         void Cycle(double p, int d) { pos.Clear(); P = p; d0 = d; cycle0 = Real; Add(d, 1, p); nextDir = -d; }
@@ -91,8 +92,10 @@ public static class Fx
             double X = nextDir == d0 ? ExitA : ExitB, net = Real - cycle0;
             foreach (var q in pos) net += q[0] * q[1] * (X - q[2]);
             double per = nextDir * (X - p) - Cost;
-            if (per <= 0) { CloseAll(p); Cycle(p, nextDir); return; }
-            Add(nextDir, Math.Max(1, Math.Ceiling((target - net) / per - 1e-9)), p); nextDir = -nextDir;
+            if (per < t / 4) { CloseAll(p); Cycle(p, nextDir); return; }   // price jumped past the zone: the recovery no longer fits
+            double lots = Math.Max(1, Math.Ceiling((target - net) / per - 1e-9));
+            if (lots > MaxLots) { CloseAll(p); Cycle(p, nextDir); return; }   // a broker / margin limit: no position over 10 lots
+            Add(nextDir, lots, p); nextDir = -nextDir;
         }
         public override void CloseAll(double p) { base.CloseAll(p); pos.Clear(); }
     }
@@ -130,7 +133,11 @@ public static class Fx
         public void End(double v, int tr) { Mark(v, tr); Final = v; Min = mn; Trades = tr; }
     }
 
-    static void Walk(St s, double a, double b, bool gap, Rec rec)
+    // Moves the price from a to b. jump = false: the price slides through every level on the way (a straight line, the way
+    // a tester draws a minute without ticks), so an order filled at a level keeps riding the rest of the line.
+    // jump = true: a and b are consecutive TRADES; every order triggered on the way fills at b, the next real price
+    // (stops and re-entries slip, targets may fill better) — the way real ticks and the random sub-steps work.
+    static void Walk(St s, double a, double b, bool jump, Rec rec)
     {
         if (a == b) return; bool up = b > a; double cur = a;
         for (int guard = 0; guard < 100000; guard++)
@@ -141,11 +148,11 @@ public static class Fx
             {
                 double tgt = s.BasketBase + s.Basket, pStar = (tgt - s.Real + s.SumLE) / s.NetLots;
                 bool inRange = up ? pStar > cur + 1e-9 && pStar <= stop + 1e-9 : pStar < cur - 1e-9 && pStar >= stop - 1e-9;
-                if (s.Eq(cur) >= tgt - 1e-9) { pStar = cur; inRange = true; }
-                if (inRange) { double fp = gap ? b : pStar; s.CloseAll(fp); rec.Mark(s.Eq(fp), s.Trades); s.Start(fp, up ? 1 : -1); rec.Mark(s.Eq(fp), s.Trades); cur = fp; if (gap) break; continue; }
+                if (s.Eq(jump ? b : cur) >= tgt - 1e-9 && (jump || s.Eq(cur) >= tgt - 1e-9)) { pStar = cur; inRange = true; }
+                if (inRange) { double fp = jump ? b : pStar; s.CloseAll(fp); rec.Mark(s.Eq(fp), s.Trades); s.Start(fp, up ? 1 : -1); rec.Mark(s.Eq(fp), s.Trades); if (jump) break; cur = fp; continue; }
             }
             if (!hasLv) break;
-            double f = gap ? b : lv; s.Fire(f, up); rec.Mark(s.Eq(f), s.Trades); cur = f; if (gap) break;
+            double f = jump ? b : lv; s.Fire(f, up); rec.Mark(s.Eq(f), s.Trades); cur = lv;
         }
         rec.Mark(s.Eq(b), s.Trades);
     }
@@ -157,10 +164,13 @@ public static class Fx
     static void Ov(int i, out double T, out double L) { if (i == 0) { T = 0; L = 0; return; } i--; T = OvT[1 + i / OvL.Length]; L = T * OvL[i % OvL.Length]; }
 
     // ---------------------------------------------------------------- the price path inside a minute
-    // OHLC = MetaTrader's "1 minute OHLC": three straight lines O → first extreme → second extreme → C (bull bar low first).
-    //   No wiggles at all, so any rule that follows small moves looks like a money machine (see SelfTest).
-    // BRIDGE = the same four prices joined by random Brownian bridges (no edge inside the minute), volatility from the
-    //   bar's own range (E[range] of Brownian motion = 1.6 σ), resolution a quarter of the rule's smallest distance.
+    // 0 REAL = only real traded prices: each minute's open, then its close; every order triggered on the way fills at that
+    //   real price (stops slip, targets can fill better). Nothing inside the minute is invented, so a rule can only make
+    //   money from what real prices did — the self-test shows this stays at ≈ $0 on a price with no edge.
+    // 1 STRAIGHT = a minute drawn as three straight lines O → first extreme → second extreme → C (bull bar low first), orders
+    //   filled exactly at their levels while the price keeps sliding: what a backtest without real ticks shows. It hands
+    //   trend-following rules money that does not exist (self-test), so it is only the comparison column.
+    // 2 TRUE = the self-test's second-by-second price.
     sealed class Rng
     {
         ulong x; bool has; double spare;
@@ -168,41 +178,24 @@ public static class Fx
         public double U() { x ^= x >> 12; x ^= x << 25; x ^= x >> 27; return ((x * 0x2545F4914F6CDD1DUL) >> 11) * (1.0 / 9007199254740992.0); }
         public double N() { if (has) { has = false; return spare; } double u, v, s; do { u = 2 * U() - 1; v = 2 * U() - 1; s = u * u + v * v; } while (s >= 1 || s == 0); double m = Math.Sqrt(-2 * Math.Log(s) / s); spare = v * m; has = true; return u * m; }
     }
-    const int BridgeCap = 400;   // most sub-steps in one minute
-    static void Bar(St s, Rec rec, double o, double h, double l, double c, int model, double res, Rng rng, double[] w, float[] truth, int k0)
+    static void Bar(St s, Rec rec, double o, double h, double l, double c, int model, float[] truth, int k0)
     {
-        if (model == 2) { double pv = o; for (int i = 1; i <= 60; i++) { double p = truth[k0 + i]; Walk(s, pv, p, false, rec); pv = p; } return; }
+        if (model == 2) { double pv = o; for (int i = 1; i <= 60; i++) { double p = truth[k0 + i]; Walk(s, pv, p, true, rec); pv = p; } return; }
+        if (model == 0) { Walk(s, o, c, true, rec); return; }
         bool lowFirst = c >= o; double x1 = lowFirst ? l : h, x2 = lowFirst ? h : l;
-        if (model == 1 || h - l <= 1e-9) { Walk(s, o, x1, false, rec); Walk(s, x1, x2, false, rec); Walk(s, x2, c, false, rec); return; }
-        double sigma = (h - l) / 1.6, pts = Math.Min(BridgeCap, Math.Ceiling(Math.Pow(4 * sigma / res, 2)));
-        double l1 = Math.Abs(x1 - o), l2 = Math.Abs(x2 - x1), l3 = Math.Abs(c - x2), tot = l1 + l2 + l3 + 1e-12;
-        double[] a = { o, x1, x2 }, b = { x1, x2, c }, len = { l1, l2, l3 };
-        for (int leg = 0; leg < 3; leg++)
-        {
-            double tau = (len[leg] + 1e-6) / (tot + 3e-6); int n = Math.Max(1, (int)Math.Ceiling(tau * pts)); if (n > w.Length - 1) n = w.Length - 1;
-            if (n == 1 || len[leg] < 1e-9 && tau * pts < 1) { Walk(s, a[leg], b[leg], false, rec); continue; }
-            double sd = sigma * Math.Sqrt(tau / n); w[0] = 0; for (int k = 1; k <= n; k++) w[k] = w[k - 1] + sd * rng.N();
-            double prev = a[leg];
-            for (int k = 1; k <= n; k++)
-            {
-                double f = (double)k / n, p = k == n ? b[leg] : a[leg] + (b[leg] - a[leg]) * f + w[k] - f * w[n];
-                if (p > h) p = h; if (p < l) p = l;
-                Walk(s, prev, p, false, rec); prev = p;
-            }
-        }
+        Walk(s, o, x1, false, rec); Walk(s, x1, x2, false, rec); Walk(s, x2, c, false, rec);
     }
 
-    // → [overlay][day]; maxLot out. model 0 = BRIDGE, 1 = OHLC
+    // → [overlay][day]; maxLot out. model 0 = REAL, 1 = STRAIGHT, 2 = TRUE (self-test)
     static DayOut[][] RunCfg(Inst inst, Ses ses, Cfg cfg, double cost, int model, int nOv, out double maxLot)
     {
         var res = new DayOut[nOv][]; for (int o = 0; o < nOv; o++) res[o] = new DayOut[inst.Days.Count];
-        var rec = new Rec(); maxLot = 0; var s = cfg.Make(cost); s.Cost = cost; var w = new double[BridgeCap + 2];
+        var rec = new Rec(); maxLot = 0; var s = cfg.Make(cost); s.Cost = cost;
         for (int di = 0; di < inst.Days.Count; di++)
         {
             var d = inst.Days[di]; int first = -1, cnt = 0;
             for (int k = ses.K0; k <= ses.K1; k++) if (d.Has(k)) { if (first < 0) first = k; cnt++; }
             if (cnt < 30) continue;
-            var rng = new Rng((ulong)(d.Day.Ticks / TimeSpan.TicksPerDay) * 31UL + (ulong)ses.K0);   // same micro-path for every rule on that day
             s.Real = 0; s.NetLots = 0; s.SumLE = 0; s.Trades = 0; s.Basket = double.NaN; rec.Reset();
             int hint = first > 0 && d.Has(first - 1) ? Math.Sign(d.C[first - 1] - d.O[first - 1]) : 1;
             s.Start(d.O[first], hint == 0 ? 1 : hint); rec.Mark(s.Eq(d.O[first]), s.Trades);
@@ -211,8 +204,8 @@ public static class Fx
             {
                 if (!d.Has(k)) continue;
                 double o = d.O[k], h = d.H[k], l = d.L[k], c = d.C[k];
-                Walk(s, prevC, o, k != prevK + 1, rec);
-                Bar(s, rec, o, h, l, c, model, cfg.Res, rng, w, model == 2 ? inst.Truth[di] : null, k * 61);
+                Walk(s, prevC, o, model != 1 || k != prevK + 1, rec);
+                Bar(s, rec, o, h, l, c, model, model == 2 ? inst.Truth[di] : null, k * 61);
                 s.BarClose(o, c); rec.Mark(s.Eq(c), s.Trades);
                 prevC = c; prevK = k;
             }
@@ -269,7 +262,8 @@ public static class Fx
     // 250 days of a random walk sampled every second; the 1-minute bars are built from it. Every rule runs three ways:
     // on the true second-by-second path, on MetaTrader's 1-minute OHLC path and on the bridge path. With no edge the true
     // result is about 0 (zero costs here), so whichever model stays near the truth is the one to trust.
-    public sealed class Self { public string Fam, Par; public double True, Ohlc, Bridge, TrDay; }
+    public sealed class Self { public string Fam, Par; public double True, Ohlc, Bridge, TrDay, TrDayReal; }
+    public static void SelfOnly() { SelfTest(Configs(new[] { 1.0, 2.0 }, 0.2)); }
     static List<Self> SelfTest(List<Cfg> cfgs)
     {
         var inst = new Inst { Name = "RANDOM", Days = new List<RDay>(), Truth = new List<float[]>(), Cost = 0 };
@@ -292,10 +286,10 @@ public static class Fx
         {
             double ml; var x = new Self { Fam = cfgs[i].Fam, Par = cfgs[i].Par };
             var a = Stats(RunCfg(inst, ses, cfgs[i], 0, 2, 1, out ml)[0], inst); x.True = a.Total; x.TrDay = a.TrDay;
-            x.Ohlc = Stats(RunCfg(inst, ses, cfgs[i], 0, 1, 1, out ml)[0], inst).Total; x.Bridge = Stats(RunCfg(inst, ses, cfgs[i], 0, 0, 1, out ml)[0], inst).Total;
+            x.Ohlc = Stats(RunCfg(inst, ses, cfgs[i], 0, 1, 1, out ml)[0], inst).Total; var b0 = Stats(RunCfg(inst, ses, cfgs[i], 0, 0, 1, out ml)[0], inst); x.Bridge = b0.Total; x.TrDayReal = b0.TrDay;
             outp[i] = x;
         });
-        foreach (var x in outp) Console.WriteLine(string.Format("  SELFTEST true {0,10:0} ohlc {1,10:0} bridge {2,10:0} tr/d {3,7:0} | {4} | {5}", x.True, x.Ohlc, x.Bridge, x.TrDay, x.Fam, x.Par));
+        foreach (var x in outp) Console.WriteLine(string.Format("  SELFTEST true {0,10:0} straight {1,10:0} real-prices {2,10:0} tr/d {3,7:0} / {6,6:0} | {4} | {5}", x.True, x.Ohlc, x.Bridge, x.TrDay, x.Fam, x.Par, x.TrDayReal));
         return outp.ToList();
     }
 
@@ -326,8 +320,8 @@ public static class Fx
         var self = SelfTest(Configs(new[] { 1.0, 2.0 }, 0.2));
         Console.WriteLine("self-test in " + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s");
         var insts = new List<Inst> {
-            new Inst { Name = "XAUUSD", Src = "MGC", Unit = "$ at 0.01 lot (1 oz: $1 per $1 move)", Lot = "0.01", D = new[] { 1.0, 2, 3, 5, 10 }, Cost = 0.20 },
-            new Inst { Name = "NAS100", Src = "MNQ", Unit = "$ at 1.00 lot (contract size 1: $1 per point)", Lot = "1.00", D = new[] { 5.0, 10, 20, 40 }, Cost = 1.0 } };
+            new Inst { Name = "XAUUSD", Src = "MGC", Unit = "$ at 0.01 lot (1 oz: $1 per $1 move)", Lot = "0.01", D = new[] { 0.5, 1, 2, 3, 5, 10 }, Cost = 0.20 },
+            new Inst { Name = "NAS100", Src = "MNQ", Unit = "$ at 1.00 lot (contract size 1: $1 per point)", Lot = "1.00", D = new[] { 2.0, 5, 10, 20, 40 }, Cost = 1.0 } };
         var sessions = new List<Ses> {
             new Ses { Name = "ASIA 18:00–03:00", K0 = R.S(18, 0), K1 = R.S(2, 59) }, new Ses { Name = "LONDON 03:00–08:00", K0 = R.S(3, 0), K1 = R.S(7, 59) },
             new Ses { Name = "NY AM 08:00–12:00", K0 = R.S(8, 0), K1 = R.S(11, 59) }, new Ses { Name = "NY 09:30–16:00", K0 = R.S(9, 30), K1 = R.S(15, 59) },
@@ -403,7 +397,7 @@ public static class Fx
             var r = rows[i]; if (i > 0) sb.Append(',');
             sb.Append("[" + r.Id + "," + insts.FindIndex(x => x.Name == r.Inst) + "," + fi[r.Fam] + "," + pi[r.Par] + "," + si[r.Ses] + "," + r.Cost + "," + N(r.T, 0) + "," + N(r.L, 1) + "," + r.N + "," + N(r.Total, 0) + "," + N(r.Avg, 2) + "," + N(r.Win, 1) + "," + N(r.Best, 0) + "," + N(r.Worst, 0) + "," + N(r.P5, 1) + "," + N(r.MaxDd, 0) + "," + N(r.Ruin, 0) + "," + N(r.TrDay, 1) + "," + N(r.Hit, 1) + "," + N(r.Stop, 1) + "," + N(r.MaxLot, 0) + "," + r.Streak + "," + r.YearsUp + ",[" + string.Join(",", r.Years.Select(y => N(y, 0))) + "]," + N(r.AdvTotal, 0) + "," + (r.AdvYears == null ? "null" : "[" + string.Join(",", r.AdvYears.Select(y => N(y, 0))) + "]") + "]");
         }
-        sb.Append("],\"selftest\":[" + string.Join(",", self.Select(x => "[" + Q(x.Fam) + "," + Q(x.Par) + "," + N(x.True, 0) + "," + N(x.Ohlc, 0) + "," + N(x.Bridge, 0) + "," + N(x.TrDay, 0) + "]")) + "]");
+        sb.Append("],\"selftest\":[" + string.Join(",", self.Select(x => "[" + Q(x.Fam) + "," + Q(x.Par) + "," + N(x.True, 0) + "," + N(x.Ohlc, 0) + "," + N(x.Bridge, 0) + "," + N(x.TrDay, 0) + "," + N(x.TrDayReal, 0) + "]")) + "]");
         sb.Append(",\"detail\":{");
         bool first = true;
         foreach (int id in det.OrderBy(x => x))

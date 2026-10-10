@@ -125,7 +125,7 @@ textarea { width: 100%; min-height: 140px; font-family: var(--f-data); font-size
     <div class="ctl"><label for="fSes">Session (New York time)</label><select id="fSes"></select></div>
     <div class="ctl"><label for="fOv">Daily target / loss limit</label><select id="fOv"></select></div>
     <div class="ctl"><label for="fSort">Sort by</label><select id="fSort">
-      <option value="total">Total profit</option><option value="yearsup">Years in profit</option><option value="win">Winning days %</option><option value="avg">Average day</option><option value="worst">Worst day (least bad)</option><option value="ruin">Balance needed (smallest)</option><option value="adv">MetaTrader OHLC-test total</option></select></div>
+      <option value="total">Total profit</option><option value="yearsup">Years in profit</option><option value="win">Winning days %</option><option value="avg">Average day</option><option value="worst">Worst day (least bad)</option><option value="ruin">Balance needed (smallest)</option><option value="adv">Smooth-tick backtest total</option></select></div>
     <div class="ctl"><label for="fLot">Lot × <span id="lotUnit"></span></label><input type="number" id="fLot" min="1" max="10000" step="1" value="1"></div>
     <div class="ctl"><label for="fBal">Account balance $</label><input type="number" id="fBal" min="10" step="10" value="1000"></div>
   </div>
@@ -198,7 +198,7 @@ function lotTxt() { var i = inst(); var b = parseFloat(i.lot); return (b * S.lot
 
 // ---------- header tags
 $("rowsCount").textContent = rows.length.toLocaleString("en-US") + " results.";
-$("tags").innerHTML = D.insts.map(function (i) { return '<span class="tag">' + esc(i.name) + " ← " + esc(i.src) + " futures • " + i.days.length + " sessions • cost " + i.cost + " per round trip at " + i.lot + " lot</span>"; }).join("") + '<span class="tag">intrabar path: MetaTrader "1 minute OHLC"</span>';
+$("tags").innerHTML = D.insts.map(function (i) { return '<span class="tag">' + esc(i.name) + " ← " + esc(i.src) + " futures • " + i.days.length + " sessions • cost " + i.cost + " per round trip at " + i.lot + " lot</span>"; }).join("") + '<span class="tag">fills at real traded prices only (each minute\'s open and close)</span>';
 
 // ---------- controls
 function fillSelect(el, opts, val) { el.innerHTML = opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === val ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join(""); }
@@ -233,7 +233,7 @@ var sorters = { total: function (r) { return -r.total; }, yearsup: function (r) 
 var cols = [
   { k: "rank", h: "#" }, { k: "strat", h: "Strategy" }, { k: "ses", h: "Session" }, { k: "ov", h: "Daily stop" },
   { k: "total", h: "Total 6y", s: "total" }, { k: "avg", h: "Avg day", s: "avg" }, { k: "win", h: "Win days", s: "win" }, { k: "worst", h: "Worst day", s: "worst" },
-  { k: "ruin", h: "Balance needed", s: "ruin" }, { k: "blow", h: "At your balance" }, { k: "trday", h: "Trades / day" }, { k: "years", h: "2020 → 2026", s: "yearsup" }, { k: "adv", h: "MT OHLC test", s: "adv" }
+  { k: "ruin", h: "Balance needed", s: "ruin" }, { k: "blow", h: "At your balance" }, { k: "trday", h: "Trades / day" }, { k: "years", h: "2020 → 2026", s: "yearsup" }, { k: "adv", h: "Smooth-tick test", s: "adv" }
 ];
 function yrsSpark(y) {
   var m = Math.max.apply(null, y.map(function (v) { return Math.abs(v || 0); })) || 1;
@@ -320,7 +320,7 @@ function equityChart(box, r) {
 }
 function yearBars(box, r) {
   var L = S.lot, W = 360, H = 300, m = { l: 56, r: 10, t: 16, b: 28 }, ys = D.years, v = r.y.map(function (x) { return (x || 0) * L; }), a = r.advy ? r.advy.map(function (x) { return (x || 0) * L; }) : null;
-  box.innerHTML = '<div class="cap">Profit per year' + (a ? " • this lab vs MetaTrader's 1-minute OHLC test" : "") + "</div>";
+  box.innerHTML = '<div class="cap">Profit per year' + (a ? " • real prices vs a smooth-tick backtest" : "") + "</div>";
   var all = v.concat(a || []), lo = Math.min(0, Math.min.apply(null, all)), hi = Math.max(0, Math.max.apply(null, all)); if (lo === hi) hi = 1;
   var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Profit per year" }, box);
   var sy = function (x) { return m.t + (H - m.t - m.b) * (1 - (x - lo) / (hi - lo)); }, bw = (W - m.l - m.r) / ys.length;
@@ -331,12 +331,12 @@ function yearBars(box, r) {
     [[v[i], "var(--up)", "var(--down)", 0], a ? [a[i], "var(--alt)", "var(--alt)", 1] : null].forEach(function (s) {
       if (!s) return; var val = s[0], top = sy(Math.max(0, val)), bot = sy(Math.min(0, val)), x = xs0 + s[3] * (w + 2);
       var rect = el("rect", { x: x, y: top, width: w, height: Math.max(1, bot - top), rx: 2, fill: val >= 0 ? s[1] : s[2], "fill-opacity": s[3] ? .75 : 1 }, svg);
-      rect.addEventListener("mousemove", function (e) { var rc = box.getBoundingClientRect(); tip.hidden = false; tip.innerHTML = y + (s[3] ? " MetaTrader 1-minute OHLC test" : " this lab (random path inside the minute)") + "<br>" + smoney(val); tip.style.left = Math.min(e.clientX - rc.left + 10, rc.width - 170) + "px"; tip.style.top = (e.clientY - rc.top + 10) + "px"; });
+      rect.addEventListener("mousemove", function (e) { var rc = box.getBoundingClientRect(); tip.hidden = false; tip.innerHTML = y + (s[3] ? " smooth-tick backtest" : " real prices") + "<br>" + smoney(val); tip.style.left = Math.min(e.clientX - rc.left + 10, rc.width - 170) + "px"; tip.style.top = (e.clientY - rc.top + 10) + "px"; });
       rect.addEventListener("mouseleave", function () { tip.hidden = true; });
     });
     var tx = el("text", { x: x0 + bw / 2, y: H - 8, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)", "font-family": "IBM Plex Mono, monospace" }, svg); tx.textContent = "'" + String(y).slice(2);
   });
-  var lg = document.createElement("div"); lg.className = "legend"; lg.innerHTML = '<span><i style="background:var(--up)"></i>profit year</span><span><i style="background:var(--down)"></i>loss year</span>' + (a ? '<span><i style="background:var(--alt)"></i>what MetaTrader\'s "1 minute OHLC" test would show</span>' : ""); box.appendChild(lg);
+  var lg = document.createElement("div"); lg.className = "legend"; lg.innerHTML = '<span><i style="background:var(--up)"></i>profit year</span><span><i style="background:var(--down)"></i>loss year</span>' + (a ? '<span><i style="background:var(--alt)"></i>what a backtest with smooth generated ticks would show</span>' : ""); box.appendChild(lg);
 }
 function targetGrid(r) {
   var sib = rows.filter(function (x) { return x.inst === r.inst && x.cost === 1 && x.fam === r.fam && x.par === r.par && x.ses === r.ses; });
@@ -366,7 +366,7 @@ function advice(r) {
     else if (zero.total <= 0) out.push("<b>No edge even before costs</b> (" + smoney(zero.total * L) + " at zero spread). The costs only make it worse: about " + money(costDay * L, 2) + " a day.");
     else out.push("<b>It survives the costs</b>: " + smoney(zero.total * L) + " before costs, " + smoney(r.total * L) + " after. Costs ≈ " + money(costDay * L, 2) + " a day.");
   }
-  if (r.adv !== null) { var gap = r.adv - r.total; out.push(gap > Math.abs(r.total) * .5 + 50 ? "<b>Beware the MetaTrader trap.</b> Tested in MetaTrader's \"1 minute OHLC\" mode this rule would show " + smoney(r.adv * L) + " instead of " + smoney(r.total * L) + ". That extra money comes from the tester drawing each minute as three straight lines; it does not exist in real prices (see the proof section below)." : "<b>Same answer in MetaTrader's OHLC test</b> (" + smoney(r.adv * L) + "), so this result does not depend on how the minute is drawn."); }
+  if (r.adv !== null) { var gap = r.adv - r.total; out.push(gap > Math.abs(r.total) * .5 + 50 ? "<b>Beware the backtest trap.</b> A backtest that fills in each minute with smooth generated ticks would show " + smoney(r.adv * L) + " instead of " + smoney(r.total * L) + ". That extra money does not exist in real prices (see the proof section below)." : "<b>A smooth-tick backtest gives a similar answer</b> (" + smoney(r.adv * L) + "), so this result does not hinge on what happens inside the minute."); }
   if (r.win > 65 && r.worst < -15 * Math.max(1, r.best / 3)) out.push("<b>Martingale shape:</b> wins " + r.win.toFixed(0) + "% of days, but the worst day is " + money(r.worst * L) + " against a best day of " + smoney(r.best * L) + ". Many small wins pay for one large loss.");
   out.push(r.ruin * L >= B ? "<b>At " + lotTxt() + " a " + money(B) + " account is blown</b>: the equity falls " + money(r.ruin * L) + " below the start at its worst point. Use a lot of at most ×" + Math.max(0, Math.floor(B / Math.max(1, r.ruin))) + " (" + (parseFloat(i.lot) * Math.max(0, Math.floor(B / Math.max(1, r.ruin)))).toFixed(2) + " lot) for this balance, or a balance above " + money(r.ruin * L) + "." : "<b>Survives at " + lotTxt() + "</b> with " + money(B) + ": the deepest point was " + money(r.ruin * L) + " below the start.");
   out.push("<b>Consistency:</b> profit in " + r.yearsUp() + " of the years; longest run of losing days " + r.streak + ".");
@@ -427,11 +427,11 @@ function renderMath() {
 function brief(r) {
   if (!r) { $("brief").value = ""; return; }
   var i = D.insts[r.inst], L = S.lot;
-  var t = "I tested a high-frequency MetaTrader strategy on 6 years of 1-minute data (" + i.name + " modelled from " + i.src + " futures prices, intrabar path = MT '1 minute OHLC', costs " + (r.cost ? i.cost + " per round trip at " + i.lot + " lot" : "zero") + ").\n" +
+  var t = "I tested a high-frequency MetaTrader strategy on 6 years of 1-minute data (" + i.name + " modelled from " + i.src + " futures prices, fills only at real traded prices (each minute's open and close, nothing invented inside the minute), costs " + (r.cost ? i.cost + " per round trip at " + i.lot + " lot" : "zero") + ").\n" +
     "Strategy: " + r.fam + " — " + r.par + "\nSession (New York time): " + r.ses + "\nDaily stop: " + ovLabel(r.T * L, r.L * L) + "\nLot: " + lotTxt() + ", account " + money(S.bal) + "\n\n" +
     "Results: total " + smoney(r.total * L) + " over " + r.n + " sessions; average day " + smoney(r.avg * L, 2) + "; winning days " + r.win.toFixed(1) + "%; best day " + smoney(r.best * L) + "; worst day " + money(r.worst * L) + "; max drawdown " + money(r.maxdd * L) + "; balance needed " + money(r.ruin * L) + "; trades a day " + r.trday.toFixed(1) + "; biggest position " + (r.maxlot * parseFloat(i.lot) * L).toFixed(2) + " lot.\n" +
     "Per year 2020–2026: " + r.y.map(function (v, k) { return D.years[k] + " " + smoney((v || 0) * L); }).join(", ") + "\n" +
-    (r.adv !== null ? "Same run with the adverse intrabar order: " + smoney(r.adv * L) + "\n" : "") +
+    (r.adv !== null ? "Same run in a smooth-generated-tick backtest (the optimistic way testers fill in a minute): " + smoney(r.adv * L) + "\n" : "") +
     "\nQuestions: Is there a real edge here or is it an artefact of the 1-minute path? How would you test it on real ticks in the MT5 strategy tester? What lot and daily stop keep the risk of ruin low? What would you change?";
   $("brief").value = t;
 }
@@ -452,8 +452,8 @@ $("copyBrief").addEventListener("click", function () { var t = $("brief").value;
 (function () {
   var st = D.selftest || []; if (!st.length) return;
   var mx = Math.max.apply(null, st.map(function (x) { return Math.abs(x[3]); })) || 1;
-  var h = '<table><thead><tr><th>Rule (random price, $ at 0.01 lot)</th><th>True path (every second)</th><th>This lab (random path inside the minute)</th><th>MetaTrader "1 minute OHLC"</th><th>Trades / day</th></tr></thead><tbody>';
-  st.forEach(function (x) { h += '<tr><td class="lab"><b>' + esc(x[0]) + "</b> " + esc(x[1]) + '</td><td style="background:' + heatColor(x[2], mx) + '">' + smoney(x[2]) + '</td><td style="background:' + heatColor(x[4], mx) + '">' + smoney(x[4]) + '</td><td style="background:' + heatColor(x[3], mx) + '">' + smoney(x[3]) + "</td><td>" + x[5] + "</td></tr>"; });
+  var h = '<table><thead><tr><th>Rule (random price, $ at 0.01 lot)</th><th>True result (every second)</th><th>This lab (real prices only)</th><th>Smooth-tick backtest</th><th>Trades / day (true • lab)</th></tr></thead><tbody>';
+  st.forEach(function (x) { h += '<tr><td class="lab"><b>' + esc(x[0]) + "</b> " + esc(x[1]) + '</td><td style="background:' + heatColor(x[2], mx) + '">' + smoney(x[2]) + '</td><td style="background:' + heatColor(x[4], mx) + '">' + smoney(x[4]) + '</td><td style="background:' + heatColor(x[3], mx) + '">' + smoney(x[3]) + "</td><td>" + x[5] + " • " + x[6] + "</td></tr>"; });
   $("self").innerHTML = h + "</tbody></table>";
 })();
 render();
