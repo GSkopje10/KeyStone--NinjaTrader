@@ -125,7 +125,7 @@ textarea { width: 100%; min-height: 140px; font-family: var(--f-data); font-size
     <div class="ctl"><label for="fSes">Session (New York time)</label><select id="fSes"></select></div>
     <div class="ctl"><label for="fOv">Daily target / loss limit</label><select id="fOv"></select></div>
     <div class="ctl"><label for="fSort">Sort by</label><select id="fSort">
-      <option value="total">Total profit</option><option value="yearsup">Years in profit</option><option value="win">Winning days %</option><option value="avg">Average day</option><option value="worst">Worst day (least bad)</option><option value="ruin">Balance needed (smallest)</option><option value="adv">Adverse-path total</option></select></div>
+      <option value="total">Total profit</option><option value="yearsup">Years in profit</option><option value="win">Winning days %</option><option value="avg">Average day</option><option value="worst">Worst day (least bad)</option><option value="ruin">Balance needed (smallest)</option><option value="adv">MetaTrader OHLC-test total</option></select></div>
     <div class="ctl"><label for="fLot">Lot × <span id="lotUnit"></span></label><input type="number" id="fLot" min="1" max="10000" step="1" value="1"></div>
     <div class="ctl"><label for="fBal">Account balance $</label><input type="number" id="fBal" min="10" step="10" value="1000"></div>
   </div>
@@ -153,6 +153,12 @@ textarea { width: 100%; min-height: 140px; font-family: var(--f-data); font-size
   </div>
 </section>
 
+<section aria-labelledby="h-self">
+  <h2 id="h-self">Proof: a random price with no edge</h2>
+  <p class="note">Before trusting any number, every rule ran on 250 days of a computer-made random price (moves every second, zero edge, zero costs, gold-like volatility). The true result of any rule on such a price is close to $0. The table shows what each way of testing reports for the same rule.</p>
+  <div class="panel heat" id="self"></div>
+</section>
+
 <section aria-labelledby="h-next">
   <h2 id="h-next">How to go forward</h2>
   <div class="panel analysis">
@@ -177,6 +183,7 @@ var rows = D.rows.map(function (a) {
   return { id: a[C.id], inst: a[C.inst], fam: D.fams[a[C.fam]], par: D.pars[a[C.par]], ses: D.sess[a[C.ses]], sesI: a[C.ses], cost: a[C.cost], T: a[C.T], L: a[C.L], n: a[C.n], total: a[C.total], avg: a[C.avg], win: a[C.win], best: a[C.best], worst: a[C.worst], p5: a[C.p5], maxdd: a[C.maxdd], ruin: a[C.ruin], trday: a[C.trday], hit: a[C.hit], stop: a[C.stop], maxlot: a[C.maxlot], streak: a[C.streak], yearsup: a[C.yearsup], y: a[C.y], adv: a[C.adv], advy: a[C.advy] };
 });
 var byId = {}; rows.forEach(function (r) { byId[r.id] = r; });
+D.insts.forEach(function (ins, ii) { var ds = rows.filter(function (r) { return r.inst === ii && r.fam === "FLIP"; }).map(function (r) { return parseFloat(r.par.slice(3)); }); ins.D0 = Math.min.apply(null, ds); });
 var S = { inst: 0, cost: 1, fam: "", ses: "", ov: "0|0", sort: "total", lot: 1, bal: 1000, shown: 50, sel: null };
 try { var saved = JSON.parse(localStorage.getItem("fxlab") || "null"); if (saved) { ["inst","cost","fam","ses","ov","sort","lot","bal"].forEach(function (k) { if (saved[k] !== undefined) S[k] = saved[k]; }); } } catch (e) {}
 function save() { try { localStorage.setItem("fxlab", JSON.stringify(S)); } catch (e) {} }
@@ -226,7 +233,7 @@ var sorters = { total: function (r) { return -r.total; }, yearsup: function (r) 
 var cols = [
   { k: "rank", h: "#" }, { k: "strat", h: "Strategy" }, { k: "ses", h: "Session" }, { k: "ov", h: "Daily stop" },
   { k: "total", h: "Total 6y", s: "total" }, { k: "avg", h: "Avg day", s: "avg" }, { k: "win", h: "Win days", s: "win" }, { k: "worst", h: "Worst day", s: "worst" },
-  { k: "ruin", h: "Balance needed", s: "ruin" }, { k: "blow", h: "At your balance" }, { k: "trday", h: "Trades / day" }, { k: "years", h: "2020 → 2026", s: "yearsup" }, { k: "adv", h: "Adverse path", s: "adv" }
+  { k: "ruin", h: "Balance needed", s: "ruin" }, { k: "blow", h: "At your balance" }, { k: "trday", h: "Trades / day" }, { k: "years", h: "2020 → 2026", s: "yearsup" }, { k: "adv", h: "MT OHLC test", s: "adv" }
 ];
 function yrsSpark(y) {
   var m = Math.max.apply(null, y.map(function (v) { return Math.abs(v || 0); })) || 1;
@@ -313,7 +320,7 @@ function equityChart(box, r) {
 }
 function yearBars(box, r) {
   var L = S.lot, W = 360, H = 300, m = { l: 56, r: 10, t: 16, b: 28 }, ys = D.years, v = r.y.map(function (x) { return (x || 0) * L; }), a = r.advy ? r.advy.map(function (x) { return (x || 0) * L; }) : null;
-  box.innerHTML = '<div class="cap">Profit per year' + (a ? " • MetaTrader path vs adverse path" : "") + "</div>";
+  box.innerHTML = '<div class="cap">Profit per year' + (a ? " • this lab vs MetaTrader's 1-minute OHLC test" : "") + "</div>";
   var all = v.concat(a || []), lo = Math.min(0, Math.min.apply(null, all)), hi = Math.max(0, Math.max.apply(null, all)); if (lo === hi) hi = 1;
   var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Profit per year" }, box);
   var sy = function (x) { return m.t + (H - m.t - m.b) * (1 - (x - lo) / (hi - lo)); }, bw = (W - m.l - m.r) / ys.length;
@@ -324,12 +331,12 @@ function yearBars(box, r) {
     [[v[i], "var(--up)", "var(--down)", 0], a ? [a[i], "var(--alt)", "var(--alt)", 1] : null].forEach(function (s) {
       if (!s) return; var val = s[0], top = sy(Math.max(0, val)), bot = sy(Math.min(0, val)), x = xs0 + s[3] * (w + 2);
       var rect = el("rect", { x: x, y: top, width: w, height: Math.max(1, bot - top), rx: 2, fill: val >= 0 ? s[1] : s[2], "fill-opacity": s[3] ? .75 : 1 }, svg);
-      rect.addEventListener("mousemove", function (e) { var rc = box.getBoundingClientRect(); tip.hidden = false; tip.innerHTML = y + (s[3] ? " adverse path" : " MetaTrader path") + "<br>" + smoney(val); tip.style.left = Math.min(e.clientX - rc.left + 10, rc.width - 170) + "px"; tip.style.top = (e.clientY - rc.top + 10) + "px"; });
+      rect.addEventListener("mousemove", function (e) { var rc = box.getBoundingClientRect(); tip.hidden = false; tip.innerHTML = y + (s[3] ? " MetaTrader 1-minute OHLC test" : " this lab (random path inside the minute)") + "<br>" + smoney(val); tip.style.left = Math.min(e.clientX - rc.left + 10, rc.width - 170) + "px"; tip.style.top = (e.clientY - rc.top + 10) + "px"; });
       rect.addEventListener("mouseleave", function () { tip.hidden = true; });
     });
     var tx = el("text", { x: x0 + bw / 2, y: H - 8, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)", "font-family": "IBM Plex Mono, monospace" }, svg); tx.textContent = "'" + String(y).slice(2);
   });
-  var lg = document.createElement("div"); lg.className = "legend"; lg.innerHTML = '<span><i style="background:var(--up)"></i>profit year</span><span><i style="background:var(--down)"></i>loss year</span>' + (a ? '<span><i style="background:var(--alt)"></i>adverse path (worst order inside each minute)</span>' : ""); box.appendChild(lg);
+  var lg = document.createElement("div"); lg.className = "legend"; lg.innerHTML = '<span><i style="background:var(--up)"></i>profit year</span><span><i style="background:var(--down)"></i>loss year</span>' + (a ? '<span><i style="background:var(--alt)"></i>what MetaTrader\'s "1 minute OHLC" test would show</span>' : ""); box.appendChild(lg);
 }
 function targetGrid(r) {
   var sib = rows.filter(function (x) { return x.inst === r.inst && x.cost === 1 && x.fam === r.fam && x.par === r.par && x.ses === r.ses; });
@@ -359,7 +366,7 @@ function advice(r) {
     else if (zero.total <= 0) out.push("<b>No edge even before costs</b> (" + smoney(zero.total * L) + " at zero spread). The costs only make it worse: about " + money(costDay * L, 2) + " a day.");
     else out.push("<b>It survives the costs</b>: " + smoney(zero.total * L) + " before costs, " + smoney(r.total * L) + " after. Costs ≈ " + money(costDay * L, 2) + " a day.");
   }
-  if (r.adv !== null) { var gap = r.total - r.adv; out.push(Math.abs(gap) > Math.abs(r.total) * .5 + 50 ? "<b>Fragile to the path inside the minute.</b> With the worst order of high and low it makes " + smoney(r.adv * L) + " instead of " + smoney(r.total * L) + ". Only a real-tick test can settle which is closer." : "<b>Robust to the path inside the minute</b>: the adverse order gives " + smoney(r.adv * L) + " (vs " + smoney(r.total * L) + ")."); }
+  if (r.adv !== null) { var gap = r.adv - r.total; out.push(gap > Math.abs(r.total) * .5 + 50 ? "<b>Beware the MetaTrader trap.</b> Tested in MetaTrader's \"1 minute OHLC\" mode this rule would show " + smoney(r.adv * L) + " instead of " + smoney(r.total * L) + ". That extra money comes from the tester drawing each minute as three straight lines; it does not exist in real prices (see the proof section below)." : "<b>Same answer in MetaTrader's OHLC test</b> (" + smoney(r.adv * L) + "), so this result does not depend on how the minute is drawn."); }
   if (r.win > 65 && r.worst < -15 * Math.max(1, r.best / 3)) out.push("<b>Martingale shape:</b> wins " + r.win.toFixed(0) + "% of days, but the worst day is " + money(r.worst * L) + " against a best day of " + smoney(r.best * L) + ". Many small wins pay for one large loss.");
   out.push(r.ruin * L >= B ? "<b>At " + lotTxt() + " a " + money(B) + " account is blown</b>: the equity falls " + money(r.ruin * L) + " below the start at its worst point. Use a lot of at most ×" + Math.max(0, Math.floor(B / Math.max(1, r.ruin))) + " (" + (parseFloat(i.lot) * Math.max(0, Math.floor(B / Math.max(1, r.ruin)))).toFixed(2) + " lot) for this balance, or a balance above " + money(r.ruin * L) + "." : "<b>Survives at " + lotTxt() + "</b> with " + money(B) + ": the deepest point was " + money(r.ruin * L) + " below the start.");
   out.push("<b>Consistency:</b> profit in " + r.yearsUp() + " of the years; longest run of losing days " + r.streak + ".");
@@ -392,7 +399,7 @@ function renderMath() {
   var i = inst(), L = S.lot, unit = parseFloat(i.lot) * L;
   $("mathA").innerHTML = "<h3>Why a 1:1 flip cannot win on its own</h3>" +
     "<p>With a target equal to the stop, price has the same chance to touch either level first. Flipping after a loss does not change those odds: the next trade is again a coin toss. So the result before costs is about zero, and after costs it is <b>minus the cost of every trade</b>.</p>" +
-    "<p>On " + esc(i.name) + " one round trip costs about <b>" + money(i.cost * L, 2) + "</b> at " + lotTxt() + " (spread + commission). For a <b>" + money(1 * (i.name === "XAUUSD" ? L : L)) + "</b> target that is " + (100 * i.cost / (i.name === "XAUUSD" ? 1 : 1)).toFixed(0) + "% of every win. Fifty trades a day pays the broker " + money(50 * i.cost * L) + " a day.</p>" +
+    "<p>On " + esc(i.name) + " one round trip costs about <b>" + money(i.cost * L, 2) + "</b> at " + lotTxt() + " (spread + commission). Against a target of " + money(i.D0 * L) + " that is " + (100 * i.cost / i.D0).toFixed(0) + "% of every win, paid on the losses too. Fifty trades a day pays the broker " + money(50 * i.cost * L) + " a day.</p>" +
     "<p>Martingale and recovery hedges do not change the sum either. They move the losses into rare, very large days: many small winning days, then one day that takes months of them back (or the account).</p>" +
     "<p>What can change the sum is a <b>real edge</b> (the price really more likely to go one way after a pattern) or <b>costs near zero</b>. The heat map shows which sessions come closest.</p>";
   var box = $("bleed"); box.innerHTML = '<div class="cap">Zero-cost result vs real-cost result for every run of ' + esc(i.name) + " (no daily stop), at " + lotTxt() + ". Each dot is one strategy setting in one session.</div>";
@@ -441,6 +448,13 @@ $("copyBrief").addEventListener("click", function () { var t = $("brief").value;
     if (userRule && ii === 0) html += '<div class="panel vcard"><span class="eyebrow">Your rule • XAUUSD 0.01 lot • ±$1 • 24h</span><span class="big ' + cls(userRule.total) + '">' + smoney(userRule.total) + "</span><p>" + userRule.trday.toFixed(0) + " trades a day at about $" + ins.cost.toFixed(2) + " each in spread and commission. Before costs: " + smoney((zero.filter(function (z) { return z.fam === userRule.fam && z.par === userRule.par && z.ses === userRule.ses; })[0] || {}).total) + ".</p></div>";
   });
   $("verdict").innerHTML = html;
+})();
+(function () {
+  var st = D.selftest || []; if (!st.length) return;
+  var mx = Math.max.apply(null, st.map(function (x) { return Math.abs(x[3]); })) || 1;
+  var h = '<table><thead><tr><th>Rule (random price, $ at 0.01 lot)</th><th>True path (every second)</th><th>This lab (random path inside the minute)</th><th>MetaTrader "1 minute OHLC"</th><th>Trades / day</th></tr></thead><tbody>';
+  st.forEach(function (x) { h += '<tr><td class="lab"><b>' + esc(x[0]) + "</b> " + esc(x[1]) + '</td><td style="background:' + heatColor(x[2], mx) + '">' + smoney(x[2]) + '</td><td style="background:' + heatColor(x[4], mx) + '">' + smoney(x[4]) + '</td><td style="background:' + heatColor(x[3], mx) + '">' + smoney(x[3]) + "</td><td>" + x[5] + "</td></tr>"; });
+  $("self").innerHTML = h + "</tbody></table>";
 })();
 render();
 })();

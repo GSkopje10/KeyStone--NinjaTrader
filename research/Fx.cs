@@ -15,9 +15,9 @@ using System.Threading.Tasks;
 
 public static class Fx
 {
-    public sealed class Inst { public string Name, Src, Unit, Lot; public double[] D; public double Cost; public List<RDay> Days; }
+    public sealed class Inst { public string Name, Src, Unit, Lot; public double[] D; public double Cost; public List<RDay> Days; public List<float[]> Truth; }
     sealed class Ses { public string Name; public int K0, K1; }
-    sealed class Cfg { public string Fam, Par; public Func<double, St> Make; }
+    sealed class Cfg { public string Fam, Par; public double Res; public Func<double, St> Make; }
 
     // ---------------------------------------------------------------- strategies (units: base lot, price units)
     abstract class St
@@ -156,16 +156,53 @@ public static class Fx
     static int NOv { get { return 1 + (OvT.Length - 1) * OvL.Length; } }
     static void Ov(int i, out double T, out double L) { if (i == 0) { T = 0; L = 0; return; } i--; T = OvT[1 + i / OvL.Length]; L = T * OvL[i % OvL.Length]; }
 
-    // → [overlay][day]; maxLot out
-    static DayOut[][] RunCfg(Inst inst, Ses ses, Cfg cfg, double cost, bool adverse, int nOv, out double maxLot)
+    // ---------------------------------------------------------------- the price path inside a minute
+    // OHLC = MetaTrader's "1 minute OHLC": three straight lines O → first extreme → second extreme → C (bull bar low first).
+    //   No wiggles at all, so any rule that follows small moves looks like a money machine (see SelfTest).
+    // BRIDGE = the same four prices joined by random Brownian bridges (no edge inside the minute), volatility from the
+    //   bar's own range (E[range] of Brownian motion = 1.6 σ), resolution a quarter of the rule's smallest distance.
+    sealed class Rng
+    {
+        ulong x; bool has; double spare;
+        public Rng(ulong seed) { x = seed * 0x9E3779B97F4A7C15UL + 0x632BE59BD9B4E019UL; if (x == 0) x = 1; }
+        public double U() { x ^= x >> 12; x ^= x << 25; x ^= x >> 27; return ((x * 0x2545F4914F6CDD1DUL) >> 11) * (1.0 / 9007199254740992.0); }
+        public double N() { if (has) { has = false; return spare; } double u, v, s; do { u = 2 * U() - 1; v = 2 * U() - 1; s = u * u + v * v; } while (s >= 1 || s == 0); double m = Math.Sqrt(-2 * Math.Log(s) / s); spare = v * m; has = true; return u * m; }
+    }
+    const int BridgeCap = 400;   // most sub-steps in one minute
+    static void Bar(St s, Rec rec, double o, double h, double l, double c, int model, double res, Rng rng, double[] w, float[] truth, int k0)
+    {
+        if (model == 2) { double pv = o; for (int i = 1; i <= 60; i++) { double p = truth[k0 + i]; Walk(s, pv, p, false, rec); pv = p; } return; }
+        bool lowFirst = c >= o; double x1 = lowFirst ? l : h, x2 = lowFirst ? h : l;
+        if (model == 1 || h - l <= 1e-9) { Walk(s, o, x1, false, rec); Walk(s, x1, x2, false, rec); Walk(s, x2, c, false, rec); return; }
+        double sigma = (h - l) / 1.6, pts = Math.Min(BridgeCap, Math.Ceiling(Math.Pow(4 * sigma / res, 2)));
+        double l1 = Math.Abs(x1 - o), l2 = Math.Abs(x2 - x1), l3 = Math.Abs(c - x2), tot = l1 + l2 + l3 + 1e-12;
+        double[] a = { o, x1, x2 }, b = { x1, x2, c }, len = { l1, l2, l3 };
+        for (int leg = 0; leg < 3; leg++)
+        {
+            double tau = (len[leg] + 1e-6) / (tot + 3e-6); int n = Math.Max(1, (int)Math.Ceiling(tau * pts)); if (n > w.Length - 1) n = w.Length - 1;
+            if (n == 1 || len[leg] < 1e-9 && tau * pts < 1) { Walk(s, a[leg], b[leg], false, rec); continue; }
+            double sd = sigma * Math.Sqrt(tau / n); w[0] = 0; for (int k = 1; k <= n; k++) w[k] = w[k - 1] + sd * rng.N();
+            double prev = a[leg];
+            for (int k = 1; k <= n; k++)
+            {
+                double f = (double)k / n, p = k == n ? b[leg] : a[leg] + (b[leg] - a[leg]) * f + w[k] - f * w[n];
+                if (p > h) p = h; if (p < l) p = l;
+                Walk(s, prev, p, false, rec); prev = p;
+            }
+        }
+    }
+
+    // → [overlay][day]; maxLot out. model 0 = BRIDGE, 1 = OHLC
+    static DayOut[][] RunCfg(Inst inst, Ses ses, Cfg cfg, double cost, int model, int nOv, out double maxLot)
     {
         var res = new DayOut[nOv][]; for (int o = 0; o < nOv; o++) res[o] = new DayOut[inst.Days.Count];
-        var rec = new Rec(); maxLot = 0; var s = cfg.Make(cost); s.Cost = cost;
+        var rec = new Rec(); maxLot = 0; var s = cfg.Make(cost); s.Cost = cost; var w = new double[BridgeCap + 2];
         for (int di = 0; di < inst.Days.Count; di++)
         {
             var d = inst.Days[di]; int first = -1, cnt = 0;
             for (int k = ses.K0; k <= ses.K1; k++) if (d.Has(k)) { if (first < 0) first = k; cnt++; }
             if (cnt < 30) continue;
+            var rng = new Rng((ulong)(d.Day.Ticks / TimeSpan.TicksPerDay) * 31UL + (ulong)ses.K0);   // same micro-path for every rule on that day
             s.Real = 0; s.NetLots = 0; s.SumLE = 0; s.Trades = 0; s.Basket = double.NaN; rec.Reset();
             int hint = first > 0 && d.Has(first - 1) ? Math.Sign(d.C[first - 1] - d.O[first - 1]) : 1;
             s.Start(d.O[first], hint == 0 ? 1 : hint); rec.Mark(s.Eq(d.O[first]), s.Trades);
@@ -175,10 +212,7 @@ public static class Fx
                 if (!d.Has(k)) continue;
                 double o = d.O[k], h = d.H[k], l = d.L[k], c = d.C[k];
                 Walk(s, prevC, o, k != prevK + 1, rec);
-                bool lowFirst = adverse ? (s.NetLots > 1e-9 || (Math.Abs(s.NetLots) <= 1e-9 && c >= o)) : c >= o;
-                double x1 = lowFirst ? l : h, x2 = lowFirst ? h : l;
-                Walk(s, o, x1, false, rec);
-                Walk(s, x1, x2, false, rec); Walk(s, x2, c, false, rec);
+                Bar(s, rec, o, h, l, c, model, cfg.Res, rng, w, model == 2 ? inst.Truth[di] : null, k * 61);
                 s.BarClose(o, c); rec.Mark(s.Eq(c), s.Trades);
                 prevC = c; prevK = k;
             }
@@ -231,44 +265,88 @@ public static class Fx
         return r;
     }
 
+    // ---------------------------------------------------------------- self-test: a computer-made random price with NO edge
+    // 250 days of a random walk sampled every second; the 1-minute bars are built from it. Every rule runs three ways:
+    // on the true second-by-second path, on MetaTrader's 1-minute OHLC path and on the bridge path. With no edge the true
+    // result is about 0 (zero costs here), so whichever model stays near the truth is the one to trust.
+    public sealed class Self { public string Fam, Par; public double True, Ohlc, Bridge, TrDay; }
+    static List<Self> SelfTest(List<Cfg> cfgs)
+    {
+        var inst = new Inst { Name = "RANDOM", Days = new List<RDay>(), Truth = new List<float[]>(), Cost = 0 };
+        var rng = new Rng(7); double p = 2000, sd = 0.12;   // 1-second σ $0.12 → a typical minute range ≈ $1.5 (gold-like)
+        for (int di = 0; di < 250; di++)
+        {
+            var d = new RDay { Day = new DateTime(2023, 1, 2).AddDays(di), Sym = "RANDOM" }; var tr = new float[R.Slots * 61];
+            for (int k = 0; k < R.Slots; k++)
+            {
+                double o = p, h = p, l = p; tr[k * 61] = (float)p;
+                for (int i = 1; i <= 60; i++) { p += sd * rng.N(); tr[k * 61 + i] = (float)p; if (p > h) h = p; if (p < l) l = p; }
+                d.O[k] = (float)o; d.H[k] = (float)Math.Max(h, tr[k * 61]); d.L[k] = (float)Math.Min(l, tr[k * 61]); d.C[k] = (float)p; d.Bars++;
+                for (int i = 0; i <= 60; i++) { if (tr[k * 61 + i] > d.H[k]) d.H[k] = tr[k * 61 + i]; if (tr[k * 61 + i] < d.L[k]) d.L[k] = tr[k * 61 + i]; }
+                p = tr[k * 61 + 60];
+            }
+            inst.Days.Add(d); inst.Truth.Add(tr);
+        }
+        var ses = new Ses { Name = "24H", K0 = R.S(18, 0), K1 = R.S(16, 54) }; var outp = new Self[cfgs.Count];
+        Parallel.For(0, cfgs.Count, new ParallelOptions { MaxDegreeOfParallelism = 4 }, i =>
+        {
+            double ml; var x = new Self { Fam = cfgs[i].Fam, Par = cfgs[i].Par };
+            var a = Stats(RunCfg(inst, ses, cfgs[i], 0, 2, 1, out ml)[0], inst); x.True = a.Total; x.TrDay = a.TrDay;
+            x.Ohlc = Stats(RunCfg(inst, ses, cfgs[i], 0, 1, 1, out ml)[0], inst).Total; x.Bridge = Stats(RunCfg(inst, ses, cfgs[i], 0, 0, 1, out ml)[0], inst).Total;
+            outp[i] = x;
+        });
+        foreach (var x in outp) Console.WriteLine(string.Format("  SELFTEST true {0,10:0} ohlc {1,10:0} bridge {2,10:0} tr/d {3,7:0} | {4} | {5}", x.True, x.Ohlc, x.Bridge, x.TrDay, x.Fam, x.Par));
+        return outp.ToList();
+    }
+
+    static List<Cfg> Configs(double[] D, double cost)
+    {
+        var cfgs = new List<Cfg>(); Func<double, string> f = x => x.ToString("0.##", CultureInfo.InvariantCulture);
+        var ratios = new[] { Tuple.Create(1.0, 1.0), Tuple.Create(2.0, 1.0), Tuple.Create(1.0, 2.0), Tuple.Create(3.0, 1.0) };
+        foreach (double d in D)
+        {
+            foreach (var rt in ratios) foreach (bool same in new[] { true, false })
+            { double tp = d * rt.Item1, sl = d * rt.Item2; bool sm = same; cfgs.Add(new Cfg { Fam = "FLIP", Res = Math.Min(tp, sl), Par = "TP " + f(tp) + " • SL " + f(sl) + " • after a win " + (sm ? "SAME way" : "FLIP"), Make = c => new Flip(tp, sl, sm, 1, 0) }); }
+            foreach (double m in new[] { 1.5, 2, 3 }) foreach (int k in new[] { 3, 5, 8 })
+            { double dd = d, mm = m; int kk = k; cfgs.Add(new Cfg { Fam = "MARTINGALE FLIP", Res = dd, Par = "TP = SL " + f(dd) + " • lot ×" + f(mm) + " after a loss • max " + kk + " steps", Make = c => new Flip(dd, dd, true, mm, kk) }); }
+            foreach (double tm in new[] { 1.0, 2.0 }) foreach (int mx in new[] { 4, 6, 8 })
+            { double z = d, t = d * tm; int m2 = mx; if (t <= 1.5 * cost) continue; cfgs.Add(new Cfg { Fam = "ZONE RECOVERY (hedge)", Res = z, Par = "zone " + f(z) + " • exit " + f(t) + " • max " + m2 + " positions", Make = c => new Zone(z, t, m2) }); }
+            foreach (double bm in new[] { 0.0, 2, 5 })
+            { double g = d, b = bm; cfgs.Add(new Cfg { Fam = "HEDGE GRID", Res = g, Par = "step " + f(g) + " • buy + sell each level, TP " + f(g) + (b > 0 ? " • basket +" + f(b * g) : " • no basket"), Make = c => new Grid(g, b) }); }
+            foreach (var rt in ratios.Take(3)) foreach (bool fol in new[] { true, false })
+            { double tp = d * rt.Item1, sl = d * rt.Item2; bool fo = fol; cfgs.Add(new Cfg { Fam = fo ? "FOLLOW 1m bar" : "FADE 1m bar", Res = Math.Min(tp, sl), Par = "TP " + f(tp) + " • SL " + f(sl), Make = c => new Sig(tp, sl, fo) }); }
+        }
+        return cfgs;
+    }
+
     // ---------------------------------------------------------------- main
     public static void Run(string data, string outDir)
     {
+        var t0 = DateTime.Now;
+        var self = SelfTest(Configs(new[] { 1.0, 2.0 }, 0.2));
+        Console.WriteLine("self-test in " + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s");
         var insts = new List<Inst> {
-            new Inst { Name = "XAUUSD", Src = "MGC", Unit = "$ at 0.01 lot (1 oz: $1 per $1 move)", Lot = "0.01", D = new[] { 0.5, 1, 2, 3, 5, 10 }, Cost = 0.20 },
-            new Inst { Name = "NAS100", Src = "MNQ", Unit = "$ at 1.00 lot (contract size 1: $1 per point)", Lot = "1.00", D = new[] { 1.0, 2, 5, 10, 20, 40 }, Cost = 1.0 } };
+            new Inst { Name = "XAUUSD", Src = "MGC", Unit = "$ at 0.01 lot (1 oz: $1 per $1 move)", Lot = "0.01", D = new[] { 1.0, 2, 3, 5, 10 }, Cost = 0.20 },
+            new Inst { Name = "NAS100", Src = "MNQ", Unit = "$ at 1.00 lot (contract size 1: $1 per point)", Lot = "1.00", D = new[] { 5.0, 10, 20, 40 }, Cost = 1.0 } };
         var sessions = new List<Ses> {
             new Ses { Name = "ASIA 18:00–03:00", K0 = R.S(18, 0), K1 = R.S(2, 59) }, new Ses { Name = "LONDON 03:00–08:00", K0 = R.S(3, 0), K1 = R.S(7, 59) },
             new Ses { Name = "NY AM 08:00–12:00", K0 = R.S(8, 0), K1 = R.S(11, 59) }, new Ses { Name = "NY 09:30–16:00", K0 = R.S(9, 30), K1 = R.S(15, 59) },
             new Ses { Name = "24H 18:00–16:55", K0 = R.S(18, 0), K1 = R.S(16, 54) } };
-        var rows = new List<Row>(); var lk = new object(); var t0 = DateTime.Now;
-        var keep = new Dictionary<string, Tuple<Inst, Ses, Cfg>>();
+        var rows = new List<Row>(); var lk = new object();
         foreach (var inst in insts)
         {
             inst.Days = R.Load(data, inst.Src, true).Where(d => d.Day.Year >= 2020).ToList();
             Console.WriteLine(inst.Name + ": " + inst.Days.Count + " sessions " + inst.Days.First().Day.ToString("yyyy-MM-dd") + " → " + inst.Days.Last().Day.ToString("yyyy-MM-dd"));
-            var cfgs = new List<Cfg>(); Func<double, string> f = x => x.ToString("0.##", CultureInfo.InvariantCulture);
-            var ratios = new[] { Tuple.Create(1.0, 1.0), Tuple.Create(2.0, 1.0), Tuple.Create(1.0, 2.0), Tuple.Create(3.0, 1.0) };
-            foreach (double d in inst.D)
-            {
-                foreach (var rt in ratios) foreach (bool same in new[] { true, false })
-                { double tp = d * rt.Item1, sl = d * rt.Item2; bool sm = same; cfgs.Add(new Cfg { Fam = "FLIP", Par = "TP " + f(tp) + " • SL " + f(sl) + " • after a win " + (sm ? "SAME way" : "FLIP"), Make = c => new Flip(tp, sl, sm, 1, 0) }); }
-                foreach (double m in new[] { 1.5, 2, 3 }) foreach (int k in new[] { 3, 5, 8 })
-                { double dd = d, mm = m; int kk = k; cfgs.Add(new Cfg { Fam = "MARTINGALE FLIP", Par = "TP = SL " + f(dd) + " • lot ×" + f(mm) + " after a loss • max " + kk + " steps", Make = c => new Flip(dd, dd, true, mm, kk) }); }
-                foreach (double tm in new[] { 1.0, 2.0 }) foreach (int mx in new[] { 4, 6, 8 })
-                { double z = d, t = d * tm; int m2 = mx; if (t <= 1.5 * inst.Cost) continue; cfgs.Add(new Cfg { Fam = "ZONE RECOVERY (hedge)", Par = "zone " + f(z) + " • exit " + f(t) + " • max " + m2 + " positions", Make = c => new Zone(z, t, m2) }); }
-                foreach (double bm in new[] { 0.0, 2, 5 })
-                { double g = d, b = bm; cfgs.Add(new Cfg { Fam = "HEDGE GRID", Par = "step " + f(g) + " • buy + sell each level, TP " + f(g) + (b > 0 ? " • basket +" + f(b * g) : " • no basket"), Make = c => new Grid(g, b) }); }
-                foreach (var rt in ratios.Take(3)) foreach (bool fol in new[] { true, false })
-                { double tp = d * rt.Item1, sl = d * rt.Item2; bool fo = fol; cfgs.Add(new Cfg { Fam = fo ? "FOLLOW 1m bar" : "FADE 1m bar", Par = "TP " + f(tp) + " • SL " + f(sl), Make = c => new Sig(tp, sl, fo) }); }
-            }
+            var cfgs = Configs(inst.D, inst.Cost);
             var jobs = new List<Tuple<Ses, Cfg, int>>(); foreach (var ses in sessions) foreach (var c in cfgs) foreach (int ci in new[] { 1, 0 }) jobs.Add(Tuple.Create(ses, c, ci));
+            jobs = jobs.OrderByDescending(j => j.Item1.K1 - j.Item1.K0).ThenBy(j => j.Item2.Res).ToList();   // the long ones first
             Console.WriteLine(inst.Name + ": " + cfgs.Count + " strategies × " + sessions.Count + " sessions × 2 cost levels = " + jobs.Count + " runs");
             int done = 0;
             Parallel.ForEach(jobs, new ParallelOptions { MaxDegreeOfParallelism = 4 }, job =>
             {
-                double ml; int nOv = job.Item3 == 1 ? NOv : 1;
-                var res = RunCfg(inst, job.Item1, job.Item2, job.Item3 == 1 ? inst.Cost : 0, false, nOv, out ml);
+                double ml, ml2; int nOv = job.Item3 == 1 ? NOv : 1; double cost = job.Item3 == 1 ? inst.Cost : 0;
+                var res = RunCfg(inst, job.Item1, job.Item2, cost, 0, nOv, out ml);
+                var ohlc = RunCfg(inst, job.Item1, job.Item2, cost, 1, nOv, out ml2);
                 var local = new List<Row>();
                 for (int oi = 0; oi < nOv; oi++)
                 {
@@ -276,17 +354,19 @@ public static class Fx
                     r.Inst = inst.Name; r.Fam = job.Item2.Fam; r.Par = job.Item2.Par; r.Ses = job.Item1.Name; r.Cost = job.Item3; r.T = T; r.L = L; r.MaxLot = ml;
                     if (oi > 0) { int h = 0, st = 0; foreach (var d in res[oi]) if (d != null) { if (d.Pnl >= T - 1e-6) h++; else if (d.Pnl <= -L + 1e-6) st++; } r.Hit = 100.0 * h / Math.Max(1, r.N); r.Stop = 100.0 * st / Math.Max(1, r.N); }
                     r.Pnl = res[oi].Select(x => x == null ? float.NaN : x.Pnl).ToArray(); r.WorstDay = res[oi].Select(x => x == null ? float.NaN : x.Worst).ToArray();
+                    var o2 = Stats(ohlc[oi], inst); r.AdvTotal = o2.Total; r.AdvYears = o2.Years;
                     local.Add(r);
                 }
                 lock (lk)
                 {
-                    foreach (var r in local) { rows.Add(r); keep[r.Inst + "|" + r.Ses + "|" + r.Fam + "|" + r.Par] = Tuple.Create(inst, job.Item1, job.Item2); }
-                    done++; if (done % 200 == 0) Console.WriteLine("  " + inst.Name + " " + done + "/" + jobs.Count + " (" + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s)");
+                    rows.AddRange(local);
+                    done++; if (done % 100 == 0) Console.WriteLine("  " + inst.Name + " " + done + "/" + jobs.Count + " (" + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s)");
                 }
             });
         }
+        rows = rows.OrderBy(r => r.Inst).ThenBy(r => r.Fam).ThenBy(r => r.Par).ThenBy(r => r.Ses).ThenBy(r => r.Cost).ThenBy(r => r.T).ThenBy(r => r.L).ToList();
         for (int i = 0; i < rows.Count; i++) rows[i].Id = i;
-        // detail rows: the best by several measures (realistic costs) → daily series + the ADVERSE path re-run
+        // detail rows (daily series): the best by several measures (realistic costs) + the user's own rule
         var real = rows.Where(r => r.Cost == 1 && r.N > 100).ToList(); var det = new HashSet<int>();
         foreach (var g in real.GroupBy(r => r.Inst))
         {
@@ -296,25 +376,18 @@ public static class Fx
             foreach (var r in g.Where(r => r.T > 0).OrderByDescending(r => r.Avg).Take(10)) det.Add(r.Id);
             foreach (var fg in g.GroupBy(r => r.Fam)) foreach (var r in fg.OrderByDescending(r => r.Total).Take(4)) det.Add(r.Id);
             foreach (var fg in g.GroupBy(r => r.Fam)) foreach (var r in fg.OrderByDescending(r => r.Win).Take(2)) det.Add(r.Id);
+            foreach (var r in g.Where(r => r.T == 0).OrderBy(r => r.Total).Take(5)) det.Add(r.Id);
         }
-        // the user's own rule: FLIP TP = SL, SAME after a win, every distance, 24H, no overlay
-        foreach (var r in real.Where(r => r.Fam == "FLIP" && r.T == 0 && r.Par.Contains("SAME") && r.Ses.StartsWith("24H"))) { var p = r.Par.Split('•'); if (p[0].Trim().Substring(3) == p[1].Trim().Substring(3)) det.Add(r.Id); }
-        Console.WriteLine("detail rows: " + det.Count + " → adverse path re-runs");
-        Parallel.ForEach(det.ToList(), new ParallelOptions { MaxDegreeOfParallelism = 4 }, id =>
-        {
-            var r = rows[id]; var src = keep[r.Inst + "|" + r.Ses + "|" + r.Fam + "|" + r.Par]; double ml;
-            var res = RunCfg(src.Item1, src.Item2, src.Item3, src.Item1.Cost, true, NOv, out ml);
-            int oi = 0; for (int i = 0; i < NOv; i++) { double T, L; Ov(i, out T, out L); if (T == r.T && L == r.L) oi = i; }
-            var a = Stats(res[oi], src.Item1); r.AdvTotal = a.Total; r.AdvYears = a.Years;
-        });
-        Write(insts, rows, det, outDir);
+        foreach (var r in real.Where(r => r.Fam == "FLIP" && r.Par.Contains("SAME"))) { var p = r.Par.Split('•'); if (p[0].Trim().Substring(3) == p[1].Trim().Substring(3) && (r.T == 0 || r.Ses.StartsWith("24H"))) det.Add(r.Id); }
+        Console.WriteLine("detail rows: " + det.Count);
+        Write(insts, rows, det, self, outDir);
         Console.WriteLine("done in " + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s");
     }
 
     static string N(double v, int dp = 1) { if (double.IsNaN(v) || double.IsInfinity(v)) return "null"; return Math.Round(v, dp).ToString(CultureInfo.InvariantCulture); }
     static string Q(string s) { return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\""; }
 
-    static void Write(List<Inst> insts, List<Row> rows, HashSet<int> det, string outDir)
+    static void Write(List<Inst> insts, List<Row> rows, HashSet<int> det, List<Self> self, string outDir)
     {
         Directory.CreateDirectory(outDir);
         var fams = rows.Select(r => r.Fam).Distinct().ToList(); var pars = rows.Select(r => r.Par).Distinct().ToList(); var sess = rows.Select(r => r.Ses).Distinct().ToList();
@@ -330,7 +403,8 @@ public static class Fx
             var r = rows[i]; if (i > 0) sb.Append(',');
             sb.Append("[" + r.Id + "," + insts.FindIndex(x => x.Name == r.Inst) + "," + fi[r.Fam] + "," + pi[r.Par] + "," + si[r.Ses] + "," + r.Cost + "," + N(r.T, 0) + "," + N(r.L, 1) + "," + r.N + "," + N(r.Total, 0) + "," + N(r.Avg, 2) + "," + N(r.Win, 1) + "," + N(r.Best, 0) + "," + N(r.Worst, 0) + "," + N(r.P5, 1) + "," + N(r.MaxDd, 0) + "," + N(r.Ruin, 0) + "," + N(r.TrDay, 1) + "," + N(r.Hit, 1) + "," + N(r.Stop, 1) + "," + N(r.MaxLot, 0) + "," + r.Streak + "," + r.YearsUp + ",[" + string.Join(",", r.Years.Select(y => N(y, 0))) + "]," + N(r.AdvTotal, 0) + "," + (r.AdvYears == null ? "null" : "[" + string.Join(",", r.AdvYears.Select(y => N(y, 0))) + "]") + "]");
         }
-        sb.Append("],\"detail\":{");
+        sb.Append("],\"selftest\":[" + string.Join(",", self.Select(x => "[" + Q(x.Fam) + "," + Q(x.Par) + "," + N(x.True, 0) + "," + N(x.Ohlc, 0) + "," + N(x.Bridge, 0) + "," + N(x.TrDay, 0) + "]")) + "]");
+        sb.Append(",\"detail\":{");
         bool first = true;
         foreach (int id in det.OrderBy(x => x))
         {
