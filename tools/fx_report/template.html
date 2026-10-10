@@ -62,7 +62,7 @@ th.sorted { color: var(--ink) }
 td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top }
 td.n { text-align: right; white-space: nowrap }
 tr.row { cursor: pointer } tr.row:hover td { background: color-mix(in srgb, var(--sel) 60%, transparent) } tr.row.on td { background: var(--sel) }
-.strat b { font-weight: 650 } .strat .par { color: var(--ink2); font-size: 12.5px }
+.strat { min-width: 250px } .strat b { font-weight: 650 } .strat .par { color: var(--ink2); font-size: 12.5px } td.ses { white-space: nowrap; font-size: 12.5px; color: var(--ink2) }
 .chip { display: inline-flex; align-items: center; gap: 5px; font-family: var(--f-data); font-size: 11.5px; padding: 2px 7px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent }
 .chip.ok { color: var(--upText); border-color: color-mix(in srgb, var(--upText) 35%, transparent) }
 .chip.bad { color: var(--downText); border-color: color-mix(in srgb, var(--downText) 35%, transparent) }
@@ -131,7 +131,7 @@ textarea { width: 100%; min-height: 140px; font-family: var(--f-data); font-size
   </div>
   <p class="note" id="filterNote"></p>
   <div class="tablebox"><table id="tbl"><thead></thead><tbody></tbody></table></div>
-  <div><button class="act" id="more">Show 50 more</button></div>
+  <div><button class="act" id="more">Show 25 more</button></div>
 </section>
 
 <section aria-labelledby="h-detail" id="detailSec">
@@ -184,9 +184,9 @@ var rows = D.rows.map(function (a) {
 });
 var byId = {}; rows.forEach(function (r) { byId[r.id] = r; });
 D.insts.forEach(function (ins, ii) { var ds = rows.filter(function (r) { return r.inst === ii && r.fam === "FLIP"; }).map(function (r) { return parseFloat(r.par.slice(3)); }); ins.D0 = Math.min.apply(null, ds); });
-var S = { inst: 0, cost: 1, fam: "", ses: "", ov: "0|0", sort: "total", lot: 1, bal: 1000, shown: 50, sel: null };
-try { var saved = JSON.parse(localStorage.getItem("fxlab") || "null"); if (saved) { ["inst","cost","fam","ses","ov","sort","lot","bal"].forEach(function (k) { if (saved[k] !== undefined) S[k] = saved[k]; }); } } catch (e) {}
-function save() { try { localStorage.setItem("fxlab", JSON.stringify(S)); } catch (e) {} }
+var S = { inst: 0, cost: 1, fam: "", ses: "", ov: "*", sort: "yearsup", lot: 1, bal: 1000, shown: 25, sel: null };
+try { var saved = JSON.parse(localStorage.getItem("fxlab2") || "null"); if (saved) { ["inst","cost","fam","ses","ov","sort","lot","bal"].forEach(function (k) { if (saved[k] !== undefined) S[k] = saved[k]; }); } } catch (e) {}
+function save() { try { localStorage.setItem("fxlab2", JSON.stringify(S)); } catch (e) {} }
 var $ = function (id) { return document.getElementById(id); };
 function money(v, dp) { if (v === null || v === undefined || isNaN(v)) return "–"; var s = Math.abs(v).toLocaleString("en-US", { maximumFractionDigits: dp || 0, minimumFractionDigits: dp || 0 }); return (v < 0 ? "−$" : "$") + s; }
 function smoney(v, dp) { if (v === null || v === undefined || isNaN(v)) return "–"; return (v > 0 ? "+" : "") + money(v, dp); }
@@ -204,7 +204,7 @@ $("tags").innerHTML = D.insts.map(function (i) { return '<span class="tag">' + e
 function fillSelect(el, opts, val) { el.innerHTML = opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === val ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join(""); }
 $("segInst").innerHTML = D.insts.map(function (x, i) { return '<button data-v="' + i + '" aria-pressed="' + (i === S.inst) + '">' + esc(x.name) + "</button>"; }).join("");
 function segWire(id, key) {
-  $(id).addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; S[key] = +b.dataset.v; [].forEach.call($(id).children, function (x) { x.setAttribute("aria-pressed", x === b); }); S.shown = 50; render(); });
+  $(id).addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; S[key] = +b.dataset.v; [].forEach.call($(id).children, function (x) { x.setAttribute("aria-pressed", x === b); }); S.shown = 25; render(); });
   [].forEach.call($(id).children, function (x) { x.setAttribute("aria-pressed", +x.dataset.v === S[key]); });
 }
 segWire("segInst", "inst"); segWire("segCost", "cost");
@@ -215,10 +215,10 @@ rows.forEach(function (r) { if (r.T > 0) { var k = r.T + "|" + r.L; if (!seen[k]
 ovs = ovs.slice(0, 2).concat(ovs.slice(2).sort(function (a, b) { var x = a[0].split("|").map(Number), y = b[0].split("|").map(Number); return x[0] - y[0] || x[1] - y[1]; }));
 fillSelect($("fOv"), ovs, S.ov);
 $("fSort").value = S.sort; $("fLot").value = S.lot; $("fBal").value = S.bal;
-["fFam", "fSes", "fOv", "fSort"].forEach(function (id) { $(id).addEventListener("change", function () { var k = { fFam: "fam", fSes: "ses", fOv: "ov", fSort: "sort" }[id]; S[k] = this.value; S.shown = 50; render(); }); });
+["fFam", "fSes", "fOv", "fSort"].forEach(function (id) { $(id).addEventListener("change", function () { var k = { fFam: "fam", fSes: "ses", fOv: "ov", fSort: "sort" }[id]; S[k] = this.value; S.shown = 25; render(); }); });
 $("fLot").addEventListener("input", function () { S.lot = Math.max(1, +this.value || 1); render(true); });
 $("fBal").addEventListener("input", function () { S.bal = Math.max(1, +this.value || 1000); render(true); });
-$("more").addEventListener("click", function () { S.shown += 50; renderTable(); });
+$("more").addEventListener("click", function () { S.shown += 25; renderTable(); });
 
 function filtered() {
   return rows.filter(function (r) {
@@ -248,7 +248,7 @@ function renderTable() {
     return '<tr class="row' + (S.sel === r.id ? " on" : "") + '" tabindex="0" data-id="' + r.id + '">' +
       '<td class="n">' + (i + 1) + "</td>" +
       '<td class="strat"><b>' + esc(r.fam) + "</b>" + star + '<div class="par">' + esc(r.par) + "</div></td>" +
-      "<td>" + esc(r.ses) + "</td><td class=\"n\">" + ovLabel(r.T * L, r.L * L) + "</td>" +
+      "<td class=\"ses\">" + esc(r.ses) + "</td><td class=\"n\">" + ovLabel(r.T * L, r.L * L) + "</td>" +
       '<td class="n ' + cls(r.total) + '">' + smoney(r.total * L) + "</td>" +
       '<td class="n ' + cls(r.avg) + '">' + smoney(r.avg * L, 2) + "</td>" +
       '<td class="n">' + r.win.toFixed(1) + "%</td>" +
@@ -349,7 +349,7 @@ function targetGrid(r) {
     Ts.forEach(function (t) { var x = sib.filter(function (q) { return q.T === t && Math.abs(q.L - t * lr) < 1e-6; })[0]; if (!x) { h += "<td>–</td>"; return; } h += '<td data-id="' + x.id + '" style="background:' + heatColor(x.total, 0) + '" title="hit the target on ' + x.hit + "% of days, the limit on " + x.stop + '%">' + smoney(x.total * L) + '<br><span style="font-size:11px;opacity:.8">' + x.hit.toFixed(0) + "% / " + x.stop.toFixed(0) + "%</span></td>"; });
     h += "</tr>";
   });
-  h += "</tbody></table></div><p class=\"note\">Each cell: total over six years • % of days the target was hit / % of days the limit was hit. No daily stop: " + (none ? smoney(none.total * L) : "–") + ". With no edge, the chance of hitting +T before −L is about L ÷ (T + L), minus the spread drag.</p>";
+  h += "</tbody></table></div><p class=\"note\">Each cell: total over six years • % of days the target was hit / % of days the limit was hit. No daily stop: " + (none ? smoney(none.total * L) : "–") + ". With no edge, of the days that reach either level, about L ÷ (T + L) reach the target first (a third for +$100 / −$50), less the spread.</p>";
   return h;
 }
 var heatScale = 1;
@@ -370,7 +370,7 @@ function advice(r) {
   if (r.win > 65 && r.worst < -15 * Math.max(1, r.best / 3)) out.push("<b>Martingale shape:</b> wins " + r.win.toFixed(0) + "% of days, but the worst day is " + money(r.worst * L) + " against a best day of " + smoney(r.best * L) + ". Many small wins pay for one large loss.");
   out.push(r.ruin * L >= B ? "<b>At " + lotTxt() + " a " + money(B) + " account is blown</b>: the equity falls " + money(r.ruin * L) + " below the start at its worst point. Use a lot of at most ×" + Math.max(0, Math.floor(B / Math.max(1, r.ruin))) + " (" + (parseFloat(i.lot) * Math.max(0, Math.floor(B / Math.max(1, r.ruin)))).toFixed(2) + " lot) for this balance, or a balance above " + money(r.ruin * L) + "." : "<b>Survives at " + lotTxt() + "</b> with " + money(B) + ": the deepest point was " + money(r.ruin * L) + " below the start.");
   out.push("<b>Consistency:</b> profit in " + r.yearsUp() + " of the years; longest run of losing days " + r.streak + ".");
-  if (r.T > 0) out.push("<b>Daily stop:</b> hit +" + money(r.T * L) + " on " + r.hit.toFixed(0) + "% of days and −" + money(r.L * L) + " on " + r.stop.toFixed(0) + "%. A coin with no edge would hit the target about " + (100 * r.L / (r.T + r.L)).toFixed(0) + "% of the time.");
+  if (r.T > 0) out.push("<b>Daily stop:</b> hit +" + money(r.T * L) + " on " + r.hit.toFixed(0) + "% of days and −" + money(r.L * L) + " on " + r.stop.toFixed(0) + "%. With no edge, of the days that reach one of the two, about " + (100 * r.L / (r.T + r.L)).toFixed(0) + "% would reach the target first; here it is " + (r.hit + r.stop > 0 ? (100 * r.hit / (r.hit + r.stop)).toFixed(0) : "–") + "%.");
   return out.map(function (s) { return "<p>" + s + "</p>"; }).join("");
 }
 rows.forEach(function (r) { r.yearsUp = function () { var n = 0, k = 0; this.y.forEach(function (v) { if (v !== null) { k++; if (v > 0) n++; } }); return n + " / " + k; }; });

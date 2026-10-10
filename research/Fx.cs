@@ -127,10 +127,11 @@ public static class Fx
     // ---------------------------------------------------------------- day walk + equity ladder
     sealed class Rec
     {
-        public List<float> V = new List<float>(); public List<int> Tr = new List<int>(); double mx, mn; public double Final, Min; public int Trades;
-        public void Reset() { V.Clear(); Tr.Clear(); mx = 0; mn = 0; }
-        public void Mark(double v, int tr) { if (v > mx + 1e-9) { mx = v; V.Add((float)v); Tr.Add(tr); } else if (v < mn - 1e-9) { mn = v; V.Add((float)v); Tr.Add(tr); } }
-        public void End(double v, int tr) { Mark(v, tr); Final = v; Min = mn; Trades = tr; }
+        public List<float> V = new List<float>(), Lot = new List<float>(); public List<int> Tr = new List<int>(); double mx, mn; public double Final, Min, DayLot; public int Trades;
+        public St S;   // the strategy, to read its biggest position so far
+        public void Reset() { V.Clear(); Tr.Clear(); Lot.Clear(); mx = 0; mn = 0; }
+        public void Mark(double v, int tr) { if (v > mx + 1e-9) { mx = v; V.Add((float)v); Tr.Add(tr); Lot.Add((float)S.MaxLot); } else if (v < mn - 1e-9) { mn = v; V.Add((float)v); Tr.Add(tr); Lot.Add((float)S.MaxLot); } }
+        public void End(double v, int tr) { Mark(v, tr); Final = v; Min = mn; Trades = tr; DayLot = S.MaxLot; }
     }
 
     // Moves the price from a to b. jump = false: the price slides through every level on the way (a straight line, the way
@@ -158,7 +159,7 @@ public static class Fx
     }
 
     // one config through every day: per day the ladder → overlays
-    sealed class DayOut { public float Pnl, Worst; public int Trades; }
+    sealed class DayOut { public float Pnl, Worst, Lot; public int Trades; }
     static readonly double[] OvT = { 0, 5, 10, 20, 50, 100 }; static readonly double[] OvL = { 0.5, 1, 2 };
     static int NOv { get { return 1 + (OvT.Length - 1) * OvL.Length; } }
     static void Ov(int i, out double T, out double L) { if (i == 0) { T = 0; L = 0; return; } i--; T = OvT[1 + i / OvL.Length]; L = T * OvL[i % OvL.Length]; }
@@ -190,13 +191,13 @@ public static class Fx
     static DayOut[][] RunCfg(Inst inst, Ses ses, Cfg cfg, double cost, int model, int nOv, out double maxLot)
     {
         var res = new DayOut[nOv][]; for (int o = 0; o < nOv; o++) res[o] = new DayOut[inst.Days.Count];
-        var rec = new Rec(); maxLot = 0; var s = cfg.Make(cost); s.Cost = cost;
+        var rec = new Rec(); maxLot = 0; var s = cfg.Make(cost); s.Cost = cost; rec.S = s;
         for (int di = 0; di < inst.Days.Count; di++)
         {
             var d = inst.Days[di]; int first = -1, cnt = 0;
             for (int k = ses.K0; k <= ses.K1; k++) if (d.Has(k)) { if (first < 0) first = k; cnt++; }
             if (cnt < 30) continue;
-            s.Real = 0; s.NetLots = 0; s.SumLE = 0; s.Trades = 0; s.Basket = double.NaN; rec.Reset();
+            s.Real = 0; s.NetLots = 0; s.SumLE = 0; s.Trades = 0; s.MaxLot = 0; s.Basket = double.NaN; rec.Reset();
             int hint = first > 0 && d.Has(first - 1) ? Math.Sign(d.C[first - 1] - d.O[first - 1]) : 1;
             s.Start(d.O[first], hint == 0 ? 1 : hint); rec.Mark(s.Eq(d.O[first]), s.Trades);
             double prevC = d.O[first]; int prevK = first - 1;
@@ -210,22 +211,24 @@ public static class Fx
                 prevC = c; prevK = k;
             }
             s.CloseAll(prevC); rec.End(s.Eq(prevC), s.Trades);
-            if (s.MaxLot > maxLot) maxLot = s.MaxLot; s.MaxLot = 0;
+            if (s.MaxLot > maxLot) maxLot = s.MaxLot;
             for (int oi = 0; oi < nOv; oi++)
             {
                 double T, L; Ov(oi, out T, out L); var r = new DayOut();
-                if (oi == 0) { r.Pnl = (float)rec.Final; r.Worst = (float)rec.Min; r.Trades = rec.Trades; }
+                if (oi == 0) { r.Pnl = (float)rec.Final; r.Worst = (float)rec.Min; r.Trades = rec.Trades; r.Lot = (float)rec.DayLot; }
                 else
                 {
                     double mn = 0; bool done = false;
                     for (int i = 0; i < rec.V.Count; i++)
                     {
                         double v = rec.V[i];
-                        if (v >= T) { r.Pnl = (float)T; r.Worst = (float)mn; r.Trades = rec.Tr[i]; done = true; break; }
-                        if (v <= -L) { r.Pnl = (float)-L; r.Worst = (float)-L; r.Trades = rec.Tr[i]; done = true; break; }
+                        // the daily stop closes everything at the next real price: on a jump that can be past the level
+                        double fv = model == 1 ? (v >= T ? T : -L) : v;
+                        if (v >= T) { r.Pnl = (float)fv; r.Worst = (float)mn; r.Trades = rec.Tr[i]; r.Lot = rec.Lot[i]; done = true; break; }
+                        if (v <= -L) { r.Pnl = (float)fv; r.Worst = (float)fv; r.Trades = rec.Tr[i]; r.Lot = rec.Lot[i]; done = true; break; }
                         mn = Math.Min(mn, v);
                     }
-                    if (!done) { r.Pnl = (float)rec.Final; r.Worst = (float)rec.Min; r.Trades = rec.Trades; }
+                    if (!done) { r.Pnl = (float)rec.Final; r.Worst = (float)rec.Min; r.Trades = rec.Trades; r.Lot = (float)rec.DayLot; }
                 }
                 res[oi][di] = r;
             }
@@ -250,7 +253,7 @@ public static class Fx
             double low = cum + d.Worst; minEq = Math.Min(minEq, low); dd = Math.Max(dd, peak - low);
             cum += d.Pnl; peak = Math.Max(peak, cum); vals.Add(d.Pnl);
             if (d.Pnl > 0) { r.Win++; streak = 0; } else { streak++; r.Streak = Math.Max(r.Streak, streak); }
-            r.TrDay += d.Trades; int y = inst.Days[i].Day.Year - yN0; if (y >= 0 && y < 7) { r.Years[y] += d.Pnl; yN[y]++; }
+            r.TrDay += d.Trades; if (d.Lot > r.MaxLot) r.MaxLot = d.Lot; int y = inst.Days[i].Day.Year - yN0; if (y >= 0 && y < 7) { r.Years[y] += d.Pnl; yN[y]++; }
         }
         if (r.N == 0) return r;
         vals.Sort(); r.Total = cum; r.Avg = cum / r.N; r.Win = 100 * r.Win / r.N; r.Best = vals[vals.Count - 1]; r.Worst = vals[0]; r.P5 = vals[(int)(0.05 * (vals.Count - 1))];
@@ -345,7 +348,7 @@ public static class Fx
                 for (int oi = 0; oi < nOv; oi++)
                 {
                     var r = Stats(res[oi], inst); double T, L; Ov(oi, out T, out L);
-                    r.Inst = inst.Name; r.Fam = job.Item2.Fam; r.Par = job.Item2.Par; r.Ses = job.Item1.Name; r.Cost = job.Item3; r.T = T; r.L = L; r.MaxLot = ml;
+                    r.Inst = inst.Name; r.Fam = job.Item2.Fam; r.Par = job.Item2.Par; r.Ses = job.Item1.Name; r.Cost = job.Item3; r.T = T; r.L = L;
                     if (oi > 0) { int h = 0, st = 0; foreach (var d in res[oi]) if (d != null) { if (d.Pnl >= T - 1e-6) h++; else if (d.Pnl <= -L + 1e-6) st++; } r.Hit = 100.0 * h / Math.Max(1, r.N); r.Stop = 100.0 * st / Math.Max(1, r.N); }
                     r.Pnl = res[oi].Select(x => x == null ? float.NaN : x.Pnl).ToArray(); r.WorstDay = res[oi].Select(x => x == null ? float.NaN : x.Worst).ToArray();
                     var o2 = Stats(ohlc[oi], inst); r.AdvTotal = o2.Total; r.AdvYears = o2.Years;
