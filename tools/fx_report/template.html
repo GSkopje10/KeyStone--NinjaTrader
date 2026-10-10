@@ -1,0 +1,447 @@
+<title>HFT Flip Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: a trading-desk tool. Verdict strip on top, then explorer (filters → table → detail), heatmaps, the math, next steps. */
+:root {
+  --bg: #f6f7f5; --panel: #fcfcfb; --ink: #121513; --ink2: #4c524e; --muted: #858a85; --grid: #e2e4df; --axis: #c3c6bf; --line: rgba(18,21,19,.10);
+  --gold: #a87a10; --gold-wash: #f4ead2;
+  --up: #2a78d6; --down: #e34948; --mid: #f0efec; --upText: #006300; --downText: #b8302f; --alt: #eb6834;
+  --warn: #fab219; --sel: #e9eef8;
+  --f-display: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1110; --panel: #1a1c1b; --ink: #f0efec; --ink2: #c3c2b7; --muted: #8d918b; --grid: #2c2e2c; --axis: #3c3f3b; --line: rgba(255,255,255,.10);
+  --gold: #e0b44a; --gold-wash: #2e2716; --up: #3987e5; --down: #e66767; --mid: #383835; --upText: #3fbf4a; --downText: #f07a7a; --alt: #d95926; --warn: #fab219; --sel: #1f2a3a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1110; --panel: #1a1c1b; --ink: #f0efec; --ink2: #c3c2b7; --muted: #8d918b; --grid: #2c2e2c; --axis: #3c3f3b; --line: rgba(255,255,255,.10);
+  --gold: #e0b44a; --gold-wash: #2e2716; --up: #3987e5; --down: #e66767; --mid: #383835; --upText: #3fbf4a; --downText: #f07a7a; --alt: #d95926; --warn: #fab219; --sel: #1f2a3a; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 36px }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0 }
+h1 { font-size: clamp(30px, 5vw, 46px); font-weight: 800; font-stretch: 72%; letter-spacing: -.01em; line-height: 1.02 }
+h2 { font-size: 24px; font-weight: 750; font-stretch: 80% }
+h3 { font-size: 16px; font-weight: 700 }
+p { margin: 0; max-width: 72ch }
+.eyebrow { font-family: var(--f-data); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted) }
+.num, td.n, .mono { font-family: var(--f-data); font-variant-numeric: tabular-nums }
+.up { color: var(--upText) } .down { color: var(--downText) }
+header { display: grid; gap: 14px }
+header .sub { color: var(--ink2); max-width: 80ch }
+.tag { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f-data); font-size: 12px; padding: 3px 8px; border-radius: 4px; background: var(--gold-wash); color: var(--gold); border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent) }
+.tags { display: flex; flex-wrap: wrap; gap: 8px }
+section { display: grid; gap: 16px; min-width: 0 }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; min-width: 0 }
+.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px }
+.vcard { display: grid; gap: 6px; align-content: start }
+.vcard .big { font-family: var(--f-display); font-size: 30px; font-weight: 800; font-stretch: 75%; line-height: 1.05 }
+.vcard p { color: var(--ink2); font-size: 14px }
+.analysis { display: grid; gap: 14px; }
+.analysis h3 { margin-top: 6px }
+.analysis p, .analysis li { color: var(--ink2) }
+.analysis ol, .analysis ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 80ch }
+.analysis b { color: var(--ink) }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: end }
+.ctl { display: grid; gap: 4px; min-width: 0 }
+.ctl label { font-family: var(--f-data); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted) }
+select, input[type=number], input[type=text] { font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 1px solid var(--axis); border-radius: 6px; padding: 7px 9px; max-width: 100% }
+input[type=number] { width: 110px; font-family: var(--f-data) }
+.seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 6px; overflow: hidden }
+.seg button { font: inherit; font-size: 13.5px; border: 0; background: var(--bg); color: var(--ink2); padding: 7px 12px; cursor: pointer }
+.seg button[aria-pressed=true] { background: var(--ink); color: var(--bg); font-weight: 600 }
+button.act { font: inherit; font-size: 13.5px; border: 1px solid var(--axis); background: var(--panel); color: var(--ink); padding: 7px 12px; border-radius: 6px; cursor: pointer }
+button.act:hover, .seg button:hover { filter: brightness(.96) }
+button:focus-visible, select:focus-visible, input:focus-visible, tr:focus-visible { outline: 2px solid var(--up); outline-offset: 2px }
+.tablebox { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel) }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px }
+th { position: sticky; top: 0; background: var(--panel); text-align: left; font-family: var(--f-data); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 10px 10px; border-bottom: 1px solid var(--axis); white-space: nowrap; cursor: pointer; user-select: none }
+th.sorted { color: var(--ink) }
+td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top }
+td.n { text-align: right; white-space: nowrap }
+tr.row { cursor: pointer } tr.row:hover td { background: color-mix(in srgb, var(--sel) 60%, transparent) } tr.row.on td { background: var(--sel) }
+.strat b { font-weight: 650 } .strat .par { color: var(--ink2); font-size: 12.5px }
+.chip { display: inline-flex; align-items: center; gap: 5px; font-family: var(--f-data); font-size: 11.5px; padding: 2px 7px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent }
+.chip.ok { color: var(--upText); border-color: color-mix(in srgb, var(--upText) 35%, transparent) }
+.chip.bad { color: var(--downText); border-color: color-mix(in srgb, var(--downText) 35%, transparent) }
+.chip.star { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 35%, transparent) }
+.yrs { display: inline-flex; gap: 2px; align-items: center; height: 22px; vertical-align: middle }
+.yrs i { display: block; width: 6px; border-radius: 1px }
+.detail { display: grid; gap: 18px }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px }
+.kpi { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; display: grid; gap: 2px }
+.kpi .v { font-family: var(--f-data); font-size: 18px; font-weight: 600 }
+.kpi .k { font-size: 12px; color: var(--muted) }
+.charts { display: grid; grid-template-columns: 2fr 1fr; gap: 18px }
+@media (max-width: 860px) { .charts { grid-template-columns: 1fr } }
+.chart { position: relative; min-width: 0 }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible }
+.chart .cap { font-size: 13px; color: var(--ink2); margin-bottom: 6px }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--ink2); margin-top: 6px }
+.legend span { display: inline-flex; align-items: center; gap: 6px }
+.legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block }
+.tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--axis); border-radius: 6px; padding: 7px 9px; font-size: 12.5px; font-family: var(--f-data); box-shadow: 0 4px 14px rgba(0,0,0,.12); white-space: nowrap; z-index: 5 }
+.advice { border-left: 3px solid var(--gold); padding: 4px 0 4px 14px; display: grid; gap: 8px }
+.advice p { color: var(--ink2) }
+.advice b { color: var(--ink) }
+.heat { overflow-x: auto }
+.heat table td { text-align: right; font-family: var(--f-data); font-size: 12.5px; padding: 6px 8px; border: 2px solid var(--panel); cursor: pointer; white-space: nowrap }
+.heat table td.lab { text-align: left; font-family: var(--f-body); background: transparent; cursor: default; color: var(--ink2) }
+.heat table th { cursor: default; position: static }
+.note { font-size: 13px; color: var(--muted) }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px } @media (max-width: 860px) { .split { grid-template-columns: 1fr } }
+.steps { display: grid; gap: 10px; counter-reset: s; padding: 0; margin: 0; list-style: none }
+.steps li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: start; color: var(--ink2) }
+.steps li::before { counter-increment: s; content: counter(s); font-family: var(--f-data); font-weight: 600; color: var(--gold); border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent); border-radius: 50%; width: 28px; height: 28px; display: grid; place-items: center; font-size: 13px }
+.steps b { color: var(--ink) }
+textarea { width: 100%; min-height: 140px; font-family: var(--f-data); font-size: 12px; background: var(--bg); color: var(--ink); border: 1px solid var(--axis); border-radius: 6px; padding: 10px }
+@media (prefers-reduced-motion: no-preference) { tr.row td { transition: background .12s } }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">MetaTrader-style HFT research • hedging allowed • 1-minute paths 2020–2026</div>
+  <h1>HFT Flip Lab</h1>
+  <p class="sub">Your rule (0.01 lot, +$1 / −$1, a loss reopens the other way) and four other high-frequency families — martingale flip, zone-recovery hedge, hedge grid, follow / fade the last minute — run through every minute of six years, five sessions and fifteen daily target / loss-limit pairs. <b id="rowsCount"></b></p>
+  <div class="tags" id="tags"></div>
+</header>
+
+<section aria-labelledby="h-verdict">
+  <h2 id="h-verdict">The answer first</h2>
+  <div class="verdict" id="verdict"></div>
+  <div class="panel analysis">
+<!--ANALYSIS-->
+  </div>
+</section>
+
+<section aria-labelledby="h-explore">
+  <h2 id="h-explore">Explore every run</h2>
+  <div class="panel controls" role="group" aria-label="Filters">
+    <div class="ctl"><label>Symbol</label><div class="seg" id="segInst"></div></div>
+    <div class="ctl"><label>Costs</label><div class="seg" id="segCost"><button data-v="1" aria-pressed="true">Spread + commission</button><button data-v="0" aria-pressed="false">Zero (theory)</button></div></div>
+    <div class="ctl"><label for="fFam">Strategy family</label><select id="fFam"></select></div>
+    <div class="ctl"><label for="fSes">Session (New York time)</label><select id="fSes"></select></div>
+    <div class="ctl"><label for="fOv">Daily target / loss limit</label><select id="fOv"></select></div>
+    <div class="ctl"><label for="fSort">Sort by</label><select id="fSort">
+      <option value="total">Total profit</option><option value="yearsup">Years in profit</option><option value="win">Winning days %</option><option value="avg">Average day</option><option value="worst">Worst day (least bad)</option><option value="ruin">Balance needed (smallest)</option><option value="adv">Adverse-path total</option></select></div>
+    <div class="ctl"><label for="fLot">Lot × <span id="lotUnit"></span></label><input type="number" id="fLot" min="1" max="10000" step="1" value="1"></div>
+    <div class="ctl"><label for="fBal">Account balance $</label><input type="number" id="fBal" min="10" step="10" value="1000"></div>
+  </div>
+  <p class="note" id="filterNote"></p>
+  <div class="tablebox"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+  <div><button class="act" id="more">Show 50 more</button></div>
+</section>
+
+<section aria-labelledby="h-detail" id="detailSec">
+  <h2 id="h-detail">Selected run</h2>
+  <div class="panel detail" id="detail"></div>
+</section>
+
+<section aria-labelledby="h-heat">
+  <h2 id="h-heat">Where it works and where it breaks</h2>
+  <p class="note">Total profit over six years for every setting of the chosen family, by session (selected symbol and costs, no daily target). Blue = profit, red = loss, grey ≈ 0. Click a cell to open that run.</p>
+  <div class="panel heat" id="heat"></div>
+</section>
+
+<section aria-labelledby="h-math">
+  <h2 id="h-math">The math behind every row</h2>
+  <div class="split">
+    <div class="panel analysis" id="mathA"></div>
+    <div class="panel"><div class="chart" id="bleed"></div></div>
+  </div>
+</section>
+
+<section aria-labelledby="h-next">
+  <h2 id="h-next">How to go forward</h2>
+  <div class="panel analysis">
+<!--NEXT-->
+  </div>
+  <div class="panel" style="display:grid;gap:10px">
+    <h3>Ask an AI about the selected run</h3>
+    <p class="note">Copies a plain-text brief of the selected run (settings, yearly results, risk, the model's limits) to paste into Claude for a second opinion.</p>
+    <textarea id="brief" readonly aria-label="Brief for an AI"></textarea>
+    <div><button class="act" id="copyBrief">Copy the brief</button> <span class="note" id="copied"></span></div>
+  </div>
+</section>
+</div>
+
+<script id="fxdata" type="application/json">/*DATA*/</script>
+<script>
+(function () {
+"use strict";
+var D = JSON.parse(document.getElementById("fxdata").textContent);
+var C = {}; D.cols.forEach(function (c, i) { C[c] = i; });
+var rows = D.rows.map(function (a) {
+  return { id: a[C.id], inst: a[C.inst], fam: D.fams[a[C.fam]], par: D.pars[a[C.par]], ses: D.sess[a[C.ses]], sesI: a[C.ses], cost: a[C.cost], T: a[C.T], L: a[C.L], n: a[C.n], total: a[C.total], avg: a[C.avg], win: a[C.win], best: a[C.best], worst: a[C.worst], p5: a[C.p5], maxdd: a[C.maxdd], ruin: a[C.ruin], trday: a[C.trday], hit: a[C.hit], stop: a[C.stop], maxlot: a[C.maxlot], streak: a[C.streak], yearsup: a[C.yearsup], y: a[C.y], adv: a[C.adv], advy: a[C.advy] };
+});
+var byId = {}; rows.forEach(function (r) { byId[r.id] = r; });
+var S = { inst: 0, cost: 1, fam: "", ses: "", ov: "0|0", sort: "total", lot: 1, bal: 1000, shown: 50, sel: null };
+try { var saved = JSON.parse(localStorage.getItem("fxlab") || "null"); if (saved) { ["inst","cost","fam","ses","ov","sort","lot","bal"].forEach(function (k) { if (saved[k] !== undefined) S[k] = saved[k]; }); } } catch (e) {}
+function save() { try { localStorage.setItem("fxlab", JSON.stringify(S)); } catch (e) {} }
+var $ = function (id) { return document.getElementById(id); };
+function money(v, dp) { if (v === null || v === undefined || isNaN(v)) return "–"; var s = Math.abs(v).toLocaleString("en-US", { maximumFractionDigits: dp || 0, minimumFractionDigits: dp || 0 }); return (v < 0 ? "−$" : "$") + s; }
+function smoney(v, dp) { if (v === null || v === undefined || isNaN(v)) return "–"; return (v > 0 ? "+" : "") + money(v, dp); }
+function cls(v) { return v > 0 ? "up" : v < 0 ? "down" : ""; }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+function ovLabel(T, L) { return T ? "+$" + T + " / −$" + L : "none"; }
+function inst() { return D.insts[S.inst]; }
+function lotTxt() { var i = inst(); var b = parseFloat(i.lot); return (b * S.lot).toFixed(2) + " lot"; }
+
+// ---------- header tags
+$("rowsCount").textContent = rows.length.toLocaleString("en-US") + " results.";
+$("tags").innerHTML = D.insts.map(function (i) { return '<span class="tag">' + esc(i.name) + " ← " + esc(i.src) + " futures • " + i.days.length + " sessions • cost " + i.cost + " per round trip at " + i.lot + " lot</span>"; }).join("") + '<span class="tag">intrabar path: MetaTrader "1 minute OHLC"</span>';
+
+// ---------- controls
+function fillSelect(el, opts, val) { el.innerHTML = opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (o[0] === val ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join(""); }
+$("segInst").innerHTML = D.insts.map(function (x, i) { return '<button data-v="' + i + '" aria-pressed="' + (i === S.inst) + '">' + esc(x.name) + "</button>"; }).join("");
+function segWire(id, key) {
+  $(id).addEventListener("click", function (e) { var b = e.target.closest("button"); if (!b) return; S[key] = +b.dataset.v; [].forEach.call($(id).children, function (x) { x.setAttribute("aria-pressed", x === b); }); S.shown = 50; render(); });
+  [].forEach.call($(id).children, function (x) { x.setAttribute("aria-pressed", +x.dataset.v === S[key]); });
+}
+segWire("segInst", "inst"); segWire("segCost", "cost");
+fillSelect($("fFam"), [["", "All families"]].concat(D.fams.map(function (f) { return [f, f]; })), S.fam);
+fillSelect($("fSes"), [["", "All sessions"]].concat(D.sess.map(function (f) { return [f, f]; })), S.ses);
+var ovs = [["0|0", "None: trade the whole session"], ["*", "Any (best of all)"]]; var seen = {};
+rows.forEach(function (r) { if (r.T > 0) { var k = r.T + "|" + r.L; if (!seen[k]) { seen[k] = 1; ovs.push([k, "Stop at +$" + r.T + " or −$" + r.L + " a day"]); } } });
+ovs = ovs.slice(0, 2).concat(ovs.slice(2).sort(function (a, b) { var x = a[0].split("|").map(Number), y = b[0].split("|").map(Number); return x[0] - y[0] || x[1] - y[1]; }));
+fillSelect($("fOv"), ovs, S.ov);
+$("fSort").value = S.sort; $("fLot").value = S.lot; $("fBal").value = S.bal;
+["fFam", "fSes", "fOv", "fSort"].forEach(function (id) { $(id).addEventListener("change", function () { var k = { fFam: "fam", fSes: "ses", fOv: "ov", fSort: "sort" }[id]; S[k] = this.value; S.shown = 50; render(); }); });
+$("fLot").addEventListener("input", function () { S.lot = Math.max(1, +this.value || 1); render(true); });
+$("fBal").addEventListener("input", function () { S.bal = Math.max(1, +this.value || 1000); render(true); });
+$("more").addEventListener("click", function () { S.shown += 50; renderTable(); });
+
+function filtered() {
+  return rows.filter(function (r) {
+    if (r.inst !== S.inst || r.cost !== S.cost || r.n < 50) return false;
+    if (S.fam && r.fam !== S.fam) return false; if (S.ses && r.ses !== S.ses) return false;
+    if (S.ov !== "*" && S.cost === 1) { var p = S.ov.split("|"); if (r.T !== +p[0] || r.L !== +p[1]) return false; }
+    return true;
+  });
+}
+var sorters = { total: function (r) { return -r.total; }, yearsup: function (r) { return -(r.yearsup * 1e9 + r.total); }, win: function (r) { return -r.win; }, avg: function (r) { return -r.avg; }, worst: function (r) { return -r.worst; }, ruin: function (r) { return r.ruin; }, adv: function (r) { return r.adv === null ? 1e15 : -r.adv; } };
+
+var cols = [
+  { k: "rank", h: "#" }, { k: "strat", h: "Strategy" }, { k: "ses", h: "Session" }, { k: "ov", h: "Daily stop" },
+  { k: "total", h: "Total 6y", s: "total" }, { k: "avg", h: "Avg day", s: "avg" }, { k: "win", h: "Win days", s: "win" }, { k: "worst", h: "Worst day", s: "worst" },
+  { k: "ruin", h: "Balance needed", s: "ruin" }, { k: "blow", h: "At your balance" }, { k: "trday", h: "Trades / day" }, { k: "years", h: "2020 → 2026", s: "yearsup" }, { k: "adv", h: "Adverse path", s: "adv" }
+];
+function yrsSpark(y) {
+  var m = Math.max.apply(null, y.map(function (v) { return Math.abs(v || 0); })) || 1;
+  return '<span class="yrs" aria-hidden="true">' + y.map(function (v) { var h = Math.max(2, Math.round(10 * Math.abs(v || 0) / m)); return '<i style="height:' + h + "px;background:" + (v > 0 ? "var(--up)" : v < 0 ? "var(--down)" : "var(--axis)") + ";transform:translateY(" + (v > 0 ? -h / 2 : h / 2) + 'px)"></i>'; }).join("") + "</span>";
+}
+var list = [];
+function renderTable() {
+  var L = S.lot, B = S.bal;
+  $("tbl").querySelector("thead").innerHTML = "<tr>" + cols.map(function (c) { return '<th scope="col"' + (c.s ? ' data-s="' + c.s + '"' : "") + (c.s === S.sort ? ' class="sorted"' : "") + ">" + c.h + (c.s === S.sort ? " ▾" : "") + "</th>"; }).join("") + "</tr>";
+  var html = list.slice(0, S.shown).map(function (r, i) {
+    var blown = r.ruin * L >= B, star = D.detail[r.id] ? ' <span class="chip star" title="Daily equity curve available">★ curve</span>' : "";
+    return '<tr class="row' + (S.sel === r.id ? " on" : "") + '" tabindex="0" data-id="' + r.id + '">' +
+      '<td class="n">' + (i + 1) + "</td>" +
+      '<td class="strat"><b>' + esc(r.fam) + "</b>" + star + '<div class="par">' + esc(r.par) + "</div></td>" +
+      "<td>" + esc(r.ses) + "</td><td class=\"n\">" + ovLabel(r.T * L, r.L * L) + "</td>" +
+      '<td class="n ' + cls(r.total) + '">' + smoney(r.total * L) + "</td>" +
+      '<td class="n ' + cls(r.avg) + '">' + smoney(r.avg * L, 2) + "</td>" +
+      '<td class="n">' + r.win.toFixed(1) + "%</td>" +
+      '<td class="n down">' + money(r.worst * L) + "</td>" +
+      '<td class="n">' + money(r.ruin * L) + "</td>" +
+      "<td>" + (blown ? '<span class="chip bad">✕ blown</span>' : '<span class="chip ok">✓ survives</span>') + "</td>" +
+      '<td class="n">' + r.trday.toFixed(1) + "</td>" +
+      "<td>" + yrsSpark(r.y) + ' <span class="mono" style="font-size:12px;color:var(--muted)">' + r.yearsup + "/7</span></td>" +
+      '<td class="n ' + cls(r.adv) + '">' + (r.adv === null ? "–" : smoney(r.adv * L)) + "</td></tr>";
+  }).join("");
+  $("tbl").querySelector("tbody").innerHTML = html || '<tr><td colspan="13" class="note" style="padding:18px">No runs match these filters. Widen the family or session, or pick "Any" daily stop.</td></tr>';
+  $("more").hidden = list.length <= S.shown;
+}
+$("tbl").addEventListener("click", function (e) {
+  var th = e.target.closest("th[data-s]"); if (th) { S.sort = th.dataset.s; $("fSort").value = S.sort; render(); return; }
+  var tr = e.target.closest("tr.row"); if (tr) { select(+tr.dataset.id, true); }
+});
+$("tbl").addEventListener("keydown", function (e) { if (e.key === "Enter") { var tr = e.target.closest("tr.row"); if (tr) select(+tr.dataset.id, true); } });
+
+function render(soft) {
+  save(); $("lotUnit").textContent = inst().lot + " = " + lotTxt();
+  list = filtered().sort(function (a, b) { return sorters[S.sort](a) - sorters[S.sort](b); });
+  var pos = list.filter(function (r) { return r.total > 0; }).length;
+  $("filterNote").textContent = list.length.toLocaleString("en-US") + " runs match • " + pos + " made money over the six years (" + (list.length ? (100 * pos / list.length).toFixed(1) : 0) + "%). Money columns are at " + lotTxt() + "; \"At your balance\" = blown if the worst equity point at this lot reaches " + money(S.bal) + ".";
+  renderTable();
+  if (!soft || S.sel === null) { if (S.sel === null || !byId[S.sel] || byId[S.sel].inst !== S.inst) S.sel = list.length ? list[0].id : null; }
+  renderDetail(); renderHeat(); renderMath();
+}
+function select(id, scroll) { S.sel = id; var r = byId[id]; if (r && r.inst !== S.inst) { S.inst = r.inst; } [].forEach.call(document.querySelectorAll("tr.row"), function (t) { t.classList.toggle("on", +t.dataset.id === id); }); renderDetail(); if (scroll) $("detailSec").scrollIntoView({ behavior: "smooth", block: "start" }); }
+
+// ---------- SVG helpers
+var NS = "http://www.w3.org/2000/svg";
+function el(tag, at, parent) { var e = document.createElementNS(NS, tag); for (var k in at) e.setAttribute(k, at[k]); if (parent) parent.appendChild(e); return e; }
+function niceTicks(lo, hi, n) { var span = hi - lo || 1, step = Math.pow(10, Math.floor(Math.log10(span / n))), err = span / n / step; if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2; var t = [], s = Math.ceil(lo / step) * step; for (var v = s; v <= hi + 1e-9; v += step) t.push(Math.abs(v) < 1e-9 ? 0 : v); return t; }
+function kfmt(v) { var a = Math.abs(v); var s = a >= 1e6 ? (a / 1e6).toFixed(a >= 1e7 ? 0 : 1) + "M" : a >= 1e3 ? (a / 1e3).toFixed(a >= 1e4 ? 0 : 1) + "k" : a.toFixed(a < 10 && a % 1 ? 1 : 0); return (v < 0 ? "−$" : "$") + s; }
+
+function equityChart(box, r) {
+  var d = D.detail[r.id], days = inst().days, L = S.lot, B = S.bal;
+  box.innerHTML = '<div class="cap">Account equity day by day at ' + lotTxt() + " from " + money(B) + " (closed days, with each day's lowest intraday point shaded)</div>";
+  if (!d) { box.innerHTML += '<p class="note">The day-by-day curve is stored for the ★ featured runs only (the best ones by each measure, and your own rule). The yearly bars on the right are available for every run.</p>'; return; }
+  var W = 760, H = 300, m = { l: 62, r: 14, t: 12, b: 28 };
+  var xs = [], eq = [], lo = [], cum = B, blownAt = -1;
+  for (var i = 0; i < d.p.length; i++) { if (d.p[i] === null) continue; var low = cum + (d.w[i] || 0) * L; cum += d.p[i] * L; xs.push(i); eq.push(cum); lo.push(low); if (blownAt < 0 && low <= 0) blownAt = xs.length - 1; }
+  if (!xs.length) return;
+  var minY = Math.min(0, Math.min.apply(null, lo)), maxY = Math.max(B, Math.max.apply(null, eq));
+  var sx = function (k) { return m.l + (W - m.l - m.r) * k / (xs.length - 1 || 1); }, sy = function (v) { return m.t + (H - m.t - m.b) * (1 - (v - minY) / (maxY - minY || 1)); };
+  var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Equity curve" }, box);
+  niceTicks(minY, maxY, 5).forEach(function (t) { el("line", { x1: m.l, x2: W - m.r, y1: sy(t), y2: sy(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)", "stroke-width": 1 }, svg); var tx = el("text", { x: m.l - 8, y: sy(t) + 4, "text-anchor": "end", "font-size": 11, fill: "var(--muted)", "font-family": "IBM Plex Mono, monospace" }, svg); tx.textContent = kfmt(t); });
+  var lastY = -1; xs.forEach(function (di, k) { var y = days[di].slice(0, 4); if (y !== lastY) { lastY = y; el("line", { x1: sx(k), x2: sx(k), y1: H - m.b, y2: H - m.b + 4, stroke: "var(--axis)" }, svg); var tx = el("text", { x: sx(k) + 3, y: H - 8, "font-size": 11, fill: "var(--muted)", "font-family": "IBM Plex Mono, monospace" }, svg); tx.textContent = y; } });
+  var area = "M" + sx(0) + "," + sy(eq[0]); for (var k = 1; k < eq.length; k++) area += "L" + sx(k) + "," + sy(eq[k]); for (k = lo.length - 1; k >= 0; k--) area += "L" + sx(k) + "," + sy(lo[k]); area += "Z";
+  el("path", { d: area, fill: "var(--down)", "fill-opacity": .18, stroke: "none" }, svg);
+  var line = "M" + sx(0) + "," + sy(eq[0]); for (k = 1; k < eq.length; k++) line += "L" + sx(k) + "," + sy(eq[k]);
+  el("path", { d: line, fill: "none", stroke: "var(--up)", "stroke-width": 2, "stroke-linejoin": "round" }, svg);
+  el("line", { x1: m.l, x2: W - m.r, y1: sy(0), y2: sy(0), stroke: "var(--down)", "stroke-dasharray": "4 4", "stroke-width": 1.5 }, svg);
+  var zl = el("text", { x: W - m.r, y: sy(0) - 5, "text-anchor": "end", "font-size": 11, fill: "var(--downText)" }, svg); zl.textContent = "account at $0 = blown";
+  if (blownAt >= 0) { el("circle", { cx: sx(blownAt), cy: sy(lo[blownAt]), r: 5, fill: "var(--down)", stroke: "var(--panel)", "stroke-width": 2 }, svg); var bl = el("text", { x: Math.min(sx(blownAt) + 8, W - 160), y: sy(lo[blownAt]) - 8, "font-size": 12, fill: "var(--downText)", "font-weight": 600 }, svg); bl.textContent = "blown " + days[xs[blownAt]]; }
+  el("circle", { cx: sx(eq.length - 1), cy: sy(eq[eq.length - 1]), r: 4, fill: "var(--up)", stroke: "var(--panel)", "stroke-width": 2 }, svg);
+  // hover
+  var cross = el("line", { y1: m.t, y2: H - m.b, stroke: "var(--ink2)", "stroke-width": 1, opacity: 0 }, svg), dot = el("circle", { r: 4, fill: "var(--up)", stroke: "var(--panel)", "stroke-width": 2, opacity: 0 }, svg);
+  var hit = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" }, svg), tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; box.appendChild(tip);
+  hit.addEventListener("mousemove", function (e) {
+    var rc = svg.getBoundingClientRect(), x = (e.clientX - rc.left) * W / rc.width, k = Math.round((x - m.l) / (W - m.l - m.r) * (xs.length - 1)); k = Math.max(0, Math.min(xs.length - 1, k));
+    cross.setAttribute("x1", sx(k)); cross.setAttribute("x2", sx(k)); cross.setAttribute("opacity", .5); dot.setAttribute("cx", sx(k)); dot.setAttribute("cy", sy(eq[k])); dot.setAttribute("opacity", 1);
+    var di = xs[k]; tip.hidden = false; tip.innerHTML = days[di] + "<br>equity " + money(eq[k]) + "<br>day " + smoney(d.p[di] * L, 2) + " • low " + smoney((d.w[di] || 0) * L, 2);
+    var px = (sx(k) / W) * rc.width; tip.style.left = Math.min(px + 12, rc.width - 190) + "px"; tip.style.top = ((sy(eq[k]) / H) * rc.height + 10) + "px";
+  });
+  hit.addEventListener("mouseleave", function () { tip.hidden = true; cross.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); });
+  var lg = document.createElement("div"); lg.className = "legend"; lg.innerHTML = '<span><i style="background:var(--up)"></i>equity at each session close</span><span><i style="background:var(--down);opacity:.4;height:8px"></i>lowest point inside the day</span>'; box.appendChild(lg);
+}
+function yearBars(box, r) {
+  var L = S.lot, W = 360, H = 300, m = { l: 56, r: 10, t: 16, b: 28 }, ys = D.years, v = r.y.map(function (x) { return (x || 0) * L; }), a = r.advy ? r.advy.map(function (x) { return (x || 0) * L; }) : null;
+  box.innerHTML = '<div class="cap">Profit per year' + (a ? " • MetaTrader path vs adverse path" : "") + "</div>";
+  var all = v.concat(a || []), lo = Math.min(0, Math.min.apply(null, all)), hi = Math.max(0, Math.max.apply(null, all)); if (lo === hi) hi = 1;
+  var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Profit per year" }, box);
+  var sy = function (x) { return m.t + (H - m.t - m.b) * (1 - (x - lo) / (hi - lo)); }, bw = (W - m.l - m.r) / ys.length;
+  niceTicks(lo, hi, 4).forEach(function (t) { el("line", { x1: m.l, x2: W - m.r, y1: sy(t), y2: sy(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg); var tx = el("text", { x: m.l - 6, y: sy(t) + 4, "text-anchor": "end", "font-size": 11, fill: "var(--muted)", "font-family": "IBM Plex Mono, monospace" }, svg); tx.textContent = kfmt(t); });
+  var tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; box.appendChild(tip);
+  ys.forEach(function (y, i) {
+    var x0 = m.l + i * bw, w = a ? (bw - 8) / 2 : bw - 10, xs0 = x0 + 4;
+    [[v[i], "var(--up)", "var(--down)", 0], a ? [a[i], "var(--alt)", "var(--alt)", 1] : null].forEach(function (s) {
+      if (!s) return; var val = s[0], top = sy(Math.max(0, val)), bot = sy(Math.min(0, val)), x = xs0 + s[3] * (w + 2);
+      var rect = el("rect", { x: x, y: top, width: w, height: Math.max(1, bot - top), rx: 2, fill: val >= 0 ? s[1] : s[2], "fill-opacity": s[3] ? .75 : 1 }, svg);
+      rect.addEventListener("mousemove", function (e) { var rc = box.getBoundingClientRect(); tip.hidden = false; tip.innerHTML = y + (s[3] ? " adverse path" : " MetaTrader path") + "<br>" + smoney(val); tip.style.left = Math.min(e.clientX - rc.left + 10, rc.width - 170) + "px"; tip.style.top = (e.clientY - rc.top + 10) + "px"; });
+      rect.addEventListener("mouseleave", function () { tip.hidden = true; });
+    });
+    var tx = el("text", { x: x0 + bw / 2, y: H - 8, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)", "font-family": "IBM Plex Mono, monospace" }, svg); tx.textContent = "'" + String(y).slice(2);
+  });
+  var lg = document.createElement("div"); lg.className = "legend"; lg.innerHTML = '<span><i style="background:var(--up)"></i>profit year</span><span><i style="background:var(--down)"></i>loss year</span>' + (a ? '<span><i style="background:var(--alt)"></i>adverse path (worst order inside each minute)</span>' : ""); box.appendChild(lg);
+}
+function targetGrid(r) {
+  var sib = rows.filter(function (x) { return x.inst === r.inst && x.cost === 1 && x.fam === r.fam && x.par === r.par && x.ses === r.ses; });
+  var Ts = [], Ls = {}; sib.forEach(function (x) { if (x.T > 0) { if (Ts.indexOf(x.T) < 0) Ts.push(x.T); Ls[x.L / x.T] = 1; } }); Ts.sort(function (a, b) { return a - b; }); var Lr = Object.keys(Ls).map(Number).sort(function (a, b) { return a - b; });
+  if (!Ts.length) return "";
+  var none = sib.filter(function (x) { return x.T === 0; })[0], L = S.lot;
+  var h = '<div class="heat"><table><thead><tr><th>Daily target →<br>loss limit ↓</th>' + Ts.map(function (t) { return "<th>+$" + t * L + "</th>"; }).join("") + "</tr></thead><tbody>";
+  Lr.forEach(function (lr) {
+    h += '<tr><td class="lab">' + (lr === 1 ? "same as target" : lr < 1 ? "half the target" : "twice the target") + "</td>";
+    Ts.forEach(function (t) { var x = sib.filter(function (q) { return q.T === t && Math.abs(q.L - t * lr) < 1e-6; })[0]; if (!x) { h += "<td>–</td>"; return; } h += '<td data-id="' + x.id + '" style="background:' + heatColor(x.total, 0) + '" title="hit the target on ' + x.hit + "% of days, the limit on " + x.stop + '%">' + smoney(x.total * L) + '<br><span style="font-size:11px;opacity:.8">' + x.hit.toFixed(0) + "% / " + x.stop.toFixed(0) + "%</span></td>"; });
+    h += "</tr>";
+  });
+  h += "</tbody></table></div><p class=\"note\">Each cell: total over six years • % of days the target was hit / % of days the limit was hit. No daily stop: " + (none ? smoney(none.total * L) : "–") + ". With no edge, the chance of hitting +T before −L is about L ÷ (T + L), minus the spread drag.</p>";
+  return h;
+}
+var heatScale = 1;
+function heatColor(v, scale) {
+  var s = scale || heatScale; var t = Math.max(-1, Math.min(1, v / (s || 1))); var a = Math.round(Math.pow(Math.abs(t), .6) * 85);
+  return t >= 0 ? "color-mix(in srgb, var(--up) " + a + "%, var(--mid))" : "color-mix(in srgb, var(--down) " + a + "%, var(--mid))";
+}
+function advice(r) {
+  var L = S.lot, B = S.bal, out = [], i = inst();
+  var zero = rows.filter(function (x) { return x.inst === r.inst && x.cost === 0 && x.fam === r.fam && x.par === r.par && x.ses === r.ses; })[0];
+  var costDay = r.trday * i.cost;
+  if (r.cost === 1 && zero) {
+    if (zero.total > 0 && r.total < 0) out.push("<b>The spread kills it.</b> Before costs this made " + smoney(zero.total * L) + "; after costs " + smoney(r.total * L) + ". About " + r.trday.toFixed(0) + " trades a day × " + money(i.cost * L, 2) + " each = roughly " + money(costDay * L, 2) + " a day paid to the broker.");
+    else if (zero.total <= 0) out.push("<b>No edge even before costs</b> (" + smoney(zero.total * L) + " at zero spread). The costs only make it worse: about " + money(costDay * L, 2) + " a day.");
+    else out.push("<b>It survives the costs</b>: " + smoney(zero.total * L) + " before costs, " + smoney(r.total * L) + " after. Costs ≈ " + money(costDay * L, 2) + " a day.");
+  }
+  if (r.adv !== null) { var gap = r.total - r.adv; out.push(Math.abs(gap) > Math.abs(r.total) * .5 + 50 ? "<b>Fragile to the path inside the minute.</b> With the worst order of high and low it makes " + smoney(r.adv * L) + " instead of " + smoney(r.total * L) + ". Only a real-tick test can settle which is closer." : "<b>Robust to the path inside the minute</b>: the adverse order gives " + smoney(r.adv * L) + " (vs " + smoney(r.total * L) + ")."); }
+  if (r.win > 65 && r.worst < -15 * Math.max(1, r.best / 3)) out.push("<b>Martingale shape:</b> wins " + r.win.toFixed(0) + "% of days, but the worst day is " + money(r.worst * L) + " against a best day of " + smoney(r.best * L) + ". Many small wins pay for one large loss.");
+  out.push(r.ruin * L >= B ? "<b>At " + lotTxt() + " a " + money(B) + " account is blown</b>: the equity falls " + money(r.ruin * L) + " below the start at its worst point. Use a lot of at most ×" + Math.max(0, Math.floor(B / Math.max(1, r.ruin))) + " (" + (parseFloat(i.lot) * Math.max(0, Math.floor(B / Math.max(1, r.ruin)))).toFixed(2) + " lot) for this balance, or a balance above " + money(r.ruin * L) + "." : "<b>Survives at " + lotTxt() + "</b> with " + money(B) + ": the deepest point was " + money(r.ruin * L) + " below the start.");
+  out.push("<b>Consistency:</b> profit in " + r.yearsUp() + " of the years; longest run of losing days " + r.streak + ".");
+  if (r.T > 0) out.push("<b>Daily stop:</b> hit +" + money(r.T * L) + " on " + r.hit.toFixed(0) + "% of days and −" + money(r.L * L) + " on " + r.stop.toFixed(0) + "%. A coin with no edge would hit the target about " + (100 * r.L / (r.T + r.L)).toFixed(0) + "% of the time.");
+  return out.map(function (s) { return "<p>" + s + "</p>"; }).join("");
+}
+rows.forEach(function (r) { r.yearsUp = function () { var n = 0, k = 0; this.y.forEach(function (v) { if (v !== null) { k++; if (v > 0) n++; } }); return n + " / " + k; }; });
+function renderDetail() {
+  var r = byId[S.sel], box = $("detail"); if (!r) { box.innerHTML = '<p class="note">Pick a row in the table.</p>'; brief(null); return; }
+  var L = S.lot, i = D.insts[r.inst];
+  box.innerHTML = '<div style="display:grid;gap:4px"><div class="eyebrow">' + esc(i.name) + " • " + esc(r.ses) + " • " + (r.cost ? "with spread + commission" : "zero cost (theory)") + " • daily stop " + ovLabel(r.T * L, r.L * L) + "</div><h3 style=\"font-size:20px\">" + esc(r.fam) + ": " + esc(r.par) + '</h3><p class="note">Prices in ' + esc(i.unit) + "; shown at " + lotTxt() + ".</p></div>" +
+    '<div class="kpis">' + [["Total 6 years", smoney(r.total * L), cls(r.total)], ["Average day", smoney(r.avg * L, 2), cls(r.avg)], ["Winning days", r.win.toFixed(1) + "%", ""], ["Best / worst day", smoney(r.best * L) + " / " + money(r.worst * L), ""], ["5% of days worse than", money(r.p5 * L, 1), "down"], ["Max drawdown", money(r.maxdd * L), "down"], ["Balance needed", money(r.ruin * L), ""], ["Trades a day", r.trday.toFixed(1), ""], ["Biggest position", (r.maxlot * parseFloat(i.lot) * L).toFixed(2) + " lot", ""]].map(function (k) { return '<div class="kpi"><span class="k">' + k[0] + '</span><span class="v ' + k[2] + '">' + k[1] + "</span></div>"; }).join("") + "</div>" +
+    '<div class="charts"><div class="chart" id="eqc"></div><div class="chart" id="ybc"></div></div>' +
+    '<div class="advice"><h3>Reading it</h3>' + advice(r) + "</div>" +
+    (r.cost === 1 ? '<div><h3 style="margin-bottom:8px">Same strategy, every daily target and loss limit</h3>' + targetGrid(r) + "</div>" : "");
+  equityChart($("eqc"), r); yearBars($("ybc"), r);
+  [].forEach.call(box.querySelectorAll("td[data-id]"), function (td) { td.addEventListener("click", function () { select(+td.dataset.id, false); }); });
+  brief(r);
+}
+function renderHeat() {
+  var fam = S.fam || "FLIP", sub = rows.filter(function (r) { return r.inst === S.inst && r.cost === S.cost && r.fam === fam && r.T === 0; });
+  var pars = [], sess = D.sess.slice(); sub.forEach(function (r) { if (pars.indexOf(r.par) < 0) pars.push(r.par); });
+  heatScale = Math.max.apply(null, sub.map(function (r) { return Math.abs(r.total); }).sort(function (a, b) { return a - b; }).slice(0, Math.max(1, Math.floor(sub.length * .9)))) || 1;
+  var L = S.lot, h = "<h3 style=\"margin-bottom:10px\">" + esc(fam) + " • " + esc(inst().name) + (S.fam ? "" : ' <span class="note">(pick a family above to change)</span>') + '</h3><table><thead><tr><th>Setting</th>' + sess.map(function (s) { return "<th>" + esc(s) + "</th>"; }).join("") + "</tr></thead><tbody>";
+  pars.forEach(function (p) { h += '<tr><td class="lab">' + esc(p) + "</td>" + sess.map(function (s) { var r = sub.filter(function (x) { return x.par === p && x.ses === s; })[0]; return r ? '<td data-id="' + r.id + '" style="background:' + heatColor(r.total) + '" title="' + esc(r.fam + " • " + r.par + " • " + r.ses) + '">' + smoney(r.total * L) + "</td>" : "<td>–</td>"; }).join("") + "</tr>"; });
+  $("heat").innerHTML = h + "</tbody></table>";
+  [].forEach.call($("heat").querySelectorAll("td[data-id]"), function (td) { td.addEventListener("click", function () { select(+td.dataset.id, true); }); });
+}
+function renderMath() {
+  var i = inst(), L = S.lot, unit = parseFloat(i.lot) * L;
+  $("mathA").innerHTML = "<h3>Why a 1:1 flip cannot win on its own</h3>" +
+    "<p>With a target equal to the stop, price has the same chance to touch either level first. Flipping after a loss does not change those odds: the next trade is again a coin toss. So the result before costs is about zero, and after costs it is <b>minus the cost of every trade</b>.</p>" +
+    "<p>On " + esc(i.name) + " one round trip costs about <b>" + money(i.cost * L, 2) + "</b> at " + lotTxt() + " (spread + commission). For a <b>" + money(1 * (i.name === "XAUUSD" ? L : L)) + "</b> target that is " + (100 * i.cost / (i.name === "XAUUSD" ? 1 : 1)).toFixed(0) + "% of every win. Fifty trades a day pays the broker " + money(50 * i.cost * L) + " a day.</p>" +
+    "<p>Martingale and recovery hedges do not change the sum either. They move the losses into rare, very large days: many small winning days, then one day that takes months of them back (or the account).</p>" +
+    "<p>What can change the sum is a <b>real edge</b> (the price really more likely to go one way after a pattern) or <b>costs near zero</b>. The heat map shows which sessions come closest.</p>";
+  var box = $("bleed"); box.innerHTML = '<div class="cap">Zero-cost result vs real-cost result for every run of ' + esc(i.name) + " (no daily stop), at " + lotTxt() + ". Each dot is one strategy setting in one session.</div>";
+  var zs = {}; rows.forEach(function (r) { if (r.inst === S.inst && r.T === 0 && r.n >= 50) { var k = r.fam + "|" + r.par + "|" + r.ses; (zs[k] = zs[k] || {})[r.cost] = r; } });
+  var pts = Object.keys(zs).map(function (k) { return zs[k]; }).filter(function (p) { return p[0] && p[1]; }).map(function (p) { return { x: p[0].total * L, y: p[1].total * L, r: p[1] }; });
+  if (!pts.length) return;
+  var W = 520, H = 360, m = { l: 64, r: 14, t: 12, b: 40 };
+  var xs = pts.map(function (p) { return p.x; }).sort(function (a, b) { return a - b; }), ys = pts.map(function (p) { return p.y; }).sort(function (a, b) { return a - b; });
+  var q = function (a, f) { return a[Math.floor(f * (a.length - 1))]; };
+  var x0 = Math.min(q(xs, .02), 0), x1 = Math.max(q(xs, .98), 0), y0 = Math.min(q(ys, .02), 0), y1 = Math.max(q(ys, .98), 0);
+  var sx = function (v) { return m.l + (W - m.l - m.r) * (Math.max(x0, Math.min(x1, v)) - x0) / (x1 - x0 || 1); }, sy = function (v) { return m.t + (H - m.t - m.b) * (1 - (Math.max(y0, Math.min(y1, v)) - y0) / (y1 - y0 || 1)); };
+  var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Zero-cost vs real-cost totals" }, box);
+  niceTicks(y0, y1, 5).forEach(function (t) { el("line", { x1: m.l, x2: W - m.r, y1: sy(t), y2: sy(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg); var tx = el("text", { x: m.l - 6, y: sy(t) + 4, "text-anchor": "end", "font-size": 11, fill: "var(--muted)", "font-family": "IBM Plex Mono, monospace" }, svg); tx.textContent = kfmt(t); });
+  niceTicks(x0, x1, 5).forEach(function (t) { el("line", { y1: m.t, y2: H - m.b, x1: sx(t), x2: sx(t), stroke: t === 0 ? "var(--axis)" : "var(--grid)" }, svg); var tx = el("text", { x: sx(t), y: H - m.b + 16, "text-anchor": "middle", "font-size": 11, fill: "var(--muted)", "font-family": "IBM Plex Mono, monospace" }, svg); tx.textContent = kfmt(t); });
+  var xl = el("text", { x: (m.l + W - m.r) / 2, y: H - 4, "text-anchor": "middle", "font-size": 12, fill: "var(--ink2)" }, svg); xl.textContent = "six-year total with zero cost →";
+  var yl = el("text", { x: 14, y: (m.t + H - m.b) / 2, "text-anchor": "middle", "font-size": 12, fill: "var(--ink2)", transform: "rotate(-90 14 " + (m.t + H - m.b) / 2 + ")" }, svg); yl.textContent = "with spread + commission →";
+  var tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; box.appendChild(tip);
+  pts.forEach(function (p) {
+    var c = el("circle", { cx: sx(p.x), cy: sy(p.y), r: 4, fill: p.y > 0 ? "var(--up)" : "var(--down)", "fill-opacity": .55, stroke: "var(--panel)", "stroke-width": 1 }, svg);
+    c.addEventListener("mousemove", function (e) { var rc = box.getBoundingClientRect(); tip.hidden = false; tip.innerHTML = esc(p.r.fam) + "<br>" + esc(p.r.par) + "<br>" + esc(p.r.ses) + "<br>zero cost " + smoney(p.x) + " • real " + smoney(p.y); tip.style.left = Math.min(e.clientX - rc.left + 10, rc.width - 260) + "px"; tip.style.top = (e.clientY - rc.top + 10) + "px"; });
+    c.addEventListener("mouseleave", function () { tip.hidden = true; }); c.style.cursor = "pointer"; c.addEventListener("click", function () { select(p.r.id, true); });
+  });
+  var n = pts.filter(function (p) { return p.y > 0; }).length; var lg = document.createElement("div"); lg.className = "legend"; lg.innerHTML = '<span><i style="background:var(--up);height:8px;width:8px;border-radius:50%"></i>' + n + " profitable after costs</span><span><i style=\"background:var(--down);height:8px;width:8px;border-radius:50%\"></i>" + (pts.length - n) + " losing after costs</span><span>outliers pinned to the edge</span>"; box.appendChild(lg);
+}
+function brief(r) {
+  if (!r) { $("brief").value = ""; return; }
+  var i = D.insts[r.inst], L = S.lot;
+  var t = "I tested a high-frequency MetaTrader strategy on 6 years of 1-minute data (" + i.name + " modelled from " + i.src + " futures prices, intrabar path = MT '1 minute OHLC', costs " + (r.cost ? i.cost + " per round trip at " + i.lot + " lot" : "zero") + ").\n" +
+    "Strategy: " + r.fam + " — " + r.par + "\nSession (New York time): " + r.ses + "\nDaily stop: " + ovLabel(r.T * L, r.L * L) + "\nLot: " + lotTxt() + ", account " + money(S.bal) + "\n\n" +
+    "Results: total " + smoney(r.total * L) + " over " + r.n + " sessions; average day " + smoney(r.avg * L, 2) + "; winning days " + r.win.toFixed(1) + "%; best day " + smoney(r.best * L) + "; worst day " + money(r.worst * L) + "; max drawdown " + money(r.maxdd * L) + "; balance needed " + money(r.ruin * L) + "; trades a day " + r.trday.toFixed(1) + "; biggest position " + (r.maxlot * parseFloat(i.lot) * L).toFixed(2) + " lot.\n" +
+    "Per year 2020–2026: " + r.y.map(function (v, k) { return D.years[k] + " " + smoney((v || 0) * L); }).join(", ") + "\n" +
+    (r.adv !== null ? "Same run with the adverse intrabar order: " + smoney(r.adv * L) + "\n" : "") +
+    "\nQuestions: Is there a real edge here or is it an artefact of the 1-minute path? How would you test it on real ticks in the MT5 strategy tester? What lot and daily stop keep the risk of ruin low? What would you change?";
+  $("brief").value = t;
+}
+$("copyBrief").addEventListener("click", function () { var t = $("brief").value; var done = function () { $("copied").textContent = "Copied."; }; try { navigator.clipboard.writeText(t).then(done, function () { $("brief").select(); $("copied").textContent = "Selected: press Ctrl+C."; }); } catch (e) { $("brief").select(); $("copied").textContent = "Selected: press Ctrl+C."; } });
+
+// ---------- verdict cards (computed from the data)
+(function () {
+  var html = "";
+  D.insts.forEach(function (ins, ii) {
+    var real = rows.filter(function (r) { return r.inst === ii && r.cost === 1 && r.n >= 200; }), zero = rows.filter(function (r) { return r.inst === ii && r.cost === 0 && r.n >= 200; });
+    var pos = real.filter(function (r) { return r.total > 0; }).length, robust = real.filter(function (r) { return r.total > 0 && r.yearsup >= 6; }).length;
+    var userRule = real.filter(function (r) { return r.fam === "FLIP" && r.T === 0 && /^TP 1 • SL 1 • after a win SAME/.test(r.par) && /^24H/.test(r.ses); })[0];
+    html += '<div class="panel vcard"><span class="eyebrow">' + esc(ins.name) + " • after costs</span><span class=\"big\">" + pos.toLocaleString("en-US") + " of " + real.length.toLocaleString("en-US") + "</span><p>runs made money over six years; " + robust + " of them were up in at least 6 of the 7 calendar years.</p></div>";
+    if (userRule && ii === 0) html += '<div class="panel vcard"><span class="eyebrow">Your rule • XAUUSD 0.01 lot • ±$1 • 24h</span><span class="big ' + cls(userRule.total) + '">' + smoney(userRule.total) + "</span><p>" + userRule.trday.toFixed(0) + " trades a day at about $" + ins.cost.toFixed(2) + " each in spread and commission. Before costs: " + smoney((zero.filter(function (z) { return z.fam === userRule.fam && z.par === userRule.par && z.ses === userRule.ses; })[0] || {}).total) + ".</p></div>";
+  });
+  $("verdict").innerHTML = html;
+})();
+render();
+})();
+</script>

@@ -23,6 +23,7 @@ public static class ResearchMain
             }
             return 0;
         }
+        if (args.Length > 2 && args[2] == "fx") { Fx.Run(data, outDir); return 0; }
         if (args.Length > 2 && args[2] == "zeroedge") { ZeroEdge.Run(outDir); return 0; }
         if (args.Length > 2 && args[2] == "hunt") { var bs = new Dictionary<string, List<RDay>> { { "MNQ", R.Load(data, "MNQ") }, { "MGC", R.Load(data, "MGC") } }; Hunt.Run(bs, outDir); return 0; }
         if (args.Length > 2 && args[2] == "evaldaily") { var bs = new Dictionary<string, List<RDay>> { { "MNQ", R.Load(data, "MNQ") }, { "MGC", R.Load(data, "MGC") } }; EvalDaily.Run(bs, new DateTime(2026, 1, 1), new DateTime(2026, 12, 31), outDir); return 0; }
