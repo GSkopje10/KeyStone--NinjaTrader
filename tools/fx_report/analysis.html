@@ -1,1 +1,27 @@
-<p>Analysis placeholder.</p>
+<h3>Short version</h3>
+<ol>
+  <li><b>Your rule loses in every session.</b> XAUUSD, 0.01 lot, +$1 / −$1, reopen the other way after a loss, 24 hours: <b>−$103,637 over six years after spread and commission</b> (−$68 a day). It makes about 285 trades a day at about $0.20 each, and only 2% of days end green. Asia −$35,630, London −$21,685, New York morning −$27,159, New York session −$34,557. Even with zero costs it is −$16,908: a coin flip, no edge.</li>
+  <li><b>No daily target rescues it.</b> All 75 versions with a daily target and loss limit (+$5 to +$100, five sessions) lose; the best is −$1,721. With no edge, of the days that reach either level, about L ÷ (T + L) reach the target first. Here they reached it 10 to 17 points <i>less</i> often than that, because every stop also pays the spread and slips.</li>
+  <li><b>Across everything I tried, the costs win.</b> 28,160 runs with real costs (6 families × distances × 5 sessions × 16 daily-stop settings): 555 of 15,360 on gold and 460 of 12,800 on NAS100 made money (3.6%), and only 7 on each were up in 6 of the 7 years. That is about what luck alone produces among this many tries.</li>
+  <li><b>Hedging does not create an edge.</b> A buy and a sell open together are no position at all. Zone recovery and hedge grids are just one net position paying more commissions on bigger lots. Median result after costs: zone recovery −$55,446 on gold; hedge grid −$5,911 on gold and −$269,262 on NAS100.</li>
+  <li><b>Martingale shows the biggest number and the biggest danger.</b> The top gold run (lot ×3 after each loss, up to 8 times, $10 target and stop, 24h) shows +$623,605 at a 0.01 base, but its positions reach 65.61 lots, its worst day is −$113,466 and its drawdown $315,571; $600K of the profit came in 2025–2026 alone, when gold ran up. A $1,000 account is blown long before.</li>
+  <li><b>The backtest trap is real.</b> Test your rule in a tester that fills each minute with smooth generated ticks and it shows <b>+$87,412</b> after costs instead of −$103,637. On a computer-made random price with no edge, the same tester shows trend-following rules earning $1,400 to $20,000 where the truth is about $0 (proof section). Many "holy grail" scalping EAs are sold on exactly these backtests.</li>
+</ol>
+
+<h3>What survived, and why it is not HFT</h3>
+<p>The 14 runs that were up in at least 6 of 7 years all trade rarely, with big targets. They behave more like ordinary trades than high-frequency ones:</p>
+<ul>
+  <li><b>NAS100, flip TP 40 / SL 80 points, New York 09:30–16:00, stop the day at +$100 / −$50:</b> +$6,495 over six years at 1.00 lot (about $4 a day), 2.2 trades a day, never more than 1 lot, worst drawdown $1,491.</li>
+  <li><b>XAUUSD, zone recovery with a $10 zone and exit, 24h:</b> +$29,710 at a 0.01 base, but positions up to 9.44 lots, a $15,267 drawdown, and most of the profit in 2025–2026.</li>
+</ul>
+<p>Neither is proven. Among 28,160 tries, a handful will always look steady by chance. Treat them as ideas to test on real ticks, not as rules to fund.</p>
+
+<h3>What I checked so the numbers can be trusted</h3>
+<ul>
+  <li><b>No invented prices.</b> Every order fills at a real traded price (each minute's open and close). A self-test on a random price with no edge confirms this method lands near $0 like the true second-by-second result, while a smooth-tick backtest does not.</li>
+  <li><b>Two first results were wrong, and the self-test caught them.</b> A straight-line minute (first version) and a random path inside the minute (second version) both made fair coin flips look like money machines or money pits. Both were dropped.</li>
+  <li><b>Daily stops fill at the next real price, not exactly at the limit.</b> With stops filled exactly at −$50, a group of NAS100 New York rules looked steady in every year. Filled at the real price, that pattern disappeared (827 steady runs became 7). A rule whose edge lives in perfect stop fills has no edge.</li>
+</ul>
+
+<h3>My recommendation</h3>
+<p>Do not put the ±$1 flip, the martingale or the hedge grid on a live account: the math and six years of prices agree that they pay the broker. If you want to keep exploring HFT, take one of the two slow survivors above to MetaTrader 5's "Every tick based on real ticks" test on your broker's own data, then a month on demo. Expect it to fail, and only fund it if it doesn't. For making money from the $5K you plan to deploy, the prop-firm plan from the previous study still has better math: its edge comes from the firms' payout rules, not from out-trading the spread.</p>

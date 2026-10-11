@@ -21,6 +21,8 @@
 * { box-sizing: border-box }
 body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
 .wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 36px }
+.wrap, section, .detail, .analysis, header { grid-template-columns: minmax(0, 1fr) } .wrap > *, section > *, .detail > *, .analysis > * { min-width: 0 }
+@media (max-width: 520px) { .wrap { padding-inline: 16px } .tag { white-space: normal } }
 h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0 }
 h1 { font-size: clamp(30px, 5vw, 46px); font-weight: 800; font-stretch: 72%; letter-spacing: -.01em; line-height: 1.02 }
 h2 { font-size: 24px; font-weight: 750; font-stretch: 80% }
@@ -183,7 +185,7 @@ var rows = D.rows.map(function (a) {
   return { id: a[C.id], inst: a[C.inst], fam: D.fams[a[C.fam]], par: D.pars[a[C.par]], ses: D.sess[a[C.ses]], sesI: a[C.ses], cost: a[C.cost], T: a[C.T], L: a[C.L], n: a[C.n], total: a[C.total], avg: a[C.avg], win: a[C.win], best: a[C.best], worst: a[C.worst], p5: a[C.p5], maxdd: a[C.maxdd], ruin: a[C.ruin], trday: a[C.trday], hit: a[C.hit], stop: a[C.stop], maxlot: a[C.maxlot], streak: a[C.streak], yearsup: a[C.yearsup], y: a[C.y], adv: a[C.adv], advy: a[C.advy] };
 });
 var byId = {}; rows.forEach(function (r) { byId[r.id] = r; });
-D.insts.forEach(function (ins, ii) { var ds = rows.filter(function (r) { return r.inst === ii && r.fam === "FLIP"; }).map(function (r) { return parseFloat(r.par.slice(3)); }); ins.D0 = Math.min.apply(null, ds); });
+D.insts.forEach(function (ins, ii) { var ds = rows.filter(function (r) { return r.inst === ii && r.fam === "FLIP"; }).map(function (r) { return parseFloat(r.par.slice(3)); }); ins.D0 = ds.indexOf(1) >= 0 ? 1 : Math.min.apply(null, ds); });
 var S = { inst: 0, cost: 1, fam: "", ses: "", ov: "*", sort: "yearsup", lot: 1, bal: 1000, shown: 25, sel: null };
 try { var saved = JSON.parse(localStorage.getItem("fxlab2") || "null"); if (saved) { ["inst","cost","fam","ses","ov","sort","lot","bal"].forEach(function (k) { if (saved[k] !== undefined) S[k] = saved[k]; }); } } catch (e) {}
 function save() { try { localStorage.setItem("fxlab2", JSON.stringify(S)); } catch (e) {} }
@@ -368,7 +370,7 @@ function advice(r) {
   }
   if (r.adv !== null) { var gap = r.adv - r.total; out.push(gap > Math.abs(r.total) * .5 + 50 ? "<b>Beware the backtest trap.</b> A backtest that fills in each minute with smooth generated ticks would show " + smoney(r.adv * L) + " instead of " + smoney(r.total * L) + ". That extra money does not exist in real prices (see the proof section below)." : "<b>A smooth-tick backtest gives a similar answer</b> (" + smoney(r.adv * L) + "), so this result does not hinge on what happens inside the minute."); }
   if (r.win > 65 && r.worst < -15 * Math.max(1, r.best / 3)) out.push("<b>Martingale shape:</b> wins " + r.win.toFixed(0) + "% of days, but the worst day is " + money(r.worst * L) + " against a best day of " + smoney(r.best * L) + ". Many small wins pay for one large loss.");
-  out.push(r.ruin * L >= B ? "<b>At " + lotTxt() + " a " + money(B) + " account is blown</b>: the equity falls " + money(r.ruin * L) + " below the start at its worst point. Use a lot of at most ×" + Math.max(0, Math.floor(B / Math.max(1, r.ruin))) + " (" + (parseFloat(i.lot) * Math.max(0, Math.floor(B / Math.max(1, r.ruin)))).toFixed(2) + " lot) for this balance, or a balance above " + money(r.ruin * L) + "." : "<b>Survives at " + lotTxt() + "</b> with " + money(B) + ": the deepest point was " + money(r.ruin * L) + " below the start.");
+  out.push(r.ruin * L >= B ? "<b>At " + lotTxt() + " a " + money(B) + " account is blown</b>: the equity falls " + money(r.ruin * L) + " below the start at its worst point." + (Math.floor(B / Math.max(1, r.ruin)) >= 1 ? " Use a lot of at most ×" + Math.floor(B / Math.max(1, r.ruin)) + " (" + (parseFloat(i.lot) * Math.floor(B / Math.max(1, r.ruin))).toFixed(2) + " lot) for this balance." : " Even the smallest lot (" + i.lot + ") is too big for this balance: it needs more than " + money(r.ruin) + ".") : "<b>Survives at " + lotTxt() + "</b> with " + money(B) + ": the deepest point was " + money(r.ruin * L) + " below the start.");
   out.push("<b>Consistency:</b> profit in " + r.yearsUp() + " of the years; longest run of losing days " + r.streak + ".");
   if (r.T > 0) out.push("<b>Daily stop:</b> hit +" + money(r.T * L) + " on " + r.hit.toFixed(0) + "% of days and −" + money(r.L * L) + " on " + r.stop.toFixed(0) + "%. With no edge, of the days that reach one of the two, about " + (100 * r.L / (r.T + r.L)).toFixed(0) + "% would reach the target first; here it is " + (r.hit + r.stop > 0 ? (100 * r.hit / (r.hit + r.stop)).toFixed(0) : "–") + "%.");
   return out.map(function (s) { return "<p>" + s + "</p>"; }).join("");
@@ -389,6 +391,8 @@ function renderDetail() {
 function renderHeat() {
   var fam = S.fam || "FLIP", sub = rows.filter(function (r) { return r.inst === S.inst && r.cost === S.cost && r.fam === fam && r.T === 0; });
   var pars = [], sess = D.sess.slice(); sub.forEach(function (r) { if (pars.indexOf(r.par) < 0) pars.push(r.par); });
+  var nums = function (p) { return (p.match(/[0-9.]+/g) || []).map(Number); };
+  pars.sort(function (a, b) { var x = nums(a), y = nums(b); for (var k = 0; k < Math.max(x.length, y.length); k++) { var d = (x[k] || 0) - (y[k] || 0); if (d) return d; } return a < b ? -1 : a > b ? 1 : 0; });
   heatScale = Math.max.apply(null, sub.map(function (r) { return Math.abs(r.total); }).sort(function (a, b) { return a - b; }).slice(0, Math.max(1, Math.floor(sub.length * .9)))) || 1;
   var L = S.lot, h = "<h3 style=\"margin-bottom:10px\">" + esc(fam) + " • " + esc(inst().name) + (S.fam ? "" : ' <span class="note">(pick a family above to change)</span>') + '</h3><table><thead><tr><th>Setting</th>' + sess.map(function (s) { return "<th>" + esc(s) + "</th>"; }).join("") + "</tr></thead><tbody>";
   pars.forEach(function (p) { h += '<tr><td class="lab">' + esc(p) + "</td>" + sess.map(function (s) { var r = sub.filter(function (x) { return x.par === p && x.ses === s; })[0]; return r ? '<td data-id="' + r.id + '" style="background:' + heatColor(r.total) + '" title="' + esc(r.fam + " • " + r.par + " • " + r.ses) + '">' + smoney(r.total * L) + "</td>" : "<td>–</td>"; }).join("") + "</tr>"; });
@@ -399,7 +403,7 @@ function renderMath() {
   var i = inst(), L = S.lot, unit = parseFloat(i.lot) * L;
   $("mathA").innerHTML = "<h3>Why a 1:1 flip cannot win on its own</h3>" +
     "<p>With a target equal to the stop, price has the same chance to touch either level first. Flipping after a loss does not change those odds: the next trade is again a coin toss. So the result before costs is about zero, and after costs it is <b>minus the cost of every trade</b>.</p>" +
-    "<p>On " + esc(i.name) + " one round trip costs about <b>" + money(i.cost * L, 2) + "</b> at " + lotTxt() + " (spread + commission). Against a target of " + money(i.D0 * L) + " that is " + (100 * i.cost / i.D0).toFixed(0) + "% of every win, paid on the losses too. Fifty trades a day pays the broker " + money(50 * i.cost * L) + " a day.</p>" +
+    "<p>On " + esc(i.name) + " one round trip costs about <b>" + money(i.cost * L, 2) + "</b> at " + lotTxt() + " (spread + commission). Against a target of " + money(i.D0 * L, 2) + " that is " + (100 * i.cost / i.D0).toFixed(0) + "% of every win, paid on the losses too. Fifty trades a day pays the broker " + money(50 * i.cost * L) + " a day.</p>" +
     "<p>Martingale and recovery hedges do not change the sum either. They move the losses into rare, very large days: many small winning days, then one day that takes months of them back (or the account).</p>" +
     "<p>What can change the sum is a <b>real edge</b> (the price really more likely to go one way after a pattern) or <b>costs near zero</b>. The heat map shows which sessions come closest.</p>";
   var box = $("bleed"); box.innerHTML = '<div class="cap">Zero-cost result vs real-cost result for every run of ' + esc(i.name) + " (no daily stop), at " + lotTxt() + ". Each dot is one strategy setting in one session.</div>";
@@ -452,7 +456,7 @@ $("copyBrief").addEventListener("click", function () { var t = $("brief").value;
 (function () {
   var st = D.selftest || []; if (!st.length) return;
   var mx = Math.max.apply(null, st.map(function (x) { return Math.abs(x[3]); })) || 1;
-  var h = '<table><thead><tr><th>Rule (random price, $ at 0.01 lot)</th><th>True result (every second)</th><th>This lab (real prices only)</th><th>Smooth-tick backtest</th><th>Trades / day (true • lab)</th></tr></thead><tbody>';
+  var h = '<table><thead><tr><th>Rule (random price, $ at 0.01 lot)</th><th>True result (every second)</th><th>This lab (real prices only)</th><th>Smooth-tick backtest</th><th>Trades a day</th></tr></thead><tbody>';
   st.forEach(function (x) { h += '<tr><td class="lab"><b>' + esc(x[0]) + "</b> " + esc(x[1]) + '</td><td style="background:' + heatColor(x[2], mx) + '">' + smoney(x[2]) + '</td><td style="background:' + heatColor(x[4], mx) + '">' + smoney(x[4]) + '</td><td style="background:' + heatColor(x[3], mx) + '">' + smoney(x[3]) + "</td><td>" + x[5] + " • " + x[6] + "</td></tr>"; });
   $("self").innerHTML = h + "</tbody></table>";
 })();
