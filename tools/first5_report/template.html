@@ -1,0 +1,381 @@
+<title>MNQ First Five Minutes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (max 1120px) of numbered findings; tables scroll inside their own frames; a sticky chip bar jumps between findings. */
+:root {
+  --bg: #f3f5f8; --surface: #ffffff; --raise: #eef1f6; --ink: #131b28; --muted: #5a6577; --line: #d8dee8;
+  --accent: #9a6a06; --accent-soft: #f6ead0; --bull: #11794a; --bull-soft: #dcf1e6; --bear: #b8322a; --bear-soft: #f8e1df; --flat: #7b8495;
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --body: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", "Consolas", "SFMono-Regular", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b1019; --surface: #121a27; --raise: #182234; --ink: #e4e9f1; --muted: #93a0b5; --line: #243149;
+  --accent: #e4b450; --accent-soft: #33290f; --bull: #3cc489; --bull-soft: #10301f; --bear: #f2695d; --bear-soft: #3a1714; --flat: #8b95a8; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0b1019; --surface: #121a27; --raise: #182234; --ink: #e4e9f1; --muted: #93a0b5; --line: #243149;
+  --accent: #e4b450; --accent-soft: #33290f; --bull: #3cc489; --bull-soft: #10301f; --bear: #f2695d; --bear-soft: #3a1714; --flat: #8b95a8; color-scheme: dark }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); margin: 0; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); letter-spacing: .01em; text-wrap: balance; margin: 0; line-height: 1.05; }
+h1 { font-size: clamp(42px, 8vw, 76px); font-weight: 700; }
+h2 { font-size: clamp(28px, 4.4vw, 38px); font-weight: 600; }
+h3 { font-size: 21px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.eyebrow { font: 600 12px/1.3 var(--body); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 17px; max-width: 70ch; }
+.muted { color: var(--muted); }
+.num, td.n, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+header.hero { display: grid; gap: 14px; }
+.hero .candle-row { display: flex; gap: 10px; align-items: flex-end; height: 54px; }
+.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.stat .k { font: 600 11.5px/1.3 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.stat .v { font: 600 34px/1 var(--display); }
+.stat .s { font-size: 13px; color: var(--muted); }
+nav.chips { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 8px; display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); }
+nav.chips a { font: 600 12.5px/1 var(--body); color: var(--ink); text-decoration: none; padding: 7px 11px; border-radius: 999px; background: var(--raise); }
+nav.chips a:hover, nav.chips a:focus-visible { background: var(--accent-soft); outline: none; }
+section { display: grid; gap: 16px; scroll-margin-top: 64px; }
+.sec-head { display: grid; gap: 6px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; min-width: 0; align-content: start; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 16px; align-items: start; }
+.scroll { overflow-x: auto; min-width: 0; }
+.stack { display: grid; gap: 16px; }
+td.wide { min-width: 340px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th { text-align: left; font: 600 11px/1.3 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.n, th.n { text-align: right; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+.pos { color: var(--bull); } .neg { color: var(--bear); }
+.sig { background: var(--accent-soft); }
+.pill { display: inline-block; font: 600 11px/1 var(--body); letter-spacing: .06em; padding: 4px 7px; border-radius: 999px; text-transform: uppercase; }
+.pill.bear { background: var(--bear-soft); color: var(--bear); } .pill.bull { background: var(--bull-soft); color: var(--bull); } .pill.gold { background: var(--accent-soft); color: var(--accent); }
+.seg { display: inline-flex; background: var(--raise); border-radius: 9px; padding: 3px; gap: 2px; flex-wrap: wrap; }
+.seg button { font: 600 13px/1 var(--body); border: 0; background: transparent; color: var(--ink); padding: 8px 12px; border-radius: 7px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.12); color: var(--accent); }
+.seg button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+label.ctl { display: inline-grid; gap: 4px; font: 600 11px/1.2 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+select { font: 500 14px/1.2 var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; max-width: 100%; }
+svg { display: block; width: 100%; max-width: 100%; height: auto; }
+svg text { fill: var(--muted); font: 11px var(--mono); }
+.note { font-size: 13.5px; color: var(--muted); max-width: 80ch; }
+.callout { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 14px; border-radius: 0 10px 10px 0; display: grid; gap: 6px; }
+.callout p { max-width: 80ch; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 80ch; }
+.bar { display: inline-block; height: 8px; border-radius: 2px; vertical-align: middle; }
+footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; }
+@media (max-width: 560px) { .wrap { padding-inline: 16px; } td, th { padding: 6px 7px; } .stat .v { font-size: 29px; } }
+@media (prefers-reduced-motion: no-preference) { .seg button { transition: background .15s, color .15s; } }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow" id="eyebrow">MNQ • 09:30–09:35 New York</div>
+    <h1>The First Five Minutes</h1>
+    <p class="lede" id="lede"></p>
+    <div class="verdict" id="verdict"></div>
+  </header>
+
+  <nav class="chips" aria-label="Sections">
+    <a href="#answer">The answer</a><a href="#race">Which came first</a><a href="#far">How far</a><a href="#when">When it differs</a>
+    <a href="#trade">Trading it</a><a href="#lead">The one lead</a><a href="#prop">Prop firms</a><a href="#live">Live account</a><a href="#method">Method</a>
+  </nav>
+
+  <section id="answer">
+    <div class="sec-head"><div class="eyebrow">Finding 1</div><h2>After a bearish or bullish first candle, did the price keep going?</h2>
+      <p class="muted">Measured from the candle's close at 09:35 to the close of each later time. "Kept going" means the price was further in the candle's direction. The grey tick is the same measure on every other day: a bear candle only tells you something if it beats how often any day fell by then.</p></div>
+    <div class="controls"><div class="seg" role="group" aria-label="Candle" id="segDir"></div></div>
+    <div class="panel"><div id="hzChart"></div><div class="scroll"><table id="hzTable"></table></div></div>
+  </section>
+
+  <section id="race">
+    <div class="sec-head"><div class="eyebrow">Finding 2</div><h2>Which came first: X points with the candle, or X points against it?</h2>
+      <p class="muted">From the 09:35 close, the first minute that touched +X or −X decides it. Minutes that touched both are left out of the share (shown separately). A coin gives 50%.</p></div>
+    <div class="panel"><div id="raceChart"></div><div class="scroll"><table id="raceTable"></table></div>
+      <p class="note" id="breakNote"></p></div>
+  </section>
+
+  <section id="far">
+    <div class="sec-head"><div class="eyebrow">Finding 3</div><h2>How far did it go each way?</h2>
+      <p class="muted">The biggest move in the candle's direction and against it after 09:35, in points. Quartiles show the typical day; the average is pulled up by big days.</p></div>
+    <div class="panel"><div class="scroll"><table id="excTable"></table></div><p class="note" id="excNote"></p></div>
+  </section>
+
+  <section id="when">
+    <div class="sec-head"><div class="eyebrow">Finding 4</div><h2>Does it change with the year, the candle's size or the context?</h2>
+      <p class="muted">Share of days that kept going, and the average points, at 10:00, 11:00 and the 16:00 close. Highlighted cells have p &lt; 0.05 against a coin. With this many cells, about 1 in 20 lights up by chance.</p></div>
+    <div class="controls"><div class="seg" role="group" aria-label="Split" id="segWhen"></div></div>
+    <div class="panel"><div class="scroll"><table id="whenTable"></table></div><p class="note" id="whenNote"></p></div>
+  </section>
+
+  <section id="trade">
+    <div class="sec-head"><div class="eyebrow">Finding 5</div><h2>Can you trade it?</h2>
+      <p class="muted">Every combination of follow / fade × 11 day filters × market or break entry × 9 stops × 10 targets × 5 exit times, on one MNQ micro with $1.50 commission and 1 tick of slippage per side. Chosen on Oct 2020–2023, judged on 2024–2026.</p></div>
+    <div class="verdict" id="searchTiles"></div>
+    <div class="grid2">
+      <div class="panel"><h3>The best by luck</h3><p class="note">Shuffle which days were bull and which were bear, run the same search again, keep the best t-score. 200 shuffles. If the real best does not stand out from these, the search found noise.</p><div id="nullChart"></div><p class="note" id="nullNote"></p></div>
+      <div class="panel"><h3>Walk-forward</h3><p class="note">Each year, trade the version that was best on all earlier years. Nothing is chosen with hindsight.</p><div class="scroll"><table id="wfTable"></table></div><div id="wfChart"></div><p class="note" id="wfNote"></p></div>
+    </div>
+    <div class="panel"><h3>The versions people ask about</h3>
+      <div class="controls"><label class="ctl" for="selSide">Side<select id="selSide"><option>FOLLOW</option><option>FADE</option></select></label>
+        <label class="ctl" for="selFilter">Days<select id="selFilter"><option>all days</option><option>bear candle only</option><option>bull candle only</option></select></label></div>
+      <div class="scroll"><table id="simpleTable"></table></div></div>
+    <div class="panel"><h3>Top 15 of the search, ranked on 2020–23</h3><div class="scroll"><table id="topTable"></table></div></div>
+  </section>
+
+  <section id="lead">
+    <div class="sec-head"><div class="eyebrow">Finding 6</div><h2>The one lead: fade a small first candle and hold to the close</h2><p class="muted" id="leadSub"></p></div>
+    <div class="verdict" id="leadTiles"></div>
+    <div class="stack">
+      <div class="panel"><h3>Profit per micro, every year</h3><div id="leadYears"></div><p class="note">* years it was not chosen on. 2020 starts in October.</p></div>
+      <div class="panel"><h3>Where the profit comes from</h3><div class="scroll"><table id="leadSides"></table></div><p class="note" id="leadSidesNote"></p></div>
+    </div>
+    <div class="panel"><h3>Running total per micro</h3><div class="controls"><div class="seg" role="group" aria-label="Curve" id="segCurve"></div></div><div id="curveChart"></div><p class="note" id="curveNote"></p></div>
+  </section>
+
+  <section id="prop">
+    <div class="sec-head"><div class="eyebrow">Finding 7</div><h2>Prop firms: rotation, copy, or one account</h2>
+      <p class="muted">Each trade runs through the same prop engine as the studio's PROP SIM, with the firm's rules: target, trailing drawdown checked at the trade's worst point, consistency, minimum days, payouts and split. Five accounts in ROTATION take the day's trade in turn. COPY 5 puts the same trade on all five. A dead account (blown or retired) is replaced by a new purchase. Net = payouts kept − evaluations and activations bought.</p></div>
+    <div class="controls">
+      <label class="ctl" for="selCand">Strategy<select id="selCand"></select></label>
+      <label class="ctl" for="selFirm">Firm<select id="selFirm"></select></label>
+      <label class="ctl" for="selPeriod">Years<select id="selPeriod"><option value="2024–26">2024–26 (unseen)</option><option value="2020–23">2020–23 (where it was chosen)</option></select></label>
+    </div>
+    <div class="panel"><p class="note" id="firmNote"></p><div class="scroll"><table id="propTable"></table></div><p class="note" id="propNote"></p></div>
+    <div class="panel"><h3>Lead vs coin flips on the same days</h3><p class="note">The lead's days and bracket with a coin choosing buy or sell, 200 times through the same prop rules. "Beats" is the share of coin runs it beat. Above 95% would be strong; 80% happens by luck one time in five.</p><div class="scroll"><table id="luckTable"></table></div></div>
+    <div class="callout" id="propCall"></div>
+  </section>
+
+  <section id="live">
+    <div class="sec-head"><div class="eyebrow">Finding 8</div><h2>A live account</h2><p class="muted">Per MNQ micro, after costs, all six years. Sizing keeps twice the worst drawdown seen so far under a quarter of the account, and compares that with a quarter of the Kelly size.</p></div>
+    <div class="panel"><div class="scroll"><table id="liveTable"></table></div></div>
+    <div class="panel"><h3>Micros by account size, for the lead</h3><div class="scroll"><table id="sizeTable"></table></div><p class="note" id="sizeNote"></p></div>
+  </section>
+
+  <section id="method">
+    <div class="sec-head"><div class="eyebrow">How it was measured</div><h2>Method</h2></div>
+    <div class="panel"><ul class="plain" id="methodList"></ul></div>
+  </section>
+
+  <footer><div id="foot"></div><div>Files next to this page: first5_days.csv (every day), first5.kreport.json (open it in the studio's REPORTS window to see each day on the chart), first5.json (all numbers).</div></footer>
+</div>
+
+<script id="data" type="application/json">/*DATA*/</script>
+<script>
+(function () {
+  const D = JSON.parse(document.getElementById('data').textContent);
+  const $ = id => document.getElementById(id);
+  const fx = (v, d = 1) => v == null || isNaN(v) ? '–' : Number(v).toFixed(d);
+  const sg = (v, d = 1) => v == null || isNaN(v) ? '–' : (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d);
+  const money = v => v == null || isNaN(v) ? '–' : (v < 0 ? '−$' : '$') + Math.round(Math.abs(v)).toLocaleString('en-US');
+  const smoney = v => v == null || isNaN(v) ? '–' : (v > 0 ? '+$' : v < 0 ? '−$' : '$') + Math.round(Math.abs(v)).toLocaleString('en-US');
+  const pv = p => p == null ? '–' : p < 0.0001 ? '<0.0001' : p < 0.01 ? p.toFixed(4) : p.toFixed(3);
+  const cls = v => v > 0 ? 'pos' : v < 0 ? 'neg' : '';
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const css = n => 'var(' + n + ')';
+  const M = D.meta;
+  const d0 = new Date(M.from + 'T12:00:00'), d1 = new Date(M.to + 'T12:00:00');
+  const mon = d => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+  // ---------- header ----------
+  $('eyebrow').textContent = 'MNQ • 09:30–09:35 New York • ' + M.days.toLocaleString('en-US') + ' sessions • ' + mon(d0) + ' – ' + mon(d1);
+  const h11 = D.horizons.find(h => h.h === '11:00'), h16 = D.horizons.find(h => h.h === '16:00');
+  $('lede').innerHTML = 'Bearish first candles kept falling on <b>' + fx(h11.bear.contPct) + '%</b> of days by 11:00 and turned up on the rest. Bullish ones kept rising on <b>' + fx(h11.bull.contPct) + '%</b>. Neither beats the base rate: on the other days the market moved the same way about as often, because it drifted up over these six years. The search for a trade on it found nothing that beats luck, except one lead that is worth paper-trading, not sizing up.';
+  const tile = (host, k, v, s, color) => { host.insertAdjacentHTML('beforeend', '<div class="stat"><div class="k">' + k + '</div><div class="v" style="color:' + (color || 'var(--ink)') + '">' + v + '</div><div class="s">' + s + '</div></div>'); };
+  const V = $('verdict');
+  tile(V, 'Bear candle kept falling by 11:00', fx(h11.bear.contPct) + '%', h11.bear.cont + ' of ' + h11.bear.n + ' days • 95% range ' + fx(h11.bear.ciLo) + '–' + fx(h11.bear.ciHi) + '%', 'var(--bear)');
+  tile(V, 'Bull candle kept rising by 11:00', fx(h11.bull.contPct) + '%', h11.bull.cont + ' of ' + h11.bull.n + ' days • other days rose ' + fx(h11.bull.basePct) + '%', 'var(--bull)');
+  tile(V, 'Bear vs bull by the 16:00 close', fx(h16.bear.contPct) + '% / ' + fx(h16.bull.contPct) + '%', 'vs other days: p ' + pv(h16.bear.pBase) + ' / ' + pv(h16.bull.pBase) + ' (no real difference)');
+  tile(V, 'Best trade found vs luck', 't ' + fx(D.search.bestIsT, 2), 'luck reaches ' + fx(D.search.null95, 2) + ' one time in 20 • p ' + fx(D.search.pNull, 2), 'var(--accent)');
+
+  // ---------- small SVG helpers ----------
+  const NS = 'http://www.w3.org/2000/svg';
+  function svg(w, h) { const s = document.createElementNS(NS, 'svg'); s.setAttribute('viewBox', '0 0 ' + w + ' ' + h); s.setAttribute('width', w); s.setAttribute('role', 'img'); return s; }
+  function el(s, tag, a, text) { const e = document.createElementNS(NS, tag); let st = ''; for (const k in a) { const v = String(a[k]); if ((k === 'fill' || k === 'stroke') && v.startsWith('var(')) st += k + ':' + v + ';'; else if (k === 'style') st += v; else e.setAttribute(k, v); } if (st) e.setAttribute('style', st); if (text != null) e.textContent = text; s.appendChild(e); return e; }
+
+  // ---------- 1. horizons ----------
+  let dir = 'bear';
+  function renderHz() {
+    const w = 760, h = 250, L = 46, R = 16, T = 14, B = 34, s = svg(w, h);
+    const ys = v => T + (h - T - B) * (1 - (v - 30) / 40);   // 30% … 70%
+    for (let v = 30; v <= 70; v += 10) { el(s, 'line', { x1: L, x2: w - R, y1: ys(v), y2: ys(v), stroke: css('--line'), 'stroke-width': v === 50 ? 1.6 : 1, 'stroke-dasharray': v === 50 ? '' : '3 4' }); el(s, 'text', { x: L - 8, y: ys(v) + 4, 'text-anchor': 'end' }, v + '%'); }
+    const n = D.horizons.length, step = (w - L - R) / n, col = css(dir === 'bear' ? '--bear' : '--bull');
+    D.horizons.forEach((hz, i) => {
+      const x = L + step * (i + .5), g = hz[dir];
+      el(s, 'line', { x1: x, x2: x, y1: ys(Math.min(70, g.ciHi)), y2: ys(Math.max(30, g.ciLo)), stroke: col, 'stroke-width': 2, opacity: .55 });
+      el(s, 'rect', { x: x - 13, y: ys(g.basePct) - 1.5, width: 26, height: 3, fill: css('--flat') });
+      el(s, 'circle', { cx: x, cy: ys(g.contPct), r: 6, fill: col });
+      el(s, 'text', { x: x + 10, y: ys(g.contPct) + 4, 'text-anchor': 'start', style: 'fill:' + col + ';font-weight:600' }, fx(g.contPct) + '%');
+      el(s, 'text', { x: x, y: h - 12, 'text-anchor': 'middle' }, hz.h);
+    });
+    $('hzChart').replaceChildren(s);
+    const rows = D.horizons.map(hz => { const g = hz[dir]; return '<tr><td class="n">' + hz.h + '</td><td class="n">' + g.cont + ' / ' + g.n + '</td><td class="n"><b>' + fx(g.contPct) + '%</b></td><td class="n">' + fx(g.ciLo) + '–' + fx(g.ciHi) + '%</td><td class="n">' + (g.opp) + '</td><td class="n">' + fx(g.avgCont) + '</td><td class="n">' + fx(g.avgOpp) + '</td><td class="n ' + cls(g.avg) + '">' + sg(g.avg, 1) + ' <span class="muted">(' + sg(g.avgLo, 0) + ' to ' + sg(g.avgHi, 0) + ')</span></td><td class="n">' + sg(g.med, 1) + '</td><td class="n ' + (g.p50 < .05 ? 'sig' : '') + '">' + pv(g.p50) + '</td><td class="n">' + fx(g.basePct) + '%</td><td class="n ' + (g.pBase < .05 ? 'sig' : '') + '">' + pv(g.pBase) + '</td></tr>'; }).join('');
+    $('hzTable').innerHTML = '<thead><tr><th class="n">By</th><th class="n">Kept going</th><th class="n">Share</th><th class="n">95% range</th><th class="n">Turned</th><th class="n">Avg pts when kept going</th><th class="n">Avg pts when turned</th><th class="n">Avg pts all days (95%)</th><th class="n">Median pts</th><th class="n">p vs coin</th><th class="n">Other days, same way</th><th class="n">p vs other days</th></tr></thead><tbody>' + rows + '</tbody>';
+  }
+  const segDir = $('segDir');
+  [['bear', 'BEARISH 5-MIN CANDLE • ' + M.bear + ' days'], ['bull', 'BULLISH 5-MIN CANDLE • ' + M.bull + ' days']].forEach(([k, t]) => { const b = document.createElement('button'); b.textContent = t; b.setAttribute('aria-pressed', k === dir); b.onclick = () => { dir = k; [...segDir.children].forEach(c => c.setAttribute('aria-pressed', c === b)); renderHz(); }; segDir.appendChild(b); });
+
+  // ---------- 2. race ----------
+  function renderRace() {
+    const w = 760, h = 230, L = 46, R = 16, T = 14, B = 34, s = svg(w, h), ys = v => T + (h - T - B) * (1 - (v - 35) / 30);
+    for (let v = 35; v <= 65; v += 5) { el(s, 'line', { x1: L, x2: w - R, y1: ys(v), y2: ys(v), stroke: css('--line'), 'stroke-width': v === 50 ? 1.6 : 1, 'stroke-dasharray': v === 50 ? '' : '3 4' }); el(s, 'text', { x: L - 8, y: ys(v) + 4, 'text-anchor': 'end' }, v + '%'); }
+    const step = (w - L - R) / D.race.length;
+    D.race.forEach((r, i) => {
+      [['bear', -10], ['bull', 10]].forEach(([k, off]) => { const g = r[k], x = L + step * (i + .5) + off, c = css(k === 'bear' ? '--bear' : '--bull');
+        el(s, 'line', { x1: x, x2: x, y1: ys(Math.min(65, g.ciHi)), y2: ys(Math.max(35, g.ciLo)), stroke: c, 'stroke-width': 2, opacity: .55 }); el(s, 'circle', { cx: x, cy: ys(g.contPct), r: 5.5, fill: c }); });
+      el(s, 'text', { x: L + step * (i + .5), y: h - 12, 'text-anchor': 'middle' }, '±' + r.x + ' pts');
+    });
+    $('raceChart').replaceChildren(s);
+    $('raceTable').innerHTML = '<thead><tr><th class="n">X</th><th>Candle</th><th class="n">With it first</th><th class="n">Against first</th><th class="n">Share with</th><th class="n">95% range</th><th class="n">p vs coin</th><th class="n">Both in 1 min</th><th class="n">Neither by 16:00</th><th class="n">Median minutes</th></tr></thead><tbody>' +
+      D.race.map(r => ['bear', 'bull'].map(k => { const g = r[k]; return '<tr><td class="n">±' + r.x + '</td><td><span class="pill ' + k + '">' + k + '</span></td><td class="n">' + g.cont + '</td><td class="n">' + g.opp + '</td><td class="n"><b>' + fx(g.contPct) + '%</b></td><td class="n">' + fx(g.ciLo) + '–' + fx(g.ciHi) + '%</td><td class="n ' + (g.p < .05 ? 'sig' : '') + '">' + pv(g.p) + '</td><td class="n">' + g.both + '</td><td class="n">' + g.none + '</td><td class="n">' + fx(g.medMin, 0) + '</td></tr>'; }).join('')).join('') + '</tbody>';
+    const b = D.breakFirst;
+    $('breakNote').innerHTML = 'You may hear that the candle\'s own end breaks first about ' + fx((b.bear.contPct + b.bull.contPct) / 2, 0) + '% of the time (bear: low before high ' + fx(b.bear.contPct) + '%, bull: high before low ' + fx(b.bull.contPct) + '%). That number is geometry: the close sits on average ' + fx((b.bear.closePos + b.bull.closePos) / 2, 0) + '% of the way toward its own end, so its own end is simply closer. The symmetric race above removes that and lands on a coin.';
+  }
+
+  // ---------- 3. excursions ----------
+  function renderExc() {
+    const E = D.excursion, row = (k, lab, a) => '<tr><td><span class="pill ' + k + '">' + k + '</span></td><td>' + lab + '</td><td class="n">' + fx(a.q25, 0) + '</td><td class="n"><b>' + fx(a.med, 0) + '</b></td><td class="n">' + fx(a.q75, 0) + '</td><td class="n">' + fx(a.q90, 0) + '</td><td class="n">' + fx(a.avg, 0) + '</td></tr>';
+    $('excTable').innerHTML = '<thead><tr><th>Candle</th><th>Move after 09:35</th><th class="n">25%</th><th class="n">Median</th><th class="n">75%</th><th class="n">90%</th><th class="n">Average</th></tr></thead><tbody>' +
+      ['bear', 'bull'].map(k => row(k, 'with the candle, by 12:00', E[k].mfe12) + row(k, 'against it, by 12:00', E[k].mae12) + row(k, 'with the candle, by 16:00', E[k].mfe16) + row(k, 'against it, by 16:00', E[k].mae16)).join('') + '</tbody>';
+    $('excNote').innerHTML = 'After a bear candle the further drop averaged ' + fx(E.bear.mfe12.avg, 0) + ' pts by noon against a ' + fx(E.bear.mae12.avg, 0) + '-pt rise (p ' + pv(E.bear.pMfe12) + '). After a bull candle the rise averaged ' + fx(E.bull.mfe12.avg, 0) + ' against a ' + fx(E.bull.mae12.avg, 0) + '-pt drop. The downside is the bigger excursion after both colours, so this is the market\'s shape (drops are sharper than rallies), not something the candle predicts. Medians are almost equal both ways. Typical first-candle size: body ' + fx(M.medianBody, 0) + ' pts, range ' + fx(M.medianRange, 0) + ' pts, on a typical 09:30–16:00 range of ' + fx(M.medianRthAtr, 0) + ' pts.';
+  }
+
+  // ---------- 4. when ----------
+  let when = 'byYear';
+  function renderWhen() {
+    const list = D[when], hz = ['10:00', '11:00', '16:00'];
+    const cell = c => '<td class="n ' + (c.p < .05 ? 'sig' : '') + '">' + fx(c.contPct, 0) + '%</td><td class="n ' + cls(c.avg) + (c.pAvg < .05 ? ' sig' : '') + '">' + sg(c.avg, 0) + '</td>';
+    $('whenTable').innerHTML = '<thead><tr><th rowspan="2">Group</th><th class="n" rowspan="2">Bear days</th>' + hz.map(h => '<th class="n" colspan="2">Bear ' + h + '</th>').join('') + '<th class="n" rowspan="2">Bull days</th>' + hz.map(h => '<th class="n" colspan="2">Bull ' + h + '</th>').join('') + '</tr><tr>' + hz.map(() => '<th class="n">kept</th><th class="n">pts</th>').join('') + hz.map(() => '<th class="n">kept</th><th class="n">pts</th>').join('') + '</tr></thead><tbody>' +
+      list.map(g => '<tr><td>' + esc(g.label) + '</td><td class="n">' + g.bear['11:00'].n + '</td>' + hz.map(h => cell(g.bear[h])).join('') + '<td class="n">' + g.bull['11:00'].n + '</td>' + hz.map(h => cell(g.bull[h])).join('') + '</tr>').join('') + '</tbody>';
+    const lit = list.reduce((a, g) => a + hz.reduce((b, h) => b + (g.bear[h].p < .05) + (g.bull[h].p < .05), 0), 0), cells = list.length * hz.length * 2;
+    $('whenNote').textContent = lit + ' of ' + cells + ' share cells reach p < 0.05; luck alone would light about ' + Math.round(cells * .05) + '. ' + (when === 'byYear' ? 'Years flip back and forth: 2020 here starts in October.' : when === 'bySize' ? 'Small candles and big candles behave the same way: neither keeps going reliably.' : 'No context turns the candle into a reliable signal.');
+  }
+  const segWhen = $('segWhen');
+  [['byYear', 'BY YEAR'], ['bySize', 'BY CANDLE SIZE'], ['byContext', 'BY CONTEXT']].forEach(([k, t]) => { const b = document.createElement('button'); b.textContent = t; b.setAttribute('aria-pressed', k === when); b.onclick = () => { when = k; [...segWhen.children].forEach(c => c.setAttribute('aria-pressed', c === b)); renderWhen(); }; segWhen.appendChild(b); });
+
+  // ---------- 5. trading ----------
+  const S = D.search, W = D.walkForward;
+  const ST = $('searchTiles');
+  tile(ST, 'Versions tested', S.tested.toLocaleString('en-US'), 'with at least ' + S.minIs + ' trades in 2020–23');
+  tile(ST, 'Made money 2020–23', S.posIs.toLocaleString('en-US'), fx(100 * S.posIs / S.tested, 0) + '% of them, after costs');
+  tile(ST, '…and again 2024–26', S.posBoth.toLocaleString('en-US'), fx(100 * S.posBoth / S.posIs, 0) + '% of the winners; their average after: ' + smoney(S.oosOfPosAvg) + ' per trade', 'var(--bear)');
+  tile(ST, 'Walk-forward 2022–26', smoney(W.total), W.n + ' trades • ' + smoney(W.avg) + ' per trade • t ' + fx(W.t, 2), W.total > 0 ? 'var(--bull)' : 'var(--bear)');
+
+  function hist(host, vals, real, label, fmt) {
+    const w = 520, h = 200, L = 12, R = 12, T = 26, B = 34, s = svg(w, h);
+    const lo = Math.min(...vals, real), hi = Math.max(...vals, real), bins = 24, bw = (hi - lo) / bins || 1, cnt = new Array(bins).fill(0);
+    vals.forEach(v => cnt[Math.min(bins - 1, Math.floor((v - lo) / bw))]++);
+    const mx = Math.max(...cnt), xs = v => L + (w - L - R) * (v - lo) / (hi - lo || 1);
+    cnt.forEach((c, i) => el(s, 'rect', { x: xs(lo + i * bw) + 1, y: T + (h - T - B) * (1 - c / mx), width: Math.max(1, (w - L - R) / bins - 2), height: (h - T - B) * c / mx, fill: css('--flat'), opacity: .55 }));
+    const xr = xs(real); el(s, 'line', { x1: xr, x2: xr, y1: 20, y2: h - B, stroke: css('--accent'), 'stroke-width': 2.5 });
+    el(s, 'text', { x: Math.min(w - 90, Math.max(60, xr)), y: 16, 'text-anchor': 'middle', style: 'fill:' + css('--accent') + ';font-weight:600' }, label + ' ' + fmt(real));
+    el(s, 'text', { x: L, y: h - 12 }, fmt(lo)); el(s, 'text', { x: w - R, y: h - 12, 'text-anchor': 'end' }, fmt(hi));
+    host.replaceChildren(s);
+  }
+  hist($('nullChart'), S.nullDist, S.bestIsT, 'real best', v => 't ' + v.toFixed(2));
+  $('nullNote').innerHTML = ('Luck alone gives a best t of ' + fx(S.nullMed, 2) + ' on a typical shuffle and ' + fx(S.null95, 2) + ' one time in 20. The real best, ' + fx(S.bestIsT, 2) + ', sits inside that pile (p = ' + fx(S.pNull, 2) + ').</p>');
+  $('wfTable').innerHTML = '<thead><tr><th class="n">Year</th><th>Chosen on the years before</th><th class="n">Trades</th><th class="n">$ per micro</th></tr></thead><tbody>' + W.years.map(y => '<tr><td class="n">' + y.year + '</td><td>' + esc(y.name) + ' <span class="muted">(t ' + fx(y.t, 1) + ')</span></td><td class="n">' + y.n + '</td><td class="n ' + cls(y.usd) + '">' + smoney(y.usd) + '</td></tr>').join('') + '</tbody>';
+  hist($('wfChart'), W.nullDist, W.total, 'real', v => smoney(v));
+  $('wfNote').innerHTML = ('The same walk-forward on shuffled candle colours, 100 times: typical result ' + smoney(W.nullMed) + ', ' + smoney(W.null95) + ' one time in 20. The real one, ' + smoney(W.total) + ', beats ' + fx(100 * (1 - W.p), 0) + '% of them (p = ' + fx(W.p, 3) + ').</p>');
+
+  const stRow = (s, extra) => '<tr><td class="wide">' + esc(extra || s.name) + '</td><td class="n">' + s.all.n + '</td><td class="n">' + fx(s.all.win, 0) + '%</td><td class="n ' + cls(s.is.avg) + '">' + smoney(s.is.avg) + '</td><td class="n">' + fx(s.is.t, 2) + '</td><td class="n ' + cls(s.oos.avg) + '">' + smoney(s.oos.avg) + '</td><td class="n">' + fx(s.oos.t, 2) + '</td><td class="n ' + cls(s.oos.total) + '">' + smoney(s.oos.total) + '</td><td class="n">' + money(s.all.maxdd) + '</td></tr>';
+  const stHead = '<thead><tr><th>Version</th><th class="n">Trades</th><th class="n">Win</th><th class="n">2020–23 $/trade</th><th class="n">t</th><th class="n">2024–26 $/trade</th><th class="n">t</th><th class="n">2024–26 total</th><th class="n">Worst drawdown</th></tr></thead>';
+  function renderSimple() { const side = $('selSide').value, f = $('selFilter').value; $('simpleTable').innerHTML = stHead + '<tbody>' + D.simple.filter(s => s.side === side && s.filter === f).map(s => stRow(s, s.bracket)).join('') + '</tbody>'; }
+  $('selSide').onchange = renderSimple; $('selFilter').onchange = renderSimple;
+  $('topTable').innerHTML = stHead + '<tbody>' + D.top.slice(0, 15).map(s => stRow(s)).join('') + '</tbody>';
+
+  // ---------- 6. the lead ----------
+  const lead = D.candidates[0].strat, base = D.baselines;
+  $('leadSub').textContent = lead.name + '. On days when the 09:30–09:35 body is in the smallest quarter (' + ((D.bySize[0].label.match(/≤ (\d+)/) || [, '?'])[1]) + ' pts or less on a typical day; measured against the day\'s usual range), trade against the candle at 09:35, 75-pt stop, no target, out at 15:55. About ' + Math.round(lead.all.n / 6) + ' trades a year.';
+  const LT = $('leadTiles');
+  tile(LT, 'All six years, per micro', smoney(lead.all.avg) + '/trade', lead.all.n + ' trades • win ' + fx(lead.all.win, 0) + '% • t ' + fx(lead.all.t, 2), 'var(--bull)');
+  tile(LT, '2024–26 (unseen)', smoney(lead.oos.avg) + '/trade', lead.oos.n + ' trades • t ' + fx(lead.oos.t, 2) + ' • p ' + pv(lead.oos.p), lead.oos.avg > 0 ? 'var(--bull)' : 'var(--bear)');
+  tile(LT, 'Average win / loss', smoney(lead.all.avgWin) + ' / ' + smoney(-lead.all.avgLoss), 'profit factor ' + fx(lead.all.pf, 2));
+  tile(LT, 'Worst drawdown per micro', money(lead.all.maxdd), '2024–26: ' + money(lead.oos.maxdd), 'var(--bear)');
+  (function () {
+    const ys = Object.keys(lead.years), w = 1000, h = 230, L = 64, R = 10, T = 28, B = 30, s = svg(w, h), vals = ys.map(y => lead.years[y]);
+    const hi = Math.max(0, ...vals), lo = Math.min(0, ...vals), sc = (h - T - B) / ((hi - lo) || 1), y0 = T + hi * sc, step = (w - L - R) / ys.length;
+    el(s, 'line', { x1: L, x2: w - R, y1: y0, y2: y0, stroke: css('--line') });
+    [hi, lo].filter(v => v !== 0).forEach(v => el(s, 'text', { x: L - 6, y: y0 - v * sc + 4, 'text-anchor': 'end' }, smoney(v))); el(s, 'text', { x: L - 6, y: y0 + 4, 'text-anchor': 'end' }, '$0');
+    vals.forEach((v, i) => el(s, 'text', { x: L + step * i + step / 2, y: (v >= 0 ? y0 - v * sc - 5 : y0 - v * sc + 13), 'text-anchor': 'middle' }, smoney(v)));
+    ys.forEach((y, i) => { const v = lead.years[y], x = L + step * i + step * .18, bw = step * .64; el(s, 'rect', { x, y: v >= 0 ? y0 - v * sc : y0, width: bw, height: Math.abs(v) * sc, fill: css(v >= 0 ? '--bull' : '--bear'), rx: 2 }); el(s, 'text', { x: x + bw / 2, y: h - 10, 'text-anchor': 'middle' }, y + (y >= '2024' ? '*' : '')); });
+    $('leadYears').replaceChildren(s);
+  })();
+  const sideRow = (lab, x) => '<tr><td>' + lab + '</td><td class="n">' + x.n + '</td><td class="n">' + fx(x.win, 0) + '%</td><td class="n ' + cls(x.avg) + '">' + smoney(x.avg) + '</td><td class="n">' + fx(x.t, 2) + '</td><td class="n ' + cls(x.total) + '">' + smoney(x.total) + '</td></tr>';
+  $('leadSides').innerHTML = '<thead><tr><th>Trades on its days</th><th class="n">Trades</th><th class="n">Win</th><th class="n">$/trade</th><th class="n">t</th><th class="n">Total</th></tr></thead><tbody>' +
+    sideRow('The lead: its buys (small bear candles)', lead.longs) + sideRow('The lead: its sells (small bull candles)', lead.shorts) + sideRow('<b>The lead, both</b>', lead.all) +
+    sideRow('Always buy on the same days', base[0].all) + sideRow('Always sell on the same days', base[1].all) + '</tbody>';
+  $('leadSidesNote').textContent = 'Most of the profit is in the sells (' + smoney(lead.shorts.avg) + ' per trade) while the buys add ' + smoney(lead.longs.avg) + '. Selling every small-candle day earned ' + smoney(base[1].all.avg) + ' per trade, close to the lead itself. So the colour of the candle adds little. What the data shows is that a quiet first five minutes was often followed by a sell-off later in the day, and a short with a 75-pt stop and no target catches those sell-offs. That pattern was seen first in the data and then checked, so treat it as a lead to test forward, not a finding.';
+  let curveIx = 0; const segC = $('segCurve');
+  D.live.forEach((l, i) => { const b = document.createElement('button'); b.textContent = D.candidates[i].label; b.setAttribute('aria-pressed', i === 0); b.onclick = () => { curveIx = i; [...segC.children].forEach(c => c.setAttribute('aria-pressed', c === b)); renderCurve(); }; segC.appendChild(b); });
+  function renderCurve() {
+    const c = D.live[curveIx].curve, w = 1000, h = 260, L = 62, R = 14, T = 14, B = 30, s = svg(w, h); let eq = 0; const pts = c.map(p => (eq += p[1], [p[0], eq]));
+    const lo = Math.min(0, ...pts.map(p => p[1])), hi = Math.max(0, ...pts.map(p => p[1])), t0 = Date.parse(M.from), t1 = Date.parse(M.to);
+    const xs = d => L + (w - L - R) * (Date.parse(d) - t0) / (t1 - t0), ys = v => T + (h - T - B) * (1 - (v - lo) / (hi - lo || 1));
+    el(s, 'line', { x1: L, x2: w - R, y1: ys(0), y2: ys(0), stroke: css('--line'), 'stroke-width': 1.5 });
+    [lo, hi].forEach(v => el(s, 'text', { x: L - 6, y: ys(v) + 4, 'text-anchor': 'end' }, smoney(v)));
+    const xo = xs('2024-01-01'); el(s, 'line', { x1: xo, x2: xo, y1: T, y2: h - B, stroke: css('--accent'), 'stroke-dasharray': '4 4' }); el(s, 'text', { x: xo + 6, y: T + 10 }, 'unseen from here');
+    for (let y = 2021; y <= 2026; y++) el(s, 'text', { x: xs(y + '-01-01'), y: h - 10, 'text-anchor': 'middle' }, y);
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + xs(p[0]).toFixed(1) + ' ' + ys(p[1]).toFixed(1)).join(' ');
+    el(s, 'path', { d: d + ' L' + xs(pts[pts.length - 1][0]).toFixed(1) + ' ' + ys(0) + ' L' + xs(pts[0][0]).toFixed(1) + ' ' + ys(0) + ' Z', fill: css(eq >= 0 ? '--bull' : '--bear'), opacity: .12 });
+    el(s, 'path', { d, fill: 'none', stroke: css(eq >= 0 ? '--bull' : '--bear'), 'stroke-width': 1.8 });
+    const last = pts[pts.length - 1]; el(s, 'circle', { cx: xs(last[0]), cy: ys(last[1]), r: 4, fill: css(eq >= 0 ? '--bull' : '--bear') });
+    $('curveChart').replaceChildren(s);
+    $('curveNote').textContent = D.live[curveIx].label + ' • ' + D.live[curveIx].n + ' trades • ends at ' + smoney(eq) + ' per micro.';
+  }
+
+  // ---------- 7. prop ----------
+  const firms = D.firms.map(f => f.name);
+  D.candidates.forEach((c, i) => $('selCand').insertAdjacentHTML('beforeend', '<option value="' + i + '">' + esc(c.label) + '</option>'));
+  firms.forEach(f => $('selFirm').insertAdjacentHTML('beforeend', '<option>' + esc(f) + '</option>'));
+  function renderProp() {
+    const ci = +$('selCand').value, firm = $('selFirm').value, per = $('selPeriod').value, F = D.firms.find(f => f.name === firm);
+    $('firmNote').textContent = F.describe + ' • strategy: ' + D.candidates[ci].strat.name;
+    const rows = D.prop.filter(r => r.cand === ci && r.firm === firm && r.period === per), modes = ['ONE ACCOUNT', 'COPY 5', 'ROTATION 5'], sizes = [...new Set(rows.map(r => r.q))].sort((a, b) => a - b);
+    let best = null; rows.forEach(r => { if (!best || r.net > best.net) best = r; });
+    $('propTable').innerHTML = '<thead><tr><th class="n">Micros</th>' + modes.map(m => '<th class="n">' + m + ' net</th><th class="n">bought / passed / payouts</th><th class="n">worst point</th>').join('') + '</tr></thead><tbody>' +
+      sizes.map(q => '<tr><td class="n">' + q + '</td>' + modes.map(m => { const r = rows.find(x => x.q === q && x.mode === m); if (!r) return '<td></td><td></td><td></td>'; return '<td class="n ' + cls(r.net) + (r === best ? ' sig' : '') + '"><b>' + smoney(r.net) + '</b></td><td class="n">' + r.bought + ' / ' + r.passed + ' / ' + r.payouts + '</td><td class="n neg">' + smoney(r.worstNet) + '</td>'; }).join('') + '</tr>').join('') + '</tbody>';
+    $('propNote').textContent = (per === '2020–23' && ci < 2 ? 'Careful: this strategy was chosen on these years, so these numbers flatter it. ' : '') + 'COPY 5 is the same trade on five accounts bought together: they pass and blow up together, so it is one bet five times as large. ROTATION 5 hands a once-a-day trade to each account only every fifth day, so every account moves five times slower while its evaluation fee is already paid. "Worst point" is the lowest the running net went (money you need on hand).';
+    const L = D.luck.rows.filter(r => r.firm === firm && r.period === per);
+    $('luckTable').innerHTML = '<thead><tr><th class="n">Micros</th><th>Mode</th><th class="n">Lead net</th><th class="n">Coin: middle</th><th class="n">Coin: 1 in 10 worse</th><th class="n">Coin: 1 in 10 better</th><th class="n">Coins that made money</th><th class="n">Lead beats</th></tr></thead><tbody>' +
+      L.map(r => '<tr><td class="n">' + r.q + '</td><td>' + r.mode + '</td><td class="n ' + cls(r.real) + '"><b>' + smoney(r.real) + '</b></td><td class="n">' + smoney(r.coinMed) + '</td><td class="n">' + smoney(r.coin10) + '</td><td class="n">' + smoney(r.coin90) + '</td><td class="n">' + fx(r.coinPos, 0) + '%</td><td class="n ' + (r.pct >= 95 ? 'sig' : '') + '">' + fx(r.pct, 0) + '%</td></tr>').join('') + '</tbody>';
+  }
+  ['selCand', 'selFirm', 'selPeriod'].forEach(id => $(id).onchange = renderProp);
+  (function () {
+    const per = '2024–26', one = f => D.luck.rows.filter(r => r.firm === f && r.period === per && r.mode === 'ONE ACCOUNT');
+    const good = D.firms.map(f => { const rs = one(f.name).filter(r => r.real > 0).sort((a, b) => b.pct - a.pct); return rs.length ? f.name + ': ' + rs.slice(0, 2).map(r => r.q + ' micro' + (r.q > 1 ? 's' : '') + ' ' + smoney(r.real) + ' (beats ' + fx(r.pct, 0) + '% of coins)').join(', ') : f.name + ': no size made money'; });
+    $('propCall').innerHTML = '<h3>What to use for prop, if anything</h3><p>None of the plain follow / fade brackets is worth an evaluation fee: every simple version loses after costs on 2024–26. The lead is the only candidate, and only as a test. On 2024–26, one account at a time (or a copy group, knowing it is one bet):</p><ul class="plain">' + good.map(g => '<li>' + esc(g) + '</li>').join('') + '</ul><p>Keep it small: 1–2 micros risk $150–$300 a trade with the 75-pt stop, against a $2,000 drawdown. Bigger sizes swing harder: 8 micros risk $1,200 a trade, so two losses in a row put the account near its floor, and at 8+ micros Lucid and Tradeify lost money. Skip ROTATION for a once-a-day trade. Take Profit Trader\'s funded drawdown trails the open profit during the day, which punishes a hold-to-the-close trade.</p>';
+  })();
+
+  // ---------- 8. live ----------
+  $('liveTable').innerHTML = '<thead><tr><th>Strategy</th><th class="n">Trades / year</th><th class="n">$/trade</th><th class="n">2024–26 $/trade</th><th class="n">t</th><th class="n">≈ $ a year</th><th class="n">Worst drawdown</th><th class="n">Worst trade</th><th class="n">Losses in a row</th><th class="n">Kelly: $ per micro</th></tr></thead><tbody>' +
+    D.live.map((l, i) => '<tr><td class="wide">' + esc(D.candidates[i].label) + '<div class="muted" style="font-size:12px">' + esc(l.label) + '</div></td><td class="n">' + fx(l.perYear, 0) + '</td><td class="n ' + cls(l.avg) + '">' + smoney(l.avg) + '</td><td class="n ' + cls(l.oosAvg) + '">' + smoney(l.oosAvg) + '</td><td class="n">' + fx(l.oosT, 2) + '</td><td class="n ' + cls(l.oosAvg) + '">' + smoney(l.oosAvg * l.perYear) + '</td><td class="n">' + money(l.maxdd) + '</td><td class="n neg">' + smoney(l.worst) + '</td><td class="n">' + l.streak + '</td><td class="n">' + (l.kellyCapitalPerMicro > 0 ? money(l.kellyCapitalPerMicro) : 'none (no edge)') + '</td></tr>').join('') + '</tbody>';
+  (function () {
+    const l = D.live[0], dd = l.maxdd, k = l.kellyCapitalPerMicro;
+    $('sizeTable').innerHTML = '<thead><tr><th class="n">Account</th><th class="n">2× worst drawdown ≤ 25%</th><th class="n">¼ Kelly</th><th class="n">Use</th><th class="n">≈ $ a year at the 2024–26 rate</th><th class="n">A repeat of the worst drawdown</th></tr></thead><tbody>' +
+      [5000, 10000, 25000, 50000, 100000].map(a => { const q1 = Math.floor(a * .25 / (2 * dd)), q2 = k > 0 ? Math.floor(a / (4 * k)) : 0, q = Math.min(q1, q2); return '<tr><td class="n">' + money(a) + '</td><td class="n">' + q1 + '</td><td class="n">' + q2 + '</td><td class="n"><b>' + q + '</b></td><td class="n ' + cls(q * l.oosAvg) + '">' + (q ? smoney(q * l.oosAvg * l.perYear) : '–') + '</td><td class="n neg">' + (q ? smoney(-q * dd) + ' (' + fx(100 * q * dd / a, 0) + '%)' : '–') + '</td></tr>'; }).join('') + '</tbody>';
+    $('sizeNote').textContent = 'Worst drawdown so far: ' + money(dd) + ' per micro, ' + l.streak + ' losses in a row at worst. Full Kelly would put a micro on every ' + money(k) + ', which assumes the edge is exactly as measured; with a t of ' + fx(l.oosT, 2) + ' on the unseen years it may be half that or zero. Start with 1 micro, or in the studio\'s simulator, until 50–100 new trades agree.';
+  })();
+
+  // ---------- method ----------
+  [
+    'Data: MNQ 1-minute bars from the studio\'s saved NinjaTrader history, ' + M.from + ' to ' + M.to + ', full sessions only (' + M.days.toLocaleString('en-US') + ' days). New York time.',
+    'The candle: the five 1-minute bars 09:30:00–09:35:00. Bearish = closed below its open, bullish = above, ' + M.flat + ' days closed flat and are left out. Bull and bear days were ' + M.bull + ' and ' + M.bear + ' (p ' + pv(M.bullP) + ' against 50/50).',
+    'Kept going / turned: the close at each time compared with the 09:35 close. "Other days, same way" is the share of the other-coloured days that moved the same way by then, the base rate a signal has to beat. p-values: binomial against 50% and a two-proportion test against the other days; averages with a t-test. 95% ranges are Wilson intervals.',
+    'Race: from 09:35, minute by minute, the first bar whose high reached +X or low reached −X (in the candle\'s direction). A minute that reached both is counted as "both" and left out of the share.',
+    'Trades: one MNQ micro, $1.50 round-trip commission plus 1 tick of slippage on every market, stop and time exit. A stop and a target inside the same minute count as the stop. A target needs a trade 1 tick through it. No prices are invented inside a minute.',
+    'Search: ' + S.tested.toLocaleString('en-US') + ' versions with at least ' + S.minIs + ' trades on 2020–23 (which picks) and 2024–26 (which judges). The luck test shuffles the candle colours between days and repeats the whole search ' + S.perms + ' times. The walk-forward picks each year from the years before it only; its luck test shuffles colours across all years ' + W.perms + ' times.',
+    'Prop: the studio\'s own prop engine (the PROP SIM in the backtest studio) with the firm presets shown. The trailing drawdown is checked at the trade\'s worst point, assuming the best point came first, which is the strict order for a floor that trails the open profit.',
+    'Generated ' + M.generated + ' by research/FirstFive.cs (mode first5).'
+  ].forEach(t => $('methodList').insertAdjacentHTML('beforeend', '<li>' + t + '</li>'));
+  $('foot').textContent = 'Keystone Arc research • MNQ first five minutes • ' + M.days + ' sessions';
+
+  renderHz(); renderRace(); renderExc(); renderWhen(); renderSimple(); renderCurve(); renderProp();
+})();
+</script>

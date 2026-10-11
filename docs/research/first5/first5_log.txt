@@ -1,0 +1,26 @@
+FIRST 5 MINUTES • MNQ • 1461 days 2020-10-19 → 2026-10-02 • bull 732 • bear 727 • flat 2
+  09:40: BEAR kept going down 49.2% (358/727) avg +0.3 pts • BULL kept going up 53.4% (391/732) avg +2.0 pts
+  09:45: BEAR kept going down 48.4% (352/727) avg +0.4 pts • BULL kept going up 52.6% (385/732) avg -0.3 pts
+  10:00: BEAR kept going down 49.5% (360/727) avg +1.4 pts • BULL kept going up 55.1% (403/732) avg +4.5 pts
+  10:30: BEAR kept going down 48.7% (354/727) avg +2.1 pts • BULL kept going up 53.0% (388/732) avg +2.9 pts
+  11:00: BEAR kept going down 48.8% (355/727) avg +4.7 pts • BULL kept going up 53.0% (388/732) avg +1.1 pts
+  12:00: BEAR kept going down 45.5% (331/727) avg +2.4 pts • BULL kept going up 54.9% (402/732) avg +5.5 pts
+  16:00: BEAR kept going down 47.5% (345/727) avg -1.2 pts • BULL kept going up 55.7% (408/732) avg +5.8 pts
+  race ±10: BEAR down first 52.1% of decided • BULL up first 52.6%
+  race ±20: BEAR down first 49.1% of decided • BULL up first 50.2%
+  race ±30: BEAR down first 52.0% of decided • BULL up first 50.4%
+  race ±50: BEAR down first 49.2% of decided • BULL up first 49.1%
+  race ±75: BEAR down first 49.3% of decided • BULL up first 50.6%
+  race ±100: BEAR down first 50.4% of decided • BULL up first 51.0%
+  trade grid: 900 brackets × 2 sides × 1461 days in 1 s
+  strategies tested 17550 (≥ 120 trades 2020–23) • positive 2020–23: 2847 • of those positive 2024–26 too: 800 • best 2020–23 t 2.77
+  label-shuffle null (200×, 7 s): best t by luck median 2.58 • 95th pct 3.42 • real best 2.77 → p = 0.343
+  walk-forward 2022: -1184 $/micro (122 trades) • chosen on < 2022 (t 2.5): FADE the 5-min candle • yesterday disagrees • market 09:35 • stop 40 pts • target 150 pts • out 15:55
+  walk-forward 2023: +2208 $/micro (63 trades) • chosen on < 2023 (t 2.4): FADE the 5-min candle • small candle (bottom 25%) • market 09:35 • stop 75 pts • target none • out 15:55
+  walk-forward 2024: +2723 $/micro (56 trades) • chosen on < 2024 (t 2.8): FADE the 5-min candle • small candle (bottom 25%) • market 09:35 • stop 75 pts • target none • out 15:55
+  walk-forward 2025: +356 $/micro (47 trades) • chosen on < 2025 (t 3.2): FADE the 5-min candle • small candle (bottom 25%) • break of the candle • stop 100 pts • target none • out 15:55
+  walk-forward 2026: +1987 $/micro (36 trades) • chosen on < 2026 (t 3.0): FADE the 5-min candle • small candle (bottom 25%) • market 09:35 • stop 75 pts • target none • out 15:55
+  walk-forward total +6090 $/micro over 324 trades (avg +18.8, t 1.31) • shuffled colours (100×, 7 s): median -343 • 95th pct +4269 → p = 0.030
+  drift check for the best: always buy on its days -5.0 $/trade (t -0.41) • always sell +44.6 • the strategy +47.6 (longs +11.0, shorts +82.9)
+  prop runs: 960 in 8 s
+  luck band: 80 prop cells × 200 coin runs in 70 s
