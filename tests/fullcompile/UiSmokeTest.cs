@@ -216,6 +216,26 @@ public static class UiSmokeTest
                     Console.WriteLine("      NEW ACCOUNT 5000 mid-day → continues " + rt2.Time.ToString("HH:mm") + " • bought 1 • account file " + acc2[0] + "," + acc2[1]);
                     if (acc2[0] != "5000") throw new Exception("new account not saved");
                     ((Action)F("replayTraderEnd"))();
+                    // the studio opens asking REGULAR BACKTESTING or PROP FIRM SIMULATION; each mode shows what it needs
+                    var modeNow = (Func<string>)F("studioModeNow"); string md0 = modeNow();
+                    if (!md0.StartsWith("REGULAR|ASK") || !md0.Contains("|DAYPICKER") || md0.Contains("|PANEL")) throw new Exception("the studio did not open asking REGULAR / PROP with the regular tools (" + md0 + ")");
+                    ((Action<string>)F("studioSetMode"))("PROP"); string md1 = modeNow();
+                    ((Action<string>)F("studioSetMode"))("REGULAR"); string md2 = modeNow();
+                    Console.WriteLine("      studio modes: open " + md0 + " → PROP " + md1 + " → REGULAR " + md2);
+                    if (md1 != "PROP|PANEL" || md2 != "REGULAR|DAYPICKER") throw new Exception("the mode switch does not show / hide the right tools (" + md1 + " / " + md2 + ")");
+                    // ASIAN 75 in AUTO (regular backtesting): START goes to 18:00, the legs trade by themselves, each reversal flips the position
+                    ((Action<int, bool>)F("studioStrategy"))(KeystoneReplaySignals.AsianKind, true);
+                    ((Action)F("replayTraderLoad"))();
+                    var ra = (KeystoneReplayTrader)F("replayTrader"); DateTime aStart = ra.Time;
+                    ((Action<int>)F("replayTraderStep"))(14 * 60);
+                    ra = (KeystoneReplayTrader)F("replayTrader");
+                    Console.WriteLine("      ASIAN AUTO: the day starts " + aStart.ToString("ddd HH:mm") + " • " + ra.Fills.Count + " leg(s) closed • " + string.Join(" | ", ra.Fills.Take(5).Select(f => f.EntryTime.ToString("HH:mm") + " " + f.Side + " → " + f.ExitTime.ToString("HH:mm") + " " + f.Reason)));
+                    if (aStart.Hour != 18) throw new Exception("ASIAN 75 did not start the day at 18:00 (" + aStart + ")");
+                    if (ra.Fills.Count == 0 && ra.Position == 0) throw new Exception("ASIAN 75 in AUTO did not trade");
+                    if (ra.Fills.Count > 0 && ra.Fills[0].EntryTime.TimeOfDay > new TimeSpan(18, 3, 0) && ra.Fills[0].EntryTime.TimeOfDay < new TimeSpan(23, 59, 0) && ra.Fills[0].EntryTime.Hour >= 18 == false) throw new Exception("the first Asian leg is not at 18:00");
+                    if (ra.Fills.Count > 0 && ra.Fills[0].ExitTime - ra.Fills[0].EntryTime < TimeSpan.FromMinutes(1) && ra.Fills[0].Reason.Contains("TARGET")) throw new Exception("an Asian leg took a 1-tick target");
+                    ((Action)F("replayTraderEnd"))();
+                    ((Action<int, bool>)F("studioStrategy"))(0, false);
                     // PROP SIM: 3 evaluations in rotation (random BUY BUY / SELL SELL on MNQ + MGC) over saved days, each day run to its close
                     var stored0 = KeystoneStudioStore.Sessions(studio, "MNQ").Keys.ToList(); List<DateTime> run3 = null;
                     for (int i = 0; i < stored0.Count && run3 == null; i++)
@@ -228,7 +248,28 @@ public static class UiSmokeTest
                     ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(simSet, false);
                     var simRun = ((Func<KeystonePropSim>)F("studioPropSim"))();
                     if (simRun == null || !simRun.DayOpen) throw new Exception("prop sim did not open its first day");
+                    var view = (Func<string>)F("studioPropView");
+                    if (!((Func<string>)F("studioModeNow"))().StartsWith("PROP")) throw new Exception("a prop simulation did not switch the studio to PROP FIRM SIMULATION");
+                    if (view() != "RUN") throw new Exception("the PROP SIM panel does not show the run (" + view() + ")");
+                    ((Action)F("studioPropRunDay"))();   // day 1 to its CLOSE ALL (15:55) → the 15-second next-day prompt
+                    if (view() != "NEXT" || simRun.Days.Count != 1) throw new Exception("no next-day prompt after the day's CLOSE ALL (" + view() + ", " + simRun.Days.Count + " days)");
+                    ((Action<int>)F("studioPropNext"))(-2);   // STAY ON THIS DAY
+                    if (view() != "RUN" || simRun.DayOpen) throw new Exception("STAY did not keep the finished day (" + view() + ")");
+                    ((Action<int>)F("studioPropNext"))(1800);   // the next day from 18:00 (the new session)
+                    var t18 = ((KeystoneReplayTrader)F("replayTrader")).Time;
+                    Console.WriteLine("      next-day prompt: STAY, then FROM 18:00 → the replay starts " + t18.ToString("ddd HH:mm") + " for " + simRun.Day.ToString("ddd yyyy-MM-dd"));
+                    if (!simRun.DayOpen || t18.Hour != 18 || t18.Date != simRun.Day.AddDays(-1).Date) throw new Exception("FROM 18:00 did not start the next day at 18:00 the evening before (" + t18 + ")");
                     for (int i = 0; i < 6 && !simRun.Finished; i++) ((Action)F("studioPropRunDay"))();
+                    if (simRun.Trades.Any(t => t.Exit.TimeOfDay > new TimeSpan(15, 56, 30) && t.Exit.TimeOfDay < new TimeSpan(18, 0, 0))) throw new Exception("a trade closed after the 15:55 CLOSE ALL");
+                    if (view() != "DONE") throw new Exception("the finished run does not show its results + next steps (" + view() + ")");
+                    string rep = ((Func<string>)F("studioPropExport"))();
+                    if (rep == null || !System.IO.File.Exists(rep) || !System.IO.File.ReadAllText(rep).Contains("Prop Simulation Report")) throw new Exception("EXPORT HTML did not write the report");
+                    ((Action)F("studioPropCompare"))();
+                    var cmpRows = KeystoneSessionWhatIf.Load(simRun.Folder); var cmpWin = KeystoneRotationLab.Winner(cmpRows);
+                    Console.WriteLine("      finished: " + view() + " • report " + new System.IO.FileInfo(rep).Length + " bytes • COMPARE SESSIONS " + cmpRows.Count + " rows • winner " + (cmpWin == null ? "-" : cmpWin.Name + " " + cmpWin.Net.ToString("0")));
+                    if (cmpRows.Count < KeystoneRotationLab.SessionNames.Length || cmpRows.Count(x9 => x9.Mine) != 1) throw new Exception("COMPARE SESSIONS did not save every session");
+                    rep = ((Func<string>)F("studioPropExport"))(); System.IO.File.Copy(rep, ".build/report_PROPSIM.html", true);
+                    if (!System.IO.File.ReadAllText(rep).Contains("WHAT IF")) throw new Exception("the report has no session table after COMPARE");
                     Console.WriteLine("      PROP SIM: " + simRun.Days.Count + " days • " + simRun.Trades.Count + " trades • bought " + simRun.Bought + " • passed " + simRun.PassedCount + " • blown " + (simRun.BlownEval + simRun.BlownFunded) + " • net " + simRun.Net.ToString("0.00") + " • " + System.IO.Path.GetFileName(simRun.Folder));
                     if (!simRun.Finished || simRun.Days.Count != 3) throw new Exception("prop sim did not run its 3 days (" + simRun.Days.Count + ", plan " + simRun.PlanIndex + "/" + simRun.Plan.Count + ")");
                     if (simRun.Trades.Count == 0) throw new Exception("the rotation made no trades");
@@ -242,6 +283,7 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9));
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
+                    var noCmp = KeystonePropSim.Load(simRun.Folder); noCmp.Folder = System.IO.Path.Combine(studio, "nocmp"); Call(lab2, "FillPropPool", poolHost, noCmp, false, (Action<string>)(c9 => poolAct = c9));   // ⚖ SESSIONS before a comparison
                     var stWin = (System.Windows.Window)F("replayTraderWindow");
                     var setupHost = new System.Windows.Controls.StackPanel();
                     Call(lab2, "BuildPropSimSetup", stWin, setupHost, (Func<int, bool?>)(k0 => true), (Action<KeystoneSimSettings, string, bool>)((a0, b0, c0) => { }));

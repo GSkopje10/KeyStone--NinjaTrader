@@ -96,7 +96,7 @@ public static class PropSimTests
         Check(tf.Payouts == 1 && Eq(tf.Gross, 500) && Eq(tf.Cash, 400) && Eq(tf.Bal, 2000), "TPT: $500 above the buffer paid out, 80% = $400 to you", tf.Gross + " " + tf.Cash);
 
         // day limits: 2 losses lock the account for the day; an evaluation at its target stops trading today
-        var s6 = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 1, Strategy = "ROTATION", MaxLossesPerDay = 2, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
+        var s6 = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 1, Strategy = "ROTATION", RotTarget = 5000, MaxLossesPerDay = 2, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
         var simL = new KeystonePropSim(s6); simL.BeginDay(d1); var l = simL.Active; Trade(simL, 30, -100); Check(simL.Active == l, "1 loss: still trading"); Trade(simL, 30, -100);
         Check(l.LockedToday && simL.Active == null, "2 losses: locked for the day");
         simL.EndDay(); simL.BeginDay(d1.AddDays(1)); Trade(simL, 30, 3300);
@@ -131,6 +131,63 @@ public static class PropSimTests
         Check(r1.LockedToday && Eq(r1.DayPnl, 1480), "FULL RECOVERY: +1,480 for the day (≈ the target, fees in) → locked", r1.DayNote);
         simR.EndDay();
 
+        // ---- the rotation on 1-minute bars (the what-if engine): a day never ends above its target; the stop is checked first
+        var bs = new KeystoneSimSettings { DayPlan = "NONE", RotTarget = 1500, RotStop = 500, Rules = KeystoneSimRules.Presets()[0].Copy() };
+        var ba = new KeystoneSimAccount { Id = 1, Phase = "EVAL" }; double bt, bst;
+        ba.DayPnl = 1000; KeystoneRotationLab.Bracket(bs, ba, 30, 3000, out bt, out bst);
+        Check(Eq(bt, 530) && Eq(bst, 500), "UNTIL THE DAY TARGET: +1,000 made today → the next trade aims at the 500 left (+ fees)", bt + " / " + bst);
+        ba.DayPnl = -500; bs.DayPlan = "RECOVER"; KeystoneRotationLab.Bracket(bs, ba, 30, 520, out bt, out bst);
+        Check(Eq(bt, 2030) && Eq(bst, 489), "FULL RECOVERY after −500: aims at +2,000 (+ fees); the stop stays inside the room to the floor", bt + " / " + bst);
+        var rd = new KeystoneRotDay { Day = d1 }; int k0 = KeystoneRotDay.Slot(930);
+        Check(k0 == 15 * 60 + 30, "09:30 is slot " + (15 * 60 + 30) + " (minutes since 18:00)", k0.ToString());
+        for (int i = k0; i < k0 + 60; i++) { float pm0 = 20000 + (i - k0) * 2f, pg0 = 2400 + (i - k0) * 0.5f; rd.MO[i] = pm0; rd.MH[i] = pm0 + 1; rd.ML[i] = pm0 - 1; rd.MC[i] = pm0 + 1; rd.GO[i] = pg0; rd.GH[i] = pg0 + 0.3f; rd.GL[i] = pg0 - 0.3f; rd.GC[i] = pg0 + 0.3f; }
+        int hw, xs; double pk, ws;
+        double up = KeystoneRotationLab.Trade(rd, k0, k0 + 59, 1, 1, 1, 1, 100, 500, 0, null, out hw, out xs, out pk, out ws);
+        Check(hw == 1 && xs > k0 && Eq(up, 100 - KeystoneRotationLab.CostMnq - KeystoneRotationLab.CostMgc), "BUY BUY in a rising market: +$100 target at a minute close, minus the costs", hw + " " + up.ToString("0.00"));
+        double dn = KeystoneRotationLab.Trade(rd, k0, k0 + 59, -1, -1, 1, 1, 1000, 30, 0, null, out hw, out xs, out pk, out ws);
+        Check(hw == -1 && dn < -30, "SELL SELL in a rising market: the $30 stop, slippage and costs on top", hw + " " + dn.ToString("0.00"));
+        var wdays = new List<KeystoneRotDay> { rd };
+        var wsim = KeystoneRotationLab.Run(new KeystoneSimSettings { DayPlan = "NONE", Accounts = 2, Direction = "BUY", MnqQty = 1, MgcQty = 1, RotTarget = 100, RotStop = 100, PauseSeconds = 60, Rules = KeystoneSimRules.Presets()[0].Copy() }, wdays, 930, 1029, null);
+        Check(wsim.Days.Count == 1 && wsim.Trades.Count >= 2 && wsim.Trades.GroupBy(t => t.Account).All(g => g.Sum(t => t.Pnl) <= 100 + 1e-6), "what-if run: both accounts trade, no account's day passes its +$100 target", wsim.Trades.Count + " trades");
+        Check(KeystoneRotationLab.DaysAtTarget(wsim) >= 1, "account-days at their target are counted", KeystoneRotationLab.DaysAtTarget(wsim).ToString());
+
+        // ---- ⚖ COMPARE SESSIONS: the same days in every session window; your own hours first when they are not one of them
+        var rng = new Random(11); var cdays = new List<KeystoneRotDay>();
+        for (int dd = 0; dd < 12; dd++)
+        {
+            var cd = new KeystoneRotDay { Day = d1.AddDays(dd) }; double pm1 = 20000, pg1 = 2400;
+            for (int i = 0; i < KeystoneRotDay.Slots - 5; i++)
+            {
+                double am = (rng.NextDouble() - 0.5) * 8, ag = (rng.NextDouble() - 0.5) * 1.6; double om = pm1, og = pg1; pm1 += am; pg1 += ag;
+                cd.MO[i] = (float)om; cd.MC[i] = (float)pm1; cd.MH[i] = (float)(Math.Max(om, pm1) + 1); cd.ML[i] = (float)(Math.Min(om, pm1) - 1);
+                cd.GO[i] = (float)og; cd.GC[i] = (float)pg1; cd.GH[i] = (float)(Math.Max(og, pg1) + 0.2); cd.GL[i] = (float)(Math.Min(og, pg1) - 0.2);
+            }
+            cdays.Add(cd);
+        }
+        var cs = new KeystoneSimSettings { DayPlan = "ONEWIN", Accounts = 3, Direction = "RANDOM", MnqQty = 2, MgcQty = 2, FundMnqQty = 2, FundMgcQty = 2, RotTarget = 300, RotStop = 300, FundRotTarget = 300, FundRotStop = 300, StartHhmm = 1000, EndHhmm = 1400, Rules = KeystoneSimRules.Presets()[0].Copy() };
+        int calls = 0; var rows = KeystoneRotationLab.Compare(cs, cdays, null, (k, n) => calls++);
+        Check(rows.Count == KeystoneRotationLab.SessionNames.Length + 1 && rows[0].Mine && rows[0].Name.StartsWith("YOUR HOURS 10:00") && rows.Count(r => r.Mine) == 1 && calls == rows.Count, "every session window + YOUR HOURS 10:00–14:00 first (not one of the windows)", rows.Count + " rows • " + rows[0].Name);
+        Check(rows.All(r => r.Days == 12 && r.Trades > 0 && r.AcctDays > 0 && r.AtTarget <= r.AcctDays && r.Curve.Count == 12), "each row: the 12 days, its trades, account-days, the money curve", string.Join(" | ", rows.Select(r => r.Name.Split(' ')[0] + " " + r.Trades)));
+        var wn0 = KeystoneRotationLab.Winner(rows);
+        Check(wn0 != null && rows.All(r => Math.Round(r.Net, 2) <= Math.Round(wn0.Net, 2)), "the winner has the most net money", wn0 == null ? "none" : wn0.Name + " " + wn0.Net.ToString("0"));
+        var cs2 = cs.Copy(); cs2.StartHhmm = 930; cs2.EndHhmm = 1555; var rows2 = KeystoneRotationLab.Compare(cs2, cdays, null, null);
+        Check(rows2.Count == KeystoneRotationLab.SessionNames.Length && rows2.Count(r => r.Mine) == 1 && rows2.First(r => r.Mine).Name.StartsWith("NY DAY"), "hours 09:30–15:55 = the NY DAY row, marked as yours");
+        var rt0 = KeystoneSessionWhatIf.Parse(rows[2].Line());
+        Check(rt0 != null && rt0.Name == rows[2].Name && rt0.Start == rows[2].Start && rt0.Trades == rows[2].Trades && Eq(rt0.Net, rows[2].Net) && rt0.Curve.Count == rows[2].Curve.Count && rt0.Mine == rows[2].Mine, "a row is saved and read back the same", rows[2].Line().Substring(0, 60));
+        string cfold = Path.Combine(Path.GetTempPath(), "keystone_cmp_" + Guid.NewGuid().ToString("N")); KeystoneSessionWhatIf.Save(cfold, rows);
+        Check(KeystoneSessionWhatIf.Load(cfold).Count == rows.Count && KeystoneSessionWhatIf.Load(cfold + "_none").Count == 0, "sessions.txt saved with the run; none = empty list");
+        bool stopNow = false; int seen = 0; var part = KeystoneRotationLab.Compare(cs, cdays, () => stopNow, (k, n) => { if (++seen == 2) stopNow = true; });
+        Check(part.Count < rows.Count, "the comparison stops when asked", part.Count.ToString());
+        // 📄 the HTML report of a run (+ the comparison)
+        var hsim = KeystoneRotationLab.Run(cs, cdays, 1000, 1400, null); hsim.Folder = cfold;
+        string html = KeystonePropSimReport.Html(hsim, rows);
+        Check(html.StartsWith("<!doctype html>") && html.Contains("Prop Simulation Report") && html.Contains("CLEAR WINNER") == false && html.Contains("WINNER:") && html.Contains(System.Net.WebUtility.HtmlEncode(wn0.Name)) && html.Contains("ACCOUNTS") && html.Contains("EVERY DAY") && html.Contains("class='click win") && !html.Contains("NaN"), "the HTML report: summary, winner row, accounts, days", html.Length + " chars");
+        Check(!KeystonePropSimReport.Html(hsim, null).Contains("WHAT IF"), "no comparison = no session table in the report");
+        try { Directory.Delete(cfold, true); } catch { }
+        // after the day's CLOSE ALL: the next day at my hours or from 18:00 (saved with the settings)
+        var nd = new KeystoneSimSettings { NextDay = "1800", StartHhmm = 1800, EndHhmm = 1555 }; var nd2 = KeystoneSimSettings.FromText(nd.ToText());
+        Check(nd2.NextDay == "1800" && nd2.StartHhmm == 1800 && new KeystoneSimSettings().NextDay == "HOURS" && nd.Describe().Contains("18:00"), "NEXT DAY setting saved / read; the default skips to my hours");
+
         // ---- the rotation driver
         var rot = new KeystoneSimRotation(7); var t0 = new DateTime(2026, 3, 2, 9, 30, 0);
         rot.Start(t0, 1, null, 300, 300, 10);
@@ -156,6 +213,7 @@ public static class PropSimTests
         Check(seenH.SetEquals(new[] { "BS", "SB" }), "RANDOMHEDGE: always one bought, one sold", string.Join(",", seenH));
         var cyc = new KeystoneSimRotation(3); Check(string.Join(",", Enumerable.Range(0, 5).Select(i => sd(cyc.PickDirs("CYCLE4", 0, 0)))) == "BB,SS,BS,SB,BB", "CYCLE4 goes BB → SS → BS → SB in turn");
         Check(sd(rr.PickDirs("FOLLOW5EACH", 3, -2)) == "BS" && sd(rr.PickDirs("FADE5EACH", 3, -2)) == "SB" && sd(rr.PickDirs("FOLLOW5EACH", 0, 2)) == "0B", "FOLLOW / FADE 5 EACH: each instrument its own last 5 minutes");
+        Check(sd(rr.PickDirs("NQLEAD5", 3, -2)) == "BB" && sd(rr.PickDirs("NQLEAD5", -3, 2)) == "SS" && sd(rr.PickDirs("NQLEAD5", 0, 2)) == "00" && KeystoneSimRotation.Arrows(1, -1) == "▲▼" && KeystoneSimRotation.Confirms("NQLEAD5") && !KeystoneSimRotation.Confirms("RANDOM"), "NQ LEADS: both follow MNQ's last 5 minutes (flat MNQ = wait); the signal arrows");
         rot.Start(t0, 1, -1, null, 300, 300, 10); rot.Check(t0.AddSeconds(5), 120, 0, 0, null); rot.Check(t0.AddSeconds(9), -80, 0, 0, null);
         Check(rot.Dir == 1 && rot.DirG == -1 && Eq(rot.Peak, 120) && Eq(rot.Worst, -80), "a BUY MNQ + SELL MGC trade keeps both sides, its peak and its worst point");
         rot.Done(t0.AddSeconds(20), 45); Check(rot.PauseUntil == t0.AddSeconds(65), "the pause after a trade is in seconds");

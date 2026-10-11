@@ -1,0 +1,37 @@
+ROTATION ENTRIES • MNQ + MGC • 1402 days with both • 2020-10-19 → 2026-10-02
+  entry points: 33549
+  outcomes: 33549 × 4 × 4 × 6 in 1 s
+  configs: 27648 in 1 s
+  rule configs with ≥ 120 trades 2020–23: 24864 • positive then: 462 • positive 2024–26 too: 13
+  IS t  3.55 hit    8% avg     92 | OOS t -0.68 hit   12% avg    -21 n  630 | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  IS t  3.33 hit    9% avg     87 | OOS t -0.57 hit   15% avg    -19 n  650 | NQ LEADS 5m (both follow MNQ) • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  IS t  3.12 hit   23% avg     74 | OOS t -1.11 hit   28% avg    -32 n  630 | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +900 / −900
+  IS t  3.09 hit    7% avg     73 | OOS t -2.27 hit    9% avg    -60 n  630 | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −500
+  IS t  3.06 hit    9% avg     89 | OOS t -0.47 hit   14% avg    -18 n  630 | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  IS t  3.00 hit   10% avg    121 | OOS t  0.81 hit   20% avg     46 n  321 | FOLLOW 5m • only when both agree • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  IS t  2.91 hit   24% avg     69 | OOS t -1.55 hit   29% avg    -45 n  650 | NQ LEADS 5m (both follow MNQ) • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +900 / −900
+  IS t  2.91 hit   10% avg     85 | OOS t -0.04 hit   18% avg     -2 n  650 | NQ LEADS 5m (both follow MNQ) • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  IS t  2.88 hit    8% avg     68 | OOS t -1.81 hit   11% avg    -50 n  650 | NQ LEADS 5m (both follow MNQ) • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −500
+  IS t  2.88 hit   26% avg     97 | OOS t -0.69 hit   30% avg    -29 n  321 | FOLLOW 5m • only when both agree • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +900 / −900
+  IS t  2.80 hit    9% avg    104 | OOS t  0.13 hit   16% avg      6 n  321 | FOLLOW 5m • only when both agree • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  IS t  2.78 hit    7% avg     69 | OOS t -1.11 hit   13% avg    -35 n  654 | VWAP side • each follows • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  luck (60 shuffles, 16 s): best t by luck median 1.98 • 95th 3.06 • real 3.55 → p 0.016
+  walk-forward 2022: -15746 $ (235 trades, hit 10%) • chosen on < 2022 (t 2.1): STRONGER vs WEAKER 120m (buy strong, sell weak) • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  walk-forward 2023: 3218 $ (226 trades, hit 3%) • chosen on < 2023 (t 3.0): VWAP side • each follows • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  walk-forward 2024: 895 $ (226 trades, hit 7%) • chosen on < 2024 (t 3.5): FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  walk-forward 2025: -1064 $ (109 trades, hit 15%) • chosen on < 2025 (t 3.4): FOLLOW 5m • only when both agree • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  walk-forward 2026: 3244 $ (90 trades, hit 35%) • chosen on < 2026 (t 2.8): FOLLOW 5m • only when both agree • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  prop IS  : pass 42% (coin 23% [17–31] p 0.02) net 31031 (coin 4189, p 0.02) | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  prop OOS : pass 20% (coin 20% [15–25] p 0.51) net 3027 (coin -2999, p 0.22) | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  prop IS  : pass 37% (coin 21% [17–27] p 0.02) net 21473 (coin 2784, p 0.05) | NQ LEADS 5m (both follow MNQ) • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  prop OOS : pass 21% (coin 22% [16–30] p 0.59) net 838 (coin 289, p 0.46) | NQ LEADS 5m (both follow MNQ) • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −750
+  prop IS  : pass 39% (coin 19% [14–27] p 0.02) net 25131 (coin -501, p 0.02) | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +900 / −900
+  prop OOS : pass 20% (coin 17% [13–26] p 0.24) net -7769 (coin -4968, p 0.71) | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +900 / −900
+  prop IS  : pass 33% (coin 20% [16–26] p 0.02) net 17767 (coin 1033, p 0.02) | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −500
+  prop OOS : pass 21% (coin 14% [12–19] p 0.02) net -6052 (coin -9511, p 0.29) | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −500
+  prop IS  : pass 43% (coin 25% [16–37] p 0.02) net 12534 (coin 4653, p 0.20) | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  prop OOS : pass 27% (coin 27% [19–34] p 0.44) net 17721 (coin 10052, p 0.15) | FOLLOW 5m • each its own • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  prop IS  : pass 42% (coin 27% [19–37] p 0.05) net 18661 (coin 6060, p 0.10) | FOLLOW 5m • only when both agree • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  prop OOS : pass 29% (coin 28% [23–36] p 0.39) net 21312 (coin 7361, p 0.10) | FOLLOW 5m • only when both agree • NY CLOSE 13:30–15:55 +0m • BOTH 5+5 • +1500 / −1500
+  prop runs: 20 • coin-flip bands: 12
+  plain rotation grid: 144 cells × 20 seeds in 114 s
