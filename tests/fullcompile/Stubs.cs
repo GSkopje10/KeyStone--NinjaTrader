@@ -89,6 +89,7 @@ namespace System.Windows
         public void InvalidateVisual() { }
         public void UpdateLayout() { }
         public void BeginAnimation(DependencyProperty p, System.Windows.Media.Animation.AnimationTimeline a) { }
+        public bool IsKeyboardFocusWithin { get { return false; } }
         public static readonly DependencyProperty OpacityProperty = new DependencyProperty();
         public event System.Windows.Input.MouseButtonEventHandler MouseLeftButtonDown, MouseLeftButtonUp, MouseRightButtonDown, MouseRightButtonUp, MouseDown, MouseUp, PreviewMouseLeftButtonDown, PreviewMouseDown;
         public event System.Windows.Input.MouseEventHandler MouseMove, MouseEnter, MouseLeave, PreviewMouseMove, LostMouseCapture;
@@ -225,7 +226,8 @@ namespace System.Windows.Media.Animation
     public class SineEase : EasingFunctionBase { }
     public class ElasticEase : EasingFunctionBase { }
     public struct Duration { public Duration(TimeSpan t) { } public static implicit operator Duration(TimeSpan t) { return new Duration(t); } }
-    public abstract class AnimationTimeline : System.Windows.Media.Freezable { public Duration Duration { get; set; } public TimeSpan? BeginTime { get; set; } public bool AutoReverse { get; set; } public event EventHandler Completed; }
+    public abstract class AnimationTimeline : System.Windows.Media.Freezable { public Duration Duration { get; set; } public TimeSpan? BeginTime { get; set; } public bool AutoReverse { get; set; } public RepeatBehavior RepeatBehavior { get; set; } public event EventHandler Completed; }
+    public struct RepeatBehavior { public RepeatBehavior(double count) { } public static RepeatBehavior Forever { get { return new RepeatBehavior(); } } }
     public class DoubleAnimation : AnimationTimeline
     {
         public DoubleAnimation() { }

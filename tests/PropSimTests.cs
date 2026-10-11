@@ -36,7 +36,7 @@ public static class PropSimTests
 
         // ---- the run: 2 evaluations, Lucid-like rules (target 3,000, drawdown 2,000 EOD locking at +100, 50% consistency, 2 days)
         var s = new KeystoneSimSettings { Accounts = 2, Strategy = "MANUAL", RotateBy = "TRADE", MaxLossesPerDay = 0 };
-        s.Rules = KeystoneSimRules.Presets()[0].Copy(); s.Rules.MinHoldSeconds = 11; s.Rules.MinHoldShare = 50;
+        s.Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy(); s.Rules.MinHoldSeconds = 11; s.Rules.MinHoldShare = 50;
         var sim = new KeystonePropSim(s);
         var d1 = new DateTime(2026, 3, 2); sim.BeginDay(d1);
         Check(sim.Accounts.Count == 2 && sim.Accounts.All(a => a.Phase == "EVAL") && Eq(sim.Spent, 240) && sim.Active.Name == "A01", "day 1: two evaluations bought ($240), A01 trades first");
@@ -96,7 +96,7 @@ public static class PropSimTests
         Check(tf.Payouts == 1 && Eq(tf.Gross, 500) && Eq(tf.Cash, 400) && Eq(tf.Bal, 2000), "TPT: $500 above the buffer paid out, 80% = $400 to you", tf.Gross + " " + tf.Cash);
 
         // day limits: 2 losses lock the account for the day; an evaluation at its target stops trading today
-        var s6 = new KeystoneSimSettings { Accounts = 1, Strategy = "ROTATION", MaxLossesPerDay = 2, Rules = KeystoneSimRules.Presets()[0].Copy() };
+        var s6 = new KeystoneSimSettings { Accounts = 1, Strategy = "ROTATION", MaxLossesPerDay = 2, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
         var simL = new KeystonePropSim(s6); simL.BeginDay(d1); var l = simL.Active; Trade(simL, 30, -100); Check(simL.Active == l, "1 loss: still trading"); Trade(simL, 30, -100);
         Check(l.LockedToday && simL.Active == null, "2 losses: locked for the day");
         simL.EndDay(); simL.BeginDay(d1.AddDays(1)); Trade(simL, 30, 3300);
@@ -106,7 +106,7 @@ public static class PropSimTests
         Trade(simL, 30, 100);
         Check(simL.Active == l && !l.LockedToday, "still inconsistent after +$100 → not locked at the target");
         // consistent at the target but too few days: locked, then a day-count trade a day until the minimum days → PASSED
-        var s8 = new KeystoneSimSettings { Accounts = 1, Strategy = "ROTATION", MaxLossesPerDay = 0, Rules = KeystoneSimRules.Presets()[0].Copy() }; s8.Rules.EvalMinDays = 4; s8.Rules.MinHoldSeconds = 0;
+        var s8 = new KeystoneSimSettings { Accounts = 1, Strategy = "ROTATION", MaxLossesPerDay = 0, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() }; s8.Rules.EvalMinDays = 4; s8.Rules.MinHoldSeconds = 0;
         var simM = new KeystonePropSim(s8); var m = (KeystoneSimAccount)null;
         foreach (var pnl in new[] { 1000.0, 1000, 1100 }) { simM.BeginDay(d1.AddDays(simM.Days.Count)); m = simM.Active; Trade(simM, 30, pnl); simM.EndDay(); }
         Check(m.Phase == "EVAL" && Eq(m.Bal, 3100) && m.LockedToday, "3,100 in 3 days (best 35%) but 4 days needed → locked at the target");
@@ -131,10 +131,22 @@ public static class PropSimTests
         var rr = new KeystoneSimRotation(1); int buys = 0; for (int i = 0; i < 400; i++) if (rr.PickDir("RANDOM", 0, 0) > 0) buys++;
         Check(buys > 160 && buys < 240, "RANDOM: about half buy-buy, half sell-sell", buys.ToString());
         Check(rr.PickDir("FOLLOW5", 5, 1) == 1 && rr.PickDir("FOLLOW5", 5, -1) == 0 && rr.PickDir("FADE5", -5, -1) == 1, "FOLLOW5 / FADE5 need both instruments to agree");
+        // every MNQ / MGC combination
+        Func<Tuple<int, int>, string> sd = d => (d.Item1 > 0 ? "B" : d.Item1 < 0 ? "S" : "0") + (d.Item2 > 0 ? "B" : d.Item2 < 0 ? "S" : "0");
+        Check(sd(rr.PickDirs("BUY", 0, 0)) == "BB" && sd(rr.PickDirs("SELL", 0, 0)) == "SS" && sd(rr.PickDirs("BS", 0, 0)) == "BS" && sd(rr.PickDirs("SB", 0, 0)) == "SB", "fixed sides: BB / SS / BUY MNQ + SELL MGC / SELL MNQ + BUY MGC");
+        var seen4 = new HashSet<string>(); for (int i = 0; i < 200; i++) seen4.Add(sd(rr.PickDirs("RANDOM4", 0, 0)));
+        Check(seen4.SetEquals(new[] { "BB", "SS", "BS", "SB" }), "RANDOM4 gives all four combinations", string.Join(",", seen4));
+        var seenH = new HashSet<string>(); for (int i = 0; i < 200; i++) seenH.Add(sd(rr.PickDirs("RANDOMHEDGE", 0, 0)));
+        Check(seenH.SetEquals(new[] { "BS", "SB" }), "RANDOMHEDGE: always one bought, one sold", string.Join(",", seenH));
+        var cyc = new KeystoneSimRotation(3); Check(string.Join(",", Enumerable.Range(0, 5).Select(i => sd(cyc.PickDirs("CYCLE4", 0, 0)))) == "BB,SS,BS,SB,BB", "CYCLE4 goes BB → SS → BS → SB in turn");
+        Check(sd(rr.PickDirs("FOLLOW5EACH", 3, -2)) == "BS" && sd(rr.PickDirs("FADE5EACH", 3, -2)) == "SB" && sd(rr.PickDirs("FOLLOW5EACH", 0, 2)) == "0B", "FOLLOW / FADE 5 EACH: each instrument its own last 5 minutes");
+        rot.Start(t0, 1, -1, null, 300, 300, 10); rot.Check(t0.AddSeconds(5), 120, 0, 0, null); rot.Check(t0.AddSeconds(9), -80, 0, 0, null);
+        Check(rot.Dir == 1 && rot.DirG == -1 && Eq(rot.Peak, 120) && Eq(rot.Worst, -80), "a BUY MNQ + SELL MGC trade keeps both sides, its peak and its worst point");
+        rot.Done(t0.AddSeconds(20), 45); Check(rot.PauseUntil == t0.AddSeconds(65), "the pause after a trade is in seconds");
 
         // ---- saving and loading a run
         string folder = Path.Combine(Path.GetTempPath(), "keystone_propsim_test_" + Guid.NewGuid().ToString("N"));
-        var s7 = new KeystoneSimSettings { Accounts = 2, Strategy = "ROTATION", Direction = "RANDOM", MnqQty = 3, From = d1, To = d1.AddDays(9), Rules = KeystoneSimRules.Presets()[1].Copy() };
+        var s7 = new KeystoneSimSettings { Accounts = 2, Strategy = "ROTATION", Direction = "RANDOM", MnqQty = 3, From = d1, To = d1.AddDays(9), Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("TRADEIFY")).Copy() };
         var simS = new KeystonePropSim(s7) { Folder = folder }; simS.Plan = KeystonePropSim.Weekdays(s7.From, s7.To);
         simS.BeginDay(simS.Plan[0]); Trade(simS, 30, 250); Trade(simS, 30, -120); simS.EndDay(); simS.PlanIndex = 1;
         simS.BeginDay(simS.Plan[1]); Trade(simS, 30, 600); simS.EndDay(); simS.PlanIndex = 2; simS.SaveState();

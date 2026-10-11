@@ -224,7 +224,7 @@ public static class UiSmokeTest
                         if (wk.Count == 3 && wk.All(d => stored0.Contains(d) && KeystoneStudioStore.Sessions(studio, "MGC").ContainsKey(d))) run3 = wk;
                     }
                     if (run3 == null) throw new Exception("no three saved weekdays in a row for the prop sim");
-                    var simSet = new KeystoneSimSettings { Strategy = "ROTATION", Accounts = 3, From = run3[0], To = run3[2], RotTarget = 120, RotStop = 120, FundRotTarget = 120, FundRotStop = 120, MnqQty = 1, MgcQty = 1, FundMnqQty = 1, FundMgcQty = 1, StartHhmm = 930, EndHhmm = 1555, Rules = KeystoneSimRules.Presets()[0].Copy() };
+                    var simSet = new KeystoneSimSettings { Strategy = "ROTATION", Accounts = 3, From = run3[0], To = run3[2], RotTarget = 120, RotStop = 120, FundRotTarget = 120, FundRotStop = 120, MnqQty = 1, MgcQty = 1, FundMnqQty = 1, FundMgcQty = 1, StartHhmm = 930, EndHhmm = 1555, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
                     ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(simSet, false);
                     var simRun = ((Func<KeystonePropSim>)F("studioPropSim"))();
                     if (simRun == null || !simRun.DayOpen) throw new Exception("prop sim did not open its first day");
@@ -243,8 +243,26 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
                     var stWin = (System.Windows.Window)F("replayTraderWindow");
-                    Call(lab2, "OpenPropSimSetup", stWin, "ASIAN 75", (Action<KeystoneSimSettings, string, bool>)((a0, b0, c0) => { }));
+                    var setupHost = new System.Windows.Controls.StackPanel();
+                    Call(lab2, "BuildPropSimSetup", stWin, setupHost, (Func<int, bool?>)(k0 => true), (Action<KeystoneSimSettings, string, bool>)((a0, b0, c0) => { }));
+                    if (setupHost.Children.Count < 4) throw new Exception("the PROP SIM set-up has " + setupHost.Children.Count + " steps");
                     Call(lab2, "OpenInstrumentImport", stWin, (Func<IEnumerable<string>>)(() => new[] { "MNQ", "MGC" }), (Action<string, DateTime, DateTime, bool>)((a0, b0, c0, d0) => { }));
+                    // I TRADE (rotation): nothing by itself; one click = BUY MNQ + SELL MGC together for the account in turn, exits managed
+                    var manSet = simSet.Copy(); manSet.Auto = false; manSet.Direction = "BS"; manSet.Accounts = 2; manSet.From = run3[0]; manSet.To = run3[0]; manSet.RotTarget = 5000; manSet.FundRotTarget = 5000;
+                    ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(manSet, false);
+                    var man = ((Func<KeystonePropSim>)F("studioPropSim"))();
+                    ((Action<int>)F("replayTraderStep"))(12);
+                    if (man.Trades.Count != 0) throw new Exception("I TRADE traded by itself");
+                    string whyNot = ((Func<int, int, string>)F("studioRotEnter"))(1, -1);
+                    if (whyNot != "") throw new Exception("one-click rotation entry refused: " + whyNot);
+                    string again = ((Func<int, int, string>)F("studioRotEnter"))(1, 1);
+                    if (again == "") throw new Exception("a second entry was taken while a trade is open");
+                    ((Action<int>)F("replayTraderStep"))(3);
+                    ((Action<bool>)F("studioBoth"))(false); ((Action<bool>)F("studioBoth"))(true);   // one chart ↔ both charts while a trade runs
+                    ((Action)F("studioPropRunDay"))();
+                    Console.WriteLine("      I TRADE rotation: " + man.Trades.Count + " trade • " + (man.Trades.Count > 0 ? man.Trades[0].Legs + " • " + man.Trades[0].Reason + " • " + man.Trades[0].Pnl.ToString("0.00") + " • A" + man.Trades[0].Account.ToString("00") : "") + " • second click: " + again);
+                    if (man.Trades.Count != 1 || !man.Trades[0].Legs.Contains("BUY 1 MNQ") || !man.Trades[0].Legs.Contains("SELL 1 MGC")) throw new Exception("the one-click BUY MNQ + SELL MGC trade was not booked");
+                    ((Action<bool>)F("studioBoth"))(false);
                     // ＋ instruments: a registered symbol gets its own tab, and goes away again
                     KeystoneSymbols.Register(new KeystoneSymbolSpec { Symbol = "ES", Name = "E-mini S&P 500", Type = "FUTURE", PointValue = 50, TickSize = 0.25, Commission = 2.25, FullDayMinutes = 800 });
                     ((Action<string>)F("studioAddSymbol"))("ES");
