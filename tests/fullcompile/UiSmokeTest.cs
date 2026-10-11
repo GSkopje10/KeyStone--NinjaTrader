@@ -263,6 +263,15 @@ public static class UiSmokeTest
                     Console.WriteLine("      I TRADE rotation: " + man.Trades.Count + " trade • " + (man.Trades.Count > 0 ? man.Trades[0].Legs + " • " + man.Trades[0].Reason + " • " + man.Trades[0].Pnl.ToString("0.00") + " • A" + man.Trades[0].Account.ToString("00") : "") + " • second click: " + again);
                     if (man.Trades.Count != 1 || !man.Trades[0].Legs.Contains("BUY 1 MNQ") || !man.Trades[0].Legs.Contains("SELL 1 MGC")) throw new Exception("the one-click BUY MNQ + SELL MGC trade was not booked");
                     ((Action<bool>)F("studioBoth"))(false);
+                    // DATA ONLY: two days at full speed without drawing the charts; ONE WIN A DAY locks an account after its first win
+                    var dSet = simSet.Copy(); dSet.DataOnly = true; dSet.DayPlan = "ONEWIN"; dSet.From = run3[0]; dSet.To = run3[1];
+                    ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(dSet, true);
+                    var dRun = ((Func<KeystonePropSim>)F("studioPropSim"))();
+                    for (int i = 0; i < 4 && !dRun.Finished; i++) ((Action)F("studioPropRunDay"))();
+                    var wins = dRun.Trades.Where(t => t.Pnl > 0).GroupBy(t => t.Day.ToString("yyyyMMdd") + "|" + t.Account).ToList();
+                    Console.WriteLine("      DATA ONLY run: " + dRun.Days.Count + " days • " + dRun.Trades.Count + " trades • " + wins.Count + " account-days with a win");
+                    if (!dRun.Finished || dRun.Days.Count != 2) throw new Exception("DATA ONLY run did not finish its 2 days");
+                    if (wins.Any(g => g.Count() > 1)) throw new Exception("ONE WIN A DAY: an account won twice on one day");
                     // ＋ instruments: a registered symbol gets its own tab, and goes away again
                     KeystoneSymbols.Register(new KeystoneSymbolSpec { Symbol = "ES", Name = "E-mini S&P 500", Type = "FUTURE", PointValue = 50, TickSize = 0.25, Commission = 2.25, FullDayMinutes = 800 });
                     ((Action<string>)F("studioAddSymbol"))("ES");

@@ -35,7 +35,7 @@ public static class PropSimTests
         Check(KeystoneSymbols.TypeName("Future") == "FUTURE" && KeystoneSymbols.TypeName("Forex") == "FOREX" && KeystoneSymbols.TypeName("Stock") == "STOCK", "NinjaTrader instrument types → ours");
 
         // ---- the run: 2 evaluations, Lucid-like rules (target 3,000, drawdown 2,000 EOD locking at +100, 50% consistency, 2 days)
-        var s = new KeystoneSimSettings { Accounts = 2, Strategy = "MANUAL", RotateBy = "TRADE", MaxLossesPerDay = 0 };
+        var s = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 2, Strategy = "MANUAL", RotateBy = "TRADE", MaxLossesPerDay = 0 };
         s.Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy(); s.Rules.MinHoldSeconds = 11; s.Rules.MinHoldShare = 50;
         var sim = new KeystonePropSim(s);
         var d1 = new DateTime(2026, 3, 2); sim.BeginDay(d1);
@@ -88,7 +88,7 @@ public static class PropSimTests
         Check(f.Payouts == 2 && Eq(f.Gross, 1000 + 2000) && f.Phase == "RETIRED", "second payout capped at $2,000, then RETIRED (max 2 payouts)", f.Payouts + " " + f.Gross + " " + f.Phase);
 
         // TPT-like: daily payouts above a $2,000 buffer, min $250, 80% split
-        var tpt = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("TAKE PROFIT")); var s5 = new KeystoneSimSettings { Accounts = 1, ReplacePassed = false, Strategy = "MANUAL", MaxLossesPerDay = 0, Rules = tpt.Copy() };
+        var tpt = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("TAKE PROFIT")); var s5 = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 1, ReplacePassed = false, Strategy = "MANUAL", MaxLossesPerDay = 0, Rules = tpt.Copy() };
         var simT = new KeystonePropSim(s5); simT.BeginDay(d1); var tf = simT.Active; tf.Phase = "FUNDED"; tf.WasPhase = "FUNDED"; simT.EndDay();
         simT.BeginDay(d1.AddDays(1)); Trade(simT, 30, 2100); simT.EndDay();
         Check(tf.Payouts == 0, "TPT: +$2,100 is only $100 above the buffer (< $250 minimum) → no payout");
@@ -96,7 +96,7 @@ public static class PropSimTests
         Check(tf.Payouts == 1 && Eq(tf.Gross, 500) && Eq(tf.Cash, 400) && Eq(tf.Bal, 2000), "TPT: $500 above the buffer paid out, 80% = $400 to you", tf.Gross + " " + tf.Cash);
 
         // day limits: 2 losses lock the account for the day; an evaluation at its target stops trading today
-        var s6 = new KeystoneSimSettings { Accounts = 1, Strategy = "ROTATION", MaxLossesPerDay = 2, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
+        var s6 = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 1, Strategy = "ROTATION", MaxLossesPerDay = 2, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
         var simL = new KeystonePropSim(s6); simL.BeginDay(d1); var l = simL.Active; Trade(simL, 30, -100); Check(simL.Active == l, "1 loss: still trading"); Trade(simL, 30, -100);
         Check(l.LockedToday && simL.Active == null, "2 losses: locked for the day");
         simL.EndDay(); simL.BeginDay(d1.AddDays(1)); Trade(simL, 30, 3300);
@@ -106,7 +106,7 @@ public static class PropSimTests
         Trade(simL, 30, 100);
         Check(simL.Active == l && !l.LockedToday, "still inconsistent after +$100 → not locked at the target");
         // consistent at the target but too few days: locked, then a day-count trade a day until the minimum days → PASSED
-        var s8 = new KeystoneSimSettings { Accounts = 1, Strategy = "ROTATION", MaxLossesPerDay = 0, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() }; s8.Rules.EvalMinDays = 4; s8.Rules.MinHoldSeconds = 0;
+        var s8 = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 1, Strategy = "ROTATION", MaxLossesPerDay = 0, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() }; s8.Rules.EvalMinDays = 4; s8.Rules.MinHoldSeconds = 0;
         var simM = new KeystonePropSim(s8); var m = (KeystoneSimAccount)null;
         foreach (var pnl in new[] { 1000.0, 1000, 1100 }) { simM.BeginDay(d1.AddDays(simM.Days.Count)); m = simM.Active; Trade(simM, 30, pnl); simM.EndDay(); }
         Check(m.Phase == "EVAL" && Eq(m.Bal, 3100) && m.LockedToday, "3,100 in 3 days (best 35%) but 4 days needed → locked at the target");
@@ -114,6 +114,22 @@ public static class PropSimTests
         Check(m.LockedToday && m.DayNote == "DAY-COUNT TRADE" && simM.Active == null, "day 4: only the day-count trade (≈ the commission)");
         simM.EndDay();
         Check(m.Phase == "FUNDED" && m.EvalDays == 4, "day 4 counted → PASSED", m.Phase + " " + m.EvalDays);
+
+        // ---- each account's day: ONE WIN A DAY (−500, −500, +1,500 → +500 locked) and FULL RECOVERY (locked at the day's +target)
+        var sw = new KeystoneSimSettings { DayPlan = "ONEWIN", Accounts = 1, Strategy = "ROTATION", RotTarget = 1500, RotStop = 500, Rules = KeystoneSimRules.Presets()[0].Copy() };
+        var simW = new KeystonePropSim(sw); simW.BeginDay(d1);
+        var w1 = Trade(simW, 30, -500); Trade(simW, 30, -500);
+        Check(!w1.LockedToday && simW.Active == w1, "ONE WIN A DAY: two losses, still trading");
+        Trade(simW, 30, 1440);
+        Check(w1.LockedToday && Eq(w1.DayPnl, 440) && simW.Active == null, "ONE WIN A DAY: the first win (+1,440 after −1,000) locks the day at +440", w1.DayNote);
+        simW.EndDay();
+        var sr = new KeystoneSimSettings { DayPlan = "RECOVER", Accounts = 1, Strategy = "ROTATION", RotTarget = 1500, RotStop = 500, Rules = KeystoneSimRules.Presets()[0].Copy() };
+        var simR = new KeystonePropSim(sr); simR.BeginDay(d1);
+        var r1 = Trade(simR, 30, -500); Trade(simR, 30, 600);
+        Check(!r1.LockedToday, "FULL RECOVERY: −500 then +600 = +100, still short of +1,500 → keeps trading");
+        Trade(simR, 30, 1380);
+        Check(r1.LockedToday && Eq(r1.DayPnl, 1480), "FULL RECOVERY: +1,480 for the day (≈ the target, fees in) → locked", r1.DayNote);
+        simR.EndDay();
 
         // ---- the rotation driver
         var rot = new KeystoneSimRotation(7); var t0 = new DateTime(2026, 3, 2, 9, 30, 0);
@@ -146,7 +162,7 @@ public static class PropSimTests
 
         // ---- saving and loading a run
         string folder = Path.Combine(Path.GetTempPath(), "keystone_propsim_test_" + Guid.NewGuid().ToString("N"));
-        var s7 = new KeystoneSimSettings { Accounts = 2, Strategy = "ROTATION", Direction = "RANDOM", MnqQty = 3, From = d1, To = d1.AddDays(9), Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("TRADEIFY")).Copy() };
+        var s7 = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 2, Strategy = "ROTATION", Direction = "RANDOM", MnqQty = 3, From = d1, To = d1.AddDays(9), Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("TRADEIFY")).Copy() };
         var simS = new KeystonePropSim(s7) { Folder = folder }; simS.Plan = KeystonePropSim.Weekdays(s7.From, s7.To);
         simS.BeginDay(simS.Plan[0]); Trade(simS, 30, 250); Trade(simS, 30, -120); simS.EndDay(); simS.PlanIndex = 1;
         simS.BeginDay(simS.Plan[1]); Trade(simS, 30, 600); simS.EndDay(); simS.PlanIndex = 2; simS.SaveState();
