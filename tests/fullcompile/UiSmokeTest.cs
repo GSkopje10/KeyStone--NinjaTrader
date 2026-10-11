@@ -216,6 +216,42 @@ public static class UiSmokeTest
                     Console.WriteLine("      NEW ACCOUNT 5000 mid-day → continues " + rt2.Time.ToString("HH:mm") + " • bought 1 • account file " + acc2[0] + "," + acc2[1]);
                     if (acc2[0] != "5000") throw new Exception("new account not saved");
                     ((Action)F("replayTraderEnd"))();
+                    // PROP SIM: 3 evaluations in rotation (random BUY BUY / SELL SELL on MNQ + MGC) over saved days, each day run to its close
+                    var stored0 = KeystoneStudioStore.Sessions(studio, "MNQ").Keys.ToList(); List<DateTime> run3 = null;
+                    for (int i = 0; i < stored0.Count && run3 == null; i++)
+                    {
+                        var wk = KeystonePropSim.Weekdays(stored0[i], stored0[i].AddDays(6)).Take(3).ToList();
+                        if (wk.Count == 3 && wk.All(d => stored0.Contains(d) && KeystoneStudioStore.Sessions(studio, "MGC").ContainsKey(d))) run3 = wk;
+                    }
+                    if (run3 == null) throw new Exception("no three saved weekdays in a row for the prop sim");
+                    var simSet = new KeystoneSimSettings { Strategy = "ROTATION", Accounts = 3, From = run3[0], To = run3[2], RotTarget = 120, RotStop = 120, FundRotTarget = 120, FundRotStop = 120, MnqQty = 1, MgcQty = 1, FundMnqQty = 1, FundMgcQty = 1, StartHhmm = 930, EndHhmm = 1555, Rules = KeystoneSimRules.Presets()[0].Copy() };
+                    ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(simSet, false);
+                    var simRun = ((Func<KeystonePropSim>)F("studioPropSim"))();
+                    if (simRun == null || !simRun.DayOpen) throw new Exception("prop sim did not open its first day");
+                    for (int i = 0; i < 6 && !simRun.Finished; i++) ((Action)F("studioPropRunDay"))();
+                    Console.WriteLine("      PROP SIM: " + simRun.Days.Count + " days • " + simRun.Trades.Count + " trades • bought " + simRun.Bought + " • passed " + simRun.PassedCount + " • blown " + (simRun.BlownEval + simRun.BlownFunded) + " • net " + simRun.Net.ToString("0.00") + " • " + System.IO.Path.GetFileName(simRun.Folder));
+                    if (!simRun.Finished || simRun.Days.Count != 3) throw new Exception("prop sim did not run its 3 days (" + simRun.Days.Count + ", plan " + simRun.PlanIndex + "/" + simRun.Plan.Count + ")");
+                    if (simRun.Trades.Count == 0) throw new Exception("the rotation made no trades");
+                    if (simRun.Trades.Any(t => t.Account <= 0 || t.Account > simRun.Accounts.Max(a => a.Id))) throw new Exception("a trade has no account");
+                    foreach (var fn in new[] { "settings.txt", "accounts.csv", "state.txt", "days.csv", "trades.csv", "account_days.csv" })
+                        if (!System.IO.File.Exists(System.IO.Path.Combine(simRun.Folder, fn))) throw new Exception("prop sim did not save " + fn);
+                    var back = KeystonePropSim.Load(simRun.Folder);
+                    if (back == null || back.Days.Count != 3 || back.Trades.Count != simRun.Trades.Count || Math.Abs(back.Net - simRun.Net) > 0.01) throw new Exception("saved prop sim does not load back the same");
+                    // the PROP POOL view (every inner tab) for the finished run and the saved copy, the setup window, the ＋ import window
+                    var poolHost = new System.Windows.Controls.ScrollViewer(); string poolAct = null;
+                    Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9));
+                    Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
+                    if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
+                    var stWin = (System.Windows.Window)F("replayTraderWindow");
+                    Call(lab2, "OpenPropSimSetup", stWin, "ASIAN 75", (Action<KeystoneSimSettings, string, bool>)((a0, b0, c0) => { }));
+                    Call(lab2, "OpenInstrumentImport", stWin, (Func<IEnumerable<string>>)(() => new[] { "MNQ", "MGC" }), (Action<string, DateTime, DateTime, bool>)((a0, b0, c0, d0) => { }));
+                    // ＋ instruments: a registered symbol gets its own tab, and goes away again
+                    KeystoneSymbols.Register(new KeystoneSymbolSpec { Symbol = "ES", Name = "E-mini S&P 500", Type = "FUTURE", PointValue = 50, TickSize = 0.25, Commission = 2.25, FullDayMinutes = 800 });
+                    ((Action<string>)F("studioAddSymbol"))("ES");
+                    if (KeystoneMoveStudy.PointValue("ES") != 50 || KeystoneMoveStudy.TickSize("ES") != 0.25) throw new Exception("ES spec not used");
+                    ((Action<string>)F("studioAddSymbol"))("-ES");
+                    if (KeystoneSymbols.Get("ES") != null) throw new Exception("ES tab not removed");
+                    Console.WriteLine("      ＋ instrument: ES tab added and removed");
                     var win = (System.Windows.Window)F("replayTraderWindow"); win.Close();
                     if (!System.IO.File.Exists(System.IO.Path.Combine(studio, "Workspace.txt"))) throw new Exception("studio workspace not saved on close");
                     Console.WriteLine("      workspace saved: " + string.Join(" ", System.IO.File.ReadAllLines(System.IO.Path.Combine(studio, "Workspace.txt")).Take(4)));

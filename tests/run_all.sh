@@ -86,6 +86,9 @@ mono "$here/.build/analog.exe" | tail -1
 rm -f "$here/.build/game.exe"
 "$root/tools/compile_engine.sh" "$here/.build/game.exe" "$here/LifecycleSnapshot.cs" "$here/GameOptimizerTests.cs"
 mono "$here/.build/game.exe" | tail -1
+rm -f "$here/.build/propsim.exe"
+"$root/tools/compile_engine.sh" "$here/.build/propsim.exe" "$here/PropSimTests.cs"
+mono "$here/.build/propsim.exe" | tail -1
 rm -f "$here/.build/prop.exe"
 "$root/tools/compile_engine.sh" "$here/.build/prop.exe" "$here/PropPlannerTests.cs"
 mono "$here/.build/prop.exe" | tail -1

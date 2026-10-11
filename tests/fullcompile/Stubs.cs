@@ -107,6 +107,7 @@ namespace System.Windows
     public class FrameworkElement : UIElement
     { public static readonly DependencyProperty HorizontalAlignmentProperty = new DependencyProperty(), VerticalAlignmentProperty = new DependencyProperty(); 
         public Thickness Margin { get; set; }
+        public System.Windows.Controls.ContextMenu ContextMenu { get; set; }
         public double Width { get; set; }
         public double Height { get; set; }
         public double MinWidth { get; set; }
