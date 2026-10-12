@@ -168,6 +168,10 @@ public static class PropSimTests
         Check(fa.LockedToday && fa.DayNote.Contains("funded"), "funded max 1 trade a day → locked after its trade", fa.DayNote);
         var ev = simF2.Accounts[1]; ev.Bal = 1500; ev.BestDay = 1500; ev.Days = 1; simF2.Active = ev; simF2.AddFill(ev, 1500); simF2.EndTrade(ev, T(d1, 60, 1500));
         Check(simF2.PassesAtClose(ev) && simF2.DaySummary(d1).WillPass == 1, "an evaluation at its target today counts as PASSED (funded at the close)");
+        var cs0 = new KeystoneSimSettings { DayPlan = "ONEWIN", RotTarget = 1500, FundRotTarget = 1500, RotStop = 500, FundRotStop = 500, FundCushion = 4000, FundCushionTarget = 200, Rules = KeystoneSimRules.Presets()[0].Copy() };
+        var fca = new KeystoneSimAccount { Id = 3, Phase = "FUNDED", Bal = 4100 }; double ct, cst; KeystoneRotationLab.Bracket(cs0, fca, 30, 6000, out ct, out cst);
+        fca.Bal = 2500; double ct2, cst2; KeystoneRotationLab.Bracket(cs0, fca, 30, 6000, out ct2, out cst2);
+        Check(Eq(ct, 230) && Eq(ct2, 1530), "CUSHION: a funded balance of 4,100 aims at +200 (+fees); under 4,000 the full +1,500", ct + " / " + ct2);
         var fresh = new KeystoneSimAccount { Id = 2, Phase = "EVAL" }; double ft, fst; KeystoneRotationLab.Bracket(bs, fresh, 30, 3000, out ft, out fst);
         Check(Eq(ft, 1530), "the $ target is net of the fees: +1,500 day = 1,530 gross with $30 fees", ft.ToString());
         var lucid2 = new KeystoneSimSettings { DayPlan = "ONEWIN", BuyRule = "ALWAYS", Accounts = 1, Strategy = "ROTATION", RotTarget = 1500, RotStop = 500, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() }; lucid2.Rules.MinHoldSeconds = 0;
