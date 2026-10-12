@@ -85,8 +85,10 @@ public static class PropSimTests
         Check(simE.Accounts.Count == 2 && Eq(simE.Spent, 240) && Eq(simE.ToBreakeven, 240) && simE.Events.Count(x => x.Kind == "WAITING") == 1, "one blown: NOT replaced while the run is $240 under water (waiting noted once)", simE.Accounts.Count + " " + simE.ToBreakeven);
         simE.EndDay(); simE.BeginDay(d1.AddDays(2));
         Check(simE.Events.Count(x => x.Kind == "WAITING") == 1, "the wait is noted once, not every day");
-        simE.Accounts[1].Cash += 300; simE.EndDay(); simE.BeginDay(d1.AddDays(3));   // a payout of $300 to you (net +$60)
-        Check(simE.Accounts.Count == 3 && Eq(simE.Spent, 360), "paid back (net ≥ 0) → the pool is refilled", simE.Accounts.Count + " " + simE.Spent);
+        simE.Accounts[1].Cash += 300; simE.EndDay(); simE.BeginDay(d1.AddDays(3));   // paid back, but an evaluation is still running
+        Check(simE.Accounts.Count == 2, "paid back but an evaluation is still running → no new one yet");
+        simE.Accounts[1].Phase = "FUNDED"; simE.Accounts[1].WasPhase = "FUNDED"; simE.EndDay(); simE.BeginDay(d1.AddDays(4));   // every evaluation done
+        Check(simE.Accounts.Count == 4 && Eq(simE.Spent, 480) && simE.Events.Any(x => x.Kind == "REFILL"), "paid back AND every evaluation done → the pool is refilled (REFILL saved)", simE.Accounts.Count + " " + simE.Spent);
         // TODAY: traded / at the day target / locked / passed / blown, and each account's day
         var sT = new KeystoneSimSettings { DayPlan = "ONEWIN", BuyRule = "ALWAYS", Accounts = 3, Strategy = "ROTATION", RotTarget = 1500, RotStop = 500, Rules = KeystoneSimRules.Presets()[0].Copy() };
         var simTd = new KeystonePropSim(sT); simTd.BeginDay(d1); Trade(simTd, 30, 1480); Trade(simTd, 30, -500); var tdy = simTd.DaySummary(d1);
