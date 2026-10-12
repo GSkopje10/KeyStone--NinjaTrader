@@ -287,6 +287,14 @@ public static class PropSimTests
         var ra = rf.Accounts[0]; ra.Bal = rf.Floor(ra) + 50; var rb = rf.Accounts[1];
         Check(rf.RetireIfNoRoom(ra, new DateTime(2025, 3, 3, 10, 0, 0), 40) && ra.Phase == "RETIRED" && ra.EndReason == "at the floor" && !ra.Alive && rf.Events.Any(e => e.Kind == "RETIRED" && e.Text.Contains("too close")), "NO ROOM: $50 above the floor (−$500 stop) → RETIRED at the floor, saved as an event");
         Check(!rf.RetireIfNoRoom(rb, new DateTime(2025, 3, 3, 10, 0, 0), 40) && rb.Alive && rf.Active == rb, "an account with room keeps trading (and is the one in turn)");
+        // ONE SETUP PER ACCOUNT (studio strategy): MNQ and MGC each rotate through the accounts; an account takes one setup per instrument a day
+        var psS = new KeystoneSimSettings { Strategy = "STUDIO", Accounts = 3, BuyRule = "ALWAYS", Rules = KeystoneSimRules.Presets()[0].Copy() }; var ps = new KeystonePropSim(psS); ps.BeginDay(new DateTime(2025, 3, 3));
+        var mA = ps.NextFor("MNQ", null); ps.Took(mA, "MNQ"); var gA = ps.NextFor("MGC", new List<KeystoneSimAccount> { mA }); ps.Took(gA, "MGC");
+        Check(ps.PerSetup && psS.SetupsPerAccount == 1 && mA.Id == 1 && gA.Id == 2, "ONE SETUP PER ACCOUNT (default): the MNQ setup → A01, the MGC setup at the same time → A02 (not the same account)", mA.Name + " / " + gA.Name);
+        ps.AddFill(mA, -100); ps.EndTrade(mA, new KeystoneSimTrade { Entry = new DateTime(2025, 3, 3, 10, 0, 0), Exit = new DateTime(2025, 3, 3, 10, 5, 0), Legs = "SELL 10 MNQ", Pnl = -100, Reason = "STOP" });
+        var m2 = ps.NextFor("MNQ", new List<KeystoneSimAccount> { gA }); var m3 = ps.NextFor("MNQ", new List<KeystoneSimAccount> { gA }); ps.Took(m2, "MNQ");
+        Check(m2.Id == 3 && !mA.LockedToday && ps.NextFor("MNQ", new List<KeystoneSimAccount> { gA }) == null && ps.NextFor("MGC", new List<KeystoneSimAccount>()).Id == 3 && ps.NextFor("MGC", new List<KeystoneSimAccount> { m2 }).Id == 1, "the next MNQ setup → A03 (A01 had its MNQ setup, A02 holds the MGC one) • no 4th MNQ account • MGC goes on in turn: A03, or A01 while A03 is busy", m2.Name);
+        var sh2 = psS.Copy(); sh2.SetupsPerAccount = 2; Check(!new KeystonePropSim(sh2).PerSetup && !new KeystonePropSim(new KeystoneSimSettings { Strategy = "ROTATION" }).PerSetup, "SETUPS PER ACCOUNT = 2: one account may hold both (as before) • the rotation keeps its own turn");
         var noInd = isS.Copy(); noInd.Direction = "INDICATOR"; noInd.Indicator = ""; var nsim = KeystoneRotationLab.Run(noInd, testD, 930, 1555, null);
         Check(nsim.Trades.Count == 0, "SIDES = INDICATOR with no indicator: it waits (no trade)", nsim.Trades.Count.ToString());
         var ai = ind.AiPrompt(irows, testD[0].Day, testD[testD.Count - 1].Day);

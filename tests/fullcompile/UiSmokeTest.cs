@@ -312,7 +312,7 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9));
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
-                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EXPENSES", "GROWTH", "LOSERS", "EVENTS", "SESSIONS", "WINNERS", "INDICATOR" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
+                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EXPENSES", "GROWTH", "STRATEGY", "LOSERS", "EVENTS", "SESSIONS", "WINNERS", "INDICATOR" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
                     foreach (var fk in new[] { "ACTIVE", "NOW", "EVAL", "FUNDED", "LOCKED", "YLOCK", "CANPASS", "TARGET", "PAYOUT", "FLOOR", "BLOWN", "RETIRED" }) { Set(lab2, "propPoolView", "ACCOUNTS"); Set(lab2, "propPoolFilter", fk); Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9)); }
                     foreach (var ck in new[] { "SESSIONS", "ACCOUNTS", "CHOICES", "INDICATOR" }) { Set(lab2, "propCompareKind", ck); Set(lab2, "propPoolView", "SESSIONS"); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
                     Set(lab2, "propCompareKind", "SESSIONS");
@@ -343,6 +343,16 @@ public static class UiSmokeTest
                     if (man.Trades.Count < 2 || man.Trades.Skip(1).Any(x => !x.Legs.Contains("BUY 1 MNQ") || !x.Legs.Contains("SELL 1 MGC"))) throw new Exception("⚡ FINISH DAY in I TRADE did not trade the rotation by itself (" + man.Trades.Count + " trades)");
                     if (man.S.Auto) throw new Exception("⚡ FINISH DAY switched the run to AUTO");
                     ((Action<bool>)F("studioBoth"))(false);
+                    // ONE SETUP PER ACCOUNT (default for studio / manual): an MNQ and an MGC trade at the same time go to two accounts
+                    var psSet = simSet.Copy(); psSet.Strategy = "MANUAL"; psSet.Auto = false; psSet.Accounts = 3; psSet.From = run3[0]; psSet.To = run3[0];
+                    ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(psSet, false);
+                    var psRun = ((Func<KeystonePropSim>)F("studioPropSim"))(); var trF = (Func<string, KeystoneReplayTrader>)F("studioTrader");
+                    ((Action<int>)F("replayTraderStep"))(5); trF("MNQ").Buy(1); trF("MGC").Sell(1); ((Action<int>)F("replayTraderStep"))(3);
+                    trF("MNQ").CloseAll("ME"); trF("MGC").CloseAll("ME"); ((Action<int>)F("replayTraderStep"))(2);
+                    Console.WriteLine("      ONE SETUP PER ACCOUNT: " + string.Join(" | ", psRun.Trades.Select(x => "A" + x.Account.ToString("00") + " " + x.Legs + " " + x.Pnl.ToString("0.00"))));
+                    if (psRun.Trades.Count != 2 || psRun.Trades[0].Account == psRun.Trades[1].Account || !psRun.Trades.Any(x => x.Legs.Contains("MNQ")) || !psRun.Trades.Any(x => x.Legs.Contains("MGC"))) throw new Exception("MNQ and MGC setups at the same time were not booked to two different accounts");
+                    var psHost = new System.Windows.Controls.ScrollViewer(); foreach (var vk in new[] { "STRATEGY", "WINNERS", "LOSERS" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", psHost, psRun, true, (Action<string>)(c9 => { })); } Set(lab2, "propPoolView", "OVERVIEW");
+                    ((Action)F("studioPropRunDay"))();
                     // SIDES changed during an AUTO run: BUY BOTH from now on
                     var sdSet = simSet.Copy(); sdSet.Direction = "SELL"; sdSet.From = run3[1]; sdSet.To = run3[1]; sdSet.Accounts = 2;
                     ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(sdSet, false);
