@@ -31859,7 +31859,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 if (liveWindow) return; studioMode = m == "PROP" ? "PROP" : "REGULAR"; bool prop = studioMode == "PROP";
                 foreach (var e in practiceOnly) { UIElement bx; (labelled.TryGetValue(e, out bx) ? bx : e).Visibility = prop ? Visibility.Collapsed : Visibility.Visible; }
-                propBtn.Visibility = prop ? Visibility.Visible : Visibility.Collapsed; moreBar.Visibility = !prop && moreOpen ? Visibility.Visible : Visibility.Collapsed;
+                propBtn.Visibility = prop ? Visibility.Visible : Visibility.Collapsed; poolTopBtn.Visibility = propBtn.Visibility; moreBar.Visibility = !prop && moreOpen ? Visibility.Visible : Visibility.Collapsed;
                 modeRegBtn.Content = (prop ? "" : "● ") + "📈 REGULAR BACKTESTING"; modePropBtn.Content = (prop ? "● " : "") + "🏦 PROP FIRM SIMULATION"; PaintBtn(modeRegBtn, prop ? Card : Cyan); PaintBtn(modePropBtn, prop ? Gold : Card);
                 w.Title = "KEYSTONE ARC • BACKTEST STUDIO • " + (prop ? "PROP FIRM SIMULATION" : "REGULAR BACKTESTING");
                 if (prop) { if (!simOn && !simDone) buildSetup(); simPanel.Visibility = Visibility.Visible; if (!simOn && !modeInit) { status.Text = "🏦 PROP FIRM SIMULATION • set it up in the panel on the right: 1 strategy • 2 accounts + days • 3 firm rules • 4 check + start"; status.Foreground = Gold; } }
