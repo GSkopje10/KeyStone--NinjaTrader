@@ -1,0 +1,4 @@
+PASS STUDY • MNQ + MGC rotation • 1402 days with both • 2020-10-19 → 2026-10-02 • 50 evaluations a batch (5 firms × 10) • 10 MNQ + 10 MGC
+configurations: 936 in 129 s
+chosen on 2020–23: UNTIL|1500/1000|FOLLOW5EACH|NY CLOSE 13:30–15:55 • IS pass 26.2% (118/451) • OOS pass 19.1% (169/884)
+luck band (random sides, 30 seeds): IS 17.8–22.7% (median 21.4) • OOS 15.3–19.3% (median 17.1)
