@@ -244,7 +244,7 @@ public static class UiSmokeTest
                         if (wk.Count == 3 && wk.All(d => stored0.Contains(d) && KeystoneStudioStore.Sessions(studio, "MGC").ContainsKey(d))) run3 = wk;
                     }
                     if (run3 == null) throw new Exception("no three saved weekdays in a row for the prop sim");
-                    var simSet = new KeystoneSimSettings { Strategy = "ROTATION", Accounts = 3, From = run3[0], To = run3[2], RotTarget = 120, RotStop = 120, FundRotTarget = 120, FundRotStop = 120, MnqQty = 1, MgcQty = 1, FundMnqQty = 1, FundMgcQty = 1, StartHhmm = 930, EndHhmm = 1555, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
+                    var simSet = new KeystoneSimSettings { MaxTradesPerDay = 0, Strategy = "ROTATION", Accounts = 3, From = run3[0], To = run3[2], RotTarget = 120, RotStop = 120, FundRotTarget = 120, FundRotStop = 120, MnqQty = 1, MgcQty = 1, FundMnqQty = 1, FundMgcQty = 1, StartHhmm = 930, EndHhmm = 1555, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
                     ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(simSet, false);
                     var simRun = ((Func<KeystonePropSim>)F("studioPropSim"))();
                     if (simRun == null || !simRun.DayOpen) throw new Exception("prop sim did not open its first day");
@@ -290,6 +290,13 @@ public static class UiSmokeTest
                         Console.WriteLine("      📡 vs RANDOM on the run's days: " + string.Join(" | ", indRows.Select(x9 => x9.Name + " " + x9.Pnl.ToString("0"))));
                         if (indRows.Count < 8 || indRows.Count(x9 => x9.Mine) != 1 || !indRows.Any(x9 => x9.Name.Contains("LUCKIEST"))) throw new Exception("📡 INDICATOR vs RANDOM not saved");
                     }
+                    // 🛑 LOSERS: the breakeven math on the run's trades (breakeven_math.csv) • USE the best level
+                    ((Action<string>)F("studioPoolAct"))("LOSERS|STUDY");
+                    var beCsv = System.IO.Path.Combine(simRun.Folder, "breakeven_math.csv");
+                    Console.WriteLine("      LOSERS / BREAKEVEN MATH: " + (System.IO.File.Exists(beCsv) ? string.Join(" | ", System.IO.File.ReadAllLines(beCsv).Skip(1).Take(5)) : "not written"));
+                    if (!System.IO.File.Exists(beCsv) || System.IO.File.ReadAllLines(beCsv).Length < 3) throw new Exception("🛑 BREAKEVEN MATH did not run on the run's trades");
+                    ((Action<string>)F("studioPoolAct"))("LOSERS|USE|300");
+                    if (!System.IO.File.ReadAllText(System.IO.Path.Combine(studio, "PropSim", "last_settings.txt")).Contains("BreakevenAt=300")) throw new Exception("🛑 USE BREAKEVEN did not set it for the next runs");
                     rep = ((Func<string>)F("studioPropExport"))(); System.IO.File.Copy(rep, ".build/report_PROPSIM.html", true);
                     if (!System.IO.File.ReadAllText(rep).Contains("WHAT IF")) throw new Exception("the report has no session table after COMPARE");
                     Console.WriteLine("      PROP SIM: " + simRun.Days.Count + " days • " + simRun.Trades.Count + " trades • bought " + simRun.Bought + " • passed " + simRun.PassedCount + " • blown " + (simRun.BlownEval + simRun.BlownFunded) + " • net " + simRun.Net.ToString("0.00") + " • " + System.IO.Path.GetFileName(simRun.Folder));
@@ -305,7 +312,7 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9));
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
-                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EXPENSES", "GROWTH", "EVENTS", "SESSIONS", "WINNERS", "INDICATOR" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
+                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EXPENSES", "GROWTH", "LOSERS", "EVENTS", "SESSIONS", "WINNERS", "INDICATOR" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
                     foreach (var fk in new[] { "ACTIVE", "NOW", "EVAL", "FUNDED", "LOCKED", "YLOCK", "CANPASS", "TARGET", "PAYOUT", "FLOOR", "BLOWN", "RETIRED" }) { Set(lab2, "propPoolView", "ACCOUNTS"); Set(lab2, "propPoolFilter", fk); Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9)); }
                     foreach (var ck in new[] { "SESSIONS", "ACCOUNTS", "CHOICES", "INDICATOR" }) { Set(lab2, "propCompareKind", ck); Set(lab2, "propPoolView", "SESSIONS"); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
                     Set(lab2, "propCompareKind", "SESSIONS");
@@ -361,6 +368,22 @@ public static class UiSmokeTest
                     if (inRun.Trades.Any(x => !inInd.Rules.Any(r9 => x.Legs.Contains((r9.DirM > 0 ? "BUY " : "SELL ") + "1 MNQ") && x.Legs.Contains((r9.DirG > 0 ? "BUY " : "SELL ") + "1 MGC")))) throw new Exception("an INDICATOR trade took sides no rule gives");
                     ((Action<string>)F("studioPoolAct"))("INDICATOR|USE");
                     if (inRun.S.Direction != "INDICATOR") throw new Exception("📡 USE did not set SIDES = INDICATOR");
+                    // every finished test forms an indicator into the 📡 INDICATOR POOL; one is chosen from the pool for this run
+                    var poolDir = System.IO.Path.Combine(studio, "PropSim", "Indicators"); int poolBefore = System.IO.Directory.Exists(poolDir) ? System.IO.Directory.GetFiles(poolDir).Length : 0;
+                    var fSet = simSet.Copy(); fSet.DataOnly = true; fSet.Direction = "RANDOM4"; fSet.From = bothSaved[0]; fSet.To = bothSaved[bothSaved.Count - 1];
+                    ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(fSet, true);
+                    var fRun = ((Func<KeystonePropSim>)F("studioPropSim"))();
+                    for (int i = 0; i < 12 && !fRun.Finished; i++) ((Action)F("studioPropRunDay"))();
+                    var poolFiles = System.IO.Directory.Exists(poolDir) ? System.IO.Directory.GetFiles(poolDir) : new string[0];
+                    var formedI = poolFiles.Select(f9 => KeystoneEntryIndicator.FromText(System.IO.File.ReadAllText(f9))).Where(x9 => x9 != null && x9.Source.Contains("formed by")).ToList();
+                    Console.WriteLine("      a " + fRun.Days.Count + "-day DATA ONLY test formed: " + (formedI.Count == 0 ? "nothing" : formedI[0].Describe()) + " • pool " + poolBefore + " → " + poolFiles.Length);
+                    if (fRun.Days.Count >= 5 && (formedI.Count == 0 || poolFiles.Length <= poolBefore)) throw new Exception("a finished test did not form an indicator into the pool");
+                    if (poolFiles.Length > 0)
+                    {
+                        ((Action<string>)F("studioPoolAct"))("INDICATOR|CHOOSE|" + poolFiles[0]);
+                        if (System.IO.File.ReadAllText(System.IO.Path.Combine(studio, "PropSim", "Indicator.txt")) != KeystoneEntryIndicator.FromText(System.IO.File.ReadAllText(poolFiles[0])).ToText()) throw new Exception("choosing from the INDICATOR POOL did not set it for the next runs");
+                        var wizHost = new System.Windows.Controls.StackPanel(); Call(lab2, "BuildPropSimSetup", stWin, wizHost, (Func<int, bool?>)(k0 => true), (Action<KeystoneSimSettings, string, bool>)((a0, b0, c0) => { }));
+                    }
                     // DATA ONLY: two days at full speed without drawing the charts; ONE WIN A DAY locks an account after its first win
                     var dSet = simSet.Copy(); dSet.DataOnly = true; dSet.DayPlan = "ONEWIN"; dSet.From = run3[0]; dSet.To = run3[1];
                     ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(dSet, true);
