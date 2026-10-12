@@ -35,7 +35,7 @@ public static class PropSimTests
         Check(KeystoneSymbols.TypeName("Future") == "FUTURE" && KeystoneSymbols.TypeName("Forex") == "FOREX" && KeystoneSymbols.TypeName("Stock") == "STOCK", "NinjaTrader instrument types → ours");
 
         // ---- the run: 2 evaluations, Lucid-like rules (target 3,000, drawdown 2,000 EOD locking at +100, 50% consistency, 2 days)
-        var s = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 2, Strategy = "MANUAL", RotateBy = "TRADE", MaxLossesPerDay = 0 };
+        var s = new KeystoneSimSettings { DayPlan = "NONE", BuyRule = "ALWAYS", Accounts = 2, Strategy = "MANUAL", RotateBy = "TRADE", MaxLossesPerDay = 0 };
         s.Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy(); s.Rules.MinHoldSeconds = 11; s.Rules.MinHoldShare = 50;
         var sim = new KeystonePropSim(s);
         var d1 = new DateTime(2026, 3, 2); sim.BeginDay(d1);
@@ -76,6 +76,23 @@ public static class PropSimTests
         Check(dB.Blown == 1 && simB.BlownEval == 1, "the day row counts the blown evaluation");
         simB.BeginDay(d1.AddDays(1));
         Check(simB.Accounts.Count == 2 && simB.Active != null && simB.Active.Name == "A02" && Eq(simB.Spent, 240), "a new evaluation replaces the blown one the next day");
+        // BREAKEVEN (the default): the first evaluations are the budget — no new one until the payouts have paid back all that was spent
+        Check(new KeystoneSimSettings().BuyRule == "BREAKEVEN", "the default: new evaluations only after the payouts pay back what was spent");
+        var sBE = s3.Copy(); sBE.BuyRule = "BREAKEVEN"; sBE.Accounts = 2; var simE = new KeystonePropSim(sBE); simE.BeginDay(d1);
+        Check(simE.Accounts.Count == 2 && Eq(simE.Spent, 240), "day 1: the budget buys the first 2 evaluations");
+        var e1 = simE.Active; simE.AddFill(e1, -2010); simE.EndTrade(e1, T(d1, 60, -2010)); simE.EndDay();
+        simE.BeginDay(d1.AddDays(1));
+        Check(simE.Accounts.Count == 2 && Eq(simE.Spent, 240) && Eq(simE.ToBreakeven, 240) && simE.Events.Count(x => x.Kind == "WAITING") == 1, "one blown: NOT replaced while the run is $240 under water (waiting noted once)", simE.Accounts.Count + " " + simE.ToBreakeven);
+        simE.EndDay(); simE.BeginDay(d1.AddDays(2));
+        Check(simE.Events.Count(x => x.Kind == "WAITING") == 1, "the wait is noted once, not every day");
+        simE.Accounts[1].Cash += 300; simE.EndDay(); simE.BeginDay(d1.AddDays(3));   // a payout of $300 to you (net +$60)
+        Check(simE.Accounts.Count == 3 && Eq(simE.Spent, 360), "paid back (net ≥ 0) → the pool is refilled", simE.Accounts.Count + " " + simE.Spent);
+        // TODAY: traded / at the day target / locked / passed / blown, and each account's day
+        var sT = new KeystoneSimSettings { DayPlan = "ONEWIN", BuyRule = "ALWAYS", Accounts = 3, Strategy = "ROTATION", RotTarget = 1500, RotStop = 500, Rules = KeystoneSimRules.Presets()[0].Copy() };
+        var simTd = new KeystonePropSim(sT); simTd.BeginDay(d1); Trade(simTd, 30, 1480); Trade(simTd, 30, -500); var tdy = simTd.DaySummary(d1);
+        Check(tdy.Open && tdy.Traded == 2 && tdy.AtTarget == 1 && tdy.Locked == 1 && tdy.Trades == 2 && tdy.Wins == 1 && Eq(tdy.Pnl, 980) && tdy.Rows.Count == 2 && tdy.Rows[0].State.Contains("AT DAY TARGET"), "TODAY (open): 2 traded, 1 at its day target (+1,480 ≈ 1,500) and locked, P/L +980", tdy.Traded + " " + tdy.AtTarget + " " + tdy.Locked + " " + tdy.Pnl);
+        simTd.EndDay(); var past = simTd.DaySummary(d1);
+        Check(!past.Open && past.Traded == 2 && past.AtTarget == 1 && past.Locked == 1 && Eq(past.Pnl, 980), "the same day after its close (from the trades and events)", past.Traded + " " + past.AtTarget + " " + past.Locked);
 
         // funded payouts: 5 qualifying days of ≥ $150 → 50% of the profit, cap $2,000, 90% split; 2 payouts max → RETIRED
         var s4 = s.Copy(); s4.Accounts = 1; s4.ReplacePassed = false; s4.Rules.MaxPayouts = 2; s4.Rules.MinHoldSeconds = 0; var simF = new KeystonePropSim(s4); simF.BeginDay(d1);

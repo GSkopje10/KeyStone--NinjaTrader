@@ -283,6 +283,11 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9));
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
+                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EVENTS", "SESSIONS" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
+                    foreach (var fk in new[] { "ACTIVE", "NOW", "EVAL", "FUNDED", "LOCKED", "TARGET", "PAYOUT", "FLOOR", "BLOWN", "RETIRED" }) { Set(lab2, "propPoolView", "ACCOUNTS"); Set(lab2, "propPoolFilter", fk); Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9)); }
+                    Set(lab2, "propPoolView", "OVERVIEW"); Set(lab2, "propPoolFilter", "ACTIVE");
+                    var lastSum = simRun.DaySummary(simRun.Days[simRun.Days.Count - 1].Day);
+                    Console.WriteLine("      PROP POOL views: OVERVIEW / TODAY / ACCOUNTS (10 filters) / DAYS / TRADES / PAYOUTS / EVENTS / SESSIONS • last day: traded " + lastSum.Traded + ", at day target " + lastSum.AtTarget + ", locked " + lastSum.Locked + ", passed " + lastSum.Passed);
                     var noCmp = KeystonePropSim.Load(simRun.Folder); noCmp.Folder = System.IO.Path.Combine(studio, "nocmp"); Call(lab2, "FillPropPool", poolHost, noCmp, false, (Action<string>)(c9 => poolAct = c9));   // ⚖ SESSIONS before a comparison
                     var stWin = (System.Windows.Window)F("replayTraderWindow");
                     var setupHost = new System.Windows.Controls.StackPanel();
@@ -305,6 +310,14 @@ public static class UiSmokeTest
                     Console.WriteLine("      I TRADE rotation: " + man.Trades.Count + " trade • " + (man.Trades.Count > 0 ? man.Trades[0].Legs + " • " + man.Trades[0].Reason + " • " + man.Trades[0].Pnl.ToString("0.00") + " • A" + man.Trades[0].Account.ToString("00") : "") + " • second click: " + again);
                     if (man.Trades.Count != 1 || !man.Trades[0].Legs.Contains("BUY 1 MNQ") || !man.Trades[0].Legs.Contains("SELL 1 MGC")) throw new Exception("the one-click BUY MNQ + SELL MGC trade was not booked");
                     ((Action<bool>)F("studioBoth"))(false);
+                    // SIDES changed during an AUTO run: BUY BOTH from now on
+                    var sdSet = simSet.Copy(); sdSet.Direction = "SELL"; sdSet.From = run3[1]; sdSet.To = run3[1]; sdSet.Accounts = 2;
+                    ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(sdSet, false);
+                    var sdRun = ((Func<KeystonePropSim>)F("studioPropSim"))();
+                    ((Action<string>)F("studioRotSides"))("BUY");
+                    ((Action)F("studioPropRunDay"))();
+                    Console.WriteLine("      SIDES → BUY BOTH during AUTO: " + sdRun.Trades.Count + " trades • " + string.Join(" | ", sdRun.Trades.Select(x => x.Legs).Distinct()));
+                    if (sdRun.S.Direction != "BUY" || sdRun.Trades.Count == 0 || sdRun.Trades.Any(x => !x.Legs.Contains("BUY 1 MNQ") || !x.Legs.Contains("BUY 1 MGC"))) throw new Exception("the SIDES switch did not make AUTO buy both");
                     // DATA ONLY: two days at full speed without drawing the charts; ONE WIN A DAY locks an account after its first win
                     var dSet = simSet.Copy(); dSet.DataOnly = true; dSet.DayPlan = "ONEWIN"; dSet.From = run3[0]; dSet.To = run3[1];
                     ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(dSet, true);
