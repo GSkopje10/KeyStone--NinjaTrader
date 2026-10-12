@@ -221,6 +221,45 @@ public static class PropSimTests
         Check(rt0 != null && rt0.Name == rows[2].Name && rt0.Start == rows[2].Start && rt0.Trades == rows[2].Trades && Eq(rt0.Net, rows[2].Net) && rt0.Curve.Count == rows[2].Curve.Count && rt0.Mine == rows[2].Mine, "a row is saved and read back the same", rows[2].Line().Substring(0, 60));
         string cfold = Path.Combine(Path.GetTempPath(), "keystone_cmp_" + Guid.NewGuid().ToString("N")); KeystoneSessionWhatIf.Save(cfold, rows);
         Check(KeystoneSessionWhatIf.Load(cfold).Count == rows.Count && KeystoneSessionWhatIf.Load(cfold + "_none").Count == 0, "sessions.txt saved with the run; none = empty list");
+        // ---- 📡 ENTRY INDICATOR: days that trend in 45-minute blocks (each instrument its own way) → the sides that follow both
+        // instruments' last minutes win; it is chosen on the later half of the training days and must beat random sides on unseen days
+        Func<int, int, List<KeystoneRotDay>> trendDays = (seed, n) =>
+        {
+            var r = new Random(seed); var list = new List<KeystoneRotDay>();
+            for (int dd = 0; dd < n; dd++)
+            {
+                var td = new KeystoneRotDay { Day = new DateTime(2024, 1, 1).AddDays(dd + seed * 100) }; double pm = 20000, pg = 2400; int sm = 1, sg = 1;
+                for (int i = 0; i < KeystoneRotDay.Slots - 5; i++)
+                {
+                    if (i % 45 == 0) { sm = r.Next(2) == 0 ? 1 : -1; sg = r.Next(2) == 0 ? 1 : -1; }
+                    double om = pm, og = pg; pm += sm * 3 + (r.NextDouble() - 0.5) * 2; pg += sg * 0.3 + (r.NextDouble() - 0.5) * 0.2;
+                    td.MO[i] = (float)om; td.MC[i] = (float)pm; td.MH[i] = (float)(Math.Max(om, pm) + 0.5); td.ML[i] = (float)(Math.Min(om, pm) - 0.5);
+                    td.GO[i] = (float)og; td.GC[i] = (float)pg; td.GH[i] = (float)(Math.Max(og, pg) + 0.05); td.GL[i] = (float)(Math.Min(og, pg) - 0.05);
+                }
+                list.Add(td);
+            }
+            return list;
+        };
+        var trainD = trendDays(1, 30); var testD = trendDays(2, 15);
+        var isS = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 3, Direction = "RANDOM4", BuyRule = "ALWAYS", MnqQty = 2, MgcQty = 2, FundMnqQty = 2, FundMgcQty = 2, RotTarget = 300, RotStop = 300, FundRotTarget = 300, FundRotStop = 300, StartHhmm = 930, EndHhmm = 1555, Rules = KeystoneSimRules.Presets()[0].Copy() };
+        var ind = KeystoneEntryIndicator.Build(isS, trainD, 5, 30, 3, null);
+        Console.WriteLine("      indicator: " + ind.Describe());
+        Check(ind.Samples > 1000 && ind.Rules.Count >= 4 && ind.HoldoutEdge, "INDICATOR: learned from every moment × 4 sides; rules found; the later half confirms the edge", ind.Samples + " samples, " + ind.Rules.Count + " rules, " + ind.HoldoutWin.ToString("0") + "% vs " + ind.HoldoutBase.ToString("0") + "%");
+        Check(ind.Rules.All(r => r.DirM.ToString() == r.Key.Split(',')[0] && r.DirG.ToString() == r.Key.Split(',')[1]) && ind.Rules.All(r => r.WinPct >= ind.BaseWin + 3), "INDICATOR: in trending blocks every rule follows both instruments (above the coin flip by the minimum edge)", string.Join(" ", ind.Rules.Select(r => r.Key + "→" + r.DirM + "/" + r.DirG)));
+        var ind2 = KeystoneEntryIndicator.FromText(ind.ToText());
+        Check(ind2 != null && ind2.Window == ind.Window && ind2.BySession == ind.BySession && ind2.Rules.Count == ind.Rules.Count && ind2.Rules[0].Key == ind.Rules[0].Key && ind2.Rules[0].Wins == ind.Rules[0].Wins && ind2.TrainFrom == ind.TrainFrom && Eq(ind2.HoldoutWin, ind.HoldoutWin), "INDICATOR: saved in one line and read back the same");
+        var sig = ind.Signal(5, -2, 1000); var sig0 = ind.Signal(0, 3, 1000);
+        Check(sig.Item1 == 1 && sig.Item2 == -1 && sig0.Item1 == 0 && sig0.Item2 == 0, "INDICATOR: MNQ up + MGC down → BUY MNQ + SELL MGC • a flat instrument → WAIT", sig + " " + sig0);
+        Check(KeystoneEntryIndicator.FromText("") == null && KeystoneEntryIndicator.FromText("garbage") == null, "INDICATOR: nothing saved = none");
+        var isT = isS.Copy(); isT.Indicator = ind.ToText();
+        var irows = KeystoneRotationLab.CompareSides(isT, testD, null, null); var irow = irows.First(r => r.Mine); var mid = irows.FirstOrDefault(r => r.Name.Contains("MIDDLE"));
+        Console.WriteLine("      unseen days: " + string.Join(" | ", irows.Select(r => r.Name + " " + r.Net.ToString("0") + " (" + r.WinPct.ToString("0") + "%)")));
+        Check(irows.Count >= 8 && irows.Count(r => r.Mine) == 1 && irow.Name.Contains("INDICATOR") && irow.Trades > 0 && irows.Any(r => r.Name.Contains("LUCKIEST")), "INDICATOR vs RANDOM: the indicator, the luckiest and middle of 10 random seeds, the fixed rules");
+        Check(mid != null && irow.WinPct > mid.WinPct + 10 && irow.Pnl > mid.Pnl, "INDICATOR on unseen trending days: wins clearly more often than random sides and trades more $", irow.WinPct.ToString("0") + "% / " + irow.Pnl.ToString("0") + " vs " + (mid == null ? "" : mid.WinPct.ToString("0") + "% / " + mid.Pnl.ToString("0")));
+        var noInd = isS.Copy(); noInd.Direction = "INDICATOR"; noInd.Indicator = ""; var nsim = KeystoneRotationLab.Run(noInd, testD, 930, 1555, null);
+        Check(nsim.Trades.Count == 0, "SIDES = INDICATOR with no indicator: it waits (no trade)", nsim.Trades.Count.ToString());
+        var ai = ind.AiPrompt(irows, testD[0].Day, testD[testD.Count - 1].Day);
+        Check(ai.Contains("RULES") && ai.Contains("never seen in training") && ai.Contains("LUCKIEST") && KeystoneAiCoach.RequestFor(KeystoneEntryIndicator.AiSystem, ai).Contains("\"system\""), "INDICATOR: the AI review prompt carries the rules, the checks and the unseen-day test");
         bool stopNow = false; int seen = 0; var part = KeystoneRotationLab.Compare(cs, cdays, () => stopNow, (k, n) => { if (++seen == 2) stopNow = true; });
         Check(part.Count < rows.Count, "the comparison stops when asked", part.Count.ToString());
         // 📄 the HTML report of a run (+ the comparison)

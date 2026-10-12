@@ -271,6 +271,25 @@ public static class UiSmokeTest
                     var accRows = KeystoneSessionWhatIf.Load(simRun.Folder, "accounts.txt"); var chRows = KeystoneSessionWhatIf.Load(simRun.Folder, "choices.txt");
                     Console.WriteLine("      COMPARE ACCOUNTS: " + string.Join(" | ", accRows.Select(x9 => x9.Accounts + " acc " + x9.Net.ToString("0") + " ROI " + x9.Roi.ToString("0") + "%")) + " • CHOICES " + chRows.Count + " • winners.csv " + System.IO.File.Exists(System.IO.Path.Combine(simRun.Folder, "winners.csv")));
                     if (accRows.Count < 6 || chRows.Count < 4 || !accRows.Any(x9 => x9.Mine) || !System.IO.File.Exists(System.IO.Path.Combine(simRun.Folder, "winners.csv"))) throw new Exception("account / choice compare or winners not saved");
+                    // 📡 ENTRY INDICATOR: BUILD from the saved days → TEST vs random on the run's days → the view → USE it in a run
+                    var bothSaved = stored0.Where(d => KeystoneStudioStore.Sessions(studio, "MGC").ContainsKey(d)).OrderBy(d => d).ToList();
+                    var poolAct0 = (Action<string>)F("studioPoolAct");
+                    poolAct0("INDICATOR|BUILD|" + bothSaved[0].ToString("yyyy-MM-dd") + "|" + bothSaved[bothSaved.Count - 1].ToString("yyyy-MM-dd") + "|5|5|0");
+                    var indFile = System.IO.Path.Combine(studio, "PropSim", "Indicator.txt"); var indB = System.IO.File.Exists(indFile) ? KeystoneEntryIndicator.FromText(System.IO.File.ReadAllText(indFile)) : null;
+                    Console.WriteLine("      📡 INDICATOR from " + bothSaved.Count + " saved days: " + (indB == null ? "none" : indB.Describe()));
+                    if (bothSaved.Count >= 10 && (indB == null || indB.Samples == 0)) throw new Exception("📡 BUILD did not save an indicator");
+                    if (indB == null)
+                    {
+                        // too few saved days for a real build here: the engine's build on the saved days, saved where BUILD saves it
+                        var sdays = KeystoneRotationLab.LoadDays(studio, bothSaved); indB = KeystoneEntryIndicator.Build(simSet, sdays, 5, 5, 0, null);
+                        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(indFile)); System.IO.File.WriteAllText(indFile, indB.ToText());
+                        Console.WriteLine("      INDICATOR (engine, " + sdays.Count + " days): " + indB.Describe());
+                    }
+                    {
+                        poolAct0("COMPARE|INDICATOR"); var indRows = KeystoneSessionWhatIf.Load(simRun.Folder, "indicator_test.txt");
+                        Console.WriteLine("      📡 vs RANDOM on the run's days: " + string.Join(" | ", indRows.Select(x9 => x9.Name + " " + x9.Pnl.ToString("0"))));
+                        if (indRows.Count < 8 || indRows.Count(x9 => x9.Mine) != 1 || !indRows.Any(x9 => x9.Name.Contains("LUCKIEST"))) throw new Exception("📡 INDICATOR vs RANDOM not saved");
+                    }
                     rep = ((Func<string>)F("studioPropExport"))(); System.IO.File.Copy(rep, ".build/report_PROPSIM.html", true);
                     if (!System.IO.File.ReadAllText(rep).Contains("WHAT IF")) throw new Exception("the report has no session table after COMPARE");
                     Console.WriteLine("      PROP SIM: " + simRun.Days.Count + " days • " + simRun.Trades.Count + " trades • bought " + simRun.Bought + " • passed " + simRun.PassedCount + " • blown " + (simRun.BlownEval + simRun.BlownFunded) + " • net " + simRun.Net.ToString("0.00") + " • " + System.IO.Path.GetFileName(simRun.Folder));
@@ -286,8 +305,10 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9));
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
-                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EXPENSES", "GROWTH", "EVENTS", "SESSIONS", "WINNERS" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
+                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EXPENSES", "GROWTH", "EVENTS", "SESSIONS", "WINNERS", "INDICATOR" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
                     foreach (var fk in new[] { "ACTIVE", "NOW", "EVAL", "FUNDED", "LOCKED", "YLOCK", "CANPASS", "TARGET", "PAYOUT", "FLOOR", "BLOWN", "RETIRED" }) { Set(lab2, "propPoolView", "ACCOUNTS"); Set(lab2, "propPoolFilter", fk); Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9)); }
+                    foreach (var ck in new[] { "SESSIONS", "ACCOUNTS", "CHOICES", "INDICATOR" }) { Set(lab2, "propCompareKind", ck); Set(lab2, "propPoolView", "SESSIONS"); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
+                    Set(lab2, "propCompareKind", "SESSIONS");
                     Set(lab2, "propPoolView", "OVERVIEW"); Set(lab2, "propPoolFilter", "ACTIVE");
                     var lastSum = simRun.DaySummary(simRun.Days[simRun.Days.Count - 1].Day);
                     Console.WriteLine("      PROP POOL views: OVERVIEW / TODAY / ACCOUNTS (10 filters) / DAYS / TRADES / PAYOUTS / EVENTS / SESSIONS • last day: traded " + lastSum.Traded + ", at day target " + lastSum.AtTarget + ", locked " + lastSum.Locked + ", passed " + lastSum.Passed);
@@ -323,6 +344,17 @@ public static class UiSmokeTest
                     ((Action)F("studioPropRunDay"))();
                     Console.WriteLine("      SIDES → BUY BOTH during AUTO: " + sdRun.Trades.Count + " trades • " + string.Join(" | ", sdRun.Trades.Select(x => x.Legs).Distinct()));
                     if (sdRun.S.Direction != "BUY" || sdRun.Trades.Count == 0 || sdRun.Trades.Any(x => !x.Legs.Contains("BUY 1 MNQ") || !x.Legs.Contains("BUY 1 MGC"))) throw new Exception("the SIDES switch did not make AUTO buy both");
+                    // 📡 SIDES = INDICATOR: a run started with it takes the saved indicator and trades only its sides (or waits)
+                    var inSet = simSet.Copy(); inSet.Direction = "INDICATOR"; inSet.Indicator = ""; inSet.From = run3[2]; inSet.To = run3[2]; inSet.Accounts = 2;
+                    ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(inSet, false);
+                    var inRun = ((Func<KeystonePropSim>)F("studioPropSim"))(); var inInd = KeystoneEntryIndicator.FromText(inRun.S.Indicator);
+                    ((Action)F("studioPropRunDay"))();
+                    Console.WriteLine("      SIDES = INDICATOR run: " + inRun.Trades.Count + " trades • " + string.Join(" | ", inRun.Trades.Select(x => x.Legs).Distinct()) + " • rules " + (inInd == null ? -1 : inInd.Rules.Count));
+                    if (inInd == null) throw new Exception("a SIDES = INDICATOR run did not take the saved indicator");
+                    if (inInd.Rules.Count == 0 && inRun.Trades.Count > 0) throw new Exception("an indicator with no rules traded");
+                    if (inRun.Trades.Any(x => !inInd.Rules.Any(r9 => x.Legs.Contains((r9.DirM > 0 ? "BUY " : "SELL ") + "1 MNQ") && x.Legs.Contains((r9.DirG > 0 ? "BUY " : "SELL ") + "1 MGC")))) throw new Exception("an INDICATOR trade took sides no rule gives");
+                    ((Action<string>)F("studioPoolAct"))("INDICATOR|USE");
+                    if (inRun.S.Direction != "INDICATOR") throw new Exception("📡 USE did not set SIDES = INDICATOR");
                     // DATA ONLY: two days at full speed without drawing the charts; ONE WIN A DAY locks an account after its first win
                     var dSet = simSet.Copy(); dSet.DataOnly = true; dSet.DayPlan = "ONEWIN"; dSet.From = run3[0]; dSet.To = run3[1];
                     ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(dSet, true);
