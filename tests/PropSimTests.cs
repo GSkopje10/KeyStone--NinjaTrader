@@ -104,6 +104,12 @@ public static class PropSimTests
         for (int i = 10; i <= 14; i++) { simF.BeginDay(d1.AddDays(i)); Trade(simF, 30, 2000); simF.EndDay(); }
         Check(f.Payouts == 2 && Eq(f.Gross, 1000 + 2000) && f.Phase == "RETIRED", "second payout capped at $2,000, then RETIRED (max 2 payouts)", f.Payouts + " " + f.Gross + " " + f.Phase);
 
+        // 💰 payout cycles in order: 5 qualifying days → payout (gross, to you, carried over), then cycle 2 runs
+        var sc = s.Copy(); sc.Accounts = 1; sc.ReplacePassed = false; sc.Rules.MinHoldSeconds = 0; var simC = new KeystonePropSim(sc); simC.BeginDay(d1);
+        var fc = simC.Active; fc.Phase = "FUNDED"; fc.WasPhase = "FUNDED"; fc.PassedOn = d1; simC.EndDay();
+        for (int i = 1; i <= 6; i++) { simC.BeginDay(d1.AddDays(i)); Trade(simC, 30, 400); simC.EndDay(); }
+        var pcy = simC.PayoutCycles(fc);
+        Check(pcy.Count == 2 && !pcy[0].Open && pcy[0].Qualifying == 5 && Eq(pcy[0].Gross, 1000) && Eq(pcy[0].Cash, 900) && Eq(pcy[0].BalanceAfter, 1000) && pcy[1].Open && pcy[1].Days.Count == 1 && Eq(pcy[1].BalanceAfter, 1400), "payout cycles: 5 qualifying days → $1,000 paid ($900 to you), $1,000 carried; cycle 2 running at $1,400", pcy.Count + " " + (pcy.Count > 0 ? pcy[0].Gross + " " + pcy[0].BalanceAfter : ""));
         // TPT-like: daily payouts above a $2,000 buffer, min $250, 80% split
         var tpt = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("TAKE PROFIT")); var s5 = new KeystoneSimSettings { DayPlan = "NONE", Accounts = 1, ReplacePassed = false, Strategy = "MANUAL", MaxLossesPerDay = 0, Rules = tpt.Copy() };
         var simT = new KeystonePropSim(s5); simT.BeginDay(d1); var tf = simT.Active; tf.Phase = "FUNDED"; tf.WasPhase = "FUNDED"; simT.EndDay();

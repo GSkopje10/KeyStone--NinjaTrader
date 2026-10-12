@@ -268,6 +268,9 @@ public static class UiSmokeTest
                     var cmpRows = KeystoneSessionWhatIf.Load(simRun.Folder); var cmpWin = KeystoneRotationLab.Winner(cmpRows);
                     Console.WriteLine("      finished: " + view() + " • report " + new System.IO.FileInfo(rep).Length + " bytes • COMPARE SESSIONS " + cmpRows.Count + " rows • winner " + (cmpWin == null ? "-" : cmpWin.Name + " " + cmpWin.Net.ToString("0")));
                     if (cmpRows.Count < KeystoneRotationLab.SessionNames.Length || cmpRows.Count(x9 => x9.Mine) != 1) throw new Exception("COMPARE SESSIONS did not save every session");
+                    var accRows = KeystoneSessionWhatIf.Load(simRun.Folder, "accounts.txt"); var chRows = KeystoneSessionWhatIf.Load(simRun.Folder, "choices.txt");
+                    Console.WriteLine("      COMPARE ACCOUNTS: " + string.Join(" | ", accRows.Select(x9 => x9.Accounts + " acc " + x9.Net.ToString("0") + " ROI " + x9.Roi.ToString("0") + "%")) + " • CHOICES " + chRows.Count + " • winners.csv " + System.IO.File.Exists(System.IO.Path.Combine(simRun.Folder, "winners.csv")));
+                    if (accRows.Count < 6 || chRows.Count < 4 || !accRows.Any(x9 => x9.Mine) || !System.IO.File.Exists(System.IO.Path.Combine(simRun.Folder, "winners.csv"))) throw new Exception("account / choice compare or winners not saved");
                     rep = ((Func<string>)F("studioPropExport"))(); System.IO.File.Copy(rep, ".build/report_PROPSIM.html", true);
                     if (!System.IO.File.ReadAllText(rep).Contains("WHAT IF")) throw new Exception("the report has no session table after COMPARE");
                     Console.WriteLine("      PROP SIM: " + simRun.Days.Count + " days • " + simRun.Trades.Count + " trades • bought " + simRun.Bought + " • passed " + simRun.PassedCount + " • blown " + (simRun.BlownEval + simRun.BlownFunded) + " • net " + simRun.Net.ToString("0.00") + " • " + System.IO.Path.GetFileName(simRun.Folder));
@@ -283,7 +286,7 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9));
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
-                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EVENTS", "SESSIONS" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
+                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EVENTS", "SESSIONS", "WINNERS" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
                     foreach (var fk in new[] { "ACTIVE", "NOW", "EVAL", "FUNDED", "LOCKED", "YLOCK", "CANPASS", "TARGET", "PAYOUT", "FLOOR", "BLOWN", "RETIRED" }) { Set(lab2, "propPoolView", "ACCOUNTS"); Set(lab2, "propPoolFilter", fk); Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9)); }
                     Set(lab2, "propPoolView", "OVERVIEW"); Set(lab2, "propPoolFilter", "ACTIVE");
                     var lastSum = simRun.DaySummary(simRun.Days[simRun.Days.Count - 1].Day);
