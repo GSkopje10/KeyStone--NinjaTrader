@@ -286,7 +286,7 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9));
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
-                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EVENTS", "SESSIONS", "WINNERS" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
+                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EXPENSES", "GROWTH", "EVENTS", "SESSIONS", "WINNERS" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
                     foreach (var fk in new[] { "ACTIVE", "NOW", "EVAL", "FUNDED", "LOCKED", "YLOCK", "CANPASS", "TARGET", "PAYOUT", "FLOOR", "BLOWN", "RETIRED" }) { Set(lab2, "propPoolView", "ACCOUNTS"); Set(lab2, "propPoolFilter", fk); Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9)); }
                     Set(lab2, "propPoolView", "OVERVIEW"); Set(lab2, "propPoolFilter", "ACTIVE");
                     var lastSum = simRun.DaySummary(simRun.Days[simRun.Days.Count - 1].Day);
@@ -311,7 +311,9 @@ public static class UiSmokeTest
                     ((Action<bool>)F("studioBoth"))(false); ((Action<bool>)F("studioBoth"))(true);   // one chart ↔ both charts while a trade runs
                     ((Action)F("studioPropRunDay"))();
                     Console.WriteLine("      I TRADE rotation: " + man.Trades.Count + " trade • " + (man.Trades.Count > 0 ? man.Trades[0].Legs + " • " + man.Trades[0].Reason + " • " + man.Trades[0].Pnl.ToString("0.00") + " • A" + man.Trades[0].Account.ToString("00") : "") + " • second click: " + again);
-                    if (man.Trades.Count != 1 || !man.Trades[0].Legs.Contains("BUY 1 MNQ") || !man.Trades[0].Legs.Contains("SELL 1 MGC")) throw new Exception("the one-click BUY MNQ + SELL MGC trade was not booked");
+                    if (man.Trades.Count < 1 || !man.Trades[0].Legs.Contains("BUY 1 MNQ") || !man.Trades[0].Legs.Contains("SELL 1 MGC")) throw new Exception("the one-click BUY MNQ + SELL MGC trade was not booked");
+                    if (man.Trades.Count < 2 || man.Trades.Skip(1).Any(x => !x.Legs.Contains("BUY 1 MNQ") || !x.Legs.Contains("SELL 1 MGC"))) throw new Exception("⚡ FINISH DAY in I TRADE did not trade the rotation by itself (" + man.Trades.Count + " trades)");
+                    if (man.S.Auto) throw new Exception("⚡ FINISH DAY switched the run to AUTO");
                     ((Action<bool>)F("studioBoth"))(false);
                     // SIDES changed during an AUTO run: BUY BOTH from now on
                     var sdSet = simSet.Copy(); sdSet.Direction = "SELL"; sdSet.From = run3[1]; sdSet.To = run3[1]; sdSet.Accounts = 2;

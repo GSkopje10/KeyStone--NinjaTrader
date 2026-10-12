@@ -89,6 +89,8 @@ public static class PropSimTests
         Check(simE.Accounts.Count == 2, "paid back but an evaluation is still running → no new one yet");
         simE.Accounts[1].Phase = "FUNDED"; simE.Accounts[1].WasPhase = "FUNDED"; simE.EndDay(); simE.BeginDay(d1.AddDays(4));   // every evaluation done
         Check(simE.Accounts.Count == 4 && Eq(simE.Spent, 480) && simE.Events.Any(x => x.Kind == "REFILL"), "paid back AND every evaluation done → the pool is refilled (REFILL saved)", simE.Accounts.Count + " " + simE.Spent);
+        simE.EndDay(); var grw = simE.Growth(); var gl = grw.Last();
+        Check(grw.Count == simE.Days.Count && gl.Initial == 2 && gl.TotalBought == 4 && gl.SinceInitial == 2 && gl.TotalBlownEval == 1 && grw[0].BlownEval == 1 && gl.Refill && !grw[0].Refill && Eq(gl.FirstSpent, 240) && Eq(gl.FirstNet, -240), "EVAL TRACKER: per day — 2 first evaluations, 2 bought since (refill day), 1 blown on day 1, the first investment alone −240", gl.Initial + " " + gl.TotalBought + " " + gl.SinceInitial + " " + gl.TotalBlownEval + " " + gl.FirstNet);
         // TODAY: traded / at the day target / locked / passed / blown, and each account's day
         var sT = new KeystoneSimSettings { DayPlan = "ONEWIN", BuyRule = "ALWAYS", Accounts = 3, Strategy = "ROTATION", RotTarget = 1500, RotStop = 500, Rules = KeystoneSimRules.Presets()[0].Copy() };
         var simTd = new KeystonePropSim(sT); simTd.BeginDay(d1); Trade(simTd, 30, 1480); Trade(simTd, 30, -500); var tdy = simTd.DaySummary(d1);
