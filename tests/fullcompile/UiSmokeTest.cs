@@ -284,7 +284,7 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
                     foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EVENTS", "SESSIONS" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
-                    foreach (var fk in new[] { "ACTIVE", "NOW", "EVAL", "FUNDED", "LOCKED", "TARGET", "PAYOUT", "FLOOR", "BLOWN", "RETIRED" }) { Set(lab2, "propPoolView", "ACCOUNTS"); Set(lab2, "propPoolFilter", fk); Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9)); }
+                    foreach (var fk in new[] { "ACTIVE", "NOW", "EVAL", "FUNDED", "LOCKED", "YLOCK", "CANPASS", "TARGET", "PAYOUT", "FLOOR", "BLOWN", "RETIRED" }) { Set(lab2, "propPoolView", "ACCOUNTS"); Set(lab2, "propPoolFilter", fk); Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9)); }
                     Set(lab2, "propPoolView", "OVERVIEW"); Set(lab2, "propPoolFilter", "ACTIVE");
                     var lastSum = simRun.DaySummary(simRun.Days[simRun.Days.Count - 1].Day);
                     Console.WriteLine("      PROP POOL views: OVERVIEW / TODAY / ACCOUNTS (10 filters) / DAYS / TRADES / PAYOUTS / EVENTS / SESSIONS • last day: traded " + lastSum.Traded + ", at day target " + lastSum.AtTarget + ", locked " + lastSum.Locked + ", passed " + lastSum.Passed);
