@@ -295,6 +295,8 @@ public static class PropSimTests
         var m2 = ps.NextFor("MNQ", new List<KeystoneSimAccount> { gA }); var m3 = ps.NextFor("MNQ", new List<KeystoneSimAccount> { gA }); ps.Took(m2, "MNQ");
         Check(m2.Id == 3 && !mA.LockedToday && ps.NextFor("MNQ", new List<KeystoneSimAccount> { gA }) == null && ps.NextFor("MGC", new List<KeystoneSimAccount>()).Id == 3 && ps.NextFor("MGC", new List<KeystoneSimAccount> { m2 }).Id == 1, "the next MNQ setup → A03 (A01 had its MNQ setup, A02 holds the MGC one) • no 4th MNQ account • MGC goes on in turn: A03, or A01 while A03 is busy", m2.Name);
         var sh2 = psS.Copy(); sh2.SetupsPerAccount = 2; Check(!new KeystonePropSim(sh2).PerSetup && !new KeystonePropSim(new KeystoneSimSettings { Strategy = "ROTATION" }).PerSetup, "SETUPS PER ACCOUNT = 2: one account may hold both (as before) • the rotation keeps its own turn");
+        var od = KeystonePropSim.Weekdays(new DateTime(2026, 6, 1), new DateTime(2026, 6, 1)); var odW = KeystonePropSim.Weekdays(new DateTime(2026, 5, 31), new DateTime(2026, 5, 31));
+        Check(od.Count == 1 && od[0] == new DateTime(2026, 6, 1) && odW.Count == 0, "JUST ONE DAY: FROM = TO is a one-day run (a Sunday has none)");
         var noInd = isS.Copy(); noInd.Direction = "INDICATOR"; noInd.Indicator = ""; var nsim = KeystoneRotationLab.Run(noInd, testD, 930, 1555, null);
         Check(nsim.Trades.Count == 0, "SIDES = INDICATOR with no indicator: it waits (no trade)", nsim.Trades.Count.ToString());
         var ai = ind.AiPrompt(irows, testD[0].Day, testD[testD.Count - 1].Day);
