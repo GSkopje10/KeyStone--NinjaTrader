@@ -344,6 +344,12 @@ public static class UiSmokeTest
                     ((Action)F("studioPropRunDay"))();
                     Console.WriteLine("      SIDES → BUY BOTH during AUTO: " + sdRun.Trades.Count + " trades • " + string.Join(" | ", sdRun.Trades.Select(x => x.Legs).Distinct()));
                     if (sdRun.S.Direction != "BUY" || sdRun.Trades.Count == 0 || sdRun.Trades.Any(x => !x.Legs.Contains("BUY 1 MNQ") || !x.Legs.Contains("BUY 1 MGC"))) throw new Exception("the SIDES switch did not make AUTO buy both");
+                    // 📊 PROP POOL • DATA from BOTH CHARTS: one chart + the pool; again = both charts back
+                    ((Action<bool>)F("studioBoth"))(true);
+                    var tg = (Func<string>)F("studioPoolToggle"); string t1 = tg(), t2 = tg();
+                    Console.WriteLine("      PROP POOL button from both charts: " + t1 + " → " + t2);
+                    if (!t1.StartsWith("ONE|POOL|") || !t1.Contains("BACK TO THE CHARTS") || !t2.StartsWith("BOTH|CHART|")) throw new Exception("the top PROP POOL button does not open the pool from BOTH CHARTS and come back (" + t1 + " / " + t2 + ")");
+                    ((Action<bool>)F("studioBoth"))(false);
                     // 📡 SIDES = INDICATOR: a run started with it takes the saved indicator and trades only its sides (or waits)
                     var inSet = simSet.Copy(); inSet.Direction = "INDICATOR"; inSet.Indicator = ""; inSet.From = run3[2]; inSet.To = run3[2]; inSet.Accounts = 2;
                     ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(inSet, false);
