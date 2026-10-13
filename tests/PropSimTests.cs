@@ -67,6 +67,18 @@ public static class PropSimTests
         Check(cpLead.Name == "A01" && cpSim.Active == cpLead && cpSim.Accounts.All(a => Eq(a.DayPnl, 600)) && cpSim.Trades.Count == 3 && cpSim.Trades.Count(t => t.Source.StartsWith("COPY of A01")) == 2 && !cpSim.PerSetup, "COPY: one trade → all 3 accounts +600 (3 trades saved, 2 copies); the leader stays", string.Join(" ", cpSim.Accounts.Select(a => a.Name + " " + a.DayPnl)));
         cpSim.Lock(cpSim.Accounts[1], d1, "test"); Trade(cpSim, 30, -200);
         Check(Eq(cpSim.Accounts[0].DayPnl, 400) && Eq(cpSim.Accounts[1].DayPnl, 600) && Eq(cpSim.Accounts[2].DayPnl, 400), "COPY: a locked account does not copy the next trade");
+        var cpS2 = cpS.Copy(); cpS2.BuyRule = "BREAKEVEN"; var cpSim2 = new KeystonePropSim(cpS2); cpSim2.BeginDay(d1); var cpA = cpSim2.Active; cpSim2.CheckEquity(cpA, -2100); Trade(cpSim2, 30, -2100); cpSim2.EndDay();
+        cpSim2.BeginDay(d1.AddDays(1));
+        Check(cpSim2.Accounts.Count(a => a.Phase == "BLOWN") == 3 && cpSim2.Accounts.Count(a => a.Alive) == 3 && cpSim2.Active != null, "COPY: a loss blows all 3 → the next day starts with 3 new evaluations (the budget rule does not stop a copy batch)", cpSim2.Accounts.Count + " accounts");
+        // 📦 BATCH (default): when every evaluation passed or blew, the batch is saved and the next day starts with new ones • ◀ rewind
+        var bS = cpS.Copy(); bS.Allocation = "ROTATE"; bS.BuyRule = "BATCH"; bS.Accounts = 2; string bDir = Path.Combine(Path.GetTempPath(), "ks_batch_" + Guid.NewGuid().ToString("N"));
+        var bSim = new KeystonePropSim(bS) { Folder = bDir }; bSim.Plan = KeystonePropSim.Weekdays(d1, d1.AddDays(10)); bSim.Snap(); bSim.BeginDay(d1);
+        Trade(bSim, 30, -2100); Trade(bSim, 30, -2100); bSim.EndDay(); bSim.PlanIndex++; bSim.SaveState(); bSim.Snap(); bSim.BeginDay(d1.AddDays(1));
+        Check(bSim.Batches.Count == 1 && bSim.Batches[0].Blown == 2 && bSim.Batches[0].Trades == 2 && bSim.Accounts.Count(a => a.Alive) == 2 && bSim.Events.Any(e => e.Kind == "BATCH") && File.Exists(Path.Combine(bDir, "batches.csv")),
+            "BATCH: 2 blown → batch 1 saved (2 trades, 2 blown) and 2 new evaluations the next morning", bSim.Batches.Count + " batches • " + bSim.Accounts.Count(a => a.Alive) + " alive");
+        var bBack = KeystonePropSim.Rewind(bDir, 0);
+        Check(bBack != null && bBack.PlanIndex == 0 && bBack.Accounts.Count == 0 && bBack.Batches.Count == 0 && !KeystonePropSim.HasSnap(bDir, 1), "◀ PREVIOUS DAY: the run back to day 1's morning (nothing bought yet, later saves dropped)");
+        try { Directory.Delete(bDir, true); } catch { }
         var cpL = cpSim.Active; string cpSt = cpSim.CheckEquity(cpL, -2600);
         Check(cpSt == "BLOWN" && cpSim.Accounts[2].Phase == "BLOWN" && cpSim.Accounts[1].Alive, "COPY: an open loss through the floor blows every copying account too (the locked one is safe)", cpSt + " " + cpSim.Accounts[2].Phase);
         Check(Eq(cpSim.CopyRatio(cpSim.Accounts[0], cpSim.Accounts[0]), 1) && cpS.Describe().Contains("COPY TRADING") && KeystoneSimSettings.FromText(cpS.ToText()).Allocation == "COPY", "COPY: sized by contracts, described, saved with the set-up");
@@ -86,7 +98,7 @@ public static class PropSimTests
         simB.BeginDay(d1.AddDays(1));
         Check(simB.Accounts.Count == 2 && simB.Active != null && simB.Active.Name == "A02" && Eq(simB.Spent, 240), "a new evaluation replaces the blown one the next day");
         // BREAKEVEN (the default): the first evaluations are the budget — no new one until the payouts have paid back all that was spent
-        Check(new KeystoneSimSettings().BuyRule == "BREAKEVEN", "the default: new evaluations only after the payouts pay back what was spent");
+        Check(new KeystoneSimSettings().BuyRule == "BATCH", "the default: a new batch of evaluations by itself once the last one is done");
         var dflt = new KeystoneSimSettings();
         Check(dflt.MaxTradesPerDay == 1 && dflt.MaxTradesOf(true) == 1 && dflt.RotTarget == 1500 && dflt.RotStop == 500 && dflt.FundRotTarget == 1500 && dflt.FundRotStop == 500, "the default rotation: ONE trade a day per account, +1,500 / −500, funded the same");
         var sBE = s3.Copy(); sBE.BuyRule = "BREAKEVEN"; sBE.Accounts = 2; var simE = new KeystonePropSim(sBE); simE.BeginDay(d1);
@@ -360,6 +372,20 @@ public static class PropSimTests
         Check(of3.Dir == -1 && Eq(of3.ZoneLo, 94) && Eq(of3.ZoneHi, 99) && Eq(of3.Entry, 95.25) && !of3.Filled, "OPENING FVG: bearish 94–99, 25% → SELL limit at 95.25; price never comes back = no trade", of3.Entry + " filled " + of3.Filled);
         var sg3 = KeystoneOpeningRange.Signals(ofR, fvgDay(new DateTime(2025, 3, 4), ofMins), null, "MNQ"); var sgG = KeystoneOpeningRange.Signals(ofR, fvgDay(new DateTime(2025, 3, 4), ofMins), null, "MGC");
         Check(sg3.Count == 1 && sg3[0].Order == "LIMIT" && sg3[0].Dir == 1 && Eq(sg3[0].Entry, 103.5) && Eq(sg3[0].StopDist, 100) && sgG.Count == 0 && KeystoneReplaySignals.Names[11].Contains("OPENING FVG"), "OPENING FVG in the studio: a BUY LIMIT signal at the level with its stop / target (MNQ only)");
+        var sg2 = KeystoneOpeningRange.Signals(ofR, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MNQ");
+        Check(of2.Stages.Count == 2 && Eq(of2.Stages[0].Item4, 103.5) && Eq(of2.Stages[1].Item4, 106.5) && sg2.Count == 1 && sg2[0].Time == of2.Stages[0].Item1 && Eq(sg2[0].Entry, 103.5) && sg2[0].StageAt(of2.Stages[1].Item1).Item4 == 106.5 && sg2[0].ZoneFrom == new DateTime(2025, 3, 5, 9, 30, 0),
+            "OPENING FVG: the limit goes in at the FIRST FVG (103.5) and moves to 106.5 when the second one joins; the zone is drawn from the first candle", sg2.Count > 0 ? sg2[0].Time.ToString("HH:mm") + " " + sg2[0].Entry : "none");
+        var ofTick = candle5(100, 101, 99, 100.5).Concat(candle5(100.5, 107, 100.5, 106.5)).Concat(candle5(106.5, 110, 106.25, 109)).Concat(candle5(109, 109, 106.8, 107)).ToArray();
+        var oft = KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 7), ofTick), ofR, "MNQ");
+        Check(Eq(oft.ZoneHi, 106.25) && Eq(oft.Entry, 103.5), "OPENING FVG: the level on the tick — 50% of 101–106.25 = 103.625 → BUY limit 103.50 (a tie goes the safer way)", oft.Entry.ToString());
+        var rBoth = ofR.Copy(); rBoth.Symbols = "BOTH"; var rG = ofR.Copy(); rG.Symbols = "MGC";
+        Check(KeystoneOpeningRange.Signals(rBoth, fvgDay(new DateTime(2025, 3, 4), ofMins), null, "MGC").Count == 1 && KeystoneOpeningRange.Signals(rG, fvgDay(new DateTime(2025, 3, 4), ofMins), null, "MNQ").Count == 0 && rBoth.Describe().Contains("MNQ + MGC"), "OPENING FVG: INSTRUMENTS = MNQ / MGC / BOTH");
+        // 09:30 as the MIDDLE (gap) candle: candle 1 = 09:25 → an FVG of 09:25 / 09:30 / 09:35 counts
+        var pre = new List<double[]>(); for (int i = 0; i < 5; i++) pre.Add(new[] { 100.0, 100, 100, 100 });
+        Func<DateTime, double[][], List<KeystoneArcBar>> fvgDay2 = (dd, mins) => { var lst = fvgDay(dd, mins); var o0 = dd.AddHours(9).AddMinutes(30); var x5 = lst.Where(b0 => b0.Time > o0.AddMinutes(-5) && b0.Time <= o0).ToList(); foreach (var b0 in x5) { b0.High = 101; b0.Low = 99; } return lst; };
+        var midM = candle5(100.5, 107, 100.5, 106.5).Concat(candle5(106.5, 110, 106, 109)).Concat(candle5(109, 109, 106.8, 107)).ToArray();
+        var rMid = ofR.Copy(); rMid.FvgFrom = 1; var omF = KeystoneOpenFvg.Run(fvgDay2(new DateTime(2025, 3, 10), midM), rMid, "MNQ"); var omD = KeystoneOpenFvg.Run(fvgDay2(new DateTime(2025, 3, 10), midM), ofR, "MNQ");
+        Check(omF.Dir == 1 && Eq(omF.ZoneLo, 101) && omF.ZoneStart == new DateTime(2025, 3, 10, 9, 25, 0) && (omD.Dir == 0 || omD.ZoneStart >= new DateTime(2025, 3, 10, 9, 30, 0)), "OPENING FVG: '09:30 is the MIDDLE candle' finds the 09:25 / 09:30 / 09:35 FVG (the default starts at 09:30)", omF.ZoneLo + "–" + omF.ZoneHi + " from " + omF.ZoneStart.ToString("HH:mm"));
         var rBuy = ofR.Copy(); rBuy.Side = 1; Check(KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 6), ofMins3), rBuy, "MNQ").Dir == 0, "SIDE = buys only: a bearish first FVG means no trade that day");
         // 📒 MY TRADES POOL: tagged lines + the older journal (no double counting), days, breakdowns, AI prompt
         var mf1 = new KeystoneReplayFill { Symbol = "MNQ", Side = "BUY", Qty = 2, EntryTime = new DateTime(2026, 3, 10, 9, 41, 0), ExitTime = new DateTime(2026, 3, 10, 9, 52, 30), Entry = 100, Exit = 110, Points = 10, Net = 36.5, Reason = "TARGET" };
