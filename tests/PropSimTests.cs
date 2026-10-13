@@ -61,6 +61,15 @@ public static class PropSimTests
         Check(sim.Accounts.Count == 3 && sim.Accounts[2].Phase == "EVAL" && Eq(sim.Spent, 360), "the passed evaluation is replaced (A03 bought)");
 
         // the hold-time rule: profit from trades held < 11 s does not count toward the 50% share
+        // 📋 COPY TRADING: every account that may trade takes the same trade (scaled by its contracts); blown / locked ones drop out
+        var cpS = s.Copy(); cpS.Accounts = 3; cpS.Allocation = "COPY"; cpS.MnqQty = 2; cpS.MgcQty = 0; cpS.FundMnqQty = 1; cpS.FundMgcQty = 0; var cpSim = new KeystonePropSim(cpS); cpSim.BeginDay(d1);
+        var cpLead = cpSim.Active; cpSim.CheckEquity(cpLead, -100); Trade(cpSim, 30, 600);
+        Check(cpLead.Name == "A01" && cpSim.Active == cpLead && cpSim.Accounts.All(a => Eq(a.DayPnl, 600)) && cpSim.Trades.Count == 3 && cpSim.Trades.Count(t => t.Source.StartsWith("COPY of A01")) == 2 && !cpSim.PerSetup, "COPY: one trade → all 3 accounts +600 (3 trades saved, 2 copies); the leader stays", string.Join(" ", cpSim.Accounts.Select(a => a.Name + " " + a.DayPnl)));
+        cpSim.Lock(cpSim.Accounts[1], d1, "test"); Trade(cpSim, 30, -200);
+        Check(Eq(cpSim.Accounts[0].DayPnl, 400) && Eq(cpSim.Accounts[1].DayPnl, 600) && Eq(cpSim.Accounts[2].DayPnl, 400), "COPY: a locked account does not copy the next trade");
+        var cpL = cpSim.Active; string cpSt = cpSim.CheckEquity(cpL, -2600);
+        Check(cpSt == "BLOWN" && cpSim.Accounts[2].Phase == "BLOWN" && cpSim.Accounts[1].Alive, "COPY: an open loss through the floor blows every copying account too (the locked one is safe)", cpSt + " " + cpSim.Accounts[2].Phase);
+        Check(Eq(cpSim.CopyRatio(cpSim.Accounts[0], cpSim.Accounts[0]), 1) && cpS.Describe().Contains("COPY TRADING") && KeystoneSimSettings.FromText(cpS.ToText()).Allocation == "COPY", "COPY: sized by contracts, described, saved with the set-up");
         var s2 = s.Copy(); s2.Accounts = 1; var simH = new KeystonePropSim(s2); simH.BeginDay(d1);
         Trade(simH, 5, 1400); simH.EndDay(); simH.BeginDay(d1.AddDays(1)); Trade(simH, 5, 1400); Trade(simH, 30, 300); simH.EndDay();
         var h = simH.Accounts[0];
@@ -367,6 +376,9 @@ public static class PropSimTests
         var mst = KeystoneManualPool.Streaks(mp); Check(mst[0] == 2 && mst[1] == 1 && Eq(KeystoneManualPool.MaxDrawdown(mp), 32.2) && KeystoneManualPool.AiPrompt(mp).Contains("BY HOW") && KeystoneManualPool.Parse("garbage,1") == null, "MY TRADES: runs, drawdown, AI prompt, bad lines skipped");
         var noInd = isS.Copy(); noInd.Direction = "INDICATOR"; noInd.Indicator = ""; var nsim = KeystoneRotationLab.Run(noInd, testD, 930, 1555, null);
         Check(nsim.Trades.Count == 0, "SIDES = INDICATOR with no indicator: it waits (no trade)", nsim.Trades.Count.ToString());
+        var cpR = isS.Copy(); cpR.Allocation = "ROTATE"; var rotRun = KeystoneRotationLab.Run(cpR, testD, 930, 1555, null); var cpC = isS.Copy(); cpC.Allocation = "COPY"; var copyRun = KeystoneRotationLab.Run(cpC, testD, 930, 1555, null);
+        int rotAcctsDay1 = rotRun.Trades.Where(t => t.Day == testD[0].Day).Select(t => t.Account).Distinct().Count(), copyAcctsDay1 = copyRun.Trades.Where(t => t.Day == testD[0].Day).Select(t => t.Account).Distinct().Count();
+        Check(copyRun.Trades.Count > rotRun.Trades.Count && copyAcctsDay1 == cpC.Accounts && copyRun.Trades.Any(t => t.Source.StartsWith("COPY of")), "COPY over real days: on day 1 all " + cpC.Accounts + " accounts trade (rotation: " + rotAcctsDay1 + ")", rotRun.Trades.Count + " vs " + copyRun.Trades.Count + " trades • day 1 accounts " + copyAcctsDay1);
         var ai = ind.AiPrompt(irows, testD[0].Day, testD[testD.Count - 1].Day);
         Check(ai.Contains("RULES") && ai.Contains("never seen in training") && ai.Contains("LUCKIEST") && KeystoneAiCoach.RequestFor(KeystoneEntryIndicator.AiSystem, ai).Contains("\"system\""), "INDICATOR: the AI review prompt carries the rules, the checks and the unseen-day test");
         bool stopNow = false; int seen = 0; var part = KeystoneRotationLab.Compare(cs, cdays, () => stopNow, (k, n) => { if (++seen == 2) stopNow = true; });
