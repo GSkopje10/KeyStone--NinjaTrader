@@ -19,6 +19,7 @@ public static class OpenFvgStudy
     static readonly CultureInfo IC = CultureInfo.InvariantCulture;
     public sealed class T { public DateTime Day; public KeystoneOpenFvgDay D; }
 
+    public static List<KeystoneArcBar> BarsOf(RDay x) { return Bars(x); }
     static List<KeystoneArcBar> Bars(RDay x)
     {
         var l = new List<KeystoneArcBar>(); var t0 = x.Day.Date.AddDays(-1).AddHours(18);
@@ -36,7 +37,7 @@ public static class OpenFvgStudy
     // ---- the prop account (one trade a day at most, the day's P/L = that trade)
     public sealed class Acct
     {
-        public bool Funded; public double Bal, Hwm, Best; public int Days, QualDays, Payouts; public double Kept;
+        public int Id; public bool Funded; public double Bal, Hwm, Best; public int Days, QualDays, Payouts; public double Kept;
         public string End = "";   // PASSED / BLOWN / RETIRED / "" (still open)
     }
     // returns false when the account ended that day
