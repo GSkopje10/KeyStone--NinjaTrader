@@ -322,6 +322,9 @@ public static class PropSimTests
         Check(dsRows.Count == 3 * 6 && dsBest.Count == 3 && dsRows.All(r => r.Setup == KeystoneDaySession.SetupOf(isT)) && dsRows.Sum(r => r.Trades) > 0 && dsRows.All(r => r.SideTrades.Sum() == r.Trades), "SESSIONS BY DAY: 3 days × 6 sessions, the best session for each day, sides counted", dsRows.Sum(r => r.Trades) + " trades");
         var dsBack = KeystoneDaySession.Parse(dsRows[4].Line()); Check(dsBack != null && dsBack.Key == dsRows[4].Key && Eq(dsBack.Pnl, dsRows[4].Pnl) && dsBack.SideWins[0] == dsRows[4].SideWins[0], "a session-day row is saved and read back");
         Check(KeystoneDaySession.AiPrompt(dsRows).Contains("BY SESSION") && KeystoneDaySession.AiPrompt(dsRows).Contains("BEST SESSION BY WEEKDAY"), "the AI's research prompt sums up the pool");
+        // THE BUILT-IN INDICATOR (6 years): it reads, has rules, and checked on the later half of its training years
+        var bi = KeystoneEntryIndicator.FromText(System.IO.File.ReadAllText("docs/research/indicator/builtin_indicator.txt"));
+        Check(bi != null && bi.Rules.Count >= 10 && bi.HoldoutEdge && bi.Target == 1500 && bi.Stop == 1000 && bi.TrainTo < new DateTime(2024, 1, 1), "BUILT-IN INDICATOR: " + (bi == null ? "none" : bi.Rules.Count + " rules, trained to " + bi.TrainTo.ToString("yyyy-MM-dd") + ", later-half " + bi.HoldoutWin.ToString("0.0") + "% vs " + bi.HoldoutBase.ToString("0.0") + "%"));
         var noInd = isS.Copy(); noInd.Direction = "INDICATOR"; noInd.Indicator = ""; var nsim = KeystoneRotationLab.Run(noInd, testD, 930, 1555, null);
         Check(nsim.Trades.Count == 0, "SIDES = INDICATOR with no indicator: it waits (no trade)", nsim.Trades.Count.ToString());
         var ai = ind.AiPrompt(irows, testD[0].Day, testD[testD.Count - 1].Day);
