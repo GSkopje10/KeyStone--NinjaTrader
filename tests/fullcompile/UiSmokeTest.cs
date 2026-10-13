@@ -12,6 +12,17 @@ public static class UiSmokeTest
         catch (Exception ex) { var e = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex; Console.WriteLine("FAIL  " + name + "  → " + e.GetType().Name + ": " + e.Message + "\n" + e.StackTrace.Split('\n').Take(6).Aggregate((x, y) => x + "\n" + y)); failures++; }
     }
     static object Call(object o, string m, params object[] a) { var mi = o.GetType().GetMethods(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).First(x => x.Name == m && x.GetParameters().Length == a.Length); return mi.Invoke(o, a); }
+    static List<T> FindAll<T>(object root) where T : class
+    {
+        var o = new List<T>(); var seen = new HashSet<object>(); var st = new Stack<object>(); if (root != null) st.Push(root);
+        while (st.Count > 0)
+        {
+            var x = st.Pop(); if (x == null || x is string || !seen.Add(x)) continue; var t = x as T; if (t != null) o.Add(t);
+            foreach (var n in new[] { "Content", "Child" }) { var pi = x.GetType().GetProperty(n); if (pi != null && pi.GetIndexParameters().Length == 0) { var v = pi.GetValue(x, null); if (v != null) st.Push(v); } }
+            foreach (var n in new[] { "Children", "Items" }) { var pi = x.GetType().GetProperty(n); if (pi != null) { var v = pi.GetValue(x, null) as System.Collections.IEnumerable; if (v != null) foreach (var c in v) st.Push(c); } }
+        }
+        return o;
+    }
     static void Set(object o, string f, object v) { o.GetType().GetField(f, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(o, v); }
     public static int Main()
     {
@@ -952,6 +963,26 @@ public static class UiSmokeTest
                 box.SelectedIndex = 0; box.SelectedItem = box.Items[0]; Call(lab4, "RefreshStrategyInputState");
             });
         }
+        Step("📒 MY TRADES POOL: saved studio trades → overview, every day, every trade, breakdowns, a day's trades", () =>
+        {
+            var lab5 = new KeystoneArc5MResearchLab();
+            string folder = (string)lab5.GetType().GetMethod("StudioFolder", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null); System.IO.Directory.CreateDirectory(folder);
+            string file = System.IO.Path.Combine(folder, "StudioTrades.csv"); string keep = System.IO.File.Exists(file) ? System.IO.File.ReadAllText(file) : null;
+            try
+            {
+                var f1 = new KeystoneReplayFill { Symbol = "MNQ", Side = "BUY", Qty = 2, EntryTime = new DateTime(2026, 3, 10, 9, 41, 0), ExitTime = new DateTime(2026, 3, 10, 9, 52, 30), Entry = 100, Exit = 110, Points = 10, Net = 36.5, Reason = "TARGET" };
+                var f2 = new KeystoneReplayFill { Symbol = "MGC", Side = "SELL", Qty = 1, EntryTime = new DateTime(2026, 3, 11, 3, 5, 0), ExitTime = new DateTime(2026, 3, 11, 3, 9, 0), Entry = 2000, Exit = 2003, Points = -3, Net = -32.2, Reason = "STOP" };
+                System.IO.File.WriteAllLines(file, new[] { KeystoneManualPool.Header, KeystoneManualPool.Line(new DateTime(2026, 3, 10), f1, "REGULAR", "I TRADE", "MANUAL (NO SIGNALS)"), KeystoneManualPool.Line(new DateTime(2026, 3, 11), f2, "PROP SIM", "AUTO + ME", "ROTATION") });
+                Call(lab5, "OpenManualPool");
+                var win = (System.Windows.Window)lab5.GetType().GetField("manualPoolWindow", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab5);
+                if (win == null) throw new Exception("no window");
+                var tabs = FindAll<System.Windows.Controls.TabControl>(win.Content).First(); if (tabs.Items.Count != 5) throw new Exception("tabs " + tabs.Items.Count);
+                var texts = FindAll<System.Windows.Controls.TextBlock>(win.Content).Select(t => t.Text).ToList();
+                if (!texts.Any(t => t.Contains("2026-03-10")) || !texts.Any(t => t == "MGC")) throw new Exception("rows missing: " + texts.Count + " " + string.Join(" / ", texts.Take(40)));
+                Call(lab5, "OpenManualPool"); win.Close();
+            }
+            finally { if (keep == null) System.IO.File.Delete(file); else System.IO.File.WriteAllText(file, keep); }
+        });
         Console.WriteLine(failures == 0 ? "UI SMOKE TEST PASSED" : "UI SMOKE TEST: " + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
     }
