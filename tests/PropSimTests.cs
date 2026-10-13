@@ -316,6 +316,12 @@ public static class PropSimTests
         nwA.PeakEod = 2600; Check(Eq(fm.Floor(nwA), 0), "TRAILING stops at the start balance (locks at 0 once the peak is +$2,000 or more)");
         var ibA = fm.Accounts[2]; var eqSt = fm.CheckEquity(ibA, 800); Check(eqSt == "" && Eq(fm.Floor(ibA), -700), "INTRADAY trailing: open profit +$800 lifts the floor at once (−1,500 → −700)", fm.Floor(ibA).ToString());
         var fl2 = KeystoneSimFirm.Parse(KeystoneSimFirm.Text(fm.FirmList), fmS.Rules, 0); Check(fl2.Count == 3 && fl2[2].Rules.EvalDdType == "INTRADAY" && fl2[1].Count == 1 && fl2[0].Code == "NW", "FIRMS: saved in one line and read back");
+        // 🗓 SESSIONS BY DAY: every day × six session windows; the best session per day; saved and read back
+        var dsRows = KeystoneDaySession.Run(isT, testD.Take(3).ToList(), null, null);
+        var dsBest = KeystoneDaySession.BestOf(dsRows);
+        Check(dsRows.Count == 3 * 6 && dsBest.Count == 3 && dsRows.All(r => r.Setup == KeystoneDaySession.SetupOf(isT)) && dsRows.Sum(r => r.Trades) > 0 && dsRows.All(r => r.SideTrades.Sum() == r.Trades), "SESSIONS BY DAY: 3 days × 6 sessions, the best session for each day, sides counted", dsRows.Sum(r => r.Trades) + " trades");
+        var dsBack = KeystoneDaySession.Parse(dsRows[4].Line()); Check(dsBack != null && dsBack.Key == dsRows[4].Key && Eq(dsBack.Pnl, dsRows[4].Pnl) && dsBack.SideWins[0] == dsRows[4].SideWins[0], "a session-day row is saved and read back");
+        Check(KeystoneDaySession.AiPrompt(dsRows).Contains("BY SESSION") && KeystoneDaySession.AiPrompt(dsRows).Contains("BEST SESSION BY WEEKDAY"), "the AI's research prompt sums up the pool");
         var noInd = isS.Copy(); noInd.Direction = "INDICATOR"; noInd.Indicator = ""; var nsim = KeystoneRotationLab.Run(noInd, testD, 930, 1555, null);
         Check(nsim.Trades.Count == 0, "SIDES = INDICATOR with no indicator: it waits (no trade)", nsim.Trades.Count.ToString());
         var ai = ind.AiPrompt(irows, testD[0].Day, testD[testD.Count - 1].Day);
