@@ -325,6 +325,33 @@ public static class PropSimTests
         // THE BUILT-IN INDICATOR (6 years): it reads, has rules, and checked on the later half of its training years
         var bi = KeystoneEntryIndicator.FromText(System.IO.File.ReadAllText("docs/research/indicator/builtin_indicator.txt"));
         Check(bi != null && bi.Rules.Count >= 10 && bi.HoldoutEdge && bi.Target == 1500 && bi.Stop == 1000 && bi.TrainTo < new DateTime(2024, 1, 1), "BUILT-IN INDICATOR: " + (bi == null ? "none" : bi.Rules.Count + " rules, trained to " + bi.TrainTo.ToString("yyyy-MM-dd") + ", later-half " + bi.HoldoutWin.ToString("0.0") + "% vs " + bi.HoldoutBase.ToString("0.0") + "%"));
+        // OPENING FVG • MNQ: synthetic 1-minute days from 09:30 (each minute: open, high, low, close)
+        Func<DateTime, double[][], List<KeystoneArcBar>> fvgDay = (dd, mins) =>
+        {
+            var fl = new List<KeystoneArcBar>(); var ft0 = dd.AddDays(-1).AddHours(18);
+            for (int i = 0; i < 930; i++) { double p0 = 100; fl.Add(new KeystoneArcBar { Symbol = "MNQ", Time = ft0.AddMinutes(i + 1), Open = p0, High = p0, Low = p0, Close = p0 }); }   // 18:00 → 09:30 flat
+            var open = dd.AddHours(9).AddMinutes(30); for (int i = 0; i < mins.Length; i++) fl.Add(new KeystoneArcBar { Symbol = "MNQ", Time = open.AddMinutes(i + 1), Open = mins[i][0], High = mins[i][1], Low = mins[i][2], Close = mins[i][3] });
+            return fl;
+        };
+        Func<double, double, double, double, double[][]> candle5 = (o, ch5, l0, c) => Enumerable.Range(0, 5).Select(i => i == 0 ? new[] { o, Math.Max(o, ch5), Math.Min(o, l0), o } : i == 4 ? new[] { o, ch5, l0, c } : new[] { o, o, o, o }).ToArray();
+        var ofR = KeystoneOpeningRange.Presets().First(x => x.Mode == "FVG");
+        // c1 high 101 • c2 up • c3 low 106 → bullish FVG 101–106, 50% = 103.5 (c4 overlaps c2: no second FVG); then a dip to 103 fills; then +50 pts (10 MNQ: $1,000) = target
+        var ofMins = candle5(100, 101, 99, 100.5).Concat(candle5(100.5, 107, 100.5, 106.5)).Concat(candle5(106.5, 110, 106, 109)).Concat(candle5(109, 109, 106.8, 107))
+            .Concat(new[] { new[] { 107.0, 107, 103, 104 } }).Concat(Enumerable.Range(0, 60).Select(i => new[] { 104.0 + i, 105.0 + i, 103.6 + i, 105.0 + i })).ToArray();
+        var of1 = KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 4), ofMins), ofR, "MNQ");
+        Check(of1.Dir == 1 && of1.Stack == 1 && Eq(of1.ZoneLo, 101) && Eq(of1.ZoneHi, 106) && of1.Filled && Eq(of1.Entry, 103.5) && Eq(of1.TargetPts, 50) && Eq(of1.StopPts, 100) && of1.Reason == "TARGET" && Eq(of1.Points, 50), "OPENING FVG: bullish 101–106 → BUY limit at 50% (103.5) → +50 pts = +$1,000 for 10 MNQ", of1.Reason + " " + of1.Entry + " " + of1.Points);
+        // stacked: c4 also forms a bullish FVG (low 112 above c2's high 107) → one zone 101–112, 50% = 106.5
+        var ofMins2 = candle5(100, 101, 99, 100.5).Concat(candle5(100.5, 107, 100.5, 106.5)).Concat(candle5(106.5, 110, 106, 109)).Concat(candle5(112.5, 115, 112, 114)).Concat(candle5(114, 114, 109.5, 113))
+            .Concat(new[] { new[] { 113.0, 113, 106, 107 } }).Concat(Enumerable.Range(0, 30).Select(i => new[] { 107.0, 107.5, 106.8, 107 })).ToArray();
+        var of2 = KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 5), ofMins2), ofR, "MNQ");
+        Check(of2.Dir == 1 && of2.Stack == 2 && Eq(of2.ZoneLo, 101) && Eq(of2.ZoneHi, 112) && of2.Filled && Eq(of2.Entry, 106.5) && (of2.Reason == "TIME EXIT" || of2.Reason == "SESSION END"), "OPENING FVG: two FVGs in a row = one zone 101–112 → the entry is 50% of all of it (106.5)", of2.Stack + " " + of2.ZoneLo + "–" + of2.ZoneHi + " @ " + of2.Entry);
+        // bearish, never comes back → no trade • 25% setting → the level 25% up from the bottom
+        var ofMins3 = candle5(100, 101, 99, 99.5).Concat(candle5(99.5, 99.5, 93, 93.5)).Concat(candle5(93.5, 94, 90, 91)).Concat(Enumerable.Range(0, 30).Select(i => new[] { 91.0, 93.5, 90.0, 91.0 })).ToArray();
+        var r25 = ofR.Copy(); r25.FvgPct = 25; var of3 = KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 6), ofMins3), r25, "MNQ");
+        Check(of3.Dir == -1 && Eq(of3.ZoneLo, 94) && Eq(of3.ZoneHi, 99) && Eq(of3.Entry, 95.25) && !of3.Filled, "OPENING FVG: bearish 94–99, 25% → SELL limit at 95.25; price never comes back = no trade", of3.Entry + " filled " + of3.Filled);
+        var sg3 = KeystoneOpeningRange.Signals(ofR, fvgDay(new DateTime(2025, 3, 4), ofMins), null, "MNQ"); var sgG = KeystoneOpeningRange.Signals(ofR, fvgDay(new DateTime(2025, 3, 4), ofMins), null, "MGC");
+        Check(sg3.Count == 1 && sg3[0].Order == "LIMIT" && sg3[0].Dir == 1 && Eq(sg3[0].Entry, 103.5) && Eq(sg3[0].StopDist, 100) && sgG.Count == 0 && KeystoneReplaySignals.Names[11].Contains("OPENING FVG"), "OPENING FVG in the studio: a BUY LIMIT signal at the level with its stop / target (MNQ only)");
+        var rBuy = ofR.Copy(); rBuy.Side = 1; Check(KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 6), ofMins3), rBuy, "MNQ").Dir == 0, "SIDE = buys only: a bearish first FVG means no trade that day");
         var noInd = isS.Copy(); noInd.Direction = "INDICATOR"; noInd.Indicator = ""; var nsim = KeystoneRotationLab.Run(noInd, testD, 930, 1555, null);
         Check(nsim.Trades.Count == 0, "SIDES = INDICATOR with no indicator: it waits (no trade)", nsim.Trades.Count.ToString());
         var ai = ind.AiPrompt(irows, testD[0].Day, testD[testD.Count - 1].Day);
