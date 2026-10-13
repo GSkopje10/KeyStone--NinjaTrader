@@ -244,7 +244,7 @@ public static class UiSmokeTest
                         if (wk.Count == 3 && wk.All(d => stored0.Contains(d) && KeystoneStudioStore.Sessions(studio, "MGC").ContainsKey(d))) run3 = wk;
                     }
                     if (run3 == null) throw new Exception("no three saved weekdays in a row for the prop sim");
-                    var simSet = new KeystoneSimSettings { MaxTradesPerDay = 0, Strategy = "ROTATION", Accounts = 3, From = run3[0], To = run3[2], RotTarget = 120, RotStop = 120, FundRotTarget = 120, FundRotStop = 120, MnqQty = 1, MgcQty = 1, FundMnqQty = 1, FundMgcQty = 1, StartHhmm = 930, EndHhmm = 1555, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
+                    var simSet = new KeystoneSimSettings { MaxTradesPerDay = 0, FundedWhen = "WITH", Strategy = "ROTATION", Accounts = 3, From = run3[0], To = run3[2], RotTarget = 120, RotStop = 120, FundRotTarget = 120, FundRotStop = 120, MnqQty = 1, MgcQty = 1, FundMnqQty = 1, FundMgcQty = 1, StartHhmm = 930, EndHhmm = 1555, Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy() };
                     ((Action<KeystoneSimSettings, bool>)F("studioPropStart"))(simSet, false);
                     var simRun = ((Func<KeystonePropSim>)F("studioPropSim"))();
                     if (simRun == null || !simRun.DayOpen) throw new Exception("prop sim did not open its first day");
@@ -312,7 +312,7 @@ public static class UiSmokeTest
                     Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9));
                     Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9));
                     if (poolHost.Content == null) throw new Exception("PROP POOL view empty");
-                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EXPENSES", "GROWTH", "STRATEGY", "LOSERS", "EVENTS", "SESSIONS", "WINNERS", "INDICATOR" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
+                    foreach (var vk in new[] { "OVERVIEW", "TODAY", "ACCOUNTS", "DAYS", "TRADES", "PAYOUTS", "EXPENSES", "GROWTH", "STRATEGY", "FIRMS", "LOSERS", "EVENTS", "SESSIONS", "WINNERS", "INDICATOR" }) { Set(lab2, "propPoolView", vk); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
                     foreach (var fk in new[] { "ACTIVE", "NOW", "EVAL", "FUNDED", "LOCKED", "YLOCK", "CANPASS", "TARGET", "PAYOUT", "FLOOR", "BLOWN", "RETIRED" }) { Set(lab2, "propPoolView", "ACCOUNTS"); Set(lab2, "propPoolFilter", fk); Call(lab2, "FillPropPool", poolHost, back, false, (Action<string>)(c9 => poolAct = c9)); }
                     foreach (var ck in new[] { "SESSIONS", "ACCOUNTS", "CHOICES", "INDICATOR" }) { Set(lab2, "propCompareKind", ck); Set(lab2, "propPoolView", "SESSIONS"); Call(lab2, "FillPropPool", poolHost, simRun, true, (Action<string>)(c9 => poolAct = c9)); }
                     Set(lab2, "propCompareKind", "SESSIONS");
