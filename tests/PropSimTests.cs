@@ -79,6 +79,7 @@ public static class PropSimTests
         var bBack = KeystonePropSim.Rewind(bDir, 0);
         Check(bBack != null && bBack.PlanIndex == 0 && bBack.Accounts.Count == 0 && bBack.Batches.Count == 0 && !KeystonePropSim.HasSnap(bDir, 1), "◀ PREVIOUS DAY: the run back to day 1's morning (nothing bought yet, later saves dropped)");
         try { Directory.Delete(bDir, true); } catch { }
+        var oS = new KeystonePropSim(s.Copy()); Check(Eq(oS.Ruin(20), 1) && oS.OddsPrompt().Contains("PASS RATE") && KeystonePropSim.AiOddsSystem.Contains("payouts minus evaluation fees"), "🎲 ODDS: nothing paid yet = 100% risk of no payout; the AI prompt carries the run");
         var cpL = cpSim.Active; string cpSt = cpSim.CheckEquity(cpL, -2600);
         Check(cpSt == "BLOWN" && cpSim.Accounts[2].Phase == "BLOWN" && cpSim.Accounts[1].Alive, "COPY: an open loss through the floor blows every copying account too (the locked one is safe)", cpSt + " " + cpSim.Accounts[2].Phase);
         Check(Eq(cpSim.CopyRatio(cpSim.Accounts[0], cpSim.Accounts[0]), 1) && cpS.Describe().Contains("COPY TRADING") && KeystoneSimSettings.FromText(cpS.ToText()).Allocation == "COPY", "COPY: sized by contracts, described, saved with the set-up");
@@ -386,6 +387,13 @@ public static class PropSimTests
         var midM = candle5(100.5, 107, 100.5, 106.5).Concat(candle5(106.5, 110, 106, 109)).Concat(candle5(109, 109, 106.8, 107)).ToArray();
         var rMid = ofR.Copy(); rMid.FvgFrom = 1; var omF = KeystoneOpenFvg.Run(fvgDay2(new DateTime(2025, 3, 10), midM), rMid, "MNQ"); var omD = KeystoneOpenFvg.Run(fvgDay2(new DateTime(2025, 3, 10), midM), ofR, "MNQ");
         Check(omF.Dir == 1 && Eq(omF.ZoneLo, 101) && omF.ZoneStart == new DateTime(2025, 3, 10, 9, 25, 0) && (omD.Dir == 0 || omD.ZoneStart >= new DateTime(2025, 3, 10, 9, 30, 0)), "OPENING FVG: '09:30 is the MIDDLE candle' finds the 09:25 / 09:30 / 09:35 FVG (the default starts at 09:30)", omF.ZoneLo + "–" + omF.ZoneHi + " from " + omF.ZoneStart.ToString("HH:mm"));
+        // OPENING FVG filters + the funded bracket (all settings; ANY / 0 = off)
+        var rS2 = ofR.Copy(); rS2.MinStack = 2; var fS1 = KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 4), ofMins), rS2, "MNQ"); var fS2 = KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 5), ofMins2), rS2, "MNQ");
+        Check(!fS1.Filled && fS1.Reason.Contains("ONLY 1 FVG") && fS2.Filled && fS2.Stages.Count == 1 && Eq(fS2.Entry, 106.5), "FILTER FVGS IN A ROW ≥ 2: one FVG = no trade • two = the order goes in at 50% of both (106.5)", fS1.Reason + " | " + fS2.Entry);
+        var rZb = ofR.Copy(); rZb.ZoneByHhmm = 940; var rOn = ofR.Copy(); rOn.Overnight = "WITH";
+        Check(KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 4), ofMins), rZb, "MNQ").Reason.Contains("ZONE SET AFTER 09:40") && KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 4), ofMins), rOn, "MNQ").Reason.Contains("OVERNIGHT"), "FILTERS: zone set by 09:40 (it was 09:45) • overnight WITH the side (it was flat) → no trade");
+        var rF = ofR.Copy(); rF.FundStopUsd = 1000; rF.FundTargetUsd = 500; var sgF = KeystoneOpeningRange.Signals(rF, fvgDay(new DateTime(2025, 3, 4), ofMins), null, "MNQ");
+        Check(sgF.Count == 1 && Eq(sgF[0].FundStopDist, 50) && Eq(sgF[0].FundTargetDist, 25) && Eq(sgF[0].StopDist, 100), "FUNDED bracket: −$1,000 / +$500 on 10 MNQ = 50 / 25 pts for funded accounts (evaluations keep 100 / 50)");
         var rBuy = ofR.Copy(); rBuy.Side = 1; Check(KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 6), ofMins3), rBuy, "MNQ").Dir == 0, "SIDE = buys only: a bearish first FVG means no trade that day");
         // 📒 MY TRADES POOL: tagged lines + the older journal (no double counting), days, breakdowns, AI prompt
         var mf1 = new KeystoneReplayFill { Symbol = "MNQ", Side = "BUY", Qty = 2, EntryTime = new DateTime(2026, 3, 10, 9, 41, 0), ExitTime = new DateTime(2026, 3, 10, 9, 52, 30), Entry = 100, Exit = 110, Points = 10, Net = 36.5, Reason = "TARGET" };

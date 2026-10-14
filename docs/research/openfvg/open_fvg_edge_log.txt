@@ -1,0 +1,11 @@
+EDGE • 2020-10-19 → 2026-10-02 • base +$2,000 / −$1,500 @ 10%
+base 2020–23 $86/trade, 2024–26 $58/trade
+  YESTERDAY (CASH SESSION) = AGAINST the side  AND  OVERNIGHT 18:00→09:30 = AGAINST the side • A $343/t (126) → B $-10/t (107)
+  YESTERDAY (CASH SESSION) = AGAINST the side  AND  09:30 IN THE OVERNIGHT RANGE (side-relative) = near the side's end (stretched) • A $318/t (121) → B $216/t (101)
+  SIDE = BUY  AND  ENTRY VS 09:30 OPEN (side-relative) = high • A $311/t (120) → B $275/t (106)
+  GAP AT 09:30 VS THE SIDE = gap AGAINST the side  AND  YESTERDAY (CASH SESSION) = AGAINST the side • A $309/t (132) → B $21/t (114)
+  YESTERDAY (CASH SESSION) = AGAINST the side  AND  14-DAY RANGE = mid • A $294/t (122) → B $12/t (95)
+  ZONE SET = 09:46–10:00  AND  YESTERDAY (CASH SESSION) = AGAINST the side • A $286/t (135) → B $151/t (128)
+  SIDE = BUY  AND  09:30 IN THE OVERNIGHT RANGE (side-relative) = near the side's end (stretched) • A $279/t (142) → B $202/t (134)
+  SIDE = BUY  AND  YESTERDAY (CASH SESSION) = AGAINST the side • A $277/t (148) → B $126/t (134)
+BEST SPLIT (50 rotating): eval +$2,000 / −$1,500 @ 10% • funded +$2,000 / −$1,500 @ 10% • net $51,440 • pass 30.5% • payout rate 29.5%
