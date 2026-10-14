@@ -303,7 +303,8 @@ public static class PropSimTests
         Check(losersL.Count == 1 && losersL[0].Peak > 900 && losersL[0].Peak < 1100, "LOSERS: the losing trade's best open profit before the loss (~+$1,000) is measured on the bars", losersL.Count > 0 ? losersL[0].Peak.ToString("0") : "none");
         Check(beRows[0].Net < -500 && r500.Saved == 1 && r500.Change > 400 && r1100.Saved == 0 && Math.Abs(r1100.Change) < 1 && bestBe != null && bestBe.At == 500, "BREAKEVEN MATH: +$500 saves the loser (≈ +$500 better), +$1,100 never triggers; the best level is +$500");
         var btr = new KeystoneSimTrade { Day = bd.Day, Entry = bd.Day.AddHours(10), Legs = "BUY 1 MNQ", Pnl = -10, Peak = 123.5, Worst = -60 };
-        Check(btr.Line().EndsWith(",123.50,-60.00") && KeystoneSimTrade.Header.EndsWith("peak,worst"), "a trade saves its peak and worst open P/L");
+        Check(btr.Line().EndsWith(",123.50,-60.00,,") && KeystoneSimTrade.Header.EndsWith("peak,worst,entry_px,exit_px"), "a trade saves its peak and worst open P/L (and its prices when known)");
+        btr.EntryPx = 29913.5; btr.ExitPx = 29813.5; Check(btr.Line().EndsWith(",123.50,-60.00,29913.5,29813.5"), "a trade saves its entry / exit prices", btr.Line());
         // an account $50 above its floor cannot carry a −$500 trade: RETIRED at the floor (not locked again every day, never trading)
         var rfS = new KeystoneSimSettings { MaxTradesPerDay = 0, FundedWhen = "WITH", Accounts = 2, BuyRule = "ALWAYS", Strategy = "ROTATION", Rules = KeystoneSimRules.Presets()[0].Copy() }; var rf = new KeystonePropSim(rfS); rf.BeginDay(new DateTime(2025, 3, 3));
         var ra = rf.Accounts[0]; ra.Bal = rf.Floor(ra) + 50; var rb = rf.Accounts[1];
