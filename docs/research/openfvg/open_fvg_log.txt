@@ -1,13 +1,13 @@
 OPENING FVG • MNQ • 2020-10-19 → 2026-10-02 • 1461 days • OPENING FVG • MNQ 5M 50% • MNQ: the first 5-minute FVG after 09:30 (FVGs in a row = one zone) • limit order at 50% of the zone (BUY a bullish one, SELL a bearish one) • stop −$2,000 • target +$1,000 for 10 contracts • no fill by 15:55 = no trade, flat then
-DEFAULT: setups 1461 • filled 1211 (82.9%) • won 773 (63.8%) • time exits 139 • net $-29,996 • PF 0.96 • max DD $51,468
-  10%: fills 1315 won 65.7% net $16,164 • eval pass 25.2% • funded kept avg $776 • eval+funded net $14,908
-  15%: fills 1306 won 65.5% net $14,491 • eval pass 24.9% • funded kept avg $748 • eval+funded net $15,414
-  25%: fills 1275 won 64.8% net $-10,340 • eval pass 23.4% • funded kept avg $684 • eval+funded net $14,114
-  33%: fills 1255 won 64.4% net $-27,642 • eval pass 22.4% • funded kept avg $636 • eval+funded net $11,938
-  40%: fills 1234 won 64.2% net $-23,862 • eval pass 22.2% • funded kept avg $630 • eval+funded net $22,204
-  50%: fills 1211 won 63.8% net $-29,996 • eval pass 22.8% • funded kept avg $674 • eval+funded net $21,019
-  60%: fills 1187 won 63.5% net $-42,519 • eval pass 22.4% • funded kept avg $701 • eval+funded net $18,835
-  75%: fills 1156 won 63.8% net $-23,344 • eval pass 21.6% • funded kept avg $743 • eval+funded net $23,473
-EVAL + FUNDED (one lane): evals 276 passed 70 blown 206 • funded blown 67 retired 2 • payouts 34 • spent $33,120 kept $54,139
-EVAL ONLY: from every start day 332 passed / 1126 blown (22.8%) • one lane: 410 evals, 103 passed
-FUNDED ONLY (each funded account costs $527 = the evaluations it takes to pass one): from every start day avg kept $674 • payouts 0.43 • blown 1422 retired 22 • one lane: kept $169,676, 214 blown
+DEFAULT: setups 1461 • filled 1301 (89.0%) • won 839 (64.5%) • time exits 148 • net $-8,797 • PF 0.99 • max DD $52,879
+  10%: fills 1446 won 64.9% net $-5,345 • eval pass 23.9% • funded kept avg $683 • eval+funded net $23,447
+  15%: fills 1436 won 65.3% net $13,039 • eval pass 24.0% • funded kept avg $642 • eval+funded net $18,972
+  25%: fills 1411 won 65.1% net $15,769 • eval pass 24.1% • funded kept avg $749 • eval+funded net $24,809
+  33%: fills 1381 won 65.1% net $511 • eval pass 23.7% • funded kept avg $684 • eval+funded net $23,829
+  40%: fills 1341 won 64.4% net $-17,373 • eval pass 23.0% • funded kept avg $665 • eval+funded net $21,849
+  50%: fills 1301 won 64.5% net $-8,797 • eval pass 23.8% • funded kept avg $704 • eval+funded net $17,476
+  60%: fills 1262 won 64.2% net $-19,664 • eval pass 23.5% • funded kept avg $775 • eval+funded net $21,813
+  75%: fills 1203 won 63.7% net $-16,682 • eval pass 22.4% • funded kept avg $844 • eval+funded net $20,464
+EVAL + FUNDED (one lane): evals 292 passed 74 blown 218 • funded blown 71 retired 2 • payouts 33 • spent $35,040 kept $52,516
+EVAL ONLY: from every start day 347 passed / 1111 blown (23.8%) • one lane: 427 evals, 109 passed
+FUNDED ONLY (each funded account costs $504 = the evaluations it takes to pass one): from every start day avg kept $704 • payouts 0.45 • blown 1410 retired 34 • one lane: kept $185,775, 214 blown

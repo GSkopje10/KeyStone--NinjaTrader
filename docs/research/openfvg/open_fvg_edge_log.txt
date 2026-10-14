@@ -1,11 +1,11 @@
 EDGE • 2020-10-19 → 2026-10-02 • base +$2,000 / −$1,500 @ 10%
-base 2020–23 $86/trade, 2024–26 $58/trade
-  YESTERDAY (CASH SESSION) = AGAINST the side  AND  OVERNIGHT 18:00→09:30 = AGAINST the side • A $343/t (126) → B $-10/t (107)
-  YESTERDAY (CASH SESSION) = AGAINST the side  AND  09:30 IN THE OVERNIGHT RANGE (side-relative) = near the side's end (stretched) • A $318/t (121) → B $216/t (101)
-  SIDE = BUY  AND  ENTRY VS 09:30 OPEN (side-relative) = high • A $311/t (120) → B $275/t (106)
-  GAP AT 09:30 VS THE SIDE = gap AGAINST the side  AND  YESTERDAY (CASH SESSION) = AGAINST the side • A $309/t (132) → B $21/t (114)
-  YESTERDAY (CASH SESSION) = AGAINST the side  AND  14-DAY RANGE = mid • A $294/t (122) → B $12/t (95)
-  ZONE SET = 09:46–10:00  AND  YESTERDAY (CASH SESSION) = AGAINST the side • A $286/t (135) → B $151/t (128)
-  SIDE = BUY  AND  09:30 IN THE OVERNIGHT RANGE (side-relative) = near the side's end (stretched) • A $279/t (142) → B $202/t (134)
-  SIDE = BUY  AND  YESTERDAY (CASH SESSION) = AGAINST the side • A $277/t (148) → B $126/t (134)
-BEST SPLIT (50 rotating): eval +$2,000 / −$1,500 @ 10% • funded +$2,000 / −$1,500 @ 10% • net $51,440 • pass 30.5% • payout rate 29.5%
+base 2020–23 $73/trade, 2024–26 $36/trade
+  YESTERDAY (CASH SESSION) = AGAINST the side  AND  09:30 IN THE OVERNIGHT RANGE (side-relative) = near the side's end (stretched) • A $290/t (135) → B $215/t (116)
+  SIDE = BUY  AND  09:30 IN THE OVERNIGHT RANGE (side-relative) = near the side's end (stretched) • A $285/t (160) → B $200/t (145)
+  SIDE = BUY  AND  ZONE SIZE / 14-DAY RANGE = mid • A $275/t (143) → B $246/t (117)
+  YESTERDAY (CASH SESSION) = AGAINST the side  AND  OVERNIGHT 18:00→09:30 = AGAINST the side • A $253/t (134) → B $-86/t (124)
+  YESTERDAY (CASH SESSION) = AGAINST the side  AND  ENTRY VS 09:30 OPEN (side-relative) = mid • A $241/t (120) → B $370/t (91)
+  SIDE = BUY  AND  YESTERDAY (CASH SESSION) = AGAINST the side • A $231/t (163) → B $68/t (147)
+  ZONE SET = 09:46–10:00  AND  YESTERDAY (CASH SESSION) = AGAINST the side • A $228/t (126) → B $175/t (116)
+  GAP AT 09:30 VS THE SIDE = gap AGAINST the side  AND  YESTERDAY (CASH SESSION) = AGAINST the side • A $224/t (140) → B $-40/t (132)
+BEST SPLIT (50 rotating): eval +$2,000 / −$1,500 @ 10% • funded +$2,000 / −$1,500 @ 10% • net $54,110 • pass 34.0% • payout rate 27.9%
