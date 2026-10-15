@@ -399,6 +399,11 @@ public static class PropSimTests
         Check(KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 4), ofMins), rZb, "MNQ").Reason.Contains("ZONE SET AFTER 09:40") && KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 4), ofMins), rOn, "MNQ").Reason.Contains("OVERNIGHT"), "FILTERS: zone set by 09:40 (it was 09:45) • overnight WITH the side (it was flat) → no trade");
         var rF = ofR.Copy(); rF.FundStopUsd = 1000; rF.FundTargetUsd = 500; var sgF = KeystoneOpeningRange.Signals(rF, fvgDay(new DateTime(2025, 3, 4), ofMins), null, "MNQ");
         Check(sgF.Count == 1 && Eq(sgF[0].FundStopDist, 50) && Eq(sgF[0].FundTargetDist, 25) && Eq(sgF[0].StopDist, 100), "FUNDED bracket: −$1,000 / +$500 on 10 MNQ = 50 / 25 pts for funded accounts (evaluations keep 100 / 50)");
+        // ★ FVG RETRACE (FREQUENT): every 5-min FVG in the window → a limit at 10%, valid 60 min, $1,500 / $1,500 on 10 MNQ (75 pts)
+        var frR = KeystoneOpeningRange.Presets().First(x => x.Mode == "FVGR"); var frS = KeystoneOpeningRange.Signals(frR, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MNQ");
+        Check(frS.Count >= 2 && frS.All(x => x.Order == "LIMIT" && x.Tier == "T" && Eq(x.StopDist, 75) && Eq(x.TargetDist, 75)) && Eq(frS[0].Entry, 105.5) && frS[0].Time == new DateTime(2025, 3, 5, 9, 45, 0) && frS[0].CancelAt == new DateTime(2025, 3, 5, 10, 45, 0)
+            && KeystoneOpeningRange.Signals(frR, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MGC").Count == 0 && KeystoneReplaySignals.Names[12].Contains("FVG RETRACE"),
+            "FVG RETRACE: every FVG gets its own BUY limit at 10% (101–106 → 105.50 at 09:45, valid to 10:45), ±75 pts on 10 MNQ; MNQ only by default", frS.Count + " • " + (frS.Count > 0 ? frS[0].Entry + " " + frS[0].Time.ToString("HH:mm") : ""));
         var rBuy = ofR.Copy(); rBuy.Side = 1; Check(KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 6), ofMins3), rBuy, "MNQ").Dir == 0, "SIDE = buys only: a bearish first FVG means no trade that day");
         // 📒 MY TRADES POOL: tagged lines + the older journal (no double counting), days, breakdowns, AI prompt
         var mf1 = new KeystoneReplayFill { Symbol = "MNQ", Side = "BUY", Qty = 2, EntryTime = new DateTime(2026, 3, 10, 9, 41, 0), ExitTime = new DateTime(2026, 3, 10, 9, 52, 30), Entry = 100, Exit = 110, Points = 10, Net = 36.5, Reason = "TARGET" };
