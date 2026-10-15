@@ -29,12 +29,13 @@ public static class ComboStudy
     const int QM = 10, QG = 10;
 
     public sealed class Cfg { public int S, T, C, B, P; public string Name { get { return Sess[S] + " • " + Trig[T] + " • other: " + Comp[C] + " • +$" + Br[B][0].ToString("N0", IC) + " / −$" + Br[B][1].ToString("N0", IC) + " @ " + Pcts[P] + "%"; } } }
+    public sealed class RandRow { public string Item1; public Res Item2; public double Item3, Item4, Item5, Item6, Item7, Item8; }
     public sealed class Res { public Cfg C; public List<OpenFvgStudy.T> Ts; public OpenFvgStudy.Stats All, A, B; public OpenFvgEdge.Odds PA, PB, PAll; }
 
     static int Slot(DateTime t) { var o = t.AddMinutes(-1); return R.S(o.Hour, o.Minute); }
 
     // one day, one config → the combined trade's $ (null = no trade)
-    static double? Day(RDay m, RDay g, KeystoneOpenFvgDay fm, KeystoneOpenFvgDay fg, Cfg c, int exitSlot)
+    static double? Day(RDay m, RDay g, KeystoneOpenFvgDay fm, KeystoneOpenFvgDay fg, Cfg c, int exitSlot, Random rnd = null, bool bothLegs = true)
     {
         int trigDir = 0, comDir = 0, k0 = -1; double eM = double.NaN, eG = double.NaN;
         bool mOk = fm != null && fm.Filled, gOk = fg != null && fg.Filled;
@@ -55,6 +56,8 @@ public static class ComboStudy
             if (c.C == 3) { var fo = c.T == 0 ? fg : fm; other = fo != null && fo.Dir != 0 && fo.SetupTime <= (c.T == 0 ? fm.FillTime : fg.FillTime) ? fo.Dir : 0; }
             if (c.T == 0) { dM = trigDir; dG = other; } else { dG = trigDir; dM = other; }
         }
+        // RANDOM SIDES at the confirmed moment: the setup only says WHEN; each leg's side is a coin flip, both entered at that minute's close
+        if (rnd != null) { dM = rnd.Next(2) == 0 ? 1 : -1; dG = bothLegs ? (rnd.Next(2) == 0 ? 1 : -1) : 0; eM = m.CloseAt(k0); eG = g.CloseAt(k0); }
         if (dM != 0 && double.IsNaN(eM)) eM = m.CloseAt(k0);
         if (dG != 0 && double.IsNaN(eG)) eG = g.CloseAt(k0);
         if ((dM != 0 && double.IsNaN(eM)) || (dG != 0 && double.IsNaN(eG))) return null;
@@ -112,6 +115,28 @@ public static class ComboStudy
         // chosen on 2020–23 (prop net), judged on 2024–26
         var picks = res.Where(x => x.All.Fills >= 150).OrderByDescending(x => x.PA.Net).Take(25).ToList();
         foreach (var x in picks.Take(10)) say("  " + x.C.Name + " • A prop " + x.PA.Net.ToString("N0", IC) + " → B prop " + x.PB.Net.ToString("N0", IC) + " (pass " + (100 * x.PB.PassRate).ToString("0") + "%, paid " + (100 * x.PB.PayoutRate).ToString("0") + "%) • live A " + x.A.Pnl.ToString("N0", IC) + " B " + x.B.Pnl.ToString("N0", IC));
+        // ---- RANDOM SIDES at the confirmed moment (NY open, the MNQ FVG fill = WHEN), vs the FVG's side, 10 seeds
+        var randRows = new List<RandRow>();
+        foreach (var legs in new[] { true, false })
+        foreach (int b in new[] { 0, 1, 2, 3 })
+        {
+            var cfgF = res.First(x => x.C.S == 2 && x.C.T == 0 && x.C.C == (legs ? 1 : 0) && x.C.B == b && x.C.P == 0);
+            var cfgR = new Cfg { S = 2, T = 0, C = 0, B = b, P = 0 }; int exitSlot2 = R.S(15, 55); var pa = new List<double>(); var pb = new List<double>(); var pp = new List<double>(); var lv = new List<double>();
+            for (int seed = 1; seed <= 10; seed++)
+            {
+                var rnd = new Random(seed * 7919); var ts = new List<OpenFvgStudy.T>();
+                for (int i = 0; i < pairs.Count; i++)
+                {
+                    var pnl = Day(pairs[i].Item1, pairs[i].Item2, fv[i, 2, 0, 0], fv[i, 2, 1, 0], cfgR, exitSlot2, rnd, legs);
+                    var d = new KeystoneOpenFvgDay { Day = pairs[i].Item1.Day.Date }; if (pnl.HasValue) { d.Filled = true; d.Dir = 1; d.Pnl = pnl.Value; }
+                    ts.Add(new OpenFvgStudy.T { Day = pairs[i].Item1.Day.Date, D = d });
+                }
+                var tA = ts.Where(x => x.Day < Half).ToList(); var tB = ts.Where(x => x.Day >= Half).ToList();
+                pa.Add(OpenFvgEdge.Prop("", tA, tA, rules, 50, false).Net); var ob = OpenFvgEdge.Prop("", tB, tB, rules, 50, false); pb.Add(ob.Net); pp.Add(ob.PassRate); lv.Add(OpenFvgStudy.Of(ts).Pnl);
+            }
+            randRows.Add(new RandRow { Item1 = (legs ? "MNQ + MGC" : "MNQ only") + " • +$" + Br[b][0].ToString("N0", IC) + " / −$" + Br[b][1].ToString("N0", IC), Item2 = cfgF, Item3 = pa.Average(), Item4 = pb.Average(), Item5 = pb.Max(), Item6 = pb.Min(), Item7 = pp.Average(), Item8 = lv.Average() });
+            say("  RANDOM " + randRows[randRows.Count - 1].Item1 + " • B avg " + pb.Average().ToString("N0", IC) + " (best " + pb.Max().ToString("N0", IC) + ", worst " + pb.Min().ToString("N0", IC) + ") vs FVG side B " + cfgF.PB.Net.ToString("N0", IC));
+        }
         var baseline = res.First(x => x.C.S == 2 && x.C.T == 0 && x.C.C == 0 && x.C.B == 3 && x.C.P == 0);   // OPENING FVG MNQ alone (+$2,000 / −$1,500 @ 10% on 10 MNQ)
         var winner = picks.Where(x => x.PB.Net > 0 && x.B.Pnl > 0).OrderByDescending(x => x.PA.Net).FirstOrDefault() ?? picks[0];
 
@@ -157,6 +182,10 @@ public static class ComboStudy
         // the best per session (chosen on 2020–23)
         h.Append("<h2>3 • The best rule in each session (chosen on 2020–23)</h2><div class='wrap'><table><tr><th>SESSION</th><th>RULE</th><th>PROP 2020–23</th><th>PROP 2024–26</th><th>PASS 24–26</th><th>PAID 24–26</th><th>TRADES</th></tr>");
         for (int s = 0; s < 4; s++) { var x = res.Where(y => y.C.S == s && y.All.Fills >= 100).OrderByDescending(y => y.PA.Net).FirstOrDefault(); if (x == null) continue; h.Append("<tr><td>" + Sess[s] + "</td><td class='w'>" + x.C.Name + "</td><td class='" + cls(x.PA.Net) + "'>" + usd(x.PA.Net) + "</td><td class='" + cls(x.PB.Net) + "'><b>" + usd(x.PB.Net) + "</b></td><td>" + pct(100 * x.PB.PassRate) + "</td><td>" + pct(100 * x.PB.PayoutRate) + "</td><td>" + x.All.Fills + "</td></tr>"); }
+        h.Append("</table></div>");
+        h.Append("<h2>4 • Random sides at the confirmed moment — is it the timing or the side?</h2><div class='note'>The rotation's coin flip: each day the trade is entered at the same minute the NY-open MNQ FVG fills (the setup decides WHEN), but each leg's side is random (10 different seeds), both entered at that minute's close, one combined $ target / stop. Compared with the FVG's own side on the same days.</div>");
+        h.Append("<div class='wrap'><table><tr><th>LEGS • TARGET / STOP</th><th>RANDOM: PROP 2020–23 (avg)</th><th>RANDOM: PROP 2024–26 (avg)</th><th>BEST SEED</th><th>WORST SEED</th><th>RANDOM PASS 24–26</th><th>RANDOM LIVE 6 YEARS (avg)</th><th>FVG SIDE: PROP 2020–23</th><th>FVG SIDE: PROP 2024–26</th></tr>");
+        foreach (var x in randRows) h.Append("<tr><td>" + x.Item1 + "</td><td class='" + cls(x.Item3) + "'>" + usd(x.Item3) + "</td><td class='" + cls(x.Item4) + "'><b>" + usd(x.Item4) + "</b></td><td>" + usd(x.Item5) + "</td><td>" + usd(x.Item6) + "</td><td>" + pct(100 * x.Item7) + "</td><td class='" + cls(x.Item8) + "'>" + usd(x.Item8) + "</td><td class='" + cls(x.Item2.PA.Net) + "'>" + usd(x.Item2.PA.Net) + "</td><td class='" + cls(x.Item2.PB.Net) + "'><b>" + usd(x.Item2.PB.Net) + "</b></td></tr>");
         h.Append("</table></div>");
         h.Append("<p class='sub'>Built " + DateTime.Now.ToString("yyyy-MM-dd HH:mm", IC) + " • research/ComboStudy.cs</p></main></body></html>");
         Directory.CreateDirectory(outDir);
