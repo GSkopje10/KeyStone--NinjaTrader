@@ -1,0 +1,13 @@
+COMBO • 2020-10-19 → 2026-10-02 • 1402 days with MNQ + MGC
+FVGs found in 1 s
+288 combinations in 6 s
+  NY OPEN 09:30 • MNQ FVG • other: NONE • +$1,500 / −$1,000 @ 10% • A prop 24,985 → B prop 10,307 (pass 31%, paid 23%) • live A 15,362 B 46,095
+  NY OPEN 09:30 • MNQ FVG • other: NONE • +$1,500 / −$1,500 @ 10% • A prop 23,712 → B prop 12,577 (pass 37%, paid 24%) • live A 46,002 B 59,040
+  NY OPEN 09:30 • MNQ FVG • other: SAME • +$1,500 / −$1,000 @ 10% • A prop 22,057 → B prop -5,496 (pass 14%, paid 14%) • live A 34,384 B 6,619
+  NY OPEN 09:30 • MGC FVG • other: SAME • +$1,500 / −$1,000 @ 10% • A prop 21,760 → B prop -7,609 (pass 17%, paid 15%) • live A 55,752 B -56,851
+  NY OPEN 09:30 • MNQ FVG • other: OWN FVG • +$1,500 / −$1,500 @ 10% • A prop 19,847 → B prop 13,344 (pass 37%, paid 19%) • live A -6,296 B 35,023
+  NY PM 13:30 • MNQ FVG • other: SAME • +$1,500 / −$1,500 @ 10% • A prop 17,673 → B prop 100 (pass 23%, paid 13%) • live A 7,121 B -54,443
+  NY OPEN 09:30 • MNQ FVG • other: OWN FVG • +$2,000 / −$1,500 @ 10% • A prop 17,481 → B prop 13,474 (pass 29%, paid 24%) • live A 3,749 B 15,813
+  NY OPEN 09:30 • BOTH AGREE • other: NONE • +$1,500 / −$1,000 @ 10% • A prop 16,917 → B prop 1,865 (pass 8%, paid 38%) • live A 60,831 B -2,499
+  NY OPEN 09:30 • MNQ FVG • other: SAME • +$2,000 / −$1,500 @ 10% • A prop 16,462 → B prop -2,280 (pass 17%, paid 15%) • live A 15,279 B 3,160
+  NY OPEN 09:30 • MNQ FVG • other: SAME • +$1,500 / −$1,500 @ 10% • A prop 15,127 → B prop -1,642 (pass 28%, paid 21%) • live A -3,076 B -2,506
