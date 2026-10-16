@@ -1,0 +1,46 @@
+DAILY TARGET • COPY vs SPREAD • 2020-10-19 → 2026-10-02 • 1402 days with MNQ + MGC
+  OPEN 18:00 • RANDOM (any sides) • n 5608 • $150 91% avg -35 | $200 90% avg -26 | $250 88% avg -21 | $300 86% avg -15 | $350 85% avg -14 • −$2K before any target 66.1% (straight 3.6%)
+  OPEN 18:00 • BB • n 1402 • $150 91% avg -36 | $200 90% avg -18 | $250 88% avg -12 | $300 87% avg -7 | $350 85% avg -2 • −$2K before any target 66.3% (straight 4.1%)
+  OPEN 18:00 • SS • n 1402 • $150 91% avg -36 | $200 90% avg -31 | $250 88% avg -31 | $300 86% avg -30 | $350 84% avg -29 • −$2K before any target 70.0% (straight 3.2%)
+  OPEN 18:00 • BS • n 1402 • $150 92% avg -17 | $200 91% avg -7 | $250 89% avg -7 | $300 87% avg 11 | $350 86% avg 10 • −$2K before any target 64.3% (straight 3.1%)
+  OPEN 18:00 • SB • n 1402 • $150 91% avg -51 | $200 89% avg -48 | $250 87% avg -34 | $300 86% avg -33 | $350 84% avg -34 • −$2K before any target 63.8% (straight 3.9%)
+  OPEN 18:00 • FOLLOW 5 • n 1321 • $150 92% avg -26 | $200 89% avg -31 | $250 87% avg -40 | $300 85% avg -52 | $350 82% avg -70 • −$2K before any target 67.4% (straight 1.7%)
+  OPEN 18:00 • FADE 5 • n 1321 • $150 92% avg -29 | $200 90% avg -20 | $250 88% avg -23 | $300 86% avg -27 | $350 84% avg -25 • −$2K before any target 65.6% (straight 1.4%)
+  ASIA 20:00 • RANDOM (any sides) • n 5608 • $150 92% avg -21 | $200 90% avg -21 | $250 88% avg -29 | $300 86% avg -29 | $350 84% avg -29 • −$2K before any target 64.5% (straight 1.5%)
+  ASIA 20:00 • BB • n 1402 • $150 92% avg -25 | $200 90% avg -29 | $250 87% avg -32 | $300 85% avg -36 | $350 84% avg -36 • −$2K before any target 65.0% (straight 2.4%)
+  ASIA 20:00 • SS • n 1402 • $150 92% avg -29 | $200 90% avg -19 | $250 87% avg -43 | $300 85% avg -41 | $350 83% avg -57 • −$2K before any target 67.3% (straight 1.5%)
+  ASIA 20:00 • BS • n 1402 • $150 93% avg -11 | $200 91% avg -4 | $250 89% avg -2 | $300 86% avg -11 | $350 85% avg 10 • −$2K before any target 62.3% (straight 0.8%)
+  ASIA 20:00 • SB • n 1402 • $150 92% avg -18 | $200 90% avg -30 | $250 87% avg -36 | $300 86% avg -29 | $350 84% avg -32 • −$2K before any target 63.4% (straight 1.4%)
+  ASIA 20:00 • FOLLOW 5 • n 1320 • $150 92% avg -22 | $200 90% avg -12 | $250 88% avg -27 | $300 85% avg -42 | $350 84% avg -28 • −$2K before any target 64.4% (straight 1.5%)
+  ASIA 20:00 • FADE 5 • n 1320 • $150 92% avg -19 | $200 90% avg -27 | $250 88% avg -31 | $300 85% avg -36 | $350 84% avg -35 • −$2K before any target 66.1% (straight 1.4%)
+  LONDON 03:00 • RANDOM (any sides) • n 5608 • $150 93% avg -4 | $200 90% avg -10 | $250 88% avg -9 | $300 86% avg -12 | $350 85% avg -11 • −$2K before any target 62.7% (straight 1.1%)
+  LONDON 03:00 • BB • n 1402 • $150 93% avg -8 | $200 90% avg -10 | $250 89% avg 1 | $300 86% avg -12 | $350 85% avg -9 • −$2K before any target 63.3% (straight 1.4%)
+  LONDON 03:00 • SS • n 1402 • $150 93% avg -6 | $200 90% avg -18 | $250 87% avg -34 | $300 85% avg -38 | $350 83% avg -36 • −$2K before any target 64.8% (straight 1.2%)
+  LONDON 03:00 • BS • n 1402 • $150 93% avg -3 | $200 91% avg -6 | $250 89% avg 0 | $300 87% avg 5 | $350 85% avg 2 • −$2K before any target 61.1% (straight 0.9%)
+  LONDON 03:00 • SB • n 1402 • $150 93% avg 1 | $200 91% avg -4 | $250 89% avg -2 | $300 87% avg -3 | $350 85% avg -2 • −$2K before any target 61.5% (straight 1.1%)
+  LONDON 03:00 • FOLLOW 5 • n 1338 • $150 94% avg 13 | $200 91% avg 4 | $250 89% avg 11 | $300 88% avg 20 | $350 86% avg 15 • −$2K before any target 63.3% (straight 0.8%)
+  LONDON 03:00 • FADE 5 • n 1338 • $150 93% avg -4 | $200 90% avg -14 | $250 89% avg -6 | $300 87% avg 1 | $350 85% avg -5 • −$2K before any target 62.6% (straight 1.5%)
+  NY 09:30 • RANDOM (any sides) • n 5608 • $150 94% avg 17 | $200 92% avg 23 | $250 90% avg 22 | $300 88% avg 18 | $350 85% avg 12 • −$2K before any target 57.0% (straight 1.5%)
+  NY 09:30 • BB • n 1402 • $150 94% avg 27 | $200 92% avg 30 | $250 90% avg 32 | $300 88% avg 29 | $350 86% avg 21 • −$2K before any target 57.7% (straight 1.8%)
+  NY 09:30 • SS • n 1402 • $150 94% avg 18 | $200 92% avg 30 | $250 90% avg 23 | $300 87% avg 12 | $350 85% avg 1 • −$2K before any target 58.6% (straight 1.5%)
+  NY 09:30 • BS • n 1402 • $150 94% avg 28 | $200 92% avg 31 | $250 90% avg 39 | $300 89% avg 41 | $350 86% avg 36 • −$2K before any target 53.6% (straight 1.0%)
+  NY 09:30 • SB • n 1402 • $150 93% avg -6 | $200 91% avg 1 | $250 88% avg -7 | $300 86% avg -11 | $350 84% avg -11 • −$2K before any target 57.9% (straight 1.6%)
+  NY 09:30 • FOLLOW 5 • n 1373 • $150 94% avg 29 | $200 93% avg 41 | $250 91% avg 44 | $300 88% avg 40 | $350 86% avg 37 • −$2K before any target 55.4% (straight 0.9%)
+  NY 09:30 • FADE 5 • n 1373 • $150 94% avg 13 | $200 92% avg 20 | $250 89% avg 12 | $300 87% avg 0 | $350 86% avg 17 • −$2K before any target 57.2% (straight 1.1%)
+720 prop runs in 17 s
+  NY 09:30 • FOLLOW 5 • +$150 a day • payout at $4K • PASS WITH FVG RETRACE • ROI A 3.84 B 4.50 • 6 yrs net 1,560,000 passed 1600 payouts 1150 blown 4050
+  NY 09:30 • FOLLOW 5 • +$200 a day • payout at $4K • PASS WITH FVG RETRACE • ROI A 3.10 B 3.16 • 6 yrs net 1,476,000 passed 1900 payouts 1200 blown 5550
+  NY 09:30 • FADE 5 • +$200 a day • payout at $4K • PASS WITH FVG RETRACE • ROI A 3.04 B 3.68 • 6 yrs net 1,758,000 passed 1800 payouts 1400 blown 6250
+  NY 09:30 • FOLLOW 5 • +$150 a day • payout at $4K • ROI A 4.82 B 2.92 • 6 yrs net 1,242,000 passed 850 payouts 900 blown 3000
+  NY 09:30 • SPLIT BB/SS • +$150 a day • payout at $4K • ROI A 3.19 B 2.85 • 6 yrs net 1,023,000 passed 1150 payouts 825 blown 3750
+  LONDON 03:00 • SB • +$150 a day • payout at $4K • PASS WITH FVG RETRACE • ROI A 2.83 B 3.90 • 6 yrs net 1,464,000 passed 1600 payouts 1150 blown 4950
+  NY 09:30 • FOLLOW 5 • +$150 a day • firm payouts • ROI A 3.03 B 2.74 • 6 yrs net 968,813 passed 1200 payouts 2850 blown 3500
+  NY 09:30 • SPLIT BB/SS • +$200 a day • firm payouts • ROI A 2.74 B 2.74 • 6 yrs net 1,234,875 passed 1775 payouts 3025 blown 5400
+  NY 09:30 • BS • +$150 a day • payout at $4K • PASS WITH FVG RETRACE • ROI A 2.69 B 3.06 • 6 yrs net 1,266,000 passed 1750 payouts 1100 blown 5800
+  NY 09:30 • SPLIT BB/SS • +$200 a day • payout at $4K • PASS WITH FVG RETRACE • ROI A 2.67 B 3.38 • 6 yrs net 1,581,000 passed 1775 payouts 1300 blown 6225
+  NY 09:30 • SPLIT BB/SS • +$200 a day • payout at $4K • ROI A 3.20 B 2.55 • 6 yrs net 1,125,000 passed 1475 payouts 950 blown 4750
+  LONDON 03:00 • SB • +$150 a day • firm payouts • PASS WITH FVG RETRACE • ROI A 2.55 B 2.76 • 6 yrs net 1,657,336 passed 2300 payouts 5250 blown 7600
+  LONDON 03:00 • FOLLOW 5 • +$350 a day • payout at $4K • PASS WITH FVG RETRACE • ROI A 3.19 B 2.47 • 6 yrs net 1,746,000 passed 2150 payouts 1500 blown 7850
+  OPEN 18:00 • BS • +$350 a day • firm payouts • PASS WITH FVG RETRACE • ROI A 2.59 B 2.46 • 6 yrs net 1,736,531 passed 2900 payouts 2850 blown 9150
+  NY 09:30 • BS • +$150 a day • firm payouts • PASS WITH FVG RETRACE • ROI A 2.74 B 2.43 • 6 yrs net 1,494,464 passed 2350 payouts 4900 blown 7200
+PICK: NY 09:30 • FOLLOW 5 • +$150 a day • payout at $4K • PASS WITH FVG RETRACE • months up 19 down 30
