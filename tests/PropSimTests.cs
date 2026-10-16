@@ -321,8 +321,17 @@ public static class PropSimTests
         var od = KeystonePropSim.Weekdays(new DateTime(2026, 6, 1), new DateTime(2026, 6, 1)); var odW = KeystonePropSim.Weekdays(new DateTime(2026, 5, 31), new DateTime(2026, 5, 31));
         Check(od.Count == 1 && od[0] == new DateTime(2026, 6, 1) && odW.Count == 0, "JUST ONE DAY: FROM = TO is a one-day run (a Sunday has none)");
         // PASS FIRST (default): a passed account waits in the funded pool; when every evaluation is done the run asks; started → it trades
-        Check(new KeystoneSimSettings().FundedWhen == "ASK", "the default: PASS FIRST (funded wait, then I choose)");
-        var pf = new KeystonePropSim(new KeystoneSimSettings { MaxTradesPerDay = 0, Accounts = 2, BuyRule = "ALWAYS", ReplacePassed = false, Strategy = "ROTATION", Rules = KeystoneSimRules.Presets()[0].Copy() }); pf.BeginDay(new DateTime(2025, 3, 3));
+        Check(new KeystoneSimSettings().FundedWhen == "STAGES", "the default: SIMPLE (evals → funded → next batch)");
+        // SIMPLE (STAGES): the evaluations trade until each passed or blew; then the funded ones by themselves (no question); the next
+        // batch only when every funded account is blown / retired
+        var stS = new KeystoneSimSettings { MaxTradesPerDay = 0, Accounts = 2, BuyRule = "BATCH", ReplacePassed = false, Strategy = "ROTATION", Rules = KeystoneSimRules.Presets()[0].Copy() };
+        var st = new KeystonePropSim(stS); st.BeginDay(new DateTime(2025, 3, 3)); st.Accounts[0].Phase = "FUNDED"; st.Accounts[0].WasPhase = "FUNDED"; st.Accounts[0].PassedOn = new DateTime(2025, 3, 3);
+        bool stWait = !st.CanTrade(st.Accounts[0]) && st.CanTrade(st.Accounts[1]);
+        st.Accounts[1].Phase = "BLOWN"; st.Accounts[1].WasPhase = "EVAL"; st.EndDay();
+        st.BeginDay(new DateTime(2025, 3, 4)); bool stFunded = st.Accounts.Count == 2 && st.CanTrade(st.Accounts[0]) && !st.FundedWaiting;
+        st.Accounts[0].Phase = "BLOWN"; st.EndDay(); st.BeginDay(new DateTime(2025, 3, 5));
+        Check(stWait && stFunded && st.Accounts.Count(x => x.Alive && x.Phase == "EVAL") == 2, "SIMPLE: funded waits while evals trade → evals done: funded trade by themselves, no new batch yet → funded done: a new batch of 2", stWait + " " + stFunded + " " + st.Accounts.Count);
+        var pf = new KeystonePropSim(new KeystoneSimSettings { MaxTradesPerDay = 0, FundedWhen = "ASK", Accounts = 2, BuyRule = "ALWAYS", ReplacePassed = false, Strategy = "ROTATION", Rules = KeystoneSimRules.Presets()[0].Copy() }); pf.BeginDay(new DateTime(2025, 3, 3));
         pf.Accounts[0].Phase = "FUNDED"; pf.Accounts[0].WasPhase = "FUNDED";
         Check(!pf.CanTrade(pf.Accounts[0]) && pf.CanTrade(pf.Accounts[1]) && !pf.FundedWaiting, "PASS FIRST: the funded account does not trade while an evaluation is running (no question yet)");
         pf.Accounts[1].Phase = "BLOWN"; pf.Accounts[1].WasPhase = "EVAL";
