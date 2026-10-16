@@ -1,5 +1,5 @@
 FREQUENT ENTRIES • 2020-10-19 → 2026-10-02 • 1461 days
-875 combinations in 54 s
+875 combinations in 43 s
   FVG RETRACE 50% • NY DAY 09:30–15:00 • +$1,500 / −$1,500 • ≤ 1 a day • A ROI 4.09× net 37,034 → B ROI 2.17× net 14,098 (pass 37%, paid 27%, evals 100)
   RANDOM SIDE 15M (control) • NY DAY 09:30–15:00 • +$1,500 / −$1,500 • ≤ 1 a day • A ROI 3.87× net 34,486 → B ROI 1.30× net 5,396 (pass 19%, paid 21%, evals 150)
   RANDOM SIDE 15M (control) • NY DAY 09:30–15:00 • +$1,500 / −$1,500 • ≤ 2 a day • A ROI 3.77× net 66,538 → B ROI 1.27× net 8,246 (pass 21%, paid 25%, evals 250)

@@ -1,6 +1,6 @@
-APP • batches 10 (9 finished) • won 9 • spent $60,000 kept $229,614 net $169,614 • ROI 3.83× • lowest bank −$6,000 on 2020-10-19 • first in profit 2021-06-15 • longest under water 250 days (2023-10-06 → 2024-06-12) • now under water for 17 days
-   back to even: fastest 65 d (#9) slowest 160 d (#1) • first payout after 62–149 d
-   months up 25 • down 10 • flat 38
+APP • batches 10 (9 finished) • won 9 • spent $60,000 kept $246,384 net $186,384 • ROI 4.11× • lowest bank −$6,000 on 2020-10-19 • first in profit 2021-06-24 • longest under water 248 days (2020-10-19 → 2021-06-24)
+   back to even: fastest 69 d (#3) slowest 166 d (#1) • first payout after 66–154 d
+   months up 26 • down 9 • flat 38
 APP1130 • batches 6 (5 finished) • won 5 • spent $36,000 kept $122,281 net $86,281 • ROI 3.40× • lowest bank −$6,000 on 2020-10-19 • first in profit 2022-01-19 • longest under water 457 days (2020-10-19 → 2022-01-19) • now under water for 81 days
    back to even: fastest 145 d (#5) slowest 307 d (#1) • first payout after 137–289 d
    months up 18 • down 6 • flat 49
