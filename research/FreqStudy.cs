@@ -90,7 +90,7 @@ public static class FreqStudy
     // FVG RETRACE exactly as the app's chart trades it (KeystoneFvgRetrace + AUTO): one position; a setup that forms while a position is
     // open is skipped; a newer setup replaces a limit still waiting. from 1 = the candle before the window start counts (the 09:30 candle
     // may be an FVG's middle).
-    public static List<Tr> AppDay(RDay x, int w, int from, int b, double pct)
+    public static List<Tr> AppDay(RDay x, int w, int from, int b, double pct, bool defer = true)
     {
         var o = new List<Tr>(); int ws = SlotOf(WinHm[w][0]), we = SlotOf(WinHm[w][1]); if (we < ws) we = R.Slots - 1;
         int flat = Math.Min(we + 120, SlotOf(1555)); if (flat <= ws) flat = SlotOf(1555); double tgt = Br[b][0] / (PV * Q), stp = Br[b][1] / (PV * Q);
@@ -113,7 +113,8 @@ public static class FreqStudy
             }
             if (un <= upto) pend = null;
         };
-        foreach (var cd in cands) { run((int)cd[0] - 1); if (cd[0] <= busy) continue; pend = cd; }
+        // defer: a setup that forms while a trade is open waits for the exit (if still valid then, the newest one)
+        foreach (var cd in cands) { run((int)cd[0] - 1); if (cd[0] <= busy) { if (defer && cd[3] > busy) { var c2 = (double[])cd.Clone(); c2[0] = busy + 1; pend = c2; } continue; } pend = cd; }
         run(int.MaxValue);
         return o;
     }

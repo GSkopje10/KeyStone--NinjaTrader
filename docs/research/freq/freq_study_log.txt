@@ -1,5 +1,5 @@
 FREQUENT ENTRIES • 2020-10-19 → 2026-10-02 • 1461 days
-875 combinations in 43 s
+875 combinations in 46 s
   FVG RETRACE 50% • NY DAY 09:30–15:00 • +$1,500 / −$1,500 • ≤ 1 a day • A ROI 4.09× net 37,034 → B ROI 2.17× net 14,098 (pass 37%, paid 27%, evals 100)
   RANDOM SIDE 15M (control) • NY DAY 09:30–15:00 • +$1,500 / −$1,500 • ≤ 1 a day • A ROI 3.87× net 34,486 → B ROI 1.30× net 5,396 (pass 19%, paid 21%, evals 150)
   RANDOM SIDE 15M (control) • NY DAY 09:30–15:00 • +$1,500 / −$1,500 • ≤ 2 a day • A ROI 3.77× net 66,538 → B ROI 1.27× net 8,246 (pass 21%, paid 25%, evals 250)
@@ -15,18 +15,18 @@ FREQUENT ENTRIES • 2020-10-19 → 2026-10-02 • 1461 days
   ONE AT A TIME • FVG RETRACE 10% • ROI A 2.72 B 2.54 • net B 27,751 • 1.5 trades/day • live 138,895
   ONE AT A TIME • MOMENTUM 15M • ROI A 3.03 B 3.82 • net B 67,719 • 2.2 trades/day • live 92,584
   ONE AT A TIME • RANDOM SIDE 15M (control) • ROI A 2.95 B 1.93 • net B 27,775 • 2.2 trades/day • live -54,696
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle FIRST only • +$1,500 / −$1,500 • ROI A 2.76 B 2.73 • net 6 yrs 62,708 • 1.5/day • live 125,269
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle FIRST only • +$1,500 / −$1,000 • ROI A 1.84 B 1.82 • net 6 yrs 39,920 • 1.7/day • live 69,077
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle FIRST only • +$1,000 / −$1,000 • ROI A 1.47 B 1.39 • net 6 yrs 20,706 • 1.9/day • live 24,386
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle may be the MIDDLE • +$1,500 / −$1,500 • ROI A 2.91 B 3.22 • net 6 yrs 74,423 • 1.7/day • live 134,022
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle may be the MIDDLE • +$1,500 / −$1,000 • ROI A 1.75 B 2.12 • net 6 yrs 44,761 • 1.9/day • live 58,639
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle may be the MIDDLE • +$1,000 / −$1,000 • ROI A 1.22 B 1.25 • net 6 yrs 11,112 • 2.1/day • live -3,851
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle FIRST only • +$1,500 / −$1,500 • ROI A 3.83 B 3.73 • net 6 yrs 166,719 • 2.9/day • live 165,652
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle FIRST only • +$1,500 / −$1,000 • ROI A 2.62 B 1.68 • net 6 yrs 86,587 • 3.5/day • live 43,951
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle FIRST only • +$1,000 / −$1,000 • ROI A 2.61 B 1.30 • net 6 yrs 70,558 • 4.2/day • live 54,257
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle may be the MIDDLE • +$1,500 / −$1,500 • ROI A 3.87 B 3.49 • net 6 yrs 175,755 • 3.1/day • live 181,542
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle may be the MIDDLE • +$1,500 / −$1,000 • ROI A 2.06 B 1.44 • net 6 yrs 65,431 • 3.7/day • live 23,891
-  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle may be the MIDDLE • +$1,000 / −$1,000 • ROI A 1.52 B 1.48 • net 6 yrs 44,980 • 4.4/day • live 29,984
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle FIRST only • +$1,500 / −$1,500 • ROI A 3.10 B 2.38 • net 6 yrs 62,633 • 1.6/day • live 128,502
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle FIRST only • +$1,500 / −$1,000 • ROI A 1.92 B 2.07 • net 6 yrs 47,666 • 1.8/day • live 77,848
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle FIRST only • +$1,000 / −$1,000 • ROI A 1.48 B 1.50 • net 6 yrs 23,628 • 1.9/day • live 26,233
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle may be the MIDDLE • +$1,500 / −$1,500 • ROI A 2.59 B 4.04 • net 6 yrs 92,930 • 1.7/day • live 129,513
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle may be the MIDDLE • +$1,500 / −$1,000 • ROI A 1.96 B 2.51 • net 6 yrs 59,261 • 1.9/day • live 67,534
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY OPEN 09:30–11:30 • 09:30 candle may be the MIDDLE • +$1,000 / −$1,000 • ROI A 1.82 B 1.09 • net 6 yrs 21,743 • 2.1/day • live 1,945
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle FIRST only • +$1,500 / −$1,500 • ROI A 3.20 B 3.21 • net 6 yrs 145,476 • 3.1/day • live 192,399
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle FIRST only • +$1,500 / −$1,000 • ROI A 3.40 B 1.52 • net 6 yrs 111,488 • 3.7/day • live 49,420
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle FIRST only • +$1,000 / −$1,000 • ROI A 2.10 B 1.43 • net 6 yrs 64,040 • 4.4/day • live 76,611
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle may be the MIDDLE • +$1,500 / −$1,500 • ROI A 2.97 B 3.60 • net 6 yrs 164,551 • 3.2/day • live 214,898
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle may be the MIDDLE • +$1,500 / −$1,000 • ROI A 2.29 B 1.76 • net 6 yrs 90,367 • 3.9/day • live 29,004
+  AS THE APP TRADES IT • FVG RETRACE 10% • NY DAY 09:30–15:00 • 09:30 candle may be the MIDDLE • +$1,000 / −$1,000 • ROI A 2.20 B 1.66 • net 6 yrs 81,930 • 4.6/day • live 56,053
   SAME SETTINGS • FVG RETRACE 10% • ROI A 3.12 B 3.30 • net B 55,216 • won 52.2% • live 114,782
   SAME SETTINGS • FVG RETRACE 50% • ROI A 2.97 B 2.48 • net B 35,505 • won 51.3% • live 47,767
   SAME SETTINGS • MOMENTUM 15M • ROI A 2.06 B 2.86 • net B 55,901 • won 51.7% • live 135,951
