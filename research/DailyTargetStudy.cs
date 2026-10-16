@@ -17,13 +17,13 @@ public static class DailyTargetStudy
 {
     static readonly CultureInfo IC = CultureInfo.InvariantCulture;
     static readonly DateTime Half = new DateTime(2024, 1, 1);
-    static readonly string[] SesName = { "OPEN 18:00", "ASIA 20:00", "LONDON 03:00", "NY 09:30" };
-    static readonly int[] SesHm = { 1800, 2000, 300, 930 };
+    public static readonly string[] SesName = { "OPEN 18:00", "ASIA 20:00", "LONDON 03:00", "NY 09:30", "PRE-NY 08:00", "NY 10:30" };
+    public static readonly int[] SesHm = { 1800, 2000, 300, 930, 800, 1030 };
     static readonly string[] Models = { "RANDOM • SPREAD (each account its own sides)", "RANDOM • COPY (one coin for all)", "BUY BOTH", "SELL BOTH", "BUY MNQ • SELL MGC", "SELL MNQ • BUY MGC", "FOLLOW THE FIRST 5 MIN", "FADE THE FIRST 5 MIN", "SPLIT • half BUY BOTH, half SELL BOTH" };
     static readonly string[] ModelShort = { "RANDOM SPREAD", "RANDOM COPY", "BB", "SS", "BS", "SB", "FOLLOW 5", "FADE 5", "SPLIT BB/SS" };
     static readonly double[] Targets = { 150, 200, 250, 300, 350 };
     const double StopCap = 2000; const int N = 50;
-    static readonly int[][] Combo = { new[] { 1, 1 }, new[] { -1, -1 }, new[] { 1, -1 }, new[] { -1, 1 } };
+    public static readonly int[][] Combo = { new[] { 1, 1 }, new[] { -1, -1 }, new[] { 1, -1 }, new[] { -1, 1 } };
 
     public sealed class Path
     {
@@ -41,7 +41,7 @@ public static class DailyTargetStudy
         }
     }
 
-    static Path Build(RDay m, RDay g, int s0, int flat, int dM, int dG, double cost)
+    public static Path Build(RDay m, RDay g, int s0, int flat, int dM, int dG, double cost)
     {
         double eM = m.OpenAt(s0), eG = g.OpenAt(s0); if (double.IsNaN(eM) || double.IsNaN(eG)) return null;
         double vM = KeystoneMoveStudy.PointValue("MNQ") * 10, vG = KeystoneMoveStudy.PointValue("MGC") * 10;
@@ -61,9 +61,9 @@ public static class DailyTargetStudy
         return p;
     }
 
-    sealed class DayData { public DateTime Day; public Path[][] P; public int[] Follow; public double Fvgr; }   // P[session][combo 0-3 at the open, 4-7 at +5 min]; Follow[session] = combo of the first 5 min (−1 none)
+    public sealed class DayData { public DateTime Day; public Path[][] P; public int[] Follow; public double Fvgr; }   // P[session][combo 0-3 at the open, 4-7 at +5 min]; Follow[session] = combo of the first 5 min (−1 none)
 
-    static bool PayStep(OpenFvgStudy.Acct a, double pnl, KeystoneSimRules r, double payFrom)
+    public static bool PayStep(OpenFvgStudy.Acct a, double pnl, KeystoneSimRules r, double payFrom)
     {
         double dd = a.Funded ? r.FundDrawdown : r.EvalDrawdown, lockAt = a.Funded ? r.FundLockAt : r.EvalLockAt;
         double floor = Math.Min(a.Hwm - dd, lockAt);
@@ -93,7 +93,7 @@ public static class DailyTargetStudy
         public double Roi { get { return Spent == 0 ? 0 : Kept / Spent; } }
     }
 
-    static int Hash(int lane, int day) { unchecked { uint h = (uint)(lane * 7919 + day * 104729 + 12345); h *= 2654435761u; h ^= h >> 15; h *= 2246822519u; h ^= h >> 13; return (int)(h % 4); } }
+    public static int Hash(int lane, int day) { unchecked { uint h = (uint)(lane * 7919 + day * 104729 + 12345); h *= 2654435761u; h ^= h >> 15; h *= 2246822519u; h ^= h >> 13; return (int)(h % 4); } }
 
     // 50 lanes from the first day: evaluation → funded → … a blown / retired account is replaced by a new evaluation the next day
     static Res Run(List<DayData> days, int ses, int model, double t, double payFrom, bool evalFvgr, KeystoneSimRules r)
@@ -132,17 +132,16 @@ public static class DailyTargetStudy
         return o;
     }
 
-    public static void Run(List<RDay> mnq, List<RDay> mgc, string outDir)
+    // every day with MNQ + MGC: the combined path of 10 + 10 contracts for each session and side combination (at the open and +5 min)
+    public static List<DayData> Prepare(List<RDay> mnq, List<RDay> mgc)
     {
-        var t0 = DateTime.Now; var log = new StringBuilder(); Action<string> say = s => { Console.WriteLine(s); log.AppendLine(s); };
-        var gBy = mgc.ToDictionary(d => d.Day.Date); var rules = KeystoneSimRules.Presets()[1].Copy();
-        double cost = (KeystoneMoveStudy.Cost("MNQ") + KeystoneMoveStudy.Cost("MGC")) * 10; int flat = R.S(16, 44);
+        var gBy = mgc.ToDictionary(d => d.Day.Date); double cost = (KeystoneMoveStudy.Cost("MNQ") + KeystoneMoveStudy.Cost("MGC")) * 10; int flat = R.S(16, 44); int ns = SesHm.Length;
         var days = new List<DayData>();
         foreach (var m in mnq.OrderBy(d => d.Day))
         {
             RDay g; if (!gBy.TryGetValue(m.Day.Date, out g)) continue; if (m.Day.DayOfWeek == DayOfWeek.Saturday || m.Day.DayOfWeek == DayOfWeek.Sunday) continue;
-            var dd = new DayData { Day = m.Day.Date, P = new Path[4][], Follow = new int[4] };
-            for (int si = 0; si < 4; si++)
+            var dd = new DayData { Day = m.Day.Date, P = new Path[ns][], Follow = new int[ns] };
+            for (int si = 0; si < ns; si++)
             {
                 int s0 = R.S(SesHm[si] / 100, SesHm[si] % 100); dd.P[si] = new Path[8];
                 for (int c = 0; c < 4; c++) { dd.P[si][c] = Build(m, g, s0, flat, Combo[c][0], Combo[c][1], cost); dd.P[si][4 + c] = Build(m, g, s0 + 5, flat, Combo[c][0], Combo[c][1], cost); }
@@ -153,6 +152,15 @@ public static class DailyTargetStudy
             dd.Fvgr = FreqStudy.AppDay(m, 1, 1, 6, 0.10).Sum(x => x.Pnl);
             days.Add(dd);
         }
+        return days;
+    }
+
+    public static void Run(List<RDay> mnq, List<RDay> mgc, string outDir)
+    {
+        var t0 = DateTime.Now; var log = new StringBuilder(); Action<string> say = s => { Console.WriteLine(s); log.AppendLine(s); };
+        var rules = KeystoneSimRules.Presets()[1].Copy();
+        double cost = (KeystoneMoveStudy.Cost("MNQ") + KeystoneMoveStudy.Cost("MGC")) * 10; int flat = R.S(16, 44);
+        var days = Prepare(mnq, mgc);
         say("DAILY TARGET • COPY vs SPREAD • " + days[0].Day.ToString("yyyy-MM-dd") + " → " + days[days.Count - 1].Day.ToString("yyyy-MM-dd") + " • " + days.Count + " days with MNQ + MGC");
 
         // ---- 1. one trade: how often each target comes before −$2,000 (sides fixed: BB / SS / BS / SB, and their average = a coin)

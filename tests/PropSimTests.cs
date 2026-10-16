@@ -331,6 +331,12 @@ public static class PropSimTests
         st.BeginDay(new DateTime(2025, 3, 4)); bool stFunded = st.Accounts.Count == 2 && st.CanTrade(st.Accounts[0]) && !st.FundedWaiting;
         st.Accounts[0].Phase = "BLOWN"; st.EndDay(); st.BeginDay(new DateTime(2025, 3, 5));
         Check(stWait && stFunded && st.Accounts.Count(x => x.Alive && x.Phase == "EVAL") == 2, "SIMPLE: funded waits while evals trade → evals done: funded trade by themselves, no new batch yet → funded done: a new batch of 2", stWait + " " + stFunded + " " + st.Accounts.Count);
+        // FUNDED ONLY: every account starts funded (fee + activation), trades at once; a new set only when they are all done
+        var foS = new KeystoneSimSettings { MaxTradesPerDay = 0, Accounts = 2, StartAs = "FUNDED", BuyRule = "BATCH", Strategy = "ROTATION", Rules = KeystoneSimRules.Presets()[0].Copy() };
+        var fo = new KeystonePropSim(foS); fo.BeginDay(new DateTime(2025, 3, 3)); bool foStart = fo.Accounts.Count == 2 && fo.Accounts.All(x => x.Phase == "FUNDED" && fo.CanTrade(x)) && !fo.FundedWaiting;
+        fo.Accounts[0].Phase = "BLOWN"; fo.EndDay(); fo.BeginDay(new DateTime(2025, 3, 4)); bool foWait = fo.Accounts.Count == 2;
+        fo.Accounts[1].Phase = "BLOWN"; fo.EndDay(); fo.BeginDay(new DateTime(2025, 3, 5));
+        Check(foStart && foWait && fo.Accounts.Count(x => x.Alive && x.Phase == "FUNDED") == 2, "FUNDED ONLY: accounts start funded and trade at once; one blown → the other carries on; all done → a new set of 2 funded", foStart + " " + foWait + " " + fo.Accounts.Count);
         var pf = new KeystonePropSim(new KeystoneSimSettings { MaxTradesPerDay = 0, FundedWhen = "ASK", Accounts = 2, BuyRule = "ALWAYS", ReplacePassed = false, Strategy = "ROTATION", Rules = KeystoneSimRules.Presets()[0].Copy() }); pf.BeginDay(new DateTime(2025, 3, 3));
         pf.Accounts[0].Phase = "FUNDED"; pf.Accounts[0].WasPhase = "FUNDED";
         Check(!pf.CanTrade(pf.Accounts[0]) && pf.CanTrade(pf.Accounts[1]) && !pf.FundedWaiting, "PASS FIRST: the funded account does not trade while an evaluation is running (no question yet)");

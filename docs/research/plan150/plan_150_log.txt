@@ -1,0 +1,16 @@
+  ALL 50 COPY • NY 09:30 • FOLLOW 5 MIN • stop $2,000 • payout at $4K • pass with FVG RETRACE • ROI A 3.84 B 4.50 • net 1,560,000 • low -42,000 • months up/down 19/30
+  ALL 50 COPY • NY 09:30 • FOLLOW 5 MIN • stop $2,000 • payout at $4K • pass with $150 a day • ROI A 4.82 B 2.92 • net 1,242,000 • low -18,000 • months up/down 15/37
+  ALL 50 COPY • NY 09:30 • FOLLOW 5 MIN • stop $2,000 • firm payouts • pass with $150 a day • ROI A 3.03 B 2.74 • net 968,813 • low -18,000 • months up/down 27/37
+  5 GROUPS × 10 • NY 09:30 • 5 DIFFERENT SIDES • stop $2,000 • payout at $4K • pass with $150 a day • ROI A 2.76 B 2.59 • net 855,600 • low -24,000 • months up/down 43/28
+  5 GROUPS × 10 • NY 09:30 • 5 DIFFERENT SIDES • stop $2,000 • firm payouts • pass with $150 a day • ROI A 2.46 B 2.39 • net 818,742 • low -8,400 • months up/down 55/17
+  ALL 50 COPY • NY 09:30 • FOLLOW 5 MIN • stop $2,000 • firm payouts • pass with FVG RETRACE • ROI A 2.32 B 2.81 • net 1,441,922 • low -42,000 • months up/down 41/30
+  5 GROUPS × 10 • NY 09:30 • 5 DIFFERENT SIDES • stop $2,000 • payout at $4K • pass with FVG RETRACE • ROI A 2.20 B 2.78 • net 1,076,400 • low -27,600 • months up/down 55/18
+  ALL 50 • NY 09:30 • EVERY ACCOUNT RANDOM • stop $2,000 • firm payouts • pass with $150 a day • ROI A 2.62 B 2.15 • net 765,244 • low -7,320 • months up/down 57/16
+  5 GROUPS × 10 • NY 09:30 • 5 DIFFERENT SIDES • stop $2,000 • firm payouts • pass with FVG RETRACE • ROI A 2.13 B 2.44 • net 1,255,246 • low -25,200 • months up/down 54/19
+  ALL 50 COPY • NY 09:30 • RANDOM • stop $2,000 • firm payouts • pass with $150 a day • ROI A 2.05 B 2.85 • net 577,125 • low -24,000 • months up/down 24/42
+  5 GROUPS × 10 • ONE SESSION EACH • EVERY ACCOUNT RANDOM • stop $2,000 • firm payouts • pass with FVG RETRACE • ROI A 1.99 B 2.01 • net 956,018 • low -24,720 • months up/down 54/19
+  ALL 50 • NY 09:30 • EVERY ACCOUNT RANDOM • stop $2,000 • firm payouts • pass with FVG RETRACE • ROI A 2.09 B 1.96 • net 1,022,651 • low -24,000 • months up/down 51/22
+  5 GROUPS × 10 • ONE SESSION EACH • RANDOM • stop $2,000 • firm payouts • pass with FVG RETRACE • ROI A 2.40 B 1.90 • net 1,176,708 • low -24,000 • months up/down 54/19
+  ALL 50 COPY • NY 09:30 • RANDOM • stop $2,000 • firm payouts • pass with FVG RETRACE • ROI A 2.30 B 1.81 • net 930,375 • low -24,000 • months up/down 38/30
+  5 GROUPS × 10 • ONE SESSION EACH • FOLLOW 5 MIN • stop $2,000 • firm payouts • pass with FVG RETRACE • ROI A 1.80 B 2.12 • net 943,544 • low -29,306 • months up/down 51/22
+PICK: 5 GROUPS × 10 • NY 09:30 • 5 DIFFERENT SIDES • stop $2,000 • firm payouts • pass with $150 a day • ROI A 2.46 B 2.39 • net 818,742
