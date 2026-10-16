@@ -87,6 +87,37 @@ public static class FreqStudy
         return o.OrderBy(t => t.Slot).ToList();
     }
 
+    // FVG RETRACE exactly as the app's chart trades it (KeystoneFvgRetrace + AUTO): one position; a setup that forms while a position is
+    // open is skipped; a newer setup replaces a limit still waiting. from 1 = the candle before the window start counts (the 09:30 candle
+    // may be an FVG's middle).
+    public static List<Tr> AppDay(RDay x, int w, int from, int b, double pct)
+    {
+        var o = new List<Tr>(); int ws = SlotOf(WinHm[w][0]), we = SlotOf(WinHm[w][1]); if (we < ws) we = R.Slots - 1;
+        int flat = Math.Min(we + 120, SlotOf(1555)); if (flat <= ws) flat = SlotOf(1555); double tgt = Br[b][0] / (PV * Q), stp = Br[b][1] / (PV * Q);
+        var cands = new List<double[]>();   // start slot, side, level, last slot
+        for (int c3 = ws + 10 - 5 * from; c3 + 5 < we; c3 += 5)
+        {
+            int c1 = c3 - 10; double h1 = x.Hi(c1, c1 + 4), l1 = x.Lo(c1, c1 + 4), h3 = x.Hi(c3, c3 + 4), l3 = x.Lo(c3, c3 + 4);
+            if (double.IsNaN(h1) || double.IsNaN(h3)) continue; int d = l3 > h1 ? 1 : h3 < l1 ? -1 : 0; if (d == 0) continue;
+            double lo = d > 0 ? h1 : h3, hi = d > 0 ? l3 : l1, lv = d > 0 ? hi - pct * (hi - lo) : lo + pct * (hi - lo); lv = Math.Round(lv / 0.25) * 0.25;
+            cands.Add(new double[] { c3 + 5, d, lv, Math.Min(c3 + 5 + 60, we) });
+        }
+        int busy = -1; double[] pend = null;
+        Action<int> run = upto =>
+        {
+            if (pend == null) return; int st = (int)pend[0], un = (int)pend[3], d = (int)pend[1]; double lv = pend[2];
+            for (int k = st; k <= Math.Min(un, upto); k++)
+            {
+                if (!x.Has(k)) continue;
+                if (d > 0 ? x.L[k] <= lv : x.H[k] >= lv) { double f = d > 0 ? Math.Min(lv, x.O[k]) : Math.Max(lv, x.O[k]); double p = Walk(x, k, f, d, tgt, stp, flat, true); o.Add(new Tr { Slot = k, Exit = lastExit, Pnl = p }); busy = lastExit; pend = null; return; }
+            }
+            if (un <= upto) pend = null;
+        };
+        foreach (var cd in cands) { run((int)cd[0] - 1); if (cd[0] <= busy) continue; pend = cd; }
+        run(int.MaxValue);
+        return o;
+    }
+
     // 50 evaluations, pass first, then funded, then the next batch; each trade to the next account that has not traded today
     public static OpenFvgEdge.Odds Prop(List<Tuple<DateTime, List<Tr>>> days, int maxDay, KeystoneSimRules r, int n, out double firstPayDays)
     {
@@ -150,6 +181,16 @@ public static class FreqStudy
                 say("  ONE AT A TIME • " + Models[mm] + " • ROI A " + oa.Roi.ToString("0.00") + " B " + ob.Roi.ToString("0.00") + " • net B " + ob.Net.ToString("N0", IC) + " • " + (tk.Count / (double)days.Count).ToString("0.0") + " trades/day • live " + tk.Sum(t => t.Pnl).ToString("N0", IC));
             }
         }
+        // AS THE APP TRADES IT: FVG RETRACE 10% • window × the 09:30 candle as first / middle × bracket
+        var appRows = new List<Tuple<string, OpenFvgEdge.Odds, OpenFvgEdge.Odds, double, double, double>>();
+        foreach (int w in new[] { 0, 1 }) foreach (int f in new[] { 0, 1 }) foreach (int b in new[] { 6, 4, 3 })
+        {
+            var all2 = days.Select(d => Tuple.Create(d.Day.Date, AppDay(d, w, f, b, 0.10))).ToList(); double f2;
+            var oa = Prop(all2.Where(x => x.Item1 < Half).ToList(), 99, rules, 50, out f2); var ob = Prop(all2.Where(x => x.Item1 >= Half).ToList(), 99, rules, 50, out f2);
+            var tk = all2.SelectMany(d => d.Item2).ToList(); string nm = "FVG RETRACE 10% • " + Wins[w] + " • 09:30 candle " + (f == 0 ? "FIRST only" : "may be the MIDDLE") + " • +$" + Br[b][0].ToString("N0", IC) + " / −$" + Br[b][1].ToString("N0", IC);
+            appRows.Add(Tuple.Create(nm, oa, ob, tk.Count / (double)days.Count, tk.Sum(t => t.Pnl), tk.Count == 0 ? 0 : 100.0 * tk.Count(t => t.Pnl > 0) / tk.Count));
+            say("  AS THE APP TRADES IT • " + nm + " • ROI A " + oa.Roi.ToString("0.00") + " B " + ob.Roi.ToString("0.00") + " • net 6 yrs " + (oa.Net + ob.Net).ToString("N0", IC) + " • " + (tk.Count / (double)days.Count).ToString("0.0") + "/day • live " + tk.Sum(t => t.Pnl).ToString("N0", IC));
+        }
         var ctrl = res.FirstOrDefault(x => x.M == 4 && x.W == winner.W && x.B == winner.B && x.X == winner.X);
         foreach (var mm in new[] { 0, 1, 2, 3, 4 }) { var cx = res.FirstOrDefault(x => x.M == mm && x.W == winner.W && x.B == winner.B && x.X == winner.X); if (cx != null) say("  SAME SETTINGS • " + Models[mm] + " • ROI A " + cx.A.Roi.ToString("0.00") + " B " + cx.Bo.Roi.ToString("0.00") + " • net B " + cx.Bo.Net.ToString("N0", IC) + " • won " + cx.WinPct.ToString("0.0") + "% • live " + cx.Live.ToString("N0", IC)); }
         say("PICK: " + winner.Name + " • B ROI " + winner.Bo.Roi.ToString("0.00") + "× • held " + held.Count + " of " + picks.Count);
@@ -177,6 +218,9 @@ public static class FreqStudy
         h.Append("</table></div><h3>The same, ONE TRADE AT A TIME (as the chart holds one position per instrument)</h3><div class='wrap'><table><tr><th>ENTRY MODEL</th><th>TRADES/DAY</th><th>ROI 2020–23</th><th>ROI 2024–26</th><th>NET 2024–26</th><th>PASS 24–26</th><th>FUNDED PAID 24–26</th><th>LIVE 6 YRS</th></tr>");
         foreach (var x in soloRows) h.Append("<tr><td>" + x.Item1 + "</td><td>" + x.Item4.ToString("0.0", IC) + "</td><td class='" + rcls(x.Item2.Roi) + "'>" + roi(x.Item2.Roi) + "</td><td class='" + rcls(x.Item3.Roi) + "'><b>" + roi(x.Item3.Roi) + "</b></td><td class='" + cls(x.Item3.Net) + "'>" + usd(x.Item3.Net) + "</td><td>" + pct(100 * x.Item3.PassRate) + "</td><td>" + pct(100 * x.Item3.PayoutRate) + "</td><td class='" + cls(x.Item5) + "'>" + usd(x.Item5) + "</td></tr>");
         h.Append("</table></div><div class='note'>RANDOM SIDE is the control: a coin flip every 15 minutes. What it earns comes from the prop structure alone (a blown evaluation costs only its fee, payouts are taken as soon as allowed). An entry model is worth something only by what it earns ABOVE the coin flip.</div>");
+        h.Append("<h2>★ As the app trades it (the default in the studio)</h2><div class='note'>The chart holds one position: a setup that forms while a trade is open is skipped, and a newer setup replaces a limit that is still waiting. Every trade goes to the next account; trades a day are limited only by the accounts.</div><div class='wrap'><table><tr><th>SETTINGS</th><th>TRADES/DAY</th><th>WON</th><th>ROI 2020–23</th><th>ROI 2024–26</th><th>NET 6 YRS</th><th>PASS 24–26</th><th>FUNDED PAID 24–26</th><th>LIVE 6 YRS</th></tr>");
+        foreach (var x in appRows) h.Append("<tr class='" + (x.Item1.Contains("15:00") && x.Item1.Contains("FIRST") && x.Item1.Contains("1,500 / −$1,500") ? "best" : "") + "'><td class='w'>" + x.Item1 + "</td><td>" + x.Item4.ToString("0.0", IC) + "</td><td>" + pct(x.Item6) + "</td><td class='" + rcls(x.Item2.Roi) + "'>" + roi(x.Item2.Roi) + "</td><td class='" + rcls(x.Item3.Roi) + "'><b>" + roi(x.Item3.Roi) + "</b></td><td class='" + cls(x.Item2.Net + x.Item3.Net) + "'>" + usd(x.Item2.Net + x.Item3.Net) + "</td><td>" + pct(100 * x.Item3.PassRate) + "</td><td>" + pct(100 * x.Item3.PayoutRate) + "</td><td class='" + cls(x.Item5) + "'>" + usd(x.Item5) + "</td></tr>");
+        h.Append("</table></div>");
         h.Append("<h2>1 • The 30 best ROI on 2020–23 — and on 2024–26</h2><div class='wrap'><table><tr><th>ENTRY MODEL</th><th>TRADES/DAY</th><th>WON</th><th>ROI 20–23</th><th>ROI 24–26</th><th>EVALS 24–26</th><th>PASS</th><th>FUNDED PAID</th><th>PAYOUTS</th><th>NET 24–26</th><th>NET 6 YRS</th><th>MOST $ DOWN</th><th>LIVE 6 YRS (own money)</th></tr>");
         foreach (var x in picks) h.Append("<tr class='" + (x == winner ? "best" : "") + "'><td class='w'>" + x.Name + "</td><td>" + (x.Trades / (double)days.Count).ToString("0.0", IC) + "</td><td>" + pct(x.WinPct) + "</td><td class='" + rcls(x.A.Roi) + "'>" + roi(x.A.Roi) + "</td><td class='" + rcls(x.Bo.Roi) + " " + (x.Bo.Roi >= 1 ? "hp" : "hn") + "'><b>" + roi(x.Bo.Roi) + "</b></td><td>" + x.Bo.Evals + "</td><td>" + pct(100 * x.Bo.PassRate) + "</td><td>" + pct(100 * x.Bo.PayoutRate) + "</td><td>" + x.Bo.Payouts + "</td><td class='" + cls(x.Bo.Net) + "'>" + usd(x.Bo.Net) + "</td><td class='" + cls(x.All.Net) + "'>" + usd(x.All.Net) + "</td><td class='neg'>" + usd(x.All.Low) + "</td><td class='" + cls(x.Live) + "'>" + usd(x.Live) + "</td></tr>");
         h.Append("</table></div>");

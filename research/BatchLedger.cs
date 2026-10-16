@@ -57,9 +57,9 @@ public static class BatchLedger
         // the pick: FVG RETRACE 10% (model 0) • NY OPEN 09:30–11:30 (window 0) • +$1,500 / −$1,500 (bracket 6)
         var runs = new List<Tuple<string, string, List<Tuple<DateTime, List<FreqStudy.Tr>>>, int>>
         {
-            Tuple.Create("APP", "★ FVG RETRACE 10% • 09:30–11:30 • ±$1,500 • ONE TRADE AT A TIME (as the app trades it)", days.Select(d => Tuple.Create(d.Day.Date, solo(FreqStudy.DayTrades(d, 0, 0, 6)))).ToList(), 3),
-            Tuple.Create("MULTI", "FVG RETRACE 10% • 09:30–11:30 • ±$1,500 • up to 3 at once on different accounts (the research pick)", days.Select(d => Tuple.Create(d.Day.Date, FreqStudy.DayTrades(d, 0, 0, 6))).ToList(), 3),
-            Tuple.Create("RANDOM", "RANDOM SIDE every 15 min (control) • same window, bracket, one at a time", days.Select(d => Tuple.Create(d.Day.Date, solo(FreqStudy.DayTrades(d, 4, 0, 6)))).ToList(), 3),
+            Tuple.Create("APP", "★ FVG RETRACE 10% • 09:30–15:00 • ±$1,500 • exactly as the app trades it (the studio default)", days.Select(d => Tuple.Create(d.Day.Date, FreqStudy.AppDay(d, 1, 0, 6, 0.10))).ToList(), 99),
+            Tuple.Create("APP1130", "FVG RETRACE 10% • 09:30–11:30 • ±$1,500 • as the app trades it (the earlier default)", days.Select(d => Tuple.Create(d.Day.Date, FreqStudy.AppDay(d, 0, 0, 6, 0.10))).ToList(), 99),
+                        Tuple.Create("RANDOM", "RANDOM SIDE every 15 min (control) • 09:30–15:00, ±$1,500, one at a time", days.Select(d => Tuple.Create(d.Day.Date, solo(FreqStudy.DayTrades(d, 4, 1, 6)))).ToList(), 99),
         };
         var html = new StringBuilder();
         Func<double, string> usd = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", IC);

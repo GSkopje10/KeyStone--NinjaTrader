@@ -1,11 +1,11 @@
-APP • batches 6 (5 finished) • won 5 • spent $36,000 kept $131,860 net $95,860 • ROI 3.66× • lowest bank −$6,000 on 2020-10-19 • first in profit 2022-01-07 • longest under water 445 days (2020-10-19 → 2022-01-07) • now under water for 21 days
-   back to even: fastest 158 d (#5) slowest 300 d (#1) • first payout after 150–292 d
-   months up 19 • down 6 • flat 48
-MULTI • batches 8 (7 finished) • won 6 • spent $48,000 kept $178,626 net $130,626 • ROI 3.72× • lowest bank −$6,000 on 2020-10-19 • first in profit 2021-05-20 • longest under water 394 days (2025-08-12 → 2026-09-10)
-   longest losing streak 1 batches (#7–#7, 2025-08-13 → 2026-03-12) −$834
-   costliest losing streak 1 batches −$834
-   back to even: fastest 127 d (#3) slowest 158 d (#4) • first payout after 126–153 d
-   months up 19 • down 7 • flat 47
-RANDOM • batches 9 (8 finished) • won 8 • spent $54,000 kept $144,504 net $90,504 • ROI 2.68× • lowest bank −$6,000 on 2020-10-19 • first in profit 2021-07-20 • longest under water 307 days (2023-03-10 → 2024-01-11) • now under water for 38 days
-   back to even: fastest 107 d (#8) slowest 205 d (#4) • first payout after 97–183 d
-   months up 19 • down 9 • flat 45
+APP • batches 10 (9 finished) • won 9 • spent $60,000 kept $229,614 net $169,614 • ROI 3.83× • lowest bank −$6,000 on 2020-10-19 • first in profit 2021-06-15 • longest under water 250 days (2023-10-06 → 2024-06-12) • now under water for 17 days
+   back to even: fastest 65 d (#9) slowest 160 d (#1) • first payout after 62–149 d
+   months up 25 • down 10 • flat 38
+APP1130 • batches 6 (5 finished) • won 5 • spent $36,000 kept $122,281 net $86,281 • ROI 3.40× • lowest bank −$6,000 on 2020-10-19 • first in profit 2022-01-19 • longest under water 457 days (2020-10-19 → 2022-01-19) • now under water for 81 days
+   back to even: fastest 145 d (#5) slowest 307 d (#1) • first payout after 137–289 d
+   months up 18 • down 6 • flat 49
+RANDOM • batches 14 (13 finished) • won 10 • spent $84,000 kept $205,252 net $121,252 • ROI 2.44× • lowest bank −$6,000 on 2020-10-19 • first in profit 2021-03-17 • longest under water 300 days (2023-12-07 → 2024-10-02) • now under water for 86 days
+   longest losing streak 1 batches (#7–#7, 2023-12-08 → 2024-04-19) −$6,000
+   costliest losing streak 1 batches −$6,000
+   back to even: fastest 39 d (#10) slowest 141 d (#2) • first payout after 38–131 d
+   months up 23 • down 12 • flat 38
