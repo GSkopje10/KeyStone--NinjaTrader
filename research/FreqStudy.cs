@@ -25,7 +25,7 @@ public static class FreqStudy
     static readonly int[] MaxDay = { 1, 2, 3, 5, 10 };
     const int Q = 10; const double PV = 2;
 
-    public sealed class Tr { public int Slot, Exit; public double Pnl; }
+    public sealed class Tr { public int Slot, Exit; public double Pnl, Mfe; }   // Mfe: the best $ the trade showed before its exit (net of costs)
     public sealed class Res
     {
         public int M, W, B, X; public int Trades; public double WinPct, Live; public OpenFvgEdge.Odds A, Bo, All; public double FirstPayDays;
@@ -35,10 +35,10 @@ public static class FreqStudy
     static int SlotOf(int hhmm) { return R.S(hhmm / 100, hhmm % 100); }
 
     // one trade from entry slot k0 at price e, side d → $ (net of costs)
-    static int lastExit;
+    static int lastExit; public static double lastMfe;
     static double Walk(RDay x, int k0, double e, int d, double tgtPts, double stpPts, int flat, bool limitBar)
     {
-        lastExit = k0;
+        lastExit = k0; lastMfe = -KeystoneMoveStudy.Cost("MNQ") * Q;
         double stop = e - d * stpPts, tgt = e + d * tgtPts, cost = KeystoneMoveStudy.Cost("MNQ") * Q;
         if (limitBar && x.Has(k0) && (d > 0 ? x.L[k0] <= stop : x.H[k0] >= stop)) return -stpPts * PV * Q - cost;
         double last = e;
@@ -46,7 +46,8 @@ public static class FreqStudy
         {
             if (!x.Has(k)) continue; lastExit = k;
             if (d > 0 ? x.L[k] <= stop : x.H[k] >= stop) return -stpPts * PV * Q - cost;
-            if (d > 0 ? x.H[k] >= tgt : x.L[k] <= tgt) return tgtPts * PV * Q - cost;
+            if (d > 0 ? x.H[k] >= tgt : x.L[k] <= tgt) { lastMfe = tgtPts * PV * Q - cost; return tgtPts * PV * Q - cost; }
+            lastMfe = Math.Max(lastMfe, d * ((d > 0 ? x.H[k] : x.L[k]) - e) * PV * Q - cost);
             last = x.C[k];
         }
         lastExit = flat; return d * (last - e) * PV * Q - cost;
@@ -109,7 +110,7 @@ public static class FreqStudy
             for (int k = st; k <= Math.Min(un, upto); k++)
             {
                 if (!x.Has(k)) continue;
-                if (d > 0 ? x.L[k] <= lv : x.H[k] >= lv) { double f = d > 0 ? Math.Min(lv, x.O[k]) : Math.Max(lv, x.O[k]); double p = Walk(x, k, f, d, tgt, stp, flat, true); o.Add(new Tr { Slot = k, Exit = lastExit, Pnl = p }); busy = lastExit; pend = null; return; }
+                if (d > 0 ? x.L[k] <= lv : x.H[k] >= lv) { double f = d > 0 ? Math.Min(lv, x.O[k]) : Math.Max(lv, x.O[k]); double p = Walk(x, k, f, d, tgt, stp, flat, true); o.Add(new Tr { Slot = k, Exit = lastExit, Pnl = p, Mfe = Math.Max(p, lastMfe) }); busy = lastExit; pend = null; return; }
             }
             if (un <= upto) pend = null;
         };

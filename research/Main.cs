@@ -36,6 +36,7 @@ public static class ResearchMain
         if (args.Length > 2 && args[2] == "batches") { BatchLedger.Run(R.Load(data, "MNQ"), outDir); return 0; }
         if (args.Length > 2 && args[2] == "daytarget") { DailyTargetStudy.Run(R.Load(data, "MNQ"), R.Load(data, "MGC"), outDir); return 0; }
         if (args.Length > 2 && args[2] == "plan150") { GroupPlanStudy.Run(R.Load(data, "MNQ"), R.Load(data, "MGC"), outDir); return 0; }
+        if (args.Length > 2 && args[2] == "accounts") { AccountTypeStudy.Run(R.Load(data, "MNQ"), outDir); return 0; }
         if (args.Length > 2 && args[2] == "combo") { ComboStudy.Run(R.Load(data, "MNQ"), R.Load(data, "MGC"), outDir); return 0; }
         if (args.Length > 2 && args[2] == "openfvg3") { OpenFvgEdge.Run(R.Load(data, "MNQ"), outDir); return 0; }
         if (args.Length > 2 && args[2] == "openfvg2") { OpenFvgCompare.Run(R.Load(data, "MNQ"), outDir); return 0; }
