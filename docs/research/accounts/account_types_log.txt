@@ -6,3 +6,9 @@ LUCID FLEX 50K • ROI A 2.97 B 3.60 • batches 11 • evals 550 passed 187 (34
 25K (your numbers) • ROI A 3.16 B 2.81 • batches 10 • evals 500 passed 187 (37%) • funded paid 62 of 187 • blown before 1st payout 109 • payouts 140 kept 148,759 spent 45,000 net 103,759 low -4,500
 TAKE PROFIT TRADER 50K • ROI A 1.57 B 1.68 • batches 14 • evals 700 passed 216 (31%) • funded paid 77 of 216 • blown before 1st payout 139 • payouts 272 kept 260,911 spent 147,080 net 113,831 low -10,970
 TAKE PROFIT TRADER 25K • ROI A 1.06 B 1.16 • batches 11 • evals 550 passed 206 (37%) • funded paid 53 of 206 • blown before 1st payout 140 • payouts 202 kept 109,611 spent 109,280 net 331 low -14,777
+  COPY • LUCID FLEX 50K • ≤1 a day • ROI A 4.04 B 6.29 • net 82,839 • low -2,160
+  COPY • LUCID FLEX 50K • ≤2 a day • ROI A 3.42 B 4.02 • net 102,727 • low -720
+  COPY • LUCID FLEX 50K • ≤99 a day • ROI A 3.55 B 3.99 • net 161,618 • low -720
+  COPY • 25K (your numbers) • ≤1 a day • ROI A 3.05 B 5.95 • net 50,598 • low -1,530
+  COPY • 25K (your numbers) • ≤2 a day • ROI A 2.53 B 2.77 • net 46,472 • low -726
+  COPY • 25K (your numbers) • ≤99 a day • ROI A 2.93 B 2.99 • net 82,409 • low -540

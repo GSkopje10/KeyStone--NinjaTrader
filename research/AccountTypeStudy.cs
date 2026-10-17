@@ -88,6 +88,27 @@ public static class AccountTypeStudy
         return o;
     }
 
+    // COPY: one account takes every trade (the copier sends it to the others, so each copied account lives the same life);
+    // blown / retired → a new evaluation the next day. lowest = the most one account slot was down (× the accounts copied)
+    static Out CopyLane(List<Tuple<DateTime, List<FreqStudy.Tr>>> days, KeystoneSimRules r, double sc, int maxT)
+    {
+        var o = new Out(); var b = new Batch(); Acc acc = null;
+        foreach (var d in days)
+        {
+            string mk = d.Item1.ToString("yyyy-MM", IC); if (!o.Month.ContainsKey(mk)) o.Month[mk] = new double[4];
+            if (acc == null) { acc = new Acc { Start = d.Item1 }; o.Spent += r.EvalCost; o.Bought++; o.Month[mk][0] += r.EvalCost; }
+            foreach (var t in d.Item2.Take(maxT))
+            {
+                Step(acc, t.Pnl * sc, t.Mfe * sc, r, d.Item1, o, b);
+                if (acc.End == "PASSED") { o.Passed++; o.PassDays += (d.Item1 - acc.Start).TotalDays; o.PassN++; o.Month[mk][3]++; acc = new Acc { Funded = true, FundedOn = d.Item1 }; o.Spent += r.Activation; o.Month[mk][0] += r.Activation; }
+                else if (acc.End != "") { acc = null; break; }
+            }
+            if (o.Kept - o.Spent < o.Low) { o.Low = o.Kept - o.Spent; o.LowDay = d.Item1; }
+        }
+        foreach (var m in o.Month.Values) { double v = m[1] - m[0]; if (v > 0) o.MonthsUp++; else if (v < 0) o.MonthsDown++; }
+        return o;
+    }
+
     public static void Run(List<RDay> mnq, string outDir)
     {
         var t0 = DateTime.Now; var log = new StringBuilder(); Action<string> say = s => { Console.WriteLine(s); log.AppendLine(s); };
@@ -130,6 +151,15 @@ public static class AccountTypeStudy
             h.Append("</div>");
         }
         h.Append("</div>");
+        // COPY mode table
+        h.Append("<h2>COPY mode — every copied account takes every trade (what the app's copier does live today)</h2><p class='mute'>One account slot over 6 years: a blown or retired account is replaced by a new evaluation the next day. Multiply by the number of accounts you copy to: 5 accounts = 5× the $ and 5× the lowest bank.</p><div class='wrap'><table><tr><th>ACCOUNT</th><th>TRADES A DAY</th><th>ROI 2020–23</th><th>ROI 2024–26</th><th>EVALS (6 YRS)</th><th>PASSED</th><th>PAID</th><th>PAYOUTS</th><th>KEPT</th><th>FEES</th><th>NET</th><th>LOWEST (ONE SLOT)</th><th>MONTHS +/−</th></tr>");
+        foreach (var t in types.Take(2)) foreach (int mt in new[] { 1, 2, 99 })
+        {
+            var ca = CopyLane(A, t.Item2, t.Item3, mt); var cb = CopyLane(B, t.Item2, t.Item3, mt); var cf = CopyLane(days, t.Item2, t.Item3, mt);
+            say("  COPY • " + t.Item1 + " • ≤" + mt + " a day • ROI A " + ca.Roi.ToString("0.00") + " B " + cb.Roi.ToString("0.00") + " • net " + cf.Net.ToString("N0", IC) + " • low " + cf.Low.ToString("N0", IC));
+            h.Append("<tr><td>" + t.Item1 + "</td><td>" + (mt == 99 ? "every setup" : "first " + mt) + "</td><td class='" + cls(ca.Roi - 1) + "'>" + ca.Roi.ToString("0.00", IC) + "×</td><td class='" + cls(cb.Roi - 1) + "'><b>" + cb.Roi.ToString("0.00", IC) + "×</b></td><td>" + cf.Bought + "</td><td>" + cf.Passed + "</td><td>" + cf.FundedPaid + "</td><td>" + cf.Payouts + "</td><td class='pos'>" + usd(cf.Kept) + "</td><td class='neg'>" + usd(-cf.Spent) + "</td><td class='" + cls(cf.Net) + "'><b>" + usd(cf.Net) + "</b></td><td class='neg'>" + usd(cf.Low) + "</td><td>" + cf.MonthsUp + " / " + cf.MonthsDown + "</td></tr>");
+        }
+        h.Append("</table></div>");
         h.Append("<div class='box'><b>How to read the trailing drawdown here.</b> END OF DAY (Lucid, the 25K): only the closing balance moves the floor, so a trade that was +$1,000 open and closed at +$200 lifts the floor by $200. INTRADAY (Take Profit Trader funded): the best open profit moves it, so the same trade lifts it by $1,000 — a winner that gives back can leave you closer to the floor than the balance shows. Both stop trailing at the lock level (the start balance or +$100); payouts only come from above the buffer.</div>");
         foreach (var x in res)
         {
