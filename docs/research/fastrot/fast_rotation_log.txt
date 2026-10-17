@@ -1,0 +1,392 @@
+1-MIN FVG • limit 10% • ±$500 • 10 accounts • signals/day 42.6 taken/day 10.0 • ROI 1.62 / 1.47 • net/yr 8,170 • low -4,957 • pass 25% • paid 101/171 • months 40/33
+1-MIN FVG • limit 10% • ±$500 • 15 accounts • signals/day 42.6 taken/day 15.0 • ROI 1.84 / 1.41 • net/yr 14,621 • low -6,668 • pass 25% • paid 162/254 • months 46/27
+1-MIN FVG • limit 10% • ±$500 • 20 accounts • signals/day 42.6 taken/day 19.7 • ROI 1.85 / 1.45 • net/yr 18,315 • low -4,800 • pass 27% • paid 209/346 • months 47/26
+1-MIN FVG • limit 10% • ±$500 • 30 accounts • signals/day 42.6 taken/day 26.7 • ROI 1.76 / 1.48 • net/yr 25,041 • low -6,840 • pass 25% • paid 280/449 • months 53/20
+1-MIN FVG • limit 10% • ±$500 • 50 accounts • signals/day 42.6 taken/day 29.9 • ROI 1.65 / 1.47 • net/yr 28,268 • low -11,071 • pass 24% • paid 326/505 • months 53/20
+1-MIN FVG • limit 10% • ±$500 • 10 accounts • ONE AT A TIME • signals/day 42.6 taken/day 9.6 • ROI 2.10 / 2.38 • net/yr 16,293 • low -2,366 • pass 28% • paid 118/168 • months 52/20
+1-MIN FVG • limit 10% • ±$500 • 15 accounts • ONE AT A TIME • signals/day 42.6 taken/day 13.3 • ROI 2.02 / 2.40 • net/yr 22,373 • low -3,120 • pass 27% • paid 150/234 • months 56/17
+1-MIN FVG • limit 10% • ±$750 • 10 accounts • signals/day 42.6 taken/day 10.0 • ROI 2.17 / 1.69 • net/yr 22,500 • low -1,680 • pass 29% • paid 162/329 • months 45/28
+1-MIN FVG • limit 10% • ±$750 • 15 accounts • signals/day 42.6 taken/day 14.9 • ROI 2.27 / 1.90 • net/yr 37,977 • low -1,800 • pass 30% • paid 247/483 • months 52/21
+1-MIN FVG • limit 10% • ±$750 • 20 accounts • signals/day 42.6 taken/day 19.5 • ROI 2.36 / 2.06 • net/yr 53,844 • low -9,089 • pass 31% • paid 290/643 • months 55/18
+1-MIN FVG • limit 10% • ±$750 • 30 accounts • signals/day 42.6 taken/day 25.0 • ROI 2.34 / 2.01 • net/yr 68,693 • low -8,845 • pass 30% • paid 386/799 • months 62/11
+1-MIN FVG • limit 10% • ±$750 • 50 accounts • signals/day 42.6 taken/day 26.7 • ROI 2.42 / 1.89 • net/yr 73,310 • low -10,938 • pass 29% • paid 402/844 • months 66/7
+1-MIN FVG • limit 10% • ±$750 • 10 accounts • ONE AT A TIME • signals/day 42.6 taken/day 8.3 • ROI 2.34 / 2.42 • net/yr 26,389 • low -1,800 • pass 32% • paid 139/283 • months 57/16
+1-MIN FVG • limit 10% • ±$750 • 15 accounts • ONE AT A TIME • signals/day 42.6 taken/day 10.3 • ROI 1.94 / 2.63 • net/yr 30,969 • low -3,720 • pass 31% • paid 163/342 • months 59/14
+1-MIN FVG • limit 10% • ±$1000 • 10 accounts • signals/day 42.6 taken/day 10.0 • ROI 1.35 / 1.72 • net/yr 22,527 • low -3,755 • pass 26% • paid 148/510 • months 41/32
+1-MIN FVG • limit 10% • ±$1000 • 15 accounts • signals/day 42.6 taken/day 14.9 • ROI 1.66 / 1.57 • net/yr 39,823 • low -2,040 • pass 24% • paid 227/700 • months 43/30
+1-MIN FVG • limit 10% • ±$1000 • 20 accounts • signals/day 42.6 taken/day 19.3 • ROI 1.93 / 1.73 • net/yr 64,014 • low -3,120 • pass 25% • paid 319/896 • months 53/20
+1-MIN FVG • limit 10% • ±$1000 • 30 accounts • signals/day 42.6 taken/day 23.9 • ROI 1.74 / 1.51 • net/yr 58,115 • low -9,664 • pass 26% • paid 346/1173 • months 50/23
+1-MIN FVG • limit 10% • ±$1000 • 50 accounts • signals/day 42.6 taken/day 24.9 • ROI 2.06 / 1.46 • net/yr 74,106 • low -15,318 • pass 25% • paid 385/1156 • months 53/20
+1-MIN FVG • limit 10% • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 42.6 taken/day 6.8 • ROI 2.07 / 2.43 • net/yr 34,860 • low -2,640 • pass 25% • paid 114/318 • months 63/10
+1-MIN FVG • limit 10% • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 42.6 taken/day 7.8 • ROI 1.57 / 2.33 • net/yr 31,767 • low -4,920 • pass 27% • paid 144/398 • months 59/14
+1-MIN FVG • limit 10% • ±$1500 • 10 accounts • signals/day 42.6 taken/day 10.0 • ROI 3.53 / 3.56 • net/yr 94,866 • low -3,360 • pass 34% • paid 207/618 • months 54/19
+1-MIN FVG • limit 10% • ±$1500 • 15 accounts • signals/day 42.6 taken/day 14.9 • ROI 3.29 / 3.28 • net/yr 128,231 • low -5,040 • pass 32% • paid 294/881 • months 55/18
+1-MIN FVG • limit 10% • ±$1500 • 20 accounts • signals/day 42.6 taken/day 19.0 • ROI 3.58 / 2.89 • net/yr 154,746 • low -10,762 • pass 34% • paid 402/1149 • months 52/21
+1-MIN FVG • limit 10% • ±$1500 • 30 accounts • signals/day 42.6 taken/day 22.7 • ROI 4.26 / 2.79 • net/yr 200,900 • low -8,458 • pass 34% • paid 461/1362 • months 53/20
+1-MIN FVG • limit 10% • ±$1500 • 50 accounts • signals/day 42.6 taken/day 23.2 • ROI 3.98 / 2.61 • net/yr 189,959 • low -17,629 • pass 34% • paid 447/1390 • months 58/15
+1-MIN FVG • limit 10% • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 42.6 taken/day 4.5 • ROI 4.73 / 3.70 • net/yr 52,403 • low -3,240 • pass 35% • paid 104/285 • months 66/7
+1-MIN FVG • limit 10% • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 42.6 taken/day 4.7 • ROI 3.91 / 3.57 • net/yr 50,678 • low -4,440 • pass 37% • paid 105/317 • months 61/12
+1-MIN FVG • limit 50% • ±$500 • 10 accounts • signals/day 39.5 taken/day 10.0 • ROI 1.41 / 1.59 • net/yr 7,250 • low -5,502 • pass 25% • paid 107/171 • months 36/37
+1-MIN FVG • limit 50% • ±$500 • 15 accounts • signals/day 39.5 taken/day 14.9 • ROI 1.78 / 1.35 • net/yr 12,861 • low -4,666 • pass 24% • paid 159/244 • months 43/30
+1-MIN FVG • limit 50% • ±$500 • 20 accounts • signals/day 39.5 taken/day 19.5 • ROI 1.57 / 1.31 • net/yr 13,592 • low -4,680 • pass 25% • paid 211/338 • months 50/23
+1-MIN FVG • limit 50% • ±$500 • 30 accounts • signals/day 39.5 taken/day 25.4 • ROI 1.69 / 1.42 • net/yr 22,371 • low -5,508 • pass 25% • paid 273/443 • months 50/23
+1-MIN FVG • limit 50% • ±$500 • 50 accounts • signals/day 39.5 taken/day 27.5 • ROI 1.44 / 1.56 • net/yr 22,783 • low -10,702 • pass 23% • paid 273/444 • months 57/16
+1-MIN FVG • limit 50% • ±$500 • 10 accounts • ONE AT A TIME • signals/day 39.5 taken/day 9.5 • ROI 2.11 / 2.13 • net/yr 15,654 • low -2,400 • pass 27% • paid 125/170 • months 58/15
+1-MIN FVG • limit 50% • ±$500 • 15 accounts • ONE AT A TIME • signals/day 39.5 taken/day 13.0 • ROI 1.80 / 1.95 • net/yr 16,315 • low -3,600 • pass 28% • paid 162/246 • months 54/19
+1-MIN FVG • limit 50% • ±$750 • 10 accounts • signals/day 39.5 taken/day 10.0 • ROI 2.97 / 1.93 • net/yr 33,750 • low -1,920 • pass 29% • paid 168/319 • months 54/19
+1-MIN FVG • limit 50% • ±$750 • 15 accounts • signals/day 39.5 taken/day 14.9 • ROI 3.04 / 1.60 • net/yr 47,376 • low -1,920 • pass 29% • paid 238/467 • months 53/20
+1-MIN FVG • limit 50% • ±$750 • 20 accounts • signals/day 39.5 taken/day 19.1 • ROI 2.98 / 1.90 • net/yr 62,896 • low -2,640 • pass 30% • paid 312/604 • months 58/15
+1-MIN FVG • limit 50% • ±$750 • 30 accounts • signals/day 39.5 taken/day 23.5 • ROI 2.95 / 1.75 • net/yr 73,650 • low -4,320 • pass 29% • paid 370/734 • months 57/16
+1-MIN FVG • limit 50% • ±$750 • 50 accounts • signals/day 39.5 taken/day 24.5 • ROI 2.79 / 2.05 • net/yr 80,372 • low -20,116 • pass 29% • paid 386/767 • months 63/10
+1-MIN FVG • limit 50% • ±$750 • 10 accounts • ONE AT A TIME • signals/day 39.5 taken/day 8.1 • ROI 2.39 / 2.19 • net/yr 23,550 • low -2,040 • pass 32% • paid 118/271 • months 57/16
+1-MIN FVG • limit 50% • ±$750 • 15 accounts • ONE AT A TIME • signals/day 39.5 taken/day 9.9 • ROI 2.51 / 2.24 • net/yr 30,670 • low -4,398 • pass 30% • paid 149/315 • months 59/14
+1-MIN FVG • limit 50% • ±$1000 • 10 accounts • signals/day 39.5 taken/day 10.0 • ROI 1.30 / 1.71 • net/yr 21,375 • low -1,440 • pass 26% • paid 156/515 • months 37/36
+1-MIN FVG • limit 50% • ±$1000 • 15 accounts • signals/day 39.5 taken/day 14.8 • ROI 1.66 / 1.47 • net/yr 34,629 • low -1,920 • pass 25% • paid 232/721 • months 39/34
+1-MIN FVG • limit 50% • ±$1000 • 20 accounts • signals/day 39.5 taken/day 18.9 • ROI 1.75 / 1.64 • net/yr 53,099 • low -3,240 • pass 26% • paid 297/927 • months 48/25
+1-MIN FVG • limit 50% • ±$1000 • 30 accounts • signals/day 39.5 taken/day 22.4 • ROI 1.72 / 1.41 • net/yr 54,095 • low -17,633 • pass 27% • paid 359/1138 • months 49/24
+1-MIN FVG • limit 50% • ±$1000 • 50 accounts • signals/day 39.5 taken/day 23.0 • ROI 1.68 / 1.57 • net/yr 59,162 • low -23,903 • pass 26% • paid 351/1101 • months 54/19
+1-MIN FVG • limit 50% • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 39.5 taken/day 6.6 • ROI 2.11 / 2.48 • net/yr 34,343 • low -2,760 • pass 27% • paid 117/325 • months 59/14
+1-MIN FVG • limit 50% • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 39.5 taken/day 7.5 • ROI 2.03 / 2.04 • net/yr 32,706 • low -4,200 • pass 28% • paid 137/397 • months 52/21
+1-MIN FVG • limit 50% • ±$1500 • 10 accounts • signals/day 39.5 taken/day 10.0 • ROI 3.62 / 2.64 • net/yr 81,049 • low -4,200 • pass 33% • paid 212/618 • months 54/19
+1-MIN FVG • limit 50% • ±$1500 • 15 accounts • signals/day 39.5 taken/day 14.7 • ROI 3.47 / 2.55 • net/yr 113,377 • low -7,480 • pass 31% • paid 284/858 • months 52/21
+1-MIN FVG • limit 50% • ±$1500 • 20 accounts • signals/day 39.5 taken/day 18.5 • ROI 3.45 / 2.40 • net/yr 131,407 • low -11,866 • pass 33% • paid 357/1109 • months 56/17
+1-MIN FVG • limit 50% • ±$1500 • 30 accounts • signals/day 39.5 taken/day 21.2 • ROI 4.05 / 2.42 • net/yr 170,202 • low -7,680 • pass 33% • paid 424/1259 • months 60/13
+1-MIN FVG • limit 50% • ±$1500 • 50 accounts • signals/day 39.5 taken/day 21.4 • ROI 4.11 / 2.21 • net/yr 170,177 • low -15,404 • pass 33% • paid 438/1274 • months 61/12
+1-MIN FVG • limit 50% • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 39.5 taken/day 4.4 • ROI 3.68 / 3.10 • net/yr 40,284 • low -3,512 • pass 35% • paid 90/286 • months 58/13
+1-MIN FVG • limit 50% • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 39.5 taken/day 4.6 • ROI 3.37 / 3.00 • net/yr 40,397 • low -4,320 • pass 36% • paid 98/321 • months 61/12
+1-MIN MOMENTUM BURST • ±$500 • 10 accounts • signals/day 6.4 taken/day 5.5 • ROI 1.58 / 1.23 • net/yr 3,636 • low -3,446 • pass 21% • paid 49/82 • months 34/38
+1-MIN MOMENTUM BURST • ±$500 • 15 accounts • signals/day 6.4 taken/day 5.6 • ROI 1.23 / 0.85 • net/yr 1,548 • low -7,433 • pass 21% • paid 55/89 • months 34/38
+1-MIN MOMENTUM BURST • ±$500 • 20 accounts • signals/day 6.4 taken/day 5.6 • ROI 1.33 / 0.80 • net/yr 1,459 • low -6,120 • pass 21% • paid 49/87 • months 35/37
+1-MIN MOMENTUM BURST • ±$500 • 30 accounts • signals/day 6.4 taken/day 5.6 • ROI 1.40 / 0.51 • net/yr 1,839 • low -7,908 • pass 20% • paid 49/87 • months 30/42
+1-MIN MOMENTUM BURST • ±$500 • 50 accounts • signals/day 6.4 taken/day 5.6 • ROI 0.93 / 0.66 • net/yr 1,850 • low -11,805 • pass 18% • paid 48/78 • months 29/43
+1-MIN MOMENTUM BURST • ±$500 • 10 accounts • ONE AT A TIME • signals/day 6.4 taken/day 4.6 • ROI 1.72 / 1.44 • net/yr 4,442 • low -3,718 • pass 20% • paid 49/69 • months 36/36
+1-MIN MOMENTUM BURST • ±$500 • 15 accounts • ONE AT A TIME • signals/day 6.4 taken/day 4.6 • ROI 1.36 / 1.01 • net/yr 2,209 • low -7,442 • pass 21% • paid 45/75 • months 33/39
+1-MIN MOMENTUM BURST • ±$750 • 10 accounts • signals/day 6.4 taken/day 5.1 • ROI 1.88 / 2.28 • net/yr 13,138 • low -2,760 • pass 24% • paid 71/137 • months 37/36
+1-MIN MOMENTUM BURST • ±$750 • 15 accounts • signals/day 6.4 taken/day 5.2 • ROI 1.37 / 1.98 • net/yr 9,146 • low -3,764 • pass 25% • paid 71/150 • months 36/36
+1-MIN MOMENTUM BURST • ±$750 • 20 accounts • signals/day 6.4 taken/day 5.2 • ROI 1.10 / 2.16 • net/yr 9,500 • low -5,411 • pass 24% • paid 75/150 • months 44/28
+1-MIN MOMENTUM BURST • ±$750 • 30 accounts • signals/day 6.4 taken/day 5.2 • ROI 1.57 / 1.98 • net/yr 14,141 • low -5,880 • pass 23% • paid 74/150 • months 47/26
+1-MIN MOMENTUM BURST • ±$750 • 50 accounts • signals/day 6.4 taken/day 5.2 • ROI 0.94 / 1.49 • net/yr 7,902 • low -10,680 • pass 24% • paid 69/149 • months 38/34
+1-MIN MOMENTUM BURST • ±$750 • 10 accounts • ONE AT A TIME • signals/day 6.4 taken/day 3.8 • ROI 1.98 / 1.39 • net/yr 7,570 • low -2,280 • pass 27% • paid 60/121 • months 38/35
+1-MIN MOMENTUM BURST • ±$750 • 15 accounts • ONE AT A TIME • signals/day 6.4 taken/day 3.8 • ROI 1.59 / 1.84 • net/yr 6,996 • low -3,826 • pass 26% • paid 39/111 • months 38/34
+1-MIN MOMENTUM BURST • ±$1000 • 10 accounts • signals/day 6.4 taken/day 4.8 • ROI 1.83 / 1.66 • net/yr 14,304 • low -3,527 • pass 23% • paid 72/202 • months 41/32
+1-MIN MOMENTUM BURST • ±$1000 • 15 accounts • signals/day 6.4 taken/day 4.9 • ROI 1.67 / 1.40 • net/yr 13,263 • low -5,640 • pass 23% • paid 66/211 • months 38/35
+1-MIN MOMENTUM BURST • ±$1000 • 20 accounts • signals/day 6.4 taken/day 4.9 • ROI 1.48 / 1.73 • net/yr 13,336 • low -5,280 • pass 22% • paid 60/200 • months 39/34
+1-MIN MOMENTUM BURST • ±$1000 • 30 accounts • signals/day 6.4 taken/day 4.9 • ROI 1.63 / 1.41 • net/yr 14,204 • low -7,320 • pass 23% • paid 69/207 • months 46/27
+1-MIN MOMENTUM BURST • ±$1000 • 50 accounts • signals/day 6.4 taken/day 4.9 • ROI 1.05 / 1.45 • net/yr 9,075 • low -13,080 • pass 23% • paid 63/211 • months 40/33
+1-MIN MOMENTUM BURST • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 6.4 taken/day 3.1 • ROI 1.24 / 1.71 • net/yr 6,944 • low -7,536 • pass 23% • paid 45/142 • months 40/33
+1-MIN MOMENTUM BURST • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 6.4 taken/day 3.1 • ROI 1.63 / 1.18 • net/yr 6,598 • low -4,200 • pass 23% • paid 42/144 • months 37/36
+1-MIN MOMENTUM BURST • ±$1500 • 10 accounts • signals/day 6.4 taken/day 4.4 • ROI 2.55 / 2.39 • net/yr 26,484 • low -3,737 • pass 30% • paid 83/248 • months 51/21
+1-MIN MOMENTUM BURST • ±$1500 • 15 accounts • signals/day 6.4 taken/day 4.4 • ROI 2.60 / 2.75 • net/yr 29,389 • low -8,947 • pass 31% • paid 86/256 • months 49/22
+1-MIN MOMENTUM BURST • ±$1500 • 20 accounts • signals/day 6.4 taken/day 4.4 • ROI 2.37 / 2.11 • net/yr 24,036 • low -6,600 • pass 31% • paid 78/266 • months 50/23
+1-MIN MOMENTUM BURST • ±$1500 • 30 accounts • signals/day 6.4 taken/day 4.4 • ROI 2.32 / 2.87 • net/yr 30,624 • low -12,120 • pass 28% • paid 86/242 • months 56/17
+1-MIN MOMENTUM BURST • ±$1500 • 50 accounts • signals/day 6.4 taken/day 4.4 • ROI 1.47 / 1.70 • net/yr 17,216 • low -17,520 • pass 30% • paid 77/272 • months 48/24
+1-MIN MOMENTUM BURST • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 6.4 taken/day 2.2 • ROI 2.09 / 1.92 • net/yr 10,632 • low -3,120 • pass 32% • paid 39/146 • months 45/27
+1-MIN MOMENTUM BURST • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 6.4 taken/day 2.2 • ROI 2.05 / 1.97 • net/yr 11,449 • low -8,280 • pass 32% • paid 39/150 • months 44/29
+RANDOM every 5 min (control) • ±$500 • 10 accounts • signals/day 66.0 taken/day 10.0 • ROI 1.53 / 0.70 • net/yr 2,165 • low -2,040 • pass 23% • paid 84/167 • months 30/43
+RANDOM every 5 min (control) • ±$500 • 15 accounts • signals/day 66.0 taken/day 15.0 • ROI 1.41 / 1.05 • net/yr 5,982 • low -3,240 • pass 22% • paid 140/245 • months 35/38
+RANDOM every 5 min (control) • ±$500 • 20 accounts • signals/day 66.0 taken/day 20.0 • ROI 1.31 / 0.96 • net/yr 5,067 • low -4,440 • pass 21% • paid 178/309 • months 34/39
+RANDOM every 5 min (control) • ±$500 • 30 accounts • signals/day 66.0 taken/day 30.0 • ROI 1.22 / 1.28 • net/yr 11,846 • low -9,039 • pass 21% • paid 271/472 • months 43/29
+RANDOM every 5 min (control) • ±$500 • 50 accounts • signals/day 66.0 taken/day 40.7 • ROI 0.94 / 1.36 • net/yr 11,466 • low -30,385 • pass 20% • paid 357/615 • months 39/34
+RANDOM every 5 min (control) • ±$500 • 10 accounts • ONE AT A TIME • signals/day 66.0 taken/day 9.8 • ROI 1.19 / 0.74 • net/yr 119 • low -2,126 • pass 20% • paid 81/147 • months 32/41
+RANDOM every 5 min (control) • ±$500 • 15 accounts • ONE AT A TIME • signals/day 66.0 taken/day 14.0 • ROI 1.37 / 1.11 • net/yr 5,630 • low -2,880 • pass 21% • paid 123/225 • months 40/33
+RANDOM every 5 min (control) • ±$750 • 10 accounts • signals/day 66.0 taken/day 10.0 • ROI 2.39 / 1.34 • net/yr 21,147 • low -3,442 • pass 28% • paid 145/332 • months 41/31
+RANDOM every 5 min (control) • ±$750 • 15 accounts • signals/day 66.0 taken/day 15.0 • ROI 2.04 / 1.37 • net/yr 26,564 • low -4,483 • pass 26% • paid 211/463 • months 44/28
+RANDOM every 5 min (control) • ±$750 • 20 accounts • signals/day 66.0 taken/day 20.0 • ROI 1.92 / 1.27 • net/yr 30,251 • low -5,911 • pass 25% • paid 271/605 • months 43/29
+RANDOM every 5 min (control) • ±$750 • 30 accounts • signals/day 66.0 taken/day 30.0 • ROI 1.87 / 1.26 • net/yr 41,967 • low -7,227 • pass 26% • paid 400/911 • months 45/27
+RANDOM every 5 min (control) • ±$750 • 50 accounts • signals/day 66.0 taken/day 36.6 • ROI 1.84 / 1.56 • net/yr 62,227 • low -9,960 • pass 25% • paid 483/1061 • months 50/23
+RANDOM every 5 min (control) • ±$750 • 10 accounts • ONE AT A TIME • signals/day 66.0 taken/day 8.8 • ROI 1.62 / 1.60 • net/yr 13,784 • low -2,640 • pass 26% • paid 120/276 • months 41/31
+RANDOM every 5 min (control) • ±$750 • 15 accounts • ONE AT A TIME • signals/day 66.0 taken/day 11.4 • ROI 1.48 / 1.74 • net/yr 17,699 • low -5,160 • pass 24% • paid 155/327 • months 48/25
+RANDOM every 5 min (control) • ±$1000 • 10 accounts • signals/day 66.0 taken/day 10.0 • ROI 1.62 / 1.40 • net/yr 21,762 • low -1,920 • pass 23% • paid 133/466 • months 36/37
+RANDOM every 5 min (control) • ±$1000 • 15 accounts • signals/day 66.0 taken/day 15.0 • ROI 1.44 / 1.22 • net/yr 21,634 • low -2,880 • pass 22% • paid 184/672 • months 37/36
+RANDOM every 5 min (control) • ±$1000 • 20 accounts • signals/day 66.0 taken/day 20.0 • ROI 1.46 / 1.23 • net/yr 30,729 • low -3,840 • pass 23% • paid 250/902 • months 36/37
+RANDOM every 5 min (control) • ±$1000 • 30 accounts • signals/day 66.0 taken/day 30.0 • ROI 1.39 / 1.14 • net/yr 34,083 • low -7,200 • pass 23% • paid 362/1332 • months 36/37
+RANDOM every 5 min (control) • ±$1000 • 50 accounts • signals/day 66.0 taken/day 34.8 • ROI 1.63 / 1.28 • net/yr 66,879 • low -11,520 • pass 23% • paid 481/1522 • months 45/28
+RANDOM every 5 min (control) • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 66.0 taken/day 7.3 • ROI 2.07 / 1.16 • net/yr 18,059 • low -2,664 • pass 24% • paid 104/351 • months 49/24
+RANDOM every 5 min (control) • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 66.0 taken/day 8.8 • ROI 1.59 / 1.35 • net/yr 17,429 • low -8,408 • pass 24% • paid 124/434 • months 46/27
+RANDOM every 5 min (control) • ±$1500 • 10 accounts • signals/day 66.0 taken/day 10.0 • ROI 2.37 / 2.07 • net/yr 54,483 • low -1,320 • pass 31% • paid 184/667 • months 48/24
+RANDOM every 5 min (control) • ±$1500 • 15 accounts • signals/day 66.0 taken/day 15.0 • ROI 2.22 / 1.69 • net/yr 64,893 • low -1,920 • pass 31% • paid 279/1006 • months 48/25
+RANDOM every 5 min (control) • ±$1500 • 20 accounts • signals/day 66.0 taken/day 20.0 • ROI 2.23 / 1.80 • net/yr 89,580 • low -2,520 • pass 32% • paid 383/1334 • months 52/21
+RANDOM every 5 min (control) • ±$1500 • 30 accounts • signals/day 66.0 taken/day 30.0 • ROI 2.33 / 1.86 • net/yr 135,063 • low -4,800 • pass 32% • paid 566/1885 • months 55/18
+RANDOM every 5 min (control) • ±$1500 • 50 accounts • signals/day 66.0 taken/day 33.6 • ROI 2.63 / 1.87 • net/yr 170,018 • low -9,600 • pass 32% • paid 602/2048 • months 59/14
+RANDOM every 5 min (control) • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 66.0 taken/day 5.0 • ROI 3.04 / 2.38 • net/yr 36,566 • low -2,640 • pass 32% • paid 92/320 • months 59/14
+RANDOM every 5 min (control) • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 66.0 taken/day 5.3 • ROI 2.40 / 2.90 • net/yr 38,373 • low -6,360 • pass 32% • paid 103/349 • months 57/14
+30-MIN BREAKOUT (follow) • ±$500 • 10 accounts • signals/day 11.9 taken/day 9.4 • ROI 1.42 / 0.89 • net/yr 2,684 • low -3,825 • pass 19% • paid 80/130 • months 36/37
+30-MIN BREAKOUT (follow) • ±$500 • 15 accounts • signals/day 11.9 taken/day 10.9 • ROI 1.27 / 0.77 • net/yr 895 • low -7,872 • pass 18% • paid 89/150 • months 30/43
+30-MIN BREAKOUT (follow) • ±$500 • 20 accounts • signals/day 11.9 taken/day 10.9 • ROI 1.22 / 0.79 • net/yr 1,043 • low -12,813 • pass 19% • paid 93/154 • months 34/39
+30-MIN BREAKOUT (follow) • ±$500 • 30 accounts • signals/day 11.9 taken/day 10.9 • ROI 1.05 / 0.74 • net/yr -411 • low -15,403 • pass 20% • paid 91/164 • months 30/43
+30-MIN BREAKOUT (follow) • ±$500 • 50 accounts • signals/day 11.9 taken/day 10.9 • ROI 1.07 / 0.75 • net/yr 463 • low -15,435 • pass 17% • paid 84/144 • months 33/40
+30-MIN BREAKOUT (follow) • ±$500 • 10 accounts • ONE AT A TIME • signals/day 11.9 taken/day 8.2 • ROI 1.12 / 0.93 • net/yr 1,282 • low -6,746 • pass 19% • paid 64/114 • months 35/38
+30-MIN BREAKOUT (follow) • ±$500 • 15 accounts • ONE AT A TIME • signals/day 11.9 taken/day 9.0 • ROI 0.97 / 0.96 • net/yr 47 • low -6,902 • pass 20% • paid 81/141 • months 31/42
+30-MIN BREAKOUT (follow) • ±$750 • 10 accounts • signals/day 11.9 taken/day 8.8 • ROI 2.13 / 1.50 • net/yr 17,598 • low -4,091 • pass 28% • paid 124/273 • months 43/30
+30-MIN BREAKOUT (follow) • ±$750 • 15 accounts • signals/day 11.9 taken/day 9.8 • ROI 1.97 / 1.60 • net/yr 19,550 • low -4,680 • pass 26% • paid 153/289 • months 50/23
+30-MIN BREAKOUT (follow) • ±$750 • 20 accounts • signals/day 11.9 taken/day 9.8 • ROI 2.10 / 1.46 • net/yr 19,056 • low -6,551 • pass 27% • paid 136/303 • months 47/26
+30-MIN BREAKOUT (follow) • ±$750 • 30 accounts • signals/day 11.9 taken/day 9.8 • ROI 2.17 / 1.14 • net/yr 17,358 • low -9,319 • pass 27% • paid 140/317 • months 49/24
+30-MIN BREAKOUT (follow) • ±$750 • 50 accounts • signals/day 11.9 taken/day 9.8 • ROI 1.74 / 1.11 • net/yr 13,911 • low -12,502 • pass 26% • paid 133/292 • months 50/23
+30-MIN BREAKOUT (follow) • ±$750 • 10 accounts • ONE AT A TIME • signals/day 11.9 taken/day 6.5 • ROI 2.24 / 1.49 • net/yr 14,005 • low -3,341 • pass 27% • paid 89/200 • months 50/23
+30-MIN BREAKOUT (follow) • ±$750 • 15 accounts • ONE AT A TIME • signals/day 11.9 taken/day 6.7 • ROI 1.84 / 1.53 • net/yr 11,318 • low -4,853 • pass 25% • paid 92/194 • months 50/23
+30-MIN BREAKOUT (follow) • ±$1000 • 10 accounts • signals/day 11.9 taken/day 8.3 • ROI 1.75 / 1.08 • net/yr 13,481 • low -5,640 • pass 25% • paid 109/381 • months 43/30
+30-MIN BREAKOUT (follow) • ±$1000 • 15 accounts • signals/day 11.9 taken/day 8.9 • ROI 1.58 / 1.14 • net/yr 12,718 • low -6,960 • pass 24% • paid 123/409 • months 43/30
+30-MIN BREAKOUT (follow) • ±$1000 • 20 accounts • signals/day 11.9 taken/day 8.9 • ROI 1.86 / 0.92 • net/yr 13,110 • low -6,720 • pass 25% • paid 120/415 • months 40/33
+30-MIN BREAKOUT (follow) • ±$1000 • 30 accounts • signals/day 11.9 taken/day 8.9 • ROI 1.94 / 1.09 • net/yr 19,665 • low -8,160 • pass 23% • paid 120/391 • months 52/20
+30-MIN BREAKOUT (follow) • ±$1000 • 50 accounts • signals/day 11.9 taken/day 8.9 • ROI 1.87 / 0.99 • net/yr 19,800 • low -13,686 • pass 23% • paid 133/399 • months 56/17
+30-MIN BREAKOUT (follow) • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 11.9 taken/day 5.1 • ROI 1.83 / 1.03 • net/yr 10,054 • low -5,581 • pass 22% • paid 73/226 • months 45/28
+30-MIN BREAKOUT (follow) • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 11.9 taken/day 5.2 • ROI 1.94 / 1.09 • net/yr 10,118 • low -4,248 • pass 23% • paid 69/247 • months 41/32
+30-MIN BREAKOUT (follow) • ±$1500 • 10 accounts • signals/day 11.9 taken/day 7.6 • ROI 3.74 / 2.53 • net/yr 57,758 • low -1,920 • pass 35% • paid 145/463 • months 61/11
+30-MIN BREAKOUT (follow) • ±$1500 • 15 accounts • signals/day 11.9 taken/day 7.9 • ROI 4.13 / 2.42 • net/yr 66,079 • low -2,520 • pass 34% • paid 178/467 • months 62/11
+30-MIN BREAKOUT (follow) • ±$1500 • 20 accounts • signals/day 11.9 taken/day 7.9 • ROI 3.77 / 2.10 • net/yr 57,436 • low -5,400 • pass 34% • paid 152/487 • months 62/10
+30-MIN BREAKOUT (follow) • ±$1500 • 30 accounts • signals/day 11.9 taken/day 7.9 • ROI 3.47 / 2.01 • net/yr 51,183 • low -7,320 • pass 35% • paid 163/494 • months 58/15
+30-MIN BREAKOUT (follow) • ±$1500 • 50 accounts • signals/day 11.9 taken/day 7.9 • ROI 4.13 / 2.14 • net/yr 66,852 • low -11,160 • pass 32% • paid 171/459 • months 62/11
+30-MIN BREAKOUT (follow) • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 11.9 taken/day 3.3 • ROI 3.78 / 2.36 • net/yr 28,202 • low -2,880 • pass 31% • paid 75/198 • months 60/13
+30-MIN BREAKOUT (follow) • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 11.9 taken/day 3.3 • ROI 3.03 / 2.83 • net/yr 28,584 • low -3,600 • pass 34% • paid 71/226 • months 56/17
+30-MIN BREAKOUT (fade) • ±$500 • 10 accounts • signals/day 11.9 taken/day 9.4 • ROI 1.02 / 1.55 • net/yr 3,717 • low -2,446 • pass 21% • paid 93/137 • months 32/41
+30-MIN BREAKOUT (fade) • ±$500 • 15 accounts • signals/day 11.9 taken/day 10.9 • ROI 1.15 / 1.29 • net/yr 3,861 • low -5,234 • pass 22% • paid 104/167 • months 36/36
+30-MIN BREAKOUT (fade) • ±$500 • 20 accounts • signals/day 11.9 taken/day 10.9 • ROI 0.96 / 1.42 • net/yr 3,638 • low -5,238 • pass 23% • paid 104/179 • months 35/37
+30-MIN BREAKOUT (fade) • ±$500 • 30 accounts • signals/day 11.9 taken/day 10.9 • ROI 0.92 / 1.43 • net/yr 3,634 • low -7,516 • pass 23% • paid 106/182 • months 38/35
+30-MIN BREAKOUT (fade) • ±$500 • 50 accounts • signals/day 11.9 taken/day 10.9 • ROI 0.84 / 1.17 • net/yr 1,856 • low -13,338 • pass 22% • paid 105/178 • months 41/31
+30-MIN BREAKOUT (fade) • ±$500 • 10 accounts • ONE AT A TIME • signals/day 11.9 taken/day 8.2 • ROI 1.14 / 1.40 • net/yr 3,434 • low -2,975 • pass 22% • paid 82/132 • months 37/35
+30-MIN BREAKOUT (fade) • ±$500 • 15 accounts • ONE AT A TIME • signals/day 11.9 taken/day 9.0 • ROI 1.07 / 1.52 • net/yr 4,253 • low -8,562 • pass 22% • paid 82/150 • months 33/39
+30-MIN BREAKOUT (fade) • ±$750 • 10 accounts • signals/day 11.9 taken/day 8.8 • ROI 1.05 / 1.98 • net/yr 10,453 • low -3,478 • pass 24% • paid 124/247 • months 38/35
+30-MIN BREAKOUT (fade) • ±$750 • 15 accounts • signals/day 11.9 taken/day 9.8 • ROI 1.10 / 1.91 • net/yr 11,972 • low -3,153 • pass 24% • paid 131/279 • months 40/33
+30-MIN BREAKOUT (fade) • ±$750 • 20 accounts • signals/day 11.9 taken/day 9.8 • ROI 1.49 / 1.87 • net/yr 16,088 • low -3,480 • pass 23% • paid 128/264 • months 47/26
+30-MIN BREAKOUT (fade) • ±$750 • 30 accounts • signals/day 11.9 taken/day 9.8 • ROI 1.15 / 1.78 • net/yr 11,913 • low -5,160 • pass 24% • paid 134/290 • months 44/29
+30-MIN BREAKOUT (fade) • ±$750 • 50 accounts • signals/day 11.9 taken/day 9.8 • ROI 0.79 / 1.67 • net/yr 7,456 • low -18,973 • pass 24% • paid 116/279 • months 36/37
+30-MIN BREAKOUT (fade) • ±$750 • 10 accounts • ONE AT A TIME • signals/day 11.9 taken/day 6.5 • ROI 1.29 / 1.42 • net/yr 6,097 • low -2,474 • pass 24% • paid 84/187 • months 37/36
+30-MIN BREAKOUT (fade) • ±$750 • 15 accounts • ONE AT A TIME • signals/day 11.9 taken/day 6.7 • ROI 1.53 / 1.45 • net/yr 8,508 • low -3,000 • pass 25% • paid 86/202 • months 43/30
+30-MIN BREAKOUT (fade) • ±$1000 • 10 accounts • signals/day 11.9 taken/day 8.3 • ROI 1.10 / 1.83 • net/yr 13,855 • low -2,996 • pass 24% • paid 111/367 • months 34/39
+30-MIN BREAKOUT (fade) • ±$1000 • 15 accounts • signals/day 11.9 taken/day 8.9 • ROI 1.00 / 1.86 • net/yr 15,399 • low -11,641 • pass 25% • paid 134/412 • months 46/26
+30-MIN BREAKOUT (fade) • ±$1000 • 20 accounts • signals/day 11.9 taken/day 8.9 • ROI 1.09 / 2.03 • net/yr 18,761 • low -5,160 • pass 24% • paid 125/392 • months 45/28
+30-MIN BREAKOUT (fade) • ±$1000 • 30 accounts • signals/day 11.9 taken/day 8.9 • ROI 1.04 / 1.58 • net/yr 11,908 • low -12,843 • pass 25% • paid 121/418 • months 44/29
+30-MIN BREAKOUT (fade) • ±$1000 • 50 accounts • signals/day 11.9 taken/day 8.9 • ROI 1.32 / 1.69 • net/yr 21,550 • low -14,328 • pass 23% • paid 125/401 • months 54/19
+30-MIN BREAKOUT (fade) • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 11.9 taken/day 5.1 • ROI 1.19 / 1.59 • net/yr 9,369 • low -9,438 • pass 24% • paid 68/246 • months 41/32
+30-MIN BREAKOUT (fade) • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 11.9 taken/day 5.2 • ROI 0.97 / 1.97 • net/yr 11,620 • low -14,276 • pass 24% • paid 79/244 • months 43/30
+30-MIN BREAKOUT (fade) • ±$1500 • 10 accounts • signals/day 11.9 taken/day 7.6 • ROI 1.32 / 2.22 • net/yr 22,783 • low -7,360 • pass 30% • paid 125/461 • months 41/32
+30-MIN BREAKOUT (fade) • ±$1500 • 15 accounts • signals/day 11.9 taken/day 7.9 • ROI 1.32 / 2.54 • net/yr 29,603 • low -8,045 • pass 30% • paid 140/474 • months 50/22
+30-MIN BREAKOUT (fade) • ±$1500 • 20 accounts • signals/day 11.9 taken/day 7.9 • ROI 1.34 / 2.70 • net/yr 31,074 • low -5,040 • pass 31% • paid 132/476 • months 51/22
+30-MIN BREAKOUT (fade) • ±$1500 • 30 accounts • signals/day 11.9 taken/day 7.9 • ROI 1.14 / 2.05 • net/yr 20,470 • low -8,280 • pass 31% • paid 138/494 • months 47/26
+30-MIN BREAKOUT (fade) • ±$1500 • 50 accounts • signals/day 11.9 taken/day 7.9 • ROI 1.60 / 2.16 • net/yr 34,066 • low -17,400 • pass 29% • paid 136/455 • months 54/18
+30-MIN BREAKOUT (fade) • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 11.9 taken/day 3.3 • ROI 1.54 / 2.42 • net/yr 16,125 • low -4,680 • pass 29% • paid 63/206 • months 53/20
+30-MIN BREAKOUT (fade) • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 11.9 taken/day 3.3 • ROI 1.26 / 2.51 • net/yr 16,819 • low -6,600 • pass 30% • paid 60/215 • months 47/26
+VWAP STRETCH (fade) • ±$500 • 10 accounts • signals/day 7.2 taken/day 5.3 • ROI 0.25 / 1.16 • net/yr -3,185 • low -31,922 • pass 15% • paid 35/65 • months 22/50
+VWAP STRETCH (fade) • ±$500 • 15 accounts • signals/day 7.2 taken/day 6.4 • ROI 0.28 / 1.23 • net/yr -3,462 • low -36,083 • pass 16% • paid 43/88 • months 19/53
+VWAP STRETCH (fade) • ±$500 • 20 accounts • signals/day 7.2 taken/day 7.0 • ROI 0.25 / 1.44 • net/yr -3,116 • low -38,562 • pass 13% • paid 43/76 • months 23/50
+VWAP STRETCH (fade) • ±$500 • 30 accounts • signals/day 7.2 taken/day 7.2 • ROI 0.20 / 1.26 • net/yr -3,679 • low -41,793 • pass 15% • paid 47/89 • months 24/48
+VWAP STRETCH (fade) • ±$500 • 50 accounts • signals/day 7.2 taken/day 7.2 • ROI 0.12 / 0.93 • net/yr -5,410 • low -45,963 • pass 13% • paid 38/82 • months 20/51
+VWAP STRETCH (fade) • ±$500 • 10 accounts • ONE AT A TIME • signals/day 7.2 taken/day 3.4 • ROI 0.34 / 1.10 • net/yr -1,493 • low -19,368 • pass 18% • paid 27/48 • months 12/59
+VWAP STRETCH (fade) • ±$500 • 15 accounts • ONE AT A TIME • signals/day 7.2 taken/day 3.5 • ROI 0.49 / 1.17 • net/yr -519 • low -13,383 • pass 19% • paid 30/53 • months 24/44
+VWAP STRETCH (fade) • ±$750 • 10 accounts • signals/day 7.2 taken/day 5.3 • ROI 0.57 / 1.51 • net/yr -227 • low -28,190 • pass 20% • paid 59/130 • months 29/43
+VWAP STRETCH (fade) • ±$750 • 15 accounts • signals/day 7.2 taken/day 6.4 • ROI 0.34 / 1.43 • net/yr -3,036 • low -44,628 • pass 20% • paid 66/161 • months 27/45
+VWAP STRETCH (fade) • ±$750 • 20 accounts • signals/day 7.2 taken/day 7.0 • ROI 0.33 / 1.42 • net/yr -3,673 • low -50,549 • pass 20% • paid 67/173 • months 24/49
+VWAP STRETCH (fade) • ±$750 • 30 accounts • signals/day 7.2 taken/day 7.2 • ROI 0.47 / 1.86 • net/yr 2,177 • low -40,767 • pass 19% • paid 79/175 • months 36/36
+VWAP STRETCH (fade) • ±$750 • 50 accounts • signals/day 7.2 taken/day 7.2 • ROI 0.35 / 1.54 • net/yr -1,977 • low -52,733 • pass 18% • paid 60/168 • months 31/41
+VWAP STRETCH (fade) • ±$750 • 10 accounts • ONE AT A TIME • signals/day 7.2 taken/day 2.4 • ROI 0.73 / 2.13 • net/yr 3,115 • low -6,195 • pass 21% • paid 34/60 • months 32/38
+VWAP STRETCH (fade) • ±$750 • 15 accounts • ONE AT A TIME • signals/day 7.2 taken/day 2.4 • ROI 0.73 / 1.87 • net/yr 2,477 • low -7,968 • pass 22% • paid 29/68 • months 32/39
+VWAP STRETCH (fade) • ±$1000 • 10 accounts • signals/day 7.2 taken/day 5.3 • ROI 0.70 / 1.80 • net/yr 3,748 • low -35,378 • pass 21% • paid 60/209 • months 29/42
+VWAP STRETCH (fade) • ±$1000 • 15 accounts • signals/day 7.2 taken/day 6.4 • ROI 0.60 / 1.84 • net/yr 3,901 • low -52,847 • pass 20% • paid 74/242 • months 25/46
+VWAP STRETCH (fade) • ±$1000 • 20 accounts • signals/day 7.2 taken/day 7.0 • ROI 0.47 / 1.90 • net/yr 2,766 • low -57,211 • pass 21% • paid 81/260 • months 31/42
+VWAP STRETCH (fade) • ±$1000 • 30 accounts • signals/day 7.2 taken/day 7.2 • ROI 0.60 / 1.91 • net/yr 6,820 • low -54,755 • pass 19% • paid 85/247 • months 36/37
+VWAP STRETCH (fade) • ±$1000 • 50 accounts • signals/day 7.2 taken/day 7.2 • ROI 0.32 / 1.48 • net/yr -2,506 • low -70,630 • pass 21% • paid 68/273 • months 31/41
+VWAP STRETCH (fade) • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 7.2 taken/day 1.8 • ROI 0.83 / 1.66 • net/yr 1,901 • low -8,950 • pass 21% • paid 24/77 • months 27/44
+VWAP STRETCH (fade) • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 7.2 taken/day 1.8 • ROI 0.47 / 0.51 • net/yr -3,289 • low -19,577 • pass 21% • paid 14/78 • months 13/58
+VWAP STRETCH (fade) • ±$1500 • 10 accounts • signals/day 7.2 taken/day 5.3 • ROI 0.66 / 3.44 • net/yr 16,353 • low -59,235 • pass 29% • paid 64/293 • months 33/38
+VWAP STRETCH (fade) • ±$1500 • 15 accounts • signals/day 7.2 taken/day 6.4 • ROI 0.61 / 3.28 • net/yr 18,902 • low -70,172 • pass 27% • paid 82/325 • months 30/42
+VWAP STRETCH (fade) • ±$1500 • 20 accounts • signals/day 7.2 taken/day 7.0 • ROI 0.33 / 3.22 • net/yr 14,951 • low -83,311 • pass 28% • paid 84/364 • months 24/48
+VWAP STRETCH (fade) • ±$1500 • 30 accounts • signals/day 7.2 taken/day 7.2 • ROI 0.85 / 3.00 • net/yr 26,673 • low -52,083 • pass 25% • paid 93/343 • months 44/28
+VWAP STRETCH (fade) • ±$1500 • 50 accounts • signals/day 7.2 taken/day 7.2 • ROI 0.52 / 3.16 • net/yr 20,787 • low -60,391 • pass 26% • paid 107/359 • months 41/31
+VWAP STRETCH (fade) • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 7.2 taken/day 1.3 • ROI 0.54 / 2.43 • net/yr 3,784 • low -13,655 • pass 28% • paid 20/77 • months 25/47
+VWAP STRETCH (fade) • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 7.2 taken/day 1.3 • ROI 0.62 / 3.17 • net/yr 5,471 • low -10,560 • pass 26% • paid 23/75 • months 30/40
+VWAP CROSS (follow) • ±$500 • 10 accounts • signals/day 5.0 taken/day 4.3 • ROI 1.28 / 1.44 • net/yr 2,475 • low -3,404 • pass 22% • paid 42/69 • months 40/32
+VWAP CROSS (follow) • ±$500 • 15 accounts • signals/day 5.0 taken/day 4.3 • ROI 1.73 / 1.31 • net/yr 4,680 • low -2,760 • pass 20% • paid 47/66 • months 37/35
+VWAP CROSS (follow) • ±$500 • 20 accounts • signals/day 5.0 taken/day 4.3 • ROI 1.43 / 1.37 • net/yr 3,786 • low -3,120 • pass 21% • paid 48/68 • months 37/35
+VWAP CROSS (follow) • ±$500 • 30 accounts • signals/day 5.0 taken/day 4.3 • ROI 1.23 / 0.95 • net/yr 2,707 • low -4,745 • pass 23% • paid 43/77 • months 40/31
+VWAP CROSS (follow) • ±$500 • 50 accounts • signals/day 5.0 taken/day 4.3 • ROI 0.79 / 0.69 • net/yr 146 • low -12,231 • pass 19% • paid 39/63 • months 31/41
+VWAP CROSS (follow) • ±$500 • 10 accounts • ONE AT A TIME • signals/day 5.0 taken/day 3.8 • ROI 1.66 / 0.74 • net/yr 1,375 • low -2,040 • pass 23% • paid 31/63 • months 32/40
+VWAP CROSS (follow) • ±$500 • 15 accounts • ONE AT A TIME • signals/day 5.0 taken/day 3.8 • ROI 1.59 / 0.92 • net/yr 2,101 • low -2,981 • pass 22% • paid 33/64 • months 36/36
+VWAP CROSS (follow) • ±$750 • 10 accounts • signals/day 5.0 taken/day 3.9 • ROI 2.15 / 1.20 • net/yr 6,138 • low -2,160 • pass 27% • paid 56/117 • months 41/31
+VWAP CROSS (follow) • ±$750 • 15 accounts • signals/day 5.0 taken/day 3.9 • ROI 1.71 / 1.33 • net/yr 6,105 • low -4,145 • pass 25% • paid 59/119 • months 40/33
+VWAP CROSS (follow) • ±$750 • 20 accounts • signals/day 5.0 taken/day 3.9 • ROI 1.81 / 1.28 • net/yr 6,534 • low -2,880 • pass 26% • paid 49/115 • months 45/27
+VWAP CROSS (follow) • ±$750 • 30 accounts • signals/day 5.0 taken/day 3.9 • ROI 1.81 / 1.55 • net/yr 8,813 • low -4,920 • pass 24% • paid 58/110 • months 41/31
+VWAP CROSS (follow) • ±$750 • 50 accounts • signals/day 5.0 taken/day 3.9 • ROI 1.53 / 0.86 • net/yr 4,795 • low -11,713 • pass 25% • paid 51/123 • months 39/33
+VWAP CROSS (follow) • ±$750 • 10 accounts • ONE AT A TIME • signals/day 5.0 taken/day 3.0 • ROI 1.95 / 1.25 • net/yr 5,120 • low -1,440 • pass 30% • paid 52/107 • months 42/30
+VWAP CROSS (follow) • ±$750 • 15 accounts • ONE AT A TIME • signals/day 5.0 taken/day 3.1 • ROI 1.59 / 1.63 • net/yr 5,376 • low -2,400 • pass 27% • paid 43/97 • months 37/35
+VWAP CROSS (follow) • ±$1000 • 10 accounts • signals/day 5.0 taken/day 3.6 • ROI 1.24 / 1.07 • net/yr 3,633 • low -3,710 • pass 21% • paid 45/158 • months 36/36
+VWAP CROSS (follow) • ±$1000 • 15 accounts • signals/day 5.0 taken/day 3.6 • ROI 1.36 / 0.99 • net/yr 3,633 • low -3,960 • pass 23% • paid 54/172 • months 36/37
+VWAP CROSS (follow) • ±$1000 • 20 accounts • signals/day 5.0 taken/day 3.6 • ROI 1.06 / 0.77 • net/yr 1,303 • low -8,058 • pass 22% • paid 54/167 • months 34/39
+VWAP CROSS (follow) • ±$1000 • 30 accounts • signals/day 5.0 taken/day 3.6 • ROI 1.43 / 0.51 • net/yr 2,824 • low -7,440 • pass 21% • paid 46/156 • months 39/34
+VWAP CROSS (follow) • ±$1000 • 50 accounts • signals/day 5.0 taken/day 3.6 • ROI 1.06 / 0.86 • net/yr 1,908 • low -17,360 • pass 20% • paid 46/156 • months 39/34
+VWAP CROSS (follow) • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 5.0 taken/day 2.5 • ROI 1.65 / 0.71 • net/yr 1,812 • low -2,511 • pass 22% • paid 35/117 • months 33/39
+VWAP CROSS (follow) • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 5.0 taken/day 2.5 • ROI 1.01 / 0.77 • net/yr 495 • low -6,210 • pass 21% • paid 32/114 • months 30/43
+VWAP CROSS (follow) • ±$1500 • 10 accounts • signals/day 5.0 taken/day 3.4 • ROI 1.79 / 2.67 • net/yr 17,940 • low -5,965 • pass 33% • paid 53/221 • months 52/19
+VWAP CROSS (follow) • ±$1500 • 15 accounts • signals/day 5.0 taken/day 3.4 • ROI 1.78 / 2.37 • net/yr 16,895 • low -3,240 • pass 30% • paid 56/207 • months 47/26
+VWAP CROSS (follow) • ±$1500 • 20 accounts • signals/day 5.0 taken/day 3.4 • ROI 2.18 / 2.65 • net/yr 21,897 • low -5,760 • pass 29% • paid 60/203 • months 57/16
+VWAP CROSS (follow) • ±$1500 • 30 accounts • signals/day 5.0 taken/day 3.4 • ROI 1.92 / 1.86 • net/yr 16,819 • low -6,720 • pass 29% • paid 63/204 • months 47/25
+VWAP CROSS (follow) • ±$1500 • 50 accounts • signals/day 5.0 taken/day 3.4 • ROI 1.30 / 1.53 • net/yr 11,307 • low -15,143 • pass 30% • paid 54/215 • months 42/31
+VWAP CROSS (follow) • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 5.0 taken/day 1.9 • ROI 1.76 / 1.86 • net/yr 7,908 • low -3,240 • pass 30% • paid 33/124 • months 42/31
+VWAP CROSS (follow) • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 5.0 taken/day 1.9 • ROI 2.14 / 1.86 • net/yr 9,507 • low -4,080 • pass 30% • paid 33/127 • months 44/28
+EXHAUSTION: 5 candles one way (fade) • ±$500 • 10 accounts • signals/day 8.1 taken/day 7.3 • ROI 1.18 / 0.46 • net/yr -1,047 • low -7,417 • pass 18% • paid 48/101 • months 26/47
+EXHAUSTION: 5 candles one way (fade) • ±$500 • 15 accounts • signals/day 8.1 taken/day 7.4 • ROI 0.85 / 1.01 • net/yr -281 • low -10,086 • pass 18% • paid 64/106 • months 32/41
+EXHAUSTION: 5 candles one way (fade) • ±$500 • 20 accounts • signals/day 8.1 taken/day 7.4 • ROI 0.66 / 0.80 • net/yr -2,649 • low -22,397 • pass 20% • paid 57/116 • months 26/46
+EXHAUSTION: 5 candles one way (fade) • ±$500 • 30 accounts • signals/day 8.1 taken/day 7.4 • ROI 0.77 / 0.83 • net/yr -1,886 • low -17,894 • pass 18% • paid 51/105 • months 29/44
+EXHAUSTION: 5 candles one way (fade) • ±$500 • 50 accounts • signals/day 8.1 taken/day 7.4 • ROI 0.59 / 0.73 • net/yr -3,384 • low -28,168 • pass 17% • paid 51/102 • months 22/51
+EXHAUSTION: 5 candles one way (fade) • ±$500 • 10 accounts • ONE AT A TIME • signals/day 8.1 taken/day 6.7 • ROI 0.79 / 0.91 • net/yr -1,174 • low -17,053 • pass 18% • paid 52/91 • months 29/44
+EXHAUSTION: 5 candles one way (fade) • ±$500 • 15 accounts • ONE AT A TIME • signals/day 8.1 taken/day 6.8 • ROI 0.56 / 0.88 • net/yr -2,322 • low -22,115 • pass 17% • paid 50/90 • months 18/54
+EXHAUSTION: 5 candles one way (fade) • ±$750 • 10 accounts • signals/day 8.1 taken/day 6.7 • ROI 1.29 / 1.95 • net/yr 11,089 • low -12,273 • pass 24% • paid 84/195 • months 42/31
+EXHAUSTION: 5 candles one way (fade) • ±$750 • 15 accounts • signals/day 8.1 taken/day 6.8 • ROI 0.94 / 1.82 • net/yr 6,754 • low -7,309 • pass 25% • paid 91/202 • months 40/33
+EXHAUSTION: 5 candles one way (fade) • ±$750 • 20 accounts • signals/day 8.1 taken/day 6.8 • ROI 1.41 / 1.66 • net/yr 11,244 • low -12,036 • pass 25% • paid 97/202 • months 46/27
+EXHAUSTION: 5 candles one way (fade) • ±$750 • 30 accounts • signals/day 8.1 taken/day 6.8 • ROI 1.23 / 1.48 • net/yr 8,104 • low -13,588 • pass 25% • paid 90/201 • months 41/32
+EXHAUSTION: 5 candles one way (fade) • ±$750 • 50 accounts • signals/day 8.1 taken/day 6.8 • ROI 1.17 / 1.31 • net/yr 7,784 • low -14,961 • pass 24% • paid 77/204 • months 46/27
+EXHAUSTION: 5 candles one way (fade) • ±$750 • 10 accounts • ONE AT A TIME • signals/day 8.1 taken/day 5.5 • ROI 1.81 / 1.70 • net/yr 10,266 • low -5,640 • pass 24% • paid 81/153 • months 45/27
+EXHAUSTION: 5 candles one way (fade) • ±$750 • 15 accounts • ONE AT A TIME • signals/day 8.1 taken/day 5.6 • ROI 1.67 / 1.74 • net/yr 10,502 • low -5,260 • pass 25% • paid 72/163 • months 44/29
+EXHAUSTION: 5 candles one way (fade) • ±$1000 • 10 accounts • signals/day 8.1 taken/day 6.2 • ROI 1.38 / 1.44 • net/yr 11,259 • low -3,960 • pass 24% • paid 80/291 • months 45/28
+EXHAUSTION: 5 candles one way (fade) • ±$1000 • 15 accounts • signals/day 8.1 taken/day 6.3 • ROI 0.95 / 1.22 • net/yr 4,116 • low -19,232 • pass 24% • paid 78/288 • months 37/36
+EXHAUSTION: 5 candles one way (fade) • ±$1000 • 20 accounts • signals/day 8.1 taken/day 6.3 • ROI 1.04 / 1.48 • net/yr 8,469 • low -13,259 • pass 24% • paid 83/291 • months 35/37
+EXHAUSTION: 5 candles one way (fade) • ±$1000 • 30 accounts • signals/day 8.1 taken/day 6.3 • ROI 1.18 / 1.15 • net/yr 6,365 • low -11,724 • pass 24% • paid 80/293 • months 37/35
+EXHAUSTION: 5 candles one way (fade) • ±$1000 • 50 accounts • signals/day 8.1 taken/day 6.3 • ROI 0.91 / 0.91 • net/yr 1,089 • low -14,233 • pass 24% • paid 72/297 • months 39/33
+EXHAUSTION: 5 candles one way (fade) • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 8.1 taken/day 4.5 • ROI 1.53 / 1.63 • net/yr 11,549 • low -8,283 • pass 21% • paid 55/197 • months 45/27
+EXHAUSTION: 5 candles one way (fade) • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 8.1 taken/day 4.5 • ROI 1.16 / 1.23 • net/yr 5,372 • low -6,352 • pass 22% • paid 59/208 • months 42/30
+EXHAUSTION: 5 candles one way (fade) • ±$1500 • 10 accounts • signals/day 8.1 taken/day 5.5 • ROI 2.12 / 2.48 • net/yr 31,695 • low -2,400 • pass 30% • paid 104/333 • months 55/17
+EXHAUSTION: 5 candles one way (fade) • ±$1500 • 15 accounts • signals/day 8.1 taken/day 5.5 • ROI 1.78 / 2.15 • net/yr 23,682 • low -3,000 • pass 32% • paid 103/347 • months 48/22
+EXHAUSTION: 5 candles one way (fade) • ±$1500 • 20 accounts • signals/day 8.1 taken/day 5.5 • ROI 1.94 / 1.99 • net/yr 27,306 • low -3,960 • pass 32% • paid 101/358 • months 50/22
+EXHAUSTION: 5 candles one way (fade) • ±$1500 • 30 accounts • signals/day 8.1 taken/day 5.5 • ROI 1.54 / 1.90 • net/yr 21,165 • low -6,515 • pass 33% • paid 97/378 • months 49/24
+EXHAUSTION: 5 candles one way (fade) • ±$1500 • 50 accounts • signals/day 8.1 taken/day 5.5 • ROI 1.85 / 1.62 • net/yr 24,436 • low -10,320 • pass 30% • paid 97/345 • months 50/22
+EXHAUSTION: 5 candles one way (fade) • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 8.1 taken/day 3.2 • ROI 2.50 / 1.95 • net/yr 18,292 • low -3,557 • pass 35% • paid 64/225 • months 59/14
+EXHAUSTION: 5 candles one way (fade) • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 8.1 taken/day 3.2 • ROI 2.49 / 1.68 • net/yr 16,905 • low -6,448 • pass 32% • paid 53/219 • months 48/25
+BIG CANDLE (fade) • ±$500 • 10 accounts • signals/day 4.5 taken/day 4.2 • ROI 0.91 / 1.05 • net/yr 149 • low -8,532 • pass 18% • paid 38/61 • months 25/46
+BIG CANDLE (fade) • ±$500 • 15 accounts • signals/day 4.5 taken/day 4.2 • ROI 1.14 / 1.17 • net/yr 1,626 • low -6,647 • pass 16% • paid 33/52 • months 33/39
+BIG CANDLE (fade) • ±$500 • 20 accounts • signals/day 4.5 taken/day 4.2 • ROI 0.74 / 1.46 • net/yr 899 • low -11,203 • pass 18% • paid 36/57 • months 33/38
+BIG CANDLE (fade) • ±$500 • 30 accounts • signals/day 4.5 taken/day 4.2 • ROI 1.26 / 0.96 • net/yr 1,987 • low -6,701 • pass 17% • paid 37/57 • months 34/38
+BIG CANDLE (fade) • ±$500 • 50 accounts • signals/day 4.5 taken/day 4.2 • ROI 0.84 / 0.55 • net/yr -894 • low -11,632 • pass 17% • paid 34/61 • months 26/45
+BIG CANDLE (fade) • ±$500 • 10 accounts • ONE AT A TIME • signals/day 4.5 taken/day 4.0 • ROI 0.74 / 1.58 • net/yr 1,173 • low -9,863 • pass 19% • paid 37/57 • months 30/42
+BIG CANDLE (fade) • ±$500 • 15 accounts • ONE AT A TIME • signals/day 4.5 taken/day 4.0 • ROI 0.93 / 0.74 • net/yr -501 • low -7,193 • pass 18% • paid 31/55 • months 28/45
+BIG CANDLE (fade) • ±$750 • 10 accounts • signals/day 4.5 taken/day 4.0 • ROI 1.32 / 1.76 • net/yr 5,738 • low -5,567 • pass 24% • paid 45/115 • months 40/32
+BIG CANDLE (fade) • ±$750 • 15 accounts • signals/day 4.5 taken/day 4.0 • ROI 1.37 / 1.38 • net/yr 4,231 • low -5,004 • pass 25% • paid 54/118 • months 44/28
+BIG CANDLE (fade) • ±$750 • 20 accounts • signals/day 4.5 taken/day 4.0 • ROI 1.46 / 1.37 • net/yr 4,653 • low -6,600 • pass 24% • paid 54/115 • months 39/34
+BIG CANDLE (fade) • ±$750 • 30 accounts • signals/day 4.5 taken/day 4.0 • ROI 1.15 / 1.35 • net/yr 3,294 • low -8,418 • pass 25% • paid 54/122 • months 33/40
+BIG CANDLE (fade) • ±$750 • 50 accounts • signals/day 4.5 taken/day 4.0 • ROI 0.87 / 0.75 • net/yr -794 • low -12,553 • pass 23% • paid 46/120 • months 29/43
+BIG CANDLE (fade) • ±$750 • 10 accounts • ONE AT A TIME • signals/day 4.5 taken/day 3.4 • ROI 1.81 / 1.29 • net/yr 4,927 • low -4,440 • pass 23% • paid 45/94 • months 39/33
+BIG CANDLE (fade) • ±$750 • 15 accounts • ONE AT A TIME • signals/day 4.5 taken/day 3.4 • ROI 1.71 / 1.40 • net/yr 5,152 • low -5,160 • pass 22% • paid 46/88 • months 36/37
+BIG CANDLE (fade) • ±$1000 • 10 accounts • signals/day 4.5 taken/day 3.8 • ROI 1.08 / 1.63 • net/yr 5,818 • low -6,964 • pass 25% • paid 61/175 • months 40/32
+BIG CANDLE (fade) • ±$1000 • 15 accounts • signals/day 4.5 taken/day 3.8 • ROI 1.34 / 1.28 • net/yr 4,885 • low -8,829 • pass 25% • paid 48/177 • months 38/35
+BIG CANDLE (fade) • ±$1000 • 20 accounts • signals/day 4.5 taken/day 3.8 • ROI 1.30 / 1.15 • net/yr 4,961 • low -20,139 • pass 25% • paid 46/176 • months 32/41
+BIG CANDLE (fade) • ±$1000 • 30 accounts • signals/day 4.5 taken/day 3.8 • ROI 1.09 / 1.07 • net/yr 3,150 • low -13,669 • pass 24% • paid 46/169 • months 36/35
+BIG CANDLE (fade) • ±$1000 • 50 accounts • signals/day 4.5 taken/day 3.8 • ROI 1.04 / 0.80 • net/yr 2,563 • low -22,356 • pass 23% • paid 43/170 • months 39/32
+BIG CANDLE (fade) • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 4.5 taken/day 2.9 • ROI 1.71 / 1.36 • net/yr 6,797 • low -4,217 • pass 24% • paid 49/132 • months 43/29
+BIG CANDLE (fade) • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 4.5 taken/day 2.9 • ROI 1.40 / 1.31 • net/yr 4,751 • low -6,480 • pass 23% • paid 43/124 • months 34/39
+BIG CANDLE (fade) • ±$1500 • 10 accounts • signals/day 4.5 taken/day 3.4 • ROI 1.86 / 2.16 • net/yr 13,488 • low -2,400 • pass 33% • paid 61/216 • months 41/31
+BIG CANDLE (fade) • ±$1500 • 15 accounts • signals/day 4.5 taken/day 3.4 • ROI 2.04 / 2.23 • net/yr 16,135 • low -5,880 • pass 32% • paid 63/204 • months 53/18
+BIG CANDLE (fade) • ±$1500 • 20 accounts • signals/day 4.5 taken/day 3.4 • ROI 2.11 / 2.08 • net/yr 16,082 • low -7,009 • pass 32% • paid 60/213 • months 50/21
+BIG CANDLE (fade) • ±$1500 • 30 accounts • signals/day 4.5 taken/day 3.4 • ROI 2.39 / 1.58 • net/yr 15,638 • low -8,160 • pass 32% • paid 59/214 • months 48/24
+BIG CANDLE (fade) • ±$1500 • 50 accounts • signals/day 4.5 taken/day 3.4 • ROI 1.80 / 1.88 • net/yr 18,357 • low -10,920 • pass 29% • paid 62/203 • months 49/23
+BIG CANDLE (fade) • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 4.5 taken/day 2.1 • ROI 2.05 / 2.14 • net/yr 10,903 • low -3,960 • pass 31% • paid 37/140 • months 44/29
+BIG CANDLE (fade) • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 4.5 taken/day 2.1 • ROI 1.81 / 2.46 • net/yr 12,084 • low -4,200 • pass 30% • paid 43/132 • months 44/28
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$500 • 10 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.53 / 2.47 • net/yr 1,639 • low -2,569 • pass 27% • paid 13/18 • months 23/28
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$500 • 15 accounts • signals/day 0.9 taken/day 0.9 • ROI 1.38 / 0.97 • net/yr 1,843 • low -2,760 • pass 25% • paid 15/17 • months 22/30
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$500 • 20 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.47 / 1.54 • net/yr 1,220 • low -3,840 • pass 25% • paid 15/17 • months 18/25
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$500 • 30 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.23 / 0.38 • net/yr -249 • low -6,074 • pass 26% • paid 11/21 • months 12/34
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$500 • 50 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.00 / 0.00 • net/yr -1,228 • low -9,220 • pass 18% • paid 6/17 • months 6/31
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$500 • 10 accounts • ONE AT A TIME • signals/day 0.9 taken/day 0.9 • ROI 0.53 / 2.47 • net/yr 1,639 • low -2,569 • pass 27% • paid 13/18 • months 23/28
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$500 • 15 accounts • ONE AT A TIME • signals/day 0.9 taken/day 0.9 • ROI 1.38 / 0.97 • net/yr 1,843 • low -2,760 • pass 25% • paid 15/17 • months 22/30
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$750 • 10 accounts • signals/day 0.9 taken/day 0.9 • ROI 1.70 / 3.11 • net/yr 3,839 • low -2,040 • pass 30% • paid 16/28 • months 23/35
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$750 • 15 accounts • signals/day 0.9 taken/day 0.9 • ROI 1.76 / 1.78 • net/yr 3,753 • low -3,120 • pass 31% • paid 16/35 • months 25/38
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$750 • 20 accounts • signals/day 0.9 taken/day 0.9 • ROI 1.51 / 1.38 • net/yr 2,081 • low -3,960 • pass 29% • paid 16/32 • months 25/34
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$750 • 30 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.90 / 0.84 • net/yr 2,359 • low -6,000 • pass 28% • paid 16/33 • months 22/34
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$750 • 50 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.19 / 0.00 • net/yr -803 • low -10,800 • pass 25% • paid 8/35 • months 10/46
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$750 • 10 accounts • ONE AT A TIME • signals/day 0.9 taken/day 0.9 • ROI 1.70 / 3.11 • net/yr 3,839 • low -2,040 • pass 30% • paid 16/28 • months 23/35
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$750 • 15 accounts • ONE AT A TIME • signals/day 0.9 taken/day 0.9 • ROI 1.76 / 1.78 • net/yr 3,753 • low -3,120 • pass 31% • paid 16/35 • months 25/38
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1000 • 10 accounts • signals/day 0.9 taken/day 0.9 • ROI 1.07 / 1.28 • net/yr 1,216 • low -3,600 • pass 22% • paid 13/44 • months 19/50
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1000 • 15 accounts • signals/day 0.9 taken/day 0.9 • ROI 1.13 / 0.91 • net/yr 2,601 • low -4,080 • pass 22% • paid 13/44 • months 25/42
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1000 • 20 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.91 / 0.53 • net/yr 93 • low -6,648 • pass 24% • paid 10/51 • months 17/52
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1000 • 30 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.48 / 0.49 • net/yr -999 • low -11,981 • pass 24% • paid 12/53 • months 14/56
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1000 • 50 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.20 / 0.21 • net/yr -2,275 • low -18,703 • pass 21% • paid 9/48 • months 9/56
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 0.9 taken/day 0.9 • ROI 1.07 / 1.28 • net/yr 1,216 • low -3,600 • pass 22% • paid 13/44 • months 19/50
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 0.9 taken/day 0.9 • ROI 1.13 / 0.91 • net/yr 2,601 • low -4,080 • pass 22% • paid 13/44 • months 25/42
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1500 • 10 accounts • signals/day 0.9 taken/day 0.9 • ROI 1.13 / 2.22 • net/yr 3,052 • low -4,233 • pass 30% • paid 13/64 • months 21/49
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1500 • 15 accounts • signals/day 0.9 taken/day 0.9 • ROI 1.07 / 1.52 • net/yr 2,444 • low -3,840 • pass 32% • paid 16/70 • months 19/52
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1500 • 20 accounts • signals/day 0.9 taken/day 0.9 • ROI 1.13 / 0.71 • net/yr 1,279 • low -6,480 • pass 30% • paid 15/65 • months 16/57
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1500 • 30 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.77 / 0.64 • net/yr -37 • low -9,605 • pass 28% • paid 13/66 • months 14/52
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1500 • 50 accounts • signals/day 0.9 taken/day 0.9 • ROI 0.69 / 0.47 • net/yr -345 • low -13,560 • pass 25% • paid 16/64 • months 17/52
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 0.9 taken/day 0.9 • ROI 1.13 / 2.22 • net/yr 3,052 • low -4,233 • pass 30% • paid 13/64 • months 21/49
+PREVIOUS DAY HIGH / LOW BREAK (follow) • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 0.9 taken/day 0.9 • ROI 1.07 / 1.52 • net/yr 2,444 • low -3,840 • pass 32% • paid 16/70 • months 19/52
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$500 • 10 accounts • signals/day 21.8 taken/day 9.9 • ROI 1.77 / 1.46 • net/yr 8,823 • low -6,250 • pass 24% • paid 100/165 • months 38/35
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$500 • 15 accounts • signals/day 21.8 taken/day 14.5 • ROI 1.95 / 1.54 • net/yr 15,381 • low -3,378 • pass 27% • paid 153/270 • months 44/29
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$500 • 20 accounts • signals/day 21.8 taken/day 17.9 • ROI 1.99 / 1.43 • net/yr 19,708 • low -4,472 • pass 24% • paid 198/293 • months 50/23
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$500 • 30 accounts • signals/day 21.8 taken/day 20.3 • ROI 1.76 / 1.39 • net/yr 18,372 • low -6,240 • pass 24% • paid 209/331 • months 53/20
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$500 • 50 accounts • signals/day 21.8 taken/day 20.4 • ROI 1.74 / 1.35 • net/yr 17,387 • low -11,698 • pass 23% • paid 199/335 • months 55/18
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$500 • 10 accounts • ONE AT A TIME • signals/day 21.8 taken/day 8.9 • ROI 1.54 / 1.46 • net/yr 7,013 • low -1,680 • pass 26% • paid 93/156 • months 37/36
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$500 • 15 accounts • ONE AT A TIME • signals/day 21.8 taken/day 11.0 • ROI 1.43 / 1.71 • net/yr 10,197 • low -3,428 • pass 25% • paid 113/193 • months 49/24
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$750 • 10 accounts • signals/day 21.8 taken/day 9.9 • ROI 1.84 / 1.29 • net/yr 13,193 • low -4,118 • pass 29% • paid 140/314 • months 40/33
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$750 • 15 accounts • signals/day 21.8 taken/day 14.0 • ROI 2.16 / 1.39 • net/yr 25,198 • low -4,253 • pass 30% • paid 208/461 • months 47/26
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$750 • 20 accounts • signals/day 21.8 taken/day 16.8 • ROI 2.50 / 1.73 • net/yr 42,786 • low -5,760 • pass 30% • paid 245/543 • months 56/17
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$750 • 30 accounts • signals/day 21.8 taken/day 18.5 • ROI 2.48 / 1.35 • net/yr 38,481 • low -7,670 • pass 29% • paid 272/592 • months 51/22
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$750 • 50 accounts • signals/day 21.8 taken/day 18.6 • ROI 2.45 / 1.66 • net/yr 47,080 • low -13,594 • pass 28% • paid 281/573 • months 60/13
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$750 • 10 accounts • ONE AT A TIME • signals/day 21.8 taken/day 7.1 • ROI 2.23 / 1.99 • net/yr 17,639 • low -3,694 • pass 30% • paid 110/232 • months 54/19
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$750 • 15 accounts • ONE AT A TIME • signals/day 21.8 taken/day 8.0 • ROI 2.30 / 1.92 • net/yr 21,420 • low -4,322 • pass 28% • paid 126/250 • months 58/15
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1000 • 10 accounts • signals/day 21.8 taken/day 9.8 • ROI 1.58 / 1.41 • net/yr 19,515 • low -4,107 • pass 25% • paid 150/466 • months 43/30
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1000 • 15 accounts • signals/day 21.8 taken/day 13.5 • ROI 2.04 / 1.59 • net/yr 42,354 • low -6,700 • pass 26% • paid 210/631 • months 50/23
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1000 • 20 accounts • signals/day 21.8 taken/day 15.7 • ROI 1.88 / 1.32 • net/yr 37,648 • low -10,729 • pass 26% • paid 236/761 • months 46/27
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1000 • 30 accounts • signals/day 21.8 taken/day 16.9 • ROI 2.12 / 1.48 • net/yr 51,628 • low -7,440 • pass 25% • paid 263/780 • months 51/22
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1000 • 50 accounts • signals/day 21.8 taken/day 17.0 • ROI 2.12 / 1.22 • net/yr 45,001 • low -18,613 • pass 26% • paid 258/804 • months 52/21
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 21.8 taken/day 5.5 • ROI 2.01 / 1.35 • net/yr 15,684 • low -3,240 • pass 27% • paid 85/287 • months 44/29
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 21.8 taken/day 5.9 • ROI 2.12 / 1.51 • net/yr 21,100 • low -3,758 • pass 25% • paid 92/281 • months 48/25
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1500 • 10 accounts • signals/day 21.8 taken/day 9.6 • ROI 4.07 / 3.43 • net/yr 92,084 • low -1,560 • pass 36% • paid 208/584 • months 58/15
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1500 • 15 accounts • signals/day 21.8 taken/day 12.8 • ROI 3.98 / 2.76 • net/yr 106,543 • low -8,516 • pass 35% • paid 273/788 • months 60/13
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1500 • 20 accounts • signals/day 21.8 taken/day 14.3 • ROI 3.93 / 2.49 • net/yr 108,287 • low -3,600 • pass 37% • paid 285/897 • months 58/15
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1500 • 30 accounts • signals/day 21.8 taken/day 15.0 • ROI 3.97 / 2.86 • net/yr 131,699 • low -7,800 • pass 33% • paid 299/893 • months 64/9
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1500 • 50 accounts • signals/day 21.8 taken/day 15.0 • ROI 3.68 / 2.69 • net/yr 120,926 • low -15,095 • pass 35% • paid 320/938 • months 62/11
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 21.8 taken/day 3.5 • ROI 3.42 / 3.33 • net/yr 31,837 • low -2,520 • pass 38% • paid 73/245 • months 58/14
+1-MIN FVG 10% + WITH THE 30-MIN TREND • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 21.8 taken/day 3.6 • ROI 3.58 / 3.19 • net/yr 34,632 • low -3,840 • pass 36% • paid 86/241 • months 63/10
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$500 • 10 accounts • signals/day 27.2 taken/day 10.0 • ROI 1.68 / 1.24 • net/yr 6,803 • low -6,671 • pass 25% • paid 106/169 • months 36/37
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$500 • 15 accounts • signals/day 27.2 taken/day 14.9 • ROI 1.54 / 1.41 • net/yr 10,715 • low -5,630 • pass 25% • paid 170/253 • months 45/28
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$500 • 20 accounts • signals/day 27.2 taken/day 19.5 • ROI 1.74 / 1.20 • net/yr 15,389 • low -8,668 • pass 24% • paid 213/316 • months 45/28
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$500 • 30 accounts • signals/day 27.2 taken/day 24.6 • ROI 1.60 / 1.19 • net/yr 15,626 • low -12,249 • pass 24% • paid 266/406 • months 45/28
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$500 • 50 accounts • signals/day 27.2 taken/day 25.4 • ROI 1.68 / 1.20 • net/yr 18,093 • low -18,467 • pass 24% • paid 256/421 • months 51/22
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$500 • 10 accounts • ONE AT A TIME • signals/day 27.2 taken/day 9.5 • ROI 1.82 / 1.74 • net/yr 10,501 • low -1,773 • pass 28% • paid 114/171 • months 48/24
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$500 • 15 accounts • ONE AT A TIME • signals/day 27.2 taken/day 12.7 • ROI 1.68 / 2.01 • net/yr 15,295 • low -3,692 • pass 27% • paid 148/223 • months 51/22
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$750 • 10 accounts • signals/day 27.2 taken/day 10.0 • ROI 1.92 / 1.79 • net/yr 20,312 • low -2,400 • pass 30% • paid 152/330 • months 45/27
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$750 • 15 accounts • signals/day 27.2 taken/day 14.9 • ROI 2.29 / 1.91 • net/yr 39,018 • low -4,102 • pass 31% • paid 221/494 • months 53/20
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$750 • 20 accounts • signals/day 27.2 taken/day 19.2 • ROI 2.53 / 2.04 • net/yr 58,305 • low -6,033 • pass 29% • paid 302/606 • months 60/13
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$750 • 30 accounts • signals/day 27.2 taken/day 23.5 • ROI 2.49 / 1.69 • net/yr 60,153 • low -5,520 • pass 28% • paid 334/720 • months 57/16
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$750 • 50 accounts • signals/day 27.2 taken/day 24.1 • ROI 2.78 / 1.59 • net/yr 68,357 • low -17,372 • pass 28% • paid 379/755 • months 63/10
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$750 • 10 accounts • ONE AT A TIME • signals/day 27.2 taken/day 8.2 • ROI 2.33 / 1.81 • net/yr 20,394 • low -2,402 • pass 33% • paid 138/283 • months 54/19
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$750 • 15 accounts • ONE AT A TIME • signals/day 27.2 taken/day 9.8 • ROI 2.54 / 2.04 • net/yr 29,876 • low -3,000 • pass 30% • paid 155/320 • months 59/14
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1000 • 10 accounts • signals/day 27.2 taken/day 10.0 • ROI 1.56 / 2.06 • net/yr 32,344 • low -2,160 • pass 27% • paid 167/507 • months 50/23
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1000 • 15 accounts • signals/day 27.2 taken/day 14.7 • ROI 1.97 / 2.11 • net/yr 57,955 • low -3,000 • pass 28% • paid 254/712 • months 51/22
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1000 • 20 accounts • signals/day 27.2 taken/day 18.7 • ROI 2.33 / 2.07 • net/yr 83,801 • low -4,560 • pass 27% • paid 324/883 • months 57/16
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1000 • 30 accounts • signals/day 27.2 taken/day 22.5 • ROI 2.35 / 1.59 • net/yr 81,556 • low -8,215 • pass 27% • paid 349/1097 • months 52/21
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1000 • 50 accounts • signals/day 27.2 taken/day 22.9 • ROI 2.37 / 1.67 • net/yr 89,503 • low -15,147 • pass 27% • paid 399/1096 • months 58/15
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 27.2 taken/day 6.6 • ROI 1.74 / 2.10 • net/yr 24,975 • low -6,368 • pass 27% • paid 98/337 • months 56/17
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 27.2 taken/day 7.4 • ROI 1.92 / 2.28 • net/yr 33,322 • low -4,521 • pass 26% • paid 124/365 • months 57/15
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1500 • 10 accounts • signals/day 27.2 taken/day 9.9 • ROI 3.93 / 4.01 • net/yr 105,455 • low -2,040 • pass 37% • paid 202/631 • months 61/12
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1500 • 15 accounts • signals/day 27.2 taken/day 14.3 • ROI 4.55 / 3.26 • net/yr 144,861 • low -3,360 • pass 37% • paid 315/885 • months 61/12
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1500 • 20 accounts • signals/day 27.2 taken/day 17.8 • ROI 4.57 / 3.24 • net/yr 175,923 • low -11,565 • pass 37% • paid 375/1089 • months 61/12
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1500 • 30 accounts • signals/day 27.2 taken/day 20.6 • ROI 4.93 / 2.75 • net/yr 201,550 • low -6,840 • pass 36% • paid 434/1253 • months 63/10
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1500 • 50 accounts • signals/day 27.2 taken/day 20.9 • ROI 4.73 / 2.78 • net/yr 201,228 • low -15,596 • pass 36% • paid 467/1301 • months 65/8
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 27.2 taken/day 4.4 • ROI 4.44 / 4.10 • net/yr 54,142 • low -3,484 • pass 34% • paid 97/266 • months 65/8
+1-MIN FVG 10% + ON THE VWAP SIDE • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 27.2 taken/day 4.6 • ROI 3.39 / 3.44 • net/yr 45,852 • low -6,000 • pass 36% • paid 101/308 • months 61/12
+1-MIN FVG 10% + TREND + VWAP • ±$500 • 10 accounts • signals/day 17.3 taken/day 9.9 • ROI 1.49 / 1.43 • net/yr 6,413 • low -6,480 • pass 24% • paid 101/161 • months 39/34
+1-MIN FVG 10% + TREND + VWAP • ±$500 • 15 accounts • signals/day 17.3 taken/day 13.9 • ROI 1.53 / 1.62 • net/yr 11,904 • low -4,970 • pass 25% • paid 143/242 • months 40/33
+1-MIN FVG 10% + TREND + VWAP • ±$500 • 20 accounts • signals/day 17.3 taken/day 16.1 • ROI 1.99 / 1.47 • net/yr 18,313 • low -4,079 • pass 25% • paid 176/277 • months 45/28
+1-MIN FVG 10% + TREND + VWAP • ±$500 • 30 accounts • signals/day 17.3 taken/day 17.0 • ROI 1.70 / 1.44 • net/yr 16,003 • low -7,451 • pass 24% • paid 180/282 • months 51/22
+1-MIN FVG 10% + TREND + VWAP • ±$500 • 50 accounts • signals/day 17.3 taken/day 17.0 • ROI 1.83 / 1.37 • net/yr 16,401 • low -10,677 • pass 24% • paid 179/286 • months 54/19
+1-MIN FVG 10% + TREND + VWAP • ±$500 • 10 accounts • ONE AT A TIME • signals/day 17.3 taken/day 8.3 • ROI 1.57 / 1.86 • net/yr 8,481 • low -2,160 • pass 26% • paid 98/142 • months 45/28
+1-MIN FVG 10% + TREND + VWAP • ±$500 • 15 accounts • ONE AT A TIME • signals/day 17.3 taken/day 9.6 • ROI 1.67 / 1.47 • net/yr 8,465 • low -3,345 • pass 26% • paid 99/164 • months 41/32
+1-MIN FVG 10% + TREND + VWAP • ±$750 • 10 accounts • signals/day 17.3 taken/day 9.8 • ROI 1.75 / 1.42 • net/yr 13,685 • low -6,291 • pass 29% • paid 143/315 • months 45/28
+1-MIN FVG 10% + TREND + VWAP • ±$750 • 15 accounts • signals/day 17.3 taken/day 13.6 • ROI 2.30 / 1.72 • net/yr 32,043 • low -8,159 • pass 28% • paid 205/423 • months 51/22
+1-MIN FVG 10% + TREND + VWAP • ±$750 • 20 accounts • signals/day 17.3 taken/day 15.6 • ROI 2.77 / 1.98 • net/yr 47,514 • low -5,388 • pass 28% • paid 239/464 • months 58/15
+1-MIN FVG 10% + TREND + VWAP • ±$750 • 30 accounts • signals/day 17.3 taken/day 16.4 • ROI 2.29 / 1.73 • net/yr 40,556 • low -13,630 • pass 29% • paid 250/530 • months 53/20
+1-MIN FVG 10% + TREND + VWAP • ±$750 • 50 accounts • signals/day 17.3 taken/day 16.4 • ROI 2.45 / 1.57 • net/yr 40,238 • low -14,608 • pass 26% • paid 243/468 • months 59/14
+1-MIN FVG 10% + TREND + VWAP • ±$750 • 10 accounts • ONE AT A TIME • signals/day 17.3 taken/day 6.6 • ROI 2.17 / 1.72 • net/yr 13,954 • low -3,716 • pass 30% • paid 99/214 • months 48/25
+1-MIN FVG 10% + TREND + VWAP • ±$750 • 15 accounts • ONE AT A TIME • signals/day 17.3 taken/day 7.1 • ROI 2.21 / 2.00 • net/yr 18,568 • low -3,600 • pass 29% • paid 107/226 • months 53/20
+1-MIN FVG 10% + TREND + VWAP • ±$1000 • 10 accounts • signals/day 17.3 taken/day 9.7 • ROI 1.58 / 1.57 • net/yr 22,998 • low -7,403 • pass 25% • paid 143/462 • months 37/36
+1-MIN FVG 10% + TREND + VWAP • ±$1000 • 15 accounts • signals/day 17.3 taken/day 13.3 • ROI 2.27 / 1.61 • net/yr 47,079 • low -9,140 • pass 26% • paid 214/623 • months 52/21
+1-MIN FVG 10% + TREND + VWAP • ±$1000 • 20 accounts • signals/day 17.3 taken/day 15.0 • ROI 2.69 / 1.35 • net/yr 53,834 • low -12,934 • pass 26% • paid 227/680 • months 48/25
+1-MIN FVG 10% + TREND + VWAP • ±$1000 • 30 accounts • signals/day 17.3 taken/day 15.7 • ROI 2.47 / 1.72 • net/yr 62,633 • low -13,124 • pass 25% • paid 229/700 • months 50/23
+1-MIN FVG 10% + TREND + VWAP • ±$1000 • 50 accounts • signals/day 17.3 taken/day 15.7 • ROI 2.19 / 1.25 • net/yr 43,858 • low -13,485 • pass 26% • paid 221/716 • months 54/19
+1-MIN FVG 10% + TREND + VWAP • ±$1000 • 10 accounts • ONE AT A TIME • signals/day 17.3 taken/day 5.1 • ROI 2.18 / 2.04 • net/yr 22,376 • low -3,115 • pass 26% • paid 91/249 • months 55/18
+1-MIN FVG 10% + TREND + VWAP • ±$1000 • 15 accounts • ONE AT A TIME • signals/day 17.3 taken/day 5.4 • ROI 2.20 / 1.97 • net/yr 23,105 • low -6,422 • pass 26% • paid 84/261 • months 52/21
+1-MIN FVG 10% + TREND + VWAP • ±$1500 • 10 accounts • signals/day 17.3 taken/day 9.5 • ROI 3.93 / 3.24 • net/yr 86,767 • low -1,560 • pass 36% • paid 201/596 • months 53/19
+1-MIN FVG 10% + TREND + VWAP • ±$1500 • 15 accounts • signals/day 17.3 taken/day 12.5 • ROI 4.46 / 2.96 • net/yr 113,079 • low -9,717 • pass 36% • paid 272/746 • months 56/17
+1-MIN FVG 10% + TREND + VWAP • ±$1500 • 20 accounts • signals/day 17.3 taken/day 13.9 • ROI 4.55 / 2.85 • net/yr 126,365 • low -8,821 • pass 36% • paid 285/842 • months 59/14
+1-MIN FVG 10% + TREND + VWAP • ±$1500 • 30 accounts • signals/day 17.3 taken/day 14.4 • ROI 4.50 / 3.05 • net/yr 138,702 • low -6,120 • pass 35% • paid 324/850 • months 65/8
+1-MIN FVG 10% + TREND + VWAP • ±$1500 • 50 accounts • signals/day 17.3 taken/day 14.4 • ROI 4.24 / 2.84 • net/yr 128,483 • low -17,640 • pass 35% • paid 322/858 • months 62/11
+1-MIN FVG 10% + TREND + VWAP • ±$1500 • 10 accounts • ONE AT A TIME • signals/day 17.3 taken/day 3.4 • ROI 3.76 / 3.45 • net/yr 33,159 • low -2,880 • pass 37% • paid 73/225 • months 61/12
+1-MIN FVG 10% + TREND + VWAP • ±$1500 • 15 accounts • ONE AT A TIME • signals/day 17.3 taken/day 3.4 • ROI 4.15 / 3.48 • net/yr 37,358 • low -4,800 • pass 35% • paid 75/219 • months 57/16

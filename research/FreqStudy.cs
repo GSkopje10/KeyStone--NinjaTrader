@@ -35,8 +35,8 @@ public static class FreqStudy
     static int SlotOf(int hhmm) { return R.S(hhmm / 100, hhmm % 100); }
 
     // one trade from entry slot k0 at price e, side d → $ (net of costs)
-    static int lastExit; public static double lastMfe;
-    static double Walk(RDay x, int k0, double e, int d, double tgtPts, double stpPts, int flat, bool limitBar)
+    public static int lastExit; public static double lastMfe;
+    public static double Walk(RDay x, int k0, double e, int d, double tgtPts, double stpPts, int flat, bool limitBar)
     {
         lastExit = k0; lastMfe = -KeystoneMoveStudy.Cost("MNQ") * Q;
         double stop = e - d * stpPts, tgt = e + d * tgtPts, cost = KeystoneMoveStudy.Cost("MNQ") * Q;
