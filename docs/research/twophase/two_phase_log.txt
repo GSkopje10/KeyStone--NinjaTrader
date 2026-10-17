@@ -1,0 +1,23 @@
+392 plans in 16 s
+== ROTATE (best by the worse period)
+  EVAL MOMENTUM 15M ±$1,500 • 09:30–15:00 → FUNDED FVG RETRACE ±$1,500 • 09:30–11:30 • ROI 4.07 / 3.56 • net/yr 26,380 • low -6,000 • pass 33% paid 54/149
+  EVAL FVG RETRACE ±$1,500 • 09:30–11:30 → FUNDED FVG RETRACE ±$1,500 • 09:30–15:00 • ROI 3.17 / 3.21 • net/yr 22,658 • low -6,000 • pass 33% paid 48/131
+  EVAL FVG RETRACE ±$1,500 • 09:30–15:00 → FUNDED FVG RETRACE ±$750 (5 MNQ) • 09:30–15:00 • ROI 3.10 / 3.17 • net/yr 19,243 • low -6,000 • pass 35% paid 99/159
+  EVAL FVG RETRACE ±$1,500 • 09:30–15:00 → FUNDED FVG RETRACE ±$1,500 • 09:30–15:00 • ROI 2.97 / 3.60 • net/yr 29,434 • low -6,000 • pass 34% paid 61/187
+  EVAL FVG RETRACE ±$1,500 • 09:30–15:00 → FUNDED FVG RETRACE ±$1,500 • 09:30–11:30 • ROI 2.97 / 4.39 • net/yr 21,450 • low -6,000 • pass 36% paid 58/144
+  EVAL MOMENTUM 15M ±$1,500 • 09:30–11:30 → FUNDED FVG RETRACE ±$1,500 • 09:30–15:00 • ROI 2.76 / 3.59 • net/yr 16,296 • low -6,000 • pass 32% paid 44/158
+  EVAL MOMENTUM 15M ±$1,500 • 09:30–15:00 → FUNDED FVG RETRACE ±$1,500 • 09:30–15:00 • ROI 2.74 / 3.27 • net/yr 24,436 • low -6,000 • pass 32% paid 66/206
+  EVAL RANDOM 15M ±$1,500 • 09:30–15:00 (control) → FUNDED MOMENTUM 15M ±$1,500 • 09:30–11:30 • ROI 3.56 / 2.73 • net/yr 23,417 • low -6,000 • pass 31% paid 54/188
+  EVAL RANDOM 15M ±$1,500 • 09:30–15:00 (control) → FUNDED FVG RETRACE ±$1,500 • 09:30–15:00 • ROI 3.26 / 2.72 • net/yr 29,494 • low -6,000 • pass 28% paid 60/184
+  EVAL FVG RETRACE +$2,000/−$1,000 • 09:30–15:00 → FUNDED FVG RETRACE ±$1,500 • 09:30–15:00 • ROI 2.77 / 2.64 • net/yr 23,007 • low -6,000 • pass 22% paid 57/145
+== COPY (best by the worse period)
+  EVAL FVG RETRACE ±$1,500 • 09:30–15:00 → FUNDED FVG RETRACE ±$1,500 • 09:30–11:30 • ROI 3.85 / 4.34 • net/yr 20,749 • low -2,400 • pass 39% paid 48/130
+  EVAL FVG RETRACE ±$750 (5 MNQ) • 09:30–15:00 → FUNDED FVG RETRACE ±$1,500 • 09:30–15:00 • ROI 3.52 / 3.42 • net/yr 13,899 • low -480 • pass 33% paid 36/92
+  EVAL FVG RETRACE ±$1,500 • 09:30–15:00 → FUNDED FVG RETRACE ±$1,500 • 09:30–15:00 • ROI 3.35 / 5.01 • net/yr 27,623 • low -720 • pass 39% paid 57/170
+  EVAL FVG RETRACE ±$1,500 • 09:30–15:00 → FUNDED MOMENTUM 15M ±$1,500 • 09:30–15:00 • ROI 3.26 / 3.42 • net/yr 23,080 • low -720 • pass 37% paid 62/184
+  EVAL MOMENTUM 15M ±$1,500 • 09:30–15:00 → FUNDED FVG RETRACE ±$1,500 • 09:30–11:30 • ROI 3.68 / 3.13 • net/yr 18,793 • low -1,739 • pass 35% paid 44/137
+  EVAL FVG RETRACE ±$1,500 • 09:30–15:00 → FUNDED FVG RETRACE ±$750 (5 MNQ) • 09:30–15:00 • ROI 3.13 / 3.01 • net/yr 15,997 • low -720 • pass 38% paid 82/146
+  EVAL RANDOM 15M ±$1,500 • 09:30–15:00 (control) → FUNDED RANDOM 15M ±$1,500 • 09:30–15:00 (control) • ROI 2.98 / 3.03 • net/yr 23,189 • low -2,443 • pass 31% paid 53/178
+  EVAL MOMENTUM 15M ±$1,500 • 09:30–11:30 → FUNDED RANDOM 15M ±$1,500 • 09:30–15:00 (control) • ROI 2.95 / 3.67 • net/yr 21,552 • low -360 • pass 35% paid 47/161
+  EVAL MOMENTUM 15M ±$1,500 • 09:30–11:30 → FUNDED MOMENTUM 15M ±$1,500 • 09:30–15:00 • ROI 3.48 / 2.94 • net/yr 19,835 • low -360 • pass 34% paid 52/154
+  EVAL FVG RETRACE ±$1,500 • 09:30–15:00 → FUNDED MOMENTUM 15M ±$1,500 • 09:30–11:30 • ROI 3.04 / 2.94 • net/yr 17,514 • low -1,080 • pass 36% paid 56/158

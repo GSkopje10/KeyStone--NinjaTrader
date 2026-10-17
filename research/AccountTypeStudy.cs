@@ -17,9 +17,9 @@ public static class AccountTypeStudy
     static readonly CultureInfo IC = CultureInfo.InvariantCulture;
     static readonly DateTime Half = new DateTime(2024, 1, 1);
 
-    sealed class Acc { public int Id; public bool Funded; public double Bal, PeakE, PeakI, Best, Kept; public int Days, Qual, Payouts; public string End = ""; public DateTime Start, FundedOn; public bool Paid; }
-    sealed class Batch { public int No, Bought, Passed, Paid, Payouts, FBlown; public DateTime From, EvalsDone, To; public double Fees, Kept; public bool Open = true; public double Net { get { return Kept - Fees; } } }
-    sealed class Out
+    public sealed class Acc { public int Id; public bool Funded; public double Bal, PeakE, PeakI, Best, Kept; public int Days, Qual, Payouts; public string End = ""; public DateTime Start, FundedOn; public bool Paid; }
+    public sealed class Batch { public int No, Bought, Passed, Paid, Payouts, FBlown; public DateTime From, EvalsDone, To; public double Fees, Kept; public bool Open = true; public double Net { get { return Kept - Fees; } } }
+    public sealed class Out
     {
         public string Name, Note; public double Spent, Kept, Low; public int Bought, Passed, FundedPaid, Payouts, FBlownBeforePay, FBlown, Batches; public DateTime FirstPay = DateTime.MinValue, LowDay;
         public double PassDays, PayDays; public int PassN, PayN; public List<Batch> B = new List<Batch>(); public SortedDictionary<string, double[]> Month = new SortedDictionary<string, double[]>();   // fees, kept, payouts, passed
@@ -28,7 +28,7 @@ public static class AccountTypeStudy
     }
 
     // one trade on one account: the firm's floor (EOD or INTRADAY trailing, lock), target / consistency, payouts
-    static void Step(Acc a, double pnl, double mfe, KeystoneSimRules r, DateTime day, Out o, Batch b)
+    public static void Step(Acc a, double pnl, double mfe, KeystoneSimRules r, DateTime day, Out o, Batch b)
     {
         bool f = a.Funded; string type = f ? r.FundDdType : r.EvalDdType; double dd = f ? r.FundDrawdown : r.EvalDrawdown, lk = f ? r.FundLockAt : r.EvalLockAt;
         if (type == "INTRADAY") a.PeakI = Math.Max(a.PeakI, a.Bal + Math.Max(0, mfe));
