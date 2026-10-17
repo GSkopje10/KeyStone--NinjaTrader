@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Keystone Prop Plan</title>
+<style>
+:root{--bg:#0b0f14;--side:#0f151d;--card:#141a22;--card2:#1b2330;--line:#2a3442;--text:#e8eef5;--mute:#8d9aab;--pos:#3fb950;--neg:#f85149;--acc:#e3b341;--blue:#58a6ff;--pbg:rgba(63,185,80,.12);--nbg:rgba(248,81,73,.12);--abg:rgba(227,179,65,.12)}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f5f7fa;--side:#eef2f6;--card:#fff;--card2:#f0f3f7;--line:#d8dee6;--text:#1c2430;--mute:#5d6b7c;--pos:#1a7f37;--neg:#cf222e;--acc:#9a6700;--blue:#0969da;--pbg:rgba(26,127,55,.10);--nbg:rgba(207,34,46,.10);--abg:rgba(154,103,0,.10)}}
+:root[data-theme="light"]{--bg:#f5f7fa;--side:#eef2f6;--card:#fff;--card2:#f0f3f7;--line:#d8dee6;--text:#1c2430;--mute:#5d6b7c;--pos:#1a7f37;--neg:#cf222e;--acc:#9a6700;--blue:#0969da;--pbg:rgba(26,127,55,.10);--nbg:rgba(207,34,46,.10);--abg:rgba(154,103,0,.10)}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+.layout{display:flex;min-height:100vh}
+nav{width:250px;flex:none;background:var(--side);border-right:1px solid var(--line);position:sticky;top:0;height:100vh;overflow-y:auto;padding:18px 12px}
+nav .brand{font-weight:800;font-size:17px;padding:4px 10px 2px}
+nav .sub{color:var(--mute);font-size:12px;padding:0 10px 14px}
+nav a{display:flex;align-items:center;gap:8px;color:var(--text);text-decoration:none;padding:7px 10px;border-radius:8px;font-size:14px}
+nav a:hover{background:var(--card2)}
+nav a .n{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--card2);border:1px solid var(--line);align-items:center;justify-content:center;font-size:11.5px;font-weight:700;flex:none}
+nav a.done .n{background:var(--pos);color:#fff;border-color:var(--pos)}
+nav .grp{color:var(--mute);font-size:11px;font-weight:700;letter-spacing:.06em;margin:14px 10px 4px}
+main{flex:1;min-width:0;padding:28px 32px 80px;max-width:1100px}
+h1{font-size:30px;margin:0 0 6px;line-height:1.2}
+h2{font-size:22px;margin:0 0 6px}
+h3{font-size:16px;margin:18px 0 8px;color:var(--acc)}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin:0 0 22px;scroll-margin-top:16px}
+.lead{color:var(--mute);margin:0 0 14px}
+.mute{color:var(--mute)}.pos{color:var(--pos)}.neg{color:var(--neg)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:14px 0}
+.card{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.card b{display:block;font-size:22px;line-height:1.25}
+.card span{color:var(--mute);font-size:12.5px}
+.rule{border-radius:10px;padding:12px 16px;margin:10px 0;border:1px solid var(--line);border-left:5px solid var(--acc);background:var(--abg)}
+.rule.red{border-left-color:var(--neg);background:var(--nbg)}
+.rule.green{border-left-color:var(--pos);background:var(--pbg)}
+.rule b.t{display:block;margin-bottom:2px}
+ul.check{list-style:none;padding:0;margin:8px 0}
+ul.check li{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:8px;border:1px solid transparent}
+ul.check li:hover{background:var(--card2)}
+ul.check input{width:18px;height:18px;margin-top:3px;flex:none;accent-color:var(--pos);cursor:pointer}
+ul.check li.on span{color:var(--mute);text-decoration:line-through}
+ul.check .time{display:inline-block;min-width:62px;font-weight:700;color:var(--blue)}
+.progress{height:8px;background:var(--card2);border-radius:6px;overflow:hidden;margin:6px 0 2px;border:1px solid var(--line)}
+.progress div{height:100%;background:var(--pos);width:0;transition:width .2s}
+.pl{font-size:12.5px;color:var(--mute)}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin:10px 0}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th,td.r{white-space:nowrap}#tt td{white-space:nowrap}
+th{background:var(--card2);color:var(--mute);font-weight:600;font-size:13px}
+td.r,th.r{text-align:right}
+.btn{background:var(--card2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font:inherit;font-size:13.5px;cursor:pointer}
+.btn:hover{border-color:var(--blue)}
+.btn.primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+input.f,select.f{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:5px 8px;font:inherit;font-size:13.5px;width:100%;min-width:70px}
+.status{border-radius:10px;padding:12px 16px;margin:10px 0;font-weight:600}
+.status.ok{background:var(--pbg);border:1px solid var(--pos)}
+.status.bad{background:var(--nbg);border:1px solid var(--neg)}
+.status.warn{background:var(--abg);border:1px solid var(--acc)}
+.phase{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.phase .card h4{margin:0 0 4px;font-size:15px}
+.gate{font-size:13px;color:var(--mute);margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
+kbd{background:var(--card2);border:1px solid var(--line);border-radius:5px;padding:0 6px;font-size:12.5px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.menu{display:none}
+@media (max-width:900px){nav{display:none;position:fixed;z-index:10;width:80%;box-shadow:0 0 30px rgba(0,0,0,.5)}nav.open{display:block}.menu{display:inline-block}main{padding:18px 16px 60px}section{padding:18px 16px}}
+@media print{nav,.btn,.menu{display:none!important}main{max-width:none;padding:0}section{break-inside:avoid;border-color:#999}body{background:#fff;color:#000}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="nav">
+  <div class="brand">Keystone Prop Plan</div>
+  <div class="sub">v1 • 17 Oct 2026 • follow it in order</div>
+  <div class="grp">THE PLAN</div>
+  <a href="#overview"><span class="n">★</span>Plan on one page</a>
+  <a href="#money"><span class="n">$</span>The money</a>
+  <div class="grp">STEPS</div>
+  <a href="#s1" data-sec="s1"><span class="n">1</span>This weekend</a>
+  <a href="#s2" data-sec="s2"><span class="n">2</span>Rehearse in the sim</a>
+  <a href="#s3" data-sec="s3"><span class="n">3</span>Go live</a>
+  <div class="grp">EVERY DAY / WEEK</div>
+  <a href="#daily" data-sec="daily"><span class="n">D</span>Daily routine</a>
+  <a href="#weekly" data-sec="weekly"><span class="n">W</span>Sunday review</a>
+  <a href="#tracker"><span class="n">T</span>Tracker + stop check</a>
+  <div class="grp">RULES</div>
+  <a href="#stop"><span class="n">!</span>Stop rules</a>
+  <a href="#scale"><span class="n">↑</span>When to grow</a>
+  <a href="#mt5"><span class="n">M</span>MT5 rules</a>
+  <div class="grp">KNOW IT</div>
+  <a href="#expect"><span class="n">≈</span>What to expect</a>
+  <a href="#why"><span class="n">?</span>Why this plan</a>
+</nav>
+<main>
+<div class="top">
+  <div><h1>The plan — prop accounts, done right</h1><p class="lead">One engine, one firm, five accounts, fixed rules. Every step has a checkbox. Ticks are saved in this browser.</p></div>
+  <div class="row"><button class="btn menu" onclick="document.getElementById('nav').classList.toggle('open')">☰ Sections</button><button class="btn" onclick="window.print()">Print</button><button class="btn" id="themeBtn">Light / dark</button></div>
+</div>
+
+<section id="overview">
+  <h2>★ The plan on one page</h2>
+  <div class="cards">
+    <div class="card"><b>$13,000</b><span>LOCKED in the bank — never trading money</span></div>
+    <div class="card"><b>$4,000</b><span>PROP BUDGET — every eval fee comes from here</span></div>
+    <div class="card"><b>$3,000</b><span>MT5 — your own trading, hard limits</span></div>
+    <div class="card"><b>Lucid Flex 50K</b><span>the account type (best ROI of 4 tested)</span></div>
+    <div class="card"><b>★ FVG RETRACE</b><span>the only strategy, on AUTO, default settings</span></div>
+    <div class="card"><b>5 accounts</b><span>1 leader + 4 copying every trade</span></div>
+  </div>
+  <div class="rule green"><b class="t">What you do</b>Prepare the platform before 09:15, let AUTO trade, log the day after 16:45, review on Sunday, follow the stop rules without discussion.</div>
+  <div class="rule red"><b class="t">What you never do</b>Touch a trade • change settings during the week • refill the prop budget from the bank • add accounts before the gate • raise MT5 size after a good week.</div>
+</section>
+
+<section id="money">
+  <h2>$ The money</h2>
+  <p class="lead">$17,000 total after the withdrawal. Three buckets, three jobs.</p>
+  <div class="wrap"><table>
+    <tr><th>Bucket</th><th class="r">Amount</th><th>Job</th><th>Rule</th></tr>
+    <tr><td><b>Bank — locked</b></td><td class="r">$13,000</td><td>your floor after $92K lost since 2021</td><td>not for evals, not "temporarily", not for MT5</td></tr>
+    <tr><td><b>Prop budget</b></td><td class="r">$4,000</td><td>eval fees for the 5 accounts</td><td>refilled only by payouts</td></tr>
+    <tr><td><b>MT5 account</b></td><td class="r">$3,000</td><td>your reversal trading</td><td>no new deposits in 2026; withdraw above $4,000 every Friday</td></tr>
+  </table></div>
+  <h3>Every payout you receive</h3>
+  <div class="rule green"><b class="t">50 / 50</b>Half goes to the bank (locked), half goes to the prop budget. Write it in the tracker the day it lands.</div>
+</section>
+
+<section id="s1">
+  <h2>1 • This weekend</h2>
+  <div class="progress"><div></div></div><div class="pl"></div>
+  <ul class="check" data-list="s1">
+    <li><input type="checkbox"><span>Withdraw the <b>$7,000</b> from the CFD account (leave $3,000 on it).</span></li>
+    <li><input type="checkbox"><span>Move <b>$3,000</b> to the bank → bank = $13,000. Keep <b>$4,000</b> aside as the prop budget (a separate account or card if you can).</span></li>
+    <li><input type="checkbox"><span>Download the latest <kbd>KeyStone.cs</kbd> (<b>Ctrl+S</b> on the raw link — never copy-paste), put it in <kbd>Documents\NinjaTrader 8\bin\Custom\AddOns\</kbd>, F5. Check: about 4.2 MB, last line 40,6xx is <kbd>}</kbd>, header shows the newest build.</span></li>
+    <li><input type="checkbox"><span>On Lucid's website, check and write down: eval price, drawdown, payout rules, <b>copy trading across your own accounts allowed?</b>, <b>automation allowed?</b>, <b>max accounts</b> you may hold.</span></li>
+    <li><input type="checkbox"><span>If copy trading or automation is not allowed at Lucid — stop here and tell me before buying anything.</span></li>
+  </ul>
+</section>
+
+<section id="s2">
+  <h2>2 • Rehearse in the sim (before any real money)</h2>
+  <p class="lead">You must know what a losing streak feels like before it happens live.</p>
+  <div class="progress"><div></div></div><div class="pl"></div>
+  <ul class="check" data-list="s2">
+    <li><input type="checkbox"><span>Backtest Studio ▸ <b>PROP FIRM SIMULATION</b> ▸ 1 STRATEGY: <b>★ FVG RETRACE • MNQ 5M 10%</b> ▸ ⚙ PARAMETERS: leave every default.</span></li>
+    <li><input type="checkbox"><span>2 PROP FIRMS + DAYS: <b>LUCID FLEX 50K</b>, 5 accounts, START AS = EVALUATIONS, at least <b>40 trading days</b>. ALLOCATION: <b>COPY</b>.</span></li>
+    <li><input type="checkbox"><span>Run it (AUTO, ⚡⚡ RUN ALL DAYS is fine). Open PROP POOL ▸ DAY BY DAY.</span></li>
+    <li><input type="checkbox"><span>Write down: the longest run of losing days, the most evals blown in one week, the days to the first payout.</span></li>
+    <li><input type="checkbox"><span>Ask yourself honestly: could I sit through that without touching it? If not — we talk first.</span></li>
+  </ul>
+</section>
+
+<section id="s3">
+  <h2>3 • Go live</h2>
+  <div class="progress"><div></div></div><div class="pl"></div>
+  <ul class="check" data-list="s3">
+    <li><input type="checkbox"><span>Buy <b>5 Lucid Flex 50K evaluations</b> (about $600 from the prop budget). Log them in the tracker.</span></li>
+    <li><input type="checkbox"><span>Connect them in NinjaTrader. Name them L1 … L5.</span></li>
+    <li><input type="checkbox"><span>Backtest Studio (live): strategy <b>★ FVG RETRACE</b>, <b>AUTO</b>, contracts 10 MNQ.</span></li>
+    <li><input type="checkbox"><span>REAL ACCOUNT bar: link <b>L1</b>, preset Lucid, <b>max 10 contracts</b>, day loss <b>$2,000</b>, runaway guard on → <b>ARM</b> and confirm.</span></li>
+    <li><input type="checkbox"><span>● LIVE TRADING ▸ COPIER: leader <b>L1</b>, followers <b>L2–L5</b>, multiplier 1 → <b>ARM COPY</b> and confirm. Check the sync status is green.</span></li>
+    <li><input type="checkbox"><span>First live day: watch only. Confirm one setup is placed on all 5 and the bracket (±75 points) is attached on each.</span></li>
+  </ul>
+  <div class="wrap"><table>
+    <tr><th>Setting</th><th>Value — do not change during the week</th></tr>
+    <tr><td>Strategy</td><td>★ FVG RETRACE • MNQ 5M 10%</td></tr>
+    <tr><td>New setups</td><td>09:30 → 15:00 New York (the 09:30 candle's own FVG included)</td></tr>
+    <tr><td>Entry</td><td>limit 10% into each 5-minute FVG, valid 60 minutes; a setup during a trade waits for its exit</td></tr>
+    <tr><td>Bracket</td><td>+$1,500 / −$1,500 on 10 MNQ (±75 points)</td></tr>
+    <tr><td>Flat by</td><td>15:55</td></tr>
+    <tr><td>Accounts</td><td>5 × Lucid Flex 50K, copied (every account takes every trade)</td></tr>
+  </table></div>
+</section>
+
+<section id="daily">
+  <div class="top"><h2>D • Daily routine</h2><button class="btn" data-reset="daily">New day — clear ticks</button></div>
+  <div class="progress"><div></div></div><div class="pl"></div>
+  <ul class="check" data-list="daily">
+    <li><input type="checkbox"><span><span class="time">09:00</span>Any account blown yesterday? Buy its replacement eval now (from the prop budget) and add it to the copier.</span></li>
+    <li><input type="checkbox"><span><span class="time">09:10</span>NinjaTrader connected • data live • header build is the latest • all 5 accounts listed.</span></li>
+    <li><input type="checkbox"><span><span class="time">09:15</span>Strategy ★ FVG RETRACE, AUTO on, L1 ARMED, COPY ARMED, sync green. Big news day? Still trade — the rules were tested through them.</span></li>
+    <li><input type="checkbox"><span><span class="time">09:30–15:55</span>Hands off. The only allowed action: LOCK FOR TODAY if something is technically broken (disconnect, wrong size, copier out of sync).</span></li>
+    <li><input type="checkbox"><span><span class="time">16:45</span>Log the day in the tracker: trades, each account's balance, passed / blown, payouts requested.</span></li>
+    <li><input type="checkbox"><span><span class="time">16:50</span>Payout eligible on a funded account? Request it today. When it lands: 50% bank, 50% prop budget.</span></li>
+    <li><input type="checkbox"><span><span class="time">16:55</span>Did I touch anything today? Write it down honestly (the tracker counts it).</span></li>
+  </ul>
+</section>
+
+<section id="weekly">
+  <div class="top"><h2>W • Sunday review (30 minutes)</h2><button class="btn" data-reset="weekly">New week — clear ticks</button></div>
+  <div class="progress"><div></div></div><div class="pl"></div>
+  <ul class="check" data-list="weekly">
+    <li><input type="checkbox"><span>Tracker up to date for every day of the week.</span></li>
+    <li><input type="checkbox"><span>Stop-rule check below is green. If it is red: do what it says, before Monday.</span></li>
+    <li><input type="checkbox"><span>Run the prop sim on this week's days (same settings). Live vs sim: within 30%?</span></li>
+    <li><input type="checkbox"><span>Prop budget left ≥ $1,000? If below: no new evals until the next payout.</span></li>
+    <li><input type="checkbox"><span>MT5: week inside its limits? Above $4,000 → withdraw on Friday.</span></li>
+    <li><input type="checkbox"><span>Send me the week's tracker (Export CSV) — we review it together.</span></li>
+  </ul>
+</section>
+
+<section id="tracker">
+  <h2>T • Tracker + automatic stop check</h2>
+  <p class="lead">One row per day (or per event). Saved in this browser — export a CSV every Sunday as a backup.</p>
+  <div id="stopStatus" class="status ok">No data yet.</div>
+  <div class="cards" id="totals"></div>
+  <div class="wrap"><table id="tt">
+    <thead><tr><th>Date</th><th class="r">Evals bought</th><th class="r">Fees $</th><th class="r">Passed</th><th class="r">Evals blown</th><th class="r">Funded blown</th><th class="r">Payouts received $ (yours)</th><th class="r">Live day $ (all accts)</th><th class="r">Sim day $</th><th>Touched a trade?</th><th>Note</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <div class="row"><button class="btn primary" id="addRow">+ Add a day</button><button class="btn" id="exportCsv">Export CSV</button><button class="btn" id="clearAll">Clear all</button></div>
+</section>
+
+<section id="stop">
+  <h2>! Stop rules — decided now, not in the moment</h2>
+  <div class="rule red"><b class="t">1 • Budget without proof</b>$4,000 of fees spent and no payout received yet → STOP buying evals. No refill from the bank. We review together.</div>
+  <div class="rule red"><b class="t">2 • Payout denied</b>A payout is refused or clawed back → stop buying at that firm. Find out why before anything else.</div>
+  <div class="rule red"><b class="t">3 • Live worse than the sim</b>Two months in a row more than 30% below the sim on the same days → stop and re-test (fills, slippage, rules).</div>
+  <div class="rule red"><b class="t">4 • Touching trades</b>You touched a trade twice in one week → next week paused (accounts locked), then restart.</div>
+  <div class="rule red"><b class="t">5 • Settings</b>No setting changes during the week. Ideas go in the note; we test them in the sim; changes start on a Monday.</div>
+  <div class="rule"><b class="t">Prop budget below $1,000</b>No new evals until the next payout. The funded accounts keep trading.</div>
+</section>
+
+<section id="scale">
+  <h2>↑ When to grow — only through the gates</h2>
+  <div class="phase">
+    <div class="card"><h4>Phase 1 • Pilot</h4>5 Lucid Flex 50K, copied. Learn the machine. Every fee from the $4,000.<div class="gate">GATE → 3 payouts received and approved, stop rules green.</div></div>
+    <div class="card"><h4>Phase 2 • 10 accounts</h4>Go to 10 copied accounts, paid from payouts only. Add a second firm with similar rules (copier allowed, EOD drawdown).<div class="gate">GATE → 3 more months green, live within 30% of the sim.</div></div>
+    <div class="card"><h4>Phase 3 • 20+ accounts</h4>Add a second strategy on its own group (tested funded-only in the sim first). Still never opposite sides across accounts.<div class="gate">GATE → decided together with the numbers.</div></div>
+  </div>
+  <div class="rule red"><b class="t">Never</b>Opposite positions on different accounts at the same time (most firms ban it — accounts closed, payouts denied). The copier keeps every account on the same side.</div>
+</section>
+
+<section id="mt5">
+  <h2>M • MT5 rules (your own trading)</h2>
+  <p class="lead">Its job is to keep you in the game, not to make the year. The guardian bot will enforce these — until it exists, you do.</p>
+  <div class="wrap"><table>
+    <tr><th>Limit</th><th>Value</th><th>When hit</th></tr>
+    <tr><td>Total gold size (both legs)</td><td>0.10 lots ($10 per $1)</td><td>no more orders</td></tr>
+    <tr><td>Day loss (both legs, open + closed)</td><td>$150</td><td>close everything, done until tomorrow</td></tr>
+    <tr><td>Week loss</td><td>$400</td><td>done until Monday</td></tr>
+    <tr><td>Account balance</td><td>$1,500</td><td>MT5 stops for the rest of 2026</td></tr>
+    <tr><td>Hedging</td><td>allowed (your way)</td><td>but never add to the losing leg once a hedge is open</td></tr>
+    <tr><td>Above $4,000</td><td>withdraw every Friday</td><td>size never goes up after a good week</td></tr>
+  </table></div>
+</section>
+
+<section id="expect">
+  <h2>≈ What to expect (6 years of data, as the app trades it)</h2>
+  <p class="lead">One copied account slot on Lucid Flex 50K, every FVG RETRACE setup. Five accounts = five times the money and five times the low point.</p>
+  <div class="cards">
+    <div class="card"><b>3.6× • 4.0×</b><span>ROI 2020–23 • 2024–26 (kept ÷ fees)</span></div>
+    <div class="card"><b>≈ 80 a year</b><span>evals per slot — about 7 a month, most blow</span></div>
+    <div class="card"><b>37% • 35%</b><span>evals that pass • funded that get paid</span></div>
+    <div class="card"><b>−$720</b><span>worst point per slot (−$3,600 for 5)</span></div>
+    <div class="card"><b>≈ +$27K / yr</b><span>per slot in the sim — plan on half</span></div>
+    <div class="card"><b>48 / 25</b><span>months up / down</span></div>
+  </div>
+  <div class="rule"><b class="t">The honest part</b>This is a machine of many small fees and a few large payouts. Most evals blow — that is normal, not failure. All five accounts win and lose together, so bad weeks come in clusters. Real fills, payout rules and firm limits will make it worse than the sim — that is why the gates exist.</div>
+</section>
+
+<section id="why">
+  <h2>? Why this plan</h2>
+  <ul>
+    <li><b>Your history:</b> $92,363 lost on MT5 since 2021 — not from bad entries, from the one day you could not stop. A prop eval caps that day at its fee.</li>
+    <li><b>Lucid 50K over 25K and Take Profit Trader:</b> same strategy, 4 account types — Lucid 3.0× / 3.6×, 25K 3.2× / 2.8×, TPT 1.6× and 1.1× (activation fee, 80% split, intraday trailing, no automation).</li>
+    <li><b>FVG RETRACE over the $150-a-day plan:</b> the $150 plan's best version needs opposite sides across accounts (banned); the version within the rules was weaker.</li>
+    <li><b>Copy over rotation:</b> the app's copier works live today; rotating each trade to the next account is not built for live yet.</li>
+    <li><b>Five accounts, not fifty:</b> the worst historical point for five is about $3,600 — inside the $4,000 budget.</li>
+  </ul>
+</section>
+</main>
+</div>
+<script>
+(function(){
+  var store = { get: function(k, d){ try { var v = localStorage.getItem('kplan.' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } }, set: function(k, v){ try { localStorage.setItem('kplan.' + k, JSON.stringify(v)); } catch (e) {} } };
+  // theme
+  var th = store.get('theme', ''); if (th) document.documentElement.setAttribute('data-theme', th);
+  document.getElementById('themeBtn').onclick = function(){ var cur = document.documentElement.getAttribute('data-theme'); var dark = cur ? cur === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches; var nx = dark ? 'light' : 'dark'; document.documentElement.setAttribute('data-theme', nx); store.set('theme', nx); };
+  // checklists
+  function paint(list){
+    var ul = document.querySelector('ul[data-list="' + list + '"]'); if (!ul) return; var sec = ul.closest('section');
+    var boxes = ul.querySelectorAll('input'), done = 0; boxes.forEach(function(b){ if (b.checked) done++; b.closest('li').classList.toggle('on', b.checked); });
+    var bar = sec.querySelector('.progress div'), pl = sec.querySelector('.pl'); if (bar) bar.style.width = (100 * done / boxes.length) + '%'; if (pl) pl.textContent = done + ' of ' + boxes.length + ' done';
+    var a = document.querySelector('nav a[data-sec="' + list + '"]'); if (a) a.classList.toggle('done', done === boxes.length);
+  }
+  document.querySelectorAll('ul[data-list]').forEach(function(ul){
+    var list = ul.getAttribute('data-list'), st = store.get('check.' + list, []);
+    ul.querySelectorAll('input').forEach(function(b, i){ b.checked = !!st[i]; b.onchange = function(){ var s = []; ul.querySelectorAll('input').forEach(function(x){ s.push(x.checked); }); store.set('check.' + list, s); paint(list); }; });
+    paint(list);
+  });
+  document.querySelectorAll('[data-reset]').forEach(function(btn){ btn.onclick = function(){ var list = btn.getAttribute('data-reset'); store.set('check.' + list, []); document.querySelectorAll('ul[data-list="' + list + '"] input').forEach(function(b){ b.checked = false; }); paint(list); }; });
+  document.querySelectorAll('nav a').forEach(function(a){ a.addEventListener('click', function(){ document.getElementById('nav').classList.remove('open'); }); });
+  // tracker
+  var cols = ['date', 'bought', 'fees', 'passed', 'eblown', 'fblown', 'payout', 'live', 'sim', 'touched', 'note'];
+  var rows = store.get('rows', []);
+  var tb = document.querySelector('#tt tbody');
+  function num(v){ var n = parseFloat(String(v || '').replace(/[$,\s]/g, '')); return isNaN(n) ? 0 : n; }
+  function money(v){ return (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US'); }
+  function render(){
+    tb.innerHTML = '';
+    rows.forEach(function(r, i){
+      var tr = document.createElement('tr');
+      cols.forEach(function(c){
+        var td = document.createElement('td'); if (c !== 'date' && c !== 'touched' && c !== 'note') td.className = 'r'; var el;
+        if (c === 'touched') { el = document.createElement('select'); ['no', 'yes'].forEach(function(o){ var op = document.createElement('option'); op.value = o; op.textContent = o; el.appendChild(op); }); el.value = r[c] || 'no'; }
+        else { el = document.createElement('input'); el.type = c === 'date' ? 'date' : 'text'; el.value = r[c] || ''; if (c !== 'date' && c !== 'note') el.inputMode = 'decimal'; }
+        el.className = 'f'; el.onchange = function(){ rows[i][c] = el.value; save(); };
+        td.appendChild(el); tr.appendChild(td);
+      });
+      var td = document.createElement('td'); var x = document.createElement('button'); x.className = 'btn'; x.textContent = '✕'; x.title = 'Remove this row'; x.onclick = function(){ rows.splice(i, 1); save(); render(); }; td.appendChild(x); tr.appendChild(td);
+      tb.appendChild(tr);
+    });
+    check();
+  }
+  function save(){ store.set('rows', rows); check(); }
+  function check(){
+    var t = { bought: 0, fees: 0, passed: 0, eblown: 0, fblown: 0, payout: 0, live: 0, sim: 0 }; var touchByWeek = {};
+    rows.forEach(function(r){ Object.keys(t).forEach(function(k){ t[k] += num(r[k]); }); if (r.touched === 'yes' && r.date) { var d = new Date(r.date + 'T12:00:00'); var mon = new Date(d); mon.setDate(d.getDate() - ((d.getDay() + 6) % 7)); var key = mon.toISOString().slice(0, 10); touchByWeek[key] = (touchByWeek[key] || 0) + 1; } });
+    var budgetLeft = 4000 - t.fees + t.payout * 0.5;
+    var tot = document.getElementById('totals');
+    tot.innerHTML = [['Evals bought', t.bought], ['Fees paid', money(t.fees)], ['Passed', t.passed + (t.bought ? ' (' + Math.round(100 * t.passed / t.bought) + '%)' : '')], ['Blown eval / funded', t.eblown + ' / ' + t.fblown], ['Payouts received', money(t.payout)], ['Net (payouts − fees)', money(t.payout - t.fees)], ['Prop budget left', money(budgetLeft)], ['Live vs sim', t.sim ? Math.round(100 * t.live / t.sim) + '%' : '—']].map(function(p){ return '<div class="card"><b>' + p[1] + '</b><span>' + p[0] + '</span></div>'; }).join('');
+    var st = document.getElementById('stopStatus'), msgs = [], level = 'ok';
+    if (!rows.length) { st.className = 'status ok'; st.textContent = 'No data yet — add your first day.'; return; }
+    if (t.fees >= 4000 && t.payout <= 0) { msgs.push('STOP RULE 1: $4,000 of fees and no payout yet → stop buying evals, no refill, review with me.'); level = 'bad'; }
+    var weeks = Object.keys(touchByWeek).filter(function(k){ return touchByWeek[k] >= 2; }); if (weeks.length) { msgs.push('STOP RULE 4: you touched trades twice in the week of ' + weeks.join(', ') + ' → pause the following week.'); level = 'bad'; }
+    if (t.sim > 0 && t.live < 0.7 * t.sim) { msgs.push('WATCH RULE 3: live is ' + Math.round(100 * t.live / t.sim) + '% of the sim (below 70%). Two months like this → stop and re-test.'); if (level === 'ok') level = 'warn'; }
+    if (budgetLeft < 1000) { msgs.push('Prop budget below $1,000 → no new evals until the next payout.'); if (level === 'ok') level = 'warn'; }
+    if (!msgs.length) msgs.push('All stop rules green. Keep going exactly as planned.');
+    st.className = 'status ' + level; st.innerHTML = msgs.join('<br>');
+  }
+  document.getElementById('addRow').onclick = function(){ var d = new Date(); rows.push({ date: d.toISOString().slice(0, 10), touched: 'no' }); save(); render(); };
+  document.getElementById('clearAll').onclick = function(){ if (confirm('Delete every tracker row in this browser?')) { rows = []; save(); render(); } };
+  document.getElementById('exportCsv').onclick = function(){
+    var head = 'date,evals_bought,fees,passed,evals_blown,funded_blown,payouts_received,live_day,sim_day,touched,note';
+    var body = rows.map(function(r){ return cols.map(function(c){ var v = String(r[c] || '').replace(/"/g, '""'); return /[",\n]/.test(v) ? '"' + v + '"' : v; }).join(','); }).join('\n');
+    var blob = new Blob([head + '\n' + body], { type: 'text/csv' }); var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'prop_tracker_' + new Date().toISOString().slice(0, 10) + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+  };
+  render();
+})();
+</script>
+</body>
+</html>
