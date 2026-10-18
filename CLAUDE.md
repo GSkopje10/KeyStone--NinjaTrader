@@ -24,6 +24,9 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   runaway guard, reject → disarm) and its tests (`tests/AccountLinkTests.cs`). No other code path may place orders.
   Exceptions the user asked for, active on a linked account even unarmed: ONE CANCELS OTHER (cancels only) and LOCK FOR
   TODAY with flatten (confirmed when locking). The COPIER sends orders to follower accounts only after its own ARM COPY confirm.
+  The ROTATION (Live Trading ▸ 🔄 ROTATE, `KeystoneRotator`) sends the chart strategy's orders to ONE pool account at a time
+  only after START ROTATION is confirmed (each account gets its own armed `KeystoneAccountLink` with its limits; MANUAL mode
+  sends nothing until ENTER is pressed); its tests are in `tests/AccountLinkTests.cs`.
   Research / lab / backtests stay historical; no Apex/Nexus coupling.
 - Do not change BH detection, BH outcome resolution, or the MNQ loader without explicit scope.
   MGC loader changes stay MGC-only. Asian work stays inside the Asian code paths.

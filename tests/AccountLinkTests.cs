@@ -203,6 +203,59 @@ public static class AccountLinkTests
             var f = tb.Add(new[] { new KeystoneExec { Id = "a", Time = t0, SignedQty = 2, Price = 100, Commission = 1.24 }, new KeystoneExec { Id = "b", Time = t0.AddMinutes(1), SignedQty = -2, Price = 110, Commission = 1.24 } });
             Check(f.Count == 1 && Math.Abs(f[0].Net - (10 * 2 * 2 - 2.48)) < 1e-9, "fees: the real commissions ($2.48) come off the trade", f.Count > 0 ? f[0].Net.ToString() : "none");
         }
+        // 9r. ROTATION: one account per trade, in turn; the entry limit goes to that account only; a fill there brings the bracket;
+        // leader flat → that account flat; next setup → the next account; no fill → it keeps its turn; one trade per account a day;
+        // a leader fill the account missed → market; MANUAL waits for ENTER / NEXT ACCOUNT; the funded accounts' 11-second hold
+        {
+            var rb = new[] { new FakeBroker(), new FakeBroker(), new FakeBroker() }; var names = new[] { "A", "B", "C" };
+            var rot = new KeystoneRotator(); for (int i = 0; i < 3; i++) { var f = new KeystoneCopyFollower { Account = names[i], MaxQty = 10, Link = new KeystoneAccountLink(rb[i], "MNQ") { MaxContracts = 10 }, Mirror = Trader() }; f.Link.Arm(t0); rot.Pool.Add(f); }
+            rot.IsFunded = a => a == "A";
+            var leader = Trader(); leader.Slave = false; DateTime tt = t0;
+            Func<double, DateTime> at = sec => t0.AddSeconds(sec);
+            leader.Place("LIMIT", 1, 10, 19990); rot.Tick(leader, at(1)); rot.Tick(leader, at(1.25));
+            Check(rb[0].Sent.SequenceEqual(new[] { "LIMIT 10 @ 19990" }) && rb[1].Sent.Count == 0 && rb[2].Sent.Count == 0 && rot.Current != null && rot.Current.Account == "A", "ROTATION: the setup's limit goes to the account in turn only (A)", string.Join(" | ", rb[0].Sent) + " / " + rb[1].Sent.Count);
+            Check(rot.Pool[0].Link.MinHoldSeconds == 11 && rot.Pool[1].Link.MinHoldSeconds == 0, "ROTATION: the 11-second hold is set on the funded account only");
+            rb[0].Trigger(rb[0].All.First(o => o.Kind == "LIMIT" && !o.Done)); leader.Orders.Clear(); leader.Adopt(10, 19990, at(2)); leader.StopPts = 75; leader.TargetPts = 75; rb[0].Sent.Clear();
+            for (int i = 0; i < 4; i++) rot.Tick(leader, at(3 + i));
+            Check(rb[0].Q == 10 && rb[0].Sent.Any(x => x.StartsWith("STOP -10 @ 19915")), "ROTATION: A filled → its stop follows at once (the target waits the funded 11 s)", string.Join(" | ", rb[0].Sent));
+            rb[0].Sent.Clear(); for (int i = 0; i < 4; i++) rot.Tick(leader, at(20 + i));
+            Check(rb[0].Sent.Any(x => x.StartsWith("LIMIT -10 @ 20065")), "ROTATION: after 11 s the funded account's target is placed", string.Join(" | ", rb[0].Sent));
+            leader.Adopt(0, 0, at(30)); rb[0].Sent.Clear(); for (int i = 0; i < 4; i++) rot.Tick(leader, at(30 + i));
+            Check(rb[0].Sent.Contains("FLATTEN") && rb[0].Q == 0 && rot.Current == null, "ROTATION: leader flat → A flat, the trade is released", string.Join(" | ", rb[0].Sent) + " • " + rot.Status);
+            leader.Place("LIMIT", -1, 10, 20010); rot.Tick(leader, at(40)); rot.Tick(leader, at(40.25));
+            Check(rot.Current != null && rot.Current.Account == "B" && rb[1].Sent.SequenceEqual(new[] { "LIMIT -10 @ 20010" }) && !rb[0].Sent.Any(x => x.StartsWith("LIMIT -10 @ 20010")), "ROTATION: the next setup goes to the next account (B)", string.Join(" | ", rb[1].Sent));
+            leader.Orders.Clear(); for (int i = 0; i < 3; i++) rot.Tick(leader, at(50 + i));
+            Check(rot.Current == null && rb[1].Sent.Contains("CANCEL LIMIT"), "ROTATION: the setup expired → B's order cancelled", string.Join(" | ", rb[1].Sent));
+            leader.Place("LIMIT", 1, 10, 19980); rb[1].Sent.Clear(); rot.Tick(leader, at(60)); rot.Tick(leader, at(60.25));
+            Check(rot.Current != null && rot.Current.Account == "B", "ROTATION: no fill → B keeps its turn for the next setup", rot.Current == null ? "none" : rot.Current.Account);
+            leader.Orders.Clear(); leader.Adopt(10, 19980, at(61)); leader.StopPts = 75; leader.TargetPts = 75; rb[1].Sent.Clear(); rot.Tick(leader, at(62)); rot.Tick(leader, at(62.25));
+            Check(rb[1].Sent.Contains("CANCEL LIMIT") && rb[1].Sent.Contains("MARKET 10"), "ROTATION: the leader filled but B's limit did not → B cancels it and buys at market", string.Join(" | ", rb[1].Sent));
+            rb[1].FillMarket(19981); for (int i = 0; i < 3; i++) rot.Tick(leader, at(63 + i)); leader.Adopt(0, 0, at(70)); for (int i = 0; i < 4; i++) rot.Tick(leader, at(70 + i));
+            leader.Place("LIMIT", 1, 10, 19970); rot.Tick(leader, at(80)); rot.Tick(leader, at(80.25));
+            Check(rot.Current != null && rot.Current.Account == "C", "ROTATION: then C", rot.Current == null ? "none" : rot.Current.Account);
+            rb[2].Trigger(rb[2].All.First(o => o.Kind == "LIMIT" && !o.Done)); leader.Orders.Clear(); leader.Adopt(10, 19970, at(81)); for (int i = 0; i < 3; i++) rot.Tick(leader, at(82 + i)); leader.Adopt(0, 0, at(90)); for (int i = 0; i < 4; i++) rot.Tick(leader, at(90 + i));
+            leader.Place("LIMIT", 1, 10, 19960); rot.Tick(leader, at(100));
+            Check(rot.Current == null && rot.Status.StartsWith("SETUP SKIPPED"), "ROTATION: ONE PER DAY — all 3 traded today → the 4th setup is skipped", rot.Status);
+            leader.Orders.Clear(); rot.Tick(leader, at(101));
+            var d2 = t0.AddDays(1); leader.Place("LIMIT", 1, 10, 19950); rot.Tick(leader, d2); rot.Tick(leader, d2.AddSeconds(0.25));
+            Check(rot.Current != null && rot.Current.Account == "A", "ROTATION: the next day A trades again", rot.Current == null ? "none" : rot.Current.Account);
+            leader.Orders.Clear(); for (int i = 0; i < 3; i++) rot.Tick(leader, d2.AddSeconds(1 + i));
+            // MANUAL
+            var mb = new[] { new FakeBroker(), new FakeBroker() }; var mr = new KeystoneRotator { Manual = true };
+            for (int i = 0; i < 2; i++) { var f = new KeystoneCopyFollower { Account = "M" + i, MaxQty = 10, Link = new KeystoneAccountLink(mb[i], "MNQ") { MaxContracts = 10 }, Mirror = Trader() }; f.Link.Arm(t0); mr.Pool.Add(f); }
+            var ml = Trader(); ml.Slave = false; ml.Place("LIMIT", 1, 10, 19990); mr.Tick(ml, at(1)); mr.Tick(ml, at(1.25));
+            Check(mb[0].Sent.Count == 0 && mr.Selected != null && mr.Selected.Account == "M0" && mr.Status.Contains("ENTER"), "MANUAL: a setup → nothing is sent until ENTER (M0 is next)", mr.Status);
+            mr.Go = true; mr.Tick(ml, at(2)); mr.Tick(ml, at(2.25));
+            Check(mb[0].Sent.SequenceEqual(new[] { "LIMIT 10 @ 19990" }), "MANUAL: ENTER → M0's limit is placed", string.Join(" | ", mb[0].Sent));
+            mb[0].Trigger(mb[0].All.First(o => o.Kind == "LIMIT" && !o.Done)); ml.Orders.Clear(); ml.Adopt(10, 19990, at(3)); for (int i = 0; i < 3; i++) mr.Tick(ml, at(4 + i)); ml.Adopt(0, 0, at(10)); for (int i = 0; i < 4; i++) mr.Tick(ml, at(10 + i));
+            Check(mr.AwaitNext && mr.Current == null, "MANUAL: the trade is done → NEXT ACCOUNT is asked", mr.Status);
+            mr.Advance(t0); Check(!mr.AwaitNext && mr.Selected != null && mr.Selected.Account == "M1", "MANUAL: NEXT ACCOUNT → M1", mr.Selected == null ? "none" : mr.Selected.Account);
+        }
+        // EXCEL export: a workbook with one sheet per table, a bold header, numbers as numbers, text escaped
+        {
+            var xml = KeystoneExcel.Build(new[] { Tuple.Create("ACCOUNTS", new List<string[]> { new[] { "account", "cost" }, new[] { "LFE <A&B>", "120" } }) });
+            Check(xml.Contains("<Worksheet ss:Name=\"ACCOUNTS\">") && xml.Contains("ss:Type=\"Number\">120<") && xml.Contains("LFE &lt;A&amp;B&gt;") && KeystoneExcel.SplitCsv("a,\"b,c\",3").Length == 3, "EXCEL: sheet, header, number cells, escaped text, quoted CSV cells");
+        }
         // 9e. copier: leader 2 → follower ×0.5 = 1, stop follows, leader flat → follower flat; own stop hit → sits the trade out; pause
         {
             var lb = new FakeBroker(); var leader = Trader();

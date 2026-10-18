@@ -20,8 +20,9 @@ public static class FastRotateStudy
     public sealed class T1 { public int Slot, Exit, Dir; public double Pnl, Mfe; }
     static readonly string[] SigName = { "1-MIN FVG • limit 10%", "1-MIN FVG • limit 50%", "1-MIN MOMENTUM BURST", "RANDOM every 5 min (control)", "30-MIN BREAKOUT (follow)", "30-MIN BREAKOUT (fade)", "VWAP STRETCH (fade)", "VWAP CROSS (follow)", "EXHAUSTION: 5 candles one way (fade)", "BIG CANDLE (fade)", "PREVIOUS DAY HIGH / LOW BREAK (follow)", "1-MIN FVG 10% + WITH THE 30-MIN TREND", "1-MIN FVG 10% + ON THE VWAP SIDE", "1-MIN FVG 10% + TREND + VWAP" };
     static readonly double[] BrUsd = { 500, 750, 1000, 1500 };
+    public static bool Invert;   // INVERSION: the same FVGs and prices, the opposite side (a stop order at the limit's level)
 
-    static List<T1> Signals(RDay x, int sig, double usd)
+    public static List<T1> Signals(RDay x, int sig, double usd)
     {
         var o = new List<T1>(); int ws = R.S(9, 30), we = R.S(15, 0), flat = R.S(15, 55); double pts = usd / 20.0;
         Action<int, double, int, bool> take = (k, e, d, lim) => { double p = FreqStudy.Walk(x, k, e, d, pts, pts, flat, lim); o.Add(new T1 { Slot = k, Exit = FreqStudy.lastExit, Dir = d, Pnl = p, Mfe = Math.Max(p, FreqStudy.lastMfe) }); };
@@ -38,7 +39,7 @@ public static class FastRotateStudy
                 if ((sig == 11 || sig == 13) && trend[c3] != d) continue;
                 if ((sig == 12 || sig == 13) && (double.IsNaN(vw[c3]) || (d > 0 ? x.C[c3] < vw[c3] : x.C[c3] > vw[c3]))) continue;
                 double lo = d > 0 ? x.H[c1] : x.H[c3], hi = d > 0 ? x.L[c3] : x.L[c1], lv = d > 0 ? hi - pct * (hi - lo) : lo + pct * (hi - lo); lv = Math.Round(lv / 0.25) * 0.25;
-                for (int k = c3 + 1; k <= Math.Min(c3 + 15, we); k++) { if (!x.Has(k)) continue; if (d > 0 ? x.L[k] <= lv : x.H[k] >= lv) { take(k, d > 0 ? Math.Min(lv, x.O[k]) : Math.Max(lv, x.O[k]), d, true); break; } }
+                for (int k = c3 + 1; k <= Math.Min(c3 + 15, we); k++) { if (!x.Has(k)) continue; if (d > 0 ? x.L[k] <= lv : x.H[k] >= lv) { take(k, d > 0 ? Math.Min(lv, x.O[k]) : Math.Max(lv, x.O[k]), Invert ? -d : d, true); break; } }
             }
         }
         else if (sig == 2)
@@ -104,6 +105,33 @@ public static class FastRotateStudy
         }
         foreach (var m in o.Month.Values) { double v = m[1] - m[0]; if (v > 0) o.MonthsUp++; else if (v < 0) o.MonthsDown++; }
         return o;
+    }
+
+    // NORMAL vs INVERTED: the same FVG families (plain, VWAP side, trend, both), brackets and account counts, the side flipped
+    public static void Inversion(List<RDay> mnq, string outDir)
+    {
+        var log = new StringBuilder(); Action<string> say = s => { Console.WriteLine(s); log.AppendLine(s); };
+        var days = mnq.OrderBy(d => d.Day).ToList(); var dates = days.Select(d => d.Day.Date).ToList(); int split = dates.FindIndex(d => d >= Half); double yrs = (dates[dates.Count - 1] - dates[0]).TotalDays / 365.25;
+        var r = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID FLEX 50K")).Copy();
+        var rows = new List<string[]>();
+        foreach (int sg in new[] { 0, 12, 11, 13 }) foreach (double br in new[] { 1000.0, 1500.0 }) foreach (bool inv in new[] { false, true })
+        {
+            Invert = inv; var sigs = days.Select(d => Signals(d, sg, br)).ToList(); Invert = false;
+            var all = sigs.SelectMany(l => l).ToList(); double win = all.Count == 0 ? 0 : 100.0 * all.Count(t => t.Pnl > 0) / all.Count, avg = all.Count == 0 ? 0 : all.Average(t => t.Pnl);
+            foreach (bool solo in new[] { true, false })
+            {
+                double tk, sk, tk2, sk2, tk3, sk3; int n = 10;
+                var a = Pool(dates, sigs, 0, split, r, n, out tk, out sk, solo); var b = Pool(dates, sigs, split, dates.Count, r, n, out tk2, out sk2, solo); var o = Pool(dates, sigs, 0, dates.Count, r, n, out tk3, out sk3, solo);
+                var row = new[] { SigName[sg], inv ? "INVERTED" : "normal", "±$" + br.ToString("N0", IC), solo ? "one at a time" : "several, same side", (tk3 / dates.Count).ToString("0.0", IC), win.ToString("0.0", IC) + "%", avg.ToString("0", IC), a.Roi.ToString("0.00", IC) + "×", b.Roi.ToString("0.00", IC) + "×", (o.Net / yrs).ToString("N0", IC), o.Low.ToString("N0", IC), o.Bought.ToString(IC), (100.0 * o.Passed / Math.Max(1, o.Bought)).ToString("0", IC) + "%", o.Payouts.ToString(IC), o.MonthsUp + " / " + o.MonthsDown };
+                rows.Add(row); say(string.Join(" | ", row));
+            }
+        }
+        var h = new StringBuilder();
+        h.Append("<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>FVG Inversion Test</title><style>:root{--bg:#0b0f14;--card:#141a22;--card2:#1b2330;--line:#2a3442;--text:#e8eef5;--mute:#8d9aab;--pos:#3fb950;--neg:#f85149;--acc:#e3b341}@media (prefers-color-scheme: light){:root{--bg:#f5f7fa;--card:#fff;--card2:#f0f3f7;--line:#d8dee6;--text:#1c2430;--mute:#5d6b7c;--pos:#1a7f37;--neg:#cf222e;--acc:#9a6700}}*{box-sizing:border-box}body{background:var(--bg);color:var(--text);font:14px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;margin:0;padding:28px 16px}main{max-width:1280px;margin:0 auto}h1{font-size:26px;margin:0 0 6px}.mute{color:var(--mute)}.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}table{border-collapse:collapse;width:100%;background:var(--card);font-variant-numeric:tabular-nums}th,td{padding:6px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{background:var(--card2);color:var(--mute)}td.l,th.l{text-align:left}tr.inv td{color:var(--acc)}</style></head><body><main>");
+        h.Append("<h1>FVG inversion • normal vs inverted</h1><p class='mute'>MNQ " + dates[0].ToString("yyyy-MM-dd", IC) + " → " + dates[dates.Count - 1].ToString("yyyy-MM-dd", IC) + " • the same 1-minute FVGs (gap ≥ 1 pt, 09:30–15:00), the same price (10% of the gap) and 15-minute validity — INVERTED trades the other side with a stop order at that price • 10 MNQ, flat 15:55 • 10 LUCID FLEX 50K accounts in rotation (one trade per account per day), trailing drawdown trade by trade • ROI = money back ÷ money spent.</p><div class='wrap'><table><tr><th class='l'>SIGNAL</th><th class='l'>SIDE</th><th>BRACKET</th><th class='l'>POSITIONS</th><th>TRADES / DAY</th><th>WIN %</th><th>AVG $ / TRADE</th><th>ROI 20–23</th><th>ROI 24–26</th><th>NET / YEAR</th><th>LOWEST</th><th>EVALS</th><th>PASS %</th><th>PAYOUTS</th><th>MONTHS +/−</th></tr>");
+        foreach (var x in rows) { h.Append("<tr" + (x[1] == "INVERTED" ? " class='inv'" : "") + ">"); for (int i = 0; i < x.Length; i++) h.Append("<td" + (i < 2 || i == 3 ? " class='l'" : "") + ">" + System.Net.WebUtility.HtmlEncode(x[i]) + "</td>"); h.Append("</tr>"); }
+        h.Append("</table></div></main></body></html>");
+        Directory.CreateDirectory(outDir); File.WriteAllText(System.IO.Path.Combine(outDir, "fvg_inversion.html"), h.ToString()); File.WriteAllText(System.IO.Path.Combine(outDir, "fvg_inversion_log.txt"), log.ToString());
     }
 
     public static void Run(List<RDay> mnq, string outDir)

@@ -430,6 +430,11 @@ public static class PropSimTests
             "FVG RETRACE 1M: every 1-minute FVG ≥ 1 point → a 10% limit valid 15 min, ±75 pts on 10 MNQ", s1m.Count + " signals");
         var fr1v = KeystoneOpeningRange.Presets().First(x => x.Short == "FVGR1"); var s1v = KeystoneOpeningRange.Signals(fr1v, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MNQ");
         Check(fr1v.VwapSide == 1 && s1v.Count <= s1m.Count, "FVG RETRACE 1M + VWAP: the VWAP side keeps a subset of the FVGs (buys above VWAP, sells below)", s1v.Count + " of " + s1m.Count);
+        // INVERSION: the same FVGs and prices, the opposite side, sent as a stop order; MGC gets its own setups (BOTH by default)
+        var frInv = fr1.Copy(); frInv.Invert = 1; var sInv = KeystoneOpeningRange.Signals(frInv, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MNQ");
+        bool invOk = sInv.Count == s1m.Count && sInv.Count > 0; for (int i = 0; invOk && i < sInv.Count; i++) invOk = sInv[i].Inverted && !s1m[i].Inverted && sInv[i].Dir == -s1m[i].Dir && Eq(sInv[i].Entry, s1m[i].Entry) && sInv[i].Time == s1m[i].Time && sInv[i].CancelAt == s1m[i].CancelAt && Eq(sInv[i].Stop, sInv[i].Entry - sInv[i].Dir * 75) && Eq(sInv[i].Target, sInv[i].Entry + sInv[i].Dir * 75) && sInv[i].Tag.StartsWith("FVG INV");
+        Check(invOk && frInv.Describe().Contains("INVERTED"), "INVERSION: every FVG the same (time, price, valid until), the side flipped (bullish → SELL stop), stop / target mirrored", sInv.Count + " vs " + s1m.Count);
+        Check(fr1v.Symbols == "BOTH" && KeystoneOpeningRange.Signals(fr1, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MGC").Count > 0, "FVG RETRACE 1M: MNQ and MGC both get setups by default (MGC was MNQ-only before)");
         var rBuy = ofR.Copy(); rBuy.Side = 1; Check(KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 6), ofMins3), rBuy, "MNQ").Dir == 0, "SIDE = buys only: a bearish first FVG means no trade that day");
         // 📒 MY TRADES POOL: tagged lines + the older journal (no double counting), days, breakdowns, AI prompt
         var mf1 = new KeystoneReplayFill { Symbol = "MNQ", Side = "BUY", Qty = 2, EntryTime = new DateTime(2026, 3, 10, 9, 41, 0), ExitTime = new DateTime(2026, 3, 10, 9, 52, 30), Entry = 100, Exit = 110, Points = 10, Net = 36.5, Reason = "TARGET" };
