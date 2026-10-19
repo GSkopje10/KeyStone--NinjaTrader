@@ -434,7 +434,17 @@ public static class PropSimTests
         var frInv = fr1.Copy(); frInv.Invert = 1; var sInv = KeystoneOpeningRange.Signals(frInv, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MNQ");
         bool invOk = sInv.Count == s1m.Count && sInv.Count > 0; for (int i = 0; invOk && i < sInv.Count; i++) invOk = sInv[i].Inverted && !s1m[i].Inverted && sInv[i].Dir == -s1m[i].Dir && Eq(sInv[i].Entry, s1m[i].Entry) && sInv[i].Time == s1m[i].Time && sInv[i].CancelAt == s1m[i].CancelAt && Eq(sInv[i].Stop, sInv[i].Entry - sInv[i].Dir * 75) && Eq(sInv[i].Target, sInv[i].Entry + sInv[i].Dir * 75) && sInv[i].Tag.StartsWith("FVG INV");
         Check(invOk && frInv.Describe().Contains("INVERTED"), "INVERSION: every FVG the same (time, price, valid until), the side flipped (bullish → SELL stop), stop / target mirrored", sInv.Count + " vs " + s1m.Count);
-        Check(fr1v.Symbols == "BOTH" && KeystoneOpeningRange.Signals(fr1, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MGC").Count > 0, "FVG RETRACE 1M: MNQ and MGC both get setups by default (MGC was MNQ-only before)");
+        var frBoth = fr1.Copy(); frBoth.Symbols = "BOTH";
+        Check(fr1v.Symbols == "MNQ" && KeystoneOpeningRange.Signals(fr1, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MGC").Count == 0 && KeystoneOpeningRange.Signals(frBoth, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MGC").Count > 0, "FVG RETRACE 1M: MNQ only by default (MGC lost money in the research) • INSTRUMENTS = BOTH gives MGC its setups");
+        // THE MONEY ROAD: max budget, streaks, the longest wait for a payout, the payout cycle
+        var rsim = new KeystonePropSim(null); double rcs = 0, rcc = 0; var rd0 = new DateTime(2026, 1, 5);
+        double[] spend = { 120, 120, 0, 120, 0, 0, 0 }, cash = { 0, 0, 0, 0, 1500, 1500, 0 };
+        for (int i = 0; i < spend.Length; i++) { rcs += spend[i]; rcc += cash[i]; rsim.Days.Add(new KeystoneSimDay { Day = rd0.AddDays(i), CumSpent = rcs, CumCash = rcc, Payouts = cash[i] > 0 ? 1 : 0 }); }
+        rsim.Accounts.Add(new KeystoneSimAccount { Id = 1, Bought = rd0, PassedOn = rd0.AddDays(2), Phase = "FUNDED", Payouts = 2, Cash = 3000 });
+        rsim.Events.Add(new KeystoneSimEvent { Time = rd0.AddDays(4), Account = 1, Kind = "PAYOUT", Amount = 1500 });
+        var road = KeystoneSimRoad.Of(rsim);
+        Check(Eq(road.MaxBudget, 360) && road.MaxBudgetDay == rd0.AddDays(3) && road.LoseDays == 3 && Eq(road.LoseAmount, -360) && road.WinDays == 2 && Eq(road.WinAmount, 3000) && road.NoPayoutDays == 4 && road.PaidAccounts == 1 && Eq(road.AvgDaysToFirstPay, 2) && Eq(road.AvgPayout, 1500) && Eq(road.SpentBeforeFirstPay, 360),
+            "MONEY ROAD: max budget $360 (day 4) • losing streak 3 days −$360 (a flat day keeps it) • winning 2 days +$3,000 • 4 days before the first payout • paid 2 days after passing", road.MaxBudget + " " + road.LoseDays + " " + road.WinDays + " " + road.NoPayoutDays + " " + road.AvgDaysToFirstPay + " " + road.SpentBeforeFirstPay);
         var rBuy = ofR.Copy(); rBuy.Side = 1; Check(KeystoneOpenFvg.Run(fvgDay(new DateTime(2025, 3, 6), ofMins3), rBuy, "MNQ").Dir == 0, "SIDE = buys only: a bearish first FVG means no trade that day");
         // 📒 MY TRADES POOL: tagged lines + the older journal (no double counting), days, breakdowns, AI prompt
         var mf1 = new KeystoneReplayFill { Symbol = "MNQ", Side = "BUY", Qty = 2, EntryTime = new DateTime(2026, 3, 10, 9, 41, 0), ExitTime = new DateTime(2026, 3, 10, 9, 52, 30), Entry = 100, Exit = 110, Points = 10, Net = 36.5, Reason = "TARGET" };

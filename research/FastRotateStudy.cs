@@ -83,7 +83,7 @@ public static class FastRotateStudy
     sealed class Res { public int Sig, B, N; public AccountTypeStudy.Out A, Bo, All; public double PerDay, Skipped, PerYear; public bool Solo; public double Score { get { return Math.Min(A.Roi, Bo.Roi); } } }
 
     // a pool of n slots; each signal → the next slot that has not traded today; no position against an open one on another account
-    static AccountTypeStudy.Out Pool(List<DateTime> dates, List<List<T1>> sigs, int from, int to, KeystoneSimRules r, int n, out double taken, out double skipped, bool solo = false)
+    public static AccountTypeStudy.Out Pool(List<DateTime> dates, List<List<T1>> sigs, int from, int to, KeystoneSimRules r, int n, out double taken, out double skipped, bool solo = false)
     {
         var o = new AccountTypeStudy.Out(); var b = new AccountTypeStudy.Batch(); var acc = new AccountTypeStudy.Acc[n]; int last = -1; taken = 0; skipped = 0;
         for (int i = from; i < to; i++)
