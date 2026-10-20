@@ -27,7 +27,7 @@ public static class FastRotateStudy
     {
         var o = new List<T1>(); int ws = R.S(9, 30), we = R.S(15, 0), flat = R.S(15, 55); double pts = usd / (FreqStudy.PV * FreqStudy.Q); double tkz = FreqStudy.Sym == "MGC" ? 0.1 : 0.25;
         Action<int, double, int, bool> take = (k, e, d, lim) => { double p = FreqStudy.Walk(x, k, e, d, pts * TgtR, pts, flat, lim); o.Add(new T1 { Slot = k, Exit = FreqStudy.lastExit, Dir = d, Pnl = p, Mfe = Math.Max(p, FreqStudy.lastMfe) }); };
-        if (sig <= 1 || sig >= 11)
+        if (sig <= 1 || (sig >= 11 && sig <= 13))
         {
             double pct = sig == 1 ? 0.50 : 0.10;
             // filters (known at the FVG's third candle): the 30-min trend = the side of the last close beyond the prior 30-min range; VWAP side

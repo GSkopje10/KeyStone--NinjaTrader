@@ -1,0 +1,13 @@
+TPT 25K ROTATION • 5 MNQ • eval target $1,500 (two +$760 trades), PRO buffer $1,500 • TAKE PROFIT TRADER 25K (check) • evaluation $150 → +$1,500 (drawdown $1,500 EOD, best day ≤ 50%, ≥ 5 days) • funded (activation $130): drawdown $1,500 INTRADAY • payout after 1 day(s): 100% above $1,500, min $250, you keep 80% • max 30 micros • flat by 16:55
+1-MIN FVG • limit 10% eval stop $375 done • 48 plans • 11 s
+1-MIN FVG • limit 10% eval stop $500 done • 96 plans • 22 s
+1-MIN FVG • limit 10% eval stop $750 done • 144 plans • 32 s
+1-MIN FVG 10% + ON THE VWAP SIDE eval stop $375 done • 192 plans • 41 s
+1-MIN FVG 10% + ON THE VWAP SIDE eval stop $500 done • 240 plans • 50 s
+1-MIN FVG 10% + ON THE VWAP SIDE eval stop $750 done • 288 plans • 59 s
+RANDOM every 5 min (control) eval stop $375 done • 336 plans • 71 s
+RANDOM every 5 min (control) eval stop $500 done • 384 plans • 82 s
+RANDOM every 5 min (control) eval stop $750 done • 432 plans • 94 s
+ALWAYS BUY every 5 min eval stop $375 done • 480 plans • 107 s
+ALWAYS BUY every 5 min eval stop $500 done • 528 plans • 120 s
+ALWAYS BUY every 5 min eval stop $750 done • 576 plans • 135 s

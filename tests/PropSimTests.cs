@@ -275,7 +275,7 @@ public static class PropSimTests
         var sig = ind.Signal(5, -2, 1000); var sig0 = ind.Signal(0, 3, 1000);
         Check(sig.Item1 == 1 && sig.Item2 == -1 && sig0.Item1 == 0 && sig0.Item2 == 0, "INDICATOR: MNQ up + MGC down → BUY MNQ + SELL MGC • a flat instrument → WAIT", sig + " " + sig0);
         Check(KeystoneEntryIndicator.FromText("") == null && KeystoneEntryIndicator.FromText("garbage") == null, "INDICATOR: nothing saved = none");
-        var isT = isS.Copy(); isT.Indicator = ind.ToText();
+        var isT = isS.Copy(); isT.Indicator = ind.ToText(); isT.AutoFallback = "WAIT";   // the indicator on its own (no BUY BOTH after the pause)
         var irows = KeystoneRotationLab.CompareSides(isT, testD, null, null); var irow = irows.First(r => r.Mine); var mid = irows.FirstOrDefault(r => r.Name.Contains("MIDDLE"));
         Console.WriteLine("      unseen days: " + string.Join(" | ", irows.Select(r => r.Name + " " + r.Net.ToString("0") + " (" + r.WinPct.ToString("0") + "%)")));
         Check(irows.Count >= 8 && irows.Count(r => r.Mine) == 1 && irow.Name.Contains("INDICATOR") && irow.Trades > 0 && irows.Any(r => r.Name.Contains("LUCKIEST")), "INDICATOR vs RANDOM: the indicator, the luckiest and middle of 10 random seeds, the fixed rules");
@@ -353,6 +353,13 @@ public static class PropSimTests
         Check(Eq(fm.Floor(nwA), -1000) && Eq(fm.Floor(bpA), -2500), "TRAILING (end of day): +$1,000 lifts the floor to −1,000 • STATIC: the floor stays at −2,500");
         nwA.PeakEod = 2600; Check(Eq(fm.Floor(nwA), 0), "TRAILING stops at the start balance (locks at 0 once the peak is +$2,000 or more)");
         var ibA = fm.Accounts[2]; var eqSt = fm.CheckEquity(ibA, 800); Check(eqSt == "" && Eq(fm.Floor(ibA), -700), "INTRADAY trailing: open profit +$800 lifts the floor at once (−1,500 → −700)", fm.Floor(ibA).ToString());
+        // 🛡 THE TRAILING VIEW: INTRADAY follows the open profit live; EOD keeps today's floor until the close; the buffer = equity − floor
+        var tvI = fm.Trail(ibA, 300); var tvE = fm.Trail(nwA, 500);   // IB peak +800 (from the open profit above), now +300 open • NW: best close +2,600
+        Check(tvI.Type == "INTRADAY" && Eq(tvI.Peak, 800) && Eq(tvI.Floor, -700) && Eq(tvI.Room, 1000) && Eq(tvI.FromPeak, 500) && !tvI.Locked && Eq(tvI.GoalLeft, 2200) && tvI.GoalName == "PROFIT TARGET",
+            "TRAILING VIEW (live): peak +800 → floor −700 • now +300 = buffer $1,000, $500 off the peak • $2,200 to the target", tvI.Peak + " " + tvI.Floor + " " + tvI.Room);
+        var tvI2 = fm.Trail(ibA, 1200); Check(Eq(tvI2.Peak, 1200) && Eq(tvI2.Floor, -300) && Eq(tvI2.Room, 1500), "TRAILING VIEW (live): a new high +1,200 → the floor follows at once (−300), the buffer stays the full $1,500");
+        nwA.PeakEod = 1000; var tvE2 = fm.Trail(nwA, 1800); Check(tvE.Type == "EOD" && Eq(tvE2.Peak, 1000) && Eq(tvE2.Floor, -1000) && Eq(tvE2.Room, 2800), "TRAILING VIEW (end of day): +1,800 open does NOT move the floor (−1,000 from the last best close) until the close");
+        nwA.PeakEod = 2600; Check(fm.Trail(nwA, 0).Locked && Eq(fm.Trail(nwA, 0).Floor, 0), "TRAILING VIEW: locked at the start balance once the peak is +$2,000");
         var fl2 = KeystoneSimFirm.Parse(KeystoneSimFirm.Text(fm.FirmList), fmS.Rules, 0); Check(fl2.Count == 3 && fl2[2].Rules.EvalDdType == "INTRADAY" && fl2[1].Count == 1 && fl2[0].Code == "NW", "FIRMS: saved in one line and read back");
         // 🗓 SESSIONS BY DAY: every day × six session windows; the best session per day; saved and read back
         var dsRows = KeystoneDaySession.Run(isT, testD.Take(3).ToList(), null, null);
@@ -441,6 +448,12 @@ public static class PropSimTests
         var tptS = KeystoneOpeningRange.Signals(tptR, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MNQ");
         Check(KeystoneReplaySignals.Names[14].Contains("TPT") && tptR.VwapSide == 0 && tptR.FvgMinutes == 1 && tptS.Count > 0 && tptS.All(x => Eq(x.StopDist, 75) && Eq(x.TargetDist, 76) && Eq(x.FundStopDist, 75) && Eq(x.FundTargetDist, 75)) && tptRules.EvalMinDays == 3 && tptRules.FundDdType == "INTRADAY" && Eq(tptRules.PayoutBuffer, 2000),
             "TPT 50K ROTATION preset: evaluation stop 75 / target 76 pts (−$1,500 / +$1,520 on 10 MNQ), PRO 75 / 75 • TPT 50K: 3 days, PRO intraday trailing, $2,000 buffer", tptS.Count + " signals");
+        // TPT PRO: trailing live until the buffer is made (best equity +$2,000 → the floor locks at the start), then withdrawals (≤ $10,000 a day, 80%)
+        var tpS = new KeystoneSimSettings { Accounts = 1, StartAs = "FUNDED", Strategy = "STUDIO", BuyRule = "ALWAYS", Rules = tptRules.Copy() }; var tps = new KeystonePropSim(tpS); tps.BeginDay(new DateTime(2026, 4, 6));
+        var pro = tps.Accounts[0]; tps.CheckEquity(pro, 1500); Check(pro.BufferOn == DateTime.MinValue && Eq(tps.Floor(pro), -500), "TPT PRO: open +$1,500 → the floor follows to −$500, no buffer yet");
+        tps.CheckEquity(pro, 2100); Check(pro.BufferOn == new DateTime(2026, 4, 6) && Eq(tps.Floor(pro), 0) && tps.Events.Any(e => e.Kind == "BUFFER"), "TPT PRO: best equity +$2,100 → BUFFER MADE, the floor locked at the start (0)");
+        Check(tptRules.PayoutCap == 10000 && tptRules.Split == 80 && tptRules.PayoutDays == 1 && tptRules.PayoutConsistency <= 0, "TPT PRO: no consistency rule, any day, up to $10,000 a day, 80% to you");
+        var rRd = new KeystoneSimRotation(1); rRd.Done(new DateTime(2026, 4, 6, 10, 0, 0), 25); Check(rRd.ReadyAt == new DateTime(2026, 4, 6, 10, 0, 25) && new KeystoneSimSettings().AutoFallback == "BUY", "AUTO: the pause (25 s) ends at 10:00:25 — with the entry indicator and no setup, AUTO then takes the side set at the start (BUY BOTH by default)");
         // THE MONEY ROAD: max budget, streaks, the longest wait for a payout, the payout cycle
         var rsim = new KeystonePropSim(null); double rcs = 0, rcc = 0; var rd0 = new DateTime(2026, 1, 5);
         double[] spend = { 120, 120, 0, 120, 0, 0, 0 }, cash = { 0, 0, 0, 0, 1500, 1500, 0 };
@@ -496,6 +509,13 @@ public static class PropSimTests
         rot.Start(t0, 1, null, 1000, 300, 10); var tiers = new KeystoneRotationConfig { LockTiers = "500:150" }.Tiers();
         rot.Check(t0.AddSeconds(30), 520, 0, 0, tiers);
         Check(rot.Check(t0.AddSeconds(40), 140, 0, 0, tiers) == "LOCK", "peak +$520, tier 500:150, back to +$140 → LOCK");
+        // TRAILING STOP: −$500 stop, peak +$635 → the stop is +$135 and only moves up
+        var trs = new KeystoneSimRotation(3) { TrailStop = true }; trs.Start(t0, 1, null, 790, 500, 40);
+        Check(trs.Check(t0.AddSeconds(30), 635, 0, 0, null) == "" && Eq(trs.Floor, 135) && trs.Check(t0.AddSeconds(40), 400, 0, 0, null) == "" && Eq(trs.Floor, 135) && trs.Check(t0.AddSeconds(50), 130, 0, 0, null) == "TRAIL STOP",
+            "TRAILING STOP: peak +$635 lifts the −$500 stop to +$135 (stays there when price pulls back) → out at +$130 = TRAIL STOP", trs.Floor.ToString());
+        var plain = new KeystoneSimRotation(3); plain.Start(t0, 1, null, 790, 500, 40); plain.Check(t0.AddSeconds(30), 635, 0, 0, null);
+        Check(plain.Check(t0.AddSeconds(50), 130, 0, 0, null) == "" && Eq(plain.Floor, -500), "TRAILING STOP OFF: the stop stays at −$500");
+        Check(new KeystoneSimSettings().TrailStop, "TRAILING STOP is on by default in the prop simulation");
         var rr = new KeystoneSimRotation(1); int buys = 0; for (int i = 0; i < 400; i++) if (rr.PickDir("RANDOM", 0, 0) > 0) buys++;
         Check(buys > 160 && buys < 240, "RANDOM: about half buy-buy, half sell-sell", buys.ToString());
         Check(rr.PickDir("FOLLOW5", 5, 1) == 1 && rr.PickDir("FOLLOW5", 5, -1) == 0 && rr.PickDir("FADE5", -5, -1) == 1, "FOLLOW5 / FADE5 need both instruments to agree");
