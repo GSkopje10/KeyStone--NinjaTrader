@@ -256,6 +256,40 @@ public static class AccountLinkTests
             var xml = KeystoneExcel.Build(new[] { Tuple.Create("ACCOUNTS", new List<string[]> { new[] { "account", "cost" }, new[] { "LFE <A&B>", "120" } }) });
             Check(xml.Contains("<Worksheet ss:Name=\"ACCOUNTS\">") && xml.Contains("ss:Type=\"Number\">120<") && xml.Contains("LFE &lt;A&amp;B&gt;") && KeystoneExcel.SplitCsv("a,\"b,c\",3").Length == 3, "EXCEL: sheet, header, number cells, escaped text, quoted CSV cells");
         }
+        // 9d2. LIVE RANDOM ROTATION: MNQ + MGC on one account at a time, hard stops at the broker, the combined trailing stop, the next account
+        {
+            var dr = new KeystoneDuoRotation(5) { QtyM = 2, QtyG = 2, Target = 300, Stop = 200, Trail = true, PauseSeconds = 25, MaxTradesPerDay = 1 };
+            var fbM = new List<FakeBroker>(); var fbG = new List<FakeBroker>();
+            foreach (var nm in new[] { "LT1001", "TPT2002", "APEX-3003-01" })
+            {
+                var bm = new FakeBroker(); var bg = new FakeBroker(); fbM.Add(bm); fbG.Add(bg);
+                var lm = new KeystoneAccountLink(bm, "MNQ") { MaxContracts = 5, DayLossLimit = 0 }; var lg = new KeystoneAccountLink(bg, "MGC") { MaxContracts = 5, DayLossLimit = 0 };
+                lm.Arm(t0); lg.Arm(t0); var f = KeystoneFirmNames.Detect(nm, "");
+                dr.Pool.Add(new KeystoneDuoSeat { Account = nm, Firm = f[0], Color = f[2], LinkM = lm, LinkG = lg, MirM = KeystoneReplayTrader.LiveStart(new List<KeystoneArcBar>(), "MNQ", t0), MirG = KeystoneReplayTrader.LiveStart(new List<KeystoneArcBar>(), "MGC", t0) });
+            }
+            Check(dr.Pool[0].Firm == "LUCID" && dr.Pool[1].Firm == "TPT" && dr.Pool[2].Firm == "APEX" && dr.Pool[0].Color != dr.Pool[1].Color, "FIRMS: LT1001 → Lucid, TPT2002 → Take Profit Trader, APEX-3003-01 → Apex, each its own colour");
+            DateTime tt = t0; Action<double, double> tick = (pm, pg) => { tt = tt.AddSeconds(1); fbM.ForEach(b => b.Last = pm); fbG.ForEach(b => b.Last = pg); dr.Tick(pm, pg, tt); };
+            Check(dr.Enter(1, 1, tt, 20000, 2000) == "" && dr.Current.Account == "LT1001", "ENTER BUY BOTH → the first account in the pool order (LT1001)");
+            tick(20000, 2000); tick(20000, 2000);
+            Check(fbM[0].Sent.Contains("MARKET 2") && fbG[0].Sent.Contains("MARKET 2") && fbM[1].Sent.Count == 0, "both legs go to LT1001 only: BUY 2 MNQ + BUY 2 MGC", string.Join(" | ", fbM[0].Sent) + " / " + string.Join(" | ", fbG[0].Sent));
+            fbM[0].FillMarket(20000); fbG[0].FillMarket(2000); for (int k = 0; k < 4; k++) tick(20000, 2000);
+            Check(fbM[0].Sent.Any(x => x.StartsWith("STOP -2 @ 19950")) && fbG[0].Sent.Any(x => x.StartsWith("STOP -2 @ 1990")), "each leg gets a hard stop AT THE BROKER (the whole $200 stop: MNQ 19950, MGC 1990)", string.Join(" | ", fbM[0].Sent) + " / " + string.Join(" | ", fbG[0].Sent));
+            tick(20060, 2002); Check(Math.Abs(dr.Open - 280) < 1e-6 && Math.Abs(dr.Floor - 80) < 1e-6, "combined +$280 (MNQ +240, MGC +40) → the trailing stop follows to +$80", dr.Open + " / " + dr.Floor);
+            tick(20030, 1999); Check(dr.Current != null && dr.Floor > 79, "back to +$100: still in (the stop stays at +$80, never moves down)", dr.Open.ToString());
+            tick(20020, 1999); tick(20020, 1999); tick(20020, 1999);
+            Check(dr.Current == null && dr.Finished.Count == 1 && dr.Finished[0].Reason == "TRAIL STOP" && fbM[0].Q == 0 && fbG[0].Q == 0, "+$60 ≤ +$80 → TRAIL STOP: both legs closed, the trade saved", dr.Status + " / " + fbM[0].Q + " " + fbG[0].Q);
+            Check(dr.Pool[0].DoneToday && dr.Pool[0].Status.StartsWith("DONE TODAY"), "LT1001 traded today (1 a day) → done for today", dr.Pool[0].Status);
+            dr.Selected = dr.Pool[2]; tt = tt.AddSeconds(30);
+            Check(dr.Enter(-1, 1, tt, 20000, 2000) == "" && dr.Current.Account == "APEX-3003-01", "a click on APEX-3003-01 → the next ENTER (SELL MNQ • BUY MGC) goes there, not to the next in turn");
+            tick(20000, 2000); tick(20000, 2000); fbM[2].FillMarket(20000); fbG[2].FillMarket(2000); tick(20000, 2000); tick(20000, 2000);
+            Check(fbM[2].Q == -2 && fbG[2].Q == 2, "APEX: SELL 2 MNQ + BUY 2 MGC", fbM[2].Q + " " + fbG[2].Q);
+            dr.CloseAll("CLOSE ALL", tt); tick(20000, 2000); tick(20000, 2000); tick(20000, 2000);
+            Check(dr.Current == null && fbM[2].Q == 0 && fbG[2].Q == 0 && dr.Finished.Last().Reason == "CLOSE ALL", "CLOSE ALL → both legs flat");
+            dr.Auto = true; dr.Direction = "BUY"; for (int k = 0; k < 30; k++) tick(20000, 2000);
+            Check(dr.Current != null && dr.Current.Account == "TPT2002", "AUTO: after the 25 s pause the next free account (TPT2002) enters BUY BOTH by itself", dr.Status);
+            dr.Move(2, 0); Check(dr.Pool[0].Account == "APEX-3003-01" && dr.Pool[1].Account == "LT1001", "drag & drop: the pool order changes (APEX first)");
+            Check(KeystoneFirmNames.Detect("Sim101", "")[0] == "SIM" && KeystoneFirmNames.Detect("12345", "Tradeify Rithmic")[0] == "TRADEIFY" && KeystoneFirmNames.Detect("XQ55", "")[0] == "XQ" && KeystoneFirmNames.Detect("abc", "", "MFFU")[0] == "MFFU", "FIRMS: Sim101 • the connection name (Tradeify) • an unknown prefix keeps its own name • your override wins");
+        }
         // 9e. copier: leader 2 → follower ×0.5 = 1, stop follows, leader flat → follower flat; own stop hit → sits the trade out; pause
         {
             var lb = new FakeBroker(); var leader = Trader();

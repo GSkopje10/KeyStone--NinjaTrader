@@ -27,6 +27,9 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   The ROTATION (Live Trading ▸ 🔄 ROTATE, `KeystoneRotator`) sends the chart strategy's orders to ONE pool account at a time
   only after START ROTATION is confirmed (each account gets its own armed `KeystoneAccountLink` with its limits; MANUAL mode
   sends nothing until ENTER is pressed); its tests are in `tests/AccountLinkTests.cs`.
+  The MNQ+MGC ROTATION (Live Trading ▸ 🎲, `KeystoneDuoRotation`) trades both instruments on ONE pool account at a time only
+  after START ROTATION is confirmed (each account: two armed links with their limits + a hard stop at the broker per leg;
+  MANUAL sends nothing until a BUY / SELL button); its tests are in `tests/AccountLinkTests.cs`.
   Research / lab / backtests stay historical; no Apex/Nexus coupling.
 - Do not change BH detection, BH outcome resolution, or the MNQ loader without explicit scope.
   MGC loader changes stay MGC-only. Asian work stays inside the Asian code paths.

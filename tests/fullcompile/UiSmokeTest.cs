@@ -471,6 +471,18 @@ public static class UiSmokeTest
                         click(focusB); click(focusB); click(dual);
                         if (Convert.ToString(dual.Content) != "◫ MNQ + MGC") throw new Exception("MNQ + MGC did not switch back");
                         Console.WriteLine("      MNQ + MGC side by side → one chart again, FOCUS in between: OK");
+                        // 🎲 MNQ+MGC ROTATION: the view opens (pool rows with firm colours, buttons, settings, the learning log), AUTO / MANUAL toggles, back to the chart
+                        var duoB = btn("🎲 MNQ+MGC ROTATION"); if (duoB == null) throw new Exception("MNQ+MGC ROTATION button missing");
+                        click(duoB); if (Convert.ToString(duoB.Content) != "◀ CHART") throw new Exception("MNQ+MGC ROTATION view did not open");
+                        all.Clear(); walk(liveWin.Content);
+                        var bb = btn("▲▲ BUY BOTH"); Func<System.Windows.Controls.Button> duoMode = () => all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.ToolTip).StartsWith("AUTO: after each pause")); var modeB = duoMode();
+                        if (bb == null || modeB == null || btn("▶ START ROTATION") == null) throw new Exception("MNQ+MGC ROTATION buttons missing");
+                        string m0 = Convert.ToString(modeB.Content); click(modeB); all.Clear(); walk(liveWin.Content);
+                        var modeB2 = duoMode();
+                        if (modeB2 == null || Convert.ToString(modeB2.Content) == m0) throw new Exception("AUTO / MANUAL did not toggle");
+                        click(modeB2); click(bb);   // BUY BOTH before START: refused with a message, nothing sent
+                        all.Clear(); walk(liveWin.Content); var backDuo = btn("◀ CHART"); if (backDuo == null) throw new Exception("no way back to the chart"); click(backDuo);
+                        Console.WriteLine("      MNQ+MGC ROTATION view: buttons, AUTO ⇄ MANUAL, BUY BOTH refused before START, back to the chart: OK");
                     }
                     liveWin.Close(); if (F("replayTraderWindow") != null) throw new Exception("LIVE TRADING window did not close");
                     // every window asks before the X closes it
