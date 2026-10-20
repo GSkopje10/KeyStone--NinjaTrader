@@ -152,7 +152,7 @@ namespace System.Windows
         public System.Windows.Media.ImageSource Icon { get; set; }
         public event EventHandler Closed, Activated, Deactivated, ContentRendered;
         public bool Activate() { return true; }
-        public bool IsActive { get { return false; } } public event System.ComponentModel.CancelEventHandler Closing; public event EventHandler StateChanged; public void DragMove() { }
+        public bool IsActive { get { return false; } } public event System.ComponentModel.CancelEventHandler Closing; public event EventHandler StateChanged; public event EventHandler SourceInitialized; public void DragMove() { }
         public void Show() { }
         public bool? ShowDialog() { return true; }
         public void Close() { var c = new System.ComponentModel.CancelEventArgs(); if (Closing != null) Closing(this, c); if (c.Cancel) return; if (Closed != null) Closed(this, EventArgs.Empty); }

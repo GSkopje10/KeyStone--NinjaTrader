@@ -467,6 +467,19 @@ public static class UiSmokeTest
                         Func<string, System.Windows.Controls.Button> btn = t => all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.Content) == t);
                         var dual = btn("◫ MNQ + MGC"); var focusB = btn("⛶ FOCUS"); if (dual == null || focusB == null) throw new Exception("MNQ + MGC / FOCUS button missing");
                         Action<System.Windows.Controls.Button> click = b => b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                        // 👥 ACCOUNTS opens first while a prop account is not set up; AUTO-NAME → APEX 1, SAVE, back to the chart
+                        Func<System.Windows.Controls.Button> accB = () => all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.ToolTip).StartsWith("Your accounts: names"));
+                        // (the stand-in APEX account reads as not connected, so the tab does not open by itself here: open it with its button)
+                        if (accB() == null) throw new Exception("ACCOUNTS button missing");
+                        if (Convert.ToString(accB().Content) != "◀ CHART") click(accB());
+                        all.Clear(); walk(liveWin.Content); if (Convert.ToString(accB().Content) != "◀ CHART") throw new Exception("ACCOUNTS did not open");
+                        var autoN = all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.Content).StartsWith("✎ AUTO-NAME APEX")); if (autoN == null) throw new Exception("AUTO-NAME missing");
+                        click(autoN); if (!all.OfType<System.Windows.Controls.TextBox>().Any(t => t.Text == "APEX 1")) throw new Exception("AUTO-NAME did not name APEX 1");
+                        click(btn("💾 SAVE ACCOUNTS")); all.Clear(); walk(liveWin.Content);
+                        if (!all.OfType<System.Windows.Controls.TextBox>().Any(t => t.Text == "APEX 1") || !all.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("All 1 accounts saved"))) throw new Exception("ACCOUNTS not saved");
+                        click(accB()); if (Convert.ToString(accB().Content) != "👥 ACCOUNTS") throw new Exception("ACCOUNTS did not go back to the chart");
+                        all.Clear(); walk(liveWin.Content);
+                        Console.WriteLine("      👥 ACCOUNTS, AUTO-NAME → APEX 1, SAVE, back to the chart: OK");
                         click(dual); if (Convert.ToString(dual.Content) != "◫ ONE CHART") throw new Exception("MNQ + MGC did not switch on");
                         click(focusB); click(focusB); click(dual);
                         if (Convert.ToString(dual.Content) != "◫ MNQ + MGC") throw new Exception("MNQ + MGC did not switch back");

@@ -324,6 +324,12 @@ public static class AccountLinkTests
             var w = new KeystoneAccountWatch { Account = "MFFU1", StartBalance = 50000 }; w.Observe(new DateTime(2026, 10, 1), 50400); w.Observe(new DateTime(2026, 10, 2), 50300); w.Observe(new DateTime(2026, 10, 3), 50900);
             var st = KeystonePool.Stats(w, new[] { new[] { "MFFU1", "MNQ", "BUY", "1", "", "", "", "", "10", "19.5" }, new[] { "MFFU1", "MNQ", "SELL", "1", "", "", "", "", "-5", "-11" } });
             Check(st.Days == 3 && Math.Abs(st.Pnl - 900) < 1e-9 && st.Trades == 2 && st.Wins == 1, "pool stats: 3 days, +$900, 2 trades / 1 win", st.Days + " " + st.Pnl + " " + st.Trades);
+            // ACCOUNTS: auto names per firm, firm colours you pick (saved, used everywhere)
+            var nn = KeystoneFirmNames.AutoNicks(new[] { Tuple.Create("TAKEPROFIT250", "TPT"), Tuple.Create("TAKEPROFIT257", "TPT"), Tuple.Create("LT1", "LUCID"), Tuple.Create("TAKEPROFIT332", "tpt") });
+            Check(nn["TAKEPROFIT250"] == "TPT 1" && nn["TAKEPROFIT257"] == "TPT 2" && nn["TAKEPROFIT332"] == "TPT 3" && nn["LT1"] == "LUCID 1", "AUTO-NAME: TPT 1, TPT 2, TPT 3 + LUCID 1", string.Join(",", nn.Values));
+            Check(KeystoneFirmNames.Detect("TAKEPROFIT237407099", "TPT_TEST_PRO")[0] == "TPT", "TAKEPROFIT… on TPT_TEST_PRO → TPT");
+            KeystoneFirmNames.ParseColors("TPT|#4FC3F7\nBAD|red"); Check(KeystoneFirmNames.Detect("TAKEPROFIT250", "")[2] == "#4FC3F7" && !KeystoneFirmNames.Colors.ContainsKey("BAD"), "a picked firm colour wins (bad lines ignored)");
+            string sc = KeystoneFirmNames.SerializeColors(); KeystoneFirmNames.ParseColors(""); Check(KeystoneFirmNames.Detect("TAKEPROFIT250", "")[2] == "#FFB74D", "no pick → the built-in colour"); KeystoneFirmNames.ParseColors(sc); Check(KeystoneFirmNames.Colors["TPT"] == "#4FC3F7", "colours save and load"); KeystoneFirmNames.ParseColors("");
             // the prop tracker: dated expenses round-trip, Spent = price + expenses, the HTML page carries the totals and status colours
             a.Expenses.Add(Tuple.Create(new DateTime(2026, 10, 15), 85.0, "activation"));
             var back2 = KeystonePool.Parse(KeystonePool.Serialize(new[] { a }));
