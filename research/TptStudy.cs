@@ -129,6 +129,89 @@ public static class TptStudy
         }
         say("done in " + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s");
     }
+    // ===================== TPT ROTATION (the way you scale: each setup → the next account, never copied) =====================
+    // n accounts (TAKE PROFIT TRADER 50K). Evaluation trades: stop $S / target $1,500 (your two +$1,500 days); an evaluation at
+    // +$3,000 with its best day ≤ 50% only "counts" days (one open-and-close trade, $0) until it has the minimum days → PRO.
+    // PRO trades its own bracket; intraday trailing $2,000 that stops at the start; everything above the $2,000 buffer is
+    // withdrawn (≥ $250, 80% to you). A blown account (eval or PRO) is replaced by a new evaluation the next day. The $170
+    // subscription repeats every 21 trading days while an evaluation runs. No position against an open one on another account.
+    public sealed class RotOut { public AccountTypeStudy.Out O; public int Passed, BufferHit, Counted; public double Cash; }
+    public static RotOut Rotate(List<DateTime> dates, List<List<FastRotateStudy.T1>> evalSig, List<List<FastRotateStudy.T1>> proSig, int from, int to, KeystoneSimRules r, int n, int minDays, bool solo)
+    {
+        r = r.Copy(); r.EvalMinDays = minDays;   // TPT: the minimum trading days to test (3 = your plan, 5 = the preset)
+        var res = new RotOut(); var o = new AccountTypeStudy.Out(); res.O = o; var b = new AccountTypeStudy.Batch();
+        var acc = new AccountTypeStudy.Acc[n]; var born = new int[n]; var bufHit = new bool[n]; int last = -1;
+        for (int i = from; i < to; i++)
+        {
+            var day = dates[i]; string mk = day.ToString("yyyy-MM", IC); if (!o.Month.ContainsKey(mk)) o.Month[mk] = new double[4];
+            for (int s = 0; s < n; s++)
+            {
+                if (acc[s] == null) { acc[s] = new AccountTypeStudy.Acc { Id = s, Start = day }; born[s] = i; bufHit[s] = false; o.Spent += r.EvalCost; o.Bought++; o.Month[mk][0] += r.EvalCost; }
+                else if (!acc[s].Funded && (i - born[s]) > 0 && (i - born[s]) % 21 == 0) { o.Spent += r.EvalCost; o.Month[mk][0] += r.EvalCost; }   // next month's subscription
+            }
+            var used = new bool[n]; var open = new List<FastRotateStudy.T1>();
+            // evaluations already at the target: today only an open-and-close trade to count the day
+            for (int s = 0; s < n; s++)
+            {
+                var a = acc[s]; if (a.Funded || a.Bal < r.Target || a.Best > r.EvalConsistency / 100.0 * a.Bal + 1e-9) continue;
+                used[s] = true; res.Counted++; AccountTypeStudy.Step(a, 0, 0, r, day, o, b);
+                if (a.End == "PASSED") { res.Passed++; o.Passed++; o.Month[mk][3]++; acc[s] = new AccountTypeStudy.Acc { Id = s, Funded = true, FundedOn = day }; o.Spent += r.Activation; o.Month[mk][0] += r.Activation; }
+            }
+            var es = evalSig[i]; var ps = proSig[i];
+            for (int k = 0; k < es.Count; k++)
+            {
+                var t = es[k]; if (open.Any(q => q.Exit >= t.Slot && (solo || q.Dir != t.Dir))) continue;
+                int pick = -1; for (int j = 1; j <= n; j++) { int s = (last + j) % n; if (!used[s]) { pick = s; break; } }
+                if (pick < 0) continue;
+                last = pick; used[pick] = true; var a = acc[pick]; var tt = a.Funded && k < ps.Count ? ps[k] : t; open.Add(tt);
+                double before = a.Kept; AccountTypeStudy.Step(a, tt.Pnl, tt.Mfe, r, day, o, b); res.Cash += a.Kept - before;
+                if (a.Funded && !bufHit[pick] && (a.Bal >= r.PayoutBuffer || a.Payouts > 0)) { bufHit[pick] = true; res.BufferHit++; }
+                if (a.End == "PASSED") { res.Passed++; o.Passed++; o.Month[mk][3]++; acc[pick] = new AccountTypeStudy.Acc { Id = pick, Funded = true, FundedOn = day }; o.Spent += r.Activation; o.Month[mk][0] += r.Activation; }
+                else if (a.End != "") acc[pick] = null;
+            }
+            if (o.Kept - o.Spent < o.Low) { o.Low = o.Kept - o.Spent; o.LowDay = day; }
+        }
+        foreach (var m in o.Month.Values) { double v = m[1] - m[0]; if (v > 0) o.MonthsUp++; else if (v < 0) o.MonthsDown++; }
+        return res;
+    }
+
+    public static void RunRotation(string data, string outDir)
+    {
+        var t0 = DateTime.Now; var log = new StringBuilder(); Action<string> say = s => { Console.WriteLine(s); log.AppendLine(s); };
+        var r = KeystoneSimRules.Presets().First(x => x.Name == "TAKE PROFIT TRADER 50K").Copy();
+        FreqStudy.Sym = "MNQ"; FreqStudy.PV = 2;
+        var days = R.Load(data, "MNQ").OrderBy(d => d.Day).ToList(); var dates = days.Select(d => d.Day.Date).ToList(); int last = dates.Count - 1;
+        int oos = dates.FindIndex(d => d >= dates[last].AddMonths(-6)); double yrsIn = (dates[oos - 1] - dates[0]).TotalDays / 365.25, moOut = (dates[last] - dates[oos]).TotalDays / 30.44;
+        say("TPT 50K ROTATION • MNQ " + dates[0].ToString("yyyy-MM-dd") + " → " + dates[last].ToString("yyyy-MM-dd") + " • chosen on → " + dates[oos - 1].ToString("yyyy-MM-dd") + " • judged on the LAST 6 MONTHS " + dates[oos].ToString("yyyy-MM-dd") + " → (a fresh pool)");
+        var rows = new List<string[]>();
+        int[] sigsTried = { 0, 12, 11, 13, 2, 4, 10, 3 };
+        double[] evalStops = { 500, 750, 1000, 1500 };   // the evaluation target is always $1,500 a trade
+        double[][] proBr = { new[] { 500.0, 500 }, new[] { 750.0, 750 }, new[] { 1000.0, 1000 }, new[] { 500.0, 1000 }, new[] { 1000.0, 1500 }, new[] { 1500.0, 1500 } };
+        foreach (int sg in sigsTried) foreach (double es in evalStops)
+        {
+            FastRotateStudy.TgtR = 1500 / es; var eSig = days.Select(d => FastRotateStudy.Signals(d, sg, es)).ToList();
+            foreach (var pb in proBr)
+            {
+                FastRotateStudy.TgtR = pb[1] / pb[0]; var pSig = days.Select(d => FastRotateStudy.Signals(d, sg, pb[0])).ToList(); FastRotateStudy.TgtR = 1;
+                foreach (int md in new[] { 3, 5 }) foreach (bool solo in new[] { true, false }) foreach (int n in new[] { 10, 20, 30, 50 })
+                {
+                    var a = Rotate(dates, eSig, pSig, 0, oos, r, n, md, solo); var bo = Rotate(dates, eSig, pSig, oos, dates.Count, r, n, md, solo);
+                    var yr = new Dictionary<int, double>(); foreach (int y in Enumerable.Range(2021, 5)) { int f0 = dates.FindIndex(d => d.Year == y), t1 = dates.FindLastIndex(d => d.Year == y) + 1; if (f0 >= 0 && t1 <= oos) yr[y] = Rotate(dates, eSig, pSig, f0, t1, r, n, md, solo).O.Net; }
+                    rows.Add(new[] { FastRotateStudy.SigName[sg], "$" + es + " / $1,500", "$" + pb[0] + " / $" + pb[1], md.ToString(), solo ? "one at a time" : "several", n.ToString(),
+                        (a.O.Net / yrsIn / 12).ToString("0", IC), a.O.Roi.ToString("0.00", IC), (-a.O.Low).ToString("0", IC), yr.Values.Count(v => v > 0) + "/" + yr.Count, string.Join(" ", yr.Select(kv => kv.Key + ":" + kv.Value.ToString("0", IC))),
+                        bo.O.Net.ToString("0", IC), (bo.O.Net / moOut).ToString("0", IC), bo.O.Roi.ToString("0.00", IC), (-bo.O.Low).ToString("0", IC), bo.O.Bought.ToString(), bo.Passed.ToString(), bo.BufferHit.ToString(), bo.O.Payouts.ToString(), bo.Cash.ToString("0", IC), bo.O.Spent.ToString("0", IC), bo.O.MonthsUp + "/" + bo.O.MonthsDown,
+                        (100.0 * a.Passed / Math.Max(1, a.O.Bought)).ToString("0", IC), (100.0 * a.BufferHit / Math.Max(1, a.Passed)).ToString("0", IC) });
+                }
+            }
+            say(FastRotateStudy.SigName[sg] + " eval stop $" + es + " done • " + rows.Count + " plans • " + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s");
+        }
+        Directory.CreateDirectory(outDir);
+        string[] head = { "signal", "eval_trade", "pro_trade", "min_days", "positions", "accounts", "in_net_per_month", "in_roi", "in_max_budget", "in_years_up", "in_years", "out_net", "out_net_per_month", "out_roi", "out_max_budget", "out_evals", "out_passed", "out_buffer", "out_withdrawals", "out_cash", "out_spent", "out_months", "in_pass_pct", "in_buffer_pct_of_passed" };
+        using (var w = new StreamWriter(System.IO.Path.Combine(outDir, "tpt_rotation.csv"))) { w.WriteLine(string.Join(",", head)); foreach (var x in rows) w.WriteLine(string.Join(",", x.Select(c => c.Replace(",", ";")))); }
+        File.WriteAllText(System.IO.Path.Combine(outDir, "tpt_rotation_log.txt"), log.ToString());
+        say("done in " + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s");
+    }
+
     static string Line(Res x)
     {
         return x.Name + "\n      IN: net/eval " + x.InNet.ToString("N0", IC) + " • pass " + x.InPass.ToString("0") + "% • buffer " + x.InBuf.ToString("0") + "% • " + x.InDaysToPass.ToString("0") + " days to pass • years " + string.Join(" ", x.YearNet.OrderBy(k => k.Key).Select(k => k.Key + ":" + k.Value.ToString("0", IC)))
