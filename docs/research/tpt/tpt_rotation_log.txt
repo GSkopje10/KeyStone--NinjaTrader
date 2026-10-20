@@ -1,0 +1,33 @@
+TPT 50K ROTATION • MNQ 2020-10-19 → 2026-10-02 • chosen on → 2026-04-01 • judged on the LAST 6 MONTHS 2026-04-02 → (a fresh pool)
+1-MIN FVG • limit 10% eval stop $500 done • 96 plans • 15 s
+1-MIN FVG • limit 10% eval stop $750 done • 192 plans • 29 s
+1-MIN FVG • limit 10% eval stop $1000 done • 288 plans • 43 s
+1-MIN FVG • limit 10% eval stop $1500 done • 384 plans • 57 s
+1-MIN FVG 10% + ON THE VWAP SIDE eval stop $500 done • 480 plans • 68 s
+1-MIN FVG 10% + ON THE VWAP SIDE eval stop $750 done • 576 plans • 80 s
+1-MIN FVG 10% + ON THE VWAP SIDE eval stop $1000 done • 672 plans • 92 s
+1-MIN FVG 10% + ON THE VWAP SIDE eval stop $1500 done • 768 plans • 105 s
+1-MIN FVG 10% + WITH THE 30-MIN TREND eval stop $500 done • 864 plans • 115 s
+1-MIN FVG 10% + WITH THE 30-MIN TREND eval stop $750 done • 960 plans • 125 s
+1-MIN FVG 10% + WITH THE 30-MIN TREND eval stop $1000 done • 1056 plans • 136 s
+1-MIN FVG 10% + WITH THE 30-MIN TREND eval stop $1500 done • 1152 plans • 147 s
+1-MIN FVG 10% + TREND + VWAP eval stop $500 done • 1248 plans • 156 s
+1-MIN FVG 10% + TREND + VWAP eval stop $750 done • 1344 plans • 166 s
+1-MIN FVG 10% + TREND + VWAP eval stop $1000 done • 1440 plans • 176 s
+1-MIN FVG 10% + TREND + VWAP eval stop $1500 done • 1536 plans • 185 s
+1-MIN MOMENTUM BURST eval stop $500 done • 1632 plans • 191 s
+1-MIN MOMENTUM BURST eval stop $750 done • 1728 plans • 196 s
+1-MIN MOMENTUM BURST eval stop $1000 done • 1824 plans • 202 s
+1-MIN MOMENTUM BURST eval stop $1500 done • 1920 plans • 207 s
+30-MIN BREAKOUT (follow) eval stop $500 done • 2016 plans • 215 s
+30-MIN BREAKOUT (follow) eval stop $750 done • 2112 plans • 222 s
+30-MIN BREAKOUT (follow) eval stop $1000 done • 2208 plans • 231 s
+30-MIN BREAKOUT (follow) eval stop $1500 done • 2304 plans • 238 s
+PREVIOUS DAY HIGH / LOW BREAK (follow) eval stop $500 done • 2400 plans • 243 s
+PREVIOUS DAY HIGH / LOW BREAK (follow) eval stop $750 done • 2496 plans • 247 s
+PREVIOUS DAY HIGH / LOW BREAK (follow) eval stop $1000 done • 2592 plans • 252 s
+PREVIOUS DAY HIGH / LOW BREAK (follow) eval stop $1500 done • 2688 plans • 256 s
+RANDOM every 5 min (control) eval stop $500 done • 2784 plans • 271 s
+RANDOM every 5 min (control) eval stop $750 done • 2880 plans • 286 s
+RANDOM every 5 min (control) eval stop $1000 done • 2976 plans • 302 s
+RANDOM every 5 min (control) eval stop $1500 done • 3072 plans • 317 s

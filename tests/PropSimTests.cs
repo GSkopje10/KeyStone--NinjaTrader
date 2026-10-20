@@ -436,6 +436,11 @@ public static class PropSimTests
         Check(invOk && frInv.Describe().Contains("INVERTED"), "INVERSION: every FVG the same (time, price, valid until), the side flipped (bullish → SELL stop), stop / target mirrored", sInv.Count + " vs " + s1m.Count);
         var frBoth = fr1.Copy(); frBoth.Symbols = "BOTH";
         Check(fr1v.Symbols == "MNQ" && KeystoneOpeningRange.Signals(fr1, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MGC").Count == 0 && KeystoneOpeningRange.Signals(frBoth, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MGC").Count > 0, "FVG RETRACE 1M: MNQ only by default (MGC lost money in the research) • INSTRUMENTS = BOTH gives MGC its setups");
+        // ★ TPT 50K ROTATION preset: the studied plan (evaluation −$1,500 / +$1,520, PRO −$1,500 / +$1,500, plain 1-minute FVG) + TPT counts 3 days
+        var tptR = KeystoneOpeningRange.Presets().First(x => x.Short == "FVGR-TPT"); var tptRules = KeystoneSimRules.Presets().First(x => x.Name == "TAKE PROFIT TRADER 50K");
+        var tptS = KeystoneOpeningRange.Signals(tptR, fvgDay(new DateTime(2025, 3, 5), ofMins2), null, "MNQ");
+        Check(KeystoneReplaySignals.Names[14].Contains("TPT") && tptR.VwapSide == 0 && tptR.FvgMinutes == 1 && tptS.Count > 0 && tptS.All(x => Eq(x.StopDist, 75) && Eq(x.TargetDist, 76) && Eq(x.FundStopDist, 75) && Eq(x.FundTargetDist, 75)) && tptRules.EvalMinDays == 3 && tptRules.FundDdType == "INTRADAY" && Eq(tptRules.PayoutBuffer, 2000),
+            "TPT 50K ROTATION preset: evaluation stop 75 / target 76 pts (−$1,500 / +$1,520 on 10 MNQ), PRO 75 / 75 • TPT 50K: 3 days, PRO intraday trailing, $2,000 buffer", tptS.Count + " signals");
         // THE MONEY ROAD: max budget, streaks, the longest wait for a payout, the payout cycle
         var rsim = new KeystonePropSim(null); double rcs = 0, rcc = 0; var rd0 = new DateTime(2026, 1, 5);
         double[] spend = { 120, 120, 0, 120, 0, 0, 0 }, cash = { 0, 0, 0, 0, 1500, 1500, 0 };
