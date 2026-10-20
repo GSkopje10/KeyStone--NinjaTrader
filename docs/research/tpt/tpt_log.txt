@@ -1,0 +1,212 @@
+MNQ: 1461 days 2020-10-19 → 2026-10-02 • in-sample starts 397 • last 6 months starts 127 (from 2026-04-02)
+MNQ done • 10640 plans so far • 46 s
+MGC: 1427 days 2020-10-19 → 2026-10-02 • in-sample starts 387 • last 6 months starts 123 (from 2026-04-02)
+MGC done • 21280 plans so far • 87 s
+
+TOP 25 IN-SAMPLE (net per evaluation) → the LAST 6 MONTHS
+MGC • EXHAUSTION: 5 candles one way (fade) • NY DAY 09:30–15:00 • stop $1,000 / target 1R ($1,000) • ≤ 3 a day
+      IN: net/eval 752 • pass 33% • buffer 14% • 12 days to pass • years 2020:-282 2021:-90 2022:-92 2023:-186 2024:4069 2025:-18
+      LAST 6 MONTHS (123 evals): net/eval -116 • pass 17% • buffer 3% • cash 77 • fees 192
+MGC • EXHAUSTION: 5 candles one way (fade) • NY DAY 09:30–15:00 • stop $1,000 / target 1R ($1,000) • ≤ 3 a day • stop the day at +$1,000
+      IN: net/eval 723 • pass 33% • buffer 13% • 11 days to pass • years 2020:-272 2021:-90 2022:-81 2023:-132 2024:3792 2025:93
+      LAST 6 MONTHS (123 evals): net/eval 37 • pass 20% • buffer 7% • cash 233 • fees 196
+MGC • EXHAUSTION: 5 candles one way (fade) • NY DAY 09:30–15:00 • stop $1,000 / target 1R ($1,000) • ≤ 3 a day • stop the day at +$1,500
+      IN: net/eval 723 • pass 33% • buffer 13% • 11 days to pass • years 2020:-272 2021:-90 2022:-81 2023:-132 2024:3792 2025:93
+      LAST 6 MONTHS (123 evals): net/eval 37 • pass 20% • buffer 7% • cash 233 • fees 196
+MGC • 1-MIN FVG 10% + TREND + VWAP • NY DAY 09:30–15:00 • stop $500 / target 1R ($500) • ≤ 1 a day
+      IN: net/eval 710 • pass 42% • buffer 31% • 53 days to pass • years 2020:-260 2021:-161 2022:-295 2023:3185 2024:878 2025:5
+      LAST 6 MONTHS (123 evals): net/eval -182 • pass 25% • buffer 7% • cash 27 • fees 208
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 2 a day
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 2 a day • stop the day at −$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 2 a day • stop the day at +$1,000
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 2 a day • stop the day at +$1,000 • stop the day at −$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 2 a day • stop the day at +$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 2 a day • stop the day at +$1,500 • stop the day at −$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 3 a day
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 3 a day • stop the day at −$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 3 a day • stop the day at +$1,000
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 3 a day • stop the day at +$1,000 • stop the day at −$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 3 a day • stop the day at +$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 3 a day • stop the day at +$1,500 • stop the day at −$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • any number of trades
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • any number of trades • stop the day at −$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • any number of trades • stop the day at +$1,000
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • any number of trades • stop the day at +$1,000 • stop the day at −$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • any number of trades • stop the day at +$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • any number of trades • stop the day at +$1,500 • stop the day at −$1,500
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MNQ • 1-MIN MOMENTUM BURST • NY DAY 09:30–15:00 • stop $250 / target 2R ($500) • ≤ 3 a day • stop the day at −$500
+      IN: net/eval 560 • pass 42% • buffer 20% • 18 days to pass • years 2020:-270 2021:-207 2022:-69 2023:1341 2024:1385 2025:507
+      LAST 6 MONTHS (127 evals): net/eval -176 • pass 4% • buffer 0% • cash 0 • fees 176
+MNQ • 1-MIN MOMENTUM BURST • NY DAY 09:30–15:00 • stop $250 / target 2R ($500) • ≤ 3 a day • stop the day at +$1,000 • stop the day at −$500
+      IN: net/eval 560 • pass 42% • buffer 20% • 18 days to pass • years 2020:-270 2021:-207 2022:-69 2023:1341 2024:1385 2025:507
+      LAST 6 MONTHS (127 evals): net/eval -176 • pass 4% • buffer 0% • cash 0 • fees 176
+MNQ • 1-MIN MOMENTUM BURST • NY DAY 09:30–15:00 • stop $250 / target 2R ($500) • ≤ 3 a day • stop the day at +$1,500 • stop the day at −$500
+      IN: net/eval 560 • pass 42% • buffer 20% • 18 days to pass • years 2020:-270 2021:-207 2022:-69 2023:1341 2024:1385 2025:507
+      LAST 6 MONTHS (127 evals): net/eval -176 • pass 4% • buffer 0% • cash 0 • fees 176
+
+TOP 25 ROBUST (every year positive) → the LAST 6 MONTHS
+
+CONTROL (random side, the best plan for it)
+MGC • RANDOM every 5 min (control) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 1 a day
+      IN: net/eval 419 • pass 30% • buffer 15% • 10 days to pass • years 2020:-185 2021:-5 2022:22 2023:1629 2024:-24 2025:765
+      LAST 6 MONTHS (123 evals): net/eval -190 • pass 15% • buffer 2% • cash 0 • fees 190
+MGC • RANDOM every 5 min (control) • MORNING 09:30–11:30 • stop $750 / target 2R ($1,500) • ≤ 1 a day
+      IN: net/eval 419 • pass 30% • buffer 15% • 10 days to pass • years 2020:-185 2021:-5 2022:22 2023:1629 2024:-24 2025:765
+      LAST 6 MONTHS (123 evals): net/eval -190 • pass 15% • buffer 2% • cash 0 • fees 190
+MGC • RANDOM every 5 min (control) • NY DAY 09:30–15:00 • stop $750 / target 2R ($1,500) • ≤ 1 a day
+      IN: net/eval 419 • pass 30% • buffer 15% • 10 days to pass • years 2020:-185 2021:-5 2022:22 2023:1629 2024:-24 2025:765
+      LAST 6 MONTHS (123 evals): net/eval -190 • pass 15% • buffer 2% • cash 0 • fees 190
+
+BEST PER FAMILY
+MNQ • 1-MIN FVG • limit 10% • MIDDAY 11:30–13:30 • stop $250 / target 2R ($500) • any number of trades
+      IN: net/eval 376 • pass 27% • buffer 10% • 12 days to pass • years 2020:-301 2021:1760 2022:158 2023:-152 2024:223 2025:-192
+      LAST 6 MONTHS (127 evals): net/eval -58 • pass 8% • buffer 4% • cash 123 • fees 182
+MNQ • 1-MIN FVG • limit 50% • AFTERNOON 13:30–15:00 • stop $750 / target 2R ($1,500) • ≤ 1 a day
+      IN: net/eval 212 • pass 29% • buffer 14% • 9 days to pass • years 2020:-170 2021:-85 2022:537 2023:-153 2024:676 2025:154
+      LAST 6 MONTHS (127 evals): net/eval 718 • pass 37% • buffer 20% • cash 936 • fees 218
+MNQ • 1-MIN MOMENTUM BURST • NY DAY 09:30–15:00 • stop $250 / target 2R ($500) • ≤ 3 a day • stop the day at −$500
+      IN: net/eval 560 • pass 42% • buffer 20% • 18 days to pass • years 2020:-270 2021:-207 2022:-69 2023:1341 2024:1385 2025:507
+      LAST 6 MONTHS (127 evals): net/eval -176 • pass 4% • buffer 0% • cash 0 • fees 176
+MNQ • RANDOM every 5 min (control) • MIDDAY 11:30–13:30 • stop $750 / target 2R ($1,500) • ≤ 2 a day • stop the day at +$1,000
+      IN: net/eval 356 • pass 31% • buffer 15% • 6 days to pass • years 2020:714 2021:89 2022:854 2023:-172 2024:822 2025:14
+      LAST 6 MONTHS (127 evals): net/eval -73 • pass 25% • buffer 9% • cash 130 • fees 203
+MNQ • 30-MIN BREAKOUT (follow) • AFTERNOON 13:30–15:00 • stop $500 / target 1R ($500) • ≤ 1 a day
+      IN: net/eval 114 • pass 22% • buffer 10% • 22 days to pass • years 2020:-170 2021:-226 2022:-273 2023:-164 2024:1450 2025:-281
+      LAST 6 MONTHS (127 evals): net/eval -193 • pass 0% • buffer 0% • cash 0 • fees 193
+MNQ • 30-MIN BREAKOUT (fade) • MIDDAY 11:30–13:30 • stop $500 / target 2R ($1,000) • any number of trades • stop the day at +$1,000
+      IN: net/eval 223 • pass 31% • buffer 13% • 8 days to pass • years 2020:36 2021:-11 2022:834 2023:210 2024:-73 2025:181
+      LAST 6 MONTHS (127 evals): net/eval -178 • pass 6% • buffer 0% • cash 0 • fees 178
+MNQ • VWAP STRETCH (fade) • NY DAY 09:30–15:00 • stop $1,000 / target 1R ($1,000) • ≤ 1 a day
+      IN: net/eval -7 • pass 22% • buffer 9% • 11 days to pass • years 2020:-170 2021:-102 2022:-165 2023:247 2024:137 2025:-173
+      LAST 6 MONTHS (127 evals): net/eval -165 • pass 31% • buffer 3% • cash 46 • fees 211
+MNQ • VWAP CROSS (follow) • MIDDAY 11:30–13:30 • stop $500 / target 1R ($500) • ≤ 3 a day
+      IN: net/eval 150 • pass 23% • buffer 12% • 21 days to pass • years 2020:5109 2021:-207 2022:-278 2023:-68 2024:459 2025:-258
+      LAST 6 MONTHS (127 evals): net/eval -284 • pass 15% • buffer 0% • cash 0 • fees 284
+MNQ • EXHAUSTION: 5 candles one way (fade) • MIDDAY 11:30–13:30 • stop $750 / target 2R ($1,500) • ≤ 3 a day • stop the day at +$1,000
+      IN: net/eval 299 • pass 28% • buffer 11% • 7 days to pass • years 2020:-186 2021:-51 2022:-86 2023:679 2024:-129 2025:1622
+      LAST 6 MONTHS (127 evals): net/eval -203 • pass 25% • buffer 0% • cash 0 • fees 203
+MNQ • BIG CANDLE (fade) • MIDDAY 11:30–13:30 • stop $500 / target 1R ($500) • ≤ 2 a day
+      IN: net/eval 373 • pass 35% • buffer 16% • 17 days to pass • years 2020:-189 2021:218 2022:1625 2023:319 2024:-207 2025:-146
+      LAST 6 MONTHS (127 evals): net/eval -326 • pass 43% • buffer 0% • cash 0 • fees 326
+MNQ • PREVIOUS DAY HIGH / LOW BREAK (follow) • NY DAY 09:30–15:00 • stop $250 / target 2R ($500) • ≤ 1 a day
+      IN: net/eval 478 • pass 49% • buffer 28% • 40 days to pass • years 2020:-677 2021:-434 2022:-104 2023:959 2024:1769 2025:426
+      LAST 6 MONTHS (127 evals): net/eval -75 • pass 65% • buffer 29% • cash 354 • fees 429
+MNQ • 1-MIN FVG 10% + WITH THE 30-MIN TREND • MORNING 09:30–11:30 • stop $250 / target 2R ($500) • any number of trades
+      IN: net/eval 505 • pass 23% • buffer 10% • 13 days to pass • years 2020:-213 2021:2257 2022:681 2023:-137 2024:-204 2025:-198
+      LAST 6 MONTHS (127 evals): net/eval -123 • pass 49% • buffer 9% • cash 123 • fees 246
+MNQ • 1-MIN FVG 10% + ON THE VWAP SIDE • MIDDAY 11:30–13:30 • stop $500 / target 1R ($500) • any number of trades • stop the day at +$1,500 • stop the day at −$1,000
+      IN: net/eval 520 • pass 30% • buffer 14% • 9 days to pass • years 2020:518 2021:-82 2022:-51 2023:941 2024:1749 2025:-181
+      LAST 6 MONTHS (127 evals): net/eval -120 • pass 35% • buffer 13% • cash 96 • fees 216
+MNQ • 1-MIN FVG 10% + TREND + VWAP • MORNING 09:30–11:30 • stop $250 / target 2R ($500) • any number of trades
+      IN: net/eval 306 • pass 23% • buffer 9% • 13 days to pass • years 2020:-202 2021:1705 2022:327 2023:-193 2024:-203 2025:-207
+      LAST 6 MONTHS (127 evals): net/eval -192 • pass 46% • buffer 7% • cash 50 • fees 242
+MGC • 1-MIN FVG • limit 10% • NY DAY 09:30–15:00 • stop $750 / target 1R ($750) • ≤ 1 a day
+      IN: net/eval 420 • pass 34% • buffer 21% • 17 days to pass • years 2020:-178 2021:-98 2022:561 2023:-97 2024:1620 2025:123
+      LAST 6 MONTHS (123 evals): net/eval -194 • pass 17% • buffer 2% • cash 0 • fees 194
+MGC • 1-MIN FVG • limit 50% • OPEN 09:30–10:30 • stop $750 / target 1R ($750) • ≤ 3 a day • stop the day at +$1,000
+      IN: net/eval 526 • pass 28% • buffer 14% • 15 days to pass • years 2020:-198 2021:-228 2022:216 2023:-122 2024:2562 2025:233
+      LAST 6 MONTHS (123 evals): net/eval -130 • pass 42% • buffer 15% • cash 95 • fees 225
+MGC • 1-MIN MOMENTUM BURST • NY DAY 09:30–15:00 • stop $1,000 / target 2R ($2,000) • ≤ 1 a day
+      IN: net/eval 444 • pass 38% • buffer 17% • 16 days to pass • years 2020:-223 2021:-145 2022:317 2023:2113 2024:-192 2025:270
+      LAST 6 MONTHS (123 evals): net/eval -178 • pass 11% • buffer 1% • cash 6 • fees 184
+MGC • RANDOM every 5 min (control) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 1 a day
+      IN: net/eval 419 • pass 30% • buffer 15% • 10 days to pass • years 2020:-185 2021:-5 2022:22 2023:1629 2024:-24 2025:765
+      LAST 6 MONTHS (123 evals): net/eval -190 • pass 15% • buffer 2% • cash 0 • fees 190
+MGC • 30-MIN BREAKOUT (follow) • MORNING 09:30–11:30 • stop $750 / target 2R ($1,500) • ≤ 3 a day • stop the day at +$1,000 • stop the day at −$1,500
+      IN: net/eval 103 • pass 30% • buffer 13% • 11 days to pass • years 2020:-180 2021:206 2022:372 2023:-197 2024:-57 2025:314
+      LAST 6 MONTHS (123 evals): net/eval -181 • pass 8% • buffer 1% • cash 0 • fees 181
+MGC • 30-MIN BREAKOUT (fade) • MIDDAY 11:30–13:30 • stop $500 / target 2R ($1,000) • ≤ 2 a day
+      IN: net/eval 148 • pass 29% • buffer 14% • 19 days to pass • years 2020:-218 2021:-326 2022:605 2023:568 2024:25 2025:-134
+      LAST 6 MONTHS (123 evals): net/eval -59 • pass 37% • buffer 11% • cash 167 • fees 226
+MGC • VWAP STRETCH (fade) • MIDDAY 11:30–13:30 • stop $1,000 / target 1R ($1,000) • ≤ 1 a day
+      IN: net/eval 495 • pass 26% • buffer 15% • 30 days to pass • years 2020:-400 2021:-469 2022:-166 2023:-320 2024:3364 2025:90
+      LAST 6 MONTHS (123 evals): net/eval -72 • pass 33% • buffer 13% • cash 156 • fees 229
+MGC • VWAP CROSS (follow) • MORNING 09:30–11:30 • stop $750 / target 2R ($1,500) • ≤ 3 a day • stop the day at +$1,000
+      IN: net/eval 315 • pass 36% • buffer 16% • 10 days to pass • years 2020:158 2021:33 2022:-99 2023:65 2024:-179 2025:2524
+      LAST 6 MONTHS (123 evals): net/eval 26 • pass 27% • buffer 15% • cash 230 • fees 205
+MGC • EXHAUSTION: 5 candles one way (fade) • NY DAY 09:30–15:00 • stop $1,000 / target 1R ($1,000) • ≤ 3 a day
+      IN: net/eval 752 • pass 33% • buffer 14% • 12 days to pass • years 2020:-282 2021:-90 2022:-92 2023:-186 2024:4069 2025:-18
+      LAST 6 MONTHS (123 evals): net/eval -116 • pass 17% • buffer 3% • cash 77 • fees 192
+MGC • BIG CANDLE (fade) • MIDDAY 11:30–13:30 • stop $500 / target 1R ($500) • ≤ 3 a day
+      IN: net/eval 76 • pass 22% • buffer 12% • 30 days to pass • years 2020:-228 2021:-336 2022:-238 2023:418 2024:717 2025:-194
+      LAST 6 MONTHS (123 evals): net/eval 532 • pass 39% • buffer 28% • cash 756 • fees 223
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 2 a day
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • 1-MIN FVG 10% + WITH THE 30-MIN TREND • NY DAY 09:30–15:00 • stop $500 / target 1R ($500) • ≤ 1 a day
+      IN: net/eval 381 • pass 36% • buffer 27% • 53 days to pass • years 2020:-260 2021:-222 2022:-276 2023:1527 2024:793 2025:205
+      LAST 6 MONTHS (123 evals): net/eval -182 • pass 25% • buffer 7% • cash 27 • fees 208
+MGC • 1-MIN FVG 10% + ON THE VWAP SIDE • NY DAY 09:30–15:00 • stop $750 / target 1R ($750) • ≤ 1 a day
+      IN: net/eval 433 • pass 36% • buffer 22% • 19 days to pass • years 2020:-170 2021:-67 2022:417 2023:200 2024:1515 2025:112
+      LAST 6 MONTHS (123 evals): net/eval -194 • pass 17% • buffer 2% • cash 0 • fees 194
+MGC • 1-MIN FVG 10% + TREND + VWAP • NY DAY 09:30–15:00 • stop $500 / target 1R ($500) • ≤ 1 a day
+      IN: net/eval 710 • pass 42% • buffer 31% • 53 days to pass • years 2020:-260 2021:-161 2022:-295 2023:3185 2024:878 2025:5
+      LAST 6 MONTHS (123 evals): net/eval -182 • pass 25% • buffer 7% • cash 27 • fees 208
+
+BEST PER SESSION
+MNQ • 1-MIN FVG • limit 10% • OPEN 09:30–10:30 • stop $250 / target 2R ($500) • ≤ 3 a day • stop the day at −$500
+      IN: net/eval 339 • pass 32% • buffer 14% • 18 days to pass • years 2020:-211 2021:678 2022:-241 2023:1502 2024:-192 2025:-116
+      LAST 6 MONTHS (127 evals): net/eval -256 • pass 18% • buffer 0% • cash 0 • fees 256
+MNQ • 1-MIN FVG 10% + WITH THE 30-MIN TREND • MORNING 09:30–11:30 • stop $250 / target 2R ($500) • any number of trades
+      IN: net/eval 505 • pass 23% • buffer 10% • 13 days to pass • years 2020:-213 2021:2257 2022:681 2023:-137 2024:-204 2025:-198
+      LAST 6 MONTHS (127 evals): net/eval -123 • pass 49% • buffer 9% • cash 123 • fees 246
+MNQ • 1-MIN FVG 10% + ON THE VWAP SIDE • MIDDAY 11:30–13:30 • stop $500 / target 1R ($500) • any number of trades • stop the day at +$1,500 • stop the day at −$1,000
+      IN: net/eval 520 • pass 30% • buffer 14% • 9 days to pass • years 2020:518 2021:-82 2022:-51 2023:941 2024:1749 2025:-181
+      LAST 6 MONTHS (127 evals): net/eval -120 • pass 35% • buffer 13% • cash 96 • fees 216
+MNQ • 1-MIN FVG 10% + WITH THE 30-MIN TREND • AFTERNOON 13:30–15:00 • stop $500 / target 1R ($500) • ≤ 1 a day
+      IN: net/eval 476 • pass 32% • buffer 18% • 25 days to pass • years 2020:-181 2021:-89 2022:606 2023:2073 2024:-87 2025:-234
+      LAST 6 MONTHS (127 evals): net/eval -271 • pass 23% • buffer 2% • cash 0 • fees 271
+MNQ • 1-MIN MOMENTUM BURST • NY DAY 09:30–15:00 • stop $250 / target 2R ($500) • ≤ 3 a day • stop the day at −$500
+      IN: net/eval 560 • pass 42% • buffer 20% • 18 days to pass • years 2020:-270 2021:-207 2022:-69 2023:1341 2024:1385 2025:507
+      LAST 6 MONTHS (127 evals): net/eval -176 • pass 4% • buffer 0% • cash 0 • fees 176
+MGC • PREVIOUS DAY HIGH / LOW BREAK (follow) • OPEN 09:30–10:30 • stop $750 / target 2R ($1,500) • ≤ 2 a day
+      IN: net/eval 567 • pass 29% • buffer 11% • 12 days to pass • years 2020:-188 2021:-202 2022:-220 2023:173 2024:2808 2025:352
+      LAST 6 MONTHS (123 evals): net/eval 68 • pass 19% • buffer 14% • cash 267 • fees 200
+MGC • RANDOM every 5 min (control) • MORNING 09:30–11:30 • stop $750 / target 2R ($1,500) • ≤ 1 a day
+      IN: net/eval 419 • pass 30% • buffer 15% • 10 days to pass • years 2020:-185 2021:-5 2022:22 2023:1629 2024:-24 2025:765
+      LAST 6 MONTHS (123 evals): net/eval -190 • pass 15% • buffer 2% • cash 0 • fees 190
+MGC • VWAP STRETCH (fade) • MIDDAY 11:30–13:30 • stop $1,000 / target 1R ($1,000) • ≤ 1 a day
+      IN: net/eval 495 • pass 26% • buffer 15% • 30 days to pass • years 2020:-400 2021:-469 2022:-166 2023:-320 2024:3364 2025:90
+      LAST 6 MONTHS (123 evals): net/eval -72 • pass 33% • buffer 13% • cash 156 • fees 229
+MGC • 30-MIN BREAKOUT (follow) • AFTERNOON 13:30–15:00 • stop $1,000 / target 2R ($2,000) • any number of trades
+      IN: net/eval -26 • pass 24% • buffer 11% • 28 days to pass • years 2020:-278 2021:-305 2022:998 2023:-408 2024:-267 2025:-150
+      LAST 6 MONTHS (123 evals): net/eval -39 • pass 15% • buffer 4% • cash 151 • fees 190
+MGC • EXHAUSTION: 5 candles one way (fade) • NY DAY 09:30–15:00 • stop $1,000 / target 1R ($1,000) • ≤ 3 a day
+      IN: net/eval 752 • pass 33% • buffer 14% • 12 days to pass • years 2020:-282 2021:-90 2022:-92 2023:-186 2024:4069 2025:-18
+      LAST 6 MONTHS (123 evals): net/eval -116 • pass 17% • buffer 3% • cash 77 • fees 192
