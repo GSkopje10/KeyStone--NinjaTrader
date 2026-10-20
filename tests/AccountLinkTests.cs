@@ -332,6 +332,41 @@ public static class AccountLinkTests
             var fb2 = KeystonePool.Parse(KeystonePool.Serialize(new[] { fa }))[0];
             Check(fb2.Funded && fb2.FundedOn == new DateTime(2026, 10, 24) && fb2.FundedPeak == 51700 && fb2.PeakBal == 51700 && Math.Abs(fb2.MaxDd - 800) < 1e-9, "funded on Oct 24, its peak 51,700 — saved and loaded");
             Check(Math.Abs(KeystonePoolAccount.IntradayFloor(51700, 2000, 50000) - 49700) < 1e-9 && Math.Abs(KeystonePoolAccount.IntradayFloor(52600, 2000, 50000) - 50000) < 1e-9, "intraday trailing floor: best 51,700 − 2,000 = 49,700; locks at the 50,000 start");
+            // GROUP DESK: a group traded from the COPIER tab (no chart): BUY → every account buys with the bracket, STOP → all flat
+            {
+                var dk = new KeystoneGroupDesk { Group = "ASIAN" }; var b1 = new FakeBroker(); var b2 = new FakeBroker(); var d0 = new DateTime(2026, 10, 21, 20, 0, 0);
+                foreach (var bb in new[] { b1, b2 }) { var ff = new KeystoneCopyFollower { Account = "X", MaxQty = 5, Link = new KeystoneAccountLink(bb, "MNQ") { MaxContracts = 5 }, Mirror = Trader() }; ff.Link.Arm(d0); dk.Members.Add(Tuple.Create("MNQ", ff)); }
+                dk.Enter("MNQ", 1, 2, 20000, 10, 20, d0); dk.Tick("MNQ", 20000, d0); dk.Tick("MNQ", 20000, d0.AddSeconds(0.25));
+                Check(b1.Sent.SequenceEqual(new[] { "MARKET 2" }) && b2.Sent.SequenceEqual(new[] { "MARKET 2" }), "group desk BUY 2 → both accounts buy 2", string.Join(" | ", b1.Sent) + " / " + string.Join(" | ", b2.Sent));
+                b1.FillMarket(20001); b2.FillMarket(20001); b1.Sent.Clear(); b2.Sent.Clear(); dk.Tick("MNQ", 20001, d0.AddSeconds(1));
+                Check(b1.Sent.SequenceEqual(new[] { "STOP -2 @ 19991 oco", "LIMIT -2 @ 20021 oco" }), "each account gets the stop / target from its own fill", string.Join(" | ", b1.Sent));
+                b1.Sent.Clear(); dk.Tick("MNQ", 19989, d0.AddSeconds(2)); dk.Tick("MNQ", 19989, d0.AddSeconds(2.25));
+                Check(dk.Position("MNQ") == 0 && dk.Last.Contains("STOP") && b1.Sent.Contains("FLATTEN"), "the price through the stop → the group's leader flat → every account flat", dk.Last + " " + string.Join(" | ", b1.Sent));
+            }
+            // AI CONFLUENCE: a setup counts only when others agree (another strategy the same way ≤ 15 min, VWAP side, the 5-minute move)
+            {
+                var bars = new List<KeystoneArcBar>(); var b0 = new DateTime(2026, 10, 21, 9, 30, 0);
+                for (int i = 0; i < 60; i++) bars.Add(new KeystoneArcBar { Symbol = "MNQ", Time = b0.AddMinutes(i), Open = 20000 + i, High = 20002 + i, Low = 19999 + i, Close = 20001 + i, Volume = 100 });
+                Func<int, List<KeystoneReplaySignal>> src = k =>
+                    k == 9 ? new List<KeystoneReplaySignal> { new KeystoneReplaySignal { Time = b0.AddMinutes(40), Exit = b0.AddMinutes(59), Dir = 1, Entry = 20041, Stop = 20031, Target = 20051 } } :
+                    k == 3 ? new List<KeystoneReplaySignal> { new KeystoneReplaySignal { Time = b0.AddMinutes(45), Exit = b0.AddMinutes(59), Dir = 1, Entry = 20046, Stop = 20040 }, new KeystoneReplaySignal { Time = b0.AddMinutes(20), Exit = b0.AddMinutes(30), Dir = -1, Entry = 20021, Stop = 20025 } } : new List<KeystoneReplaySignal>();
+                var ai = KeystoneConfluence.Find(bars, "MNQ", null, 3, src);
+                Check(ai.Count == 1 && ai[0].Dir == 1 && ai[0].Tag.Contains("ORB 15") && ai[0].Tag.Contains("FVG CLOSE") && ai[0].Tag.Contains("VWAP"), "AI: ORB 15 + FVG CLOSE the same way + VWAP + the 5-min move → one strong BUY; the lone SELL against the trend is dropped", string.Join(" | ", ai.Select(x => x.Tag)));
+                Check(ai.Count == 1 && Math.Abs(ai[0].Target - ai[0].Entry) >= 1.5 * Math.Abs(ai[0].Entry - ai[0].Stop) - 1e-9, "AI: the target is at least 1.5R from the setup's stop");
+            }
+            // GROUP ROTATION: a seat = a copy group — its other accounts take the same sides; the seat's broker stop → the whole group flat
+            {
+                var gr = new KeystoneDuoRotation(3) { QtyM = 1, QtyG = 0, Target = 300, Stop = 100, Trail = false, PauseSeconds = 0, MaxTradesPerDay = 1 }; var g0 = new DateTime(2026, 10, 21, 10, 0, 0);
+                Func<FakeBroker, KeystoneDuoSeat> seat = bk => { var lk = new KeystoneAccountLink(bk, "MNQ") { MaxContracts = 5 }; lk.Arm(g0); return new KeystoneDuoSeat { Account = "A" + bk.GetHashCode(), LinkM = lk, MirM = KeystoneReplayTrader.LiveStart(new List<KeystoneArcBar>(), "MNQ", g0) }; };
+                var bMain = new FakeBroker(); var bMate = new FakeBroker(); var main = seat(bMain); main.Label = "ASIAN"; main.Mates.Add(seat(bMate)); gr.Pool.Add(main);
+                DateTime gt = g0; Action<double> gtick = px => { gt = gt.AddSeconds(1); bMain.Last = px; bMate.Last = px; gr.Tick(px, double.NaN, gt); };
+                Check(gr.Enter(1, 0, gt, 20000, double.NaN) == "", "GROUP ROTATION: ENTER on the group ASIAN");
+                gtick(20000); gtick(20000);
+                Check(bMain.Sent.Contains("MARKET 1") && bMate.Sent.Contains("MARKET 1"), "both accounts of the group buy 1 MNQ", string.Join(" | ", bMain.Sent) + " / " + string.Join(" | ", bMate.Sent));
+                bMain.FillMarket(20000); bMate.FillMarket(20000); gtick(20000); gtick(20000);
+                bMain.Trigger(bMain.All.First(o => o.Kind == "STOP" && !o.Done)); gtick(19940); gtick(19940); gtick(19940);
+                Check(gr.Current == null && bMate.Q == 0 && bMate.Sent.Contains("FLATTEN"), "the group's seat stopped at the broker → its other account is closed too", gr.Status + " • mate " + bMate.Q + " • " + string.Join(" | ", bMate.Sent));
+            }
             // CONSISTENCY PLAN (TPT 50K: $3,000, best day ≤ 50%, 3 trading days)
             var cp1 = KeystoneConsistency.Plan(new List<double>(), 467, 3000, 50, 3);
             Check(Math.Abs(cp1.DayCap - 1500) < 1e-9 && Math.Abs(cp1.RoomToday - 1033) < 1e-9 && Math.Abs(cp1.Left - 2533) < 1e-9 && cp1.DaysLeft == 2, "day 1 +$467: up to +$1,033 more today, $2,533 left, 2 more days", cp1.Text);

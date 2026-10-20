@@ -508,6 +508,8 @@ public static class UiSmokeTest
                         all.Clear(); walk(liveWin.Content);
                         var bb = btn("▲▲ BUY BOTH"); Func<System.Windows.Controls.Button> duoMode = () => all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.ToolTip).StartsWith("AUTO: after each pause")); var modeB = duoMode();
                         if (bb == null || modeB == null || btn("▶ START ROTATION") == null) throw new Exception("MNQ+MGC ROTATION buttons missing");
+                        if (btnS("👤 ACCOUNTS") == null || btnS("⇉ COPY GROUPS") == null) throw new Exception("ROTATE: ACCOUNTS / COPY GROUPS choice missing");
+                        if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => t.Text == "🤖 AI")) throw new Exception("the 🤖 AI indicator chip is missing");
                         string m0 = Convert.ToString(modeB.Content); click(modeB); all.Clear(); walk(liveWin.Content);
                         var modeB2 = duoMode();
                         if (modeB2 == null || Convert.ToString(modeB2.Content) == m0) throw new Exception("AUTO / MANUAL did not toggle");

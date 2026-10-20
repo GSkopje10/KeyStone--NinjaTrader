@@ -26,14 +26,15 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   TODAY with flatten (confirmed when locking). ⛔ CLOSE ALL POSITIONS (Live Trading strip, `FlattenEveryAccount`) flattens every
   connected account after one confirmation (closes / cancels only, stops the rotations and the copier). The COPIER (named groups of prop accounts, one leader + followers, an account in one group only, `KeystoneCopyGroups`) sends orders to follower
   accounts only after the group's switch is turned on and confirmed (that one confirmation also arms the group's chart account with the
-  ACCOUNT LIMITS; each new entry while a group is on asks again). The ✋ click-to-trade signal window sends nothing by itself (its button = a BUY / SELL click).
+  ACCOUNT LIMITS; each new entry while a group is on asks again). Other groups can be ON at the same time, traded from their card in ⇉ COPIER
+  (`KeystoneGroupDesk`: a virtual leader per instrument; BUY / SELL / CLOSE buttons, each asks first; each account its own armed link). The ✋ click-to-trade signal window sends nothing by itself (its button = a BUY / SELL click).
   Firm rules (`KeystoneFirmPolicies`): automation (evaluation / funded) and copying are separate; AUTO is refused where automation is off.
   The ROTATION (Live Trading ▸ 🔄 ROTATE, `KeystoneRotator`) sends the chart strategy's orders to ONE pool account at a time
   only after START ROTATION is confirmed (each account gets its own armed `KeystoneAccountLink` with its limits; MANUAL mode
   sends nothing until ENTER is pressed); its tests are in `tests/AccountLinkTests.cs`.
   The MNQ+MGC ROTATION (Live Trading ▸ 🎲, `KeystoneDuoRotation`) trades both instruments on ONE pool account at a time only
   after START ROTATION is confirmed (each account: two armed links with their limits + a hard stop at the broker per leg;
-  MANUAL sends nothing until a BUY / SELL button); its tests are in `tests/AccountLinkTests.cs`.
+  MANUAL sends nothing until a BUY / SELL button; ROTATE COPY GROUPS: a seat's `Mates` take the same sides); its tests are in `tests/AccountLinkTests.cs`.
   Research / lab / backtests stay historical; no Apex/Nexus coupling.
 - Do not change BH detection, BH outcome resolution, or the MNQ loader without explicit scope.
   MGC loader changes stay MGC-only. Asian work stays inside the Asian code paths.
