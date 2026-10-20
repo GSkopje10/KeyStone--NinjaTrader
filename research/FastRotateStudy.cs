@@ -18,14 +18,15 @@ public static class FastRotateStudy
     static readonly CultureInfo IC = CultureInfo.InvariantCulture;
     static readonly DateTime Half = new DateTime(2024, 1, 1);
     public sealed class T1 { public int Slot, Exit, Dir; public double Pnl, Mfe; }
-    static readonly string[] SigName = { "1-MIN FVG • limit 10%", "1-MIN FVG • limit 50%", "1-MIN MOMENTUM BURST", "RANDOM every 5 min (control)", "30-MIN BREAKOUT (follow)", "30-MIN BREAKOUT (fade)", "VWAP STRETCH (fade)", "VWAP CROSS (follow)", "EXHAUSTION: 5 candles one way (fade)", "BIG CANDLE (fade)", "PREVIOUS DAY HIGH / LOW BREAK (follow)", "1-MIN FVG 10% + WITH THE 30-MIN TREND", "1-MIN FVG 10% + ON THE VWAP SIDE", "1-MIN FVG 10% + TREND + VWAP" };
+    public static readonly string[] SigName = { "1-MIN FVG • limit 10%", "1-MIN FVG • limit 50%", "1-MIN MOMENTUM BURST", "RANDOM every 5 min (control)", "30-MIN BREAKOUT (follow)", "30-MIN BREAKOUT (fade)", "VWAP STRETCH (fade)", "VWAP CROSS (follow)", "EXHAUSTION: 5 candles one way (fade)", "BIG CANDLE (fade)", "PREVIOUS DAY HIGH / LOW BREAK (follow)", "1-MIN FVG 10% + WITH THE 30-MIN TREND", "1-MIN FVG 10% + ON THE VWAP SIDE", "1-MIN FVG 10% + TREND + VWAP" };
     static readonly double[] BrUsd = { 500, 750, 1000, 1500 };
     public static bool Invert;   // INVERSION: the same FVGs and prices, the opposite side (a stop order at the limit's level)
+    public static double TgtR = 1;   // target = this × the stop (TptStudy tests 1R and 2R)
 
     public static List<T1> Signals(RDay x, int sig, double usd)
     {
-        var o = new List<T1>(); int ws = R.S(9, 30), we = R.S(15, 0), flat = R.S(15, 55); double pts = usd / 20.0;
-        Action<int, double, int, bool> take = (k, e, d, lim) => { double p = FreqStudy.Walk(x, k, e, d, pts, pts, flat, lim); o.Add(new T1 { Slot = k, Exit = FreqStudy.lastExit, Dir = d, Pnl = p, Mfe = Math.Max(p, FreqStudy.lastMfe) }); };
+        var o = new List<T1>(); int ws = R.S(9, 30), we = R.S(15, 0), flat = R.S(15, 55); double pts = usd / (FreqStudy.PV * 10); double tkz = FreqStudy.Sym == "MGC" ? 0.1 : 0.25;
+        Action<int, double, int, bool> take = (k, e, d, lim) => { double p = FreqStudy.Walk(x, k, e, d, pts * TgtR, pts, flat, lim); o.Add(new T1 { Slot = k, Exit = FreqStudy.lastExit, Dir = d, Pnl = p, Mfe = Math.Max(p, FreqStudy.lastMfe) }); };
         if (sig <= 1 || sig >= 11)
         {
             double pct = sig == 1 ? 0.50 : 0.10;
@@ -38,7 +39,7 @@ public static class FastRotateStudy
                 int d = x.L[c3] > x.H[c1] + 1 - 1e-9 ? 1 : x.H[c3] < x.L[c1] - 1 + 1e-9 ? -1 : 0; if (d == 0) continue;
                 if ((sig == 11 || sig == 13) && trend[c3] != d) continue;
                 if ((sig == 12 || sig == 13) && (double.IsNaN(vw[c3]) || (d > 0 ? x.C[c3] < vw[c3] : x.C[c3] > vw[c3]))) continue;
-                double lo = d > 0 ? x.H[c1] : x.H[c3], hi = d > 0 ? x.L[c3] : x.L[c1], lv = d > 0 ? hi - pct * (hi - lo) : lo + pct * (hi - lo); lv = Math.Round(lv / 0.25) * 0.25;
+                double lo = d > 0 ? x.H[c1] : x.H[c3], hi = d > 0 ? x.L[c3] : x.L[c1], lv = d > 0 ? hi - pct * (hi - lo) : lo + pct * (hi - lo); lv = Math.Round(lv / tkz) * tkz;
                 for (int k = c3 + 1; k <= Math.Min(c3 + 15, we); k++) { if (!x.Has(k)) continue; if (d > 0 ? x.L[k] <= lv : x.H[k] >= lv) { take(k, d > 0 ? Math.Min(lv, x.O[k]) : Math.Max(lv, x.O[k]), Invert ? -d : d, true); break; } }
             }
         }

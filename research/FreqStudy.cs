@@ -23,7 +23,7 @@ public static class FreqStudy
     static readonly int[][] WinHm = { new[] { 930, 1130 }, new[] { 930, 1500 }, new[] { 300, 800 }, new[] { 2000, 2359 }, new[] { 1800, 1500 } };
     static readonly double[][] Br = { new[] { 500.0, 500 }, new[] { 750.0, 500 }, new[] { 1000.0, 500 }, new[] { 1000.0, 1000 }, new[] { 1500.0, 1000 }, new[] { 2000.0, 1000 }, new[] { 1500.0, 1500 } };
     static readonly int[] MaxDay = { 1, 2, 3, 5, 10 };
-    const int Q = 10; const double PV = 2;
+    public static int Q = 10; public static double PV = 2; public static string Sym = "MNQ";   // MNQ by default (TptStudy switches to MGC)
 
     public sealed class Tr { public int Slot, Exit; public double Pnl, Mfe; }   // Mfe: the best $ the trade showed before its exit (net of costs)
     public sealed class Res
@@ -38,8 +38,8 @@ public static class FreqStudy
     public static int lastExit; public static double lastMfe;
     public static double Walk(RDay x, int k0, double e, int d, double tgtPts, double stpPts, int flat, bool limitBar)
     {
-        lastExit = k0; lastMfe = -KeystoneMoveStudy.Cost("MNQ") * Q;
-        double stop = e - d * stpPts, tgt = e + d * tgtPts, cost = KeystoneMoveStudy.Cost("MNQ") * Q;
+        lastExit = k0; lastMfe = -KeystoneMoveStudy.Cost(Sym) * Q;
+        double stop = e - d * stpPts, tgt = e + d * tgtPts, cost = KeystoneMoveStudy.Cost(Sym) * Q;
         if (limitBar && x.Has(k0) && (d > 0 ? x.L[k0] <= stop : x.H[k0] >= stop)) return -stpPts * PV * Q - cost;
         double last = e;
         for (int k = k0 + 1; k <= flat; k++)
