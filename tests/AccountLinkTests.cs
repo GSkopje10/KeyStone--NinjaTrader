@@ -2,6 +2,7 @@
 // studio actions become real orders only while armed; fills become trades; limits; plus the prop presets and the account watch.
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using NinjaTrader.NinjaScript;
 
@@ -323,6 +324,21 @@ public static class AccountLinkTests
             var w = new KeystoneAccountWatch { Account = "MFFU1", StartBalance = 50000 }; w.Observe(new DateTime(2026, 10, 1), 50400); w.Observe(new DateTime(2026, 10, 2), 50300); w.Observe(new DateTime(2026, 10, 3), 50900);
             var st = KeystonePool.Stats(w, new[] { new[] { "MFFU1", "MNQ", "BUY", "1", "", "", "", "", "10", "19.5" }, new[] { "MFFU1", "MNQ", "SELL", "1", "", "", "", "", "-5", "-11" } });
             Check(st.Days == 3 && Math.Abs(st.Pnl - 900) < 1e-9 && st.Trades == 2 && st.Wins == 1, "pool stats: 3 days, +$900, 2 trades / 1 win", st.Days + " " + st.Pnl + " " + st.Trades);
+            // the prop tracker: dated expenses round-trip, Spent = price + expenses, the HTML page carries the totals and status colours
+            a.Expenses.Add(Tuple.Create(new DateTime(2026, 10, 15), 85.0, "activation"));
+            var back2 = KeystonePool.Parse(KeystonePool.Serialize(new[] { a }));
+            Check(back2[0].Expenses.Count == 1 && back2[0].Expenses[0].Item3 == "activation" && back2[0].Expenses[0].Item1 == new DateTime(2026, 10, 15) && Math.Abs(back2[0].Spent - 197) < 1e-9, "pool expenses save and load (spent = $112 + $85)");
+            string tdir = Path.Combine(Path.GetTempPath(), "ks_tracker_" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(tdir);
+            string rt = Path.Combine(tdir, "RealTrades.csv"), rj = Path.Combine(tdir, "RealJournal.csv");
+            File.WriteAllLines(rt, new[] { "session,account,symbol,side,qty,entry_time,entry,exit_time,exit,points,gross,fees,net,best_open,worst_open,hold_s,placed_from", "2026-10-20,MFFU1,MNQ,BUY,1,2026-10-20 10:00:00,20000,2026-10-20 10:05:00,20010,10,20.00,1.24,18.76,25,-5,300,STUDIO" });
+            File.WriteAllLines(rj, new[] { "account,symbol,side,qty,entry_time,entry,exit_time,exit,points,net,hold_s,placed_from", "TPT9,MNQ,SELL,1,2026-10-19 19:00:00,20000,2026-10-19 19:10:00,20010,-10,-20.00,600,NINJATRADER" });
+            var tt = KeystoneTracker.ReadTrades(rj, rt);
+            Check(tt.Count == 2 && Math.Abs(tt.Sum(x => x.Fees) - 1.24) < 1e-9 && tt.Any(x => x.Account == "TPT9" && x.Day == new DateTime(2026, 10, 20)), "tracker reads both journals (fees from RealTrades, evening trade → next session)");
+            try { Directory.Delete(tdir, true); } catch { }
+            var live = new Dictionary<string, KeystoneTrackerLive> { { "MFFU1", new KeystoneTrackerLive { Account = "MFFU1", Balance = 51234, Today = 321, Connected = true } } };
+            string html = KeystoneTracker.Build(new List<KeystonePoolAccount>(back2) { new KeystonePoolAccount { Account = "TPT9", Status = "BLOWN", Started = new DateTime(2026, 10, 2), Cost = 150 } }, tt, live, new DateTime(2026, 10, 21, 12, 0, 0), 30);
+            Check(html.Contains("<meta http-equiv='refresh' content='30'>") && html.Contains("class='funded'") && html.Contains("class='blown'") && html.Contains(KeystoneTracker.StatusColor("FUNDED")) && html.Contains("$347") && html.Contains("+$803") && html.Contains("$51,234"),
+                "tracker page: auto refresh, funded row green, blown row, spent $347, net +$803, live balance", html.Length.ToString());
         }
         // 10. presets + account watch
         {
