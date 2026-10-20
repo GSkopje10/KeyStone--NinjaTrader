@@ -324,6 +324,27 @@ public static class AccountLinkTests
             var w = new KeystoneAccountWatch { Account = "MFFU1", StartBalance = 50000 }; w.Observe(new DateTime(2026, 10, 1), 50400); w.Observe(new DateTime(2026, 10, 2), 50300); w.Observe(new DateTime(2026, 10, 3), 50900);
             var st = KeystonePool.Stats(w, new[] { new[] { "MFFU1", "MNQ", "BUY", "1", "", "", "", "", "10", "19.5" }, new[] { "MFFU1", "MNQ", "SELL", "1", "", "", "", "", "-5", "-11" } });
             Check(st.Days == 3 && Math.Abs(st.Pnl - 900) < 1e-9 && st.Trades == 2 && st.Wins == 1, "pool stats: 3 days, +$900, 2 trades / 1 win", st.Days + " " + st.Pnl + " " + st.Trades);
+            // POOL numbers: highs / lows / deepest drop seen live, funded day + peak (saved), the funded intraday trailing floor (locks at the start)
+            var fa = new KeystonePoolAccount { Account = "TPT5", Status = "EVAL", Started = new DateTime(2026, 10, 20) };
+            foreach (var eq in new[] { 50000.0, 50600, 50200, 50900, 50100 }) fa.Observe(eq);
+            Check(fa.PeakBal == 50900 && fa.LowBal == 50000 && Math.Abs(fa.MaxDd - 800) < 1e-9 && fa.FundedPeak == 0, "pool: highest 50,900, lowest 50,000, deepest drop −800, no funded peak in the evaluation");
+            fa.Status = "FUNDED"; fa.MarkFunded(new DateTime(2026, 10, 24), 51000); fa.Observe(51700); fa.Observe(51200);
+            var fb2 = KeystonePool.Parse(KeystonePool.Serialize(new[] { fa }))[0];
+            Check(fb2.Funded && fb2.FundedOn == new DateTime(2026, 10, 24) && fb2.FundedPeak == 51700 && fb2.PeakBal == 51700 && Math.Abs(fb2.MaxDd - 800) < 1e-9, "funded on Oct 24, its peak 51,700 — saved and loaded");
+            Check(Math.Abs(KeystonePoolAccount.IntradayFloor(51700, 2000, 50000) - 49700) < 1e-9 && Math.Abs(KeystonePoolAccount.IntradayFloor(52600, 2000, 50000) - 50000) < 1e-9, "intraday trailing floor: best 51,700 − 2,000 = 49,700; locks at the 50,000 start");
+            // COPY GROUPS: one group per account, leader swap, save / load; firm policy: copying apart from automation
+            var gs = new List<KeystoneCopyGroup> { new KeystoneCopyGroup { Name = "ASIAN" }, new KeystoneCopyGroup { Name = KeystoneCopyGroups.NewName(new List<KeystoneCopyGroup>()) } };
+            Check(gs[1].Name == "GROUP 1", "new group name GROUP 1");
+            Check(KeystoneCopyGroups.Place(gs, "ASIAN", "TPT1", true) == null && KeystoneCopyGroups.Place(gs, "ASIAN", "TPT2", false) == null && KeystoneCopyGroups.Place(gs, "ASIAN", "TPT3", false, 3) == null, "ASIAN: leader TPT1 + followers TPT2, TPT3");
+            string why = KeystoneCopyGroups.Place(gs, "GROUP 1", "TPT2", false);
+            Check(why != null && why.Contains("already in ASIAN") && gs[1].Followers.Count == 0, "TPT2 refused in a second group (with the reason)", why);
+            Check(KeystoneCopyGroups.Place(gs, "ASIAN", "TPT2", true) == null && gs[0].Leader == "TPT2" && gs[0].Followers.Select(f => f.Account).SequenceEqual(new[] { "TPT1", "TPT3" }), "TPT2 made the leader → TPT1 becomes a follower", string.Join(",", gs[0].Members));
+            gs[0].Followers[1].Paused = true; gs[0].Followers[1].Multiplier = 0.5;
+            var gs2 = KeystoneCopyGroups.Parse(KeystoneCopyGroups.Serialize(gs));
+            Check(gs2.Count == 2 && gs2[0].Leader == "TPT2" && gs2[0].Followers.Count == 2 && gs2[0].Followers[1].Paused && gs2[0].Followers[1].Multiplier == 0.5 && gs2[0].Followers[1].MaxQty == 3, "copy groups save and load");
+            KeystoneCopyGroups.Remove(gs2, "TPT2"); Check(gs2[0].Leader == "" && KeystoneCopyGroups.GroupOf(gs2, "TPT2") == null && KeystoneCopyGroups.Place(gs2, "GROUP 1", "TPT2", true) == null, "taken out → free to join another group");
+            Check(!KeystoneFirmPolicies.AutoAllowed("TPT", true) && KeystoneFirmPolicies.AutoAllowed("TPT", false) && KeystoneFirmPolicies.CopyAllowed("TPT"), "TPT: automation in the evaluation only, copying allowed");
+            KeystoneFirmPolicies.Parse("TPT|1|1|0"); Check(KeystoneFirmPolicies.AutoAllowed("TPT", true) && !KeystoneFirmPolicies.CopyAllowed("TPT") && KeystoneFirmPolicies.Serialize() == "TPT|1|1|0", "your firm rules win and save"); KeystoneFirmPolicies.Parse("");
             // ACCOUNTS: auto names per firm, firm colours you pick (saved, used everywhere)
             var nn = KeystoneFirmNames.AutoNicks(new[] { Tuple.Create("TAKEPROFIT250", "TPT"), Tuple.Create("TAKEPROFIT257", "TPT"), Tuple.Create("LT1", "LUCID"), Tuple.Create("TAKEPROFIT332", "tpt") });
             Check(nn["TAKEPROFIT250"] == "TPT 1" && nn["TAKEPROFIT257"] == "TPT 2" && nn["TAKEPROFIT332"] == "TPT 3" && nn["LT1"] == "LUCID 1", "AUTO-NAME: TPT 1, TPT 2, TPT 3 + LUCID 1", string.Join(",", nn.Values));
