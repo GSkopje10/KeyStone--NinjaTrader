@@ -23,7 +23,8 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   user: nothing is sent unless the user ARMS it and confirms; keep its limits (max contracts, day loss, day profit cap,
   runaway guard, reject → disarm) and its tests (`tests/AccountLinkTests.cs`). No other code path may place orders.
   Exceptions the user asked for, active on a linked account even unarmed: ONE CANCELS OTHER (cancels only) and LOCK FOR
-  TODAY with flatten (confirmed when locking). The COPIER sends orders to follower accounts only after its own ARM COPY confirm.
+  TODAY with flatten (confirmed when locking). ⛔ CLOSE ALL ACCOUNTS (Live Trading strip + 👥 ACCOUNTS, `FlattenEveryAccount`) flattens every
+  connected account after one confirmation (closes / cancels only, stops the rotations and the copier). The COPIER sends orders to follower accounts only after its own ARM COPY confirm.
   The ROTATION (Live Trading ▸ 🔄 ROTATE, `KeystoneRotator`) sends the chart strategy's orders to ONE pool account at a time
   only after START ROTATION is confirmed (each account gets its own armed `KeystoneAccountLink` with its limits; MANUAL mode
   sends nothing until ENTER is pressed); its tests are in `tests/AccountLinkTests.cs`.

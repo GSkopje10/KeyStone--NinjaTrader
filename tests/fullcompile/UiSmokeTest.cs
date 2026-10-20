@@ -467,19 +467,26 @@ public static class UiSmokeTest
                         Func<string, System.Windows.Controls.Button> btn = t => all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.Content) == t);
                         var dual = btn("◫ MNQ + MGC"); var focusB = btn("⛶ FOCUS"); if (dual == null || focusB == null) throw new Exception("MNQ + MGC / FOCUS button missing");
                         Action<System.Windows.Controls.Button> click = b => b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
-                        // 👥 ACCOUNTS opens first while a prop account is not set up; AUTO-NAME → APEX 1, SAVE, back to the chart
+                        // 👥 ACCOUNTS: SET UP AGAIN → 1 tick (APEX is not connected here: + NOT CONNECTED) → 2 names (APEX 1) → 3 price → FINISH → the list; CLOSE ALL ACCOUNTS; back to the chart
                         Func<System.Windows.Controls.Button> accB = () => all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.ToolTip).StartsWith("Your accounts: names"));
-                        // (the stand-in APEX account reads as not connected, so the tab does not open by itself here: open it with its button)
+                        Func<string, System.Windows.Controls.Button> btnS = t => all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.Content).StartsWith(t));
+                        Action rewalk = () => { all.Clear(); walk(liveWin.Content); };
                         if (accB() == null) throw new Exception("ACCOUNTS button missing");
                         if (Convert.ToString(accB().Content) != "◀ CHART") click(accB());
-                        all.Clear(); walk(liveWin.Content); if (Convert.ToString(accB().Content) != "◀ CHART") throw new Exception("ACCOUNTS did not open");
-                        var autoN = all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.Content).StartsWith("✎ AUTO-NAME APEX")); if (autoN == null) throw new Exception("AUTO-NAME missing");
-                        click(autoN); if (!all.OfType<System.Windows.Controls.TextBox>().Any(t => t.Text == "APEX 1")) throw new Exception("AUTO-NAME did not name APEX 1");
-                        click(btn("💾 SAVE ACCOUNTS")); all.Clear(); walk(liveWin.Content);
-                        if (!all.OfType<System.Windows.Controls.TextBox>().Any(t => t.Text == "APEX 1") || !all.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("All 1 accounts saved"))) throw new Exception("ACCOUNTS not saved");
-                        click(accB()); if (Convert.ToString(accB().Content) != "👥 ACCOUNTS") throw new Exception("ACCOUNTS did not go back to the chart");
-                        all.Clear(); walk(liveWin.Content);
-                        Console.WriteLine("      👥 ACCOUNTS, AUTO-NAME → APEX 1, SAVE, back to the chart: OK");
+                        rewalk(); if (Convert.ToString(accB().Content) != "◀ CHART") throw new Exception("ACCOUNTS did not open");
+                        click(btnS("✎ SET UP AGAIN")); rewalk();
+                        click(btnS("+ NOT CONNECTED")); rewalk();
+                        var tick = all.OfType<System.Windows.Controls.CheckBox>().FirstOrDefault(cbx => Convert.ToString(cbx.ToolTip) == "trade APEX-123-01"); if (tick == null) throw new Exception("no account to tick");
+                        tick.IsChecked = true; tick.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                        click(btnS("NEXT ▶  NAMES")); rewalk();
+                        if (!all.OfType<System.Windows.Controls.TextBox>().Any(t => t.Text == "APEX 1")) throw new Exception("step 2 did not name APEX 1: " + string.Join(" / ", all.OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text).Where(t => t != null && t.Length > 3).Reverse().Take(12)) + " • boxes " + string.Join(",", all.OfType<System.Windows.Controls.TextBox>().Select(t => t.Text)));
+                        click(btnS("NEXT ▶  PRICE")); rewalk();
+                        var priceBox = all.OfType<System.Windows.Controls.TextBox>().FirstOrDefault(); if (priceBox == null) throw new Exception("step 3 price box missing");
+                        click(btnS("✔ FINISH & SAVE")); rewalk();
+                        if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => t.Text == "APEX 1")) throw new Exception("the list does not show APEX 1 after FINISH");
+                        click(btnS("⛔ CLOSE ALL ACCOUNTS"));   // nothing open with an instrument here → "NOTHING OPEN"
+                        rewalk(); click(accB()); rewalk(); if (Convert.ToString(accB().Content) != "👥 ACCOUNTS") throw new Exception("ACCOUNTS did not go back to the chart");
+                        Console.WriteLine("      👥 ACCOUNTS: 3 steps (tick → names APEX 1 → price) → FINISH → the list, CLOSE ALL ACCOUNTS, back to the chart: OK");
                         click(dual); if (Convert.ToString(dual.Content) != "◫ ONE CHART") throw new Exception("MNQ + MGC did not switch on");
                         click(focusB); click(focusB); click(dual);
                         if (Convert.ToString(dual.Content) != "◫ MNQ + MGC") throw new Exception("MNQ + MGC did not switch back");
