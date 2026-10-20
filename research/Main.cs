@@ -44,6 +44,7 @@ public static class ResearchMain
         if (args.Length > 2 && args[2] == "tpt") { TptStudy.Run(data, outDir); return 0; }
         if (args.Length > 2 && args[2] == "tptrot") { TptStudy.RunRotation(data, outDir); return 0; }
         if (args.Length > 2 && args[2] == "tpt25") { TptStudy.RunRotation25(data, outDir); return 0; }
+        if (args.Length > 2 && args[2] == "tptafter") { TptStudy.RunAfterBuffer(data, outDir); return 0; }
         if (args.Length > 2 && args[2] == "combo") { ComboStudy.Run(R.Load(data, "MNQ"), R.Load(data, "MGC"), outDir); return 0; }
         if (args.Length > 2 && args[2] == "openfvg3") { OpenFvgEdge.Run(R.Load(data, "MNQ"), outDir); return 0; }
         if (args.Length > 2 && args[2] == "openfvg2") { OpenFvgCompare.Run(R.Load(data, "MNQ"), outDir); return 0; }

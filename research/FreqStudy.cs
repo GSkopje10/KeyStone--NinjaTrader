@@ -34,18 +34,21 @@ public static class FreqStudy
 
     static int SlotOf(int hhmm) { return R.S(hhmm / 100, hhmm % 100); }
 
-    // one trade from entry slot k0 at price e, side d → $ (net of costs)
-    public static int lastExit; public static double lastMfe;
+    // one trade from entry slot k0 at price e, side d → $ (net of costs) • lastMfe / lastMae: its best / worst open $ before the exit
+    // (the worst counts the entry bar too and every bar up to the exit — the prop floor can be touched inside a trade that ends well)
+    public static int lastExit; public static double lastMfe, lastMae;
     public static double Walk(RDay x, int k0, double e, int d, double tgtPts, double stpPts, int flat, bool limitBar)
     {
-        lastExit = k0; lastMfe = -KeystoneMoveStudy.Cost(Sym) * Q;
-        double stop = e - d * stpPts, tgt = e + d * tgtPts, cost = KeystoneMoveStudy.Cost(Sym) * Q;
-        if (limitBar && x.Has(k0) && (d > 0 ? x.L[k0] <= stop : x.H[k0] >= stop)) return -stpPts * PV * Q - cost;
+        lastExit = k0; double cost = KeystoneMoveStudy.Cost(Sym) * Q; lastMfe = -cost; lastMae = -cost;
+        double stop = e - d * stpPts, tgt = e + d * tgtPts, full = -stpPts * PV * Q - cost;
+        Func<int, double> adverse = k => Math.Max(full, d * ((d > 0 ? x.L[k] : x.H[k]) - e) * PV * Q - cost);
+        if (x.Has(k0)) lastMae = Math.Min(lastMae, adverse(k0));
+        if (limitBar && x.Has(k0) && (d > 0 ? x.L[k0] <= stop : x.H[k0] >= stop)) { lastMae = full; return full; }
         double last = e;
         for (int k = k0 + 1; k <= flat; k++)
         {
-            if (!x.Has(k)) continue; lastExit = k;
-            if (d > 0 ? x.L[k] <= stop : x.H[k] >= stop) return -stpPts * PV * Q - cost;
+            if (!x.Has(k)) continue; lastExit = k; lastMae = Math.Min(lastMae, adverse(k));
+            if (d > 0 ? x.L[k] <= stop : x.H[k] >= stop) { lastMae = full; return full; }
             if (d > 0 ? x.H[k] >= tgt : x.L[k] <= tgt) { lastMfe = tgtPts * PV * Q - cost; return tgtPts * PV * Q - cost; }
             lastMfe = Math.Max(lastMfe, d * ((d > 0 ? x.H[k] : x.L[k]) - e) * PV * Q - cost);
             last = x.C[k];

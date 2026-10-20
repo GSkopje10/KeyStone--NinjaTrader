@@ -135,7 +135,11 @@ public static class TptStudy
     // PRO trades its own bracket; intraday trailing $2,000 that stops at the start; everything above the $2,000 buffer is
     // withdrawn (≥ $250, 80% to you). A blown account (eval or PRO) is replaced by a new evaluation the next day. The $170
     // subscription repeats every 21 trading days while an evaluation runs. No position against an open one on another account.
-    public sealed class RotOut { public AccountTypeStudy.Out O; public int Passed, BufferHit, Counted; public double Cash; public int StillEval; public int EvalBlown { get { return O.Bought - Passed - StillEval; } } }   // evaluations: bought = passed + blown + still running
+    // AFTER THE BUFFER (TPT PRO: the floor is locked at the start, everything above the buffer is yours, withdrawn the same day up to
+    // $10,000): the account may trade AfterMult × the contracts, up to AfterTrades trades a day, until +AfterDayGoal for the day (0 = none);
+    // at the close everything above the buffer is withdrawn (80%). Defaults = the plain plan (1×, one trade a day).
+    public static double AfterMult = 1, AfterDayGoal = 0; public static int AfterTrades = 1;
+    public sealed class RotOut { public AccountTypeStudy.Out O; public int Passed, BufferHit, Counted, BlownAfterBuffer; public double Cash, CashAfterBuffer; public int StillEval; public int EvalBlown { get { return O.Bought - Passed - StillEval; } } }   // evaluations: bought = passed + blown + still running
     public static RotOut Rotate(List<DateTime> dates, List<List<FastRotateStudy.T1>> evalSig, List<List<FastRotateStudy.T1>> proSig, int from, int to, KeystoneSimRules r, int n, int minDays, bool solo)
     {
         r = r.Copy(); r.EvalMinDays = minDays;   // TPT: the minimum trading days to test (3 = your plan, 5 = the preset)
@@ -149,7 +153,10 @@ public static class TptStudy
                 if (acc[s] == null) { acc[s] = new AccountTypeStudy.Acc { Id = s, Start = day }; born[s] = i; bufHit[s] = false; o.Spent += r.EvalCost; o.Bought++; o.Month[mk][0] += r.EvalCost; }
                 else if (!acc[s].Funded && (i - born[s]) > 0 && (i - born[s]) % 21 == 0) { o.Spent += r.EvalCost; o.Month[mk][0] += r.EvalCost; }   // next month's subscription
             }
-            var used = new bool[n]; var open = new List<FastRotateStudy.T1>();
+            var used = new bool[n]; var open = new List<FastRotateStudy.T1>(); var dayN = new int[n]; var dayP = new double[n]; var busy = new int[n]; for (int s = 0; s < n; s++) busy[s] = -1;
+            Func<int, bool> free = s => acc[s] != null && acc[s].Funded && acc[s].PeakI >= r.FundDrawdown - 1e-9;   // the buffer is made: the floor is locked at the start
+            // the floor right now (evaluation: end-of-day trailing • PRO: live trailing) — touched INSIDE a trade = blown at the floor
+            Func<AccountTypeStudy.Acc, double> floorOf = x => x.Funded ? (r.FundDdType == "INTRADAY" ? Math.Min(x.PeakI - r.FundDrawdown, r.FundLockAt) : Math.Min(x.PeakE - r.FundDrawdown, r.FundLockAt)) : Math.Min(x.PeakE - r.EvalDrawdown, r.EvalLockAt);
             // evaluations already at the target: today only an open-and-close trade to count the day
             for (int s = 0; s < n; s++)
             {
@@ -161,13 +168,31 @@ public static class TptStudy
             for (int k = 0; k < es.Count; k++)
             {
                 var t = es[k]; if (open.Any(q => q.Exit >= t.Slot && (solo || q.Dir != t.Dir))) continue;
-                int pick = -1; for (int j = 1; j <= n; j++) { int s = (last + j) % n; if (!used[s]) { pick = s; break; } }
+                int pick = -1; for (int j = 1; j <= n; j++) { int s = (last + j) % n; if (!used[s] && busy[s] < t.Slot) { pick = s; break; } }
                 if (pick < 0) continue;
-                last = pick; used[pick] = true; var a = acc[pick]; var tt = a.Funded && k < ps.Count ? ps[k] : t; open.Add(tt);
-                double before = a.Kept; AccountTypeStudy.Step(a, tt.Pnl, tt.Mfe, r, day, o, b); res.Cash += a.Kept - before;
-                if (a.Funded && !bufHit[pick] && (a.Bal >= r.PayoutBuffer || a.Payouts > 0)) { bufHit[pick] = true; res.BufferHit++; }
+                last = pick; var a = acc[pick]; var tt = a.Funded && k < ps.Count ? ps[k] : t; open.Add(tt);
+                if (free(pick))
+                {
+                    // past the buffer: its own size and number of trades; blown only at the start balance
+                    if (!bufHit[pick]) { bufHit[pick] = true; res.BufferHit++; }
+                    double pnl = a.Bal + tt.Mae * AfterMult <= 1e-9 ? -a.Bal : tt.Pnl * AfterMult;   // liquidated at the start balance inside the trade
+                    a.Bal += pnl; dayP[pick] += pnl; dayN[pick]++; busy[pick] = tt.Exit;
+                    if (a.Bal <= 1e-9) { res.BlownAfterBuffer++; o.FBlown++; acc[pick] = null; used[pick] = true; continue; }
+                    if (dayN[pick] >= AfterTrades || (AfterDayGoal > 0 && dayP[pick] >= AfterDayGoal - 1e-9)) used[pick] = true;
+                    continue;
+                }
+                used[pick] = true;
+                double fl = floorOf(a), tp = a.Bal + tt.Mae <= fl + 1e-9 ? fl - a.Bal : tt.Pnl, tm = a.Bal + tt.Mae <= fl + 1e-9 ? 0 : tt.Mfe;   // the floor touched inside the trade
+                double before = a.Kept; AccountTypeStudy.Step(a, tp, tm, r, day, o, b); res.Cash += a.Kept - before;
+                if (a.Funded && a.End == "" && !bufHit[pick] && (a.PeakI >= r.FundDrawdown - 1e-9 || a.Payouts > 0)) { bufHit[pick] = true; res.BufferHit++; }
                 if (a.End == "PASSED") { res.Passed++; o.Passed++; o.Month[mk][3]++; acc[pick] = new AccountTypeStudy.Acc { Id = pick, Funded = true, FundedOn = day }; o.Spent += r.Activation; o.Month[mk][0] += r.Activation; }
                 else if (a.End != "") acc[pick] = null;
+            }
+            // the close: every account past its buffer withdraws everything above it (≥ $250, at most the daily cap), 80% to you
+            for (int s = 0; s < n; s++)
+            {
+                if (!free(s)) continue; var a = acc[s]; double g = a.Bal - r.PayoutBuffer; if (r.PayoutCap > 0) g = Math.Min(g, r.PayoutCap); g = Math.Floor(g);
+                if (g < Math.Max(1, r.PayoutMin)) continue; double cash = g * r.Split / 100.0; a.Bal -= g; a.Kept += cash; a.Payouts++; a.Paid = true; o.Kept += cash; o.Payouts++; o.Month[mk][1] += cash; o.Month[mk][2]++; res.Cash += cash; res.CashAfterBuffer += cash;
             }
             if (o.Kept - o.Spent < o.Low) { o.Low = o.Kept - o.Spent; o.LowDay = day; }
         }
@@ -255,6 +280,37 @@ public static class TptStudy
         string[] head = { "signal", "eval_trade", "pro_trade", "min_days", "positions", "accounts", "in_net_per_month", "in_roi", "in_max_budget", "in_years_up", "in_years", "in_eval_pass_pct", "in_pro_buffer_pct", "in_pro_blown_before_buffer_pct", "in_pro_buffer_pct_if_EOD", "in_net_per_month_if_EOD", "out_net", "out_net_per_month", "out_roi", "out_max_budget", "out_evals", "out_pro", "out_withdrawals", "out_cash", "out_spent", "out_months" };
         using (var w = new StreamWriter(System.IO.Path.Combine(outDir, "tpt25_rotation.csv"))) { w.WriteLine(string.Join(",", head)); foreach (var x in rows) w.WriteLine(string.Join(",", x.Select(c => c.Replace(",", ";")))); }
         File.WriteAllText(System.IO.Path.Combine(outDir, "tpt25_rotation_log.txt"), log.ToString());
+        say("done in " + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s");
+    }
+
+    // ===================== TPT 50K • AFTER THE BUFFER: how hard to push the PRO accounts once their floor is locked =====================
+    public static void RunAfterBuffer(string data, string outDir)
+    {
+        var t0 = DateTime.Now; var log = new StringBuilder(); Action<string> say = s => { Console.WriteLine(s); log.AppendLine(s); };
+        var r = KeystoneSimRules.Presets().First(x => x.Name == "TAKE PROFIT TRADER 50K").Copy();
+        FreqStudy.Sym = "MNQ"; FreqStudy.PV = 2; FreqStudy.Q = 10;
+        var days = R.Load(data, "MNQ").OrderBy(d => d.Day).ToList(); var dates = days.Select(d => d.Day.Date).ToList(); int last = dates.Count - 1;
+        int oos = dates.FindIndex(d => d >= dates[last].AddMonths(-6)); double yrsIn = (dates[oos - 1] - dates[0]).TotalDays / 365.25, moOut = (dates[last] - dates[oos]).TotalDays / 30.44;
+        say("TPT 50K • AFTER THE BUFFER • the rotation plan (1-min FVG 10%, eval −1,500 / +1,520, PRO −1,500 / +1,500, 3 days, several at once) • " + r.Describe());
+        FastRotateStudy.TgtR = 1520 / 1500.0; var eSig = days.Select(d => FastRotateStudy.Signals(d, 0, 1500)).ToList(); FastRotateStudy.TgtR = 1; var pSig = days.Select(d => FastRotateStudy.Signals(d, 0, 1500)).ToList();
+        var rows = new List<string[]>();
+        foreach (int n in new[] { 10, 30 }) foreach (double m in new[] { 1.0, 2, 3, 6 }) foreach (int kt in new[] { 1, 2, 3, 99 }) foreach (double dg in new[] { 0.0, 3000, 5000, 10000 })
+        {
+            if (kt == 1 && dg > 0) continue;
+            AfterMult = m; AfterTrades = kt; AfterDayGoal = dg;
+            var a = Rotate(dates, eSig, pSig, 0, oos, r, n, 3, false); var bo = Rotate(dates, eSig, pSig, oos, dates.Count, r, n, 3, false);
+            var yr = new Dictionary<int, double>(); foreach (int y in Enumerable.Range(2021, 5)) { int f0 = dates.FindIndex(d => d.Year == y), t1 = dates.FindLastIndex(d => d.Year == y) + 1; if (f0 >= 0 && t1 <= oos) yr[y] = Rotate(dates, eSig, pSig, f0, t1, r, n, 3, false).O.Net; }
+            rows.Add(new[] { n.ToString(), (m * 10).ToString("0") + " MNQ", kt >= 99 ? "any" : kt.ToString(), dg > 0 ? "+$" + dg.ToString("N0", IC) : "none",
+                (a.O.Net / yrsIn / 12).ToString("0", IC), (-a.O.Low).ToString("0", IC), yr.Values.Count(v => v > 0) + "/" + yr.Count, string.Join(" ", yr.Select(kv => kv.Key + ":" + kv.Value.ToString("0", IC))),
+                a.BufferHit.ToString(), a.BlownAfterBuffer.ToString(), (a.CashAfterBuffer / Math.Max(1, a.BufferHit)).ToString("0", IC),
+                bo.O.Net.ToString("0", IC), (bo.O.Net / moOut).ToString("0", IC), (-bo.O.Low).ToString("0", IC), bo.Passed.ToString(), bo.BufferHit.ToString(), bo.BlownAfterBuffer.ToString(), bo.O.Payouts.ToString(), bo.Cash.ToString("0", IC), (bo.CashAfterBuffer / Math.Max(1, bo.BufferHit)).ToString("0", IC), bo.O.Spent.ToString("0", IC), bo.O.MonthsUp + "/" + bo.O.MonthsDown });
+            say(string.Join(" | ", rows[rows.Count - 1]));
+        }
+        AfterMult = 1; AfterTrades = 1; AfterDayGoal = 0;
+        Directory.CreateDirectory(outDir);
+        string[] head = { "accounts", "after_buffer_size", "after_buffer_trades_a_day", "after_buffer_day_goal", "in_net_per_month", "in_max_budget", "in_years_up", "in_years", "in_buffer_made", "in_blown_after_buffer", "in_cash_per_buffer_account", "out_net", "out_net_per_month", "out_max_budget", "out_passed", "out_buffer_made", "out_blown_after_buffer", "out_withdrawals", "out_cash", "out_cash_per_buffer_account", "out_spent", "out_months" };
+        using (var w = new StreamWriter(System.IO.Path.Combine(outDir, "tpt_after_buffer.csv"))) { w.WriteLine(string.Join(",", head)); foreach (var x in rows) w.WriteLine(string.Join(",", x.Select(c => c.Replace(",", ";")))); }
+        File.WriteAllText(System.IO.Path.Combine(outDir, "tpt_after_buffer_log.txt"), log.ToString());
         say("done in " + (DateTime.Now - t0).TotalSeconds.ToString("0") + " s");
     }
 
