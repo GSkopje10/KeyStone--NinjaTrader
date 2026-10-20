@@ -486,11 +486,12 @@ public static class UiSmokeTest
                         if (!all.OfType<System.Windows.Controls.CheckBox>().Any(cbx => Convert.ToString(cbx.Content) == "COPYING my own accounts")) throw new Exception("step 4 (firm rules) missing");
                         click(btnS("✔ FINISH & SAVE")); rewalk();
                         if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => t.Text == "APEX 1")) throw new Exception("the list does not show APEX 1 after FINISH");
-                        click(btnS("⛔ CLOSE ALL ACCOUNTS"));   // nothing open with an instrument here → "NOTHING OPEN"
+                        click(btnS("⛔ CLOSE ALL POSITIONS"));   // nothing open with an instrument here → "NOTHING OPEN"
                         // ⇉ COPIER (groups) and 💰 POOL open from their (tab-bar) buttons; + NEW GROUP makes GROUP 1
                         rewalk(); click(btn("COPIER")); rewalk();
-                        if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => t.Text == "⇉ COPIER")) throw new Exception("COPIER view did not open");
-                        click(btnS("+ NEW GROUP")); rewalk(); if (!all.OfType<System.Windows.Controls.TextBox>().Any(t => t.Text == "GROUP 1")) throw new Exception("+ NEW GROUP did not make GROUP 1");
+                        if (btnS("＋ NEW GROUP") == null) throw new Exception("COPIER view did not open");
+                        click(btnS("＋ NEW GROUP")); rewalk(); if (!all.OfType<System.Windows.Controls.TextBox>().Any(t => (t.Text ?? "").StartsWith("GROUP "))) throw new Exception("＋ NEW GROUP did not make a group");
+                        if (!all.OfType<System.Windows.Controls.CheckBox>().Any(cbx => Convert.ToString(cbx.Content) == "different size per account")) throw new Exception("the group's size option is missing");
                         click(btn("POOL")); rewalk(); if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => t.Text == "💰 POOL")) throw new Exception("POOL view did not open");
                         if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("APEX 1") || (t.Text ?? "").Contains("APEX 1"))) throw new Exception("POOL does not show APEX 1");
                         click(btn("◀ CHART")); rewalk();

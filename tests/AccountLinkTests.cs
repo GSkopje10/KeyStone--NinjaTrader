@@ -332,6 +332,13 @@ public static class AccountLinkTests
             var fb2 = KeystonePool.Parse(KeystonePool.Serialize(new[] { fa }))[0];
             Check(fb2.Funded && fb2.FundedOn == new DateTime(2026, 10, 24) && fb2.FundedPeak == 51700 && fb2.PeakBal == 51700 && Math.Abs(fb2.MaxDd - 800) < 1e-9, "funded on Oct 24, its peak 51,700 — saved and loaded");
             Check(Math.Abs(KeystonePoolAccount.IntradayFloor(51700, 2000, 50000) - 49700) < 1e-9 && Math.Abs(KeystonePoolAccount.IntradayFloor(52600, 2000, 50000) - 50000) < 1e-9, "intraday trailing floor: best 51,700 − 2,000 = 49,700; locks at the 50,000 start");
+            // CONSISTENCY PLAN (TPT 50K: $3,000, best day ≤ 50%, 3 trading days)
+            var cp1 = KeystoneConsistency.Plan(new List<double>(), 467, 3000, 50, 3);
+            Check(Math.Abs(cp1.DayCap - 1500) < 1e-9 && Math.Abs(cp1.RoomToday - 1033) < 1e-9 && Math.Abs(cp1.Left - 2533) < 1e-9 && cp1.DaysLeft == 2, "day 1 +$467: up to +$1,033 more today, $2,533 left, 2 more days", cp1.Text);
+            var cp2 = KeystoneConsistency.Plan(new List<double> { 467 }, 1600, 3000, 50, 3);
+            Check(cp2.TodayTooBig && Math.Abs(cp2.NeedTotal - 3200) < 1e-9 && Math.Abs(cp2.Left - 1133) < 1e-9, "a +$1,600 day (over 50%) moves the target to $3,200", cp2.Text);
+            var cp3 = KeystoneConsistency.Plan(new List<double> { 1500, 1490 }, 15, 3000, 50, 3);
+            Check(cp3.Left == 0 && cp3.DaysLeft == 0 && cp3.Text.StartsWith("TARGET REACHED"), "1,500 + 1,490 + a small 3rd day → target reached, consistency OK", cp3.Text);
             // COPY GROUPS: one group per account, leader swap, save / load; firm policy: copying apart from automation
             var gs = new List<KeystoneCopyGroup> { new KeystoneCopyGroup { Name = "ASIAN" }, new KeystoneCopyGroup { Name = KeystoneCopyGroups.NewName(new List<KeystoneCopyGroup>()) } };
             Check(gs[1].Name == "GROUP 1", "new group name GROUP 1");
@@ -364,7 +371,7 @@ public static class AccountLinkTests
             try { Directory.Delete(tdir, true); } catch { }
             var live = new Dictionary<string, KeystoneTrackerLive> { { "MFFU1", new KeystoneTrackerLive { Account = "MFFU1", Balance = 51234, Today = 321, Connected = true } } };
             string html = KeystoneTracker.Build(new List<KeystonePoolAccount>(back2) { new KeystonePoolAccount { Account = "TPT9", Status = "BLOWN", Started = new DateTime(2026, 10, 2), Cost = 150 } }, tt, live, new DateTime(2026, 10, 21, 12, 0, 0), 30);
-            Check(html.Contains("<meta http-equiv='refresh' content='30'>") && html.Contains("class='funded'") && html.Contains("class='blown'") && html.Contains(KeystoneTracker.StatusColor("FUNDED")) && html.Contains("$347") && html.Contains("+$803") && html.Contains("$51,234"),
+            Check(html.Contains("<meta http-equiv='refresh' content='30'>") && html.Contains("class='funded click'") && html.Contains("class='blown click'") && html.Contains("id='p-fund'") && html.Contains(KeystoneTracker.StatusColor("FUNDED")) && html.Contains("$347") && html.Contains("+$803") && html.Contains("$51,234"),
                 "tracker page: auto refresh, funded row green, blown row, spent $347, net +$803, live balance", html.Length.ToString());
         }
         // 10. presets + account watch
