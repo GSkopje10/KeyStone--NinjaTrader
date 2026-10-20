@@ -18,14 +18,14 @@ public static class FastRotateStudy
     static readonly CultureInfo IC = CultureInfo.InvariantCulture;
     static readonly DateTime Half = new DateTime(2024, 1, 1);
     public sealed class T1 { public int Slot, Exit, Dir; public double Pnl, Mfe; }
-    public static readonly string[] SigName = { "1-MIN FVG • limit 10%", "1-MIN FVG • limit 50%", "1-MIN MOMENTUM BURST", "RANDOM every 5 min (control)", "30-MIN BREAKOUT (follow)", "30-MIN BREAKOUT (fade)", "VWAP STRETCH (fade)", "VWAP CROSS (follow)", "EXHAUSTION: 5 candles one way (fade)", "BIG CANDLE (fade)", "PREVIOUS DAY HIGH / LOW BREAK (follow)", "1-MIN FVG 10% + WITH THE 30-MIN TREND", "1-MIN FVG 10% + ON THE VWAP SIDE", "1-MIN FVG 10% + TREND + VWAP" };
+    public static readonly string[] SigName = { "1-MIN FVG • limit 10%", "1-MIN FVG • limit 50%", "1-MIN MOMENTUM BURST", "RANDOM every 5 min (control)", "30-MIN BREAKOUT (follow)", "30-MIN BREAKOUT (fade)", "VWAP STRETCH (fade)", "VWAP CROSS (follow)", "EXHAUSTION: 5 candles one way (fade)", "BIG CANDLE (fade)", "PREVIOUS DAY HIGH / LOW BREAK (follow)", "1-MIN FVG 10% + WITH THE 30-MIN TREND", "1-MIN FVG 10% + ON THE VWAP SIDE", "1-MIN FVG 10% + TREND + VWAP", "ALWAYS BUY every 5 min" };
     static readonly double[] BrUsd = { 500, 750, 1000, 1500 };
     public static bool Invert;   // INVERSION: the same FVGs and prices, the opposite side (a stop order at the limit's level)
     public static double TgtR = 1;   // target = this × the stop (TptStudy tests 1R and 2R)
 
     public static List<T1> Signals(RDay x, int sig, double usd)
     {
-        var o = new List<T1>(); int ws = R.S(9, 30), we = R.S(15, 0), flat = R.S(15, 55); double pts = usd / (FreqStudy.PV * 10); double tkz = FreqStudy.Sym == "MGC" ? 0.1 : 0.25;
+        var o = new List<T1>(); int ws = R.S(9, 30), we = R.S(15, 0), flat = R.S(15, 55); double pts = usd / (FreqStudy.PV * FreqStudy.Q); double tkz = FreqStudy.Sym == "MGC" ? 0.1 : 0.25;
         Action<int, double, int, bool> take = (k, e, d, lim) => { double p = FreqStudy.Walk(x, k, e, d, pts * TgtR, pts, flat, lim); o.Add(new T1 { Slot = k, Exit = FreqStudy.lastExit, Dir = d, Pnl = p, Mfe = Math.Max(p, FreqStudy.lastMfe) }); };
         if (sig <= 1 || sig >= 11)
         {
@@ -52,7 +52,7 @@ public static class FastRotateStudy
                 take(k + 1, x.O[k + 1], x.C[k] > x.O[k] ? 1 : -1, false);
             }
         }
-        else if (sig >= 4)
+        else if (sig >= 4 && sig <= 13)
         {
             // market at the next minute's open; one signal per family every 10 minutes at most
             int cool = -999; double pv = 0, vv = 0; int run = 0;
@@ -76,7 +76,7 @@ public static class FastRotateStudy
         }
         else
         {
-            for (int k = ws; k < we; k += 5) { if (!x.Has(k)) continue; int d = ((x.Day.DayOfYear * 31 + k * 7 + x.Day.Year) * 2654435761L % 1000) < 500 ? 1 : -1; take(k, x.O[k], d, false); }
+            for (int k = ws; k < we; k += 5) { if (!x.Has(k)) continue; int d = sig == 14 ? 1 : ((x.Day.DayOfYear * 31 + k * 7 + x.Day.Year) * 2654435761L % 1000) < 500 ? 1 : -1; take(k, x.O[k], d, false); }   // 3 = random side • 14 = always buy
         }
         return o.OrderBy(t => t.Slot).ToList();
     }
