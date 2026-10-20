@@ -139,6 +139,7 @@ public static class TptStudy
     // $10,000): the account may trade AfterMult × the contracts, up to AfterTrades trades a day, until +AfterDayGoal for the day (0 = none);
     // at the close everything above the buffer is withdrawn (80%). Defaults = the plain plan (1×, one trade a day).
     public static double AfterMult = 1, AfterDayGoal = 0; public static int AfterTrades = 1;
+    public static bool CheckInside = true;   // the floor checked inside each trade (its worst open $) — false = only at the exit (the old way)
     public sealed class RotOut { public AccountTypeStudy.Out O; public int Passed, BufferHit, Counted, BlownAfterBuffer; public double Cash, CashAfterBuffer; public int StillEval; public int EvalBlown { get { return O.Bought - Passed - StillEval; } } }   // evaluations: bought = passed + blown + still running
     public static RotOut Rotate(List<DateTime> dates, List<List<FastRotateStudy.T1>> evalSig, List<List<FastRotateStudy.T1>> proSig, int from, int to, KeystoneSimRules r, int n, int minDays, bool solo)
     {
@@ -175,14 +176,14 @@ public static class TptStudy
                 {
                     // past the buffer: its own size and number of trades; blown only at the start balance
                     if (!bufHit[pick]) { bufHit[pick] = true; res.BufferHit++; }
-                    double pnl = a.Bal + tt.Mae * AfterMult <= 1e-9 ? -a.Bal : tt.Pnl * AfterMult;   // liquidated at the start balance inside the trade
+                    double pnl = CheckInside && a.Bal + tt.Mae * AfterMult <= 1e-9 ? -a.Bal : tt.Pnl * AfterMult;   // liquidated at the start balance inside the trade
                     a.Bal += pnl; dayP[pick] += pnl; dayN[pick]++; busy[pick] = tt.Exit;
                     if (a.Bal <= 1e-9) { res.BlownAfterBuffer++; o.FBlown++; acc[pick] = null; used[pick] = true; continue; }
                     if (dayN[pick] >= AfterTrades || (AfterDayGoal > 0 && dayP[pick] >= AfterDayGoal - 1e-9)) used[pick] = true;
                     continue;
                 }
                 used[pick] = true;
-                double fl = floorOf(a), tp = a.Bal + tt.Mae <= fl + 1e-9 ? fl - a.Bal : tt.Pnl, tm = a.Bal + tt.Mae <= fl + 1e-9 ? 0 : tt.Mfe;   // the floor touched inside the trade
+                bool hit = CheckInside && a.Bal + tt.Mae <= floorOf(a) + 1e-9; double fl = floorOf(a), tp = hit ? fl - a.Bal : tt.Pnl, tm = hit ? 0 : tt.Mfe;   // the floor touched inside the trade
                 double before = a.Kept; AccountTypeStudy.Step(a, tp, tm, r, day, o, b); res.Cash += a.Kept - before;
                 if (a.Funded && a.End == "" && !bufHit[pick] && (a.PeakI >= r.FundDrawdown - 1e-9 || a.Payouts > 0)) { bufHit[pick] = true; res.BufferHit++; }
                 if (a.End == "PASSED") { res.Passed++; o.Passed++; o.Month[mk][3]++; acc[pick] = new AccountTypeStudy.Acc { Id = pick, Funded = true, FundedOn = day }; o.Spent += r.Activation; o.Month[mk][0] += r.Activation; }
