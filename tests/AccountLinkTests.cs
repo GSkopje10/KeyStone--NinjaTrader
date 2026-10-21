@@ -374,6 +374,11 @@ public static class AccountLinkTests
             Check(cp2.TodayTooBig && Math.Abs(cp2.NeedTotal - 3200) < 1e-9 && Math.Abs(cp2.Left - 1133) < 1e-9, "a +$1,600 day (over 50%) moves the target to $3,200", cp2.Text);
             var cp3 = KeystoneConsistency.Plan(new List<double> { 1500, 1490 }, 15, 3000, 50, 3);
             Check(cp3.Left == 0 && cp3.DaysLeft == 0 && cp3.Text.StartsWith("TARGET REACHED"), "1,500 + 1,490 + a small 3rd day → target reached, consistency OK", cp3.Text);
+            // 🎯 AUTO TAKE PROFIT: points so that the close makes at most the room after costs (rounded down to the tick)
+            double atp = KeystoneConsistency.AutoTargetPts(1500, 6, 10, 1.24 + 1.0, 0.1);   // MGC: 6 × $10 a point, cost $2.24 a contract
+            Check(Math.Abs(atp - 25.2) < 1e-9 && 6 * atp * 10 - 6 * 2.24 <= 1500 + 1e-9, "auto TP: $1,500 room, 6 MGC → 25.2 pts (≤ $1,500 after costs)", atp.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Check(KeystoneConsistency.AutoTargetPts(0, 6, 10, 2, 0.1) == 0 && KeystoneConsistency.AutoTargetPts(0.5, 6, 10, 0, 0.1) == 0, "auto TP: no room / less than a tick → none");
+            Check(Math.Abs(KeystoneConsistency.AutoTargetPts(1440, 1, 2, 1.74, 0.25) - 720.75) < 1e-9, "auto TP: MNQ 1 contract, $1,440 room → 720.75 pts");
             // COPY GROUPS: one group per account, leader swap, save / load; firm policy: copying apart from automation
             var gs = new List<KeystoneCopyGroup> { new KeystoneCopyGroup { Name = "ASIAN" }, new KeystoneCopyGroup { Name = KeystoneCopyGroups.NewName(new List<KeystoneCopyGroup>()) } };
             Check(gs[1].Name == "GROUP 1", "new group name GROUP 1");
