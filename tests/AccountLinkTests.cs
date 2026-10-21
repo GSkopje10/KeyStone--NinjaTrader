@@ -385,6 +385,8 @@ public static class AccountLinkTests
             Check(dkA.Position("MGC") == 8 && Math.Abs(dkA.Leaders["MGC"].AvgPrice - 4146.4) < 1e-9, "group desk: LONG 6 + BUY 2 → LONG 8 @ 4146.40", dkA.Position("MGC") + " @ " + dkA.Leaders["MGC"].AvgPrice);
             dkA.Enter("MGC", -1, 3, 4150, 0, 0, tD0.AddMinutes(2)); Check(dkA.Position("MGC") == 5 && Math.Abs(dkA.Leaders["MGC"].AvgPrice - 4146.4) < 1e-9, "group desk: SELL 3 → LONG 5, same average");
             dkA.Enter("MGC", -1, 7, 4151, 0, 0, tD0.AddMinutes(3)); Check(dkA.Position("MGC") == -2 && dkA.Leaders["MGC"].AvgPrice == 4151, "group desk: SELL 7 → reversed SHORT 2 @ 4151");
+            // ± one account's contracts on top of the group's size
+            Check(KeystoneCopier.WithExtra(6, 2, 30) == 8 && KeystoneCopier.WithExtra(-6, 2, 30) == -8 && KeystoneCopier.WithExtra(6, -6, 30) == 0 && KeystoneCopier.WithExtra(6, -9, 30) == 0 && KeystoneCopier.WithExtra(6, 5, 8) == 8 && KeystoneCopier.WithExtra(0, 3, 30) == 0, "copier ± contracts: +2 / −6 = flat / never past MAX / nothing when the group is flat");
             // 🎯 per-account take profit in the copier: capped at the account's own room for its size; no room = the leader's target
             var fr = new KeystoneCopyFollower { Account = "TPT5", TargetRoom = 300 };
             Check(Math.Abs(KeystoneCopier.TargetFor(40, fr, 1, "MGC", 0.1) - 30.2) < 1e-9 && Math.Abs(fr.TargetCapPts - 30.2) < 1e-9, "copier TP: room $300, 1 MGC → capped at 30.2 pts (leader 40)", fr.TargetCapPts.ToString(System.Globalization.CultureInfo.InvariantCulture));
