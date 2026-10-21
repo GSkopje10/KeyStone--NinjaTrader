@@ -44,11 +44,12 @@ namespace System.Windows
     public struct Point { public Point(double x, double y) { X = x; Y = y; } public double X; public double Y; }
     public struct Size { public Size(double w, double h) { Width = w; Height = h; } public double Width; public double Height; }
     public struct Rect { public Rect(double x, double y, double w, double h) { X = x; Y = y; Width = w; Height = h; } public double X, Y, Width, Height; }
-    public class DependencyProperty { }
+    public class DependencyProperty { public static readonly object UnsetValue = new object(); }
+    public static class EventManager { public static void RegisterClassHandler(Type classType, RoutedEvent routedEvent, Delegate handler) { } }
     public class RoutedEvent { }
     public static class LogicalTreeHelper { public static System.Collections.IEnumerable GetChildren(DependencyObject d) { return new object[0]; } public static DependencyObject GetParent(DependencyObject d) { return null; } }
     public class WindowCollection : List<Window> { }
-    public class DependencyObject { public System.Windows.Threading.Dispatcher Dispatcher { get { return null; } } public bool CheckAccess() { return true; } public object GetValue(DependencyProperty p) { return null; } public void SetValue(DependencyProperty p, object v) { } }
+    public class DependencyObject { public object ReadLocalValue(DependencyProperty dp) { return DependencyProperty.UnsetValue; } public System.Windows.Threading.Dispatcher Dispatcher { get { return null; } } public bool CheckAccess() { return true; } public object GetValue(DependencyProperty p) { return null; } public void SetValue(DependencyProperty p, object v) { } }
     public class RoutedEventArgs : EventArgs { public RoutedEventArgs() { } public RoutedEventArgs(RoutedEvent routedEvent) { } public bool Handled { get; set; } public object Source { get; set; } public object OriginalSource { get; set; } }
     public delegate void RoutedEventHandler(object sender, RoutedEventArgs e);
     public class SizeChangedEventArgs : RoutedEventArgs { public Size NewSize { get; set; } public Size PreviousSize { get; set; } public bool WidthChanged { get; set; } public bool HeightChanged { get; set; } }
@@ -61,7 +62,7 @@ namespace System.Windows
     public class Style { public Style() { } public Style(Type t) { } public List<Setter> Setters = new List<Setter>(); }
     public class ResourceDictionary : Dictionary<object, object> { }
     public class UIElement : DependencyObject
-    { public static readonly DependencyProperty IsMouseOverProperty = new DependencyProperty(), IsEnabledProperty = new DependencyProperty(); 
+    { public static readonly DependencyProperty IsMouseOverProperty = new DependencyProperty(), IsEnabledProperty = new DependencyProperty(), EffectProperty = new DependencyProperty(); 
         public void Measure(Size available) { } public Size DesiredSize { get { return new Size(0, 0); } }
         public void RaiseEvent(RoutedEventArgs e) { OnRaise(e); } protected virtual void OnRaise(RoutedEventArgs e) { }
         // Stand-in for WPF's single logical parent rule: adding an element that already has a parent throws, as WPF does.
@@ -138,6 +139,7 @@ namespace System.Windows
     }
     public class Window : System.Windows.Controls.ContentControl
     {
+        public bool AllowsTransparency { get; set; } public static Window GetWindow(DependencyObject d) { return null; }
         public WindowStyle WindowStyle { get; set; }
         public string Title { get; set; }
         public ResizeMode ResizeMode { get; set; }
@@ -198,7 +200,7 @@ namespace System.Windows.Media
     public abstract class Transform : Freezable { }
     public class TranslateTransform : Transform { public TranslateTransform() { } public TranslateTransform(double x, double y) { X = x; Y = y; } public double X { get; set; } public double Y { get; set; } public static readonly System.Windows.DependencyProperty XProperty = new System.Windows.DependencyProperty(); public static readonly System.Windows.DependencyProperty YProperty = new System.Windows.DependencyProperty(); public void BeginAnimation(System.Windows.DependencyProperty p, System.Windows.Media.Animation.AnimationTimeline a) { } }
     public class ScaleTransform : Transform { public ScaleTransform() { } public ScaleTransform(double x, double y) { ScaleX = x; ScaleY = y; } public ScaleTransform(double x, double y, double cx, double cy) { } public double ScaleX { get; set; } public double ScaleY { get; set; } public double CenterX { get; set; } public double CenterY { get; set; } public static readonly System.Windows.DependencyProperty ScaleXProperty = new System.Windows.DependencyProperty(); public static readonly System.Windows.DependencyProperty ScaleYProperty = new System.Windows.DependencyProperty(); public void BeginAnimation(System.Windows.DependencyProperty p, System.Windows.Media.Animation.AnimationTimeline a) { } }
-    public class RotateTransform : Transform { public RotateTransform() { } public RotateTransform(double a) { } public RotateTransform(double a, double cx, double cy) { } public double Angle { get; set; } public double CenterX { get; set; } public double CenterY { get; set; } }
+    public class RotateTransform : Transform { public static readonly System.Windows.DependencyProperty AngleProperty = new System.Windows.DependencyProperty(); public void BeginAnimation(System.Windows.DependencyProperty dp, System.Windows.Media.Animation.AnimationTimeline a) { } public RotateTransform() { } public RotateTransform(double a) { } public RotateTransform(double a, double cx, double cy) { } public double Angle { get; set; } public double CenterX { get; set; } public double CenterY { get; set; } }
     public class TransformGroup : Transform { public List<Transform> Children = new List<Transform>(); }
     public class DoubleCollection : List<double> { public DoubleCollection() { } public DoubleCollection(IEnumerable<double> v) : base(v) { } }
     public enum PenLineCap { Flat, Square, Round, Triangle }
@@ -325,6 +327,7 @@ namespace System.Windows.Controls
     public class ItemCollection : List<object> { public new int Add(object o) { base.Add(o); return Count - 1; } }
     public class Panel : FrameworkElement
     {
+        public static readonly DependencyProperty IsItemsHostProperty = new DependencyProperty();
         private readonly UIElementCollection children = new UIElementCollection();
         public UIElementCollection Children { get { children.Owner = this; return children; } }
         public Brush Background { get; set; }
@@ -350,7 +353,7 @@ namespace System.Windows.Controls
     public class DockPanel : Panel { public bool LastChildFill { get; set; } public static void SetDock(UIElement e, Dock d) { } }
     public class Canvas : Panel { public static void SetLeft(UIElement e, double v) { } public static void SetTop(UIElement e, double v) { } public static void SetRight(UIElement e, double v) { } public static void SetBottom(UIElement e, double v) { } public static double GetLeft(UIElement e) { return 0; } public static double GetTop(UIElement e) { return 0; } }
     public class Control : FrameworkElement
-    { public static readonly DependencyProperty BackgroundProperty = new DependencyProperty(), PaddingProperty = new DependencyProperty(), BorderBrushProperty = new DependencyProperty(); public ControlTemplate Template { get; set; } 
+    { public static readonly System.Windows.DependencyProperty ForegroundProperty = new System.Windows.DependencyProperty(); public static readonly DependencyProperty BackgroundProperty = new DependencyProperty(), PaddingProperty = new DependencyProperty(), BorderBrushProperty = new DependencyProperty(); public ControlTemplate Template { get; set; } 
         public Brush Background { get; set; } public Brush Foreground { get; set; } public Brush BorderBrush { get; set; }
         public Thickness BorderThickness { get; set; } public Thickness Padding { get; set; }
         public FontFamily FontFamily { get; set; } public double FontSize { get; set; } public FontWeight FontWeight { get; set; } public FontStyle FontStyle { get; set; }
@@ -430,9 +433,9 @@ namespace System.Windows.Controls
     public class MenuItem : HeaderedItemsControlCompat { public event RoutedEventHandler Click; public object Icon { get; set; } }
     public class HeaderedItemsControlCompat : ItemsControl { public object Header { get; set; } }
     public class Separator : Control { }
-    public class ContextMenu : ItemsControl { public bool IsOpen { get; set; } public UIElement PlacementTarget { get; set; } }
+    public class ContextMenu : ItemsControl { public static readonly System.Windows.RoutedEvent OpenedEvent = new System.Windows.RoutedEvent(); public bool HasDropShadow { get; set; } public bool IsOpen { get; set; } public UIElement PlacementTarget { get; set; } }
     public class Border : FrameworkElement
-    { public static readonly DependencyProperty CornerRadiusProperty = new DependencyProperty(), BackgroundProperty = new DependencyProperty(), BorderBrushProperty = new DependencyProperty(), BorderThicknessProperty = new DependencyProperty(); 
+    { public static readonly DependencyProperty CornerRadiusProperty = new DependencyProperty(), BackgroundProperty = new DependencyProperty(), BorderBrushProperty = new DependencyProperty(), BorderThicknessProperty = new DependencyProperty(), PaddingProperty = new DependencyProperty(); 
         public Brush Background { get; set; } public Brush BorderBrush { get; set; } public Thickness BorderThickness { get; set; }
         public CornerRadius CornerRadius { get; set; } public Thickness Padding { get; set; }
         private UIElement child; public UIElement Child { get { return child; } set { if (ReferenceEquals(child, value)) return; UIElement.Release(child); UIElement.Adopt(this, value); child = value; } }
