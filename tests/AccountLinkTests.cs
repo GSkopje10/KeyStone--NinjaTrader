@@ -402,7 +402,7 @@ public static class AccountLinkTests
             gs[0].Followers[1].Paused = true; gs[0].Followers[1].Multiplier = 0.5;
             var gs2 = KeystoneCopyGroups.Parse(KeystoneCopyGroups.Serialize(gs));
             Check(gs2.Count == 2 && gs2[0].Leader == "TPT2" && gs2[0].Followers.Count == 2 && gs2[0].Followers[1].Paused && gs2[0].Followers[1].Multiplier == 0.5 && gs2[0].Followers[1].MaxQty == 3, "copy groups save and load");
-            gs[0].Confirmed = true; var gs3 = KeystoneCopyGroups.Parse(KeystoneCopyGroups.Serialize(gs)); Check(gs3[0].Confirmed && !gs3[1].Confirmed, "✓ CONFIRMED saves and loads");
+            gs[0].Confirmed = true; gs[0].Separate = true; var gs3 = KeystoneCopyGroups.Parse(KeystoneCopyGroups.Serialize(gs)); Check(gs3[0].Confirmed && !gs3[1].Confirmed && gs3[0].Separate && !gs3[1].Separate, "✓ CONFIRMED + ✋ single-account trading save and load");
             KeystoneCopyGroups.Place(gs3, "ASIAN", "TPT1", true); Check(!gs3[0].Confirmed && gs3[0].Leader == "TPT1", "another account on the chart → the group must be confirmed again");
             gs3[0].Confirmed = true; KeystoneCopyGroups.Place(gs3, "ASIAN", "TPT9", false); Check(!gs3[0].Confirmed, "an account added → confirm again");
             gs3[0].Confirmed = true; KeystoneCopyGroups.Remove(gs3, "TPT9"); Check(!gs3[0].Confirmed, "an account taken out → confirm again");
