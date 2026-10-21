@@ -418,6 +418,18 @@ public static class AccountLinkTests
             string html = KeystoneTracker.Build(new List<KeystonePoolAccount>(back2) { new KeystonePoolAccount { Account = "TPT9", Status = "BLOWN", Started = new DateTime(2026, 10, 2), Cost = 150 } }, tt, live, new DateTime(2026, 10, 21, 12, 0, 0), 30);
             Check(html.Contains("<meta http-equiv='refresh' content='30'>") && html.Contains("class='funded click'") && html.Contains("class='blown click'") && html.Contains("id='p-fund'") && html.Contains(KeystoneTracker.StatusColor("FUNDED")) && html.Contains("$347") && html.Contains("+$803") && html.Contains("$51,234"),
                 "tracker page: auto refresh, funded row green, blown row, spent $347, net +$803, live balance", html.Length.ToString());
+            // 📒 DAILY BOOK: NinjaTrader's day per account wins over the journal's single trades of that day; save / load; the page shows it
+            var bookT = new List<KeystoneTrackerTrade>(); var d21 = new DateTime(2026, 10, 21);
+            KeystoneDailyBook.Set(bookT, d21, "TPT1", 75, 60, 3); KeystoneDailyBook.Set(bookT, d21, "TPT2", 253, 227.5, 0); KeystoneDailyBook.Set(bookT, d21, "TPT1", 80, 64, 4);
+            var bookT2 = KeystoneDailyBook.Parse(KeystoneDailyBook.Serialize(bookT));
+            Check(bookT2.Count == 2 && bookT2.Single(x => x.Account == "TPT1").Net == 64 && Math.Abs(bookT2.Single(x => x.Account == "TPT2").Fees - 25.5) < 1e-9, "daily book: today's numbers replace, commissions = gross − realized, save / load");
+            var jr = new List<KeystoneTrackerTrade> { new KeystoneTrackerTrade { Account = "TPT2", Day = d21, Gross = 10, Net = 9 }, new KeystoneTrackerTrade { Account = "TPT2", Day = d21, Gross = 12, Net = 11 }, new KeystoneTrackerTrade { Account = "TPT2", Day = d21.AddDays(-1), Gross = 5, Net = 4 } };
+            var mg = KeystoneDailyBook.Merge(jr, bookT2);
+            Check(mg.Count == 3 && mg.Where(x => x.Day == d21).Sum(x => x.Net) == 64 + 227.5 && mg.Single(x => x.Day == d21 && x.Account == "TPT2").Count == 2 && mg.Any(x => x.Day == d21.AddDays(-1) && x.Net == 4), "daily book merge: the day from NinjaTrader (all accounts), the journal's count, older journal days kept");
+            var grp = new List<KeystoneTrackerGroup> { new KeystoneTrackerGroup { Name = "TPT High", Color = "#BA68C8", Leader = "TPT1", Members = new List<string> { "TPT1", "TPT2" }, On = true, Chart = true } };
+            string html2 = KeystoneTracker.Build(new List<KeystonePoolAccount>(back2), mg, live, new DateTime(2026, 10, 21, 12, 0, 0), 10, grp);
+            Check(html2.Contains("id='p-today'") && html2.Contains("id='p-grp'") && html2.Contains("TPT High") && html2.Contains("class='day today'") && html2.Contains("tr class='sub'") && html2.Contains("+$292"), "tracker: TODAY + GROUPS tabs, today's day row highlighted with its accounts, +$292 net", html2.Length.ToString());
+            try { System.IO.File.WriteAllText(System.IO.Path.Combine("tests", ".build", "tracker_preview.html"), html2); } catch { }
         }
         // 10. presets + account watch
         {

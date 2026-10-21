@@ -6,7 +6,7 @@ namespace NinjaTrader.Cbi
 {
     public enum ErrorCode { NoError, UserAbort, Panic, LogOnFailed, Unknown }
     public class MasterInstrument { public string Name { get; set; } public double TickSize { get; set; } public double PointValue { get; set; } public DateTime GetNextExpiry(DateTime d) { return d; } public double RoundToTickSize(double p) { return p; } }
-    public enum AccountItem { CashValue, NetLiquidation, RealizedProfitLoss, UnrealizedProfitLoss, TotalCashBalance }
+    public enum AccountItem { CashValue, NetLiquidation, RealizedProfitLoss, UnrealizedProfitLoss, TotalCashBalance, GrossRealizedProfitLoss }
     public enum Currency { UsDollar }
     public enum MarketPosition { Flat, Long, Short }
     public class Position { public Instrument Instrument { get; set; } public MarketPosition MarketPosition { get; set; } public int Quantity { get; set; } public double AveragePrice { get; set; } }
