@@ -379,6 +379,11 @@ public static class AccountLinkTests
             Check(Math.Abs(atp - 25.2) < 1e-9 && 6 * atp * 10 - 6 * 2.24 <= 1500 + 1e-9, "auto TP: $1,500 room, 6 MGC → 25.2 pts (≤ $1,500 after costs)", atp.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Check(KeystoneConsistency.AutoTargetPts(0, 6, 10, 2, 0.1) == 0 && KeystoneConsistency.AutoTargetPts(0.5, 6, 10, 0, 0.1) == 0, "auto TP: no room / less than a tick → none");
             Check(Math.Abs(KeystoneConsistency.AutoTargetPts(1440, 1, 2, 1.74, 0.25) - 720.75) < 1e-9, "auto TP: MNQ 1 contract, $1,440 room → 720.75 pts");
+            // 🎯 per-account take profit in the copier: capped at the account's own room for its size; no room = the leader's target
+            var fr = new KeystoneCopyFollower { Account = "TPT5", TargetRoom = 300 };
+            Check(Math.Abs(KeystoneCopier.TargetFor(40, fr, 1, "MGC", 0.1) - 30.2) < 1e-9 && Math.Abs(fr.TargetCapPts - 30.2) < 1e-9, "copier TP: room $300, 1 MGC → capped at 30.2 pts (leader 40)", fr.TargetCapPts.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Check(KeystoneCopier.TargetFor(20, fr, 1, "MGC", 0.1) == 20 && Math.Abs(KeystoneCopier.TargetFor(0, fr, 1, "MGC", 0.1) - 30.2) < 1e-9, "copier TP: a closer leader target stays; no leader target → the cap");
+            Check(KeystoneCopier.TargetFor(40, new KeystoneCopyFollower(), 1, "MGC", 0.1) == 40, "copier TP: no room set → the leader's target");
             // COPY GROUPS: one group per account, leader swap, save / load; firm policy: copying apart from automation
             var gs = new List<KeystoneCopyGroup> { new KeystoneCopyGroup { Name = "ASIAN" }, new KeystoneCopyGroup { Name = KeystoneCopyGroups.NewName(new List<KeystoneCopyGroup>()) } };
             Check(gs[1].Name == "GROUP 1", "new group name GROUP 1");
