@@ -454,6 +454,15 @@ public static class AccountLinkTests
             string html2 = KeystoneTracker.Build(new List<KeystonePoolAccount>(back2), mg, live, new DateTime(2026, 10, 21, 12, 0, 0), 10, grp);
             Check(html2.Contains("id='p-today'") && html2.Contains("id='p-grp'") && html2.Contains("TPT High") && html2.Contains("class='day today'") && html2.Contains("tr class='sub'") && html2.Contains("+$292"), "tracker: TODAY + GROUPS tabs, today's day row highlighted with its accounts, +$292 net", html2.Length.ToString());
             try { System.IO.File.WriteAllText(System.IO.Path.Combine("tests", ".build", "tracker_preview.html"), html2); } catch { }
+            {
+                // TODAY redesign: realized (after fees) against the day limit; over / near flagged; no evaluation total; funded adds up
+                var poolT = new List<KeystonePoolAccount>(); var liveT = new Dictionary<string, KeystoneTrackerLive>();
+                Action<string, double, double, bool> addT = (n, gross, closed, fund) => { poolT.Add(new KeystonePoolAccount { Account = n, Nick = n, Status = fund ? "PASSED" : "EVAL" }); liveT[n] = new KeystoneTrackerLive { Account = n, Connected = true, Gross = gross, Closed = closed, Today = closed, Balance = 50000 + closed, DayCap = fund ? double.NaN : 1500, Funded = fund, Plan = fund ? "" : "today: up to +$" + Math.Max(0, 1500 - closed).ToString("0") + " more" }; };
+                addT("TPT 1", 1650, 1557, false); addT("TPT 2", 1300, 1250, false); addT("TPT 3", 400, 380, false); addT("TPT 9", 900, 870, true);
+                string html3 = KeystoneTracker.Build(poolT, new List<KeystoneTrackerTrade>(), liveT, new DateTime(2026, 10, 21, 12, 0, 0), 10, new List<KeystoneTrackerGroup>());
+                Check(html3.Contains("OVER by $57") && html3.Contains("Over the day limit") && html3.Contains("Funded &#8226; yours today") && !html3.Contains("Realized today<"), "tracker TODAY: realized vs the $1,500 day limit (TPT 1 OVER by $57), funded total only", html3.Length.ToString());
+                try { System.IO.File.WriteAllText(System.IO.Path.Combine("tests", ".build", "tracker_today.html"), html3); } catch { }
+            }
         }
         // 10. presets + account watch
         {
