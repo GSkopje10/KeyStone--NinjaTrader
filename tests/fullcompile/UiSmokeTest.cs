@@ -473,7 +473,7 @@ public static class UiSmokeTest
                         Action rewalk = () => { all.Clear(); walk(liveWin.Content); };
                         if (accB() == null) throw new Exception("ACCOUNTS button missing");
                         if (Convert.ToString(accB().Content) != "◀ CHART") click(accB());
-                        rewalk(); if (Convert.ToString(accB().Content) != "◀ CHART") throw new Exception("ACCOUNTS did not open");
+                        rewalk(); if (btnS("✎ SET UP AGAIN") == null) throw new Exception("👥 ACCOUNTS (the pool) did not open");
                         click(btnS("✎ SET UP AGAIN")); rewalk();
                         click(btnS("+ NOT CONNECTED")); rewalk();
                         var tick = all.OfType<System.Windows.Controls.CheckBox>().FirstOrDefault(cbx => Convert.ToString(cbx.ToolTip) == "trade APEX-123-01"); if (tick == null) throw new Exception("no account to tick");
@@ -485,14 +485,14 @@ public static class UiSmokeTest
                         click(btnS("NEXT ▶  RULES")); rewalk();
                         if (!all.OfType<System.Windows.Controls.CheckBox>().Any(cbx => Convert.ToString(cbx.Content) == "COPYING my own accounts")) throw new Exception("step 4 (firm rules) missing");
                         click(btnS("✔ FINISH & SAVE")); rewalk();
-                        if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => t.Text == "APEX 1")) throw new Exception("the list does not show APEX 1 after FINISH");
+                        if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").Contains("APEX 1"))) throw new Exception("👥 ACCOUNTS does not show APEX 1 after FINISH");
                         click(btnS("⛔ CLOSE ALL POSITIONS"));   // nothing open with an instrument here → "NOTHING OPEN"
                         // ⇉ COPIER (groups) and 💰 POOL open from their (tab-bar) buttons; + NEW GROUP makes GROUP 1
                         rewalk(); click(btn("COPIER")); rewalk();
                         if (btnS("＋ NEW GROUP") == null) throw new Exception("COPIER view did not open");
                         click(btnS("＋ NEW GROUP")); rewalk(); if (!all.OfType<System.Windows.Controls.TextBox>().Any(t => (t.Text ?? "").StartsWith("GROUP "))) throw new Exception("＋ NEW GROUP did not make a group");
                         if (!all.OfType<System.Windows.Controls.CheckBox>().Any(cbx => Convert.ToString(cbx.Content) == "different size per account")) throw new Exception("the group's size option is missing");
-                        click(btn("POOL")); rewalk(); if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => t.Text == "💰 POOL")) throw new Exception("POOL view did not open");
+                        click(btn("POOL")); rewalk(); if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => t.Text == "👥 ACCOUNTS")) throw new Exception("👥 ACCOUNTS (pool) view did not open");
                         if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("APEX 1") || (t.Text ?? "").Contains("APEX 1"))) throw new Exception("POOL does not show APEX 1");
                         click(btn("◀ CHART")); rewalk();
                         Console.WriteLine("      ⇉ COPIER groups (+ NEW GROUP) and 💰 POOL (firm tabs, APEX 1): OK");

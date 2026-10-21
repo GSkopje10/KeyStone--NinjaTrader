@@ -28,6 +28,7 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   accounts only after the group's switch is turned on and confirmed (that one confirmation also arms the group's chart account with the
   ACCOUNT LIMITS; each new entry while a group is on asks again). Other groups can be ON at the same time, traded from their card in ⇉ COPIER
   (`KeystoneGroupDesk`: a virtual leader per instrument; BUY / SELL / CLOSE buttons, each asks first; each account its own armed link). The ✋ click-to-trade signal window sends nothing by itself (its button = a BUY / SELL click).
+  While any account is in a trade, settings, DISARM, account switching and copy-group OFF are locked (`inTradeNow`): close the positions first.
   Firm rules (`KeystoneFirmPolicies`): automation (evaluation / funded) and copying are separate; AUTO is refused where automation is off.
   The ROTATION (Live Trading ▸ 🔄 ROTATE, `KeystoneRotator`) sends the chart strategy's orders to ONE pool account at a time
   only after START ROTATION is confirmed (each account gets its own armed `KeystoneAccountLink` with its limits; MANUAL mode
