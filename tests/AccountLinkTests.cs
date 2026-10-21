@@ -139,6 +139,16 @@ public static class AccountLinkTests
             var b3 = new FakeBroker(); var l3 = new KeystoneAccountLink(b3, "MNQ") { MaxContracts = 5 }; var t3 = Trader(); l3.Arm(t0);
             for (int i = 0; i < 12 && l3.Armed; i++) { t3.Place("LIMIT", 1, 1, 19900 - i); l3.Tick(t3, t0.AddSeconds(i)); }
             Check(!l3.Armed && l3.State.Contains("RUNAWAY"), "runaway guard: 8 orders in a minute → disarm", l3.State);
+            {
+                // 5 bracketed trades (entry + stop + target, then closed) in under a minute: only the entries count → still armed
+                var bRg = new FakeBroker(); var lRg = new KeystoneAccountLink(bRg, "MNQ") { MaxContracts = 3 }; var tRg = Trader(); lRg.Arm(t0); var tmRg = t0;
+                for (int k = 0; k < 5; k++)
+                {
+                    tRg.StopPts = 10; tRg.TargetPts = 20; tRg.Buy(1); lRg.Tick(tRg, tmRg); lRg.Tick(tRg, tmRg.AddSeconds(0.25)); bRg.FillMarket(20000); lRg.Tick(tRg, tmRg.AddSeconds(1));
+                    tRg.CloseAll("X"); lRg.Tick(tRg, tmRg.AddSeconds(2)); lRg.Tick(tRg, tmRg.AddSeconds(6)); tmRg = tmRg.AddSeconds(10);
+                }
+                Check(lRg.Armed && bRg.Sent.Count(x => x.StartsWith("STOP") || x.StartsWith("LIMIT")) >= 8, "runaway guard: 5 bracketed trades in a minute → still armed (stops / targets counted apart)", lRg.State + " | " + string.Join(" | ", bRg.Sent));
+            }
             var b4 = new FakeBroker(); var l4 = new KeystoneAccountLink(b4, "MNQ"); var t4 = Trader(); l4.Arm(t0); t4.Place("LIMIT", 1, 1, 19900); l4.Tick(t4, t0);
             b4.All[0].Rejected = true; b4.All[0].Done = true; l4.Tick(t4, t0.AddSeconds(1)); Check(!l4.Armed, "a rejected order disarms");
             var b5 = new FakeBroker(); b5.Exec(4, 20000, "Buy"); var l5 = new KeystoneAccountLink(b5, "MNQ") { MaxContracts = 2 }; Check(l5.Arm(t0) != null, "arm refused while the account holds more than MAX QTY");

@@ -20,8 +20,9 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
 
 - Real orders exist ONLY through the ● LIVE TRADING window's REAL ACCOUNT bar (`KeystoneAccountLink` + `NinjaBroker`; the live chart shows the linked account,
   orders placed in NinjaTrader included), approved by the
-  user: nothing is sent unless the user ARMS it and confirms; keep its limits (max contracts, day loss, day profit cap,
-  runaway guard, reject → disarm) and its tests (`tests/AccountLinkTests.cs`). No other code path may place orders.
+  user: nothing is sent unless the user ARMS it and confirms (ARM once per session, user's request: switching the chart account
+  re-arms the new account with its own limits until DISARM); keep its limits (max contracts, day loss, day profit cap,
+  runaway guard = 8 entry orders a minute, stops / targets / closes counted apart at 30, reject → disarm) and its tests (`tests/AccountLinkTests.cs`). No other code path may place orders.
   Exceptions the user asked for, active on a linked account even unarmed: ONE CANCELS OTHER (cancels only) and LOCK FOR
   TODAY with flatten (confirmed when locking). ⛔ CLOSE ALL POSITIONS (Live Trading strip, `FlattenEveryAccount`) flattens every
   connected account after one confirmation (closes / cancels only, stops the rotations and the copier). The COPIER (named groups of prop accounts, one leader + followers, an account in one group only, `KeystoneCopyGroups`) sends orders to follower
