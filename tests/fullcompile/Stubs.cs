@@ -97,12 +97,12 @@ namespace System.Windows
         public event System.Windows.Input.KeyEventHandler KeyDown, KeyUp, PreviewKeyDown;
         public event RoutedEventHandler GotFocus, LostFocus;
         public bool AllowDrop { get; set; }
-        public event DragEventHandler DragEnter, DragLeave, DragOver, Drop;
+        public event DragEventHandler DragEnter, DragLeave, DragOver, Drop, PreviewDragOver;
     }
     public enum DragDropEffects { None = 0, Copy = 1, Move = 2, Link = 4, Scroll = -2147483648, All = -2147483645 }
     public interface IDataObject { object GetData(Type format); bool GetDataPresent(Type format); }
     public class DataObject : IDataObject { object d; public DataObject(object data) { d = data; } public object GetData(Type f) { return d != null && f.IsInstanceOfType(d) ? d : null; } public bool GetDataPresent(Type f) { return d != null && f.IsInstanceOfType(d); } }
-    public class DragEventArgs : RoutedEventArgs { public DragEventArgs(object data) { Data = new DataObject(data); } public IDataObject Data { get; private set; } public DragDropEffects Effects { get; set; } }
+    public class DragEventArgs : RoutedEventArgs { public DragEventArgs(object data) { Data = new DataObject(data); } public IDataObject Data { get; private set; } public DragDropEffects Effects { get; set; } public System.Windows.Point GetPosition(System.Windows.IInputElementCompat relativeTo) { return new System.Windows.Point(); } }
     public delegate void DragEventHandler(object sender, DragEventArgs e);
     public static class DragDrop { public static DragDropEffects DoDragDrop(DependencyObject source, object data, DragDropEffects allowed) { return DragDropEffects.None; } }
     public class FrameworkElement : UIElement
