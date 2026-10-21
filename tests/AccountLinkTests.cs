@@ -395,6 +395,16 @@ public static class AccountLinkTests
             Check(dkA.Position("MGC") == 8 && Math.Abs(dkA.Leaders["MGC"].AvgPrice - 4146.4) < 1e-9, "group desk: LONG 6 + BUY 2 → LONG 8 @ 4146.40", dkA.Position("MGC") + " @ " + dkA.Leaders["MGC"].AvgPrice);
             dkA.Enter("MGC", -1, 3, 4150, 0, 0, tD0.AddMinutes(2)); Check(dkA.Position("MGC") == 5 && Math.Abs(dkA.Leaders["MGC"].AvgPrice - 4146.4) < 1e-9, "group desk: SELL 3 → LONG 5, same average");
             dkA.Enter("MGC", -1, 7, 4151, 0, 0, tD0.AddMinutes(3)); Check(dkA.Position("MGC") == -2 && dkA.Leaders["MGC"].AvgPrice == 4151, "group desk: SELL 7 → reversed SHORT 2 @ 4151");
+            {
+                // 🔁 a group switched ON while its accounts are still in a trade: it takes the real position over and sends NOTHING
+                var dkT = new KeystoneGroupDesk { Group = "NMP" }; var tT0 = new DateTime(2026, 10, 21, 19, 30, 0);
+                Func<string, int, FakeBroker> mk = (acc, q) => { var fb = new FakeBroker(); if (q != 0) fb.Exec(q, 29827.75, "Buy"); var lk = new KeystoneAccountLink(fb, "MNQ") { MaxContracts = 10 }; lk.Arm(tT0); var mr = KeystoneReplayTrader.LiveStart(new List<KeystoneArcBar>(), "MNQ", tT0); mr.Slave = true; dkT.Members.Add(Tuple.Create("MNQ", new KeystoneCopyFollower { Account = acc, MaxQty = 10, Link = lk, Mirror = mr })); return fb; };
+                var fA = mk("A", 6); var fB = mk("B", 7); var fC = mk("C", 0); fA.Sent.Clear(); fB.Sent.Clear(); fC.Sent.Clear();
+                var adT = dkT.TakeOver("A", new Dictionary<string, double> { { "MNQ", 29800 } }, tT0);
+                for (int i = 1; i <= 5; i++) dkT.Tick("MNQ", 29800 + i, tT0.AddSeconds(i));
+                Check(adT.Count == 1 && dkT.Position("MNQ") == 6 && fA.Sent.Count == 0 && fB.Sent.Count == 0 && fC.Sent.Count == 0 && fA.Qty == 6 && fB.Qty == 7 && fC.Qty == 0,
+                    "group ON while in a trade: takes LONG 6 over, A keeps 6, B keeps 7, flat C sits out — nothing sent", string.Join(" | ", fA.Sent.Concat(fB.Sent).Concat(fC.Sent)));
+            }
             // ± one account's contracts on top of the group's size
             Check(KeystoneCopier.WithExtra(6, 2, 30) == 8 && KeystoneCopier.WithExtra(-6, 2, 30) == -8 && KeystoneCopier.WithExtra(6, -6, 30) == 0 && KeystoneCopier.WithExtra(6, -9, 30) == 0 && KeystoneCopier.WithExtra(6, 5, 8) == 8 && KeystoneCopier.WithExtra(0, 3, 30) == 0, "copier ± contracts: +2 / −6 = flat / never past MAX / nothing when the group is flat");
             // 🎯 per-account take profit in the copier: capped at the account's own room for its size; no room = the leader's target
