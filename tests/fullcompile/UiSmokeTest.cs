@@ -131,6 +131,8 @@ public static class UiSmokeTest
                     Console.WriteLine("      compare: " + rows.Count + " versions • " + ((System.Windows.Controls.TextBlock)lab2.GetType().GetField("microCompareStatus", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2)).Text);
                     if (rows.Count != 36) throw new Exception("compare rows " + rows.Count);
                     var tabsM = (System.Windows.Controls.TabControl)lab2.GetType().GetField("microTabs", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(lab2);
+                    // SIZE & SPEED is measured in the background after the rows: wait for it (up to 60 s) instead of racing it
+                    for (int i = 0; i < 600 && tabsM.Items.Cast<System.Windows.Controls.TabItem>().Any(t => t.Content is System.Windows.Controls.TextBlock); i++) System.Threading.Thread.Sleep(100);
                     foreach (System.Windows.Controls.TabItem t in tabsM.Items) if (t.Content is System.Windows.Controls.TextBlock) throw new Exception("results tab not filled: " + t.Header);
                     Console.WriteLine("      results tabs: " + string.Join(" • ", tabsM.Items.Cast<System.Windows.Controls.TabItem>().Select(t => t.Header)));
                     var csv = (string)Call(lab2, "MicroCsv"); var html = (string)Call(lab2, "MicroHtml");
