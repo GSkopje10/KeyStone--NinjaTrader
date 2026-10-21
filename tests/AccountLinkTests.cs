@@ -379,6 +379,12 @@ public static class AccountLinkTests
             Check(Math.Abs(atp - 25.2) < 1e-9 && 6 * atp * 10 - 6 * 2.24 <= 1500 + 1e-9, "auto TP: $1,500 room, 6 MGC → 25.2 pts (≤ $1,500 after costs)", atp.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Check(KeystoneConsistency.AutoTargetPts(0, 6, 10, 2, 0.1) == 0 && KeystoneConsistency.AutoTargetPts(0.5, 6, 10, 0, 0.1) == 0, "auto TP: no room / less than a tick → none");
             Check(Math.Abs(KeystoneConsistency.AutoTargetPts(1440, 1, 2, 1.74, 0.25) - 720.75) < 1e-9, "auto TP: MNQ 1 contract, $1,440 room → 720.75 pts");
+            // ⇉ a group traded from the COPIER: in a trade, the same side adds (average weighted), the other side reduces / reverses
+            var dkA = new KeystoneGroupDesk { Group = "G" }; var tD0 = new DateTime(2026, 10, 21, 10, 0, 0);
+            dkA.Enter("MGC", 1, 6, 4145.4, 0, 0, tD0); dkA.Enter("MGC", 1, 2, 4149.4, 0, 0, tD0.AddMinutes(1));
+            Check(dkA.Position("MGC") == 8 && Math.Abs(dkA.Leaders["MGC"].AvgPrice - 4146.4) < 1e-9, "group desk: LONG 6 + BUY 2 → LONG 8 @ 4146.40", dkA.Position("MGC") + " @ " + dkA.Leaders["MGC"].AvgPrice);
+            dkA.Enter("MGC", -1, 3, 4150, 0, 0, tD0.AddMinutes(2)); Check(dkA.Position("MGC") == 5 && Math.Abs(dkA.Leaders["MGC"].AvgPrice - 4146.4) < 1e-9, "group desk: SELL 3 → LONG 5, same average");
+            dkA.Enter("MGC", -1, 7, 4151, 0, 0, tD0.AddMinutes(3)); Check(dkA.Position("MGC") == -2 && dkA.Leaders["MGC"].AvgPrice == 4151, "group desk: SELL 7 → reversed SHORT 2 @ 4151");
             // 🎯 per-account take profit in the copier: capped at the account's own room for its size; no room = the leader's target
             var fr = new KeystoneCopyFollower { Account = "TPT5", TargetRoom = 300 };
             Check(Math.Abs(KeystoneCopier.TargetFor(40, fr, 1, "MGC", 0.1) - 30.2) < 1e-9 && Math.Abs(fr.TargetCapPts - 30.2) < 1e-9, "copier TP: room $300, 1 MGC → capped at 30.2 pts (leader 40)", fr.TargetCapPts.ToString(System.Globalization.CultureInfo.InvariantCulture));
