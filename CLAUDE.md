@@ -27,8 +27,8 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   connected account after one confirmation (closes / cancels only, stops the rotations and the copier). The COPIER (named groups of prop accounts, one leader + followers, an account in one group only, `KeystoneCopyGroups`) sends orders to follower
   accounts only after the group's switch is turned on and confirmed (that one confirmation also arms the group's chart account with the
   ACCOUNT LIMITS; each new entry while a group is on asks again). Other groups can be ON at the same time, traded from their card in ⇉ COPIER
-  (`KeystoneGroupDesk`: a virtual leader per instrument; BUY / SELL / CLOSE buttons, each asks first; each account its own armed link). The ✋ click-to-trade signal window sends nothing by itself (its button = a BUY / SELL click).
-  While any account is in a trade, settings, DISARM, account switching and copy-group OFF are locked (`inTradeNow`): close the positions first. An account in a trade cannot be added to a copy group.
+  (`KeystoneGroupDesk`: a virtual leader per instrument; BUY / SELL / CLOSE buttons, each asks first; each account its own armed link). The chart's ⇉ button ticks which ON groups its BUY / SELL / CLOSE trade (`chartDesks`, `chartOwnOff`): an unticked group is never touched; each entry asks first, an opposite-side group warns first. The ✋ click-to-trade signal window sends nothing by itself (its button = a BUY / SELL click).
+  While any account is in a trade, settings, DISARM, account switching and copy-group OFF are locked (`inTradeNow`): close the positions first. An account in a trade cannot be added to a copy group. A group switches ON only after CONFIRM GROUP (`KeystoneCopyGroup.Confirmed`).
   Firm rules (`KeystoneFirmPolicies`): automation (evaluation / funded) and copying are separate; AUTO is refused where automation is off.
   The ROTATION (Live Trading ▸ 🔄 ROTATE, `KeystoneRotator`) sends the chart strategy's orders to ONE pool account at a time
   only after START ROTATION is confirmed (each account gets its own armed `KeystoneAccountLink` with its limits; MANUAL mode
