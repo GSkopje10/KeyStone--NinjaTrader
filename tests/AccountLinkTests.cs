@@ -457,11 +457,15 @@ public static class AccountLinkTests
             {
                 // TODAY redesign: realized (after fees) against the day limit; over / near flagged; no evaluation total; funded adds up
                 var poolT = new List<KeystonePoolAccount>(); var liveT = new Dictionary<string, KeystoneTrackerLive>();
-                Action<string, double, double, bool> addT = (n, gross, closed, fund) => { poolT.Add(new KeystonePoolAccount { Account = n, Nick = n, Status = fund ? "PASSED" : "EVAL" }); liveT[n] = new KeystoneTrackerLive { Account = n, Connected = true, Gross = gross, Closed = closed, Today = closed, Balance = 50000 + closed, DayCap = fund ? double.NaN : 1500, Funded = fund, Plan = fund ? "" : "today: up to +$" + Math.Max(0, 1500 - closed).ToString("0") + " more" }; };
+                Action<string, double, double, bool> addT = (n, gross, closed, fund) => { poolT.Add(new KeystonePoolAccount { Account = n, Nick = n, Status = fund ? "PASSED" : "EVAL" }); liveT[n] = new KeystoneTrackerLive { Account = n, Connected = true, Gross = gross, Closed = closed, Today = closed, Balance = 50000 + closed, DayCap = fund ? double.NaN : 1500, Funded = fund, Left = fund ? double.NaN : 1450 - closed, Floor = 48000 + closed, Room = 2000 + closed, Start = 50000, Target = 3000, Dd = 2000, Plan = fund ? "" : "today: up to +$" + Math.Max(0, 1500 - closed).ToString("0") + " more" }; };
                 addT("TPT 1", 1650, 1557, false); addT("TPT 2", 1300, 1250, false); addT("TPT 3", 400, 380, false); addT("TPT 9", 900, 870, true);
                 string html3 = KeystoneTracker.Build(poolT, new List<KeystoneTrackerTrade>(), liveT, new DateTime(2026, 10, 21, 12, 0, 0), 10, new List<KeystoneTrackerGroup>());
                 Check(html3.Contains("OVER by $57") && html3.Contains("Over the day limit") && html3.Contains("Funded &#8226; yours today") && !html3.Contains("Realized today<"), "tracker TODAY: realized vs the $1,500 day limit (TPT 1 OVER by $57), funded total only", html3.Length.ToString());
                 try { System.IO.File.WriteAllText(System.IO.Path.Combine("tests", ".build", "tracker_today.html"), html3); } catch { }
+                var trT = new List<KeystoneTrackerTrade> { new KeystoneTrackerTrade { Account = "TPT 1", Day = new DateTime(2026, 10, 21), Gross = 1650, Net = 1557, Fees = 93, Count = 4 } };
+                string html4 = KeystoneTracker.Build(poolT, trT, liveT, new DateTime(2026, 10, 21, 19, 0, 0), 10, new List<KeystoneTrackerGroup>(), new DateTime(2026, 10, 21));
+                Check(html4.Contains("Wednesday 2026-10-21") && html4.Contains("LAST SESSION") && html4.Contains("To pass") && html4.Contains("Auto-liq at") && html4.Contains("auto-liq $49,557"), "tracker after 18:00 NY: still Wednesday (the day of the last fill) as LAST SESSION; to pass / auto-liq shown", html4.Length.ToString());
+                try { System.IO.File.WriteAllText(System.IO.Path.Combine("tests", ".build", "tracker_today.html"), html4); } catch { }
             }
         }
         // 10. presets + account watch
