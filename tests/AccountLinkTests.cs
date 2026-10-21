@@ -391,6 +391,7 @@ public static class AccountLinkTests
             var fr = new KeystoneCopyFollower { Account = "TPT5", TargetRoom = 300 };
             Check(Math.Abs(KeystoneCopier.TargetFor(40, fr, 1, "MGC", 0.1) - 30.2) < 1e-9 && Math.Abs(fr.TargetCapPts - 30.2) < 1e-9, "copier TP: room $300, 1 MGC → capped at 30.2 pts (leader 40)", fr.TargetCapPts.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Check(KeystoneCopier.TargetFor(20, fr, 1, "MGC", 0.1) == 20 && Math.Abs(KeystoneCopier.TargetFor(0, fr, 1, "MGC", 0.1) - 30.2) < 1e-9, "copier TP: a closer leader target stays; no leader target → the cap");
+            { var fAuto = new KeystoneCopyFollower { TargetRoom = 300, AutoOwn = true }; Check(Math.Abs(KeystoneCopier.TargetFor(20, fAuto, 1, "MGC", 0.1) - 30.2) < 1e-9, "copier TP: AUTO → the account's own target (30.2), not the leader's 20"); }
             Check(KeystoneCopier.TargetFor(40, new KeystoneCopyFollower(), 1, "MGC", 0.1) == 40, "copier TP: no room set → the leader's target");
             // COPY GROUPS: one group per account, leader swap, save / load; firm policy: copying apart from automation
             var gs = new List<KeystoneCopyGroup> { new KeystoneCopyGroup { Name = "ASIAN" }, new KeystoneCopyGroup { Name = KeystoneCopyGroups.NewName(new List<KeystoneCopyGroup>()) } };
