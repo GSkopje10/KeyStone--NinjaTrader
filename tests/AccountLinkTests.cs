@@ -475,6 +475,9 @@ public static class AccountLinkTests
                 var trT = new List<KeystoneTrackerTrade> { new KeystoneTrackerTrade { Account = "TPT 1", Day = new DateTime(2026, 10, 21), Gross = 1650, Net = 1557, Fees = 93, Count = 4 } };
                 string html4 = KeystoneTracker.Build(poolT, trT, liveT, new DateTime(2026, 10, 21, 19, 0, 0), 10, new List<KeystoneTrackerGroup>(), new DateTime(2026, 10, 21));
                 Check(html4.Contains("Wednesday 2026-10-21") && html4.Contains("LAST SESSION") && html4.Contains("To pass") && html4.Contains("Auto-liq at") && html4.Contains("auto-liq $49,557"), "tracker after 18:00 NY: still Wednesday (the day of the last fill) as LAST SESSION; to pass / auto-liq shown", html4.Length.ToString());
+                poolT.Add(new KeystonePoolAccount { Account = "TPT 4", Nick = "TPT 4", Status = "BLOWN", Notes = "BLOWN 2026-10-21 19:58 NY • balance $49,739.00 vs floor $49,740.00 • day −$2,001 realized (day high +$120, low −$2,050)" });
+                html4 = KeystoneTracker.Build(poolT, trT, liveT, new DateTime(2026, 10, 21, 19, 0, 0), 10, new List<KeystoneTrackerGroup>(), new DateTime(2026, 10, 21));
+                Check(html4.Contains("blownrow") && html4.Contains("💀 BLOWN") && html4.Contains("day high +$120"), "tracker: an account blown today stays in TODAY — red row with the details + a BLOWN card", html4.Length.ToString());
                 try { System.IO.File.WriteAllText(System.IO.Path.Combine("tests", ".build", "tracker_today.html"), html4); } catch { }
             }
         }
