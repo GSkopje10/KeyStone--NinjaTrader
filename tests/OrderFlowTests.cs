@@ -47,6 +47,12 @@ public static class OrderFlowTests
         var sc = KeystoneOrderFlow.Score(sig, fps, tk, new KeystoneOfSettings { TargetTicks = 8, StopTicks = 8, HorizonBars = 5 });
         var ab = sig.First(g => g.Kind == "ABSORB");
         Check(ab.Outcome == 1 && double.IsNaN(ab.Prob) && ab.N == 0 && sc["ABSORB|1"].Item1 == 1 && sc["ABSORB|1"].Item2 == 1, "scored: it reached +8 ticks first (a win); its own probability uses only EARLIER signals (none → unknown)", ab.Outcome + " " + ab.Prob + " " + ab.N);
+        // 5b. live: only the last candles are rebuilt (from the cached ones' cumulative delta) and match a full rebuild exactly
+        var tail = KeystoneOrderFlow.Footprints(series, wins, tk, new KeystoneOfSettings(), 9, fps[8].Cvd, series.Count);
+        Check(tail.Count == 3 && Enumerable.Range(0, 3).All(k => tail[k].Cvd == fps[9 + k].Cvd && tail[k].Delta == fps[9 + k].Delta && tail[k].Poc == fps[9 + k].Poc && tail[k].Rows.Count == fps[9 + k].Rows.Count && tail[k].Start == fps[9 + k].Start),
+            "the forming candle alone is rebuilt live: same footprint, delta and cumulative delta as a full rebuild");
+        var cut = KeystoneOrderFlow.Footprints(series, wins, tk, new KeystoneOfSettings(), 10, fps[9].Cvd, series.Count - 1);
+        Check(cut[1].Trades == 0 && cut[0].Trades == fps[10].Trades, "only the trades counted when the rebuild started are used (the feed may be adding more)");
         // 6. probability = earlier hit rate: three earlier signals (2 wins) → the 4th shows 67 %
         var fake = new List<KeystoneOfSignal>(); var flat = new List<KeystoneFootprint>();
         for (int i = 0; i < 40; i++) flat.Add(new KeystoneFootprint { Open = 100, High = i == 2 || i == 12 ? 103 : i == 22 ? 100 : 100.5, Low = i == 22 ? 97 : 99.5, Close = 100, Trades = 1 });

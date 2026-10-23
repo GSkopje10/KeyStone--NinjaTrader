@@ -278,6 +278,7 @@ namespace System.Windows.Threading
     public class DispatcherOperation { }
     public class Dispatcher
     {
+        public static Dispatcher CurrentDispatcher { get { return new Dispatcher(); } }
         public bool CheckAccess() { return true; }
         public DispatcherOperation BeginInvoke(Delegate method, params object[] args) { return null; }
         public DispatcherOperation BeginInvoke(DispatcherPriority p, Delegate method) { return null; }
