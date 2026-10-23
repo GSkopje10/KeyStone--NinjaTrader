@@ -53,6 +53,12 @@ public static class OrderFlowTests
             "the forming candle alone is rebuilt live: same footprint, delta and cumulative delta as a full rebuild");
         var cut = KeystoneOrderFlow.Footprints(series, wins, tk, new KeystoneOfSettings(), 10, fps[9].Cvd, series.Count - 1);
         Check(cut[1].Trades == 0 && cut[0].Trades == fps[10].Trades, "only the trades counted when the rebuild started are used (the feed may be adding more)");
+        // 5c. LIVE FLOW: the last 10 seconds / minute bought vs sold, and the delta per slice moving up / down
+        var lt0 = new DateTime(2026, 10, 23, 10, 0, 0); var live = new List<KeystoneOfTick> { T(lt0.AddSeconds(-70), 100, 50, 1), T(lt0.AddSeconds(-50), 100, 7, -1), T(lt0.AddSeconds(-8), 100, 3, 1), T(lt0.AddSeconds(-2), 100, 4, -1), T(lt0.AddSeconds(5), 100, 99, 1) };
+        var f10 = KeystoneOrderFlow.Flow(live, live.Count, lt0, 10); var f60 = KeystoneOrderFlow.Flow(live, live.Count, lt0, 60);
+        Check(f10[0] == 3 && f10[1] == 4 && f10[2] == 2 && f60[0] == 3 && f60[1] == 11 && f60[2] == 3, "live flow: 10 s = 3 bought / 4 sold, 1 min = 3 / 11 (older and later trades left out)", string.Join(",", f10) + " | " + string.Join(",", f60));
+        var sl = KeystoneOrderFlow.DeltaSlices(live, live.Count, lt0, 30, 3);
+        Check(sl[0] == 50 && sl[1] == -7 && sl[2] == -1, "delta per 30-second slice, oldest first: +50, −7, −1", string.Join(",", sl));
         // 6. probability = earlier hit rate: three earlier signals (2 wins) → the 4th shows 67 %
         var fake = new List<KeystoneOfSignal>(); var flat = new List<KeystoneFootprint>();
         for (int i = 0; i < 40; i++) flat.Add(new KeystoneFootprint { Open = 100, High = i == 2 || i == 12 ? 103 : i == 22 ? 100 : 100.5, Low = i == 22 ? 97 : 99.5, Close = 100, Trades = 1 });
