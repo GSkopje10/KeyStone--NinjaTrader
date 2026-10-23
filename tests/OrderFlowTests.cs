@@ -59,6 +59,34 @@ public static class OrderFlowTests
         Check(f10[0] == 3 && f10[1] == 4 && f10[2] == 2 && f60[0] == 3 && f60[1] == 11 && f60[2] == 3, "live flow: 10 s = 3 bought / 4 sold, 1 min = 3 / 11 (older and later trades left out)", string.Join(",", f10) + " | " + string.Join(",", f60));
         var sl = KeystoneOrderFlow.DeltaSlices(live, live.Count, lt0, 30, 3);
         Check(sl[0] == 50 && sl[1] == -7 && sl[2] == -1, "delta per 30-second slice, oldest first: +50, −7, −1", string.Join(",", sl));
+        // 5d. CONFIRMED: stop run → signal → a closed candle beyond the signal candle with the delta on its side
+        Func<double, double, double, double, long, long, KeystoneFootprint> F = (o, h, l, c, b, se) => new KeystoneFootprint { Open = o, High = h, Low = l, Close = c, Buy = b, Sell = se, Trades = 1 };
+        var cf = new List<KeystoneFootprint>(); for (int i = 0; i < 8; i++) cf.Add(F(105, 106, 104, 105, 50, 50));   // a range, lows at 104
+        cf.Add(F(105, 105, 102, 104.5, 40, 90));    // 8: runs the stops under 104 and closes back above → the manipulation
+        cf.Add(F(104.5, 105, 103.5, 104.8, 60, 40)); // 9: the raw BUY signal candle (high 105)
+        cf.Add(F(104.8, 104.9, 104.2, 104.6, 30, 50)); // 10: no follow-through yet
+        cf.Add(F(104.6, 106, 104.5, 105.8, 90, 30)); // 11: closes above 105 with positive delta → CONFIRMED here
+        cf.Add(F(105.8, 106, 105, 105.5, 10, 10));   // 12: forming
+        var rawS = new List<KeystoneOfSignal> { new KeystoneOfSignal { Bar = 9, Dir = 1, Kind = "ABSORB", Price = 104.8 } };
+        var conf = KeystoneOrderFlow.Confirm(rawS, cf, 0.25, new KeystoneOfSettings(), true);
+        Check(conf.Count == 1 && conf[0].Bar == 11 && conf[0].Dir == 1 && conf[0].Why.Contains("manipulation"), "a raw buy is CONFIRMED only after the stop run and a close above its high with buyers' delta, on that candle", conf.Count + (conf.Count > 0 ? " @" + conf[0].Bar : ""));
+        var noSweep = new List<KeystoneFootprint>(); for (int i = 0; i < 9; i++) noSweep.Add(F(105, 106, 104, 105, 50, 50)); noSweep.Add(F(104.5, 105, 104.2, 104.8, 60, 40)); noSweep.Add(F(104.8, 104.9, 104.3, 104.6, 30, 50)); noSweep.Add(F(104.6, 106, 104.5, 105.8, 90, 30));
+        Check(KeystoneOrderFlow.Confirm(rawS, noSweep, 0.25, new KeystoneOfSettings(), false).Count == 0, "no stop run before it = no confirmed setup (an aggressive burst alone is not enough)");
+        var cancel = new List<KeystoneFootprint>(cf.Take(10)); cancel.Add(F(104.8, 104.9, 103, 103.2, 20, 80)); cancel.Add(F(103.2, 106, 103, 105.8, 90, 30));
+        Check(KeystoneOrderFlow.Confirm(rawS, cancel, 0.25, new KeystoneOfSettings(), false).Count == 0, "a close below the signal candle's low first cancels it");
+        Check(KeystoneOrderFlow.Confirm(rawS, cf.Take(12).ToList(), 0.25, new KeystoneOfSettings(), true).Count == 0, "the forming candle never confirms (only a closed one)");
+        // 5e. WHO IS IN CONTROL: the share bought AND the price move
+        var ct0 = new DateTime(2026, 10, 23, 10, 0, 0); var up = new List<KeystoneOfTick>(); for (int i = 0; i < 30; i++) up.Add(T(ct0.AddSeconds(i), 100 + i * 0.25, i % 7 < 4 ? 2 : 2, i % 7 < 4 ? 1 : -1));
+        var cu = KeystoneOrderFlow.Control(up, up.Count, ct0.AddSeconds(30), 30, 0.25);
+        Check(cu.Item1 == 1 && cu.Item3.StartsWith("BUYERS IN CONTROL"), "57 % bought while the price climbs 29 ticks = BUYERS IN CONTROL (not an even fight)", cu.Item3);
+        var abT = new List<KeystoneOfTick>(); for (int i = 0; i < 30; i++) abT.Add(T(ct0.AddSeconds(i), 100 - i * 0.25, 2, i % 10 < 7 ? 1 : -1));
+        var ca = KeystoneOrderFlow.Control(abT, abT.Count, ct0.AddSeconds(30), 30, 0.25);
+        Check(ca.Item1 == -1 && ca.Item3.StartsWith("BUYERS ABSORBED"), "70 % bought while the price falls = buyers absorbed (bearish)", ca.Item3);
+        // 5f. the EDGE: scalp vs trend from FINISHED earlier setups only
+        var ef = new List<KeystoneFootprint>(); for (int i = 0; i < 40; i++) ef.Add(new KeystoneFootprint { Open = 100, High = i == 3 || i == 13 ? 103 : 100.5, Low = i == 23 ? 97 : 99.8, Close = 100, Trades = 1 });
+        var es = new List<KeystoneOfSignal>(); foreach (int b in new[] { 1, 11, 21, 31 }) es.Add(new KeystoneOfSignal { Bar = b, Dir = 1, Price = 100 });
+        var ed = KeystoneOrderFlow.Edge(es, ef, 0.25, 8, 8, 5, 1, 31);
+        Check(ed[0] == 2 && ed[1] == 1 && Math.Abs(ed[2] - 8.0 / 3) < 1e-9, "edge before the 4th setup: 2 wins, 1 loss at +8 / −8 ticks = +2.67 ticks a trade (the 4th itself not counted)", string.Join(",", ed));
         // 6. probability = earlier hit rate: three earlier signals (2 wins) → the 4th shows 67 %
         var fake = new List<KeystoneOfSignal>(); var flat = new List<KeystoneFootprint>();
         for (int i = 0; i < 40; i++) flat.Add(new KeystoneFootprint { Open = 100, High = i == 2 || i == 12 ? 103 : i == 22 ? 100 : 100.5, Low = i == 22 ? 97 : 99.5, Close = 100, Trades = 1 });
