@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //| KeystoneBridge.mq5 — connects MetaTrader 5 to the Keystone MT5   |
-//| app on this PC (127.0.0.1). STEP 1: READ ONLY — it sends the     |
-//| account, the prices and the open positions / orders. It contains |
+//| app on this PC (127.0.0.1). READ ONLY — it sends the account,    |
+//| the prices, the open positions / orders and candles. It contains |
 //| no trading function: it cannot open, change or close anything.   |
 //+------------------------------------------------------------------+
 #property copyright "Keystone"
-#property version   "1.00"
-#property description "Keystone MT5 bridge (step 1: read only)"
+#property version   "2.00"
+#property description "Keystone MT5 bridge (read only: account, prices, positions, candles)"
 
 input string AppHost = "127.0.0.1";   // the Keystone app (this PC)
 input int    AppPort = 47123;         // its port
@@ -77,7 +77,7 @@ bool Connect()
       return(false);
      }
    Comment("Keystone: connected to the app");
-   SendLine("HELLO|1|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
+   SendLine("HELLO|2|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
    SendSymbols();
    return(true);
   }
@@ -136,7 +136,34 @@ void SendAll()
    SendLine(batch);
   }
 
-// messages from the app (step 1: only PING; there is no trading command)
+// MT5 timeframe of a number of minutes
+ENUM_TIMEFRAMES TfOf(int m)
+  {
+   switch(m)
+     {
+      case 1: return(PERIOD_M1); case 5: return(PERIOD_M5); case 15: return(PERIOD_M15); case 30: return(PERIOD_M30);
+      case 60: return(PERIOD_H1); case 240: return(PERIOD_H4); case 1440: return(PERIOD_D1); case 10080: return(PERIOD_W1);
+     }
+   return(PERIOD_H1);
+  }
+
+// candles for the app's chart: BARS|symbol|minutes|n, n × B|open time|o|h|l|c|tick volume, BARSEND|symbol|minutes (oldest first)
+void SendBars(string sym, int m, int count)
+  {
+   MqlRates r[]; ArraySetAsSeries(r, false);
+   int got = CopyRates(sym, TfOf(m), 0, MathMin(MathMax(count, 1), 5000), r); if(got < 0) got = 0;   // 0 = MT5 is still downloading: the app asks again
+   int d = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   string b = "BARS|" + sym + "|" + IntegerToString(m) + "|" + IntegerToString(got) + "\n";
+   for(int i = 0; i < got; i++)
+     {
+      b += "B|" + IntegerToString((long)r[i].time) + "|" + DoubleToString(r[i].open, d) + "|" + DoubleToString(r[i].high, d) + "|" + DoubleToString(r[i].low, d) + "|" + DoubleToString(r[i].close, d) + "|" + IntegerToString((long)r[i].tick_volume) + "\n";
+      if(StringLen(b) > 60000) { if(!SendLine(StringSubstr(b, 0, StringLen(b) - 1))) return; b = ""; }
+     }
+   b += "BARSEND|" + sym + "|" + IntegerToString(m);
+   SendLine(b);
+  }
+
+// messages from the app (no trading command exists)
 void ReadApp()
   {
    if(sock == INVALID_HANDLE) return;
@@ -149,6 +176,7 @@ void ReadApp()
       string line = StringSubstr(inbuf, 0, p); inbuf = StringSubstr(inbuf, p + 1);
       if(line == "PING") SendLine("PONG");
       else if(line == "SYMBOLS") SendSymbols();
+      else if(StringFind(line, "BARS|") == 0) { string p2[]; if(StringSplit(line, '|', p2) >= 4) SendBars(p2[1], (int)StringToInteger(p2[2]), (int)StringToInteger(p2[3])); }
      }
   }
 
