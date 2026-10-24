@@ -274,6 +274,10 @@ public static class PropSimTests
         Check(ind2 != null && ind2.Window == ind.Window && ind2.BySession == ind.BySession && ind2.Rules.Count == ind.Rules.Count && ind2.Rules[0].Key == ind.Rules[0].Key && ind2.Rules[0].Wins == ind.Rules[0].Wins && ind2.TrainFrom == ind.TrainFrom && Eq(ind2.HoldoutWin, ind.HoldoutWin), "INDICATOR: saved in one line and read back the same");
         var sig = ind.Signal(5, -2, 1000); var sig0 = ind.Signal(0, 3, 1000);
         Check(sig.Item1 == 1 && sig.Item2 == -1 && sig0.Item1 == 0 && sig0.Item2 == 0, "INDICATOR: MNQ up + MGC down → BUY MNQ + SELL MGC • a flat instrument → WAIT", sig + " " + sig0);
+        Check(ind.Rules.Count > 0 && ind.Rules.All(r => r.HasAll && r.Win4.Sum() >= r.Wins && r.Win4[Array.FindIndex(KeystoneEntryIndicator.Sides, sx => sx[0] == r.DirM && sx[1] == r.DirG)] == r.Wins && r.Win4.Max() == r.Wins)
+            && ind2.Rules.Zip(ind.Rules, (qa, qb) => qa.Win4.SequenceEqual(qb.Win4)).All(z => z), "INDICATOR: every rule keeps how often EACH of the 4 sides won (the chosen side = the most wins), saved and read back");
+        { var old0 = KeystoneEntryIndicator.FromText(ind.ToText().Split(new[] { "|R=" }, StringSplitOptions.None)[0] + "|R=1,1:1:1:40:30:120"); Check(old0 != null && old0.Rules.Count == 1 && !old0.Rules[0].HasAll && old0.Rules[0].Wins == 30, "INDICATOR: an older saved indicator (best side only) still reads"); }
+        var rfK = ind.Rules[0].Key.Split(','); Check(ind.RuleFor(int.Parse(rfK[0]), int.Parse(rfK[1]), ind.StartHhmm) != null || ind.BySession, "INDICATOR: RuleFor finds the rule of the state now");
         Check(KeystoneEntryIndicator.FromText("") == null && KeystoneEntryIndicator.FromText("garbage") == null, "INDICATOR: nothing saved = none");
         var isT = isS.Copy(); isT.Indicator = ind.ToText(); isT.AutoFallback = "WAIT";   // the indicator on its own (no BUY BOTH after the pause)
         var irows = KeystoneRotationLab.CompareSides(isT, testD, null, null); var irow = irows.First(r => r.Mine); var mid = irows.FirstOrDefault(r => r.Name.Contains("MIDDLE"));
