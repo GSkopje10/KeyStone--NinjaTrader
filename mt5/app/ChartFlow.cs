@@ -44,11 +44,11 @@ namespace KeystoneMT5
 
         void DrawMarketSessions(DrawingContext dc, List<Mt5Bar> bars, int i0, int i1)
         {
-            var on = Markets.Where(m => Ind.Contains(m.Key)).ToList(); if (on.Count == 0 || bars.Count == 0) return;
+            var on = Markets.Where(m => Ind.Contains(m.Key)).ToList(); if (on.Count == 0 || bars.Count == 0) return; double lh = LegendH;
             DateTime t0 = bars[Math.Max(0, i0)].Time.AddDays(-1), t1 = bars[Math.Min(bars.Count - 1, i1)].Time.AddDays(1); int row = 0;
             foreach (var m in on)
             {
-                var tz = Zone(m.Tz); if (tz == null) continue; var col = Hex(m.Color); double ly = TopPad + 34 + row * 15; row++;
+                var tz = Zone(m.Tz); if (tz == null) continue; var col = Hex(m.Color); double ly = TopPad + 34 + lh + row * 15; row++;
                 for (var d = t0.Date.AddDays(-1); d <= t1.Date; d = d.AddDays(1))
                 {
                     if (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday) continue;
@@ -117,6 +117,42 @@ namespace KeystoneMT5
                 + "  ▲ up:   " + st(ups) + " • filled the same " + (what.StartsWith("WEEK") ? "week" : "day") + " " + (ups.Count > 0 ? (100.0 * upF / ups.Count).ToString("0", IC) : "—") + " %\n"
                 + "  ▼ down: " + st(dns) + " • filled the same " + (what.StartsWith("WEEK") ? "week" : "day") + " " + (dns.Count > 0 ? (100.0 * dnF / dns.Count).ToString("0", IC) : "—") + " %\n"
                 + "  the last ones:\n    " + string.Join("\n    ", Enumerable.Reverse(last).Take(8));
+        }
+
+        // ---- for the ANALYSIS tab: the value area of candles a..z ({POC, VAH, VAL}, null = no volume), a candle's buyers share, the sessions now
+        public static double BuyOf(Mt5Bar b) { return BuyShare(b); }
+        public static double[] ValueArea(List<Mt5Bar> bars, int a, int z)
+        {
+            a = Math.Max(0, a); z = Math.Min(bars.Count - 1, z); if (z < a) return null; double lo2 = double.MaxValue, hi2 = double.MinValue;
+            for (int i = a; i <= z; i++) { lo2 = Math.Min(lo2, bars[i].L); hi2 = Math.Max(hi2, bars[i].H); }
+            const int N = 60; var v = new double[N]; double step = (hi2 - lo2) / N; if (step <= 0) return null;
+            for (int i = a; i <= z; i++) { var b = bars[i]; int x = Math.Max(0, (int)((b.L - lo2) / step)), y = Math.Min(N - 1, (int)((b.H - lo2) / step)); if (y < x) continue; double per = Math.Max(1, b.V) / (double)(y - x + 1); for (int k = x; k <= y; k++) v[k] += per; }
+            double total = v.Sum(); if (total <= 0) return null; int poc = 0; for (int k = 1; k < N; k++) if (v[k] > v[poc]) poc = k;
+            int va0 = poc, va1 = poc; double inVa = v[poc];
+            while (inVa < total * 0.7 && (va0 > 0 || va1 < N - 1)) { double dn = va0 > 0 ? v[va0 - 1] : -1, up = va1 < N - 1 ? v[va1 + 1] : -1; if (up >= dn) { va1++; inVa += up; } else { va0--; inVa += dn; } }
+            return new[] { lo2 + (poc + 0.5) * step, lo2 + (va1 + 1) * step, lo2 + va0 * step };
+        }
+        // every market: open now (true) / its pre-open now (false) / closed (null), with how long until the next change
+        public static List<Tuple<string, string, bool?, TimeSpan>> SessionsNow(DateTime utcNow)
+        {
+            var res = new List<Tuple<string, string, bool?, TimeSpan>>();
+            foreach (var m in Markets)
+            {
+                var tz = Zone(m.Tz); if (tz == null) continue; DateTime localNow; try { localNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, tz); } catch { continue; }
+                bool? state = null; TimeSpan left = TimeSpan.MaxValue;
+                for (var d = localNow.Date.AddDays(-1); d <= localNow.Date.AddDays(3); d = d.AddDays(1))
+                {
+                    if (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday || (m.Key == "SESS_CME" && d.DayOfWeek == DayOfWeek.Friday)) continue;
+                    foreach (var pair in m.Main.Select(x => Tuple.Create(x, true)).Concat(m.Light.Select(x => Tuple.Create(x, false))))
+                    {
+                        DateTime s0 = d.AddHours(pair.Item1[0]), s1 = d.AddHours(pair.Item1[1]);
+                        if (localNow >= s0 && localNow < s1) { if (state != true) { state = pair.Item2; left = s1 - localNow; } }
+                        else if (s0 > localNow && state == null && s0 - localNow < left) left = s0 - localNow;
+                    }
+                }
+                res.Add(Tuple.Create(m.Name, m.Color, m.Dark ? (state == true ? (bool?)true : null) : state, left));
+            }
+            return res;
         }
 
         // ---- buyers / sellers of a candle (estimated): where it closed in its range + its direction, times its tick volume

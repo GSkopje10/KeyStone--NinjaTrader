@@ -96,8 +96,8 @@ namespace KeystoneMT5
             Grid.SetRow(toastBox, 2); Grid.SetColumn(toastBox, 1); g.Children.Add(toastBox);
             spreadPanel = BuildSpreadPanel(); Grid.SetRow(spreadPanel, 2); Grid.SetColumn(spreadPanel, 1); g.Children.Add(spreadPanel); if (Get("spreads", "0") != "1") spreadPanel.Visibility = Visibility.Collapsed;
             if (Get("v6.cleanind", "") == "") { foreach (var t in ChartView.Indicators) foreach (var pf in new[] { "", "bt.", "demo." }) Put(pf + "ind." + t.Key, "0"); Put("v6.cleanind", "1"); }   // once: the old default indicators off
-            foreach (var p in panes) { p.V.Theme = ChartTheme.All[themeIdx]; p.V.DrawColor = drawColor; p.V.Magnet = magnet; p.V.TicketMode = ticketMode; p.V.Sim = Sim; foreach (var t in ChartView.Indicators) if (Get(ModeKey + "ind." + t.Key, "0") == "1") p.V.Ind.Add(t.Key); }
-            SetSplit(IntOf(Get(pre + "split", "1"), 1)); PaintBar(); PaintRail();
+            foreach (var p in panes) { p.V.Theme = ChartTheme.All[themeIdx]; p.V.DrawColor = drawColor; p.V.Magnet = magnet; p.V.TicketMode = ticketMode; p.V.Sim = Sim; LoadInd(p); }
+            SetSplit(Sim ? 1 : IntOf(Get(pre + "split", "1"), 1));   // the backtest opens on ONE chart (the symbols = tabs); ⊞ splits PaintBar(); PaintRail();
             return g;
         }
         // 📊 the gap pool: every daily and weekly opening gap of the loaded history (MT5's D1 / W1 candles)
@@ -172,15 +172,16 @@ namespace KeystoneMT5
         // ---- the menus of the toolbar
         List<Mi> IndMenu(ChartView v)
         {
-            var l = new List<Mi> { Mi.H("indicators on every chart") };
+            var l = new List<Mi> { Mi.H("indicators of " + (Act.Sym == "" ? "this chart" : Act.Sym) + " • tick several, click outside to close") };
             foreach (var t in ChartView.Indicators)
             {
                 var key = t.Key; if (key == "SESS_SYD") { l.Add(Mi.S()); l.Add(Mi.H("market sessions • official hours, summer / winter time automatic")); } else if (key == "VOL") { l.Add(Mi.S()); l.Add(Mi.H("volume & order flow (estimated from MT5 tick volume)")); } else if (key == "SETUPS") { l.Add(Mi.S()); l.Add(Mi.H("signals")); }
-                l.Add(new Mi { Text = t.Name, Hint = t.Key == "ORB" ? "under H1" : t.Key.StartsWith("SESS") ? "H1 and under" : "", Check = v.Ind.Contains(key), Dot = Sx.B(t.Color), Do = () => ToggleInd(key), KeepOpen = false });
+                l.Add(new Mi { Text = t.Name, Hint = t.Key == "ORB" ? "under H1" : t.Key.StartsWith("SESS") ? "H1 and under" : "", Check = v.Ind.Contains(key), Dot = Sx.B(t.Color), Do = () => ToggleInd(key), KeepOpen = true });
+                if (key == "FVG") { int fs = v.FvgSide; l.Add(new Mi { Text = "      FVG: bullish + bearish", Check = fs == 0, Radio = true, Do = () => SetFvgSide(0) }); l.Add(new Mi { Text = "      FVG: bullish only", Check = fs == 1, Radio = true, Fg = Green, Do = () => SetFvgSide(1) }); l.Add(new Mi { Text = "      FVG: bearish only", Check = fs == -1, Radio = true, Fg = Red, Do = () => SetFvgSide(-1) }); }
             }
             l.Add(new Mi("📊", "Gap statistics (daily / weekly) …", () => GapStatsDialog(Act)));
-            l.Add(Mi.S()); l.Add(new Mi("🌐", "All sessions on", () => { foreach (var t in ChartView.Indicators.Where(x => x.Key.StartsWith("SESS"))) { foreach (var p in panes) p.V.Ind.Add(t.Key); Put(ModeKey + "ind." + t.Key, "1"); } PaintBar(); }));
-            l.Add(Mi.S()); l.Add(new Mi("⊘", "Turn every indicator off", () => { foreach (var t in ChartView.Indicators) { foreach (var p in panes) p.V.Ind.Remove(t.Key); Put(ModeKey + "ind." + t.Key, "0"); } PaintBar(); }));
+            l.Add(Mi.S()); l.Add(new Mi("🌐", "All sessions on", () => { foreach (var t in ChartView.Indicators.Where(x => x.Key.StartsWith("SESS"))) SetInd(Act.Sym, t.Key, true); PaintBar(); }));
+            l.Add(Mi.S()); l.Add(new Mi("⊘", "Turn every indicator of " + Act.Sym + " off", () => { foreach (var t in ChartView.Indicators) SetInd(Act.Sym, t.Key, false); PaintBar(); }));
             return l;
         }
         List<Mi> ThemeMenu() { var l = new List<Mi> { Mi.H("chart theme") }; for (int i = 0; i < ChartTheme.All.Length; i++) { int ii = i; var th = ChartTheme.All[i]; l.Add(new Mi { Text = th.Name, Check = themeIdx == i, Radio = true, Do = () => SetTheme(ii) }); } return l; }
@@ -236,7 +237,7 @@ namespace KeystoneMT5
             v.PricePicked = px => { pendPrice.Text = px.ToString("F" + v.Digits, IC); };
             v.Toast = Toast; v.DrawingsChanged = SaveDrawings; v.ToolDone = () => PaintRail();
             v.AskText = cur => Sx.Prompt(this, "✏ Text on the chart", "The note to show on the chart:", cur);
-            v.RightClick = (pt, px, t, kind, tk, dr) => ChartMenu(p, pt, px, kind, tk, dr);
+            v.RightClick = (pt, px, t, kind, tk, dr) => ChartMenu(p, pt, px, kind, tk, dr); v.IndOff = key => IndOff(key, p.Sym);
             return p;
         }
         void SetSplit(int n)
@@ -247,9 +248,20 @@ namespace KeystoneMT5
             for (int k = 0; k < split; k++) { var h = panes[k].Host; Grid.SetColumn(h, k % cols); Grid.SetRow(h, k / cols); chartsGrid.Children.Add(h); }
             if (activePane >= split) activePane = 0; PaintBar();
         }
+        // the indicators belong to the INSTRUMENT (and the mode): gold keeps its own, NAS100 its own — every chart of that symbol shows them
+        string IndKey(string sym, string key) { return ModeKey + "ind." + (sym ?? "").ToUpperInvariant() + "." + key; }
+        bool IndOn(string sym, string key) { return Get(IndKey(sym, key), "0") == "1"; }
+        void LoadInd(Pane p)
+        {
+            p.V.Ind.Clear(); if (p.Sym != "") foreach (var t in ChartView.Indicators) if (IndOn(p.Sym, t.Key)) p.V.Ind.Add(t.Key);
+            int fs; p.V.FvgSide = int.TryParse(Get(IndKey(p.Sym, "FVGSIDE"), "0"), NumberStyles.Integer, IC, out fs) ? fs : 0; p.V.InvalidateVisual();
+        }
+        void SetInd(string sym, string key, bool on) { Put(IndKey(sym, key), on ? "1" : "0"); foreach (var p in panes) if (string.Equals(p.Sym, sym, StringComparison.OrdinalIgnoreCase)) { if (on) p.V.Ind.Add(key); else p.V.Ind.Remove(key); p.V.InvalidateVisual(); } }
+        void IndOff(string key, string sym = null) { if (string.IsNullOrEmpty(sym)) sym = Act.Sym; SetInd(sym, key, false); PaintBar(); var ind = ChartView.Indicators.FirstOrDefault(x => x.Key == key); if (ind != null) Toast("✕ " + ind.Name + " removed from " + sym); }
+        void SetFvgSide(int side) { Put(IndKey(Act.Sym, "FVGSIDE"), side.ToString(IC)); foreach (var p in panes) if (string.Equals(p.Sym, Act.Sym, StringComparison.OrdinalIgnoreCase)) { p.V.FvgSide = side; p.V.InvalidateVisual(); } if (!Act.V.Ind.Contains("FVG")) SetInd(Act.Sym, "FVG", true); PaintBar(); }
         void ToggleInd(string key)
         {
-            bool on = !Act.V.Ind.Contains(key); foreach (var p in panes) { if (on) p.V.Ind.Add(key); else p.V.Ind.Remove(key); p.V.InvalidateVisual(); } Put(ModeKey + "ind." + key, on ? "1" : "0"); PaintBar();
+            bool on = !Act.V.Ind.Contains(key); SetInd(Act.Sym, key, on); PaintBar();
             var ind = ChartView.Indicators.First(x => x.Key == key); Toast((on ? "☑ " : "☐ ") + ind.Name + (on ? " on — " + ind.Tip : " off"));
         }
         void PaintBar()
@@ -264,7 +276,7 @@ namespace KeystoneMT5
         {
             if (string.IsNullOrEmpty(sym)) return; bool same = string.Equals(sym, p.Sym, StringComparison.OrdinalIgnoreCase) && tf == p.Tf;
             if (!same) SaveDrawings();
-            p.Sym = sym; p.Tf = tf; int k = panes.IndexOf(p); if (!Sim) Put("sym" + k, sym); Put((Sim ? "bt." : "") + "tf" + k, tf.ToString(IC)); if (!same) { p.V.ResetView(); p.V.Drawings = DrawingsOf(sym); }
+            p.Sym = sym; p.Tf = tf; int k = panes.IndexOf(p); if (!Sim) Put("sym" + k, sym); Put((Sim ? "bt." : "") + "tf" + k, tf.ToString(IC)); if (!same) { p.V.ResetView(); p.V.Drawings = DrawingsOf(sym); } LoadInd(p);
             PaintBar();
         }
         Func<DateTime, DateTime> ZoneConv(Mt5State s, out string name)
@@ -309,7 +321,7 @@ namespace KeystoneMT5
             var now = DateTime.Now; bool trade = Virtual || (armed && s.CanTrade);
             for (int k = 0; k < split; k++)
             {
-                var p = panes[k]; if (p.Sym == "") continue; var v = p.V;
+                var p = panes[k]; if (p.Sym == "") { if (Sim) { p.V.Status = BtIdleText(); p.V.InvalidateVisual(); } continue; } var v = p.V;
                 var se = s.SeriesOf(p.Sym, p.Tf);
                 if (!Sim)
                 {
@@ -317,6 +329,7 @@ namespace KeystoneMT5
                     else if (!se.Loaded) { v.Status = "loading " + p.Sym + " " + Tf.Name(p.Tf) + " from MT5 …"; if ((now - se.AskedAt).TotalSeconds > 3) { se.AskedAt = now; broker.Send("BARS|" + p.Sym + "|" + p.Tf + "|" + BarsWanted(p.Sym, p.Tf)); } }
                     else if ((now - se.AskedAt).TotalSeconds > 20) { se.AskedAt = now; broker.Send("BARS|" + p.Sym + "|" + p.Tf + "|3"); }
                 }
+                else if (!se.Loaded) v.Status = BtIdleText();
                 Mt5Quote q; s.Quotes.TryGetValue(p.Sym, out q); var sym = s.Symbols.ContainsKey(p.Sym) ? s.Symbols[p.Sym] : null;
                 v.Series = se.Loaded ? se : null; v.Symbol = p.Sym; v.Digits = sym != null ? sym.Digits : 2; v.Point = sym != null && sym.Point > 0 ? sym.Point : 0.01; v.TickValue = sym != null && sym.TickValue > 0 ? sym.TickValue : 1; v.TickSize = sym != null && sym.TickSize > 0 ? sym.TickSize : v.Point;
                 v.Bid = q != null ? q.Bid : 0; v.Ask = q != null ? q.Ask : 0; v.QuoteTime = q != null ? q.Time : DateTime.MinValue; v.Positions = s.Positions; v.Orders = s.Orders; v.Currency = s.Account.Currency; v.Gate = s.Gate; v.Lots = Num(lotsBox);
@@ -419,6 +432,7 @@ namespace KeystoneMT5
             drl.Add(new Mi { Icon = "🗑", Text = "Remove all drawings on " + p.Sym, Danger = true, Do = () => { if (v.Drawings.Count > 0 && Sx.Ask(this, "Remove the drawings", "Remove every drawing on " + p.Sym + "?", "REMOVE", "KEEP", Red)) { v.Drawings.Clear(); SaveDrawings(); v.InvalidateVisual(); } } });
             l.Add(Mi.Group("✏", "Draw", drl));
             l.Add(Mi.Group("📈", "Indicators", IndMenu(v)));
+            if (v.Ind.Count > 0) l.Add(Mi.Group("✕", "Remove an indicator", ChartView.Indicators.Where(x => v.Ind.Contains(x.Key)).Select(x => { var kk = x.Key; return new Mi { Text = x.Name, Dot = Sx.B(x.Color), Do = () => IndOff(kk) }; }).ToList()));
             l.Add(Mi.Group("🎨", "Chart theme", ThemeMenu())); l.Add(Mi.Group("🕘", "Time zone", ZoneMenu()));
             l.Add(TicketsMenu());
             var spl = new List<Mi>(); foreach (var n in new[] { 1, 2, 4 }) { int nn = n; spl.Add(new Mi { Text = n + (n == 1 ? " chart" : " charts"), Check = split == n, Radio = true, Do = () => SetSplit(nn) }); } l.Add(Mi.Group("⊞", "Split screen", spl));

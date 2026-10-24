@@ -89,7 +89,7 @@ namespace KeystoneMT5
         public object Gate = new object(); public ChartTheme Theme = ChartTheme.All[0];
         public Func<DateTime, DateTime> ToView = t => t; public string ZoneName = "SERVER"; public DateTime ServerNow = DateTime.MinValue, QuoteTime = DateTime.MinValue;
         public int NyOffsetHours = -7; public int ServerOffsetSec = 10800;   // server time = UTC + this (MT5's, sent by the bridge)   // NY time = server time + this (IC Markets: server = New York + 7)
-        public HashSet<string> Ind = new HashSet<string>();
+        public HashSet<string> Ind = new HashSet<string>(); public int FvgSide;   // FVG: 0 = all, 1 = bullish only, −1 = bearish only
         public List<Drawing> Drawings = new List<Drawing>(); public string Tool = ""; public bool Magnet; public string DrawColor = "#FFC94D";
         public string News = ""; public bool NewsHot, TradeOn, Sim; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO";   // AUTO / EACH / SIDE
         // ---- what the chart tells the host
@@ -99,6 +99,7 @@ namespace KeystoneMT5
         public Action<long> CancelOrder; public Action<int> CloseSide;
         public Action<double> PricePicked;
         public Action<Point, double, DateTime, string, long, Drawing> RightClick;    // where, price, time, what is there (POS / SL / TP / ORD / DRAW / ""), ticket, drawing
+        public Action<string> IndOff;   // ✕ / right-click on an indicator of the legend
         public Action DrawingsChanged, ToolDone; public Action<string> Toast; public Func<string, string> AskText;
 
         double barW = 8, rightOffset = 6, mHi = double.NaN, mLo = double.NaN; bool auto = true;
@@ -231,6 +232,7 @@ namespace KeystoneMT5
                 }
                 HoverCard(dc, m, textB, tagBg);
             }
+            DrawIndLegend(dc, tagBg);
             if (Tool != "") { var tt = T("✏ " + ToolName(Tool) + " — " + (OneClick(Tool) ? "click on the chart" : "press and drag on the chart") + (Magnet ? " • 🧲 magnet on" : "") + " • Esc = cancel", 11.5, GoldB, false, true); dc.DrawRoundedRectangle(tagBg, P(GoldB, 1), new Rect(8, TopPad + plotH - 28, tt.Width + 16, 22), 6, 6); dc.DrawText(tt, new Point(16, TopPad + plotH - 25)); }
             else if (!auto) dc.DrawText(T("PRICE SCALE: MANUAL • double-click = automatic", 10.5, axisB), new Point(8, TopPad + plotH - 18));
             if (Sim) { var wm = T("REPLAY", 11, Br(th.Accent, 180), false, true); dc.DrawText(wm, new Point(plotW - wm.Width - 10, TopPad + plotH - 18)); }
@@ -306,7 +308,7 @@ namespace KeystoneMT5
                 foreach (var gp in gaps.AsEnumerable().Reverse())
                 {
                     int end = n - 1; for (int j = gp.Item1 + 2; j < n; j++) if (gp.Item4 > 0 ? bars[j].L <= gp.Item2 : bars[j].H >= gp.Item3) { end = j; break; }
-                    if (end < n - 1) continue; if (gp.Item4 > 0 && ++nb > 12) continue; if (gp.Item4 < 0 && ++ns > 12) continue;
+                    if (end < n - 1) continue; if (FvgSide > 0 && gp.Item4 < 0 || FvgSide < 0 && gp.Item4 > 0) continue; if (gp.Item4 > 0 && ++nb > 12) continue; if (gp.Item4 < 0 && ++ns > 12) continue;
                     var cc = gp.Item4 > 0 ? BuyC : SellC; double x1 = X(gp.Item1), y1 = Y(gp.Item3), y2 = Y(gp.Item2);
                     dc.DrawRectangle(Br(cc, 30), P(Br(cc, 110), 0.8), new Rect(x1, Math.Min(y1, y2), Math.Max(2, plotW - x1), Math.Max(1, Math.Abs(y2 - y1))));
                     dc.DrawText(T("FVG", 9, Br(cc, 200), false, true), new Point(x1 + 3, Math.Min(y1, y2) + 1));
@@ -485,37 +487,83 @@ namespace KeystoneMT5
                 case "VLINE": return new List<Point> { new Point(x1, TopPad + plotH / 2) };
                 case "HRAY": case "TEXT": return new List<Point> { new Point(x1, y1) };
                 case "LONG": case "SHORT": { double xr = Math.Max(x2, x1 + 30); return new List<Point> { new Point(x1, y1), new Point(x1, y2), new Point(x1, Y(d.P3)), new Point(xr, y1) }; }
+                case "RECT": case "FIB": case "MEASURE": { double xm = (x1 + x2) / 2, ym = (y1 + y2) / 2; return new List<Point> { new Point(x1, y1), new Point(x2, y2), new Point(x1, y2), new Point(x2, y1), new Point(xm, y1), new Point(xm, y2), new Point(x1, ym), new Point(x2, ym) }; }   // 4 corners + 4 middles
+                case "TREND": case "RAY": return new List<Point> { new Point(x1, y1), new Point(x2, y2), new Point((x1 + x2) / 2, (y1 + y2) / 2) };   // the middle moves the whole line
             }
             return new List<Point> { new Point(x1, y1), new Point(x2, y2) };
         }
         // which drawing, which part ("P1" / "P2" / "P3" / "W" = the width of a position box / "BODY")
+        // the indicators on this chart, top left under the candle box: a chip each (its colour, its name, ✕) — ✕ or a right-click removes it
+        void DrawIndLegend(DrawingContext dc, Brush tagBg)
+        {
+            if (IndOff == null) return;
+            foreach (var it in LegendLayout())
+            {
+                var ind = it.Item1; var r = it.Item2; var col = Hex(ind.Color); var nm = T(ind.Name, 10.5, Br(Theme.Text), true); bool hov = mouse.HasValue && r.Contains(mouse.Value);
+                dc.DrawRoundedRectangle(hov ? Br(col.Color, 60) : tagBg, P(Br(col.Color, (byte)(hov ? 230 : 120)), 1), r, 6, 6);
+                dc.DrawRoundedRectangle(col, null, new Rect(r.X + 6, r.Y + 8, 9, 3), 1.5, 1.5); dc.DrawText(nm, new Point(r.X + 19, r.Y + 2));
+                var xr = new Rect(r.Right - 17, r.Y + 2, 15, 15); bool hx = mouse.HasValue && xr.Contains(mouse.Value);
+                dc.DrawRoundedRectangle(hx ? Br(Hex("#FF4D6D").Color, 230) : Br(Hex("#FF4D6D").Color, 70), null, xr, 4, 4); dc.DrawText(T("✕", 9.5, Br(Theme.Text), true), new Point(xr.X + 3.5, xr.Y + 1));
+                var key = ind.Key; hits.Add(new ChartHit { R = r, Kind = "IND", Key = "IND:" + key, Click = () => { if (IndOff != null) IndOff(key); } });
+            }
+        }
+        // where the chips go: left, under the candle box, wrapping before the bulls-vs-bears box; LegendH = how tall (the session labels go under it)
+        double LegendH { get { var l = LegendLayout(); return l.Count == 0 ? 0 : l.Max(x => x.Item2.Bottom) - (TopPad + (News != "" ? 36 : 6) + 28) + 4; } }
+        List<Tuple<Indicator, Rect>> LegendLayout()
+        {
+            var res = new List<Tuple<Indicator, Rect>>(); if (Ind.Count == 0 || IndOff == null) return res;
+            double maxX = Ind.Contains("FIGHT") ? plotW - 290 - (Ind.Contains("VPROF") ? plotW * 0.16 + 8 : 10) - 10 : plotW * 0.7; maxX = Math.Max(260, maxX);
+            double x = 8, y0 = TopPad + (News != "" ? 36 : 6) + 28, y = y0;
+            foreach (var ind in Indicators.Where(i => Ind.Contains(i.Key)))
+            {
+                double w = T(ind.Name, 10.5, Br(Theme.Text), true).Width + 40; if (x + w > maxX && x > 8) { x = 8; y += 22; }
+                res.Add(Tuple.Create(ind, new Rect(x, y, w, 19))); x += w + 6;
+            }
+            return res;
+        }
+        // what drawing is under the mouse: the SELECTED one first (its handles, then its body), then any handle, then the thin lines and the edges,
+        // then the inside of a zone — so a click on a trend line's end is never taken by the rectangle under it
         Drawing DrawingAt(Point m, out string part)
         {
             part = "";
-            for (int k = Drawings.Count - 1; k >= 0; k--)
-            {
-                var d = Drawings[k]; double x1 = X(IndexOf(d.T1)), x2 = X(IndexOf(d.T2)), y1 = Y(d.P1), y2 = Y(d.P2);
-                var hs = Handles(d); string[] names = d.Kind == "LONG" || d.Kind == "SHORT" ? new[] { "P1", "P2", "P3", "W" } : new[] { "P1", "P2" };
-                if (d == selected) for (int h = 0; h < hs.Count; h++) if ((hs[h] - m).Length <= 7) { part = names[Math.Min(h, names.Length - 1)]; if (d.Kind == "HLINE" || d.Kind == "VLINE" || d.Kind == "HRAY" || d.Kind == "TEXT") part = "BODY"; return d; }
-                bool hit = false;
-                switch (d.Kind)
-                {
-                    case "HLINE": hit = Math.Abs(m.Y - y1) <= 5; break;
-                    case "HRAY": hit = Math.Abs(m.Y - y1) <= 5 && m.X >= x1 - 5; break;
-                    case "VLINE": hit = Math.Abs(m.X - x1) <= 5; break;
-                    case "RECT": hit = m.X >= Math.Min(x1, x2) - 4 && m.X <= Math.Max(x1, x2) + 4 && m.Y >= Math.Min(y1, y2) - 4 && m.Y <= Math.Max(y1, y2) + 4; break;
-                    case "FIB": hit = m.X >= Math.Min(x1, x2) - 4 && m.Y >= Math.Min(y1, y2) - 4 && m.Y <= Math.Max(y1, y2) + 4; break;
-                    case "TEXT": { var t = T(d.Text == "" ? "text" : d.Text, 12.5 + d.Width, GoldB, false, true); hit = m.X >= x1 - 4 && m.X <= x1 + t.Width + 4 && Math.Abs(m.Y - y1) <= t.Height / 2 + 3; break; }
-                    case "LONG": case "SHORT": { double xr = Math.Max(x2, x1 + 30), yt = Y(d.P3); hit = m.X >= x1 && m.X <= xr && m.Y >= Math.Min(Math.Min(y1, y2), yt) && m.Y <= Math.Max(Math.Max(y1, y2), yt); break; }
-                    case "TREND": case "RAY":
-                        {
-                            double ex = x2, ey = y2; if (d.Kind == "RAY") { ex = x1 + (x2 - x1) * 50; ey = y1 + (y2 - y1) * 50; }
-                            double len2 = (ex - x1) * (ex - x1) + (ey - y1) * (ey - y1); double u = len2 < 1 ? 0 : Math.Max(0, Math.Min(1, ((m.X - x1) * (ex - x1) + (m.Y - y1) * (ey - y1)) / len2)); double px = x1 + u * (ex - x1), py = y1 + u * (ey - y1); hit = Math.Abs(m.X - px) + Math.Abs(m.Y - py) <= 7; break;
-                        }
-                }
-                if (hit) { part = "BODY"; return d; }
-            }
+            if (selected != null && Drawings.Contains(selected)) { var hp = HandleAt(selected, m); if (hp != null) { part = hp; return selected; } if (BodyHit(selected, m, false) || BodyHit(selected, m, true)) { part = "BODY"; return selected; } }
+            for (int k = Drawings.Count - 1; k >= 0; k--) { var hp = HandleAt(Drawings[k], m); if (hp != null) { part = hp; return Drawings[k]; } }
+            foreach (var area in new[] { false, true })
+                for (int k = Drawings.Count - 1; k >= 0; k--) if (BodyHit(Drawings[k], m, area)) { part = "BODY"; return Drawings[k]; }
             return null;
+        }
+        string HandleAt(Drawing d, Point m)
+        {
+            if (d.Kind == "HLINE" || d.Kind == "VLINE" || d.Kind == "HRAY" || d.Kind == "TEXT") return null;
+            var hs = Handles(d); string[] names = d.Kind == "LONG" || d.Kind == "SHORT" ? new[] { "P1", "P2", "P3", "W" } : d.Kind == "RECT" || d.Kind == "FIB" || d.Kind == "MEASURE" ? new[] { "P1", "P2", "X1Y2", "X2Y1", "Y1", "Y2", "X1", "X2" } : new[] { "P1", "P2", "BODY" };
+            for (int h = 0; h < hs.Count; h++) if ((hs[h] - m).Length <= 8) return names[Math.Min(h, names.Length - 1)];
+            return null;
+        }
+        // area = false: the line itself / a zone's edge (within 5 px); area = true: inside a zone
+        bool BodyHit(Drawing d, Point m, bool area)
+        {
+            double x1 = X(IndexOf(d.T1)), x2 = X(IndexOf(d.T2)), y1 = Y(d.P1), y2 = Y(d.P2);
+            double l = Math.Min(x1, x2), r = Math.Max(x1, x2), t = Math.Min(y1, y2), b = Math.Max(y1, y2);
+            switch (d.Kind)
+            {
+                case "HLINE": return !area && Math.Abs(m.Y - y1) <= 5;
+                case "HRAY": return !area && Math.Abs(m.Y - y1) <= 5 && m.X >= x1 - 5;
+                case "VLINE": return !area && Math.Abs(m.X - x1) <= 5;
+                case "RECT":
+                    {
+                        bool inside = m.X >= l - 4 && m.X <= r + 4 && m.Y >= t - 4 && m.Y <= b + 4; if (!inside) return false;
+                        bool edge = Math.Abs(m.X - l) <= 5 || Math.Abs(m.X - r) <= 5 || Math.Abs(m.Y - t) <= 5 || Math.Abs(m.Y - b) <= 5; return area ? !edge : edge;
+                    }
+                case "FIB": return area && m.X >= l - 4 && m.Y >= t - 4 && m.Y <= b + 4;
+                case "TEXT": { if (area) return false; var tx = T(d.Text == "" ? "text" : d.Text, 12.5 + d.Width, GoldB, false, true); return m.X >= x1 - 4 && m.X <= x1 + tx.Width + 4 && Math.Abs(m.Y - y1) <= tx.Height / 2 + 3; }
+                case "LONG": case "SHORT": { if (!area) return false; double xr = Math.Max(x2, x1 + 30), yt = Y(d.P3); return m.X >= x1 && m.X <= xr && m.Y >= Math.Min(Math.Min(y1, y2), yt) && m.Y <= Math.Max(Math.Max(y1, y2), yt); }
+                case "TREND": case "RAY":
+                    {
+                        if (area) return false; double ex = x2, ey = y2; if (d.Kind == "RAY") { ex = x1 + (x2 - x1) * 50; ey = y1 + (y2 - y1) * 50; }
+                        double len2 = (ex - x1) * (ex - x1) + (ey - y1) * (ey - y1); double u = len2 < 1 ? 0 : Math.Max(0, Math.Min(1, ((m.X - x1) * (ex - x1) + (m.Y - y1) * (ey - y1)) / len2)); double px = x1 + u * (ex - x1), py = y1 + u * (ey - y1); return Math.Abs(m.X - px) + Math.Abs(m.Y - py) <= 7;
+                    }
+            }
+            return false;
         }
         public void DeleteSelected() { if (selected != null) { Drawings.Remove(selected); selected = null; if (DrawingsChanged != null) DrawingsChanged(); InvalidateVisual(); } }
         void DrawMeasure(DrawingContext dc, Drawing d)
@@ -580,8 +628,8 @@ namespace KeystoneMT5
                 double hk = (now - hoverAt).TotalMilliseconds; bool blink = (flash < 1800 && ((int)(flash / 300)) % 2 == 0) || (hov && hk < 450 && ((int)(hk / 150)) % 2 == 0);
                 var ft = T(t.Text, 10.5, blink ? Br(Theme.Bg) : hov ? WhiteB : Br(t.Col), true);
                 FormattedText mt = t.Money != "" ? T(t.Money, 10.5, blink ? Br(Theme.Bg) : t.Money.StartsWith("+") ? BuyB : t.Money.StartsWith("−") ? SellB : Br(Theme.Text), true) : null;
-                double w = ft.Width + (mt != null ? mt.Width + 12 : 0) + 32, x = 6;
-                if (Math.Abs(y - t.Y) > 2) dc.DrawLine(P(Br(t.Col, 120), 1), new Point(x + w, y), new Point(x + w + 10, t.Y));
+                double w = ft.Width + (mt != null ? mt.Width + 12 : 0) + 32, x = plotW - w - 6;   // on the RIGHT, next to the prices: the candles stay free
+                if (Math.Abs(y - t.Y) > 2) dc.DrawLine(P(Br(t.Col, 120), 1), new Point(x, y), new Point(x - 10, t.Y));
                 var r = new Rect(x, y - 8.5, w, 17);
                 dc.DrawRoundedRectangle(blink ? Br(t.Col, 220) : hov ? Br(t.Col, 70) : Br(Theme.Plot, 215), hov || blink ? P(Br(t.Col), 1.2) : null, r, 4, 4);
                 dc.DrawText(ft, new Point(x + 5, y - 7)); if (mt != null) dc.DrawText(mt, new Point(x + 5 + ft.Width + 12, y - 7));
@@ -659,6 +707,7 @@ namespace KeystoneMT5
             var p = e.GetPosition(this); if (Series == null || Series.Bars.Count == 0) return; e.Handled = true;
             if (Tool != "") { Tool = ""; newDraw = null; if (ToolDone != null) ToolDone(); InvalidateVisual(); return; }
             long tk; string kind, key; var what = HitAt(p, out tk, out kind, out key); Drawing dr = null;
+            if (what == "HIT" && kind == "IND") { if (IndOff != null) IndOff(key.Substring(4)); return; }   // right-click on an indicator chip = remove it
             if (what == "DRAWING") { string part; dr = DrawingAt(p, out part); selected = dr; kind = "DRAW"; }
             else if (what == "HIT" && kind == "X") { kind = key.Replace("X:", "").Split(':')[0]; }
             else if (what != "HIT" && what != "LINE") kind = "";
@@ -706,7 +755,7 @@ namespace KeystoneMT5
                 long tk = 0; string kind = "", key = ""; string what = Series == null || Series.Bars.Count == 0 ? "PLOT" : HitAt(p, out tk, out kind, out key);
                 if (key != hoverKey) { hoverKey = key; hoverAt = DateTime.Now; }
                 bool lineDrag = TradeOn && (what == "LINE" || (what == "HIT" && kind != "X"));
-                Cursor = what == "HIT" && kind == "X" ? Cursors.Hand : what == "HIT" ? Cursors.Hand : what == "PRICEAXIS" ? Cursors.SizeNS : what == "TIMEAXIS" ? Cursors.SizeWE : lineDrag ? Cursors.Hand : what == "LINE" ? Cursors.Hand : what == "DRAWING" ? (kind == "BODY" ? Cursors.SizeAll : Cursors.Cross) : Tool != "" || (PickKind != "" && double.IsNaN(PickPrice)) ? Cursors.Pen : Cursors.Cross;
+                Cursor = what == "HIT" && kind == "X" ? Cursors.Hand : what == "HIT" ? Cursors.Hand : what == "PRICEAXIS" ? Cursors.SizeNS : what == "TIMEAXIS" ? Cursors.SizeWE : lineDrag ? Cursors.Hand : what == "LINE" ? Cursors.Hand : what == "DRAWING" ? (kind == "BODY" ? Cursors.Hand : kind == "W" || kind == "X1" || kind == "X2" ? Cursors.SizeWE : kind == "Y1" || kind == "Y2" ? Cursors.SizeNS : Cursors.SizeAll) : Tool != "" || (PickKind != "" && double.IsNaN(PickPrice)) ? Cursors.Pen : Cursors.Hand;
             }
             else
             {
@@ -732,10 +781,17 @@ namespace KeystoneMT5
                 }
                 else if (drag == "MOVEDRAW" && dragDraw != null && dragOrig != null)
                 {
+                    Cursor = dragPart == "BODY" ? Cursors.SizeAll : dragPart == "W" || dragPart == "X1" || dragPart == "X2" ? Cursors.SizeWE : dragPart == "Y1" || dragPart == "Y2" ? Cursors.SizeNS : Cursors.Cross;
                     double di = IndexAt(p.X) - dragDP, dp = PriceAt(p.Y) - PriceAt(dragFrom.Y); var pr = Snap(p, PriceAt(p.Y)); var t = TimeAt(IndexAt(p.X));
                     if (dragPart == "P1") { if (dragDraw.Kind == "LONG" || dragDraw.Kind == "SHORT") { dragDraw.P1 = pr; } else { dragDraw.T1 = t; dragDraw.P1 = pr; } }
                     else if (dragPart == "P2") { if (dragDraw.Kind == "LONG" || dragDraw.Kind == "SHORT") dragDraw.P2 = pr; else { dragDraw.T2 = t; dragDraw.P2 = pr; } }
                     else if (dragPart == "P3") dragDraw.P3 = pr;
+                    else if (dragPart == "X1Y2") { dragDraw.T1 = t; dragDraw.P2 = pr; }
+                    else if (dragPart == "X2Y1") { dragDraw.T2 = t; dragDraw.P1 = pr; }
+                    else if (dragPart == "Y1") dragDraw.P1 = pr;
+                    else if (dragPart == "Y2") dragDraw.P2 = pr;
+                    else if (dragPart == "X1") dragDraw.T1 = t;
+                    else if (dragPart == "X2") dragDraw.T2 = t;
                     else if (dragPart == "W") dragDraw.T2 = t > dragDraw.T1 ? t : dragDraw.T1.AddMinutes(Series.Minutes * 3);
                     else
                     {

@@ -109,6 +109,9 @@ public static class SimTests
         var dl2 = new HistoryDownloader(fake, "EURUSD", new DateTime(2026, 9, 1), new DateTime(2026, 9, 3), new DateTime(2026, 9, 2), new DateTime(2026, 9, 3), true); int a0 = fake.Asked, t0 = fake.AskedTicks;
         for (int k = 0; k < 20 && dl2.Step(now); k++) now = now.AddSeconds(0.5);
         Check(dl2.Done && fake.Asked == a0 && fake.AskedTicks == t0, "a second load reads everything from this PC (nothing asked from MT5)");
+        var fk3 = new FakeMt5(); var dl3 = new HistoryDownloader(fk3, "GBPUSD", new DateTime(2026, 9, 10), new DateTime(2026, 9, 18), new DateTime(2026, 9, 16), new DateTime(2026, 9, 16), false, new DateTime(2026, 9, 16));
+        for (int k = 0; k < 80 && dl3.Step(now); k++) now = now.AddSeconds(0.5);
+        Check(dl3.Done && fk3.FirstHist == Mt5State.Epoch(new DateTime(2026, 9, 16)) && HistoryStore.HasDay("GBPUSD", new DateTime(2026, 9, 11)), "the asked days are downloaded FIRST, the warm-up days before them last", "first asked " + fk3.FirstHist);
         try { System.IO.Directory.Delete(HistoryStore.Root, true); } catch { }
         // 8. two symbols replayed together on one account; RAW vs STANDARD; MT5's swap in points; the account saved and loaded back
         var nas = new SimSpec { Name = "USTEC", Digits = 2, Point = 0.01, Contract = 1, TickValue = 0.01, TickSize = 0.01, VolMin = 0.1, VolStep = 0.1, VolMax = 50, NyOffsetHours = -7 };
@@ -200,7 +203,7 @@ public static class SimTests
         readonly Mt5State st = new Mt5State(); public int Asked; bool once;
         public Mt5State State { get { return st; } } public string Problem { get { return ""; } } public int Port { get { return 0; } } public bool IsSim { get { return false; } }
         public string Command(string c, params object[] a) { return null; }
-        public int AskedTicks;
+        public int AskedTicks; public long FirstHist;
         public bool Send(string line)
         {
             var a = line.Split('|');
@@ -209,7 +212,7 @@ public static class SimTests
                 AskedTicks++; long f0 = long.Parse(a[2]);
                 st.Apply("TT|" + a[1] + "|" + a[2] + "|" + a[3] + "|3|0"); st.Apply("T|1000|1.10|1.11"); st.Apply("T|2500|1.12|1.13"); st.Apply("T|61000|1.11|1.12"); st.Apply("TTEND|" + a[1] + "|" + a[2] + "|" + a[3]); return true;
             }
-            if (a[0] != "HIST") return true; Asked++; long from = long.Parse(a[2]), to = long.Parse(a[3]);
+            if (a[0] != "HIST") return true; Asked++; long from = long.Parse(a[2]), to = long.Parse(a[3]); if (FirstHist == 0) FirstHist = from;
             bool busy = !once; if (busy) once = true;   // MT5 is still loading the first time
             var bars = new List<string>(); for (long d = from; d < to; d += 86400) { var dt = Mt5State.Unix(d); if (dt.DayOfWeek == DayOfWeek.Saturday || dt.DayOfWeek == DayOfWeek.Sunday) continue; bars.Add("H|" + d + "|1.1|1.2|1.0|1.15|5|3"); bars.Add("H|" + (d + 60) + "|1.15|1.2|1.1|1.12|5|3"); }
             st.Apply("HIST|" + a[1] + "|" + a[2] + "|" + a[3] + "|" + (busy ? 0 : bars.Count) + "|" + (busy ? 4401 : 0));

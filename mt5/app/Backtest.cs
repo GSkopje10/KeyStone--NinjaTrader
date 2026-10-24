@@ -61,6 +61,8 @@ namespace KeystoneMT5
                 };
                 quick.Children.Add(b);
             }
+            var one = chip("📍 ONE DAY (TO = FROM)"); one.Foreground = Violet; one.ToolTip = "test one single day: the day in FROM"; one.Click += delegate { DateTime f0, t0; if (DateTime.TryParseExact(btFrom.Text.Trim(), "yyyy-MM-dd", IC, DateTimeStyles.None, out f0)) SetRange(f0, f0); else { var y = DateTime.Today.AddDays(-1); while (y.DayOfWeek == DayOfWeek.Saturday || y.DayOfWeek == DayOfWeek.Sunday) y = y.AddDays(-1); SetRange(y, y); } }; quick.Children.Add(one);
+            var pool = chip("🗂 PICK FROM THE DOWNLOADED DAYS …"); pool.Foreground = Green; pool.ToolTip = "every day already on this PC (for all the ticked symbols) — click one to test it"; pool.Click += delegate { PickDownloadedDay(); }; quick.Children.Add(pool);
             c2.Children.Add(quick);
             var dRow = new StackPanel { Orientation = Orientation.Horizontal }; var today = DateTime.Today;
             btFrom = Sx.Input(Get("bt.from", today.AddDays(-7).ToString("yyyy-MM-dd", IC)), 120); btTo = Sx.Input(Get("bt.to", today.AddDays(-1).ToString("yyyy-MM-dd", IC)), 120);
@@ -145,6 +147,50 @@ namespace KeystoneMT5
                 btSymChips.Children.Add(b);
             }
         }
+        // 🗂 the days already on this PC (common to every ticked symbol), month by month — a click = that one day; shift-click = up to that day
+        void PickDownloadedDay()
+        {
+            if (btSyms.Count == 0) { btStatus.Text = "✖ tick a symbol first"; btStatus.Foreground = Red; return; }
+            HashSet<DateTime> common = null; foreach (var sym in btSyms) { var ds = new HashSet<DateTime>(HistoryStore.Days(sym).Where(d => d.DayOfWeek != DayOfWeek.Saturday)); if (common == null) common = ds; else common.IntersectWith(ds); }
+            var days = (common ?? new HashSet<DateTime>()).OrderByDescending(d => d).ToList();
+            if (days.Count == 0) { Sx.Info(this, "🗂 Downloaded days", "No day of " + string.Join(" + ", btSyms) + " is on this PC yet — choose the days and press ⬇ ONLY DOWNLOAD or ⬇ DOWNLOAD YEARS first.", Violet); return; }
+            DateTime f0, t0; bool hasR = Range(out f0, out t0);
+            var sp = new StackPanel { MinWidth = 720 };
+            sp.Children.Add(new TextBlock { Text = days.Count + " day(s) of " + string.Join(" + ", btSyms) + " on this PC • ● = MT5's real ticks too • click = test that day • Shift + click = from FROM to that day", Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 8) });
+            foreach (var mg in days.GroupBy(d => new DateTime(d.Year, d.Month, 1)))
+            {
+                var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+                row.Children.Add(new TextBlock { Text = mg.Key.ToString("MMM yyyy", IC).ToUpperInvariant(), Foreground = Gold, FontWeight = FontWeights.Bold, FontSize = 12, Width = 82, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 5, 0, 0) });
+                var wp = new WrapPanel();
+                foreach (var d in mg.OrderBy(x => x))
+                {
+                    var dd = d; bool tk = btSyms.All(x => HistoryStore.HasTicks(x, dd)); bool inR = hasR && dd >= f0 && dd <= t0;
+                    var b = Pill(dd.ToString("ddd dd", IC) + (tk ? " ●" : ""), inR ? (Brush)Tint(Violet, 200) : Card); b.Height = 26; b.FontSize = 11; b.Padding = new Thickness(8, 0, 8, 0); b.Margin = new Thickness(0, 0, 4, 4);
+                    b.Foreground = inR ? Bg : tk ? Green : Text; b.ToolTip = dd.ToString("dddd dd MMMM yyyy", IC) + (tk ? " • candles + real ticks" : " • candles (the ticks come with ▶ START)");
+                    b.Click += delegate { DateTime ff, tt; bool shift = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0; if (shift && Range(out ff, out tt) && dd >= ff) SetRange(ff, dd); else SetRange(dd, dd); var w = Window.GetWindow(b); if (w != null && w != this) w.Close(); btStatus.Text = "📅 " + btFrom.Text + (btTo.Text != btFrom.Text ? " → " + btTo.Text : "") + " chosen — ▶ START"; btStatus.Foreground = Violet; };
+                    wp.Children.Add(b);
+                }
+                row.Children.Add(wp); sp.Children.Add(row);
+            }
+            var sv = new ScrollViewer { Content = sp, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MinWidth = 740 };
+            Sx.Form(this, "🗂 Pick a downloaded day", "Every day of the ticked symbols that is already on this PC — they load at once.", sv, "CLOSE", null, Violet);
+        }
+        // MT5's oldest 1-minute history of each ticked symbol (the bridge's FIRST), asked once in a while; the DATA days line shows it
+        readonly Dictionary<string, DateTime> firstAsked = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase); int firstSeen = -1;
+        void BtFirstTick()
+        {
+            if (btDays == null) return; bool alive; int n; var now = DateTime.Now;
+            lock (live.State.Gate) { alive = live.State.Alive && live.State.BridgeVersion >= 5; n = live.State.FirstDate.Count; }
+            if (alive) foreach (var sym in btSyms.ToList()) { bool have; lock (live.State.Gate) have = live.State.FirstDate.ContainsKey(sym); DateTime at; if (!have && (!firstAsked.TryGetValue(sym, out at) || (now - at).TotalSeconds > 15)) { firstAsked[sym] = now; live.Send("FIRST|" + sym); } }
+            if (n != firstSeen) { firstSeen = n; PaintDays(); }
+        }
+        // the backtest chart before a replay is loaded: what to do, or how far the download is
+        string BtIdleText()
+        {
+            if (dl != null) return "⬇ " + (dlTotal > 1 ? "[" + (dlTotal - dlQueue.Count) + "/" + dlTotal + "] " : "") + dl.Status + "   " + (100 * dl.Progress).ToString("0", IC) + " %";
+            if (sim != null && sim.Spec != null) return "loading the replay …";
+            return "📂 choose the symbols and the days in 📂 DATA → ▶ START  (the candles are downloaded from MT5 once, then they load from this PC)";
+        }
         void PaintStart()
         {
             bool any = false; foreach (var t in btStartBtns) { bool on = (double.IsNaN(t.Item1) && double.IsNaN(btStartNy)) || t.Item1 == btStartNy; any |= on; t.Item2.Background = on ? Tint(Violet, 190) : (Brush)Card; t.Item2.Foreground = on ? Bg : Text; }
@@ -178,6 +224,10 @@ namespace KeystoneMT5
                 missing += need - got; tickMiss += Math.Max(0, wd - tk); parts.Add(sym + " " + got + "/" + need + (btTicks ? " (ticks " + tk + ")" : ""));
             }
             btDays.Text = "📅 " + f.ToString("ddd dd MMM", IC) + " → " + t.ToString("ddd dd MMM yyyy", IC) + " • " + wd + " trading day(s)   •   💾 on this PC: " + string.Join("  •  ", parts) + (missing > 0 ? "   →  ▶ START downloads the rest from MT5 once" : btTicks && tickMiss > 0 ? "   →  ▶ START adds MT5's real ticks (with MT5 connected)" : "   ✓ ready");
+            int wu = Warm(); if (wu > 0) btDays.Text += "\n🔥 + " + wu + " warm-up day(s) before FROM (from " + f.AddDays(-wu).ToString("ddd dd MMM", IC) + ") — drawn at once for the context, downloaded AFTER your days (MORE SETTINGS → WARM-UP, 0 = none)";
+            var firsts = new List<string>(); lock (live.State.Gate) foreach (var sym in btSyms) { DateTime fd; if (live.State.FirstDate.TryGetValue(sym, out fd)) firsts.Add(sym + " from " + fd.ToString("dd MMM yyyy", IC) + (fd.Date > f ? " ⚠ after FROM" : "")); }
+            if (firsts.Count > 0) btDays.Text += "\n🏛 MT5's history (your broker): " + string.Join("  •  ", firsts) + " — older days cannot be tested";
+            else { bool al; lock (live.State.Gate) al = live.State.Alive; btDays.Text += al ? "\n🏛 asking MT5 how far its history goes … (needs the new SpasiXBridge — ⚙ SETUP)" : "\n🏛 connect MT5 to see how far its history goes"; }
             btDays.Foreground = missing == 0 ? Green : Text;
             btSpec.Text = string.Join("   •   ", btSyms.Select(s => { var sp = HistoryStore.LoadSpec(s); return sp == null ? s + ": spec with the first download" : s + ": $" + sp.PointValue.ToString("0.####", IC) + " / point / lot, lots " + sp.VolMin.ToString("0.##", IC) + "–" + sp.VolMax.ToString("0.##", IC); }));
         }
@@ -245,7 +295,7 @@ namespace KeystoneMT5
             var sym = dlQueue.Dequeue(); SpecNow(sym);
             if (dlYears > 0) { var y = DateTime.Today.AddDays(-1); dl = new HistoryDownloader(live, sym, y.AddDays(-dlYears), y, y, y, false); return; }   // ⬇ YEARS: candles only
             DateTime f, t; Range(out f, out t); var d1 = FirstWeekday(f);
-            dl = new HistoryDownloader(live, sym, f.AddDays(-Warm()), t, d1, d1, btTicks);
+            dl = new HistoryDownloader(live, sym, f.AddDays(-Warm()), t, d1, d1, btTicks, f);
         }
         void DownloadTick()
         {
@@ -294,7 +344,7 @@ namespace KeystoneMT5
             foreach (var sym in btSyms)
             {
                 var spec = SpecNow(sym); if (spec == null) { miss.Add(sym + " (no spec — connect MT5 once)"); continue; }
-                var m1 = HistoryStore.LoadRange(sym, f.AddDays(-Warm()), t); if (m1.Count == 0) { miss.Add(sym + " (no candles on this PC)"); continue; }
+                var m1 = HistoryStore.LoadRange(sym, f.AddDays(-Warm()), t); if (m1.Count == 0) { DateTime fd; bool kf; lock (live.State.Gate) kf = live.State.FirstDate.TryGetValue(sym, out fd); miss.Add(sym + (kf && fd.Date > t ? " (MT5's history of " + sym + " starts " + fd.ToString("dd MMM yyyy", IC) + " — choose later days)" : " (no candles on this PC" + (kf ? "; MT5's history starts " + fd.ToString("dd MMM yyyy", IC) : "") + ")")); continue; }
                 var tk = btTicks ? HistoryStore.LoadTickRange(sym, f, t) : null; if (tk != null) ticks += tk.Count; bars += m1.Count;
                 input.Add(Tuple.Create(spec, m1, tk));
             }
@@ -431,6 +481,7 @@ namespace KeystoneMT5
         }
         void RefreshSimHeader(Mt5State s)
         {
+            BtFirstTick();
             if (sim.Spec == null) { connText.Text = "🧪 NO DATA YET — 📂 DATA"; connPill.Background = Gold; acLogin.Text = "BACKTEST"; acName.Text = ""; acRest.Text = "tick the symbols and the days in 📂 DATA, then ▶ START"; foreach (var c in cards.Values) c.Item2.Text = "—"; return; }
             var names = string.Join(" + ", sim.Specs.Select(x => x.Name));
             connText.Text = (sim.Ended ? "■ ENDED" : sim.Playing ? "▶ PLAYING " + (sim.Speed >= SimBroker.MaxSpeed ? "MAX" : sim.Speed + "×") : "⏸ PAUSED") + " • " + names; connPill.Background = sim.Playing ? Green : sim.Ended ? Red : Cyan;

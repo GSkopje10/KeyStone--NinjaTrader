@@ -46,6 +46,8 @@ def reader():
                 ms += int(r.expovariate(1 / 1400.0)) + 30; t = fr + ms / 1000.0; b = price(sy, t) + (r.random() - 0.5) * 4 * SY[sy][2] * (10 if d == 2 else 1)
                 out.append("T|%d|%s|%s" % (ms, fmt(b, d), fmt(b + (18 + r.randint(0, 9)) * SY[sy][2], d)))
             send("TT|%s|%d|%d|%d|0\n" % (sym, fr, to, len(out)) + "\n".join(out) + "\nTTEND|%s|%d|%d" % (sym, fr, to))
+        elif a[0] == "FIRST":
+            send("FIRST|%s|%d|%d|%d" % (a[1], 1262304000, 1420070400, 1420070400))
         elif a[0] == "DEALS":
             out = []; tk = 900000; base = NOW - 25*86400; r = random.Random(3)
             for day in range(24):

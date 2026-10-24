@@ -81,7 +81,7 @@ namespace KeystoneMT5
             newsImp = Math.Max(0, Math.Min(2, IntOf(Get("newsimp", "1"), 1)));
             newsImpact = Sx.Drop(ImpName(newsImp), Card, () => { var l = new List<Mi>(); for (int i = 0; i < 3; i++) { int ii = i; l.Add(new Mi { Text = ImpName(i), Check = newsImp == i, Radio = true, Do = () => { newsImp = ii; Put("newsimp", ii.ToString(IC)); newsImpact.Content = ImpName(ii) + "  ▾"; newsSig = ""; } }); } return l; });
             var reload = Pill("↻ RELOAD", Card); reload.Click += delegate { newsAt = DateTime.MinValue; LoadNews(); LoadHeadlines(); };
-            newsWeeks = Math.Max(1, Math.Min(4, IntOf(Get("newsweeks", "1"), 1)));
+            newsWeeks = Math.Max(1, Math.Min(4, IntOf(Get("newsweeks", "2"), 2)));
             newsWeeksBtn = Sx.Drop(WeeksName(newsWeeks), Card, () => { var l = new List<Mi> { Mi.H(newsPast ? "how far back" : "how far ahead") }; foreach (var w in new[] { 1, 2, 3, 4 }) { int ww = w; l.Add(new Mi { Text = WeeksName(w), Check = newsWeeks == w, Radio = true, Do = () => { newsWeeks = ww; Put("newsweeks", ww.ToString(IC)); newsWeeksBtn.Content = WeeksName(ww) + "  ▾"; newsDay = DateTime.MinValue; newsSig = ""; } }); } return l; });
             right.Children.Add(newsWeeksBtn); right.Children.Add(newsImpact); right.Children.Add(reload); top.Children.Add(right);
             var tabsP = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -163,15 +163,26 @@ namespace KeystoneMT5
                 try
                 {
                     string json; using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) }) { http.DefaultRequestHeaders.UserAgent.ParseAdd("SpasiX/1.0"); json = await http.GetStringAsync(w.Item2); }
-                    got.AddRange(await Task.Run(() => ParseFf(json))); okWeeks.Add(w.Item1);
+                    got.AddRange(await Task.Run(() => ParseFf(json))); okWeeks.Add("ForexFactory " + w.Item1);
                 }
                 catch (Exception ex) { if (w.Item1 == "this week") err = ex.Message; }
             }
+            // TradingView's economic calendar (the same official releases) for the days OUTSIDE ForexFactory's week: next week and later, with the actual values
+            int tvN = 0;
+            try
+            {
+                DateTime ffLo = got.Count > 0 ? got.Min(e => e.Utc).Date : DateTime.MaxValue, ffHi = got.Count > 0 ? got.Max(e => e.Utc).Date.AddDays(1) : DateTime.MinValue;
+                var url = "https://economic-calendar.tradingview.com/events?from=" + DateTime.UtcNow.Date.AddDays(-7).ToString("yyyy-MM-dd", IC) + "T00:00:00.000Z&to=" + DateTime.UtcNow.Date.AddDays(21).ToString("yyyy-MM-dd", IC) + "T00:00:00.000Z&countries=US,EU,GB,JP,AU,NZ,CA,CH,CN,DE";
+                string json; using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) }) { http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 SpasiX/1.0"); http.DefaultRequestHeaders.TryAddWithoutValidation("Origin", "https://www.tradingview.com"); json = await http.GetStringAsync(url); }
+                var tv = await Task.Run(() => ParseTv(json)); foreach (var e in tv) if (e.Utc < ffLo || e.Utc >= ffHi) { got.Add(e); tvN++; }
+                if (tvN > 0) okWeeks.Add("TradingView (next weeks)");
+            }
+            catch { }
             // the past stays: every event ever loaded is kept on this PC (news-cache.txt), so ⏮ PAST reaches back further than ForexFactory's week
             var all = LoadNewsCache(); foreach (var e in got) all[e.Utc.Ticks + "|" + e.Currency + "|" + e.Title] = e;
             var list = all.Values.Where(e => e.Utc > DateTime.UtcNow.AddDays(-35)).OrderBy(x => x.Utc).ToList(); SaveNewsCache(list);
             news.Clear(); news.AddRange(list);
-            newsStatus = okWeeks.Count > 0 ? "📰 ForexFactory • " + string.Join(" + ", okWeeks) + " • " + got.Count + " events • updated " + DateTime.Now.ToString("HH:mm", IC) : "📰 the ForexFactory calendar could not be loaded (" + err + ") — ↻ RELOAD in a minute" + (list.Count > 0 ? " • showing the saved events" : "");
+            newsStatus = okWeeks.Count > 0 ? "📰 " + string.Join(" + ", okWeeks) + " • " + got.Count + " events • updated " + DateTime.Now.ToString("HH:mm", IC) : "📰 the ForexFactory calendar could not be loaded (" + err + ") — ↻ RELOAD in a minute" + (list.Count > 0 ? " • showing the saved events" : "");
             newsSig = "";
         }
         static List<NewsEvent> ParseFf(string json)
@@ -184,6 +195,25 @@ namespace KeystoneMT5
                     DateTimeOffset dto; if (!DateTimeOffset.TryParse(str("date"), IC, DateTimeStyles.None, out dto)) continue;
                     res.Add(new NewsEvent { Title = str("title"), Currency = str("country"), Impact = str("impact"), Forecast = str("forecast"), Previous = str("previous"), Utc = dto.UtcDateTime });
                 }
+            return res;
+        }
+        static List<NewsEvent> ParseTv(string json)
+        {
+            var res = new List<NewsEvent>();
+            using (var doc = JsonDocument.Parse(json))
+            {
+                JsonElement arr; if (!doc.RootElement.TryGetProperty("result", out arr) || arr.ValueKind != JsonValueKind.Array) return res;
+                foreach (var e in arr.EnumerateArray())
+                {
+                    Func<string, string> str = k => { JsonElement v; return e.TryGetProperty(k, out v) && v.ValueKind == JsonValueKind.String ? v.GetString() : ""; };
+                    Func<string, string> num = k => { JsonElement v; if (!e.TryGetProperty(k, out v) || v.ValueKind != JsonValueKind.Number) return ""; return v.GetDouble().ToString("0.###", IC) + str("scale") + (str("unit") == "%" ? "%" : ""); };
+                    DateTimeOffset dto; if (!DateTimeOffset.TryParse(str("date"), IC, DateTimeStyles.None, out dto)) continue;
+                    int imp = 0; JsonElement iv; if (e.TryGetProperty("importance", out iv) && iv.ValueKind == JsonValueKind.Number) imp = iv.GetInt32();
+                    var cur = str("currency"); if (cur == "") cur = str("country") == "US" ? "USD" : str("country") == "GB" ? "GBP" : str("country") == "JP" ? "JPY" : str("country") == "AU" ? "AUD" : str("country") == "CA" ? "CAD" : str("country") == "CH" ? "CHF" : str("country") == "NZ" ? "NZD" : str("country") == "CN" ? "CNY" : "EUR";
+                    var act = num("actual");
+                    res.Add(new NewsEvent { Title = str("title") + (act != "" ? "  ✔ actual " + act : ""), Currency = cur, Impact = imp >= 1 ? "High" : imp == 0 ? "Medium" : "Low", Forecast = num("forecast"), Previous = num("previous"), Utc = dto.UtcDateTime });
+                }
+            }
             return res;
         }
         static Dictionary<string, NewsEvent> LoadNewsCache()
@@ -298,7 +328,7 @@ namespace KeystoneMT5
             var grouped = span.GroupBy(n => conv(n.Utc.AddSeconds(off)).Date).ToDictionary(g => g.Key, g => g.ToList());
             var byDay = poolDays.Select(d => new KeyValuePair<DateTime, List<NewsEvent>>(d, grouped.ContainsKey(d) ? grouped[d] : new List<NewsEvent>())).ToList();
             span = byDay.SelectMany(x => x.Value).ToList();
-            newsHead.Text = newsStatus + "   •   " + (newsPast ? "the last " : "the next ") + WeeksName(newsWeeks).ToLowerInvariant() + " • " + span.Count + " events (" + span.Count(n => n.Impact == "High") + " high) • times in " + Zones[Math.Max(0, zoneIdx)].Item1 + (!newsPast && newsWeeks > 2 ? " • ForexFactory publishes this week and the next" : "");
+            newsHead.Text = newsStatus + "   •   " + (newsPast ? "the last " : "the next ") + WeeksName(newsWeeks).ToLowerInvariant() + " • " + span.Count + " events (" + span.Count(n => n.Impact == "High") + " high) • times in " + Zones[Math.Max(0, zoneIdx)].Item1;
             // the day sub-tabs
             Action<DateTime, string, int, int> chip = (d, t, n, hi) =>
             {

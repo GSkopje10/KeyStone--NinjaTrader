@@ -37,7 +37,16 @@ namespace KeystoneMT5
         static string Safe(string sym) { foreach (var c in Path.GetInvalidFileNameChars()) sym = sym.Replace(c, '_'); return sym; }
         public static string DirOf(string sym) { return Path.Combine(Root, Safe(sym)); }
         static string FileOf(string sym, DateTime day) { return Path.Combine(DirOf(sym), day.ToString("yyyyMMdd", IC) + ".csv"); }
-        public static bool HasDay(string sym, DateTime day) { return File.Exists(FileOf(sym, day)); }
+        // a day is "here" when its candles are saved — or, for a weekday, when MT5 confirmed it has none (before its history starts, a holiday)
+        public static bool HasDay(string sym, DateTime day)
+        {
+            var f = FileOf(sym, day); bool wk = day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday;
+            try { if (File.Exists(f) && (wk || new FileInfo(f).Length > 10)) return true; } catch { }
+            return File.Exists(NoneFile(sym, day));
+        }
+        static string NoneFile(string sym, DateTime day) { return Path.Combine(DirOf(sym), day.ToString("yyyyMMdd", IC) + ".none"); }
+        public static void MarkNone(string sym, DateTime day) { try { Directory.CreateDirectory(DirOf(sym)); File.WriteAllText(NoneFile(sym, day), "MT5 has no 1-minute candles for this day"); } catch { } }
+        public static bool IsNone(string sym, DateTime day) { return File.Exists(NoneFile(sym, day)); }
         public static void SaveDay(string sym, DateTime day, List<Mt5Bar> bars)
         {
             Directory.CreateDirectory(DirOf(sym));
@@ -109,20 +118,31 @@ namespace KeystoneMT5
         // asked, tickFrom..tickTo) — the app can start the backtest when the candles and the first tick day are in and keep downloading the rest
         readonly IBroker live; readonly string sym; readonly DateTime tickFrom, tickTo; readonly bool wantTicks;
         readonly List<Tuple<DateTime, DateTime>> chunks = new List<Tuple<DateTime, DateTime>>(); readonly List<DateTime> tickDays = new List<DateTime>();
-        int ci, ti, tries, timeouts; bool tickPlan; DateTime askedAt = DateTime.MinValue, retryAt = DateTime.MinValue; bool waiting;
-        public string Status = ""; public bool Done, Failed; public int Saved, Skipped, TickDays; public long TickCount;
+        int ci, ti, tries, timeouts; bool tickPlan; readonly DateTime mainFrom; DateTime askedAt = DateTime.MinValue, retryAt = DateTime.MinValue; bool waiting;
+        public string Status = ""; public bool Done, Failed; public int Saved, Skipped, TickDays, NoHistory, NotDelivered; public long TickCount; public DateTime FirstDate = DateTime.MinValue;
         public readonly List<DateTime> NewTickDays = new List<DateTime>();   // the days whose ticks just arrived (the app takes them)
         public string Symbol { get { return sym; } }
         public bool BarsDone { get { return ci >= chunks.Count; } }
         public int TickDaysTotal { get { return tickDays.Count; } } public int TickDaysDone { get { return ti; } }
         public double Progress { get { double a = chunks.Count == 0 ? 1 : (double)ci / chunks.Count; if (!wantTicks) return a; double b = !tickPlan ? 0 : tickDays.Count == 0 ? 1 : (double)ti / tickDays.Count; return tickPlan && tickDays.Count == 0 ? a : 0.2 * a + 0.8 * b; } }
         public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to, DateTime ticksFrom, bool ticks = true) : this(live, sym, from, to, ticksFrom, to, ticks) { }
-        public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to, DateTime ticksFrom, DateTime ticksTo, bool ticks)
+        public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to, DateTime ticksFrom, DateTime ticksTo, bool ticks) : this(live, sym, from, to, ticksFrom, ticksTo, ticks, DateTime.MinValue) { }
+        // mainFrom: the first day the user asked for — those days come first, the warm-up days before it last (shown as "warm-up")
+        public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to, DateTime ticksFrom, DateTime ticksTo, bool ticks, DateTime mainFrom)
         {
+            this.mainFrom = mainFrom.Date;
             this.live = live; this.sym = sym; tickFrom = ticksFrom.Date; tickTo = ticksTo.Date; wantTicks = ticks; var today = DateTime.Today;
-            var need = new List<DateTime>(); for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) if (!HistoryStore.HasDay(sym, d) || d >= today.AddDays(-1)) need.Add(d);   // today / yesterday: always fresh
+            DateTime first; lock (live.State.Gate) if (live.State.FirstDate.TryGetValue(sym, out first)) FirstDate = first;
+            var need = new List<DateTime>();
+            for (var d = from.Date; d <= to.Date; d = d.AddDays(1))
+            {
+                if (HistoryStore.HasDay(sym, d) && d < today.AddDays(-1)) continue;   // today / yesterday: always fresh
+                if (FirstDate > DateTime.MinValue && d.AddDays(1) <= FirstDate.Date) { if (d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday) { HistoryStore.MarkNone(sym, d); NoHistory++; } continue; }   // before MT5's history starts
+                need.Add(d);
+            }
             // consecutive missing days → runs of up to 7 days = one request each
-            for (int i = 0; i < need.Count;) { int j = i; while (j + 1 < need.Count && need[j + 1] == need[j].AddDays(1) && j + 1 - i < 7) j++; chunks.Add(Tuple.Create(need[i], need[j].AddDays(1))); i = j + 1; }
+            Action<List<DateTime>> runs = ds => { for (int i = 0; i < ds.Count;) { int j = i; while (j + 1 < ds.Count && ds[j + 1] == ds[j].AddDays(1) && j + 1 - i < 7) j++; chunks.Add(Tuple.Create(ds[i], ds[j].AddDays(1))); i = j + 1; } };
+            runs(need.Where(d => d >= this.mainFrom).ToList()); runs(need.Where(d => d < this.mainFrom).ToList());   // the asked days first, the warm-up last
             if (chunks.Count == 0) PlanTicks();
         }
         public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to) : this(live, sym, from, to, to.AddDays(1), false) { }
@@ -139,26 +159,36 @@ namespace KeystoneMT5
             {
                 var c = chunks[ci]; long from = Mt5State.Epoch(c.Item1), to = Mt5State.Epoch(c.Item2); string key = sym + "|" + from;
                 string dn = c.Item1.ToString("dd MMM", CultureInfo.InvariantCulture) + (c.Item2.AddDays(-1) > c.Item1 ? " – " + c.Item2.AddDays(-1).ToString("dd MMM yyyy", CultureInfo.InvariantCulture) : " " + c.Item1.Year);
+                bool warm = c.Item1 < mainFrom; if (warm) dn += " (warm-up before " + mainFrom.ToString("dd MMM", CultureInfo.InvariantCulture) + ")";
                 bool weekdays = false; for (var d = c.Item1; d < c.Item2; d = d.AddDays(1)) if (d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday) weekdays = true;
                 Tuple<List<Mt5Bar>, int> got = null;
                 lock (live.State.Gate) { if (live.State.Hist.TryGetValue(key, out got)) live.State.Hist.Remove(key); }
                 if (got != null)
                 {
                     waiting = false;
-                    if ((got.Item2 != 0 || (got.Item1.Count == 0 && weekdays)) && tries < 4) { tries++; retryAt = now.AddSeconds(1.5 * tries); Status = "MT5 is loading " + sym + " " + dn + " from the broker … (try " + tries + ")"; return true; }
+                    if ((got.Item2 != 0 || (got.Item1.Count == 0 && weekdays)) && tries < (warm ? 2 : 4)) { tries++; retryAt = now.AddSeconds(1.5 * tries); Status = "MT5 is loading " + sym + " " + dn + " from the broker … (try " + tries + ")"; return true; }
                     var byDay = got.Item1.GroupBy(x => x.Time.Date).ToDictionary(g => g.Key, g => g.ToList());
                     for (var d = c.Item1; d < c.Item2; d = d.AddDays(1))
                     {
-                        List<Mt5Bar> bars; if (!byDay.TryGetValue(d, out bars)) bars = new List<Mt5Bar>();
-                        if (d < DateTime.Today || bars.Count > 0) HistoryStore.SaveDay(sym, d, bars);
-                        if (bars.Count > 0) Saved++; else Skipped++;
+                        List<Mt5Bar> bars; if (!byDay.TryGetValue(d, out bars)) bars = new List<Mt5Bar>(); bool wk = d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday;
+                        if (bars.Count > 0) { HistoryStore.SaveDay(sym, d, bars); Saved++; }
+                        else if (wk) { if (d < DateTime.Today) HistoryStore.SaveDay(sym, d, bars); Skipped++; }
+                        else if (got.Item2 == 0 && d < DateTime.Today.AddDays(-1)) { HistoryStore.MarkNone(sym, d); NoHistory++; }   // MT5 answered: no candles that day
+                        else NotDelivered++;   // MT5 was still loading — nothing saved, the next START asks again
                     }
                     ci++; tries = 0; timeouts = 0; retryAt = DateTime.MinValue; if (ci >= chunks.Count) PlanTicks(); return true;
                 }
                 return Ask(now, "HIST|" + sym + "|" + from + "|" + to, "⬇ " + sym + " candles " + dn + " (" + (ci + 1) + " / " + chunks.Count + ")", 15);
             }
             if (!tickPlan) PlanTicks();
-            if (ti >= tickDays.Count) { Done = true; Status = "✓ " + sym + ": " + Saved + " day(s) of candles" + (TickDays > 0 ? " + " + TickDays + " day(s) of real ticks (" + TickCount.ToString("N0", CultureInfo.InvariantCulture) + ")" : "") + " downloaded" + (Saved + TickDays == 0 ? " — everything was already on this PC" : ""); return false; }
+            if (ti >= tickDays.Count)
+            {
+                Done = true; var ic = CultureInfo.InvariantCulture;
+                Status = "✓ " + sym + ": " + Saved + " day(s) of candles" + (TickDays > 0 ? " + " + TickDays + " day(s) of real ticks (" + TickCount.ToString("N0", ic) + ")" : "") + " downloaded" + (Saved + TickDays == 0 && NoHistory + NotDelivered == 0 ? " — everything was already on this PC" : "")
+                    + (NoHistory > 0 ? " • " + NoHistory + " weekday(s) are not in MT5's history" + (FirstDate > DateTime.MinValue ? " (it starts " + FirstDate.ToString("dd MMM yyyy", ic) + ")" : "") : "")
+                    + (NotDelivered > 0 ? " • " + NotDelivered + " day(s) MT5 was still loading — press ▶ START again in a minute" : "");
+                return false;
+            }
             var day = tickDays[ti]; long f2 = Mt5State.Epoch(day), t2 = Mt5State.Epoch(day.AddDays(1)); string k2 = sym + "|" + f2; string dn2 = day.ToString("ddd dd MMM", CultureInfo.InvariantCulture);
             Tuple<List<SimTick>, int> gt = null;
             lock (live.State.Gate) { if (live.State.TickHist.TryGetValue(k2, out gt)) live.State.TickHist.Remove(k2); }

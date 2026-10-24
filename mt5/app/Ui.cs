@@ -313,6 +313,7 @@ namespace KeystoneMT5
                 e.Handled = true; if (it.Off) return;
                 if (it.Sub != null) { Open(w, c, it.Sub, new Point(), level + 1, row); return; }
                 if (!it.KeepOpen) Close(w);
+                else if (it.Check.HasValue && !it.Radio) { it.Check = !it.Check.Value; var host = row.Parent as StackPanel; if (host != null) { int ix = host.Children.IndexOf(row); host.Children.RemoveAt(ix); host.Children.Insert(ix, Row(w, c, it, level)); } }   // a tick box: the menu stays open (several at once)
                 var a = it.Do; if (a != null) w.Dispatcher.BeginInvoke(a);
             };
             return row;

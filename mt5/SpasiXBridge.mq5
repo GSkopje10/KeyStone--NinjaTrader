@@ -222,6 +222,14 @@ void SendTicks(string sym, long from, long to)
    SendLine(b);
   }
 
+// how far back MT5's history goes for a symbol: FIRST|symbol|first date on the broker's server|first date on this PC|first 1-minute candle here (epochs, 0 = unknown)
+void SendFirst(string sym)
+  {
+   SymbolSelect(sym, true);
+   long sv = SeriesInfoInteger(sym, PERIOD_M1, SERIES_SERVER_FIRSTDATE), tm = SeriesInfoInteger(sym, PERIOD_M1, SERIES_TERMINAL_FIRSTDATE), m1 = SeriesInfoInteger(sym, PERIOD_M1, SERIES_FIRSTDATE);
+   SendLine("FIRST|" + sym + "|" + IntegerToString(sv) + "|" + IntegerToString(tm) + "|" + IntegerToString(m1));
+  }
+
 // the account's deals (for the app's TRACKER): DEALS|from|to|n, n × D|ticket|time|symbol|type|entry|lots|price|profit|commission + fee|swap|position|magic|reason|comment, DEALEND
 void SendDeals(long from, long to)
   {
@@ -358,6 +366,7 @@ void ReadApp()
       else if(line == "ALLSYMS") SendAllSymbols();
       else if(StringFind(line, "HIST|") == 0) { string p3[]; if(StringSplit(line, '|', p3) >= 4) SendHist(p3[1], StringToInteger(p3[2]), StringToInteger(p3[3])); }
       else if(StringFind(line, "HISTT|") == 0) { string p5[]; if(StringSplit(line, '|', p5) >= 4) SendTicks(p5[1], StringToInteger(p5[2]), StringToInteger(p5[3])); }
+      else if(StringFind(line, "FIRST|") == 0) SendFirst(StringSubstr(line, 6));
       else if(StringFind(line, "DEALS|") == 0) { string p4[]; if(StringSplit(line, '|', p4) >= 3) SendDeals(StringToInteger(p4[1]), StringToInteger(p4[2])); }
       else if(StringFind(line, "WATCH|") == 0) { SymbolSelect(StringSubstr(line, 6), true); SendSymbols(); }
       else

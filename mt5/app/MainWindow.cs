@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-27b";
+        public const string Build = "SpasiX • BUILD 2026-10-27c";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -66,6 +66,7 @@ namespace KeystoneMT5
             var order = new List<Tuple<string, string>>();
             if (Sim) { views["DATA"] = BuildBacktestData(); order.Add(Tuple.Create("DATA", "📂  DATA")); }
             views["CHART"] = BuildChartTab(); order.Add(Tuple.Create("CHART", "📈  CHART"));
+            views["ANALYSIS"] = BuildAnalysis(); order.Add(Tuple.Create("ANALYSIS", "📊  ANALYSIS"));
             views["POSITIONS"] = BuildPositions(); order.Add(Tuple.Create("POSITIONS", "💼  POSITIONS"));
             if (Mode == "PROP") { views["PROP"] = BuildProp(); order.Add(Tuple.Create("PROP", "🏆  PROP")); }
             views["TRACKER"] = BuildTracker(); order.Add(Tuple.Create("TRACKER", Sim ? "📊  STATS" : "📊  TRACKER"));
@@ -360,7 +361,7 @@ namespace KeystoneMT5
                 }
                 ReadResults(s);
                 if (Mode == "PROP") FillPropStrip(s);
-                if (view == "CHART") FillChart(s); if (view == "POSITIONS") FillPositions(s); if (view == "TRACKER") FillTracker(s); if (view == "PROP") FillProp(s); if (view == "POOL") FillPool();
+                if (view == "CHART") FillChart(s); if (view == "ANALYSIS") FillAnalysis(s); if (view == "POSITIONS") FillPositions(s); if (view == "TRACKER") FillTracker(s); if (view == "PROP") FillProp(s); if (view == "POOL") FillPool();
                 if (!Sim) { if (view == "MARKET") FillMarket(s); if (view == "NEWS") FillNews(); PaintNewsBadge(); }
                 if (Sim) FillSim(s);
             }

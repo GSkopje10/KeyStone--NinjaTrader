@@ -78,6 +78,7 @@ namespace KeystoneMT5
         public readonly Dictionary<string, Mt5Symbol> Symbols;
         public readonly Dictionary<string, Mt5Quote> Quotes;
         public List<Mt5Position> Positions = new List<Mt5Position>();
+        public readonly Dictionary<string, DateTime> FirstDate = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);   // the oldest history MT5's broker has, per symbol (FIRST)
         public List<Mt5Order> Orders = new List<Mt5Order>();
         public int BridgeVersion;
         // what the bridge allows
@@ -137,6 +138,7 @@ namespace KeystoneMT5
                         if (tickIn == null || a.Length < 4) return;
                         tickIn.Add(new SimTick { T = tickBase.AddMilliseconds(L(a[1])), Bid = D(a[2]), Ask = D(a[3]) });
                         break;
+                    case "FIRST": if (a.Length >= 5) { long sv = L(a[2]), tm = L(a[3]); var t = sv > 0 ? sv : tm; if (t > 0) FirstDate[a[1]] = Unix(t); } break;
                     case "TTEND": if (tickIn != null && a.Length >= 3 && tickKey == a[1] + "|" + a[2]) TickHist[tickKey] = Tuple.Create(tickIn, tickErr); tickIn = null; tickKey = null; break;
                     case "DEALS": if (a.Length >= 4) { dealsIn = new List<Mt5Deal>(); dealsFromIn = Unix(L(a[1])); } break;
                     case "D":

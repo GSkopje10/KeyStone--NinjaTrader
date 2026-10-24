@@ -48,8 +48,13 @@ namespace KeystoneMT5
                 if (cur.WindowState == WindowState.Normal) { w.Left = cur.Left; w.Top = cur.Top; w.Width = cur.Width; w.Height = cur.Height; }
             }
             Active = w; if (App != null) App.MainWindow = w;
+            // SMOOTH: the new tab is shown OVER the old one (same place, no Windows animation), its content fades in, and the old one is hidden
+            // only once the new one is painted — never a blank window in between
+            bool change = cur != null && cur != w; if (w.Background == null || w.Background == Brushes.Transparent) w.Background = Sx.Bg;
             w.Show(); if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Maximized; w.Activate();
-            foreach (var o in Modes.Cast<Window>().Concat(new Window[] { Home })) if (o != null && o != w && o.IsVisible) o.Hide();
+            var root = w.Content as UIElement; if (change && root != null) root.BeginAnimation(UIElement.OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0.55, 1, TimeSpan.FromMilliseconds(170)) { EasingFunction = new System.Windows.Media.Animation.QuadraticEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } });
+            var others = Modes.Cast<Window>().Concat(new Window[] { Home }).Where(o => o != null && o != w && o.IsVisible).ToList();
+            w.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(() => { foreach (var o in others) if (o != Active && o.IsVisible) o.Hide(); }));
             Repaint();
         }
         static void Removed(MainWindow m)
@@ -58,6 +63,9 @@ namespace KeystoneMT5
             if (Quitting) return;
             if (Active == m) { Active = null; Switch((Window)Modes.LastOrDefault() ?? Home); } else Repaint();
         }
+        // Windows' own show / hide animation (the zoom) off: switching tabs is instant
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+        static void NoWindowsAnimation(Window w) { try { var h = new System.Windows.Interop.WindowInteropHelper(w).Handle; int on = 1; DwmSetWindowAttribute(h, 3, ref on, 4); } catch { } }   // DWMWA_TRANSITIONS_FORCEDISABLED
         // ⏻ close SpasiX: every mode closes (their own saving runs), then the app
         public static void Quit()
         {
@@ -71,6 +79,7 @@ namespace KeystoneMT5
         // ---- the chrome: our title bar instead of the Windows frame
         public static FrameworkElement Chrome(Window w, string mode, FrameworkElement content)
         {
+            w.Background = Sx.Bg; w.SourceInitialized += delegate { NoWindowsAnimation(w); };
             WindowChrome.SetWindowChrome(w, new WindowChrome { CaptionHeight = 38, ResizeBorderThickness = new Thickness(6), GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(0), UseAeroCaptionButtons = false });
             var dp = new DockPanel { LastChildFill = true };
             var bar = new Grid { Height = 38, Background = new LinearGradientBrush(Sx.C("#0E1626"), Sx.C("#0A101C"), 0) };

@@ -29,9 +29,9 @@ def grad_fill(mask, top, mid, bot):
         t=y/S; col=lerp(top,mid,t/0.5) if t<0.5 else lerp(mid,bot,(t-0.5)/0.5)
         for x in range(S): gp[x,y]=col+(255,)
     out=Image.new("RGBA",(S,S),(0,0,0,0)); out.paste(g,(0,0),mask); return out
-font=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",640)
+font=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",520)
 m=Image.new("L",(S,S),0); md=ImageDraw.Draw(m); bb=md.textbbox((0,0),"S",font=font); w=bb[2]-bb[0]; h=bb[3]-bb[1]
-ox=c-w/2-bb[0]-70; oy=c-h/2-bb[1]-10; md.text((ox,oy),"S",font=font,fill=255)
+ox=c-w/2-bb[0]-58; oy=c-h/2-bb[1]-6; md.text((ox,oy),"S",font=font,fill=255)
 # shadow, dark outline, gold body, top highlight
 sh=Image.new("RGBA",(S,S),(0,0,0,0)); sh.paste((0,0,0,200),(14,18),m); img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(14)))
 outline=m.filter(ImageFilter.MaxFilter(13)); o=Image.new("RGBA",(S,S),(0,0,0,0)); o.paste((60,38,6,255),(0,0),outline); img.alpha_composite(o)
@@ -41,9 +41,9 @@ hl=Image.new("RGBA",(S,S),(0,0,0,0)); hl.paste((255,250,225,150),(0,0),inner); i
 shine=Image.new("L",(S,S),0); ImageDraw.Draw(shine).ellipse([c-420,c-520,c+260,c-40],fill=120); shine=ImageChops.multiply(shine.filter(ImageFilter.GaussianBlur(30)), m)
 sl=Image.new("RGBA",(S,S),(0,0,0,0)); sl.paste((255,255,255,255),(0,0),shine.point(lambda v: v//2)); img.alpha_composite(sl)
 # the cyan x — inside the ring, bottom right, glowing
-fx=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",300)
+fx=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",250)
 mx=Image.new("L",(S,S),0); mxd=ImageDraw.Draw(mx); bx=mxd.textbbox((0,0),"x",font=fx); xw=bx[2]-bx[0]; xh=bx[3]-bx[1]
-px=c+130-bx[0]; py=c+40-bx[1]; mxd.text((px,py),"x",font=fx,fill=255)
+px=c+105-bx[0]; py=c+50-bx[1]; mxd.text((px,py),"x",font=fx,fill=255)
 gl=Image.new("RGBA",(S,S),(0,0,0,0)); gl.paste((77,216,255,230),(0,0),mx.filter(ImageFilter.MaxFilter(15))); img.alpha_composite(gl.filter(ImageFilter.GaussianBlur(18)))
 ox2=Image.new("RGBA",(S,S),(0,0,0,0)); ox2.paste((6,40,60,255),(0,0),mx.filter(ImageFilter.MaxFilter(9))); img.alpha_composite(ox2)
 img.alpha_composite(grad_fill(mx,(225,250,255),(77,216,255),(20,140,200)))
