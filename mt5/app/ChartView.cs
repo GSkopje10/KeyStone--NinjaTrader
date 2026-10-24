@@ -55,7 +55,7 @@ namespace KeystoneMT5
     public sealed class ChartHit { public Rect R; public string Kind, Key; public long Ticket; public Action Click; }
     public sealed class Indicator { public string Key, Name, Color, Tip; public Indicator(string k, string n, string c, string t) { Key = k; Name = n; Color = c; Tip = t; } }
 
-    public sealed class ChartView : FrameworkElement
+    public sealed partial class ChartView : FrameworkElement
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush Br(Color c, byte a = 255) { var x = new SolidColorBrush(Color.FromArgb(a, c.R, c.G, c.B)); x.Freeze(); return x; }
@@ -69,7 +69,18 @@ namespace KeystoneMT5
             new Indicator("EMA9", "EMA 9", "#FFE066", "fast average (9 candles)"), new Indicator("EMA21", "EMA 21", "#4DD8FF", "the 21-candle average"), new Indicator("EMA50", "EMA 50", "#A98BFF", "the 50-candle average"),
             new Indicator("EMA200", "EMA 200", "#FF8A3D", "the trend (200 candles)"), new Indicator("VWAP", "VWAP", "#E879F9", "the day's volume-weighted average price (from the server's midnight)"), new Indicator("BB", "Bollinger 20/2", "#90A4AE", "20-candle average ± 2 deviations"),
             new Indicator("FVG", "Fair-value gaps", "#2EE59D", "3-candle gaps not filled yet"), new Indicator("ORB", "NY opening range", "#A98BFF", "New York 09:30–09:45 high / low"), new Indicator("PDHL", "Yesterday high / low", "#42A5F5", "the previous day's high and low"),
-            new Indicator("SESS", "Sessions", "#FFC94D", "Asia 18:00–03:00, London 03:00–08:00, New York 08:00–16:00 (NY time)"), new Indicator("SETUPS", "SpasiX setups", "#FFC94D", "a sweep of a swing high / low that closes back inside and breaks the sweep candle — arrows, the live setup blinking, its record (2R) on the chart") };
+            new Indicator("SESS_SYD", "Session • Sydney (ASX)", "#26C6DA", "ASX 10:00–16:00 Sydney time • pre-open from 07:00"),
+            new Indicator("SESS_TKY", "Session • Tokyo (TSE)", "#A98BFF", "TSE 09:00–15:30 Tokyo time (lunch 11:30–12:30) • orders from 08:00 • Japan data 08:50 = 20:00 / 19:50 New York"),
+            new Indicator("SESS_CHN", "Session • Shanghai gold (SGE) + Hong Kong", "#FF5C7A", "SGE gold day session 09:00–15:30 Beijing (= 21:00 New York in summer) • Hong Kong / China stocks 09:30 • SGE night session 20:00–02:30"),
+            new Indicator("SESS_LON", "Session • London + Frankfurt", "#FFC94D", "London (LSE) 08:00–16:30 London time • Frankfurt / Europe pre-market from 07:00 • LBMA gold auctions 10:30 and 15:00"),
+            new Indicator("SESS_NY", "Session • New York", "#2EE59D", "pre-market 04:00 • COMEX gold 08:20 • US data 08:30 • NYSE 09:30–16:00 New York time"),
+            new Indicator("SESS_CME", "Session • CME break + Globex reopen", "#90A4AE", "CME Globex closes 17:00 and reopens 18:00 New York time (gold, Nasdaq futures)"),
+            new Indicator("VOL", "Volume", "#8FA3C0", "MT5 tick volume per candle, coloured by the estimated buyers / sellers"),
+            new Indicator("VPROF", "Volume profile", "#4DD8FF", "volume by price for the visible candles: POC (most traded price), value area 70 % (VAH / VAL)"),
+            new Indicator("DELTA", "Order flow (est.) — delta + CVD", "#2EE59D", "buyers − sellers per candle and its running total, estimated from MT5 tick volume and where each candle closed in its range"),
+            new Indicator("FIGHT", "Bulls vs bears", "#FF9F43", "the fight of the last 20 candles: who pushes, absorption (big volume, small candle) and aggressive candles marked"),
+            new Indicator("GAPS", "Daily + weekly opening gaps", "#FFB020", "the open of a day / week away from the last close: a zone until it is filled, its size in price and points • 📊 statistics in this menu"),
+            new Indicator("SETUPS", "SpasiX setups", "#FFC94D", "a sweep of a swing high / low that closes back inside and breaks the sweep candle — arrows, the live setup blinking, its record (2R) on the chart") };
         public static string IndColor(string key) { var i = Indicators.FirstOrDefault(x => x.Key == key); return i != null ? i.Color : "#FFC94D"; }
 
         // ---- what the host gives the chart
@@ -77,7 +88,7 @@ namespace KeystoneMT5
         public List<Mt5Position> Positions = new List<Mt5Position>(); public List<Mt5Order> Orders = new List<Mt5Order>();
         public object Gate = new object(); public ChartTheme Theme = ChartTheme.All[0];
         public Func<DateTime, DateTime> ToView = t => t; public string ZoneName = "SERVER"; public DateTime ServerNow = DateTime.MinValue, QuoteTime = DateTime.MinValue;
-        public int NyOffsetHours = -7;   // NY time = server time + this (IC Markets: server = New York + 7)
+        public int NyOffsetHours = -7; public int ServerOffsetSec = 10800;   // server time = UTC + this (MT5's, sent by the bridge)   // NY time = server time + this (IC Markets: server = New York + 7)
         public HashSet<string> Ind = new HashSet<string>();
         public List<Drawing> Drawings = new List<Drawing>(); public string Tool = ""; public bool Magnet; public string DrawColor = "#FFC94D";
         public string News = ""; public bool NewsHot, TradeOn, Sim; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO";   // AUTO / EACH / SIDE
@@ -170,7 +181,8 @@ namespace KeystoneMT5
                 var t = T(tf >= 1440 ? bt.ToString("dd MMM", IC) : newDay || tf >= 240 ? bt.ToString("dd MMM HH:mm", IC) : bt.ToString("HH:mm", IC), 11, newDay ? textB : axisB); dc.DrawText(t, new Point(x - t.Width / 2, TopPad + plotH + 5));
             }
             dc.PushClip(new RectangleGeometry(new Rect(0, TopPad, plotW, plotH)));
-            if (Ind.Contains("SESS") && tf <= 60) DrawSessions(dc, bars, i0, i1);
+            if (tf <= 60) DrawMarketSessions(dc, bars, i0, i1);
+            if (Ind.Contains("VPROF")) DrawVolumeProfile(dc, bars, i0, i1);
             DrawIndicators(dc, bars, i0, i1);
             // candles
             double bw = Math.Max(1, barW * 0.7); var upB = Br(th.Up); var dnB = Br(th.Down); var upW = P(Br(th.UpWick), 1); var dnW = P(Br(th.DownWick), 1); var upHollow = P(upB, 1.2);
@@ -185,6 +197,9 @@ namespace KeystoneMT5
                 else if (th.Bodies && bw >= 3) dc.DrawRectangle(up ? upBody : dnBody, edgeP, new Rect(x - bw / 2, top, bw, hgt));
                 else dc.DrawRectangle(up ? upB : dnB, null, new Rect(x - bw / 2, top, bw, hgt));
             }
+            if (Ind.Contains("GAPS")) DrawGaps(dc, bars, i0, i1);
+            if (Ind.Contains("VOL") || Ind.Contains("DELTA")) DrawFlow(dc, bars, i0, i1);
+            if (Ind.Contains("FIGHT")) DrawFight(dc, bars, i0, i1);
             liveSetup = false; if (Ind.Contains("SETUPS")) DrawSetups(dc, bars, i0, i1);
             DrawDrawings(dc);
             dc.Pop();
@@ -320,22 +335,6 @@ namespace KeystoneMT5
             }
         }
         // the sessions (NY time): a box over each session's high / low
-        void DrawSessions(DrawingContext dc, List<Mt5Bar> bars, int i0, int i1)
-        {
-            var defs = new[] { Tuple.Create("ASIA", -6.0, 3.0, "#4DD8FF"), Tuple.Create("LONDON", 3.0, 8.0, "#FFE066"), Tuple.Create("NEW YORK", 8.0, 16.0, "#2EE59D") };
-            var days = new HashSet<DateTime>(); for (int i = i0; i <= i1; i++) days.Add(bars[i].Time.AddHours(NyOffsetHours).Date);
-            foreach (var nyDay in days)
-                foreach (var d in defs)
-                {
-                    var s0 = nyDay.AddHours(d.Item2 - NyOffsetHours); var s1 = nyDay.AddHours(d.Item3 - NyOffsetHours);
-                    int a = (int)Math.Ceiling(IndexOf(s0)), b = (int)Math.Floor(IndexOf(s1) - 1e-6); a = Math.Max(0, a); b = Math.Min(bars.Count - 1, b); if (b < a || b < i0 - 1 || a > i1 + 1) continue;
-                    double h = double.MinValue, l = double.MaxValue; for (int j = a; j <= b; j++) { h = Math.Max(h, bars[j].H); l = Math.Min(l, bars[j].L); }
-                    var col = Hex(d.Item4); double x1 = X(a) - barW / 2, x2 = X(b) + barW / 2;
-                    dc.DrawRectangle(Hex(d.Item4, 14), P(Hex(d.Item4, 90), 1, 2, 3), new Rect(x1, Y(h), Math.Max(2, x2 - x1), Math.Max(1, Y(l) - Y(h))));
-                    dc.DrawText(T(d.Item1, 9.5, Hex(d.Item4, 200), false, true), new Point(x1 + 3, Y(h) - 13));
-                }
-        }
-
         // ---- SETUPS: a sweep of a swing high (low) that closes back below (above) it, confirmed when a later close breaks the sweep candle
         sealed class Setup { public int Sweep, Signal, Dir, End; public double Entry, Stop, Target; public int Result; }   // Result 1 = 2R first, −1 = stop first, 0 = open
         List<Setup> setups = new List<Setup>(); string setupKey = "";

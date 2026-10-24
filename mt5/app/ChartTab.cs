@@ -100,6 +100,22 @@ namespace KeystoneMT5
             SetSplit(IntOf(Get(pre + "split", "1"), 1)); PaintBar(); PaintRail();
             return g;
         }
+        // 📊 the gap pool: every daily and weekly opening gap of the loaded history (MT5's D1 / W1 candles)
+        void GapStatsDialog(Pane p)
+        {
+            if (p.Sym == "") return; List<Mt5Bar> d1, w1; double pt; int dg;
+            lock (broker.State.Gate)
+            {
+                var s1 = broker.State.SeriesOf(p.Sym, 1440); var s2 = broker.State.SeriesOf(p.Sym, 10080); d1 = s1.Bars.ToList(); w1 = s2.Bars.ToList();
+                Mt5Symbol sy; broker.State.Symbols.TryGetValue(p.Sym, out sy); pt = sy != null && sy.Point > 0 ? sy.Point : 0.01; dg = sy != null ? sy.Digits : 2;
+                if (!Sim && (d1.Count < 300 || w1.Count < 100)) { broker.Send("BARS|" + p.Sym + "|1440|1500"); broker.Send("BARS|" + p.Sym + "|10080|400"); }
+            }
+            if (!Sim && d1.Count < 300) { Toast("📊 loading " + p.Sym + "'s daily and weekly history from MT5 … open the statistics again in a few seconds"); if (d1.Count < 20) return; }
+            var txt = ChartView.GapStats(d1, pt, dg, "DAILY GAPS") + "\n\n" + ChartView.GapStats(w1, pt, dg, "WEEKLY GAPS") + "\n\na gap = the open of a day (week) minus the last close • filled = the price came back to that close in the same day (week) • tiny gaps under 3 points are left out";
+            var box = new TextBox { Text = txt, IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 12.5, Background = Bg, Foreground = Text, BorderBrush = Line, Padding = new Thickness(10), Margin = new Thickness(0, 10, 0, 0), MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, MinWidth = 640 };
+            Sx.Form(this, "📊 Gaps • " + p.Sym, Sim ? "from the backtest's loaded candles" : "from MT5's daily and weekly candles", box, "OK", null, Amber);
+        }
+
         // ---- 📶 SPREADS (F10): every instrument's spread now, in points and in price, with today's low / average (seen here), coloured
         Border spreadPanel; StackPanel spreadRows; readonly Dictionary<string, List<int>> spreadSeen = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase); DateTime spreadAt = DateTime.MinValue;
         Border BuildSpreadPanel()
@@ -157,7 +173,13 @@ namespace KeystoneMT5
         List<Mi> IndMenu(ChartView v)
         {
             var l = new List<Mi> { Mi.H("indicators on every chart") };
-            foreach (var t in ChartView.Indicators) { var key = t.Key; l.Add(new Mi { Text = t.Name, Hint = t.Key == "ORB" ? "under H1" : t.Key == "SESS" ? "H1 and under" : "", Check = v.Ind.Contains(key), Dot = Sx.B(t.Color), Do = () => ToggleInd(key) }); }
+            foreach (var t in ChartView.Indicators)
+            {
+                var key = t.Key; if (key == "SESS_SYD") { l.Add(Mi.S()); l.Add(Mi.H("market sessions • official hours, summer / winter time automatic")); } else if (key == "VOL") { l.Add(Mi.S()); l.Add(Mi.H("volume & order flow (estimated from MT5 tick volume)")); } else if (key == "SETUPS") { l.Add(Mi.S()); l.Add(Mi.H("signals")); }
+                l.Add(new Mi { Text = t.Name, Hint = t.Key == "ORB" ? "under H1" : t.Key.StartsWith("SESS") ? "H1 and under" : "", Check = v.Ind.Contains(key), Dot = Sx.B(t.Color), Do = () => ToggleInd(key), KeepOpen = false });
+            }
+            l.Add(new Mi("📊", "Gap statistics (daily / weekly) …", () => GapStatsDialog(Act)));
+            l.Add(Mi.S()); l.Add(new Mi("🌐", "All sessions on", () => { foreach (var t in ChartView.Indicators.Where(x => x.Key.StartsWith("SESS"))) { foreach (var p in panes) p.V.Ind.Add(t.Key); Put(ModeKey + "ind." + t.Key, "1"); } PaintBar(); }));
             l.Add(Mi.S()); l.Add(new Mi("⊘", "Turn every indicator off", () => { foreach (var t in ChartView.Indicators) { foreach (var p in panes) p.V.Ind.Remove(t.Key); Put(ModeKey + "ind." + t.Key, "0"); } PaintBar(); }));
             return l;
         }
@@ -298,7 +320,7 @@ namespace KeystoneMT5
                 Mt5Quote q; s.Quotes.TryGetValue(p.Sym, out q); var sym = s.Symbols.ContainsKey(p.Sym) ? s.Symbols[p.Sym] : null;
                 v.Series = se.Loaded ? se : null; v.Symbol = p.Sym; v.Digits = sym != null ? sym.Digits : 2; v.Point = sym != null && sym.Point > 0 ? sym.Point : 0.01; v.TickValue = sym != null && sym.TickValue > 0 ? sym.TickValue : 1; v.TickSize = sym != null && sym.TickSize > 0 ? sym.TickSize : v.Point;
                 v.Bid = q != null ? q.Bid : 0; v.Ask = q != null ? q.Ask : 0; v.QuoteTime = q != null ? q.Time : DateTime.MinValue; v.Positions = s.Positions; v.Orders = s.Orders; v.Currency = s.Account.Currency; v.Gate = s.Gate; v.Lots = Num(lotsBox);
-                v.ToView = conv; v.ZoneName = zn; v.ServerNow = Sim ? s.ServerNow : q != null && q.Time > s.ServerNow ? q.Time : s.ServerNow; v.NyOffsetHours = nyOff; v.TradeOn = trade;
+                v.ToView = conv; v.ZoneName = zn; v.ServerNow = Sim ? s.ServerNow : q != null && q.Time > s.ServerNow ? q.Time : s.ServerNow; v.NyOffsetHours = nyOff; v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = trade;
                 var dl = DrawingsOf(p.Sym); if (!ReferenceEquals(v.Drawings, dl)) v.Drawings = dl;   // the symbol's own drawings (saved)
                 if (Sim) { v.News = ""; v.NewsHot = false; } else { var nw = NewsFor(p.Sym); v.News = nw.Item1; v.NewsHot = nw.Item2; }
                 string f = "F" + v.Digits; var ps = s.Positions.Where(x => string.Equals(x.Symbol, p.Sym, StringComparison.OrdinalIgnoreCase)).ToList(); double pl = ps.Sum(x => x.Profit + x.Swap);

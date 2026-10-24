@@ -184,7 +184,7 @@ namespace KeystoneMT5
             int result = 0;
             var w = new Window { WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, ResizeMode = ResizeMode.NoResize, SizeToContent = SizeToContent.WidthAndHeight, ShowInTaskbar = owner == null, Topmost = owner == null, Title = "SpasiX", FontFamily = Face };
             try { if (owner != null && owner.IsLoaded) { w.Owner = owner; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; } else w.WindowStartupLocation = WindowStartupLocation.CenterScreen; } catch { w.WindowStartupLocation = WindowStartupLocation.CenterScreen; }
-            var sp = new StackPanel { MaxWidth = 520 };
+            var sp = new StackPanel { MaxWidth = extra != null && extra.MinWidth > 500 ? extra.MinWidth + 20 : 520 };
             var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
             head.Children.Add(new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(15), Background = Tint(tone, 50), BorderBrush = tone, BorderThickness = new Thickness(1.4), Margin = new Thickness(0, 0, 10, 0), Child = new TextBlock { Text = "S", Foreground = tone, FontWeight = FontWeights.Bold, FontSize = 15, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
             head.Children.Add(new TextBlock { Text = title, Foreground = tone, FontSize = 16, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 });
