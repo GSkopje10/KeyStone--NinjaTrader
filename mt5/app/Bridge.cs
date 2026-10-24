@@ -44,6 +44,12 @@ namespace KeystoneMT5
         public List<Mt5Position> Positions = new List<Mt5Position>();
         public List<Mt5Order> Orders = new List<Mt5Order>();
         public int BridgeVersion;
+        // what the bridge allows (CAN|AllowTrading|terminal Algo Trading|EA Algo Trading|max lots|server − GMT seconds|server time)
+        public bool AllowInput, AlgoTerminal, AlgoEa; public double MaxLots = 5; public int ServerOffsetSec = 7200; public DateTime ServerNow = DateTime.MinValue;
+        public bool CanTrade { get { return BridgeVersion >= 3 && AllowInput && AlgoTerminal && AlgoEa; } }
+        public readonly List<string> AllSymbols = new List<string>(); List<string> allIn;
+        // the answers to the app's commands (RES|id|OK/FAIL|retcode|text|ticket), newest last
+        public readonly List<Tuple<string, bool, string>> Results = new List<Tuple<string, bool, string>>();
         // candles per symbol + timeframe (BARS|symbol|minutes|n … B|time|o|h|l|c|v … BARSEND)
         public readonly Dictionary<string, BarSeries> Series = new Dictionary<string, BarSeries>(StringComparer.OrdinalIgnoreCase);
         List<Mt5Bar> barsIn; string barsKey;
@@ -75,6 +81,12 @@ namespace KeystoneMT5
                         if (barsIn != null && a.Length >= 3 && barsKey == Key(a[1], (int)L(a[2]))) { var se = SeriesOf(a[1], (int)L(a[2])); if (barsIn.Count > 0) se.Merge(barsIn); }
                         barsIn = null; barsKey = null; break;
                     case "BYE": Linked = false; break;
+                    case "CAN":
+                        if (a.Length >= 7) { AllowInput = a[1] == "1"; AlgoTerminal = a[2] == "1"; AlgoEa = a[3] == "1"; MaxLots = D(a[4]); ServerOffsetSec = (int)L(a[5]); ServerNow = Unix(L(a[6])); }
+                        break;
+                    case "RES": if (a.Length >= 6) Results.Add(Tuple.Create(a[1], a[2] == "OK", a[4])); if (Results.Count > 200) Results.RemoveRange(0, 100); break;
+                    case "ALLSYMS": if (allIn == null) allIn = new List<string>(); if (a.Length >= 2) allIn.AddRange(a[1].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)); break;
+                    case "ALLSYMSEND": if (allIn != null) { AllSymbols.Clear(); AllSymbols.AddRange(allIn.OrderBy(x => x)); allIn = null; } break;
                     case "SYM":
                         if (a.Length < 11) return;
                         Symbols[a[1]] = new Mt5Symbol { Name = a[1], Digits = (int)L(a[2]), Contract = D(a[3]), VolMin = D(a[4]), VolStep = D(a[5]), VolMax = D(a[6]), Point = D(a[7]), TickValue = D(a[8]), TickSize = D(a[9]), Description = a[10] };
@@ -146,6 +158,14 @@ namespace KeystoneMT5
         }
         void Fire() { var h = Changed; if (h != null) try { h(); } catch { } }
         public bool Send(string line) { lock (sendGate) { if (writer == null) return false; try { writer.WriteLine(line); return true; } catch { return false; } } }
+        int cmdSeq;
+        // a trading command with its own id (the answer comes back as RES|id|…): ORDER|id|sym|kind|lots|price|sl|tp, CLOSE|id|ticket|lots, …
+        public string Command(string cmd, params object[] args)
+        {
+            string id = "C" + Interlocked.Increment(ref cmdSeq);
+            var parts = new List<string> { cmd, id }; foreach (var x in args) parts.Add(x is double ? ((double)x).ToString("0.########", CultureInfo.InvariantCulture) : Convert.ToString(x, CultureInfo.InvariantCulture));
+            return Send(string.Join("|", parts)) ? id : null;
+        }
         public void Dispose() { stop = true; try { if (listener != null) listener.Stop(); } catch { } try { if (client != null) client.Close(); } catch { } }
     }
 }

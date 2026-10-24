@@ -1,16 +1,23 @@
 //+------------------------------------------------------------------+
-//| SpasiXBridge.mq5 — connects MetaTrader 5 to the SpasiX MT5 app   |
-//| app on this PC (127.0.0.1). READ ONLY — it sends the account,    |
-//| the prices, the open positions / orders and candles. It contains |
-//| no trading function: it cannot open, change or close anything.   |
+//| SpasiXBridge.mq5 — connects MetaTrader 5 to the SpasiX app on    |
+//| this PC (127.0.0.1): the account, prices, positions / orders and |
+//| candles go to the app. TRADING only when YOU allow it twice:     |
+//| the input AllowTrading = true here AND the ARM button in SpasiX. |
+//| Every command is answered (RES) with MT5's own result.           |
 //+------------------------------------------------------------------+
 #property copyright "SpasiX"
-#property version   "2.00"
-#property description "SpasiX MT5 bridge (read only: account, prices, positions, candles)"
+#property version   "3.00"
+#property description "SpasiX bridge: prices, positions, candles • trading only with AllowTrading = true + ARM in the app"
+#include <Trade\Trade.mqh>
 
 input string AppHost = "127.0.0.1";   // the SpasiX MT5 app (this PC)
 input int    AppPort = 47123;         // its port
 input string Symbols = "";            // symbols to stream, e.g. XAUUSD,US30 (empty = every symbol in Market Watch)
+input bool   AllowTrading = false;    // allow SpasiX to send orders (false = read only)
+input double MaxLotsPerOrder = 5.0;   // the most lots one order may have
+input int    MaxDeviationPoints = 30; // the most slippage accepted on market orders (points)
+
+CTrade trade;
 
 int      sock    = INVALID_HANDLE;
 datetime lastTry = 0;
@@ -19,7 +26,8 @@ int      beats   = 0;
 
 int OnInit()
   {
-   EventSetMillisecondTimer(200);
+   EventSetMillisecondTimer(100);
+   trade.SetDeviationInPoints(MaxDeviationPoints); trade.SetExpertMagicNumber(770077); trade.SetAsyncMode(false);
    Comment("SpasiX: starting…");
    return(INIT_SUCCEEDED);
   }
@@ -77,7 +85,7 @@ bool Connect()
       return(false);
      }
    Comment("SpasiX: connected to the app");
-   SendLine("HELLO|2|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
+   SendLine("HELLO|3|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
    SendSymbols();
    return(true);
   }
@@ -104,6 +112,8 @@ void SendAll()
                 + (AccountInfoInteger(ACCOUNT_MARGIN_MODE) == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING ? "HEDGE" : "NET") + "|" + (TerminalInfoInteger(TERMINAL_CONNECTED) ? "1" : "0") + "|"
                 + (AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO ? "DEMO" : AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_CONTEST ? "CONTEST" : "REAL");
    if(!SendLine(acc)) return;
+   SendLine("CAN|" + (AllowTrading ? "1" : "0") + "|" + (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? "1" : "0") + "|" + (MQLInfoInteger(MQL_TRADE_ALLOWED) ? "1" : "0") + "|" + DoubleToString(MaxLotsPerOrder, 2)
+            + "|" + IntegerToString((long)(TimeTradeServer() - TimeGMT())) + "|" + IntegerToString((long)TimeTradeServer()));
    // the prices
    string list[]; int n = SymbolList(list); string batch = "";
    for(int i = 0; i < n; i++)
@@ -163,7 +173,103 @@ void SendBars(string sym, int m, int count)
    SendLine(b);
   }
 
-// messages from the app (no trading command exists)
+// ---- trading (only with AllowTrading = true and the app ARMED; the app never sends a command while disarmed)
+void Res(string id, bool ok, string text, long ticket)
+  {
+   SendLine("RES|" + id + "|" + (ok ? "OK" : "FAIL") + "|" + IntegerToString((long)trade.ResultRetcode()) + "|" + Clean(text) + "|" + IntegerToString(ticket));
+  }
+bool CanTrade(string id)
+  {
+   if(!AllowTrading) { Res(id, false, "trading is OFF in the bridge: chart ▸ Expert list ▸ SpasiXBridge ▸ Properties ▸ Inputs ▸ AllowTrading = true", 0); return(false); }
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) { Res(id, false, "turn ON Algo Trading in the MT5 toolbar", 0); return(false); }
+   if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) { Res(id, false, "tick 'Allow Algo Trading' in the bridge's properties (Common tab)", 0); return(false); }
+   return(true);
+  }
+double Lots(string sym, double lots)
+  {
+   double step = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP), mn = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN), mx = MathMin(SymbolInfoDouble(sym, SYMBOL_VOLUME_MAX), MaxLotsPerOrder);
+   if(step <= 0) step = 0.01; lots = MathFloor(lots / step + 1e-9) * step; if(lots < mn) lots = mn; if(lots > mx) lots = mx;
+   return(NormalizeDouble(lots, 2));
+  }
+double Px(string sym, double p) { if(p <= 0) return(0); return(NormalizeDouble(p, (int)SymbolInfoInteger(sym, SYMBOL_DIGITS))); }
+string Why(bool ok) { return(ok ? "done" : trade.ResultRetcodeDescription()); }
+
+void DoOrder(string id, string sym, string kind, double lots, double price, double sl, double tp)
+  {
+   if(!CanTrade(id)) return;
+   if(lots > MaxLotsPerOrder + 1e-9) { Res(id, false, "more than MaxLotsPerOrder (" + DoubleToString(MaxLotsPerOrder, 2) + ")", 0); return; }
+   SymbolSelect(sym, true); trade.SetTypeFillingBySymbol(sym);
+   double v = Lots(sym, lots); sl = Px(sym, sl); tp = Px(sym, tp); price = Px(sym, price); bool ok = false; string c = "SpasiX";
+   if(kind == "BUY") ok = trade.Buy(v, sym, 0, sl, tp, c);
+   else if(kind == "SELL") ok = trade.Sell(v, sym, 0, sl, tp, c);
+   else if(kind == "BUY LIMIT") ok = trade.BuyLimit(v, price, sym, sl, tp, ORDER_TIME_GTC, 0, c);
+   else if(kind == "SELL LIMIT") ok = trade.SellLimit(v, price, sym, sl, tp, ORDER_TIME_GTC, 0, c);
+   else if(kind == "BUY STOP") ok = trade.BuyStop(v, price, sym, sl, tp, ORDER_TIME_GTC, 0, c);
+   else if(kind == "SELL STOP") ok = trade.SellStop(v, price, sym, sl, tp, ORDER_TIME_GTC, 0, c);
+   else { Res(id, false, "unknown order type " + kind, 0); return; }
+   long tk = (long)(trade.ResultOrder() > 0 ? trade.ResultOrder() : trade.ResultDeal());
+   Res(id, ok && (trade.ResultRetcode() == TRADE_RETCODE_DONE || trade.ResultRetcode() == TRADE_RETCODE_PLACED || trade.ResultRetcode() == TRADE_RETCODE_DONE_PARTIAL), kind + " " + DoubleToString(v, 2) + " " + sym + ": " + Why(ok), tk);
+  }
+bool CloseOne(ulong tk, double lots)
+  {
+   if(!PositionSelectByTicket(tk)) return(false);
+   string sym = PositionGetString(POSITION_SYMBOL); trade.SetTypeFillingBySymbol(sym);
+   double v = PositionGetDouble(POSITION_VOLUME);
+   if(lots > 0 && lots < v - 1e-9) return(trade.PositionClosePartial(tk, Lots(sym, lots)));
+   return(trade.PositionClose(tk));
+  }
+// which: ALL / BUY / SELL / PROFIT / LOSS • sym empty = every symbol
+void DoCloseAll(string id, string sym, string which)
+  {
+   if(!CanTrade(id)) return;
+   int done = 0, fail = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong tk = PositionGetTicket(i); if(tk == 0) continue;
+      if(StringLen(sym) > 0 && PositionGetString(POSITION_SYMBOL) != sym) continue;
+      long ty = PositionGetInteger(POSITION_TYPE); double pl = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+      if(which == "BUY" && ty != POSITION_TYPE_BUY) continue; if(which == "SELL" && ty != POSITION_TYPE_SELL) continue;
+      if(which == "PROFIT" && pl <= 0) continue; if(which == "LOSS" && pl >= 0) continue;
+      if(CloseOne(tk, 0)) done++; else fail++;
+     }
+   Res(id, fail == 0, "closed " + IntegerToString(done) + (fail > 0 ? " • " + IntegerToString(fail) + " failed: " + trade.ResultRetcodeDescription() : ""), done);
+  }
+// breakeven: the stop to the entry ± offset points on every position of sym / which that is in profit by more than that
+void DoBreakeven(string id, string sym, string which, int offPts)
+  {
+   if(!CanTrade(id)) return;
+   int done = 0, skip = 0, fail = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong tk = PositionGetTicket(i); if(tk == 0) continue; string s0 = PositionGetString(POSITION_SYMBOL);
+      if(StringLen(sym) > 0 && s0 != sym) continue; long ty = PositionGetInteger(POSITION_TYPE);
+      if(which == "BUY" && ty != POSITION_TYPE_BUY) continue; if(which == "SELL" && ty != POSITION_TYPE_SELL) continue;
+      double pt = SymbolInfoDouble(s0, SYMBOL_POINT), op = PositionGetDouble(POSITION_PRICE_OPEN), cur = PositionGetDouble(POSITION_PRICE_CURRENT), tp = PositionGetDouble(POSITION_TP), sl = PositionGetDouble(POSITION_SL);
+      double be = ty == POSITION_TYPE_BUY ? op + offPts * pt : op - offPts * pt;
+      bool inProfit = ty == POSITION_TYPE_BUY ? cur > be + pt : cur < be - pt;
+      bool better = sl == 0 || (ty == POSITION_TYPE_BUY ? be > sl : be < sl);
+      if(!inProfit || !better) { skip++; continue; }
+      if(trade.PositionModify(tk, Px(s0, be), tp)) done++; else fail++;
+     }
+   Res(id, fail == 0, "breakeven on " + IntegerToString(done) + " • " + IntegerToString(skip) + " not in profit / already better" + (fail > 0 ? " • " + IntegerToString(fail) + " failed: " + trade.ResultRetcodeDescription() : ""), done);
+  }
+void DoCancelAll(string id, string sym)
+  {
+   if(!CanTrade(id)) return;
+   int done = 0, fail = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--) { ulong tk = OrderGetTicket(i); if(tk == 0) continue; if(StringLen(sym) > 0 && OrderGetString(ORDER_SYMBOL) != sym) continue; if(trade.OrderDelete(tk)) done++; else fail++; }
+   Res(id, fail == 0, "cancelled " + IntegerToString(done) + " order(s)" + (fail > 0 ? " • " + IntegerToString(fail) + " failed" : ""), done);
+  }
+
+// every symbol of the broker (for the app's + button) and Market Watch changes
+void SendAllSymbols()
+  {
+   int total = SymbolsTotal(false); string b = "";
+   for(int i = 0; i < total; i++) { b += (StringLen(b) > 0 ? "," : "") + SymbolName(i, false); if(StringLen(b) > 30000) { SendLine("ALLSYMS|" + b); b = ""; } }
+   SendLine("ALLSYMS|" + b); SendLine("ALLSYMSEND");
+  }
+
+// messages from the app
 void ReadApp()
   {
    if(sock == INVALID_HANDLE) return;
@@ -177,14 +283,29 @@ void ReadApp()
       if(line == "PING") SendLine("PONG");
       else if(line == "SYMBOLS") SendSymbols();
       else if(StringFind(line, "BARS|") == 0) { string p2[]; if(StringSplit(line, '|', p2) >= 4) SendBars(p2[1], (int)StringToInteger(p2[2]), (int)StringToInteger(p2[3])); }
+      else if(line == "ALLSYMS") SendAllSymbols();
+      else if(StringFind(line, "WATCH|") == 0) { SymbolSelect(StringSubstr(line, 6), true); SendSymbols(); }
+      else
+        {
+         string a[]; int n = StringSplit(line, '|', a); if(n < 2) continue; string cmd = a[0], id = a[1];
+         if(cmd == "ORDER" && n >= 8) DoOrder(id, a[2], a[3], StringToDouble(a[4]), StringToDouble(a[5]), StringToDouble(a[6]), StringToDouble(a[7]));
+         else if(cmd == "CLOSE" && n >= 4) { if(!CanTrade(id)) continue; bool ok = CloseOne((ulong)StringToInteger(a[2]), StringToDouble(a[3])); Res(id, ok, "close #" + a[2] + ": " + Why(ok), StringToInteger(a[2])); }
+         else if(cmd == "CLOSEALL" && n >= 4) DoCloseAll(id, a[2], a[3]);
+         else if(cmd == "MODIFY" && n >= 5) { if(!CanTrade(id)) continue; ulong tk = (ulong)StringToInteger(a[2]); string sym = PositionSelectByTicket(tk) ? PositionGetString(POSITION_SYMBOL) : ""; bool ok = sym != "" && trade.PositionModify(tk, Px(sym, StringToDouble(a[3])), Px(sym, StringToDouble(a[4]))); Res(id, ok, "S/L T/P #" + a[2] + ": " + (sym == "" ? "no such position" : Why(ok)), (long)tk); }
+         else if(cmd == "MODORD" && n >= 6) { if(!CanTrade(id)) continue; ulong tk = (ulong)StringToInteger(a[2]); string sym = OrderSelect(tk) ? OrderGetString(ORDER_SYMBOL) : ""; bool ok = sym != "" && trade.OrderModify(tk, Px(sym, StringToDouble(a[3])), Px(sym, StringToDouble(a[4])), Px(sym, StringToDouble(a[5])), ORDER_TIME_GTC, 0); Res(id, ok, "order #" + a[2] + ": " + (sym == "" ? "no such order" : Why(ok)), (long)tk); }
+         else if(cmd == "CANCEL" && n >= 3) { if(!CanTrade(id)) continue; bool ok = trade.OrderDelete((ulong)StringToInteger(a[2])); Res(id, ok, "cancel #" + a[2] + ": " + Why(ok), StringToInteger(a[2])); }
+         else if(cmd == "CANCELALL" && n >= 3) DoCancelAll(id, a[2]);
+         else if(cmd == "BE" && n >= 5) DoBreakeven(id, a[2], a[3], (int)StringToInteger(a[4]));
+        }
      }
   }
 
 void OnTimer()
   {
    if(!Connect()) return;
-   ReadApp();
-   SendAll();
-   if(++beats % 150 == 0) SendSymbols();   // every 30 s: new Market Watch symbols too
+   ReadApp();                                // commands every 100 ms
+   beats++;
+   if(beats % 2 == 0) SendAll();              // the state every 200 ms
+   if(beats % 300 == 0) SendSymbols();        // every 30 s: new Market Watch symbols too
   }
 //+------------------------------------------------------------------+

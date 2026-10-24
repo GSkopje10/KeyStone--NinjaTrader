@@ -2,7 +2,7 @@
 
 A modern Windows platform for MetaTrader 5 (IC Markets): live trading with lots and hedging, and backtesting.
 
-- `dist/SpasiXMT5.exe` — the app (needs the free **.NET 8 Desktop Runtime**; Windows offers it on the first start).
+- `dist/SpasiX.exe` — the app (needs the free **.NET 8 Desktop Runtime**; Windows offers it on the first start).
 - `dist/SpasiXBridge.mq5` — the bridge EA in MT5: it streams the account, prices, positions and orders to the app on 127.0.0.1.
 - `app/` — the app's source (WPF, .NET 8). `tests/` — the bridge tested against a fake MT5 (`dotnet run` in `tests/`).
 

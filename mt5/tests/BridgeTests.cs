@@ -39,6 +39,17 @@ public static class BridgeTests
             send("BARS|XAUUSD|60|1\nB|" + u(7) + "|3997.50|3999.00|3997.00|3998.25|50\nBARSEND|XAUUSD|60"); Thread.Sleep(200);
             Check(se.Bars.Count == 4 && se.Bars[3].O == 3997.5 && se.Bars[3].C == 3998.25, "MT5's own candle replaces the one built from ticks (same time)");
             Check(KeystoneMT5.Tf.Start(new DateTime(2026, 10, 23, 13, 47, 0), 240) == new DateTime(2026, 10, 23, 12, 0, 0) && KeystoneMT5.Tf.Start(new DateTime(2026, 10, 23, 13, 47, 0), 15) == new DateTime(2026, 10, 23, 13, 45, 0), "H4 / M15 candle starts (from the server's midnight)");
+            // v3: what the bridge allows, MT5's answers, the broker's symbols, the trading commands the app sends
+            send("HELLO|3|Raw Trading Ltd|5000"); send("CAN|1|1|0|5.00|10800|" + u(9)); Thread.Sleep(200);
+            Check(s.BridgeVersion == 3 && s.AllowInput && s.AlgoTerminal && !s.AlgoEa && !s.CanTrade && s.ServerOffsetSec == 10800, "CAN → trading needs all three switches (here the EA's Algo Trading is off → read only)");
+            send("CAN|1|1|1|5.00|10800|" + u(9)); Thread.Sleep(200); Check(s.CanTrade, "all three on → the bridge allows trading");
+            send("RES|C7|OK|10009|BUY 0.10 XAUUSD: done|3524009999"); send("RES|C8|FAIL|10016|S/L T/P #1: invalid stops|1"); Thread.Sleep(200);
+            Check(s.Results.Count == 2 && s.Results[0].Item1 == "C7" && s.Results[0].Item2 && !s.Results[1].Item2 && s.Results[1].Item3.Contains("invalid stops"), "RES → MT5's answers (done / invalid stops)");
+            send("ALLSYMS|XAUUSD,EURUSD,US30"); send("ALLSYMS|BTCUSD"); send("ALLSYMSEND"); Thread.Sleep(200);
+            Check(s.AllSymbols.Count == 4 && s.AllSymbols[0] == "BTCUSD", "ALLSYMS … ALLSYMSEND → every broker symbol, sorted", string.Join(",", s.AllSymbols));
+            var rd = new System.IO.StreamReader(ns); string id = br.Command("ORDER", "XAUUSD", "BUY", 0.10, 0.0, 3990.5, 4010.25);
+            var line = rd.ReadLine(); Check(id != null && line == "ORDER|" + id + "|XAUUSD|BUY|0.1|0|3990.5|4010.25", "an ORDER command goes out with its id and invariant numbers", line);
+            id = br.Command("CLOSEALL", "", "PROFIT"); line = rd.ReadLine(); Check(line == "CLOSEALL|" + id + "||PROFIT", "CLOSEALL (every symbol, the ones in profit)", line);
             send("POSS|0\nPOSEND"); Thread.Sleep(200);
             Check(s.Positions.Count == 0, "an empty block clears the positions");
             send("POSS|1\nP|9|XAUUSD|BUY|0.1"); Thread.Sleep(200);
