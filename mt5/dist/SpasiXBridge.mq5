@@ -172,7 +172,7 @@ ENUM_TIMEFRAMES TfOf(int m)
 void SendBars(string sym, int m, int count)
   {
    MqlRates r[]; ArraySetAsSeries(r, false);
-   int got = CopyRates(sym, TfOf(m), 0, MathMin(MathMax(count, 1), 5000), r); if(got < 0) got = 0;   // 0 = MT5 is still downloading: the app asks again
+   int got = CopyRates(sym, TfOf(m), 0, MathMin(MathMax(count, 1), 100000), r); if(got < 0) got = 0;   // 0 = MT5 is still downloading: the app asks again
    int d = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
    string b = "BARS|" + sym + "|" + IntegerToString(m) + "|" + IntegerToString(got) + "\n";
    for(int i = 0; i < got; i++)

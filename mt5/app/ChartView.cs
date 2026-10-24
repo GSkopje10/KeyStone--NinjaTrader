@@ -549,7 +549,7 @@ namespace KeystoneMT5
                 {
                     bool dragged = drag == "TICKET" && dragTicket == p.Ticket;
                     double sl = dragged && dragWhat == "SL" ? dragPrice : p.Sl, tp = dragged && dragWhat == "TP" ? dragPrice : p.Tp;
-                    if (dragged && dragWhat == "NEW") { if ((p.Dir > 0) == (dragPrice < p.Open)) sl = dragPrice; else tp = dragPrice; }
+                    if (dragged && dragWhat == "NEW") { if (StopSide(p.Dir, dragPrice)) sl = dragPrice; else tp = dragPrice; }
                     double pl = p.Profit + p.Swap;
                     tags.Add(new TagRow { Y = Y(p.Open), Price = p.Open, Text = (p.Dir > 0 ? "BUY " : "SELL ") + p.Lots.ToString("0.00", IC) + " at " + F(p.Open), Money = Money(pl), Kind = "POS", Key = "POS:" + p.Ticket, Col = col, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet });
                     if (sl > 0) tags.Add(new TagRow { Y = Y(sl), Price = sl, Text = "S/L " + F(sl), Money = Money(Value((sl - p.Open) * p.Dir, p.Lots)), Kind = "SL", Key = "SL:" + p.Ticket, Col = SellC, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet && !dragged });
@@ -581,13 +581,13 @@ namespace KeystoneMT5
                 double hk = (now - hoverAt).TotalMilliseconds; bool blink = (flash < 1800 && ((int)(flash / 300)) % 2 == 0) || (hov && hk < 450 && ((int)(hk / 150)) % 2 == 0);
                 var ft = T(t.Text, 10.5, blink ? Br(Theme.Bg) : hov ? WhiteB : Br(t.Col), true);
                 FormattedText mt = t.Money != "" ? T(t.Money, 10.5, blink ? Br(Theme.Bg) : t.Money.StartsWith("+") ? BuyB : t.Money.StartsWith("−") ? SellB : Br(Theme.Text), true) : null;
-                double w = ft.Width + (mt != null ? mt.Width + 12 : 0) + 30, x = 6;
+                double w = ft.Width + (mt != null ? mt.Width + 12 : 0) + 32, x = 6;
                 if (Math.Abs(y - t.Y) > 2) dc.DrawLine(P(Br(t.Col, 120), 1), new Point(x + w, y), new Point(x + w + 10, t.Y));
                 var r = new Rect(x, y - 8.5, w, 17);
                 dc.DrawRoundedRectangle(blink ? Br(t.Col, 220) : hov ? Br(t.Col, 70) : Br(Theme.Plot, 215), hov || blink ? P(Br(t.Col), 1.2) : null, r, 4, 4);
                 dc.DrawText(ft, new Point(x + 5, y - 7)); if (mt != null) dc.DrawText(mt, new Point(x + 5 + ft.Width + 12, y - 7));
-                var xr = new Rect(x + w - 19, y - 7.5, 15, 15); bool xh = hoverKey == "X:" + t.Key;
-                dc.DrawRoundedRectangle(xh ? Br(SellC) : Br(t.Col, 55), null, xr, 4, 4); dc.DrawText(T("✕", 9.5, xh ? WhiteB : Br(t.Col), false, true), new Point(xr.X + 3.3, xr.Y + 0.5));
+                var xr = new Rect(x + w - 21, y - 8.5, 17, 17); bool xh = hoverKey == "X:" + t.Key; bool posX = t.Kind == "POS";
+                dc.DrawRoundedRectangle(xh ? Br(SellC) : posX ? Br(SellC, 190) : Br(t.Col, 70), xh ? P(WhiteB, 1) : null, xr, 5, 5); dc.DrawText(T("✕", 10.5, WhiteB, true, true), new Point(xr.X + 3.6, xr.Y + 0.8));
                 long tk = t.Ticket; string kind = t.Kind;
                 var pos = mine.FirstOrDefault(p => p.Ticket == tk); var ord = ords.FirstOrDefault(o => o.Ticket == tk);
                 hits.Add(new ChartHit { R = xr, Kind = "X", Key = "X:" + t.Key, Ticket = tk, Click = () =>
@@ -599,7 +599,7 @@ namespace KeystoneMT5
                     else if (kind == "OSL" && ord != null && ModifyOrder != null) ModifyOrder(tk, ord.Price, 0, ord.Tp);
                     else if (kind == "OTP" && ord != null && ModifyOrder != null) ModifyOrder(tk, ord.Price, ord.Sl, 0);
                 } });
-                hits.Add(new ChartHit { R = new Rect(x, y - 8.5, w - 21, 17), Kind = kind, Key = t.Key, Ticket = tk });
+                hits.Add(new ChartHit { R = new Rect(x, y - 8.5, w - 23, 17), Kind = kind, Key = t.Key, Ticket = tk });
             }
         }
         bool HoverIs(TagRow t) { return hoverKey == t.Key || hoverKey == "X:" + t.Key; }
@@ -639,16 +639,16 @@ namespace KeystoneMT5
             // a ticket / S/L / T/P / order line within 4 px
             foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)))
             {
-                if (ps.Sl > 0 && Math.Abs(p.Y - Y(ps.Sl)) <= 4) { ticket = ps.Ticket; kind = "SL"; key = "SL:" + ps.Ticket; return "LINE"; }
-                if (ps.Tp > 0 && Math.Abs(p.Y - Y(ps.Tp)) <= 4) { ticket = ps.Ticket; kind = "TP"; key = "TP:" + ps.Ticket; return "LINE"; }
+                if (ps.Sl > 0 && Math.Abs(p.Y - Y(ps.Sl)) <= 6) { ticket = ps.Ticket; kind = "SL"; key = "SL:" + ps.Ticket; return "LINE"; }
+                if (ps.Tp > 0 && Math.Abs(p.Y - Y(ps.Tp)) <= 6) { ticket = ps.Ticket; kind = "TP"; key = "TP:" + ps.Ticket; return "LINE"; }
             }
             foreach (var o in Orders.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)))
             {
-                if (Math.Abs(p.Y - Y(o.Price)) <= 4) { ticket = o.Ticket; kind = "ORD"; key = "ORD:" + o.Ticket; return "LINE"; }
-                if (o.Sl > 0 && Math.Abs(p.Y - Y(o.Sl)) <= 4) { ticket = o.Ticket; kind = "OSL"; key = "OSL:" + o.Ticket; return "LINE"; }
-                if (o.Tp > 0 && Math.Abs(p.Y - Y(o.Tp)) <= 4) { ticket = o.Ticket; kind = "OTP"; key = "OTP:" + o.Ticket; return "LINE"; }
+                if (Math.Abs(p.Y - Y(o.Price)) <= 6) { ticket = o.Ticket; kind = "ORD"; key = "ORD:" + o.Ticket; return "LINE"; }
+                if (o.Sl > 0 && Math.Abs(p.Y - Y(o.Sl)) <= 6) { ticket = o.Ticket; kind = "OSL"; key = "OSL:" + o.Ticket; return "LINE"; }
+                if (o.Tp > 0 && Math.Abs(p.Y - Y(o.Tp)) <= 6) { ticket = o.Ticket; kind = "OTP"; key = "OTP:" + o.Ticket; return "LINE"; }
             }
-            foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))) if (Math.Abs(p.Y - Y(ps.Open)) <= 3) { ticket = ps.Ticket; kind = "POS"; key = "POS:" + ps.Ticket; return "LINE"; }
+            foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))) if (Math.Abs(p.Y - Y(ps.Open)) <= 5) { ticket = ps.Ticket; kind = "POS"; key = "POS:" + ps.Ticket; return "LINE"; }
             string part; var d = DrawingAt(p, out part); if (d != null) { key = "DRAW:" + Drawings.IndexOf(d); kind = part; return "DRAWING"; }
             return "PLOT";
         }
@@ -707,7 +707,7 @@ namespace KeystoneMT5
                 long tk = 0; string kind = "", key = ""; string what = Series == null || Series.Bars.Count == 0 ? "PLOT" : HitAt(p, out tk, out kind, out key);
                 if (key != hoverKey) { hoverKey = key; hoverAt = DateTime.Now; }
                 bool lineDrag = TradeOn && (what == "LINE" || (what == "HIT" && kind != "X"));
-                Cursor = what == "HIT" && kind == "X" ? Cursors.Hand : what == "HIT" ? (TradeOn ? Cursors.SizeNS : Cursors.Hand) : what == "PRICEAXIS" ? Cursors.SizeNS : what == "TIMEAXIS" ? Cursors.SizeWE : lineDrag ? Cursors.SizeNS : what == "LINE" ? Cursors.Hand : what == "DRAWING" ? (kind == "BODY" ? Cursors.SizeAll : Cursors.Cross) : Tool != "" || (PickKind != "" && double.IsNaN(PickPrice)) ? Cursors.Pen : Cursors.Cross;
+                Cursor = what == "HIT" && kind == "X" ? Cursors.Hand : what == "HIT" ? Cursors.Hand : what == "PRICEAXIS" ? Cursors.SizeNS : what == "TIMEAXIS" ? Cursors.SizeWE : lineDrag ? Cursors.Hand : what == "LINE" ? Cursors.Hand : what == "DRAWING" ? (kind == "BODY" ? Cursors.SizeAll : Cursors.Cross) : Tool != "" || (PickKind != "" && double.IsNaN(PickPrice)) ? Cursors.Pen : Cursors.Cross;
             }
             else
             {
@@ -719,7 +719,7 @@ namespace KeystoneMT5
                 }
                 else if (drag == "AXIS" && !double.IsNaN(dragHi)) { auto = false; double k = Math.Exp(dy / 160.0), mid = (dragHi + dragLo) / 2; mHi = mid + rng * k / 2; mLo = mid - rng * k / 2; }
                 else if (drag == "TIME") barW = Math.Max(1.2, Math.Min(80, dragBarW * Math.Exp((dragFrom.X - p.X) / 180.0)));   // drag LEFT = zoom in (wider candles), RIGHT = zoom out (more candles)
-                else if (drag == "TICKET" || drag == "ORDER") dragPrice = Math.Round(PriceAt(p.Y) / Point) * Point;
+                else if (drag == "TICKET" || drag == "ORDER") { Cursor = Cursors.SizeNS; dragPrice = Math.Round(PriceAt(p.Y) / Point) * Point; }
                 else if (drag == "NEWDRAW" && newDraw != null)
                 {
                     newDraw.T2 = TimeAt(IndexAt(p.X)); double pr = Snap(p, PriceAt(p.Y));
@@ -748,6 +748,8 @@ namespace KeystoneMT5
             }
             InvalidateVisual();
         }
+        // a price on the losing side of the market now (a buy: under the bid; a sell: over the ask) = a stop, else a target
+        bool StopSide(int dir, double price) { return dir > 0 ? price < (Bid > 0 ? Bid : price + 1) : price > (Ask > 0 ? Ask : price - 1); }
         protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
         {
             var was = drag; drag = null; ReleaseMouseCapture();
@@ -757,7 +759,7 @@ namespace KeystoneMT5
                 if (ps != null && ModifyTicket != null && !double.IsNaN(pr) && Math.Abs(pr - (dragWhat == "SL" ? ps.Sl : dragWhat == "TP" ? ps.Tp : ps.Open)) > Point / 2)
                 {
                     double sl = ps.Sl, tp = ps.Tp;
-                    if (dragWhat == "SL") sl = pr; else if (dragWhat == "TP") tp = pr; else if ((ps.Dir > 0) == (pr < ps.Open)) sl = pr; else tp = pr;
+                    if (dragWhat == "SL") sl = pr; else if (dragWhat == "TP") tp = pr; else if (StopSide(ps.Dir, pr)) sl = pr; else tp = pr;   // from the entry line: ALWAYS — the losing side of the price = the stop (it can lock profit), the other side = the target
                     bool bad = ps.Dir > 0 ? (sl > 0 && sl >= Bid) || (tp > 0 && tp <= Bid) : (sl > 0 && sl <= Ask) || (tp > 0 && tp >= Ask);
                     if (bad) { if (Toast != null) Toast("a stop must be on the losing side of the price, a target on the winning side"); } else ModifyTicket(ps.Ticket, sl, tp);
                 }

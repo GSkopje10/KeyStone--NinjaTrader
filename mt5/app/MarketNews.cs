@@ -197,6 +197,60 @@ namespace KeystoneMT5
             return d;
         }
         static void SaveNewsCache(List<NewsEvent> l) { try { System.IO.Directory.CreateDirectory(Dir); System.IO.File.WriteAllLines(NewsCache, l.Select(e => e.Utc.Ticks + "\t" + e.Currency + "\t" + e.Impact + "\t" + (e.Title ?? "").Replace("\t", " ") + "\t" + e.Forecast + "\t" + e.Previous)); } catch { } }
+        // ---- the header's news badge: the next HIGH-impact event; from 5 minutes before it: big, red, flashing (+ a pop-up once); back to normal after it
+        Border newsBadge; TextBlock newsBadgeCap, newsBadgeText; bool newsHotOn; readonly HashSet<string> newsAlerted = new HashSet<string>(); Window newsAlertWin;
+        FrameworkElement BuildNewsBadge()
+        {
+            newsBadgeCap = new TextBlock { Text = "📰 NEXT HIGH IMPACT", Foreground = Orange, FontSize = 9, FontWeight = FontWeights.Bold };
+            newsBadgeText = new TextBlock { Text = "—", Foreground = Text, FontSize = 12.5, FontWeight = FontWeights.Bold, MaxWidth = 300, TextTrimming = TextTrimming.CharacterEllipsis };
+            var st = new StackPanel(); st.Children.Add(newsBadgeCap); st.Children.Add(newsBadgeText);
+            newsBadge = new Border { Child = st, Background = Tint(Orange, 26), BorderBrush = Tint(Orange, 120), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 2, 9, 3), Margin = new Thickness(5, 0, 0, 0), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "the next high-impact event (ForexFactory) • click = 📰 NEWS" };
+            newsBadge.MouseLeftButtonUp += delegate { Show("NEWS"); };
+            return newsBadge;
+        }
+        void PaintNewsBadge()
+        {
+            if (newsBadge == null) return; var nowU = DateTime.UtcNow;
+            var n = news.Where(x => x.Impact == "High" && x.Utc >= nowU.AddMinutes(-2)).OrderBy(x => x.Utc).FirstOrDefault();
+            if (n == null) { newsBadgeText.Text = news.Count == 0 ? "loading …" : "none this week"; SetNewsHot(false); return; }
+            var left = n.Utc - nowU; string zn; var conv = ZoneConv(broker.State, out zn); var local = conv(n.Utc.AddSeconds(broker.State.ServerOffsetSec));
+            bool hot = left.TotalMinutes <= 5 && left.TotalMinutes >= -2;
+            newsBadgeCap.Text = hot ? (left.TotalSeconds > 0 ? "⚠ HIGH IMPACT NEWS IN " + ((int)left.TotalMinutes) + ":" + left.Seconds.ToString("00") : "⚠ HIGH IMPACT NEWS — RELEASED") : "📰 NEXT HIGH IMPACT • " + local.ToString("ddd HH:mm", IC) + " " + zn;
+            newsBadgeText.Text = n.Currency + " " + n.Title + (hot ? "" : " • " + Until(n.Utc));
+            SetNewsHot(hot);
+            string key = n.Utc.Ticks + "|" + n.Currency + "|" + n.Title;
+            if (hot && left.TotalSeconds > 0 && !newsAlerted.Contains(key)) { newsAlerted.Add(key); NewsAlert(n); }
+        }
+        void SetNewsHot(bool on)
+        {
+            if (on == newsHotOn) return; newsHotOn = on;
+            newsBadgeCap.FontSize = on ? 11 : 9; newsBadgeText.FontSize = on ? 15 : 12.5; newsBadgeCap.Foreground = on ? Sx.White : Orange; newsBadge.Padding = on ? new Thickness(12, 4, 12, 5) : new Thickness(8, 2, 9, 3);
+            if (on) { var br = new SolidColorBrush(Red.Color); newsBadge.Background = br; newsBadge.BorderBrush = Sx.White; br.BeginAnimation(SolidColorBrush.ColorProperty, new System.Windows.Media.Animation.ColorAnimation(Red.Color, Color.FromRgb(90, 10, 25), TimeSpan.FromMilliseconds(450)) { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever }); }
+            else { newsBadge.Background = Tint(Orange, 26); newsBadge.BorderBrush = Tint(Orange, 120); }
+        }
+        // the pop-up 5 minutes before: red, big, its own countdown; it closes by itself 3 minutes after the release (or OK)
+        void NewsAlert(NewsEvent n)
+        {
+            try { if (newsAlertWin != null) newsAlertWin.Close(); } catch { }
+            var w = new Window { WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Topmost = true, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner, FontFamily = Sx.Face };
+            var sp = new StackPanel { Width = 460 };
+            sp.Children.Add(new TextBlock { Text = "⚠  HIGH IMPACT NEWS", Foreground = Red, FontSize = 26, FontWeight = FontWeights.Black, HorizontalAlignment = HorizontalAlignment.Center });
+            var cd = new TextBlock { Foreground = Sx.White, FontSize = 44, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 2) }; sp.Children.Add(cd);
+            sp.Children.Add(new TextBlock { Text = n.Currency + "  •  " + n.Title, Foreground = Sx.White, FontSize = 17, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center });
+            sp.Children.Add(new TextBlock { Text = (n.Forecast != "" ? "forecast " + n.Forecast + "   " : "") + (n.Previous != "" ? "previous " + n.Previous : ""), Foreground = Muted, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0) });
+            sp.Children.Add(new TextBlock { Text = "spreads widen and prices jump — check your stops", Foreground = Gold, FontSize = 12.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
+            var ok = Pill("OK", Tint(Red, 200)); ok.Foreground = Sx.White; ok.Height = 36; ok.MinWidth = 120; ok.HorizontalAlignment = HorizontalAlignment.Center; ok.Margin = new Thickness(0, 14, 0, 0); ok.Click += delegate { w.Close(); }; sp.Children.Add(ok);
+            var card = new Border { Child = sp, CornerRadius = new CornerRadius(20), Background = new LinearGradientBrush(Color.FromRgb(46, 8, 18), Color.FromRgb(12, 6, 12), 90), BorderBrush = Red, BorderThickness = new Thickness(2.2), Padding = new Thickness(26, 18, 26, 18), Margin = new Thickness(24),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = Red.Color, BlurRadius = 40, ShadowDepth = 0, Opacity = 0.8 } };
+            card.MouseLeftButtonDown += delegate { try { w.DragMove(); } catch { } };
+            w.Content = card;
+            var tm = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+            tm.Tick += delegate { var left = n.Utc - DateTime.UtcNow; cd.Text = left.TotalSeconds > 0 ? "in " + ((int)left.TotalMinutes) + ":" + left.Seconds.ToString("00") : "RELEASED"; cd.Foreground = left.TotalSeconds > 0 ? Sx.White : Gold; if (left.TotalMinutes < -3) w.Close(); };
+            w.Closed += delegate { tm.Stop(); if (newsAlertWin == w) newsAlertWin = null; }; tm.Start(); newsAlertWin = w;
+            try { System.Media.SystemSounds.Exclamation.Play(); } catch { }
+            try { w.Show(); } catch { }
+        }
+
         // the currencies a symbol moves on
         static string[] CurrenciesOf(string sym)
         {
@@ -236,8 +290,14 @@ namespace KeystoneMT5
             int imp = newsImp;
             var span = news.Where(n => imp == 2 || n.Impact == "High" || (imp == 1 && n.Impact == "Medium"))
                 .Where(n => newsPast ? n.Utc < nowU.AddMinutes(-5) && n.Utc >= nowU.AddDays(-7 * newsWeeks) : n.Utc >= nowU.AddMinutes(-5) && n.Utc <= nowU.AddDays(7 * newsWeeks)).ToList();
-            var byDay = span.GroupBy(n => conv(n.Utc.AddSeconds(off)).Date).OrderBy(g => newsPast ? -g.Key.Ticks : g.Key.Ticks).ToList();
             var today0 = conv(nowU.AddSeconds(off)).Date;
+            // the day pool: 5 trading days a week (Monday – Friday), every one shown even without events — 2 weeks = 10 days
+            var poolDays = new List<DateTime>(); var dd = today0; if (newsPast) dd = dd.AddDays(-1);
+            while (poolDays.Count < 5 * newsWeeks) { if (dd.DayOfWeek != DayOfWeek.Saturday && dd.DayOfWeek != DayOfWeek.Sunday) poolDays.Add(dd); dd = dd.AddDays(newsPast ? -1 : 1); }
+            if (!newsPast && today0.DayOfWeek != DayOfWeek.Saturday && today0.DayOfWeek != DayOfWeek.Sunday && !poolDays.Contains(today0)) poolDays.Insert(0, today0);
+            var grouped = span.GroupBy(n => conv(n.Utc.AddSeconds(off)).Date).ToDictionary(g => g.Key, g => g.ToList());
+            var byDay = poolDays.Select(d => new KeyValuePair<DateTime, List<NewsEvent>>(d, grouped.ContainsKey(d) ? grouped[d] : new List<NewsEvent>())).ToList();
+            span = byDay.SelectMany(x => x.Value).ToList();
             newsHead.Text = newsStatus + "   •   " + (newsPast ? "the last " : "the next ") + WeeksName(newsWeeks).ToLowerInvariant() + " • " + span.Count + " events (" + span.Count(n => n.Impact == "High") + " high) • times in " + Zones[Math.Max(0, zoneIdx)].Item1 + (!newsPast && newsWeeks > 2 ? " • ForexFactory publishes this week and the next" : "");
             // the day sub-tabs
             Action<DateTime, string, int, int> chip = (d, t, n, hi) =>
@@ -251,18 +311,20 @@ namespace KeystoneMT5
                 var dd = d; b.Click += delegate { newsDay = dd; newsSig = ""; }; newsDays.Children.Add(b);
             };
             chip(DateTime.MinValue, "ALL DAYS", span.Count, span.Count(n => n.Impact == "High"));
-            foreach (var g in byDay) chip(g.Key, (g.Key == today0 ? "TODAY " : g.Key == today0.AddDays(1) ? "TOMORROW " : g.Key == today0.AddDays(-1) ? "YESTERDAY " : "") + g.Key.ToString("ddd dd MMM", IC).ToUpperInvariant(), g.Count(), g.Count(n => n.Impact == "High"));
+            foreach (var g in byDay) chip(g.Key, (g.Key == today0 ? "TODAY • " : g.Key == today0.AddDays(1) ? "TOMORROW • " : g.Key == today0.AddDays(-1) ? "YESTERDAY • " : "") + g.Key.ToString("dddd dd MMM", IC).ToUpperInvariant(), g.Value.Count, g.Value.Count(n => n.Impact == "High"));
             if (newsDay != DateTime.MinValue && !byDay.Any(g => g.Key == newsDay)) newsDay = DateTime.MinValue;
-            if (byDay.Count == 0) newsPanel.Children.Add(new TextBlock { Text = newsPast ? "no past event saved yet in this range (SpasiX keeps every event it loads, from now on)" : "no event ahead in this range" + (newsStatus.Contains("next week") ? "" : " — ForexFactory has not published next week's calendar yet (it usually appears over the weekend); ⏮ PAST shows this week"), Foreground = Muted, FontSize = 13, Margin = new Thickness(4, 10, 0, 0) });
+            if (span.Count == 0) newsPanel.Children.Add(new TextBlock { Text = newsPast ? "no past event saved yet in this range (SpasiX keeps every event it loads, from now on)" : "no event ahead in this range" + (newsStatus.Contains("next week") ? "" : " — ForexFactory has not published next week's calendar yet (it usually appears over the weekend); ⏮ PAST shows this week"), Foreground = Muted, FontSize = 13, Margin = new Thickness(4, 10, 0, 0) });
             foreach (var day in byDay.Where(g => newsDay == DateTime.MinValue || g.Key == newsDay))
             {
+                if (day.Value.Count == 0 && newsDay == DateTime.MinValue && span.Count == 0) continue;
                 bool today = day.Key == today0;
                 var hd = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 12, 0, 5) };
                 hd.Children.Add(new TextBlock { Text = day.Key.ToString("dddd", IC).ToUpperInvariant(), Foreground = today ? Gold : Cyan, FontSize = 15, FontWeight = FontWeights.Bold });
                 hd.Children.Add(new TextBlock { Text = "  " + day.Key.ToString("dd MMMM yyyy", IC) + (today ? "  •  TODAY" : day.Key == today0.AddDays(1) ? "  •  TOMORROW" : ""), Foreground = today ? Gold : Muted, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom });
-                hd.Children.Add(new TextBlock { Text = "   " + day.Count() + " events • " + day.Count(n => n.Impact == "High") + " high", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Bottom });
+                hd.Children.Add(new TextBlock { Text = "   " + day.Value.Count + " events • " + day.Value.Count(n => n.Impact == "High") + " high", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Bottom });
                 newsPanel.Children.Add(hd);
-                foreach (var n in newsPast ? day.OrderByDescending(x => x.Utc) : day.OrderBy(x => x.Utc))
+                if (day.Value.Count == 0) newsPanel.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(0, 0, 0, 3), Opacity = 0.7, Child = new TextBlock { Text = "no " + (imp == 0 ? "high-impact " : imp == 1 ? "high / medium " : "") + "event this day", Foreground = Muted, FontSize = 12.5 } });
+                foreach (var n in newsPast ? day.Value.OrderByDescending(x => x.Utc) : day.Value.OrderBy(x => x.Utc))
                 {
                     bool past = n.Utc < nowU.AddMinutes(-5), yours = mine.Contains(n.Currency); var impB = n.Impact == "High" ? Red : n.Impact == "Medium" ? Orange : n.Impact == "Low" ? Gold : Muted;
                     var r = new StackPanel { Orientation = Orientation.Horizontal };

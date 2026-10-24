@@ -31,6 +31,7 @@ namespace KeystoneMT5
         bool armed; Button armBtn, buyBtn, sellBtn, placeBtn; TextBlock armText, panelSym, panelExpo, toastText, riskText, spreadText; TextBox lotsBox, slBox, tpBox, pendPrice, beOff; bool oneClickOn; string pendKind = "BUY LIMIT";
         readonly List<Tuple<string, Button>> pendBtns = new List<Tuple<string, Button>>(); StackPanel logPanel, armChecks; Border panelHost, toastBox, armCard;
         int resSeen, notesSeen; readonly Dictionary<string, string> sent = new Dictionary<string, string>();
+        Tuple<Border, TextBlock, TextBlock> symBuy, symSell, symHedge;
         string ticketMode = "AUTO"; Border symPlBox; TextBlock symPlCap, symPlVal, symPlInfo; int symPlSign = 9;
 
         Pane Act { get { return panes[Math.Max(0, Math.Min(panes.Count - 1, activePane))]; } }
@@ -59,13 +60,22 @@ namespace KeystoneMT5
             themeBtn = Sx.Drop("🎨 " + ChartTheme.All[themeIdx].Name, Card, ThemeMenu); bar.Children.Add(themeBtn);
             zoneBtn = Sx.Drop("🕘 " + Zones[zoneIdx].Item1, Card, ZoneMenu); zoneBtn.ToolTip = "the time on the chart (MT5 keeps its server time inside)"; bar.Children.Add(zoneBtn);
             bar.Children.Add(Sep());
+            var spb = Pill("📶 SPREADS", Card); spb.ToolTip = "every instrument's spread, live (F10)"; spb.Click += delegate { ToggleSpreads(); }; bar.Children.Add(spb);
+            var more = Pill("⏪ MORE", Card); more.ToolTip = "load 30 more days of history on this chart (30 days are loaded by default)"; more.Click += delegate { MoreHistory(Act); }; bar.Children.Add(more);
             var reset = Pill("⟲ NOW", Card); reset.ToolTip = "back to the latest candles, automatic scale (or double-click the chart)"; reset.Click += delegate { Act.V.ResetView(); }; bar.Children.Add(reset);
             fullBtn = Pill("⛶ FULL", Card); fullBtn.ToolTip = "the chart over the whole screen (F11 / Esc)"; fullBtn.Click += delegate { SetFullChart(!fullChart); }; bar.Children.Add(fullBtn);
             panelBtn = Pill("◧ PANEL", Tint(Gold, 60)); panelBtn.ToolTip = "show / hide the trade panel"; panelBtn.Click += delegate { panelHost.Visibility = panelHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; Put("panel", panelHost.Visibility == Visibility.Visible ? "1" : "0"); }; bar.Children.Add(panelBtn);
             // the selected instrument's own P/L (its tickets only): buys / sells, lots, P/L — the border pulses green / red
             symPlCap = new TextBlock { Foreground = Cyan, FontSize = 9.5, FontWeight = FontWeights.Bold }; symPlVal = new TextBlock { Foreground = Muted, FontSize = 15, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
-            symPlInfo = new TextBlock { Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
-            var spl = new StackPanel(); spl.Children.Add(symPlCap); spl.Children.Add(symPlVal); var sph = new StackPanel { Orientation = Orientation.Horizontal }; sph.Children.Add(spl); sph.Children.Add(symPlInfo);
+            Func<SolidColorBrush, Tuple<Border, TextBlock, TextBlock>> cell = col =>
+            {
+                var c1 = new TextBlock { Foreground = col, FontSize = 9.5, FontWeight = FontWeights.Bold }; var c2 = new TextBlock { Foreground = Text, FontSize = 12.5, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
+                var st = new StackPanel(); st.Children.Add(c1); st.Children.Add(c2);
+                return Tuple.Create(new Border { Child = st, Background = Tint(col, 30), BorderBrush = Tint(col, 120), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 1, 9, 2), Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed }, c1, c2);
+            };
+            symBuy = cell(Green); symSell = cell(Red); symHedge = cell(Violet);
+            symPlInfo = new TextBlock { Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+            var spl = new StackPanel(); spl.Children.Add(symPlCap); spl.Children.Add(symPlVal); var sph = new StackPanel { Orientation = Orientation.Horizontal }; sph.Children.Add(spl); sph.Children.Add(symBuy.Item1); sph.Children.Add(symSell.Item1); sph.Children.Add(symHedge.Item1); sph.Children.Add(symPlInfo);
             symPlBox = new Border { Child = sph, Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.8), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 2, 12, 3), Margin = new Thickness(4, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, MinWidth = 260, ToolTip = "the P/L of this instrument only (its open tickets)" };
             bar.Children.Add(symPlBox);
             // ---- the replay bar (backtest)
@@ -84,10 +94,61 @@ namespace KeystoneMT5
             toastBox = new Border { Child = toastText, Background = Tint(Panel, 245), BorderBrush = Gold, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 8, 14, 9), Margin = new Thickness(0, 0, 0, 18), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Visibility = Visibility.Collapsed, MaxWidth = 720, IsHitTestVisible = false,
                 Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = Gold.Color, BlurRadius = 18, ShadowDepth = 0, Opacity = 0.4 } };
             Grid.SetRow(toastBox, 2); Grid.SetColumn(toastBox, 1); g.Children.Add(toastBox);
-            foreach (var k in new[] { "EMA21", "VWAP" }) if (Get("ind." + k, "") == "") Put("ind." + k, "1");
-            foreach (var p in panes) { p.V.Theme = ChartTheme.All[themeIdx]; p.V.DrawColor = drawColor; p.V.Magnet = magnet; p.V.TicketMode = ticketMode; p.V.Sim = Sim; foreach (var t in ChartView.Indicators) if (Get("ind." + t.Key, "0") == "1") p.V.Ind.Add(t.Key); }
+            spreadPanel = BuildSpreadPanel(); Grid.SetRow(spreadPanel, 2); Grid.SetColumn(spreadPanel, 1); g.Children.Add(spreadPanel); if (Get("spreads", "0") != "1") spreadPanel.Visibility = Visibility.Collapsed;
+            if (Get("v6.cleanind", "") == "") { foreach (var t in ChartView.Indicators) foreach (var pf in new[] { "", "bt.", "demo." }) Put(pf + "ind." + t.Key, "0"); Put("v6.cleanind", "1"); }   // once: the old default indicators off
+            foreach (var p in panes) { p.V.Theme = ChartTheme.All[themeIdx]; p.V.DrawColor = drawColor; p.V.Magnet = magnet; p.V.TicketMode = ticketMode; p.V.Sim = Sim; foreach (var t in ChartView.Indicators) if (Get(ModeKey + "ind." + t.Key, "0") == "1") p.V.Ind.Add(t.Key); }
             SetSplit(IntOf(Get(pre + "split", "1"), 1)); PaintBar(); PaintRail();
             return g;
+        }
+        // ---- 📶 SPREADS (F10): every instrument's spread now, in points and in price, with today's low / average (seen here), coloured
+        Border spreadPanel; StackPanel spreadRows; readonly Dictionary<string, List<int>> spreadSeen = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase); DateTime spreadAt = DateTime.MinValue;
+        Border BuildSpreadPanel()
+        {
+            var sp = new StackPanel();
+            var head = new DockPanel { Margin = new Thickness(0, 0, 0, 4) }; var x = Pill("✕", Brushes.Transparent); x.BorderBrush = Brushes.Transparent; x.Height = 22; x.Width = 24; x.Padding = new Thickness(0); x.Margin = new Thickness(0); x.Click += delegate { ToggleSpreads(); }; DockPanel.SetDock(x, Dock.Right); head.Children.Add(x);
+            head.Children.Add(new TextBlock { Text = "📶 SPREADS • live", Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center }); sp.Children.Add(head);
+            spreadRows = new StackPanel(); sp.Children.Add(spreadRows);
+            sp.Children.Add(new TextBlock { Text = "points • price • low / avg since SpasiX started • F10", Foreground = Muted, FontSize = 9.5, Margin = new Thickness(0, 4, 0, 0) });
+            var tt = new TranslateTransform(); var b = new Border { Child = sp, Background = Tint(Panel, 245), BorderBrush = Tint(Cyan, 140), BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 6, 10, 8), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 34, 96, 0), MinWidth = 250, RenderTransform = tt, Cursor = Cursors.SizeAll,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = Cyan.Color, BlurRadius = 16, ShadowDepth = 0, Opacity = 0.35 } };
+            Point st0 = new Point(); bool dragging = false;
+            b.MouseLeftButtonDown += (o, e) => { if (e.OriginalSource is TextBlock && ((TextBlock)e.OriginalSource).Text == "✕") return; dragging = true; st0 = e.GetPosition(this); st0.X -= tt.X; st0.Y -= tt.Y; b.CaptureMouse(); e.Handled = true; };
+            b.MouseMove += (o, e) => { if (!dragging) return; var p = e.GetPosition(this); tt.X = p.X - st0.X; tt.Y = p.Y - st0.Y; };
+            b.MouseLeftButtonUp += (o, e) => { if (dragging) { dragging = false; b.ReleaseMouseCapture(); } };
+            return b;
+        }
+        void ToggleSpreads() { bool on = spreadPanel.Visibility != Visibility.Visible; spreadPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed; Put("spreads", on ? "1" : "0"); if (on) spreadAt = DateTime.MinValue; }
+        void FillSpreads(Mt5State s)
+        {
+            var now = DateTime.Now; bool sample = (now - spreadAt).TotalSeconds >= 1; if (!sample && spreadPanel.Visibility != Visibility.Visible) return;
+            var rows = new List<Tuple<string, int, double, int, double, int>>();
+            foreach (var q in s.Quotes.Values.OrderBy(x => x.Symbol))
+            {
+                Mt5Symbol sy; s.Symbols.TryGetValue(q.Symbol, out sy); double pt = sy != null && sy.Point > 0 ? sy.Point : 0.01; int d = sy != null ? sy.Digits : 2; int sp0 = (int)Math.Round(q.Spread(pt));
+                List<int> l; if (!spreadSeen.TryGetValue(q.Symbol, out l)) spreadSeen[q.Symbol] = l = new List<int>(); if (sample && q.Bid > 0) { l.Add(sp0); if (l.Count > 30000) l.RemoveRange(0, 10000); }
+                rows.Add(Tuple.Create(q.Symbol, sp0, sp0 * pt, l.Count > 0 ? l.Min() : sp0, l.Count > 0 ? l.Average() : sp0, d));
+            }
+            if (sample) spreadAt = now; if (spreadPanel.Visibility != Visibility.Visible) return;
+            spreadRows.Children.Clear();
+            foreach (var r in rows)
+            {
+                var g = new Grid { Margin = new Thickness(0, 1, 0, 1) }; foreach (var w in new[] { 82.0, 52, 74, 80 }) g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(w) });
+                double ratio = r.Item5 > 0 ? r.Item2 / r.Item5 : 1; var col = ratio > 2.2 ? Red : ratio > 1.4 ? Gold : Green;
+                Action<string, int, Brush, bool> c = (t, i, fg, right) => { var tb = new TextBlock { Text = t, Foreground = fg, FontSize = 12, FontFamily = Sx.Mono, FontWeight = i <= 1 ? FontWeights.Bold : FontWeights.Normal, TextAlignment = right ? TextAlignment.Right : TextAlignment.Left }; Grid.SetColumn(tb, i); g.Children.Add(tb); };
+                c(r.Item1, 0, r.Item1 == Act.Sym ? Gold : Text, false); c(r.Item2.ToString(IC), 1, col, true); c(r.Item3.ToString("F" + r.Item6, IC), 2, Muted, true); c(r.Item4 + " / " + r.Item5.ToString("0", IC), 3, Muted, true);
+                g.ToolTip = r.Item1 + ": spread " + r.Item2 + " points = " + r.Item3.ToString("F" + r.Item6, IC) + " in price • lowest seen " + r.Item4 + " • average " + r.Item5.ToString("0.0", IC) + (ratio > 2.2 ? " • WIDE now (rollover / news / weekend)" : "");
+                spreadRows.Children.Add(g);
+            }
+        }
+
+        // the history on the chart: 30 days on every timeframe (at least 300 candles); ⏪ MORE HISTORY adds 30 days each time
+        readonly Dictionary<string, int> moreDays = new Dictionary<string, int>();
+        int BarsWanted(string sym, int tf) { int days; moreDays.TryGetValue(sym + "|" + tf, out days); days += 30; return Math.Min(100000, Math.Max(300, days * 1440 / Math.Max(1, tf) + 50)); }
+        void MoreHistory(Pane p)
+        {
+            if (Sim) { Toast("the backtest shows the loaded days — 📅 GO TO changes them"); return; }
+            string k = p.Sym + "|" + p.Tf; int d; moreDays.TryGetValue(k, out d); moreDays[k] = d + 30; lock (broker.State.Gate) { var se = broker.State.SeriesOf(p.Sym, p.Tf); se.AskedAt = DateTime.Now; }
+            broker.Send("BARS|" + p.Sym + "|" + p.Tf + "|" + BarsWanted(p.Sym, p.Tf)); Toast("⏪ loading " + (d + 60) + " days of " + p.Sym + " " + Tf.Name(p.Tf) + " from MT5 …");
         }
         static int IntOf(string s, int d) { int v; return int.TryParse(s, NumberStyles.Integer, IC, out v) ? v : d; }
         FrameworkElement Sep() { return new Border { Width = 1, Height = 24, Background = Line, Margin = new Thickness(4, 3, 10, 3), VerticalAlignment = VerticalAlignment.Center }; }
@@ -97,7 +158,7 @@ namespace KeystoneMT5
         {
             var l = new List<Mi> { Mi.H("indicators on every chart") };
             foreach (var t in ChartView.Indicators) { var key = t.Key; l.Add(new Mi { Text = t.Name, Hint = t.Key == "ORB" ? "under H1" : t.Key == "SESS" ? "H1 and under" : "", Check = v.Ind.Contains(key), Dot = Sx.B(t.Color), Do = () => ToggleInd(key) }); }
-            l.Add(Mi.S()); l.Add(new Mi("⊘", "Turn every indicator off", () => { foreach (var t in ChartView.Indicators) { foreach (var p in panes) p.V.Ind.Remove(t.Key); Put("ind." + t.Key, "0"); } PaintBar(); }));
+            l.Add(Mi.S()); l.Add(new Mi("⊘", "Turn every indicator off", () => { foreach (var t in ChartView.Indicators) { foreach (var p in panes) p.V.Ind.Remove(t.Key); Put(ModeKey + "ind." + t.Key, "0"); } PaintBar(); }));
             return l;
         }
         List<Mi> ThemeMenu() { var l = new List<Mi> { Mi.H("chart theme") }; for (int i = 0; i < ChartTheme.All.Length; i++) { int ii = i; var th = ChartTheme.All[i]; l.Add(new Mi { Text = th.Name, Check = themeIdx == i, Radio = true, Do = () => SetTheme(ii) }); } return l; }
@@ -166,7 +227,7 @@ namespace KeystoneMT5
         }
         void ToggleInd(string key)
         {
-            bool on = !Act.V.Ind.Contains(key); foreach (var p in panes) { if (on) p.V.Ind.Add(key); else p.V.Ind.Remove(key); p.V.InvalidateVisual(); } Put("ind." + key, on ? "1" : "0"); PaintBar();
+            bool on = !Act.V.Ind.Contains(key); foreach (var p in panes) { if (on) p.V.Ind.Add(key); else p.V.Ind.Remove(key); p.V.InvalidateVisual(); } Put(ModeKey + "ind." + key, on ? "1" : "0"); PaintBar();
             var ind = ChartView.Indicators.First(x => x.Key == key); Toast((on ? "☑ " : "☐ ") + ind.Name + (on ? " on — " + ind.Tip : " off"));
         }
         void PaintBar()
@@ -231,7 +292,7 @@ namespace KeystoneMT5
                 if (!Sim)
                 {
                     if (s.BridgeVersion < 2) v.Status = "the chart needs the new bridge — put SpasiXBridge.mq5 in MT5 (⚙ SETUP)";
-                    else if (!se.Loaded) { v.Status = "loading " + p.Sym + " " + Tf.Name(p.Tf) + " from MT5 …"; if ((now - se.AskedAt).TotalSeconds > 3) { se.AskedAt = now; broker.Send("BARS|" + p.Sym + "|" + p.Tf + "|2000"); } }
+                    else if (!se.Loaded) { v.Status = "loading " + p.Sym + " " + Tf.Name(p.Tf) + " from MT5 …"; if ((now - se.AskedAt).TotalSeconds > 3) { se.AskedAt = now; broker.Send("BARS|" + p.Sym + "|" + p.Tf + "|" + BarsWanted(p.Sym, p.Tf)); } }
                     else if ((now - se.AskedAt).TotalSeconds > 20) { se.AskedAt = now; broker.Send("BARS|" + p.Sym + "|" + p.Tf + "|3"); }
                 }
                 Mt5Quote q; s.Quotes.TryGetValue(p.Sym, out q); var sym = s.Symbols.ContainsKey(p.Sym) ? s.Symbols[p.Sym] : null;
@@ -245,7 +306,7 @@ namespace KeystoneMT5
                 p.Head.Foreground = k == activePane ? Gold : Muted;
                 v.InvalidateVisual();
             }
-            FillSymPl(s);
+            FillSymPl(s); FillSpreads(s);
             FillPanel(s);
         }
         void FillSymPl(Mt5State s)
@@ -253,8 +314,13 @@ namespace KeystoneMT5
             if (symPlBox == null) return; var sym = Act.Sym; var cur = s.Account.Currency;
             var ps = s.Positions.Where(x => string.Equals(x.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); var os = s.Orders.Count(x => string.Equals(x.Symbol, sym, StringComparison.OrdinalIgnoreCase));
             double pl = ps.Sum(x => x.Profit + x.Swap), bl = ps.Where(x => x.Dir > 0).Sum(x => x.Lots), sl = ps.Where(x => x.Dir < 0).Sum(x => x.Lots); int nb = ps.Count(x => x.Dir > 0), ns = ps.Count(x => x.Dir < 0);
-            symPlCap.Text = sym + " P/L"; symPlVal.Text = ps.Count == 0 ? "no ticket" : Signed(pl, cur); symPlVal.Foreground = ps.Count == 0 ? Muted : pl > 0 ? Green : pl < 0 ? Red : Text;
-            symPlInfo.Text = ps.Count == 0 ? (os > 0 ? os + " pending order" + (os == 1 ? "" : "s") : "") : (nb > 0 ? "▲ " + nb + " buy" + (nb == 1 ? "" : "s") + " " + bl.ToString("0.00", IC) : "") + (nb > 0 && ns > 0 ? "   " : "") + (ns > 0 ? "▼ " + ns + " sell" + (ns == 1 ? "" : "s") + " " + sl.ToString("0.00", IC) : "") + (nb > 0 && ns > 0 ? "   ⇅ net " + (bl - sl).ToString("+0.00;−0.00;0.00", IC) : "") + (os > 0 ? "   ⏳ " + os : "");
+            symPlCap.Text = sym + " • P/L of this instrument"; symPlVal.Text = ps.Count == 0 ? "no ticket" : Signed(pl, cur); symPlVal.Foreground = ps.Count == 0 ? Muted : pl > 0 ? Green : pl < 0 ? Red : Text;
+            double bp = ps.Where(x => x.Dir > 0).Sum(x => x.Profit + x.Swap), spp = ps.Where(x => x.Dir < 0).Sum(x => x.Profit + x.Swap); bool both = nb > 0 && ns > 0;
+            symBuy.Item1.Visibility = nb > 0 ? Visibility.Visible : Visibility.Collapsed; symBuy.Item2.Text = "▲ BUY  " + nb + " ticket" + (nb == 1 ? "" : "s") + (both && bl > sl ? "  ★" : ""); symBuy.Item3.Text = bl.ToString("0.00", IC) + " lots  " + Signed(bp, cur); symBuy.Item3.Foreground = bp >= 0 ? Green : Red;
+            symSell.Item1.Visibility = ns > 0 ? Visibility.Visible : Visibility.Collapsed; symSell.Item2.Text = "▼ SELL  " + ns + " ticket" + (ns == 1 ? "" : "s") + (both && sl > bl ? "  ★" : ""); symSell.Item3.Text = sl.ToString("0.00", IC) + " lots  " + Signed(spp, cur); symSell.Item3.Foreground = spp >= 0 ? Green : Red;
+            symHedge.Item1.Visibility = both ? Visibility.Visible : Visibility.Collapsed;
+            if (both) { double net = bl - sl; symHedge.Item2.Text = "⇅ HEDGED"; symHedge.Item3.Text = Math.Abs(net) < 1e-9 ? "net 0 (fully)" : "net " + Math.Abs(net).ToString("0.00", IC) + " " + (net > 0 ? "BUY" : "SELL"); symHedge.Item1.ToolTip = "both directions open on " + sym + " • ★ = the side with more lots"; }
+            symPlInfo.Text = os > 0 ? "⏳ " + os + " order" + (os == 1 ? "" : "s") : "";
             int sg = ps.Count == 0 ? 0 : pl >= 0 ? 1 : -1; if (sg == symPlSign) return; symPlSign = sg;
             if (sg == 0) { symPlBox.BorderBrush = Line; return; }
             var br = new SolidColorBrush(sg > 0 ? Green.Color : Red.Color); symPlBox.BorderBrush = br;
@@ -336,6 +402,7 @@ namespace KeystoneMT5
             var spl = new List<Mi>(); foreach (var n in new[] { 1, 2, 4 }) { int nn = n; spl.Add(new Mi { Text = n + (n == 1 ? " chart" : " charts"), Check = split == n, Radio = true, Do = () => SetSplit(nn) }); } l.Add(Mi.Group("⊞", "Split screen", spl));
             l.Add(Mi.S());
             l.Add(new Mi("⟲", "Back to now • automatic scale", () => v.ResetView()) { Hint = "double-click" });
+            if (!Sim) l.Add(new Mi("⏪", "Load 30 more days of history", () => MoreHistory(p)));
             l.Add(new Mi("⛶", fullChart ? "Exit full screen" : "Full screen chart", () => SetFullChart(!fullChart)) { Hint = fullChart ? "Esc" : "F11" });
             l.Add(new Mi("◧", panelHost.Visibility == Visibility.Visible ? "Hide the trade panel" : "Show the trade panel", () => { panelHost.Visibility = panelHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; Put("panel", panelHost.Visibility == Visibility.Visible ? "1" : "0"); }));
             SxMenu.Show(v, pt, l);
@@ -369,7 +436,8 @@ namespace KeystoneMT5
 
         // ---------------------------------------------------------------- drawings, saved per symbol
         List<Drawing> DrawingsOf(string sym) { List<Drawing> l; if (!drawingsBySym.TryGetValue(sym, out l)) drawingsBySym[sym] = l = new List<Drawing>(); return l; }
-        string DrawFileNow { get { return Sim ? DrawFile.Replace("drawings.txt", "drawings-backtest.txt") : DrawFile; } }   // the DEMO shares the live drawings
+        string DrawFileNow { get { return Sim ? DrawFile.Replace("drawings.txt", "drawings-backtest.txt") : Paper ? DrawFile.Replace("drawings.txt", "drawings-demo.txt") : DrawFile; } }   // every mode its own drawings
+        string ModeKey { get { return Sim ? "bt." : Paper ? "demo." : ""; } }   // every mode its own indicators (none by default)
         void LoadDrawings()
         {
             try
@@ -446,6 +514,11 @@ namespace KeystoneMT5
             spreadText = new TextBlock { Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 5, 0), TextAlignment = TextAlignment.Center, Width = 34, TextWrapping = TextWrapping.Wrap };
             Grid.SetColumn(spreadText, 1); Grid.SetColumn(buyBtn, 2); bs.Children.Add(sellBtn); bs.Children.Add(spreadText); bs.Children.Add(buyBtn); t.Children.Add(bs);
             sellBtn.Click += delegate { Market(-1); }; buyBtn.Click += delegate { Market(1); };
+            // close right under BUY / SELL (each asks first): this symbol's sells / all / buys
+            var cr = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(0, 2, 0, 2) };
+            foreach (var m in new[] { Tuple.Create("✕ SELLS", "SELL", Red), Tuple.Create("✕ ALL", "ALL", Gold), Tuple.Create("✕ BUYS", "BUY", Green) })
+            { var which = m.Item2; var b = Pill(m.Item1, Tint(m.Item3, 40)); b.Foreground = m.Item3; b.BorderBrush = Tint(m.Item3, 140); b.Height = 30; b.FontSize = 11; b.Padding = new Thickness(2, 0, 2, 0); b.Margin = new Thickness(0, 0, m.Item2 == "BUY" ? 0 : 4, 0); b.ToolTip = "close " + (which == "ALL" ? "every ticket" : "the " + which.ToLowerInvariant() + "s") + " of this symbol (asks first)"; b.Click += delegate { CloseAll(Act.Sym, which); }; cr.Children.Add(b); }
+            t.Children.Add(cr);
             t.Children.Add(new TextBlock { Text = "orders go in at once • the ✕ on the chart closes at once • close-all buttons ask", Foreground = Muted, FontSize = 9.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
             // pending
             var pc = new StackPanel(); var pcc = card(Amber); pcc.Child = pc; sp.Children.Add(pcc);
@@ -507,7 +580,7 @@ namespace KeystoneMT5
             if (Virtual)
             {
                 var vs = Sim ? (sim.Set != null ? sim.Set.Account() : null) : paper.Ready ? paper.Acct.Set : null;
-                armText.Text = (Sim ? "🧪 BACKTEST ACCOUNT" : paper.Ready ? "🎮 DEMO ACCOUNT on live prices" : "🎮 DEMO — press the button below to set up your account") + (vs != null ? " • " + vs.Kind + (vs.Kind == "RAW" ? " $" + vs.CommissionPerLot.ToString("0.##", IC) + " / lot" : " +" + vs.MarkupPts.ToString("0", IC) + " pts spread") + " • 1:" + vs.Leverage : "") + " • hedging — nothing reaches MT5"; armText.Foreground = Cyan;
+                armText.Text = (Sim ? "🧪 BACKTEST ACCOUNT" : paper.Ready ? "🎮 DEMO ACCOUNT on live prices" : "🎮 DEMO — press the button below to set up your account") + (vs != null ? " • " + vs.Kind + (vs.Kind != "RAW" ? " $" + vs.CommissionPerLot.ToString("0.##", IC) + " / lot" : " +" + vs.MarkupPts.ToString("0", IC) + " pts spread") + " • 1:" + vs.Leverage : "") + " • hedging — nothing reaches MT5"; armText.Foreground = Cyan;
                 if (armChecks.Children.Count > 0) armChecks.Children.Clear();
                 foreach (var b in new[] { buyBtn, sellBtn }) b.Opacity = 1; return;
             }

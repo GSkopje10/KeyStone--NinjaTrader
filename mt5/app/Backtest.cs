@@ -16,6 +16,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow
     {
+        TextBox btStartBox; HistoryDownloader bgDl; readonly Queue<string> bgQueue = new Queue<string>(); string bgStatus = "";
         TextBox btFrom, btTo, btWarm, btBal, btLev, btComm, btMarkup, btSpread, btSlip, btSwapL, btSwapS, btStopOut; TextBlock btStatus, btDays, btSpec, btKindHint; Border btBar, btBarFill; StackPanel btRuns, btMore; WrapPanel btSymChips;
         readonly List<Tuple<double, Button>> btStartBtns = new List<Tuple<double, Button>>(); double btStartNy = double.NaN; bool btRealSpread = true, btTicks = true; Button btSpreadReal, btSpreadFixed, btRawBtn, btStdBtn, btTicksBtn, btMoreBtn; string btKind = "RAW";
         readonly List<string> btSyms = new List<string>(); readonly Queue<string> dlQueue = new Queue<string>(); int dlTotal;
@@ -69,18 +70,22 @@ namespace KeystoneMT5
             var stR = new WrapPanel(); double sv; btStartNy = double.TryParse(Get("bt.start", "NaN"), NumberStyles.Float, IC, out sv) ? sv : double.NaN;
             foreach (var o in new[] { Tuple.Create(double.NaN, "THE DAY'S START"), Tuple.Create(2.0, "LONDON (NY 02:00)"), Tuple.Create(8.0, "NY 08:00"), Tuple.Create(9.25, "NY 09:15") })
             { var oo = o; var b = chip(o.Item2); b.Click += delegate { btStartNy = oo.Item1; Put("bt.start", double.IsNaN(oo.Item1) ? "NaN" : oo.Item1.ToString("R", IC)); PaintStart(); }; stR.Children.Add(b); btStartBtns.Add(Tuple.Create(o.Item1, b)); }
+            btStartBox = Sx.Input(double.IsNaN(btStartNy) ? "" : TimeOfNy(btStartNy), 74); btStartBox.ToolTip = "your own start time, New York (HH:mm) — Enter / leave the box"; btStartBox.Margin = new Thickness(6, 0, 0, 4); btStartBox.Height = 26; btStartBox.FontSize = 12.5;
+            Action setCustom = () => { TimeSpan ts; var tx = btStartBox.Text.Trim(); if (tx == "") return; if (!TimeSpan.TryParse(tx.Contains(":") ? tx : tx + ":00", IC, out ts) || ts.TotalHours >= 24) { btStatus.Text = "✖ the start time is HH:mm (New York), e.g. 07:45"; btStatus.Foreground = Red; return; } btStartNy = ts.TotalHours; Put("bt.start", btStartNy.ToString("R", IC)); PaintStart(); };
+            btStartBox.LostFocus += delegate { setCustom(); }; btStartBox.KeyDown += (o, e) => { if (e.Key == System.Windows.Input.Key.Enter) setCustom(); };
+            var cst = new StackPanel { Orientation = Orientation.Horizontal }; cst.Children.Add(new TextBlock { Text = "  or NY", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 4) }); cst.Children.Add(btStartBox); stR.Children.Add(cst);
             c2.Children.Add(field("START PLAYING AT", "where the first day starts playing (the hours before are drawn at once)", stR)); PaintStart();
             btDays = new TextBlock { Foreground = Muted, FontSize = 12, TextWrapping = TextWrapping.Wrap }; c2.Children.Add(btDays);
             sp.Children.Add(wrap(c2, Violet));
             // 3 — the account: RAW / STANDARD + the balance (the rest folded under MORE)
             var c3 = card("3 • THE ACCOUNT  (simulated, hedging)", Gold);
             btKind = Get("bt.kind", "RAW") == "STANDARD" ? "STANDARD" : "RAW";
-            var kr = new WrapPanel(); btRawBtn = chip("RAW — raw spread + commission"); btStdBtn = chip("STANDARD — no commission, wider spread"); btRawBtn.Height = btStdBtn.Height = 32;
+            var kr = new WrapPanel(); btRawBtn = chip("RAW — no commission, wider spread"); btStdBtn = chip("STANDARD — commission, spread near 0"); btRawBtn.Height = btStdBtn.Height = 32;
             btRawBtn.Click += delegate { btKind = "RAW"; Put("bt.kind", "RAW"); PaintKind(); }; btStdBtn.Click += delegate { btKind = "STANDARD"; Put("bt.kind", "STANDARD"); PaintKind(); };
             kr.Children.Add(btRawBtn); kr.Children.Add(btStdBtn); c3.Children.Add(field("ACCOUNT TYPE", "like IC Markets' Raw Spread and Standard accounts", kr));
             btComm = Sx.Input(Get("bt.comm", "7"), 80); btMarkup = Sx.Input(Get("bt.markup", "10"), 80); btBal = Sx.Input(Get("bt.bal", "10000"), 120);
             Func<TextBox, string, FrameworkElement> withUnit = (b, u) => { var r = new StackPanel { Orientation = Orientation.Horizontal }; r.Children.Add(b); r.Children.Add(new TextBlock { Text = "  " + u, Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }); return r; };
-            var commRow = field("COMMISSION", "RAW: per lot, round turn", withUnit(btComm, "$ per lot round turn (half in, half out) — IC Raw ≈ $7")); var markRow = field("EXTRA SPREAD", "STANDARD: added to MT5's raw spread", withUnit(btMarkup, "points added to the spread (STANDARD has no commission)"));
+            var commRow = field("COMMISSION", "STANDARD: per lot, round turn", withUnit(btComm, "$ per lot round turn (half in, half out) — STANDARD only")); var markRow = field("EXTRA SPREAD", "RAW: added to MT5's spread", withUnit(btMarkup, "points added to the spread — RAW only (RAW has no commission)"));
             c3.Children.Add(commRow); c3.Children.Add(markRow);
             btKindHint = new TextBlock { Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(150, -4, 0, 8) }; c3.Children.Add(btKindHint);
             c3.Children.Add(field("START BALANCE", "", withUnit(btBal, "USD")));
@@ -111,7 +116,10 @@ namespace KeystoneMT5
             var br = new StackPanel { Orientation = Orientation.Horizontal };
             var start = Pill("▶ START THE BACKTEST", Green); start.Height = 46; start.FontSize = 15; start.Padding = new Thickness(26, 0, 26, 0); start.Foreground = Bg; start.Click += delegate { StartBacktest(); };
             var down = Pill("⬇ ONLY DOWNLOAD", Card); down.Height = 46; down.Foreground = Cyan; down.ToolTip = "download the missing days (+ the warm-up) from MT5 without starting"; down.Click += delegate { StartDownload(false); };
-            br.Children.Add(start); br.Children.Add(down); c4.Children.Add(br);
+            var years = Sx.Drop("⬇ DOWNLOAD YEARS", Card, () => new[] { Tuple.Create("1 month", 31), Tuple.Create("3 months", 92), Tuple.Create("6 months", 183), Tuple.Create("1 year", 365), Tuple.Create("2 years", 730), Tuple.Create("5 years", 1826) }
+                .Select(x => { var xx = x; return new Mi("⬇", "the last " + xx.Item1 + " of 1-minute candles (" + string.Join(" + ", btSyms) + ")", () => StartDownload(false, xx.Item2)) { Hint = "saved on this PC" }; }).Concat(new[] { Mi.S(), new Mi { Text = "kept in " + HistoryStore.Root + " — every later load is instant; the real ticks come for the days you test", Off = true } }).ToList());
+            years.Height = 46; years.Foreground = Gold; years.ToolTip = "download months / years of 1-minute candles once (in the background); later backtests load from this PC at once";
+            br.Children.Add(start); br.Children.Add(down); br.Children.Add(years); c4.Children.Add(br);
             btStatus = new TextBlock { Foreground = Cyan, FontSize = 12.5, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 6) }; c4.Children.Add(btStatus); c4.Children.Add(btBar);
             c4.Children.Add(new TextBlock { Text = "On the chart: SPACE = play / pause • ← → = one candle back / forward • Shift + ← → = one minute • Page Up / Down = one day • 📅 = go to a date and time or change the days. Trade with the panel, the right-click and the lines — exactly as live. Every finished day is saved in 🗂 POOL.", Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
             sp.Children.Add(wrap(c4, Green));
@@ -137,14 +145,19 @@ namespace KeystoneMT5
                 btSymChips.Children.Add(b);
             }
         }
-        void PaintStart() { foreach (var t in btStartBtns) { bool on = (double.IsNaN(t.Item1) && double.IsNaN(btStartNy)) || t.Item1 == btStartNy; t.Item2.Background = on ? Tint(Violet, 190) : (Brush)Card; t.Item2.Foreground = on ? Bg : Text; } }
+        void PaintStart()
+        {
+            bool any = false; foreach (var t in btStartBtns) { bool on = (double.IsNaN(t.Item1) && double.IsNaN(btStartNy)) || t.Item1 == btStartNy; any |= on; t.Item2.Background = on ? Tint(Violet, 190) : (Brush)Card; t.Item2.Foreground = on ? Bg : Text; }
+            if (btStartBox != null) { btStartBox.BorderBrush = any ? Line : Violet; btStartBox.Background = any ? Bg : Tint(Violet, 60); if (!any && !btStartBox.IsKeyboardFocused) btStartBox.Text = TimeOfNy(btStartNy); else if (any && !btStartBox.IsKeyboardFocused) btStartBox.Text = ""; }
+        }
+        static string TimeOfNy(double h) { if (double.IsNaN(h)) return ""; var ts = TimeSpan.FromHours(((h % 24) + 24) % 24); return ts.Hours.ToString("00") + ":" + ts.Minutes.ToString("00"); }
         void PaintSpread() { btSpreadReal.Background = btRealSpread ? Tint(Cyan, 190) : (Brush)Card; btSpreadReal.Foreground = btRealSpread ? Bg : Text; btSpreadFixed.Background = !btRealSpread ? Tint(Cyan, 190) : (Brush)Card; btSpreadFixed.Foreground = !btRealSpread ? Bg : Text; btSpread.IsReadOnly = btRealSpread; btSpread.Opacity = btRealSpread ? 0.35 : 1; }
         void PaintTicks() { btTicksBtn.Content = btTicks ? "✓ MT5's REAL TICKS (recommended)" : "✖ candles only (open → low / high → close)"; btTicksBtn.Background = btTicks ? Tint(Green, 190) : (Brush)Card; btTicksBtn.Foreground = btTicks ? Bg : Gold; }
         void PaintKind()
         {
             bool raw = btKind == "RAW"; btRawBtn.Background = raw ? Tint(Cyan, 200) : (Brush)Card; btRawBtn.Foreground = raw ? Bg : Text; btStdBtn.Background = !raw ? Tint(Violet, 200) : (Brush)Card; btStdBtn.Foreground = !raw ? Bg : Text;
-            btComm.IsReadOnly = !raw; btComm.Opacity = raw ? 1 : 0.35; btMarkup.IsReadOnly = raw; btMarkup.Opacity = raw ? 0.35 : 1;
-            btKindHint.Text = raw ? "RAW: you pay MT5's raw spread + the commission per lot." : "STANDARD: no commission — every ask is wider by the extra points (that is your cost).";
+            btComm.IsReadOnly = raw; btComm.Opacity = raw ? 0.35 : 1; btMarkup.IsReadOnly = !raw; btMarkup.Opacity = raw ? 1 : 0.35;
+            btKindHint.Text = raw ? "RAW: no commission — every ask is wider by the extra points (that is your cost)." : "STANDARD: MT5's spread (near 0) + the commission per lot.";
         }
         bool Range(out DateTime f, out DateTime t)
         {
@@ -214,40 +227,65 @@ namespace KeystoneMT5
         {
             try { if (price <= 0) return 0; var a = new SimAccount(new Mt5State()); a.Specs[sp.Name] = sp; return a.SwapPerLot(sp, dir, price); } catch { return 0; }
         }
-        void StartDownload(bool thenStart)
+        // ⬇ the missing candles (a week per request) + MT5's real ticks of the FIRST day; the other days' ticks come in the background after ▶ START
+        void StartDownload(bool thenStart, int yearsDays = 0)
         {
-            DateTime f, t; if (btSyms.Count == 0 || !Range(out f, out t)) { btStatus.Text = "✖ tick a symbol and choose the days first"; btStatus.Foreground = Red; return; }
+            DateTime f, t; if (btSyms.Count == 0 || (yearsDays == 0 && !Range(out f, out t))) { btStatus.Text = "✖ tick a symbol and choose the days first"; btStatus.Foreground = Red; return; }
             bool alive; lock (live.State.Gate) alive = live.State.Alive && live.State.BridgeVersion >= 4;
-            if (!alive) { btStatus.Text = "✖ MT5 with the SpasiXBridge is needed to download (⌂ MODES ▸ LIVE ▸ SETUP shows how) — the days already on this PC still work"; btStatus.Foreground = Red; if (thenStart) LoadAndStart(); return; }
-            dlQueue.Clear(); foreach (var s in btSyms) dlQueue.Enqueue(s); dlTotal = dlQueue.Count; dlThenStart = thenStart; btBar.Visibility = Visibility.Visible;
+            if (!alive) { btStatus.Text = "✖ MT5 with the SpasiXBridge is needed to download — the days already on this PC still work"; btStatus.Foreground = Red; if (thenStart) LoadAndStart(); return; }
+            dlQueue.Clear(); foreach (var s in btSyms) dlQueue.Enqueue(s); dlTotal = dlQueue.Count; dlThenStart = thenStart; dlYears = yearsDays; btBar.Visibility = Visibility.Visible;
             lock (live.State.Gate) foreach (var s in btSyms) if (!live.State.Symbols.ContainsKey(s)) live.Send("WATCH|" + s);
-            NextDownload();
-            if (dlTimer == null) { dlTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) }; dlTimer.Tick += delegate { DownloadTick(); }; }
-            dlTimer.Start();
+            NextDownload(); EnsureDlTimer();
         }
+        int dlYears;
+        void EnsureDlTimer() { if (dlTimer == null) { dlTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) }; dlTimer.Tick += delegate { DownloadTick(); }; } dlTimer.Start(); }
+        DateTime FirstWeekday(DateTime d) { while (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday) d = d.AddDays(1); return d; }
         void NextDownload()
         {
-            DateTime f, t; Range(out f, out t); var sym = dlQueue.Dequeue(); SpecNow(sym);
-            dl = new HistoryDownloader(live, sym, f.AddDays(-Warm()), t, f, btTicks);
+            var sym = dlQueue.Dequeue(); SpecNow(sym);
+            if (dlYears > 0) { var y = DateTime.Today.AddDays(-1); dl = new HistoryDownloader(live, sym, y.AddDays(-dlYears), y, y, y, false); return; }   // ⬇ YEARS: candles only
+            DateTime f, t; Range(out f, out t); var d1 = FirstWeekday(f);
+            dl = new HistoryDownloader(live, sym, f.AddDays(-Warm()), t, d1, d1, btTicks);
         }
         void DownloadTick()
         {
-            if (dl == null) { dlTimer.Stop(); return; }
-            dl.Step(DateTime.Now); int doneSyms = dlTotal - dlQueue.Count - 1;
-            btStatus.Text = (dlTotal > 1 ? "[" + (doneSyms + 1) + "/" + dlTotal + "] " : "") + dl.Status; btStatus.Foreground = dl.Failed ? Red : Cyan;
-            btBarFill.Width = Math.Max(0, btBar.ActualWidth * (doneSyms + dl.Progress) / Math.Max(1, dlTotal));
-            if (!dl.Done) return;
-            if (dl.Failed) { dlTimer.Stop(); dl = null; PaintDays(); if (dlThenStart) LoadAndStart(); return; }
-            if (dlQueue.Count > 0) { NextDownload(); return; }
-            dlTimer.Stop(); foreach (var s in btSyms) SpecNow(s); PaintDays(); PaintSymChips(); bool go = dlThenStart; btStatus.Foreground = Green; dl = null; if (go) LoadAndStart();
+            var now = DateTime.Now;
+            if (dl != null)
+            {
+                for (int k = 0; k < 4 && dl.Step(now); k++) { }   // several steps per tick: the answers are already here
+                int doneSyms = dlTotal - dlQueue.Count - 1;
+                btStatus.Text = (dlTotal > 1 ? "[" + (doneSyms + 1) + "/" + dlTotal + "] " : "") + dl.Status; btStatus.Foreground = dl.Failed ? Red : Cyan;
+                btBarFill.Width = Math.Max(0, btBar.ActualWidth * (doneSyms + dl.Progress) / Math.Max(1, dlTotal));
+                if (dl.Done)
+                {
+                    if (dl.Failed) { dl = null; PaintDays(); if (dlThenStart) LoadAndStart(); }
+                    else if (dlQueue.Count > 0) NextDownload();
+                    else { foreach (var s in btSyms) SpecNow(s); PaintDays(); PaintSymChips(); bool go = dlThenStart; btStatus.Foreground = Green; dl = null; if (dlYears > 0) btStatus.Text = "✓ " + string.Join(" + ", btSyms) + ": the last " + (dlYears >= 365 ? (dlYears / 365) + " year(s)" : Math.Round(dlYears / 30.4) + " month(s)") + " of 1-minute candles are on this PC — every backtest in that range loads at once"; if (go) { LoadAndStart(); StartBackgroundTicks(); } }
+                }
+            }
+            if (bgDl != null)
+            {
+                for (int k = 0; k < 4 && bgDl.Step(now); k++) { }
+                foreach (var d in bgDl.NewTickDays) { var tk = HistoryStore.LoadTicks(bgDl.Symbol, d); if (sim.Spec != null) sim.AddTicks(bgDl.Symbol, tk); } bgDl.NewTickDays.Clear();
+                bgStatus = bgDl.Done ? "" : "⬇ real ticks " + bgDl.Symbol + " " + bgDl.TickDaysDone + "/" + bgDl.TickDaysTotal;
+                if (bgDl.Done) { bgDl = bgQueue.Count > 0 ? NewBgDl(bgQueue.Dequeue()) : null; }
+            }
+            if (dl == null && bgDl == null) dlTimer.Stop();
         }
+        // after the start: the rest of the days' real ticks, symbol by symbol, fed into the running replay as they arrive
+        void StartBackgroundTicks()
+        {
+            bgQueue.Clear(); if (!btTicks) return; bool alive; lock (live.State.Gate) alive = live.State.Alive && live.State.BridgeVersion >= 5; if (!alive) return;
+            foreach (var s in btSyms) bgQueue.Enqueue(s); bgDl = bgQueue.Count > 0 ? NewBgDl(bgQueue.Dequeue()) : null; if (bgDl != null) EnsureDlTimer();
+        }
+        HistoryDownloader NewBgDl(string sym) { DateTime f, t; Range(out f, out t); return new HistoryDownloader(live, sym, f, t, f, t, true); }
         void StartBacktest()
         {
             DateTime f, t; if (btSyms.Count == 0 || !Range(out f, out t)) { btStatus.Text = "✖ tick a symbol and choose the days first"; btStatus.Foreground = Red; return; }
             int missing = 0; foreach (var sym in btSyms) for (var d = f.AddDays(-Warm()); d <= t; d = d.AddDays(1)) if (d.DayOfWeek != DayOfWeek.Saturday && (!HistoryStore.HasDay(sym, d) || (btTicks && d >= f && d.DayOfWeek != DayOfWeek.Sunday && !HistoryStore.HasTicks(sym, d) && HistoryStore.LoadDay(sym, d).Count > 0))) missing++;
             bool alive; lock (live.State.Gate) alive = live.State.Alive && live.State.BridgeVersion >= 4;
             if (missing > 0 && alive) { StartDownload(true); return; }
-            LoadAndStart();
+            LoadAndStart(); if (alive) StartBackgroundTicks();
         }
         void LoadAndStart()
         {
@@ -269,7 +307,6 @@ namespace KeystoneMT5
             if (err != "") { btStatus.Text = "✖ " + err; btStatus.Foreground = Red; return; }
             resSeen = 0; notesSeen = 0; poolDaysSeen = 0; logPanel.Children.Clear();
             var names = input.Select(x => x.Item1.Name).ToList();
-            if (names.Count >= 2 && split == 1) SetSplit(names.Count >= 3 ? 4 : 2);
             for (int k = 0; k < panes.Count; k++) { panes[k].Sym = ""; SetPane(panes[k], names[k % names.Count], panes[k].Tf); } symSig = "";
             btStatus.Text = "✓ " + string.Join(" + ", names) + " • " + bars.ToString("N0", IC) + " one-minute candles" + (btTicks ? " • " + ticks.ToString("N0", IC) + " real ticks" + (ticks == 0 ? " (none on this PC — the candles' path is used)" : "") : "") + " • " + sim.DaysTotal + " day(s) from " + sim.StartTime.ToString("ddd dd MMM HH:mm", IC) + " server" + (miss.Count > 0 ? " • skipped: " + string.Join(", ", miss) : "");
             btStatus.Foreground = miss.Count > 0 ? Gold : Green;
@@ -322,7 +359,12 @@ namespace KeystoneMT5
             w.Children.Add(Sep());
             nav("⏩ LONDON", "to the next London open (NY 03:00)", () => Jump(sim.NextNy(3)));
             nav("⏩ NY OPEN", "to the next New York open (09:30) minus 5 minutes", () => Jump(sim.NextNy(9.5 - 5 / 60.0)));
-            var go = nav("📅 GO TO", "go to a date and time (back or forward) — or change the days of the test", GoToDialog); go.Foreground = Gold;
+            // pick a day and a time right here: 📆 the day ▾ + HH:mm (New York) + GO — back or forward
+            pickDayBtn = Sx.Drop("📆 DAY", Card, () => sim.Spec == null ? new List<Mi> { new Mi { Text = "load a backtest first", Off = true } } : sim.Days.Where(d => d.DayOfWeek != DayOfWeek.Saturday).Select(d => { var dd = d; return new Mi { Text = d.ToString("dddd dd MMM yyyy", IC), Check = pickDay == dd, Radio = true, Do = () => { pickDay = dd; pickDayBtn.Content = "📆 " + dd.ToString("ddd dd MMM", IC) + "  ▾"; GoPicked(); } }; }).ToList());
+            pickDayBtn.ToolTip = "the day to go to (the replay goes there at the time in the box)"; w.Children.Add(pickDayBtn);
+            pickTime = Sx.Input(Get("bt.picktime", "08:00"), 62); pickTime.Height = 30; pickTime.FontSize = 12.5; pickTime.Margin = new Thickness(0, 0, 4, 0); pickTime.ToolTip = "the New York time (HH:mm) — Enter = go"; pickTime.KeyDown += (o, e) => { if (e.Key == System.Windows.Input.Key.Enter) GoPicked(); }; w.Children.Add(pickTime);
+            var gob = Pill("GO", Tint(Gold, 190)); gob.Foreground = Bg; gob.Padding = new Thickness(10, 0, 10, 0); gob.ToolTip = "go to that day and time"; gob.Click += delegate { GoPicked(); }; w.Children.Add(gob);
+            var go = nav("📅", "go to any date and time — or change the days of the test", GoToDialog); go.Foreground = Gold;
             w.Children.Add(Sep());
             var clk = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 10, 0) };
             clockText = new TextBlock { Text = "📂 load a backtest in the DATA tab", Foreground = Gold, FontSize = 14, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono }; clk.Children.Add(clockText);
@@ -369,6 +411,17 @@ namespace KeystoneMT5
             if (target < sim.StartTime || target > sim.EndTime) { Toast("outside the loaded days — change FROM / TO in 📅 to load them"); return; }
             if (target < sim.Clock) Back(target, "in time"); else Jump(target);
         }
+        Button pickDayBtn; TextBox pickTime; DateTime pickDay = DateTime.MinValue;
+        void GoPicked()
+        {
+            if (!SimReady()) return; TimeSpan ts; var tx = pickTime.Text.Trim();
+            if (!TimeSpan.TryParse(tx.Contains(":") ? tx : tx + ":00", IC, out ts) || ts.TotalHours >= 24) { Toast("the time is HH:mm (New York), e.g. 09:25"); return; }
+            Put("bt.picktime", tx); var ny0 = sim.Clock.AddHours(sim.Spec.NyOffsetHours); var day = pickDay == DateTime.MinValue ? ny0.Date : pickDay;
+            // the day = a server day; its New York date: the server day runs NY 17:00 (the day before) → 17:00, so a NY time before 17:00 is that date
+            var target = day.Add(ts).AddHours(-sim.Spec.NyOffsetHours); if (ts.TotalHours >= 24 + sim.Spec.NyOffsetHours) target = target.AddDays(-1);   // e.g. NY 18:00 = the evening before the server day
+            if (target < sim.StartTime) target = sim.StartTime; if (target > sim.EndTime) { Toast("after the loaded days — 📅 changes them"); return; }
+            if (target < sim.Clock) Back(target, "in time"); else Jump(target);
+        }
         void RestartSim()
         {
             if (!SimReady()) return; int n; lock (sim.State.Gate) n = sim.State.Deals.Count(d => d.Entry == "IN");
@@ -382,7 +435,7 @@ namespace KeystoneMT5
             var names = string.Join(" + ", sim.Specs.Select(x => x.Name));
             connText.Text = (sim.Ended ? "■ ENDED" : sim.Playing ? "▶ PLAYING " + (sim.Speed >= SimBroker.MaxSpeed ? "MAX" : sim.Speed + "×") : "⏸ PAUSED") + " • " + names; connPill.Background = sim.Playing ? Green : sim.Ended ? Red : Cyan;
             acLogin.Text = "BACKTEST"; acName.Text = names;
-            acRest.Text = "•  " + sim.Set.From.ToString("dd MMM", IC) + " → " + sim.Set.To.ToString("dd MMM yyyy", IC) + "  •  " + sim.Set.Kind + (sim.Set.Kind == "RAW" ? " $" + sim.Set.CommissionPerLot.ToString("0.##", IC) + " / lot" : " +" + sim.Set.MarkupPts.ToString("0", IC) + " pts") + "  •  HEDGING  •  1:" + sim.Set.Leverage + "  •  spread " + (sim.Set.FixedSpread >= 0 ? sim.Set.FixedSpread + " pts" : "REAL") + "  •  start $" + sim.Set.Balance.ToString("N0", IC) + "  •  🗂 " + PoolTest;
+            acRest.Text = "•  " + sim.Set.From.ToString("dd MMM", IC) + " → " + sim.Set.To.ToString("dd MMM yyyy", IC) + "  •  " + sim.Set.Kind + (sim.Set.Kind != "RAW" ? " $" + sim.Set.CommissionPerLot.ToString("0.##", IC) + " / lot" : " +" + sim.Set.MarkupPts.ToString("0", IC) + " pts") + "  •  HEDGING  •  1:" + sim.Set.Leverage + "  •  spread " + (sim.Set.FixedSpread >= 0 ? sim.Set.FixedSpread + " pts" : "REAL") + "  •  start $" + sim.Set.Balance.ToString("N0", IC) + "  •  🗂 " + PoolTest;
         }
         void FillSim(Mt5State s)
         {
@@ -393,7 +446,7 @@ namespace KeystoneMT5
             clockText.Text = ny.ToString("ddd dd MMM yyyy  HH:mm:ss", IC) + " NY";
             clockDay.Text = "day " + Math.Max(1, sim.DayNumber) + " / " + sim.DaysTotal + "  •  server " + sim.Clock.ToString("HH:mm", IC) + "  •  " + (100 * sim.Progress).ToString("0", IC) + " %";
             progFill.Width = Math.Max(0, (progTrack.ActualWidth > 0 ? progTrack.ActualWidth : 200) * sim.Progress);
-            double rs = sim.RealShare; realText.Text = sim.HasTicks ? "● REAL TICKS " + (100 * rs).ToString("0", IC) + " %" : "○ candle path (no ticks on this PC)"; realText.Foreground = sim.HasTicks && rs > 0.95 ? Green : sim.HasTicks ? Gold : Muted;
+            double rs = sim.RealShare; realText.Text = (sim.HasTicks ? "● REAL TICKS " + (100 * rs).ToString("0", IC) + " %" : "○ candle path (no ticks on this PC)") + (bgStatus != "" ? "   " + bgStatus : ""); realText.Foreground = sim.HasTicks && rs > 0.95 ? Green : sim.HasTicks ? Gold : Muted;
             realText.ToolTip = sim.HasTicks ? "this share of the replayed minutes moves exactly like MT5 recorded it (every tick); the rest follows the candle open → low / high → close" : "tick 'REAL TICKS' in 📂 DATA ▸ MORE and START again with MT5 connected to download them";
             PoolWatch();
         }

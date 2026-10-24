@@ -105,53 +105,73 @@ namespace KeystoneMT5
     // (HISTT → TT … TTEND) of the days to replay, and saves them on this PC
     public sealed class HistoryDownloader
     {
-        readonly IBroker live; readonly string sym; readonly List<DateTime> days; readonly DateTime tickFrom; readonly bool wantTicks;
-        int idx, tries, timeouts, phase; DateTime askedAt = DateTime.MinValue, retryAt = DateTime.MinValue; bool waiting;
+        // FAST: the 1-minute candles come a WEEK per request (split into days and saved), then MT5's real ticks day by day (only for the days
+        // asked, tickFrom..tickTo) — the app can start the backtest when the candles and the first tick day are in and keep downloading the rest
+        readonly IBroker live; readonly string sym; readonly DateTime tickFrom, tickTo; readonly bool wantTicks;
+        readonly List<Tuple<DateTime, DateTime>> chunks = new List<Tuple<DateTime, DateTime>>(); readonly List<DateTime> tickDays = new List<DateTime>();
+        int ci, ti, tries, timeouts; bool tickPlan; DateTime askedAt = DateTime.MinValue, retryAt = DateTime.MinValue; bool waiting;
         public string Status = ""; public bool Done, Failed; public int Saved, Skipped, TickDays; public long TickCount;
-        public double Progress { get { return days.Count == 0 ? 1 : (idx + (phase == 1 ? 0.5 : 0)) / days.Count; } }
-        public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to, DateTime ticksFrom, bool ticks = true)
+        public readonly List<DateTime> NewTickDays = new List<DateTime>();   // the days whose ticks just arrived (the app takes them)
+        public string Symbol { get { return sym; } }
+        public bool BarsDone { get { return ci >= chunks.Count; } }
+        public int TickDaysTotal { get { return tickDays.Count; } } public int TickDaysDone { get { return ti; } }
+        public double Progress { get { double a = chunks.Count == 0 ? 1 : (double)ci / chunks.Count; if (!wantTicks) return a; double b = !tickPlan ? 0 : tickDays.Count == 0 ? 1 : (double)ti / tickDays.Count; return tickPlan && tickDays.Count == 0 ? a : 0.2 * a + 0.8 * b; } }
+        public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to, DateTime ticksFrom, bool ticks = true) : this(live, sym, from, to, ticksFrom, to, ticks) { }
+        public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to, DateTime ticksFrom, DateTime ticksTo, bool ticks)
         {
-            this.live = live; this.sym = sym; tickFrom = ticksFrom.Date; wantTicks = ticks; days = new List<DateTime>(); var today = DateTime.Today;
-            for (var d = from.Date; d <= to.Date; d = d.AddDays(1))
-                if (!HistoryStore.HasDay(sym, d) || d >= today.AddDays(-1) || (wantTicks && d >= tickFrom && !HistoryStore.HasTicks(sym, d) && HistoryStore.LoadDay(sym, d).Count > 0)) days.Add(d);   // today / yesterday: always fresh
-            if (days.Count == 0) { Done = true; Status = "✓ every day is already on this PC"; }
+            this.live = live; this.sym = sym; tickFrom = ticksFrom.Date; tickTo = ticksTo.Date; wantTicks = ticks; var today = DateTime.Today;
+            var need = new List<DateTime>(); for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) if (!HistoryStore.HasDay(sym, d) || d >= today.AddDays(-1)) need.Add(d);   // today / yesterday: always fresh
+            // consecutive missing days → runs of up to 7 days = one request each
+            for (int i = 0; i < need.Count;) { int j = i; while (j + 1 < need.Count && need[j + 1] == need[j].AddDays(1) && j + 1 - i < 7) j++; chunks.Add(Tuple.Create(need[i], need[j].AddDays(1))); i = j + 1; }
+            if (chunks.Count == 0) PlanTicks();
         }
         public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to) : this(live, sym, from, to, to.AddDays(1), false) { }
+        void PlanTicks()
+        {
+            tickPlan = true; if (!wantTicks) return;
+            for (var d = tickFrom; d <= tickTo; d = d.AddDays(1)) if ((!HistoryStore.HasTicks(sym, d) || d >= DateTime.Today.AddDays(-1)) && HistoryStore.LoadDay(sym, d).Count > 0) tickDays.Add(d);
+        }
         // call every ~100 ms; true while it works
         public bool Step(DateTime now)
         {
             if (Done) return false;
-            if (idx >= days.Count) { Done = true; Status = "✓ " + Saved + " day(s) of candles" + (TickDays > 0 ? " + " + TickDays + " day(s) of real ticks (" + TickCount.ToString("N0", CultureInfo.InvariantCulture) + ")" : "") + " downloaded" + (Skipped > 0 ? " • " + Skipped + " without candles (weekend / holiday)" : ""); return false; }
-            var day = days[idx]; long from = Mt5State.Epoch(day), to = Mt5State.Epoch(day.AddDays(1)); string key = sym + "|" + from; bool weekend = day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday;
-            string dn = day.ToString("ddd dd MMM yyyy", CultureInfo.InvariantCulture);
-            if (phase == 0 && HistoryStore.HasDay(sym, day) && day < DateTime.Today.AddDays(-1)) { phase = 1; }
-            if (phase == 1 && (!wantTicks || day < tickFrom || HistoryStore.HasTicks(sym, day) && day < DateTime.Today.AddDays(-1) || HistoryStore.LoadDay(sym, day).Count == 0)) { Next(); return true; }
-            if (phase == 0)
+            if (ci < chunks.Count)
             {
+                var c = chunks[ci]; long from = Mt5State.Epoch(c.Item1), to = Mt5State.Epoch(c.Item2); string key = sym + "|" + from;
+                string dn = c.Item1.ToString("dd MMM", CultureInfo.InvariantCulture) + (c.Item2.AddDays(-1) > c.Item1 ? " – " + c.Item2.AddDays(-1).ToString("dd MMM yyyy", CultureInfo.InvariantCulture) : " " + c.Item1.Year);
+                bool weekdays = false; for (var d = c.Item1; d < c.Item2; d = d.AddDays(1)) if (d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday) weekdays = true;
                 Tuple<List<Mt5Bar>, int> got = null;
                 lock (live.State.Gate) { if (live.State.Hist.TryGetValue(key, out got)) live.State.Hist.Remove(key); }
                 if (got != null)
                 {
                     waiting = false;
-                    if ((got.Item2 != 0 || (got.Item1.Count == 0 && !weekend)) && tries < 4) { tries++; retryAt = now.AddSeconds(1.5 * tries); Status = "MT5 is loading " + dn + " from the broker … (try " + tries + ")"; return true; }
-                    if (day < DateTime.Today || got.Item1.Count > 0) HistoryStore.SaveDay(sym, day, got.Item1);
-                    if (got.Item1.Count > 0) Saved++; else Skipped++;
-                    phase = 1; tries = 0; timeouts = 0; retryAt = DateTime.MinValue; return true;
+                    if ((got.Item2 != 0 || (got.Item1.Count == 0 && weekdays)) && tries < 4) { tries++; retryAt = now.AddSeconds(1.5 * tries); Status = "MT5 is loading " + sym + " " + dn + " from the broker … (try " + tries + ")"; return true; }
+                    var byDay = got.Item1.GroupBy(x => x.Time.Date).ToDictionary(g => g.Key, g => g.ToList());
+                    for (var d = c.Item1; d < c.Item2; d = d.AddDays(1))
+                    {
+                        List<Mt5Bar> bars; if (!byDay.TryGetValue(d, out bars)) bars = new List<Mt5Bar>();
+                        if (d < DateTime.Today || bars.Count > 0) HistoryStore.SaveDay(sym, d, bars);
+                        if (bars.Count > 0) Saved++; else Skipped++;
+                    }
+                    ci++; tries = 0; timeouts = 0; retryAt = DateTime.MinValue; if (ci >= chunks.Count) PlanTicks(); return true;
                 }
-                return Ask(now, "HIST|" + sym + "|" + from + "|" + to, "downloading the candles of " + sym + " " + dn + " (" + (idx + 1) + " / " + days.Count + ")", 8);
+                return Ask(now, "HIST|" + sym + "|" + from + "|" + to, "⬇ " + sym + " candles " + dn + " (" + (ci + 1) + " / " + chunks.Count + ")", 15);
             }
+            if (!tickPlan) PlanTicks();
+            if (ti >= tickDays.Count) { Done = true; Status = "✓ " + sym + ": " + Saved + " day(s) of candles" + (TickDays > 0 ? " + " + TickDays + " day(s) of real ticks (" + TickCount.ToString("N0", CultureInfo.InvariantCulture) + ")" : "") + " downloaded" + (Saved + TickDays == 0 ? " — everything was already on this PC" : ""); return false; }
+            var day = tickDays[ti]; long f2 = Mt5State.Epoch(day), t2 = Mt5State.Epoch(day.AddDays(1)); string k2 = sym + "|" + f2; string dn2 = day.ToString("ddd dd MMM", CultureInfo.InvariantCulture);
             Tuple<List<SimTick>, int> gt = null;
-            lock (live.State.Gate) { if (live.State.TickHist.TryGetValue(key, out gt)) live.State.TickHist.Remove(key); }
+            lock (live.State.Gate) { if (live.State.TickHist.TryGetValue(k2, out gt)) live.State.TickHist.Remove(k2); }
             if (gt != null)
             {
                 waiting = false;
-                if ((gt.Item2 != 0 || gt.Item1.Count == 0) && !weekend && tries < 5) { tries++; retryAt = now.AddSeconds(2.0 * tries); Status = "MT5 is loading the real ticks of " + dn + " … (try " + tries + ")"; return true; }
-                if (gt.Item1.Count > 0) { HistoryStore.SaveTicks(sym, day, gt.Item1); TickDays++; TickCount += gt.Item1.Count; }
-                Next(); return true;
+                if ((gt.Item2 != 0 || gt.Item1.Count == 0) && tries < 3) { tries++; retryAt = now.AddSeconds(2.0 * tries); Status = "MT5 is loading the real ticks of " + sym + " " + dn2 + " … (try " + tries + ")"; return true; }
+                if (gt.Item1.Count > 0) { HistoryStore.SaveTicks(sym, day, gt.Item1); TickDays++; TickCount += gt.Item1.Count; NewTickDays.Add(day); }
+                NextTick(); return true;
             }
-            return Ask(now, "HISTT|" + sym + "|" + from + "|" + to, "downloading MT5's real ticks of " + sym + " " + dn + " (" + (idx + 1) + " / " + days.Count + ")", 45);
+            return Ask(now, "HISTT|" + sym + "|" + f2 + "|" + t2, "⬇ " + sym + " real ticks " + dn2 + " (" + (ti + 1) + " / " + tickDays.Count + ")", 45);
         }
-        void Next() { idx++; phase = 0; tries = 0; timeouts = 0; retryAt = DateTime.MinValue; waiting = false; }
+        void NextTick() { ti++; tries = 0; timeouts = 0; retryAt = DateTime.MinValue; waiting = false; }
         bool Ask(DateTime now, string cmd, string status, double timeout)
         {
             if (!waiting)
@@ -162,7 +182,7 @@ namespace KeystoneMT5
             }
             if ((now - askedAt).TotalSeconds > timeout)
             {
-                if (++timeouts > 3) { if (phase == 1) { Next(); return true; } Failed = true; Done = true; Status = "✖ MT5 does not answer — put the new SpasiXBridge v5 on the chart (⚙ SETUP)"; return false; }
+                if (++timeouts > 3) { if (ci >= chunks.Count) { NextTick(); return true; } Failed = true; Done = true; Status = "✖ MT5 does not answer — put the new SpasiXBridge v5 on the chart (⚙ SETUP)"; return false; }
                 waiting = false;
             }
             return true;
@@ -204,6 +224,7 @@ namespace KeystoneMT5
         public double Progress { get { var span = (EndTime - StartTime).TotalSeconds; return span <= 0 ? 0 : Math.Max(0, Math.Min(1, (Clock - StartTime).TotalSeconds / span)); } }
         List<DateTime> days = new List<DateTime>();
         public int DaysTotal { get { return days.Count; } }
+        public List<DateTime> Days { get { return days.ToList(); } }   // the replayed server days
         public int DayNumber { get { var d = Clock.Date; return days.Count(x => x <= d); } }
 
         public string Load(SimSettings s, SimSpec spec, List<Mt5Bar> m1) { return Load(s, new List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> { Tuple.Create(spec, m1, (List<SimTick>)null) }); }
@@ -241,6 +262,24 @@ namespace KeystoneMT5
             return "";
         }
         public string Restart() { cmdLog.Clear(); return Load(Set, data); }
+        // real ticks that arrived after the start (downloaded in the background): appended to the symbol's feed (and to the reload data)
+        public int AddTicks(string sym, List<SimTick> ticks)
+        {
+            if (ticks == null || ticks.Count == 0) return 0; int n = 0;
+            lock (state.Gate)
+            {
+                foreach (var f in feeds.Where(x => string.Equals(x.Spec.Name, sym, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (f.Ticks == null) f.Ticks = new List<SimTick>(); var last = f.Ticks.Count > 0 ? f.Ticks[f.Ticks.Count - 1].T : DateTime.MinValue;
+                    var add = ticks.Where(t => t.T > last).OrderBy(t => t.T).ToList(); f.Ticks.AddRange(add); n += add.Count;
+                }
+                if (data != null) for (int i = 0; i < data.Count; i++) if (string.Equals(data[i].Item1.Name, sym, StringComparison.OrdinalIgnoreCase))
+                {
+                    var l = data[i].Item3 ?? new List<SimTick>(); var last = l.Count > 0 ? l[l.Count - 1].T : DateTime.MinValue; l.AddRange(ticks.Where(t => t.T > last).OrderBy(t => t.T)); data[i] = Tuple.Create(data[i].Item1, data[i].Item2, l);
+                }
+            }
+            return n;
+        }
         // BACK in time (previous minute / candle / day, a date in the past): the replay restarts and runs again to that moment, your commands
         // re-done at their own times — the trades before it stay exactly as they were, the ones after it are gone
         readonly List<Tuple<DateTime, string, object[]>> cmdLog = new List<Tuple<DateTime, string, object[]>>();
@@ -327,10 +366,10 @@ namespace KeystoneMT5
             f.Path = path; f.PathPos = 0; f.VolPerTick = Math.Max(0, b.V / Math.Max(1, path.Count));
         }
         static double Round(SimSpec s, double p) { return s.Point > 0 ? Math.Round(p / s.Point) * s.Point : p; }
-        // one price: the spread of the candle (or the fixed one) + STANDARD's markup
+        // one price: the spread of the candle (or the fixed one) + RAW's markup
         void Quote(Feed f, DateTime t, double bid, int spreadPts, double realAsk = double.NaN)
         {
-            double mk = (Set.Kind == "STANDARD" ? Set.MarkupPts : 0) * f.Spec.Point;
+            double mk = (Set.Kind == "RAW" ? Set.MarkupPts : 0) * f.Spec.Point;
             double ask = Set.FixedSpread >= 0 ? Round(f.Spec, bid + (Set.FixedSpread * f.Spec.Point) + mk) : !double.IsNaN(realAsk) && realAsk >= bid ? Round(f.Spec, realAsk + mk) : Round(f.Spec, bid + Math.Max(0, spreadPts) * f.Spec.Point + mk);
             state.Quotes[f.Spec.Name] = new Mt5Quote { Symbol = f.Spec.Name, Bid = bid, Ask = ask, Time = t };
             acct.OnPrice(f.Spec.Name, t, bid, ask);

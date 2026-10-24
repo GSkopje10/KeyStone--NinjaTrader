@@ -45,7 +45,7 @@ namespace KeystoneMT5
                 {
                     Mt5Quote q; if (!m.Quotes.TryGetValue(sym, out q) || q.Bid <= 0) continue; Mt5Quote last; if (seenQuote.TryGetValue(sym, out last) && ReferenceEquals(last, q)) continue;
                     seenQuote[sym] = q; var sp = SpecFor(sym); if (sp == null) continue;
-                    int before = state.Deals.Count; Acct.OnPrice(sym, q.Time, q.Bid, q.Ask + (Acct.Set.Kind == "STANDARD" ? Acct.Set.MarkupPts * sp.Point : 0)); if (state.Deals.Count != before) dirty = true;
+                    int before = state.Deals.Count; Acct.OnPrice(sym, q.Time, q.Bid, q.Ask + (Acct.Set.Widened ? Acct.Set.MarkupPts * sp.Point : 0)); if (state.Deals.Count != before) dirty = true;
                 }
                 Acct.Mark();
             }
@@ -71,7 +71,7 @@ namespace KeystoneMT5
                     if (!Ready) r = Tuple.Create(false, "set up the DEMO account first");
                     else
                     {
-                        if (cmd == "ORDER") { var sym = Convert.ToString(a[0]); var sp = SpecFor(sym); Mt5Quote q; if (sp != null && live.State.Quotes.TryGetValue(sym, out q)) Acct.OnPrice(sym, q.Time, q.Bid, q.Ask + (Acct.Set.Kind == "STANDARD" ? Acct.Set.MarkupPts * sp.Point : 0)); }
+                        if (cmd == "ORDER") { var sym = Convert.ToString(a[0]); var sp = SpecFor(sym); Mt5Quote q; if (sp != null && live.State.Quotes.TryGetValue(sym, out q)) Acct.OnPrice(sym, q.Time, q.Bid, q.Ask + (Acct.Set.Widened ? Acct.Set.MarkupPts * sp.Point : 0)); }
                         var now = live.State.ServerNow > DateTime.MinValue ? live.State.ServerNow : DateTime.Now; r = Acct.Do(cmd, a, now > Acct.Now ? now : Acct.Now);
                     }
                 }

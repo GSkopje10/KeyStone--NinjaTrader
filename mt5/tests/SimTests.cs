@@ -21,7 +21,7 @@ public static class SimTests
         var warm = Bars(day0.AddHours(10), 120, 4000, i => (i % 7) - 3);
         var test = Bars(day1, 30, 4000, i => 0.5).Concat(Bars(day1.AddMinutes(30), 40, 4015, i => -1)).ToList();
         var all = warm.Concat(test).ToList();
-        var set = new SimSettings { Symbol = "XAUUSD", From = day1, To = day1, Balance = 10000, CommissionPerLot = 7, Leverage = 500 };
+        var set = new SimSettings { Symbol = "XAUUSD", From = day1, To = day1, Balance = 10000, CommissionPerLot = 7, Leverage = 500, Kind = "STANDARD" };
 
         // 1. the replay draws exactly MT5's candles, on every timeframe
         var sb = Run(all, set); var m1 = sb.State.SeriesOf("XAUUSD", 1);
@@ -102,9 +102,13 @@ public static class SimTests
         HistoryStore.SaveDay("XAUUSD", day1, test); HistoryStore.SaveSpec(Gold());
         var back = HistoryStore.LoadRange("XAUUSD", day1, day1); var spec = HistoryStore.LoadSpec("XAUUSD");
         Check(back.Count == test.Count && Math.Abs(back[10].H - test[10].H) < 1e-9 && back[10].Spread == 20 && spec != null && spec.Contract == 100 && HistoryStore.Symbols().Contains("XAUUSD"), "a day saved on this PC loads back the same (and its symbol spec)");
-        var fake = new FakeMt5(); var dl = new HistoryDownloader(fake, "EURUSD", new DateTime(2026, 9, 1), new DateTime(2026, 9, 3)); var now = DateTime.Now;
-        for (int k = 0; k < 40 && dl.Step(now); k++) now = now.AddSeconds(0.5);
-        Check(dl.Done && !dl.Failed && dl.Saved == 3 && HistoryStore.HasDay("EURUSD", new DateTime(2026, 9, 2)) && fake.Asked == 4, "the downloader asks MT5 day by day, retries a day MT5 is still loading, saves 3 days", dl.Status + " asked " + fake.Asked);
+        var fake = new FakeMt5(); var dl = new HistoryDownloader(fake, "EURUSD", new DateTime(2026, 9, 1), new DateTime(2026, 9, 10), new DateTime(2026, 9, 2), new DateTime(2026, 9, 3), true); var now = DateTime.Now;
+        for (int k = 0; k < 80 && dl.Step(now); k++) now = now.AddSeconds(0.5);
+        Check(dl.Done && !dl.Failed && dl.Saved == 8 && HistoryStore.HasDay("EURUSD", new DateTime(2026, 9, 9)) && fake.Asked == 3, "candles a WEEK per request (10 days = 2 requests + 1 retry while MT5 loads), 8 weekdays saved", dl.Status + " asked " + fake.Asked);
+        Check(fake.AskedTicks == 2 && dl.TickDays == 2 && HistoryStore.HasTicks("EURUSD", new DateTime(2026, 9, 2)) && !HistoryStore.HasTicks("EURUSD", new DateTime(2026, 9, 4)) && dl.NewTickDays.Count == 2, "real ticks only for the days asked (2 Sep – 3 Sep), reported as they arrive", "ticks asked " + fake.AskedTicks);
+        var dl2 = new HistoryDownloader(fake, "EURUSD", new DateTime(2026, 9, 1), new DateTime(2026, 9, 3), new DateTime(2026, 9, 2), new DateTime(2026, 9, 3), true); int a0 = fake.Asked, t0 = fake.AskedTicks;
+        for (int k = 0; k < 20 && dl2.Step(now); k++) now = now.AddSeconds(0.5);
+        Check(dl2.Done && fake.Asked == a0 && fake.AskedTicks == t0, "a second load reads everything from this PC (nothing asked from MT5)");
         try { System.IO.Directory.Delete(HistoryStore.Root, true); } catch { }
         // 8. two symbols replayed together on one account; RAW vs STANDARD; MT5's swap in points; the account saved and loaded back
         var nas = new SimSpec { Name = "USTEC", Digits = 2, Point = 0.01, Contract = 1, TickValue = 0.01, TickSize = 0.01, VolMin = 0.1, VolStep = 0.1, VolMax = 50, NyOffsetHours = -7 };
@@ -117,9 +121,9 @@ public static class SimTests
         var nasPos = sb.State.Positions.First(x => x.Symbol == "USTEC");
         Check(Math.Abs(nasPos.Profit - Math.Round((nasPos.Current - nasPos.Open) * 1.0, 2)) < 0.02 && nasPos.Current > nasPos.Open + 50, "USTEC's P/L uses ITS spec ($1 per point per lot), XAUUSD's its own", nasPos.Profit + " " + nasPos.Current + " " + nasPos.Open);
         Check(sb.State.Quotes["USTEC"].Time == sb.State.Quotes["XAUUSD"].Time || Math.Abs((sb.State.Quotes["USTEC"].Time - sb.State.Quotes["XAUUSD"].Time).TotalSeconds) < 60, "both symbols move on the same clock");
-        var std = new SimSettings { Symbol = "XAUUSD", From = day1, To = day1, Balance = 10000, CommissionPerLot = 7, Kind = "STANDARD", MarkupPts = 30 };
+        var std = new SimSettings { Symbol = "XAUUSD", From = day1, To = day1, Balance = 10000, CommissionPerLot = 7, Kind = "RAW", MarkupPts = 30 };
         sb = Run(all, std); double sBid = sb.State.Quotes["XAUUSD"].Bid, sAsk = sb.State.Quotes["XAUUSD"].Ask; sb.Command("ORDER", "XAUUSD", "BUY", 1.0, 0.0, 0.0, 0.0);
-        Check(Math.Abs(sAsk - sBid - 0.50) < 1e-9 && Math.Abs(Bal(sb) - 10000) < 1e-9, "STANDARD: no commission, the spread wider by its markup (20 + 30 points)", (sAsk - sBid) + " " + Bal(sb));
+        Check(Math.Abs(sAsk - sBid - 0.50) < 1e-9 && Math.Abs(Bal(sb) - 10000) < 1e-9, "RAW: no commission, the spread wider by its markup (20 + 30 points)", (sAsk - sBid) + " " + Bal(sb));
         var acc = new SimAccount(new Mt5State()); var gsp = Gold(); gsp.SwapMode = 1; gsp.SwapLong = -40; acc.Specs["XAUUSD"] = gsp;
         Check(Math.Abs(acc.SwapPerLot(gsp, 1, 4000) + 40) < 1e-9, "MT5 swap in points: −40 points × $1 per point per lot = −$40 a lot a night");
         acc.Reset(new SimAccountSettings { Balance = 5000 }, day1); acc.OnPrice("XAUUSD", day1, 4000, 4000.2); acc.Do("ORDER", new object[] { "XAUUSD", "BUY", 0.5, 0.0, 3990.0, 0.0 }, day1); acc.Do("ORDER", new object[] { "XAUUSD", "SELL LIMIT", 0.2, 4010.0, 0.0, 0.0 }, day1);
@@ -165,6 +169,11 @@ public static class SimTests
             "⏪ back 1 minute after the half close: the same ticket, 0.50 lots left at the same price, the later SELL is gone, the chart ends there", e11 + " " + rw.Clock + " " + bk.Count);
         var pb5 = rw.PrevBar(5); Check(pb5 < rw.Clock && pb5.Minute % 5 == 0, "◀ previous M5 candle = the start of the M5 candle before", pb5.ToString("HH:mm"));
         Check(rw.PrevDayStart() == rw.StartTime, "◀◀ previous day inside the first day = its start");
+        // 11b. real ticks that arrive in the background after the start are played when the replay reaches them
+        var ab = Run(all, set); ab.StepBar(1); var tl = new List<SimTick>(); var tday = day1.AddMinutes(10);
+        for (int k = 0; k < 120; k++) tl.Add(new SimTick { T = tday.AddMilliseconds(500 * k), Bid = 4006 + 0.01 * k, Ask = 4006.2 + 0.01 * k });
+        int added = ab.AddTicks("XAUUSD", tl); ab.JumpTo(day1.AddMinutes(12));
+        Check(added == 120 && ab.HasTicks && ab.RealShare > 0 && ab.State.SeriesOf("XAUUSD", 1).Bars.Any(b => b.Time == tday && Math.Abs(b.H - 4007.19) < 1e-6), "ticks added after the start: the minute they cover is played from them", added + " added, real " + ab.RealShare.ToString("P0"));
         // 12. the POOL: the finished days of a run saved with their trades, read back, grouped by week / month, and the HTML tracker
         var d2 = day1.AddDays(1); var two = Bars(day1, 300, 4000, i => (i % 11) - 5).Concat(Bars(d2, 300, 4010, i => (i % 9) - 4)).ToList();
         var pl = Run(warm.Concat(two).ToList(), new SimSettings { Symbol = "XAUUSD", From = day1, To = d2, Balance = 10000, CommissionPerLot = 7, Leverage = 500 });
@@ -191,12 +200,20 @@ public static class SimTests
         readonly Mt5State st = new Mt5State(); public int Asked; bool once;
         public Mt5State State { get { return st; } } public string Problem { get { return ""; } } public int Port { get { return 0; } } public bool IsSim { get { return false; } }
         public string Command(string c, params object[] a) { return null; }
+        public int AskedTicks;
         public bool Send(string line)
         {
-            var a = line.Split('|'); if (a[0] != "HIST") return true; Asked++; long from = long.Parse(a[2]);
-            bool busy = !once && Mt5State.Unix(from).Day == 2; if (busy) once = true;
-            st.Apply("HIST|" + a[1] + "|" + a[2] + "|" + a[3] + "|" + (busy ? 0 : 2) + "|" + (busy ? 4401 : 0));
-            if (!busy) { st.Apply("H|" + from + "|1.1|1.2|1.0|1.15|5|3"); st.Apply("H|" + (from + 60) + "|1.15|1.2|1.1|1.12|5|3"); }
+            var a = line.Split('|');
+            if (a[0] == "HISTT")
+            {
+                AskedTicks++; long f0 = long.Parse(a[2]);
+                st.Apply("TT|" + a[1] + "|" + a[2] + "|" + a[3] + "|3|0"); st.Apply("T|1000|1.10|1.11"); st.Apply("T|2500|1.12|1.13"); st.Apply("T|61000|1.11|1.12"); st.Apply("TTEND|" + a[1] + "|" + a[2] + "|" + a[3]); return true;
+            }
+            if (a[0] != "HIST") return true; Asked++; long from = long.Parse(a[2]), to = long.Parse(a[3]);
+            bool busy = !once; if (busy) once = true;   // MT5 is still loading the first time
+            var bars = new List<string>(); for (long d = from; d < to; d += 86400) { var dt = Mt5State.Unix(d); if (dt.DayOfWeek == DayOfWeek.Saturday || dt.DayOfWeek == DayOfWeek.Sunday) continue; bars.Add("H|" + d + "|1.1|1.2|1.0|1.15|5|3"); bars.Add("H|" + (d + 60) + "|1.15|1.2|1.1|1.12|5|3"); }
+            st.Apply("HIST|" + a[1] + "|" + a[2] + "|" + a[3] + "|" + (busy ? 0 : bars.Count) + "|" + (busy ? 4401 : 0));
+            if (!busy) foreach (var b in bars) st.Apply(b);
             st.Apply("HISTEND|" + a[1] + "|" + a[2] + "|" + a[3]); return true;
         }
     }

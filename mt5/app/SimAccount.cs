@@ -1,7 +1,7 @@
 // SpasiX — the SIMULATED ACCOUNT behind the BACKTEST (history) and the live DEMO (real prices from your MT5): a HEDGING account on any number of
 // symbols. It answers the same commands as the bridge (ORDER / CLOSE / CLOSEALL / MODIFY / MODORD / CANCEL / CANCELALL / BE): market orders at
 // the ask / bid (+ slippage), limits at their price, stops at the market, stops / targets on every price, commission per lot (RAW: half in, half
-// out; STANDARD: none — the spread is wider instead), swap at the server's midnight in MT5's own swap mode (points / money / interest, triple
+// out on STANDARD; RAW: none — the spread is wider instead), swap at the server's midnight in MT5's own swap mode (points / money / interest, triple
 // day from the symbol), margin with the leverage and a stop-out. Nothing here touches the real account.
 using System;
 using System.Collections.Generic;
@@ -13,8 +13,9 @@ namespace KeystoneMT5
     public sealed class SimAccountSettings
     {
         public double Balance = 10000, CommissionPerLot = 7, StopOutPct = 50, MarkupPts = 0, SwapLong = 0, SwapShort = 0; public int Leverage = 500, SlipPts = 0;
-        public string Currency = "USD", Kind = "RAW";   // RAW = commission + the raw spread, STANDARD = no commission + the spread widened by MarkupPts
-        public double Commission { get { return Kind == "STANDARD" ? 0 : CommissionPerLot; } }
+        public string Currency = "USD", Kind = "RAW";   // RAW = NO commission + the spread widened by MarkupPts, STANDARD = commission + the raw (near 0) spread — the user's definition
+        public double Commission { get { return Kind == "RAW" ? 0 : CommissionPerLot; } }
+        public bool Widened { get { return Kind == "RAW"; } }
     }
 
     public sealed class SimAccount

@@ -8,9 +8,9 @@ h1{margin:0;color:#0A0E16}h1 .g{color:#c9961a}h1 .c{color:#1aa6cf}.sub{color:#5b
 code{background:#f1f3f8;padding:1px 6px;border-radius:4px}.ok{background:#e8f8ef;border-color:#9fdcb7}.warn{background:#fff6e3;border-color:#f0d28a}.up{background:#eaf6fd;border-color:#9fd3ef}.red{background:#fdecee;border-color:#f3a7b1}
 ul{margin:5px 0 0 18px;padding:0}li{margin:3px 0}
 </style></head><body>
-<div class="top"><img src="spasix.png"><div><h1><span class="g">Spasi</span><span class="c">X</span> — Setup &amp; trading</h1><div class="sub">SpasiX • BUILD 2026-10-26a • MetaTrader 5 (IC Markets) on Windows • LIVE • PROP • DEMO • BACKTEST</div></div></div>
+<div class="top"><img src="spasix.png"><div><h1><span class="g">Spasi</span><span class="c">X</span> — Setup &amp; trading</h1><div class="sub">SpasiX • BUILD 2026-10-27a • MetaTrader 5 (IC Markets) on Windows • LIVE • PROP • DEMO • BACKTEST</div></div></div>
 
-<div class="step up"><h2>Updating to build 26a (3 minutes) — your open trades are safe</h2>
+<div class="step up"><h2>Updating to build 27a (3 minutes) — your open trades are safe</h2>
 <ul><li>Close the old SpasiX (your positions stay open in MT5 with their stops and targets). Replace <code>SpasiX.exe</code> with the new one.</li>
 <li>Copy the new <code>SpasiXBridge.mq5</code> (<b>v5</b>) into MT5's <code>MQL5\Experts</code> folder (replace the old file) and <b>restart MT5</b>.</li>
 <li>On the chart with the bridge: <b>remove the old bridge</b> (right-click → Expert list → Remove) and <b>drag SpasiXBridge on again</b> → tick <b>Allow Algo Trading</b> (Common tab) → OK.</li>
@@ -23,8 +23,8 @@ ul{margin:5px 0 0 18px;padding:0}li{margin:3px 0}
 <li>Drag <b>SpasiXBridge</b> onto ONE chart → tick <b>Allow Algo Trading</b> → OK. Start <code>SpasiX.exe</code> (first time: allow the .NET 8 Desktop Runtime; "Windows protected your PC" → More info → Run anyway).</li></ul></div>
 
 <div class="step ok"><h2><span class="n">2</span>The start screen</h2>
-<ul><li><b>📈 LIVE</b> your MT5 account • <b>🏆 PROP</b> a CFD prop account with the firm's rules • <b>🎮 DEMO</b> your MT5's live prices with a simulated account (your balance, RAW or STANDARD — nothing reaches MT5, kept on this PC) • <b>🧪 BACKTEST</b> MT5's history replayed with its real ticks.</li>
-<li>Keys 1 – 4 choose. The RESUME card (top right) shows the trades still open in MT5 and the saved DEMO. <b>⌂ MODES</b> comes back here.</li></ul></div>
+<ul><li><b>📈 LIVE</b> your MT5 account • <b>🏆 PROP</b> a CFD prop account with the firm's rules • <b>🎮 DEMO</b> your MT5's live prices with a simulated account (your balance, RAW = no commission + wider spread, STANDARD = commission + spread near 0 — nothing reaches MT5) • <b>🧪 BACKTEST</b> MT5's history replayed with its real ticks.</li>
+<li>Several modes can be open at once: they are TABS in the title bar (⌂ HOME, ● LIVE, 🎮 DEMO, 🧪 BACKTEST, + opens another). ✕ on a tab closes that mode and returns HOME. The data (history, ticks, pool, settings) is kept on <b>F:\SpasiX\MT5</b> when you have an F: drive (⚙ SETUP ▸ THE DATA FOLDER changes it). Keys 1 – 4 choose. The RESUME card (top right) shows the trades still open in MT5 and the saved DEMO. <b>⌂ MODES</b> comes back here.</li></ul></div>
 
 <div class="step ok"><h2><span class="n">3</span>The header and the chart</h2>
 <ul><li><b>OPEN P/L</b> big, its border pulses green / red • <b>▲ BUYS / ▼ SELLS</b>: tickets • lots • P/L each, ★ = the side that leads • <b>⇅ HEDGED</b> when both are open (net lots). Clocks: New York, London, Tokyo, MT5's server (+ the chart's zone) with the day.</li>

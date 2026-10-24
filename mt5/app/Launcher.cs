@@ -17,13 +17,14 @@ namespace KeystoneMT5
 {
     public sealed class Launcher : Window
     {
-        public event Action<string> Chosen; public bool Picked;
+        public event Action<string> Chosen;
         readonly Mt5Bridge bridge; readonly DispatcherTimer tm; TextBlock status; Border statusDot;
         Border resume; StackPanel resumeBox, resumeBtns; TextBlock resumeTitle, resumeText; string resumeSig = ""; readonly DateTime openedAt = DateTime.Now;
         public Launcher(Mt5Bridge b, bool stream)
         {
-            bridge = b; Title = "SpasiX"; Width = 1360; Height = 660; WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent; ResizeMode = ResizeMode.NoResize;
+            bridge = b; Title = "SpasiX"; Width = 1440; Height = 860; MinWidth = 900; MinHeight = 560; WindowState = WindowState.Maximized; Background = Sx.Bg;
             WindowStartupLocation = WindowStartupLocation.CenterScreen; FontFamily = Sx.Face; var lg = MainWindow.Logo(); if (lg != null) Icon = lg;
+            var ts = Environment.GetEnvironmentVariable("SPASIX_TEST_SIZE"); if (!string.IsNullOrEmpty(ts) && ts.Contains("x")) { WindowState = WindowState.Normal; WindowStartupLocation = WindowStartupLocation.Manual; Left = 0; Top = 0; Width = double.Parse(ts.Split('x')[0], CultureInfo.InvariantCulture); Height = double.Parse(ts.Split('x')[1], CultureInfo.InvariantCulture); }
             var root = new Grid();
             var frame = new Border { CornerRadius = new CornerRadius(26), Margin = new Thickness(20), BorderThickness = new Thickness(1.4), BorderBrush = new LinearGradientBrush(Sx.C("#FFC94D"), Sx.C("#4DD8FF"), 30),
                 Background = new RadialGradientBrush(Sx.C("#16203A"), Sx.C("#070A12")) { GradientOrigin = new Point(0.5, 0.0), Center = new Point(0.5, 0.1), RadiusX = 1.1, RadiusY = 1.2 },
@@ -31,11 +32,11 @@ namespace KeystoneMT5
             root.Children.Add(frame);
             var g = new Grid { Margin = new Thickness(46, 30, 46, 26) }; frame.Child = g;
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            frame.MouseLeftButtonDown += (s, e) => { if (e.ClickCount == 1) try { DragMove(); } catch { } };
+
             // top: the logo, the name, the question, MT5's state, close
             var top = new DockPanel();
             var close = Sx.Pill("✕", Brushes.Transparent); close.BorderBrush = Brushes.Transparent; close.Width = 36; close.Padding = new Thickness(0); close.FontSize = 14; close.ToolTip = "close SpasiX"; close.Click += delegate { Close(); };
-            DockPanel.SetDock(close, Dock.Right); close.VerticalAlignment = VerticalAlignment.Top; top.Children.Add(close);
+            
             var head = new StackPanel { Orientation = Orientation.Horizontal };
             var lgG = new Grid { Width = 74, Height = 74, Margin = new Thickness(0, 0, 16, 0) };
             var ring = new System.Windows.Shapes.Ellipse { Width = 74, Height = 74, StrokeThickness = 3, Stroke = new LinearGradientBrush(Sx.C("#FFC94D"), Sx.C("#4DD8FF"), 45), StrokeDashArray = new DoubleCollection { 5, 3 } };
@@ -74,9 +75,19 @@ namespace KeystoneMT5
             row.Children.Add(Card("BACKTEST", "🧪", "BACKTEST STUDIO", "MT5's own history, replayed", Sx.Cyan, new[] { "gold, NAS100, … together, real ticks", "play / speed / ◀ ▶ candle / day / jump", "RAW or STANDARD, MT5's swap and margin", "sessions saved to a pool + HTML tracker" }, "4"));
             var foot = new DockPanel { Margin = new Thickness(4, 4, 4, 0) }; Grid.SetRow(foot, 2); g.Children.Add(foot);
             var bl = new TextBlock { Text = MainWindow.Build, Foreground = Sx.Muted, FontSize = 11 }; DockPanel.SetDock(bl, Dock.Right); foot.Children.Add(bl);
-            foot.Children.Add(new TextBlock { Text = "1 / 2 / 3 / 4 = choose • Esc = close • LIVE, PROP and DEMO need MetaTrader 5 with the SpasiXBridge on a chart; BACKTEST works offline with the days on this PC", Foreground = Sx.Muted, FontSize = 11 });
-            Content = root;
-            PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) Close(); else if (e.Key == Key.R && resume.Visibility == Visibility.Visible && resumeBtns.Children.Count > 0) Pick(resumeTitle.Text.StartsWith("YOUR DEMO") ? "DEMO" : "LIVE"); else if (e.Key == Key.D1 || e.Key == Key.NumPad1) Pick("LIVE"); else if (e.Key == Key.D2 || e.Key == Key.NumPad2) Pick("PROP"); else if (e.Key == Key.D3 || e.Key == Key.NumPad3) Pick("DEMO"); else if (e.Key == Key.D4 || e.Key == Key.NumPad4) Pick("BACKTEST"); };
+            foot.Children.Add(new TextBlock { Text = "1 / 2 / 3 / 4 = open a mode (several can be open: they become tabs at the top) • LIVE, PROP and DEMO need MetaTrader 5 with the SpasiXBridge on a chart; BACKTEST works offline", Foreground = Sx.Muted, FontSize = 11 });
+            // full screen: the whole start screen scales to the window, every button always visible
+            root.Width = 1360; root.Height = 700;
+            var host = new Grid { Background = new RadialGradientBrush(Sx.C("#111A2E"), Sx.C("#05070D")) { RadiusX = 0.9, RadiusY = 0.9 } };
+            host.Children.Add(new Viewbox { Child = root, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both, Margin = new Thickness(18, 10, 18, 14) });
+            Content = Shell.Chrome(this, "HOME", host); SxMenu.Attach(this, host);
+            Closing += (s, e) =>
+            {
+                if (Shell.Quitting) return; int n = Shell.Modes.Count;
+                if (n > 0 && Sx.Choice(this, "Close SpasiX?", n + " mode" + (n == 1 ? " is" : "s are") + " open (" + string.Join(", ", Shell.Modes.Select(m => Shell.NameOf(m.Mode))) + "). Your MT5 positions stay open at the broker.", null, new[] { "⏻  CLOSE SPASIX", "STAY" }, new[] { Sx.Red, (SolidColorBrush)null }) != 0) { e.Cancel = true; return; }
+                e.Cancel = true; Dispatcher.BeginInvoke(new Action(Shell.Quit));
+            };
+            PreviewKeyDown += (s, e) => { if (e.Key == Key.R && resume.Visibility == Visibility.Visible && resumeBtns.Children.Count > 0) Pick(resumeTitle.Text.StartsWith("YOUR DEMO") ? "DEMO" : "LIVE"); else if (e.Key == Key.D1 || e.Key == Key.NumPad1) Pick("LIVE"); else if (e.Key == Key.D2 || e.Key == Key.NumPad2) Pick("PROP"); else if (e.Key == Key.D3 || e.Key == Key.NumPad3) Pick("DEMO"); else if (e.Key == Key.D4 || e.Key == Key.NumPad4) Pick("BACKTEST"); };
             tm = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             tm.Tick += delegate
             {
@@ -114,7 +125,7 @@ namespace KeystoneMT5
             else resumeTitle.Text = "YOUR DEMO IS WAITING";
             if (demo > 0) { var bd = Sx.Pill("🎮 RESUME DEMO (" + demo + ")  ›", Sx.Tint(Sx.Orange, 200)); bd.Foreground = Sx.Bg; bd.Height = 30; bd.Click += delegate { Pick("DEMO"); }; resumeBtns.Children.Add(bd); if (n == 0) resumeText.Text = demo + " simulated ticket" + (demo == 1 ? "" : "s") + " saved on this PC — they follow the live prices again"; }
         }
-        void Pick(string mode) { if (Picked) return; Picked = true; var h = Chosen; if (h != null) h(mode); }
+        void Pick(string mode) { var h = Chosen; if (h != null) h(mode); else Shell.Open(mode); }
         FrameworkElement Card(string mode, string icon, string title, string tag, SolidColorBrush col, string[] lines, string key)
         {
             var sp = new StackPanel { Margin = new Thickness(22, 22, 22, 20) };
@@ -122,7 +133,7 @@ namespace KeystoneMT5
                 Child = new TextBlock { Text = icon, FontSize = 28, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }, Effect = new DropShadowEffect { Color = col.Color, BlurRadius = 18, ShadowDepth = 0, Opacity = 0.6 } };
             sp.Children.Add(ic);
             sp.Children.Add(new TextBlock { Text = title, Foreground = col, FontSize = 21, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 14, 0, 0) });
-            sp.Children.Add(new TextBlock { Text = tag, Foreground = Sx.Text, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 12) });
+            sp.Children.Add(new TextBlock { Text = tag, Foreground = Sx.Text, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 12), TextWrapping = TextWrapping.Wrap, MaxWidth = 240 });
             foreach (var l in lines) { var r = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 3) }; r.Children.Add(new TextBlock { Text = "◆", Foreground = col, FontSize = 9, Margin = new Thickness(0, 3, 9, 0) }); r.Children.Add(new TextBlock { Text = l, Foreground = Sx.Muted, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 212 }); sp.Children.Add(r); }
             var go = Sx.Pill("OPEN " + mode + "  ›", col); go.Foreground = Sx.Bg; go.Height = 40; go.FontSize = 13.5; go.Margin = new Thickness(0, 18, 0, 0); go.HorizontalAlignment = HorizontalAlignment.Stretch; go.Click += delegate { Pick(mode); }; sp.Children.Add(go);
             sp.Children.Add(new TextBlock { Text = "key " + key, Foreground = Sx.Muted, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
@@ -158,21 +169,6 @@ namespace KeystoneMT5
         }
         static Application app; static Mt5Bridge bridge;
         static bool StreamOn() { try { var f = System.IO.Path.Combine(MainWindow.Dir, "settings.txt"); return System.IO.File.Exists(f) && Array.IndexOf(System.IO.File.ReadAllLines(f), "stream=1") >= 0; } catch { return false; } }
-        static void ShowLauncher()
-        {
-            var l = new Launcher(bridge, StreamOn());
-            l.Chosen += mode =>
-            {
-                MainWindow main;
-                try { main = new MainWindow(bridge, mode); }
-                catch (Exception ex) { l.Picked = false; Sx.Info(l, "SpasiX", "The " + mode + " window could not open: " + ex.Message, Sx.Red); return; }
-                app.MainWindow = main;
-                main.Closed += delegate { if (main.BackToLauncher) ShowLauncher(); else { bridge.Dispose(); app.Shutdown(); } };
-                main.Show(); main.Activate(); l.Close();
-            };
-            l.Closed += delegate { if (!l.Picked) { bridge.Dispose(); app.Shutdown(); } };
-            app.MainWindow = l; l.Show(); l.Activate();
-        }
         [STAThread]
         public static void Main(string[] args)
         {
@@ -185,9 +181,9 @@ namespace KeystoneMT5
             var tm = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1300) };
             tm.Tick += delegate
             {
-                tm.Stop();
-                if (direct == "LIVE" || direct == "PROP" || direct == "DEMO" || direct == "BACKTEST") { var main = new MainWindow(bridge, direct); app.MainWindow = main; main.Closed += delegate { if (main.BackToLauncher) ShowLauncher(); else { bridge.Dispose(); app.Shutdown(); } }; main.Show(); }
-                else ShowLauncher();
+                tm.Stop(); DataDir.Init();   // the data folder (F: when there is one) — moves the old data there once
+                Shell.Bridge = bridge; Shell.App = app; Shell.Home = new Launcher(bridge, StreamOn());
+                if (direct == "LIVE" || direct == "PROP" || direct == "DEMO" || direct == "BACKTEST") { Shell.Switch(Shell.Home); Shell.Open(direct); } else Shell.ShowHome();
                 splash.Close();
             };
             tm.Start(); app.Run();

@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-26a";
+        public const string Build = "SpasiX • BUILD 2026-10-27a";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -28,7 +28,7 @@ namespace KeystoneMT5
         static string Signed(double v, string cur) { return (v > 0 ? "+" : "") + Money(v, cur); }
         public static ImageSource Logo() { try { return BitmapFrame.Create(new Uri("pack://application:,,,/assets/spasix.png")); } catch { return null; } }
 
-        public readonly string Mode; public bool BackToLauncher;
+        public readonly string Mode;
         readonly Mt5Bridge live; readonly IBroker broker; readonly SimBroker sim; readonly DispatcherTimer ui, simTimer;
         bool Sim { get { return sim != null; } }
         readonly PaperBroker paper; bool Paper { get { return paper != null; } } bool Virtual { get { return Sim || Paper; } }   // DEMO = live prices + a simulated account
@@ -38,13 +38,13 @@ namespace KeystoneMT5
         FrameworkElement headerEl, tabBarEl; Grid rootGrid;
         TextBlock connText, acLogin, acName, acRest, modeText; Border connPill, acPrivate, modeBadge; readonly Dictionary<string, Tuple<TextBlock, TextBlock, Border>> cards = new Dictionary<string, Tuple<TextBlock, TextBlock, Border>>();
         StackPanel clockRow; readonly List<Tuple<string, TextBlock, TextBlock, Border, string>> clocks = new List<Tuple<string, TextBlock, TextBlock, Border, string>>();
-        Border eqFill, hedgeBadge; TextBlock hedgeText; Tuple<TextBlock, TextBlock, Border> buysBox, sellsBox; DropShadowEffect plGlow; int plSign = 9; StackPanel setupSteps; TextBlock setupStatus; Button streamBtn;
+        Border eqFill, modeBanner; TextBlock modeBannerText; DropShadowEffect plGlow; int plSign = 9; StackPanel setupSteps; TextBlock setupStatus; Button streamBtn;
 
         // the app's own settings (%AppData%\SpasiX\MT5\settings.txt) and drawings (drawings.txt)
-        public static readonly string Dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpasiX", "MT5");
-        static readonly string SetFile = Path.Combine(Dir, "settings.txt"), DrawFile = Path.Combine(Dir, "drawings.txt");
-        readonly Dictionary<string, string> set = new Dictionary<string, string>();
-        void LoadSet() { try { foreach (var l in File.ReadAllLines(SetFile)) { int i = l.IndexOf('='); if (i > 0) set[l.Substring(0, i)] = l.Substring(i + 1); } } catch { } }
+        public static string Dir { get { return DataDir.Root; } }   // F:\SpasiX\MT5 when there is an F: drive (DataDir.cs)
+        static string SetFile { get { return Path.Combine(Dir, "settings.txt"); } } static string DrawFile { get { return Path.Combine(Dir, "drawings.txt"); } }
+        static readonly Dictionary<string, string> set = new Dictionary<string, string>(); static bool setLoaded;   // shared by every open mode (one settings file)
+        void LoadSet() { if (setLoaded) return; setLoaded = true; try { foreach (var l in File.ReadAllLines(SetFile)) { int i = l.IndexOf('='); if (i > 0) set[l.Substring(0, i)] = l.Substring(i + 1); } } catch { } }
         void SaveSet() { try { Directory.CreateDirectory(Dir); File.WriteAllLines(SetFile, set.Select(kv => kv.Key + "=" + kv.Value)); } catch { } }
         string Get(string k, string d) { string v; return set.TryGetValue(k, out v) ? v : d; }
         void Put(string k, string v) { string o; if (set.TryGetValue(k, out o) && o == v) return; set[k] = v; SaveSet(); }
@@ -59,7 +59,7 @@ namespace KeystoneMT5
             var lg = Logo(); if (lg != null) Icon = lg; Sx.DarkTitle(this);
             var ts = Environment.GetEnvironmentVariable("SPASIX_TEST_SIZE"); if (!string.IsNullOrEmpty(ts) && ts.Contains("x")) { WindowState = WindowState.Normal; WindowStartupLocation = WindowStartupLocation.Manual; Left = 0; Top = 0; Width = double.Parse(ts.Split('x')[0], IC); Height = double.Parse(ts.Split('x')[1], IC); }
             LoadSet(); LoadDrawings(); streamMode = Get("stream", "0") == "1";
-            rootGrid = new Grid(); Content = rootGrid;
+            rootGrid = new Grid(); Content = Shell.Chrome(this, mode, rootGrid);
             rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             headerEl = BuildHeader(); Grid.SetRow(headerEl, 0); rootGrid.Children.Add(headerEl);
             var host = new Grid { Margin = new Thickness(10, 6, 10, 6) }; Grid.SetRow(host, 1); rootGrid.Children.Add(host);
@@ -84,6 +84,7 @@ namespace KeystoneMT5
             }
             PreviewKeyDown += (s, e) =>
             {
+                if (e.Key == System.Windows.Input.Key.F10 || e.SystemKey == System.Windows.Input.Key.F10) { if (spreadPanel != null) { Show("CHART"); ToggleSpreads(); } e.Handled = true; return; }
                 if (e.Key == System.Windows.Input.Key.F11 || (e.Key == System.Windows.Input.Key.Escape && fullChart && !SxMenu.IsOpen(this))) { SetFullChart(!fullChart); e.Handled = true; return; }
                 if (Sim && view == "CHART" && !(System.Windows.Input.Keyboard.FocusedElement is TextBox))
                 {
@@ -98,29 +99,24 @@ namespace KeystoneMT5
             // leaving: asks first (your positions stay open in MT5)
             Closing += (s, e) =>
             {
-                if (BackToLauncher) return;
+                if (Shell.Quitting) return;
                 int open, ords; double pl; lock (broker.State.Gate) { open = broker.State.Positions.Count; ords = broker.State.Orders.Count; pl = broker.State.Positions.Sum(p => p.Profit + p.Swap); }
                 string line = Sim ? "The backtest ends" + (open > 0 ? " with its " + open + " simulated position" + (open == 1 ? "" : "s") : "") + " — its finished days stay in the 🗂 POOL. Nothing is real."
                     : Paper ? "The DEMO account is saved on this PC with everything open; it follows the live prices again when you come back."
                     : (open > 0 ? "Your positions stay open in MetaTrader 5 with their stops and targets — only this window closes." : "Nothing is open.") + (armed ? " Trading disarms." : "");
                 var tiles = Sx.Tiles(Tuple.Create(Sim ? "SIMULATED" : Paper ? "DEMO TICKETS" : "OPEN TICKETS", open.ToString(IC), open > 0 ? Cyan : Muted), Tuple.Create("OPEN P/L", open > 0 ? Signed(pl, "USD") : "—", pl > 0 ? Green : pl < 0 ? Red : Muted),
                     Tuple.Create("ORDERS", ords.ToString(IC), ords > 0 ? Amber : Muted), Tuple.Create(Virtual ? "MODE" : "TRADING", Virtual ? Mode : armed ? "ARMED" : "OFF", armed ? Red : Muted));
-                int k = Sx.Choice(this, Sim ? "Leave the backtest?" : "Leave SpasiX?", line, tiles, new[] { "⏻  CLOSE SPASIX", "⌂  BACK TO THE MODES", "STAY" }, new[] { Red, Cyan, (SolidColorBrush)null });
-                if (k == 1) { armed = false; BackToLauncher = true; return; }
-                if (k != 0) e.Cancel = true;
+                int k = Sx.Choice(this, "Close " + Shell.NameOf(Mode) + "?", line, tiles, new[] { "✕  CLOSE " + Mode + "  →  HOME", "⏻  CLOSE SPASIX", "STAY" }, new[] { Shell.ColorOf(Mode), Red, (SolidColorBrush)null });
+                if (k == 0) { armed = false; return; }
+                if (k == 1) { armed = false; e.Cancel = true; Dispatcher.BeginInvoke(new Action(Shell.Quit)); return; }
+                e.Cancel = true;
             };
             Closed += delegate { ui.Stop(); if (simTimer != null) simTimer.Stop(); SaveDrawings(); if (Paper) paper.Save(); if (Sim && sim.Spec != null) { SaveRun(); PoolSaveAll(); } };
             if (Paper) Loaded += delegate { Dispatcher.BeginInvoke(new Action(() => { if (!paper.Ready) DemoSetup(true); }), DispatcherPriority.Background); };
             if (!Sim) StartNews();
         }
         // back to the start screen (asks first while armed / in a backtest with trades)
-        void GoLauncher()
-        {
-            int open; lock (broker.State.Gate) open = broker.State.Positions.Count;
-            string msg = Paper ? "Back to the start screen? The DEMO account is saved." : Sim ? "Back to the start screen? The backtest ends" + (open > 0 ? " with its " + open + " simulated position" + (open == 1 ? "" : "s") : "") + "." : "Back to the start screen?" + (armed ? " Trading disarms." : "") + (open > 0 ? " Your positions stay open in MT5." : "");
-            if (!Sx.Ask(this, "⌂ Modes", msg, "GO BACK", "STAY")) return;
-            armed = false; BackToLauncher = true; Close();
-        }
+        void GoLauncher() { Shell.ShowHome(); }   // HOME: this mode keeps running in its tab
 
         // ---------------------------------------------------------------- header
         FrameworkElement BuildHeader()
@@ -145,7 +141,7 @@ namespace KeystoneMT5
                 right.Children.Add(streamBtn);
             }
             right.Children.Add(connPill);
-            var home = Pill("⌂ MODES", Card); home.ToolTip = "back to the start screen (LIVE / PROP / BACKTEST)"; home.Click += delegate { GoLauncher(); }; right.Children.Add(home);
+            var home = Pill("⌂ HOME", Card); home.ToolTip = "the start screen — this mode keeps running in its tab (top)"; home.Click += delegate { GoLauncher(); }; right.Children.Add(home);
             right.Children.Add(new TextBlock { Text = Build, Foreground = Muted, FontSize = 10.5, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
             // the clocks: the time and the day in New York, London, Tokyo, MT5's server (+ the chart's zone) — in a backtest: the replay's time
             var rightAll = new StackPanel { VerticalAlignment = VerticalAlignment.Center }; rightAll.Children.Add(right);
@@ -158,6 +154,7 @@ namespace KeystoneMT5
                 var bd = new Border { Child = st, Background = Tint(z.Item3, 26), BorderBrush = Tint(z.Item3, 120), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 2, 9, 3), Margin = new Thickness(5, 0, 0, 0), MinWidth = 96 };
                 clockRow.Children.Add(bd); clocks.Add(Tuple.Create(z.Item2, cap, val, bd, z.Item1));
             }
+            if (!Sim) clockRow.Children.Insert(0, BuildNewsBadge());
             DockPanel.SetDock(rightAll, Dock.Right); dp.Children.Add(rightAll);
             var mid = new StackPanel { VerticalAlignment = VerticalAlignment.Center }; dp.Children.Add(mid);
             // the account line: the name and the number apart (STREAM MODE blurs only them)
@@ -167,9 +164,18 @@ namespace KeystoneMT5
             acPrivate = new Border { Child = priv, CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(-6, 0, 0, 0), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "click = hide / show the name and number (STREAM MODE)" };
             if (!Sim) acPrivate.MouseLeftButtonUp += delegate { SetStream(!streamMode); };
             acRest = new TextBlock { Text = Sim ? "" : "start MetaTrader 5 with the SpasiXBridge EA on a chart (⚙ SETUP)", Foreground = Muted, FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            acc.Children.Add(acPrivate); acc.Children.Add(acRest); mid.Children.Add(acc);
+            acc.Children.Add(acPrivate); acc.Children.Add(acRest);
+            // the mode, big and in the middle: LIVE (real money) / PROP / DEMO (the live account is not touched) / BACKTEST
+            var bc = Mode == "BACKTEST" ? Cyan : Mode == "PROP" ? Violet : Mode == "DEMO" ? Orange : Green;
+            modeBannerText = new TextBlock { Text = Mode == "BACKTEST" ? "🧪  BACKTEST  •  history replay — nothing is real" : Mode == "DEMO" ? "🎮  DEMO TRADING  •  your live account is not affected" : Mode == "PROP" ? "🏆  PROP ACCOUNT  •  LIVE TRADING" : "●  LIVE TRADING  •  REAL MONEY",
+                Foreground = bc, FontSize = 14, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            modeBanner = new Border { Child = modeBannerText, Background = Tint(bc, 34), BorderBrush = bc, BorderThickness = new Thickness(1.6), CornerRadius = new CornerRadius(14), Padding = new Thickness(18, 3, 18, 4), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                Effect = new DropShadowEffect { Color = bc.Color, BlurRadius = 16, ShadowDepth = 0, Opacity = 0.55 } };
+            modeBanner.Loaded += delegate { modeBanner.Effect.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(0.7, 0.15, TimeSpan.FromMilliseconds(1300)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever }); };
+            var accRow = new Grid { Margin = new Thickness(0, 0, 0, 4) }; accRow.Children.Add(acc); modeBanner.Padding = new Thickness(16, 2, 16, 3); modeBannerText.FontSize = 13; Shell.SetCenter(this, modeBanner); acc.Margin = new Thickness(0); acc.VerticalAlignment = VerticalAlignment.Center;
+            mid.Children.Add(accRow);
             var row = new WrapPanel(); mid.Children.Add(row);
-            foreach (var k in new[] { "OPEN P/L", "BALANCE", "EQUITY", "TODAY", "MARGIN LEVEL" })
+            foreach (var k in new[] { "OPEN P/L", "BALANCE", "EQUITY", "TODAY", "MARGIN LEVEL", "FREE MARGIN" })
             {
                 bool big = k == "OPEN P/L";
                 var cap = new TextBlock { Text = k == "MARGIN LEVEL" ? "MARGIN" : k, Foreground = big ? Gold : Muted, FontSize = big ? 10.5 : 9.5, FontWeight = FontWeights.Bold };
@@ -181,19 +187,6 @@ namespace KeystoneMT5
                 if (big) plGlow = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 16, Opacity = 0, Color = Sx.C("#2EE59D") };
                 if (big) bd.Effect = plGlow;
             }
-            // the two directions (hedging): BUYS and SELLS — tickets, lots, P/L — and who leads
-            Func<string, SolidColorBrush, Tuple<TextBlock, TextBlock, Border>> side = (t, col) =>
-            {
-                var cap = new TextBlock { Text = t, Foreground = col, FontSize = 9.5, FontWeight = FontWeights.Bold };
-                var val = new TextBlock { Text = "—", Foreground = Text, FontSize = 13, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
-                var sp = new StackPanel(); sp.Children.Add(cap); sp.Children.Add(val);
-                var bd = new Border { Background = Sx.Tint(col, 22), CornerRadius = new CornerRadius(10), Padding = new Thickness(9, 4, 10, 5), Margin = new Thickness(0, 0, 7, 0), MinWidth = 120, BorderBrush = Sx.Tint(col, 90), BorderThickness = new Thickness(1), Child = sp };
-                row.Children.Add(bd); return Tuple.Create(cap, val, bd);
-            };
-            buysBox = side("▲ BUYS", Green); sellsBox = side("▼ SELLS", Red); buysBox.Item3.Visibility = sellsBox.Item3.Visibility = Visibility.Collapsed;
-            hedgeText = new TextBlock { Foreground = Bg, FontSize = 11, FontWeight = FontWeights.Bold, TextAlignment = TextAlignment.Center, LineHeight = 15 };
-            hedgeBadge = new Border { Background = Violet, CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center, Child = hedgeText, Visibility = Visibility.Collapsed, ToolTip = "you hold both directions (hedging): the net lots and the side that leads" };
-            row.Children.Add(hedgeBadge);
             cards["TODAY"].Item3.ToolTip = "today (the server's day): the closed trades after commission and swap + what is open now";
             if (Mode == "PROP") { propStrip = BuildPropStrip(); mid.Children.Add(propStrip); }
             if (streamMode && !Sim) ApplyStream();
@@ -212,7 +205,7 @@ namespace KeystoneMT5
         {
             fullChart = on; if (on) Show("CHART");
             headerEl.Visibility = on ? Visibility.Collapsed : Visibility.Visible; tabBarEl.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
-            WindowStyle = on ? WindowStyle.None : WindowStyle.SingleBorderWindow; if (on) { WindowState = WindowState.Normal; WindowState = WindowState.Maximized; }
+            if (on) WindowState = WindowState.Maximized;
             if (fullBtn != null) fullBtn.Content = on ? "⛶ EXIT FULL (Esc)" : "⛶ FULL";
         }
 
@@ -254,6 +247,24 @@ namespace KeystoneMT5
             if (key == "TRACKER") trackSig = "";
         }
 
+        // where SpasiX keeps its data (history, ticks, pool, settings): F: by default when there is one; CHANGE moves it at the next start
+        FrameworkElement DataFolderCard()
+        {
+            var st = new StackPanel(); string free = ""; try { var d = new DriveInfo(Path.GetPathRoot(Dir)); free = " • " + (d.AvailableFreeSpace / 1073741824.0).ToString("0.0", IC) + " GB free on " + d.Name; } catch { }
+            st.Children.Add(new TextBlock { Text = "💾 THE DATA FOLDER", Foreground = Gold, FontSize = 15, FontWeight = FontWeights.Bold });
+            st.Children.Add(new TextBlock { Text = Dir + free, Foreground = Text, FontSize = 13, FontFamily = Sx.Mono, Margin = new Thickness(0, 4, 0, 2), TextWrapping = TextWrapping.Wrap });
+            st.Children.Add(new TextBlock { Text = (DataDir.Moved != "" ? "✓ " + DataDir.Moved + "\n" : "") + "the downloaded candles and real ticks, the backtest POOL, the DEMO account, settings and drawings live here", Foreground = Muted, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+            var b = Pill("📁 CHANGE THE FOLDER …", Card); b.Margin = new Thickness(0, 8, 0, 0); b.HorizontalAlignment = HorizontalAlignment.Left;
+            b.Click += delegate
+            {
+                var n = Sx.Prompt(this, "📁 The data folder", "Where SpasiX keeps its data (e.g. F:\\SpasiX\\MT5). Everything moves there the next time SpasiX starts.", Dir); if (string.IsNullOrWhiteSpace(n)) return;
+                try { Directory.CreateDirectory(n.Trim()); } catch (Exception ex) { Sx.Info(this, "📁 The data folder", "That folder cannot be used: " + ex.Message, Red); return; }
+                DataDir.Change(n.Trim()); Sx.Info(this, "📁 The data folder", "Saved. Close SpasiX and start it again — your data moves to\n" + n.Trim(), Gold);
+            };
+            st.Children.Add(b);
+            return new Border { Background = Card, CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10, 14, 12), BorderBrush = Tint(Gold, 110), BorderThickness = new Thickness(1), Child = st, Margin = new Thickness(0, 6, 0, 8) };
+        }
+
         // ---------------------------------------------------------------- SETUP
         FrameworkElement BuildSetup()
         {
@@ -277,6 +288,7 @@ namespace KeystoneMT5
                 Grid.SetColumn(tx, 1); g.Children.Add(tx);
                 setupSteps.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10, 12, 10), BorderBrush = Line, BorderThickness = new Thickness(1), Child = g, Margin = new Thickness(0, 0, 0, 8) });
             }
+            sp.Children.Add(DataFolderCard());
             return new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp };
         }
 
@@ -308,25 +320,6 @@ namespace KeystoneMT5
             var pulse = new DoubleAnimation(1, 0.3, TimeSpan.FromMilliseconds(750)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() };
             br.BeginAnimation(Brush.OpacityProperty, pulse); plGlow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(0.85, 0.15, TimeSpan.FromMilliseconds(750)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
         }
-        // BUYS / SELLS: tickets • lots • P/L each, the leader marked; HEDGED when both are open
-        void PaintSides(Mt5State s, string cur)
-        {
-            var b = s.Positions.Where(p => p.Dir > 0).ToList(); var sl = s.Positions.Where(p => p.Dir < 0).ToList();
-            double bl = b.Sum(p => p.Lots), sll = sl.Sum(p => p.Lots), bp = b.Sum(p => p.Profit + p.Swap), sp = sl.Sum(p => p.Profit + p.Swap);
-            Action<Tuple<TextBlock, TextBlock, Border>, string, List<Mt5Position>, double, double, bool, SolidColorBrush> one = (box, name, l, lots, pl, lead, col) =>
-            {
-                box.Item1.Text = name + (lead ? "  ★ LEADS" : "");
-                box.Item2.Text = l.Count == 0 ? "none" : l.Count + " • " + lots.ToString("0.00", IC) + " lots • " + Signed(pl, cur);
-                box.Item2.Foreground = l.Count == 0 ? Muted : pl > 0 ? Green : pl < 0 ? Red : Text;
-                box.Item3.BorderBrush = lead ? col : Tint(col, l.Count > 0 ? (byte)120 : (byte)60); box.Item3.BorderThickness = new Thickness(lead ? 1.8 : 1); box.Item3.Opacity = l.Count == 0 ? 0.6 : 1;
-            };
-            var vis = b.Count + sl.Count > 0 ? Visibility.Visible : Visibility.Collapsed; buysBox.Item3.Visibility = vis; sellsBox.Item3.Visibility = vis;
-            bool both = b.Count > 0 && sl.Count > 0; bool buyLead = both && bl > sll + 1e-9, sellLead = both && sll > bl + 1e-9;
-            one(buysBox, "▲ BUYS", b, bl, bp, buyLead, Green); one(sellsBox, "▼ SELLS", sl, sll, sp, sellLead, Red);
-            hedgeBadge.Visibility = both ? Visibility.Visible : Visibility.Collapsed;
-            if (both) { double net = bl - sll; hedgeText.Text = "⇅ HEDGED\n" + (Math.Abs(net) < 1e-9 ? "net 0 — fully hedged" : "net " + Math.Abs(net).ToString("0.00", IC) + " " + (net > 0 ? "BUY" : "SELL") + " • " + (net > 0 ? "buys" : "sells") + " lead"); hedgeBadge.Background = Math.Abs(net) < 1e-9 ? Violet : net > 0 ? Tint(Green, 230) : Tint(Red, 230); }
-        }
-
         // ---------------------------------------------------------------- the refresh
         void Refresh()
         {
@@ -346,7 +339,7 @@ namespace KeystoneMT5
                     setupStatus.Foreground = alive ? Green : live.Problem != "" ? Red : Cyan;
                     if (!alive && !s.Linked) { if (armed) SetArmed(false, "MT5 disconnected"); return; }
                     if (!everLinked && alive) { everLinked = true; if (view == "SETUP") Show("CHART"); }
-                    if (Paper) { var la = live.State.Account; var vs = paper.Acct.Set; acLogin.Text = "DEMO"; acName.Text = ""; acRest.Text = "•  simulated " + vs.Kind + (vs.Kind == "RAW" ? " ($" + vs.CommissionPerLot.ToString("0.##", IC) + " / lot)" : " (+" + vs.MarkupPts.ToString("0", IC) + " pts spread)") + "  •  1:" + vs.Leverage + "  •  HEDGING  •  prices from " + la.Server + "  •  nothing reaches MT5"; acRest.Foreground = Orange; }
+                    if (Paper) { var la = live.State.Account; var vs = paper.Acct.Set; acLogin.Text = "DEMO"; acName.Text = ""; acRest.Text = "•  simulated " + vs.Kind + (vs.Kind != "RAW" ? " ($" + vs.CommissionPerLot.ToString("0.##", IC) + " / lot)" : " (+" + vs.MarkupPts.ToString("0", IC) + " pts spread)") + "  •  1:" + vs.Leverage + "  •  HEDGING  •  prices from " + la.Server + "  •  nothing reaches MT5"; acRest.Foreground = Orange; }
                     else { acLogin.Text = a.Login.ToString(IC); acName.Text = a.Name;
                     acRest.Text = "•  " + a.Server + "  •  " + a.Kind + "  •  " + (a.Mode == "HEDGE" ? "HEDGING" : "NETTING") + "  •  1:" + a.Leverage + (s.Company != "" ? "  •  " + s.Company : "");
                     acRest.Foreground = Muted; }
@@ -358,7 +351,7 @@ namespace KeystoneMT5
                 {
                     card("BALANCE", Money(a.Balance, cur), Text); card("EQUITY", Money(a.Equity, cur), a.Equity >= a.Balance ? Green : Text);
                     double fl = a.Floating; card("OPEN P/L", Signed(fl, cur), fl >= 0 ? (fl > 0 ? Green : Text) : Red); PaintPl(fl, s.Positions.Count > 0);
-                    PaintSides(s, cur);
+                    card("FREE MARGIN", Money(a.FreeMargin, cur), a.FreeMargin < 0 ? Red : Text);
                     double today = TodayClosed(s) + fl; card("TODAY", Signed(today, cur), today > 0 ? Green : today < 0 ? Red : Text); cards["TODAY"].Item3.BorderBrush = today > 0 ? Tint(Green, 100) : today < 0 ? Tint(Red, 120) : Line;
                     card("MARGIN LEVEL", a.Margin > 0 ? a.MarginLevel.ToString("N0", IC) + " %" : "—", a.Margin <= 0 ? Muted : a.MarginLevel < 200 ? Red : a.MarginLevel < 500 ? Gold : Green);
                     cards["MARGIN LEVEL"].Item3.ToolTip = "margin used " + Money(a.Margin, cur) + " • free margin " + Money(a.FreeMargin, cur) + (a.Margin > 0 ? " • margin level " + a.MarginLevel.ToString("N0", IC) + " %" : "");
@@ -368,7 +361,7 @@ namespace KeystoneMT5
                 ReadResults(s);
                 if (Mode == "PROP") FillPropStrip(s);
                 if (view == "CHART") FillChart(s); if (view == "POSITIONS") FillPositions(s); if (view == "TRACKER") FillTracker(s); if (view == "PROP") FillProp(s); if (view == "POOL") FillPool();
-                if (!Sim) { if (view == "MARKET") FillMarket(s); if (view == "NEWS") FillNews(); }
+                if (!Sim) { if (view == "MARKET") FillMarket(s); if (view == "NEWS") FillNews(); PaintNewsBadge(); }
                 if (Sim) FillSim(s);
             }
         }
