@@ -1,19 +1,19 @@
 //+------------------------------------------------------------------+
 //| SpasiXBridge.mq5 — connects MetaTrader 5 to the SpasiX app on    |
 //| this PC (127.0.0.1): the account, prices, positions / orders and |
-//| candles go to the app. TRADING only when YOU allow it twice:     |
-//| the input AllowTrading = true here AND the ARM button in SpasiX. |
-//| Every command is answered (RES) with MT5's own result.           |
+//| candles, history and deals go to the app. TRADING only when the  |
+//| input EnableTrading = true here (+ MT5's Algo Trading) AND the   |
+//| ARM button in SpasiX is on. Every command is answered (RES).     |
 //+------------------------------------------------------------------+
 #property copyright "SpasiX"
-#property version   "3.00"
-#property description "SpasiX bridge: prices, positions, candles • trading only with AllowTrading = true + ARM in the app"
+#property version   "4.00"
+#property description "SpasiX bridge: prices, positions, candles • trading only with EnableTrading + Algo Trading + ARM in the app"
 #include <Trade\Trade.mqh>
 
 input string AppHost = "127.0.0.1";   // the SpasiX MT5 app (this PC)
 input int    AppPort = 47123;         // its port
 input string Symbols = "";            // symbols to stream, e.g. XAUUSD,US30 (empty = every symbol in Market Watch)
-input bool   AllowTrading = false;    // allow SpasiX to send orders (false = read only)
+input bool   EnableTrading = true;    // SpasiX may send orders once you ARM it in the app (false = read only)
 input double MaxLotsPerOrder = 5.0;   // the most lots one order may have
 input int    MaxDeviationPoints = 30; // the most slippage accepted on market orders (points)
 
@@ -81,11 +81,11 @@ bool Connect()
      {
       int e = GetLastError(); SocketClose(sock); sock = INVALID_HANDLE;
       if(e == 4014) Comment("SpasiX: add 127.0.0.1 in Tools > Options > Expert Advisors > 'Allow WebRequest for listed URL'");
-      else Comment("SpasiX: waiting for the SpasiX app — start SpasiXMT5.exe (error ", e, ")");
+      else Comment("SpasiX: waiting for the SpasiX app — start SpasiX.exe (error ", e, ")");
       return(false);
      }
-   Comment("SpasiX: connected to the app");
-   SendLine("HELLO|3|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
+   Comment("SpasiX: connected to the app • trading ", EnableTrading ? "possible after ARM in the app" : "OFF (EnableTrading = false)");
+   SendLine("HELLO|4|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
    SendSymbols();
    return(true);
   }
@@ -112,8 +112,9 @@ void SendAll()
                 + (AccountInfoInteger(ACCOUNT_MARGIN_MODE) == ACCOUNT_MARGIN_MODE_RETAIL_HEDGING ? "HEDGE" : "NET") + "|" + (TerminalInfoInteger(TERMINAL_CONNECTED) ? "1" : "0") + "|"
                 + (AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO ? "DEMO" : AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_CONTEST ? "CONTEST" : "REAL");
    if(!SendLine(acc)) return;
-   SendLine("CAN|" + (AllowTrading ? "1" : "0") + "|" + (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? "1" : "0") + "|" + (MQLInfoInteger(MQL_TRADE_ALLOWED) ? "1" : "0") + "|" + DoubleToString(MaxLotsPerOrder, 2)
-            + "|" + IntegerToString((long)(TimeTradeServer() - TimeGMT())) + "|" + IntegerToString((long)TimeTradeServer()));
+   SendLine("CAN|" + (EnableTrading ? "1" : "0") + "|" + (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) ? "1" : "0") + "|" + (MQLInfoInteger(MQL_TRADE_ALLOWED) ? "1" : "0") + "|" + DoubleToString(MaxLotsPerOrder, 2)
+            + "|" + IntegerToString((long)(TimeTradeServer() - TimeGMT())) + "|" + IntegerToString((long)TimeTradeServer())
+            + "|" + (AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) ? "1" : "0") + "|" + (AccountInfoInteger(ACCOUNT_TRADE_EXPERT) ? "1" : "0"));
    // the prices
    string list[]; int n = SymbolList(list); string batch = "";
    for(int i = 0; i < n; i++)
@@ -173,14 +174,56 @@ void SendBars(string sym, int m, int count)
    SendLine(b);
   }
 
-// ---- trading (only with AllowTrading = true and the app ARMED; the app never sends a command while disarmed)
+// one day (or any range) of 1-minute candles with the spread, for the app's BACKTEST:
+// HIST|symbol|from|to|n|error, n × H|open time|o|h|l|c|tick volume|spread (points), HISTEND|symbol|from|to   (server time; error ≠ 0 = MT5 is still downloading)
+void SendHist(string sym, long from, long to)
+  {
+   SymbolSelect(sym, true); ResetLastError();
+   MqlRates r[]; ArraySetAsSeries(r, false);
+   int got = CopyRates(sym, PERIOD_M1, (datetime)from, (datetime)(to - 1), r); int err = got < 0 ? GetLastError() : 0; if(got < 0) got = 0;
+   int d = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   string b = "HIST|" + sym + "|" + IntegerToString(from) + "|" + IntegerToString(to) + "|" + IntegerToString(got) + "|" + IntegerToString(err) + "\n";
+   for(int i = 0; i < got; i++)
+     {
+      if((long)r[i].time < from || (long)r[i].time >= to) continue;
+      b += "H|" + IntegerToString((long)r[i].time) + "|" + DoubleToString(r[i].open, d) + "|" + DoubleToString(r[i].high, d) + "|" + DoubleToString(r[i].low, d) + "|" + DoubleToString(r[i].close, d) + "|" + IntegerToString((long)r[i].tick_volume) + "|" + IntegerToString(r[i].spread) + "\n";
+      if(StringLen(b) > 60000) { if(!SendLine(StringSubstr(b, 0, StringLen(b) - 1))) return; b = ""; }
+     }
+   b += "HISTEND|" + sym + "|" + IntegerToString(from) + "|" + IntegerToString(to);
+   SendLine(b);
+  }
+
+// the account's deals (for the app's TRACKER): DEALS|from|to|n, n × D|ticket|time|symbol|type|entry|lots|price|profit|commission + fee|swap|position|magic|reason|comment, DEALEND
+void SendDeals(long from, long to)
+  {
+   if(!HistorySelect((datetime)from, (datetime)to)) { SendLine("DEALS|" + IntegerToString(from) + "|" + IntegerToString(to) + "|0\nDEALEND"); return; }
+   int n = HistoryDealsTotal();
+   string b = "DEALS|" + IntegerToString(from) + "|" + IntegerToString(to) + "|" + IntegerToString(n) + "\n";
+   for(int i = 0; i < n; i++)
+     {
+      ulong tk = HistoryDealGetTicket(i); if(tk == 0) continue;
+      string sym = HistoryDealGetString(tk, DEAL_SYMBOL); int d = sym != "" ? (int)SymbolInfoInteger(sym, SYMBOL_DIGITS) : 2; if(d <= 0) d = 5;
+      long ty = HistoryDealGetInteger(tk, DEAL_TYPE), en = HistoryDealGetInteger(tk, DEAL_ENTRY), rs = HistoryDealGetInteger(tk, DEAL_REASON);
+      string tn = ty == DEAL_TYPE_BUY ? "BUY" : ty == DEAL_TYPE_SELL ? "SELL" : ty == DEAL_TYPE_BALANCE ? "BALANCE" : ty == DEAL_TYPE_CREDIT ? "CREDIT" : "OTHER";
+      string enn = en == DEAL_ENTRY_IN ? "IN" : en == DEAL_ENTRY_OUT ? "OUT" : en == DEAL_ENTRY_INOUT ? "INOUT" : en == DEAL_ENTRY_OUT_BY ? "OUTBY" : "";
+      string rn = rs == DEAL_REASON_SL ? "SL" : rs == DEAL_REASON_TP ? "TP" : rs == DEAL_REASON_SO ? "STOPOUT" : rs == DEAL_REASON_EXPERT ? "EA" : rs == DEAL_REASON_CLIENT ? "DESKTOP" : rs == DEAL_REASON_MOBILE ? "MOBILE" : rs == DEAL_REASON_WEB ? "WEB" : "";
+      b += "D|" + IntegerToString((long)tk) + "|" + IntegerToString((long)HistoryDealGetInteger(tk, DEAL_TIME)) + "|" + sym + "|" + tn + "|" + enn + "|" + DoubleToString(HistoryDealGetDouble(tk, DEAL_VOLUME), 2) + "|"
+           + DoubleToString(HistoryDealGetDouble(tk, DEAL_PRICE), d) + "|" + DoubleToString(HistoryDealGetDouble(tk, DEAL_PROFIT), 2) + "|" + DoubleToString(HistoryDealGetDouble(tk, DEAL_COMMISSION) + HistoryDealGetDouble(tk, DEAL_FEE), 2) + "|"
+           + DoubleToString(HistoryDealGetDouble(tk, DEAL_SWAP), 2) + "|" + IntegerToString((long)HistoryDealGetInteger(tk, DEAL_POSITION_ID)) + "|" + IntegerToString(HistoryDealGetInteger(tk, DEAL_MAGIC)) + "|" + rn + "|" + Clean(HistoryDealGetString(tk, DEAL_COMMENT)) + "\n";
+      if(StringLen(b) > 60000) { if(!SendLine(StringSubstr(b, 0, StringLen(b) - 1))) return; b = ""; }
+     }
+   b += "DEALEND";
+   SendLine(b);
+  }
+
+// ---- trading (only with EnableTrading = true and the app ARMED; the app never sends a command while disarmed)
 void Res(string id, bool ok, string text, long ticket)
   {
    SendLine("RES|" + id + "|" + (ok ? "OK" : "FAIL") + "|" + IntegerToString((long)trade.ResultRetcode()) + "|" + Clean(text) + "|" + IntegerToString(ticket));
   }
 bool CanTrade(string id)
   {
-   if(!AllowTrading) { Res(id, false, "trading is OFF in the bridge: chart ▸ Expert list ▸ SpasiXBridge ▸ Properties ▸ Inputs ▸ AllowTrading = true", 0); return(false); }
+   if(!EnableTrading) { Res(id, false, "trading is OFF in the bridge: chart ▸ Expert list ▸ SpasiXBridge ▸ Properties ▸ Inputs ▸ EnableTrading = true", 0); return(false); }
    if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) { Res(id, false, "turn ON Algo Trading in the MT5 toolbar", 0); return(false); }
    if(!MQLInfoInteger(MQL_TRADE_ALLOWED)) { Res(id, false, "tick 'Allow Algo Trading' in the bridge's properties (Common tab)", 0); return(false); }
    return(true);
@@ -284,6 +327,8 @@ void ReadApp()
       else if(line == "SYMBOLS") SendSymbols();
       else if(StringFind(line, "BARS|") == 0) { string p2[]; if(StringSplit(line, '|', p2) >= 4) SendBars(p2[1], (int)StringToInteger(p2[2]), (int)StringToInteger(p2[3])); }
       else if(line == "ALLSYMS") SendAllSymbols();
+      else if(StringFind(line, "HIST|") == 0) { string p3[]; if(StringSplit(line, '|', p3) >= 4) SendHist(p3[1], StringToInteger(p3[2]), StringToInteger(p3[3])); }
+      else if(StringFind(line, "DEALS|") == 0) { string p4[]; if(StringSplit(line, '|', p4) >= 3) SendDeals(StringToInteger(p4[1]), StringToInteger(p4[2])); }
       else if(StringFind(line, "WATCH|") == 0) { SymbolSelect(StringSubstr(line, 6), true); SendSymbols(); }
       else
         {

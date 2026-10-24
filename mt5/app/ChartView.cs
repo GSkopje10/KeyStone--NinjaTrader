@@ -1,9 +1,11 @@
-// SpasiX — the chart, drawn directly (smooth at any zoom): candles from MT5 in one of the THEMES, the time axis in the chosen TIME ZONE,
-// the bid / ask with the candle's COUNTDOWN, INDICATORS (EMA 9 / 21 / 50 / 200, VWAP, fair-value gaps, NY opening range, yesterday's high / low),
-// DRAWINGS (horizontal / vertical line, trend line, rectangle), YOUR TICKETS (every ticket its own line + label with ✕, S/L and T/P you drag,
-// a drag from a ticket line sets its stop or target), PENDING ORDERS (drag = new price, ✕ = cancel), a NEWS banner and a crosshair.
-// Mouse: wheel = zoom • drag the chart = move in time / up-down • drag the TIME axis = stretch / squeeze the candles • drag the PRICE axis =
-// stretch the price • double-click = back to now, automatic • right-click = the menu (the host builds it).
+// SpasiX — the chart, drawn directly (smooth at any zoom): candles in one of the THEMES, the time axis in the chosen TIME ZONE, the PRICE (its own
+// colour, a soft pulse on every new price, the candle's COUNTDOWN), INDICATORS (EMA 9 / 21 / 50 / 200, VWAP, Bollinger, fair-value gaps, NY opening
+// range, yesterday's high / low, the sessions, SETUPS = a sweep of a swing high / low that closes back and breaks — with their honest record),
+// DRAWINGS (horizontal line / ray, vertical line, trend line / ray, rectangle, Fibonacci, text, long / short position, measure; colours, widths,
+// handles, magnet), YOUR TICKETS (buys mint, sells red, pending orders amber; every line lights up and flashes once under the mouse; ✕ closes;
+// drag a line = its stop / target / new price; many tickets fold into one label per side), a NEWS banner and a crosshair.
+// Mouse: wheel = zoom • drag the chart = move in time / up-down • drag the TIME axis = stretch / squeeze • drag the PRICE axis = stretch the price •
+// double-click = back to now • right-click = the menu (the host builds it, knowing what is under the mouse).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -11,25 +13,31 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace KeystoneMT5
 {
     public sealed class ChartTheme
     {
-        public string Name; public Color Bg, Plot, Grid, Up, Down, UpWick, DownWick, Axis, Text, Accent; public bool HollowUp, Glow;
+        public string Name; public Color Bg, Plot, Grid, Up, Down, UpWick, DownWick, Axis, Text, Accent, Price; public bool HollowUp, Glow, Light;
         static Color C(string h) { return (Color)ColorConverter.ConvertFromString(h); }
         public static readonly ChartTheme[] All = {
-            new ChartTheme { Name = "SpasiX Night", Bg = C("#0A0E16"), Plot = C("#0C111C"), Grid = C("#172031"), Up = C("#4DD8FF"), Down = C("#FF3D71"), UpWick = C("#4DD8FF"), DownWick = C("#FF3D71"), Axis = C("#8A94A8"), Text = C("#E8ECF4"), Accent = C("#FFC94D") },
-            new ChartTheme { Name = "Neon Pulse", Bg = C("#07040F"), Plot = C("#0B0618"), Grid = C("#1C1233"), Up = C("#00F5D4"), Down = C("#F72585"), UpWick = C("#00F5D4"), DownWick = C("#F72585"), Axis = C("#9D8FC4"), Text = C("#F1EAFF"), Accent = C("#B5179E"), Glow = true },
-            new ChartTheme { Name = "Classic Pro", Bg = C("#0D1117"), Plot = C("#0F141B"), Grid = C("#1B222C"), Up = C("#26A69A"), Down = C("#EF5350"), UpWick = C("#26A69A"), DownWick = C("#EF5350"), Axis = C("#8B949E"), Text = C("#E6EDF3"), Accent = C("#58A6FF") },
-            new ChartTheme { Name = "Gold Rush", Bg = C("#0E0B06"), Plot = C("#120E07"), Grid = C("#251D10"), Up = C("#FFC94D"), Down = C("#9B5DE5"), UpWick = C("#FFC94D"), DownWick = C("#9B5DE5"), Axis = C("#B8A57A"), Text = C("#FFF3D6"), Accent = C("#FFC94D") },
-            new ChartTheme { Name = "Ocean Deep", Bg = C("#03121C"), Plot = C("#041824"), Grid = C("#0B2A3B"), Up = C("#2EC4B6"), Down = C("#FF6B6B"), UpWick = C("#2EC4B6"), DownWick = C("#FF6B6B"), Axis = C("#7FA7BC"), Text = C("#E0F2FA"), Accent = C("#90E0EF") },
-            new ChartTheme { Name = "Hollow Pro", Bg = C("#0A0D12"), Plot = C("#0B0F15"), Grid = C("#181E28"), Up = C("#00E676"), Down = C("#FF5252"), UpWick = C("#00E676"), DownWick = C("#FF5252"), Axis = C("#8A94A8"), Text = C("#E8ECF4"), Accent = C("#FFC94D"), HollowUp = true },
-            new ChartTheme { Name = "Mono Carbon", Bg = C("#0B0B0C"), Plot = C("#0E0E10"), Grid = C("#1E1E22"), Up = C("#F2F2F2"), Down = C("#5C5F66"), UpWick = C("#BDBDBD"), DownWick = C("#7A7D85"), Axis = C("#8E9096"), Text = C("#F2F2F2"), Accent = C("#FFC94D"), HollowUp = true },
-            new ChartTheme { Name = "Paper Light", Bg = C("#F4F6FA"), Plot = C("#FFFFFF"), Grid = C("#E6EAF0"), Up = C("#089981"), Down = C("#F23645"), UpWick = C("#089981"), DownWick = C("#F23645"), Axis = C("#5C6370"), Text = C("#151A22"), Accent = C("#2962FF") } };
+            new ChartTheme { Name = "SpasiX Night", Bg = C("#080C14"), Plot = C("#0B101B"), Grid = C("#151E2E"), Up = C("#4DD8FF"), Down = C("#7A5CFF"), UpWick = C("#4DD8FF"), DownWick = C("#7A5CFF"), Axis = C("#8A94A8"), Text = C("#E8ECF4"), Accent = C("#FFC94D"), Price = C("#FFFFFF") },
+            new ChartTheme { Name = "Neon Pulse", Bg = C("#07040F"), Plot = C("#0B0618"), Grid = C("#1C1233"), Up = C("#00F5D4"), Down = C("#F72585"), UpWick = C("#00F5D4"), DownWick = C("#F72585"), Axis = C("#9D8FC4"), Text = C("#F1EAFF"), Accent = C("#B5179E"), Price = C("#FFFFFF"), Glow = true },
+            new ChartTheme { Name = "Classic Pro", Bg = C("#0D1117"), Plot = C("#0F141B"), Grid = C("#1B222C"), Up = C("#26A69A"), Down = C("#EF5350"), UpWick = C("#26A69A"), DownWick = C("#EF5350"), Axis = C("#8B949E"), Text = C("#E6EDF3"), Accent = C("#58A6FF"), Price = C("#FFFFFF") },
+            new ChartTheme { Name = "Gold Rush", Bg = C("#0E0B06"), Plot = C("#120E07"), Grid = C("#251D10"), Up = C("#FFC94D"), Down = C("#9B5DE5"), UpWick = C("#FFC94D"), DownWick = C("#9B5DE5"), Axis = C("#B8A57A"), Text = C("#FFF3D6"), Accent = C("#FFC94D"), Price = C("#FFFFFF") },
+            new ChartTheme { Name = "Ocean Deep", Bg = C("#03121C"), Plot = C("#041824"), Grid = C("#0B2A3B"), Up = C("#2EC4B6"), Down = C("#FF6B6B"), UpWick = C("#2EC4B6"), DownWick = C("#FF6B6B"), Axis = C("#7FA7BC"), Text = C("#E0F2FA"), Accent = C("#90E0EF"), Price = C("#FFFFFF") },
+            new ChartTheme { Name = "Hollow Pro", Bg = C("#0A0D12"), Plot = C("#0B0F15"), Grid = C("#181E28"), Up = C("#E8ECF4"), Down = C("#5C6B85"), UpWick = C("#C9D1DE"), DownWick = C("#5C6B85"), Axis = C("#8A94A8"), Text = C("#E8ECF4"), Accent = C("#FFC94D"), Price = C("#FFC94D"), HollowUp = true },
+            new ChartTheme { Name = "Mono Carbon", Bg = C("#0B0B0C"), Plot = C("#0E0E10"), Grid = C("#1E1E22"), Up = C("#F2F2F2"), Down = C("#5C5F66"), UpWick = C("#BDBDBD"), DownWick = C("#7A7D85"), Axis = C("#8E9096"), Text = C("#F2F2F2"), Accent = C("#FFC94D"), Price = C("#FFC94D") },
+            new ChartTheme { Name = "Paper Light", Bg = C("#F4F6FA"), Plot = C("#FFFFFF"), Grid = C("#E6EAF0"), Up = C("#089981"), Down = C("#F23645"), UpWick = C("#089981"), DownWick = C("#F23645"), Axis = C("#5C6370"), Text = C("#151A22"), Accent = C("#2962FF"), Price = C("#151A22"), Light = true } };
     }
-    public sealed class Drawing { public string Kind = "HLINE"; public DateTime T1, T2; public double P1, P2; public string Color = "#FFC94D"; }
-    public sealed class ChartHit { public Rect R; public string Kind; public long Ticket; public Action Click; }
+    public sealed class Drawing
+    {
+        public string Kind = "HLINE"; public DateTime T1, T2; public double P1, P2, P3; public string Color = "#FFC94D", Text = ""; public double Width = 1.6; public bool Dash;
+        public Drawing Clone() { return (Drawing)MemberwiseClone(); }
+    }
+    public sealed class ChartHit { public Rect R; public string Kind, Key; public long Ticket; public Action Click; }
+    public sealed class Indicator { public string Key, Name, Color, Tip; public Indicator(string k, string n, string c, string t) { Key = k; Name = n; Color = c; Tip = t; } }
 
     public sealed class ChartView : FrameworkElement
     {
@@ -37,39 +45,64 @@ namespace KeystoneMT5
         static SolidColorBrush Br(Color c, byte a = 255) { var x = new SolidColorBrush(Color.FromArgb(a, c.R, c.G, c.B)); x.Freeze(); return x; }
         static SolidColorBrush Hex(string h, byte a = 255) { return Br((Color)ColorConverter.ConvertFromString(h), a); }
         static Pen P(Brush b, double w, params double[] dash) { var p = new Pen(b, w); if (dash.Length > 0) p.DashStyle = new DashStyle(dash, 0); p.Freeze(); return p; }
-        static readonly Typeface Face = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), Mono = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
-        static readonly SolidColorBrush GreenB = Hex("#00E676"), RedB = Hex("#FF3D71"), GoldB = Hex("#FFC94D"), CyanB = Hex("#4DD8FF"), VioletB = Hex("#B388FF"), OrangeB = Hex("#FF9F43");
+        static readonly Typeface Face = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), Bold = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal), Mono = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
+        // the trading colours (the same on every theme, never a candle colour)
+        public static readonly Color BuyC = (Color)ColorConverter.ConvertFromString("#2EE59D"), SellC = (Color)ColorConverter.ConvertFromString("#FF4D6D"), PendC = (Color)ColorConverter.ConvertFromString("#FFB020");
+        static readonly SolidColorBrush BuyB = Br(BuyC), SellB = Br(SellC), PendB = Br(PendC), GoldB = Hex("#FFC94D"), CyanB = Hex("#4DD8FF"), VioletB = Hex("#A98BFF"), WhiteB = Hex("#FFFFFF");
+        public static readonly Indicator[] Indicators = {
+            new Indicator("EMA9", "EMA 9", "#FFE066", "fast average (9 candles)"), new Indicator("EMA21", "EMA 21", "#4DD8FF", "the 21-candle average"), new Indicator("EMA50", "EMA 50", "#A98BFF", "the 50-candle average"),
+            new Indicator("EMA200", "EMA 200", "#FF8A3D", "the trend (200 candles)"), new Indicator("VWAP", "VWAP", "#E879F9", "the day's volume-weighted average price (from the server's midnight)"), new Indicator("BB", "Bollinger 20/2", "#90A4AE", "20-candle average ± 2 deviations"),
+            new Indicator("FVG", "Fair-value gaps", "#2EE59D", "3-candle gaps not filled yet"), new Indicator("ORB", "NY opening range", "#A98BFF", "New York 09:30–09:45 high / low"), new Indicator("PDHL", "Yesterday high / low", "#42A5F5", "the previous day's high and low"),
+            new Indicator("SESS", "Sessions", "#FFC94D", "Asia 18:00–03:00, London 03:00–08:00, New York 08:00–16:00 (NY time)"), new Indicator("SETUPS", "SpasiX setups", "#FFC94D", "a sweep of a swing high / low that closes back inside and breaks the sweep candle — arrows, the live setup blinking, its record (2R) on the chart") };
+        public static string IndColor(string key) { var i = Indicators.FirstOrDefault(x => x.Key == key); return i != null ? i.Color : "#FFC94D"; }
 
         // ---- what the host gives the chart
-        public BarSeries Series; public int Digits = 2; public double Point = 0.01, Bid, Ask; public string Symbol = "", Currency = "USD", Status = "";
+        public BarSeries Series; public int Digits = 2; public double Point = 0.01, Bid, Ask, TickValue = 1, TickSize = 0.01, Lots = 0.1; public string Symbol = "", Currency = "USD", Status = "";
         public List<Mt5Position> Positions = new List<Mt5Position>(); public List<Mt5Order> Orders = new List<Mt5Order>();
         public object Gate = new object(); public ChartTheme Theme = ChartTheme.All[0];
-        public Func<DateTime, DateTime> ToView = t => t; public string ZoneName = "SERVER"; public DateTime ServerNow = DateTime.MinValue;
+        public Func<DateTime, DateTime> ToView = t => t; public string ZoneName = "SERVER"; public DateTime ServerNow = DateTime.MinValue, QuoteTime = DateTime.MinValue;
         public int NyOffsetHours = -7;   // NY time = server time + this (IC Markets: server = New York + 7)
-        public HashSet<string> Ind = new HashSet<string>();   // EMA9 EMA21 EMA50 EMA200 VWAP FVG ORB PDHL
-        public List<Drawing> Drawings = new List<Drawing>(); public string Tool = "";   // "" = cursor, HLINE / VLINE / TREND / RECT
-        public string News = ""; public bool NewsHot; public bool TradeOn; public double PickPrice = double.NaN; public string PickKind = "";
+        public HashSet<string> Ind = new HashSet<string>();
+        public List<Drawing> Drawings = new List<Drawing>(); public string Tool = ""; public bool Magnet; public string DrawColor = "#FFC94D";
+        public string News = ""; public bool NewsHot, TradeOn, Sim; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO";   // AUTO / EACH / SIDE
         // ---- what the chart tells the host
         public Action<long, double> CloseTicket;              // ticket, lots (0 = all)
         public Action<long, double, double> ModifyTicket;     // ticket, sl, tp
         public Action<long, double, double, double> ModifyOrder; // ticket, price, sl, tp
-        public Action<long> CancelOrder;
-        public Action<double> PricePicked;                    // a click while picking a limit / stop price
-        public Action<Point, double, DateTime> RightClick;    // where, price, time
-        public Action DrawingsChanged; public Action<string> Toast;
+        public Action<long> CancelOrder; public Action<int> CloseSide;
+        public Action<double> PricePicked;
+        public Action<Point, double, DateTime, string, long, Drawing> RightClick;    // where, price, time, what is there (POS / SL / TP / ORD / DRAW / ""), ticket, drawing
+        public Action DrawingsChanged, ToolDone; public Action<string> Toast; public Func<string, string> AskText;
 
         double barW = 8, rightOffset = 6, mHi = double.NaN, mLo = double.NaN; bool auto = true;
         Point? mouse; Point dragFrom; double dragOff, dragHi, dragLo, dragBarW; string drag = null;
         readonly List<ChartHit> hits = new List<ChartHit>();
-        long dragTicket; string dragWhat = ""; double dragPrice = double.NaN; Drawing dragDraw, newDraw; double dragDP; DateTime dragT1, dragT2; double dragP1, dragP2; Drawing selected;
+        long dragTicket; string dragWhat = ""; double dragPrice = double.NaN; Drawing dragDraw, newDraw, measure, selected, dragOrig; string dragPart = ""; double dragDP;
         double hi, lo, plotW, plotH; int nBars;
-        const double AxisW = 86, TimeH = 26, TopPad = 8;
+        const double AxisW = 88, TimeH = 26, TopPad = 8;
+        // animation: the hovered line flashes once, every new price pulses, new tickets blink, the live setup blinks
+        string hoverKey = ""; DateTime hoverAt = DateTime.MinValue, pulseAt = DateTime.MinValue; double lastBid; readonly Dictionary<long, DateTime> seen = new Dictionary<long, DateTime>(); bool firstTickets = true;
+        readonly DispatcherTimer anim; bool liveSetup;
 
-        public ChartView() { ClipToBounds = true; Focusable = true; }
+        public ChartView()
+        {
+            ClipToBounds = true; Focusable = true; FocusVisualStyle = null;
+            anim = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(40) };
+            anim.Tick += delegate { if (IsVisible && Animating()) InvalidateVisual(); };
+            IsVisibleChanged += delegate { if (IsVisible) anim.Start(); else anim.Stop(); };
+        }
+        bool Animating()
+        {
+            var now = DateTime.Now; if ((now - hoverAt).TotalMilliseconds < 700 || (now - pulseAt).TotalMilliseconds < 750 || NewsHot || liveSetup) return true;
+            foreach (var kv in seen) if ((now - kv.Value).TotalMilliseconds < 1800) return true; return false;
+        }
         public void ResetView() { auto = true; rightOffset = 6; InvalidateVisual(); }
+        public void Deselect() { selected = null; measure = null; InvalidateVisual(); }
 
-        FormattedText T(string s, double size, Brush b, bool mono = false) { return new FormattedText(s, IC, FlowDirection.LeftToRight, mono ? Mono : Face, size, b, VisualTreeHelper.GetDpi(this).PixelsPerDip); }
+        FormattedText T(string s, double size, Brush b, bool mono = false, bool bold = false) { return new FormattedText(s, IC, FlowDirection.LeftToRight, mono ? Mono : bold ? Bold : Face, size, b, VisualTreeHelper.GetDpi(this).PixelsPerDip); }
         string F(double v) { return v.ToString("F" + Digits, IC); }
+        string Money(double v) { return (v >= 0 ? "+" : "−") + (Currency == "USD" ? "$" : "") + Math.Abs(v).ToString("N2", IC) + (Currency == "USD" ? "" : " " + Currency); }
+        double Value(double priceMove, double lots) { return TickSize > 0 ? priceMove / TickSize * TickValue * lots : 0; }
         static double Nice(double raw) { if (raw <= 0) return 1; double e = Math.Pow(10, Math.Floor(Math.Log10(raw))), f = raw / e; return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * e; }
         double Y(double p) { return TopPad + (hi - p) / (hi - lo) * plotH; }
         double PriceAt(double y) { return hi - (y - TopPad) / plotH * (hi - lo); }
@@ -83,6 +116,11 @@ namespace KeystoneMT5
             return l - Math.Min(1, (b[l].Time - t).TotalMinutes / m);
         }
         DateTime TimeAt(double idx) { var b = Series.Bars; int n = b.Count; if (n == 0) return DateTime.MinValue; int i = (int)Math.Round(Math.Max(0, Math.Min(n - 1, idx))); return b[i].Time.AddMinutes((idx - i) * Series.Minutes); }
+        double Snap(Point m, double price)
+        {
+            if (!Magnet || Series == null) return price; int i = (int)Math.Round(IndexAt(m.X)); if (i < 0 || i >= Series.Bars.Count) return price; var b = Series.Bars[i];
+            double best = price, bd = 14; foreach (var v in new[] { b.O, b.H, b.L, b.C }) { double d = Math.Abs(Y(v) - m.Y); if (d < bd) { bd = d; best = v; } } return best;
+        }
 
         protected override void OnRender(DrawingContext dc) { lock (Gate) Draw(dc); }
 
@@ -91,20 +129,21 @@ namespace KeystoneMT5
             hits.Clear();
             double W = ActualWidth, H = ActualHeight; if (W < 60 || H < 60) return; var th = Theme;
             plotW = W - AxisW; plotH = H - TimeH - TopPad;
-            var axisB = Br(th.Axis); var textB = Br(th.Text); var gridP = P(Br(th.Grid), 1); var tagBg = Br(th.Plot, 235);
+            var axisB = Br(th.Axis); var textB = Br(th.Text); var gridP = P(Br(th.Grid), 1); var tagBg = Br(th.Plot, 238);
             dc.DrawRectangle(Br(th.Bg), null, new Rect(0, 0, W, H)); dc.DrawRectangle(Br(th.Plot), null, new Rect(0, TopPad, plotW, plotH));
             var bars = Series != null ? Series.Bars : null;
-            if (bars == null || bars.Count == 0) { var msg = T(Status != "" ? Status : "loading the candles from MT5 …", 15, axisB); dc.DrawText(msg, new Point((plotW - msg.Width) / 2, H / 2 - 10)); return; }
+            if (bars == null || bars.Count == 0) { var msg = T(Status != "" ? Status : "loading the candles from MT5 …", 15, axisB); dc.DrawText(msg, new Point(Math.Max(8, (plotW - msg.Width) / 2), H / 2 - 10)); return; }
             int n = bars.Count; nBars = n;
             int i1 = Math.Max(0, Math.Min(n - 1, (int)Math.Floor(n - 1 + rightOffset + 0.5))), i0 = Math.Max(0, Math.Min(i1, (int)Math.Floor(n - 1 + rightOffset + 0.5 - plotW / barW)));
             hi = double.MinValue; lo = double.MaxValue;
             for (int i = i0; i <= i1; i++) { hi = Math.Max(hi, bars[i].H); lo = Math.Min(lo, bars[i].L); }
             if (Bid > 0 && rightOffset > -2) { hi = Math.Max(hi, Bid); lo = Math.Min(lo, Bid); }
-            if (hi <= lo) hi = lo + Point * 10; double pad = (hi - lo) * 0.07; hi += pad; lo -= pad;
+            if (hi <= lo) hi = lo + Point * 10; double pad = (hi - lo) * 0.08; hi += pad; lo -= pad;
             if (!auto && !double.IsNaN(mHi)) { hi = mHi; lo = mLo; } else { mHi = hi; mLo = lo; }
+            if (Bid > 0 && Bid != lastBid) { if (lastBid > 0) pulseAt = DateTime.Now; lastBid = Bid; }
             // grid, price axis
             double step = Nice((hi - lo) / Math.Max(3, plotH / 70));
-            for (double p = Math.Ceiling(lo / step) * step; p <= hi; p += step) { double y = Y(p); dc.DrawLine(gridP, new Point(0, y), new Point(plotW, y)); var t = T(F(p), 11, axisB, true); dc.DrawText(t, new Point(plotW + 6, y - t.Height / 2)); }
+            for (double p = Math.Ceiling(lo / step) * step; p <= hi; p += step) { double y = Y(p); dc.DrawLine(gridP, new Point(0, y), new Point(plotW, y)); var t = T(F(p), 11, axisB, true); dc.DrawText(t, new Point(plotW + 7, y - t.Height / 2)); }
             // time axis (in the chosen time zone)
             int every = Math.Max(1, (int)Math.Ceiling(95 / barW)); int tf = Series.Minutes;
             for (int i = i0; i <= i1; i++)
@@ -115,80 +154,112 @@ namespace KeystoneMT5
                 var t = T(tf >= 1440 ? bt.ToString("dd MMM", IC) : newDay || tf >= 240 ? bt.ToString("dd MMM HH:mm", IC) : bt.ToString("HH:mm", IC), 11, newDay ? textB : axisB); dc.DrawText(t, new Point(x - t.Width / 2, TopPad + plotH + 5));
             }
             dc.PushClip(new RectangleGeometry(new Rect(0, TopPad, plotW, plotH)));
+            if (Ind.Contains("SESS") && tf <= 60) DrawSessions(dc, bars, i0, i1);
             DrawIndicators(dc, bars, i0, i1);
             // candles
-            double bw = Math.Max(1, barW * 0.68); var upB = Br(th.Up); var dnB = Br(th.Down); var upW = P(Br(th.UpWick), 1); var dnW = P(Br(th.DownWick), 1); var upHollow = P(upB, 1.2);
+            double bw = Math.Max(1, barW * 0.7); var upB = Br(th.Up); var dnB = Br(th.Down); var upW = P(Br(th.UpWick), 1); var dnW = P(Br(th.DownWick), 1); var upHollow = P(upB, 1.2);
             for (int i = i0; i <= i1; i++)
             {
                 var b = bars[i]; double x = X(i); if (x < -barW || x > plotW + barW) continue; bool up = b.C >= b.O;
                 double yo = Y(b.O), yc = Y(b.C), top = Math.Min(yo, yc), hgt = Math.Max(1, Math.Abs(yc - yo));
-                if (th.Glow && barW >= 4) dc.DrawRectangle(Br(up ? th.Up : th.Down, 40), null, new Rect(x - bw / 2 - 2, top - 2, bw + 4, hgt + 4));
+                if (th.Glow && barW >= 4) dc.DrawRectangle(Br(up ? th.Up : th.Down, 36), null, new Rect(x - bw / 2 - 2, top - 2, bw + 4, hgt + 4));
                 dc.DrawLine(up ? upW : dnW, new Point(x, Y(b.H)), new Point(x, top)); dc.DrawLine(up ? upW : dnW, new Point(x, top + hgt), new Point(x, Y(b.L)));
                 if (up && th.HollowUp && bw >= 3) dc.DrawRectangle(Br(th.Plot), upHollow, new Rect(x - bw / 2, top, bw, hgt));
                 else dc.DrawRectangle(up ? upB : dnB, null, new Rect(x - bw / 2, top, bw, hgt));
             }
+            liveSetup = false; if (Ind.Contains("SETUPS")) DrawSetups(dc, bars, i0, i1);
             DrawDrawings(dc);
             dc.Pop();
             DrawTrading(dc, W);
-            // ask (faint) • bid tag + the candle's COUNTDOWN on the axis
-            if (Ask > 0) { double ya = Y(Ask); if (ya > TopPad && ya < TopPad + plotH) dc.DrawLine(P(Br(th.Down, 90), 1, 2, 2), new Point(0, ya), new Point(plotW, ya)); }
-            if (Bid > 0)
-            {
-                double yb = Y(Bid); var last = bars[n - 1]; var bc = last.C >= last.O ? upB : dnB;
-                if (yb > TopPad && yb < TopPad + plotH) dc.DrawLine(P(bc, 1, 4, 3), new Point(0, yb), new Point(plotW, yb));
-                double ty = Math.Max(TopPad, Math.Min(TopPad + plotH - 34, yb - 9));
-                dc.DrawRoundedRectangle(bc, null, new Rect(plotW + 2, ty, AxisW - 4, 18), 3, 3); dc.DrawText(T(F(Bid), 11.5, Br(th.Bg), true), new Point(plotW + 6, ty + 1));
-                if (ServerNow > DateTime.MinValue && tf < 10080)
-                {
-                    var left = last.Time.AddMinutes(tf) - ServerNow; if (left.TotalSeconds < 0 || left.TotalDays > 7) left = TimeSpan.Zero;
-                    string cd = left.TotalHours >= 1 ? ((int)left.TotalHours) + ":" + left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00") : left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00");
-                    dc.DrawRoundedRectangle(tagBg, P(bc, 1), new Rect(plotW + 2, ty + 18, AxisW - 4, 16), 3, 3); dc.DrawText(T("⏱ " + cd, 10.5, textB, true), new Point(plotW + 6, ty + 19));
-                }
-            }
+            DrawPrice(dc, bars, th, textB, tagBg, tf);
             // the picked price for a limit / stop order
-            if (!double.IsNaN(PickPrice)) Level(dc, Y(PickPrice), OrangeB, "🎯 " + PickKind + " @ " + F(PickPrice) + " — press PLACE in the panel", true, 6, null);
+            if (!double.IsNaN(PickPrice)) Level(dc, Y(PickPrice), PendB, "🎯 " + PickKind + " @ " + F(PickPrice) + " — press PLACE in the panel", true, 8, null);
+            else if (PickKind != "" && mouse.HasValue && mouse.Value.X < plotW) Level(dc, mouse.Value.Y, PendB, "🎯 click = " + PickKind + " @ " + F(Math.Round(PriceAt(mouse.Value.Y) / Point) * Point), true, 8, null);
             // NEWS banner
             if (News != "")
             {
-                bool fl = NewsHot && DateTime.Now.Millisecond < 500; var nb = NewsHot ? RedB : OrangeB; var nt = T("📰 " + News, 12.5, fl ? Br(th.Bg) : textB);
+                bool fl = NewsHot && DateTime.Now.Millisecond < 500; var nb = NewsHot ? SellB : PendB; var nt = T("📰 " + News, 12.5, fl ? Br(th.Bg) : textB, false, true);
                 double nx = Math.Max(6, (plotW - nt.Width) / 2 - 10); dc.DrawRoundedRectangle(fl ? nb : tagBg, P(nb, 1.4), new Rect(nx, TopPad + 6, nt.Width + 20, 24), 12, 12); dc.DrawText(nt, new Point(nx + 10, TopPad + 9));
             }
-            // crosshair (only inside the chart)
-            if (mouse.HasValue && drag == null && mouse.Value.X < plotW && mouse.Value.Y > TopPad && mouse.Value.Y < TopPad + plotH)
+            if (measure != null) DrawMeasure(dc, measure);
+            // crosshair (only inside the chart) + the candle's numbers + what the mouse points at
+            if (mouse.HasValue && (drag == null || drag == "NEWDRAW") && mouse.Value.X < plotW && mouse.Value.Y > TopPad && mouse.Value.Y < TopPad + plotH)
             {
-                var m = mouse.Value; var cp = P(Br(th.Axis, 150), 1, 3, 3); dc.DrawLine(cp, new Point(0, m.Y), new Point(plotW, m.Y)); dc.DrawLine(cp, new Point(m.X, TopPad), new Point(m.X, TopPad + plotH));
-                dc.DrawRoundedRectangle(axisB, null, new Rect(plotW + 2, m.Y - 9, AxisW - 4, 18), 3, 3); dc.DrawText(T(F(PriceAt(m.Y)), 11, Br(th.Bg), true), new Point(plotW + 6, m.Y - 8));
+                var m = mouse.Value; var cp = P(Br(th.Axis, 140), 1, 3, 3); dc.DrawLine(cp, new Point(0, m.Y), new Point(plotW, m.Y)); dc.DrawLine(cp, new Point(m.X, TopPad), new Point(m.X, TopPad + plotH));
+                dc.DrawRoundedRectangle(axisB, null, new Rect(plotW + 2, m.Y - 9, AxisW - 4, 18), 3, 3); dc.DrawText(T(F(PriceAt(m.Y)), 11, Br(th.Bg), true), new Point(plotW + 7, m.Y - 8));
                 int ci = (int)Math.Round(IndexAt(m.X));
                 if (ci >= 0 && ci < n)
                 {
                     var cb = bars[ci]; var tt = T(ToView(cb.Time).ToString(tf >= 1440 ? "ddd dd MMM yyyy" : "ddd dd MMM HH:mm", IC) + " " + ZoneName, 11, Br(th.Bg));
                     dc.DrawRoundedRectangle(axisB, null, new Rect(m.X - tt.Width / 2 - 5, TopPad + plotH + 3, tt.Width + 10, 18), 3, 3); dc.DrawText(tt, new Point(m.X - tt.Width / 2, TopPad + plotH + 4));
-                    var info = T("O " + F(cb.O) + "   H " + F(cb.H) + "   L " + F(cb.L) + "   C " + F(cb.C) + "   " + (cb.C - cb.O >= 0 ? "+" : "") + F(cb.C - cb.O), 12, textB, true);
-                    dc.DrawRoundedRectangle(tagBg, null, new Rect(8, TopPad + (News != "" ? 36 : 6), info.Width + 16, 22), 6, 6); dc.DrawText(info, new Point(16, TopPad + (News != "" ? 39 : 9)));
+                    bool up = cb.C >= cb.O; var ib = up ? upB : dnB;
+                    var info = T("O " + F(cb.O) + "   H " + F(cb.H) + "   L " + F(cb.L) + "   C " + F(cb.C) + "   " + (up ? "+" : "") + F(cb.C - cb.O) + "   vol " + cb.V.ToString("N0", IC), 12, textB, true);
+                    double iy = TopPad + (News != "" ? 36 : 6); dc.DrawRoundedRectangle(tagBg, P(Br(up ? th.Up : th.Down, 120), 1), new Rect(8, iy, info.Width + 16, 22), 6, 6); dc.DrawText(info, new Point(16, iy + 3));
                 }
+                HoverCard(dc, m, textB, tagBg);
             }
-            if (Tool != "") { var tt = T("✏ " + ToolName(Tool) + " — click on the chart" + (Tool == "TREND" || Tool == "RECT" ? " and drag" : "") + " • Esc = cancel", 11.5, GoldB); dc.DrawText(tt, new Point(10, TopPad + plotH - 20)); }
+            if (Tool != "") { var tt = T("✏ " + ToolName(Tool) + " — " + (OneClick(Tool) ? "click on the chart" : "press and drag on the chart") + (Magnet ? " • 🧲 magnet on" : "") + " • Esc = cancel", 11.5, GoldB, false, true); dc.DrawRoundedRectangle(tagBg, P(GoldB, 1), new Rect(8, TopPad + plotH - 28, tt.Width + 16, 22), 6, 6); dc.DrawText(tt, new Point(16, TopPad + plotH - 25)); }
             else if (!auto) dc.DrawText(T("PRICE SCALE: MANUAL • double-click = automatic", 10.5, axisB), new Point(8, TopPad + plotH - 18));
-            dc.DrawRectangle(null, P(Br(th.Accent, 110), 1.4), new Rect(0.5, TopPad + 0.5, plotW - 1, plotH - 1));
+            if (Sim) { var wm = T("REPLAY", 11, Br(th.Accent, 180), false, true); dc.DrawText(wm, new Point(plotW - wm.Width - 10, TopPad + plotH - 18)); }
+            dc.DrawRectangle(null, P(Br(th.Accent, 90), 1.2), new Rect(0.5, TopPad + 0.5, plotW - 1, plotH - 1));
         }
-        static string ToolName(string t) { return t == "HLINE" ? "HORIZONTAL LINE" : t == "VLINE" ? "VERTICAL LINE" : t == "TREND" ? "TREND LINE" : t == "RECT" ? "RECTANGLE" : t; }
+        static bool OneClick(string t) { return t == "HLINE" || t == "VLINE" || t == "HRAY" || t == "TEXT"; }
+        public static string ToolName(string t)
+        {
+            switch (t) { case "HLINE": return "HORIZONTAL LINE"; case "HRAY": return "HORIZONTAL RAY"; case "VLINE": return "VERTICAL LINE"; case "TREND": return "TREND LINE"; case "RAY": return "TREND RAY"; case "RECT": return "RECTANGLE"; case "FIB": return "FIBONACCI"; case "TEXT": return "TEXT"; case "LONG": return "LONG POSITION (risk / reward)"; case "SHORT": return "SHORT POSITION (risk / reward)"; case "MEASURE": return "MEASURE"; }
+            return t;
+        }
+
+        // ---- the price: its own colour, the ask faint, a pulse on every new price, the countdown (or CLOSED)
+        void DrawPrice(DrawingContext dc, List<Mt5Bar> bars, ChartTheme th, Brush textB, Brush tagBg, int tf)
+        {
+            if (Bid <= 0) return; var pc = Br(th.Price); var last = bars[bars.Count - 1];
+            if (Ask > 0) { double ya = Y(Ask); if (ya > TopPad && ya < TopPad + plotH) { dc.DrawLine(P(Br(th.Price, 70), 1, 2, 3), new Point(0, ya), new Point(plotW, ya)); var at = T("ASK " + F(Ask), 9.5, Br(th.Axis), true); dc.DrawText(at, new Point(plotW + 7, Math.Max(TopPad, ya - 21))); } }
+            double yb = Y(Bid); if (yb > TopPad && yb < TopPad + plotH) dc.DrawLine(P(Br(th.Price, 170), 1, 6, 3), new Point(0, yb), new Point(plotW, yb));
+            double ty = Math.Max(TopPad, Math.Min(TopPad + plotH - 36, yb - 10)); var tag = new Rect(plotW + 2, ty, AxisW - 4, 20);
+            double k = (DateTime.Now - pulseAt).TotalMilliseconds / 700.0;
+            if (k >= 0 && k < 1) { var rr = tag; rr.Inflate(2 + 7 * k, 2 + 5 * k); dc.DrawRoundedRectangle(null, P(Br(th.Price, (byte)(150 * (1 - k))), 1.6), rr, 6, 6); }
+            dc.DrawRoundedRectangle(pc, null, tag, 4, 4); dc.DrawText(T(F(Bid), 12, Br(th.Bg), true), new Point(plotW + 7, ty + 2));
+            if (ServerNow > DateTime.MinValue && tf < 10080)
+            {
+                bool closed = !Sim && QuoteTime > DateTime.MinValue && (ServerNow - QuoteTime).TotalMinutes > 3;
+                var left = last.Time.AddMinutes(tf) - ServerNow; if (left.TotalSeconds < 0 || left.TotalDays > 7) left = TimeSpan.Zero;
+                string cd = closed ? "CLOSED" : left.TotalHours >= 1 ? ((int)left.TotalHours) + ":" + left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00") : left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00");
+                dc.DrawRoundedRectangle(tagBg, P(pc, 1), new Rect(plotW + 2, ty + 20, AxisW - 4, 16), 3, 3); dc.DrawText(T("⏱ " + cd, 10.5, textB, true), new Point(plotW + 7, ty + 21));
+            }
+        }
 
         // ---- indicators (from the candles on screen and before them)
         void DrawIndicators(DrawingContext dc, List<Mt5Bar> bars, int i0, int i1)
         {
             int n = bars.Count;
-            foreach (var e in new[] { Tuple.Create("EMA9", 9, "#FFC94D"), Tuple.Create("EMA21", 21, "#4DD8FF"), Tuple.Create("EMA50", 50, "#B388FF"), Tuple.Create("EMA200", 200, "#FF9F43") })
+            foreach (var e in new[] { Tuple.Create("EMA9", 9), Tuple.Create("EMA21", 21), Tuple.Create("EMA50", 50), Tuple.Create("EMA200", 200) })
             {
                 if (!Ind.Contains(e.Item1) || n < 3) continue; double k = 2.0 / (e.Item2 + 1), v = bars[0].C; var g = new StreamGeometry();
-                using (var c = g.Open()) { bool started = false; for (int i = 0; i < n; i++) { v = i == 0 ? bars[0].C : bars[i].C * k + v * (1 - k); if (i < i0 - 1 || i > i1) continue; var pt = new Point(X(i), Y(v)); if (!started) { c.BeginFigure(pt, false, false); started = true; } else c.LineTo(pt, true, false); } }
-                g.Freeze(); dc.DrawGeometry(null, P(Hex(e.Item3), 1.6), g);
+                using (var c = g.Open()) { bool started = false; for (int i = 0; i <= i1 && i < n; i++) { v = i == 0 ? bars[0].C : bars[i].C * k + v * (1 - k); if (i < i0 - 1) continue; var pt = new Point(X(i), Y(v)); if (!started) { c.BeginFigure(pt, false, false); started = true; } else c.LineTo(pt, true, false); } }
+                g.Freeze(); dc.DrawGeometry(null, P(Hex(IndColor(e.Item1)), e.Item1 == "EMA200" ? 2.2 : 1.6), g);
+            }
+            if (Ind.Contains("BB") && n > 21)
+            {
+                var up = new StreamGeometry(); var dn = new StreamGeometry(); var mid = new StreamGeometry(); var col = Hex(IndColor("BB"));
+                using (var cu = up.Open()) using (var cd = dn.Open()) using (var cm = mid.Open())
+                {
+                    bool st = false;
+                    for (int i = Math.Max(19, i0 - 1); i <= i1; i++)
+                    {
+                        double s = 0, s2 = 0; for (int j = i - 19; j <= i; j++) { s += bars[j].C; s2 += bars[j].C * bars[j].C; } double m = s / 20, sd = Math.Sqrt(Math.Max(0, s2 / 20 - m * m));
+                        var a = new Point(X(i), Y(m + 2 * sd)); var b = new Point(X(i), Y(m - 2 * sd)); var c0 = new Point(X(i), Y(m));
+                        if (!st) { cu.BeginFigure(a, false, false); cd.BeginFigure(b, false, false); cm.BeginFigure(c0, false, false); st = true; } else { cu.LineTo(a, true, false); cd.LineTo(b, true, false); cm.LineTo(c0, true, false); }
+                    }
+                }
+                up.Freeze(); dn.Freeze(); mid.Freeze(); dc.DrawGeometry(null, P(col, 1.2), up); dc.DrawGeometry(null, P(col, 1.2), dn); dc.DrawGeometry(null, P(Hex(IndColor("BB"), 140), 1, 4, 3), mid);
             }
             if (Ind.Contains("VWAP"))
             {
                 // the day's VWAP from the server's midnight (the forex day: New York 17:00)
                 var g = new StreamGeometry(); double pv = 0, vv = 0; DateTime day = DateTime.MinValue;
                 using (var c = g.Open()) { bool started = false; for (int i = 0; i <= i1 && i < n; i++) { var b = bars[i]; if (b.Time.Date != day) { day = b.Time.Date; pv = vv = 0; if (i >= i0) started = false; } double tp = (b.H + b.L + b.C) / 3, w = Math.Max(1, b.V); pv += tp * w; vv += w; if (i < i0) continue; var pt = new Point(X(i), Y(pv / vv)); if (!started) { c.BeginFigure(pt, false, false); started = true; } else c.LineTo(pt, true, false); } }
-                g.Freeze(); dc.DrawGeometry(null, P(GoldB, 2.2), g);
+                g.Freeze(); dc.DrawGeometry(null, P(Hex(IndColor("VWAP")), 2.2), g);
             }
             if (Ind.Contains("FVG"))
             {
@@ -203,109 +274,338 @@ namespace KeystoneMT5
                 {
                     int end = n - 1; for (int j = gp.Item1 + 2; j < n; j++) if (gp.Item4 > 0 ? bars[j].L <= gp.Item2 : bars[j].H >= gp.Item3) { end = j; break; }
                     if (end < n - 1) continue; if (gp.Item4 > 0 && ++nb > 12) continue; if (gp.Item4 < 0 && ++ns > 12) continue;
-                    var col = gp.Item4 > 0 ? Hex("#00E676", 38) : Hex("#FF3D71", 38); double x1 = X(gp.Item1), y1 = Y(gp.Item3), y2 = Y(gp.Item2);
-                    dc.DrawRectangle(col, P(gp.Item4 > 0 ? Hex("#00E676", 120) : Hex("#FF3D71", 120), 0.8), new Rect(x1, Math.Min(y1, y2), Math.Max(2, plotW - x1), Math.Max(1, Math.Abs(y2 - y1))));
+                    var cc = gp.Item4 > 0 ? BuyC : SellC; double x1 = X(gp.Item1), y1 = Y(gp.Item3), y2 = Y(gp.Item2);
+                    dc.DrawRectangle(Br(cc, 30), P(Br(cc, 110), 0.8), new Rect(x1, Math.Min(y1, y2), Math.Max(2, plotW - x1), Math.Max(1, Math.Abs(y2 - y1))));
+                    dc.DrawText(T("FVG", 9, Br(cc, 200), false, true), new Point(x1 + 3, Math.Min(y1, y2) + 1));
                 }
             }
             if (Ind.Contains("ORB") && Series.Minutes < 60)
             {
-                // the New York opening range 09:30–09:45 of the last sessions on screen (server = New York + 7 h → 16:30–16:45)
+                // the New York opening range 09:30–09:45 of the sessions on screen (server = New York + 7 h → 16:30–16:45)
                 var days = bars.Skip(i0).Take(i1 - i0 + 1).Select(b => b.Time.Date).Distinct().ToList();
                 foreach (var d in days)
                 {
                     var s0 = d.AddHours(9.5 - NyOffsetHours); var s1 = s0.AddMinutes(15); var inR = bars.Where(b => b.Time >= s0 && b.Time < s1).ToList(); if (inR.Count == 0) continue;
                     double h = inR.Max(b => b.H), l = inR.Min(b => b.L); double x1 = X(IndexOf(s0)), x2 = X(IndexOf(d.AddHours(16 - NyOffsetHours)));
-                    dc.DrawRectangle(Hex("#B388FF", 26), P(Hex("#B388FF", 170), 1, 4, 3), new Rect(x1, Y(h), Math.Max(2, x2 - x1), Math.Max(1, Y(l) - Y(h))));
-                    dc.DrawText(T("ORB " + F(h) + " / " + F(l), 10, VioletB), new Point(x1 + 3, Y(h) - 14));
+                    dc.DrawRectangle(Hex(IndColor("ORB"), 24), P(Hex(IndColor("ORB"), 170), 1, 4, 3), new Rect(x1, Y(h), Math.Max(2, x2 - x1), Math.Max(1, Y(l) - Y(h))));
+                    dc.DrawText(T("NY ORB " + F(h) + " / " + F(l), 10, VioletB, false, true), new Point(x1 + 3, Y(h) - 14));
                 }
             }
             if (Ind.Contains("PDHL") && Series.Minutes < 1440)
             {
-                var lastDay = bars[n - 1].Time.Date; var prev = bars.Where(b => b.Time.Date < lastDay).ToList();
-                if (prev.Count > 0) { var pd = prev[prev.Count - 1].Time.Date; var pb = prev.Where(b => b.Time.Date == pd).ToList(); double h = pb.Max(b => b.H), l = pb.Min(b => b.L);
-                    Level(dc, Y(h), Hex("#42A5F5"), "PDH " + F(h), true, plotW - 130, null); Level(dc, Y(l), Hex("#AB47BC"), "PDL " + F(l), true, plotW - 130, null); }
+                var lastDay = bars[n - 1].Time.Date; int k0 = n - 1; while (k0 > 0 && bars[k0].Time.Date == lastDay) k0--;
+                if (k0 >= 0 && bars[k0].Time.Date < lastDay)
+                {
+                    var pd = bars[k0].Time.Date; double h = double.MinValue, l = double.MaxValue; for (int j = k0; j >= 0 && bars[j].Time.Date == pd; j--) { h = Math.Max(h, bars[j].H); l = Math.Min(l, bars[j].L); }
+                    Level(dc, Y(h), Hex("#42A5F5"), "PDH " + F(h), true, plotW - 150, null); Level(dc, Y(l), Hex("#AB47BC"), "PDL " + F(l), true, plotW - 150, null);
+                }
             }
+        }
+        // the sessions (NY time): a box over each session's high / low
+        void DrawSessions(DrawingContext dc, List<Mt5Bar> bars, int i0, int i1)
+        {
+            var defs = new[] { Tuple.Create("ASIA", -6.0, 3.0, "#4DD8FF"), Tuple.Create("LONDON", 3.0, 8.0, "#FFE066"), Tuple.Create("NEW YORK", 8.0, 16.0, "#2EE59D") };
+            var days = new HashSet<DateTime>(); for (int i = i0; i <= i1; i++) days.Add(bars[i].Time.AddHours(NyOffsetHours).Date);
+            foreach (var nyDay in days)
+                foreach (var d in defs)
+                {
+                    var s0 = nyDay.AddHours(d.Item2 - NyOffsetHours); var s1 = nyDay.AddHours(d.Item3 - NyOffsetHours);
+                    int a = (int)Math.Ceiling(IndexOf(s0)), b = (int)Math.Floor(IndexOf(s1) - 1e-6); a = Math.Max(0, a); b = Math.Min(bars.Count - 1, b); if (b < a || b < i0 - 1 || a > i1 + 1) continue;
+                    double h = double.MinValue, l = double.MaxValue; for (int j = a; j <= b; j++) { h = Math.Max(h, bars[j].H); l = Math.Min(l, bars[j].L); }
+                    var col = Hex(d.Item4); double x1 = X(a) - barW / 2, x2 = X(b) + barW / 2;
+                    dc.DrawRectangle(Hex(d.Item4, 14), P(Hex(d.Item4, 90), 1, 2, 3), new Rect(x1, Y(h), Math.Max(2, x2 - x1), Math.Max(1, Y(l) - Y(h))));
+                    dc.DrawText(T(d.Item1, 9.5, Hex(d.Item4, 200), false, true), new Point(x1 + 3, Y(h) - 13));
+                }
+        }
+
+        // ---- SETUPS: a sweep of a swing high (low) that closes back below (above) it, confirmed when a later close breaks the sweep candle
+        sealed class Setup { public int Sweep, Signal, Dir, End; public double Entry, Stop, Target; public int Result; }   // Result 1 = 2R first, −1 = stop first, 0 = open
+        List<Setup> setups = new List<Setup>(); string setupKey = "";
+        List<Setup> FindSetups(List<Mt5Bar> b)
+        {
+            int n = b.Count - 1;   // the forming candle is not used
+            string key = n + "|" + (n > 0 ? b[n - 1].Time.Ticks + "|" + b[n - 1].C : "") + "|" + (n > 0 ? b[0].Time.Ticks : 0);
+            if (key == setupKey) { UpdateResults(b); return setups; }
+            setupKey = key; var res = new List<Setup>(); const int L = 3;
+            var highs = new List<int>(); var lows = new List<int>(); var usedH = new HashSet<int>(); var usedL = new HashSet<int>();
+            for (int i = 0; i < n; i++)
+            {
+                int c = i - L; if (c >= L)
+                {
+                    bool sh = true, sl = true; for (int k = 1; k <= L; k++) { if (b[c].H <= b[c - k].H || b[c].H < b[c + k].H) sh = false; if (b[c].L >= b[c - k].L || b[c].L > b[c + k].L) sl = false; }
+                    if (sh) highs.Add(c); if (sl) lows.Add(c);
+                }
+                // a sweep on candle i of the newest swing in the last 60 candles that is still untouched
+                int hs = highs.LastOrDefault(h => h < i - L + 1 && h >= i - 60 && !usedH.Contains(h)); if (hs == 0) hs = -1;   // a swing is never candle 0
+                if (hs >= 0 && b[i].H > b[hs].H)
+                {
+                    usedH.Add(hs);
+                    if (b[i].C < b[hs].H && b[i].C < b[i].O)
+                        for (int j = i + 1; j <= Math.Min(n - 1, i + 3); j++) if (b[j].C < b[i].L) { double st = Math.Max(b[i].H, b.Skip(i).Take(j - i + 1).Max(x => x.H)) + Point * 5; res.Add(new Setup { Sweep = i, Signal = j, Dir = -1, Entry = b[j].C, Stop = st, Target = b[j].C - 2 * (st - b[j].C) }); break; }
+                }
+                int ls = lows.LastOrDefault(h => h < i - L + 1 && h >= i - 60 && !usedL.Contains(h)); if (ls == 0) ls = -1;
+                if (ls >= 0 && b[i].L < b[ls].L)
+                {
+                    usedL.Add(ls);
+                    if (b[i].C > b[ls].L && b[i].C > b[i].O)
+                        for (int j = i + 1; j <= Math.Min(n - 1, i + 3); j++) if (b[j].C > b[i].H) { double st = Math.Min(b[i].L, b.Skip(i).Take(j - i + 1).Min(x => x.L)) - Point * 5; res.Add(new Setup { Sweep = i, Signal = j, Dir = 1, Entry = b[j].C, Stop = st, Target = b[j].C + 2 * (b[j].C - st) }); break; }
+                }
+            }
+            setups = res.GroupBy(s => s.Signal).Select(g => g.First()).ToList(); UpdateResults(b); return setups;
+        }
+        void UpdateResults(List<Mt5Bar> b)
+        {
+            foreach (var s in setups)
+            {
+                s.Result = 0; s.End = b.Count - 1;
+                for (int k = s.Signal + 1; k < b.Count; k++)
+                {
+                    bool stop = s.Dir > 0 ? b[k].L <= s.Stop : b[k].H >= s.Stop, tgt = s.Dir > 0 ? b[k].H >= s.Target : b[k].L <= s.Target;
+                    if (stop) { s.Result = -1; s.End = k; break; } if (tgt) { s.Result = 1; s.End = k; break; }
+                }
+            }
+        }
+        void DrawSetups(DrawingContext dc, List<Mt5Bar> bars, int i0, int i1)
+        {
+            var list = FindSetups(bars); var gold = Hex(IndColor("SETUPS")); bool blink = DateTime.Now.Millisecond < 500;
+            foreach (var s in list)
+            {
+                if (s.Signal < i0 - 2 || s.Signal > i1 + 1) continue; var b = bars[s.Signal]; double x = X(s.Signal); var col = s.Dir > 0 ? BuyB : SellB;
+                bool live = s.Result == 0 && s.Signal >= bars.Count - 25; if (live) liveSetup = true;
+                double y = s.Dir > 0 ? Y(b.L) + 14 : Y(b.H) - 14; double sz = Math.Max(6, Math.Min(11, barW * 0.9));
+                var tri = new StreamGeometry(); using (var c = tri.Open()) { if (s.Dir > 0) { c.BeginFigure(new Point(x, y - sz), true, true); c.LineTo(new Point(x - sz, y + sz * 0.6), true, false); c.LineTo(new Point(x + sz, y + sz * 0.6), true, false); } else { c.BeginFigure(new Point(x, y + sz), true, true); c.LineTo(new Point(x - sz, y - sz * 0.6), true, false); c.LineTo(new Point(x + sz, y - sz * 0.6), true, false); } } tri.Freeze();
+                if (live && blink) { dc.DrawEllipse(Br(col.Color, 60), null, new Point(x, y), sz * 2.2, sz * 2.2); }
+                dc.DrawGeometry(live ? (blink ? WhiteB : col) : Br(col.Color, s.Result == 0 ? (byte)220 : (byte)150), P(Br(Theme.Plot), 1), tri);
+                if (s.Result != 0) { var mk = T(s.Result > 0 ? "✓" : "✕", 10, s.Result > 0 ? BuyB : SellB, false, true); dc.DrawText(mk, new Point(x - mk.Width / 2, s.Dir > 0 ? y + sz : y - sz - mk.Height)); }
+                if (live || (selected == null && mouse.HasValue && Math.Abs(mouse.Value.X - x) < barW * 1.5))
+                {
+                    double x2 = X(Math.Max(s.End, s.Signal + 12)); var pe = P(gold, 1.2, 4, 3);
+                    dc.DrawRectangle(Br(BuyC, 22), null, new Rect(x, Math.Min(Y(s.Entry), Y(s.Dir > 0 ? s.Target : s.Entry)), Math.Max(4, x2 - x), Math.Abs(Y(s.Target) - Y(s.Entry))));
+                    dc.DrawRectangle(Br(SellC, 22), null, new Rect(x, Math.Min(Y(s.Entry), Y(s.Stop)), Math.Max(4, x2 - x), Math.Abs(Y(s.Stop) - Y(s.Entry))));
+                    dc.DrawLine(pe, new Point(x, Y(s.Entry)), new Point(x2, Y(s.Entry)));
+                    var lt = T((live ? "⚡ LIVE SETUP " : "SETUP ") + (s.Dir > 0 ? "BUY" : "SELL") + " • entry " + F(s.Entry) + " • stop " + F(s.Stop) + " • target 2R " + F(s.Target), 10.5, live && blink ? WhiteB : gold, false, true);
+                    double ly = s.Dir > 0 ? Y(s.Target) - 16 : Y(s.Target) + 2; dc.DrawRoundedRectangle(Br(Theme.Plot, 220), null, new Rect(x - 2, ly - 1, lt.Width + 8, lt.Height + 2), 4, 4); dc.DrawText(lt, new Point(x + 2, ly));
+                }
+            }
+            // the record of every setup on the loaded candles (honest: stop first when both are in one candle)
+            int w = list.Count(s => s.Result > 0), l = list.Count(s => s.Result < 0), open = list.Count(s => s.Result == 0);
+            string rec = "⚡ SETUPS (sweep → close back → break) • " + list.Count + " on " + bars.Count + " candles" + (w + l > 0 ? " • 2R first: " + w + " / " + (w + l) + " (" + (100.0 * w / (w + l)).ToString("0", IC) + " %) • expectancy " + ((2.0 * w - l) / (w + l)).ToString("+0.00;−0.00", IC) + " R" : "") + (open > 0 ? " • " + open + " open" : "");
+            var rt = T(rec, 10.5, gold, false, true); double ry = TopPad + plotH - (Tool != "" ? 54 : 26) - (auto ? 0 : 16);
+            dc.DrawRoundedRectangle(Br(Theme.Plot, 225), P(Br(gold.Color, 90), 1), new Rect(8, ry, rt.Width + 14, 20), 6, 6); dc.DrawText(rt, new Point(15, ry + 2));
         }
 
         // ---- drawings
+        static readonly double[] FibLevels = { 0, 0.236, 0.382, 0.5, 0.618, 0.786, 1, 1.272, 1.618 };
         void DrawDrawings(DrawingContext dc)
         {
-            foreach (var d in Drawings.Concat(newDraw != null ? new[] { newDraw } : new Drawing[0]))
+            var all = Drawings.ToList(); if (newDraw != null) all.Add(newDraw);
+            for (int di = 0; di < all.Count; di++)
             {
-                var col = Hex(d.Color); var pen = P(col, d == selected ? 2.4 : 1.6); double x1 = X(IndexOf(d.T1)), x2 = X(IndexOf(d.T2)), y1 = Y(d.P1), y2 = Y(d.P2);
-                if (d.Kind == "HLINE") { dc.DrawLine(pen, new Point(0, y1), new Point(plotW, y1)); dc.DrawText(T(F(d.P1), 10.5, col, true), new Point(plotW - 70, y1 - 15)); }
-                else if (d.Kind == "VLINE") dc.DrawLine(pen, new Point(x1, TopPad), new Point(x1, TopPad + plotH));
-                else if (d.Kind == "TREND") dc.DrawLine(pen, new Point(x1, y1), new Point(x2, y2));
-                else if (d.Kind == "RECT") dc.DrawRectangle(Hex(d.Color, 30), pen, new Rect(Math.Min(x1, x2), Math.Min(y1, y2), Math.Abs(x2 - x1), Math.Abs(y2 - y1)));
-                if (d == selected) foreach (var pt in new[] { new Point(x1, y1), new Point(x2, y2) }) dc.DrawEllipse(col, P(Br(Theme.Plot), 1.5), pt, 5, 5);
+                var d = all[di]; var col = Hex(d.Color); bool hov = hoverKey == "DRAW:" + Drawings.IndexOf(d) && d != selected;
+                double wdt = d.Width + (d == selected || hov ? 0.9 : 0); var pen = d.Dash ? P(col, wdt, 5, 4) : P(col, wdt);
+                double x1 = X(IndexOf(d.T1)), x2 = X(IndexOf(d.T2)), y1 = Y(d.P1), y2 = Y(d.P2);
+                if (hov && d.Kind != "TEXT") { var glow = P(Hex(d.Color, 50), d.Width + 6); DrawShape(dc, d, glow, null, x1, y1, x2, y2); }
+                DrawShape(dc, d, pen, col, x1, y1, x2, y2);
+                if (d == selected) foreach (var pt in Handles(d)) dc.DrawEllipse(Br(Theme.Plot), P(col, 2), pt, 5, 5);
             }
         }
-        Drawing DrawingAt(Point m)
+        void DrawShape(DrawingContext dc, Drawing d, Pen pen, SolidColorBrush col, double x1, double y1, double x2, double y2)
         {
-            foreach (var d in Drawings.AsEnumerable().Reverse())
+            switch (d.Kind)
             {
-                double x1 = X(IndexOf(d.T1)), x2 = X(IndexOf(d.T2)), y1 = Y(d.P1), y2 = Y(d.P2);
-                if (d.Kind == "HLINE" && Math.Abs(m.Y - y1) <= 5) return d;
-                if (d.Kind == "VLINE" && Math.Abs(m.X - x1) <= 5) return d;
-                if (d.Kind == "RECT" && m.X >= Math.Min(x1, x2) - 4 && m.X <= Math.Max(x1, x2) + 4 && m.Y >= Math.Min(y1, y2) - 4 && m.Y <= Math.Max(y1, y2) + 4) return d;
-                if (d.Kind == "TREND") { double len2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1); double u = len2 < 1 ? 0 : Math.Max(0, Math.Min(1, ((m.X - x1) * (x2 - x1) + (m.Y - y1) * (y2 - y1)) / len2)); double px = x1 + u * (x2 - x1), py = y1 + u * (y2 - y1); if (Math.Abs(m.X - px) + Math.Abs(m.Y - py) <= 7) return d; }
+                case "HLINE": dc.DrawLine(pen, new Point(0, y1), new Point(plotW, y1)); if (col != null) { var t = T(F(d.P1) + (d.Text != "" ? "  " + d.Text : ""), 10.5, col, true); dc.DrawText(t, new Point(plotW - t.Width - 8, y1 - 15)); } break;
+                case "HRAY": dc.DrawLine(pen, new Point(x1, y1), new Point(plotW, y1)); if (col != null) { dc.DrawEllipse(col, null, new Point(x1, y1), 2.5, 2.5); var t = T(F(d.P1), 10.5, col, true); dc.DrawText(t, new Point(plotW - t.Width - 8, y1 - 15)); } break;
+                case "VLINE": dc.DrawLine(pen, new Point(x1, TopPad), new Point(x1, TopPad + plotH)); break;
+                case "TREND": dc.DrawLine(pen, new Point(x1, y1), new Point(x2, y2)); break;
+                case "RAY":
+                    {
+                        double dx = x2 - x1, dy = y2 - y1; if (Math.Abs(dx) < 0.5 && Math.Abs(dy) < 0.5) { dc.DrawLine(pen, new Point(x1, y1), new Point(x2, y2)); break; }
+                        double kx = Math.Abs(dx) > 1e-6 ? ((dx > 0 ? plotW + 50 : -50) - x1) / dx : 1e6, ky = Math.Abs(dy) > 1e-6 ? ((dy > 0 ? TopPad + plotH + 50 : TopPad - 50) - y1) / dy : 1e6; double k = Math.Max(1, Math.Min(kx, ky));
+                        dc.DrawLine(pen, new Point(x1, y1), new Point(x1 + dx * k, y1 + dy * k)); break;
+                    }
+                case "RECT": dc.DrawRectangle(col != null ? Hex(d.Color, 30) : null, pen, new Rect(Math.Min(x1, x2), Math.Min(y1, y2), Math.Abs(x2 - x1), Math.Abs(y2 - y1))); break;
+                case "FIB":
+                    {
+                        double left = Math.Min(x1, x2);
+                        foreach (var lv in FibLevels)
+                        {
+                            double p = d.P2 + (d.P1 - d.P2) * lv, y = Y(p); bool key = lv == 0.5 || lv == 0.618 || lv == 0 || lv == 1;
+                            dc.DrawLine(key ? pen : P(Hex(d.Color, 150), 1), new Point(left, y), new Point(plotW, y));
+                            if (col != null) dc.DrawText(T(lv.ToString("0.###", IC) + "  " + F(p), 10, Hex(d.Color, key ? (byte)255 : (byte)180), true), new Point(left + 4, y - 13));
+                        }
+                        if (col != null) dc.DrawLine(P(Hex(d.Color, 90), 1, 3, 3), new Point(x1, y1), new Point(x2, y2));
+                        break;
+                    }
+                case "TEXT":
+                    {
+                        var t = T(d.Text == "" ? "text" : d.Text, 12.5 + d.Width, col ?? GoldB, false, true);
+                        if (col != null) dc.DrawRoundedRectangle(Br(Theme.Plot, 200), P(Hex(d.Color, 120), 1), new Rect(x1 - 4, y1 - t.Height / 2 - 2, t.Width + 8, t.Height + 4), 4, 4);
+                        dc.DrawText(t, new Point(x1, y1 - t.Height / 2)); break;
+                    }
+                case "LONG":
+                case "SHORT":
+                    {
+                        int dir = d.Kind == "LONG" ? 1 : -1; double xr = Math.Max(x2, x1 + 30), yt = Y(d.P3);
+                        if (col != null)
+                        {
+                            dc.DrawRectangle(Br(BuyC, 40), P(Br(BuyC, 160), 1), new Rect(x1, Math.Min(y1, yt), xr - x1, Math.Abs(yt - y1)));
+                            dc.DrawRectangle(Br(SellC, 40), P(Br(SellC, 160), 1), new Rect(x1, Math.Min(y1, y2), xr - x1, Math.Abs(y2 - y1)));
+                            double risk = Math.Abs(d.P1 - d.P2), rew = Math.Abs(d.P3 - d.P1), rr = risk > 0 ? rew / risk : 0;
+                            var tt = T("TARGET " + F(d.P3) + "  " + Money(Value(rew, Lots)) + "  (" + rr.ToString("0.0#", IC) + " R)", 10.5, BuyB, false, true); dc.DrawText(tt, new Point(x1 + 4, dir > 0 ? yt - 15 : yt + 2));
+                            var st = T("STOP " + F(d.P2) + "  " + Money(-Value(risk, Lots)) + "  • " + Lots.ToString("0.00", IC) + " lots", 10.5, SellB, false, true); dc.DrawText(st, new Point(x1 + 4, dir > 0 ? y2 + 2 : y2 - 15));
+                            var et = T((dir > 0 ? "▲ LONG " : "▼ SHORT ") + F(d.P1), 10.5, Br(Theme.Text), false, true); dc.DrawText(et, new Point(xr - et.Width - 4, y1 - (dir > 0 ? -2 : 15)));
+                        }
+                        dc.DrawLine(pen, new Point(x1, y1), new Point(xr, y1)); break;
+                    }
+            }
+        }
+        List<Point> Handles(Drawing d)
+        {
+            double x1 = X(IndexOf(d.T1)), x2 = X(IndexOf(d.T2)), y1 = Y(d.P1), y2 = Y(d.P2);
+            switch (d.Kind)
+            {
+                case "HLINE": return new List<Point> { new Point(plotW / 2, y1) };
+                case "VLINE": return new List<Point> { new Point(x1, TopPad + plotH / 2) };
+                case "HRAY": case "TEXT": return new List<Point> { new Point(x1, y1) };
+                case "LONG": case "SHORT": { double xr = Math.Max(x2, x1 + 30); return new List<Point> { new Point(x1, y1), new Point(x1, y2), new Point(x1, Y(d.P3)), new Point(xr, y1) }; }
+            }
+            return new List<Point> { new Point(x1, y1), new Point(x2, y2) };
+        }
+        // which drawing, which part ("P1" / "P2" / "P3" / "W" = the width of a position box / "BODY")
+        Drawing DrawingAt(Point m, out string part)
+        {
+            part = "";
+            for (int k = Drawings.Count - 1; k >= 0; k--)
+            {
+                var d = Drawings[k]; double x1 = X(IndexOf(d.T1)), x2 = X(IndexOf(d.T2)), y1 = Y(d.P1), y2 = Y(d.P2);
+                var hs = Handles(d); string[] names = d.Kind == "LONG" || d.Kind == "SHORT" ? new[] { "P1", "P2", "P3", "W" } : new[] { "P1", "P2" };
+                if (d == selected) for (int h = 0; h < hs.Count; h++) if ((hs[h] - m).Length <= 7) { part = names[Math.Min(h, names.Length - 1)]; if (d.Kind == "HLINE" || d.Kind == "VLINE" || d.Kind == "HRAY" || d.Kind == "TEXT") part = "BODY"; return d; }
+                bool hit = false;
+                switch (d.Kind)
+                {
+                    case "HLINE": hit = Math.Abs(m.Y - y1) <= 5; break;
+                    case "HRAY": hit = Math.Abs(m.Y - y1) <= 5 && m.X >= x1 - 5; break;
+                    case "VLINE": hit = Math.Abs(m.X - x1) <= 5; break;
+                    case "RECT": hit = m.X >= Math.Min(x1, x2) - 4 && m.X <= Math.Max(x1, x2) + 4 && m.Y >= Math.Min(y1, y2) - 4 && m.Y <= Math.Max(y1, y2) + 4; break;
+                    case "FIB": hit = m.X >= Math.Min(x1, x2) - 4 && m.Y >= Math.Min(y1, y2) - 4 && m.Y <= Math.Max(y1, y2) + 4; break;
+                    case "TEXT": { var t = T(d.Text == "" ? "text" : d.Text, 12.5 + d.Width, GoldB, false, true); hit = m.X >= x1 - 4 && m.X <= x1 + t.Width + 4 && Math.Abs(m.Y - y1) <= t.Height / 2 + 3; break; }
+                    case "LONG": case "SHORT": { double xr = Math.Max(x2, x1 + 30), yt = Y(d.P3); hit = m.X >= x1 && m.X <= xr && m.Y >= Math.Min(Math.Min(y1, y2), yt) && m.Y <= Math.Max(Math.Max(y1, y2), yt); break; }
+                    case "TREND": case "RAY":
+                        {
+                            double ex = x2, ey = y2; if (d.Kind == "RAY") { ex = x1 + (x2 - x1) * 50; ey = y1 + (y2 - y1) * 50; }
+                            double len2 = (ex - x1) * (ex - x1) + (ey - y1) * (ey - y1); double u = len2 < 1 ? 0 : Math.Max(0, Math.Min(1, ((m.X - x1) * (ex - x1) + (m.Y - y1) * (ey - y1)) / len2)); double px = x1 + u * (ex - x1), py = y1 + u * (ey - y1); hit = Math.Abs(m.X - px) + Math.Abs(m.Y - py) <= 7; break;
+                        }
+                }
+                if (hit) { part = "BODY"; return d; }
             }
             return null;
         }
         public void DeleteSelected() { if (selected != null) { Drawings.Remove(selected); selected = null; if (DrawingsChanged != null) DrawingsChanged(); InvalidateVisual(); } }
+        void DrawMeasure(DrawingContext dc, Drawing d)
+        {
+            double x1 = X(IndexOf(d.T1)), x2 = X(IndexOf(d.T2)), y1 = Y(d.P1), y2 = Y(d.P2); bool up = d.P2 >= d.P1; var col = up ? BuyB : SellB;
+            dc.DrawRectangle(Br(col.Color, 36), P(col, 1, 4, 3), new Rect(Math.Min(x1, x2), Math.Min(y1, y2), Math.Abs(x2 - x1), Math.Abs(y2 - y1)));
+            double dp = d.P2 - d.P1; int nb = (int)Math.Round(Math.Abs(IndexOf(d.T2) - IndexOf(d.T1))); var span = d.T2 - d.T1;
+            var t = T((dp >= 0 ? "+" : "−") + F(Math.Abs(dp)) + "  (" + (d.P1 != 0 ? 100 * dp / d.P1 : 0).ToString("+0.00;−0.00", IC) + " %)  •  " + Math.Abs(dp / Point).ToString("N0", IC) + " points  •  " + nb + " candles  •  " + (Math.Abs(span.TotalHours) >= 1 ? ((int)Math.Abs(span.TotalHours)) + " h " + Math.Abs(span.Minutes) + " min" : Math.Abs(span.TotalMinutes).ToString("0", IC) + " min") + "  •  " + Money(Value(Math.Abs(dp), Lots) * (dp >= 0 ? 1 : -1)) + " for " + Lots.ToString("0.00", IC) + " lots", 11.5, Br(Theme.Text), false, true);
+            double tx = Math.Min(plotW - t.Width - 14, Math.Max(4, (x1 + x2) / 2 - t.Width / 2)), ty = up ? Math.Min(y1, y2) - 26 : Math.Max(y1, y2) + 4;
+            dc.DrawRoundedRectangle(Br(col.Color, 220), null, new Rect(tx, ty, t.Width + 12, 22), 6, 6); dc.DrawText(T(t.Text, 11.5, Br(Theme.Bg), false, true), new Point(tx + 6, ty + 3));
+        }
 
-        // ---- your tickets and orders: every line, a label on the right with ✕, S/L / T/P lines you drag
+        // ---- your tickets and orders
+        sealed class TagRow { public double Y, Price; public string Text, Kind, Key; public Color Col; public long Ticket; public int Dir; public bool Faint; }
         void DrawTrading(DrawingContext dc, double W)
         {
             var mine = Positions.Where(p => string.Equals(p.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)).ToList();
             var ords = Orders.Where(o => string.Equals(o.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)).ToList();
-            // the labels sit on the right, pushed apart so none hides another
-            var tags = new List<Tuple<double, string, SolidColorBrush, string, long, double>>();   // y, text, colour, kind (POS / SL / TP / ORD), ticket, price
-            foreach (var p in mine)
-            {
-                bool dragged = drag == "TICKET" && dragTicket == p.Ticket;
-                double sl = dragged && dragWhat == "SL" ? dragPrice : p.Sl, tp = dragged && dragWhat == "TP" ? dragPrice : p.Tp;
-                if (dragged && dragWhat == "NEW") { if ((p.Dir > 0) == (dragPrice < p.Open)) sl = dragPrice; else tp = dragPrice; }
-                var col = p.Dir > 0 ? GreenB : RedB; double pl = p.Profit + p.Swap;
-                tags.Add(Tuple.Create(Y(p.Open), (p.Dir > 0 ? "▲ " : "▼ ") + p.Lots.ToString("0.00", IC) + "  " + (pl >= 0 ? "+" : "−") + "$" + Math.Abs(pl).ToString("N2", IC), col, "POS", p.Ticket, p.Open));
-                if (sl > 0) tags.Add(Tuple.Create(Y(sl), "S/L " + F(sl), RedB, "SL", p.Ticket, sl));
-                if (tp > 0) tags.Add(Tuple.Create(Y(tp), "T/P " + F(tp), GreenB, "TP", p.Ticket, tp));
-            }
-            foreach (var o in ords) { double px = drag == "ORDER" && dragTicket == o.Ticket ? dragPrice : o.Price; tags.Add(Tuple.Create(Y(px), "⏳ " + o.Type + " " + o.Lots.ToString("0.00", IC), CyanB, "ORD", o.Ticket, px)); }
-            // the lines first (full width, faint for tickets, dashed for stops / targets / orders)
-            foreach (var t in tags)
-            {
-                if (t.Item1 < TopPad || t.Item1 > TopPad + plotH) continue;
-                var c = t.Item3.Color; var pen = t.Item4 == "POS" ? P(Br(c, 150), 1) : P(Br(c, 200), 1, 5, 4);
-                dc.DrawLine(pen, new Point(0, t.Item1), new Point(plotW, t.Item1));
-            }
-            // the side averages (a strong line + summary on the left)
+            var now = DateTime.Now;
+            foreach (var p in mine) if (!seen.ContainsKey(p.Ticket)) seen[p.Ticket] = firstTickets ? DateTime.MinValue : now;
+            foreach (var o in ords) if (!seen.ContainsKey(o.Ticket)) seen[o.Ticket] = firstTickets ? DateTime.MinValue : now;
+            if (mine.Count > 0 || ords.Count > 0 || Series != null) firstTickets = false;
+            var tags = new List<TagRow>();
             foreach (var side in new[] { 1, -1 })
             {
-                var ps = mine.Where(p => p.Dir == side).ToList(); if (ps.Count < 2) continue;
-                double lots = ps.Sum(p => p.Lots), avg = ps.Sum(p => p.Open * p.Lots) / Math.Max(1e-9, lots), pl = ps.Sum(p => p.Profit + p.Swap);
-                Level(dc, Y(avg), side > 0 ? GreenB : RedB, (side > 0 ? "▲ BUYS " : "▼ SELLS ") + ps.Count + " • " + lots.ToString("0.00", IC) + " lots • avg " + F(avg) + " • " + (pl >= 0 ? "+" : "−") + "$" + Math.Abs(pl).ToString("N2", IC), false, 6, pl >= 0 ? GreenB : RedB);
+                var ps = mine.Where(p => p.Dir == side).ToList(); if (ps.Count == 0) continue;
+                bool fold = TicketMode == "SIDE" || (TicketMode == "AUTO" && ps.Count > 6);
+                var col = side > 0 ? BuyC : SellC;
+                if (fold)
+                {
+                    double lots = ps.Sum(p => p.Lots), avg = ps.Sum(p => p.Open * p.Lots) / Math.Max(1e-9, lots), pl = ps.Sum(p => p.Profit + p.Swap);
+                    tags.Add(new TagRow { Y = Y(avg), Price = avg, Text = (side > 0 ? "▲ " : "▼ ") + ps.Count + (side > 0 ? " BUYS " : " SELLS ") + lots.ToString("0.00", IC) + " lots • avg " + F(avg) + "  " + Money(pl), Kind = "SIDE", Key = "SIDE:" + side, Col = col, Dir = side, Ticket = side });
+                }
+                foreach (var p in ps)
+                {
+                    bool dragged = drag == "TICKET" && dragTicket == p.Ticket;
+                    double sl = dragged && dragWhat == "SL" ? dragPrice : p.Sl, tp = dragged && dragWhat == "TP" ? dragPrice : p.Tp;
+                    if (dragged && dragWhat == "NEW") { if ((p.Dir > 0) == (dragPrice < p.Open)) sl = dragPrice; else tp = dragPrice; }
+                    double pl = p.Profit + p.Swap;
+                    tags.Add(new TagRow { Y = Y(p.Open), Price = p.Open, Text = (p.Dir > 0 ? "▲ BUY " : "▼ SELL ") + p.Lots.ToString("0.00", IC) + "  " + Money(pl), Kind = "POS", Key = "POS:" + p.Ticket, Col = col, Ticket = p.Ticket, Dir = p.Dir, Faint = fold });
+                    if (sl > 0) tags.Add(new TagRow { Y = Y(sl), Price = sl, Text = "S/L " + F(sl) + "  " + Money(Value((sl - p.Open) * p.Dir, p.Lots)), Kind = "SL", Key = "SL:" + p.Ticket, Col = SellC, Ticket = p.Ticket, Dir = p.Dir, Faint = fold && !dragged });
+                    if (tp > 0) tags.Add(new TagRow { Y = Y(tp), Price = tp, Text = "T/P " + F(tp) + "  " + Money(Value((tp - p.Open) * p.Dir, p.Lots)), Kind = "TP", Key = "TP:" + p.Ticket, Col = BuyC, Ticket = p.Ticket, Dir = p.Dir, Faint = fold && !dragged });
+                }
             }
-            // the labels, stacked without overlap
-            var vis = tags.Where(t => t.Item1 >= TopPad - 40 && t.Item1 <= TopPad + plotH + 40).OrderBy(t => t.Item1).ToList(); double lastY = double.MinValue;
+            foreach (var o in ords) { double px = drag == "ORDER" && dragTicket == o.Ticket ? dragPrice : o.Price; tags.Add(new TagRow { Y = Y(px), Price = px, Text = "⏳ " + o.Type + " " + o.Lots.ToString("0.00", IC) + " @ " + F(px), Kind = "ORD", Key = "ORD:" + o.Ticket, Col = PendC, Ticket = o.Ticket, Dir = o.Type.StartsWith("BUY") ? 1 : -1 }); }
+            // the lines (solid = a ticket, dashed = a stop / target / order); the hovered one glows
+            foreach (var t in tags)
+            {
+                if (t.Kind == "SIDE" || t.Y < TopPad || t.Y > TopPad + plotH) continue; bool hov = HoverIs(t);
+                if (hov) dc.DrawLine(P(Br(t.Col, 55), 7), new Point(0, t.Y), new Point(plotW, t.Y));
+                byte a = t.Faint ? (byte)70 : (byte)190; var pen = t.Kind == "POS" ? P(Br(t.Col, hov ? (byte)255 : a), hov ? 2 : 1.1) : P(Br(t.Col, hov ? (byte)255 : a), hov ? 2 : 1.1, 6, 4);
+                dc.DrawLine(pen, new Point(0, t.Y), new Point(plotW, t.Y));
+            }
+            foreach (var t in tags.Where(x => x.Kind == "SIDE")) if (t.Y >= TopPad && t.Y <= TopPad + plotH) dc.DrawLine(P(Br(t.Col, HoverIs(t) ? (byte)255 : (byte)220), HoverIs(t) ? 2.6 : 1.8), new Point(0, t.Y), new Point(plotW, t.Y));
+            // the side averages on the left (when every ticket has its own label)
+            foreach (var side in new[] { 1, -1 })
+            {
+                var ps = mine.Where(p => p.Dir == side).ToList(); if (ps.Count < 2 || tags.Any(x => x.Kind == "SIDE" && x.Dir == side)) continue;
+                double lots = ps.Sum(p => p.Lots), avg = ps.Sum(p => p.Open * p.Lots) / Math.Max(1e-9, lots), pl = ps.Sum(p => p.Profit + p.Swap);
+                Level(dc, Y(avg), side > 0 ? BuyB : SellB, (side > 0 ? "▲ " + ps.Count + " BUYS " : "▼ " + ps.Count + " SELLS ") + lots.ToString("0.00", IC) + " lots • avg " + F(avg) + " • " + Money(pl), false, 8, pl >= 0 ? BuyB : SellB);
+            }
+            // the labels on the right, stacked without overlap (folded tickets: no label of their own)
+            var vis = tags.Where(t => !t.Faint && t.Y >= TopPad - 40 && t.Y <= TopPad + plotH + 40).OrderBy(t => t.Y).ToList(); double lastY = double.MinValue;
             foreach (var t in vis)
             {
-                double y = Math.Max(t.Item1, lastY + 19); lastY = y; if (y > TopPad + plotH - 8) continue;
-                var ft = T(t.Item2, 11, t.Item3, true); double w = ft.Width + 34, x = plotW - w - 6;
-                if (Math.Abs(y - t.Item1) > 2) dc.DrawLine(P(Br(t.Item3.Color, 120), 1), new Point(x + w, t.Item1), new Point(x + w - 6, y));
-                var r = new Rect(x, y - 9, w, 18); dc.DrawRoundedRectangle(Br(Theme.Plot, 240), P(t.Item3, 1), r, 5, 5); dc.DrawText(ft, new Point(x + 6, y - 7.5));
-                var xr = new Rect(x + w - 20, y - 8, 16, 16); dc.DrawRoundedRectangle(Br(t.Item3.Color, 60), null, xr, 4, 4); dc.DrawText(T("✕", 10.5, t.Item3), new Point(xr.X + 3.5, xr.Y));
-                long tk = t.Item5; string kind = t.Item4;
-                var pos = mine.FirstOrDefault(p => p.Ticket == tk); var ord = ords.FirstOrDefault(o => o.Ticket == tk);
-                hits.Add(new ChartHit { R = xr, Kind = "X", Ticket = tk, Click = () =>
+                double y = Math.Max(t.Y, lastY + 20); lastY = y; if (y > TopPad + plotH - 8) continue;
+                bool hov = HoverIs(t); DateTime born; double flash = seen.TryGetValue(t.Ticket, out born) && t.Kind != "SIDE" ? (now - born).TotalMilliseconds : 99999;
+                double hk = (now - hoverAt).TotalMilliseconds; bool blinkNew = flash < 1800 && ((int)(flash / 300)) % 2 == 0; bool blinkHov = hov && hk < 450 && ((int)(hk / 150)) % 2 == 0;
+                var ft = T(t.Text, 11, hov || blinkNew ? WhiteB : Br(t.Col), true); double w = ft.Width + 36, x = plotW - w - 8;
+                if (Math.Abs(y - t.Y) > 2) dc.DrawLine(P(Br(t.Col, 130), 1), new Point(x + w, t.Y), new Point(x + w - 8, y));
+                var r = new Rect(x, y - 10, w, 20);
+                if (hov) { var gr = r; gr.Inflate(3, 3); dc.DrawRoundedRectangle(Br(t.Col, 50), null, gr, 8, 8); }
+                dc.DrawRoundedRectangle(blinkNew || blinkHov ? Br(t.Col, 210) : hov ? Br(t.Col, 120) : Br(Theme.Plot, 242), P(Br(t.Col), hov ? 1.6 : 1), r, 6, 6);
+                dc.DrawText(blinkNew || blinkHov ? T(t.Text, 11, Br(Theme.Bg), true) : ft, new Point(x + 7, y - 7.5));
+                var xr = new Rect(x + w - 21, y - 8, 16, 16); bool xh = hoverKey == "X:" + t.Key;
+                dc.DrawRoundedRectangle(xh ? Br(SellC) : Br(t.Col, 70), null, xr, 4, 4); dc.DrawText(T("✕", 10.5, xh ? WhiteB : Br(t.Col), false, true), new Point(xr.X + 3.5, xr.Y));
+                long tk = t.Ticket; string kind = t.Kind; int dir = t.Dir;
+                var pos = mine.FirstOrDefault(p => p.Ticket == tk);
+                hits.Add(new ChartHit { R = xr, Kind = "X", Key = "X:" + t.Key, Ticket = tk, Click = () =>
                 {
                     if (kind == "POS" && CloseTicket != null) CloseTicket(tk, 0);
                     else if (kind == "SL" && pos != null && ModifyTicket != null) ModifyTicket(tk, 0, pos.Tp);
                     else if (kind == "TP" && pos != null && ModifyTicket != null) ModifyTicket(tk, pos.Sl, 0);
                     else if (kind == "ORD" && CancelOrder != null) CancelOrder(tk);
+                    else if (kind == "SIDE" && CloseSide != null) CloseSide(dir);
                 } });
-                hits.Add(new ChartHit { R = new Rect(x, y - 9, w - 22, 18), Kind = kind, Ticket = tk });
+                hits.Add(new ChartHit { R = new Rect(x, y - 10, w - 23, 20), Kind = kind, Key = t.Key, Ticket = tk });
             }
+        }
+        bool HoverIs(TagRow t) { return hoverKey == t.Key || hoverKey == "X:" + t.Key || (t.Kind == "POS" && hoverKey == "SIDE:" + t.Dir && t.Faint); }
+        // a card next to the mouse with what it points at
+        void HoverCard(DrawingContext dc, Point m, Brush textB, Brush tagBg)
+        {
+            if (hoverKey == "" || drag != null) return; string[] k = hoverKey.Replace("X:", "").Split(':'); if (k.Length < 2) return; long tk; long.TryParse(k[1], out tk);
+            string txt = null; Color col = PendC;
+            if (k[0] == "POS" || k[0] == "SL" || k[0] == "TP")
+            {
+                var p = Positions.FirstOrDefault(x => x.Ticket == tk); if (p == null) return; col = p.Dir > 0 ? BuyC : SellC;
+                txt = "#" + p.Ticket + "  " + p.Side + " " + p.Lots.ToString("0.00", IC) + " @ " + F(p.Open) + "\nnow " + F(p.Current) + "   P/L " + Money(p.Profit) + (p.Swap != 0 ? "   swap " + Money(p.Swap) : "") + "\nopened " + ToView(p.Time).ToString("ddd dd MMM HH:mm", IC) + " " + ZoneName
+                    + (p.Sl > 0 ? "\nS/L " + F(p.Sl) + " = " + Money(Value((p.Sl - p.Open) * p.Dir, p.Lots)) : "") + (p.Tp > 0 ? "\nT/P " + F(p.Tp) + " = " + Money(Value((p.Tp - p.Open) * p.Dir, p.Lots)) : "")
+                    + (TradeOn ? "\n" + (hoverKey.StartsWith("X:") ? (k[0] == "POS" ? "✕ = close this ticket" : "✕ = remove the " + (k[0] == "SL" ? "stop" : "target")) : k[0] == "POS" ? "drag the line = set its stop / target • right-click = more" : "drag = move the " + (k[0] == "SL" ? "stop" : "target")) : "\n🔒 ARM in the panel to change it from the chart");
+            }
+            else if (k[0] == "ORD") { var o = Orders.FirstOrDefault(x => x.Ticket == tk); if (o == null) return; txt = "#" + o.Ticket + "  " + o.Type + " " + o.Lots.ToString("0.00", IC) + " @ " + F(o.Price) + (o.Sl > 0 ? "\nS/L " + F(o.Sl) : "") + (o.Tp > 0 ? "\nT/P " + F(o.Tp) : "") + (TradeOn ? "\ndrag = move the order • ✕ = cancel" : "\n🔒 ARM to change it"); }
+            else if (k[0] == "SIDE") { int dir = (int)tk; var ps = Positions.Where(p => p.Dir == dir && string.Equals(p.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)).ToList(); col = dir > 0 ? BuyC : SellC; txt = ps.Count + (dir > 0 ? " buys" : " sells") + " • best " + Money(ps.Count > 0 ? ps.Max(p => p.Profit + p.Swap) : 0) + " • worst " + Money(ps.Count > 0 ? ps.Min(p => p.Profit + p.Swap) : 0) + (TradeOn ? "\n✕ = close all " + (dir > 0 ? "buys" : "sells") + " (asks first)" : ""); }
+            if (txt == null) return;
+            var ft = T(txt, 11.5, textB); double x = m.X + 16, y = m.Y + 14; if (x + ft.Width + 20 > plotW) x = m.X - ft.Width - 26; if (y + ft.Height + 14 > TopPad + plotH) y = m.Y - ft.Height - 18;
+            dc.DrawRoundedRectangle(tagBg, P(Br(col), 1.2), new Rect(x, y, ft.Width + 18, ft.Height + 12), 8, 8); dc.DrawText(ft, new Point(x + 9, y + 6));
         }
 
         // a horizontal level with its label
@@ -313,27 +613,24 @@ namespace KeystoneMT5
         {
             if (y < TopPad || y > TopPad + plotH) return;
             dc.DrawLine(dashed ? P(br, 1, 5, 4) : P(br, 1.8), new Point(0, y), new Point(plotW, y));
-            var t = T(text, 11.5, labelFg ?? br); double lx = Math.Min(labelX, plotW - t.Width - 20); dc.DrawRoundedRectangle(Br(Theme.Plot, 235), P(br, 1), new Rect(lx, y - 10, t.Width + 12, 20), 5, 5); dc.DrawText(t, new Point(lx + 6, y - 8));
+            var t = T(text, 11.5, labelFg ?? br, false, true); double lx = Math.Max(4, Math.Min(labelX, plotW - t.Width - 20)); dc.DrawRoundedRectangle(Br(Theme.Plot, 238), P(br, 1), new Rect(lx, y - 10, t.Width + 12, 20), 5, 5); dc.DrawText(t, new Point(lx + 6, y - 8));
         }
 
-        // ---- what is under the mouse (for the cursor and the clicks)
-        string HitAt(Point p, out long ticket, out string kind)
+        // ---- what is under the mouse
+        string HitAt(Point p, out long ticket, out string kind, out string key)
         {
-            ticket = 0; kind = "";
-            foreach (var h in hits.AsEnumerable().Reverse()) if (h.R.Contains(p)) { ticket = h.Ticket; kind = h.Kind; return "HIT"; }
+            ticket = 0; kind = ""; key = "";
+            foreach (var h in hits.AsEnumerable().Reverse()) if (h.R.Contains(p)) { ticket = h.Ticket; kind = h.Kind; key = h.Key; return "HIT"; }
             if (p.X > plotW) return "PRICEAXIS"; if (p.Y > TopPad + plotH) return "TIMEAXIS";
-            if (TradeOn)
+            // a ticket / S/L / T/P / order line within 4 px
+            foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)))
             {
-                // a ticket / S/L / T/P / order line within 4 px
-                foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)))
-                {
-                    if (ps.Sl > 0 && Math.Abs(p.Y - Y(ps.Sl)) <= 4) { ticket = ps.Ticket; kind = "SL"; return "LINE"; }
-                    if (ps.Tp > 0 && Math.Abs(p.Y - Y(ps.Tp)) <= 4) { ticket = ps.Ticket; kind = "TP"; return "LINE"; }
-                }
-                foreach (var o in Orders.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))) if (Math.Abs(p.Y - Y(o.Price)) <= 4) { ticket = o.Ticket; kind = "ORD"; return "LINE"; }
-                foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))) if (Math.Abs(p.Y - Y(ps.Open)) <= 3) { ticket = ps.Ticket; kind = "POS"; return "LINE"; }
+                if (ps.Sl > 0 && Math.Abs(p.Y - Y(ps.Sl)) <= 4) { ticket = ps.Ticket; kind = "SL"; key = "SL:" + ps.Ticket; return "LINE"; }
+                if (ps.Tp > 0 && Math.Abs(p.Y - Y(ps.Tp)) <= 4) { ticket = ps.Ticket; kind = "TP"; key = "TP:" + ps.Ticket; return "LINE"; }
             }
-            if (DrawingAt(p) != null) return "DRAWING";
+            foreach (var o in Orders.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))) if (Math.Abs(p.Y - Y(o.Price)) <= 4) { ticket = o.Ticket; kind = "ORD"; key = "ORD:" + o.Ticket; return "LINE"; }
+            foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))) if (Math.Abs(p.Y - Y(ps.Open)) <= 3) { ticket = ps.Ticket; kind = "POS"; key = "POS:" + ps.Ticket; return "LINE"; }
+            string part; var d = DrawingAt(p, out part); if (d != null) { key = "DRAW:" + Drawings.IndexOf(d); kind = part; return "DRAWING"; }
             return "PLOT";
         }
 
@@ -342,33 +639,43 @@ namespace KeystoneMT5
         protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
         {
             var p = e.GetPosition(this); if (Series == null || Series.Bars.Count == 0) return; e.Handled = true;
-            var d = DrawingAt(p); if (d != null) selected = d;
-            if (RightClick != null) RightClick(p, PriceAt(p.Y), TimeAt(IndexAt(p.X)));
+            if (Tool != "") { Tool = ""; newDraw = null; if (ToolDone != null) ToolDone(); InvalidateVisual(); return; }
+            long tk; string kind, key; var what = HitAt(p, out tk, out kind, out key); Drawing dr = null;
+            if (what == "DRAWING") { string part; dr = DrawingAt(p, out part); selected = dr; kind = "DRAW"; }
+            else if (what == "HIT" && kind == "X") { kind = key.Replace("X:", "").Split(':')[0]; }
+            else if (what != "HIT" && what != "LINE") kind = "";
+            InvalidateVisual();
+            if (RightClick != null) RightClick(p, PriceAt(p.Y), TimeAt(IndexAt(p.X)), kind, tk, dr);
         }
         protected override void OnKeyDown(KeyEventArgs e)
         {
-            if (e.Key == Key.Escape) { Tool = ""; newDraw = null; selected = null; PickPrice = double.NaN; InvalidateVisual(); }
-            if (e.Key == Key.Delete) DeleteSelected();
+            if (e.Key == Key.Escape) { bool had = Tool != "" || selected != null || measure != null || PickKind != ""; Tool = ""; newDraw = null; selected = null; measure = null; PickPrice = double.NaN; PickKind = ""; if (ToolDone != null) ToolDone(); InvalidateVisual(); if (had) e.Handled = true; }
+            if (e.Key == Key.Delete && selected != null) { DeleteSelected(); e.Handled = true; }
         }
         protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
         {
             Focus(); var p = e.GetPosition(this); if (Series == null || Series.Bars.Count == 0) return;
-            if (e.ClickCount == 2 && Tool == "") { ResetView(); e.Handled = true; return; }
-            long tk; string kind; string what = HitAt(p, out tk, out kind);
+            if (e.ClickCount == 2 && Tool == "") { string pt; var dd = DrawingAt(p, out pt); if (dd != null && dd.Kind == "TEXT" && AskText != null) { var s = AskText(dd.Text); if (s != null) { dd.Text = s; if (DrawingsChanged != null) DrawingsChanged(); } InvalidateVisual(); e.Handled = true; return; } ResetView(); e.Handled = true; return; }
+            long tk; string kind, key; string what = HitAt(p, out tk, out kind, out key);
             if (what == "HIT") { var h = hits.LastOrDefault(x => x.R.Contains(p)); if (h != null && h.Click != null) { h.Click(); e.Handled = true; return; } }
             if (PricePicked != null && PickKind != "" && double.IsNaN(PickPrice) && p.X < plotW) { PickPrice = Math.Round(PriceAt(p.Y) / Point) * Point; PricePicked(PickPrice); InvalidateVisual(); e.Handled = true; return; }
+            if (measure != null && Tool == "") { measure = null; InvalidateVisual(); }
             if (Tool != "" && p.X < plotW && p.Y < TopPad + plotH)
             {
-                var t = TimeAt(IndexAt(p.X)); double pr = PriceAt(p.Y);
-                newDraw = new Drawing { Kind = Tool, T1 = t, T2 = t, P1 = pr, P2 = pr, Color = Tool == "HLINE" ? "#FFC94D" : Tool == "VLINE" ? "#8A94A8" : Tool == "TREND" ? "#4DD8FF" : "#B388FF" };
-                if (Tool == "HLINE" || Tool == "VLINE") { Drawings.Add(newDraw); selected = newDraw; newDraw = null; Tool = ""; if (DrawingsChanged != null) DrawingsChanged(); InvalidateVisual(); e.Handled = true; return; }
-                drag = "NEWDRAW"; CaptureMouse(); e.Handled = true; return;
+                var t = TimeAt(IndexAt(p.X)); double pr = Snap(p, PriceAt(p.Y));
+                newDraw = new Drawing { Kind = Tool, T1 = t, T2 = t, P1 = pr, P2 = pr, P3 = pr, Color = Tool == "LONG" || Tool == "SHORT" ? "#E8ECF4" : DrawColor, Width = 1.6 };
+                if (OneClick(Tool))
+                {
+                    if (Tool == "TEXT") { var s = AskText != null ? AskText("") : "text"; if (string.IsNullOrEmpty(s)) { newDraw = null; Tool = ""; if (ToolDone != null) ToolDone(); InvalidateVisual(); e.Handled = true; return; } newDraw.Text = s; newDraw.Width = 1; }
+                    Drawings.Add(newDraw); selected = newDraw; newDraw = null; Tool = ""; if (ToolDone != null) ToolDone(); if (DrawingsChanged != null) DrawingsChanged(); InvalidateVisual(); e.Handled = true; return;
+                }
+                drag = "NEWDRAW"; dragFrom = p; CaptureMouse(); e.Handled = true; return;
             }
             dragFrom = p; dragOff = rightOffset; dragHi = mHi; dragLo = mLo; dragBarW = barW;
             if (what == "PRICEAXIS") drag = "AXIS";
             else if (what == "TIMEAXIS") drag = "TIME";
-            else if ((what == "LINE" || what == "HIT") && (kind == "SL" || kind == "TP" || kind == "POS" || kind == "ORD")) { drag = kind == "ORD" ? "ORDER" : "TICKET"; dragTicket = tk; dragWhat = kind == "POS" ? "NEW" : kind; dragPrice = PriceAt(p.Y); }
-            else if (what == "DRAWING") { dragDraw = DrawingAt(p); selected = dragDraw; drag = "MOVEDRAW"; dragT1 = dragDraw.T1; dragT2 = dragDraw.T2; dragP1 = dragDraw.P1; dragP2 = dragDraw.P2; dragDP = IndexAt(p.X); }
+            else if (TradeOn && (what == "LINE" || what == "HIT") && (kind == "SL" || kind == "TP" || kind == "POS" || kind == "ORD")) { drag = kind == "ORD" ? "ORDER" : "TICKET"; dragTicket = tk; dragWhat = kind == "POS" ? "NEW" : kind; dragPrice = PriceAt(p.Y); }
+            else if (what == "DRAWING") { string part; dragDraw = DrawingAt(p, out part); dragPart = part; selected = dragDraw; dragOrig = dragDraw.Clone(); drag = "MOVEDRAW"; dragDP = IndexAt(p.X); }
             else { drag = "PAN"; selected = null; }
             CaptureMouse(); e.Handled = true; InvalidateVisual();
         }
@@ -377,8 +684,10 @@ namespace KeystoneMT5
             var p = e.GetPosition(this); mouse = p;
             if (drag == null)
             {
-                long tk; string kind; string what = Series == null ? "PLOT" : HitAt(p, out tk, out kind);
-                Cursor = what == "HIT" ? Cursors.Hand : what == "PRICEAXIS" ? Cursors.SizeNS : what == "TIMEAXIS" ? Cursors.SizeWE : what == "LINE" ? Cursors.SizeNS : what == "DRAWING" ? Cursors.SizeAll : Tool != "" || (PickKind != "" && double.IsNaN(PickPrice)) ? Cursors.Pen : Cursors.Cross;
+                long tk = 0; string kind = "", key = ""; string what = Series == null || Series.Bars.Count == 0 ? "PLOT" : HitAt(p, out tk, out kind, out key);
+                if (key != hoverKey) { hoverKey = key; hoverAt = DateTime.Now; }
+                bool lineDrag = TradeOn && (what == "LINE" || (what == "HIT" && kind != "X"));
+                Cursor = what == "HIT" && kind == "X" ? Cursors.Hand : what == "HIT" ? (TradeOn ? Cursors.SizeNS : Cursors.Hand) : what == "PRICEAXIS" ? Cursors.SizeNS : what == "TIMEAXIS" ? Cursors.SizeWE : lineDrag ? Cursors.SizeNS : what == "LINE" ? Cursors.Hand : what == "DRAWING" ? (kind == "BODY" ? Cursors.SizeAll : Cursors.Cross) : Tool != "" || (PickKind != "" && double.IsNaN(PickPrice)) ? Cursors.Pen : Cursors.Cross;
             }
             else
             {
@@ -391,11 +700,30 @@ namespace KeystoneMT5
                 else if (drag == "AXIS" && !double.IsNaN(dragHi)) { auto = false; double k = Math.Exp(dy / 160.0), mid = (dragHi + dragLo) / 2; mHi = mid + rng * k / 2; mLo = mid - rng * k / 2; }
                 else if (drag == "TIME") barW = Math.Max(1.2, Math.Min(80, dragBarW * Math.Exp((p.X - dragFrom.X) / 180.0)));   // drag right = wider candles, left = more candles
                 else if (drag == "TICKET" || drag == "ORDER") dragPrice = Math.Round(PriceAt(p.Y) / Point) * Point;
-                else if (drag == "NEWDRAW" && newDraw != null) { newDraw.T2 = TimeAt(IndexAt(p.X)); newDraw.P2 = PriceAt(p.Y); }
-                else if (drag == "MOVEDRAW" && dragDraw != null)
+                else if (drag == "NEWDRAW" && newDraw != null)
                 {
-                    double di = IndexAt(p.X) - dragDP, dp = PriceAt(p.Y) - PriceAt(dragFrom.Y);
-                    dragDraw.T1 = dragT1.AddMinutes(di * Series.Minutes); dragDraw.T2 = dragT2.AddMinutes(di * Series.Minutes); dragDraw.P1 = dragP1 + dp; dragDraw.P2 = dragP2 + dp;
+                    newDraw.T2 = TimeAt(IndexAt(p.X)); double pr = Snap(p, PriceAt(p.Y));
+                    if (newDraw.Kind == "LONG" || newDraw.Kind == "SHORT")
+                    {
+                        int dir = newDraw.Kind == "LONG" ? 1 : -1; double risk = Math.Max(Point * 2, Math.Abs(pr - newDraw.P1)); newDraw.P2 = newDraw.P1 - dir * risk; newDraw.P3 = newDraw.P1 + dir * 2 * risk;
+                        if (newDraw.T2 <= newDraw.T1) newDraw.T2 = newDraw.T1.AddMinutes(Series.Minutes * 25);
+                    }
+                    else newDraw.P2 = pr;
+                    if (newDraw.Kind == "MEASURE") measure = newDraw;
+                }
+                else if (drag == "MOVEDRAW" && dragDraw != null && dragOrig != null)
+                {
+                    double di = IndexAt(p.X) - dragDP, dp = PriceAt(p.Y) - PriceAt(dragFrom.Y); var pr = Snap(p, PriceAt(p.Y)); var t = TimeAt(IndexAt(p.X));
+                    if (dragPart == "P1") { if (dragDraw.Kind == "LONG" || dragDraw.Kind == "SHORT") { dragDraw.P1 = pr; } else { dragDraw.T1 = t; dragDraw.P1 = pr; } }
+                    else if (dragPart == "P2") { if (dragDraw.Kind == "LONG" || dragDraw.Kind == "SHORT") dragDraw.P2 = pr; else { dragDraw.T2 = t; dragDraw.P2 = pr; } }
+                    else if (dragPart == "P3") dragDraw.P3 = pr;
+                    else if (dragPart == "W") dragDraw.T2 = t > dragDraw.T1 ? t : dragDraw.T1.AddMinutes(Series.Minutes * 3);
+                    else
+                    {
+                        dragDraw.T1 = dragOrig.T1.AddMinutes(di * Series.Minutes); dragDraw.T2 = dragOrig.T2.AddMinutes(di * Series.Minutes);
+                        dragDraw.P1 = dragOrig.P1 + dp; dragDraw.P2 = dragOrig.P2 + dp; dragDraw.P3 = dragOrig.P3 + dp;
+                        if (dragDraw.Kind == "HLINE" || dragDraw.Kind == "HRAY") { dragDraw.P1 = Snap(p, dragOrig.P1 + dp); if (dragDraw.Kind == "HLINE") { dragDraw.T1 = dragOrig.T1; dragDraw.T2 = dragOrig.T2; } }
+                    }
                 }
             }
             InvalidateVisual();
@@ -415,10 +743,18 @@ namespace KeystoneMT5
                 }
             }
             else if (was == "ORDER") { var o = Orders.FirstOrDefault(q => q.Ticket == dragTicket); if (o != null && ModifyOrder != null && Math.Abs(dragPrice - o.Price) > Point / 2) ModifyOrder(o.Ticket, dragPrice, o.Sl, o.Tp); }
-            else if (was == "NEWDRAW" && newDraw != null) { Drawings.Add(newDraw); selected = newDraw; newDraw = null; Tool = ""; if (DrawingsChanged != null) DrawingsChanged(); }
+            else if (was == "NEWDRAW" && newDraw != null)
+            {
+                if (newDraw.Kind == "MEASURE") { measure = newDraw; newDraw = null; Tool = ""; if (ToolDone != null) ToolDone(); }
+                else
+                {
+                    if ((newDraw.Kind == "LONG" || newDraw.Kind == "SHORT") && newDraw.P2 == newDraw.P1) { int dir = newDraw.Kind == "LONG" ? 1 : -1; double r = Math.Max(Point * 20, (hi - lo) * 0.05); newDraw.P2 = newDraw.P1 - dir * r; newDraw.P3 = newDraw.P1 + dir * 2 * r; newDraw.T2 = newDraw.T1.AddMinutes(Series.Minutes * 25); }
+                    Drawings.Add(newDraw); selected = newDraw; newDraw = null; Tool = ""; if (ToolDone != null) ToolDone(); if (DrawingsChanged != null) DrawingsChanged();
+                }
+            }
             else if (was == "MOVEDRAW" && DrawingsChanged != null) DrawingsChanged();
-            dragPrice = double.NaN; InvalidateVisual();
+            dragPrice = double.NaN; dragOrig = null; InvalidateVisual();
         }
-        protected override void OnMouseLeave(MouseEventArgs e) { mouse = null; InvalidateVisual(); }
+        protected override void OnMouseLeave(MouseEventArgs e) { mouse = null; if (drag == null) hoverKey = ""; InvalidateVisual(); }
     }
 }

@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 namespace KeystoneMT5
 {
-    public sealed class Mt5Bar { public DateTime Time; public double O, H, L, C; public long V; }
+    public sealed class Mt5Bar { public DateTime Time; public double O, H, L, C; public long V; public int Spread; public Mt5Bar Copy() { return (Mt5Bar)MemberwiseClone(); } }
 
     public static class Tf
     {
@@ -36,13 +36,27 @@ namespace KeystoneMT5
             Loaded = true; LoadedAt = DateTime.Now; Version++;
         }
         // a live price: it moves the forming candle, or opens the next one
-        public void OnTick(DateTime t, double price)
+        public void OnTick(DateTime t, double price, long vol = 0)
         {
-            if (Bars.Count == 0 || price <= 0) return; var st = Tf.Start(t, Minutes); var last = Bars[Bars.Count - 1];
+            if (price <= 0) return; var st = Tf.Start(t, Minutes);
+            if (Bars.Count == 0) { Bars.Add(new Mt5Bar { Time = st, O = price, H = price, L = price, C = price, V = vol }); Version++; return; }
+            var last = Bars[Bars.Count - 1];
             if (st < last.Time) return;
-            if (st == last.Time) { last.H = Math.Max(last.H, price); last.L = Math.Min(last.L, price); last.C = price; }
-            else Bars.Add(new Mt5Bar { Time = st, O = price, H = price, L = price, C = price });
+            if (st == last.Time) { last.H = Math.Max(last.H, price); last.L = Math.Min(last.L, price); last.C = price; last.V += vol; }
+            else Bars.Add(new Mt5Bar { Time = st, O = price, H = price, L = price, C = price, V = vol });
             Version++;
+        }
+        // 1-minute candles folded into this timeframe (the backtest builds every timeframe from them)
+        public static List<Mt5Bar> Fold(IList<Mt5Bar> m1, int minutes)
+        {
+            var res = new List<Mt5Bar>(); Mt5Bar cur = null;
+            foreach (var b in m1)
+            {
+                var st = Tf.Start(b.Time, minutes);
+                if (cur == null || st != cur.Time) { cur = new Mt5Bar { Time = st, O = b.O, H = b.H, L = b.L, C = b.C, V = b.V, Spread = b.Spread }; res.Add(cur); }
+                else { cur.H = Math.Max(cur.H, b.H); cur.L = Math.Min(cur.L, b.L); cur.C = b.C; cur.V += b.V; }
+            }
+            return res;
         }
     }
 }

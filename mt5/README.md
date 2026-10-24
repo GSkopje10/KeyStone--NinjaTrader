@@ -6,14 +6,19 @@ A modern Windows platform for MetaTrader 5 (IC Markets): live trading with lots 
 - `dist/SpasiXBridge.mq5` — the bridge EA in MT5: it streams the account, prices, positions and orders to the app on 127.0.0.1.
 - `app/` — the app's source (WPF, .NET 8). `tests/` — the bridge tested against a fake MT5 (`dotnet run` in `tests/`).
 
-## Steps (where we are)
+## What it does (build 2026-10-25a)
 
-1. **Connect — read only** ✅ the account, the Market Watch prices, every open ticket and pending order, live. No trading code at all.
-2. **Chart** ✅ (candles, tickets, orders; indicators and drawings next) — the Keystone chart fed by MT5 candles, timeframes, drawing tools, VWAP / ORB / FVG, tickets / stops / targets on it.
-3. **Trading** — lots, market / limit / stop, S/L / T/P per ticket (drag), hedging, close a ticket / buys / sells / all, partial close;
-   ARM + limits (max lots, day loss, equity stop) — on a DEMO account first.
-4. **Backtesting** — MT5 history (candles + real ticks), replay with lots, hedging, spread, commission, swaps.
-5. **Polish** — positions / history / journal tabs, P/L dashboard, settings.
+- **Start screen**: LIVE (your MT5 account), PROP (a CFD prop-firm account with its rules), BACKTEST (MT5's history replayed).
+- **Chart**: themes, time zones, split 1/2/4, indicators menu (EMA 9/21/50/200, VWAP, Bollinger, FVG, NY ORB, PDH/PDL, sessions, SpasiX setups with their record),
+  drawing rail (lines, rays, trend, rectangle, Fibonacci, text, long/short risk-reward, measure, magnet, colours), our own right-click menus, tickets in their own colours
+  (buys mint, sells red, pending amber) that light up under the mouse, drag stops / targets / orders, ✕ to close.
+- **Trading**: ARM with a ✓/✖ checklist of every MT5 switch, lots, market / limit / stop, close all / buys / sells / winners / losers, breakeven, close everything — each asks first.
+- **Backtest**: download days once (HIST), replay with play / pause / step / speed / jumps, hedging, real spread, commission, swap, stop-out, stats.
+- **Tracker** (DEALS): calendar, stats, equity curve, by hour / weekday / symbol, journal. **Prop**: presets, meters, entry guard. **News**: ForexFactory + headlines.
+
+## Verification
+
+`cd tests && dotnet run` — the bridge against a fake MT5 and the backtest engine. `tests/screens.sh` — the real app under Wine with `fakemt5.py`, screenshots.
 
 ## Building (developer)
 

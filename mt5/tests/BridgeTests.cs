@@ -59,6 +59,7 @@ public static class BridgeTests
         Check(!br.State.Linked, "MT5 gone → not linked");
         br.Dispose();
         Console.WriteLine(fails == 0 ? "ALL MT5 BRIDGE TESTS PASSED" : fails + " MT5 BRIDGE TEST(S) FAILED");
+        fails += SimTests.Main2();
         return fails == 0 ? 0 : 1;
     }
 }
