@@ -91,6 +91,16 @@ namespace KeystoneMT5
             var box = new TextBox { Text = initial ?? "", FontSize = 14, Height = 32, Background = Bg, Foreground = Text, BorderBrush = Gold, CaretBrush = Gold, Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 10, 0, 0), MinWidth = 340 };
             return Dialog(owner, title, text, "OK", "CANCEL", Gold, null, box) == 1 ? box.Text : null;
         }
+        // a dialog with our own content under the text (a lots box, a small form …); true = the main button
+        static TextBox FirstBox(DependencyObject d)
+        {
+            if (d == null) return null; var p = d as System.Windows.Controls.Panel; if (p != null) foreach (UIElement c in p.Children) { var t = c as TextBox ?? FirstBox(c); if (t != null) return t; }
+            var b = d as Decorator; if (b != null) return b.Child as TextBox ?? FirstBox(b.Child); return null;
+        }
+        public static bool Form(Window owner, string title, string text, FrameworkElement content, string yes, string no, SolidColorBrush tone = null)
+        {
+            return Dialog(owner, title, text, yes, no, tone ?? Gold, null, content) == 1;
+        }
         static int Dialog(Window owner, string title, string text, string yes, string no, SolidColorBrush tone, string big, FrameworkElement extra)
         {
             int result = 0;
@@ -117,7 +127,7 @@ namespace KeystoneMT5
             card.MouseLeftButtonDown += delegate { try { w.DragMove(); } catch { } };
             w.Content = card;
             w.PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) { result = 0; w.Close(); e.Handled = true; } else if (e.Key == Key.Enter && !(extra is TextBox && false)) { result = 1; w.Close(); e.Handled = true; } };
-            w.Loaded += delegate { card.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))); var tb = extra as TextBox; if (tb != null) { tb.Focus(); tb.SelectAll(); } };
+            w.Loaded += delegate { card.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))); var tb = extra as TextBox ?? FirstBox(extra); if (tb != null) { tb.Focus(); tb.SelectAll(); } };
             try { w.ShowDialog(); } catch { return MessageBox.Show(text, title, no != null ? MessageBoxButton.YesNo : MessageBoxButton.OK) == MessageBoxResult.Yes ? 1 : 0; }
             return result;
         }

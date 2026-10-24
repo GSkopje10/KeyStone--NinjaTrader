@@ -20,6 +20,7 @@ namespace KeystoneMT5
         sealed class Pane { public ChartView V; public string Sym = ""; public int Tf = 60; public Border Host; public TextBlock Head; }
         readonly List<Pane> panes = new List<Pane>(); int activePane; int split = 1; Grid chartsGrid;
         WrapPanel symChips; readonly List<Tuple<int, Button>> tfBtns = new List<Tuple<int, Button>>(); Button indBtn, themeBtn, zoneBtn;
+        readonly Dictionary<int, TextBlock> tfCountdown = new Dictionary<int, TextBlock>();
         readonly List<Tuple<int, Button>> splitBtns = new List<Tuple<int, Button>>(); Button fullBtn, panelBtn; string symSig = ""; int zoneIdx, themeIdx;
         readonly Dictionary<string, List<Drawing>> drawingsBySym = new Dictionary<string, List<Drawing>>(StringComparer.OrdinalIgnoreCase);
         readonly List<Tuple<string, Button>> toolBtns = new List<Tuple<string, Button>>(); Button magnetBtn, colorBtn; string drawColor = "#FFC94D"; bool magnet;
@@ -27,7 +28,7 @@ namespace KeystoneMT5
         static readonly Tuple<string, string>[] Zones = { Tuple.Create("SERVER (MT5)", ""), Tuple.Create("NEW YORK", "Eastern Standard Time"), Tuple.Create("LONDON", "GMT Standard Time"), Tuple.Create("CENTRAL EUROPE", "Central Europe Standard Time"),
             Tuple.Create("FRANKFURT", "W. Europe Standard Time"), Tuple.Create("TOKYO", "Tokyo Standard Time"), Tuple.Create("SYDNEY", "AUS Eastern Standard Time"), Tuple.Create("UTC", "UTC"), Tuple.Create("MY PC", "LOCAL") };
         // trade panel
-        bool armed; Button armBtn, buyBtn, sellBtn, placeBtn; TextBlock armText, panelSym, panelExpo, toastText, riskText, spreadText; TextBox lotsBox, slBox, tpBox, pendPrice, beOff; Button oneClick; bool oneClickOn; string pendKind = "BUY LIMIT";
+        bool armed; Button armBtn, buyBtn, sellBtn, placeBtn; TextBlock armText, panelSym, panelExpo, toastText, riskText, spreadText; TextBox lotsBox, slBox, tpBox, pendPrice, beOff; bool oneClickOn; string pendKind = "BUY LIMIT";
         readonly List<Tuple<string, Button>> pendBtns = new List<Tuple<string, Button>>(); StackPanel logPanel, armChecks; Border panelHost, toastBox, armCard;
         int resSeen, notesSeen; readonly Dictionary<string, string> sent = new Dictionary<string, string>();
         string ticketMode = "AUTO";
@@ -45,7 +46,12 @@ namespace KeystoneMT5
             symChips = new WrapPanel { VerticalAlignment = VerticalAlignment.Center }; bar.Children.Add(symChips);
             if (!Sim) { var addSym = Pill("+", Tint(Cyan, 60)); addSym.ToolTip = "add an instrument (every symbol of your broker)"; addSym.Click += delegate { PickSymbol(); }; bar.Children.Add(addSym); }
             bar.Children.Add(Sep());
-            foreach (var m in Tf.All) { int mm = m; var b = Pill(Tf.Name(m), Card); b.MinWidth = 40; b.Padding = new Thickness(8, 0, 8, 0); b.BorderBrush = Tint(Gold, 90); b.Click += delegate { SetPane(Act, Act.Sym, mm); }; bar.Children.Add(b); tfBtns.Add(Tuple.Create(m, b)); }
+            foreach (var m in Tf.All)
+            {
+                int mm = m; var nameT = new TextBlock { Text = Tf.Name(m), FontSize = 11.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center }; var cdT = new TextBlock { FontSize = 8.5, FontFamily = Sx.Mono, HorizontalAlignment = HorizontalAlignment.Center, Opacity = 0.85 };
+                var st0 = new StackPanel(); st0.Children.Add(nameT); st0.Children.Add(cdT);
+                var b = Pill("", Card); b.Content = st0; b.MinWidth = 46; b.Height = 34; b.Padding = new Thickness(6, 0, 6, 0); b.BorderBrush = Tint(Gold, 90); b.ToolTip = "the " + Tf.Name(m) + " candle closes in …"; b.Click += delegate { SetPane(Act, Act.Sym, mm); }; bar.Children.Add(b); tfBtns.Add(Tuple.Create(m, b)); tfCountdown[m] = cdT;
+            }
             bar.Children.Add(Sep());
             foreach (var sp in new[] { Tuple.Create(1, "▣ 1"), Tuple.Create(2, "◫ 2"), Tuple.Create(4, "⊞ 4") }) { int n = sp.Item1; var b = Pill(sp.Item2, Card); b.Padding = new Thickness(9, 0, 9, 0); b.ToolTip = n == 1 ? "one chart" : n + " charts side by side (each its own symbol / timeframe — click one to select it)"; b.Click += delegate { SetSplit(n); }; bar.Children.Add(b); splitBtns.Add(Tuple.Create(n, b)); }
             bar.Children.Add(Sep());
@@ -133,10 +139,10 @@ namespace KeystoneMT5
             p.Host = new Border { CornerRadius = new CornerRadius(10), ClipToBounds = true, BorderBrush = Line, BorderThickness = new Thickness(1.4), Child = dock, Margin = new Thickness(2), Background = Panel };
             p.Host.PreviewMouseLeftButtonDown += delegate { if (activePane != k) { activePane = k; PaintBar(); PaintRail(); } };
             p.Host.PreviewMouseRightButtonDown += delegate { if (activePane != k) { activePane = k; PaintBar(); PaintRail(); } };
-            v.CloseTicket = (tk, lots) => { if (Ask("Close ticket #" + tk + (lots > 0 ? " (" + lots.ToString("0.00", IC) + " lots)" : "") + "?")) Cmd("close #" + tk, "CLOSE", tk, lots); };
+            v.CloseTicket = (tk, lots) => Cmd("close #" + tk, "CLOSE", tk, lots);
             v.ModifyTicket = (tk, sl, tp) => Cmd("S/L " + (sl > 0 ? sl.ToString("0.#####", IC) : "—") + " • T/P " + (tp > 0 ? tp.ToString("0.#####", IC) : "—") + " on #" + tk, "MODIFY", tk, sl, tp);
             v.ModifyOrder = (tk, px, sl, tp) => Cmd("order #" + tk + " → " + px.ToString("0.#####", IC), "MODORD", tk, px, sl, tp);
-            v.CancelOrder = tk => { if (Ask("Cancel the pending order #" + tk + "?")) Cmd("cancel order #" + tk, "CANCEL", tk); };
+            v.CancelOrder = tk => Cmd("cancel order #" + tk, "CANCEL", tk);
             v.CloseSide = dir => CloseAll(p.Sym, dir > 0 ? "BUY" : "SELL");
             v.PricePicked = px => { pendPrice.Text = px.ToString("F" + v.Digits, IC); };
             v.Toast = Toast; v.DrawingsChanged = SaveDrawings; v.ToolDone = () => PaintRail();
@@ -206,7 +212,11 @@ namespace KeystoneMT5
                 }
             }
             string zn; var conv = ZoneConv(s, out zn); int nyOff = NyOffset(s);
-            var now = DateTime.Now; bool trade = Sim || (armed && s.CanTrade);
+            // every timeframe's countdown (the selected chart's symbol)
+            { Mt5Quote aq; s.Quotes.TryGetValue(Act.Sym, out aq); var sn = Sim ? s.ServerNow : aq != null && aq.Time > s.ServerNow ? aq.Time : s.ServerNow; bool closed = !Sim && aq != null && (s.ServerNow - aq.Time).TotalMinutes > 3;
+              foreach (var kv in tfCountdown) { if (sn == DateTime.MinValue || closed) { kv.Value.Text = closed ? "closed" : ""; continue; } var left = Tf.Start(sn, kv.Key).AddMinutes(kv.Key >= 10080 ? 10080 : kv.Key) - sn; if (left.TotalSeconds < 0) left = TimeSpan.Zero;
+                kv.Value.Text = left.TotalDays >= 1 ? ((int)left.TotalDays) + "d " + left.Hours + "h" : left.TotalHours >= 1 ? ((int)left.TotalHours) + ":" + left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00") : left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00"); } }
+            var now = DateTime.Now; bool trade = Virtual || (armed && s.CanTrade);
             for (int k = 0; k < split; k++)
             {
                 var p = panes[k]; if (p.Sym == "") continue; var v = p.V;
@@ -234,7 +244,7 @@ namespace KeystoneMT5
         // ---------------------------------------------------------------- the right-click menus
         void ChartMenu(Pane p, Point pt, double price, string kind, long tk, Drawing dr)
         {
-            var v = p.V; string f = "F" + v.Digits; var l = new List<Mi>(); bool trade = Sim || armed;
+            var v = p.V; string f = "F" + v.Digits; var l = new List<Mi>(); bool trade = Virtual || armed;
             Mt5Position pos = null; Mt5Order ord = null; lock (broker.State.Gate) { pos = broker.State.Positions.FirstOrDefault(x => x.Ticket == tk); ord = broker.State.Orders.FirstOrDefault(x => x.Ticket == tk); }
             if (kind == "DRAW" && dr != null)
             {
@@ -244,7 +254,7 @@ namespace KeystoneMT5
                 if (dr.Kind != "TEXT") l.Add(Mi.Group("━", "Width", wl)); else l.Add(Mi.Group("A", "Size", wl));
                 if (dr.Kind != "TEXT" && dr.Kind != "LONG" && dr.Kind != "SHORT") l.Add(new Mi { Text = "Dashed", Check = dr.Dash, Do = () => { dr.Dash = !dr.Dash; SaveDrawings(); v.InvalidateVisual(); } });
                 if (dr.Kind == "TEXT" || dr.Kind == "HLINE") l.Add(new Mi("✏", dr.Kind == "TEXT" ? "Edit the text" : "Add / edit a label", () => { var s = Sx.Prompt(this, "✏ Text", "The text:", dr.Text); if (s != null) { dr.Text = s; SaveDrawings(); v.InvalidateVisual(); } }));
-                if (trade && (dr.Kind == "HLINE" || dr.Kind == "HRAY") && v.Bid > 0) { bool below = dr.P1 < v.Bid; l.Add(Mi.S()); l.Add(new Mi("⏳", (below ? "BUY LIMIT" : "SELL LIMIT") + " at this line @ " + dr.P1.ToString(f, IC), () => PlacePending(p.Sym, below ? "BUY LIMIT" : "SELL LIMIT", Math.Round(dr.P1 / v.Point) * v.Point))); }
+                if (trade && (dr.Kind == "HLINE" || dr.Kind == "HRAY") && v.Bid > 0) { bool below = dr.P1 < v.Bid; l.Add(Mi.S()); l.Add(new Mi("⏳", (below ? "BUY LIMIT" : "SELL LIMIT") + " at this line @ " + dr.P1.ToString(f, IC) + " …", () => PendingAsk(p.Sym, below ? "BUY LIMIT" : "SELL LIMIT", Math.Round(dr.P1 / v.Point) * v.Point))); }
                 if (trade && (dr.Kind == "LONG" || dr.Kind == "SHORT") && v.Bid > 0) { l.Add(Mi.S()); l.Add(new Mi("⚡", "Place this " + (dr.Kind == "LONG" ? "long" : "short") + " as a limit / stop with its stop + target", () => PlaceFromTool(p, dr))); }
                 l.Add(new Mi("⧉", "Duplicate", () => { var c = dr.Clone(); double sh = (v.Point > 0 ? v.Point : 0.01) * 50; c.P1 += sh; c.P2 += sh; c.P3 += sh; v.Drawings.Add(c); SaveDrawings(); v.InvalidateVisual(); }));
                 l.Add(Mi.S()); l.Add(new Mi { Icon = "🗑", Text = "Delete (Del)", Danger = true, Do = () => { v.Drawings.Remove(dr); v.Deselect(); SaveDrawings(); } });
@@ -258,7 +268,7 @@ namespace KeystoneMT5
                 {
                     var p0 = pos; l.Add(new Mi { Icon = "✕", Text = "Close this ticket", Danger = true, Do = () => v.CloseTicket(p0.Ticket, 0) });
                     if (pos.Lots >= 0.02) l.Add(new Mi("½", "Close half (" + Math.Round(pos.Lots / 2, 2).ToString("0.00", IC) + " lots)", () => Cmd("close half of #" + p0.Ticket, "CLOSE", p0.Ticket, Math.Round(p0.Lots / 2, 2))));
-                    l.Add(new Mi("⚖", "Breakeven (+" + beOff.Text + " points)", () => { int off = IntOf(beOff.Text, 10); Cmd("breakeven #" + p0.Ticket, "MODIFY", p0.Ticket, Math.Round((p0.Open + p0.Dir * off * v.Point) / v.Point) * v.Point, p0.Tp); }));
+                    l.Add(new Mi("⚖", "Breakeven (+ " + beOff.Text + " " + (beUnitUsd ? "$" : "points") + ")", () => { Cmd("breakeven #" + p0.Ticket, "MODIFY", p0.Ticket, BePrice(p0, v), p0.Tp); }));
                     bool good = pos.Dir > 0 ? price < v.Bid : price > v.Ask;
                     l.Add(new Mi("🛑", "Stop here @ " + price.ToString(f, IC), () => Cmd("S/L on #" + p0.Ticket, "MODIFY", p0.Ticket, Math.Round(price / v.Point) * v.Point, p0.Tp)) { Off = !good });
                     l.Add(new Mi("🎯", "Target here @ " + price.ToString(f, IC), () => Cmd("T/P on #" + p0.Ticket, "MODIFY", p0.Ticket, p0.Sl, Math.Round(price / v.Point) * v.Point)) { Off = good });
@@ -273,7 +283,16 @@ namespace KeystoneMT5
             {
                 var o0 = ord; l.Add(Mi.H("#" + ord.Ticket + " " + ord.Type + " " + ord.Lots.ToString("0.00", IC) + " @ " + ord.Price.ToString(f, IC)));
                 if (!trade) l.Add(new Mi { Icon = "🔒", Text = "ARM in the panel to manage it", Off = true });
-                else { l.Add(new Mi("↕", "Move the order here @ " + price.ToString(f, IC), () => Cmd("order #" + o0.Ticket + " → " + price.ToString(f, IC), "MODORD", o0.Ticket, Math.Round(price / v.Point) * v.Point, o0.Sl, o0.Tp))); l.Add(new Mi { Icon = "✕", Text = "Cancel the order", Danger = true, Do = () => v.CancelOrder(o0.Ticket) }); }
+                else
+                {
+                    double pr = Math.Round(price / v.Point) * v.Point; int od = o0.Type.StartsWith("BUY") ? 1 : -1;
+                    l.Add(new Mi("↕", "Move the order here @ " + price.ToString(f, IC), () => { double d = pr - o0.Price; Cmd("order #" + o0.Ticket + " → " + price.ToString(f, IC), "MODORD", o0.Ticket, pr, o0.Sl > 0 ? o0.Sl + d : 0.0, o0.Tp > 0 ? o0.Tp + d : 0.0); }));
+                    l.Add(new Mi("🛑", "Its stop here @ " + price.ToString(f, IC), () => Cmd("order #" + o0.Ticket + " S/L", "MODORD", o0.Ticket, o0.Price, pr, o0.Tp)) { Off = od > 0 ? pr >= o0.Price : pr <= o0.Price });
+                    l.Add(new Mi("🎯", "Its target here @ " + price.ToString(f, IC), () => Cmd("order #" + o0.Ticket + " T/P", "MODORD", o0.Ticket, o0.Price, o0.Sl, pr)) { Off = od > 0 ? pr <= o0.Price : pr >= o0.Price });
+                    if (o0.Sl > 0) l.Add(new Mi("⊘", "Remove its stop", () => Cmd("order #" + o0.Ticket + " no S/L", "MODORD", o0.Ticket, o0.Price, 0.0, o0.Tp)));
+                    if (o0.Tp > 0) l.Add(new Mi("⊘", "Remove its target", () => Cmd("order #" + o0.Ticket + " no T/P", "MODORD", o0.Ticket, o0.Price, o0.Sl, 0.0)));
+                    l.Add(new Mi { Icon = "✕", Text = "Cancel the order", Danger = true, Do = () => v.CancelOrder(o0.Ticket) });
+                }
                 SxMenu.Show(v, pt, l); return;
             }
             // the chart itself
@@ -281,8 +300,8 @@ namespace KeystoneMT5
             if (trade && v.Bid > 0)
             {
                 bool below = price < v.Bid; double px = Math.Round(price / v.Point) * v.Point;
-                l.Add(new Mi { Icon = below ? "▲" : "▼", Fg = below ? Green : Red, Text = (below ? "BUY LIMIT" : "SELL LIMIT") + " here @ " + px.ToString(f, IC), Do = () => PlacePending(p.Sym, below ? "BUY LIMIT" : "SELL LIMIT", px) });
-                l.Add(new Mi { Icon = below ? "▼" : "▲", Fg = below ? Red : Green, Text = (below ? "SELL STOP" : "BUY STOP") + " here @ " + px.ToString(f, IC), Do = () => PlacePending(p.Sym, below ? "SELL STOP" : "BUY STOP", px) });
+                l.Add(new Mi { Icon = below ? "▲" : "▼", Fg = below ? Green : Red, Text = (below ? "BUY LIMIT" : "SELL LIMIT") + " here @ " + px.ToString(f, IC) + " …", Do = () => PendingAsk(p.Sym, below ? "BUY LIMIT" : "SELL LIMIT", px) });
+                l.Add(new Mi { Icon = below ? "▼" : "▲", Fg = below ? Red : Green, Text = (below ? "SELL STOP" : "BUY STOP") + " here @ " + px.ToString(f, IC) + " …", Do = () => PendingAsk(p.Sym, below ? "SELL STOP" : "BUY STOP", px) });
                 l.Add(Mi.S());
             }
             var tfl = new List<Mi>(); foreach (var m in Tf.All) { int mm = m; tfl.Add(new Mi { Text = Tf.Name(m), Check = m == p.Tf, Radio = true, Do = () => SetPane(p, p.Sym, mm) }); } l.Add(Mi.Group("⏱", "Timeframe", tfl));
@@ -301,10 +320,20 @@ namespace KeystoneMT5
             l.Add(new Mi("◧", panelHost.Visibility == Visibility.Visible ? "Hide the trade panel" : "Show the trade panel", () => { panelHost.Visibility = panelHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; Put("panel", panelHost.Visibility == Visibility.Visible ? "1" : "0"); }));
             SxMenu.Show(v, pt, l);
         }
+        // a limit / stop from the right-click: it asks the lots (and shows the stop / target the panel will add), then places it
+        void PendingAsk(string sym, string kind, double price)
+        {
+            var v = Act.V; string f = "F" + v.Digits; int dir = kind.StartsWith("BUY") ? 1 : -1; double sd = Num(slBox), td = Num(tpBox);
+            var box = new TextBox { Text = Num(lotsBox).ToString("0.00", IC), FontSize = 18, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, Height = 38, Background = Bg, Foreground = Text, BorderBrush = dir > 0 ? Green : Red, CaretBrush = Gold, Padding = new Thickness(8, 4, 8, 4), Margin = new Thickness(0, 10, 0, 0), MinWidth = 160 };
+            string txt = kind + " " + sym + " @ " + price.ToString(f, IC) + (sd > 0 ? "\nS/L " + (price - dir * sd).ToString(f, IC) : "") + (td > 0 ? "\nT/P " + (price + dir * td).ToString(f, IC) : "") + "\n\nHow many lots?";
+            if (!Sx.Form(this, "⏳ " + kind, txt, box, "PLACE ORDER", "CANCEL", dir > 0 ? Green : Red)) return;
+            double lots; if (!double.TryParse(box.Text.Replace(',', '.'), NumberStyles.Float, IC, out lots) || lots <= 0) { Toast("the lots must be a number above 0"); return; }
+            lotsBox.Text = lots.ToString("0.00", IC); Put("lots", lotsBox.Text); PlacePending(sym, kind, price, lots);
+        }
         Mi TicketsMenu()
         {
             var l = new List<Mi>();
-            foreach (var m in new[] { Tuple.Create("AUTO", "one label each — folded into one per side above 6"), Tuple.Create("EACH", "one label for every ticket"), Tuple.Create("SIDE", "one label per side (buys / sells)") })
+            foreach (var m in new[] { Tuple.Create("AUTO", "a label for every ticket (lines only above 10 on a side)"), Tuple.Create("EACH", "a label for every ticket, always"), Tuple.Create("LINES", "lines only (point at one for its card)") })
             { var key = m.Item1; l.Add(new Mi { Text = m.Item2, Check = ticketMode == key, Radio = true, Do = () => { ticketMode = key; Put("tickets", key); foreach (var p in panes) { p.V.TicketMode = key; p.V.InvalidateVisual(); } } }); }
             return Mi.Group("🎟", "Tickets on the chart", l);
         }
@@ -320,7 +349,7 @@ namespace KeystoneMT5
 
         // ---------------------------------------------------------------- drawings, saved per symbol
         List<Drawing> DrawingsOf(string sym) { List<Drawing> l; if (!drawingsBySym.TryGetValue(sym, out l)) drawingsBySym[sym] = l = new List<Drawing>(); return l; }
-        string DrawFileNow { get { return Sim ? DrawFile.Replace("drawings.txt", "drawings-backtest.txt") : DrawFile; } }
+        string DrawFileNow { get { return Sim ? DrawFile.Replace("drawings.txt", "drawings-backtest.txt") : DrawFile; } }   // the DEMO shares the live drawings
         void LoadDrawings()
         {
             try
@@ -371,10 +400,11 @@ namespace KeystoneMT5
             Func<SolidColorBrush, Border> card = edge => new Border { Background = Card, BorderBrush = Tint(edge, 110), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(11, 8, 11, 10), Margin = new Thickness(0, 0, 0, 8) };
             Func<string, TextBlock> cap = t => new TextBlock { Text = t, Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 2) };
             // ARM (live / prop) or the simulated account (backtest)
-            var a = new StackPanel(); armCard = card(Sim ? Cyan : Gold); armCard.Child = a; sp.Children.Add(armCard);
+            var a = new StackPanel(); armCard = card(Virtual ? Cyan : Gold); armCard.Child = a; sp.Children.Add(armCard);
             armText = new TextBlock { Foreground = Muted, FontSize = 11.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) }; a.Children.Add(armText);
             armChecks = new StackPanel { Margin = new Thickness(0, 0, 0, 6) }; a.Children.Add(armChecks);
-            armBtn = Pill("🔓 ARM TRADING", Tint(Orange, 210)); armBtn.Height = 36; armBtn.Margin = new Thickness(0); armBtn.Foreground = Bg; armBtn.Click += delegate { SetArmed(!armed, null); }; if (!Sim) a.Children.Add(armBtn);
+            armBtn = Pill("🔓 ARM TRADING", Tint(Orange, 210)); armBtn.Height = 36; armBtn.Margin = new Thickness(0); armBtn.Foreground = Bg; armBtn.Click += delegate { SetArmed(!armed, null); }; if (!Virtual) a.Children.Add(armBtn);
+            else if (Paper) { var db = Pill("🎮 DEMO ACCOUNT • NEW / RESET", Tint(Orange, 200)); db.Height = 32; db.Margin = new Thickness(0); db.Foreground = Bg; db.Click += delegate { DemoSetup(false); }; a.Children.Add(db); }
             // the symbol + exposure, lots, stop / target, SELL / BUY
             var t = new StackPanel(); var tc = card(Cyan); tc.Child = t; sp.Children.Add(tc);
             panelSym = new TextBlock { Foreground = Cyan, FontSize = 16, FontWeight = FontWeights.Bold }; t.Children.Add(panelSym);
@@ -396,8 +426,7 @@ namespace KeystoneMT5
             spreadText = new TextBlock { Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 5, 0), TextAlignment = TextAlignment.Center, Width = 34, TextWrapping = TextWrapping.Wrap };
             Grid.SetColumn(spreadText, 1); Grid.SetColumn(buyBtn, 2); bs.Children.Add(sellBtn); bs.Children.Add(spreadText); bs.Children.Add(buyBtn); t.Children.Add(bs);
             sellBtn.Click += delegate { Market(-1); }; buyBtn.Click += delegate { Market(1); };
-            oneClick = Pill("", Brushes.Transparent); oneClick.BorderBrush = Brushes.Transparent; oneClick.Height = 24; oneClick.FontSize = 10.5; oneClick.HorizontalAlignment = HorizontalAlignment.Left; oneClick.Padding = new Thickness(2, 0, 2, 0);
-            oneClick.Click += delegate { oneClickOn = !oneClickOn; Put("oneclick", oneClickOn ? "1" : "0"); PaintOneClick(); }; PaintOneClick(); t.Children.Add(oneClick);
+            t.Children.Add(new TextBlock { Text = "orders go in at once • the ✕ on the chart closes at once • close-all buttons ask", Foreground = Muted, FontSize = 9.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
             // pending
             var pc = new StackPanel(); var pcc = card(Amber); pcc.Child = pc; sp.Children.Add(pcc);
             pc.Children.Add(new TextBlock { Text = "⏳ LIMIT / STOP ORDER", Foreground = Amber, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 5) });
@@ -418,20 +447,14 @@ namespace KeystoneMT5
             { var which = m.Item2; var b = Pill(m.Item1, Card); b.Foreground = m.Item3; b.Height = 28; b.FontSize = 10.5; b.Padding = new Thickness(2, 0, 2, 0); b.Margin = new Thickness(0, 0, 4, 4); b.ToolTip = m.Item4; b.Click += delegate { CloseAll(Act.Sym, which); }; mg.Children.Add(b); }
             var cancel = Pill("ORDERS", Card); cancel.Foreground = Amber; cancel.Height = 28; cancel.FontSize = 10.5; cancel.Padding = new Thickness(2, 0, 2, 0); cancel.Margin = new Thickness(0, 0, 4, 4); cancel.ToolTip = "cancel the pending orders of this symbol"; cancel.Click += delegate { if (Ask("Cancel every pending order on " + Act.Sym + "?")) Cmd("cancel the orders on " + Act.Sym, "CANCELALL", Act.Sym); }; mg.Children.Add(cancel);
             mc.Children.Add(new TextBlock { Text = "close …  (each asks first)", Foreground = Muted, FontSize = 9.5, Margin = new Thickness(0, 0, 0, 4) });
-            var ber = new Grid { Margin = new Thickness(0, 2, 0, 0) }; ber.ColumnDefinitions.Add(new ColumnDefinition()); ber.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); ber.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(54) }); ber.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var be = Pill("⚖ BREAKEVEN", Tint(Gold, 190)); be.Foreground = Bg; be.Margin = new Thickness(0); be.ToolTip = "every ticket of this symbol in profit: the stop to its entry (+ the points on the right)";
-            beOff = Sx.Input(Get("beoff", "10"), double.NaN); beOff.ToolTip = "points beyond the entry (covers the spread / commission)"; beOff.LostFocus += delegate { Put("beoff", beOff.Text); };
-            be.Click += delegate { Cmd("breakeven on " + Act.Sym, "BE", Act.Sym, "ALL", IntOf(beOff.Text, 10)); };
-            var plus = new TextBlock { Text = " + ", Foreground = Muted, VerticalAlignment = VerticalAlignment.Center }; var pts = new TextBlock { Text = " pts", Foreground = Muted, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(plus, 1); Grid.SetColumn(beOff, 2); Grid.SetColumn(pts, 3); ber.Children.Add(be); ber.Children.Add(plus); ber.Children.Add(beOff); ber.Children.Add(pts); mc.Children.Add(ber);
             var everything = Pill("⛔ CLOSE EVERYTHING", Tint(Red, 220)); everything.Foreground = Sx.White; everything.Margin = new Thickness(0, 8, 0, 0); everything.Height = 34; everything.ToolTip = "every ticket on every symbol (asks first)"; everything.Click += delegate { CloseAll("", "ALL"); }; mc.Children.Add(everything);
+            sp.Children.Add(BuildProtect(card));
             // the answers
             var lc = new StackPanel(); var lcc = card(Line); lcc.Child = lc; sp.Children.Add(lcc);
-            lc.Children.Add(new TextBlock { Text = Sim ? "🧾 BACKTEST ANSWERS" : "🧾 MT5 ANSWERS", Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold });
+            lc.Children.Add(new TextBlock { Text = Sim ? "🧾 BACKTEST ANSWERS" : Paper ? "🧾 DEMO ANSWERS" : "🧾 MT5 ANSWERS", Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold });
             logPanel = new StackPanel(); lc.Children.Add(logPanel);
             return new Border { Width = 318, Background = Panel, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Margin = new Thickness(6, 2, 0, 2), Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp } };
         }
-        void PaintOneClick() { oneClick.Content = (oneClickOn ? "☑" : "☐") + "  one-click (up to 2 lots, no question)"; oneClick.Foreground = oneClickOn ? Gold : Muted; }
         void PaintPend()
         {
             foreach (var t in pendBtns) { bool on = t.Item1 == pendKind; var col = t.Item1.StartsWith("BUY") ? Green : Red; t.Item2.Background = on ? Tint(col, 200) : (Brush)Card; t.Item2.Foreground = on ? Bg : col; t.Item2.BorderBrush = on ? col : Line; }
@@ -461,9 +484,10 @@ namespace KeystoneMT5
             panelExpo.Foreground = ps.Count == 0 ? Muted : pl >= 0 ? Green : Red;
             sellBtn.Content = "SELL\n" + (q != null ? q.Bid.ToString(f, IC) : ""); buyBtn.Content = "BUY\n" + (q != null ? q.Ask.ToString(f, IC) : "");
             spreadText.Text = q != null ? q.Spread(p.V.Point).ToString("0", IC) + "\npts" : "";
-            if (Sim)
+            if (Virtual)
             {
-                armText.Text = "🧪 BACKTEST ACCOUNT • every button trades the replay (hedging, " + (sim.Set != null ? "$" + sim.Set.CommissionPerLot.ToString("0.##", IC) + " / lot, 1:" + sim.Set.Leverage : "") + ") — nothing reaches MT5"; armText.Foreground = Cyan;
+                var vs = Sim ? (sim.Set != null ? sim.Set.Account() : null) : paper.Ready ? paper.Acct.Set : null;
+                armText.Text = (Sim ? "🧪 BACKTEST ACCOUNT" : paper.Ready ? "🎮 DEMO ACCOUNT on live prices" : "🎮 DEMO — press the button below to set up your account") + (vs != null ? " • " + vs.Kind + (vs.Kind == "RAW" ? " $" + vs.CommissionPerLot.ToString("0.##", IC) + " / lot" : " +" + vs.MarkupPts.ToString("0", IC) + " pts spread") + " • 1:" + vs.Leverage : "") + " • hedging — nothing reaches MT5"; armText.Foreground = Cyan;
                 if (armChecks.Children.Count > 0) armChecks.Children.Clear();
                 foreach (var b in new[] { buyBtn, sellBtn }) b.Opacity = 1; return;
             }
@@ -492,10 +516,8 @@ namespace KeystoneMT5
         {
             if (on)
             {
-                Mt5Account a; lock (broker.State.Gate) a = broker.State.Account;
-                if (!Sx.Ask(this, "🔓 ARM trading", "From now on SpasiX's BUY / SELL, orders, closes, stops and targets go to MetaTrader 5 on account " + (streamMode ? "•••••" : a.Login.ToString(IC)) + " (" + a.Kind + ")" + (a.Kind == "REAL" ? " — REAL MONEY" : "") + ".\n\nIt stays armed until you DISARM or close SpasiX.", "ARM", "NOT NOW", a.Kind == "REAL" ? Red : Orange, a.Kind == "REAL" ? "REAL MONEY ACCOUNT" : null)) return;
             }
-            armed = on; Toast(on ? "🟢 ARMED — trading from SpasiX is on" : "🔒 DISARMED" + (why != null ? " — " + why : ""));
+            armed = on; Toast(on ? "🟢 ARMED with one click — BUY / SELL now go to MT5 at once (DISARM to stop)" : "🔒 DISARMED" + (why != null ? " — " + why : ""));
         }
         bool Ask(string msg) { return Sx.Ask(this, "SpasiX", msg); }
         void Toast(string msg)
@@ -509,7 +531,7 @@ namespace KeystoneMT5
         bool Cmd(string label, string cmd, params object[] args)
         {
             bool can; lock (broker.State.Gate) can = broker.State.CanTrade;
-            if (!Sim && (!armed || !can)) { Toast("🔒 " + (!can ? "trading is not allowed by the bridge yet (see the red lines in the panel)" : "press 🔓 ARM TRADING in the panel first")); return false; }
+            if (!Virtual && (!armed || !can)) { Toast("🔒 " + (!can ? "trading is not allowed by the bridge yet (see the red lines in the panel)" : "press 🔓 ARM TRADING in the panel first")); return false; }
             string why; if (cmd == "ORDER" && !PropAllows(out why)) { Toast("🛑 " + why); Log("✖ " + why, Red); return false; }
             var id = broker.Command(cmd, args); if (id == null) { Toast("⚠ MT5 is not connected"); return false; }
             sent[id] = label; Log("→ " + label, Muted); return true;
@@ -521,17 +543,15 @@ namespace KeystoneMT5
             Mt5Quote q; lock (broker.State.Gate) broker.State.Quotes.TryGetValue(p.Sym, out q); if (q == null) { Toast("no price for " + p.Sym + " yet"); return; }
             double px = dir > 0 ? q.Ask : q.Bid, sd = Num(slBox), td = Num(tpBox); double sl = sd > 0 ? px - dir * sd : 0, tp = td > 0 ? px + dir * td : 0; string f = "F" + p.V.Digits;
             string what = (dir > 0 ? "BUY " : "SELL ") + lots.ToString("0.00", IC) + " " + p.Sym + " at market ≈ " + px.ToString(f, IC) + (sl > 0 ? " • S/L " + sl.ToString(f, IC) : "") + (tp > 0 ? " • T/P " + tp.ToString(f, IC) : "");
-            if (!Sim && !armed) { Toast("🔒 press 🔓 ARM TRADING in the panel first"); return; }
-            if ((!oneClickOn || lots > 2) && !Sx.Ask(this, dir > 0 ? "▲ BUY" : "▼ SELL", what + "?", dir > 0 ? "BUY" : "SELL", "NO", dir > 0 ? Green : Red, (dir > 0 ? "BUY " : "SELL ") + lots.ToString("0.00", IC) + " LOTS " + p.Sym)) return;
+            if (!Virtual && !armed) { Toast("🔒 press 🔓 ARM TRADING in the panel first (one click)"); return; }
             Cmd(what, "ORDER", p.Sym, dir > 0 ? "BUY" : "SELL", lots, 0.0, sl, tp);
         }
-        void PlacePending(string sym, string kind, double price)
+        void PlacePending(string sym, string kind, double price, double lotsOverride = 0)
         {
-            double lots = Num(lotsBox); if (lots <= 0 || string.IsNullOrEmpty(kind)) { Toast("type the lots first"); return; }
-            if (!Sim && !armed) { Toast("🔒 press 🔓 ARM TRADING in the panel first"); return; }
+            double lots = lotsOverride > 0 ? lotsOverride : Num(lotsBox); if (lots <= 0 || string.IsNullOrEmpty(kind)) { Toast("type the lots first"); return; }
+            if (!Virtual && !armed) { Toast("🔒 press 🔓 ARM TRADING in the panel first (one click)"); return; }
             int dir = kind.StartsWith("BUY") ? 1 : -1; double sd = Num(slBox), td = Num(tpBox); double sl = sd > 0 ? price - dir * sd : 0, tp = td > 0 ? price + dir * td : 0; string f = "F" + Act.V.Digits;
             string what = kind + " " + lots.ToString("0.00", IC) + " " + sym + " @ " + price.ToString(f, IC) + (sl > 0 ? " • S/L " + sl.ToString(f, IC) : "") + (tp > 0 ? " • T/P " + tp.ToString(f, IC) : "");
-            if (!Sx.Ask(this, "⏳ " + kind, what + "?", "PLACE", "NO", dir > 0 ? Green : Red, kind + " " + lots.ToString("0.00", IC) + " LOTS")) return;
             if (Cmd(what, "ORDER", sym, kind, lots, price, sl, tp)) { foreach (var pn in panes) { pn.V.PickKind = ""; pn.V.PickPrice = double.NaN; } }
         }
         void CloseAll(string sym, string which)

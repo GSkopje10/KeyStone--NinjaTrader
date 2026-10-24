@@ -1,4 +1,5 @@
-// SpasiX — the loading screen and the START SCREEN: choose LIVE (your MT5 account), PROP (a CFD prop-firm account with its rules) or BACKTEST
+// SpasiX — the loading screen and the START SCREEN: choose LIVE (your MT5 account), PROP (a CFD prop-firm account with its rules), DEMO (live prices,
+// a simulated account) or BACKTEST
 // (MT5's history replayed). Each opens its own window; ⌂ MODES in the header comes back here.
 using System;
 using System.Collections.Generic;
@@ -19,7 +20,7 @@ namespace KeystoneMT5
         readonly Mt5Bridge bridge; readonly DispatcherTimer tm; TextBlock status; Border statusDot;
         public Launcher(Mt5Bridge b, bool stream)
         {
-            bridge = b; Title = "SpasiX"; Width = 1180; Height = 660; WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent; ResizeMode = ResizeMode.NoResize;
+            bridge = b; Title = "SpasiX"; Width = 1360; Height = 660; WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent; ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen; FontFamily = Sx.Face; var lg = MainWindow.Logo(); if (lg != null) Icon = lg;
             var root = new Grid();
             var frame = new Border { CornerRadius = new CornerRadius(26), Margin = new Thickness(20), BorderThickness = new Thickness(1.4), BorderBrush = new LinearGradientBrush(Sx.C("#FFC94D"), Sx.C("#4DD8FF"), 30),
@@ -49,15 +50,16 @@ namespace KeystoneMT5
             st.Children.Add(statusDot); st.Children.Add(status); tx.Children.Add(st);
             head.Children.Add(tx); top.Children.Add(head); g.Children.Add(top);
             // the three modes
-            var row = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3, Margin = new Thickness(0, 26, 0, 10) }; Grid.SetRow(row, 1); g.Children.Add(row);
+            var row = new System.Windows.Controls.Primitives.UniformGrid { Columns = 4, Margin = new Thickness(0, 26, 0, 10) }; Grid.SetRow(row, 1); g.Children.Add(row);
             row.Children.Add(Card("LIVE", "📈", "LIVE TRADING", "your MT5 account in real time", Sx.Green, new[] { "charts with your tickets, stops and targets", "lots, hedging, limit / stop, one-click", "close all / buys / sells / winners / losers", "tracker, market watch, ForexFactory news" }, "1"));
             row.Children.Add(Card("PROP", "🏆", "PROP ACCOUNT", "a CFD prop-firm account on MT5", Sx.Violet, new[] { "the firm's rules always on screen", "daily loss, max loss, profit target, days", "new entries blocked at the limit", "the same chart, panel and tracker as live" }, "2"));
-            row.Children.Add(Card("BACKTEST", "🧪", "BACKTEST STUDIO", "MT5's own history, replayed", Sx.Cyan, new[] { "pick a symbol and the days, download once", "play / pause / speed / one candle / jump", "the real spread, commission, swap, stop-out", "stats per day, win rate, equity curve" }, "3"));
+            row.Children.Add(Card("DEMO", "🎮", "DEMO ACCOUNT", "live prices, a simulated account", Sx.Orange, new[] { "your MT5's real prices and candles", "your own balance, RAW or STANDARD", "trade like live — nothing reaches MT5", "kept on this PC, RESET any time" }, "3"));
+            row.Children.Add(Card("BACKTEST", "🧪", "BACKTEST STUDIO", "MT5's own history, replayed", Sx.Cyan, new[] { "gold, NAS100, … together, real ticks", "play / speed / ◀ ▶ candle / day / jump", "RAW or STANDARD, MT5's swap and margin", "sessions saved to a pool + HTML tracker" }, "4"));
             var foot = new DockPanel { Margin = new Thickness(4, 4, 4, 0) }; Grid.SetRow(foot, 2); g.Children.Add(foot);
             var bl = new TextBlock { Text = MainWindow.Build, Foreground = Sx.Muted, FontSize = 11 }; DockPanel.SetDock(bl, Dock.Right); foot.Children.Add(bl);
-            foot.Children.Add(new TextBlock { Text = "1 / 2 / 3 = choose • Esc = close • LIVE and PROP need MetaTrader 5 with the SpasiXBridge on a chart; BACKTEST works offline with the days on this PC", Foreground = Sx.Muted, FontSize = 11 });
+            foot.Children.Add(new TextBlock { Text = "1 / 2 / 3 / 4 = choose • Esc = close • LIVE, PROP and DEMO need MetaTrader 5 with the SpasiXBridge on a chart; BACKTEST works offline with the days on this PC", Foreground = Sx.Muted, FontSize = 11 });
             Content = root;
-            PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) Close(); else if (e.Key == Key.D1 || e.Key == Key.NumPad1) Pick("LIVE"); else if (e.Key == Key.D2 || e.Key == Key.NumPad2) Pick("PROP"); else if (e.Key == Key.D3 || e.Key == Key.NumPad3) Pick("BACKTEST"); };
+            PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) Close(); else if (e.Key == Key.D1 || e.Key == Key.NumPad1) Pick("LIVE"); else if (e.Key == Key.D2 || e.Key == Key.NumPad2) Pick("PROP"); else if (e.Key == Key.D3 || e.Key == Key.NumPad3) Pick("DEMO"); else if (e.Key == Key.D4 || e.Key == Key.NumPad4) Pick("BACKTEST"); };
             tm = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             tm.Tick += delegate
             {
@@ -133,7 +135,7 @@ namespace KeystoneMT5
         [STAThread]
         public static void Main(string[] args)
         {
-            int port = 47123; string direct = null;   // SpasiX.exe [port] [--mode LIVE|PROP|BACKTEST] (a shortcut can open a mode directly)
+            int port = 47123; string direct = null;   // SpasiX.exe [port] [--mode LIVE|PROP|DEMO|BACKTEST] (a shortcut can open a mode directly)
             for (int i = 0; i < args.Length; i++) { int pp; if (args[i] == "--mode" && i + 1 < args.Length) direct = args[++i].ToUpperInvariant(); else if (int.TryParse(args[i], out pp)) port = pp; }
             bridge = new Mt5Bridge(port); bridge.Start();
             app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -143,7 +145,7 @@ namespace KeystoneMT5
             tm.Tick += delegate
             {
                 tm.Stop();
-                if (direct == "LIVE" || direct == "PROP" || direct == "BACKTEST") { var main = new MainWindow(bridge, direct); app.MainWindow = main; main.Closed += delegate { if (main.BackToLauncher) ShowLauncher(); else { bridge.Dispose(); app.Shutdown(); } }; main.Show(); }
+                if (direct == "LIVE" || direct == "PROP" || direct == "DEMO" || direct == "BACKTEST") { var main = new MainWindow(bridge, direct); app.MainWindow = main; main.Closed += delegate { if (main.BackToLauncher) ShowLauncher(); else { bridge.Dispose(); app.Shutdown(); } }; main.Show(); }
                 else ShowLauncher();
                 splash.Close();
             };

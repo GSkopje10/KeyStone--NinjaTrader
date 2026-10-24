@@ -106,6 +106,56 @@ public static class SimTests
         for (int k = 0; k < 40 && dl.Step(now); k++) now = now.AddSeconds(0.5);
         Check(dl.Done && !dl.Failed && dl.Saved == 3 && HistoryStore.HasDay("EURUSD", new DateTime(2026, 9, 2)) && fake.Asked == 4, "the downloader asks MT5 day by day, retries a day MT5 is still loading, saves 3 days", dl.Status + " asked " + fake.Asked);
         try { System.IO.Directory.Delete(HistoryStore.Root, true); } catch { }
+        // 8. two symbols replayed together on one account; RAW vs STANDARD; MT5's swap in points; the account saved and loaded back
+        var nas = new SimSpec { Name = "USTEC", Digits = 2, Point = 0.01, Contract = 1, TickValue = 0.01, TickSize = 0.01, VolMin = 0.1, VolStep = 0.1, VolMax = 50, NyOffsetHours = -7 };
+        var nasBars = Bars(day1, 70, 20000, i => i < 30 ? 2 : -3, 120);
+        sb = new SimBroker(); var err2 = sb.Load(set, new List<Tuple<SimSpec, List<Mt5Bar>>> { Tuple.Create(Gold(), all), Tuple.Create(nas, Bars(day0.AddHours(10), 120, 20000, i => 0).Concat(nasBars).ToList()) });
+        Check(err2 == "" && sb.State.Symbols.Count == 2 && sb.State.SeriesOf("USTEC", 1).Bars.Count == 120, "two symbols load together (each its warm-up)", err2);
+        sb.Command("ORDER", "USTEC", "BUY", 1.0, 0.0, 0.0, 0.0); sb.Command("ORDER", "XAUUSD", "SELL", 0.1, 0.0, 0.0, 0.0);
+        Check(sb.State.Positions.Count == 2 && sb.State.Positions.Any(x => x.Symbol == "USTEC"), "one account trades both symbols (hedging)");
+        sb.Playing = true; sb.Speed = 600; sb.JumpTo(day1.AddMinutes(30));
+        var nasPos = sb.State.Positions.First(x => x.Symbol == "USTEC");
+        Check(Math.Abs(nasPos.Profit - Math.Round((nasPos.Current - nasPos.Open) * 1.0, 2)) < 0.02 && nasPos.Current > nasPos.Open + 50, "USTEC's P/L uses ITS spec ($1 per point per lot), XAUUSD's its own", nasPos.Profit + " " + nasPos.Current + " " + nasPos.Open);
+        Check(sb.State.Quotes["USTEC"].Time == sb.State.Quotes["XAUUSD"].Time || Math.Abs((sb.State.Quotes["USTEC"].Time - sb.State.Quotes["XAUUSD"].Time).TotalSeconds) < 60, "both symbols move on the same clock");
+        var std = new SimSettings { Symbol = "XAUUSD", From = day1, To = day1, Balance = 10000, CommissionPerLot = 7, Kind = "STANDARD", MarkupPts = 30 };
+        sb = Run(all, std); double sBid = sb.State.Quotes["XAUUSD"].Bid, sAsk = sb.State.Quotes["XAUUSD"].Ask; sb.Command("ORDER", "XAUUSD", "BUY", 1.0, 0.0, 0.0, 0.0);
+        Check(Math.Abs(sAsk - sBid - 0.50) < 1e-9 && Math.Abs(Bal(sb) - 10000) < 1e-9, "STANDARD: no commission, the spread wider by its markup (20 + 30 points)", (sAsk - sBid) + " " + Bal(sb));
+        var acc = new SimAccount(new Mt5State()); var gsp = Gold(); gsp.SwapMode = 1; gsp.SwapLong = -40; acc.Specs["XAUUSD"] = gsp;
+        Check(Math.Abs(acc.SwapPerLot(gsp, 1, 4000) + 40) < 1e-9, "MT5 swap in points: −40 points × $1 per point per lot = −$40 a lot a night");
+        acc.Reset(new SimAccountSettings { Balance = 5000 }, day1); acc.OnPrice("XAUUSD", day1, 4000, 4000.2); acc.Do("ORDER", new object[] { "XAUUSD", "BUY", 0.5, 0.0, 3990.0, 0.0 }, day1); acc.Do("ORDER", new object[] { "XAUUSD", "SELL LIMIT", 0.2, 4010.0, 0.0, 0.0 }, day1);
+        var saved = acc.Save(); var acc2 = new SimAccount(new Mt5State()); acc2.Specs["XAUUSD"] = gsp; bool ld = acc2.Load(saved);
+        Check(ld && acc2.State.Positions.Count == 1 && acc2.State.Positions[0].Sl == 3990 && acc2.State.Orders.Count == 1 && Math.Abs(acc2.Balance - acc.Balance) < 1e-9 && acc2.State.Deals.Count == acc.State.Deals.Count, "the DEMO account is saved and comes back (positions, orders, balance, deals)");
+        var mk = new Mt5State(); mk.Apply("SYM|XAUUSD|2|100.00|0.01|0.01|100.00|0.01000000|1.000000|0.01000000|Gold"); mk.Apply("SYMX|XAUUSD|-45.5|12.1|1|5|1000.00|2|10");
+        var view = new Mt5State(mk); mk.Apply("TICK|XAUUSD|4000.1|4000.3|1792800000000");
+        Check(mk.Symbols["XAUUSD"].HasX && mk.Symbols["XAUUSD"].SwapLong == -45.5 && mk.Symbols["XAUUSD"].Swap3Day == 5 && view.Quotes["XAUUSD"].Bid == 4000.1 && ReferenceEquals(view.Gate, mk.Gate) && view.Positions != mk.Positions, "SYMX → MT5's swap, triple day; the DEMO view shares the live prices but has its own positions");
+        // 9. MT5's REAL TICKS: the replay plays them exactly (time, bid, ask), the candles are built from them; saved / loaded on this PC
+        var tk = new List<SimTick>(); var rnd = new Random(5); double pb = 4000;
+        for (int i = 0; i < 70 * 60; i += 3) { pb = Math.Round(pb + (rnd.NextDouble() - 0.5) * 0.4, 2); tk.Add(new SimTick { T = day1.AddSeconds(i).AddMilliseconds(rnd.Next(0, 900)), Bid = pb, Ask = Math.Round(pb + 0.11 + rnd.Next(0, 5) * 0.01, 2) }); }
+        var tb = new List<Mt5Bar>(); foreach (var g in tk.GroupBy(x => new DateTime(x.T.Year, x.T.Month, x.T.Day, x.T.Hour, x.T.Minute, 0))) tb.Add(new Mt5Bar { Time = g.Key, O = g.First().Bid, H = g.Max(x => x.Bid), L = g.Min(x => x.Bid), C = g.Last().Bid, V = g.Count(), Spread = 11 });
+        sb = new SimBroker(); var e3 = sb.Load(set, new List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> { Tuple.Create(Gold(), warm.Concat(tb).ToList(), tk) });
+        sb.Playing = true; sb.Speed = 1; var seen = new List<Tuple<DateTime, double, double>>();
+        for (int k = 0; k < 400; k++) { sb.Advance(0.1); var q = sb.State.Quotes["XAUUSD"]; if (seen.Count == 0 || seen[seen.Count - 1].Item1 != q.Time) seen.Add(Tuple.Create(q.Time, q.Bid, q.Ask)); }
+        var bad = seen.Skip(1).Where(x => !tk.Any(t => t.T == x.Item1 && t.Bid == x.Item2 && Math.Abs(t.Ask - x.Item3) < 1e-9)).ToList(); bool exact = bad.Count == 0;
+        foreach (var x in bad.Take(3)) Console.WriteLine("   not a tick: " + x.Item1.ToString("HH:mm:ss.fff") + " " + x.Item2 + " " + x.Item3 + " | " + string.Join(", ", tk.Where(t => Math.Abs((t.T - x.Item1).TotalSeconds) < 2).Select(t => t.T.ToString("ss.fff") + " " + t.Bid + "/" + t.Ask)));
+        Check(e3 == "" && sb.HasTicks && seen.Count > 5 && exact && Math.Abs((sb.Clock - day1).TotalSeconds - 40) < 2, "1× plays MT5's real ticks: every price is a real tick (its time, bid and ask), 40 s of replay = 40 s of market", seen.Count + " ticks, clock " + sb.Clock.ToString("HH:mm:ss.fff"));
+        sb.Speed = SimBroker.MaxSpeed; for (int k = 0; k < 30 && !sb.Ended; k++) sb.Advance(0.05);
+        var m1b = sb.State.SeriesOf("XAUUSD", 1).Bars; var lastReal = m1b.Last();
+        Check(sb.RealShare > 0.99 && Math.Abs(lastReal.H - tb.Last().H) < 1e-9 && Math.Abs(lastReal.C - tb.Last().C) < 1e-9, "the candles built from the real ticks = MT5's candles; 100 % of the replay from real ticks", sb.RealShare.ToString("P0"));
+        HistoryStore.Root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-test-" + Guid.NewGuid().ToString("N"));
+        HistoryStore.SaveTicks("XAUUSD", day1, tk); var tk2 = HistoryStore.LoadTicks("XAUUSD", day1);
+        Check(tk2.Count == tk.Count && tk2[100].T == tk[100].T && tk2[100].Bid == tk[100].Bid && tk2[100].Ask == tk[100].Ask, "the real ticks are saved on this PC and load back to the millisecond");
+        var mk2 = new Mt5State(); mk2.Apply("TT|XAUUSD|1792800000|1792886400|2|0"); mk2.Apply("T|1500|4000.10|4000.25"); mk2.Apply("T|2750|4000.12|4000.26"); mk2.Apply("TTEND|XAUUSD|1792800000|1792886400");
+        Check(mk2.TickHist.ContainsKey("XAUUSD|1792800000") && mk2.TickHist["XAUUSD|1792800000"].Item1[1].T == Mt5State.Unix(1792800000).AddMilliseconds(2750), "TT … TTEND → the day's real ticks with their milliseconds");
+        try { System.IO.Directory.Delete(HistoryStore.Root, true); } catch { }
+        // 10. margin like MT5 in hedging: MT5's own margin per lot, the hedged margin (0 = an opposite trade frees the margin, e.g. NAS100), larger leg
+        var am = new SimAccount(new Mt5State()); var nq = new SimSpec { Name = "USTEC", Digits = 2, Point = 0.01, Contract = 1, TickValue = 0.01, TickSize = 0.01, VolMin = 0.1, VolStep = 0.1, VolMax = 50, MarginPerLot = 200, MarginRefPrice = 20000, HedgedRatio = 0, MarginLeverage = 500 };
+        var au = Gold(); au.MarginPerLot = 400; au.MarginRefPrice = 4000; au.HedgedRatio = 1; au.MarginLeverage = 500;
+        am.Specs["USTEC"] = nq; am.Specs["XAUUSD"] = au; am.Reset(new SimAccountSettings { Balance = 10000, Leverage = 500, CommissionPerLot = 0 }, day1); am.OnPrice("USTEC", day1, 20000, 20001); am.OnPrice("XAUUSD", day1, 4000, 4000.2);
+        am.Do("ORDER", new object[] { "USTEC", "BUY", 1.0, 0.0, 0.0, 0.0 }, day1); double m1n = am.State.Account.Margin;
+        am.Do("ORDER", new object[] { "USTEC", "SELL", 1.0, 0.0, 0.0, 0.0 }, day1); double m2n = am.State.Account.Margin;
+        Check(Math.Abs(m1n - 200) < 0.01 && m2n < 0.01, "USTEC (hedged margin 0): a buy uses $200 (MT5's number), the opposite sell frees it → margin $0", m1n + " → " + m2n);
+        am.Do("ORDER", new object[] { "XAUUSD", "BUY", 1.0, 0.0, 0.0, 0.0 }, day1); am.Do("ORDER", new object[] { "XAUUSD", "SELL", 1.0, 0.0, 0.0, 0.0 }, day1);
+        Check(Math.Abs(am.State.Account.Margin - 800) < 0.5, "XAUUSD (hedged margin = full): a buy and a sell both pay → $800", am.State.Account.Margin + "");
         Console.WriteLine(fails == 0 ? "ALL BACKTEST TESTS PASSED" : fails + " BACKTEST TEST(S) FAILED");
         return fails;
     }

@@ -29,13 +29,21 @@ namespace KeystoneMT5
         public double Balance, Equity, Margin, FreeMargin, MarginLevel; public int Leverage; public bool Connected;
         public double Floating { get { return Equity - Balance; } }
     }
-    public sealed class Mt5Symbol { public string Name = "", Description = ""; public int Digits = 2; public double Contract = 1, VolMin = 0.01, VolStep = 0.01, VolMax = 100, Point = 0.01, TickValue = 1, TickSize = 0.01; }
+    public sealed class Mt5Symbol
+    {
+        public string Name = "", Description = ""; public int Digits = 2; public double Contract = 1, VolMin = 0.01, VolStep = 0.01, VolMax = 100, Point = 0.01, TickValue = 1, TickSize = 0.01;
+        // SYMX (bridge v5): MT5's swap (its mode: 1 points, 2–4 money, 5–6 interest %, 7–8 reopen), the triple-swap day, the initial margin, the stops level; CommissionPerLot = seen in your deals (−1 unknown)
+        public double SwapLong, SwapShort, MarginInitial; public int SwapMode, Swap3Day = 3, StopsLevel, CalcMode; public bool HasX; public double CommissionPerLot = -1;
+        // MT5's margin: per lot at MarginRefPrice (OrderCalcMargin), the hedged margin (contract size / value per hedged lot), "larger leg" only
+        public double MarginPerLot, MarginRefPrice, MarginHedged = -1; public bool MarginUseLeg;
+    }
     public sealed class Mt5Quote { public string Symbol = ""; public double Bid, Ask; public DateTime Time; public double Spread(double point) { return point > 0 ? Math.Round((Ask - Bid) / point) : 0; } }
     public sealed class Mt5Position
     {
         public long Ticket; public string Symbol = "", Side = "BUY", Comment = ""; public double Lots, Open, Sl, Tp, Current, Profit, Swap, Commission; public DateTime Time; public long Magic;
         public int Dir { get { return Side == "BUY" ? 1 : -1; } }
     }
+    public struct SimTick { public DateTime T; public double Bid, Ask; }   // one real tick of MT5 (server time)
     public sealed class Mt5Order { public long Ticket; public string Symbol = "", Type = ""; public double Lots, Price, Sl, Tp; public DateTime Time; }
     // one deal of the account's history (an IN opens a position, an OUT closes it — partly or fully; BALANCE = a deposit / withdrawal)
     public sealed class Mt5Deal
@@ -61,28 +69,33 @@ namespace KeystoneMT5
     // what the app knows about the terminal right now (replaced piece by piece as lines arrive)
     public sealed class Mt5State
     {
-        public readonly object Gate = new object();
+        public readonly object Gate;
+        public Mt5State() { Gate = new object(); Symbols = new Dictionary<string, Mt5Symbol>(StringComparer.OrdinalIgnoreCase); Quotes = new Dictionary<string, Mt5Quote>(StringComparer.OrdinalIgnoreCase); Series = new Dictionary<string, BarSeries>(StringComparer.OrdinalIgnoreCase); AllSymbols = new List<string>(); Hist = new Dictionary<string, Tuple<List<Mt5Bar>, int>>(StringComparer.OrdinalIgnoreCase); TickHist = new Dictionary<string, Tuple<List<SimTick>, int>>(StringComparer.OrdinalIgnoreCase); }
+        // a view on the SAME market (the live DEMO): the prices, symbols and candles of another state, its own account / positions / orders / deals
+        public Mt5State(Mt5State market) { Gate = market.Gate; Symbols = market.Symbols; Quotes = market.Quotes; Series = market.Series; AllSymbols = market.AllSymbols; Hist = market.Hist; TickHist = market.TickHist; }
         public string Company = ""; public int Build; public bool Linked; public DateTime LastLine = DateTime.MinValue, LinkedAt = DateTime.MinValue;
         public Mt5Account Account = new Mt5Account();
-        public readonly Dictionary<string, Mt5Symbol> Symbols = new Dictionary<string, Mt5Symbol>(StringComparer.OrdinalIgnoreCase);
-        public readonly Dictionary<string, Mt5Quote> Quotes = new Dictionary<string, Mt5Quote>(StringComparer.OrdinalIgnoreCase);
+        public readonly Dictionary<string, Mt5Symbol> Symbols;
+        public readonly Dictionary<string, Mt5Quote> Quotes;
         public List<Mt5Position> Positions = new List<Mt5Position>();
         public List<Mt5Order> Orders = new List<Mt5Order>();
         public int BridgeVersion;
         // what the bridge allows
         public bool AllowInput, AlgoTerminal, AlgoEa, AccountTrade = true, AccountExpert = true; public double MaxLots = 5; public int ServerOffsetSec = 7200; public DateTime ServerNow = DateTime.MinValue; public bool CanKnown;
         public bool CanTrade { get { return BridgeVersion >= 3 && AllowInput && AlgoTerminal && AlgoEa && AccountTrade && AccountExpert; } }
-        public readonly List<string> AllSymbols = new List<string>(); List<string> allIn;
+        public readonly List<string> AllSymbols; List<string> allIn;
         // the answers to the app's commands (RES|id|OK/FAIL|retcode|text|ticket), newest last
         public readonly List<Tuple<string, bool, string>> Results = new List<Tuple<string, bool, string>>(); public int ResultsDropped;
         // candles per symbol + timeframe
-        public readonly Dictionary<string, BarSeries> Series = new Dictionary<string, BarSeries>(StringComparer.OrdinalIgnoreCase);
+        public readonly Dictionary<string, BarSeries> Series;
         List<Mt5Bar> barsIn; string barsKey;
         public static string Key(string sym, int m) { return sym + "|" + m; }
         public BarSeries SeriesOf(string sym, int m) { BarSeries b; if (!Series.TryGetValue(Key(sym, m), out b)) Series[Key(sym, m)] = b = new BarSeries(sym, m); return b; }
         // 1-minute history answers (HIST … HISTEND), by "symbol|from": the bars + MT5's error (≠ 0 = still downloading)
-        public readonly Dictionary<string, Tuple<List<Mt5Bar>, int>> Hist = new Dictionary<string, Tuple<List<Mt5Bar>, int>>(StringComparer.OrdinalIgnoreCase);
+        public readonly Dictionary<string, Tuple<List<Mt5Bar>, int>> Hist;
         List<Mt5Bar> histIn; string histKey; int histErr;
+        // the real ticks of a day (TT … TTEND), by "symbol|from"
+        public readonly Dictionary<string, Tuple<List<SimTick>, int>> TickHist; List<SimTick> tickIn; string tickKey; int tickErr; DateTime tickBase;
         // the deals (DEALS … DEALEND), the last answer replaces the list
         public List<Mt5Deal> Deals = new List<Mt5Deal>(); public DateTime DealsAt = DateTime.MinValue, DealsFrom = DateTime.MinValue; public int DealsVersion;
         List<Mt5Deal> dealsIn; DateTime dealsFromIn;
@@ -119,6 +132,12 @@ namespace KeystoneMT5
                         histIn.Add(new Mt5Bar { Time = Unix(L(a[1])), O = D(a[2]), H = D(a[3]), L = D(a[4]), C = D(a[5]), V = L(a[6]), Spread = (int)L(a[7]) });
                         break;
                     case "HISTEND": if (histIn != null && a.Length >= 3 && histKey == a[1] + "|" + a[2]) Hist[histKey] = Tuple.Create(histIn, histErr); histIn = null; histKey = null; break;
+                    case "TT": if (a.Length >= 6) { tickKey = a[1] + "|" + a[2]; tickErr = (int)L(a[5]); tickBase = Unix(L(a[2])); tickIn = new List<SimTick>((int)Math.Min(400000, Math.Max(0, L(a[4])))); } break;
+                    case "T":
+                        if (tickIn == null || a.Length < 4) return;
+                        tickIn.Add(new SimTick { T = tickBase.AddMilliseconds(L(a[1])), Bid = D(a[2]), Ask = D(a[3]) });
+                        break;
+                    case "TTEND": if (tickIn != null && a.Length >= 3 && tickKey == a[1] + "|" + a[2]) TickHist[tickKey] = Tuple.Create(tickIn, tickErr); tickIn = null; tickKey = null; break;
                     case "DEALS": if (a.Length >= 4) { dealsIn = new List<Mt5Deal>(); dealsFromIn = Unix(L(a[1])); } break;
                     case "D":
                         if (dealsIn == null || a.Length < 15) return;
@@ -135,7 +154,16 @@ namespace KeystoneMT5
                     case "ALLSYMSEND": if (allIn != null) { AllSymbols.Clear(); AllSymbols.AddRange(allIn.OrderBy(x => x)); allIn = null; } break;
                     case "SYM":
                         if (a.Length < 11) return;
-                        Symbols[a[1]] = new Mt5Symbol { Name = a[1], Digits = (int)L(a[2]), Contract = D(a[3]), VolMin = D(a[4]), VolStep = D(a[5]), VolMax = D(a[6]), Point = D(a[7]), TickValue = D(a[8]), TickSize = D(a[9]), Description = a[10] };
+                        { Mt5Symbol old; Symbols.TryGetValue(a[1], out old);
+                          var sy = new Mt5Symbol { Name = a[1], Digits = (int)L(a[2]), Contract = D(a[3]), VolMin = D(a[4]), VolStep = D(a[5]), VolMax = D(a[6]), Point = D(a[7]), TickValue = D(a[8]), TickSize = D(a[9]), Description = a[10] };
+                          if (old != null && old.HasX) { sy.HasX = true; sy.SwapLong = old.SwapLong; sy.SwapShort = old.SwapShort; sy.SwapMode = old.SwapMode; sy.Swap3Day = old.Swap3Day; sy.MarginInitial = old.MarginInitial; sy.StopsLevel = old.StopsLevel; sy.CalcMode = old.CalcMode; sy.MarginPerLot = old.MarginPerLot; sy.MarginRefPrice = old.MarginRefPrice; sy.MarginHedged = old.MarginHedged; sy.MarginUseLeg = old.MarginUseLeg; }
+                          if (old != null) sy.CommissionPerLot = old.CommissionPerLot;
+                          Symbols[a[1]] = sy; }
+                        break;
+                    case "SYMX":
+                        { if (a.Length < 9) return; Mt5Symbol sy; if (!Symbols.TryGetValue(a[1], out sy)) return;
+                          sy.SwapLong = D(a[2]); sy.SwapShort = D(a[3]); sy.SwapMode = (int)L(a[4]); sy.Swap3Day = (int)L(a[5]); sy.MarginInitial = D(a[6]); sy.CalcMode = (int)L(a[7]); sy.StopsLevel = (int)L(a[8]); sy.HasX = true;
+                          if (a.Length >= 13) { sy.MarginPerLot = D(a[9]); sy.MarginRefPrice = D(a[10]); sy.MarginHedged = D(a[11]); sy.MarginUseLeg = a[12] == "1"; } }
                         break;
                     case "ACC":
                         if (a.Length < 14) return;

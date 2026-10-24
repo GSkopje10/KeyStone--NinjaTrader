@@ -19,8 +19,10 @@ namespace KeystoneMT5
 {
     public sealed class ChartTheme
     {
-        public string Name; public Color Bg, Plot, Grid, Up, Down, UpWick, DownWick, Axis, Text, Accent, Price; public bool HollowUp, Glow, Light;
+        public string Name, Group = "SpasiX"; public Color Bg, Plot, Grid, Up, Down, UpWick, DownWick, Axis, Text, Accent, Price; public bool HollowUp, Glow, Light, Dotted;
+        public bool Bodies; public Color UpBody, DownBody, Edge;   // own body / edge colours (MT5 classic: black / white bodies with a lime edge)
         static Color C(string h) { return (Color)ColorConverter.ConvertFromString(h); }
+        static ChartTheme T(string name, string group, string bg, string plot, string grid, string up, string down, string axis, string text, string accent, string price, bool light = false) { return new ChartTheme { Name = name, Group = group, Bg = C(bg), Plot = C(plot), Grid = C(grid), Up = C(up), Down = C(down), UpWick = C(up), DownWick = C(down), Axis = C(axis), Text = C(text), Accent = C(accent), Price = C(price), Light = light }; }
         public static readonly ChartTheme[] All = {
             new ChartTheme { Name = "SpasiX Night", Bg = C("#080C14"), Plot = C("#0B101B"), Grid = C("#151E2E"), Up = C("#4DD8FF"), Down = C("#7A5CFF"), UpWick = C("#4DD8FF"), DownWick = C("#7A5CFF"), Axis = C("#8A94A8"), Text = C("#E8ECF4"), Accent = C("#FFC94D"), Price = C("#FFFFFF") },
             new ChartTheme { Name = "Neon Pulse", Bg = C("#07040F"), Plot = C("#0B0618"), Grid = C("#1C1233"), Up = C("#00F5D4"), Down = C("#F72585"), UpWick = C("#00F5D4"), DownWick = C("#F72585"), Axis = C("#9D8FC4"), Text = C("#F1EAFF"), Accent = C("#B5179E"), Price = C("#FFFFFF"), Glow = true },
@@ -29,7 +31,21 @@ namespace KeystoneMT5
             new ChartTheme { Name = "Ocean Deep", Bg = C("#03121C"), Plot = C("#041824"), Grid = C("#0B2A3B"), Up = C("#2EC4B6"), Down = C("#FF6B6B"), UpWick = C("#2EC4B6"), DownWick = C("#FF6B6B"), Axis = C("#7FA7BC"), Text = C("#E0F2FA"), Accent = C("#90E0EF"), Price = C("#FFFFFF") },
             new ChartTheme { Name = "Hollow Pro", Bg = C("#0A0D12"), Plot = C("#0B0F15"), Grid = C("#181E28"), Up = C("#E8ECF4"), Down = C("#5C6B85"), UpWick = C("#C9D1DE"), DownWick = C("#5C6B85"), Axis = C("#8A94A8"), Text = C("#E8ECF4"), Accent = C("#FFC94D"), Price = C("#FFC94D"), HollowUp = true },
             new ChartTheme { Name = "Mono Carbon", Bg = C("#0B0B0C"), Plot = C("#0E0E10"), Grid = C("#1E1E22"), Up = C("#F2F2F2"), Down = C("#5C5F66"), UpWick = C("#BDBDBD"), DownWick = C("#7A7D85"), Axis = C("#8E9096"), Text = C("#F2F2F2"), Accent = C("#FFC94D"), Price = C("#FFC94D") },
-            new ChartTheme { Name = "Paper Light", Bg = C("#F4F6FA"), Plot = C("#FFFFFF"), Grid = C("#E6EAF0"), Up = C("#089981"), Down = C("#F23645"), UpWick = C("#089981"), DownWick = C("#F23645"), Axis = C("#5C6370"), Text = C("#151A22"), Accent = C("#2962FF"), Price = C("#151A22"), Light = true } };
+            new ChartTheme { Name = "Paper Light", Bg = C("#F4F6FA"), Plot = C("#FFFFFF"), Grid = C("#E6EAF0"), Up = C("#089981"), Down = C("#F23645"), UpWick = C("#089981"), DownWick = C("#F23645"), Axis = C("#5C6370"), Text = C("#151A22"), Accent = C("#2962FF"), Price = C("#151A22"), Light = true },
+            // MetaTrader 5 itself
+            new ChartTheme { Name = "MT5", Group = "MetaTrader", Bg = C("#000000"), Plot = C("#000000"), Grid = C("#2A2A2A"), Up = C("#00A000"), Down = C("#E00000"), UpWick = C("#00A000"), DownWick = C("#E00000"), Axis = C("#FFFFFF"), Text = C("#FFFFFF"), Accent = C("#3A3A3A"), Price = C("#C8C8C8"), Dotted = true },
+            new ChartTheme { Name = "MT5 Classic (green on black)", Group = "MetaTrader", Bg = C("#000000"), Plot = C("#000000"), Grid = C("#3A4450"), Up = C("#00FF00"), Down = C("#00FF00"), UpWick = C("#00FF00"), DownWick = C("#00FF00"), Axis = C("#FFFFFF"), Text = C("#FFFFFF"), Accent = C("#3A3A3A"), Price = C("#778899"), Dotted = true, Bodies = true, UpBody = C("#000000"), DownBody = C("#FFFFFF"), Edge = C("#00FF00") },
+            new ChartTheme { Name = "MT5 Light (black on white)", Group = "MetaTrader", Bg = C("#FFFFFF"), Plot = C("#FFFFFF"), Grid = C("#C0C0C0"), Up = C("#000000"), Down = C("#000000"), UpWick = C("#000000"), DownWick = C("#000000"), Axis = C("#000000"), Text = C("#000000"), Accent = C("#C0C0C0"), Price = C("#778899"), Light = true, Dotted = true, Bodies = true, UpBody = C("#FFFFFF"), DownBody = C("#000000"), Edge = C("#000000") },
+            // easy on the eyes (soft contrast for long sessions)
+            T("Midnight Soft", "Easy on the eyes", "#10141C", "#121822", "#1B2230", "#5FB3B3", "#D88A8A", "#7E8A9C", "#C9D2DE", "#6C7A92", "#DDE4EE"),
+            T("Nordic Frost", "Easy on the eyes", "#1F2530", "#232A36", "#2C3442", "#88C0D0", "#BF616A", "#8F9BB0", "#D8DEE9", "#5E81AC", "#ECEFF4"),
+            T("Forest Calm", "Easy on the eyes", "#0F1512", "#121A16", "#1B2620", "#7FB77E", "#D98B6A", "#839486", "#D3DED5", "#4F6B57", "#E8F0E8"),
+            T("Solarized Dark", "Easy on the eyes", "#002B36", "#03313D", "#0A3D49", "#2AA198", "#DC322F", "#839496", "#EEE8D5", "#268BD2", "#FDF6E3"),
+            T("Warm Dusk", "Easy on the eyes", "#17130F", "#1B1611", "#272019", "#C9A86A", "#B5655B", "#9C8F7E", "#E6DCCB", "#8A6F47", "#F2E8D6"),
+            T("Sepia Paper", "Easy on the eyes", "#F3ECDD", "#F7F1E3", "#E2D8C3", "#4E7D5B", "#B5523B", "#6E6352", "#3A3226", "#A08B62", "#3A3226", true),
+            T("Dracula", "Unique", "#22232E", "#282A36", "#343746", "#50FA7B", "#FF5555", "#9EA3C0", "#F8F8F2", "#BD93F9", "#F8F8F2"),
+            T("Royal Velvet", "Unique", "#0E0A1A", "#130E22", "#211934", "#E8C77A", "#8E6BD8", "#A79CC4", "#F1EAFB", "#E8C77A", "#FFFFFF"),
+            T("Amber Terminal", "Unique", "#0B0904", "#0E0B05", "#231B0A", "#FFB000", "#7A5200", "#B38A33", "#FFD27A", "#FFB000", "#FFE3A3") };
     }
     public sealed class Drawing
     {
@@ -129,7 +145,7 @@ namespace KeystoneMT5
             hits.Clear();
             double W = ActualWidth, H = ActualHeight; if (W < 60 || H < 60) return; var th = Theme;
             plotW = W - AxisW; plotH = H - TimeH - TopPad;
-            var axisB = Br(th.Axis); var textB = Br(th.Text); var gridP = P(Br(th.Grid), 1); var tagBg = Br(th.Plot, 238);
+            var axisB = Br(th.Axis); var textB = Br(th.Text); var gridP = th.Dotted ? P(Br(th.Grid), 1, 1, 3) : P(Br(th.Grid), 1); var tagBg = Br(th.Plot, 238);
             dc.DrawRectangle(Br(th.Bg), null, new Rect(0, 0, W, H)); dc.DrawRectangle(Br(th.Plot), null, new Rect(0, TopPad, plotW, plotH));
             var bars = Series != null ? Series.Bars : null;
             if (bars == null || bars.Count == 0) { var msg = T(Status != "" ? Status : "loading the candles from MT5 …", 15, axisB); dc.DrawText(msg, new Point(Math.Max(8, (plotW - msg.Width) / 2), H / 2 - 10)); return; }
@@ -158,6 +174,7 @@ namespace KeystoneMT5
             DrawIndicators(dc, bars, i0, i1);
             // candles
             double bw = Math.Max(1, barW * 0.7); var upB = Br(th.Up); var dnB = Br(th.Down); var upW = P(Br(th.UpWick), 1); var dnW = P(Br(th.DownWick), 1); var upHollow = P(upB, 1.2);
+            var edgeP = th.Bodies ? P(Br(th.Edge), 1) : null; var upBody = th.Bodies ? Br(th.UpBody) : upB; var dnBody = th.Bodies ? Br(th.DownBody) : dnB;
             for (int i = i0; i <= i1; i++)
             {
                 var b = bars[i]; double x = X(i); if (x < -barW || x > plotW + barW) continue; bool up = b.C >= b.O;
@@ -165,6 +182,7 @@ namespace KeystoneMT5
                 if (th.Glow && barW >= 4) dc.DrawRectangle(Br(up ? th.Up : th.Down, 36), null, new Rect(x - bw / 2 - 2, top - 2, bw + 4, hgt + 4));
                 dc.DrawLine(up ? upW : dnW, new Point(x, Y(b.H)), new Point(x, top)); dc.DrawLine(up ? upW : dnW, new Point(x, top + hgt), new Point(x, Y(b.L)));
                 if (up && th.HollowUp && bw >= 3) dc.DrawRectangle(Br(th.Plot), upHollow, new Rect(x - bw / 2, top, bw, hgt));
+                else if (th.Bodies && bw >= 3) dc.DrawRectangle(up ? upBody : dnBody, edgeP, new Rect(x - bw / 2, top, bw, hgt));
                 else dc.DrawRectangle(up ? upB : dnB, null, new Rect(x - bw / 2, top, bw, hgt));
             }
             liveSetup = false; if (Ind.Contains("SETUPS")) DrawSetups(dc, bars, i0, i1);
@@ -511,8 +529,10 @@ namespace KeystoneMT5
             dc.DrawRoundedRectangle(Br(col.Color, 220), null, new Rect(tx, ty, t.Width + 12, 22), 6, 6); dc.DrawText(T(t.Text, 11.5, Br(Theme.Bg), false, true), new Point(tx + 6, ty + 3));
         }
 
-        // ---- your tickets and orders
-        sealed class TagRow { public double Y, Price; public string Text, Kind, Key; public Color Col; public long Ticket; public int Dir; public bool Faint; }
+        // ---- your tickets and orders, like MT5: a dashed line per ticket (buys mint, sells red), stops red, targets mint, pending orders amber with their
+        // own stop / target; a slim label on the LEFT ("SELL 0.10 at 3996.56   +$25.90  ✕"); every line drags (a ticket → its stop / target, an order →
+        // its price with its bracket, a stop / target → its price) and shows the $ it means while you drag
+        sealed class TagRow { public double Y, Price; public string Text, Money, Kind, Key; public Color Col; public long Ticket; public int Dir; public bool Faint; }
         void DrawTrading(DrawingContext dc, double W)
         {
             var mine = Positions.Where(p => string.Equals(p.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -524,71 +544,65 @@ namespace KeystoneMT5
             var tags = new List<TagRow>();
             foreach (var side in new[] { 1, -1 })
             {
-                var ps = mine.Where(p => p.Dir == side).ToList(); if (ps.Count == 0) continue;
-                bool fold = TicketMode == "SIDE" || (TicketMode == "AUTO" && ps.Count > 6);
-                var col = side > 0 ? BuyC : SellC;
-                if (fold)
-                {
-                    double lots = ps.Sum(p => p.Lots), avg = ps.Sum(p => p.Open * p.Lots) / Math.Max(1e-9, lots), pl = ps.Sum(p => p.Profit + p.Swap);
-                    tags.Add(new TagRow { Y = Y(avg), Price = avg, Text = (side > 0 ? "▲ " : "▼ ") + ps.Count + (side > 0 ? " BUYS " : " SELLS ") + lots.ToString("0.00", IC) + " lots • avg " + F(avg) + "  " + Money(pl), Kind = "SIDE", Key = "SIDE:" + side, Col = col, Dir = side, Ticket = side });
-                }
+                var ps = mine.Where(p => p.Dir == side).ToList(); bool quiet = TicketMode == "LINES" || (TicketMode == "AUTO" && ps.Count > 10); var col = side > 0 ? BuyC : SellC;
                 foreach (var p in ps)
                 {
                     bool dragged = drag == "TICKET" && dragTicket == p.Ticket;
                     double sl = dragged && dragWhat == "SL" ? dragPrice : p.Sl, tp = dragged && dragWhat == "TP" ? dragPrice : p.Tp;
                     if (dragged && dragWhat == "NEW") { if ((p.Dir > 0) == (dragPrice < p.Open)) sl = dragPrice; else tp = dragPrice; }
                     double pl = p.Profit + p.Swap;
-                    tags.Add(new TagRow { Y = Y(p.Open), Price = p.Open, Text = (p.Dir > 0 ? "▲ BUY " : "▼ SELL ") + p.Lots.ToString("0.00", IC) + "  " + Money(pl), Kind = "POS", Key = "POS:" + p.Ticket, Col = col, Ticket = p.Ticket, Dir = p.Dir, Faint = fold });
-                    if (sl > 0) tags.Add(new TagRow { Y = Y(sl), Price = sl, Text = "S/L " + F(sl) + "  " + Money(Value((sl - p.Open) * p.Dir, p.Lots)), Kind = "SL", Key = "SL:" + p.Ticket, Col = SellC, Ticket = p.Ticket, Dir = p.Dir, Faint = fold && !dragged });
-                    if (tp > 0) tags.Add(new TagRow { Y = Y(tp), Price = tp, Text = "T/P " + F(tp) + "  " + Money(Value((tp - p.Open) * p.Dir, p.Lots)), Kind = "TP", Key = "TP:" + p.Ticket, Col = BuyC, Ticket = p.Ticket, Dir = p.Dir, Faint = fold && !dragged });
+                    tags.Add(new TagRow { Y = Y(p.Open), Price = p.Open, Text = (p.Dir > 0 ? "BUY " : "SELL ") + p.Lots.ToString("0.00", IC) + " at " + F(p.Open), Money = Money(pl), Kind = "POS", Key = "POS:" + p.Ticket, Col = col, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet });
+                    if (sl > 0) tags.Add(new TagRow { Y = Y(sl), Price = sl, Text = "S/L " + F(sl), Money = Money(Value((sl - p.Open) * p.Dir, p.Lots)), Kind = "SL", Key = "SL:" + p.Ticket, Col = SellC, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet && !dragged });
+                    if (tp > 0) tags.Add(new TagRow { Y = Y(tp), Price = tp, Text = "T/P " + F(tp), Money = Money(Value((tp - p.Open) * p.Dir, p.Lots)), Kind = "TP", Key = "TP:" + p.Ticket, Col = BuyC, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet && !dragged });
                 }
             }
-            foreach (var o in ords) { double px = drag == "ORDER" && dragTicket == o.Ticket ? dragPrice : o.Price; tags.Add(new TagRow { Y = Y(px), Price = px, Text = "⏳ " + o.Type + " " + o.Lots.ToString("0.00", IC) + " @ " + F(px), Kind = "ORD", Key = "ORD:" + o.Ticket, Col = PendC, Ticket = o.Ticket, Dir = o.Type.StartsWith("BUY") ? 1 : -1 }); }
-            // the lines (solid = a ticket, dashed = a stop / target / order); the hovered one glows
+            foreach (var o in ords)
+            {
+                bool dr = drag == "ORDER" && dragTicket == o.Ticket; double d = dr && dragWhat == "PX" ? dragPrice - o.Price : 0;
+                double px = o.Price + d, osl = dr && dragWhat == "SL" ? dragPrice : o.Sl > 0 ? o.Sl + d : 0, otp = dr && dragWhat == "TP" ? dragPrice : o.Tp > 0 ? o.Tp + d : 0; int dir = o.Type.StartsWith("BUY") ? 1 : -1;
+                tags.Add(new TagRow { Y = Y(px), Price = px, Text = o.Type + " " + o.Lots.ToString("0.00", IC) + " at " + F(px), Money = "", Kind = "ORD", Key = "ORD:" + o.Ticket, Col = PendC, Ticket = o.Ticket, Dir = dir });
+                if (osl > 0) tags.Add(new TagRow { Y = Y(osl), Price = osl, Text = "S/L " + F(osl), Money = Money(Value((osl - px) * dir, o.Lots)), Kind = "OSL", Key = "OSL:" + o.Ticket, Col = SellC, Ticket = o.Ticket, Dir = dir });
+                if (otp > 0) tags.Add(new TagRow { Y = Y(otp), Price = otp, Text = "T/P " + F(otp), Money = Money(Value((otp - px) * dir, o.Lots)), Kind = "OTP", Key = "OTP:" + o.Ticket, Col = BuyC, Ticket = o.Ticket, Dir = dir });
+            }
+            // the lines: dashed like MT5; the hovered / dragged one glows and gets thicker
             foreach (var t in tags)
             {
-                if (t.Kind == "SIDE" || t.Y < TopPad || t.Y > TopPad + plotH) continue; bool hov = HoverIs(t);
-                if (hov) dc.DrawLine(P(Br(t.Col, 55), 7), new Point(0, t.Y), new Point(plotW, t.Y));
-                byte a = t.Faint ? (byte)70 : (byte)190; var pen = t.Kind == "POS" ? P(Br(t.Col, hov ? (byte)255 : a), hov ? 2 : 1.1) : P(Br(t.Col, hov ? (byte)255 : a), hov ? 2 : 1.1, 6, 4);
+                if (t.Y < TopPad || t.Y > TopPad + plotH) continue; bool hov = HoverIs(t) || (drag != null && dragTicket == t.Ticket && t.Key.StartsWith(dragWhat == "NEW" ? "POS" : dragWhat == "PX" ? "ORD" : (t.Kind.StartsWith("O") && t.Kind != "ORD" ? "O" : "") + dragWhat));
+                if (hov) dc.DrawLine(P(Br(t.Col, 50), 7), new Point(0, t.Y), new Point(plotW, t.Y));
+                byte a = t.Faint ? (byte)90 : (byte)200; var pen = t.Kind == "POS" ? P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1, 6, 3) : P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1, 2, 3);
                 dc.DrawLine(pen, new Point(0, t.Y), new Point(plotW, t.Y));
             }
-            foreach (var t in tags.Where(x => x.Kind == "SIDE")) if (t.Y >= TopPad && t.Y <= TopPad + plotH) dc.DrawLine(P(Br(t.Col, HoverIs(t) ? (byte)255 : (byte)220), HoverIs(t) ? 2.6 : 1.8), new Point(0, t.Y), new Point(plotW, t.Y));
-            // the side averages on the left (when every ticket has its own label)
-            foreach (var side in new[] { 1, -1 })
-            {
-                var ps = mine.Where(p => p.Dir == side).ToList(); if (ps.Count < 2 || tags.Any(x => x.Kind == "SIDE" && x.Dir == side)) continue;
-                double lots = ps.Sum(p => p.Lots), avg = ps.Sum(p => p.Open * p.Lots) / Math.Max(1e-9, lots), pl = ps.Sum(p => p.Profit + p.Swap);
-                Level(dc, Y(avg), side > 0 ? BuyB : SellB, (side > 0 ? "▲ " + ps.Count + " BUYS " : "▼ " + ps.Count + " SELLS ") + lots.ToString("0.00", IC) + " lots • avg " + F(avg) + " • " + Money(pl), false, 8, pl >= 0 ? BuyB : SellB);
-            }
-            // the labels on the right, stacked without overlap (folded tickets: no label of their own)
-            var vis = tags.Where(t => !t.Faint && t.Y >= TopPad - 40 && t.Y <= TopPad + plotH + 40).OrderBy(t => t.Y).ToList(); double lastY = double.MinValue;
+            // the labels on the LEFT, stacked without overlap (with many tickets on a side: lines only — point at one for its card)
+            var vis = tags.Where(t => !t.Faint && t.Y >= TopPad - 30 && t.Y <= TopPad + plotH + 30).OrderBy(t => t.Y).ToList(); double lastY = double.MinValue;
             foreach (var t in vis)
             {
-                double y = Math.Max(t.Y, lastY + 20); lastY = y; if (y > TopPad + plotH - 8) continue;
-                bool hov = HoverIs(t); DateTime born; double flash = seen.TryGetValue(t.Ticket, out born) && t.Kind != "SIDE" ? (now - born).TotalMilliseconds : 99999;
-                double hk = (now - hoverAt).TotalMilliseconds; bool blinkNew = flash < 1800 && ((int)(flash / 300)) % 2 == 0; bool blinkHov = hov && hk < 450 && ((int)(hk / 150)) % 2 == 0;
-                var ft = T(t.Text, 11, hov || blinkNew ? WhiteB : Br(t.Col), true); double w = ft.Width + 36, x = plotW - w - 8;
-                if (Math.Abs(y - t.Y) > 2) dc.DrawLine(P(Br(t.Col, 130), 1), new Point(x + w, t.Y), new Point(x + w - 8, y));
-                var r = new Rect(x, y - 10, w, 20);
-                if (hov) { var gr = r; gr.Inflate(3, 3); dc.DrawRoundedRectangle(Br(t.Col, 50), null, gr, 8, 8); }
-                dc.DrawRoundedRectangle(blinkNew || blinkHov ? Br(t.Col, 210) : hov ? Br(t.Col, 120) : Br(Theme.Plot, 242), P(Br(t.Col), hov ? 1.6 : 1), r, 6, 6);
-                dc.DrawText(blinkNew || blinkHov ? T(t.Text, 11, Br(Theme.Bg), true) : ft, new Point(x + 7, y - 7.5));
-                var xr = new Rect(x + w - 21, y - 8, 16, 16); bool xh = hoverKey == "X:" + t.Key;
-                dc.DrawRoundedRectangle(xh ? Br(SellC) : Br(t.Col, 70), null, xr, 4, 4); dc.DrawText(T("✕", 10.5, xh ? WhiteB : Br(t.Col), false, true), new Point(xr.X + 3.5, xr.Y));
-                long tk = t.Ticket; string kind = t.Kind; int dir = t.Dir;
-                var pos = mine.FirstOrDefault(p => p.Ticket == tk);
+                double y = Math.Max(t.Y, lastY + 17); lastY = y; if (y > TopPad + plotH - 6) continue;
+                bool hov = HoverIs(t); DateTime born; double flash = seen.TryGetValue(t.Ticket, out born) ? (now - born).TotalMilliseconds : 99999;
+                double hk = (now - hoverAt).TotalMilliseconds; bool blink = (flash < 1800 && ((int)(flash / 300)) % 2 == 0) || (hov && hk < 450 && ((int)(hk / 150)) % 2 == 0);
+                var ft = T(t.Text, 10.5, blink ? Br(Theme.Bg) : hov ? WhiteB : Br(t.Col), true);
+                FormattedText mt = t.Money != "" ? T(t.Money, 10.5, blink ? Br(Theme.Bg) : t.Money.StartsWith("+") ? BuyB : t.Money.StartsWith("−") ? SellB : Br(Theme.Text), true) : null;
+                double w = ft.Width + (mt != null ? mt.Width + 12 : 0) + 30, x = 6;
+                if (Math.Abs(y - t.Y) > 2) dc.DrawLine(P(Br(t.Col, 120), 1), new Point(x + w, y), new Point(x + w + 10, t.Y));
+                var r = new Rect(x, y - 8.5, w, 17);
+                dc.DrawRoundedRectangle(blink ? Br(t.Col, 220) : hov ? Br(t.Col, 70) : Br(Theme.Plot, 215), hov || blink ? P(Br(t.Col), 1.2) : null, r, 4, 4);
+                dc.DrawText(ft, new Point(x + 5, y - 7)); if (mt != null) dc.DrawText(mt, new Point(x + 5 + ft.Width + 12, y - 7));
+                var xr = new Rect(x + w - 19, y - 7.5, 15, 15); bool xh = hoverKey == "X:" + t.Key;
+                dc.DrawRoundedRectangle(xh ? Br(SellC) : Br(t.Col, 55), null, xr, 4, 4); dc.DrawText(T("✕", 9.5, xh ? WhiteB : Br(t.Col), false, true), new Point(xr.X + 3.3, xr.Y + 0.5));
+                long tk = t.Ticket; string kind = t.Kind;
+                var pos = mine.FirstOrDefault(p => p.Ticket == tk); var ord = ords.FirstOrDefault(o => o.Ticket == tk);
                 hits.Add(new ChartHit { R = xr, Kind = "X", Key = "X:" + t.Key, Ticket = tk, Click = () =>
                 {
                     if (kind == "POS" && CloseTicket != null) CloseTicket(tk, 0);
                     else if (kind == "SL" && pos != null && ModifyTicket != null) ModifyTicket(tk, 0, pos.Tp);
                     else if (kind == "TP" && pos != null && ModifyTicket != null) ModifyTicket(tk, pos.Sl, 0);
                     else if (kind == "ORD" && CancelOrder != null) CancelOrder(tk);
-                    else if (kind == "SIDE" && CloseSide != null) CloseSide(dir);
+                    else if (kind == "OSL" && ord != null && ModifyOrder != null) ModifyOrder(tk, ord.Price, 0, ord.Tp);
+                    else if (kind == "OTP" && ord != null && ModifyOrder != null) ModifyOrder(tk, ord.Price, ord.Sl, 0);
                 } });
-                hits.Add(new ChartHit { R = new Rect(x, y - 10, w - 23, 20), Kind = kind, Key = t.Key, Ticket = tk });
+                hits.Add(new ChartHit { R = new Rect(x, y - 8.5, w - 21, 17), Kind = kind, Key = t.Key, Ticket = tk });
             }
         }
-        bool HoverIs(TagRow t) { return hoverKey == t.Key || hoverKey == "X:" + t.Key || (t.Kind == "POS" && hoverKey == "SIDE:" + t.Dir && t.Faint); }
+        bool HoverIs(TagRow t) { return hoverKey == t.Key || hoverKey == "X:" + t.Key; }
         // a card next to the mouse with what it points at
         void HoverCard(DrawingContext dc, Point m, Brush textB, Brush tagBg)
         {
@@ -601,7 +615,7 @@ namespace KeystoneMT5
                     + (p.Sl > 0 ? "\nS/L " + F(p.Sl) + " = " + Money(Value((p.Sl - p.Open) * p.Dir, p.Lots)) : "") + (p.Tp > 0 ? "\nT/P " + F(p.Tp) + " = " + Money(Value((p.Tp - p.Open) * p.Dir, p.Lots)) : "")
                     + (TradeOn ? "\n" + (hoverKey.StartsWith("X:") ? (k[0] == "POS" ? "✕ = close this ticket" : "✕ = remove the " + (k[0] == "SL" ? "stop" : "target")) : k[0] == "POS" ? "drag the line = set its stop / target • right-click = more" : "drag = move the " + (k[0] == "SL" ? "stop" : "target")) : "\n🔒 ARM in the panel to change it from the chart");
             }
-            else if (k[0] == "ORD") { var o = Orders.FirstOrDefault(x => x.Ticket == tk); if (o == null) return; txt = "#" + o.Ticket + "  " + o.Type + " " + o.Lots.ToString("0.00", IC) + " @ " + F(o.Price) + (o.Sl > 0 ? "\nS/L " + F(o.Sl) : "") + (o.Tp > 0 ? "\nT/P " + F(o.Tp) : "") + (TradeOn ? "\ndrag = move the order • ✕ = cancel" : "\n🔒 ARM to change it"); }
+            else if (k[0] == "ORD" || k[0] == "OSL" || k[0] == "OTP") { var o = Orders.FirstOrDefault(x => x.Ticket == tk); if (o == null) return; txt = "#" + o.Ticket + "  " + o.Type + " " + o.Lots.ToString("0.00", IC) + " @ " + F(o.Price) + (o.Sl > 0 ? "\nS/L " + F(o.Sl) : "") + (o.Tp > 0 ? "\nT/P " + F(o.Tp) : "") + (TradeOn ? (k[0] == "ORD" ? "\ndrag = move the order (its stop / target move with it) • ✕ = cancel" : "\ndrag = move its " + (k[0] == "OSL" ? "stop" : "target") + " • ✕ = remove it") : "\n🔒 ARM to change it"); }
             else if (k[0] == "SIDE") { int dir = (int)tk; var ps = Positions.Where(p => p.Dir == dir && string.Equals(p.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)).ToList(); col = dir > 0 ? BuyC : SellC; txt = ps.Count + (dir > 0 ? " buys" : " sells") + " • best " + Money(ps.Count > 0 ? ps.Max(p => p.Profit + p.Swap) : 0) + " • worst " + Money(ps.Count > 0 ? ps.Min(p => p.Profit + p.Swap) : 0) + (TradeOn ? "\n✕ = close all " + (dir > 0 ? "buys" : "sells") + " (asks first)" : ""); }
             if (txt == null) return;
             var ft = T(txt, 11.5, textB); double x = m.X + 16, y = m.Y + 14; if (x + ft.Width + 20 > plotW) x = m.X - ft.Width - 26; if (y + ft.Height + 14 > TopPad + plotH) y = m.Y - ft.Height - 18;
@@ -628,7 +642,12 @@ namespace KeystoneMT5
                 if (ps.Sl > 0 && Math.Abs(p.Y - Y(ps.Sl)) <= 4) { ticket = ps.Ticket; kind = "SL"; key = "SL:" + ps.Ticket; return "LINE"; }
                 if (ps.Tp > 0 && Math.Abs(p.Y - Y(ps.Tp)) <= 4) { ticket = ps.Ticket; kind = "TP"; key = "TP:" + ps.Ticket; return "LINE"; }
             }
-            foreach (var o in Orders.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))) if (Math.Abs(p.Y - Y(o.Price)) <= 4) { ticket = o.Ticket; kind = "ORD"; key = "ORD:" + o.Ticket; return "LINE"; }
+            foreach (var o in Orders.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (Math.Abs(p.Y - Y(o.Price)) <= 4) { ticket = o.Ticket; kind = "ORD"; key = "ORD:" + o.Ticket; return "LINE"; }
+                if (o.Sl > 0 && Math.Abs(p.Y - Y(o.Sl)) <= 4) { ticket = o.Ticket; kind = "OSL"; key = "OSL:" + o.Ticket; return "LINE"; }
+                if (o.Tp > 0 && Math.Abs(p.Y - Y(o.Tp)) <= 4) { ticket = o.Ticket; kind = "OTP"; key = "OTP:" + o.Ticket; return "LINE"; }
+            }
             foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))) if (Math.Abs(p.Y - Y(ps.Open)) <= 3) { ticket = ps.Ticket; kind = "POS"; key = "POS:" + ps.Ticket; return "LINE"; }
             string part; var d = DrawingAt(p, out part); if (d != null) { key = "DRAW:" + Drawings.IndexOf(d); kind = part; return "DRAWING"; }
             return "PLOT";
@@ -674,7 +693,8 @@ namespace KeystoneMT5
             dragFrom = p; dragOff = rightOffset; dragHi = mHi; dragLo = mLo; dragBarW = barW;
             if (what == "PRICEAXIS") drag = "AXIS";
             else if (what == "TIMEAXIS") drag = "TIME";
-            else if (TradeOn && (what == "LINE" || what == "HIT") && (kind == "SL" || kind == "TP" || kind == "POS" || kind == "ORD")) { drag = kind == "ORD" ? "ORDER" : "TICKET"; dragTicket = tk; dragWhat = kind == "POS" ? "NEW" : kind; dragPrice = PriceAt(p.Y); }
+            else if (TradeOn && (what == "LINE" || what == "HIT") && (kind == "SL" || kind == "TP" || kind == "POS" || kind == "ORD" || kind == "OSL" || kind == "OTP"))
+            { bool o = kind == "ORD" || kind == "OSL" || kind == "OTP"; drag = o ? "ORDER" : "TICKET"; dragTicket = tk; dragWhat = kind == "POS" ? "NEW" : kind == "ORD" ? "PX" : kind == "OSL" ? "SL" : kind == "OTP" ? "TP" : kind; dragPrice = Math.Round(PriceAt(p.Y) / Point) * Point; }
             else if (what == "DRAWING") { string part; dragDraw = DrawingAt(p, out part); dragPart = part; selected = dragDraw; dragOrig = dragDraw.Clone(); drag = "MOVEDRAW"; dragDP = IndexAt(p.X); }
             else { drag = "PAN"; selected = null; }
             CaptureMouse(); e.Handled = true; InvalidateVisual();
@@ -698,7 +718,7 @@ namespace KeystoneMT5
                     if (!double.IsNaN(dragHi) && (Math.Abs(dy) > 8 || !auto)) { auto = false; double sh = dy / plotH * rng; mHi = dragHi + sh; mLo = dragLo + sh; }
                 }
                 else if (drag == "AXIS" && !double.IsNaN(dragHi)) { auto = false; double k = Math.Exp(dy / 160.0), mid = (dragHi + dragLo) / 2; mHi = mid + rng * k / 2; mLo = mid - rng * k / 2; }
-                else if (drag == "TIME") barW = Math.Max(1.2, Math.Min(80, dragBarW * Math.Exp((p.X - dragFrom.X) / 180.0)));   // drag right = wider candles, left = more candles
+                else if (drag == "TIME") barW = Math.Max(1.2, Math.Min(80, dragBarW * Math.Exp((dragFrom.X - p.X) / 180.0)));   // drag LEFT = zoom in (wider candles), RIGHT = zoom out (more candles)
                 else if (drag == "TICKET" || drag == "ORDER") dragPrice = Math.Round(PriceAt(p.Y) / Point) * Point;
                 else if (drag == "NEWDRAW" && newDraw != null)
                 {
@@ -742,7 +762,16 @@ namespace KeystoneMT5
                     if (bad) { if (Toast != null) Toast("a stop must be on the losing side of the price, a target on the winning side"); } else ModifyTicket(ps.Ticket, sl, tp);
                 }
             }
-            else if (was == "ORDER") { var o = Orders.FirstOrDefault(q => q.Ticket == dragTicket); if (o != null && ModifyOrder != null && Math.Abs(dragPrice - o.Price) > Point / 2) ModifyOrder(o.Ticket, dragPrice, o.Sl, o.Tp); }
+            else if (was == "ORDER")
+            {
+                var o = Orders.FirstOrDefault(q => q.Ticket == dragTicket);
+                if (o != null && ModifyOrder != null && !double.IsNaN(dragPrice))
+                {
+                    if (dragWhat == "PX" && Math.Abs(dragPrice - o.Price) > Point / 2) { double d = dragPrice - o.Price; ModifyOrder(o.Ticket, dragPrice, o.Sl > 0 ? o.Sl + d : 0, o.Tp > 0 ? o.Tp + d : 0); }   // the bracket moves with the order
+                    else if (dragWhat == "SL" && Math.Abs(dragPrice - o.Sl) > Point / 2) ModifyOrder(o.Ticket, o.Price, dragPrice, o.Tp);
+                    else if (dragWhat == "TP" && Math.Abs(dragPrice - o.Tp) > Point / 2) ModifyOrder(o.Ticket, o.Price, o.Sl, dragPrice);
+                }
+            }
             else if (was == "NEWDRAW" && newDraw != null)
             {
                 if (newDraw.Kind == "MEASURE") { measure = newDraw; newDraw = null; Tool = ""; if (ToolDone != null) ToolDone(); }

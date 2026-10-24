@@ -31,6 +31,7 @@ namespace KeystoneMT5
         public readonly string Mode; public bool BackToLauncher;
         readonly Mt5Bridge live; readonly IBroker broker; readonly SimBroker sim; readonly DispatcherTimer ui, simTimer;
         bool Sim { get { return sim != null; } }
+        readonly PaperBroker paper; bool Paper { get { return paper != null; } } bool Virtual { get { return Sim || Paper; } }   // DEMO = live prices + a simulated account
         string view = ""; bool everLinked, streamMode, fullChart; DateTime simLast = DateTime.Now;
         readonly Dictionary<string, FrameworkElement> views = new Dictionary<string, FrameworkElement>();
         readonly List<Tuple<string, Border, TextBlock, Border>> tabs = new List<Tuple<string, Border, TextBlock, Border>>();
@@ -50,8 +51,8 @@ namespace KeystoneMT5
 
         public MainWindow(Mt5Bridge b, string mode)
         {
-            live = b; Mode = mode; if (mode == "BACKTEST") { sim = new SimBroker(); broker = sim; } else broker = live;
-            Title = "SpasiX • " + (mode == "BACKTEST" ? "BACKTEST" : mode == "PROP" ? "PROP" : "LIVE"); Width = 1440; Height = 900; MinWidth = 1080; MinHeight = 640; Background = Bg; Foreground = Text;
+            live = b; Mode = mode; if (mode == "BACKTEST") { sim = new SimBroker(); broker = sim; } else if (mode == "DEMO") { paper = new PaperBroker(b); paper.LoadSaved(); broker = paper; } else broker = live;
+            Title = "SpasiX • " + (mode == "BACKTEST" ? "BACKTEST" : mode == "PROP" ? "PROP" : mode == "DEMO" ? "DEMO" : "LIVE"); Width = 1440; Height = 900; MinWidth = 1080; MinHeight = 640; Background = Bg; Foreground = Text;
             FontFamily = Sx.Face; WindowStartupLocation = WindowStartupLocation.CenterScreen; WindowState = WindowState.Maximized;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
             var lg = Logo(); if (lg != null) Icon = lg; Sx.DarkTitle(this);
@@ -93,18 +94,19 @@ namespace KeystoneMT5
             {
                 if (BackToLauncher) return;
                 int open; lock (broker.State.Gate) open = broker.State.Positions.Count;
-                var msg = Sim ? "Close the backtest?" + (open > 0 ? "\n\nIts " + open + " simulated position" + (open == 1 ? "" : "s") + " end with it (nothing is real)." : "") :
+                var msg = Paper ? "Close SpasiX?\n\nThe DEMO account is saved on this PC" + (open > 0 ? " with its " + open + " simulated position" + (open == 1 ? "" : "s") + " (they follow the prices again when you come back)" : "") + "." : Sim ? "Close the backtest?" + (open > 0 ? "\n\nIts " + open + " simulated position" + (open == 1 ? "" : "s") + " end with it (nothing is real)." : "") :
                     "Close SpasiX?" + (open > 0 ? "\n\nYour " + open + " open position" + (open == 1 ? "" : "s") + " stay open in MetaTrader 5 (only this window closes)." : "") + (armed ? "\n\nTrading is ARMED — it disarms when SpasiX closes." : "");
                 if (!Sx.Ask(this, Sim ? "🧪 Leave the backtest" : "⏻ Close SpasiX", msg, "CLOSE", "STAY", armed ? Red : Gold)) e.Cancel = true;
             };
-            Closed += delegate { ui.Stop(); if (simTimer != null) simTimer.Stop(); SaveDrawings(); };
+            Closed += delegate { ui.Stop(); if (simTimer != null) simTimer.Stop(); SaveDrawings(); if (Paper) paper.Save(); };
+            if (Paper) Loaded += delegate { Dispatcher.BeginInvoke(new Action(() => { if (!paper.Ready) DemoSetup(true); }), DispatcherPriority.Background); };
             if (!Sim) StartNews();
         }
         // back to the start screen (asks first while armed / in a backtest with trades)
         void GoLauncher()
         {
             int open; lock (broker.State.Gate) open = broker.State.Positions.Count;
-            string msg = Sim ? "Back to the start screen? The backtest ends" + (open > 0 ? " with its " + open + " simulated position" + (open == 1 ? "" : "s") : "") + "." : "Back to the start screen?" + (armed ? " Trading disarms." : "") + (open > 0 ? " Your positions stay open in MT5." : "");
+            string msg = Paper ? "Back to the start screen? The DEMO account is saved." : Sim ? "Back to the start screen? The backtest ends" + (open > 0 ? " with its " + open + " simulated position" + (open == 1 ? "" : "s") : "") + "." : "Back to the start screen?" + (armed ? " Trading disarms." : "") + (open > 0 ? " Your positions stay open in MT5." : "");
             if (!Sx.Ask(this, "⌂ Modes", msg, "GO BACK", "STAY")) return;
             armed = false; BackToLauncher = true; Close();
         }
@@ -118,8 +120,8 @@ namespace KeystoneMT5
             var nm = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var word = new StackPanel { Orientation = Orientation.Horizontal };
             word.Children.Add(new TextBlock { Text = "Spasi", Foreground = Gold, FontSize = 24, FontWeight = FontWeights.Bold }); word.Children.Add(new TextBlock { Text = "X", Foreground = Cyan, FontSize = 24, FontWeight = FontWeights.Bold }); nm.Children.Add(word);
-            var mc = Mode == "BACKTEST" ? Cyan : Mode == "PROP" ? Violet : Green;
-            modeText = new TextBlock { Text = Mode == "BACKTEST" ? "🧪 BACKTEST" : Mode == "PROP" ? "🏆 PROP" : "● LIVE", Foreground = mc, FontSize = 10, FontWeight = FontWeights.Bold };
+            var mc = Mode == "BACKTEST" ? Cyan : Mode == "PROP" ? Violet : Mode == "DEMO" ? Orange : Green;
+            modeText = new TextBlock { Text = Mode == "BACKTEST" ? "🧪 BACKTEST" : Mode == "PROP" ? "🏆 PROP" : Mode == "DEMO" ? "🎮 DEMO" : "● LIVE", Foreground = mc, FontSize = 10, FontWeight = FontWeights.Bold };
             modeBadge = new Border { Child = modeText, Background = Tint(mc, 40), BorderBrush = Tint(mc, 150), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 1, 6, 1), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 1, 0, 0) };
             nm.Children.Add(modeBadge); logo.Children.Add(nm);
             DockPanel.SetDock(logo, Dock.Left); dp.Children.Add(logo);
@@ -243,7 +245,7 @@ namespace KeystoneMT5
         // ---------------------------------------------------------------- the refresh
         void Refresh()
         {
-            var s = broker.State;
+            var s = broker.State; if (Paper) paper.Sync(); BasketWatch(s);
             lock (s.Gate)
             {
                 var a = s.Account; string cur = a.Currency;
@@ -253,15 +255,17 @@ namespace KeystoneMT5
                     bool alive = s.Alive;
                     if (live.Problem != "") { connText.Text = "● " + live.Problem; connPill.Background = Red; }
                     else if (!alive) { connText.Text = s.Linked ? "● MT5 IS QUIET — frozen?" : everLinked ? "● MT5 DISCONNECTED" : "● WAITING FOR MT5"; connPill.Background = everLinked ? Red : Gold; }
+                    else if (Paper) { connText.Text = paper.Ready ? "● DEMO • LIVE PRICES" : "● DEMO • SET UP THE ACCOUNT"; connPill.Background = Orange; }
                     else { connText.Text = "● " + a.Kind + (a.Connected ? "" : " • MT5 OFFLINE FROM THE BROKER") + (armed ? " • ARMED" : ""); connPill.Background = a.Kind == "REAL" ? (a.Connected ? Green : Red) : Cyan; }
                     setupStatus.Text = live.Problem != "" ? "⚠ " + live.Problem : alive ? "✓ CONNECTED to " + a.Server + " • " + a.Kind + " • " + s.Quotes.Count + " symbols • bridge v" + s.BridgeVersion + (s.BridgeVersion < 4 ? " — put SpasiXBridge v4 in MT5 (step 1) for trading checks, backtest history and the tracker" : s.CanTrade ? " • trading allowed by MT5 (ARM in the panel)" : " • read only — see step 4") : "Listening on 127.0.0.1:" + live.Port + " — waiting for the SpasiXBridge EA …";
                     setupStatus.Foreground = alive ? Green : live.Problem != "" ? Red : Cyan;
                     if (!alive && !s.Linked) { if (armed) SetArmed(false, "MT5 disconnected"); return; }
                     if (!everLinked && alive) { everLinked = true; if (view == "SETUP") Show("CHART"); }
-                    acLogin.Text = a.Login.ToString(IC); acName.Text = a.Name;
+                    if (Paper) { var la = live.State.Account; var vs = paper.Acct.Set; acLogin.Text = "DEMO"; acName.Text = ""; acRest.Text = "•  simulated " + vs.Kind + (vs.Kind == "RAW" ? " ($" + vs.CommissionPerLot.ToString("0.##", IC) + " / lot)" : " (+" + vs.MarkupPts.ToString("0", IC) + " pts spread)") + "  •  1:" + vs.Leverage + "  •  HEDGING  •  prices from " + la.Server + "  •  nothing reaches MT5"; acRest.Foreground = Orange; }
+                    else { acLogin.Text = a.Login.ToString(IC); acName.Text = a.Name;
                     acRest.Text = "•  " + a.Server + "  •  " + a.Kind + "  •  " + (a.Mode == "HEDGE" ? "HEDGING" : "NETTING") + "  •  1:" + a.Leverage + (s.Company != "" ? "  •  " + s.Company : "");
-                    acRest.Foreground = Muted;
-                    RequestDeals(false);
+                    acRest.Foreground = Muted; }
+                    if (!Paper) RequestDeals(false);
                 }
                 Action<string, string, Brush> card = (k, v, fg) => { cards[k].Item2.Text = v; cards[k].Item2.Foreground = fg; };
                 bool any = Sim ? sim.Spec != null : true;

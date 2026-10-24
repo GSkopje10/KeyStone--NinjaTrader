@@ -16,10 +16,17 @@ namespace KeystoneMT5
     {
         public string Name = "", Description = "", Currency = "USD"; public int Digits = 2; public double Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100;
         public int ServerOffsetSec = 10800; public int NyOffsetHours = -7;   // NY = server time + this
+        public double SwapLong, SwapShort; public int SwapMode; public DayOfWeek Swap3Day = DayOfWeek.Wednesday; public double CommissionPerLot = -1;   // MT5's swap (its mode), your commission seen in MT5's deals (−1 = unknown)
         public static SimSpec From(Mt5Symbol s, int serverOffsetSec, int nyOff, string cur)
         {
-            return new SimSpec { Name = s.Name, Description = s.Description, Digits = s.Digits, Point = s.Point > 0 ? s.Point : 0.01, Contract = s.Contract > 0 ? s.Contract : 1, TickValue = s.TickValue > 0 ? s.TickValue : 1, TickSize = s.TickSize > 0 ? s.TickSize : (s.Point > 0 ? s.Point : 0.01), VolMin = s.VolMin > 0 ? s.VolMin : 0.01, VolStep = s.VolStep > 0 ? s.VolStep : 0.01, VolMax = s.VolMax > 0 ? s.VolMax : 100, ServerOffsetSec = serverOffsetSec, NyOffsetHours = nyOff, Currency = cur ?? "USD" };
+            return new SimSpec { Name = s.Name, Description = s.Description, Digits = s.Digits, Point = s.Point > 0 ? s.Point : 0.01, Contract = s.Contract > 0 ? s.Contract : 1, TickValue = s.TickValue > 0 ? s.TickValue : 1, TickSize = s.TickSize > 0 ? s.TickSize : (s.Point > 0 ? s.Point : 0.01), VolMin = s.VolMin > 0 ? s.VolMin : 0.01, VolStep = s.VolStep > 0 ? s.VolStep : 0.01, VolMax = s.VolMax > 0 ? s.VolMax : 100, ServerOffsetSec = serverOffsetSec, NyOffsetHours = nyOff, Currency = cur ?? "USD",
+                SwapLong = s.SwapLong, SwapShort = s.SwapShort, SwapMode = s.SwapMode, Swap3Day = (DayOfWeek)Math.Max(0, Math.Min(6, s.Swap3Day)), CommissionPerLot = s.CommissionPerLot,
+                MarginPerLot = s.MarginPerLot, MarginRefPrice = s.MarginRefPrice, MarginUseLeg = s.MarginUseLeg,
+                HedgedRatio = s.MarginHedged < 0 ? -1 : s.MarginInitial > 0 && s.MarginPerLot > 0 ? Math.Min(1, s.MarginHedged / s.MarginPerLot) : s.Contract > 0 ? Math.Min(1, s.MarginHedged / s.Contract) : -1 };
         }
+        // MT5's margin: per lot at MarginRefPrice with the account's leverage then (MarginLeverage); HedgedRatio = what a hedged lot costs vs a normal one (−1 = unknown); larger leg only
+        public double MarginPerLot, MarginRefPrice, HedgedRatio = -1; public int MarginLeverage; public bool MarginUseLeg;
+        public double PointValue { get { return TickSize > 0 ? TickValue / TickSize * Point : 0; } }   // $ per point per lot
     }
 
     // the saved history: %AppData%\SpasiX\MT5\history\SYMBOL\yyyyMMdd.csv (one server day of 1-minute candles: epoch,o,h,l,c,v,spread) + spec.txt
@@ -49,6 +56,22 @@ namespace KeystoneMT5
             }
             return res;
         }
+        // MT5's real ticks of one day: yyyyMMdd.ticks (binary: per tick the milliseconds from the day's start, the bid, the ask)
+        static string TickFile(string sym, DateTime day) { return Path.Combine(DirOf(sym), day.ToString("yyyyMMdd", IC) + ".ticks"); }
+        public static bool HasTicks(string sym, DateTime day) { return File.Exists(TickFile(sym, day)); }
+        public static void SaveTicks(string sym, DateTime day, List<SimTick> ticks)
+        {
+            Directory.CreateDirectory(DirOf(sym));
+            using (var w = new BinaryWriter(File.Create(TickFile(sym, day)))) foreach (var t in ticks) { w.Write((int)(t.T - day).TotalMilliseconds); w.Write(t.Bid); w.Write(t.Ask); }
+        }
+        public static List<SimTick> LoadTicks(string sym, DateTime day)
+        {
+            var res = new List<SimTick>(); var f = TickFile(sym, day); if (!File.Exists(f)) return res;
+            try { using (var r = new BinaryReader(File.OpenRead(f))) { long n = r.BaseStream.Length / 20; res.Capacity = (int)n; for (long i = 0; i < n; i++) { int ms = r.ReadInt32(); double b = r.ReadDouble(), a = r.ReadDouble(); res.Add(new SimTick { T = day.AddMilliseconds(ms), Bid = b, Ask = a }); } } } catch { }
+            return res;
+        }
+        public static List<SimTick> LoadTickRange(string sym, DateTime from, DateTime to) { var res = new List<SimTick>(); for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) res.AddRange(LoadTicks(sym, d)); return res; }
+        public static int TickDays(string sym) { try { var d = DirOf(sym); return Directory.Exists(d) ? Directory.GetFiles(d, "*.ticks").Length : 0; } catch { return 0; } }
         public static List<Mt5Bar> LoadRange(string sym, DateTime from, DateTime to) { var res = new List<Mt5Bar>(); for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) res.AddRange(LoadDay(sym, d)); res.Sort((a, b) => a.Time.CompareTo(b.Time)); return res; }
         public static List<DateTime> Days(string sym)
         {
@@ -61,7 +84,9 @@ namespace KeystoneMT5
         {
             Directory.CreateDirectory(DirOf(s.Name));
             File.WriteAllLines(Path.Combine(DirOf(s.Name), "spec.txt"), new[] { "name=" + s.Name, "description=" + s.Description, "currency=" + s.Currency, "digits=" + s.Digits.ToString(IC), "point=" + s.Point.ToString("R", IC), "contract=" + s.Contract.ToString("R", IC),
-                "tickvalue=" + s.TickValue.ToString("R", IC), "ticksize=" + s.TickSize.ToString("R", IC), "volmin=" + s.VolMin.ToString("R", IC), "volstep=" + s.VolStep.ToString("R", IC), "volmax=" + s.VolMax.ToString("R", IC), "serveroffset=" + s.ServerOffsetSec.ToString(IC), "nyoffset=" + s.NyOffsetHours.ToString(IC) });
+                "tickvalue=" + s.TickValue.ToString("R", IC), "ticksize=" + s.TickSize.ToString("R", IC), "volmin=" + s.VolMin.ToString("R", IC), "volstep=" + s.VolStep.ToString("R", IC), "volmax=" + s.VolMax.ToString("R", IC), "serveroffset=" + s.ServerOffsetSec.ToString(IC), "nyoffset=" + s.NyOffsetHours.ToString(IC),
+                "swaplong=" + s.SwapLong.ToString("R", IC), "swapshort=" + s.SwapShort.ToString("R", IC), "swapmode=" + s.SwapMode.ToString(IC), "swap3=" + ((int)s.Swap3Day).ToString(IC), "commission=" + s.CommissionPerLot.ToString("R", IC),
+                "marginperlot=" + s.MarginPerLot.ToString("R", IC), "marginref=" + s.MarginRefPrice.ToString("R", IC), "hedgedratio=" + s.HedgedRatio.ToString("R", IC), "marginlev=" + s.MarginLeverage.ToString(IC), "marginleg=" + (s.MarginUseLeg ? "1" : "0") });
         }
         public static SimSpec LoadSpec(string sym)
         {
@@ -69,45 +94,77 @@ namespace KeystoneMT5
             foreach (var ln in File.ReadAllLines(f)) { int i = ln.IndexOf('='); if (i > 0) d[ln.Substring(0, i)] = ln.Substring(i + 1); }
             Func<string, double, double> n = (k, def) => { string v; double x; return d.TryGetValue(k, out v) && double.TryParse(v, NumberStyles.Float, IC, out x) ? x : def; };
             string nm; d.TryGetValue("name", out nm); string ds; d.TryGetValue("description", out ds); string cu; d.TryGetValue("currency", out cu);
-            return new SimSpec { Name = nm ?? sym, Description = ds ?? "", Currency = string.IsNullOrEmpty(cu) ? "USD" : cu, Digits = (int)n("digits", 2), Point = n("point", 0.01), Contract = n("contract", 1), TickValue = n("tickvalue", 1), TickSize = n("ticksize", 0.01), VolMin = n("volmin", 0.01), VolStep = n("volstep", 0.01), VolMax = n("volmax", 100), ServerOffsetSec = (int)n("serveroffset", 10800), NyOffsetHours = (int)n("nyoffset", -7) };
+            return new SimSpec { Name = nm ?? sym, Description = ds ?? "", Currency = string.IsNullOrEmpty(cu) ? "USD" : cu, Digits = (int)n("digits", 2), Point = n("point", 0.01), Contract = n("contract", 1), TickValue = n("tickvalue", 1), TickSize = n("ticksize", 0.01), VolMin = n("volmin", 0.01), VolStep = n("volstep", 0.01), VolMax = n("volmax", 100), ServerOffsetSec = (int)n("serveroffset", 10800), NyOffsetHours = (int)n("nyoffset", -7),
+                SwapLong = n("swaplong", 0), SwapShort = n("swapshort", 0), SwapMode = (int)n("swapmode", 0), Swap3Day = (DayOfWeek)(int)n("swap3", 3), CommissionPerLot = n("commission", -1),
+                MarginPerLot = n("marginperlot", 0), MarginRefPrice = n("marginref", 0), HedgedRatio = n("hedgedratio", -1), MarginLeverage = (int)n("marginlev", 0), MarginUseLeg = n("marginleg", 0) == 1 };
         }
     }
 
     // downloads missing days from MT5 through the bridge, one day at a time (HIST|symbol|from|to → HIST … HISTEND), and saves them
+    // downloads missing days from MT5 through the bridge, one day at a time: the 1-minute candles (HIST → HIST … HISTEND) and MT5's REAL TICKS
+    // (HISTT → TT … TTEND) of the days to replay, and saves them on this PC
     public sealed class HistoryDownloader
     {
-        readonly IBroker live; readonly string sym; readonly List<DateTime> days; int idx, tries, timeouts; DateTime askedAt = DateTime.MinValue, retryAt = DateTime.MinValue; bool waiting;
-        public string Status = ""; public bool Done, Failed; public int Saved, Skipped;
-        public double Progress { get { return days.Count == 0 ? 1 : (double)idx / days.Count; } }
-        public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to)
+        readonly IBroker live; readonly string sym; readonly List<DateTime> days; readonly DateTime tickFrom; readonly bool wantTicks;
+        int idx, tries, timeouts, phase; DateTime askedAt = DateTime.MinValue, retryAt = DateTime.MinValue; bool waiting;
+        public string Status = ""; public bool Done, Failed; public int Saved, Skipped, TickDays; public long TickCount;
+        public double Progress { get { return days.Count == 0 ? 1 : (idx + (phase == 1 ? 0.5 : 0)) / days.Count; } }
+        public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to, DateTime ticksFrom, bool ticks = true)
         {
-            this.live = live; this.sym = sym; days = new List<DateTime>(); var today = DateTime.Today;
-            for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) if (!HistoryStore.HasDay(sym, d) || d >= today.AddDays(-1)) days.Add(d);   // today / yesterday: always fresh
+            this.live = live; this.sym = sym; tickFrom = ticksFrom.Date; wantTicks = ticks; days = new List<DateTime>(); var today = DateTime.Today;
+            for (var d = from.Date; d <= to.Date; d = d.AddDays(1))
+                if (!HistoryStore.HasDay(sym, d) || d >= today.AddDays(-1) || (wantTicks && d >= tickFrom && !HistoryStore.HasTicks(sym, d) && HistoryStore.LoadDay(sym, d).Count > 0)) days.Add(d);   // today / yesterday: always fresh
             if (days.Count == 0) { Done = true; Status = "✓ every day is already on this PC"; }
         }
+        public HistoryDownloader(IBroker live, string sym, DateTime from, DateTime to) : this(live, sym, from, to, to.AddDays(1), false) { }
         // call every ~100 ms; true while it works
         public bool Step(DateTime now)
         {
             if (Done) return false;
-            if (idx >= days.Count) { Done = true; Status = "✓ " + Saved + " day(s) downloaded" + (Skipped > 0 ? " • " + Skipped + " without candles (weekend / holiday)" : ""); return false; }
-            var day = days[idx]; long from = Mt5State.Epoch(day), to = Mt5State.Epoch(day.AddDays(1)); string key = sym + "|" + from;
-            Tuple<List<Mt5Bar>, int> got = null;
-            lock (live.State.Gate) { if (live.State.Hist.TryGetValue(key, out got)) live.State.Hist.Remove(key); }
-            if (got != null)
+            if (idx >= days.Count) { Done = true; Status = "✓ " + Saved + " day(s) of candles" + (TickDays > 0 ? " + " + TickDays + " day(s) of real ticks (" + TickCount.ToString("N0", CultureInfo.InvariantCulture) + ")" : "") + " downloaded" + (Skipped > 0 ? " • " + Skipped + " without candles (weekend / holiday)" : ""); return false; }
+            var day = days[idx]; long from = Mt5State.Epoch(day), to = Mt5State.Epoch(day.AddDays(1)); string key = sym + "|" + from; bool weekend = day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday;
+            string dn = day.ToString("ddd dd MMM yyyy", CultureInfo.InvariantCulture);
+            if (phase == 0 && HistoryStore.HasDay(sym, day) && day < DateTime.Today.AddDays(-1)) { phase = 1; }
+            if (phase == 1 && (!wantTicks || day < tickFrom || HistoryStore.HasTicks(sym, day) && day < DateTime.Today.AddDays(-1) || HistoryStore.LoadDay(sym, day).Count == 0)) { Next(); return true; }
+            if (phase == 0)
             {
-                waiting = false; bool weekend = day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday;
-                if ((got.Item2 != 0 || (got.Item1.Count == 0 && !weekend)) && tries < 4) { tries++; retryAt = now.AddSeconds(1.5 * tries); Status = "MT5 is loading " + day.ToString("ddd dd MMM", CultureInfo.InvariantCulture) + " from the broker … (try " + tries + ")"; return true; }
-                if (day < DateTime.Today || got.Item1.Count > 0) HistoryStore.SaveDay(sym, day, got.Item1);
-                if (got.Item1.Count > 0) Saved++; else Skipped++;
-                idx++; tries = 0; timeouts = 0; retryAt = DateTime.MinValue; return true;
+                Tuple<List<Mt5Bar>, int> got = null;
+                lock (live.State.Gate) { if (live.State.Hist.TryGetValue(key, out got)) live.State.Hist.Remove(key); }
+                if (got != null)
+                {
+                    waiting = false;
+                    if ((got.Item2 != 0 || (got.Item1.Count == 0 && !weekend)) && tries < 4) { tries++; retryAt = now.AddSeconds(1.5 * tries); Status = "MT5 is loading " + dn + " from the broker … (try " + tries + ")"; return true; }
+                    if (day < DateTime.Today || got.Item1.Count > 0) HistoryStore.SaveDay(sym, day, got.Item1);
+                    if (got.Item1.Count > 0) Saved++; else Skipped++;
+                    phase = 1; tries = 0; timeouts = 0; retryAt = DateTime.MinValue; return true;
+                }
+                return Ask(now, "HIST|" + sym + "|" + from + "|" + to, "downloading the candles of " + sym + " " + dn + " (" + (idx + 1) + " / " + days.Count + ")", 8);
             }
+            Tuple<List<SimTick>, int> gt = null;
+            lock (live.State.Gate) { if (live.State.TickHist.TryGetValue(key, out gt)) live.State.TickHist.Remove(key); }
+            if (gt != null)
+            {
+                waiting = false;
+                if ((gt.Item2 != 0 || gt.Item1.Count == 0) && !weekend && tries < 5) { tries++; retryAt = now.AddSeconds(2.0 * tries); Status = "MT5 is loading the real ticks of " + dn + " … (try " + tries + ")"; return true; }
+                if (gt.Item1.Count > 0) { HistoryStore.SaveTicks(sym, day, gt.Item1); TickDays++; TickCount += gt.Item1.Count; }
+                Next(); return true;
+            }
+            return Ask(now, "HISTT|" + sym + "|" + from + "|" + to, "downloading MT5's real ticks of " + sym + " " + dn + " (" + (idx + 1) + " / " + days.Count + ")", 45);
+        }
+        void Next() { idx++; phase = 0; tries = 0; timeouts = 0; retryAt = DateTime.MinValue; waiting = false; }
+        bool Ask(DateTime now, string cmd, string status, double timeout)
+        {
             if (!waiting)
             {
                 if (now < retryAt) return true;
-                if (!live.Send("HIST|" + sym + "|" + from + "|" + to)) { Failed = true; Done = true; Status = "✖ MT5 is not connected — start MT5 with the SpasiXBridge (the days already on this PC still work)"; return false; }
-                waiting = true; askedAt = now; Status = "downloading " + sym + " " + day.ToString("ddd dd MMM yyyy", CultureInfo.InvariantCulture) + " (" + (idx + 1) + " / " + days.Count + ")"; return true;
+                if (!live.Send(cmd)) { Failed = true; Done = true; Status = "✖ MT5 is not connected — start MT5 with the SpasiXBridge (the days already on this PC still work)"; return false; }
+                waiting = true; askedAt = now; Status = status; return true;
             }
-            if ((now - askedAt).TotalSeconds > 8) { if (++timeouts > 3) { Failed = true; Done = true; Status = "✖ MT5 does not answer — put the new SpasiXBridge v4 on the chart (⚙ SETUP)"; return false; } waiting = false; }
+            if ((now - askedAt).TotalSeconds > timeout)
+            {
+                if (++timeouts > 3) { if (phase == 1) { Next(); return true; } Failed = true; Done = true; Status = "✖ MT5 does not answer — put the new SpasiXBridge v5 on the chart (⚙ SETUP)"; return false; }
+                waiting = false;
+            }
             return true;
         }
     }
@@ -115,53 +172,75 @@ namespace KeystoneMT5
     public sealed class SimSettings
     {
         public string Symbol = ""; public DateTime From, To; public int WarmDays = 3; public double StartNyHour = double.NaN;   // NaN = the server's midnight; NY hours otherwise (−6.5 = 17:30 the day before)
-        public double Balance = 10000, CommissionPerLot = 7, SwapLong = 0, SwapShort = 0, StopOutPct = 50; public int Leverage = 500, FixedSpread = -1, SlipPts = 0; public string Currency = "USD";
+        public double Balance = 10000, CommissionPerLot = 7, SwapLong = 0, SwapShort = 0, StopOutPct = 50, MarkupPts = 0; public int Leverage = 500, FixedSpread = -1, SlipPts = 0; public string Currency = "USD", Kind = "RAW";
+        public SimAccountSettings Account() { return new SimAccountSettings { Balance = Balance, CommissionPerLot = CommissionPerLot, SwapLong = SwapLong, SwapShort = SwapShort, StopOutPct = StopOutPct, Leverage = Leverage, SlipPts = SlipPts, Currency = Currency, Kind = Kind, MarkupPts = MarkupPts }; }
     }
 
-    // the simulated broker
+    // the simulated broker of the BACKTEST: one or more symbols replayed together, minute by minute, on one simulated account
     public sealed class SimBroker : IBroker
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
-        readonly Mt5State state = new Mt5State();
+        readonly Mt5State state = new Mt5State(); readonly SimAccount acct;
         public Mt5State State { get { return state; } } public bool IsSim { get { return true; } } public string Problem { get { return ""; } } public int Port { get { return 0; } }
-        public SimSettings Set { get; private set; } public SimSpec Spec { get; private set; }
-        List<Mt5Bar> bars = new List<Mt5Bar>(); int startIdx, cur; List<Tuple<double, double>> path; int pathPos; long volPerTick;
+        public SimSettings Set { get; private set; }
+        // one symbol: its candles, its real ticks (if downloaded), where the replay is; Path = the prices inside the current minute: {time from the minute's start (.NET ticks), bid, ask (NaN = from the candle's spread)}
+        sealed class Feed { public SimSpec Spec; public List<Mt5Bar> Bars; public List<SimTick> Ticks; public int TickIdx; public int Start, Cur; public List<double[]> Path; public int PathPos; public long VolPerTick; public int RealBars, MadeBars;
+            public DateTime Next { get { return Cur >= Bars.Count ? DateTime.MaxValue : Path != null ? Bars[Cur].Time.AddTicks((long)Path[PathPos][0]) : Bars[Cur].Time; } } }
+        readonly List<Feed> feeds = new List<Feed>(); List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> data;
+        // how much of the replay so far came from MT5's real ticks (the rest: the candle's open → low → high → close)
+        public double RealShare { get { int r = feeds.Sum(f => f.RealBars), m = feeds.Sum(f => f.MadeBars); return r + m == 0 ? (feeds.Any(f => f.Ticks != null && f.Ticks.Count > 0) ? 1 : 0) : (double)r / (r + m); } }
+        public bool HasTicks { get { return feeds.Any(f => f.Ticks != null && f.Ticks.Count > 0); } }
+        public SimSpec Spec { get { return feeds.Count > 0 ? feeds[0].Spec : null; } }
+        public List<SimSpec> Specs { get { return feeds.Select(f => f.Spec).ToList(); } }
         public DateTime Clock { get; private set; } public DateTime StartTime { get; private set; } public DateTime EndTime { get; private set; }
         public bool Playing; public double Speed = 1; public bool Ended { get; private set; }
         public const double MaxSpeed = 100000;
-        long nextTicket = 50000001, nextDeal = 70000001; int cmdSeq; double balance;
-        public readonly List<string> Notes = new List<string>();   // stop-outs, the end of the data …
-        public int TicksPerBar = 16;
+        public List<string> Notes { get { return acct.Notes; } }
+        public readonly List<DateTime> ClosedDays = new List<DateTime>();   // the server days that ended during the replay (the app saves them)
+        public int TicksPerBar = 16; int cmdSeq;
+        public SimBroker() { acct = new SimAccount(state); }
+        public SimAccount Account { get { return acct; } }
 
-        public double Progress { get { int n = bars.Count - startIdx; return n <= 0 ? 0 : Math.Max(0, Math.Min(1, (cur - startIdx + (path != null && path.Count > 0 ? (double)pathPos / path.Count : 0)) / n)); } }
-        public int DaysTotal { get { return bars.Skip(startIdx).Select(b => b.Time.Date).Distinct().Count(); } }
-        public int DayNumber { get { var d = Clock.Date; return bars.Skip(startIdx).Select(b => b.Time.Date).Distinct().Count(x => x <= d); } }
+        public double Progress { get { var span = (EndTime - StartTime).TotalSeconds; return span <= 0 ? 0 : Math.Max(0, Math.Min(1, (Clock - StartTime).TotalSeconds / span)); } }
+        List<DateTime> days = new List<DateTime>();
+        public int DaysTotal { get { return days.Count; } }
+        public int DayNumber { get { var d = Clock.Date; return days.Count(x => x <= d); } }
 
+        public string Load(SimSettings s, SimSpec spec, List<Mt5Bar> m1) { return Load(s, new List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> { Tuple.Create(spec, m1, (List<SimTick>)null) }); }
+        public string Load(SimSettings s, List<Tuple<SimSpec, List<Mt5Bar>>> input) { return Load(s, input.Select(x => Tuple.Create(x.Item1, x.Item2, (List<SimTick>)null)).ToList()); }
         // load a backtest: the warm-up days are drawn at once, the rest is replayed from the start time
-        public string Load(SimSettings s, SimSpec spec, List<Mt5Bar> m1)
+        public string Load(SimSettings s, List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> input)
         {
-            Set = s; Spec = spec; bars = m1.OrderBy(b => b.Time).Select(b => b.Copy()).ToList(); Ended = false; Playing = false; Notes.Clear(); path = null; pathPos = 0;
-            var start = s.From.Date; if (!double.IsNaN(s.StartNyHour)) start = start.AddHours(s.StartNyHour - spec.NyOffsetHours);
-            startIdx = bars.FindIndex(b => b.Time >= start); if (startIdx < 0) return "no candles from " + s.From.ToString("dd MMM yyyy", IC) + " in the loaded history";
-            if (startIdx == 0 && bars.Count < 2) return "too few candles";
-            cur = startIdx; StartTime = bars[startIdx].Time; EndTime = bars[bars.Count - 1].Time.AddMinutes(1); Clock = StartTime;
+            Set = s; data = input; Ended = false; Playing = false; feeds.Clear(); ClosedDays.Clear(); if (input.Count == 0) return "no symbol";
+            var spec0 = input[0].Item1; var start = s.From.Date; if (!double.IsNaN(s.StartNyHour)) start = start.AddHours(s.StartNyHour - spec0.NyOffsetHours);
+            foreach (var d in input)
+            {
+                var bars = d.Item2.OrderBy(b => b.Time).Select(b => b.Copy()).ToList(); int st = bars.FindIndex(b => b.Time >= start);
+                if (st < 0) continue; var ticks = d.Item3 != null && d.Item3.Count > 0 ? d.Item3.OrderBy(x => x.T).ToList() : null;
+                feeds.Add(new Feed { Spec = d.Item1, Bars = bars, Start = st, Cur = st, Ticks = ticks });
+            }
+            if (feeds.Count == 0) return "no candles from " + s.From.ToString("dd MMM yyyy", IC) + " in the loaded history";
+            StartTime = feeds.Min(f => f.Bars[f.Start].Time); EndTime = feeds.Max(f => f.Bars[f.Bars.Count - 1].Time.AddMinutes(1)); Clock = StartTime;
+            days = feeds.SelectMany(f => f.Bars.Skip(f.Start).Select(b => b.Time.Date)).Distinct().OrderBy(x => x).ToList();
             lock (state.Gate)
             {
-                state.Symbols.Clear(); state.Quotes.Clear(); state.Series.Clear(); state.Positions = new List<Mt5Position>(); state.Orders = new List<Mt5Order>(); state.Deals = new List<Mt5Deal>(); state.Results.Clear();
-                state.Symbols[spec.Name] = new Mt5Symbol { Name = spec.Name, Description = spec.Description, Digits = spec.Digits, Point = spec.Point, Contract = spec.Contract, TickValue = spec.TickValue, TickSize = spec.TickSize, VolMin = spec.VolMin, VolStep = spec.VolStep, VolMax = spec.VolMax };
-                state.BridgeVersion = 4; state.AllowInput = state.AlgoTerminal = state.AlgoEa = state.AccountTrade = state.AccountExpert = true; state.CanKnown = true; state.MaxLots = Math.Max(1, spec.VolMax);
-                state.Company = "SpasiX BACKTEST"; state.ServerOffsetSec = spec.ServerOffsetSec; state.Linked = true; state.LastLine = DateTime.Now; state.LinkedAt = DateTime.Now;
-                balance = s.Balance;
-                state.Account = new Mt5Account { Login = 0, Name = "BACKTEST", Server = "SpasiX simulator", Currency = s.Currency, Balance = balance, Equity = balance, FreeMargin = balance, Leverage = s.Leverage, Mode = "HEDGE", Connected = true, Kind = "BACKTEST" };
-                var warm = bars.Take(startIdx).ToList();
-                foreach (var m in Tf.All) { var se = state.SeriesOf(spec.Name, m); se.Bars.Clear(); se.Bars.AddRange(BarSeries.Fold(warm, m)); se.Loaded = true; se.LoadedAt = DateTime.Now; se.Version++; }
-                var first = bars[startIdx]; double px = startIdx > 0 ? bars[startIdx - 1].C : first.O; Quote(first.Time, px, first.Spread);
-                state.Deals.Add(new Mt5Deal { Ticket = nextDeal++, Time = StartTime, Type = "BALANCE", Profit = balance, Comment = "start balance" }); state.DealsVersion++; state.DealsAt = DateTime.Now; state.DealsFrom = StartTime.Date;
+                state.Symbols.Clear(); state.Quotes.Clear(); state.Series.Clear(); state.Results.Clear(); acct.Specs.Clear();
+                state.BridgeVersion = 5; state.AllowInput = state.AlgoTerminal = state.AlgoEa = state.AccountTrade = state.AccountExpert = true; state.CanKnown = true; state.MaxLots = 100;
+                state.Company = "SpasiX BACKTEST"; state.ServerOffsetSec = spec0.ServerOffsetSec; state.Linked = true; state.LastLine = DateTime.Now; state.LinkedAt = DateTime.Now;
+                acct.Reset(s.Account(), StartTime); state.Account.Kind = "BACKTEST"; state.Account.Name = "BACKTEST";
+                foreach (var f in feeds)
+                {
+                    var sp = f.Spec; acct.Specs[sp.Name] = sp;
+                    state.Symbols[sp.Name] = new Mt5Symbol { Name = sp.Name, Description = sp.Description, Digits = sp.Digits, Point = sp.Point, Contract = sp.Contract, TickValue = sp.TickValue, TickSize = sp.TickSize, VolMin = sp.VolMin, VolStep = sp.VolStep, VolMax = sp.VolMax, SwapLong = sp.SwapLong, SwapShort = sp.SwapShort, SwapMode = sp.SwapMode, Swap3Day = (int)sp.Swap3Day };
+                    var warm = f.Bars.Take(f.Start).ToList();
+                    foreach (var m in Tf.All) { var se = state.SeriesOf(sp.Name, m); se.Bars.Clear(); se.Bars.AddRange(BarSeries.Fold(warm, m)); se.Loaded = true; se.LoadedAt = DateTime.Now; se.Version++; }
+                    var first = f.Bars[f.Start]; double px = f.Start > 0 ? f.Bars[f.Start - 1].C : first.O; Quote(f, first.Time, px, first.Spread);
+                }
                 state.ServerNow = Clock;
             }
             return "";
         }
-        public string Restart() { var m1 = bars; return Load(Set, Spec, m1); }
+        public string Restart() { return Load(Set, data); }
 
         // ---- the clock
         public void Advance(double realSeconds)
@@ -174,124 +253,74 @@ namespace KeystoneMT5
                 else RunUntil(Clock.AddSeconds(Math.Min(realSeconds, 0.5) * Speed), 60000);
             }
         }
-        // one candle of this timeframe further (the next one opens)
-        public void StepBar(int minutes) { lock (state.Gate) { var next = Tf.Start(Clock, minutes).AddMinutes(minutes); if (minutes >= 1440) next = NextBarTimeAtOrAfter(next); RunUntil(next, int.MaxValue); } }
+        public void StepBar(int minutes) { lock (state.Gate) { var next = Tf.Start(Clock, minutes).AddMinutes(minutes); RunUntil(NextBarTimeAtOrAfter(next), int.MaxValue); } }
         public void JumpTo(DateTime t) { lock (state.Gate) { if (t > Clock) RunUntil(NextBarTimeAtOrAfter(t), int.MaxValue); } }
-        DateTime NextBarTimeAtOrAfter(DateTime t) { for (int i = cur; i < bars.Count; i++) if (bars[i].Time >= t) return bars[i].Time; return EndTime; }
-        public DateTime NextDayStart() { var d = Clock.Date.AddDays(1); return NextBarTimeAtOrAfter(d); }
-        // the next time the New York clock shows this hour (e.g. 9.5 = 09:30)
+        DateTime NextBarTimeAtOrAfter(DateTime t)
+        {
+            var best = EndTime; foreach (var f in feeds) for (int i = f.Cur; i < f.Bars.Count; i++) if (f.Bars[i].Time >= t) { if (f.Bars[i].Time < best) best = f.Bars[i].Time; break; }
+            return best;
+        }
+        public DateTime NextDayStart() { return NextBarTimeAtOrAfter(Clock.Date.AddDays(1)); }
         public DateTime NextNy(double nyHour) { var t = Clock.Date.AddHours(nyHour - Spec.NyOffsetHours); while (t <= Clock.AddSeconds(30)) t = t.AddDays(1); return NextBarTimeAtOrAfter(t); }
 
         void RunUntil(DateTime target, int budget)
         {
             while (budget > 0)
             {
-                if (cur >= bars.Count) { End(); return; }
-                var b = bars[cur]; if (path == null) { if (b.Time > target) { Clock = target > Clock ? target : Clock; state.ServerNow = Clock; return; } BeginBar(b); }
-                while (pathPos < path.Count && budget > 0)
+                Feed f = null; var t = DateTime.MaxValue; foreach (var x in feeds) { var nx = x.Next; if (nx < t) { t = nx; f = x; } }
+                if (f == null) { End(); return; }
+                if (t > target) { if (target > Clock && target < DateTime.MaxValue) Clock = target; state.ServerNow = Clock; return; }
+                if (f.Path == null) BeginBar(f);
+                var b = f.Bars[f.Cur]; var tick = f.Path[f.PathPos];
+                Tick(f, b.Time.AddTicks((long)tick[0]), tick[1], tick[2], b.Spread, f.PathPos == 0 ? f.VolPerTick + (b.V - f.VolPerTick * f.Path.Count) : f.VolPerTick);
+                f.PathPos++; budget--;
+                if (f.PathPos >= f.Path.Count) { f.Path = null; f.PathPos = 0; f.Cur++; }
+            }
+        }
+        void End() { if (Ended) return; Ended = true; Playing = false; Clock = EndTime; state.ServerNow = Clock; ClosedDays.Add(Clock.AddMinutes(-1).Date); acct.Notes.Add("the end of the loaded history — the STATS and POOL tabs show the results"); }
+        // the prices inside one minute: MT5's REAL TICKS of that minute when they are on this PC; otherwise a path open → (low, high) or
+        // (high, low) → close in steps proportional to the distance (the candle stays exactly MT5's, the way inside it is not known)
+        void BeginBar(Feed f)
+        {
+            var b = f.Bars[f.Cur]; var path = new List<double[]>();
+            if (f.Ticks != null)
+            {
+                var end = b.Time.AddMinutes(1);
+                while (f.TickIdx < f.Ticks.Count && f.Ticks[f.TickIdx].T < b.Time) f.TickIdx++;
+                for (int i = f.TickIdx; i < f.Ticks.Count && f.Ticks[i].T < end; i++) path.Add(new[] { (double)Math.Max(0, (f.Ticks[i].T - b.Time).Ticks), f.Ticks[i].Bid, f.Ticks[i].Ask });
+            }
+            if (path.Count > 0) f.RealBars++;
+            else
+            {
+                f.MadeBars++; int k = Speed <= 15 ? TicksPerBar : Speed <= 200 ? 8 : 4;
+                var pts = b.C >= b.O ? new[] { b.O, b.L, b.H, b.C } : new[] { b.O, b.H, b.L, b.C };
+                double total = Math.Abs(pts[1] - pts[0]) + Math.Abs(pts[2] - pts[1]) + Math.Abs(pts[3] - pts[2]);
+                var prices = new List<double> { pts[0] };
+                for (int leg = 0; leg < 3; leg++)
                 {
-                    var t = b.Time.AddSeconds(path[pathPos].Item1); if (t > target) { if (target > Clock) Clock = target; state.ServerNow = Clock; return; }
-                    Tick(t, path[pathPos].Item2, b.Spread, pathPos == 0 ? volPerTick + (b.V - volPerTick * path.Count) : volPerTick); pathPos++; budget--;
+                    double len = Math.Abs(pts[leg + 1] - pts[leg]); int steps = total <= 0 ? (leg == 2 ? 1 : 0) : Math.Max(len > 0 ? 1 : 0, (int)Math.Round((k - 1) * len / total));
+                    for (int j = 1; j <= steps; j++) prices.Add(Round(f.Spec, pts[leg] + (pts[leg + 1] - pts[leg]) * j / steps));
                 }
-                if (pathPos >= path.Count) { path = null; pathPos = 0; cur++; }
+                if (prices[prices.Count - 1] != b.C) prices.Add(b.C);
+                for (int i = 0; i < prices.Count; i++) path.Add(new[] { prices.Count == 1 ? 0 : 59.0 * TimeSpan.TicksPerSecond * i / (prices.Count - 1), prices[i], double.NaN });
             }
+            f.Path = path; f.PathPos = 0; f.VolPerTick = Math.Max(0, b.V / Math.Max(1, path.Count));
         }
-        void End() { if (Ended) return; Ended = true; Playing = false; Clock = EndTime; state.ServerNow = Clock; Notes.Add("the end of the loaded history — the STATS tab shows the results"); }
-        // the price path inside one candle: open → (low, high) or (high, low) → close, in steps proportional to the distance
-        void BeginBar(Mt5Bar b)
+        static double Round(SimSpec s, double p) { return s.Point > 0 ? Math.Round(p / s.Point) * s.Point : p; }
+        // one price: the spread of the candle (or the fixed one) + STANDARD's markup
+        void Quote(Feed f, DateTime t, double bid, int spreadPts, double realAsk = double.NaN)
         {
-            int k = Speed <= 15 ? TicksPerBar : Speed <= 200 ? 8 : 4; path = new List<Tuple<double, double>>(); pathPos = 0;
-            var pts = b.C >= b.O ? new[] { b.O, b.L, b.H, b.C } : new[] { b.O, b.H, b.L, b.C };
-            double total = Math.Abs(pts[1] - pts[0]) + Math.Abs(pts[2] - pts[1]) + Math.Abs(pts[3] - pts[2]);
-            var prices = new List<double> { pts[0] };
-            for (int leg = 0; leg < 3; leg++)
-            {
-                double len = Math.Abs(pts[leg + 1] - pts[leg]); int steps = total <= 0 ? (leg == 2 ? 1 : 0) : Math.Max(len > 0 ? 1 : 0, (int)Math.Round((k - 1) * len / total));
-                for (int j = 1; j <= steps; j++) prices.Add(Round(pts[leg] + (pts[leg + 1] - pts[leg]) * j / steps));
-            }
-            if (prices[prices.Count - 1] != b.C) prices.Add(b.C);
-            for (int i = 0; i < prices.Count; i++) path.Add(Tuple.Create(prices.Count == 1 ? 0 : 59.0 * i / (prices.Count - 1), prices[i]));
-            volPerTick = Math.Max(0, b.V / Math.Max(1, path.Count));
+            double mk = (Set.Kind == "STANDARD" ? Set.MarkupPts : 0) * f.Spec.Point;
+            double ask = Set.FixedSpread >= 0 ? Round(f.Spec, bid + (Set.FixedSpread * f.Spec.Point) + mk) : !double.IsNaN(realAsk) && realAsk >= bid ? Round(f.Spec, realAsk + mk) : Round(f.Spec, bid + Math.Max(0, spreadPts) * f.Spec.Point + mk);
+            state.Quotes[f.Spec.Name] = new Mt5Quote { Symbol = f.Spec.Name, Bid = bid, Ask = ask, Time = t };
+            acct.OnPrice(f.Spec.Name, t, bid, ask);
         }
-        double Round(double p) { return Spec.Point > 0 ? Math.Round(p / Spec.Point) * Spec.Point : p; }
-
-        // ---- one price
-        double bid, ask;
-        void Quote(DateTime t, double b, int spreadPts)
+        void Tick(Feed f, DateTime t, double price, double ask, int spreadPts, long vol)
         {
-            int sp = Set.FixedSpread >= 0 ? Set.FixedSpread : Math.Max(0, spreadPts);
-            bid = b; ask = Round(b + sp * Spec.Point);
-            state.Quotes[Spec.Name] = new Mt5Quote { Symbol = Spec.Name, Bid = bid, Ask = ask, Time = t };
-        }
-        void Tick(DateTime t, double price, int spreadPts, long vol)
-        {
-            if (t.Date != Clock.Date && Clock > DateTime.MinValue) Rollover(t);
-            Clock = t; state.ServerNow = t; Quote(t, price, spreadPts);
-            foreach (var m in Tf.All) state.SeriesOf(Spec.Name, m).OnTick(t, price, vol);
-            Triggers(t); Mark(); StopOut(t);
-        }
-        // swap at the server's midnight for every position held over it (Wednesday counts 3 days)
-        void Rollover(DateTime t)
-        {
-            if (Set.SwapLong == 0 && Set.SwapShort == 0) return;
-            int mult = Clock.DayOfWeek == DayOfWeek.Wednesday ? 3 : 1; if (Clock.DayOfWeek == DayOfWeek.Saturday || Clock.DayOfWeek == DayOfWeek.Sunday) return;
-            foreach (var p in state.Positions) p.Swap += p.Lots * (p.Dir > 0 ? Set.SwapLong : Set.SwapShort) * mult;
-        }
-        void Triggers(DateTime t)
-        {
-            foreach (var o in state.Orders.ToList())
-            {
-                bool fire = o.Type == "BUY LIMIT" ? ask <= o.Price : o.Type == "SELL LIMIT" ? bid >= o.Price : o.Type == "BUY STOP" ? ask >= o.Price : o.Type == "SELL STOP" ? bid <= o.Price : false;
-                if (!fire) continue;
-                state.Orders.Remove(o); int dir = o.Type.StartsWith("BUY") ? 1 : -1;
-                double px = o.Type.EndsWith("LIMIT") ? o.Price : (dir > 0 ? ask : bid) + dir * Set.SlipPts * Spec.Point;
-                Open(t, dir, o.Lots, Round(px), o.Sl, o.Tp, "#" + o.Ticket + " " + o.Type.ToLowerInvariant(), o.Ticket);
-                Notes.Add("⏳ " + o.Type + " #" + o.Ticket + " filled @ " + px.ToString("F" + Spec.Digits, IC));
-            }
-            foreach (var p in state.Positions.ToList())
-            {
-                if (p.Dir > 0) { if (p.Sl > 0 && bid <= p.Sl) Close(t, p, p.Lots, bid, "SL"); else if (p.Tp > 0 && bid >= p.Tp) Close(t, p, p.Lots, p.Tp, "TP"); }
-                else { if (p.Sl > 0 && ask >= p.Sl) Close(t, p, p.Lots, ask, "SL"); else if (p.Tp > 0 && ask <= p.Tp) Close(t, p, p.Lots, p.Tp, "TP"); }
-            }
-        }
-        double Pl(int dir, double open, double close, double lots) { return (close - open) * dir * lots * Spec.TickValue / Spec.TickSize; }
-        double MarginOf(double lots, double price)
-        {
-            var n = Spec.Name.ToUpperInvariant(); bool usdBase = n.Length >= 6 && n.StartsWith("USD") && n.Substring(0, 6).All(char.IsLetter);
-            return lots * Spec.Contract * (usdBase ? 1 : price) / Math.Max(1, Set.Leverage);
-        }
-        void Mark()
-        {
-            double fl = 0, mg = 0;
-            foreach (var p in state.Positions) { p.Current = p.Dir > 0 ? bid : ask; p.Profit = Math.Round(Pl(p.Dir, p.Open, p.Current, p.Lots), 2); fl += p.Profit + p.Swap; mg += MarginOf(p.Lots, p.Open); }
-            var a = state.Account; a.Balance = Math.Round(balance, 2); a.Equity = Math.Round(balance + fl, 2); a.Margin = Math.Round(mg, 2); a.FreeMargin = Math.Round(a.Equity - mg, 2); a.MarginLevel = mg > 0 ? a.Equity / mg * 100 : 0;
-        }
-        void StopOut(DateTime t)
-        {
-            for (int guard = 0; guard < 200; guard++)
-            {
-                var a = state.Account; if (a.Margin <= 0 || a.MarginLevel >= Set.StopOutPct || state.Positions.Count == 0) return;
-                var worst = state.Positions.OrderBy(p => p.Profit + p.Swap).First(); Close(t, worst, worst.Lots, worst.Current, "STOPOUT");
-                Notes.Add("⚠ STOP OUT: margin level under " + Set.StopOutPct.ToString("0", IC) + " % — #" + worst.Ticket + " closed"); Mark();
-            }
-        }
-        Mt5Position Open(DateTime t, int dir, double lots, double px, double sl, double tp, string comment, long ticket = 0)
-        {
-            double comm = -Math.Round(Set.CommissionPerLot / 2 * lots, 2); balance += comm;
-            var p = new Mt5Position { Ticket = ticket > 0 ? ticket : nextTicket++, Symbol = Spec.Name, Side = dir > 0 ? "BUY" : "SELL", Lots = lots, Open = px, Sl = sl, Tp = tp, Current = dir > 0 ? bid : ask, Time = t, Comment = comment, Commission = comm };
-            state.Positions.Add(p);
-            state.Deals.Add(new Mt5Deal { Ticket = nextDeal++, Position = p.Ticket, Time = t, Symbol = Spec.Name, Type = p.Side, Entry = "IN", Lots = lots, Price = px, Commission = comm, Comment = comment }); state.DealsVersion++;
-            Mark(); return p;
-        }
-        void Close(DateTime t, Mt5Position p, double lots, double px, string reason)
-        {
-            lots = Math.Min(p.Lots, lots); double frac = p.Lots > 0 ? lots / p.Lots : 1;
-            double pl = Math.Round(Pl(p.Dir, p.Open, px, lots), 2), comm = -Math.Round(Set.CommissionPerLot / 2 * lots, 2), sw = Math.Round(p.Swap * frac, 2);
-            balance += pl + comm + sw; p.Swap -= sw;
-            state.Deals.Add(new Mt5Deal { Ticket = nextDeal++, Position = p.Ticket, Time = t, Symbol = Spec.Name, Type = p.Dir > 0 ? "SELL" : "BUY", Entry = "OUT", Lots = lots, Price = px, Profit = pl, Commission = comm, Swap = sw, Reason = reason }); state.DealsVersion++;
-            if (lots >= p.Lots - 1e-9) state.Positions.Remove(p); else p.Lots = Math.Round(p.Lots - lots, 2);
-            if (reason == "SL" || reason == "TP") Notes.Add((reason == "TP" ? "🎯 TARGET" : "🛑 STOP") + " #" + p.Ticket + " " + (pl + comm >= 0 ? "+" : "−") + "$" + Math.Abs(pl + comm).ToString("N2", IC));
-            Mark();
+            if (Clock > DateTime.MinValue && t.Date > Clock.Date) ClosedDays.Add(Clock.Date);
+            if (t > Clock) Clock = t; state.ServerNow = Clock;
+            foreach (var m in Tf.All) state.SeriesOf(f.Spec.Name, m).OnTick(t, price, vol);
+            Quote(f, t, price, spreadPts, ask);
         }
 
         // ---- the commands (the same as the bridge's)
@@ -301,89 +330,12 @@ namespace KeystoneMT5
             string id = "S" + (++cmdSeq);
             lock (state.Gate)
             {
-                try { var r = Do(cmd, a); state.AddResult(id, r.Item1, r.Item2); }
-                catch (Exception ex) { state.AddResult(id, false, cmd + ": " + ex.Message); }
+                Tuple<bool, string> r;
+                try { r = Ended && cmd == "ORDER" ? Tuple.Create(false, "the backtest has ended — restart it") : acct.Do(cmd, a, Clock); }
+                catch (Exception ex) { r = Tuple.Create(false, cmd + ": " + ex.Message); }
+                state.AddResult(id, r.Item1, r.Item2);
             }
             return id;
         }
-        static double N(object o) { return Convert.ToDouble(o, IC); }
-        static long Tk(object o) { return Convert.ToInt64(o, IC); }
-        double Lots(double v) { double st = Spec.VolStep > 0 ? Spec.VolStep : 0.01; v = Math.Floor(v / st + 1e-9) * st; return Math.Round(Math.Max(Spec.VolMin, Math.Min(Spec.VolMax, v)), 2); }
-        string F(double v) { return v.ToString("F" + Spec.Digits, IC); }
-        Tuple<bool, string> Ok(string s) { return Tuple.Create(true, s); }
-        Tuple<bool, string> No(string s) { return Tuple.Create(false, s); }
-        Tuple<bool, string> Do(string cmd, object[] a)
-        {
-            if (Ended && cmd == "ORDER") return No("the backtest has ended — restart it");
-            var t = Clock;
-            switch (cmd)
-            {
-                case "ORDER":
-                    {
-                        string kind = Convert.ToString(a[1], IC); double lots = Lots(N(a[2])), px = N(a[3]), sl = Round(N(a[4])), tp = Round(N(a[5])); int dir = kind.StartsWith("BUY") ? 1 : -1;
-                        if (N(a[2]) <= 0) return No(kind + ": the lots are 0");
-                        if (kind == "BUY" || kind == "SELL")
-                        {
-                            double fill = Round((dir > 0 ? ask : bid) + dir * Set.SlipPts * Spec.Point);
-                            if (!StopsOk(dir, dir > 0 ? bid : ask, sl, tp)) return No(kind + " " + lots.ToString("0.00", IC) + ": invalid stops (a stop on the losing side, a target on the winning side)");
-                            double need = MarginOf(lots, fill); if (need > state.Account.FreeMargin) return No(kind + " " + lots.ToString("0.00", IC) + ": not enough money (margin " + need.ToString("N2", IC) + ")");
-                            var p = Open(t, dir, lots, fill, sl, tp, "SpasiX"); return Ok(kind + " " + lots.ToString("0.00", IC) + " " + Spec.Name + " @ " + F(fill) + ": done (#" + p.Ticket + ")");
-                        }
-                        px = Round(px);
-                        bool okPx = kind == "BUY LIMIT" ? px < ask : kind == "SELL LIMIT" ? px > bid : kind == "BUY STOP" ? px > ask : kind == "SELL STOP" ? px < bid : false;
-                        if (!okPx) return No(kind + " @ " + F(px) + ": invalid price (a limit below / above the market, a stop beyond it)");
-                        if (!StopsOk(dir, px, sl, tp)) return No(kind + ": invalid stops");
-                        var o = new Mt5Order { Ticket = nextTicket++, Symbol = Spec.Name, Type = kind, Lots = lots, Price = px, Sl = sl, Tp = tp, Time = t }; state.Orders.Add(o);
-                        return Ok(kind + " " + lots.ToString("0.00", IC) + " @ " + F(px) + ": placed (#" + o.Ticket + ")");
-                    }
-                case "CLOSE":
-                    {
-                        var p = state.Positions.FirstOrDefault(x => x.Ticket == Tk(a[0])); if (p == null) return No("close #" + a[0] + ": no such position");
-                        double lots = N(a[1]); lots = lots > 0 && lots < p.Lots ? Lots(lots) : p.Lots; Close(t, p, lots, p.Dir > 0 ? bid : ask, "CLIENT"); return Ok("close #" + p.Ticket + " " + lots.ToString("0.00", IC) + ": done");
-                    }
-                case "CLOSEALL":
-                    {
-                        string sym = Convert.ToString(a[0], IC), which = Convert.ToString(a[1], IC); int n = 0;
-                        foreach (var p in state.Positions.ToList())
-                        {
-                            double pl = p.Profit + p.Swap;
-                            if ((which == "BUY" && p.Dir < 0) || (which == "SELL" && p.Dir > 0) || (which == "PROFIT" && pl <= 0) || (which == "LOSS" && pl >= 0)) continue;
-                            Close(t, p, p.Lots, p.Dir > 0 ? bid : ask, "CLIENT"); n++;
-                        }
-                        return Ok("closed " + n);
-                    }
-                case "MODIFY":
-                    {
-                        var p = state.Positions.FirstOrDefault(x => x.Ticket == Tk(a[0])); if (p == null) return No("S/L T/P #" + a[0] + ": no such position");
-                        double sl = Round(N(a[1])), tp = Round(N(a[2])); if (!StopsOk(p.Dir, p.Dir > 0 ? bid : ask, sl, tp)) return No("S/L T/P #" + p.Ticket + ": invalid stops");
-                        p.Sl = sl; p.Tp = tp; return Ok("S/L T/P #" + p.Ticket + ": done");
-                    }
-                case "MODORD":
-                    {
-                        var o = state.Orders.FirstOrDefault(x => x.Ticket == Tk(a[0])); if (o == null) return No("order #" + a[0] + ": no such order");
-                        double px = Round(N(a[1])), sl = Round(N(a[2])), tp = Round(N(a[3]));
-                        bool okPx = o.Type == "BUY LIMIT" ? px < ask : o.Type == "SELL LIMIT" ? px > bid : o.Type == "BUY STOP" ? px > ask : px < bid;
-                        if (!okPx) return No("order #" + o.Ticket + " @ " + F(px) + ": invalid price");
-                        double d = px - o.Price; o.Price = px; if (o.Sl > 0 && sl == o.Sl) sl += d; if (o.Tp > 0 && tp == o.Tp) tp += d; o.Sl = Round(sl); o.Tp = Round(tp);   // the bracket moves with the order
-                        return Ok("order #" + o.Ticket + " → " + F(px) + ": done");
-                    }
-                case "CANCEL": { var o = state.Orders.FirstOrDefault(x => x.Ticket == Tk(a[0])); if (o == null) return No("cancel #" + a[0] + ": no such order"); state.Orders.Remove(o); return Ok("cancel #" + o.Ticket + ": done"); }
-                case "CANCELALL": { int n = state.Orders.Count; state.Orders.Clear(); return Ok("cancelled " + n + " order(s)"); }
-                case "BE":
-                    {
-                        string which = Convert.ToString(a[1], IC); int off = (int)N(a[2]); int done = 0, skip = 0;
-                        foreach (var p in state.Positions)
-                        {
-                            if ((which == "BUY" && p.Dir < 0) || (which == "SELL" && p.Dir > 0)) continue;
-                            double be = Round(p.Open + p.Dir * off * Spec.Point); bool inProfit = p.Dir > 0 ? p.Current > be + Spec.Point : p.Current < be - Spec.Point; bool better = p.Sl == 0 || (p.Dir > 0 ? be > p.Sl : be < p.Sl);
-                            if (!inProfit || !better) { skip++; continue; }
-                            p.Sl = be; done++;
-                        }
-                        return Ok("breakeven on " + done + " • " + skip + " not in profit / already better");
-                    }
-            }
-            return No("unknown command " + cmd);
-        }
-        bool StopsOk(int dir, double px, double sl, double tp) { return dir > 0 ? (sl <= 0 || sl < px) && (tp <= 0 || tp > px) : (sl <= 0 || sl > px) && (tp <= 0 || tp < px); }
     }
 }

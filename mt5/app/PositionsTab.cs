@@ -22,7 +22,7 @@ namespace KeystoneMT5
             var bulk = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             foreach (var m in new[] { Tuple.Create("⛔ CLOSE EVERYTHING", "ALL", Red), Tuple.Create("CLOSE ALL BUYS", "BUY", Green), Tuple.Create("CLOSE ALL SELLS", "SELL", Red), Tuple.Create("CLOSE ALL IN PROFIT", "PROFIT", Green), Tuple.Create("CLOSE ALL IN LOSS", "LOSS", Red) })
             { var which = m.Item2; var b = Pill(m.Item1, which == "ALL" ? (Brush)Tint(Red, 210) : Card); b.Foreground = which == "ALL" ? Sx.White : m.Item3; b.Click += delegate { CloseAll("", which); }; bulk.Children.Add(b); }
-            var be = Pill("⚖ BREAKEVEN ALL IN PROFIT", Tint(Gold, 170)); be.Foreground = Bg; be.Click += delegate { if (Ask("Breakeven on every ticket in profit (all symbols)?")) Cmd("breakeven on every symbol", "BE", "", "ALL", IntOf(beOff.Text, 10)); }; bulk.Children.Add(be);
+            var be = Pill("⚖ BREAKEVEN ALL IN PROFIT", Tint(Gold, 170)); be.Foreground = Bg; be.ToolTip = "the stop of every ticket in profit to its entry + the panel's points / $ (asks first)"; be.Click += delegate { BreakevenAll(""); }; bulk.Children.Add(be);
             var ca = Pill("CANCEL ALL ORDERS", Card); ca.Foreground = Cyan; ca.Click += delegate { if (Ask("Cancel every pending order (all symbols)?")) Cmd("cancel every order", "CANCELALL", ""); }; bulk.Children.Add(ca);
             sp.Children.Add(bulk);
             posSummary = new TextBlock { Text = "no positions", Foreground = Muted, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 0, 0, 8), TextWrapping = TextWrapping.Wrap }; sp.Children.Add(posSummary);
@@ -37,7 +37,7 @@ namespace KeystoneMT5
         {
             var acc = s.Account; string cur = acc.Currency; var pos = s.Positions; var ords = s.Orders;
             double pl = pos.Sum(p => p.Profit + p.Swap);
-            posSummary.Text = pos.Count == 0 && ords.Count == 0 ? "no open positions or orders" : pos.Count + " open ticket" + (pos.Count == 1 ? "" : "s") + " • " + pos.Where(p => p.Dir > 0).Sum(p => p.Lots).ToString("0.00", IC) + " lots bought • " + pos.Where(p => p.Dir < 0).Sum(p => p.Lots).ToString("0.00", IC) + " lots sold • open P/L " + Signed(pl, cur) + (ords.Count > 0 ? " • " + ords.Count + " pending order" + (ords.Count == 1 ? "" : "s") : "") + (armed || Sim ? "" : "   •   🔒 ARM in the 📈 CHART panel to manage them from here");
+            posSummary.Text = pos.Count == 0 && ords.Count == 0 ? "no open positions or orders" : pos.Count + " open ticket" + (pos.Count == 1 ? "" : "s") + " • " + pos.Where(p => p.Dir > 0).Sum(p => p.Lots).ToString("0.00", IC) + " lots bought • " + pos.Where(p => p.Dir < 0).Sum(p => p.Lots).ToString("0.00", IC) + " lots sold • open P/L " + Signed(pl, cur) + (ords.Count > 0 ? " • " + ords.Count + " pending order" + (ords.Count == 1 ? "" : "s") : "") + (armed || Virtual ? "" : "   •   🔒 ARM in the 📈 CHART panel to manage them from here");
             posSummary.Foreground = pos.Count == 0 ? Muted : pl >= 0 ? Green : Red;
             string sig = string.Join(",", pos.Select(p => p.Ticket)) + "|" + string.Join(",", ords.Select(o => o.Ticket + ":" + o.Price));
             if (sig != posSig)
@@ -50,7 +50,7 @@ namespace KeystoneMT5
                     var hb = new StackPanel { Orientation = Orientation.Horizontal }; DockPanel.SetDock(hb, Dock.Right);
                     foreach (var m in new[] { Tuple.Create("CLOSE ALL", "ALL", Red), Tuple.Create("BUYS", "BUY", Green), Tuple.Create("SELLS", "SELL", Red), Tuple.Create("PROFIT", "PROFIT", Green), Tuple.Create("LOSS", "LOSS", Red) })
                     { var which = m.Item2; var b = Mini(m.Item1, m.Item3, "close " + m.Item1.ToLowerInvariant() + " on " + sym); b.Click += delegate { CloseAll(sym, which); }; hb.Children.Add(b); }
-                    var beS = Mini("⚖ BE", Gold, "breakeven on " + sym); beS.Click += delegate { Cmd("breakeven on " + sym, "BE", sym, "ALL", IntOf(beOff.Text, 10)); }; hb.Children.Add(beS);
+                    var beS = Mini("⚖ BE", Gold, "breakeven on " + sym); beS.Click += delegate { BreakevenAll(sym); }; hb.Children.Add(beS);
                     var chart = Mini("📈", Cyan, "open its chart"); chart.Click += delegate { SetPane(Act, sym, Act.Tf); Show("CHART"); }; hb.Children.Add(chart);
                     hdrRow.Children.Add(hb);
                     var hdr = new TextBlock { FontSize = 15, FontWeight = FontWeights.Bold, Foreground = Text, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center }; hdrRow.Children.Add(hdr); posHeads[sym] = hdr;
@@ -62,14 +62,14 @@ namespace KeystoneMT5
                     foreach (var p in g.OrderBy(x => x.Time))
                     {
                         var r = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) }; long tk = p.Ticket; var p0 = p;
-                        var bx = Mini("✕", Red, "close this ticket"); bx.Click += delegate { if (Ask("Close ticket #" + tk + "?")) Cmd("close #" + tk, "CLOSE", tk, 0.0); };
+                        var bx = Mini("✕", Red, "close this ticket"); bx.Click += delegate { Cmd("close #" + tk, "CLOSE", tk, 0.0); };
                         var bh = Mini("½", Text, "close half of it"); bh.Click += delegate { Cmd("close half of #" + tk, "CLOSE", tk, Math.Round(p0.Lots / 2, 2)); };
                         var bxw = new StackPanel { Orientation = Orientation.Horizontal, Width = 62, Margin = new Thickness(0, 0, 10, 0) }; bxw.Children.Add(bx); bxw.Children.Add(bh); r.Children.Add(bxw);
                         var cells = new[] { Cell("", Muted, 100), Cell("", Text, 50, false, true), Cell("", Text, 50), Cell("", Text, 86), Cell("", Cyan, 86), Cell("", Muted, 70, true), Cell("", Text, 96, true, true), Cell("", Muted, 120) };
                         foreach (var c in cells) r.Children.Add(c); posCells[tk] = cells;
                         var slB = Small(p.Sl > 0 ? p.Sl.ToString("0.#####", IC) : ""); var tpB = Small(p.Tp > 0 ? p.Tp.ToString("0.#####", IC) : ""); slB.ToolTip = "stop (price, empty = none)"; tpB.ToolTip = "target (price, empty = none)";
                         var set = Mini("SET", Gold, "send this stop / target"); set.Click += delegate { double sl, tp; double.TryParse(slB.Text.Replace(',', '.'), NumberStyles.Float, IC, out sl); double.TryParse(tpB.Text.Replace(',', '.'), NumberStyles.Float, IC, out tp); Cmd("S/L T/P on #" + tk, "MODIFY", tk, sl, tp); };
-                        var bet = Mini("⚖", Gold, "breakeven: the stop to the entry (+ the panel's points)"); bet.Click += delegate { int off = IntOf(beOff.Text, 10); double pt = 0.01; Mt5Symbol sy; if (broker.State.Symbols.TryGetValue(p0.Symbol, out sy)) pt = sy.Point; Cmd("breakeven #" + tk, "MODIFY", tk, p0.Open + p0.Dir * off * pt, p0.Tp); };
+                        var bet = Mini("⚖", Gold, "breakeven: the stop to the entry (+ the panel's points / $)"); bet.Click += delegate { Cmd("breakeven #" + tk, "MODIFY", tk, BePrice(p0), p0.Tp); };
                         r.Children.Add(slB); r.Children.Add(tpB); r.Children.Add(set); r.Children.Add(bet);
                         card.Children.Add(r);
                     }
@@ -81,7 +81,7 @@ namespace KeystoneMT5
                     foreach (var o in ords)
                     {
                         var r = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) }; var sym = s.Symbols.ContainsKey(o.Symbol) ? s.Symbols[o.Symbol] : null; string f = "F" + (sym != null ? sym.Digits : 2); long tk = o.Ticket;
-                        var bx = Mini("✕", Red, "cancel this order"); bx.Click += delegate { if (Ask("Cancel the pending order #" + tk + "?")) Cmd("cancel order #" + tk, "CANCEL", tk); }; r.Children.Add(bx);
+                        var bx = Mini("✕", Red, "cancel this order"); bx.Click += delegate { Cmd("cancel order #" + tk, "CANCEL", tk); }; r.Children.Add(bx);
                         r.Children.Add(Cell(o.Ticket.ToString(IC), Muted, 100)); r.Children.Add(Cell(o.Symbol, Text, 90, false, true)); r.Children.Add(Cell(o.Type, Amber, 120, false, true));
                         r.Children.Add(Cell(o.Lots.ToString("0.00", IC) + " lots", Text, 90)); r.Children.Add(Cell("@ " + o.Price.ToString(f, IC), Text, 110)); r.Children.Add(Cell(o.Sl > 0 ? "S/L " + o.Sl.ToString(f, IC) : "", Red, 110)); r.Children.Add(Cell(o.Tp > 0 ? "T/P " + o.Tp.ToString(f, IC) : "", Green, 110));
                         card.Children.Add(r);
