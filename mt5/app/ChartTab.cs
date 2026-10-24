@@ -31,7 +31,7 @@ namespace KeystoneMT5
         bool armed; Button armBtn, buyBtn, sellBtn, placeBtn; TextBlock armText, panelSym, panelExpo, toastText, riskText, spreadText; TextBox lotsBox, slBox, tpBox, pendPrice, beOff; bool oneClickOn; string pendKind = "BUY LIMIT";
         readonly List<Tuple<string, Button>> pendBtns = new List<Tuple<string, Button>>(); StackPanel logPanel, armChecks; Border panelHost, toastBox, armCard;
         int resSeen, notesSeen; readonly Dictionary<string, string> sent = new Dictionary<string, string>();
-        string ticketMode = "AUTO";
+        string ticketMode = "AUTO"; Border symPlBox; TextBlock symPlCap, symPlVal, symPlInfo; int symPlSign = 9;
 
         Pane Act { get { return panes[Math.Max(0, Math.Min(panes.Count - 1, activePane))]; } }
 
@@ -62,6 +62,12 @@ namespace KeystoneMT5
             var reset = Pill("⟲ NOW", Card); reset.ToolTip = "back to the latest candles, automatic scale (or double-click the chart)"; reset.Click += delegate { Act.V.ResetView(); }; bar.Children.Add(reset);
             fullBtn = Pill("⛶ FULL", Card); fullBtn.ToolTip = "the chart over the whole screen (F11 / Esc)"; fullBtn.Click += delegate { SetFullChart(!fullChart); }; bar.Children.Add(fullBtn);
             panelBtn = Pill("◧ PANEL", Tint(Gold, 60)); panelBtn.ToolTip = "show / hide the trade panel"; panelBtn.Click += delegate { panelHost.Visibility = panelHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; Put("panel", panelHost.Visibility == Visibility.Visible ? "1" : "0"); }; bar.Children.Add(panelBtn);
+            // the selected instrument's own P/L (its tickets only): buys / sells, lots, P/L — the border pulses green / red
+            symPlCap = new TextBlock { Foreground = Cyan, FontSize = 9.5, FontWeight = FontWeights.Bold }; symPlVal = new TextBlock { Foreground = Muted, FontSize = 15, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
+            symPlInfo = new TextBlock { Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+            var spl = new StackPanel(); spl.Children.Add(symPlCap); spl.Children.Add(symPlVal); var sph = new StackPanel { Orientation = Orientation.Horizontal }; sph.Children.Add(spl); sph.Children.Add(symPlInfo);
+            symPlBox = new Border { Child = sph, Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.8), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 2, 12, 3), Margin = new Thickness(4, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, MinWidth = 260, ToolTip = "the P/L of this instrument only (its open tickets)" };
+            bar.Children.Add(symPlBox);
             // ---- the replay bar (backtest)
             if (Sim) { var rb = BuildReplayBar(); Grid.SetRow(rb, 1); Grid.SetColumnSpan(rb, 3); g.Children.Add(rb); }
             // ---- the drawing rail
@@ -200,15 +206,16 @@ namespace KeystoneMT5
             var added = Sim ? new List<string>() : Get("watch", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).ToList();
             var syms = Sim ? s.Symbols.Keys.ToList() : mine.Concat(added).Concat(s.Quotes.Keys.OrderBy(k => k).Take(8)).Distinct(StringComparer.OrdinalIgnoreCase).Take(16).ToList();
             foreach (var p in panes.Take(split)) if (p.Sym == "" || !s.Quotes.ContainsKey(p.Sym)) { var first = mine.FirstOrDefault() ?? s.Quotes.Keys.FirstOrDefault(k => k.StartsWith("XAU", StringComparison.OrdinalIgnoreCase)) ?? syms.FirstOrDefault(); if (first != null && s.Quotes.ContainsKey(first) && p.Sym != first) SetPane(p, first, p.Tf); }
-            string sig = string.Join(",", syms) + "|" + Act.Sym + "|" + string.Join(",", mine);
+            Func<string, double> plOf = sy => s.Positions.Where(x => string.Equals(x.Symbol, sy, StringComparison.OrdinalIgnoreCase)).Sum(x => x.Profit + x.Swap);
+            string sig = string.Join(",", syms) + "|" + Act.Sym + "|" + string.Join(",", mine) + "|" + string.Join(",", mine.Select(m => Math.Round(plOf(m)).ToString(IC)));
             if (sig != symSig)
             {
                 symSig = sig; symChips.Children.Clear();
                 foreach (var sy in syms)
                 {
                     var s0 = sy; bool on = string.Equals(sy, Act.Sym, StringComparison.OrdinalIgnoreCase); bool hasPos = mine.Contains(sy, StringComparer.OrdinalIgnoreCase);
-                    var b = Pill((hasPos ? "● " : "") + sy, on ? (Brush)Tint(Cyan, 200) : Card); b.Padding = new Thickness(10, 0, 10, 0); b.Foreground = on ? Bg : Cyan; b.BorderBrush = on ? Cyan : Tint(Cyan, 90); b.Click += delegate { SetPane(Act, s0, Act.Tf); };
-                    b.ToolTip = hasPos ? "you have tickets on " + sy : sy; symChips.Children.Add(b);
+                    double cpl = hasPos ? plOf(sy) : 0; var b = Pill((hasPos ? "● " : "") + sy + (hasPos ? "  " + (cpl >= 0 ? "+" : "−") + "$" + Math.Abs(cpl).ToString("N0", IC) : ""), on ? (Brush)Tint(Cyan, 200) : Card); b.Padding = new Thickness(10, 0, 10, 0); b.Foreground = on ? Bg : Cyan; b.BorderBrush = on ? Cyan : Tint(Cyan, 90); b.Click += delegate { SetPane(Act, s0, Act.Tf); };
+                    b.ToolTip = hasPos ? "you have tickets on " + sy + " • P/L " + Signed(cpl, s.Account.Currency) : sy; if (hasPos && !on) b.Foreground = cpl >= 0 ? Green : Red; symChips.Children.Add(b);
                 }
             }
             string zn; var conv = ZoneConv(s, out zn); int nyOff = NyOffset(s);
@@ -238,7 +245,20 @@ namespace KeystoneMT5
                 p.Head.Foreground = k == activePane ? Gold : Muted;
                 v.InvalidateVisual();
             }
+            FillSymPl(s);
             FillPanel(s);
+        }
+        void FillSymPl(Mt5State s)
+        {
+            if (symPlBox == null) return; var sym = Act.Sym; var cur = s.Account.Currency;
+            var ps = s.Positions.Where(x => string.Equals(x.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); var os = s.Orders.Count(x => string.Equals(x.Symbol, sym, StringComparison.OrdinalIgnoreCase));
+            double pl = ps.Sum(x => x.Profit + x.Swap), bl = ps.Where(x => x.Dir > 0).Sum(x => x.Lots), sl = ps.Where(x => x.Dir < 0).Sum(x => x.Lots); int nb = ps.Count(x => x.Dir > 0), ns = ps.Count(x => x.Dir < 0);
+            symPlCap.Text = sym + " P/L"; symPlVal.Text = ps.Count == 0 ? "no ticket" : Signed(pl, cur); symPlVal.Foreground = ps.Count == 0 ? Muted : pl > 0 ? Green : pl < 0 ? Red : Text;
+            symPlInfo.Text = ps.Count == 0 ? (os > 0 ? os + " pending order" + (os == 1 ? "" : "s") : "") : (nb > 0 ? "▲ " + nb + " buy" + (nb == 1 ? "" : "s") + " " + bl.ToString("0.00", IC) : "") + (nb > 0 && ns > 0 ? "   " : "") + (ns > 0 ? "▼ " + ns + " sell" + (ns == 1 ? "" : "s") + " " + sl.ToString("0.00", IC) : "") + (nb > 0 && ns > 0 ? "   ⇅ net " + (bl - sl).ToString("+0.00;−0.00;0.00", IC) : "") + (os > 0 ? "   ⏳ " + os : "");
+            int sg = ps.Count == 0 ? 0 : pl >= 0 ? 1 : -1; if (sg == symPlSign) return; symPlSign = sg;
+            if (sg == 0) { symPlBox.BorderBrush = Line; return; }
+            var br = new SolidColorBrush(sg > 0 ? Green.Color : Red.Color); symPlBox.BorderBrush = br;
+            br.BeginAnimation(Brush.OpacityProperty, new DoubleAnimation(1, 0.3, TimeSpan.FromMilliseconds(750)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
         }
 
         // ---------------------------------------------------------------- the right-click menus
@@ -492,7 +512,7 @@ namespace KeystoneMT5
                 foreach (var b in new[] { buyBtn, sellBtn }) b.Opacity = 1; return;
             }
             var checks = new[] {
-                Tuple.Create(s.BridgeVersion >= 3, "bridge v" + s.BridgeVersion + (s.BridgeVersion >= 4 ? "" : " — put the new SpasiXBridge.mq5 in MT5 (⚙ SETUP)")),
+                Tuple.Create(s.BridgeVersion >= 3, "bridge v" + s.BridgeVersion + (s.BridgeVersion >= 5 ? "" : " — put the new SpasiXBridge.mq5 (v5) in MT5 (⚙ SETUP)")),
                 Tuple.Create(s.AllowInput, "EnableTrading = true (the bridge's Inputs)"),
                 Tuple.Create(s.AlgoTerminal, "Algo Trading ON (the MT5 toolbar button)"),
                 Tuple.Create(s.AlgoEa, "'Allow Algo Trading' ticked (the bridge's Common tab)"),

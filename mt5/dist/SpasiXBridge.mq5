@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //| SpasiXBridge.mq5 — connects MetaTrader 5 to the SpasiX app on    |
 //| this PC (127.0.0.1): the account, prices, positions / orders and |
-//| candles, history and deals go to the app. TRADING only when the  |
+//| candles, history, swaps and deals go to the app. TRADING only when the  |
 //| input EnableTrading = true here (+ MT5's Algo Trading) AND the   |
 //| ARM button in SpasiX is on. Every command is answered (RES).     |
 //+------------------------------------------------------------------+
 #property copyright "SpasiX"
-#property version   "4.00"
+#property version   "5.00"
 #property description "SpasiX bridge: prices, positions, candles • trading only with EnableTrading + Algo Trading + ARM in the app"
 #include <Trade\Trade.mqh>
 
@@ -85,7 +85,7 @@ bool Connect()
       return(false);
      }
    Comment("SpasiX: connected to the app • trading ", EnableTrading ? "possible after ARM in the app" : "OFF (EnableTrading = false)");
-   SendLine("HELLO|4|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
+   SendLine("HELLO|5|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
    SendSymbols();
    return(true);
   }
@@ -100,7 +100,17 @@ void SendSymbols()
                + DoubleToString(SymbolInfoDouble(s, SYMBOL_VOLUME_MIN), 2) + "|" + DoubleToString(SymbolInfoDouble(s, SYMBOL_VOLUME_STEP), 2) + "|" + DoubleToString(SymbolInfoDouble(s, SYMBOL_VOLUME_MAX), 2) + "|"
                + DoubleToString(SymbolInfoDouble(s, SYMBOL_POINT), 8) + "|" + DoubleToString(SymbolInfoDouble(s, SYMBOL_TRADE_TICK_VALUE), 6) + "|" + DoubleToString(SymbolInfoDouble(s, SYMBOL_TRADE_TICK_SIZE), 8) + "|"
                + Clean(SymbolInfoString(s, SYMBOL_DESCRIPTION)));
+      SendLine("SYMX|" + s + "|" + DoubleToString(SymbolInfoDouble(s, SYMBOL_SWAP_LONG), 4) + "|" + DoubleToString(SymbolInfoDouble(s, SYMBOL_SWAP_SHORT), 4) + "|" + IntegerToString(SymbolInfoInteger(s, SYMBOL_SWAP_MODE)) + "|"
+               + IntegerToString(SymbolInfoInteger(s, SYMBOL_SWAP_ROLLOVER3DAYS)) + "|" + DoubleToString(SymbolInfoDouble(s, SYMBOL_MARGIN_INITIAL), 2) + "|" + IntegerToString(SymbolInfoInteger(s, SYMBOL_TRADE_CALC_MODE)) + "|" + IntegerToString(SymbolInfoInteger(s, SYMBOL_TRADE_STOPS_LEVEL)) + "|" + MarginInfo(s));
      }
+  }
+
+// MT5's own margin for 1 lot (OrderCalcMargin at the ask), the price it used, the hedged margin (contract size / value per hedged lot), "larger leg"
+string MarginInfo(string s)
+  {
+   double ask = SymbolInfoDouble(s, SYMBOL_ASK), m = 0; if(ask <= 0) ask = SymbolInfoDouble(s, SYMBOL_BID);
+   if(ask > 0 && !OrderCalcMargin(ORDER_TYPE_BUY, s, 1.0, ask, m)) m = 0;
+   return DoubleToString(m, 2) + "|" + DoubleToString(ask, (int)SymbolInfoInteger(s, SYMBOL_DIGITS)) + "|" + DoubleToString(SymbolInfoDouble(s, SYMBOL_MARGIN_HEDGED), 2) + "|" + (SymbolInfoInteger(s, SYMBOL_MARGIN_HEDGED_USE_LEG) ? "1" : "0");
   }
 
 void SendAll()
@@ -190,6 +200,25 @@ void SendHist(string sym, long from, long to)
       if(StringLen(b) > 60000) { if(!SendLine(StringSubstr(b, 0, StringLen(b) - 1))) return; b = ""; }
      }
    b += "HISTEND|" + sym + "|" + IntegerToString(from) + "|" + IntegerToString(to);
+   SendLine(b);
+  }
+
+// MT5's REAL TICKS of one day for the BACKTEST (every bid / ask change, in milliseconds from the day's start):
+// TT|symbol|from|to|n|error, n × T|ms|bid|ask, TTEND|symbol|from|to   (error ≠ 0 or n = 0 on a weekday = MT5 is still downloading them)
+void SendTicks(string sym, long from, long to)
+  {
+   SymbolSelect(sym, true); ResetLastError();
+   MqlTick t[]; int got = CopyTicksRange(sym, t, COPY_TICKS_ALL, (ulong)from * 1000, (ulong)to * 1000 - 1); int err = got < 0 ? GetLastError() : 0; if(got < 0) got = 0;
+   int d = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   string b = "TT|" + sym + "|" + IntegerToString(from) + "|" + IntegerToString(to) + "|" + IntegerToString(got) + "|" + IntegerToString(err) + "\n";
+   double lb = 0, la = 0;
+   for(int i = 0; i < got; i++)
+     {
+      if(t[i].bid <= 0 || t[i].ask <= 0) continue; if(t[i].bid == lb && t[i].ask == la) continue; lb = t[i].bid; la = t[i].ask;
+      b += "T|" + IntegerToString((long)(t[i].time_msc - (ulong)from * 1000)) + "|" + DoubleToString(t[i].bid, d) + "|" + DoubleToString(t[i].ask, d) + "\n";
+      if(StringLen(b) > 60000) { if(!SendLine(StringSubstr(b, 0, StringLen(b) - 1))) return; b = ""; }
+     }
+   b += "TTEND|" + sym + "|" + IntegerToString(from) + "|" + IntegerToString(to);
    SendLine(b);
   }
 
@@ -328,6 +357,7 @@ void ReadApp()
       else if(StringFind(line, "BARS|") == 0) { string p2[]; if(StringSplit(line, '|', p2) >= 4) SendBars(p2[1], (int)StringToInteger(p2[2]), (int)StringToInteger(p2[3])); }
       else if(line == "ALLSYMS") SendAllSymbols();
       else if(StringFind(line, "HIST|") == 0) { string p3[]; if(StringSplit(line, '|', p3) >= 4) SendHist(p3[1], StringToInteger(p3[2]), StringToInteger(p3[3])); }
+      else if(StringFind(line, "HISTT|") == 0) { string p5[]; if(StringSplit(line, '|', p5) >= 4) SendTicks(p5[1], StringToInteger(p5[2]), StringToInteger(p5[3])); }
       else if(StringFind(line, "DEALS|") == 0) { string p4[]; if(StringSplit(line, '|', p4) >= 3) SendDeals(StringToInteger(p4[1]), StringToInteger(p4[2])); }
       else if(StringFind(line, "WATCH|") == 0) { SymbolSelect(StringSubstr(line, 6), true); SendSymbols(); }
       else

@@ -21,6 +21,9 @@ namespace KeystoneMT5
         WrapPanel marketPanel; readonly Dictionary<string, Tuple<Border, TextBlock, TextBlock, TextBlock, TextBlock, TextBlock>> marketCards = new Dictionary<string, Tuple<Border, TextBlock, TextBlock, TextBlock, TextBlock, TextBlock>>();
         readonly List<NewsEvent> news = new List<NewsEvent>(); string newsStatus = "loading the ForexFactory calendar …"; DateTime newsAt = DateTime.MinValue;
         StackPanel newsPanel; TextBlock newsHead; Button newsImpact; int newsImp = 1; string newsSig = "";
+        bool newsPast; int newsWeeks = 1; DateTime newsDay = DateTime.MinValue; Button newsWeeksBtn, newsUpBtn, newsPastBtn; WrapPanel newsDays;
+        static string WeeksName(int w) { return w == 1 ? "1 WEEK" : w + " WEEKS"; }
+        static string NewsCache { get { return System.IO.Path.Combine(Dir, "news-cache.txt"); } }
         static string ImpName(int i) { return i == 0 ? "🔴 HIGH only" : i == 1 ? "🟠 HIGH + MEDIUM" : "ALL"; }
 
         // ---------------------------------------------------------------- MARKET
@@ -78,9 +81,17 @@ namespace KeystoneMT5
             newsImp = Math.Max(0, Math.Min(2, IntOf(Get("newsimp", "1"), 1)));
             newsImpact = Sx.Drop(ImpName(newsImp), Card, () => { var l = new List<Mi>(); for (int i = 0; i < 3; i++) { int ii = i; l.Add(new Mi { Text = ImpName(i), Check = newsImp == i, Radio = true, Do = () => { newsImp = ii; Put("newsimp", ii.ToString(IC)); newsImpact.Content = ImpName(ii) + "  ▾"; newsSig = ""; } }); } return l; });
             var reload = Pill("↻ RELOAD", Card); reload.Click += delegate { newsAt = DateTime.MinValue; LoadNews(); LoadHeadlines(); };
-            right.Children.Add(newsImpact); right.Children.Add(reload); top.Children.Add(right);
-            newsHead = new TextBlock { Foreground = Muted, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }; top.Children.Add(newsHead);
-            sp.Children.Add(top); newsPanel = new StackPanel(); sp.Children.Add(newsPanel);
+            newsWeeks = Math.Max(1, Math.Min(4, IntOf(Get("newsweeks", "1"), 1)));
+            newsWeeksBtn = Sx.Drop(WeeksName(newsWeeks), Card, () => { var l = new List<Mi> { Mi.H(newsPast ? "how far back" : "how far ahead") }; foreach (var w in new[] { 1, 2, 3, 4 }) { int ww = w; l.Add(new Mi { Text = WeeksName(w), Check = newsWeeks == w, Radio = true, Do = () => { newsWeeks = ww; Put("newsweeks", ww.ToString(IC)); newsWeeksBtn.Content = WeeksName(ww) + "  ▾"; newsDay = DateTime.MinValue; newsSig = ""; } }); } return l; });
+            right.Children.Add(newsWeeksBtn); right.Children.Add(newsImpact); right.Children.Add(reload); top.Children.Add(right);
+            var tabsP = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            newsUpBtn = Pill("⏭  UPCOMING", Card); newsUpBtn.Height = 34; newsUpBtn.FontSize = 13; newsUpBtn.Click += delegate { newsPast = false; newsDay = DateTime.MinValue; newsSig = ""; };
+            newsPastBtn = Pill("⏮  PAST", Card); newsPastBtn.Height = 34; newsPastBtn.FontSize = 13; newsPastBtn.Click += delegate { newsPast = true; newsDay = DateTime.MinValue; newsSig = ""; };
+            tabsP.Children.Add(newsUpBtn); tabsP.Children.Add(newsPastBtn); top.Children.Add(tabsP);
+            sp.Children.Add(top);
+            newsHead = new TextBlock { Foreground = Muted, FontSize = 11.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 0, 6) }; sp.Children.Add(newsHead);
+            newsDays = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) }; sp.Children.Add(newsDays);
+            newsPanel = new StackPanel(); sp.Children.Add(newsPanel);
             var root = new Grid(); root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.7, GridUnitType.Star) }); root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) }); root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             root.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp });
             // the headlines (RSS of ForexLive and FXStreet), newest first; click = open in the browser
@@ -146,27 +157,46 @@ namespace KeystoneMT5
         async void LoadNews()
         {
             if ((DateTime.Now - newsAt).TotalMinutes < 5) return; newsAt = DateTime.Now; newsStatus = "loading the ForexFactory calendar …"; newsSig = "";
-            try
+            var got = new List<NewsEvent>(); var okWeeks = new List<string>(); string err = "";
+            foreach (var w in new[] { Tuple.Create("this week", "https://nfs.faireconomy.media/ff_calendar_thisweek.json"), Tuple.Create("next week", "https://nfs.faireconomy.media/ff_calendar_nextweek.json") })
             {
-                string json;
-                using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) }) { http.DefaultRequestHeaders.UserAgent.ParseAdd("SpasiX/1.0"); json = await http.GetStringAsync("https://nfs.faireconomy.media/ff_calendar_thisweek.json"); }
-                var list = await Task.Run(() =>
+                try
                 {
-                    var res = new List<NewsEvent>();
-                    using (var doc = JsonDocument.Parse(json))
-                        foreach (var e in doc.RootElement.EnumerateArray())
-                        {
-                            Func<string, string> str = k => { JsonElement v; return e.TryGetProperty(k, out v) && v.ValueKind == JsonValueKind.String ? v.GetString() : ""; };
-                            DateTimeOffset dto; if (!DateTimeOffset.TryParse(str("date"), IC, DateTimeStyles.None, out dto)) continue;
-                            res.Add(new NewsEvent { Title = str("title"), Currency = str("country"), Impact = str("impact"), Forecast = str("forecast"), Previous = str("previous"), Utc = dto.UtcDateTime });
-                        }
-                    return res.OrderBy(x => x.Utc).ToList();
-                });
-                news.Clear(); news.AddRange(list); newsStatus = "📰 ForexFactory • this week • " + list.Count + " events • " + list.Count(x => x.Impact == "High") + " high impact • updated " + DateTime.Now.ToString("HH:mm", IC);
+                    string json; using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) }) { http.DefaultRequestHeaders.UserAgent.ParseAdd("SpasiX/1.0"); json = await http.GetStringAsync(w.Item2); }
+                    got.AddRange(await Task.Run(() => ParseFf(json))); okWeeks.Add(w.Item1);
+                }
+                catch (Exception ex) { if (w.Item1 == "this week") err = ex.Message; }
             }
-            catch (Exception ex) { newsStatus = "📰 the ForexFactory calendar could not be loaded (" + ex.Message + ") — ↻ RELOAD in a minute"; }
+            // the past stays: every event ever loaded is kept on this PC (news-cache.txt), so ⏮ PAST reaches back further than ForexFactory's week
+            var all = LoadNewsCache(); foreach (var e in got) all[e.Utc.Ticks + "|" + e.Currency + "|" + e.Title] = e;
+            var list = all.Values.Where(e => e.Utc > DateTime.UtcNow.AddDays(-35)).OrderBy(x => x.Utc).ToList(); SaveNewsCache(list);
+            news.Clear(); news.AddRange(list);
+            newsStatus = okWeeks.Count > 0 ? "📰 ForexFactory • " + string.Join(" + ", okWeeks) + " • " + got.Count + " events • updated " + DateTime.Now.ToString("HH:mm", IC) : "📰 the ForexFactory calendar could not be loaded (" + err + ") — ↻ RELOAD in a minute" + (list.Count > 0 ? " • showing the saved events" : "");
             newsSig = "";
         }
+        static List<NewsEvent> ParseFf(string json)
+        {
+            var res = new List<NewsEvent>();
+            using (var doc = JsonDocument.Parse(json))
+                foreach (var e in doc.RootElement.EnumerateArray())
+                {
+                    Func<string, string> str = k => { JsonElement v; return e.TryGetProperty(k, out v) && v.ValueKind == JsonValueKind.String ? v.GetString() : ""; };
+                    DateTimeOffset dto; if (!DateTimeOffset.TryParse(str("date"), IC, DateTimeStyles.None, out dto)) continue;
+                    res.Add(new NewsEvent { Title = str("title"), Currency = str("country"), Impact = str("impact"), Forecast = str("forecast"), Previous = str("previous"), Utc = dto.UtcDateTime });
+                }
+            return res;
+        }
+        static Dictionary<string, NewsEvent> LoadNewsCache()
+        {
+            var d = new Dictionary<string, NewsEvent>(); try
+            {
+                if (!System.IO.File.Exists(NewsCache)) return d;
+                foreach (var l in System.IO.File.ReadAllLines(NewsCache)) { var a = l.Split('\t'); long t; if (a.Length < 6 || !long.TryParse(a[0], out t)) continue; var e = new NewsEvent { Utc = new DateTime(t, DateTimeKind.Utc), Currency = a[1], Impact = a[2], Title = a[3], Forecast = a[4], Previous = a[5] }; d[e.Utc.Ticks + "|" + e.Currency + "|" + e.Title] = e; }
+            }
+            catch { }
+            return d;
+        }
+        static void SaveNewsCache(List<NewsEvent> l) { try { System.IO.Directory.CreateDirectory(Dir); System.IO.File.WriteAllLines(NewsCache, l.Select(e => e.Utc.Ticks + "\t" + e.Currency + "\t" + e.Impact + "\t" + (e.Title ?? "").Replace("\t", " ") + "\t" + e.Forecast + "\t" + e.Previous)); } catch { } }
         // the currencies a symbol moves on
         static string[] CurrenciesOf(string sym)
         {
@@ -198,26 +228,50 @@ namespace KeystoneMT5
         void FillNews()
         {
             FillHeadlines();
-            newsHead.Text = newsStatus + "   •   times in " + Zones[Math.Max(0, zoneIdx)].Item1;
-            string sig = newsStatus + "|" + newsImp + "|" + zoneIdx + "|" + DateTime.Now.Minute;
-            if (sig == newsSig) return; newsSig = sig; newsPanel.Children.Clear();
-            string zn; var conv = ZoneConv(broker.State, out zn); int off = broker.State.ServerOffsetSec;
+            string sig = newsStatus + "|" + newsImp + "|" + zoneIdx + "|" + DateTime.Now.Minute + "|" + newsPast + "|" + newsWeeks + "|" + newsDay.Ticks + "|" + news.Count;
+            if (sig == newsSig) return; newsSig = sig; newsPanel.Children.Clear(); newsDays.Children.Clear();
+            string zn; var conv = ZoneConv(broker.State, out zn); int off = broker.State.ServerOffsetSec; var nowU = DateTime.UtcNow;
+            newsUpBtn.Background = !newsPast ? Gold : (Brush)Card; newsUpBtn.Foreground = !newsPast ? Bg : Text; newsPastBtn.Background = newsPast ? Tint(Violet, 210) : (Brush)Card; newsPastBtn.Foreground = newsPast ? Bg : Text;
             var mine = broker.State.Positions.SelectMany(p => CurrenciesOf(p.Symbol)).Concat(panes.Take(split).SelectMany(p => CurrenciesOf(p.Sym))).Distinct().ToList();
             int imp = newsImp;
-            foreach (var day in news.Where(n => imp == 2 || n.Impact == "High" || (imp == 1 && n.Impact == "Medium")).GroupBy(n => conv(n.Utc.AddSeconds(off)).Date))
+            var span = news.Where(n => imp == 2 || n.Impact == "High" || (imp == 1 && n.Impact == "Medium"))
+                .Where(n => newsPast ? n.Utc < nowU.AddMinutes(-5) && n.Utc >= nowU.AddDays(-7 * newsWeeks) : n.Utc >= nowU.AddMinutes(-5) && n.Utc <= nowU.AddDays(7 * newsWeeks)).ToList();
+            var byDay = span.GroupBy(n => conv(n.Utc.AddSeconds(off)).Date).OrderBy(g => newsPast ? -g.Key.Ticks : g.Key.Ticks).ToList();
+            var today0 = conv(nowU.AddSeconds(off)).Date;
+            newsHead.Text = newsStatus + "   •   " + (newsPast ? "the last " : "the next ") + WeeksName(newsWeeks).ToLowerInvariant() + " • " + span.Count + " events (" + span.Count(n => n.Impact == "High") + " high) • times in " + Zones[Math.Max(0, zoneIdx)].Item1 + (!newsPast && newsWeeks > 2 ? " • ForexFactory publishes this week and the next" : "");
+            // the day sub-tabs
+            Action<DateTime, string, int, int> chip = (d, t, n, hi) =>
             {
-                bool today = day.Key == conv(DateTime.UtcNow.AddSeconds(off)).Date;
-                newsPanel.Children.Add(new TextBlock { Text = day.Key.ToString("dddd dd MMMM", IC).ToUpperInvariant() + (today ? "  •  TODAY" : ""), Foreground = today ? Gold : Muted, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 10, 0, 4) });
-                foreach (var n in day)
+                bool on = newsDay == d; var st = new StackPanel { Orientation = Orientation.Horizontal };
+                st.Children.Add(new TextBlock { Text = t, FontWeight = FontWeights.Bold, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center });
+                if (n > 0) st.Children.Add(new TextBlock { Text = "  " + n, Foreground = on ? Bg : Muted, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center });
+                if (hi > 0) st.Children.Add(new Border { Background = Red, CornerRadius = new CornerRadius(7), Padding = new Thickness(5, 0, 5, 0), Margin = new Thickness(6, 0, 0, 0), Child = new TextBlock { Text = hi.ToString(IC), Foreground = Sx.White, FontSize = 10, FontWeight = FontWeights.Bold } });
+                var b = Pill("", on ? (Brush)Tint(Cyan, 200) : Card); b.Content = st; b.Foreground = on ? Bg : d == today0 ? Gold : Text; b.Height = 30; b.Margin = new Thickness(0, 0, 5, 5); b.BorderBrush = d == today0 ? Gold : Line;
+                b.ToolTip = d == DateTime.MinValue ? "every day" : d.ToString("dddd dd MMMM yyyy", IC) + " • " + n + " events, " + hi + " high impact";
+                var dd = d; b.Click += delegate { newsDay = dd; newsSig = ""; }; newsDays.Children.Add(b);
+            };
+            chip(DateTime.MinValue, "ALL DAYS", span.Count, span.Count(n => n.Impact == "High"));
+            foreach (var g in byDay) chip(g.Key, (g.Key == today0 ? "TODAY " : g.Key == today0.AddDays(1) ? "TOMORROW " : g.Key == today0.AddDays(-1) ? "YESTERDAY " : "") + g.Key.ToString("ddd dd MMM", IC).ToUpperInvariant(), g.Count(), g.Count(n => n.Impact == "High"));
+            if (newsDay != DateTime.MinValue && !byDay.Any(g => g.Key == newsDay)) newsDay = DateTime.MinValue;
+            if (byDay.Count == 0) newsPanel.Children.Add(new TextBlock { Text = newsPast ? "no past event saved yet in this range (SpasiX keeps every event it loads, from now on)" : "no event ahead in this range" + (newsStatus.Contains("next week") ? "" : " — ForexFactory has not published next week's calendar yet (it usually appears over the weekend); ⏮ PAST shows this week"), Foreground = Muted, FontSize = 13, Margin = new Thickness(4, 10, 0, 0) });
+            foreach (var day in byDay.Where(g => newsDay == DateTime.MinValue || g.Key == newsDay))
+            {
+                bool today = day.Key == today0;
+                var hd = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 12, 0, 5) };
+                hd.Children.Add(new TextBlock { Text = day.Key.ToString("dddd", IC).ToUpperInvariant(), Foreground = today ? Gold : Cyan, FontSize = 15, FontWeight = FontWeights.Bold });
+                hd.Children.Add(new TextBlock { Text = "  " + day.Key.ToString("dd MMMM yyyy", IC) + (today ? "  •  TODAY" : day.Key == today0.AddDays(1) ? "  •  TOMORROW" : ""), Foreground = today ? Gold : Muted, FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom });
+                hd.Children.Add(new TextBlock { Text = "   " + day.Count() + " events • " + day.Count(n => n.Impact == "High") + " high", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Bottom });
+                newsPanel.Children.Add(hd);
+                foreach (var n in newsPast ? day.OrderByDescending(x => x.Utc) : day.OrderBy(x => x.Utc))
                 {
-                    bool past = n.Utc < DateTime.UtcNow.AddMinutes(-5), yours = mine.Contains(n.Currency); var impB = n.Impact == "High" ? Red : n.Impact == "Medium" ? Orange : n.Impact == "Low" ? Gold : Muted;
+                    bool past = n.Utc < nowU.AddMinutes(-5), yours = mine.Contains(n.Currency); var impB = n.Impact == "High" ? Red : n.Impact == "Medium" ? Orange : n.Impact == "Low" ? Gold : Muted;
                     var r = new StackPanel { Orientation = Orientation.Horizontal };
-                    r.Children.Add(new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(5), Background = impB, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center });
+                    r.Children.Add(new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(5), Background = impB, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = n.Impact + " impact" });
                     r.Children.Add(Cell(conv(n.Utc.AddSeconds(off)).ToString("HH:mm", IC), Text, 54, false, true)); r.Children.Add(Cell(n.Currency, yours ? Cyan : Text, 44, false, true));
-                    r.Children.Add(new TextBlock { Text = n.Title, Foreground = past ? Muted : Text, FontSize = 13, FontWeight = n.Impact == "High" ? FontWeights.Bold : FontWeights.Normal, Width = 380, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+                    r.Children.Add(new TextBlock { Text = n.Title, Foreground = past ? Muted : Text, FontSize = 13, FontWeight = n.Impact == "High" ? FontWeights.Bold : FontWeights.Normal, Width = 360, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = n.Title });
                     r.Children.Add(Cell(n.Forecast != "" ? "forecast " + n.Forecast : "", Muted, 130)); r.Children.Add(Cell(n.Previous != "" ? "previous " + n.Previous : "", Muted, 130));
-                    r.Children.Add(Cell(past ? "done" : Until(n.Utc), past ? Muted : n.Impact == "High" ? Red : Text, 140, false, true));
-                    newsPanel.Children.Add(new Border { Background = yours && !past ? Tint(Cyan, 22) : Card, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 0, 3), Child = r, Opacity = past ? 0.6 : 1, ToolTip = yours ? "a currency of your positions / charts" : null });
+                    r.Children.Add(Cell(past ? ((int)(nowU - n.Utc).TotalHours >= 24 ? ((int)(nowU - n.Utc).TotalDays) + " d ago" : ((int)(nowU - n.Utc).TotalHours) + " h ago") : Until(n.Utc), past ? Muted : n.Impact == "High" ? Red : Text, 140, false, true));
+                    newsPanel.Children.Add(new Border { Background = yours && !past ? Tint(Cyan, 22) : Card, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 0, 3), Child = r, Opacity = past ? 0.75 : 1, ToolTip = yours ? "a currency of your positions / charts" : null });
                 }
             }
         }

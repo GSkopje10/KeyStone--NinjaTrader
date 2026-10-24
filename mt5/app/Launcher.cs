@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -18,6 +19,7 @@ namespace KeystoneMT5
     {
         public event Action<string> Chosen; public bool Picked;
         readonly Mt5Bridge bridge; readonly DispatcherTimer tm; TextBlock status; Border statusDot;
+        Border resume; StackPanel resumeBox, resumeBtns; TextBlock resumeTitle, resumeText; string resumeSig = ""; readonly DateTime openedAt = DateTime.Now;
         public Launcher(Mt5Bridge b, bool stream)
         {
             bridge = b; Title = "SpasiX"; Width = 1360; Height = 660; WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent; ResizeMode = ResizeMode.NoResize;
@@ -48,7 +50,22 @@ namespace KeystoneMT5
             status = new TextBlock { Foreground = Sx.Muted, FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
             statusDot.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, 0.35, TimeSpan.FromMilliseconds(900)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
             st.Children.Add(statusDot); st.Children.Add(status); tx.Children.Add(st);
-            head.Children.Add(tx); top.Children.Add(head); g.Children.Add(top);
+            head.Children.Add(tx);
+            // RESUME: the trades still open (your MT5's, the saved DEMO) found at start — one click opens them again
+            resumeBox = new StackPanel(); resume = new Border { Child = resumeBox, CornerRadius = new CornerRadius(16), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center, MaxWidth = 470,
+                Background = new LinearGradientBrush(Sx.C("#16263A"), Sx.C("#0C1422"), 90), BorderThickness = new Thickness(1.4), BorderBrush = new LinearGradientBrush(Sx.C("#2EE59D"), Sx.C("#4DD8FF"), 0), Visibility = Visibility.Collapsed,
+                Effect = new DropShadowEffect { Color = Sx.C("#2EE59D"), BlurRadius = 18, ShadowDepth = 0, Opacity = 0.45 } };
+            var rr = new StackPanel { Orientation = Orientation.Horizontal };
+            var spin = new Grid { Width = 34, Height = 34, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Top };
+            var arc = new System.Windows.Shapes.Ellipse { Width = 34, Height = 34, StrokeThickness = 3, Stroke = new LinearGradientBrush(Sx.C("#2EE59D"), Sx.C("#4DD8FF"), 45), StrokeDashArray = new DoubleCollection { 7, 4 } };
+            var rot2 = new RotateTransform(0, 17, 17); arc.RenderTransform = rot2; rot2.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, 360, TimeSpan.FromSeconds(3)) { RepeatBehavior = RepeatBehavior.Forever });
+            spin.Children.Add(arc); spin.Children.Add(new TextBlock { Text = "⟳", Foreground = Sx.Green, FontSize = 15, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+            rr.Children.Add(spin); var rt = new StackPanel(); rr.Children.Add(rt);
+            resumeTitle = new TextBlock { Foreground = Sx.Green, FontSize = 12.5, FontWeight = FontWeights.Bold }; resumeText = new TextBlock { Foreground = Sx.Text, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 380, Margin = new Thickness(0, 2, 0, 6) };
+            rt.Children.Add(resumeTitle); rt.Children.Add(resumeText); resumeBtns = new StackPanel { Orientation = Orientation.Horizontal }; rt.Children.Add(resumeBtns); resumeBox.Children.Add(rr);
+            resume.Loaded += delegate { resume.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, 0.82, TimeSpan.FromMilliseconds(1100)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever }); };
+            DockPanel.SetDock(resume, Dock.Right); top.Children.Add(resume);
+            top.Children.Add(head); g.Children.Add(top);
             // the three modes
             var row = new System.Windows.Controls.Primitives.UniformGrid { Columns = 4, Margin = new Thickness(0, 26, 0, 10) }; Grid.SetRow(row, 1); g.Children.Add(row);
             row.Children.Add(Card("LIVE", "📈", "LIVE TRADING", "your MT5 account in real time", Sx.Green, new[] { "charts with your tickets, stops and targets", "lots, hedging, limit / stop, one-click", "close all / buys / sells / winners / losers", "tracker, market watch, ForexFactory news" }, "1"));
@@ -59,7 +76,7 @@ namespace KeystoneMT5
             var bl = new TextBlock { Text = MainWindow.Build, Foreground = Sx.Muted, FontSize = 11 }; DockPanel.SetDock(bl, Dock.Right); foot.Children.Add(bl);
             foot.Children.Add(new TextBlock { Text = "1 / 2 / 3 / 4 = choose • Esc = close • LIVE, PROP and DEMO need MetaTrader 5 with the SpasiXBridge on a chart; BACKTEST works offline with the days on this PC", Foreground = Sx.Muted, FontSize = 11 });
             Content = root;
-            PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) Close(); else if (e.Key == Key.D1 || e.Key == Key.NumPad1) Pick("LIVE"); else if (e.Key == Key.D2 || e.Key == Key.NumPad2) Pick("PROP"); else if (e.Key == Key.D3 || e.Key == Key.NumPad3) Pick("DEMO"); else if (e.Key == Key.D4 || e.Key == Key.NumPad4) Pick("BACKTEST"); };
+            PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) Close(); else if (e.Key == Key.R && resume.Visibility == Visibility.Visible && resumeBtns.Children.Count > 0) Pick(resumeTitle.Text.StartsWith("YOUR DEMO") ? "DEMO" : "LIVE"); else if (e.Key == Key.D1 || e.Key == Key.NumPad1) Pick("LIVE"); else if (e.Key == Key.D2 || e.Key == Key.NumPad2) Pick("PROP"); else if (e.Key == Key.D3 || e.Key == Key.NumPad3) Pick("DEMO"); else if (e.Key == Key.D4 || e.Key == Key.NumPad4) Pick("BACKTEST"); };
             tm = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             tm.Tick += delegate
             {
@@ -69,9 +86,33 @@ namespace KeystoneMT5
                     else if (s.Alive) { var a = s.Account; status.Text = "MT5 connected • " + (stream ? "•••••" : a.Login.ToString(CultureInfo.InvariantCulture)) + " • " + a.Server + " • " + a.Kind + " • bridge v" + s.BridgeVersion; statusDot.Background = a.Kind == "REAL" ? Sx.Green : Sx.Cyan; }
                     else { status.Text = "MT5 not connected yet — start MetaTrader 5 with the SpasiXBridge on a chart (BACKTEST works without it)"; statusDot.Background = Sx.Gold; }
                 }
+                PaintResume();
             };
             tm.Start(); Closed += delegate { tm.Stop(); };
             Loaded += delegate { frame.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(260))); };
+        }
+        // the RESUME card: MT5's open positions (live / prop) and the saved DEMO account's tickets
+        void PaintResume()
+        {
+            int n = 0, ords = 0; double pl = 0; string by = "", kind = ""; bool alive;
+            var s = bridge.State; lock (s.Gate) { alive = s.Alive; if (alive) { n = s.Positions.Count; ords = s.Orders.Count; pl = s.Positions.Sum(p => p.Profit + p.Swap); kind = s.Account.Kind; by = string.Join("  •  ", s.Positions.GroupBy(p => p.Symbol).Select(gp => gp.Key + (gp.Any(p => p.Dir > 0) ? " ▲" + gp.Count(p => p.Dir > 0) : "") + (gp.Any(p => p.Dir < 0) ? " ▼" + gp.Count(p => p.Dir < 0) : ""))); } }
+            int demo = 0; try { if (System.IO.File.Exists(PaperBroker.FilePath)) demo = System.IO.File.ReadAllLines(PaperBroker.FilePath).Count(l => l.StartsWith("P|")); } catch { }
+            bool searching = !alive && (DateTime.Now - openedAt).TotalSeconds < 12;
+            string sig = n + "|" + ords + "|" + Math.Round(pl) + "|" + by + "|" + demo + "|" + searching + "|" + alive;
+            if (sig == resumeSig) return; resumeSig = sig;
+            if (n == 0 && demo == 0 && !searching) { resume.Visibility = Visibility.Collapsed; return; }
+            resume.Visibility = Visibility.Visible; resumeBtns.Children.Clear();
+            if (n == 0 && searching && demo == 0) { resumeTitle.Text = "LOOKING FOR YOUR OPEN TRADES …"; resumeTitle.Foreground = Sx.Cyan; resumeText.Text = "waiting for MT5 — the trades you had open come back here, with their stops and targets"; return; }
+            resumeTitle.Foreground = Sx.Green;
+            if (n > 0)
+            {
+                resumeTitle.Text = "WELCOME BACK • " + n + " TRADE" + (n == 1 ? "" : "S") + " STILL OPEN";
+                resumeText.Text = by + (ords > 0 ? "  •  ⏳ " + ords + " order" + (ords == 1 ? "" : "s") : "") + "\nopen P/L " + (pl >= 0 ? "+$" : "−$") + Math.Abs(pl).ToString("N2", CultureInfo.InvariantCulture) + " on your " + kind + " account — safe at the broker, nothing changed";
+                var b = Sx.Pill("⟳ RESUME LIVE  ›", Sx.Green); b.Foreground = Sx.Bg; b.Height = 30; b.ToolTip = "open LIVE on the chart of your trades (key R) — trading stays disarmed until you ARM"; b.Click += delegate { Pick("LIVE"); }; resumeBtns.Children.Add(b);
+                var bp = Sx.Pill("PROP  ›", Sx.Card); bp.Height = 30; bp.Foreground = Sx.Violet; bp.Click += delegate { Pick("PROP"); }; resumeBtns.Children.Add(bp);
+            }
+            else resumeTitle.Text = "YOUR DEMO IS WAITING";
+            if (demo > 0) { var bd = Sx.Pill("🎮 RESUME DEMO (" + demo + ")  ›", Sx.Tint(Sx.Orange, 200)); bd.Foreground = Sx.Bg; bd.Height = 30; bd.Click += delegate { Pick("DEMO"); }; resumeBtns.Children.Add(bd); if (n == 0) resumeText.Text = demo + " simulated ticket" + (demo == 1 ? "" : "s") + " saved on this PC — they follow the live prices again"; }
         }
         void Pick(string mode) { if (Picked) return; Picked = true; var h = Chosen; if (h != null) h(mode); }
         FrameworkElement Card(string mode, string icon, string title, string tag, SolidColorBrush col, string[] lines, string key)
@@ -82,7 +123,7 @@ namespace KeystoneMT5
             sp.Children.Add(ic);
             sp.Children.Add(new TextBlock { Text = title, Foreground = col, FontSize = 21, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 14, 0, 0) });
             sp.Children.Add(new TextBlock { Text = tag, Foreground = Sx.Text, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 12) });
-            foreach (var l in lines) { var r = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 3) }; r.Children.Add(new TextBlock { Text = "◆", Foreground = col, FontSize = 9, Margin = new Thickness(0, 3, 9, 0) }); r.Children.Add(new TextBlock { Text = l, Foreground = Sx.Muted, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 260 }); sp.Children.Add(r); }
+            foreach (var l in lines) { var r = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 3) }; r.Children.Add(new TextBlock { Text = "◆", Foreground = col, FontSize = 9, Margin = new Thickness(0, 3, 9, 0) }); r.Children.Add(new TextBlock { Text = l, Foreground = Sx.Muted, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 212 }); sp.Children.Add(r); }
             var go = Sx.Pill("OPEN " + mode + "  ›", col); go.Foreground = Sx.Bg; go.Height = 40; go.FontSize = 13.5; go.Margin = new Thickness(0, 18, 0, 0); go.HorizontalAlignment = HorizontalAlignment.Stretch; go.Click += delegate { Pick(mode); }; sp.Children.Add(go);
             sp.Children.Add(new TextBlock { Text = "key " + key, Foreground = Sx.Muted, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 6, 0, 0) });
             var sc = new ScaleTransform(1, 1);
@@ -138,7 +179,7 @@ namespace KeystoneMT5
             int port = 47123; string direct = null;   // SpasiX.exe [port] [--mode LIVE|PROP|DEMO|BACKTEST] (a shortcut can open a mode directly)
             for (int i = 0; i < args.Length; i++) { int pp; if (args[i] == "--mode" && i + 1 < args.Length) direct = args[++i].ToUpperInvariant(); else if (int.TryParse(args[i], out pp)) port = pp; }
             bridge = new Mt5Bridge(port); bridge.Start();
-            app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown }; Sx.ModernScrollbars(app);
             app.DispatcherUnhandledException += (s, e) => { e.Handled = true; try { Sx.Info(app.MainWindow, "SpasiX — something went wrong", e.Exception.Message + "\n\n" + (e.Exception.StackTrace ?? "").Split('\n')[0].Trim(), Sx.Red); } catch { } };
             var splash = Splash(); splash.Show();
             var tm = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1300) };

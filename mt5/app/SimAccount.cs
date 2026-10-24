@@ -29,7 +29,7 @@ namespace KeystoneMT5
 
         public void Reset(SimAccountSettings s, DateTime t)
         {
-            Set = s; Balance = s.Balance; Now = t; px.Clear(); Notes.Clear();
+            Set = s; Balance = s.Balance; Now = t; px.Clear(); Notes.Clear(); NextTicket = 50000001; NextDeal = 70000001;
             State.Positions = new List<Mt5Position>(); State.Orders = new List<Mt5Order>(); State.Deals = new List<Mt5Deal>();
             State.Account = new Mt5Account { Login = 0, Name = "SIMULATED", Server = "SpasiX simulator", Currency = s.Currency, Balance = Balance, Equity = Balance, FreeMargin = Balance, Leverage = s.Leverage, Mode = "HEDGE", Connected = true, Kind = "SIM" };
             State.Deals.Add(new Mt5Deal { Ticket = NextDeal++, Time = t, Type = "BALANCE", Profit = Balance, Comment = "start balance" }); State.DealsVersion++; State.DealsAt = DateTime.Now; State.DealsFrom = t.Date;

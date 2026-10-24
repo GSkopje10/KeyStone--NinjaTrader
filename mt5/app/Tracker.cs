@@ -65,12 +65,12 @@ namespace KeystoneMT5
             var root = new Grid(); root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             var top = new DockPanel { Margin = new Thickness(2, 0, 2, 8) };
             var right = new StackPanel { Orientation = Orientation.Horizontal }; DockPanel.SetDock(right, Dock.Right);
-            var prev = Pill("◀", Card); prev.Click += delegate { trackMonth = trackMonth.AddMonths(-1); trackAll = false; trackSig = ""; if (!Sim) RequestDeals(true); };
+            var prev = Pill("◀", Card); prev.Click += delegate { trackMonth = trackMonth.AddMonths(-1); trackAll = false; trackSig = ""; if (!Virtual) RequestDeals(true); };
             trackMonthText = new TextBlock { Foreground = Gold, FontSize = 15, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 10, 0), MinWidth = 120, TextAlignment = TextAlignment.Center };
             var next = Pill("▶", Card); next.Click += delegate { trackMonth = trackMonth.AddMonths(1); trackAll = false; trackSig = ""; };
             trackAllBtn = Pill("ALL", Card); trackAllBtn.ToolTip = "the numbers of every loaded day (not only this month)"; trackAllBtn.Click += delegate { trackAll = !trackAll; trackSig = ""; };
             right.Children.Add(prev); right.Children.Add(trackMonthText); right.Children.Add(next); right.Children.Add(trackAllBtn);
-            if (!Sim) { var rl = Pill("↻ RELOAD", Card); rl.Click += delegate { RequestDeals(true); }; right.Children.Add(rl); }
+            if (!Virtual) { var rl = Pill("↻ RELOAD", Card); rl.Click += delegate { RequestDeals(true); }; right.Children.Add(rl); }
             top.Children.Add(right);
             trackHead = new TextBlock { Foreground = Text, FontSize = 13, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }; top.Children.Add(trackHead);
             root.Children.Add(top);
@@ -102,7 +102,7 @@ namespace KeystoneMT5
         // the account's deals from MT5 (bridge v4): the last 3 months, again every minute
         void RequestDeals(bool force)
         {
-            if (Sim) return; var s = live.State; if (s.BridgeVersion < 4 || !s.Alive) return;
+            if (Virtual) return; var s = live.State; if (s.BridgeVersion < 4 || !s.Alive) return;
             if (!force && (DateTime.Now - dealsAskedAt).TotalSeconds < 60) return; dealsAskedAt = DateTime.Now;
             var now = s.ServerNow > DateTime.MinValue ? s.ServerNow : DateTime.Now; var from = new DateTime(Math.Min(trackMonth.Ticks, new DateTime(now.Year, now.Month, 1).AddMonths(-3).Ticks));
             live.Send("DEALS|" + Mt5State.Epoch(from) + "|" + Mt5State.Epoch(now.Date.AddDays(2)));
@@ -132,8 +132,8 @@ namespace KeystoneMT5
             var all = Trades(s.Deals); string cur = s.Account.Currency;
             trackMonthText.Text = trackMonth.ToString("MMMM yyyy", IC).ToUpperInvariant(); trackAllBtn.Background = trackAll ? Tint(Gold, 190) : (Brush)Card; trackAllBtn.Foreground = trackAll ? Bg : Text;
             var inMonth = all.Where(t => t.Close.Year == trackMonth.Year && t.Close.Month == trackMonth.Month).ToList(); var range = trackAll ? all : inMonth;
-            if (!Sim && s.BridgeVersion < 4) trackHead.Text = "📊 the TRACKER needs the SpasiXBridge v4 in MT5 (⚙ SETUP step 1)";
-            else trackHead.Text = (Sim ? "📊 BACKTEST STATS • " : "📊 TRACKER • ") + (trackAll ? "every loaded day" : trackMonth.ToString("MMMM yyyy", IC)) + " • " + range.Count + " trade" + (range.Count == 1 ? "" : "s") + " • net " + Signed(range.Sum(t => t.Net), cur) + (!Sim && s.DealsAt > DateTime.MinValue ? " • from MT5 at " + s.DealsAt.ToString("HH:mm:ss", IC) : !Sim ? " • asking MT5 …" : "");
+            if (!Virtual && s.BridgeVersion < 4) trackHead.Text = "📊 the TRACKER needs the SpasiXBridge v4 in MT5 (⚙ SETUP step 1)";
+            else trackHead.Text = (Sim ? "📊 BACKTEST STATS • " : Paper ? "📊 DEMO TRACKER • " : "📊 TRACKER • ") + (trackAll ? "every loaded day" : trackMonth.ToString("MMMM yyyy", IC)) + " • " + range.Count + " trade" + (range.Count == 1 ? "" : "s") + " • net " + Signed(range.Sum(t => t.Net), cur) + (!Virtual && s.DealsAt > DateTime.MinValue ? " • from MT5 at " + s.DealsAt.ToString("HH:mm:ss", IC) : !Virtual ? " • asking MT5 …" : "");
             // the calendar
             var byDay = all.GroupBy(t => t.Close.Date).ToDictionary(g => g.Key, g => g.ToList());
             calGrid.G.Children.Clear(); var first = trackMonth; int lead = ((int)first.DayOfWeek + 6) % 7; var start = first.AddDays(-lead);
@@ -204,7 +204,7 @@ namespace KeystoneMT5
                 }
             }
             else dayRows.Children.Add(new TextBlock { Text = "click a day in the calendar", Foreground = Muted, FontSize = 12 });
-            var jk = (Sim ? "bt" : s.Account.Login.ToString(IC)) + "|" + sel.ToString("yyyy-MM-dd", IC);
+            var jk = (Sim ? "bt" : Paper ? "demo" : s.Account.Login.ToString(IC)) + "|" + sel.ToString("yyyy-MM-dd", IC);
             if (jk != journalKey) { SaveJournal(); journalKey = jk; journal.Text = JournalGet(jk); }
         }
         static string JournalFile { get { return Path.Combine(Dir, "journal.txt"); } }

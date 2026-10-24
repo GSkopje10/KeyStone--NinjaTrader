@@ -156,6 +156,32 @@ public static class SimTests
         Check(Math.Abs(m1n - 200) < 0.01 && m2n < 0.01, "USTEC (hedged margin 0): a buy uses $200 (MT5's number), the opposite sell frees it → margin $0", m1n + " → " + m2n);
         am.Do("ORDER", new object[] { "XAUUSD", "BUY", 1.0, 0.0, 0.0, 0.0 }, day1); am.Do("ORDER", new object[] { "XAUUSD", "SELL", 1.0, 0.0, 0.0, 0.0 }, day1);
         Check(Math.Abs(am.State.Account.Margin - 800) < 0.5, "XAUUSD (hedged margin = full): a buy and a sell both pay → $800", am.State.Account.Margin + "");
+        // 11. back in time: the replay runs again to an earlier moment, the trades before it re-done exactly, the ones after it gone
+        var rw = Run(all, set); rw.StepBar(1); rw.StepBar(1); rw.Command("ORDER", "XAUUSD", "BUY", 1.0, 0.0, 0.0, 0.0); var buyT = rw.State.Positions[0].Ticket; double buyAt = rw.State.Positions[0].Open;
+        for (int k = 0; k < 5; k++) rw.StepBar(1); var mid = rw.Clock; rw.Command("CLOSE", buyT, 0.5); for (int k = 0; k < 5; k++) rw.StepBar(1); rw.Command("ORDER", "XAUUSD", "SELL", 2.0, 0.0, 0.0, 0.0);
+        var late = rw.Clock; for (int k = 0; k < 3; k++) rw.StepBar(1); int after = rw.CommandsAfter(mid.AddMinutes(1));
+        var e11 = rw.RewindTo(mid.AddMinutes(1)); var bk = rw.State.Positions;
+        Check(e11 == "" && after == 1 && rw.Clock == mid.AddMinutes(1) && bk.Count == 1 && bk[0].Ticket == buyT && Math.Abs(bk[0].Lots - 0.5) < 1e-9 && bk[0].Open == buyAt && rw.State.SeriesOf("XAUUSD", 1).Bars.Last().Time == mid.AddMinutes(1),
+            "⏪ back 1 minute after the half close: the same ticket, 0.50 lots left at the same price, the later SELL is gone, the chart ends there", e11 + " " + rw.Clock + " " + bk.Count);
+        var pb5 = rw.PrevBar(5); Check(pb5 < rw.Clock && pb5.Minute % 5 == 0, "◀ previous M5 candle = the start of the M5 candle before", pb5.ToString("HH:mm"));
+        Check(rw.PrevDayStart() == rw.StartTime, "◀◀ previous day inside the first day = its start");
+        // 12. the POOL: the finished days of a run saved with their trades, read back, grouped by week / month, and the HTML tracker
+        var d2 = day1.AddDays(1); var two = Bars(day1, 300, 4000, i => (i % 11) - 5).Concat(Bars(d2, 300, 4010, i => (i % 9) - 4)).ToList();
+        var pl = Run(warm.Concat(two).ToList(), new SimSettings { Symbol = "XAUUSD", From = day1, To = d2, Balance = 10000, CommissionPerLot = 7, Leverage = 500 });
+        for (int k = 0; k < 3; k++) { pl.StepBar(15); pl.Command("ORDER", "XAUUSD", k % 2 == 0 ? "BUY" : "SELL", 0.5, 0.0, 0.0, 0.0); pl.StepBar(30); pl.Command("CLOSEALL", "", "ALL"); }
+        pl.JumpTo(d2.AddHours(2)); pl.Command("ORDER", "XAUUSD", "BUY", 1.0, 0.0, 0.0, 0.0); pl.StepBar(60); pl.Command("CLOSEALL", "", "ALL");
+        BtPool.Root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-pool-" + Guid.NewGuid().ToString("N"));
+        foreach (var dd in pl.ClosedDays.Concat(new[] { pl.Clock.Date }).Distinct()) { var b = BtPool.Build(pl.State.Deals, dd, "RAW"); if (b != null) BtPool.Save("Test A", b.Item1, b.Item2); }
+        var pdays = BtPool.Days("Test A"); var ptr = BtPool.Trades("Test A"); double dealNet = pl.State.Deals.Where(x => x.IsTrade).Sum(x => x.Net);
+        Check(pdays.Count == 2 && ptr.Count == 4 && pdays[0].Trades == 3 && Math.Abs(pdays.Sum(x => x.Net) - dealNet) < 0.02 && Math.Abs(pdays[1].EndBal - pl.State.Account.Balance) < 0.02,
+            "POOL: 2 days saved (3 + 1 trades), their net = the account's deals, the end balance = the account's", pdays.Count + " days " + ptr.Count + " trades " + pdays.Sum(x => x.Net) + " vs " + dealNet);
+        var again = BtPool.Build(pl.State.Deals, day1, "RAW"); BtPool.Save("Test A", again.Item1, again.Item2);
+        Check(BtPool.Days("Test A").Count == 2 && BtPool.Trades("Test A").Count == 4, "saving a day again replaces it (no double count)");
+        Check(BtPool.PeriodKey(new DateTime(2026, 10, 22), "WEEKS") == "2026-10-19" && BtPool.PeriodKey(new DateTime(2026, 10, 22), "MONTHS") == "2026-10", "weeks start on Monday, months by yyyy-MM");
+        var html = BtPool.Html("Test A", pdays, ptr); System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-tracker-test.html"), html);
+        Check(html.Contains("Calendar") && html.Contains("tWEEKS") && html.Contains("<polyline"), "the HTML tracker: calendar, period tabs, equity curve");
+        BtPool.Create("Test B"); BtPool.Clear("Test A"); Check(BtPool.Days("Test A").Count == 0 && BtPool.Tests().Count == 2, "CLEAR empties a test, NEW TEST keeps the others");
+        try { System.IO.Directory.Delete(BtPool.Root, true); } catch { }
         Console.WriteLine(fails == 0 ? "ALL BACKTEST TESTS PASSED" : fails + " BACKTEST TEST(S) FAILED");
         return fails;
     }

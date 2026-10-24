@@ -23,6 +23,40 @@ namespace KeystoneMT5
             Gold = B("#FFC94D"), Green = B("#2EE59D"), Red = B("#FF4D6D"), Cyan = B("#4DD8FF"), Violet = B("#A98BFF"), Orange = B("#FF9F43"), Amber = B("#FFB020"), White = B("#FFFFFF");
         public static readonly FontFamily Mono = new FontFamily("Consolas"), Face = new FontFamily("Segoe UI");
 
+        // modern scrollbars everywhere: thin, rounded, no arrows; they widen and glow under the mouse
+        public static void ModernScrollbars(Application app)
+        {
+            const string x = @"<ResourceDictionary xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>
+  <Style x:Key='SxPage' TargetType='RepeatButton'><Setter Property='Focusable' Value='False'/><Setter Property='IsTabStop' Value='False'/>
+    <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='RepeatButton'><Border Background='Transparent'/></ControlTemplate></Setter.Value></Setter></Style>
+  <Style x:Key='SxThumb' TargetType='Thumb'><Setter Property='Focusable' Value='False'/>
+    <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='Thumb'>
+      <Border x:Name='t' CornerRadius='5' Background='#3A4B6E' Margin='1'/>
+      <ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='t' Property='Background' Value='#4DD8FF'/></Trigger>
+        <Trigger Property='IsDragging' Value='True'><Setter TargetName='t' Property='Background' Value='#FFC94D'/></Trigger></ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter></Style>
+  <Style TargetType='ScrollBar'><Setter Property='Background' Value='Transparent'/><Setter Property='Width' Value='10'/><Setter Property='MinWidth' Value='10'/>
+    <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'>
+      <Border x:Name='bg' Background='#0F1828' CornerRadius='5' Opacity='0.85'>
+        <Track x:Name='PART_Track' IsDirectionReversed='True'>
+          <Track.DecreaseRepeatButton><RepeatButton Style='{StaticResource SxPage}' Command='ScrollBar.PageUpCommand'/></Track.DecreaseRepeatButton>
+          <Track.Thumb><Thumb Style='{StaticResource SxThumb}' MinHeight='28'/></Track.Thumb>
+          <Track.IncreaseRepeatButton><RepeatButton Style='{StaticResource SxPage}' Command='ScrollBar.PageDownCommand'/></Track.IncreaseRepeatButton>
+        </Track></Border>
+      <ControlTemplate.Triggers><Trigger Property='IsMouseOver' Value='True'><Setter TargetName='bg' Property='Background' Value='#16223A'/></Trigger></ControlTemplate.Triggers>
+    </ControlTemplate></Setter.Value></Setter>
+    <Style.Triggers><Trigger Property='Orientation' Value='Horizontal'><Setter Property='Width' Value='Auto'/><Setter Property='MinWidth' Value='0'/><Setter Property='Height' Value='10'/><Setter Property='MinHeight' Value='10'/>
+      <Setter Property='Template'><Setter.Value><ControlTemplate TargetType='ScrollBar'>
+        <Border x:Name='bg' Background='#0F1828' CornerRadius='5' Opacity='0.85'>
+          <Track x:Name='PART_Track' IsDirectionReversed='False'>
+            <Track.DecreaseRepeatButton><RepeatButton Style='{StaticResource SxPage}' Command='ScrollBar.PageLeftCommand'/></Track.DecreaseRepeatButton>
+            <Track.Thumb><Thumb Style='{StaticResource SxThumb}' MinWidth='28'/></Track.Thumb>
+            <Track.IncreaseRepeatButton><RepeatButton Style='{StaticResource SxPage}' Command='ScrollBar.PageRightCommand'/></Track.IncreaseRepeatButton>
+          </Track></Border>
+      </ControlTemplate></Setter.Value></Setter></Trigger></Style.Triggers></Style>
+</ResourceDictionary>";
+            try { app.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Parse(x)); } catch { }
+        }
         // a dark title bar in our colours (Windows 11; Windows 10 gets the dark one; older: nothing changes)
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
         public static void DarkTitle(Window w)
@@ -92,6 +126,50 @@ namespace KeystoneMT5
             return Dialog(owner, title, text, "OK", "CANCEL", Gold, null, box) == 1 ? box.Text : null;
         }
         // a dialog with our own content under the text (a lots box, a small form …); true = the main button
+        // a modern choice window: the logo, a title, a line, optional tiles, and several buttons (the first = Enter); returns the index, −1 = Esc
+        public static int Choice(Window owner, string title, string text, FrameworkElement tiles, string[] buttons, SolidColorBrush[] tones)
+        {
+            int result = -1;
+            var w = new Window { WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, ResizeMode = ResizeMode.NoResize, SizeToContent = SizeToContent.WidthAndHeight, ShowInTaskbar = false, Title = "SpasiX", FontFamily = Face };
+            try { if (owner != null && owner.IsLoaded) { w.Owner = owner; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; } else w.WindowStartupLocation = WindowStartupLocation.CenterScreen; } catch { w.WindowStartupLocation = WindowStartupLocation.CenterScreen; }
+            var sp = new StackPanel { Width = 470 };
+            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
+            var lg = MainWindow.Logo(); if (lg != null) head.Children.Add(new Image { Source = lg, Width = 46, Height = 46, Margin = new Thickness(0, 0, 14, 0) });
+            var ht = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var nm = new StackPanel { Orientation = Orientation.Horizontal }; nm.Children.Add(new TextBlock { Text = "Spasi", Foreground = Gold, FontSize = 13, FontWeight = FontWeights.Bold }); nm.Children.Add(new TextBlock { Text = "X", Foreground = Cyan, FontSize = 13, FontWeight = FontWeights.Bold }); ht.Children.Add(nm);
+            ht.Children.Add(new TextBlock { Text = title, Foreground = Text, FontSize = 20, FontWeight = FontWeights.Bold }); head.Children.Add(ht); sp.Children.Add(head);
+            if (!string.IsNullOrEmpty(text)) sp.Children.Add(new TextBlock { Text = text, Foreground = Muted, FontSize = 13, TextWrapping = TextWrapping.Wrap, LineHeight = 19, Margin = new Thickness(0, 0, 0, 10) });
+            if (tiles != null) sp.Children.Add(tiles);
+            var bs = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                int ii = i; var tone = tones != null && i < tones.Length && tones[i] != null ? tones[i] : Card; bool main = i == 0;
+                var b = Pill(buttons[i], main ? (Brush)tone : Tint(tone, 46)); b.Height = main ? 44 : 38; b.FontSize = main ? 14.5 : 13; b.Margin = new Thickness(0, 0, 0, 7); b.HorizontalAlignment = HorizontalAlignment.Stretch;
+                b.Foreground = main ? (tone == Red ? White : Bg) : tone == Card ? Text : tone; b.BorderBrush = Tint(tone, 160); b.Click += delegate { result = ii; w.Close(); }; bs.Children.Add(b);
+            }
+            sp.Children.Add(bs);
+            sp.Children.Add(new TextBlock { Text = "Enter = " + buttons[0].Trim() + "   •   Esc = cancel", Foreground = Muted, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) });
+            var edge = tones != null && tones.Length > 0 && tones[0] != null ? tones[0] : Gold;
+            var card = new Border { CornerRadius = new CornerRadius(20), Background = new LinearGradientBrush(C("#17213A"), C("#090D17"), 90), BorderThickness = new Thickness(1.4), BorderBrush = new LinearGradientBrush(edge.Color, C("#4DD8FF"), 35), Padding = new Thickness(26, 22, 26, 18), Margin = new Thickness(24), Child = sp,
+                Effect = new DropShadowEffect { Color = edge.Color, BlurRadius = 34, ShadowDepth = 0, Opacity = 0.5 }, RenderTransform = new ScaleTransform(0.96, 0.96), RenderTransformOrigin = new Point(0.5, 0.5) };
+            card.MouseLeftButtonDown += delegate { try { w.DragMove(); } catch { } };
+            w.Content = card;
+            w.PreviewKeyDown += (s, e) => { if (e.Key == Key.Escape) { result = -1; w.Close(); e.Handled = true; } else if (e.Key == Key.Enter) { result = 0; w.Close(); e.Handled = true; } };
+            w.Loaded += delegate { card.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160))); var an = new DoubleAnimation(0.96, 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } }; ((ScaleTransform)card.RenderTransform).BeginAnimation(ScaleTransform.ScaleXProperty, an); ((ScaleTransform)card.RenderTransform).BeginAnimation(ScaleTransform.ScaleYProperty, an); };
+            try { w.ShowDialog(); } catch { return MessageBox.Show(text, title, MessageBoxButton.YesNo) == MessageBoxResult.Yes ? 0 : -1; }
+            return result;
+        }
+        // small tiles for Choice: caption + value, coloured
+        public static FrameworkElement Tiles(params Tuple<string, string, SolidColorBrush>[] t)
+        {
+            var g = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1 };
+            foreach (var x in t)
+            {
+                var st = new StackPanel(); st.Children.Add(new TextBlock { Text = x.Item1, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); st.Children.Add(new TextBlock { Text = x.Item2, Foreground = x.Item3, FontSize = 15, FontWeight = FontWeights.Bold, FontFamily = Mono, TextTrimming = TextTrimming.CharacterEllipsis });
+                g.Children.Add(new Border { Child = st, Background = Tint(x.Item3, 22), BorderBrush = Tint(x.Item3, 110), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 5, 10, 6), Margin = new Thickness(0, 0, 6, 0) });
+            }
+            return g;
+        }
         static TextBox FirstBox(DependencyObject d)
         {
             if (d == null) return null; var p = d as System.Windows.Controls.Panel; if (p != null) foreach (UIElement c in p.Children) { var t = c as TextBox ?? FirstBox(c); if (t != null) return t; }

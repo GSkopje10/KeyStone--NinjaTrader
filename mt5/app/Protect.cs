@@ -92,7 +92,8 @@ namespace KeystoneMT5
             bool hitTp = basketTp > 0 && fl >= basketTp, hitSl = basketSl > 0 && fl <= -basketSl;
             if (!hitTp && !hitSl) return;
             basketFired = true; basketOn = false;
-            Cmd("🧺 basket " + (hitTp ? "target +" + Money(basketTp, "USD") : "stop −" + Money(basketSl, "USD")) + " — close all " + n, "CLOSEALL", "", "ALL");
+            if (!Cmd("🧺 basket " + (hitTp ? "target +" + Money(basketTp, "USD") : "stop −" + Money(basketSl, "USD")) + " — close all " + n, "CLOSEALL", "", "ALL"))
+            { basketFired = false; PaintBasket(fl, n); Toast("⚠ BASKET " + (hitTp ? "TARGET" : "STOP") + " reached " + Signed(fl, "USD") + " but NOTHING was closed — trading is not armed (the basket is off)"); return; }
             Toast((hitTp ? "🎯 BASKET TARGET reached " : "🛑 BASKET STOP reached ") + Signed(fl, "USD") + " — closing all " + n + " tickets"); PaintBasket(fl, n);
         }
         void PaintBasket(double fl, int n)
@@ -110,7 +111,7 @@ namespace KeystoneMT5
         void DemoSetup(bool first)
         {
             if (!Paper) return;
-            var g = new Grid { Margin = new Thickness(0, 12, 0, 0) }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) }); g.ColumnDefinitions.Add(new ColumnDefinition());
+            var g = new Grid { Margin = new Thickness(0, 12, 0, 0) }; g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(250) }); g.ColumnDefinitions.Add(new ColumnDefinition());
             int row = 0; Func<string, string, TextBox> field = (label, val) =>
             {
                 g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); var l = new TextBlock { Text = label, Foreground = Muted, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 4, 8, 4) };
@@ -122,7 +123,7 @@ namespace KeystoneMT5
             string kind = Get("demo.kind", "RAW"); var kp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) }; Grid.SetRow(kp, row); Grid.SetColumn(kp, 1); g.Children.Add(kp); row++;
             var raw = Pill("RAW", Card); var std = Pill("STANDARD", Card); kp.Children.Add(raw); kp.Children.Add(std);
             var com = field("COMMISSION $ / lot (RAW)", Get("demo.com", "7")); var mk = field("EXTRA SPREAD points (STANDARD)", Get("demo.mk", "10"));
-            Action paint = () => { raw.Background = kind == "RAW" ? Tint(Cyan, 200) : (Brush)Card; raw.Foreground = kind == "RAW" ? Bg : Text; std.Background = kind == "STANDARD" ? Tint(Violet, 200) : (Brush)Card; std.Foreground = kind == "STANDARD" ? Bg : Text; com.IsEnabled = kind == "RAW"; mk.IsEnabled = kind == "STANDARD"; };
+            Action paint = () => { raw.Background = kind == "RAW" ? Tint(Cyan, 200) : (Brush)Card; raw.Foreground = kind == "RAW" ? Bg : Text; std.Background = kind == "STANDARD" ? Tint(Violet, 200) : (Brush)Card; std.Foreground = kind == "STANDARD" ? Bg : Text; com.IsReadOnly = kind != "RAW"; com.Opacity = kind == "RAW" ? 1 : 0.35; mk.IsReadOnly = kind != "STANDARD"; mk.Opacity = kind == "STANDARD" ? 1 : 0.35; };
             raw.Click += delegate { kind = "RAW"; paint(); }; std.Click += delegate { kind = "STANDARD"; paint(); }; paint();
             string txt = "Your MT5's REAL prices and candles, with a simulated account: every button works like live — nothing reaches MT5.\nRAW = the raw spread + commission per lot (round turn) • STANDARD = no commission, the spread wider by the extra points."
                 + (!first && paper.Ready ? "\n\n⚠ A NEW account replaces the current one (its tickets and history are cleared)." : "");

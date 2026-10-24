@@ -2,7 +2,7 @@
 import socket, time, math, random, sys, threading
 random.seed(7)
 NOW = int(time.time()) + 3*3600   # "server time" = UTC+3
-SY = {"XAUUSD": (2, 3997.0, 0.01, 100, 1.0, 0.01, "Gold vs US Dollar"), "BTCUSD": (2, 67250.0, 0.01, 1, 0.01, 0.01, "Bitcoin vs US Dollar"), "EURUSD": (5, 1.0832, 0.00001, 100000, 1.0, 0.00001, "Euro vs US Dollar")}
+SY = {"XAUUSD": (2, 3997.0, 0.01, 100, 1.0, 0.01, "Gold vs US Dollar"), "USTEC": (2, 20150.0, 0.01, 1, 0.01, 0.01, "US Tech 100 Index"), "BTCUSD": (2, 67250.0, 0.01, 1, 0.01, 0.01, "Bitcoin vs US Dollar"), "EURUSD": (5, 1.0832, 0.00001, 100000, 1.0, 0.00001, "Euro vs US Dollar")}
 px = {k: v[1] for k, v in SY.items()}
 def price(sym, t):
     b = SY[sym][1]; h = (math.sin(t * 12.9898) * 43758.5453) % 1.0
@@ -21,8 +21,9 @@ for k in range(60):
     except Exception: time.sleep(1)
 f = s.makefile("rw", encoding="utf-8", newline="\n")
 def send(x): f.write(x + "\n"); f.flush()
-send("HELLO|4|Raw Trading Ltd|5120")
-for k, v in SY.items(): send("SYM|%s|%d|%s|0.01|0.01|100|%s|%s|%s|%s" % (k, v[0], v[3], v[2], v[4], v[5], v[6]))
+send("HELLO|5|Raw Trading Ltd|5120")
+XS = {"XAUUSD": "-62.4|28.1|1|3|0|2|0|800.00|3997|1.0|0", "USTEC": "-9.8|2.1|1|5|0|4|0|40.30|20150|0|0", "BTCUSD": "-18|-12|6|5|0|2|0|134.50|67250|1.0|0", "EURUSD": "-6.9|1.2|1|3|0|0|0|216.60|1.0832|0.5|0"}
+for k, v in SY.items(): send("SYM|%s|%d|%s|0.01|0.01|100|%s|%s|%s|%s" % (k, v[0], v[3], v[2], v[4], v[5], v[6])); send("SYMX|%s|%s" % (k, XS[k]))
 pos = [(3524004628, "XAUUSD", "SELL", 0.20, 3994.56, 0, 3985.0), (3524004629, "XAUUSD", "SELL", 0.10, 3999.10, 4006.0, 0), (3524004630, "XAUUSD", "BUY", 0.30, 3990.20, 3984.0, 4008.0), (3524004640, "BTCUSD", "BUY", 0.05, 66900.0, 0, 0)]
 orders = [(3524005232, "XAUUSD", "BUY LIMIT", 0.20, 3988.50, 3982.0, 4000.0)]
 def reader():
@@ -37,6 +38,14 @@ def reader():
             if wd == 5: send("HIST|%s|%d|%d|0|0\nHISTEND|%s|%d|%d" % (sym, fr, to, sym, fr, to)); continue
             b = bars(sym if sym in SY else "XAUUSD", 1, 1440, to - 1)
             send("HIST|%s|%d|%d|%d|0\n" % (sym, fr, to, len(b)) + "\n".join("H|%d|%s|%s|%s|%s|%d|%d" % (t, fmt(o, d), fmt(h, d), fmt(l, d), fmt(c, d), v, 18 + (t // 60) % 9) for t, o, h, l, c, v in b) + "\nHISTEND|%s|%d|%d" % (sym, fr, to))
+        elif a[0] == "HISTT":
+            sym, fr, to = a[1], int(a[2]), int(a[3]); sy = sym if sym in SY else "XAUUSD"; d = SY[sy][0]
+            if time.gmtime(fr).tm_wday >= 5: send("TT|%s|%d|%d|0|0\nTTEND|%s|%d|%d" % (sym, fr, to, sym, fr, to)); continue
+            r = random.Random(fr); out = []; ms = 0
+            while ms < (to - fr) * 1000:
+                ms += int(r.expovariate(1 / 1400.0)) + 30; t = fr + ms / 1000.0; b = price(sy, t) + (r.random() - 0.5) * 4 * SY[sy][2] * (10 if d == 2 else 1)
+                out.append("T|%d|%s|%s" % (ms, fmt(b, d), fmt(b + (18 + r.randint(0, 9)) * SY[sy][2], d)))
+            send("TT|%s|%d|%d|%d|0\n" % (sym, fr, to, len(out)) + "\n".join(out) + "\nTTEND|%s|%d|%d" % (sym, fr, to))
         elif a[0] == "DEALS":
             out = []; tk = 900000; base = NOW - 25*86400; r = random.Random(3)
             for day in range(24):

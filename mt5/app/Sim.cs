@@ -211,7 +211,7 @@ namespace KeystoneMT5
         // load a backtest: the warm-up days are drawn at once, the rest is replayed from the start time
         public string Load(SimSettings s, List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> input)
         {
-            Set = s; data = input; Ended = false; Playing = false; feeds.Clear(); ClosedDays.Clear(); if (input.Count == 0) return "no symbol";
+            if (!ReferenceEquals(input, data)) cmdLog.Clear(); Set = s; data = input; Ended = false; Playing = false; feeds.Clear(); ClosedDays.Clear(); if (input.Count == 0) return "no symbol";
             var spec0 = input[0].Item1; var start = s.From.Date; if (!double.IsNaN(s.StartNyHour)) start = start.AddHours(s.StartNyHour - spec0.NyOffsetHours);
             foreach (var d in input)
             {
@@ -240,7 +240,27 @@ namespace KeystoneMT5
             }
             return "";
         }
-        public string Restart() { return Load(Set, data); }
+        public string Restart() { cmdLog.Clear(); return Load(Set, data); }
+        // BACK in time (previous minute / candle / day, a date in the past): the replay restarts and runs again to that moment, your commands
+        // re-done at their own times — the trades before it stay exactly as they were, the ones after it are gone
+        readonly List<Tuple<DateTime, string, object[]>> cmdLog = new List<Tuple<DateTime, string, object[]>>();
+        public int CommandsAfter(DateTime t) { return cmdLog.Count(c => c.Item1 > t); }
+        public string RewindTo(DateTime t)
+        {
+            if (data == null) return "nothing loaded"; if (t >= Clock) return "";
+            var keep = cmdLog.Where(c => c.Item1 <= t).ToList(); var err = Load(Set, data); if (err != "") return err; cmdLog.Clear();
+            lock (state.Gate)
+            {
+                foreach (var c in keep) { RunUntil(c.Item1, int.MaxValue); try { var r = acct.Do(c.Item2, c.Item3, Clock); if (r.Item1) cmdLog.Add(c); } catch { } }
+                if (t > Clock) RunUntil(t, int.MaxValue);
+                state.Results.Clear(); state.ResultsDropped = 0;
+            }
+            Playing = false; return "";
+        }
+        // the first candle of any symbol at or after t (from the start of the replay)
+        public DateTime FirstBarAtOrAfter(DateTime t) { var best = EndTime; foreach (var f in feeds) for (int i = f.Start; i < f.Bars.Count; i++) if (f.Bars[i].Time >= t) { if (f.Bars[i].Time < best) best = f.Bars[i].Time; break; } return best; }
+        public DateTime PrevBar(int minutes) { var s0 = Tf.Start(Clock, minutes); var t = (Clock - s0).TotalSeconds < 1 ? s0.AddMinutes(-minutes) : s0; return t < StartTime ? StartTime : t; }
+        public DateTime PrevDayStart() { var today = FirstBarAtOrAfter(Clock.Date); var d = (Clock - today).TotalMinutes > 2 ? today : FirstBarAtOrAfter(Clock.Date.AddDays(-1)); if (d >= Clock) { var day = Clock.Date.AddDays(-1); while (day >= StartTime.Date && (d = FirstBarAtOrAfter(day)) >= Clock) day = day.AddDays(-1); } return d < StartTime || d >= Clock ? StartTime : d; }
 
         // ---- the clock
         public void Advance(double realSeconds)
@@ -331,7 +351,7 @@ namespace KeystoneMT5
             lock (state.Gate)
             {
                 Tuple<bool, string> r;
-                try { r = Ended && cmd == "ORDER" ? Tuple.Create(false, "the backtest has ended — restart it") : acct.Do(cmd, a, Clock); }
+                try { r = Ended && cmd == "ORDER" ? Tuple.Create(false, "the backtest has ended — restart it") : acct.Do(cmd, a, Clock); if (r.Item1) cmdLog.Add(Tuple.Create(Clock, cmd, a)); }
                 catch (Exception ex) { r = Tuple.Create(false, cmd + ": " + ex.Message); }
                 state.AddResult(id, r.Item1, r.Item2);
             }

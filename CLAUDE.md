@@ -38,12 +38,13 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   after START ROTATION is confirmed (each account: two armed links with their limits + a hard stop at the broker per leg;
   MANUAL sends nothing until a BUY / SELL button; ROTATE COPY GROUPS: a seat's `Mates` take the same sides); its tests are in `tests/AccountLinkTests.cs`.
   Research / lab / backtests stay historical; no Apex/Nexus coupling.
-- SpasiX for MT5 (`mt5/`: the bridge EA `SpasiXBridge.mq5` v4 + the Windows app `mt5/app`, built with `dotnet publish` here, shipped in `mt5/dist`;
-  a start screen picks LIVE / PROP / BACKTEST): real orders exist only when the bridge input `EnableTrading` (default true, false = read only)
-  + MT5's Algo Trading + the EA's Allow Algo Trading are on AND the app's ARM (per session, confirmed) is on; `MaxLotsPerOrder` is enforced
-  in the bridge; every market / pending / bulk order and every ✕ asks first (one-click only up to 2 lots, opt-in). PROP mode refuses new
-  entries at the firm's limits (closes never blocked). The BACKTEST (`Sim.cs`, `SimBroker`) never talks to MT5 except to download history
-  (HIST) — its orders stay in the simulator. Tests: `cd mt5/tests && dotnet run` (bridge vs a fake MT5 + the backtest engine).
+- SpasiX for MT5 (`mt5/`: the bridge EA `SpasiXBridge.mq5` v5 + the Windows app `mt5/app`, built with `dotnet publish` here, shipped in `mt5/dist`;
+  a start screen picks LIVE / PROP / DEMO / BACKTEST): real orders exist only when the bridge input `EnableTrading` (default true, false = read only)
+  + MT5's Algo Trading + the EA's Allow Algo Trading are on AND the app's ARM (per session, ONE click, user's request) is on; `MaxLotsPerOrder`
+  is enforced in the bridge. Armed, market BUY / SELL and a ticket's ✕ act at once (user's request); a right-click limit / stop asks its lots
+  first; every close-all / bulk button, breakeven and the BASKET (close all at +$X / −$Y, `Protect.cs`) ask first. PROP mode refuses new
+  entries at the firm's limits (closes never blocked). The DEMO (`Paper.cs`, `PaperBroker`) and the BACKTEST (`Sim.cs`, `SimBroker`) trade a
+  `SimAccount` only — they never send an order to MT5 (DEMO reads live prices; the backtest only downloads history: HIST / HISTT ticks). Tests: `cd mt5/tests && dotnet run` (bridge vs a fake MT5 + the backtest engine).
   Screens: `mt5/tests/screens.sh` runs the real app under Wine + Xvfb with `fakemt5.py` and screenshots it — use it before shipping UI.
 - Do not change BH detection, BH outcome resolution, or the MNQ loader without explicit scope.
   MGC loader changes stay MGC-only. Asian work stays inside the Asian code paths.

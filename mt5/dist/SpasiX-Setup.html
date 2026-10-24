@@ -8,13 +8,13 @@ h1{margin:0;color:#0A0E16}h1 .g{color:#c9961a}h1 .c{color:#1aa6cf}.sub{color:#5b
 code{background:#f1f3f8;padding:1px 6px;border-radius:4px}.ok{background:#e8f8ef;border-color:#9fdcb7}.warn{background:#fff6e3;border-color:#f0d28a}.up{background:#eaf6fd;border-color:#9fd3ef}.red{background:#fdecee;border-color:#f3a7b1}
 ul{margin:5px 0 0 18px;padding:0}li{margin:3px 0}
 </style></head><body>
-<div class="top"><img src="spasix.png"><div><h1><span class="g">Spasi</span><span class="c">X</span> — Setup &amp; trading</h1><div class="sub">SpasiX • BUILD 2026-10-25a • MetaTrader 5 (IC Markets) on Windows • LIVE • PROP • BACKTEST</div></div></div>
+<div class="top"><img src="spasix.png"><div><h1><span class="g">Spasi</span><span class="c">X</span> — Setup &amp; trading</h1><div class="sub">SpasiX • BUILD 2026-10-26a • MetaTrader 5 (IC Markets) on Windows • LIVE • PROP • DEMO • BACKTEST</div></div></div>
 
-<div class="step up"><h2>Updating from build 24c (3 minutes)</h2>
-<ul><li>Close the old SpasiX. Replace <code>SpasiX.exe</code> with the new one (same folder as before, not inside MT5).</li>
-<li>Copy the new <code>SpasiXBridge.mq5</code> (v4) into MT5's <code>MQL5\Experts</code> folder (replace the old file) and <b>restart MT5</b>.</li>
-<li>On the chart with the bridge: <b>remove the old bridge</b> (right-click → Expert list → Remove) and <b>drag SpasiXBridge on again</b> → in its window tick <b>Allow Algo Trading</b> (Common tab) → OK. Its new input <b>EnableTrading</b> is <b>true</b> already.</li>
-<li>Turn ON <b>Algo Trading</b> in the MT5 toolbar (green). Start SpasiX → the start screen asks LIVE / PROP / BACKTEST.</li></ul></div>
+<div class="step up"><h2>Updating to build 26a (3 minutes) — your open trades are safe</h2>
+<ul><li>Close the old SpasiX (your positions stay open in MT5 with their stops and targets). Replace <code>SpasiX.exe</code> with the new one.</li>
+<li>Copy the new <code>SpasiXBridge.mq5</code> (<b>v5</b>) into MT5's <code>MQL5\Experts</code> folder (replace the old file) and <b>restart MT5</b>.</li>
+<li>On the chart with the bridge: <b>remove the old bridge</b> (right-click → Expert list → Remove) and <b>drag SpasiXBridge on again</b> → tick <b>Allow Algo Trading</b> (Common tab) → OK.</li>
+<li>Check the <b>Algo Trading</b> button in the MT5 toolbar is <b>green</b>. Start SpasiX: the start screen shows <b>WELCOME BACK • N TRADES STILL OPEN</b> → <b>⟳ RESUME LIVE</b> (key R).</li></ul></div>
 
 <div class="step"><h2><span class="n">1</span>First time only: the bridge in MT5</h2>
 <ul><li>MT5 → <b>File → Open Data Folder</b> → <code>MQL5</code> → <code>Experts</code> → paste <code>SpasiXBridge.mq5</code> → restart MT5.</li>
@@ -23,37 +23,37 @@ ul{margin:5px 0 0 18px;padding:0}li{margin:3px 0}
 <li>Drag <b>SpasiXBridge</b> onto ONE chart → tick <b>Allow Algo Trading</b> → OK. Start <code>SpasiX.exe</code> (first time: allow the .NET 8 Desktop Runtime; "Windows protected your PC" → More info → Run anyway).</li></ul></div>
 
 <div class="step ok"><h2><span class="n">2</span>The start screen</h2>
-<ul><li><b>📈 LIVE</b> — your MT5 account in real time. <b>🏆 PROP</b> — a CFD prop-firm account on MT5 with the firm's rules on screen. <b>🧪 BACKTEST</b> — MT5's own history replayed (works without MT5 once the days are downloaded).</li>
-<li>Keys 1 / 2 / 3 choose. <b>⌂ MODES</b> in the header brings you back here.</li></ul></div>
+<ul><li><b>📈 LIVE</b> your MT5 account • <b>🏆 PROP</b> a CFD prop account with the firm's rules • <b>🎮 DEMO</b> your MT5's live prices with a simulated account (your balance, RAW or STANDARD — nothing reaches MT5, kept on this PC) • <b>🧪 BACKTEST</b> MT5's history replayed with its real ticks.</li>
+<li>Keys 1 – 4 choose. The RESUME card (top right) shows the trades still open in MT5 and the saved DEMO. <b>⌂ MODES</b> comes back here.</li></ul></div>
 
-<div class="step ok"><h2><span class="n">3</span>The chart</h2>
-<ul><li><b>Symbols</b> (cyan) — ● = you have tickets on it • <b>+</b> = add any instrument of your broker. <b>Timeframes</b> (gold) M1 … W1. <b>▣ 1 / ◫ 2 / ⊞ 4</b> = split screen.</li>
-<li><b>📈 INDICATORS ▾</b> — tick them, each with its name and colour: EMA 9 / 21 / 50 / 200, VWAP, Bollinger, fair-value gaps, NY opening range, yesterday high / low, sessions (Asia / London / New York) and <b>SpasiX setups</b> (a sweep of a swing high / low that closes back and breaks; the live one blinks with its entry, stop and 2R target; its record — wins, %, expectancy — is shown on the chart).</li>
-<li><b>🎨</b> 8 themes • <b>🕘</b> time zone (New York, London, …, MT5's server).</li>
-<li><b>Colours</b>: buys = mint, sells = red, pending orders = amber, the price = white with a pulse on every new price. Point at a line: it lights up and flashes once, and a card shows the ticket (P/L, swap, its stop / target in $).</li>
-<li><b>Drawing rail</b> (left): cursor, horizontal line / ray, vertical line, trend line / ray, rectangle, Fibonacci, text, <b>long / short position</b> (risk / reward with your lots, in $), measure, 🧲 magnet, colour, 🗑. Right-click a drawing: colour, width, dashed, text, place it as an order, duplicate, delete.</li>
-<li>Mouse: wheel = zoom • drag the chart = move • drag the time axis = stretch • drag the price axis = stretch the price • double-click = back to now • <b>right-click</b> = the menu (on a ticket: close, half, breakeven, stop / target here; on an order: move here / cancel) • F11 = full screen.</li></ul></div>
+<div class="step ok"><h2><span class="n">3</span>The header and the chart</h2>
+<ul><li><b>OPEN P/L</b> big, its border pulses green / red • <b>▲ BUYS / ▼ SELLS</b>: tickets • lots • P/L each, ★ = the side that leads • <b>⇅ HEDGED</b> when both are open (net lots). Clocks: New York, London, Tokyo, MT5's server (+ the chart's zone) with the day.</li>
+<li>Each instrument's tab shows <b>its own P/L</b> (and its chip in the toolbar). Every timeframe button counts down to its next candle.</li>
+<li><b>🎨</b> 20 themes — <b>MT5</b>, MT5 Classic, MT5 Light, easy-on-the-eyes ones (Midnight Soft, Nordic Frost, Forest Calm, Solarized, Warm Dusk, Sepia Paper) and unique ones.</li>
+<li>Mouse: wheel = zoom • drag the chart = move • drag the time axis: <b>left = zoom in, right = zoom out</b> • drag the price axis = stretch • double-click = back to now • right-click = the menu • F11 = full screen.</li></ul></div>
 
-<div class="step red"><h2><span class="n">4</span>Trading — please test on a DEMO first</h2>
-<ul><li>The trade panel shows a ✓ / ✖ for every switch: bridge v4, EnableTrading, Algo Trading (toolbar), Allow Algo Trading (the bridge), the account. All green → <b>🔓 ARM TRADING</b> → it asks (red for a REAL account). Armed until DISARM or closing SpasiX.</li>
-<li><b>LOTS</b>, optional <b>STOP / TARGET distance</b> (the panel shows the risk / reward in $) → <b>SELL</b> / <b>BUY</b> — each asks first, showing the size big (one-click only up to 2 lots, if you switch it on).</li>
-<li><b>Limit / stop</b>: BUY LIMIT / SELL LIMIT / BUY STOP / SELL STOP → type the price or <b>🎯 PICK</b> on the chart → PLACE. Or right-click the chart at a price.</li>
-<li>On the chart: <b>✕</b> closes (asks) • <b>drag a ticket line</b> = sets its stop / target • drag a stop / target = moves it • drag an order = new price. Many tickets fold into one label per side (right-click ▸ Tickets on the chart).</li>
-<li><b>MANAGE</b>: close all / buys / sells / winners / losers / orders • ⚖ breakeven (+ points) • ⛔ close everything. <b>💼 POSITIONS</b>: every ticket with ✕, ½, S/L, T/P, ⚖.</li>
-<li><code>MaxLotsPerOrder</code> in the bridge caps every order. Set <code>EnableTrading = false</code> to make SpasiX read only.</li></ul></div>
+<div class="step red"><h2><span class="n">4</span>Trading</h2>
+<ul><li>All ✓ in the trade panel → <b>one click on 🔓 ARM TRADING</b>. Armed until DISARM or closing SpasiX.</li>
+<li><b>SELL / BUY</b> go in <b>at once</b> (LOTS, optional stop / target distance). The small <b>✕</b> on a ticket closes it at once.</li>
+<li>Tickets look like MT5: buys and sells in their colours, <b>drag a ticket line</b> = set its stop / target, drag a stop / target to move it — on positions <b>and on pending orders</b>.</li>
+<li><b>Right-click the chart</b> → BUY / SELL LIMIT or STOP here → it asks the lots → PLACE.</li>
+<li>Every <b>close all</b> (buys / sells / winners / losers / everything) asks first. <b>⚖ BREAKEVEN</b>: every ticket in profit to its entry + <b>points or $</b> (0 = the entry), this symbol or all — asks first.</li>
+<li><b>🧺 BASKET</b>: close everything when the open P/L reaches <b>+$X</b> (e.g. +$350) or falls to <b>−$Y</b> — switched on with one confirmation, then it closes by itself once.</li>
+<li><code>MaxLotsPerOrder</code> in the bridge caps every order. <code>EnableTrading = false</code> makes SpasiX read only.</li></ul></div>
 
 <div class="step"><h2><span class="n">5</span>🧪 Backtest studio</h2>
-<ul><li><b>📂 DATA</b>: the symbol, the days (or LAST 5 / 10 / 20, THIS / LAST WEEK, LAST MONTH), the warm-up days, the start time; the account: balance, leverage, commission per lot, spread (REAL from MT5's candles or fixed), slippage, swap, stop-out → <b>▶ START</b> (it downloads the missing days from MT5 once and keeps them on this PC).</li>
-<li>The replay bar: ⏮ restart • ▶ / ⏸ (Space) • ⏭ one candle (→) • speed 1× … 1000× / MAX • ⏩ London / NY open / next day • the New York clock and the progress.</li>
-<li>Trade exactly like live (hedging, limits, stops, drag the lines). <b>📊 STATS</b> = the tracker of the run; past runs are listed in DATA.</li></ul></div>
+<ul><li><b>📂 DATA</b>: tick the symbols (gold, USTEC / NAS100, BTCUSD … together), the days (chips or FROM → TO), <b>RAW</b> (commission) or <b>STANDARD</b> (no commission, wider spread), the balance → <b>▶ START</b>. It downloads MT5's 1-minute candles <b>and real ticks</b> once. <b>ⓘ MT5 SPEC</b>: contract, swap (its mode, triple day), margin per lot, hedged margin, your commission, spread.</li>
+<li>Replay bar: ⏮ • ◀◀ DAY • ◀ CANDLE • ◀ 1m • ▶ PLAY • 1m ▶ • CANDLE ▶ • DAY ▶▶ • speed 1× … MAX • ⏩ London / NY open • <b>📅 GO TO</b> a date + time or change the days. Keys: Space, ← → candle, Shift + ← → minute, Page Up / Down day. Going back keeps your trades before that moment.</li>
+<li><b>● REAL TICKS x %</b> = how much of the replay moves exactly as MT5 recorded it.</li>
+<li><b>🗂 POOL</b>: every finished day is saved in a TEST with all its numbers and trades; DAYS / WEEKS / MONTHS / YEARS; <b>🌐 HTML TRACKER</b> (calendar, equity curve, tables, trades); ＋ NEW TEST keeps the old ones; 🧹 CLEAR asks first.</li></ul></div>
 
-<div class="step"><h2><span class="n">6</span>🏆 PROP and 📊 TRACKER</h2>
-<ul><li><b>PROP</b>: press a preset (FTMO / The5ers / FundedNext / E8) or type your firm's numbers: account size, daily loss, max loss (static or trailing), target, days, consistency. The header shows the meters; SpasiX refuses a new entry at a limit or when the order's stop risks more than what is left today (closes always work).</li>
-<li><b>TRACKER</b>: the calendar of every day (net after commission and swap), the week totals, win rate, profit factor, expectancy, best / worst day, drawdown, the equity curve, P/L by NY hour / weekday / symbol, the day's trades and a journal note per day.</li>
-<li><b>MARKET</b>, <b>NEWS</b> (ForexFactory calendar + live headlines), <b>👁 STREAM</b> = only your name and account number are blurred.</li></ul></div>
+<div class="step"><h2><span class="n">6</span>🏆 PROP, 📊 TRACKER, 📰 NEWS</h2>
+<ul><li><b>PROP</b>: a preset (FTMO / The5ers / FundedNext / E8) or your firm's numbers; new entries are refused at a limit (closes always work).</li>
+<li><b>TRACKER</b>: calendar, weeks, win rate, profit factor, drawdown, equity curve, by hour / weekday / symbol, a journal per day.</li>
+<li><b>NEWS</b>: <b>⏭ UPCOMING</b> (1 week ahead, up to 4) and <b>⏮ PAST</b>, a sub-tab per day with its high-impact count; headlines on the right. <b>👁 STREAM</b> blurs your name and number.</li></ul></div>
 
 <div class="step warn"><h2>If something is not right</h2>
-<ul><li>A red ✖ line in the trade panel says which switch is off. The TRACKER / backtest download need bridge v4.</li>
+<ul><li>A red ✖ line in the trade panel names the switch that is off (usually the MT5 toolbar's <b>Algo Trading</b> or the bridge's <b>Allow Algo Trading</b>).</li>
 <li>An order answered "✖ …" = MT5's own reason (market closed, invalid stops, not enough margin, …).</li>
-<li>Chart corner "waiting for the SpasiX app (error 5272)" → start SpasiX.exe.</li></ul></div>
+<li>The real ticks, MT5's swap / margin per symbol need bridge <b>v5</b> (⚙ SETUP shows the version).</li></ul></div>
 </body></html>
