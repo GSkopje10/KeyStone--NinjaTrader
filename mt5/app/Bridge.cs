@@ -78,6 +78,12 @@ namespace KeystoneMT5
         public readonly Dictionary<string, Mt5Symbol> Symbols;
         public readonly Dictionary<string, Mt5Quote> Quotes;
         public List<Mt5Position> Positions = new List<Mt5Position>();
+        public readonly Dictionary<string, DateTime> FirstM1Here = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);   // the oldest 1-minute candle MT5 has on this PC
+        public readonly Dictionary<string, List<Tuple<int, DateTime, long>>> Depth = new Dictionary<string, List<Tuple<int, DateTime, long>>>(StringComparer.OrdinalIgnoreCase);   // DEPTH: minutes, first candle here, candles
+        public readonly Dictionary<string, DateTime> DepthAt = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        public long MaxBars;   // MT5's "Max bars in chart" (0 = not told): it never hands out more 1-minute candles than this
+        // the oldest day MT5 can hand out 1-minute candles for with that limit (DateTime.MinValue = no limit / not told)
+        public DateTime M1Reach { get { if (MaxBars <= 0 || MaxBars >= 50000000) return DateTime.MinValue; return DateTime.Today.AddDays(-(MaxBars / 1380.0) * 7 / 5); } }
         public readonly Dictionary<string, DateTime> FirstDate = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);   // the oldest history MT5's broker has, per symbol (FIRST)
         public List<Mt5Order> Orders = new List<Mt5Order>();
         public int BridgeVersion;
@@ -138,7 +144,15 @@ namespace KeystoneMT5
                         if (tickIn == null || a.Length < 4) return;
                         tickIn.Add(new SimTick { T = tickBase.AddMilliseconds(L(a[1])), Bid = D(a[2]), Ask = D(a[3]) });
                         break;
-                    case "FIRST": if (a.Length >= 5) { long sv = L(a[2]), tm = L(a[3]); var t = sv > 0 ? sv : tm; if (t > 0) FirstDate[a[1]] = Unix(t); } break;
+                    case "DEPTH":
+                        if (a.Length >= 5)
+                        {
+                            var l = new List<Tuple<int, DateTime, long>>();
+                            foreach (var part in a[4].Split(',')) { var q = part.Split(':'); if (q.Length < 3) continue; l.Add(Tuple.Create((int)L(q[0]), L(q[1]) > 0 ? Unix(L(q[1])) : DateTime.MinValue, L(q[2]))); }
+                            Depth[a[1]] = l; DepthAt[a[1]] = DateTime.Now; if (L(a[2]) > 0) FirstDate[a[1]] = Unix(L(a[2])); MaxBars = L(a[3]);
+                        }
+                        break;
+                    case "FIRST": if (a.Length >= 5) { long sv = L(a[2]), tm = L(a[3]); var t = sv > 0 ? sv : tm; if (t > 0) FirstDate[a[1]] = Unix(t); if (L(a[4]) > 0) FirstM1Here[a[1]] = Unix(L(a[4])); if (a.Length >= 6) MaxBars = L(a[5]); } break;
                     case "TTEND": if (tickIn != null && a.Length >= 3 && tickKey == a[1] + "|" + a[2]) TickHist[tickKey] = Tuple.Create(tickIn, tickErr); tickIn = null; tickKey = null; break;
                     case "DEALS": if (a.Length >= 4) { dealsIn = new List<Mt5Deal>(); dealsFromIn = Unix(L(a[1])); } break;
                     case "D":

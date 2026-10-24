@@ -46,6 +46,7 @@ namespace KeystoneMT5
         }
         static string NoneFile(string sym, DateTime day) { return Path.Combine(DirOf(sym), day.ToString("yyyyMMdd", IC) + ".none"); }
         public static void MarkNone(string sym, DateTime day) { try { Directory.CreateDirectory(DirOf(sym)); File.WriteAllText(NoneFile(sym, day), "MT5 has no 1-minute candles for this day"); } catch { } }
+        public static int ClearNone(string sym, DateTime from, DateTime to) { int n = 0; for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) try { var f = NoneFile(sym, d); if (File.Exists(f)) { File.Delete(f); n++; } } catch { } return n; }   // ↻ ask MT5 again
         public static bool IsNone(string sym, DateTime day) { return File.Exists(NoneFile(sym, day)); }
         public static void SaveDay(string sym, DateTime day, List<Mt5Bar> bars)
         {
@@ -119,7 +120,7 @@ namespace KeystoneMT5
         readonly IBroker live; readonly string sym; readonly DateTime tickFrom, tickTo; readonly bool wantTicks;
         readonly List<Tuple<DateTime, DateTime>> chunks = new List<Tuple<DateTime, DateTime>>(); readonly List<DateTime> tickDays = new List<DateTime>();
         int ci, ti, tries, timeouts; bool tickPlan; readonly DateTime mainFrom; DateTime askedAt = DateTime.MinValue, retryAt = DateTime.MinValue; bool waiting;
-        public string Status = ""; public bool Done, Failed; public int Saved, Skipped, TickDays, NoHistory, NotDelivered; public long TickCount; public DateTime FirstDate = DateTime.MinValue;
+        public string Status = ""; public bool Done, Failed; public int Saved, Skipped, TickDays, NoHistory, NotDelivered, BeyondMaxBars; DateTime reach = DateTime.MinValue; public long TickCount; public DateTime FirstDate = DateTime.MinValue;
         public readonly List<DateTime> NewTickDays = new List<DateTime>();   // the days whose ticks just arrived (the app takes them)
         public string Symbol { get { return sym; } }
         public bool BarsDone { get { return ci >= chunks.Count; } }
@@ -132,7 +133,7 @@ namespace KeystoneMT5
         {
             this.mainFrom = mainFrom.Date;
             this.live = live; this.sym = sym; tickFrom = ticksFrom.Date; tickTo = ticksTo.Date; wantTicks = ticks; var today = DateTime.Today;
-            DateTime first; lock (live.State.Gate) if (live.State.FirstDate.TryGetValue(sym, out first)) FirstDate = first;
+            DateTime first; lock (live.State.Gate) { if (live.State.FirstDate.TryGetValue(sym, out first)) FirstDate = first; reach = live.State.M1Reach; }
             var need = new List<DateTime>();
             for (var d = from.Date; d <= to.Date; d = d.AddDays(1))
             {
@@ -166,13 +167,14 @@ namespace KeystoneMT5
                 if (got != null)
                 {
                     waiting = false;
-                    if ((got.Item2 != 0 || (got.Item1.Count == 0 && weekdays)) && tries < (warm ? 2 : 4)) { tries++; retryAt = now.AddSeconds(1.5 * tries); Status = "MT5 is loading " + sym + " " + dn + " from the broker … (try " + tries + ")"; return true; }
+                    if ((got.Item2 != 0 || (got.Item1.Count == 0 && weekdays)) && tries < (warm ? 2 : reach > DateTime.MinValue && c.Item2 <= reach ? 0 : 6)) { tries++; retryAt = now.AddSeconds(2.0 * tries); Status = "MT5 is loading " + sym + " " + dn + " from the broker … (try " + tries + ")"; return true; }
                     var byDay = got.Item1.GroupBy(x => x.Time.Date).ToDictionary(g => g.Key, g => g.ToList());
                     for (var d = c.Item1; d < c.Item2; d = d.AddDays(1))
                     {
                         List<Mt5Bar> bars; if (!byDay.TryGetValue(d, out bars)) bars = new List<Mt5Bar>(); bool wk = d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday;
                         if (bars.Count > 0) { HistoryStore.SaveDay(sym, d, bars); Saved++; }
                         else if (wk) { if (d < DateTime.Today) HistoryStore.SaveDay(sym, d, bars); Skipped++; }
+                        else if (reach > DateTime.MinValue && d < reach) { NotDelivered++; BeyondMaxBars++; }   // past MT5's "Max bars in chart": never marked empty
                         else if (got.Item2 == 0 && d < DateTime.Today.AddDays(-1)) { HistoryStore.MarkNone(sym, d); NoHistory++; }   // MT5 answered: no candles that day
                         else NotDelivered++;   // MT5 was still loading — nothing saved, the next START asks again
                     }
@@ -186,7 +188,8 @@ namespace KeystoneMT5
                 Done = true; var ic = CultureInfo.InvariantCulture;
                 Status = "✓ " + sym + ": " + Saved + " day(s) of candles" + (TickDays > 0 ? " + " + TickDays + " day(s) of real ticks (" + TickCount.ToString("N0", ic) + ")" : "") + " downloaded" + (Saved + TickDays == 0 && NoHistory + NotDelivered == 0 ? " — everything was already on this PC" : "")
                     + (NoHistory > 0 ? " • " + NoHistory + " weekday(s) are not in MT5's history" + (FirstDate > DateTime.MinValue ? " (it starts " + FirstDate.ToString("dd MMM yyyy", ic) + ")" : "") : "")
-                    + (NotDelivered > 0 ? " • " + NotDelivered + " day(s) MT5 was still loading — press ▶ START again in a minute" : "");
+                    + (BeyondMaxBars > 0 ? " • ⚠ " + BeyondMaxBars + " day(s) are older than MT5's 'Max bars in chart' lets out — MT5: Tools → Options → Charts → Max bars in chart = Unlimited, restart MT5, ▶ START again"
+                      : NotDelivered > 0 ? " • " + NotDelivered + " day(s) MT5 was still loading — press ▶ START again in a minute" : "");
                 return false;
             }
             var day = tickDays[ti]; long f2 = Mt5State.Epoch(day), t2 = Mt5State.Epoch(day.AddDays(1)); string k2 = sym + "|" + f2; string dn2 = day.ToString("ddd dd MMM", CultureInfo.InvariantCulture);

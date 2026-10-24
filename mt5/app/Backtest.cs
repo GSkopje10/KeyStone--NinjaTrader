@@ -62,6 +62,10 @@ namespace KeystoneMT5
                 quick.Children.Add(b);
             }
             var one = chip("📍 ONE DAY (TO = FROM)"); one.Foreground = Violet; one.ToolTip = "test one single day: the day in FROM"; one.Click += delegate { DateTime f0, t0; if (DateTime.TryParseExact(btFrom.Text.Trim(), "yyyy-MM-dd", IC, DateTimeStyles.None, out f0)) SetRange(f0, f0); else { var y = DateTime.Today.AddDays(-1); while (y.DayOfWeek == DayOfWeek.Saturday || y.DayOfWeek == DayOfWeek.Sunday) y = y.AddDays(-1); SetRange(y, y); } }; quick.Children.Add(one);
+            var again = chip("↻ ASK MT5 AGAIN FOR EMPTY DAYS"); again.Foreground = Gold; again.ToolTip = "days saved as 'MT5 has no candles' in FROM → TO are asked again (after changing MT5's Max bars in chart, or when MT5 was still loading)";
+            again.Click += delegate { DateTime f0, t0; if (!Range(out f0, out t0)) return; int n = btSyms.Sum(sy => HistoryStore.ClearNone(sy, f0.AddDays(-Warm()), t0)); btStatus.Text = n > 0 ? "↻ " + n + " empty day(s) will be asked from MT5 again — ▶ START or ⬇ ONLY DOWNLOAD" : "no day in FROM → TO is marked empty"; btStatus.Foreground = Gold; PaintDays(); };
+            quick.Children.Add(again);
+            var depth = chip("🏛 HISTORY DEPTH (every timeframe)"); depth.Foreground = Cyan; depth.ToolTip = "how far back MT5 has each timeframe of the ticked symbols (M1 … MN1) and how many candles"; depth.Click += delegate { ShowDepth(); }; quick.Children.Add(depth);
             var pool = chip("🗂 PICK FROM THE DOWNLOADED DAYS …"); pool.Foreground = Green; pool.ToolTip = "every day already on this PC (for all the ticked symbols) — click one to test it"; pool.Click += delegate { PickDownloadedDay(); }; quick.Children.Add(pool);
             c2.Children.Add(quick);
             var dRow = new StackPanel { Orientation = Orientation.Horizontal }; var today = DateTime.Today;
@@ -175,6 +179,43 @@ namespace KeystoneMT5
             var sv = new ScrollViewer { Content = sp, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MinWidth = 740 };
             Sx.Form(this, "🗂 Pick a downloaded day", "Every day of the ticked symbols that is already on this PC — they load at once.", sv, "CLOSE", null, Violet);
         }
+        // 🏛 how deep each timeframe goes in MT5 (asks the bridge, waits up to 4 s, then shows the table)
+        void ShowDepth()
+        {
+            bool alive; lock (live.State.Gate) alive = live.State.Alive && live.State.BridgeVersion >= 5;
+            if (!alive) { Sx.Info(this, "🏛 History depth", "Connect MT5 with the new SpasiXBridge first (⚙ SETUP)."); return; }
+            if (btSyms.Count == 0) return; var asked = DateTime.Now; foreach (var sym in btSyms) live.Send("DEPTH|" + sym);
+            btStatus.Text = "🏛 asking MT5 how deep its history goes …"; btStatus.Foreground = Cyan;
+            var tm = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+            tm.Tick += delegate
+            {
+                bool all; lock (live.State.Gate) all = btSyms.All(x => { DateTime at; return live.State.DepthAt.TryGetValue(x, out at) && at >= asked; });
+                if (!all && (DateTime.Now - asked).TotalSeconds < 4) return; tm.Stop();
+                var sp = new StackPanel { MinWidth = 640 }; long mx = 0;
+                lock (live.State.Gate)
+                {
+                    mx = live.State.MaxBars;
+                    foreach (var sym in btSyms)
+                    {
+                        List<Tuple<int, DateTime, long>> l; DateTime srv; live.State.Depth.TryGetValue(sym, out l); live.State.FirstDate.TryGetValue(sym, out srv);
+                        sp.Children.Add(new TextBlock { Text = sym + (srv > DateTime.MinValue ? "  •  the broker's history starts " + srv.ToString("dd MMM yyyy", IC) : ""), Foreground = Gold, FontSize = 14, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 10, 0, 4) });
+                        if (l == null) { sp.Children.Add(new TextBlock { Text = "no answer — put the new SpasiXBridge.mq5 on the chart (it has the DEPTH command)", Foreground = Red, FontSize = 12 }); continue; }
+                        foreach (var r in l)
+                        {
+                            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 1) };
+                            row.Children.Add(Cell(r.Item1 == 43200 ? "MN1" : Tf.Name(r.Item1), Cyan, 60, false, true));
+                            row.Children.Add(Cell(r.Item2 > DateTime.MinValue ? "from " + r.Item2.ToString("dd MMM yyyy", IC) : "not loaded yet", r.Item2 > DateTime.MinValue ? Text : Muted, 170));
+                            row.Children.Add(Cell(r.Item3.ToString("N0", IC) + " candles", Text, 150, true));
+                            row.Children.Add(Cell(mx > 0 && r.Item3 >= mx * 0.98 ? "⚠ at the Max bars limit" : "", Gold, 180));
+                            sp.Children.Add(row);
+                        }
+                    }
+                }
+                sp.Children.Add(new TextBlock { Text = "MT5 builds every timeframe from the broker's 1-minute history, so if MN1 / D1 go back to 2005 the broker usually has the 1-minute candles too — MT5 just has not loaded them. What limits them here is MT5's 'Max bars in chart'" + (mx > 0 ? " (now " + mx.ToString("N0", IC) + ")" : "") + ": Tools → Options → Charts → Max bars in chart = Unlimited, restart MT5, then ⬇ DOWNLOAD (MT5 fetches the old 1-minute history from the broker; years take a few minutes the first time).", Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0) });
+                btStatus.Text = ""; Sx.Form(this, "🏛 MT5 history depth", "What MT5 holds on this PC for every timeframe (the oldest candle and how many).", new ScrollViewer { Content = sp, MaxHeight = 560, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MinWidth = 660 }, "CLOSE", null, Cyan);
+            };
+            tm.Start();
+        }
         // MT5's oldest 1-minute history of each ticked symbol (the bridge's FIRST), asked once in a while; the DATA days line shows it
         readonly Dictionary<string, DateTime> firstAsked = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase); int firstSeen = -1;
         void BtFirstTick()
@@ -217,18 +258,20 @@ namespace KeystoneMT5
             if (btSyms.Count == 0) { btDays.Text = "tick at least one symbol in 1"; btDays.Foreground = Gold; btSpec.Text = ""; return; }
             if (!Range(out f, out t)) { btDays.Text = "type the days as yyyy-mm-dd (FROM ≤ TO) or press a chip"; btDays.Foreground = Red; return; }
             int wd = 0; for (var d = f; d <= t; d = d.AddDays(1)) if (d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday) wd++;
-            var parts = new List<string>(); int missing = 0, tickMiss = 0;
+            var parts = new List<string>(); int missing = 0, tickMiss = 0, emptyDays = 0;
             foreach (var sym in btSyms)
             {
-                int need = 0, got = 0, tk = 0; for (var d = f.AddDays(-Warm()); d <= t; d = d.AddDays(1)) { if (d.DayOfWeek == DayOfWeek.Saturday) continue; need++; if (HistoryStore.HasDay(sym, d)) got++; if (d >= f && HistoryStore.HasTicks(sym, d)) tk++; }
-                missing += need - got; tickMiss += Math.Max(0, wd - tk); parts.Add(sym + " " + got + "/" + need + (btTicks ? " (ticks " + tk + ")" : ""));
+                int need = 0, got = 0, tk = 0, none = 0; for (var d = f.AddDays(-Warm()); d <= t; d = d.AddDays(1)) { if (d.DayOfWeek == DayOfWeek.Saturday) continue; need++; if (HistoryStore.HasDay(sym, d)) got++; if (d.DayOfWeek != DayOfWeek.Sunday && HistoryStore.IsNone(sym, d)) none++; if (d >= f && HistoryStore.HasTicks(sym, d)) tk++; }
+                missing += need - got; emptyDays += none; tickMiss += Math.Max(0, wd - tk); parts.Add(sym + " " + (got - none) + "/" + need + (none > 0 ? " (" + none + " empty)" : "") + (btTicks ? " (ticks " + tk + ")" : ""));
             }
-            btDays.Text = "📅 " + f.ToString("ddd dd MMM", IC) + " → " + t.ToString("ddd dd MMM yyyy", IC) + " • " + wd + " trading day(s)   •   💾 on this PC: " + string.Join("  •  ", parts) + (missing > 0 ? "   →  ▶ START downloads the rest from MT5 once" : btTicks && tickMiss > 0 ? "   →  ▶ START adds MT5's real ticks (with MT5 connected)" : "   ✓ ready");
+            btDays.Text = "📅 " + f.ToString("ddd dd MMM", IC) + " → " + t.ToString("ddd dd MMM yyyy", IC) + " • " + wd + " trading day(s)   •   💾 on this PC: " + string.Join("  •  ", parts) + (missing > 0 ? "   →  ▶ START downloads the rest from MT5 once" : emptyDays > 0 ? "   →  " + emptyDays + " day(s) MT5 gave no candles for — ↻ ASK MT5 AGAIN FOR EMPTY DAYS" : btTicks && tickMiss > 0 ? "   →  ▶ START adds MT5's real ticks (with MT5 connected)" : "   ✓ ready");
             int wu = Warm(); if (wu > 0) btDays.Text += "\n🔥 + " + wu + " warm-up day(s) before FROM (from " + f.AddDays(-wu).ToString("ddd dd MMM", IC) + ") — drawn at once for the context, downloaded AFTER your days (MORE SETTINGS → WARM-UP, 0 = none)";
             var firsts = new List<string>(); lock (live.State.Gate) foreach (var sym in btSyms) { DateTime fd; if (live.State.FirstDate.TryGetValue(sym, out fd)) firsts.Add(sym + " from " + fd.ToString("dd MMM yyyy", IC) + (fd.Date > f ? " ⚠ after FROM" : "")); }
             if (firsts.Count > 0) btDays.Text += "\n🏛 MT5's history (your broker): " + string.Join("  •  ", firsts) + " — older days cannot be tested";
             else { bool al; lock (live.State.Gate) al = live.State.Alive; btDays.Text += al ? "\n🏛 asking MT5 how far its history goes … (needs the new SpasiXBridge — ⚙ SETUP)" : "\n🏛 connect MT5 to see how far its history goes"; }
-            btDays.Foreground = missing == 0 ? Green : Text;
+            DateTime reach; long mx; lock (live.State.Gate) { reach = live.State.M1Reach; mx = live.State.MaxBars; }
+            if (reach > DateTime.MinValue && f < reach) { btDays.Text += "\n⚠ MT5's 'Max bars in chart' is " + mx.ToString("N0", IC) + " → it hands out 1-minute candles only back to ≈ " + reach.ToString("dd MMM yyyy", IC) + ". For older days: in MT5 Tools → Options → Charts → Max bars in chart = Unlimited, restart MT5, then ▶ START (MT5 then loads the old 1-minute history from the broker)"; btDays.Foreground = Gold; return; }
+            btDays.Foreground = emptyDays > 0 ? Gold : missing == 0 ? Green : Text;
             btSpec.Text = string.Join("   •   ", btSyms.Select(s => { var sp = HistoryStore.LoadSpec(s); return sp == null ? s + ": spec with the first download" : s + ": $" + sp.PointValue.ToString("0.####", IC) + " / point / lot, lots " + sp.VolMin.ToString("0.##", IC) + "–" + sp.VolMax.ToString("0.##", IC); }));
         }
         SimSpec SpecNow(string sym)

@@ -98,6 +98,9 @@ public static class SimTests
         st.Apply("DEALS|1790000000|1793000000|2"); st.Apply("D|11|1792800100|XAUUSD|BUY|IN|0.10|4000.10|0.00|-0.35|0.00|501|0||SpasiX"); st.Apply("D|12|1792800500|XAUUSD|SELL|OUT|0.10|4005.10|50.00|-0.35|-1.20|501|0|TP|"); st.Apply("DEALEND");
         Check(st.Deals.Count == 2 && st.Deals[1].IsExit && Math.Abs(st.Deals[1].Net - 48.45) < 1e-9 && st.Deals[1].Reason == "TP", "DEALS … DEALEND → the exit's net P/L (profit + commission + swap) and its reason");
         st.Apply("CAN|1|1|1|5.00|10800|1792800000|1|0"); Check(!st.CanTrade, "the account forbids expert trading → read only");
+        st.Apply("FIRST|XAUUSD|1262304000|1420070400|1420070400|100000"); var rch = st.M1Reach;
+        Check(st.FirstDate["XAUUSD"].Year == 2010 && st.MaxBars == 100000 && rch < DateTime.Today.AddDays(-95) && rch > DateTime.Today.AddDays(-110), "FIRST: the broker's first date + MT5's Max bars in chart (100,000 = about 3½ months of 1-minute candles)", rch.ToString("yyyy-MM-dd"));
+        st.Apply("FIRST|XAUUSD|1262304000|1420070400|1420070400|0"); Check(st.M1Reach == DateTime.MinValue, "Max bars unknown / unlimited = no limit");
         HistoryStore.Root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-test-" + Guid.NewGuid().ToString("N"));
         HistoryStore.SaveDay("XAUUSD", day1, test); HistoryStore.SaveSpec(Gold());
         var back = HistoryStore.LoadRange("XAUUSD", day1, day1); var spec = HistoryStore.LoadSpec("XAUUSD");

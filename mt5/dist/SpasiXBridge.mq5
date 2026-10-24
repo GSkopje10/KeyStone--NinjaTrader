@@ -163,7 +163,7 @@ ENUM_TIMEFRAMES TfOf(int m)
    switch(m)
      {
       case 1: return(PERIOD_M1); case 5: return(PERIOD_M5); case 15: return(PERIOD_M15); case 30: return(PERIOD_M30);
-      case 60: return(PERIOD_H1); case 240: return(PERIOD_H4); case 1440: return(PERIOD_D1); case 10080: return(PERIOD_W1);
+      case 60: return(PERIOD_H1); case 240: return(PERIOD_H4); case 1440: return(PERIOD_D1); case 10080: return(PERIOD_W1); case 43200: return(PERIOD_MN1);
      }
    return(PERIOD_H1);
   }
@@ -191,6 +191,12 @@ void SendHist(string sym, long from, long to)
    SymbolSelect(sym, true); ResetLastError();
    MqlRates r[]; ArraySetAsSeries(r, false);
    int got = CopyRates(sym, PERIOD_M1, (datetime)from, (datetime)(to - 1), r); int err = got < 0 ? GetLastError() : 0; if(got < 0) got = 0;
+   if(got == 0 && err == 0)
+     {
+      // nothing came back: before the first 1-minute candle MT5 holds HERE, or past "Max bars in chart" = not loaded (4401), not "no trading that day"
+      long here = SeriesInfoInteger(sym, PERIOD_M1, SERIES_FIRSTDATE); long mx = TerminalInfoInteger(TERMINAL_MAXBARS);
+      if((here > 0 && from < here) || (mx > 0 && (long)TimeCurrent() - from > mx * 60 * 7 / 5)) err = 4401;
+     }
    int d = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
    string b = "HIST|" + sym + "|" + IntegerToString(from) + "|" + IntegerToString(to) + "|" + IntegerToString(got) + "|" + IntegerToString(err) + "\n";
    for(int i = 0; i < got; i++)
@@ -222,12 +228,28 @@ void SendTicks(string sym, long from, long to)
    SendLine(b);
   }
 
-// how far back MT5's history goes for a symbol: FIRST|symbol|first date on the broker's server|first date on this PC|first 1-minute candle here (epochs, 0 = unknown)
+// how far back MT5's history goes for a symbol: FIRST|symbol|first date on the broker's server|first date on this PC|first 1-minute candle here (epochs, 0 = unknown)|max bars in chart
 void SendFirst(string sym)
   {
    SymbolSelect(sym, true);
    long sv = SeriesInfoInteger(sym, PERIOD_M1, SERIES_SERVER_FIRSTDATE), tm = SeriesInfoInteger(sym, PERIOD_M1, SERIES_TERMINAL_FIRSTDATE), m1 = SeriesInfoInteger(sym, PERIOD_M1, SERIES_FIRSTDATE);
-   SendLine("FIRST|" + sym + "|" + IntegerToString(sv) + "|" + IntegerToString(tm) + "|" + IntegerToString(m1));
+   long mx = TerminalInfoInteger(TERMINAL_MAXBARS);   // Tools > Options > Charts > Max bars in chart: MT5 never hands out more 1-minute candles than this
+   SendLine("FIRST|" + sym + "|" + IntegerToString(sv) + "|" + IntegerToString(tm) + "|" + IntegerToString(m1) + "|" + IntegerToString(mx));
+  }
+
+// how deep each timeframe's history goes HERE (M1 … MN1): DEPTH|symbol|broker's first date|max bars in chart|minutes:first candle:candles,…
+// (MT5 builds every timeframe from the broker's 1-minute history; "Max bars in chart" caps how many candles a program can read)
+void SendDepth(string sym)
+  {
+   SymbolSelect(sym, true);
+   int mins[] = {1, 5, 15, 30, 60, 240, 1440, 10080, 43200};
+   string b = "DEPTH|" + sym + "|" + IntegerToString(SeriesInfoInteger(sym, PERIOD_M1, SERIES_SERVER_FIRSTDATE)) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_MAXBARS)) + "|";
+   for(int i = 0; i < ArraySize(mins); i++)
+     {
+      ENUM_TIMEFRAMES tf = TfOf(mins[i]); long first = SeriesInfoInteger(sym, tf, SERIES_FIRSTDATE); int n = Bars(sym, tf);
+      b += (i > 0 ? "," : "") + IntegerToString(mins[i]) + ":" + IntegerToString(first) + ":" + IntegerToString(n);
+     }
+   SendLine(b);
   }
 
 // the account's deals (for the app's TRACKER): DEALS|from|to|n, n × D|ticket|time|symbol|type|entry|lots|price|profit|commission + fee|swap|position|magic|reason|comment, DEALEND
@@ -367,6 +389,7 @@ void ReadApp()
       else if(StringFind(line, "HIST|") == 0) { string p3[]; if(StringSplit(line, '|', p3) >= 4) SendHist(p3[1], StringToInteger(p3[2]), StringToInteger(p3[3])); }
       else if(StringFind(line, "HISTT|") == 0) { string p5[]; if(StringSplit(line, '|', p5) >= 4) SendTicks(p5[1], StringToInteger(p5[2]), StringToInteger(p5[3])); }
       else if(StringFind(line, "FIRST|") == 0) SendFirst(StringSubstr(line, 6));
+      else if(StringFind(line, "DEPTH|") == 0) SendDepth(StringSubstr(line, 6));
       else if(StringFind(line, "DEALS|") == 0) { string p4[]; if(StringSplit(line, '|', p4) >= 3) SendDeals(StringToInteger(p4[1]), StringToInteger(p4[2])); }
       else if(StringFind(line, "WATCH|") == 0) { SymbolSelect(StringSubstr(line, 6), true); SendSymbols(); }
       else
