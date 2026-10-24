@@ -491,6 +491,10 @@ namespace Microsoft.Win32
     public class OpenFileDialog { public string Filter { get; set; } public string Title { get; set; } public string FileName { get; set; } public bool Multiselect { get; set; } public string[] FileNames { get { return new string[0]; } } public bool? ShowDialog() { return false; } public bool? ShowDialog(System.Windows.Window owner) { return false; } }
 }
 
+namespace System.Windows.Interop
+{
+    public sealed class WindowInteropHelper { public WindowInteropHelper(System.Windows.Window w) { } public System.IntPtr Handle { get { return System.IntPtr.Zero; } } }
+}
 namespace System.Windows.Shell
 {
     public class WindowChrome
