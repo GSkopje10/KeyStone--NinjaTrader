@@ -1,14 +1,14 @@
 //+------------------------------------------------------------------+
-//| KeystoneBridge.mq5 — connects MetaTrader 5 to the Keystone MT5   |
+//| SpasiXBridge.mq5 — connects MetaTrader 5 to the SpasiX MT5 app   |
 //| app on this PC (127.0.0.1). READ ONLY — it sends the account,    |
 //| the prices, the open positions / orders and candles. It contains |
 //| no trading function: it cannot open, change or close anything.   |
 //+------------------------------------------------------------------+
-#property copyright "Keystone"
+#property copyright "SpasiX"
 #property version   "2.00"
-#property description "Keystone MT5 bridge (read only: account, prices, positions, candles)"
+#property description "SpasiX MT5 bridge (read only: account, prices, positions, candles)"
 
-input string AppHost = "127.0.0.1";   // the Keystone app (this PC)
+input string AppHost = "127.0.0.1";   // the SpasiX MT5 app (this PC)
 input int    AppPort = 47123;         // its port
 input string Symbols = "";            // symbols to stream, e.g. XAUUSD,US30 (empty = every symbol in Market Watch)
 
@@ -20,7 +20,7 @@ int      beats   = 0;
 int OnInit()
   {
    EventSetMillisecondTimer(200);
-   Comment("Keystone: starting…");
+   Comment("SpasiX: starting…");
    return(INIT_SUCCEEDED);
   }
 
@@ -68,15 +68,15 @@ bool Connect()
    if(TimeLocal() - lastTry < 2) return(false);
    lastTry = TimeLocal();
    sock = SocketCreate();
-   if(sock == INVALID_HANDLE) { Comment("Keystone: cannot create a socket (error ", GetLastError(), ")"); return(false); }
+   if(sock == INVALID_HANDLE) { Comment("SpasiX: cannot create a socket (error ", GetLastError(), ")"); return(false); }
    if(!SocketConnect(sock, AppHost, AppPort, 1000))
      {
       int e = GetLastError(); SocketClose(sock); sock = INVALID_HANDLE;
-      if(e == 4014) Comment("Keystone: add 127.0.0.1 in Tools > Options > Expert Advisors > 'Allow WebRequest for listed URL'");
-      else Comment("Keystone: waiting for the Keystone app — start KeystoneMT5.exe (error ", e, ")");
+      if(e == 4014) Comment("SpasiX: add 127.0.0.1 in Tools > Options > Expert Advisors > 'Allow WebRequest for listed URL'");
+      else Comment("SpasiX: waiting for the SpasiX app — start SpasiXMT5.exe (error ", e, ")");
       return(false);
      }
-   Comment("Keystone: connected to the app");
+   Comment("SpasiX: connected to the app");
    SendLine("HELLO|2|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
    SendSymbols();
    return(true);

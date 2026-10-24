@@ -43,12 +43,18 @@ namespace KeystoneMT5
         public readonly Dictionary<string, Mt5Quote> Quotes = new Dictionary<string, Mt5Quote>(StringComparer.OrdinalIgnoreCase);
         public List<Mt5Position> Positions = new List<Mt5Position>();
         public List<Mt5Order> Orders = new List<Mt5Order>();
+        public int BridgeVersion;
+        // candles per symbol + timeframe (BARS|symbol|minutes|n … B|time|o|h|l|c|v … BARSEND)
+        public readonly Dictionary<string, BarSeries> Series = new Dictionary<string, BarSeries>(StringComparer.OrdinalIgnoreCase);
+        List<Mt5Bar> barsIn; string barsKey;
+        public static string Key(string sym, int m) { return sym + "|" + m; }
+        public BarSeries SeriesOf(string sym, int m) { BarSeries b; if (!Series.TryGetValue(Key(sym, m), out b)) Series[Key(sym, m)] = b = new BarSeries(sym, m); return b; }
         public long Lines;
         List<Mt5Position> posIn; List<Mt5Order> ordIn;
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static double D(string s) { double v; return double.TryParse(s, NumberStyles.Float, IC, out v) ? v : 0; }
         static long L(string s) { long v; return long.TryParse(s, NumberStyles.Integer, IC, out v) ? v : 0; }
-        static DateTime Unix(long sec) { return sec <= 0 ? DateTime.MinValue : new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(sec); }
+        static DateTime Unix(long sec) { return sec <= 0 ? DateTime.MinValue : new DateTime(1970, 1, 1).AddSeconds(sec); }   // MT5 server time (as MT5 shows it)
 
         // one line from the EA (unknown / short lines are ignored: a newer EA never breaks this app)
         public void Apply(string line)
@@ -59,7 +65,15 @@ namespace KeystoneMT5
                 Lines++; LastLine = DateTime.Now;
                 switch (a[0])
                 {
-                    case "HELLO": if (a.Length >= 4) { Company = a[2]; Build = (int)L(a[3]); } Linked = true; LinkedAt = DateTime.Now; break;
+                    case "HELLO": if (a.Length >= 4) { BridgeVersion = (int)L(a[1]); Company = a[2]; Build = (int)L(a[3]); } Linked = true; LinkedAt = DateTime.Now; break;
+                    case "BARS": if (a.Length >= 4) { barsKey = Key(a[1], (int)L(a[2])); barsIn = new List<Mt5Bar>(); } break;
+                    case "B":
+                        if (barsIn == null || a.Length < 7) return;
+                        barsIn.Add(new Mt5Bar { Time = Unix(L(a[1])), O = D(a[2]), H = D(a[3]), L = D(a[4]), C = D(a[5]), V = L(a[6]) });
+                        break;
+                    case "BARSEND":
+                        if (barsIn != null && a.Length >= 3 && barsKey == Key(a[1], (int)L(a[2]))) { var se = SeriesOf(a[1], (int)L(a[2])); if (barsIn.Count > 0) se.Merge(barsIn); }
+                        barsIn = null; barsKey = null; break;
                     case "BYE": Linked = false; break;
                     case "SYM":
                         if (a.Length < 11) return;
@@ -71,7 +85,9 @@ namespace KeystoneMT5
                         Linked = true; break;
                     case "TICK":
                         if (a.Length < 5) return;
-                        Quotes[a[1]] = new Mt5Quote { Symbol = a[1], Bid = D(a[2]), Ask = D(a[3]), Time = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(L(a[4])) };
+                        var qt = new Mt5Quote { Symbol = a[1], Bid = D(a[2]), Ask = D(a[3]), Time = new DateTime(1970, 1, 1).AddMilliseconds(L(a[4])) };   // MT5 server time
+                        Quotes[a[1]] = qt;
+                        foreach (var se in Series.Values) if (string.Equals(se.Symbol, qt.Symbol, StringComparison.OrdinalIgnoreCase) && se.Loaded) se.OnTick(qt.Time, qt.Bid);
                         break;
                     case "POSS": posIn = new List<Mt5Position>(); break;
                     case "P":

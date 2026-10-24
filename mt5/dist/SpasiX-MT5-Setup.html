@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset="utf-8"><title>SpasiX MT5 – Setup</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;background:#fff;color:#1b2333;margin:34px 46px;line-height:1.5}
+.top{display:flex;align-items:center;gap:16px;margin-bottom:6px}.top img{width:64px;height:64px}
+h1{margin:0;color:#0A0E16}h1 .g{color:#c9961a}h1 .c{color:#1aa6cf}.sub{color:#5b6475;margin:2px 0 20px}
+.step{border:1px solid #d9dee8;border-radius:10px;padding:13px 18px;margin:0 0 13px;page-break-inside:avoid}
+.step h2{margin:0 0 6px;font-size:16.5px}.n{display:inline-block;width:26px;height:26px;border-radius:13px;background:#c9961a;color:#fff;text-align:center;line-height:26px;margin-right:8px;font-size:14px}
+code{background:#f1f3f8;padding:1px 6px;border-radius:4px}.ok{background:#e8f8ef;border-color:#9fdcb7}.warn{background:#fff6e3;border-color:#f0d28a}.up{background:#eaf6fd;border-color:#9fd3ef}
+ul{margin:6px 0 0 18px;padding:0}li{margin:3px 0}
+</style></head><body>
+<div class="top"><img src="spasix.png"><div><h1><span class="g">SpasiX</span> <span class="c">MT5</span> — Setup</h1><div class="sub">SpasiX MT5 • BUILD 2026-10-24b • MetaTrader 5 (IC Markets) on Windows</div></div></div>
+
+<div class="step ok"><h2>What this version does</h2>
+Opens full screen with the SpasiX look: the <b>📈 CHART</b> (candles from MT5, M1–W1, zoom / scroll, your tickets with their average, lots and P/L, S/L, T/P, pending orders, bid / ask, crosshair),
+<b>💼 POSITIONS</b>, <b>👁 MARKET</b> (click a symbol = its chart) and the account cards. It still <b>only reads</b> — there is no trading code yet (that is the next step).</div>
+
+<div class="step up"><h2>Already set up the first version? Do only this</h2>
+<ul><li>In MT5 remove the old bridge: right-click the chart ▸ <b>Expert list</b> ▸ select KeystoneBridge ▸ <b>Remove</b>.</li>
+<li>Close the old app. Use <code>SpasiXMT5.exe</code> from now on (you can delete KeystoneMT5.exe).</li>
+<li>Do steps 2 and 5–7 below with <code>SpasiXBridge.mq5</code>. The 127.0.0.1 setting (step 4) is already done.</li></ul></div>
+
+<div class="step"><h2><span class="n">1</span>The files</h2>
+<ul><li><code>SpasiXBridge.mq5</code> — the bridge for MetaTrader 5</li><li><code>SpasiXMT5.exe</code> — the SpasiX MT5 app (put it in its own folder, e.g. <code>C:\SpasiX</code>, not inside MT5)</li></ul></div>
+
+<div class="step"><h2><span class="n">2</span>Put the bridge into MT5</h2>
+<ul><li>MT5 → <b>File → Open Data Folder</b> → <code>MQL5</code> → <code>Experts</code> → paste <code>SpasiXBridge.mq5</code> there, next to the folders.</li>
+<li><b>Restart MT5</b> — it compiles the file and <b>SpasiXBridge</b> appears under Expert Advisors in the Navigator.</li></ul></div>
+
+<div class="step"><h2><span class="n">3</span>(only if it does not appear) Compile it</h2>
+<ul><li>MT5 → press <b>F4</b> (MetaEditor) → MQL5 ▸ Experts ▸ double-click SpasiXBridge.mq5 → <b>F7</b>. It must say <b>0 errors</b> (send a screenshot if not).</li></ul></div>
+
+<div class="step"><h2><span class="n">4</span>Allow the local link (once)</h2>
+<ul><li>MT5 → <b>Tools → Options → Expert Advisors</b> → tick <b>Allow WebRequest for listed URL</b> → click "+ add new URL" → type <code>http://127.0.0.1</code> → Enter → OK.</li>
+<li>"Allow algorithmic trading" can stay OFF — the bridge only reads.</li></ul></div>
+
+<div class="step"><h2><span class="n">5</span>Start the app</h2>
+<ul><li>Double-click <code>SpasiXMT5.exe</code>. A SpasiX loading screen appears, then the platform opens full screen.</li>
+<li>First time only: if Windows asks for the <b>.NET 8 Desktop Runtime</b>, click Yes, install it, start the app again. "Windows protected your PC" → <b>More info → Run anyway</b>.</li></ul></div>
+
+<div class="step"><h2><span class="n">6</span>Start the bridge</h2>
+<ul><li>Drag <b>SpasiXBridge</b> onto ONE chart (e.g. XAUUSD) → OK.</li>
+<li>The chart's corner says <b>SpasiX: connected to the app</b>; the app turns green and opens the <b>📈 CHART</b>.</li></ul></div>
+
+<div class="step"><h2><span class="n">7</span>Using the chart</h2>
+<ul><li>Symbols: the buttons at the top (the ones with tickets first). Timeframes: M1 M5 M15 M30 H1 H4 D1 W1.</li>
+<li><b>Mouse wheel</b> = zoom • <b>drag</b> = older candles / up-down • <b>drag the price axis</b> = stretch • <b>double-click</b> or <b>⟲ AUTO</b> = back to now with the automatic scale.</li>
+<li>Your tickets: each side's <b>average entry</b> with tickets, lots and P/L (strong line), every ticket faint, S/L red, T/P green, pending orders cyan. Times are MT5 server time.</li></ul></div>
+
+<div class="step warn"><h2>If something is not right</h2>
+<ul><li>Chart corner "add 127.0.0.1 …" → step 4. "waiting for the SpasiX MT5 app (error 5272)" → the app is not open.</li>
+<li>The chart says "the chart needs the new bridge" → the old KeystoneBridge is still running: do the blue box at the top.</li>
+<li>"port 47123 is busy" → the app is already open (close the second one).</li></ul></div>
+</body></html>

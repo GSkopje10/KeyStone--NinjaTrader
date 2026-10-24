@@ -25,6 +25,20 @@ public static class BridgeTests
             Check(Math.Abs(s.Quotes["XAUUSD"].Ask - 3997.53) < 1e-9 && s.Quotes["XAUUSD"].Spread(0.01) == 50, "TICK → bid / ask, spread 50 points");
             Check(s.Positions.Count == 3 && s.Positions.Count(p => p.Dir < 0) == 2 && s.Positions.Single(p => p.Dir > 0).Sl == 3980, "POSS … POSEND → 3 tickets, buys and sells together (hedging), S/L kept", s.Positions.Count.ToString());
             Check(s.Orders.Count == 1 && s.Orders[0].Type == "BUY STOP" && s.Orders[0].Price == 4017, "ORDS … ORDEND → the buy stop at 4017");
+            // candles: H1 history (server time, oldest first), then live ticks build the forming candle / open the next one
+            send("HELLO|2|Raw Trading Ltd|5000");
+            Func<int, string> u = h => ((long)(new DateTime(2026, 10, 23, h, 0, 0) - new DateTime(1970, 1, 1)).TotalSeconds).ToString();
+            send("BARS|XAUUSD|60|3\nB|" + u(4) + "|3990.00|3999.00|3985.00|3995.00|1200\nB|" + u(5) + "|3995.00|4001.00|3992.00|3996.00|900\nB|" + u(6) + "|3996.00|3998.00|3994.00|3997.00|300\nBARSEND|XAUUSD|60");
+            Thread.Sleep(300);
+            var se = s.SeriesOf("XAUUSD", 60);
+            Check(s.BridgeVersion == 2 && se.Loaded && se.Bars.Count == 3 && se.Bars[2].Time == new DateTime(2026, 10, 23, 6, 0, 0) && se.Bars[0].H == 3999, "BARS … BARSEND → 3 H1 candles at their opening time (server time)", se.Bars.Count + " " + (se.Bars.Count > 0 ? se.Bars[se.Bars.Count - 1].Time.ToString("o") : ""));
+            send("TICK|XAUUSD|3999.50|4000.00|" + ((long)(new DateTime(2026, 10, 23, 6, 30, 0) - new DateTime(1970, 1, 1)).TotalMilliseconds)); Thread.Sleep(200);
+            Check(se.Bars.Count == 3 && se.Bars[2].H == 3999.5 && se.Bars[2].C == 3999.5, "a tick inside the forming hour moves its high / close");
+            send("TICK|XAUUSD|3998.00|3998.50|" + ((long)(new DateTime(2026, 10, 23, 7, 0, 5) - new DateTime(1970, 1, 1)).TotalMilliseconds)); Thread.Sleep(200);
+            Check(se.Bars.Count == 4 && se.Bars[3].Time == new DateTime(2026, 10, 23, 7, 0, 0) && se.Bars[3].O == 3998, "the first tick of the next hour opens a new candle at 07:00");
+            send("BARS|XAUUSD|60|1\nB|" + u(7) + "|3997.50|3999.00|3997.00|3998.25|50\nBARSEND|XAUUSD|60"); Thread.Sleep(200);
+            Check(se.Bars.Count == 4 && se.Bars[3].O == 3997.5 && se.Bars[3].C == 3998.25, "MT5's own candle replaces the one built from ticks (same time)");
+            Check(KeystoneMT5.Tf.Start(new DateTime(2026, 10, 23, 13, 47, 0), 240) == new DateTime(2026, 10, 23, 12, 0, 0) && KeystoneMT5.Tf.Start(new DateTime(2026, 10, 23, 13, 47, 0), 15) == new DateTime(2026, 10, 23, 13, 45, 0), "H4 / M15 candle starts (from the server's midnight)");
             send("POSS|0\nPOSEND"); Thread.Sleep(200);
             Check(s.Positions.Count == 0, "an empty block clears the positions");
             send("POSS|1\nP|9|XAUUSD|BUY|0.1"); Thread.Sleep(200);

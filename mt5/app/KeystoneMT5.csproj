@@ -6,9 +6,17 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
-    <AssemblyName>KeystoneMT5</AssemblyName>
+    <AssemblyName>SpasiXMT5</AssemblyName>
     <RootNamespace>KeystoneMT5</RootNamespace>
     <StartupObject>KeystoneMT5.Program</StartupObject>
     <LangVersion>latest</LangVersion>
+    <ApplicationIcon>assets\spasix.ico</ApplicationIcon>
+    <Product>SpasiX MT5</Product>
+    <AssemblyTitle>SpasiX MT5</AssemblyTitle>
+    <Company>SpasiX</Company>
+    <Version>0.2.0</Version>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="assets\spasix.png" />
+  </ItemGroup>
 </Project>

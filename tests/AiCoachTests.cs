@@ -15,7 +15,7 @@ public static class AiCoachTests
         var hist = new List<Tuple<string, string>> { Tuple.Create("first \"q\"", "first a") };
         string body = KeystoneAiCoach.Request("MNQ 5M\nlast 31150.25", "enter \"now\"?", hist);
         var d = KeystoneJson.Parse(body) as Dictionary<string, object>;
-        Check(d != null && (string)d["model"] == "claude-opus-5-5" && (string)d["fallbacks"] == "default" && ((string)d["system"]).Contains("KEYSTONE ARC"), "request: model, fallbacks default, system prompt", body.Substring(0, Math.Min(160, body.Length)));
+        Check(d != null && (string)d["model"] == "claude-opus-5-5" && (string)d["fallbacks"] == "default" && ((string)d["system"]).Contains("SPASIX FUTURE"), "request: model, fallbacks default, system prompt", body.Substring(0, Math.Min(160, body.Length)));
         var msgs = d == null ? null : d["messages"] as List<object>;
         Check(msgs != null && msgs.Count == 3 && (string)((Dictionary<string, object>)msgs[0])["role"] == "user" && (string)((Dictionary<string, object>)msgs[1])["role"] == "assistant", "request: history as user / assistant turns, then the question", msgs == null ? "null" : msgs.Count.ToString());
         string last = msgs == null ? "" : (string)((Dictionary<string, object>)msgs[2])["content"];
