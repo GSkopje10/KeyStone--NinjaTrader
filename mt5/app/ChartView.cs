@@ -314,11 +314,11 @@ namespace KeystoneMT5
             double k = (DateTime.Now - pulseAt).TotalMilliseconds / 700.0;
             if (k >= 0 && k < 1) { var rr = tag; rr.Inflate(2 + 7 * k, 2 + 5 * k); dc.DrawRoundedRectangle(null, P(Br(th.Price, (byte)(150 * (1 - k))), 1.6), rr, 6, 6); }
             dc.DrawRoundedRectangle(pc, null, tag, 4, 4); dc.DrawText(T(F(Bid), 12, Br(th.Bg), true), new Point(plotW + 7, ty + 2));
-            if (ServerNow > DateTime.MinValue && tf < 10080)
+            if (ServerNow > DateTime.MinValue)
             {
                 bool closed = !Sim && QuoteTime > DateTime.MinValue && (ServerNow - QuoteTime).TotalMinutes > 3;
-                var left = last.Time.AddMinutes(tf) - ServerNow; if (left.TotalSeconds < 0 || left.TotalDays > 7) left = TimeSpan.Zero;
-                string cd = closed ? "CLOSED" : left.TotalHours >= 1 ? ((int)left.TotalHours) + ":" + left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00") : left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00");
+                var left = Tf.Left(ServerNow, tf);   // from the clock, not the last candle (a candle not received yet left it at 00:00)
+                string cd = closed ? "CLOSED" : left.TotalDays >= 1 ? ((int)left.TotalDays) + "d " + left.Hours + "h " + left.Minutes.ToString("00") + "m" : left.TotalHours >= 1 ? ((int)left.TotalHours) + ":" + left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00") : left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00");
                 dc.DrawRoundedRectangle(tagBg, P(pc, 1), new Rect(plotW + 2, ty + 20, AxisW - 4, 16), 3, 3); dc.DrawText(T("⏱ " + cd, 10.5, textB, true), new Point(plotW + 7, ty + 21));
             }
         }

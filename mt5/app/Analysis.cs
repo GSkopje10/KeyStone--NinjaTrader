@@ -83,7 +83,7 @@ namespace KeystoneMT5
             var v = anView; v.Series = se.Loaded ? se : null; v.Status = se.Loaded ? "" : Sim ? BtIdleText() : "loading " + sym + " " + Tf.Name(anTf) + " from MT5 …"; v.Symbol = sym;
             v.Digits = ms != null ? ms.Digits : 2; v.Point = ms != null && ms.Point > 0 ? ms.Point : 0.01; v.TickValue = ms != null && ms.TickValue > 0 ? ms.TickValue : 1; v.TickSize = ms != null && ms.TickSize > 0 ? ms.TickSize : v.Point;
             v.Bid = q != null ? q.Bid : 0; v.Ask = q != null ? q.Ask : 0; v.QuoteTime = q != null ? q.Time : DateTime.MinValue; v.Positions = s.Positions; v.Orders = s.Orders; v.Currency = s.Account.Currency; v.Gate = s.Gate;
-            v.ToView = conv; v.ZoneName = zn; v.ServerNow = Sim ? s.ServerNow : q != null && q.Time > s.ServerNow ? q.Time : s.ServerNow; v.NyOffsetHours = NyOffset(s); v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = false; v.Theme = CurTheme();
+            v.ToView = conv; v.ZoneName = zn; v.ServerNow = LiveServerNow(s); v.NyOffsetHours = NyOffset(s); v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = false; v.Theme = CurTheme();
             v.InvalidateVisual();
             anHead.Text = "📊 ANALYSIS • " + sym + " • " + Tf.Name(anTf) + (q != null ? "   " + q.Bid.ToString("F" + v.Digits, IC) : "");
             if ((now - anAt).TotalSeconds < 1 || !se.Loaded) return; anAt = now;

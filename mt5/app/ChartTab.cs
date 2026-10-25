@@ -413,6 +413,18 @@ namespace KeystoneMT5
         }
 
         // ---------------------------------------------------------------- every refresh: the charts
+        // the MT5 server clock, running: the newest server time we were told (the bridge's clock or any instrument's last tick) moved on with this PC's clock,
+        // so every countdown keeps going between ticks (it stood still — or at 0 — until the next price came)
+        DateTime srvSeen = DateTime.MinValue; TimeSpan srvOff = TimeSpan.Zero; bool srvKnown;
+        DateTime LiveServerNow(Mt5State s)
+        {
+            if (Sim) return s.ServerNow;
+            var best = s.ServerNow; foreach (var q in s.Quotes.Values) if (q != null && q.Time > best) best = q.Time;
+            if (best == DateTime.MinValue) return best;
+            var now = DateTime.Now; var off = best - now;
+            if (!srvKnown || best != srvSeen && (off > srvOff || (srvOff - off).TotalMinutes > 2)) { srvOff = off; srvKnown = true; }
+            srvSeen = best; return now + srvOff;
+        }
         void FillChart(Mt5State s)
         {
             // the symbols: yours (tickets), the ones you added, then Market Watch (a backtest: its symbol)
@@ -434,8 +446,8 @@ namespace KeystoneMT5
             }
             string zn; var conv = ZoneConv(s, out zn); int nyOff = NyOffset(s);
             // every timeframe's countdown (the selected chart's symbol)
-            { Mt5Quote aq; s.Quotes.TryGetValue(Act.Sym, out aq); var sn = Sim ? s.ServerNow : aq != null && aq.Time > s.ServerNow ? aq.Time : s.ServerNow; bool closed = !Sim && aq != null && (s.ServerNow - aq.Time).TotalMinutes > 3;
-              foreach (var kv in tfCountdown) { if (sn == DateTime.MinValue || closed) { kv.Value.Text = closed ? "closed" : ""; continue; } var left = Tf.Start(sn, kv.Key).AddMinutes(kv.Key >= 10080 ? 10080 : kv.Key) - sn; if (left.TotalSeconds < 0) left = TimeSpan.Zero;
+            { Mt5Quote aq; s.Quotes.TryGetValue(Act.Sym, out aq); var sn = LiveServerNow(s); bool closed = !Sim && aq != null && sn > DateTime.MinValue && (sn - aq.Time).TotalMinutes > 3;
+              foreach (var kv in tfCountdown) { if (sn == DateTime.MinValue || closed) { kv.Value.Text = closed ? "closed" : ""; continue; } var left = Tf.Left(sn, kv.Key);
                 kv.Value.Text = left.TotalDays >= 1 ? ((int)left.TotalDays) + "d " + left.Hours + "h" : left.TotalHours >= 1 ? ((int)left.TotalHours) + ":" + left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00") : left.Minutes.ToString("00") + ":" + left.Seconds.ToString("00"); } }
             var now = DateTime.Now; bool trade = Virtual || (armed && s.CanTrade);
             for (int k = 0; k < split; k++)
@@ -452,7 +464,7 @@ namespace KeystoneMT5
                 Mt5Quote q; s.Quotes.TryGetValue(p.Sym, out q); var sym = s.Symbols.ContainsKey(p.Sym) ? s.Symbols[p.Sym] : null;
                 v.Series = se.Loaded ? se : null; v.Symbol = p.Sym; v.Digits = sym != null ? sym.Digits : 2; v.Point = sym != null && sym.Point > 0 ? sym.Point : 0.01; v.TickValue = sym != null && sym.TickValue > 0 ? sym.TickValue : 1; v.TickSize = sym != null && sym.TickSize > 0 ? sym.TickSize : v.Point;
                 v.Bid = q != null ? q.Bid : 0; v.Ask = q != null ? q.Ask : 0; v.QuoteTime = q != null ? q.Time : DateTime.MinValue; v.Positions = s.Positions; v.Orders = s.Orders; v.Currency = s.Account.Currency; v.Gate = s.Gate; v.Lots = Num(lotsBox);
-                v.ToView = conv; v.ZoneName = zn; v.ServerNow = Sim ? s.ServerNow : q != null && q.Time > s.ServerNow ? q.Time : s.ServerNow; v.NyOffsetHours = nyOff; v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = trade;
+                v.ToView = conv; v.ZoneName = zn; v.ServerNow = LiveServerNow(s); v.NyOffsetHours = nyOff; v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = trade;
                 var dl = DrawingsOf(p.Sym); if (!ReferenceEquals(v.Drawings, dl)) v.Drawings = dl;   // the symbol's own drawings (saved)
                 if (Sim) { v.News = ""; v.NewsHot = false; } else { var nw = NewsFor(p.Sym); v.News = nw.Item1; v.NewsHot = nw.Item2; }
                 string f = "F" + v.Digits; var ps = s.Positions.Where(x => string.Equals(x.Symbol, p.Sym, StringComparison.OrdinalIgnoreCase)).ToList(); double pl = ps.Sum(x => x.Profit + x.Swap);

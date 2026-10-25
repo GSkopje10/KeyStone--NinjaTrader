@@ -18,6 +18,8 @@ namespace KeystoneMT5
             if (m >= 1440) return t.Date;
             long mins = (long)(t - t.Date).TotalMinutes; return t.Date.AddMinutes(mins - mins % m);
         }
+        // the time left in the candle a moment belongs to (M1 … W1): it starts again at every new candle
+        public static TimeSpan Left(DateTime t, int m) { var left = Start(t, m).AddMinutes(m >= 10080 ? 10080 : m) - t; return left.TotalSeconds < 0 ? TimeSpan.Zero : left; }
     }
 
     public sealed class BarSeries
