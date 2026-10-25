@@ -59,6 +59,7 @@ namespace KeystoneMT5
             indBtn = Sx.Drop("📈 INDICATORS", Card, () => IndMenu(Act.V)); indBtn.ToolTip = "tick the indicators (each has its colour)"; bar.Children.Add(indBtn);
             themeBtn = Sx.Drop("🎨 " + CurTheme().Name, Card, ThemeMenu); bar.Children.Add(themeBtn);
             zoneBtn = Sx.Drop("🕘 " + Zones[zoneIdx].Item1, Card, ZoneMenu); zoneBtn.ToolTip = "the time on the chart (MT5 keeps its server time inside)"; bar.Children.Add(zoneBtn);
+            var cleanBtn = Pill("🧹 CLEAN", Card); cleanBtn.ToolTip = "clean chart: every drawing and indicator of this instrument off at once (right-click ▸ ↶ Undo the clean brings them back)"; cleanBtn.Click += delegate { CleanChart(Act); }; bar.Children.Add(cleanBtn);
             bar.Children.Add(Sep());
             var spb = Pill("📶 SPREADS", Card); spb.ToolTip = "every instrument's spread, live (F10)"; spb.Click += delegate { ToggleSpreads(); }; bar.Children.Add(spb);
             var more = Pill("⏪ MORE", Card); more.ToolTip = "load 30 more days of history on this chart (30 days are loaded by default)"; more.Click += delegate { MoreHistory(Act); }; bar.Children.Add(more);
@@ -375,6 +376,25 @@ namespace KeystoneMT5
             p.V.Ind.Clear(); if (p.Sym != "") foreach (var t in ChartView.Indicators) if (IndOn(p.Sym, t.Key)) p.V.Ind.Add(t.Key);
             int fs; p.V.FvgSide = int.TryParse(Get(IndKey(p.Sym, "FVGSIDE"), "0"), NumberStyles.Integer, IC, out fs) ? fs : 0; p.V.InvalidateVisual();
         }
+        // 🧹 CLEAN CHART (the toolbar or a right-click): every drawing and indicator of the chart's instrument off at once, no question
+        // asked; the last clean of each instrument can be undone from the right-click menu
+        readonly Dictionary<string, Tuple<List<Drawing>, List<string>>> cleanUndo = new Dictionary<string, Tuple<List<Drawing>, List<string>>>(StringComparer.OrdinalIgnoreCase);
+        void CleanChart(Pane p)
+        {
+            if (p == null || p.Sym == "") return; var v = p.V; var dr = v.Drawings.Select(d => d.Clone()).ToList(); var ind = v.Ind.ToList();
+            if (dr.Count == 0 && ind.Count == 0) { Toast("🧹 " + p.Sym + " is already clean"); return; }
+            cleanUndo[p.Sym] = Tuple.Create(dr, ind);
+            v.Drawings.Clear(); v.Deselect(); SaveDrawings(); foreach (var k in ind) SetInd(p.Sym, k, false);
+            foreach (var q in panes) q.V.InvalidateVisual(); PaintBar();
+            Toast("🧹 " + p.Sym + " cleaned: " + dr.Count + " drawing" + (dr.Count == 1 ? "" : "s") + " + " + ind.Count + " indicator" + (ind.Count == 1 ? "" : "s") + " removed • right-click ▸ ↶ Undo the clean");
+        }
+        void UndoClean(string sym)
+        {
+            Tuple<List<Drawing>, List<string>> u; if (!cleanUndo.TryGetValue(sym, out u)) return; cleanUndo.Remove(sym);
+            var p = panes.FirstOrDefault(x => string.Equals(x.Sym, sym, StringComparison.OrdinalIgnoreCase));
+            if (p != null) { p.V.Drawings.AddRange(u.Item1); SaveDrawings(); } foreach (var k in u.Item2) SetInd(sym, k, true);
+            foreach (var q in panes) q.V.InvalidateVisual(); PaintBar(); Toast("↶ " + sym + ": " + u.Item1.Count + " drawings + " + u.Item2.Count + " indicators back");
+        }
         void SetInd(string sym, string key, bool on) { Put(IndKey(sym, key), on ? "1" : "0"); foreach (var p in panes) if (string.Equals(p.Sym, sym, StringComparison.OrdinalIgnoreCase)) { if (on) p.V.Ind.Add(key); else p.V.Ind.Remove(key); p.V.InvalidateVisual(); } }
         void IndOff(string key, string sym = null) { if (string.IsNullOrEmpty(sym)) sym = Act.Sym; SetInd(sym, key, false); PaintBar(); var ind = ChartView.Indicators.FirstOrDefault(x => x.Key == key); if (ind != null) Toast("✕ " + ind.Name + " removed from " + sym); }
         void SetFvgSide(int side) { Put(IndKey(Act.Sym, "FVGSIDE"), side.ToString(IC)); foreach (var p in panes) if (string.Equals(p.Sym, Act.Sym, StringComparison.OrdinalIgnoreCase)) { p.V.FvgSide = side; p.V.InvalidateVisual(); } if (!Act.V.Ind.Contains("FVG")) SetInd(Act.Sym, "FVG", true); PaintBar(); }
@@ -577,6 +597,8 @@ namespace KeystoneMT5
             drl.Add(Mi.Group("●", "Colour of new drawings", ColorMenu(drawColor, c => SetDrawColor(c))));
             drl.Add(new Mi { Icon = "🗑", Text = "Remove all drawings on " + p.Sym, Danger = true, Do = () => { if (v.Drawings.Count > 0 && Sx.Ask(this, "Remove the drawings", "Remove every drawing on " + p.Sym + "?", "REMOVE", "KEEP", Red)) { v.Drawings.Clear(); SaveDrawings(); v.InvalidateVisual(); } } });
             l.Add(Mi.Group("✏", "Draw", drl));
+            l.Add(new Mi { Icon = "🧹", Text = "Clean chart: remove every drawing + indicator of " + p.Sym, Hint = "at once", Do = () => CleanChart(p) });
+            Tuple<List<Drawing>, List<string>> undo; if (cleanUndo.TryGetValue(p.Sym, out undo)) l.Add(new Mi { Icon = "↶", Text = "Undo the clean (" + undo.Item1.Count + " drawings, " + undo.Item2.Count + " indicators)", Do = () => UndoClean(p.Sym) });
             l.Add(Mi.Group("📈", "Indicators", IndMenu(v)));
             if (v.Ind.Count > 0) l.Add(Mi.Group("✕", "Remove an indicator", ChartView.Indicators.Where(x => v.Ind.Contains(x.Key)).Select(x => { var kk = x.Key; return new Mi { Text = x.Name, Dot = Sx.B(x.Color), Do = () => IndOff(kk) }; }).ToList()));
             l.Add(new Mi("⚙", "Chart settings … (colours, candles, entries)", () => ChartSettings())); l.Add(Mi.Group("🎨", "Chart theme", ThemeMenu())); l.Add(Mi.Group("🕘", "Time zone", ZoneMenu()));
