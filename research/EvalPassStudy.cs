@@ -17,7 +17,7 @@ using NinjaTrader.NinjaScript;
 
 public static class EvalPassStudy
 {
-    sealed class Cfg { public string Dir = "BUY"; public double Stop = 1000, Be; public int Qty = 10, Tries; public int Start = 1800, End = 1645; public int Seed = 7; public string Label = ""; public string Dd = "EOD"; }
+    sealed class Cfg { public string Dir = "BUY"; public double Stop = 1000, Be; public int Qty = 10, Tries; public int Start = 1800, End = 1645; public int Seed = 7; public string Label = ""; public string Dd = "EOD"; public int Accounts = 50, MinDays = 2; }
     sealed class Res
     {
         public Cfg C; public KeystonePropSim Sim; public int Bought, Passed, Blown, Open, Trades, Wins, ZeroBatches, Batches, BestBatch, BestStreak, ZeroStreak; public double PassRate, AvgDays, Cost, CostPerPass; public int TwoDay;
@@ -32,7 +32,7 @@ public static class EvalPassStudy
     static KeystoneSimSettings Of(Cfg c, Dictionary<string, string> inds)
     {
         var s = Base(); s.Direction = c.Dir; s.RotStop = c.Stop; s.FundRotStop = c.Stop; s.BreakevenAt = c.Be; s.MaxTradesPerDay = c.Tries; s.MnqQty = s.MgcQty = s.FundMnqQty = s.FundMgcQty = c.Qty; s.Seed = c.Seed;
-        s.Rules.EvalDdType = c.Dd; s.StartHhmm = c.Start; s.EndHhmm = c.End; if (c.Dir == "INDICATOR") s.Indicator = inds[c.Qty + "|" + c.Stop];
+        s.Rules.EvalDdType = c.Dd; s.Accounts = c.Accounts; s.Rules.EvalMinDays = c.MinDays; s.StartHhmm = c.Start; s.EndHhmm = c.End; if (c.Dir == "INDICATOR") s.Indicator = inds[c.Qty + "|" + c.Stop];
         return s;
     }
     static Res Measure(Cfg c, KeystonePropSim sim)
@@ -301,6 +301,30 @@ public static class EvalPassStudy
             sb.AppendLine("| " + Name(ddCfgs[i]) + " | " + cell(ddRes[i, 0]) + " | " + cell(ddRes[i, 1]) + " | " + cell(ddRes[i, 2]) + " | **" + (diff >= 0 ? "+" : "−") + Math.Abs(diff).ToString("0.0", ic) + " pts** |");
         }
         sb.AppendLine(); sb.AppendLine("(RANDOM = one coin seed here; the grid above averages 5)"); sb.AppendLine();
+        // 13. YOUR POOL: 5 or 10 evaluations (a new set when the last one is done), a 2- or 3-day minimum — the best rule and its "until +$1,500" twin
+        sb.AppendLine("## 13. Small pools: 5 or 10 evaluations at a time, 2- or 3-day minimum"); sb.AppendLine();
+        sb.AppendLine("The same days and rules; a new set of 5 / 10 is bought when every one of the last set has passed or failed. P(≥1) / P(≥2) = the share of sets with at least one / two passes."); sb.AppendLine();
+        sb.AppendLine("| rule | accounts | min days | sets | evals | passed | failed | pass % | sets with ≥ 1 pass | ≥ 2 passes | days a set lasts | cost / pass |"); sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|");
+        var poolCfgs = new List<Cfg>(); foreach (var tries in new[] { 1, 0 }) foreach (var n in new[] { 5, 10, 50 }) foreach (var md in new[] { 2, 3 }) poolCfgs.Add(new Cfg { Dir = "BUY", Stop = 1000, Tries = tries, Qty = 10, Accounts = n, MinDays = md });
+        var poolRes = new Res[poolCfgs.Count]; Parallel.For(0, poolCfgs.Count, i => { var c = poolCfgs[i]; poolRes[i] = Measure(c, KeystoneRotationLab.Run(Of(c, inds), test, c.Start, c.End, null)); });
+        for (int i = 0; i < poolCfgs.Count; i++)
+        {
+            var r = poolRes[i]; var b = r.Sim.Batches; int n1 = b.Count(x => x.Passed >= 1), n2 = b.Count(x => x.Passed >= 2);
+            sb.AppendLine("| " + Name(new Cfg { Dir = r.C.Dir, Stop = r.C.Stop, Tries = r.C.Tries, Qty = r.C.Qty }) + " | " + r.C.Accounts + " | " + r.C.MinDays + " | " + b.Count + " | " + r.Bought + " | " + r.Passed + " | " + r.Blown + " | **" + P(r.PassRate) + "** | " + P(b.Count == 0 ? 0 : 100.0 * n1 / b.Count) + " % | " + P(b.Count == 0 ? 0 : 100.0 * n2 / b.Count) + " % | " + P(b.Count == 0 ? 0 : b.Average(x => (double)x.Days)) + " | " + D(r.CostPerPass) + " |");
+        }
+        sb.AppendLine();
+        // 14. THE 11-SECOND RULE (micro-scalping, funded): at least 50 % of the profit from trades held 11 s or more
+        sb.AppendLine("## 14. The 11-second hold rule (at least 50 % of the profit from trades held ≥ 11 s)"); sb.AppendLine();
+        sb.AppendLine("1-minute bars cannot see seconds: a trade that ends in a LATER minute than it entered was held at least 60 s (safe); one that hits its target or stop inside its first minute may have been held less than 11 s — counted here as NOT safe (worst case)."); sb.AppendLine();
+        sb.AppendLine("| rule | trades | ended in the entry minute (maybe < 11 s) | winners in the entry minute | profit from trades held ≥ 1 min | accounts that passed with < 50 % of their profit held ≥ 1 min |"); sb.AppendLine("|---|---|---|---|---|---|");
+        foreach (var r in new[] { best, bestBb }.Concat(poolRes.Where(x => x.C.Accounts == 10 && x.C.MinDays == 2)).Distinct())
+        {
+            var tr = r.Sim.Trades; Func<KeystoneSimTrade, bool> quick = t => (t.Exit - t.Entry).TotalMinutes <= 1.01;
+            int q = tr.Count(quick), qw = tr.Count(t => quick(t) && t.Pnl > 0); double prof = tr.Where(t => t.Pnl > 0).Sum(t => t.Pnl), profSafe = tr.Where(t => t.Pnl > 0 && !quick(t)).Sum(t => t.Pnl);
+            int badPass = r.Sim.Accounts.Count(a => a.PassedOn != DateTime.MinValue && tr.Where(t => t.Account == a.Id && t.Pnl > 0).Sum(t => quick(t) ? 0 : t.Pnl) < 0.5 * tr.Where(t => t.Account == a.Id && t.Pnl > 0).Sum(t => t.Pnl));
+            sb.AppendLine("| " + Name(r.C) + (r.C.Accounts != 50 ? " • " + r.C.Accounts + " accounts" : "") + " | " + tr.Count + " | " + q + " (" + P(tr.Count == 0 ? 0 : 100.0 * q / tr.Count) + " %) | " + qw + " | **" + P(prof <= 0 ? 0 : 100.0 * profSafe / prof) + " %** | " + badPass + " of " + r.Passed + " |");
+        }
+        sb.AppendLine();
         sb.AppendLine("## The indicators used (trained on 2025)"); sb.AppendLine(); foreach (var kv in indDesc.OrderBy(k => k.Key)) sb.AppendLine("- " + kv.Key.Replace("|", " each • stop $") + ": " + kv.Value); sb.AppendLine();
         File.WriteAllText(Path.Combine(outDir, "report.md"), sb.ToString());
         Console.WriteLine("BEST: " + Name(best.C) + " pass " + P(best.PassRate) + "% (" + best.Passed + " / " + (best.Passed + best.Blown) + ")");

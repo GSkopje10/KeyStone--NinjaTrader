@@ -553,6 +553,24 @@ public static class PropSimTests
         Check(KeystonePropSim.Weekdays(new DateTime(2026, 3, 6), new DateTime(2026, 3, 9)).Count == 2, "run days: weekdays only (Fri + Mon)");
         Check(KeystoneSimRules.Presets().All(x => x.Describe().Length > 40) && s7.Describe().Contains("RANDOM"), "rules and settings describe themselves");
 
+        // ---- the EVAL TEST batch-done choice: one passes, one blows → the next day waits for FUNDED STAGE or NEW BATCH
+        {
+            var sb = new KeystoneSimSettings { MaxTradesPerDay = 0, FundedWhen = "ASK", AskEachBatch = true, DayPlan = "NONE", BuyRule = "BATCH", Accounts = 2, Strategy = "MANUAL", RotateBy = "TRADE", MaxLossesPerDay = 0, MinRoomShare = 0 };
+            sb.Rules = KeystoneSimRules.Presets().First(x => x.Name.StartsWith("LUCID")).Copy();
+            var sq = new KeystonePropSim(sb); var b0 = new DateTime(2026, 4, 6);
+            for (int k = 0; k < 3; k++) { sq.BeginDay(b0.AddDays(k)); if (sq.Active != null && sq.Active.Name == "A01") Trade(sq, 30, 1200); if (k == 0 && sq.Active != null && sq.Active.Name == "A02") Trade(sq, 30, -2100); sq.EndDay(); }
+            sq.BeginDay(b0.AddDays(3));
+            Check(sq.BatchChoicePending && sq.Accounts.Count == 2 && sq.Accounts[0].Funded, "batch done (A01 passed, A02 blown) → the day waits for the choice, nothing bought", sq.BatchChoicePending + " " + sq.Accounts.Count + " " + sq.Accounts[0].Phase + " " + sq.Accounts[1].Phase);
+            sq.NewBatchNow();
+            Check(!sq.BatchChoicePending && sq.Accounts.Count(x => x.Alive && !x.Funded) == 2 && sq.Active != null, "🔄 NEW BATCH buys a fresh batch of evaluations", sq.Accounts.Count.ToString());
+            sq.EndDay(); sq.BeginDay(b0.AddDays(4));
+            Check(!sq.BatchChoicePending, "the choice is asked once per batch");
+            var sfx = new KeystonePropSim(new KeystoneSimSettings { MaxTradesPerDay = 0, FundedWhen = "ASK", AskEachBatch = true, DayPlan = "NONE", BuyRule = "BATCH", Accounts = 2, Strategy = "MANUAL", RotateBy = "TRADE", MaxLossesPerDay = 0, MinRoomShare = 0, Rules = sb.Rules.Copy() });
+            for (int k = 0; k < 3; k++) { sfx.BeginDay(b0.AddDays(k)); if (sfx.Active != null && sfx.Active.Name == "A01") Trade(sfx, 30, 1200); if (k == 0 && sfx.Active != null && sfx.Active.Name == "A02") Trade(sfx, 30, -2100); sfx.EndDay(); }
+            sfx.BeginDay(b0.AddDays(3)); sfx.StartFundedStage();
+            Check(sfx.FundedStarted && sfx.Active != null && sfx.Active.Funded && sfx.Accounts.Count == 2, "💜 FUNDED STAGE: the passed account trades its funded stage, nothing bought", sfx.Active == null ? "null" : sfx.Active.Name + " " + sfx.Active.Phase);
+        }
+
         Console.WriteLine(failures == 0 ? "PROP SIM TESTS: ALL PASSED" : "PROP SIM TESTS: " + failures + " FAILED");
         return failures == 0 ? 0 : 1;
     }

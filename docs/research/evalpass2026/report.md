@@ -368,12 +368,41 @@ EOD = the floor moves up only with the best CLOSING balance; INTRADAY = it follo
 
 (RANDOM = one coin seed here; the grid above averages 5)
 
+## 13. Small pools: 5 or 10 evaluations at a time, 2- or 3-day minimum
+
+The same days and rules; a new set of 5 / 10 is bought when every one of the last set has passed or failed. P(≥1) / P(≥2) = the share of sets with at least one / two passes.
+
+| rule | accounts | min days | sets | evals | passed | failed | pass % | sets with ≥ 1 pass | ≥ 2 passes | days a set lasts | cost / pass |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| BUY BOTH • stop $1000 • 1 trade/day • 10+10 | 5 | 2 | 39 | 200 | 36 | 163 | **18.1** | 56.4 % | 25.6 % | 4.8 | $667 |
+| BUY BOTH • stop $1000 • 1 trade/day • 10+10 | 5 | 3 | 39 | 200 | 29 | 171 | **14.5** | 53.8 % | 17.9 % | 4.8 | $828 |
+| BUY BOTH • stop $1000 • 1 trade/day • 10+10 | 10 | 2 | 36 | 370 | 90 | 279 | **24.4** | 100.0 % | 69.4 % | 5.2 | $493 |
+| BUY BOTH • stop $1000 • 1 trade/day • 10+10 | 10 | 3 | 34 | 350 | 64 | 286 | **18.3** | 88.2 % | 58.8 % | 5.4 | $656 |
+| BUY BOTH • stop $1000 • 1 trade/day • 10+10 | 50 | 2 | 24 | 1250 | 259 | 989 | **20.8** | 100.0 % | 100.0 % | 7.8 | $579 |
+| BUY BOTH • stop $1000 • 1 trade/day • 10+10 | 50 | 3 | 23 | 1200 | 210 | 990 | **17.5** | 100.0 % | 100.0 % | 8.0 | $686 |
+| BUY BOTH • stop $1000 • until +$1,500/day • 10+10 | 5 | 2 | 100 | 505 | 116 | 389 | **23.0** | 67.0 % | 32.0 % | 1.9 | $522 |
+| BUY BOTH • stop $1000 • until +$1,500/day • 10+10 | 5 | 3 | 56 | 285 | 63 | 222 | **22.1** | 60.7 % | 32.1 % | 2.7 | $543 |
+| BUY BOTH • stop $1000 • until +$1,500/day • 10+10 | 10 | 2 | 96 | 970 | 227 | 743 | **23.4** | 87.5 % | 70.8 % | 2.0 | $513 |
+| BUY BOTH • stop $1000 • until +$1,500/day • 10+10 | 10 | 3 | 50 | 510 | 109 | 397 | **21.5** | 86.0 % | 62.0 % | 2.9 | $561 |
+| BUY BOTH • stop $1000 • until +$1,500/day • 10+10 | 50 | 2 | 52 | 2650 | 526 | 2115 | **19.9** | 100.0 % | 100.0 % | 3.7 | $605 |
+| BUY BOTH • stop $1000 • until +$1,500/day • 10+10 | 50 | 3 | 42 | 2150 | 393 | 1709 | **18.7** | 100.0 % | 100.0 % | 4.4 | $656 |
+
+## 14. The 11-second hold rule (at least 50 % of the profit from trades held ≥ 11 s)
+
+1-minute bars cannot see seconds: a trade that ends in a LATER minute than it entered was held at least 60 s (safe); one that hits its target or stop inside its first minute may have been held less than 11 s — counted here as NOT safe (worst case).
+
+| rule | trades | ended in the entry minute (maybe < 11 s) | winners in the entry minute | profit from trades held ≥ 1 min | accounts that passed with < 50 % of their profit held ≥ 1 min |
+|---|---|---|---|---|---|
+| BUY BOTH • stop $1000 • 1 trade/day • 10+10 | 3646 | 236 (6.5 %) | 0 | **100.0 %** | 0 of 259 |
+| BUY BOTH • stop $1000 • 1 trade/day • 10+10 • 10 accounts | 1040 | 78 (7.5 %) | 0 | **100.0 %** | 0 of 90 |
+| BUY BOTH • stop $1000 • until +$1,500/day • 10+10 • 10 accounts | 2923 | 173 (5.9 %) | 0 | **100.0 %** | 0 of 227 |
+
 ## The indicators used (trained on 2025)
 
-- 10 each • stop $1000: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$1,000 • 11 rules • coin flip 32.0% • later-half check: 12088 trades 35.6% vs 31.6% (EDGE)
-- 10 each • stop $500: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$500 • 6 rules • coin flip 18.9% • later-half check: 8410 trades 21.5% vs 18.5% (EDGE)
-- 15 each • stop $1000: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 15 min + session • +$1,500 / −$1,000 • 11 rules • coin flip 31.7% • later-half check: 8396 trades 34.1% vs 31.3% (EDGE)
-- 15 each • stop $500: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$500 • 2 rules • coin flip 17.7% • later-half check: 4125 trades 18.9% vs 17.5% (EDGE)
-- 20 each • stop $1000: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$1,000 • 7 rules • coin flip 30.8% • later-half check: 9841 trades 32.5% vs 30.6% (EDGE)
-- 20 each • stop $500: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 15 min + session • +$1,500 / −$500 • 3 rules • coin flip 16.6% • later-half check: 4832 trades 17.5% vs 16.4% (EDGE)
+- 10 each • stop $1000: formed 2026-10-25 16:54 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$1,000 • 11 rules • coin flip 32.0% • later-half check: 12088 trades 35.6% vs 31.6% (EDGE)
+- 10 each • stop $500: formed 2026-10-25 16:54 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$500 • 6 rules • coin flip 18.9% • later-half check: 8410 trades 21.5% vs 18.5% (EDGE)
+- 15 each • stop $1000: formed 2026-10-25 16:54 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 15 min + session • +$1,500 / −$1,000 • 11 rules • coin flip 31.7% • later-half check: 8396 trades 34.1% vs 31.3% (EDGE)
+- 15 each • stop $500: formed 2026-10-25 16:54 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$500 • 2 rules • coin flip 17.7% • later-half check: 4125 trades 18.9% vs 17.5% (EDGE)
+- 20 each • stop $1000: formed 2026-10-25 16:54 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$1,000 • 7 rules • coin flip 30.8% • later-half check: 9841 trades 32.5% vs 30.6% (EDGE)
+- 20 each • stop $500: formed 2026-10-25 16:54 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 15 min + session • +$1,500 / −$500 • 3 rules • coin flip 16.6% • later-half check: 4832 trades 17.5% vs 16.4% (EDGE)
 
