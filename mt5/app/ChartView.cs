@@ -23,6 +23,41 @@ namespace KeystoneMT5
         public bool Bodies; public Color UpBody, DownBody, Edge;   // own body / edge colours (MT5 classic: black / white bodies with a lime edge)
         static Color C(string h) { return (Color)ColorConverter.ConvertFromString(h); }
         static ChartTheme T(string name, string group, string bg, string plot, string grid, string up, string down, string axis, string text, string accent, string price, bool light = false) { return new ChartTheme { Name = name, Group = group, Bg = C(bg), Plot = C(plot), Grid = C(grid), Up = C(up), Down = C(down), UpWick = C(up), DownWick = C(down), Axis = C(axis), Text = C(text), Accent = C(accent), Price = C(price), Light = light }; }
+        // the trading colours (entries, stops / targets, pending orders): the same on every theme unless the chart settings change them
+        public static readonly Color DefBuy = C("#2EE59D"), DefSell = C("#FF4D6D"), DefPend = C("#FFB020");
+        public Color Buy = DefBuy, Sell = DefSell, Pend = DefPend; public bool NoGrid; public double WickW = 1, BodyW = 0.7;
+        public ChartTheme Copy() { return (ChartTheme)MemberwiseClone(); }
+        // saved as text: name=value;… (colours #AARRGGBB, switches 0/1, widths)
+        public static readonly string[] ColorKeys = { "Bg", "Plot", "Grid", "UpBody", "DownBody", "UpWick", "DownWick", "Edge", "Axis", "Text", "Price", "Accent", "Buy", "Sell", "Pend" };
+        static readonly string[] BoolKeys = { "HollowUp", "Glow", "Light", "Dotted", "NoGrid" };
+        public Color Get(string k) { return (Color)typeof(ChartTheme).GetField(k).GetValue(this); }
+        public void Set(string k, Color c) { typeof(ChartTheme).GetField(k).SetValue(this, c); if (k == "UpBody") Up = c; if (k == "DownBody") Down = c; }
+        // every theme as editable bodies (a theme without its own bodies paints them in Up / Down, without an outline)
+        public ChartTheme Editable() { var t = Copy(); if (!t.Bodies) { t.Bodies = true; t.UpBody = t.Up; t.DownBody = t.Down; t.Edge = Colors.Transparent; } return t; }
+        public string ToText()
+        {
+            var l = new List<string> { "Name=" + (Name ?? "").Replace(";", ",").Replace("=", "-") };
+            foreach (var k in ColorKeys) l.Add(k + "=" + Get(k).ToString());
+            foreach (var k in BoolKeys) l.Add(k + "=" + ((bool)typeof(ChartTheme).GetField(k).GetValue(this) ? "1" : "0"));
+            l.Add("WickW=" + WickW.ToString(System.Globalization.CultureInfo.InvariantCulture)); l.Add("BodyW=" + BodyW.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return string.Join(";", l);
+        }
+        public static ChartTheme FromText(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return null; var t = All[0].Editable(); t.Group = "Mine";
+            foreach (var part in s.Split(';'))
+            {
+                int e = part.IndexOf('='); if (e <= 0) continue; string k = part.Substring(0, e), v = part.Substring(e + 1);
+                try
+                {
+                    if (k == "Name") t.Name = v; else if (ColorKeys.Contains(k)) t.Set(k, C(v)); else if (BoolKeys.Contains(k)) typeof(ChartTheme).GetField(k).SetValue(t, v == "1");
+                    else if (k == "WickW") t.WickW = Math.Max(1, Math.Min(4, double.Parse(v, System.Globalization.CultureInfo.InvariantCulture)));
+                    else if (k == "BodyW") t.BodyW = Math.Max(0.3, Math.Min(0.95, double.Parse(v, System.Globalization.CultureInfo.InvariantCulture)));
+                }
+                catch { }
+            }
+            return t;
+        }
         public static readonly ChartTheme[] All = {
             new ChartTheme { Name = "SpasiX Night", Bg = C("#080C14"), Plot = C("#0B101B"), Grid = C("#151E2E"), Up = C("#4DD8FF"), Down = C("#7A5CFF"), UpWick = C("#4DD8FF"), DownWick = C("#7A5CFF"), Axis = C("#8A94A8"), Text = C("#E8ECF4"), Accent = C("#FFC94D"), Price = C("#FFFFFF") },
             new ChartTheme { Name = "Neon Pulse", Bg = C("#07040F"), Plot = C("#0B0618"), Grid = C("#1C1233"), Up = C("#00F5D4"), Down = C("#F72585"), UpWick = C("#00F5D4"), DownWick = C("#F72585"), Axis = C("#9D8FC4"), Text = C("#F1EAFF"), Accent = C("#B5179E"), Price = C("#FFFFFF"), Glow = true },
@@ -45,11 +80,31 @@ namespace KeystoneMT5
             T("Sepia Paper", "Easy on the eyes", "#F3ECDD", "#F7F1E3", "#E2D8C3", "#4E7D5B", "#B5523B", "#6E6352", "#3A3226", "#A08B62", "#3A3226", true),
             T("Dracula", "Unique", "#22232E", "#282A36", "#343746", "#50FA7B", "#FF5555", "#9EA3C0", "#F8F8F2", "#BD93F9", "#F8F8F2"),
             T("Royal Velvet", "Unique", "#0E0A1A", "#130E22", "#211934", "#E8C77A", "#8E6BD8", "#A79CC4", "#F1EAFB", "#E8C77A", "#FFFFFF"),
-            T("Amber Terminal", "Unique", "#0B0904", "#0E0B05", "#231B0A", "#FFB000", "#7A5200", "#B38A33", "#FFD27A", "#FFB000", "#FFE3A3") };
+            T("Amber Terminal", "Unique", "#0B0904", "#0E0B05", "#231B0A", "#FFB000", "#7A5200", "#B38A33", "#FFD27A", "#FFB000", "#FFE3A3"),
+            // gray and lighter backgrounds (not just black)
+            T("Graphite", "Gray & light", "#2B2F36", "#30353D", "#3C424C", "#3DDC97", "#FF6B6B", "#A7B0BE", "#EEF1F5", "#7C8796", "#FFFFFF"),
+            T("Slate Blue", "Gray & light", "#2A3342", "#2F394A", "#3B4659", "#5EEAD4", "#FB7185", "#A9B6CB", "#E9EEF6", "#60A5FA", "#FFFFFF"),
+            T("Steel", "Gray & light", "#3A3F47", "#41474F", "#4D545E", "#9AE66E", "#FF7A59", "#C2C8D0", "#F4F6F8", "#FFC94D", "#FFFFFF"),
+            T("Fog", "Gray & light", "#5B616B", "#636A75", "#707884", "#B8F2A0", "#FFB4A8", "#E1E5EA", "#FFFFFF", "#FFE08A", "#FFFFFF"),
+            T("Cloud Gray", "Gray & light", "#C9CED6", "#D3D8DF", "#B9C0CA", "#0F8F6E", "#D6334A", "#3E4652", "#151A22", "#2D5BD7", "#151A22", true),
+            T("Silver Mist", "Gray & light", "#DDE1E7", "#E6E9EE", "#C9CFD8", "#1E7F5C", "#C2410C", "#4A5260", "#1A1F27", "#7C3AED", "#1A1F27", true),
+            T("Ivory", "Gray & light", "#F1EEE6", "#F8F6F0", "#E1DCCF", "#2F7D4F", "#B83A3A", "#5E584C", "#2A261F", "#B8860B", "#2A261F", true),
+            T("Snow (TradingView)", "Gray & light", "#FFFFFF", "#FFFFFF", "#EEF0F3", "#089981", "#F23645", "#5C6370", "#131722", "#2962FF", "#131722", true),
+            T("Mint Paper", "Gray & light", "#E8F3EE", "#F1F8F4", "#D3E6DC", "#0E8A5F", "#D1495B", "#4C6358", "#17261F", "#2A9D8F", "#17261F", true),
+            T("Lavender Sky", "Gray & light", "#ECEAF6", "#F4F2FB", "#DAD6EC", "#2E8B57", "#C0365A", "#585277", "#1E1A33", "#6D5BD0", "#1E1A33", true),
+            // cool contrasts
+            T("Navy & Gold", "Cool contrasts", "#0F1B33", "#13213D", "#1E2E50", "#FFC94D", "#5AA9FF", "#9DB0D3", "#EDF2FF", "#FFC94D", "#FFFFFF"),
+            T("Teal & Coral", "Cool contrasts", "#0D3B3E", "#104549", "#1A5559", "#FF8C69", "#F5F5F5", "#9FC9CB", "#F1FBFB", "#FF8C69", "#FFFFFF"),
+            T("Plum & Lime", "Cool contrasts", "#2A1638", "#311A42", "#432758", "#B6F36B", "#FF5DA2", "#C3A8D8", "#F6EEFF", "#B6F36B", "#FFFFFF"),
+            T("Espresso & Cream", "Cool contrasts", "#2B211C", "#322722", "#43352D", "#F2E3C6", "#D9734E", "#BFA997", "#F7EEE2", "#E0A458", "#FFFFFF"),
+            T("Ocean Glass", "Cool contrasts", "#12324A", "#163A55", "#22506F", "#7CF5D9", "#FFB86B", "#A8C7DB", "#EAF6FF", "#7CF5D9", "#FFFFFF"),
+            T("Charcoal & Orange", "Cool contrasts", "#262626", "#2C2C2C", "#3A3A3A", "#F5F5F5", "#FF7A1A", "#B0B0B0", "#FAFAFA", "#FF7A1A", "#FF7A1A"),
+            T("Sunset", "Cool contrasts", "#2E1A2B", "#361E33", "#4A2A45", "#FFD166", "#EF476F", "#C9A9C2", "#FFF1F6", "#06D6A0", "#FFFFFF") };
     }
     public sealed class Drawing
     {
-        public string Kind = "HLINE"; public DateTime T1, T2; public double P1, P2, P3; public string Color = "#FFC94D", Text = ""; public double Width = 1.6; public bool Dash;
+        public string Kind = "HLINE"; public DateTime T1, T2; public double P1, P2, P3; public string Color = "#FFC94D", Text = "", Fill = "";   // Fill (rectangle / FVG background): "" light, STRONG, NONE or #RRGGBB
+        public double Width = 1.6; public bool Dash;
         public Drawing Clone() { return (Drawing)MemberwiseClone(); }
     }
     public sealed class ChartHit { public Rect R; public string Kind, Key; public long Ticket; public Action Click; }
@@ -63,8 +118,12 @@ namespace KeystoneMT5
         static Pen P(Brush b, double w, params double[] dash) { var p = new Pen(b, w); if (dash.Length > 0) p.DashStyle = new DashStyle(dash, 0); p.Freeze(); return p; }
         static readonly Typeface Face = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), Bold = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal), Mono = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
         // the trading colours (the same on every theme, never a candle colour)
-        public static readonly Color BuyC = (Color)ColorConverter.ConvertFromString("#2EE59D"), SellC = (Color)ColorConverter.ConvertFromString("#FF4D6D"), PendC = (Color)ColorConverter.ConvertFromString("#FFB020");
-        static readonly SolidColorBrush BuyB = Br(BuyC), SellB = Br(SellC), PendB = Br(PendC), GoldB = Hex("#FFC94D"), CyanB = Hex("#4DD8FF"), VioletB = Hex("#A98BFF"), WhiteB = Hex("#FFFFFF");
+        Color BuyC { get { return Theme.Buy; } } Color SellC { get { return Theme.Sell; } } Color PendC { get { return Theme.Pend; } }
+        SolidColorBrush bB, sB, pB; Color bC, sC, pC;   // cached until the theme's colour changes
+        SolidColorBrush BuyB { get { if (bB == null || bC != BuyC) { bC = BuyC; bB = Br(bC); } return bB; } }
+        SolidColorBrush SellB { get { if (sB == null || sC != SellC) { sC = SellC; sB = Br(sC); } return sB; } }
+        SolidColorBrush PendB { get { if (pB == null || pC != PendC) { pC = PendC; pB = Br(pC); } return pB; } }
+        static readonly SolidColorBrush GoldB = Hex("#FFC94D"), CyanB = Hex("#4DD8FF"), VioletB = Hex("#A98BFF"), WhiteB = Hex("#FFFFFF");
         public static readonly Indicator[] Indicators = {
             new Indicator("EMA9", "EMA 9", "#FFE066", "fast average (9 candles)"), new Indicator("EMA21", "EMA 21", "#4DD8FF", "the 21-candle average"), new Indicator("EMA50", "EMA 50", "#A98BFF", "the 50-candle average"),
             new Indicator("EMA200", "EMA 200", "#FF8A3D", "the trend (200 candles)"), new Indicator("VWAP", "VWAP", "#E879F9", "the day's volume-weighted average price (from the server's midnight)"), new Indicator("BB", "Bollinger 20/2", "#90A4AE", "20-candle average ± 2 deviations"),
@@ -90,7 +149,7 @@ namespace KeystoneMT5
         public Func<DateTime, DateTime> ToView = t => t; public string ZoneName = "SERVER"; public DateTime ServerNow = DateTime.MinValue, QuoteTime = DateTime.MinValue;
         public int NyOffsetHours = -7; public int ServerOffsetSec = 10800;   // server time = UTC + this (MT5's, sent by the bridge)   // NY time = server time + this (IC Markets: server = New York + 7)
         public HashSet<string> Ind = new HashSet<string>(); public int FvgSide;   // FVG: 0 = all, 1 = bullish only, −1 = bearish only
-        public List<Drawing> Drawings = new List<Drawing>(); public string Tool = ""; public bool Magnet; public string DrawColor = "#FFC94D";
+        public List<Drawing> Drawings = new List<Drawing>(); public string Tool = ""; public bool Magnet; public string DrawColor = "#FFC94D", DrawFill = "";
         public string News = ""; public bool NewsHot, TradeOn, Sim; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO";   // AUTO / EACH / SIDE
         // ---- what the chart tells the host
         public Action<long, double> CloseTicket;              // ticket, lots (0 = all)
@@ -171,13 +230,13 @@ namespace KeystoneMT5
             if (Bid > 0 && Bid != lastBid) { if (lastBid > 0) pulseAt = DateTime.Now; lastBid = Bid; }
             // grid, price axis
             double step = Nice((hi - lo) / Math.Max(3, plotH / 70));
-            for (double p = Math.Ceiling(lo / step) * step; p <= hi; p += step) { double y = Y(p); dc.DrawLine(gridP, new Point(0, y), new Point(plotW, y)); var t = T(F(p), 11, axisB, true); dc.DrawText(t, new Point(plotW + 7, y - t.Height / 2)); }
+            for (double p = Math.Ceiling(lo / step) * step; p <= hi; p += step) { double y = Y(p); if (!th.NoGrid) dc.DrawLine(gridP, new Point(0, y), new Point(plotW, y)); var t = T(F(p), 11, axisB, true); dc.DrawText(t, new Point(plotW + 7, y - t.Height / 2)); }
             // time axis (in the chosen time zone)
             int every = Math.Max(1, (int)Math.Ceiling(95 / barW)); int tf = Series.Minutes;
             for (int i = i0; i <= i1; i++)
             {
                 if (i % every != 0) continue; double x = X(i); if (x < 0 || x > plotW) continue;
-                dc.DrawLine(gridP, new Point(x, TopPad), new Point(x, TopPad + plotH));
+                if (!th.NoGrid) dc.DrawLine(gridP, new Point(x, TopPad), new Point(x, TopPad + plotH));
                 var bt = ToView(bars[i].Time); bool newDay = i > 0 && ToView(bars[i - 1].Time).Date != bt.Date;
                 var t = T(tf >= 1440 ? bt.ToString("dd MMM", IC) : newDay || tf >= 240 ? bt.ToString("dd MMM HH:mm", IC) : bt.ToString("HH:mm", IC), 11, newDay ? textB : axisB); dc.DrawText(t, new Point(x - t.Width / 2, TopPad + plotH + 5));
             }
@@ -186,8 +245,8 @@ namespace KeystoneMT5
             if (Ind.Contains("VPROF")) DrawVolumeProfile(dc, bars, i0, i1);
             DrawIndicators(dc, bars, i0, i1);
             // candles
-            double bw = Math.Max(1, barW * 0.7); var upB = Br(th.Up); var dnB = Br(th.Down); var upW = P(Br(th.UpWick), 1); var dnW = P(Br(th.DownWick), 1); var upHollow = P(upB, 1.2);
-            var edgeP = th.Bodies ? P(Br(th.Edge), 1) : null; var upBody = th.Bodies ? Br(th.UpBody) : upB; var dnBody = th.Bodies ? Br(th.DownBody) : dnB;
+            double bw = Math.Max(1, barW * th.BodyW); var upB = Br(th.Up); var dnB = Br(th.Down); var upW = P(Br(th.UpWick), th.WickW); var dnW = P(Br(th.DownWick), th.WickW); var upHollow = P(upB, 1.2);
+            var edgeP = th.Bodies && th.Edge.A > 0 ? P(Br(th.Edge), 1) : null; var upBody = th.Bodies ? Br(th.UpBody) : upB; var dnBody = th.Bodies ? Br(th.DownBody) : dnB;
             for (int i = i0; i <= i1; i++)
             {
                 var b = bars[i]; double x = X(i); if (x < -barW || x > plotW + barW) continue; bool up = b.C >= b.O;
@@ -241,7 +300,7 @@ namespace KeystoneMT5
         static bool OneClick(string t) { return t == "HLINE" || t == "VLINE" || t == "HRAY" || t == "TEXT"; }
         public static string ToolName(string t)
         {
-            switch (t) { case "HLINE": return "HORIZONTAL LINE"; case "HRAY": return "HORIZONTAL RAY"; case "VLINE": return "VERTICAL LINE"; case "TREND": return "TREND LINE"; case "RAY": return "TREND RAY"; case "RECT": return "RECTANGLE"; case "FIB": return "FIBONACCI"; case "TEXT": return "TEXT"; case "LONG": return "LONG POSITION (risk / reward)"; case "SHORT": return "SHORT POSITION (risk / reward)"; case "MEASURE": return "MEASURE"; }
+            switch (t) { case "HLINE": return "HORIZONTAL LINE"; case "HRAY": return "HORIZONTAL RAY"; case "VLINE": return "VERTICAL LINE"; case "TREND": return "TREND LINE"; case "RAY": return "TREND RAY"; case "RECT": return "RECTANGLE"; case "FVG": return "FAIR-VALUE GAP"; case "FIB": return "FIBONACCI"; case "TEXT": return "TEXT"; case "LONG": return "LONG POSITION (risk / reward)"; case "SHORT": return "SHORT POSITION (risk / reward)"; case "MEASURE": return "MEASURE"; }
             return t;
         }
 
@@ -428,6 +487,19 @@ namespace KeystoneMT5
                 if (d == selected) foreach (var pt in Handles(d)) dc.DrawEllipse(Br(Theme.Plot), P(col, 2), pt, 5, 5);
             }
         }
+        Brush FillOf(Drawing d) { var f = d.Fill ?? ""; if (f == "NONE") return null; if (f == "STRONG") return Hex(d.Color, 80); if (f.StartsWith("#")) { try { return Hex(f, 70); } catch { } } return Hex(d.Color, 30); }
+        // the FVG tool: the clicked candle as the middle of a 3-candle gap (or its neighbours): bullish = the 3rd low above the 1st high, bearish = the 3rd high below the 1st low
+        Drawing FvgAt(int k)
+        {
+            var bars = Series.Bars;
+            foreach (int m in new[] { k, k - 1, k + 1 })
+            {
+                if (m < 1 || m + 1 >= bars.Count) continue; var a = bars[m - 1]; var c = bars[m + 1];
+                if (c.L > a.H) return new Drawing { Kind = "FVG", T1 = a.Time, T2 = c.Time, P1 = c.L, P2 = a.H, P3 = 1, Color = "#" + BuyC.ToString().Substring(3), Width = 1 };
+                if (c.H < a.L) return new Drawing { Kind = "FVG", T1 = a.Time, T2 = c.Time, P1 = a.L, P2 = c.H, P3 = -1, Color = "#" + SellC.ToString().Substring(3), Width = 1 };
+            }
+            return null;
+        }
         void DrawShape(DrawingContext dc, Drawing d, Pen pen, SolidColorBrush col, double x1, double y1, double x2, double y2)
         {
             switch (d.Kind)
@@ -442,7 +514,17 @@ namespace KeystoneMT5
                         double kx = Math.Abs(dx) > 1e-6 ? ((dx > 0 ? plotW + 50 : -50) - x1) / dx : 1e6, ky = Math.Abs(dy) > 1e-6 ? ((dy > 0 ? TopPad + plotH + 50 : TopPad - 50) - y1) / dy : 1e6; double k = Math.Max(1, Math.Min(kx, ky));
                         dc.DrawLine(pen, new Point(x1, y1), new Point(x1 + dx * k, y1 + dy * k)); break;
                     }
-                case "RECT": dc.DrawRectangle(col != null ? Hex(d.Color, 30) : null, pen, new Rect(Math.Min(x1, x2), Math.Min(y1, y2), Math.Abs(x2 - x1), Math.Abs(y2 - y1))); break;
+                case "RECT": dc.DrawRectangle(col != null ? FillOf(d) : null, pen, new Rect(Math.Min(x1, x2), Math.Min(y1, y2), Math.Abs(x2 - x1), Math.Abs(y2 - y1))); break;
+                case "FVG":
+                    {
+                        // from its first candle to the candle that fills it (traded through to the far side), else to the right edge; the 50 % line dashed
+                        double top = Math.Max(d.P1, d.P2), bot = Math.Min(d.P1, d.P2); bool bull = d.P3 > 0; int i1 = (int)Math.Round(IndexOf(d.T1)); var bars = Series != null ? Series.Bars : null; double xe = plotW; bool filled = false;
+                        if (bars != null) for (int i = Math.Max(0, i1 + 3); i < bars.Count; i++) if (bull ? bars[i].L <= bot : bars[i].H >= top) { xe = X(i); filled = true; break; }
+                        double yt = Y(top), yb = Y(bot), xl = x1; var r = new Rect(Math.Min(xl, xe), yt, Math.Max(1, Math.Abs(xe - xl)), Math.Max(1, yb - yt));
+                        dc.DrawRectangle(col != null ? FillOf(d) : null, pen, r);
+                        if (col != null) { double ym = Y((top + bot) / 2); dc.DrawLine(P(Hex(d.Color, 150), 1, 4, 3), new Point(r.Left, ym), new Point(r.Right, ym)); var t = T((bull ? "FVG ▲ " : "FVG ▼ ") + Math.Abs((top - bot) / Point).ToString("N0", IC) + " pts" + (filled ? " • filled" : ""), 10, col, true); if (r.Width > t.Width + 8) dc.DrawText(t, new Point(r.Left + 4, yt - t.Height - 1)); }
+                        break;
+                    }
                 case "FIB":
                     {
                         double left = Math.Min(x1, x2);
@@ -534,7 +616,7 @@ namespace KeystoneMT5
         }
         string HandleAt(Drawing d, Point m)
         {
-            if (d.Kind == "HLINE" || d.Kind == "VLINE" || d.Kind == "HRAY" || d.Kind == "TEXT") return null;
+            if (d.Kind == "HLINE" || d.Kind == "VLINE" || d.Kind == "HRAY" || d.Kind == "TEXT" || d.Kind == "FVG") return null;
             var hs = Handles(d); string[] names = d.Kind == "LONG" || d.Kind == "SHORT" ? new[] { "P1", "P2", "P3", "W" } : d.Kind == "RECT" || d.Kind == "FIB" || d.Kind == "MEASURE" ? new[] { "P1", "P2", "X1Y2", "X2Y1", "Y1", "Y2", "X1", "X2" } : new[] { "P1", "P2", "BODY" };
             for (int h = 0; h < hs.Count; h++) if ((hs[h] - m).Length <= 8) return names[Math.Min(h, names.Length - 1)];
             return null;
@@ -555,6 +637,7 @@ namespace KeystoneMT5
                         bool edge = Math.Abs(m.X - l) <= 5 || Math.Abs(m.X - r) <= 5 || Math.Abs(m.Y - t) <= 5 || Math.Abs(m.Y - b) <= 5; return area ? !edge : edge;
                     }
                 case "FIB": return area && m.X >= l - 4 && m.Y >= t - 4 && m.Y <= b + 4;
+                case "FVG": return area && m.X >= l - 4 && m.Y >= t - 4 && m.Y <= b + 4;
                 case "TEXT": { if (area) return false; var tx = T(d.Text == "" ? "text" : d.Text, 12.5 + d.Width, GoldB, false, true); return m.X >= x1 - 4 && m.X <= x1 + tx.Width + 4 && Math.Abs(m.Y - y1) <= tx.Height / 2 + 3; }
                 case "LONG": case "SHORT": { if (!area) return false; double xr = Math.Max(x2, x1 + 30), yt = Y(d.P3); return m.X >= x1 && m.X <= xr && m.Y >= Math.Min(Math.Min(y1, y2), yt) && m.Y <= Math.Max(Math.Max(y1, y2), yt); }
                 case "TREND": case "RAY":
@@ -730,7 +813,12 @@ namespace KeystoneMT5
             if (Tool != "" && p.X < plotW && p.Y < TopPad + plotH)
             {
                 var t = TimeAt(IndexAt(p.X)); double pr = Snap(p, PriceAt(p.Y));
-                newDraw = new Drawing { Kind = Tool, T1 = t, T2 = t, P1 = pr, P2 = pr, P3 = pr, Color = Tool == "LONG" || Tool == "SHORT" ? "#E8ECF4" : DrawColor, Width = 1.6 };
+                newDraw = new Drawing { Kind = Tool, T1 = t, T2 = t, P1 = pr, P2 = pr, P3 = pr, Color = Tool == "LONG" || Tool == "SHORT" ? "#E8ECF4" : DrawColor, Width = 1.6, Fill = Tool == "RECT" ? DrawFill : "" };
+                if (Tool == "FVG")
+                {
+                    var fv = FvgAt((int)Math.Round(IndexAt(p.X))); if (fv == null) { if (Toast != null) Toast("▤ no fair-value gap at this candle — click the middle candle of a 3-candle gap"); e.Handled = true; return; }
+                    Drawings.Add(fv); selected = fv; newDraw = null; Tool = ""; if (ToolDone != null) ToolDone(); if (DrawingsChanged != null) DrawingsChanged(); InvalidateVisual(); e.Handled = true; return;
+                }
                 if (OneClick(Tool))
                 {
                     if (Tool == "TEXT") { var s = AskText != null ? AskText("") : "text"; if (string.IsNullOrEmpty(s)) { newDraw = null; Tool = ""; if (ToolDone != null) ToolDone(); InvalidateVisual(); e.Handled = true; return; } newDraw.Text = s; newDraw.Width = 1; }

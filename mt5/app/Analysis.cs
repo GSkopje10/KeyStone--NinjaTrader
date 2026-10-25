@@ -32,7 +32,7 @@ namespace KeystoneMT5
             anIndBtn = Sx.Drop("📈 INDICATORS", Card, () => AnIndMenu()); anIndBtn.Height = 30; anIndBtn.Margin = new Thickness(8, 0, 6, 0); bar.Children.Add(anIndBtn);
             var back = Pill("📈 TRADE ON THE CHART ›", Tint(Green, 60)); back.Height = 30; back.Foreground = Green; back.ToolTip = "orders go from the 📈 CHART tab (same symbol)"; back.Click += delegate { Show("CHART"); }; bar.Children.Add(back);
             bar.Children.Add(new TextBlock { Text = "analysis only — nothing is sent from this tab • the symbol follows the chart's symbol tabs", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
-            anView = new ChartView { Sim = Sim, Theme = ChartTheme.All[Math.Max(0, Math.Min(ChartTheme.All.Length - 1, themeIdx))] };
+            anView = new ChartView { Sim = Sim, Theme = CurTheme() };
             anView.IndOff = key => { AnSet(key, false); };
             var host = new Border { Child = anView, CornerRadius = new CornerRadius(12), BorderBrush = Tint(Gold, 90), BorderThickness = new Thickness(1), ClipToBounds = true, Margin = new Thickness(0, 0, 8, 0) };
             Grid.SetRow(host, 1); g.Children.Add(host);
@@ -83,7 +83,7 @@ namespace KeystoneMT5
             var v = anView; v.Series = se.Loaded ? se : null; v.Status = se.Loaded ? "" : Sim ? BtIdleText() : "loading " + sym + " " + Tf.Name(anTf) + " from MT5 …"; v.Symbol = sym;
             v.Digits = ms != null ? ms.Digits : 2; v.Point = ms != null && ms.Point > 0 ? ms.Point : 0.01; v.TickValue = ms != null && ms.TickValue > 0 ? ms.TickValue : 1; v.TickSize = ms != null && ms.TickSize > 0 ? ms.TickSize : v.Point;
             v.Bid = q != null ? q.Bid : 0; v.Ask = q != null ? q.Ask : 0; v.QuoteTime = q != null ? q.Time : DateTime.MinValue; v.Positions = s.Positions; v.Orders = s.Orders; v.Currency = s.Account.Currency; v.Gate = s.Gate;
-            v.ToView = conv; v.ZoneName = zn; v.ServerNow = Sim ? s.ServerNow : q != null && q.Time > s.ServerNow ? q.Time : s.ServerNow; v.NyOffsetHours = NyOffset(s); v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = false; v.Theme = ChartTheme.All[Math.Max(0, Math.Min(ChartTheme.All.Length - 1, themeIdx))];
+            v.ToView = conv; v.ZoneName = zn; v.ServerNow = Sim ? s.ServerNow : q != null && q.Time > s.ServerNow ? q.Time : s.ServerNow; v.NyOffsetHours = NyOffset(s); v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = false; v.Theme = CurTheme();
             v.InvalidateVisual();
             anHead.Text = "📊 ANALYSIS • " + sym + " • " + Tf.Name(anTf) + (q != null ? "   " + q.Bid.ToString("F" + v.Digits, IC) : "");
             if ((now - anAt).TotalSeconds < 1 || !se.Loaded) return; anAt = now;

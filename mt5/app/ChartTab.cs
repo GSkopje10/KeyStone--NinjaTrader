@@ -40,8 +40,8 @@ namespace KeystoneMT5
         {
             var g = new Grid(); g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            zoneIdx = Math.Max(0, Math.Min(Zones.Length - 1, IntOf(Get("zone", "1"), 1))); themeIdx = Math.Max(0, Math.Min(ChartTheme.All.Length - 1, IntOf(Get("theme", "0"), 0)));
-            drawColor = Get("drawcolor", "#FFC94D"); magnet = Get("magnet", "0") == "1"; ticketMode = Get("tickets", "AUTO"); oneClickOn = Get("oneclick", "0") == "1";
+            zoneIdx = Math.Max(0, Math.Min(Zones.Length - 1, IntOf(Get("zone", "1"), 1))); LoadMyThemes(); themeIdx = Math.Max(0, Math.Min(ChartTheme.All.Length + myThemes.Count - 1, IntOf(Get("theme", "0"), 0)));
+            drawColor = Get("drawcolor", "#FFC94D"); drawFill = Get("drawfill", ""); magnet = Get("magnet", "0") == "1"; ticketMode = Get("tickets", "AUTO"); oneClickOn = Get("oneclick", "0") == "1";
             // ---- toolbar: symbols (cyan) • timeframes (gold) • split • indicators • theme • zone • reset / full / panel
             var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) }; Grid.SetRow(bar, 0); Grid.SetColumnSpan(bar, 3); g.Children.Add(bar);
             symChips = new WrapPanel { VerticalAlignment = VerticalAlignment.Center }; bar.Children.Add(symChips);
@@ -57,7 +57,7 @@ namespace KeystoneMT5
             foreach (var sp in new[] { Tuple.Create(1, "▣ 1"), Tuple.Create(2, "◫ 2"), Tuple.Create(4, "⊞ 4") }) { int n = sp.Item1; var b = Pill(sp.Item2, Card); b.Padding = new Thickness(9, 0, 9, 0); b.ToolTip = n == 1 ? "one chart" : n + " charts side by side (each its own symbol / timeframe — click one to select it)"; b.Click += delegate { SetSplit(n); }; bar.Children.Add(b); splitBtns.Add(Tuple.Create(n, b)); }
             bar.Children.Add(Sep());
             indBtn = Sx.Drop("📈 INDICATORS", Card, () => IndMenu(Act.V)); indBtn.ToolTip = "tick the indicators (each has its colour)"; bar.Children.Add(indBtn);
-            themeBtn = Sx.Drop("🎨 " + ChartTheme.All[themeIdx].Name, Card, ThemeMenu); bar.Children.Add(themeBtn);
+            themeBtn = Sx.Drop("🎨 " + CurTheme().Name, Card, ThemeMenu); bar.Children.Add(themeBtn);
             zoneBtn = Sx.Drop("🕘 " + Zones[zoneIdx].Item1, Card, ZoneMenu); zoneBtn.ToolTip = "the time on the chart (MT5 keeps its server time inside)"; bar.Children.Add(zoneBtn);
             bar.Children.Add(Sep());
             var spb = Pill("📶 SPREADS", Card); spb.ToolTip = "every instrument's spread, live (F10)"; spb.Click += delegate { ToggleSpreads(); }; bar.Children.Add(spb);
@@ -96,7 +96,7 @@ namespace KeystoneMT5
             Grid.SetRow(toastBox, 2); Grid.SetColumn(toastBox, 1); g.Children.Add(toastBox);
             spreadPanel = BuildSpreadPanel(); Grid.SetRow(spreadPanel, 2); Grid.SetColumn(spreadPanel, 1); g.Children.Add(spreadPanel); if (Get("spreads", "0") != "1") spreadPanel.Visibility = Visibility.Collapsed;
             if (Get("v6.cleanind", "") == "") { foreach (var t in ChartView.Indicators) foreach (var pf in new[] { "", "bt.", "demo." }) Put(pf + "ind." + t.Key, "0"); Put("v6.cleanind", "1"); }   // once: the old default indicators off
-            foreach (var p in panes) { p.V.Theme = ChartTheme.All[themeIdx]; p.V.DrawColor = drawColor; p.V.Magnet = magnet; p.V.TicketMode = ticketMode; p.V.Sim = Sim; LoadInd(p); }
+            foreach (var p in panes) { p.V.Theme = CurTheme(); p.V.DrawColor = drawColor; p.V.DrawFill = drawFill; p.V.Magnet = magnet; p.V.TicketMode = ticketMode; p.V.Sim = Sim; LoadInd(p); }
             SetSplit(Sim ? 1 : IntOf(Get(pre + "split", "1"), 1));   // the backtest opens on ONE chart (the symbols = tabs); ⊞ splits PaintBar(); PaintRail();
             return g;
         }
@@ -184,9 +184,123 @@ namespace KeystoneMT5
             l.Add(Mi.S()); l.Add(new Mi("⊘", "Turn every indicator of " + Act.Sym + " off", () => { foreach (var t in ChartView.Indicators) SetInd(Act.Sym, t.Key, false); PaintBar(); }));
             return l;
         }
-        List<Mi> ThemeMenu() { var l = new List<Mi> { Mi.H("chart theme") }; for (int i = 0; i < ChartTheme.All.Length; i++) { int ii = i; var th = ChartTheme.All[i]; l.Add(new Mi { Text = th.Name, Check = themeIdx == i, Radio = true, Do = () => SetTheme(ii) }); } return l; }
+        // ---- the chart's look: the templates by group, my own saved charts, ⚙ the chart settings (every colour, like MT5's F8)
+        readonly List<ChartTheme> myThemes = new List<ChartTheme>();
+        void LoadMyThemes() { myThemes.Clear(); foreach (var t in Get("mythemes", "").Split('|')) { var th = ChartTheme.FromText(t); if (th != null) myThemes.Add(th); } }
+        void SaveMyThemes() { Put("mythemes", string.Join("|", myThemes.Select(x => x.ToText()))); }
+        ChartTheme ThemeAt(int i) { return i >= 0 && i < ChartTheme.All.Length ? ChartTheme.All[i] : i - ChartTheme.All.Length >= 0 && i - ChartTheme.All.Length < myThemes.Count ? myThemes[i - ChartTheme.All.Length] : ChartTheme.All[0]; }
+        ChartTheme CurTheme() { return ThemeAt(themeIdx); }
+        List<Mi> ThemeMenu()
+        {
+            var l = new List<Mi> { new Mi("⚙", "Chart settings … (colours, candles, grid, entries)", () => ChartSettings()), Mi.S() };
+            if (myThemes.Count > 0) { var ml = new List<Mi> { Mi.H("saved from the chart settings") }; for (int k = 0; k < myThemes.Count; k++) { int ii = ChartTheme.All.Length + k; ml.Add(new Mi { Text = myThemes[k].Name, Dot = new SolidColorBrush(myThemes[k].Plot), Check = themeIdx == ii, Radio = true, Do = () => SetTheme(ii) }); } l.Add(Mi.Group("★", "My charts", ml)); }
+            foreach (var grp in ChartTheme.All.Select(x => x.Group).Distinct())
+            {
+                var gl = new List<Mi> { Mi.H(grp) }; bool cur = false;
+                for (int i = 0; i < ChartTheme.All.Length; i++) { if (ChartTheme.All[i].Group != grp) continue; int ii = i; var th = ChartTheme.All[i]; if (themeIdx == i) cur = true; gl.Add(new Mi { Text = th.Name, Dot = new SolidColorBrush(th.Plot), Check = themeIdx == i, Radio = true, Do = () => SetTheme(ii) }); }
+                l.Add(Mi.Group(grp == "Gray & light" ? "◐" : grp == "Cool contrasts" ? "◑" : grp == "MetaTrader" ? "Ⓜ" : grp == "Easy on the eyes" ? "☾" : grp == "Unique" ? "✦" : "S", grp + (cur ? "  ✓" : ""), gl));
+            }
+            return l;
+        }
+        // a few candles + a buy / sell / pending line in a theme's colours (the template cards and the settings' preview)
+        static void MiniChart(Canvas cv, ChartTheme th, int n, double step, double bw, double scale)
+        {
+            cv.Children.Clear(); var up = th.Bodies ? th.UpBody : th.Up; var dn = th.Bodies ? th.DownBody : th.Down; bool edge = th.Bodies && th.Edge.A > 0;
+            if (scale > 1 && !th.NoGrid) for (int g = 1; g < 4; g++) { var gl = new Border { Width = n * step + 20, Height = 1, Background = new SolidColorBrush(th.Grid), Opacity = 0.9 }; Canvas.SetLeft(gl, 0); Canvas.SetTop(gl, g * 22 * scale / 1.6); cv.Children.Add(gl); }
+            for (int k = 0; k < n; k++)
+            {
+                bool u = k % 3 != 1; double top = 10 + (k * 7 % 13), h = 14 + (k * 5 % 9); double x = 12 + k * step;
+                if (scale > 1) { u = Math.Cos(k * 0.42) > -0.15 ? k % 4 != 2 : k % 4 == 1; h = 10 + (k * 7 % 17); top = 54 - 30 * Math.Sin(k * 0.42) - h / 2; }
+                var w0 = new Border { Width = Math.Max(1, th.WickW) * (scale > 1 ? 1.2 : 1), Height = h + 10 * scale, Background = new SolidColorBrush(u ? th.UpWick : th.DownWick) }; Canvas.SetLeft(w0, x + bw / 2 - 0.6); Canvas.SetTop(w0, top - 5 * scale); cv.Children.Add(w0);
+                bool hollow = u && th.HollowUp; var r0 = new Border { Width = bw * th.BodyW / 0.7, Height = h, Background = new SolidColorBrush(hollow ? th.Plot : u ? up : dn), BorderBrush = hollow ? new SolidColorBrush(th.Up) : edge ? new SolidColorBrush(th.Edge) : null, BorderThickness = new Thickness(hollow || edge ? 1 : 0) };
+                Canvas.SetLeft(r0, x + bw / 2 - r0.Width / 2); Canvas.SetTop(r0, top); cv.Children.Add(r0);
+            }
+            if (scale <= 1) return;
+            Action<Color, double, string> line = (c, y, t) => { var l0 = new Border { Width = n * step + 10, Height = 1.6, Background = new SolidColorBrush(c) }; Canvas.SetLeft(l0, 4); Canvas.SetTop(l0, y); cv.Children.Add(l0); var tb = new TextBlock { Text = t, FontSize = 10, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(c) }; Canvas.SetLeft(tb, n * step + 18); Canvas.SetTop(tb, y - 7); cv.Children.Add(tb); };
+            line(th.Buy, 22, "BUY 0.10"); line(th.Price, 48, "BID"); line(th.Pend, 74, "BUY LIMIT"); line(th.Sell, 96, "S/L");
+            var ax = new TextBlock { Text = "4003.35   12:35", FontSize = 10, Foreground = new SolidColorBrush(th.Axis) }; Canvas.SetLeft(ax, 12); Canvas.SetTop(ax, 104); cv.Children.Add(ax);
+        }
+        void ChartSettings()
+        {
+            var before = CurTheme(); var t = before.Editable(); int beforeIdx = themeIdx;
+            var root = new StackPanel { MinWidth = 640 };
+            var pv = new Canvas { Height = 122, ClipToBounds = true }; var pvBox = new Border { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1.6), Padding = new Thickness(0, 4, 0, 0), Margin = new Thickness(0, 0, 0, 10), Child = pv }; root.Children.Add(pvBox);
+            Action paintPv = () => { pvBox.Background = new SolidColorBrush(t.Plot); pvBox.BorderBrush = new SolidColorBrush(t.Bg.A > 0 && t.Bg != t.Plot ? t.Bg : t.Accent); MiniChart(pv, t, 22, 22, 12, 1.6); };
+            Action live = () => { foreach (var p in panes) { p.V.Theme = t; p.V.InvalidateVisual(); } paintPv(); };
+            paintPv();
+            var tabsRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; root.Children.Add(tabsRow);
+            var body = new Grid(); root.Children.Add(body);
+            var pages = new List<Tuple<Button, FrameworkElement>>(); int curPage = 0;
+            Action<int> showPage = k => { for (int q = 0; q < pages.Count; q++) { pages[q].Item2.Visibility = q == k ? Visibility.Visible : Visibility.Collapsed; pages[q].Item1.Background = q == k ? Tint(Gold, 70) : Card; } };
+            Func<string, StackPanel> page = name => { var sp = new StackPanel(); var b = Pill(name, Card); int k = pages.Count; b.Click += delegate { curPage = k; showPage(k); }; tabsRow.Children.Add(b); pages.Add(Tuple.Create(b, (FrameworkElement)sp)); body.Children.Add(sp); return sp; };
+            var palette = new[] { "#000000", "#0B0F15", "#131722", "#1E222D", "#2A2E39", "#363A45", "#4A4E59", "#5D606B", "#787B86", "#9598A1", "#B2B5BE", "#D1D4DC", "#E0E3EB", "#F0F3FA", "#FFFFFF",
+                "#F23645", "#FF4D6D", "#FF7A59", "#FF9800", "#FFB020", "#FFC94D", "#FFEB3B", "#CDDC39", "#8BC34A", "#00FF00", "#2EE59D", "#089981", "#26A69A", "#00BCD4", "#4DD8FF",
+                "#2962FF", "#3F51B5", "#673AB7", "#7A5CFF", "#A98BFF", "#9C27B0", "#E879F9", "#E91E63", "#795548", "#5C4033", "#0F1B33", "#0D3B3E", "#2A1638", "#2B211C", "#F1EEE6" };
+            Func<StackPanel, string, string, FrameworkElement> colorRow = (host, label, key) =>
+            {
+                var row = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
+                var line = new DockPanel(); row.Children.Add(line);
+                var sw = new Border { Width = 34, Height = 22, CornerRadius = new CornerRadius(5), BorderBrush = Line, BorderThickness = new Thickness(1), Background = new SolidColorBrush(t.Get(key)), Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 8, 0) };
+                var hex = Sx.Input(t.Get(key).A == 0 ? "none" : t.Get(key).A == 255 ? "#" + t.Get(key).ToString().Substring(3) : t.Get(key).ToString(), 104); hex.Height = 24; hex.FontSize = 12;
+                var lb = Sx.Label(label, 12.5, Text); DockPanel.SetDock(hex, Dock.Right); DockPanel.SetDock(sw, Dock.Right); line.Children.Add(hex); line.Children.Add(sw); line.Children.Add(lb);
+                var pal = new WrapPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 2), MaxWidth = 600 }; row.Children.Add(pal);
+                Action<Color> apply = c => { t.Set(key, c); sw.Background = new SolidColorBrush(c); live(); };
+                foreach (var h in palette) { var hh = h; var b0 = new Border { Width = 22, Height = 18, Margin = new Thickness(0, 0, 3, 3), CornerRadius = new CornerRadius(3), Background = Sx.B(h), BorderBrush = Line, BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = h }; b0.MouseLeftButtonUp += delegate { apply(Sx.C(hh)); hex.Text = hh; }; pal.Children.Add(b0); }
+                if (key == "Edge") { var none = new Border { Height = 18, Padding = new Thickness(6, 0, 6, 0), Margin = new Thickness(0, 0, 3, 3), CornerRadius = new CornerRadius(3), Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand, Child = Sx.Label("no outline", 10.5, Muted) }; none.MouseLeftButtonUp += delegate { apply(Colors.Transparent); hex.Text = "none"; }; pal.Children.Add(none); }
+                sw.MouseLeftButtonUp += delegate { pal.Visibility = pal.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; };
+                hex.TextChanged += delegate { try { var x = hex.Text.Trim(); if (x.Length == 7 || x.Length == 9) apply(Sx.C(x.StartsWith("#") ? x : "#" + x)); } catch { } };
+                host.Children.Add(row); return row;
+            };
+            Func<StackPanel, string, Func<bool>, Action<bool>, CheckBox> tick = (host, label, get, set) => { var c = new CheckBox { Content = label, IsChecked = get(), Foreground = Text, FontSize = 12.5, Margin = new Thickness(0, 2, 0, 6) }; c.Click += delegate { set(c.IsChecked == true); live(); }; host.Children.Add(c); return c; };
+            Func<StackPanel, string, double, double, Func<double>, Action<double>, Slider> slide = (host, label, min, max, get, set) =>
+            {
+                var d = new DockPanel { Margin = new Thickness(0, 2, 0, 6) }; var sl = new Slider { Minimum = min, Maximum = max, Value = get(), Width = 240, VerticalAlignment = VerticalAlignment.Center }; DockPanel.SetDock(sl, Dock.Right); d.Children.Add(sl); d.Children.Add(Sx.Label(label, 12.5, Text));
+                sl.ValueChanged += delegate { set(sl.Value); live(); }; host.Children.Add(d); return sl;
+            };
+            Action build = null;
+            build = () =>
+            {
+            tabsRow.Children.Clear(); body.Children.Clear(); pages.Clear();
+            // 5 start from a template
+            var ps = page("🎨 TEMPLATES");
+            ps.Children.Add(Sx.Label("pick a template, then change any colour in the other tabs", 12, Muted));
+            var tw = new WrapPanel { Margin = new Thickness(0, 8, 0, 0), MaxWidth = 640 }; var twScroll = new ScrollViewer { Content = tw, MaxHeight = 330, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; ps.Children.Add(twScroll);
+            foreach (var th0 in ChartTheme.All.Concat(myThemes))
+            {
+                var th1 = th0; var card = new Border { Width = 118, Height = 58, Margin = new Thickness(0, 0, 6, 6), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(th1.Plot), BorderBrush = new SolidColorBrush(th1.Grid), BorderThickness = new Thickness(1.4), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = th1.Group + " • " + th1.Name };
+                var cv = new Canvas(); card.Child = cv; MiniChart(cv, th1, 6, 15, 8, 1);
+                var nm = new TextBlock { Text = th1.Name, FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(th1.Text), Margin = new Thickness(6, 0, 0, 3), VerticalAlignment = VerticalAlignment.Bottom }; Canvas.SetLeft(nm, 4); Canvas.SetTop(nm, 40); cv.Children.Add(nm);
+                card.MouseLeftButtonUp += delegate { var e = th1.Editable(); foreach (var f in typeof(ChartTheme).GetFields()) if (!f.IsStatic && !f.IsLiteral) f.SetValue(t, f.GetValue(e)); live(); Toast("🎨 " + th1.Name + " — now change any colour"); curPage = 1; build(); };
+                tw.Children.Add(card);
+            }
+            // 1 the candles
+            var pc = page("🕯 CANDLES");
+            colorRow(pc, "Bull candle (body)", "UpBody"); colorRow(pc, "Bear candle (body)", "DownBody"); colorRow(pc, "Bull wick", "UpWick"); colorRow(pc, "Bear wick", "DownWick"); colorRow(pc, "Candle outline (\"no outline\" in the colours)", "Edge");
+            tick(pc, "Hollow bull candles (outline only)", () => t.HollowUp, v => t.HollowUp = v); tick(pc, "Glow around the candles", () => t.Glow, v => t.Glow = v);
+            slide(pc, "Candle width", 0.3, 0.95, () => t.BodyW, v => t.BodyW = v); slide(pc, "Wick thickness", 1, 4, () => t.WickW, v => t.WickW = Math.Round(v * 2) / 2);
+            // 2 the background
+            var pb = page("🖼 BACKGROUND");
+            colorRow(pb, "Window around the chart", "Bg"); colorRow(pb, "Chart area", "Plot"); colorRow(pb, "Chart frame", "Accent"); colorRow(pb, "Grid", "Grid");
+            tick(pb, "Show the grid", () => !t.NoGrid, v => t.NoGrid = !v); tick(pb, "Dotted grid (like MT5)", () => t.Dotted, v => t.Dotted = v); tick(pb, "Light background (dark labels on the tickets)", () => t.Light, v => t.Light = v);
+            // 3 the text + the price
+            var px = page("🔤 TEXT & PRICE");
+            colorRow(px, "Price / time scale", "Axis"); colorRow(px, "Text", "Text"); colorRow(px, "Bid / ask lines + the price tag", "Price");
+            // 4 the trades
+            var pt = page("🎯 ENTRIES & ORDERS");
+            colorRow(pt, "Buy entries, targets in profit, ▲", "Buy"); colorRow(pt, "Sell entries, stops, ▼", "Sell"); colorRow(pt, "Pending orders (limit / stop)", "Pend");
+            showPage(curPage);
+            };
+            build();
+            var nameBox = Sx.Input(before.Group == "Mine" ? before.Name : "My chart " + (myThemes.Count + 1), 220); nameBox.FontSize = 12.5;
+            var nameRow = new DockPanel { Margin = new Thickness(0, 10, 0, 0) }; DockPanel.SetDock(nameBox, Dock.Right); nameRow.Children.Add(nameBox); nameRow.Children.Add(Sx.Label("save as (★ My charts in the 🎨 menu)", 12.5, Muted)); root.Children.Add(nameRow);
+            bool ok = Sx.Form(this, "⚙ Chart settings", "every colour of the chart, like MT5 (F8) • the chart changes as you pick • SAVE keeps it in ★ My charts", root, "SAVE", "CANCEL", Gold);
+            if (!ok) { themeIdx = beforeIdx; foreach (var p in panes) { p.V.Theme = before; p.V.InvalidateVisual(); } return; }
+            t.Group = "Mine"; t.Name = string.IsNullOrWhiteSpace(nameBox.Text) ? "My chart" : nameBox.Text.Trim().Replace("|", "/").Replace(";", ",");
+            int at = myThemes.FindIndex(x => string.Equals(x.Name, t.Name, StringComparison.OrdinalIgnoreCase)); if (at >= 0) myThemes[at] = t; else { myThemes.Add(t); at = myThemes.Count - 1; }
+            SaveMyThemes(); SetTheme(ChartTheme.All.Length + at); Toast("🎨 saved: " + t.Name);
+        }
         List<Mi> ZoneMenu() { var l = new List<Mi> { Mi.H("the time on the chart") }; for (int i = 0; i < Zones.Length; i++) { int ii = i; l.Add(new Mi { Text = Zones[i].Item1, Check = zoneIdx == i, Radio = true, Do = () => SetZone(ii) }); } return l; }
-        void SetTheme(int i) { themeIdx = i; Put("theme", i.ToString(IC)); foreach (var p in panes) p.V.Theme = ChartTheme.All[i]; themeBtn.Content = "🎨 " + ChartTheme.All[i].Name + "  ▾"; }
+        void SetTheme(int i) { themeIdx = i; Put("theme", i.ToString(IC)); foreach (var p in panes) { p.V.Theme = CurTheme(); p.V.InvalidateVisual(); } themeBtn.Content = "🎨 " + CurTheme().Name + "  ▾"; }
         void SetZone(int i) { zoneIdx = i; Put("zone", i.ToString(IC)); zoneBtn.Content = "🕘 " + Zones[i].Item1 + "  ▾"; newsSig = ""; }
 
         // ---- the drawing rail
@@ -194,7 +308,7 @@ namespace KeystoneMT5
         {
             var sp = new StackPanel { Margin = new Thickness(0, 2, 6, 2) };
             foreach (var t in new[] { Tuple.Create("", "↖", "cursor (Esc)"), Tuple.Create("HLINE", "—", "horizontal line"), Tuple.Create("HRAY", "→", "horizontal ray"), Tuple.Create("VLINE", "│", "vertical line"), Tuple.Create("TREND", "╱", "trend line"), Tuple.Create("RAY", "↗", "trend ray (extends)"),
-                Tuple.Create("RECT", "▭", "rectangle / zone"), Tuple.Create("FIB", "≋", "Fibonacci retracement (drag from the start of the move to its end)"), Tuple.Create("TEXT", "T", "text note"), Tuple.Create("LONG", "▲", "long position: risk / reward with your lots"), Tuple.Create("SHORT", "▼", "short position: risk / reward with your lots"), Tuple.Create("MEASURE", "📏", "measure: price, %, points, candles, time, $") })
+                Tuple.Create("RECT", "▭", "rectangle / zone"), Tuple.Create("FVG", "▤", "fair-value gap: click a candle — the 3-candle gap around it is drawn as a zone until it is filled"), Tuple.Create("FIB", "≋", "Fibonacci retracement (drag from the start of the move to its end)"), Tuple.Create("TEXT", "T", "text note"), Tuple.Create("LONG", "▲", "long position: risk / reward with your lots"), Tuple.Create("SHORT", "▼", "short position: risk / reward with your lots"), Tuple.Create("MEASURE", "📏", "measure: price, %, points, candles, time, $") })
             {
                 var key = t.Item1; var b = RailBtn(t.Item2, t.Item3); b.Foreground = key == "LONG" ? Green : key == "SHORT" ? Red : Text;
                 b.Click += delegate { Act.V.Tool = Act.V.Tool == key ? "" : key; if (key == "") Act.V.Deselect(); Act.V.Focus(); PaintRail(); Act.V.InvalidateVisual(); };
@@ -202,7 +316,7 @@ namespace KeystoneMT5
             }
             sp.Children.Add(new Border { Height = 1, Background = Line, Margin = new Thickness(4, 4, 4, 4) });
             magnetBtn = RailBtn("🧲", "magnet: points snap to the open / high / low / close"); magnetBtn.Click += delegate { magnet = !magnet; Put("magnet", magnet ? "1" : "0"); foreach (var p in panes) p.V.Magnet = magnet; PaintRail(); }; sp.Children.Add(magnetBtn);
-            colorBtn = RailBtn("●", "the colour of new drawings"); colorBtn.Click += delegate { SxMenu.Show(colorBtn, new Point(colorBtn.ActualWidth + 4, 0), ColorMenu(drawColor, c => { drawColor = c; Put("drawcolor", c); foreach (var p in panes) p.V.DrawColor = c; PaintRail(); })); }; sp.Children.Add(colorBtn);
+            colorBtn = RailBtn("●", "the colour of new drawings"); colorBtn.Click += delegate { SxMenu.Show(colorBtn, new Point(colorBtn.ActualWidth + 4, 0), ColorMenu(drawColor, c => SetDrawColor(c))); }; sp.Children.Add(colorBtn);
             var del = RailBtn("🗑", "remove every drawing on this symbol"); del.Click += delegate { var v = Act.V; if (v.Drawings.Count == 0) { Toast("no drawings on " + Act.Sym); return; } if (Sx.Ask(this, "Remove the drawings", "Remove all " + v.Drawings.Count + " drawings on " + Act.Sym + "?", "REMOVE", "KEEP", Red)) { v.Drawings.Clear(); SaveDrawings(); v.InvalidateVisual(); } }; sp.Children.Add(del);
             return new Border { Background = Panel, CornerRadius = new CornerRadius(10), BorderBrush = Line, BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 6, 2), Padding = new Thickness(3), Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp } };
         }
@@ -214,6 +328,11 @@ namespace KeystoneMT5
             if (magnetBtn != null) { magnetBtn.Background = magnet ? Tint(Cyan, 70) : (Brush)Brushes.Transparent; magnetBtn.BorderBrush = magnet ? Cyan : (Brush)Brushes.Transparent; }
             if (colorBtn != null) colorBtn.Foreground = Sx.B(drawColor);
         }
+        // the colour of new drawings: the rail's ●, the Draw menu or a colour picked on any drawing — it stays as chosen (saved)
+        void SetDrawColor(string c) { drawColor = c; Put("drawcolor", c); foreach (var q in panes) q.V.DrawColor = c; PaintRail(); }
+        // a rectangle's / FVG's background: "" light, STRONG, NONE or a colour — the next rectangles get it too
+        void SetFill(ChartView v, Drawing dr, string f) { dr.Fill = f; if (dr.Kind == "RECT") { drawFill = f; Put("drawfill", f); foreach (var q in panes) q.V.DrawFill = f; } SaveDrawings(); v.InvalidateVisual(); }
+        string drawFill = "";
         List<Mi> ColorMenu(string cur, Action<string> pick)
         {
             var names = new[] { "gold", "cyan", "violet", "mint", "red", "orange", "pink", "white" }; var l = new List<Mi> { Mi.H("colour") };
@@ -370,7 +489,18 @@ namespace KeystoneMT5
             if (kind == "DRAW" && dr != null)
             {
                 l.Add(Mi.H(ChartView.ToolName(dr.Kind).ToLowerInvariant()));
-                l.Add(Mi.Group("🎨", "Colour", ColorMenu(dr.Color, c => { dr.Color = c; SaveDrawings(); v.InvalidateVisual(); })));
+                l.Add(Mi.Group("🎨", "Colour", ColorMenu(dr.Color, c => { dr.Color = c; if (dr.Kind != "FVG") SetDrawColor(c); SaveDrawings(); v.InvalidateVisual(); })));
+                if (dr.Kind == "RECT" || dr.Kind == "FVG")
+                {
+                    var fl = new List<Mi> { Mi.H("the zone's background") }; string curF = dr.Fill ?? "";
+                    fl.Add(new Mi { Text = "light (the line's colour)", Check = curF == "", Radio = true, Do = () => SetFill(v, dr, "") });
+                    fl.Add(new Mi { Text = "strong (the line's colour)", Check = curF == "STRONG", Radio = true, Do = () => SetFill(v, dr, "STRONG") });
+                    fl.Add(new Mi { Text = "no background", Check = curF == "NONE", Radio = true, Do = () => SetFill(v, dr, "NONE") });
+                    fl.Add(Mi.S()); var names = new[] { "gold", "cyan", "violet", "mint", "red", "orange", "pink", "white" };
+                    for (int i = 0; i < DrawColors.Length; i++) { var c = DrawColors[i]; fl.Add(new Mi { Text = names[i], Dot = Sx.B(c), Check = string.Equals(curF, c, StringComparison.OrdinalIgnoreCase), Radio = true, Do = () => SetFill(v, dr, c) }); }
+                    fl.Add(new Mi("✏", "Own colour (#RRGGBB) …", () => { var s = Sx.Prompt(this, "🎨 Background", "a colour like #3A6EA5:", curF.StartsWith("#") ? curF : "#3A6EA5"); if (s == null) return; s = s.Trim(); if (!s.StartsWith("#")) s = "#" + s; try { Sx.C(s); SetFill(v, dr, s.ToUpperInvariant()); } catch { Toast("🎨 not a colour: " + s); } }));
+                    l.Add(Mi.Group("▧", "Background", fl));
+                }
                 var wl = new List<Mi>(); foreach (var w in new[] { 1.0, 1.6, 2.4, 3.4 }) { double ww = w; wl.Add(new Mi { Text = w == 1 ? "thin" : w == 1.6 ? "normal" : w == 2.4 ? "bold" : "extra bold", Check = Math.Abs(dr.Width - w) < 0.01, Radio = true, Do = () => { dr.Width = ww; SaveDrawings(); v.InvalidateVisual(); } }); }
                 if (dr.Kind != "TEXT") l.Add(Mi.Group("━", "Width", wl)); else l.Add(Mi.Group("A", "Size", wl));
                 if (dr.Kind != "TEXT" && dr.Kind != "LONG" && dr.Kind != "SHORT") l.Add(new Mi { Text = "Dashed", Check = dr.Dash, Do = () => { dr.Dash = !dr.Dash; SaveDrawings(); v.InvalidateVisual(); } });
@@ -428,12 +558,12 @@ namespace KeystoneMT5
             var tfl = new List<Mi>(); foreach (var m in Tf.All) { int mm = m; tfl.Add(new Mi { Text = Tf.Name(m), Check = m == p.Tf, Radio = true, Do = () => SetPane(p, p.Sym, mm) }); } l.Add(Mi.Group("⏱", "Timeframe", tfl));
             var drl = new List<Mi> { Mi.H("drawing tools") }; foreach (var t in toolBtns.Where(x => x.Item1 != "")) { var key = t.Item1; drl.Add(new Mi(t.Item2.Content as string, ChartView.ToolName(key).Substring(0, 1) + ChartView.ToolName(key).Substring(1).ToLowerInvariant(), () => { v.Tool = key; v.Focus(); PaintRail(); v.InvalidateVisual(); })); }
             drl.Add(Mi.S()); drl.Add(new Mi { Text = "Magnet (snap to the candles)", Check = magnet, Do = () => { magnet = !magnet; Put("magnet", magnet ? "1" : "0"); foreach (var q in panes) q.V.Magnet = magnet; PaintRail(); } });
-            drl.Add(Mi.Group("●", "Colour of new drawings", ColorMenu(drawColor, c => { drawColor = c; Put("drawcolor", c); foreach (var q in panes) q.V.DrawColor = c; PaintRail(); })));
+            drl.Add(Mi.Group("●", "Colour of new drawings", ColorMenu(drawColor, c => SetDrawColor(c))));
             drl.Add(new Mi { Icon = "🗑", Text = "Remove all drawings on " + p.Sym, Danger = true, Do = () => { if (v.Drawings.Count > 0 && Sx.Ask(this, "Remove the drawings", "Remove every drawing on " + p.Sym + "?", "REMOVE", "KEEP", Red)) { v.Drawings.Clear(); SaveDrawings(); v.InvalidateVisual(); } } });
             l.Add(Mi.Group("✏", "Draw", drl));
             l.Add(Mi.Group("📈", "Indicators", IndMenu(v)));
             if (v.Ind.Count > 0) l.Add(Mi.Group("✕", "Remove an indicator", ChartView.Indicators.Where(x => v.Ind.Contains(x.Key)).Select(x => { var kk = x.Key; return new Mi { Text = x.Name, Dot = Sx.B(x.Color), Do = () => IndOff(kk) }; }).ToList()));
-            l.Add(Mi.Group("🎨", "Chart theme", ThemeMenu())); l.Add(Mi.Group("🕘", "Time zone", ZoneMenu()));
+            l.Add(new Mi("⚙", "Chart settings … (colours, candles, entries)", () => ChartSettings())); l.Add(Mi.Group("🎨", "Chart theme", ThemeMenu())); l.Add(Mi.Group("🕘", "Time zone", ZoneMenu()));
             l.Add(TicketsMenu());
             var spl = new List<Mi>(); foreach (var n in new[] { 1, 2, 4 }) { int nn = n; spl.Add(new Mi { Text = n + (n == 1 ? " chart" : " charts"), Check = split == n, Radio = true, Do = () => SetSplit(nn) }); } l.Add(Mi.Group("⊞", "Split screen", spl));
             l.Add(Mi.S());
@@ -484,7 +614,7 @@ namespace KeystoneMT5
                     var a = ln.Split('|'); if (a.Length < 7) continue; long t1, t2; double p1, p2;
                     if (!long.TryParse(a[2], out t1) || !long.TryParse(a[4], out t2) || !double.TryParse(a[3], NumberStyles.Float, IC, out p1) || !double.TryParse(a[5], NumberStyles.Float, IC, out p2)) continue;
                     var d = new Drawing { Kind = a[1], T1 = new DateTime(t1), P1 = p1, T2 = new DateTime(t2), P2 = p2, Color = a[6] };
-                    double w, p3; if (a.Length > 7 && double.TryParse(a[7], NumberStyles.Float, IC, out w)) d.Width = w; if (a.Length > 8) d.Dash = a[8] == "1"; if (a.Length > 9 && double.TryParse(a[9], NumberStyles.Float, IC, out p3)) d.P3 = p3; if (a.Length > 10) d.Text = a[10].Replace("¦", "|");
+                    double w, p3; if (a.Length > 7 && double.TryParse(a[7], NumberStyles.Float, IC, out w)) d.Width = w; if (a.Length > 8) d.Dash = a[8] == "1"; if (a.Length > 9 && double.TryParse(a[9], NumberStyles.Float, IC, out p3)) d.P3 = p3; if (a.Length > 10) d.Text = a[10].Replace("¦", "|"); if (a.Length > 11) d.Fill = a[11];
                     DrawingsOf(a[0]).Add(d);
                 }
             }
@@ -492,7 +622,7 @@ namespace KeystoneMT5
         }
         void SaveDrawings()
         {
-            try { Directory.CreateDirectory(Dir); File.WriteAllLines(DrawFileNow, drawingsBySym.SelectMany(kv => kv.Value.Select(d => kv.Key + "|" + d.Kind + "|" + d.T1.Ticks + "|" + d.P1.ToString("R", IC) + "|" + d.T2.Ticks + "|" + d.P2.ToString("R", IC) + "|" + d.Color + "|" + d.Width.ToString("R", IC) + "|" + (d.Dash ? "1" : "0") + "|" + d.P3.ToString("R", IC) + "|" + (d.Text ?? "").Replace("|", "¦")))); } catch { }
+            try { Directory.CreateDirectory(Dir); File.WriteAllLines(DrawFileNow, drawingsBySym.SelectMany(kv => kv.Value.Select(d => kv.Key + "|" + d.Kind + "|" + d.T1.Ticks + "|" + d.P1.ToString("R", IC) + "|" + d.T2.Ticks + "|" + d.P2.ToString("R", IC) + "|" + d.Color + "|" + d.Width.ToString("R", IC) + "|" + (d.Dash ? "1" : "0") + "|" + d.P3.ToString("R", IC) + "|" + (d.Text ?? "").Replace("|", "¦") + "|" + (d.Fill ?? "")))); } catch { }
         }
 
         // ---------------------------------------------------------------- + an instrument
