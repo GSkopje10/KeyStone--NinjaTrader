@@ -519,7 +519,7 @@ public static class PropSimTests
             "TRAILING STOP: peak +$635 lifts the −$500 stop to +$135 (stays there when price pulls back) → out at +$130 = TRAIL STOP", trs.Floor.ToString());
         var plain = new KeystoneSimRotation(3); plain.Start(t0, 1, null, 790, 500, 40); plain.Check(t0.AddSeconds(30), 635, 0, 0, null);
         Check(plain.Check(t0.AddSeconds(50), 130, 0, 0, null) == "" && Eq(plain.Floor, -500), "TRAILING STOP OFF: the stop stays at −$500");
-        Check(new KeystoneSimSettings().TrailStop, "TRAILING STOP is on by default in the prop simulation");
+        Check(!new KeystoneSimSettings().TrailStop, "TRAILING STOP is optional: off by default in the prop simulation");
         var rr = new KeystoneSimRotation(1); int buys = 0; for (int i = 0; i < 400; i++) if (rr.PickDir("RANDOM", 0, 0) > 0) buys++;
         Check(buys > 160 && buys < 240, "RANDOM: about half buy-buy, half sell-sell", buys.ToString());
         Check(rr.PickDir("FOLLOW5", 5, 1) == 1 && rr.PickDir("FOLLOW5", 5, -1) == 0 && rr.PickDir("FADE5", -5, -1) == 1, "FOLLOW5 / FADE5 need both instruments to agree");
