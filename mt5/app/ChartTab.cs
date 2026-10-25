@@ -41,6 +41,8 @@ namespace KeystoneMT5
             var g = new Grid(); g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             zoneIdx = Math.Max(0, Math.Min(Zones.Length - 1, IntOf(Get("zone", "1"), 1))); LoadMyThemes(); themeIdx = Math.Max(0, Math.Min(ChartTheme.All.Length + myThemes.Count - 1, IntOf(Get("theme", "0"), 0)));
+            { var tn = Get("themename", ""); if (tn != "") { int ix = ThemeIndexOf(tn); if (ix >= 0) themeIdx = ix; } }   // saved by name (new themes shift the numbers)
+            showGrid = Get("grid", "0") == "1"; lookUi = Get("lookui", "1") == "1"; Sx.ApplyLook(lookUi ? CurTheme() : ChartTheme.All[0]);
             drawColor = Get("drawcolor", "#FFC94D"); drawFill = Get("drawfill", ""); magnet = Get("magnet", "0") == "1"; ticketMode = Get("tickets", "AUTO"); oneClickOn = Get("oneclick", "0") == "1";
             // ---- toolbar: symbols (cyan) • timeframes (gold) • split • indicators • theme • zone • reset / full / panel
             var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) }; Grid.SetRow(bar, 0); Grid.SetColumnSpan(bar, 3); g.Children.Add(bar);
@@ -104,7 +106,7 @@ namespace KeystoneMT5
             Grid.SetRow(toastBox, 2); Grid.SetColumn(toastBox, 1); g.Children.Add(toastBox);
             spreadPanel = BuildSpreadPanel(); Grid.SetRow(spreadPanel, 2); Grid.SetColumn(spreadPanel, 1); g.Children.Add(spreadPanel); if (Get("spreads", "0") != "1") spreadPanel.Visibility = Visibility.Collapsed;
             if (Get("v6.cleanind", "") == "") { foreach (var t in ChartView.Indicators) foreach (var pf in new[] { "", "bt.", "demo." }) Put(pf + "ind." + t.Key, "0"); Put("v6.cleanind", "1"); }   // once: the old default indicators off
-            foreach (var p in panes) { p.V.Theme = CurTheme(); p.V.DrawColor = drawColor; p.V.DrawFill = drawFill; p.V.Magnet = magnet; p.V.TicketMode = ticketMode; p.V.Sim = Sim; LoadInd(p); }
+            foreach (var p in panes) { p.V.Theme = CurTheme(); p.V.ShowGrid = showGrid; p.V.DrawColor = drawColor; p.V.DrawFill = drawFill; p.V.Magnet = magnet; p.V.TicketMode = ticketMode; p.V.Sim = Sim; LoadInd(p); }
             SetSplit(Sim ? 1 : IntOf(Get(pre + "split", "1"), 1));   // the backtest opens on ONE chart (the symbols = tabs); ⊞ splits PaintBar(); PaintRail();
             return g;
         }
@@ -157,6 +159,7 @@ namespace KeystoneMT5
             var w = SymList("watch"); w.RemoveAll(x => string.Equals(x, sym, StringComparison.OrdinalIgnoreCase)); Put("watch", string.Join(",", w));
             symDragSig = "hide:" + string.Join(",", h); symSig = ""; Toast("✕ " + sym + " removed from the list • + adds it back");
         }
+        DateTime prefetchAt = DateTime.MinValue;
         Border spreadStrip; StackPanel spreadCells; string spreadStripSig = ""; List<string> listSyms = new List<string>();
         void FillSpreadStrip(Mt5State s)
         {
@@ -236,13 +239,14 @@ namespace KeystoneMT5
         ChartTheme CurTheme() { return ThemeAt(themeIdx); }
         List<Mi> ThemeMenu()
         {
-            var l = new List<Mi> { new Mi("⚙", "Chart settings … (colours, candles, grid, entries)", () => ChartSettings()), Mi.S() };
-            if (myThemes.Count > 0) { var ml = new List<Mi> { Mi.H("saved from the chart settings") }; for (int k = 0; k < myThemes.Count; k++) { int ii = ChartTheme.All.Length + k; ml.Add(new Mi { Text = myThemes[k].Name, Dot = new SolidColorBrush(myThemes[k].Plot), Check = themeIdx == ii, Radio = true, Do = () => SetTheme(ii) }); } l.Add(Mi.Group("★", "My charts", ml)); }
+            var l = new List<Mi> { new Mi("✨", "Looks … (preview the whole platform in every theme)", () => LooksGallery()), new Mi("⚙", "Chart settings … (colours, candles, grid, entries)", () => ChartSettings()),
+                new Mi { Text = "Grid squares in the background", Check = showGrid, KeepOpen = true, Do = () => SetGrid(!showGrid) }, new Mi { Text = "The whole interface follows the theme", Check = lookUi, KeepOpen = true, Do = () => SetLookUi(!lookUi) }, Mi.S() };
+            if (myThemes.Count > 0) { var ml = new List<Mi> { Mi.H("saved from the chart settings") }; for (int k = 0; k < myThemes.Count; k++) { int ii = ChartTheme.All.Length + k; ml.Add(new Mi { Text = myThemes[k].Name, Dot = new SolidColorBrush(myThemes[k].Plot), Check = themeIdx == ii, Radio = true, KeepOpen = true, Do = () => SetTheme(ii) }); } l.Add(Mi.Group("★", "My charts", ml)); }
             foreach (var grp in ChartTheme.All.Select(x => x.Group).Distinct())
             {
                 var gl = new List<Mi> { Mi.H(grp) }; bool cur = false;
-                for (int i = 0; i < ChartTheme.All.Length; i++) { if (ChartTheme.All[i].Group != grp) continue; int ii = i; var th = ChartTheme.All[i]; if (themeIdx == i) cur = true; gl.Add(new Mi { Text = th.Name, Dot = new SolidColorBrush(th.Plot), Check = themeIdx == i, Radio = true, Do = () => SetTheme(ii) }); }
-                l.Add(Mi.Group(grp == "Gray & light" ? "◐" : grp == "Cool contrasts" ? "◑" : grp == "MetaTrader" ? "Ⓜ" : grp == "Easy on the eyes" ? "☾" : grp == "Unique" ? "✦" : "S", grp + (cur ? "  ✓" : ""), gl));
+                for (int i = 0; i < ChartTheme.All.Length; i++) { if (ChartTheme.All[i].Group != grp) continue; int ii = i; var th = ChartTheme.All[i]; if (themeIdx == i) cur = true; gl.Add(new Mi { Text = th.Name, Dot = new SolidColorBrush(th.Plot), Check = themeIdx == i, Radio = true, KeepOpen = true, Do = () => SetTheme(ii) }); }
+                l.Add(Mi.Group(grp == "★ Signature" ? "★" : grp == "Gray & light" ? "◐" : grp == "Cool contrasts" ? "◑" : grp == "MetaTrader" ? "Ⓜ" : grp == "Easy on the eyes" ? "☾" : grp == "Unique" ? "✦" : "S", grp + (cur ? "  ✓" : ""), gl));
             }
             return l;
         }
@@ -325,7 +329,7 @@ namespace KeystoneMT5
             // 2 the background
             var pb = page("🖼 BACKGROUND");
             colorRow(pb, "Window around the chart", "Bg"); colorRow(pb, "Chart area", "Plot"); colorRow(pb, "Chart frame", "Accent"); colorRow(pb, "Grid", "Grid");
-            tick(pb, "Show the grid", () => !t.NoGrid, v => t.NoGrid = !v); tick(pb, "Dotted grid (like MT5)", () => t.Dotted, v => t.Dotted = v); tick(pb, "Light background (dark labels on the tickets)", () => t.Light, v => t.Light = v);
+            tick(pb, "Show the grid (squares in the background)", () => showGrid, v => SetGrid(v)); tick(pb, "Dotted grid (like MT5)", () => t.Dotted, v => t.Dotted = v); tick(pb, "Light background (dark labels on the tickets)", () => t.Light, v => t.Light = v);
             // 3 the text + the price
             var px = page("🔤 TEXT & PRICE");
             colorRow(px, "Price / time scale", "Axis"); colorRow(px, "Text", "Text"); colorRow(px, "Bid / ask lines + the price tag", "Price");
@@ -344,7 +348,74 @@ namespace KeystoneMT5
             SaveMyThemes(); SetTheme(ChartTheme.All.Length + at); Toast("🎨 saved: " + t.Name);
         }
         List<Mi> ZoneMenu() { var l = new List<Mi> { Mi.H("the time on the chart") }; for (int i = 0; i < Zones.Length; i++) { int ii = i; l.Add(new Mi { Text = Zones[i].Item1, Check = zoneIdx == i, Radio = true, Do = () => SetZone(ii) }); } return l; }
-        void SetTheme(int i) { themeIdx = i; Put("theme", i.ToString(IC)); foreach (var p in panes) { p.V.Theme = CurTheme(); p.V.InvalidateVisual(); } themeBtn.Content = "🎨 " + CurTheme().Name + "  ▾"; }
+        void SetTheme(int i) { SetTheme(i, true); }
+        void SetTheme(int i, bool save)
+        {
+            themeIdx = i; if (save) { Put("theme", i.ToString(IC)); Put("themename", CurTheme().Name); }
+            foreach (var p in panes) { p.V.Theme = CurTheme(); p.V.InvalidateVisual(); } themeBtn.Content = "🎨 " + CurTheme().Name + "  ▾";
+            Sx.ApplyLook(lookUi ? CurTheme() : ChartTheme.All[0]); symSig = ""; spreadStripSig = ""; PaintBar();   // the whole interface follows (chips repaint with the new colours)
+        }
+        bool showGrid, lookUi = true;
+        int ThemeIndexOf(string name) { for (int k = 0; k < ChartTheme.All.Length; k++) if (ChartTheme.All[k].Name == name) return k; int m = myThemes.FindIndex(x => x.Name == name); return m >= 0 ? ChartTheme.All.Length + m : -1; }
+        void SetGrid(bool on) { showGrid = on; Put("grid", on ? "1" : "0"); foreach (var p in panes) { p.V.ShowGrid = on; p.V.InvalidateVisual(); } }
+        void SetLookUi(bool on) { lookUi = on; Put("lookui", on ? "1" : "0"); SetTheme(themeIdx, false); }
+        // ✨ THE LOOKS GALLERY: every theme as a small picture of the whole platform; point at one = the whole app takes it at once, click = choose, SAVE keeps it
+        static string LookGroup(ChartTheme t) { double l = Sx.Luma(t.Bg); return t.Group == "★ Signature" ? "★ SIGNATURE" : t.Light || l > 0.55 ? "LIGHTER" : l > 0.11 ? "BALANCED" : "DARKER"; }
+        void LooksGallery()
+        {
+            int before = themeIdx, chosen = themeIdx; string filter = "ALL";
+            var root = new StackPanel { MinWidth = 1000 };
+            var top = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; root.Children.Add(top);
+            var filters = new[] { "ALL", "★ SIGNATURE", "LIGHTER", "BALANCED", "DARKER", "MetaTrader", "Mine" }; var fbtns = new List<Button>();
+            var note = new TextBlock { Foreground = Muted, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap, Text = "point at a look: the whole platform takes it at once • click one to choose it • SAVE keeps it, CANCEL goes back" }; root.Children.Add(note);
+            var wrap = new WrapPanel(); var sv = new ScrollViewer { Content = wrap, MaxHeight = 560, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; root.Children.Add(sv);
+            var opts = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) }; root.Children.Add(opts);
+            var gridChk = new CheckBox { Content = "Grid squares in the background", IsChecked = showGrid, Foreground = Text, Margin = new Thickness(0, 0, 18, 0) }; gridChk.Click += delegate { SetGrid(gridChk.IsChecked == true); }; opts.Children.Add(gridChk);
+            var uiChk = new CheckBox { Content = "The whole interface follows the look (not only the chart)", IsChecked = lookUi, Foreground = Text }; uiChk.Click += delegate { SetLookUi(uiChk.IsChecked == true); }; opts.Children.Add(uiChk);
+            Action build = null;
+            build = () =>
+            {
+                wrap.Children.Clear(); for (int q = 0; q < fbtns.Count; q++) { fbtns[q].Background = filters[q] == filter ? (Brush)Tint(Gold, 90) : Card; }
+                var all = ChartTheme.All.Select((t, k) => Tuple.Create(t, k)).Concat(myThemes.Select((t, k) => Tuple.Create(t, ChartTheme.All.Length + k))).ToList();
+                foreach (var it in all)
+                {
+                    var th = it.Item1; int ix = it.Item2; string g = it.Item2 >= ChartTheme.All.Length ? "Mine" : th.Group == "MetaTrader" ? "MetaTrader" : LookGroup(th);
+                    if (filter != "ALL" && filter != g && !(filter == "★ SIGNATURE" && th.Group == "★ Signature") && !(filter == LookGroup(th) && g != "Mine")) continue;
+                    var card = LookCard(th, ix == chosen); int ii = ix;
+                    card.MouseEnter += delegate { SetTheme(ii, false); }; card.MouseLeave += delegate { if (themeIdx != chosen) SetTheme(chosen, false); };
+                    card.MouseLeftButtonUp += delegate { chosen = ii; SetTheme(ii, false); build(); };
+                    wrap.Children.Add(card);
+                }
+            };
+            for (int q = 0; q < filters.Length; q++) { var f0 = filters[q]; var b = Pill(f0 == "ALL" ? "ALL LOOKS" : f0, Card); b.Click += delegate { filter = f0; build(); }; top.Children.Add(b); fbtns.Add(b); }
+            build();
+            bool ok = Sx.Form(this, "✨ Looks", "the whole platform in every theme • lighter, balanced, darker, signature", root, "SAVE", "CANCEL", Gold);
+            SetTheme(ok ? chosen : before, ok); if (ok) Toast("🎨 " + CurTheme().Name);
+        }
+        // a small picture of the platform in a theme: the header (P/L + equity), the instruments, the chart, the BUY / SELL panel
+        Border LookCard(ChartTheme t, bool on)
+        {
+            Func<Color, SolidColorBrush> B0 = c => new SolidColorBrush(c); bool light = t.Light || Sx.Luma(t.Bg) > 0.55;
+            Color panel = light ? t.Bg : Color.FromRgb((byte)(t.Bg.R * 0.88), (byte)(t.Bg.G * 0.88), (byte)(t.Bg.B * 0.88)), card = t.Plot, line = t.Grid, txt = t.Text;
+            Color grn = light ? Sx.C("#0F8A5F") : Sx.C("#2EE59D"), red = light ? Sx.C("#D23048") : Sx.C("#FF4D6D"), cyan = light ? Sx.C("#0A78A8") : Sx.C("#4DD8FF");
+            var g = new Grid { Width = 232, Height = 150 }; var cv = new Canvas(); g.Children.Add(cv);
+            Action<double, double, double, double, Color, double, Color?> box = (x, y, w0, h0, c, r, bdc) => { var b = new Border { Width = w0, Height = h0, Background = B0(c), CornerRadius = new CornerRadius(r), BorderBrush = bdc.HasValue ? B0(bdc.Value) : null, BorderThickness = new Thickness(bdc.HasValue ? 1.4 : 0) }; Canvas.SetLeft(b, x); Canvas.SetTop(b, y); cv.Children.Add(b); };
+            Action<double, double, string, Color, double, bool> label = (x, y, s0, c, fs, bold) => { var tb = new TextBlock { Text = s0, Foreground = B0(c), FontSize = fs, FontWeight = bold ? FontWeights.Bold : FontWeights.Normal, FontFamily = Sx.Mono }; Canvas.SetLeft(tb, x); Canvas.SetTop(tb, y); cv.Children.Add(tb); };
+            box(0, 0, 232, 150, panel, 10, null);
+            box(6, 6, 58, 22, card, 5, grn); label(10, 10, "+$1,240", grn, 9.5, true);
+            box(68, 6, 54, 22, card, 5, grn); label(72, 10, "$15,890", txt, 9, true);
+            box(126, 6, 40, 22, card, 5, null); label(130, 11, "1:500", txt, 8, false);
+            box(6, 32, 44, 13, Color.FromArgb(200, cyan.R, cyan.G, cyan.B), 4, null); label(9, 33, "XAUUSD", panel, 7.5, true);
+            box(53, 32, 40, 13, card, 4, null); label(56, 33, "BTCUSD", cyan, 7.5, true); box(96, 32, 34, 13, card, 4, null); label(99, 33, "US30", cyan, 7.5, true);
+            var chart = new Canvas { Width = 170, Height = 96, ClipToBounds = true }; var chb = new Border { Width = 170, Height = 96, Background = B0(t.Plot), CornerRadius = new CornerRadius(6), Child = chart, BorderBrush = B0(line), BorderThickness = new Thickness(1) }; Canvas.SetLeft(chb, 6); Canvas.SetTop(chb, 49); cv.Children.Add(chb);
+            MiniChart(chart, t, 10, 15, 7, 1); foreach (UIElement e in chart.Children) Canvas.SetTop(e, Canvas.GetTop(e) + 22);
+            box(180, 49, 46, 96, card, 6, null); box(184, 56, 38, 18, red, 4, null); label(188, 60, "SELL", Colors.White, 8, true); box(184, 78, 38, 18, grn, 4, null); label(190, 82, "BUY", light ? Colors.White : panel, 8, true);
+            label(184, 104, "0.10", txt, 8, true);
+            var name = new TextBlock { Text = t.Name, Foreground = B0(txt), FontSize = 10.5, FontWeight = FontWeights.Bold, Margin = new Thickness(8, 0, 0, 6), VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Left };
+            var tag = new Border { Background = B0(Color.FromArgb(200, panel.R, panel.G, panel.B)), CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 1, 5, 1), Margin = new Thickness(0, 0, 6, 6), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Child = new TextBlock { Text = LookGroup(t), FontSize = 8, Foreground = B0(txt) } };
+            g.Children.Add(name); g.Children.Add(tag);
+            return new Border { Child = g, Margin = new Thickness(0, 0, 10, 10), CornerRadius = new CornerRadius(12), BorderThickness = new Thickness(on ? 3 : 1.4), BorderBrush = on ? Gold : B0(line), Cursor = Cursors.Hand, ToolTip = t.Group + " • " + t.Name };
+        }
         void SetZone(int i) { zoneIdx = i; Put("zone", i.ToString(IC)); zoneBtn.Content = "🕘 " + Zones[i].Item1 + "  ▾"; newsSig = ""; }
 
         // ---- the drawing rail
@@ -505,6 +576,12 @@ namespace KeystoneMT5
                 foreach (var p in panes.Take(split)) if (p.Sym != "" && hidden.Contains(p.Sym, StringComparer.OrdinalIgnoreCase) && syms.Count > 0) SetPane(p, syms[0], p.Tf);
             }
             listSyms = syms;
+            // preload: one series a moment (every instrument on the list × the charts' timeframes), so a click on a chip shows its chart at once
+            if (!Sim && s.BridgeVersion >= 2 && (DateTime.Now - prefetchAt).TotalMilliseconds > 600)
+            {
+                prefetchAt = DateTime.Now; var tfs = panes.Take(split).Select(x => x.Tf).Distinct().ToList();
+                foreach (var sy in syms) { bool sent = false; foreach (var tf in tfs) { var se0 = s.SeriesOf(sy, tf); if (!se0.Loaded && (DateTime.Now - se0.AskedAt).TotalSeconds > 8) { se0.AskedAt = DateTime.Now; broker.Send("BARS|" + sy + "|" + tf + "|" + BarsWanted(sy, tf)); sent = true; break; } } if (sent) break; }
+            }
             string sig = string.Join(",", syms) + "|" + Act.Sym + "|" + symDragSig + "|" + string.Join(",", mine) + "|" + string.Join(",", mine.Select(m => Math.Round(plOf(m)).ToString(IC)));
             if (sig != symSig)
             {
@@ -543,7 +620,7 @@ namespace KeystoneMT5
                 if (!Sim)
                 {
                     if (s.BridgeVersion < 2) v.Status = "the chart needs the new bridge — put SpasiXBridge.mq5 in MT5 (⚙ SETUP)";
-                    else if (!se.Loaded) { v.Status = "loading " + p.Sym + " " + Tf.Name(p.Tf) + " from MT5 …"; if ((now - se.AskedAt).TotalSeconds > 3) { se.AskedAt = now; broker.Send("BARS|" + p.Sym + "|" + p.Tf + "|" + BarsWanted(p.Sym, p.Tf)); } }
+                    else if (!se.Loaded) { v.Status = p.Sym + " • " + Tf.Name(p.Tf) + "  ⟳"; if ((now - se.AskedAt).TotalSeconds > 3) { se.AskedAt = now; broker.Send("BARS|" + p.Sym + "|" + p.Tf + "|" + BarsWanted(p.Sym, p.Tf)); } }
                     else if ((now - se.AskedAt).TotalSeconds > 20) { se.AskedAt = now; broker.Send("BARS|" + p.Sym + "|" + p.Tf + "|3"); }
                 }
                 else if (!se.Loaded) v.Status = BtIdleText();
@@ -665,7 +742,7 @@ namespace KeystoneMT5
             Tuple<List<Drawing>, List<string>> undo; if (cleanUndo.TryGetValue(p.Sym, out undo)) l.Add(new Mi { Icon = "↶", Text = "Undo the clean (" + undo.Item1.Count + " drawings, " + undo.Item2.Count + " indicators)", Do = () => UndoClean(p.Sym) });
             l.Add(Mi.Group("📈", "Indicators", IndMenu(v)));
             if (v.Ind.Count > 0) l.Add(Mi.Group("✕", "Remove an indicator", ChartView.Indicators.Where(x => v.Ind.Contains(x.Key)).Select(x => { var kk = x.Key; return new Mi { Text = x.Name, Dot = Sx.B(x.Color), Do = () => IndOff(kk) }; }).ToList()));
-            l.Add(new Mi("⚙", "Chart settings … (colours, candles, entries)", () => ChartSettings())); l.Add(Mi.Group("🎨", "Chart theme", ThemeMenu())); l.Add(Mi.Group("🕘", "Time zone", ZoneMenu()));
+            l.Add(new Mi("✨", "Looks … (preview every theme on the whole platform)", () => LooksGallery())); l.Add(new Mi("⚙", "Chart settings … (colours, candles, entries)", () => ChartSettings())); l.Add(Mi.Group("🎨", "Chart theme", ThemeMenu())); l.Add(Mi.Group("🕘", "Time zone", ZoneMenu()));
             l.Add(TicketsMenu());
             var spl = new List<Mi>(); foreach (var n in new[] { 1, 2, 4 }) { int nn = n; spl.Add(new Mi { Text = n + (n == 1 ? " chart" : " charts"), Check = split == n, Radio = true, Do = () => SetSplit(nn) }); } l.Add(Mi.Group("⊞", "Split screen", spl));
             l.Add(Mi.S());

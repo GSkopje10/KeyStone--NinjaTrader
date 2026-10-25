@@ -80,7 +80,7 @@ namespace KeystoneMT5
             var se = s.SeriesOf(sym, anTf); var now = DateTime.Now;
             if (!Sim && !se.Loaded && (now - se.AskedAt).TotalSeconds > 3) { se.AskedAt = now; broker.Send("BARS|" + sym + "|" + anTf + "|" + BarsWanted(sym, anTf)); }
             Mt5Quote q; s.Quotes.TryGetValue(sym, out q); Mt5Symbol ms; s.Symbols.TryGetValue(sym, out ms); string zn; var conv = ZoneConv(s, out zn);
-            var v = anView; v.Series = se.Loaded ? se : null; v.Status = se.Loaded ? "" : Sim ? BtIdleText() : "loading " + sym + " " + Tf.Name(anTf) + " from MT5 …"; v.Symbol = sym;
+            var v = anView; v.Series = se.Loaded ? se : null; v.Status = se.Loaded ? "" : Sim ? BtIdleText() : sym + " • " + Tf.Name(anTf) + "  ⟳"; v.Symbol = sym;
             v.Digits = ms != null ? ms.Digits : 2; v.Point = ms != null && ms.Point > 0 ? ms.Point : 0.01; v.TickValue = ms != null && ms.TickValue > 0 ? ms.TickValue : 1; v.TickSize = ms != null && ms.TickSize > 0 ? ms.TickSize : v.Point;
             v.Bid = q != null ? q.Bid : 0; v.Ask = q != null ? q.Ask : 0; v.QuoteTime = q != null ? q.Time : DateTime.MinValue; v.Positions = s.Positions; v.Orders = s.Orders; v.Currency = s.Account.Currency; v.Gate = s.Gate;
             v.ToView = conv; v.ZoneName = zn; v.ServerNow = LiveServerNow(s); v.NyOffsetHours = NyOffset(s); v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = false; v.Theme = CurTheme();

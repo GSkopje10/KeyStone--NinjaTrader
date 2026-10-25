@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-27l";
+        public const string Build = "SpasiX • BUILD 2026-10-28a";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -183,7 +183,7 @@ namespace KeystoneMT5
                 var val = new TextBlock { Text = "—", Foreground = Text, FontSize = big ? 27 : eq ? 22 : 17, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
                 var sp = new StackPanel(); sp.Children.Add(cap); sp.Children.Add(val);
                 if (k == "EQUITY") { var track = new Grid { Height = 4, Width = 108, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 3, 0, 0) }; track.Children.Add(new Border { CornerRadius = new CornerRadius(2), Background = Line }); eqFill = new Border { CornerRadius = new CornerRadius(2), Background = Green, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 }; track.Children.Add(eqFill); sp.Children.Add(track); }
-                var bd = new Border { Background = big || eq ? new LinearGradientBrush(Sx.C("#1A2338"), Sx.C("#101726"), 90) : (Brush)Card, CornerRadius = new CornerRadius(big || eq ? 12 : 10), Padding = big || eq ? new Thickness(12, 3, 14, 4) : new Thickness(10, 4, 10, 5), Margin = new Thickness(0, 0, big || eq ? 10 : 7, 0), MinWidth = big ? 190 : eq ? 160 : 108, BorderBrush = eq ? Cyan : Line, BorderThickness = new Thickness(big || eq ? 2.4 : 1), Child = sp };
+                var bd = new Border { Background = big || eq ? (Brush)Sx.CardGrad : Card, CornerRadius = new CornerRadius(big || eq ? 12 : 10), Padding = big || eq ? new Thickness(12, 3, 14, 4) : new Thickness(10, 4, 10, 5), Margin = new Thickness(0, 0, big || eq ? 10 : 7, 0), MinWidth = big ? 190 : eq ? 160 : 108, BorderBrush = eq ? Cyan : Line, BorderThickness = new Thickness(big || eq ? 2.4 : 1), Child = sp };
                 row.Children.Add(bd); cards[k] = Tuple.Create(cap, val, bd);
                 if (big) plGlow = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 16, Opacity = 0, Color = Sx.C("#2EE59D") };
                 if (big) bd.Effect = plGlow;
@@ -192,7 +192,7 @@ namespace KeystoneMT5
             cards["TODAY"].Item3.ToolTip = "today (the server's day): the closed trades after commission and swap + what is open now";
             if (Mode == "PROP") { propStrip = BuildPropStrip(); mid.Children.Add(propStrip); }
             if (streamMode && !Sim) ApplyStream();
-            return new Border { Background = new LinearGradientBrush(Sx.C("#0F1626"), Sx.C("#0B101B"), 90), BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1), Child = dp };
+            return new Border { Background = Sx.HeadGrad, BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1), Child = dp };
         }
         // STREAM MODE: the name and number blurred under a violet veil — the rest of the line and every number stay visible
         void SetStream(bool on) { streamMode = on; Put("stream", on ? "1" : "0"); ApplyStream(); }

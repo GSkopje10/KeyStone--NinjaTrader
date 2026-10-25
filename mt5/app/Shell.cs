@@ -82,7 +82,7 @@ namespace KeystoneMT5
             w.Background = Sx.Bg; w.SourceInitialized += delegate { NoWindowsAnimation(w); };
             WindowChrome.SetWindowChrome(w, new WindowChrome { CaptionHeight = 38, ResizeBorderThickness = new Thickness(6), GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(0), UseAeroCaptionButtons = false });
             var dp = new DockPanel { LastChildFill = true };
-            var bar = new Grid { Height = 38, Background = new LinearGradientBrush(Sx.C("#0E1626"), Sx.C("#0A101C"), 0) };
+            var bar = new Grid { Height = 38, Background = Sx.HeadGrad };
             bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); bar.ColumnDefinitions.Add(new ColumnDefinition()); bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 14, 0) };
             var lg = MainWindow.Logo(); if (lg != null) left.Children.Add(new Image { Source = lg, Width = 24, Height = 24, Margin = new Thickness(0, 0, 7, 0) });
@@ -118,7 +118,7 @@ namespace KeystoneMT5
             var bd = new FrameworkElementFactory(typeof(Border), "bd"); bd.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             var cp = new FrameworkElementFactory(typeof(ContentPresenter)); cp.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center); cp.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center); bd.AppendChild(cp);
             var t = new ControlTemplate(typeof(Button)) { VisualTree = bd };
-            var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true }; over.Setters.Add(new Setter(Border.BackgroundProperty, danger ? (Brush)Sx.Red : Sx.Tint(Sx.Cyan, 50), "bd")); t.Triggers.Add(over);
+            var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true }; over.Setters.Add(new Setter(Border.BackgroundProperty, danger ? (Brush)Sx.Red.CloneCurrentValue() : Sx.Tint(Sx.Cyan, 50), "bd")); t.Triggers.Add(over);
             var press = new Trigger { Property = System.Windows.Controls.Primitives.ButtonBase.IsPressedProperty, Value = true }; press.Setters.Add(new Setter(Border.BackgroundProperty, danger ? Sx.Tint(Sx.Red, 170) : Sx.Tint(Sx.Cyan, 90), "bd")); t.Triggers.Add(press);
             if (danger) capDangerT = t; else capT = t; return t;
         }

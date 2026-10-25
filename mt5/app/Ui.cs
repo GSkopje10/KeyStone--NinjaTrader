@@ -19,8 +19,37 @@ namespace KeystoneMT5
         public static SolidColorBrush B(string hex) { var b = (SolidColorBrush)new BrushConverter().ConvertFromString(hex); b.Freeze(); return b; }
         public static SolidColorBrush Tint(SolidColorBrush b, byte a) { var c = b.Color; var t = new SolidColorBrush(Color.FromArgb(a, c.R, c.G, c.B)); t.Freeze(); return t; }
         public static Color C(string hex) { return (Color)ColorConverter.ConvertFromString(hex); }
-        public static readonly SolidColorBrush Bg = B("#080C14"), Panel = B("#0D131F"), Card = B("#131B2A"), Card2 = B("#19233A"), Line = B("#22304A"), Text = B("#E8ECF4"), Muted = B("#8590A6"),
-            Gold = B("#FFC94D"), Green = B("#2EE59D"), Red = B("#FF4D6D"), Cyan = B("#4DD8FF"), Violet = B("#A98BFF"), Orange = B("#FF9F43"), Amber = B("#FFB020"), White = B("#FFFFFF");
+        // the interface palette: NOT frozen, so a LOOK (ApplyLook) recolours every window live — panels, cards, text, accents
+        static SolidColorBrush M(string hex) { return new SolidColorBrush(C(hex)); }
+        public static readonly SolidColorBrush Bg = M("#080C14"), Panel = M("#0D131F"), Card = M("#131B2A"), Card2 = M("#19233A"), Line = M("#22304A"), Text = M("#E8ECF4"), Muted = M("#8590A6"),
+            Gold = M("#FFC94D"), Green = M("#2EE59D"), Red = M("#FF4D6D"), Cyan = M("#4DD8FF"), Violet = M("#A98BFF"), Orange = M("#FF9F43"), Amber = M("#FFB020"), White = B("#FFFFFF"),
+            MenuBg = new SolidColorBrush(Color.FromArgb(246, 12, 18, 30));
+        public static readonly LinearGradientBrush HeadGrad = new LinearGradientBrush(C("#0F1626"), C("#0B101B"), 90), CardGrad = new LinearGradientBrush(C("#1A2338"), C("#101726"), 90), DlgGrad = new LinearGradientBrush(C("#17213A"), C("#090D17"), 90);
+        public static bool LookLight;
+        static Color Mix(Color a, Color b, double k) { return Color.FromRgb((byte)(a.R + (b.R - a.R) * k), (byte)(a.G + (b.G - a.G) * k), (byte)(a.B + (b.B - a.B) * k)); }
+        public static double Luma(Color c) { return (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0; }
+        // the whole interface from a chart theme: its background family for the panels and cards, its text, and accents that read on it
+        public static void ApplyLook(ChartTheme t)
+        {
+            if (t == null) return; bool light = t.Light || Luma(t.Bg) > 0.55; LookLight = light; Color blk = Colors.Black, wht = Colors.White;
+            Action<SolidColorBrush, Color> set = (b, c) => { if (!b.IsFrozen && b.Color != c) b.Color = c; };   // a brush frozen by a sealed style can't change: skip it, never fail
+            if (!light)
+            {
+                set(Bg, Mix(t.Bg, blk, 0.32)); set(Panel, Mix(t.Bg, blk, 0.12)); set(Card, Mix(t.Plot, wht, 0.05)); set(Card2, Mix(t.Plot, wht, 0.11)); set(Line, Mix(t.Grid, wht, 0.10));
+                set(Text, Luma(t.Text) > 0.6 ? t.Text : C("#E8ECF4")); set(Muted, Mix(Text.Color, Panel.Color, 0.42));
+                set(Gold, C("#FFC94D")); set(Green, C("#2EE59D")); set(Red, C("#FF4D6D")); set(Cyan, C("#4DD8FF")); set(Violet, C("#A98BFF")); set(Orange, C("#FF9F43")); set(Amber, C("#FFB020"));
+            }
+            else
+            {
+                set(Bg, Mix(t.Bg, blk, 0.07)); set(Panel, t.Bg); set(Card, t.Plot); set(Card2, Mix(t.Plot, t.Grid, 0.55)); set(Line, Mix(t.Grid, blk, 0.10));
+                set(Text, Luma(t.Text) < 0.4 ? t.Text : C("#1B2230")); set(Muted, Mix(Text.Color, Panel.Color, 0.40));
+                set(Gold, C("#A86E00")); set(Green, C("#0F8A5F")); set(Red, C("#D23048")); set(Cyan, C("#0A78A8")); set(Violet, C("#6A4FD6")); set(Orange, C("#C2620E")); set(Amber, C("#B87400"));
+            }
+            HeadGrad.GradientStops[0].Color = Mix(Panel.Color, light ? blk : wht, 0.03); HeadGrad.GradientStops[1].Color = Panel.Color;
+            CardGrad.GradientStops[0].Color = Card2.Color; CardGrad.GradientStops[1].Color = Card.Color;
+            DlgGrad.GradientStops[0].Color = Card2.Color; DlgGrad.GradientStops[1].Color = Bg.Color;
+            if (!MenuBg.IsFrozen) MenuBg.Color = Color.FromArgb(248, Panel.Color.R, Panel.Color.G, Panel.Color.B);
+        }
         public static readonly FontFamily Mono = new FontFamily("Consolas"), Face = new FontFamily("Segoe UI");
 
         // modern scrollbars everywhere: thin, rounded, no arrows; they widen and glow under the mouse
@@ -150,7 +179,7 @@ namespace KeystoneMT5
             sp.Children.Add(bs);
             sp.Children.Add(new TextBlock { Text = "Enter = " + buttons[0].Trim() + "   •   Esc = cancel", Foreground = Muted, FontSize = 10.5, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) });
             var edge = tones != null && tones.Length > 0 && tones[0] != null ? tones[0] : Gold;
-            var card = new Border { CornerRadius = new CornerRadius(20), Background = new LinearGradientBrush(C("#17213A"), C("#090D17"), 90), BorderThickness = new Thickness(1.4), BorderBrush = new LinearGradientBrush(edge.Color, C("#4DD8FF"), 35), Padding = new Thickness(26, 22, 26, 18), Margin = new Thickness(24), Child = sp,
+            var card = new Border { CornerRadius = new CornerRadius(20), Background = DlgGrad, BorderThickness = new Thickness(1.4), BorderBrush = new LinearGradientBrush(edge.Color, C("#4DD8FF"), 35), Padding = new Thickness(26, 22, 26, 18), Margin = new Thickness(24), Child = sp,
                 Effect = new DropShadowEffect { Color = edge.Color, BlurRadius = 34, ShadowDepth = 0, Opacity = 0.5 }, RenderTransform = new ScaleTransform(0.96, 0.96), RenderTransformOrigin = new Point(0.5, 0.5) };
             card.MouseLeftButtonDown += delegate { try { w.DragMove(); } catch { } };
             w.Content = card;
@@ -200,7 +229,7 @@ namespace KeystoneMT5
             if (no != null) { var nb = Pill(no, Card); nb.MinWidth = 96; nb.Height = 34; nb.Click += delegate { result = 0; w.Close(); }; btns.Children.Add(nb); }
             var yb = Pill(yes, tone); yb.MinWidth = 110; yb.Height = 34; yb.Foreground = Bg; yb.Margin = new Thickness(4, 0, 0, 0); yb.Click += delegate { result = 1; w.Close(); }; btns.Children.Add(yb);
             sp.Children.Add(btns);
-            var card = new Border { CornerRadius = new CornerRadius(16), Background = new LinearGradientBrush(C("#141D2E"), C("#0A0F19"), 90), BorderBrush = tone, BorderThickness = new Thickness(1.4), Padding = new Thickness(22, 18, 22, 18), Margin = new Thickness(18), Child = sp,
+            var card = new Border { CornerRadius = new CornerRadius(16), Background = DlgGrad, BorderBrush = tone, BorderThickness = new Thickness(1.4), Padding = new Thickness(22, 18, 22, 18), Margin = new Thickness(18), Child = sp,
                 Effect = new DropShadowEffect { Color = tone.Color, BlurRadius = 26, ShadowDepth = 0, Opacity = 0.45 } };
             card.MouseLeftButtonDown += delegate { try { w.DragMove(); } catch { } };
             w.Content = card;
@@ -242,10 +271,15 @@ namespace KeystoneMT5
             Canvas c; if (w == null || !hosts.TryGetValue(w, out c)) return;
             c.Children.Clear(); levels[w].Clear(); c.Background = null; c.IsHitTestVisible = false;
         }
+        static void RebuildRows(Window w, Canvas c, StackPanel host, List<Mi> items, int level)
+        {
+            var keep = host.Children.Count > 0 ? host.Children[0] : null; host.Children.Clear(); if (keep != null) host.Children.Add(keep);
+            foreach (var it in items) host.Children.Add(Row(w, c, it, level, items));
+        }
         public static void Show(FrameworkElement anchor, Point at, List<Mi> items)
         {
             var w = Window.GetWindow(anchor); Canvas c; if (w == null || !hosts.TryGetValue(w, out c) || items == null || items.Count == 0) return;
-            Close(w); c.Background = Brushes.Transparent; c.IsHitTestVisible = true;
+            Close(w); pinned[w] = -1; c.Background = Brushes.Transparent; c.IsHitTestVisible = true;
             Point p; try { p = anchor.TranslatePoint(at, c); } catch { p = at; }
             Open(w, c, items, p, 0, null);
         }
@@ -253,13 +287,18 @@ namespace KeystoneMT5
         {
             var lv = levels[w]; while (lv.Count > level) { c.Children.Remove(lv[lv.Count - 1]); lv.RemoveAt(lv.Count - 1); }
             var sp = new StackPanel { MinWidth = 210 };
-            foreach (var it in items) sp.Children.Add(Row(w, c, it, level));
+            // ✕ in the corner: closes this menu (and the ones it opened); the menus otherwise stay until a click outside / Esc
+            var xb = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(10), HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 2, 2), Cursor = Cursors.Hand, Background = Brushes.Transparent, ToolTip = "close (or click outside / Esc)", Child = new TextBlock { Text = "✕", FontSize = 10, Foreground = Sx.Muted, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+            int myLevel = level; xb.MouseEnter += delegate { xb.Background = Sx.Tint(Sx.Red, 170); }; xb.MouseLeave += delegate { xb.Background = Brushes.Transparent; };
+            xb.MouseLeftButtonUp += (s0, e0) => { e0.Handled = true; if (myLevel == 0) Close(w); else { var l2 = levels[w]; while (l2.Count > myLevel) { c.Children.Remove(l2[l2.Count - 1]); l2.RemoveAt(l2.Count - 1); } pinned[w] = -1; } };
+            sp.Children.Add(xb);
+            foreach (var it in items) sp.Children.Add(Row(w, c, it, level, items));
             FrameworkElement content = sp;
             double maxH = Math.Max(200, c.ActualHeight - 24);
             var sv = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = maxH }; content = sv;
             var panel = new Border
             {
-                CornerRadius = new CornerRadius(12), Background = new SolidColorBrush(Color.FromArgb(246, 12, 18, 30)), BorderThickness = new Thickness(1.3),
+                CornerRadius = new CornerRadius(12), Background = Sx.MenuBg, BorderThickness = new Thickness(1.3),
                 BorderBrush = new LinearGradientBrush(Sx.C("#4DD8FF"), Sx.C("#A98BFF"), 0), Padding = new Thickness(5, 6, 5, 6), Child = content,
                 Effect = new DropShadowEffect { Color = Sx.C("#4DD8FF"), BlurRadius = 18, ShadowDepth = 0, Opacity = 0.32 }, RenderTransform = new TranslateTransform(0, 6)
             };
@@ -279,7 +318,9 @@ namespace KeystoneMT5
             panel.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(110)));
             ((TranslateTransform)panel.RenderTransform).BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(6, 0, TimeSpan.FromMilliseconds(130)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
         }
-        static FrameworkElement Row(Window w, Canvas c, Mi it, int level)
+        static readonly Dictionary<Window, int> pinned = new Dictionary<Window, int>();   // the level whose submenu was opened by a click: hovering doesn't switch it
+        static readonly Dictionary<Window, System.Windows.Threading.DispatcherTimer> hoverT = new Dictionary<Window, System.Windows.Threading.DispatcherTimer>();
+        static FrameworkElement Row(Window w, Canvas c, Mi it, int level, List<Mi> siblings = null)
         {
             if (it.Sep) return new Border { Height = 1, Background = new SolidColorBrush(Color.FromArgb(60, 0x4D, 0xD8, 0xFF)), Margin = new Thickness(10, 5, 10, 5) };
             if (it.Head) return new TextBlock { Text = it.Text.ToUpperInvariant(), Foreground = Sx.Muted, FontSize = 10, FontWeight = FontWeights.Bold, Margin = new Thickness(12, 6, 12, 3) };
@@ -304,16 +345,28 @@ namespace KeystoneMT5
             row.MouseEnter += delegate
             {
                 if (it.Off) return; row.Background = it.Danger ? Sx.Tint(Sx.Red, 46) : new SolidColorBrush(Color.FromArgb(44, 0x4D, 0xD8, 0xFF)); tb.Foreground = it.Danger ? Sx.Red : Sx.White;
-                if (it.Sub != null) Open(w, c, it.Sub, new Point(), level + 1, row);
-                else { var lv = levels[w]; while (lv.Count > level + 1) { c.Children.Remove(lv[lv.Count - 1]); lv.RemoveAt(lv.Count - 1); } }
+                // a submenu opens after a short hover (300 ms) unless one at this level was opened by a click; nothing closes on a mere hover
+                System.Windows.Threading.DispatcherTimer t0; if (hoverT.TryGetValue(w, out t0)) t0.Stop();
+                int pin; pinned.TryGetValue(w, out pin); if (!pinned.ContainsKey(w)) pin = -1;
+                if (it.Sub != null && pin != level)
+                {
+                    var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) }; hoverT[w] = t;
+                    t.Tick += delegate { t.Stop(); if (row.IsMouseOver && levels[w].Count > level) Open(w, c, it.Sub, new Point(), level + 1, row); }; t.Start();
+                }
             };
             row.MouseLeave += delegate { row.Background = Brushes.Transparent; tb.Foreground = it.Off ? Sx.Muted : it.Danger ? Sx.Red : it.Fg ?? Sx.Text; };
             row.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true; if (it.Off) return;
-                if (it.Sub != null) { Open(w, c, it.Sub, new Point(), level + 1, row); return; }
+                if (it.Sub != null) { Open(w, c, it.Sub, new Point(), level + 1, row); pinned[w] = level; return; }
                 if (!it.KeepOpen) Close(w);
-                else if (it.Check.HasValue && !it.Radio) { it.Check = !it.Check.Value; var host = row.Parent as StackPanel; if (host != null) { int ix = host.Children.IndexOf(row); host.Children.RemoveAt(ix); host.Children.Insert(ix, Row(w, c, it, level)); } }   // a tick box: the menu stays open (several at once)
+                else if (it.Check.HasValue)
+                {
+                    // KEEP OPEN (e.g. the themes): the menu stays, the ticks move to the new choice
+                    var host = row.Parent as StackPanel;
+                    if (it.Radio && siblings != null && host != null) { foreach (var o in siblings) if (o.Radio && o.Check.HasValue) o.Check = ReferenceEquals(o, it); RebuildRows(w, c, host, siblings, level); }
+                    else if (!it.Radio) { it.Check = !it.Check.Value; if (host != null) { int ix = host.Children.IndexOf(row); host.Children.RemoveAt(ix); host.Children.Insert(ix, Row(w, c, it, level, siblings)); } }
+                }   // a tick box: the menu stays open (several at once)
                 var a = it.Do; if (a != null) w.Dispatcher.BeginInvoke(a);
             };
             return row;

@@ -99,7 +99,22 @@ namespace KeystoneMT5
             T("Espresso & Cream", "Cool contrasts", "#2B211C", "#322722", "#43352D", "#F2E3C6", "#D9734E", "#BFA997", "#F7EEE2", "#E0A458", "#FFFFFF"),
             T("Ocean Glass", "Cool contrasts", "#12324A", "#163A55", "#22506F", "#7CF5D9", "#FFB86B", "#A8C7DB", "#EAF6FF", "#7CF5D9", "#FFFFFF"),
             T("Charcoal & Orange", "Cool contrasts", "#262626", "#2C2C2C", "#3A3A3A", "#F5F5F5", "#FF7A1A", "#B0B0B0", "#FAFAFA", "#FF7A1A", "#FF7A1A"),
-            T("Sunset", "Cool contrasts", "#2E1A2B", "#361E33", "#4A2A45", "#FFD166", "#EF476F", "#C9A9C2", "#FFF1F6", "#06D6A0", "#FFFFFF") };
+            T("Sunset", "Cool contrasts", "#2E1A2B", "#361E33", "#4A2A45", "#FFD166", "#EF476F", "#C9A9C2", "#FFF1F6", "#06D6A0", "#FFFFFF"),
+            // ★ SIGNATURE: brighter, softer backgrounds with the gold candles and new combinations (easy on the eyes, not too dark)
+            T("Aurora Gold", "★ Signature", "#1C2230", "#222A3A", "#2D364A", "#FFC94D", "#8E7CFF", "#A9B3C6", "#EEF1F7", "#FFC94D", "#FFFFFF"),
+            T("Champagne Slate", "★ Signature", "#2A303D", "#313848", "#3C4557", "#F2C46D", "#7FA3D6", "#B3BCCB", "#F2F4F8", "#F2C46D", "#FFFFFF"),
+            T("Moonstone", "★ Signature", "#3A4250", "#424B5A", "#505A6B", "#E9D29A", "#9FB4FF", "#C7CFDB", "#F5F7FA", "#E9D29A", "#FFFFFF"),
+            T("Gold on Mist", "★ Signature", "#E4E8EF", "#F0F3F7", "#D5DBE5", "#C08A1E", "#5B6CD6", "#4A5263", "#1B2230", "#C08A1E", "#1B2230", true),
+            T("Gold & Ivory", "★ Signature", "#EFE9DD", "#F8F4EC", "#E2DACB", "#B07D1F", "#3D6F8F", "#5E584C", "#2A261F", "#B07D1F", "#2A261F", true),
+            T("Rose Gold", "★ Signature", "#2B2326", "#33292D", "#45373C", "#F4C27A", "#E58FA8", "#C9B3B9", "#FAF0F2", "#F4C27A", "#FFFFFF"),
+            T("Nebula", "★ Signature", "#1B1E38", "#212547", "#2E335C", "#5EEAD4", "#F472B6", "#A9AEDB", "#EEF0FF", "#A78BFA", "#FFFFFF"),
+            T("Holo Mint", "★ Signature", "#16262B", "#1B2E34", "#284047", "#7CF5D9", "#FF8FA3", "#9FC3C9", "#ECFBFA", "#7CF5D9", "#FFFFFF"),
+            T("Sakura Dusk", "★ Signature", "#29202F", "#30263A", "#41344D", "#FFD6A5", "#FF7AA2", "#C9B4CF", "#FFF1F6", "#FF7AA2", "#FFFFFF"),
+            T("Arctic Glass", "★ Signature", "#D8E2EB", "#E5ECF3", "#C6D3DF", "#0E9F7E", "#E0566B", "#425466", "#142231", "#2F7EC7", "#142231", true),
+            T("Pearl Lavender", "★ Signature", "#E6E3F0", "#F0EEF7", "#D6D2E6", "#2E8B6E", "#C2456A", "#57527A", "#1E1A33", "#7B61D9", "#1E1A33", true),
+            T("Cyber Sand", "★ Signature", "#28241E", "#2F2A23", "#3D372E", "#FFB347", "#5AC8FA", "#BDB09A", "#F6EFE3", "#FFB347", "#FFFFFF"),
+            T("Quantum Blue", "★ Signature", "#13213A", "#172843", "#233759", "#4DD8FF", "#FF6B8B", "#9DB2D4", "#EAF2FF", "#FFC94D", "#FFFFFF"),
+            T("Solar Flare", "★ Signature", "#120E0A", "#17120D", "#2A2118", "#FFB000", "#FF4D6D", "#B89B7A", "#FFF1DA", "#FFB000", "#FFFFFF") };
     }
     public sealed class Drawing
     {
@@ -115,7 +130,8 @@ namespace KeystoneMT5
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush Br(Color c, byte a = 255) { var x = new SolidColorBrush(Color.FromArgb(a, c.R, c.G, c.B)); x.Freeze(); return x; }
         static SolidColorBrush Hex(string h, byte a = 255) { return Br((Color)ColorConverter.ConvertFromString(h), a); }
-        static Pen P(Brush b, double w, params double[] dash) { var p = new Pen(b, w); if (dash.Length > 0) p.DashStyle = new DashStyle(dash, 0); p.Freeze(); return p; }
+        static Pen P(Brush b, double w, params double[] dash) { if (b != null && !b.IsFrozen) b = b.CloneCurrentValue(); var p = new Pen(b, w);   // a frozen pen freezes its brush: never the live interface brushes (the looks recolour those)
+             if (dash.Length > 0) p.DashStyle = new DashStyle(dash, 0); p.Freeze(); return p; }
         static readonly Typeface Face = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), Bold = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal), Mono = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
         // the trading colours (the same on every theme, never a candle colour)
         Color BuyC { get { return Theme.Buy; } } Color SellC { get { return Theme.Sell; } } Color PendC { get { return Theme.Pend; } }
@@ -150,7 +166,7 @@ namespace KeystoneMT5
         public int NyOffsetHours = -7; public int ServerOffsetSec = 10800;   // server time = UTC + this (MT5's, sent by the bridge)   // NY time = server time + this (IC Markets: server = New York + 7)
         public HashSet<string> Ind = new HashSet<string>(); public int FvgSide;   // FVG: 0 = all, 1 = bullish only, −1 = bearish only
         public List<Drawing> Drawings = new List<Drawing>(); public string Tool = ""; public bool Magnet; public string DrawColor = "#FFC94D", DrawFill = "";
-        public string News = ""; public bool NewsHot, TradeOn, Sim; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO";   // AUTO / EACH / SIDE
+        public string News = ""; public bool NewsHot, TradeOn, Sim, ShowGrid; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO";   // AUTO / EACH / SIDE
         // ---- what the chart tells the host
         public Action<long, double> CloseTicket;              // ticket, lots (0 = all)
         public Action<long, double, double> ModifyTicket;     // ticket, sl, tp
@@ -219,7 +235,7 @@ namespace KeystoneMT5
             var axisB = Br(th.Axis); var textB = Br(th.Text); var gridP = th.Dotted ? P(Br(th.Grid), 1, 1, 3) : P(Br(th.Grid), 1); var tagBg = Br(th.Plot, 238);
             dc.DrawRectangle(Br(th.Bg), null, new Rect(0, 0, W, H)); dc.DrawRectangle(Br(th.Plot), null, new Rect(0, TopPad, plotW, plotH));
             var bars = Series != null ? Series.Bars : null;
-            if (bars == null || bars.Count == 0) { var msg = T(Status != "" ? Status : "loading the candles from MT5 …", 15, axisB); dc.DrawText(msg, new Point(Math.Max(8, (plotW - msg.Width) / 2), H / 2 - 10)); return; }
+            if (bars == null || bars.Count == 0) { var msg = T(Status != "" ? Status : "⟳", 15, axisB); dc.DrawText(msg, new Point(Math.Max(8, (plotW - msg.Width) / 2), H / 2 - 10)); return; }
             int n = bars.Count; nBars = n;
             int i1 = Math.Max(0, Math.Min(n - 1, (int)Math.Floor(n - 1 + rightOffset + 0.5))), i0 = Math.Max(0, Math.Min(i1, (int)Math.Floor(n - 1 + rightOffset + 0.5 - plotW / barW)));
             hi = double.MinValue; lo = double.MaxValue;
@@ -230,13 +246,13 @@ namespace KeystoneMT5
             if (Bid > 0 && Bid != lastBid) { if (lastBid > 0) pulseAt = DateTime.Now; lastBid = Bid; }
             // grid, price axis
             double step = Nice((hi - lo) / Math.Max(3, plotH / 70));
-            for (double p = Math.Ceiling(lo / step) * step; p <= hi; p += step) { double y = Y(p); if (!th.NoGrid) dc.DrawLine(gridP, new Point(0, y), new Point(plotW, y)); var t = T(F(p), 11, axisB, true); dc.DrawText(t, new Point(plotW + 7, y - t.Height / 2)); }
+            for (double p = Math.Ceiling(lo / step) * step; p <= hi; p += step) { double y = Y(p); if (!th.NoGrid && ShowGrid) dc.DrawLine(gridP, new Point(0, y), new Point(plotW, y)); var t = T(F(p), 11, axisB, true); dc.DrawText(t, new Point(plotW + 7, y - t.Height / 2)); }
             // time axis (in the chosen time zone)
             int every = Math.Max(1, (int)Math.Ceiling(95 / barW)); int tf = Series.Minutes;
             for (int i = i0; i <= i1; i++)
             {
                 if (i % every != 0) continue; double x = X(i); if (x < 0 || x > plotW) continue;
-                if (!th.NoGrid) dc.DrawLine(gridP, new Point(x, TopPad), new Point(x, TopPad + plotH));
+                if (!th.NoGrid && ShowGrid) dc.DrawLine(gridP, new Point(x, TopPad), new Point(x, TopPad + plotH));
                 var bt = ToView(bars[i].Time); bool newDay = i > 0 && ToView(bars[i - 1].Time).Date != bt.Date;
                 var t = T(tf >= 1440 ? bt.ToString("dd MMM", IC) : newDay || tf >= 240 ? bt.ToString("dd MMM HH:mm", IC) : bt.ToString("HH:mm", IC), 11, newDay ? textB : axisB); dc.DrawText(t, new Point(x - t.Width / 2, TopPad + plotH + 5));
             }
