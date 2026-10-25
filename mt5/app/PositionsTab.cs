@@ -20,14 +20,30 @@ namespace KeystoneMT5
         {
             var sp = new StackPanel();
             var bulk = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
-            foreach (var m in new[] { Tuple.Create("⛔ CLOSE EVERYTHING", "ALL", Red), Tuple.Create("CLOSE ALL BUYS", "BUY", Green), Tuple.Create("CLOSE ALL SELLS", "SELL", Red), Tuple.Create("CLOSE ALL IN PROFIT", "PROFIT", Green), Tuple.Create("CLOSE ALL IN LOSS", "LOSS", Red) })
-            { var which = m.Item2; var b = Pill(m.Item1, which == "ALL" ? (Brush)Tint(Red, 210) : Card); b.Foreground = which == "ALL" ? Sx.White : m.Item3; b.Click += delegate { CloseAll("", which); }; bulk.Children.Add(b); }
-            var be = Pill("⚖ BREAKEVEN ALL IN PROFIT", Tint(Gold, 170)); be.Foreground = Bg; be.ToolTip = "the stop of every ticket in profit to its entry + the panel's points / $ (asks first)"; be.Click += delegate { BreakevenAll(""); }; bulk.Children.Add(be);
-            var ca = Pill("CANCEL ALL ORDERS", Card); ca.Foreground = Cyan; ca.Click += delegate { if (Ask("Cancel every pending order (all symbols)?")) Cmd("cancel every order", "CANCELALL", ""); }; bulk.Children.Add(ca);
+            // the only button for every instrument at once (it asks first and lists them); everything else is per instrument, on its own card
+            var all = Pill("⛔ CLOSE EVERYTHING • every instrument, every position", Tint(Red, 210)); all.Foreground = Sx.White; all.Height = 34; all.ToolTip = "closes every open position on every instrument (asks first, with the list)"; all.Click += delegate { CloseAll("", "ALL"); }; bulk.Children.Add(all);
+            bulk.Children.Add(new TextBlock { Text = "each instrument has its own buttons on its card ▸ they never touch another instrument", Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) });
             sp.Children.Add(bulk);
             posSummary = new TextBlock { Text = "no positions", Foreground = Muted, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 0, 0, 8), TextWrapping = TextWrapping.Wrap }; sp.Children.Add(posSummary);
             posPanel = new StackPanel(); sp.Children.Add(posPanel);
             return new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp };
+        }
+        // one instrument's buttons (positions tab): close all / buys / sells / in profit / in loss, breakeven, cancel its orders — never another instrument
+        FrameworkElement SymControls(string sym)
+        {
+            var box = new Border { BorderBrush = Tint(Cyan, 90), BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 10), Margin = new Thickness(18, 34, 0, 0), VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Right, MaxWidth = 430, Background = Tint(Cyan, 12) };
+            var sp = new StackPanel(); box.Child = sp;
+            sp.Children.Add(new TextBlock { Text = "🧹 " + sym + " ONLY", Foreground = Cyan, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 6) });
+            var g = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 }; sp.Children.Add(g);
+            Func<string, SolidColorBrush, string, Action, Button> add = (t, col, tip, act) => { var b = Pill(t, Tint(col, 34)); b.Foreground = col; b.BorderBrush = Tint(col, 140); b.Height = 32; b.FontSize = 11.5; b.Margin = new Thickness(0, 0, 6, 6); b.ToolTip = tip; b.Click += delegate { act(); }; g.Children.Add(b); return b; };
+            add("✕ CLOSE ALL " + sym, Red, "close every position on " + sym + " (asks first)", () => CloseAll(sym, "ALL"));
+            add("✕ BUYS", Green, "close the buys on " + sym, () => CloseAll(sym, "BUY"));
+            add("✕ SELLS", Red, "close the sells on " + sym, () => CloseAll(sym, "SELL"));
+            add("✕ IN PROFIT", Green, "close the " + sym + " positions in profit", () => CloseAll(sym, "PROFIT"));
+            add("✕ IN LOSS", Red, "close the " + sym + " positions in loss", () => CloseAll(sym, "LOSS"));
+            add("⚖ BREAKEVEN IN PROFIT", Gold, "the stop of every " + sym + " position in profit to its entry (+ the panel's points / $)", () => BreakevenAll(sym));
+            add("⏳ CANCEL " + sym + " ORDERS", Amber, "cancel the pending orders on " + sym, () => { if (Ask("Cancel every pending order on " + sym + "?")) Cmd("cancel the orders on " + sym, "CANCELALL", sym); });
+            return box;
         }
         static TextBlock Cell(string t, Brush fg, double w, bool right = false, bool bold = false) { return new TextBlock { Text = t, Foreground = fg, Width = w, FontSize = 12.5, FontFamily = new FontFamily("Consolas"), FontWeight = bold ? FontWeights.Bold : FontWeights.Normal, TextAlignment = right ? TextAlignment.Right : TextAlignment.Left, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center }; }
         Button Mini(string t, Brush fg, string tip) { var b = Pill(t, Card); b.Height = 24; b.FontSize = 11; b.Padding = new Thickness(7, 0, 7, 0); b.Margin = new Thickness(0, 0, 4, 0); b.Foreground = fg; b.ToolTip = tip; return b; }
@@ -48,10 +64,7 @@ namespace KeystoneMT5
                     var sym = g.Key; var card = new StackPanel();
                     var hdrRow = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
                     var hb = new StackPanel { Orientation = Orientation.Horizontal }; DockPanel.SetDock(hb, Dock.Right);
-                    foreach (var m in new[] { Tuple.Create("CLOSE ALL", "ALL", Red), Tuple.Create("BUYS", "BUY", Green), Tuple.Create("SELLS", "SELL", Red), Tuple.Create("PROFIT", "PROFIT", Green), Tuple.Create("LOSS", "LOSS", Red) })
-                    { var which = m.Item2; var b = Mini(m.Item1, m.Item3, "close " + m.Item1.ToLowerInvariant() + " on " + sym); b.Click += delegate { CloseAll(sym, which); }; hb.Children.Add(b); }
-                    var beS = Mini("⚖ BE", Gold, "breakeven on " + sym); beS.Click += delegate { BreakevenAll(sym); }; hb.Children.Add(beS);
-                    var chart = Mini("📈", Cyan, "open its chart"); chart.Click += delegate { SetPane(Act, sym, Act.Tf); Show("CHART"); }; hb.Children.Add(chart);
+                    var chart = Mini("📈 CHART", Cyan, "open its chart"); chart.Click += delegate { SetPane(Act, sym, Act.Tf); Show("CHART"); }; hb.Children.Add(chart);
                     hdrRow.Children.Add(hb);
                     var hdr = new TextBlock { FontSize = 15, FontWeight = FontWeights.Bold, Foreground = Text, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center }; hdrRow.Children.Add(hdr); posHeads[sym] = hdr;
                     card.Children.Add(hdrRow);
@@ -73,7 +86,10 @@ namespace KeystoneMT5
                         r.Children.Add(slB); r.Children.Add(tpB); r.Children.Add(set); r.Children.Add(bet);
                         card.Children.Add(r);
                     }
-                    posPanel.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 10), BorderBrush = Line, BorderThickness = new Thickness(1), Child = card });
+                    // this instrument's controls, to the right of its tickets: they act on this instrument only (each asks first)
+                    var row = new Grid(); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    row.Children.Add(card); var ctl = SymControls(sym); Grid.SetColumn(ctl, 1); row.Children.Add(ctl);
+                    posPanel.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 10), BorderBrush = Line, BorderThickness = new Thickness(1), Child = row });
                 }
                 if (ords.Count > 0)
                 {

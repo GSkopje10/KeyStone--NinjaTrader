@@ -674,7 +674,12 @@ namespace KeystoneMT5
             var tags = new List<TagRow>();
             foreach (var side in new[] { 1, -1 })
             {
-                var ps = mine.Where(p => p.Dir == side).ToList(); bool quiet = TicketMode == "LINES" || (TicketMode == "AUTO" && ps.Count > 10); var col = side > 0 ? BuyC : SellC;
+                var ps = mine.Where(p => p.Dir == side).ToList(); bool quiet = TicketMode == "LINES"; var col = side > 0 ? BuyC : SellC;
+                if (TicketMode != "LINES" && ps.Count >= 3)
+                {
+                    double lots = ps.Sum(p => p.Lots), avg = lots > 0 ? ps.Sum(p => p.Open * p.Lots) / lots : ps[0].Open;
+                    tags.Add(new TagRow { Y = Y(avg), Price = avg, Text = "Σ " + ps.Count + (side > 0 ? " BUYS " : " SELLS ") + lots.ToString("0.00", IC) + " lots • avg " + F(avg), Money = Money(ps.Sum(p => p.Profit + p.Swap)), Kind = "SIDE", Key = "SIDE:" + side, Col = col, Ticket = side, Dir = side });
+                }
                 foreach (var p in ps)
                 {
                     bool dragged = drag == "TICKET" && dragTicket == p.Ticket;
@@ -722,7 +727,8 @@ namespace KeystoneMT5
                 var pos = mine.FirstOrDefault(p => p.Ticket == tk); var ord = ords.FirstOrDefault(o => o.Ticket == tk);
                 hits.Add(new ChartHit { R = xr, Kind = "X", Key = "X:" + t.Key, Ticket = tk, Click = () =>
                 {
-                    if (kind == "POS" && CloseTicket != null) CloseTicket(tk, 0);
+                    if (kind == "SIDE" && CloseSide != null) CloseSide((int)tk);
+                    else if (kind == "POS" && CloseTicket != null) CloseTicket(tk, 0);
                     else if (kind == "SL" && pos != null && ModifyTicket != null) ModifyTicket(tk, 0, pos.Tp);
                     else if (kind == "TP" && pos != null && ModifyTicket != null) ModifyTicket(tk, pos.Sl, 0);
                     else if (kind == "ORD" && CancelOrder != null) CancelOrder(tk);

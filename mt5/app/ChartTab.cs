@@ -415,6 +415,7 @@ namespace KeystoneMT5
         // ---------------------------------------------------------------- every refresh: the charts
         // the MT5 server clock, running: the newest server time we were told (the bridge's clock or any instrument's last tick) moved on with this PC's clock,
         // so every countdown keeps going between ticks (it stood still — or at 0 — until the next price came)
+        TextBlock manageTitle;   // the chart panel's "🧹 MANAGE <instrument> ONLY"
         DateTime srvSeen = DateTime.MinValue; TimeSpan srvOff = TimeSpan.Zero; bool srvKnown;
         DateTime LiveServerNow(Mt5State s)
         {
@@ -445,6 +446,7 @@ namespace KeystoneMT5
                 }
             }
             string zn; var conv = ZoneConv(s, out zn); int nyOff = NyOffset(s);
+            if (manageTitle != null) manageTitle.Text = "🧹 MANAGE " + (Act.Sym == "" ? "THIS SYMBOL" : Act.Sym + " ONLY");
             // every timeframe's countdown (the selected chart's symbol)
             { Mt5Quote aq; s.Quotes.TryGetValue(Act.Sym, out aq); var sn = LiveServerNow(s); bool closed = !Sim && aq != null && sn > DateTime.MinValue && (sn - aq.Time).TotalMinutes > 3;
               foreach (var kv in tfCountdown) { if (sn == DateTime.MinValue || closed) { kv.Value.Text = closed ? "closed" : ""; continue; } var left = Tf.Left(sn, kv.Key);
@@ -712,13 +714,13 @@ namespace KeystoneMT5
             PaintPend();
             // manage
             var mc = new StackPanel(); var mcc = card(Violet); mcc.Child = mc; sp.Children.Add(mcc);
-            mc.Children.Add(new TextBlock { Text = "🧹 MANAGE THIS SYMBOL", Foreground = Violet, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 5) });
+            manageTitle = new TextBlock { Text = "🧹 MANAGE THIS SYMBOL", Foreground = Violet, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 5), TextWrapping = TextWrapping.Wrap }; mc.Children.Add(manageTitle);
             var mg = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 }; mc.Children.Add(mg);
             foreach (var m in new[] { Tuple.Create("ALL", "ALL", Red, "close every ticket of this symbol"), Tuple.Create("BUYS", "BUY", Green, "close the buys"), Tuple.Create("SELLS", "SELL", Red, "close the sells"), Tuple.Create("WINNERS", "PROFIT", Green, "close the tickets in profit"), Tuple.Create("LOSERS", "LOSS", Red, "close the tickets in loss") })
             { var which = m.Item2; var b = Pill(m.Item1, Card); b.Foreground = m.Item3; b.Height = 28; b.FontSize = 10.5; b.Padding = new Thickness(2, 0, 2, 0); b.Margin = new Thickness(0, 0, 4, 4); b.ToolTip = m.Item4; b.Click += delegate { CloseAll(Act.Sym, which); }; mg.Children.Add(b); }
             var cancel = Pill("ORDERS", Card); cancel.Foreground = Amber; cancel.Height = 28; cancel.FontSize = 10.5; cancel.Padding = new Thickness(2, 0, 2, 0); cancel.Margin = new Thickness(0, 0, 4, 4); cancel.ToolTip = "cancel the pending orders of this symbol"; cancel.Click += delegate { if (Ask("Cancel every pending order on " + Act.Sym + "?")) Cmd("cancel the orders on " + Act.Sym, "CANCELALL", Act.Sym); }; mg.Children.Add(cancel);
-            mc.Children.Add(new TextBlock { Text = "close …  (each asks first)", Foreground = Muted, FontSize = 9.5, Margin = new Thickness(0, 0, 0, 4) });
-            var everything = Pill("⛔ CLOSE EVERYTHING", Tint(Red, 220)); everything.Foreground = Sx.White; everything.Margin = new Thickness(0, 8, 0, 0); everything.Height = 34; everything.ToolTip = "every ticket on every symbol (asks first)"; everything.Click += delegate { CloseAll("", "ALL"); }; mc.Children.Add(everything);
+            var beC = Pill("⚖ BE", Card); beC.Foreground = Gold; beC.Height = 28; beC.FontSize = 10.5; beC.Padding = new Thickness(2, 0, 2, 0); beC.Margin = new Thickness(0, 0, 4, 4); beC.ToolTip = "breakeven: the stop of this symbol's tickets in profit to their entry"; beC.Click += delegate { BreakevenAll(Act.Sym); }; mg.Children.Add(beC);
+            mc.Children.Add(new TextBlock { Text = "only this chart's instrument • each asks first • every instrument at once: ⛔ CLOSE EVERYTHING in POSITIONS", Foreground = Muted, FontSize = 9.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) });
             sp.Children.Add(BuildProtect(card));
             // the answers
             var lc = new StackPanel(); var lcc = card(Line); lcc.Child = lc; sp.Children.Add(lcc);
@@ -830,7 +832,12 @@ namespace KeystoneMT5
             int n; double pl; lock (broker.State.Gate) { var ps = broker.State.Positions.Where(x => (sym == "" || string.Equals(x.Symbol, sym, StringComparison.OrdinalIgnoreCase)) && (which == "ALL" || (which == "BUY" && x.Dir > 0) || (which == "SELL" && x.Dir < 0) || (which == "PROFIT" && x.Profit + x.Swap > 0) || (which == "LOSS" && x.Profit + x.Swap < 0))).ToList(); n = ps.Count; pl = ps.Sum(x => x.Profit + x.Swap); }
             if (n == 0) { Toast("nothing to close"); return; }
             string what = "close " + n + " ticket" + (n == 1 ? "" : "s") + (which == "ALL" ? "" : " (" + (which == "PROFIT" ? "winners" : which == "LOSS" ? "losers" : which.ToLowerInvariant() + "s") + ")") + (sym == "" ? " on EVERY symbol" : " on " + sym) + " — P/L " + Signed(pl, "USD");
-            if (!Sx.Ask(this, sym == "" ? "⛔ Close everything" : "Close", what.Substring(0, 1).ToUpperInvariant() + what.Substring(1) + "?", "CLOSE", "KEEP", Red, "CLOSE " + n + " TICKET" + (n == 1 ? "" : "S"))) return;
+            if (sym == "" && which == "ALL")
+            {
+                string list; lock (broker.State.Gate) list = string.Join("\n", broker.State.Positions.GroupBy(x => x.Symbol).OrderBy(x => x.Key).Select(gq => "   • " + gq.Key + ": " + gq.Count() + " position" + (gq.Count() == 1 ? "" : "s") + ", " + gq.Sum(x => x.Lots).ToString("0.00", IC) + " lots, P/L " + Signed(gq.Sum(x => x.Profit + x.Swap), "USD")));
+                what = "close EVERY position on EVERY instrument — " + n + " ticket" + (n == 1 ? "" : "s") + ", P/L " + Signed(pl, "USD") + ":\n" + list + "\n\n(pending orders stay — cancel them on each instrument's card)";
+            }
+            if (!Sx.Ask(this, sym == "" ? "⛔ Close everything — ALL instruments" : "Close on " + sym + " only", (what.Substring(0, 1).ToUpperInvariant() + what.Substring(1) + "?").Replace(":\n", "?\n").Replace("card)?", "card)"), "CLOSE", "KEEP", Red, "CLOSE " + n + " TICKET" + (n == 1 ? "" : "S"))) return;
             Cmd(what, "CLOSEALL", sym, which);
         }
         void Log(string msg, Brush fg)
