@@ -41,7 +41,7 @@ namespace KeystoneMT5
             var g = new Grid(); g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             zoneIdx = Math.Max(0, Math.Min(Zones.Length - 1, IntOf(Get("zone", "1"), 1))); LoadMyThemes(); themeIdx = Math.Max(0, Math.Min(ChartTheme.All.Length + myThemes.Count - 1, IntOf(Get("theme", "0"), 0)));
-            { var tn = Get("themename", ""); if (tn != "") { int ix = ThemeIndexOf(tn); if (ix >= 0) themeIdx = ix; } }   // saved by name (new themes shift the numbers)
+            { var tn = Get("themename", ""); if (tn != "") { int ix = ThemeIndexOf(tn); themeIdx = ix >= 0 ? ix : 0; } } LoadCandles();   // saved by name (new themes shift the numbers)
             showGrid = Get("grid", "0") == "1"; lookUi = Get("lookui", "1") == "1"; Sx.ApplyLook(lookUi ? CurTheme() : ChartTheme.All[0]);
             drawColor = Get("drawcolor", "#FFC94D"); drawFill = Get("drawfill", ""); magnet = Get("magnet", "0") == "1"; ticketMode = Get("tickets", "AUTO"); oneClickOn = Get("oneclick", "0") == "1";
             // ---- toolbar: symbols (cyan) • timeframes (gold) • split • indicators • theme • zone • reset / full / panel
@@ -238,7 +238,34 @@ namespace KeystoneMT5
         void LoadMyThemes() { myThemes.Clear(); foreach (var t in Get("mythemes", "").Split('|')) { var th = ChartTheme.FromText(t); if (th != null) myThemes.Add(th); } }
         void SaveMyThemes() { Put("mythemes", string.Join("|", myThemes.Select(x => x.ToText()))); }
         ChartTheme ThemeAt(int i) { return i >= 0 && i < ChartTheme.All.Length ? ChartTheme.All[i] : i - ChartTheme.All.Length >= 0 && i - ChartTheme.All.Length < myThemes.Count ? myThemes[i - ChartTheme.All.Length] : ChartTheme.All[0]; }
-        ChartTheme CurTheme() { return ThemeAt(themeIdx); }
+        ChartTheme CurTheme() { return WithCandles(ThemeAt(themeIdx)); }
+        // 🕯 the candle colours of a look, chosen per look (saved by the look's name): the look keeps its background, only the candles change
+        static readonly Tuple<string, string, string, string, string, string>[] CandleSets = {   // key, name, up / down on dark, up / down on light
+            Tuple.Create("", "the look's own", "", "", "", ""),
+            Tuple.Create("MT5", "MT5 green / red", "#00C000", "#E00000", "#008A00", "#C00000"),
+            Tuple.Create("JEWEL", "emerald / ruby", "#19C37D", "#E5484D", "#0E8A5A", "#B8323A"),
+            Tuple.Create("TEAL", "teal / coral", "#26A69A", "#EF5350", "#0B7D72", "#C8372F"),
+            Tuple.Create("GOLDV", "gold / violet", "#FFC94D", "#8E6BD8", "#A87400", "#5A3FB0"),
+            Tuple.Create("GOLDS", "gold / silver", "#E8B84A", "#9AA3AE", "#9A6A00", "#5E6670"),
+            Tuple.Create("NEON", "cyan / magenta", "#00E5FF", "#FF2E97", "#0088A8", "#C0156E"),
+            Tuple.Create("ICE", "ice / fire", "#8FD3FF", "#FF6A3D", "#2A78B8", "#C2410C"),
+            Tuple.Create("LIME", "lime / pink", "#B6FF3B", "#FF3BD4", "#4E8A00", "#B0158E"),
+            Tuple.Create("MONO", "white / grey", "#F2F2F2", "#5C5F66", "#1B1B1B", "#9AA0A8"),
+            Tuple.Create("BARS", "hollow bars (MT5 classic)", "#00FF00", "#00FF00", "#000000", "#000000") };
+        Dictionary<string, string> candleOv = new Dictionary<string, string>(), candleSnap;
+        ChartTheme candleCacheSrc, candleCacheOut; string candleCacheKey;
+        ChartTheme WithCandles(ChartTheme t)
+        {
+            string key; if (t == null || !candleOv.TryGetValue(t.Name, out key) || string.IsNullOrEmpty(key)) return t;
+            if (ReferenceEquals(t, candleCacheSrc) && key == candleCacheKey) return candleCacheOut;
+            var cs = CandleSets.FirstOrDefault(x => x.Item1 == key); if (cs == null) return t;
+            bool light = t.Light || Sx.Luma(t.Bg) > 0.55; var c = t.Copy(); var up = Sx.C(light ? cs.Item5 : cs.Item3); var dn = Sx.C(light ? cs.Item6 : cs.Item4);
+            c.Up = up; c.Down = dn; c.UpWick = up; c.DownWick = dn; c.HollowUp = false; c.Bodies = false;
+            if (key == "BARS") { c.Bodies = true; c.UpBody = t.Plot; c.DownBody = light ? Sx.C("#000000") : Sx.C("#FFFFFF"); c.Edge = up; }
+            candleCacheSrc = t; candleCacheKey = key; candleCacheOut = c; return c;
+        }
+        void LoadCandles() { candleOv = new Dictionary<string, string>(); foreach (var kv in Get("candles", "").Split('|')) { int i = kv.LastIndexOf('='); if (i > 0) candleOv[kv.Substring(0, i)] = kv.Substring(i + 1); } }
+        void SaveCandles() { Put("candles", string.Join("|", candleOv.Where(x => x.Value != "").Select(x => x.Key + "=" + x.Value))); }
         List<Mi> ThemeMenu()
         {
             var l = new List<Mi> { new Mi("✨", "Looks … (preview the whole platform in every theme)", () => LooksGallery()), new Mi("⚙", "Chart settings … (colours, candles, grid, entries)", () => ChartSettings()),
@@ -248,7 +275,7 @@ namespace KeystoneMT5
             {
                 var gl = new List<Mi> { Mi.H(grp) }; bool cur = false;
                 for (int i = 0; i < ChartTheme.All.Length; i++) { if (ChartTheme.All[i].Group != grp) continue; int ii = i; var th = ChartTheme.All[i]; if (themeIdx == i) cur = true; gl.Add(new Mi { Text = th.Name, Dot = new SolidColorBrush(th.Plot), Check = themeIdx == i, Radio = true, KeepOpen = true, Do = () => SetTheme(ii) }); }
-                l.Add(Mi.Group(grp == "★ Signature" ? "★" : grp == "Gray & light" ? "◐" : grp == "◐ Soft light" ? "◒" : grp == "Cool contrasts" ? "◑" : grp == "MetaTrader" ? "Ⓜ" : grp == "Easy on the eyes" ? "☾" : grp == "Unique" ? "✦" : "S", grp + (cur ? "  ✓" : ""), gl));
+                l.Add(Mi.Group(grp == "Ⓜ MT5 Luxe" ? "Ⓜ" : grp == "✦ Neon" ? "✦" : grp == "☕ Paper & ink" ? "☕" : grp == "✧ Luxe colour" ? "✧" : grp == "★ Signature" ? "★" : grp == "Gray & light" ? "◐" : grp == "◐ Soft light" ? "◒" : grp == "Cool contrasts" ? "◑" : grp == "MetaTrader" ? "Ⓜ" : grp == "Easy on the eyes" ? "☾" : grp == "Unique" ? "✦" : "S", grp + (cur ? "  ✓" : ""), gl));
             }
             return l;
         }
@@ -362,52 +389,74 @@ namespace KeystoneMT5
         void SetGrid(bool on) { showGrid = on; Put("grid", on ? "1" : "0"); foreach (var p in panes) { p.V.ShowGrid = on; p.V.InvalidateVisual(); } }
         void SetLookUi(bool on) { lookUi = on; Put("lookui", on ? "1" : "0"); SetTheme(themeIdx, false); }
         // ✨ THE LOOKS GALLERY: every theme as a small picture of the whole platform; click one = the whole app takes it (pointing does nothing, user's request), SAVE keeps it
-        static string LookGroup(ChartTheme t) { double l = Sx.Luma(t.Bg); return t.Group == "★ Signature" ? "★ SIGNATURE" : t.Group == "◐ Soft light" ? "◐ SOFT LIGHT" : t.Light || l > 0.55 ? "LIGHTER" : l > 0.11 ? "BALANCED" : "DARKER"; }
+        static string LookGroup(ChartTheme t) { return (t.Group == "MetaTrader" ? "Ⓜ MT5" : t.Group == "Easy on the eyes" ? "☾ Easy on the eyes" : t.Group).ToUpperInvariant(); }
         // 👁 PREVIEW: the gallery folds into a small tab over the platform, so the whole interface is seen in the look; the tab opens the gallery again, ◀ ▶ step through the looks, CONFIRM keeps it and the tab goes
         int lookBefore = -1; Border lookTab; TextBlock lookTabName; string lookFilter = "ALL"; List<int> lookList = new List<int>();
+        void CommitLook(int k) { EndLookPreview(); candleSnap = null; SaveCandles(); candleCacheSrc = null; SetTheme(k, true); Toast("🎨 " + CurTheme().Name); }
+        void RevertLook(int k) { EndLookPreview(); if (candleSnap != null) candleOv = candleSnap; candleSnap = null; candleCacheSrc = null; SetTheme(k, false); }
         void LooksGallery()
         {
-            int before = lookBefore >= 0 ? lookBefore : themeIdx, chosen = themeIdx; string filter = lookFilter; bool preview = false;
+            int before = lookBefore >= 0 ? lookBefore : themeIdx, chosen = themeIdx, inUse = before; bool preview = false;
+            if (candleSnap == null) candleSnap = new Dictionary<string, string>(candleOv);
+            var groups = new List<string> { "ALL" }; groups.AddRange(ChartTheme.All.Select(x => x.Group).Distinct()); if (myThemes.Count > 0) groups.Add("Mine");
+            Func<int, string> groupOf = ix => ix >= ChartTheme.All.Length ? "Mine" : ChartTheme.All[ix].Group;
+            string filter = lookFilter; if (!groups.Contains(filter) || (filter != "ALL" && filter != groupOf(chosen))) filter = "ALL";   // opens on the look in use
             var root = new StackPanel { MinWidth = 1000 };
-            var top = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; root.Children.Add(top);
-            var filters = new[] { "ALL", "★ SIGNATURE", "◐ SOFT LIGHT", "LIGHTER", "BALANCED", "DARKER", "MetaTrader", "Mine" }; var fbtns = new List<Button>();
-            var note = new TextBlock { Foreground = Muted, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap, Text = "click a look: the whole platform takes it • 👁 PREVIEW folds this window into a small tab so you see the whole platform in it • SAVE keeps it, CANCEL goes back" }; root.Children.Add(note);
-            var wrap = new WrapPanel(); var sv = new ScrollViewer { Content = wrap, MaxHeight = 560, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; root.Children.Add(sv);
+            var top = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; root.Children.Add(top); var fbtns = new List<Button>();
+            var note = new TextBlock { Foreground = Muted, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap, Text = "click a look: the whole platform takes it • 🕯 CANDLES below change its candle colours • 👁 PREVIEW folds this window into a small tab so you see the whole platform • SAVE keeps it, CANCEL goes back" }; root.Children.Add(note);
+            var wrap = new WrapPanel(); var sv = new ScrollViewer { Content = wrap, MaxHeight = 500, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; root.Children.Add(sv);
+            // 🕯 the candle colours of the chosen look
+            var candleRow = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) }; root.Children.Add(candleRow);
             var opts = new DockPanel { Margin = new Thickness(0, 10, 0, 0), LastChildFill = false }; root.Children.Add(opts);
             var gridChk = new CheckBox { Content = "Grid squares in the background", IsChecked = showGrid, Foreground = Text, Margin = new Thickness(0, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center }; gridChk.Click += delegate { SetGrid(gridChk.IsChecked == true); }; opts.Children.Add(gridChk);
             var uiChk = new CheckBox { Content = "The whole interface follows the look (not only the chart)", IsChecked = lookUi, Foreground = Text, VerticalAlignment = VerticalAlignment.Center }; uiChk.Click += delegate { SetLookUi(uiChk.IsChecked == true); }; opts.Children.Add(uiChk);
             Action goPreview = () => { preview = true; var w0 = Window.GetWindow(root); if (w0 != null) w0.Close(); };
             var pvBtn = Pill("👁 PREVIEW THE CHOSEN LOOK", Tint(Cyan, 70)); pvBtn.Height = 32; pvBtn.Padding = new Thickness(14, 0, 14, 0); pvBtn.ToolTip = "the gallery folds into a small tab: see the whole platform in the look, open the tab to try another, CONFIRM keeps it"; pvBtn.Click += delegate { goPreview(); };
             DockPanel.SetDock(pvBtn, Dock.Right); opts.Children.Add(pvBtn);
-            Action build = null;
+            Action build = null; Action buildCandles = null; Border chosenCard = null;
+            buildCandles = () =>
+            {
+                candleRow.Children.Clear(); var th = ThemeAt(chosen); string cur; candleOv.TryGetValue(th.Name, out cur); cur = cur ?? "";
+                candleRow.Children.Add(new TextBlock { Text = "🕯 CANDLES of " + th.Name + ":", Foreground = Gold, FontWeight = FontWeights.Bold, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) });
+                foreach (var cs in CandleSets)
+                {
+                    string key = cs.Item1; var saved = candleOv.ContainsKey(th.Name) ? candleOv[th.Name] : null; candleOv[th.Name] = key; candleCacheSrc = null; var look = WithCandles(th); if (saved == null) candleOv.Remove(th.Name); else candleOv[th.Name] = saved; candleCacheSrc = null;
+                    var mc = new Canvas { Width = 40, Height = 30, ClipToBounds = true, Background = new SolidColorBrush(look.Plot) }; MiniChart(mc, look, 4, 9, 5, 1); foreach (UIElement e in mc.Children) { Canvas.SetLeft(e, Canvas.GetLeft(e) - 8); Canvas.SetTop(e, Canvas.GetTop(e) - 6); }
+                    var st = new StackPanel { Orientation = Orientation.Horizontal }; st.Children.Add(new Border { Child = mc, CornerRadius = new CornerRadius(4), ClipToBounds = true, Margin = new Thickness(0, 0, 6, 0) }); st.Children.Add(new TextBlock { Text = cs.Item2, Foreground = Text, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+                    var b = Pill("", key == cur ? Tint(Gold, 90) : (Brush)Card); b.Content = st; b.Height = 38; b.Padding = new Thickness(4, 0, 10, 0); b.Margin = new Thickness(0, 0, 6, 6); if (key == cur) b.BorderBrush = Gold;
+                    b.Click += delegate { if (key == "") candleOv.Remove(th.Name); else candleOv[th.Name] = key; candleCacheSrc = null; SetTheme(chosen, false); build(); };
+                    candleRow.Children.Add(b);
+                }
+            };
             build = () =>
             {
-                wrap.Children.Clear(); for (int q = 0; q < fbtns.Count; q++) { fbtns[q].Background = filters[q] == filter ? (Brush)Tint(Gold, 90) : Card; }
-                var all = ChartTheme.All.Select((t, k) => Tuple.Create(t, k)).Concat(myThemes.Select((t, k) => Tuple.Create(t, ChartTheme.All.Length + k))).ToList();
-                lookList = new List<int>();
-                foreach (var it in all)
+                wrap.Children.Clear(); for (int q = 0; q < fbtns.Count; q++) { fbtns[q].Background = groups[q] == filter ? (Brush)Tint(Gold, 90) : Card; }
+                lookList = new List<int>(); chosenCard = null;
+                for (int ix = 0; ix < ChartTheme.All.Length + myThemes.Count; ix++)
                 {
-                    var th = it.Item1; int ix = it.Item2; string g = it.Item2 >= ChartTheme.All.Length ? "Mine" : th.Group == "MetaTrader" ? "MetaTrader" : LookGroup(th);
-                    if (filter != "ALL" && filter != g && !(filter == "★ SIGNATURE" && th.Group == "★ Signature") && !(filter == LookGroup(th) && g != "Mine") && !(filter == "LIGHTER" && g == "◐ SOFT LIGHT")) continue;
-                    lookList.Add(ix);
-                    var card = LookCard(th, ix == chosen); int ii = ix;
+                    if (filter != "ALL" && groupOf(ix) != filter) continue;
+                    lookList.Add(ix); var th = WithCandles(ThemeAt(ix)); var card = LookCard(th, ix == chosen); int ii = ix;
+                    if (ix == inUse) ((Grid)card.Child).Children.Add(new Border { Background = Gold, CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(0, 6, 6, 0), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Child = new TextBlock { Text = "✓ IN USE", FontSize = 9, FontWeight = FontWeights.Bold, Foreground = Bg } });
                     if (ix == chosen)
                     {
+                        chosenCard = card;
                         var pb = Pill("👁 PREVIEW", Tint(Cyan, 200)); pb.Height = 26; pb.FontSize = 11; pb.Padding = new Thickness(10, 0, 10, 0); pb.HorizontalAlignment = HorizontalAlignment.Center; pb.VerticalAlignment = VerticalAlignment.Center; pb.ToolTip = "see the whole platform in " + th.Name;
                         pb.Click += delegate { goPreview(); }; ((Grid)card.Child).Children.Add(pb);
                     }
                     card.MouseLeftButtonUp += delegate { chosen = ii; SetTheme(ii, false); build(); };
                     wrap.Children.Add(card);
                 }
+                buildCandles();
             };
-            for (int q = 0; q < filters.Length; q++) { var f0 = filters[q]; var b = Pill(f0 == "ALL" ? "ALL LOOKS" : f0, Card); b.Click += delegate { filter = f0; build(); }; top.Children.Add(b); fbtns.Add(b); }
+            for (int q = 0; q < groups.Count; q++) { var f0 = groups[q]; var b = Pill(f0 == "ALL" ? "ALL LOOKS" : f0 == "Mine" ? "★ MINE" : LookGroup(ChartTheme.All.First(x => x.Group == f0)), Card); b.Click += delegate { filter = f0; build(); }; top.Children.Add(b); fbtns.Add(b); }
             build();
-            bool ok = Sx.Form(this, "✨ Looks", "the whole platform in every theme • signature, soft light, lighter, balanced, darker", root, "SAVE", "CANCEL", Gold);
+            sv.Loaded += delegate { Dispatcher.BeginInvoke(new Action(() => { if (chosenCard != null) chosenCard.BringIntoView(); }), System.Windows.Threading.DispatcherPriority.Background); };   // opens on the look in use
+            bool ok = Sx.Form(this, "✨ Looks", "every look on the whole platform • MT5 luxe, neon, paper & ink, easy on the eyes, luxe colour • the candles of each one can change", root, "SAVE", "CANCEL", Gold);
             lookFilter = filter;
-            if (ok) { EndLookPreview(); SetTheme(chosen, true); Toast("🎨 " + CurTheme().Name); return; }
+            if (ok) { CommitLook(chosen); return; }
             if (preview) { lookBefore = before; SetTheme(chosen, false); ShowLookTab(); return; }
             if (lookBefore >= 0) { SetTheme(chosen, false); ShowLookTab(); return; }   // closed while previewing: the tab stays on the chosen look
-            SetTheme(before, false);
+            RevertLook(before);
         }
         void ShowLookTab()
         {
@@ -421,8 +470,8 @@ namespace KeystoneMT5
                 var nameBtn = btn("", Card, "open the looks again to preview another", () => LooksGallery()); nameBtn.Content = lookTabName; sp.Children.Add(nameBtn);
                 sp.Children.Add(btn("▶", Card, "the next look", () => StepLook(1)));
                 sp.Children.Add(btn("✨ LOOKS", Card, "open the looks again to preview another", () => LooksGallery()));
-                var ok = btn("✓ CONFIRM", Gold, "keep this look (the tab goes)", () => { int k = themeIdx; EndLookPreview(); SetTheme(k, true); Toast("🎨 " + CurTheme().Name); }); ok.Foreground = Bg; sp.Children.Add(ok);
-                sp.Children.Add(btn("✕", Card, "cancel: back to the look you had", () => { int k = lookBefore; EndLookPreview(); SetTheme(k, false); }));
+                var ok = btn("✓ CONFIRM", Gold, "keep this look and its candles (the tab goes)", () => CommitLook(themeIdx)); ok.Foreground = Bg; sp.Children.Add(ok);
+                sp.Children.Add(btn("✕", Card, "cancel: back to the look you had", () => RevertLook(lookBefore)));
                 lookTab = new Border { Child = sp, Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1.6), CornerRadius = new CornerRadius(14), Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(0, 0, 0, 14), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom,
                     Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = Colors.Black, BlurRadius = 22, ShadowDepth = 0, Opacity = 0.45 } };
                 System.Windows.Controls.Panel.SetZIndex(lookTab, 900); Grid.SetRow(lookTab, 1); rootGrid.Children.Add(lookTab);
