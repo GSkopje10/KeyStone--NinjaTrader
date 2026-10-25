@@ -568,6 +568,8 @@ namespace KeystoneMT5
                 l.Add(new Mi { Icon = below ? "▲" : "▼", Fg = below ? Green : Red, Text = (below ? "BUY LIMIT" : "SELL LIMIT") + " here @ " + px.ToString(f, IC) + " …", Do = () => PendingAsk(p.Sym, below ? "BUY LIMIT" : "SELL LIMIT", px) });
                 l.Add(new Mi { Icon = below ? "▼" : "▲", Fg = below ? Red : Green, Text = (below ? "SELL STOP" : "BUY STOP") + " here @ " + px.ToString(f, IC) + " …", Do = () => PendingAsk(p.Sym, below ? "SELL STOP" : "BUY STOP", px) });
                 l.Add(Mi.S());
+                // this price as the stop or the target of every sell / buy of this symbol at once (asks first)
+                var bulk = LevelForAll(p.Sym, px, v); if (bulk.Count > 0) { l.AddRange(bulk); l.Add(Mi.S()); }
             }
             var tfl = new List<Mi>(); foreach (var m in Tf.All) { int mm = m; tfl.Add(new Mi { Text = Tf.Name(m), Check = m == p.Tf, Radio = true, Do = () => SetPane(p, p.Sym, mm) }); } l.Add(Mi.Group("⏱", "Timeframe", tfl));
             var drl = new List<Mi> { Mi.H("drawing tools") }; foreach (var t in toolBtns.Where(x => x.Item1 != "")) { var key = t.Item1; drl.Add(new Mi(t.Item2.Content as string, ChartView.ToolName(key).Substring(0, 1) + ChartView.ToolName(key).Substring(1).ToLowerInvariant(), () => { v.Tool = key; v.Focus(); PaintRail(); v.InvalidateVisual(); })); }
@@ -793,6 +795,38 @@ namespace KeystoneMT5
             armed = on; Toast(on ? "🟢 ARMED with one click — BUY / SELL now go to MT5 at once (DISARM to stop)" : "🔒 DISARMED" + (why != null ? " — " + why : ""));
         }
         bool Ask(string msg) { return Sx.Ask(this, "SpasiX", msg); }
+        // the right-click price as S/L or T/P for a whole side of one symbol: a stop above the ask for the sells / under the bid for the buys
+        // (the ones opened beyond it lock a profit: breakeven or better), a target on the other side; MT5 refuses a level on the wrong side
+        List<Mi> LevelForAll(string sym, double px, ChartView v)
+        {
+            var l = new List<Mi>(); List<Mt5Position> ps; double tv = 1, ts = v.Point > 0 ? v.Point : 0.01; string f = "F" + v.Digits;
+            lock (broker.State.Gate) { ps = broker.State.Positions.Where(x => string.Equals(x.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); Mt5Symbol sy; if (broker.State.Symbols.TryGetValue(sym, out sy)) { tv = sy.TickValue > 0 ? sy.TickValue : 1; ts = sy.TickSize > 0 ? sy.TickSize : ts; } }
+            Func<Mt5Position, double> atPx = x => (px - x.Open) * x.Dir / ts * tv * x.Lots;   // what the ticket makes if closed at px
+            foreach (var side in new[] { -1, 1 })
+            {
+                var all = ps.Where(x => x.Dir == side).ToList(); if (all.Count == 0) continue;
+                string nm = side < 0 ? "sell" : "buy"; bool stopOk = side < 0 ? px > v.Ask : px < v.Bid, tpOk = side < 0 ? px < v.Bid : px > v.Ask;
+                if (stopOk)
+                {
+                    var locked = all.Where(x => atPx(x) >= 0).ToList();
+                    l.Add(new Mi { Icon = "🛡", Fg = side < 0 ? Red : Green, Text = "S/L for all " + all.Count + " " + nm + (all.Count == 1 ? "" : "s") + " @ " + px.ToString(f, IC) + " …", Hint = locked.Count + " in profit there", Do = () => LevelAsk(sym, all, px, true, atPx, f) });
+                    if (locked.Count > 0 && locked.Count < all.Count)
+                        l.Add(new Mi { Icon = "🔒", Fg = Gold, Text = "S/L @ " + px.ToString(f, IC) + " only for the " + locked.Count + " " + nm + (locked.Count == 1 ? "" : "s") + " it locks in profit …", Hint = "breakeven or better", Do = () => LevelAsk(sym, locked, px, true, atPx, f) });
+                }
+                if (tpOk) l.Add(new Mi { Icon = "🎯", Fg = side < 0 ? Red : Green, Text = "T/P for all " + all.Count + " " + nm + (all.Count == 1 ? "" : "s") + " @ " + px.ToString(f, IC) + " …", Do = () => LevelAsk(sym, all, px, false, atPx, f) });
+            }
+            return l;
+        }
+        void LevelAsk(string sym, List<Mt5Position> list, double px, bool stop, Func<Mt5Position, double> atPx, string f)
+        {
+            double sum = list.Sum(atPx); int inProfit = list.Count(x => atPx(x) >= 0); string side = list[0].Dir < 0 ? "sell" : "buy";
+            string text = (stop ? "Set the STOP LOSS of " : "Set the TAKE PROFIT of ") + list.Count + " " + side + (list.Count == 1 ? "" : "s") + " on " + sym + " to " + px.ToString(f, IC) + "?\n\n"
+                + (stop ? inProfit + " of them close in profit (or at breakeven) if it is hit, " + (list.Count - inProfit) + " at a loss.\n" : "")
+                + "If every one closes there: " + Signed(sum, "USD") + ".\nTheir " + (stop ? "targets" : "stops") + " stay as they are.";
+            if (!Sx.Ask(this, stop ? "🛡 Stop loss for every " + side : "🎯 Take profit for every " + side, text, "SET " + list.Count, "CANCEL", stop ? Gold : Green)) return;
+            int n = 0; foreach (var x in list) if (Cmd((stop ? "S/L " : "T/P ") + px.ToString(f, IC) + " on #" + x.Ticket, "MODIFY", x.Ticket, stop ? px : x.Sl, stop ? x.Tp : px)) n++; else break;
+            if (n > 0) Toast((stop ? "🛡 S/L " : "🎯 T/P ") + px.ToString(f, IC) + " sent for " + n + " " + side + (n == 1 ? "" : "s") + " on " + sym);
+        }
         void Toast(string msg)
         {
             if (toastBox == null) return;

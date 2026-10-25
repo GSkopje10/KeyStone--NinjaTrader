@@ -60,6 +60,10 @@ def reader():
                     out.append("D|%d|%d|XAUUSD|%s|IN|0.10|%.2f|0.00|-0.35|0.00|%d|0||" % (tk, t0 + 3600*(8+j), side, op, tk))
                     out.append("D|%d|%d|XAUUSD|%s|OUT|0.10|%.2f|%.2f|-0.35|0.00|%d|0|%s|" % (tk+1, t0 + 3600*(8+j) + 1800, "SELL" if side == "BUY" else "BUY", op + pl/10, pl, tk, r.choice(["TP", "SL", "DESKTOP"])))
             send("DEALS|%s|%s|%d\n" % (a[1], a[2], len(out)) + "\n".join(out) + "\nDEALEND")
+        elif a[0] == "MODIFY" and len(a) >= 5:   # a ticket's new S/L / T/P is applied, like MT5
+            for i, q in enumerate(pos):
+                if str(q[0]) == a[2]: pos[i] = (q[0], q[1], q[2], q[3], q[4], float(a[3]), float(a[4]))
+            send("RES|%s|OK|10009|MODIFY: done|1" % a[1])
         elif a[0] in ("ORDER", "CLOSE", "CLOSEALL", "MODIFY", "MODORD", "CANCEL", "CANCELALL", "BE"):
             send("RES|%s|OK|10009|%s: done|1" % (a[1], a[0]))
 T0 = int(time.time())
