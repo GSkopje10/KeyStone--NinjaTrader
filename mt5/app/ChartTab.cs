@@ -46,6 +46,13 @@ namespace KeystoneMT5
             var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) }; Grid.SetRow(bar, 0); Grid.SetColumnSpan(bar, 3); g.Children.Add(bar);
             symChips = new WrapPanel { VerticalAlignment = VerticalAlignment.Center }; bar.Children.Add(symChips);
             if (!Sim) { var addSym = Pill("+", Tint(Cyan, 60)); addSym.ToolTip = "add an instrument (every symbol of your broker)"; addSym.Click += delegate { PickSymbol(); }; bar.Children.Add(addSym); }
+            // the spread of the chart's instrument, live (points, like MT5's popup prices), next to the instruments: green = normal, gold = wider than usual, red = very wide
+            spreadCells = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var spCap = new TextBlock { Text = "SPREAD", Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), LineHeight = 11 };
+            var spRow = new StackPanel { Orientation = Orientation.Horizontal }; spRow.Children.Add(spCap); spRow.Children.Add(spreadCells);
+            spreadStrip = new Border { Child = spRow, Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 3, 8, 3), Margin = new Thickness(2, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = "the spread now (ask − bid, in points) of the chart's instrument • green = at its usual, gold = 1.5× its usual, red = 2.5× its usual (wait before entering) • SPREADS opens the history" };
+            bar.Children.Add(spreadStrip);
+
             bar.Children.Add(Sep());
             foreach (var m in Tf.All)
             {
@@ -79,12 +86,6 @@ namespace KeystoneMT5
             var spl = new StackPanel(); spl.Children.Add(symPlCap); spl.Children.Add(symPlVal); var sph = new StackPanel { Orientation = Orientation.Horizontal }; sph.Children.Add(spl); sph.Children.Add(symBuy.Item1); sph.Children.Add(symSell.Item1); sph.Children.Add(symHedge.Item1); sph.Children.Add(symPlInfo);
             symPlBox = new Border { Child = sph, Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.8), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 2, 12, 3), Margin = new Thickness(4, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, MinWidth = 260, ToolTip = "the P/L of this instrument only (its open tickets)" };
             bar.Children.Add(symPlBox);
-            // the spread of every instrument on the list, live (points, like MT5's popup prices): green = normal, gold = wider than usual, red = very wide
-            spreadCells = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            var spCap = new TextBlock { Text = "SPREAD\npoints", Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), LineHeight = 11 };
-            var spRow = new StackPanel { Orientation = Orientation.Horizontal }; spRow.Children.Add(spCap); spRow.Children.Add(spreadCells);
-            spreadStrip = new Border { Child = spRow, Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 3, 8, 3), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = "the spread now (ask − bid, in points) of every instrument on the list • green = at its usual, gold = 1.5× its usual, red = 2.5× its usual (wait before entering) • SPREADS opens the history" };
-            bar.Children.Add(spreadStrip);
             // ---- the replay bar (backtest)
             if (Sim) { var rb = BuildReplayBar(); Grid.SetRow(rb, 1); Grid.SetColumnSpan(rb, 3); g.Children.Add(rb); }
             // ---- the drawing rail
@@ -141,10 +142,25 @@ namespace KeystoneMT5
             return b;
         }
         void ToggleSpreads() { bool on = spreadPanel.Visibility != Visibility.Visible; spreadPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed; Put("spreads", on ? "1" : "0"); if (on) spreadAt = DateTime.MinValue; }
+        // the instrument chips: their order (dragged) and the removed ones, saved
+        string symDragSig = "";
+        List<string> SymList(string key) { return Get(key, "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).ToList(); }
+        void MoveSym(string from, string to, bool after)
+        {
+            var l = listSyms.ToList(); l.RemoveAll(x => string.Equals(x, from, StringComparison.OrdinalIgnoreCase)); int ix = l.FindIndex(x => string.Equals(x, to, StringComparison.OrdinalIgnoreCase)); if (ix < 0) return;
+            l.Insert(after ? ix + 1 : ix, from); Put("symorder", string.Join(",", l)); symDragSig = string.Join(",", l); symSig = "";
+        }
+        void HideSym(string sym, bool hasPos)
+        {
+            if (hasPos && !Sx.Ask(this, "Remove " + sym, sym + " has open tickets. They stay open in MT5 (POSITIONS still shows them). Remove " + sym + " from the instrument list?", "REMOVE", "KEEP", Gold)) return;
+            var h = SymList("symhide"); if (!h.Contains(sym, StringComparer.OrdinalIgnoreCase)) h.Add(sym); Put("symhide", string.Join(",", h));
+            var w = SymList("watch"); w.RemoveAll(x => string.Equals(x, sym, StringComparison.OrdinalIgnoreCase)); Put("watch", string.Join(",", w));
+            symDragSig = "hide:" + string.Join(",", h); symSig = ""; Toast("✕ " + sym + " removed from the list • + adds it back");
+        }
         Border spreadStrip; StackPanel spreadCells; string spreadStripSig = ""; List<string> listSyms = new List<string>();
         void FillSpreadStrip(Mt5State s)
         {
-            if (spreadCells == null) return; var syms = listSyms.Where(x => s.Quotes.ContainsKey(x)).ToList();
+            if (spreadCells == null) return; var syms = new List<string> { Act.Sym }.Where(x => x != "" && s.Quotes.ContainsKey(x)).ToList();
             var cells = new List<Tuple<string, int, SolidColorBrush>>();
             foreach (var sym in syms)
             {
@@ -481,15 +497,35 @@ namespace KeystoneMT5
             var syms = Sim ? s.Symbols.Keys.ToList() : mine.Concat(added).Concat(s.Quotes.Keys.OrderBy(k => k).Take(8)).Distinct(StringComparer.OrdinalIgnoreCase).Take(16).ToList();
             foreach (var p in panes.Take(split)) if (p.Sym == "" || !s.Quotes.ContainsKey(p.Sym)) { var first = mine.FirstOrDefault() ?? s.Quotes.Keys.FirstOrDefault(k => k.StartsWith("XAU", StringComparison.OrdinalIgnoreCase)) ?? syms.FirstOrDefault(); if (first != null && s.Quotes.ContainsKey(first) && p.Sym != first) SetPane(p, first, p.Tf); }
             Func<string, double> plOf = sy => s.Positions.Where(x => string.Equals(x.Symbol, sy, StringComparison.OrdinalIgnoreCase)).Sum(x => x.Profit + x.Swap);
+            if (!Sim)
+            {
+                var hidden = SymList("symhide"); var order = SymList("symorder");
+                syms = syms.Where(x => !hidden.Contains(x, StringComparer.OrdinalIgnoreCase)).ToList();
+                syms = syms.Select((x, k) => Tuple.Create(x, k)).OrderBy(t => { int ix = order.FindIndex(o => string.Equals(o, t.Item1, StringComparison.OrdinalIgnoreCase)); return ix < 0 ? 1000 + t.Item2 : ix; }).Select(t => t.Item1).ToList();
+                foreach (var p in panes.Take(split)) if (p.Sym != "" && hidden.Contains(p.Sym, StringComparer.OrdinalIgnoreCase) && syms.Count > 0) SetPane(p, syms[0], p.Tf);
+            }
             listSyms = syms;
-            string sig = string.Join(",", syms) + "|" + Act.Sym + "|" + string.Join(",", mine) + "|" + string.Join(",", mine.Select(m => Math.Round(plOf(m)).ToString(IC)));
+            string sig = string.Join(",", syms) + "|" + Act.Sym + "|" + symDragSig + "|" + string.Join(",", mine) + "|" + string.Join(",", mine.Select(m => Math.Round(plOf(m)).ToString(IC)));
             if (sig != symSig)
             {
                 symSig = sig; symChips.Children.Clear();
                 foreach (var sy in syms)
                 {
                     var s0 = sy; bool on = string.Equals(sy, Act.Sym, StringComparison.OrdinalIgnoreCase); bool hasPos = mine.Contains(sy, StringComparer.OrdinalIgnoreCase);
-                    double cpl = hasPos ? plOf(sy) : 0; var b = Pill((hasPos ? "● " : "") + sy + (hasPos ? "  " + (cpl >= 0 ? "+" : "−") + "$" + Math.Abs(cpl).ToString("N0", IC) : ""), on ? (Brush)Tint(Cyan, 200) : Card); b.Padding = new Thickness(10, 0, 10, 0); b.Foreground = on ? Bg : Cyan; b.BorderBrush = on ? Cyan : Tint(Cyan, 90); b.Click += delegate { SetPane(Act, s0, Act.Tf); };
+                    double cpl = hasPos ? plOf(sy) : 0; var b = Pill("", on ? (Brush)Tint(Cyan, 200) : Card); b.Padding = new Thickness(10, 0, 4, 0); b.Foreground = on ? Bg : Cyan; b.BorderBrush = on ? Cyan : Tint(Cyan, 90); b.Click += delegate { SetPane(Act, s0, Act.Tf); };
+                    // drag a chip onto another to change the order • ✕ removes the instrument from the list (+ brings it back)
+                    var lab = new TextBlock { Text = (hasPos ? "● " : "") + sy + (hasPos ? "  " + (cpl >= 0 ? "+" : "−") + "$" + Math.Abs(cpl).ToString("N0", IC) : ""), VerticalAlignment = VerticalAlignment.Center };
+                    var xb = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(9), Margin = new Thickness(7, 0, 0, 0), Background = Brushes.Transparent, Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, ToolTip = "remove " + sy + " from the list (+ adds it back)", Child = new TextBlock { Text = "✕", FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = on ? Bg : Muted } };
+                    xb.MouseEnter += delegate { xb.Background = Tint(Red, 200); ((TextBlock)xb.Child).Foreground = Sx.White; }; xb.MouseLeave += delegate { xb.Background = Brushes.Transparent; ((TextBlock)xb.Child).Foreground = on ? Bg : Muted; };
+                    xb.MouseLeftButtonDown += (o, e) => { e.Handled = true; HideSym(s0, hasPos); };
+                    var cp = new StackPanel { Orientation = Orientation.Horizontal }; cp.Children.Add(lab); cp.Children.Add(xb); b.Content = cp;
+                    Point? down = null; b.AllowDrop = true;
+                    b.PreviewMouseLeftButtonDown += (o, e) => { down = e.GetPosition(symChips); };
+                    b.PreviewMouseMove += (o, e) => { if (down == null || e.LeftButton != MouseButtonState.Pressed) return; var pt = e.GetPosition(symChips); if (Math.Abs(pt.X - down.Value.X) + Math.Abs(pt.Y - down.Value.Y) < 8) return; down = null; b.Opacity = 0.5; DragDrop.DoDragDrop(b, new DataObject("spx-sym", s0), DragDropEffects.Move); b.Opacity = 1; };
+                    b.PreviewMouseLeftButtonUp += delegate { down = null; };
+                    b.DragOver += (o, e) => { e.Effects = e.Data.GetDataPresent("spx-sym") ? DragDropEffects.Move : DragDropEffects.None; b.BorderBrush = Gold; e.Handled = true; };
+                    b.DragLeave += delegate { b.BorderBrush = on ? Cyan : Tint(Cyan, 90); };
+                    b.Drop += (o, e) => { var from = e.Data.GetData("spx-sym") as string; b.BorderBrush = on ? Cyan : Tint(Cyan, 90); if (from == null || from == s0) return; MoveSym(from, s0, e.GetPosition(b).X > b.ActualWidth / 2); e.Handled = true; };
                     b.ToolTip = hasPos ? "you have tickets on " + sy + " • P/L " + Signed(cpl, s.Account.Currency) : sy; if (hasPos && !on) b.Foreground = cpl >= 0 ? Green : Red; symChips.Children.Add(b);
                 }
             }
@@ -706,7 +742,7 @@ namespace KeystoneMT5
             Action add = () =>
             {
                 var sy = list.SelectedItem as string; if (sy == null) return; broker.Send("WATCH|" + sy);
-                var added = Get("watch", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).ToList(); if (!added.Contains(sy)) { added.Add(sy); Put("watch", string.Join(",", added)); }
+                var added = Get("watch", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).ToList(); if (!added.Contains(sy)) { added.Add(sy); Put("watch", string.Join(",", added)); } var hid = SymList("symhide"); if (hid.RemoveAll(x => string.Equals(x, sy, StringComparison.OrdinalIgnoreCase)) > 0) { Put("symhide", string.Join(",", hid)); symDragSig = "show:" + sy; symSig = ""; }
                 SetPane(Act, sy, Act.Tf); w.Close();
             };
             list.MouseDoubleClick += delegate { add(); }; box.KeyDown += (s, e) => { if (e.Key == Key.Enter) add(); else if (e.Key == Key.Down && list.Items.Count > 0) { list.SelectedIndex = Math.Min(list.Items.Count - 1, list.SelectedIndex + 1); list.ScrollIntoView(list.SelectedItem); } else if (e.Key == Key.Up && list.SelectedIndex > 0) { list.SelectedIndex--; list.ScrollIntoView(list.SelectedItem); } };

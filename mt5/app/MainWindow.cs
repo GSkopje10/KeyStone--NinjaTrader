@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-27k";
+        public const string Build = "SpasiX • BUILD 2026-10-27l";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -38,7 +38,7 @@ namespace KeystoneMT5
         FrameworkElement headerEl, tabBarEl; Grid rootGrid;
         TextBlock connText, acLogin, acName, acRest, modeText; Border connPill, acPrivate, modeBadge; readonly Dictionary<string, Tuple<TextBlock, TextBlock, Border>> cards = new Dictionary<string, Tuple<TextBlock, TextBlock, Border>>();
         StackPanel clockRow; readonly List<Tuple<string, TextBlock, TextBlock, Border, string>> clocks = new List<Tuple<string, TextBlock, TextBlock, Border, string>>();
-        Border eqFill, modeBanner; TextBlock modeBannerText; DropShadowEffect plGlow; int plSign = 9; StackPanel setupSteps; TextBlock setupStatus; Button streamBtn;
+        Border eqFill, modeBanner; TextBlock modeBannerText; DropShadowEffect plGlow, eqGlow; int plSign = 9, eqSign = 9; StackPanel setupSteps; TextBlock setupStatus; Button streamBtn;
 
         // the app's own settings (%AppData%\SpasiX\MT5\settings.txt) and drawings (drawings.txt)
         public static string Dir { get { return DataDir.Root; } }   // F:\SpasiX\MT5 when there is an F: drive (DataDir.cs)
@@ -178,15 +178,16 @@ namespace KeystoneMT5
             var row = new WrapPanel(); mid.Children.Add(row);
             foreach (var k in new[] { "OPEN P/L", "BALANCE", "EQUITY", "TODAY", "MARGIN LEVEL", "FREE MARGIN" })
             {
-                bool big = k == "OPEN P/L";
-                var cap = new TextBlock { Text = k == "MARGIN LEVEL" ? "MARGIN" : k, Foreground = big ? Gold : Muted, FontSize = big ? 10.5 : 9.5, FontWeight = FontWeights.Bold };
-                var val = new TextBlock { Text = "—", Foreground = Text, FontSize = big ? 24 : 17, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
+                bool big = k == "OPEN P/L", eq = k == "EQUITY";   // the two numbers that matter most stand out: a coloured, pulsing border
+                var cap = new TextBlock { Text = k == "MARGIN LEVEL" ? "MARGIN" : k, Foreground = big || eq ? Gold : Muted, FontSize = big || eq ? 10.5 : 9.5, FontWeight = FontWeights.Bold };
+                var val = new TextBlock { Text = "—", Foreground = Text, FontSize = big ? 27 : eq ? 22 : 17, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
                 var sp = new StackPanel(); sp.Children.Add(cap); sp.Children.Add(val);
                 if (k == "EQUITY") { var track = new Grid { Height = 4, Width = 108, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 3, 0, 0) }; track.Children.Add(new Border { CornerRadius = new CornerRadius(2), Background = Line }); eqFill = new Border { CornerRadius = new CornerRadius(2), Background = Green, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 }; track.Children.Add(eqFill); sp.Children.Add(track); }
-                var bd = new Border { Background = big ? new LinearGradientBrush(Sx.C("#1A2338"), Sx.C("#101726"), 90) : (Brush)Card, CornerRadius = new CornerRadius(big ? 12 : 10), Padding = big ? new Thickness(12, 3, 14, 4) : new Thickness(10, 4, 10, 5), Margin = new Thickness(0, 0, big ? 10 : 7, 0), MinWidth = big ? 170 : 108, BorderBrush = Line, BorderThickness = new Thickness(big ? 2.2 : 1), Child = sp };
+                var bd = new Border { Background = big || eq ? new LinearGradientBrush(Sx.C("#1A2338"), Sx.C("#101726"), 90) : (Brush)Card, CornerRadius = new CornerRadius(big || eq ? 12 : 10), Padding = big || eq ? new Thickness(12, 3, 14, 4) : new Thickness(10, 4, 10, 5), Margin = new Thickness(0, 0, big || eq ? 10 : 7, 0), MinWidth = big ? 190 : eq ? 160 : 108, BorderBrush = eq ? Cyan : Line, BorderThickness = new Thickness(big || eq ? 2.4 : 1), Child = sp };
                 row.Children.Add(bd); cards[k] = Tuple.Create(cap, val, bd);
                 if (big) plGlow = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 16, Opacity = 0, Color = Sx.C("#2EE59D") };
                 if (big) bd.Effect = plGlow;
+                if (eq) { eqGlow = new DropShadowEffect { ShadowDepth = 0, BlurRadius = 14, Opacity = 0.5, Color = Cyan.Color }; bd.Effect = eqGlow; }
             }
             cards["TODAY"].Item3.ToolTip = "today (the server's day): the closed trades after commission and swap + what is open now";
             if (Mode == "PROP") { propStrip = BuildPropStrip(); mid.Children.Add(propStrip); }
@@ -313,6 +314,14 @@ namespace KeystoneMT5
             }
         }
         // the OPEN P/L card: big, its border pulses green / red while tickets are open
+        // the EQUITY card: a bold border, green when the equity is at or above the balance, red under it, slowly pulsing
+        void PaintEq(double equity, double balance)
+        {
+            int sg = equity >= balance - 1e-6 ? 1 : -1; if (sg == eqSign || eqGlow == null) return; eqSign = sg; var bd = cards["EQUITY"].Item3;
+            var col = sg > 0 ? Green.Color : Red.Color; var br = new SolidColorBrush(col); bd.BorderBrush = br; eqGlow.Color = col;
+            br.BeginAnimation(Brush.OpacityProperty, new DoubleAnimation(1, 0.45, TimeSpan.FromMilliseconds(1200)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
+            eqGlow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(0.75, 0.2, TimeSpan.FromMilliseconds(1200)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() });
+        }
         void PaintPl(double fl, bool open)
         {
             int sg = !open ? 0 : fl >= 0 ? 1 : -1; var bd = cards["OPEN P/L"].Item3; if (sg == plSign) return; plSign = sg;
@@ -350,7 +359,7 @@ namespace KeystoneMT5
                 bool any = Sim ? sim.Spec != null : true;
                 if (any)
                 {
-                    card("BALANCE", Money(a.Balance, cur), Text); card("EQUITY", Money(a.Equity, cur), a.Equity >= a.Balance ? Green : Text);
+                    card("BALANCE", Money(a.Balance, cur), Text); card("EQUITY", Money(a.Equity, cur), a.Equity >= a.Balance ? Green : Red); PaintEq(a.Equity, a.Balance);
                     double fl = a.Floating; card("OPEN P/L", Signed(fl, cur), fl >= 0 ? (fl > 0 ? Green : Text) : Red); PaintPl(fl, s.Positions.Count > 0);
                     card("FREE MARGIN", Money(a.FreeMargin, cur), a.FreeMargin < 0 ? Red : Text);
                     double today = TodayClosed(s) + fl; card("TODAY", Signed(today, cur), today > 0 ? Green : today < 0 ? Red : Text); cards["TODAY"].Item3.BorderBrush = today > 0 ? Tint(Green, 100) : today < 0 ? Tint(Red, 120) : Line;
