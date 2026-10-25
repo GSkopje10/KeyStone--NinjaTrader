@@ -187,7 +187,7 @@ namespace KeystoneMT5
         public int NyOffsetHours = -7; public int ServerOffsetSec = 10800;   // server time = UTC + this (MT5's, sent by the bridge)   // NY time = server time + this (IC Markets: server = New York + 7)
         public HashSet<string> Ind = new HashSet<string>(); public int FvgSide;   // FVG: 0 = all, 1 = bullish only, −1 = bearish only
         public List<Drawing> Drawings = new List<Drawing>(); public string Tool = ""; public bool Magnet; public string DrawColor = "#FFC94D", DrawFill = "";
-        public string News = ""; public bool NewsHot, TradeOn, Sim, ShowGrid; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO";   // AUTO / EACH / SIDE
+        public string News = ""; public bool NewsHot, TradeOn, Sim, ShowGrid; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO";   // AUTO / EACH / LINES / CLEAN (no lines, only a small ✕ per ticket on the right)
         // ---- what the chart tells the host
         public Action<long, double> CloseTicket;              // ticket, lots (0 = all)
         public Action<long, double, double> ModifyTicket;     // ticket, sl, tp
@@ -736,13 +736,30 @@ namespace KeystoneMT5
                 if (osl > 0) tags.Add(new TagRow { Y = Y(osl), Price = osl, Text = "S/L " + F(osl), Money = Money(Value((osl - px) * dir, o.Lots)), Kind = "OSL", Key = "OSL:" + o.Ticket, Col = SellC, Ticket = o.Ticket, Dir = dir });
                 if (otp > 0) tags.Add(new TagRow { Y = Y(otp), Price = otp, Text = "T/P " + F(otp), Money = Money(Value((otp - px) * dir, o.Lots)), Kind = "OTP", Key = "OTP:" + o.Ticket, Col = BuyC, Ticket = o.Ticket, Dir = dir });
             }
+            bool clean = TicketMode == "CLEAN";
             // the lines: dashed like MT5; the hovered / dragged one glows and gets thicker
             foreach (var t in tags)
             {
                 if (t.Y < TopPad || t.Y > TopPad + plotH) continue; bool hov = HoverIs(t) || ((drag == "TICKET" || drag == "ORDER") && dragTicket == t.Ticket && t.Key.StartsWith(dragWhat == "NEW" ? "POS" : dragWhat == "PX" ? "ORD" : (t.Kind.StartsWith("O") && t.Kind != "ORD" ? "O" : "") + dragWhat));
+                if (clean && !hov) continue;   // CLEAN: no lines (the one you point at / drag still shows)
                 if (hov) dc.DrawLine(P(Br(t.Col, 50), 7), new Point(0, t.Y), new Point(plotW, t.Y));
                 byte a = t.Faint ? (byte)90 : (byte)200; var pen = t.Kind == "POS" ? P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1, 6, 3) : P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1, 2, 3);
                 dc.DrawLine(pen, new Point(0, t.Y), new Point(plotW, t.Y));
+            }
+            // CLEAN: only a small ✕ on the right for every ticket / order (point at it = its card and its line, click = close / cancel at once like the label's ✕)
+            if (clean)
+            {
+                double ly = double.MinValue;
+                foreach (var t in tags.Where(t => (t.Kind == "POS" || t.Kind == "ORD") && t.Y >= TopPad - 30 && t.Y <= TopPad + plotH + 30).OrderBy(t => t.Y))
+                {
+                    double y = Math.Max(t.Y, ly + 17); ly = y; if (y > TopPad + plotH - 6) continue;
+                    var xr = new Rect(plotW - 22, y - 7.5, 16, 15); bool xh = hoverKey == "X:" + t.Key;
+                    if (Math.Abs(y - t.Y) > 2) dc.DrawLine(P(Br(t.Col, 120), 1), new Point(xr.X, y), new Point(xr.X - 8, t.Y));
+                    dc.DrawRoundedRectangle(xh ? Br(SellC) : Br(t.Kind == "POS" ? t.Col : PendC, 170), xh ? P(WhiteB, 1) : null, xr, 4, 4); dc.DrawText(T("✕", 9.5, WhiteB, true, true), new Point(xr.X + 3.4, xr.Y + 0.6));
+                    long tk = t.Ticket; string kind = t.Kind;
+                    hits.Add(new ChartHit { R = xr, Kind = "X", Key = "X:" + t.Key, Ticket = tk, Click = () => { if (kind == "POS" && CloseTicket != null) CloseTicket(tk, 0); else if (kind == "ORD" && CancelOrder != null) CancelOrder(tk); } });
+                }
+                return;
             }
             // the labels on the LEFT, stacked without overlap (with many tickets on a side: lines only — point at one for its card)
             var vis = tags.Where(t => !t.Faint && t.Y >= TopPad - 30 && t.Y <= TopPad + plotH + 30).OrderBy(t => t.Y).ToList(); double lastY = double.MinValue;

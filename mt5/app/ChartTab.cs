@@ -69,6 +69,7 @@ namespace KeystoneMT5
             themeBtn = Sx.Drop("🎨 " + CurTheme().Name, Card, ThemeMenu); bar.Children.Add(themeBtn);
             zoneBtn = Sx.Drop("🕘 " + Zones[zoneIdx].Item1, Card, ZoneMenu); zoneBtn.ToolTip = "the time on the chart (MT5 keeps its server time inside)"; bar.Children.Add(zoneBtn);
             var cleanBtn = Pill("🧹 CLEAN", Card); cleanBtn.ToolTip = "clean chart: every drawing and indicator of this instrument off at once (right-click ▸ ↶ Undo the clean brings them back)"; cleanBtn.Click += delegate { CleanChart(Act); }; bar.Children.Add(cleanBtn);
+            bar.Children.Add(LinesBtn(0));
             bar.Children.Add(Sep());
             var spb = Pill("📶 SPREADS", Card); spb.ToolTip = "every instrument's spread, live (F10)"; spb.Click += delegate { ToggleSpreads(); }; bar.Children.Add(spb);
             var more = Pill("⏪ MORE", Card); more.ToolTip = "load 30 more days of history on this chart (30 days are loaded by default)"; more.Click += delegate { MoreHistory(Act); }; bar.Children.Add(more);
@@ -576,6 +577,7 @@ namespace KeystoneMT5
             sp.Children.Add(new Border { Width = 1, Height = 20, Background = Line, Margin = new Thickness(6, 0, 6, 0) });
             var pb = small("◧ PANEL", Card); pb.ToolTip = "show / hide the trade panel on the right"; pb.Click += delegate { panelHost.Visibility = panelHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; }; sp.Children.Add(pb);
             var tb = small("🧰 TOOLS", Card); tb.ToolTip = "show / hide the drawing tools on the left"; tb.Click += delegate { chartRail.Visibility = chartRail.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; }; sp.Children.Add(tb);
+            sp.Children.Add(LinesBtn(28));
             var ex = small("⛶ EXIT FULL (Esc)", Tint(Gold, 90)); ex.Click += delegate { SetFullChart(false); }; sp.Children.Add(ex);
             return new Border { Child = new ScrollViewer { Content = sp, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }, Background = Panel, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 0, 0, 4), HorizontalAlignment = HorizontalAlignment.Left };
         }
@@ -774,7 +776,7 @@ namespace KeystoneMT5
                     if (pos.Tp > 0) l.Add(new Mi("⊘", "Remove the target", () => Cmd("remove T/P #" + p0.Ticket, "MODIFY", p0.Ticket, p0.Sl, 0.0)));
                     l.Add(Mi.S()); l.Add(new Mi("⇊", "Close all " + (pos.Dir > 0 ? "buys" : "sells") + " on " + p.Sym, () => CloseAll(p.Sym, p0.Dir > 0 ? "BUY" : "SELL")));
                 }
-                l.Add(Mi.S()); l.Add(TicketsMenu());
+                l.Add(Mi.S()); l.Add(new Mi(ticketMode == "CLEAN" ? "👁" : "🫥", ticketMode == "CLEAN" ? "Show the position lines" : "Hide the position lines (only a small ✕ per ticket)", () => ToggleLines())); l.Add(TicketsMenu());
                 SxMenu.Show(v, pt, l); return;
             }
             if (kind == "ORD" && ord != null)
@@ -815,7 +817,7 @@ namespace KeystoneMT5
             l.Add(Mi.Group("📈", "Indicators", IndMenu(v)));
             if (v.Ind.Count > 0) l.Add(Mi.Group("✕", "Remove an indicator", ChartView.Indicators.Where(x => v.Ind.Contains(x.Key)).Select(x => { var kk = x.Key; return new Mi { Text = x.Name, Dot = Sx.B(x.Color), Do = () => IndOff(kk) }; }).ToList()));
             l.Add(new Mi("✨", "Looks … (preview every theme on the whole platform)", () => LooksGallery())); l.Add(new Mi("⚙", "Chart settings … (colours, candles, entries)", () => ChartSettings())); l.Add(Mi.Group("🎨", "Chart theme", ThemeMenu())); l.Add(Mi.Group("🕘", "Time zone", ZoneMenu()));
-            l.Add(TicketsMenu());
+            l.Add(new Mi(ticketMode == "CLEAN" ? "👁" : "🫥", ticketMode == "CLEAN" ? "Show the position lines" : "Hide the position lines (only a small ✕ per ticket)", () => ToggleLines())); l.Add(TicketsMenu());
             var spl = new List<Mi>(); foreach (var n in new[] { 1, 2, 4 }) { int nn = n; spl.Add(new Mi { Text = n + (n == 1 ? " chart" : " charts"), Check = split == n, Radio = true, Do = () => SetSplit(nn) }); } l.Add(Mi.Group("⊞", "Split screen", spl));
             l.Add(Mi.S());
             l.Add(new Mi("⟲", "Back to now • automatic scale", () => v.ResetView()) { Hint = "double-click" });
@@ -834,11 +836,26 @@ namespace KeystoneMT5
             double lots; if (!double.TryParse(box.Text.Replace(',', '.'), NumberStyles.Float, IC, out lots) || lots <= 0) { Toast("the lots must be a number above 0"); return; }
             lotsBox.Text = lots.ToString("0.00", IC); Put("lots", lotsBox.Text); PlacePending(sym, kind, price, lots);
         }
+        // 👁 the position lines on / off: CLEAN hides them (a small ✕ per ticket stays on the right), again = back to the labels
+        string ticketBeforeClean = "AUTO"; readonly List<Button> linesBtns = new List<Button>();
+        void SetTicketMode(string key)
+        {
+            if (key == "CLEAN" && ticketMode != "CLEAN") ticketBeforeClean = ticketMode;
+            ticketMode = key; Put("tickets", key); foreach (var p in panes) { p.V.TicketMode = key; p.V.InvalidateVisual(); }
+            foreach (var b in linesBtns) { b.Content = key == "CLEAN" ? "👁 SHOW LINES" : "🫥 HIDE LINES"; b.Background = key == "CLEAN" ? Tint(Cyan, 90) : (Brush)Card; }
+        }
+        void ToggleLines() { SetTicketMode(ticketMode == "CLEAN" ? (ticketBeforeClean == "CLEAN" ? "AUTO" : ticketBeforeClean) : "CLEAN"); }
+        Button LinesBtn(double h)
+        {
+            var b = Pill("", Card); if (h > 0) { b.Height = h; b.FontSize = 11.5; b.Padding = new Thickness(9, 0, 9, 0); b.Margin = new Thickness(2, 0, 2, 0); }
+            b.ToolTip = "the position lines on the chart: hide them (only a small ✕ per ticket stays on the right, point at it for its card) / show them again"; b.Click += delegate { ToggleLines(); }; linesBtns.Add(b);
+            b.Content = ticketMode == "CLEAN" ? "👁 SHOW LINES" : "🫥 HIDE LINES"; if (ticketMode == "CLEAN") b.Background = Tint(Cyan, 90); return b;
+        }
         Mi TicketsMenu()
         {
             var l = new List<Mi>();
-            foreach (var m in new[] { Tuple.Create("AUTO", "a label for every ticket (lines only above 10 on a side)"), Tuple.Create("EACH", "a label for every ticket, always"), Tuple.Create("LINES", "lines only (point at one for its card)") })
-            { var key = m.Item1; l.Add(new Mi { Text = m.Item2, Check = ticketMode == key, Radio = true, Do = () => { ticketMode = key; Put("tickets", key); foreach (var p in panes) { p.V.TicketMode = key; p.V.InvalidateVisual(); } } }); }
+            foreach (var m in new[] { Tuple.Create("AUTO", "a label for every ticket (lines only above 10 on a side)"), Tuple.Create("EACH", "a label for every ticket, always"), Tuple.Create("LINES", "lines only (point at one for its card)"), Tuple.Create("CLEAN", "clean: no lines, only a small ✕ per ticket on the right") })
+            { var key = m.Item1; l.Add(new Mi { Text = m.Item2, Check = ticketMode == key, Radio = true, Do = () => SetTicketMode(key) }); }
             return Mi.Group("🎟", "Tickets on the chart", l);
         }
         // the long / short drawing → a limit or stop order with its stop and target (asks first)
