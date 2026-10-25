@@ -79,6 +79,12 @@ namespace KeystoneMT5
             var spl = new StackPanel(); spl.Children.Add(symPlCap); spl.Children.Add(symPlVal); var sph = new StackPanel { Orientation = Orientation.Horizontal }; sph.Children.Add(spl); sph.Children.Add(symBuy.Item1); sph.Children.Add(symSell.Item1); sph.Children.Add(symHedge.Item1); sph.Children.Add(symPlInfo);
             symPlBox = new Border { Child = sph, Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.8), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 2, 12, 3), Margin = new Thickness(4, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, MinWidth = 260, ToolTip = "the P/L of this instrument only (its open tickets)" };
             bar.Children.Add(symPlBox);
+            // the spread of every instrument on the list, live (points, like MT5's popup prices): green = normal, gold = wider than usual, red = very wide
+            spreadCells = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var spCap = new TextBlock { Text = "SPREAD\npoints", Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), LineHeight = 11 };
+            var spRow = new StackPanel { Orientation = Orientation.Horizontal }; spRow.Children.Add(spCap); spRow.Children.Add(spreadCells);
+            spreadStrip = new Border { Child = spRow, Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 3, 8, 3), Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, ToolTip = "the spread now (ask − bid, in points) of every instrument on the list • green = at its usual, gold = 1.5× its usual, red = 2.5× its usual (wait before entering) • SPREADS opens the history" };
+            bar.Children.Add(spreadStrip);
             // ---- the replay bar (backtest)
             if (Sim) { var rb = BuildReplayBar(); Grid.SetRow(rb, 1); Grid.SetColumnSpan(rb, 3); g.Children.Add(rb); }
             // ---- the drawing rail
@@ -135,6 +141,27 @@ namespace KeystoneMT5
             return b;
         }
         void ToggleSpreads() { bool on = spreadPanel.Visibility != Visibility.Visible; spreadPanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed; Put("spreads", on ? "1" : "0"); if (on) spreadAt = DateTime.MinValue; }
+        Border spreadStrip; StackPanel spreadCells; string spreadStripSig = ""; List<string> listSyms = new List<string>();
+        void FillSpreadStrip(Mt5State s)
+        {
+            if (spreadCells == null) return; var syms = listSyms.Where(x => s.Quotes.ContainsKey(x)).ToList();
+            var cells = new List<Tuple<string, int, SolidColorBrush>>();
+            foreach (var sym in syms)
+            {
+                var q = s.Quotes[sym]; Mt5Symbol sy; s.Symbols.TryGetValue(sym, out sy); double pt = sy != null && sy.Point > 0 ? sy.Point : 0.01; if (q.Bid <= 0 || q.Ask <= 0) continue;
+                int sp = (int)Math.Round(q.Spread(pt)); List<int> l; double usual = sp; if (spreadSeen.TryGetValue(sym, out l) && l.Count >= 20) { var last = l.Skip(Math.Max(0, l.Count - 600)).OrderBy(x => x).ToList(); usual = last[last.Count / 2]; }   // its median of the last 10 minutes (a sample a second)
+                var col = usual <= 0 ? Green : sp >= usual * 2.5 ? Red : sp >= usual * 1.5 ? Gold : Green; cells.Add(Tuple.Create(sym, sp, col));
+            }
+            string sig = string.Join(",", cells.Select(c => c.Item1 + ":" + c.Item2 + ":" + (c.Item3 == Red ? "r" : c.Item3 == Gold ? "g" : "n"))) + "|" + Act.Sym; if (sig == spreadStripSig) return; spreadStripSig = sig;
+            spreadCells.Children.Clear(); spreadStrip.Visibility = cells.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            foreach (var c in cells)
+            {
+                bool on = string.Equals(c.Item1, Act.Sym, StringComparison.OrdinalIgnoreCase); var sp0 = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+                sp0.Children.Add(new TextBlock { Text = c.Item1, Foreground = on ? Text : Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center });
+                sp0.Children.Add(new TextBlock { Text = c.Item2.ToString("N0", IC), Foreground = c.Item3, FontSize = 13, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, HorizontalAlignment = HorizontalAlignment.Center });
+                spreadCells.Children.Add(new Border { Child = sp0, Padding = new Thickness(7, 1, 7, 1), Margin = new Thickness(0, 0, 4, 0), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1), BorderBrush = on ? Tint(Cyan, 160) : Brushes.Transparent, Background = c.Item3 == Red ? Tint(Red, 40) : c.Item3 == Gold ? Tint(Gold, 30) : Brushes.Transparent });
+            }
+        }
         void FillSpreads(Mt5State s)
         {
             var now = DateTime.Now; bool sample = (now - spreadAt).TotalSeconds >= 1; if (!sample && spreadPanel.Visibility != Visibility.Visible) return;
@@ -454,6 +481,7 @@ namespace KeystoneMT5
             var syms = Sim ? s.Symbols.Keys.ToList() : mine.Concat(added).Concat(s.Quotes.Keys.OrderBy(k => k).Take(8)).Distinct(StringComparer.OrdinalIgnoreCase).Take(16).ToList();
             foreach (var p in panes.Take(split)) if (p.Sym == "" || !s.Quotes.ContainsKey(p.Sym)) { var first = mine.FirstOrDefault() ?? s.Quotes.Keys.FirstOrDefault(k => k.StartsWith("XAU", StringComparison.OrdinalIgnoreCase)) ?? syms.FirstOrDefault(); if (first != null && s.Quotes.ContainsKey(first) && p.Sym != first) SetPane(p, first, p.Tf); }
             Func<string, double> plOf = sy => s.Positions.Where(x => string.Equals(x.Symbol, sy, StringComparison.OrdinalIgnoreCase)).Sum(x => x.Profit + x.Swap);
+            listSyms = syms;
             string sig = string.Join(",", syms) + "|" + Act.Sym + "|" + string.Join(",", mine) + "|" + string.Join(",", mine.Select(m => Math.Round(plOf(m)).ToString(IC)));
             if (sig != symSig)
             {
@@ -494,7 +522,7 @@ namespace KeystoneMT5
                 p.Head.Foreground = k == activePane ? Gold : Muted;
                 v.InvalidateVisual();
             }
-            FillSymPl(s); FillSpreads(s);
+            FillSymPl(s); FillSpreads(s); FillSpreadStrip(s);
             FillPanel(s);
         }
         void FillSymPl(Mt5State s)
