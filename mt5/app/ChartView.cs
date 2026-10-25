@@ -720,7 +720,7 @@ namespace KeystoneMT5
                 if (t.Y < TopPad || t.Y > TopPad + plotH) continue; bool hov = HoverIs(t) || ((drag == "TICKET" || drag == "ORDER") && dragTicket == t.Ticket && t.Key.StartsWith(dragWhat == "NEW" ? "POS" : dragWhat == "PX" ? "ORD" : (t.Kind.StartsWith("O") && t.Kind != "ORD" ? "O" : "") + dragWhat));
                 if (clean && !hov) continue;   // CLEAN: no lines (the one you point at / drag still shows)
                 if (hov) dc.DrawLine(P(Br(t.Col, 50), 7), new Point(0, t.Y), new Point(plotW, t.Y));
-                byte a = t.Faint ? (byte)90 : (byte)200; var pen = t.Kind == "POS" ? P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1, 6, 3) : P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1, 2, 3);
+                byte a = t.Faint ? (byte)90 : (byte)200; var pen = t.Kind == "POS" ? P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.9 : 1.3, 8, 3) : P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1, 2, 3);
                 dc.DrawLine(pen, new Point(0, t.Y), new Point(plotW, t.Y));
             }
             // CLEAN: only a small ✕ on the right for every ticket / order (point at it = its card and its line, click = close / cancel at once like the label's ✕)

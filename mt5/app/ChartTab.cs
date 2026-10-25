@@ -254,15 +254,47 @@ namespace KeystoneMT5
             Tuple.Create("BARS", "hollow bars (MT5 classic)", "#00FF00", "#00FF00", "#000000", "#000000") };
         Dictionary<string, string> candleOv = new Dictionary<string, string>(), candleSnap;
         ChartTheme candleCacheSrc, candleCacheOut; string candleCacheKey;
+        // 🎯 the entry lines (buys / T/P, sells / S/L, pending orders) of a look: AUTO picks the set that stands apart from the candles AND the background, so every object is easy to spot
+        static readonly string[][] LineSets = {   // key, name, buy / sell / pending on dark, the same on light
+            new[] { "AUTO", "auto contrast", "", "", "", "", "", "" },
+            new[] { "BLUEOR", "blue / orange", "#3D9BFF", "#FF8A1F", "#C77DFF", "#1C64D6", "#D9610A", "#7B3FC4" },
+            new[] { "CYANMAG", "cyan / magenta", "#22D3EE", "#FF3DCB", "#FFC94D", "#0A84A8", "#B5157E", "#A86E00" },
+            new[] { "SKYGOLD", "sky / gold", "#7CC4FF", "#FFC94D", "#FF6BD5", "#2563EB", "#A87400", "#B5157E" },
+            new[] { "LIMEVIO", "lime / violet", "#A3FF12", "#B07CFF", "#FFB020", "#4E8A00", "#6A3FD6", "#B87400" },
+            new[] { "WHITERED", "white / red", "#F2F5FA", "#FF3B3B", "#FFC94D", "#111418", "#D01F1F", "#A86E00" },
+            new[] { "CLASSIC", "mint / coral (classic)", "#2EE59D", "#FF4D6D", "#FFB020", "#0F8A5F", "#D23048", "#B87400" } };
+        static double Dist(Color a, Color b) { double dr = a.R - b.R, dg = a.G - b.G, db = a.B - b.B; return Math.Sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db); }
+        static string[] AutoLines(ChartTheme t, bool light)
+        {
+            string[] best = null; double bestScore = -1;
+            foreach (var ls in LineSets.Skip(1))
+            {
+                var c3 = new[] { Sx.C(light ? ls[5] : ls[2]), Sx.C(light ? ls[6] : ls[3]) }; double sc = double.MaxValue;
+                foreach (var c in c3) { sc = Math.Min(sc, Math.Min(Dist(c, t.Up), Dist(c, t.Down))); sc = Math.Min(sc, Dist(c, t.Plot) * 0.6); }
+                if (sc > bestScore) { bestScore = sc; best = ls; }
+            }
+            return best;
+        }
         ChartTheme WithCandles(ChartTheme t)
         {
-            string key; if (t == null || !candleOv.TryGetValue(t.Name, out key) || string.IsNullOrEmpty(key)) return t;
-            if (ReferenceEquals(t, candleCacheSrc) && key == candleCacheKey) return candleCacheOut;
-            var cs = CandleSets.FirstOrDefault(x => x.Item1 == key); if (cs == null) return t;
-            bool light = t.Light || Sx.Luma(t.Bg) > 0.55; var c = t.Copy(); var up = Sx.C(light ? cs.Item5 : cs.Item3); var dn = Sx.C(light ? cs.Item6 : cs.Item4);
-            c.Up = up; c.Down = dn; c.UpWick = up; c.DownWick = dn; c.HollowUp = false; c.Bodies = false;
-            if (key == "BARS") { c.Bodies = true; c.UpBody = t.Plot; c.DownBody = light ? Sx.C("#000000") : Sx.C("#FFFFFF"); c.Edge = up; }
-            candleCacheSrc = t; candleCacheKey = key; candleCacheOut = c; return c;
+            if (t == null) return t; string key, lk; candleOv.TryGetValue(t.Name, out key); candleOv.TryGetValue("L:" + t.Name, out lk); key = key ?? ""; lk = string.IsNullOrEmpty(lk) ? "AUTO" : lk;
+            bool ownLines = t.Buy != ChartTheme.DefBuy || t.Sell != ChartTheme.DefSell || t.Pend != ChartTheme.DefPend;   // set in the chart settings: kept
+            if (key == "" && ownLines) return t;
+            if (ReferenceEquals(t, candleCacheSrc) && key + "|" + lk == candleCacheKey) return candleCacheOut;
+            bool light = t.Light || Sx.Luma(t.Bg) > 0.55; var c = t.Copy();
+            var cs = CandleSets.FirstOrDefault(x => x.Item1 == key);
+            if (key != "" && cs != null)
+            {
+                var up = Sx.C(light ? cs.Item5 : cs.Item3); var dn = Sx.C(light ? cs.Item6 : cs.Item4);
+                c.Up = up; c.Down = dn; c.UpWick = up; c.DownWick = dn; c.HollowUp = false; c.Bodies = false;
+                if (key == "BARS") { c.Bodies = true; c.UpBody = t.Plot; c.DownBody = light ? Sx.C("#000000") : Sx.C("#FFFFFF"); c.Edge = up; }
+            }
+            if (!ownLines)
+            {
+                var ls = lk == "AUTO" ? AutoLines(c, light) : LineSets.FirstOrDefault(x => x[0] == lk) ?? AutoLines(c, light);
+                c.Buy = Sx.C(light ? ls[5] : ls[2]); c.Sell = Sx.C(light ? ls[6] : ls[3]); c.Pend = Sx.C(light ? ls[7] : ls[4]);
+            }
+            candleCacheSrc = t; candleCacheKey = key + "|" + lk; candleCacheOut = c; return c;
         }
         void LoadCandles() { candleOv = new Dictionary<string, string>(); foreach (var kv in Get("candles", "").Split('|')) { int i = kv.LastIndexOf('='); if (i > 0) candleOv[kv.Substring(0, i)] = kv.Substring(i + 1); } }
         void SaveCandles() { Put("candles", string.Join("|", candleOv.Where(x => x.Value != "").Select(x => x.Key + "=" + x.Value))); }
@@ -403,10 +435,11 @@ namespace KeystoneMT5
             string filter = lookFilter; if (!groups.Contains(filter) || (filter != "ALL" && filter != groupOf(chosen))) filter = "ALL";   // opens on the look in use
             var root = new StackPanel { MinWidth = 1000 };
             var top = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; root.Children.Add(top); var fbtns = new List<Button>();
-            var note = new TextBlock { Foreground = Muted, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap, Text = "click a look: the whole platform takes it • 🕯 CANDLES below change its candle colours • 👁 PREVIEW folds this window into a small tab so you see the whole platform • SAVE keeps it, CANCEL goes back" }; root.Children.Add(note);
+            var note = new TextBlock { Foreground = Muted, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap, Text = "click a look: the whole platform takes it • 🕯 CANDLES and 🎯 ENTRY LINES below change its colours (lines: AUTO keeps them apart from the candles) • 👁 PREVIEW folds this window into a small tab so you see the whole platform • SAVE keeps it, CANCEL goes back" }; root.Children.Add(note);
             var wrap = new WrapPanel(); var sv = new ScrollViewer { Content = wrap, MaxHeight = 500, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; root.Children.Add(sv);
             // 🕯 the candle colours of the chosen look
             var candleRow = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) }; root.Children.Add(candleRow);
+            var lineRow = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) }; root.Children.Add(lineRow);
             var opts = new DockPanel { Margin = new Thickness(0, 10, 0, 0), LastChildFill = false }; root.Children.Add(opts);
             var gridChk = new CheckBox { Content = "Grid squares in the background", IsChecked = showGrid, Foreground = Text, Margin = new Thickness(0, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center }; gridChk.Click += delegate { SetGrid(gridChk.IsChecked == true); }; opts.Children.Add(gridChk);
             var uiChk = new CheckBox { Content = "The whole interface follows the look (not only the chart)", IsChecked = lookUi, Foreground = Text, VerticalAlignment = VerticalAlignment.Center }; uiChk.Click += delegate { SetLookUi(uiChk.IsChecked == true); }; opts.Children.Add(uiChk);
@@ -426,6 +459,20 @@ namespace KeystoneMT5
                     var b = Pill("", key == cur ? Tint(Gold, 90) : (Brush)Card); b.Content = st; b.Height = 38; b.Padding = new Thickness(4, 0, 10, 0); b.Margin = new Thickness(0, 0, 6, 6); if (key == cur) b.BorderBrush = Gold;
                     b.Click += delegate { if (key == "") candleOv.Remove(th.Name); else candleOv[th.Name] = key; candleCacheSrc = null; SetTheme(chosen, false); build(); };
                     candleRow.Children.Add(b);
+                }
+                lineRow.Children.Clear(); string lcur; candleOv.TryGetValue("L:" + th.Name, out lcur); lcur = string.IsNullOrEmpty(lcur) ? "AUTO" : lcur;
+                lineRow.Children.Add(new TextBlock { Text = "🎯 ENTRY LINES:", Foreground = Gold, FontWeight = FontWeights.Bold, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0), ToolTip = "the colours of your buys / T/P, sells / S/L and pending orders on the chart" });
+                bool lightT = th.Light || Sx.Luma(th.Bg) > 0.55;
+                foreach (var ls in LineSets)
+                {
+                    string key = ls[0]; var show = key == "AUTO" ? AutoLines(WithCandles(th), lightT) : ls;
+                    var st = new StackPanel { Orientation = Orientation.Horizontal };
+                    var sw = new StackPanel { Background = new SolidColorBrush(WithCandles(th).Plot), Margin = new Thickness(0, 0, 6, 0), Width = 34 };
+                    foreach (int q in new[] { 2, 3, 4 }) sw.Children.Add(new Border { Height = 2.2, Margin = new Thickness(3, 3, 3, 2), Background = new SolidColorBrush(Sx.C(lightT ? show[q + 3] : show[q])) });
+                    st.Children.Add(new Border { Child = sw, CornerRadius = new CornerRadius(4), ClipToBounds = true }); st.Children.Add(new TextBlock { Text = ls[1], Foreground = Text, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+                    var b = Pill("", key == lcur ? Tint(Gold, 90) : (Brush)Card); b.Content = st; b.Height = 34; b.Padding = new Thickness(4, 0, 10, 0); b.Margin = new Thickness(0, 0, 6, 6); if (key == lcur) b.BorderBrush = Gold;
+                    b.Click += delegate { if (key == "AUTO") candleOv.Remove("L:" + th.Name); else candleOv["L:" + th.Name] = key; candleCacheSrc = null; SetTheme(chosen, false); build(); };
+                    lineRow.Children.Add(b);
                 }
             };
             build = () =>
