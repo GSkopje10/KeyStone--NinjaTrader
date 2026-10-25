@@ -302,10 +302,10 @@ public static class EvalPassStudy
         }
         sb.AppendLine(); sb.AppendLine("(RANDOM = one coin seed here; the grid above averages 5)"); sb.AppendLine();
         // 13. YOUR POOL: 5 or 10 evaluations (a new set when the last one is done), a 2- or 3-day minimum — the best rule and its "until +$1,500" twin
-        sb.AppendLine("## 13. Small pools: 5 or 10 evaluations at a time, 2- or 3-day minimum"); sb.AppendLine();
-        sb.AppendLine("The same days and rules; a new set of 5 / 10 is bought when every one of the last set has passed or failed. P(≥1) / P(≥2) = the share of sets with at least one / two passes."); sb.AppendLine();
+        sb.AppendLine("## 13. Small pools: 5, 10 or 25 evaluations at a time, 2- or 3-day minimum"); sb.AppendLine();
+        sb.AppendLine("The same days and rules; a new set of 5 / 10 / 25 is bought when every one of the last set has passed or failed. P(≥1) / P(≥2) = the share of sets with at least one / two passes."); sb.AppendLine();
         sb.AppendLine("| rule | accounts | min days | sets | evals | passed | failed | pass % | sets with ≥ 1 pass | ≥ 2 passes | days a set lasts | cost / pass |"); sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|");
-        var poolCfgs = new List<Cfg>(); foreach (var tries in new[] { 1, 0 }) foreach (var n in new[] { 5, 10, 50 }) foreach (var md in new[] { 2, 3 }) poolCfgs.Add(new Cfg { Dir = "BUY", Stop = 1000, Tries = tries, Qty = 10, Accounts = n, MinDays = md });
+        var poolCfgs = new List<Cfg>(); foreach (var tries in new[] { 1, 0 }) foreach (var n in new[] { 5, 10, 25, 50 }) foreach (var md in new[] { 2, 3 }) poolCfgs.Add(new Cfg { Dir = "BUY", Stop = 1000, Tries = tries, Qty = 10, Accounts = n, MinDays = md });
         var poolRes = new Res[poolCfgs.Count]; Parallel.For(0, poolCfgs.Count, i => { var c = poolCfgs[i]; poolRes[i] = Measure(c, KeystoneRotationLab.Run(Of(c, inds), test, c.Start, c.End, null)); });
         for (int i = 0; i < poolCfgs.Count; i++)
         {
