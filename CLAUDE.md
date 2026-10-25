@@ -6,8 +6,8 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
 ## Delivering code to the user
 
 - Every reply that ships code: first explain everything that changed (per product), THEN at the very end
-  hand over every file the user needs: the SpasiX for MT5 zip (`mt5/dist/SpasiX.zip` = SpasiX.exe +
-  SpasiXBridge.mq5, sent as a file) whenever `mt5/` changed, and the KeyStone.cs link whenever `src/` changed.
+  hand over every file the user needs: ONLY `mt5/dist/SpasiX.exe` (one file, sent as a file — NO zip, user's
+  request) whenever `mt5/` changed (send `SpasiXBridge.mq5` on its own only when the bridge itself changed, and say so), and the KeyStone.cs link whenever `src/` changed.
 - The user installs one file: `src/KeyStone.cs` → `Documents\NinjaTrader 8\bin\Custom\AddOns\`,
   then compiles with F5 in the NinjaScript Editor.
 - **After every code change: commit, push, bump `KeystoneBuild` in `src/KeyStone.cs`, and end the
