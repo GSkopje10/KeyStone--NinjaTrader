@@ -168,6 +168,8 @@ Pass % = passed ÷ (passed + failed); failed = blown at the drawdown floor or le
 
 Batches: 24 • with 0 passed: 0 • best batch 17/50 • longest run of batches that each passed at least one: 24 • longest run of empty batches: 0 • passed within 2 trading days: 143 of 259
 
+**After a +$1,500 first day:** 449 accounts banked it on their first day → 191 passed (42.5 %), 143 of them on day 2 • 258 failed later • the rest still open. (Every account: 20.8 %.)
+
 | batch | from → to | days | passed | blown | trades | won | eval P/L |
 |---|---|---|---|---|---|---|---|
 | 1 | 02 Jan → 16 Jan | 11 | 11 | 39 | 157 | 56 | −$18,823 |
@@ -368,10 +370,10 @@ EOD = the floor moves up only with the best CLOSING balance; INTRADAY = it follo
 
 ## The indicators used (trained on 2025)
 
-- 10 each • stop $1000: formed 2026-10-25 16:34 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$1,000 • 11 rules • coin flip 32.0% • later-half check: 12088 trades 35.6% vs 31.6% (EDGE)
-- 10 each • stop $500: formed 2026-10-25 16:34 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$500 • 6 rules • coin flip 18.9% • later-half check: 8410 trades 21.5% vs 18.5% (EDGE)
-- 15 each • stop $1000: formed 2026-10-25 16:34 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 15 min + session • +$1,500 / −$1,000 • 11 rules • coin flip 31.7% • later-half check: 8396 trades 34.1% vs 31.3% (EDGE)
-- 15 each • stop $500: formed 2026-10-25 16:34 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$500 • 2 rules • coin flip 17.7% • later-half check: 4125 trades 18.9% vs 17.5% (EDGE)
-- 20 each • stop $1000: formed 2026-10-25 16:34 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$1,000 • 7 rules • coin flip 30.8% • later-half check: 9841 trades 32.5% vs 30.6% (EDGE)
-- 20 each • stop $500: formed 2026-10-25 16:34 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 15 min + session • +$1,500 / −$500 • 3 rules • coin flip 16.6% • later-half check: 4832 trades 17.5% vs 16.4% (EDGE)
+- 10 each • stop $1000: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$1,000 • 11 rules • coin flip 32.0% • later-half check: 12088 trades 35.6% vs 31.6% (EDGE)
+- 10 each • stop $500: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$500 • 6 rules • coin flip 18.9% • later-half check: 8410 trades 21.5% vs 18.5% (EDGE)
+- 15 each • stop $1000: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 15 min + session • +$1,500 / −$1,000 • 11 rules • coin flip 31.7% • later-half check: 8396 trades 34.1% vs 31.3% (EDGE)
+- 15 each • stop $500: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$500 • 2 rules • coin flip 17.7% • later-half check: 4125 trades 18.9% vs 17.5% (EDGE)
+- 20 each • stop $1000: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 5 min + session • +$1,500 / −$1,000 • 7 rules • coin flip 30.8% • later-half check: 9841 trades 32.5% vs 30.6% (EDGE)
+- 20 each • stop $500: formed 2026-10-25 16:42 (BUILD) • trained 2025-01-02 → 2025-12-31 (257 days, 95398 moments × 4 sides) • last 15 min + session • +$1,500 / −$500 • 3 rules • coin flip 16.6% • later-half check: 4832 trades 17.5% vs 16.4% (EDGE)
 

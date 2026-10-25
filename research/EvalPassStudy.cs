@@ -155,6 +155,18 @@ public static class EvalPassStudy
         // 6. the batches of the best rule
         sb.AppendLine("## 6. Every batch of 50 • " + Name(best.C)); sb.AppendLine();
         sb.AppendLine("Batches: " + best.Batches + " • with 0 passed: " + best.ZeroBatches + " • best batch " + best.BestBatch + "/50 • longest run of batches that each passed at least one: " + best.BestStreak + " • longest run of empty batches: " + best.ZeroStreak + " • passed within 2 trading days: " + best.TwoDay + " of " + best.Passed); sb.AppendLine();
+        {
+            // the accounts that banked +$1,500 on their FIRST trading day: how many passed, how many on day 2, how many failed after
+            var sim0 = best.Sim; int good = 0, pass = 0, pass2 = 0, fail = 0;
+            foreach (var a in sim0.Accounts)
+            {
+                var days0 = sim0.Trades.Where(t => t.Account == a.Id).GroupBy(t => t.Day).OrderBy(g => g.Key).ToList(); if (days0.Count == 0) continue;
+                if (days0[0].Sum(t => t.Pnl) < 1350) continue; good++;
+                if (a.PassedOn != DateTime.MinValue) { pass++; if (days0.Count <= 2) pass2++; } else if (!a.Alive) fail++;
+            }
+            sb.AppendLine("**After a +$1,500 first day:** " + good + " accounts banked it on their first day → " + pass + " passed (" + P(good == 0 ? 0 : 100.0 * pass / good) + " %), " + pass2 + " of them on day 2 • " + fail + " failed later • the rest still open. (Every account: " + P(best.PassRate) + " %.)"); sb.AppendLine();
+            Console.WriteLine("after a good first day: " + good + " → " + pass + " passed (" + pass2 + " on day 2), " + fail + " failed");
+        }
         sb.AppendLine("| batch | from → to | days | passed | blown | trades | won | eval P/L |"); sb.AppendLine("|---|---|---|---|---|---|---|---|");
         foreach (var b in best.Sim.Batches) sb.AppendLine("| " + b.No + " | " + b.From.ToString("dd MMM", ic) + " → " + b.To.ToString("dd MMM", ic) + " | " + b.Days + " | " + b.Passed + " | " + b.Blown + " | " + b.Trades + " | " + b.Wins + " | " + Sd(b.Pnl) + " |");
         sb.AppendLine();
