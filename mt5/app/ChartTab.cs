@@ -92,6 +92,7 @@ namespace KeystoneMT5
             if (Sim) { var rb = BuildReplayBar(); Grid.SetRow(rb, 1); Grid.SetColumnSpan(rb, 3); g.Children.Add(rb); }
             // ---- the drawing rail
             var rail = BuildRail(); Grid.SetRow(rail, 2); Grid.SetColumn(rail, 0); g.Children.Add(rail);
+            chartBar = bar; chartRail = rail; fullStrip = BuildFullStrip(); Grid.SetRow(fullStrip, 0); Grid.SetColumnSpan(fullStrip, 3); fullStrip.Visibility = Visibility.Collapsed; g.Children.Add(fullStrip);
             // ---- the charts
             chartsGrid = new Grid(); Grid.SetRow(chartsGrid, 2); Grid.SetColumn(chartsGrid, 1); g.Children.Add(chartsGrid);
             for (int k = 0; k < 4; k++) panes.Add(MakePane(k));
@@ -246,7 +247,7 @@ namespace KeystoneMT5
             {
                 var gl = new List<Mi> { Mi.H(grp) }; bool cur = false;
                 for (int i = 0; i < ChartTheme.All.Length; i++) { if (ChartTheme.All[i].Group != grp) continue; int ii = i; var th = ChartTheme.All[i]; if (themeIdx == i) cur = true; gl.Add(new Mi { Text = th.Name, Dot = new SolidColorBrush(th.Plot), Check = themeIdx == i, Radio = true, KeepOpen = true, Do = () => SetTheme(ii) }); }
-                l.Add(Mi.Group(grp == "★ Signature" ? "★" : grp == "Gray & light" ? "◐" : grp == "Cool contrasts" ? "◑" : grp == "MetaTrader" ? "Ⓜ" : grp == "Easy on the eyes" ? "☾" : grp == "Unique" ? "✦" : "S", grp + (cur ? "  ✓" : ""), gl));
+                l.Add(Mi.Group(grp == "★ Signature" ? "★" : grp == "Gray & light" ? "◐" : grp == "◐ Soft light" ? "◒" : grp == "Cool contrasts" ? "◑" : grp == "MetaTrader" ? "Ⓜ" : grp == "Easy on the eyes" ? "☾" : grp == "Unique" ? "✦" : "S", grp + (cur ? "  ✓" : ""), gl));
             }
             return l;
         }
@@ -351,7 +352,7 @@ namespace KeystoneMT5
         void SetTheme(int i) { SetTheme(i, true); }
         void SetTheme(int i, bool save)
         {
-            themeIdx = i; if (save) { Put("theme", i.ToString(IC)); Put("themename", CurTheme().Name); }
+            themeIdx = i; if (save) { EndLookPreview(); Put("theme", i.ToString(IC)); Put("themename", CurTheme().Name); }
             foreach (var p in panes) { p.V.Theme = CurTheme(); p.V.InvalidateVisual(); } themeBtn.Content = "🎨 " + CurTheme().Name + "  ▾";
             Sx.ApplyLook(lookUi ? CurTheme() : ChartTheme.All[0]); symSig = ""; spreadStripSig = ""; PaintBar();   // the whole interface follows (chips repaint with the new colours)
         }
@@ -359,39 +360,80 @@ namespace KeystoneMT5
         int ThemeIndexOf(string name) { for (int k = 0; k < ChartTheme.All.Length; k++) if (ChartTheme.All[k].Name == name) return k; int m = myThemes.FindIndex(x => x.Name == name); return m >= 0 ? ChartTheme.All.Length + m : -1; }
         void SetGrid(bool on) { showGrid = on; Put("grid", on ? "1" : "0"); foreach (var p in panes) { p.V.ShowGrid = on; p.V.InvalidateVisual(); } }
         void SetLookUi(bool on) { lookUi = on; Put("lookui", on ? "1" : "0"); SetTheme(themeIdx, false); }
-        // ✨ THE LOOKS GALLERY: every theme as a small picture of the whole platform; point at one = the whole app takes it at once, click = choose, SAVE keeps it
-        static string LookGroup(ChartTheme t) { double l = Sx.Luma(t.Bg); return t.Group == "★ Signature" ? "★ SIGNATURE" : t.Light || l > 0.55 ? "LIGHTER" : l > 0.11 ? "BALANCED" : "DARKER"; }
+        // ✨ THE LOOKS GALLERY: every theme as a small picture of the whole platform; click one = the whole app takes it (pointing does nothing, user's request), SAVE keeps it
+        static string LookGroup(ChartTheme t) { double l = Sx.Luma(t.Bg); return t.Group == "★ Signature" ? "★ SIGNATURE" : t.Group == "◐ Soft light" ? "◐ SOFT LIGHT" : t.Light || l > 0.55 ? "LIGHTER" : l > 0.11 ? "BALANCED" : "DARKER"; }
+        // 👁 PREVIEW: the gallery folds into a small tab over the platform, so the whole interface is seen in the look; the tab opens the gallery again, ◀ ▶ step through the looks, CONFIRM keeps it and the tab goes
+        int lookBefore = -1; Border lookTab; TextBlock lookTabName; string lookFilter = "ALL"; List<int> lookList = new List<int>();
         void LooksGallery()
         {
-            int before = themeIdx, chosen = themeIdx; string filter = "ALL";
+            int before = lookBefore >= 0 ? lookBefore : themeIdx, chosen = themeIdx; string filter = lookFilter; bool preview = false;
             var root = new StackPanel { MinWidth = 1000 };
             var top = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; root.Children.Add(top);
-            var filters = new[] { "ALL", "★ SIGNATURE", "LIGHTER", "BALANCED", "DARKER", "MetaTrader", "Mine" }; var fbtns = new List<Button>();
-            var note = new TextBlock { Foreground = Muted, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap, Text = "point at a look: the whole platform takes it at once • click one to choose it • SAVE keeps it, CANCEL goes back" }; root.Children.Add(note);
+            var filters = new[] { "ALL", "★ SIGNATURE", "◐ SOFT LIGHT", "LIGHTER", "BALANCED", "DARKER", "MetaTrader", "Mine" }; var fbtns = new List<Button>();
+            var note = new TextBlock { Foreground = Muted, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 8), TextWrapping = TextWrapping.Wrap, Text = "click a look: the whole platform takes it • 👁 PREVIEW folds this window into a small tab so you see the whole platform in it • SAVE keeps it, CANCEL goes back" }; root.Children.Add(note);
             var wrap = new WrapPanel(); var sv = new ScrollViewer { Content = wrap, MaxHeight = 560, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; root.Children.Add(sv);
-            var opts = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) }; root.Children.Add(opts);
-            var gridChk = new CheckBox { Content = "Grid squares in the background", IsChecked = showGrid, Foreground = Text, Margin = new Thickness(0, 0, 18, 0) }; gridChk.Click += delegate { SetGrid(gridChk.IsChecked == true); }; opts.Children.Add(gridChk);
-            var uiChk = new CheckBox { Content = "The whole interface follows the look (not only the chart)", IsChecked = lookUi, Foreground = Text }; uiChk.Click += delegate { SetLookUi(uiChk.IsChecked == true); }; opts.Children.Add(uiChk);
+            var opts = new DockPanel { Margin = new Thickness(0, 10, 0, 0), LastChildFill = false }; root.Children.Add(opts);
+            var gridChk = new CheckBox { Content = "Grid squares in the background", IsChecked = showGrid, Foreground = Text, Margin = new Thickness(0, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center }; gridChk.Click += delegate { SetGrid(gridChk.IsChecked == true); }; opts.Children.Add(gridChk);
+            var uiChk = new CheckBox { Content = "The whole interface follows the look (not only the chart)", IsChecked = lookUi, Foreground = Text, VerticalAlignment = VerticalAlignment.Center }; uiChk.Click += delegate { SetLookUi(uiChk.IsChecked == true); }; opts.Children.Add(uiChk);
+            Action goPreview = () => { preview = true; var w0 = Window.GetWindow(root); if (w0 != null) w0.Close(); };
+            var pvBtn = Pill("👁 PREVIEW THE CHOSEN LOOK", Tint(Cyan, 70)); pvBtn.Height = 32; pvBtn.Padding = new Thickness(14, 0, 14, 0); pvBtn.ToolTip = "the gallery folds into a small tab: see the whole platform in the look, open the tab to try another, CONFIRM keeps it"; pvBtn.Click += delegate { goPreview(); };
+            DockPanel.SetDock(pvBtn, Dock.Right); opts.Children.Add(pvBtn);
             Action build = null;
             build = () =>
             {
                 wrap.Children.Clear(); for (int q = 0; q < fbtns.Count; q++) { fbtns[q].Background = filters[q] == filter ? (Brush)Tint(Gold, 90) : Card; }
                 var all = ChartTheme.All.Select((t, k) => Tuple.Create(t, k)).Concat(myThemes.Select((t, k) => Tuple.Create(t, ChartTheme.All.Length + k))).ToList();
+                lookList = new List<int>();
                 foreach (var it in all)
                 {
                     var th = it.Item1; int ix = it.Item2; string g = it.Item2 >= ChartTheme.All.Length ? "Mine" : th.Group == "MetaTrader" ? "MetaTrader" : LookGroup(th);
-                    if (filter != "ALL" && filter != g && !(filter == "★ SIGNATURE" && th.Group == "★ Signature") && !(filter == LookGroup(th) && g != "Mine")) continue;
+                    if (filter != "ALL" && filter != g && !(filter == "★ SIGNATURE" && th.Group == "★ Signature") && !(filter == LookGroup(th) && g != "Mine") && !(filter == "LIGHTER" && g == "◐ SOFT LIGHT")) continue;
+                    lookList.Add(ix);
                     var card = LookCard(th, ix == chosen); int ii = ix;
-                    card.MouseEnter += delegate { SetTheme(ii, false); }; card.MouseLeave += delegate { if (themeIdx != chosen) SetTheme(chosen, false); };
+                    if (ix == chosen)
+                    {
+                        var pb = Pill("👁 PREVIEW", Tint(Cyan, 200)); pb.Height = 26; pb.FontSize = 11; pb.Padding = new Thickness(10, 0, 10, 0); pb.HorizontalAlignment = HorizontalAlignment.Center; pb.VerticalAlignment = VerticalAlignment.Center; pb.ToolTip = "see the whole platform in " + th.Name;
+                        pb.Click += delegate { goPreview(); }; ((Grid)card.Child).Children.Add(pb);
+                    }
                     card.MouseLeftButtonUp += delegate { chosen = ii; SetTheme(ii, false); build(); };
                     wrap.Children.Add(card);
                 }
             };
             for (int q = 0; q < filters.Length; q++) { var f0 = filters[q]; var b = Pill(f0 == "ALL" ? "ALL LOOKS" : f0, Card); b.Click += delegate { filter = f0; build(); }; top.Children.Add(b); fbtns.Add(b); }
             build();
-            bool ok = Sx.Form(this, "✨ Looks", "the whole platform in every theme • lighter, balanced, darker, signature", root, "SAVE", "CANCEL", Gold);
-            SetTheme(ok ? chosen : before, ok); if (ok) Toast("🎨 " + CurTheme().Name);
+            bool ok = Sx.Form(this, "✨ Looks", "the whole platform in every theme • signature, soft light, lighter, balanced, darker", root, "SAVE", "CANCEL", Gold);
+            lookFilter = filter;
+            if (ok) { EndLookPreview(); SetTheme(chosen, true); Toast("🎨 " + CurTheme().Name); return; }
+            if (preview) { lookBefore = before; SetTheme(chosen, false); ShowLookTab(); return; }
+            if (lookBefore >= 0) { SetTheme(chosen, false); ShowLookTab(); return; }   // closed while previewing: the tab stays on the chosen look
+            SetTheme(before, false);
         }
+        void ShowLookTab()
+        {
+            if (lookTab == null)
+            {
+                lookTabName = new TextBlock { Foreground = Text, FontSize = 13, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, MinWidth = 150, TextAlignment = TextAlignment.Center };
+                var sp = new StackPanel { Orientation = Orientation.Horizontal };
+                Func<string, Brush, string, Action, Button> btn = (t0, bg, tip, a) => { var b = Pill(t0, bg); b.Height = 30; b.Padding = new Thickness(10, 0, 10, 0); b.Margin = new Thickness(3, 0, 3, 0); b.ToolTip = tip; b.Click += delegate { a(); }; return b; };
+                sp.Children.Add(new TextBlock { Text = "👁 PREVIEW", Foreground = Cyan, FontSize = 11, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 8, 0) });
+                sp.Children.Add(btn("◀", Card, "the look before", () => StepLook(-1)));
+                var nameBtn = btn("", Card, "open the looks again to preview another", () => LooksGallery()); nameBtn.Content = lookTabName; sp.Children.Add(nameBtn);
+                sp.Children.Add(btn("▶", Card, "the next look", () => StepLook(1)));
+                sp.Children.Add(btn("✨ LOOKS", Card, "open the looks again to preview another", () => LooksGallery()));
+                var ok = btn("✓ CONFIRM", Gold, "keep this look (the tab goes)", () => { int k = themeIdx; EndLookPreview(); SetTheme(k, true); Toast("🎨 " + CurTheme().Name); }); ok.Foreground = Bg; sp.Children.Add(ok);
+                sp.Children.Add(btn("✕", Card, "cancel: back to the look you had", () => { int k = lookBefore; EndLookPreview(); SetTheme(k, false); }));
+                lookTab = new Border { Child = sp, Background = Panel, BorderBrush = Cyan, BorderThickness = new Thickness(1.6), CornerRadius = new CornerRadius(14), Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(0, 0, 0, 14), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom,
+                    Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = Colors.Black, BlurRadius = 22, ShadowDepth = 0, Opacity = 0.45 } };
+                System.Windows.Controls.Panel.SetZIndex(lookTab, 900); Grid.SetRow(lookTab, 1); rootGrid.Children.Add(lookTab);
+            }
+            lookTabName.Text = CurTheme().Name; lookTab.Visibility = Visibility.Visible;
+        }
+        void StepLook(int d)
+        {
+            if (lookList.Count == 0) return; int at = lookList.IndexOf(themeIdx); at = at < 0 ? 0 : (at + d + lookList.Count) % lookList.Count;
+            SetTheme(lookList[at], false); if (lookTabName != null) lookTabName.Text = CurTheme().Name;
+        }
+        void EndLookPreview() { lookBefore = -1; if (lookTab != null) lookTab.Visibility = Visibility.Collapsed; }
         // a small picture of the platform in a theme: the header (P/L + equity), the instruments, the chart, the BUY / SELL panel
         Border LookCard(ChartTheme t, bool on)
         {
@@ -517,8 +559,38 @@ namespace KeystoneMT5
             bool on = !Act.V.Ind.Contains(key); SetInd(Act.Sym, key, on); PaintBar();
             var ind = ChartView.Indicators.First(x => x.Key == key); Toast((on ? "☑ " : "☐ ") + ind.Name + (on ? " on — " + ind.Tip : " off"));
         }
+        // ⛶ FULL: the chart takes the whole window; only one small strip of buttons stays on top (instrument, timeframe, its P/L, SELL / BUY, the panel, exit)
+        FrameworkElement chartBar, chartRail; Border fullStrip; Button fsSym, fsSell, fsBuy; TextBlock fsPl; readonly List<Tuple<int, Button>> fsTf = new List<Tuple<int, Button>>(); bool panelBeforeFull;
+        Border BuildFullStrip()
+        {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            Func<string, Brush, Button> small = (t0, bg) => { var b = Pill(t0, bg); b.Height = 28; b.FontSize = 11.5; b.Padding = new Thickness(9, 0, 9, 0); b.Margin = new Thickness(2, 0, 2, 0); return b; };
+            fsSym = Sx.Drop("", Tint(Cyan, 60), () => listSyms.Select(x => new Mi { Text = x, Check = string.Equals(x, Act.Sym, StringComparison.OrdinalIgnoreCase), Radio = true, Do = () => SetPane(Act, x, Act.Tf) }).ToList());
+            fsSym.Height = 28; fsSym.FontSize = 12; fsSym.Foreground = Cyan; fsSym.ToolTip = "the instrument"; sp.Children.Add(fsSym);
+            sp.Children.Add(new Border { Width = 1, Height = 20, Background = Line, Margin = new Thickness(6, 0, 6, 0) });
+            foreach (var m in Tf.All) { int mm = m; var b = small(Tf.Name(m), Card); b.MinWidth = 34; b.Padding = new Thickness(5, 0, 5, 0); b.Click += delegate { SetPane(Act, Act.Sym, mm); }; sp.Children.Add(b); fsTf.Add(Tuple.Create(m, b)); }
+            sp.Children.Add(new Border { Width = 1, Height = 20, Background = Line, Margin = new Thickness(6, 0, 6, 0) });
+            fsPl = new TextBlock { FontSize = 13, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 10, 0), Foreground = Muted }; sp.Children.Add(fsPl);
+            fsSell = small("SELL", Red); fsSell.Foreground = Sx.White; fsSell.MinWidth = 110; fsSell.ToolTip = "SELL the panel's lots (like the panel's SELL: needs ARM)"; fsSell.Click += delegate { Market(-1); }; sp.Children.Add(fsSell);
+            fsBuy = small("BUY", Green); fsBuy.Foreground = Bg; fsBuy.MinWidth = 110; fsBuy.ToolTip = "BUY the panel's lots (like the panel's BUY: needs ARM)"; fsBuy.Click += delegate { Market(1); }; sp.Children.Add(fsBuy);
+            sp.Children.Add(new Border { Width = 1, Height = 20, Background = Line, Margin = new Thickness(6, 0, 6, 0) });
+            var pb = small("◧ PANEL", Card); pb.ToolTip = "show / hide the trade panel on the right"; pb.Click += delegate { panelHost.Visibility = panelHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; }; sp.Children.Add(pb);
+            var tb = small("🧰 TOOLS", Card); tb.ToolTip = "show / hide the drawing tools on the left"; tb.Click += delegate { chartRail.Visibility = chartRail.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; }; sp.Children.Add(tb);
+            var ex = small("⛶ EXIT FULL (Esc)", Tint(Gold, 90)); ex.Click += delegate { SetFullChart(false); }; sp.Children.Add(ex);
+            return new Border { Child = new ScrollViewer { Content = sp, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }, Background = Panel, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(0, 0, 0, 4), HorizontalAlignment = HorizontalAlignment.Left };
+        }
+        void ChartFull(bool on)
+        {
+            if (chartBar == null) return;
+            if (on && fullStrip.Visibility != Visibility.Visible) panelBeforeFull = panelHost.Visibility == Visibility.Visible;
+            chartBar.Visibility = on ? Visibility.Collapsed : Visibility.Visible; fullStrip.Visibility = on ? Visibility.Visible : Visibility.Collapsed; chartRail.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+            panelHost.Visibility = on ? Visibility.Collapsed : panelBeforeFull ? Visibility.Visible : Visibility.Collapsed;
+            PaintBar();
+        }
         void PaintBar()
         {
+            foreach (var t in fsTf) { bool on = t.Item1 == Act.Tf; t.Item2.Background = on ? Gold : (Brush)Card; t.Item2.Foreground = on ? Bg : Gold; }
+            if (fsSym != null) fsSym.Content = (string.IsNullOrEmpty(Act.Sym) ? "instrument" : Act.Sym) + "  ▾";
             foreach (var t in tfBtns) { bool on = t.Item1 == Act.Tf; t.Item2.Background = on ? Gold : (Brush)Card; t.Item2.Foreground = on ? Bg : Gold; }
             foreach (var t in splitBtns) { bool on = t.Item1 == split; t.Item2.Background = on ? Tint(Violet, 170) : (Brush)Card; }
             if (indBtn != null) { int n = Act.V.Ind.Count; indBtn.Content = "📈 INDICATORS" + (n > 0 ? " (" + n + ")" : "") + "  ▾"; indBtn.BorderBrush = n > 0 ? Tint(Cyan, 160) : Line; }
@@ -921,6 +993,7 @@ namespace KeystoneMT5
             panelExpo.Text = ps.Count == 0 ? "no position on " + p.Sym : "▲ " + bl.ToString("0.00", IC) + " lots bought • ▼ " + sl.ToString("0.00", IC) + " sold • net " + (bl - sl).ToString("+0.00;−0.00;0.00", IC) + " • " + Signed(pl, a.Currency);
             panelExpo.Foreground = ps.Count == 0 ? Muted : pl >= 0 ? Green : Red;
             sellBtn.Content = "SELL\n" + (q != null ? q.Bid.ToString(f, IC) : ""); buyBtn.Content = "BUY\n" + (q != null ? q.Ask.ToString(f, IC) : "");
+            if (fsSell != null && fullStrip.Visibility == Visibility.Visible) { fsSell.Content = "SELL " + (q != null ? q.Bid.ToString(f, IC) : ""); fsBuy.Content = "BUY " + (q != null ? q.Ask.ToString(f, IC) : ""); fsPl.Text = ps.Count == 0 ? "" : Signed(pl, a.Currency); fsPl.Foreground = pl >= 0 ? Green : Red; }
             spreadText.Text = q != null ? q.Spread(p.V.Point).ToString("0", IC) + "\npts" : "";
             if (Virtual)
             {

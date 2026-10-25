@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-28a";
+        public const string Build = "SpasiX • BUILD 2026-10-28b";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -202,13 +202,14 @@ namespace KeystoneMT5
             acPrivate.Background = streamMode ? Tint(Violet, 70) : Brushes.Transparent; acPrivate.ToolTip = streamMode ? "STREAM MODE: the name and number are hidden • click = show" : "click = hide the name and number (STREAM MODE)";
             if (streamBtn != null) { streamBtn.Background = streamMode ? Tint(Violet, 170) : (Brush)Card; streamBtn.Content = streamMode ? "👁 STREAM ON" : "👁 STREAM"; }
         }
-        // the chart over the whole window (F11 / Esc): only its own bar stays
+        // the chart over the whole window (F11 / Esc): header, tabs, toolbar, tools and panel go; one small strip of buttons stays
         void SetFullChart(bool on)
         {
             fullChart = on; if (on) Show("CHART");
             headerEl.Visibility = on ? Visibility.Collapsed : Visibility.Visible; tabBarEl.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
             if (on) WindowState = WindowState.Maximized;
             if (fullBtn != null) fullBtn.Content = on ? "⛶ EXIT FULL (Esc)" : "⛶ FULL";
+            ChartFull(on);
         }
 
         // ---------------------------------------------------------------- tab bar

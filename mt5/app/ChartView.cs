@@ -114,7 +114,28 @@ namespace KeystoneMT5
             T("Pearl Lavender", "★ Signature", "#E6E3F0", "#F0EEF7", "#D6D2E6", "#2E8B6E", "#C2456A", "#57527A", "#1E1A33", "#7B61D9", "#1E1A33", true),
             T("Cyber Sand", "★ Signature", "#28241E", "#2F2A23", "#3D372E", "#FFB347", "#5AC8FA", "#BDB09A", "#F6EFE3", "#FFB347", "#FFFFFF"),
             T("Quantum Blue", "★ Signature", "#13213A", "#172843", "#233759", "#4DD8FF", "#FF6B8B", "#9DB2D4", "#EAF2FF", "#FFC94D", "#FFFFFF"),
-            T("Solar Flare", "★ Signature", "#120E0A", "#17120D", "#2A2118", "#FFB000", "#FF4D6D", "#B89B7A", "#FFF1DA", "#FFB000", "#FFFFFF") };
+            T("Solar Flare", "★ Signature", "#120E0A", "#17120D", "#2A2118", "#FFB000", "#FF4D6D", "#B89B7A", "#FFF1DA", "#FFB000", "#FFFFFF"),
+            // ◐ SOFT LIGHT: light themes with a darker balance (stone / mist backgrounds, deep candles, dark text): bright but calm, not white
+            T("Stone Gold", "◐ Soft light", "#C9C4B8", "#D4D0C5", "#B8B2A4", "#9A6A00", "#2F4F7A", "#3E3A32", "#1C1A16", "#9A6A00", "#1C1A16", true),
+            T("Dusk Linen", "◐ Soft light", "#CFC8BE", "#D9D3CA", "#BDB5A9", "#1F7A55", "#B0344A", "#463F36", "#1E1A15", "#A06A12", "#1E1A15", true),
+            T("Slate Paper", "◐ Soft light", "#B9C1CC", "#C6CDD6", "#A7B0BC", "#0E7A5E", "#C13A4E", "#343C48", "#121821", "#2457B8", "#121821", true),
+            T("Sage Stone", "◐ Soft light", "#BCC6BC", "#C8D1C8", "#A9B5A9", "#1C6B45", "#A63A3A", "#364236", "#131A13", "#8A6A10", "#131A13", true),
+            T("Dune Gold", "◐ Soft light", "#D2C4AE", "#DCD0BC", "#C0B19A", "#8C5A00", "#3B5B8C", "#4A3F30", "#1E1810", "#8C5A00", "#1E1810", true),
+            T("Graphite Paper", "◐ Soft light", "#B4B7BD", "#C1C4CA", "#A2A6AE", "#0F6E58", "#B4283C", "#2E3238", "#0F1115", "#8C6400", "#0F1115", true),
+            T("Lilac Ash", "◐ Soft light", "#C3BDD0", "#CEC9DA", "#B1AAC2", "#2B7A5E", "#B03A62", "#3E3851", "#18142A", "#5E45B8", "#18142A", true),
+            T("Clay Rose", "◐ Soft light", "#D0BDB6", "#DAC9C3", "#BFA9A1", "#2E6E5A", "#A8343F", "#4A3632", "#1E1412", "#8E6410", "#1E1412", true),
+            T("Harbor Fog", "◐ Soft light", "#B6C4CC", "#C3D0D7", "#A3B3BC", "#0B7A6E", "#C0453F", "#30404A", "#0F1A20", "#1F5E8C", "#0F1A20", true),
+            T("Sand & Navy", "◐ Soft light", "#CFC6B3", "#D9D1C0", "#BDB39E", "#1D3A6B", "#B0442A", "#403A2E", "#1B1912", "#1D3A6B", "#1B1912", true),
+            T("Olive Mist", "◐ Soft light", "#C4C5AE", "#CFD0BA", "#B2B39B", "#3F6B1F", "#9C3A28", "#3E3F2C", "#181910", "#7A6410", "#181910", true),
+            T("Pewter Gold", "◐ Soft light", "#A9ADB4", "#B6BAC1", "#979CA4", "#7A5400", "#23406E", "#2A2E35", "#0E1014", "#7A5400", "#0E1014", true),
+            T("Mocha Cream", "◐ Soft light", "#C8B8A6", "#D3C5B5", "#B5A492", "#3D6B4A", "#A3362E", "#45362A", "#1C140E", "#8A5A1A", "#1C140E", true),
+            T("Ice Steel", "◐ Soft light", "#BFC9D4", "#CCD5DE", "#ACB7C3", "#0B7563", "#B8334F", "#2F3B48", "#101820", "#1E56A8", "#101820", true),
+            T("Twilight Paper", "◐ Soft light", "#BDBACB", "#C9C6D6", "#AAA6BB", "#A06E08", "#4A3F9A", "#37344A", "#15122A", "#A06E08", "#15122A", true),
+            T("Moss Gold", "◐ Soft light", "#B9C2B3", "#C5CDBF", "#A6B0A0", "#8E6A00", "#2E5A44", "#36402F", "#121810", "#8E6A00", "#121810", true),
+            T("Copper Haze", "◐ Soft light", "#CDBFB3", "#D7CBC0", "#BBAC9F", "#A0521A", "#2E4A6B", "#45382E", "#1C140E", "#A0521A", "#1C140E", true),
+            T("Smoke Mint", "◐ Soft light", "#B8C6C1", "#C4D1CC", "#A5B5AF", "#0F7A5A", "#B8424F", "#2F403B", "#0F1A17", "#0F7A5A", "#0F1A17", true),
+            T("Storm Gold", "◐ Soft light", "#A7AEB8", "#B4BBC4", "#959DA8", "#8A5E00", "#1F4F8A", "#283039", "#0D1117", "#8A5E00", "#0D1117", true),
+            T("Rose Ash", "◐ Soft light", "#C9BCC2", "#D4C8CE", "#B7A8AF", "#2C7A62", "#A8345A", "#45363D", "#1C1217", "#8E5E14", "#1C1217", true) };
     }
     public sealed class Drawing
     {
