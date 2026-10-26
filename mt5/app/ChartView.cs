@@ -344,8 +344,24 @@ namespace KeystoneMT5
             }
             DrawIndLegend(dc, tagBg);
             if (Tool != "FVG") fvgFirst = -1;
-            if (Tool == "FVG" && fvgFirst >= 0 && fvgFirst < nBars) { double fx = X(fvgFirst); dc.DrawRectangle(Br(th.Accent, 45), P(Br(th.Accent, 200), 1, 3, 2), new Rect(fx - Math.Max(3, barW / 2), TopPad, Math.Max(6, barW), plotH)); var ft = T("1st candle", 10, Br(th.Accent), false, true); dc.DrawText(ft, new Point(fx - ft.Width / 2, TopPad + 4)); }
-            if (Tool != "") { var tt = T("✏ " + ToolName(Tool) + " — " + (Tool == "FVG" ? (fvgFirst < 0 ? "click the 1st candle of the gap" : "now click the 3rd candle: bullish or bearish is found by itself") : OneClick(Tool) ? "click on the chart" : "press and drag on the chart") + (Magnet ? " • 🧲 magnet on" : "") + " • Esc = cancel", 11.5, GoldB, false, true); dc.DrawRoundedRectangle(tagBg, P(GoldB, 1), new Rect(8, TopPad + plotH - 28, tt.Width + 16, 22), 6, 6); dc.DrawText(tt, new Point(16, TopPad + plotH - 25)); }
+            if (Tool == "FVG" && Series != null && Series.Bars.Count > 0)
+            {
+                // a small numbered badge over the candle: 1 = the candle under the mouse (first click), then 3; the gap is previewed only when it exists
+                var fb = Series.Bars; Action<int, string, Color> badge = (ix, txt, c) => { if (ix < 0 || ix >= fb.Count) return; double bx = X(ix), by = Y(fb[ix].H) - 22; var ft = T(txt, 11, Br(th.Bg), false, true); var r = new Rect(bx - 9, by, 18, 18); dc.DrawEllipse(Br(c), null, new Point(bx, by + 9), 9, 9); dc.DrawText(ft, new Point(bx - ft.Width / 2, by + 9 - ft.Height / 2)); };
+                int hov = mouse.HasValue && mouse.Value.X < plotW ? (int)Math.Round(IndexAt(mouse.Value.X)) : -1; if (hov >= fb.Count) hov = fb.Count - 1;
+                if (fvgFirst >= 0 && fvgFirst < fb.Count)
+                {
+                    badge(fvgFirst, "1", th.Accent);
+                    if (hov >= 0 && hov != fvgFirst)
+                    {
+                        int ia = Math.Min(fvgFirst, hov), ib = Math.Max(fvgFirst, hov); var g = ib - ia >= 2 ? FvgBetween(ia, ib) : null;
+                        badge(hov, "3", g != null ? (g.P3 > 0 ? BuyC : SellC) : th.Axis);
+                        if (g != null) { double gt = Y(Math.Max(g.P1, g.P2)), gb = Y(Math.Min(g.P1, g.P2)); var gc = g.P3 > 0 ? BuyC : SellC; dc.DrawRectangle(Br(gc, 40), P(Br(gc, 200), 1, 4, 3), new Rect(X(ia), gt, Math.Max(2, plotW - X(ia)), Math.Max(1, gb - gt))); }
+                    }
+                }
+                else if (hov >= 0) badge(hov, "1", th.Accent);
+            }
+            if (Tool != "") { var tt = T("✏ " + ToolName(Tool) + " — " + (Tool == "FVG" ? (fvgFirst < 0 ? "click candle 1" : "click candle 3 — drawn only if there is a gap (green bullish / red bearish)") : OneClick(Tool) ? "click on the chart" : "press and drag on the chart") + (Magnet ? " • 🧲 magnet on" : "") + " • Esc = cancel", 11.5, GoldB, false, true); dc.DrawRoundedRectangle(tagBg, P(GoldB, 1), new Rect(8, TopPad + plotH - 28, tt.Width + 16, 22), 6, 6); dc.DrawText(tt, new Point(16, TopPad + plotH - 25)); }
             else if (!auto) dc.DrawText(T("PRICE SCALE: MANUAL • double-click = automatic", 10.5, axisB), new Point(8, TopPad + plotH - 18));
             if (Sim) { var wm = T("REPLAY", 11, Br(th.Accent, 180), false, true); dc.DrawText(wm, new Point(plotW - wm.Width - 10, TopPad + plotH - 18)); }
             dc.DrawRectangle(null, P(Br(th.Accent, 90), 1.2), new Rect(0.5, TopPad + 0.5, plotW - 1, plotH - 1));
@@ -709,6 +725,7 @@ namespace KeystoneMT5
             }
             return false;
         }
+        public bool HasSelected { get { return selected != null; } }
         public void DeleteSelected() { if (selected != null) { Drawings.Remove(selected); selected = null; if (DrawingsChanged != null) DrawingsChanged(); InvalidateVisual(); } }
         void DrawMeasure(DrawingContext dc, Drawing d)
         {

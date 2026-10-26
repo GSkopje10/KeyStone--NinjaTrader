@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-29f";
+        public const string Build = "SpasiX • BUILD 2026-10-29g";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -86,6 +86,7 @@ namespace KeystoneMT5
             PreviewKeyDown += (s, e) =>
             {
                 if (e.Key == System.Windows.Input.Key.F10 || e.SystemKey == System.Windows.Input.Key.F10) { if (spreadPanel != null) { Show("CHART"); ToggleSpreads(); } e.Handled = true; return; }
+                if (e.Key == System.Windows.Input.Key.Delete && !(System.Windows.Input.Keyboard.FocusedElement is TextBox)) { bool del = false; foreach (var pn in panes) if (pn.V.HasSelected) { pn.V.DeleteSelected(); del = true; } if (posView != null && posView.HasSelected) { posView.DeleteSelected(); del = true; } if (del) { e.Handled = true; return; } }   // a clicked object goes with Delete, wherever the focus is
                 if (e.Key == System.Windows.Input.Key.F11 || (e.Key == System.Windows.Input.Key.Escape && fullChart && !SxMenu.IsOpen(this))) { SetFullChart(!fullChart); e.Handled = true; return; }
                 if (Sim && view == "CHART" && !(System.Windows.Input.Keyboard.FocusedElement is TextBox))
                 {
