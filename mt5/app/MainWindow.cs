@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-29g";
+        public const string Build = "SpasiX • BUILD 2026-10-29h";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -180,7 +180,7 @@ namespace KeystoneMT5
             foreach (var k in new[] { "OPEN P/L", "BALANCE", "EQUITY", "TODAY", "MARGIN LEVEL", "FREE MARGIN" })
             {
                 bool big = k == "OPEN P/L", eq = k == "EQUITY";   // the two numbers that matter most stand out: a coloured, pulsing border
-                var cap = new TextBlock { Text = k == "MARGIN LEVEL" ? "MARGIN" : k, Foreground = big || eq ? Gold : Muted, FontSize = big || eq ? 10.5 : 9.5, FontWeight = FontWeights.Bold };
+                var cap = new TextBlock { Text = k == "MARGIN LEVEL" ? "MARGIN" : k == "OPEN P/L" ? "OPEN P/L = IF ALL CLOSED NOW" : k, Foreground = big || eq ? Gold : Muted, FontSize = big || eq ? 10.5 : 9.5, FontWeight = FontWeights.Bold };
                 var val = new TextBlock { Text = "—", Foreground = Text, FontSize = big ? 27 : eq ? 22 : 17, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
                 var sp = new StackPanel(); sp.Children.Add(cap); sp.Children.Add(val);
                 if (k == "EQUITY") { var track = new Grid { Height = 4, Width = 108, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 3, 0, 0) }; track.Children.Add(new Border { CornerRadius = new CornerRadius(2), Background = Line }); eqFill = new Border { CornerRadius = new CornerRadius(2), Background = Green, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 }; track.Children.Add(eqFill); sp.Children.Add(track); }

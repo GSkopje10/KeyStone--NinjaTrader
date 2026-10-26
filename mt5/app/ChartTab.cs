@@ -77,16 +77,16 @@ namespace KeystoneMT5
             fullBtn = Pill("⛶ FULL", Card); fullBtn.ToolTip = "the chart over the whole screen (F11 / Esc)"; fullBtn.Click += delegate { SetFullChart(!fullChart); }; bar.Children.Add(fullBtn);
             panelBtn = Pill("◧ PANEL", Tint(Gold, 60)); panelBtn.ToolTip = "show / hide the trade panel"; panelBtn.Click += delegate { panelHost.Visibility = panelHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; Put("panel", panelHost.Visibility == Visibility.Visible ? "1" : "0"); }; bar.Children.Add(panelBtn);
             // the selected instrument's own P/L (its tickets only): buys / sells, lots, P/L — the border pulses green / red
-            symPlCap = new TextBlock { Foreground = Cyan, FontSize = 9.5, FontWeight = FontWeights.Bold }; symPlVal = new TextBlock { Foreground = Muted, FontSize = 15, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
+            symPlCap = new TextBlock { Foreground = Cyan, FontSize = 9.5, FontWeight = FontWeights.Bold, TextTrimming = TextTrimming.CharacterEllipsis }; symPlVal = new TextBlock { Foreground = Muted, FontSize = 15, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
             Func<SolidColorBrush, Tuple<Border, TextBlock, TextBlock>> cell = col =>
             {
                 var c1 = new TextBlock { Foreground = col, FontSize = 9.5, FontWeight = FontWeights.Bold }; var c2 = new TextBlock { Foreground = Text, FontSize = 12.5, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
                 var st = new StackPanel(); st.Children.Add(c1); st.Children.Add(c2);
-                return Tuple.Create(new Border { Child = st, Background = Tint(col, 30), BorderBrush = Tint(col, 120), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 1, 9, 2), Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed }, c1, c2);
+                return Tuple.Create(new Border { Child = st, Background = Tint(col, 30), BorderBrush = Tint(col, 120), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 1, 9, 2), Margin = new Thickness(8, 0, 0, 0), Width = 182, Visibility = Visibility.Hidden }, c1, c2);   // fixed width: the toolbar never moves
             };
             symBuy = cell(Green); symSell = cell(Red); symHedge = cell(Violet);
-            symPlInfo = new TextBlock { Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
-            var spl = new StackPanel(); spl.Children.Add(symPlCap); spl.Children.Add(symPlVal); var sph = new StackPanel { Orientation = Orientation.Horizontal }; sph.Children.Add(spl); sph.Children.Add(symBuy.Item1); sph.Children.Add(symSell.Item1); sph.Children.Add(symHedge.Item1); sph.Children.Add(symPlInfo);
+            symPlInfo = new TextBlock { Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0), Width = 70 };
+            var spl = new StackPanel { Width = 190 }; spl.Children.Add(symPlCap); spl.Children.Add(symPlVal); var sph = new StackPanel { Orientation = Orientation.Horizontal }; sph.Children.Add(spl); sph.Children.Add(symBuy.Item1); sph.Children.Add(symSell.Item1); sph.Children.Add(symHedge.Item1); sph.Children.Add(symPlInfo);
             symPlBox = new Border { Child = sph, Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.8), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 2, 12, 3), Margin = new Thickness(4, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, MinWidth = 260, ToolTip = "the P/L of this instrument only (its open tickets)" };
             bar.Children.Add(symPlBox);
             bar.Children.Add(CloseBtns(34));
@@ -279,7 +279,7 @@ namespace KeystoneMT5
         ChartTheme WithCandles(ChartTheme t)
         {
             if (t == null) return t; string key, lk; candleOv.TryGetValue(t.Name, out key); candleOv.TryGetValue("L:" + t.Name, out lk); key = key ?? ""; lk = string.IsNullOrEmpty(lk) ? "AUTO" : lk;
-            bool ownLines = t.Buy != ChartTheme.DefBuy || t.Sell != ChartTheme.DefSell || t.Pend != ChartTheme.DefPend;   // set in the chart settings: kept
+            bool ownLines = t.Buy != ChartTheme.DefBuy || t.Sell != ChartTheme.DefSell || t.Pend != ChartTheme.DefPend || t.Tp != ChartTheme.DefTp || t.Sl != ChartTheme.DefSl;   // set in the chart settings: kept
             if (key == "" && ownLines) return t;
             if (ReferenceEquals(t, candleCacheSrc) && key + "|" + lk == candleCacheKey) return candleCacheOut;
             bool light = t.Light || Sx.Luma(t.Bg) > 0.55; var c = t.Copy();
@@ -293,7 +293,13 @@ namespace KeystoneMT5
             if (!ownLines)
             {
                 var ls = lk == "AUTO" ? AutoLines(c, light) : LineSets.FirstOrDefault(x => x[0] == lk) ?? AutoLines(c, light);
-                c.Buy = Sx.C(light ? ls[5] : ls[2]); c.Sell = Sx.C(light ? ls[6] : ls[3]); c.Pend = Sx.C(light ? ls[7] : ls[4]);
+                c.Buy = Sx.C(light ? ls[5] : ls[2]); c.Sell = Sx.C(light ? ls[6] : ls[3]);
+                // T/P, S/L and pending orders: each picked to stand apart from the buys / sells, the candles, the background and each other (no closing the wrong line)
+                var taken = new List<Color> { c.Buy, c.Sell, c.Up, c.Down };
+                Func<string[][], Color> pick = cands => { Color best = Colors.White; double bs = -1; foreach (var cd in cands) { var col = Sx.C(light ? cd[1] : cd[0]); double sc = taken.Min(x => Dist(x, col)); sc = Math.Min(sc, Dist(col, c.Plot) * 0.7); if (sc > bs) { bs = sc; best = col; } } taken.Add(best); return best; };
+                c.Tp = pick(new[] { new[] { "#3DA5FF", "#1D5FD6" }, new[] { "#22D3EE", "#0A7FA3" }, new[] { "#7CC4FF", "#2563EB" }, new[] { "#E8ECF4", "#1F2937" } });
+                c.Sl = pick(new[] { new[] { "#FF8A1F", "#C25400" }, new[] { "#FF3DCB", "#B5157E" }, new[] { "#FFD60A", "#9A6A00" }, new[] { "#FF5A36", "#B42318" } });
+                c.Pend = pick(new[] { new[] { "#C77DFF", "#7B3FC4" }, new[] { "#FFB020", "#B87400" }, new[] { "#E8ECF4", "#374151" }, new[] { "#A3FF12", "#4E8A00" } });
             }
             candleCacheSrc = t; candleCacheKey = key + "|" + lk; candleCacheOut = c; return c;
         }
@@ -308,7 +314,7 @@ namespace KeystoneMT5
             {
                 var gl = new List<Mi> { Mi.H(grp) }; bool cur = false;
                 for (int i = 0; i < ChartTheme.All.Length; i++) { if (ChartTheme.All[i].Group != grp) continue; int ii = i; var th = ChartTheme.All[i]; if (themeIdx == i) cur = true; gl.Add(new Mi { Text = th.Name, Dot = new SolidColorBrush(th.Plot), Check = themeIdx == i, Radio = true, KeepOpen = true, Do = () => SetTheme(ii) }); }
-                l.Add(Mi.Group(grp == "♛ Your picks" ? "♛" : grp == "Ⓜ MT5 Luxe" ? "Ⓜ" : grp == "✦ Neon" ? "✦" : grp == "☕ Paper & ink" ? "☕" : grp == "✧ Luxe colour" ? "✧" : grp == "★ Signature" ? "★" : grp == "Gray & light" ? "◐" : grp == "◐ Soft light" ? "◒" : grp == "Cool contrasts" ? "◑" : grp == "MetaTrader" ? "Ⓜ" : grp == "Easy on the eyes" ? "☾" : grp == "Unique" ? "✦" : "S", grp + (cur ? "  ✓" : ""), gl));
+                l.Add(Mi.Group(grp == "☀ Daylight" ? "☀" : grp == "♛ Your picks" ? "♛" : grp == "Ⓜ MT5 Luxe" ? "Ⓜ" : grp == "✦ Neon" ? "✦" : grp == "☕ Paper & ink" ? "☕" : grp == "✧ Luxe colour" ? "✧" : grp == "★ Signature" ? "★" : grp == "Gray & light" ? "◐" : grp == "◐ Soft light" ? "◒" : grp == "Cool contrasts" ? "◑" : grp == "MetaTrader" ? "Ⓜ" : grp == "Easy on the eyes" ? "☾" : grp == "Unique" ? "✦" : "S", grp + (cur ? "  ✓" : ""), gl));
             }
             return l;
         }
@@ -787,7 +793,7 @@ namespace KeystoneMT5
                     var s0 = sy; bool on = string.Equals(sy, Act.Sym, StringComparison.OrdinalIgnoreCase); bool hasPos = mine.Contains(sy, StringComparer.OrdinalIgnoreCase);
                     double cpl = hasPos ? plOf(sy) : 0; var b = Pill("", on ? (Brush)Tint(Cyan, 200) : Card); b.Padding = new Thickness(10, 0, 4, 0); b.Foreground = on ? Bg : Cyan; b.BorderBrush = on ? Cyan : Tint(Cyan, 90); b.Click += delegate { SetPane(Act, s0, Act.Tf); };
                     // drag a chip onto another to change the order • ✕ removes the instrument from the list (+ brings it back)
-                    var lab = new TextBlock { Text = (hasPos ? "● " : "") + sy + (hasPos ? "  " + (cpl >= 0 ? "+" : "−") + "$" + Math.Abs(cpl).ToString("N0", IC) : ""), VerticalAlignment = VerticalAlignment.Center };
+                    var lab = new TextBlock { Text = (hasPos ? "● " : "") + sy + (hasPos ? "  " + (cpl >= 0 ? "+" : "−") + "$" + Math.Abs(cpl).ToString("N0", IC) : ""), VerticalAlignment = VerticalAlignment.Center, MinWidth = hasPos ? 150 : 0 };   // a fixed width while the P/L changes: the toolbar stays put
                     var xb = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(9), Margin = new Thickness(7, 0, 0, 0), Background = Brushes.Transparent, Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center, ToolTip = "remove " + sy + " from the list (+ adds it back)", Child = new TextBlock { Text = "✕", FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = on ? Bg : Muted } };
                     xb.MouseEnter += delegate { xb.Background = Tint(Red, 200); ((TextBlock)xb.Child).Foreground = Sx.White; }; xb.MouseLeave += delegate { xb.Background = Brushes.Transparent; ((TextBlock)xb.Child).Foreground = on ? Bg : Muted; };
                     xb.MouseLeftButtonDown += (o, e) => { e.Handled = true; HideSym(s0, hasPos); };
@@ -847,9 +853,9 @@ namespace KeystoneMT5
             double pl = ps.Sum(x => x.Profit + x.Swap), bl = ps.Where(x => x.Dir > 0).Sum(x => x.Lots), sl = ps.Where(x => x.Dir < 0).Sum(x => x.Lots); int nb = ps.Count(x => x.Dir > 0), ns = ps.Count(x => x.Dir < 0);
             symPlCap.Text = sym + " • P/L of this instrument"; symPlVal.Text = ps.Count == 0 ? "no ticket" : Signed(pl, cur); symPlVal.Foreground = ps.Count == 0 ? Muted : pl > 0 ? Green : pl < 0 ? Red : Text;
             double bp = ps.Where(x => x.Dir > 0).Sum(x => x.Profit + x.Swap), spp = ps.Where(x => x.Dir < 0).Sum(x => x.Profit + x.Swap); bool both = nb > 0 && ns > 0;
-            symBuy.Item1.Visibility = nb > 0 ? Visibility.Visible : Visibility.Collapsed; symBuy.Item2.Text = "▲ BUY  " + nb + " ticket" + (nb == 1 ? "" : "s") + (both && bl > sl ? "  ★" : ""); symBuy.Item3.Text = bl.ToString("0.00", IC) + " lots  " + Signed(bp, cur); symBuy.Item3.Foreground = bp >= 0 ? Green : Red;
-            symSell.Item1.Visibility = ns > 0 ? Visibility.Visible : Visibility.Collapsed; symSell.Item2.Text = "▼ SELL  " + ns + " ticket" + (ns == 1 ? "" : "s") + (both && sl > bl ? "  ★" : ""); symSell.Item3.Text = sl.ToString("0.00", IC) + " lots  " + Signed(spp, cur); symSell.Item3.Foreground = spp >= 0 ? Green : Red;
-            symHedge.Item1.Visibility = both ? Visibility.Visible : Visibility.Collapsed;
+            symBuy.Item1.Visibility = nb > 0 ? Visibility.Visible : Visibility.Hidden; symBuy.Item2.Text = "▲ BUY  " + nb + " ticket" + (nb == 1 ? "" : "s") + (both && bl > sl ? "  ★" : ""); symBuy.Item3.Text = bl.ToString("0.00", IC) + " lots  " + Signed(bp, cur); symBuy.Item3.Foreground = bp >= 0 ? Green : Red;
+            symSell.Item1.Visibility = ns > 0 ? Visibility.Visible : Visibility.Hidden; symSell.Item2.Text = "▼ SELL  " + ns + " ticket" + (ns == 1 ? "" : "s") + (both && sl > bl ? "  ★" : ""); symSell.Item3.Text = sl.ToString("0.00", IC) + " lots  " + Signed(spp, cur); symSell.Item3.Foreground = spp >= 0 ? Green : Red;
+            symHedge.Item1.Visibility = both ? Visibility.Visible : Visibility.Hidden;
             if (both) { double net = bl - sl; symHedge.Item2.Text = Math.Abs(net) < 1e-9 ? "⇅ HEDGED • even" : "⇅ " + (net > 0 ? "BUYS" : "SELLS") + " +" + Math.Abs(net).ToString("0.00", IC) + " lots heavier"; symHedge.Item3.Text = Math.Abs(net) < 1e-9 ? "fully hedged" : "to even: " + (net > 0 ? "SELL " : "BUY ") + Math.Abs(net).ToString("0.00", IC);
                 symHedge.Item1.ToolTip = sym + ": " + bl.ToString("0.00", IC) + " lots bought vs " + sl.ToString("0.00", IC) + " sold" + (Math.Abs(net) < 1e-9 ? " — fully hedged" : " — the " + (net > 0 ? "buys" : "sells") + " are " + Math.Abs(net).ToString("0.00", IC) + " lots heavier; " + (net > 0 ? "SELL " : "BUY ") + Math.Abs(net).ToString("0.00", IC) + " lots more (or close that much of the " + (net > 0 ? "buys" : "sells") + ") to even it up"); }
             symPlInfo.Text = os > 0 ? "⏳ " + os + " order" + (os == 1 ? "" : "s") : "";

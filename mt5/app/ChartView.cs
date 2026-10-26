@@ -24,11 +24,11 @@ namespace KeystoneMT5
         static Color C(string h) { return (Color)ColorConverter.ConvertFromString(h); }
         static ChartTheme T(string name, string group, string bg, string plot, string grid, string up, string down, string axis, string text, string accent, string price, bool light = false) { return new ChartTheme { Name = name, Group = group, Bg = C(bg), Plot = C(plot), Grid = C(grid), Up = C(up), Down = C(down), UpWick = C(up), DownWick = C(down), Axis = C(axis), Text = C(text), Accent = C(accent), Price = C(price), Light = light }; }
         // the trading colours (entries, stops / targets, pending orders): the same on every theme unless the chart settings change them
-        public static readonly Color DefBuy = C("#2EE59D"), DefSell = C("#FF4D6D"), DefPend = C("#FFB020");
-        public Color Buy = DefBuy, Sell = DefSell, Pend = DefPend; public bool NoGrid; public double WickW = 1, BodyW = 0.7;
+        public static readonly Color DefBuy = C("#2EE59D"), DefSell = C("#FF4D6D"), DefPend = C("#FFB020"), DefTp = C("#3DA5FF"), DefSl = C("#FF8A1F");
+        public Color Buy = DefBuy, Sell = DefSell, Pend = DefPend, Tp = DefTp, Sl = DefSl; public bool NoGrid; public double WickW = 1, BodyW = 0.7;
         public ChartTheme Copy() { return (ChartTheme)MemberwiseClone(); }
         // saved as text: name=value;… (colours #AARRGGBB, switches 0/1, widths)
-        public static readonly string[] ColorKeys = { "Bg", "Plot", "Grid", "UpBody", "DownBody", "UpWick", "DownWick", "Edge", "Axis", "Text", "Price", "Accent", "Buy", "Sell", "Pend" };
+        public static readonly string[] ColorKeys = { "Bg", "Plot", "Grid", "UpBody", "DownBody", "UpWick", "DownWick", "Edge", "Axis", "Text", "Price", "Accent", "Buy", "Sell", "Pend", "Tp", "Sl" };
         static readonly string[] BoolKeys = { "HollowUp", "Glow", "Light", "Dotted", "NoGrid" };
         public Color Get(string k) { return (Color)typeof(ChartTheme).GetField(k).GetValue(this); }
         public void Set(string k, Color c) { typeof(ChartTheme).GetField(k).SetValue(this, c); if (k == "UpBody") Up = c; if (k == "DownBody") Down = c; }
@@ -83,6 +83,17 @@ namespace KeystoneMT5
             T("Deep Lagoon", "♛ Your picks", "#0B1A24", "#0E202C", "#18303E", "#7FD8C6", "#F0A3A3", "#8F97B0", "#DCE2F0", "#E8C77A", "#FFFFFF"),
             T("Dusk Navy", "♛ Your picks", "#1E2A44", "#24324F", "#33425F", "#F2C46D", "#8FB4FF", "#8F97B0", "#DCE2F0", "#F2C46D", "#FFFFFF"),
             T("Velvet Dusk", "♛ Your picks", "#241D3A", "#2A2244", "#3A3158", "#F0D08A", "#A98BFF", "#8F97B0", "#DCE2F0", "#F0D08A", "#FFFFFF"),
+            // ☀ DAYLIGHT: light and clear, not white; dark candles; the trade lines (positions / orders / stops / targets) each in their own colour
+            T("Daylight Pro", "☀ Daylight", "#E9EDF3", "#F3F5F9", "#D7DDE6", "#0E8A5F", "#D23048", "#4A5568", "#141A24", "#2563EB", "#141A24", true),
+            T("Porcelain Navy", "☀ Daylight", "#E6E9F0", "#F1F3F8", "#D3D8E3", "#1D3A6B", "#C2410C", "#3F4A5C", "#111827", "#1D3A6B", "#111827", true),
+            T("Cloud Gold", "☀ Daylight", "#E8E6E1", "#F2F0EC", "#D6D2C9", "#9A6A00", "#3B4A6B", "#4A463E", "#1C1A16", "#9A6A00", "#1C1A16", true),
+            T("Sky Paper", "☀ Daylight", "#E3EBF3", "#EEF3F8", "#CFDBE8", "#0F766E", "#BE123C", "#3B4A5C", "#0F1A24", "#0F766E", "#0F1A24", true),
+            T("Mint Fog", "☀ Daylight", "#E2ECE8", "#EDF4F1", "#CDDDD6", "#047857", "#B91C1C", "#3C4F47", "#0F1A16", "#047857", "#0F1A16", true),
+            T("Lavender Day", "☀ Daylight", "#E8E6F0", "#F2F0F7", "#D6D2E4", "#15803D", "#9D174D", "#4A4560", "#17142A", "#6D28D9", "#17142A", true),
+            T("Sand Daylight", "☀ Daylight", "#ECE6DA", "#F5F0E6", "#DCD3C2", "#166534", "#9F1239", "#514838", "#1E1810", "#92400E", "#1E1810", true),
+            T("Graphite Light", "☀ Daylight", "#DFE2E6", "#EAECEF", "#C9CED4", "#111827", "#DC2626", "#3F444C", "#0E1014", "#111827", "#0E1014", true),
+            T("Pearl Teal", "☀ Daylight", "#E4ECEE", "#EFF4F5", "#CFDCDF", "#0E7490", "#C2410C", "#3C4E53", "#0E1A1D", "#0E7490", "#0E1A1D", true),
+            T("Rose Daylight", "☀ Daylight", "#EEE6E8", "#F6F0F2", "#DED1D5", "#0F766E", "#BE185D", "#55434A", "#1E1216", "#BE185D", "#1E1216", true),
             // MetaTrader 5 itself
             new ChartTheme { Name = "MT5", Group = "MetaTrader", Bg = C("#000000"), Plot = C("#000000"), Grid = C("#2A2A2A"), Up = C("#00A000"), Down = C("#E00000"), UpWick = C("#00A000"), DownWick = C("#E00000"), Axis = C("#FFFFFF"), Text = C("#FFFFFF"), Accent = C("#3A3A3A"), Price = C("#C8C8C8"), Dotted = true },
             new ChartTheme { Name = "MT5 Classic (green on black)", Group = "MetaTrader", Bg = C("#000000"), Plot = C("#000000"), Grid = C("#3A4450"), Up = C("#00FF00"), Down = C("#00FF00"), UpWick = C("#00FF00"), DownWick = C("#00FF00"), Axis = C("#FFFFFF"), Text = C("#FFFFFF"), Accent = C("#3A3A3A"), Price = C("#778899"), Dotted = true, Bodies = true, UpBody = C("#000000"), DownBody = C("#FFFFFF"), Edge = C("#00FF00") },
@@ -147,7 +158,7 @@ namespace KeystoneMT5
              if (dash.Length > 0) p.DashStyle = new DashStyle(dash, 0); p.Freeze(); return p; }
         static readonly Typeface Face = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), Bold = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal), Mono = new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
         // the trading colours (the same on every theme, never a candle colour)
-        Color BuyC { get { return Theme.Buy; } } Color SellC { get { return Theme.Sell; } } Color PendC { get { return Theme.Pend; } }
+        Color BuyC { get { return Theme.Buy; } } Color SellC { get { return Theme.Sell; } } Color PendC { get { return Theme.Pend; } } Color TpC { get { return Theme.Tp; } } Color SlC { get { return Theme.Sl; } }
         SolidColorBrush bB, sB, pB; Color bC, sC, pC;   // cached until the theme's colour changes
         SolidColorBrush BuyB { get { if (bB == null || bC != BuyC) { bC = BuyC; bB = Br(bC); } return bB; } }
         SolidColorBrush SellB { get { if (sB == null || sC != SellC) { sC = SellC; sB = Br(sC); } return sB; } }
@@ -314,7 +325,7 @@ namespace KeystoneMT5
             dc.Pop();
             DrawTrading(dc, W);
             if (!double.IsNaN(EscapePx)) Level(dc, Y(EscapePx), Br(Color.FromRgb(0xF2, 0xC4, 0x6D)), "⛑ ESCAPE @ " + F(EscapePx) + " — every " + Symbol + " position closes if the price comes back here", true, 8, null);
-            DrawIfClosed(dc);
+            // (IF ALL CLOSED NOW is in the header now, once, not on the chart: user's request)
             DrawPrice(dc, bars, th, textB, tagBg, tf);
             // the picked price for a limit / stop order
             if (!double.IsNaN(PickPrice)) Level(dc, Y(PickPrice), PendB, "🎯 " + PickKind + " @ " + F(PickPrice) + " — press PLACE in the panel", true, 8, null);
@@ -761,8 +772,8 @@ namespace KeystoneMT5
                     if (dragged && dragWhat == "NEW") { if (StopSide(p.Dir, dragPrice)) sl = dragPrice; else tp = dragPrice; }
                     double pl = p.Profit + p.Swap;
                     tags.Add(new TagRow { Y = Y(p.Open), Price = p.Open, Text = (p.Dir > 0 ? "BUY " : "SELL ") + p.Lots.ToString("0.00", IC) + " at " + F(p.Open), Money = Money(pl), Kind = "POS", Key = "POS:" + p.Ticket, Col = col, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet });
-                    if (sl > 0) tags.Add(new TagRow { Y = Y(sl), Price = sl, Text = "S/L " + F(sl), Money = Money(Value((sl - p.Open) * p.Dir, p.Lots)), Kind = "SL", Key = "SL:" + p.Ticket, Col = SellC, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet && !dragged });
-                    if (tp > 0) tags.Add(new TagRow { Y = Y(tp), Price = tp, Text = "T/P " + F(tp), Money = Money(Value((tp - p.Open) * p.Dir, p.Lots)), Kind = "TP", Key = "TP:" + p.Ticket, Col = BuyC, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet && !dragged });
+                    if (sl > 0) tags.Add(new TagRow { Y = Y(sl), Price = sl, Text = "S/L " + F(sl), Money = Money(Value((sl - p.Open) * p.Dir, p.Lots)), Kind = "SL", Key = "SL:" + p.Ticket, Col = SlC, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet && !dragged });
+                    if (tp > 0) tags.Add(new TagRow { Y = Y(tp), Price = tp, Text = "T/P " + F(tp), Money = Money(Value((tp - p.Open) * p.Dir, p.Lots)), Kind = "TP", Key = "TP:" + p.Ticket, Col = TpC, Ticket = p.Ticket, Dir = p.Dir, Faint = quiet && !dragged });
                 }
             }
             foreach (var o in ords)
@@ -770,8 +781,8 @@ namespace KeystoneMT5
                 bool dr = drag == "ORDER" && dragTicket == o.Ticket; double d = dr && dragWhat == "PX" ? dragPrice - o.Price : 0;
                 double px = o.Price + d, osl = dr && dragWhat == "SL" ? dragPrice : o.Sl > 0 ? o.Sl + d : 0, otp = dr && dragWhat == "TP" ? dragPrice : o.Tp > 0 ? o.Tp + d : 0; int dir = o.Type.StartsWith("BUY") ? 1 : -1;
                 tags.Add(new TagRow { Y = Y(px), Price = px, Text = o.Type + " " + o.Lots.ToString("0.00", IC) + " at " + F(px), Money = "", Kind = "ORD", Key = "ORD:" + o.Ticket, Col = PendC, Ticket = o.Ticket, Dir = dir });
-                if (osl > 0) tags.Add(new TagRow { Y = Y(osl), Price = osl, Text = "S/L " + F(osl), Money = Money(Value((osl - px) * dir, o.Lots)), Kind = "OSL", Key = "OSL:" + o.Ticket, Col = SellC, Ticket = o.Ticket, Dir = dir });
-                if (otp > 0) tags.Add(new TagRow { Y = Y(otp), Price = otp, Text = "T/P " + F(otp), Money = Money(Value((otp - px) * dir, o.Lots)), Kind = "OTP", Key = "OTP:" + o.Ticket, Col = BuyC, Ticket = o.Ticket, Dir = dir });
+                if (osl > 0) tags.Add(new TagRow { Y = Y(osl), Price = osl, Text = "S/L " + F(osl), Money = Money(Value((osl - px) * dir, o.Lots)), Kind = "OSL", Key = "OSL:" + o.Ticket, Col = SlC, Ticket = o.Ticket, Dir = dir });
+                if (otp > 0) tags.Add(new TagRow { Y = Y(otp), Price = otp, Text = "T/P " + F(otp), Money = Money(Value((otp - px) * dir, o.Lots)), Kind = "OTP", Key = "OTP:" + o.Ticket, Col = TpC, Ticket = o.Ticket, Dir = dir });
             }
             bool clean = TicketMode == "CLEAN";
             // the lines: dashed like MT5; the hovered / dragged one glows and gets thicker
@@ -780,7 +791,7 @@ namespace KeystoneMT5
                 if (t.Y < TopPad || t.Y > TopPad + plotH) continue; bool hov = HoverIs(t) || ((drag == "TICKET" || drag == "ORDER") && dragTicket == t.Ticket && t.Key.StartsWith(dragWhat == "NEW" ? "POS" : dragWhat == "PX" ? "ORD" : (t.Kind.StartsWith("O") && t.Kind != "ORD" ? "O" : "") + dragWhat));
                 if (clean && !hov) continue;   // CLEAN: no lines (the one you point at / drag still shows)
                 if (hov) dc.DrawLine(P(Br(t.Col, 50), 7), new Point(0, t.Y), new Point(plotW, t.Y));
-                byte a = t.Faint ? (byte)90 : (byte)200; var pen = t.Kind == "POS" ? P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.9 : 1.3, 8, 3) : P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1, 2, 3);
+                byte a = t.Faint ? (byte)90 : (byte)200; var pen = t.Kind == "POS" ? P(Br(t.Col, hov ? (byte)255 : a), hov ? 2.2 : 1.6, 10, 3) : t.Kind == "ORD" ? P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1.2, 9, 3, 2, 3) : P(Br(t.Col, hov ? (byte)255 : a), hov ? 1.8 : 1.1, 1.5, 3);   // position ━ ━, order ━ · ━, S/L and T/P · · ·
                 dc.DrawLine(pen, new Point(0, t.Y), new Point(plotW, t.Y));
             }
             // CLEAN: only a small ✕ on the right for every ticket / order (point at it = its card and its line, click = close / cancel at once like the label's ✕)
