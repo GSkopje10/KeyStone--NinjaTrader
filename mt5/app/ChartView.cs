@@ -324,7 +324,7 @@ namespace KeystoneMT5
             DrawDrawings(dc);
             dc.Pop();
             DrawTrading(dc, W);
-            if (!double.IsNaN(EscapePx)) Level(dc, Y(EscapePx), Br(Color.FromRgb(0xF2, 0xC4, 0x6D)), "⛑ ESCAPE @ " + F(EscapePx) + " — every " + Symbol + " position closes if the price comes back here", true, 8, null);
+            if (!double.IsNaN(EscapePx)) Level(dc, Y(EscapePx), Br(Color.FromRgb(0xF2, 0xC4, 0x6D)), "⛑ CLOSE ALL @ " + F(EscapePx) + " — every " + Symbol + " buy and sell closes when the price gets here", true, 8, null);
             // (IF ALL CLOSED NOW is in the header now, once, not on the chart: user's request)
             DrawPrice(dc, bars, th, textB, tagBg, tf);
             // the picked price for a limit / stop order

@@ -1191,19 +1191,14 @@ namespace KeystoneMT5
             lock (broker.State.Gate) { ps = broker.State.Positions.Where(x => string.Equals(x.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); Mt5Symbol sy; if (broker.State.Symbols.TryGetValue(sym, out sy)) { tv = sy.TickValue > 0 ? sy.TickValue : 1; ts = sy.TickSize > 0 ? sy.TickSize : ts; } }
             Tuple<double, int> cur; if (escapes.TryGetValue(sym, out cur)) l.Add(new Mi { Icon = "⛑", Fg = Gold, Text = "Remove the escape @ " + cur.Item1.ToString(f, IC), Do = () => { escapes.Remove(sym); Toast("⛑ escape on " + sym + " removed"); } });
             if (ps.Count == 0 || v.Bid <= 0) return l;
-            double hi = ps.Max(x => x.Open), lo = ps.Min(x => x.Open);
-            bool down = v.Bid < lo && px > v.Ask && px < lo, up = v.Ask > hi && px < v.Bid && px > hi;   // price ran below every entry (the level is above it) / above every entry (the level below it)
-            if (down || up)
-            {
-                double pl = ps.Sum(x => (px - x.Open) * x.Dir / ts * tv * x.Lots + x.Swap);
-                l.Add(new Mi { Icon = "⛑", Fg = Gold, Text = "Escape @ " + px.ToString(f, IC) + ": close all " + ps.Count + " " + sym + " if the price comes back here …", Hint = "≈ " + Signed(pl, "USD"), Do = () => EscapeAsk(sym, px, down ? 1 : -1, ps.Count, pl, f) });
-            }
-            else l.Add(new Mi { Icon = "⛑", Off = true, Text = "Escape level: right-click a price the market already passed, beyond every " + sym + " entry" });
+            // any price (user's request): above the price = closes when price rises to it, below = when it falls to it; every buy AND sell of the instrument
+            bool up = px > v.Bid; double pl = ps.Sum(x => (px - x.Open) * x.Dir / ts * tv * x.Lots + x.Swap);
+            l.Add(new Mi { Icon = "⛑", Fg = Gold, Text = "Close ALL " + ps.Count + " " + sym + " positions (buys + sells) when the price " + (up ? "rises" : "falls") + " to " + px.ToString(f, IC) + " …", Hint = "≈ " + Signed(pl, "USD"), Do = () => EscapeAsk(sym, px, up ? 1 : -1, ps.Count, pl, f) });
             return l;
         }
         void EscapeAsk(string sym, double px, int dir, int n, double pl, string f)
         {
-            if (!Sx.Ask(this, "⛑ Escape level on " + sym, "If the price comes back " + (dir > 0 ? "UP" : "DOWN") + " to " + px.ToString(f, IC) + ", ALL " + n + " " + sym + " positions close by themselves (≈ " + Signed(pl, "USD") + " now).\n\nIt needs trading ARMED. It stays until it fires, you remove it (right-click) or the positions are gone.", "SET THE ESCAPE", "CANCEL", Gold)) return;
+            if (!Sx.Ask(this, "⛑ Close all at a price • " + sym, "When the price " + (dir > 0 ? "RISES" : "FALLS") + " to " + px.ToString(f, IC) + ", ALL " + n + " " + sym + " positions close by themselves (≈ " + Signed(pl, "USD") + " now).\n\nIt needs trading ARMED. It stays until it fires, you remove it (right-click) or the positions are gone.", "SET IT", "CANCEL", Gold)) return;
             escapes[sym] = Tuple.Create(px, dir); Toast("⛑ escape set on " + sym + " @ " + px.ToString(f, IC));
         }
         void EscapeWatch(Mt5State s)
