@@ -136,7 +136,7 @@ namespace KeystoneMT5
             {
                 var ps = pos.Where(p => p.Symbol == kv.Key).ToList(); double gpl = ps.Sum(p => p.Profit + p.Swap), bl = ps.Where(p => p.Dir > 0).Sum(p => p.Lots), sl = ps.Where(p => p.Dir < 0).Sum(p => p.Lots);
                 Mt5Quote q; s.Quotes.TryGetValue(kv.Key, out q); var sym = s.Symbols.ContainsKey(kv.Key) ? s.Symbols[kv.Key] : null; string f = "F" + (sym != null ? sym.Digits : 2);
-                kv.Value.Text = kv.Key + "   ▲ " + bl.ToString("0.00", IC) + " bought (" + ps.Count(p => p.Dir > 0) + ")   ▼ " + sl.ToString("0.00", IC) + " sold (" + ps.Count(p => p.Dir < 0) + ")   net " + (bl - sl).ToString("+0.00;−0.00;0.00", IC) + "   " + Signed(gpl, cur) + (q != null ? "   bid " + q.Bid.ToString(f, IC) + " / ask " + q.Ask.ToString(f, IC) : "");
+                kv.Value.Text = kv.Key + "   ▲ " + bl.ToString("0.00", IC) + " bought (" + ps.Count(p => p.Dir > 0) + ")   ▼ " + sl.ToString("0.00", IC) + " sold (" + ps.Count(p => p.Dir < 0) + ")   net " + (bl - sl).ToString("+0.00;−0.00;0.00", IC) + (bl > 0 && sl > 0 ? (Math.Abs(bl - sl) < 1e-9 ? " (fully hedged)" : " (" + (bl > sl ? "buys" : "sells") + " +" + Math.Abs(bl - sl).ToString("0.00", IC) + " heavier → " + (bl > sl ? "SELL " : "BUY ") + Math.Abs(bl - sl).ToString("0.00", IC) + " to even)") : "") + "   " + Signed(gpl, cur) + (q != null ? "   bid " + q.Bid.ToString(f, IC) + " / ask " + q.Ask.ToString(f, IC) : "");
                 kv.Value.Foreground = gpl >= 0 ? Green : Red;
             }
             foreach (var p in pos)

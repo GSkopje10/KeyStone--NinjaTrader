@@ -323,7 +323,9 @@ namespace KeystoneMT5
                 HoverCard(dc, m, textB, tagBg);
             }
             DrawIndLegend(dc, tagBg);
-            if (Tool != "") { var tt = T("✏ " + ToolName(Tool) + " — " + (OneClick(Tool) ? "click on the chart" : "press and drag on the chart") + (Magnet ? " • 🧲 magnet on" : "") + " • Esc = cancel", 11.5, GoldB, false, true); dc.DrawRoundedRectangle(tagBg, P(GoldB, 1), new Rect(8, TopPad + plotH - 28, tt.Width + 16, 22), 6, 6); dc.DrawText(tt, new Point(16, TopPad + plotH - 25)); }
+            if (Tool != "FVG") fvgFirst = -1;
+            if (Tool == "FVG" && fvgFirst >= 0 && fvgFirst < nBars) { double fx = X(fvgFirst); dc.DrawRectangle(Br(th.Accent, 45), P(Br(th.Accent, 200), 1, 3, 2), new Rect(fx - Math.Max(3, barW / 2), TopPad, Math.Max(6, barW), plotH)); var ft = T("1st candle", 10, Br(th.Accent), false, true); dc.DrawText(ft, new Point(fx - ft.Width / 2, TopPad + 4)); }
+            if (Tool != "") { var tt = T("✏ " + ToolName(Tool) + " — " + (Tool == "FVG" ? (fvgFirst < 0 ? "click the 1st candle of the gap" : "now click the 3rd candle: bullish or bearish is found by itself") : OneClick(Tool) ? "click on the chart" : "press and drag on the chart") + (Magnet ? " • 🧲 magnet on" : "") + " • Esc = cancel", 11.5, GoldB, false, true); dc.DrawRoundedRectangle(tagBg, P(GoldB, 1), new Rect(8, TopPad + plotH - 28, tt.Width + 16, 22), 6, 6); dc.DrawText(tt, new Point(16, TopPad + plotH - 25)); }
             else if (!auto) dc.DrawText(T("PRICE SCALE: MANUAL • double-click = automatic", 10.5, axisB), new Point(8, TopPad + plotH - 18));
             if (Sim) { var wm = T("REPLAY", 11, Br(th.Accent, 180), false, true); dc.DrawText(wm, new Point(plotW - wm.Width - 10, TopPad + plotH - 18)); }
             dc.DrawRectangle(null, P(Br(th.Accent, 90), 1.2), new Rect(0.5, TopPad + 0.5, plotW - 1, plotH - 1));
@@ -520,6 +522,14 @@ namespace KeystoneMT5
         }
         Brush FillOf(Drawing d) { var f = d.Fill ?? ""; if (f == "NONE") return null; if (f == "STRONG") return Hex(d.Color, 80); if (f.StartsWith("#")) { try { return Hex(f, 70); } catch { } } return Hex(d.Color, 30); }
         // the FVG tool: the clicked candle as the middle of a 3-candle gap (or its neighbours): bullish = the 3rd low above the 1st high, bearish = the 3rd high below the 1st low
+        int fvgFirst = -1;
+        Drawing FvgBetween(int ia, int ib)
+        {
+            var bars = Series.Bars; var a = bars[ia]; var c = bars[ib]; string tf = Tf.Name(Series.Minutes);
+            if (c.L > a.H) return new Drawing { Kind = "FVG", T1 = a.Time, T2 = c.Time, P1 = c.L, P2 = a.H, P3 = 1, Color = "#2EE59D", Width = 1, Text = tf };
+            if (c.H < a.L) return new Drawing { Kind = "FVG", T1 = a.Time, T2 = c.Time, P1 = a.L, P2 = c.H, P3 = -1, Color = "#FF4D6D", Width = 1, Text = tf };
+            return null;
+        }
         Drawing FvgAt(int k)
         {
             var bars = Series.Bars;
@@ -553,7 +563,7 @@ namespace KeystoneMT5
                         if (bars != null) for (int i = Math.Max(0, i1 + 3); i < bars.Count; i++) if (bull ? bars[i].L <= bot : bars[i].H >= top) { xe = X(i); filled = true; break; }
                         double yt = Y(top), yb = Y(bot), xl = x1; var r = new Rect(Math.Min(xl, xe), yt, Math.Max(1, Math.Abs(xe - xl)), Math.Max(1, yb - yt));
                         dc.DrawRectangle(col != null ? FillOf(d) : null, pen, r);
-                        if (col != null) { double ym = Y((top + bot) / 2); dc.DrawLine(P(Hex(d.Color, 150), 1, 4, 3), new Point(r.Left, ym), new Point(r.Right, ym)); var t = T((bull ? "FVG ▲ " : "FVG ▼ ") + Math.Abs((top - bot) / Point).ToString("N0", IC) + " pts" + (filled ? " • filled" : ""), 10, col, true); if (r.Width > t.Width + 8) dc.DrawText(t, new Point(r.Left + 4, yt - t.Height - 1)); }
+                        if (col != null) { double ym = Y((top + bot) / 2); dc.DrawLine(P(Hex(d.Color, 150), 1, 4, 3), new Point(r.Left, ym), new Point(r.Right, ym)); var t = T((bull ? "▲ BULLISH FVG" : "▼ BEARISH FVG") + (d.Text != "" ? " • " + d.Text : "") + " • " + Math.Abs((top - bot) / Point).ToString("N0", IC) + " pts" + (filled ? " • filled" : ""), 10, col, true); if (r.Width > t.Width + 8) dc.DrawText(t, new Point(r.Left + 4, yt - t.Height - 1)); }
                         break;
                     }
                 case "FIB":
@@ -910,7 +920,12 @@ namespace KeystoneMT5
                 newDraw = new Drawing { Kind = Tool, T1 = t, T2 = t, P1 = pr, P2 = pr, P3 = pr, Color = Tool == "LONG" || Tool == "SHORT" ? "#E8ECF4" : DrawColor, Width = 1.6, Fill = Tool == "RECT" ? DrawFill : "" };
                 if (Tool == "FVG")
                 {
-                    var fv = FvgAt((int)Math.Round(IndexAt(p.X))); if (fv == null) { if (Toast != null) Toast("▤ no fair-value gap at this candle — click the middle candle of a 3-candle gap"); e.Handled = true; return; }
+                    // click the 1st candle, then the 3rd: bullish (3rd low above the 1st high) or bearish (3rd high below the 1st low) is found by itself
+                    int ci = Math.Max(0, Math.Min(Series.Bars.Count - 1, (int)Math.Round(IndexAt(p.X))));
+                    if (fvgFirst < 0) { fvgFirst = ci; InvalidateVisual(); e.Handled = true; return; }
+                    int ia = Math.Min(fvgFirst, ci), ib = Math.Max(fvgFirst, ci); fvgFirst = -1;
+                    var fv = ib - ia >= 2 ? FvgBetween(ia, ib) : null;
+                    if (fv == null) { if (Toast != null) Toast(ib - ia < 2 ? "▤ pick the 1st and the 3rd candle (one candle between them)" : "▤ no gap: the 3rd candle overlaps the 1st — click the 1st candle again"); InvalidateVisual(); e.Handled = true; return; }
                     Drawings.Add(fv); selected = fv; newDraw = null; Tool = ""; if (ToolDone != null) ToolDone(); if (DrawingsChanged != null) DrawingsChanged(); InvalidateVisual(); e.Handled = true; return;
                 }
                 if (OneClick(Tool))
