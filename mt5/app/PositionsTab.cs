@@ -13,7 +13,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow
     {
-        StackPanel posPanel; TextBlock posSummary; string posSig = "";
+        StackPanel posPanel; TextBlock posSummary; string posSig = ""; ChartView posView; string posViewSym = "";
         readonly Dictionary<long, TextBlock[]> posCells = new Dictionary<long, TextBlock[]>(); readonly Dictionary<string, TextBlock> posHeads = new Dictionary<string, TextBlock>();
 
         FrameworkElement BuildPositions()
@@ -26,7 +26,32 @@ namespace KeystoneMT5
             sp.Children.Add(bulk);
             posSummary = new TextBlock { Text = "no positions", Foreground = Muted, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 0, 0, 8), TextWrapping = TextWrapping.Wrap }; sp.Children.Add(posSummary);
             posPanel = new StackPanel(); sp.Children.Add(posPanel);
-            return new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp };
+            // the chart on top (the chart tab's instrument, its tickets: ✕ / drag / ✂ work the same), the positions and their buttons below
+            posView = new ChartView { Sim = Sim, Theme = CurTheme(), TicketMode = ticketMode };
+            posView.CloseTicket = (tk, lots) => Cmd("close #" + tk, "CLOSE", tk, lots);
+            posView.ModifyTicket = (tk, sl, tp) => Cmd("S/L " + (sl > 0 ? sl.ToString("0.#####", IC) : "—") + " • T/P " + (tp > 0 ? tp.ToString("0.#####", IC) : "—") + " on #" + tk, "MODIFY", tk, sl, tp);
+            posView.ModifyOrder = (tk, px, sl, tp) => Cmd("order #" + tk + " → " + px.ToString("0.#####", IC), "MODORD", tk, px, sl, tp);
+            posView.CancelOrder = tk => Cmd("cancel order #" + tk, "CANCEL", tk); posView.Toast = Toast;
+            var g = new Grid(); g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1.25, GridUnitType.Star), MinHeight = 240 }); g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) }); g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star), MinHeight = 160 });
+            var ch = new Border { CornerRadius = new CornerRadius(10), ClipToBounds = true, BorderBrush = Line, BorderThickness = new Thickness(1.4), Child = posView, Background = Panel }; g.Children.Add(ch);
+            var split = new GridSplitter { Height = 6, HorizontalAlignment = HorizontalAlignment.Stretch, Background = Brushes.Transparent, ResizeDirection = GridResizeDirection.Rows, ToolTip = "drag: more chart / more positions" }; Grid.SetRow(split, 1); g.Children.Add(split);
+            var sv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp }; Grid.SetRow(sv, 2); g.Children.Add(sv);
+            return g;
+        }
+        // the positions tab's chart: the chart tab's instrument and timeframe (else the first instrument with positions)
+        void FillPosChart(Mt5State s)
+        {
+            if (posView == null) return; var sym = Act != null && Act.Sym != "" ? Act.Sym : s.Positions.Select(x => x.Symbol).FirstOrDefault() ?? ""; if (sym == "") return; int tf = Act != null ? Act.Tf : 5;
+            if (!string.Equals(sym, posViewSym, StringComparison.OrdinalIgnoreCase)) { posViewSym = sym; posView.ResetView(); posView.Drawings = DrawingsOf(sym); }
+            var se = s.SeriesOf(sym, tf); var now = DateTime.Now;
+            if (!Sim && !se.Loaded && (now - se.AskedAt).TotalSeconds > 3) { se.AskedAt = now; broker.Send("BARS|" + sym + "|" + tf + "|" + BarsWanted(sym, tf)); }
+            Mt5Quote q; s.Quotes.TryGetValue(sym, out q); Mt5Symbol ms; s.Symbols.TryGetValue(sym, out ms); string zn; var conv = ZoneConv(s, out zn);
+            var v = posView; v.Series = se.Loaded ? se : null; v.Status = se.Loaded ? "" : sym + " • " + Tf.Name(tf) + "  ⟳"; v.Symbol = sym;
+            v.Digits = ms != null ? ms.Digits : 2; v.Point = ms != null && ms.Point > 0 ? ms.Point : 0.01; v.TickValue = ms != null && ms.TickValue > 0 ? ms.TickValue : 1; v.TickSize = ms != null && ms.TickSize > 0 ? ms.TickSize : v.Point; v.VolStep = ms != null && ms.VolStep > 0 ? ms.VolStep : 0.01;
+            v.Bid = q != null ? q.Bid : 0; v.Ask = q != null ? q.Ask : 0; v.QuoteTime = q != null ? q.Time : DateTime.MinValue; v.Positions = s.Positions; v.Orders = s.Orders; v.Currency = s.Account.Currency; v.Gate = s.Gate;
+            v.ToView = conv; v.ZoneName = zn; v.ServerNow = LiveServerNow(s); v.NyOffsetHours = NyOffset(s); v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = Virtual || (armed && s.CanTrade); v.Theme = CurTheme(); v.ShowGrid = showGrid; v.TicketMode = ticketMode;
+            { Tuple<double, int> ex; v.EscapePx = escapes.TryGetValue(sym, out ex) ? ex.Item1 : double.NaN; }
+            v.InvalidateVisual();
         }
         // one instrument's buttons (positions tab): close all / buys / sells / in profit / in loss, breakeven, cancel its orders — never another instrument
         FrameworkElement SymControls(string sym)
@@ -51,6 +76,7 @@ namespace KeystoneMT5
 
         void FillPositions(Mt5State s)
         {
+            FillPosChart(s);
             var acc = s.Account; string cur = acc.Currency; var pos = s.Positions; var ords = s.Orders;
             double pl = pos.Sum(p => p.Profit + p.Swap);
             posSummary.Text = pos.Count == 0 && ords.Count == 0 ? "no open positions or orders" : pos.Count + " open ticket" + (pos.Count == 1 ? "" : "s") + " • " + pos.Where(p => p.Dir > 0).Sum(p => p.Lots).ToString("0.00", IC) + " lots bought • " + pos.Where(p => p.Dir < 0).Sum(p => p.Lots).ToString("0.00", IC) + " lots sold • open P/L " + Signed(pl, cur) + (ords.Count > 0 ? " • " + ords.Count + " pending order" + (ords.Count == 1 ? "" : "s") : "") + (armed || Virtual ? "" : "   •   🔒 ARM in the 📈 CHART panel to manage them from here");

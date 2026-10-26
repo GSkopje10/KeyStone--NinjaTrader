@@ -179,7 +179,7 @@ namespace KeystoneMT5
         public int NyOffsetHours = -7; public int ServerOffsetSec = 10800;   // server time = UTC + this (MT5's, sent by the bridge)   // NY time = server time + this (IC Markets: server = New York + 7)
         public HashSet<string> Ind = new HashSet<string>(); public int FvgSide;   // FVG: 0 = all, 1 = bullish only, −1 = bearish only
         public List<Drawing> Drawings = new List<Drawing>(); public string Tool = ""; public bool Magnet; public string DrawColor = "#FFC94D", DrawFill = "";
-        public string News = ""; public bool NewsHot, TradeOn, Sim, ShowGrid; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO";   // AUTO / EACH / LINES / CLEAN (no lines, only a small ✕ per ticket on the right)
+        public string News = ""; public bool NewsHot, TradeOn, Sim, ShowGrid; public double PickPrice = double.NaN; public string PickKind = ""; public string TicketMode = "AUTO"; public double EscapePx = double.NaN, VolStep = 0.01;   // AUTO / EACH / LINES / CLEAN (no lines, only a small ✕ per ticket on the right)
         // ---- what the chart tells the host
         public Action<long, double> CloseTicket;              // ticket, lots (0 = all)
         public Action<long, double, double> ModifyTicket;     // ticket, sl, tp
@@ -293,6 +293,8 @@ namespace KeystoneMT5
             DrawDrawings(dc);
             dc.Pop();
             DrawTrading(dc, W);
+            if (!double.IsNaN(EscapePx)) Level(dc, Y(EscapePx), Br(Color.FromRgb(0xF2, 0xC4, 0x6D)), "⛑ ESCAPE @ " + F(EscapePx) + " — every " + Symbol + " position closes if the price comes back here", true, 8, null);
+            DrawIfClosed(dc);
             DrawPrice(dc, bars, th, textB, tagBg, tf);
             // the picked price for a limit / stop order
             if (!double.IsNaN(PickPrice)) Level(dc, Y(PickPrice), PendB, "🎯 " + PickKind + " @ " + F(PickPrice) + " — press PLACE in the panel", true, 8, null);
@@ -750,6 +752,7 @@ namespace KeystoneMT5
                     var hf = T("⇕ " + F(t.Price), 9.5, Br(t.Col), true); bool hh = hoverKey == t.Key; var hr = new Rect(xr.X - hf.Width - 14, y - 7.5, hf.Width + 10, 15);
                     dc.DrawRoundedRectangle(hh ? Br(t.Col, 70) : Br(Theme.Plot, 230), P(Br(t.Col, hh ? (byte)255 : (byte)170), 1), hr, 4, 4); dc.DrawText(hf, new Point(hr.X + 5, y - 6.6));
                     hits.Add(new ChartHit { R = hr, Kind = kind, Key = t.Key, Ticket = tk });
+                    if (HoverIs(t) && kind == "POS") PartButtons(dc, t, hr.X - 3, y);
                 }
                 return;
             }
@@ -782,9 +785,33 @@ namespace KeystoneMT5
                     else if (kind == "OTP" && ord != null && ModifyOrder != null) ModifyOrder(tk, ord.Price, ord.Sl, 0);
                 } });
                 hits.Add(new ChartHit { R = new Rect(x, y - 8.5, w - 23, 17), Kind = kind, Key = t.Key, Ticket = tk });
+                if (hov && kind == "POS") PartButtons(dc, t, x - 4, y);
             }
         }
-        bool HoverIs(TagRow t) { return hoverKey == t.Key || hoverKey == "X:" + t.Key; }
+        // ✂ CLOSE PART of a ticket at once (one click, like its ✕): 50 % / 75 % / 90 % of its lots (rounded to the lot step; at least one step stays open)
+        void PartButtons(DrawingContext dc, TagRow t, double right, double y)
+        {
+            if (t.Kind != "POS" || !TradeOn) return; var pos = Positions.FirstOrDefault(q => q.Ticket == t.Ticket); if (pos == null) return; double step = VolStep > 0 ? VolStep : 0.01;
+            double x = right;
+            foreach (var pc in new[] { 90, 75, 50 })
+            {
+                double lots = Math.Floor(pos.Lots * pc / 100.0 / step + 1e-9) * step; if (lots < step || lots >= pos.Lots - step / 2) continue;
+                var ft = T(pc + "%", 10, WhiteB, true, true); var r = new Rect(x - ft.Width - 14, y - 8.5, ft.Width + 10, 17); x = r.X - 3; string key = "PC" + pc + ":" + t.Key; bool h = hoverKey == key;
+                double gain = (pos.Profit + pos.Swap) * lots / pos.Lots;
+                dc.DrawRoundedRectangle(h ? Br(gain >= 0 ? BuyC : SellC) : Br(gain >= 0 ? BuyC : SellC, 150), h ? P(WhiteB, 1) : null, r, 4, 4); dc.DrawText(ft, new Point(r.X + 5, y - 7));
+                long tk = t.Ticket; double l0 = Math.Round(lots, 6); hits.Add(new ChartHit { R = r, Kind = "X", Key = key, Ticket = tk, Click = () => { if (CloseTicket != null) CloseTicket(tk, l0); } });
+            }
+        }
+        // IF ALL CLOSED NOW: what this instrument and the whole account would bank this second (hedges included), live in the chart's corner
+        void DrawIfClosed(DrawingContext dc)
+        {
+            if (Positions == null || Positions.Count == 0) return;
+            double mine = 0; int nm = 0; double all = 0; foreach (var q in Positions) { double v = q.Profit + q.Swap; all += v; if (string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)) { mine += v; nm++; } }
+            var t1 = T("IF ALL CLOSED NOW", 9.5, Br(Theme.Axis), false, true); var t2 = T((nm > 0 ? Symbol + " " + Money(mine) + "   •   " : "") + "account " + Money(all), 13, all >= 0 ? BuyB : SellB, true, true);
+            double w = Math.Max(t1.Width, t2.Width) + 20, x = plotW - w - 8, y = TopPad + 6; var col = all >= 0 ? BuyC : SellC;
+            dc.DrawRoundedRectangle(Br(Theme.Plot, 235), P(Br(col, 200), 1.4), new Rect(x, y, w, 38), 8, 8); dc.DrawText(t1, new Point(x + 10, y + 4)); dc.DrawText(t2, new Point(x + 10, y + 17));
+        }
+        bool HoverIs(TagRow t) { return hoverKey == t.Key || hoverKey == "X:" + t.Key || (hoverKey.StartsWith("PC") && hoverKey.EndsWith(":" + t.Key)); }
         // a card next to the mouse with what it points at
         void HoverCard(DrawingContext dc, Point m, Brush textB, Brush tagBg)
         {
@@ -799,6 +826,18 @@ namespace KeystoneMT5
             }
             else if (k[0] == "ORD" || k[0] == "OSL" || k[0] == "OTP") { var o = Orders.FirstOrDefault(x => x.Ticket == tk); if (o == null) return; txt = "#" + o.Ticket + "  " + o.Type + " " + o.Lots.ToString("0.00", IC) + " @ " + F(o.Price) + (o.Sl > 0 ? "\nS/L " + F(o.Sl) : "") + (o.Tp > 0 ? "\nT/P " + F(o.Tp) : "") + (TradeOn ? (k[0] == "ORD" ? "\ndrag = move the order (its stop / target move with it) • ✕ = cancel" : "\ndrag = move its " + (k[0] == "OSL" ? "stop" : "target") + " • ✕ = remove it") : "\n🔒 ARM to change it"); }
             else if (k[0] == "SIDE") { int dir = (int)tk; var ps = Positions.Where(p => p.Dir == dir && string.Equals(p.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)).ToList(); col = dir > 0 ? BuyC : SellC; txt = ps.Count + (dir > 0 ? " buys" : " sells") + " • best " + Money(ps.Count > 0 ? ps.Max(p => p.Profit + p.Swap) : 0) + " • worst " + Money(ps.Count > 0 ? ps.Min(p => p.Profit + p.Swap) : 0) + (TradeOn ? "\n✕ = close all " + (dir > 0 ? "buys" : "sells") + " (asks first)" : ""); }
+            if (k[0] == "POS" && txt != null)
+            {
+                var p0 = Positions.FirstOrDefault(x => x.Ticket == tk);
+                if (p0 != null) { double rest = Positions.Where(x => string.Equals(x.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)).Sum(x => x.Profit + x.Swap) - (p0.Profit + p0.Swap); txt += "\nclose it: banks " + Money(p0.Profit + p0.Swap) + " • the rest of " + Symbol + " shows " + Money(rest) + (TradeOn ? "\n✂ 50% / 75% / 90% next to it = close that part at once" : ""); }
+            }
+            if (k[0].StartsWith("PC") && k.Length >= 3)
+            {
+                int pc; int.TryParse(k[0].Substring(2), out pc); long t2; long.TryParse(k[2], out t2); var p = Positions.FirstOrDefault(x => x.Ticket == t2); if (p == null) return; col = p.Dir > 0 ? BuyC : SellC;
+                double step = VolStep > 0 ? VolStep : 0.01, lots = Math.Floor(p.Lots * pc / 100.0 / step + 1e-9) * step, part = (p.Profit + p.Swap) * lots / p.Lots;
+                double rest = Positions.Where(x => string.Equals(x.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)).Sum(x => x.Profit + x.Swap) - part;
+                txt = "✂ close " + pc + "% of #" + p.Ticket + " now: " + lots.ToString("0.##", IC) + " of " + p.Lots.ToString("0.##", IC) + " lots\nbanks ≈ " + Money(part) + "   •   " + (p.Lots - lots).ToString("0.##", IC) + " lots stay open\nthe rest of " + Symbol + " would show " + Money(rest) + " open";
+            }
             if (txt == null) return;
             var ft = T(txt, 11.5, textB); double x = m.X + 16, y = m.Y + 14; if (x + ft.Width + 20 > plotW) x = m.X - ft.Width - 26; if (y + ft.Height + 14 > TopPad + plotH) y = m.Y - ft.Height - 18;
             dc.DrawRoundedRectangle(tagBg, P(Br(col), 1.2), new Rect(x, y, ft.Width + 18, ft.Height + 12), 8, 8); dc.DrawText(ft, new Point(x + 9, y + 6));

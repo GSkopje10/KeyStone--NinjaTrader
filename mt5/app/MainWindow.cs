@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-29b";
+        public const string Build = "SpasiX • BUILD 2026-10-29c";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -334,7 +334,7 @@ namespace KeystoneMT5
         // ---------------------------------------------------------------- the refresh
         void Refresh()
         {
-            var s = broker.State; if (Paper) paper.Sync(); BasketWatch(s); PaintClocks(s);
+            var s = broker.State; if (Paper) paper.Sync(); BasketWatch(s); EscapeWatch(s); PaintClocks(s);
             lock (s.Gate)
             {
                 var a = s.Account; string cur = a.Currency;

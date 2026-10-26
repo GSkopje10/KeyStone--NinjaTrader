@@ -825,13 +825,14 @@ namespace KeystoneMT5
                 v.Series = se.Loaded ? se : null; v.Symbol = p.Sym; v.Digits = sym != null ? sym.Digits : 2; v.Point = sym != null && sym.Point > 0 ? sym.Point : 0.01; v.TickValue = sym != null && sym.TickValue > 0 ? sym.TickValue : 1; v.TickSize = sym != null && sym.TickSize > 0 ? sym.TickSize : v.Point;
                 v.Bid = q != null ? q.Bid : 0; v.Ask = q != null ? q.Ask : 0; v.QuoteTime = q != null ? q.Time : DateTime.MinValue; v.Positions = s.Positions; v.Orders = s.Orders; v.Currency = s.Account.Currency; v.Gate = s.Gate; v.Lots = Num(lotsBox);
                 v.ToView = conv; v.ZoneName = zn; v.ServerNow = LiveServerNow(s); v.NyOffsetHours = nyOff; v.ServerOffsetSec = s.ServerOffsetSec; v.TradeOn = trade;
+                { Tuple<double, int> ex; v.EscapePx = escapes.TryGetValue(p.Sym, out ex) ? ex.Item1 : double.NaN; v.VolStep = sym != null && sym.VolStep > 0 ? sym.VolStep : 0.01; }
                 var dl = DrawingsOf(p.Sym); if (!ReferenceEquals(v.Drawings, dl)) v.Drawings = dl;   // the symbol's own drawings (saved)
                 if (Sim) { v.News = ""; v.NewsHot = false; } else { var nw = NewsFor(p.Sym); v.News = nw.Item1; v.NewsHot = nw.Item2; }
                 string f = "F" + v.Digits; var ps = s.Positions.Where(x => string.Equals(x.Symbol, p.Sym, StringComparison.OrdinalIgnoreCase)).ToList(); double pl = ps.Sum(x => x.Profit + x.Swap);
                 p.Head.Text = (split > 1 && k == activePane ? "▶ " : "") + p.Sym + " • " + Tf.Name(p.Tf) + (q != null ? "   " + q.Bid.ToString(f, IC) + " / " + q.Ask.ToString(f, IC) + "   spread " + q.Spread(v.Point).ToString("0", IC) : "") + (sym != null && sym.Description != "" ? "   " + sym.Description : "") + (ps.Count > 0 ? "   •   " + ps.Count + " ticket" + (ps.Count == 1 ? "" : "s") + " " + Signed(pl, s.Account.Currency) : "");
                 p.Head.Foreground = k == activePane ? Gold : Muted;
                 // redraw only when something on it changed (a new price, a candle, a ticket, the clock second…): far less work for the screen
-                var rs = new System.Text.StringBuilder(); rs.Append(se.Version).Append('|').Append(se.Bars.Count).Append('|').Append(v.Bid).Append('|').Append(v.Ask).Append('|').Append(v.Status).Append('|').Append(v.News).Append(v.NewsHot).Append(trade).Append('|').Append(v.Lots).Append('|').Append(DateTime.Now.Second).Append('|').Append(dl.Count);
+                var rs = new System.Text.StringBuilder(); rs.Append(se.Version).Append('|').Append(se.Bars.Count).Append('|').Append(v.Bid).Append('|').Append(v.Ask).Append('|').Append(v.Status).Append('|').Append(v.News).Append(v.NewsHot).Append(trade).Append('|').Append(v.Lots).Append('|').Append(DateTime.Now.Second).Append('|').Append(dl.Count).Append('|').Append(v.EscapePx);
                 foreach (var x in ps) rs.Append(x.Ticket).Append(':').Append(x.Sl).Append(':').Append(x.Tp).Append(':').Append(Math.Round(x.Profit, 1)).Append(',');
                 foreach (var o in s.Orders) if (string.Equals(o.Symbol, p.Sym, StringComparison.OrdinalIgnoreCase)) rs.Append(o.Ticket).Append(':').Append(o.Price).Append(':').Append(o.Sl).Append(':').Append(o.Tp).Append(',');
                 string rsig = rs.ToString(); if (rsig != p.DrawSig) { p.DrawSig = rsig; v.InvalidateVisual(); }
@@ -932,6 +933,7 @@ namespace KeystoneMT5
                 l.Add(Mi.S());
                 // this price as the stop or the target of every sell / buy of this symbol at once (asks first)
                 var bulk = LevelForAll(p.Sym, px, v); if (bulk.Count > 0) { l.AddRange(bulk); l.Add(Mi.S()); }
+                var esc = EscapeMenu(p.Sym, px, v); if (esc.Count > 0) { l.AddRange(esc); l.Add(Mi.S()); }
             }
             var tfl = new List<Mi>(); foreach (var m in Tf.All) { int mm = m; tfl.Add(new Mi { Text = Tf.Name(m), Check = m == p.Tf, Radio = true, Do = () => SetPane(p, p.Sym, mm) }); } l.Add(Mi.Group("⏱", "Timeframe", tfl));
             var drl = new List<Mi> { Mi.H("drawing tools") }; foreach (var t in toolBtns.Where(x => x.Item1 != "")) { var key = t.Item1; drl.Add(new Mi(t.Item2.Content as string, ChartView.ToolName(key).Substring(0, 1) + ChartView.ToolName(key).Substring(1).ToLowerInvariant(), () => { v.Tool = key; v.Focus(); PaintRail(); v.InvalidateVisual(); })); }
@@ -1173,6 +1175,43 @@ namespace KeystoneMT5
         bool Ask(string msg) { return Sx.Ask(this, "SpasiX", msg); }
         // the right-click price as S/L or T/P for a whole side of one symbol: a stop above the ask for the sells / under the bid for the buys
         // (the ones opened beyond it lock a profit: breakeven or better), a target on the other side; MT5 refuses a level on the wrong side
+        // ⛑ ESCAPE LEVEL: when price has run beyond EVERY entry of an instrument, a level between the price and the entries (a price it already passed):
+        // if price comes back to it, every position of that instrument closes by itself (asks once when it is set; needs ARM, like the basket)
+        readonly Dictionary<string, Tuple<double, int>> escapes = new Dictionary<string, Tuple<double, int>>(StringComparer.OrdinalIgnoreCase);
+        List<Mi> EscapeMenu(string sym, double px, ChartView v)
+        {
+            var l = new List<Mi>(); List<Mt5Position> ps; double tv = 1, ts = v.Point > 0 ? v.Point : 0.01; string f = "F" + v.Digits;
+            lock (broker.State.Gate) { ps = broker.State.Positions.Where(x => string.Equals(x.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); Mt5Symbol sy; if (broker.State.Symbols.TryGetValue(sym, out sy)) { tv = sy.TickValue > 0 ? sy.TickValue : 1; ts = sy.TickSize > 0 ? sy.TickSize : ts; } }
+            Tuple<double, int> cur; if (escapes.TryGetValue(sym, out cur)) l.Add(new Mi { Icon = "⛑", Fg = Gold, Text = "Remove the escape @ " + cur.Item1.ToString(f, IC), Do = () => { escapes.Remove(sym); Toast("⛑ escape on " + sym + " removed"); } });
+            if (ps.Count == 0 || v.Bid <= 0) return l;
+            double hi = ps.Max(x => x.Open), lo = ps.Min(x => x.Open);
+            bool down = v.Bid < lo && px > v.Ask && px < lo, up = v.Ask > hi && px < v.Bid && px > hi;   // price ran below every entry (the level is above it) / above every entry (the level below it)
+            if (down || up)
+            {
+                double pl = ps.Sum(x => (px - x.Open) * x.Dir / ts * tv * x.Lots + x.Swap);
+                l.Add(new Mi { Icon = "⛑", Fg = Gold, Text = "Escape @ " + px.ToString(f, IC) + ": close all " + ps.Count + " " + sym + " if the price comes back here …", Hint = "≈ " + Signed(pl, "USD"), Do = () => EscapeAsk(sym, px, down ? 1 : -1, ps.Count, pl, f) });
+            }
+            else l.Add(new Mi { Icon = "⛑", Off = true, Text = "Escape level: right-click a price the market already passed, beyond every " + sym + " entry" });
+            return l;
+        }
+        void EscapeAsk(string sym, double px, int dir, int n, double pl, string f)
+        {
+            if (!Sx.Ask(this, "⛑ Escape level on " + sym, "If the price comes back " + (dir > 0 ? "UP" : "DOWN") + " to " + px.ToString(f, IC) + ", ALL " + n + " " + sym + " positions close by themselves (≈ " + Signed(pl, "USD") + " now).\n\nIt needs trading ARMED. It stays until it fires, you remove it (right-click) or the positions are gone.", "SET THE ESCAPE", "CANCEL", Gold)) return;
+            escapes[sym] = Tuple.Create(px, dir); Toast("⛑ escape set on " + sym + " @ " + px.ToString(f, IC));
+        }
+        void EscapeWatch(Mt5State s)
+        {
+            if (escapes.Count == 0) return;
+            foreach (var kv in escapes.ToList())
+            {
+                int n; double bid; lock (s.Gate) { n = s.Positions.Count(x => string.Equals(x.Symbol, kv.Key, StringComparison.OrdinalIgnoreCase)); Mt5Quote q; bid = s.Quotes.TryGetValue(kv.Key, out q) ? q.Bid : 0; }
+                if (n == 0) { escapes.Remove(kv.Key); continue; } if (bid <= 0) continue;
+                bool hit = kv.Value.Item2 > 0 ? bid >= kv.Value.Item1 : bid <= kv.Value.Item1; if (!hit) continue;
+                escapes.Remove(kv.Key);
+                if (Cmd("⛑ escape " + kv.Key + " @ " + kv.Value.Item1.ToString(IC) + " — close all " + n, "CLOSEALL", kv.Key, "ALL")) Toast("⛑ ESCAPE reached on " + kv.Key + " — closing all " + n + " positions");
+                else Toast("⚠ ESCAPE reached on " + kv.Key + " but NOTHING was closed — trading is not armed (the escape is off)");
+            }
+        }
         List<Mi> LevelForAll(string sym, double px, ChartView v)
         {
             var l = new List<Mi>(); List<Mt5Position> ps; double tv = 1, ts = v.Point > 0 ? v.Point : 0.01; string f = "F" + v.Digits;
