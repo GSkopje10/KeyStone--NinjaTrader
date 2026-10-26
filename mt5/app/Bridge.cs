@@ -119,6 +119,16 @@ namespace KeystoneMT5
         public void Apply(string line)
         {
             if (string.IsNullOrEmpty(line)) return; var a = line.TrimEnd('\r').Split('|');
+            // the bulk lines (history bars, ticks, deals) only fill this thread's own buffers: no lock, so the screen never waits for a download
+            if (a[0].Length == 1)
+            {
+                switch (a[0])
+                {
+                    case "B": if (barsIn == null || a.Length < 7) return; barsIn.Add(new Mt5Bar { Time = Unix(L(a[1])), O = D(a[2]), H = D(a[3]), L = D(a[4]), C = D(a[5]), V = L(a[6]) }); Lines++; LastLine = DateTime.Now; return;
+                    case "H": if (histIn == null || a.Length < 8) return; histIn.Add(new Mt5Bar { Time = Unix(L(a[1])), O = D(a[2]), H = D(a[3]), L = D(a[4]), C = D(a[5]), V = L(a[6]), Spread = (int)L(a[7]) }); Lines++; LastLine = DateTime.Now; return;
+                    case "T": if (tickIn == null || a.Length < 4) return; tickIn.Add(new SimTick { T = tickBase.AddMilliseconds(L(a[1])), Bid = D(a[2]), Ask = D(a[3]) }); Lines++; LastLine = DateTime.Now; return;
+                }
+            }
             lock (Gate)
             {
                 Lines++; LastLine = DateTime.Now;

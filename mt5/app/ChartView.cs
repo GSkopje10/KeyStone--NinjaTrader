@@ -68,6 +68,21 @@ namespace KeystoneMT5
             new ChartTheme { Name = "Hollow Pro", Bg = C("#0A0D12"), Plot = C("#0B0F15"), Grid = C("#181E28"), Up = C("#E8ECF4"), Down = C("#5C6B85"), UpWick = C("#C9D1DE"), DownWick = C("#5C6B85"), Axis = C("#8A94A8"), Text = C("#E8ECF4"), Accent = C("#FFC94D"), Price = C("#FFC94D"), HollowUp = true },
             new ChartTheme { Name = "Ocean Deep", Bg = C("#03121C"), Plot = C("#041824"), Grid = C("#0B2A3B"), Up = C("#2EC4B6"), Down = C("#FF6B6B"), UpWick = C("#2EC4B6"), DownWick = C("#FF6B6B"), Axis = C("#7FA7BC"), Text = C("#E0F2FA"), Accent = C("#90E0EF"), Price = C("#FFFFFF") },
             new ChartTheme { Name = "Paper Light", Bg = C("#F4F6FA"), Plot = C("#FFFFFF"), Grid = C("#E6EAF0"), Up = C("#089981"), Down = C("#F23645"), UpWick = C("#089981"), DownWick = C("#F23645"), Axis = C("#5C6370"), Text = C("#151A22"), Accent = C("#2962FF"), Price = C("#151A22"), Light = true },
+            // ♛ YOUR PICKS: built around Midnight Soft, Royal Velvet and Navy & Gold (deep blue / indigo / violet, soft or gold candles)
+            T("Midnight Velvet", "♛ Your picks", "#0F1020", "#13142A", "#1E2038", "#6FC3B8", "#C98BB9", "#8F97B0", "#DCE2F0", "#E8C77A", "#FFFFFF"),
+            T("Midnight Gold", "♛ Your picks", "#0E1320", "#111827", "#1B2335", "#E3C27A", "#7C93B8", "#8F97B0", "#DCE2F0", "#E3C27A", "#FFFFFF"),
+            T("Navy Velvet", "♛ Your picks", "#101A33", "#14203D", "#1F2D4D", "#F2C46D", "#9B7BEA", "#8F97B0", "#DCE2F0", "#F2C46D", "#FFFFFF"),
+            T("Indigo Night", "♛ Your picks", "#12122A", "#161634", "#232349", "#7FD1C7", "#E58F9E", "#8F97B0", "#DCE2F0", "#FFC94D", "#FFFFFF"),
+            T("Sapphire Soft", "♛ Your picks", "#0C1A2E", "#0F2036", "#1A2E4A", "#8FD3C0", "#E8A0A0", "#8F97B0", "#DCE2F0", "#7FB2FF", "#FFFFFF"),
+            T("Royal Navy", "♛ Your picks", "#0B1530", "#0F1A3A", "#1A2850", "#FFD27A", "#E86A8A", "#8F97B0", "#DCE2F0", "#FFD27A", "#FFFFFF"),
+            T("Velvet Ice", "♛ Your picks", "#120E24", "#17112D", "#261D44", "#9FE3F0", "#B78CFF", "#8F97B0", "#DCE2F0", "#E8C77A", "#FFFFFF"),
+            T("Midnight Ember", "♛ Your picks", "#121620", "#151A26", "#212838", "#7FC8A9", "#E89A6B", "#8F97B0", "#DCE2F0", "#E8C77A", "#FFFFFF"),
+            T("Navy Pearl", "♛ Your picks", "#13203A", "#172644", "#24365A", "#F0E6D2", "#6E8FC9", "#8F97B0", "#DCE2F0", "#F2C46D", "#FFFFFF"),
+            T("Plum Navy", "♛ Your picks", "#16142C", "#1B1834", "#2A2650", "#E8C77A", "#5FB3D9", "#8F97B0", "#DCE2F0", "#E8C77A", "#FFFFFF"),
+            T("Twilight Soft", "♛ Your picks", "#181A2E", "#1C1F36", "#292D4A", "#9AD0C2", "#D7A2C8", "#8F97B0", "#DCE2F0", "#C9B37A", "#FFFFFF"),
+            T("Deep Lagoon", "♛ Your picks", "#0B1A24", "#0E202C", "#18303E", "#7FD8C6", "#F0A3A3", "#8F97B0", "#DCE2F0", "#E8C77A", "#FFFFFF"),
+            T("Dusk Navy", "♛ Your picks", "#1E2A44", "#24324F", "#33425F", "#F2C46D", "#8FB4FF", "#8F97B0", "#DCE2F0", "#F2C46D", "#FFFFFF"),
+            T("Velvet Dusk", "♛ Your picks", "#241D3A", "#2A2244", "#3A3158", "#F0D08A", "#A98BFF", "#8F97B0", "#DCE2F0", "#F0D08A", "#FFFFFF"),
             // MetaTrader 5 itself
             new ChartTheme { Name = "MT5", Group = "MetaTrader", Bg = C("#000000"), Plot = C("#000000"), Grid = C("#2A2A2A"), Up = C("#00A000"), Down = C("#E00000"), UpWick = C("#00A000"), DownWick = C("#E00000"), Axis = C("#FFFFFF"), Text = C("#FFFFFF"), Accent = C("#3A3A3A"), Price = C("#C8C8C8"), Dotted = true },
             new ChartTheme { Name = "MT5 Classic (green on black)", Group = "MetaTrader", Bg = C("#000000"), Plot = C("#000000"), Grid = C("#3A4450"), Up = C("#00FF00"), Down = C("#00FF00"), UpWick = C("#00FF00"), DownWick = C("#00FF00"), Axis = C("#FFFFFF"), Text = C("#FFFFFF"), Accent = C("#3A3A3A"), Price = C("#778899"), Dotted = true, Bodies = true, UpBody = C("#000000"), DownBody = C("#FFFFFF"), Edge = C("#00FF00") },
@@ -99,14 +114,14 @@ namespace KeystoneMT5
             T("Stone Gold", "☕ Paper & ink", "#C9C4B8", "#D4D0C5", "#B8B2A4", "#9A6A00", "#2F4F7A", "#3E3A32", "#1C1A16", "#9A6A00", "#1C1A16", true),
             T("Twilight Paper", "☕ Paper & ink", "#BDBACB", "#C9C6D6", "#AAA6BB", "#A06E08", "#4A3F9A", "#37344A", "#15122A", "#A06E08", "#15122A", true),
             // ☾ easy on the eyes (soft contrast for long sessions)
-            T("Midnight Soft", "Easy on the eyes", "#10141C", "#121822", "#1B2230", "#5FB3B3", "#D88A8A", "#7E8A9C", "#C9D2DE", "#6C7A92", "#DDE4EE"),
+            T("Midnight Soft", "♛ Your picks", "#10141C", "#121822", "#1B2230", "#5FB3B3", "#D88A8A", "#7E8A9C", "#C9D2DE", "#6C7A92", "#DDE4EE"),
             T("Nordic Frost", "Easy on the eyes", "#1F2530", "#232A36", "#2C3442", "#88C0D0", "#BF616A", "#8F9BB0", "#D8DEE9", "#5E81AC", "#ECEFF4"),
             T("Solarized Dark", "Easy on the eyes", "#002B36", "#03313D", "#0A3D49", "#2AA198", "#DC322F", "#839496", "#EEE8D5", "#268BD2", "#FDF6E3"),
             T("Warm Dusk", "Easy on the eyes", "#17130F", "#1B1611", "#272019", "#C9A86A", "#B5655B", "#9C8F7E", "#E6DCCB", "#8A6F47", "#F2E8D6"),
             T("Forest Calm", "Easy on the eyes", "#0F1512", "#121A16", "#1B2620", "#7FB77E", "#D98B6A", "#839486", "#D3DED5", "#4F6B57", "#E8F0E8"),
             // ✧ LUXE COLOUR: rich coloured backgrounds
-            T("Royal Velvet", "✧ Luxe colour", "#0E0A1A", "#130E22", "#211934", "#E8C77A", "#8E6BD8", "#A79CC4", "#F1EAFB", "#E8C77A", "#FFFFFF"),
-            T("Navy & Gold", "✧ Luxe colour", "#0F1B33", "#13213D", "#1E2E50", "#FFC94D", "#5AA9FF", "#9DB0D3", "#EDF2FF", "#FFC94D", "#FFFFFF"),
+            T("Royal Velvet", "♛ Your picks", "#0E0A1A", "#130E22", "#211934", "#E8C77A", "#8E6BD8", "#A79CC4", "#F1EAFB", "#E8C77A", "#FFFFFF"),
+            T("Navy & Gold", "♛ Your picks", "#0F1B33", "#13213D", "#1E2E50", "#FFC94D", "#5AA9FF", "#9DB0D3", "#EDF2FF", "#FFC94D", "#FFFFFF"),
             T("Rose Gold", "✧ Luxe colour", "#2B2326", "#33292D", "#45373C", "#F4C27A", "#E58FA8", "#C9B3B9", "#FAF0F2", "#F4C27A", "#FFFFFF"),
             T("Aurora Gold", "✧ Luxe colour", "#1C2230", "#222A3A", "#2D364A", "#FFC94D", "#8E7CFF", "#A9B3C6", "#EEF1F7", "#FFC94D", "#FFFFFF"),
             T("Champagne Slate", "✧ Luxe colour", "#2A303D", "#313848", "#3C4557", "#F2C46D", "#7FA3D6", "#B3BCCB", "#F2F4F8", "#F2C46D", "#FFFFFF"),
@@ -689,11 +704,7 @@ namespace KeystoneMT5
             foreach (var side in new[] { 1, -1 })
             {
                 var ps = mine.Where(p => p.Dir == side).ToList(); bool quiet = TicketMode == "LINES"; var col = side > 0 ? BuyC : SellC;
-                if (TicketMode != "LINES" && ps.Count >= 3)
-                {
-                    double lots = ps.Sum(p => p.Lots), avg = lots > 0 ? ps.Sum(p => p.Open * p.Lots) / lots : ps[0].Open;
-                    tags.Add(new TagRow { Y = Y(avg), Price = avg, Text = "Σ " + ps.Count + (side > 0 ? " BUYS " : " SELLS ") + lots.ToString("0.00", IC) + " lots • avg " + F(avg), Money = Money(ps.Sum(p => p.Profit + p.Swap)), Kind = "SIDE", Key = "SIDE:" + side, Col = col, Ticket = side, Dir = side });
-                }
+                // (the Σ line of all the tickets on a side is gone: it was confusing next to the tickets, user's request)
                 foreach (var p in ps)
                 {
                     bool dragged = drag == "TICKET" && dragTicket == p.Ticket;
@@ -735,6 +746,10 @@ namespace KeystoneMT5
                     dc.DrawRoundedRectangle(xh ? Br(SellC) : Br(t.Kind == "POS" ? t.Col : PendC, 170), xh ? P(WhiteB, 1) : null, xr, 4, 4); dc.DrawText(T("✕", 9.5, WhiteB, true, true), new Point(xr.X + 3.4, xr.Y + 0.6));
                     long tk = t.Ticket; string kind = t.Kind;
                     hits.Add(new ChartHit { R = xr, Kind = "X", Key = "X:" + t.Key, Ticket = tk, Click = () => { if (kind == "POS" && CloseTicket != null) CloseTicket(tk, 0); else if (kind == "ORD" && CancelOrder != null) CancelOrder(tk); } });
+                    // the drag handle: a small bordered box with the price; only here the mouse becomes a hand and drags (a ticket → its stop / target, an order → its price)
+                    var hf = T("⇕ " + F(t.Price), 9.5, Br(t.Col), true); bool hh = hoverKey == t.Key; var hr = new Rect(xr.X - hf.Width - 14, y - 7.5, hf.Width + 10, 15);
+                    dc.DrawRoundedRectangle(hh ? Br(t.Col, 70) : Br(Theme.Plot, 230), P(Br(t.Col, hh ? (byte)255 : (byte)170), 1), hr, 4, 4); dc.DrawText(hf, new Point(hr.X + 5, y - 6.6));
+                    hits.Add(new ChartHit { R = hr, Kind = kind, Key = t.Key, Ticket = tk });
                 }
                 return;
             }
@@ -803,18 +818,21 @@ namespace KeystoneMT5
             ticket = 0; kind = ""; key = "";
             foreach (var h in hits.AsEnumerable().Reverse()) if (h.R.Contains(p)) { ticket = h.Ticket; kind = h.Kind; key = h.Key; return "HIT"; }
             if (p.X > plotW) return "PRICEAXIS"; if (p.Y > TopPad + plotH) return "TIMEAXIS";
-            // a ticket / S/L / T/P / order line within 4 px
+            // a ticket / S/L / T/P / order line within 4 px (not when the lines are hidden: then only the small handle on the right drags)
+            if (TicketMode != "CLEAN")
             foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)))
             {
                 if (ps.Sl > 0 && Math.Abs(p.Y - Y(ps.Sl)) <= 6) { ticket = ps.Ticket; kind = "SL"; key = "SL:" + ps.Ticket; return "LINE"; }
                 if (ps.Tp > 0 && Math.Abs(p.Y - Y(ps.Tp)) <= 6) { ticket = ps.Ticket; kind = "TP"; key = "TP:" + ps.Ticket; return "LINE"; }
             }
+            if (TicketMode != "CLEAN")
             foreach (var o in Orders.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase)))
             {
                 if (Math.Abs(p.Y - Y(o.Price)) <= 6) { ticket = o.Ticket; kind = "ORD"; key = "ORD:" + o.Ticket; return "LINE"; }
                 if (o.Sl > 0 && Math.Abs(p.Y - Y(o.Sl)) <= 6) { ticket = o.Ticket; kind = "OSL"; key = "OSL:" + o.Ticket; return "LINE"; }
                 if (o.Tp > 0 && Math.Abs(p.Y - Y(o.Tp)) <= 6) { ticket = o.Ticket; kind = "OTP"; key = "OTP:" + o.Ticket; return "LINE"; }
             }
+            if (TicketMode != "CLEAN")
             foreach (var ps in Positions.Where(q => string.Equals(q.Symbol, Symbol, StringComparison.OrdinalIgnoreCase))) if (Math.Abs(p.Y - Y(ps.Open)) <= 5) { ticket = ps.Ticket; kind = "POS"; key = "POS:" + ps.Ticket; return "LINE"; }
             string part; var d = DrawingAt(p, out part); if (d != null) { key = "DRAW:" + Drawings.IndexOf(d); kind = part; return "DRAWING"; }
             return "PLOT";
