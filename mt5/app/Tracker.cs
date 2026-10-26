@@ -18,7 +18,7 @@ namespace KeystoneMT5
     // the curve / the bars of the tracker, drawn directly
     public sealed class MiniPlot : FrameworkElement
     {
-        public List<double> Values = new List<double>(); public List<string> Labels = new List<string>(); public bool Bars; public string Title = "";
+        public List<double> Values = new List<double>(); public List<string> Labels = new List<string>(); public bool Bars; public string Title = ""; public double? Open;   // the open P/L now: a dashed line from the last closed point to "if all closed now"
         static SolidColorBrush Br(string h, byte a = 255) { var c = (Color)ColorConverter.ConvertFromString(h); var b = new SolidColorBrush(Color.FromArgb(a, c.R, c.G, c.B)); b.Freeze(); return b; }
         protected override void OnRender(DrawingContext dc)
         {
@@ -26,7 +26,7 @@ namespace KeystoneMT5
             dc.DrawRoundedRectangle(Br("#0D131F"), new Pen(Br("#22304A"), 1), new Rect(0, 0, W, H), 10, 10);
             dc.DrawText(new FormattedText(Title, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, face, 11, Br("#8590A6"), dpi), new Point(10, 6));
             if (Values.Count == 0) { dc.DrawText(new FormattedText("no trades yet", CultureInfo.InvariantCulture, FlowDirection.LeftToRight, face, 12, Br("#8590A6"), dpi), new Point(W / 2 - 34, H / 2 - 8)); return; }
-            double top = 26, bot = H - (Bars ? 20 : 10), left = 10, right = W - 10; double mx = Math.Max(0, Values.Max()), mn = Math.Min(0, Values.Min()); if (mx - mn < 1e-9) { mx += 1; mn -= 1; }
+            double top = 26, bot = H - (Bars ? 20 : 10), left = 10, right = W - (Open.HasValue && !Bars ? 60 : 10); double ifc = Values[Values.Count - 1] + (Open ?? 0); double mx = Math.Max(0, Math.Max(Values.Max(), Open.HasValue && !Bars ? ifc : double.MinValue)), mn = Math.Min(0, Math.Min(Values.Min(), Open.HasValue && !Bars ? ifc : double.MaxValue)); if (mx - mn < 1e-9) { mx += 1; mn -= 1; }
             Func<double, double> Y = v => top + (mx - v) / (mx - mn) * (bot - top);
             dc.DrawLine(new Pen(Br("#22304A"), 1), new Point(left, Y(0)), new Point(right, Y(0)));
             if (Bars)
@@ -51,13 +51,20 @@ namespace KeystoneMT5
             dc.DrawGeometry(null, new Pen(Br(col), 2), g);
             var last = new FormattedText((Values[Values.Count - 1] >= 0 ? "+" : "−") + "$" + Math.Abs(Values[Values.Count - 1]).ToString("N2", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface(new FontFamily("Consolas"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal), 12, Br(col), dpi);
             dc.DrawText(last, new Point(right - last.Width, 6));
+            if (Open.HasValue)
+            {
+                var lp = new Point(left + (Values.Count - 1) * step, Y(Values[Values.Count - 1])); var ip = new Point(W - 14, Y(ifc)); var oc = ifc >= 0 ? "#2EE59D" : "#FF4D6D";
+                var dp = new Pen(Br(oc), 2) { DashStyle = new DashStyle(new double[] { 3, 2 }, 0) }; dc.DrawLine(dp, lp, ip); dc.DrawEllipse(Br(oc), null, ip, 4, 4);
+                var ft = new FormattedText("if closed now " + (ifc >= 0 ? "+" : "−") + "$" + Math.Abs(ifc).ToString("N0", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, FlowDirection.LeftToRight, face, 10.5, Br(oc), dpi);
+                dc.DrawText(ft, new Point(Math.Max(left, W - 14 - ft.Width), Math.Min(H - 16, ip.Y + 6)));
+            }
         }
     }
 
     public sealed partial class MainWindow
     {
         DateTime trackMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1), trackDay = DateTime.MinValue; bool trackAll; string trackSig = ""; DateTime dealsAskedAt = DateTime.MinValue;
-        TextBlock standClosed, standOpen, standIf, standNote; Border standBox; double standRangeNet;
+        TextBlock standClosed, standOpen, standIf, standNote, todayOpenText; Border standBox; double standRangeNet; string trackHeadBase = ""; double todayClosed;
         UniformGridX calGrid; TextBlock trackHead, trackMonthText, trackDayHead; WrapPanel trackCards; MiniPlot curve, byHour, byDow; StackPanel bySym, dayRows; TextBox journal; Button trackAllBtn; string journalKey = "";
         sealed class UniformGridX { public readonly System.Windows.Controls.Primitives.UniformGrid G = new System.Windows.Controls.Primitives.UniformGrid { Columns = 8 }; }
 
@@ -93,11 +100,11 @@ namespace KeystoneMT5
             // WHERE WE STAND: the closed net + the open P/L now = what we would have if everything were closed this second (live)
             var stand = new StackPanel { Orientation = Orientation.Horizontal };
             Func<string, TextBlock> cell = cap => { var v = new TextBlock { FontSize = 19, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, Foreground = Text }; var st = new StackPanel { Margin = new Thickness(0, 0, 22, 0) }; st.Children.Add(new TextBlock { Text = cap, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); st.Children.Add(v); stand.Children.Add(st); return v; };
-            standClosed = cell("CLOSED (this view)"); standOpen = cell("OPEN P/L NOW"); standIf = cell("IF ALL CLOSED NOW"); standNote = new TextBlock { Foreground = Muted, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 3) }; stand.Children.Add(standNote);
+            standClosed = cell("CLOSED (this view)"); standOpen = cell("+ OPEN P/L NOW"); standIf = cell("= IF ALL CLOSED NOW"); standNote = new TextBlock { Foreground = Muted, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 3) }; stand.Children.Add(standNote);
             standBox = new Border { Child = stand, Background = Card, BorderBrush = Gold, BorderThickness = new Thickness(1.8), CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 8, 14, 9), Margin = new Thickness(0, 0, 0, 8), ToolTip = "the closed net of the shown period + the open P/L of every position now: where we stand if we closed everything this second" };
             rsp.Children.Add(standBox);
             trackCards = new WrapPanel(); rsp.Children.Add(trackCards);
-            curve = new MiniPlot { Height = 190, Title = "EQUITY CURVE (closed trades, after costs)", Margin = new Thickness(0, 6, 0, 8) }; rsp.Children.Add(curve);
+            curve = new MiniPlot { Height = 190, Title = "EQUITY CURVE (closed trades, after costs • dashed = + the open P/L now)", Margin = new Thickness(0, 6, 0, 8) }; rsp.Children.Add(curve);
             byHour = new MiniPlot { Height = 130, Bars = true, Title = "P/L BY NEW YORK HOUR (entry)", Margin = new Thickness(0, 0, 0, 8) }; rsp.Children.Add(byHour);
             byDow = new MiniPlot { Height = 110, Bars = true, Title = "P/L BY WEEKDAY", Margin = new Thickness(0, 0, 0, 8) }; rsp.Children.Add(byDow);
             rsp.Children.Add(new TextBlock { Text = "BY SYMBOL", Foreground = Muted, FontSize = 11, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 2, 0, 4) });
@@ -141,17 +148,21 @@ namespace KeystoneMT5
                 standClosed.Text = Signed(standRangeNet, c0); standClosed.Foreground = standRangeNet >= 0 ? Green : Red;
                 standOpen.Text = Signed(open, c0); standOpen.Foreground = open >= 0 ? Green : Red;
                 standIf.Text = Signed(ifc, c0); standIf.Foreground = ifc >= 0 ? Green : Red; standBox.BorderBrush = ifc >= 0 ? Green : Red;
-                standNote.Text = s.Positions.Count + " open position" + (s.Positions.Count == 1 ? "" : "s");
+                standNote.Text = s.Positions.Count + " open position" + (s.Positions.Count == 1 ? "" : "s") + "\nthe open P/L is in the header, today's day and the curve too";
+                if (trackHeadBase != "" && s.Positions.Count > 0) trackHead.Text = trackHeadBase + " • open P/L " + Signed(open, c0) + " → IF ALL CLOSED NOW " + Signed(ifc, c0);
+                else if (trackHeadBase != "") trackHead.Text = trackHeadBase;
+                if (todayOpenText != null) { double td = todayClosed + open; todayOpenText.Text = s.Positions.Count == 0 ? "" : "if closed " + Signed(td, c0); todayOpenText.ToolTip = "today closed " + Signed(todayClosed, c0) + " + open P/L " + Signed(open, c0) + " = " + Signed(td, c0); todayOpenText.Foreground = td >= 0 ? Green : Red; }
+                if (curve != null && (!curve.Open.HasValue || Math.Abs(curve.Open.Value - open) >= 1 || (s.Positions.Count == 0) != (curve.Open == null))) { curve.Open = s.Positions.Count > 0 ? open : (double?)null; curve.InvalidateVisual(); }
             }
             if (sig == trackSig) return; trackSig = sig;
             var all = Trades(s.Deals); string cur = s.Account.Currency;
             trackMonthText.Text = trackMonth.ToString("MMMM yyyy", IC).ToUpperInvariant(); trackAllBtn.Background = trackAll ? Tint(Gold, 190) : (Brush)Card; trackAllBtn.Foreground = trackAll ? Bg : Text;
             var inMonth = all.Where(t => t.Close.Year == trackMonth.Year && t.Close.Month == trackMonth.Month).ToList(); var range = trackAll ? all : inMonth;
             if (!Virtual && s.BridgeVersion < 4) trackHead.Text = "📊 the TRACKER needs the SpasiXBridge v4 in MT5 (⚙ SETUP step 1)";
-            else trackHead.Text = (Sim ? "📊 BACKTEST STATS • " : Paper ? "📊 DEMO TRACKER • " : "📊 TRACKER • ") + (trackAll ? "every loaded day" : trackMonth.ToString("MMMM yyyy", IC)) + " • " + range.Count + " trade" + (range.Count == 1 ? "" : "s") + " • net " + Signed(range.Sum(t => t.Net), cur) + (!Virtual && s.DealsAt > DateTime.MinValue ? " • from MT5 at " + s.DealsAt.ToString("HH:mm:ss", IC) : !Virtual ? " • asking MT5 …" : "");
+            else trackHeadBase = trackHead.Text = (Sim ? "📊 BACKTEST STATS • " : Paper ? "📊 DEMO TRACKER • " : "📊 TRACKER • ") + (trackAll ? "every loaded day" : trackMonth.ToString("MMMM yyyy", IC)) + " • " + range.Count + " trade" + (range.Count == 1 ? "" : "s") + " • net " + Signed(range.Sum(t => t.Net), cur) + (!Virtual && s.DealsAt > DateTime.MinValue ? " • from MT5 at " + s.DealsAt.ToString("HH:mm:ss", IC) : !Virtual ? " • asking MT5 …" : "");
             // the calendar
             var byDay = all.GroupBy(t => t.Close.Date).ToDictionary(g => g.Key, g => g.ToList());
-            calGrid.G.Children.Clear(); var first = trackMonth; int lead = ((int)first.DayOfWeek + 6) % 7; var start = first.AddDays(-lead);
+            calGrid.G.Children.Clear(); todayOpenText = null; var first = trackMonth; int lead = ((int)first.DayOfWeek + 6) % 7; var start = first.AddDays(-lead);
             double mxAbs = Math.Max(1, inMonth.GroupBy(t => t.Close.Date).Select(g => Math.Abs(g.Sum(t => t.Net))).DefaultIfEmpty(1).Max()); var today = (s.ServerNow > DateTime.MinValue ? s.ServerNow : DateTime.Now).Date;
             for (int w = 0; w < 6; w++)
             {
@@ -161,6 +172,7 @@ namespace KeystoneMT5
                     var day = wkStart.AddDays(d); bool inM = day.Month == trackMonth.Month; List<TradeRow> l; byDay.TryGetValue(day, out l); double net = l != null ? l.Sum(t => t.Net) : 0; int n = l != null ? l.Count : 0; if (inM) { wk += net; wkN += n; }
                     var sp = new StackPanel(); sp.Children.Add(new TextBlock { Text = day.Day.ToString(IC), Foreground = inM ? Text : Muted, FontSize = 11, FontWeight = FontWeights.Bold });
                     if (n > 0) { sp.Children.Add(new TextBlock { Text = Signed(net, cur), Foreground = net >= 0 ? Green : Red, FontSize = 11.5, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, TextTrimming = TextTrimming.CharacterEllipsis }); sp.Children.Add(new TextBlock { Text = n + " trade" + (n == 1 ? "" : "s"), Foreground = Muted, FontSize = 9.5 }); }
+                    if (day == today) { todayOpenText = new TextBlock { FontSize = 9.5, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = "today: closed + the open P/L now = if all closed now" }; sp.Children.Add(todayOpenText); todayClosed = net; }
                     byte alpha = n > 0 ? (byte)Math.Min(150, 30 + 120 * Math.Abs(net) / mxAbs) : (byte)0;
                     var cell = new Border { Height = 64, Margin = new Thickness(2), CornerRadius = new CornerRadius(9), Padding = new Thickness(7, 5, 5, 4), Child = sp, Cursor = System.Windows.Input.Cursors.Hand, Opacity = inM ? 1 : 0.45,
                         Background = n > 0 ? Tint(net >= 0 ? Green : Red, alpha) : Card, BorderBrush = day == trackDay ? Gold : day == today ? Cyan : Line, BorderThickness = new Thickness(day == trackDay || day == today ? 1.8 : 1) };
@@ -176,7 +188,7 @@ namespace KeystoneMT5
             double peak = 0, eq = 0, dd = 0; var pts = new List<double>(); foreach (var t in range) { eq += t.Net; pts.Add(eq); peak = Math.Max(peak, eq); dd = Math.Max(dd, peak - eq); }
             Action<string, string, SolidColorBrush, string> stat = (k, v, col, tip) => { var sp = new StackPanel(); sp.Children.Add(new TextBlock { Text = k, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(new TextBlock { Text = v, Foreground = col, FontSize = 16, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono }); trackCards.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(10), Padding = new Thickness(11, 6, 12, 7), Margin = new Thickness(0, 0, 6, 6), MinWidth = 128, BorderBrush = Line, BorderThickness = new Thickness(1), Child = sp, ToolTip = tip }); };
             double net0 = range.Sum(t => t.Net); standRangeNet = net0;
-            stat("NET", Signed(net0, cur), net0 >= 0 ? Green : Red, "after commission and swap");
+            stat("NET (closed trades)", Signed(net0, cur), net0 >= 0 ? Green : Red, "after commission and swap");
             stat("TRADES", range.Count.ToString(IC), Text, wins.Count + " won • " + loss.Count + " lost");
             stat("WIN RATE", range.Count > 0 ? (100.0 * wins.Count / range.Count).ToString("0", IC) + " %" : "—", Text, "");
             stat("PROFIT FACTOR", gl > 0 ? (gw / gl).ToString("0.00", IC) : gw > 0 ? "∞" : "—", gl > 0 && gw / gl >= 1 ? Green : Red, "won ÷ lost");
