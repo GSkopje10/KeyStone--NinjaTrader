@@ -224,8 +224,7 @@ namespace KeystoneMT5
             foreach (var kv in seen) if ((now - kv.Value).TotalMilliseconds < 1800) return true; return false;
         }
         public void ResetView() { auto = true; rightOffset = 6; InvalidateVisual(); }
-        // switching the timeframe keeps the picture still (user's request): the same time at the right edge and the same time span across the chart
-        // (the candles only regroup); applied when the new timeframe's candles are there
+        // switching the timeframe: the same candle size (barW) and the same place (live edge, or the same time at the right edge when scrolled back); the price scale fits
         DateTime keepRight = DateTime.MinValue; int keepTf; bool keepOn; double keepMpp, keepBarW = -1;   // the wanted span survives the zoom limits (M1 → H4 → M1 comes back the same)
         public bool ViewSpan(out DateTime right, out double minPerPx)
         {
@@ -234,7 +233,9 @@ namespace KeystoneMT5
         }
         public void KeepView(DateTime right, double minPerPx, int tfMinutes)
         {
-            keepRight = right; keepTf = tfMinutes; keepOn = true; barW = Math.Max(1.2, Math.Min(80, tfMinutes / Math.Max(1e-9, minPerPx))); keepMpp = minPerPx; keepBarW = barW; auto = true; InvalidateVisual();
+            auto = true;   // the candles keep their size (barW unchanged) and the price scale fits the new candles (user's request: small candles, see all around)
+                if (rightOffset >= 0) { keepOn = false; InvalidateVisual(); return; }   // at the live edge: stay at the live edge, same space on the right
+                keepRight = right; keepTf = tfMinutes; keepOn = true; InvalidateVisual();   // scrolled back: the same time at the right edge
         }
         void ApplyKeep(List<Mt5Bar> bars)
         {
