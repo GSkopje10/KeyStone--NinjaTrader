@@ -213,6 +213,26 @@ namespace KeystoneMT5
             foreach (var kv in seen) if ((now - kv.Value).TotalMilliseconds < 1800) return true; return false;
         }
         public void ResetView() { auto = true; rightOffset = 6; InvalidateVisual(); }
+        // switching the timeframe keeps the picture still (user's request): the same time at the right edge and the same time span across the chart
+        // (the candles only regroup); applied when the new timeframe's candles are there
+        DateTime keepRight = DateTime.MinValue; int keepTf; bool keepOn; double keepMpp, keepBarW = -1;   // the wanted span survives the zoom limits (M1 → H4 → M1 comes back the same)
+        public bool ViewSpan(out DateTime right, out double minPerPx)
+        {
+            right = DateTime.MinValue; minPerPx = 0; if (Series == null || Series.Bars.Count == 0 || barW <= 0) return false;
+            right = TimeAt(Series.Bars.Count - 1 + rightOffset); minPerPx = barW == keepBarW && keepMpp > 0 ? keepMpp : Series.Minutes / barW; return true;
+        }
+        public void KeepView(DateTime right, double minPerPx, int tfMinutes)
+        {
+            keepRight = right; keepTf = tfMinutes; keepOn = true; barW = Math.Max(1.2, Math.Min(80, tfMinutes / Math.Max(1e-9, minPerPx))); keepMpp = minPerPx; keepBarW = barW; auto = true; InvalidateVisual();
+        }
+        void ApplyKeep(List<Mt5Bar> bars)
+        {
+            if (!keepOn || Series == null || Series.Minutes != keepTf || bars.Count == 0) return; keepOn = false; int n = bars.Count;
+            int lo = 0, hi = n - 1; if (keepRight < bars[0].Time) { rightOffset = -(n - 5); return; }
+            while (lo < hi) { int m = (lo + hi + 1) / 2; if (bars[m].Time <= keepRight) lo = m; else hi = m - 1; }
+            double frac = (keepRight - bars[lo].Time).TotalMinutes / Math.Max(1, Series.Minutes);
+            rightOffset = Math.Min(plotW > 0 ? plotW / barW * 0.8 : 6, Math.Max(-(n - 5), lo + frac - (n - 1)));
+        }
         public void Deselect() { selected = null; measure = null; InvalidateVisual(); }
 
         FormattedText T(string s, double size, Brush b, bool mono = false, bool bold = false) { return new FormattedText(s, IC, FlowDirection.LeftToRight, mono ? Mono : bold ? Bold : Face, size, b, VisualTreeHelper.GetDpi(this).PixelsPerDip); }
@@ -249,7 +269,7 @@ namespace KeystoneMT5
             dc.DrawRectangle(Br(th.Bg), null, new Rect(0, 0, W, H)); dc.DrawRectangle(Br(th.Plot), null, new Rect(0, TopPad, plotW, plotH));
             var bars = Series != null ? Series.Bars : null;
             if (bars == null || bars.Count == 0) { var msg = T(Status != "" ? Status : "⟳", 15, axisB); dc.DrawText(msg, new Point(Math.Max(8, (plotW - msg.Width) / 2), H / 2 - 10)); return; }
-            int n = bars.Count; nBars = n;
+            ApplyKeep(bars); int n = bars.Count; nBars = n;
             int i1 = Math.Max(0, Math.Min(n - 1, (int)Math.Floor(n - 1 + rightOffset + 0.5))), i0 = Math.Max(0, Math.Min(i1, (int)Math.Floor(n - 1 + rightOffset + 0.5 - plotW / barW)));
             hi = double.MinValue; lo = double.MaxValue;
             for (int i = i0; i <= i1; i++) { hi = Math.Max(hi, bars[i].H); lo = Math.Min(lo, bars[i].L); }

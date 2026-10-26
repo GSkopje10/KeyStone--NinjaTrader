@@ -723,9 +723,9 @@ namespace KeystoneMT5
         }
         void SetPane(Pane p, string sym, int tf)
         {
-            if (string.IsNullOrEmpty(sym)) return; bool same = string.Equals(sym, p.Sym, StringComparison.OrdinalIgnoreCase) && tf == p.Tf;
+            if (string.IsNullOrEmpty(sym)) return; bool sameSym = string.Equals(sym, p.Sym, StringComparison.OrdinalIgnoreCase), same = sameSym && tf == p.Tf;
             if (!same) SaveDrawings();
-            p.Sym = sym; p.Tf = tf; int k = panes.IndexOf(p); if (!Sim) Put("sym" + k, sym); Put((Sim ? "bt." : "") + "tf" + k, tf.ToString(IC)); if (!same) { p.V.ResetView(); p.V.Drawings = DrawingsOf(sym); } LoadInd(p);
+            p.Sym = sym; p.Tf = tf; int k = panes.IndexOf(p); if (!Sim) Put("sym" + k, sym); Put((Sim ? "bt." : "") + "tf" + k, tf.ToString(IC)); if (!same) { DateTime rt; double mpp; if (sameSym && p.V.ViewSpan(out rt, out mpp)) p.V.KeepView(rt, mpp, tf); else p.V.ResetView(); p.V.Drawings = DrawingsOf(sym); } LoadInd(p);
             PaintBar();
         }
         Func<DateTime, DateTime> ZoneConv(Mt5State s, out string name)
