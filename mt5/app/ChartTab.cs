@@ -1153,15 +1153,15 @@ namespace KeystoneMT5
                 Tuple.Create(s.AccountTrade && s.AccountExpert, "the account allows trading by experts") };
             string why = checks.Where(c => !c.Item1).Select(c => c.Item2).FirstOrDefault() ?? "";
             if (!s.CanKnown && s.BridgeVersion >= 3) why = "waiting for the bridge's switches …";
-            if (why != "" && armed) SetArmed(false, why);
+            // ARM stays on until DISARM is pressed (user's request): if MT5 blocks trading meanwhile, orders are refused (Cmd checks CanTrade) but the ARM is kept
             string sig = string.Join("", checks.Select(c => c.Item1 ? "1" : "0")) + armed;
             if ((armChecks.Tag as string) != sig)
             {
                 armChecks.Tag = sig; armChecks.Children.Clear();
                 if (why != "" || !armed) foreach (var c in checks) armChecks.Children.Add(new TextBlock { Text = (c.Item1 ? "✓  " : "✖  ") + c.Item2, Foreground = c.Item1 ? Green : Red, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 1) });
             }
-            armText.Text = why != "" ? "🔒 READ ONLY — fix the red line" + (checks.Count(c => !c.Item1) > 1 ? "s" : "") + " below" : armed ? "🟢 ARMED • " + a.Kind + " account • max " + s.MaxLots.ToString("0.##", IC) + " lots / order (the bridge's limit)" : "🔓 READY — press ARM to trade from SpasiX (" + a.Kind + " account)";
-            armText.Foreground = why != "" ? Gold : armed ? Green : Text;
+            armText.Text = why != "" && armed ? "🟢 ARMED (stays on) • ⚠ MT5 refuses orders until this is fixed: " + why : why != "" ? "🔒 READ ONLY — fix the red line" + (checks.Count(c => !c.Item1) > 1 ? "s" : "") + " below" : armed ? "🟢 ARMED • " + a.Kind + " account • max " + s.MaxLots.ToString("0.##", IC) + " lots / order (the bridge's limit)" : "🔓 READY — press ARM to trade from SpasiX (" + a.Kind + " account)";
+            armText.Foreground = why != "" && armed ? Gold : why != "" ? Gold : armed ? Green : Text;
             armBtn.IsEnabled = why == "" || armed; armBtn.Content = armed ? "🔒 DISARM" : "🔓 ARM TRADING"; armBtn.Background = armed ? Tint(Green, 210) : (Brush)Tint(Orange, 210);
             armCard.BorderBrush = armed ? Tint(Green, 200) : why != "" ? Tint(Gold, 110) : Tint(Orange, 200);
             foreach (var b in new[] { buyBtn, sellBtn }) b.Opacity = armed ? 1 : 0.5;

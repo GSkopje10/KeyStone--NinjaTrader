@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-29d";
+        public const string Build = "SpasiX • BUILD 2026-10-29e";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -348,7 +348,7 @@ namespace KeystoneMT5
                     else { connText.Text = "● " + a.Kind + (a.Connected ? "" : " • MT5 OFFLINE FROM THE BROKER") + (armed ? " • ARMED" : ""); connPill.Background = a.Kind == "REAL" ? (a.Connected ? Green : Red) : Cyan; }
                     setupStatus.Text = live.Problem != "" ? "⚠ " + live.Problem : alive ? "✓ CONNECTED to " + a.Server + " • " + a.Kind + " • " + s.Quotes.Count + " symbols • bridge v" + s.BridgeVersion + (s.BridgeVersion < 5 ? " — put SpasiXBridge v5 in MT5 (step 1) for the real ticks, MT5's swap / margin of every symbol, backtest history and the tracker" : s.CanTrade ? " • trading allowed by MT5 (ARM in the panel)" : " • read only — see step 4") : "Listening on 127.0.0.1:" + live.Port + " — waiting for the SpasiXBridge EA …";
                     setupStatus.Foreground = alive ? Green : live.Problem != "" ? Red : Cyan;
-                    if (!alive && !s.Linked) { if (armed) SetArmed(false, "MT5 disconnected"); return; }
+                    if (!alive && !s.Linked) return;   // ARM stays on through a disconnect (user's request): nothing can be sent until MT5 is back
                     if (!everLinked && alive) { everLinked = true; if (view == "SETUP") Show("CHART"); }
                     if (Paper) { var la = live.State.Account; var vs = paper.Acct.Set; acLogin.Text = "DEMO"; acName.Text = ""; acRest.Text = "•  simulated " + vs.Kind + (vs.Kind != "RAW" ? " ($" + vs.CommissionPerLot.ToString("0.##", IC) + " / lot)" : " (+" + vs.MarkupPts.ToString("0", IC) + " pts spread)") + "  •  1:" + vs.Leverage + "  •  HEDGING  •  prices from " + la.Server + "  •  nothing reaches MT5"; acRest.Foreground = Orange; }
                     else { acLogin.Text = a.Login.ToString(IC); acName.Text = a.Name;

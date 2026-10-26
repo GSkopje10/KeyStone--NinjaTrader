@@ -44,7 +44,7 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
 - SpasiX for MT5 (`mt5/`: the bridge EA `SpasiXBridge.mq5` v5 + the Windows app `mt5/app`, built with `dotnet publish` here, shipped in `mt5/dist`;
   a full-screen HOME picks LIVE / PROP / DEMO / BACKTEST; several can be open at once as tabs in our own title bar, `Shell.cs`, each LIVE / PROP
   window with its own ARM; data lives in `DataDir` — F:\SpasiX\MT5 when there is an F: drive): real orders exist only when the bridge input `EnableTrading` (default true, false = read only)
-  + MT5's Algo Trading + the EA's Allow Algo Trading are on AND the app's ARM (per session, ONE click, user's request) is on; `MaxLotsPerOrder`
+  + MT5's Algo Trading + the EA's Allow Algo Trading are on AND the app's ARM (per session, ONE click, user's request; it never turns itself off — only DISARM or closing the window ends it, while MT5 blocks trading orders are refused but ARM stays) is on; `MaxLotsPerOrder`
   is enforced in the bridge. Armed, market BUY / SELL and a ticket's ✕ act at once (user's request); a right-click limit / stop asks its lots
   first; every close-all / bulk button, breakeven and the BASKET (close all at +$X / −$Y, `Protect.cs`) ask first. PROP mode refuses new
   entries at the firm's limits (closes never blocked). The DEMO (`Paper.cs`, `PaperBroker`) and the BACKTEST (`Sim.cs`, `SimBroker`) trade a
