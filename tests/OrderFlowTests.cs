@@ -75,6 +75,16 @@ public static class OrderFlowTests
         var cancel = new List<KeystoneFootprint>(cf.Take(10)); cancel.Add(F(104.8, 104.9, 103, 103.2, 20, 80)); cancel.Add(F(103.2, 106, 103, 105.8, 90, 30));
         Check(KeystoneOrderFlow.Confirm(rawS, cancel, 0.25, new KeystoneOfSettings(), false).Count == 0, "a close below the signal candle's low first cancels it");
         Check(KeystoneOrderFlow.Confirm(rawS, cf.Take(12).ToList(), 0.25, new KeystoneOfSettings(), true).Count == 0, "the forming candle never confirms (only a closed one)");
+        // 5d2. TREND setup: a rising market, no stop run, a pullback into the buy signal, then a close above its high with buyers' delta
+        var tr = new List<KeystoneFootprint>(); for (int i = 0; i < 24; i++) tr.Add(F(100 + i, 101.5 + i, 99.5 + i, 101 + i, 60, 40));
+        tr.Add(F(124, 124.5, 120.0, 123.5, 50, 50));   // 24: pulls back under the last 3 lows (the signal candle)
+        tr.Add(F(123.5, 126, 123.4, 125.5, 90, 20));   // 25: closes above 124.5 with positive delta → TREND confirmed
+        tr.Add(F(125.5, 126, 125, 125.6, 10, 10));     // 26: forming
+        var rawT = new List<KeystoneOfSignal> { new KeystoneOfSignal { Bar = 24, Dir = 1, Kind = "ABSORB", Price = 123.5 } };
+        var ct = KeystoneOrderFlow.Confirm(rawT, tr, 0.25, new KeystoneOfSettings(), true);
+        Check(ct.Count == 1 && ct[0].Kind == "TREND" && ct[0].Bar == 25, "a pullback buy with the trend is confirmed as a TREND setup without a stop run", ct.Count + " " + (ct.Count > 0 ? ct[0].Kind : ""));
+        Check(KeystoneOrderFlow.Confirm(rawT, tr, 0.25, new KeystoneOfSettings { Trend = false }, true).Count == 0, "TREND setups off = only stop-run setups");
+        Check(KeystoneOrderFlow.Confirm(new List<KeystoneOfSignal> { new KeystoneOfSignal { Bar = 24, Dir = -1, Kind = "ABSORB", Price = 123.5 } }, tr, 0.25, new KeystoneOfSettings(), true).Count == 0, "a sell against the trend is not a TREND setup");
         // 5e. WHO IS IN CONTROL: the share bought AND the price move
         var ct0 = new DateTime(2026, 10, 23, 10, 0, 0); var up = new List<KeystoneOfTick>(); for (int i = 0; i < 30; i++) up.Add(T(ct0.AddSeconds(i), 100 + i * 0.25, i % 7 < 4 ? 2 : 2, i % 7 < 4 ? 1 : -1));
         var cu = KeystoneOrderFlow.Control(up, up.Count, ct0.AddSeconds(30), 30, 0.25);

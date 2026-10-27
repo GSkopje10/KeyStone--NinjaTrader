@@ -368,7 +368,7 @@ namespace System.Windows.Controls
     public class ContentControl : Control { private object content; protected virtual void OnContentChanged(object oldContent, object newContent) { } public object Content { get { return content; } set { if (ReferenceEquals(content, value)) return; var old = content; UIElement.Release(content); UIElement.Adopt(this, value); content = value; OnContentChanged(old, value); } } }
     public class UserControl : ContentControl { }
     public class Label : ContentControl { }
-    public class ToolTip : ContentControl { }
+    public class ToolTip : ContentControl { public bool IsOpen { get; set; } public UIElement PlacementTarget { get; set; } }
     public class HeaderedContentControl : ContentControl { public object Header { get; set; } }
     public class GroupBox : HeaderedContentControl { }
     public class Expander : HeaderedContentControl { public bool IsExpanded { get; set; } }
