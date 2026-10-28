@@ -14,11 +14,14 @@ A modern Windows platform for MetaTrader 5 (IC Markets): live trading with lots 
   (buys mint, sells red, pending amber) that light up under the mouse, drag stops / targets / orders, ✕ to close.
 - **Trading**: ARM with a ✓/✖ checklist of every MT5 switch, lots, market / limit / stop, close all / buys / sells / winners / losers, breakeven, close everything — each asks first.
 - **Backtest**: download days once (HIST), replay with play / pause / step / speed / jumps, hedging, real spread, commission, swap, stop-out, stats.
+- **⇅ HEDGE LAB** (title bar, every tab): the hedge-instead-of-a-stop strategy (lot → +$target on the whole basket → the same way again; no stop: a break of the
+  recent low / high opens the other side with the hedge lot) tested on the saved MT5 history — presets A ($350, 0.1 / 0.2, $20) and B ($5,000, 0.25 / 0.5, $20, $100 a day),
+  ▶ VARIATIONS (recent high / low × target, plus a fresh account every Monday for 4 weeks). Research only: nothing is sent to MT5. Study: `docs/research/hedge/`.
 - **Tracker** (DEALS): calendar, stats, equity curve, by hour / weekday / symbol, journal. **Prop**: presets, meters, entry guard. **News**: ForexFactory + headlines.
 
 ## Verification
 
-`cd tests && dotnet run` — the bridge against a fake MT5 and the backtest engine. `tests/screens.sh` — the real app under Wine with `fakemt5.py`, screenshots.
+`cd tests && dotnet run` — the bridge against a fake MT5, the backtest engine and the HEDGE LAB engine. `cd study && dotnet run -c Release` — the hedge study on data/MGC. `tests/screens.sh` — the real app under Wine with `fakemt5.py`, screenshots.
 
 ## Building (developer)
 

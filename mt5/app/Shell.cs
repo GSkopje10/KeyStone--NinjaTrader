@@ -98,6 +98,9 @@ namespace KeystoneMT5
                 var b = Sx.Pill(glyph, Brushes.Transparent); b.Width = 46; b.Height = 38; b.Margin = new Thickness(0); b.Padding = new Thickness(0); b.FontSize = 13; b.BorderBrush = Brushes.Transparent; b.Template = CapTemplate(danger); b.ToolTip = tip;
                 WindowChrome.SetIsHitTestVisibleInChrome(b, true); b.Click += delegate { act(); }; btns.Children.Add(b); return b;
             };
+            // ⇅ HEDGE LAB: the hedge-instead-of-a-stop strategy tested on the saved MT5 history (research only, sends nothing)
+            var lab = Sx.Pill("⇅ HEDGE LAB", Sx.Tint(Sx.Violet, 46)); lab.Height = 26; lab.Margin = new Thickness(0, 6, 10, 6); lab.FontSize = 11.5; lab.ToolTip = "test the hedge-instead-of-a-stop strategy on your MT5 history (research only — nothing is sent to MT5)";
+            WindowChrome.SetIsHitTestVisibleInChrome(lab, true); lab.Click += delegate { HedgeLabWindow.ShowLab(w); }; btns.Children.Add(lab);
             cap("─", "minimize", false, () => w.WindowState = WindowState.Minimized);
             var maxB = cap("▢", "maximize / restore", false, () => w.WindowState = w.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized);
             cap("✕", mode == "HOME" ? "close SpasiX" : "close this mode (back to HOME)", true, () => w.Close());

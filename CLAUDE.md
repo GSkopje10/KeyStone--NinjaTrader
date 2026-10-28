@@ -48,7 +48,7 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   is enforced in the bridge. Armed, market BUY / SELL and a ticket's ✕ act at once (user's request); a right-click limit / stop asks its lots
   first; every close-all / bulk button, breakeven and the BASKET (close all at +$X / −$Y, `Protect.cs`) ask first. PROP mode refuses new
   entries at the firm's limits (closes never blocked). The DEMO (`Paper.cs`, `PaperBroker`) and the BACKTEST (`Sim.cs`, `SimBroker`) trade a
-  `SimAccount` only — they never send an order to MT5 (DEMO reads live prices; the backtest only downloads history: HIST / HISTT ticks). Tests: `cd mt5/tests && dotnet run` (bridge vs a fake MT5 + the backtest engine).
+  `SimAccount` only — they never send an order to MT5 (DEMO reads live prices; the backtest only downloads history: HIST / HISTT ticks). The ⇅ HEDGE LAB (title-bar button, `HedgeLab.cs` engine + `HedgeLabWindow.cs`) is research only: a simulated account in memory on the saved history, it never sends an order. Tests: `cd mt5/tests && dotnet run` (bridge vs a fake MT5 + the backtest engine + the hedge engine).
   Screens: `mt5/tests/screens.sh` runs the real app under Wine + Xvfb with `fakemt5.py` and screenshots it — use it before shipping UI.
 - Do not change BH detection, BH outcome resolution, or the MNQ loader without explicit scope.
   MGC loader changes stay MGC-only. Asian work stays inside the Asian code paths.
