@@ -251,6 +251,7 @@ namespace KeystoneMT5
         public List<string> Notes { get { return acct.Notes; } }
         public readonly List<DateTime> ClosedDays = new List<DateTime>();   // the server days that ended during the replay (the app saves them)
         public int TicksPerBar = 16; int cmdSeq;
+        public Action OnTickHook;   // 🤖 AUTO: called after every replayed price (inside the lock), so the automation sees each tick like live
         public SimBroker() { acct = new SimAccount(state); }
         public SimAccount Account { get { return acct; } }
 
@@ -413,6 +414,7 @@ namespace KeystoneMT5
             if (t > Clock) Clock = t; state.ServerNow = Clock;
             foreach (var m in Tf.All) state.SeriesOf(f.Spec.Name, m).OnTick(t, price, vol);
             Quote(f, t, price, spreadPts, ask);
+            if (OnTickHook != null) OnTickHook();
         }
 
         // ---- the commands (the same as the bridge's)

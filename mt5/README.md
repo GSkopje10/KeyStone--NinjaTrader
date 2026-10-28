@@ -19,6 +19,14 @@ A modern Windows platform for MetaTrader 5 (IC Markets): live trading with lots 
   preset C (the study's best: NY open 08:30-10:30, one $150 target a day, stop $300, no hedge), sessions in New York time, one target a day, max tries a day,
   NO HEDGE, close at the session end, a fixed zone; ▶ VARIATIONS (recent high / low × target, plus a fresh account every Monday for 4 weeks), ▶ SESSIONS (every session,
   hedges vs no hedge). Research only: nothing is sent to MT5. Study: `docs/research/hedge/`.
+- **🤖 AUTO** (tab, LIVE / PROP / DEMO / BACKTEST): the hedge automation — entry lots, add-on lots the other way, target $ per iteration, max drawdown
+  (or none), first direction (yours or the setup's), entry setup (BREAK / FVG / VWAP / ORDER FLOW), add-on trigger (the break of the recent low / high,
+  a price move, a $ loss), add to the winner, next iteration (pause or the next signal), iterations a day, New York trading times, high-impact news
+  (avoid / only). Views: STORY (every decision and why — the candle, the level, the prices, the $), ITERATIONS, TRADES, ANALYSIS, LOG. Orders pass ARM /
+  Algo Trading / PROP like the chart's; REAL accounts need START typed. It owns every position on its symbol.
+- **📅 DAY**: the day replayed with each entry setup (the AUTO settings), ranked and saved; the day that ended is analysed by itself.
+- **🔍 DECODE**: read only — every position / pending order on the account with the market around it, per bot (symbol + magic): STORY, RULES (the
+  most likely entry, hedge trigger, lots, take profit), EVENTS; 💾 SAVE FOR CLAUDE.
 - **Tracker** (DEALS): calendar, stats, equity curve, by hour / weekday / symbol, journal. **Prop**: presets, meters, entry guard. **News**: ForexFactory + headlines.
 
 ## Verification

@@ -61,6 +61,7 @@ public static class BridgeTests
         Console.WriteLine(fails == 0 ? "ALL MT5 BRIDGE TESTS PASSED" : fails + " MT5 BRIDGE TEST(S) FAILED");
         fails += SimTests.Main2();
         fails += HedgeLabTests.Main3();
+        fails += AutoTests.Main4();
         return fails == 0 ? 0 : 1;
     }
 }

@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-29l";
+        public const string Build = "SpasiX • BUILD 2026-10-29m";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -68,6 +68,9 @@ namespace KeystoneMT5
             views["CHART"] = BuildChartTab(); order.Add(Tuple.Create("CHART", "📈  CHART"));
             views["ANALYSIS"] = BuildAnalysis(); order.Add(Tuple.Create("ANALYSIS", "📊  ANALYSIS"));
             views["POSITIONS"] = BuildPositions(); order.Add(Tuple.Create("POSITIONS", "💼  POSITIONS"));
+            views["AUTO"] = BuildAuto(); order.Add(Tuple.Create("AUTO", "🤖  AUTO"));
+            views["DAY"] = BuildDay(); order.Add(Tuple.Create("DAY", "📅  DAY"));
+            views["DECODE"] = BuildDecode(); order.Add(Tuple.Create("DECODE", "🔍  DECODE"));
             if (Mode == "PROP") { views["PROP"] = BuildProp(); order.Add(Tuple.Create("PROP", "🏆  PROP")); }
             views["TRACKER"] = BuildTracker(); order.Add(Tuple.Create("TRACKER", Sim ? "📊  STATS" : "📊  TRACKER"));
             if (Sim) { views["POOL"] = BuildPool(); order.Add(Tuple.Create("POOL", "🗂  POOL")); }
