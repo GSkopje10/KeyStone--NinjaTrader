@@ -200,6 +200,9 @@ public static class AccountLinkTests
             Check(u == new DateTime(2026, 10, 6, 18, 0, 0) && dl.IsLocked("MFFU1", new DateTime(2026, 10, 6, 16, 0, 0)) && !dl.IsLocked("MFFU1", new DateTime(2026, 10, 6, 18, 1, 0)), "day lock until 18:00 NY");
             Check(KeystoneDayLocks.NextOpen(new DateTime(2026, 10, 9, 12, 0, 0)) == new DateTime(2026, 10, 11, 18, 0, 0), "Friday lock → Sunday 18:00");
             Check(KeystoneDayLocks.Parse(dl.Serialize()).IsLocked("MFFU1", new DateTime(2026, 10, 6, 12, 0, 0)), "locks save and load");
+            var dh = new KeystoneDayLocks(); dh.Lock("A", new DateTime(2026, 10, 6, 11, 0, 0), true, "you • hard"); dh.Lock("B", new DateTime(2026, 10, 6, 11, 0, 0), false, "you"); dh.LockUntil("C", new DateTime(2026, 10, 6, 17, 0, 0), "NINJATRADER LOCKOUT");
+            var dh2 = KeystoneDayLocks.Parse(dh.Serialize());
+            Check(!dh2.Unlock("A") && dh2.IsLocked("A", new DateTime(2026, 10, 6, 12, 0, 0)) && dh2.Unlock("B") && !dh2.IsLocked("B", new DateTime(2026, 10, 6, 12, 0, 0)) && !dh2.Unlock("C") && dh2.Why["C"] == "NINJATRADER LOCKOUT" && !dh2.IsLocked("C", new DateTime(2026, 10, 6, 17, 1, 0)), "a HARD lock and a NinjaTrader lockout cannot be unlocked (they end at their time); a normal one can; saved with the reason");
         }
         // 9d. one cancels the other for orders placed in NinjaTrader too; fees from the reported commissions
         {
