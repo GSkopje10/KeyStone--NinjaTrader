@@ -503,3 +503,5 @@ namespace System.Windows.Shell
         public static void SetWindowChrome(System.Windows.Window w, WindowChrome c) { } public static void SetIsHitTestVisibleInChrome(System.Windows.UIElement e, bool v) { }
     }
 }
+
+namespace System.Windows.Markup { public static class XamlReader { public static object Parse(string xaml) { return null; } } }
