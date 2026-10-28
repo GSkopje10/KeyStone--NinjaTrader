@@ -210,6 +210,10 @@ public static class AccountLinkTests
             b.Sent.Clear(); var e1 = b.External("STOP", 1, 20050); var e2 = b.External("STOP", -1, 19950); l.Tick(t, t0.AddSeconds(2));
             b.Trigger(e1); l.Tick(t, t0.AddSeconds(3));
             Check(e2.Done && b.Sent.Contains("CANCEL STOP"), "buy stop + sell stop: one fills → the other is cancelled", string.Join(" | ", b.Sent));
+            // already long: a buy limit + a buy stop to add → one fills, the other is cancelled (the stop / target of the trade stay)
+            b.Sent.Clear(); var pst = b.External("STOP", -2, 19900); var a1 = b.External("LIMIT", 1, 20030); var a2 = b.External("STOP", 1, 20080); l.Tick(t, t0.AddSeconds(4));
+            b.Trigger(a1); l.Tick(t, t0.AddSeconds(5));
+            Check(a2.Done && !pst.Done && b.Sent.Count(x => x.StartsWith("CANCEL")) == 1, "in a trade: an add limit fills → the add stop is cancelled, the trade's stop stays", string.Join(" | ", b.Sent));
             var tb = new KeystoneTradeBuilder("MNQ");
             var f = tb.Add(new[] { new KeystoneExec { Id = "a", Time = t0, SignedQty = 2, Price = 100, Commission = 1.24 }, new KeystoneExec { Id = "b", Time = t0.AddMinutes(1), SignedQty = -2, Price = 110, Commission = 1.24 } });
             Check(f.Count == 1 && Math.Abs(f[0].Net - (10 * 2 * 2 - 2.48)) < 1e-9, "fees: the real commissions ($2.48) come off the trade", f.Count > 0 ? f[0].Net.ToString() : "none");

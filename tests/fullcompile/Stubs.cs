@@ -63,7 +63,7 @@ namespace System.Windows
     public class ResourceDictionary : Dictionary<object, object> { }
     public class UIElement : DependencyObject
     { public static readonly DependencyProperty IsMouseOverProperty = new DependencyProperty(), IsEnabledProperty = new DependencyProperty(), EffectProperty = new DependencyProperty(); 
-        public void Measure(Size available) { } public Size DesiredSize { get { return new Size(0, 0); } }
+        public void Measure(Size available) { } public Size DesiredSize { get { return new Size(0, 0); } } public Point PointToScreen(Point p) { return p; }
         public void RaiseEvent(RoutedEventArgs e) { OnRaise(e); } protected virtual void OnRaise(RoutedEventArgs e) { }
         // Stand-in for WPF's single logical parent rule: adding an element that already has a parent throws, as WPF does.
         internal object StubParent;
