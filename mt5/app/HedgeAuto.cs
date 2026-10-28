@@ -91,7 +91,7 @@ namespace KeystoneMT5
         public Func<DateTime, int, int, string> NewsNear;
         public double Vwap = double.NaN; public string SignalText = "", HedgeWhy = "", Blocked = "";
 
-        int lastDir; double prevBid = double.NaN; 
+        int lastDir; double prevBid = double.NaN;
         string pendId, pendKind; DateTime pendSent, pendOk; double pendGross; int pendDirAfter; double pendLots; string pendWhy; double pendLevel;
         DateTime closeSeen;
         // the entry setups, worked out once per finished candle

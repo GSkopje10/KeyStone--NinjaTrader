@@ -100,7 +100,7 @@ public static class AutoTests
         Check(r.Item2.Iterations.Count > 0, "times: inside 16:30-18:00 New York it trades", r.Item2.Iterations.Count + "");
         var s13 = S(); s13.PerDay = 1; r = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), s13);
         Check(r.Item2.Iterations.Count == 1 && r.Item2.Blocked.Contains("of today are done"), "iterations a day: 1, then it waits for tomorrow", r.Item2.Iterations.Count + " " + r.Item2.Blocked);
-        var s14 = S(); s14.NewsMode = "AVOID"; var warmN = new HedgeAuto();
+        var s14 = S(); s14.NewsMode = "AVOID";
         r = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), s14, null, a => a.NewsNear = (tt, b0, a0) => "USD Non-Farm Payrolls 08:30");
         Check(r.Item2.Iterations.Count == 0 && r.Item2.Blocked.Contains("Non-Farm"), "news AVOID: no iteration around the event", r.Item2.Blocked);
         s14.NewsMode = "ONLY"; r = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), s14, null, a => a.NewsNear = (tt, b0, a0) => null);
@@ -109,7 +109,7 @@ public static class AutoTests
         // 13. DECODE learns a bot from what it does: our own automation (add-on = a fixed $2 move, ×2 lots, +$20 on the basket) in a choppy market
         var zz = new List<double>(); for (int i = 1; i <= 900; i++) zz.Add(Math.Round(4000 + 6 * Math.Sin(i / 9.0) + 2.5 * Math.Sin(i / 2.3), 2));
         var s15 = S(); s15.FirstDir = "BUY"; s15.HedgeMode = "PRICE"; s15.HedgePrice = 2; s15.NextStart = "PAUSE"; s15.PauseSec = 60;
-        var w = new TradeWatch(); r = Run(Path(Day1, 4000, zz), s15, null, a => { }); 
+        var w = new TradeWatch();
         var sb15 = new SimBroker(); var warm15 = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30));
         sb15.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = 10000, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 10 }, Gold(), warm15.Concat(Path(Day1, 4000, zz)).ToList());
         var au15 = new HedgeAuto(); au15.Send = (c, a, l) => sb15.Command(c, a); sb15.OnTickHook = () => { au15.Step(sb15); w.Step(sb15); };
