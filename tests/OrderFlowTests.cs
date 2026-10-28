@@ -103,6 +103,16 @@ public static class OrderFlowTests
         foreach (int b in new[] { 1, 11, 21, 31 }) fake.Add(new KeystoneOfSignal { Bar = b, Dir = 1, Kind = "STACKED", Price = 100 });
         KeystoneOrderFlow.Score(fake, flat, 0.25, new KeystoneOfSettings { TargetTicks = 8, StopTicks = 8, HorizonBars = 3 });
         Check(fake[0].Outcome == 1 && fake[1].Outcome == 1 && fake[2].Outcome == -1 && Math.Abs(fake[3].Prob - 200.0 / 3) < 1e-6 && fake[3].N == 3, "the 4th signal's probability = 2 wins of the 3 before it = 67 % (n = 3)", fake[3].Prob + " n=" + fake[3].N);
+        // ✅ the confirmations: price above everything + a buying last closed candle = every check votes BUY
+        {
+            var fpc = new List<KeystoneFootprint>(); long cv0 = 0;
+            for (int i = 0; i < 25; i++) { var fq = new KeystoneFootprint { Open = 100 + i, Close = 100.5 + i, Buy = i == 23 ? 300 : 60, Sell = i == 23 ? 100 : 50 }; cv0 += fq.Delta; fq.Cvd = cv0; if (i == 23) fq.Stacks.Add(new KeystoneOfStack { Side = 1, Count = 3 }); fpc.Add(fq); }
+            var pr = new KeystoneProfile { Poc = 105, Vah = 110, Val = 100 };
+            var ck = KeystoneOfChecks.Build(fpc, 130, 115, 112, 108, 113, 107, pr);
+            Check(ck.Count == 9 && ck.All(x => x.Dir > 0), "confirmations: all 9 checks vote BUY above VWAP / both ORBs / VAH with a buying candle", string.Join(", ", ck.Select(x => x.Name + "=" + x.Dir)));
+            var ck2 = KeystoneOfChecks.Build(fpc, 110, 115, 112, 108, double.NaN, double.NaN, pr);
+            Check(ck2.First(x => x.Name == "VWAP").Dir < 0 && ck2.First(x => x.Name == "ORB 15").Dir == 0 && !ck2.Any(x => x.Name == "ORB 30") && ck2.First(x => x.Name == "VALUE AREA").Dir == 0, "confirmations: below VWAP = SELL, inside the ORB / value area = neither, a forming ORB is left out");
+        }
         Console.WriteLine(failures == 0 ? "ALL ORDER FLOW TESTS PASSED" : failures + " ORDER FLOW TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
