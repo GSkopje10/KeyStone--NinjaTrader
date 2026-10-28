@@ -113,6 +113,13 @@ public static class OrderFlowTests
             var ck2 = KeystoneOfChecks.Build(fpc, 110, 115, 112, 108, double.NaN, double.NaN, pr);
             Check(ck2.First(x => x.Name == "VWAP").Dir < 0 && ck2.First(x => x.Name == "ORB 15").Dir == 0 && !ck2.Any(x => x.Name == "ORB 30") && ck2.First(x => x.Name == "VALUE AREA").Dir == 0, "confirmations: below VWAP = SELL, inside the ORB / value area = neither, a forming ORB is left out");
         }
+        // per-instrument indicators: switching VWAP on MNQ leaves MGC alone; a non-indicator layer stays shared
+        {
+            var lm = new KeystoneLayerModes(); string sym = "MNQ"; lm.Sym = () => sym;
+            lm["IND.VWAP"] = 1; lm["TZ"] = 2; sym = "MGC"; int v1;
+            bool mgcEmpty = !lm.TryGetValue("IND.VWAP", out v1); lm["IND.VWAP"] = 0; sym = "MNQ"; int v2; lm.TryGetValue("IND.VWAP", out v2); int tz; sym = "MGC"; lm.TryGetValue("TZ", out tz);
+            Check(mgcEmpty && v2 == 1 && tz == 2 && lm.Keys.Contains("IND.VWAP@MNQ") && lm.Keys.Contains("IND.VWAP@MGC"), "indicators are kept per instrument (MNQ on, MGC off); the time zone stays shared");
+        }
         Console.WriteLine(failures == 0 ? "ALL ORDER FLOW TESTS PASSED" : failures + " ORDER FLOW TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
