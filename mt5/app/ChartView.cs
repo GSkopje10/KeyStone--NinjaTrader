@@ -167,7 +167,7 @@ namespace KeystoneMT5
         public static readonly Indicator[] Indicators = {
             new Indicator("EMA9", "EMA 9", "#FFE066", "fast average (9 candles)"), new Indicator("EMA21", "EMA 21", "#4DD8FF", "the 21-candle average"), new Indicator("EMA50", "EMA 50", "#A98BFF", "the 50-candle average"),
             new Indicator("EMA200", "EMA 200", "#FF8A3D", "the trend (200 candles)"), new Indicator("VWAP", "VWAP", "#E879F9", "the day's volume-weighted average price (from the server's midnight)"), new Indicator("BB", "Bollinger 20/2", "#90A4AE", "20-candle average ± 2 deviations"),
-            new Indicator("FVG", "Fair-value gaps", "#2EE59D", "3-candle gaps not filled yet"), new Indicator("ORB", "NY opening range", "#A98BFF", "New York 09:30–09:45 high / low"), new Indicator("PDHL", "Yesterday high / low", "#42A5F5", "the previous day's high and low"),
+            new Indicator("FVG", "Fair-value gaps", "#2EE59D", "3-candle gaps not filled yet"), new Indicator("ORB", "ORB 15 (New York)", "#B388FF", "New York opening range 09:30–09:45: high / low, BROKEN ▲ / ▼ when a candle closes beyond it"), new Indicator("ORB30", "ORB 30 (New York)", "#40C4FF", "New York opening range 09:30–10:00: high / low, BROKEN ▲ / ▼ when a candle closes beyond it"), new Indicator("PDHL", "Yesterday high / low", "#42A5F5", "the previous day's high and low"),
             new Indicator("SESS_SYD", "Session • Sydney (ASX)", "#26C6DA", "ASX 10:00–16:00 Sydney time • pre-open from 07:00"),
             new Indicator("SESS_TKY", "Session • Tokyo (TSE)", "#A98BFF", "TSE 09:00–15:30 Tokyo time (lunch 11:30–12:30) • orders from 08:00 • Japan data 08:50 = 20:00 / 19:50 New York"),
             new Indicator("SESS_CHN", "Session • Shanghai gold (SGE) + Hong Kong", "#FF5C7A", "SGE gold day session 09:00–15:30 Beijing (= 21:00 New York in summer) • Hong Kong / China stocks 09:30 • SGE night session 20:00–02:30"),
@@ -454,16 +454,23 @@ namespace KeystoneMT5
                     dc.DrawText(T("FVG", 9, Br(cc, 200), false, true), new Point(x1 + 3, Math.Min(y1, y2) + 1));
                 }
             }
-            if (Ind.Contains("ORB") && Series.Minutes < 60)
+            // the New York opening ranges (like SpasiX Future): ORB 15 = 09:30–09:45, ORB 30 = 09:30–10:00 (server = New York + 7 h); a box to 16:00,
+            // the high / low dashed, and on today's range the tags light up BROKEN ▲ / ▼ once a candle closes beyond it
+            foreach (var orb in new[] { Tuple.Create("ORB", 15, "ORB15"), Tuple.Create("ORB30", 30, "ORB30") })
             {
-                // the New York opening range 09:30–09:45 of the sessions on screen (server = New York + 7 h → 16:30–16:45)
-                var days = bars.Skip(i0).Take(i1 - i0 + 1).Select(b => b.Time.Date).Distinct().ToList();
+                if (!Ind.Contains(orb.Item1) || Series.Minutes >= 60) continue;
+                var oc = Hex(IndColor(orb.Item1)); var days = bars.Skip(i0).Take(i1 - i0 + 1).Select(b => b.Time.Date).Distinct().ToList(); var today = bars[n - 1].Time.Date;
                 foreach (var d in days)
                 {
-                    var s0 = d.AddHours(9.5 - NyOffsetHours); var s1 = s0.AddMinutes(15); var inR = bars.Where(b => b.Time >= s0 && b.Time < s1).ToList(); if (inR.Count == 0) continue;
-                    double h = inR.Max(b => b.H), l = inR.Min(b => b.L); double x1 = X(IndexOf(s0)), x2 = X(IndexOf(d.AddHours(16 - NyOffsetHours)));
-                    dc.DrawRectangle(Hex(IndColor("ORB"), 24), P(Hex(IndColor("ORB"), 170), 1, 4, 3), new Rect(x1, Y(h), Math.Max(2, x2 - x1), Math.Max(1, Y(l) - Y(h))));
-                    dc.DrawText(T("NY ORB " + F(h) + " / " + F(l), 10, VioletB, false, true), new Point(x1 + 3, Y(h) - 14));
+                    var s0 = d.AddHours(9.5 - NyOffsetHours); var s1 = s0.AddMinutes(orb.Item2); var inR = bars.Where(b => b.Time >= s0 && b.Time < s1).ToList(); if (inR.Count == 0) continue;
+                    bool forming = bars[n - 1].Time < s1 && d == today; double h = inR.Max(b => b.H), l = inR.Min(b => b.L);
+                    double x1 = X(IndexOf(s0)), x2 = d == today ? plotW : X(IndexOf(d.AddHours(16 - NyOffsetHours)));
+                    dc.DrawRectangle(Br(oc.Color, (byte)(forming ? 40 : 20)), null, new Rect(x1, Y(h), Math.Max(2, x2 - x1), Math.Max(1, Y(l) - Y(h))));
+                    if (d != today) { var pen = P(Br(oc.Color, 200), 1.2, 6, 3); dc.DrawLine(pen, new Point(x1, Y(h)), new Point(x2, Y(h))); dc.DrawLine(pen, new Point(x1, Y(l)), new Point(x2, Y(l))); }   // today: the levels below draw the lines + tags
+                    if (d != today) { dc.DrawText(T(orb.Item3 + " " + F(h) + " / " + F(l), 9.5, Br(oc.Color, 220), false, true), new Point(x1 + 3, Y(h) - 14)); continue; }
+                    double last = bars[n - 1].C; bool up = !forming && last > h, dn = !forming && last < l;
+                    Level(dc, Y(h), up ? oc : Br(oc.Color, 200), orb.Item3 + " HIGH " + F(h) + (forming ? " (forming)" : up ? " BROKEN ▲" : ""), true, plotW - 230, null);
+                    Level(dc, Y(l), dn ? oc : Br(oc.Color, 200), orb.Item3 + " LOW " + F(l) + (forming ? " (forming)" : dn ? " BROKEN ▼" : ""), true, plotW - 230, null);
                 }
             }
             if (Ind.Contains("PDHL") && Series.Minutes < 1440)

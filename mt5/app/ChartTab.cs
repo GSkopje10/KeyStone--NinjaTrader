@@ -226,7 +226,7 @@ namespace KeystoneMT5
             foreach (var t in ChartView.Indicators)
             {
                 var key = t.Key; if (key == "SESS_SYD") { l.Add(Mi.S()); l.Add(Mi.H("market sessions • official hours, summer / winter time automatic")); } else if (key == "VOL") { l.Add(Mi.S()); l.Add(Mi.H("volume & order flow (estimated from MT5 tick volume)")); } else if (key == "SETUPS") { l.Add(Mi.S()); l.Add(Mi.H("signals")); }
-                l.Add(new Mi { Text = t.Name, Hint = t.Key == "ORB" ? "under H1" : t.Key.StartsWith("SESS") ? "H1 and under" : "", Check = v.Ind.Contains(key), Dot = Sx.B(t.Color), Do = () => ToggleInd(key), KeepOpen = true });
+                l.Add(new Mi { Text = t.Name, Hint = t.Key == "ORB" || t.Key == "ORB30" ? "under H1" : t.Key.StartsWith("SESS") ? "H1 and under" : "", Check = v.Ind.Contains(key), Dot = Sx.B(t.Color), Do = () => ToggleInd(key), KeepOpen = true });
                 if (key == "FVG") { int fs = v.FvgSide; l.Add(new Mi { Text = "      FVG: bullish + bearish", Check = fs == 0, Radio = true, Do = () => SetFvgSide(0) }); l.Add(new Mi { Text = "      FVG: bullish only", Check = fs == 1, Radio = true, Fg = Green, Do = () => SetFvgSide(1) }); l.Add(new Mi { Text = "      FVG: bearish only", Check = fs == -1, Radio = true, Fg = Red, Do = () => SetFvgSide(-1) }); }
             }
             l.Add(new Mi("📊", "Gap statistics (daily / weekly) …", () => GapStatsDialog(Act)));
