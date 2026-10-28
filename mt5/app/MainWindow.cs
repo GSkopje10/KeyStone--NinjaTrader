@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-10-29m";
+        public const string Build = "SpasiX • BUILD 2026-10-29n";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -44,10 +44,12 @@ namespace KeystoneMT5
         public static string Dir { get { return DataDir.Root; } }   // F:\SpasiX\MT5 when there is an F: drive (DataDir.cs)
         static string SetFile { get { return Path.Combine(Dir, "settings.txt"); } } static string DrawFile { get { return Path.Combine(Dir, "drawings.txt"); } }
         static readonly Dictionary<string, string> set = new Dictionary<string, string>(); static bool setLoaded;   // shared by every open mode (one settings file)
-        void LoadSet() { if (setLoaded) return; setLoaded = true; try { foreach (var l in File.ReadAllLines(SetFile)) { int i = l.IndexOf('='); if (i > 0) set[l.Substring(0, i)] = l.Substring(i + 1); } } catch { } }
-        void SaveSet() { try { Directory.CreateDirectory(Dir); File.WriteAllLines(SetFile, set.Select(kv => kv.Key + "=" + kv.Value)); } catch { } }
+        static void LoadSet() { if (setLoaded) return; setLoaded = true; try { foreach (var l in File.ReadAllLines(SetFile)) { int i = l.IndexOf('='); if (i > 0) set[l.Substring(0, i)] = l.Substring(i + 1); } } catch { } }
+        static void SaveSet() { try { Directory.CreateDirectory(Dir); File.WriteAllLines(SetFile, set.Select(kv => kv.Key + "=" + kv.Value)); } catch { } }
         string Get(string k, string d) { string v; return set.TryGetValue(k, out v) ? v : d; }
         void Put(string k, string v) { string o; if (set.TryGetValue(k, out o) && o == v) return; set[k] = v; SaveSet(); }
+        public static string SGet(string k, string d) { LoadSet(); string v; return set.TryGetValue(k, out v) ? v : d; }
+        public static void SPut(string k, string v) { LoadSet(); string o; if (set.TryGetValue(k, out o) && o == v) return; set[k] = v; SaveSet(); }
         public Button Pill(string t, Brush bg) { return Sx.Pill(t, bg); }
 
         public MainWindow(Mt5Bridge b, string mode)
@@ -111,7 +113,7 @@ namespace KeystoneMT5
                     : (open > 0 ? "Your positions stay open in MetaTrader 5 with their stops and targets — only this window closes." : "Nothing is open.") + (armed ? " Trading disarms." : "");
                 var tiles = Sx.Tiles(Tuple.Create(Sim ? "SIMULATED" : Paper ? "DEMO TICKETS" : "OPEN TICKETS", open.ToString(IC), open > 0 ? Cyan : Muted), Tuple.Create("OPEN P/L", open > 0 ? Signed(pl, "USD") : "—", pl > 0 ? Green : pl < 0 ? Red : Muted),
                     Tuple.Create("ORDERS", ords.ToString(IC), ords > 0 ? Amber : Muted), Tuple.Create(Virtual ? "MODE" : "TRADING", Virtual ? Mode : armed ? "ARMED" : "OFF", armed ? Red : Muted));
-                int k = Sx.Choice(this, "Close " + Shell.NameOf(Mode) + "?", line, tiles, new[] { "✕  CLOSE " + Mode + "  →  HOME", "⏻  CLOSE SPASIX", "STAY" }, new[] { Shell.ColorOf(Mode), Red, (SolidColorBrush)null });
+                int k = Sx.Choice(this, "Close " + Shell.TitleOf(this) + "?", line, tiles, new[] { "✕  CLOSE " + Mode + "  →  HOME", "⏻  CLOSE SPASIX", "STAY" }, new[] { Shell.ColorOf(Mode), Red, (SolidColorBrush)null });
                 if (k == 0) { armed = false; return; }
                 if (k == 1) { armed = false; e.Cancel = true; Dispatcher.BeginInvoke(new Action(Shell.Quit)); return; }
                 e.Cancel = true;
@@ -338,7 +340,7 @@ namespace KeystoneMT5
         // ---------------------------------------------------------------- the refresh
         void Refresh()
         {
-            var s = broker.State; if (Paper) paper.Sync(); BasketWatch(s); EscapeWatch(s); PaintClocks(s);
+            var s = broker.State; if (Paper) paper.Sync(); BasketWatch(s); EscapeWatch(s); PaintClocks(s); AccountTitle();
             lock (s.Gate)
             {
                 var a = s.Account; string cur = a.Currency;

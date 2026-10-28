@@ -21,7 +21,9 @@ for k in range(60):
     except Exception: time.sleep(1)
 f = s.makefile("rw", encoding="utf-8", newline="\n")
 def send(x): f.write(x + "\n"); f.flush()
-send("HELLO|5|Raw Trading Ltd|5120")
+# a second fake terminal: fakemt5.py KIND LOGIN SERVER "COMPANY" (another account on the same port)
+LOGIN = sys.argv[2] if len(sys.argv) > 2 else "5298760"; SERVER = sys.argv[3] if len(sys.argv) > 3 else "ICMarketsSC-MT5-2"; COMPANY = sys.argv[4] if len(sys.argv) > 4 else "Raw Trading Ltd"
+send("HELLO|5|%s|5120" % COMPANY)
 XS = {"XAUUSD": "-62.4|28.1|1|3|0|2|0|800.00|3997|1.0|0", "USTEC": "-9.8|2.1|1|5|0|4|0|40.30|20150|0|0", "BTCUSD": "-18|-12|6|5|0|2|0|134.50|67250|1.0|0", "EURUSD": "-6.9|1.2|1|3|0|0|0|216.60|1.0832|0.5|0"}
 for k, v in SY.items(): send("SYM|%s|%d|%s|0.01|0.01|100|%s|%s|%s|%s" % (k, v[0], v[3], v[2], v[4], v[5], v[6])); send("SYMX|%s|%s" % (k, XS[k]))
 pos = [(3524004628, "XAUUSD", "SELL", 0.20, 3994.56, 0, 3985.0), (3524004629, "XAUUSD", "SELL", 0.10, 3999.10, 4006.0, 0), (3524004630, "XAUUSD", "BUY", 0.30, 3990.20, 3984.0, 4008.0), (3524004640, "BTCUSD", "BUY", 0.05, 66900.0, 0, 0)]
@@ -78,7 +80,7 @@ while True:
     lines.append("POSEND"); lines.append("ORDS|%d" % len(orders))
     for o in orders: lines.append("O|%d|%s|%s|%.2f|%s|%s|%s|%d" % (o[0], o[1], o[2], o[3], fmt(o[4], 2), fmt(o[5], 2), fmt(o[6], 2), srv - 600))
     lines.append("ORDEND")
-    send("ACC|5298760|Goran Spasic|ICMarketsSC-MT5-2|USD|15708.30|%.2f|802.46|%.2f|633.00|500|HEDGE|1|%s" % (15708.30 + pl, 15708.30 + pl - 802.46, sys.argv[1] if len(sys.argv) > 1 else "DEMO"))
+    send("ACC|%s|Goran Spasic|%s|USD|15708.30|%.2f|802.46|%.2f|633.00|500|HEDGE|1|%s" % (LOGIN, SERVER, 15708.30 + pl, 15708.30 + pl - 802.46, sys.argv[1] if len(sys.argv) > 1 else "DEMO"))
     send("CAN|1|1|1|5.00|10800|%d|1|1" % srv)
     for k, v in SY.items(): send("TICK|%s|%s|%s|%d" % (k, fmt(px[k], v[0]), fmt(px[k] + 25 * v[2], v[0]), srv * 1000))
     send("\n".join(lines))

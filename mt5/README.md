@@ -27,6 +27,9 @@ A modern Windows platform for MetaTrader 5 (IC Markets): live trading with lots 
 - **📅 DAY**: the day replayed with each entry setup (the AUTO settings), ranked and saved; the day that ended is analysed by itself.
 - **🔍 DECODE**: read only — every position / pending order on the account with the market around it, per bot (symbol + magic): STORY, RULES (the
   most likely entry, hedge trigger, lots, take profit), EVENTS; 💾 SAVE FOR CLAUDE.
+- **Several MT5 accounts at once**: install the SpasiXBridge in each firm's MT5 (same file, same port 47123). HOME lists every connected account
+  (YOUR MT5 ACCOUNTS: ● LIVE / 🏆 PROP / ✎ name); each opens as its own tab named after it — a whole SpasiX with its own ARM, chart, 🤖 AUTO, DECODE,
+  DAY, tracker; a newly connected account gets its tab by itself; ⛔ CLOSE ALL closes every ARMED account.
 - **Tracker** (DEALS): calendar, stats, equity curve, by hour / weekday / symbol, journal. **Prop**: presets, meters, entry guard. **News**: ForexFactory + headlines.
 
 ## Verification

@@ -25,7 +25,7 @@ namespace KeystoneMT5
 
         FrameworkElement BuildAuto()
         {
-            aset = AutoSettings.Load(Get("auto." + Mode, "")); if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
+            aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, ""))); if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
             auto.Send = AutoSend; auto.NewsNear = AutoNews;
             var root = new DockPanel { LastChildFill = true };
 
@@ -138,7 +138,9 @@ namespace KeystoneMT5
             s.WinnerLots = ANum("wlots", 0.1); s.MaxWinnerAdds = (int)Math.Max(0, ANum("wmax", 0)); s.FlowVol = Math.Max(1, ANum("fvol", 1.5)); s.FlowShare = Math.Max(0.5, Math.Min(1, ANum("fshare", 0.7)));
             return s;
         }
-        void AutoSaveSet() { aset = AutoRead(); Put("auto." + Mode, aset.Save()); }
+        // the automation's settings: per MT5 account on LIVE / PROP (each account its own), per mode otherwise
+        string AKey { get { return "auto." + Mode + (!Virtual && live != null && live.Key != "" ? "." + live.Key : ""); } }
+        void AutoSaveSet() { aset = AutoRead(); Put(AKey, aset.Save()); }
 
         // a high-impact ForexFactory event near a server time, for the symbol's currencies (+ USD: gold, indices)
         string AutoNews(DateTime server, int before, int after)

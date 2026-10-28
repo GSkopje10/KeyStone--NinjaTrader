@@ -62,6 +62,7 @@ public static class BridgeTests
         fails += SimTests.Main2();
         fails += HedgeLabTests.Main3();
         fails += AutoTests.Main4();
+        fails += MultiTests.Main5();
         return fails == 0 ? 0 : 1;
     }
 }

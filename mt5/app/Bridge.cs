@@ -220,44 +220,26 @@ namespace KeystoneMT5
         public bool Alive { get { return Linked && (DateTime.Now - LastLine).TotalSeconds < 3; } }
     }
 
-    // the server the EA connects to (one terminal at a time; a new connection replaces the old one)
+    // ONE MT5 ACCOUNT: its state, its commands. Every terminal's SpasiXBridge connects to the same port (the HUB below); a connection belongs to
+    // the account its ACC line names (login @ server). The first account to connect is this app's first link (Shell.Bridge, as before);
+    // every other account gets its own link — and its own LIVE / PROP tab. A terminal that reconnects comes back to its own link.
     public sealed class Mt5Bridge : IBroker, IDisposable
     {
-        readonly Mt5State state = new Mt5State(); readonly int port; string problem = "";
-        public Mt5State State { get { return state; } } public int Port { get { return port; } } public string Problem { get { return problem; } } public bool IsSim { get { return false; } }
+        readonly Mt5State state = new Mt5State(); readonly int port; Mt5Hub hub;
+        public Mt5State State { get { return state; } } public int Port { get { return hub != null ? hub.Port : port; } } public string Problem { get { return hub != null ? hub.Problem : ""; } } public bool IsSim { get { return false; } }
         public event Action Changed;
-        TcpListener listener; Thread thread; volatile bool stop; TcpClient client; readonly object sendGate = new object(); StreamWriter writer;
+        public Mt5Hub Hub { get { return hub; } }
+        public string Key = "";   // "login@server" once the account is known ("" = not yet)
+        readonly object sendGate = new object(); StreamWriter writer; TcpClient client;
         public Mt5Bridge(int port) { this.port = port; }
-        public void Start()
-        {
-            try { listener = new TcpListener(IPAddress.Loopback, port); listener.Start(); }
-            catch (Exception ex) { problem = "port " + port + " is busy (" + ex.Message + ") — is SpasiX already open?"; return; }
-            thread = new Thread(Run) { IsBackground = true, Name = "SpasiX bridge" }; thread.Start();
-        }
-        void Run()
-        {
-            while (!stop)
-            {
-                TcpClient c = null;
-                try { c = listener.AcceptTcpClient(); } catch { if (stop) return; Thread.Sleep(200); continue; }
-                try { if (client != null) client.Close(); } catch { }
-                client = c; c.NoDelay = true;
-                var th = new Thread(() => Serve(c)) { IsBackground = true, Name = "SpasiX terminal" }; th.Start();
-            }
-        }
-        void Serve(TcpClient c)
-        {
-            try
-            {
-                var ns = c.GetStream(); var rd = new StreamReader(ns, new UTF8Encoding(false));
-                lock (sendGate) writer = new StreamWriter(ns, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
-                string line; int n = 0;
-                while (!stop && (line = rd.ReadLine()) != null) { state.Apply(line); if (++n % 4 == 0 || line == "ORDEND" || line.StartsWith("HELLO")) Fire(); }
-            }
-            catch { }
-            lock (state.Gate) state.Linked = false; Fire();
-        }
-        void Fire() { var h = Changed; if (h != null) try { h(); } catch { } }
+        internal Mt5Bridge(Mt5Hub h, string key) { hub = h; port = h.Port; Key = key; }
+        // the first link listens: it starts the hub (every account's connection comes in through it)
+        public void Start() { if (hub != null) return; hub = new Mt5Hub(port, this); hub.Start(); }
+        // a terminal's connection is now this account's (the one before it, if any, is closed — like one terminal replacing another)
+        internal void Attach(TcpClient c, StreamWriter w) { lock (sendGate) { if (client != null && client != c) try { client.Close(); } catch { } client = c; writer = w; } }
+        internal void Detach(TcpClient c) { lock (sendGate) { if (client != c) return; client = null; writer = null; } lock (state.Gate) state.Linked = false; Fire(); }
+        internal void Apply(string line, ref int n) { state.Apply(line); if (++n % 4 == 0 || line == "ORDEND" || line.StartsWith("HELLO")) Fire(); }
+        internal void Fire() { var h = Changed; if (h != null) try { h(); } catch { } }
         public bool Send(string line) { lock (sendGate) { if (writer == null) return false; try { writer.WriteLine(line); return true; } catch { return false; } } }
         int cmdSeq;
         // a trading command with its own id (the answer comes back as RES|id|…): ORDER|id|sym|kind|lots|price|sl|tp, CLOSE|id|ticket|lots, …
@@ -271,6 +253,80 @@ namespace KeystoneMT5
             var parts = new List<string> { cmd, id }; foreach (var x in args) parts.Add(x is double ? ((double)x).ToString("0.########", CultureInfo.InvariantCulture) : Convert.ToString(x, CultureInfo.InvariantCulture));
             return string.Join("|", parts);
         }
-        public void Dispose() { stop = true; try { if (listener != null) listener.Stop(); } catch { } try { if (client != null) client.Close(); } catch { } }
+        public void Dispose() { if (hub != null && hub.Primary == this) hub.Dispose(); lock (sendGate) { try { if (client != null) client.Close(); } catch { } } }
+    }
+
+    // the HUB: listens on 127.0.0.1:port; each terminal's connection reads until its ACC line names the account, then feeds that account's link
+    public sealed class Mt5Hub : IDisposable
+    {
+        public readonly int Port; public string Problem = ""; public readonly Mt5Bridge Primary;
+        readonly List<Mt5Bridge> links = new List<Mt5Bridge>(); readonly object gate = new object();
+        TcpListener listener; Thread thread; volatile bool stop;
+        public event Action<Mt5Bridge> Added;   // a new account connected (on the hub's thread)
+        public Mt5Hub(int port, Mt5Bridge primary) { Port = port; Primary = primary; links.Add(primary); }
+        public List<Mt5Bridge> Links { get { lock (gate) return links.ToList(); } }
+        public void Start()
+        {
+            try { listener = new TcpListener(IPAddress.Loopback, Port); listener.Start(); }
+            catch (Exception ex) { Problem = "port " + Port + " is busy (" + ex.Message + ") — is SpasiX already open?"; return; }
+            thread = new Thread(Run) { IsBackground = true, Name = "SpasiX bridge" }; thread.Start();
+        }
+        void Run()
+        {
+            while (!stop)
+            {
+                TcpClient c = null;
+                try { c = listener.AcceptTcpClient(); } catch { if (stop) return; Thread.Sleep(200); continue; }
+                c.NoDelay = true; var th = new Thread(() => Serve(c)) { IsBackground = true, Name = "SpasiX terminal" }; th.Start();
+            }
+        }
+        public static string KeyOf(string accLine) { var a = accLine.Split('|'); return a.Length >= 4 ? a[1] + "@" + a[3] : ""; }
+        // the account's link: its own if it was here before, the first link while it has no account yet, else a new one
+        Mt5Bridge Route(string key, out bool added)
+        {
+            added = false;
+            lock (gate)
+            {
+                var l = links.FirstOrDefault(x => x.Key == key); if (l != null) return l;
+                if (Primary.Key == "") { Primary.Key = key; return Primary; }
+                l = new Mt5Bridge(this, key); links.Add(l); added = true; return l;
+            }
+        }
+        void Serve(TcpClient c)
+        {
+            Mt5Bridge link = null; var early = new List<string>(); var prelude = new List<string>(); int n = 0; var t0 = DateTime.Now;
+            try
+            {
+                var ns = c.GetStream(); var rd = new StreamReader(ns, new UTF8Encoding(false)); var w = new StreamWriter(ns, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+                string line;
+                while (!stop && (line = rd.ReadLine()) != null)
+                {
+                    // what a link needs to know the terminal (HELLO, CAN, its symbols) is kept, for an account switch inside the same terminal
+                    if (line.StartsWith("HELLO|") || line.StartsWith("CAN|") || line.StartsWith("SYM|") || line.StartsWith("SYMX|")) { if (line.StartsWith("HELLO|")) prelude.Clear(); if (prelude.Count < 20000) prelude.Add(line); }
+                    if (line.StartsWith("ACC|"))
+                    {
+                        var key = KeyOf(line);
+                        if (key != "" && (link == null || link.Key != key))
+                        {
+                            bool added; if (link != null) link.Detach(c);
+                            var to = Route(key, out added); to.Attach(c, w);
+                            foreach (var x in link == null ? early : prelude) to.Apply(x, ref n);
+                            link = to; early.Clear(); if (added) { var h = Added; if (h != null) try { h(link); } catch { } }
+                        }
+                    }
+                    if (link == null)
+                    {
+                        early.Add(line);
+                        // an old bridge that never names its account: after 5 s the first link takes it (as before)
+                        if ((DateTime.Now - t0).TotalSeconds > 5 || early.Count > 50000) { link = Primary; link.Attach(c, w); foreach (var x in early) link.Apply(x, ref n); early.Clear(); }
+                        continue;
+                    }
+                    link.Apply(line, ref n);
+                }
+            }
+            catch { }
+            if (link != null) link.Detach(c);
+        }
+        public void Dispose() { stop = true; try { if (listener != null) listener.Stop(); } catch { } foreach (var l in Links) if (l != Primary) l.Dispose(); }
     }
 }
