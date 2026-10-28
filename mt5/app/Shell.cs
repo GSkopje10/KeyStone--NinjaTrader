@@ -27,7 +27,7 @@ namespace KeystoneMT5
         // a mode: its tab if it is open, else a new window. LIVE / PROP belong to ONE MT5 account (link; null = the first account, as before);
         // DEMO / BACKTEST use the first account's prices and history. show = false: the tab is added without switching to it
         public static Mt5Hub Hub { get { return Bridge != null ? Bridge.Hub : null; } }
-        public static bool PerAccount(string mode) { return mode == "LIVE" || mode == "PROP"; }
+        public static bool PerAccount(string mode) { return mode == "LIVE" || mode == "PROP" || mode == "DEMO"; }   // each broker its own LIVE / PROP / DEMO
         public static void Open(string mode) { Open(mode, null, true); }
         public static MainWindow Open(string mode, Mt5Bridge link, bool show)
         {
@@ -39,7 +39,7 @@ namespace KeystoneMT5
                 catch (Exception ex) { Sx.Info(Active, "SpasiX", "The " + mode + " window could not open: " + ex.Message, Sx.Red); return null; }
                 Modes.Add(w); SortModes(); var ww = w;
                 w.Closed += delegate { Removed(ww); };
-                if (link.Key != "") MainWindow.SPut("acct.mode." + link.Key, mode);
+                if (link.Key != "" && mode != "DEMO") MainWindow.SPut("acct.mode." + link.Key, mode);   // the mode it opens in when it connects again
             }
             if (show) Switch(w); else Repaint();
             return w;
@@ -59,7 +59,7 @@ namespace KeystoneMT5
         public static string TitleOf(Window w)
         {
             var m = w as MainWindow; if (m == null || !PerAccount(m.Mode)) return NameOf(m != null ? m.Mode : "HOME");
-            var a = MainWindow.AccountLabel(m.Link); return a == "" ? NameOf(m.Mode) : (m.Mode == "PROP" ? "🏆 " : "● ") + a;
+            var a = MainWindow.AccountLabel(m.Link); return a == "" ? NameOf(m.Mode) : a + " • " + NameOf(m.Mode);
         }
         public static void ShowHome() { Switch(Home); }
         // show one window where the last one was, hide the others (they keep running)
@@ -71,7 +71,7 @@ namespace KeystoneMT5
                 w.WindowState = cur.WindowState == WindowState.Minimized ? WindowState.Maximized : cur.WindowState;
                 if (cur.WindowState == WindowState.Normal) { w.Left = cur.Left; w.Top = cur.Top; w.Width = cur.Width; w.Height = cur.Height; }
             }
-            Active = w; if (App != null) App.MainWindow = w;
+            Active = w; if (App != null) App.MainWindow = w; var mw0 = w as MainWindow; if (mw0 != null && PerAccount(mw0.Mode) && mw0.Link != null) lastOf[mw0.Link] = w;
             // SMOOTH: the new tab is shown OVER the old one (same place, no Windows animation), its content fades in, and the old one is hidden
             // only once the new one is painted — never a blank window in between
             bool change = cur != null && cur != w; if (w.Background == null || w.Background == Brushes.Transparent) w.Background = Sx.Bg;
@@ -107,16 +107,16 @@ namespace KeystoneMT5
             WindowChrome.SetWindowChrome(w, new WindowChrome { CaptionHeight = 38, ResizeBorderThickness = new Thickness(6), GlassFrameThickness = new Thickness(0), CornerRadius = new CornerRadius(0), UseAeroCaptionButtons = false });
             var dp = new DockPanel { LastChildFill = true };
             var bar = new Grid { Height = 38, Background = Sx.HeadGrad };
-            bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); bar.ColumnDefinitions.Add(new ColumnDefinition()); bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); bar.ColumnDefinitions.Add(new ColumnDefinition()); bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 14, 0) };
             var lg = MainWindow.Logo(); if (lg != null) left.Children.Add(new Image { Source = lg, Width = 24, Height = 24, Margin = new Thickness(0, 0, 7, 0) });
             left.Children.Add(new TextBlock { Text = "Spasi", Foreground = Sx.Gold, FontSize = 14, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
             left.Children.Add(new TextBlock { Text = "X", Foreground = Sx.Cyan, FontSize = 14, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
             bar.Children.Add(left);
-            var tabs = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Left }; Grid.SetColumn(tabs, 1); bar.Children.Add(tabs);
-            var center = new ContentControl { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Focusable = false }; Grid.SetColumn(center, 1); bar.Children.Add(center); centers[w] = center;
+            var tabs = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Left }; var tabsBox = new Border { Child = tabs, ClipToBounds = true }; Grid.SetColumn(tabsBox, 1); bar.Children.Add(tabsBox);
+            var center = new ContentControl { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Focusable = false, Margin = new Thickness(8, 0, 12, 0) }; Grid.SetColumn(center, 2); bar.Children.Add(center); centers[w] = center;
             strips.Add(Tuple.Create(w, tabs));
-            var btns = new StackPanel { Orientation = Orientation.Horizontal }; Grid.SetColumn(btns, 2); bar.Children.Add(btns);
+            var btns = new StackPanel { Orientation = Orientation.Horizontal }; Grid.SetColumn(btns, 3); bar.Children.Add(btns);
             Func<string, string, bool, Action, Button> cap = (glyph, tip, danger, act) =>
             {
                 var b = Sx.Pill(glyph, Brushes.Transparent); b.Width = 46; b.Height = 38; b.Margin = new Thickness(0); b.Padding = new Thickness(0); b.FontSize = 13; b.BorderBrush = Brushes.Transparent; b.Template = CapTemplate(danger); b.ToolTip = tip;
@@ -151,34 +151,62 @@ namespace KeystoneMT5
         }
         public static void Repaint() { foreach (var s in strips.ToList()) PaintStrip(s.Item1, s.Item2); }
         // the tabs: HOME + the open modes (the active one lit, its colour underneath; ✕ closes that mode)
+        // the tabs: HOME, ONE TAB PER BROKER (its account) with its modes inside — ● LIVE / 🏆 PROP / 🎮 DEMO (lit = shown here, white = open,
+        // dim = not open: a click opens it; ✕ closes the shown one) —, then 🧪 BACKTEST and +
+        static readonly Dictionary<Mt5Bridge, Window> lastOf = new Dictionary<Mt5Bridge, Window>();
         static void PaintStrip(Window owner, StackPanel tabs)
         {
             tabs.Children.Clear();
-            var items = new List<Tuple<string, Window>> { Tuple.Create("HOME", (Window)Home) }; items.AddRange(Modes.Select(m => Tuple.Create(m.Mode, (Window)m)));
-            bool many = Hub != null && Hub.Links.Count(l => l.Key != "") > 1;
-            foreach (var it in items)
+            Action<string, Window, string, SolidColorBrush> plain = (label, win, tip, col) =>
             {
-                var mode = it.Item1; var win = it.Item2; bool on = win == owner; var col = ColorOf(mode);
-                var sp = new StackPanel { Orientation = Orientation.Horizontal };
-                sp.Children.Add(new TextBlock { Text = many || PerAccount(mode) ? TitleOf(win) : NameOf(mode), Foreground = on ? col : Sx.Muted, FontSize = 12.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
-                var tab = new Border { Child = sp, Padding = new Thickness(14, 0, mode == "HOME" ? 14 : 6, 0), Height = 32, Margin = new Thickness(0, 6, 3, 0), CornerRadius = new CornerRadius(9, 9, 0, 0), Cursor = Cursors.Hand,
-                    Background = on ? (Brush)Sx.Tint(col, 38) : Sx.Tint(Sx.Card, 200), BorderBrush = on ? col : Sx.Line, BorderThickness = new Thickness(1, 1, 1, on ? 0 : 1), ToolTip = mode == "HOME" ? "the start screen" : TitleOf(win) + " — click = show it (it keeps running in the background)" };
-                if (mode != "HOME")
+                bool on = win == owner; var sp = new StackPanel { Orientation = Orientation.Horizontal };
+                sp.Children.Add(new TextBlock { Text = label, Foreground = on ? col : Sx.Muted, FontSize = 12.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
+                var tab = new Border { Child = sp, Padding = new Thickness(14, 0, win == Home ? 14 : 6, 0), Height = 32, Margin = new Thickness(0, 6, 3, 0), CornerRadius = new CornerRadius(9, 9, 0, 0), Cursor = Cursors.Hand,
+                    Background = on ? (Brush)Sx.Tint(col, 38) : Sx.Tint(Sx.Card, 200), BorderBrush = on ? col : Sx.Line, BorderThickness = new Thickness(1, 1, 1, on ? 0 : 1), ToolTip = tip };
+                if (win != Home)
                 {
-                    var x = new TextBlock { Text = "✕", Foreground = Sx.Muted, FontSize = 11, Margin = new Thickness(9, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand, ToolTip = "close " + TitleOf(win) };
+                    var x = new TextBlock { Text = "✕", Foreground = Sx.Muted, FontSize = 11, Margin = new Thickness(9, 0, 2, 0), VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand, ToolTip = "close " + label };
                     x.MouseEnter += delegate { x.Foreground = Sx.Red; }; x.MouseLeave += delegate { x.Foreground = Sx.Muted; };
                     x.MouseLeftButtonUp += (s, e) => { e.Handled = true; win.Close(); }; sp.Children.Add(x);
                 }
                 tab.MouseEnter += delegate { if (!on) tab.Background = Sx.Tint(col, 26); }; tab.MouseLeave += delegate { if (!on) tab.Background = Sx.Tint(Sx.Card, 200); };
                 tab.MouseLeftButtonUp += delegate { if (!on) { if (win == Home) ShowHome(); else Switch(win); } };
                 WindowChrome.SetIsHitTestVisibleInChrome(tab, true); tabs.Children.Add(tab);
+            };
+            plain(NameOf("HOME"), Home, "the start screen", ColorOf("HOME"));
+            // one tab per broker that has a window open
+            var links = (Hub != null ? Hub.Links : new List<Mt5Bridge> { Bridge }).Where(l => Modes.Any(m => PerAccount(m.Mode) && m.Link == l)).ToList();
+            foreach (var l in links)
+            {
+                var ll = l; var mine = Modes.Where(m => PerAccount(m.Mode) && m.Link == ll).ToList(); var shown = mine.FirstOrDefault(m => m == owner);
+                var col = shown != null ? ColorOf(shown.Mode) : Sx.Cyan; bool on = shown != null;
+                var sp = new StackPanel { Orientation = Orientation.Horizontal };
+                var name = MainWindow.AccountLabel(ll); var lab = new TextBlock { Text = name != "" ? name : "MT5", Foreground = on ? Sx.Text : Sx.Muted, FontSize = 12.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+                sp.Children.Add(lab);
+                foreach (var mode in new[] { "LIVE", "PROP", "DEMO" })
+                {
+                    var mm = mode; var w = mine.FirstOrDefault(m => m.Mode == mm); bool act = w != null && w == owner; var mc = ColorOf(mm);
+                    var seg = new StackPanel { Orientation = Orientation.Horizontal };
+                    seg.Children.Add(new TextBlock { Text = NameOf(mm), Foreground = act ? mc : w != null ? Sx.Text : Sx.Tint(Sx.Muted, 150), FontSize = 11, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
+                    if (act) { var x = new TextBlock { Text = "✕", Foreground = Sx.Muted, FontSize = 10, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand, ToolTip = "close " + NameOf(mm) + " of " + name }; x.MouseEnter += delegate { x.Foreground = Sx.Red; }; x.MouseLeave += delegate { x.Foreground = Sx.Muted; }; var ww = w; x.MouseLeftButtonUp += (s, e) => { e.Handled = true; ww.Close(); }; seg.Children.Add(x); }
+                    var sb = new Border { Child = seg, Padding = new Thickness(7, 2, 7, 2), Margin = new Thickness(0, 0, 3, 0), CornerRadius = new CornerRadius(6), Cursor = Cursors.Hand, VerticalAlignment = VerticalAlignment.Center,
+                        Background = act ? (Brush)Sx.Tint(mc, 55) : w != null ? Sx.Tint(Sx.Card2, 230) : Brushes.Transparent, BorderBrush = act ? mc : w != null ? Sx.Line : Sx.Tint(Sx.Line, 120), BorderThickness = new Thickness(1),
+                        ToolTip = w == null ? "open " + NameOf(mm) + " for " + name : act ? NameOf(mm) + " of " + name + " (shown)" : "show " + NameOf(mm) + " of " + name + " (it keeps running in the background)" };
+                    sb.MouseLeftButtonUp += (s, e) => { e.Handled = true; if (!act) Open(mm, ll, true); };
+                    WindowChrome.SetIsHitTestVisibleInChrome(sb, true); sp.Children.Add(sb);
+                }
+                var tab = new Border { Child = sp, Padding = new Thickness(12, 0, 6, 0), Height = 32, Margin = new Thickness(0, 6, 3, 0), CornerRadius = new CornerRadius(9, 9, 0, 0), Cursor = Cursors.Hand,
+                    Background = on ? (Brush)Sx.Tint(col, 30) : Sx.Tint(Sx.Card, 200), BorderBrush = on ? col : Sx.Line, BorderThickness = new Thickness(1, 1, 1, on ? 0 : 1), ToolTip = (name != "" ? name : "MT5") + " — its LIVE / PROP / DEMO inside" };
+                tab.MouseLeftButtonUp += delegate { if (on) return; Window last; Switch(lastOf.TryGetValue(ll, out last) && mine.Contains(last as MainWindow) ? last : mine.First()); };
+                WindowChrome.SetIsHitTestVisibleInChrome(tab, true); tabs.Children.Add(tab);
             }
+            foreach (var m in Modes.Where(m => !PerAccount(m.Mode))) plain(NameOf(m.Mode), m, NameOf(m.Mode) + " — click = show it (it keeps running in the background)", ColorOf(m.Mode));
             // + a new mode (the ones not open yet): LIVE / PROP for every MT5 account connected, DEMO, BACKTEST
             var menu = new List<Mi>(); var accts = Hub != null ? Hub.Links.Where(l => l == Bridge || l.Key != "").ToList() : new List<Mt5Bridge>();
             foreach (var m in Order)
             {
                 if (!PerAccount(m)) { if (!Modes.Any(x => x.Mode == m)) { var mm = m; menu.Add(new Mi { Text = NameOf(mm), Fg = ColorOf(mm), Do = () => Open(mm) }); } continue; }
-                foreach (var l in accts) if (!Modes.Any(x => x.Mode == m && x.Link == l)) { var mm = m; var ll = l; var a = MainWindow.AccountLabel(ll); menu.Add(new Mi { Text = NameOf(mm) + (a != "" ? "  •  " + a : ""), Fg = ColorOf(mm), Do = () => Open(mm, ll, true) }); }
+                foreach (var l in accts) if (!Modes.Any(x => x.Mode == m && x.Link == l)) { var mm = m; var ll = l; var a = MainWindow.AccountLabel(ll); menu.Add(new Mi { Text = (a != "" ? a + "  •  " : "") + NameOf(mm), Fg = ColorOf(mm), Do = () => Open(mm, ll, true) }); }
             }
             if (menu.Count > 0)
             {

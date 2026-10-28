@@ -13,6 +13,10 @@ namespace KeystoneMT5
         readonly Mt5Bridge live; readonly Mt5State state; public readonly SimAccount Acct; int cmdSeq; DateTime savedAt = DateTime.MinValue; bool dirty;
         readonly Dictionary<string, Mt5Quote> seenQuote = new Dictionary<string, Mt5Quote>(StringComparer.OrdinalIgnoreCase);
         public static string FilePath { get { return Path.Combine(MainWindow.Dir, "demo-account.txt"); } }
+        // each broker its own DEMO account: demo-account-LOGIN@SERVER.txt; the first broker keeps demo-account.txt (as before)
+        string file;
+        string MyFile { get { if (file != null) return file; var k = live.Key ?? ""; if (k == "" || live == Shell.Bridge && !File.Exists(KeyFile(k)) && File.Exists(FilePath)) return file = FilePath; return file = KeyFile(k); } }
+        static string KeyFile(string k) { foreach (var c in Path.GetInvalidFileNameChars()) k = k.Replace(c, '_'); return Path.Combine(MainWindow.Dir, "demo-account-" + k + ".txt"); }
         public PaperBroker(Mt5Bridge live) { this.live = live; state = new Mt5State(live.State); Acct = new SimAccount(state); state.BridgeVersion = 5; }
         public Mt5State State { get { return state; } } public bool IsSim { get { return true; } } public string Problem { get { return live.Problem; } } public int Port { get { return live.Port; } }
         public bool Ready { get; private set; }
@@ -20,7 +24,7 @@ namespace KeystoneMT5
         // a saved account on this PC? (then it opens straight away)
         public bool LoadSaved()
         {
-            try { if (!File.Exists(FilePath)) return false; lock (state.Gate) { Ready = Acct.Load(File.ReadAllLines(FilePath)); } return Ready; } catch { return false; }
+            try { if (!File.Exists(MyFile)) return false; lock (state.Gate) { Ready = Acct.Load(File.ReadAllLines(MyFile)); } return Ready; } catch { return false; }
         }
         public void Start(SimAccountSettings s)
         {
@@ -30,7 +34,7 @@ namespace KeystoneMT5
         public void Save()
         {
             if (!Ready) return; List<string> l; lock (state.Gate) l = Acct.Save();
-            try { Directory.CreateDirectory(MainWindow.Dir); File.WriteAllLines(FilePath, l); savedAt = DateTime.Now; dirty = false; } catch { }
+            try { Directory.CreateDirectory(MainWindow.Dir); File.WriteAllLines(MyFile, l); savedAt = DateTime.Now; dirty = false; } catch { }
         }
         // every refresh: the live market → the simulated account (fills, stops, targets, P/L), the link's state mirrored
         public void Sync()
