@@ -16,7 +16,9 @@ A modern Windows platform for MetaTrader 5 (IC Markets): live trading with lots 
 - **Backtest**: download days once (HIST), replay with play / pause / step / speed / jumps, hedging, real spread, commission, swap, stop-out, stats.
 - **⇅ HEDGE LAB** (title bar, every tab): the hedge-instead-of-a-stop strategy (lot → +$target on the whole basket → the same way again; no stop: a break of the
   recent low / high opens the other side with the hedge lot) tested on the saved MT5 history — presets A ($350, 0.1 / 0.2, $20) and B ($5,000, 0.25 / 0.5, $20, $100 a day),
-  ▶ VARIATIONS (recent high / low × target, plus a fresh account every Monday for 4 weeks). Research only: nothing is sent to MT5. Study: `docs/research/hedge/`.
+  preset C (the study's best: NY open 08:30-10:30, one $150 target a day, stop $300, no hedge), sessions in New York time, one target a day, max tries a day,
+  NO HEDGE, close at the session end, a fixed zone; ▶ VARIATIONS (recent high / low × target, plus a fresh account every Monday for 4 weeks), ▶ SESSIONS (every session,
+  hedges vs no hedge). Research only: nothing is sent to MT5. Study: `docs/research/hedge/`.
 - **Tracker** (DEALS): calendar, stats, equity curve, by hour / weekday / symbol, journal. **Prop**: presets, meters, entry guard. **News**: ForexFactory + headlines.
 
 ## Verification

@@ -22,7 +22,10 @@ public static class Program
     }
     public static int Main(string[] args)
     {
-        string data = args.Length > 0 && args[0] != "trace" && args[0] != "sweep" && args[0] != "best" && args[0] != "export" ? args[0] : "../../data/MGC";
+        string data = args.Length > 0 && args[0] != "trace" && args[0] != "sweep" && args[0] != "best" && args[0] != "export" && args[0] != "sessions" && args[0] != "robust" && args[0] != "detail" ? args[0] : "../../data/MGC";
+        if (args.Length > 0 && args[0] == "detail") { var gb = Gold.Load(data, new DateTime(2022, 12, 28), new DateTime(2026, 10, 2)); foreach (var tr in new[] { 1, 2, 0 }) { Robust.Detail(gb, Raw, "NY open, recent 5, $6 move, stop 2x", 510, 630, 5, 6, 2, tr, tr == 1); Robust.Detail(gb, Raw, "NY open, recent 10, $6 move, stop 3x", 510, 630, 10, 6, 3, tr, false); Robust.Detail(gb, Raw, "NY open, recent 10, $4 move, stop 2x", 510, 630, 10, 4, 2, tr, false); } return 0; }
+        if (args.Length > 0 && args[0] == "robust") { var gb = Gold.Load(data, new DateTime(2024, 12, 28), new DateTime(2026, 10, 2)); Robust.Run(gb, Raw); return 0; }
+        if (args.Length > 0 && args[0] == "sessions") { Sessions.Run(Gold.Load(data, new DateTime(2024, 12, 28), new DateTime(2026, 10, 2)), Raw); return 0; }
         if (args.Length > 2 && args[0] == "export")
         {   // export <history root> <days>: the last days as SpasiX's own saved history (XAUUSD), for the screenshots
             HistoryStore.Root = args[1]; var b = Gold.Load("../../data/MGC", new DateTime(2026, 8, 1), new DateTime(2026, 10, 2));

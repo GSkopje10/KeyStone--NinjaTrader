@@ -48,6 +48,28 @@ public static class HedgeLabTests
         var w5 = Climb(5).Take(5).ToList(); w5.Add(B(5, 97.5, 97.6, 97.0, 97.2));
         r = HedgeLab.Run(w5, Set(), T0, T0);
         Check(r.Log.Any(l => l.Contains("SELL 0.20 @ 97.50")), "gap: the hedge fills at the open 97.50", string.Join(" | ", r.Log));
+
+        // 6. one target a day: after the first win nothing re-opens that day (re-enter on)
+        var s6 = Set(); s6.OneTargetADay = true; r = HedgeLab.Run(Climb(14), s6, T0, T0);
+        Check(r.Cycles.Count == 1 && r.Days[0].Won, "one target a day: one win, then done for the day", r.Cycles.Count + "");
+
+        // 7. the session (New York = server − 7 h; T0 = 02:00 server = 19:00 NY): 20:00-21:00 NY = no trade; 18:59-19:30 NY = trades
+        var s7 = Set(); s7.SessionFrom = 20 * 60; s7.SessionTo = 21 * 60; r = HedgeLab.Run(Climb(14), s7, T0, T0);
+        Check(r.Legs == 0, "session: nothing opens outside the New York window", r.Legs + "");
+        s7.SessionFrom = 18 * 60 + 59; s7.SessionTo = 19 * 60 + 30; r = HedgeLab.Run(Climb(14), s7, T0, T0);
+        Check(r.Legs > 0, "session: inside the window it trades", r.Legs + "");
+
+        // 8. NO HEDGE + basket stop $25: the whipsaw closes the buy at −$25 instead of selling 0.2; max 1 try a day: nothing after
+        var s8 = Set(); s8.NoHedge = true; s8.BasketStop = 25; s8.MaxTriesADay = 1; s8.OneTargetADay = true;
+        var w8 = Climb(5).Take(5).ToList(); w8.Add(B(5, 101, 101.1, 98.0, 98.2)); w8.Add(B(6, 98.2, 102.5, 98.1, 102.4));
+        r = HedgeLab.Run(w8, s8, T0, T0);
+        Check(r.Cycles.Count == 1 && r.Cycles[0].Reason == "BASKET STOP" && Math.Abs(r.Cycles[0].Profit + 25) < 1e-6 && r.MaxLegs == 1, "no hedge: the basket stop closes the buy at −$25.00, no 0.2 sell", r.Cycles.Count > 0 ? r.Cycles[0].Reason + " " + r.Cycles[0].Profit : "none");
+        Check(r.Legs == 1, "max tries a day: after the loss nothing re-opens that day", r.Legs + "");
+
+        // 9. close at the session's end: the open basket closes at the first candle outside the window
+        var s9 = Set(); s9.SessionFrom = 18 * 60 + 59; s9.SessionTo = 19 * 60 + 5; s9.FlattenAtSessionEnd = true; var w9 = Climb(5).Take(5).ToList(); for (int k = 5; k < 9; k++) w9.Add(B(k, 101, 101.5, 100.5, 101));
+        r = HedgeLab.Run(w9, s9, T0, T0);
+        Check(r.Cycles.Count == 1 && r.Cycles[0].Reason == "SESSION END" && r.Cycles[0].Close == T0.AddMinutes(5), "session end: the basket closes at 19:05 NY", r.Cycles.Count > 0 ? r.Cycles[0].Reason + " " + r.Cycles[0].Close : "none");
         return fails;
     }
 }

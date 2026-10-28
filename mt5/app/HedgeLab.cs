@@ -30,13 +30,19 @@ namespace KeystoneMT5
         public int FixedSpreadPts = -1, SlipPts = 0;                        // −1 = the candles' own spread
         public int Leverage = 500; public double HedgedRatio = 0.5, StopOutPct = 50;
         public double SwapLong = 0, SwapShort = 0; public DayOfWeek Swap3Day = DayOfWeek.Wednesday;   // $ per lot per night
+        public double Zone = 0;                // > 0: the hedge line is this far ($ of price) from the leg's fill instead of the recent high / low
+        public bool NoHedge;                   // no hedge at all: only the target and the BasketStop (a plain trade)
+        public bool OneTargetADay;             // after the first basket closed at the target, done for the day
+        public int MaxTriesADay = 0;           // 0 = no limit; else no new basket once this many closed today (win or loss)
+        public int SessionFrom = -1, SessionTo = -1, NyOffsetHours = -7;   // new baskets only inside this New York window (minutes of the day; −1 = all day)
+        public bool FlattenAtSessionEnd;       // the basket still open when the window ends closes at the market
         public bool Trace;                     // keep every open / close in HedgeResult.Log
         public HedgeSettings Copy() { return (HedgeSettings)MemberwiseClone(); }
     }
 
     public sealed class HedgeLeg { public int Dir; public double Lots, Price; public DateTime Time; }
     public sealed class HedgeCycle { public DateTime Open, Close; public int Dir, Legs; public double Profit, Worst, MaxGross; public string Reason = ""; }
-    public sealed class HedgeDay { public DateTime Day; public double StartEquity, EndEquity, Banked, LowEquity; public int Cycles; public bool HitTarget; }
+    public sealed class HedgeDay { public DateTime Day; public double StartEquity, EndEquity, Banked, LowEquity; public int Cycles; public bool HitTarget, Won; }
 
     public sealed class HedgeResult
     {
@@ -87,12 +93,19 @@ namespace KeystoneMT5
             }
             double RecentHigh(int i) { double h = double.MinValue; for (int k = Math.Max(0, i - s.Lookback); k < i; k++) h = Math.Max(h, bars[k].H); return h == double.MinValue ? double.NaN : h; }
             double RecentLow(int i) { double l = double.MaxValue; for (int k = Math.Max(0, i - s.Lookback); k < i; k++) l = Math.Min(l, bars[k].L); return l == double.MaxValue ? double.NaN : l; }
-            bool CanTrade { get { return !(s.DailyTarget > 0 && day != null && day.Banked >= s.DailyTarget); } }
+            bool CanTrade { get { return !(s.DailyTarget > 0 && day != null && day.Banked >= s.DailyTarget) && !(s.OneTargetADay && day != null && day.Won) && !(s.MaxTriesADay > 0 && day != null && day.Cycles >= s.MaxTriesADay) && InSession(now); } }
+            bool HasSession { get { return s.SessionFrom >= 0 && s.SessionTo >= 0 && s.SessionFrom != s.SessionTo; } }
+            bool InSession(DateTime t)
+            {
+                if (!HasSession) return true; var ny = t.AddHours(s.NyOffsetHours); int m = ny.Hour * 60 + ny.Minute;
+                return s.SessionFrom < s.SessionTo ? m >= s.SessionFrom && m < s.SessionTo : m >= s.SessionFrom || m < s.SessionTo;
+            }
 
             public void Bar(IList<Mt5Bar> all, int i)
             {
                 bars = all; bi = i; var b = all[i]; now = b.Time; sp = (s.FixedSpreadPts >= 0 ? s.FixedSpreadPts : b.Spread) * s.Point;
                 NewDay(b.Time.Date, b.O);
+                if (s.FlattenAtSessionEnd && HasSession && legs.Count > 0 && !InSession(now)) CloseAll(b.O, "SESSION END");
                 // the gap from the last close to this open: nothing trades in between, whatever is past a level fills at the open
                 Walk(b.O, b.O);
                 if (b.C >= b.O) { Walk(b.O, b.L); Walk(b.L, b.H); Walk(b.H, b.C); } else { Walk(b.O, b.H); Walk(b.H, b.L); Walk(b.L, b.C); }
@@ -154,7 +167,7 @@ namespace KeystoneMT5
 
             void Fire(string kind, int dir, double b)
             {
-                if (kind == "TARGET") { int d = Math.Sign(Lots(1) - Lots(-1)); if (d == 0) d = lastDir; CloseAll(b, "TARGET"); if (s.ReEnter && CanTrade) Open(d, s.BaseLot, b, true); return; }
+                if (kind == "TARGET") { int d = Math.Sign(Lots(1) - Lots(-1)); if (d == 0) d = lastDir; CloseAll(b, "TARGET"); if (s.ReEnter && CanTrade) Open(d, s.BaseLot, b, true); return; }   // (one target a day: CanTrade is false now)
                 if (kind == "BASKET STOP") { CloseAll(b, "BASKET STOP"); return; }
                 if (kind == "ENTRY") { Open(dir, s.BaseLot, b, true); return; }
                 // HEDGE: the next leg the other way (HedgeLot, then × Multiplier for every leg after it)
@@ -175,8 +188,9 @@ namespace KeystoneMT5
                 lastDir = dir; cyc.Legs = legs.Count; cyc.MaxGross = Math.Max(cyc.MaxGross, Gross); r.MaxGross = Math.Max(r.MaxGross, Gross); r.MaxLegs = Math.Max(r.MaxLegs, legs.Count);
                 // the hedge level: the recent low under a buy / high over a sell, at least MinDist (and the spread) away
                 double gap = Math.Max(s.MinDist, sp);
-                hedgeLevel = dir > 0 ? Math.Min(RecentLow(bi), b - gap) : Math.Max(RecentHigh(bi), b + gap);
+                hedgeLevel = s.Zone > 0 ? (dir > 0 ? b - Math.Max(s.Zone, sp) : b + Math.Max(s.Zone, sp)) : dir > 0 ? Math.Min(RecentLow(bi), b - gap) : Math.Max(RecentHigh(bi), b + gap);
                 if (double.IsNaN(hedgeLevel)) hedgeLevel = dir > 0 ? b - gap : b + gap;
+                if (s.NoHedge) hedgeLevel = double.NaN;
                 if (s.Trace) r.Log.Add("                  next hedge if the bid " + (dir > 0 ? "≤ " : "≥ ") + hedgeLevel.ToString("0.00", IC) + ",  equity " + Equity(b).ToString("0.00", IC) + ",  margin " + Margin(b).ToString("0.00", IC));
             }
 
@@ -186,7 +200,7 @@ namespace KeystoneMT5
                 r.Commission += Gross * s.CommissionPerLot / 2; balance += pl;
                 if (s.Trace) r.Log.Add(now.ToString("yyyy-MM-dd HH:mm", IC) + "  CLOSE ALL (" + reason + ") at bid " + b.ToString("0.00", IC) + "  basket " + pl.ToString("+0.00;-0.00", IC) + "  balance " + (balance).ToString("0.00", IC));
                 cyc.Close = now; cyc.Profit = pl; cyc.Reason = reason; r.Cycles.Add(cyc);
-                if (day != null) { day.Banked += pl; day.Cycles++; if (s.DailyTarget > 0 && day.Banked >= s.DailyTarget) day.HitTarget = true; }
+                if (day != null) { day.Banked += pl; day.Cycles++; if (s.DailyTarget > 0 && day.Banked >= s.DailyTarget) day.HitTarget = true; if (reason == "TARGET") { day.Won = true; if (s.OneTargetADay) day.HitTarget = true; } }
                 legs.Clear(); commAcc = 0; swapAcc = 0; hedgeLevel = double.NaN; cyc = null;
             }
 

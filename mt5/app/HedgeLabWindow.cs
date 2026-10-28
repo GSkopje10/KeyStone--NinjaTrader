@@ -27,13 +27,16 @@ namespace KeystoneMT5
 
         readonly Dictionary<string, TextBox> f = new Dictionary<string, TextBox>();
         readonly CheckBox reEnter = new CheckBox { Content = "after a win, the same direction again at once", IsChecked = true, Foreground = Sx.Text, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
+        readonly CheckBox oneTarget = new CheckBox { Content = "one target a day (done after the first win)", Foreground = Sx.Text, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
+        readonly CheckBox noHedge = new CheckBox { Content = "NO HEDGE (only the target and the basket stop)", Foreground = Sx.Text, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
+        readonly CheckBox flatEnd = new CheckBox { Content = "close the basket at the session's end", Foreground = Sx.Text, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
         readonly CheckBox realSpread = new CheckBox { Content = "MT5's own spread (each candle's)", IsChecked = true, Foreground = Sx.Text, VerticalAlignment = VerticalAlignment.Center };
         readonly TextBlock status = Sx.Label("", 12.5, Sx.Muted), symInfo = Sx.Label("", 12, Sx.Muted);
         readonly ContentControl tiles = new ContentControl();
         readonly Canvas curve = new Canvas { Height = 170, ClipToBounds = true, Background = Sx.Panel };
         readonly TextBox table = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 12.5, Background = Sx.Panel, Foreground = Sx.Text, BorderBrush = Sx.Line, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
         readonly StackPanel views = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 6) };
-        Button symBtn, runBtn, varBtn; string sym = ""; HedgeResult last; string varText = ""; string view = "DAYS"; bool busy;
+        Button symBtn, runBtn, varBtn, sesBtn; string sym = ""; HedgeResult last; string varText = ""; string view = "DAYS"; bool busy;
 
         public HedgeLabWindow()
         {
@@ -55,7 +58,9 @@ namespace KeystoneMT5
             r0.Children.Add(Field("from", "FROM", DateTime.Today.AddDays(-30).ToString("yyyy-MM-dd", IC), 110, "")); r0.Children.Add(Field("to", "TO", DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd", IC), 110, ""));
             var pa = Sx.Pill("A: $350 • 0.1 / 0.2 • $20 a trade • all day", Sx.Tint(Sx.Gold, 34)); pa.Click += delegate { Preset(350, 0.1, 20, 0); }; r0.Children.Add(pa);
             var pb = Sx.Pill("B: $5,000 • 0.25 / 0.5 • $20 a trade • $100 a day", Sx.Tint(Sx.Violet, 40)); pb.Click += delegate { Preset(5000, 0.25, 20, 100); }; r0.Children.Add(pb);
-            r0.Children.Add(symInfo); cs.Children.Add(r0);
+            var pc = Sx.Pill("C: best found • NY open • one $150 target a day • stop $300 • no hedge", Sx.Tint(Sx.Green, 40)); pc.ToolTip = "the study's best: $5,000, 0.25 lot, NY 08:30-10:30, entry = break of the last 5 candles, +$150 / −$300, 1 try a day (docs/research/hedge)";
+            pc.Click += delegate { Preset(5000, 0.25, 150, 0); f["look"].Text = "5"; f["bstop"].Text = "300"; f["sfrom"].Text = "08:30"; f["sto"].Text = "10:30"; f["tries"].Text = "1"; oneTarget.IsChecked = true; noHedge.IsChecked = true; reEnter.IsChecked = false; };
+            r0.Children.Add(pc); r0.Children.Add(symInfo); cs.Children.Add(r0);
             var r1 = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
             r1.Children.Add(Field("bal", "BALANCE $", "350", 80, "")); r1.Children.Add(Field("lot", "LOT", "0.1", 60, "")); r1.Children.Add(Field("hedge", "HEDGE LOT", "0.2", 60, "")); r1.Children.Add(Field("mult", "× EACH NEXT", "1", 50, "1 = every hedge the same lot, 2 = doubling (martingale)"));
             r1.Children.Add(Field("target", "TARGET $", "20", 60, "the whole basket's profit (commission, spread, swap included) that closes it")); r1.Children.Add(Field("daily", "DAY TARGET $", "0", 60, "0 = trade all day; else no new cycle once the day banked this"));
@@ -64,13 +69,18 @@ namespace KeystoneMT5
             r2.Children.Add(Field("mind", "MIN DISTANCE", "0", 60, "price: the hedge level at least this far from the fill")); r2.Children.Add(Field("maxlegs", "MAX LEGS", "0", 50, "0 = no limit; else the basket closes at a loss instead"));
             r2.Children.Add(Field("bstop", "BASKET STOP $", "0", 60, "0 = none")); r2.Children.Add(Field("comm", "COMMISSION $/LOT", "7", 50, "round turn")); r2.Children.Add(Field("spread", "SPREAD PTS", "20", 50, "when MT5's own spread is off")); r2.Children.Add(Field("slip", "SLIPPAGE PTS", "5", 50, "on every hedge / entry"));
             r2.Children.Add(Field("lev", "LEVERAGE 1:", "500", 60, "")); r2.Children.Add(Field("so", "STOP-OUT %", "50", 50, "")); cs.Children.Add(r2);
-            var r3 = new WrapPanel(); r3.Children.Add(reEnter); r3.Children.Add(realSpread); cs.Children.Add(r3);
+            var r25 = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+            r25.Children.Add(Field("sfrom", "SESSION FROM (NY)", "", 70, "New York time hh:mm — new baskets only inside the session (empty = all day)")); r25.Children.Add(Field("sto", "SESSION TO (NY)", "", 70, "New York time hh:mm"));
+            r25.Children.Add(Field("nyoff", "NY = SERVER +", "-7", 50, "hours from MT5's server clock to New York (IC Markets: −7)")); r25.Children.Add(Field("tries", "MAX TRIES A DAY", "0", 50, "0 = no limit; else no new basket once this many closed today (win or loss)"));
+            r25.Children.Add(Field("zone", "ZONE $", "0", 60, "> 0: the hedge line this far (price) from the fill instead of the recent high / low")); cs.Children.Add(r25);
+            var r3 = new WrapPanel(); r3.Children.Add(reEnter); r3.Children.Add(oneTarget); r3.Children.Add(noHedge); r3.Children.Add(flatEnd); r3.Children.Add(realSpread); cs.Children.Add(r3);
             root.Children.Add(card);
 
             // the buttons
             var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(bar, Dock.Top);
             runBtn = Sx.Pill("▶  RUN", Sx.Tint(Sx.Green, 60)); runBtn.Click += delegate { RunOne(); }; DockPanel.SetDock(runBtn, Dock.Left); bar.Children.Add(runBtn);
             varBtn = Sx.Pill("▶  VARIATIONS (recent high / low × target)", Sx.Tint(Sx.Cyan, 50)); varBtn.Click += delegate { RunVariations(); }; DockPanel.SetDock(varBtn, Dock.Left); bar.Children.Add(varBtn);
+            sesBtn = Sx.Pill("▶  SESSIONS (one target a day, hedge vs no hedge)", Sx.Tint(Sx.Gold, 40)); sesBtn.Click += delegate { RunSessions(); }; DockPanel.SetDock(sesBtn, Dock.Left); bar.Children.Add(sesBtn);
             status.Margin = new Thickness(10, 0, 0, 0); bar.Children.Add(status); root.Children.Add(bar);
 
             // the results
@@ -96,10 +106,12 @@ namespace KeystoneMT5
         }
         double N(string key, double def) { double x; return double.TryParse((f[key].Text ?? "").Trim().Replace(',', '.'), NumberStyles.Float, IC, out x) ? x : def; }
         DateTime D(string key, DateTime def) { DateTime x; return DateTime.TryParseExact((f[key].Text ?? "").Trim(), "yyyy-MM-dd", IC, DateTimeStyles.None, out x) ? x : def; }
+        int Hm(string key) { TimeSpan x; var v = (f[key].Text ?? "").Trim(); return v != "" && TimeSpan.TryParseExact(v, new[] { @"h\:mm", @"hh\:mm" }, IC, out x) ? (int)x.TotalMinutes % 1440 : -1; }
         void Preset(double bal, double lot, double target, double daily)
         {
             f["bal"].Text = bal.ToString(IC); f["lot"].Text = lot.ToString(IC); f["hedge"].Text = (lot * 2).ToString(IC); f["mult"].Text = "1"; f["target"].Text = target.ToString(IC); f["daily"].Text = daily.ToString(IC);
-            f["maxlegs"].Text = "0"; f["bstop"].Text = "0"; reEnter.IsChecked = true;
+            f["maxlegs"].Text = "0"; f["bstop"].Text = "0"; f["look"].Text = "10"; f["sfrom"].Text = ""; f["sto"].Text = ""; f["tries"].Text = "0"; f["zone"].Text = "0";
+            reEnter.IsChecked = true; oneTarget.IsChecked = false; noHedge.IsChecked = false; flatEnd.IsChecked = false;
         }
         static List<string> SafeSymbols() { try { return HistoryStore.Symbols(); } catch { return new List<string>(); } }
         void PickSymbol()
@@ -124,14 +136,17 @@ namespace KeystoneMT5
             if (to < from) { err = "TO is before FROM."; return null; }
             var s = new HedgeSettings { Balance = Math.Max(10, N("bal", 350)), BaseLot = Math.Max(0.01, N("lot", 0.1)), HedgeLot = Math.Max(0.01, N("hedge", 0.2)), Multiplier = Math.Max(1, N("mult", 1)), Target = Math.Max(0.5, N("target", 20)), DailyTarget = Math.Max(0, N("daily", 0)),
                 Lookback = (int)Math.Max(1, Math.Min(1440, N("look", 10))), MinDist = Math.Max(0, N("mind", 0)), MaxLegs = (int)Math.Max(0, N("maxlegs", 0)), BasketStop = Math.Max(0, N("bstop", 0)), CommissionPerLot = Math.Max(0, N("comm", 7)),
-                FixedSpreadPts = realSpread.IsChecked == true ? -1 : (int)Math.Max(0, N("spread", 20)), SlipPts = (int)Math.Max(0, N("slip", 5)), Leverage = (int)Math.Max(1, N("lev", 500)), StopOutPct = Math.Max(0, N("so", 50)), ReEnter = reEnter.IsChecked == true };
+                FixedSpreadPts = realSpread.IsChecked == true ? -1 : (int)Math.Max(0, N("spread", 20)), SlipPts = (int)Math.Max(0, N("slip", 5)), Leverage = (int)Math.Max(1, N("lev", 500)), StopOutPct = Math.Max(0, N("so", 50)), ReEnter = reEnter.IsChecked == true,
+                OneTargetADay = oneTarget.IsChecked == true, NoHedge = noHedge.IsChecked == true, FlattenAtSessionEnd = flatEnd.IsChecked == true, MaxTriesADay = (int)Math.Max(0, N("tries", 0)), Zone = Math.Max(0, N("zone", 0)),
+                SessionFrom = Hm("sfrom"), SessionTo = Hm("sto"), NyOffsetHours = (int)N("nyoff", -7) };
+            if ((s.SessionFrom < 0) != (s.SessionTo < 0)) { err = "Give the session both FROM and TO (hh:mm, New York), or leave both empty for all day."; return null; }
             bars = HistoryStore.LoadRange(sym, from.AddDays(-3), to);
             if (bars.Count == 0) { err = "No " + sym + " candles saved for these days — download them in 🧪 BACKTEST first."; return null; }
             HedgeLab.FromSpec(s, HistoryStore.LoadSpec(sym), bars[bars.Count - 1].C);
             return s;
         }
 
-        void Busy(bool on, string text) { busy = on; runBtn.IsEnabled = varBtn.IsEnabled = !on; status.Text = text; status.Foreground = on ? Sx.Cyan : Sx.Muted; }
+        void Busy(bool on, string text) { busy = on; runBtn.IsEnabled = varBtn.IsEnabled = sesBtn.IsEnabled = !on; status.Text = text; status.Foreground = on ? Sx.Cyan : Sx.Muted; }
 
         void RunOne()
         {
@@ -171,6 +186,34 @@ namespace KeystoneMT5
             }));
         }
 
+        // every session (New York time) with the settings above, one target a day, WITH the hedges and with NO HEDGE (the basket stop only)
+        static readonly Tuple<string, int, int>[] SessionList = { Tuple.Create("all day", -1, -1), Tuple.Create("Asia 19:00-23:00", 1140, 1380), Tuple.Create("London open 03:00-05:00", 180, 300), Tuple.Create("London 03:00-08:00", 180, 480),
+            Tuple.Create("NY open 08:30-10:30", 510, 630), Tuple.Create("NY 09:30-11:30", 570, 690), Tuple.Create("overlap 08:00-12:00", 480, 720), Tuple.Create("NY pm 13:00-16:00", 780, 960) };
+        void RunSessions()
+        {
+            if (busy) return; string err; List<Mt5Bar> bars; DateTime from, to; var s0 = Settings(out err, out bars, out from, out to);
+            if (s0 == null) { status.Text = err; status.Foreground = Sx.Red; return; }
+            Busy(true, "running every session …");
+            Task.Run(() =>
+            {
+                var sets = new List<HedgeSettings>();
+                foreach (var se in SessionList) foreach (var nh in new[] { false, true })
+                { var s = s0.Copy(); s.OneTargetADay = true; s.ReEnter = false; s.SessionFrom = se.Item2; s.SessionTo = se.Item3; s.NoHedge = nh; s.Name = se.Item1.PadRight(24) + (nh ? "no hedge" : "hedges"); sets.Add(s); }
+                var rows = new string[sets.Count];
+                Parallel.For(0, sets.Count, i =>
+                {
+                    var r = HedgeLab.Run(bars, sets[i], from, to); var traded = r.Days.Where(d => d.Cycles > 0).ToList();
+                    rows[i] = string.Format(IC, "{0,-34} net {1,9:N0}  {2,-24} days traded {3,4}  won {4,4}  worst day {5,8:N0}  max DD {6,8:N0} ({7,3:0}%)  legs ≤ {8,3}", sets[i].Name, r.Net, r.Blown ? "BLOWN " + r.BlownAt.ToString("dd MMM yy HH:mm", IC) : "survived", traded.Count, traded.Count(d => d.Won), r.Days.Count == 0 ? 0 : r.Days.Min(d => d.EndEquity - d.StartEquity), r.MaxDd, r.MaxDdPct, r.MaxLegs);
+                });
+                return sym + "  " + from.ToString("dd MMM yyyy", IC) + " → " + to.ToString("dd MMM yyyy", IC) + "  •  start $" + s0.Balance.ToString("N0", IC) + "  •  lot " + s0.BaseLot.ToString("0.##", IC) + " / hedge " + s0.HedgeLot.ToString("0.##", IC) + "  •  one $" + s0.Target.ToString("0.##", IC) + " target a day" + (s0.BasketStop > 0 ? "  •  basket stop $" + s0.BasketStop.ToString("0.##", IC) : "  •  NO basket stop") + (s0.MaxTriesADay > 0 ? "  •  max " + s0.MaxTriesADay + (s0.MaxTriesADay == 1 ? " try" : " tries") + " a day" : "") +
+                    "\nsessions in New York time; each with the hedges and with NO HEDGE (only the target and the basket stop)\n\n" + string.Join("\n", rows);
+            }).ContinueWith(t => Dispatcher.Invoke(() =>
+            {
+                Busy(false, t.Exception != null ? "the sessions stopped: " + t.Exception.GetBaseException().Message : "sessions done");
+                if (t.Exception != null) return; varText = t.Result; view = "VARIATIONS"; ShowView();
+            }));
+        }
+
         void PaintResult()
         {
             var r = last; if (r == null) { tiles.Content = null; return; }
@@ -182,7 +225,7 @@ namespace KeystoneMT5
                 Tuple.Create("CYCLES WON / LOST", r.Wins + " / " + r.Losses, Sx.Text),
                 Tuple.Create("MAX DRAWDOWN", m(r.MaxDd) + " (" + r.MaxDdPct.ToString("0", IC) + "%)", r.MaxDdPct > 50 ? Sx.Red : Sx.Amber),
                 Tuple.Create("LEGS / LOTS (MOST)", r.MaxLegs + " / " + r.MaxGross.ToString("0.00", IC), Sx.Violet),
-                Tuple.Create("DAYS AT TARGET", r.Set.DailyTarget > 0 ? r.TargetDays + " / " + r.Days.Count : "—", Sx.Cyan),
+                Tuple.Create("DAYS AT TARGET", r.Set.DailyTarget > 0 || r.Set.OneTargetADay ? r.TargetDays + " / " + r.Days.Count : "—", Sx.Cyan),
                 Tuple.Create("COMM. + SWAP", m(r.Commission - r.Swap), Sx.Muted));
             DrawCurve();
         }

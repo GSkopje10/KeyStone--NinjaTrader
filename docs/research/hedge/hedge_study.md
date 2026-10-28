@@ -69,3 +69,69 @@ dotnet run -c Release -- sweep                   # the wide search + margin sens
 dotnet run -c Release -- best                    # the sweep's best, straight through and by year
 dotnet run -c Release -- trace                   # every open / close of setting A on 6 Jan 2025
 ```
+
+---
+
+# Part 2: one target a day, the best session (2026-10-28)
+
+## What was tested
+
+One basket a day:
+- open on the break of the last N one-minute candles inside a **New York session**,
+- close it at the target, then **done for the day**.
+
+The grid had 640 settings (`dotnet run -c Release -- sessions`, results in `sessions_results.csv`):
+
+| | options |
+|---|---|
+| **Sessions (NY time)** | all day • Asia 19:00–23:00 • London open 03:00–05:00 • London 03:00–08:00 • NY open 08:30–10:30 • NY 09:30–11:30 • overlap 08:00–12:00 • NY pm 13:00–16:00 |
+| **Hedge style** | recent 5 / 10 / 20 / 30 / 60 candles • fixed zone $2 / $4 / $8 |
+| **Exit** | hold to target • close at the session end • basket stop 2× / 5× target • close at session end + stop 2× |
+| **Accounts** | A: $350, 0.1 / 0.2, $20 • B: $5,000, 0.25 / 0.5, $100 |
+
+Settings were chosen on **2025** and checked on **2026**. The final picks were then checked on **2023 and 2024**, a calmer gold market none of this was chosen on.
+
+## Findings
+
+1. **One target a day still blows up when there is no stop.** "Hold to target" survived 0 of 64 settings in 2025 for both A and B. Closing at the session end alone did not save it either (A 0/64, B 14/64).
+2. **A ($350, 0.1 lot) never survived 2025 in any of the 320 settings.** With 0.1 lots, two to five losing baskets are the whole account.
+3. **Every B setting that held up in both years was one where the hedge never fired.** The basket stop is hit before the hedge line. For example, "NY open | zone $8 | stop 2×" (legs ≤ 1). The best "hedge strategy" is a plain trade with a stop.
+4. **Adding real hedges inside the stop made it worse:**
+
+| B, one target a day, 480 settings each | profitable in both years | blown in either year |
+|---|---|---|
+| no hedge | 67 | 183 |
+| hedge at half the stop | 42 | 296 |
+
+5. **The best session is the NY open, 08:30–10:30 New York** (15:30–17:30 MT5 server time at IC). In the robustness grid it is the only session whose median setting made money in 2025 (+$3,040). Its 2026 median is about break-even (−$132), but almost all of the top settings by the worse of the two years are NY open.
+6. **Bigger target, wider stop.** A $5–6 move (B: $125–150) with the stop at 2–3× the target beats small targets. The $2 targets are eaten by spread, commission and slippage.
+
+## The best found (no hedge)
+
+- NY open 08:30–10:30 (NY time), entry on the break of the last **5** one-minute candles' high or low.
+- Target a **$6 move**, stop **2×** ($12 move).
+- One win and you're done; **max 1 try a day**.
+
+| account | 2023 | 2024 | 2025 | 2026 (to 2 Oct) | max drawdown | worst losing run |
+|---|---|---|---|---|---|---|
+| $5,000, 0.25 lot (+$150 / −$300) | −$75 | +$1,385 | +$6,002 | +$5,449 | $4,650 (59 %, in 2023) | 5 |
+| same, max 2 tries a day | −$312 | +$4,265 | +$8,552 | +$6,049 | $4,260 | 6 |
+| $350, 0.02 lot (+$12 / −$24) | −$6 | +$111 | +$480 | +$436 | $372 | 5 |
+| $350, 0.05 lot (+$30 / −$60) | **blown** Nov 2023 | +$277 | +$1,200 | +$1,090 | 99 % | 5 |
+
+How to read this:
+
+- **It only works when gold moves.** 2023 is flat. Most of the money is from 2025–26, when gold's one-minute range was 2 to 4 times larger.
+- **0.25 lot on $5,000 is too big.** The 2023 drawdown was 59 % of the account. 0.1 lot on $5,000 (about 37 % worst drawdown) is the most this supports.
+- **Some neighbouring settings fail where this one held.** "Recent 10, stop 3×" lost $2,107 in 2024 at 1 try and was blown in Oct 2024 at 2 tries. The edge is thin. Treat this as a candidate to forward-test on a demo, not as a proven system.
+- **$20 a day on $350 is 5.7 % a day.** None of the 1,200+ variations did that without blowing the account. At $350 the version that survived 2023–26 is 0.02 lot, about $1–2 a day on average.
+
+## Reproduce
+
+```
+cd mt5/study && dotnet run -c Release -- sessions   # 640 settings, 2025 → 2026
+dotnet run -c Release -- robust                     # NY-open plateau: target × stop × session × entry, hedge vs no hedge
+dotnet run -c Release -- detail                     # the picks 2023 → 2026, by year and month, $5,000 and $350, 1 / 2 / unlimited tries
+```
+
+In SpasiX: **⇅ HEDGE LAB → C: best found**, then **▶ RUN**. Use **▶ SESSIONS** to compare every session with and without hedges on your own MT5 XAUUSD history.
