@@ -35,6 +35,13 @@ namespace KeystoneMT5
             State.Account = new Mt5Account { Login = 0, Name = "SIMULATED", Server = "SpasiX simulator", Currency = s.Currency, Balance = Balance, Equity = Balance, FreeMargin = Balance, Leverage = s.Leverage, Mode = "HEDGE", Connected = true, Kind = "SIM" };
             State.Deals.Add(new Mt5Deal { Ticket = NextDeal++, Time = t, Type = "BALANCE", Profit = Balance, Comment = "start balance" }); State.DealsVersion++; State.DealsAt = DateTime.Now; State.DealsFrom = t.Date;
         }
+        // 💰 SET BALANCE (DEMO / BACKTEST, the user's request): the balance becomes `to`; the difference is a BALANCE deal (a deposit or a withdrawal); positions stay
+        public double SetBalance(double to, DateTime t)
+        {
+            double diff = Math.Round(to - Balance, 2); if (Math.Abs(diff) < 0.005) return 0; Balance += diff;
+            State.Deals.Add(new Mt5Deal { Ticket = NextDeal++, Time = t, Type = "BALANCE", Profit = diff, Comment = diff > 0 ? "deposit (set balance)" : "withdrawal (set balance)" }); State.DealsVersion++; State.DealsAt = DateTime.Now;
+            Mark(); return diff;
+        }
         public bool HasPrice(string sym) { return px.ContainsKey(sym); }
         public double Bid(string sym) { double[] p; return px.TryGetValue(sym, out p) ? p[0] : 0; }
         public double Ask(string sym) { double[] p; return px.TryGetValue(sym, out p) ? p[1] : 0; }

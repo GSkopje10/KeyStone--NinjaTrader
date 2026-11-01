@@ -49,6 +49,18 @@ namespace KeystoneMT5
             line = a + (id != null ? ": closing " + n + " position" + (n == 1 ? "" : "s") : ": MT5 is not connected"); return id != null;
         }
 
+        // 💰 SET BALANCE on the DEMO / BACKTEST account: a deposit or withdrawal to any amount, positions and history stay
+        void SetSimBalance()
+        {
+            if (!Virtual) return; var acct = Paper ? paper.Acct : sim.Account; if (acct == null) return;
+            if (auto.Current != null) { Sx.Info(this, "💰 SET BALANCE", "The 🤖 automation has an iteration open — its result is measured on the balance. Wait until it closes (or stop it), then set the balance.", Amber); return; }
+            double now; lock (broker.State.Gate) now = acct.Balance;
+            var v = Sx.Prompt(this, "💰 SET BALANCE", "The " + (Paper ? "DEMO" : "BACKTEST") + " balance is $" + now.ToString("N2", CultureInfo.InvariantCulture) + ". The new balance (the difference is booked as a deposit / withdrawal; open positions stay):", "5000");
+            if (v == null) return; double to; if (!double.TryParse(v.Trim().Replace(",", "").Replace("$", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out to) || to <= 0) { Sx.Info(this, "💰 SET BALANCE", "Type an amount above 0, like 5000.", Amber); return; }
+            double diff; lock (broker.State.Gate) diff = acct.SetBalance(to, acct.Now > DateTime.MinValue ? acct.Now : DateTime.Now);
+            if (Paper) paper.Save(); Log("💰 balance set to $" + to.ToString("N2", CultureInfo.InvariantCulture) + " (" + (diff >= 0 ? "+" : "−") + "$" + Math.Abs(diff).ToString("N2", CultureInfo.InvariantCulture) + ")", Green);
+        }
+
         // the tab and the window title follow the account once it is known (or renamed)
         void AccountTitle()
         {

@@ -154,6 +154,32 @@ public static class AutoTests
         r = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), s20); au = r.Item2;
         Check(au.Trades.Skip(1).Any() && au.Trades.Skip(1).All(x => x.Side == "BUY" && Math.Abs(x.Lots - 0.3) < 1e-9), "winner lots per side: each add on the BUY side = 0.30", string.Join(",", au.Trades.Select(x => x.Side + x.Lots)));
 
+        // 19. model A pieces: ENGULFING at a 20-candle low → BUY, no hedge, +$20 (VWAP DISCOUNT: the buy is under the day's VWAP)
+        Func<DateTime, List<Mt5Bar>> eng = t0 => { var l = Path(t0, 4000, Line(4000, -0.2, 25)); l.Add(new Mt5Bar { Time = t0.AddMinutes(25), O = 3995, H = 3995.1, L = 3994.4, C = 3994.5, V = 100, Spread = 10 }); l.Add(new Mt5Bar { Time = t0.AddMinutes(26), O = 3994.5, H = 3995.6, L = 3994.3, C = 3995.5, V = 100, Spread = 10 }); l.AddRange(Path(t0.AddMinutes(27), 3995.5, Line(3995.5, 0.5, 30))); return l; };
+        var sA = AutoSettings.Model("A", S()); sA.Tf = 1; sA.Windows = ""; sA.MaxIterations = 1;
+        r = Run(eng(Day1.AddHours(10)), sA); au = r.Item2; it = au.Iterations.FirstOrDefault();
+        Check(au.Trades.Count == 1 && au.Trades[0].Side == "BUY" && au.Trades[0].Why.Contains("ENGULFING") && it != null && it.Reason == "TARGET" && it.Result >= 20 && it.Result < 26, "model A: engulfing at the 20-candle low → BUY 0.10, closed at +$20, no add-on", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Why)) + " / " + (it == null ? "none" : it.Reason + " " + it.Result));
+        var sF = sA.Copy(); sF.VwapFilter = "FLOW"; r = Run(eng(Day1.AddHours(10)), sF); au = r.Item2;
+        Check(au.Trades.Count == 0 && au.Story.Any(x => x.Item2.Contains("NO ENTRY") && x.Item2.Contains("VWAP")), "VWAP filter FLOW: the same buy under the VWAP is skipped and said why", au.Trades.Count + "");
+        // 20. no hedge + emergency stop −$50 (AFTER = NEXT): one BUY, no SELL ever, closed at −$50
+        var sN = S(); sN.FirstDir = "BUY"; sN.HedgeMode = "NONE"; sN.MaxDrawdown = 50; sN.AfterDrawdown = "NEXT"; sN.MaxIterations = 1;
+        r = Run(Path(Day1, 4000, Line(4000, -0.5, 40)), sN); au = r.Item2; it = au.Iterations.FirstOrDefault();
+        Check(au.Trades.Count == 1 && au.Trades[0].Side == "BUY" && it != null && it.Reason == "MAX DRAWDOWN" && it.Result <= -50 && it.Result > -60, "no hedge: no add-on, the emergency stop closes at −$50", string.Join(",", au.Trades.Select(x => x.Side)) + " " + (it == null ? "" : it.Reason + " " + it.Result));
+        // 21. close time 03:10 New York (server 10:10): the open BUY closes, no new iteration after it
+        var sE = S(); sE.FirstDir = "BUY"; sE.HedgeMode = "NONE"; sE.CloseAtNy = "03:10"; sE.Target = 500;
+        r = Run(Path(Day1.AddHours(10), 4000, Line(4000, 0.05, 40)), sE); au = r.Item2; it = au.Iterations.FirstOrDefault();
+        Check(au.Iterations.Count == 1 && it.Reason == "END OF DAY" && it.End >= Day1.AddHours(10).AddMinutes(10) && r.Item1.State.Positions.Count == 0, "close time: closed at 03:10 New York, nothing new after it", au.Iterations.Count + " " + (it == null ? "" : it.Reason + " " + it.End.ToString("HH:mm")));
+        // 22. ✋ a BUY by hand: the automation adopts it, takes it to +$20, records it as manual
+        var sM = S(); sM.EntryMode = "ENGULF"; sM.HedgeMode = "NONE"; sM.MaxIterations = 1;
+        r = Run(Path(Day1, 4000, Enumerable.Repeat(4000.0, 10).Concat(Line(4000, 0.5, 30))), sM, (sb, a) => sb.Command("ORDER", "XAUUSD", "BUY", 0.1, 0.0, 0.0, 0.0)); au = r.Item2; it = au.Iterations.FirstOrDefault();
+        Check(it != null && it.Manual && it.Reason == "TARGET" && it.Result >= 20 && au.Trades.Any(x => x.Why.StartsWith("✋ MANUAL")) && it.Ctx.Contains("manual=yes"), "manual: a BUY by hand is adopted, managed to +$20, flagged ✋", it == null ? "none" : it.Reason + " " + it.Manual);
+        // 23. 💰 set balance: 10 000 → 5 000 = a −5 000 BALANCE deal, the account follows
+        var sbb = r.Item1; double diff; lock (sbb.State.Gate) diff = sbb.Account.SetBalance(5000, sbb.Account.Now);
+        Check(Math.Abs(diff + (10000 + au.Iterations.Sum(x => x.Result) - 5000)) < 0.6 && Math.Abs(sbb.Account.Balance - 5000) < 1e-9 && sbb.State.Deals.Last().Type == "BALANCE" && Math.Abs(sbb.State.Account.Balance - 5000) < 0.01, "set balance: 5 000, booked as a balance deal", diff + " " + sbb.Account.Balance);
+        // 24. the setups scanner reads the candles without trading (A / B / BOX states)
+        var scan = SetupScan.Scan(sbb, "XAUUSD", -7);
+        Check(scan.Count == 3 && scan.All(x => x.Level == "STRONG" || x.Level == "WEAK" || x.Level == "WAIT") && sbb.State.Positions.Count == 0, "setups scanner: three states, no order", string.Join(" | ", scan.Select(x => x.Name + " " + x.Level)));
+
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();
         var ds = S(); ds.HedgeMode = "PRICE"; ds.HedgePrice = 2; ds.Target = 20;

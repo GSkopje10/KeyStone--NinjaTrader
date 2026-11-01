@@ -1063,6 +1063,7 @@ namespace KeystoneMT5
             armChecks = new StackPanel { Margin = new Thickness(0, 0, 0, 6) }; a.Children.Add(armChecks);
             armBtn = Pill("🔓 ARM TRADING", Tint(Orange, 210)); armBtn.Height = 36; armBtn.Margin = new Thickness(0); armBtn.Foreground = Bg; armBtn.Click += delegate { SetArmed(!armed, null); }; if (!Virtual) a.Children.Add(armBtn);
             else if (Paper) { var db = Pill("🎮 DEMO ACCOUNT • NEW / RESET", Tint(Orange, 200)); db.Height = 32; db.Margin = new Thickness(0); db.Foreground = Bg; db.Click += delegate { DemoSetup(false); }; a.Children.Add(db); }
+            if (Virtual) { var sb = Pill("💰 SET BALANCE (keep trading)", Tint(Green, 150)); sb.Height = 30; sb.Margin = new Thickness(0, 6, 0, 0); sb.ToolTip = "top up or set the simulated balance to any amount — the open positions and the history stay"; sb.Click += delegate { SetSimBalance(); }; a.Children.Add(sb); }
             // the symbol + exposure, lots, stop / target, SELL / BUY
             var t = new StackPanel(); var tc = card(Cyan); tc.Child = t; sp.Children.Add(tc);
             panelSym = new TextBlock { Foreground = Cyan, FontSize = 16, FontWeight = FontWeights.Bold }; t.Children.Add(panelSym);
