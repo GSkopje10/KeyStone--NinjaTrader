@@ -19,7 +19,7 @@ namespace KeystoneMT5
     {
         readonly HedgeAuto auto = new HedgeAuto();
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
-        AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings;
+        AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard; Button aSetBtn; bool aShowSet = true; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
         string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
 
@@ -48,7 +48,7 @@ namespace KeystoneMT5
             aSetups = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(aSetups, Dock.Top); root.Children.Add(aSetups);
 
             // the parameters
-            var card = new Border { Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(card, Dock.Top);
+            var card = new Border { Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(card, Dock.Top); aSetCard = card; aShowSet = Get("auto.showset", "1") == "1";
             aSettings = new StackPanel(); card.Child = aSettings;
             var r0 = new WrapPanel();
             r0.Children.Add(ADrop("preset", "STRATEGY (FROM THE RESEARCH)", () => aset.Preset == "A" ? "A · London engulfing — lower risk" : aset.Preset == "B" ? "B · NY FVG 50% — no stop" : aset.Preset == "C" ? "C · all day VWAP rejection" : aset.Preset == "BOX" ? "HEDGE BOX · consolidation flip (swap-free only)" : "your own settings", () => new List<Mi> {
@@ -128,9 +128,10 @@ namespace KeystoneMT5
             aTiles = new ContentControl { Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aTiles, Dock.Top); root.Children.Add(aTiles);
             aViews = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aViews, Dock.Top);
             foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "LOG" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); }; aViews.Children.Add(b); }
+            aSetBtn = Pill("⚙ SETTINGS", Tint(Sx.Card2, 220)); aSetBtn.Height = 26; aSetBtn.ToolTip = "show / hide the settings — hidden, the story and the iterations get the whole screen"; aSetBtn.Click += delegate { aShowSet = !aShowSet; Put("auto.showset", aShowSet ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aSetBtn);
             var clr = Pill("🗑 CLEAR HISTORY", Tint(Sx.Card2, 220)); clr.Height = 26; clr.Click += delegate { AutoClear(); }; aViews.Children.Add(clr);
             root.Children.Add(aViews);
-            aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 12.5, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
+            aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 13.5, MinHeight = 260, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
             root.Children.Add(aTable);
 
             // the engine's clock: every tick of the BACKTEST; every 200 ms live (the bridge sends the state every 200 ms)
@@ -175,7 +176,7 @@ namespace KeystoneMT5
             foreach (var x in list)
             {
                 var col = x.Level == "STRONG" ? Green : x.Level == "WEAK" ? Amber : Muted;
-                var sp = new StackPanel { Width = 420 };
+                var sp = new StackPanel { Width = 355 };
                 var head = new StackPanel { Orientation = Orientation.Horizontal };
                 head.Children.Add(new Border { Background = Tint(col, 60), BorderBrush = col, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(0, 0, 8, 0), Child = new TextBlock { Text = x.Level + (x.Dir > 0 ? " ▲" : x.Dir < 0 ? " ▼" : ""), Foreground = col, FontWeight = FontWeights.Bold, FontSize = 11 } });
                 head.Children.Add(new TextBlock { Text = x.Name, Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 12, VerticalAlignment = VerticalAlignment.Center });
@@ -249,7 +250,7 @@ namespace KeystoneMT5
                 if (typed == null || typed.Trim().ToUpperInvariant() != "START") return;
             }
             else if (!Sx.Ask(this, "🤖 START on MT5 (" + kind + " account " + login + ")", "Orders go to MT5 by themselves while it runs.\n\n" + what, "▶ START", "CANCEL", Green)) return;
-            AutoLoadHistory(); auto.Start(broker, s, adopt); Put("auto.run." + AKey, "1"); aWasOn = true; AutoPaint(true);
+            AutoLoadHistory(); aShowSet = false; Put("auto.showset", "0"); auto.Start(broker, s, adopt); Put("auto.run." + AKey, "1"); aWasOn = true; AutoPaint(true);
         }
         void AutoStopClose()
         {
@@ -325,6 +326,7 @@ namespace KeystoneMT5
                 : (auto.StopReason != "" ? "stopped: " + auto.StopReason + "  •  " : "") + (Sim ? "BACKTEST: press START here, then ▶ play on the 📈 CHART." : Paper ? "DEMO account: simulated on live prices." : "MT5 account: needs 🔓 ARM (chart panel) and MT5's Algo Trading.");
             aInfo.Foreground = !on && auto.StopReason != "" ? Amber : Muted;
             aLevels.Text = on ? "recent high " + Px(auto.BuyLevel) + "  •  recent low " + Px(auto.SellLevel) + (it != null ? "  •  next add-on (" + (s.HedgeMode == "PRICE" ? "price move" : s.HedgeMode == "MONEY" ? "$ loss" : "break") + ") at " + Px(auto.HedgeLevel) : "") : "";
+            if (aSetCard != null) { aSetCard.Visibility = aShowSet ? Visibility.Visible : Visibility.Collapsed; aSetBtn.Content = aShowSet ? "⚙ HIDE SETTINGS ▴" : "⚙ SHOW SETTINGS ▾"; }
             aStart.IsEnabled = !on; aStop.IsEnabled = on; foreach (var tb in af.Values) tb.IsEnabled = !on; foreach (var b in aDrops.Values) b.IsEnabled = !on;
             if (!force && auto.Version == aSeen) return; aSeen = auto.Version;
             AutoTilesPaint(); AutoTablePaint();
