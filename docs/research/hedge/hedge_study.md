@@ -209,3 +209,15 @@ FADE = next open; CONFIRM = break of the next candle's high / low. Targets 20 / 
 
 **Conclusion:** the one robust edge is a single NY-open break per day with a fixed small target and a 2× stop. Hedging adds nothing on gold
 and only a thin, 1-hedge edge on Nasdaq. Multi-hedge / step / martingale structures lost in every test.
+
+## Part 6 — the big search + the YouTube consolidation-hedge method (`mt5/study/Lab6.cs`, `dotnet run -c Release -- lab6`)
+
+Report: `docs/research/hedge/report.html` (data `lab6.json`, template `report_template.html`).
+- 15,120 rules (14 entries incl. a RANDOM control × M1/M5/M15/H1 × 3 filters × 5 ATR target/stop shapes × 3 sessions × 3 trade limits).
+  164 profitable in 2025, 2026 AND 2023-24; random entries 6 of 1,080. Real rules pass about 2× as often as random ones, so the edge is thin.
+  The survivors are almost all H1 signals in the NY morning (Nasdaq FVG / EMA cross with the H1 trend, gold Bollinger reversal). M1 scalps do not survive the costs.
+- Zone-recovery hedge in place of the stop on the 25 best per instrument: expectancy falls (plain 0.274 → ZR1 0.178 → ZR2 0.011 R, summed over 3 periods).
+- Consolidation box (YouTube): flip net ±1 unit at the break of the last K-hour high / low, nothing inside, basket closes at +target.
+  Gold: 25 of 96 settings win in all three periods (roll / weekend gaps closed), but ONLY on a swap-free account (0 when swap is paid).
+  Best: K 96 h, buffer 0.5 ATR, target 1 ATR → +$24k / +$24k / +$23k per 0.1 lot base, max DD $11k, worst open basket −$11k, up to 33 units open.
+  Nasdaq: no setting wins in all periods. The method rides trends (gold 2023-26) while parking losses: deep floating drawdowns.

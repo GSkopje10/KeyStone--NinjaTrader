@@ -1,0 +1,352 @@
+<title>SpasiX Strategy Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* layout: a research notebook — verdict first, then the evidence, the math and a free explorer; one reading column, wide tables scroll */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --ink:#18202c; --muted:#5b6678; --line:#d9dee7; --accent:#2747c9; --accent-soft:#e6ebfb;
+  --win:#0f8a55; --win-soft:#dcf2e6; --loss:#c23a32; --loss-soft:#f8e1df; --warn:#a86a00;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif; --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10141b;--surface:#171c25;--ink:#e6eaf1;--muted:#97a2b5;--line:#2a3140;--accent:#8ea4ff;--accent-soft:#1f2747;--win:#3ccf8a;--win-soft:#123326;--loss:#ff7b70;--loss-soft:#3a1a18;--warn:#e7b04a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#10141b;--surface:#171c25;--ink:#e6eaf1;--muted:#97a2b5;--line:#2a3140;--accent:#8ea4ff;--accent-soft:#1f2747;--win:#3ccf8a;--win-soft:#123326;--loss:#ff7b70;--loss-soft:#3a1a18;--warn:#e7b04a;color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px;display:flex;flex-direction:column;gap:44px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:2.3rem;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.55rem;font-weight:700}
+h3{font-size:1.1rem;font-weight:500}
+p{margin:0;max-width:68ch}
+section{display:flex;flex-direction:column;gap:16px;min-width:0}
+.eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.muted{color:var(--muted)}
+.mono,td.n,.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+header{display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--line);padding-bottom:22px}
+.facts{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--f-mono);font-size:.75rem;padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);white-space:normal;max-width:100%}
+.chip.good{background:var(--win-soft);color:var(--win);border-color:transparent}
+.chip.bad{background:var(--loss-soft);color:var(--loss);border-color:transparent}
+.chip.acc{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.verdict{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px 22px;display:flex;flex-direction:column;gap:10px}
+.verdict p{font-size:1.02rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card .rule{font-size:.88rem;color:var(--muted)}
+.rank{font-family:var(--f-mono);font-size:.75rem;color:var(--muted)}
+.pgrid{display:grid;grid-template-columns:auto repeat(3,1fr);gap:2px 10px;font-family:var(--f-mono);font-size:.78rem;font-variant-numeric:tabular-nums}
+.pgrid .h{color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em}
+.pos{color:var(--win)} .neg{color:var(--loss)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.82rem}
+th,td{padding:6px 9px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-family:var(--f-mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--surface);position:sticky;top:0}
+th.s{cursor:pointer} th.s:hover{color:var(--accent)}
+td.n,th.n{text-align:right}
+tr:last-child td{border-bottom:0}
+.heat td.n{font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.controls label{min-width:0;max-width:100%;display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:var(--muted);font-family:var(--f-mono);text-transform:uppercase;letter-spacing:.06em}
+select{max-width:100%;}
+select,input[type=checkbox]{font:inherit;font-size:.85rem;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+select:focus-visible,button:focus-visible,th.s:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button{font:inherit;font-size:.85rem;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:var(--surface);cursor:pointer}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.two>*{min-width:0}
+.math{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.formula{font-family:var(--f-mono);background:var(--accent-soft);color:var(--ink);padding:8px 12px;border-radius:6px;font-size:.85rem;overflow-x:auto;white-space:nowrap}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+svg text{fill:var(--muted);font-family:var(--f-mono);font-size:10px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+@media (max-width:760px){.two{grid-template-columns:1fr} h1{font-size:1.8rem}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">SpasiX research · gold &amp; Nasdaq futures · 1-minute data</span>
+  <h1>SpasiX Strategy Lab</h1>
+  <p class="muted" id="intro"></p>
+  <div class="facts" id="facts"></div>
+</header>
+
+<section>
+  <span class="eyebrow">Verdict</span>
+  <h2>What held up on data it had never seen</h2>
+  <div class="verdict" id="verdict"></div>
+</section>
+
+<section>
+  <span class="eyebrow">Top models</span>
+  <h2>The best rules, chosen on 2025 and checked on 2026 and 2023–24</h2>
+  <p class="muted">Every trade risks 1R. In dollars, 1R is $100 here: the lot is sized so the stop costs $100. Expectancy is the average result per trade after spread, commission and slippage.</p>
+  <div class="cards" id="cards"></div>
+</section>
+
+<section>
+  <span class="eyebrow">Luck check</span>
+  <h2>How many winners would random entries produce?</h2>
+  <div id="luck"></div>
+</section>
+
+<section>
+  <span class="eyebrow">Hedging</span>
+  <h2>The same top rules with a zone-recovery hedge instead of the stop</h2>
+  <p class="muted">ZR1: at the stop line, open the opposite side with 2× the lots, then close everything at +1 target or at −2.5R. ZR2 adds a third leg of 4× back at the entry line. Both close at 15:55 New York.</p>
+  <div class="scroll"><table id="hedge"></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">The YouTube method, tested</span>
+  <h2>Never stop out: flip at the edge of the consolidation, wait inside it</h2>
+  <p class="muted">Rules from the transcript: stop hedging inside a consolidation and hedge again only at its high or low. Here the consolidation is the high and low of the last K hours. When price breaks the box against the basket, 2 units open the other way, so the net position flips to the breakout side and stays one unit. Inside the box nothing happens. The basket closes as soon as everything together is up by the target (in H1 ATR). Positions are held overnight, so swap matters. Dollars are for 0.1 lot gold ($10 a point) and 2 lots NAS100 ($2 a point).</p>
+  <div class="controls"><label for="bxInst">Instrument<select id="bxInst"></select></label><label for="bxSwap">Account<select id="bxSwap"><option value="1">swap-free (Islamic)</option><option value="0">normal, pays swap</option></select></label></div>
+  <div id="bxSummary"></div>
+  <div class="scroll" style="max-height:520px"><table id="box"></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">Where the edge lives</span>
+  <h2>Entry signal × timeframe</h2>
+  <div class="controls"><label for="hmInst">Instrument<select id="hmInst"></select></label><label for="hmMetric">Show<select id="hmMetric"><option value="rob">% of settings profitable in all three periods</option><option value="exp">median expectancy, R per trade (2026 + 2023–24)</option><option value="wr">median win rate</option></select></label></div>
+  <div class="scroll"><table class="heat" id="heat"></table></div>
+  <div class="two">
+    <div><h3>Target / stop shape</h3><div class="scroll"><table id="byExit"></table></div></div>
+    <div><h3>Session and trades a day</h3><div class="scroll"><table id="bySess"></table></div></div>
+  </div>
+  <div class="two">
+    <div><h3>Filter</h3><div class="scroll"><table id="byFilter"></table></div></div>
+    <div><h3>Trend vs reversal</h3><div class="scroll"><table id="byFam"></table></div></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Math</span>
+  <h2>The numbers behind every rule</h2>
+  <div class="two">
+    <div class="math">
+      <h3>Expectancy decides everything</h3>
+      <div class="formula">E[R] = WR × (T/S − k) − (1 − WR) × (1 + k)</div>
+      <p class="muted">T = target, S = stop, k = cost per trade as a share of the stop. A small target needs a very high win rate, and costs weigh most on small stops, which is why 1-minute scalps rarely survive.</p>
+      <div class="scroll"><table id="beTable"></table></div>
+    </div>
+    <div class="math">
+      <h3>A hedge does not change the odds</h3>
+      <p class="muted">Price has no memory of your basket. Opening 2× opposite at the stop line is the same bet as closing the trade and opening 1× the other way, plus extra spread. Zone recovery wins small and often, then loses a lot at once: a martingale. It only helps if the entry already has an edge, and even then the tail grows.</p>
+      <div class="formula">P(basket hits −2.5R) ≈ the chance price crosses the zone 2–3 times before the target</div>
+      <h3>Sizing: fractional Kelly</h3>
+      <div class="formula">f* = E[R] / Var[R] &nbsp;→ risk ¼ f* per trade</div>
+      <p class="muted" id="kelly"></p>
+    </div>
+  </div>
+  <div class="math">
+    <h3>Monte Carlo: 2,000 reshuffled years of the best model</h3>
+    <div class="controls"><label for="mcPick">Model<select id="mcPick"></select></label><label for="mcBal">Balance<select id="mcBal"><option>5000</option><option selected>10000</option><option>25000</option><option>100000</option></select></label><label for="mcRisk">Risk per trade<select id="mcRisk"><option value="0.0025">0.25 %</option><option value="0.005" selected>0.5 %</option><option value="0.01">1 %</option><option value="0.02">2 %</option></select></label></div>
+    <div id="mc"></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Explorer</span>
+  <h2>Every setting tested</h2>
+  <div class="controls">
+    <label for="fInst">Instrument<select id="fInst"></select></label>
+    <label for="fFam">Family<select id="fFam"></select></label>
+    <label for="fSig">Entry<select id="fSig"></select></label>
+    <label for="fTf">Timeframe<select id="fTf"></select></label>
+    <label for="fSess">Session<select id="fSess"></select></label>
+    <label for="fFreq">Trades a day<select id="fFreq"></select></label>
+    <label for="fRob">Only robust<select id="fRob"><option value="1">yes</option><option value="0">no</option></select></label>
+  </div>
+  <p class="muted mono" id="exCount"></p>
+  <div class="scroll" style="max-height:620px"><table id="explorer"></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">Method</span>
+  <h2>How the test was run</h2>
+  <ul id="method"></ul>
+</section>
+</div>
+
+<script>
+const D = /*DATA*/null;
+const $ = id => document.getElementById(id);
+const S = ["N","wr","pf","exp","net","dd","hold","days","legs"];
+const rows = D.rows.map(toObj), hedged = D.hedged.map(toObj);
+function toObj(r){const st=a=>Object.fromEntries(S.map((k,i)=>[k,a[i]]));return {inst:r[0],sig:r[1],tf:r[2],filter:r[3],sess:r[4],tgt:r[5],stp:r[6],freq:r[7],hedge:r[8],p:[st(r[9]),st(r[10]),st(r[11])]};}
+const FAM = s => s==="RANDOM"?"CONTROL":["RSI_REVERSAL","BB_REVERSAL","VWAP_STRETCH","ENGULF_EXTREME","AGGRESSION_REV"].includes(s)?"REVERSAL":"TREND";
+const robust = r => r.p[0].N>=40 && r.p[1].N>=30 && r.p[2].N>=60 && r.p[0].net>0 && r.p[1].net>0 && r.p[2].net>0;
+const score = r => Math.min(r.p[0].exp,r.p[1].exp,r.p[2].exp)*Math.sqrt(Math.min(r.p[0].N,r.p[1].N,r.p[2].N/2));
+const key = r => [r.inst,r.sig,"M"+r.tf,r.filter,r.sess,r.tgt+"/"+r.stp,r.freq===99?"all":r.freq+"/day",r.hedge].join("|");
+const tfName = t => t>=60?"H"+t/60:"M"+t;
+const freqName = f => f===99?"no limit":f+" a day";
+const fx = (v,d=2) => (v>0?"+":"")+v.toFixed(d);
+const cls = v => v>0?"pos":v<0?"neg":"";
+const med = a => {if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.floor(s.length/2)];};
+const tradingDays = [250,190,500];
+const perDay = r => (r.p[0].N+r.p[1].N+r.p[2].N)/940;
+const rule = r => `${r.sig.replace(/_/g," ").toLowerCase()} on ${tfName(r.tf)} · ${r.filter==="NONE"?"no filter":r.filter.replace(/_/g," ").toLowerCase()} · ${r.sess} NY · target ${r.tgt}×ATR, stop ${r.stp}×ATR · ${freqName(r.freq)}`;
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+const rob = rows.filter(robust).sort((a,b)=>score(b)-score(a));
+const real = rows.filter(r=>r.sig!=="RANDOM"), ctrl = rows.filter(r=>r.sig==="RANDOM");
+const realRate = real.filter(robust).length/real.length, ctrlRate = ctrl.filter(robust).length/ctrl.length;
+const insts = [...new Set(rows.map(r=>r.inst))];
+
+$("intro").textContent = `${rows.length.toLocaleString()} rule combinations: 14 entry signals (trend, reversal and a random coin-flip control) × 4 timeframes × 3 filters × 5 target/stop shapes × 3 sessions × 3 trade limits, on gold (MGC as XAUUSD) and Nasdaq (MNQ as NAS100). Each rule was judged on 2025, then checked on 2026 and on 2023–24, two periods it never saw.`;
+$("facts").innerHTML = [`generated ${D.generated}`,`gold cost 0.37 a round turn`,`Nasdaq cost 1.4 pts a round turn`,`stop checked first inside a candle`,`flat at 15:55 NY`].map(t=>`<span class="chip">${t}</span>`).join("");
+
+// verdict
+(function(){
+  const byI = insts.map(i=>{const g=real.filter(r=>r.inst===i);return {i,n:g.length,rob:g.filter(robust).length};});
+  const best = rob.filter(r=>r.sig!=="RANDOM");
+  const edge = realRate/(ctrlRate||1e-9);
+  let html = `<p><b>${best.length.toLocaleString()}</b> of ${real.length.toLocaleString()} real rules made money in all three periods (${(realRate*100).toFixed(1)}%). Random entries with the same exits did it ${(ctrlRate*100).toFixed(1)}% of the time. `;
+  html += edge>=2?`Real signals pass ${edge.toFixed(1)}× as often as random ones, so part of what survives is a real edge, not luck.`:`That is close to what luck alone produces, so treat single winners with suspicion and prefer rules whose neighbours also win.`;
+  html += `</p><div class="facts">${byI.map(x=>`<span class="chip ${x.rob?"good":"bad"}">${x.i}: ${x.rob} robust of ${x.n}</span>`).join("")}<span class="chip acc">random control: ${ctrl.filter(robust).length} of ${ctrl.length}</span></div>`;
+  if(best[0]) html += `<p>Strongest: <b>${esc(best[0].inst)}</b> — ${esc(rule(best[0]))}. Worst-period expectancy ${fx(Math.min(...best[0].p.map(p=>p.exp)),3)}R per trade.</p>`;
+  const hz = hedged.length? ["ZR1","ZR2"].map(h=>{const g=hedged.filter(x=>x.hedge===h);return [h,g.filter(robust).length,g.length];}):[];
+  if(hz.length) html += `<p>With a hedge instead of the stop, ${hz.map(([h,a,b])=>`${h} kept ${a} of ${b}`).join(" and ")} of the top rules profitable in all three periods.</p>`;
+  const bx=(D.box||[]).filter(b=>b[0]==="GOLD"), okSf=bx.filter(b=>b[4]===1&&b[5].every(v=>v>0)).length, okSw=bx.filter(b=>b[4]===0&&b[5].every(v=>v>0)).length, bn=(D.box||[]).filter(b=>b[0]==="NASDAQ"&&b[5].every(v=>v>0)).length;
+  html += `<p>The YouTube method (flip at the consolidation edge, never stop): on gold ${okSf} of ${bx.length/2} settings won in all three periods on a <b>swap-free</b> account and ${okSw} when swap is paid; Nasdaq ${bn}. It works by riding gold's trends while parking losses in the basket, so open baskets went down about $10,000 per 0.1 lot before closing.</p>`;
+  $("verdict").innerHTML = html;
+})();
+
+// cards: best 6 per instrument, one per signal family/timeframe so the list is varied
+function monthsSvg(m){
+  if(!m||!m.length) return "";
+  const w=300,h=64,max=Math.max(...m.map(x=>Math.abs(x[1])),1),bw=w/m.length;
+  let cum=0; const pts=m.map((x,i)=>{cum+=x[1];return [i*bw+bw/2,cum];});
+  const cmax=Math.max(...pts.map(p=>p[1]),1),cmin=Math.min(...pts.map(p=>p[1]),0),sy=v=>h-4-(v-cmin)/(cmax-cmin||1)*(h-8);
+  const bars=m.map((x,i)=>{const bh=Math.abs(x[1])/max*(h/3);return `<rect x="${(i*bw+1).toFixed(1)}" y="${(h-Math.max(.5,bh)).toFixed(1)}" width="${Math.max(1,bw-2).toFixed(1)}" height="${Math.max(.5,bh).toFixed(1)}" fill="${x[1]>=0?"var(--win)":"var(--loss)"}" opacity=".45"/>`;}).join("");
+  const line=`<polyline fill="none" stroke="var(--accent)" stroke-width="1.6" points="${pts.map(p=>p[0].toFixed(1)+","+sy(p[1]).toFixed(1)).join(" ")}"/>`;
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img" aria-label="Monthly result and cumulative R">${bars}${line}</svg><div class="legend"><span><span class="sw" style="background:var(--accent)"></span>cumulative R, ${m[0][0]} → ${m[m.length-1][0]}</span><span><span class="sw" style="background:var(--win);opacity:.45"></span>month</span></div>`;
+}
+(function(){
+  const curves = Object.fromEntries((D.curves||[]).map(c=>[c.key,c]));
+  let html="";
+  for(const i of insts){
+    const seen=new Set(), pick=[];
+    for(const r of rob){ if(r.inst!==i||r.sig==="RANDOM")continue; const k=r.sig+r.tf; if(seen.has(k))continue; seen.add(k); pick.push(r); if(pick.length===4)break; }
+    pick.forEach((r,n)=>{
+      const c=curves[key(r)];
+      html+=`<article class="card"><div class="rank">${esc(r.inst)} · #${n+1} · ${FAM(r.sig).toLowerCase()} · ${perDay(r).toFixed(2)} trades a day</div>
+      <h3>${esc(r.sig.replace(/_/g," "))} · ${tfName(r.tf)} · ${esc(r.sess.split(" ")[0])}</h3><div class="rule">${esc(rule(r))}</div>
+      <div class="pgrid"><span class="h"></span><span class="h">2025</span><span class="h">2026</span><span class="h">2023–24</span>
+      <span class="h">exp R</span>${r.p.map(p=>`<span class="${cls(p.exp)}">${fx(p.exp,3)}</span>`).join("")}
+      <span class="h">PF</span>${r.p.map(p=>`<span>${p.pf.toFixed(2)}</span>`).join("")}
+      <span class="h">win %</span>${r.p.map(p=>`<span>${(p.wr*100).toFixed(0)}</span>`).join("")}
+      <span class="h">trades</span>${r.p.map(p=>`<span>${p.N}</span>`).join("")}
+      <span class="h">$ @1R=$100</span>${r.p.map(p=>`<span class="${cls(p.net)}">${Math.round(p.net*100).toLocaleString()}</span>`).join("")}
+      <span class="h">max DD $</span>${r.p.map(p=>`<span>${Math.round(p.dd*100).toLocaleString()}</span>`).join("")}</div>
+      ${c?monthsSvg(c.months):""}</article>`;
+    });
+  }
+  $("cards").innerHTML = html || `<p>No rule passed all three periods.</p>`;
+})();
+
+// luck check
+(function(){
+  const t = insts.map(i=>{const g=real.filter(r=>r.inst===i),c=ctrl.filter(r=>r.inst===i);return `<tr><td>${i}</td><td class="n">${g.filter(robust).length} / ${g.length}</td><td class="n">${(g.filter(robust).length/g.length*100).toFixed(1)}%</td><td class="n">${c.filter(robust).length} / ${c.length}</td><td class="n">${(c.filter(robust).length/c.length*100).toFixed(1)}%</td></tr>`;}).join("");
+  $("luck").innerHTML = `<p class="muted">The RANDOM entry flips a coin on about 8% of candles and uses the same targets, stops, sessions and trade limits. Any rule that cannot beat this rate is indistinguishable from luck.</p><div class="scroll"><table><tr><th>Instrument</th><th class="n">real rules robust</th><th class="n">rate</th><th class="n">random robust</th><th class="n">rate</th></tr>${t}</table></div>`;
+})();
+
+// hedging table
+(function(){
+  const base = {}; rows.forEach(r=>base[key({...r,hedge:"NONE"})]=r);
+  const groups = {}; hedged.forEach(h=>{const k=key({...h,hedge:"NONE"});(groups[k]=groups[k]||{plain:base[k]})[h.hedge]=h;});
+  const cell = r => r? r.p.map(p=>`<td class="n ${cls(p.exp)}">${fx(p.exp,3)}</td>`).join("")+`<td class="n">${Math.max(...r.p.map(p=>p.dd)).toFixed(1)}</td>` : "<td colspan=4></td>";
+  let h = `<tr><th>Rule</th><th>Version</th><th class="n">2025 R/trade</th><th class="n">2026</th><th class="n">2023–24</th><th class="n">worst DD R</th></tr>`;
+  Object.entries(groups).slice(0,12).forEach(([k,g])=>{["plain","ZR1","ZR2"].forEach((v,j)=>{h+=`<tr>${j===0?`<td rowspan="3" style="white-space:normal;min-width:220px">${esc(g.plain.inst)} · ${esc(rule(g.plain))}</td>`:""}<td>${v==="plain"?"stop":v}</td>${cell(g[v])}</tr>`;});});
+  $("hedge").innerHTML = h;
+})();
+
+// the box method
+function boxTable(){
+  const B=(D.box||[]).map(b=>({inst:b[0],K:b[1],buf:b[2],tgt:b[3],sf:b[4],net:b[5],dd:b[6],worst:b[7],swap:b[8],bk:b[9],avg:b[10],max:b[11],gross:b[12]}));
+  const i=$("bxInst").value, sf=+$("bxSwap").value, g=B.filter(b=>b.inst===i&&b.sf===sf).sort((a,b)=>Math.min(...b.net)-Math.min(...a.net));
+  const ok=g.filter(b=>b.net.every(v=>v>0)).length;
+  $("bxSummary").innerHTML=`<div class="facts"><span class="chip ${ok?"good":"bad"}">${ok} of ${g.length} box settings profitable in 2025, 2026 and 2023–24</span><span class="chip">deepest open basket: $${Math.round(Math.min(...g.map(b=>Math.min(...b.worst)))).toLocaleString()}</span><span class="chip">most units open at once: ${Math.max(...g.map(b=>Math.max(...b.gross)))}</span></div>`;
+  const m=v=>`<td class="n ${cls(v)}">${Math.round(v).toLocaleString()}</td>`;
+  $("box").innerHTML=`<tr><th class="n">box K hours</th><th class="n">buffer ATR</th><th class="n">target ATR</th><th class="n">$ 2025</th><th class="n">$ 2026</th><th class="n">$ 2023–24</th><th class="n">max DD $</th><th class="n">worst basket $</th><th class="n">swap paid $</th><th class="n">baskets</th><th class="n">avg days</th><th class="n">longest days</th><th class="n">max units</th></tr>`+
+   g.map(b=>`<tr><td class="n">${b.K}</td><td class="n">${b.buf}</td><td class="n">${b.tgt}</td>${b.net.map(m).join("")}<td class="n">${Math.round(Math.max(...b.dd)).toLocaleString()}</td><td class="n neg">${Math.round(Math.min(...b.worst)).toLocaleString()}</td><td class="n">${Math.round(b.swap.reduce((x,y)=>x+y,0)).toLocaleString()}</td><td class="n">${b.bk.reduce((x,y)=>x+y,0)}</td><td class="n">${Math.max(...b.avg).toFixed(1)}</td><td class="n">${Math.max(...b.max)}</td><td class="n">${Math.max(...b.gross)}</td></tr>`).join("");
+}
+// heatmaps
+const fill = (sel,vals,lab=v=>v) => {$(sel).innerHTML = vals.map(v=>`<option value="${esc(v)}">${esc(lab(v))}</option>`).join("");};
+fill("hmInst",insts); fill("bxInst",insts); $("bxInst").onchange=boxTable; $("bxSwap").onchange=boxTable; boxTable();
+function heatColor(v,lo,hi){const t=Math.max(-1,Math.min(1,v>=0?v/(hi||1):-v/(lo||-1)*-1));return t>=0?`color-mix(in srgb, var(--win) ${Math.round(t*55)}%, transparent)`:`color-mix(in srgb, var(--loss) ${Math.round(-t*55)}%, transparent)`;}
+function metric(g,m){ if(!g.length) return null; if(m==="rob") return g.filter(robust).length/g.length*100; if(m==="wr") return med(g.map(r=>(r.p[1].wr+r.p[2].wr)/2))*100; return med(g.map(r=>(r.p[1].exp+r.p[2].exp)/2)); }
+function heat(){
+  const i=$("hmInst").value,m=$("hmMetric").value,sigs=[...new Set(rows.map(r=>r.sig))],tfs=[...new Set(rows.map(r=>r.tf))];
+  const vals = sigs.map(s=>tfs.map(t=>metric(rows.filter(r=>r.inst===i&&r.sig===s&&r.tf===t),m)));
+  const flat = vals.flat().filter(v=>v!=null), hi=Math.max(...flat,0.0001), lo=Math.min(...flat,-0.0001);
+  const fmt = v => v==null?"":m==="exp"?fx(v,3):v.toFixed(m==="rob"?1:0)+"%";
+  $("heat").innerHTML = `<tr><th>Entry</th><th>Family</th>${tfs.map(t=>`<th class="n">${tfName(t)}</th>`).join("")}</tr>` + sigs.map((s,a)=>`<tr><td>${s.replace(/_/g," ")}</td><td class="muted">${FAM(s).toLowerCase()}</td>${vals[a].map(v=>`<td class="n" style="background:${m==="wr"?"transparent":heatColor(v,lo,hi)}">${fmt(v)}</td>`).join("")}</tr>`).join("");
+}
+$("hmInst").onchange=heat; $("hmMetric").onchange=heat; heat();
+function groupTable(id,fn,label){
+  const ks=[...new Set(real.map(fn))];
+  $(id).innerHTML = `<tr><th>${label}</th>${insts.map(i=>`<th class="n">${i} robust</th><th class="n">win %</th><th class="n">R/trade</th>`).join("")}</tr>` + ks.map(k=>`<tr><td>${esc(k)}</td>${insts.map(i=>{const g=real.filter(r=>r.inst===i&&fn(r)===k);const e=metric(g,"exp");return `<td class="n">${metric(g,"rob").toFixed(1)}%</td><td class="n">${metric(g,"wr").toFixed(0)}</td><td class="n ${cls(e)}">${fx(e,3)}</td>`;}).join("")}</tr>`).join("");
+}
+groupTable("byExit",r=>`target ${r.tgt} / stop ${r.stp} ATR`,"Shape");
+groupTable("bySess",r=>r.sess.split(" ")[0]+" · "+freqName(r.freq),"Session · limit");
+groupTable("byFilter",r=>r.filter.replace(/_/g," ").toLowerCase(),"Filter");
+groupTable("byFam",r=>FAM(r.sig).toLowerCase()+" · "+tfName(r.tf),"Family · TF");
+
+// breakeven table
+(function(){
+  const shapes=[[0.5,1],[1,2],[1,1],[2,1],[3,1.5]], ks=[0,0.1,0.25,0.5];
+  $("beTable").innerHTML = `<tr><th>target / stop</th>${ks.map(k=>`<th class="n">cost ${k}R</th>`).join("")}</tr>`+shapes.map(([t,s])=>`<tr><td>${t} / ${s} ATR</td>${ks.map(k=>`<td class="n">${((1+k)/(t/s+1)*100).toFixed(0)}%</td>`).join("")}</tr>`).join("") + `<tr><td colspan="5" class="muted" style="white-space:normal">Win rate needed just to break even.</td></tr>`;
+})();
+
+// Monte Carlo
+(function(){
+  const cs=(D.curves||[]).filter(c=>c.r&&c.r.length>30);
+  if(!cs.length){$("mc").textContent="No model to simulate.";return;}
+  $("mcPick").innerHTML=cs.map((c,i)=>`<option value="${i}">${esc(c.key.split("|").slice(0,7).join(" · "))}</option>`).join("");
+  function run(){
+    const c=cs[+$("mcPick").value],bal=+$("mcBal").value,risk=+$("mcRisk").value,R=c.r,n=Math.round(R.length/3.75);
+    let seed=12345; const rnd=()=>(seed=(seed*1103515245+12345)%2147483648)/2147483648;
+    const ends=[],dds=[]; let ruin=0;
+    for(let k=0;k<2000;k++){let eq=bal,pk=bal,dd=0;for(let j=0;j<n;j++){eq+=eq*risk*R[Math.floor(rnd()*R.length)];pk=Math.max(pk,eq);dd=Math.max(dd,(pk-eq)/pk);}ends.push(eq);dds.push(dd);if(dd>=0.10)ruin++;}
+    ends.sort((a,b)=>a-b);dds.sort((a,b)=>a-b);
+    const mean=R.reduce((a,b)=>a+b,0)/R.length,vr=R.reduce((a,b)=>a+(b-mean)**2,0)/R.length;
+    $("kelly").textContent=`Best model: ${mean.toFixed(3)}R per trade, variance ${vr.toFixed(2)}. Full Kelly = ${(mean/vr*100).toFixed(2)}% of the balance per trade; a quarter of that, ${(mean/vr*25).toFixed(2)}%, keeps drawdowns survivable.`;
+    const q=(a,p)=>a[Math.floor(p*(a.length-1))];
+    $("mc").innerHTML=`<div class="scroll"><table><tr><th>${n} trades a year</th><th class="n">worst 5%</th><th class="n">median</th><th class="n">best 5%</th></tr>
+    <tr><td>balance after a year</td><td class="n">$${Math.round(q(ends,.05)).toLocaleString()}</td><td class="n">$${Math.round(q(ends,.5)).toLocaleString()}</td><td class="n">$${Math.round(q(ends,.95)).toLocaleString()}</td></tr>
+    <tr><td>deepest drawdown</td><td class="n">${(q(dds,.95)*100).toFixed(1)}%</td><td class="n">${(q(dds,.5)*100).toFixed(1)}%</td><td class="n">${(q(dds,.05)*100).toFixed(1)}%</td></tr>
+    <tr><td>chance of a 10% drawdown (a typical prop-firm limit)</td><td class="n" colspan="3">${(ruin/20).toFixed(1)}%</td></tr></table></div>`;
+  }
+  ["mcPick","mcBal","mcRisk"].forEach(id=>$(id).onchange=run); run();
+})();
+
+// explorer
+const opts = (id,vals,lab) => fill(id,["all",...vals],v=>v==="all"?"all":lab?lab(v):v);
+opts("fInst",insts); opts("fFam",["TREND","REVERSAL","CONTROL"],v=>v.toLowerCase()); opts("fSig",[...new Set(rows.map(r=>r.sig))]); opts("fTf",[...new Set(rows.map(r=>r.tf))],tfName);
+opts("fSess",[...new Set(rows.map(r=>r.sess))]); opts("fFreq",[...new Set(rows.map(r=>r.freq))],freqName);
+let sortCol="score",sortDir=-1;
+const cols=[["inst","Instrument"],["sig","Entry"],["tf","TF"],["filter","Filter"],["sess","Session"],["shape","T/S ATR"],["freq","Limit"],["e0","2025 R"],["e1","2026 R"],["e2","23–24 R"],["pf","PF 23–24"],["wr","win % 23–24"],["perday","trades/day"],["score","score"]];
+const val=(r,c)=>({shape:r.tgt/r.stp,e0:r.p[0].exp,e1:r.p[1].exp,e2:r.p[2].exp,pf:r.p[2].pf,wr:r.p[2].wr,perday:perDay(r),score:score(r)}[c]??r[c]);
+function explorer(){
+  const f={inst:$("fInst").value,fam:$("fFam").value,sig:$("fSig").value,tf:$("fTf").value,sess:$("fSess").value,freq:$("fFreq").value,rob:$("fRob").value==="1"};
+  let g=rows.filter(r=>(f.inst==="all"||r.inst===f.inst)&&(f.fam==="all"||FAM(r.sig)===f.fam)&&(f.sig==="all"||r.sig===f.sig)&&(f.tf==="all"||r.tf==+f.tf)&&(f.sess==="all"||r.sess===f.sess)&&(f.freq==="all"||r.freq==+f.freq)&&(!f.rob||robust(r)));
+  g.sort((a,b)=>{const x=val(a,sortCol),y=val(b,sortCol);return (x>y?1:x<y?-1:0)*sortDir;});
+  $("exCount").textContent=`${g.length.toLocaleString()} settings match · showing the first ${Math.min(300,g.length)}`;
+  $("explorer").innerHTML=`<tr>${cols.map(([k,l])=>`<th class="s${/^(e\d|pf|wr|perday|score|tf|freq|shape)$/.test(k)?" n":""}" tabindex="0" data-k="${k}">${l}${sortCol===k?(sortDir<0?" ↓":" ↑"):""}</th>`).join("")}</tr>`+g.slice(0,300).map(r=>`<tr><td>${r.inst}</td><td>${r.sig.replace(/_/g," ")}</td><td class="n">${tfName(r.tf)}</td><td>${r.filter.replace(/_/g," ").toLowerCase()}</td><td>${r.sess.split(" ")[0]}</td><td class="n">${r.tgt}/${r.stp}</td><td class="n">${freqName(r.freq)}</td>${[0,1,2].map(p=>`<td class="n ${cls(r.p[p].exp)}">${fx(r.p[p].exp,3)}</td>`).join("")}<td class="n">${r.p[2].pf.toFixed(2)}</td><td class="n">${(r.p[2].wr*100).toFixed(0)}</td><td class="n">${perDay(r).toFixed(2)}</td><td class="n">${score(r).toFixed(2)}</td></tr>`).join("");
+  document.querySelectorAll("#explorer th.s").forEach(th=>{const go=()=>{const k=th.dataset.k;sortDir=sortCol===k?-sortDir:-1;sortCol=k;explorer();};th.onclick=go;th.onkeydown=e=>{if(e.key==="Enter")go();};});
+}
+["fInst","fFam","fSig","fTf","fSess","fFreq","fRob"].forEach(id=>$(id).onchange=explorer); explorer();
+
+$("method").innerHTML=[
+ "Data: the repo's 1-minute futures candles, MGC for gold and MNQ for Nasdaq, Dec 2022 → Oct 2026, New York time. Timeframes M1, M5, M15, H1 are built from those candles; the signal is read when its candle closes and the trade opens at the next 1-minute open.",
+ "Exits: target and stop in multiples of the signal timeframe's ATR(14). Inside each 1-minute candle the stop is assumed to fill first, so results lean pessimistic. Every position closes at 15:55 New York; one position at a time.",
+ "Costs per round turn: gold 0.20 spread + $7 a lot commission + slippage = 0.37; Nasdaq 1.0 point spread + 0.4 slippage = 1.4 points.",
+ "Entries. Trend: break of the last 5 candles, 20-candle Donchian break, EMA20 pullback in an EMA20/50 trend, EMA9/21 cross, fair value gap, opening-range break (gold 08:20–08:35, Nasdaq 09:30–09:45), inside-bar break, VWAP cross. Reversal: RSI(14) back inside 30/70, Bollinger(20,2) re-entry, VWAP stretch over 1.5 ATR then a break of the last candle, engulfing candle at a 20-candle extreme, aggression candle (2× volume, close in its outer quarter) then a break the other way.",
+ "Filters: none; with the H1 trend (price vs H1 EMA50); high volatility (ATR above its 100-candle average).",
+ "Robust means profitable in 2025, 2026 and 2023–24 with at least 40, 30 and 60 trades. Score = the worst period's expectancy × √(trades), so thin samples rank lower.",
+ "Hedge stage: the 25 best robust rules per instrument were re-run with zone recovery (ZR1 = one 2× opposite leg at the stop line; ZR2 = then 4× back at the entry line), basket target +1 target, basket stop −2.5R."
+].map(t=>`<li>${t}</li>`).join("");
+</script>
