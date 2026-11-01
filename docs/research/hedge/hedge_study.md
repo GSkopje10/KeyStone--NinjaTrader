@@ -135,3 +135,49 @@ dotnet run -c Release -- detail                     # the picks 2023 → 2026, b
 ```
 
 In SpasiX: **⇅ HEDGE LAB → C: best found**, then **▶ RUN**. Use **▶ SESSIONS** to compare every session with and without hedges on your own MT5 XAUUSD history.
+
+---
+
+# Part 3: your 2-day live run vs 21 months of history (2026-11-01)
+
+## The live run (29–30 Oct, DEMO, IC Markets gold M1, $5,000)
+
+82 iterations closed, all at the target. Banked about +$1,500 (+$1,860 with your manual trades).
+
+| iteration group | count | typical time | worst drawdown |
+|---|---|---|---|
+| no hedge | 49 (60 %) | 0–6 min | mostly under −$40 |
+| 1–2 hedges | 19 | 2–20 min | −$20 to −$290 |
+| 3+ hedges | 14 | 20 min – 14 h | −$190 to **−$1,301** (#10: 21 hedges, 14 h, for +$45) |
+
+- **The money comes from the 60 % that never hedge**, and the risk from the 14 that hedge 3+ times. #10, #34, #46 and #79 only got out because you added 0.3–1.4 lots by hand.
+- **The deep baskets started in the Asian / early London hours** (server 05:00–09:00 and 23:00–02:00). The New York hours (server 16:30–21:00) gave 34 iterations in about 5 hours, mostly with 0–1 hedges.
+- **Why flat 0.2 hedges trap the basket:** buy 0.1 → sell 0.2 → buy 0.2 … always leaves you net ±0.1. Every whipsaw of the M1 candle (often only $1–3 wide) locks about $20–45, and the basket can only get back by a trend of (loss + $20) ÷ $10 per $1.
+
+## 432 settings on 21 months of gold (Jan 2025 → Oct 2026)
+
+**Logic:** the same as your live run — entry and hedges on the break of the previous candle (or the last 5), the next basket on the next break.
+
+**Varied:**
+- balance: $5k / $25k
+- lots: 0.1 / 0.3 / 0.5
+- target: $20 / $50 / $100
+- hedge sizing: FLAT (2×) / STEP (your rule: cancel the net lots, then +0.1 per −$100 down)
+- hard stop: none / 4 % / 10 %, with the day locked after a stop
+- session: all day / NY 08:00–12:00
+
+Results are in `grid3_results.csv` (`cd mt5/study && dotnet run -c Release -- grid3`).
+
+| hedge sizing | stop | survived 21 months | profitable in 2025 AND 2026 | median net |
+|---|---|---|---|---|
+| FLAT | none | 0 / 72 | 0 | −$4,427 |
+| FLAT | 4 % | 2 / 72 | 0 | −$6,075 |
+| FLAT | 10 % | 1 / 72 | 0 | −$5,008 |
+| STEP | none | 0 / 72 | 0 | −$3,564 |
+| STEP | 4 % | 0 / 72 | 0 | −$6,075 |
+| STEP | 10 % | 0 / 72 | 0 | −$5,855 |
+
+- **No setting of this logic is profitable in both years.** The 2-day result is real, but over months a 14-hour basket comes often enough to take it all back.
+- **STEP sizing blows more often than FLAT.** It grows the net lots exactly when the basket is losing most.
+- **Hard stops turn blow-ups into a slow bleed.** Each stop costs 10–100 wins of $20.
+- **What did hold up (Part 2):** one target a day at the NY open, no hedge, stop at 2× the target. The whole edge is in WHEN to enter, not in how to hedge.

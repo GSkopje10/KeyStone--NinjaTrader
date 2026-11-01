@@ -31,7 +31,9 @@ namespace KeystoneMT5
         public int Leverage = 500; public double HedgedRatio = 0.5, StopOutPct = 50;
         public double SwapLong = 0, SwapShort = 0; public DayOfWeek Swap3Day = DayOfWeek.Wednesday;   // $ per lot per night
         public double Zone = 0;                // > 0: the hedge line is this far ($ of price) from the leg's fill instead of the recent high / low
-        public bool NoHedge;                   // no hedge at all: only the target and the BasketStop (a plain trade)
+        public bool NoHedge;
+        public double StepLoss = 0, StepLots = 0.1;   // STEP hedging: each hedge cancels the basket's net lots and adds StepLots × (1 + every −StepLoss $ it is down) the new way (0 = the fixed HedgeLot)
+        public bool LockDayOnStop;                    // after a BASKET STOP no new basket that day                   // no hedge at all: only the target and the BasketStop (a plain trade)
         public bool OneTargetADay;             // after the first basket closed at the target, done for the day
         public int MaxTriesADay = 0;           // 0 = no limit; else no new basket once this many closed today (win or loss)
         public int SessionFrom = -1, SessionTo = -1, NyOffsetHours = -7;   // new baskets only inside this New York window (minutes of the day; −1 = all day)
@@ -42,7 +44,7 @@ namespace KeystoneMT5
 
     public sealed class HedgeLeg { public int Dir; public double Lots, Price; public DateTime Time; }
     public sealed class HedgeCycle { public DateTime Open, Close; public int Dir, Legs; public double Profit, Worst, MaxGross; public string Reason = ""; }
-    public sealed class HedgeDay { public DateTime Day; public double StartEquity, EndEquity, Banked, LowEquity; public int Cycles; public bool HitTarget, Won; }
+    public sealed class HedgeDay { public DateTime Day; public double StartEquity, EndEquity, Banked, LowEquity; public int Cycles; public bool HitTarget, Won, Locked; }
 
     public sealed class HedgeResult
     {
@@ -93,7 +95,7 @@ namespace KeystoneMT5
             }
             double RecentHigh(int i) { double h = double.MinValue; for (int k = Math.Max(0, i - s.Lookback); k < i; k++) h = Math.Max(h, bars[k].H); return h == double.MinValue ? double.NaN : h; }
             double RecentLow(int i) { double l = double.MaxValue; for (int k = Math.Max(0, i - s.Lookback); k < i; k++) l = Math.Min(l, bars[k].L); return l == double.MaxValue ? double.NaN : l; }
-            bool CanTrade { get { return !(s.DailyTarget > 0 && day != null && day.Banked >= s.DailyTarget) && !(s.OneTargetADay && day != null && day.Won) && !(s.MaxTriesADay > 0 && day != null && day.Cycles >= s.MaxTriesADay) && InSession(now); } }
+            bool CanTrade { get { return !(s.DailyTarget > 0 && day != null && day.Banked >= s.DailyTarget) && !(s.OneTargetADay && day != null && day.Won) && !(s.MaxTriesADay > 0 && day != null && day.Cycles >= s.MaxTriesADay) && !(day != null && day.Locked) && InSession(now); } }
             bool HasSession { get { return s.SessionFrom >= 0 && s.SessionTo >= 0 && s.SessionFrom != s.SessionTo; } }
             bool InSession(DateTime t)
             {
@@ -168,11 +170,13 @@ namespace KeystoneMT5
             void Fire(string kind, int dir, double b)
             {
                 if (kind == "TARGET") { int d = Math.Sign(Lots(1) - Lots(-1)); if (d == 0) d = lastDir; CloseAll(b, "TARGET"); if (s.ReEnter && CanTrade) Open(d, s.BaseLot, b, true); return; }   // (one target a day: CanTrade is false now)
-                if (kind == "BASKET STOP") { CloseAll(b, "BASKET STOP"); return; }
+                if (kind == "BASKET STOP") { CloseAll(b, "BASKET STOP"); if (s.LockDayOnStop && day != null) day.Locked = true; return; }
                 if (kind == "ENTRY") { Open(dir, s.BaseLot, b, true); return; }
                 // HEDGE: the next leg the other way (HedgeLot, then × Multiplier for every leg after it)
                 if (s.MaxLegs > 0 && legs.Count >= s.MaxLegs) { CloseAll(b, "MAX LEGS"); return; }
                 int hedges = legs.Count - 1; double lots = Math.Round(s.HedgeLot * Math.Pow(s.Multiplier, hedges), 2);
+                // STEP: cancel what the basket holds the old way, then StepLots more the new way for every −StepLoss $ it is down (−$100: 0.1, −$200: 0.2 …)
+                if (s.StepLoss > 0) { double held = Math.Max(0, (Lots(1) - Lots(-1)) * -dir); lots = Math.Round(held + s.StepLots * (1 + Math.Floor(Math.Max(0, -CyclePl(b)) / s.StepLoss)), 2); }
                 Open(dir, lots, b, false);
             }
 
