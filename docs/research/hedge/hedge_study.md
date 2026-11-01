@@ -196,7 +196,7 @@ Costs: gold 0.20 spread + $7/lot + 5 pts slip; Nasdaq 1.0 pt spread + 0.2 slip. 
 target $3 move (+$30), stop 2× (−$60), ONE try a day, no hedge: 2025 +1,387 (PF 1.30, DD 983) · 2026 +879 (PF 1.27) · 2023-24 +1,040 (PF 1.11).
 Same with move 5: +1,557 / +590 / +717. Best hedged gold (1 hedge, zone 1×, BE after 1 hedge): +222 / +1,196 / −665 → fails 2023-24.
 
-**NASDAQ, best by the worst period (0.1 lot = $0.10/pt… scaled $1/pt/lot):** NY open 08:30–10:30, break of last 5 M1, move 15 pts,
+**NASDAQ, best by the worst period:** NY open 08:30–10:30, break of last 5 M1, move 15 pts,
 ONE hedge 2× at the swing, stop 2×, 1 try a day: 2025 +417 (PF 1.19) · 2026 +181 (PF 1.10) · 2023-24 +713 (PF 1.17). Thin edge (PF 1.1–1.2).
 
 ## Part 5 — small targets without hedging, entry = reversal after an aggression candle
