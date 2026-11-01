@@ -270,7 +270,27 @@ namespace KeystoneMT5
             double best = price, bd = 14; foreach (var v in new[] { b.O, b.H, b.L, b.C }) { double d = Math.Abs(Y(v) - m.Y); if (d < bd) { bd = d; best = v; } } return best;
         }
 
-        protected override void OnRender(DrawingContext dc) { lock (Gate) Draw(dc); }
+        protected override void OnRender(DrawingContext dc) { lock (Gate) { Draw(dc); try { DrawMarks(dc); } catch { } } }
+        // 🤖 AUTO's arrows: (time, price, BUY / SELL / CLOSE, label) — ▲ under a buy, ▼ over a sell, ● at a close with its result
+        public Func<List<Tuple<DateTime, double, string, string>>> Marks;
+        void DrawMarks(DrawingContext dc)
+        {
+            var ms = Marks != null ? Marks() : null; var bars = Series != null ? Series.Bars : null; if (ms == null || ms.Count == 0 || bars == null || bars.Count == 0 || plotW <= 0) return;
+            foreach (var m in ms)
+            {
+                var st = Tf.Start(m.Item1, Series.Minutes); int lo = 0, hi2 = bars.Count - 1; if (st < bars[0].Time || st > bars[hi2].Time) continue;
+                while (lo < hi2) { int mid = (lo + hi2 + 1) / 2; if (bars[mid].Time <= st) lo = mid; else hi2 = mid - 1; }
+                double x = X(lo), y = Y(m.Item2); if (x < 0 || x > plotW || y < TopPad || y > TopPad + plotH) continue;
+                bool buy = m.Item3 == "BUY", sell = m.Item3 == "SELL"; var col = buy ? Sx.Green : sell ? Sx.Red : Sx.Gold; double s = Math.Max(5, Math.Min(8, barW * 0.45));
+                var g = new StreamGeometry(); using (var c = g.Open())
+                {
+                    if (buy) { c.BeginFigure(new Point(x, y + 3), true, true); c.LineTo(new Point(x - s, y + 3 + s * 1.5), true, false); c.LineTo(new Point(x + s, y + 3 + s * 1.5), true, false); }
+                    else if (sell) { c.BeginFigure(new Point(x, y - 3), true, true); c.LineTo(new Point(x - s, y - 3 - s * 1.5), true, false); c.LineTo(new Point(x + s, y - 3 - s * 1.5), true, false); }
+                }
+                if (buy || sell) dc.DrawGeometry(col, new Pen(Brushes.Black, 0.6), g); else dc.DrawEllipse(col, new Pen(Brushes.Black, 0.6), new Point(x, y), s * 0.8, s * 0.8);
+                var tx = T(m.Item4, 9.5, col, true); dc.DrawText(tx, new Point(x - tx.Width / 2, buy ? y + 5 + s * 1.5 : sell ? y - 6 - s * 1.5 - tx.Height : y - s - tx.Height - 1));
+            }
+        }
 
         void Draw(DrawingContext dc)
         {

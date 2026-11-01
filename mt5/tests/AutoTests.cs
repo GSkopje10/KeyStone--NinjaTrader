@@ -25,7 +25,7 @@ public static class AutoTests
         for (int k = 0; k < 4000 && !sb.Ended; k++) { sb.Advance(0.25); if (mid != null && k == 3) mid(sb, au); }
         return Tuple.Create(sb, au);
     }
-    static AutoSettings S() { return new AutoSettings { Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
+    static AutoSettings S() { return new AutoSettings { Swing = false, FvgTf = 1, Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
 
     public static int Main4()
     {
@@ -131,13 +131,36 @@ public static class AutoTests
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") Console.WriteLine(rules2);
         Check(rules2.Contains("most likely the BREAK of the HIGH (buy) / LOW (sell) of the last 1 M1 candle when the last leg opened"), "decode: the hedge rule found = the break of the previous M1 candle (when the last leg opened)", rules2);
 
+        // 15. SWING levels: the swing high 4003 (higher than 2 candles each side) breaks → BUY; a lower candle high later is NOT the level
+        var sw = new List<Mt5Bar> { B(0, 4000, 4001, 3999, 4000.5, 100), B(1, 4000.5, 4002, 4000, 4001.5, 100), B(2, 4001.5, 4003, 4001, 4002, 100), B(3, 4002, 4002.4, 4000.5, 4001, 100), B(4, 4001, 4001.8, 4000.2, 4001.2, 100), B(5, 4001.2, 4001.6, 4000.8, 4001.4, 100) };
+        sw.AddRange(Path(Day1.AddMinutes(6), 4001.4, Line(4001.4, 0.4, 30)));
+        var s17 = S(); s17.Swing = true; s17.SwingK = 2; s17.MaxIterations = 1; r = Run(sw, s17); au = r.Item2;
+        Check(au.Trades.Count >= 1 && au.Trades[0].Side == "BUY" && Math.Abs(au.Trades[0].Level - 4003) < 1e-9 && au.Trades[0].Why.Contains("swing high"), "swing: the BUY waits for the swing high 4003 (not the last candle's 4001.6)", string.Join(" | ", au.Trades.Select(x => x.Why + " " + x.Level)));
+        Check(au.Story.Any(x => x.Item2.Contains("the SWING HIGH = the M1 candle")) && au.Iterations[0].Ctx.Contains("setup=BREAK") && au.Iterations[0].Ctx.Contains("withVwap="), "swing: the story names the swing candle; the context is saved", au.Iterations.Count > 0 ? au.Iterations[0].Ctx : "none");
+        // 16. FVG 50%: the gap 4000.3–4002.5 → BUY when the bid comes back to 4001.4 (its middle), not at its top
+        var f5 = new List<Mt5Bar> { B(0, 4000, 4000.3, 3999.8, 4000.2, 100), B(1, 4000.2, 4003, 4000.2, 4002.8, 100), B(2, 4002.8, 4004, 4002.5, 4003.8, 100), B(3, 4003.8, 4003.9, 4002.3, 4002.4, 100), B(4, 4002.4, 4002.5, 4001.2, 4001.3, 100) };
+        f5.AddRange(Path(Day1.AddMinutes(5), 4001.3, Line(4001.3, 0.5, 20)));
+        var s18 = S(); s18.EntryMode = "FVG50"; s18.MaxIterations = 1; r = Run(f5, s18); au = r.Item2;
+        Check(au.Trades.Count >= 1 && au.Trades[0].Side == "BUY" && Math.Abs(au.Trades[0].Level - 4001.4) < 1e-9 && au.Trades[0].Time >= Day1.AddMinutes(4), "FVG 50%: the BUY at the gap's middle 4001.4 (candle 5), not at its top in candle 4", string.Join(" | ", au.Trades.Select(x => x.Time.ToString("HH:mm:ss") + " " + x.Level)));
+        // 17. FVG + BREAK: the break of the high counts only with a bullish FVG; no FVG = no trade
+        var s19 = S(); s19.EntryMode = "FVGBREAK"; s19.MaxIterations = 1; r = Run(Path(Day1, 4000, Line(4000, 0.05, 60)), s19);   // a slow climb: highs break, no gap is left
+        Check(r.Item2.Trades.Count == 0, "FVG + BREAK: breaks without an FVG → nothing", r.Item2.Trades.Count + "");
+        var fb = new List<Mt5Bar> { B(0, 4000, 4000.3, 3999.8, 4000.2, 100), B(1, 4000.2, 4003, 4000.2, 4002.8, 100), B(2, 4002.8, 4004, 4002.5, 4003.8, 100) };
+        fb.AddRange(Path(Day1.AddMinutes(3), 4003.8, Line(4003.8, 0.5, 30)));
+        r = Run(fb, s19); au = r.Item2;
+        Check(au.Trades.Count >= 1 && au.Trades[0].Side == "BUY" && au.Trades[0].Why.StartsWith("ENTRY BUY — FVG + BREAK"), "FVG + BREAK: the high breaks with a bullish FVG → BUY", string.Join(" | ", au.Trades.Select(x => x.Why)));
+        // 18. winner lots per side: a climb, buys add 0.3 each, sells would add 0
+        var s20 = S(); s20.FirstDir = "BUY"; s20.Target = 80; s20.AddToWinner = true; s20.WinnerLots = 0.3; s20.WinnerLotsSell = 0; s20.MaxIterations = 1;
+        r = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), s20); au = r.Item2;
+        Check(au.Trades.Skip(1).Any() && au.Trades.Skip(1).All(x => x.Side == "BUY" && Math.Abs(x.Lots - 0.3) < 1e-9), "winner lots per side: each add on the BUY side = 0.30", string.Join(",", au.Trades.Select(x => x.Side + x.Lots)));
+
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();
         var ds = S(); ds.HedgeMode = "PRICE"; ds.HedgePrice = 2; ds.Target = 20;
         var dr = DayLab.Run(Gold(), day, Day1, ds, 10000, 10, null);
-        Check(dr.Count == 4 && dr.Select(x => x.Mode).Distinct().Count() == 4 && dr.Zip(dr.Skip(1), (a, b) => a.Net >= b.Net).All(x => x) && dr.Sum(x => x.Iterations) > 0, "day: 4 setups replayed and ranked by net", string.Join(" | ", dr.Select(x => x.Mode + " " + x.Iterations + " it " + x.Net.ToString("0") + " " + x.Note)));
+        Check(dr.Count == DayLab.Modes.Length && dr.Select(x => x.Mode).Distinct().Count() == DayLab.Modes.Length && dr.Zip(dr.Skip(1), (a, b) => a.Net >= b.Net).All(x => x) && dr.Sum(x => x.Iterations) > 0, "day: every setup replayed and ranked by net", string.Join(" | ", dr.Select(x => x.Mode + " " + x.Iterations + " it " + x.Net.ToString("0") + " " + x.Note)));
         var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-day-" + Guid.NewGuid().ToString("N") + ".csv"); DayLab.Save(tmp, dr); DayLab.Save(tmp, dr); var back = DayLab.Load(tmp); System.IO.File.Delete(tmp);
-        Check(back.Count == 4 && Math.Abs(back.Sum(x => x.Net) - dr.Sum(x => x.Net)) < 0.05, "day: saved per day (saving again replaces it)", back.Count + "");
+        Check(back.Count == DayLab.Modes.Length && Math.Abs(back.Sum(x => x.Net) - dr.Sum(x => x.Net)) < 0.05, "day: saved per day (saving again replaces it)", back.Count + "");
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }

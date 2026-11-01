@@ -21,12 +21,14 @@ namespace KeystoneMT5
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
         AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
-        string aView = "STORY"; int aSeen = -1, aSaved; long aHistLogin = -1; DispatcherTimer aTimer;
+        string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
 
         FrameworkElement BuildAuto()
         {
             aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, ""))); if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
             auto.Send = AutoSend; auto.NewsNear = AutoNews;
+            auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l); auto.OnNote = (n, l) => AutoAppend("log", l);
+            foreach (var pn in panes) { var pp = pn; pp.V.Marks = () => AutoMarks(pp.Sym); }
             var root = new DockPanel { LastChildFill = true };
 
             // the live card + the buttons
@@ -50,6 +52,8 @@ namespace KeystoneMT5
             var r1 = new WrapPanel();
             r1.Children.Add(AField("sym", "SYMBOL", aset.Symbol, 110, "the symbol as MT5 names it (XAUUSD, NAS100, USTEC …) — the automation owns every position on it"));
             r1.Children.Add(ADrop("tf", "TIMEFRAME", () => Tf.Name(aset.Tf), () => Tf.All.Select(m => new Mi { Text = Tf.Name(m), Do = () => { aset.Tf = m; } }).ToList()));
+            r1.Children.Add(ADrop("swing", "LEVELS (BREAKS)", () => aset.Swing ? "the last SWING high / low" : "the last N candles", () => new List<Mi> { new Mi { Text = "SWING — the most recent swing high (BUY) / swing low (SELL): a candle higher / lower than its neighbours", Do = () => aset.Swing = true }, new Mi { Text = "LAST N CANDLES — the highest high / lowest low of the last N finished candles", Do = () => aset.Swing = false } }));
+            r1.Children.Add(AField("swk", "SWING STRENGTH (CANDLES EACH SIDE)", aset.SwingK.ToString(IC), 60, "a swing high = a candle higher than this many finished candles on each side (2 = the usual)"));
             r1.Children.Add(AField("look", "RECENT HIGH / LOW (CANDLES)", aset.Lookback.ToString(IC), 60, "the high / low of the last N FINISHED candles of the timeframe (1 = the previous candle)"));
             r1.Children.Add(AField("entry", "ENTRY LOTS", aset.EntryLots.ToString(IC), 70, "the first trade of every iteration"));
             r1.Children.Add(AField("add", "ADD-ON LOTS (OTHER WAY)", aset.AddLots.ToString(IC), 70, "each add-on the other way: entry 0.5 buy → add-on 1.0 sell (net 0.5 sell) → 1.0 buy …"));
@@ -62,18 +66,21 @@ namespace KeystoneMT5
             r2.Children.Add(AField("hprice", "PRICE MOVE", aset.HedgePrice.ToString(IC), 60, "ADD-ON WHEN = PRICE: the move against the last leg in price (gold: 5 = $5; NAS100: 50 = 50 points)"));
             r2.Children.Add(AField("hmoney", "$ LOSS", aset.HedgeMoney.ToString(IC), 60, "ADD-ON WHEN = $ LOSS: the $ lost since the last leg opened"));
             r2.Children.Add(ADrop("roll", "BREAK LEVEL", () => aset.Rolling ? "follows new candles" : "fixed at the leg", () => new List<Mi> { new Mi { Text = "FIXED — the recent low / high when the leg opened", Do = () => aset.Rolling = false }, new Mi { Text = "FOLLOWS — the recent low / high of the newest candles", Do = () => aset.Rolling = true } }));
-            r2.Children.Add(ADrop("next", "NEXT ITERATION", () => aset.NextStart == "PAUSE" ? "after a PAUSE" : "the next BREAK", () => new List<Mi> { new Mi { Text = "the very next BREAK of the recent high (BUY) / low (SELL)", Do = () => aset.NextStart = "BREAK" }, new Mi { Text = "after a PAUSE — then the last basket's direction at once", Do = () => aset.NextStart = "PAUSE" } }));
+            r2.Children.Add(ADrop("next", "NEXT ITERATION", () => aset.NextStart == "PAUSE" ? "after a PAUSE" : "the next ENTRY SIGNAL", () => new List<Mi> { new Mi { Text = "the very next ENTRY SIGNAL of the setup (a break, an FVG touch …)", Do = () => aset.NextStart = "BREAK" }, new Mi { Text = "after a PAUSE — then the last basket's direction at once", Do = () => aset.NextStart = "PAUSE" } }));
             r2.Children.Add(AField("pause", "PAUSE (SECONDS)", aset.PauseSec.ToString(IC), 60, "NEXT ITERATION = PAUSE: seconds of the market's clock (300 = 5 minutes)"));
             r2.Children.Add(ADrop("afterdd", "AFTER MAX DRAWDOWN", () => aset.AfterDrawdown == "NEXT" ? "the NEXT iteration" : "STOP", () => new List<Mi> { new Mi { Text = "STOP the automation", Do = () => aset.AfterDrawdown = "STOP" }, new Mi { Text = "the NEXT iteration", Do = () => aset.AfterDrawdown = "NEXT" } }));
             r2.Children.Add(AField("maxit", "MAX ITERATIONS (0 = ∞)", aset.MaxIterations.ToString(IC), 60, ""));
             r2.Children.Add(AField("comm", "COMMISSION $/LOT", aset.CommissionPerLot.ToString(IC), 60, "round turn, taken off the basket when MT5 does not show it (RAW accounts); 0 = as MT5 shows"));
             aSettings.Children.Add(r2);
             var r3 = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
-            r3.Children.Add(ADrop("emode", "ENTRY SETUP", () => aset.EntryMode == "FVG" ? "FVG retest" : aset.EntryMode == "VWAP" ? "VWAP cross" : aset.EntryMode == "FLOW" ? "ORDER FLOW surge" : "BREAK of high / low", () => new List<Mi> {
-                new Mi { Text = "BREAK — the recent high (BUY) / low (SELL) of the last N finished candles", Do = () => aset.EntryMode = "BREAK" },
+            r3.Children.Add(ADrop("emode", "ENTRY SETUP", () => aset.EntryMode == "FVG50" ? "FVG 50% touch" : aset.EntryMode == "FVGBREAK" ? "FVG + BREAK" : aset.EntryMode == "FVG" ? "FVG retest" : aset.EntryMode == "VWAP" ? "VWAP cross" : aset.EntryMode == "FLOW" ? "ORDER FLOW surge" : "BREAK of high / low", () => new List<Mi> {
+                new Mi { Text = "BREAK ONLY — the break of the swing high (BUY) / swing low (SELL) (or the last N candles: LEVELS)", Do = () => aset.EntryMode = "BREAK" },
+                new Mi { Text = "FVG + BREAK — the break of the swing high / low while the latest FVG (its own timeframe) points the same way", Do = () => aset.EntryMode = "FVGBREAK" },
+                new Mi { Text = "FVG 50% — the price comes back to the MIDDLE of a fresh fair value gap (any timeframe: FVG TIMEFRAME)", Do = () => aset.EntryMode = "FVG50" },
                 new Mi { Text = "FVG — the price comes back into a fresh fair value gap (bullish = BUY, bearish = SELL)", Do = () => aset.EntryMode = "FVG" },
                 new Mi { Text = "VWAP — the price crosses the day's VWAP (up = BUY, down = SELL)", Do = () => aset.EntryMode = "VWAP" },
                 new Mi { Text = "ORDER FLOW — a tick-volume surge candle closing strong, then its high / low breaks (estimated: MT5 CFDs have no order book)", Do = () => aset.EntryMode = "FLOW" } }));
+            r3.Children.Add(ADrop("fvgtf", "FVG TIMEFRAME", () => Tf.Name(aset.FvgTf), () => Tf.All.Where(m => m <= 240).Select(m => new Mi { Text = Tf.Name(m) + (m == 5 ? " (the futures interface's 5-min FVG)" : ""), Do = () => { aset.FvgTf = m; } }).ToList()));
             r3.Children.Add(AField("win", "TRADING TIMES (NEW YORK)", aset.Windows, 190, "new iterations only inside these New York times, e.g. 08:30-11:00, 13:00-16:00 — empty = all the time (an open iteration always runs to its end)"));
             r3.Children.Add(ADrop("winp", "SESSIONS", () => "presets", () => new List<Mi> {
                 new Mi { Text = "ALL THE TIME (empty)", Do = () => af["win"].Text = "" }, new Mi { Text = "Asia 19:00-23:00", Do = () => af["win"].Text = "19:00-23:00" },
@@ -89,7 +96,8 @@ namespace KeystoneMT5
             aSettings.Children.Add(r3);
             var r4 = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
             r4.Children.Add(ADrop("winner", "ADD TO THE WINNER", () => aset.AddToWinner ? "ON" : "OFF", () => new List<Mi> { new Mi { Text = "OFF — one leading leg", Do = () => aset.AddToWinner = false }, new Mi { Text = "ON — on each new signal of the setup in the leading side's direction (a new high after a buy …) until the target", Do = () => aset.AddToWinner = true } }));
-            r4.Children.Add(AField("wlots", "WINNER LOTS", aset.WinnerLots.ToString(IC), 60, "the lots each add to the winner"));
+            r4.Children.Add(AField("wlots", "WINNER LOTS (BUY SIDE)", aset.WinnerLots.ToString(IC), 60, "the lots of each add when the leading side is BUY (0 = no adds on buys)"));
+            r4.Children.Add(AField("wlots2", "WINNER LOTS (SELL SIDE)", aset.WinnerLotsSell.ToString(IC), 60, "the lots of each add when the leading side is SELL (0 = no adds on sells)"));
             r4.Children.Add(AField("wmax", "MAX ADDS / ITERATION (0 = ∞)", aset.MaxWinnerAdds.ToString(IC), 60, ""));
             r4.Children.Add(AField("fvol", "FLOW: VOLUME ×", aset.FlowVol.ToString(IC), 50, "ORDER FLOW: the candle's tick volume at least this × the average of the last 20"));
             r4.Children.Add(AField("fshare", "FLOW: BUYERS / SELLERS ≥", aset.FlowShare.ToString(IC), 50, "ORDER FLOW: the estimated buyers' (or sellers') share, 0.5 – 1"));
@@ -99,7 +107,7 @@ namespace KeystoneMT5
             // the numbers, the views
             aTiles = new ContentControl { Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aTiles, Dock.Top); root.Children.Add(aTiles);
             aViews = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aViews, Dock.Top);
-            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LOG" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); }; aViews.Children.Add(b); }
+            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "LOG" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); }; aViews.Children.Add(b); }
             var clr = Pill("🗑 CLEAR HISTORY", Tint(Sx.Card2, 220)); clr.Height = 26; clr.Click += delegate { AutoClear(); }; aViews.Children.Add(clr);
             root.Children.Add(aViews);
             aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 12.5, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
@@ -111,7 +119,7 @@ namespace KeystoneMT5
             aTimer.Tick += delegate { if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } } AutoSaveNew(); AutoPaint(false); };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
-            AutoPaint(true);
+            AutoVis(); AutoPaint(true);
             return root;
         }
 
@@ -119,14 +127,14 @@ namespace KeystoneMT5
         {
             var sp = new StackPanel { Margin = new Thickness(0, 0, 12, 4) };
             sp.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
-            var tb = Sx.Input(val, w); if (tip != "") tb.ToolTip = tip; af[key] = tb; sp.Children.Add(tb); return sp;
+            var tb = Sx.Input(val, w); if (tip != "") tb.ToolTip = tip; af[key] = tb; sp.Children.Add(tb); afBox[key] = sp; return sp;
         }
         FrameworkElement ADrop(string key, string label, Func<string> now, Func<List<Mi>> items)
         {
             var sp = new StackPanel { Margin = new Thickness(0, 0, 12, 4) };
             sp.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
-            var b = Pill(now() + "  ▾", Tint(Sx.Card2, 230)); b.Height = 28; b.Tag = now; aDrops[key] = b;
-            b.Click += delegate { if (auto.Running) return; var list = items(); foreach (var m in list) { var act = m.Do; m.Do = () => { act(); b.Content = now() + "  ▾"; AutoSaveSet(); }; } SxMenu.Show(b, new Point(0, b.ActualHeight + 4), list); };
+            var b = Pill(now() + "  ▾", Tint(Sx.Card2, 230)); b.Height = 28; b.Tag = now; aDrops[key] = b; afBox[key] = sp;
+            b.Click += delegate { if (auto.Running) return; var list = items(); foreach (var m in list) { var act = m.Do; m.Do = () => { act(); b.Content = now() + "  ▾"; AutoSaveSet(); AutoVis(); }; } SxMenu.Show(b, new Point(0, b.ActualHeight + 4), list); };
             sp.Children.Add(b); return sp;
         }
         double ANum(string k, double def) { double x; return double.TryParse((af[k].Text ?? "").Trim().Replace(',', '.'), NumberStyles.Float, IC, out x) ? x : def; }
@@ -135,12 +143,21 @@ namespace KeystoneMT5
             var s = aset.Copy(); s.Symbol = (af["sym"].Text ?? "").Trim(); s.Lookback = (int)Math.Max(1, ANum("look", 1)); s.EntryLots = ANum("entry", 0); s.AddLots = ANum("add", 0); s.Target = ANum("target", 0);
             s.MaxDrawdown = Math.Max(0, ANum("dd", 0)); s.HedgePrice = ANum("hprice", 0); s.HedgeMoney = ANum("hmoney", 0); s.PauseSec = (int)Math.Max(0, ANum("pause", 60)); s.MaxIterations = (int)Math.Max(0, ANum("maxit", 0)); s.CommissionPerLot = Math.Max(0, ANum("comm", 0));
             s.Windows = (af["win"].Text ?? "").Trim(); s.NyOffsetHours = (int)ANum("nyoff", -7); s.PerDay = (int)Math.Max(0, ANum("perday", 0)); s.NewsBefore = (int)Math.Max(0, ANum("nb", 15)); s.NewsAfter = (int)Math.Max(0, ANum("na", 15));
-            s.WinnerLots = ANum("wlots", 0.1); s.MaxWinnerAdds = (int)Math.Max(0, ANum("wmax", 0)); s.FlowVol = Math.Max(1, ANum("fvol", 1.5)); s.FlowShare = Math.Max(0.5, Math.Min(1, ANum("fshare", 0.7)));
+            s.WinnerLots = Math.Max(0, ANum("wlots", 0.1)); s.WinnerLotsSell = Math.Max(0, ANum("wlots2", 0.1)); s.SwingK = (int)Math.Max(1, ANum("swk", 2)); s.MaxWinnerAdds = (int)Math.Max(0, ANum("wmax", 0)); s.FlowVol = Math.Max(1, ANum("fvol", 1.5)); s.FlowShare = Math.Max(0.5, Math.Min(1, ANum("fshare", 0.7)));
             return s;
         }
         // the automation's settings: per MT5 account on LIVE / PROP (each account its own), per mode otherwise
         string AKey { get { return "auto." + Mode + (!Virtual && live != null && live.Key != "" ? "." + live.Key : ""); } }
         void AutoSaveSet() { aset = AutoRead(); Put(AKey, aset.Save()); }
+        // only the boxes the chosen options use: ONE add-on trigger (BREAK / PRICE / $), the pause, the FVG timeframe, the flow numbers, the news minutes, the winner lots
+        void AutoVis()
+        {
+            Action<string, bool> v = (k, on) => { FrameworkElement e; if (afBox.TryGetValue(k, out e)) e.Visibility = on ? Visibility.Visible : Visibility.Collapsed; };
+            v("hprice", aset.HedgeMode == "PRICE"); v("hmoney", aset.HedgeMode == "MONEY"); v("roll", aset.HedgeMode == "BREAK");
+            v("pause", aset.NextStart == "PAUSE"); v("fvgtf", aset.EntryMode.StartsWith("FVG")); v("fvol", aset.EntryMode == "FLOW"); v("fshare", aset.EntryMode == "FLOW");
+            v("nb", aset.NewsMode != "IGNORE"); v("na", aset.NewsMode != "IGNORE"); foreach (var k in new[] { "wlots", "wlots2", "wmax" }) v(k, aset.AddToWinner);
+            v("look", !aset.Swing); v("swk", aset.Swing);
+        }
 
         // a high-impact ForexFactory event near a server time, for the symbol's currencies (+ USD: gold, indices)
         string AutoNews(DateTime server, int before, int after)
@@ -186,7 +203,7 @@ namespace KeystoneMT5
                 if (typed == null || typed.Trim().ToUpperInvariant() != "START") return;
             }
             else if (!Sx.Ask(this, "🤖 START on MT5 (" + kind + " account " + login + ")", "Orders go to MT5 by themselves while it runs.\n\n" + what, "▶ START", "CANCEL", Green)) return;
-            AutoLoadHistory(login); auto.Start(broker, s, adopt); AutoPaint(true);
+            AutoLoadHistory(); auto.Start(broker, s, adopt); Put("auto.run." + AKey, "1"); aWasOn = true; AutoPaint(true);
         }
         void AutoStopClose()
         {
@@ -200,45 +217,60 @@ namespace KeystoneMT5
             if (auto.Running) { Sx.Info(this, "🤖 AUTO", "Stop the automation first.", Amber); return; }
             if (!Sx.Ask(this, "🗑 Clear the history", "Every iteration, trade and log line of the automation in this " + Mode + " window is removed" + (Virtual ? "." : " (and its files on this PC)."), "CLEAR", "CANCEL", Red)) return;
             auto.Iterations.Clear(); auto.Trades.Clear(); auto.Log.Clear(); aSaved = 0; auto.Version++;
-            if (!Virtual && aHistLogin > 0) { try { File.Delete(AutoFile(aHistLogin, "iterations")); File.Delete(AutoFile(aHistLogin, "trades")); } catch { } }
+            if (aHist != null && aHist != "") { foreach (var w in new[] { "iterations", "trades", "story", "log" }) try { File.Delete(AutoFile(w)); } catch { } }
             AutoPaint(true);
         }
 
-        // ---- history on this PC (LIVE / PROP / DEMO): one line per finished iteration, its trades with it
-        string AutoFile(long login, string what) { return Path.Combine(Dir, "auto", Mode + "-" + login + "-" + what + ".csv"); }
-        void AutoLoadHistory(long login)
+        // ---- history on this PC (LIVE / PROP / DEMO, per account): every finished iteration (with its context), its trades, the STORY and the LOG as they happen
+        string AutoId() { if (Sim) return ""; var k = live != null ? live.Key : ""; if (k == "") { long lg; lock (broker.State.Gate) lg = broker.State.Account.Login; k = lg > 0 ? lg.ToString(IC) : ""; } foreach (var c in Path.GetInvalidFileNameChars()) k = k.Replace(c, '_'); return k; }
+        string AutoFile(string what) { return Path.Combine(Dir, "auto", Mode + "-" + aHist + "-" + what + (what == "story" || what == "log" ? ".txt" : ".csv")); }
+        void AutoAppend(string what, string line) { if (string.IsNullOrEmpty(aHist)) AutoLoadHistory(); if (string.IsNullOrEmpty(aHist)) return; try { Directory.CreateDirectory(Path.Combine(Dir, "auto")); File.AppendAllText(AutoFile(what), line + "\n"); } catch { } }
+        void AutoLoadHistory()
         {
-            if (Sim || aHistLogin == login) return; aHistLogin = login; if (auto.Iterations.Count > 0) return;
+            var id = AutoId(); if (id == "" || aHist == id) return; aHist = id; if (auto.Iterations.Count > 0) return;
             try
             {
-                var f = AutoFile(login, "iterations"); if (File.Exists(f)) foreach (var l in File.ReadAllLines(f).Skip(1)) { var a = l.Split(','); if (a.Length < 16) continue; Func<int, double> d = i => double.Parse(a[i], IC); auto.Iterations.Add(new AutoIteration { N = int.Parse(a[0], IC), Start = new DateTime(long.Parse(a[1], IC)), End = new DateTime(long.Parse(a[2], IC)), FirstDir = a[3], Buys = int.Parse(a[4], IC), Sells = int.Parse(a[5], IC), AddOns = int.Parse(a[6], IC), BuyLots = d(7), SellLots = d(8), MaxGross = d(9), MaxDd = d(10), Result = d(11), Reason = a[12], BalanceStart = d(13), BalanceEnd = d(14), Peak = d(15), WinnerAdds = a.Length > 16 ? int.Parse(a[16], IC) : 0 }); }
-                var t = AutoFile(login, "trades"); if (File.Exists(t)) foreach (var l in File.ReadAllLines(t).Skip(1)) { var a = l.Split(new[] { ',' }, 8); if (a.Length < 8) continue; auto.Trades.Add(new AutoTrade { Iter = int.Parse(a[0], IC), Time = new DateTime(long.Parse(a[1], IC)), Side = a[2], Lots = double.Parse(a[3], IC), Price = double.Parse(a[4], IC), Level = double.Parse(a[5], IC), Basket = double.Parse(a[6], IC), Why = a[7].Trim('"') }); }
+                var f = AutoFile("iterations"); if (File.Exists(f)) foreach (var l in File.ReadAllLines(f).Skip(1)) { var a = l.Split(','); if (a.Length < 16) continue; Func<int, double> d = i => double.Parse(a[i], IC); auto.Iterations.Add(new AutoIteration { N = int.Parse(a[0], IC), Start = new DateTime(long.Parse(a[1], IC)), End = new DateTime(long.Parse(a[2], IC)), FirstDir = a[3], Buys = int.Parse(a[4], IC), Sells = int.Parse(a[5], IC), AddOns = int.Parse(a[6], IC), BuyLots = d(7), SellLots = d(8), MaxGross = d(9), MaxDd = d(10), Result = d(11), Reason = a[12], BalanceStart = d(13), BalanceEnd = d(14), Peak = d(15), WinnerAdds = a.Length > 16 ? int.Parse(a[16], IC) : 0, Ctx = a.Length > 17 ? a[17] : "" }); }
+                var t2 = AutoFile("trades"); if (File.Exists(t2)) foreach (var l in File.ReadAllLines(t2).Skip(1)) { var a = l.Split(new[] { ',' }, 8); if (a.Length < 8) continue; auto.Trades.Add(new AutoTrade { Iter = int.Parse(a[0], IC), Time = new DateTime(long.Parse(a[1], IC)), Side = a[2], Lots = double.Parse(a[3], IC), Price = double.Parse(a[4], IC), Level = double.Parse(a[5], IC), Basket = double.Parse(a[6], IC), Why = a[7].Trim('"') }); }
+                var s = AutoFile("story"); if (File.Exists(s)) foreach (var l in File.ReadAllLines(s).Reverse().Take(4000).Reverse()) { int sp = l.IndexOf("  "); int n; if (l.StartsWith("#") && sp > 1 && int.TryParse(l.Substring(1, sp - 1), out n)) auto.Story.Add(Tuple.Create(n, l.Substring(sp + 2))); }
+                var g = AutoFile("log"); if (File.Exists(g)) auto.Log.AddRange(File.ReadAllLines(g).Reverse().Take(2000).Reverse());
             }
             catch { }
             aSaved = auto.Iterations.Count(x => x.Done); auto.Version++;
         }
         void AutoSaveNew()
         {
-            if (Sim || aHistLogin <= 0) return; var done = auto.Iterations.Where(x => x.Done).ToList(); if (done.Count <= aSaved) return;
+            if (aHist == null) AutoLoadHistory(); if (string.IsNullOrEmpty(aHist)) return; var done = auto.Iterations.Where(x => x.Done).ToList(); if (done.Count <= aSaved) return;
             try
             {
-                Directory.CreateDirectory(Path.Combine(Dir, "auto")); var f = AutoFile(aHistLogin, "iterations"); var t = AutoFile(aHistLogin, "trades");
-                if (!File.Exists(f)) File.WriteAllText(f, "n,start,end,first,buys,sells,addons,buylots,selllots,maxgross,maxdd,result,reason,balstart,balend,peak,winneradds\n");
+                Directory.CreateDirectory(Path.Combine(Dir, "auto")); var f = AutoFile("iterations"); var t = AutoFile("trades");
+                if (!File.Exists(f)) File.WriteAllText(f, "n,start,end,first,buys,sells,addons,buylots,selllots,maxgross,maxdd,result,reason,balstart,balend,peak,winneradds,context\n");
                 if (!File.Exists(t)) File.WriteAllText(t, "iteration,time,side,lots,price,level,basket,why\n");
                 foreach (var x in done.Skip(aSaved))
                 {
-                    File.AppendAllText(f, string.Join(",", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.End.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.Result.ToString("R", IC), x.Reason, x.BalanceStart.ToString("R", IC), x.BalanceEnd.ToString("R", IC), x.Peak.ToString("R", IC), x.WinnerAdds.ToString(IC)) + "\n");
+                    File.AppendAllText(f, string.Join(",", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.End.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.Result.ToString("R", IC), x.Reason, x.BalanceStart.ToString("R", IC), x.BalanceEnd.ToString("R", IC), x.Peak.ToString("R", IC), x.WinnerAdds.ToString(IC), (x.Ctx ?? "").Replace(",", " ")) + "\n");
                     File.AppendAllLines(t, auto.Trades.Where(tr => tr.Iter == x.N && tr.Time >= x.Start).Select(tr => string.Join(",", tr.Iter.ToString(IC), tr.Time.Ticks.ToString(IC), tr.Side, tr.Lots.ToString("R", IC), tr.Price.ToString("R", IC), (double.IsNaN(tr.Level) ? 0 : tr.Level).ToString("R", IC), tr.Basket.ToString("R", IC), "\"" + tr.Why.Replace("\"", "'").Replace(",", ";") + "\"")));
                 }
                 aSaved = done.Count;
             }
             catch { }
         }
+        // the arrows on the chart: each entry / hedge / add (▲ buy, ▼ sell) and each close (● with its result)
+        List<Tuple<DateTime, double, string, string>> AutoMarks(string sym)
+        {
+            var res = new List<Tuple<DateTime, double, string, string>>(); var s = auto.Running ? auto.Set : aset; if (!string.Equals(s.Symbol, sym, StringComparison.OrdinalIgnoreCase)) return res;
+            foreach (var tr in auto.Trades.Skip(Math.Max(0, auto.Trades.Count - 400))) res.Add(Tuple.Create(tr.Time, tr.Price, tr.Side, (tr.Why.StartsWith("ENTRY") ? "#" + tr.Iter + " " : tr.Why.StartsWith("ADD TO") ? "+W " : "H ") + tr.Lots.ToString("0.##", IC)));
+            foreach (var it in auto.Iterations.Where(x => x.Done && x.CloseBid > 0).Skip(Math.Max(0, auto.Iterations.Count - 200))) res.Add(Tuple.Create(it.End, it.CloseBid, "CLOSE", (it.Result >= 0 ? "+" : "−") + "$" + Math.Abs(it.Result).ToString("0", IC)));
+            return res;
+        }
 
         // ---- the screen
         void AutoPaint(bool force)
         {
             if (aPhase == null) return; bool on = auto.Running; var s = on ? auto.Set : aset; var it = auto.Current;
+            if (aHist == null && !Sim) AutoLoadHistory();
+            if (aWasOn && !on && auto.StopReason != "the window closed") Put("auto.run." + AKey, "0"); aWasOn = on;
+            if (!on) aStart.Content = Get("auto.run." + AKey, "0") == "1" ? "⟳  RESUME (it was running)" : "▶  START";
             aPhase.Text = "🤖 AUTO — " + (on ? auto.Phase : "OFF") + (on ? "  •  " + s.Symbol + " " + Tf.Name(s.Tf) : ""); aPhase.Foreground = on ? Green : Muted;
             aCard.BorderBrush = on ? Green : Line;
             aBasket.Text = it != null ? Signed(auto.Basket, "USD") + "  /  +$" + s.Target.ToString("0.##", IC) : "—"; aBasket.Foreground = it == null ? Muted : auto.Basket >= 0 ? Green : Red;
@@ -297,6 +329,30 @@ namespace KeystoneMT5
                 L.Add(""); L.Add(string.Format("{0,-12} {1,6} {2,5} {3,5} {4,12} {5,9}", "DAY", "ITER.", "WON", "LOST", "P/L", "% OF DAY"));
                 foreach (var g in d.GroupBy(x => x.End.Date).OrderByDescending(g => g.Key)) { var b0 = g.OrderBy(x => x.Start).First().BalanceStart; double net = g.Sum(x => x.Result); L.Add(string.Format(IC, "{0,-12} {1,6} {2,5} {3,5} {4,12} {5,9}", g.Key.ToString("ddd dd MMM", IC), g.Count(), g.Count(x => x.Won), g.Count(x => !x.Won), Signed(net, "USD"), b0 > 0 ? (100 * net / b0).ToString("+0.00;−0.00", IC) + "%" : "")); }
                 L.Add(""); L.Add(string.Format("{0,-6} {1,6} {2,5} {3,12}", "HOUR", "ITER.", "WON", "P/L")); foreach (var g in d.GroupBy(x => x.Start.Hour).OrderBy(g => g.Key)) L.Add(string.Format(IC, "{0,-6} {1,6} {2,5} {3,12}", g.Key.ToString("00", IC) + ":00", g.Count(), g.Count(x => x.Won), Signed(g.Sum(x => x.Result), "USD")));
+            }
+            else if (aView == "LEARN")
+            {
+                // every finished iteration's context at its start → which conditions win, which lose (the strongest confirmations first)
+                var d = auto.Iterations.Where(x => x.Done && !string.IsNullOrEmpty(x.Ctx)).ToList();
+                L.Add("LEARN — " + d.Count + " finished iterations with their context (what the market looked like when each one started). n = how many • WIN% • NET • the average worst drawdown • the average hedges");
+                if (d.Count == 0) L.Add("\nnothing yet — every new iteration is saved with its context");
+                var rows = new List<Tuple<string, int, int, double, double, double>>();
+                var keys = d.SelectMany(x => x.Ctx.Split(';').Select(kv => kv.Split('=')[0])).Where(k => k != "range" && k != "spread" && k != "toOtherSide").Distinct().ToList();
+                foreach (var k in keys)
+                {
+                    L.Add(""); L.Add(k.ToUpperInvariant());
+                    foreach (var g in d.GroupBy(x => { var kv = x.Ctx.Split(';').FirstOrDefault(z => z.StartsWith(k + "=")); return kv == null ? "?" : kv.Substring(k.Length + 1); }).OrderByDescending(g => g.Count()))
+                    {
+                        int n = g.Count(), w = g.Count(x => x.Won); double net = g.Sum(x => x.Result), dd = g.Average(x => x.MaxDd), h = g.Average(x => (double)x.AddOns);
+                        rows.Add(Tuple.Create(k + " = " + g.Key, n, w, net, dd, h));
+                        L.Add(string.Format(IC, "   {0,-12} n {1,4}   win {2,5:0}%   net {3,11}   avg worst DD {4,9:N2}   avg hedges {5,4:0.0}", g.Key, n, 100.0 * w / n, Signed(net, "USD"), dd, h));
+                    }
+                }
+                var strong = rows.Where(r => r.Item2 >= 3).OrderByDescending(r => (double)r.Item3 / r.Item2).ThenByDescending(r => r.Item5).Take(8).ToList();
+                if (strong.Count > 0) { L.Add(""); L.Add("STRONGEST CONFIRMATIONS (n ≥ 3, the best win rate, the smallest drawdown)"); foreach (var r in strong) L.Add(string.Format(IC, "   ✔ {0,-26} win {1,5:0}% of {2,3}   avg worst DD {3,9:N2}   avg hedges {4,4:0.0}", r.Item1, 100.0 * r.Item3 / r.Item2, r.Item2, r.Item5, r.Item6)); }
+                var weak = rows.Where(r => r.Item2 >= 3).OrderBy(r => (double)r.Item3 / r.Item2).ThenBy(r => r.Item5).Take(6).ToList();
+                if (weak.Count > 0) { L.Add(""); L.Add("WHAT LOSES / DRAWS DOWN MOST (avoid or filter)"); foreach (var r in weak) L.Add(string.Format(IC, "   ✖ {0,-26} win {1,5:0}% of {2,3}   avg worst DD {3,9:N2}   avg hedges {4,4:0.0}", r.Item1, 100.0 * r.Item3 / r.Item2, r.Item2, r.Item5, r.Item6)); }
+                L.Add(""); L.Add("Files (send them to Claude to build an indicator from them): " + (string.IsNullOrEmpty(aHist) ? "—" : AutoFile("iterations") + "  •  " + AutoFile("story")));
             }
             else if (aView == "STORY")
             {

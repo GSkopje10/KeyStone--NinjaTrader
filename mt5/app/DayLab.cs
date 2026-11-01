@@ -21,8 +21,8 @@ namespace KeystoneMT5
 
     public static class DayLab
     {
-        public static readonly string[] Modes = { "BREAK", "FVG", "VWAP", "FLOW" };
-        public static string ModeName(string m) { return m == "FVG" ? "FVG retest" : m == "VWAP" ? "VWAP cross" : m == "FLOW" ? "ORDER FLOW surge" : "BREAK high / low"; }
+        public static readonly string[] Modes = { "BREAK", "FVGBREAK", "FVG", "FVG50", "VWAP", "FLOW" };
+        public static string ModeName(string m) { return m == "FVG50" ? "FVG 50% touch" : m == "FVGBREAK" ? "FVG + BREAK" : m == "FVG" ? "FVG retest" : m == "VWAP" ? "VWAP cross" : m == "FLOW" ? "ORDER FLOW surge" : "BREAK high / low"; }
         // m1: one-minute candles of the day + the days before (the warm-up for the recent highs / lows); spreadPts < 0 = the candles' own
         public static List<DayResult> Run(SimSpec spec, List<Mt5Bar> m1, DateTime day, AutoSettings baseSet, double balance, int spreadPts, Func<DateTime, int, int, string> news)
         {
