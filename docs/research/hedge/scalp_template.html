@@ -1,0 +1,214 @@
+<title>Gold $20 Iteration Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* layout: a research notebook — verdict first, then the evidence, the math and a free explorer; one reading column, wide tables scroll */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --ink:#18202c; --muted:#5b6678; --line:#d9dee7; --accent:#2747c9; --accent-soft:#e6ebfb;
+  --win:#0f8a55; --win-soft:#dcf2e6; --loss:#c23a32; --loss-soft:#f8e1df; --warn:#a86a00;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif; --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10141b;--surface:#171c25;--ink:#e6eaf1;--muted:#97a2b5;--line:#2a3140;--accent:#8ea4ff;--accent-soft:#1f2747;--win:#3ccf8a;--win-soft:#123326;--loss:#ff7b70;--loss-soft:#3a1a18;--warn:#e7b04a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#10141b;--surface:#171c25;--ink:#e6eaf1;--muted:#97a2b5;--line:#2a3140;--accent:#8ea4ff;--accent-soft:#1f2747;--win:#3ccf8a;--win-soft:#123326;--loss:#ff7b70;--loss-soft:#3a1a18;--warn:#e7b04a;color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px;display:flex;flex-direction:column;gap:44px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:2.3rem;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.55rem;font-weight:700}
+h3{font-size:1.1rem;font-weight:500}
+p{margin:0;max-width:68ch}
+section{display:flex;flex-direction:column;gap:16px;min-width:0}
+.eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.muted{color:var(--muted)}
+.mono,td.n,.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+header{display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--line);padding-bottom:22px}
+.facts{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--f-mono);font-size:.75rem;padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);white-space:normal;max-width:100%}
+.chip.good{background:var(--win-soft);color:var(--win);border-color:transparent}
+.chip.bad{background:var(--loss-soft);color:var(--loss);border-color:transparent}
+.chip.acc{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.verdict{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px 22px;display:flex;flex-direction:column;gap:10px}
+.verdict p{font-size:1.02rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card .rule{font-size:.88rem;color:var(--muted)}
+.rank{font-family:var(--f-mono);font-size:.75rem;color:var(--muted)}
+.pgrid{display:grid;grid-template-columns:auto repeat(3,1fr);gap:2px 10px;font-family:var(--f-mono);font-size:.78rem;font-variant-numeric:tabular-nums}
+.pgrid .h{color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em}
+.pos{color:var(--win)} .neg{color:var(--loss)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.82rem}
+th,td{padding:6px 9px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-family:var(--f-mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--surface);position:sticky;top:0}
+th.s{cursor:pointer} th.s:hover{color:var(--accent)}
+td.n,th.n{text-align:right}
+tr:last-child td{border-bottom:0}
+.heat td.n{font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.controls label{min-width:0;max-width:100%;display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:var(--muted);font-family:var(--f-mono);text-transform:uppercase;letter-spacing:.06em}
+select{max-width:100%;}
+select,input[type=checkbox]{font:inherit;font-size:.85rem;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+select:focus-visible,button:focus-visible,th.s:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button{font:inherit;font-size:.85rem;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:var(--surface);cursor:pointer}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.two>*{min-width:0}
+.math{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.formula{font-family:var(--f-mono);background:var(--accent-soft);color:var(--ink);padding:8px 12px;border-radius:6px;font-size:.85rem;overflow-x:auto;white-space:nowrap}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+svg text{fill:var(--muted);font-family:var(--f-mono);font-size:10px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+@media (max-width:760px){.two{grid-template-columns:1fr} h1{font-size:1.8rem}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">SpasiX research · XAUUSD stand-in (MGC 1-minute) · $5,000 · 0.1 lot</span>
+  <h1>Gold $20 Iteration Lab</h1>
+  <p class="muted" id="intro"></p>
+  <div class="facts" id="facts"></div>
+</header>
+
+<section>
+  <span class="eyebrow">Verdict</span>
+  <h2>Can hedging make +$20 iterations low-risk?</h2>
+  <div class="verdict" id="verdict"></div>
+</section>
+
+<section>
+  <span class="eyebrow">The math</span>
+  <h2>Zone recovery for a $2.00 target, worked out exactly</h2>
+  <p class="muted">Buy 0.1 lot. If price falls Z, sell enough lots that the whole basket is +$20 once price runs another $2.00. If price comes back to the entry, buy enough to be +$20 at $2.00 above, and so on. Each leg survives only if price runs $2.00 before it travels the zone back, which happens with probability 2 / (Z + 2) when price has no direction. The last leg's failure costs everything the wins made. Costs are left out here; they only make it worse.</p>
+  <div class="controls"><label for="zZone">Zone Z<select id="zZone"><option value="2">$2.00 (= target)</option><option value="4">$4.00</option><option value="6" selected>$6.00</option><option value="10">$10.00</option></select></label><label for="zIter">Iterations a day<select id="zIter"><option>5</option><option selected>20</option><option>50</option></select></label></div>
+  <div class="scroll"><table id="zr"></table></div>
+  <div class="formula">wins × $20 ≈ P(fail) × loss  →  expectancy = 0 − costs, for any hedge plan</div>
+  <p class="muted">This is the optional stopping theorem: if price has no direction, no plan of adding, hedging or closing can change the average. A hedge only changes the shape: more small wins, one rare large loss. The only way to get a positive average is an entry that reaches +$2.00 more often than chance.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Tested on 3¾ years of gold</span>
+  <h2>How each exit style did across every entry</h2>
+  <p class="muted">Each exit was run on 15 entries × 3 timeframes × 5 filters × 3 sessions = 675 settings. "Survived" = profitable in 2025, 2026 and 2023–24 with 30+ trades each and never below $0 equity, floating losses included.</p>
+  <div class="scroll"><table id="exits"></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">Entries</span>
+  <h2>Which confirmation reaches +$20 with the least heat</h2>
+  <div class="controls"><label for="eExit">Exit<select id="eExit"></select></label><label for="eSess">Session<select id="eSess"></select></label></div>
+  <p class="muted">Best setting per entry type (any timeframe and filter). Heat = how far the trade went against you before it reached +$20 or closed.</p>
+  <div class="scroll"><table id="entries"></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">For the demo</span>
+  <h2>Two models to run on a $5,000 demo</h2>
+  <div class="cards" id="plan"></div>
+</section>
+
+<section>
+  <span class="eyebrow">Explorer</span>
+  <h2>Every setting</h2>
+  <div class="controls">
+    <label for="xSig">Entry<select id="xSig"></select></label><label for="xTf">TF<select id="xTf"></select></label><label for="xF">Filter<select id="xF"></select></label><label for="xEx">Exit<select id="xEx"></select></label><label for="xSe">Session<select id="xSe"></select></label><label for="xOk">Only survivors<select id="xOk"><option value="1">yes</option><option value="0">no</option></select></label>
+  </div>
+  <p class="muted mono" id="xCount"></p>
+  <div class="scroll" style="max-height:600px"><table id="xt"></table></div>
+</section>
+
+<section>
+  <span class="eyebrow">Method</span>
+  <h2>How it was run</h2>
+  <ul>
+    <li>Data: 1-minute gold futures (MGC) as XAUUSD, Dec 2022 → Oct 2026, New York time. Choose on 2025, check on 2026 and 2023–24.</li>
+    <li>One basket at a time, iterations all day inside the session. Target = +$20 net on 0.1 lot (price must move $2.20 on the bid, as spread 0.20 and commission $0.70 are paid).</li>
+    <li>Market entries fill at the next 1-minute open. Limit entries (FVG 50%) fill only when price trades through the level by the spread.</li>
+    <li>Exits: EOD = no stop, close what is open at 16:55 New York. HOLD = no stop at all, held overnight until +$20 (swap $2.50 a night, 30 days max). STOP100/200/300 = emergency stop at −$100/−$200/−$300, else EOD. ZRzxn = exact zone recovery, zone $z/10, n legs, hard close when the last leg fails or at 16:55.</li>
+    <li>Entries: break of 5 candles, fair value gap (market or limit at its 50%), VWAP cross, VWAP rejection (dip to VWAP and close back), VWAP stretch reversal, stop-hunt sweep of the 20-candle low/high closing back inside, aggression-candle reversal, EMA20 pullback, RSI 30/70 return, Bollinger re-entry, engulfing at a 20-candle extreme, opening-range break, inside-bar break and a RANDOM coin flip as the control.</li>
+    <li>Filters: none, with the H1 trend, against the H1 trend, VWAP discount (buy under VWAP / sell over), VWAP flow (buy over / sell under).</li>
+  </ul>
+</section>
+</div>
+<script>
+const D = /*DATA*/null;
+const $=id=>document.getElementById(id);
+const K=["N","hits","net","win","loss","dd","worst","blown","mae50","mae90","mae99","maeMax","mins","days","upDays","worstDay","minEq","maxLots"];
+const rows=D.rows.map(r=>({sig:r[0],tf:r[1],f:r[2],ex:r[3],se:r[4],p:[5,6,7].map(i=>Object.fromEntries(K.map((k,j)=>[k,r[i][j]])))}));
+const ok=r=>r.p.every(p=>p.N>=30&&!p.blown&&p.net>0);
+const blown=r=>r.p.some(p=>p.blown);
+const hit=r=>{const n=r.p.reduce((a,p)=>a+p.N,0);return n?r.p.reduce((a,p)=>a+p.hits,0)/n:0;};
+const perDay=r=>r.p.reduce((a,p)=>a+p.N,0)/940;
+const m$=v=>(v<0?"−$":"$")+Math.abs(Math.round(v)).toLocaleString();
+const cls=v=>v>0?"pos":v<0?"neg":"";
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const exitName=e=>e==="EOD"?"no stop, close 16:55":e==="HOLD"?"no stop, hold overnight":e.startsWith("STOP")?"emergency stop −$"+e.slice(4):"zone recovery $"+(+e.slice(2).split("x")[0]/10).toFixed(2)+" zone, "+e.split("x")[1]+" legs";
+const exits=[...new Set(rows.map(r=>r.ex))], sess=[...new Set(rows.map(r=>r.se))];
+const real=rows.filter(r=>r.sig!=="RANDOM"), ctrl=rows.filter(r=>r.sig==="RANDOM");
+$("intro").textContent=`${rows.length.toLocaleString()} settings: 15 entries × M1/M5/M15 × 5 filters × ${exits.length} exits (no stop, emergency stops, exact zone recovery) × 3 sessions. One basket at a time, +$20 a basket on 0.1 lot, starting from $5,000.`;
+$("facts").innerHTML=[`generated ${D.generated}`,"spread 0.20 + $7/lot","0.1 lot = $10 a $1 move","+$20 = a $2.00 move"].map(t=>`<span class="chip">${t}</span>`).join("");
+
+// verdict
+(function(){
+  const zr=real.filter(r=>r.ex.startsWith("ZR")), z2=zr.filter(r=>r.ex.startsWith("ZR20"));
+  $("verdict").innerHTML=`<p>No. With a $2.00 zone, <b>${z2.filter(ok).length} of ${z2.length}</b> zone-recovery settings made money in all three periods and <b>${z2.filter(blown).length}</b> blew the $5,000 at least once. Wider zones survive more often only by holding floating losses close to the whole account.</p>
+  <p>What works is the entry, not the hedge. ${real.filter(ok).length} of ${real.length.toLocaleString()} real settings survived all three periods, against ${ctrl.filter(ok).length} of ${ctrl.length} random ones. That is about the rate luck gives, so trust only entry families that survive across many filters and exits. Two do: <b>engulfing at a 20-candle extreme on M5 in London</b> and <b>the 50% FVG retrace on M5 in the New York morning</b>. Both trade about once a day, not 20 times.</p>
+  <div class="facts"><span class="chip bad">zone $2: ${z2.filter(ok).length} survive</span><span class="chip good">real entries: ${real.filter(ok).length} survive</span><span class="chip acc">random: ${ctrl.filter(ok).length} survive</span></div>`;
+})();
+
+// theory
+function zr(){
+  const Z=+$("zZone").value, T=2, it=+$("zIter").value; let px=[0],lt=[1],up=0,dn=-Z;
+  const PL=q=>px.reduce((a,p,k)=>a+(q-p)*lt[k],0);
+  let h=`<tr><th class="n">legs</th><th class="n">lots of the newest leg</th><th class="n">lots open in total</th><th class="n">P(the basket fails)</th><th class="n">fails once every</th><th class="n">P(≥1 failure in a day of ${it})</th><th class="n">loss when it fails</th><th class="n">worst floating</th></tr>`;
+  for(let n=1;n<=6;n++){
+    if(n>1){const net=lt.reduce((a,b)=>a+b,0),line=net>0?dn:up,nd=-Math.sign(net),aim=line+nd*T,size=Math.ceil((T-PL(aim))/T*10)/10;px.push(line);lt.push(nd*size);}
+    const net=lt.reduce((a,b)=>a+b,0),next=net>0?dn:up,loss=PL(next)*10,pf=Math.pow(T/(Z+T),n),day=1-Math.pow(1-pf,it);
+    h+=`<tr><td class="n">${n}</td><td class="n">${(Math.abs(lt[lt.length-1])/10).toFixed(2)}</td><td class="n">${(lt.reduce((a,b)=>a+Math.abs(b),0)/10).toFixed(2)}</td><td class="n">${(pf*100).toFixed(2)}%</td><td class="n">${Math.round(1/pf).toLocaleString()} baskets</td><td class="n">${(day*100).toFixed(1)}%</td><td class="n neg">${m$(loss)}</td><td class="n neg">${m$(loss)}</td></tr>`;
+  }
+  $("zr").innerHTML=h;
+}
+$("zZone").onchange=zr;$("zIter").onchange=zr;zr();
+
+// exit table
+$("exits").innerHTML=`<tr><th>Exit</th><th class="n">survived (real)</th><th class="n">survived (random)</th><th class="n">blew $5k once+</th><th class="n">median hit %</th><th class="n">median worst trade</th></tr>`+exits.map(e=>{const g=real.filter(r=>r.ex===e),c=ctrl.filter(r=>r.ex===e);const md=a=>{const s=[...a].sort((x,y)=>x-y);return s[Math.floor(s.length/2)]||0};return `<tr><td>${exitName(e)}</td><td class="n">${g.filter(ok).length} / ${g.length}</td><td class="n">${c.filter(ok).length} / ${c.length}</td><td class="n ${g.filter(blown).length?"neg":""}">${g.filter(blown).length}</td><td class="n">${(md(g.map(hit))*100).toFixed(1)}%</td><td class="n neg">${m$(md(g.map(r=>Math.min(...r.p.map(p=>p.worst)))))}</td></tr>`;}).join("");
+
+// entries
+const fillS=(id,v,l)=>{$(id).innerHTML=v.map(x=>`<option value="${esc(x)}">${esc(l?l(x):x)}</option>`).join("");};
+fillS("eExit",exits,exitName);fillS("eSess",sess);$("eExit").value="EOD";
+const score=r=>blown(r)||r.p.some(p=>p.N<30)?-1e9:Math.min(...r.p.map(p=>p.net));
+function entries(){
+  const e=$("eExit").value,s=$("eSess").value,sigs=[...new Set(rows.map(r=>r.sig))];
+  const best=sigs.map(sg=>rows.filter(r=>r.sig===sg&&r.ex===e&&r.se===s).sort((a,b)=>score(b)-score(a))[0]).filter(Boolean).sort((a,b)=>score(b)-score(a));
+  $("entries").innerHTML=`<tr><th>Entry</th><th>TF · filter</th><th class="n">hit +$20</th><th class="n">heat 50%</th><th class="n">heat 90%</th><th class="n">heat 99%</th><th class="n">2025</th><th class="n">2026</th><th class="n">2023–24</th><th class="n">trades/day</th><th class="n">lowest equity</th></tr>`+best.map(r=>`<tr${r.sig==="RANDOM"?' class="muted"':""}><td>${r.sig.replace(/_/g," ").toLowerCase()}${ok(r)?' <span class="chip good">survives</span>':""}</td><td>M${r.tf} · ${r.f.replace(/_/g," ").toLowerCase()}</td><td class="n">${(hit(r)*100).toFixed(1)}%</td>${["mae50","mae90","mae99"].map(k=>`<td class="n">${m$(Math.max(...r.p.map(p=>p[k])))}</td>`).join("")}${r.p.map(p=>`<td class="n ${cls(p.net)}">${p.blown?"blown":m$(p.net)}</td>`).join("")}<td class="n">${perDay(r).toFixed(2)}</td><td class="n">${m$(Math.min(...r.p.map(p=>p.minEq)))}</td></tr>`).join("");
+}
+$("eExit").onchange=entries;$("eSess").onchange=entries;entries();
+
+// plan cards
+(function(){
+  const pick=(sig,tf,f,ex,se)=>rows.find(r=>r.sig===sig&&r.tf===tf&&r.f===f&&r.ex===ex&&r.se.startsWith(se));
+  const plans=[
+   {t:"A · London engulfing reversal",r:pick("ENGULF_EXTREME",5,"VWAP_DISCOUNT","STOP300","LONDON"),rules:["03:00–06:00 New York (09:00–12:00 server time +7).","M5: a bullish engulfing candle whose low (or the candle before) is the lowest of the last 20 candles; sell on the mirror at a 20-candle high.","Only buy under the VWAP, only sell over it.","Enter at the next candle's open, 0.1 lot. Take +$20. Emergency stop −$300. Anything open closes at 16:55 NY."]},
+   {t:"B · New York FVG 50% retrace",r:pick("FVG50",5,"VWAP_FLOW","HOLD","NY"),rules:["08:30–11:30 New York.","M5: a bullish fair value gap (this candle's low above the high two candles back, the middle candle larger than average). Sell on the mirror.","Only buy over the VWAP, only sell under it.","Buy limit at the middle of the gap for the next 12 minutes; 0.1 lot; take +$20. No stop: held until +$20, overnight if needed. This needs the bigger cushion: floating losses reached about −$700 in 1% of trades."]}
+  ];
+  $("plan").innerHTML=plans.map(p=>p.r?`<article class="card"><h3>${p.t}</h3><ul>${p.rules.map(x=>`<li>${x}</li>`).join("")}</ul>
+   <div class="pgrid"><span class="h"></span><span class="h">2025</span><span class="h">2026</span><span class="h">2023–24</span>
+   <span class="h">net</span>${p.r.p.map(x=>`<span class="${cls(x.net)}">${m$(x.net)}</span>`).join("")}
+   <span class="h">trades</span>${p.r.p.map(x=>`<span>${x.N}</span>`).join("")}
+   <span class="h">hit %</span>${p.r.p.map(x=>`<span>${(x.hits/x.N*100).toFixed(1)}</span>`).join("")}
+   <span class="h">worst trade</span>${p.r.p.map(x=>`<span class="neg">${m$(x.worst)}</span>`).join("")}
+   <span class="h">max DD</span>${p.r.p.map(x=>`<span>${m$(x.dd)}</span>`).join("")}
+   <span class="h">green days</span>${p.r.p.map(x=>`<span>${Math.round(x.upDays/x.days*100)}%</span>`).join("")}</div></article>`:"").join("");
+})();
+
+// explorer
+const opt=(id,v,l)=>fillS(id,["all",...v],x=>x==="all"?"all":l?l(x):x);
+opt("xSig",[...new Set(rows.map(r=>r.sig))]);opt("xTf",[1,5,15],x=>"M"+x);opt("xF",[...new Set(rows.map(r=>r.f))]);opt("xEx",exits,exitName);opt("xSe",sess);
+function xt(){
+  const v=id=>$(id).value;let g=rows.filter(r=>(v("xSig")==="all"||r.sig===v("xSig"))&&(v("xTf")==="all"||r.tf==+v("xTf"))&&(v("xF")==="all"||r.f===v("xF"))&&(v("xEx")==="all"||r.ex===v("xEx"))&&(v("xSe")==="all"||r.se===v("xSe"))&&(v("xOk")==="0"||ok(r)));
+  g.sort((a,b)=>score(b)-score(a));$("xCount").textContent=`${g.length.toLocaleString()} settings · showing ${Math.min(250,g.length)}`;
+  $("xt").innerHTML=`<tr><th>Entry</th><th>TF</th><th>Filter</th><th>Exit</th><th>Session</th><th class="n">hit</th><th class="n">2025</th><th class="n">2026</th><th class="n">2023–24</th><th class="n">worst</th><th class="n">heat 99%</th><th class="n">lots max</th></tr>`+g.slice(0,250).map(r=>`<tr><td>${r.sig.replace(/_/g," ").toLowerCase()}</td><td>M${r.tf}</td><td>${r.f.replace(/_/g," ").toLowerCase()}</td><td>${r.ex}</td><td>${r.se.split(" ")[0]}</td><td class="n">${(hit(r)*100).toFixed(1)}%</td>${r.p.map(p=>`<td class="n ${cls(p.net)}">${p.blown?"blown":m$(p.net)}</td>`).join("")}<td class="n neg">${m$(Math.min(...r.p.map(p=>p.worst)))}</td><td class="n">${m$(Math.max(...r.p.map(p=>p.mae99)))}</td><td class="n">${Math.max(...r.p.map(p=>p.maxLots)).toFixed(1)}</td></tr>`).join("");
+}
+["xSig","xTf","xF","xEx","xSe","xOk"].forEach(id=>$(id).onchange=xt);xt();
+</script>

@@ -8,7 +8,7 @@ public static class Lab6
     static readonly CultureInfo IC = CultureInfo.InvariantCulture;
     public sealed class M1 { public string Name; public int N; public float[] O, H, L, C; public double[] V; public int[] Min, Day; public DateTime[] T; public double Cost; public sbyte[] H1Trend; }
     sealed class Ser { public List<float> O = new List<float>(), H = new List<float>(), L = new List<float>(), C = new List<float>(); public List<double> V = new List<double>(); public List<int> End = new List<int>(); }
-    public struct Sig { public int At; public sbyte Dir; public float Atr; public sbyte Trend; public bool AtrHi; }
+    public struct Sig { public int At; public sbyte Dir; public float Atr; public sbyte Trend; public bool AtrHi; public float Px, Vw, Lim; }
     public static readonly string[] Sigs = { "BRK5", "DON20", "EMA_PULLBACK", "EMA_CROSS", "FVG", "ORB", "INSIDE_BAR", "VWAP_CROSS", "RSI_REVERSAL", "BB_REVERSAL", "VWAP_STRETCH", "ENGULF_EXTREME", "AGGRESSION_REV", "RANDOM" };
     public static string Family(string s) { return s == "RANDOM" ? "CONTROL" : Array.IndexOf(Sigs, s) >= 8 ? "REVERSAL" : "TREND"; }
     public static readonly int[] Tfs = { 1, 5, 15, 60 };
@@ -56,7 +56,7 @@ public static class Lab6
         int orbFrom = m.Name == "GOLD" ? 500 : 570, orbTo = orbFrom + 15;
         for (int i = 21; i < n; i++)
         {
-            int d = 0; double avgV = 0, avgR = 0; for (int k = i - 20; k < i; k++) { avgV += V[k]; avgR += H[k] - L[k]; } avgV /= 20; avgR /= 20;
+            int d = 0; double lim = double.NaN; double avgV = 0, avgR = 0; for (int k = i - 20; k < i; k++) { avgV += V[k]; avgR += H[k] - L[k]; } avgV /= 20; avgR /= 20;
             switch (sig)
             {
                 case "BRK5": case "DON20":
@@ -85,12 +85,19 @@ public static class Lab6
                       if (m.Min[e] >= orbTo && !orbDone && orbH == double.MinValue) { for (int k = e; k >= 0 && m.Day[k] == dd; k--) if (m.Min[k] >= orbFrom && m.Min[k] < orbTo) { orbH = Math.Max(orbH, m.H[k]); orbL = Math.Min(orbL, m.L[k]); } }
                       if (!orbDone && orbH > double.MinValue && m.Min[e] >= orbTo) { d = C[i] > orbH ? 1 : C[i] < orbL ? -1 : 0; if (d != 0) orbDone = true; }
                       break; }
+                case "FVG50": d = L[i] > H[i - 2] && C[i - 1] - O[i - 1] > avgR ? 1 : H[i] < L[i - 2] && O[i - 1] - C[i - 1] > avgR ? -1 : 0; lim = d > 0 ? (L[i] + H[i - 2]) / 2 : d < 0 ? (H[i] + L[i - 2]) / 2 : double.NaN; break;
+                case "SWEEP":   // a stop hunt: the candle takes the last 20 candles' low (high) and closes back inside
+                    { double ll = double.MaxValue, hh = double.MinValue; for (int k = i - 20; k < i; k++) { ll = Math.Min(ll, L[k]); hh = Math.Max(hh, H[k]); }
+                      d = L[i] < ll && C[i] > ll ? 1 : H[i] > hh && C[i] < hh ? -1 : 0; break; }
+                case "VWAP_REJECT":   // above the VWAP for the last 6 candles, this one dips to it and closes back above (mirror for sells)
+                    { bool above = true, below = true; for (int k = i - 6; k < i; k++) { if (L[k] <= vw[k]) above = false; if (H[k] >= vw[k]) below = false; }
+                      d = above && L[i] <= vw[i] && C[i] > vw[i] ? 1 : below && H[i] >= vw[i] && C[i] < vw[i] ? -1 : 0; break; }
                 case "RANDOM": d = rng.NextDouble() < 0.08 ? (rng.Next(2) == 0 ? 1 : -1) : 0; break;
             }
-            bool fresh = sig == "RANDOM" || sig == "ORB" || d != lastDir; lastDir = d;
+            bool fresh = sig == "RANDOM" || sig == "ORB" || sig == "SWEEP" || d != lastDir; lastDir = d;
             if (d == 0 || !fresh) continue;
             int at = s.End[i] + 1; if (at >= m.N || m.Day[at] != m.Day[s.End[i]]) continue;
-            res.Add(new Sig { At = at, Dir = (sbyte)d, Atr = (float)atr[i], Trend = m.H1Trend[s.End[i]], AtrHi = atr[i] > atrAvg[i] });
+            res.Add(new Sig { At = at, Dir = (sbyte)d, Atr = (float)atr[i], Trend = m.H1Trend[s.End[i]], AtrHi = atr[i] > atrAvg[i], Px = C[i], Vw = (float)vw[i], Lim = (float)lim });
         }
         return res;
     }
@@ -256,6 +263,91 @@ public static class Lab6
         Console.WriteLine("BOX profitable in all 3 periods: " + res.Count(x => x.Net.All(v => v > 0)) + " of " + res.Length + " (swap paid: " + res.Count(x => !x.SwapFree && x.Net.All(v => v > 0)) + ")");
         Func<double[], string> A = v => "[" + string.Join(",", v.Select(x => F(x, 0))) + "]";
         return "[" + string.Join(",", res.Select(r => "[\"" + r.Inst + "\"," + r.K + "," + F(r.Buf, 1) + "," + F(r.Tgt, 0) + "," + (r.SwapFree ? 1 : 0) + "," + A(r.Net) + "," + A(r.Dd) + "," + A(r.Worst) + "," + A(r.Swap) + ",[" + string.Join(",", r.Baskets) + "]," + "[" + string.Join(",", r.AvgDays.Select(x => F(x, 1))) + "]," + A(r.MaxDays) + "," + A(r.MaxGross) + "]")) + "]";
+    }
+
+    // ===== part 7: the user's plan on gold — $5,000, 0.1 lot, +$20 a trade, one trade at a time all day, NO stop (or an emergency stop),
+    // which entry gets to +$20 most often with the smallest heat against it?
+    public sealed class S7 { public double MaxLots = 0.1; public int N, Hits; public double Net, Win, Loss, Dd, Worst, MinEq = 5000; public bool Blown; public List<double> Mae = new List<double>(); public List<int> Mins = new List<int>(); public HashSet<int> Days = new HashSet<int>(); public Dictionary<int, double> DayPl = new Dictionary<int, double>(); }
+    public static S7[] Run7(M1 m, List<Sig> sigs, string filter, string exit, int sf, int st, double tgtUsd)
+    {
+        var r = new S7[3]; double[] eq = new double[3], pk = new double[3]; for (int p = 0; p < 3; p++) { r[p] = new S7(); eq[p] = pk[p] = 5000; }
+        int busyTo = -1; double tgtMove = tgtUsd / 10 + 0.20, cost = 0.27, stopMove = exit.StartsWith("STOP") ? double.Parse(exit.Substring(4), IC) / 10 : double.MaxValue;
+        foreach (var g in sigs)
+        {
+            if (g.At <= busyTo) continue; int mn = m.Min[g.At]; if (mn < sf || mn >= st) continue;
+            if (filter == "H1_TREND" && g.Trend != g.Dir) continue; if (filter == "H1_AGAINST" && g.Trend != -g.Dir) continue;
+            if (filter == "VWAP_DISCOUNT" && (g.Dir > 0 ? g.Px >= g.Vw : g.Px <= g.Vw)) continue;   // buy under the VWAP, sell over it
+            if (filter == "VWAP_FLOW" && (g.Dir > 0 ? g.Px <= g.Vw : g.Px >= g.Vw)) continue;       // buy over the VWAP, sell under it
+            int p = Period(m.Day[g.At]); if (p < 0 || r[p].Blown) continue;
+            // a limit fills only when price trades THROUGH it (a buy: the ask = the bid + 0.20 spread)
+            int start = g.At; double e = m.O[g.At], d = g.Dir;
+            if (!float.IsNaN(g.Lim)) { start = -1; for (int j = g.At; j < Math.Min(m.N, g.At + 12) && m.Day[j] == m.Day[g.At]; j++) if (d > 0 ? m.L[j] <= g.Lim - 0.25 : m.H[j] >= g.Lim + 0.05) { start = j; e = g.Lim; break; } if (start < 0) continue; }
+            if (exit.StartsWith("ZR"))
+            {   // the exact zone recovery: each new leg is sized so the WHOLE basket is +$20 net when price runs T past the leg's line
+                var zp = exit.Substring(2).Split('x'); double Z = double.Parse(zp[0], IC) / 10, T = tgtUsd / 10; int maxL = int.Parse(zp[1], IC);
+                var px = new List<double> { e }; var lt = new List<double> { d }; double up = d > 0 ? e : e + Z, dn = d > 0 ? e - Z : e, bmae = 0, res7 = 0, maxLots = 1; int jj = start, end7 = start; bool ok = false;
+                Func<double, double> PL = q => { double t = 0; for (int k = 0; k < px.Count; k++) t += (q - px[k]) * lt[k] - Math.Abs(lt[k]) * cost; return t; };
+                for (; jj < m.N; jj++)
+                {
+                    if (m.Day[jj] != m.Day[start]) { res7 = PL(m.C[jj - 1]); end7 = jj - 1; break; }
+                    if (m.Min[jj] >= 1015) { res7 = PL(m.O[jj]); end7 = jj; break; }
+                    double net = lt.Sum(), line = net > 0 ? dn : up; bool added = false, fail = false;
+                    if (net > 0 ? m.L[jj] <= line : m.H[jj] >= line)
+                    {
+                        if (px.Count >= maxL) fail = true;
+                        else { double nd = -Math.Sign(net), aim = line + nd * T; double size = Math.Ceiling((T - PL(aim)) / (T - cost) * 10) / 10; px.Add(line); lt.Add(nd * size); maxLots = Math.Max(maxLots, lt.Sum(x => Math.Abs(x))); added = true; net = lt.Sum(); }
+                    }
+                    if (fail) { res7 = PL(line); end7 = jj; break; }
+                    double worst = net > 0 ? m.L[jj] : m.H[jj], best = net > 0 ? m.H[jj] : m.L[jj];
+                    bmae = Math.Max(bmae, -PL(worst));
+                    if (!added && PL(best) >= T) { res7 = T; ok = true; end7 = jj; break; }
+                }
+                if (jj >= m.N) { end7 = m.N - 1; res7 = PL(m.C[end7]); }
+                double pz = res7 * 10; var sz = r[p]; sz.N++; if (ok) { sz.Hits++; sz.Mins.Add(end7 - start + 1); } if (pz > 0) sz.Win += pz; else sz.Loss -= pz; sz.Net += pz; sz.Worst = Math.Min(sz.Worst, pz); sz.Mae.Add(bmae * 10); sz.Days.Add(m.Day[start]);
+                sz.DayPl[m.Day[start]] = (sz.DayPl.TryGetValue(m.Day[start], out var dz) ? dz : 0) + pz; sz.MaxLots = Math.Max(sz.MaxLots, maxLots / 10);
+                sz.MinEq = Math.Min(sz.MinEq, eq[p] - bmae * 10); sz.Dd = Math.Max(sz.Dd, pk[p] - (eq[p] - bmae * 10)); eq[p] += pz; pk[p] = Math.Max(pk[p], eq[p]); if (eq[p] - bmae * 10 <= 0) sz.Blown = true;
+                busyTo = end7; continue;
+            }
+            double mae = 0, exitPx = e, swap = 0; bool hit = false; int j2 = start, endI = start, prev = m.Min[start], days = 0;
+            for (; j2 < m.N; j2++)
+            {
+                if (exit != "HOLD") { if (m.Day[j2] != m.Day[start]) { exitPx = m.C[j2 - 1]; endI = j2 - 1; break; } if (m.Min[j2] >= 1015) { exitPx = m.O[j2]; endI = j2; break; } }
+                else { if (prev < 1020 && m.Min[j2] >= 1020) { swap += 0.25; days++; } prev = m.Min[j2]; if (days > 30) { exitPx = m.O[j2]; endI = j2; break; } }
+                double adv = d > 0 ? e - m.L[j2] : m.H[j2] - e, fav = d > 0 ? m.H[j2] - e : e - m.L[j2];
+                if (adv >= stopMove) { mae = stopMove; exitPx = e - d * stopMove; endI = j2; break; }
+                mae = Math.Max(mae, adv);
+                if (eq[p] - mae * 10 <= 0) { r[p].Blown = true; exitPx = e - d * mae; endI = j2; break; }
+                if (fav >= tgtMove) { hit = true; exitPx = e + d * tgtMove; endI = j2; break; }
+            }
+            if (j2 >= m.N) { endI = m.N - 1; exitPx = m.C[endI]; }
+            double pl = ((exitPx - e) * d - cost - swap) * 10; var s = r[p];
+            s.N++; if (hit) { s.Hits++; s.Mins.Add(endI - start + 1); } if (pl > 0) s.Win += pl; else s.Loss -= pl; s.Net += pl; s.Worst = Math.Min(s.Worst, pl); s.Mae.Add(mae * 10); s.Days.Add(m.Day[start]);
+            s.DayPl[m.Day[start]] = (s.DayPl.TryGetValue(m.Day[start], out var dp) ? dp : 0) + pl;
+            s.MinEq = Math.Min(s.MinEq, eq[p] - mae * 10); s.Dd = Math.Max(s.Dd, pk[p] - (eq[p] - mae * 10)); eq[p] += pl; pk[p] = Math.Max(pk[p], eq[p]); if (eq[p] <= 0) s.Blown = true;
+            busyTo = endI;
+        }
+        return r;
+    }
+    public static void Scalp20(M1 m, string outJson)
+    {
+        var sigs = new[] { "RANDOM", "BRK5", "FVG", "FVG50", "VWAP_CROSS", "VWAP_REJECT", "VWAP_STRETCH", "SWEEP", "AGGRESSION_REV", "EMA_PULLBACK", "RSI_REVERSAL", "BB_REVERSAL", "ENGULF_EXTREME", "ORB", "INSIDE_BAR" };
+        var tfs = new[] { 1, 5, 15 }; var filters = new[] { "NONE", "H1_TREND", "H1_AGAINST", "VWAP_DISCOUNT", "VWAP_FLOW" }; var exits = new[] { "EOD", "HOLD", "STOP100", "STOP200", "STOP300", "ZR20x3", "ZR20x4", "ZR20x5", "ZR40x3", "ZR40x4", "ZR40x5", "ZR60x3", "ZR60x4" };
+        var sess = new[] { ("ALL DAY 03:00-15:30", 180, 930), ("NY 08:30-11:30", 510, 690), ("LONDON 03:00-06:00", 180, 360) };
+        var cache = new System.Collections.Concurrent.ConcurrentDictionary<string, List<Sig>>();
+        Parallel.ForEach(sigs.SelectMany(s => tfs.Select(t => (s, t))), x => cache[x.s + x.t] = Signals(m, x.t, x.s));
+        var jobs = new List<(string sig, int tf, string f, string ex, (string, int, int) se)>();
+        foreach (var sg in sigs) foreach (var tf in tfs) foreach (var f in filters) foreach (var ex in exits) foreach (var se in sess) jobs.Add((sg, tf, f, ex, se));
+        var res = new S7[jobs.Count][]; Parallel.For(0, jobs.Count, i => { var j = jobs[i]; res[i] = Run7(m, cache[j.sig + j.tf], j.f, j.ex, j.se.Item2, j.se.Item3, 20); });
+        Func<List<double>, double, double> Q = (l, q) => { if (l.Count == 0) return 0; var o = l.OrderBy(x => x).ToList(); return o[(int)Math.Min(o.Count - 1, Math.Floor(q * (o.Count - 1)))]; };
+        Func<S7, string> St = s => "[" + s.N + "," + s.Hits + "," + F(s.Net, 0) + "," + F(s.Win, 0) + "," + F(s.Loss, 0) + "," + F(s.Dd, 0) + "," + F(s.Worst, 0) + "," + (s.Blown ? 1 : 0) + "," + F(Q(s.Mae, .5), 0) + "," + F(Q(s.Mae, .9), 0) + "," + F(Q(s.Mae, .99), 0) + "," + F(s.Mae.Count > 0 ? s.Mae.Max() : 0, 0) + "," + F(Q(s.Mins.Select(x => (double)x).ToList(), .5), 0) + "," + s.Days.Count + "," + s.DayPl.Count(x => x.Value > 0) + "," + F(s.DayPl.Count > 0 ? s.DayPl.Values.Min() : 0, 0) + "," + F(s.MinEq, 0) + "," + F(s.MaxLots, 1) + "]";
+        var sb = new StringBuilder("{\"generated\":\"" + DateTime.Now.ToString("yyyy-MM-dd HH:mm", IC) + "\",\"rows\":[");
+        for (int i = 0; i < jobs.Count; i++) { var j = jobs[i]; sb.Append((i > 0 ? "," : "") + "[\"" + j.sig + "\"," + j.tf + ",\"" + j.f + "\",\"" + j.ex + "\",\"" + j.se.Item1 + "\"," + St(res[i][0]) + "," + St(res[i][1]) + "," + St(res[i][2]) + "]"); }
+        sb.Append("]}"); System.IO.File.WriteAllText(outJson, sb.ToString());
+        Func<S7[], double> worst = r => r.Any(x => x.Blown || x.N < 30) ? -1e9 : r.Min(x => x.Net);
+        var ord = Enumerable.Range(0, jobs.Count).OrderByDescending(i => worst(res[i])).ToList();
+        Console.WriteLine("profitable in all 3 periods, never blown, 30+ trades each: " + ord.Count(i => worst(res[i]) > 0) + " of " + jobs.Count + " (RANDOM: " + ord.Count(i => worst(res[i]) > 0 && jobs[i].sig == "RANDOM") + ")");
+        foreach (var ex in exits) Console.WriteLine(string.Format(IC, "  exit {0,-8} profitable all 3: {1,4} / {2}   blown in some period: {3}", ex, ord.Count(i => jobs[i].ex == ex && worst(res[i]) > 0), jobs.Count(j => j.ex == ex), Enumerable.Range(0, jobs.Count).Count(i => jobs[i].ex == ex && res[i].Any(x => x.Blown))));
+        foreach (var i in ord.Take(25)) { var j = jobs[i]; var r = res[i]; Console.WriteLine(string.Format(IC, "  {0}|M{1}|{2}|{3}|{4}: net {5:N0}/{6:N0}/{7:N0} hit {8:0.0}% n {9}/{10}/{11} DD {12:N0} worst {13:N0} mae99 {14:N0}", j.sig, j.tf, j.f, j.ex, j.se.Item1, r[0].Net, r[1].Net, r[2].Net, 100.0 * r.Sum(x => x.Hits) / Math.Max(1, r.Sum(x => x.N)), r[0].N, r[1].N, r[2].N, r.Max(x => x.Dd), r.Min(x => x.Worst), Q(r.SelectMany(x => x.Mae).ToList(), .99))); }
     }
     static string F(double v, int d) { if (double.IsNaN(v) || double.IsInfinity(v)) v = 0; return v.ToString("F" + d, IC); }
 }

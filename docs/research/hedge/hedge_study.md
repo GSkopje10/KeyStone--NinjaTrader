@@ -221,3 +221,12 @@ Report: `docs/research/hedge/report.html` (data `lab6.json`, template `report_te
   Gold: 25 of 96 settings win in all three periods (roll / weekend gaps closed), but ONLY on a swap-free account (0 when swap is paid).
   Best: K 96 h, buffer 0.5 ATR, target 1 ATR → +$24k / +$24k / +$23k per 0.1 lot base, max DD $11k, worst open basket −$11k, up to 33 units open.
   Nasdaq: no setting wins in all periods. The method rides trends (gold 2023-26) while parking losses: deep floating drawdowns.
+
+## Part 7 — the user's plan: $5,000, 0.1 lot, +$20 a basket, iterations all day (`lab6 scalp20`, report `scalp20.html`)
+
+- 8,775 settings (15 entries incl. RANDOM × M1/M5/M15 × 5 filters × 13 exits × 3 sessions). Limit entries fill only when price trades through.
+- Exact zone recovery (each leg sized so the basket is +$20 at $2 past the line): $2 zone → 0 of 1,890 survive, 1,450 blow $5k.
+  Theory ($2 zone): P(fail) halves per leg; 5 legs = 4.6 lots open, fails 1 in 32 baskets for −$620 (= the 31 wins). Expectancy 0 − costs for ANY hedge plan.
+- Survivors ≈ the luck rate (120 / 8,190 real vs 8 / 585 random). Families that hold across filters/exits: engulfing at a 20-candle
+  extreme (M5, London, +$20, stop −$300 or close at 16:55) and the FVG 50% retrace (M5, NY 08:30-11:30, VWAP flow, hold until +$20).
+- An earlier M1 FVG 50% "winner" was a limit-fill artifact and vanished with realistic fills.
