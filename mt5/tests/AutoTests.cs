@@ -178,7 +178,13 @@ public static class AutoTests
         Check(Math.Abs(diff + (10000 + au.Iterations.Sum(x => x.Result) - 5000)) < 0.6 && Math.Abs(sbb.Account.Balance - 5000) < 1e-9 && sbb.State.Deals.Last().Type == "BALANCE" && Math.Abs(sbb.State.Account.Balance - 5000) < 0.01, "set balance: 5 000, booked as a balance deal", diff + " " + sbb.Account.Balance);
         // 24. the setups scanner reads the candles without trading (A / B / BOX states)
         var scan = SetupScan.Scan(sbb, "XAUUSD", -7);
-        Check(scan.Count == 3 && scan.All(x => x.Level == "STRONG" || x.Level == "WEAK" || x.Level == "WAIT") && sbb.State.Positions.Count == 0, "setups scanner: three states, no order", string.Join(" | ", scan.Select(x => x.Name + " " + x.Level)));
+        Check(scan.Count == 4 && scan.All(x => x.Level == "STRONG" || x.Level == "WEAK" || x.Level == "WAIT") && sbb.State.Positions.Count == 0, "setups scanner: four cards, no order", string.Join(" | ", scan.Select(x => x.Name + " " + x.Level)));
+
+        // 25. model C: 10 candles climbing above the day's VWAP, one dips to it and closes back above → BUY, no hedge, +$20
+        var vr = Path(Day1.AddHours(10), 4000, Line(4000, 0.5, 10)); vr.Add(new Mt5Bar { Time = Day1.AddHours(10).AddMinutes(10), O = 4005, H = 4005.3, L = 4001.5, C = 4005.2, V = 100, Spread = 10 }); vr.AddRange(Path(Day1.AddHours(10).AddMinutes(11), 4005.2, Line(4005.2, 0.5, 20)));
+        var sC = AutoSettings.Model("C", S()); sC.Tf = 1; sC.Windows = ""; sC.MaxIterations = 1;
+        r = Run(vr, sC); au = r.Item2; it = au.Iterations.FirstOrDefault();
+        Check(au.Trades.Count == 1 && au.Trades[0].Side == "BUY" && au.Trades[0].Why.Contains("VWAP REJECTION") && it != null && it.Reason == "TARGET", "model C: a dip to the VWAP closing back above → BUY, +$20, no add-on", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Why)) + " / " + (it == null ? "none" : it.Reason));
 
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();

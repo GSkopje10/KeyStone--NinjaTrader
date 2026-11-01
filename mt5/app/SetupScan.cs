@@ -2,6 +2,7 @@
 //   A  London engulfing reversal (M5): an engulfing candle at a 20-candle low / high, buy under the VWAP / sell over it, 03:00-06:00 New York
 //   B  New York FVG 50% (M5): a strong fair value gap, buy over the VWAP / sell under it, the limit at the gap's middle, 08:30-11:30 New York
 //   BOX the consolidation of the last 96 H1 candles: inside it = do NOT hedge (wait); a break of its high / low = the side to hedge / flip to
+//   C  all day VWAP rejection (M15): 6 candles away from the VWAP, a candle back to it closing away again, 03:00-15:30 New York
 // STRONG = every condition the research needs; WEAK = the signal is there but a condition is missing (named); WAIT = no signal.
 using System;
 using System.Collections.Generic;
@@ -35,15 +36,15 @@ namespace KeystoneMT5
         public static List<SetupState> Scan(IBroker br, string sym, int nyOffset)
         {
             var res = new List<SetupState>(); if (br == null || string.IsNullOrWhiteSpace(sym)) return res;
-            List<Mt5Bar> m5, h1; DateTime now; double bid = double.NaN;
+            List<Mt5Bar> m5, h1, m15; DateTime now; double bid = double.NaN;
             lock (br.State.Gate)
             {
                 var st = br.State; now = st.ServerNow > DateTime.MinValue ? st.ServerNow : DateTime.Now; Mt5Quote q; if (st.Quotes.TryGetValue(sym, out q)) bid = q.Bid;
-                m5 = Fin(st, sym, 5, now, 300); h1 = Fin(st, sym, 60, now, 100);
-                if (!br.IsSim) foreach (var tf in new[] { 5, 60 }) { var se = st.SeriesOf(sym, tf); if (!se.Loaded && (DateTime.Now - se.AskedAt).TotalSeconds > 5) { se.AskedAt = DateTime.Now; br.Send("BARS|" + sym + "|" + tf + "|300"); } }
+                m5 = Fin(st, sym, 5, now, 300); h1 = Fin(st, sym, 60, now, 100); m15 = Fin(st, sym, 15, now, 100);
+                if (!br.IsSim) foreach (var tf in new[] { 5, 15, 60 }) { var se = st.SeriesOf(sym, tf); if (!se.Loaded && (DateTime.Now - se.AskedAt).TotalSeconds > 5) { se.AskedAt = DateTime.Now; br.Send("BARS|" + sym + "|" + tf + "|300"); } }
             }
             var ny = now.AddHours(nyOffset); int nm = ny.Hour * 60 + ny.Minute; double vw = Vwap(m5, now);
-            res.Add(A(m5, vw, bid, nm)); res.Add(B(m5, vw, bid, nm)); res.Add(Box(h1, bid));
+            res.Add(A(m5, vw, bid, nm)); res.Add(B(m5, vw, bid, nm)); res.Add(C(m15, now, nm)); res.Add(Box(h1, bid));
             return res;
         }
 
@@ -89,6 +90,20 @@ namespace KeystoneMT5
                 return s;
             }
             s.Text = (In(nm, 510, 690) ? "in the NY window" : "outside 08:30-11:30 NY") + " • no fresh strong M5 gap";
+            return s;
+        }
+
+        static SetupState C(List<Mt5Bar> f, DateTime now, int nm)
+        {
+            var s = new SetupState { Name = "C · all day VWAP rejection (M15)" };
+            var day = f.Where(x => x.Time.Date == now.Date).Reverse().ToList(); bool win = In(nm, 180, 930);
+            if (day.Count < 7) { s.Text = (win ? "in 03:00-15:30 NY" : "outside 03:00-15:30 NY") + " • fewer than 7 M15 candles today"; return s; }
+            var vw = new double[day.Count]; double pv = 0, vv = 0; for (int i = 0; i < day.Count; i++) { double w = Math.Max(1, day[i].V); pv += (day[i].H + day[i].L + day[i].C) / 3 * w; vv += w; vw[i] = pv / vv; }
+            int n = day.Count - 1; bool above = true, below = true; for (int k = n - 6; k < n; k++) { if (day[k].L <= vw[k]) above = false; if (day[k].H >= vw[k]) below = false; }
+            var c = day[n]; int d = above && c.L <= vw[n] && c.C > vw[n] ? 1 : below && c.H >= vw[n] && c.C < vw[n] ? -1 : 0;
+            if (d == 0) { s.Text = (win ? "in 03:00-15:30 NY" : "outside 03:00-15:30 NY") + " • VWAP " + P(vw[n]) + (above ? " • 6+ candles ABOVE it: watch for a dip that closes back above (buy)" : below ? " • 6+ candles UNDER it: watch for a rise that closes back under (sell)" : " • price is crossing the VWAP (no trend away from it)"); s.Level = above || below ? "WEAK" : "WAIT"; return s; }
+            s.Dir = d; s.Price = c.C; s.Level = win ? "STRONG" : "WEAK";
+            s.Text = (d > 0 ? "BUY" : "SELL") + " — the " + c.Time.ToString("HH:mm", IC) + " candle rejected the VWAP " + P(vw[n]) + (win ? " • +$20, emergency stop −$200, close 16:55 NY" : " • missing: outside 03:00-15:30 NY");
             return s;
         }
 

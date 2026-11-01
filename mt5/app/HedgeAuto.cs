@@ -50,6 +50,7 @@ namespace KeystoneMT5
             var s = b.Copy(); s.Preset = name; s.FirstDir = "AUTO"; s.NextStart = "BREAK"; s.AddToWinner = false; s.PerDay = 0; s.MaxIterations = 0; s.NewsMode = "IGNORE"; s.FvgAge = 0; s.FvgStrict = false;
             if (name == "A") { s.Tf = 5; s.EntryMode = "ENGULF"; s.VwapFilter = "DISCOUNT"; s.HedgeMode = "NONE"; s.EntryLots = 0.1; s.AddLots = 0.2; s.Target = 20; s.MaxDrawdown = 300; s.AfterDrawdown = "NEXT"; s.Windows = "03:00-06:00"; s.CloseAtNy = "16:55"; }
             else if (name == "B") { s.Tf = 5; s.FvgTf = 5; s.EntryMode = "FVG50"; s.FvgAge = 12; s.FvgStrict = true; s.VwapFilter = "FLOW"; s.HedgeMode = "NONE"; s.EntryLots = 0.1; s.AddLots = 0.2; s.Target = 20; s.MaxDrawdown = 0; s.AfterDrawdown = "NEXT"; s.Windows = "08:30-11:30"; s.CloseAtNy = ""; }
+            else if (name == "C") { s.Tf = 15; s.Swing = false; s.Lookback = 100; s.EntryMode = "VWAPREJ"; s.VwapFilter = "NONE"; s.HedgeMode = "NONE"; s.EntryLots = 0.1; s.AddLots = 0.2; s.Target = 20; s.MaxDrawdown = 200; s.AfterDrawdown = "NEXT"; s.Windows = "03:00-15:30"; s.CloseAtNy = "16:55"; }
             else if (name == "BOX") { s.Tf = 60; s.Swing = false; s.Lookback = 96; s.EntryMode = "BREAK"; s.VwapFilter = "NONE"; s.HedgeMode = "BREAK"; s.Rolling = true; s.EntryLots = 0.1; s.AddLots = 0.2; s.Target = 150; s.MaxDrawdown = 0; s.AfterDrawdown = "STOP"; s.Windows = ""; s.CloseAtNy = ""; }
             return s;
         }
@@ -323,10 +324,10 @@ namespace KeystoneMT5
                 fvgs.Remove(z); dir = z.Dir; lvl = z.Dir > 0 ? z.Top : z.Bottom; why = (dir > 0 ? "FVG BUY — the retest of the bullish gap " : "FVG SELL — the retest of the bearish gap ") + P(z.Bottom) + "–" + P(z.Top);
                 story = "a " + (dir > 0 ? "bullish" : "bearish") + " FAIR VALUE GAP " + P(z.Bottom) + "–" + P(z.Top) + " formed by the three " + Tf.Name(Set.FvgTf) + " candles ending " + z.Time.ToString("HH:mm", IC) + " (" + (dir > 0 ? "the 3rd candle's low above the 1st candle's high" : "the 3rd candle's high under the 1st candle's low") + ") on " + Tf.Name(Set.FvgTf) + "; the bid came back into it (" + P(prevBid) + " → " + P(sn.Bid) + ")";
             }
-            else if (Set.EntryMode == "ENGULF")
+            else if (Set.EntryMode == "ENGULF" || Set.EntryMode == "VWAPREJ")
             {
                 if (engDir == 0 || (only != 0 && engDir != only) || sn.Fin.Count == 0 || sn.Fin[0].Time != engBar) return false;
-                dir = engDir; engDir = 0; lvl = sn.Bid; why = "ENGULFING " + (dir > 0 ? "BUY at a 20-candle low" : "SELL at a 20-candle high"); story = engStory;
+                dir = engDir; engDir = 0; lvl = sn.Bid; why = Set.EntryMode == "VWAPREJ" ? "VWAP REJECTION " + (dir > 0 ? "BUY" : "SELL") : "ENGULFING " + (dir > 0 ? "BUY at a 20-candle low" : "SELL at a 20-candle high"); story = engStory;
             }
             else if (Set.EntryMode == "FVG50")
             {
@@ -391,6 +392,17 @@ namespace KeystoneMT5
             }
             if (Set.EntryMode.StartsWith("FVG") && Set.FvgAge > 0) fvgs.RemoveAll(f => f.Time.AddMinutes(Set.FvgTf + Set.FvgAge) < Now);   // the gap's 3rd candle closes FvgTf after its time
             if (sn.Fin.Count == 0 || sn.Fin[0].Time == sigBar) return; sigBar = sn.Fin[0].Time;
+            if (Set.EntryMode == "VWAPREJ")
+            {   // the day's candles oldest first, the VWAP at each one: 6 candles fully above it, then this one dips to it and closes back above → BUY (mirror → SELL)
+                var day = sn.Fin.Where(x => x.Time.Date == sn.Fin[0].Time.Date).Reverse().ToList(); engDir = 0; engBar = sn.Fin[0].Time;
+                if (day.Count >= 7)
+                {
+                    var vw = new double[day.Count]; double pv = 0, vv = 0; for (int i = 0; i < day.Count; i++) { double w = Math.Max(1, day[i].V); pv += (day[i].H + day[i].L + day[i].C) / 3 * w; vv += w; vw[i] = pv / vv; }
+                    int n = day.Count - 1; bool above = true, below = true; for (int k = n - 6; k < n; k++) { if (day[k].L <= vw[k]) above = false; if (day[k].H >= vw[k]) below = false; }
+                    var c = day[n]; engDir = above && c.L <= vw[n] && c.C > vw[n] ? 1 : below && c.H >= vw[n] && c.C < vw[n] ? -1 : 0;
+                    if (engDir != 0) { engStory = "the " + Tf.Name(Set.Tf) + " candle " + c.Time.ToString("HH:mm", IC) + " " + (engDir > 0 ? "dipped to the day's VWAP " + P(vw[n]) + " (low " + P(c.L) + ") and closed back ABOVE it (" + P(c.C) + ") after 6 candles fully above it" : "rose to the day's VWAP " + P(vw[n]) + " (high " + P(c.H) + ") and closed back UNDER it (" + P(c.C) + ") after 6 candles fully under it") + " — a VWAP rejection"; SignalText = engStory; }
+                }
+            }
             if (Set.EntryMode == "ENGULF" && sn.Fin.Count >= 22)
             {
                 var c = sn.Fin[0]; var pr = sn.Fin[1]; double ll = sn.Fin.Skip(2).Take(20).Min(x => x.L), hh = sn.Fin.Skip(2).Take(20).Max(x => x.H);
