@@ -33,7 +33,11 @@ namespace KeystoneMT5
         public double Zone = 0;                // > 0: the hedge line is this far ($ of price) from the leg's fill instead of the recent high / low
         public bool NoHedge;
         public double StepLoss = 0, StepLots = 0.1;   // STEP hedging: each hedge cancels the basket's net lots and adds StepLots × (1 + every −StepLoss $ it is down) the new way (0 = the fixed HedgeLot)
-        public bool LockDayOnStop;                    // after a BASKET STOP no new basket that day                   // no hedge at all: only the target and the BasketStop (a plain trade)
+        public bool LockDayOnStop;
+        public int BreakevenAfter = 0; public double BeTarget = 0;
+        // REVERSAL entries (no break needed): an AGGRESSION candle = volume ≥ AggVol × the last 20 and a close in its bottom (top) AggClose of the range,
+        // range ≥ the last 20's average → BUY (SELL) the reversal: RevMode 1 = at the next candle's open (fade), 2 = when the next candle's high (low) breaks (confirm)
+        public int RevMode = 0; public double AggVol = 2, AggClose = 0.25;   // after this many hedges the basket closes at BeTarget $ (0 = off)                    // after a BASKET STOP no new basket that day                   // no hedge at all: only the target and the BasketStop (a plain trade)
         public bool OneTargetADay;             // after the first basket closed at the target, done for the day
         public int MaxTriesADay = 0;           // 0 = no limit; else no new basket once this many closed today (win or loss)
         public int SessionFrom = -1, SessionTo = -1, NyOffsetHours = -7;   // new baskets only inside this New York window (minutes of the day; −1 = all day)
@@ -78,7 +82,7 @@ namespace KeystoneMT5
         {
             readonly HedgeSettings s; readonly HedgeResult r; readonly List<HedgeLeg> legs = new List<HedgeLeg>();
             double balance, swapAcc, commAcc, peak, sp, lastBid; int lastDir; double hedgeLevel = double.NaN; HedgeCycle cyc; HedgeDay day; DateTime now;
-            IList<Mt5Bar> bars; int bi;
+            IList<Mt5Bar> bars; int bi; int revDir, revUntil, revArm; double revLevel = double.NaN;
             public Engine(HedgeSettings s, HedgeResult r) { this.s = s; this.r = r; balance = peak = s.Balance; }
 
             double Lots(int dir) { double x = 0; foreach (var l in legs) if (l.Dir == dir) x += l.Lots; return x; }
@@ -107,12 +111,24 @@ namespace KeystoneMT5
             {
                 bars = all; bi = i; var b = all[i]; now = b.Time; sp = (s.FixedSpreadPts >= 0 ? s.FixedSpreadPts : b.Spread) * s.Point;
                 NewDay(b.Time.Date, b.O);
+                if (s.RevMode > 0) Reversal(all, i, b);
                 if (s.FlattenAtSessionEnd && HasSession && legs.Count > 0 && !InSession(now)) CloseAll(b.O, "SESSION END");
                 // the gap from the last close to this open: nothing trades in between, whatever is past a level fills at the open
                 Walk(b.O, b.O);
                 if (b.C >= b.O) { Walk(b.O, b.L); Walk(b.L, b.H); Walk(b.H, b.C); } else { Walk(b.O, b.H); Walk(b.H, b.L); Walk(b.L, b.C); }
                 lastBid = b.C; if (day != null) day.EndEquity = Equity(b.C);
                 if (b.Time.Minute % 15 == 0 || r.Blown) r.Curve.Add(Tuple.Create(b.Time, r.Blown ? balance : Equity(b.C)));
+            }
+
+            void Reversal(IList<Mt5Bar> all, int i, Mt5Bar b)
+            {
+                if (revDir != 0 && i > revUntil) { revDir = 0; revLevel = double.NaN; }
+                if (revDir != 0 && s.RevMode == 2 && i == revArm + 1) revLevel = revDir > 0 ? all[revArm].H : all[revArm].L;   // the candle after the aggression is finished: its high / low
+                if (i < 22) return; var a = all[i - 1]; double r = a.H - a.L; if (r <= 0) return;
+                double v = 0, rg = 0; for (int k = i - 21; k < i - 1; k++) { v += all[k].V; rg += all[k].H - all[k].L; } v /= 20; rg /= 20;
+                if (v <= 0 || a.V < s.AggVol * v || r < rg) return;
+                double pos = (a.C - a.L) / r; int dir = pos <= s.AggClose ? 1 : pos >= 1 - s.AggClose ? -1 : 0; if (dir == 0) return;   // sellers' aggression → BUY the reversal
+                revDir = dir; revArm = i; revUntil = i + 5; revLevel = s.RevMode == 1 ? b.O : double.NaN;
             }
 
             void NewDay(DateTime d, double open)
@@ -149,10 +165,12 @@ namespace KeystoneMT5
                     };
                     if (legs.Count > 0)
                     {
-                        int ts; double tl = LevelFor(s.Target, out ts); if (ts != 0) cand(tl, ts, "TARGET", 0); else if (CyclePl(cur) >= s.Target) cand(cur, up >= 0 ? 1 : -1, "TARGET", 0);
+                        double tgt = s.BreakevenAfter > 0 && legs.Count - 1 >= s.BreakevenAfter ? s.BeTarget : s.Target;
+                        int ts; double tl = LevelFor(tgt, out ts); if (ts != 0) cand(tl, ts, "TARGET", 0); else if (CyclePl(cur) >= tgt) cand(cur, up >= 0 ? 1 : -1, "TARGET", 0);
                         if (s.BasketStop > 0) { int ss; double sl = LevelFor(-s.BasketStop, out ss); if (ss != 0) cand(sl, -ss, "BASKET STOP", 0); }
                         if (!double.IsNaN(hedgeLevel)) cand(hedgeLevel, -lastDir, "HEDGE", -lastDir);
                     }
+                    else if (CanTrade && s.RevMode > 0) { if (revDir != 0 && !double.IsNaN(revLevel)) cand(revLevel, revDir, "ENTRY", revDir); }
                     else if (CanTrade && bi >= s.Lookback) { cand(RecentHigh(bi), 1, "ENTRY", 1); cand(RecentLow(bi), -1, "ENTRY", -1); }
                     if (kind == null) { Check(p1); return; }
                     cur = best; Fire(kind, entryDir, cur);
@@ -171,7 +189,7 @@ namespace KeystoneMT5
             {
                 if (kind == "TARGET") { int d = Math.Sign(Lots(1) - Lots(-1)); if (d == 0) d = lastDir; CloseAll(b, "TARGET"); if (s.ReEnter && CanTrade) Open(d, s.BaseLot, b, true); return; }   // (one target a day: CanTrade is false now)
                 if (kind == "BASKET STOP") { CloseAll(b, "BASKET STOP"); if (s.LockDayOnStop && day != null) day.Locked = true; return; }
-                if (kind == "ENTRY") { Open(dir, s.BaseLot, b, true); return; }
+                if (kind == "ENTRY") { Open(dir, s.BaseLot, b, true); revDir = 0; revLevel = double.NaN; return; }
                 // HEDGE: the next leg the other way (HedgeLot, then × Multiplier for every leg after it)
                 if (s.MaxLegs > 0 && legs.Count >= s.MaxLegs) { CloseAll(b, "MAX LEGS"); return; }
                 int hedges = legs.Count - 1; double lots = Math.Round(s.HedgeLot * Math.Pow(s.Multiplier, hedges), 2);
