@@ -1,0 +1,157 @@
+setting,net_2025,dd_2025,blown_2025,net_2026,dd_2026,blown_2026,net_2023_24,dd_2023_24,blown_2023_24,baskets_2025,pf_2025
+"NY open 08:30-10:30|look 5|move 3|NONE|zone swing|stop 2x|1 try/day|full target",1387,983,0,879,368,0,1040,599,0,251,1.30
+"NY open 08:30-10:30|look 5|move 3|NONE|zone swing|stop 2x|all day|full target",-5371,8466,0,-9966,10856,1,-8132,9812,0,4530,0.94
+"NY open 08:30-10:30|look 5|move 3|1x2|zone swing|stop 2x|1 try/day|full target",25,1468,0,786,406,0,-310,961,0,252,1.00
+"NY open 08:30-10:30|look 5|move 3|1x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-150,1593,0,734,397,0,-478,902,0,252,0.97
+"NY open 08:30-10:30|look 5|move 3|1x2|zone swing|stop 2x|all day|full target",-9995,10242,1,-9990,10776,1,-9977,10083,1,3804,0.88
+"NY open 08:30-10:30|look 5|move 3|1x2|zone swing|stop 2x|all day|BE after 1 hedge",-9973,10233,1,-9959,10724,1,-9978,10209,1,3822,0.88
+"NY open 08:30-10:30|look 5|move 3|1x2|zone 1x|stop 2x|1 try/day|full target",247,1410,0,1160,268,0,-1081,1339,0,252,1.05
+"NY open 08:30-10:30|look 5|move 3|1x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",222,1235,0,1196,294,0,-665,967,0,252,1.05
+"NY open 08:30-10:30|look 5|move 3|1x2|zone 1x|stop 2x|all day|full target",-9970,10668,1,6204,10199,0,-9977,10499,1,2826,0.84
+"NY open 08:30-10:30|look 5|move 3|1x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9968,10454,1,-105,11146,0,-9979,10351,1,2168,0.77
+"NY open 08:30-10:30|look 5|move 3|ZR2x2|zone swing|stop 2x|1 try/day|full target",-11,1480,0,786,406,0,-2123,2213,0,252,1.00
+"NY open 08:30-10:30|look 5|move 3|ZR2x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-156,1564,0,734,397,0,-1761,1894,0,252,0.97
+"NY open 08:30-10:30|look 5|move 3|ZR2x2|zone swing|stop 2x|all day|full target",-9998,10233,1,-10003,10776,1,-9991,10073,1,3758,0.88
+"NY open 08:30-10:30|look 5|move 3|ZR2x2|zone swing|stop 2x|all day|BE after 1 hedge",-9960,10208,1,-9972,10724,1,-9985,10098,1,3671,0.87
+"NY open 08:30-10:30|look 5|move 3|ZR2x2|zone 1x|stop 2x|1 try/day|full target",247,1410,0,1160,268,0,-1081,1339,0,252,1.05
+"NY open 08:30-10:30|look 5|move 3|ZR2x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",222,1235,0,1196,294,0,-665,967,0,252,1.05
+"NY open 08:30-10:30|look 5|move 3|ZR2x2|zone 1x|stop 2x|all day|full target",-9970,10668,1,6204,10199,0,-9977,10499,1,2826,0.84
+"NY open 08:30-10:30|look 5|move 3|ZR2x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9968,10454,1,-105,11146,0,-9979,10351,1,2168,0.77
+"NY open 08:30-10:30|look 5|move 3|FLAT3|zone swing|stop 2x|1 try/day|full target",-55,1553,0,786,406,0,-1494,1696,0,252,0.99
+"NY open 08:30-10:30|look 5|move 3|FLAT3|zone swing|stop 2x|1 try/day|BE after 1 hedge",-178,1602,0,734,397,0,-1425,1565,0,252,0.97
+"NY open 08:30-10:30|look 5|move 3|FLAT3|zone swing|stop 2x|all day|full target",-9960,10201,1,-10000,10776,1,-9979,10067,1,3732,0.88
+"NY open 08:30-10:30|look 5|move 3|FLAT3|zone swing|stop 2x|all day|BE after 1 hedge",-9968,10222,1,-9970,10724,1,-9981,10210,1,3084,0.85
+"NY open 08:30-10:30|look 5|move 3|FLAT3|zone 1x|stop 2x|1 try/day|full target",247,1410,0,1160,268,0,-1081,1339,0,252,1.05
+"NY open 08:30-10:30|look 5|move 3|FLAT3|zone 1x|stop 2x|1 try/day|BE after 1 hedge",222,1235,0,1196,294,0,-665,967,0,252,1.05
+"NY open 08:30-10:30|look 5|move 3|FLAT3|zone 1x|stop 2x|all day|full target",-9970,10668,1,6204,10199,0,-9977,10499,1,2826,0.84
+"NY open 08:30-10:30|look 5|move 3|FLAT3|zone 1x|stop 2x|all day|BE after 1 hedge",-9968,10454,1,-105,11146,0,-9979,10351,1,2168,0.77
+"NY open 08:30-10:30|look 5|move 5|NONE|zone swing|stop 2x|1 try/day|full target",1557,918,0,590,641,0,717,1385,0,249,1.20
+"NY open 08:30-10:30|look 5|move 5|NONE|zone swing|stop 2x|all day|full target",-5810,7388,0,-1958,6625,0,-3423,6237,0,2032,0.92
+"NY open 08:30-10:30|look 5|move 5|1x2|zone swing|stop 2x|1 try/day|full target",-54,1685,0,694,779,0,-8,1373,0,252,0.99
+"NY open 08:30-10:30|look 5|move 5|1x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-492,2062,0,1078,573,0,-90,1014,0,252,0.93
+"NY open 08:30-10:30|look 5|move 5|1x2|zone swing|stop 2x|all day|full target",-9971,11223,1,-4629,7795,0,-9976,10714,1,2029,0.86
+"NY open 08:30-10:30|look 5|move 5|1x2|zone swing|stop 2x|all day|BE after 1 hedge",-9148,9824,0,-4270,7029,0,-9169,10486,0,2271,0.88
+"NY open 08:30-10:30|look 5|move 5|1x2|zone 1x|stop 2x|1 try/day|full target",-93,1432,0,2147,566,0,-3013,3822,0,252,0.99
+"NY open 08:30-10:30|look 5|move 5|1x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-902,1792,0,1988,462,0,-1838,2425,0,252,0.89
+"NY open 08:30-10:30|look 5|move 5|1x2|zone 1x|stop 2x|all day|full target",-5471,8751,0,5157,8233,0,-9976,11105,1,1995,0.92
+"NY open 08:30-10:30|look 5|move 5|1x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9142,11054,0,-2898,11085,0,-9976,10770,1,2420,0.87
+"NY open 08:30-10:30|look 5|move 5|ZR2x2|zone swing|stop 2x|1 try/day|full target",-25,1473,0,530,817,0,-1091,2390,0,252,1.00
+"NY open 08:30-10:30|look 5|move 5|ZR2x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-350,1825,0,1079,573,0,-872,1694,0,252,0.95
+"NY open 08:30-10:30|look 5|move 5|ZR2x2|zone swing|stop 2x|all day|full target",-9966,10558,1,-4781,7971,0,-9980,10279,1,1941,0.86
+"NY open 08:30-10:30|look 5|move 5|ZR2x2|zone swing|stop 2x|all day|BE after 1 hedge",-9474,10006,0,-4527,7336,0,-9980,10820,1,2270,0.87
+"NY open 08:30-10:30|look 5|move 5|ZR2x2|zone 1x|stop 2x|1 try/day|full target",-93,1432,0,2147,566,0,-3013,3822,0,252,0.99
+"NY open 08:30-10:30|look 5|move 5|ZR2x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-902,1792,0,1988,462,0,-1838,2425,0,252,0.89
+"NY open 08:30-10:30|look 5|move 5|ZR2x2|zone 1x|stop 2x|all day|full target",-5471,8751,0,5157,8233,0,-9976,11105,1,1995,0.92
+"NY open 08:30-10:30|look 5|move 5|ZR2x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9142,11054,0,-2898,11085,0,-9976,10770,1,2420,0.87
+"NY open 08:30-10:30|look 5|move 5|FLAT3|zone swing|stop 2x|1 try/day|full target",-269,1633,0,565,803,0,-2303,2946,0,252,0.97
+"NY open 08:30-10:30|look 5|move 5|FLAT3|zone swing|stop 2x|1 try/day|BE after 1 hedge",-698,2099,0,998,573,0,-850,1764,0,252,0.90
+"NY open 08:30-10:30|look 5|move 5|FLAT3|zone swing|stop 2x|all day|full target",-8501,9624,0,-5477,8677,0,-9977,10343,1,2045,0.89
+"NY open 08:30-10:30|look 5|move 5|FLAT3|zone swing|stop 2x|all day|BE after 1 hedge",-8229,8763,0,-4425,7240,0,-9976,10771,1,2216,0.89
+"NY open 08:30-10:30|look 5|move 5|FLAT3|zone 1x|stop 2x|1 try/day|full target",-93,1432,0,2147,566,0,-3013,3822,0,252,0.99
+"NY open 08:30-10:30|look 5|move 5|FLAT3|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-902,1792,0,1988,462,0,-1838,2425,0,252,0.89
+"NY open 08:30-10:30|look 5|move 5|FLAT3|zone 1x|stop 2x|all day|full target",-5471,8751,0,5157,8233,0,-9976,11105,1,1995,0.92
+"NY open 08:30-10:30|look 5|move 5|FLAT3|zone 1x|stop 2x|all day|BE after 1 hedge",-9142,11054,0,-2898,11085,0,-9976,10770,1,2420,0.87
+"NY 08:00-12:00|look 5|move 3|NONE|zone swing|stop 2x|1 try/day|full target",-341,1021,0,-30,1258,0,-769,1391,0,252,0.94
+"NY 08:00-12:00|look 5|move 3|NONE|zone swing|stop 2x|all day|full target",-9964,10125,1,-9959,10277,1,-9977,11140,1,4011,0.89
+"NY 08:00-12:00|look 5|move 3|1x2|zone swing|stop 2x|1 try/day|full target",-1047,1413,0,-296,1346,0,-3565,3670,0,252,0.83
+"NY 08:00-12:00|look 5|move 3|1x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-1129,1351,0,-428,1361,0,-3470,3732,0,252,0.79
+"NY 08:00-12:00|look 5|move 3|1x2|zone swing|stop 2x|all day|full target",-9971,10134,1,-9963,10221,1,-10007,10280,1,2103,0.80
+"NY 08:00-12:00|look 5|move 3|1x2|zone swing|stop 2x|all day|BE after 1 hedge",-9971,10134,1,-9965,10224,1,-9983,10175,1,2141,0.79
+"NY 08:00-12:00|look 5|move 3|1x2|zone 1x|stop 2x|1 try/day|full target",-2142,2280,0,-930,1861,0,-4789,4913,0,252,0.69
+"NY 08:00-12:00|look 5|move 3|1x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-1534,1701,0,-865,1754,0,-4638,4762,0,252,0.74
+"NY 08:00-12:00|look 5|move 3|1x2|zone 1x|stop 2x|all day|full target",-9972,10291,1,739,24588,0,-9982,10274,1,2115,0.80
+"NY 08:00-12:00|look 5|move 3|1x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9971,10280,1,-9968,24330,1,-9984,10248,1,2112,0.76
+"NY 08:00-12:00|look 5|move 3|ZR2x2|zone swing|stop 2x|1 try/day|full target",-1708,1758,0,-335,1385,0,-6043,6180,0,252,0.75
+"NY 08:00-12:00|look 5|move 3|ZR2x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-1554,1706,0,-455,1387,0,-5762,6025,0,252,0.73
+"NY 08:00-12:00|look 5|move 3|ZR2x2|zone swing|stop 2x|all day|full target",-10001,10164,1,-9962,10221,1,-9982,10153,1,1993,0.79
+"NY 08:00-12:00|look 5|move 3|ZR2x2|zone swing|stop 2x|all day|BE after 1 hedge",-9967,10130,1,-9953,10212,1,-9981,10135,1,2095,0.79
+"NY 08:00-12:00|look 5|move 3|ZR2x2|zone 1x|stop 2x|1 try/day|full target",-2142,2280,0,-930,1861,0,-4789,4913,0,252,0.69
+"NY 08:00-12:00|look 5|move 3|ZR2x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-1534,1701,0,-865,1754,0,-4638,4762,0,252,0.74
+"NY 08:00-12:00|look 5|move 3|ZR2x2|zone 1x|stop 2x|all day|full target",-9972,10291,1,739,24588,0,-9982,10274,1,2115,0.80
+"NY 08:00-12:00|look 5|move 3|ZR2x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9971,10280,1,-9968,24330,1,-9984,10248,1,2112,0.76
+"NY 08:00-12:00|look 5|move 3|FLAT3|zone swing|stop 2x|1 try/day|full target",-1360,1498,0,-322,1373,0,-5865,6002,0,252,0.79
+"NY 08:00-12:00|look 5|move 3|FLAT3|zone swing|stop 2x|1 try/day|BE after 1 hedge",-1437,1604,0,-448,1381,0,-5618,5880,0,252,0.75
+"NY 08:00-12:00|look 5|move 3|FLAT3|zone swing|stop 2x|all day|full target",-9973,10136,1,-9956,10214,1,-9982,10364,1,2100,0.80
+"NY 08:00-12:00|look 5|move 3|FLAT3|zone swing|stop 2x|all day|BE after 1 hedge",-9975,10138,1,-9965,10223,1,-9982,10133,1,2114,0.79
+"NY 08:00-12:00|look 5|move 3|FLAT3|zone 1x|stop 2x|1 try/day|full target",-2142,2280,0,-930,1861,0,-4789,4913,0,252,0.69
+"NY 08:00-12:00|look 5|move 3|FLAT3|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-1534,1701,0,-865,1754,0,-4638,4762,0,252,0.74
+"NY 08:00-12:00|look 5|move 3|FLAT3|zone 1x|stop 2x|all day|full target",-9972,10291,1,739,24588,0,-9982,10274,1,2115,0.80
+"NY 08:00-12:00|look 5|move 3|FLAT3|zone 1x|stop 2x|all day|BE after 1 hedge",-9971,10280,1,-9968,24330,1,-9984,10248,1,2112,0.76
+"NY 08:00-12:00|look 5|move 5|NONE|zone swing|stop 2x|1 try/day|full target",1636,909,0,276,1546,0,955,1766,0,249,1.21
+"NY 08:00-12:00|look 5|move 5|NONE|zone swing|stop 2x|all day|full target",-9686,11339,0,-9976,12817,1,-3840,6060,0,3156,0.91
+"NY 08:00-12:00|look 5|move 5|1x2|zone swing|stop 2x|1 try/day|full target",-1483,1686,0,-926,2363,0,-2903,3051,0,252,0.83
+"NY 08:00-12:00|look 5|move 5|1x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-1213,1581,0,-1100,2611,0,-3843,3998,0,252,0.82
+"NY 08:00-12:00|look 5|move 5|1x2|zone swing|stop 2x|all day|full target",-9957,10261,1,-9955,11312,1,-9977,10572,1,2081,0.87
+"NY 08:00-12:00|look 5|move 5|1x2|zone swing|stop 2x|all day|BE after 1 hedge",-9969,10291,1,-9996,11312,1,-9980,10393,1,2040,0.84
+"NY 08:00-12:00|look 5|move 5|1x2|zone 1x|stop 2x|1 try/day|full target",-2614,3089,0,-382,1907,0,-3460,4112,0,251,0.75
+"NY 08:00-12:00|look 5|move 5|1x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-2875,3258,0,-496,1773,0,-3165,3770,0,251,0.70
+"NY 08:00-12:00|look 5|move 5|1x2|zone 1x|stop 2x|all day|full target",-9973,10212,1,-2608,15409,0,-9983,11119,1,1812,0.85
+"NY 08:00-12:00|look 5|move 5|1x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9967,10157,1,-9963,14790,1,-9982,10488,1,2031,0.84
+"NY 08:00-12:00|look 5|move 5|ZR2x2|zone swing|stop 2x|1 try/day|full target",-2402,2752,0,-892,2640,0,-6087,6319,0,252,0.77
+"NY 08:00-12:00|look 5|move 5|ZR2x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-1869,2155,0,-1186,2796,0,-7158,7434,0,252,0.74
+"NY 08:00-12:00|look 5|move 5|ZR2x2|zone swing|stop 2x|all day|full target",-9965,10195,1,-9957,11767,1,-9982,10189,1,1754,0.85
+"NY 08:00-12:00|look 5|move 5|ZR2x2|zone swing|stop 2x|all day|BE after 1 hedge",-9988,10297,1,-9963,11397,1,-9984,10036,1,1384,0.78
+"NY 08:00-12:00|look 5|move 5|ZR2x2|zone 1x|stop 2x|1 try/day|full target",-2614,3089,0,-382,1907,0,-3460,4112,0,251,0.75
+"NY 08:00-12:00|look 5|move 5|ZR2x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-2875,3258,0,-496,1773,0,-3165,3770,0,251,0.70
+"NY 08:00-12:00|look 5|move 5|ZR2x2|zone 1x|stop 2x|all day|full target",-9973,10212,1,-2608,15409,0,-9983,11119,1,1812,0.85
+"NY 08:00-12:00|look 5|move 5|ZR2x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9967,10157,1,-9963,14790,1,-9982,10488,1,2031,0.84
+"NY 08:00-12:00|look 5|move 5|FLAT3|zone swing|stop 2x|1 try/day|full target",-2725,2935,0,-1293,2891,0,-5587,6092,0,250,0.74
+"NY 08:00-12:00|look 5|move 5|FLAT3|zone swing|stop 2x|1 try/day|BE after 1 hedge",-1716,2011,0,-1445,2954,0,-6389,6585,0,251,0.76
+"NY 08:00-12:00|look 5|move 5|FLAT3|zone swing|stop 2x|all day|full target",-9965,10195,1,-9971,11573,1,-9984,10269,1,1609,0.84
+"NY 08:00-12:00|look 5|move 5|FLAT3|zone swing|stop 2x|all day|BE after 1 hedge",-9971,10286,1,-10012,11233,1,-9981,10093,1,1386,0.78
+"NY 08:00-12:00|look 5|move 5|FLAT3|zone 1x|stop 2x|1 try/day|full target",-2614,3089,0,-382,1907,0,-3460,4112,0,251,0.75
+"NY 08:00-12:00|look 5|move 5|FLAT3|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-2875,3258,0,-496,1773,0,-3165,3770,0,251,0.70
+"NY 08:00-12:00|look 5|move 5|FLAT3|zone 1x|stop 2x|all day|full target",-9973,10212,1,-2608,15409,0,-9983,11119,1,1812,0.85
+"NY 08:00-12:00|look 5|move 5|FLAT3|zone 1x|stop 2x|all day|BE after 1 hedge",-9967,10157,1,-9963,14790,1,-9982,10488,1,2031,0.84
+"all day|look 5|move 3|NONE|zone swing|stop 2x|1 try/day|full target",-1898,1946,0,976,715,0,-2724,3270,0,256,0.73
+"all day|look 5|move 3|NONE|zone swing|stop 2x|all day|full target",-9973,10462,1,-9959,10123,1,-9985,10631,1,4752,0.90
+"all day|look 5|move 3|1x2|zone swing|stop 2x|1 try/day|full target",-2986,3094,0,1133,511,0,-7468,7521,0,256,0.58
+"all day|look 5|move 3|1x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-2429,2507,0,1440,457,0,-6750,6803,0,256,0.57
+"all day|look 5|move 3|1x2|zone swing|stop 2x|all day|full target",-9981,10088,1,-9957,10091,1,-9982,10311,1,1709,0.75
+"all day|look 5|move 3|1x2|zone swing|stop 2x|all day|BE after 1 hedge",-9983,10096,1,-9982,10087,1,-10000,10154,1,1914,0.75
+"all day|look 5|move 3|1x2|zone 1x|stop 2x|1 try/day|full target",-1807,1953,0,-16,1398,0,-5676,5779,0,256,0.74
+"all day|look 5|move 3|1x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-1979,2065,0,496,1122,0,-5142,5194,0,256,0.68
+"all day|look 5|move 3|1x2|zone 1x|stop 2x|all day|full target",-9980,10267,1,-9955,10391,1,-9984,10360,1,1786,0.77
+"all day|look 5|move 3|1x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9971,10183,1,-9955,10219,1,-9981,10244,1,1939,0.75
+"all day|look 5|move 3|ZR2x2|zone swing|stop 2x|1 try/day|full target",-4077,4185,0,864,648,0,-9979,10038,1,256,0.53
+"all day|look 5|move 3|ZR2x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-2971,3049,0,1275,547,0,-9973,10032,1,256,0.52
+"all day|look 5|move 3|ZR2x2|zone swing|stop 2x|all day|full target",-9972,9987,1,-10164,10297,1,-9987,10309,1,1170,0.68
+"all day|look 5|move 3|ZR2x2|zone swing|stop 2x|all day|BE after 1 hedge",-9972,9987,1,-9988,10092,1,-9982,10089,1,1366,0.68
+"all day|look 5|move 3|ZR2x2|zone 1x|stop 2x|1 try/day|full target",-1807,1953,0,-16,1398,0,-5676,5779,0,256,0.74
+"all day|look 5|move 3|ZR2x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-1979,2065,0,496,1122,0,-5142,5194,0,256,0.68
+"all day|look 5|move 3|ZR2x2|zone 1x|stop 2x|all day|full target",-9980,10267,1,-9955,10391,1,-9984,10360,1,1786,0.77
+"all day|look 5|move 3|ZR2x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9971,10183,1,-9955,10219,1,-9981,10244,1,1939,0.75
+"all day|look 5|move 3|FLAT3|zone swing|stop 2x|1 try/day|full target",-3205,3312,0,1032,594,0,-9977,10036,1,256,0.60
+"all day|look 5|move 3|FLAT3|zone swing|stop 2x|1 try/day|BE after 1 hedge",-2869,2948,0,1315,508,0,-9975,10033,1,256,0.53
+"all day|look 5|move 3|FLAT3|zone swing|stop 2x|all day|full target",-9977,10003,1,-9956,10090,1,-9985,10216,1,1576,0.74
+"all day|look 5|move 3|FLAT3|zone swing|stop 2x|all day|BE after 1 hedge",-10000,10015,1,-9960,10064,1,-9985,10298,1,1609,0.71
+"all day|look 5|move 3|FLAT3|zone 1x|stop 2x|1 try/day|full target",-1807,1953,0,-16,1398,0,-5676,5779,0,256,0.74
+"all day|look 5|move 3|FLAT3|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-1979,2065,0,496,1122,0,-5142,5194,0,256,0.68
+"all day|look 5|move 3|FLAT3|zone 1x|stop 2x|all day|full target",-9980,10267,1,-9955,10391,1,-9984,10360,1,1786,0.77
+"all day|look 5|move 3|FLAT3|zone 1x|stop 2x|all day|BE after 1 hedge",-9971,10183,1,-9955,10219,1,-9981,10244,1,1939,0.75
+"all day|look 5|move 5|NONE|zone swing|stop 2x|1 try/day|full target",-987,1557,0,2551,674,0,-328,2183,0,256,0.90
+"all day|look 5|move 5|NONE|zone swing|stop 2x|all day|full target",-9961,11419,1,-9972,10262,1,-9978,10793,1,5590,0.95
+"all day|look 5|move 5|1x2|zone swing|stop 2x|1 try/day|full target",-2737,2734,0,1579,967,0,-8059,8132,0,256,0.68
+"all day|look 5|move 5|1x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-2426,2519,0,2205,446,0,-7337,7428,0,256,0.63
+"all day|look 5|move 5|1x2|zone swing|stop 2x|all day|full target",-9971,10150,1,-9968,10251,1,-9985,10316,1,2377,0.88
+"all day|look 5|move 5|1x2|zone swing|stop 2x|all day|BE after 1 hedge",-9972,10255,1,-10002,10286,1,-9984,10200,1,1254,0.71
+"all day|look 5|move 5|1x2|zone 1x|stop 2x|1 try/day|full target",-2742,2732,0,1,1909,0,-3589,4250,0,256,0.75
+"all day|look 5|move 5|1x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-2132,2231,0,-214,1628,0,-3645,4287,0,256,0.75
+"all day|look 5|move 5|1x2|zone 1x|stop 2x|all day|full target",-9972,10798,1,-9957,33053,1,-9978,11436,1,2067,0.87
+"all day|look 5|move 5|1x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9969,10103,1,-9954,10285,1,-9982,10348,1,2991,0.89
+"all day|look 5|move 5|ZR2x2|zone swing|stop 2x|1 try/day|full target",-2185,2321,0,1439,1467,0,-9978,10057,1,256,0.79
+"all day|look 5|move 5|ZR2x2|zone swing|stop 2x|1 try/day|BE after 1 hedge",-3003,3096,0,2078,737,0,-9974,10053,1,256,0.58
+"all day|look 5|move 5|ZR2x2|zone swing|stop 2x|all day|full target",-9971,9986,1,-9959,10243,1,-10347,10681,1,893,0.73
+"all day|look 5|move 5|ZR2x2|zone swing|stop 2x|all day|BE after 1 hedge",-9978,10074,1,-9982,10265,1,-9990,10282,1,1097,0.70
+"all day|look 5|move 5|ZR2x2|zone 1x|stop 2x|1 try/day|full target",-2742,2732,0,1,1909,0,-3589,4250,0,256,0.75
+"all day|look 5|move 5|ZR2x2|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-2132,2231,0,-214,1628,0,-3645,4287,0,256,0.75
+"all day|look 5|move 5|ZR2x2|zone 1x|stop 2x|all day|full target",-9972,10798,1,-9957,33053,1,-9978,11436,1,2067,0.87
+"all day|look 5|move 5|ZR2x2|zone 1x|stop 2x|all day|BE after 1 hedge",-9969,10103,1,-9954,10285,1,-9982,10348,1,2991,0.89
+"all day|look 5|move 5|FLAT3|zone swing|stop 2x|1 try/day|full target",-2402,2469,0,1787,1184,0,-9977,10077,1,256,0.77
+"all day|look 5|move 5|FLAT3|zone swing|stop 2x|1 try/day|BE after 1 hedge",-2533,2626,0,1903,815,0,-9978,10057,1,256,0.62
+"all day|look 5|move 5|FLAT3|zone swing|stop 2x|all day|full target",-9976,10108,1,-9963,10247,1,-9982,10352,1,1368,0.81
+"all day|look 5|move 5|FLAT3|zone swing|stop 2x|all day|BE after 1 hedge",-9972,10053,1,-9966,10249,1,-9984,10344,1,876,0.66
+"all day|look 5|move 5|FLAT3|zone 1x|stop 2x|1 try/day|full target",-2742,2732,0,1,1909,0,-3589,4250,0,256,0.75
+"all day|look 5|move 5|FLAT3|zone 1x|stop 2x|1 try/day|BE after 1 hedge",-2132,2231,0,-214,1628,0,-3645,4287,0,256,0.75
+"all day|look 5|move 5|FLAT3|zone 1x|stop 2x|all day|full target",-9972,10798,1,-9957,33053,1,-9978,11436,1,2067,0.87
+"all day|look 5|move 5|FLAT3|zone 1x|stop 2x|all day|BE after 1 hedge",-9969,10103,1,-9954,10285,1,-9982,10348,1,2991,0.89

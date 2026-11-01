@@ -181,3 +181,31 @@ Results are in `grid3_results.csv` (`cd mt5/study && dotnet run -c Release -- gr
 - **STEP sizing blows more often than FLAT.** It grows the net lots exactly when the basket is losing most.
 - **Hard stops turn blow-ups into a slow bleed.** Each stop costs 10–100 wins of $20.
 - **What did hold up (Part 2):** one target a day at the NY open, no hedge, stop at 2× the target. The whole edge is in WHEN to enter, not in how to hedge.
+
+## Part 4 — hedging grid on gold AND Nasdaq, 3 periods (choose 2025, check 2026 + 2023-24 unseen)
+
+156 settings per instrument (sessions × look 5 break × move × NONE / 1x2 / ZR2x2 / FLAT3 × zone × stop 2× × tries × breakeven).
+Costs: gold 0.20 spread + $7/lot + 5 pts slip; Nasdaq 1.0 pt spread + 0.2 slip. Full rows: `grid4_gold.csv`, `grid4_nasdaq.csv`.
+
+| | profitable 2025 | also 2026 AND 2023-24 |
+|---|---|---|
+| GOLD | 10 | 3 — all NO HEDGE |
+| NASDAQ | 39 | 7 — all hedged (1 hedge), none without |
+
+**GOLD, the only model positive in all three periods (0.1 lot):** NY open 08:30–10:30, enter on the break of the last 5 M1 candles,
+target $3 move (+$30), stop 2× (−$60), ONE try a day, no hedge: 2025 +1,387 (PF 1.30, DD 983) · 2026 +879 (PF 1.27) · 2023-24 +1,040 (PF 1.11).
+Same with move 5: +1,557 / +590 / +717. Best hedged gold (1 hedge, zone 1×, BE after 1 hedge): +222 / +1,196 / −665 → fails 2023-24.
+
+**NASDAQ, best by the worst period (0.1 lot = $0.10/pt… scaled $1/pt/lot):** NY open 08:30–10:30, break of last 5 M1, move 15 pts,
+ONE hedge 2× at the swing, stop 2×, 1 try a day: 2025 +417 (PF 1.19) · 2026 +181 (PF 1.10) · 2023-24 +713 (PF 1.17). Thin edge (PF 1.1–1.2).
+
+## Part 5 — small targets without hedging, entry = reversal after an aggression candle
+
+Aggression candle = volume ≥ 1.5 / 2.5 × the 20-bar average, range ≥ average, close in the bottom (buy reversal) / top (sell reversal) 25 %.
+FADE = next open; CONFIRM = break of the next candle's high / low. Targets 20 / 25 / 30 / 50, stops 1 / 1.5 / 2×. Rows: `grid5_reversal_*.csv`.
+
+- GOLD: 0 / 144 profitable even in 2025 (PF 0.78–0.92). The reversal edge does not survive the costs.
+- NASDAQ: 18 / 144 profitable in 2025, 0 in all three periods.
+
+**Conclusion:** the one robust edge is a single NY-open break per day with a fixed small target and a 2× stop. Hedging adds nothing on gold
+and only a thin, 1-hedge edge on Nasdaq. Multi-hedge / step / martingale structures lost in every test.
