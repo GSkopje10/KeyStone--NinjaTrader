@@ -268,10 +268,11 @@ public static class Lab6
     // ===== part 7: the user's plan on gold — $5,000, 0.1 lot, +$20 a trade, one trade at a time all day, NO stop (or an emergency stop),
     // which entry gets to +$20 most often with the smallest heat against it?
     public sealed class S7 { public double MaxLots = 0.1; public int N, Hits; public double Net, Win, Loss, Dd, Worst, MinEq = 5000; public bool Blown; public List<double> Mae = new List<double>(); public List<int> Mins = new List<int>(); public HashSet<int> Days = new HashSet<int>(); public Dictionary<int, double> DayPl = new Dictionary<int, double>(); }
+    public static double Cost7 = 0.27, Spread7 = 0.20;   // a round turn on 1 unit (spread + commission) and the spread alone, in price
     public static S7[] Run7(M1 m, List<Sig> sigs, string filter, string exit, int sf, int st, double tgtUsd)
     {
         var r = new S7[3]; double[] eq = new double[3], pk = new double[3]; for (int p = 0; p < 3; p++) { r[p] = new S7(); eq[p] = pk[p] = 5000; }
-        int busyTo = -1; double tgtMove = tgtUsd / 10 + 0.20, cost = 0.27, stopMove = exit.StartsWith("STOP") ? double.Parse(exit.Substring(4), IC) / 10 : double.MaxValue;
+        int busyTo = -1; double tgtMove = tgtUsd / 10 + Spread7, cost = Cost7, stopMove = exit.StartsWith("STOP") ? double.Parse(exit.Substring(4), IC) / 10 : double.MaxValue;
         foreach (var g in sigs)
         {
             if (g.At <= busyTo) continue; int mn = m.Min[g.At]; if (mn < sf || mn >= st) continue;
@@ -281,7 +282,7 @@ public static class Lab6
             int p = Period(m.Day[g.At]); if (p < 0 || r[p].Blown) continue;
             // a limit fills only when price trades THROUGH it (a buy: the ask = the bid + 0.20 spread)
             int start = g.At; double e = m.O[g.At], d = g.Dir;
-            if (!float.IsNaN(g.Lim)) { start = -1; for (int j = g.At; j < Math.Min(m.N, g.At + 12) && m.Day[j] == m.Day[g.At]; j++) if (d > 0 ? m.L[j] <= g.Lim - 0.25 : m.H[j] >= g.Lim + 0.05) { start = j; e = g.Lim; break; } if (start < 0) continue; }
+            if (!float.IsNaN(g.Lim)) { start = -1; for (int j = g.At; j < Math.Min(m.N, g.At + 12) && m.Day[j] == m.Day[g.At]; j++) if (d > 0 ? m.L[j] <= g.Lim - Spread7 - 0.05 : m.H[j] >= g.Lim + 0.05) { start = j; e = g.Lim; break; } if (start < 0) continue; }
             if (exit.StartsWith("ZR"))
             {   // the exact zone recovery: each new leg is sized so the WHOLE basket is +$20 net when price runs T past the leg's line
                 var zp = exit.Substring(2).Split('x'); double Z = double.Parse(zp[0], IC) / 10, T = tgtUsd / 10; int maxL = int.Parse(zp[1], IC);
@@ -328,9 +329,9 @@ public static class Lab6
         }
         return r;
     }
-    public static void Scalp20(M1 m, string outJson)
+    public static void Scalp20(M1 m, string outJson, double cost = 0.27, double spread = 0.20)
     {
-        var sigs = new[] { "RANDOM", "BRK5", "FVG", "FVG50", "VWAP_CROSS", "VWAP_REJECT", "VWAP_STRETCH", "SWEEP", "AGGRESSION_REV", "EMA_PULLBACK", "RSI_REVERSAL", "BB_REVERSAL", "ENGULF_EXTREME", "ORB", "INSIDE_BAR" };
+        Cost7 = cost; Spread7 = spread; var sigs = new[] { "RANDOM", "BRK5", "FVG", "FVG50", "VWAP_CROSS", "VWAP_REJECT", "VWAP_STRETCH", "SWEEP", "AGGRESSION_REV", "EMA_PULLBACK", "RSI_REVERSAL", "BB_REVERSAL", "ENGULF_EXTREME", "ORB", "INSIDE_BAR" };
         var tfs = new[] { 1, 5, 15 }; var filters = new[] { "NONE", "H1_TREND", "H1_AGAINST", "VWAP_DISCOUNT", "VWAP_FLOW" }; var exits = new[] { "EOD", "HOLD", "STOP100", "STOP200", "STOP300", "ZR20x3", "ZR20x4", "ZR20x5", "ZR40x3", "ZR40x4", "ZR40x5", "ZR60x3", "ZR60x4" };
         var sess = new[] { ("ALL DAY 03:00-15:30", 180, 930), ("NY 08:30-11:30", 510, 690), ("LONDON 03:00-06:00", 180, 360) };
         var cache = new System.Collections.Concurrent.ConcurrentDictionary<string, List<Sig>>();

@@ -249,3 +249,12 @@ breakeven / +T; basket stop; 16:55 NY. 9,232 settings on A, B, C and the all-day
   once the trade is down $5+, at most once; each leg its own +$20 per 0.1 lot; basket stop −$400:
   +$1,770 / +$1,612 / +$2,391 vs +$1,465 / +$1,458 / +$2,217 without the hedge; lowest equity $4,905 vs $4,720; hedged 58 times.
 - B and C: no hedge did better than their best no-hedge version. The all-day break: nothing profitable.
+
+## Part 10 — the 1-minute / high-frequency question at the user's real costs (`lab6 scalp20c <cost> <spread> <out>`)
+
+Costs per 0.1-lot round turn: assumed before $2.70 (0.20 spread + $7/lot); Duramarkets (no commission, no swap) ≈ $2.20 (spread 21-22 pts).
+- At $2.20: 1-minute settings with 3+ trades a day profitable in all three periods: 0 / 340 (random 0 / 44). Best 1-minute overall:
+  VWAP rejection M1, stop −$200, all day: +$624 / +$1,194 / +$697 (2023-24 = 2 years), 2.2 trades a day, worst drawdown $1,704.
+- At $1.50 (a raw account with a 0.05-0.08 spread + commission): 7 / 378 high-frequency settings survive, led by the M1 FVG 50% LIMIT
+  in the H1 trend, NY 08:30-11:30, stop −$300: +$7,182 / +$8,144 / +$1,075, 3 trades a day — the edge exists only below ~$1.50 a trade,
+  and needs real limit orders (a market order at the 50% pays the spread the research does not).
