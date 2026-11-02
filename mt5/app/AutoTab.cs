@@ -149,6 +149,7 @@ namespace KeystoneMT5
             aSetBtn = Pill("⚙ SETTINGS", Tint(Sx.Card2, 220)); aSetBtn.Height = 26; aSetBtn.ToolTip = "the strategy's settings (they lock while it runs)"; aSetBtn.Click += delegate { aView = "⚙ SETTINGS"; AutoPaint(true); }; aViews.Children.Add(aSetBtn);
             var raceBtn = Pill("🏁 RACE", Tint(Sx.Card2, 220)); raceBtn.Height = 26; raceBtn.ToolTip = "every strategy at once in the background, each on its own simulated account — the leaderboard of the day and the history"; raceBtn.Click += delegate { aView = "🏁 RACE"; AutoPaint(true); RacePaint(); }; aViews.Children.Add(raceBtn);
             aGuideBtn = Pill("🎯 CHART GUIDES", Tint(Sx.Card2, 220)); aGuideBtn.Height = 26; aGuideBtn.ToolTip = "draw what the strategy watches on the 📈 CHART (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge) — a STRONG setup blinks"; aGuideBtn.Click += delegate { aGuidesOn = !aGuidesOn; Put("auto.guides", aGuidesOn ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aGuideBtn);
+            var exp = Pill("📦 EXPORT FOR CLAUDE", Tint(Violet, 90)); exp.Height = 26; exp.ToolTip = "everything of this account in ONE organized folder + ONE .zip (settings, iterations, trades, story, analysis, learn, log, the candles, the race) — send the .zip to Claude to analyze"; exp.Click += delegate { AutoExport(); }; aViews.Children.Add(exp);
             var clr = Pill("🗑 CLEAR HISTORY", Tint(Sx.Card2, 220)); clr.Height = 26; clr.Click += delegate { AutoClear(); }; aViews.Children.Add(clr);
             root.Children.Add(aViews);
             aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 13.5, MinHeight = 160, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Visible, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
@@ -406,6 +407,91 @@ namespace KeystoneMT5
 
         // ---- history on this PC (LIVE / PROP / DEMO, per account): every finished iteration (with its context), its trades, the STORY and the LOG as they happen
         string AutoId() { if (Sim) return ""; var k = live != null ? live.Key : ""; if (k == "") { long lg; lock (broker.State.Gate) lg = broker.State.Account.Login; k = lg > 0 ? lg.ToString(IC) : ""; } foreach (var c in Path.GetInvalidFileNameChars()) k = k.Replace(c, '_'); return k; }
+        // 📦 EXPORT FOR CLAUDE: everything this account's automation knows, organized, in DataDir\export\<name>\ + <name>.zip (files only, no orders)
+        void AutoExport()
+        {
+            try
+            {
+                if (aHist == null && !Sim) AutoLoadHistory();
+                var now = DateTime.Now; var bad = Path.GetInvalidFileNameChars();
+                var id = new string((string.IsNullOrEmpty(aHist) ? (Sim ? "backtest" : "account") : aHist).Select(c => bad.Contains(c) || c == '@' || c == ' ' ? '_' : c).ToArray());
+                var name = "SpasiX-export-" + Mode + "-" + id + "-" + now.ToString("yyyy-MM-dd_HHmm", IC);
+                var root = Path.Combine(Dir, "export"); var dir = Path.Combine(root, name); Directory.CreateDirectory(dir);
+                var s = auto.Running ? auto.Set : AutoRead(); var its = auto.Iterations.ToList(); var trs = auto.Trades.ToList(); var st = auto.Calc(its);
+                Func<DateTime, string> T = d => d == DateTime.MinValue ? "" : d.ToString("yyyy-MM-dd HH:mm:ss", IC);
+                Func<string, string> Q = x => "\"" + (x ?? "").Replace("\"", "'") + "\"";
+                Func<double, string> N = v => double.IsNaN(v) ? "" : v.ToString("0.#####", IC);
+                var files = new List<string>();
+                Action<string, IEnumerable<string>> W = (f, lines) => { File.WriteAllLines(Path.Combine(dir, f), lines); files.Add(f); };
+
+                // 01 settings: one key per line
+                W("01-settings.txt", new[] { "THE STRATEGY'S SETTINGS (" + (auto.Running ? "running now" : "in the boxes, not running") + ")", "preset = " + s.Preset, "" }.Concat(s.Save().Split(';')));
+
+                // 02 iterations: readable times, the context split into columns
+                var ctxKeys = its.SelectMany(x => (x.Ctx ?? "").Split(';').Where(kv => kv.Contains("=")).Select(kv => kv.Split('=')[0])).Distinct().ToList();
+                var rows = new List<string> { "n,start,end,seconds,first,buys,sells,addons,winner_adds,manual_adds,buy_lots,sell_lots,max_lots,max_drawdown,result,reason,balance_start,balance_end,manual,adopted,done" + string.Concat(ctxKeys.Select(k => ",ctx_" + k)) };
+                foreach (var x in its)
+                {
+                    var ctx = (x.Ctx ?? "").Split(';').Where(kv => kv.Contains("=")).GroupBy(kv => kv.Split('=')[0]).ToDictionary(g => g.Key, g => g.First().Substring(g.Key.Length + 1));
+                    string cv; rows.Add(string.Join(",", x.N.ToString(IC), T(x.Start), x.Done ? T(x.End) : "", x.Done ? ((int)(x.End - x.Start).TotalSeconds).ToString(IC) : "", x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.WinnerAdds.ToString(IC), x.ManualAdds.ToString(IC), N(x.BuyLots), N(x.SellLots), N(x.MaxGross), N(x.MaxDd), x.Done ? N(x.Result) : "", Q(x.Reason), N(x.BalanceStart), N(x.BalanceEnd), x.Manual ? "1" : "0", x.Adopted ? "1" : "0", x.Done ? "1" : "0") + string.Concat(ctxKeys.Select(k => "," + Q(ctx.TryGetValue(k, out cv) ? cv : ""))));
+                }
+                W("02-iterations.csv", rows);
+
+                // 03 trades
+                W("03-trades.csv", new[] { "iteration,time,side,lots,price,level,basket,why" }.Concat(trs.Select(t => string.Join(",", t.Iter.ToString(IC), T(t.Time), t.Side, N(t.Lots), N(t.Price), N(t.Level), N(t.Basket), Q(t.Why)))));
+
+                // 04-07 the views as on the screen
+                W("04-story.txt", AutoLines("STORY")); W("05-analysis.txt", AutoLines("ANALYSIS")); W("06-learn.txt", AutoLines("LEARN")); W("07-log.txt", AutoLines("LOG"));
+
+                // 08 the candles of the symbol (M1 + the strategy's timeframe + the FVG timeframe), from the first iteration − 1 day
+                var from = its.Count > 0 ? its.Min(x => x.Start).AddDays(-1) : DateTime.MinValue; int candleFiles = 0;
+                foreach (var tf in new[] { 1, s.Tf, s.FvgTf }.Where(m => m > 0).Distinct())
+                {
+                    List<Mt5Bar> bars; lock (broker.State.Gate) bars = broker.State.SeriesOf(s.Symbol, tf).Bars.Where(b => b.Time >= from).Select(b => b.Copy()).ToList();
+                    if (bars.Count == 0) continue; candleFiles++;
+                    W("08-candles-" + s.Symbol + "-" + Tf.Name(tf) + ".csv", new[] { "time,open,high,low,close,tick_volume,spread_points" }.Concat(bars.Select(b => string.Join(",", T(b.Time), N(b.O), N(b.H), N(b.L), N(b.C), b.V.ToString(IC), b.Spread.ToString(IC)))));
+                }
+
+                // 09 the race: its saved days + the leaderboard
+                var rf = RaceFolder(); int raceFiles = 0;
+                if (Directory.Exists(rf))
+                {
+                    var rd = Path.Combine(dir, "09-race"); Directory.CreateDirectory(rd);
+                    foreach (var f in Directory.GetFiles(rf, "*.csv")) { File.Copy(f, Path.Combine(rd, Path.GetFileName(f)), true); raceFiles++; }
+                    var stats = RaceStore.Stats(RaceStore.Load(rf, DateTime.MinValue));
+                    File.WriteAllLines(Path.Combine(rd, "leaderboard.txt"), new[] { string.Format("{0,-28} {1,5} {2,6} {3,6} {4,5} {5,11} {6,10} {7,10} {8,10} {9,8}", "STRATEGY", "DAYS", "GREEN", "ITER.", "WON", "NET", "PER DAY", "WORST DAY", "WORST DD", "SCORE") }
+                        .Concat(stats.Select(x => string.Format(IC, "{0,-28} {1,5} {2,6} {3,6} {4,5} {5,11:0.00} {6,10:0.00} {7,10:0.00} {8,10:0.00} {9,8:0.00}", x.Key, x.Days, x.GreenDays, x.Iterations, x.Wins, x.Net, x.PerDay, x.WorstDay, x.WorstDd, x.Score))));
+                    files.Add("09-race\\ (" + raceFiles + " day files + leaderboard.txt)");
+                }
+
+                // 00 README: what this is and what every file holds
+                var rd0 = new List<string> {
+                    "SPASIX EXPORT FOR CLAUDE", "",
+                    "app            " + Build, "exported       " + now.ToString("yyyy-MM-dd HH:mm:ss", IC) + " (this PC's clock)",
+                    "window         " + Mode + (Sim ? " (backtest replay)" : Paper ? " (demo: simulated account on live prices)" : " (MT5 account)"),
+                    "account        " + (string.IsNullOrEmpty(aHist) ? "—" : aHist),
+                    "symbol         " + s.Symbol + "   timeframe " + Tf.Name(s.Tf) + "   preset " + s.Preset + "   entry " + s.EntryMode + "   hedge " + s.HedgeMode + " / " + s.HedgeSize,
+                    "times          every time in these files is MT5's SERVER time; New York = server " + (s.NyOffsetHours >= 0 ? "+" : "") + s.NyOffsetHours + " h",
+                    "automation     " + (auto.Running ? "RUNNING (" + auto.Phase + ")" : "stopped" + (auto.StopReason != "" ? ": " + auto.StopReason : "")), "",
+                    "SUMMARY        " + st.Done + " iterations, won " + st.Wins + ", lost " + st.Losses + ", net " + st.Net.ToString("0.00", IC) + ", worst drawdown " + st.WorstDd.ToString("0.00", IC) + ", " + st.Buys + " buys / " + st.Sells + " sells / " + st.AddOns + " add-ons", "",
+                    "FILES",
+                    "  01-settings.txt     every setting of the strategy (key = value)",
+                    "  02-iterations.csv   one row per iteration: start/end, seconds in the trade, legs, lots, worst drawdown, result, why it closed, the balance, ctx_* = the market when it started",
+                    "  03-trades.csv       every order: iteration, time, side, lots, fill price, the level that triggered it, the basket $ at that moment, why",
+                    "  04-story.txt        what happened and why, iteration by iteration (as the STORY tab)",
+                    "  05-analysis.txt     the totals, by add-ons, by day, by hour (as the ANALYSIS tab)",
+                    "  06-learn.txt        win rate / drawdown by market context (as the LEARN tab)",
+                    "  07-log.txt          the engine's log",
+                    "  08-candles-*.csv    " + (candleFiles > 0 ? "the symbol's candles the app had in memory (from a day before the first iteration)" : "(no candles in memory — open the 📈 chart on the symbol, then export again)"),
+                    "  09-race\\            " + (raceFiles > 0 ? "every strategy of the 🏁 RACE: the saved iterations / trades per day + leaderboard.txt" : "(no race saved yet)") };
+                File.WriteAllLines(Path.Combine(dir, "00-README.txt"), rd0);
+
+                var zip = dir + ".zip"; if (File.Exists(zip)) File.Delete(zip); System.IO.Compression.ZipFile.CreateFromDirectory(dir, zip);
+                Log("📦 exported for Claude: " + zip, Green); Toast("📦 exported — send this .zip to Claude: " + Path.GetFileName(zip));
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "/select,\"" + zip + "\"") { UseShellExecute = true }); } catch { }
+            }
+            catch (Exception ex) { Log("📦 export failed: " + ex.Message, Red); Toast("📦 export failed: " + ex.Message); }
+        }
         string AutoFile(string what) { return Path.Combine(Dir, "auto", Mode + "-" + aHist + "-" + what + (what == "story" || what == "log" ? ".txt" : ".csv")); }
         void AutoAppend(string what, string line) { if (string.IsNullOrEmpty(aHist)) AutoLoadHistory(); if (string.IsNullOrEmpty(aHist)) return; try { Directory.CreateDirectory(Path.Combine(Dir, "auto")); File.AppendAllText(AutoFile(what), line + "\n"); } catch { } }
         void AutoLoadHistory()
@@ -488,68 +574,74 @@ namespace KeystoneMT5
                 Tuple.Create("BUYS / SELLS / ADD-ONS", st.Buys + " / " + st.Sells + " / " + st.AddOns, Violet),
                 Tuple.Create("MOST ADD-ONS", st.MostAddOns.ToString(IC), Cyan));
         }
+        // the text of one view (STORY / ITERATIONS / TRADES / ANALYSIS / LEARN / LOG) — the screen and the 📦 EXPORT use the same lines
+        List<string> AutoLines(string aView)
+        {
+                var L = new List<string>();
+                if (aView == "ITERATIONS")
+                {
+                    L.Add(string.Format("{0,4}  {1,-10} {2,-8} {3,-8} {4,-5} {5,5} {6,5} {7,7} {8,9} {9,9} {10,9} {11,11} {12,11}  {13}", "#", "DATE", "START", "END", "FIRST", "BUYS", "SELLS", "HEDGES", "BUY LOTS", "SELL LOTS", "MAX LOTS", "MAX DD", "RESULT", "HOW"));
+                    foreach (var x in auto.Iterations.AsEnumerable().Reverse()) L.Add(string.Format(IC, "{0,4}  {1,-10} {2,-8} {3,-8} {4,-5} {5,5} {6,5} {7,7} {8,9:0.##} {9,9:0.##} {10,9:0.##} {11,11:N2} {12,11}  {13}", x.N, x.Start.ToString("dd MMM yy", IC), x.Start.ToString("HH:mm:ss", IC), x.Done ? x.End.ToString("HH:mm:ss", IC) : "open", x.FirstDir, x.Buys, x.Sells, x.AddOns, x.BuyLots, x.SellLots, x.MaxGross, x.MaxDd, x.Done ? x.Result.ToString("+#,0.00;−#,0.00;0.00", IC) : "(" + auto.Basket.ToString("+0.00;−0.00", IC) + ")", (x.Manual ? "✋ " : "") + x.Reason + (x.WinnerAdds > 0 ? " • " + x.WinnerAdds + " added to the winner" : "") + (x.ManualAdds > 0 ? " • " + x.ManualAdds + " added by hand" : "") + (x.Manual ? " (your trade)" : x.Adopted ? " (taken over)" : "")));
+                    if (auto.Iterations.Count == 0) L.Add("no iterations yet");
+                }
+                else if (aView == "TRADES")
+                {
+                    L.Add(string.Format("{0,4}  {1,-10} {2,-8} {3,-5} {4,6} {5,12} {6,12} {7,10}  {8}", "#", "DATE", "TIME", "SIDE", "LOTS", "PRICE", "LEVEL", "BASKET", "WHY"));
+                    foreach (var t in auto.Trades.AsEnumerable().Reverse()) L.Add(string.Format(IC, "{0,4}  {1,-10} {2,-8} {3,-5} {4,6:0.##} {5,12} {6,12} {7,10:N2}  {8}", t.Iter, t.Time.ToString("dd MMM yy", IC), t.Time.ToString("HH:mm:ss", IC), t.Side, t.Lots, Px(t.Price), Px(t.Level), t.Basket, t.Why));
+                    if (auto.Trades.Count == 0) L.Add("no trades yet");
+                }
+                else if (aView == "ANALYSIS")
+                {
+                    var st = auto.Calc(auto.Iterations); var d = auto.Iterations.Where(x => x.Done).ToList();
+                    L.Add("ITERATIONS " + st.Done + "   won " + st.Wins + "   lost " + st.Losses + (st.Done > 0 ? "   win rate " + (100.0 * st.Wins / st.Done).ToString("0.0", IC) + "%" : ""));
+                    L.Add("NET " + Signed(st.Net, "USD") + "   average " + Signed(st.Avg, "USD") + "   best " + Signed(st.BestIt, "USD") + "   worst " + Signed(st.WorstIt, "USD"));
+                    L.Add("STREAKS   now " + (st.Streak >= 0 ? st.Streak + " won" : -st.Streak + " lost") + "   best winning " + st.BestStreak + "   worst losing " + st.WorstStreak);
+                    L.Add("TRADES    " + st.Buys + " buys, " + st.Sells + " sells, " + st.AddOns + " add-ons (most in one iteration: " + st.MostAddOns + ")");
+                    L.Add("DRAWDOWN  worst inside an iteration " + st.WorstDd.ToString("0.00", IC) + (d.Count > 0 ? "   average " + d.Average(x => x.MaxDd).ToString("0.00", IC) : ""));
+                    if (d.Count > 0) L.Add("TIME      average iteration " + TimeSpan.FromSeconds(d.Average(x => (x.End - x.Start).TotalSeconds)).ToString(@"hh\:mm\:ss", IC) + "   longest " + TimeSpan.FromSeconds(d.Max(x => (x.End - x.Start).TotalSeconds)).ToString(@"d\.hh\:mm\:ss", IC));
+                    L.Add(""); L.Add("BY ADD-ONS (how many add-ons an iteration needed → how it ended)");
+                    foreach (var g in d.GroupBy(x => x.AddOns).OrderBy(g => g.Key)) L.Add(string.Format(IC, "  {0,3} add-ons: {1,4} iterations   won {2,4}   net {3,12}   worst drawdown {4,10:N2}", g.Key, g.Count(), g.Count(x => x.Won), Signed(g.Sum(x => x.Result), "USD"), g.Min(x => x.MaxDd)));
+                    L.Add(""); L.Add(string.Format("{0,-12} {1,6} {2,5} {3,5} {4,12} {5,9}", "DAY", "ITER.", "WON", "LOST", "P/L", "% OF DAY"));
+                    foreach (var g in d.GroupBy(x => x.End.Date).OrderByDescending(g => g.Key)) { var b0 = g.OrderBy(x => x.Start).First().BalanceStart; double net = g.Sum(x => x.Result); L.Add(string.Format(IC, "{0,-12} {1,6} {2,5} {3,5} {4,12} {5,9}", g.Key.ToString("ddd dd MMM", IC), g.Count(), g.Count(x => x.Won), g.Count(x => !x.Won), Signed(net, "USD"), b0 > 0 ? (100 * net / b0).ToString("+0.00;−0.00", IC) + "%" : "")); }
+                    L.Add(""); L.Add(string.Format("{0,-6} {1,6} {2,5} {3,12}", "HOUR", "ITER.", "WON", "P/L")); foreach (var g in d.GroupBy(x => x.Start.Hour).OrderBy(g => g.Key)) L.Add(string.Format(IC, "{0,-6} {1,6} {2,5} {3,12}", g.Key.ToString("00", IC) + ":00", g.Count(), g.Count(x => x.Won), Signed(g.Sum(x => x.Result), "USD")));
+                }
+                else if (aView == "LEARN")
+                {
+                    // every finished iteration's context at its start → which conditions win, which lose (the strongest confirmations first)
+                    var d = auto.Iterations.Where(x => x.Done && !string.IsNullOrEmpty(x.Ctx)).ToList();
+                    L.Add("LEARN — " + d.Count + " finished iterations with their context (what the market looked like when each one started). n = how many • WIN% • NET • the average worst drawdown • the average hedges");
+                    if (d.Count == 0) L.Add("\nnothing yet — every new iteration is saved with its context");
+                    var rows = new List<Tuple<string, int, int, double, double, double>>();
+                    var keys = d.SelectMany(x => x.Ctx.Split(';').Select(kv => kv.Split('=')[0])).Where(k => k != "range" && k != "spread" && k != "toOtherSide").Distinct().ToList();
+                    foreach (var k in keys)
+                    {
+                        L.Add(""); L.Add(k.ToUpperInvariant());
+                        foreach (var g in d.GroupBy(x => { var kv = x.Ctx.Split(';').FirstOrDefault(z => z.StartsWith(k + "=")); return kv == null ? "?" : kv.Substring(k.Length + 1); }).OrderByDescending(g => g.Count()))
+                        {
+                            int n = g.Count(), w = g.Count(x => x.Won); double net = g.Sum(x => x.Result), dd = g.Average(x => x.MaxDd), h = g.Average(x => (double)x.AddOns);
+                            rows.Add(Tuple.Create(k + " = " + g.Key, n, w, net, dd, h));
+                            L.Add(string.Format(IC, "   {0,-12} n {1,4}   win {2,5:0}%   net {3,11}   avg worst DD {4,9:N2}   avg hedges {5,4:0.0}", g.Key, n, 100.0 * w / n, Signed(net, "USD"), dd, h));
+                        }
+                    }
+                    var strong = rows.Where(r => r.Item2 >= 3).OrderByDescending(r => (double)r.Item3 / r.Item2).ThenByDescending(r => r.Item5).Take(8).ToList();
+                    if (strong.Count > 0) { L.Add(""); L.Add("STRONGEST CONFIRMATIONS (n ≥ 3, the best win rate, the smallest drawdown)"); foreach (var r in strong) L.Add(string.Format(IC, "   ✔ {0,-26} win {1,5:0}% of {2,3}   avg worst DD {3,9:N2}   avg hedges {4,4:0.0}", r.Item1, 100.0 * r.Item3 / r.Item2, r.Item2, r.Item5, r.Item6)); }
+                    var weak = rows.Where(r => r.Item2 >= 3).OrderBy(r => (double)r.Item3 / r.Item2).ThenBy(r => r.Item5).Take(6).ToList();
+                    if (weak.Count > 0) { L.Add(""); L.Add("WHAT LOSES / DRAWS DOWN MOST (avoid or filter)"); foreach (var r in weak) L.Add(string.Format(IC, "   ✖ {0,-26} win {1,5:0}% of {2,3}   avg worst DD {3,9:N2}   avg hedges {4,4:0.0}", r.Item1, 100.0 * r.Item3 / r.Item2, r.Item2, r.Item5, r.Item6)); }
+                    L.Add(""); L.Add("To send everything to Claude: press 📦 EXPORT FOR CLAUDE (one .zip with the settings, iterations, trades, story, analysis, learn, log, the candles and the race).");
+                }
+                else if (aView == "STORY")
+                {
+                    L.Add("WHAT HAPPENED AND WHY — the newest iteration first, each one from its entry to its close (the candle, the level, the prices, the $)");
+                    foreach (var g in auto.Story.GroupBy(x => x.Item1).OrderByDescending(g => g.Key)) { L.Add(""); L.Add(g.Key > 0 ? "──── ITERATION #" + g.Key + " ────" : "──── waiting ────"); foreach (var x in g) L.Add(x.Item2); }
+                    if (auto.Story.Count == 0) L.Add("\nnothing yet — START the automation");
+                }
+                else L.AddRange(auto.Log.AsEnumerable().Reverse());
+                return L;
+        }
         void AutoTablePaint()
         {
             foreach (Button b in aViews.Children) if (b.Content is string) b.Background = (string)b.Content == aView ? Tint(Cyan, 70) : Tint(Sx.Card2, 220);
-            var L = new List<string>();
-            if (aView == "ITERATIONS")
-            {
-                L.Add(string.Format("{0,4}  {1,-10} {2,-8} {3,-8} {4,-5} {5,5} {6,5} {7,7} {8,9} {9,9} {10,9} {11,11} {12,11}  {13}", "#", "DATE", "START", "END", "FIRST", "BUYS", "SELLS", "HEDGES", "BUY LOTS", "SELL LOTS", "MAX LOTS", "MAX DD", "RESULT", "HOW"));
-                foreach (var x in auto.Iterations.AsEnumerable().Reverse()) L.Add(string.Format(IC, "{0,4}  {1,-10} {2,-8} {3,-8} {4,-5} {5,5} {6,5} {7,7} {8,9:0.##} {9,9:0.##} {10,9:0.##} {11,11:N2} {12,11}  {13}", x.N, x.Start.ToString("dd MMM yy", IC), x.Start.ToString("HH:mm:ss", IC), x.Done ? x.End.ToString("HH:mm:ss", IC) : "open", x.FirstDir, x.Buys, x.Sells, x.AddOns, x.BuyLots, x.SellLots, x.MaxGross, x.MaxDd, x.Done ? x.Result.ToString("+#,0.00;−#,0.00;0.00", IC) : "(" + auto.Basket.ToString("+0.00;−0.00", IC) + ")", (x.Manual ? "✋ " : "") + x.Reason + (x.WinnerAdds > 0 ? " • " + x.WinnerAdds + " added to the winner" : "") + (x.ManualAdds > 0 ? " • " + x.ManualAdds + " added by hand" : "") + (x.Manual ? " (your trade)" : x.Adopted ? " (taken over)" : "")));
-                if (auto.Iterations.Count == 0) L.Add("no iterations yet");
-            }
-            else if (aView == "TRADES")
-            {
-                L.Add(string.Format("{0,4}  {1,-10} {2,-8} {3,-5} {4,6} {5,12} {6,12} {7,10}  {8}", "#", "DATE", "TIME", "SIDE", "LOTS", "PRICE", "LEVEL", "BASKET", "WHY"));
-                foreach (var t in auto.Trades.AsEnumerable().Reverse()) L.Add(string.Format(IC, "{0,4}  {1,-10} {2,-8} {3,-5} {4,6:0.##} {5,12} {6,12} {7,10:N2}  {8}", t.Iter, t.Time.ToString("dd MMM yy", IC), t.Time.ToString("HH:mm:ss", IC), t.Side, t.Lots, Px(t.Price), Px(t.Level), t.Basket, t.Why));
-                if (auto.Trades.Count == 0) L.Add("no trades yet");
-            }
-            else if (aView == "ANALYSIS")
-            {
-                var st = auto.Calc(auto.Iterations); var d = auto.Iterations.Where(x => x.Done).ToList();
-                L.Add("ITERATIONS " + st.Done + "   won " + st.Wins + "   lost " + st.Losses + (st.Done > 0 ? "   win rate " + (100.0 * st.Wins / st.Done).ToString("0.0", IC) + "%" : ""));
-                L.Add("NET " + Signed(st.Net, "USD") + "   average " + Signed(st.Avg, "USD") + "   best " + Signed(st.BestIt, "USD") + "   worst " + Signed(st.WorstIt, "USD"));
-                L.Add("STREAKS   now " + (st.Streak >= 0 ? st.Streak + " won" : -st.Streak + " lost") + "   best winning " + st.BestStreak + "   worst losing " + st.WorstStreak);
-                L.Add("TRADES    " + st.Buys + " buys, " + st.Sells + " sells, " + st.AddOns + " add-ons (most in one iteration: " + st.MostAddOns + ")");
-                L.Add("DRAWDOWN  worst inside an iteration " + st.WorstDd.ToString("0.00", IC) + (d.Count > 0 ? "   average " + d.Average(x => x.MaxDd).ToString("0.00", IC) : ""));
-                if (d.Count > 0) L.Add("TIME      average iteration " + TimeSpan.FromSeconds(d.Average(x => (x.End - x.Start).TotalSeconds)).ToString(@"hh\:mm\:ss", IC) + "   longest " + TimeSpan.FromSeconds(d.Max(x => (x.End - x.Start).TotalSeconds)).ToString(@"d\.hh\:mm\:ss", IC));
-                L.Add(""); L.Add("BY ADD-ONS (how many add-ons an iteration needed → how it ended)");
-                foreach (var g in d.GroupBy(x => x.AddOns).OrderBy(g => g.Key)) L.Add(string.Format(IC, "  {0,3} add-ons: {1,4} iterations   won {2,4}   net {3,12}   worst drawdown {4,10:N2}", g.Key, g.Count(), g.Count(x => x.Won), Signed(g.Sum(x => x.Result), "USD"), g.Min(x => x.MaxDd)));
-                L.Add(""); L.Add(string.Format("{0,-12} {1,6} {2,5} {3,5} {4,12} {5,9}", "DAY", "ITER.", "WON", "LOST", "P/L", "% OF DAY"));
-                foreach (var g in d.GroupBy(x => x.End.Date).OrderByDescending(g => g.Key)) { var b0 = g.OrderBy(x => x.Start).First().BalanceStart; double net = g.Sum(x => x.Result); L.Add(string.Format(IC, "{0,-12} {1,6} {2,5} {3,5} {4,12} {5,9}", g.Key.ToString("ddd dd MMM", IC), g.Count(), g.Count(x => x.Won), g.Count(x => !x.Won), Signed(net, "USD"), b0 > 0 ? (100 * net / b0).ToString("+0.00;−0.00", IC) + "%" : "")); }
-                L.Add(""); L.Add(string.Format("{0,-6} {1,6} {2,5} {3,12}", "HOUR", "ITER.", "WON", "P/L")); foreach (var g in d.GroupBy(x => x.Start.Hour).OrderBy(g => g.Key)) L.Add(string.Format(IC, "{0,-6} {1,6} {2,5} {3,12}", g.Key.ToString("00", IC) + ":00", g.Count(), g.Count(x => x.Won), Signed(g.Sum(x => x.Result), "USD")));
-            }
-            else if (aView == "LEARN")
-            {
-                // every finished iteration's context at its start → which conditions win, which lose (the strongest confirmations first)
-                var d = auto.Iterations.Where(x => x.Done && !string.IsNullOrEmpty(x.Ctx)).ToList();
-                L.Add("LEARN — " + d.Count + " finished iterations with their context (what the market looked like when each one started). n = how many • WIN% • NET • the average worst drawdown • the average hedges");
-                if (d.Count == 0) L.Add("\nnothing yet — every new iteration is saved with its context");
-                var rows = new List<Tuple<string, int, int, double, double, double>>();
-                var keys = d.SelectMany(x => x.Ctx.Split(';').Select(kv => kv.Split('=')[0])).Where(k => k != "range" && k != "spread" && k != "toOtherSide").Distinct().ToList();
-                foreach (var k in keys)
-                {
-                    L.Add(""); L.Add(k.ToUpperInvariant());
-                    foreach (var g in d.GroupBy(x => { var kv = x.Ctx.Split(';').FirstOrDefault(z => z.StartsWith(k + "=")); return kv == null ? "?" : kv.Substring(k.Length + 1); }).OrderByDescending(g => g.Count()))
-                    {
-                        int n = g.Count(), w = g.Count(x => x.Won); double net = g.Sum(x => x.Result), dd = g.Average(x => x.MaxDd), h = g.Average(x => (double)x.AddOns);
-                        rows.Add(Tuple.Create(k + " = " + g.Key, n, w, net, dd, h));
-                        L.Add(string.Format(IC, "   {0,-12} n {1,4}   win {2,5:0}%   net {3,11}   avg worst DD {4,9:N2}   avg hedges {5,4:0.0}", g.Key, n, 100.0 * w / n, Signed(net, "USD"), dd, h));
-                    }
-                }
-                var strong = rows.Where(r => r.Item2 >= 3).OrderByDescending(r => (double)r.Item3 / r.Item2).ThenByDescending(r => r.Item5).Take(8).ToList();
-                if (strong.Count > 0) { L.Add(""); L.Add("STRONGEST CONFIRMATIONS (n ≥ 3, the best win rate, the smallest drawdown)"); foreach (var r in strong) L.Add(string.Format(IC, "   ✔ {0,-26} win {1,5:0}% of {2,3}   avg worst DD {3,9:N2}   avg hedges {4,4:0.0}", r.Item1, 100.0 * r.Item3 / r.Item2, r.Item2, r.Item5, r.Item6)); }
-                var weak = rows.Where(r => r.Item2 >= 3).OrderBy(r => (double)r.Item3 / r.Item2).ThenBy(r => r.Item5).Take(6).ToList();
-                if (weak.Count > 0) { L.Add(""); L.Add("WHAT LOSES / DRAWS DOWN MOST (avoid or filter)"); foreach (var r in weak) L.Add(string.Format(IC, "   ✖ {0,-26} win {1,5:0}% of {2,3}   avg worst DD {3,9:N2}   avg hedges {4,4:0.0}", r.Item1, 100.0 * r.Item3 / r.Item2, r.Item2, r.Item5, r.Item6)); }
-                L.Add(""); L.Add("Files (send them to Claude to build an indicator from them): " + (string.IsNullOrEmpty(aHist) ? "—" : AutoFile("iterations") + "  •  " + AutoFile("story")));
-            }
-            else if (aView == "STORY")
-            {
-                L.Add("WHAT HAPPENED AND WHY — the newest iteration first, each one from its entry to its close (the candle, the level, the prices, the $)");
-                foreach (var g in auto.Story.GroupBy(x => x.Item1).OrderByDescending(g => g.Key)) { L.Add(""); L.Add(g.Key > 0 ? "──── ITERATION #" + g.Key + " ────" : "──── waiting ────"); foreach (var x in g) L.Add(x.Item2); }
-                if (auto.Story.Count == 0) L.Add("\nnothing yet — START the automation");
-            }
-            else L.AddRange(auto.Log.AsEnumerable().Reverse());
+            var L = AutoLines(aView);
             aTable.TextWrapping = aView == "STORY" || aView == "LOG" ? TextWrapping.Wrap : TextWrapping.NoWrap;
             bool other = aView == "⚙ SETTINGS" || aView == "🏁 RACE", rowsView = !other && (aView == "ITERATIONS" || aView == "TRADES");
             aRowsView.Visibility = rowsView ? Visibility.Visible : Visibility.Collapsed; aTable.Visibility = !other && !rowsView ? Visibility.Visible : Visibility.Collapsed;
