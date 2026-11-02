@@ -13,6 +13,7 @@ namespace KeystoneMT5
     public sealed class SimAccountSettings
     {
         public double Balance = 10000, CommissionPerLot = 7, StopOutPct = 50, MarkupPts = 0, SwapLong = 0, SwapShort = 0; public int Leverage = 500, SlipPts = 0;
+        public double CommissionPct = 0;   // % of the deal's value (price × contract × lots), charged on EVERY in and out deal — Duramarkets: 0.001 % ("instant by deal volume, in/out deals"); on top of the per-lot one
         public string Currency = "USD", Kind = "RAW";   // RAW = NO commission + the spread widened by MarkupPts, STANDARD = commission + the raw (near 0) spread — the user's definition
         public double Commission { get { return Kind == "RAW" ? 0 : CommissionPerLot; } }
         public bool Widened { get { return Kind == "RAW"; } }
@@ -150,9 +151,11 @@ namespace KeystoneMT5
                 Notes.Add("⚠ STOP OUT: margin level under " + Set.StopOutPct.ToString("0", IC) + " % — #" + worst.Ticket + " closed"); Mark();
             }
         }
+        // the % commission of one deal: CommissionPct % of its value (gold 0.1 lot @ 3,960 × 100 oz × 0.001 % = $0.40 a side)
+        public double PctComm(string sym, double lots, double price) { if (Set.CommissionPct <= 0) return 0; var sp = SpecOf(sym); return Set.CommissionPct / 100.0 * price * (sp != null && sp.Contract > 0 ? sp.Contract : 1) * lots; }
         Mt5Position Open(DateTime t, string sym, int dir, double lots, double fill, double sl, double tp, string comment, long ticket = 0)
         {
-            double comm = -Math.Round(Set.Commission / 2 * lots, 2); Balance += comm;
+            double comm = -Math.Round(Set.Commission / 2 * lots + PctComm(sym, lots, fill), 2); Balance += comm;
             var p = new Mt5Position { Ticket = ticket > 0 ? ticket : NextTicket++, Symbol = SpecOf(sym).Name, Side = dir > 0 ? "BUY" : "SELL", Lots = lots, Open = fill, Sl = sl, Tp = tp, Current = dir > 0 ? Bid(sym) : Ask(sym), Time = t, Comment = comment, Commission = comm };
             State.Positions.Add(p);
             State.Deals.Add(new Mt5Deal { Ticket = NextDeal++, Position = p.Ticket, Time = t, Symbol = p.Symbol, Type = p.Side, Entry = "IN", Lots = lots, Price = fill, Commission = comm, Comment = comment }); State.DealsVersion++;
@@ -161,7 +164,7 @@ namespace KeystoneMT5
         void Close(DateTime t, Mt5Position p, double lots, double price, string reason)
         {
             var s = SpecOf(p.Symbol); lots = Math.Min(p.Lots, lots); double frac = p.Lots > 0 ? lots / p.Lots : 1;
-            double pl = Math.Round(Pl(s, p.Dir, p.Open, price, lots), 2), comm = -Math.Round(Set.Commission / 2 * lots, 2), sw = Math.Round(p.Swap * frac, 2);
+            double pl = Math.Round(Pl(s, p.Dir, p.Open, price, lots), 2), comm = -Math.Round(Set.Commission / 2 * lots + PctComm(p.Symbol, lots, price), 2), sw = Math.Round(p.Swap * frac, 2);
             Balance += pl + comm + sw; p.Swap -= sw;
             State.Deals.Add(new Mt5Deal { Ticket = NextDeal++, Position = p.Ticket, Time = t, Symbol = p.Symbol, Type = p.Dir > 0 ? "SELL" : "BUY", Entry = "OUT", Lots = lots, Price = price, Profit = pl, Commission = comm, Swap = sw, Reason = reason }); State.DealsVersion++;
             if (lots >= p.Lots - 1e-9) State.Positions.Remove(p); else p.Lots = Math.Round(p.Lots - lots, 2);
@@ -255,7 +258,7 @@ namespace KeystoneMT5
         public List<string> Save()
         {
             var l = new List<string>();
-            l.Add("SET|" + Set.Balance.ToString("R", IC) + "|" + Set.CommissionPerLot.ToString("R", IC) + "|" + Set.Leverage + "|" + Set.StopOutPct.ToString("R", IC) + "|" + Set.Kind + "|" + Set.MarkupPts.ToString("R", IC) + "|" + Set.SlipPts + "|" + Set.Currency);
+            l.Add("SET|" + Set.Balance.ToString("R", IC) + "|" + Set.CommissionPerLot.ToString("R", IC) + "|" + Set.Leverage + "|" + Set.StopOutPct.ToString("R", IC) + "|" + Set.Kind + "|" + Set.MarkupPts.ToString("R", IC) + "|" + Set.SlipPts + "|" + Set.Currency + "|" + Set.CommissionPct.ToString("R", IC));
             l.Add("BAL|" + Balance.ToString("R", IC) + "|" + NextTicket + "|" + NextDeal + "|" + Now.Ticks);
             foreach (var p in State.Positions) l.Add("P|" + p.Ticket + "|" + p.Symbol + "|" + p.Side + "|" + p.Lots.ToString("R", IC) + "|" + p.Open.ToString("R", IC) + "|" + p.Sl.ToString("R", IC) + "|" + p.Tp.ToString("R", IC) + "|" + p.Time.Ticks + "|" + p.Swap.ToString("R", IC) + "|" + p.Commission.ToString("R", IC));
             foreach (var o in State.Orders) l.Add("O|" + o.Ticket + "|" + o.Symbol + "|" + o.Type + "|" + o.Lots.ToString("R", IC) + "|" + o.Price.ToString("R", IC) + "|" + o.Sl.ToString("R", IC) + "|" + o.Tp.ToString("R", IC) + "|" + o.Time.Ticks);
@@ -270,7 +273,7 @@ namespace KeystoneMT5
             foreach (var ln in lines)
             {
                 var a = ln.Split('|');
-                if (a[0] == "SET" && a.Length >= 9) { Set = new SimAccountSettings { Balance = D(a[1]), CommissionPerLot = D(a[2]), Leverage = (int)L(a[3]), StopOutPct = D(a[4]), Kind = a[5], MarkupPts = D(a[6]), SlipPts = (int)L(a[7]), Currency = a[8] }; any = true; }
+                if (a[0] == "SET" && a.Length >= 9) { Set = new SimAccountSettings { Balance = D(a[1]), CommissionPerLot = D(a[2]), Leverage = (int)L(a[3]), StopOutPct = D(a[4]), Kind = a[5], MarkupPts = D(a[6]), SlipPts = (int)L(a[7]), Currency = a[8], CommissionPct = a.Length >= 10 ? D(a[9]) : 0 }; any = true; }
                 else if (a[0] == "BAL" && a.Length >= 5) { Balance = D(a[1]); NextTicket = L(a[2]); NextDeal = L(a[3]); Now = new DateTime(L(a[4])); }
                 else if (a[0] == "P" && a.Length >= 11) pos.Add(new Mt5Position { Ticket = L(a[1]), Symbol = a[2], Side = a[3], Lots = D(a[4]), Open = D(a[5]), Sl = D(a[6]), Tp = D(a[7]), Time = new DateTime(L(a[8])), Swap = D(a[9]), Commission = D(a[10]), Current = D(a[5]) });
                 else if (a[0] == "O" && a.Length >= 9) ord.Add(new Mt5Order { Ticket = L(a[1]), Symbol = a[2], Type = a[3], Lots = D(a[4]), Price = D(a[5]), Sl = D(a[6]), Tp = D(a[7]), Time = new DateTime(L(a[8])) });

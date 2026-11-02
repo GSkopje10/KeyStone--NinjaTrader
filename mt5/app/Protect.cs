@@ -123,14 +123,16 @@ namespace KeystoneMT5
             string kind = Get("demo.kind", "RAW"); var kp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) }; Grid.SetRow(kp, row); Grid.SetColumn(kp, 1); g.Children.Add(kp); row++;
             var raw = Pill("RAW", Card); var std = Pill("STANDARD", Card); kp.Children.Add(raw); kp.Children.Add(std);
             var com = field("COMMISSION $ / lot (STANDARD)", Get("demo.com", "7")); var mk = field("EXTRA SPREAD points (RAW)", Get("demo.mk", "10"));
+            string srv0; lock (live.State.Gate) srv0 = live.State.Account.Server ?? "";
+            var pct = field("COMMISSION % of each deal (in AND out)", Get("demo.pct", srv0.IndexOf("dura", StringComparison.OrdinalIgnoreCase) >= 0 ? "0.001" : "0"));   // Duramarkets: 0.001 % by deal volume, in / out
             Action paint = () => { raw.Background = kind == "RAW" ? Tint(Cyan, 200) : (Brush)Card; raw.Foreground = kind == "RAW" ? Bg : Text; std.Background = kind == "STANDARD" ? Tint(Violet, 200) : (Brush)Card; std.Foreground = kind == "STANDARD" ? Bg : Text; com.IsReadOnly = kind == "RAW"; com.Opacity = kind == "RAW" ? 0.35 : 1; mk.IsReadOnly = kind != "RAW"; mk.Opacity = kind == "RAW" ? 1 : 0.35; };
             raw.Click += delegate { kind = "RAW"; paint(); }; std.Click += delegate { kind = "STANDARD"; paint(); }; paint();
-            string txt = "Your MT5's REAL prices and candles, with a simulated account: every button works like live — nothing reaches MT5.\nRAW = no commission, the spread wider by the extra points • STANDARD = MT5's spread (near 0) + commission per lot (round turn)."
+            string txt = "Your MT5's REAL prices and candles, with a simulated account: every button works like live — nothing reaches MT5.\nRAW = no commission, the spread wider by the extra points • STANDARD = MT5's spread (near 0) + commission per lot (round turn).\nCOMMISSION % = a broker that charges a share of each deal's value (Duramarkets: 0.001 % on every in and out deal — gold 0.1 lot ≈ $0.40 a side); it applies to RAW and STANDARD."
                 + (!first && paper.Ready ? "\n\n⚠ A NEW account replaces the current one (its tickets and history are cleared)." : "");
             if (!Sx.Form(this, "🎮 DEMO ACCOUNT", txt, g, first || !paper.Ready ? "START THE DEMO" : "START A NEW DEMO", "CANCEL", Orange)) { if (!paper.Ready) Toast("🎮 set up the DEMO account in the panel to trade"); return; }
             Func<TextBox, double, double> num = (b, d) => { double v; return double.TryParse(b.Text.Replace(',', '.'), NumberStyles.Float, IC, out v) && v >= 0 ? v : d; };
-            var s = new SimAccountSettings { Balance = Math.Max(100, num(bal, 10000)), Leverage = (int)Math.Max(1, num(lev, 500)), Kind = kind, CommissionPerLot = num(com, 7), MarkupPts = num(mk, 10), Currency = "USD" };
-            Put("demo.bal", bal.Text); Put("demo.lev", lev.Text); Put("demo.kind", kind); Put("demo.com", com.Text); Put("demo.mk", mk.Text);
+            var s = new SimAccountSettings { Balance = Math.Max(100, num(bal, 10000)), Leverage = (int)Math.Max(1, num(lev, 500)), Kind = kind, CommissionPerLot = num(com, 7), MarkupPts = num(mk, 10), Currency = "USD", CommissionPct = num(pct, 0) };
+            Put("demo.pct", pct.Text); Put("demo.bal", bal.Text); Put("demo.lev", lev.Text); Put("demo.kind", kind); Put("demo.com", com.Text); Put("demo.mk", mk.Text);
             paper.Start(s); resSeen = 0; posSig = ""; trackSig = ""; Toast("🎮 DEMO started — " + Money(s.Balance, "USD") + " • " + kind + " • 1:" + s.Leverage);
         }
     }

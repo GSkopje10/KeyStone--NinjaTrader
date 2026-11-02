@@ -237,7 +237,9 @@ namespace KeystoneMT5
         double High(Snap sn) { if (Set.Swing) { var pv = Pivot(sn, true); return pv != null ? pv.H : double.NaN; } return sn.Done.Count < Set.Lookback ? double.NaN : sn.Done.Max(x => x.H); }
         double Low(Snap sn) { if (Set.Swing) { var pv = Pivot(sn, false); return pv != null ? pv.L : double.NaN; } return sn.Done.Count < Set.Lookback ? double.NaN : sn.Done.Min(x => x.L); }
         static double Gross(List<Mt5Position> p) { return p.Sum(x => x.Lots); }
-        double BasketOf(Snap sn) { return sn.Pos.Sum(p => p.Profit + p.Swap + p.Commission) - (Set.CommissionPerLot > 0 ? Gross(sn.Pos) * Set.CommissionPerLot : 0); }
+        // the basket = what closing everything now would give: profit + swap + the commission paid at the open AND the same again for the close
+        // (brokers that charge "in / out deals", like Duramarkets' 0.001 %) — so +$20 is +$20 after every commission
+        double BasketOf(Snap sn) { return sn.Pos.Sum(p => p.Profit + p.Swap + 2 * p.Commission) - (Set.CommissionPerLot > 0 ? Gross(sn.Pos) * Set.CommissionPerLot : 0); }
 
         public void Step(IBroker b)
         {

@@ -19,6 +19,7 @@ namespace KeystoneMT5
         readonly List<RaceLane> lanes = new List<RaceLane>(); bool raceOn; string raceShow = "", raceView = "TODAY", racePeriod = "7"; DateTime raceDay = DateTime.MinValue, raceAskAt = DateTime.MinValue;
         DockPanel aRaceHost; StackPanel raceBody, raceTabs; TextBlock raceStatus; Button raceStart; TextBox raceBal, raceComm; ComboBox raceShowBox; readonly Dictionary<string, CheckBox> raceChecks = new Dictionary<string, CheckBox>();
 
+        bool RaceDura() { string sv; lock (broker.State.Gate) sv = broker.State.Account.Server ?? ""; return sv.IndexOf("dura", StringComparison.OrdinalIgnoreCase) >= 0; }   // Duramarkets: 0.001 % of each deal
         string RaceFolder() { var id = Sim ? "backtest" : AutoId(); return Path.Combine(Dir, "race", Mode + (id != "" ? "-" + id : "")); }
         // whose levels / signals / trades the chart draws: a lane of the race, or the 🤖 AUTO itself
         HedgeAuto ShowEngine() { if (raceShow != "") { var l = lanes.FirstOrDefault(x => x.Key == raceShow); if (l != null) return l.Eng; } return auto; }
@@ -50,14 +51,14 @@ namespace KeystoneMT5
         {
             Put("race.bal", raceBal.Text); Put("race.comm", raceComm.Text); double bal, comm; if (!double.TryParse(raceBal.Text.Trim(), NumberStyles.Float, IC, out bal) || bal <= 0) bal = 5000; double.TryParse(raceComm.Text.Trim(), NumberStyles.Float, IC, out comm);
             var mine = AutoRead(); lanes.Clear();
-            var acc = Paper ? new SimAccountSettings { Balance = bal, CommissionPerLot = Math.Max(0, comm), Leverage = paper.Acct.Set.Leverage, Kind = paper.Acct.Set.Kind, MarkupPts = paper.Acct.Set.MarkupPts, Currency = paper.Acct.Set.Currency, StopOutPct = paper.Acct.Set.StopOutPct }
-                : new SimAccountSettings { Balance = bal, CommissionPerLot = Math.Max(0, comm), Kind = comm > 0 ? "STANDARD" : "RAW", MarkupPts = 0 };
+            var acc = Paper ? new SimAccountSettings { Balance = bal, CommissionPerLot = Math.Max(0, comm), Leverage = paper.Acct.Set.Leverage, Kind = paper.Acct.Set.Kind, MarkupPts = paper.Acct.Set.MarkupPts, Currency = paper.Acct.Set.Currency, StopOutPct = paper.Acct.Set.StopOutPct, CommissionPct = paper.Acct.Set.CommissionPct }
+                : new SimAccountSettings { Balance = bal, CommissionPerLot = Math.Max(0, comm), Kind = comm > 0 ? "STANDARD" : "RAW", MarkupPts = 0, CommissionPct = RaceDura() ? 0.001 : 0 };
             var market = Sim ? sim.State : live.State; Func<string, bool> send = Sim ? (Func<string, bool>)(l => false) : live.Send;
             foreach (var k in RaceKeys)
             {
                 if (raceChecks[k].IsChecked != true) continue;
                 var set = k == "MINE" ? mine.Copy() : AutoSettings.Model(k, mine); set.Symbol = mine.Symbol; set.TrackManual = false;   // a lane never adopts anything: its account is its own
-                var l = new RaceLane { Key = k, Name = RaceName(k), Set = set, Br = new ShadowBroker(market, send, new SimAccountSettings { Balance = acc.Balance, CommissionPerLot = acc.CommissionPerLot, Leverage = acc.Leverage, Kind = acc.Kind, MarkupPts = acc.MarkupPts, Currency = acc.Currency, StopOutPct = acc.StopOutPct }) };
+                var l = new RaceLane { Key = k, Name = RaceName(k), Set = set, Br = new ShadowBroker(market, send, new SimAccountSettings { Balance = acc.Balance, CommissionPerLot = acc.CommissionPerLot, Leverage = acc.Leverage, Kind = acc.Kind, MarkupPts = acc.MarkupPts, Currency = acc.Currency, StopOutPct = acc.StopOutPct, CommissionPct = acc.CommissionPct }) };
                 l.StartBalance = l.PeakEq = bal; l.Eng.Send = (c, a, lab) => l.Br.Command(c, a);
                 var err = l.Eng.Check(l.Br, set); if (err != "") l.Problem = err; else l.Eng.Start(l.Br, set, false);
                 lanes.Add(l);
