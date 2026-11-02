@@ -282,6 +282,7 @@ namespace KeystoneMT5
             double ph = 0.5 + 0.5 * Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 170.0); var labels = new List<double>();
             foreach (var g in gs)
             {
+                if (Ind.Contains("VWAP") && g.Kind != "ZONE" && g.Kind != "SIGNAL" && (g.Label ?? "").StartsWith("VWAP")) continue;   // the chart's own VWAP line is on: ONE VWAP line, not two
                 if (g.Blink) guidesBlink = true; var sc = g.Color as SolidColorBrush; var col = sc != null ? sc.Color : Colors.White; double a = g.Blink ? 0.3 + 0.7 * ph : 0.85;
                 var br = new SolidColorBrush(Color.FromArgb((byte)(255 * a), col.R, col.G, col.B)); var pen = new Pen(br, g.Blink ? 2.2 : 1.4); if (g.Dash) pen.DashStyle = DashStyles.Dash;
                 double x0 = g.From > DateTime.MinValue && g.From > bars[0].Time ? Math.Max(0, X(IndexOf(g.From))) : 0;
@@ -483,9 +484,10 @@ namespace KeystoneMT5
             if (Ind.Contains("VWAP"))
             {
                 // the day's VWAP from the server's midnight (the forex day: New York 17:00)
-                var g = new StreamGeometry(); double pv = 0, vv = 0; DateTime day = DateTime.MinValue;
-                using (var c = g.Open()) { bool started = false; for (int i = 0; i <= i1 && i < n; i++) { var b = bars[i]; if (b.Time.Date != day) { day = b.Time.Date; pv = vv = 0; if (i >= i0) started = false; } double tp = (b.H + b.L + b.C) / 3, w = Math.Max(1, b.V); pv += tp * w; vv += w; if (i < i0) continue; var pt = new Point(X(i), Y(pv / vv)); if (!started) { c.BeginFigure(pt, false, false); started = true; } else c.LineTo(pt, true, false); } }
+                var g = new StreamGeometry(); double pv = 0, vv = 0, lastV = double.NaN; DateTime day = DateTime.MinValue;
+                using (var c = g.Open()) { bool started = false; for (int i = 0; i <= i1 && i < n; i++) { var b = bars[i]; if (b.Time.Date != day) { day = b.Time.Date; pv = vv = 0; if (i >= i0) started = false; } double tp = (b.H + b.L + b.C) / 3, w = Math.Max(1, b.V); pv += tp * w; vv += w; if (i < i0) continue; lastV = pv / vv; var pt = new Point(X(i), Y(lastV)); if (!started) { c.BeginFigure(pt, false, false); started = true; } else c.LineTo(pt, true, false); } }
                 g.Freeze(); dc.DrawGeometry(null, P(Hex(IndColor("VWAP")), 2.2), g);
+                if (!double.IsNaN(lastV)) { double yv = Y(lastV); if (yv > TopPad + 8 && yv < TopPad + plotH - 8) { var vt = T("VWAP " + F(lastV), 10, Hex(IndColor("VWAP")), true); dc.DrawText(vt, new Point(Math.Max(0, plotW - vt.Width - 6), yv - vt.Height - 1)); } }   // its value at the right edge
             }
             if (Ind.Contains("FVG"))
             {
