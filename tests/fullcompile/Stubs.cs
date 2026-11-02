@@ -434,7 +434,7 @@ namespace System.Windows.Controls
     public class MenuItem : HeaderedItemsControlCompat { public event RoutedEventHandler Click; public object Icon { get; set; } }
     public class HeaderedItemsControlCompat : ItemsControl { public object Header { get; set; } }
     public class Separator : Control { }
-    public class ContextMenu : ItemsControl { public static readonly System.Windows.RoutedEvent OpenedEvent = new System.Windows.RoutedEvent(); public bool HasDropShadow { get; set; } public bool IsOpen { get; set; } public UIElement PlacementTarget { get; set; } }
+    public class ContextMenu : ItemsControl { public static readonly System.Windows.RoutedEvent OpenedEvent = new System.Windows.RoutedEvent(); public event RoutedEventHandler Opened, Closed; public bool HasDropShadow { get; set; } public bool IsOpen { get; set; } public UIElement PlacementTarget { get; set; } }
     public class Border : FrameworkElement
     { public static readonly DependencyProperty CornerRadiusProperty = new DependencyProperty(), BackgroundProperty = new DependencyProperty(), BorderBrushProperty = new DependencyProperty(), BorderThicknessProperty = new DependencyProperty(), PaddingProperty = new DependencyProperty(); 
         public Brush Background { get; set; } public Brush BorderBrush { get; set; } public Thickness BorderThickness { get; set; }
