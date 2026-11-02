@@ -349,6 +349,15 @@ public static class AccountLinkTests
             var fb2 = KeystonePool.Parse(KeystonePool.Serialize(new[] { fa }))[0];
             Check(fb2.Funded && fb2.FundedOn == new DateTime(2026, 10, 24) && fb2.FundedPeak == 51700 && fb2.PeakBal == 51700 && Math.Abs(fb2.MaxDd - 800) < 1e-9, "funded on Oct 24, its peak 51,700 — saved and loaded");
             Check(Math.Abs(KeystonePoolAccount.IntradayFloor(51700, 2000, 50000) - 49700) < 1e-9 && Math.Abs(KeystonePoolAccount.IntradayFloor(52600, 2000, 50000) - 50000) < 1e-9, "intraday trailing floor: best 51,700 − 2,000 = 49,700; locks at the 50,000 start");
+            {   // FUNDED (TPT PRO): the floor trails the best equity by $2,000 until +$2,000 locks it at the start; EOD mode uses the day closes
+                var fpa = new KeystonePoolAccount { Account = "TAKEPROFITPRO583654006", Status = "FUNDED", FundedPeak = 50350 };
+                bool det = KeystonePoolAccount.LooksFunded("TAKEPROFITPRO583654006", "TPT") && KeystonePoolAccount.LooksFunded("PRO12345", "TPT") && !KeystonePoolAccount.LooksFunded("TAKEPROFIT583654006", "TPT") && !KeystonePoolAccount.LooksFunded("TAKEPROFITPRO1", "APEX");
+                double f1 = fpa.FundedFloor(50281, 2000, 50000, double.NaN), f2 = fpa.FundedFloor(50900, 2000, 50000, double.NaN), f3 = fpa.FundedFloor(52300, 2000, 50000, double.NaN);
+                fpa.FundedDd = "EOD"; double f4 = fpa.FundedFloor(52300, 2000, 50000, 48400);
+                var fback = KeystonePool.Parse(KeystonePool.Serialize(new[] { fpa, new KeystonePoolAccount { Account = "X", AutoChecked = true } }));
+                Check(det && Math.Abs(f1 - 48350) < 1e-9 && Math.Abs(f2 - 48900) < 1e-9 && Math.Abs(f3 - 50000) < 1e-9 && Math.Abs(f4 - 48400) < 1e-9 && fback[0].FundedDd == "EOD" && fback[1].AutoChecked && !fback[0].AutoChecked,
+                    "funded: TPT PRO names detected (not TAKEPROFIT evals), trailing 48,350 → 48,900 → locked at 50,000; EOD uses the close floor; saved and read back", det + " " + f1 + " " + f2 + " " + f3 + " " + f4);
+            }
             // GROUP DESK: a group traded from the COPIER tab (no chart): BUY → every account buys with the bracket, STOP → all flat
             {
                 var dk = new KeystoneGroupDesk { Group = "ASIAN" }; var b1 = new FakeBroker(); var b2 = new FakeBroker(); var d0 = new DateTime(2026, 10, 21, 20, 0, 0);
