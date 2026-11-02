@@ -186,6 +186,17 @@ public static class AutoTests
         r = Run(vr, sC); au = r.Item2; it = au.Iterations.FirstOrDefault();
         Check(au.Trades.Count == 1 && au.Trades[0].Side == "BUY" && au.Trades[0].Why.Contains("VWAP REJECTION") && it != null && it.Reason == "TARGET", "model C: a dip to the VWAP closing back above → BUY, +$20, no add-on", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Why)) + " / " + (it == null ? "none" : it.Reason));
 
+        // 26. A + SIGNAL HEDGE: BUY 0.1; down $10 a BEARISH engulfing at the 20-candle high → SELL 0.2; the sell closes at its own +$40, the buy at its own +$20
+        var sh = Path(Day1, 4000, Enumerable.Repeat(4000.0, 25)); var t1 = Day1.AddMinutes(25);
+        sh.Add(new Mt5Bar { Time = t1, O = 4000, H = 4000.05, L = 3998.9, C = 3999.0, V = 100, Spread = 10 });
+        sh.Add(new Mt5Bar { Time = t1.AddMinutes(1), O = 3999.0, H = 4000.3, L = 3998.95, C = 3999.6, V = 100, Spread = 10 });
+        sh.Add(new Mt5Bar { Time = t1.AddMinutes(2), O = 3999.7, H = 4000.4, L = 3998.7, C = 3998.8, V = 100, Spread = 10 });
+        sh.AddRange(Path(t1.AddMinutes(3), 3998.8, Line(3998.8, -0.5, 8))); sh.AddRange(Path(t1.AddMinutes(11), 3994.8, Line(3994.8, 0.5, 30)));
+        var sH = AutoSettings.Model("AH", S()); sH.Tf = 1; sH.Windows = ""; sH.CloseAtNy = ""; sH.FirstDir = "BUY"; sH.MaxIterations = 1;
+        r = Run(sh, sH); au = r.Item2; it = au.Iterations.FirstOrDefault();
+        Check(au.Trades.Count >= 2 && au.Trades[0].Side == "BUY" && au.Trades[1].Side == "SELL" && Math.Abs(au.Trades[1].Lots - 0.2) < 1e-9 && au.Trades[1].Why.StartsWith("SIGNAL HEDGE"), "signal hedge: an opposite engulfing while losing → SELL 0.20 (2× the net)", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Lots + " " + x.Why)));
+        Check(it != null && it.Reason == "LEG TARGETS" && it.Result > 50 && it.Result < 70 && au.Trades.Count(x => x.Side == "CLOSE") == 2 && r.Item1.State.Positions.Count == 0, "each leg at its own target: +$40 (0.2) and +$20 (0.1) → the iteration ≈ +$60", it == null ? "none" : it.Reason + " " + it.Result.ToString("0.00"));
+
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();
         var ds = S(); ds.HedgeMode = "PRICE"; ds.HedgePrice = 2; ds.Target = 20;

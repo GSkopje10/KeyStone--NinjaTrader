@@ -419,5 +419,85 @@ public static class Lab6
         foreach (var i in Enumerable.Range(0, jobs.Count).Where(i => ok(res[i]) && jobs[i].e < 4).OrderByDescending(i => res[i].Net.Min() - 0 * res[i].Dd.Max()).Take(25))
         { var r = res[i]; Console.WriteLine(string.Format(IC, "  {0,-26} {1,-80} net {2:N0}/{3:N0}/{4:N0}  win {5:0.0}%  trades {6}  worst {7:N0}  DD {8:N0}  max units {9}  min eq 0.01 ${10:N0}  at 0.1 ${11:N0}{12}", entries[jobs[i].e].Item1, jobs[i].x.Name, r.Net[0], r.Net[1], r.Net[2], 100.0 * r.Wins.Sum() / r.N.Sum(), r.N.Sum(), r.Worst, r.Dd.Max(), r.MaxUnits, r.MinEq1, r.MinEq10, r.Blown10 ? " BLOWN at 0.1" : "")); }
     }
+
+    // ===== part 9: SIGNAL HEDGING — the hedge opens only when an OPPOSITE signal fires while the trade is losing Z or more; each leg its own
+    // target (LEGS) or the basket closes at breakeven (BE) / at +T (BT); a basket stop S; everything closes at 16:55 NY. Price units:
+    // 1.0 = $10 on 0.1 lot. Every leg pays 0.27 a unit (spread + commission); a target = T + 0.20 on the bid.
+    public sealed class SH { public string Pri, Hs, Mode; public double Z, M, S, T; public int MaxH; public double[] Net = new double[3]; public int[] N = new int[3], W = new int[3]; public int Hedged; public double Worst, MinEq = 5000, MaxLots; public bool Blown; public double[] Dd = new double[3]; }
+    static void RunSH(M1 m, List<Sig> pri, sbyte[] hsig, SH x, string filter, int sf, int st)
+    {
+        double eq = 0, pk = 0; int busyTo = -1; const double cost = 0.27;
+        foreach (var g in pri)
+        {
+            if (g.At <= busyTo) continue; int mn = m.Min[g.At]; if (mn < sf || mn >= st) continue;
+            if (filter == "VWAP_DISCOUNT" && (g.Dir > 0 ? g.Px >= g.Vw : g.Px <= g.Vw)) continue;
+            if (filter == "VWAP_FLOW" && (g.Dir > 0 ? g.Px <= g.Vw : g.Px >= g.Vw)) continue;
+            int p = Period(m.Day[g.At]); if (p < 0) continue;
+            int start = g.At; double e = m.O[g.At];
+            if (!float.IsNaN(g.Lim)) { start = -1; for (int j = g.At; j < Math.Min(m.N, g.At + 12) && m.Day[j] == m.Day[g.At]; j++) if (g.Dir > 0 ? m.L[j] <= g.Lim - 0.25 : m.H[j] >= g.Lim + 0.05) { start = j; e = g.Lim; break; } if (start < 0) continue; }
+            var px = new List<double> { e }; var lt = new List<double> { (double)g.Dir }; var open = new List<bool> { true }; double realized = 0, worstFl = 0, maxLots = 1; int hedges = 0, end = start, j2 = start; bool done = false;
+            Func<double, double> Fl = q => { double t = 0; for (int k = 0; k < px.Count; k++) if (open[k]) t += (q - px[k]) * lt[k] - Math.Abs(lt[k]) * cost; return t; };
+            Action<double> CloseAll = q => { realized += Fl(q); for (int k = 0; k < open.Count; k++) open[k] = false; };
+            for (; j2 < m.N && !done; j2++)
+            {
+                if (m.Day[j2] != m.Day[start]) { CloseAll(m.C[j2 - 1]); end = j2 - 1; break; }
+                if (m.Min[j2] >= 1015) { CloseAll(m.O[j2]); end = j2; break; }
+                double net = 0; for (int k = 0; k < lt.Count; k++) if (open[k]) net += lt[k];
+                // the HEDGE: an opposite signal opens at this minute's open while the newest open leg is losing Z or more
+                if (x.Hs != "NONE" && hedges < x.MaxH && hsig[j2] != 0 && Math.Sign(hsig[j2]) == -Math.Sign(net) && net != 0)
+                {
+                    int lastK = -1; for (int k = lt.Count - 1; k >= 0; k--) if (open[k]) { lastK = k; break; }
+                    if (lastK >= 0 && (m.O[j2] - px[lastK]) * Math.Sign(lt[lastK]) <= -x.Z) { px.Add(m.O[j2]); lt.Add(hsig[j2] * Math.Abs(net) * x.M); open.Add(true); hedges++; maxLots = Math.Max(maxLots, lt.Where((v, k) => open[k]).Sum(v => Math.Abs(v))); net = 0; for (int k = 0; k < lt.Count; k++) if (open[k]) net += lt[k]; }
+                }
+                double worst = net >= 0 ? m.L[j2] : m.H[j2], best = net >= 0 ? m.H[j2] : m.L[j2];
+                worstFl = Math.Min(worstFl, realized + Fl(worst));
+                if (realized + Fl(worst) <= -x.S) { realized = -x.S; for (int k = 0; k < open.Count; k++) open[k] = false; end = j2; break; }
+                if (x.Mode == "LEGS" || hedges == 0)
+                {   // every open leg at its own target
+                    for (int k = 0; k < px.Count; k++) if (open[k] && (lt[k] > 0 ? m.H[j2] >= px[k] + x.T + 0.2 : m.L[j2] <= px[k] - x.T - 0.2)) { realized += (x.T + 0.2 - cost) * Math.Abs(lt[k]); open[k] = false; }
+                }
+                else
+                {   // the basket closes at breakeven (BE) or at +T (BT)
+                    double goal = x.Mode == "BE" ? 0.05 : x.T; if (realized + Fl(best) >= goal) { realized = goal; for (int k = 0; k < open.Count; k++) open[k] = false; }
+                }
+                if (!open.Any(o => o)) { end = j2; break; }
+            }
+            if (j2 >= m.N) { CloseAll(m.C[m.N - 1]); end = m.N - 1; }
+            double usd = realized * 10; x.N[p]++; if (usd > 0) x.W[p]++; x.Net[p] += usd; x.Worst = Math.Min(x.Worst, usd); if (hedges > 0) x.Hedged++; x.MaxLots = Math.Max(x.MaxLots, maxLots / 10);
+            x.MinEq = Math.Min(x.MinEq, 5000 + eq + worstFl * 10); x.Dd[p] = Math.Max(x.Dd[p], pk - (eq + worstFl * 10)); eq += usd; pk = Math.Max(pk, eq); busyTo = end;
+            if (5000 + eq <= 0) { x.Blown = true; return; }
+        }
+        x.Blown = x.Blown || x.MinEq <= 0;
+    }
+    public static void SigHedge(M1 m)
+    {
+        var pris = new[] { ("A London engulfing", "ENGULF_EXTREME", 5, "VWAP_DISCOUNT", 180, 360), ("B NY FVG 50%", "FVG50", 5, "VWAP_FLOW", 510, 690), ("C all-day VWAP rejection", "VWAP_REJECT", 15, "NONE", 180, 930), ("your break M1 all day", "BRK5", 1, "NONE", 180, 930) };
+        var hss = new[] { ("NONE", "", 0), ("VWAP rejection M5", "VWAP_REJECT", 5), ("engulfing M5", "ENGULF_EXTREME", 5), ("stop-hunt sweep M5", "SWEEP", 5), ("break of 5 M5", "BRK5", 5), ("RANDOM M5 (control)", "RANDOM", 5) };
+        var hmap = new Dictionary<string, sbyte[]>();
+        foreach (var h in hss.Skip(1)) { var a = new sbyte[m.N]; foreach (var g in Signals(m, h.Item3, h.Item2)) a[g.At] = g.Dir; hmap[h.Item1] = a; }
+        var priSig = pris.Select(pp => Signals(m, pp.Item3, pp.Item2)).ToList();
+        var jobs = new List<(int pi, SH x)>();
+        for (int pi = 0; pi < pris.Length; pi++) foreach (var T in new[] { 2.0, 3.0 }) foreach (var S in new[] { 20.0, 40.0 })
+        {
+            jobs.Add((pi, new SH { Pri = pris[pi].Item1, Hs = "NONE", Mode = "-", T = T, S = S }));
+            foreach (var h in hss.Skip(1)) foreach (var Z in new[] { 0.5, 2.0, 5.0 }) foreach (var M in new[] { 1.0, 2.0 }) foreach (var mode in new[] { "LEGS", "BE", "BT" }) foreach (var mh in new[] { 1, 2 })
+                jobs.Add((pi, new SH { Pri = pris[pi].Item1, Hs = h.Item1, Mode = mode, T = T, S = S, Z = Z, M = M, MaxH = mh }));
+        }
+        Parallel.For(0, jobs.Count, i => { var pp = pris[jobs[i].pi]; var x = jobs[i].x; RunSH(m, priSig[jobs[i].pi], x.Hs == "NONE" ? new sbyte[m.N] : hmap[x.Hs], x, pp.Item4, pp.Item5, pp.Item6); });
+        Func<SH, bool> ok = x => !x.Blown && x.N.All(n => n >= 30) && x.Net.All(v => v > 0);
+        Func<SH, string> nm = x => x.Hs == "NONE" ? "NO HEDGE | +$" + x.T * 10 + " | stop -$" + x.S * 10 : "hedge on " + x.Hs + " after -$" + x.Z * 10 + " | " + x.M + "x | " + x.MaxH + " max | " + (x.Mode == "LEGS" ? "each leg its own +$" + x.T * 10 : x.Mode == "BE" ? "basket out at breakeven" : "basket at +$" + x.T * 10) + " | stop -$" + x.S * 10;
+        var all = jobs.Select(j => j.x).ToList();
+        Console.WriteLine("SIGNAL HEDGING on 0.1 lot, $5,000 — profitable in 2025, 2026 AND 2023-24, never blown:");
+        foreach (var h in hss) { var g = all.Where(x => x.Hs == h.Item1).ToList(); Console.WriteLine(string.Format(IC, "  {0,-22} {1,4}/{2,-4}  blown {3,4}  median net (all periods) ${4:N0}", h.Item1, g.Count(ok), g.Count, g.Count(x => x.Blown), g.Select(x => x.Net.Sum()).OrderBy(v => v).ElementAt(g.Count / 2))); }
+        // hedge vs the same entry with no hedge (same T and S)
+        int better = 0, tot = 0; foreach (var x in all.Where(x => x.Hs != "NONE" && !x.Hs.StartsWith("RANDOM"))) { var b = all.First(y => y.Pri == x.Pri && y.Hs == "NONE" && y.T == x.T && y.S == x.S); tot++; if (x.Net.Sum() > b.Net.Sum() && x.Net.Min() > b.Net.Min()) better++; }
+        Console.WriteLine("  hedged settings better than the same entry without a hedge (total AND worst period): " + better + " / " + tot);
+        var sb = new StringBuilder("primary,setting,net_2025,net_2026,net_2023_24,trades,win_pct,hedged,worst,max_lots,min_equity,blown\n");
+        foreach (var x in all) sb.Append("\"" + x.Pri + "\",\"" + nm(x) + "\"," + F(x.Net[0], 0) + "," + F(x.Net[1], 0) + "," + F(x.Net[2], 0) + "," + x.N.Sum() + "," + F(100.0 * x.W.Sum() / Math.Max(1, x.N.Sum()), 1) + "," + x.Hedged + "," + F(x.Worst, 0) + "," + F(x.MaxLots, 1) + "," + F(x.MinEq, 0) + "," + (x.Blown ? 1 : 0) + "\n");
+        System.IO.File.WriteAllText("../../docs/research/hedge/sighedge.csv", sb.ToString());
+        Console.WriteLine("BEST hedged (by the worst period):");
+        foreach (var x in all.Where(x => ok(x) && x.Hs != "NONE").OrderByDescending(x => x.Net.Min()).Take(20))
+        { var b = all.First(y => y.Pri == x.Pri && y.Hs == "NONE" && y.T == x.T && y.S == x.S); Console.WriteLine(string.Format(IC, "  {0,-24} {1,-95} {2:N0}/{3:N0}/{4:N0} won {5:0}% hedged {6} worst {7:N0} DD {8:N0} lots {9}   | no hedge: {10:N0}/{11:N0}/{12:N0}", x.Pri, nm(x), x.Net[0], x.Net[1], x.Net[2], 100.0 * x.W.Sum() / x.N.Sum(), x.Hedged, x.Worst, x.Dd.Max(), x.MaxLots, b.Net[0], b.Net[1], b.Net[2])); }
+    }
     static string F(double v, int d) { if (double.IsNaN(v) || double.IsInfinity(v)) v = 0; return v.ToString("F" + d, IC); }
 }

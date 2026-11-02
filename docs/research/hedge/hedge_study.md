@@ -239,3 +239,13 @@ Report: `docs/research/hedge/report.html` (data `lab6.json`, template `report_te
 - With hedges (1-3 hedges, 2×): 0 / 324; blown 77 at 0.01, 293 at 0.1. Median −$341 a year at 0.01.
 - Your all-day break entry: 0 profitable in any form; RANDOM 0 / 108.
 - Best at 0.01: A +$2, no add, no hedge: +$141 / +$204 / +$241 (2 yrs), 93.8% won, worst −$81, worst drawdown $143.
+
+## Part 9 — SIGNAL hedging (`lab6 sighedge`, `sighedge.csv`)
+
+The hedge opens only on an OPPOSITE signal while the newest leg is losing $Z+; each leg its own target (LEGS) or the basket out at
+breakeven / +T; basket stop; 16:55 NY. 9,232 settings on A, B, C and the all-day break, with RANDOM hedges as the control.
+- Profitable in all three periods: hedge on an opposite engulfing 240 / 576, VWAP rejection 189, sweep 184, break 35, RANDOM 115.
+- The best (built into SpasiX as "A + SIGNAL HEDGE"): A's entry; hedge 2× the net on an opposite M5 engulfing at a 20-candle extreme
+  once the trade is down $5+, at most once; each leg its own +$20 per 0.1 lot; basket stop −$400:
+  +$1,770 / +$1,612 / +$2,391 vs +$1,465 / +$1,458 / +$2,217 without the hedge; lowest equity $4,905 vs $4,720; hedged 58 times.
+- B and C: no hedge did better than their best no-hedge version. The all-day break: nothing profitable.
