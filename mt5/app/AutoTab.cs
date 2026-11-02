@@ -68,7 +68,10 @@ namespace KeystoneMT5
             r0.Children.Add(ADrop("vf", "VWAP FILTER", () => aset.VwapFilter == "DISCOUNT" ? "buy UNDER / sell OVER" : aset.VwapFilter == "FLOW" ? "buy OVER / sell UNDER" : "none", () => new List<Mi> {
                 new Mi { Text = "NONE — every signal", Do = () => aset.VwapFilter = "NONE" }, new Mi { Text = "DISCOUNT — buy only under the day's VWAP, sell only over it (reversals: A)", Do = () => aset.VwapFilter = "DISCOUNT" },
                 new Mi { Text = "FLOW — buy only over the VWAP, sell only under it (with the flow: B)", Do = () => aset.VwapFilter = "FLOW" } }));
-            r0.Children.Add(AField("eod", "CLOSE AT (NY, EMPTY = HOLD)", aset.CloseAtNy, 70, "what is open closes at this New York time and no new iteration starts until the next day (16:55 = before the daily break); empty = hold until the target"));
+            r0.Children.Add(AField("eod", "NO NEW TRADES AFTER (NY)", aset.CloseAtNy, 70, "no new iteration starts after this New York time until the next day (16:55 = before the daily break); a basket in profit closes then; empty = trade all the time"));
+            r0.Children.Add(ADrop("eodl", "AT THAT TIME, IN A LOSS", () => aset.EodLoss == "CLOSE" ? "CLOSE anyway" : "HOLD OPEN (hedging)", () => new List<Mi> {
+                new Mi { Text = "HOLD OPEN (default) — a hedge never closes at a loss: the basket stays open, hedged and managed until its target", Fg = Green, Do = () => aset.EodLoss = "HOLD" },
+                new Mi { Text = "CLOSE anyway — everything closes at that time, even at a loss", Fg = Amber, Do = () => aset.EodLoss = "CLOSE" } }));
             r0.Children.Add(ADrop("man", "MANUAL TRADES", () => aset.TrackManual ? "TRACK + MANAGE ✋" : "ignore", () => new List<Mi> {
                 new Mi { Text = "TRACK + MANAGE — a trade you open by hand on the symbol becomes an iteration (✋): the automation takes it to the target / stop / close time and records it", Do = () => aset.TrackManual = true },
                 new Mi { Text = "IGNORE — wait until your trades are closed (the old way)", Do = () => aset.TrackManual = false } }));

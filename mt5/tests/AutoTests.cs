@@ -169,6 +169,14 @@ public static class AutoTests
         var sE = S(); sE.FirstDir = "BUY"; sE.HedgeMode = "NONE"; sE.CloseAtNy = "03:10"; sE.Target = 500;
         r = Run(Path(Day1.AddHours(10), 4000, Line(4000, 0.05, 40)), sE); au = r.Item2; it = au.Iterations.FirstOrDefault();
         Check(au.Iterations.Count == 1 && it.Reason == "END OF DAY" && it.End >= Day1.AddHours(10).AddMinutes(10) && r.Item1.State.Positions.Count == 0, "close time: closed at 03:10 New York, nothing new after it", au.Iterations.Count + " " + (it == null ? "" : it.Reason + " " + it.End.ToString("HH:mm")));
+        {   // 21b. close time with the basket in a LOSS: HOLD OPEN by default (hedging never closes at a loss); CLOSE only when chosen
+            var sHo = S(); sHo.FirstDir = "BUY"; sHo.HedgeMode = "NONE"; sHo.CloseAtNy = "03:10"; sHo.Target = 500;
+            var rHo = Run(Path(Day1.AddHours(10), 4000, Line(4000, -0.05, 40)), sHo); var itHo = rHo.Item2.Iterations.FirstOrDefault();
+            var sCl = S(); sCl.FirstDir = "BUY"; sCl.HedgeMode = "NONE"; sCl.CloseAtNy = "03:10"; sCl.Target = 500; sCl.EodLoss = "CLOSE";
+            var rCl = Run(Path(Day1.AddHours(10), 4000, Line(4000, -0.05, 40)), sCl); var itCl = rCl.Item2.Iterations.FirstOrDefault();
+            Check(sHo.EodLoss == "HOLD" && itHo != null && !itHo.Done && rHo.Item1.State.Positions.Count == 1 && rHo.Item2.Story.Any(x => x.Item2.Contains("HELD OPEN")) && itCl != null && itCl.Reason == "END OF DAY" && rCl.Item1.State.Positions.Count == 0 && AutoSettings.Load("eod=16:55").EodLoss == "HOLD",
+                "close time in a loss: HELD OPEN by default (never closed at a loss); CLOSE only when chosen", (itHo == null ? "none" : itHo.Reason + " " + rHo.Item1.State.Positions.Count) + " / " + (itCl == null ? "none" : itCl.Reason));
+        }
         // 22. ✋ a BUY by hand: the automation adopts it, takes it to +$20, records it as manual
         var sM = S(); sM.EntryMode = "ENGULF"; sM.HedgeMode = "NONE"; sM.MaxIterations = 1;
         r = Run(Path(Day1, 4000, Enumerable.Repeat(4000.0, 10).Concat(Line(4000, 0.5, 30))), sM, (sb, a) => sb.Command("ORDER", "XAUUSD", "BUY", 0.1, 0.0, 0.0, 0.0)); au = r.Item2; it = au.Iterations.FirstOrDefault();
