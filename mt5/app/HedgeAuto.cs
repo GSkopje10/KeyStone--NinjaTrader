@@ -119,7 +119,7 @@ namespace KeystoneMT5
         public Func<DateTime, int, int, string> NewsNear;
         public double Vwap = double.NaN; public string SignalText = "", HedgeWhy = "", Blocked = "";
 
-        int lastDir; double prevBid = double.NaN, knownGross; int engDir; DateTime engBar; string engStory = "", vwapSkip = ""; int hEngDir; DateTime hEngBar; public int AggDir; public double AggLevel = double.NaN; public DateTime AggBar; string hEngStory = ""; long pendTicket; bool closedByUs;
+        int lastDir; string blockedKey = ""; double prevBid = double.NaN, knownGross; int engDir; DateTime engBar; string engStory = "", vwapSkip = ""; int hEngDir; DateTime hEngBar; public int AggDir; public double AggLevel = double.NaN; public DateTime AggBar; string hEngStory = ""; long pendTicket; bool closedByUs;
         string pendId, pendKind; DateTime pendSent, pendOk; double pendGross; int pendDirAfter; double pendLots; string pendWhy; double pendLevel;
         DateTime closeSeen;
         // the entry setups, worked out once per finished candle
@@ -175,7 +175,7 @@ namespace KeystoneMT5
         }
         public void Start(IBroker b, AutoSettings s, bool adopt)
         {
-            Set = s.Copy(); Running = true; StopReason = ""; lastDir = 0; engDir = 0; vwapSkip = ""; AggDir = 0; AggLevel = double.NaN; prevBid = double.NaN; pendId = null; PauseUntil = DateTime.MinValue; Current = null;
+            Set = s.Copy(); Running = true; StopReason = ""; blockedKey = "~"; lastDir = 0; engDir = 0; vwapSkip = ""; AggDir = 0; AggLevel = double.NaN; prevBid = double.NaN; pendId = null; PauseUntil = DateTime.MinValue; Current = null;
             Snap sn = Read(b); Now = sn.Now;
             Note("▶ START " + Set.Symbol + " " + Tf.Name(Set.Tf) + " • entry " + Set.EntryLots.ToString("0.##", IC) + " • add-on " + Set.AddLots.ToString("0.##", IC) + " • target $" + Set.Target.ToString("0.##", IC) + " • max drawdown " + (Set.MaxDrawdown > 0 ? "$" + Set.MaxDrawdown.ToString("0.##", IC) : "none") + " • first " + Set.FirstDir + " • next " + (Set.NextStart == "PAUSE" ? "pause " + Set.PauseSec + " s" : "the next break"));
             if (sn.Pos.Count > 0 && adopt)
@@ -337,7 +337,7 @@ namespace KeystoneMT5
             if (sn.Pos.Count > 0 && Set.TrackManual) { Adopt(sn); return; }
             if (sn.Pos.Count > 0) { Note("⚠ positions on " + Set.Symbol + " that are not the automation's — waiting until they are closed"); return; }
             Signals(sn);
-            var gate = Gate(); if (gate != Blocked) { Blocked = gate; if (gate != "") Tell("NOT TRADING NOW: " + gate + "."); else Tell("TRADING ALLOWED again" + (Set.Windows != "" ? " (inside " + Set.Windows + " New York)" : "") + "."); }
+            var gate = Gate(); int gcut = gate.IndexOf(" (New York "); string gkey = gcut > 0 ? gate.Substring(0, gcut) : gate; Blocked = gate; if (gkey != blockedKey) { blockedKey = gkey; Blocked = gate; if (gate != "") Tell("NOT TRADING NOW: " + gate + "."); else Tell("TRADING ALLOWED again" + (Set.Windows != "" ? " (inside " + Set.Windows + " New York)" : "") + "."); }
             if (gate != "") return;
             int dir = 0; string why = ""; double lvl = double.NaN; string story = "";
             if (Phase == "FIRST") { dir = Set.FirstDir == "BUY" ? 1 : -1; why = "FIRST " + Set.FirstDir + " (yours)"; story = "you chose " + Set.FirstDir + " as the first direction"; }

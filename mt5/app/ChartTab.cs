@@ -1034,7 +1034,7 @@ namespace KeystoneMT5
         void PickSymbol()
         {
             broker.Send("ALLSYMS");
-            var w = new Window { Title = "SpasiX • add an instrument", Width = 440, Height = 580, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Bg, Foreground = Text, FontFamily = Sx.Face };
+            var w = new Window { Title = "SpasiX • add an instrument", Width = 440, Height = 580, Owner = IsLoaded && IsVisible ? this : null, WindowStartupLocation = IsLoaded && IsVisible ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen, Background = Bg, Foreground = Text, FontFamily = Sx.Face };
             Sx.DarkTitle(w);
             var sp = new DockPanel { Margin = new Thickness(14) }; var box = new TextBox { FontSize = 15, Height = 34, Margin = new Thickness(0, 0, 0, 8), Background = Card, Foreground = Text, BorderBrush = Gold, CaretBrush = Gold, Padding = new Thickness(6, 4, 6, 4) };
             DockPanel.SetDock(box, Dock.Top); sp.Children.Add(box);

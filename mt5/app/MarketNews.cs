@@ -261,8 +261,10 @@ namespace KeystoneMT5
         // the pop-up 5 minutes before: red, big, its own countdown; it closes by itself 3 minutes after the release (or OK)
         void NewsAlert(NewsEvent n)
         {
+            if (!IsVisible) return;   // a broker tab in the background (never shown) does not pop up: the one on screen does — WPF refuses an owner that was never shown
             try { if (newsAlertWin != null) newsAlertWin.Close(); } catch { }
-            var w = new Window { WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Topmost = true, Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner, FontFamily = Sx.Face };
+            var w = new Window { WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, SizeToContent = SizeToContent.WidthAndHeight, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false, Topmost = true, WindowStartupLocation = WindowStartupLocation.CenterScreen, FontFamily = Sx.Face };
+            try { if (IsLoaded) { w.Owner = this; w.WindowStartupLocation = WindowStartupLocation.CenterOwner; } } catch { w.WindowStartupLocation = WindowStartupLocation.CenterScreen; }
             var sp = new StackPanel { Width = 460 };
             sp.Children.Add(new TextBlock { Text = "⚠  HIGH IMPACT NEWS", Foreground = Red, FontSize = 26, FontWeight = FontWeights.Black, HorizontalAlignment = HorizontalAlignment.Center });
             var cd = new TextBlock { Foreground = Sx.White, FontSize = 44, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 2) }; sp.Children.Add(cd);

@@ -464,6 +464,9 @@ namespace KeystoneMT5
             aLevels.Text = on ? (s.HedgeMode == "NONE" || s.HedgeMode == "SIGNAL" ? "" : "hedge levels: recent high " + Px(auto.BuyLevel) + "  •  recent low " + Px(auto.SellLevel)) + (!double.IsNaN(auto.Vwap) ? "  •  VWAP " + Px(auto.Vwap) : "") + (it != null ? "  •  next add-on (" + (s.HedgeMode == "PRICE" ? "price move" : s.HedgeMode == "MONEY" ? "$ loss" : "break") + ") at " + Px(auto.HedgeLevel) : "") : "";
             if (aGuideBtn != null) aGuideBtn.Content = aGuidesOn ? "🎯 CHART GUIDES: ON" : "🎯 CHART GUIDES: OFF";
             if (aSetScroll != null) { aSetScroll.Visibility = aView == "⚙ SETTINGS" ? Visibility.Visible : Visibility.Collapsed; if (aRaceHost != null) aRaceHost.Visibility = aView == "🏁 RACE" ? Visibility.Visible : Visibility.Collapsed; }
+            {   // SETTINGS and RACE get the whole room: the setup cards and the number tiles belong to the 🤖 views
+                bool full = aView == "⚙ SETTINGS" || aView == "🏁 RACE"; if (aSetups != null) aSetups.Visibility = full ? Visibility.Collapsed : Visibility.Visible; if (aTiles != null) aTiles.Visibility = full ? Visibility.Collapsed : Visibility.Visible;
+            }
             if (aLock != null) aLock.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             aStart.IsEnabled = !on; aStop.IsEnabled = on; foreach (var tb in af.Values) tb.IsEnabled = !on; foreach (var b in aDrops.Values) b.IsEnabled = !on;
             if (!force && auto.Version == aSeen) return; aSeen = auto.Version;
