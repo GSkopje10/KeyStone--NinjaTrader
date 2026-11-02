@@ -25,7 +25,7 @@ public static class AutoTests
         for (int k = 0; k < 4000 && !sb.Ended; k++) { sb.Advance(0.25); if (mid != null && k == 3) mid(sb, au); }
         return Tuple.Create(sb, au);
     }
-    static AutoSettings S() { return new AutoSettings { HedgeSize = "FIXED", Swing = false, FvgTf = 1, Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
+    static AutoSettings S() { return new AutoSettings { HedgeSize = "FIXED", Rolling = false, Swing = false, FvgTf = 1, Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
 
     public static int Main4()
     {
@@ -255,6 +255,16 @@ public static class AutoTests
         {   // old saved settings (FIXED was the default then, no hs2) → LEAD BY; a FIXED chosen in this build stays FIXED; the BOX preset keeps FIXED
             var oldS = AutoSettings.Load("sym=XAUUSD;add=0.3;hsize=FIXED;nadv=0.2"); var fx = S(); fx.HedgeSize = "FIXED"; var newS = AutoSettings.Load(fx.Save()); var box = AutoSettings.Load("hsize=FIXED;preset=BOX");
             Check(oldS.HedgeSize == "ADVANTAGE" && Math.Abs(oldS.NetAdvantage - 0.2) < 1e-9 && newS.HedgeSize == "FIXED" && box.HedgeSize == "FIXED", "lead by: older saved FIXED settings now lead by 0.2; a FIXED picked now stays", oldS.HedgeSize + " " + newS.HedgeSize + " " + box.HedgeSize);
+        }
+        {   // ROLLING (the default): the price went up and came back down → the NEWEST swing low (4000.0) is the hedge level, not the old 3996
+            var rb = new List<Mt5Bar> { B(0, 4000, 4000.5, 3999.5, 4000.2, 100), B(1, 4000.2, 4000.6, 3998, 3998.5, 100), B(2, 3998.5, 3999, 3996, 3996.5, 100), B(3, 3996.5, 3998.5, 3997, 3998, 100), B(4, 3998, 4001, 3997.5, 4000.8, 100),
+                B(5, 4000.8, 4003, 4000.5, 4002.5, 100), B(6, 4002.5, 4003.2, 4001.5, 4002, 100), B(7, 4002, 4002.2, 4000.0, 4001, 100), B(8, 4001, 4002.5, 4000.8, 4002.2, 100), B(9, 4002.2, 4003, 4001.6, 4002.6, 100) };
+            rb.AddRange(Path(Day1.AddMinutes(10), 4002.6, Line(4002.6, -0.5, 14)));
+            var sRoll = S(); sRoll.Rolling = new AutoSettings().Rolling; sRoll.Swing = true; sRoll.SwingK = 2; sRoll.FirstDir = "BUY"; sRoll.HedgeMode = "BREAK"; sRoll.Target = 500; sRoll.MaxIterations = 1;
+            var rr = Run(rb, sRoll).Item2; var hs = rr.Trades.FirstOrDefault(t => t.Side == "SELL");
+            Check(sRoll.Rolling && hs != null && Math.Abs(hs.Level - 4000.0) < 1e-9 && hs.Price > 3998, "rolling (default): up and back down → the hedge SELL at the NEWEST swing low 4000.0, not the old 3996", string.Join(" | ", rr.Trades.Select(x => x.Side + " " + x.Price + " lvl " + x.Level)));
+            var oldR = AutoSettings.Load("sym=XAUUSD;rolling=0;hsize=FIXED"); var keepF = S(); keepF.Rolling = false; var keepB = AutoSettings.Load(keepF.Save());
+            Check(oldR.Rolling && !keepB.Rolling, "rolling: older saved settings follow the newest swing; FIXED picked now stays", oldR.Rolling + " " + keepB.Rolling);
         }
         // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
