@@ -73,7 +73,7 @@ public static class AutoTests
         Func<int, double, double, double, double, long, Mt5Bar> B = (i, o, h, l, c, v) => new Mt5Bar { Time = Day1.AddMinutes(i), O = o, H = h, L = l, C = c, V = v, Spread = 10 };
         var fv = new List<Mt5Bar> { B(0, 4000, 4000.3, 3999.8, 4000.2, 100), B(1, 4000.2, 4003, 4000.2, 4002.8, 100), B(2, 4002.8, 4004, 4002.5, 4003.8, 100), B(3, 4003.8, 4003.9, 4002.0, 4002.2, 100) };
         fv.AddRange(Path(Day1.AddMinutes(4), 4002.2, Line(4002.2, 0.5, 20)));
-        var s8 = S(); s8.EntryMode = "FVG"; s8.MaxIterations = 1; r = Run(fv, s8); au = r.Item2;
+        var s8 = S(); s8.FvgStack = false; s8.EntryMode = "FVG"; s8.MaxIterations = 1; r = Run(fv, s8); au = r.Item2;
         Check(au.Trades.Count >= 1 && au.Trades[0].Side == "BUY" && au.Trades[0].Why.StartsWith("ENTRY BUY — FVG") && au.Trades[0].Time >= Day1.AddMinutes(3) && au.Trades[0].Time < Day1.AddMinutes(4), "FVG: the retest of the bullish gap buys (in the 4th candle)", string.Join(" | ", au.Trades.Select(x => x.Time.ToString("HH:mm:ss") + " " + x.Why)));
         Check(au.Story.Any(x => x.Item2.Contains("FAIR VALUE GAP 4000.3–4002.5")), "FVG: the story names the gap and its candles", au.Story.FirstOrDefault(x => x.Item2.Contains("ENTRY"))?.Item2 ?? "none");
 
@@ -140,7 +140,7 @@ public static class AutoTests
         // 16. FVG 50%: the gap 4000.3–4002.5 → BUY when the bid comes back to 4001.4 (its middle), not at its top
         var f5 = new List<Mt5Bar> { B(0, 4000, 4000.3, 3999.8, 4000.2, 100), B(1, 4000.2, 4003, 4000.2, 4002.8, 100), B(2, 4002.8, 4004, 4002.5, 4003.8, 100), B(3, 4003.8, 4003.9, 4002.3, 4002.4, 100), B(4, 4002.4, 4002.5, 4001.2, 4001.3, 100) };
         f5.AddRange(Path(Day1.AddMinutes(5), 4001.3, Line(4001.3, 0.5, 20)));
-        var s18 = S(); s18.EntryMode = "FVG50"; s18.MaxIterations = 1; r = Run(f5, s18); au = r.Item2;
+        var s18 = S(); s18.FvgStack = false; s18.EntryMode = "FVG50"; s18.MaxIterations = 1; r = Run(f5, s18); au = r.Item2;
         Check(au.Trades.Count >= 1 && au.Trades[0].Side == "BUY" && Math.Abs(au.Trades[0].Level - 4001.4) < 1e-9 && au.Trades[0].Time >= Day1.AddMinutes(4), "FVG 50%: the BUY at the gap's middle 4001.4 (candle 5), not at its top in candle 4", string.Join(" | ", au.Trades.Select(x => x.Time.ToString("HH:mm:ss") + " " + x.Level)));
         // 17. FVG + BREAK: the break of the high counts only with a bullish FVG; no FVG = no trade
         var s19 = S(); s19.EntryMode = "FVGBREAK"; s19.MaxIterations = 1; r = Run(Path(Day1, 4000, Line(4000, 0.05, 60)), s19);   // a slow climb: highs break, no gap is left
@@ -210,6 +210,27 @@ public static class AutoTests
         var sS = S(); sS.Swing = true; sS.SwingK = 2; sS.HedgeMode = "NONE"; sS.MaxIterations = 2;
         r = Run(swb, sS); au = r.Item2;
         Check(au.Trades.Count(x => x.Side == "SELL") == 1, "swing: a broken swing low is used up — no second SELL on the old level after a retrace", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Price.ToString("0.00") + " " + x.Time.ToString("HH:mm"))) + " LV " + au.BuyLevel + " / " + au.SellLevel + " LOG " + string.Join(" / ", au.Log.Take(6)) + " STORY " + string.Join(" / ", au.Story.Take(4).Select(x => x.Item2)));
+
+        // 29. AGGRESSION BREAK: 4 red candles, a green close (the signal), the next candle breaks its high → BUY
+        var ag = new List<Mt5Bar>(); double ap = 4005;
+        for (int i = 0; i < 4; i++) { ag.Add(new Mt5Bar { Time = Day1.AddMinutes(i), O = ap, C = ap - 1, H = ap + 0.1, L = ap - 1.1, V = 100, Spread = 10 }); ap -= 1; }
+        ag.Add(new Mt5Bar { Time = Day1.AddMinutes(4), O = ap, C = ap + 0.6, H = ap + 0.7, L = ap - 0.1, V = 100, Spread = 10 });
+        ag.AddRange(Path(Day1.AddMinutes(5), ap + 0.6, Line(ap + 0.6, 0.5, 20)));
+        var sA2 = AutoSettings.Model("D", S()); sA2.Windows = ""; sA2.CloseAtNy = ""; sA2.VwapFilter = "NONE"; sA2.MaxIterations = 1;
+        r = Run(ag, sA2); au = r.Item2; it = au.Iterations.FirstOrDefault();
+        Check(au.Trades.Count >= 1 && au.Trades[0].Side == "BUY" && au.Trades[0].Why.Contains("AGGRESSION BREAK") && Math.Abs(au.Trades[0].Level - (ap + 0.7)) < 1e-9 && au.Trades[0].Time >= Day1.AddMinutes(5) && it != null && it.Reason == "TARGET", "aggression break: 4 red, a green close, its high broken → BUY, +$20", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Level + " " + x.Time.ToString("HH:mm") + " " + x.Why)));
+
+        // 30. FVG 50% of STACKED gaps + the FVG hedge at the first gap candle's low
+        var fz = new List<Mt5Bar> { B(0, 4000, 4000.3, 3999.8, 4000.2, 100), B(1, 4000.2, 4003, 4000.2, 4002.8, 100), B(2, 4002.8, 4004, 4002.5, 4003.8, 100), B(3, 4003.8, 4006.2, 4003.8, 4006, 100), B(4, 4006, 4007.2, 4005.5, 4007, 100) };
+        fz.AddRange(Path(Day1.AddMinutes(5), 4007, Line(4007, -0.5, 30)));
+        var sFv = AutoSettings.Model("F", S()); sFv.FvgTf = 1; sFv.Windows = ""; sFv.MaxIterations = 1;
+        r = Run(fz, sFv); au = r.Item2;
+        Check(au.Trades.Count >= 2 && au.Trades[0].Side == "BUY" && Math.Abs(au.Trades[0].Level - 4003.25) < 1e-6 && au.Trades[1].Side == "SELL" && Math.Abs(au.Trades[1].Level - 3999.9) < 1e-6 && au.Trades[1].Why.Contains("first candle"), "FVG: 5 gaps in a row = one zone 4000.1–4006.4 → BUY at its 50% 4003.25; the hedge SELL at the first gap's first candle low 3999.9", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Lots + " lvl " + x.Level + " " + x.Why)));
+
+        // 31. RECOVER sizing: BUY 0.1, $2 against it (basket ≈ −$21) → the SELL hedge = 0.1 + 41 / ($100 × 2) ≈ 0.31 lots, not the fixed 0.2
+        var sR = S(); sR.FirstDir = "BUY"; sR.HedgeMode = "PRICE"; sR.HedgePrice = 2; sR.HedgeSize = "RECOVER"; sR.RecoverMove = 2; sR.HedgeMaxLots = 1; sR.MaxIterations = 1;
+        r = Run(Path(Day1, 4000, Line(4000, -0.25, 60)), sR); au = r.Item2;
+        Check(au.Trades.Count >= 2 && au.Trades[1].Side == "SELL" && au.Trades[1].Lots > 0.27 && au.Trades[1].Lots < 0.36, "recover sizing: the hedge is sized to get the basket to +$20 in a $2 move (≈ 0.31 lots)", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Lots)));
 
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();

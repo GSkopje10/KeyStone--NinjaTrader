@@ -8,7 +8,7 @@ public static class Lab6
     static readonly CultureInfo IC = CultureInfo.InvariantCulture;
     public sealed class M1 { public string Name; public int N; public float[] O, H, L, C; public double[] V; public int[] Min, Day; public DateTime[] T; public double Cost; public sbyte[] H1Trend; }
     sealed class Ser { public List<float> O = new List<float>(), H = new List<float>(), L = new List<float>(), C = new List<float>(); public List<double> V = new List<double>(); public List<int> End = new List<int>(); }
-    public struct Sig { public int At; public sbyte Dir; public float Atr; public sbyte Trend; public bool AtrHi; public float Px, Vw, Lim; }
+    public struct Sig { public int At; public sbyte Dir; public float Atr; public sbyte Trend; public bool AtrHi; public float Px, Vw, Lim, Stop; public int Valid; }
     public static readonly string[] Sigs = { "BRK5", "DON20", "EMA_PULLBACK", "EMA_CROSS", "FVG", "ORB", "INSIDE_BAR", "VWAP_CROSS", "RSI_REVERSAL", "BB_REVERSAL", "VWAP_STRETCH", "ENGULF_EXTREME", "AGGRESSION_REV", "RANDOM" };
     public static string Family(string s) { return s == "RANDOM" ? "CONTROL" : Array.IndexOf(Sigs, s) >= 8 ? "REVERSAL" : "TREND"; }
     public static readonly int[] Tfs = { 1, 5, 15, 60 };
@@ -56,7 +56,7 @@ public static class Lab6
         int orbFrom = m.Name == "GOLD" ? 500 : 570, orbTo = orbFrom + 15;
         for (int i = 21; i < n; i++)
         {
-            int d = 0; double lim = double.NaN; double avgV = 0, avgR = 0; for (int k = i - 20; k < i; k++) { avgV += V[k]; avgR += H[k] - L[k]; } avgV /= 20; avgR /= 20;
+            int d = 0; double lim = double.NaN, stp = double.NaN; double avgV = 0, avgR = 0; for (int k = i - 20; k < i; k++) { avgV += V[k]; avgR += H[k] - L[k]; } avgV /= 20; avgR /= 20;
             switch (sig)
             {
                 case "BRK5": case "DON20":
@@ -92,12 +92,19 @@ public static class Lab6
                 case "VWAP_REJECT":   // above the VWAP for the last 6 candles, this one dips to it and closes back above (mirror for sells)
                     { bool above = true, below = true; for (int k = i - 6; k < i; k++) { if (L[k] <= vw[k]) above = false; if (H[k] >= vw[k]) below = false; }
                       d = above && L[i] <= vw[i] && C[i] > vw[i] ? 1 : below && H[i] >= vw[i] && C[i] < vw[i] ? -1 : 0; break; }
+                case "AGG_BREAK3": case "AGG_BREAK4": case "AGG_BREAK5":
+                    {   // the user's aggression reversal: N+ candles of one colour, the FIRST opposite close = the signal candle; the entry = the break of its high (buy) / low (sell) during the next candle
+                        int need = sig[9] - '0'; int run = 0; bool green = C[i] > O[i], red = C[i] < O[i];
+                        for (int k = i - 1; k >= 0 && run < 30; k--) { if (green ? C[k] < O[k] : red ? C[k] > O[k] : false) run++; else break; }
+                        if (run >= need && (green || red)) { d = green ? 1 : -1; stp = green ? H[i] : L[i]; }
+                        break;
+                    }
                 case "RANDOM": d = rng.NextDouble() < 0.08 ? (rng.Next(2) == 0 ? 1 : -1) : 0; break;
             }
-            bool fresh = sig == "RANDOM" || sig == "ORB" || sig == "SWEEP" || d != lastDir; lastDir = d;
+            bool fresh = sig == "RANDOM" || sig == "ORB" || sig == "SWEEP" || sig.StartsWith("AGG_BREAK") || d != lastDir; lastDir = d;
             if (d == 0 || !fresh) continue;
             int at = s.End[i] + 1; if (at >= m.N || m.Day[at] != m.Day[s.End[i]]) continue;
-            res.Add(new Sig { At = at, Dir = (sbyte)d, Atr = (float)atr[i], Trend = m.H1Trend[s.End[i]], AtrHi = atr[i] > atrAvg[i], Px = C[i], Vw = (float)vw[i], Lim = (float)lim });
+            res.Add(new Sig { At = at, Dir = (sbyte)d, Atr = (float)atr[i], Trend = m.H1Trend[s.End[i]], AtrHi = atr[i] > atrAvg[i], Px = C[i], Vw = (float)vw[i], Lim = (float)lim, Stop = (float)stp, Valid = tf });
         }
         return res;
     }
@@ -283,6 +290,7 @@ public static class Lab6
             // a limit fills only when price trades THROUGH it (a buy: the ask = the bid + 0.20 spread)
             int start = g.At; double e = m.O[g.At], d = g.Dir;
             if (!float.IsNaN(g.Lim)) { start = -1; for (int j = g.At; j < Math.Min(m.N, g.At + 12) && m.Day[j] == m.Day[g.At]; j++) if (d > 0 ? m.L[j] <= g.Lim - Spread7 - 0.05 : m.H[j] >= g.Lim + 0.05) { start = j; e = g.Lim; break; } if (start < 0) continue; }
+            if (!float.IsNaN(g.Stop)) { start = -1; for (int j = g.At; j < Math.Min(m.N, g.At + Math.Max(1, g.Valid)) && m.Day[j] == m.Day[g.At]; j++) if (d > 0 ? m.H[j] > g.Stop : m.L[j] < g.Stop) { start = j; e = g.Stop + d * 0.05; break; } if (start < 0) continue; }   // a stop entry: the break of the signal candle, filled 5 points worse
             if (exit.StartsWith("ZR"))
             {   // the exact zone recovery: each new leg is sized so the WHOLE basket is +$20 net when price runs T past the leg's line
                 var zp = exit.Substring(2).Split('x'); double Z = double.Parse(zp[0], IC) / 10, T = tgtUsd / 10; int maxL = int.Parse(zp[1], IC);
@@ -331,7 +339,7 @@ public static class Lab6
     }
     public static void Scalp20(M1 m, string outJson, double cost = 0.27, double spread = 0.20)
     {
-        Cost7 = cost; Spread7 = spread; var sigs = new[] { "RANDOM", "BRK5", "FVG", "FVG50", "VWAP_CROSS", "VWAP_REJECT", "VWAP_STRETCH", "SWEEP", "AGGRESSION_REV", "EMA_PULLBACK", "RSI_REVERSAL", "BB_REVERSAL", "ENGULF_EXTREME", "ORB", "INSIDE_BAR" };
+        Cost7 = cost; Spread7 = spread; var sigs = new[] { "AGG_BREAK3", "AGG_BREAK4", "AGG_BREAK5", "RANDOM", "BRK5", "FVG", "FVG50", "VWAP_CROSS", "VWAP_REJECT", "VWAP_STRETCH", "SWEEP", "AGGRESSION_REV", "EMA_PULLBACK", "RSI_REVERSAL", "BB_REVERSAL", "ENGULF_EXTREME", "ORB", "INSIDE_BAR" };
         var tfs = new[] { 1, 5, 15 }; var filters = new[] { "NONE", "H1_TREND", "H1_AGAINST", "VWAP_DISCOUNT", "VWAP_FLOW" }; var exits = new[] { "EOD", "HOLD", "STOP100", "STOP200", "STOP300", "ZR20x3", "ZR20x4", "ZR20x5", "ZR40x3", "ZR40x4", "ZR40x5", "ZR60x3", "ZR60x4" };
         var sess = new[] { ("ALL DAY 03:00-15:30", 180, 930), ("NY 08:30-11:30", 510, 690), ("LONDON 03:00-06:00", 180, 360) };
         var cache = new System.Collections.Concurrent.ConcurrentDictionary<string, List<Sig>>();

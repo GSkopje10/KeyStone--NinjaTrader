@@ -258,3 +258,8 @@ Costs per 0.1-lot round turn: assumed before $2.70 (0.20 spread + $7/lot); Duram
 - At $1.50 (a raw account with a 0.05-0.08 spread + commission): 7 / 378 high-frequency settings survive, led by the M1 FVG 50% LIMIT
   in the H1 trend, NY 08:30-11:30, stop −$300: +$7,182 / +$8,144 / +$1,075, 3 trades a day — the edge exists only below ~$1.50 a trade,
   and needs real limit orders (a market order at the 50% pays the spread the research does not).
+
+## Part 11 — the user's AGGRESSION BREAK (N candles one colour → the first opposite close → the break of its high / low), cost $2.20
+
+- AGG 4 on M1, buy over VWAP / sell under, stop −$300, all day: +$4,045 / +$2,320 / +$2,423 (2023-24 = 2 yrs), 88% won, 5.4 trades a day, worst DD $2,908.
+- AGG 4 on M1, H1 trend: +$5,939 / +$3,583 / +$620. AGG 5: 30 / 585 settings robust (random 10 / 585). Built into SpasiX as entry AGGRESSION BREAK, preset D.
