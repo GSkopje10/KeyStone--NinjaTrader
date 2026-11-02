@@ -21,7 +21,7 @@ namespace KeystoneMT5
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
         AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
-        string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
+        CheckBox aRollCb; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
 
         FrameworkElement BuildAuto()
         {
@@ -101,7 +101,16 @@ namespace KeystoneMT5
             r2.Children.Add(AField("hmult", "HEDGE × NET", aset.HedgeMult.ToString(IC), 50, "SIGNAL: the hedge = this × the net lots open, the other way (2 = 0.1 buy → 0.2 sell)"));
             r2.Children.Add(AField("maxh", "MAX HEDGES", aset.MaxHedges.ToString(IC), 50, "SIGNAL: hedges an iteration at most"));
             r2.Children.Add(ADrop("exit", "TAKE PROFIT", () => aset.ExitMode == "LEGS" ? "each LEG its own +$" : "the whole BASKET +$", () => new List<Mi> { new Mi { Text = "BASKET — everything closes when the basket reaches the target", Do = () => aset.ExitMode = "BASKET" }, new Mi { Text = "EACH LEG — every position closes at its own target × its lots / the entry lots (0.2 lots = 2 × the target)", Do = () => aset.ExitMode = "LEGS" } }));
-            r2.Children.Add(ADrop("roll", "BREAK LEVEL", () => aset.Rolling ? "follows new candles" : "fixed at the leg", () => new List<Mi> { new Mi { Text = "FOLLOWS (default) — in real time: the newest swing low / high (price went up and came back down = a new recent low)", Do = () => aset.Rolling = true }, new Mi { Text = "FIXED — the recent low / high when the leg opened", Do = () => aset.Rolling = false } }));
+            {   // ☑ UPDATE RECENT HIGHS / LOWS IN REAL TIME (user's request: an option): on = the hedge level follows the newest swing low / high
+                // (the price went up and came back down = a new recent low); off = fixed at the low / high when the leg opened
+                var rsp = new StackPanel { Margin = new Thickness(0, 0, 12, 4) };
+                rsp.Children.Add(new TextBlock { Text = "BREAK LEVEL", Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
+                aRollCb = new CheckBox { Content = "UPDATE RECENT HIGHS / LOWS IN REAL TIME", IsChecked = aset.Rolling, Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 12, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 5, 0, 0),
+                    ToolTip = "ON: the hedge line moves to the NEWEST swing low (buy leading) / high (sell leading) as soon as one forms — up and back down = a new recent low\nOFF: the hedge line stays at the low / high it had when the leg opened" };
+                aRollCb.Click += delegate { if (auto.Running) { aRollCb.IsChecked = aset.Rolling; return; } aset.Rolling = aRollCb.IsChecked == true; AutoSaveSet(); ARollPaint(); };
+                ARollPaint();
+                rsp.Children.Add(aRollCb); afBox["roll"] = rsp; r2.Children.Add(rsp);
+            }
             r2.Children.Add(ADrop("next", "NEXT ITERATION", () => aset.NextStart == "PAUSE" ? "after a PAUSE" : aset.NextStart == "WINNER" ? "after a WIN: same direction at once" : "the next ENTRY SIGNAL", () => new List<Mi> { new Mi { Text = "the very next ENTRY SIGNAL of the setup (a break, an FVG touch …)", Do = () => aset.NextStart = "BREAK" }, new Mi { Text = "after a PAUSE — then the last basket's direction at once", Do = () => aset.NextStart = "PAUSE" }, new Mi { Text = "after a WIN: the SAME DIRECTION again at once (a winning SELL → SELL again); after a loss: the next entry signal", Do = () => aset.NextStart = "WINNER" } }));
             r2.Children.Add(AField("pause", "PAUSE (SECONDS)", aset.PauseSec.ToString(IC), 60, "NEXT ITERATION = PAUSE: seconds of the market's clock (300 = 5 minutes)"));
             r2.Children.Add(ADrop("afterdd", "AFTER MAX DRAWDOWN", () => aset.AfterDrawdown == "NEXT" ? "the NEXT iteration" : "STOP", () => new List<Mi> { new Mi { Text = "STOP the automation", Do = () => aset.AfterDrawdown = "STOP" }, new Mi { Text = "the NEXT iteration", Do = () => aset.AfterDrawdown = "NEXT" } }));
@@ -170,6 +179,8 @@ namespace KeystoneMT5
             return root;
         }
 
+        // the real-time box says ON / OFF in words and colour (the tick alone is hard to see on the dark theme)
+        void ARollPaint() { if (aRollCb == null) return; bool on = aRollCb.IsChecked == true; aRollCb.Content = on ? "ON • UPDATE RECENT HIGHS / LOWS IN REAL TIME" : "OFF • fixed at the leg (tick to update in real time)"; aRollCb.Foreground = on ? Green : Muted; }
         FrameworkElement AField(string key, string label, string val, double w, string tip)
         {
             var sp = new StackPanel { Margin = new Thickness(0, 0, 12, 4) };
@@ -191,6 +202,7 @@ namespace KeystoneMT5
             Action<string, string> t = (k, v) => { TextBox tb; if (af.TryGetValue(k, out tb)) tb.Text = v; };
             t("look", aset.Lookback.ToString(IC)); t("entry", aset.EntryLots.ToString(IC)); t("add", aset.AddLots.ToString(IC)); t("target", aset.Target.ToString(IC)); t("dd", aset.MaxDrawdown.ToString(IC));
             t("win", aset.Windows); t("eod", aset.CloseAtNy); t("fage", aset.FvgAge.ToString(IC)); t("perday", aset.PerDay.ToString(IC)); t("aggrun", aset.AggRun.ToString(IC)); t("hmoney", aset.HedgeMoney.ToString(IC)); t("hmult", aset.HedgeMult.ToString(IC)); t("maxh", aset.MaxHedges.ToString(IC)); t("maxit", aset.MaxIterations.ToString(IC));
+            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); }
             foreach (var b in aDrops.Values) { var f = b.Tag as Func<string>; if (f != null) b.Content = f() + "  ▾"; }
         }
         // SETUPS NOW: the three researched setups on the symbol, STRONG / WEAK / WAIT
@@ -555,7 +567,7 @@ namespace KeystoneMT5
                 bool full = aView == "⚙ SETTINGS" || aView == "🏁 RACE"; if (aSetups != null) aSetups.Visibility = full ? Visibility.Collapsed : Visibility.Visible; if (aTiles != null) aTiles.Visibility = full ? Visibility.Collapsed : Visibility.Visible;
             }
             if (aLock != null) aLock.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-            aStart.IsEnabled = !on; aStop.IsEnabled = on; foreach (var tb in af.Values) tb.IsEnabled = !on; foreach (var b in aDrops.Values) b.IsEnabled = !on;
+            if (aRollCb != null) aRollCb.IsEnabled = !on; aStart.IsEnabled = !on; aStop.IsEnabled = on; foreach (var tb in af.Values) tb.IsEnabled = !on; foreach (var b in aDrops.Values) b.IsEnabled = !on;
             if (!force && auto.Version == aSeen) return; aSeen = auto.Version;
             AutoTilesPaint(); AutoTablePaint();
         }
