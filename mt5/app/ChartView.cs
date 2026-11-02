@@ -298,8 +298,8 @@ namespace KeystoneMT5
                 else { double y = Y(g.P1); if (y < TopPad || y > TopPad + plotH) continue; dc.DrawLine(pen, new Point(x0, y), new Point(plotW, y)); }
                 if (g.Label == "") continue;
                 double ly = Y(g.Kind == "ZONE" && !double.IsNaN(g.P2) ? Math.Max(g.P1, g.P2) : g.P1) - 15; foreach (var u in labels) if (Math.Abs(u - ly) < 14) ly = u - 15; labels.Add(ly);
-                var tx = T(g.Label, 10, br, false, true); double lx = Math.Max(4, plotW - tx.Width - 70);
-                dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(190, 10, 14, 22)), null, new Rect(lx - 4, ly - 1, tx.Width + 8, tx.Height + 2), 3, 3); dc.DrawText(tx, new Point(lx, ly));
+                var tx = T(g.Label, 9.5, br, false, true); double lx = 10;   // labels on the LEFT: the right side belongs to the tickets' own lines
+                dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(150, 10, 14, 22)), new Pen(new SolidColorBrush(Color.FromArgb(90, col.R, col.G, col.B)), 1), new Rect(lx - 4, ly - 1, tx.Width + 8, tx.Height + 2), 3, 3); dc.DrawText(tx, new Point(lx, ly));
             }
         }
         // 🤖 AUTO's arrows: (time, price, BUY / SELL / CLOSE, label) — ▲ under a buy, ▼ over a sell, ● at a close with its result

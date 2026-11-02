@@ -107,6 +107,7 @@ namespace KeystoneMT5
         public int Version;                                      // changes when anything above changes (the window repaints)
         public double Basket, HedgeLevel = double.NaN, BuyLevel = double.NaN, SellLevel = double.NaN;   // live numbers for the window
         public DateTime Now, PauseUntil = DateTime.MinValue;
+        public double NetLots, PerPrice, TargetPx = double.NaN, StopPx = double.NaN; public int LastDir;   // for the chart's guides while a trade is open
         // the order path: (command, args, label) → the command's id, or null with the reason in `refused`
         public Func<string, object[], string, string> Send;
         public string Refused = "";
@@ -221,6 +222,8 @@ namespace KeystoneMT5
             for (int j = k; j + k < f.Count; j++)
             {
                 bool ok = true; for (int d = 1; d <= k && ok; d++) ok = high ? f[j].H > f[j - d].H && f[j].H > f[j + d].H : f[j].L < f[j - d].L && f[j].L < f[j + d].L;
+                // a swing the price has already traded through since it formed is USED UP — never a break again (the user's bug: an old low re-used after a retrace)
+                for (int i = 0; i < j && ok; i++) ok = high ? f[i].H <= f[j].H : f[i].L >= f[j].L;
                 if (ok) return f[j];
             }
             return null;
@@ -236,6 +239,10 @@ namespace KeystoneMT5
             var sn = Read(b); if (sn.Now < (b.IsSim ? Now : Now.AddMinutes(-1))) { Stop("the clock went back (the backtest was rewound or restarted)"); return; }
             Now = sn.Now; if (double.IsNaN(sn.Bid) || sn.Bid <= 0) return;
             Basket = sn.Pos.Count > 0 ? BasketOf(sn) : 0;
+            NetLots = sn.Pos.Sum(p => p.Dir * p.Lots); PerPrice = sn.PerPrice; LastDir = lastDir;
+            double move = Math.Abs(NetLots) > 1e-9 && sn.PerPrice > 0 ? NetLots * sn.PerPrice : 0;   // $ per 1.0 of price on what is open
+            TargetPx = Current != null && move != 0 ? sn.Bid + (Set.Target - Basket) / move : double.NaN;
+            StopPx = Current != null && move != 0 && Set.MaxDrawdown > 0 ? sn.Bid + (-Set.MaxDrawdown - Basket - (Set.ExitMode == "LEGS" ? sn.Balance - Current.BalanceStart : 0)) / move : double.NaN;
             BuyLevel = High(sn); SellLevel = Low(sn);
             try { Decide(b, sn); } finally { prevBid = sn.Bid; }
         }
@@ -327,6 +334,7 @@ namespace KeystoneMT5
             if (gate != "") return;
             int dir = 0; string why = ""; double lvl = double.NaN; string story = "";
             if (Phase == "FIRST") { dir = Set.FirstDir == "BUY" ? 1 : -1; why = "FIRST " + Set.FirstDir + " (yours)"; story = "you chose " + Set.FirstDir + " as the first direction"; }
+            else if (Phase == "AGAIN" && Set.NextStart == "WINNER") { dir = lastDir; why = "AFTER A WIN — the same direction again"; story = "the last iteration closed in profit " + (lastDir > 0 ? "long" : "short") + ", so " + (dir > 0 ? "BUY" : "SELL") + " again at once (NEXT ITERATION = after a win, the same direction)"; }
             else if (Phase == "AGAIN") { dir = lastDir; why = "AFTER THE PAUSE — the last basket's direction"; story = "the " + Set.PauseSec + " s pause after the last iteration ended; the last basket was " + (dir > 0 ? "long" : "short") + ", so " + (dir > 0 ? "BUY" : "SELL") + " again"; }
             else if (!Signal(sn, 0, out dir, out lvl, out why, out story)) return;
             if (Phase != "FIRST" && Phase != "AGAIN" && !VwapOk(sn, dir)) { var sk = why + " — skipped: the VWAP filter " + Set.VwapFilter + " wants " + (Set.VwapFilter == "DISCOUNT" ? (dir > 0 ? "a buy UNDER" : "a sell OVER") : (dir > 0 ? "a buy OVER" : "a sell UNDER")) + " the VWAP " + P(Vwap) + " (bid " + P(sn.Bid) + ")"; if (sk != vwapSkip) { vwapSkip = sk; Tell("NO ENTRY: " + sk + "."); } return; }
@@ -379,9 +387,9 @@ namespace KeystoneMT5
             }
             else
             {
-                double hi = BuyLevel, lo = SellLevel; if (double.IsNaN(hi) || double.IsNaN(prevBid)) return false;
-                if (prevBid <= hi && sn.Bid > hi && only >= 0) { dir = 1; lvl = hi; why = "BREAK of the " + (Set.Swing ? "swing" : "recent") + " high " + hi.ToString("0.#####", IC); }
-                else if (prevBid >= lo && sn.Bid < lo && only <= 0) { dir = -1; lvl = lo; why = "BREAK of the " + (Set.Swing ? "swing" : "recent") + " low " + lo.ToString("0.#####", IC); }
+                double hi = BuyLevel, lo = SellLevel; if (double.IsNaN(prevBid)) return false;   // each side on its own: no swing high must not block a sell
+                if (!double.IsNaN(hi) && prevBid <= hi && sn.Bid > hi && only >= 0) { dir = 1; lvl = hi; why = "BREAK of the " + (Set.Swing ? "swing" : "recent") + " high " + hi.ToString("0.#####", IC); }
+                else if (!double.IsNaN(lo) && prevBid >= lo && sn.Bid < lo && only <= 0) { dir = -1; lvl = lo; why = "BREAK of the " + (Set.Swing ? "swing" : "recent") + " low " + lo.ToString("0.#####", IC); }
                 if (dir == 0) return false;
                 story = "the bid moved from " + P(prevBid) + " to " + P(sn.Bid) + ", " + (dir > 0 ? "above " : "below ") + P(lvl) + " = " + Candles(sn, dir > 0) + " → the " + (dir > 0 ? "high" : "low") + " broke";
             }
@@ -533,11 +541,12 @@ namespace KeystoneMT5
             if (it.Reason == "MAX DRAWDOWN" && Set.AfterDrawdown == "STOP") { Stop("the max drawdown $" + Set.MaxDrawdown.ToString("0.##", IC) + " was hit"); return; }
             if (it.Reason == "CLOSED OUTSIDE") { Stop("the basket was closed outside the automation"); return; }
             if (Set.MaxIterations > 0 && Iterations.Count(x => x.Done) >= Set.MaxIterations) { Stop("the " + Set.MaxIterations + " iterations are done"); return; }
-            Wait(sn, Set.NextStart == "PAUSE" ? "PAUSE" : "BREAK");
+            Wait(sn, Set.NextStart == "PAUSE" ? "PAUSE" : Set.NextStart == "WINNER" && it.Result > 0 && lastDir != 0 ? "AGAIN" : "BREAK");
         }
         void Wait(Snap sn, string how)
         {
             if (how == "FIRST") { Phase = "FIRST"; return; }
+            if (how == "AGAIN") { Phase = "AGAIN"; Note("↻ the last iteration WON — the same direction (" + (lastDir > 0 ? "BUY" : "SELL") + ") again at once"); return; }
             if (how == "PAUSE") { Phase = "PAUSE"; PauseUntil = Now.AddSeconds(Math.Max(0, Set.PauseSec)); Note("⏸ next iteration after " + Set.PauseSec + " s (" + PauseUntil.ToString("HH:mm:ss", IC) + ")"); return; }
             Phase = "WAIT BREAK"; Note("⏳ waiting for the next " + WaitingFor());
         }

@@ -197,6 +197,20 @@ public static class AutoTests
         Check(au.Trades.Count >= 2 && au.Trades[0].Side == "BUY" && au.Trades[1].Side == "SELL" && Math.Abs(au.Trades[1].Lots - 0.2) < 1e-9 && au.Trades[1].Why.StartsWith("SIGNAL HEDGE"), "signal hedge: an opposite engulfing while losing → SELL 0.20 (2× the net)", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Lots + " " + x.Why)));
         Check(it != null && it.Reason == "LEG TARGETS" && it.Result > 50 && it.Result < 70 && au.Trades.Count(x => x.Side == "CLOSE") == 2 && r.Item1.State.Positions.Count == 0, "each leg at its own target: +$40 (0.2) and +$20 (0.1) → the iteration ≈ +$60", it == null ? "none" : it.Reason + " " + it.Result.ToString("0.00"));
 
+        // 27. NEXT = after a WIN the same direction at once: a climb, #1 BUY wins → #2 BUY right away (no new break needed)
+        var sW = S(); sW.FirstDir = "SELL"; sW.HedgeMode = "NONE"; sW.MaxDrawdown = 0; sW.NextStart = "WINNER"; sW.MaxIterations = 2;
+        r = Run(Path(Day1, 4000, Line(4000, -0.5, 60)), sW); au = r.Item2;
+        Check(au.Iterations.Count(x => x.Done) == 2 && au.Trades.Count >= 2 && au.Trades.All(x => x.Side == "SELL") && au.Trades[1].Why.Contains("AFTER A WIN") && au.Trades[1].Time - au.Iterations[0].End < TimeSpan.FromMinutes(1), "after a win: a winning SELL → SELL again at once", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Time.ToString("HH:mm:ss") + " " + x.Why)));
+
+        // 28. a swing low already broken is used up: the first drop through the 3998 swing low sells; after the rally back above it, a second
+        // drop through 3998 must NOT sell again (the newest unbroken swing low is now the 3995 bottom)
+        var lows = new double[] { 3999.8, 3999.4, 3998.8, 3998.0, 3998.6, 3999.2, 3999.6, 3999.0, 3998.2, 3997.4, 3996.4, 3995.0, 3995.6, 3996.6, 3997.6, 3998.6, 3999.0, 3998.8, 3998.4, 3997.8, 3997.3, 3997.1, 3997.2, 3997.15 };
+        var swb = new List<Mt5Bar>(); double pc = 4000;
+        for (int i = 0; i < lows.Length; i++) { double c = lows[i] + 0.3; swb.Add(new Mt5Bar { Time = Day1.AddMinutes(i), O = pc, C = c, H = Math.Max(pc, c) + 0.1, L = Math.Min(lows[i], Math.Min(pc, c)), V = 100, Spread = 10 }); pc = c; }
+        var sS = S(); sS.Swing = true; sS.SwingK = 2; sS.HedgeMode = "NONE"; sS.MaxIterations = 2;
+        r = Run(swb, sS); au = r.Item2;
+        Check(au.Trades.Count(x => x.Side == "SELL") == 1, "swing: a broken swing low is used up — no second SELL on the old level after a retrace", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Price.ToString("0.00") + " " + x.Time.ToString("HH:mm"))) + " LV " + au.BuyLevel + " / " + au.SellLevel + " LOG " + string.Join(" / ", au.Log.Take(6)) + " STORY " + string.Join(" / ", au.Story.Take(4).Select(x => x.Item2)));
+
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();
         var ds = S(); ds.HedgeMode = "PRICE"; ds.HedgePrice = 2; ds.Target = 20;

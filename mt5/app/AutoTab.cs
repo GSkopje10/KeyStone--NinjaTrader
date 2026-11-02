@@ -88,7 +88,7 @@ namespace KeystoneMT5
             r2.Children.Add(AField("maxh", "MAX HEDGES", aset.MaxHedges.ToString(IC), 50, "SIGNAL: hedges an iteration at most"));
             r2.Children.Add(ADrop("exit", "TAKE PROFIT", () => aset.ExitMode == "LEGS" ? "each LEG its own +$" : "the whole BASKET +$", () => new List<Mi> { new Mi { Text = "BASKET — everything closes when the basket reaches the target", Do = () => aset.ExitMode = "BASKET" }, new Mi { Text = "EACH LEG — every position closes at its own target × its lots / the entry lots (0.2 lots = 2 × the target)", Do = () => aset.ExitMode = "LEGS" } }));
             r2.Children.Add(ADrop("roll", "BREAK LEVEL", () => aset.Rolling ? "follows new candles" : "fixed at the leg", () => new List<Mi> { new Mi { Text = "FIXED — the recent low / high when the leg opened", Do = () => aset.Rolling = false }, new Mi { Text = "FOLLOWS — the recent low / high of the newest candles", Do = () => aset.Rolling = true } }));
-            r2.Children.Add(ADrop("next", "NEXT ITERATION", () => aset.NextStart == "PAUSE" ? "after a PAUSE" : "the next ENTRY SIGNAL", () => new List<Mi> { new Mi { Text = "the very next ENTRY SIGNAL of the setup (a break, an FVG touch …)", Do = () => aset.NextStart = "BREAK" }, new Mi { Text = "after a PAUSE — then the last basket's direction at once", Do = () => aset.NextStart = "PAUSE" } }));
+            r2.Children.Add(ADrop("next", "NEXT ITERATION", () => aset.NextStart == "PAUSE" ? "after a PAUSE" : aset.NextStart == "WINNER" ? "after a WIN: same direction at once" : "the next ENTRY SIGNAL", () => new List<Mi> { new Mi { Text = "the very next ENTRY SIGNAL of the setup (a break, an FVG touch …)", Do = () => aset.NextStart = "BREAK" }, new Mi { Text = "after a PAUSE — then the last basket's direction at once", Do = () => aset.NextStart = "PAUSE" }, new Mi { Text = "after a WIN: the SAME DIRECTION again at once (a winning SELL → SELL again); after a loss: the next entry signal", Do = () => aset.NextStart = "WINNER" } }));
             r2.Children.Add(AField("pause", "PAUSE (SECONDS)", aset.PauseSec.ToString(IC), 60, "NEXT ITERATION = PAUSE: seconds of the market's clock (300 = 5 minutes)"));
             r2.Children.Add(ADrop("afterdd", "AFTER MAX DRAWDOWN", () => aset.AfterDrawdown == "NEXT" ? "the NEXT iteration" : "STOP", () => new List<Mi> { new Mi { Text = "STOP the automation", Do = () => aset.AfterDrawdown = "STOP" }, new Mi { Text = "the NEXT iteration", Do = () => aset.AfterDrawdown = "NEXT" } }));
             r2.Children.Add(AField("maxit", "MAX ITERATIONS (0 = ∞)", aset.MaxIterations.ToString(IC), 60, ""));
@@ -131,12 +131,12 @@ namespace KeystoneMT5
             // the numbers, the views
             aTiles = new ContentControl { Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aTiles, Dock.Top); root.Children.Add(aTiles);
             aViews = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aViews, Dock.Top);
-            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "LOG" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); }; aViews.Children.Add(b); }
+            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "LOG" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); aTable.ScrollToHome(); }; aViews.Children.Add(b); }
             aSetBtn = Pill("⚙ SETTINGS", Tint(Sx.Card2, 220)); aSetBtn.Height = 26; aSetBtn.ToolTip = "show / hide the settings — hidden, the story and the iterations get the whole screen"; aSetBtn.Click += delegate { aShowSet = !aShowSet; Put("auto.showset", aShowSet ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aSetBtn);
             aGuideBtn = Pill("🎯 CHART GUIDES", Tint(Sx.Card2, 220)); aGuideBtn.Height = 26; aGuideBtn.ToolTip = "draw what the strategy watches on the 📈 CHART (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge) — a STRONG setup blinks"; aGuideBtn.Click += delegate { aGuidesOn = !aGuidesOn; Put("auto.guides", aGuidesOn ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aGuideBtn);
             var clr = Pill("🗑 CLEAR HISTORY", Tint(Sx.Card2, 220)); clr.Height = 26; clr.Click += delegate { AutoClear(); }; aViews.Children.Add(clr);
             root.Children.Add(aViews);
-            aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 13.5, MinHeight = 260, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
+            aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 13.5, MinHeight = 160, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Visible, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
             root.Children.Add(aTable);
 
             // the engine's clock: every tick of the BACKTEST; every 200 ms live (the bridge sends the state every 200 ms)
@@ -199,7 +199,20 @@ namespace KeystoneMT5
             foreach (var st in list) if (want(st.Key)) foreach (var d in st.Draw)
                 g.Add(new ChartGuide { Kind = d.Kind, P1 = d.P1, P2 = d.P2, From = d.From, Label = d.Label, Dash = d.Dash, Color = col(st.Key), Blink = st.Level == "STRONG" && (d.Kind != "LINE" || st.Key == "BOX" || st.Key == "B") });
             // the BREAK levels the automation enters on (and hedges on): the swing high / low, or the high / low of the last N candles
-            if (s.EntryMode == "BREAK" || s.EntryMode == "FVGBREAK" || s.HedgeMode == "BREAK")
+            bool inTrade = auto.Running && auto.Current != null;
+            if (inTrade)
+            {   // in a trade: what happens next and how far away — the take profit, the next hedge, the stop
+                double bid = double.NaN; lock (broker.State.Gate) { Mt5Quote q; if (broker.State.Quotes.TryGetValue(sym, out q)) bid = q.Bid; }
+                Func<double, string> away = v => double.IsNaN(bid) ? "" : " (" + Math.Abs(v - bid).ToString("0.00", IC) + " away)";
+                if (!double.IsNaN(auto.TargetPx)) g.Add(new ChartGuide { P1 = auto.TargetPx, Color = Green, Blink = !double.IsNaN(bid) && Math.Abs(auto.TargetPx - bid) < 0.3, Label = "🎯 TP +$" + s.Target.ToString("0.##", IC) + " @ " + auto.TargetPx.ToString("0.00", IC) + away(auto.TargetPx) });
+                if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(auto.HedgeLevel))
+                {
+                    double lossTo = double.IsNaN(bid) ? 0 : Math.Abs(auto.HedgeLevel - bid) * Math.Abs(auto.NetLots) * auto.PerPrice;
+                    g.Add(new ChartGuide { P1 = auto.HedgeLevel, Color = Red, Dash = true, Blink = !double.IsNaN(bid) && Math.Abs(auto.HedgeLevel - bid) < 0.3, Label = "🛡 HEDGE " + (auto.LastDir > 0 ? "SELL " : "BUY ") + s.AddLots.ToString("0.##", IC) + " @ " + auto.HedgeLevel.ToString("0.00", IC) + away(auto.HedgeLevel) + (lossTo > 0 ? " ≈ −$" + lossTo.ToString("0", IC) : "") });
+                }
+                if (!double.IsNaN(auto.StopPx)) g.Add(new ChartGuide { P1 = auto.StopPx, Color = Red, Label = "⛔ STOP −$" + s.MaxDrawdown.ToString("0.##", IC) + " @ " + auto.StopPx.ToString("0.00", IC) + away(auto.StopPx) });
+            }
+            if (!inTrade && (s.EntryMode == "BREAK" || s.EntryMode == "FVGBREAK" || s.HedgeMode == "BREAK"))
             {
                 DateTime ht, lt; double bid; var lv = BreakLevels(sym, s, out ht, out lt, out bid); string what = s.Swing ? "swing" : "last " + s.Lookback + "-candle";
                 Func<double, bool> near = v => !double.IsNaN(bid) && Math.Abs(bid - v) <= Math.Max(0.25, Math.Abs(lv[0] - lv[1]) * 0.1);
@@ -207,7 +220,6 @@ namespace KeystoneMT5
                 if (!double.IsNaN(lv[0])) g.Add(new ChartGuide { P1 = lv[0], From = ht, Color = Green, Dash = !entry, Blink = near(lv[0]) || (!double.IsNaN(bid) && bid > lv[0]), Label = (entry ? "▲ BUY above the " : "hedge BUY above the ") + what + " HIGH " + lv[0].ToString("0.##", IC) + (ht > DateTime.MinValue ? " (" + ht.ToString("HH:mm", IC) + ")" : "") });
                 if (!double.IsNaN(lv[1])) g.Add(new ChartGuide { P1 = lv[1], From = lt, Color = Red, Dash = !entry, Blink = near(lv[1]) || (!double.IsNaN(bid) && bid < lv[1]), Label = (entry ? "▼ SELL below the " : "hedge SELL below the ") + what + " LOW " + lv[1].ToString("0.##", IC) + (lt > DateTime.MinValue ? " (" + lt.ToString("HH:mm", IC) + ")" : "") });
             }
-            if (auto.Running && !double.IsNaN(auto.HedgeLevel)) g.Add(new ChartGuide { P1 = auto.HedgeLevel, Color = Red, Dash = true, Label = "🤖 NEXT HEDGE " + Px(auto.HedgeLevel) });
             g.RemoveAll(x => double.IsNaN(x.P1)); aGuides = g; aGuideSym = sym;
         }
         // the same levels as the engine (HedgeAuto.Pivot / Lookback): from the finished candles of the strategy's timeframe, newest first
@@ -223,8 +235,8 @@ namespace KeystoneMT5
             if (s.Swing)
             {
                 int k = Math.Max(1, s.SwingK);
-                for (int j = k; j + k < f.Count && double.IsNaN(hi); j++) { bool ok = true; for (int d = 1; d <= k && ok; d++) ok = f[j].H > f[j - d].H && f[j].H > f[j + d].H; if (ok) { hi = f[j].H; hiT = f[j].Time; } }
-                for (int j = k; j + k < f.Count && double.IsNaN(lo); j++) { bool ok = true; for (int d = 1; d <= k && ok; d++) ok = f[j].L < f[j - d].L && f[j].L < f[j + d].L; if (ok) { lo = f[j].L; loT = f[j].Time; } }
+                for (int j = k; j + k < f.Count && double.IsNaN(hi); j++) { bool ok = true; for (int d = 1; d <= k && ok; d++) ok = f[j].H > f[j - d].H && f[j].H > f[j + d].H; for (int i = 0; i < j && ok; i++) ok = f[i].H <= f[j].H; if (ok) { hi = f[j].H; hiT = f[j].Time; } }
+                for (int j = k; j + k < f.Count && double.IsNaN(lo); j++) { bool ok = true; for (int d = 1; d <= k && ok; d++) ok = f[j].L < f[j - d].L && f[j].L < f[j + d].L; for (int i = 0; i < j && ok; i++) ok = f[i].L >= f[j].L; if (ok) { lo = f[j].L; loT = f[j].Time; } }
             }
             else if (f.Count >= s.Lookback)
             {
@@ -459,7 +471,7 @@ namespace KeystoneMT5
             }
             else L.AddRange(auto.Log.AsEnumerable().Reverse());
             aTable.TextWrapping = aView == "STORY" || aView == "LOG" ? TextWrapping.Wrap : TextWrapping.NoWrap;
-            aTable.Text = string.Join("\n", L);
+            var txt = string.Join("\n", L); if (aTable.Text != txt) { double vo = aTable.VerticalOffset, ho = aTable.HorizontalOffset; aTable.Text = txt; aTable.ScrollToVerticalOffset(vo); aTable.ScrollToHorizontalOffset(ho); }   // new lines never jump you back to the top
         }
     }
 }
