@@ -193,13 +193,44 @@ namespace KeystoneMT5
         void AutoGuidesBuild(string sym, List<SetupState> list)
         {
             var g = new List<ChartGuide>(); var pre = auto.Running ? auto.Set.Preset : aset.Preset; var s = auto.Running ? auto.Set : aset;
-            Func<string, bool> want = k => pre == "" || pre == k || (pre == "AH" && k == "A");
+            Func<string, bool> want = k => pre == "" ? (k == "A" && s.EntryMode == "ENGULF") || (k == "B" && s.EntryMode.StartsWith("FVG")) || (k == "C" && s.EntryMode == "VWAPREJ") : pre == k || (pre == "AH" && k == "A");
             Func<string, Brush> col = k => k == "A" ? (pre == "AH" ? Violet : Green) : k == "B" ? Amber : k == "C" ? Cyan : Orange;
             if (!double.IsNaN(SetupScan.LastVwap) && (pre == "" || pre == "C" || s.VwapFilter != "NONE" || s.EntryMode == "VWAPREJ" || s.EntryMode == "VWAP")) g.Add(new ChartGuide { P1 = SetupScan.LastVwap, Color = Gold, Label = "VWAP " + SetupScan.LastVwap.ToString("0.##", IC) + (s.VwapFilter == "DISCOUNT" ? " — buy UNDER / sell OVER" : s.VwapFilter == "FLOW" ? " — buy OVER / sell UNDER" : "") });
             foreach (var st in list) if (want(st.Key)) foreach (var d in st.Draw)
                 g.Add(new ChartGuide { Kind = d.Kind, P1 = d.P1, P2 = d.P2, From = d.From, Label = d.Label, Dash = d.Dash, Color = col(st.Key), Blink = st.Level == "STRONG" && (d.Kind != "LINE" || st.Key == "BOX" || st.Key == "B") });
+            // the BREAK levels the automation enters on (and hedges on): the swing high / low, or the high / low of the last N candles
+            if (s.EntryMode == "BREAK" || s.EntryMode == "FVGBREAK" || s.HedgeMode == "BREAK")
+            {
+                DateTime ht, lt; double bid; var lv = BreakLevels(sym, s, out ht, out lt, out bid); string what = s.Swing ? "swing" : "last " + s.Lookback + "-candle";
+                Func<double, bool> near = v => !double.IsNaN(bid) && Math.Abs(bid - v) <= Math.Max(0.25, Math.Abs(lv[0] - lv[1]) * 0.1);
+                bool entry = s.EntryMode == "BREAK" || s.EntryMode == "FVGBREAK";
+                if (!double.IsNaN(lv[0])) g.Add(new ChartGuide { P1 = lv[0], From = ht, Color = Green, Dash = !entry, Blink = near(lv[0]) || (!double.IsNaN(bid) && bid > lv[0]), Label = (entry ? "▲ BUY above the " : "hedge BUY above the ") + what + " HIGH " + lv[0].ToString("0.##", IC) + (ht > DateTime.MinValue ? " (" + ht.ToString("HH:mm", IC) + ")" : "") });
+                if (!double.IsNaN(lv[1])) g.Add(new ChartGuide { P1 = lv[1], From = lt, Color = Red, Dash = !entry, Blink = near(lv[1]) || (!double.IsNaN(bid) && bid < lv[1]), Label = (entry ? "▼ SELL below the " : "hedge SELL below the ") + what + " LOW " + lv[1].ToString("0.##", IC) + (lt > DateTime.MinValue ? " (" + lt.ToString("HH:mm", IC) + ")" : "") });
+            }
             if (auto.Running && !double.IsNaN(auto.HedgeLevel)) g.Add(new ChartGuide { P1 = auto.HedgeLevel, Color = Red, Dash = true, Label = "🤖 NEXT HEDGE " + Px(auto.HedgeLevel) });
             g.RemoveAll(x => double.IsNaN(x.P1)); aGuides = g; aGuideSym = sym;
+        }
+        // the same levels as the engine (HedgeAuto.Pivot / Lookback): from the finished candles of the strategy's timeframe, newest first
+        double[] BreakLevels(string sym, AutoSettings s, out DateTime hiT, out DateTime loT, out double bid)
+        {
+            hiT = loT = DateTime.MinValue; bid = double.NaN; var f = new List<Mt5Bar>();
+            lock (broker.State.Gate)
+            {
+                var st = broker.State; var now = st.ServerNow > DateTime.MinValue ? st.ServerNow : DateTime.Now; Mt5Quote q; if (st.Quotes.TryGetValue(sym, out q)) bid = q.Bid;
+                var se = st.SeriesOf(sym, s.Tf); for (int i = se.Bars.Count - 1; i >= 0 && f.Count < Math.Max(60, s.Lookback); i--) if (se.Bars[i].Time.AddMinutes(s.Tf) <= now) f.Add(se.Bars[i]);
+            }
+            double hi = double.NaN, lo = double.NaN;
+            if (s.Swing)
+            {
+                int k = Math.Max(1, s.SwingK);
+                for (int j = k; j + k < f.Count && double.IsNaN(hi); j++) { bool ok = true; for (int d = 1; d <= k && ok; d++) ok = f[j].H > f[j - d].H && f[j].H > f[j + d].H; if (ok) { hi = f[j].H; hiT = f[j].Time; } }
+                for (int j = k; j + k < f.Count && double.IsNaN(lo); j++) { bool ok = true; for (int d = 1; d <= k && ok; d++) ok = f[j].L < f[j - d].L && f[j].L < f[j + d].L; if (ok) { lo = f[j].L; loT = f[j].Time; } }
+            }
+            else if (f.Count >= s.Lookback)
+            {
+                var w = f.Take(s.Lookback).ToList(); var bh = w.OrderByDescending(x => x.H).First(); var bl = w.OrderBy(x => x.L).First(); hi = bh.H; hiT = bh.Time; lo = bl.L; loT = bl.Time;
+            }
+            return new[] { hi, lo };
         }
         double ANum(string k, double def) { double x; return double.TryParse((af[k].Text ?? "").Trim().Replace(',', '.'), NumberStyles.Float, IC, out x) ? x : def; }
         AutoSettings AutoRead()
