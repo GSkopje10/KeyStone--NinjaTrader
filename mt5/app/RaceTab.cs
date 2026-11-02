@@ -22,6 +22,23 @@ namespace KeystoneMT5
         bool RaceDura() { string sv; lock (broker.State.Gate) sv = broker.State.Account.Server ?? ""; return sv.IndexOf("dura", StringComparison.OrdinalIgnoreCase) >= 0; }   // Duramarkets: 0.001 % of each deal
         string RaceFolder() { var id = Sim ? "backtest" : AutoId(); return Path.Combine(Dir, "race", Mode + (id != "" ? "-" + id : "")); }
         // whose levels / signals / trades the chart draws: a lane of the race, or the 🤖 AUTO itself
+        StackPanel raceChips; string raceChipsSig = "";
+        // the chart's strategy tabs (only while the race runs): 🤖 MINE + every racing strategy — click = that one on the chart
+        void RaceChipsPaint()
+        {
+            if (raceChips == null) return; bool on = raceOn && lanes.Count > 0; raceChips.Visibility = on ? Visibility.Visible : Visibility.Collapsed; if (!on) { raceChipsSig = ""; return; }
+            var sig = raceShow + "|" + string.Join(",", lanes.Select(l => l.Key + (l.Eng.Current != null ? "*" : ""))); if (sig == raceChipsSig) return; raceChipsSig = sig; raceChips.Children.Clear();
+            raceChips.Children.Add(new TextBlock { Text = "🏁 SHOW", Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+            Action<string, string, bool> chip = (key, label, inTrade) =>
+            {
+                bool sel = raceShow == key; var b = Pill((inTrade ? "● " : "") + label, sel ? Tint(Cyan, 120) : Tint(Sx.Card2, 220)); b.Height = 26; b.FontSize = 11; b.Margin = new Thickness(0, 0, 4, 0); if (sel) b.Foreground = Bg;
+                b.ToolTip = key == "" ? "the real automation (its levels and trades)" : RaceName(key) + " — its own simulated account" + (inTrade ? " • in a trade now" : "");
+                b.Click += delegate { int ix = key == "" ? 0 : Array.IndexOf(RaceKeys, key) + 1; if (raceShowBox != null && ix >= 0) raceShowBox.SelectedIndex = ix; else { raceShow = key; foreach (var pq in panes) pq.V.InvalidateVisual(); } raceChipsSig = ""; RaceChipsPaint(); };
+                raceChips.Children.Add(b);
+            };
+            chip("", "🤖 MINE", auto.Current != null);
+            foreach (var l in lanes) chip(l.Key, l.Key == "MINE" ? "★ MY SETTINGS" : l.Key, l.Eng.Current != null);
+        }
         HedgeAuto ShowEngine() { if (raceShow != "") { var l = lanes.FirstOrDefault(x => x.Key == raceShow); if (l != null) return l.Eng; } return auto; }
 
         FrameworkElement BuildRace()
