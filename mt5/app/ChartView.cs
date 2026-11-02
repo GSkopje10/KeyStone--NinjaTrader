@@ -149,6 +149,8 @@ namespace KeystoneMT5
     public sealed class ChartHit { public Rect R; public string Kind, Key; public long Ticket; public Action Click; }
     public sealed class Indicator { public string Key, Name, Color, Tip; public Indicator(string k, string n, string c, string t) { Key = k; Name = n; Color = c; Tip = t; } }
 
+    public sealed class ChartGuide { public string Kind = "LINE", Label = ""; public double P1, P2 = double.NaN; public DateTime From = DateTime.MinValue; public Brush Color; public bool Blink, Dash; }
+
     public sealed partial class ChartView : FrameworkElement
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -220,7 +222,7 @@ namespace KeystoneMT5
         }
         bool Animating()
         {
-            var now = DateTime.Now; if ((now - hoverAt).TotalMilliseconds < 700 || (now - pulseAt).TotalMilliseconds < 750 || NewsHot || liveSetup) return true;
+            var now = DateTime.Now; if ((now - hoverAt).TotalMilliseconds < 700 || (now - pulseAt).TotalMilliseconds < 750 || NewsHot || liveSetup || guidesBlink) return true;
             foreach (var kv in seen) if ((now - kv.Value).TotalMilliseconds < 1800) return true; return false;
         }
         public void ResetView() { auto = true; rightOffset = 6; InvalidateVisual(); }
@@ -270,7 +272,36 @@ namespace KeystoneMT5
             double best = price, bd = 14; foreach (var v in new[] { b.O, b.H, b.L, b.C }) { double d = Math.Abs(Y(v) - m.Y); if (d < bd) { bd = d; best = v; } } return best;
         }
 
-        protected override void OnRender(DrawingContext dc) { lock (Gate) { Draw(dc); try { DrawMarks(dc); } catch { } } }
+        protected override void OnRender(DrawingContext dc) { lock (Gate) { Draw(dc); try { DrawGuides(dc); } catch { } try { DrawMarks(dc); } catch { } } }
+        // 🎯 the 🤖 strategy's guides: what the setup is watching (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge),
+        // a STRONG setup blinks
+        public Func<List<ChartGuide>> Guides; bool guidesBlink;
+        void DrawGuides(DrawingContext dc)
+        {
+            guidesBlink = false; var gs = Guides != null ? Guides() : null; var bars = Series != null ? Series.Bars : null; if (gs == null || gs.Count == 0 || bars == null || bars.Count == 0 || plotW <= 0) return;
+            double ph = 0.5 + 0.5 * Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 170.0); var labels = new List<double>();
+            foreach (var g in gs)
+            {
+                if (g.Blink) guidesBlink = true; var sc = g.Color as SolidColorBrush; var col = sc != null ? sc.Color : Colors.White; double a = g.Blink ? 0.3 + 0.7 * ph : 0.85;
+                var br = new SolidColorBrush(Color.FromArgb((byte)(255 * a), col.R, col.G, col.B)); var pen = new Pen(br, g.Blink ? 2.2 : 1.4); if (g.Dash) pen.DashStyle = DashStyles.Dash;
+                double x0 = g.From > DateTime.MinValue && g.From > bars[0].Time ? Math.Max(0, X(IndexOf(g.From))) : 0;
+                if (g.Kind == "ZONE" && !double.IsNaN(g.P2))
+                {
+                    double y1 = Y(Math.Max(g.P1, g.P2)), y2 = Y(Math.Min(g.P1, g.P2)); if (y2 < TopPad || y1 > TopPad + plotH) continue;
+                    dc.DrawRectangle(new SolidColorBrush(Color.FromArgb((byte)(g.Blink ? 40 + 70 * ph : 38), col.R, col.G, col.B)), pen, new Rect(x0, Math.Max(TopPad, y1), Math.Max(1, plotW - x0), Math.Max(1, Math.Min(TopPad + plotH, y2) - Math.Max(TopPad, y1))));
+                }
+                else if (g.Kind == "SIGNAL")
+                {
+                    double x = X(bars.Count - 1), y = Y(g.P1); if (y < TopPad || y > TopPad + plotH) continue; double r = 7 + 5 * (g.Blink ? ph : 0);
+                    dc.DrawEllipse(new SolidColorBrush(Color.FromArgb((byte)(90 * a), col.R, col.G, col.B)), new Pen(br, 2), new Point(x, y), r + 4, r + 4); dc.DrawEllipse(br, null, new Point(x, y), 4, 4);
+                }
+                else { double y = Y(g.P1); if (y < TopPad || y > TopPad + plotH) continue; dc.DrawLine(pen, new Point(x0, y), new Point(plotW, y)); }
+                if (g.Label == "") continue;
+                double ly = Y(g.Kind == "ZONE" && !double.IsNaN(g.P2) ? Math.Max(g.P1, g.P2) : g.P1) - 15; foreach (var u in labels) if (Math.Abs(u - ly) < 14) ly = u - 15; labels.Add(ly);
+                var tx = T(g.Label, 10, br, false, true); double lx = Math.Max(4, plotW - tx.Width - 70);
+                dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(190, 10, 14, 22)), null, new Rect(lx - 4, ly - 1, tx.Width + 8, tx.Height + 2), 3, 3); dc.DrawText(tx, new Point(lx, ly));
+            }
+        }
         // 🤖 AUTO's arrows: (time, price, BUY / SELL / CLOSE, label) — ▲ under a buy, ▼ over a sell, ● at a close with its result
         public Func<List<Tuple<DateTime, double, string, string>>> Marks;
         void DrawMarks(DrawingContext dc)

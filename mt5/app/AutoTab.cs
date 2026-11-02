@@ -19,7 +19,7 @@ namespace KeystoneMT5
     {
         readonly HedgeAuto auto = new HedgeAuto();
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
-        AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard; Button aSetBtn; bool aShowSet = true; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings;
+        AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
         string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
 
@@ -28,7 +28,7 @@ namespace KeystoneMT5
             aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, ""))); if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
             auto.Send = AutoSend; auto.NewsNear = AutoNews;
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l); auto.OnNote = (n, l) => AutoAppend("log", l);
-            foreach (var pn in panes) { var pp = pn; pp.V.Marks = () => AutoMarks(pp.Sym); }
+            aGuidesOn = Get("auto.guides", "1") == "1"; foreach (var pn in panes) { var pp = pn; pp.V.Marks = () => AutoMarks(pp.Sym); pp.V.Guides = () => aGuidesOn && string.Equals(pp.Sym, aGuideSym, StringComparison.OrdinalIgnoreCase) ? aGuides : null; }
             var root = new DockPanel { LastChildFill = true };
 
             // the live card + the buttons
@@ -133,6 +133,7 @@ namespace KeystoneMT5
             aViews = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aViews, Dock.Top);
             foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "LOG" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); }; aViews.Children.Add(b); }
             aSetBtn = Pill("⚙ SETTINGS", Tint(Sx.Card2, 220)); aSetBtn.Height = 26; aSetBtn.ToolTip = "show / hide the settings — hidden, the story and the iterations get the whole screen"; aSetBtn.Click += delegate { aShowSet = !aShowSet; Put("auto.showset", aShowSet ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aSetBtn);
+            aGuideBtn = Pill("🎯 CHART GUIDES", Tint(Sx.Card2, 220)); aGuideBtn.Height = 26; aGuideBtn.ToolTip = "draw what the strategy watches on the 📈 CHART (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge) — a STRONG setup blinks"; aGuideBtn.Click += delegate { aGuidesOn = !aGuidesOn; Put("auto.guides", aGuidesOn ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aGuideBtn);
             var clr = Pill("🗑 CLEAR HISTORY", Tint(Sx.Card2, 220)); clr.Height = 26; clr.Click += delegate { AutoClear(); }; aViews.Children.Add(clr);
             root.Children.Add(aViews);
             aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 13.5, MinHeight = 260, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
@@ -176,7 +177,7 @@ namespace KeystoneMT5
         {
             if (aSetups == null) return; var sym = auto.Running ? auto.Set.Symbol : (af.ContainsKey("sym") ? (af["sym"].Text ?? "").Trim() : ""); int off = auto.Running ? auto.Set.NyOffsetHours : (int)ANum("nyoff", -7);
             List<SetupState> list; try { list = SetupScan.Scan(broker, sym, off); } catch { return; }
-            aSetups.Children.Clear();
+            aSetups.Children.Clear(); AutoGuidesBuild(sym, list);
             foreach (var x in list)
             {
                 var col = x.Level == "STRONG" ? Green : x.Level == "WEAK" ? Amber : Muted;
@@ -187,6 +188,18 @@ namespace KeystoneMT5
                 sp.Children.Add(head); sp.Children.Add(new TextBlock { Text = x.Text, Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) });
                 aSetups.Children.Add(new Border { Child = sp, Background = Sx.CardGrad, BorderBrush = x.Level == "STRONG" ? Green : Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 8, 0) });
             }
+        }
+        // the chart's 🎯 guides for the chosen strategy (all of them for your own settings), rebuilt every second
+        void AutoGuidesBuild(string sym, List<SetupState> list)
+        {
+            var g = new List<ChartGuide>(); var pre = auto.Running ? auto.Set.Preset : aset.Preset; var s = auto.Running ? auto.Set : aset;
+            Func<string, bool> want = k => pre == "" || pre == k || (pre == "AH" && k == "A");
+            Func<string, Brush> col = k => k == "A" ? (pre == "AH" ? Violet : Green) : k == "B" ? Amber : k == "C" ? Cyan : Orange;
+            if (!double.IsNaN(SetupScan.LastVwap) && (pre == "" || pre == "C" || s.VwapFilter != "NONE" || s.EntryMode == "VWAPREJ" || s.EntryMode == "VWAP")) g.Add(new ChartGuide { P1 = SetupScan.LastVwap, Color = Gold, Label = "VWAP " + SetupScan.LastVwap.ToString("0.##", IC) + (s.VwapFilter == "DISCOUNT" ? " — buy UNDER / sell OVER" : s.VwapFilter == "FLOW" ? " — buy OVER / sell UNDER" : "") });
+            foreach (var st in list) if (want(st.Key)) foreach (var d in st.Draw)
+                g.Add(new ChartGuide { Kind = d.Kind, P1 = d.P1, P2 = d.P2, From = d.From, Label = d.Label, Dash = d.Dash, Color = col(st.Key), Blink = st.Level == "STRONG" && (d.Kind != "LINE" || st.Key == "BOX" || st.Key == "B") });
+            if (auto.Running && !double.IsNaN(auto.HedgeLevel)) g.Add(new ChartGuide { P1 = auto.HedgeLevel, Color = Red, Dash = true, Label = "🤖 NEXT HEDGE " + Px(auto.HedgeLevel) });
+            g.RemoveAll(x => double.IsNaN(x.P1)); aGuides = g; aGuideSym = sym;
         }
         double ANum(string k, double def) { double x; return double.TryParse((af[k].Text ?? "").Trim().Replace(',', '.'), NumberStyles.Float, IC, out x) ? x : def; }
         AutoSettings AutoRead()
@@ -330,6 +343,7 @@ namespace KeystoneMT5
                 : (auto.StopReason != "" ? "stopped: " + auto.StopReason + "  •  " : "") + (Sim ? "BACKTEST: press START here, then ▶ play on the 📈 CHART." : Paper ? "DEMO account: simulated on live prices." : "MT5 account: needs 🔓 ARM (chart panel) and MT5's Algo Trading.");
             aInfo.Foreground = !on && auto.StopReason != "" ? Amber : Muted;
             aLevels.Text = on ? (s.HedgeMode == "NONE" || s.HedgeMode == "SIGNAL" ? "" : "hedge levels: recent high " + Px(auto.BuyLevel) + "  •  recent low " + Px(auto.SellLevel)) + (!double.IsNaN(auto.Vwap) ? "  •  VWAP " + Px(auto.Vwap) : "") + (it != null ? "  •  next add-on (" + (s.HedgeMode == "PRICE" ? "price move" : s.HedgeMode == "MONEY" ? "$ loss" : "break") + ") at " + Px(auto.HedgeLevel) : "") : "";
+            if (aGuideBtn != null) aGuideBtn.Content = aGuidesOn ? "🎯 CHART GUIDES: ON" : "🎯 CHART GUIDES: OFF";
             if (aSetCard != null) { aSetCard.Visibility = aShowSet ? Visibility.Visible : Visibility.Collapsed; aSetBtn.Content = aShowSet ? "⚙ HIDE SETTINGS ▴" : "⚙ SHOW SETTINGS ▾"; }
             aStart.IsEnabled = !on; aStop.IsEnabled = on; foreach (var tb in af.Values) tb.IsEnabled = !on; foreach (var b in aDrops.Values) b.IsEnabled = !on;
             if (!force && auto.Version == aSeen) return; aSeen = auto.Version;
