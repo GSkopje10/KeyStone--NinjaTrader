@@ -349,5 +349,75 @@ public static class Lab6
         foreach (var ex in exits) Console.WriteLine(string.Format(IC, "  exit {0,-8} profitable all 3: {1,4} / {2}   blown in some period: {3}", ex, ord.Count(i => jobs[i].ex == ex && worst(res[i]) > 0), jobs.Count(j => j.ex == ex), Enumerable.Range(0, jobs.Count).Count(i => jobs[i].ex == ex && res[i].Any(x => x.Blown))));
         foreach (var i in ord.Take(25)) { var j = jobs[i]; var r = res[i]; Console.WriteLine(string.Format(IC, "  {0}|M{1}|{2}|{3}|{4}: net {5:N0}/{6:N0}/{7:N0} hit {8:0.0}% n {9}/{10}/{11} DD {12:N0} worst {13:N0} mae99 {14:N0}", j.sig, j.tf, j.f, j.ex, j.se.Item1, r[0].Net, r[1].Net, r[2].Net, 100.0 * r.Sum(x => x.Hits) / Math.Max(1, r.Sum(x => x.N)), r[0].N, r[1].N, r[2].N, r.Max(x => x.Dd), r.Min(x => x.Worst), Q(r.SelectMany(x => x.Mae).ToList(), .99))); }
     }
+
+    // ===== part 8: 0.01 lot, +$2 a basket, all day — ADD TO THE WINNER and HEDGE THE LOSER combinations on the researched entries.
+    // A unit = 0.01 lot = $1 a $1 move. Every leg pays 0.27 a unit (spread 0.20 + commission). Equity is checked at the worst price of every
+    // minute for a $5,000 account at 0.01 AND at 0.1 (the same trades × 10).
+    public sealed class Mix { public string Entry, Name; public double T, AddEvery, HedgeAt, HedgeMult, Stop; public int MaxAdds, MaxHedges; }
+    public sealed class MixRes { public double[] Net = new double[3], Dd = new double[3]; public int[] N = new int[3], Wins = new int[3]; public bool Blown1, Blown10; public double Worst, MaxUnits, MinEq1 = 5000, MinEq10 = 5000; }
+    static MixRes RunMix(M1 m, List<Sig> sigs, Mix x, string filter, int sf, int st)
+    {
+        var r = new MixRes(); double eq = 0, pk = 0; int busyTo = -1; const double cost = 0.27;
+        foreach (var g in sigs)
+        {
+            if (g.At <= busyTo) continue; int mn = m.Min[g.At]; if (mn < sf || mn >= st) continue;
+            if (filter == "VWAP_DISCOUNT" && (g.Dir > 0 ? g.Px >= g.Vw : g.Px <= g.Vw)) continue;
+            if (filter == "VWAP_FLOW" && (g.Dir > 0 ? g.Px <= g.Vw : g.Px >= g.Vw)) continue;
+            int p = Period(m.Day[g.At]); if (p < 0) continue;
+            int start = g.At; double e = m.O[g.At];
+            if (!float.IsNaN(g.Lim)) { start = -1; for (int j = g.At; j < Math.Min(m.N, g.At + 12) && m.Day[j] == m.Day[g.At]; j++) if (g.Dir > 0 ? m.L[j] <= g.Lim - 0.25 : m.H[j] >= g.Lim + 0.05) { start = j; e = g.Lim; break; } if (start < 0) continue; }
+            var px = new List<double> { e }; var lt = new List<double> { (double)g.Dir }; double last = e; int adds = 0, hedges = 0, end = start; double res = 0, worstFl = 0, maxU = 1;
+            Func<double, double> PL = q => { double t = 0; for (int k = 0; k < px.Count; k++) t += (q - px[k]) * lt[k] - Math.Abs(lt[k]) * cost; return t; };
+            int jj = start;
+            for (; jj < m.N; jj++)
+            {
+                if (m.Day[jj] != m.Day[start]) { res = PL(m.C[jj - 1]); end = jj - 1; break; }
+                if (m.Min[jj] >= 1015) { res = PL(m.O[jj]); end = jj; break; }
+                double net = lt.Sum(); int nd = Math.Sign(net); bool added = false;
+                // HEDGE THE LOSER: the price ran HedgeAt against the newest leg → HedgeMult × the net the other way
+                if (x.HedgeAt > 0 && hedges < x.MaxHedges && nd != 0 && (nd > 0 ? m.L[jj] <= last - x.HedgeAt : m.H[jj] >= last + x.HedgeAt))
+                { last = last - nd * x.HedgeAt; px.Add(last); lt.Add(-nd * Math.Abs(net) * x.HedgeMult); hedges++; added = true; }
+                // ADD TO THE WINNER: the price ran AddEvery in favour of the newest leg (before any hedge) → one more unit that way
+                else if (x.AddEvery > 0 && adds < x.MaxAdds && hedges == 0 && (nd > 0 ? m.H[jj] >= last + x.AddEvery : m.L[jj] <= last - x.AddEvery))
+                { last = last + nd * x.AddEvery; px.Add(last); lt.Add(nd); adds++; added = true; }
+                maxU = Math.Max(maxU, lt.Sum(v => Math.Abs(v))); net = lt.Sum();
+                double worst = net >= 0 ? m.L[jj] : m.H[jj], best = net >= 0 ? m.H[jj] : m.L[jj];
+                worstFl = Math.Min(worstFl, PL(worst));
+                if (x.Stop > 0 && PL(worst) <= -x.Stop) { res = -x.Stop; end = jj; break; }
+                if (!added && PL(best) >= x.T) { res = x.T; end = jj; break; }
+            }
+            if (jj >= m.N) { end = m.N - 1; res = PL(m.C[end]); }
+            r.N[p]++; if (res > 0) r.Wins[p]++; r.Net[p] += res; r.Worst = Math.Min(r.Worst, res); r.MaxUnits = Math.Max(r.MaxUnits, maxU);
+            r.MinEq1 = Math.Min(r.MinEq1, 5000 + eq + worstFl); r.MinEq10 = Math.Min(r.MinEq10, 5000 + 10 * (eq + worstFl));
+            r.Dd[p] = Math.Max(r.Dd[p], pk - (eq + worstFl)); eq += res; pk = Math.Max(pk, eq); busyTo = end;
+        }
+        r.Blown1 = r.MinEq1 <= 0; r.Blown10 = r.MinEq10 <= 0; return r;
+    }
+    public static void Mixes(M1 m)
+    {
+        var entries = new[] { ("A London engulfing", "ENGULF_EXTREME", 5, "VWAP_DISCOUNT", 180, 360), ("B NY FVG 50%", "FVG50", 5, "VWAP_FLOW", 510, 690), ("C all-day VWAP rejection", "VWAP_REJECT", 15, "NONE", 180, 930), ("your break, all day", "BRK5", 1, "NONE", 180, 930), ("RANDOM all day", "RANDOM", 1, "NONE", 180, 930) };
+        var mixes = new List<Mix>();
+        foreach (var t in new[] { 2.0, 3, 5 })
+        foreach (var add in new[] { (0.0, 0, "no adds"), (1.0, 2, "add +1 unit every $1 (max 2)"), (2.0, 3, "add every $2 (max 3)") })
+        foreach (var h in new[] { (0.0, 0.0, 0, "no hedge"), (2.0, 2.0, 1, "1 hedge 2x at -$2"), (2.0, 2.0, 3, "3 hedges 2x every $2"), (5.0, 2.0, 2, "2 hedges 2x every $5") })
+        foreach (var stop in new[] { 0.0, 20, 50 })
+            mixes.Add(new Mix { T = t, AddEvery = add.Item1, MaxAdds = add.Item2, HedgeAt = h.Item1, HedgeMult = h.Item2, MaxHedges = h.Item3, Stop = stop, Name = "+$" + t + " | " + add.Item3 + " | " + h.Item4 + " | " + (stop > 0 ? "basket stop -$" + stop : "no stop") + " (0.01 lot)" });
+        var jobs = new List<(int e, Mix x)>(); for (int i = 0; i < entries.Length; i++) foreach (var x in mixes) jobs.Add((i, x));
+        var sig = entries.Select(en => Signals(m, en.Item3, en.Item2)).ToList();
+        var res = new MixRes[jobs.Count]; Parallel.For(0, jobs.Count, i => { var en = entries[jobs[i].e]; res[i] = RunMix(m, sig[jobs[i].e], jobs[i].x, en.Item4, en.Item5, en.Item6); });
+        Func<MixRes, bool> ok = r => r.N.All(n => n >= 30) && r.Net.All(v => v > 0) && !r.Blown1;
+        var sb = new StringBuilder("entry,setting,net_2025,net_2026,net_2023_24,trades,win_pct,worst_basket,max_units,min_equity_001,min_equity_01,blown_001,blown_01\n");
+        for (int i = 0; i < jobs.Count; i++) { var r = res[i]; sb.Append("\"" + entries[jobs[i].e].Item1 + "\",\"" + jobs[i].x.Name + "\"," + F(r.Net[0], 0) + "," + F(r.Net[1], 0) + "," + F(r.Net[2], 0) + "," + r.N.Sum() + "," + F(100.0 * r.Wins.Sum() / Math.Max(1, r.N.Sum()), 1) + "," + F(r.Worst, 0) + "," + F(r.MaxUnits, 0) + "," + F(r.MinEq1, 0) + "," + F(r.MinEq10, 0) + "," + (r.Blown1 ? 1 : 0) + "," + (r.Blown10 ? 1 : 0) + "\n"); }
+        System.IO.File.WriteAllText("../../docs/research/hedge/mix001.csv", sb.ToString());
+        foreach (var grp in new[] { "no adds | no hedge", "add", "hedge" })
+        {
+            Func<Mix, bool> inG = x => grp == "no adds | no hedge" ? x.AddEvery == 0 && x.HedgeAt == 0 : grp == "add" ? x.AddEvery > 0 && x.HedgeAt == 0 : x.HedgeAt > 0;
+            var idx = Enumerable.Range(0, jobs.Count).Where(i => inG(jobs[i].x) && jobs[i].e < 4).ToList();
+            Console.WriteLine(string.Format(IC, "{0,-22} real entries: profitable all 3 periods {1,3}/{2,-3}  blown at 0.01: {3,3}  blown at 0.1: {4,3}  median net/yr ${5:N0}", grp == "add" ? "ADD TO WINNER only" : grp == "hedge" ? "with HEDGES" : "PLAIN (no add/hedge)", idx.Count(i => ok(res[i])), idx.Count, idx.Count(i => res[i].Blown1), idx.Count(i => res[i].Blown10), idx.Select(i => res[i].Net.Sum() / 3.75).OrderBy(v => v).ElementAt(idx.Count / 2)));
+        }
+        var rnd = Enumerable.Range(0, jobs.Count).Where(i => jobs[i].e == 4).ToList(); Console.WriteLine("RANDOM control: profitable all 3: " + rnd.Count(i => ok(res[i])) + "/" + rnd.Count);
+        foreach (var i in Enumerable.Range(0, jobs.Count).Where(i => ok(res[i]) && jobs[i].e < 4).OrderByDescending(i => res[i].Net.Min() - 0 * res[i].Dd.Max()).Take(25))
+        { var r = res[i]; Console.WriteLine(string.Format(IC, "  {0,-26} {1,-80} net {2:N0}/{3:N0}/{4:N0}  win {5:0.0}%  trades {6}  worst {7:N0}  DD {8:N0}  max units {9}  min eq 0.01 ${10:N0}  at 0.1 ${11:N0}{12}", entries[jobs[i].e].Item1, jobs[i].x.Name, r.Net[0], r.Net[1], r.Net[2], 100.0 * r.Wins.Sum() / r.N.Sum(), r.N.Sum(), r.Worst, r.Dd.Max(), r.MaxUnits, r.MinEq1, r.MinEq10, r.Blown10 ? " BLOWN at 0.1" : "")); }
+    }
     static string F(double v, int d) { if (double.IsNaN(v) || double.IsInfinity(v)) v = 0; return v.ToString("F" + d, IC); }
 }

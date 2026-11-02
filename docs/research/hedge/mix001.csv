@@ -1,0 +1,541 @@
+entry,setting,net_2025,net_2026,net_2023_24,trades,win_pct,worst_basket,max_units,min_equity_001,min_equity_01,blown_001,blown_01
+"A London engulfing","+$2 | no adds | no hedge | no stop (0.01 lot)",141,204,241,568,93.8,-81,1,4974,4736,0,0
+"A London engulfing","+$2 | no adds | no hedge | basket stop -$20 (0.01 lot)",62,62,178,569,91.6,-20,1,4985,4848,0,0
+"A London engulfing","+$2 | no adds | no hedge | basket stop -$50 (0.01 lot)",137,152,241,568,93.7,-50,1,4974,4736,0,0
+"A London engulfing","+$2 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-134,57,-347,581,88.0,-78,3,4415,-853,0,1
+"A London engulfing","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-55,-144,-223,582,84.7,-20,3,4564,644,0,0
+"A London engulfing","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-186,65,-346,581,88.0,-50,3,4392,-1080,0,1
+"A London engulfing","+$2 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-183,-106,-431,575,86.8,-112,7,4216,-2843,0,1
+"A London engulfing","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-118,-104,-336,578,84.3,-20,7,4441,-588,0,1
+"A London engulfing","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-165,-35,-428,575,86.8,-50,7,4340,-1596,0,1
+"A London engulfing","+$2 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-103,-93,-184,568,90.0,-116,5,4563,629,0,0
+"A London engulfing","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-6,-20,-168,571,87.6,-20,5,4787,2869,0,0
+"A London engulfing","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-77,-178,-147,568,89.6,-50,5,4585,852,0,0
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",108,-28,73,569,94.0,-196,3,4943,4426,0,0
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-64,-194,-178,577,86.5,-20,3,4550,500,0,0
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",41,-128,-49,570,92.8,-50,3,4824,3237,0,0
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-174,-105,-817,590,88.3,-135,9,3785,-7151,0,1
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-237,-468,-522,593,79.8,-20,9,3754,-7458,0,1
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-264,-368,-721,591,86.8,-50,9,3628,-8716,0,1
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-483,-371,-1072,585,86.5,-187,21,2996,-15042,0,1
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-262,-580,-760,591,77.5,-20,21,3394,-11064,0,1
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-381,-510,-872,586,85.0,-50,21,3237,-12633,0,1
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-466,-284,-449,568,90.1,-227,15,3676,-8240,0,1
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-209,-280,-364,577,83.2,-20,10,4139,-3611,0,1
+"A London engulfing","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-320,-280,-433,571,89.0,-50,15,3928,-5724,0,1
+"A London engulfing","+$2 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",133,2,7,565,92.9,-197,4,4907,4068,0,0
+"A London engulfing","+$2 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",40,-136,-91,568,87.9,-20,4,4804,3044,0,0
+"A London engulfing","+$2 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",129,46,64,565,92.6,-50,4,4960,4605,0,0
+"A London engulfing","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-233,-257,-435,579,87.0,-140,12,3945,-5549,0,1
+"A London engulfing","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-207,-452,-363,582,80.4,-20,12,3965,-5350,0,1
+"A London engulfing","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-303,-301,-423,579,86.2,-50,12,3932,-5678,0,1
+"A London engulfing","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-243,-231,-633,576,85.8,-125,28,3830,-6703,0,1
+"A London engulfing","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-160,-432,-572,579,79.6,-20,28,3824,-6762,0,1
+"A London engulfing","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-215,-241,-617,576,85.1,-50,28,3892,-6079,0,1
+"A London engulfing","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-254,-215,-398,567,88.7,-122,20,4054,-4462,0,1
+"A London engulfing","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-138,-218,-354,570,83.9,-20,12,4272,-2285,0,1
+"A London engulfing","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-189,-384,-356,567,87.8,-50,20,4057,-4429,0,1
+"A London engulfing","+$3 | no adds | no hedge | no stop (0.01 lot)",66,163,249,556,89.9,-86,1,4983,4828,0,0
+"A London engulfing","+$3 | no adds | no hedge | basket stop -$20 (0.01 lot)",37,9,212,559,86.8,-20,1,4993,4929,0,0
+"A London engulfing","+$3 | no adds | no hedge | basket stop -$50 (0.01 lot)",98,90,237,556,89.7,-50,1,4983,4828,0,0
+"A London engulfing","+$3 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-21,46,-328,564,85.5,-79,3,4559,585,0,0
+"A London engulfing","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",8,-203,-143,565,80.9,-20,3,4662,1620,0,0
+"A London engulfing","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-73,73,-307,564,85.5,-50,3,4555,547,0,0
+"A London engulfing","+$3 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-95,-364,-305,560,84.3,-159,7,4160,-3399,0,1
+"A London engulfing","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-57,-209,-228,564,80.7,-20,7,4503,29,0,0
+"A London engulfing","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-77,-168,-302,560,84.3,-50,7,4411,-892,0,1
+"A London engulfing","+$3 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-44,-155,-276,557,85.8,-116,5,4483,-165,0,1
+"A London engulfing","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",53,-100,-171,561,83.1,-20,5,4761,2609,0,0
+"A London engulfing","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-18,-364,-233,557,85.1,-50,5,4365,-1345,0,1
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",216,84,231,564,93.1,-196,3,4944,4437,0,0
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-64,-252,-157,575,82.4,-20,3,4511,110,0,0
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",78,-20,53,566,91.7,-50,3,4872,3716,0,0
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-140,-145,-782,576,85.8,-155,9,3799,-7010,0,1
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-159,-490,-585,580,75.7,-20,9,3745,-7550,0,1
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-260,-361,-695,577,83.9,-50,9,3663,-8367,0,1
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-484,-345,-1075,574,83.8,-187,21,3015,-14852,0,1
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-297,-562,-857,580,72.9,-20,21,3278,-12216,0,1
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-506,-508,-913,575,81.6,-50,21,3072,-14276,0,1
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-486,-542,-766,565,87.1,-233,15,3070,-14303,0,1
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-243,-341,-482,574,77.9,-20,15,3927,-5732,0,1
+"A London engulfing","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-344,-382,-628,568,85.4,-50,15,3606,-8942,0,1
+"A London engulfing","+$3 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",66,15,36,560,91.1,-197,4,4873,3727,0,0
+"A London engulfing","+$3 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",85,-126,-96,565,84.4,-20,4,4772,2724,0,0
+"A London engulfing","+$3 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",186,50,101,561,90.7,-50,4,4931,4315,0,0
+"A London engulfing","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-105,-187,-593,567,85.4,-140,12,3957,-5429,0,1
+"A London engulfing","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-111,-430,-326,570,77.7,-20,12,4133,-3670,0,1
+"A London engulfing","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-176,-245,-434,567,84.5,-50,12,4104,-3961,0,1
+"A London engulfing","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-170,-203,-891,567,83.1,-142,28,3659,-8406,0,1
+"A London engulfing","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-174,-407,-571,570,76.0,-20,28,3847,-6533,0,1
+"A London engulfing","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-303,-234,-698,567,81.8,-50,28,3723,-7771,0,1
+"A London engulfing","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-120,-562,-401,564,86.7,-366,20,3833,-6674,0,1
+"A London engulfing","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-33,-281,-336,566,80.4,-20,12,4328,-1723,0,1
+"A London engulfing","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-55,-435,-312,564,85.6,-50,20,4179,-3212,0,1
+"A London engulfing","+$5 | no adds | no hedge | no stop (0.01 lot)",-68,301,178,537,82.9,-86,1,4935,4355,0,0
+"A London engulfing","+$5 | no adds | no hedge | basket stop -$20 (0.01 lot)",20,100,205,541,78.7,-20,1,4959,4586,0,0
+"A London engulfing","+$5 | no adds | no hedge | basket stop -$50 (0.01 lot)",-8,238,133,537,82.7,-50,1,4935,4355,0,0
+"A London engulfing","+$5 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",145,93,-299,545,79.4,-79,3,4673,1728,0,0
+"A London engulfing","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",90,-175,-109,546,74.2,-20,3,4806,3061,0,0
+"A London engulfing","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",93,99,-279,545,79.4,-50,3,4693,1933,0,0
+"A London engulfing","+$5 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",30,-232,-164,541,79.5,-159,7,4534,342,0,0
+"A London engulfing","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",50,-255,-159,545,73.8,-20,7,4619,1195,0,0
+"A London engulfing","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",65,-41,-161,541,79.5,-50,7,4784,2836,0,0
+"A London engulfing","+$5 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-104,-191,-341,539,77.7,-116,5,4308,-1920,0,1
+"A London engulfing","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",2,-119,-190,543,74.2,-20,5,4662,1621,0,0
+"A London engulfing","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-15,-377,-298,539,77.2,-50,5,4282,-2178,0,1
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",104,6,368,559,90.5,-262,3,4902,4020,0,0
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-55,-235,37,572,77.3,-20,3,4727,2273,0,0
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",146,-20,203,562,88.8,-50,3,4864,3644,0,0
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",82,-56,-944,564,81.2,-155,9,3918,-5820,0,1
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-102,-415,-552,568,69.9,-20,9,3906,-5942,0,1
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-162,-305,-748,565,78.9,-50,9,3760,-7401,0,1
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-390,-348,-1221,561,80.4,-221,21,2931,-15690,0,1
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-395,-470,-801,568,66.7,-20,21,3326,-11742,0,1
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-545,-352,-923,562,77.8,-50,21,3179,-13210,0,1
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-335,-1066,-630,559,83.9,-549,15,2813,-16870,0,1
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-209,-380,-334,569,72.2,-20,15,4068,-4325,0,1
+"A London engulfing","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-181,-517,-481,563,81.3,-50,15,3778,-7215,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-346,26,-236,548,86.1,-210,4,4206,-2942,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-105,-210,-252,557,74.3,-20,4,4416,-843,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-47,-125,-94,550,84.5,-50,4,4648,1484,0,0
+"A London engulfing","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-68,-141,-675,554,79.2,-140,12,3996,-5044,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-130,-435,-395,558,69.9,-20,12,4037,-4629,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-182,-255,-482,554,78.0,-50,12,4029,-4715,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-246,-149,-869,553,78.5,-142,28,3636,-8645,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-210,-460,-557,558,68.5,-20,28,3769,-7311,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-319,-297,-670,555,76.6,-50,28,3647,-8527,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-277,-534,-529,552,80.8,-366,20,3566,-9344,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-65,-384,-300,557,72.5,-20,15,4221,-2786,0,1
+"A London engulfing","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-231,-524,-481,553,78.8,-50,20,3739,-7607,0,1
+"B NY FVG 50%","+$2 | no adds | no hedge | no stop (0.01 lot)",167,119,-144,665,87.1,-143,1,4830,3301,0,0
+"B NY FVG 50%","+$2 | no adds | no hedge | basket stop -$20 (0.01 lot)",81,180,-114,669,86.4,-20,1,4844,3443,0,0
+"B NY FVG 50%","+$2 | no adds | no hedge | basket stop -$50 (0.01 lot)",167,160,-131,665,86.9,-50,1,4841,3407,0,0
+"B NY FVG 50%","+$2 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",76,74,-124,659,85.7,-60,3,4824,3245,0,0
+"B NY FVG 50%","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-58,-86,-112,667,83.4,-20,3,4713,2134,0,0
+"B NY FVG 50%","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",71,-35,-124,661,85.5,-50,3,4824,3245,0,0
+"B NY FVG 50%","+$2 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-45,-54,-380,651,82.8,-65,7,4458,-419,0,1
+"B NY FVG 50%","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-101,-110,-455,662,80.8,-20,7,4296,-2039,0,1
+"B NY FVG 50%","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-45,-47,-380,653,82.8,-50,7,4465,-347,0,1
+"B NY FVG 50%","+$2 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-143,64,-203,655,84.7,-84,5,4594,936,0,0
+"B NY FVG 50%","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-127,-20,-228,661,82.9,-20,5,4582,824,0,0
+"B NY FVG 50%","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-151,43,-203,656,84.6,-50,5,4588,884,0,0
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-281,-673,-822,667,86.1,-287,3,3145,-13549,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-469,-546,-711,681,76.5,-20,3,3267,-12326,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-368,-408,-713,672,84.8,-50,3,3450,-10502,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-167,74,-888,653,85.0,-91,9,3860,-6395,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-360,-546,-674,676,76.5,-20,9,3411,-10890,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-236,-295,-851,655,83.7,-50,9,3596,-9042,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-139,-247,-898,646,83.4,-128,21,3681,-8186,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-428,-658,-902,672,74.1,-20,21,2992,-15078,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-293,-334,-832,652,82.5,-50,21,3521,-9794,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-236,-1057,-838,652,84.0,-191,15,2797,-17032,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-580,-832,-889,676,72.6,-20,10,2679,-18211,0,1
+"B NY FVG 50%","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-350,-832,-918,657,82.5,-50,15,2846,-16541,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-22,-378,-499,662,84.1,-143,4,4026,-4739,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-205,-546,-409,668,77.7,-20,4,3824,-6762,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-159,-362,-453,664,83.3,-50,4,3993,-5067,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-146,72,-469,654,84.4,-155,12,4303,-1974,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-235,-328,-389,668,79.0,-20,12,4038,-4617,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-81,-295,-438,657,83.3,-50,12,4175,-3253,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-368,-143,-837,647,79.4,-85,21,3583,-9170,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-377,-462,-822,661,73.8,-20,21,3322,-11783,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-485,-203,-881,651,78.6,-50,21,3363,-11372,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-286,-553,-446,648,81.9,-194,20,3652,-8476,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-572,-790,-538,661,72.6,-20,15,3099,-14005,0,1
+"B NY FVG 50%","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-318,-527,-482,650,80.9,-50,20,3610,-8900,0,1
+"B NY FVG 50%","+$3 | no adds | no hedge | no stop (0.01 lot)",159,31,-177,650,80.9,-143,1,4787,2865,0,0
+"B NY FVG 50%","+$3 | no adds | no hedge | basket stop -$20 (0.01 lot)",139,149,-144,657,80.1,-20,1,4823,3225,0,0
+"B NY FVG 50%","+$3 | no adds | no hedge | basket stop -$50 (0.01 lot)",166,81,-164,651,80.8,-50,1,4799,2993,0,0
+"B NY FVG 50%","+$3 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",10,93,-150,639,79.3,-60,3,4771,2715,0,0
+"B NY FVG 50%","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-129,-113,-100,650,76.5,-20,3,4630,1297,0,0
+"B NY FVG 50%","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",6,-21,-150,641,79.1,-50,3,4767,2670,0,0
+"B NY FVG 50%","+$3 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-248,-47,-456,630,75.7,-65,7,4197,-3032,0,1
+"B NY FVG 50%","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-265,-185,-525,645,72.6,-20,7,3989,-5105,0,1
+"B NY FVG 50%","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-243,-38,-453,632,75.8,-50,7,4215,-2852,0,1
+"B NY FVG 50%","+$3 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-176,49,-286,642,78.8,-84,5,4470,-304,0,1
+"B NY FVG 50%","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-162,-44,-305,650,76.2,-20,5,4460,-396,0,1
+"B NY FVG 50%","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-167,25,-286,643,78.7,-50,5,4503,28,0,0
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-158,-804,-885,659,83.6,-287,3,3062,-14375,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-539,-587,-866,677,71.5,-20,3,3007,-14935,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-298,-449,-817,664,82.2,-50,3,3362,-11380,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-190,195,-898,645,81.9,-91,9,3803,-6966,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-382,-518,-670,671,72.3,-20,9,3420,-10797,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-351,-179,-858,647,80.4,-50,9,3573,-9271,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-186,-131,-958,636,79.9,-128,21,3689,-8108,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-504,-590,-995,669,69.5,-20,21,2883,-16167,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-392,-219,-881,643,78.8,-50,21,3468,-10318,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-269,-1068,-698,644,81.8,-191,15,2946,-15542,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-640,-886,-797,672,69.2,-20,10,2669,-18307,0,1
+"B NY FVG 50%","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-453,-885,-799,649,80.0,-50,15,2857,-16430,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",111,-378,-432,658,81.6,-143,4,4264,-2363,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-162,-518,-364,666,74.3,-20,4,3956,-5437,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-27,-455,-429,661,80.3,-50,4,4076,-4243,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-115,192,-406,642,81.0,-155,12,4409,-910,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-253,-360,-378,658,74.0,-20,12,3981,-5193,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-70,-232,-375,645,79.7,-50,12,4293,-2068,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-379,-30,-866,634,75.7,-85,21,3636,-8638,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-407,-409,-843,652,69.5,-20,21,3316,-11839,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-523,-89,-909,638,74.9,-50,21,3390,-11105,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-189,-500,-420,644,79.3,-194,20,3831,-6689,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-588,-774,-497,660,69.2,-20,15,3140,-13598,0,1
+"B NY FVG 50%","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-268,-465,-483,646,78.3,-50,20,3724,-7762,0,1
+"B NY FVG 50%","+$5 | no adds | no hedge | no stop (0.01 lot)",217,15,-23,617,73.7,-143,1,4913,4126,0,0
+"B NY FVG 50%","+$5 | no adds | no hedge | basket stop -$20 (0.01 lot)",85,86,-40,625,71.7,-20,1,4912,4121,0,0
+"B NY FVG 50%","+$5 | no adds | no hedge | basket stop -$50 (0.01 lot)",151,10,-10,618,73.6,-50,1,4913,4126,0,0
+"B NY FVG 50%","+$5 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-2,96,-368,607,68.0,-64,3,4509,87,0,0
+"B NY FVG 50%","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-160,-207,-326,622,63.8,-20,3,4282,-2178,0,1
+"B NY FVG 50%","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",8,-36,-368,610,67.9,-50,3,4488,-116,0,1
+"B NY FVG 50%","+$5 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-362,7,-559,602,64.6,-69,7,3948,-5516,0,1
+"B NY FVG 50%","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-418,-372,-634,623,60.0,-20,7,3554,-9460,0,1
+"B NY FVG 50%","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-337,15,-555,604,64.7,-50,7,4025,-4747,0,1
+"B NY FVG 50%","+$5 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-149,-227,-216,611,70.4,-85,5,4373,-1271,0,1
+"B NY FVG 50%","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-264,-127,-260,623,67.1,-20,5,4348,-1518,0,1
+"B NY FVG 50%","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-161,-288,-216,612,70.1,-50,5,4321,-1788,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-94,-760,-735,653,80.2,-287,3,3365,-11352,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-489,-480,-760,675,66.8,-20,3,3262,-12383,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-193,-325,-682,661,78.7,-50,3,3758,-7422,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-19,270,-775,635,76.7,-97,9,4055,-4451,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-309,-480,-630,665,65.9,-20,9,3569,-9309,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-238,-192,-690,640,75.2,-50,9,3860,-6397,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-282,48,-1015,623,74.2,-128,21,3582,-9177,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-513,-535,-1143,661,62.0,-20,21,2777,-17228,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-518,-159,-914,633,72.8,-50,21,3383,-11171,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-383,-1152,-666,635,77.3,-204,15,2769,-17308,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-732,-755,-699,669,64.0,-20,10,2801,-16990,0,1
+"B NY FVG 50%","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-563,-895,-761,643,75.0,-50,15,2767,-17325,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-110,-569,-403,636,75.0,-151,4,3874,-6258,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-278,-580,-473,657,65.1,-20,4,3668,-8318,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-215,-586,-510,642,73.1,-50,4,3677,-8229,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-170,277,-581,615,73.0,-155,12,4180,-3199,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-274,-410,-587,639,64.3,-20,12,3719,-7814,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-147,-215,-535,620,71.5,-50,12,4034,-4665,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-484,127,-864,613,68.8,-95,21,3499,-10011,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-484,-415,-991,641,60.4,-20,21,3068,-14324,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-679,0,-907,618,67.6,-50,21,3303,-11970,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-162,-809,-522,625,72.5,-194,20,3445,-10548,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-720,-985,-591,652,59.7,-20,15,2704,-17961,0,1
+"B NY FVG 50%","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-164,-917,-651,632,70.7,-50,20,3201,-12993,0,1
+"C all-day VWAP rejection","+$2 | no adds | no hedge | no stop (0.01 lot)",96,75,37,686,88.3,-94,1,4956,4557,0,0
+"C all-day VWAP rejection","+$2 | no adds | no hedge | basket stop -$20 (0.01 lot)",107,75,68,688,87.2,-20,1,4981,4808,0,0
+"C all-day VWAP rejection","+$2 | no adds | no hedge | basket stop -$50 (0.01 lot)",20,95,37,687,88.1,-50,1,4956,4557,0,0
+"C all-day VWAP rejection","+$2 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-124,-89,-396,674,83.2,-84,3,4296,-2043,0,1
+"C all-day VWAP rejection","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-94,-99,-235,682,81.1,-20,3,4533,327,0,0
+"C all-day VWAP rejection","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-105,-133,-368,674,83.1,-50,3,4298,-2016,0,1
+"C all-day VWAP rejection","+$2 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",16,61,-538,676,83.6,-71,7,4406,-942,0,1
+"C all-day VWAP rejection","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",47,-47,-529,686,81.2,-20,7,4434,-662,0,1
+"C all-day VWAP rejection","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-34,-57,-518,677,83.3,-50,7,4258,-2423,0,1
+"C all-day VWAP rejection","+$2 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-223,63,-191,680,86.0,-90,5,4514,139,0,0
+"C all-day VWAP rejection","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-270,-30,-153,688,83.1,-20,5,4521,207,0,0
+"C all-day VWAP rejection","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-341,10,-191,682,85.6,-50,5,4408,-920,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-304,-19,-124,685,88.8,-116,3,4388,-1120,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-291,-320,-205,692,81.9,-20,3,4166,-3336,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-298,-26,-112,688,88.1,-50,3,4417,-832,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-545,-163,-624,667,83.5,-141,9,3568,-9323,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-323,-237,-385,683,78.9,-20,9,4046,-4539,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-490,-197,-537,668,82.8,-50,9,3676,-8243,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-517,-285,-500,670,83.6,-209,21,3560,-9401,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-191,-268,-600,684,78.8,-20,21,3892,-6082,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-325,-336,-510,673,82.9,-50,21,3786,-7138,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-686,-181,-425,678,85.7,-223,15,3628,-8723,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-510,-464,-380,690,78.4,-20,10,3611,-8888,0,1
+"C all-day VWAP rejection","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-614,-339,-376,683,84.3,-50,15,3637,-8631,0,1
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-83,13,-68,685,87.4,-104,4,4661,1606,0,0
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",7,-100,-80,689,84.5,-20,4,4648,1479,0,0
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-127,-70,-71,688,86.8,-50,4,4583,827,0,0
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-309,-408,-568,668,81.9,-221,12,3625,-8745,0,1
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-255,-226,-474,681,77.8,-20,12,4024,-4757,0,1
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-344,-209,-526,668,81.6,-50,12,3785,-7150,0,1
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-150,-189,-731,671,82.3,-139,28,3806,-6937,0,1
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-125,-284,-811,684,76.8,-20,21,3766,-7336,0,1
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-208,-226,-748,674,81.6,-50,28,3691,-8085,0,1
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-495,-42,-377,675,84.1,-149,20,3985,-5147,0,1
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-448,-393,-399,688,78.1,-20,12,3734,-7656,0,1
+"C all-day VWAP rejection","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-565,-198,-389,680,83.2,-50,20,3807,-6928,0,1
+"C all-day VWAP rejection","+$3 | no adds | no hedge | no stop (0.01 lot)",145,175,127,672,84.7,-94,1,4985,4851,0,0
+"C all-day VWAP rejection","+$3 | no adds | no hedge | basket stop -$20 (0.01 lot)",115,118,157,675,83.0,-20,1,4987,4870,0,0
+"C all-day VWAP rejection","+$3 | no adds | no hedge | basket stop -$50 (0.01 lot)",69,195,127,673,84.4,-50,1,4985,4851,0,0
+"C all-day VWAP rejection","+$3 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-49,-171,-431,657,77.9,-84,3,4240,-2602,0,1
+"C all-day VWAP rejection","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-46,-214,-294,668,75.0,-20,3,4418,-821,0,1
+"C all-day VWAP rejection","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-31,-234,-404,657,77.8,-50,3,4223,-2770,0,1
+"C all-day VWAP rejection","+$3 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-9,-32,-557,657,77.9,-71,7,4314,-1861,0,1
+"C all-day VWAP rejection","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",32,-116,-560,670,75.4,-20,7,4321,-1786,0,1
+"C all-day VWAP rejection","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-58,-142,-537,658,77.7,-50,7,4181,-3188,0,1
+"C all-day VWAP rejection","+$3 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-234,59,-144,665,80.3,-90,5,4540,397,0,0
+"C all-day VWAP rejection","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-305,-64,-156,678,76.8,-20,5,4443,-571,0,1
+"C all-day VWAP rejection","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-352,-73,-144,667,79.8,-50,5,4356,-1440,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-142,106,-7,685,87.2,-116,3,4699,1986,0,0
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-210,-239,-143,692,79.2,-20,3,4386,-1138,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-189,97,-5,688,86.3,-50,3,4675,1750,0,0
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-668,-290,-975,656,79.1,-183,9,2944,-15562,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-319,-221,-678,677,72.8,-20,9,3753,-7466,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-537,-211,-888,660,78.0,-50,9,3148,-13516,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-434,-473,-973,657,79.1,-209,21,2986,-15141,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-218,-254,-906,678,72.6,-20,21,3564,-9356,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-322,-387,-987,663,77.8,-50,21,3250,-12499,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-830,-154,-518,673,82.3,-223,15,3363,-11366,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-485,-458,-435,689,74.3,-20,15,3581,-9189,0,1
+"C all-day VWAP rejection","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-713,-422,-461,680,80.4,-50,15,3322,-11784,0,1
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",33,95,72,679,85.4,-104,4,4921,4211,0,0
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",32,-59,-14,687,81.1,-20,4,4774,2737,0,0
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-78,-63,59,683,84.5,-50,4,4763,2633,0,0
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-331,-366,-594,658,78.6,-221,12,3608,-8915,0,1
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-264,-210,-453,676,74.0,-20,12,4047,-4531,0,1
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-375,-224,-562,659,78.3,-50,12,3695,-8053,0,1
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-216,-174,-722,661,79.0,-139,28,3778,-7220,0,1
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-122,-271,-807,675,72.9,-20,21,3787,-7127,0,1
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-235,-221,-734,664,78.2,-50,28,3723,-7774,0,1
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-551,-64,-413,665,80.5,-149,20,3897,-6032,0,1
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-446,-408,-445,685,73.7,-20,12,3668,-8322,0,1
+"C all-day VWAP rejection","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-601,-269,-426,672,79.6,-50,20,3656,-8440,0,1
+"C all-day VWAP rejection","+$5 | no adds | no hedge | no stop (0.01 lot)",24,209,94,641,76.1,-94,1,4987,4870,0,0
+"C all-day VWAP rejection","+$5 | no adds | no hedge | basket stop -$20 (0.01 lot)",15,260,120,651,74.0,-20,1,4987,4870,0,0
+"C all-day VWAP rejection","+$5 | no adds | no hedge | basket stop -$50 (0.01 lot)",-35,258,94,642,75.9,-50,1,4987,4870,0,0
+"C all-day VWAP rejection","+$5 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-257,-69,-303,637,69.5,-84,3,4198,-3019,0,1
+"C all-day VWAP rejection","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-83,-152,-192,655,66.9,-20,3,4496,-38,0,1
+"C all-day VWAP rejection","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-282,-134,-276,638,69.3,-50,3,4137,-3634,0,1
+"C all-day VWAP rejection","+$5 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-101,33,-547,632,68.0,-76,7,4253,-2471,0,1
+"C all-day VWAP rejection","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-9,-97,-558,650,65.4,-20,7,4311,-1887,0,1
+"C all-day VWAP rejection","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-124,-179,-527,635,67.6,-50,7,4065,-4350,0,1
+"C all-day VWAP rejection","+$5 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-410,236,-258,638,71.6,-90,5,4305,-1949,0,1
+"C all-day VWAP rejection","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-417,-15,-313,656,66.9,-20,5,4218,-2820,0,1
+"C all-day VWAP rejection","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-517,45,-258,640,70.9,-50,5,4134,-3664,0,1
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",61,291,293,675,84.7,-116,3,4974,4741,0,0
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-110,-208,-96,689,73.6,-20,3,4544,437,0,0
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-98,118,280,681,83.1,-50,3,4982,4822,0,0
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-619,-205,-939,647,75.1,-183,9,3044,-14559,0,1
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-341,-188,-603,675,66.7,-20,9,3817,-6828,0,1
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-607,-324,-791,653,73.2,-50,9,3048,-14521,0,1
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-730,-463,-1140,648,73.9,-209,21,2500,-20005,0,1
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-249,-187,-862,675,66.4,-20,21,3657,-8432,0,1
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-425,-452,-1057,656,72.1,-50,21,3011,-14888,0,1
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-860,-53,-562,664,78.0,-223,15,3382,-11177,0,1
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-459,-503,-447,683,67.5,-20,15,3544,-9555,0,1
+"C all-day VWAP rejection","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-726,-373,-596,674,75.8,-50,15,3217,-12831,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-357,-28,50,656,79.7,-285,4,4332,-1680,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-273,-91,-52,673,71.2,-20,4,4387,-1133,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-373,63,21,660,78.5,-50,4,4450,-502,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-268,-241,-505,642,72.7,-221,12,3816,-6840,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-295,-242,-469,666,65.6,-20,12,3947,-5534,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-431,-180,-518,645,71.9,-50,12,3656,-8444,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-182,-433,-767,641,71.5,-447,28,3475,-10246,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-210,-306,-952,663,62.9,-20,28,3519,-9810,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-233,-247,-800,646,70.1,-50,28,3606,-8943,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-542,129,-511,645,74.7,-149,20,3862,-6384,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-539,-501,-539,669,64.7,-20,12,3384,-11158,0,1
+"C all-day VWAP rejection","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-758,-243,-583,652,72.9,-50,20,3365,-11350,0,1
+"your break, all day","+$2 | no adds | no hedge | no stop (0.01 lot)",-1658,-595,-889,8560,90.1,-250,1,1557,-29425,0,1
+"your break, all day","+$2 | no adds | no hedge | basket stop -$20 (0.01 lot)",-2097,-2238,-666,16482,87.2,-20,1,-40,-45399,1,1
+"your break, all day","+$2 | no adds | no hedge | basket stop -$50 (0.01 lot)",-1537,-941,-873,10642,90.5,-50,1,1540,-29596,0,1
+"your break, all day","+$2 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-1549,-1936,-1888,7686,89.1,-267,3,-408,-49080,1,1
+"your break, all day","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-3048,-6720,-2611,14961,84.6,-20,3,-7387,-118874,1,1
+"your break, all day","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-2083,-2885,-1835,9427,89.1,-50,3,-1844,-63441,1,1
+"your break, all day","+$2 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-2527,-1841,-2463,7246,88.4,-250,7,-1845,-63451,1,1
+"your break, all day","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-4306,-7357,-3270,14474,83.8,-20,7,-9933,-144328,1,1
+"your break, all day","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-2612,-2599,-2407,9085,88.7,-50,7,-2630,-71297,1,1
+"your break, all day","+$2 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-2294,-2407,-1514,7620,89.1,-202,5,-1446,-59460,1,1
+"your break, all day","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-3794,-7755,-1886,15852,84.8,-20,5,-8450,-129501,1,1
+"your break, all day","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-2264,-4547,-1494,9607,89.1,-50,5,-3327,-78269,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-4938,-7453,-4486,8218,89.6,-416,3,-11991,-164907,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-13185,-32198,-5821,19683,77.4,-20,3,-46215,-507154,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-7843,-20521,-4331,12070,86.9,-50,3,-27745,-322448,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-3718,-5670,-3849,7566,88.8,-375,9,-8331,-128313,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-10943,-18665,-5676,16781,79.2,-20,9,-30307,-348072,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-5761,-8957,-3872,10101,87.5,-50,9,-13629,-181293,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-5509,-5156,-4632,7100,87.9,-391,21,-10311,-148106,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-14336,-23177,-8186,16446,76.3,-20,21,-40713,-452132,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-6894,-10237,-4940,9683,86.5,-50,21,-17081,-215812,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-4798,-8470,-3491,7763,89.1,-405,15,-11791,-162910,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-14850,-33389,-6846,18907,75.9,-20,15,-50094,-545939,1,1
+"your break, all day","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-7264,-17898,-4034,11133,86.7,-50,15,-24199,-286991,1,1
+"your break, all day","+$2 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-4319,-6758,-2212,7121,88.0,-1204,4,-8355,-128547,1,1
+"your break, all day","+$2 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-8106,-23894,-2923,15084,77.9,-20,4,-29929,-344292,1,1
+"your break, all day","+$2 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-5831,-15343,-2255,9644,86.1,-50,4,-18495,-229953,1,1
+"your break, all day","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-2998,-4529,-2869,6788,87.8,-270,12,-5425,-99252,1,1
+"your break, all day","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-8283,-16569,-3753,14414,79.4,-20,12,-23629,-281293,1,1
+"your break, all day","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-4512,-8041,-2846,8820,86.9,-50,12,-10426,-149263,1,1
+"your break, all day","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-4597,-3813,-3548,6539,87.2,-550,28,-6973,-114726,1,1
+"your break, all day","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-10475,-20083,-5374,14013,76.8,-20,28,-30933,-354328,1,1
+"your break, all day","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-5371,-7556,-3784,8500,86.4,-50,28,-11722,-162221,1,1
+"your break, all day","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-3197,-6596,-2621,6591,87.2,-294,20,-7431,-119308,1,1
+"your break, all day","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-9679,-26559,-4040,14996,76.4,-20,20,-35293,-397935,1,1
+"your break, all day","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-4711,-15098,-2663,8867,85.5,-50,20,-17481,-219814,1,1
+"your break, all day","+$3 | no adds | no hedge | no stop (0.01 lot)",-2068,291,-528,6386,86.6,-250,1,1759,-27407,0,1
+"your break, all day","+$3 | no adds | no hedge | basket stop -$20 (0.01 lot)",-1640,-1650,-330,12932,82.9,-20,1,1345,-31547,0,1
+"your break, all day","+$3 | no adds | no hedge | basket stop -$50 (0.01 lot)",-1825,-368,-515,8147,87.1,-50,1,1698,-28024,0,1
+"your break, all day","+$3 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-1580,-1628,-1797,5689,85.2,-267,3,-93,-45927,1,1
+"your break, all day","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-2943,-5889,-2020,11878,80.0,-20,3,-5868,-103675,1,1
+"your break, all day","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-2122,-1994,-1840,7184,85.5,-50,3,-1048,-55478,1,1
+"your break, all day","+$3 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-2042,-1080,-2308,5471,84.7,-250,7,-466,-49660,1,1
+"your break, all day","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-3666,-5645,-2913,11641,79.4,-20,7,-7225,-117246,1,1
+"your break, all day","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-2328,-1587,-2301,6896,85.1,-50,7,-1227,-57268,1,1
+"your break, all day","+$3 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-2195,-3177,-1504,5434,84.3,-220,5,-1892,-63915,1,1
+"your break, all day","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-3170,-7137,-1806,12389,79.9,-20,5,-7165,-116650,1,1
+"your break, all day","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-2067,-4871,-1389,7129,84.9,-50,5,-3337,-78373,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-5537,-5916,-3173,7186,88.0,-416,3,-9939,-144386,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-12796,-30725,-5743,18398,73.5,-20,3,-44279,-487794,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-8533,-18853,-3284,10998,84.7,-50,3,-25727,-302267,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-3445,-5034,-3536,6175,86.0,-375,9,-7124,-116237,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-8324,-16349,-5376,14728,75.7,-20,9,-25091,-295911,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-4997,-8013,-3647,8469,84.6,-50,9,-11709,-162092,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-4017,-3729,-4116,6092,86.1,-391,21,-6890,-113904,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-13035,-19781,-7884,14600,72.8,-20,21,-35719,-402186,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-5936,-8164,-4616,8306,84.2,-50,21,-13738,-182377,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-5043,-7480,-4477,6242,86.4,-405,15,-12028,-165281,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-14749,-31516,-7644,17471,71.7,-21,15,-48920,-534197,1,1
+"your break, all day","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-7112,-16198,-4878,9569,83.9,-50,15,-23217,-277173,1,1
+"your break, all day","+$3 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-4057,-6525,-2453,6225,86.0,-1204,4,-8122,-126220,1,1
+"your break, all day","+$3 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-7144,-21638,-2877,14246,74.7,-20,4,-26660,-311600,1,1
+"your break, all day","+$3 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-4697,-14289,-2321,8853,84.0,-50,4,-16394,-208940,1,1
+"your break, all day","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-2026,-4552,-2548,5685,85.1,-387,12,-4228,-87281,1,1
+"your break, all day","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-6282,-14452,-3189,12724,76.1,-20,12,-18956,-234558,1,1
+"your break, all day","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-2901,-7260,-2654,7553,84.3,-50,12,-7888,-123878,1,1
+"your break, all day","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-3049,-3183,-3608,5422,84.3,-397,28,-4896,-93960,1,1
+"your break, all day","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-8752,-18146,-5358,12434,72.9,-20,28,-27260,-317601,1,1
+"your break, all day","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-4026,-5791,-3731,7123,83.6,-50,28,-8559,-130585,1,1
+"your break, all day","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-3305,-5931,-2593,5660,84.8,-294,20,-6848,-113480,1,1
+"your break, all day","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-9570,-24864,-4075,13848,72.5,-20,15,-33523,-380229,1,1
+"your break, all day","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-4360,-13387,-2733,7953,83.1,-50,20,-15500,-200003,1,1
+"your break, all day","+$5 | no adds | no hedge | no stop (0.01 lot)",-1676,-784,-890,4051,79.6,-250,1,1032,-34680,0,1
+"your break, all day","+$5 | no adds | no hedge | basket stop -$20 (0.01 lot)",-1106,-1142,-388,9075,75.4,-20,1,2234,-22664,0,1
+"your break, all day","+$5 | no adds | no hedge | basket stop -$50 (0.01 lot)",-1116,-983,-844,5408,80.8,-50,1,1677,-28227,0,1
+"your break, all day","+$5 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-1366,-1763,-1101,3894,78.5,-267,3,680,-38204,0,1
+"your break, all day","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-2010,-3964,-1389,8630,72.9,-20,3,-2380,-68804,1,1
+"your break, all day","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-1869,-849,-1042,5145,79.8,-50,3,1139,-33605,0,1
+"your break, all day","+$5 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-1745,-868,-1807,3890,78.2,-250,7,563,-39371,0,1
+"your break, all day","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-2964,-3630,-2356,8548,72.3,-20,7,-3970,-84699,1,1
+"your break, all day","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-1933,-1041,-1856,4953,78.8,-50,7,155,-43449,0,1
+"your break, all day","+$5 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-1407,-2808,-1370,3779,78.3,-220,5,-725,-52247,1,1
+"your break, all day","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-2558,-6018,-1194,8939,72.3,-20,5,-4807,-93069,1,1
+"your break, all day","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-1511,-4246,-1295,4972,78.8,-50,5,-2072,-65716,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-4811,-3450,-2289,6066,85.7,-589,3,-5694,-101941,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-10144,-25021,-5021,17452,69.1,-20,3,-35187,-396866,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-6935,-15094,-2453,10079,81.9,-50,3,-19523,-240229,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-2300,-3612,-3340,4756,82.2,-581,9,-4398,-88978,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-6524,-11755,-4684,11956,69.8,-20,9,-17997,-224975,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-3301,-5027,-3057,6788,80.8,-50,9,-6471,-109708,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-3490,-2779,-3687,4683,81.5,-596,21,-5046,-95460,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-10170,-14957,-7482,12030,66.8,-20,21,-27631,-321307,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-4732,-4753,-4077,6544,79.8,-50,21,-8591,-130912,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-3506,-5157,-3646,5317,83.8,-619,15,-7396,-118961,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-12965,-27416,-6051,15918,66.5,-20,15,-41454,-459543,1,1
+"your break, all day","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-6464,-11953,-3820,8361,80.6,-50,15,-17373,-218735,1,1
+"your break, all day","+$5 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-4142,-6866,-3556,4659,81.2,-1204,4,-9843,-143427,1,1
+"your break, all day","+$5 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-8762,-24314,-3967,12448,65.6,-20,4,-32044,-365436,1,1
+"your break, all day","+$5 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-6248,-14990,-3884,7203,77.7,-50,4,-20242,-247420,1,1
+"your break, all day","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-2043,-3043,-2367,4232,80.2,-337,12,-2510,-70103,1,1
+"your break, all day","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-5029,-11303,-3214,10169,69.3,-20,12,-14569,-190689,1,1
+"your break, all day","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-2861,-4075,-2475,5855,79.7,-50,12,-4465,-89653,1,1
+"your break, all day","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-3180,-1754,-2521,4189,79.6,-550,28,-2602,-71021,1,1
+"your break, all day","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-8406,-14147,-5143,10117,66.1,-20,28,-22751,-272508,1,1
+"your break, all day","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-4930,-4094,-2531,5648,78.3,-50,28,-6712,-112122,1,1
+"your break, all day","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-2297,-4372,-2559,4461,81.1,-620,20,-4391,-88914,1,1
+"your break, all day","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-9992,-25684,-3963,11670,63.9,-20,20,-34668,-391682,1,1
+"your break, all day","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-4500,-12077,-2437,6414,78.0,-50,20,-14089,-185888,1,1
+"RANDOM all day","+$2 | no adds | no hedge | no stop (0.01 lot)",-843,-541,-828,7848,89.9,-227,1,2724,-17761,0,1
+"RANDOM all day","+$2 | no adds | no hedge | basket stop -$20 (0.01 lot)",-1033,-1583,-642,12469,86.8,-20,1,1637,-28630,0,1
+"RANDOM all day","+$2 | no adds | no hedge | basket stop -$50 (0.01 lot)",-595,-834,-783,8998,90.0,-50,1,2715,-17846,0,1
+"RANDOM all day","+$2 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-1823,-938,-1879,7070,88.5,-186,3,286,-42138,0,1
+"RANDOM all day","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-2440,-3149,-1916,11487,84.8,-20,3,-2529,-70285,1,1
+"RANDOM all day","+$2 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-2103,-1375,-1947,8096,88.4,-50,3,-450,-49500,1,1
+"RANDOM all day","+$2 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-2464,-1936,-2267,6552,87.1,-203,7,-1738,-62385,1,1
+"RANDOM all day","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-3857,-4162,-2859,11119,83.4,-20,7,-5888,-103882,1,1
+"RANDOM all day","+$2 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-2430,-2233,-2350,7716,87.4,-50,7,-2083,-65835,1,1
+"RANDOM all day","+$2 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-1303,-1364,-1171,7356,89.3,-302,5,998,-35023,0,1
+"RANDOM all day","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-2088,-4856,-1375,12215,85.0,-20,5,-3347,-78466,1,1
+"RANDOM all day","+$2 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-1004,-2517,-1132,8422,89.2,-50,5,305,-41949,0,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-3988,-7804,-3159,7803,89.7,-874,3,-9992,-144922,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-8774,-19157,-4449,14885,78.9,-20,3,-27384,-318836,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-6040,-14072,-3172,10254,87.2,-50,3,-18288,-227878,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-4219,-3286,-3897,7090,88.4,-311,9,-6553,-110530,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-7568,-10479,-4933,12821,80.1,-20,9,-17997,-224969,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-5412,-5470,-4122,8778,87.1,-50,9,-10036,-145361,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-5114,-4932,-4812,6361,86.7,-390,21,-9966,-144663,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-10096,-13561,-7103,12675,77.4,-20,21,-25800,-303002,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-5968,-6877,-5363,8213,85.8,-50,21,-13275,-177747,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-5480,-7540,-4005,7132,88.5,-456,15,-12077,-165769,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-11109,-19237,-5356,14574,77.7,-20,15,-30726,-352260,1,1
+"RANDOM all day","+$2 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-7534,-10188,-4112,9378,86.7,-50,15,-16853,-213533,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-3114,-6339,-2711,6704,87.8,-583,4,-7331,-118310,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-5231,-14136,-2908,12008,79.5,-20,4,-17293,-217927,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-3828,-9315,-2674,8409,86.4,-50,4,-10865,-153650,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-2743,-2908,-2690,6463,87.4,-216,12,-3392,-78919,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-5695,-9533,-3226,11187,80.2,-20,12,-13480,-179801,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-3536,-5122,-2720,7732,86.7,-50,12,-6420,-109203,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-4061,-3102,-3874,5952,85.7,-287,28,-6089,-105891,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-7379,-11464,-4644,10871,78.0,-20,28,-18514,-230136,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-4887,-6382,-3932,7330,84.9,-50,28,-10253,-147525,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-2853,-5803,-2500,6532,87.7,-378,20,-6220,-107203,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-5907,-15296,-3275,11973,78.9,-20,15,-19479,-239787,1,1
+"RANDOM all day","+$2 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-3931,-8361,-2681,8048,86.5,-50,20,-9995,-144946,1,1
+"RANDOM all day","+$3 | no adds | no hedge | no stop (0.01 lot)",-463,-434,-427,5938,86.7,-227,1,3547,-9531,0,1
+"RANDOM all day","+$3 | no adds | no hedge | basket stop -$20 (0.01 lot)",-360,-1058,-295,10035,82.9,-20,1,3241,-12593,0,1
+"RANDOM all day","+$3 | no adds | no hedge | basket stop -$50 (0.01 lot)",-350,-865,-389,7046,86.7,-50,1,3375,-11250,0,1
+"RANDOM all day","+$3 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-1689,-958,-1440,5394,84.8,-192,3,769,-37311,0,1
+"RANDOM all day","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-2362,-2252,-1259,9308,80.4,-20,3,-905,-54049,1,1
+"RANDOM all day","+$3 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-1932,-1117,-1493,6387,84.9,-50,3,424,-40763,0,1
+"RANDOM all day","+$3 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-2059,-1702,-1885,5194,83.7,-196,7,-707,-52068,1,1
+"RANDOM all day","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-3146,-3730,-2375,9068,78.9,-20,7,-4271,-87713,1,1
+"RANDOM all day","+$3 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-2183,-1716,-1907,6149,84.0,-50,7,-868,-53679,1,1
+"RANDOM all day","+$3 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-798,-1499,-1218,5468,85.3,-302,5,1371,-31291,0,1
+"RANDOM all day","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-1496,-4283,-1396,9716,80.4,-20,5,-2219,-67188,1,1
+"RANDOM all day","+$3 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-712,-2233,-1226,6425,85.3,-50,5,778,-37225,0,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-3526,-7410,-3672,6753,87.8,-874,3,-9812,-143121,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-8525,-18370,-4250,13906,75.0,-20,3,-26146,-306461,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-5282,-12966,-3702,9319,84.9,-50,3,-16957,-214570,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-3611,-2880,-3327,5942,86.1,-335,9,-4914,-94138,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-6933,-8283,-4108,11451,76.7,-20,9,-14351,-188505,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-4445,-4225,-3411,7624,84.9,-50,9,-7115,-116147,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-4463,-2870,-5170,5551,84.7,-390,21,-7611,-121108,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-9483,-11454,-7256,11486,73.7,-20,21,-23223,-277228,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-5510,-4636,-5139,7268,83.7,-50,21,-10351,-148512,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-4200,-6565,-3719,6150,86.7,-456,15,-9543,-140431,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-10999,-18844,-5071,13398,73.4,-20,15,-29940,-344398,1,1
+"RANDOM all day","+$3 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-6933,-9969,-3924,8362,84.2,-50,15,-15850,-203503,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-2011,-6916,-2230,5943,86.3,-583,4,-6175,-106748,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-4114,-13655,-2475,11342,76.2,-20,4,-15267,-197671,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-3118,-9051,-2167,7816,84.5,-50,4,-9382,-138817,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-2273,-2543,-2282,5466,84.7,-272,12,-2150,-66501,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-4780,-7913,-2416,9865,76.7,-20,12,-10141,-146408,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-2787,-3975,-2289,6712,84.1,-50,12,-4098,-85979,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-3253,-2410,-3138,5115,83.4,-287,28,-3867,-83673,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-6930,-10115,-4088,9701,74.2,-20,28,-16179,-206785,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-4740,-5067,-3087,6346,82.4,-50,28,-7960,-124600,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-2830,-3793,-2289,5700,85.7,-378,20,-4056,-85562,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-5363,-14606,-2807,11017,75.1,-20,15,-17790,-222895,1,1
+"RANDOM all day","+$3 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-3947,-7394,-2448,7150,83.9,-50,20,-8819,-133195,1,1
+"RANDOM all day","+$5 | no adds | no hedge | no stop (0.01 lot)",-311,-765,-139,4017,80.3,-290,1,3676,-8243,0,1
+"RANDOM all day","+$5 | no adds | no hedge | basket stop -$20 (0.01 lot)",-440,-854,9,7243,75.2,-20,1,3651,-8489,0,1
+"RANDOM all day","+$5 | no adds | no hedge | basket stop -$50 (0.01 lot)",-464,-230,-111,4880,80.8,-50,1,3980,-5203,0,1
+"RANDOM all day","+$5 | no adds | 1 hedge 2x at -$2 | no stop (0.01 lot)",-1732,-741,-1100,3750,77.9,-192,3,1110,-33902,0,1
+"RANDOM all day","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-2111,-1674,-1298,6911,72.5,-20,3,-128,-46277,1,1
+"RANDOM all day","+$5 | no adds | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-1852,-500,-1135,4581,78.5,-50,3,1335,-31653,0,1
+"RANDOM all day","+$5 | no adds | 3 hedges 2x every $2 | no stop (0.01 lot)",-1859,-674,-1617,3647,77.2,-185,7,749,-37508,0,1
+"RANDOM all day","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-3047,-2652,-2206,6767,70.8,-20,7,-2957,-74575,1,1
+"RANDOM all day","+$5 | no adds | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-1983,-1236,-1609,4440,77.7,-50,7,109,-43910,0,1
+"RANDOM all day","+$5 | no adds | 2 hedges 2x every $5 | no stop (0.01 lot)",-649,-1174,-637,3863,78.9,-302,5,2238,-22621,0,1
+"RANDOM all day","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-1304,-4448,-1221,7227,72.0,-20,5,-2072,-65718,1,1
+"RANDOM all day","+$5 | no adds | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-642,-1887,-665,4628,78.8,-50,5,1646,-28536,0,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | no hedge | no stop (0.01 lot)",-1801,-5329,-2326,5838,85.9,-874,3,-4670,-91699,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$20 (0.01 lot)",-5733,-14780,-3512,13067,70.6,-20,3,-19059,-235592,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | no hedge | basket stop -$50 (0.01 lot)",-3933,-9866,-2150,8576,82.4,-50,3,-10957,-154566,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-2604,-1536,-2757,4682,82.5,-335,9,-2092,-65918,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-5509,-6287,-3846,9652,70.5,-20,9,-10653,-151530,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-4098,-3133,-2802,6142,80.3,-50,9,-5089,-95893,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | no stop (0.01 lot)",-3245,-1461,-4390,4487,81.2,-321,21,-4197,-86972,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-7725,-9005,-6430,9808,67.7,-20,21,-18181,-226813,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-4641,-3234,-4351,5959,79.4,-50,21,-7284,-117839,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | no stop (0.01 lot)",-3351,-3476,-3390,5038,83.6,-483,15,-5391,-98915,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-9416,-16305,-4235,12203,67.9,-20,15,-24986,-294863,1,1
+"RANDOM all day","+$5 | add +1 unit every $1 (max 2) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-6000,-7488,-3001,7187,80.6,-50,15,-11531,-160312,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | no hedge | no stop (0.01 lot)",-2758,-6546,-1808,4633,82.3,-583,4,-6513,-110131,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | no hedge | basket stop -$20 (0.01 lot)",-5930,-15688,-2163,9936,67.4,-20,4,-18804,-233041,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | no hedge | basket stop -$50 (0.01 lot)",-4367,-10652,-1990,6569,79.2,-50,4,-12171,-166710,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | no stop (0.01 lot)",-2832,-1368,-2383,4156,80.2,-303,12,-1711,-62107,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$20 (0.01 lot)",-4957,-6785,-2673,8139,69.1,-20,12,-9424,-139238,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | 1 hedge 2x at -$2 | basket stop -$50 (0.01 lot)",-3324,-3221,-2524,5316,78.7,-53,12,-4101,-86007,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | no stop (0.01 lot)",-3001,-1165,-2827,3989,79.1,-535,28,-2079,-65787,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$20 (0.01 lot)",-6617,-8587,-3910,8072,66.8,-20,28,-14121,-186213,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | 3 hedges 2x every $2 | basket stop -$50 (0.01 lot)",-4452,-3550,-2839,5078,77.5,-50,28,-5899,-103990,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | no stop (0.01 lot)",-3445,-3760,-1965,4349,81.2,-378,20,-4213,-87131,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$20 (0.01 lot)",-6272,-15546,-2990,9470,66.6,-20,15,-19830,-243295,1,1
+"RANDOM all day","+$5 | add every $2 (max 3) | 2 hedges 2x every $5 | basket stop -$50 (0.01 lot)",-4437,-6314,-2045,5843,79.1,-50,20,-7838,-123377,1,1

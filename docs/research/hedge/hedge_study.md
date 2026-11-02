@@ -230,3 +230,12 @@ Report: `docs/research/hedge/report.html` (data `lab6.json`, template `report_te
 - Survivors ≈ the luck rate (120 / 8,190 real vs 8 / 585 random). Families that hold across filters/exits: engulfing at a 20-candle
   extreme (M5, London, +$20, stop −$300 or close at 16:55) and the FVG 50% retrace (M5, NY 08:30-11:30, VWAP flow, hold until +$20).
 - An earlier M1 FVG 50% "winner" was a limit-fill artifact and vanished with realistic fills.
+
+## Part 8 — 0.01 lot, +$2 / $3 / $5 a basket, all day: ADD TO THE WINNER and HEDGE THE LOSER (`lab6 mix`, `mix001.csv`)
+
+648 settings (5 entries × 3 targets × 3 add-to-winner × 4 hedge plans × 3 basket stops), a $5,000 account, checked at 0.01 AND 0.1.
+- Plain (no add, no hedge): 15 / 36 profitable in 2025, 2026 AND 2023-24 (all A or C); blown at 0.01: 1, at 0.1: 9.
+- Add to the winner only: 8 / 72; blown 18 / 45. Median result per year −$186 at 0.01.
+- With hedges (1-3 hedges, 2×): 0 / 324; blown 77 at 0.01, 293 at 0.1. Median −$341 a year at 0.01.
+- Your all-day break entry: 0 profitable in any form; RANDOM 0 / 108.
+- Best at 0.01: A +$2, no add, no hedge: +$141 / +$204 / +$241 (2 yrs), 93.8% won, worst −$81, worst drawdown $143.
