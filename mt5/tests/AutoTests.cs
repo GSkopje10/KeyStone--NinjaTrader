@@ -25,7 +25,7 @@ public static class AutoTests
         for (int k = 0; k < 4000 && !sb.Ended; k++) { sb.Advance(0.25); if (mid != null && k == 3) mid(sb, au); }
         return Tuple.Create(sb, au);
     }
-    static AutoSettings S() { return new AutoSettings { Swing = false, FvgTf = 1, Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
+    static AutoSettings S() { return new AutoSettings { HedgeSize = "FIXED", Swing = false, FvgTf = 1, Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
 
     public static int Main4()
     {
@@ -232,6 +232,27 @@ public static class AutoTests
         r = Run(Path(Day1, 4000, Line(4000, -0.25, 60)), sR); au = r.Item2;
         Check(au.Trades.Count >= 2 && au.Trades[1].Side == "SELL" && au.Trades[1].Lots > 0.27 && au.Trades[1].Lots < 0.36, "recover sizing: the hedge is sized to get the basket to +$20 in a $2 move (≈ 0.31 lots)", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Lots)));
 
+        // 32. 🏁 RACE: a lane trades its OWN shadow account on the backtest's prices — the main account is never touched; its iterations are saved and ranked
+        {
+            var warmR = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)); var sbR = new SimBroker();
+            var errR = sbR.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = 10000, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 10 }, Gold(), warmR.Concat(Path(Day1, 4000, Line(4000, 0.5, 40))).ToList());
+            var lane = new RaceLane { Key = "T", Set = S() }; lane.Set.FirstDir = "BUY"; lane.Set.HedgeMode = "NONE"; lane.Set.MaxIterations = 1;
+            lane.Br = new ShadowBroker(sbR.State, null, new SimAccountSettings { Balance = 5000, CommissionPerLot = 0, Kind = "RAW" }); lane.StartBalance = lane.PeakEq = 5000; lane.Eng.Send = (c, a2, l2) => lane.Br.Command(c, a2);
+            var ck = lane.Eng.Check(lane.Br, lane.Set); lane.Eng.Start(lane.Br, lane.Set, false); sbR.OnTickHook = () => lane.Step(); sbR.Playing = true; sbR.Speed = 60;
+            for (int k = 0; k < 4000 && !sbR.Ended; k++) sbR.Advance(0.25);
+            var li = lane.Eng.Iterations.FirstOrDefault(); int mainPos; lock (sbR.State.Gate) mainPos = sbR.State.Positions.Count + sbR.State.Deals.Count(dl => dl.Type != "BALANCE");
+            Check(errR == "" && ck == "" && li != null && li.Reason == "TARGET" && li.Result >= 20 && mainPos == 0 && Math.Abs(lane.Equity - 5000 - li.Result) < 0.5, "race: a lane wins +$20 on its own $5,000 shadow account; the main account has no trade", errR + ck + " " + (li == null ? "none" : li.Reason + " " + li.Result) + " main " + mainPos + " eq " + lane.Equity);
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-race-" + Guid.NewGuid().ToString("N"));
+            RaceStore.Save(dir, "T", li, lane.Eng.Trades); RaceStore.Save(dir, "U", new AutoIteration { N = 1, Start = li.Start, End = li.End.AddMinutes(5), FirstDir = "SELL", Result = -50, MaxDd = -80, Reason = "MAX DRAWDOWN" }, new AutoTrade[0]);
+            var rback = RaceStore.Load(dir, Day1.AddDays(-1)); var st = RaceStore.Stats(rback);
+            Check(rback.Count == 2 && st.Count == 2 && st[0].Key == "T" && Math.Abs(st[0].Net - li.Result) < 0.01 && st[1].WorstDay < 0, "race history: saved per day, loaded back, the winner ranked first", rback.Count + " " + string.Join(",", st.Select(x => x.Key + " " + x.Net)));
+        }
+
+        // 33. NET ADVANTAGE 0.2: BUY 0.1 → $2 down: SELL 0.3 (net −0.2) → $2 up: BUY 0.4 (net +0.2), never back to 0.1
+        var sAd = S(); sAd.FirstDir = "BUY"; sAd.HedgeMode = "PRICE"; sAd.HedgePrice = 2; sAd.HedgeSize = "ADVANTAGE"; sAd.NetAdvantage = 0.2; sAd.Target = 500; sAd.MaxIterations = 1;
+        r = Run(Path(Day1, 4000, Line(4000, -0.25, 12).Concat(Line(3997, 0.25, 30))), sAd); au = r.Item2;
+        Check(au.Trades.Count >= 3 && Math.Abs(au.Trades[1].Lots - 0.3) < 1e-9 && au.Trades[1].Side == "SELL" && Math.Abs(au.Trades[2].Lots - 0.4) < 1e-9 && au.Trades[2].Side == "BUY", "net advantage 0.2: the hedges are 0.3 then 0.4 — the net is always 0.2 the hedge's way", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Lots)));
+        // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();
         var ds = S(); ds.HedgeMode = "PRICE"; ds.HedgePrice = 2; ds.Target = 20;

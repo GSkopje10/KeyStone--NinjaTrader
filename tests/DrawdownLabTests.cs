@@ -20,6 +20,7 @@ public static class DrawdownLabTests
         Check(b.Blown && b.Pos == 0 && b.Realized < -2000, "a short against a $201 move breaches the $2,000 floor → blown, flat", b.Blown + " " + b.Realized);
         var tp = mk("EOD"); tp.TakeProfit = 300; tp.Trade(t, 1, 2000); tp.Mark(t.AddMinutes(1), 2031);
         Check(tp.Pos == 0 && Math.Abs(tp.Realized - 310) < 0.01, "take profit $300: closed at the first price past +$300", tp.Realized + "");
+        Check(tp.Trades.Count == 1 && tp.Trades[0].Why == "take profit" && tp.Trades[0].BestOpen >= 300 && tp.Trades[0].Qty == 1, "the closed trade is recorded (why, its best open profit, the size)", tp.Trades.Count + "");
         var rv = mk("EOD"); rv.Trade(t, 2, 2000); rv.Trade(t, -3, 2010);
         Check(rv.Pos == -1 && Math.Abs(rv.Realized - 200) < 0.01 && Math.Abs(rv.Avg - 2010) < 1e-9, "reverse: long 2, sell 3 → +$200 realized, short 1 @ 2010", rv.Pos + " " + rv.Realized);
         Console.WriteLine(fails == 0 ? "ALL DRAWDOWN LAB TESTS PASSED" : fails + " DRAWDOWN LAB TEST(S) FAILED"); return fails;
