@@ -1,0 +1,156 @@
+<title>Trailing vs EOD Race</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* layout: a research notebook — verdict first, then the evidence, the math and a free explorer; one reading column, wide tables scroll */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --ink:#18202c; --muted:#5b6678; --line:#d9dee7; --accent:#2747c9; --accent-soft:#e6ebfb;
+  --win:#0f8a55; --win-soft:#dcf2e6; --loss:#c23a32; --loss-soft:#f8e1df; --warn:#a86a00;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif; --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10141b;--surface:#171c25;--ink:#e6eaf1;--muted:#97a2b5;--line:#2a3140;--accent:#8ea4ff;--accent-soft:#1f2747;--win:#3ccf8a;--win-soft:#123326;--loss:#ff7b70;--loss-soft:#3a1a18;--warn:#e7b04a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#10141b;--surface:#171c25;--ink:#e6eaf1;--muted:#97a2b5;--line:#2a3140;--accent:#8ea4ff;--accent-soft:#1f2747;--win:#3ccf8a;--win-soft:#123326;--loss:#ff7b70;--loss-soft:#3a1a18;--warn:#e7b04a;color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px;display:flex;flex-direction:column;gap:44px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:2.3rem;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.55rem;font-weight:700}
+h3{font-size:1.1rem;font-weight:500}
+p{margin:0;max-width:68ch}
+section{display:flex;flex-direction:column;gap:16px;min-width:0}
+.eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+.muted{color:var(--muted)}
+.mono,td.n,.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+header{display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--line);padding-bottom:22px}
+.facts{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--f-mono);font-size:.75rem;padding:3px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);white-space:normal;max-width:100%}
+.chip.good{background:var(--win-soft);color:var(--win);border-color:transparent}
+.chip.bad{background:var(--loss-soft);color:var(--loss);border-color:transparent}
+.chip.acc{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+.verdict{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px 22px;display:flex;flex-direction:column;gap:10px}
+.verdict p{font-size:1.02rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card .rule{font-size:.88rem;color:var(--muted)}
+.rank{font-family:var(--f-mono);font-size:.75rem;color:var(--muted)}
+.pgrid{display:grid;grid-template-columns:auto repeat(3,1fr);gap:2px 10px;font-family:var(--f-mono);font-size:.78rem;font-variant-numeric:tabular-nums}
+.pgrid .h{color:var(--muted);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em}
+.pos{color:var(--win)} .neg{color:var(--loss)}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.82rem}
+th,td{padding:6px 9px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-family:var(--f-mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;background:var(--surface);position:sticky;top:0}
+th.s{cursor:pointer} th.s:hover{color:var(--accent)}
+td.n,th.n{text-align:right}
+tr:last-child td{border-bottom:0}
+.heat td.n{font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.controls label{min-width:0;max-width:100%;display:flex;flex-direction:column;gap:3px;font-size:.72rem;color:var(--muted);font-family:var(--f-mono);text-transform:uppercase;letter-spacing:.06em}
+select{max-width:100%;}
+select,input[type=checkbox]{font:inherit;font-size:.85rem;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+select:focus-visible,button:focus-visible,th.s:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button{font:inherit;font-size:.85rem;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:var(--surface);cursor:pointer}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.two>*{min-width:0}
+.math{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.formula{font-family:var(--f-mono);background:var(--accent-soft);color:var(--ink);padding:8px 12px;border-radius:6px;font-size:.85rem;overflow-x:auto;white-space:nowrap}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+svg text{fill:var(--muted);font-family:var(--f-mono);font-size:10px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+@media (max-width:760px){.two{grid-template-columns:1fr} h1{font-size:1.8rem}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<style>
+.tabs{display:flex;flex-wrap:wrap;gap:6px}.tab{font:inherit;font-size:.85rem;padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.tab[aria-selected="true"]{background:var(--accent);color:var(--surface);border-color:var(--accent)}
+.pane[hidden]{display:none!important}
+.duo{display:flex;gap:2px;height:14px;border-radius:4px;overflow:hidden;background:var(--line);min-width:160px}
+.duo i{display:block;height:100%}
+.tr{background:#8b6cf0}.eo{background:#22b3a6}.bl{background:var(--loss)}
+:root{--tr:#7a5af0;--eo:#14998d}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--tr:#a993ff;--eo:#4fd1c5}}
+:root[data-theme="dark"]{--tr:#a993ff;--eo:#4fd1c5}
+.ctr{color:var(--tr);font-weight:600}.ceo{color:var(--eo);font-weight:600}
+.big{font-family:var(--f-display);font-size:2.2rem;font-weight:700;line-height:1}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px}
+</style>
+<div class="wrap">
+<header>
+  <span class="eyebrow">KeyStone research · MGC &amp; MNQ 1-minute futures · Jun 2020 → Oct 2026</span>
+  <h1>Trailing vs End-of-Day: who reaches +$2,000 first?</h1>
+  <p class="muted">Two accounts, the same instrument, the same contracts, <b>opposite directions</b>, entered at the same minute. Both have a $2,000 maximum drawdown and the goal is +$2,000. <span class="ctr">TRAILING</span>: the floor is the highest equity (open profit included) minus $2,000, moved every tick. <span class="ceo">END OF DAY</span>: the floor stays at −$2,000 until the day's close, then the closing equity minus $2,000. Every candle is walked open → low/high → close, with $0.62 commission per contract per side and one tick of slippage on the entry.</p>
+  <div class="facts" id="facts"></div>
+</header>
+<section>
+  <div class="controls">
+    <label for="fInst">Instrument<select id="fInst"><option>MNQ</option><option>MGC</option></select></label>
+    <label for="fQty">Contracts<select id="fQty"><option>5</option><option>10</option><option selected>15</option><option>20</option><option>30</option></select></label>
+    <label for="fMode">Holding<select id="fMode"><option value="INTRADAY">Intraday (flat at 16:55)</option><option value="HOLD">Hold until decided (≤10 days)</option></select></label>
+    <label for="fRule">Direction rule<select id="fRule"></select></label>
+  </div>
+  <div class="tabs" role="tablist" id="tabs"></div>
+</section>
+<section class="pane" id="p-verdict"></section>
+<section class="pane" id="p-start" hidden></section>
+<section class="pane" id="p-qty" hidden></section>
+<section class="pane" id="p-outcomes" hidden></section>
+<section class="pane" id="p-rule" hidden></section>
+<section class="pane" id="p-mode" hidden></section>
+<section class="pane" id="p-year" hidden></section>
+<section class="pane" id="p-how" hidden></section>
+<section class="pane" id="p-all" hidden></section>
+</div>
+<script>
+const D=/*DATA*/null, R=D.rows, $=id=>document.getElementById(id);
+const RN={TR_LONG:"Trailing LONG / EOD SHORT",TR_SHORT:"Trailing SHORT / EOD LONG",TR_MOMENTUM:"Trailing WITH the last 15 min",TR_FADE:"Trailing AGAINST the last 15 min",TR_VWAP:"Trailing on the VWAP side",TR_ORB_BREAK:"Trailing with the 15-min range break"};
+const starts=[...new Set(R.map(r=>r.s))], rules=Object.keys(RN), qtys=[5,10,15,20,30];
+$("fRule").innerHTML=rules.map(r=>`<option value="${r}"${r==="TR_MOMENTUM"?" selected":""}>${RN[r]}</option>`).join("");
+const pc=(r,k)=>r&&r.n?100*r[k]/r.n:0, f1=v=>v.toFixed(1)+"%";
+const get=(i,s,r,q,m)=>R.find(x=>x.i===i&&x.s===s&&x.r===r&&x.q===q&&x.m===m);
+const duo=r=>{const a=pc(r,"tp"),b=pc(r,"ep");return `<div class="duo" title="trailing ${f1(a)} • EOD ${f1(b)}"><i class="tr" style="width:${a}%"></i><i class="eo" style="width:${b}%"></i></div>`;};
+const diff=r=>{const d=pc(r,"tp")-pc(r,"ep");return `<td class="n ${d>0?"pos":"neg"}">${d>0?"+":""}${d.toFixed(1)}</td>`;};
+const hdr=(first)=>`<tr><th>${first}</th><th class="n">races</th><th class="n">TRAILING passed</th><th class="n">EOD passed</th><th class="n">trailing − EOD</th><th></th><th class="n">TRAILING blown</th><th class="n">EOD blown</th><th class="n">neither decided</th><th class="n">min to trailing pass</th><th class="n">min to EOD pass</th></tr>`;
+const line=(lab,r)=>r?`<tr><td>${lab}</td><td class="n">${r.n}</td><td class="n ctr">${f1(pc(r,"tp"))}</td><td class="n ceo">${f1(pc(r,"ep"))}</td>${diff(r)}<td>${duo(r)}</td><td class="n">${f1(pc(r,"tb"))}</td><td class="n">${f1(pc(r,"eb"))}</td><td class="n">${f1(pc(r,"both_open"))}</td><td class="n">${r.tpm??"—"}</td><td class="n">${r.epm??"—"}</td></tr>`:"";
+const tabs=[["verdict","Verdict"],["start","Start time"],["qty","Contracts"],["outcomes","Outcomes (one try)"],["rule","Direction & confirmations"],["mode","Intraday vs hold"],["year","Year by year"],["how","Why trailing loses"],["all","Every setting"]];
+$("tabs").innerHTML=tabs.map(([k,l],i)=>`<button class="tab" role="tab" data-k="${k}" aria-selected="${i===0}">${l}</button>`).join("");
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.setAttribute("aria-selected",x===b));document.querySelectorAll(".pane").forEach(p=>p.hidden=p.id!=="p-"+b.dataset.k);});
+$("facts").innerHTML=[`${R.length} settings`,`${R.reduce((a,r)=>a+r.n,0).toLocaleString()} races`,`7 start times × 6 direction rules × 5 sizes × 2 holding modes × 2 instruments`,`generated ${D.generated}`].map(t=>`<span class="chip">${t}</span>`).join("");
+function paint(){
+  const I=$("fInst").value,Q=+$("fQty").value,M=$("fMode").value,RU=$("fRule").value;
+  const all=R.filter(r=>r.n>=100), trw=all.filter(r=>r.tp>r.ep), meanD=all.reduce((a,r)=>a+pc(r,"tp")-pc(r,"ep"),0)/all.length;
+  const bestTR=[...all].sort((a,b)=>pc(b,"tp")-pc(a,"tp"))[0], sel=all.filter(r=>r.i===I&&r.q===Q&&r.m===M), bs=[...sel].sort((a,b)=>pc(b,"tp")-pc(a,"tp")).slice(0,5);
+  $("p-verdict").innerHTML=`<span class="eyebrow">Verdict</span><h2>The end-of-day account wins the race; the trailing one can only narrow the gap</h2>
+  <div class="kpis"><div class="kpi"><span class="eyebrow">Settings where trailing passed more often</span><span class="big">${trw.length} / ${all.length}</span><span class="muted">only where both rarely pass (small size, slow hours)</span></div>
+  <div class="kpi"><span class="eyebrow">Average gap (trailing − EOD)</span><span class="big neg">${meanD.toFixed(1)} pts</span><span class="muted">percentage points of pass rate</span></div>
+  <div class="kpi"><span class="eyebrow">Best trailing pass rate</span><span class="big ctr">${f1(pc(bestTR,"tp"))}</span><span class="muted">${bestTR.i} • ${bestTR.s} • ${RN[bestTR.r]} • ${bestTR.q} contracts • ${bestTR.m.toLowerCase()} — EOD ${f1(pc(bestTR,"ep"))}</span></div>
+  <div class="kpi"><span class="eyebrow">One of the two passes (${I}, ${Q}, ${M.toLowerCase()})</span><span class="big pos">${f1(sel.reduce((a,r)=>a+pc(r,"tp")+pc(r,"ep"),0)/Math.max(1,sel.length))}</span><span class="muted">average over start times and rules — the pair as a hedge</span></div></div>
+  <p>Opposite directions mean every dollar one account makes, the other loses. The difference is only the floor. When price first moves the trailing account's way and then turns, its floor has already risen, so it blows <b>before</b> the end-of-day account reaches its target. Price wandering back and forth always hurts the trailing account and never the end-of-day one.</p>
+  <h3>Best for the trailing account here (${I}, ${Q} contracts, ${M.toLowerCase()})</h3><div class="scroll"><table>${hdr("start • rule")}${bs.map(r=>line(r.s+" • "+RN[r.r],r)).join("")}</table></div>
+  <p class="muted">What helps the trailing account most: <b>fast, one-way sessions</b> (MNQ 08:30 data and 10:00), <b>more contracts</b> (the target comes before the turn) and taking the side of the <b>last 15 minutes' move</b>.</p>`;
+  const oc=r=>{if(!r)return "";const p=k=>f1(pc(r,k));return `<tr><td>${r.s}</td><td class="n">${r.n}</td><td class="n ceo">${p("tb_ep")}</td><td class="n">${p("same")}</td><td class="n">${r.after??"—"}</td><td class="n ctr">${p("tp_eb")}</td><td class="n neg">${p("tb_eb")}</td><td class="n">${p("tb_eo")}</td><td class="n">${p("tp_eo")}</td><td class="n">${p("to_eb")}</td><td class="n">${p("both_open")}</td></tr>`;};
+  $("p-outcomes").innerHTML=`<span class="eyebrow">${I} • ${Q} contracts • ${M.toLowerCase()} • ${RN[RU]}</span><h2>One entry each, no second try: how every race ended</h2>
+  <p>Each account takes <b>one</b> trade. When the trailing account blows, its trade is over, but the end-of-day account's trade keeps running. It cannot reach +$2,000 first: by then price has already moved $2,000 against the trailing side, so the trailing account is gone.</p>
+  <div class="scroll"><table><tr><th>start</th><th class="n">races</th><th class="n">TR blown → EOD passed (same trade)</th><th class="n">…in the same minute</th><th class="n">EOD passed, min after TR blew</th><th class="n">TR passed (EOD blown)</th><th class="n">BOTH blown</th><th class="n">TR blown, EOD open at close</th><th class="n">TR passed, EOD open</th><th class="n">TR open, EOD blown</th><th class="n">neither decided</th></tr>${starts.map(s=>oc(get(I,s,RU,Q,M))).join("")}</table></div>
+  <p class="muted">"Both blown": the trailing account blew on a pull-back from its peak, then price swung all the way back and took the end-of-day account too. That is the price of buying both.</p>`;
+  $("p-start").innerHTML=`<span class="eyebrow">${I} • ${Q} contracts • ${M.toLowerCase()} • ${RN[RU]}</span><h2>By start time</h2><div class="scroll"><table>${hdr("start (New York)")}${starts.map(s=>line(s,get(I,s,RU,Q,M))).join("")}</table></div><p class="legend"><span><span class="sw" style="background:var(--tr)"></span>trailing passed</span><span><span class="sw" style="background:var(--eo)"></span>EOD passed</span></p>`;
+  $("p-qty").innerHTML=`<span class="eyebrow">${I} • ${M.toLowerCase()} • ${RN[RU]}</span><h2>By contracts — per start time</h2>`+starts.map(s=>`<h3>${s}</h3><div class="scroll"><table>${hdr("contracts")}${qtys.map(q=>line(q+" contracts",get(I,s,RU,q,M))).join("")}</table></div>`).join("");
+  $("p-rule").innerHTML=`<span class="eyebrow">${I} • ${Q} contracts • ${M.toLowerCase()}</span><h2>Direction rule and confirmation — which side the trailing account takes</h2>`+starts.map(s=>`<h3>${s}</h3><div class="scroll"><table>${hdr("rule")}${rules.map(r=>line(RN[r],get(I,s,r,Q,M))).join("")}</table></div>`).join("");
+  $("p-mode").innerHTML=`<span class="eyebrow">${I} • ${Q} contracts • ${RN[RU]}</span><h2>Flat at 16:55 vs held until one decides</h2><div class="scroll"><table>${hdr("start • holding")}${starts.map(s=>line(s+" • intraday",get(I,s,RU,Q,"INTRADAY"))+line(s+" • hold",get(I,s,RU,Q,"HOLD"))).join("")}</table></div><p class="muted">Holding overnight gives the end-of-day account its floor update at 17:00 and both more time; the gap stays.</p>`;
+  const yrs=[...new Set(R.flatMap(r=>Object.keys(r.y)))].sort();
+  $("p-year").innerHTML=`<span class="eyebrow">${I} • ${Q} contracts • ${M.toLowerCase()} • ${RN[RU]}</span><h2>Year by year — trailing passed / EOD passed</h2><div class="scroll"><table><tr><th>start</th>${yrs.map(y=>`<th class="n">${y}</th>`).join("")}</tr>`+starts.map(s=>{const r=get(I,s,RU,Q,M);return `<tr><td>${s}</td>${yrs.map(y=>{const v=r&&r.y[y];if(!v||!v[0])return `<td class="n">—</td>`;const a=100*v[1]/v[0],b=100*v[2]/v[0];return `<td class="n"><span class="ctr">${a.toFixed(0)}</span> / <span class="ceo">${b.toFixed(0)}</span></td>`;}).join("")}</tr>`;}).join("")+`</table></div><p class="muted">Each cell: % of races the trailing account passed / % the end-of-day account passed that year.</p>`;
+  $("p-how").innerHTML=`<span class="eyebrow">The mechanism</span><h2>Why the trailing account loses the race</h2>
+  <svg viewBox="0 0 640 220" width="100%" role="img" aria-label="Price path: up 5 points, then down; the trailing floor rises with the peak"><rect x="0" y="0" width="640" height="220" fill="var(--surface)"/>
+  <line x1="40" y1="110" x2="620" y2="110" stroke="var(--line)"/><text x="44" y="104">entry</text>
+  <polyline fill="none" stroke="var(--ink)" stroke-width="2.5" points="40,110 180,60 320,150 470,200"/>
+  <polyline fill="none" stroke="var(--tr)" stroke-width="2.5" points="40,190 180,140 620,140"/><text x="470" y="134" style="fill:var(--tr)">trailing floor: rose with the peak</text>
+  <line x1="40" y1="200" x2="620" y2="200" stroke="var(--eo)" stroke-width="2.5" stroke-dasharray="6 4"/><text x="470" y="214" style="fill:var(--eo)">EOD floor: waits for the close</text>
+  <circle cx="345" cy="140" r="7" fill="var(--loss)"/><text x="360" y="160">trailing blown here</text></svg>
+  <ul><li>15 MGC = $150 a point: +$2,000 is a 13.3-point move. Price goes 5 points the trailing account's way (+$750), so its floor rises from −$2,000 to −$1,250.</li><li>Price then falls: the trailing account blows 8.3 points below the entry. The end-of-day account, on the other side, has made only $1,250 by then. It still needs 5 more points, which it often gets.</li><li>Back-and-forth is therefore a cost only the trailing account pays. That is the whole gap in the tables.</li><li>The trailing account's only defence is a quick one-way move: fast sessions, larger size (fewer points to the target), and the side the market is already moving.</li></ul>`;
+  $("p-all").innerHTML=`<span class="eyebrow">All ${R.length} settings, sorted by the trailing pass rate</span><h2>Every setting</h2><div class="scroll" style="max-height:640px"><table><tr><th>instrument</th><th>start</th><th>rule</th><th class="n">qty</th><th>holding</th><th class="n">races</th><th class="n">TRAILING</th><th class="n">EOD</th><th class="n">gap</th><th></th></tr>${[...R].sort((a,b)=>pc(b,"tp")-pc(a,"tp")).map(r=>`<tr><td>${r.i}</td><td>${r.s}</td><td>${RN[r.r]}</td><td class="n">${r.q}</td><td>${r.m.toLowerCase()}</td><td class="n">${r.n}</td><td class="n ctr">${f1(pc(r,"tp"))}</td><td class="n ceo">${f1(pc(r,"ep"))}</td>${diff(r)}<td>${duo(r)}</td></tr>`).join("")}</table></div>`;
+}
+["fInst","fQty","fMode","fRule"].forEach(id=>$(id).onchange=paint); paint();
+</script>
