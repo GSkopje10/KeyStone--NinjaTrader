@@ -964,6 +964,12 @@ public static class UiSmokeTest
                 System.IO.File.WriteAllText(".build/report_MOVE.html", KeystoneMoveStudy.Html(groups, (string)G("moveStudyRange")));
                 Set(lab4, "moveStudyWindow", null);
             });
+            Step("DRAWDOWN LAB: trailing vs EOD window builds (cards, controls, live / replay sources)", () =>
+            {
+                try { Call(lab4, "OpenDrawdownLab"); } catch (Exception e) { var ie = e.InnerException ?? e; throw new Exception(ie.GetType().Name + " " + ie.StackTrace.Replace("\n", " / ").Substring(0, Math.Min(900, ie.StackTrace.Length))); }
+                if (G("ddLabWindow") == null) throw new Exception("no window");
+                Set(lab4, "ddLabWindow", null);
+            });
             Step("ROTATION TESTER: MNQ + MGC rotation on the loaded bars, result tabs, optimizer", () =>
             {
                 Call(lab4, "OpenRotationTester");
