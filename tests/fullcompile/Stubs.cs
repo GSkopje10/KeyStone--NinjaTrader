@@ -43,7 +43,7 @@ namespace System.Windows
     public static class FontStyles { public static FontStyle Italic { get { return new FontStyle(); } } public static FontStyle Normal { get { return new FontStyle(); } } }
     public struct Point { public Point(double x, double y) { X = x; Y = y; } public double X; public double Y; }
     public struct Size { public Size(double w, double h) { Width = w; Height = h; } public double Width; public double Height; }
-    public struct Rect { public Rect(double x, double y, double w, double h) { X = x; Y = y; Width = w; Height = h; } public double X, Y, Width, Height; }
+    public struct Rect { public Rect(double x, double y, double w, double h) { X = x; Y = y; Width = w; Height = h; } public double X, Y, Width, Height; public double Left { get { return X; } } public double Top { get { return Y; } } public double Right { get { return X + Width; } } public double Bottom { get { return Y + Height; } } }
     public class DependencyProperty { public static readonly object UnsetValue = new object(); }
     public static class EventManager { public static void RegisterClassHandler(Type classType, RoutedEvent routedEvent, Delegate handler) { } }
     public class RoutedEvent { }
