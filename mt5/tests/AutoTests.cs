@@ -252,6 +252,10 @@ public static class AutoTests
         var sAd = S(); sAd.FirstDir = "BUY"; sAd.HedgeMode = "PRICE"; sAd.HedgePrice = 2; sAd.HedgeSize = "ADVANTAGE"; sAd.NetAdvantage = 0.2; sAd.Target = 500; sAd.MaxIterations = 1;
         r = Run(Path(Day1, 4000, Line(4000, -0.25, 12).Concat(Line(3997, 0.25, 30))), sAd); au = r.Item2;
         Check(au.Trades.Count >= 3 && Math.Abs(au.Trades[1].Lots - 0.3) < 1e-9 && au.Trades[1].Side == "SELL" && Math.Abs(au.Trades[2].Lots - 0.4) < 1e-9 && au.Trades[2].Side == "BUY", "net advantage 0.2: the hedges are 0.3 then 0.4 — the net is always 0.2 the hedge's way", string.Join(" | ", au.Trades.Select(x => x.Side + " " + x.Lots)));
+        {   // old saved settings (FIXED was the default then, no hs2) → LEAD BY; a FIXED chosen in this build stays FIXED; the BOX preset keeps FIXED
+            var oldS = AutoSettings.Load("sym=XAUUSD;add=0.3;hsize=FIXED;nadv=0.2"); var fx = S(); fx.HedgeSize = "FIXED"; var newS = AutoSettings.Load(fx.Save()); var box = AutoSettings.Load("hsize=FIXED;preset=BOX");
+            Check(oldS.HedgeSize == "ADVANTAGE" && Math.Abs(oldS.NetAdvantage - 0.2) < 1e-9 && newS.HedgeSize == "FIXED" && box.HedgeSize == "FIXED", "lead by: older saved FIXED settings now lead by 0.2; a FIXED picked now stays", oldS.HedgeSize + " " + newS.HedgeSize + " " + box.HedgeSize);
+        }
         // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();
