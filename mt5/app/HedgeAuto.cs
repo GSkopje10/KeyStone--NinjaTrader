@@ -92,6 +92,7 @@ namespace KeystoneMT5
     {
         public int N; public DateTime Start, End; public string FirstDir = "", Reason = ""; public int Buys, Sells, AddOns, WinnerAdds; public string Ctx = "";   // Ctx: the market when it started (setup, VWAP side, FVG, order flow, session …) for LEARN
         public bool Manual; public int ManualAdds;
+        public double Fees; public readonly Dictionary<long, double> FeeByTicket = new Dictionary<long, double>();   // COMMISSIONS of the iteration: each position's open commission + the same again for its close (in / out deals)
         public double BuyLots, SellLots, MaxGross, MaxDd, Result, BalanceStart, BalanceEnd, Estimate, Peak, CloseBid; public bool Adopted;
         public bool Done { get { return End > DateTime.MinValue; } }
         public bool Won { get { return Done && Result > 0; } }
@@ -101,6 +102,14 @@ namespace KeystoneMT5
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         public AutoSettings Set = new AutoSettings();
+        // ✏ EDIT WHILE RUNNING (user's request): new settings wait here and take over between two iterations — the open one keeps its own
+        public AutoSettings Next;
+        public void Queue(AutoSettings s) { Next = s == null ? null : s.Copy(); Version++; if (Next != null && Current == null && Running) ApplyNext(); }
+        void ApplyNext()
+        {
+            var n = Next; Next = null; if (n == null) return; Set = n; vwapLast = DateTime.MinValue; vwapDay = DateTime.MinValue; cumPV = 0; cumV = 0; Version++;
+            Tell("⚙ NEW SETTINGS from this iteration on: entry " + Set.EntryLots.ToString("0.##", IC) + " lots • target +$" + Set.Target.ToString("0.##", IC) + " • " + Set.EntryMode + " on " + Tf.Name(Set.Tf) + " • hedge " + Set.HedgeMode + (Set.HedgeSize == "ADVANTAGE" ? " (lead by " + Set.NetAdvantage.ToString("0.##", IC) + ")" : "") + (Set.Rolling ? " • highs / lows in real time" : ""));
+        }
         public bool Running { get; private set; }
         public string Phase { get; private set; } = "OFF";   // OFF / WAIT BREAK / PAUSE / IN ITERATION / CLOSING
         public string StopReason = "";
@@ -244,6 +253,7 @@ namespace KeystoneMT5
         public void Step(IBroker b)
         {
             if (!Running) return;
+            if (Next != null && Current == null) ApplyNext();   // between iterations: the saved changes take over
             var sn = Read(b); if (sn.Now < (b.IsSim ? Now : Now.AddMinutes(-1))) { Stop("the clock went back (the backtest was rewound or restarted)"); return; }
             Now = sn.Now; if (double.IsNaN(sn.Bid) || sn.Bid <= 0) return;
             Basket = sn.Pos.Count > 0 ? BasketOf(sn) : 0;
@@ -299,6 +309,8 @@ namespace KeystoneMT5
                     else { it.Reason = "END OF DAY"; Tell("END OF DAY. WHY: it is " + Set.CloseAtNy + " New York (the close time) → CLOSE ALL at " + M(Basket) + "."); CloseAll(sn, "END OF DAY", false); return; }
                 }
                 double total = Basket + (Set.ExitMode == "LEGS" ? sn.Balance - it.BalanceStart : 0);   // LEGS: what the closed legs made counts too
+                foreach (var p in sn.Pos) it.FeeByTicket[p.Ticket] = Math.Abs(p.Commission) * 2 + (Set.CommissionPerLot > 0 ? p.Lots * Set.CommissionPerLot : 0);   // the commissions so far (live)
+                it.Fees = it.FeeByTicket.Values.Sum();
                 it.MaxDd = Math.Min(it.MaxDd, total); it.Peak = Math.Max(it.Peak, Basket); it.MaxGross = Math.Max(it.MaxGross, Gross(sn.Pos));
                 if (Set.ExitMode == "LEGS")
                 {
@@ -571,6 +583,7 @@ namespace KeystoneMT5
             Note((it.Result >= 0 ? "✔" : "✖") + " iteration #" + it.N + " " + it.Reason + " " + it.Result.ToString("+0.00;−0.00", IC) + " • " + it.Buys + " buys / " + it.Sells + " sells • " + it.AddOns + " add-ons • max drawdown " + it.MaxDd.ToString("0.00", IC));
             int dir = it.BuyLots > it.SellLots + 1e-9 ? 1 : it.SellLots > it.BuyLots + 1e-9 ? -1 : lastDir; lastDir = dir;
             Current = null; HedgeLevel = double.NaN; Version++;
+            if (Next != null) ApplyNext();
             if (it.Reason == "MAX DRAWDOWN" && Set.AfterDrawdown == "STOP") { Stop("the max drawdown $" + Set.MaxDrawdown.ToString("0.##", IC) + " was hit"); return; }
             if (it.Reason == "CLOSED OUTSIDE") { Stop("the basket was closed outside the automation"); return; }
             if (Set.MaxIterations > 0 && Iterations.Count(x => x.Done) >= Set.MaxIterations) { Stop("the " + Set.MaxIterations + " iterations are done"); return; }

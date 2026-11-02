@@ -21,7 +21,7 @@ namespace KeystoneMT5
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
         AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
-        CheckBox aRollCb; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
+        CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall; TextBlock aLockTxt; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
 
         FrameworkElement BuildAuto()
         {
@@ -50,10 +50,25 @@ namespace KeystoneMT5
             // the parameters
             var card = new Border { Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(card, Dock.Top); aSetCard = card; aShowSet = Get("auto.showset", "1") == "1";
             aSettings = new StackPanel(); card.Child = aSettings;
-            aLock = new Border { Background = Tint(Amber, 60), BorderBrush = Amber, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed };
-            var lockRow = new DockPanel(); var lockBtn = Pill("■  STOP TO CHANGE SETTINGS", Tint(Amber, 140)); lockBtn.Height = 32; DockPanel.SetDock(lockBtn, Dock.Right);
-            lockBtn.Click += delegate { if (!auto.Running) return; if (!Sx.Ask(this, "🔒 Change the settings", "The automation is RUNNING. To change the settings or the strategy it must stop first.\n\nSTOP now? The open positions stay as they are; press ▶ START (or RESUME) after changing the settings and it takes them over again.", "■ STOP", "KEEP RUNNING", Amber)) return; auto.Stop("stopped by you to change the settings"); AutoPaint(true); };
-            lockRow.Children.Add(lockBtn); lockRow.Children.Add(new TextBlock { Text = "🔒 THE AUTOMATION IS RUNNING — the settings are locked. Look at them freely; to change them (or the strategy) stop it first.", Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap });
+            // ✏ the SETTINGS bar (user's request): change anything while it runs → 💾 SAVE = the NEXT iteration uses it (the open one keeps its own);
+            // stopped → ▶ START / RESUME right here. Big and coloured, always at the top of the settings.
+            aLock = new Border { Background = Tint(Green, 40), BorderBrush = Green, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 10), Visibility = Visibility.Visible };
+            var lockRow = new DockPanel();
+            aSaveBtn = Pill("💾  SAVE — FROM THE NEXT ITERATION", Tint(Green, 200)); aSaveBtn.Height = 40; aSaveBtn.FontSize = 15; aSaveBtn.Foreground = Bg; aSaveBtn.Margin = new Thickness(10, 0, 0, 0);
+            aUndoBtn = Pill("↺  UNDO CHANGES", Card); aUndoBtn.Height = 40; aUndoBtn.FontSize = 13; aUndoBtn.Margin = new Thickness(10, 0, 0, 0);
+            var stopSmall = Pill("■ STOP", Tint(Amber, 140)); stopSmall.Height = 40; stopSmall.Margin = new Thickness(10, 0, 0, 0);
+            aSaveBtn.Click += delegate
+            {
+                if (!auto.Running) { AutoStart(); return; }   // stopped: the same button = ▶ START / RESUME with these settings
+                AutoSaveSet(); var ns = aset.Copy(); ns.Symbol = auto.Set.Symbol; var err = auto.Check(broker, ns); if (err != "") { Sx.Info(this, "🤖 AUTO", err, Red); return; }
+                auto.Queue(ns); Toast(auto.Current != null ? "💾 saved — iteration #" + auto.Current.N + " keeps its settings, the NEXT one uses the new ones" : "💾 saved — in use now (no iteration open)"); AutoPaint(true);
+            };
+            aUndoBtn.Click += delegate { if (!auto.Running) return; aset = (auto.Next ?? auto.Set).Copy(); AutoModelBoxes(); AutoSaveSet(); AutoPaint(true); Toast("↺ the boxes show the settings in use again"); };
+            stopSmall.Click += delegate { if (!auto.Running) return; if (!Sx.Ask(this, "■ STOP the automation", "STOP now? The open positions stay as they are; ▶ START / RESUME takes them over again.", "■ STOP", "KEEP RUNNING", Amber)) return; auto.Stop("stopped by you"); AutoPaint(true); };
+            aStopSmall = stopSmall;
+            DockPanel.SetDock(stopSmall, Dock.Right); DockPanel.SetDock(aUndoBtn, Dock.Right); DockPanel.SetDock(aSaveBtn, Dock.Right);
+            lockRow.Children.Add(stopSmall); lockRow.Children.Add(aUndoBtn); lockRow.Children.Add(aSaveBtn);
+            aLockTxt = new TextBlock { Text = "", Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }; lockRow.Children.Add(aLockTxt);
             aLock.Child = lockRow; aSettings.Children.Add(aLock);
             var r0 = new WrapPanel();
             r0.Children.Add(ADrop("preset", "STRATEGY (FROM THE RESEARCH)", () => aset.Preset == "AH" ? "A + SIGNAL HEDGE" : aset.Preset == "A" ? "A · London engulfing — lower risk" : aset.Preset == "B" ? "B · NY FVG 50% — no stop" : aset.Preset == "C" ? "C · all day VWAP rejection" : aset.Preset == "D" ? "D · M1 aggression break" : aset.Preset == "F" ? "F · FVG 50% + FVG hedge" : aset.Preset == "BOX" ? "HEDGE BOX · consolidation flip (swap-free only)" : "your own settings", () => new List<Mi> {
@@ -110,7 +125,7 @@ namespace KeystoneMT5
                 rsp.Children.Add(new TextBlock { Text = "BREAK LEVEL", Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
                 aRollCb = new CheckBox { Content = "UPDATE RECENT HIGHS / LOWS IN REAL TIME", IsChecked = aset.Rolling, Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 12, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 5, 0, 0),
                     ToolTip = "ON: the hedge line moves to the NEWEST swing low (buy leading) / high (sell leading) as soon as one forms — up and back down = a new recent low\nOFF: the hedge line stays at the low / high it had when the leg opened" };
-                aRollCb.Click += delegate { if (auto.Running) { aRollCb.IsChecked = aset.Rolling; return; } aset.Rolling = aRollCb.IsChecked == true; AutoSaveSet(); ARollPaint(); };
+                aRollCb.Click += delegate { aset.Rolling = aRollCb.IsChecked == true; AutoSaveSet(); ARollPaint(); };
                 ARollPaint();
                 rsp.Children.Add(aRollCb); afBox["roll"] = rsp; r2.Children.Add(rsp);
             }
@@ -195,10 +210,22 @@ namespace KeystoneMT5
             var sp = new StackPanel { Margin = new Thickness(0, 0, 12, 4) };
             sp.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
             var b = Pill(now() + "  ▾", Tint(Sx.Card2, 230)); b.Height = 28; b.Tag = now; aDrops[key] = b; afBox[key] = sp;
-            b.Click += delegate { if (auto.Running) return; var list = items(); foreach (var m in list) { var act = m.Do; m.Do = () => { act(); b.Content = now() + "  ▾"; AutoSaveSet(); AutoVis(); }; } SxMenu.Show(b, new Point(0, b.ActualHeight + 4), list); };
+            b.Click += delegate { var list = items(); foreach (var m in list) { var act = m.Do; m.Do = () => { act(); b.Content = now() + "  ▾"; AutoSaveSet(); AutoVis(); }; } SxMenu.Show(b, new Point(0, b.ActualHeight + 4), list); };
             sp.Children.Add(b); return sp;
         }
         // a researched model: its settings into the boxes (the drop-downs' labels follow)
+        // every box and drop-down shows aset (UNDO: back to the settings in use)
+        void AutoModelBoxes()
+        {
+            Action<string, string> t = (k, v) => { TextBox tb; if (af.TryGetValue(k, out tb)) tb.Text = v; }; Func<double, string> d = v => v.ToString(IC);
+            t("sym", aset.Symbol); t("look", d(aset.Lookback)); t("entry", d(aset.EntryLots)); t("add", d(aset.AddLots)); t("target", d(aset.Target)); t("dd", d(aset.MaxDrawdown)); t("comm", d(aset.CommissionPerLot));
+            t("pause", d(aset.PauseSec)); t("maxit", d(aset.MaxIterations)); t("hprice", d(aset.HedgePrice)); t("hmoney", d(aset.HedgeMoney)); t("win", aset.Windows); t("nyoff", d(aset.NyOffsetHours)); t("perday", d(aset.PerDay));
+            t("nb", d(aset.NewsBefore)); t("na", d(aset.NewsAfter)); t("wlots", d(aset.WinnerLots)); t("wlots2", d(aset.WinnerLotsSell)); t("wmax", d(aset.MaxWinnerAdds)); t("swk", d(aset.SwingK)); t("fvol", d(aset.FlowVol)); t("fshare", d(aset.FlowShare));
+            t("eod", aset.CloseAtNy); t("fage", d(aset.FvgAge)); t("aggrun", d(aset.AggRun)); t("hmult", d(aset.HedgeMult)); t("maxh", d(aset.MaxHedges)); t("nadv", d(aset.NetAdvantage)); t("rmove", d(aset.RecoverMove)); t("hmax", d(aset.HedgeMaxLots));
+            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); }
+            foreach (var b in aDrops.Values) { var f = b.Tag as Func<string>; if (f != null) b.Content = f() + "  ▾"; }
+            AutoVis();
+        }
         void AutoModel(string name)
         {
             aset = AutoSettings.Model(name, AutoRead());
@@ -243,15 +270,15 @@ namespace KeystoneMT5
             if (aView == "ITERATIONS")
             {
                 var d = e.Iterations.Where(x => x.Done).ToList(); double avgS = d.Count > 0 ? d.Average(x => (x.End - x.Start).TotalSeconds) : 0;
-                aRows.Children.Add(new TextBlock { Text = e.Iterations.Count + " iterations  •  won " + d.Count(x => x.Won) + " / lost " + d.Count(x => !x.Won) + "  •  net " + Signed(d.Sum(x => x.Result), "USD") + "  •  average time in the trade " + (d.Count > 0 ? Dur(TimeSpan.FromSeconds(avgS)) : "—") + "  •  winners " + (d.Any(x => x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—") + ", losers " + (d.Any(x => !x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => !x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—"), Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13, Margin = new Thickness(8, 6, 8, 6) });
-                aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("START → END", 150, Muted, true, 11), Cell("⏱ IN TRADE", 92, Muted, true, 11), Cell("FIRST", 64, Muted, true, 11), Cell("BUYS / SELLS / HEDGES", 150, Muted, true, 11), Cell("MAX LOTS", 74, Muted, true, 11), Cell("WORST", 90, Muted, true, 11), Cell("RESULT", 100, Muted, true, 11), Cell("HOW", 260, Muted, true, 11)));
+                aRows.Children.Add(new TextBlock { Text = e.Iterations.Count + " iterations  •  won " + d.Count(x => x.Won) + " / lost " + d.Count(x => !x.Won) + "  •  net " + Signed(d.Sum(x => x.Result), "USD") + " (after " + Signed(-e.Iterations.Sum(x => x.Fees), "USD") + " commission • gross " + Signed(d.Sum(x => x.Result + x.Fees), "USD") + ")  •  average time in the trade " + (d.Count > 0 ? Dur(TimeSpan.FromSeconds(avgS)) : "—") + "  •  winners " + (d.Any(x => x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—") + ", losers " + (d.Any(x => !x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => !x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—"), Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13, Margin = new Thickness(8, 6, 8, 6) });
+                aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("START → END", 150, Muted, true, 11), Cell("⏱ IN TRADE", 92, Muted, true, 11), Cell("FIRST", 64, Muted, true, 11), Cell("BUYS / SELLS / HEDGES", 150, Muted, true, 11), Cell("MAX LOTS", 74, Muted, true, 11), Cell("WORST", 90, Muted, true, 11), Cell("COMMISSION", 96, Muted, true, 11), Cell("RESULT (NET)", 110, Muted, true, 11), Cell("HOW", 250, Muted, true, 11)));
                 foreach (var x in e.Iterations.AsEnumerable().Reverse())
                 {
                     var end = x.Done ? x.End : e.Now; var col = !x.Done ? Cyan : x.Won ? Green : Red;
                     aRows.Children.Add(Row(col, Cell("#" + x.N, 36, Text, true), Cell(x.Start.ToString("dd MMM", IC), 84, Muted), Cell(x.Start.ToString("HH:mm:ss", IC) + " → " + (x.Done ? x.End.ToString("HH:mm:ss", IC) : "open"), 150, Text),
                         Cell(Dur(end - x.Start), 92, Violet, true, 12.5, Violet), Cell(x.FirstDir, 64, x.FirstDir == "BUY" ? Green : Red, true, 12, x.FirstDir == "BUY" ? Green : Red),
-                        Cell(x.Buys + " / " + x.Sells + " / " + x.AddOns + (x.ManualAdds > 0 ? " ✋" + x.ManualAdds : ""), 150, Text), Cell(x.MaxGross.ToString("0.##", IC), 74, Text), Cell(x.MaxDd.ToString("0.00", IC), 90, x.MaxDd < 0 ? Red : Muted),
-                        Cell(x.Done ? x.Result.ToString("+0.00;−0.00", IC) : "(" + e.Basket.ToString("+0.00;−0.00", IC) + ")", 100, col, true, 14), Cell((x.Manual ? "✋ " : "") + (x.Done ? x.Reason : "OPEN"), 260, col, true, 11.5, col)));
+                        Cell(x.Buys + " / " + x.Sells + " / " + x.AddOns + (x.ManualAdds > 0 ? " ✋" + x.ManualAdds : ""), 150, Text), Cell(x.MaxGross.ToString("0.##", IC), 74, Text), Cell(x.MaxDd.ToString("0.00", IC), 90, x.MaxDd < 0 ? Red : Muted), Cell(x.Fees > 0 ? "−" + x.Fees.ToString("0.00", IC) : "0.00", 96, x.Fees > 0 ? Amber : Muted, true),
+                        Cell(x.Done ? x.Result.ToString("+0.00;−0.00", IC) : "(" + e.Basket.ToString("+0.00;−0.00", IC) + ")", 110, col, true, 14), Cell((x.Manual ? "✋ " : "") + (x.Done ? x.Reason : "OPEN"), 250, col, true, 11.5, col)));
                 }
                 if (e.Iterations.Count == 0) aRows.Children.Add(new TextBlock { Text = "no iterations yet — START the automation", Foreground = Muted, Margin = new Thickness(10) });
             }
@@ -445,11 +472,11 @@ namespace KeystoneMT5
 
                 // 02 iterations: readable times, the context split into columns
                 var ctxKeys = its.SelectMany(x => (x.Ctx ?? "").Split(';').Where(kv => kv.Contains("=")).Select(kv => kv.Split('=')[0])).Distinct().ToList();
-                var rows = new List<string> { "n,start,end,seconds,first,buys,sells,addons,winner_adds,manual_adds,buy_lots,sell_lots,max_lots,max_drawdown,result,reason,balance_start,balance_end,manual,adopted,done" + string.Concat(ctxKeys.Select(k => ",ctx_" + k)) };
+                var rows = new List<string> { "n,start,end,seconds,first,buys,sells,addons,winner_adds,manual_adds,buy_lots,sell_lots,max_lots,max_drawdown,result,reason,balance_start,balance_end,manual,adopted,done,commission" + string.Concat(ctxKeys.Select(k => ",ctx_" + k)) };
                 foreach (var x in its)
                 {
                     var ctx = (x.Ctx ?? "").Split(';').Where(kv => kv.Contains("=")).GroupBy(kv => kv.Split('=')[0]).ToDictionary(g => g.Key, g => g.First().Substring(g.Key.Length + 1));
-                    string cv; rows.Add(string.Join(",", x.N.ToString(IC), T(x.Start), x.Done ? T(x.End) : "", x.Done ? ((int)(x.End - x.Start).TotalSeconds).ToString(IC) : "", x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.WinnerAdds.ToString(IC), x.ManualAdds.ToString(IC), N(x.BuyLots), N(x.SellLots), N(x.MaxGross), N(x.MaxDd), x.Done ? N(x.Result) : "", Q(x.Reason), N(x.BalanceStart), N(x.BalanceEnd), x.Manual ? "1" : "0", x.Adopted ? "1" : "0", x.Done ? "1" : "0") + string.Concat(ctxKeys.Select(k => "," + Q(ctx.TryGetValue(k, out cv) ? cv : ""))));
+                    string cv; rows.Add(string.Join(",", x.N.ToString(IC), T(x.Start), x.Done ? T(x.End) : "", x.Done ? ((int)(x.End - x.Start).TotalSeconds).ToString(IC) : "", x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.WinnerAdds.ToString(IC), x.ManualAdds.ToString(IC), N(x.BuyLots), N(x.SellLots), N(x.MaxGross), N(x.MaxDd), x.Done ? N(x.Result) : "", Q(x.Reason), N(x.BalanceStart), N(x.BalanceEnd), x.Manual ? "1" : "0", x.Adopted ? "1" : "0", x.Done ? "1" : "0", N(x.Fees)) + string.Concat(ctxKeys.Select(k => "," + Q(ctx.TryGetValue(k, out cv) ? cv : ""))));
                 }
                 W("02-iterations.csv", rows);
 
@@ -515,7 +542,7 @@ namespace KeystoneMT5
             var id = AutoId(); if (id == "" || aHist == id) return; aHist = id; if (auto.Iterations.Count > 0) return;
             try
             {
-                var f = AutoFile("iterations"); if (File.Exists(f)) foreach (var l in File.ReadAllLines(f).Skip(1)) { var a = l.Split(','); if (a.Length < 16) continue; Func<int, double> d = i => double.Parse(a[i], IC); auto.Iterations.Add(new AutoIteration { N = int.Parse(a[0], IC), Start = new DateTime(long.Parse(a[1], IC)), End = new DateTime(long.Parse(a[2], IC)), FirstDir = a[3], Buys = int.Parse(a[4], IC), Sells = int.Parse(a[5], IC), AddOns = int.Parse(a[6], IC), BuyLots = d(7), SellLots = d(8), MaxGross = d(9), MaxDd = d(10), Result = d(11), Reason = a[12], BalanceStart = d(13), BalanceEnd = d(14), Peak = d(15), WinnerAdds = a.Length > 16 ? int.Parse(a[16], IC) : 0, Ctx = a.Length > 17 ? a[17] : "", Manual = a.Length > 17 && a[17].Contains("manual=yes") }); }
+                var f = AutoFile("iterations"); if (File.Exists(f)) foreach (var l in File.ReadAllLines(f).Skip(1)) { var a = l.Split(','); if (a.Length < 16) continue; Func<int, double> d = i => double.Parse(a[i], IC); auto.Iterations.Add(new AutoIteration { N = int.Parse(a[0], IC), Start = new DateTime(long.Parse(a[1], IC)), End = new DateTime(long.Parse(a[2], IC)), FirstDir = a[3], Buys = int.Parse(a[4], IC), Sells = int.Parse(a[5], IC), AddOns = int.Parse(a[6], IC), BuyLots = d(7), SellLots = d(8), MaxGross = d(9), MaxDd = d(10), Result = d(11), Reason = a[12], BalanceStart = d(13), BalanceEnd = d(14), Peak = d(15), WinnerAdds = a.Length > 16 ? int.Parse(a[16], IC) : 0, Ctx = a.Length > 17 ? a[17] : "", Fees = a.Length > 18 ? double.Parse(a[18], IC) : 0, Manual = a.Length > 17 && a[17].Contains("manual=yes") }); }
                 var t2 = AutoFile("trades"); if (File.Exists(t2)) foreach (var l in File.ReadAllLines(t2).Skip(1)) { var a = l.Split(new[] { ',' }, 8); if (a.Length < 8) continue; auto.Trades.Add(new AutoTrade { Iter = int.Parse(a[0], IC), Time = new DateTime(long.Parse(a[1], IC)), Side = a[2], Lots = double.Parse(a[3], IC), Price = double.Parse(a[4], IC), Level = double.Parse(a[5], IC), Basket = double.Parse(a[6], IC), Why = a[7].Trim('"') }); }
                 var s = AutoFile("story"); if (File.Exists(s)) foreach (var l in File.ReadAllLines(s).Reverse().Take(4000).Reverse()) { int sp = l.IndexOf("  "); int n; if (l.StartsWith("#") && sp > 1 && int.TryParse(l.Substring(1, sp - 1), out n)) auto.Story.Add(Tuple.Create(n, l.Substring(sp + 2))); }
                 var g = AutoFile("log"); if (File.Exists(g)) auto.Log.AddRange(File.ReadAllLines(g).Reverse().Take(2000).Reverse());
@@ -529,11 +556,11 @@ namespace KeystoneMT5
             try
             {
                 Directory.CreateDirectory(Path.Combine(Dir, "auto")); var f = AutoFile("iterations"); var t = AutoFile("trades");
-                if (!File.Exists(f)) File.WriteAllText(f, "n,start,end,first,buys,sells,addons,buylots,selllots,maxgross,maxdd,result,reason,balstart,balend,peak,winneradds,context\n");
+                if (!File.Exists(f)) File.WriteAllText(f, "n,start,end,first,buys,sells,addons,buylots,selllots,maxgross,maxdd,result,reason,balstart,balend,peak,winneradds,context,fees\n");
                 if (!File.Exists(t)) File.WriteAllText(t, "iteration,time,side,lots,price,level,basket,why\n");
                 foreach (var x in done.Skip(aSaved))
                 {
-                    File.AppendAllText(f, string.Join(",", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.End.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.Result.ToString("R", IC), x.Reason, x.BalanceStart.ToString("R", IC), x.BalanceEnd.ToString("R", IC), x.Peak.ToString("R", IC), x.WinnerAdds.ToString(IC), (x.Ctx ?? "").Replace(",", " ")) + "\n");
+                    File.AppendAllText(f, string.Join(",", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.End.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.Result.ToString("R", IC), x.Reason, x.BalanceStart.ToString("R", IC), x.BalanceEnd.ToString("R", IC), x.Peak.ToString("R", IC), x.WinnerAdds.ToString(IC), (x.Ctx ?? "").Replace(",", " "), x.Fees.ToString("0.##", IC)) + "\n");
                     File.AppendAllLines(t, auto.Trades.Where(tr => tr.Iter == x.N && tr.Time >= x.Start).Select(tr => string.Join(",", tr.Iter.ToString(IC), tr.Time.Ticks.ToString(IC), tr.Side, tr.Lots.ToString("R", IC), tr.Price.ToString("R", IC), (double.IsNaN(tr.Level) ? 0 : tr.Level).ToString("R", IC), tr.Basket.ToString("R", IC), "\"" + tr.Why.Replace("\"", "'").Replace(",", ";") + "\"")));
                 }
                 aSaved = done.Count;
@@ -569,8 +596,19 @@ namespace KeystoneMT5
             {   // SETTINGS and RACE get the whole room: the setup cards and the number tiles belong to the 🤖 views
                 bool full = aView == "⚙ SETTINGS" || aView == "🏁 RACE"; if (aSetups != null) aSetups.Visibility = full ? Visibility.Collapsed : Visibility.Visible; if (aTiles != null) aTiles.Visibility = full ? Visibility.Collapsed : Visibility.Visible;
             }
-            if (aLock != null) aLock.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-            if (aRollCb != null) aRollCb.IsEnabled = !on; aStart.IsEnabled = !on; aStop.IsEnabled = on; foreach (var tb in af.Values) tb.IsEnabled = !on; foreach (var b in aDrops.Values) b.IsEnabled = !on;
+            aStart.IsEnabled = !on; aStop.IsEnabled = on;
+            if (aLockTxt != null)
+            {   // the settings bar: running → SAVE for the next iteration (amber while there are unsaved changes); stopped → START / RESUME here
+                string inUse = (auto.Next ?? auto.Set).Save(), boxes = AutoRead().Save(); bool dirty = on && inUse != boxes, queued = on && auto.Next != null;
+                aLockTxt.Text = !on ? "⏸ STOPPED — change what you want, then ▶ START / RESUME (the open positions are taken over again)"
+                    : dirty ? "✏ CHANGES NOT SAVED YET — press 💾 SAVE: the open iteration keeps its settings, the NEXT one uses these"
+                    : queued ? "⏳ SAVED — the new settings start with the NEXT iteration" + (auto.Current != null ? " (#" + auto.Current.N + " is still open with the old ones)" : "")
+                    : "🟢 RUNNING — you can change any setting below; 💾 SAVE applies it from the next iteration (the open one is not touched)";
+                aLock.Background = Tint(!on ? Cyan : dirty ? Amber : Green, 45); aLock.BorderBrush = !on ? Cyan : dirty ? Amber : Green;
+                aSaveBtn.Content = !on ? (Get("auto.run." + AKey, "0") == "1" ? "⟳  RESUME WITH THESE SETTINGS" : "▶  START WITH THESE SETTINGS") : "💾  SAVE — FROM THE NEXT ITERATION";
+                aSaveBtn.Background = Tint(!on ? Cyan : Green, (byte)(dirty ? 200 + 55 * Math.Abs(Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 300.0)) : 200)); aSaveBtn.IsEnabled = !on || dirty;
+                aUndoBtn.Visibility = on && dirty ? Visibility.Visible : Visibility.Collapsed; aStopSmall.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            }
             if (!force && auto.Version == aSeen) return; aSeen = auto.Version;
             AutoTilesPaint(); AutoTablePaint();
         }
@@ -585,10 +623,11 @@ namespace KeystoneMT5
                 Tuple.Create("WON / LOST", st.Wins + " / " + st.Losses + (st.Done > 0 ? "  " + (100.0 * st.Wins / st.Done).ToString("0", IC) + "%" : ""), st.Losses > 0 ? Amber : Green),
                 Tuple.Create("STREAK NOW / BEST", (st.Streak > 0 ? st.Streak + " won" : st.Streak < 0 ? -st.Streak + " lost" : "—") + " / " + st.BestStreak, st.Streak >= 0 ? Green : Red),
                 Tuple.Create("TODAY", Signed(tdNet, "USD") + (tdBase > 0 ? "  " + (100 * tdNet / tdBase).ToString("+0.00;−0.00", IC) + "%" : ""), tdNet >= 0 ? Green : Red),
-                Tuple.Create("NET", Signed(st.Net, "USD"), st.Net >= 0 ? Green : Red),
+                Tuple.Create("NET (AFTER COMMISSION)", Signed(st.Net, "USD"), st.Net >= 0 ? Green : Red),
+                Tuple.Create("COMMISSIONS", Signed(-auto.Iterations.Sum(x => x.Fees), "USD") + "  (today " + Signed(-auto.Iterations.Where(x => x.Start.Date == today).Sum(x => x.Fees), "USD") + ")", Amber),
                 Tuple.Create("WORST DRAWDOWN", st.WorstDd.ToString("0.00", IC), st.WorstDd < 0 ? Red : Muted),
                 Tuple.Create("BUYS / SELLS / ADD-ONS", st.Buys + " / " + st.Sells + " / " + st.AddOns, Violet),
-                Tuple.Create("MOST ADD-ONS", st.MostAddOns.ToString(IC), Cyan));
+                Tuple.Create("MOST ADD-ONS", st.MostAddOns.ToString(IC), Cyan));   // the open iteration's commissions count in COMMISSIONS live
         }
         // the text of one view (STORY / ITERATIONS / TRADES / ANALYSIS / LEARN / LOG) — the screen and the 📦 EXPORT use the same lines
         List<string> AutoLines(string aView)

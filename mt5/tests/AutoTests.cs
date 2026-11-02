@@ -274,6 +274,13 @@ public static class AutoTests
             var oldR = AutoSettings.Load("sym=XAUUSD;rolling=0;hsize=FIXED"); var keepF = S(); keepF.Rolling = false; var keepB = AutoSettings.Load(keepF.Save());
             Check(oldR.Rolling && !keepB.Rolling, "rolling: older saved settings follow the newest swing; FIXED picked now stays", oldR.Rolling + " " + keepB.Rolling);
         }
+        {   // ✏ EDIT WHILE RUNNING: saved changes wait for the NEXT iteration — the open one keeps its lots, the next one uses the new ones
+            var sQ = S(); sQ.FirstDir = "BUY"; sQ.HedgeMode = "NONE"; sQ.Target = 20; sQ.MaxIterations = 2;
+            var rQ = Run(Path(Day1, 4000, Line(4000, 0.25, 80)), sQ, (sb, au) => { var n2 = au.Set.Copy(); n2.EntryLots = 0.2; au.Queue(n2); });
+            var eQ = rQ.Item2.Trades.Where(t => t.Why.StartsWith("ENTRY")).ToList();
+            Check(eQ.Count >= 2 && Math.Abs(eQ[0].Lots - 0.1) < 1e-9 && Math.Abs(eQ[1].Lots - 0.2) < 1e-9 && rQ.Item2.Story.Any(x => x.Item2.Contains("NEW SETTINGS")),
+                "edit while running: the open iteration keeps 0.1 lot, the next one uses the saved 0.2", string.Join(" | ", eQ.Select(x => x.Iter + " " + x.Lots)));
+        }
         // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();
