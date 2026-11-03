@@ -161,7 +161,28 @@ namespace KeystoneMT5
 
         public Action<int, string> OnTell, OnNote;
         // 📉 THE BASKET'S PATH (for learning): once a minute while an iteration is open — the time, bid, basket $, net lots, legs, gross lots
-        public Action<string> OnPath; DateTime pathMin = DateTime.MinValue;   // every story / log line as it happens (the window writes them to its files)
+        public Action<string> OnPath; DateTime pathMin = DateTime.MinValue;
+        // 💾 THE OPEN ITERATION survives a restart: saved every minute (and at STOP), read back when the same positions are adopted again
+        public sealed class OpenSave { public AutoIteration It; public HashSet<long> Tickets = new HashSet<long>(); public DateTime SavedAt; }
+        public Action<string> OnOpenState; public Func<OpenSave> RestoreOpen; DateTime openSavedAt = DateTime.MinValue;
+        public static string Dur(TimeSpan t) { return t.TotalDays >= 1 ? ((int)t.TotalDays) + "d " + t.Hours + "h " + t.Minutes.ToString("00") + "m" : t.TotalHours >= 1 ? ((int)t.TotalHours) + "h " + t.Minutes.ToString("00") + "m" : t.Minutes + "m " + t.Seconds.ToString("00") + "s"; }
+        public string OpenText(IEnumerable<long> tickets)
+        {
+            var x = Current; if (x == null) return "";
+            return string.Join("|", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.BalanceStart.ToString("R", IC), x.Peak.ToString("R", IC), (x.Ctx ?? "").Replace("|", " "), x.Manual ? "1" : "0", string.Join(";", tickets.Select(t => t.ToString(IC))), Now.Ticks.ToString(IC), string.Join(";", x.FeeByTicket.Select(kv => kv.Key.ToString(IC) + "=" + kv.Value.ToString("R", IC))));
+        }
+        public static OpenSave ParseOpen(string line)
+        {
+            try
+            {
+                var a = (line ?? "").Split('|'); if (a.Length < 16) return null; Func<int, double> d = i => double.Parse(a[i], IC);
+                var it = new AutoIteration { N = int.Parse(a[0], IC), Start = new DateTime(long.Parse(a[1], IC)), FirstDir = a[2], Buys = int.Parse(a[3], IC), Sells = int.Parse(a[4], IC), AddOns = int.Parse(a[5], IC), BuyLots = d(6), SellLots = d(7), MaxGross = d(8), MaxDd = d(9), BalanceStart = d(10), Peak = d(11), Ctx = a[12], Manual = a[13] == "1" };
+                var o = new OpenSave { It = it, SavedAt = new DateTime(long.Parse(a[15], IC)) }; foreach (var t in a[14].Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)) o.Tickets.Add(long.Parse(t, IC));
+                if (a.Length > 16) foreach (var kv in a[16].Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)) { var q = kv.Split('='); if (q.Length == 2) it.FeeByTicket[long.Parse(q[0], IC)] = double.Parse(q[1], IC); }
+                return o;
+            }
+            catch { return null; }
+        }   // every story / log line as it happens (the window writes them to its files)
         void Tell(string s) { var line = Now.ToString("dd MMM yy HH:mm:ss", IC) + "  " + s; if (OnTell != null) try { OnTell(Current != null ? Current.N : 0, line); } catch { } Story.Add(Tuple.Create(Current != null ? Current.N : 0, line)); if (Story.Count > 5000) Story.RemoveRange(0, 1000); Version++; }
         string P(double v) { return double.IsNaN(v) ? "—" : v.ToString("0.#####", IC); }
         string M(double v) { return (v < 0 ? "−$" : "+$") + Math.Abs(v).ToString("N2", IC); }
@@ -214,8 +235,23 @@ namespace KeystoneMT5
             {
                 var last = sn.Pos.OrderBy(p => p.Time).ThenBy(p => p.Ticket).Last(); lastDir = last.Dir;
                 Current = new AutoIteration { N = Iterations.Count + 1, Start = Now, FirstDir = sn.Pos.OrderBy(p => p.Time).First().Side, BalanceStart = sn.Balance, Adopted = true, Buys = sn.Pos.Count(p => p.Dir > 0), Sells = sn.Pos.Count(p => p.Dir < 0), BuyLots = sn.Pos.Where(p => p.Dir > 0).Sum(p => p.Lots), SellLots = sn.Pos.Where(p => p.Dir < 0).Sum(p => p.Lots) };
-                Current.AddOns = Math.Max(0, sn.Pos.Count - 1); Iterations.Add(Current); Phase = "IN ITERATION"; SetHedgeLevel(sn, lastDir); knownGross = Gross(sn.Pos);
-                Note("⤴ adopted the " + sn.Pos.Count + " position(s) open on " + Set.Symbol + " as iteration #" + Current.N);
+                Current.AddOns = Math.Max(0, sn.Pos.Count - 1);
+                // the SAME basket as before the restart (its positions match the saved open iteration): it keeps its number, its start, its numbers
+                var sv = RestoreOpen != null ? RestoreOpen() : null; bool same = false;
+                if (sv != null && sv.Tickets.Count > 0 && sn.Pos.All(p => sv.Tickets.Contains(p.Ticket) || p.Time >= sv.SavedAt))
+                {
+                    var o = sv.It; Current.N = o.N; Current.Start = o.Start; Current.FirstDir = o.FirstDir; Current.BalanceStart = o.BalanceStart; Current.MaxDd = o.MaxDd; Current.MaxGross = Math.Max(o.MaxGross, Gross(sn.Pos)); Current.Peak = o.Peak; Current.Ctx = o.Ctx;
+                    Current.Buys = Math.Max(Current.Buys, o.Buys); Current.Sells = Math.Max(Current.Sells, o.Sells); Current.AddOns = Math.Max(Current.AddOns, o.AddOns); Current.Adopted = false; Current.Manual = o.Manual; same = true;
+                    foreach (var kv in o.FeeByTicket) Current.FeeByTicket[kv.Key] = kv.Value;
+                }
+                if (!same)
+                {   // no saved open iteration (an older build): its trades in the history still tell when it began
+                    var trs = Trades.Where(t => t.Iter == Current.N && t.Side != "CLOSE").OrderBy(t => t.Time).ToList();
+                    if (trs.Count > 0 && trs[0].Time < Now) { Current.Start = trs[0].Time; Current.FirstDir = trs[0].Side; Current.Buys = Math.Max(Current.Buys, trs.Count(t => t.Side == "BUY")); Current.Sells = Math.Max(Current.Sells, trs.Count(t => t.Side == "SELL")); Current.AddOns = Math.Max(Current.AddOns, trs.Count - 1); Current.MaxDd = Math.Min(0, trs.Min(t => t.Basket)); Current.Adopted = false; same = true; }
+                }
+                Iterations.RemoveAll(x => !x.Done && x.N == Current.N); Iterations.Add(Current); Phase = "IN ITERATION"; SetHedgeLevel(sn, lastDir); knownGross = Gross(sn.Pos);
+                Note(same ? "⤴ iteration #" + Current.N + " continues after the restart — open since " + Current.Start.ToString("dd MMM HH:mm", IC) + " (" + sn.Pos.Count + " positions)" : "⤴ adopted the " + sn.Pos.Count + " position(s) open on " + Set.Symbol + " as iteration #" + Current.N);
+                if (same && Current.Start.Date < Now.Date) Tell("↪ CARRIED OVER: iteration #" + Current.N + " has been open since " + Current.Start.ToString("ddd dd MMM HH:mm", IC) + " (" + Dur(Now - Current.Start) + ") — " + sn.Pos.Count + " positions, basket " + M(BasketOf(sn)) + ".");
             }
             else Wait(sn, Set.FirstDir == "BUY" || Set.FirstDir == "SELL" ? "FIRST" : "BREAK");
             Version++;
@@ -359,6 +395,7 @@ namespace KeystoneMT5
                 double total = Basket + (Set.ExitMode == "LEGS" ? sn.Balance - it.BalanceStart : 0);   // LEGS: what the closed legs made counts too
                 foreach (var p in sn.Pos) it.FeeByTicket[p.Ticket] = OpenComm(sn, p) * 2 + (Set.CommissionPerLot > 0 ? p.Lots * Set.CommissionPerLot : 0);   // the commissions so far (live)
                 it.Fees = it.FeeByTicket.Values.Sum();
+                if (OnOpenState != null && (DateTime.Now - openSavedAt).TotalSeconds >= 30) { openSavedAt = DateTime.Now; OnOpenState(OpenText(sn.Pos.Select(p => p.Ticket))); }
                 { var pm = new DateTime(Now.Year, Now.Month, Now.Day, Now.Hour, Now.Minute, 0); if (pm != pathMin && OnPath != null) { pathMin = pm; OnPath(string.Join(",", it.N.ToString(IC), Now.Ticks.ToString(IC), sn.Bid.ToString("R", IC), Basket.ToString("0.00", IC), sn.Pos.Sum(p => p.Dir * p.Lots).ToString("0.##", IC), sn.Pos.Count.ToString(IC), Gross(sn.Pos).ToString("0.##", IC), Locked ? "LOCKED" : "")); } }
                 it.MaxDd = Math.Min(it.MaxDd, total); it.Peak = Math.Max(it.Peak, Basket); it.MaxGross = Math.Max(it.MaxGross, Gross(sn.Pos));
                 if (Set.ExitMode == "LEGS")
@@ -681,7 +718,7 @@ namespace KeystoneMT5
             Note((it.Result >= 0 ? "✔" : "✖") + " iteration #" + it.N + " " + it.Reason + " " + it.Result.ToString("+0.00;−0.00", IC) + " • " + it.Buys + " buys / " + it.Sells + " sells • " + it.AddOns + " add-ons • max drawdown " + it.MaxDd.ToString("0.00", IC));
             int dir = it.BuyLots > it.SellLots + 1e-9 ? 1 : it.SellLots > it.BuyLots + 1e-9 ? -1 : lastDir; lastDir = dir;
             if (it.Reason == "TARGET" && Math.Abs(it.BuyLots - it.SellLots) > 1e-9) { it.AfterMax = it.Result; it.AfterDone = false; }   // follow it after the target
-            Current = null; HedgeLevel = double.NaN; Locked = false; lockFrom = 0; Version++;
+            Current = null; HedgeLevel = double.NaN; Locked = false; lockFrom = 0; Version++; if (OnOpenState != null) OnOpenState("");   // closed: nothing to carry over
             if (Next != null) ApplyNext();
             if (it.Reason == "MAX DRAWDOWN" && Set.AfterDrawdown == "STOP") { Stop("the max drawdown $" + Set.MaxDrawdown.ToString("0.##", IC) + " was hit"); return; }
             if (it.Reason == "CLOSED OUTSIDE") { Stop("the basket was closed outside the automation"); return; }

@@ -317,6 +317,16 @@ public static class AutoTests
             double m0 = acct.MarginOfSymbol(spx, 1, 1, 4000); acct.Set.HedgedPct = 100; double m100 = acct.MarginOfSymbol(spx, 1, 1, 4000); acct.Set.HedgedPct = 50; double m50 = acct.MarginOfSymbol(spx, 1, 1, 4000);
             Check(Math.Abs(m0) < 1e-9 && Math.Abs(m100 - 2 * 4000 * 100 / 500.0) < 1e-6 && Math.Abs(m50 - 4000 * 100 / 500.0) < 1e-6, "hedged margin: MT5's 0 % → 0; 100 % → both legs in full ($1,600); 50 % → $800", m0 + " " + m100 + " " + m50);
         }
+        {   // 💾 CARRY OVER: an open basket saved, the automation restarted → the SAME iteration (its number, its start) continues
+            var sCo = S(); sCo.FirstDir = "BUY"; sCo.HedgeMode = "PRICE"; sCo.HedgePrice = 1; sCo.Target = 500;
+            var warmC = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)); var sbC = new SimBroker();
+            sbC.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = 10000, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 10 }, Gold(), warmC.Concat(Path(Day1, 4000, Line(4000, -0.1, 30).Concat(Line(3997, 0.05, 60)))).ToList());
+            var aCo1 = new HedgeAuto(); aCo1.Send = (c, x, l) => sbC.Command(c, x); string saved = ""; aCo1.OnOpenState = t => { if (t != "") saved = t; }; sbC.OnTickHook = () => aCo1.Step(sbC);
+            aCo1.Start(sbC, sCo, false); sbC.Playing = true; sbC.Speed = 60; for (int k2 = 0; k2 < 120 && !sbC.Ended; k2++) sbC.Advance(0.25);
+            var it1 = aCo1.Current; aCo1.Stop("the window closed"); sbC.OnTickHook = null;
+            var aCo2 = new HedgeAuto(); aCo2.Send = (c, x, l) => sbC.Command(c, x); aCo2.RestoreOpen = () => HedgeAuto.ParseOpen(saved); aCo2.Start(sbC, sCo, true);
+            Check(it1 != null && saved != "" && aCo2.Current != null && aCo2.Current.N == it1.N && aCo2.Current.Start == it1.Start && !aCo2.Current.Adopted, "carry over: after a restart the open basket is the SAME iteration (number, start kept)", (it1 == null ? "none" : it1.N + " " + it1.Start) + " vs " + (aCo2.Current == null ? "none" : aCo2.Current.N + " " + aCo2.Current.Start));
+        }
         // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();

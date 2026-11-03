@@ -29,6 +29,8 @@ namespace KeystoneMT5
             auto.Send = AutoSend; auto.NewsNear = AutoNews;
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
             auto.OnPath = line => AutoAppend("paths", line);
+            auto.OnOpenState = line => { try { if (string.IsNullOrEmpty(aHist)) return; var f = AutoFile("open"); if (line == "") { if (File.Exists(f)) File.Delete(f); } else { Directory.CreateDirectory(Path.GetDirectoryName(f)); File.WriteAllText(f, line); } } catch { } };
+            auto.RestoreOpen = () => { try { if (string.IsNullOrEmpty(aHist)) AutoLoadHistory(); var f = string.IsNullOrEmpty(aHist) ? null : AutoFile("open"); return f != null && File.Exists(f) ? HedgeAuto.ParseOpen(File.ReadAllText(f)) : null; } catch { return null; } };
             auto.OnAfterDone = ia => AutoAppend("after", string.Join(",", ia.N.ToString(IC), ia.Start.Ticks.ToString(IC), ia.AfterMax.ToString("0.##", IC), ia.AfterMaxMin.ToString("0.#", IC), ia.AfterBackTargetMin.ToString("0.#", IC), ia.AfterBreakevenMin.ToString("0.#", IC), ia.AfterMove.ToString("0.###", IC)));
             auto.OnHedgeDone = he => AutoAppend("hedges", string.Join(",", he.Iter.ToString(IC), he.Time.Ticks.ToString(IC), he.Kind, he.Dir > 0 ? "BUY" : "SELL", he.Lots.ToString("0.##", IC), he.Price.ToString("R", IC), he.RangeLo.ToString("R", IC), he.RangeHi.ToString("R", IC), he.Atr.ToString("0.###", IC), he.Before.ToString(IC), he.Basket.ToString("0.00", IC), he.Best.ToString("0.###", IC), he.Worst.ToString("0.###", IC), he.Whipsaw ? "1" : "0", (he.Ctx ?? "").Replace(",", " "))); auto.OnNote = (n, l) => AutoAppend("log", l);
             aGuidesOn = Get("auto.guides", "1") == "1"; foreach (var pn in panes) { var pp = pn; pp.V.Marks = () => aGuidesOn ? AutoMarks(pp.Sym) : null; pp.V.Guides = () => aGuidesOn && string.Equals(pp.Sym, aGuideSym, StringComparison.OrdinalIgnoreCase) ? aGuides : null; }
@@ -211,7 +213,7 @@ namespace KeystoneMT5
             aTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = TimeSpan.FromMilliseconds(200) };
             aResumeAt = DateTime.Now; aResumePending = !Sim && AutoWasRunning();
             raceResumeAt = DateTime.Now; raceResumePending = !Sim && Get("race.run", "0") == "1";
-            aTimer.Tick += delegate { if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+            aTimer.Tick += delegate { if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -309,7 +311,7 @@ namespace KeystoneMT5
                     aRows.Children.Add(Row(col, Cell("#" + x.N, 36, Text, true), Cell(x.Start.ToString("dd MMM", IC), 84, Muted), Cell(x.Start.ToString("HH:mm:ss", IC) + " → " + (x.Done ? x.End.ToString("HH:mm:ss", IC) : "open"), 150, Text),
                         Cell(Dur(end - x.Start), 92, Violet, true, 12.5, Violet), Cell(x.FirstDir, 64, x.FirstDir == "BUY" ? Green : Red, true, 12, x.FirstDir == "BUY" ? Green : Red),
                         Cell(x.Buys + " / " + x.Sells + " / " + x.AddOns + (x.ManualAdds > 0 ? " ✋" + x.ManualAdds : ""), 150, Text), Cell(x.MaxGross.ToString("0.##", IC), 74, Text), Cell(x.MaxDd.ToString("0.00", IC), 90, x.MaxDd < 0 ? Red : Muted), Cell(x.Fees > 0 ? "−" + x.Fees.ToString("0.00", IC) : "0.00", 96, x.Fees > 0 ? Amber : Muted, true),
-                        Cell(x.Done ? x.Result.ToString("+0.00;−0.00", IC) : "(" + e.Basket.ToString("+0.00;−0.00", IC) + ")", 110, col, true, 14), Cell((x.Manual ? "✋ " : "") + (x.Done ? x.Reason : "OPEN"), 120, col, true, 11.5, col), Cell(AfterText(x), 330, double.IsNaN(x.AfterMax) ? Muted : x.AfterMax >= x.Result * 2 ? Gold : Cyan, true, 11.5)));
+                        Cell(x.Done ? x.Result.ToString("+0.00;−0.00", IC) : "(" + e.Basket.ToString("+0.00;−0.00", IC) + ")", 110, col, true, 14), Cell((x.Manual ? "✋ " : "") + (x.Done ? x.Reason : x.Start.Date < e.Now.Date ? "OPEN ↪ since " + x.Start.ToString("dd MMM", IC) : "OPEN"), 120, col, true, 11.5, col), Cell(AfterText(x), 330, double.IsNaN(x.AfterMax) ? Muted : x.AfterMax >= x.Result * 2 ? Gold : Cyan, true, 11.5)));
                 }
                 if (e.Iterations.Count == 0) aRows.Children.Add(new TextBlock { Text = "no iterations yet — START the automation", Foreground = Muted, Margin = new Thickness(10) });
             }
@@ -479,6 +481,22 @@ namespace KeystoneMT5
         }
         // a DEMO made before the % commission existed charges nothing: on Duramarkets it gets its 0.001 % of each deal by itself (once; the
         // DEMO ACCOUNT box can still change it)
+        // the DEMO's margin for hedged pairs (user's request: realistic, margin calls included): when MT5 says a covered pair needs NO margin,
+        // the DEMO asks once to use 50 % (both legs at half margin) — the DEMO ACCOUNT box can still set 100 % or MT5's value (−1)
+        bool aHedgedAsked;
+        void AutoDemoHedgedMargin()
+        {
+            if (aHedgedAsked || !paper.Ready || !IsVisible || live == null || live.Key == "") return; aHedgedAsked = true;
+            if (paper.Acct.Set.HedgedPct >= 0 || Get("demo.hpct.asked." + live.Key, "") == "1") return;
+            double ratio = -1; lock (live.State.Gate) { Mt5Symbol xs; if (live.State.Symbols.TryGetValue("XAUUSD", out xs) && xs.MarginHedged >= 0) ratio = xs.MarginInitial > 0 && xs.MarginPerLot > 0 ? xs.MarginHedged / xs.MarginPerLot : xs.Contract > 0 ? xs.MarginHedged / xs.Contract : -1; }
+            if (ratio > 0.01) return;   // MT5 already charges hedged pairs: its own number stays
+            Put("demo.hpct.asked." + live.Key, "1");
+            double eq, mg50; lock (paper.Acct.State.Gate) { eq = paper.Acct.State.Account.Equity; paper.Acct.Set.HedgedPct = 50; paper.Acct.Mark(); mg50 = paper.Acct.State.Account.Margin; paper.Acct.Set.HedgedPct = -1; paper.Acct.Mark(); }
+            double ml = mg50 > 0 ? eq / mg50 * 100 : 0;
+            if (!Sx.Ask(this, "⚖ Realistic margin for hedged positions", "This broker's MT5 says a buy + a sell of the same size need NO margin, so this DEMO's margin level looks very high.\n\nUse 50 % margin for hedged pairs instead (a realistic, stricter rule)?" + (mg50 > 0 ? "\n\nWith the positions open now: margin $" + mg50.ToString("N0", IC) + ", margin level " + ml.ToString("0", IC) + " %" + (ml < paper.Acct.Set.StopOutPct ? " — UNDER the " + paper.Acct.Set.StopOutPct.ToString("0", IC) + " % stop-out: the biggest losing positions close at once until it is above again (a margin call, as at a real broker)." : ".") : ""), "⚖ USE 50 %", "KEEP MT5'S", Amber)) { Log("⚖ DEMO margin: MT5's own hedged margin kept (0 %) — DEMO ACCOUNT ▸ HEDGED PAIR MARGIN % changes it", Muted); return; }
+            lock (paper.Acct.State.Gate) { paper.Acct.Set.HedgedPct = 50; paper.Acct.Mark(); } Put("demo.hpct", "50"); try { paper.Save(); } catch { }
+            Log("⚖ DEMO margin: hedged pairs now need 50 % margin (stop-out under " + paper.Acct.Set.StopOutPct.ToString("0", IC) + " %)", Amber);
+        }
         void AutoDemoCommission()
         {
             string srv; lock (live.State.Gate) srv = live.State.Account.Server ?? ""; if (srv == "" || !paper.Ready) return; aPctChecked = true;
