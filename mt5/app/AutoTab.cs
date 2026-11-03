@@ -21,7 +21,7 @@ namespace KeystoneMT5
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
         AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
-        CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall; TextBlock aLockTxt; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
+        bool aResumePending, aPctChecked; DateTime aResumeAt; CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall; TextBlock aLockTxt; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
 
         FrameworkElement BuildAuto()
         {
@@ -203,7 +203,8 @@ namespace KeystoneMT5
             // the engine's clock: every tick of the BACKTEST; every 200 ms live (the bridge sends the state every 200 ms)
             if (Sim) sim.OnTickHook = () => { auto.Step(sim); RaceStep(); };
             aTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = TimeSpan.FromMilliseconds(200) };
-            aTimer.Tick += delegate { if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+            aResumeAt = DateTime.Now; aResumePending = !Sim && Get("auto.run." + AKey, "0") == "1";
+            aTimer.Tick += delegate { if (aResumePending) AutoTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -435,6 +436,45 @@ namespace KeystoneMT5
             sent[id] = "🤖 " + label; Log("→ 🤖 " + label, Muted); return id;
         }
 
+        // ⟳ AUTO-RESUME after a restart (user's request: a new SpasiX version must not leave the hedges unmanaged): the automation was
+        // running when SpasiX closed → as soon as the account, its prices and its candles are back, it starts again with the same settings and
+        // takes the open positions over. DEMO: by itself. A REAL / PROP account: ONE window (ARM + resume in one click; a REAL account types
+        // RESUME) — real orders never start without the user.
+        void AutoTryResume()
+        {
+            if (auto.Running) { aResumePending = false; return; }
+            if ((DateTime.Now - aResumeAt).TotalMinutes > 5) { aResumePending = false; Log("⟳ the automation was running before SpasiX closed — the account / prices did not come back in 5 minutes: press ⟳ RESUME in 🤖 AUTO", Amber); return; }
+            string sym = aset.Symbol; bool ready; int open; bool can; string kind; long login;
+            lock (broker.State.Gate)
+            {
+                Mt5Quote q; ready = broker.State.Linked && broker.State.Quotes.TryGetValue(sym, out q) && q.Bid > 0 && broker.State.SeriesOf(sym, aset.Tf).Bars.Count >= 20;
+                open = broker.State.Positions.Count(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)); can = broker.State.CanTrade; kind = broker.State.Account.Kind; login = broker.State.Account.Login;
+            }
+            if (Paper && !paper.Ready) return;
+            if (!ready) return;
+            if (!Virtual && !can) return;   // MT5's Algo Trading not on yet
+            aResumePending = false;
+            if (!Virtual)
+            {
+                if (!IsVisible) Shell.Switch(this);   // the question shows on this account's own tab (a window never shown cannot own a dialog)
+                string msg = "The 🤖 automation was RUNNING when SpasiX closed" + (open > 0 ? " — " + open + " position" + (open == 1 ? "" : "s") + " open on " + sym + " (nobody manages them until it runs)" : "") + ".\n\n⟳ RESUME = ARM this account and start the automation again with the same settings; it takes the open positions over.";
+                if (kind == "REAL") { var typed = Sx.Prompt(this, "⟳ RESUME on a REAL account (" + login + ")", msg + "\n\nType RESUME to go on.", ""); if (typed == null || typed.Trim().ToUpperInvariant() != "RESUME") { Log("⟳ resume declined — press ⟳ RESUME in 🤖 AUTO when ready", Amber); return; } }
+                else if (!Sx.Ask(this, "⟳ RESUME the automation (" + kind + " " + login + ")", msg, "⟳ RESUME", "NOT NOW", Green)) { Log("⟳ resume declined — press ⟳ RESUME in 🤖 AUTO when ready", Amber); return; }
+                if (!armed) SetArmed(true, null);
+            }
+            AutoSaveSet(); var s = aset.Copy(); var err = auto.Check(broker, s); if (err != "") { Log("⟳ could not resume: " + err, Red); return; }
+            AutoLoadHistory(); auto.Start(broker, s, open > 0); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
+            Log("⟳ AUTO RESUMED after the restart" + (open > 0 ? " — " + open + " open position" + (open == 1 ? "" : "s") + " taken over" : ""), Green); Toast("⟳ the automation resumed by itself" + (open > 0 ? " (" + open + " positions taken over)" : ""));
+        }
+        // a DEMO made before the % commission existed charges nothing: on Duramarkets it gets its 0.001 % of each deal by itself (once; the
+        // DEMO ACCOUNT box can still change it)
+        void AutoDemoCommission()
+        {
+            string srv; lock (live.State.Gate) srv = live.State.Account.Server ?? ""; if (srv == "" || !paper.Ready) return; aPctChecked = true;
+            if (srv.IndexOf("dura", StringComparison.OrdinalIgnoreCase) < 0 || paper.Acct.Set.CommissionPct > 0 || Get("demo.pct.auto." + live.Key, "") == "1") return;
+            paper.Acct.Set.CommissionPct = 0.001; Put("demo.pct.auto." + live.Key, "1"); Put("demo.pct", "0.001"); try { paper.Save(); } catch { }
+            Log("💲 DEMO: Duramarkets' commission is now charged — 0.001 % of each deal, in and out (gold 0.1 lot ≈ $0.40 a side)", Amber); Toast("💲 DEMO now charges Duramarkets' commission (0.001 % per deal)");
+        }
         void AutoStart()
         {
             if (auto.Running) return; AutoSaveSet(); var s = aset.Copy();
@@ -459,7 +499,7 @@ namespace KeystoneMT5
                 if (typed == null || typed.Trim().ToUpperInvariant() != "START") return;
             }
             else if (!Sx.Ask(this, "🤖 START on MT5 (" + kind + " account " + login + ")", "Orders go to MT5 by themselves while it runs.\n\n" + what, "▶ START", "CANCEL", Green)) return;
-            AutoLoadHistory(); if (aView == "⚙ SETTINGS") aView = "STORY"; auto.Start(broker, s, adopt); Put("auto.run." + AKey, "1"); aWasOn = true; AutoPaint(true);
+            AutoLoadHistory(); if (aView == "⚙ SETTINGS") aView = "STORY"; auto.Start(broker, s, adopt); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
         }
         void AutoStopClose()
         {

@@ -55,6 +55,14 @@ namespace KeystoneMT5
             if (Quitting || link == null || link == Bridge) return;
             Open(MainWindow.SGet("acct.mode." + link.Key, "LIVE"), link, false);
         }
+        // ⟳ after a restart: every window whose 🤖 automation was running opens by itself (it resumes there as soon as its data is back)
+        static readonly HashSet<string> resumedLinks = new HashSet<string>();
+        public static void ResumeRunning(Mt5Bridge link)
+        {
+            if (Quitting || link == null || link.Key == "" || !resumedLinks.Add(link.Key)) return;
+            foreach (var mode in new[] { "LIVE", "PROP" }) if (MainWindow.SGet("auto.run.auto." + mode + "." + link.Key, "0") == "1") Open(mode, link, false);
+            if (MainWindow.SGet("auto.run.auto.DEMO", "0") == "1" && MainWindow.SGet("auto.run.demolink", "") == link.Key) Open("DEMO", link, false);
+        }
         // the tab's name: LIVE / PROP = the account (its name on this PC, else the firm + login), the others = the mode
         public static string TitleOf(Window w)
         {

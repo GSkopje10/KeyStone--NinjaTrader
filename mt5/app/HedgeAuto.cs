@@ -214,7 +214,7 @@ namespace KeystoneMT5
         public void Stop(string why) { if (!Running) return; Running = false; Phase = "OFF"; StopReason = why; pendId = null; Note("■ STOP — " + why); }
 
         // ---- one look at the market (every tick of the BACKTEST, every refresh live)
-        sealed class Snap { public DateTime Now; public double Bid = double.NaN, Ask = double.NaN, Balance; public List<Mt5Position> Pos = new List<Mt5Position>(); public List<Mt5Bar> Done = new List<Mt5Bar>(), Fin = new List<Mt5Bar>(), FinFvg = new List<Mt5Bar>(); public bool Loaded; public Tuple<bool, string> Res; public double PerPrice; }   // PerPrice = $ per 1.0 of price per lot
+        sealed class Snap { public readonly Dictionary<long, double> InComm = new Dictionary<long, double>(); /* each open position's opening commission from MT5's deals (a real account books it on the deal, not on the position) */ public DateTime Now; public double Bid = double.NaN, Ask = double.NaN, Balance; public List<Mt5Position> Pos = new List<Mt5Position>(); public List<Mt5Bar> Done = new List<Mt5Bar>(), Fin = new List<Mt5Bar>(), FinFvg = new List<Mt5Bar>(); public bool Loaded; public Tuple<bool, string> Res; public double PerPrice; }   // PerPrice = $ per 1.0 of price per lot
         Snap Read(IBroker b)
         {
             var sn = new Snap();
@@ -223,6 +223,7 @@ namespace KeystoneMT5
                 var st = b.State; sn.Now = st.ServerNow > DateTime.MinValue ? st.ServerNow : DateTime.Now; Mt5Quote q; if (st.Quotes.TryGetValue(Set.Symbol, out q)) { sn.Bid = q.Bid; sn.Ask = q.Ask; }
                 sn.Balance = st.Account.Balance; Mt5Symbol ms; if (st.Symbols.TryGetValue(Set.Symbol, out ms) && ms.TickSize > 0) sn.PerPrice = ms.TickValue / ms.TickSize;
                 foreach (var p in st.Positions) if (string.Equals(p.Symbol, Set.Symbol, StringComparison.OrdinalIgnoreCase)) sn.Pos.Add(p);
+                if (sn.Pos.Count > 0) { var tks = new HashSet<long>(sn.Pos.Select(p => p.Ticket)); foreach (var d in st.Deals) if (d.Entry == "IN" && tks.Contains(d.Position)) { double c0; sn.InComm.TryGetValue(d.Position, out c0); sn.InComm[d.Position] = c0 + Math.Abs(d.Commission); } }
                 var se = st.SeriesOf(Set.Symbol, Set.Tf); sn.Loaded = se.Bars.Count > 0;
                 for (int i = se.Bars.Count - 1; i >= 0 && sn.Fin.Count < Math.Max(60, Set.Lookback); i--) if (se.Bars[i].Time.AddMinutes(Set.Tf) <= sn.Now) sn.Fin.Add(se.Bars[i]);
                 sn.Done.AddRange(sn.Fin.Take(Set.Lookback));
@@ -261,7 +262,8 @@ namespace KeystoneMT5
         static double Gross(List<Mt5Position> p) { return p.Sum(x => x.Lots); }
         // the basket = what closing everything now would give: profit + swap + the commission paid at the open AND the same again for the close
         // (brokers that charge "in / out deals", like Duramarkets' 0.001 %) — so +$20 is +$20 after every commission
-        double BasketOf(Snap sn) { return sn.Pos.Sum(p => p.Profit + p.Swap + 2 * p.Commission) - (Set.CommissionPerLot > 0 ? Gross(sn.Pos) * Set.CommissionPerLot : 0); }
+        double OpenComm(Snap sn, Mt5Position p) { double c; return Math.Max(Math.Abs(p.Commission), sn.InComm.TryGetValue(p.Ticket, out c) ? c : 0); }
+        double BasketOf(Snap sn) { return sn.Pos.Sum(p => p.Profit + p.Swap - 2 * OpenComm(sn, p)) - (Set.CommissionPerLot > 0 ? Gross(sn.Pos) * Set.CommissionPerLot : 0); }
 
         public void Step(IBroker b)
         {
@@ -329,7 +331,7 @@ namespace KeystoneMT5
                     else { it.Reason = "END OF DAY"; Tell("END OF DAY. WHY: it is " + Set.CloseAtNy + " New York (the close time) → CLOSE ALL at " + M(Basket) + "."); CloseAll(sn, "END OF DAY", false); return; }
                 }
                 double total = Basket + (Set.ExitMode == "LEGS" ? sn.Balance - it.BalanceStart : 0);   // LEGS: what the closed legs made counts too
-                foreach (var p in sn.Pos) it.FeeByTicket[p.Ticket] = Math.Abs(p.Commission) * 2 + (Set.CommissionPerLot > 0 ? p.Lots * Set.CommissionPerLot : 0);   // the commissions so far (live)
+                foreach (var p in sn.Pos) it.FeeByTicket[p.Ticket] = OpenComm(sn, p) * 2 + (Set.CommissionPerLot > 0 ? p.Lots * Set.CommissionPerLot : 0);   // the commissions so far (live)
                 it.Fees = it.FeeByTicket.Values.Sum();
                 it.MaxDd = Math.Min(it.MaxDd, total); it.Peak = Math.Max(it.Peak, Basket); it.MaxGross = Math.Max(it.MaxGross, Gross(sn.Pos));
                 if (Set.ExitMode == "LEGS")

@@ -225,6 +225,9 @@ namespace KeystoneMT5
                 bridge.Hub.Added += l => app.Dispatcher.BeginInvoke(new Action(() => Shell.AccountAdded(l)));
                 foreach (var l in bridge.Hub.Links) if (l != bridge) Shell.AccountAdded(l);   // the ones that connected while SpasiX was starting
                 if (direct == "LIVE" || direct == "PROP" || direct == "DEMO" || direct == "BACKTEST") { Shell.Switch(Shell.Home); Shell.Open(direct); } else Shell.ShowHome();
+                // ⟳ the windows whose automation was running reopen as their account connects (checked for 10 minutes)
+                var rs = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) }; var rs0 = DateTime.Now;
+                rs.Tick += delegate { try { foreach (var l in bridge.Hub.Links.ToList()) Shell.ResumeRunning(l); } catch { } if ((DateTime.Now - rs0).TotalMinutes > 10) rs.Stop(); }; rs.Start();
                 splash.Close();
             };
             tm.Start(); app.Run();
