@@ -105,6 +105,9 @@ namespace KeystoneMT5
         public bool Manual; public int ManualAdds;
         public double Fees; public readonly Dictionary<long, double> FeeByTicket = new Dictionary<long, double>();   // COMMISSIONS of the iteration: each position's open commission + the same again for its close (in / out deals)
         public double BuyLots, SellLots, MaxGross, MaxDd, Result, BalanceStart, BalanceEnd, Estimate, Peak, CloseBid; public bool Adopted;
+        // AFTER THE TARGET (user's request, to train the algo): a TARGET basket is followed as if it were still open — its best P/L afterwards
+        // and when, when it fell back to the target and to breakeven (watched up to 8 hours). AfterMax = NaN: not followed.
+        public double AfterMax = double.NaN, AfterMaxMin = -1, AfterBackTargetMin = -1, AfterBreakevenMin = -1, AfterMove; public bool AfterDone;
         public bool Done { get { return End > DateTime.MinValue; } }
         public bool Won { get { return Done && Result > 0; } }
     }
@@ -115,7 +118,7 @@ namespace KeystoneMT5
         public AutoSettings Set = new AutoSettings();
         // ✏ EDIT WHILE RUNNING (user's request): new settings wait here and take over between two iterations — the open one keeps its own
         public AutoSettings Next;
-        public readonly List<HedgeEvent> Hedges = new List<HedgeEvent>(); public Action<HedgeEvent> OnHedgeDone;   // the recording (saved by the window when each one is 30 minutes old)
+        public readonly List<HedgeEvent> Hedges = new List<HedgeEvent>(); public Action<HedgeEvent> OnHedgeDone; public Action<AutoIteration> OnAfterDone;   // OnAfterDone: an iteration's after-target follow-up is finished • the recording (saved by the window when each one is 30 minutes old)
         public bool Locked; public double LockHi = double.NaN, LockLo = double.NaN; string pendSide = ""; int liftDir, lockFrom;   // lockFrom: the add-ons count after the last unlock — a new lock needs LockAfter NEW hedges after it
         public void Queue(AutoSettings s) { Next = s == null ? null : s.Copy(); Version++; if (Next != null && Current == null && Running) ApplyNext(); }
         void ApplyNext()
@@ -265,8 +268,25 @@ namespace KeystoneMT5
         double OpenComm(Snap sn, Mt5Position p) { double c; return Math.Max(Math.Abs(p.Commission), sn.InComm.TryGetValue(p.Ticket, out c) ? c : 0); }
         double BasketOf(Snap sn) { return sn.Pos.Sum(p => p.Profit + p.Swap - 2 * OpenComm(sn, p)) - (Set.CommissionPerLot > 0 ? Gross(sn.Pos) * Set.CommissionPerLot : 0); }
 
+        // AFTER THE TARGET: followed on every step, also when the automation is stopped (a target reached just before STOP is still measured)
+        void TrackAfter(IBroker b)
+        {
+            if (!Iterations.Any(x => x.Done && x.Reason == "TARGET" && !x.AfterDone && !double.IsNaN(x.AfterMax))) return;
+            double bid = double.NaN, pp = 0; DateTime now;
+            lock (b.State.Gate) { var st = b.State; now = st.ServerNow > DateTime.MinValue ? st.ServerNow : DateTime.Now; Mt5Quote q; if (st.Quotes.TryGetValue(Set.Symbol, out q)) bid = q.Bid; Mt5Symbol ms; if (st.Symbols.TryGetValue(Set.Symbol, out ms) && ms.TickSize > 0) pp = ms.TickValue / ms.TickSize; }
+            if (double.IsNaN(bid) || bid <= 0 || pp <= 0) return; if (now > Now) Now = now;
+            // AFTER THE TARGET: what each closed TARGET basket would be worth now (the same net lots, from the bid it closed at)
+            foreach (var ia in Iterations.Skip(Math.Max(0, Iterations.Count - 50))) if (ia.Done && ia.Reason == "TARGET" && !ia.AfterDone && !double.IsNaN(ia.AfterMax) && ia.CloseBid > 0 && pp > 0)
+            {
+                double netA = ia.BuyLots - ia.SellLots, ghost = ia.Result + netA * (bid - ia.CloseBid) * pp, mins = (Now - ia.End).TotalMinutes;
+                if (ghost > ia.AfterMax) { ia.AfterMax = ghost; ia.AfterMaxMin = mins; ia.AfterMove = Math.Abs(bid - ia.CloseBid); ia.AfterBackTargetMin = -1; }   // "back to the target" counts from its best
+                if (ia.AfterBackTargetMin < 0 && ia.AfterMax > ia.Result + 1 && ghost <= ia.Result) ia.AfterBackTargetMin = mins;
+                if (ghost <= 0 || mins >= 480) { if (ghost <= 0) ia.AfterBreakevenMin = mins; ia.AfterDone = true; Version++; if (OnAfterDone != null) OnAfterDone(ia); }
+            }
+        }
         public void Step(IBroker b)
         {
+            TrackAfter(b);
             if (!Running) return;
             if (Next != null && Current == null) ApplyNext();   // between iterations: the saved changes take over
             var sn = Read(b); if (sn.Now < (b.IsSim ? Now : Now.AddMinutes(-1))) { Stop("the clock went back (the backtest was rewound or restarted)"); return; }
@@ -652,6 +672,7 @@ namespace KeystoneMT5
             Tell("CLOSED — iteration #" + it.N + " " + it.Reason + " " + M(it.Result) + " (balance $" + it.BalanceStart.ToString("N2", IC) + " → $" + sn.Balance.ToString("N2", IC) + "), " + it.Buys + " buys / " + it.Sells + " sells, " + it.AddOns + " add-ons, most lots open " + it.MaxGross.ToString("0.##", IC) + ", worst drawdown " + M(it.MaxDd) + ", " + (it.End - it.Start).ToString(@"hh\:mm\:ss", IC) + ".");
             Note((it.Result >= 0 ? "✔" : "✖") + " iteration #" + it.N + " " + it.Reason + " " + it.Result.ToString("+0.00;−0.00", IC) + " • " + it.Buys + " buys / " + it.Sells + " sells • " + it.AddOns + " add-ons • max drawdown " + it.MaxDd.ToString("0.00", IC));
             int dir = it.BuyLots > it.SellLots + 1e-9 ? 1 : it.SellLots > it.BuyLots + 1e-9 ? -1 : lastDir; lastDir = dir;
+            if (it.Reason == "TARGET" && Math.Abs(it.BuyLots - it.SellLots) > 1e-9) { it.AfterMax = it.Result; it.AfterDone = false; }   // follow it after the target
             Current = null; HedgeLevel = double.NaN; Locked = false; lockFrom = 0; Version++;
             if (Next != null) ApplyNext();
             if (it.Reason == "MAX DRAWDOWN" && Set.AfterDrawdown == "STOP") { Stop("the max drawdown $" + Set.MaxDrawdown.ToString("0.##", IC) + " was hit"); return; }

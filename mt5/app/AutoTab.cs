@@ -28,6 +28,7 @@ namespace KeystoneMT5
             aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, ""))); if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
             auto.Send = AutoSend; auto.NewsNear = AutoNews;
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
+            auto.OnAfterDone = ia => AutoAppend("after", string.Join(",", ia.N.ToString(IC), ia.Start.Ticks.ToString(IC), ia.AfterMax.ToString("0.##", IC), ia.AfterMaxMin.ToString("0.#", IC), ia.AfterBackTargetMin.ToString("0.#", IC), ia.AfterBreakevenMin.ToString("0.#", IC), ia.AfterMove.ToString("0.###", IC)));
             auto.OnHedgeDone = he => AutoAppend("hedges", string.Join(",", he.Iter.ToString(IC), he.Time.Ticks.ToString(IC), he.Kind, he.Dir > 0 ? "BUY" : "SELL", he.Lots.ToString("0.##", IC), he.Price.ToString("R", IC), he.RangeLo.ToString("R", IC), he.RangeHi.ToString("R", IC), he.Atr.ToString("0.###", IC), he.Before.ToString(IC), he.Basket.ToString("0.00", IC), he.Best.ToString("0.###", IC), he.Worst.ToString("0.###", IC), he.Whipsaw ? "1" : "0", (he.Ctx ?? "").Replace(",", " "))); auto.OnNote = (n, l) => AutoAppend("log", l);
             aGuidesOn = Get("auto.guides", "1") == "1"; foreach (var pn in panes) { var pp = pn; pp.V.Marks = () => aGuidesOn ? AutoMarks(pp.Sym) : null; pp.V.Guides = () => aGuidesOn && string.Equals(pp.Sym, aGuideSym, StringComparison.OrdinalIgnoreCase) ? aGuides : null; }
             var root = new DockPanel { LastChildFill = true };
@@ -294,14 +295,14 @@ namespace KeystoneMT5
             {
                 var d = e.Iterations.Where(x => x.Done).ToList(); double avgS = d.Count > 0 ? d.Average(x => (x.End - x.Start).TotalSeconds) : 0;
                 aRows.Children.Add(new TextBlock { Text = e.Iterations.Count + " iterations  •  won " + d.Count(x => x.Won) + " / lost " + d.Count(x => !x.Won) + "  •  net " + Signed(d.Sum(x => x.Result), "USD") + " (after " + Signed(-e.Iterations.Sum(x => x.Fees), "USD") + " commission • gross " + Signed(d.Sum(x => x.Result + x.Fees), "USD") + ")  •  average time in the trade " + (d.Count > 0 ? Dur(TimeSpan.FromSeconds(avgS)) : "—") + "  •  winners " + (d.Any(x => x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—") + ", losers " + (d.Any(x => !x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => !x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—"), Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13, Margin = new Thickness(8, 6, 8, 6) });
-                aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("START → END", 150, Muted, true, 11), Cell("⏱ IN TRADE", 92, Muted, true, 11), Cell("FIRST", 64, Muted, true, 11), Cell("BUYS / SELLS / HEDGES", 150, Muted, true, 11), Cell("MAX LOTS", 74, Muted, true, 11), Cell("WORST", 90, Muted, true, 11), Cell("COMMISSION", 96, Muted, true, 11), Cell("RESULT (NET)", 110, Muted, true, 11), Cell("HOW", 250, Muted, true, 11)));
+                aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("START → END", 150, Muted, true, 11), Cell("⏱ IN TRADE", 92, Muted, true, 11), Cell("FIRST", 64, Muted, true, 11), Cell("BUYS / SELLS / HEDGES", 150, Muted, true, 11), Cell("MAX LOTS", 74, Muted, true, 11), Cell("WORST", 90, Muted, true, 11), Cell("COMMISSION", 96, Muted, true, 11), Cell("RESULT (NET)", 110, Muted, true, 11), Cell("HOW", 120, Muted, true, 11), Cell("📈 AFTER THE TARGET (if it had stayed open)", 330, Muted, true, 11)));
                 foreach (var x in e.Iterations.AsEnumerable().Reverse())
                 {
                     var end = x.Done ? x.End : e.Now; var col = !x.Done ? Cyan : x.Won ? Green : Red;
                     aRows.Children.Add(Row(col, Cell("#" + x.N, 36, Text, true), Cell(x.Start.ToString("dd MMM", IC), 84, Muted), Cell(x.Start.ToString("HH:mm:ss", IC) + " → " + (x.Done ? x.End.ToString("HH:mm:ss", IC) : "open"), 150, Text),
                         Cell(Dur(end - x.Start), 92, Violet, true, 12.5, Violet), Cell(x.FirstDir, 64, x.FirstDir == "BUY" ? Green : Red, true, 12, x.FirstDir == "BUY" ? Green : Red),
                         Cell(x.Buys + " / " + x.Sells + " / " + x.AddOns + (x.ManualAdds > 0 ? " ✋" + x.ManualAdds : ""), 150, Text), Cell(x.MaxGross.ToString("0.##", IC), 74, Text), Cell(x.MaxDd.ToString("0.00", IC), 90, x.MaxDd < 0 ? Red : Muted), Cell(x.Fees > 0 ? "−" + x.Fees.ToString("0.00", IC) : "0.00", 96, x.Fees > 0 ? Amber : Muted, true),
-                        Cell(x.Done ? x.Result.ToString("+0.00;−0.00", IC) : "(" + e.Basket.ToString("+0.00;−0.00", IC) + ")", 110, col, true, 14), Cell((x.Manual ? "✋ " : "") + (x.Done ? x.Reason : "OPEN"), 250, col, true, 11.5, col)));
+                        Cell(x.Done ? x.Result.ToString("+0.00;−0.00", IC) : "(" + e.Basket.ToString("+0.00;−0.00", IC) + ")", 110, col, true, 14), Cell((x.Manual ? "✋ " : "") + (x.Done ? x.Reason : "OPEN"), 120, col, true, 11.5, col), Cell(AfterText(x), 330, double.IsNaN(x.AfterMax) ? Muted : x.AfterMax >= x.Result * 2 ? Gold : Cyan, true, 11.5)));
                 }
                 if (e.Iterations.Count == 0) aRows.Children.Add(new TextBlock { Text = "no iterations yet — START the automation", Foreground = Muted, Margin = new Thickness(10) });
             }
@@ -541,11 +542,11 @@ namespace KeystoneMT5
 
                 // 02 iterations: readable times, the context split into columns
                 var ctxKeys = its.SelectMany(x => (x.Ctx ?? "").Split(';').Where(kv => kv.Contains("=")).Select(kv => kv.Split('=')[0])).Distinct().ToList();
-                var rows = new List<string> { "n,start,end,seconds,first,buys,sells,addons,winner_adds,manual_adds,buy_lots,sell_lots,max_lots,max_drawdown,result,reason,balance_start,balance_end,manual,adopted,done,commission" + string.Concat(ctxKeys.Select(k => ",ctx_" + k)) };
+                var rows = new List<string> { "n,start,end,seconds,first,buys,sells,addons,winner_adds,manual_adds,buy_lots,sell_lots,max_lots,max_drawdown,result,reason,balance_start,balance_end,manual,adopted,done,commission,after_best,after_best_min,after_back_to_target_min,after_breakeven_min,after_move" + string.Concat(ctxKeys.Select(k => ",ctx_" + k)) };
                 foreach (var x in its)
                 {
                     var ctx = (x.Ctx ?? "").Split(';').Where(kv => kv.Contains("=")).GroupBy(kv => kv.Split('=')[0]).ToDictionary(g => g.Key, g => g.First().Substring(g.Key.Length + 1));
-                    string cv; rows.Add(string.Join(",", x.N.ToString(IC), T(x.Start), x.Done ? T(x.End) : "", x.Done ? ((int)(x.End - x.Start).TotalSeconds).ToString(IC) : "", x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.WinnerAdds.ToString(IC), x.ManualAdds.ToString(IC), N(x.BuyLots), N(x.SellLots), N(x.MaxGross), N(x.MaxDd), x.Done ? N(x.Result) : "", Q(x.Reason), N(x.BalanceStart), N(x.BalanceEnd), x.Manual ? "1" : "0", x.Adopted ? "1" : "0", x.Done ? "1" : "0", N(x.Fees)) + string.Concat(ctxKeys.Select(k => "," + Q(ctx.TryGetValue(k, out cv) ? cv : ""))));
+                    string cv; rows.Add(string.Join(",", x.N.ToString(IC), T(x.Start), x.Done ? T(x.End) : "", x.Done ? ((int)(x.End - x.Start).TotalSeconds).ToString(IC) : "", x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.WinnerAdds.ToString(IC), x.ManualAdds.ToString(IC), N(x.BuyLots), N(x.SellLots), N(x.MaxGross), N(x.MaxDd), x.Done ? N(x.Result) : "", Q(x.Reason), N(x.BalanceStart), N(x.BalanceEnd), x.Manual ? "1" : "0", x.Adopted ? "1" : "0", x.Done ? "1" : "0", N(x.Fees), N(x.AfterMax), x.AfterMaxMin.ToString("0.#", IC), x.AfterBackTargetMin.ToString("0.#", IC), x.AfterBreakevenMin.ToString("0.#", IC), N(x.AfterMove)) + string.Concat(ctxKeys.Select(k => "," + Q(ctx.TryGetValue(k, out cv) ? cv : ""))));
                 }
                 W("02-iterations.csv", rows);
 
@@ -620,6 +621,7 @@ namespace KeystoneMT5
                 var f = AutoFile("iterations"); if (File.Exists(f)) foreach (var l in File.ReadAllLines(f).Skip(1)) { var a = l.Split(','); if (a.Length < 16) continue; Func<int, double> d = i => double.Parse(a[i], IC); auto.Iterations.Add(new AutoIteration { N = int.Parse(a[0], IC), Start = new DateTime(long.Parse(a[1], IC)), End = new DateTime(long.Parse(a[2], IC)), FirstDir = a[3], Buys = int.Parse(a[4], IC), Sells = int.Parse(a[5], IC), AddOns = int.Parse(a[6], IC), BuyLots = d(7), SellLots = d(8), MaxGross = d(9), MaxDd = d(10), Result = d(11), Reason = a[12], BalanceStart = d(13), BalanceEnd = d(14), Peak = d(15), WinnerAdds = a.Length > 16 ? int.Parse(a[16], IC) : 0, Ctx = a.Length > 17 ? a[17] : "", Fees = a.Length > 18 ? double.Parse(a[18], IC) : 0, Manual = a.Length > 17 && a[17].Contains("manual=yes") }); }
                 var t2 = AutoFile("trades"); if (File.Exists(t2)) foreach (var l in File.ReadAllLines(t2).Skip(1)) { var a = l.Split(new[] { ',' }, 8); if (a.Length < 8) continue; auto.Trades.Add(new AutoTrade { Iter = int.Parse(a[0], IC), Time = new DateTime(long.Parse(a[1], IC)), Side = a[2], Lots = double.Parse(a[3], IC), Price = double.Parse(a[4], IC), Level = double.Parse(a[5], IC), Basket = double.Parse(a[6], IC), Why = a[7].Trim('"') }); }
                 var s = AutoFile("story"); if (File.Exists(s)) foreach (var l in File.ReadAllLines(s).Reverse().Take(4000).Reverse()) { int sp = l.IndexOf("  "); int n; if (l.StartsWith("#") && sp > 1 && int.TryParse(l.Substring(1, sp - 1), out n)) auto.Story.Add(Tuple.Create(n, l.Substring(sp + 2))); }
+                var af2 = AutoFile("after"); if (File.Exists(af2)) foreach (var l in File.ReadAllLines(af2)) { var a = l.Split(','); if (a.Length < 7) continue; long tk; int n; if (!int.TryParse(a[0], out n) || !long.TryParse(a[1], NumberStyles.Integer, IC, out tk)) continue; var x = auto.Iterations.FirstOrDefault(i => i.N == n && i.Start.Ticks == tk); if (x == null) continue; Func<int, double> d2 = i => double.Parse(a[i], IC); x.AfterMax = d2(2); x.AfterMaxMin = d2(3); x.AfterBackTargetMin = d2(4); x.AfterBreakevenMin = d2(5); x.AfterMove = d2(6); x.AfterDone = true; }
                 var g = AutoFile("log"); if (File.Exists(g)) auto.Log.AddRange(File.ReadAllLines(g).Reverse().Take(2000).Reverse());
             }
             catch { }
@@ -757,7 +759,25 @@ namespace KeystoneMT5
                     if (strong.Count > 0) { L.Add(""); L.Add("STRONGEST CONFIRMATIONS (n ≥ 3, the best win rate, the smallest drawdown)"); foreach (var r in strong) L.Add(string.Format(IC, "   ✔ {0,-26} win {1,5:0}% of {2,3}   avg worst DD {3,9:N2}   avg hedges {4,4:0.0}", r.Item1, 100.0 * r.Item3 / r.Item2, r.Item2, r.Item5, r.Item6)); }
                     var weak = rows.Where(r => r.Item2 >= 3).OrderBy(r => (double)r.Item3 / r.Item2).ThenBy(r => r.Item5).Take(6).ToList();
                     if (weak.Count > 0) { L.Add(""); L.Add("WHAT LOSES / DRAWS DOWN MOST (avoid or filter)"); foreach (var r in weak) L.Add(string.Format(IC, "   ✖ {0,-26} win {1,5:0}% of {2,3}   avg worst DD {3,9:N2}   avg hedges {4,4:0.0}", r.Item1, 100.0 * r.Item3 / r.Item2, r.Item2, r.Item5, r.Item6)); }
-                    {   // 🧱 HEDGES: which hedges were whipsaws (the price went further against the hedge than for it in the next 30 minutes)
+                    {   // 📈 AFTER THE TARGET: how much more each TARGET basket would have made, and how often a bigger target would have been reached
+                    var at = auto.Iterations.Where(x => x.Done && x.Reason == "TARGET" && !double.IsNaN(x.AfterMax)).ToList(); var atd = at.Where(x => x.AfterDone).ToList();
+                    L.Add(""); L.Add("📈 AFTER THE TARGET — " + at.Count + " TARGET baskets followed as if they had stayed open (" + atd.Count + " finished: back to breakeven or 8 hours)");
+                    if (at.Count > 0)
+                    {
+                        var ups = at.Select(x => x.AfterMax - x.Result).OrderBy(v => v).ToList(); var tm = at.Where(x => x.AfterMax > x.Result + 0.5).Select(x => x.AfterMaxMin).OrderBy(v => v).ToList();
+                        L.Add(string.Format(IC, "   extra after the target: median +${0:0.00} • average +${1:0.00} • best +${2:0.00}   •   the best came after a median of {3}", ups[ups.Count / 2], ups.Average(), ups.Last(), tm.Count > 0 ? tm[tm.Count / 2].ToString("0", IC) + " min" : "—"));
+                        if (atd.Count > 0) L.Add(string.Format(IC, "   came back to breakeven within 8 h: {0:0}% • stayed above breakeven 8 h: {1:0}%", 100.0 * atd.Count(x => x.AfterBreakevenMin >= 0) / atd.Count, 100.0 * atd.Count(x => x.AfterBreakevenMin < 0) / atd.Count));
+                        L.Add("   a bigger target — how many of these baskets would have reached it (before coming back):");
+                        foreach (var tg in new[] { 20.0, 30, 40, 60, 80, 100, 150 }) L.Add(string.Format(IC, "      +${0,-4:0}  {1,5:0}% of {2}", tg, 100.0 * at.Count(x => x.AfterMax >= tg) / at.Count, at.Count));
+                        var ctxK = new[] { "session", "withFlow", "withVwap", "side" };
+                        foreach (var ck in ctxK)
+                        {
+                            var grp = at.GroupBy(x => { var kv = (x.Ctx ?? "").Split(';').FirstOrDefault(z => z.StartsWith(ck + "=")); return kv == null ? "?" : kv.Substring(ck.Length + 1); }).Where(g2 => g2.Count() >= 2).ToList();
+                            if (grp.Count > 1) L.Add("   by " + ck + ": " + string.Join("   ", grp.Select(g2 => g2.Key + " " + g2.Average(x => x.AfterMax - x.Result).ToString("+$0;−$0", IC) + " extra (" + g2.Count() + ")")));
+                        }
+                    }
+                }
+                {   // 🧱 HEDGES: which hedges were whipsaws (the price went further against the hedge than for it in the next 30 minutes)
                     var hr = AutoHedgeRows(); Func<string, double> dv = x => { double v; return double.TryParse(x, NumberStyles.Float, IC, out v) ? v : 0; };
                     L.Add(""); L.Add("🧱 HEDGES — " + hr.Count + " recorded (hedges, locks, unlocks); a WHIPSAW = in the next 30 minutes the price went further AGAINST it than for it");
                     if (hr.Count > 0)
@@ -782,6 +802,14 @@ namespace KeystoneMT5
                 }
                 else L.AddRange(auto.Log.AsEnumerable().Reverse());
                 return L;
+        }
+        // 📈 AFTER THE TARGET in one line: the best it reached afterwards (and when), back to the target, back to breakeven
+        static string AfterText(AutoIteration x)
+        {
+            if (double.IsNaN(x.AfterMax)) return x.Done && x.Reason == "TARGET" ? "—" : "";
+            Func<double, string> mm = m => m < 0 ? "" : m < 60 ? m.ToString("0", IC) + " min" : (m / 60).ToString("0.#", IC) + " h";
+            string best = x.AfterMax > x.Result + 0.5 ? "best +$" + x.AfterMax.ToString("0", IC) + " after " + mm(x.AfterMaxMin) + " (+" + x.AfterMove.ToString("0.00", IC) + ")" : "no more than the target";
+            return (x.AfterDone ? "" : "▶ ") + best + (x.AfterBackTargetMin >= 0 ? " • back to $" + x.Result.ToString("0", IC) + " at " + mm(x.AfterBackTargetMin) : "") + (x.AfterBreakevenMin >= 0 ? " • breakeven at " + mm(x.AfterBreakevenMin) : x.AfterDone ? " • no breakeven in 8 h" : " (following)");
         }
         void AutoTablePaint()
         {

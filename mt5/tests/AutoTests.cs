@@ -301,6 +301,12 @@ public static class AutoTests
             Check(tRo.Count >= 3 && tNo.Count >= 3 && tRo[2].Side == "BUY" && tRo[2].Price > tRo[0].Price + 0.05 && tRo[2].Time > tNo[2].Time, "range-only: the hedge BUY waits for a break over the highest leg (later than without it)", tRo.Count + " " + (tRo.Count > 2 ? tRo[2].Price + " vs first " + tRo[0].Price : ""));
             var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
         }
+        {   // 📈 AFTER THE TARGET: BUY 0.1 closes at +$20; gold keeps rising $3 more (≈ +$30 more), then falls $6 → back to $20, then breakeven
+            var sAf = S(); sAf.FirstDir = "BUY"; sAf.HedgeMode = "NONE"; sAf.Target = 20; sAf.MaxIterations = 1;
+            var rAf = Run(Path(Day1, 4000, Line(4000, 0.1, 60).Concat(Line(4006, -0.1, 60))), sAf); var iAf = rAf.Item2.Iterations.FirstOrDefault();
+            Check(iAf != null && iAf.Reason == "TARGET" && iAf.AfterMax > iAf.Result + 25 && iAf.AfterMaxMin > 0 && iAf.AfterBackTargetMin > iAf.AfterMaxMin && iAf.AfterBreakevenMin > iAf.AfterBackTargetMin && iAf.AfterDone,
+                "after the target: the basket is followed — best ≈ +$50 later, then back to $20, then breakeven (all with their minutes)", iAf == null ? "none" : iAf.AfterMax + " @" + iAf.AfterMaxMin + " back " + iAf.AfterBackTargetMin + " be " + iAf.AfterBreakevenMin);
+        }
         // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();
