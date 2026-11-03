@@ -281,6 +281,26 @@ public static class AutoTests
             Check(eQ.Count >= 2 && Math.Abs(eQ[0].Lots - 0.1) < 1e-9 && Math.Abs(eQ[1].Lots - 0.2) < 1e-9 && rQ.Item2.Story.Any(x => x.Item2.Contains("NEW SETTINGS")),
                 "edit while running: the open iteration keeps 0.1 lot, the next one uses the saved 0.2", string.Join(" | ", eQ.Select(x => x.Iter + " " + x.Lots)));
         }
+        {   // 🧱 ANTI-CHOP: down $1.2, back up, chop inside $0.4, then up $8
+            Func<List<Mt5Bar>> chop = () => Path(Day1, 4000, Line(4000, -0.1, 12).Concat(Line(3998.8, 0.1, 12)).Concat(Enumerable.Range(0, 20).Select(i => i % 2 == 0 ? 3999.6 : 4000.0)).Concat(Line(4000, 0.2, 40)));
+            Func<AutoSettings> baseS = () => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 1; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.2; x.Target = 500; x.MaxIterations = 1; return x; };
+            // LOCK → LEAD: after 2 hedges inside $3 the basket goes net 0, nothing in the chop, the break up adds BUY 0.2 (buys lead by 0.2)
+            var sLk = baseS(); sLk.LockOn = true; sLk.LockAfter = 2; sLk.LockRange = 3; sLk.Unlock = "LEAD";
+            var rLk = Run(chop(), sLk); var tLk = rLk.Item2.Trades.Where(t => t.Side != "CLOSE").ToList(); int iLock = tLk.FindIndex(t => t.Why.StartsWith("🔒 LOCK"));
+            double netAfterLock = iLock < 0 ? 99 : tLk.Take(iLock + 1).Sum(t => (t.Side == "BUY" ? 1 : -1) * t.Lots);
+            var un = iLock >= 0 && iLock + 1 < tLk.Count ? tLk[iLock + 1] : null;
+            Check(iLock == 3 && tLk.Count(t => t.Why.StartsWith("🔒 LOCK")) == 1 && Math.Abs(netAfterLock) < 1e-9 && un != null && un.Why.StartsWith("🔓 UNLOCK") && un.Side == "BUY" && Math.Abs(un.Lots - 0.2) < 1e-9 && rLk.Item2.Hedges.Any(h => h.Kind == "LOCK") && rLk.Item2.Hedges.Any(h => h.Kind == "UNLOCK"),
+                "lock: 2 hedges in a $1 range → LOCK to net 0, no hedge in the chop, the break up = UNLOCK BUY 0.2 (lead); all recorded", string.Join(" | ", tLk.Select(t => t.Side + " " + t.Lots + " " + t.Why.Split('—')[0])));
+            // LOCK → LIFT: the break up closes every SELL; only buys stay
+            var sLf = baseS(); sLf.LockOn = true; sLf.LockAfter = 2; sLf.LockRange = 3; sLf.Unlock = "LIFT";
+            var rLf = Run(chop(), sLf); var posLf = rLf.Item1.State.Positions;
+            Check(rLf.Item2.Trades.Any(t => t.Why.StartsWith("🔓 UNLOCK — LIFT")) && posLf.Count > 0 && posLf.All(p => p.Dir > 0), "lock → lift: the break up closes every SELL, the buys keep running", string.Join(",", posLf.Select(p => p.Side + p.Lots)));
+            // RANGE-ONLY: the 2nd hedge (a BUY) waits for a break ABOVE the basket's highest leg, not just +$1 from the last one
+            var sRo = baseS(); sRo.RangeOnly = true; var rRo = Run(chop(), sRo); var tRo = rRo.Item2.Trades.Where(t => t.Side != "CLOSE").ToList();
+            var sNo = baseS(); var rNo = Run(chop(), sNo); var tNo = rNo.Item2.Trades.Where(t => t.Side != "CLOSE").ToList();
+            Check(tRo.Count >= 3 && tNo.Count >= 3 && tRo[2].Side == "BUY" && tRo[2].Price > tRo[0].Price + 0.05 && tRo[2].Time > tNo[2].Time, "range-only: the hedge BUY waits for a break over the highest leg (later than without it)", tRo.Count + " " + (tRo.Count > 2 ? tRo[2].Price + " vs first " + tRo[0].Price : ""));
+            var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
+        }
         // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();
