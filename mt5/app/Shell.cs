@@ -61,7 +61,8 @@ namespace KeystoneMT5
         {
             if (Quitting || link == null || link.Key == "" || !resumedLinks.Add(link.Key)) return;
             foreach (var mode in new[] { "LIVE", "PROP" }) if (MainWindow.SGet("auto.run.auto." + mode + "." + link.Key, "0") == "1") Open(mode, link, false);
-            if (MainWindow.SGet("auto.run.auto.DEMO", "0") == "1" && MainWindow.SGet("auto.run.demolink", "") == link.Key) Open("DEMO", link, false);
+            string dk = MainWindow.SGet("auto.run.auto.DEMO." + link.Key, "");
+            if (dk == "1" || (dk == "" && MainWindow.SGet("auto.run.auto.DEMO", "0") == "1" && MainWindow.SGet("auto.run.demolink", "") == link.Key)) Open("DEMO", link, false);
         }
         // the tab's name: LIVE / PROP = the account (its name on this PC, else the firm + login), the others = the mode
         public static string TitleOf(Window w)

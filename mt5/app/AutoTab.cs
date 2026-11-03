@@ -25,7 +25,7 @@ namespace KeystoneMT5
 
         FrameworkElement BuildAuto()
         {
-            aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, ""))); if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
+            aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, "")));   // an older build kept one DEMO key for every broker: it is the fallback if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
             auto.Send = AutoSend; auto.NewsNear = AutoNews;
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
             auto.OnPath = line => AutoAppend("paths", line);
@@ -209,7 +209,7 @@ namespace KeystoneMT5
             // the engine's clock: every tick of the BACKTEST; every 200 ms live (the bridge sends the state every 200 ms)
             if (Sim) sim.OnTickHook = () => { auto.Step(sim); RaceStep(); };
             aTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = TimeSpan.FromMilliseconds(200) };
-            aResumeAt = DateTime.Now; aResumePending = !Sim && Get("auto.run." + AKey, "0") == "1";
+            aResumeAt = DateTime.Now; aResumePending = !Sim && AutoWasRunning();
             raceResumeAt = DateTime.Now; raceResumePending = !Sim && Get("race.run", "0") == "1";
             aTimer.Tick += delegate { if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
@@ -411,7 +411,10 @@ namespace KeystoneMT5
             return s;
         }
         // the automation's settings: per MT5 account on LIVE / PROP (each account its own), per mode otherwise
-        string AKey { get { return "auto." + Mode + (!Virtual && live != null && live.Key != "" ? "." + live.Key : ""); } }
+        // each broker's own key — also for its DEMO (two brokers' DEMO windows never share the settings or the "it was running" flag)
+        string AKey { get { return "auto." + Mode + (!Sim && live != null && live.Key != "" ? "." + live.Key : ""); } }
+        // the "it was running" flag of THIS window (a DEMO saved by an older build: the shared flag counts only for the broker it ran on)
+        bool AutoWasRunning() { if (Get("auto.run." + AKey, "") == "1") return true; return Paper && Get("auto.run." + AKey, "") == "" && Get("auto.run.auto.DEMO", "0") == "1" && live != null && Get("auto.run.demolink", "") == live.Key; }
         void AutoSaveSet() { aset = AutoRead(); Put(AKey, aset.Save()); }
         // only the boxes the chosen options use: ONE add-on trigger (BREAK / PRICE / $), the pause, the FVG timeframe, the flow numbers, the news minutes, the winner lots
         void AutoVis()
@@ -699,7 +702,7 @@ namespace KeystoneMT5
             if (aPhase == null) return; bool on = auto.Running; var s = on ? auto.Set : aset; var it = auto.Current;
             if (aHist == null && !Sim) AutoLoadHistory();
             if (aWasOn && !on && auto.StopReason != "the window closed") Put("auto.run." + AKey, "0"); aWasOn = on;
-            if (!on) aStart.Content = Get("auto.run." + AKey, "0") == "1" ? "⟳  RESUME (it was running)" : "▶  START";
+            if (!on) aStart.Content = AutoWasRunning() ? "⟳  RESUME (it was running)" : "▶  START";
             aPhase.Text = "🤖 AUTO — " + (on ? auto.Phase : "OFF") + (on ? "  •  " + s.Symbol + " " + Tf.Name(s.Tf) : ""); aPhase.Foreground = on ? Green : Muted;
             aCard.BorderBrush = on ? Green : Line;
             aBasket.Text = it != null ? Signed(auto.Basket, "USD") + "  /  +$" + s.Target.ToString("0.##", IC) : "—"; aBasket.Foreground = it == null ? Muted : auto.Basket >= 0 ? Green : Red;
@@ -722,7 +725,7 @@ namespace KeystoneMT5
                     : queued ? "⏳ SAVED — the new settings start with the NEXT iteration" + (auto.Current != null ? " (#" + auto.Current.N + " is still open with the old ones)" : "")
                     : "🟢 RUNNING — you can change any setting below; 💾 SAVE applies it from the next iteration (the open one is not touched)";
                 aLock.Background = Tint(!on ? Cyan : dirty ? Amber : Green, 45); aLock.BorderBrush = !on ? Cyan : dirty ? Amber : Green;
-                aSaveBtn.Content = !on ? (Get("auto.run." + AKey, "0") == "1" ? "⟳  RESUME WITH THESE SETTINGS" : "▶  START WITH THESE SETTINGS") : "💾  SAVE — FROM THE NEXT ITERATION";
+                aSaveBtn.Content = !on ? (AutoWasRunning() ? "⟳  RESUME WITH THESE SETTINGS" : "▶  START WITH THESE SETTINGS") : "💾  SAVE — FROM THE NEXT ITERATION";
                 aSaveBtn.Background = Tint(!on ? Cyan : Green, (byte)(dirty ? 200 + 55 * Math.Abs(Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 300.0)) : 200)); aSaveBtn.IsEnabled = !on || dirty;
                 aUndoBtn.Visibility = on && dirty ? Visibility.Visible : Visibility.Collapsed; aStopSmall.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             }
