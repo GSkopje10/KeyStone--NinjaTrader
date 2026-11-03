@@ -64,7 +64,22 @@ namespace KeystoneMT5
             return aRaceHost;
         }
 
-        void RaceStartAll()
+        // 🏁 the race survives a restart (user's request): every lane's simulated account is saved each minute; after a restart the race starts
+        // again by itself as soon as the prices are back, each lane with its own balance and open positions (taken over)
+        string RaceStateDir() { return Path.Combine(RaceFolder(), "state"); }
+        DateTime raceSavedAt = DateTime.MinValue; bool raceResumePending; DateTime raceResumeAt;
+        void RaceSaveState()
+        {
+            try { var d = RaceStateDir(); Directory.CreateDirectory(d); foreach (var l in lanes) { List<string> lines; lock (l.Br.State.Gate) lines = l.Br.Acct.Save(); File.WriteAllLines(Path.Combine(d, l.Key + ".txt"), lines); } } catch { }
+        }
+        void RaceTryResume()
+        {
+            if (raceOn) { raceResumePending = false; return; } if ((DateTime.Now - raceResumeAt).TotalMinutes > 5) { raceResumePending = false; return; }
+            string sym = aset.Symbol; bool ready; lock (broker.State.Gate) { Mt5Quote q; ready = broker.State.Quotes.TryGetValue(sym, out q) && q.Bid > 0 && broker.State.SeriesOf(sym, 1).Bars.Count >= 20; }
+            if (!ready || (Paper && !paper.Ready)) return; raceResumePending = false; RaceStartAll(true);
+        }
+        void RaceStartAll() { RaceStartAll(false); }
+        void RaceStartAll(bool restore)
         {
             Put("race.bal", raceBal.Text); Put("race.comm", raceComm.Text); double bal, comm; if (!double.TryParse(raceBal.Text.Trim(), NumberStyles.Float, IC, out bal) || bal <= 0) bal = 5000; double.TryParse(raceComm.Text.Trim(), NumberStyles.Float, IC, out comm);
             var mine = AutoRead(); lanes.Clear();
@@ -78,17 +93,21 @@ namespace KeystoneMT5
                 if (k == "RNG") { set.RangeOnly = true; set.LockOn = false; } else if (k == "LKL") { set.LockOn = true; set.Unlock = "LEAD"; set.RangeOnly = true; } else if (k == "LKF") { set.LockOn = true; set.Unlock = "LIFT"; set.RangeOnly = true; } set.Symbol = mine.Symbol; set.TrackManual = false;   // a lane never adopts anything: its account is its own
                 var l = new RaceLane { Key = k, Name = RaceName(k), Set = set, Br = new ShadowBroker(market, send, new SimAccountSettings { Balance = acc.Balance, CommissionPerLot = acc.CommissionPerLot, Leverage = acc.Leverage, Kind = acc.Kind, MarkupPts = acc.MarkupPts, Currency = acc.Currency, StopOutPct = acc.StopOutPct, CommissionPct = acc.CommissionPct }) };
                 l.StartBalance = l.PeakEq = bal; l.Eng.Send = (c, a, lab) => l.Br.Command(c, a);
-                var err = l.Eng.Check(l.Br, set); if (err != "") l.Problem = err; else l.Eng.Start(l.Br, set, false);
+                bool had = false;
+                if (restore) { try { var sf = Path.Combine(RaceStateDir(), k + ".txt"); if (File.Exists(sf)) { var lines = File.ReadAllLines(sf); lock (l.Br.State.Gate) had = l.Br.Acct.Load(lines); if (had) { lock (l.Br.State.Gate) l.StartBalance = l.PeakEq = l.Br.Acct.Balance; } } } catch { had = false; } }
+                var err = l.Eng.Check(l.Br, set); bool open; lock (l.Br.State.Gate) open = l.Br.State.Positions.Count > 0;
+                if (err != "") l.Problem = err; else l.Eng.Start(l.Br, set, had && open);
                 lanes.Add(l);
             }
-            raceOn = true; raceDay = DateTime.MinValue; Log("🏁 race started: " + lanes.Count + " strategies on their own simulated accounts", Green); RacePaint();
+            raceOn = true; raceDay = DateTime.MinValue; Put("race.run", "1"); Log(restore ? "🏁 race RESUMED after the restart: " + lanes.Count + " strategies, each with its own account and open positions" : "🏁 race started: " + lanes.Count + " strategies on their own simulated accounts", Green); RacePaint();
         }
-        void RaceStop() { foreach (var l in lanes) if (l.Eng.Running) l.Eng.Stop("race stopped"); raceOn = false; Log("🏁 race stopped", Amber); RacePaint(); }
+        void RaceStop() { foreach (var l in lanes) if (l.Eng.Running) l.Eng.Stop("race stopped"); raceOn = false; Put("race.run", "0"); try { if (Directory.Exists(RaceStateDir())) Directory.Delete(RaceStateDir(), true); } catch { } Log("🏁 race stopped", Amber); RacePaint(); }
 
         // every step (each backtest tick / every 200 ms live): prices → each lane's account → each lane's engine; finished iterations saved
         void RaceStep()
         {
             if (!raceOn) return;
+            if ((DateTime.Now - raceSavedAt).TotalSeconds >= 60) { raceSavedAt = DateTime.Now; RaceSaveState(); }
             foreach (var l in lanes)
             {
                 try { l.Step(); } catch (Exception ex) { l.Problem = ex.Message; if (l.Eng.Running) l.Eng.Stop("error: " + ex.Message); }

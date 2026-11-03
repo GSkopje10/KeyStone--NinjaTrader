@@ -307,6 +307,16 @@ public static class AutoTests
             Check(iAf != null && iAf.Reason == "TARGET" && iAf.AfterMax > iAf.Result + 25 && iAf.AfterMaxMin > 0 && iAf.AfterBackTargetMin > iAf.AfterMaxMin && iAf.AfterBreakevenMin > iAf.AfterBackTargetMin && iAf.AfterDone,
                 "after the target: the basket is followed — best ≈ +$50 later, then back to $20, then breakeven (all with their minutes)", iAf == null ? "none" : iAf.AfterMax + " @" + iAf.AfterMaxMin + " back " + iAf.AfterBackTargetMin + " be " + iAf.AfterBreakevenMin);
         }
+        {   // 🛟 RESCUE EXIT: after 2 hedges the basket closes as soon as it is back at breakeven (not at the far +$500 target)
+            var sRs = S(); sRs.FirstDir = "BUY"; sRs.HedgeMode = "PRICE"; sRs.HedgePrice = 1; sRs.HedgeSize = "ADVANTAGE"; sRs.NetAdvantage = 0.2; sRs.Target = 500; sRs.MaxIterations = 1; sRs.BeAfter = 2;
+            var rRs = Run(Path(Day1, 4000, Line(4000, -0.1, 12).Concat(Line(3998.8, 0.1, 12)).Concat(Line(4000, 0.2, 40))), sRs); var iRs = rRs.Item2.Iterations.FirstOrDefault();
+            Check(iRs != null && iRs.Reason == "RESCUE" && iRs.AddOns >= 2 && iRs.Result > -1 && iRs.Result < 20 && AutoSettings.Load(sRs.Save()).BeAfter == 2 && AutoSettings.Load("sym=XAUUSD").BeAfter == 0,
+                "rescue exit: 2 hedges, back at breakeven → closed (not waiting for +$500); saved; OFF by default", iRs == null ? "none" : iRs.Reason + " " + iRs.Result + " " + iRs.AddOns);
+            // the hedged pair's margin: MT5's value, half, or both legs in full
+            var acct = new SimAccount(new Mt5State()); var spx = Gold(); spx.HedgedRatio = 0;
+            double m0 = acct.MarginOfSymbol(spx, 1, 1, 4000); acct.Set.HedgedPct = 100; double m100 = acct.MarginOfSymbol(spx, 1, 1, 4000); acct.Set.HedgedPct = 50; double m50 = acct.MarginOfSymbol(spx, 1, 1, 4000);
+            Check(Math.Abs(m0) < 1e-9 && Math.Abs(m100 - 2 * 4000 * 100 / 500.0) < 1e-6 && Math.Abs(m50 - 4000 * 100 / 500.0) < 1e-6, "hedged margin: MT5's 0 % → 0; 100 % → both legs in full ($1,600); 50 % → $800", m0 + " " + m100 + " " + m50);
+        }
         // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();

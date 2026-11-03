@@ -74,7 +74,8 @@ namespace KeystoneMT5
             aLockTxt = new TextBlock { Text = "", Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }; lockRow.Children.Add(aLockTxt);
             aLock.Child = lockRow; aSettings.Children.Add(aLock);
             var r0 = new WrapPanel();
-            r0.Children.Add(ADrop("preset", "STRATEGY (FROM THE RESEARCH)", () => aset.Preset == "AH" ? "A + SIGNAL HEDGE" : aset.Preset == "A" ? "A · London engulfing — lower risk" : aset.Preset == "B" ? "B · NY FVG 50% — no stop" : aset.Preset == "C" ? "C · all day VWAP rejection" : aset.Preset == "D" ? "D · M1 aggression break" : aset.Preset == "F" ? "F · FVG 50% + FVG hedge" : aset.Preset == "BOX" ? "HEDGE BOX · consolidation flip (swap-free only)" : "your own settings", () => new List<Mi> {
+            r0.Children.Add(ADrop("preset", "STRATEGY (FROM THE RESEARCH)", () => aset.Preset == "SAFE" ? "★ SAFE HEDGE (tested)" : aset.Preset == "AH" ? "A + SIGNAL HEDGE" : aset.Preset == "A" ? "A · London engulfing — lower risk" : aset.Preset == "B" ? "B · NY FVG 50% — no stop" : aset.Preset == "C" ? "C · all day VWAP rejection" : aset.Preset == "D" ? "D · M1 aggression break" : aset.Preset == "F" ? "F · FVG 50% + FVG hedge" : aset.Preset == "BOX" ? "HEDGE BOX · consolidation flip (swap-free only)" : "your own settings", () => new List<Mi> {
+                new Mi { Text = "★ SAFE HEDGE — YOUR break strategy + hedge only beyond the basket's range + 🛟 rescue exit after 3 hedges, 0.01 lot / +$2 (per $5,000 — scale it with the balance). 5 months of 1-minute gold replayed: 525 of 525 closed without a loss, +26 % closed, the deepest basket ≈ −20 % of the balance", Fg = Green, Do = () => AutoModel("SAFE") },
                 new Mi { Text = "A · LONDON ENGULFING — M5 engulfing at a 20-candle low / high, buy under VWAP / sell over, 03:00-06:00 NY, +$20, emergency stop −$300, close 16:55 NY (2023-26: profitable every year, worst drawdown $648 on $5k)", Fg = Green, Do = () => AutoModel("A") },
                 new Mi { Text = "A + SIGNAL HEDGE — model A, and while it is losing $5+ an OPPOSITE M5 engulfing at a 20-candle extreme opens 2× the net the other way (once); each leg closes at its own +$20 per 0.1 lot; basket stop −$400; close 16:55 NY (2023-26: +$1,770 / +$1,612 / +$2,391 vs +$1,465 / +$1,458 / +$2,217 without the hedge)", Fg = Violet, Do = () => AutoModel("AH") },
                 new Mi { Text = "B · NY FVG 50% — M5 strong fair value gap, entry at its middle within 12 min, buy over VWAP / sell under, 08:30-11:30 NY, +$20, NO stop (held until +$20; floating drawdown reached $3,130)", Fg = Amber, Do = () => AutoModel("B") },
@@ -175,6 +176,7 @@ namespace KeystoneMT5
                 var r5 = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
                 r5.Children.Add(new TextBlock { Text = "🧱 ANTI-CHOP", Foreground = Amber, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
                 r5.Children.Add(ACheck("ronly", "HEDGE ONLY BEYOND THE BASKET'S RANGE", () => aset.RangeOnly, v => aset.RangeOnly = v, "ON: a hedge SELL only under the basket's lowest leg, a hedge BUY only over its highest — never inside the small range it already holds (no hedging in chop)"));
+                r5.Children.Add(AField("beafter", "🛟 RESCUE EXIT AFTER (HEDGES, 0 = OFF)", aset.BeAfter.ToString(IC), 60, "a basket with this many hedges or more closes as soon as it is back at breakeven ($0 after every cost) — no endless baskets (3 = tested best over 5 months of gold)"));
                 r5.Children.Add(ACheck("lockon", "🔒 LOCK IN CHOP (net 0, wait for the break)", () => aset.LockOn, v => aset.LockOn = v, "ON: after LOCK AFTER hedges inside LOCK RANGE $ of price, buys = sells (the basket's P/L is frozen); nothing happens until the price breaks that range — then UNLOCK"));
                 r5.Children.Add(AField("lafter", "LOCK AFTER (HEDGES)", aset.LockAfter.ToString(IC), 50, "how many hedges inside the small range before it locks (2 = the second one)"));
                 r5.Children.Add(AField("lrange", "LOCK RANGE $ (PRICE)", aset.LockRange.ToString(IC), 60, "the basket's legs all inside this many $ of gold price = chop (3 = a $3 range)"));
@@ -206,7 +208,8 @@ namespace KeystoneMT5
             if (Sim) sim.OnTickHook = () => { auto.Step(sim); RaceStep(); };
             aTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = TimeSpan.FromMilliseconds(200) };
             aResumeAt = DateTime.Now; aResumePending = !Sim && Get("auto.run." + AKey, "0") == "1";
-            aTimer.Tick += delegate { if (aResumePending) AutoTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+            raceResumeAt = DateTime.Now; raceResumePending = !Sim && Get("race.run", "0") == "1";
+            aTimer.Tick += delegate { if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -247,7 +250,7 @@ namespace KeystoneMT5
             t("pause", d(aset.PauseSec)); t("maxit", d(aset.MaxIterations)); t("hprice", d(aset.HedgePrice)); t("hmoney", d(aset.HedgeMoney)); t("win", aset.Windows); t("nyoff", d(aset.NyOffsetHours)); t("perday", d(aset.PerDay));
             t("nb", d(aset.NewsBefore)); t("na", d(aset.NewsAfter)); t("wlots", d(aset.WinnerLots)); t("wlots2", d(aset.WinnerLotsSell)); t("wmax", d(aset.MaxWinnerAdds)); t("swk", d(aset.SwingK)); t("fvol", d(aset.FlowVol)); t("fshare", d(aset.FlowShare));
             t("eod", aset.CloseAtNy); t("fage", d(aset.FvgAge)); t("aggrun", d(aset.AggRun)); t("hmult", d(aset.HedgeMult)); t("maxh", d(aset.MaxHedges)); t("nadv", d(aset.NetAdvantage)); t("rmove", d(aset.RecoverMove)); t("hmax", d(aset.HedgeMaxLots));
-            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); } AChecksPaint(); t("lafter", d(aset.LockAfter)); t("lrange", d(aset.LockRange));
+            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); } AChecksPaint(); t("beafter", d(aset.BeAfter)); t("lafter", d(aset.LockAfter)); t("lrange", d(aset.LockRange));
             foreach (var b in aDrops.Values) { var f = b.Tag as Func<string>; if (f != null) b.Content = f() + "  ▾"; }
             AutoVis();
         }
@@ -257,8 +260,9 @@ namespace KeystoneMT5
             Action<string, string> t = (k, v) => { TextBox tb; if (af.TryGetValue(k, out tb)) tb.Text = v; };
             t("look", aset.Lookback.ToString(IC)); t("entry", aset.EntryLots.ToString(IC)); t("add", aset.AddLots.ToString(IC)); t("target", aset.Target.ToString(IC)); t("dd", aset.MaxDrawdown.ToString(IC));
             t("win", aset.Windows); t("eod", aset.CloseAtNy); t("fage", aset.FvgAge.ToString(IC)); t("perday", aset.PerDay.ToString(IC)); t("aggrun", aset.AggRun.ToString(IC)); t("hmoney", aset.HedgeMoney.ToString(IC)); t("hmult", aset.HedgeMult.ToString(IC)); t("maxh", aset.MaxHedges.ToString(IC)); t("maxit", aset.MaxIterations.ToString(IC));
-            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); } AChecksPaint();
+            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); } AChecksPaint(); t("nadv", aset.NetAdvantage.ToString(IC)); t("beafter", aset.BeAfter.ToString(IC)); t("swk", aset.SwingK.ToString(IC));
             foreach (var b in aDrops.Values) { var f = b.Tag as Func<string>; if (f != null) b.Content = f() + "  ▾"; }
+            AutoVis();
         }
         // SETUPS NOW: the three researched setups on the symbol, STRONG / WEAK / WAIT
         void AutoSetups()
@@ -400,7 +404,7 @@ namespace KeystoneMT5
             var s = aset.Copy(); s.Symbol = (af["sym"].Text ?? "").Trim(); s.Lookback = (int)Math.Max(1, ANum("look", 1)); s.EntryLots = ANum("entry", 0); s.AddLots = ANum("add", 0); s.Target = ANum("target", 0);
             s.MaxDrawdown = Math.Max(0, ANum("dd", 0)); s.HedgePrice = ANum("hprice", 0); s.HedgeMoney = ANum("hmoney", 0); s.HedgeMult = Math.Max(0.1, ANum("hmult", 2)); s.AggRun = (int)Math.Max(1, ANum("aggrun", 4)); s.RecoverMove = Math.Max(0.01, ANum("rmove", 3)); s.NetAdvantage = Math.Max(0.01, ANum("nadv", 0.2)); s.HedgeMaxLots = Math.Max(0.01, ANum("hmax", 1)); s.MaxHedges = (int)Math.Max(1, ANum("maxh", 1)); s.PauseSec = (int)Math.Max(0, ANum("pause", 60)); s.MaxIterations = (int)Math.Max(0, ANum("maxit", 0)); s.CommissionPerLot = Math.Max(0, ANum("comm", 0));
             s.Windows = (af["win"].Text ?? "").Trim(); s.CloseAtNy = (af["eod"].Text ?? "").Trim(); s.FvgAge = (int)Math.Max(0, ANum("fage", 0)); s.NyOffsetHours = (int)ANum("nyoff", -7); s.PerDay = (int)Math.Max(0, ANum("perday", 0)); s.NewsBefore = (int)Math.Max(0, ANum("nb", 15)); s.NewsAfter = (int)Math.Max(0, ANum("na", 15));
-            s.LockAfter = (int)Math.Max(1, ANum("lafter", 2)); s.LockRange = Math.Max(0.01, ANum("lrange", 3));
+            s.BeAfter = (int)Math.Max(0, ANum("beafter", 0)); s.LockAfter = (int)Math.Max(1, ANum("lafter", 2)); s.LockRange = Math.Max(0.01, ANum("lrange", 3));
             s.WinnerLots = Math.Max(0, ANum("wlots", 0.1)); s.WinnerLotsSell = Math.Max(0, ANum("wlots2", 0.1)); s.SwingK = (int)Math.Max(1, ANum("swk", 2)); s.MaxWinnerAdds = (int)Math.Max(0, ANum("wmax", 0)); s.FlowVol = Math.Max(1, ANum("fvol", 1.5)); s.FlowShare = Math.Max(0.5, Math.Min(1, ANum("fshare", 0.7)));
             return s;
         }
