@@ -21,13 +21,14 @@ namespace KeystoneMT5
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
         AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
-        bool aResumePending, aPctChecked; DateTime aResumeAt; CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall; TextBlock aLockTxt; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
+        bool aResumePending, aPctChecked; DateTime aArchAt = DateTime.MinValue; DateTime aResumeAt; CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall; TextBlock aLockTxt; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
 
         FrameworkElement BuildAuto()
         {
             aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, ""))); if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
             auto.Send = AutoSend; auto.NewsNear = AutoNews;
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
+            auto.OnPath = line => AutoAppend("paths", line);
             auto.OnAfterDone = ia => AutoAppend("after", string.Join(",", ia.N.ToString(IC), ia.Start.Ticks.ToString(IC), ia.AfterMax.ToString("0.##", IC), ia.AfterMaxMin.ToString("0.#", IC), ia.AfterBackTargetMin.ToString("0.#", IC), ia.AfterBreakevenMin.ToString("0.#", IC), ia.AfterMove.ToString("0.###", IC)));
             auto.OnHedgeDone = he => AutoAppend("hedges", string.Join(",", he.Iter.ToString(IC), he.Time.Ticks.ToString(IC), he.Kind, he.Dir > 0 ? "BUY" : "SELL", he.Lots.ToString("0.##", IC), he.Price.ToString("R", IC), he.RangeLo.ToString("R", IC), he.RangeHi.ToString("R", IC), he.Atr.ToString("0.###", IC), he.Before.ToString(IC), he.Basket.ToString("0.00", IC), he.Best.ToString("0.###", IC), he.Worst.ToString("0.###", IC), he.Whipsaw ? "1" : "0", (he.Ctx ?? "").Replace(",", " "))); auto.OnNote = (n, l) => AutoAppend("log", l);
             aGuidesOn = Get("auto.guides", "1") == "1"; foreach (var pn in panes) { var pp = pn; pp.V.Marks = () => aGuidesOn ? AutoMarks(pp.Sym) : null; pp.V.Guides = () => aGuidesOn && string.Equals(pp.Sym, aGuideSym, StringComparison.OrdinalIgnoreCase) ? aGuides : null; }
@@ -205,7 +206,7 @@ namespace KeystoneMT5
             if (Sim) sim.OnTickHook = () => { auto.Step(sim); RaceStep(); };
             aTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = TimeSpan.FromMilliseconds(200) };
             aResumeAt = DateTime.Now; aResumePending = !Sim && Get("auto.run." + AKey, "0") == "1";
-            aTimer.Tick += delegate { if (aResumePending) AutoTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+            aTimer.Tick += delegate { if (aResumePending) AutoTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -476,6 +477,25 @@ namespace KeystoneMT5
             paper.Acct.Set.CommissionPct = 0.001; Put("demo.pct.auto." + live.Key, "1"); Put("demo.pct", "0.001"); try { paper.Save(); } catch { }
             Log("💲 DEMO: Duramarkets' commission is now charged — 0.001 % of each deal, in and out (gold 0.1 lot ≈ $0.40 a side)", Amber); Toast("💲 DEMO now charges Duramarkets' commission (0.001 % per deal)");
         }
+        // 🗄 the 1-minute candles of the strategy's symbol, saved per day (DataDir\auto\candles\SYMBOL-yyyy-MM-dd.csv) every 10 minutes —
+        // every traded day can be studied / replayed later, even when nothing was exported
+        void AutoArchiveCandles()
+        {
+            try
+            {
+                string sym = (auto.Running ? auto.Set.Symbol : aset.Symbol); if (string.IsNullOrEmpty(sym)) return; List<Mt5Bar> bars;
+                lock (broker.State.Gate) bars = broker.State.SeriesOf(sym, 1).Bars.Select(b => b.Copy()).ToList(); if (bars.Count == 0) return;
+                var dir = Path.Combine(Dir, "auto", "candles"); Directory.CreateDirectory(dir);
+                foreach (var g in bars.GroupBy(b => b.Time.Date))
+                {
+                    var f = Path.Combine(dir, sym + "-" + g.Key.ToString("yyyy-MM-dd", IC) + ".csv"); var have = new Dictionary<DateTime, string>();
+                    if (File.Exists(f)) foreach (var l in File.ReadAllLines(f).Skip(1)) { var a = l.Split(','); DateTime t; if (a.Length >= 7 && DateTime.TryParseExact(a[0], "yyyy-MM-dd HH:mm", IC, DateTimeStyles.None, out t)) have[t] = l; }
+                    foreach (var b in g) have[b.Time] = string.Join(",", b.Time.ToString("yyyy-MM-dd HH:mm", IC), b.O.ToString("R", IC), b.H.ToString("R", IC), b.L.ToString("R", IC), b.C.ToString("R", IC), b.V.ToString(IC), b.Spread.ToString(IC));
+                    File.WriteAllLines(f, new[] { "time,open,high,low,close,tick_volume,spread_points" }.Concat(have.OrderBy(kv => kv.Key).Select(kv => kv.Value)));
+                }
+            }
+            catch { }
+        }
         void AutoStart()
         {
             if (auto.Running) return; AutoSaveSet(); var s = aset.Copy();
@@ -558,6 +578,18 @@ namespace KeystoneMT5
 
                 // 10 the recorded hedges (with what the price did after each)
                 { var hr = AutoHedgeRows(); if (hr.Count > 0) W("10-hedges.csv", new[] { HedgeHeader }.Concat(hr.Select(a => { var b2 = (string[])a.Clone(); long tk; if (long.TryParse(b2[1], NumberStyles.Integer, IC, out tk)) b2[1] = T(new DateTime(tk)); return string.Join(",", b2); }))); }
+                // 11 every basket's minute-by-minute path; 12 the archived 1-minute candles of every traded day
+                try { var pf = string.IsNullOrEmpty(aHist) ? null : AutoFile("paths"); if (pf != null && File.Exists(pf)) W("11-basket-paths.csv", new[] { "iteration,time,bid,basket,net_lots,legs,gross_lots,state" }.Concat(File.ReadAllLines(pf).Select(l => { var a = l.Split(','); long tk; if (a.Length > 1 && long.TryParse(a[1], NumberStyles.Integer, IC, out tk)) a[1] = T(new DateTime(tk)); return string.Join(",", a); }))); } catch { }
+                try
+                {
+                    var cd = Path.Combine(Dir, "auto", "candles"); if (Directory.Exists(cd))
+                    {
+                        var days = new HashSet<string>(its.Select(x => x.Start.ToString("yyyy-MM-dd", IC))); var outD = Path.Combine(dir, "12-candles-by-day"); int nC = 0;
+                        foreach (var f in Directory.GetFiles(cd, s.Symbol + "-*.csv")) if (days.Contains(Path.GetFileNameWithoutExtension(f).Substring(s.Symbol.Length + 1))) { Directory.CreateDirectory(outD); File.Copy(f, Path.Combine(outD, Path.GetFileName(f)), true); nC++; }
+                        if (nC > 0) files.Add("12-candles-by-day\\ (" + nC + " days)");
+                    }
+                }
+                catch { }
                 // 08 the candles of the symbol (M1 + the strategy's timeframe + the FVG timeframe), from the first iteration − 1 day
                 var from = its.Count > 0 ? its.Min(x => x.Start).AddDays(-1) : DateTime.MinValue; int candleFiles = 0;
                 foreach (var tf in new[] { 1, s.Tf, s.FvgTf }.Where(m => m > 0).Distinct())
@@ -598,6 +630,8 @@ namespace KeystoneMT5
                     "  06-learn.txt        win rate / drawdown by market context (as the LEARN tab)",
                     "  07-log.txt          the engine's log",
                     "  08-candles-*.csv    " + (candleFiles > 0 ? "the symbol's candles the app had in memory (from a day before the first iteration)" : "(no candles in memory — open the 📈 chart on the symbol, then export again)"),
+                    "  11-basket-paths.csv every open basket once a minute: price, basket $, net lots, legs, gross lots (LOCKED when locked)",
+                    "  12-candles-by-day\\ the 1-minute candles of every day that had an iteration (archived by SpasiX every 10 minutes)",
                     "  10-hedges.csv       every hedge / lock / unlock: the basket's range, ATR, hedges before it, its best / worst move in the next 30 min, whipsaw = 1",
                     "  09-race\\            " + (raceFiles > 0 ? "every strategy of the 🏁 RACE: the saved iterations / trades per day + leaderboard.txt" : "(no race saved yet)") };
                 File.WriteAllLines(Path.Combine(dir, "00-README.txt"), rd0);

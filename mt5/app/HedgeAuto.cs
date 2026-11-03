@@ -155,7 +155,9 @@ namespace KeystoneMT5
         readonly List<Fvg> fvgs = new List<Fvg>(); int flowDir; double flowLevel = double.NaN; DateTime flowBar, flowUntil;
         static double BuyShare(Mt5Bar b) { double r = b.H - b.L; if (r <= 0) return 0.5; double pos = (b.C - b.L) / r, body = (b.C - b.O) / r; return Math.Max(0, Math.Min(1, 0.5 * pos + 0.5 * (0.5 + 0.5 * body))); }   // the chart's estimate (ChartFlow)
 
-        public Action<int, string> OnTell, OnNote;   // every story / log line as it happens (the window writes them to its files)
+        public Action<int, string> OnTell, OnNote;
+        // 📉 THE BASKET'S PATH (for learning): once a minute while an iteration is open — the time, bid, basket $, net lots, legs, gross lots
+        public Action<string> OnPath; DateTime pathMin = DateTime.MinValue;   // every story / log line as it happens (the window writes them to its files)
         void Tell(string s) { var line = Now.ToString("dd MMM yy HH:mm:ss", IC) + "  " + s; if (OnTell != null) try { OnTell(Current != null ? Current.N : 0, line); } catch { } Story.Add(Tuple.Create(Current != null ? Current.N : 0, line)); if (Story.Count > 5000) Story.RemoveRange(0, 1000); Version++; }
         string P(double v) { return double.IsNaN(v) ? "—" : v.ToString("0.#####", IC); }
         string M(double v) { return (v < 0 ? "−$" : "+$") + Math.Abs(v).ToString("N2", IC); }
@@ -353,6 +355,7 @@ namespace KeystoneMT5
                 double total = Basket + (Set.ExitMode == "LEGS" ? sn.Balance - it.BalanceStart : 0);   // LEGS: what the closed legs made counts too
                 foreach (var p in sn.Pos) it.FeeByTicket[p.Ticket] = OpenComm(sn, p) * 2 + (Set.CommissionPerLot > 0 ? p.Lots * Set.CommissionPerLot : 0);   // the commissions so far (live)
                 it.Fees = it.FeeByTicket.Values.Sum();
+                { var pm = new DateTime(Now.Year, Now.Month, Now.Day, Now.Hour, Now.Minute, 0); if (pm != pathMin && OnPath != null) { pathMin = pm; OnPath(string.Join(",", it.N.ToString(IC), Now.Ticks.ToString(IC), sn.Bid.ToString("R", IC), Basket.ToString("0.00", IC), sn.Pos.Sum(p => p.Dir * p.Lots).ToString("0.##", IC), sn.Pos.Count.ToString(IC), Gross(sn.Pos).ToString("0.##", IC), Locked ? "LOCKED" : "")); } }
                 it.MaxDd = Math.Min(it.MaxDd, total); it.Peak = Math.Max(it.Peak, Basket); it.MaxGross = Math.Max(it.MaxGross, Gross(sn.Pos));
                 if (Set.ExitMode == "LEGS")
                 {
