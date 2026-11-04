@@ -302,7 +302,7 @@ public static class AutoTests
             Check(tRo.Count >= 3 && tNo.Count >= 3 && tRo[2].Side == "BUY" && tRo[2].Price > tRo[0].Price + 0.05 && tRo[2].Time > tNo[2].Time, "range-only: the hedge BUY waits for a break over the highest leg (later than without it)", tRo.Count + " " + (tRo.Count > 2 ? tRo[2].Price + " vs first " + tRo[0].Price : ""));
             {   // ⚡ QUICK HEDGE: up $8, then down — the hedge SELL near the top (the first break of a candle low), not $6 under the entry
                 Func<List<Mt5Bar>> upDown = () => Path(Day1, 4000, Line(4000, 0.5, 16).Concat(Line(4008, -0.5, 30)));
-                Func<AutoSettings> qS = () => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 6; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.1; x.Target = 500; x.MaxIterations = 1; return x; };
+                Func<AutoSettings> qS = () => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 6; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.1; x.Target = 500; x.MaxIterations = 1; x.HedgeCap = 0; return x; };
                 var sQh = qS(); sQh.QuickHedge = true; sQh.QuickAfter = 3; var hQ = Run(upDown(), sQh).Item2.Trades.FirstOrDefault(t => t.Side == "SELL");
                 var hN = Run(upDown(), qS()).Item2.Trades.FirstOrDefault(t => t.Side == "SELL");
                 Check(hQ != null && hN != null && hQ.Price > 4005 && hN.Price < 3995 && AutoSettings.Load(sQh.Save()).QuickHedge && !AutoSettings.Load("sym=XAUUSD").QuickHedge,
@@ -325,6 +325,12 @@ public static class AutoTests
                 var tSt = Run(zzS, sSt).Item2.Trades.Where(t => t.Side != "CLOSE").ToList(); double net = 0; var leads = new List<double>(); foreach (var t in tSt) { net += (t.Side == "BUY" ? 1 : -1) * t.Lots; leads.Add(Math.Round(Math.Abs(net), 2)); }
                 Check(tSt.Count >= 4 && Math.Abs(tSt[1].Lots - 0.2) < 1e-9 && Math.Abs(tSt[2].Lots - 0.3) < 1e-9 && Math.Abs(tSt[3].Lots - 0.5) < 1e-9 && AutoSettings.Load(sSt.Save()).HedgeSize == "STEPLEAD",
                     "step lead: the hedges lead by 0.1, then 0.2, then 0.3 (lots 0.2 / 0.3 / 0.5); saved", string.Join(" | ", tSt.Select(t => t.Side + " " + t.Lots)) + " leads " + string.Join(",", leads));
+            }
+            {   // 🛡 MAX HEDGE DISTANCE: a SELL basket, then a straight rally (no swing high forms) → the hedge BUY comes ≤ 5 above, not never
+                var sCap = S(); sCap.FirstDir = "SELL"; sCap.HedgeMode = "BREAK"; sCap.Swing = true; sCap.SwingK = 2; sCap.Rolling = true; sCap.HedgeSize = "ADVANTAGE"; sCap.NetAdvantage = 0.1; sCap.Target = 5000; sCap.MaxIterations = 1; sCap.HedgeCap = 5;
+                var up = Path(Day1, 4000, Line(4000, 0.5, 40));
+                var hC = Run(up, sCap).Item2.Trades.FirstOrDefault(t => t.Side == "BUY"); var s0 = sCap.Copy(); s0.HedgeCap = 0; var h0 = Run(up, s0).Item2.Trades.FirstOrDefault(t => t.Side == "BUY");
+                Check(hC != null && hC.Price <= 4006.5 && h0 == null && AutoSettings.Load("sym=XAUUSD").HedgeCap == 5, "max hedge distance: a straight rally against a SELL → the hedge BUY within $5 (without it: no hedge at all); default 5", (hC != null ? hC.Price.ToString() : "none") + " / " + (h0 != null ? h0.Price.ToString() : "none"));
             }
             var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
         }

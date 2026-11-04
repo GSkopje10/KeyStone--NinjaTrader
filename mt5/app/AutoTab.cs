@@ -189,6 +189,7 @@ namespace KeystoneMT5
             {   // 🧱 ANTI-CHOP (user's request — every part a checkbox): hedge only beyond the basket's range; LOCK in the chop and wait for the break
                 var r5 = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
                 r5.Children.Add(new TextBlock { Text = "🧱 ANTI-CHOP", Foreground = Amber, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
+                r5.Children.Add(AField("hcap", "🛡 MAX HEDGE DISTANCE (price, 0 = off)", aset.HedgeCap.ToString(IC), 60, "the hedge is NEVER further than this from the losing side (its newest leg; the basket's high / low with range-only). In a straight trend there is no swing to hedge at — then the hedge sits here, and a price already past it hedges at once. Gold: 5 = $5"));
                 r5.Children.Add(ACheck("quick", "⚡ QUICK HEDGE", () => aset.QuickHedge, v => aset.QuickHedge = v, "ON: once the price has run the QUICK AFTER distance beyond the basket's best leg, the hedge moves up to the LAST FINISHED CANDLE's low (long basket) / high (short) — the first red candle that breaks a low hedges at once, near the top, instead of waiting back at the old swing low. With ADVANTAGE sizing the hedge flips the basket to the new side (and ADD TO THE WINNER adds to it)"));
                 r5.Children.Add(AField("qafter", "QUICK AFTER (price)", aset.QuickAfter.ToString(IC), 60, "how far the price must run beyond the basket's best leg before the quick hedge trails the last candle (gold: 3 = $3)"));
                 r5.Children.Add(ACheck("ronly", "HEDGE ONLY BEYOND THE BASKET'S RANGE", () => aset.RangeOnly, v => aset.RangeOnly = v, "ON: a hedge SELL only under the basket's lowest leg, a hedge BUY only over its highest — never inside the small range it already holds (no hedging in chop)"));
@@ -267,7 +268,7 @@ namespace KeystoneMT5
             t("pause", d(aset.PauseSec)); t("maxit", d(aset.MaxIterations)); t("hprice", d(aset.HedgePrice)); t("hmoney", d(aset.HedgeMoney)); t("win", aset.Windows); t("nyoff", d(aset.NyOffsetHours)); t("perday", d(aset.PerDay));
             t("nb", d(aset.NewsBefore)); t("na", d(aset.NewsAfter)); t("wlots", d(aset.WinnerLots)); t("wlots2", d(aset.WinnerLotsSell)); t("wmax", d(aset.MaxWinnerAdds)); t("swk", d(aset.SwingK)); t("fvol", d(aset.FlowVol)); t("fshare", d(aset.FlowShare));
             t("eod", aset.CloseAtNy); t("fage", d(aset.FvgAge)); t("aggrun", d(aset.AggRun)); t("hmult", d(aset.HedgeMult)); t("maxh", d(aset.MaxHedges)); t("nadv", d(aset.NetAdvantage)); t("rmove", d(aset.RecoverMove)); t("hmax", d(aset.HedgeMaxLots));
-            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); } AChecksPaint(); t("beafter", d(aset.BeAfter)); t("qafter", d(aset.QuickAfter)); t("lafter", d(aset.LockAfter)); t("lrange", d(aset.LockRange));
+            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); } AChecksPaint(); t("beafter", d(aset.BeAfter)); t("qafter", d(aset.QuickAfter)); t("hcap", d(aset.HedgeCap)); t("lafter", d(aset.LockAfter)); t("lrange", d(aset.LockRange));
             foreach (var b in aDrops.Values) { var f = b.Tag as Func<string>; if (f != null) b.Content = f() + "  ▾"; }
             AutoVis();
         }
@@ -277,7 +278,7 @@ namespace KeystoneMT5
             Action<string, string> t = (k, v) => { TextBox tb; if (af.TryGetValue(k, out tb)) tb.Text = v; };
             t("look", aset.Lookback.ToString(IC)); t("entry", aset.EntryLots.ToString(IC)); t("add", aset.AddLots.ToString(IC)); t("target", aset.Target.ToString(IC)); t("dd", aset.MaxDrawdown.ToString(IC));
             t("win", aset.Windows); t("eod", aset.CloseAtNy); t("fage", aset.FvgAge.ToString(IC)); t("perday", aset.PerDay.ToString(IC)); t("aggrun", aset.AggRun.ToString(IC)); t("hmoney", aset.HedgeMoney.ToString(IC)); t("hmult", aset.HedgeMult.ToString(IC)); t("maxh", aset.MaxHedges.ToString(IC)); t("maxit", aset.MaxIterations.ToString(IC));
-            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); } AChecksPaint(); t("nadv", aset.NetAdvantage.ToString(IC)); t("beafter", aset.BeAfter.ToString(IC)); t("qafter", aset.QuickAfter.ToString(IC)); t("swk", aset.SwingK.ToString(IC));
+            if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); } AChecksPaint(); t("nadv", aset.NetAdvantage.ToString(IC)); t("beafter", aset.BeAfter.ToString(IC)); t("qafter", aset.QuickAfter.ToString(IC)); t("hcap", aset.HedgeCap.ToString(IC)); t("swk", aset.SwingK.ToString(IC));
             foreach (var b in aDrops.Values) { var f = b.Tag as Func<string>; if (f != null) b.Content = f() + "  ▾"; }
             AutoVis();
         }
@@ -459,7 +460,7 @@ namespace KeystoneMT5
             var s = aset.Copy(); s.Symbol = (af["sym"].Text ?? "").Trim(); s.Lookback = (int)Math.Max(1, ANum("look", 1)); s.EntryLots = ANum("entry", 0); s.AddLots = ANum("add", 0); s.Target = ANum("target", 0);
             s.MaxDrawdown = Math.Max(0, ANum("dd", 0)); s.HedgePrice = ANum("hprice", 0); s.HedgeMoney = ANum("hmoney", 0); s.HedgeMult = Math.Max(0.1, ANum("hmult", 2)); s.AggRun = (int)Math.Max(1, ANum("aggrun", 4)); s.RecoverMove = Math.Max(0.01, ANum("rmove", 3)); s.NetAdvantage = Math.Max(0.01, ANum("nadv", 0.2)); s.HedgeMaxLots = Math.Max(0.01, ANum("hmax", 1)); s.MaxHedges = (int)Math.Max(1, ANum("maxh", 1)); s.PauseSec = (int)Math.Max(0, ANum("pause", 60)); s.MaxIterations = (int)Math.Max(0, ANum("maxit", 0)); s.CommissionPerLot = Math.Max(0, ANum("comm", 0));
             s.Windows = (af["win"].Text ?? "").Trim(); s.CloseAtNy = (af["eod"].Text ?? "").Trim(); s.FvgAge = (int)Math.Max(0, ANum("fage", 0)); s.NyOffsetHours = (int)ANum("nyoff", -7); s.PerDay = (int)Math.Max(0, ANum("perday", 0)); s.NewsBefore = (int)Math.Max(0, ANum("nb", 15)); s.NewsAfter = (int)Math.Max(0, ANum("na", 15));
-            s.BeAfter = (int)Math.Max(0, ANum("beafter", 0)); s.QuickAfter = Math.Max(0.1, ANum("qafter", 3)); s.LockAfter = (int)Math.Max(1, ANum("lafter", 2)); s.LockRange = Math.Max(0.01, ANum("lrange", 3));
+            s.BeAfter = (int)Math.Max(0, ANum("beafter", 0)); s.QuickAfter = Math.Max(0.1, ANum("qafter", 3)); s.HedgeCap = Math.Max(0, ANum("hcap", 5)); s.LockAfter = (int)Math.Max(1, ANum("lafter", 2)); s.LockRange = Math.Max(0.01, ANum("lrange", 3));
             s.WinnerLots = Math.Max(0, ANum("wlots", 0.1)); s.WinnerLotsSell = Math.Max(0, ANum("wlots2", 0.1)); s.SwingK = (int)Math.Max(1, ANum("swk", 2)); s.MaxWinnerAdds = (int)Math.Max(0, ANum("wmax", 0)); s.FlowVol = Math.Max(1, ANum("fvol", 1.5)); s.FlowShare = Math.Max(0.5, Math.Min(1, ANum("fshare", 0.7)));
             return s;
         }
