@@ -1,6 +1,7 @@
 using System; using System.Collections.Generic; using System.Globalization; using System.IO; using System.Linq; using KeystoneMT5;
 static class P {
   static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+  static void Cp(AutoSettings src, AutoSettings dst) { foreach (var f in typeof(AutoSettings).GetFields()) if (!f.IsInitOnly && !f.IsLiteral) f.SetValue(dst, f.GetValue(src)); }
   public static int Main(string[] a) {
     List<Mt5Bar> bars; DateTime dTo = DateTime.MinValue;
     if (Directory.Exists(a[0])) { var f0 = DateTime.ParseExact(a[1], "yyyy-MM-dd", IC); dTo = DateTime.ParseExact(a[3], "yyyy-MM-dd", IC); bars = Gold.Load(a[0], f0, dTo); foreach (var b in bars) b.Spread = 35; }
@@ -15,6 +16,15 @@ static class P {
       Tuple.Create("range+rescue2 lead 0.1", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 2; s.NetAdvantage = 0.1; })),
       Tuple.Create("range+rescue5 lead 0.1", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 5; s.NetAdvantage = 0.1; })),
     };
+    var only = Environment.GetEnvironmentVariable("ONLY");
+    if (Environment.GetEnvironmentVariable("CMP") == "1") { var safe = AutoSettings.Model("SAFE", baseS); var lad = AutoSettings.Model("LADDER", baseS); variants = new List<Tuple<string, Action<AutoSettings>>> {
+      Tuple.Create("SAFE (yours)", (Action<AutoSettings>)(s => { Cp(safe, s); s.TrendFilter = "NONE"; })),
+      Tuple.Create("SAFE + trend", (Action<AutoSettings>)(s => { Cp(safe, s); s.TrendFilter = "EMA"; })),
+      Tuple.Create("SAFE x5 (0.05/lead0.05/$10)", (Action<AutoSettings>)(s => { Cp(safe, s); s.TrendFilter = "NONE"; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.AddLots = 0.1; s.Target = 10; })),
+      Tuple.Create("SAFE x5 + trend", (Action<AutoSettings>)(s => { Cp(safe, s); s.TrendFilter = "EMA"; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.AddLots = 0.1; s.Target = 10; })),
+      Tuple.Create("LADDER no trend", (Action<AutoSettings>)(s => { Cp(lad, s); s.TrendFilter = "NONE"; s.BeAfter = 0; })),
+      Tuple.Create("LADDER + trend + rescue6", (Action<AutoSettings>)(s => { Cp(lad, s); })),
+    }; if (only != null) variants = variants.Where(v => v.Item1.StartsWith(only)).ToList(); }
     if (Environment.GetEnvironmentVariable("LADDER") == "1") { baseS = AutoSettings.Model("LADDER", baseS); variants = new List<Tuple<string, Action<AutoSettings>>> {
       Tuple.Create("ladder 2.5 max10 +$12", (Action<AutoSettings>)(s => { })),
       Tuple.Create("ladder 4 max10 +$15", (Action<AutoSettings>)(s => { s.LadderStep = 4; s.Target = 15; })),

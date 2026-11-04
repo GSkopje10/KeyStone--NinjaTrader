@@ -15,7 +15,7 @@ public static class AutoTests
     }
     static IEnumerable<double> Line(double from, double step, int n) { for (int i = 1; i <= n; i++) yield return Math.Round(from + step * i, 2); }
     static SimSpec Gold() { return new SimSpec { Name = "XAUUSD", Digits = 2, Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7 }; }
-    static Tuple<SimBroker, HedgeAuto> Run(List<Mt5Bar> test, AutoSettings s, Action<SimBroker, HedgeAuto> mid = null, Action<HedgeAuto> prep = null, Action<SimBroker> watch = null)
+    static Tuple<SimBroker, HedgeAuto> Run(List<Mt5Bar> test, AutoSettings s, Action<SimBroker, HedgeAuto> mid = null, Action<HedgeAuto> prep = null, Action<SimBroker> watch = null, int steps = 4000)
     {
         var warm = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30));
         var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = 10000, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 10 }, Gold(), warm.Concat(test).ToList()); if (err != "") throw new Exception(err);
@@ -23,7 +23,7 @@ public static class AutoTests
         var chk = au.Check(sb, s); if (chk != "") throw new Exception(chk);
         if (watch != null) watch(sb);
         au.Start(sb, s, false); sb.Playing = true; sb.Speed = 60;
-        for (int k = 0; k < 4000 && !sb.Ended; k++) { sb.Advance(0.25); if (mid != null && k == 3) mid(sb, au); }
+        for (int k = 0; k < steps && !sb.Ended; k++) { sb.Advance(0.25); if (mid != null && k == 3) mid(sb, au); }
         return Tuple.Create(sb, au);
     }
     static AutoSettings S() { return new AutoSettings { HedgeSize = "FIXED", Rolling = false, Swing = false, FvgTf = 1, Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
@@ -333,7 +333,7 @@ public static class AutoTests
                 Check(hC != null && hC.Price <= 4006.5 && h0 == null && AutoSettings.Load("sym=XAUUSD").HedgeCap == 5, "max hedge distance: a straight rally against a SELL → the hedge BUY within $5 (without it: no hedge at all); default 5", (hC != null ? hC.Price.ToString() : "none") + " / " + (h0 != null ? h0.Price.ToString() : "none"));
             }
             {   // 🪜 HM LADDER: straddle → BUY above 4001.25; up to 4010: a BUY every 2.5 above the highest leg; down to 3985: SELLs only below the LOWEST leg − 2.5; at most 6 legs
-                var sL = AutoSettings.Model("LADDER", S()); sL.MaxIterations = 1; sL.Target = 5000; sL.LadderMax = 6; sL.EntryLots = 0.05; sL.LadderStep = 2.5;
+                var sL = AutoSettings.Model("LADDER", S()); sL.MaxIterations = 1; sL.Target = 5000; sL.LadderMax = 6; sL.EntryLots = 0.05; sL.LadderStep = 2.5; sL.TrendFilter = "NONE"; sL.BeAfter = 0;
                 var pL = Path(Day1, 4000, Line(4000, 0.25, 40).Concat(Line(4010, -0.25, 100)));
                 var tL = Run(pL, sL).Item2.Trades.Where(t => t.Side != "CLOSE").ToList();
                 var buys = tL.Where(t => t.Side == "BUY").ToList(); var sells = tL.Where(t => t.Side == "SELL").ToList();
@@ -343,6 +343,13 @@ public static class AutoTests
                     "hm ladder: the straddle buys above 4001.25, a BUY every 2.5 above the highest leg, a SELL only below the lowest leg − 2.5, all 0.05, max 6 legs", string.Join(" | ", tL.Select(t => t.Side + " " + t.Price)));
                 var real = new HedgeAuto(); string why = real.Check(new RealBroker(), sL);
                 Check(why.Contains("DEMO") && AutoSettings.Load(sL.Save()).LadderMax == 6 && AutoSettings.Load(sL.Save()).HedgeMode == "LADDER", "hm ladder: refused on a real account (DEMO / BACKTEST only); saved", why);
+            }
+            {   // ✅ TREND CONFIRMATION: a long fall (EMA 50 under EMA 200), then a 4-candle bounce that breaks highs → no BUY with EMA; a BUY without
+                var pT = Path(Day1, 4000, Line(4000, -0.4, 190).Concat(Line(3924, 0.6, 6)).Concat(Line(3927.6, -0.6, 10)));
+                Func<string, List<AutoTrade>> runT = tf => { var x = S(); x.HedgeMode = "NONE"; x.Target = 5; x.MaxDrawdown = 2; x.MaxIterations = 0; x.TrendFilter = tf; return Run(pT, x, null, null, null, 12000).Item2.Trades.Where(t => t.Why.StartsWith("ENTRY")).ToList(); };
+                var tOn = runT("EMA"); var tOff = runT("NONE");
+                Check(!tOn.Any(t => t.Side == "BUY") && tOn.Any(t => t.Side == "SELL") && tOff.Any(t => t.Side == "BUY") && AutoSettings.Load("sym=XAUUSD;trend=EMA").TrendFilter == "EMA" && AutoSettings.Load("sym=XAUUSD").TrendFilter == "NONE",
+                    "trend confirmation: in a downtrend the bounce's break-up BUY is skipped (only SELLs); without it the BUY opens; saved, OFF by default", "on: " + tOn.Count + " • off: " + string.Join(",", tOff.Skip(Math.Max(0, tOff.Count - 6)).Select(t => t.Side + "@" + t.Time.ToString("HH:mm") + "/" + t.Price)));
             }
             var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
         }
