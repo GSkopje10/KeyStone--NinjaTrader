@@ -54,6 +54,32 @@ public static class AccountLinkTests
     public static int Main()
     {
         var t0 = new DateTime(2026, 10, 6, 9, 45, 0);
+        // 0b. contracts ADDED to a position with a profit stop: the stop / target keep their PRICE and are resized for EVERY contract (user's bug:
+        //     the stop closed only the first contract and left the rest open)
+        {
+            var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 6 }; var t = Trader();
+            l.Arm(t0); t.StopPts = 10; t.TargetPts = 40; t.Buy(1); l.Tick(t, t0); l.Tick(t, t0.AddSeconds(0.25)); b.FillMarket(20000); for (int k = 0; k < 6; k++) l.Tick(t, t0.AddSeconds(1 + k));
+            var st0 = b.All.FirstOrDefault(o => !o.Done && o.Kind == "STOP"); var tg0 = b.All.FirstOrDefault(o => !o.Done && o.Kind == "LIMIT");
+            Check(st0 != null && st0.Qty == 1 && Math.Abs(st0.Price - 19990) < 1e-9 && tg0 != null && Math.Abs(tg0.Price - 20040) < 1e-9, "add: LONG 1 @ 20000 with a stop 19990 + target 20040 for 1", st0 == null ? "no stop" : st0.Qty + " @ " + st0.Price);
+            t.StopPts = -4; for (int k = 0; k < 6; k++) l.Tick(t, t0.AddSeconds(8 + k));   // the stop dragged INTO profit: 20004
+            var st1 = b.All.FirstOrDefault(o => !o.Done && o.Kind == "STOP");
+            Check(st1 != null && Math.Abs(st1.Price - 20004) < 1e-9, "add: the stop dragged into profit → 20004", st1 == null ? "none" : st1.Price.ToString());
+            t.Buy(2); l.Tick(t, t0.AddSeconds(20)); l.Tick(t, t0.AddSeconds(20.25)); b.FillMarket(20010); for (int k = 0; k < 12; k++) l.Tick(t, t0.AddSeconds(21 + k));
+            var stops = b.All.Where(o => !o.Done && o.Kind == "STOP").ToList(); var tgts = b.All.Where(o => !o.Done && o.Kind == "LIMIT").ToList();
+            Check(b.Q == 3 && stops.Count == 1 && stops[0].Qty == 3 && Math.Abs(stops[0].Price - 20004) < 1e-9 && tgts.Count == 1 && tgts[0].Qty == 3 && Math.Abs(tgts[0].Price - 20040) < 1e-9,
+                "add 2 more (LONG 3): ONE stop for 3 at the SAME 20004, ONE target for 3 at the SAME 20040 (nothing left sized for 1)", "pos " + b.Q + " • " + string.Join(", ", stops.Select(o => "STOP " + o.Qty + "@" + o.Price)) + " • " + string.Join(", ", tgts.Select(o => "TGT " + o.Qty + "@" + o.Price)));
+            double avg3 = (20000 + 2 * 20010) / 3.0;
+            Check(Math.Abs(t.AvgPrice - avg3) < 0.01 && Math.Abs((t.AvgPrice - t.StopPts) - 20004) < 0.3 && Math.Abs((t.AvgPrice + t.TargetPts) - 20040) < 0.3, "the studio's lines stay at 20004 / 20040 (their distances follow the new average)", t.AvgPrice + " stop " + (t.AvgPrice - t.StopPts) + " tgt " + (t.AvgPrice + t.TargetPts));
+        }
+        // 0c. contracts added in NINJATRADER (not from the chart): the same — one stop / target for every contract, at the same prices
+        {
+            var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 6 }; var t = Trader();
+            l.Arm(t0); t.StopPts = 10; t.TargetPts = 40; t.Buy(1); l.Tick(t, t0); l.Tick(t, t0.AddSeconds(0.25)); b.FillMarket(20000); for (int k = 0; k < 6; k++) l.Tick(t, t0.AddSeconds(1 + k));
+            b.Exec(2, 20020, "NT BUY 2"); for (int k = 0; k < 12; k++) l.Tick(t, t0.AddSeconds(10 + k));
+            var stops = b.All.Where(o => !o.Done && o.Kind == "STOP").ToList(); var tgts = b.All.Where(o => !o.Done && o.Kind == "LIMIT").ToList();
+            Check(b.Q == 3 && stops.Count == 1 && stops[0].Qty == 3 && Math.Abs(stops[0].Price - 19990) < 1e-9 && tgts.Count == 1 && tgts[0].Qty == 3 && Math.Abs(tgts[0].Price - 20040) < 1e-9 && t.Position == 3,
+                "added in NinjaTrader (LONG 3): ONE stop for 3 at the SAME 19990, ONE target for 3 at the SAME 20040; the chart shows LONG 3", "pos " + b.Q + "/" + t.Position + " • " + string.Join(", ", stops.Select(o => "STOP " + o.Qty + "@" + o.Price)) + " • " + string.Join(", ", tgts.Select(o => "TGT " + o.Qty + "@" + o.Price)));
+        }
         // 0. TAKE PROFIT step: a resting studio limit for part of the position; when it fills, the bracket is rebuilt for what is left
         {
             var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 4 }; var t = Trader();
