@@ -332,6 +332,18 @@ public static class AutoTests
                 var hC = Run(up, sCap).Item2.Trades.FirstOrDefault(t => t.Side == "BUY"); var s0 = sCap.Copy(); s0.HedgeCap = 0; var h0 = Run(up, s0).Item2.Trades.FirstOrDefault(t => t.Side == "BUY");
                 Check(hC != null && hC.Price <= 4006.5 && h0 == null && AutoSettings.Load("sym=XAUUSD").HedgeCap == 5, "max hedge distance: a straight rally against a SELL → the hedge BUY within $5 (without it: no hedge at all); default 5", (hC != null ? hC.Price.ToString() : "none") + " / " + (h0 != null ? h0.Price.ToString() : "none"));
             }
+            {   // 🪜 HM LADDER: straddle → BUY above 4001.25; up to 4010: a BUY every 2.5 above the highest leg; down to 3985: SELLs only below the LOWEST leg − 2.5; at most 6 legs
+                var sL = AutoSettings.Model("LADDER", S()); sL.MaxIterations = 1; sL.Target = 5000; sL.LadderMax = 6; sL.EntryLots = 0.05; sL.LadderStep = 2.5;
+                var pL = Path(Day1, 4000, Line(4000, 0.25, 40).Concat(Line(4010, -0.25, 100)));
+                var tL = Run(pL, sL).Item2.Trades.Where(t => t.Side != "CLOSE").ToList();
+                var buys = tL.Where(t => t.Side == "BUY").ToList(); var sells = tL.Where(t => t.Side == "SELL").ToList();
+                bool steps = buys.Count >= 2 && buys.Skip(1).Select((b, i) => b.Price - buys[i].Price).All(d => d > 2.3 && d < 3.2);
+                bool below = sells.Count > 0 && sells[0].Price < buys[0].Price - 2.3;
+                Check(tL.Count == 6 && tL[0].Side == "BUY" && tL[0].Price > 4001 && tL[0].Price < 4002 && steps && below && tL.All(t => Math.Abs(t.Lots - 0.05) < 1e-9),
+                    "hm ladder: the straddle buys above 4001.25, a BUY every 2.5 above the highest leg, a SELL only below the lowest leg − 2.5, all 0.05, max 6 legs", string.Join(" | ", tL.Select(t => t.Side + " " + t.Price)));
+                var real = new HedgeAuto(); string why = real.Check(new RealBroker(), sL);
+                Check(why.Contains("DEMO") && AutoSettings.Load(sL.Save()).LadderMax == 6 && AutoSettings.Load(sL.Save()).HedgeMode == "LADDER", "hm ladder: refused on a real account (DEMO / BACKTEST only); saved", why);
+            }
             var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
         }
         {   // 📈 AFTER THE TARGET: BUY 0.1 closes at +$20; gold keeps rising $3 more (≈ +$30 more), then falls $6 → back to $20, then breakeven
@@ -382,3 +394,9 @@ sealed class CountingBroker : IBroker
         public string Command(string cmd, params object[] args) { hit(); return null; }
         public string Problem { get { return ""; } } public int Port { get { return 0; } } public bool IsSim { get { return true; } }
     }
+sealed class RealBroker : IBroker
+{
+    readonly Mt5State st = new Mt5State(); public Mt5State State { get { return st; } }
+    public bool Send(string line) { return true; } public string Command(string cmd, params object[] args) { return null; }
+    public string Problem { get { return ""; } } public int Port { get { return 0; } } public bool IsSim { get { return false; } }
+}

@@ -8,10 +8,19 @@ static class P {
     var day = DateTime.ParseExact(a[1], "yyyy-MM-dd", IC); var setLine = File.ReadAllLines(a[2]).Where(l => l.Contains("=")).Select(l => l.Trim()); var baseS = AutoSettings.Load(string.Join(";", setLine));
     var spec = new SimSpec { Name = "XAUUSD", Digits = 2, Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7 };
     var variants = new List<Tuple<string, Action<AutoSettings>>> {
-      Tuple.Create("YOUR SETTINGS 0.1", (Action<AutoSettings>)(s => { })),
-      Tuple.Create("range+rescue@3 0.1", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 3; })),
-      Tuple.Create("range+rescue@3 0.01/$2", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 3; s.EntryLots = 0.01; s.NetAdvantage = 0.02; s.Target = 2; })),
+      Tuple.Create("yours lead 0.1", (Action<AutoSettings>)(s => { s.NetAdvantage = 0.1; })),
+      Tuple.Create("range+rescue3 lead 0.1", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 3; s.NetAdvantage = 0.1; })),
+      Tuple.Create("range+rescue3 lead 0.2", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 3; s.NetAdvantage = 0.2; })),
+      Tuple.Create("range+rescue3 lead 0.3", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 3; s.NetAdvantage = 0.3; })),
+      Tuple.Create("range+rescue2 lead 0.1", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 2; s.NetAdvantage = 0.1; })),
+      Tuple.Create("range+rescue5 lead 0.1", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 5; s.NetAdvantage = 0.1; })),
     };
+    if (Environment.GetEnvironmentVariable("LADDER") == "1") { baseS = AutoSettings.Model("LADDER", baseS); variants = new List<Tuple<string, Action<AutoSettings>>> {
+      Tuple.Create("ladder 2.5 max10 +$12", (Action<AutoSettings>)(s => { })),
+      Tuple.Create("ladder 4 max10 +$15", (Action<AutoSettings>)(s => { s.LadderStep = 4; s.Target = 15; })),
+      Tuple.Create("ladder 6 max10 +$17", (Action<AutoSettings>)(s => { s.LadderStep = 6; s.Target = 17; })),
+      Tuple.Create("ladder 2.5 max6 +$12", (Action<AutoSettings>)(s => { s.LadderMax = 6; })),
+    }; }
     foreach (var v in variants) {
       var s = baseS.Copy(); v.Item2(s); s.TrackManual = false; s.Windows = ""; 
       var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = day, To = dTo > DateTime.MinValue ? dTo : day, Balance = a.Length > 4 ? double.Parse(a[4], IC) : 5000, CommissionPerLot = 7.84, Leverage = 500, Kind = "STANDARD", FixedSpread = 35 }, spec, bars); if (err != "") { Console.WriteLine(err); return 1; }
