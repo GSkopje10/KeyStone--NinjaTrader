@@ -80,6 +80,17 @@ public static class AccountLinkTests
             Check(b.Q == 3 && stops.Count == 1 && stops[0].Qty == 3 && Math.Abs(stops[0].Price - 19990) < 1e-9 && tgts.Count == 1 && tgts[0].Qty == 3 && Math.Abs(tgts[0].Price - 20040) < 1e-9 && t.Position == 3,
                 "added in NinjaTrader (LONG 3): ONE stop for 3 at the SAME 19990, ONE target for 3 at the SAME 20040; the chart shows LONG 3", "pos " + b.Q + "/" + t.Position + " • " + string.Join(", ", stops.Select(o => "STOP " + o.Qty + "@" + o.Price)) + " • " + string.Join(", ", tgts.Select(o => "TGT " + o.Qty + "@" + o.Price)));
         }
+        // 0d. the user's case: LONG 2 with the stop dragged INTO profit, then SELL 5 = reverse to SHORT 3 — the old profit stop must not become a
+        //     BUY STOP below the market (rejected → disarm + flatten = "it closed all of the contracts")
+        {
+            var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 6 }; var t = Trader();
+            l.Arm(t0); t.StopPts = 10; t.TargetPts = 40; t.Buy(2); l.Tick(t, t0); l.Tick(t, t0.AddSeconds(0.25)); b.FillMarket(20000); for (int k = 0; k < 6; k++) l.Tick(t, t0.AddSeconds(1 + k));
+            t.Price = 20012; b.Last = 20012; t.StopPts = -6; for (int k = 0; k < 6; k++) l.Tick(t, t0.AddSeconds(8 + k));   // profit stop @ 20006
+            t.Sell(5); for (int k = 0; k < 4; k++) { l.Tick(t, t0.AddSeconds(15 + k * 0.25)); b.FillMarket(20012); } for (int k = 0; k < 10; k++) l.Tick(t, t0.AddSeconds(17 + k));
+            var badStop = b.All.FirstOrDefault(o => !o.Done && o.Kind == "STOP" && o.Side > 0 && o.Price <= 20012);
+            Check(b.Q == -3 && t.Position == -3 && l.Armed && badStop == null && !b.Sent.Contains("FLATTEN") && t.StopPts >= 0,
+                "reverse LONG 2 (profit stop) → SELL 5 = SHORT 3, still ARMED, no buy stop below the market, nothing flattened", "pos " + b.Q + "/" + t.Position + " armed " + l.Armed + " stop " + t.StopPts + " • " + string.Join(" | ", b.Sent.Skip(Math.Max(0, b.Sent.Count - 6))));
+        }
         // 0. TAKE PROFIT step: a resting studio limit for part of the position; when it fills, the bracket is rebuilt for what is left
         {
             var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 4 }; var t = Trader();
