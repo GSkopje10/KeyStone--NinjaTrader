@@ -201,7 +201,7 @@ namespace KeystoneMT5
             // the numbers, the views
             aTiles = new ContentControl { Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aTiles, Dock.Top); root.Children.Add(aTiles);
             aViews = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aViews, Dock.Top);
-            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "LOG" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); aTable.ScrollToHome(); }; aViews.Children.Add(b); }
+            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "LOG", "🗂 TESTS" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); aTable.ScrollToHome(); }; aViews.Children.Add(b); }
             aSetBtn = Pill("⚙ SETTINGS", Tint(Sx.Card2, 220)); aSetBtn.Height = 26; aSetBtn.ToolTip = "the strategy's settings (they lock while it runs)"; aSetBtn.Click += delegate { aView = "⚙ SETTINGS"; AutoPaint(true); }; aViews.Children.Add(aSetBtn);
             var raceBtn = Pill("🏁 RACE", Tint(Sx.Card2, 220)); raceBtn.Height = 26; raceBtn.ToolTip = "every strategy at once in the background, each on its own simulated account — the leaderboard of the day and the history"; raceBtn.Click += delegate { aView = "🏁 RACE"; AutoPaint(true); RacePaint(); }; aViews.Children.Add(raceBtn);
             aGuideBtn = Pill("🎯 CHART GUIDES", Tint(Sx.Card2, 220)); aGuideBtn.Height = 26; aGuideBtn.ToolTip = "draw what the strategy watches on the 📈 CHART (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge) — a STRONG setup blinks"; aGuideBtn.Click += delegate { aGuidesOn = !aGuidesOn; Put("auto.guides", aGuidesOn ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aGuideBtn);
@@ -566,12 +566,50 @@ namespace KeystoneMT5
         void AutoClear()
         {
             if (auto.Running) { Sx.Info(this, "🤖 AUTO", "Stop the automation first.", Amber); return; }
-            if (!Sx.Ask(this, "🗑 Clear the history", "Every iteration, trade and log line of the automation in this " + Mode + " window is removed" + (Virtual ? "." : " (and its files on this PC)."), "CLEAR", "CANCEL", Red)) return;
-            auto.Iterations.Clear(); auto.Trades.Clear(); auto.Log.Clear(); aSaved = 0; auto.Version++;
-            if (aHist != null && aHist != "") { foreach (var w in new[] { "iterations", "trades", "story", "log" }) try { File.Delete(AutoFile(w)); } catch { } }
-            AutoPaint(true);
+            if (!Sx.Ask(this, "🗑 Clear the history", "Every iteration, trade, story and log line of the automation in this " + Mode + " window is cleared — a fresh start.\n\nThe run so far is KEPT as a test in 🗂 TESTS (its settings, iterations, trades, story, hedges …), so it can be compared and exported later.", "CLEAR (keep it in 🗂 TESTS)", "CANCEL", Red)) return;
+            var arch = AutoArchive(); auto.Iterations.Clear(); auto.Trades.Clear(); auto.Log.Clear(); auto.Story.Clear(); auto.Hedges.Clear(); aSaved = 0; auto.Version++;
+            if (aHist != null && aHist != "") { foreach (var w in new[] { "iterations", "trades", "story", "log", "hedges", "after", "paths", "open" }) try { File.Delete(AutoFile(w)); } catch { } }
+            if (arch != "") Toast("🗂 the run is kept in TESTS — the history starts fresh"); AutoPaint(true);
         }
 
+        // 🗂 TESTS: CLEAR HISTORY keeps the run so far in DataDir\auto\tests\<account>\<from → to>\ (its files + settings + a summary)
+        string AutoTestsDir() { return Path.Combine(Dir, "auto", "tests", Mode + "-" + (string.IsNullOrEmpty(aHist) ? "account" : aHist)); }
+        string AutoArchive()
+        {
+            try
+            {
+                var its = auto.Iterations.ToList(); if (its.Count == 0 && auto.Story.Count == 0) return "";
+                var from = its.Count > 0 ? its.Min(x => x.Start) : DateTime.Now; var to = its.Count > 0 ? its.Max(x => x.Done ? x.End : x.Start) : DateTime.Now;
+                var d = Path.Combine(AutoTestsDir(), from.ToString("yyyy-MM-dd_HHmm", IC) + " to " + to.ToString("yyyy-MM-dd_HHmm", IC)); Directory.CreateDirectory(d);
+                if (!string.IsNullOrEmpty(aHist)) foreach (var w in new[] { "iterations", "trades", "story", "log", "hedges", "after", "paths" }) { var f = AutoFile(w); if (File.Exists(f)) File.Copy(f, Path.Combine(d, Path.GetFileName(f)), true); }
+                var st = auto.Calc(its); var dn = its.Where(x => x.Done).ToList();
+                File.WriteAllLines(Path.Combine(d, "summary.txt"), new[] { "from=" + from.Ticks, "to=" + to.Ticks, "iterations=" + st.Done, "won=" + st.Wins, "lost=" + st.Losses, "net=" + st.Net.ToString("0.##", IC), "fees=" + its.Sum(x => x.Fees).ToString("0.##", IC), "worstdd=" + st.WorstDd.ToString("0.##", IC), "mostlots=" + (its.Count > 0 ? its.Max(x => x.MaxGross) : 0).ToString("0.##", IC), "open=" + (its.Any(x => !x.Done) ? "1" : "0"), "settings=" + (auto.Running ? auto.Set : aset).Save() });
+                return d;
+            }
+            catch { return ""; }
+        }
+        void AutoTestsRows()
+        {
+            aRows.Children.Add(new TextBlock { Text = "🗂 TESTS — every run you cleared with 🗑 CLEAR HISTORY, kept with its settings and all its data (newest first)", Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13, Margin = new Thickness(8, 6, 8, 8) });
+            var dirs = Directory.Exists(AutoTestsDir()) ? Directory.GetDirectories(AutoTestsDir()).OrderByDescending(x => x).ToList() : new List<string>();
+            if (dirs.Count == 0) { aRows.Children.Add(new TextBlock { Text = "no saved test yet — a run is kept here when you press 🗑 CLEAR HISTORY", Foreground = Muted, Margin = new Thickness(10) }); return; }
+            foreach (var d in dirs)
+            {
+                var kv = new Dictionary<string, string>(); try { foreach (var l in File.ReadAllLines(Path.Combine(d, "summary.txt"))) { int i = l.IndexOf('='); if (i > 0) kv[l.Substring(0, i)] = l.Substring(i + 1); } } catch { }
+                Func<string, string> g = k => kv.ContainsKey(k) ? kv[k] : ""; Func<string, double> gn = k => { double v; return double.TryParse(g(k), NumberStyles.Float, IC, out v) ? v : 0; };
+                long ft, tt; long.TryParse(g("from"), out ft); long.TryParse(g("to"), out tt); var set = AutoSettings.Load(g("settings")); double net = gn("net");
+                var sp = new StackPanel();
+                sp.Children.Add(new TextBlock { Text = (ft > 0 ? new DateTime(ft).ToString("ddd dd MMM HH:mm", IC) : "?") + "  →  " + (tt > 0 ? new DateTime(tt).ToString("ddd dd MMM HH:mm", IC) : "?") + "   •   " + g("iterations") + " iterations (won " + g("won") + ", lost " + g("lost") + ")" + (g("open") == "1" ? " + 1 open" : ""), Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13 });
+                sp.Children.Add(new TextBlock { Text = "net " + Signed(net, "USD") + "  •  commissions −$" + gn("fees").ToString("0.00", IC) + "  •  worst drawdown " + gn("worstdd").ToString("0.00", IC) + "  •  most lots " + g("mostlots"), Foreground = net >= 0 ? Green : Red, FontWeight = FontWeights.Bold, FontSize = 12.5, Margin = new Thickness(0, 2, 0, 2) });
+                sp.Children.Add(new TextBlock { Text = "settings: " + set.EntryMode + " " + Tf.Name(set.Tf) + " • entry " + set.EntryLots.ToString("0.##", IC) + " • lead " + set.NetAdvantage.ToString("0.##", IC) + " • target +$" + set.Target.ToString("0.##", IC) + " • range-only " + (set.RangeOnly ? "ON" : "off") + " • rescue " + (set.BeAfter > 0 ? "after " + set.BeAfter : "off") + " • lock " + (set.LockOn ? "ON" : "off"), Foreground = Muted, FontSize = 11.5 });
+                var bw = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) }; var dd = d;
+                var ob = Pill("📂 OPEN FOLDER", Card); ob.Height = 26; ob.Click += delegate { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "\"" + dd + "\"") { UseShellExecute = true }); } catch { } }; bw.Children.Add(ob);
+                var zb = Pill("📦 ZIP FOR CLAUDE", Tint(Violet, 90)); zb.Height = 26; zb.Click += delegate { try { var z = dd + ".zip"; if (File.Exists(z)) File.Delete(z); System.IO.Compression.ZipFile.CreateFromDirectory(dd, z); System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "/select,\"" + z + "\"") { UseShellExecute = true }); Toast("📦 " + Path.GetFileName(z)); } catch (Exception ex) { Toast("📦 " + ex.Message); } }; bw.Children.Add(zb);
+                var ub = Pill("↺ USE THESE SETTINGS", Card); ub.Height = 26; ub.Click += delegate { if (auto.Running) { Toast("stop the automation first (or change the settings and ⚡ APPLY NOW)"); return; } aset = set; AutoModelBoxes(); AutoSaveSet(); Toast("↺ the boxes show this test's settings"); }; bw.Children.Add(ub);
+                sp.Children.Add(bw);
+                aRows.Children.Add(new Border { Background = Sx.CardGrad, BorderBrush = net >= 0 ? Green : Red, BorderThickness = new Thickness(5, 1, 1, 1), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(6, 0, 6, 6), Child = sp });
+            }
+        }
         // ---- history on this PC (LIVE / PROP / DEMO, per account): every finished iteration (with its context), its trades, the STORY and the LOG as they happen
         string AutoId() { if (Sim) return ""; var k = live != null ? live.Key : ""; if (k == "") { long lg; lock (broker.State.Gate) lg = broker.State.Account.Login; k = lg > 0 ? lg.ToString(IC) : ""; } foreach (var c in Path.GetInvalidFileNameChars()) k = k.Replace(c, '_'); return k; }
         // 📦 EXPORT FOR CLAUDE: everything this account's automation knows, organized, in DataDir\export\<name>\ + <name>.zip (files only, no orders)
@@ -884,9 +922,9 @@ namespace KeystoneMT5
             foreach (Button b in aViews.Children) if (b.Content is string) b.Background = (string)b.Content == aView ? Tint(Cyan, 70) : Tint(Sx.Card2, 220);
             var L = AutoLines(aView);
             aTable.TextWrapping = aView == "STORY" || aView == "LOG" ? TextWrapping.Wrap : TextWrapping.NoWrap;
-            bool other = aView == "⚙ SETTINGS" || aView == "🏁 RACE", rowsView = !other && (aView == "ITERATIONS" || aView == "TRADES");
+            bool other = aView == "⚙ SETTINGS" || aView == "🏁 RACE", rowsView = !other && (aView == "ITERATIONS" || aView == "TRADES" || aView == "🗂 TESTS");
             aRowsView.Visibility = rowsView ? Visibility.Visible : Visibility.Collapsed; aTable.Visibility = !other && !rowsView ? Visibility.Visible : Visibility.Collapsed;
-            if (other) return; if (rowsView) { aRows.Children.Clear(); AutoRowsOf(auto, aRows, aView); return; }
+            if (other) return; if (rowsView) { aRows.Children.Clear(); if (aView == "🗂 TESTS") AutoTestsRows(); else AutoRowsOf(auto, aRows, aView); return; }
             var txt = string.Join("\n", L); if (aTable.Text != txt) { double vo = aTable.VerticalOffset, ho = aTable.HorizontalOffset; aTable.Text = txt; aTable.ScrollToVerticalOffset(vo); aTable.ScrollToHorizontalOffset(ho); }   // new lines never jump you back to the top
         }
     }
