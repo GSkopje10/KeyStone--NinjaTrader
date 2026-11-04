@@ -30,9 +30,8 @@ namespace KeystoneMT5
         public static void ShowStudio(Window owner)
         {
             StartService();
-            if (open != null) { if (open.WindowState == WindowState.Minimized) open.WindowState = WindowState.Normal; open.Activate(); return; }
-            open = new HedgeDecodeWindow(); open.Closed += delegate { open = null; };
-            if (owner != null && owner.IsVisible) open.Owner = owner; open.Show();
+            if (open == null) { open = new HedgeDecodeWindow(); var me = open; open.Closed += delegate { open = null; Shell.StudioClosed(me); }; Shell.Studio = open; }
+            Shell.Switch(open);   // a full tab of its own in the title bar, like LIVE / DEMO / BACKTEST
         }
 
         readonly HedgeDecode d = HedgeDecode.Service;
@@ -43,8 +42,8 @@ namespace KeystoneMT5
 
         public HedgeDecodeWindow()
         {
-            Title = "SpasiX — 🕵 DECODE HEDGING"; Width = 1320; Height = 880; MinWidth = 960; MinHeight = 600; Background = Sx.Bg; WindowStartupLocation = WindowStartupLocation.CenterOwner;
-            var lg = MainWindow.Logo(); if (lg != null) Icon = lg; Sx.DarkTitle(this);
+            Title = "SpasiX — 🕵 DECODE HEDGING"; Width = 1400; Height = 900; MinWidth = 960; MinHeight = 600; Background = Sx.Bg;
+            var lg = MainWindow.Logo(); if (lg != null) Icon = lg;
             var root = new DockPanel { Margin = new Thickness(16, 12, 16, 12), LastChildFill = true };
             var head = new StackPanel(); DockPanel.SetDock(head, Dock.Top); root.Children.Add(head);
             var t1 = new StackPanel { Orientation = Orientation.Horizontal }; t1.Children.Add(Sx.Label("🕵 DECODE HEDGING", 22, Sx.Gold, true));
@@ -68,7 +67,8 @@ namespace KeystoneMT5
             foreach (var v in Views) { var vv = v; var b = Sx.Pill(v, Sx.Card2); b.Height = 30; b.Click += delegate { view = vv; seen = -1; Paint(); }; views.Children.Add(b); }
             var sv = new ScrollViewer { Content = rows, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Background = Sx.Panel };
             root.Children.Add(new Border { Child = sv, BorderBrush = Sx.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8) });
-            Content = root;
+            var host = new Grid { Background = Sx.Bg }; host.Children.Add(root); Content = Shell.Chrome(this, "DECODE", host); SxMenu.Attach(this, host);
+            Closing += (s2, e2) => { if (Shell.Quitting) return; if (!Sx.Ask(this, "Close 🕵 DECODE HEDGING?", "The studio window closes. The RECORDING keeps running in the background (every copied execution is still saved) — open it again from HOME or the title bar.", "CLOSE THE STUDIO", "STAY", Sx.Gold)) e2.Cancel = true; };
             var tm = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) }; tm.Tick += delegate { if (d.Version != seen || (view == "🔴 LIVE" && (DateTime.Now - paintAt).TotalSeconds >= 2)) Paint(); }; tm.Start(); Closed += delegate { tm.Stop(); };
             Paint();
         }

@@ -16,6 +16,7 @@ namespace KeystoneMT5
     {
         public static Mt5Bridge Bridge; public static Application App; public static Launcher Home; public static Window Active;
         public static readonly List<MainWindow> Modes = new List<MainWindow>();
+        public static Window Studio;   // the 🕵 DECODE HEDGING studio: its own tab when it is open
         public static bool Quitting;
         static readonly List<Tuple<Window, StackPanel>> strips = new List<Tuple<Window, StackPanel>>(); static readonly Dictionary<Window, ContentControl> centers = new Dictionary<Window, ContentControl>();
         // the middle of the title bar: the mode's banner (LIVE / DEMO …), always in view
@@ -71,6 +72,7 @@ namespace KeystoneMT5
             var a = MainWindow.AccountLabel(m.Link); return a == "" ? NameOf(m.Mode) : a + " • " + NameOf(m.Mode);
         }
         public static void ShowHome() { Switch(Home); }
+        public static void StudioClosed(Window w) { if (Studio != w) return; Studio = null; if (Quitting) return; if (Active == w) { Active = null; Switch((Window)Modes.LastOrDefault() ?? Home); } else Repaint(); }
         // show one window where the last one was, hide the others (they keep running)
         public static void Switch(Window w)
         {
@@ -86,7 +88,7 @@ namespace KeystoneMT5
             bool change = cur != null && cur != w; if (w.Background == null || w.Background == Brushes.Transparent) w.Background = Sx.Bg;
             w.Show(); if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Maximized; w.Activate();
             var root = w.Content as UIElement; if (change && root != null) root.BeginAnimation(UIElement.OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0.55, 1, TimeSpan.FromMilliseconds(170)) { EasingFunction = new System.Windows.Media.Animation.QuadraticEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } });
-            var others = Modes.Cast<Window>().Concat(new Window[] { Home }).Where(o => o != null && o != w && o.IsVisible).ToList();
+            var others = Modes.Cast<Window>().Concat(new Window[] { Home, Studio }).Where(o => o != null && o != w && o.IsVisible).ToList();
             w.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, new Action(() => { foreach (var o in others) if (o != Active && o.IsVisible) o.Hide(); }));
             Repaint();
         }
@@ -214,6 +216,7 @@ namespace KeystoneMT5
                 WindowChrome.SetIsHitTestVisibleInChrome(tab, true); tabs.Children.Add(tab);
             }
             foreach (var m in Modes.Where(m => !PerAccount(m.Mode))) plain(NameOf(m.Mode), m, NameOf(m.Mode) + " — click = show it (it keeps running in the background)", ColorOf(m.Mode));
+            if (Studio != null) plain("🕵 DECODE HEDGING", Studio, "the decode hedging studio — click = show it (it records in the background)", Sx.Gold);
             // + a new mode (the ones not open yet): LIVE / PROP for every MT5 account connected, DEMO, BACKTEST
             var menu = new List<Mi>(); var accts = Hub != null ? Hub.Links.Where(l => l == Bridge || l.Key != "").ToList() : new List<Mt5Bridge>();
             foreach (var m in Order)

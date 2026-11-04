@@ -66,6 +66,15 @@ namespace KeystoneMT5
             resumeTitle = new TextBlock { Foreground = Sx.Green, FontSize = 12.5, FontWeight = FontWeights.Bold }; resumeText = new TextBlock { Foreground = Sx.Text, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 380, Margin = new Thickness(0, 2, 0, 6) };
             rt.Children.Add(resumeTitle); rt.Children.Add(resumeText); resumeBtns = new StackPanel { Orientation = Orientation.Horizontal }; rt.Children.Add(resumeBtns); resumeBox.Children.Add(rr);
             resume.Loaded += delegate { resume.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, 0.82, TimeSpan.FromMilliseconds(1100)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever }); };
+            // 🕵 DECODE HEDGING: its own launch card (the studio that learns his hedging from the copied trades — read only)
+            var decCard = new Border { CornerRadius = new CornerRadius(16), Padding = new Thickness(16, 10, 16, 10), Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center, Cursor = System.Windows.Input.Cursors.Hand,
+                Background = new LinearGradientBrush(Sx.C("#2A2210"), Sx.C("#120E06"), 90), BorderThickness = new Thickness(1.4), BorderBrush = new LinearGradientBrush(Sx.C("#FFC94D"), Sx.C("#FF9F43"), 0), Effect = new DropShadowEffect { Color = Sx.C("#FFC94D"), BlurRadius = 16, ShadowDepth = 0, Opacity = 0.35 },
+                ToolTip = "learn his hedging from the trades COPIED onto your Duramarkets / IC Markets accounts — every execution, hedge size, pending order and moving average (read only, nothing is sent to MT5)" };
+            var dcs = new StackPanel(); dcs.Children.Add(new TextBlock { Text = "🕵 DECODE HEDGING", Foreground = Sx.Gold, FontSize = 17, FontWeight = FontWeights.Bold });
+            dcs.Children.Add(new TextBlock { Text = "copy trading studio • read only", Foreground = Sx.Text, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 6) });
+            var dcb = Sx.Pill("OPEN STUDIO  ›", Sx.Gold); dcb.Foreground = Sx.Bg; dcb.Height = 30; dcb.Click += delegate { HedgeDecodeWindow.ShowStudio(this); }; dcs.Children.Add(dcb); decCard.Child = dcs;
+            decCard.MouseLeftButtonUp += delegate { HedgeDecodeWindow.ShowStudio(this); };
+            DockPanel.SetDock(decCard, Dock.Right); top.Children.Add(decCard);
             DockPanel.SetDock(resume, Dock.Right); top.Children.Add(resume);
             top.Children.Add(head); g.Children.Add(top);
             // the three modes
@@ -132,11 +141,13 @@ namespace KeystoneMT5
             if (demo > 0) { var bd = Sx.Pill("🎮 RESUME DEMO (" + demo + ")  ›", Sx.Tint(Sx.Orange, 200)); bd.Foreground = Sx.Bg; bd.Height = 30; bd.Click += delegate { Pick("DEMO"); }; resumeBtns.Children.Add(bd); if (n == 0) resumeText.Text = demo + " simulated ticket" + (demo == 1 ? "" : "s") + " saved on this PC — they follow the live prices again"; }
         }
         // one card per MT5 account: connected or not, its balance, open trades, and LIVE / PROP / ✎ (the tab opens, or comes forward)
+        // a mode that is OPEN, or whose 🤖 AUTO is (was) running for this account: its button flashes on HOME — click = show / resume it
+        static bool Running(Mt5Bridge l, string mode) { if (l == null) return false; if (Shell.Modes.Any(m => m.Mode == mode && m.Link == l)) return true; return l.Key != "" && MainWindow.SGet("auto.run.auto." + mode + "." + l.Key, "0") == "1"; }
         void PaintAccounts()
         {
             var links = Shell.Hub != null ? Shell.Hub.Links.Where(l => l == bridge || l.Key != "").ToList() : new List<Mt5Bridge> { bridge };
             var rows = links.Select(l => { lock (l.State.Gate) { var s = l.State; return new { L = l, On = s.Alive, A = s.Account, N = s.Positions.Count, Pl = s.Positions.Sum(p => p.Profit + p.Swap), Name = MainWindow.AccountLabel(l) }; } }).ToList();
-            var sig = string.Join("|", rows.Select(r => r.L.Key + r.On + Math.Round(r.A.Balance) + r.N + Math.Round(r.Pl) + r.Name + Shell.Modes.Count(m => m.Link == r.L)));
+            var sig = string.Join("|", rows.Select(r => r.L.Key + r.On + Math.Round(r.A.Balance) + r.N + Math.Round(r.Pl) + r.Name + Shell.Modes.Count(m => m.Link == r.L) + Running(r.L, "LIVE") + Running(r.L, "PROP") + Running(r.L, "DEMO")));
             if (sig == acctSig) return; acctSig = sig; accts.Children.Clear();
             foreach (var r in rows)
             {
@@ -146,7 +157,7 @@ namespace KeystoneMT5
                 tx.Children.Add(new TextBlock { Text = r.Name != "" ? r.Name : "waiting for MT5 …", Foreground = Sx.Text, FontSize = 13, FontWeight = FontWeights.Bold });
                 tx.Children.Add(new TextBlock { Text = l.Key == "" ? "start MetaTrader 5 with the SpasiXBridge on a chart" : (r.On ? r.A.Kind + " • $" + r.A.Balance.ToString("N2", CultureInfo.InvariantCulture) + (r.N > 0 ? " • " + r.N + " open " + (r.Pl >= 0 ? "+$" : "−$") + Math.Abs(r.Pl).ToString("N2", CultureInfo.InvariantCulture) : " • nothing open") : "MT5 closed / disconnected"), Foreground = Sx.Muted, FontSize = 11 });
                 sp.Children.Add(tx);
-                Func<string, string, SolidColorBrush, System.Windows.Controls.Button> btn = (txt, mode, col) => { var b = Sx.Pill(txt, Sx.Tint(col, Shell.Modes.Any(m => m.Mode == mode && m.Link == l) ? (byte)90 : (byte)40)); b.Height = 28; b.Margin = new Thickness(0, 0, 4, 0); b.ToolTip = (Shell.Modes.Any(m => m.Mode == mode && m.Link == l) ? "show its " : "open its ") + mode + " tab"; b.Click += delegate { Shell.Open(mode, l, true); }; return b; };
+                Func<string, string, SolidColorBrush, System.Windows.Controls.Button> btn = (txt, mode, col) => { var b = Sx.Pill(txt, Sx.Tint(col, Shell.Modes.Any(m => m.Mode == mode && m.Link == l) ? (byte)90 : (byte)40)); bool live0 = Running(l, mode); if (live0) { b.Background = Sx.Tint(col, 150); b.BorderBrush = Sx.Gold; b.BorderThickness = new Thickness(2); b.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, 0.4, TimeSpan.FromMilliseconds(650)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever }); } b.Height = 28; b.Margin = new Thickness(0, 0, 4, 0); b.ToolTip = (Shell.Modes.Any(m => m.Mode == mode && m.Link == l) ? "show its " : "open its ") + mode + " tab"; if (live0) b.ToolTip = "⟳ RUNNING — " + (Shell.Modes.Any(m => m.Mode == mode && m.Link == l) ? "open (or its 🤖 AUTO is running)" : "its 🤖 AUTO was running") + " • click to show / resume it"; b.Click += delegate { Shell.Open(mode, l, true); }; return b; };
                 sp.Children.Add(btn("● LIVE", "LIVE", Sx.Green)); sp.Children.Add(btn("🏆 PROP", "PROP", Sx.Violet)); sp.Children.Add(btn("🎮 DEMO", "DEMO", Sx.Orange));
                 if (l.Key != "") { var rn = Sx.Pill("✎", Sx.Tint(Sx.Card2, 220)); rn.Height = 28; rn.ToolTip = "name this account"; rn.Click += delegate { MainWindow.Rename(this, l); acctSig = ""; }; sp.Children.Add(rn); }
                 accts.Children.Add(new Border { Child = sp, CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 6, 8, 6), Margin = new Thickness(0, 0, 8, 6), Background = new LinearGradientBrush(Sx.C("#162034"), Sx.C("#0C121E"), 90), BorderBrush = r.On ? Sx.Tint(r.A.Kind == "REAL" ? Sx.Green : Sx.Cyan, 140) : Sx.Line, BorderThickness = new Thickness(1.2) });
