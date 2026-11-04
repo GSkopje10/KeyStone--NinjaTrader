@@ -45,7 +45,17 @@ namespace KeystoneMT5
         {
             aRaceHost = new DockPanel { Visibility = Visibility.Collapsed, Background = Panel };
             var bar = new WrapPanel { Margin = new Thickness(6, 6, 6, 4) }; DockPanel.SetDock(bar, Dock.Top);
-            raceStart = Pill("▶  START RACE", Tint(Green, 90)); raceStart.Height = 34; raceStart.Click += delegate { if (raceOn) RaceStop(); else RaceStartAll(); }; bar.Children.Add(raceStart);
+            raceStart = Pill("▶  START RACE", Tint(Green, 90)); raceStart.Height = 34; raceStart.Click += delegate { if (raceOn) { if (!Sx.Ask(this, "■ STOP RACE", "Stop every racing strategy? Their simulated accounts are put aside — the next ▶ START RACE begins fresh, each with the BALANCE EACH below. (Finished iterations stay in 📅 HISTORY.)", "■ STOP RACE", "KEEP RACING", Red)) return; RaceStop(); lanes.Clear(); RacePaint(); } else RaceStartAll(); }; bar.Children.Add(raceStart);
+            // 🗑 RESET: a fresh start for every lane (their accounts back to BALANCE EACH, nothing open) — the race history can be cleared too
+            var raceReset = Pill("🗑  RESET RACE", Tint(Sx.Card2, 220)); raceReset.Height = 34; raceReset.Margin = new Thickness(6, 0, 0, 0); raceReset.ToolTip = "stop the race, clear every lane's simulated account (and, if you want, the race history) — then ▶ START RACE begins from zero";
+            raceReset.Click += delegate
+            {
+                int k = Sx.Choice(this, "🗑 RESET RACE", "Every racing strategy stops and its simulated account is cleared (back to the BALANCE EACH when the race starts again). Nothing here ever reached MT5.", null, new[] { "RESET THE ACCOUNTS", "RESET + CLEAR THE RACE HISTORY TOO", "CANCEL" }, new[] { Amber, Red, (SolidColorBrush)null });
+                if (k != 0 && k != 1) return; RaceStop(); lanes.Clear(); raceComm.Text = "0";
+                if (k == 1) { try { foreach (var f in Directory.GetFiles(RaceFolder(), "*.csv")) File.Delete(f); } catch { } }
+                Log("🗑 race reset" + (k == 1 ? " (history cleared)" : ""), Amber); RacePaint();
+            };
+            bar.Children.Add(raceReset);
             Func<string, FrameworkElement, StackPanel> fld = (lab, el) => { var sp = new StackPanel { Margin = new Thickness(10, 0, 4, 0) }; sp.Children.Add(new TextBlock { Text = lab, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(el); return sp; };
             raceBal = Sx.Input(Get("race.bal", "5000"), 80); raceComm = Sx.Input(Get("race.comm", "0"), 60);   // extra $/lot on top; the DEMO's own % commission is copied to every lane by itself
             bar.Children.Add(fld("BALANCE EACH $", raceBal)); bar.Children.Add(fld("COMMISSION $ / LOT", raceComm));
@@ -99,7 +109,8 @@ namespace KeystoneMT5
                 if (err != "") l.Problem = err; else l.Eng.Start(l.Br, set, had && open);
                 lanes.Add(l);
             }
-            raceOn = true; raceDay = DateTime.MinValue; Put("race.run", "1"); Log(restore ? "🏁 race RESUMED after the restart: " + lanes.Count + " strategies, each with its own account and open positions" : "🏁 race started: " + lanes.Count + " strategies on their own simulated accounts", Green); RacePaint();
+            raceOn = true; raceDay = DateTime.MinValue; Put("race.run", "1"); if (restore && raceStatus != null) { raceStatus.Text = "🏁 THE RACE RESUMED BY ITSELF after the restart (it was running when SpasiX closed) — each strategy kept its simulated account and open positions. ■ STOP RACE ends it; 🗑 RESET RACE starts every lane from zero."; raceStatus.Foreground = Amber; }
+            Log(restore ? "🏁 race RESUMED after the restart: " + lanes.Count + " strategies, each with its own account and open positions" : "🏁 race started: " + lanes.Count + " strategies on their own simulated accounts", Green); RacePaint();
         }
         void RaceStop() { foreach (var l in lanes) if (l.Eng.Running) l.Eng.Stop("race stopped"); raceOn = false; Put("race.run", "0"); try { if (Directory.Exists(RaceStateDir())) Directory.Delete(RaceStateDir(), true); } catch { } Log("🏁 race stopped", Amber); RacePaint(); }
 
