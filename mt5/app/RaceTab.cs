@@ -47,7 +47,7 @@ namespace KeystoneMT5
             var bar = new WrapPanel { Margin = new Thickness(6, 6, 6, 4) }; DockPanel.SetDock(bar, Dock.Top);
             raceStart = Pill("▶  START RACE", Tint(Green, 90)); raceStart.Height = 34; raceStart.Click += delegate { if (raceOn) RaceStop(); else RaceStartAll(); }; bar.Children.Add(raceStart);
             Func<string, FrameworkElement, StackPanel> fld = (lab, el) => { var sp = new StackPanel { Margin = new Thickness(10, 0, 4, 0) }; sp.Children.Add(new TextBlock { Text = lab, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(el); return sp; };
-            raceBal = Sx.Input(Get("race.bal", "5000"), 80); raceComm = Sx.Input(Get("race.comm", Paper ? paper.Acct.Set.CommissionPerLot.ToString(IC) : "0"), 60);
+            raceBal = Sx.Input(Get("race.bal", "5000"), 80); raceComm = Sx.Input(Get("race.comm", "0"), 60);   // extra $/lot on top; the DEMO's own % commission is copied to every lane by itself
             bar.Children.Add(fld("BALANCE EACH $", raceBal)); bar.Children.Add(fld("COMMISSION $ / LOT", raceComm));
             var checks = new WrapPanel { Margin = new Thickness(10, 12, 0, 0) };
             foreach (var k in RaceKeys) { var kk = k; var cb = new CheckBox { Content = RaceName(k), Foreground = Text, Margin = new Thickness(0, 0, 12, 0), IsChecked = Get("race.on." + k, "1") == "1" }; cb.Click += delegate { Put("race.on." + kk, cb.IsChecked == true ? "1" : "0"); }; raceChecks[k] = cb; checks.Children.Add(cb); }

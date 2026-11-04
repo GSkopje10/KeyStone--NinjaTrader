@@ -25,7 +25,10 @@ namespace KeystoneMT5
 
         FrameworkElement BuildAuto()
         {
-            aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, "")));   // an older build kept one DEMO key for every broker: it is the fallback if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
+            aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, "")));
+            // ★ the tested defaults (user's request, once per window): the boxes open with ★ SAFE HEDGE's values — every box can still be changed
+            // (a window whose automation was running keeps the settings it ran with)
+            if (Get("auto.safe04." + AKey, "") != "1" && !AutoWasRunning()) { var sym0 = aset.Symbol; aset = AutoSettings.Model("SAFE", aset); if (sym0 != "") aset.Symbol = sym0; Put(AKey, aset.Save()); Put("auto.safe04." + AKey, "1"); }   // an older build kept one DEMO key for every broker: it is the fallback if (aset.Symbol == "" || aset.Symbol == "XAUUSD") { try { if (panes.Count > 0 && !string.IsNullOrEmpty(Act.Sym)) aset.Symbol = Act.Sym; } catch { } }
             auto.Send = AutoSend; auto.NewsNear = AutoNews;
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
             auto.OnPath = line => AutoAppend("paths", line);

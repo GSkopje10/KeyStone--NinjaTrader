@@ -118,14 +118,14 @@ namespace KeystoneMT5
                 var b = Sx.Input(val, 150); b.Margin = new Thickness(0, 4, 0, 4); Grid.SetRow(l, row); Grid.SetRow(b, row); Grid.SetColumn(b, 1); g.Children.Add(l); g.Children.Add(b); row++; return b;
             };
             int lev0; lock (live.State.Gate) lev0 = live.State.Account.Leverage > 0 ? live.State.Account.Leverage : 500;
-            var bal = field("BALANCE ($)", Get("demo.bal", "10000")); var lev = field("LEVERAGE 1:", Get("demo.lev", lev0.ToString(IC)));
+            var bal = field("BALANCE ($)", Get("demo.bal", "5000")); var lev = field("LEVERAGE 1:", Get("demo.lev", lev0.ToString(IC)));
             g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); var kl = new TextBlock { Text = "ACCOUNT TYPE", Foreground = Muted, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center }; Grid.SetRow(kl, row); g.Children.Add(kl);
             string kind = Get("demo.kind", "RAW"); var kp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) }; Grid.SetRow(kp, row); Grid.SetColumn(kp, 1); g.Children.Add(kp); row++;
             var raw = Pill("RAW", Card); var std = Pill("STANDARD", Card); kp.Children.Add(raw); kp.Children.Add(std);
             var com = field("COMMISSION $ / lot (STANDARD)", Get("demo.com", "7")); var mk = field("EXTRA SPREAD points (RAW)", Get("demo.mk", "10"));
             string srv0; lock (live.State.Gate) srv0 = live.State.Account.Server ?? "";
             string hedgedSays = "?"; lock (live.State.Gate) { Mt5Symbol xs; if (live.State.Symbols.TryGetValue("XAUUSD", out xs) && xs.MarginHedged >= 0) { double r = xs.MarginInitial > 0 && xs.MarginPerLot > 0 ? xs.MarginHedged / xs.MarginPerLot : xs.Contract > 0 ? xs.MarginHedged / xs.Contract : -1; hedgedSays = r < 0 ? "?" : (Math.Min(1, r) * 100).ToString("0", IC) + " %"; } }
-            var hpct = field("HEDGED PAIR MARGIN % (−1 = MT5's: " + hedgedSays + ")", Get("demo.hpct", "-1"));   // a buy + a sell of the same size: what margin they need together
+            var hpct = field("HEDGED PAIR MARGIN % (−1 = MT5's: " + hedgedSays + ")", Get("demo.hpct", "50"));   // a buy + a sell of the same size: what margin they need together
             var pct = field("COMMISSION % of each deal (in AND out)", Get("demo.pct", srv0.IndexOf("dura", StringComparison.OrdinalIgnoreCase) >= 0 ? "0.001" : "0"));   // Duramarkets: 0.001 % by deal volume, in / out
             Action paint = () => { raw.Background = kind == "RAW" ? Tint(Cyan, 200) : (Brush)Card; raw.Foreground = kind == "RAW" ? Bg : Text; std.Background = kind == "STANDARD" ? Tint(Violet, 200) : (Brush)Card; std.Foreground = kind == "STANDARD" ? Bg : Text; com.IsReadOnly = kind == "RAW"; com.Opacity = kind == "RAW" ? 0.35 : 1; mk.IsReadOnly = kind != "RAW"; mk.Opacity = kind == "RAW" ? 1 : 0.35; };
             raw.Click += delegate { kind = "RAW"; paint(); }; std.Click += delegate { kind = "STANDARD"; paint(); }; paint();
