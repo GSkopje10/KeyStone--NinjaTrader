@@ -21,7 +21,7 @@ namespace KeystoneMT5
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
         AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
-        bool aResumePending, aPctChecked; DateTime aArchAt = DateTime.MinValue; DateTime aResumeAt; CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall; TextBlock aLockTxt; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
+        bool aResumePending, aPctChecked; DateTime aArchAt = DateTime.MinValue; DateTime aResumeAt; CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall, aNowBtn; TextBlock aLockTxt; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
 
         FrameworkElement BuildAuto()
         {
@@ -60,6 +60,13 @@ namespace KeystoneMT5
             aLock = new Border { Background = Tint(Green, 40), BorderBrush = Green, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 10), Visibility = Visibility.Visible };
             var lockRow = new DockPanel();
             aSaveBtn = Pill("💾  SAVE — FROM THE NEXT ITERATION", Tint(Green, 200)); aSaveBtn.Height = 40; aSaveBtn.FontSize = 15; aSaveBtn.Foreground = Bg; aSaveBtn.Margin = new Thickness(10, 0, 0, 0);
+            aNowBtn = Pill("⚡  APPLY NOW (also the open basket)", Tint(Amber, 200)); aNowBtn.Height = 40; aNowBtn.FontSize = 13; aNowBtn.Foreground = Bg; aNowBtn.Margin = new Thickness(10, 0, 0, 0);
+            aNowBtn.Click += delegate
+            {
+                if (!auto.Running) return; AutoSaveSet(); var ns = aset.Copy(); ns.Symbol = auto.Set.Symbol; var err = auto.Check(broker, ns); if (err != "") { Sx.Info(this, "🤖 AUTO", err, Red); return; }
+                if (auto.Current != null && !Sx.Ask(this, "⚡ Apply now", "The new settings take over AT ONCE — also for the open iteration #" + auto.Current.N + " (" + auto.Current.Buys + " buys / " + auto.Current.Sells + " sells). Its positions stay; from now on its hedges, its exit and its target follow the new settings.", "⚡ APPLY NOW", "CANCEL", Amber)) return;
+                auto.ApplyNow(ns); Toast("⚡ applied — the open basket follows the new settings from now on"); AutoPaint(true);
+            };
             aUndoBtn = Pill("↺  UNDO CHANGES", Card); aUndoBtn.Height = 40; aUndoBtn.FontSize = 13; aUndoBtn.Margin = new Thickness(10, 0, 0, 0);
             var stopSmall = Pill("■ STOP", Tint(Amber, 140)); stopSmall.Height = 40; stopSmall.Margin = new Thickness(10, 0, 0, 0);
             aSaveBtn.Click += delegate
@@ -71,8 +78,8 @@ namespace KeystoneMT5
             aUndoBtn.Click += delegate { if (!auto.Running) return; aset = (auto.Next ?? auto.Set).Copy(); AutoModelBoxes(); AutoSaveSet(); AutoPaint(true); Toast("↺ the boxes show the settings in use again"); };
             stopSmall.Click += delegate { if (!auto.Running) return; if (!Sx.Ask(this, "■ STOP the automation", "STOP now? The open positions stay as they are; ▶ START / RESUME takes them over again.", "■ STOP", "KEEP RUNNING", Amber)) return; auto.Stop("stopped by you"); AutoPaint(true); };
             aStopSmall = stopSmall;
-            DockPanel.SetDock(stopSmall, Dock.Right); DockPanel.SetDock(aUndoBtn, Dock.Right); DockPanel.SetDock(aSaveBtn, Dock.Right);
-            lockRow.Children.Add(stopSmall); lockRow.Children.Add(aUndoBtn); lockRow.Children.Add(aSaveBtn);
+            DockPanel.SetDock(stopSmall, Dock.Right); DockPanel.SetDock(aUndoBtn, Dock.Right); DockPanel.SetDock(aNowBtn, Dock.Right); DockPanel.SetDock(aSaveBtn, Dock.Right);
+            lockRow.Children.Add(stopSmall); lockRow.Children.Add(aUndoBtn); lockRow.Children.Add(aNowBtn); lockRow.Children.Add(aSaveBtn);
             aLockTxt = new TextBlock { Text = "", Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }; lockRow.Children.Add(aLockTxt);
             aLock.Child = lockRow; aSettings.Children.Add(aLock);
             var r0 = new WrapPanel();
@@ -745,7 +752,7 @@ namespace KeystoneMT5
                 aLock.Background = Tint(!on ? Cyan : dirty ? Amber : Green, 45); aLock.BorderBrush = !on ? Cyan : dirty ? Amber : Green;
                 aSaveBtn.Content = !on ? (AutoWasRunning() ? "⟳  RESUME WITH THESE SETTINGS" : "▶  START WITH THESE SETTINGS") : "💾  SAVE — FROM THE NEXT ITERATION";
                 aSaveBtn.Background = Tint(!on ? Cyan : Green, (byte)(dirty ? 200 + 55 * Math.Abs(Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 300.0)) : 200)); aSaveBtn.IsEnabled = !on || dirty;
-                aUndoBtn.Visibility = on && dirty ? Visibility.Visible : Visibility.Collapsed; aStopSmall.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+                aUndoBtn.Visibility = on && dirty ? Visibility.Visible : Visibility.Collapsed; aNowBtn.Visibility = on && (dirty || queued) ? Visibility.Visible : Visibility.Collapsed; aStopSmall.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             }
             if (!force && auto.Version == aSeen) return; aSeen = auto.Version;
             AutoTilesPaint(); AutoTablePaint();

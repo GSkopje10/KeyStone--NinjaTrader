@@ -124,6 +124,8 @@ namespace KeystoneMT5
         public AutoSettings Next;
         public readonly List<HedgeEvent> Hedges = new List<HedgeEvent>(); public Action<HedgeEvent> OnHedgeDone; public Action<AutoIteration> OnAfterDone;   // OnAfterDone: an iteration's after-target follow-up is finished • the recording (saved by the window when each one is 30 minutes old)
         public bool Locked; public double LockHi = double.NaN, LockLo = double.NaN; string pendSide = ""; int liftDir, lockFrom;   // lockFrom: the add-ons count after the last unlock — a new lock needs LockAfter NEW hedges after it
+        // ⚡ APPLY NOW: the new settings take over at once, the open basket included (its positions stay; the next hedge / exit uses the new rules)
+        public void ApplyNow(AutoSettings s) { if (s == null) return; Next = s.Copy(); ApplyNext(); if (Current != null) Tell("⚡ the new settings apply to the OPEN iteration #" + Current.N + " too (its positions stay)."); }
         public void Queue(AutoSettings s) { Next = s == null ? null : s.Copy(); Version++; if (Next != null && Current == null && Running) ApplyNext(); }
         void ApplyNext()
         {
