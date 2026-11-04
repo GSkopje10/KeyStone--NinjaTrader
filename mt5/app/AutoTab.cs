@@ -36,7 +36,7 @@ namespace KeystoneMT5
             auto.RestoreOpen = () => { try { if (string.IsNullOrEmpty(aHist)) AutoLoadHistory(); var f = string.IsNullOrEmpty(aHist) ? null : AutoFile("open"); return f != null && File.Exists(f) ? HedgeAuto.ParseOpen(File.ReadAllText(f)) : null; } catch { return null; } };
             auto.OnAfterDone = ia => AutoAppend("after", string.Join(",", ia.N.ToString(IC), ia.Start.Ticks.ToString(IC), ia.AfterMax.ToString("0.##", IC), ia.AfterMaxMin.ToString("0.#", IC), ia.AfterBackTargetMin.ToString("0.#", IC), ia.AfterBreakevenMin.ToString("0.#", IC), ia.AfterMove.ToString("0.###", IC)));
             auto.OnHedgeDone = he => AutoAppend("hedges", string.Join(",", he.Iter.ToString(IC), he.Time.Ticks.ToString(IC), he.Kind, he.Dir > 0 ? "BUY" : "SELL", he.Lots.ToString("0.##", IC), he.Price.ToString("R", IC), he.RangeLo.ToString("R", IC), he.RangeHi.ToString("R", IC), he.Atr.ToString("0.###", IC), he.Before.ToString(IC), he.Basket.ToString("0.00", IC), he.Best.ToString("0.###", IC), he.Worst.ToString("0.###", IC), he.Whipsaw ? "1" : "0", (he.Ctx ?? "").Replace(",", " "))); auto.OnNote = (n, l) => AutoAppend("log", l);
-            aGuidesOn = Get("auto.guides", "1") == "1"; foreach (var pn in panes) { var pp = pn; pp.V.Marks = () => aGuidesOn ? AutoMarks(pp.Sym) : null; pp.V.Guides = () => aGuidesOn && string.Equals(pp.Sym, aGuideSym, StringComparison.OrdinalIgnoreCase) ? aGuides : null; }
+            aGuidesOn = Get("auto.guides", "1") == "1"; foreach (var pn in panes) { var pp = pn; pp.V.Marks = () => aGuidesOn || auto.Running ? AutoMarks(pp.Sym) : null; pp.V.Guides = () => !string.Equals(pp.Sym, aGuideSym, StringComparison.OrdinalIgnoreCase) ? null : aGuidesOn ? aGuides : aGuides.Where(x => x.Core).ToList(); /* SIGNALS OFF hides the setup drawings, never the automation's own levels / arrows / banner */ }
             var root = new DockPanel { LastChildFill = true };
 
             // the live card + the buttons
@@ -223,7 +223,8 @@ namespace KeystoneMT5
             aTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = TimeSpan.FromMilliseconds(200) };
             aResumeAt = DateTime.Now; aResumePending = !Sim && AutoWasRunning();
             raceResumeAt = DateTime.Now; raceResumePending = !Sim && Get("race.run", "0") == "1";
-            aTimer.Tick += delegate { if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+            aTimer.Tick += delegate { int curN = auto.Running && auto.Current != null ? auto.Current.N : 0; if (curN != 0 && curN != aSeenIter) { aSeenIter = curN; if (raceShow != "") { raceShow = ""; if (raceShowBox != null) raceShowBox.SelectedIndex = 0; raceChipsSig = ""; } }   // your automation opened an iteration: the chart goes back to 🤖 MINE
+                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -352,18 +353,18 @@ namespace KeystoneMT5
             {   // in a trade: what happens next and how far away — the take profit, the next hedge, the stop
                 double bid = double.NaN; lock (broker.State.Gate) { Mt5Quote q; if (broker.State.Quotes.TryGetValue(sym, out q)) bid = q.Bid; }
                 Func<double, string> away = v => double.IsNaN(bid) ? "" : " (" + Math.Abs(v - bid).ToString("0.00", IC) + " away)";
-                if (!double.IsNaN(ga.TargetPx)) g.Add(new ChartGuide { P1 = ga.TargetPx, Color = Green, Blink = !double.IsNaN(bid) && Math.Abs(ga.TargetPx - bid) < 0.3, Label = "🎯 TP +$" + s.Target.ToString("0.##", IC) + " @ " + ga.TargetPx.ToString("0.00", IC) + away(ga.TargetPx) });
+                if (!double.IsNaN(ga.TargetPx)) g.Add(new ChartGuide { P1 = ga.TargetPx, Color = Green, Blink = !double.IsNaN(bid) && Math.Abs(ga.TargetPx - bid) < 0.3, Core = true, Label = "🎯 TP +$" + s.Target.ToString("0.##", IC) + " @ " + ga.TargetPx.ToString("0.00", IC) + away(ga.TargetPx) });
                 if (ga.Locked && !double.IsNaN(ga.LockHi))
                 {   // 🔒 LOCKED: the range it waits to break (violet), nothing in between
-                    g.Add(new ChartGuide { P1 = ga.LockHi, Color = Violet, Dash = true, Blink = !double.IsNaN(bid) && ga.LockHi - bid < 0.3, Label = "🔒 LOCKED • UNLOCK ▲ above " + ga.LockHi.ToString("0.00", IC) + away(ga.LockHi) });
-                    g.Add(new ChartGuide { P1 = ga.LockLo, Color = Violet, Dash = true, Blink = !double.IsNaN(bid) && bid - ga.LockLo < 0.3, Label = "🔒 LOCKED • UNLOCK ▼ below " + ga.LockLo.ToString("0.00", IC) + away(ga.LockLo) });
+                    g.Add(new ChartGuide { P1 = ga.LockHi, Color = Violet, Dash = true, Blink = !double.IsNaN(bid) && ga.LockHi - bid < 0.3, Core = true, Label = "🔒 LOCKED • UNLOCK ▲ above " + ga.LockHi.ToString("0.00", IC) + away(ga.LockHi) });
+                    g.Add(new ChartGuide { P1 = ga.LockLo, Color = Violet, Dash = true, Blink = !double.IsNaN(bid) && bid - ga.LockLo < 0.3, Core = true, Label = "🔒 LOCKED • UNLOCK ▼ below " + ga.LockLo.ToString("0.00", IC) + away(ga.LockLo) });
                 }
                 if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel) && !ga.Locked)
                 {
                     double lossTo = double.IsNaN(bid) ? 0 : Math.Abs(ga.HedgeLevel - bid) * Math.Abs(ga.NetLots) * ga.PerPrice;
-                    g.Add(new ChartGuide { P1 = ga.HedgeLevel, Color = Red, Dash = true, Blink = !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.3, Label = "🛡 HEDGE " + (ga.LastDir > 0 ? "SELL " : "BUY ") + s.AddLots.ToString("0.##", IC) + " @ " + ga.HedgeLevel.ToString("0.00", IC) + away(ga.HedgeLevel) + (lossTo > 0 ? " ≈ −$" + lossTo.ToString("0", IC) : "") });
+                    g.Add(new ChartGuide { P1 = ga.HedgeLevel, Color = Red, Dash = true, Blink = !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.3, Core = true, Label = "🛡 HEDGE " + (ga.LastDir > 0 ? "SELL " : "BUY ") + s.AddLots.ToString("0.##", IC) + " @ " + ga.HedgeLevel.ToString("0.00", IC) + away(ga.HedgeLevel) + (lossTo > 0 ? " ≈ −$" + lossTo.ToString("0", IC) : "") });
                 }
-                if (!double.IsNaN(ga.StopPx)) g.Add(new ChartGuide { P1 = ga.StopPx, Color = Red, Label = "⛔ STOP −$" + s.MaxDrawdown.ToString("0.##", IC) + " @ " + ga.StopPx.ToString("0.00", IC) + away(ga.StopPx) });
+                if (!double.IsNaN(ga.StopPx)) g.Add(new ChartGuide { P1 = ga.StopPx, Color = Red, Core = true, Label = "⛔ STOP −$" + s.MaxDrawdown.ToString("0.##", IC) + " @ " + ga.StopPx.ToString("0.00", IC) + away(ga.StopPx) });
             }
             if (ga.Running && s.EntryMode.StartsWith("FVG"))
             {   // the automation's own gaps: the zone (pulsing while the price is in it), its 50% entry, the FVG hedge level
@@ -376,16 +377,54 @@ namespace KeystoneMT5
                 }
             }
             if (!inTrade && ga.Running && s.EntryMode == "AGGBRK" && ga.AggDir != 0 && !double.IsNaN(ga.AggLevel))
-                g.Add(new ChartGuide { P1 = ga.AggLevel, From = ga.AggBar, Color = ga.AggDir > 0 ? Green : Red, Blink = true, Label = (ga.AggDir > 0 ? "▲ AGGRESSION BUY above " : "▼ AGGRESSION SELL below ") + ga.AggLevel.ToString("0.00", IC) + " (the " + ga.AggBar.ToString("HH:mm", IC) + " candle) — this candle only" });
+                g.Add(new ChartGuide { P1 = ga.AggLevel, From = ga.AggBar, Color = ga.AggDir > 0 ? Green : Red, Blink = true, Core = true, Label = (ga.AggDir > 0 ? "▲ AGGRESSION BUY above " : "▼ AGGRESSION SELL below ") + ga.AggLevel.ToString("0.00", IC) + " (the " + ga.AggBar.ToString("HH:mm", IC) + " candle) — this candle only" });
             if (!inTrade && (s.EntryMode == "BREAK" || s.EntryMode == "FVGBREAK" || s.HedgeMode == "BREAK"))
             {
                 DateTime ht, lt; double bid; var lv = BreakLevels(sym, s, out ht, out lt, out bid); string what = s.Swing ? "swing" : "last " + s.Lookback + "-candle";
                 Func<double, bool> near = v => !double.IsNaN(bid) && Math.Abs(bid - v) <= Math.Max(0.25, Math.Abs(lv[0] - lv[1]) * 0.1);
                 bool entry = s.EntryMode == "BREAK" || s.EntryMode == "FVGBREAK";
-                if (!double.IsNaN(lv[0])) g.Add(new ChartGuide { P1 = lv[0], From = ht, Color = Green, Dash = !entry, Blink = near(lv[0]) || (!double.IsNaN(bid) && bid > lv[0]), Label = (entry ? "▲ BUY above the " : "hedge BUY above the ") + what + " HIGH " + lv[0].ToString("0.##", IC) + (ht > DateTime.MinValue ? " (" + ht.ToString("HH:mm", IC) + ")" : "") });
-                if (!double.IsNaN(lv[1])) g.Add(new ChartGuide { P1 = lv[1], From = lt, Color = Red, Dash = !entry, Blink = near(lv[1]) || (!double.IsNaN(bid) && bid < lv[1]), Label = (entry ? "▼ SELL below the " : "hedge SELL below the ") + what + " LOW " + lv[1].ToString("0.##", IC) + (lt > DateTime.MinValue ? " (" + lt.ToString("HH:mm", IC) + ")" : "") });
+                if (!double.IsNaN(lv[0])) g.Add(new ChartGuide { P1 = lv[0], From = ht, Color = Green, Dash = !entry, Blink = near(lv[0]) || (!double.IsNaN(bid) && bid > lv[0]), Core = true, Label = (entry ? "▲ BUY above the " : "hedge BUY above the ") + what + " HIGH " + lv[0].ToString("0.##", IC) + (ht > DateTime.MinValue ? " (" + ht.ToString("HH:mm", IC) + ")" : "") });
+                if (!double.IsNaN(lv[1])) g.Add(new ChartGuide { P1 = lv[1], From = lt, Color = Red, Dash = !entry, Blink = near(lv[1]) || (!double.IsNaN(bid) && bid < lv[1]), Core = true, Label = (entry ? "▼ SELL below the " : "hedge SELL below the ") + what + " LOW " + lv[1].ToString("0.##", IC) + (lt > DateTime.MinValue ? " (" + lt.ToString("HH:mm", IC) + ")" : "") });
             }
-            g.RemoveAll(x => double.IsNaN(x.P1)); if (!ga.Running) { foreach (var gx in g) if (gx.Label != "") gx.Label += "  (AUTO OFF)"; } else if (shadow) { foreach (var gx in g) if (gx.Label != "") gx.Label = "🏁 " + gx.Label; } aGuides = g; aGuideSym = sym;
+            // ⏳ the banner at the top of the chart: ALWAYS says what the automation waits for, where and how far (it blinks faster when close)
+            try { var bn = AutoBanner(sym, ga, s, shadow, inTrade); if (bn != null) g.Add(bn); } catch { }
+            g.RemoveAll(x => double.IsNaN(x.P1) && x.Kind != "BANNER"); if (!ga.Running) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER") gx.Label += "  (AUTO OFF)"; } else if (shadow) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER") gx.Label = "🏁 " + gx.Label; } aGuides = g; aGuideSym = sym;
+        }
+        int aSeenIter;
+        ChartGuide AutoBanner(string sym, HedgeAuto ga, AutoSettings s, bool shadow, bool inTrade)
+        {
+            double bid = double.NaN; lock (broker.State.Gate) { Mt5Quote q; if (broker.State.Quotes.TryGetValue(sym, out q)) bid = q.Bid; }
+            Func<double, string> P2 = v => v.ToString("0.00", IC); Func<double, string> dist = v => double.IsNaN(bid) ? "" : " (" + Math.Abs(v - bid).ToString("0.00", IC) + " away)";
+            string who = shadow ? "🏁 RACE LANE " + raceShow + " (tap 🤖 MINE above the chart for yours)  •  " : "🤖 ";
+            string txt; Brush col = Cyan; bool fast = false;
+            AutoTrade last = ga.Trades.Count > 0 ? ga.Trades[ga.Trades.Count - 1] : null; bool fresh = last != null && inTrade && (ga.Now - last.Time).TotalSeconds >= 0 && (ga.Now - last.Time).TotalSeconds < 90;
+            if (fresh)
+            {   // ⚡ for 90 s after every order: WHAT it did, WHEN and WHY
+                txt = who + "⚡ " + last.Side + " " + last.Lots.ToString("0.##", IC) + " @ " + P2(last.Price) + " at " + last.Time.ToString("HH:mm:ss", IC) + " — " + last.Why + "  •  basket " + ga.Basket.ToString("+0.00;−0.00", IC)
+                    + (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel) && !ga.Locked ? "  •  🛡 hedge " + (ga.LastDir > 0 ? "SELL" : "BUY") + " " + P2(ga.HedgeLevel) + dist(ga.HedgeLevel) : "");
+                col = last.Side == "BUY" ? Green : last.Side == "SELL" ? Red : Amber; fast = true;
+            }
+            else if (inTrade)
+            {
+                txt = who + "IN ITERATION #" + (ga.Current != null ? ga.Current.N.ToString(IC) : "?") + "  basket " + ga.Basket.ToString("+0.00;−0.00", IC);
+                if (!double.IsNaN(ga.TargetPx)) { txt += "  •  🎯 TP " + P2(ga.TargetPx) + dist(ga.TargetPx); fast |= !double.IsNaN(bid) && Math.Abs(ga.TargetPx - bid) < 0.5; }
+                if (ga.Locked && !double.IsNaN(ga.LockHi)) txt += "  •  🔒 LOCKED " + P2(ga.LockLo) + " – " + P2(ga.LockHi);
+                else if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel)) { txt += "  •  🛡 next hedge " + (ga.LastDir > 0 ? "SELL" : "BUY") + " " + P2(ga.HedgeLevel) + dist(ga.HedgeLevel); fast |= !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.5; }
+                col = ga.Basket >= 0 ? Green : Amber;
+            }
+            else if (ga.Running && ga.Phase == "PAUSE") { txt = who + "⏸ PAUSE — the next iteration from " + ga.PauseUntil.ToString("HH:mm:ss", IC); col = Muted; }
+            else if (ga.Running && ga.Blocked != "") { txt = who + "⏸ NOT TRADING NOW: " + ga.Blocked; col = Muted; }
+            else if (s.EntryMode == "BREAK" || s.EntryMode == "FVGBREAK")
+            {
+                double hi, lo; DateTime ht, lt; double b0; var lv = BreakLevels(sym, s, out ht, out lt, out b0);
+                hi = ga.Running && !double.IsNaN(ga.BuyLevel) ? ga.BuyLevel : lv[0]; lo = ga.Running && !double.IsNaN(ga.SellLevel) ? ga.SellLevel : lv[1];
+                string what = s.Swing ? "swing" : s.Lookback + "-candle";
+                txt = who + (ga.Running ? "⏳ WAITING FOR A BREAK" : "AUTO OFF — it would enter") + "   ▲ BUY above " + (double.IsNaN(hi) ? "(no " + what + " high yet — one is forming)" : P2(hi) + dist(hi)) + "   •   ▼ SELL below " + (double.IsNaN(lo) ? "(no " + what + " low yet — one is forming)" : P2(lo) + dist(lo));
+                double near = Math.Min(double.IsNaN(hi) || double.IsNaN(bid) ? 99 : Math.Abs(hi - bid), double.IsNaN(lo) || double.IsNaN(bid) ? 99 : Math.Abs(bid - lo));
+                fast = near < 0.5; col = ga.Running ? Gold : Muted;
+            }
+            else txt = who + (ga.Running ? "⏳ WAITING — " + ga.Phase + (ga.SignalText != "" ? ": " + ga.SignalText : "") : "AUTO OFF");
+            return new ChartGuide { Kind = "BANNER", Core = true, P1 = double.NaN, Label = txt, Color = col, Blink = ga.Running, Dash = fast };   // Dash on a banner = blink FAST (close to the level)
         }
         // the same levels as the engine (HedgeAuto.Pivot / Lookback): from the finished candles of the strategy's timeframe, newest first
         double[] BreakLevels(string sym, AutoSettings s, out DateTime hiT, out DateTime loT, out double bid)

@@ -149,7 +149,7 @@ namespace KeystoneMT5
     public sealed class ChartHit { public Rect R; public string Kind, Key; public long Ticket; public Action Click; }
     public sealed class Indicator { public string Key, Name, Color, Tip; public Indicator(string k, string n, string c, string t) { Key = k; Name = n; Color = c; Tip = t; } }
 
-    public sealed class ChartGuide { public string Kind = "LINE", Label = ""; public double P1, P2 = double.NaN; public DateTime From = DateTime.MinValue; public Brush Color; public bool Blink, Dash; }
+    public sealed class ChartGuide { public string Kind = "LINE", Label = ""; public double P1, P2 = double.NaN; public DateTime From = DateTime.MinValue; public Brush Color; public bool Blink, Dash, Core; }   // Core: the automation's own level — shown even with 🎯 SIGNALS OFF
 
     public sealed partial class ChartView : FrameworkElement
     {
@@ -282,6 +282,16 @@ namespace KeystoneMT5
             double ph = 0.5 + 0.5 * Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 170.0); var labels = new List<double>();
             foreach (var g in gs)
             {
+                if (g.Kind == "BANNER")
+                {   // ⏳ what the 🤖 automation waits for: a pill at the top centre of the chart, pulsing (fast when the price is close)
+                    if (string.IsNullOrEmpty(g.Label)) continue; var bc = g.Color as SolidColorBrush; var bcol = bc != null ? bc.Color : Colors.White;
+                    double bph = g.Dash ? ph : 0.5 + 0.5 * Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 450.0); if (g.Blink) guidesBlink = true;
+                    var btx = T(g.Label, 12, new SolidColorBrush(Color.FromRgb(bcol.R, bcol.G, bcol.B)), true, true); double bw = Math.Min(plotW - 20, btx.Width + 24), bx = Math.Max(10, (plotW - bw) / 2), by = TopPad + 8;
+                    byte ba = (byte)(g.Blink ? 120 + 135 * bph : 140);
+                    dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(225, 10, 14, 22)), new Pen(new SolidColorBrush(Color.FromArgb(ba, bcol.R, bcol.G, bcol.B)), g.Dash ? 3 : 2), new Rect(bx, by, bw, btx.Height + 12), 8, 8);
+                    if (g.Blink) dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb((byte)(20 + 40 * bph), bcol.R, bcol.G, bcol.B)), null, new Rect(bx, by, bw, btx.Height + 12), 8, 8);
+                    btx.MaxTextWidth = Math.Max(20, bw - 20); btx.Trimming = TextTrimming.CharacterEllipsis; dc.DrawText(btx, new Point(bx + 12, by + 6)); continue;
+                }
                 if (Ind.Contains("VWAP") && g.Kind != "ZONE" && g.Kind != "SIGNAL" && (g.Label ?? "").StartsWith("VWAP")) continue;   // the chart's own VWAP line is on: ONE VWAP line, not two
                 if (g.Blink) guidesBlink = true; var sc = g.Color as SolidColorBrush; var col = sc != null ? sc.Color : Colors.White; double a = g.Blink ? 0.3 + 0.7 * ph : 0.85;
                 var br = new SolidColorBrush(Color.FromArgb((byte)(255 * a), col.R, col.G, col.B)); var pen = new Pen(br, g.Blink ? 2.2 : 1.4); if (g.Dash) pen.DashStyle = DashStyles.Dash;
@@ -296,7 +306,17 @@ namespace KeystoneMT5
                     double x = X(bars.Count - 1), y = Y(g.P1); if (y < TopPad || y > TopPad + plotH) continue; double r = 7 + 5 * (g.Blink ? ph : 0);
                     dc.DrawEllipse(new SolidColorBrush(Color.FromArgb((byte)(90 * a), col.R, col.G, col.B)), new Pen(br, 2), new Point(x, y), r + 4, r + 4); dc.DrawEllipse(br, null, new Point(x, y), 4, 4);
                 }
-                else { double y = Y(g.P1); if (y < TopPad || y > TopPad + plotH) continue; dc.DrawLine(pen, new Point(x0, y), new Point(plotW, y)); }
+                else
+                {
+                    double y = Y(g.P1);
+                    if (y < TopPad || y > TopPad + plotH)
+                    {   // off the screen: a tag on the edge (↑ above / ↓ below) so the level is never invisible
+                        if (g.Label == "") continue; bool up = y < TopPad; var etx = T((up ? "↑ " : "↓ ") + g.Label, 9.5, br, false, true); double ey = up ? TopPad + 44 : TopPad + plotH - etx.Height - 6;
+                        foreach (var u in labels) if (Math.Abs(u - ey) < 14) ey = up ? u + 15 : u - 15; labels.Add(ey);
+                        dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(170, 10, 14, 22)), new Pen(br, 1), new Rect(6, ey - 1, etx.Width + 8, etx.Height + 2), 3, 3); dc.DrawText(etx, new Point(10, ey)); continue;
+                    }
+                    dc.DrawLine(pen, new Point(x0, y), new Point(plotW, y));
+                }
                 if (g.Label == "") continue;
                 double ly = Y(g.Kind == "ZONE" && !double.IsNaN(g.P2) ? Math.Max(g.P1, g.P2) : g.P1) - 15; foreach (var u in labels) if (Math.Abs(u - ly) < 14) ly = u - 15; labels.Add(ly);
                 var tx = T(g.Label, 9.5, br, false, true); double lx = 10;   // labels on the LEFT: the right side belongs to the tickets' own lines
