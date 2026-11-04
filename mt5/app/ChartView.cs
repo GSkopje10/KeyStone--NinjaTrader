@@ -356,7 +356,8 @@ namespace KeystoneMT5
             ApplyKeep(bars); int n = bars.Count; nBars = n;
             int i1 = Math.Max(0, Math.Min(n - 1, (int)Math.Floor(n - 1 + rightOffset + 0.5))), i0 = Math.Max(0, Math.Min(i1, (int)Math.Floor(n - 1 + rightOffset + 0.5 - plotW / barW)));
             hi = double.MinValue; lo = double.MaxValue;
-            for (int i = i0; i <= i1; i++) { hi = Math.Max(hi, bars[i].H); lo = Math.Min(lo, bars[i].L); }
+            for (int i = i0; i <= i1; i++) { if (BadBar(bars, i)) continue; hi = Math.Max(hi, bars[i].H); lo = Math.Min(lo, bars[i].L); }
+            if (hi == double.MinValue) for (int i = i0; i <= i1; i++) { hi = Math.Max(hi, bars[i].H); lo = Math.Min(lo, bars[i].L); }
             if (Bid > 0 && rightOffset > -2) { hi = Math.Max(hi, Bid); lo = Math.Min(lo, Bid); }
             if (hi <= lo) hi = lo + Point * 10; double pad = (hi - lo) * 0.08; hi += pad; lo -= pad;
             if (!auto && !double.IsNaN(mHi)) { hi = mHi; lo = mLo; } else { mHi = hi; mLo = lo; }
@@ -477,14 +478,29 @@ namespace KeystoneMT5
         }
 
         // ---- indicators (from the candles on screen and before them)
+        // a broken candle (a price of 0 / negative, or 20 % away from its neighbours — a feed glitch): never in the indicators or the auto scale
+        // an indicator whose line is above / below the visible prices: a tag at the edge says where it is (never an invisible indicator)
+        void OffTag(DrawingContext dc, string name, double v, Brush col, int slot)
+        {
+            double y = Y(v); if (y >= TopPad && y <= TopPad + plotH) return; bool up = y < TopPad;
+            var t = T((up ? "↑ " : "↓ ") + name + " " + F(v) + " (off the screen)", 10, col, true); double ty = up ? TopPad + 40 + (slot % 7) * 2 + (name.GetHashCode() & 3) * 14 : TopPad + plotH - 34 - (name.GetHashCode() & 3) * 14;
+            dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(200, 10, 14, 22)), new Pen(col, 1), new Rect(plotW - t.Width - 14, ty - 1, t.Width + 8, t.Height + 2), 3, 3); dc.DrawText(t, new Point(plotW - t.Width - 10, ty));
+        }
+        static bool BadBar(List<Mt5Bar> bars, int i)
+        {
+            var b = bars[i]; if (b.C <= 0 || b.H <= 0 || b.L <= 0 || b.O <= 0 || b.H < b.L) return true;
+            double r = double.NaN; for (int j = i - 1; j >= Math.Max(0, i - 5) && double.IsNaN(r); j--) if (bars[j].C > 0) r = bars[j].C;
+            for (int j = i + 1; j < Math.Min(bars.Count, i + 6) && double.IsNaN(r); j++) if (bars[j].C > 0) r = bars[j].C;
+            return !double.IsNaN(r) && (Math.Abs(b.C - r) > r * 0.2 || Math.Abs(b.H - r) > r * 0.2 || Math.Abs(b.L - r) > r * 0.2);
+        }
         void DrawIndicators(DrawingContext dc, List<Mt5Bar> bars, int i0, int i1)
         {
             int n = bars.Count;
             foreach (var e in new[] { Tuple.Create("EMA9", 9), Tuple.Create("EMA21", 21), Tuple.Create("EMA50", 50), Tuple.Create("EMA200", 200) })
             {
                 if (!Ind.Contains(e.Item1) || n < 3) continue; double k = 2.0 / (e.Item2 + 1), v = bars[0].C; var g = new StreamGeometry();
-                using (var c = g.Open()) { bool started = false; for (int i = 0; i <= i1 && i < n; i++) { v = i == 0 ? bars[0].C : bars[i].C * k + v * (1 - k); if (i < i0 - 1) continue; var pt = new Point(X(i), Y(v)); if (!started) { c.BeginFigure(pt, false, false); started = true; } else c.LineTo(pt, true, false); } }
-                g.Freeze(); dc.DrawGeometry(null, P(Hex(IndColor(e.Item1)), e.Item1 == "EMA200" ? 2.2 : 1.6), g);
+                using (var c = g.Open()) { bool started = false; for (int i = 0; i <= i1 && i < n; i++) { if (BadBar(bars, i)) { if (i == 0) v = double.NaN; if (i < i0 - 1 || double.IsNaN(v)) continue; } else v = double.IsNaN(v) || i == 0 ? bars[i].C : bars[i].C * k + v * (1 - k); if (double.IsNaN(v)) continue; if (i < i0 - 1) continue; var pt = new Point(X(i), Y(v)); if (!started) { c.BeginFigure(pt, false, false); started = true; } else c.LineTo(pt, true, false); } }
+                g.Freeze(); dc.DrawGeometry(null, P(Hex(IndColor(e.Item1)), e.Item1 == "EMA200" ? 2.2 : 1.6), g); if (!double.IsNaN(v)) OffTag(dc, e.Item1, v, Hex(IndColor(e.Item1)), e.Item2);
             }
             if (Ind.Contains("BB") && n > 21)
             {
@@ -505,8 +521,9 @@ namespace KeystoneMT5
             {
                 // the day's VWAP from the server's midnight (the forex day: New York 17:00)
                 var g = new StreamGeometry(); double pv = 0, vv = 0, lastV = double.NaN; DateTime day = DateTime.MinValue;
-                using (var c = g.Open()) { bool started = false; for (int i = 0; i <= i1 && i < n; i++) { var b = bars[i]; if (b.Time.Date != day) { day = b.Time.Date; pv = vv = 0; if (i >= i0) started = false; } double tp = (b.H + b.L + b.C) / 3, w = Math.Max(1, b.V); pv += tp * w; vv += w; if (i < i0) continue; lastV = pv / vv; var pt = new Point(X(i), Y(lastV)); if (!started) { c.BeginFigure(pt, false, false); started = true; } else c.LineTo(pt, true, false); } }
+                using (var c = g.Open()) { bool started = false; for (int i = 0; i <= i1 && i < n; i++) { var b = bars[i]; if (b.Time.Date != day) { day = b.Time.Date; pv = vv = 0; if (i >= i0) started = false; } if (BadBar(bars, i)) { if (i < i0 || vv <= 0) continue; } else { double tp = (b.H + b.L + b.C) / 3, w = Math.Max(1, b.V); pv += tp * w; vv += w; } if (vv <= 0) continue; if (i < i0) continue; lastV = pv / vv; var pt = new Point(X(i), Y(lastV)); if (!started) { c.BeginFigure(pt, false, false); started = true; } else c.LineTo(pt, true, false); } }
                 g.Freeze(); dc.DrawGeometry(null, P(Hex(IndColor("VWAP")), 2.2), g);
+                if (!double.IsNaN(lastV)) OffTag(dc, "VWAP", lastV, Hex(IndColor("VWAP")), 0);
                 if (!double.IsNaN(lastV)) { double yv = Y(lastV); if (yv > TopPad + 8 && yv < TopPad + plotH - 8) { var vt = T("VWAP " + F(lastV), 10, Hex(IndColor("VWAP")), true); dc.DrawText(vt, new Point(Math.Max(0, plotW - vt.Width - 6), yv - vt.Height - 1)); } }   // its value at the right edge
             }
             if (Ind.Contains("FVG"))
