@@ -134,6 +134,10 @@ namespace KeystoneMT5
             // ⇅ HEDGE LAB: the hedge-instead-of-a-stop strategy tested on the saved MT5 history (research only, sends nothing)
             var lab = Sx.Pill("⇅ HEDGE LAB", Sx.Tint(Sx.Violet, 46)); lab.Height = 26; lab.Margin = new Thickness(0, 6, 10, 6); lab.FontSize = 11.5; lab.ToolTip = "test the hedge-instead-of-a-stop strategy on your MT5 history (research only — nothing is sent to MT5)";
             WindowChrome.SetIsHitTestVisibleInChrome(lab, true); lab.Click += delegate { HedgeLabWindow.ShowLab(w); }; btns.Children.Add(lab);
+            // 🕵 DECODE HEDGING: learns a trader's hedging from the trades copied onto your accounts (read only); its recorder runs from start-up
+            HedgeDecodeWindow.StartService();
+            var dec = Sx.Pill("🕵 DECODE HEDGING", Sx.Tint(Sx.Gold, 46)); dec.Height = 26; dec.Margin = new Thickness(0, 6, 10, 6); dec.FontSize = 11.5; dec.ToolTip = "learn his hedging from the trades COPIED onto your Duramarkets / IC Markets accounts — every execution, hedge size, pending order and moving average in one pool (read only — nothing is sent to MT5)";
+            WindowChrome.SetIsHitTestVisibleInChrome(dec, true); dec.Click += delegate { HedgeDecodeWindow.ShowStudio(w); }; btns.Children.Insert(btns.Children.IndexOf(lab), dec);
             cap("─", "minimize", false, () => w.WindowState = WindowState.Minimized);
             var maxB = cap("▢", "maximize / restore", false, () => w.WindowState = w.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized);
             cap("✕", mode == "HOME" ? "close SpasiX" : "close this mode (back to HOME)", true, () => w.Close());

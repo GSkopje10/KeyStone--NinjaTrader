@@ -44,6 +44,9 @@ namespace KeystoneMT5
         // then UNLOCK: LEAD = add NetAdvantage lots the break's way, LIFT = close the side against the break
         public int BeAfter;   // RESCUE EXIT: a basket with this many hedges (or more) closes as soon as it is back at breakeven ($0 after every cost) instead of waiting for the target — no endless baskets (0 = off)
         public bool RangeOnly, LockOn; public int LockAfter = 2; public double LockRange = 3; public string Unlock = "LEAD";
+        // ⚡ QUICK HEDGE (user's request): once the price ran QuickAfter beyond the basket's best leg, the hedge trails the LAST FINISHED CANDLE's
+        // low (long basket) / high (short) — the first candle that breaks it hedges at once (near the top, not back at the old swing)
+        public bool QuickHedge; public double QuickAfter = 3;
         public string EodLoss = "HOLD";       // at the close time with the basket in a LOSS: HOLD = stays open and managed to its target (hedging never closes at a loss — the user's rule, the default); CLOSE = close anyway
         public string CloseAtNy = "";          // "16:55" = what is open closes at that New York time, no new iteration after it ("" = hold until the target)
         public bool TrackManual = true;        // a trade you open by hand on the symbol becomes an iteration the automation manages and records (✋)
@@ -81,7 +84,7 @@ namespace KeystoneMT5
             }
             return res;
         }
-        public string Save() { return string.Join(";", "sym=" + Symbol, "tf=" + Tf, "look=" + Lookback, "entry=" + EntryLots.ToString(IC), "add=" + AddLots.ToString(IC), "target=" + Target.ToString(IC), "dd=" + MaxDrawdown.ToString(IC), "comm=" + CommissionPerLot.ToString(IC), "first=" + FirstDir, "next=" + NextStart, "pause=" + PauseSec, "afterdd=" + AfterDrawdown, "rolling=" + (Rolling ? 1 : 0), "maxit=" + MaxIterations, "hmode=" + HedgeMode, "hprice=" + HedgePrice.ToString(IC), "hmoney=" + HedgeMoney.ToString(IC), "emode=" + EntryMode, "fvol=" + FlowVol.ToString(IC), "fshare=" + FlowShare.ToString(IC), "perday=" + PerDay, "win=" + Windows.Replace(";", ","), "nyoff=" + NyOffsetHours, "news=" + NewsMode, "nb=" + NewsBefore, "na=" + NewsAfter, "win2=" + (AddToWinner ? 1 : 0), "wlots=" + WinnerLots.ToString(IC), "wmax=" + MaxWinnerAdds, "swing=" + (Swing ? 1 : 0), "swk=" + SwingK, "fvgtf=" + FvgTf, "wlots2=" + WinnerLotsSell.ToString(IC), "preset=" + Preset, "vf=" + VwapFilter, "eod=" + CloseAtNy, "man=" + (TrackManual ? 1 : 0), "fage=" + FvgAge, "fstrict=" + (FvgStrict ? 1 : 0), "hmult=" + HedgeMult.ToString(IC), "maxh=" + MaxHedges, "exit=" + ExitMode, "aggrun=" + AggRun, "fstack=" + (FvgStack ? 1 : 0), "hsize=" + HedgeSize, "hs2=1", "roll2=1", "eodl=" + EodLoss, "ronly=" + (RangeOnly ? 1 : 0), "beafter=" + BeAfter, "lock=" + (LockOn ? 1 : 0), "lafter=" + LockAfter, "lrange=" + LockRange.ToString(IC), "unlock=" + Unlock, "nadv=" + NetAdvantage.ToString(IC), "rmove=" + RecoverMove.ToString(IC), "hmax=" + HedgeMaxLots.ToString(IC)); }
+        public string Save() { return string.Join(";", "sym=" + Symbol, "tf=" + Tf, "look=" + Lookback, "entry=" + EntryLots.ToString(IC), "add=" + AddLots.ToString(IC), "target=" + Target.ToString(IC), "dd=" + MaxDrawdown.ToString(IC), "comm=" + CommissionPerLot.ToString(IC), "first=" + FirstDir, "next=" + NextStart, "pause=" + PauseSec, "afterdd=" + AfterDrawdown, "rolling=" + (Rolling ? 1 : 0), "maxit=" + MaxIterations, "hmode=" + HedgeMode, "hprice=" + HedgePrice.ToString(IC), "hmoney=" + HedgeMoney.ToString(IC), "emode=" + EntryMode, "fvol=" + FlowVol.ToString(IC), "fshare=" + FlowShare.ToString(IC), "perday=" + PerDay, "win=" + Windows.Replace(";", ","), "nyoff=" + NyOffsetHours, "news=" + NewsMode, "nb=" + NewsBefore, "na=" + NewsAfter, "win2=" + (AddToWinner ? 1 : 0), "wlots=" + WinnerLots.ToString(IC), "wmax=" + MaxWinnerAdds, "swing=" + (Swing ? 1 : 0), "swk=" + SwingK, "fvgtf=" + FvgTf, "wlots2=" + WinnerLotsSell.ToString(IC), "preset=" + Preset, "vf=" + VwapFilter, "eod=" + CloseAtNy, "man=" + (TrackManual ? 1 : 0), "fage=" + FvgAge, "fstrict=" + (FvgStrict ? 1 : 0), "hmult=" + HedgeMult.ToString(IC), "maxh=" + MaxHedges, "exit=" + ExitMode, "aggrun=" + AggRun, "fstack=" + (FvgStack ? 1 : 0), "hsize=" + HedgeSize, "hs2=1", "roll2=1", "eodl=" + EodLoss, "ronly=" + (RangeOnly ? 1 : 0), "qh=" + (QuickHedge ? 1 : 0), "qafter=" + QuickAfter.ToString(IC), "beafter=" + BeAfter, "lock=" + (LockOn ? 1 : 0), "lafter=" + LockAfter, "lrange=" + LockRange.ToString(IC), "unlock=" + Unlock, "nadv=" + NetAdvantage.ToString(IC), "rmove=" + RecoverMove.ToString(IC), "hmax=" + HedgeMaxLots.ToString(IC)); }
         public static AutoSettings Load(string line)
         {
             var s = new AutoSettings(); if (string.IsNullOrEmpty(line)) return s; var d = new Dictionary<string, string>();
@@ -90,7 +93,7 @@ namespace KeystoneMT5
             Func<string, string, string> t = (k, def) => { string v; return d.TryGetValue(k, out v) && v != "" ? v : def; };
             s.Symbol = t("sym", s.Symbol); s.Tf = (int)n("tf", 1); s.Lookback = (int)n("look", 1); s.EntryLots = n("entry", 0.1); s.AddLots = n("add", 0.2); s.Target = n("target", 20); s.MaxDrawdown = n("dd", 0); s.CommissionPerLot = n("comm", 0);
             s.FirstDir = t("first", "AUTO"); s.NextStart = t("next", "BREAK"); s.PauseSec = (int)n("pause", 60); s.AfterDrawdown = t("afterdd", "STOP"); s.Rolling = !d.ContainsKey("roll2") ? true : n("rolling", 1) == 1;   /* older saved settings (fixed by default then) → FOLLOWS */ s.MaxIterations = (int)n("maxit", 0); s.HedgeMode = t("hmode", "BREAK"); s.HedgePrice = n("hprice", 5); s.HedgeMoney = n("hmoney", 100);
-            s.EntryMode = t("emode", "BREAK"); s.FlowVol = n("fvol", 1.5); s.FlowShare = n("fshare", 0.7); s.PerDay = (int)n("perday", 0); s.Windows = t("win", ""); s.NyOffsetHours = (int)n("nyoff", -7); s.NewsMode = t("news", "IGNORE"); s.NewsBefore = (int)n("nb", 15); s.NewsAfter = (int)n("na", 15); s.AddToWinner = n("win2", 0) == 1; s.WinnerLots = n("wlots", 0.1); s.MaxWinnerAdds = (int)n("wmax", 0); s.Swing = n("swing", 1) == 1; s.SwingK = (int)Math.Max(1, n("swk", 2)); s.FvgTf = (int)n("fvgtf", 5); s.WinnerLotsSell = n("wlots2", s.WinnerLots); s.Preset = t("preset", ""); s.VwapFilter = t("vf", "NONE"); s.CloseAtNy = d.ContainsKey("eod") ? d["eod"] : ""; s.TrackManual = n("man", 1) == 1; s.FvgAge = (int)n("fage", 0); s.FvgStrict = n("fstrict", 0) == 1; s.HedgeMult = n("hmult", 2); s.MaxHedges = (int)n("maxh", 1); s.ExitMode = t("exit", "BASKET"); s.AggRun = (int)Math.Max(1, n("aggrun", 4)); s.FvgStack = n("fstack", 1) == 1; s.EodLoss = t("eodl", "HOLD"); s.RangeOnly = n("ronly", 0) == 1; s.BeAfter = (int)Math.Max(0, n("beafter", 0)); s.LockOn = n("lock", 0) == 1; s.LockAfter = (int)Math.Max(1, n("lafter", 2)); s.LockRange = Math.Max(0.01, n("lrange", 3)); s.Unlock = t("unlock", "LEAD"); s.HedgeSize = t("hsize", "ADVANTAGE"); s.NetAdvantage = n("nadv", 0.2); if (!d.ContainsKey("hs2") && s.HedgeSize == "FIXED" && s.Preset != "BOX") s.HedgeSize = "ADVANTAGE";   // the user's rule: the new side always LEADS BY the lots (older saved settings were FIXED by default) s.RecoverMove = n("rmove", 3); s.HedgeMaxLots = n("hmax", 1);
+            s.EntryMode = t("emode", "BREAK"); s.FlowVol = n("fvol", 1.5); s.FlowShare = n("fshare", 0.7); s.PerDay = (int)n("perday", 0); s.Windows = t("win", ""); s.NyOffsetHours = (int)n("nyoff", -7); s.NewsMode = t("news", "IGNORE"); s.NewsBefore = (int)n("nb", 15); s.NewsAfter = (int)n("na", 15); s.AddToWinner = n("win2", 0) == 1; s.WinnerLots = n("wlots", 0.1); s.MaxWinnerAdds = (int)n("wmax", 0); s.Swing = n("swing", 1) == 1; s.SwingK = (int)Math.Max(1, n("swk", 2)); s.FvgTf = (int)n("fvgtf", 5); s.WinnerLotsSell = n("wlots2", s.WinnerLots); s.Preset = t("preset", ""); s.VwapFilter = t("vf", "NONE"); s.CloseAtNy = d.ContainsKey("eod") ? d["eod"] : ""; s.TrackManual = n("man", 1) == 1; s.FvgAge = (int)n("fage", 0); s.FvgStrict = n("fstrict", 0) == 1; s.HedgeMult = n("hmult", 2); s.MaxHedges = (int)n("maxh", 1); s.ExitMode = t("exit", "BASKET"); s.AggRun = (int)Math.Max(1, n("aggrun", 4)); s.FvgStack = n("fstack", 1) == 1; s.EodLoss = t("eodl", "HOLD"); s.RangeOnly = n("ronly", 0) == 1; s.QuickHedge = n("qh", 0) == 1; s.QuickAfter = Math.Max(0.1, n("qafter", 3)); s.BeAfter = (int)Math.Max(0, n("beafter", 0)); s.LockOn = n("lock", 0) == 1; s.LockAfter = (int)Math.Max(1, n("lafter", 2)); s.LockRange = Math.Max(0.01, n("lrange", 3)); s.Unlock = t("unlock", "LEAD"); s.HedgeSize = t("hsize", "ADVANTAGE"); s.NetAdvantage = n("nadv", 0.2); if (!d.ContainsKey("hs2") && s.HedgeSize == "FIXED" && s.Preset != "BOX") s.HedgeSize = "ADVANTAGE";   // the user's rule: the new side always LEADS BY the lots (older saved settings were FIXED by default) s.RecoverMove = n("rmove", 3); s.HedgeMaxLots = n("hmax", 1);
             return s;
         }
     }
@@ -130,7 +133,7 @@ namespace KeystoneMT5
         void ApplyNext()
         {
             var n = Next; Next = null; if (n == null) return; Set = n; vwapLast = DateTime.MinValue; vwapDay = DateTime.MinValue; cumPV = 0; cumV = 0; Version++;
-            Tell("⚙ NEW SETTINGS from this iteration on: entry " + Set.EntryLots.ToString("0.##", IC) + " lots • target +$" + Set.Target.ToString("0.##", IC) + " • " + Set.EntryMode + " on " + Tf.Name(Set.Tf) + " • hedge " + Set.HedgeMode + (Set.HedgeSize == "ADVANTAGE" ? " (lead by " + Set.NetAdvantage.ToString("0.##", IC) + ")" : "") + (Set.Rolling ? " • highs / lows in real time" : ""));
+            Tell("⚙ NEW SETTINGS from this iteration on: entry " + Set.EntryLots.ToString("0.##", IC) + " lots • target +$" + Set.Target.ToString("0.##", IC) + " • " + Set.EntryMode + " on " + Tf.Name(Set.Tf) + " • hedge " + Set.HedgeMode + (Set.HedgeSize == "STEPLEAD" ? " (lead +" + Set.NetAdvantage.ToString("0.##", IC) + " per hedge)" : Set.HedgeSize == "ADVANTAGE" ? " (lead by " + Set.NetAdvantage.ToString("0.##", IC) + ")" : "") + (Set.Rolling ? " • highs / lows in real time" : ""));
         }
         public bool Running { get; private set; }
         public string Phase { get; private set; } = "OFF";   // OFF / WAIT BREAK / PAUSE / IN ITERATION / CLOSING
@@ -408,7 +411,7 @@ namespace KeystoneMT5
                 else if (Basket >= Set.Target) { it.Reason = "TARGET"; Tell("TAKE PROFIT. WHY: the basket reached " + M(Basket) + " ≥ the target " + M(Set.Target) + " at a bid of " + P(sn.Bid) + " → CLOSE ALL " + sn.Pos.Count + " positions."); CloseAll(sn, "TARGET", false); return; }
                 if (Set.BeAfter > 0 && it.AddOns >= Set.BeAfter && Basket >= 0 && Set.ExitMode != "LEGS") { it.Reason = "RESCUE"; Tell("🛟 RESCUE EXIT. WHY: the basket has " + it.AddOns + " hedges (≥ " + Set.BeAfter + ") and is back at " + M(Basket) + " (breakeven or better) → CLOSE ALL " + sn.Pos.Count + " positions — no endless basket."); CloseAll(sn, "RESCUE", false); return; }
                 if (Set.MaxDrawdown > 0 && total <= -Set.MaxDrawdown) { it.Reason = "MAX DRAWDOWN"; Tell("MAX DRAWDOWN. WHY: the basket fell to " + M(Basket) + " ≤ −$" + Set.MaxDrawdown.ToString("0.##", IC) + " at a bid of " + P(sn.Bid) + " → CLOSE ALL " + sn.Pos.Count + " positions."); CloseAll(sn, "MAX DRAWDOWN", false); return; }
-                if (Set.Rolling && Set.HedgeMode == "BREAK") SetHedgeLevel(sn, lastDir);
+                if (Set.Rolling && Set.HedgeMode == "BREAK") SetHedgeLevel(sn, lastDir); else if (Set.QuickHedge && Set.HedgeMode != "NONE" && Set.HedgeMode != "SIGNAL") QuickLevel(sn, lastDir, !double.IsNaN(sn.Ask) && sn.Ask > sn.Bid ? sn.Ask - sn.Bid : 0);
                 if (Set.LockOn && Set.HedgeMode != "NONE")
                 {
                     double spL = !double.IsNaN(sn.Ask) && sn.Ask > sn.Bid ? sn.Ask - sn.Bid : 0, netL = sn.Pos.Sum(p => p.Dir * p.Lots);
@@ -681,13 +684,25 @@ namespace KeystoneMT5
             {
                 var last = sn.Pos.Where(p => p.Dir == dir).OrderBy(p => p.Time).ThenBy(p => p.Ticket).LastOrDefault(); double from = last != null ? (dir > 0 ? last.Open - sp : last.Open + sp) : sn.Bid;   // the bid when the leg opened
                 double net = Math.Abs(sn.Pos.Sum(p => p.Dir * p.Lots)); double dist = Set.HedgeMode == "PRICE" ? Set.HedgePrice : sn.PerPrice > 0 && net > 1e-9 ? Set.HedgeMoney / (net * sn.PerPrice) : double.NaN;
-                HedgeLevel = double.IsNaN(dist) ? double.NaN : dir > 0 ? from - Math.Max(dist, sp) : from + Math.Max(dist, sp); RangeOnlyLevel(sn, dir, sp); return;
+                HedgeLevel = double.IsNaN(dist) ? double.NaN : dir > 0 ? from - Math.Max(dist, sp) : from + Math.Max(dist, sp); RangeOnlyLevel(sn, dir, sp); QuickLevel(sn, dir, sp); return;
             }
             double lv = dir > 0 ? Low(sn) : High(sn);
             if (double.IsNaN(lv)) { HedgeLevel = double.NaN; HedgeWhy = ""; return; }
             HedgeLevel = Set.Rolling ? lv : dir > 0 ? Math.Min(lv, sn.Bid - sp) : Math.Max(lv, sn.Bid + sp);
             HedgeWhy = Candles(sn, dir < 0) + (Math.Abs(HedgeLevel - lv) > 1e-9 ? ", moved to " + P(HedgeLevel) + " (at least the spread from the price)" : "");
-            RangeOnlyLevel(sn, dir, sp);
+            RangeOnlyLevel(sn, dir, sp); QuickLevel(sn, dir, sp);
+        }
+        void QuickLevel(Snap sn, int dir, double sp)
+        {
+            if (!Set.QuickHedge || sn.Fin.Count == 0 || sn.Pos.Count == 0 || double.IsNaN(sn.Bid)) return;
+            var leg = sn.Pos.Where(p => p.Dir == dir).OrderBy(p => p.Time).ThenBy(p => p.Ticket).LastOrDefault(); if (leg == null) return;
+            var since = sn.Fin.Where(x => x.Time.AddMinutes(Set.Tf) > leg.Time).ToList();
+            double ext = dir > 0 ? Math.Max(sn.Bid, since.Count > 0 ? since.Max(x => x.H) : sn.Bid) : Math.Min(sn.Bid, since.Count > 0 ? since.Min(x => x.L) : sn.Bid);
+            double edge = dir > 0 ? sn.Pos.Max(p => p.Open) : sn.Pos.Min(p => p.Open), run = dir > 0 ? ext - edge : edge - ext;
+            if (run < Set.QuickAfter) return;
+            var last = sn.Fin[0]; double q = dir > 0 ? Math.Min(last.L, sn.Bid - sp) : Math.Max(last.H, sn.Bid + sp);
+            if (!double.IsNaN(HedgeLevel) && (dir > 0 ? q <= HedgeLevel : q >= HedgeLevel)) return;   // only ever CLOSER to the price
+            HedgeLevel = q; HedgeWhy = "⚡ QUICK HEDGE: the price ran " + run.ToString("0.00", IC) + " beyond the basket's best leg " + P(edge) + " (≥ " + Set.QuickAfter.ToString("0.##", IC) + ") → the hedge sits at the last candle's " + (dir > 0 ? "LOW " : "HIGH ") + P(q) + " (" + last.Time.ToString("HH:mm", IC) + "): the first candle that breaks it hedges";
         }
         void RangeOnlyLevel(Snap sn, int dir, double sp)
         {
@@ -749,6 +764,8 @@ namespace KeystoneMT5
         double HedgeLots(Snap sn)
         {
             if (Set.HedgeSize == "ADVANTAGE") { double nnet = Math.Abs(sn.Pos.Sum(p => p.Dir * p.Lots)); return Math.Max(0.01, Math.Round(nnet + Math.Max(0.01, Set.NetAdvantage), 2)); }
+            // STEP LEAD (user's request): the lead GROWS by LEAD BY with every hedge — the 1st hedge leads by 0.1, the 2nd by 0.2, the 3rd by 0.3 …
+            if (Set.HedgeSize == "STEPLEAD") { double nnet = Math.Abs(sn.Pos.Sum(p => p.Dir * p.Lots)); int k = (Current != null ? Current.AddOns : 0) + 1; return Math.Max(0.01, Math.Round(nnet + Math.Max(0.01, Set.NetAdvantage) * k, 2)); }
             if (Set.HedgeSize != "RECOVER" || sn.PerPrice <= 0 || Set.RecoverMove <= 0) return Set.AddLots;
             double net = Math.Abs(sn.Pos.Sum(p => p.Dir * p.Lots)), total = Basket + (Set.ExitMode == "LEGS" && Current != null ? sn.Balance - Current.BalanceStart : 0);
             double need = net + Math.Max(0, Set.Target - total) / (sn.PerPrice * Set.RecoverMove);

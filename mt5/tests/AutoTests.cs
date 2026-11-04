@@ -15,12 +15,13 @@ public static class AutoTests
     }
     static IEnumerable<double> Line(double from, double step, int n) { for (int i = 1; i <= n; i++) yield return Math.Round(from + step * i, 2); }
     static SimSpec Gold() { return new SimSpec { Name = "XAUUSD", Digits = 2, Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7 }; }
-    static Tuple<SimBroker, HedgeAuto> Run(List<Mt5Bar> test, AutoSettings s, Action<SimBroker, HedgeAuto> mid = null, Action<HedgeAuto> prep = null)
+    static Tuple<SimBroker, HedgeAuto> Run(List<Mt5Bar> test, AutoSettings s, Action<SimBroker, HedgeAuto> mid = null, Action<HedgeAuto> prep = null, Action<SimBroker> watch = null)
     {
         var warm = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30));
         var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = 10000, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 10 }, Gold(), warm.Concat(test).ToList()); if (err != "") throw new Exception(err);
         var au = new HedgeAuto(); au.Send = (c, a, l) => sb.Command(c, a); sb.OnTickHook = () => au.Step(sb); if (prep != null) prep(au);
         var chk = au.Check(sb, s); if (chk != "") throw new Exception(chk);
+        if (watch != null) watch(sb);
         au.Start(sb, s, false); sb.Playing = true; sb.Speed = 60;
         for (int k = 0; k < 4000 && !sb.Ended; k++) { sb.Advance(0.25); if (mid != null && k == 3) mid(sb, au); }
         return Tuple.Create(sb, au);
@@ -299,6 +300,32 @@ public static class AutoTests
             var sRo = baseS(); sRo.RangeOnly = true; var rRo = Run(chop(), sRo); var tRo = rRo.Item2.Trades.Where(t => t.Side != "CLOSE").ToList();
             var sNo = baseS(); var rNo = Run(chop(), sNo); var tNo = rNo.Item2.Trades.Where(t => t.Side != "CLOSE").ToList();
             Check(tRo.Count >= 3 && tNo.Count >= 3 && tRo[2].Side == "BUY" && tRo[2].Price > tRo[0].Price + 0.05 && tRo[2].Time > tNo[2].Time, "range-only: the hedge BUY waits for a break over the highest leg (later than without it)", tRo.Count + " " + (tRo.Count > 2 ? tRo[2].Price + " vs first " + tRo[0].Price : ""));
+            {   // ⚡ QUICK HEDGE: up $8, then down — the hedge SELL near the top (the first break of a candle low), not $6 under the entry
+                Func<List<Mt5Bar>> upDown = () => Path(Day1, 4000, Line(4000, 0.5, 16).Concat(Line(4008, -0.5, 30)));
+                Func<AutoSettings> qS = () => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 6; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.1; x.Target = 500; x.MaxIterations = 1; return x; };
+                var sQh = qS(); sQh.QuickHedge = true; sQh.QuickAfter = 3; var hQ = Run(upDown(), sQh).Item2.Trades.FirstOrDefault(t => t.Side == "SELL");
+                var hN = Run(upDown(), qS()).Item2.Trades.FirstOrDefault(t => t.Side == "SELL");
+                Check(hQ != null && hN != null && hQ.Price > 4005 && hN.Price < 3995 && AutoSettings.Load(sQh.Save()).QuickHedge && !AutoSettings.Load("sym=XAUUSD").QuickHedge,
+                    "quick hedge: after a $3 run the hedge SELL comes at the first candle-low break near the top (> 4005), without it $6 under the entry; saved, OFF by default", (hQ != null ? hQ.Price.ToString() : "none") + " vs " + (hN != null ? hN.Price.ToString() : "none"));
+            }
+            {   // 🕵 DECODE HEDGING: an observer on the account (as if the trades were copied) records the first leg, the hedge (its size and distance), the cycle; it never sends
+                HedgeDecode.RootOverride = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-dec-" + Guid.NewGuid().ToString("N")); var dec = new HedgeDecode(); dec.Symbol = "XAU"; int sent = 0;
+                var sD = S(); sD.FirstDir = "BUY"; sD.HedgeMode = "PRICE"; sD.HedgePrice = 2; sD.HedgeSize = "FIXED"; sD.Target = 20; sD.MaxIterations = 1;
+                Run(Path(Day1, 4000, Line(4000, -0.25, 12).Concat(Line(3997, -0.25, 60))), sD, null, au => { var hook = au.Send; au.Send = (c, a, l) => hook(c, a, l); }, (sb2) => { var obs = new CountingBroker(sb2, () => sent++); dec.Step(obs, "TEST@Dura"); var prev = sb2.OnTickHook; sb2.OnTickHook = () => { prev(); dec.Step(obs, "TEST@Dura"); }; });
+                var legsD = dec.Events.Where(e => e.Kind == "FIRST LEG" || e.Kind == "HEDGE").ToList(); var hD = legsD.FirstOrDefault(e => e.Kind == "HEDGE");
+                bool saved = System.IO.Directory.Exists(HedgeDecode.Folder) && System.IO.Directory.GetFiles(HedgeDecode.Folder, "events-*.csv", System.IO.SearchOption.AllDirectories).Length == 1;
+                var dec2 = new HedgeDecode(); dec2.Load();
+                Check(legsD.Count >= 2 && legsD[0].Kind == "FIRST LEG" && legsD[0].Side == "BUY" && hD != null && hD.Side == "SELL" && Math.Abs(hD.RatioPrev - 2) < 1e-9 && hD.FromLastOpp > 1.9 && dec.Events.Any(e => e.Kind == "CYCLE FLAT") && saved && dec2.Events.Count == dec.Events.Count && dec.Hints("").Any(h => h.Item1.Contains("HEDGE SIZE")) && sent == 0,
+                    "decode hedging: the copied first leg, the hedge SELL (2× the last leg, $2 away), the cycle — saved per day, read back, HINTS; it sent nothing", string.Join(" | ", dec.Events.Select(e => e.Kind + " " + e.Side + " " + e.Lots)) + " sent " + sent);
+                HedgeDecode.RootOverride = null;
+            }
+            {   // STEP LEAD: the lead grows by 0.1 with every hedge — SELL 0.2 (leads 0.1), BUY 0.3 (leads 0.2), SELL 0.5 (leads 0.3)
+                var sSt = S(); sSt.FirstDir = "BUY"; sSt.HedgeMode = "PRICE"; sSt.HedgePrice = 2; sSt.HedgeSize = "STEPLEAD"; sSt.NetAdvantage = 0.1; sSt.Target = 5000; sSt.MaxIterations = 1;
+                var zzS = Path(Day1, 4000, Line(4000, -0.5, 8).Concat(Line(3996, 0.5, 14)).Concat(Line(4003, -0.5, 18)).Concat(Line(3994, 0, 5)));
+                var tSt = Run(zzS, sSt).Item2.Trades.Where(t => t.Side != "CLOSE").ToList(); double net = 0; var leads = new List<double>(); foreach (var t in tSt) { net += (t.Side == "BUY" ? 1 : -1) * t.Lots; leads.Add(Math.Round(Math.Abs(net), 2)); }
+                Check(tSt.Count >= 4 && Math.Abs(tSt[1].Lots - 0.2) < 1e-9 && Math.Abs(tSt[2].Lots - 0.3) < 1e-9 && Math.Abs(tSt[3].Lots - 0.5) < 1e-9 && AutoSettings.Load(sSt.Save()).HedgeSize == "STEPLEAD",
+                    "step lead: the hedges lead by 0.1, then 0.2, then 0.3 (lots 0.2 / 0.3 / 0.5); saved", string.Join(" | ", tSt.Select(t => t.Side + " " + t.Lots)) + " leads " + string.Join(",", leads));
+            }
             var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
         }
         {   // 📈 AFTER THE TARGET: BUY 0.1 closes at +$20; gold keeps rising $3 more (≈ +$30 more), then falls $6 → back to $20, then breakeven
@@ -340,3 +367,12 @@ public static class AutoTests
     }
 }
 public static class AutoStoryPeek { public static void Print(HedgeAuto a) { foreach (var s in a.Story) Console.WriteLine("   " + s.Item2); } }
+    // the 🕵 decoder's view of the account: the same state; counts any command it would send (it must send none)
+sealed class CountingBroker : IBroker
+    {
+        readonly SimBroker b; readonly Action hit; public CountingBroker(SimBroker b, Action hit) { this.b = b; this.hit = hit; }
+        public Mt5State State { get { return b.State; } }
+        public bool Send(string line) { if (!(line.StartsWith("BARS|") || line.StartsWith("WATCH|"))) hit(); return true; }
+        public string Command(string cmd, params object[] args) { hit(); return null; }
+        public string Problem { get { return ""; } } public int Port { get { return 0; } } public bool IsSim { get { return true; } }
+    }
