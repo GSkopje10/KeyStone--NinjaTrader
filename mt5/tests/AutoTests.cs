@@ -458,6 +458,21 @@ public static class AutoTests
             var rDx = Run(Path(Day1, 4000, Line(4000, 0.5, 20).Concat(Line(4010, -0.5, 40))), sDx); var iDx = rDx.Item2.Iterations.FirstOrDefault();
             Check(iDx != null && iDx.Done && iDx.Reason == "DANGER EXIT" && iDx.Result >= 10 && iDx.Result < 30, "danger exit: after the danger a smaller profit is taken (25 % of the target)", iDx == null ? "none" : iDx.Reason + " " + iDx.Result);
         }
+        {   // 🧠 POST-MORTEM: a STEP LEAD basket in a chop, replayed on its own candles with the protections — YOURS replays to the same result
+            var zig = new List<double>(); double pz = 4000; foreach (var leg in new[] { 3.0, -3.5, 3.5, -3.5, 3.5, -3.5, 25.0 }) { int n = 12; for (int i = 0; i < n; i++) { pz += leg / n; zig.Add(Math.Round(pz, 2)); } }
+            var test = Path(Day1, 4000, zig); var warm = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)); var all = warm.Concat(test).ToList();
+            var sP = S(); sP.FirstDir = "SELL"; sP.HedgeMode = "PRICE"; sP.HedgePrice = 2; sP.HedgeSize = "STEPLEAD"; sP.NetAdvantage = 0.1; sP.MaxIterations = 1; sP.Target = 20;
+            var rP = Run(test, sP); var itP = rP.Item2.Iterations.FirstOrDefault(x => x.Done);
+            if (itP == null) Check(false, "post-mortem: the chop basket closes", rP.Item2.Iterations.Count + " " + rP.Item2.Basket.ToString("0.00") + " " + string.Join(",", rP.Item2.Trades.Select(t => t.Side + t.Lots + "@" + t.Price)));
+            else
+            {
+                var pm = PostMortem.Run(Gold(), all, itP, sP, 10000, 10, 0); var mine = pm.Alts.FirstOrDefault(a => a.Name.StartsWith("YOURS"));
+                Check(pm.Alts.Count >= 6 && mine != null && Math.Abs(mine.Result - itP.Result) < 3 && Math.Abs(mine.Dd - itP.MaxDd) < 15 && pm.Lesson.StartsWith("#" + itP.N), "post-mortem: the protections replayed on the iteration's own candles (YOURS = the real result), a lesson written", pm.Alts.Count + " alts, yours " + (mine == null ? "none" : mine.Result.ToString("0.00") + " / " + mine.Dd.ToString("0.00")) + " vs real " + itP.Result.ToString("0.00") + " / " + itP.MaxDd.ToString("0.00") + " • " + pm.Lesson);
+                var tmpP = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-pm-" + Guid.NewGuid().ToString("N")); var fP = PostMortem.FileOf(tmpP, "auto.DEMO.x"); PostMortem.Save(fP, pm); PostMortem.Save(fP, pm); var backP = PostMortem.Load(fP);
+                Check(backP.Count == 1 && backP[0].Alts.Count == pm.Alts.Count && backP[0].Lesson == pm.Lesson && PostMortem.Tally(backP) != "", "post-mortem: saved per account (the same iteration once), read back, tallied", backP.Count + " • " + PostMortem.Tally(backP));
+                if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") { Console.WriteLine("   " + pm.Lesson); foreach (var a0 in pm.Alts) Console.WriteLine("     " + a0.Name + " " + a0.Result.ToString("0.00") + " dd " + a0.Dd.ToString("0.00") + " lots " + a0.MaxLots + " closed " + a0.Closed); }
+            }
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }

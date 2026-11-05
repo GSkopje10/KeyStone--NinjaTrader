@@ -22,7 +22,7 @@ namespace KeystoneMT5
         AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose, aManual; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
         bool aProAsked;
-        bool aResumePending, aPctChecked; DateTime aArchAt = DateTime.MinValue; DateTime aResumeAt; CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall, aNowBtn; TextBlock aLockTxt; string aView = "STORY"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
+        bool aResumePending, aPctChecked; DateTime aArchAt = DateTime.MinValue; DateTime aResumeAt; CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall, aNowBtn; TextBlock aLockTxt; string aView = "⚙ SETTINGS"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
 
         FrameworkElement BuildAuto()
         {
@@ -58,7 +58,7 @@ namespace KeystoneMT5
             // ✋ MANUAL MANAGE (user's request): AUTO keeps watching and planning but only SUGGESTS (nothing sent but the ⛔ hard stops)
             aManual = Pill("✋  MANUAL MANAGE: OFF", Tint(Violet, 50)); aManual.Height = 40; aManual.Margin = new Thickness(0, 0, 8, 0);
             aManual.ToolTip = "ON = you manage the positions: AUTO sends nothing by itself (only the ⛔ hard stops) — it shows 💡 suggestions on the chart and in the story; your trades are adopted. OFF = AUTO sends its orders again.";
-            aManual.Click += delegate { bool on = !auto.ManualManage; if (!on && auto.Running && !Sx.Ask(this, "🤖 AUTO TAKES OVER AGAIN", "MANUAL MANAGE OFF: AUTO sends its own orders again from now on (hedges, add-ons, closes) on the positions as they are now.", "🤖 AUTO ON", "CANCEL", Green)) return; auto.SetManualManage(on); AutoPaint(true); AutoSetups(); };
+            aManual.Click += delegate { AutoManualToggle(); };
             btns.Children.Insert(0, aManual);
             top.Children.Add(btns);
             var info = new StackPanel(); aPhase = new TextBlock { FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Muted, Text = "🤖 AUTO — OFF" };
@@ -247,7 +247,7 @@ namespace KeystoneMT5
             aTiles = new ContentControl { Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aTiles, Dock.Top); root.Children.Add(aTiles);
             aViews = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aViews, Dock.Top);
             foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "LOG", "🗂 TESTS" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); aTable.ScrollToHome(); }; aViews.Children.Add(b); }
-            aSetBtn = Pill("⚙ SETTINGS", Tint(Sx.Card2, 220)); aSetBtn.Height = 26; aSetBtn.ToolTip = "the strategy's settings (they lock while it runs)"; aSetBtn.Click += delegate { aView = "⚙ SETTINGS"; AutoPaint(true); }; aViews.Children.Add(aSetBtn);
+            aSetBtn = Pill("⚙ 1 · SETTINGS — SET UP FIRST", Tint(Gold, 200)); aSetBtn.Foreground = Bg; aSetBtn.Height = 26; aSetBtn.ToolTip = "step 1: the strategy's settings (they lock while it runs) — then ▶ START"; aSetBtn.Click += delegate { aView = "⚙ SETTINGS"; AutoPaint(true); }; aViews.Children.Insert(0, aSetBtn);   // user's request: the first tab, an obvious colour
             var raceBtn = Pill("🏁 RACE", Tint(Sx.Card2, 220)); raceBtn.Height = 26; raceBtn.ToolTip = "every strategy at once in the background, each on its own simulated account — the leaderboard of the day and the history"; raceBtn.Click += delegate { aView = "🏁 RACE"; AutoPaint(true); RacePaint(); }; aViews.Children.Add(raceBtn);
             aGuideBtn = Pill("🎯 CHART GUIDES", Tint(Sx.Card2, 220)); aGuideBtn.Height = 26; aGuideBtn.ToolTip = "draw what the strategy watches on the 📈 CHART (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge) — a STRONG setup blinks"; aGuideBtn.Click += delegate { aGuidesOn = !aGuidesOn; Put("auto.guides", aGuidesOn ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aGuideBtn);
             var exp = Pill("📦 EXPORT FOR CLAUDE", Tint(Violet, 90)); exp.Height = 26; exp.ToolTip = "everything of this account in ONE organized folder + ONE .zip (settings, iterations, trades, story, analysis, learn, log, the candles, the race) — send the .zip to Claude to analyze"; exp.Click += delegate { AutoExport(); }; aViews.Children.Add(exp);
@@ -310,6 +310,38 @@ namespace KeystoneMT5
             if (aRollCb != null) { aRollCb.IsChecked = aset.Rolling; ARollPaint(); } AChecksPaint(); t("beafter", d(aset.BeAfter)); t("qafter", d(aset.QuickAfter)); t("pat", d(aset.ProtectAt)); t("glots", d(aset.GuardLots)); t("dat", d(aset.DangerExit ? aset.DangerAt : 0)); t("dkeep", d(aset.DangerKeep)); t("gbreak", d(aset.GuardBreak)); t("slots", d(aset.ScaleLots)); t("sstep", d(aset.ScaleStep)); t("hfloat", d(aset.HardFloat)); t("hmargin", d(aset.HardMargin)); t("gmargin", d(aset.GuardMargin)); t("gchop", d(aset.GuardChop)); t("glead", d(aset.GuardMaxLead)); t("pkeep", d(aset.ProtectKeep)); t("hcap", d(aset.HedgeCap)); t("lstep", d(aset.LadderStep)); t("lmax", d(aset.LadderMax)); t("lafter", d(aset.LockAfter)); t("lrange", d(aset.LockRange));
             foreach (var b in aDrops.Values) { var f = b.Tag as Func<string>; if (f != null) b.Content = f() + "  ▾"; }
             AutoVis();
+        }
+        // 🧠 POST-MORTEM of every iteration that closes in this window (LIVE / PROP / DEMO): the same candles replayed with the protections,
+        // in the background (PostMortem.cs — simulated only), saved per account and shown first in 🧠 LEARN
+        readonly HashSet<string> pmSeen = new HashSet<string>(); bool pmBusy, pmPrimed; List<PostMortemRow> pmRows;
+        string PmFile { get { return PostMortem.FileOf(Dir, AKey); } }
+        void AutoPostMortems()
+        {
+            if (Sim || pmBusy) return;
+            var done = auto.Iterations.Where(x => x.Done).ToList();
+            if (!pmPrimed) { pmPrimed = true; foreach (var x in done) pmSeen.Add(x.N + "@" + x.Start.Ticks); pmRows = PostMortem.Load(PmFile); return; }   // history is not replayed again
+            var it = done.FirstOrDefault(x => !pmSeen.Contains(x.N + "@" + x.Start.Ticks)); if (it == null) return; pmSeen.Add(it.N + "@" + it.Start.Ticks);
+            var set = auto.Set.Copy(); SimSpec spec = null; List<Mt5Bar> m1 = null; int spread = -1; double bal = it.BalanceStart > 0 ? it.BalanceStart : 5000;
+            lock (broker.State.Gate)
+            {
+                var st = broker.State; Mt5Symbol ms; if (st.Symbols.TryGetValue(set.Symbol, out ms)) spec = SimSpec.From(ms, st.ServerOffsetSec, set.NyOffsetHours, st.Account.Currency);
+                m1 = st.SeriesOf(set.Symbol, 1).Bars.Where(b => b.Time >= it.Start.AddDays(-3) && b.Time <= it.End.AddHours(6)).Select(b => b.Copy()).ToList();
+                Mt5Quote q; if (m1.All(b => b.Spread <= 0) && st.Quotes.TryGetValue(set.Symbol, out q) && spec != null && spec.Point > 0) spread = (int)Math.Round((q.Ask - q.Bid) / spec.Point);
+            }
+            if (spec == null || m1.Count(b => b.Time >= it.Start && b.Time <= it.End) < 2) return;
+            double comm = Paper && paper != null ? paper.Acct.Set.CommissionPerLot : Math.Max(0, set.CommissionPerLot); string file = PmFile; pmBusy = true;
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                PostMortemRow r = null; try { r = PostMortem.Run(spec, m1, it, set, bal, spread, comm); PostMortem.Save(file, r); } catch { }
+                Dispatcher.BeginInvoke(new Action(() => { pmBusy = false; if (r != null) { pmRows = PostMortem.Load(file); auto.Note("🧠 POST-MORTEM " + r.Lesson); if (aView == "LEARN") AutoPaint(true); } }));
+            });
+        }
+        internal Button aChartManual;   // the same switch on the 📈 chart's toolbar (user's request)
+        void AutoManualToggle()
+        {
+            bool on = !auto.ManualManage;
+            if (!on && auto.Running && !Sx.Ask(this, "🤖 AUTO TAKES OVER AGAIN", "MANUAL MANAGE OFF: AUTO sends its own orders again from now on (hedges, add-ons, closes) on the positions as they are now.", "🤖 AUTO ON", "CANCEL", Green)) return;
+            auto.SetManualManage(on); AutoPaint(true); AutoSetups(); foreach (var pq in panes) pq.V.InvalidateVisual();
         }
         double AutoBal() { try { lock (broker.State.Gate) return broker.State.Account.Balance > 0 ? broker.State.Account.Balance : 5000; } catch { return 5000; } }
         void AutoModel(string name)
@@ -607,7 +639,7 @@ namespace KeystoneMT5
                 if (!armed) SetArmed(true, null);
             }
             AutoSaveSet(); var s = aset.Copy(); var err = auto.Check(broker, s); if (err != "") { Log("⟳ could not resume: " + err, Red); return; }
-            AutoLoadHistory(); auto.Start(broker, s, open > 0); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
+            AutoLoadHistory(); aView = "STORY"; auto.Start(broker, s, open > 0); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
             Log("⟳ AUTO RESUMED after the restart" + (open > 0 ? " — " + open + " open position" + (open == 1 ? "" : "s") + " taken over" : ""), Green); Toast("⟳ the automation resumed by itself" + (open > 0 ? " (" + open + " positions taken over)" : ""));
         }
         // a DEMO made before the % commission existed charges nothing: on Duramarkets it gets its 0.001 % of each deal by itself (once; the
@@ -890,8 +922,10 @@ namespace KeystoneMT5
             if (aHist == null && !Sim) AutoLoadHistory();
             if (aWasOn && !on && auto.StopReason != "the window closed") Put("auto.run." + AKey, "0"); aWasOn = on;
             if (!on) aStart.Content = AutoWasRunning() ? "⟳  RESUME (it was running)" : "▶  START";
+            try { AutoPostMortems(); } catch { }
             if (aManual != null) { aManual.Content = auto.ManualManage ? "✋  MANUAL MANAGE: ON" : "✋  MANUAL MANAGE: OFF"; aManual.Background = auto.ManualManage ? Tint(Violet, 170) : Tint(Violet, 50); }
-            aPhase.Text = "🤖 AUTO — " + (on ? auto.Phase : "OFF") + (on ? "  •  " + s.Symbol + " " + Tf.Name(s.Tf) : ""); aPhase.Foreground = on ? Green : Muted;
+            if (aChartManual != null) { aChartManual.Content = auto.ManualManage ? "✋ MANUAL: ON" : "✋ MANUAL: OFF"; aChartManual.Background = auto.ManualManage ? Tint(Violet, 170) : (Brush)Card; }
+            aPhase.Text = "🛡 HEDGE — " + (on ? auto.Phase : "OFF") + (on ? "  •  " + s.Symbol + " " + Tf.Name(s.Tf) : ""); aPhase.Foreground = on ? Green : Muted;
             aCard.BorderBrush = on ? Green : Line;
             aBasket.Text = it != null ? Signed(auto.Basket, "USD") + "  /  +$" + s.Target.ToString("0.##", IC) : "—"; aBasket.Foreground = it == null ? Muted : auto.Basket >= 0 ? Green : Red;
             aInfo.Text = on ? (it != null ? "iteration #" + it.N + " since " + it.Start.ToString("dd MMM HH:mm:ss", IC) + "  •  " + it.Buys + " buys (" + it.BuyLots.ToString("0.##", IC) + ") / " + it.Sells + " sells (" + it.SellLots.ToString("0.##", IC) + ")  •  " + it.AddOns + " add-ons  •  max drawdown " + it.MaxDd.ToString("0.00", IC) + (s.MaxDrawdown > 0 ? " (limit −$" + s.MaxDrawdown.ToString("0.##", IC) + ")" : " (no limit)")
@@ -970,6 +1004,16 @@ namespace KeystoneMT5
                 }
                 else if (aView == "LEARN")
                 {
+                    // 🧠 first: the post-mortems — how each closed iteration's drawdown could have been prevented (its own candles, replayed)
+                    var pm = pmRows ?? PostMortem.Load(PmFile);
+                    L.Add("🧠 HOW THE DRAWDOWN COULD HAVE BEEN PREVENTED — every iteration that closes here is replayed on ITS OWN candles with each protection (simulated, nothing sent): " + pm.Count + " so far • saved in " + PmFile);
+                    L.Add("WHAT HELPS MOST: " + PostMortem.Tally(pm));
+                    foreach (var r0 in pm.OrderByDescending(x => x.Start).Take(15))
+                    {
+                        L.Add(""); L.Add(r0.Start.ToString("dd MMM HH:mm", IC) + "  " + r0.Lesson);
+                        foreach (var a0 in r0.Alts) L.Add(string.Format(IC, "     {0,-40} {1,10} closed   worst {2,10}   {3,5} lots   {4,3} hedges{5}", a0.Name, (a0.Result >= 0 ? "+" : "") + a0.Result.ToString("0.00", IC), a0.Dd.ToString("0.00", IC), a0.MaxLots.ToString("0.##", IC), a0.Hedges, a0.Closed ? "" : "   (still open at the end of the candles)"));
+                    }
+                    L.Add(""); L.Add("────────────────────────────────────────");
                     // every finished iteration's context at its start → which conditions win, which lose (the strongest confirmations first)
                     var d = auto.Iterations.Where(x => x.Done && !string.IsNullOrEmpty(x.Ctx)).ToList();
                     L.Add("LEARN — " + d.Count + " finished iterations with their context (what the market looked like when each one started). n = how many • WIN% • NET • the average worst drawdown • the average hedges");
@@ -1044,7 +1088,7 @@ namespace KeystoneMT5
         }
         void AutoTablePaint()
         {
-            foreach (Button b in aViews.Children) if (b.Content is string) b.Background = (string)b.Content == aView ? Tint(Cyan, 70) : Tint(Sx.Card2, 220);
+            foreach (Button b in aViews.Children) if (b.Content is string) { if (b == aSetBtn) { bool selS = aView == "⚙ SETTINGS"; b.Background = Tint(Gold, (byte)(selS ? 255 : 190)); b.Foreground = Bg; b.BorderBrush = selS ? Sx.White : Gold; continue; } b.Background = (string)b.Content == aView ? Tint(Cyan, 70) : Tint(Sx.Card2, 220); }   // ⚙ SETTINGS stays gold (step 1)
             var L = AutoLines(aView);
             aTable.TextWrapping = aView == "STORY" || aView == "LOG" ? TextWrapping.Wrap : TextWrapping.NoWrap;
             bool other = aView == "⚙ SETTINGS" || aView == "🏁 RACE", rowsView = !other && (aView == "ITERATIONS" || aView == "TRADES" || aView == "🗂 TESTS");

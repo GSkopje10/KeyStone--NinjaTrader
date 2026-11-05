@@ -129,6 +129,14 @@ namespace KeystoneMT5
             var pct = field("COMMISSION % of each deal (in AND out)", Get("demo.pct", srv0.IndexOf("dura", StringComparison.OrdinalIgnoreCase) >= 0 ? "0.001" : "0"));   // Duramarkets: 0.001 % by deal volume, in / out
             Action paint = () => { raw.Background = kind == "RAW" ? Tint(Cyan, 200) : (Brush)Card; raw.Foreground = kind == "RAW" ? Bg : Text; std.Background = kind == "STANDARD" ? Tint(Violet, 200) : (Brush)Card; std.Foreground = kind == "STANDARD" ? Bg : Text; com.IsReadOnly = kind == "RAW"; com.Opacity = kind == "RAW" ? 0.35 : 1; mk.IsReadOnly = kind != "RAW"; mk.Opacity = kind == "RAW" ? 1 : 0.35; };
             raw.Click += delegate { kind = "RAW"; paint(); }; std.Click += delegate { kind = "STANDARD"; paint(); }; paint();
+            {   // 📋 AS MY BROKER (user's request: IC Markets — no commission, a tight spread, swap): MT5's own spread, swap and hedged margin, nothing added
+                bool icm = srv0.IndexOf("icmarkets", StringComparison.OrdinalIgnoreCase) >= 0;
+                var asMine = Pill(icm ? "📋 AS IC MARKETS (no commission)" : "📋 AS MY MT5 (its spread, swap, margin)", Tint(Green, 90)); asMine.Margin = new Thickness(8, 0, 0, 0);
+                asMine.ToolTip = "STANDARD with commission 0, no extra spread: MT5's REAL spread on every price, MT5's swap at the server's midnight (triple day included), MT5's own margin for hedged pairs";
+                asMine.Click += delegate { kind = "STANDARD"; com.Text = "0"; mk.Text = "0"; pct.Text = "0"; hpct.Text = "-1"; paint(); };
+                kp.Children.Add(asMine);
+                if (icm && Get("demo.kind", "") == "") { kind = "STANDARD"; com.Text = "0"; mk.Text = "0"; pct.Text = "0"; hpct.Text = "-1"; paint(); }   // a new IC Markets demo starts like the real account
+            }
             string txt = "Your MT5's REAL prices and candles, with a simulated account: every button works like live — nothing reaches MT5.\nRAW = no commission, the spread wider by the extra points • STANDARD = MT5's spread (near 0) + commission per lot (round turn).\nCOMMISSION % = a broker that charges a share of each deal's value (Duramarkets: 0.001 % on every in and out deal — gold 0.1 lot ≈ $0.40 a side); it applies to RAW and STANDARD.\nHEDGED PAIR MARGIN = the margin a buy and a sell of the same size need together: −1 = what this broker's MT5 says for the symbol (" + hedgedSays + " for XAUUSD), 50 = half, 100 = both legs in full (the strictest: margin calls come sooner)."
                 + (!first && paper.Ready ? "\n\n⚠ A NEW account replaces the current one (its tickets and history are cleared)." : "");
             if (!Sx.Form(this, "🎮 DEMO ACCOUNT", txt, g, first || !paper.Ready ? "START THE DEMO" : "START A NEW DEMO", "CANCEL", Orange)) { if (!paper.Ready) Toast("🎮 set up the DEMO account in the panel to trade"); return; }

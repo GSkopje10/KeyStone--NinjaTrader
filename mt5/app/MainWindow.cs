@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-05e";
+        public const string Build = "SpasiX • BUILD 2026-11-05f";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -70,7 +70,7 @@ namespace KeystoneMT5
             views["CHART"] = BuildChartTab(); order.Add(Tuple.Create("CHART", "📈  CHART"));
             views["ANALYSIS"] = BuildAnalysis(); order.Add(Tuple.Create("ANALYSIS", "📊  ANALYSIS"));
             views["POSITIONS"] = BuildPositions(); order.Add(Tuple.Create("POSITIONS", "💼  POSITIONS"));
-            views["AUTO"] = BuildAuto(); order.Add(Tuple.Create("AUTO", "🤖  AUTO"));
+            views["AUTO"] = BuildAuto(); order.Add(Tuple.Create("AUTO", "🛡  HEDGE"));
             views["DAY"] = BuildDay(); order.Add(Tuple.Create("DAY", "📅  DAY"));
             views["DECODE"] = BuildDecode(); order.Add(Tuple.Create("DECODE", "🔍  DECODE"));
             if (Mode == "PROP") { views["PROP"] = BuildProp(); order.Add(Tuple.Create("PROP", "🏆  PROP")); }
