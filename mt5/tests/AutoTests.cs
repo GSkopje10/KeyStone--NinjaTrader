@@ -545,6 +545,23 @@ public static class AutoTests
             var withT = PostMortem.Replay(Gold(), allT, itT, sT, 10000, 10, 0, "YOURS", 1, tks); var noT = PostMortem.Replay(Gold(), allT, itT, sT, 10000, 10, 0, "YOURS", 1, null);
             Check(withT != null && withT.Closed && withT.Result >= 20 && noT != null && !noT.Closed, "post-mortem on real ticks: it follows the ticks as they came (flat candles, +$3 ticks → the target is hit); without ticks it cannot", (withT == null ? "null" : withT.Closed + " " + withT.Result.ToString("0.00")) + " / " + (noT == null ? "null" : noT.Closed + " " + noT.Result.ToString("0.00")));
         }
+        {   // the break seen only in the CLOSED candle (its high went through the swing between two price updates; no tick showed it): it still enters
+            var warmB = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).ToList();
+            Func<int, double, double, double, double, Mt5Bar> mk = (i, o, h, l, c) => new Mt5Bar { Time = Day1.AddMinutes(i), O = o, H = h, L = l, C = c, V = 100, Spread = 10 };
+            var dayB = new List<Mt5Bar> { mk(0, 4000, 4000.5, 3999.5, 4000), mk(1, 4000, 4002.2, 3999.9, 4002), mk(2, 4002, 4005.1, 4001.9, 4003), mk(3, 4003, 4003.1, 4001.5, 4002), mk(4, 4002, 4002.1, 4001, 4002), mk(5, 4002, 4005.4, 4001.9, 4004.8), mk(6, 4004.8, 4005.0, 4004.6, 4004.9) };
+            for (int i = 7; i < 30; i++) dayB.Add(mk(i, 4004.9, 4005.0, 4004.8, 4004.9));
+            var tkB = new List<SimTick>(); for (int i = 0; i < 59; i++) tkB.Add(new SimTick { T = Day1.AddMinutes(5).AddSeconds(i), Bid = Math.Round(4002 + 2.8 * i / 58.0, 2), Ask = Math.Round(4002.1 + 2.8 * i / 58.0, 2) });
+            for (int m = 6; m < 30; m++) for (int i = 0; i < 59; i += 5) tkB.Add(new SimTick { T = Day1.AddMinutes(m).AddSeconds(i), Bid = 4004.9, Ask = 4005.0 });
+            var sbB = new SimBroker(); var errB = sbB.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = 10000, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD" }, new List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> { Tuple.Create(Gold(), warmB.Concat(dayB).ToList(), tkB) });
+            var sBk = S(); sBk.Swing = true; sBk.SwingK = 2; sBk.MaxIterations = 1; sBk.Target = 200; sBk.HedgeMode = "NONE";
+            var aBk = new HedgeAuto(); aBk.Send = (c, x, l) => sbB.Command(c, x); sbB.OnTickHook = () => aBk.Step(sbB); aBk.Start(sbB, sBk, false); sbB.Playing = true; sbB.Speed = 60;
+            for (int k = 0; k < 3000 && !sbB.Ended; k++)
+            {   // MT5's own candle 00:05 has the wick (4005.4) that the sampled prices never showed — put it into the series like the bridge does
+                sbB.Advance(0.25); lock (sbB.State.Gate) { var bx = sbB.State.SeriesOf("XAUUSD", 1).Bars.FirstOrDefault(b => b.Time == Day1.AddMinutes(5)); if (bx != null && sbB.State.ServerNow >= Day1.AddMinutes(6)) bx.H = Math.Max(bx.H, 4005.4); }
+            }
+            var itBk = aBk.Iterations.FirstOrDefault();
+            Check(errB == "" && itBk != null && itBk.FirstDir == "BUY" && aBk.Story.Any(x => x.Item2.Contains("closed with its high")), "a break seen only in the closed candle (no tick showed it) still enters at the level — the entry no longer moves back to an older swing", errB + " / " + (itBk == null ? "none: " + string.Join(" | ", aBk.Log.Take(5)) : itBk.FirstDir + " " + itBk.Start.ToString("HH:mm:ss")));
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }

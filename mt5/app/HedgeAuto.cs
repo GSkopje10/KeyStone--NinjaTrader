@@ -266,7 +266,7 @@ namespace KeystoneMT5
         public Func<DateTime, int, int, string> NewsNear;
         public double Vwap = double.NaN; public string SignalText = "", HedgeWhy = "", Blocked = "";
 
-        int lastDir; string blockedKey = ""; double prevBid = double.NaN, prevFormH = double.NaN, prevFormL = double.NaN, knownGross; DateTime prevFormT; int engDir; DateTime engBar; string engStory = "", vwapSkip = ""; int hEngDir; DateTime hEngBar; public int AggDir; public double AggLevel = double.NaN; public DateTime AggBar; string hEngStory = ""; long pendTicket; bool closedByUs;
+        int lastDir; string blockedKey = ""; double prevBid = double.NaN, prevBuyLvl = double.NaN, prevSellLvl = double.NaN, prevFormH = double.NaN, prevFormL = double.NaN, knownGross; DateTime prevFormT; int engDir; DateTime engBar; string engStory = "", vwapSkip = ""; int hEngDir; DateTime hEngBar; public int AggDir; public double AggLevel = double.NaN; public DateTime AggBar; string hEngStory = ""; long pendTicket; bool closedByUs;
         string pendId, pendKind; DateTime pendSent, pendOk; double pendGross; int pendDirAfter; double pendLots; string pendWhy; double pendLevel;
         DateTime closeSeen;
         // the entry setups, worked out once per finished candle
@@ -496,7 +496,7 @@ namespace KeystoneMT5
             double move = Math.Abs(NetLots) > 1e-9 && sn.PerPrice > 0 ? NetLots * sn.PerPrice : 0;   // $ per 1.0 of price on what is open
             TargetPx = Current != null && move != 0 ? sn.Bid + (Set.Target - Basket) / move : double.NaN;
             StopPx = Current != null && move != 0 && Set.MaxDrawdown > 0 ? sn.Bid + (-Set.MaxDrawdown - Basket - (Set.ExitMode == "LEGS" ? sn.Balance - Current.BalanceStart : 0)) / move : double.NaN;
-            BuyLevel = High(sn); SellLevel = Low(sn);
+            prevBuyLvl = BuyLevel; prevSellLvl = SellLevel; BuyLevel = High(sn); SellLevel = Low(sn);
             try { Decide(b, sn); } finally { prevBid = sn.Bid; prevFormH = sn.FormH; prevFormL = sn.FormL; prevFormT = sn.FormT; }
         }
 
@@ -848,6 +848,17 @@ namespace KeystoneMT5
                 bool upWick = !double.IsNaN(hi) && !double.IsNaN(sn.FormH) && sn.FormH > hi && prevBid <= hi && (sameBar ? prevFormH <= hi : sn.FormT > prevFormT);
                 bool dnWick = !double.IsNaN(lo) && !double.IsNaN(sn.FormL) && sn.FormL < lo && prevBid >= lo && (sameBar ? prevFormL >= lo : sn.FormT > prevFormT);
                 bool viaWick = false;
+                // the user's 2nd case (the entry "moved back" to an older swing): the candle that just CLOSED went through the level between two price
+                // updates (the DEMO's forming candle is refreshed every few seconds) — the level is used up the moment it closes; that close IS the break,
+                // taken while the price is still near the level (never a chase)
+                if (sn.Fin.Count > 0)
+                {
+                    double atrC = sn.Fin.Count >= 5 ? Math.Max(0.05, sn.Fin.Take(14).Average(x => x.H - x.L)) : 0.5, cH = sn.Fin[0].H, cL = sn.Fin[0].L;
+                    if (only >= 0 && !double.IsNaN(prevBuyLvl) && (double.IsNaN(hi) || Math.Abs(hi - prevBuyLvl) > 1e-9) && cH > prevBuyLvl && prevBid <= prevBuyLvl + 1e-9 && sn.Bid >= prevBuyLvl - 0.5 * atrC && sn.Bid <= prevBuyLvl + atrC)
+                    { dir = 1; lvl = prevBuyLvl; why = "BREAK of the " + (Set.Swing ? "swing" : "recent") + " high " + prevBuyLvl.ToString("0.#####", IC); story = "the " + Tf.Name(Set.Tf) + " candle " + sn.Fin[0].Time.ToString("HH:mm", IC) + " closed with its high " + P(cH) + " above " + P(prevBuyLvl) + " (it went through between two price updates; bid now " + P(sn.Bid) + ", still at the level) → the high broke"; return true; }
+                    if (only <= 0 && !double.IsNaN(prevSellLvl) && (double.IsNaN(lo) || Math.Abs(lo - prevSellLvl) > 1e-9) && cL < prevSellLvl && prevBid >= prevSellLvl - 1e-9 && sn.Bid <= prevSellLvl + 0.5 * atrC && sn.Bid >= prevSellLvl - atrC)
+                    { dir = -1; lvl = prevSellLvl; why = "BREAK of the " + (Set.Swing ? "swing" : "recent") + " low " + prevSellLvl.ToString("0.#####", IC); story = "the " + Tf.Name(Set.Tf) + " candle " + sn.Fin[0].Time.ToString("HH:mm", IC) + " closed with its low " + P(cL) + " below " + P(prevSellLvl) + " (it went through between two price updates; bid now " + P(sn.Bid) + ", still at the level) → the low broke"; return true; }
+                }
                 if (!double.IsNaN(hi) && prevBid <= hi && (sn.Bid > hi || upWick) && only >= 0) { dir = 1; lvl = hi; viaWick = sn.Bid <= hi; why = "BREAK of the " + (Set.Swing ? "swing" : "recent") + " high " + hi.ToString("0.#####", IC); }
                 else if (!double.IsNaN(lo) && prevBid >= lo && (sn.Bid < lo || dnWick) && only <= 0) { dir = -1; lvl = lo; viaWick = sn.Bid >= lo; why = "BREAK of the " + (Set.Swing ? "swing" : "recent") + " low " + lo.ToString("0.#####", IC); }
                 if (dir == 0) return false;
