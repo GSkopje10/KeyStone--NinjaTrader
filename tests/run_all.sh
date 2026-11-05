@@ -38,6 +38,9 @@ mono "$here/.build/rot.exe" | tail -1
 rm -f "$here/.build/dd.exe"
 "$root/tools/compile_engine.sh" "$here/.build/dd.exe" "$here/DrawdownLabTests.cs"
 mono "$here/.build/dd.exe" | tail -1
+rm -f "$here/.build/fs.exe"
+"$root/tools/compile_engine.sh" "$here/.build/fs.exe" "$here/FirmSizeTests.cs"
+mono "$here/.build/fs.exe" | tail -1
 rm -f "$here/.build/of.exe"
 "$root/tools/compile_engine.sh" "$here/.build/of.exe" "$here/OrderFlowTests.cs"
 mono "$here/.build/of.exe" | tail -1
