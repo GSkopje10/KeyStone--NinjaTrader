@@ -528,6 +528,15 @@ public static class AutoTests
             var rMg = Run(Path(Day1, 4000, Line(4000, -0.25, 30)), sMg); var aMg = rMg.Item2; int posMg; lock (rMg.Item1.State.Gate) posMg = rMg.Item1.State.Positions.Count;
             Check(aMg.Running && posMg == 1 && aMg.Story.Any(x => x.Item2.Contains("NOT ENOUGH MARGIN")) && aMg.Story.Count(x => x.Item2.Contains("NOT ENOUGH MARGIN")) <= 2, "margin refusal in a basket: it holds and keeps running (told once an hour), the basket stays managed", aMg.Running + " " + aMg.StopReason + " / " + posMg);
         }
+        {   // 📡 the signal journal: the break is saved with its context + extension, measured for an hour, handed over when done
+            var gotSig = new List<SignalRec>(); var rJ = Run(Path(Day1, 4000, Line(4000, 0.5, 10).Concat(Enumerable.Repeat(4005.0, 80))), S(), prep: a0 => a0.OnSignalDone = r0 => gotSig.Add(r0));
+            var j0 = gotSig.FirstOrDefault();
+            Check(j0 != null && j0.Taken && j0.Dir > 0 && j0.Mfe60 > 1 && j0.Ctx.Contains("ext=") && j0.Ctx.Contains("pullback=") && j0.Csv().Split(',').Length >= 15, "signal journal: every signal saved with its context and extension, the next hour measured (best / worst), the CSV row complete", j0 == null ? "none (" + rJ.Item2.Journal.Count + " open)" : j0.Csv());
+            // 🔑 key-level hedge: a long basket whose $2.65 price hedge would sit just under the round 4000 → moved below it
+            var sK = S(); sK.FirstDir = "BUY"; sK.HedgeMode = "PRICE"; sK.HedgePrice = 2.65; sK.MaxIterations = 1; sK.KeyHedge = true; sK.KeyBuffer = 0.5;
+            var rK = Run(Path(Day1, 4002.5, Enumerable.Repeat(4002.5, 20)), sK); var aK = rK.Item2;
+            Check(aK.Current != null && aK.HedgeWhy.Contains("KEY LEVEL") && aK.HedgeLevel < 3999.9 && AutoSettings.Load(sK.Save()).KeyHedge && !AutoSettings.Load("sym=XAUUSD").KeyHedge, "key-level hedge: a hedge just past a key level (round 4000) moves beyond it; saved; off by default", aK.HedgeLevel.ToString("0.00") + " • " + aK.HedgeWhy);
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }
