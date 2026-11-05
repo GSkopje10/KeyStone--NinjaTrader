@@ -69,8 +69,11 @@ int SymbolList(string &list[])
    return(ArraySize(list));
   }
 
+datetime lastRx = 0;   // the last time the app sent anything (it sends a PING every 5 s)
 bool Connect()
   {
+   // a connection the app stopped talking on (SpasiX closed / hung, the socket half open): drop it and connect again
+   if(sock != INVALID_HANDLE && SocketIsConnected(sock) && lastRx > 0 && TimeLocal() - lastRx > 20) { SocketClose(sock); sock = INVALID_HANDLE; Comment("SpasiX: the app stopped answering — reconnecting …"); }
    if(sock != INVALID_HANDLE && SocketIsConnected(sock)) return(true);
    if(sock != INVALID_HANDLE) { SocketClose(sock); sock = INVALID_HANDLE; }
    if(TimeLocal() - lastTry < 2) return(false);
@@ -84,6 +87,7 @@ bool Connect()
       else Comment("SpasiX: waiting for the SpasiX app — start SpasiX.exe (error ", e, ")");
       return(false);
      }
+   lastRx = TimeLocal();
    Comment("SpasiX: connected to the app • trading ", EnableTrading ? "possible after ARM in the app" : "OFF (EnableTrading = false)");
    SendLine("HELLO|5|" + TerminalInfoString(TERMINAL_COMPANY) + "|" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)));
    SendSymbols();
@@ -376,7 +380,7 @@ void ReadApp()
   {
    if(sock == INVALID_HANDLE) return;
    uint len = SocketIsReadable(sock); if(len == 0) return;
-   uchar b[]; int n = SocketRead(sock, b, len, 10); if(n <= 0) return;
+   uchar b[]; int n = SocketRead(sock, b, len, 10); if(n <= 0) return; lastRx = TimeLocal();
    inbuf += CharArrayToString(b, 0, n, CP_UTF8);
    int p;
    while((p = StringFind(inbuf, "\n")) >= 0)

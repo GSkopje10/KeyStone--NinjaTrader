@@ -237,6 +237,7 @@ namespace KeystoneMT5
         public void Start() { if (hub != null) return; hub = new Mt5Hub(port, this); hub.Start(); }
         // a terminal's connection is now this account's (the one before it, if any, is closed — like one terminal replacing another)
         internal void Attach(TcpClient c, StreamWriter w) { lock (sendGate) { if (client != null && client != c) try { client.Close(); } catch { } client = c; writer = w; } }
+        internal void CloseClient() { lock (sendGate) { if (client != null) try { client.Close(); } catch { } client = null; writer = null; } }
         internal void Detach(TcpClient c) { lock (sendGate) { if (client != c) return; client = null; writer = null; } lock (state.Gate) state.Linked = false; Fire(); }
         internal void Apply(string line, ref int n) { state.Apply(line); if (++n % 4 == 0 || line == "ORDEND" || line.StartsWith("HELLO")) Fire(); }
         internal void Fire() { var h = Changed; if (h != null) try { h(); } catch { } }
@@ -270,6 +271,9 @@ namespace KeystoneMT5
             try { listener = new TcpListener(IPAddress.Loopback, Port); listener.Start(); }
             catch (Exception ex) { Problem = "port " + Port + " is busy (" + ex.Message + ") — is SpasiX already open?"; return; }
             thread = new Thread(Run) { IsBackground = true, Name = "SpasiX bridge" }; thread.Start();
+            // 💓 a heartbeat to every terminal every 5 s: the bridge reconnects by itself when it stops (a SpasiX that closed or hung — the user's
+            // "every restart I have to re-attach the bridge")
+            new Thread(() => { while (!stop) { Thread.Sleep(5000); foreach (var l in Links) try { l.Send("PING"); } catch { } } }) { IsBackground = true, Name = "SpasiX heartbeat" }.Start();
         }
         void Run()
         {
@@ -327,6 +331,6 @@ namespace KeystoneMT5
             catch { }
             if (link != null) link.Detach(c);
         }
-        public void Dispose() { stop = true; try { if (listener != null) listener.Stop(); } catch { } foreach (var l in Links) if (l != Primary) l.Dispose(); }
+        public void Dispose() { stop = true; try { if (listener != null) listener.Stop(); } catch { } foreach (var l in Links) { try { l.CloseClient(); } catch { } if (l != Primary) l.Dispose(); } }   // every terminal's connection closed: its bridge reconnects to the next SpasiX at once
     }
 }

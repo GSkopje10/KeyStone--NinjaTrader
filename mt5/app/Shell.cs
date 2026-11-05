@@ -109,6 +109,7 @@ namespace KeystoneMT5
             try { if (Home != null) Home.Close(); } catch { }
             try { Bridge.Dispose(); } catch { }
             App.Shutdown();
+            System.Threading.Tasks.Task.Delay(4000).ContinueWith(_ => Environment.Exit(0));   // never a SpasiX left running in the background holding MT5's connection
         }
 
         // ---- the chrome: our title bar instead of the Windows frame
