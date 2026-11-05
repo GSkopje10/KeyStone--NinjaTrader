@@ -54,6 +54,7 @@ namespace KeystoneMT5
                 Tuple.Create("FIXED LEAD (no growing step)", (Action<AutoSettings>)(s => { if (s.HedgeSize == "STEPLEAD") s.HedgeSize = "ADVANTAGE"; })),
                 Tuple.Create("RISK GUARD LOCK", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = Math.Min(s.GuardLots > 0 ? s.GuardLots : 1, 0.6); s.GuardMargin = 500; s.GuardChop = 3; s.PairOff = true; })),
                 Tuple.Create("DANGER EXIT", (Action<AutoSettings>)(s => { s.DangerExit = true; s.DangerAt = 50; s.DangerKeep = 25; })),
+                Tuple.Create("HEDGE AT THE ENTRY CANDLE", (Action<AutoSettings>)(s => { s.CandleHedge = true; })),
                 Tuple.Create("TREND-AWARE HEDGE", (Action<AutoSettings>)(s => { s.TrendHedge = true; s.TrendHedgeMult = 2; })),
                 Tuple.Create("HEDGE ONLY BEYOND THE RANGE + RESCUE 3", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 3; })),
                 Tuple.Create("DEFENDER", (Action<AutoSettings>)(s => { var d = AutoSettings.Model("DEFENDER", s, balance); foreach (var f in typeof(AutoSettings).GetFields()) if (!f.IsInitOnly && !f.IsLiteral) f.SetValue(s, f.GetValue(d)); })),

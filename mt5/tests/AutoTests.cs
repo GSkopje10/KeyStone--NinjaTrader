@@ -480,6 +480,15 @@ public static class AutoTests
             var sD2 = AutoSettings.Load(sD.Save());
             Check(iD != null && iD.Done && iD.Reason == "DAY LOSS" && iD.Result <= -50 && rD.Item2.Iterations.Count == 1 && rD.Item2.Blocked.Contains("DAILY LOSS") && sD2.DayLoss == 50 && AutoSettings.Load("sym=XAUUSD").DayLoss == 0, "daily loss: −$50 today closes everything, no new iteration until tomorrow", iD == null ? "none" : iD.Reason + " " + iD.Result + " / " + rD.Item2.Iterations.Count + " '" + rD.Item2.Blocked + "'");
         }
+        {   // 🕯 HEDGE AT THE ENTRY CANDLE: a buy on the break, then a $2 dip — a $5 price hedge waits, the entry-candle hedge sells at the candle's low
+            var pathC = Path(Day1, 4000, Line(4000, 0.5, 10).Concat(Line(4005, -0.5, 12)).Concat(Enumerable.Repeat(3999.0, 20)));
+            var sC0 = S(); sC0.HedgeMode = "PRICE"; sC0.HedgePrice = 5; sC0.MaxIterations = 1; sC0.Target = 200;
+            var sC1 = sC0.Copy(); sC1.CandleHedge = true;
+            var rC0 = Run(pathC, sC0); var rC1 = Run(pathC, sC1);
+            var sellC = rC1.Item2.Trades.FirstOrDefault(t => t.Side == "SELL"); var buyC = rC1.Item2.Trades.FirstOrDefault(t => t.Side == "BUY");
+            Check(!rC0.Item2.Trades.Any(t => t.Side == "SELL") && sellC != null && buyC != null && sellC.Price < buyC.Price && buyC.Price - sellC.Price < 2.5 && AutoSettings.Load(sC1.Save()).CandleHedge && !AutoSettings.Load("sym=XAUUSD").CandleHedge,
+                "entry-candle hedge: the hedge sells at the entry candle's low (not 5 below), saved; off by default", rC0.Item2.Trades.Count + " / " + string.Join(",", rC1.Item2.Trades.Select(t => t.Side + t.Lots + "@" + t.Price.ToString("0.00"))));
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }
