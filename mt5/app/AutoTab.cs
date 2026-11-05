@@ -239,6 +239,7 @@ namespace KeystoneMT5
                 r5.Children.Add(ACheck("rexit", "🔄 RECOVERED EXIT", () => aset.RecoverExit, v => aset.RecoverExit = v, "ON: a basket that went DEEP (× the target below) and came back close to breakeven closes there — a tiny loss or better instead of riding the same basket down again"));
                 r5.Children.Add(AField("rdeep", "🔄 DEEP = × TARGET", aset.RecDeep.ToString(IC), 45, "how deep the basket must have been: 2 = twice the target (−$100 with a $50 target)"));
                 r5.Children.Add(AField("rkeep", "🔄 CLOSE WITHIN % OF TARGET", aset.RecKeep.ToString(IC), 45, "20 = it closes once it is back at −$10 or better with a $50 target"));
+                r5.Children.Add(ACheck("sbest", "🏆 ONLY THE BEST SETUPS (SMART, 100+ baskets)", () => aset.SmartBest, v => aset.SmartBest = v, "with 🧠 SMART and 100+ learned baskets: a new basket only where one of its conditions gave CLEAN baskets (a win, no hedge, ≤ 30 min, ≤ 0.5 % deep) clearly more often than usual — see 🏆 THE BEST SETUPS in LEARN"));
                 r5.Children.Add(ACheck("chedge", "🕯 HEDGE AT THE ENTRY CANDLE", () => aset.CandleHedge, v => aset.CandleHedge = v, "ON: the hedge sits just beyond the LOW (buy) / HIGH (sell) of the candle the newest leg filled in (the breakout candle before it while that one is forming) when that is closer than the swing — a quicker hedge (more hedges in a chop: watch 🧠 LEARN)"));
                 r5.Children.Add(AField("qafter", "QUICK AFTER (price)", aset.QuickAfter.ToString(IC), 60, "how far the price must run beyond the basket's best leg before the quick hedge trails the last candle (gold: 3 = $3)"));
                 r5.Children.Add(ACheck("ronly", "HEDGE ONLY BEYOND THE BASKET'S RANGE", () => aset.RangeOnly, v => aset.RangeOnly = v, "ON: a hedge SELL only under the basket's lowest leg, a hedge BUY only over its highest — never inside the small range it already holds (no hedging in chop)"));
@@ -1096,6 +1097,14 @@ namespace KeystoneMT5
                 }
                 else if (aView == "LEARN")
                 {
+                    {   // 🏆 THE BEST SETUPS (user's request): which conditions give CLEAN baskets — a win, no hedge, ≤ 30 min, never deeper than 0.5 %
+                        var all0 = auto.Iterations.Where(x => x.Done && !string.IsNullOrEmpty(x.Ctx) && !x.Manual).ToList(); int min0 = Math.Max(5, Math.Min(10, all0.Count / 10));
+                        L.Add("🏆 THE BEST SETUPS — what the CLEAN baskets (a win, no hedge, ≤ 30 min, never deeper than 0.5 %) had in common: " + all0.Count + " baskets, " + (all0.Count > 0 ? (all0.Count(HedgeAuto.Clean) * 100.0 / all0.Count).ToString("0", IC) : "0") + " % clean overall • a condition shows once it has " + min0 + "+ baskets • the more baskets, the surer");
+                        var bs = auto.BestSetups(min0);
+                        if (bs.Count == 0) L.Add("   not enough baskets yet — every new iteration is saved with its conditions (session, hour, trend, day range, candles, VWAP, flow, volatility, news …)");
+                        else { L.Add(string.Format(IC, "   {0,-30} {1,8} {2,8} {3,8} {4,10}", "CONDITION", "BASKETS", "CLEAN", "WENT BAD", "AVG MIN")); foreach (var t in bs.Take(12)) L.Add(string.Format(IC, "   {0,-30} {1,8} {2,7:0}% {3,7:0}% {4,10:0}", t.Item1, t.Item2, t.Item3, t.Item4, t.Item5)); if (bs.Count > 12) { L.Add("   … the WORST:"); foreach (var t in bs.Skip(Math.Max(12, bs.Count - 5))) L.Add(string.Format(IC, "   {0,-30} {1,8} {2,7:0}% {3,7:0}% {4,10:0}", t.Item1, t.Item2, t.Item3, t.Item4, t.Item5)); } }
+                        L.Add("");
+                    }
                     // 🧠 first: the post-mortems — how each closed iteration's drawdown could have been prevented (its own candles, replayed)
                     var pm = pmRows ?? PostMortem.Load(PmFile);
                     L.Add("🧠 HOW THE DRAWDOWN COULD HAVE BEEN PREVENTED — every iteration that closes here is replayed on ITS OWN candles with each protection (simulated, nothing sent): " + pm.Count + " so far • saved in " + PmFile);

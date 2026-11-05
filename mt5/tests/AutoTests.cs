@@ -508,6 +508,13 @@ public static class AutoTests
             var sB = S(); sB.EntryLots = 30; var rB = Run(Path(Day1, 4000, Line(4000, 0.5, 20)), sB);
             Check(!rB.Item2.Running && HedgeAuto.IsBlowReason(rB.Item2.StopReason) && !HedgeAuto.IsBlowReason("stopped by you"), "blow-up: no money for the order = a blow-up (the auto restart's trigger); a normal stop is not", rB.Item2.StopReason);
         }
+        {   // 🏆 the learning's context and the best setups: an entry saves trend / day range / day / last candles / volatility; clean baskets rank first
+            var rCx = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), S()); var cx = rCx.Item2.Iterations.FirstOrDefault();
+            Check(cx != null && cx.Ctx.Contains("trend60=") && cx.Ctx.Contains("dayPos=") && cx.Ctx.Contains("dow=") && cx.Ctx.Contains("last3=") && cx.Ctx.Contains("tf=M1"), "context: the trend, the day range position, the day, the last 3 candles, the timeframe are saved with every basket", cx == null ? "none" : cx.Ctx);
+            var aB = new HedgeAuto(); for (int i = 0; i < 30; i++) aB.Iterations.Add(new AutoIteration { N = i + 1, Start = Day0.AddMinutes(i * 40), End = Day0.AddMinutes(i * 40 + (i < 15 ? 10 : 200)), BalanceStart = 10000, Result = 20, AddOns = i < 15 ? 0 : 4, MaxDd = i < 15 ? -10 : -400, Ctx = "side=BUY;session=" + (i < 15 ? "LONDON" : "ASIA") + ";withTrend=" + (i % 2 == 0 ? "yes" : "no") });
+            var bsT = aB.BestSetups(5);
+            Check(bsT.Count >= 4 && bsT[0].Item1 == "session = LONDON" && bsT[0].Item3 == 100 && bsT[bsT.Count - 1].Item1 == "session = ASIA" && HedgeAuto.Clean(aB.Iterations[0]) && !HedgeAuto.Clean(aB.Iterations[20]), "best setups: the condition with the clean baskets ranks first, the stuck one last", string.Join(" | ", bsT.Select(t => t.Item1 + " " + t.Item3.ToString("0"))));
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }
