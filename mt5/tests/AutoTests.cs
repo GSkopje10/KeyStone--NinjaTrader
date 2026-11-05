@@ -374,6 +374,22 @@ public static class AutoTests
                 Check(maxOn <= 2.0 + 0.2 + 1e-9 && maxOff > 4.0 && gOn.Trades.Any(t => t.Why.StartsWith("🛡 RISK GUARD LOCK")) && AutoSettings.Load(gS(true).Save()).RiskGuard && !AutoSettings.Load("sym=XAUUSD").RiskGuard,
                     "risk guard: in chop the basket stays at the cap (2 lots on $10,000 + at most the lead to lock) — it LOCKS instead of the next hedge; without it " + maxOff.ToString("0.##") + " lots; saved, OFF by default", "on " + maxOn + " / off " + maxOff);
             }
+            {   // 📉 SCALE OUT: BUY 0.3 (lead 0.1) climbing → slices of 0.05 banked every $1.5, never below the lead 0.1
+                var sSo = S(); sSo.FirstDir = "BUY"; sSo.EntryLots = 0.3; sSo.NetAdvantage = 0.1; sSo.HedgeMode = "NONE"; sSo.Target = 5000; sSo.MaxIterations = 1; sSo.ScaleOut = true; sSo.ScaleLots = 0.05; sSo.ScaleStep = 1.5;
+                double minLots = 99; HedgeAuto capS = null;
+                Run(Path(Day1, 4000, Line(4000, 0.25, 60)), sSo, null, a => capS = a, sb => { var prev = sb.OnTickHook; sb.OnTickHook = () => { prev(); var gl = sb.State.Positions.Sum(p => p.Lots); if (gl > 0) minLots = Math.Min(minLots, gl); }; });
+                int slices = capS.Trades.Count(t => t.Why.StartsWith("📉 SCALE OUT"));
+                Check(slices == 4 && Math.Abs(minLots - 0.1) < 1e-9 && AutoSettings.Load(sSo.Save()).ScaleOut && !AutoSettings.Load("sym=XAUUSD").ScaleOut, "scale out: 0.3 → 4 slices of 0.05 on the way up, it stops at the lead 0.1; saved, OFF by default", slices + " slices, min " + minLots);
+            }
+            {   // ✋ YOUR HEDGE: moved by hand it wins over the automation's level; removed = no hedge; ↺ = the automation's again
+                var sMh = S(); sMh.FirstDir = "BUY"; sMh.HedgeMode = "PRICE"; sMh.HedgePrice = 2; sMh.HedgeSize = "FIXED"; sMh.Target = 5000; sMh.MaxIterations = 1;
+                HedgeAuto am = null; var lvM = new List<double>();
+                Run(Path(Day1, 4000, Line(4000, 0, 10).Concat(Line(4000, -0.25, 30))), sMh, (sb, au) => { au.SetManualHedge(3995); }, a => am = a);
+                var hM = am.Trades.FirstOrDefault(t => t.Side == "SELL");
+                Check(hM != null && hM.Price < 3995.3 && hM.Price > 3994, "your hedge: moved by hand to 3995 → the hedge SELL comes there (not at the automation's 3998)", hM == null ? "none" : hM.Price.ToString());
+                HedgeAuto an = null; Run(Path(Day1, 4000, Line(4000, 0, 10).Concat(Line(4000, -0.25, 30))), sMh, (sb, au) => { au.RemoveHedge(); }, a => an = a);
+                Check(!an.Trades.Any(t => t.Side == "SELL"), "your hedge: removed → no hedge for that leg", string.Join(",", an.Trades.Select(t => t.Side)));
+            }
             var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
         }
         {   // 📈 AFTER THE TARGET: BUY 0.1 closes at +$20; gold keeps rising $3 more (≈ +$30 more), then falls $6 → back to $20, then breakeven

@@ -149,7 +149,7 @@ namespace KeystoneMT5
     public sealed class ChartHit { public Rect R; public string Kind, Key; public long Ticket; public Action Click; }
     public sealed class Indicator { public string Key, Name, Color, Tip; public Indicator(string k, string n, string c, string t) { Key = k; Name = n; Color = c; Tip = t; } }
 
-    public sealed class ChartGuide { public string Kind = "LINE", Label = ""; public double P1, P2 = double.NaN; public DateTime From = DateTime.MinValue; public Brush Color; public bool Blink, Dash, Core; }   // Core: the automation's own level — shown even with 🎯 SIGNALS OFF
+    public sealed class ChartGuide { public string Kind = "LINE", Label = ""; public double P1, P2 = double.NaN; public DateTime From = DateTime.MinValue; public Brush Color; public bool Blink, Dash, Core; public string DragId = ""; }   // DragId: a line you can drag / right-click (the 🤖 hedge)   // Core: the automation's own level — shown even with 🎯 SIGNALS OFF
 
     public sealed partial class ChartView : FrameworkElement
     {
@@ -276,6 +276,14 @@ namespace KeystoneMT5
         // 🎯 the 🤖 strategy's guides: what the setup is watching (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge),
         // a STRONG setup blinks
         public Func<List<ChartGuide>> Guides; bool guidesBlink;
+        // a draggable guide (the 🤖 hedge): dropped = GuideMoved(id, price); right-click = GuideMenu(id, where, price)
+        public Action<string, double> GuideMoved; public Action<string, Point, double> GuideMenu; string dragGuide = ""; double dragGuidePx = double.NaN;
+        ChartGuide GuideAt(Point p)
+        {
+            var gs = Guides != null ? Guides() : null; if (gs == null || p.X > plotW) return null;
+            foreach (var g in gs) if (g.DragId != "" && g.Kind == "LINE" && !double.IsNaN(g.P1) && Math.Abs(Y(g.P1) - p.Y) <= 5) return g;
+            return null;
+        }
         void DrawGuides(DrawingContext dc)
         {
             guidesBlink = false; var gs = Guides != null ? Guides() : null; var bars = Series != null ? Series.Bars : null; if (gs == null || gs.Count == 0 || bars == null || bars.Count == 0 || plotW <= 0) return;
@@ -308,7 +316,9 @@ namespace KeystoneMT5
                 }
                 else
                 {
-                    double y = Y(g.P1);
+                    bool dragging = g.DragId != "" && g.DragId == dragGuide && !double.IsNaN(dragGuidePx);
+                    double y = Y(dragging ? dragGuidePx : g.P1);
+                    if (dragging) { var dt = T("⇕ release = hedge @ " + F(dragGuidePx), 11, br, false, true); dc.DrawText(dt, new Point(plotW - dt.Width - 10, y - dt.Height - 2)); }
                     if (y < TopPad || y > TopPad + plotH)
                     {   // off the screen: a tag on the edge (↑ above / ↓ below) so the level is never invisible
                         if (g.Label == "") continue; bool up = y < TopPad; var etx = T((up ? "↑ " : "↓ ") + g.Label, 9.5, br, false, true); double ey = up ? TopPad + 44 : TopPad + plotH - etx.Height - 6;
@@ -1039,6 +1049,7 @@ namespace KeystoneMT5
         {
             var p = e.GetPosition(this); if (Series == null || Series.Bars.Count == 0) return; e.Handled = true;
             if (Tool != "") { Tool = ""; newDraw = null; if (ToolDone != null) ToolDone(); InvalidateVisual(); return; }
+            var gR = GuideAt(p); if (gR != null && GuideMenu != null) { GuideMenu(gR.DragId, p, PriceAt(p.Y)); return; }
             long tk; string kind, key; var what = HitAt(p, out tk, out kind, out key); Drawing dr = null;
             if (what == "HIT" && kind == "IND") { if (IndOff != null) IndOff(key.Substring(4)); return; }   // right-click on an indicator chip = remove it
             if (what == "DRAWING") { string part; dr = DrawingAt(p, out part); selected = dr; kind = "DRAW"; }
@@ -1056,6 +1067,7 @@ namespace KeystoneMT5
         {
             Focus(); var p = e.GetPosition(this); if (Series == null || Series.Bars.Count == 0) return;
             if (e.ClickCount == 2 && Tool == "") { string pt; var dd = DrawingAt(p, out pt); if (dd != null && dd.Kind == "TEXT" && AskText != null) { var s = AskText(dd.Text); if (s != null) { dd.Text = s; if (DrawingsChanged != null) DrawingsChanged(); } InvalidateVisual(); e.Handled = true; return; } ResetView(); e.Handled = true; return; }
+            if (Tool == "" && GuideMoved != null) { var gL = GuideAt(p); if (gL != null) { drag = "GUIDE"; dragGuide = gL.DragId; dragGuidePx = gL.P1; CaptureMouse(); e.Handled = true; InvalidateVisual(); return; } }
             long tk; string kind, key; string what = HitAt(p, out tk, out kind, out key);
             if (what == "HIT") { var h = hits.LastOrDefault(x => x.R.Contains(p)); if (h != null && h.Click != null) { h.Click(); e.Handled = true; return; } }
             if (PricePicked != null && PickKind != "" && double.IsNaN(PickPrice) && p.X < plotW) { PickPrice = Math.Round(PriceAt(p.Y) / Point) * Point; PricePicked(PickPrice); InvalidateVisual(); e.Handled = true; return; }
@@ -1093,12 +1105,14 @@ namespace KeystoneMT5
         protected override void OnMouseMove(MouseEventArgs e)
         {
             var p = e.GetPosition(this); mouse = p;
+            if (drag == "GUIDE") { dragGuidePx = Math.Round(PriceAt(p.Y) / Point) * Point; Cursor = Cursors.SizeNS; InvalidateVisual(); return; }
             if (drag == null)
             {
                 long tk = 0; string kind = "", key = ""; string what = Series == null || Series.Bars.Count == 0 ? "PLOT" : HitAt(p, out tk, out kind, out key);
                 if (key != hoverKey) { hoverKey = key; hoverAt = DateTime.Now; }
                 bool lineDrag = TradeOn && (what == "LINE" || (what == "HIT" && kind != "X"));
                 Cursor = what == "HIT" && kind == "X" ? Cursors.Hand : what == "HIT" ? Cursors.Hand : what == "PRICEAXIS" ? Cursors.SizeNS : what == "TIMEAXIS" ? Cursors.SizeWE : lineDrag ? Cursors.Hand : what == "LINE" ? Cursors.Hand : what == "DRAWING" ? (kind == "BODY" ? Cursors.Hand : kind == "W" || kind == "X1" || kind == "X2" ? Cursors.SizeWE : kind == "Y1" || kind == "Y2" ? Cursors.SizeNS : Cursors.SizeAll) : Tool != "" || (PickKind != "" && double.IsNaN(PickPrice)) ? Cursors.Pen : Cursors.Hand;
+                if (GuideMoved != null && GuideAt(p) != null) Cursor = Cursors.SizeNS;   // the 🤖 hedge line: grab it
             }
             else
             {
@@ -1151,6 +1165,7 @@ namespace KeystoneMT5
         protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
         {
             var was = drag; drag = null; ReleaseMouseCapture();
+            if (was == "GUIDE") { var id = dragGuide; var px = dragGuidePx; dragGuide = ""; dragGuidePx = double.NaN; if (GuideMoved != null && !double.IsNaN(px)) GuideMoved(id, px); InvalidateVisual(); return; }
             if (was == "TICKET")
             {
                 var ps = Positions.FirstOrDefault(q => q.Ticket == dragTicket); double pr = dragPrice;
