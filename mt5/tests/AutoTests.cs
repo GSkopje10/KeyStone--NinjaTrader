@@ -562,6 +562,14 @@ public static class AutoTests
             var itBk = aBk.Iterations.FirstOrDefault();
             Check(errB == "" && itBk != null && itBk.FirstDir == "BUY" && aBk.Story.Any(x => x.Item2.Contains("closed with its high")), "a break seen only in the closed candle (no tick showed it) still enters at the level — the entry no longer moves back to an older swing", errB + " / " + (itBk == null ? "none: " + string.Join(" | ", aBk.Log.Take(5)) : itBk.FirstDir + " " + itBk.Start.ToString("HH:mm:ss")));
         }
+        {   // 📈 drawdown lead: a SELL 0.1 goes −$20 → the hedge leads by 0.10 (0.05 + one $20 step) instead of 0.05
+            var sDl = S(); sDl.FirstDir = "SELL"; sDl.HedgeMode = "PRICE"; sDl.HedgePrice = 2; sDl.HedgeSize = "ADVANTAGE"; sDl.NetAdvantage = 0.05; sDl.MaxIterations = 1; sDl.DdLeadStep = 20; sDl.DdLeadAdd = 0.05; sDl.DdLeadMax = 0.3;
+            var bDl = Run(Path(Day1, 4000, Line(4000, 0.25, 12)), sDl).Item2.Trades.FirstOrDefault(t => t.Side == "BUY"); var sDl0 = sDl.Copy(); sDl0.DdLeadStep = 0; var bDl0 = Run(Path(Day1, 4000, Line(4000, 0.25, 12)), sDl0).Item2.Trades.FirstOrDefault(t => t.Side == "BUY");
+            Check(bDl != null && bDl0 != null && Math.Abs(bDl0.Lots - 0.15) < 1e-9 && bDl.Lots > bDl0.Lots + 0.04 && AutoSettings.Load(sDl.Save()).DdLeadStep == 20 && AutoSettings.Load("sym=XAUUSD").DdLeadStep == 0, "drawdown lead: the deeper the basket, the bigger the lead (off: the fixed 0.05)", (bDl == null ? "none" : bDl.Lots.ToString()) + " vs " + (bDl0 == null ? "none" : bDl0.Lots.ToString()));
+            // 🧹 a pending order placed during the iteration is cancelled when it closes
+            var rPo = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), S(), mid: (b0, a0) => b0.Command("ORDER", "XAUUSD", "BUY LIMIT", 0.1, 3950.0, 0.0, 0.0)); int ordPo; lock (rPo.Item1.State.Gate) ordPo = rPo.Item1.State.Orders.Count;
+            Check(rPo.Item2.Iterations.Any(x => x.Done) && ordPo == 0 && rPo.Item2.Story.Any(x => x.Item2.Contains("pending order")), "iteration closed → its pending limit / stop orders are cancelled (off the chart)", ordPo + " orders left");
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }

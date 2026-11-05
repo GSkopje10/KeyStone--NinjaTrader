@@ -58,7 +58,12 @@ namespace KeystoneMT5
         // the spec of a symbol from MT5 (contract, tick value, swap, …), once
         public SimSpec SpecFor(string sym)
         {
-            SimSpec sp; if (Acct.Specs.TryGetValue(sym, out sp)) return sp;
+            SimSpec sp;
+            if (Acct.Specs.TryGetValue(sym, out sp))
+            {   // 🐞 the user's catch (swap $0.00 overnight on IC Markets): the spec was copied before MT5 had sent the swap rates — refresh them until known
+                if (sp.SwapLong == 0 && sp.SwapShort == 0) { Mt5Symbol mx; if (live.State.Symbols.TryGetValue(sym, out mx) && mx.HasX && (mx.SwapLong != 0 || mx.SwapShort != 0)) { sp.SwapLong = mx.SwapLong; sp.SwapShort = mx.SwapShort; sp.SwapMode = mx.SwapMode; sp.Swap3Day = (DayOfWeek)Math.Max(0, Math.Min(6, mx.Swap3Day)); } }
+                return sp;
+            }
             Mt5Symbol ms; if (!live.State.Symbols.TryGetValue(sym, out ms)) return null;
             int ny = -7; try { var et = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); ny = (int)Math.Round(et.GetUtcOffset(DateTime.UtcNow).TotalHours - live.State.ServerOffsetSec / 3600.0); } catch { }
             sp = SimSpec.From(ms, live.State.ServerOffsetSec, ny, Acct.Set.Currency); sp.MarginLeverage = live.State.Account.Leverage; Acct.Specs[sym] = sp; return sp;
