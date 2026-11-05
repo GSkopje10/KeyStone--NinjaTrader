@@ -386,6 +386,13 @@ namespace KeystoneMT5
             double bal, eq; int open; DateTime now; string sym = (auto.Running ? auto.Set : aset).Symbol;
             lock (broker.State.Gate) { bal = broker.State.Account.Balance; eq = broker.State.Account.Equity; open = broker.State.Positions.Count(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)); now = broker.State.ServerNow > DateTime.MinValue ? broker.State.ServerNow : DateTime.Now; }
             bool wasOn = Get("auto.run." + AKey, "0") == "1" || auto.Running;
+            if (!auto.Running && wasOn && (auto.StopReason ?? "").Contains("did not answer"))
+            {   // 🔌 the connection dropped while an order waited for MT5's answer (a PC hiccup / MT5 reconnecting): DEMO resumes by itself once the
+                // prices are back — the open positions are taken over, nothing is closed
+                bool back; lock (broker.State.Gate) { Mt5Quote q; back = broker.State.Linked && broker.State.Quotes.TryGetValue(sym, out q) && q.Bid > 0 && broker.State.SeriesOf(sym, (auto.Set ?? aset).Tf).Bars.Count >= 20; }
+                if (back) { aRebornAt = DateTime.Now; var sr0 = (auto.Set ?? aset).Copy(); if (auto.Check(broker, sr0) == "") { auto.Start(broker, sr0, open > 0); Put("auto.run." + AKey, "1"); aWasOn = true; auto.Note("🔌 the connection to MT5 was lost (" + auto.StopReason + ") → the prices are back: the automation RESUMED by itself" + (open > 0 ? " and took the " + open + " open position(s) over" : "")); } }
+                return;
+            }
             bool broke = !auto.Running && HedgeAuto.IsBlowReason(auto.StopReason), low = open == 0 && bal < 0.1 * start && (auto.Running || wasOn);
             if (!(broke || low)) return;
             aRebornAt = DateTime.Now;
