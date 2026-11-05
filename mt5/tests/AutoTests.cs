@@ -473,6 +473,13 @@ public static class AutoTests
                 if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") { Console.WriteLine("   " + pm.Lesson); foreach (var a0 in pm.Alts) Console.WriteLine("     " + a0.Name + " " + a0.Result.ToString("0.00") + " dd " + a0.Dd.ToString("0.00") + " lots " + a0.MaxLots + " closed " + a0.Closed); }
             }
         }
+        {   // ⛔ LOSS LIMITS: a SELL in a climb — MAX DRAWDOWN % closes it and trades on; DAILY LOSS closes it and nothing more today
+            var sL = S(); sL.FirstDir = "SELL"; sL.HedgeMode = "NONE"; sL.MaxDdPct = 0.5; sL.AfterDrawdown = "NEXT"; var rL = Run(Path(Day1, 4000, Line(4000, 0.5, 60)), sL); var iL = rL.Item2.Iterations.FirstOrDefault();
+            Check(iL != null && iL.Done && iL.Reason == "MAX DRAWDOWN" && iL.Result <= -50 && iL.Result > -80 && rL.Item2.Iterations.Count >= 2 && AutoSettings.Load(sL.Save()).MaxDdPct == 0.5, "max drawdown %: −0.5 % of $10k closes the iteration (≈ −$50), the next one trades", iL == null ? "none" : iL.Reason + " " + iL.Result + " / " + rL.Item2.Iterations.Count);
+            var sD = S(); sD.FirstDir = "SELL"; sD.HedgeMode = "NONE"; sD.DayLoss = 50; var rD = Run(Path(Day1, 4000, Line(4000, 0.5, 60)), sD); var iD = rD.Item2.Iterations.FirstOrDefault();
+            var sD2 = AutoSettings.Load(sD.Save());
+            Check(iD != null && iD.Done && iD.Reason == "DAY LOSS" && iD.Result <= -50 && rD.Item2.Iterations.Count == 1 && rD.Item2.Blocked.Contains("DAILY LOSS") && sD2.DayLoss == 50 && AutoSettings.Load("sym=XAUUSD").DayLoss == 0, "daily loss: −$50 today closes everything, no new iteration until tomorrow", iD == null ? "none" : iD.Reason + " " + iD.Result + " / " + rD.Item2.Iterations.Count + " '" + rD.Item2.Blocked + "'");
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }
