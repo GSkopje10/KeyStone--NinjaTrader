@@ -365,6 +365,15 @@ public static class AutoTests
                 bool up = lv.Count > 5; for (int k = 1; k < lv.Count; k++) if (lv[k] < lv[k - 1] - 1e-9) up = false;
                 Check(up && lv.Max() > 4003, "quick hedge locked: once it trails up it never moves back down (" + lv.Count + " ticks, " + lv.First().ToString("0.00") + " → " + lv.Last().ToString("0.00") + ")", string.Join(",", lv.Distinct().Select(x => x.ToString("0.00"))));
             }
+            {   // 🛡 RISK GUARD: chop that would pile up hedges (lead 0.2) → the guard locks before the basket passes 1 lot per $5,000 ($10,000 = 2 lots)
+                Func<List<Mt5Bar>> chopG = () => Path(Day1, 4000, Enumerable.Range(0, 120).Select(i => 4000 + ((i / 6) % 2 == 0 ? 1.5 : -1.5) + (i % 6) * 0.05));
+                Func<bool, AutoSettings> gS = on => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 1; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.2; x.Target = 5000; x.MaxIterations = 1; x.HedgeCap = 0; x.RiskGuard = on; x.GuardLots = 1.0; x.GuardChop = 0; x.GuardMargin = 0; return x; };
+                double maxOn = 0, maxOff = 0; HedgeAuto gOn = null;
+                Run(chopG(), gS(true), null, a => gOn = a, sb => { var prev = sb.OnTickHook; sb.OnTickHook = () => { prev(); maxOn = Math.Max(maxOn, sb.State.Positions.Sum(p => p.Lots)); }; });
+                Run(chopG(), gS(false), null, null, sb => { var prev = sb.OnTickHook; sb.OnTickHook = () => { prev(); maxOff = Math.Max(maxOff, sb.State.Positions.Sum(p => p.Lots)); }; });
+                Check(maxOn <= 2.0 + 0.2 + 1e-9 && maxOff > 4.0 && gOn.Trades.Any(t => t.Why.StartsWith("🛡 RISK GUARD LOCK")) && AutoSettings.Load(gS(true).Save()).RiskGuard && !AutoSettings.Load("sym=XAUUSD").RiskGuard,
+                    "risk guard: in chop the basket stays at the cap (2 lots on $10,000 + at most the lead to lock) — it LOCKS instead of the next hedge; without it " + maxOff.ToString("0.##") + " lots; saved, OFF by default", "on " + maxOn + " / off " + maxOff);
+            }
             var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
         }
         {   // 📈 AFTER THE TARGET: BUY 0.1 closes at +$20; gold keeps rising $3 more (≈ +$30 more), then falls $6 → back to $20, then breakeven

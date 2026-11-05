@@ -17,6 +17,46 @@ static class P {
       Tuple.Create("range+rescue5 lead 0.1", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 5; s.NetAdvantage = 0.1; })),
     };
     var only = Environment.GetEnvironmentVariable("ONLY");
+    if (Environment.GetEnvironmentVariable("CMP6") == "1") { variants = new List<Tuple<string, Action<AutoSettings>>> {
+      Tuple.Create("K1 yours no guard", (Action<AutoSettings>)(s => { })),
+      Tuple.Create("K2 guard LOCK+trim", (Action<AutoSettings>)(s => { s.RiskGuard = true; })),
+      Tuple.Create("K3 guard HOLD", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.GuardMode = "HOLD"; })),
+      Tuple.Create("K4 guard HOLD 0.05/$25", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.GuardMode = "HOLD"; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; })),
+      Tuple.Create("K5 guard LOCK 0.05/$25", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; })),
+      Tuple.Create("K6 guard HOLD 0.02/$10", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.GuardMode = "HOLD"; s.EntryLots = 0.02; s.NetAdvantage = 0.02; s.Target = 10; })),
+    }; if (only != null) variants = variants.Where(v => v.Item1.StartsWith(only)).ToList(); }
+    if (Environment.GetEnvironmentVariable("CMP5") == "1") { variants = new List<Tuple<string, Action<AutoSettings>>> {
+      Tuple.Create("H1 guard nolift", (Action<AutoSettings>)(s => { s.RiskGuard = true; })),
+      Tuple.Create("H2 guard nolift rescue2", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.BeAfter = 2; })),
+      Tuple.Create("H3 guard nolift lots1.5", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.GuardLots = 1.5; })),
+      Tuple.Create("H4 guard nolift nochop", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.GuardChop = 0; })),
+      Tuple.Create("H5 guard nolift 0.05 lead0.05 $25", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; })),
+      Tuple.Create("H6 guard nolift 0.02 lead0.02 $10", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.EntryLots = 0.02; s.NetAdvantage = 0.02; s.Target = 10; })),
+    }; if (only != null) variants = variants.Where(v => v.Item1.StartsWith(only)).ToList(); }
+    if (Environment.GetEnvironmentVariable("CMP4") == "1") { variants = new List<Tuple<string, Action<AutoSettings>>> {
+      Tuple.Create("G1 yours+guard", (Action<AutoSettings>)(s => { s.RiskGuard = true; })),
+      Tuple.Create("G2 yours+guard lots1.5", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.GuardLots = 1.5; })),
+      Tuple.Create("G3 yours+guard lots0.6", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.GuardLots = 0.6; })),
+      Tuple.Create("G4 yours+guard+protect", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.ProtectAt = 70; s.ProtectKeep = 10; })),
+      Tuple.Create("G5 yours+guard+rescue2", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.BeAfter = 2; })),
+      Tuple.Create("G6 yours+guard nochop", (Action<AutoSettings>)(s => { s.RiskGuard = true; s.GuardChop = 0; })),
+    }; if (only != null) variants = variants.Where(v => v.Item1.StartsWith(only)).ToList(); }
+    if (Environment.GetEnvironmentVariable("CMP3") == "1") { variants = new List<Tuple<string, Action<AutoSettings>>> {
+      Tuple.Create("A yours entry0.05", (Action<AutoSettings>)(s => { s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; })),
+      Tuple.Create("B yours lead (not step) 0.05/0.05", (Action<AutoSettings>)(s => { s.HedgeSize = "ADVANTAGE"; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; })),
+      Tuple.Create("C B + protect70/10", (Action<AutoSettings>)(s => { s.HedgeSize = "ADVANTAGE"; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; s.ProtectAt = 70; s.ProtectKeep = 10; })),
+      Tuple.Create("D B + rescue2", (Action<AutoSettings>)(s => { s.HedgeSize = "ADVANTAGE"; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; s.BeAfter = 2; })),
+      Tuple.Create("E B hcap5 quick off", (Action<AutoSettings>)(s => { s.HedgeSize = "ADVANTAGE"; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; s.HedgeCap = 5; s.QuickHedge = false; })),
+      Tuple.Create("F E + protect70/10", (Action<AutoSettings>)(s => { s.HedgeSize = "ADVANTAGE"; s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; s.HedgeCap = 5; s.QuickHedge = false; s.ProtectAt = 70; s.ProtectKeep = 10; })),
+    }; if (only != null) variants = variants.Where(v => v.Item1.StartsWith(only)).ToList(); }
+    if (Environment.GetEnvironmentVariable("CMP2") == "1") { variants = new List<Tuple<string, Action<AutoSettings>>> {
+      Tuple.Create("YOURS (steplead, rescue3)", (Action<AutoSettings>)(s => { })),
+      Tuple.Create("rescue2", (Action<AutoSettings>)(s => { s.BeAfter = 2; })),
+      Tuple.Create("protect70/10", (Action<AutoSettings>)(s => { s.ProtectAt = 70; s.ProtectKeep = 10; })),
+      Tuple.Create("protect70/10+rescue2", (Action<AutoSettings>)(s => { s.ProtectAt = 70; s.ProtectKeep = 10; s.BeAfter = 2; })),
+      Tuple.Create("lead0.1+protect+rescue2", (Action<AutoSettings>)(s => { s.HedgeSize = "ADVANTAGE"; s.NetAdvantage = 0.1; s.ProtectAt = 70; s.ProtectKeep = 10; s.BeAfter = 2; })),
+      Tuple.Create("lead0.1+rescue2", (Action<AutoSettings>)(s => { s.HedgeSize = "ADVANTAGE"; s.NetAdvantage = 0.1; s.BeAfter = 2; })),
+    }; if (only != null) variants = variants.Where(v => v.Item1.StartsWith(only)).ToList(); }
     if (Environment.GetEnvironmentVariable("CMP") == "1") { var safe = AutoSettings.Model("SAFE", baseS); var lad = AutoSettings.Model("LADDER", baseS); variants = new List<Tuple<string, Action<AutoSettings>>> {
       Tuple.Create("SAFE (yours)", (Action<AutoSettings>)(s => { Cp(safe, s); s.TrendFilter = "NONE"; })),
       Tuple.Create("SAFE + trend", (Action<AutoSettings>)(s => { Cp(safe, s); s.TrendFilter = "EMA"; })),
@@ -39,6 +79,7 @@ static class P {
       au.Start(sb, s, false); sb.Playing = true; sb.Speed = 60; double minEq = 1e9, maxGross = 0; double minMl = 1e9;
       for (int k = 0; k < 40000000 && !sb.Ended; k++) { sb.Advance(0.5); lock (sb.State.Gate) { var ac = sb.State.Account; minEq = Math.Min(minEq, ac.Equity); maxGross = Math.Max(maxGross, sb.State.Positions.Sum(p => p.Lots)); if (ac.Margin > 0) minMl = Math.Min(minMl, ac.Equity / ac.Margin * 100); } }
       var d = au.Iterations.Where(x => x.Done).ToList(); var byMonth = d.GroupBy(x => x.End.ToString("yyyy-MM")).Select(g => g.Key.Substring(5) + ":" + g.Sum(x => x.Result).ToString("0", IC)); double eq; lock (sb.State.Gate) eq = sb.State.Account.Equity;
+      if (Environment.GetEnvironmentVariable("DUMP") == "1") { foreach (var x in au.Iterations.Where(x => x.Done).Take(40)) Console.WriteLine("IT #" + x.N + " " + x.Start.ToString("MM-dd HH:mm") + "→" + x.End.ToString("HH:mm") + " " + x.Reason + " " + x.Result.ToString("0.00") + " b/s/h " + x.Buys + "/" + x.Sells + "/" + x.AddOns + " fees " + x.Fees.ToString("0.00")); foreach (var tr in au.Trades.Take(60)) Console.WriteLine("  TR " + tr.Iter + " " + tr.Time.ToString("MM-dd HH:mm:ss") + " " + tr.Side + " " + tr.Lots + " @ " + tr.Price + " " + tr.Why.Split('—')[0] + " basket " + tr.Basket.ToString("0.00")); }
       Console.WriteLine(string.Format(IC, "{0,-27} iter {1,3} won {2,3}  closed net {3,8:0}  equity end {4,8:0} (open {5,6:0})  lowest equity {6,7:0}  most lots {7,5:0.0}  deepest basket {8,7:0}  min margin lvl {9,6:0}%  open: {10}", v.Item1, d.Count, d.Count(x => x.Won), d.Sum(x => x.Result), eq, eq - (a.Length > 4 ? double.Parse(a[4], IC) : 5000) - d.Sum(x => x.Result), minEq, maxGross, au.Iterations.Count > 0 ? au.Iterations.Min(x => x.MaxDd) : 0, minMl, au.Current != null ? "#" + au.Current.N + " " + au.Current.AddOns + " add-ons" : "-") + "  months " + string.Join(" ", byMonth) + "  rescues " + d.Count(x => x.Reason == "RESCUE") + "  stopped: " + au.StopReason);
     }
     return 0;
