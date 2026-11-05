@@ -900,6 +900,7 @@ namespace KeystoneMT5
             var last = sn.Fin[0]; double q = dir > 0 ? Math.Min(last.L, sn.Bid - sp) : Math.Max(last.H, sn.Bid + sp);
             if (!double.IsNaN(quickBest)) q = dir > 0 ? Math.Max(q, quickBest) : Math.Min(q, quickBest);   // LOCKED IN: once it trailed up / down it never moves back away from the price (user's catch)
             quickBest = q;
+            if (Set.RangeOnly && sn.Pos.Count >= 2) { double edgeR = dir > 0 ? sn.Pos.Min(p => p.Open) - sp : sn.Pos.Max(p => p.Open) + sp; q = dir > 0 ? Math.Min(q, edgeR) : Math.Max(q, edgeR); }   // never INSIDE the basket's range (range-only wins: no hedging in its own chop)
             if (!double.IsNaN(HedgeLevel) && (dir > 0 ? q <= HedgeLevel : q >= HedgeLevel)) return;   // only ever CLOSER to the price
             HedgeLevel = q; HedgeWhy = "⚡ QUICK HEDGE: the price ran " + run.ToString("0.00", IC) + " beyond the basket's best leg " + P(edge) + " (≥ " + Set.QuickAfter.ToString("0.##", IC) + ") → the hedge sits at the last candle's " + (dir > 0 ? "LOW " : "HIGH ") + P(q) + " (" + last.Time.ToString("HH:mm", IC) + "): the first candle that breaks it hedges";
         }

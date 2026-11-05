@@ -390,6 +390,14 @@ public static class AutoTests
                 HedgeAuto an = null; Run(Path(Day1, 4000, Line(4000, 0, 10).Concat(Line(4000, -0.25, 30))), sMh, (sb, au) => { au.RemoveHedge(); }, a => an = a);
                 Check(!an.Trades.Any(t => t.Side == "SELL"), "your hedge: removed → no hedge for that leg", string.Join(",", an.Trades.Select(t => t.Side)));
             }
+            {   // ⚡ + range-only: the quick hedge never trails INSIDE the basket's own range (the user's #12: SELL hedge 1.6 away inside a 6.7 box)
+                var sQr = S(); sQr.FirstDir = "BUY"; sQr.HedgeMode = "PRICE"; sQr.HedgePrice = 6; sQr.HedgeSize = "ADVANTAGE"; sQr.NetAdvantage = 0.1; sQr.Target = 5000; sQr.MaxIterations = 1; sQr.QuickHedge = true; sQr.QuickAfter = 3; sQr.HedgeCap = 0; sQr.RangeOnly = true;
+                HedgeAuto cq = null; var bad = new List<string>(); int samples = 0;
+                var pq = Path(Day1, 4000, Line(4000, -0.5, 14).Concat(Line(3993, 0.6, 25)).Concat(Line(4008, -0.2, 20)));
+                Run(pq, sQr, null, a => cq = a, sb => { var prev = sb.OnTickHook; sb.OnTickHook = () => { prev(); var ps = sb.State.Positions; if (cq == null || cq.Current == null || ps.Count < 2 || double.IsNaN(cq.HedgeLevel)) return; var nw = ps.OrderBy(p => p.Time).ThenBy(p => p.Ticket).Last(); if ((sb.State.ServerNow - nw.Time).TotalSeconds < 10) return; samples++;
+                    bool okR = nw.Dir > 0 ? cq.HedgeLevel <= ps.Min(p => p.Open) + 1e-9 : cq.HedgeLevel >= ps.Max(p => p.Open) - 1e-9; if (!okR && bad.Count < 3) bad.Add(nw.Side + " newest, level " + cq.HedgeLevel); }; });
+                Check(samples > 0 && bad.Count == 0, "quick hedge + range-only: the hedge never sits inside the basket's range (" + samples + " ticks)", string.Join(" | ", bad));
+            }
             var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
         }
         {   // 📈 AFTER THE TARGET: BUY 0.1 closes at +$20; gold keeps rising $3 more (≈ +$30 more), then falls $6 → back to $20, then breakeven
