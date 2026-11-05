@@ -351,6 +351,20 @@ public static class AutoTests
                 Check(!tOn.Any(t => t.Side == "BUY") && tOn.Any(t => t.Side == "SELL") && tOff.Any(t => t.Side == "BUY") && AutoSettings.Load("sym=XAUUSD;trend=EMA").TrendFilter == "EMA" && AutoSettings.Load("sym=XAUUSD").TrendFilter == "NONE",
                     "trend confirmation: in a downtrend the bounce's break-up BUY is skipped (only SELLs); without it the BUY opens; saved, OFF by default", "on: " + tOn.Count + " • off: " + string.Join(",", tOff.Skip(Math.Max(0, tOff.Count - 6)).Select(t => t.Side + "@" + t.Time.ToString("HH:mm") + "/" + t.Price)));
             }
+            {   // 🔐 PROTECT: BUY 0.1, up $4 (80 % of a $5 target... here target $50 = 5.0 move), back down → closes at +10 % ($5) instead of hedging
+                var sP = S(); sP.FirstDir = "BUY"; sP.HedgeMode = "PRICE"; sP.HedgePrice = 6; sP.HedgeSize = "FIXED"; sP.Target = 50; sP.MaxIterations = 1; sP.ProtectAt = 70; sP.ProtectKeep = 10;
+                var pP = Path(Day1, 4000, Line(4000, 0.4, 10).Concat(Line(4004, -0.4, 30)));
+                var rP = Run(pP, sP).Item2; var iP = rP.Iterations.FirstOrDefault();
+                Check(iP != null && iP.Done && iP.Reason == "PROTECT" && iP.Result > 0 && iP.Result < 15 && !rP.Trades.Any(t => t.Side == "SELL") && AutoSettings.Load(sP.Save()).ProtectAt == 70 && AutoSettings.Load("sym=XAUUSD").ProtectAt == 0,
+                    "protect: the basket reached $40 of $50, came back → closed at ≈ +$5 (no hedge); saved, OFF by default", iP == null ? "none" : iP.Reason + " " + iP.Result);
+            }
+            {   // ⚡ QUICK HEDGE is LOCKED IN: after trailing up to a candle's low it never moves back down when a lower candle follows
+                var sQ2 = S(); sQ2.FirstDir = "BUY"; sQ2.HedgeMode = "PRICE"; sQ2.HedgePrice = 8; sQ2.HedgeSize = "ADVANTAGE"; sQ2.NetAdvantage = 0.1; sQ2.Target = 500; sQ2.MaxIterations = 1; sQ2.QuickHedge = true; sQ2.QuickAfter = 3; sQ2.HedgeCap = 0;
+                var lv = new List<double>(); var pQ2 = Path(Day1, 4000, Line(4000, 0.5, 10).Concat(new[] { 4004.8, 4004.6, 4004.9, 4004.7, 4004.8, 4004.6 }));
+                HedgeAuto capQ = null; var rQ2 = Run(pQ2, sQ2, null, a => capQ = a, sb => { var prev = sb.OnTickHook; sb.OnTickHook = () => { prev(); if (capQ != null && capQ.Current != null && !double.IsNaN(capQ.HedgeLevel)) lv.Add(capQ.HedgeLevel); }; });
+                bool up = lv.Count > 5; for (int k = 1; k < lv.Count; k++) if (lv[k] < lv[k - 1] - 1e-9) up = false;
+                Check(up && lv.Max() > 4003, "quick hedge locked: once it trails up it never moves back down (" + lv.Count + " ticks, " + lv.First().ToString("0.00") + " → " + lv.Last().ToString("0.00") + ")", string.Join(",", lv.Distinct().Select(x => x.ToString("0.00"))));
+            }
             var rt = AutoSettings.Load(sLf.Save()); Check(rt.LockOn && rt.Unlock == "LIFT" && rt.LockAfter == 2 && !AutoSettings.Load("sym=XAUUSD").LockOn && !AutoSettings.Load("sym=XAUUSD").RangeOnly, "anti-chop: saved and read back; OFF by default", rt.LockOn + " " + rt.Unlock);
         }
         {   // 📈 AFTER THE TARGET: BUY 0.1 closes at +$20; gold keeps rising $3 more (≈ +$30 more), then falls $6 → back to $20, then breakeven
