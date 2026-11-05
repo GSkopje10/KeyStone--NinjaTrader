@@ -233,6 +233,7 @@ namespace KeystoneMT5
                 r5.Children.Add(AField("pat", "🔐 PROTECT AT (% of target, 0 = off)", aset.ProtectAt.ToString(IC), 50, "a basket that reached this % of its target (e.g. 70 = $35 of $50) and then falls back closes at the KEEP level — a near miss of the take profit never turns into a long hedge"));
                 r5.Children.Add(AField("pkeep", "KEEP (% of target)", aset.ProtectKeep.ToString(IC), 50, "where a protected basket closes (10 = $5 of a $50 target, 0 = breakeven)"));
                 r5.Children.Add(ACheck("quick", "⚡ QUICK HEDGE", () => aset.QuickHedge, v => aset.QuickHedge = v, "ON: once the price has run the QUICK AFTER distance beyond the basket's best leg, the hedge moves up to the LAST FINISHED CANDLE's low (long basket) / high (short) — the first red candle that breaks a low hedges at once, near the top, instead of waiting back at the old swing low. With ADVANTAGE sizing the hedge flips the basket to the new side (and ADD TO THE WINNER adds to it)"));
+                r5.Children.Add(ACheck("smart", "🧠 SMART (learns from its history)", () => aset.Smart, v => aset.Smart = v, "ON: before each new basket it checks how the baskets that started in the same conditions (session, hour, VWAP side, order flow, FVG, side) ended — mostly stuck / lost → it skips (every 5th still trades, to keep learning); and the post-mortems' best protection becomes part of the settings from the next iteration (DEMO by itself, a real account: proposed)"));
                 r5.Children.Add(ACheck("chedge", "🕯 HEDGE AT THE ENTRY CANDLE", () => aset.CandleHedge, v => aset.CandleHedge = v, "ON: the hedge sits just beyond the LOW (buy) / HIGH (sell) of the candle the newest leg filled in (the breakout candle before it while that one is forming) when that is closer than the swing — a quicker hedge (more hedges in a chop: watch 🧠 LEARN)"));
                 r5.Children.Add(AField("qafter", "QUICK AFTER (price)", aset.QuickAfter.ToString(IC), 60, "how far the price must run beyond the basket's best leg before the quick hedge trails the last candle (gold: 3 = $3)"));
                 r5.Children.Add(ACheck("ronly", "HEDGE ONLY BEYOND THE BASKET'S RANGE", () => aset.RangeOnly, v => aset.RangeOnly = v, "ON: a hedge SELL only under the basket's lowest leg, a hedge BUY only over its highest — never inside the small range it already holds (no hedging in chop)"));
@@ -337,8 +338,27 @@ namespace KeystoneMT5
             System.Threading.Tasks.Task.Run(() =>
             {
                 PostMortemRow r = null; try { r = PostMortem.Run(spec, m1, it, set, bal, spread, comm); PostMortem.Save(file, r); } catch { }
-                Dispatcher.BeginInvoke(new Action(() => { pmBusy = false; if (r != null) { pmRows = PostMortem.Load(file); auto.Note("🧠 POST-MORTEM " + r.Lesson); if (aView == "LEARN") AutoPaint(true); } }));
+                Dispatcher.BeginInvoke(new Action(() => { pmBusy = false; if (r != null) { pmRows = PostMortem.Load(file); auto.Note("🧠 POST-MORTEM " + r.Lesson); AutoSelfTune(); if (aView == "LEARN") AutoPaint(true); } }));
             });
+        }
+        // 🧠 SELF-TUNING (SMART on): when one protection was the post-mortems' best in 6+ of the last 10 iterations, it becomes part of the settings
+        // from the NEXT iteration — by itself on DEMO / BACKTEST (the user's call: these are tests), only proposed in the story on a real account
+        void AutoSelfTune()
+        {
+            if (!auto.Set.Smart || pmRows == null || pmRows.Count < 5) return;
+            var last = pmRows.OrderByDescending(x => x.Start).Take(10).ToList();
+            var top = last.Where(x => x.Best != "" && x.Best != "—").GroupBy(x => x.Best).OrderByDescending(g => g.Count()).FirstOrDefault();
+            if (top == null || top.Count() < Math.Max(3, (int)Math.Ceiling(last.Count * 0.6))) return;
+            string done = Get("auto.smart.tuned." + AKey, ""); if (done.Split('|').Contains(top.Key)) return;
+            var alt = PostMortem.Alternatives(AutoBal()).FirstOrDefault(x => x.Item1 == top.Key); if (alt == null) return;
+            var ns = auto.Set.Copy(); alt.Item2(ns); ns.Smart = true;
+            string why = "🧠 SELF-TUNING: in " + top.Count() + " of the last " + last.Count + " iterations the post-mortem's best protection was " + top.Key + " (it saved $" + top.Average(x => { var b = x.Alts.FirstOrDefault(z => z.Name == x.Best); return b == null ? 0 : b.Dd - x.Dd; }).ToString("N0", IC) + " of drawdown on average)";
+            if (Virtual)
+            {
+                auto.Queue(ns); aset = ns; Put(AKey, aset.Save()); AutoModelBoxes(); Put("auto.smart.tuned." + AKey, (done == "" ? "" : done + "|") + top.Key);
+                auto.Note(why + " → applied from the NEXT iteration (DEMO / BACKTEST: by itself). The open basket keeps its settings."); Toast("🧠 learned: " + top.Key + " — from the next iteration");
+            }
+            else auto.Note(why + " → PROPOSED (a real account changes only when you pick it in ⚙ SETTINGS).");
         }
         internal Button aChartManual;   // the same switch on the 📈 chart's toolbar (user's request)
         void AutoManualToggle()
@@ -536,6 +556,7 @@ namespace KeystoneMT5
                 fast = near < 0.5; col = ga.Running ? Gold : Muted;
             }
             else txt = who + (ga.Running ? "⏳ WAITING — " + ga.Phase + (ga.SignalText != "" ? ": " + ga.SignalText : "") : "AUTO OFF");
+            if (s.Smart && !inTrade && ga.SmartState != "") txt += "  •  " + ga.SmartState + (ga.SmartSkips > 0 ? " • " + ga.SmartSkips + " risky entries skipped" : "");
             if (!shadow && ga.ManualManage)
             {   // ✋ MANUAL MANAGING: AUTO only suggests — the latest suggestion first, in violet, blinking
                 bool sNew = ga.Suggestion != "" && (DateTime.Now - ga.SuggestAt).TotalSeconds < 120;

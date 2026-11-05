@@ -489,6 +489,14 @@ public static class AutoTests
             Check(!rC0.Item2.Trades.Any(t => t.Side == "SELL") && sellC != null && buyC != null && sellC.Price < buyC.Price && buyC.Price - sellC.Price < 2.5 && AutoSettings.Load(sC1.Save()).CandleHedge && !AutoSettings.Load("sym=XAUUSD").CandleHedge,
                 "entry-candle hedge: the hedge sells at the entry candle's low (not 5 below), saved; off by default", rC0.Item2.Trades.Count + " / " + string.Join(",", rC1.Item2.Trades.Select(t => t.Side + t.Lots + "@" + t.Price.ToString("0.00"))));
         }
+        {   // 🧠 SMART: 12 earlier baskets in the LATE session got stuck (4 hedges), 12 in ASIA were clean → a LATE break is skipped; OFF = it trades
+            Action<HedgeAuto> hist = a0 => { for (int i = 0; i < 24; i++) a0.Iterations.Add(new AutoIteration { N = i + 1, Start = Day0.AddHours(i % 12), End = Day0.AddHours(i % 12).AddMinutes(30), BalanceStart = 10000, Result = 20, AddOns = i < 12 ? 4 : 0, MaxDd = i < 12 ? -300 : -10, Ctx = "setup=BREAK;side=BUY;session=" + (i < 12 ? "LATE" : "ASIA") + ";hour=" + (i < 12 ? "17" : "01") }); };
+            var sS0 = S(); sS0.MaxIterations = 0; var sS1 = sS0.Copy(); sS1.Smart = true;
+            var rS0 = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), sS0, prep: hist); var rS1 = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), sS1, prep: hist);
+            Check(rS0.Item2.Trades.Count > 0 && rS1.Item2.SmartSkips >= 1 && rS1.Item2.Log.Any(x => x.Contains("🧠 SMART") && x.Contains("LATE")) && rS1.Item2.Trades.Count < rS0.Item2.Trades.Count && AutoSettings.Load(sS1.Save()).Smart && !AutoSettings.Model("DEFENDER", new AutoSettings(), 5000).Smart,
+                "smart: the conditions that mostly got stuck before are skipped (every 5th still explores); saved; off in DEFENDER (the replay)", rS0.Item2.Trades.Count + " vs " + rS1.Item2.Trades.Count + " trades, " + rS1.Item2.SmartSkips + " skips • " + rS1.Item2.SmartState);
+            var aS = new HedgeAuto(); hist(aS); Check(aS.SmartSkip("session=ASIA;hour=01") == "" && aS.SmartSkip("session=LATE;hour=17").Contains("12 of 12"), "smart: a clean condition trades, a stuck one is named with its numbers", aS.SmartSkip("session=LATE;hour=17"));
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }
