@@ -70,7 +70,7 @@ namespace KeystoneMT5
     public sealed class RaceLane
     {
         public string Key = "", Name = "", Problem = ""; public AutoSettings Set; public ShadowBroker Br; public HedgeAuto Eng = new HedgeAuto();
-        public int Saved; public double StartBalance, PeakEq, MaxDdEq;   // the account's deepest drop from its highest equity (open P/L included)
+        public int Saved, Blowups; public double StartBalance, PeakEq, MaxDdEq;   // the account's deepest drop from its highest equity (open P/L included)
         public double Equity { get { lock (Br.State.Gate) return Br.State.Account.Equity; } }
         public void Step()
         {

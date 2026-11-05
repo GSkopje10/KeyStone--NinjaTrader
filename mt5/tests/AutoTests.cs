@@ -504,6 +504,10 @@ public static class AutoTests
             Check(iRx != null && iRx.Done && iRx.Reason == "RECOVERED" && iRx.MaxDd <= -40 && iRx.Result >= -6 && iRx.Result < 5 && iRx0 != null && iRx0.Reason != "RECOVERED" && AutoSettings.Load(sRx.Save()).RecoverExit && !AutoSettings.Model("DEFENDER", new AutoSettings(), 5000).RecoverExit && !AutoSettings.Load("sym=XAUUSD").RecoverExit,
                 "recovered exit: −$60 deep, back near breakeven → closed at a tiny loss (off: it rides on); saved; off in DEFENDER (the replay)", iRx == null ? "none" : iRx.Reason + " " + iRx.Result.ToString("0.00") + " dd " + iRx.MaxDd.ToString("0.00") + " / off: " + (iRx0 == null ? "none" : iRx0.Reason + " " + iRx0.Result.ToString("0.00")));
         }
+        {   // 💥 a blown simulated account (the entry needs more margin than there is): the stop reads as a blow-up (the DEMO / race restart it)
+            var sB = S(); sB.EntryLots = 30; var rB = Run(Path(Day1, 4000, Line(4000, 0.5, 20)), sB);
+            Check(!rB.Item2.Running && HedgeAuto.IsBlowReason(rB.Item2.StopReason) && !HedgeAuto.IsBlowReason("stopped by you"), "blow-up: no money for the order = a blow-up (the auto restart's trigger); a normal stop is not", rB.Item2.StopReason);
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }

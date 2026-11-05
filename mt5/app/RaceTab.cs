@@ -123,8 +123,23 @@ namespace KeystoneMT5
             foreach (var l in lanes)
             {
                 try { l.Step(); } catch (Exception ex) { l.Problem = ex.Message; if (l.Eng.Running) l.Eng.Stop("error: " + ex.Message); }
+                try { RaceReborn(l); } catch { }
                 var done = l.Eng.Iterations.Where(x => x.Done).ToList(); while (l.Saved < done.Count) { RaceStore.Save(RaceFolder(), l.Key, done[l.Saved], l.Eng.Trades); l.Saved++; }
             }
+        }
+        // 💥 AUTO RESTART of a lane (user's request): blown (stopped for lack of money, or flat under 10 % of its start) → the blow-up is counted
+        // and saved with the lane's history, its simulated account starts again at the same balance and the lane trades on by itself
+        void RaceReborn(RaceLane l)
+        {
+            if (l.Br == null || l.StartBalance <= 0) return; double bal, eq; int open; DateTime now;
+            lock (l.Br.State.Gate) { bal = l.Br.State.Account.Balance; eq = l.Br.State.Account.Equity; open = l.Br.State.Positions.Count; now = l.Br.State.ServerNow > DateTime.MinValue ? l.Br.State.ServerNow : DateTime.Now; }
+            bool broke = !l.Eng.Running && HedgeAuto.IsBlowReason(l.Eng.StopReason), low = open == 0 && bal < 0.1 * l.StartBalance;
+            if (!(broke || low)) return;
+            if (open > 0) { l.Br.Command("CLOSEALL", new object[] { l.Set.Symbol, "ALL" }); return; }
+            l.Blowups++; lock (l.Br.State.Gate) l.Br.Acct.SetBalance(l.StartBalance, now); l.PeakEq = l.StartBalance;
+            try { Directory.CreateDirectory(RaceFolder()); File.AppendAllText(Path.Combine(RaceFolder(), "blowups.csv"), now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "," + l.Key + "," + l.Blowups + "," + bal.ToString("0.00", CultureInfo.InvariantCulture) + "," + l.Eng.Iterations.Count(x => x.Done) + ",\"" + (l.Eng.StopReason ?? "").Replace("\"", "'") + "\"\n"); } catch { }
+            l.Eng.Note("💥 BLOW-UP #" + l.Blowups + " (balance $" + bal.ToString("N2", CultureInfo.InvariantCulture) + ") → the lane starts again with $" + l.StartBalance.ToString("N0", CultureInfo.InvariantCulture) + " (its history stays)");
+            if (!l.Eng.Running && l.Eng.Check(l.Br, l.Set) == "") l.Eng.Start(l.Br, l.Set, false);
         }
         // live: the candles every lane needs, asked once from MT5 (the bridge keeps them updated)
         void RaceBars()
@@ -163,7 +178,7 @@ namespace KeystoneMT5
                 var nm = new StackPanel { Width = 260 }; nm.Children.Add(new TextBlock { Text = l.Name, Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 14 }); nm.Children.Add(new TextBlock { Text = l.Problem != "" ? "⚠ " + l.Problem : (l.Eng.Running ? l.Eng.Phase : "stopped") + (l.Eng.Current != null ? "  •  basket " + Money(l.Eng.Basket) : ""), Foreground = l.Problem != "" ? Red : Muted, FontSize = 11 }); sp.Children.Add(nm);
                 sp.Children.Add(Cell(Money(net), 130, col, true, 18));
                 sp.Children.Add(Cell(it.Count + " iterations", 120, Text)); sp.Children.Add(Cell(it.Count(x => x.Won) + " won / " + it.Count(x => !x.Won) + " lost", 140, it.Any(x => !x.Won) ? Amber : Green));
-                sp.Children.Add(Cell("worst basket " + (it.Count > 0 ? it.Min(x => x.MaxDd).ToString("0", IC) : "0"), 140, Red)); sp.Children.Add(Cell("account DD −$" + l.MaxDdEq.ToString("0", IC), 140, l.MaxDdEq > 0 ? Red : Muted));
+                sp.Children.Add(Cell("worst basket " + (it.Count > 0 ? it.Min(x => x.MaxDd).ToString("0", IC) : "0"), 140, Red)); sp.Children.Add(Cell("account DD −$" + l.MaxDdEq.ToString("0", IC), 140, l.MaxDdEq > 0 ? Red : Muted)); if (l.Blowups > 0) sp.Children.Add(Cell("💥 " + l.Blowups + " blow-up" + (l.Blowups == 1 ? "" : "s"), 110, Red));
                 sp.Children.Add(Cell("max lots " + (it.Count > 0 ? it.Max(x => x.MaxGross).ToString("0.##", IC) : "0"), 100, Text)); sp.Children.Add(Cell("⏱ " + (it.Count > 0 ? Dur(TimeSpan.FromSeconds(it.Average(x => (x.End - x.Start).TotalSeconds))) : "—"), 90, Violet, true, 12.5, Violet));
                 var card = new Border { Child = sp, Background = Sx.CardGrad, BorderBrush = l.Key == raceShow ? Cyan : col, BorderThickness = new Thickness(5, 1, 1, 1), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(6, 3, 6, 3), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "click: this strategy's own tab" };
                 var key = l.Key; card.MouseLeftButtonUp += delegate { raceView = key; RacePaint(); }; raceBody.Children.Add(card);

@@ -359,6 +359,8 @@ namespace KeystoneMT5
             else Wait(sn, Set.FirstDir == "BUY" || Set.FirstDir == "SELL" ? "FIRST" : "BREAK");
             Version++;
         }
+        // a stop that means the (simulated) account is blown: no money / margin for the next order
+        public static bool IsBlowReason(string why) { var w = (why ?? "").ToLowerInvariant(); return w.Contains("not enough money") || w.Contains("no money") || w.Contains("not enough margin") || w.Contains("stop out") || w.Contains("stopout"); }
         public void Stop(string why) { if (!Running) return; Running = false; Phase = "OFF"; StopReason = why; pendId = null; Note("■ STOP — " + why); }
 
         // ---- one look at the market (every tick of the BACKTEST, every refresh live)

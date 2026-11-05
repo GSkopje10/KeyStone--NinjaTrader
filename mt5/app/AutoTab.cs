@@ -261,6 +261,7 @@ namespace KeystoneMT5
             var raceBtn = Pill("🏁 RACE", Tint(Sx.Card2, 220)); raceBtn.Height = 26; raceBtn.ToolTip = "every strategy at once in the background, each on its own simulated account — the leaderboard of the day and the history"; raceBtn.Click += delegate { aView = "🏁 RACE"; AutoPaint(true); RacePaint(); }; aViews.Children.Add(raceBtn);
             aGuideBtn = Pill("🎯 CHART GUIDES", Tint(Sx.Card2, 220)); aGuideBtn.Height = 26; aGuideBtn.ToolTip = "draw what the strategy watches on the 📈 CHART (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge) — a STRONG setup blinks"; aGuideBtn.Click += delegate { aGuidesOn = !aGuidesOn; Put("auto.guides", aGuidesOn ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aGuideBtn);
             var exp = Pill("📦 EXPORT FOR CLAUDE", Tint(Violet, 90)); exp.Height = 26; exp.ToolTip = "everything of this account in ONE organized folder + ONE .zip (settings, iterations, trades, story, analysis, learn, log, the candles, the race) — send the .zip to Claude to analyze"; exp.Click += delegate { AutoExport(); }; aViews.Children.Add(exp);
+            aRebornBtn = Pill("", Tint(Sx.Card2, 220)); aRebornBtn.Height = 26; aRebornBtn.ToolTip = "DEMO only: a blown account (no money / margin, or under 10 % of the start) restarts by itself at the DEMO's start balance — the blow-up and every iteration are saved"; aRebornBtn.Click += delegate { Put("auto.reborn." + AKey, RebornOn ? "0" : "1"); AutoPaint(true); }; aRebornBtn.Visibility = Paper ? Visibility.Visible : Visibility.Collapsed; aViews.Children.Add(aRebornBtn);
             var clr = Pill("🗑 CLEAR HISTORY", Tint(Sx.Card2, 220)); clr.Height = 26; clr.Click += delegate { AutoClear(); }; aViews.Children.Add(clr);
             root.Children.Add(aViews);
             aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 13.5, MinHeight = 160, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Visible, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
@@ -364,6 +365,32 @@ namespace KeystoneMT5
                 auto.Note(why + " → applied from the NEXT iteration (DEMO / BACKTEST: by itself). The open basket keeps its settings."); Toast("🧠 learned: " + top.Key + " — from the next iteration");
             }
             else auto.Note(why + " → PROPOSED (a real account changes only when you pick it in ⚙ SETTINGS).");
+        }
+        // 💥 AUTO RESTART ON A BLOW-UP (user's request: "it keeps testing while I am away") — DEMO only, never a real / prop account:
+        // blown = stopped for lack of money / margin, or flat under 10 % of the start balance → close what is left, save the blow-up
+        // (DataDir\auto\blowups-*.csv + the story), the simulated balance back to the DEMO's start balance (a balance deal: the history and
+        // every iteration stay) and the automation starts again by itself with the same settings. 💥 AUTO RESTART in the views row turns it off.
+        Button aRebornBtn; DateTime aRebornAt = DateTime.MinValue;
+        bool RebornOn { get { return Get("auto.reborn." + AKey, "1") == "1"; } }
+        void AutoReborn()
+        {
+            if (!Paper || paper == null || !RebornOn || !paper.Ready || (DateTime.Now - aRebornAt).TotalSeconds < 10) return;
+            double start; if (!double.TryParse(Get("demo.bal", "5000"), System.Globalization.NumberStyles.Float, IC, out start) || start <= 0) start = 5000;
+            double bal, eq; int open; DateTime now; string sym = (auto.Running ? auto.Set : aset).Symbol;
+            lock (broker.State.Gate) { bal = broker.State.Account.Balance; eq = broker.State.Account.Equity; open = broker.State.Positions.Count(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)); now = broker.State.ServerNow > DateTime.MinValue ? broker.State.ServerNow : DateTime.Now; }
+            bool wasOn = Get("auto.run." + AKey, "0") == "1" || auto.Running;
+            bool broke = !auto.Running && HedgeAuto.IsBlowReason(auto.StopReason), low = open == 0 && bal < 0.1 * start && (auto.Running || wasOn);
+            if (!(broke || low)) return;
+            aRebornAt = DateTime.Now;
+            if (open > 0) { AutoSend("CLOSEALL", new object[] { sym, "ALL" }, "CLOSE ALL " + sym + " (💥 blow-up: the DEMO restarts)"); return; }
+            int life = 1; int.TryParse(Get("auto.life." + AKey, "0"), out life); life++; Put("auto.life." + AKey, life.ToString(IC));
+            string why = broke ? auto.StopReason : "the balance $" + bal.ToString("N2", IC) + " is under 10 % of the start $" + start.ToString("N0", IC);
+            try { var f = System.IO.Path.Combine(Dir, "auto", "blowups-" + string.Concat(AKey.Where(c => !System.IO.Path.GetInvalidFileNameChars().Contains(c))) + ".csv"); System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(f)); if (!System.IO.File.Exists(f)) System.IO.File.WriteAllText(f, "time,blowup,balance,equity,iterations_done,why\n"); System.IO.File.AppendAllText(f, now.ToString("yyyy-MM-dd HH:mm:ss", IC) + "," + life + "," + bal.ToString("0.00", IC) + "," + eq.ToString("0.00", IC) + "," + auto.Iterations.Count(x => x.Done) + ",\"" + why.Replace("\"", "'") + "\"\n"); } catch { }
+            if (auto.Running) auto.Stop("💥 blow-up: the DEMO restarts");
+            lock (broker.State.Gate) paper.Acct.SetBalance(start, now);
+            var s = (auto.Set ?? aset).Copy(); auto.Note("💥 BLOW-UP #" + life + " — " + why + " → the DEMO balance is back at $" + start.ToString("N0", IC) + " and the automation starts again by itself (every iteration and the blow-up are saved)");
+            if (auto.Check(broker, s) == "") { auto.Start(broker, s, false); Put("auto.run." + AKey, "1"); aWasOn = true; }
+            Toast("💥 blow-up #" + life + " — the DEMO restarted with $" + start.ToString("N0", IC)); AutoPaint(true);
         }
         internal Button aChartManual;   // the same switch on the 📈 chart's toolbar (user's request)
         void AutoManualToggle()
@@ -986,7 +1013,9 @@ namespace KeystoneMT5
             if (aWasOn && !on && auto.StopReason != "the window closed") Put("auto.run." + AKey, "0"); aWasOn = on;
             if (!on) aStart.Content = AutoWasRunning() ? "⟳  RESUME (it was running)" : "▶  START";
             try { AutoPostMortems(); } catch { }
+            try { AutoReborn(); } catch { }
             if (aManual != null) { aManual.Content = auto.ManualManage ? "✋  MANUAL MANAGE: ON" : "✋  MANUAL MANAGE: OFF"; aManual.Background = auto.ManualManage ? Tint(Violet, 170) : Tint(Violet, 50); }
+            if (aRebornBtn != null) { aRebornBtn.Content = "💥 AUTO RESTART: " + (RebornOn ? "ON" : "OFF"); aRebornBtn.Background = RebornOn ? Tint(Green, 90) : Tint(Sx.Card2, 220); }
             if (aChartManual != null) { aChartManual.Content = auto.ManualManage ? "✋ MANUAL: ON" : "✋ MANUAL: OFF"; aChartManual.Background = auto.ManualManage ? Tint(Violet, 170) : (Brush)Card; }
             aPhase.Text = "🛡 HEDGE — " + (on ? auto.Phase : "OFF") + (on ? "  •  " + s.Symbol + " " + Tf.Name(s.Tf) : ""); aPhase.Foreground = on ? Green : Muted;
             aCard.BorderBrush = on ? Green : Line;
@@ -1151,7 +1180,7 @@ namespace KeystoneMT5
         }
         void AutoTablePaint()
         {
-            foreach (Button b in aViews.Children) if (b.Content is string) { if (b == aSetBtn) { bool selS = aView == "⚙ SETTINGS"; b.Background = Tint(Gold, (byte)(selS ? 255 : 190)); b.Foreground = Bg; b.BorderBrush = selS ? Sx.White : Gold; continue; } b.Background = (string)b.Content == aView ? Tint(Cyan, 70) : Tint(Sx.Card2, 220); }   // ⚙ SETTINGS stays gold (step 1)
+            foreach (Button b in aViews.Children) if (b.Content is string) { if (b == aRebornBtn) continue; if (b == aSetBtn) { bool selS = aView == "⚙ SETTINGS"; b.Background = Tint(Gold, (byte)(selS ? 255 : 190)); b.Foreground = Bg; b.BorderBrush = selS ? Sx.White : Gold; continue; } b.Background = (string)b.Content == aView ? Tint(Cyan, 70) : Tint(Sx.Card2, 220); }   // ⚙ SETTINGS stays gold (step 1)
             var L = AutoLines(aView);
             aTable.TextWrapping = aView == "STORY" || aView == "LOG" ? TextWrapping.Wrap : TextWrapping.NoWrap;
             bool other = aView == "⚙ SETTINGS" || aView == "🏁 RACE", rowsView = !other && (aView == "ITERATIONS" || aView == "TRADES" || aView == "🗂 TESTS");
