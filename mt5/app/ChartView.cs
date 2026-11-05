@@ -295,10 +295,11 @@ namespace KeystoneMT5
                     if (string.IsNullOrEmpty(g.Label)) continue; var bc = g.Color as SolidColorBrush; var bcol = bc != null ? bc.Color : Colors.White;
                     double bph = g.Dash ? ph : 0.5 + 0.5 * Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 450.0); if (g.Blink) guidesBlink = true;
                     var btx = T(g.Label, 12, new SolidColorBrush(Color.FromRgb(bcol.R, bcol.G, bcol.B)), true, true); double bw = Math.Min(plotW - 20, btx.Width + 24), bx = Math.Max(10, (plotW - bw) / 2), by = TopPad + 8;
+                    btx.MaxTextWidth = Math.Max(20, bw - 24); btx.MaxLineCount = 2; btx.Trimming = TextTrimming.CharacterEllipsis; btx.TextAlignment = TextAlignment.Center;   // a long banner wraps onto 2 lines INSIDE its box (user's catch: it was cut off)
                     byte ba = (byte)(g.Blink ? 120 + 135 * bph : 140);
                     dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(225, 10, 14, 22)), new Pen(new SolidColorBrush(Color.FromArgb(ba, bcol.R, bcol.G, bcol.B)), g.Dash ? 3 : 2), new Rect(bx, by, bw, btx.Height + 12), 8, 8);
                     if (g.Blink) dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb((byte)(20 + 40 * bph), bcol.R, bcol.G, bcol.B)), null, new Rect(bx, by, bw, btx.Height + 12), 8, 8);
-                    btx.MaxTextWidth = Math.Max(20, bw - 20); btx.Trimming = TextTrimming.CharacterEllipsis; dc.DrawText(btx, new Point(bx + 12, by + 6)); continue;
+                    dc.DrawText(btx, new Point(bx + 12, by + 6)); continue;
                 }
                 if (Ind.Contains("VWAP") && g.Kind != "ZONE" && g.Kind != "SIGNAL" && (g.Label ?? "").StartsWith("VWAP")) continue;   // the chart's own VWAP line is on: ONE VWAP line, not two
                 if (g.Blink) guidesBlink = true; var sc = g.Color as SolidColorBrush; var col = sc != null ? sc.Color : Colors.White; double a = g.Blink ? 0.3 + 0.7 * ph : 0.85;

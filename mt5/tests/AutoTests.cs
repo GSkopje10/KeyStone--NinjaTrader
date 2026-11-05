@@ -497,6 +497,13 @@ public static class AutoTests
                 "smart: the conditions that mostly got stuck before are skipped (every 5th still explores); saved; off in DEFENDER (the replay)", rS0.Item2.Trades.Count + " vs " + rS1.Item2.Trades.Count + " trades, " + rS1.Item2.SmartSkips + " skips • " + rS1.Item2.SmartState);
             var aS = new HedgeAuto(); hist(aS); Check(aS.SmartSkip("session=ASIA;hour=01") == "" && aS.SmartSkip("session=LATE;hour=17").Contains("12 of 12"), "smart: a clean condition trades, a stuck one is named with its numbers", aS.SmartSkip("session=LATE;hour=17"));
         }
+        {   // 🔄 RECOVERED EXIT: a SELL goes −$60 deep in a climb, the price comes back → it closes near breakeven (within −$4) instead of waiting for +$20
+            var pRx = Path(Day1, 4000, Line(4000, 0.5, 12).Concat(Line(4006, -0.25, 40)));
+            var sRx = S(); sRx.FirstDir = "SELL"; sRx.HedgeMode = "NONE"; sRx.MaxIterations = 1; sRx.Target = 20; sRx.RecoverExit = true; sRx.RecDeep = 2; sRx.RecKeep = 20;
+            var iRx = Run(pRx, sRx).Item2.Iterations.FirstOrDefault(); var sRx0 = sRx.Copy(); sRx0.RecoverExit = false; var iRx0 = Run(pRx, sRx0).Item2.Iterations.FirstOrDefault();
+            Check(iRx != null && iRx.Done && iRx.Reason == "RECOVERED" && iRx.MaxDd <= -40 && iRx.Result >= -6 && iRx.Result < 5 && iRx0 != null && iRx0.Reason != "RECOVERED" && AutoSettings.Load(sRx.Save()).RecoverExit && !AutoSettings.Model("DEFENDER", new AutoSettings(), 5000).RecoverExit && !AutoSettings.Load("sym=XAUUSD").RecoverExit,
+                "recovered exit: −$60 deep, back near breakeven → closed at a tiny loss (off: it rides on); saved; off in DEFENDER (the replay)", iRx == null ? "none" : iRx.Reason + " " + iRx.Result.ToString("0.00") + " dd " + iRx.MaxDd.ToString("0.00") + " / off: " + (iRx0 == null ? "none" : iRx0.Reason + " " + iRx0.Result.ToString("0.00")));
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }

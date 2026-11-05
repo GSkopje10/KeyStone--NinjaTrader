@@ -34,6 +34,8 @@ static class P {
       Tuple.Create("U1 yours now + entry candle", (Action<AutoSettings>)(s => { Cp(AutoSettings.Model("DEFENDER", s, 5000), s); s.EntryLots = 0.25; s.NetAdvantage = 0.05; s.HedgeSize = "STEPLEAD"; s.Target = 50; s.AddLots = 0.5; s.CandleHedge = true; })),
       Tuple.Create("U2 DEFENDER + entry candle", (Action<AutoSettings>)(s => { Cp(AutoSettings.Model("DEFENDER", s, 5000), s); s.CandleHedge = true; })),
       Tuple.Create("U3 yours now + SMART", (Action<AutoSettings>)(s => { Cp(AutoSettings.Model("DEFENDER", s, 5000), s); s.EntryLots = 0.25; s.NetAdvantage = 0.05; s.HedgeSize = "STEPLEAD"; s.Target = 50; s.AddLots = 0.5; s.Smart = true; })),
+      Tuple.Create("U4 yours now + RECOVERED", (Action<AutoSettings>)(s => { Cp(AutoSettings.Model("DEFENDER", s, 5000), s); s.EntryLots = 0.25; s.NetAdvantage = 0.05; s.HedgeSize = "STEPLEAD"; s.Target = 50; s.AddLots = 0.5; s.RecoverExit = true; })),
+      Tuple.Create("U5 yours now NO recovered", (Action<AutoSettings>)(s => { Cp(AutoSettings.Model("DEFENDER", s, 5000), s); s.EntryLots = 0.25; s.NetAdvantage = 0.05; s.HedgeSize = "STEPLEAD"; s.Target = 50; s.AddLots = 0.5; s.RecoverExit = false; })),
       Tuple.Create("V4 SAFE x3", (Action<AutoSettings>)(s => { x(s, 0.03); })),
       Tuple.Create("V5 SAFE x5 scale", (Action<AutoSettings>)(s => { x(s, 0.05); s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; })),
       Tuple.Create("V6 SAFE x5 hcap3 quick", (Action<AutoSettings>)(s => { x(s, 0.05); s.HedgeCap = 3; s.QuickHedge = true; s.QuickAfter = 3; })),
