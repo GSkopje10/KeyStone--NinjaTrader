@@ -515,6 +515,14 @@ public static class AutoTests
             var bsT = aB.BestSetups(5);
             Check(bsT.Count >= 4 && bsT[0].Item1 == "session = LONDON" && bsT[0].Item3 == 100 && bsT[bsT.Count - 1].Item1 == "session = ASIA" && HedgeAuto.Clean(aB.Iterations[0]) && !HedgeAuto.Clean(aB.Iterations[20]), "best setups: the condition with the clean baskets ranks first, the stuck one last", string.Join(" | ", bsT.Select(t => t.Item1 + " " + t.Item3.ToString("0"))));
         }
+        {   // 🔐 BREAKEVEN LOCK: a BUY runs to +$17 of a $20 target (85 %), then falls — an equal SELL locks it near +$2 (10 %), no drawdown
+            var pBe = Path(Day1, 4000, Line(4000, 0.5, 4).Concat(Line(4002, -0.25, 40)));
+            var sBe = S(); sBe.HedgeMode = "PRICE"; sBe.HedgePrice = 8; sBe.MaxIterations = 1; sBe.Target = 20; sBe.BeLock = true; sBe.BeLockAt = 80; sBe.BeLockKeep = 10;
+            var rBe = Run(pBe, sBe); var aBe = rBe.Item2; var sellBe = aBe.Trades.FirstOrDefault(t => t.Side == "SELL");
+            var sBe0 = sBe.Copy(); sBe0.BeLock = false; var aBe0 = Run(pBe, sBe0).Item2;
+            Check(sellBe != null && Math.Abs(sellBe.Lots - 0.1) < 1e-9 && aBe.Locked && aBe.Story.Any(x => x.Item2.Contains("BREAKEVEN LOCK ARMED")) && aBe.Current != null && aBe.Current.MaxDd > aBe0.Current.MaxDd + 10 && AutoSettings.Load(sBe.Save()).BeLock && !AutoSettings.Load("sym=XAUUSD").BeLock,
+                "breakeven lock: after 80 % of the target an equal hedge locks the basket at its small profit (off: it falls into a drawdown); saved; off by default", (sellBe == null ? "no sell" : sellBe.Lots + "@" + sellBe.Price) + " locked " + aBe.Locked + " dd " + (aBe.Current == null ? "-" : aBe.Current.MaxDd.ToString("0.00")) + " vs off " + (aBe0.Current == null ? "-" : aBe0.Current.MaxDd.ToString("0.00")));
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }

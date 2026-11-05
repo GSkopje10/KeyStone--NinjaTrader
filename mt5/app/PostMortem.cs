@@ -56,6 +56,7 @@ namespace KeystoneMT5
                 Tuple.Create("DANGER EXIT", (Action<AutoSettings>)(s => { s.DangerExit = true; s.DangerAt = 50; s.DangerKeep = 25; })),
                 Tuple.Create("HEDGE AT THE ENTRY CANDLE", (Action<AutoSettings>)(s => { s.CandleHedge = true; })),
                 Tuple.Create("RECOVERED EXIT", (Action<AutoSettings>)(s => { s.RecoverExit = true; s.RecDeep = 2; s.RecKeep = 20; })),
+                Tuple.Create("BREAKEVEN LOCK", (Action<AutoSettings>)(s => { s.BeLock = true; s.BeLockAt = 80; s.BeLockKeep = 10; })),
                 Tuple.Create("TREND-AWARE HEDGE", (Action<AutoSettings>)(s => { s.TrendHedge = true; s.TrendHedgeMult = 2; })),
                 Tuple.Create("HEDGE ONLY BEYOND THE RANGE + RESCUE 3", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 3; })),
                 Tuple.Create("DEFENDER", (Action<AutoSettings>)(s => { var d = AutoSettings.Model("DEFENDER", s, balance); foreach (var f in typeof(AutoSettings).GetFields()) if (!f.IsInitOnly && !f.IsLiteral) f.SetValue(s, f.GetValue(d)); })),
