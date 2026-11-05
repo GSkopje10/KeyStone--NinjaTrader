@@ -386,7 +386,12 @@ namespace KeystoneMT5
             bool broke = !auto.Running && HedgeAuto.IsBlowReason(auto.StopReason), low = open == 0 && bal < 0.1 * start && (auto.Running || wasOn);
             if (!(broke || low)) return;
             aRebornAt = DateTime.Now;
-            if (open > 0) { AutoSend("CLOSEALL", new object[] { sym, "ALL" }, "CLOSE ALL " + sym + " (💥 blow-up: the DEMO restarts)"); return; }
+            if (open > 0)
+            {   // positions still open = NOT blown (the demo's own stop-out closes a truly blown account): never close them here — the
+                // automation goes on managing them (it was only an order it could not afford)
+                if (!auto.Running) { var sr = (auto.Set ?? aset).Copy(); if (auto.Check(broker, sr) == "") { auto.Start(broker, sr, true); Put("auto.run." + AKey, "1"); aWasOn = true; auto.Note("⟳ the automation was stopped for lack of margin with " + open + " position(s) open → it RESUMED and manages them (nothing was closed)"); } }
+                return;
+            }
             int life = 1; int.TryParse(Get("auto.life." + AKey, "0"), out life); life++; Put("auto.life." + AKey, life.ToString(IC));
             string why = broke ? auto.StopReason : "the balance $" + bal.ToString("N2", IC) + " is under 10 % of the start $" + start.ToString("N0", IC);
             try { var f = System.IO.Path.Combine(Dir, "auto", "blowups-" + string.Concat(AKey.Where(c => !System.IO.Path.GetInvalidFileNameChars().Contains(c))) + ".csv"); System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(f)); if (!System.IO.File.Exists(f)) System.IO.File.WriteAllText(f, "time,blowup,balance,equity,iterations_done,why\n"); System.IO.File.AppendAllText(f, now.ToString("yyyy-MM-dd HH:mm:ss", IC) + "," + life + "," + bal.ToString("0.00", IC) + "," + eq.ToString("0.00", IC) + "," + auto.Iterations.Count(x => x.Done) + ",\"" + why.Replace("\"", "'") + "\"\n"); } catch { }

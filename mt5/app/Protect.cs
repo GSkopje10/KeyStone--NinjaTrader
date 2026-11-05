@@ -138,6 +138,21 @@ namespace KeystoneMT5
                 Grid.SetRow(asMine, row); Grid.SetColumnSpan(asMine, 2); g.Children.Add(asMine); row++;   // its own full-width row (it was pushed off the narrow type row)
                 if (icm && Get("demo.kind", "") == "") { kind = "STANDARD"; com.Text = "0"; mk.Text = "0"; pct.Text = "0"; hpct.Text = "-1"; paint(); }   // a new IC Markets demo starts like the real account
             }
+            if (!first && paper.Ready)
+            {   // ✔ APPLY (user's request: "edit the demo account without resetting everything"): the type, spread, commission, leverage and
+                // hedged margin change on the RUNNING account — its balance, open tickets and history stay
+                var apply = Pill("✔ APPLY — KEEP MY BALANCE AND POSITIONS", Tint(Cyan, 110)); apply.Height = 34; apply.FontSize = 13; apply.Margin = new Thickness(0, 0, 0, 8); apply.HorizontalAlignment = HorizontalAlignment.Stretch;
+                g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); Grid.SetRow(apply, row); Grid.SetColumnSpan(apply, 2); g.Children.Add(apply); row++;
+                apply.Click += delegate
+                {
+                    Func<TextBox, double> hn = b => { double v; return double.TryParse(b.Text.Replace(',', '.'), NumberStyles.Float, IC, out v) ? (v < 0 ? -1 : Math.Min(100, v)) : -1; };
+                    Func<TextBox, double, double> nm = (b, d) => { double v; return double.TryParse(b.Text.Replace(',', '.'), NumberStyles.Float, IC, out v) && v >= 0 ? v : d; };
+                    lock (broker.State.Gate) { var cs = paper.Acct.Set; cs.Kind = kind; cs.CommissionPerLot = nm(com, 7); cs.MarkupPts = nm(mk, 10); cs.CommissionPct = nm(pct, 0); cs.HedgedPct = hn(hpct); cs.Leverage = (int)Math.Max(1, nm(lev, 500)); }
+                    Put("demo.pct", pct.Text); Put("demo.hpct", hpct.Text); Put("demo.lev", lev.Text); Put("demo.kind", kind); Put("demo.com", com.Text); Put("demo.mk", mk.Text);
+                    Toast("✔ DEMO account updated — " + kind + (kind == "RAW" ? " +" + mk.Text + " pts" : " • commission $" + com.Text + "/lot") + " • the balance and positions stay"); posSig = ""; trackSig = "";
+                    var wnd = Window.GetWindow(apply); if (wnd != null) wnd.Close();
+                };
+            }
             string txt = "Your MT5's REAL prices and candles, with a simulated account: every button works like live — nothing reaches MT5.\nRAW = no commission, the spread wider by the extra points • STANDARD = MT5's spread (near 0) + commission per lot (round turn).\nCOMMISSION % = a broker that charges a share of each deal's value (Duramarkets: 0.001 % on every in and out deal — gold 0.1 lot ≈ $0.40 a side); it applies to RAW and STANDARD.\nHEDGED PAIR MARGIN = the margin a buy and a sell of the same size need together: −1 = what this broker's MT5 says for the symbol (" + hedgedSays + " for XAUUSD), 50 = half, 100 = both legs in full (the strictest: margin calls come sooner)."
                 + (!first && paper.Ready ? "\n\n⚠ A NEW account replaces the current one (its tickets and history are cleared)." : "");
             if (!Sx.Form(this, "🎮 DEMO ACCOUNT", txt, g, first || !paper.Ready ? "START THE DEMO" : "START A NEW DEMO", "CANCEL", Orange)) { if (!paper.Ready) Toast("🎮 set up the DEMO account in the panel to trade"); return; }

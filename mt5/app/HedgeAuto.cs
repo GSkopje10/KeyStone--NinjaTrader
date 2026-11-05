@@ -483,6 +483,11 @@ namespace KeystoneMT5
                     if (pendKind == "CLOSE1" || pendKind == "TRIM" || pendKind == "PAIR" || pendKind == "PAIR2" || pendKind == "SCALE") { if (pendKind == "TRIM" || pendKind == "PAIR" || pendKind == "PAIR2") Locked = true; Note("⚠ close of #" + pendTicket + " refused: " + no + " — trying again"); return; }
                     if (pendKind == "CLOSESIDE") { Note("⚠ lift (close the " + pendSide + "s) refused: " + no + " — trying again"); Locked = true; return; }
                     if (pendKind == "CLOSE") { Note("⚠ close refused: " + no + " — trying again"); closeSeen = DateTime.MinValue; return; }
+                    if (pendKind == "ORDER" && sn.Pos.Count > 0 && IsBlowReason(no))
+                    {   // ⚠ the hedge / add-on / lock was refused for margin while a basket is open: HOLD and keep managing (never stop the automation)
+                        marginWait = Now.AddMinutes(2); var mk = "MARGIN" + Now.ToString("yyyyMMddHH", IC); if (mk != marginNote) { marginNote = mk; Tell("⚠ NOT ENOUGH MARGIN — MT5 refused the " + pendWhy + " (" + no + ") → the automation HOLDS and keeps managing the basket (targets, rescue, locks, hard stops); new orders are tried again in 2 minutes."); }
+                        return;
+                    }
                     Stop("MT5 refused the " + pendWhy + ": " + no); return;
                 }
                 if (pendOk == DateTime.MinValue) pendOk = DateTime.Now;
@@ -995,11 +1000,19 @@ namespace KeystoneMT5
             Hedges.Add(new HedgeEvent { Iter = Current != null ? Current.N : 0, Time = Now, Kind = kind, Dir = dir, Price = dir > 0 ? sn.Ask : sn.Bid, Lots = lots, RangeLo = sn.Pos.Count > 0 ? sn.Pos.Min(p => p.Open) : sn.Bid, RangeHi = sn.Pos.Count > 0 ? sn.Pos.Max(p => p.Open) : sn.Bid, Atr = atr, Basket = Basket, Before = Current != null ? Current.AddOns : 0, Ctx = Context(sn, dir) });
             if (Hedges.Count > 3000) Hedges.RemoveRange(0, 500);
         }
+        DateTime marginWait = DateTime.MinValue; string marginNote = "";
         void Order(Snap sn, int dir, double lots, string why, double level)
         {
+            if (sn.Pos.Count > 0 && Now < marginWait) return;   // ⚠ holding after a margin refusal
             var label = (dir > 0 ? "BUY " : "SELL ") + lots.ToString("0.##", IC) + " " + Set.Symbol + " (🤖 #" + Current.N + " " + why + ")";
             Refused = ""; var id = Ask("ORDER", new object[] { Set.Symbol, dir > 0 ? "BUY" : "SELL", lots, 0.0, 0.0, 0.0 }, label);
             if (id == null && sugg) return;
+            if (id == null && sn.Pos.Count > 0 && IsBlowReason(Refused))
+            {   // ⚠ not enough margin for THIS order while a basket is open (user's catch: "the whole automation stopped"): never stop — hold,
+                // keep managing the basket (targets, rescue, locks, hard stops), try orders again in 2 minutes
+                marginWait = Now.AddMinutes(2); var mk = "MARGIN" + Now.ToString("yyyyMMddHH", IC); if (mk != marginNote) { marginNote = mk; Tell("⚠ NOT ENOUGH MARGIN for " + label + " (" + Refused + ") → the automation HOLDS and keeps managing the basket (targets, rescue, locks, hard stops); new orders are tried again in 2 minutes."); }
+                return;
+            }
             if (id == null) { Stop("the order was not sent: " + (Refused != "" ? Refused : "trading is not armed / allowed")); return; }
             pendId = id; pendKind = "ORDER"; pendSent = DateTime.Now; pendOk = DateTime.MinValue; pendGross = Gross(sn.Pos) + lots; pendDirAfter = dir; pendLots = lots; pendWhy = why; pendLevel = level;
             Note("→ " + label);

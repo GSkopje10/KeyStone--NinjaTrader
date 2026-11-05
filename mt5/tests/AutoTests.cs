@@ -523,6 +523,11 @@ public static class AutoTests
             Check(sellBe != null && Math.Abs(sellBe.Lots - 0.1) < 1e-9 && aBe.Locked && aBe.Story.Any(x => x.Item2.Contains("BREAKEVEN LOCK ARMED")) && aBe.Current != null && aBe.Current.MaxDd > aBe0.Current.MaxDd + 10 && AutoSettings.Load(sBe.Save()).BeLock && !AutoSettings.Load("sym=XAUUSD").BeLock,
                 "breakeven lock: after 80 % of the target an equal hedge locks the basket at its small profit (off: it falls into a drawdown); saved; off by default", (sellBe == null ? "no sell" : sellBe.Lots + "@" + sellBe.Price) + " locked " + aBe.Locked + " dd " + (aBe.Current == null ? "-" : aBe.Current.MaxDd.ToString("0.00")) + " vs off " + (aBe0.Current == null ? "-" : aBe0.Current.MaxDd.ToString("0.00")));
         }
+        {   // ⚠ a hedge the margin cannot afford while a basket is open: the automation HOLDS and keeps managing (it used to stop completely)
+            var sMg = S(); sMg.FirstDir = "BUY"; sMg.HedgeMode = "PRICE"; sMg.HedgePrice = 2; sMg.AddLots = 50; sMg.MaxIterations = 1;
+            var rMg = Run(Path(Day1, 4000, Line(4000, -0.25, 30)), sMg); var aMg = rMg.Item2; int posMg; lock (rMg.Item1.State.Gate) posMg = rMg.Item1.State.Positions.Count;
+            Check(aMg.Running && posMg == 1 && aMg.Story.Any(x => x.Item2.Contains("NOT ENOUGH MARGIN")) && aMg.Story.Count(x => x.Item2.Contains("NOT ENOUGH MARGIN")) <= 2, "margin refusal in a basket: it holds and keeps running (told once an hour), the basket stays managed", aMg.Running + " " + aMg.StopReason + " / " + posMg);
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }
