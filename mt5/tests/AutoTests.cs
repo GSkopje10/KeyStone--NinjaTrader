@@ -434,6 +434,30 @@ public static class AutoTests
         Check(dr.Count == DayLab.Modes.Length && dr.Select(x => x.Mode).Distinct().Count() == DayLab.Modes.Length && dr.Zip(dr.Skip(1), (a, b) => a.Net >= b.Net).All(x => x) && dr.Sum(x => x.Iterations) > 0, "day: every setup replayed and ranked by net", string.Join(" | ", dr.Select(x => x.Mode + " " + x.Iterations + " it " + x.Net.ToString("0") + " " + x.Note)));
         var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-day-" + Guid.NewGuid().ToString("N") + ".csv"); DayLab.Save(tmp, dr); DayLab.Save(tmp, dr); var back = DayLab.Load(tmp); System.IO.File.Delete(tmp);
         Check(back.Count == DayLab.Modes.Length && Math.Abs(back.Sum(x => x.Net) - dr.Sum(x => x.Net)) < 0.05, "day: saved per day (saving again replaces it)", back.Count + "");
+        {   // ✋ MANUAL MANAGE: the climb that buys in test 1 now only SUGGESTS — nothing sent, no iteration, the suggestion names the BUY
+            var rM = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), S(), prep: a0 => a0.SetManualManage(true)); var aM = rM.Item2; int posM; lock (rM.Item1.State.Gate) posM = rM.Item1.State.Positions.Count;
+            Check(posM == 0 && aM.Trades.Count == 0 && aM.Iterations.Count == 0 && aM.Suggestion.StartsWith("BUY 0.1") && aM.Log.Count(x => x.Contains("💡 SUGGEST")) <= 45, "manual manage: AUTO sends nothing, it suggests the BUY (once per new level, not every tick)", posM + " pos / " + aM.Trades.Count + " trades / '" + aM.Suggestion + "' / " + aM.Log.Count(x => x.Contains("💡 SUGGEST")));
+            // OFF again mid-run: AUTO trades by itself again
+            var rM2 = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), S(), mid: (b0, a0) => a0.SetManualManage(false), prep: a0 => a0.SetManualManage(true));
+            Check(rM2.Item2.Iterations.Count(x => x.Done) >= 1, "manual manage OFF: AUTO sends its orders again", rM2.Item2.Iterations.Count + "");
+            // a basket in manual managing: the hedge is only suggested (SELL first in a climb, a $2 price add-on)
+            var sMh = S(); sMh.FirstDir = "SELL"; sMh.HedgeMode = "PRICE"; sMh.HedgePrice = 2; sMh.MaxIterations = 1;
+            var rMh = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), sMh, mid: (b0, a0) => a0.SetManualManage(true)); int sellsMh, buysMh; lock (rMh.Item1.State.Gate) { sellsMh = rMh.Item1.State.Positions.Count(p => p.Dir < 0); buysMh = rMh.Item1.State.Positions.Count(p => p.Dir > 0); }
+            Check(sellsMh == 1 && buysMh == 0 && rMh.Item2.Suggestion.Contains("BUY"), "manual manage: the open basket's hedge is suggested, not sent", sellsMh + "/" + buysMh + " '" + rMh.Item2.Suggestion + "'");
+        }
+        {   // 🛡 DEFENDER: sized from the balance, the guard + the danger exit on, saved and read back
+            var dfn = AutoSettings.Model("DEFENDER", new AutoSettings { Symbol = "XAUUSD" }, 10000); var dfb = AutoSettings.Load(dfn.Save());
+            Check(Math.Abs(dfn.EntryLots - 0.1) < 1e-9 && Math.Abs(dfn.Target - 20) < 1e-9 && dfn.HedgeSize == "ADVANTAGE" && dfn.RiskGuard && dfn.DangerExit && dfb.DangerExit && dfb.DangerAt == 60 && dfb.DangerKeep == 25 && Math.Abs(AutoSettings.Model("DEFENDER", new AutoSettings(), 5000).EntryLots - 0.05) < 1e-9 && !AutoSettings.Load("sym=XAUUSD").DangerExit,
+                "defender: 0.01 lot per $1,000, fixed lead, risk guard, danger exit (saved and read back; old settings: off)", dfn.EntryLots + " " + dfn.Target + " " + dfb.DangerAt);
+            // 🚨 the danger meter: a SELL in a $20 climb ($200 down on $10k) → the meter rises, names the loss; the peak stays
+            var sDg = S(); sDg.FirstDir = "SELL"; sDg.HedgeMode = "NONE"; sDg.MaxIterations = 1;
+            var rDg = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), sDg); var aDg = rDg.Item2;
+            Check(aDg.Current != null && aDg.Danger >= 8 && aDg.DangerPeak >= aDg.Danger && aDg.DangerWhy.Contains("down"), "danger meter: a losing basket rises on the meter and names why", aDg.Danger + " '" + aDg.DangerWhy + "'");
+            // 🚨 DANGER EXIT: down $100, then back → closes at +25 % of the $40 target ($10) instead of waiting for +$40
+            var sDx = S(); sDx.FirstDir = "SELL"; sDx.HedgeMode = "NONE"; sDx.MaxIterations = 1; sDx.Target = 40; sDx.DangerExit = true; sDx.DangerAt = 4; sDx.DangerKeep = 25;
+            var rDx = Run(Path(Day1, 4000, Line(4000, 0.5, 20).Concat(Line(4010, -0.5, 40))), sDx); var iDx = rDx.Item2.Iterations.FirstOrDefault();
+            Check(iDx != null && iDx.Done && iDx.Reason == "DANGER EXIT" && iDx.Result >= 10 && iDx.Result < 30, "danger exit: after the danger a smaller profit is taken (25 % of the target)", iDx == null ? "none" : iDx.Reason + " " + iDx.Result);
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }

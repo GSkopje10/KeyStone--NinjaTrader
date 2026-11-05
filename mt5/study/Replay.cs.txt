@@ -17,6 +17,26 @@ static class P {
       Tuple.Create("range+rescue5 lead 0.1", (Action<AutoSettings>)(s => { s.RangeOnly = true; s.BeAfter = 5; s.NetAdvantage = 0.1; })),
     };
     var only = Environment.GetEnvironmentVariable("ONLY");
+    if (Environment.GetEnvironmentVariable("CMP11") == "1") { var safe = AutoSettings.Model("SAFE", baseS); Action<AutoSettings, double> x = (s, l) => { Cp(safe, s); s.EntryLots = l; s.NetAdvantage = l; s.AddLots = l * 2; s.Target = l * 200; };
+      variants = new List<Tuple<string, Action<AutoSettings>>> {
+      Tuple.Create("V1 SAFE x5", (Action<AutoSettings>)(s => { x(s, 0.05); })),
+      Tuple.Create("V2 SAFE x5 hf15", (Action<AutoSettings>)(s => { x(s, 0.05); s.HardFloat = 15; })),
+      Tuple.Create("V3 SAFE x5 guard", (Action<AutoSettings>)(s => { x(s, 0.05); s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = 1.0; s.GuardMargin = 500; s.GuardChop = 3; s.PairOff = true; })),
+      Tuple.Create("V7 guard+scale", (Action<AutoSettings>)(s => { x(s, 0.05); s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = 1.0; s.GuardMargin = 500; s.GuardChop = 3; s.PairOff = true; s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; })),
+      Tuple.Create("V8 guard+scale+trendhedge", (Action<AutoSettings>)(s => { x(s, 0.05); s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = 1.0; s.GuardMargin = 500; s.GuardChop = 3; s.PairOff = true; s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; s.TrendHedge = true; s.TrendHedgeMult = 2; })),
+      Tuple.Create("V9 V7 hf35", (Action<AutoSettings>)(s => { x(s, 0.05); s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = 1.0; s.GuardMargin = 500; s.GuardChop = 3; s.PairOff = true; s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; s.HardFloat = 35; })),
+      Tuple.Create("V10 V7 glots0.6", (Action<AutoSettings>)(s => { x(s, 0.05); s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = 1.0; s.GuardMargin = 500; s.GuardChop = 3; s.PairOff = true; s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; s.GuardLots = 0.6; })),
+      Tuple.Create("V11 V7 0.03", (Action<AutoSettings>)(s => { x(s, 0.03); s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = 1.0; s.GuardMargin = 500; s.GuardChop = 3; s.PairOff = true; s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; })),
+      Tuple.Create("D1 DEFENDER", (Action<AutoSettings>)(s => { Cp(AutoSettings.Model("DEFENDER", s, 5000), s); })),
+      Tuple.Create("D0 DEFENDER no dexit", (Action<AutoSettings>)(s => { Cp(AutoSettings.Model("DEFENDER", s, 5000), s); s.DangerExit = false; })),
+      Tuple.Create("D2 DEFENDER dat45", (Action<AutoSettings>)(s => { Cp(AutoSettings.Model("DEFENDER", s, 5000), s); s.DangerAt = 45; })),
+      Tuple.Create("V4 SAFE x3", (Action<AutoSettings>)(s => { x(s, 0.03); })),
+      Tuple.Create("V5 SAFE x5 scale", (Action<AutoSettings>)(s => { x(s, 0.05); s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; })),
+      Tuple.Create("V6 SAFE x5 hcap3 quick", (Action<AutoSettings>)(s => { x(s, 0.05); s.HedgeCap = 3; s.QuickHedge = true; s.QuickAfter = 3; })),
+    }; if (only != null) variants = variants.Where(v => v.Item1.StartsWith(only)).ToList(); }
+    if (Environment.GetEnvironmentVariable("CMP10") == "1") { var pro = AutoSettings.Model("PRO", baseS); variants = new List<Tuple<string, Action<AutoSettings>>>();
+      foreach (var lt in new[] { 0.02, 0.05 }) foreach (var hf in new[] { 3.0, 6.0, 10.0 }) { var lt0 = lt; var hf0 = hf; variants.Add(Tuple.Create("S " + lt0 + " $" + (lt0 * 500) + " hf" + hf0, (Action<AutoSettings>)(s => { Cp(pro, s); s.EntryLots = lt0; s.NetAdvantage = lt0; s.AddLots = lt0; s.Target = lt0 * 500; s.HardFloat = hf0; }))); }
+      if (only != null) variants = variants.Where(v => v.Item1.StartsWith(only)).ToList(); }
     if (Environment.GetEnvironmentVariable("CMP9") == "1") { var pro = AutoSettings.Model("PRO", baseS); variants = new List<Tuple<string, Action<AutoSettings>>> {
       Tuple.Create("R1 PRO 0.05 $25", (Action<AutoSettings>)(s => { Cp(pro, s); s.EntryLots = 0.05; s.NetAdvantage = 0.05; s.Target = 25; })),
       Tuple.Create("R2 PRO 0.03 $15", (Action<AutoSettings>)(s => { Cp(pro, s); s.EntryLots = 0.03; s.NetAdvantage = 0.03; s.Target = 15; })),
