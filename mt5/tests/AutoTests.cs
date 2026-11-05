@@ -537,6 +537,14 @@ public static class AutoTests
             var rK = Run(Path(Day1, 4002.5, Enumerable.Repeat(4002.5, 20)), sK); var aK = rK.Item2;
             Check(aK.Current != null && aK.HedgeWhy.Contains("KEY LEVEL") && aK.HedgeLevel < 3999.9 && AutoSettings.Load(sK.Save()).KeyHedge && !AutoSettings.Load("sym=XAUUSD").KeyHedge, "key-level hedge: a hedge just past a key level (round 4000) moves beyond it; saved; off by default", aK.HedgeLevel.ToString("0.00") + " • " + aK.HedgeWhy);
         }
+        {   // 🎞 the post-mortem on REAL ticks: the candles are flat, the real ticks ran +$3 → with the ticks the replay hits the +$20 target, without them it cannot
+            var warmT = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)); var flat = Path(Day1, 4000, Enumerable.Repeat(4000.0, 20)); var allT = warmT.Concat(flat).ToList();
+            var tks = new List<SimTick>(); for (int i = 0; i < 240; i++) { double bd = 4000 + Math.Min(3.0, i * 0.02); tks.Add(new SimTick { T = Day1.AddSeconds(30 + i), Bid = Math.Round(bd, 2), Ask = Math.Round(bd + 0.1, 2) }); }
+            var itT = new AutoIteration { N = 1, Start = Day1.AddSeconds(31), End = Day1.AddMinutes(5), FirstDir = "BUY", BalanceStart = 10000, Result = 20 };
+            var sT = S(); sT.HedgeMode = "NONE"; sT.Target = 20;
+            var withT = PostMortem.Replay(Gold(), allT, itT, sT, 10000, 10, 0, "YOURS", 1, tks); var noT = PostMortem.Replay(Gold(), allT, itT, sT, 10000, 10, 0, "YOURS", 1, null);
+            Check(withT != null && withT.Closed && withT.Result >= 20 && noT != null && !noT.Closed, "post-mortem on real ticks: it follows the ticks as they came (flat candles, +$3 ticks → the target is hit); without ticks it cannot", (withT == null ? "null" : withT.Closed + " " + withT.Result.ToString("0.00")) + " / " + (noT == null ? "null" : noT.Closed + " " + noT.Result.ToString("0.00")));
+        }
         if (Environment.GetEnvironmentVariable("SHOW_STORY") == "1") foreach (var x in dr) Console.WriteLine("   " + x.Csv() + " " + x.Note);
         return fails;
     }

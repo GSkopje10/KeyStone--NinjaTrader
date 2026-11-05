@@ -10,7 +10,7 @@ namespace KeystoneMT5
     public sealed class PostMortemRow
     {
         public int N; public DateTime Start, End; public string First = ""; public double Result, Dd, MaxLots; public int Hedges;
-        public List<PostMortemAlt> Alts = new List<PostMortemAlt>(); public string Best = "", Lesson = "";
+        public List<PostMortemAlt> Alts = new List<PostMortemAlt>(); public string Best = "", Lesson = ""; public bool RealTicks;
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         public string Csv()
         {
@@ -65,13 +65,14 @@ namespace KeystoneMT5
         }
 
         // replay one iteration: from its start, the same first side, one iteration only, at most `hoursAfter` past its real end
-        public static PostMortemAlt Replay(SimSpec spec, List<Mt5Bar> m1, AutoIteration it, AutoSettings s0, double balance, int spreadPts, double commission, string name, double hoursAfter = 6)
+        public static PostMortemAlt Replay(SimSpec spec, List<Mt5Bar> m1, AutoIteration it, AutoSettings s0, double balance, int spreadPts, double commission, string name, double hoursAfter = 6, List<SimTick> ticks = null)
         {
             var alt = new PostMortemAlt { Name = name };
             var s = s0.Copy(); s.Symbol = spec.Name; s.FirstDir = it.FirstDir == "SELL" ? "SELL" : "BUY"; s.MaxIterations = 1; s.TrackManual = false; s.Windows = ""; s.CloseAtNy = ""; s.NewsMode = "IGNORE"; s.CommissionPerLot = 0;
             DateTime stopAt = it.End.AddHours(hoursAfter);
             var bars = m1.Where(b => b.Time <= stopAt).ToList(); if (!bars.Any(b => b.Time >= it.Start)) return null;
-            var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = spec.Name, From = it.Start.Date, To = stopAt.Date, Balance = balance, CommissionPerLot = Math.Max(0, commission), Kind = "STANDARD", FixedSpread = spreadPts, Leverage = 500 }, spec, bars);
+            var tk = ticks != null && ticks.Count > 0 ? ticks.Where(t => t.T <= stopAt).ToList() : null;   // 🎞 the real ticks: inside those minutes the replay follows them exactly
+            var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = spec.Name, From = it.Start.Date, To = stopAt.Date, Balance = balance, CommissionPerLot = Math.Max(0, commission), Kind = "STANDARD", FixedSpread = tk != null ? -1 : spreadPts, Leverage = 500 }, new List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> { Tuple.Create(spec, bars, tk) });
             if (err != "") return null;
             sb.JumpTo(it.Start.AddSeconds(-1));
             var au = new HedgeAuto(); au.Send = (c, a, l) => sb.Command(c, a); sb.OnTickHook = () => au.Step(sb);
@@ -88,13 +89,14 @@ namespace KeystoneMT5
         }
 
         // the whole post-mortem of one iteration
-        public static PostMortemRow Run(SimSpec spec, List<Mt5Bar> m1, AutoIteration it, AutoSettings yours, double balance, int spreadPts, double commission)
+        public static PostMortemRow Run(SimSpec spec, List<Mt5Bar> m1, AutoIteration it, AutoSettings yours, double balance, int spreadPts, double commission, List<SimTick> ticks = null)
         {
-            var r = new PostMortemRow { N = it.N, Start = it.Start, End = it.End, First = it.FirstDir, Result = it.Result, Dd = it.MaxDd, MaxLots = it.MaxGross, Hedges = it.AddOns };
+            bool realT = ticks != null && ticks.Count(t => t.T >= it.Start && t.T <= it.End) >= 10;
+            var r = new PostMortemRow { RealTicks = realT, N = it.N, Start = it.Start, End = it.End, First = it.FirstDir, Result = it.Result, Dd = it.MaxDd, MaxLots = it.MaxGross, Hedges = it.AddOns };
             foreach (var v in Alternatives(balance))
             {
                 var s = yours.Copy(); v.Item2(s);
-                PostMortemAlt a = null; try { a = Replay(spec, m1, it, s, balance, spreadPts, commission, v.Item1); } catch { }
+                PostMortemAlt a = null; try { a = Replay(spec, m1, it, s, balance, spreadPts, commission, v.Item1, 6, realT ? ticks : null); } catch { }
                 if (a != null) r.Alts.Add(a);
             }
             Explain(r); return r;

@@ -347,9 +347,10 @@ namespace KeystoneMT5
             }
             if (spec == null || m1.Count(b => b.Time >= it.Start && b.Time <= it.End) < 2) return;
             double comm = Paper && paper != null ? paper.Acct.Set.CommissionPerLot : Math.Max(0, set.CommissionPerLot); string file = PmFile; pmBusy = true;
+            var tape = auto.TickTape.Where(t => t.T >= it.Start.AddMinutes(-3) && t.T <= it.End.AddHours(6)).ToList();   // 🎞 the real ticks of that basket (and after)
             System.Threading.Tasks.Task.Run(() =>
             {
-                PostMortemRow r = null; try { r = PostMortem.Run(spec, m1, it, set, bal, spread, comm); PostMortem.Save(file, r); } catch { }
+                PostMortemRow r = null; try { r = PostMortem.Run(spec, m1, it, set, bal, spread, comm, tape); if (r.RealTicks) r.Lesson = "🎞 " + r.Lesson; PostMortem.Save(file, r); } catch { }
                 Dispatcher.BeginInvoke(new Action(() => { pmBusy = false; if (r != null) { pmRows = PostMortem.Load(file); auto.Note("🧠 POST-MORTEM " + r.Lesson); AutoSelfTune(); if (aView == "LEARN") AutoPaint(true); } }));
             });
         }
@@ -1144,7 +1145,7 @@ namespace KeystoneMT5
                     }
                     // 🧠 first: the post-mortems — how each closed iteration's drawdown could have been prevented (its own candles, replayed)
                     var pm = pmRows ?? PostMortem.Load(PmFile);
-                    L.Add("🧠 HOW THE DRAWDOWN COULD HAVE BEEN PREVENTED — every iteration that closes here is replayed on ITS OWN candles with each protection (simulated, nothing sent): " + pm.Count + " so far • saved in " + PmFile);
+                    L.Add("🧠 HOW THE DRAWDOWN COULD HAVE BEEN PREVENTED — every iteration that closes here is replayed on ITS OWN prices with each protection (simulated, nothing sent): " + pm.Count + " so far • 🎞 = on the REAL ticks as they came (exact), without it = on the 1-minute candles (approximate inside each minute) • saved in " + PmFile);
                     L.Add("WHAT HELPS MOST: " + PostMortem.Tally(pm));
                     foreach (var r0 in pm.OrderByDescending(x => x.Start).Take(15))
                     {

@@ -471,6 +471,11 @@ namespace KeystoneMT5
             if (Next != null && Current == null) ApplyNext();   // between iterations: the saved changes take over
             var sn = Read(b); if (sn.Now < (b.IsSim ? Now : Now.AddMinutes(-1))) { Stop("the clock went back (the backtest was rewound or restarted)"); return; }
             Now = sn.Now; if (double.IsNaN(sn.Bid) || sn.Bid <= 0) return;
+            if (!b.IsSim && (sn.Bid != tapeBid || sn.Ask != tapeAsk))
+            {   // 🎞 the REAL ticks as they came (user's request: the post-mortem must replay what really happened, not a guess inside each candle)
+                tapeBid = sn.Bid; tapeAsk = sn.Ask; TickTape.Add(new SimTick { T = Now, Bid = sn.Bid, Ask = double.IsNaN(sn.Ask) ? sn.Bid : sn.Ask });
+                if (TickTape.Count > 250000) TickTape.RemoveRange(0, 50000);
+            }
             Basket = sn.Pos.Count > 0 ? BasketOf(sn) : 0;
             foreach (var sg in Journal) if (!sg.Done)
             {   // 📡 the signal journal: what the price did after every signal, taken or not
@@ -1027,6 +1032,7 @@ namespace KeystoneMT5
             if (Hedges.Count > 3000) Hedges.RemoveRange(0, 500);
         }
         DateTime marginWait = DateTime.MinValue; string marginNote = "";
+        public readonly List<SimTick> TickTape = new List<SimTick>(); double tapeBid = double.NaN, tapeAsk = double.NaN;
         public readonly List<SignalRec> Journal = new List<SignalRec>(); public Action<SignalRec> OnSignalDone; SignalRec lastSig;
         void JournalAdd(Snap sn, int dir, string why)
         {
