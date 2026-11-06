@@ -733,7 +733,7 @@ namespace KeystoneMT5
                     }
                 }
                 // ADD TO THE WINNER: the setup signals again in the leading side's direction (the last leg's)
-                if (Set.AddToWinner && (Set.MaxWinnerAdds == 0 || it.WinnerAdds < Set.MaxWinnerAdds))
+                if (Set.AddToWinner && (Set.MaxWinnerAdds == 0 || it.WinnerAdds < Set.MaxWinnerAdds) && Basket + sn.Balance - it.BalanceStart > Math.Max(1, Set.Target * 0.2))   // only to a REAL winner: the basket already in profit (≥ 20 % of the target)
                 {
                     Signals(sn); int wd; double wl; string ww, ws;
                     if (Signal(sn, lastDir, out wd, out wl, out ww, out ws) && wd == lastDir)
