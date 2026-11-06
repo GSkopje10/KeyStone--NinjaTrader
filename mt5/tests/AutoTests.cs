@@ -461,7 +461,7 @@ public static class AutoTests
         {   // 🧠 POST-MORTEM: a STEP LEAD basket in a chop, replayed on its own candles with the protections — YOURS replays to the same result
             var zig = new List<double>(); double pz = 4000; foreach (var leg in new[] { 3.0, -3.5, 3.5, -3.5, 3.5, -3.5, 25.0 }) { int n = 12; for (int i = 0; i < n; i++) { pz += leg / n; zig.Add(Math.Round(pz, 2)); } }
             var test = Path(Day1, 4000, zig); var warm = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)); var all = warm.Concat(test).ToList();
-            var sP = S(); sP.FirstDir = "SELL"; sP.HedgeMode = "PRICE"; sP.HedgePrice = 2; sP.HedgeSize = "STEPLEAD"; sP.NetAdvantage = 0.1; sP.MaxIterations = 1; sP.Target = 20;
+            var sP = S(); sP.FirstDir = "SELL"; sP.HedgeMode = "PRICE"; sP.HedgePrice = 2; sP.HedgeSize = "STEPLEAD"; sP.NetAdvantage = 0.1; sP.MaxIterations = 1; sP.Target = 20; sP.DeRisk = false;
             var rP = Run(test, sP); var itP = rP.Item2.Iterations.FirstOrDefault(x => x.Done);
             if (itP == null) Check(false, "post-mortem: the chop basket closes", rP.Item2.Iterations.Count + " " + rP.Item2.Basket.ToString("0.00") + " " + string.Join(",", rP.Item2.Trades.Select(t => t.Side + t.Lots + "@" + t.Price)));
             else
@@ -581,6 +581,14 @@ public static class AutoTests
                 Func<List<Mt5Bar>> pT = () => Path(Day1, 4000, Line(4000, 0.05, 40).Concat(Enumerable.Repeat(4002.0, 40)).Concat(Line(4002, -0.1, 30)).ToArray());
                 var iT = Run(pT(), sT).Item2.Iterations.FirstOrDefault(); var iT0 = Run(pT(), sT0).Item2.Iterations.FirstOrDefault();
                 Check(iT != null && iT.Reason == "RESCUE BE" && (iT0 == null || iT0.Reason != "RESCUE BE") && AutoSettings.Load("sym=XAUUSD").RescueMin == 60, "⏱ breakeven after an hour: a basket in a loss for 60+ min closes at $0 (off: it waits for the target)", (iT == null ? "none" : iT.Reason) + " / " + (iT0 == null ? "none" : iT0.Reason));
+            }
+            {   // 🪓 de-risk: SELL 0.1 first, a BUY hedge 0.3 above, the price falls far → in rescue the winning SELL pays for part of the losing BUY
+                var sD = S(); sD.FirstDir = "BUY"; sD.HedgeMode = "PRICE"; sD.HedgePrice = 2; sD.HedgeSize = "FIXED"; sD.AddLots = 0.6; sD.NetAdvantage = 0.05; sD.MaxHedges = 1; sD.MaxIterations = 1; sD.Target = 2000; sD.MaxDrawdown = 0; sD.EntryLots = 0.3; sD.RescuePct = 0.5; sD.DangerAt = 100; sD.RescueMin = 0; sD.DdTightEvery = 0; var sD0 = sD.Copy(); sD0.DeRisk = false;
+                Func<List<Mt5Bar>> pD = () => Path(Day1, 4000, Line(4000, -0.25, 60).ToArray());
+                var rD = Run(pD(), sD); var rD0 = Run(pD(), sD0);
+                bool did = rD.Item2.Trades.Any(t => t.Why.StartsWith("🪓 DE-RISK winner")) && rD.Item2.Trades.Any(t => t.Why.StartsWith("🪓 DE-RISK loser")); double gD = rD.Item1.State.Positions.Sum(p => p.Lots), gD0 = rD0.Item1.State.Positions.Sum(p => p.Lots);
+                double nD = rD.Item1.State.Positions.Sum(p => (p.Dir) * p.Lots);
+                Check(did && !rD0.Item2.Trades.Any(t => t.Why.StartsWith("🪓")) && AutoSettings.Load(sD0.Save()).DeRisk == false, "🪓 de-risk: in rescue part of the winner + part of the loser are closed together (off: nothing)", "did " + did + " gross " + gD + " vs " + gD0 + " net " + nD + " | " + string.Join(" ; ", rD.Item2.Trades.Select(t => t.Side + " " + t.Lots + " " + t.Why)));
             }
             // 🧹 a pending order placed during the iteration is cancelled when it closes
             var rPo = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), S(), mid: (b0, a0) => b0.Command("ORDER", "XAUUSD", "BUY LIMIT", 0.1, 3950.0, 0.0, 0.0)); int ordPo; lock (rPo.Item1.State.Gate) ordPo = rPo.Item1.State.Orders.Count;
