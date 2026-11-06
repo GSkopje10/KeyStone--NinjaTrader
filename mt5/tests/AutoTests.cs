@@ -405,6 +405,13 @@ public static class AutoTests
                 var t123B = Run(Path(Day1, 4000, e123a), sE123).Item2.Trades.FirstOrDefault(t => t.Why.StartsWith("ENTRY")); var t123S = Run(Path(Day1, 4000, e123b), sE123).Item2.Trades.FirstOrDefault(t => t.Why.StartsWith("ENTRY"));
                 Check(t123B != null && t123B.Side == "BUY" && t123S != null && t123S.Side == "SELL" && t123B.Why.Contains("1-2-3"), "🕯 1-2-3 engulfing: 2 red + a green over the 2nd body = BUY, 2 green + a red under it = SELL", (t123B == null ? "none" : t123B.Why) + " / " + (t123S == null ? "none" : t123S.Why));
             }
+            {   // ⚡ BREAK + CLOSE: a wick through the high is NOT an entry; the first candle that CLOSES above it is
+                var w0 = Enumerable.Repeat(4000.0, 30).ToList();
+                var sBc = S(); sBc.Swing = false; sBc.Lookback = 5; sBc.MaxIterations = 1; sBc.Target = 5000; sBc.HedgeMode = "NONE"; sBc.FirstDir = "AUTO"; sBc.BreakClose = true;
+                var pBc = Path(Day1, 4000, w0.Concat(new[] { 4000.0, 4000.0, 4001.0, 4001.2 })); pBc[30].H = 4000.6;   // candle 30: a wick to 4000.6, closes at 4000 → no entry
+                var aBc = Run(pBc, sBc).Item2; var eBc = aBc.Trades.FirstOrDefault(t => t.Why.StartsWith("ENTRY"));
+                Check(eBc != null && eBc.Side == "BUY" && eBc.Why.Contains("BREAK + CLOSE") && eBc.Time >= Day1.AddMinutes(33) && AutoSettings.Load(sBc.Save()).BreakClose && !AutoSettings.Load("sym=XAUUSD").BreakClose, "⚡ break + close: the wick through the high does not enter; the first CLOSE above it does (option, off by default)", eBc == null ? string.Join(" ¦ ", aBc.Log.Take(4)) : eBc.Time + " " + eBc.Why);
+            }
             {   // 🛡 TRIM LIMIT (06 Nov #22): a chop that breaks the lock range up, down, up … → at most 1 trim (each one books a loss); no limit = several
                 Func<List<Mt5Bar>> chopT = () => Path(Day1, 4000, Enumerable.Range(0, 400).Select(i => Math.Round(4000 + 6 * Math.Sin(i / 9.0), 2)));
                 Func<int, AutoSettings> tS = mx => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 1.5; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.2; x.Target = 5000; x.MaxIterations = 1; x.HedgeCap = 0; x.RiskGuard = true; x.GuardMode = "LOCK"; x.GuardLots = 0.5; x.GuardChop = 0; x.GuardMargin = 0; x.GuardBreak = 0.2; x.PairOff = false; x.Rescue = false; x.DdTightEvery = 0; x.TrimMax = mx; return x; };
