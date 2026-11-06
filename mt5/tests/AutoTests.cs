@@ -374,6 +374,17 @@ public static class AutoTests
                 Check(maxOn <= 2.0 + 0.2 + 1e-9 && maxOff > 4.0 && gOn.Trades.Any(t => t.Why.StartsWith("🛡 RISK GUARD LOCK")) && AutoSettings.Load(gS(true).Save()).RiskGuard && !AutoSettings.Load("sym=XAUUSD").RiskGuard,
                     "risk guard: in chop the basket stays at the cap (2 lots on $10,000 + at most the lead to lock) — it LOCKS instead of the next hedge; without it " + maxOff.ToString("0.##") + " lots; saved, OFF by default", "on " + maxOn + " / off " + maxOff);
             }
+            {   // 🤖 FULL AUTO: a break after 12 candles straight up with no pullback is SKIPPED (chasing); the same break after a real pullback is TAKEN
+                var flatF = Enumerable.Repeat(4000.0, 40).ToList();
+                var chaseF = flatF.Concat(Line(4000, 0.7, 20)).ToList();   // straight up: after the first quick target the next breaks are chasing
+                var dipF = flatF.Concat(Line(4000, 0.7, 7)).Concat(Line(4004.9, -0.6, 5)).Concat(Line(4001.9, 0.7, 8)).ToList();   // up, a real pullback, then the break
+                Func<AutoSettings> fS = () => { var x = AutoSettings.Model("FULLAUTO", S(), 10000); x.Symbol = S().Symbol; x.FirstDir = "AUTO"; x.Swing = false; x.Lookback = 1; x.MaxIterations = 0; x.Target = 10; x.RiskGuard = false; x.HedgeMode = "NONE"; x.AutoScoreMin = 45; return x; };   // the mechanics (the real threshold is set by the replays)
+                var aC = Run(Path(Day1, 4000, chaseF), fS()).Item2; var aP = Run(Path(Day1, 4000, dipF), fS()).Item2;
+                bool skipped = aC.ScoreSkips > 0; bool taken = aP.Trades.Any(t => t.Why.StartsWith("ENTRY BUY") && t.Why.Contains("🤖 score") && t.Time >= Day1.AddMinutes(52));
+                var faL = AutoSettings.Load(fS().Save());
+                Check(skipped && taken && faL.FullAuto && faL.Preset == "FULLAUTO" && !AutoSettings.Load("sym=XAUUSD").FullAuto, "🤖 full auto: a break with no pullback (chasing the top) is skipped; a break after a real pullback is taken with its score; saved; off by default",
+                    "chaseF skips " + aC.ScoreSkips + " entries " + string.Join(",", aC.Trades.Select(t => t.Why.Split('—')[0])) + " | dipF " + string.Join(" ; ", aP.Trades.Select(t => t.Why)) + " | " + aC.LastScoreWhy + " / " + aP.LastScoreWhy + " | LOG " + string.Join(" ¦ ", aP.Log.Take(12)));
+            }
             {   // 🛡 TRIM LIMIT (06 Nov #22): a chop that breaks the lock range up, down, up … → at most 1 trim (each one books a loss); no limit = several
                 Func<List<Mt5Bar>> chopT = () => Path(Day1, 4000, Enumerable.Range(0, 400).Select(i => Math.Round(4000 + 6 * Math.Sin(i / 9.0), 2)));
                 Func<int, AutoSettings> tS = mx => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 1.5; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.2; x.Target = 5000; x.MaxIterations = 1; x.HedgeCap = 0; x.RiskGuard = true; x.GuardMode = "LOCK"; x.GuardLots = 0.5; x.GuardChop = 0; x.GuardMargin = 0; x.GuardBreak = 0.2; x.PairOff = false; x.Rescue = false; x.DdTightEvery = 0; x.TrimMax = mx; return x; };
