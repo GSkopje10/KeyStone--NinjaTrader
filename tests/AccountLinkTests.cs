@@ -171,6 +171,12 @@ public static class AccountLinkTests
             var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { DayLossLimit = 500 }; var t = Trader(); l.Arm(t0);
             b.Exec(1, 20000, "Buy"); b.Pnl = -520; string why = null; l.Disarmed = x => why = x; l.Tick(t, t0);
             Check(!l.Armed && b.Sent.Contains("FLATTEN") && why.StartsWith("DAY LOSS"), "day loss limit → flatten + disarm", why);
+            {   // 🛑 re-opening the window with the day loss ALREADY past: disarm + no new entries, but the open trade is NOT closed (user's catch)
+                var bR = new FakeBroker(); bR.Exec(1, 20000, "Buy"); bR.Pnl = -900; var lR = new KeystoneAccountLink(bR, "MNQ") { DayLossLimit = 500, MaxContracts = 5 }; var tR = Trader(); string whyR = null; lR.Disarmed = x => whyR = x; lR.Arm(t0); lR.Tick(tR, t0);
+                Check(!lR.Armed && !bR.Sent.Contains("FLATTEN") && whyR != null && whyR.Contains("NOT closed"), "day loss already past when arming (window re-opened) → disarmed, the position is NOT closed", whyR + " | " + string.Join(",", bR.Sent));
+                var bC = new FakeBroker(); bC.Exec(1, 20000, "Buy"); bC.Pnl = 950; var lC = new KeystoneAccountLink(bC, "MNQ") { DayProfitCap = 900, MaxContracts = 5 }; var tC = Trader(); lC.Arm(t0); lC.Tick(tC, t0);
+                Check(!lC.Armed && !bC.Sent.Contains("FLATTEN"), "day profit cap already past when arming → disarmed, the position is NOT closed", string.Join(",", bC.Sent));
+            }
             var b2 = new FakeBroker(); var l2 = new KeystoneAccountLink(b2, "MNQ") { DayProfitCap = 900 }; var t2 = Trader(); l2.Arm(t0); b2.Exec(1, 20000, "Buy"); b2.Pnl = 910; l2.Tick(t2, t0);
             Check(!l2.Armed && b2.Sent.Contains("FLATTEN"), "day profit cap $900 (consistency) → flatten + done for today");
             var b3 = new FakeBroker(); var l3 = new KeystoneAccountLink(b3, "MNQ") { MaxContracts = 5 }; var t3 = Trader(); l3.Arm(t0);
