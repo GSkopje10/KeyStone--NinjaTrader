@@ -392,6 +392,12 @@ public static class AutoTests
                 var setupsMu = aMu.Trades.Where(t => t.Why.StartsWith("ENTRY")).Select(t => t.Why.Contains("🕯") ? "ENG" : t.Why.Contains("〽") ? "VWR" : t.Why.Contains("💥") ? "AGG" : t.Why.Contains("🧲") ? "FVG" : t.Why.Contains("🌊") ? "FLOW" : t.Why.Contains("⚡") ? "BRK" : "?").Distinct().ToList();
                 Check(sMu.EntryMode == "MULTI" && setupsMu.Count >= 2 && !setupsMu.Contains("?"), "🎯 multi: FULL AUTO watches every setup — the iterations start from " + string.Join(" / ", setupsMu), "iters " + aMu.Iterations.Count + " | " + string.Join(" ¦ ", aMu.Log.Where(l => l.Contains("FULL AUTO") || l.Contains("ENTRY") || l.Contains("CLOSED")).Take(14)));
             }
+            {   // 💥 AGGRESSION (the futures BH rule): ONE red candle, a green close, the next candle breaks the green's high → BUY
+                var bhAg = Enumerable.Repeat(4000.0, 30).Concat(new[] { 3999.0, 3999.8, 4001.0, 4001.5 }).ToList();   // red 4000→3999, green 3999→3999.8 (H 3999.9), then up through 3999.9
+                var sAg = S(); sAg.EntryMode = "AGGBRK"; sAg.MaxIterations = 1; sAg.Target = 5000; sAg.HedgeMode = "NONE";
+                var aAg = Run(Path(Day1, 4000, bhAg), sAg).Item2; var eAg = aAg.Trades.FirstOrDefault(t => t.Why.StartsWith("ENTRY"));
+                Check(eAg != null && eAg.Side == "BUY" && AutoSettings.Load("sym=XAUUSD").AggRun == 1, "💥 aggression: one red, a green close, the break of the green's high = BUY (1 candle is enough, the default)", eAg == null ? string.Join(" ¦ ", aAg.Log.Take(5)) : eAg.Why);
+            }
             {   // 🛡 TRIM LIMIT (06 Nov #22): a chop that breaks the lock range up, down, up … → at most 1 trim (each one books a loss); no limit = several
                 Func<List<Mt5Bar>> chopT = () => Path(Day1, 4000, Enumerable.Range(0, 400).Select(i => Math.Round(4000 + 6 * Math.Sin(i / 9.0), 2)));
                 Func<int, AutoSettings> tS = mx => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 1.5; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.2; x.Target = 5000; x.MaxIterations = 1; x.HedgeCap = 0; x.RiskGuard = true; x.GuardMode = "LOCK"; x.GuardLots = 0.5; x.GuardChop = 0; x.GuardMargin = 0; x.GuardBreak = 0.2; x.PairOff = false; x.Rescue = false; x.DdTightEvery = 0; x.TrimMax = mx; return x; };
