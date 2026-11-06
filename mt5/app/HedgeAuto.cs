@@ -581,7 +581,7 @@ namespace KeystoneMT5
             if (Phase == "IN ITERATION")
             {
                 var it = Current;
-                if (sn.Pos.Count == 0 && closedByUs) { it.Reason = "LEG TARGETS"; Tell("ALL LEGS AT THEIR TARGETS — iteration #" + it.N + " done."); Finish(sn); return; }
+                if (sn.Pos.Count == 0 && closedByUs && Set.ExitMode == "LEGS") { /* only the LEGS exit closes a basket leg by leg; after a scale-out / trim the last close can still be YOURS (06 Nov #22 was closed by hand) */ it.Reason = "LEG TARGETS"; Tell("ALL LEGS AT THEIR TARGETS — iteration #" + it.N + " done."); Finish(sn); return; }
                 if (sn.Pos.Count == 0 && (it.Manual || Set.TrackManual)) { it.Reason = "CLOSED BY HAND"; Tell("✋ CLOSED BY HAND — the positions on " + Set.Symbol + " were closed outside the automation; the iteration is recorded and the automation goes on."); Finish(sn); return; }
                 if (sn.Pos.Count == 0) { it.Reason = "CLOSED OUTSIDE"; Note("⚠ the positions on " + Set.Symbol + " were closed outside the automation (by hand or a stop-out)"); Finish(sn); return; }
                 if (Math.Abs(Gross(sn.Pos) - knownGross) > 1e-6) Manual(sn, it);

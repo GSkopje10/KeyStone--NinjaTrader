@@ -419,6 +419,12 @@ public static class AutoTests
                 var fl2 = Run(Path(Day1, 4000, Enumerable.Repeat(4000.0, 30).Concat(new[] { 4000.3, 4000.4 })), sFd).Item2.Trades.FirstOrDefault(t => t.Why.StartsWith("ENTRY"));
                 Check(fd != null && fd.Side == "SELL" && fd.Why.Contains("FADE") && fl2 == null && AutoSettings.Load(sFd.Save()).FadeAtr == 3, "🔄 break fade: the high broken after a long run → SELL (the other way); a small break → no entry", (fd == null ? "none" : fd.Why) + " / " + (fl2 == null ? "none" : fl2.Why));
             }
+            {   // ✋ a close BY HAND after a scale-out is saved as "CLOSED BY HAND" (it was "LEG TARGETS": 06 Nov #22)
+                var sHd = S(); sHd.FirstDir = "SELL"; sHd.MaxIterations = 1; sHd.Target = 5000; sHd.HedgeMode = "NONE"; sHd.ScaleOut = true; sHd.ScaleLots = 0.01; sHd.ScaleStep = 0.5; sHd.NetAdvantage = 0.01; sHd.TrackManual = true;
+                bool shut = false; var rHd = Run(Path(Day1, 4000, Line(4000, -0.3, 40)), sHd, null, null, sb => { var prev = sb.OnTickHook; sb.OnTickHook = () => { prev(); if (!shut && sb.Clock >= Day1.AddMinutes(25) && sb.State.Positions.Count > 0) { shut = true; sb.Command("CLOSEALL", new object[] { "XAUUSD", "ALL" }); } }; });
+                var iHd = rHd.Item2.Iterations.FirstOrDefault(); bool scaled = rHd.Item2.Trades.Any(t => t.Why.StartsWith("📉 SCALE OUT"));
+                Check(scaled && iHd != null && iHd.Done && iHd.Reason == "CLOSED BY HAND", "✋ closed by hand after a scale-out → saved as CLOSED BY HAND (not LEG TARGETS)", (iHd == null ? "none" : iHd.Reason) + " scaled " + scaled);
+            }
             {   // 🛡 TRIM LIMIT (06 Nov #22): a chop that breaks the lock range up, down, up … → at most 1 trim (each one books a loss); no limit = several
                 Func<List<Mt5Bar>> chopT = () => Path(Day1, 4000, Enumerable.Range(0, 400).Select(i => Math.Round(4000 + 6 * Math.Sin(i / 9.0), 2)));
                 Func<int, AutoSettings> tS = mx => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 1.5; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.2; x.Target = 5000; x.MaxIterations = 1; x.HedgeCap = 0; x.RiskGuard = true; x.GuardMode = "LOCK"; x.GuardLots = 0.5; x.GuardChop = 0; x.GuardMargin = 0; x.GuardBreak = 0.2; x.PairOff = false; x.Rescue = false; x.DdTightEvery = 0; x.TrimMax = mx; return x; };
