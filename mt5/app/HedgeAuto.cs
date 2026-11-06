@@ -614,12 +614,12 @@ namespace KeystoneMT5
                 if (Set.BeLock && !Locked && Set.ExitMode != "LEGS" && Set.Target > 0 && sn.PerPrice > 0 && !double.IsNaN(sn.Bid))
                 {   // 🔐 BREAKEVEN LOCK
                     double totB = Basket + sn.Balance - it.BalanceStart, netB = sn.Pos.Sum(p => p.Dir * p.Lots);
-                    if (!it.BeLockArmed && totB >= Set.Target * Set.BeLockAt / 100) { it.BeLockArmed = true; Tell("🔐 BREAKEVEN LOCK ARMED: the basket reached " + M(totB) + " (≥ " + Set.BeLockAt.ToString("0", IC) + " % of the target " + M(Set.Target) + ") — if the price turns back to where it would be " + M(Set.Target * Set.BeLockKeep / 100) + ", an equal hedge locks it (net 0)."); }
+                    if (!it.BeLockArmed && totB >= Set.Target * Set.BeLockAt / 100) { it.BeLockArmed = true; Tell("🔐 BREAKEVEN PROFIT ARMED: the basket reached " + M(totB) + " (≥ " + Set.BeLockAt.ToString("0", IC) + " % of the target " + M(Set.Target) + ") — if the price turns back to where it would be " + M(Set.Target * Set.BeLockKeep / 100) + ", everything closes there (the profit is kept, no lock)."); }
                     if (it.BeLockArmed && Math.Abs(netB) > 0.005)
                     {
                         double keep = Set.Target * Set.BeLockKeep / 100, px = netB > 0 ? sn.Bid : sn.Ask; if (double.IsNaN(px)) px = sn.Bid;
                         BeLockPx = px - (totB - keep) / (netB * sn.PerPrice);   // the price where the basket = keep (long: below the price, short: above)
-                        if (netB > 0 ? px <= BeLockPx : px >= BeLockPx) { it.BeLockArmed = false; BeLockPx = double.NaN; GuardLock(sn, it, "🔐 BREAKEVEN LOCK — the basket came back from ≥ " + Set.BeLockAt.ToString("0", IC) + " % of the target to " + M(totB) + ": the profit is kept, no drawdown"); return; }
+                        if (netB > 0 ? px <= BeLockPx : px >= BeLockPx) { it.BeLockArmed = false; BeLockPx = double.NaN; it.Reason = "BE PROFIT"; Tell("🔐 BREAKEVEN PROFIT — the basket came back from ≥ " + Set.BeLockAt.ToString("0", IC) + " % of the target to " + M(totB) + " → CLOSE ALL " + sn.Pos.Count + " positions at that profit and keep trading (user's rule: no frozen lock waiting for hours)"); CloseAll(sn, "BE PROFIT", false); return; }
                     }
                 }
                 else BeLockPx = double.NaN;

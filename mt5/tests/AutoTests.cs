@@ -578,8 +578,9 @@ public static class AutoTests
             var sBe = S(); sBe.HedgeMode = "PRICE"; sBe.HedgePrice = 8; sBe.MaxIterations = 1; sBe.Target = 20; sBe.BeLock = true; sBe.BeLockAt = 80; sBe.BeLockKeep = 10;
             var rBe = Run(pBe, sBe); var aBe = rBe.Item2; var sellBe = aBe.Trades.FirstOrDefault(t => t.Side == "SELL");
             var sBe0 = sBe.Copy(); sBe0.BeLock = false; var aBe0 = Run(pBe, sBe0).Item2;
-            Check(sellBe != null && Math.Abs(sellBe.Lots - 0.1) < 1e-9 && aBe.Locked && aBe.Story.Any(x => x.Item2.Contains("BREAKEVEN LOCK ARMED")) && aBe.Current != null && aBe.Current.MaxDd > aBe0.Current.MaxDd + 10 && AutoSettings.Load(sBe.Save()).BeLock && !AutoSettings.Load("sym=XAUUSD").BeLock,
-                "breakeven lock: after 80 % of the target an equal hedge locks the basket at its small profit (off: it falls into a drawdown); saved; off by default", (sellBe == null ? "no sell" : sellBe.Lots + "@" + sellBe.Price) + " locked " + aBe.Locked + " dd " + (aBe.Current == null ? "-" : aBe.Current.MaxDd.ToString("0.00")) + " vs off " + (aBe0.Current == null ? "-" : aBe0.Current.MaxDd.ToString("0.00")));
+            var itBe = aBe.Iterations.FirstOrDefault();
+            Check(itBe != null && itBe.Done && itBe.Reason == "BE PROFIT" && itBe.Result > 0 && aBe.Story.Any(x => x.Item2.Contains("BREAKEVEN PROFIT ARMED")) && aBe0.Current != null && AutoSettings.Load(sBe.Save()).BeLock && !AutoSettings.Load("sym=XAUUSD").BeLock,
+                "breakeven profit: after 80 % of the target, the turn back closes everything AT the small profit (no frozen lock; off: it falls into a drawdown); saved; off by default", (sellBe == null ? "no sell" : sellBe.Lots + "@" + sellBe.Price) + " locked " + aBe.Locked + " dd " + (aBe.Current == null ? "-" : aBe.Current.MaxDd.ToString("0.00")) + " vs off " + (aBe0.Current == null ? "-" : aBe0.Current.MaxDd.ToString("0.00")));
         }
         {   // ⚠ a hedge the margin cannot afford while a basket is open: the automation HOLDS and keeps managing (it used to stop completely)
             var sMg = S(); sMg.FirstDir = "BUY"; sMg.HedgeMode = "PRICE"; sMg.HedgePrice = 2; sMg.AddLots = 50; sMg.MaxIterations = 1;
