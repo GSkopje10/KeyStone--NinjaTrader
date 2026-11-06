@@ -582,9 +582,11 @@ public static class AutoTests
         }
         {   // 🔐 BREAKEVEN LOCK: a BUY runs to +$17 of a $20 target (85 %), then falls — an equal SELL locks it near +$2 (10 %), no drawdown
             var pBe = Path(Day1, 4000, Line(4000, 0.5, 4).Concat(Line(4002, -0.25, 40)));
-            var sBe = S(); sBe.HedgeMode = "PRICE"; sBe.HedgePrice = 8; sBe.MaxIterations = 1; sBe.Target = 20; sBe.BeLock = true; sBe.BeLockAt = 80; sBe.BeLockKeep = 10;
+            var sBe = S(); sBe.BeClose = true; sBe.HedgeMode = "PRICE"; sBe.HedgePrice = 8; sBe.MaxIterations = 1; sBe.Target = 20; sBe.BeLock = true; sBe.BeLockAt = 80; sBe.BeLockKeep = 10;
             var rBe = Run(pBe, sBe); var aBe = rBe.Item2; var sellBe = aBe.Trades.FirstOrDefault(t => t.Side == "SELL");
             var sBe0 = sBe.Copy(); sBe0.BeLock = false; var aBe0 = Run(pBe, sBe0).Item2;
+            var sBeL = sBe.Copy(); sBeL.BeClose = false; var aBeL = Run(pBe, sBeL).Item2;
+            Check(aBeL.Locked && !AutoSettings.Load("sym=XAUUSD").BeClose, "breakeven LOCK (the default again, the best in 6 years): the turn back locks the basket at its profit", "locked " + aBeL.Locked);
             var itBe = aBe.Iterations.FirstOrDefault();
             Check(itBe != null && itBe.Done && itBe.Reason == "BE PROFIT" && itBe.Result > 0 && aBe.Story.Any(x => x.Item2.Contains("BREAKEVEN PROFIT ARMED")) && aBe0.Current != null && AutoSettings.Load(sBe.Save()).BeLock && !AutoSettings.Load("sym=XAUUSD").BeLock,
                 "breakeven profit: after 80 % of the target, the turn back closes everything AT the small profit (no frozen lock; off: it falls into a drawdown); saved; off by default", (sellBe == null ? "no sell" : sellBe.Lots + "@" + sellBe.Price) + " locked " + aBe.Locked + " dd " + (aBe.Current == null ? "-" : aBe.Current.MaxDd.ToString("0.00")) + " vs off " + (aBe0.Current == null ? "-" : aBe0.Current.MaxDd.ToString("0.00")));
