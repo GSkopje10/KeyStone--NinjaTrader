@@ -37017,7 +37017,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             realStop = delegate { unlink(); realBar.Visibility = Visibility.Collapsed; saveWatches(); };   // leaving LIVE: real positions stay in NinjaTrader with their orders
             Func<string, bool> setupDone = null;   // LIVE TRADING ▸ ACCOUNTS: the account was saved there (a name, firm, price) — OPTIONAL: ARM never waits for it (user's request)
-            Func<bool> inTradeGuard = null; Func<string, bool> okSwitchInTrade = null; Action<FrameworkElement> chartAccMenuH = null; Func<bool> groupsOnH = null; Func<string> tileAccH = null;   /* tileAccH: the account the tiles above the chart show (the group tab's) */   // chartAccMenuH: the account list of the selected group tab (groupsOnH = a copy group is ON)   // okSwitchInTrade: the chart account is in a trade → YES / NO to switch anyway (its position + stop / target stay at the broker)         // 🔒 any account in a trade (chart, copier, groups, rotation): settings / disarm / account switch wait
+            Func<bool> inTradeGuard = null; Func<string, bool> okSwitchInTrade = null; Action<FrameworkElement> chartAccMenuH = null; Func<bool> groupsOnH = null; Func<string> tileAccH = null, viewAccH = null;   /* tileAccH: the account the tiles above the chart show (the group tab's) */   // chartAccMenuH: the account list of the selected group tab (groupsOnH = a copy group is ON)   // okSwitchInTrade: the chart account is in a trade → YES / NO to switch anyway (its position + stop / target stay at the broker)         // 🔒 any account in a trade (chart, copier, groups, rotation): settings / disarm / account switch wait
             realArmBtn.Click += delegate
             {
                 var offR = armOff();
@@ -38844,9 +38844,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 groupCloseH = (pnC, gname) =>
                 {
                     // ✕ on a group's position line: that group's position on this instrument closes (every account, at market) — asks first
-                    if (gname != null && gname.StartsWith("👁 ") && viewAcc != null)
+                    string accV = gname != null && gname.StartsWith("👁 ") && viewAccH != null ? viewAccH() : null;
+                    if (accV != null)
                     {   // 👁 the VIEWED account's own line: close THIS account only (the group keeps its trade) — asks first
-                        string accV = viewAcc;
                         if (KBox(w, "CLOSE " + nickOf(accV) + "'s position now (this account only, at market)?\nThe group keeps trading; " + nickOf(accV) + " sits the current trade out.", "👁 " + nickOf(accV), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
                         foreach (var pnX in panes) foreach (var ffX in pnX.Followers.Where(x => x.Account == accV)) { try { ffX.Link.Broker.Flatten(); } catch { } }
                         foreach (var dkX in desks.Values) foreach (var mX in dkX.Members.Where(x => x.Item2.Account == accV)) { try { mX.Item2.Link.Broker.Flatten(); } catch { } }
@@ -39084,6 +39084,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 };
                 chartAccMenuH = chartAccMenu; groupsOnH = () => copyOn || desks.Count > 0;
                 // the tiles above the chart follow the TAB: the viewed account, else the selected group's leader when the chart account is not in that group
+                viewAccH = () => viewAcc;
                 tileAccH = () =>
                 {
                     if (viewAcc != null) return viewAcc; var gT = selGroups().FirstOrDefault(); if (gT == null) return null;
