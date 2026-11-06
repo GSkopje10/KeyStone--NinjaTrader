@@ -324,7 +324,7 @@ namespace KeystoneMT5
         public string OpenText(IEnumerable<long> tickets)
         {
             var x = Current; if (x == null) return "";
-            return string.Join("|", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.BalanceStart.ToString("R", IC), x.Peak.ToString("R", IC), (x.Ctx ?? "").Replace("|", " "), x.Manual ? "1" : "0", string.Join(";", tickets.Select(t => t.ToString(IC))), Now.Ticks.ToString(IC), string.Join(";", x.FeeByTicket.Select(kv => kv.Key.ToString(IC) + "=" + kv.Value.ToString("R", IC))));
+            return string.Join("|", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.BalanceStart.ToString("R", IC), x.Peak.ToString("R", IC), (x.Ctx ?? "").Replace("|", " "), x.Manual ? "1" : "0", string.Join(";", tickets.Select(t => t.ToString(IC))), Now.Ticks.ToString(IC), string.Join(";", x.FeeByTicket.Select(kv => kv.Key.ToString(IC) + "=" + kv.Value.ToString("R", IC))), x.ManualAdds.ToString(IC));
         }
         public static OpenSave ParseOpen(string line)
         {
@@ -334,6 +334,7 @@ namespace KeystoneMT5
                 var it = new AutoIteration { N = int.Parse(a[0], IC), Start = new DateTime(long.Parse(a[1], IC)), FirstDir = a[2], Buys = int.Parse(a[3], IC), Sells = int.Parse(a[4], IC), AddOns = int.Parse(a[5], IC), BuyLots = d(6), SellLots = d(7), MaxGross = d(8), MaxDd = d(9), BalanceStart = d(10), Peak = d(11), Ctx = a[12], Manual = a[13] == "1" };
                 var o = new OpenSave { It = it, SavedAt = new DateTime(long.Parse(a[15], IC)) }; foreach (var t in a[14].Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)) o.Tickets.Add(long.Parse(t, IC));
                 if (a.Length > 16) foreach (var kv in a[16].Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)) { var q = kv.Split('='); if (q.Length == 2) it.FeeByTicket[long.Parse(q[0], IC)] = double.Parse(q[1], IC); }
+                if (a.Length > 17) it.ManualAdds = int.Parse(a[17], IC);   /* ✋ hand-hedged legs survive a restart */
                 return o;
             }
             catch { return null; }
@@ -403,7 +404,7 @@ namespace KeystoneMT5
                 if (sv != null && sv.Tickets.Count > 0 && sn.Pos.All(p => sv.Tickets.Contains(p.Ticket) || p.Time >= sv.SavedAt))
                 {
                     var o = sv.It; Current.N = o.N; Current.Start = o.Start; Current.FirstDir = o.FirstDir; Current.BalanceStart = o.BalanceStart; Current.MaxDd = o.MaxDd; Current.MaxGross = Math.Max(o.MaxGross, Gross(sn.Pos)); Current.Peak = o.Peak; Current.Ctx = o.Ctx;
-                    Current.Buys = Math.Max(Current.Buys, o.Buys); Current.Sells = Math.Max(Current.Sells, o.Sells); Current.AddOns = Math.Max(Current.AddOns, o.AddOns); Current.Adopted = false; Current.Manual = o.Manual; same = true;
+                    Current.Buys = Math.Max(Current.Buys, o.Buys); Current.Sells = Math.Max(Current.Sells, o.Sells); Current.AddOns = Math.Max(Current.AddOns, o.AddOns); Current.Adopted = false; Current.Manual = o.Manual; Current.ManualAdds = Math.Max(Current.ManualAdds, o.ManualAdds); same = true;
                     foreach (var kv in o.FeeByTicket) Current.FeeByTicket[kv.Key] = kv.Value;
                 }
                 if (!same)

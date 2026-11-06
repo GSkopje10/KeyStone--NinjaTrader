@@ -133,6 +133,13 @@ public static class SimTests
         var acc = new SimAccount(new Mt5State()); var gsp = Gold(); gsp.SwapMode = 1; gsp.SwapLong = -40; acc.Specs["XAUUSD"] = gsp;
         Check(Math.Abs(acc.SwapPerLot(gsp, 1, 4000) + 40) < 1e-9, "MT5 swap in points: −40 points × $1 per point per lot = −$40 a lot a night");
         acc.Reset(new SimAccountSettings { Balance = 5000 }, day1); acc.OnPrice("XAUUSD", day1, 4000, 4000.2); acc.Do("ORDER", new object[] { "XAUUSD", "BUY", 0.5, 0.0, 3990.0, 0.0 }, day1); acc.Do("ORDER", new object[] { "XAUUSD", "SELL LIMIT", 0.2, 4010.0, 0.0, 0.0 }, day1);
+        {   // 🐞 the user's catch: a DEMO held over Friday's close — the swap is booked at the server's midnight from the clock, no price needed; days the app was closed are each booked
+            var ca = new SimAccount(new Mt5State()); var cs = Gold(); cs.SwapMode = 2; cs.SwapLong = -10; cs.SwapShort = -10; ca.Specs["XAUUSD"] = cs; var fri = new DateTime(2026, 11, 6, 23, 50, 0);
+            ca.Reset(new SimAccountSettings { Balance = 5000, CommissionPerLot = 0 }, fri); ca.OnPrice("XAUUSD", fri, 4000, 4000.2); ca.Do("ORDER", new object[] { "XAUUSD", "BUY", 1.0, 0.0, 0.0, 0.0 }, fri);
+            ca.Clock(fri.AddMinutes(15)); Check(Math.Abs(ca.State.Positions[0].Swap + 10) < 1e-9, "market closed Friday: the swap is booked at the server's midnight by the clock alone (−$10)", ca.State.Positions[0].Swap + "");
+            ca.Clock(new DateTime(2026, 11, 9, 1, 0, 0)); Check(Math.Abs(ca.State.Positions[0].Swap + 10) < 1e-9, "no swap for Saturday / Sunday nights", ca.State.Positions[0].Swap + "");
+            ca.OnPrice("XAUUSD", new DateTime(2026, 11, 12, 1, 0, 0), 4001, 4001.2); Check(Math.Abs(ca.State.Positions[0].Swap + 10 + 10 + 30 + 10) < 1e-9, "app closed Mon–Wed: every midnight is booked (Mon, Tue, Wed ×3)", ca.State.Positions[0].Swap + "");
+        }
         var saved = acc.Save(); var acc2 = new SimAccount(new Mt5State()); acc2.Specs["XAUUSD"] = gsp; bool ld = acc2.Load(saved);
         Check(ld && acc2.State.Positions.Count == 1 && acc2.State.Positions[0].Sl == 3990 && acc2.State.Orders.Count == 1 && Math.Abs(acc2.Balance - acc.Balance) < 1e-9 && acc2.State.Deals.Count == acc.State.Deals.Count, "the DEMO account is saved and comes back (positions, orders, balance, deals)");
         var mk = new Mt5State(); mk.Apply("SYM|XAUUSD|2|100.00|0.01|0.01|100.00|0.01000000|1.000000|0.01000000|Gold"); mk.Apply("SYMX|XAUUSD|-45.5|12.1|1|5|1000.00|2|10");

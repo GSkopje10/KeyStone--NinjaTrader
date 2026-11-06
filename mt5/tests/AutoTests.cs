@@ -491,6 +491,11 @@ public static class AutoTests
             var aCo2 = new HedgeAuto(); aCo2.Send = (c, x, l) => sbC.Command(c, x); aCo2.RestoreOpen = () => HedgeAuto.ParseOpen(saved); aCo2.Start(sbC, sCo, true);
             Check(it1 != null && saved != "" && aCo2.Current != null && aCo2.Current.N == it1.N && aCo2.Current.Start == it1.Start && !aCo2.Current.Adopted, "carry over: after a restart the open basket is the SAME iteration (number, start kept)", (it1 == null ? "none" : it1.N + " " + it1.Start) + " vs " + (aCo2.Current == null ? "none" : aCo2.Current.N + " " + aCo2.Current.Start));
         }
+        {   // ✋ the user's catch (iteration #18 hand-hedged, not shown after a restart): the hand-added legs count survives the open save
+            var aMh = new HedgeAuto(); aMh.Current = new AutoIteration { N = 18, Start = Day1, FirstDir = "SELL", ManualAdds = 3 };
+            var bk = HedgeAuto.ParseOpen(aMh.OpenText(new long[] { 1, 2 }));
+            Check(bk != null && bk.It.ManualAdds == 3, "✋ HAND-HEDGED ×3 is saved with the open iteration and read back", bk == null ? "null" : bk.It.ManualAdds + "");
+        }
         // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back
         var day = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path(Day1, 4000, zz.Take(600))).ToList();

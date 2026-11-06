@@ -44,6 +44,7 @@ namespace KeystoneMT5
                 var m = live.State; state.Linked = m.Linked; state.LastLine = m.LastLine; state.LinkedAt = m.LinkedAt; state.ServerNow = m.ServerNow; state.ServerOffsetSec = m.ServerOffsetSec; state.Company = m.Company;
                 state.AllowInput = state.AlgoTerminal = state.AlgoEa = state.AccountTrade = state.AccountExpert = true; state.CanKnown = true; state.MaxLots = 100; state.BridgeVersion = Math.Max(5, m.BridgeVersion);
                 if (!Ready) return;
+                if (m.ServerNow > DateTime.MinValue && m.ServerNow.Date > Acct.Now.Date && Acct.Now > DateTime.MinValue) { Acct.Clock(m.ServerNow); dirty = true; }   // swap at midnight even with no price (market closed)
                 var need = new HashSet<string>(state.Positions.Select(p => p.Symbol).Concat(state.Orders.Select(o => o.Symbol)), StringComparer.OrdinalIgnoreCase);
                 foreach (var sym in need)
                 {

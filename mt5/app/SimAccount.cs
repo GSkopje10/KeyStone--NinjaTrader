@@ -52,10 +52,16 @@ namespace KeystoneMT5
         // a new price of one symbol (ask = what this account pays)
         public void OnPrice(string sym, DateTime t, double bid, double ask)
         {
-            if (Now > DateTime.MinValue && t.Date > Now.Date) Rollover(Now);
-            if (t > Now) Now = t;
+            Clock(t);
             double[] p; if (!px.TryGetValue(sym, out p)) px[sym] = p = new double[2]; p[0] = bid; p[1] = Math.Max(bid, ask);
             Triggers(sym, t); Mark(); StopOut(t);
+        }
+        // the server's clock moves on (a price, or the bridge's server time while the market is closed): swap for EVERY midnight crossed
+        // (🐞 the user's catch: a DEMO held over Friday's close showed no swap until Monday's first price, and days with the app closed were missed)
+        public void Clock(DateTime t)
+        {
+            if (Now > DateTime.MinValue) for (var d = Now.Date; d < t.Date && (t.Date - d).TotalDays < 400; d = d.AddDays(1)) Rollover(d);
+            if (t > Now) Now = t;
         }
         // swap for every position held over the server's midnight (its symbol's triple day ×3; none on Saturday / Sunday nights)
         void Rollover(DateTime day)
