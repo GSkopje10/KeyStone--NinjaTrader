@@ -663,7 +663,8 @@ namespace KeystoneMT5
                         {   // 🛟 only an OBVIOUS trend unlocks: far enough beyond the range AND the EMA 50 / 200 the same way
                             double avgR = sn.Fin.Count >= 5 ? sn.Fin.Take(14).Average(x => x.H - x.L) : 0;
                             bool far = bd > 0 ? sn.Bid >= LockHi + Set.GuardBreak * avgR : sn.Bid <= LockLo - Set.GuardBreak * avgR;
-                            if (!far || (!double.IsNaN(Ema200) && TrendNow != bd)) return;
+                            bool inProfit = Basket + sn.Balance - it.BalanceStart >= 0;   // a BREAKEVEN lock (in profit): any clear break goes for the target — the trend check only guards a LOSING lock
+                            if (!far || (!inProfit && !double.IsNaN(Ema200) && TrendNow != bd)) return;
                             if (Set.PairOff && sn.Pos.Count > 2)
                             {   // PAIR-OFF: the best leg with the trend + the worst leg against it, closed together when they add up to ≥ $0
                                 Func<Mt5Position, double> plP = p => p.Profit + p.Swap + p.Commission;

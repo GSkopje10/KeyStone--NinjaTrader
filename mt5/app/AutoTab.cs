@@ -1088,7 +1088,8 @@ namespace KeystoneMT5
                 aSaveBtn.Background = Tint(!on ? Cyan : Green, (byte)(dirty ? 200 + 55 * Math.Abs(Math.Sin(DateTime.Now.TimeOfDay.TotalMilliseconds / 300.0)) : 200)); aSaveBtn.IsEnabled = !on || dirty;
                 aUndoBtn.Visibility = on && dirty ? Visibility.Visible : Visibility.Collapsed; aNowBtn.Visibility = on && (dirty || queued) ? Visibility.Visible : Visibility.Collapsed; aStopSmall.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             }
-            if (!force && auto.Version == aSeen) return; aSeen = auto.Version;
+            bool tick = auto.Current != null && DateTime.Now.Minute != aMinPaint;   // an open iteration: its ⏱ time in the trade moves even while nothing happens (a frozen lock)
+            if (!force && auto.Version == aSeen && !tick) return; aSeen = auto.Version; aMinPaint = DateTime.Now.Minute;
             AutoTilesPaint(); AutoTablePaint();
         }
         static string Px(double v) { return double.IsNaN(v) ? "—" : v.ToString("0.#####", IC); }
@@ -1249,6 +1250,7 @@ namespace KeystoneMT5
             string best = x.AfterMax > x.Result + 0.5 ? "best +$" + x.AfterMax.ToString("0", IC) + " after " + mm(x.AfterMaxMin) + " (+" + x.AfterMove.ToString("0.00", IC) + ")" : "no more than the target";
             return (x.AfterDone ? "" : "▶ ") + best + (x.AfterBackTargetMin >= 0 ? " • back to $" + x.Result.ToString("0", IC) + " at " + mm(x.AfterBackTargetMin) : "") + (x.AfterBreakevenMin >= 0 ? " • breakeven at " + mm(x.AfterBreakevenMin) : x.AfterDone ? " • no breakeven in 8 h" : " (following)");
         }
+        int aMinPaint = -1;
         void AutoTablePaint()
         {
             foreach (Button b in aViews.Children) if (b.Content is string) { if (b == aRebornBtn) continue; if (b == aSetBtn) { bool selS = aView == "⚙ SETTINGS"; b.Background = Tint(Gold, (byte)(selS ? 255 : 190)); b.Foreground = Bg; b.BorderBrush = selS ? Sx.White : Gold; continue; } b.Background = (string)b.Content == aView ? Tint(Cyan, 70) : Tint(Sx.Card2, 220); }   // ⚙ SETTINGS stays gold (step 1)
