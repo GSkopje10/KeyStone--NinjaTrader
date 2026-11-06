@@ -293,7 +293,7 @@ public static class AutoTests
             Check(iLock == 3 && tLk.Count(t => t.Why.StartsWith("🔒 LOCK")) == 1 && Math.Abs(netAfterLock) < 1e-9 && un != null && un.Why.StartsWith("🔓 UNLOCK") && un.Side == "BUY" && Math.Abs(un.Lots - 0.2) < 1e-9 && rLk.Item2.Hedges.Any(h => h.Kind == "LOCK") && rLk.Item2.Hedges.Any(h => h.Kind == "UNLOCK"),
                 "lock: 2 hedges in a $1 range → LOCK to net 0, no hedge in the chop, the break up = UNLOCK BUY 0.2 (lead); all recorded", string.Join(" | ", tLk.Select(t => t.Side + " " + t.Lots + " " + t.Why.Split('—')[0])));
             // LOCK → LIFT: the break up closes every SELL; only buys stay
-            var sLf = baseS(); sLf.LockOn = true; sLf.LockAfter = 2; sLf.LockRange = 3; sLf.Unlock = "LIFT";
+            var sLf = baseS(); sLf.LockOn = true; sLf.LockAfter = 2; sLf.LockRange = 3; sLf.Unlock = "LIFT"; sLf.RescueMin = 0;   // the lift itself (the ⏱ breakeven rule would close the basket first)
             var rLf = Run(chop(), sLf); var posLf = rLf.Item1.State.Positions;
             Check(rLf.Item2.Trades.Any(t => t.Why.StartsWith("🔓 UNLOCK — LIFT")) && posLf.Count > 0 && posLf.All(p => p.Dir > 0), "lock → lift: the break up closes every SELL, the buys keep running", string.Join(",", posLf.Select(p => p.Side + p.Lots)));
             // RANGE-ONLY: the 2nd hedge (a BUY) waits for a break ABOVE the basket's highest leg, not just +$1 from the last one
@@ -575,6 +575,12 @@ public static class AutoTests
                 var rR = Run(pathR, sRz).Item2; var rR0 = Run(Path(Day1, 4000, Line(4000, 0.25, 20).Concat(Line(4005, -0.25, 24)).ToArray()), sRz0).Item2;
                 var iR = rR.Iterations.FirstOrDefault(); var iR0 = rR0.Iterations.FirstOrDefault();
                 Check(iR != null && iR.Reason == "RESCUE BE" && (iR0 == null || iR0.Reason != "RESCUE BE") && AutoSettings.Load("sym=XAUUSD").Rescue && AutoSettings.Load(sRz0.Save()).Rescue == false, "rescue to breakeven: a deep basket that comes back to $0 closes there (off: it does not)", (iR == null ? "none" : iR.Reason) + " / " + (iR0 == null ? "none" : iR0.Reason));
+            }
+            {   // ⏱ the time rule: a small basket (never 3 % deep) that was in a loss for over an hour closes at breakeven
+                var sT = S(); sT.FirstDir = "SELL"; sT.HedgeMode = "NONE"; sT.MaxIterations = 1; sT.Target = 400; sT.MaxDrawdown = 0; sT.EntryLots = 0.05; sT.RescuePct = 50; sT.DangerAt = 100; sT.RescueMin = 60; var sT0 = sT.Copy(); sT0.RescueMin = 0;
+                Func<List<Mt5Bar>> pT = () => Path(Day1, 4000, Line(4000, 0.05, 40).Concat(Enumerable.Repeat(4002.0, 40)).Concat(Line(4002, -0.1, 30)).ToArray());
+                var iT = Run(pT(), sT).Item2.Iterations.FirstOrDefault(); var iT0 = Run(pT(), sT0).Item2.Iterations.FirstOrDefault();
+                Check(iT != null && iT.Reason == "RESCUE BE" && (iT0 == null || iT0.Reason != "RESCUE BE") && AutoSettings.Load("sym=XAUUSD").RescueMin == 60, "⏱ breakeven after an hour: a basket in a loss for 60+ min closes at $0 (off: it waits for the target)", (iT == null ? "none" : iT.Reason) + " / " + (iT0 == null ? "none" : iT0.Reason));
             }
             // 🧹 a pending order placed during the iteration is cancelled when it closes
             var rPo = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), S(), mid: (b0, a0) => b0.Command("ORDER", "XAUUSD", "BUY LIMIT", 0.1, 3950.0, 0.0, 0.0)); int ordPo; lock (rPo.Item1.State.Gate) ordPo = rPo.Item1.State.Orders.Count;
