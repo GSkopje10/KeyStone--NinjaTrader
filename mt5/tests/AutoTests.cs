@@ -379,7 +379,7 @@ public static class AutoTests
                 Func<int, AutoSettings> tS = mx => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 1.5; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.2; x.Target = 5000; x.MaxIterations = 1; x.HedgeCap = 0; x.RiskGuard = true; x.GuardMode = "LOCK"; x.GuardLots = 0.5; x.GuardChop = 0; x.GuardMargin = 0; x.GuardBreak = 0.2; x.PairOff = false; x.Rescue = false; x.DdTightEvery = 0; x.TrimMax = mx; return x; };
                 var tTr1 = Run(chopT(), tS(1)).Item2; var tTr0 = Run(chopT(), tS(0)).Item2;
                 int n1 = tTr1.Trades.Count(t => t.Why.StartsWith("🛡 TRIM")), n0 = tTr0.Trades.Count(t => t.Why.StartsWith("🛡 TRIM"));
-                Check(n1 <= 1 && n0 >= 2 && AutoSettings.Load("sym=XAUUSD").TrimMax == 1 && AutoSettings.Load(tS(3).Save()).TrimMax == 3, "trim limit: in a chop at most 1 RISK GUARD trim an iteration (no limit: " + n0 + " trims, each a booked loss); then it stays locked", "max1 " + n1 + " / none " + n0);
+                Check(n1 <= 1 && n0 >= 2 && AutoSettings.Load("sym=XAUUSD").TrimMax == 0 && AutoSettings.Load(tS(3).Save()).TrimMax == 3, "trim limit: in a chop at most 1 RISK GUARD trim an iteration (no limit: " + n0 + " trims, each a booked loss); then it stays locked", "max1 " + n1 + " / none " + n0);
             }
             {   // 📉 SCALE OUT: BUY 0.3 (lead 0.1) climbing → slices of 0.05 banked every $1.5, never below the lead 0.1
                 var sSo = S(); sSo.FirstDir = "BUY"; sSo.EntryLots = 0.3; sSo.NetAdvantage = 0.1; sSo.HedgeMode = "NONE"; sSo.Target = 5000; sSo.MaxIterations = 1; sSo.ScaleOut = true; sSo.ScaleLots = 0.05; sSo.ScaleStep = 1.5;
