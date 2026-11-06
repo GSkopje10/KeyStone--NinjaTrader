@@ -389,7 +389,7 @@ public static class AutoTests
                 var pMu = Enumerable.Range(0, 900).Select(i => Math.Round(4000 + 8 * Math.Sin(i / 23.0) + 3 * Math.Sin(i / 5.0) + ((i * 7919) % 13 - 6) * 0.15, 2)).ToList();
                 var sMu = AutoSettings.Model("FULLAUTO", S(), 10000); sMu.Symbol = S().Symbol; sMu.EntryMode = "MULTI"; sMu.FvgTf = 1; sMu.MaxIterations = 0; sMu.Target = 3; sMu.AutoScoreMin = 0; sMu.RiskGuard = false; sMu.HedgeMode = "NONE"; sMu.Swing = false; sMu.Lookback = 5;
                 var aMu = Run(Path(Day1, 4000, pMu), sMu, steps: 20000).Item2;
-                var setupsMu = aMu.Trades.Where(t => t.Why.StartsWith("ENTRY")).Select(t => t.Why.Contains("🕯") ? "ENG" : t.Why.Contains("〽") ? "VWR" : t.Why.Contains("💥") ? "AGG" : t.Why.Contains("🧲") ? "FVG" : t.Why.Contains("🌊") ? "FLOW" : t.Why.Contains("🔄") ? "FADE" : t.Why.Contains("⚡") ? "BRK" : "?").Distinct().ToList();
+                var setupsMu = aMu.Trades.Where(t => t.Why.StartsWith("ENTRY")).Select(t => t.Why.Contains("🕯") ? "ENG" : t.Why.Contains("〽") ? "VWR" : t.Why.Contains("💥") ? "AGG" : t.Why.Contains("🧲") ? "FVG" : t.Why.Contains("🌊") ? "FLOW" : t.Why.Contains("🔄") ? "FADE" : t.Why.Contains("🧱") ? "RETEST" : t.Why.Contains("⚡") ? "BRK" : "?").Distinct().ToList();
                 Check(sMu.EntryMode == "MULTI" && setupsMu.Count >= 2 && !setupsMu.Contains("?"), "🎯 multi: FULL AUTO watches every setup — the iterations start from " + string.Join(" / ", setupsMu), "iters " + aMu.Iterations.Count + " | " + string.Join(" ¦ ", aMu.Log.Where(l => l.Contains("FULL AUTO") || l.Contains("ENTRY") || l.Contains("CLOSED")).Take(14)));
             }
             {   // 💥 AGGRESSION (the futures BH rule): ONE red candle, a green close, the next candle breaks the green's high → BUY
@@ -424,6 +424,13 @@ public static class AutoTests
                 bool shut = false; var rHd = Run(Path(Day1, 4000, Line(4000, -0.3, 40)), sHd, null, null, sb => { var prev = sb.OnTickHook; sb.OnTickHook = () => { prev(); if (!shut && sb.Clock >= Day1.AddMinutes(25) && sb.State.Positions.Count > 0) { shut = true; sb.Command("CLOSEALL", new object[] { "XAUUSD", "ALL" }); } }; });
                 var iHd = rHd.Item2.Iterations.FirstOrDefault(); bool scaled = rHd.Item2.Trades.Any(t => t.Why.StartsWith("📉 SCALE OUT"));
                 Check(scaled && iHd != null && iHd.Done && iHd.Reason == "CLOSED BY HAND", "✋ closed by hand after a scale-out → saved as CLOSED BY HAND (not LEG TARGETS)", (iHd == null ? "none" : iHd.Reason) + " scaled " + scaled);
+            }
+            {   // 🧱 S/R RETEST: the round $4000 level breaks DOWN by a close, the price comes back up to it, a red candle rejects it → SELL
+                var rtPath = Enumerable.Range(0, 30).Select(i => 4003.0 + (i % 2 == 0 ? 0.3 : -0.3)).Concat(new[] { 4002.0, 4000.8, 3999.0, 3998.5, 3998.9, 3999.6, 3999.2, 3998.8, 3998.4 }).ToList();
+                var sRt = S(); sRt.EntryMode = "RETEST"; sRt.MaxIterations = 1; sRt.Target = 5000; sRt.HedgeMode = "NONE";
+                var pRt = Path(Day1, 4003, rtPath); pRt[36].H = 4000.1;   // the 36th candle opens 3999.6, spikes to the level 4000.1 and closes red at 3999.2 (under it) = the rejection
+                var aRt = Run(pRt, sRt).Item2; var eRt = aRt.Trades.FirstOrDefault(t => t.Why.StartsWith("ENTRY"));
+                Check(eRt != null && eRt.Side == "SELL" && eRt.Why.Contains("RETEST"), "🧱 S/R retest: the $4000 level broken down, retested and rejected → SELL", eRt == null ? string.Join(" ¦ ", aRt.Log.Take(4)) : eRt.Why);
             }
             {   // 🛡 TRIM LIMIT (06 Nov #22): a chop that breaks the lock range up, down, up … → at most 1 trim (each one books a loss); no limit = several
                 Func<List<Mt5Bar>> chopT = () => Path(Day1, 4000, Enumerable.Range(0, 400).Select(i => Math.Round(4000 + 6 * Math.Sin(i / 9.0), 2)));

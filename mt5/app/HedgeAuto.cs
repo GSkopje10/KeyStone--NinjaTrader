@@ -856,7 +856,7 @@ namespace KeystoneMT5
         }
 
         // 🤖 THE MARKET READING (every closed candle): regime, ATR, extension from VWAP / EMA 50, the pullback before the break, the run, the day edge
-        DateTime readAt = DateTime.MinValue; public int AggRunNow; int e123Dir; DateTime e123Bar = DateTime.MinValue; string e123Story = ""; DateTime bcBar = DateTime.MinValue; double bcHi = double.NaN, bcLo = double.NaN;
+        DateTime readAt = DateTime.MinValue; public int AggRunNow; int e123Dir; DateTime e123Bar = DateTime.MinValue; string e123Story = ""; int rtDir; double rtLevel; DateTime rtBar = DateTime.MinValue; string rtStory = ""; readonly List<Tuple<double, int, DateTime, string>> rtBroken = new List<Tuple<double, int, DateTime, string>>(); DateTime bcBar = DateTime.MinValue; double bcHi = double.NaN, bcLo = double.NaN;
         public string Regime = ""; public string MarketNow = ""; public int LastScore = -1; public string LastScoreWhy = ""; public int ScoreSkips; string scoreSkip = "";
         void ReadMarket(Snap sn, out double atr, out double pull, out int runUp, out int runDn)
         {
@@ -916,6 +916,11 @@ namespace KeystoneMT5
                 if (Now >= AggBar.AddMinutes(2 * Set.Tf)) { AggDir = 0; AggLevel = double.NaN; return false; }   // only during the candle after the signal candle
                 if (AggDir > 0 ? !(prevBid <= AggLevel && sn.Bid > AggLevel) : !(prevBid >= AggLevel && sn.Bid < AggLevel)) return false;
                 dir = AggDir; lvl = AggLevel; why = "AGGRESSION BREAK " + (dir > 0 ? "BUY above " : "SELL below ") + P(lvl); story = SignalText + "; the bid broke it (" + P(prevBid) + " → " + P(sn.Bid) + ")"; AggDir = 0; AggLevel = double.NaN;
+            }
+            else if (Set.EntryMode == "RETEST")
+            {
+                if (rtDir == 0 || (only != 0 && rtDir != only) || sn.Fin.Count == 0 || sn.Fin[0].Time != rtBar) return false;
+                dir = rtDir; lvl = rtLevel; why = "🧱 S/R RETEST " + (dir > 0 ? "BUY" : "SELL") + " at " + P(rtLevel); story = rtStory; rtDir = 0;
             }
             else if (Set.EntryMode == "ENG123")
             {
@@ -1031,7 +1036,7 @@ namespace KeystoneMT5
         }
         // FVG zones and the FLOW surge candle: once per new finished candle
         // 🎯 MULTI (FULL AUTO): the setups the engine watches together — each signal is scored, the best one starts the iteration
-        static readonly string[] MultiModes = { "BREAK", "FADE", "ENG123", "ENGULF", "VWAPREJ", "AGGBRK", "FVG50", "FLOW" };
+        static readonly string[] MultiModes = { "BREAK", "RETEST", "FADE", "ENG123", "ENGULF", "VWAPREJ", "AGGBRK", "FVG50", "FLOW" };
         public string LastSetup = "";
         void Signals(Snap sn)
         {
@@ -1061,7 +1066,7 @@ namespace KeystoneMT5
             Tell("🎚 RISK FOR " + SetupName(setup) + ": max hedge distance " + rp.Item1.ToString("0.##", IC) + ", target +$" + Set.Target.ToString("0.##", IC) + " (the replays' best for this setup)");
         }
         void RestoreSetupRisk() { if (double.IsNaN(baseCap)) return; Set.HedgeCap = baseCap; Set.Target = baseTarget; baseCap = baseTarget = double.NaN; }
-        static string SetupName(string m) { return m == "BREAK" ? "⚡ BREAK" : m == "ENGULF" ? "🕯 ENGULFING" : m == "ENG123" ? "🕯 1-2-3 ENGULFING" : m == "FADE" ? "🔄 BREAK FADE" : m == "VWAPREJ" ? "〽 VWAP REJECTION" : m == "AGGBRK" ? "💥 AGGRESSION BREAK" : m == "FVG50" ? "🧲 FVG 50 %" : m == "FLOW" ? "🌊 ORDER FLOW" : m; }
+        static string SetupName(string m) { return m == "BREAK" ? "⚡ BREAK" : m == "ENGULF" ? "🕯 ENGULFING" : m == "ENG123" ? "🕯 1-2-3 ENGULFING" : m == "FADE" ? "🔄 BREAK FADE" : m == "RETEST" ? "🧱 S/R RETEST" : m == "VWAPREJ" ? "〽 VWAP REJECTION" : m == "AGGBRK" ? "💥 AGGRESSION BREAK" : m == "FVG50" ? "🧲 FVG 50 %" : m == "FLOW" ? "🌊 ORDER FLOW" : m; }
         // every setup's signal now; with MULTI the best SCORED one (the others are named in the why)
         bool AnySignal(Snap sn, int only, out int dir, out double lvl, out string why, out string story)
         {
@@ -1073,7 +1078,7 @@ namespace KeystoneMT5
                 {
                     Set.EntryMode = m; int d; double l; string w, st;
                     if (!Signal(sn, only, out d, out l, out w, out st) || d == 0) continue;
-                    string scW; int sc = Score(sn, d, out scW); if (m == "ENGULF" || m == "ENG123" || m == "VWAPREJ" || m == "FVG50") sc += 5;   // a retrace / rejection entry: not a chase by design
+                    string scW; int sc = Score(sn, d, out scW); if (m == "ENGULF" || m == "ENG123" || m == "VWAPREJ" || m == "FVG50" || m == "RETEST") sc += 5;   // a retrace / rejection entry: not a chase by design
                     seen.Add(SetupName(m) + " " + (d > 0 ? "BUY" : "SELL") + " " + sc);
                     if (sc > best) { best = sc; dir = d; lvl = l; why = SetupName(m) + " — " + w; story = st; LastSetup = m; }
                 }
@@ -1120,6 +1125,25 @@ namespace KeystoneMT5
                 for (int k = 1; k < sn.Fin.Count && run < 50; k++) { var x = sn.Fin[k]; if (green ? x.C < x.O : red ? x.C > x.O : false) run++; else break; }
                 if (run >= Set.AggRun && (green || red)) { AggRunNow = run; AggDir = green ? 1 : -1; AggLevel = green ? c.H : c.L; AggBar = c.Time; SignalText = run + " " + (green ? "red" : "green") + " " + Tf.Name(Set.Tf) + " candles, then the " + c.Time.ToString("HH:mm", IC) + " candle closed " + (green ? "GREEN" : "RED") + " (O " + P(c.O) + " C " + P(c.C) + ") — " + (green ? "BUY above its high " : "SELL below its low ") + P(AggLevel) + " during the next candle"; }
                 else if (AggDir != 0 && Now >= AggBar.AddMinutes(2 * Set.Tf)) { AggDir = 0; AggLevel = double.NaN; }
+            }
+            if (Set.EntryMode == "RETEST" && sn.Fin.Count >= 22 && sn.Fin[0].Time != rtBar)
+            {   // 🧱 S/R RETEST: a key level broken by a CLOSE, then within 30 candles the price comes back to it and is REJECTED (a candle touches it and
+                // closes back on the break side) → enter the break's way: broken support = new resistance (SELL), broken resistance = new support (BUY)
+                rtBar = sn.Fin[0].Time; rtDir = 0; var c = sn.Fin[0]; var p1 = sn.Fin[1]; double atr = Math.Max(0.05, sn.Fin.Take(14).Average(x => x.H - x.L));
+                foreach (var k in KeyLevels(sn))
+                {   // a fresh break of this level by the candle that just closed
+                    if (p1.C >= k.Item1 && c.C < k.Item1 - 0.2 * atr && !rtBroken.Any(b => Math.Abs(b.Item1 - k.Item1) < 0.3 * atr)) rtBroken.Add(Tuple.Create(k.Item1, -1, c.Time, k.Item2));
+                    if (p1.C <= k.Item1 && c.C > k.Item1 + 0.2 * atr && !rtBroken.Any(b => Math.Abs(b.Item1 - k.Item1) < 0.3 * atr)) rtBroken.Add(Tuple.Create(k.Item1, 1, c.Time, k.Item2));
+                }
+                rtBroken.RemoveAll(b => (c.Time - b.Item3).TotalMinutes > 30 * Set.Tf);
+                foreach (var b in rtBroken.ToList())
+                {
+                    if (b.Item3 == c.Time) continue;   // the break candle itself is not the retest
+                    bool rej = b.Item2 < 0 ? c.H >= b.Item1 - 0.15 * atr && c.C < b.Item1 && c.C < c.O : c.L <= b.Item1 + 0.15 * atr && c.C > b.Item1 && c.C > c.O;
+                    bool gone = b.Item2 < 0 ? c.C > b.Item1 + 0.3 * atr : c.C < b.Item1 - 0.3 * atr;   // closed back through it: the break failed
+                    if (gone) { rtBroken.Remove(b); continue; }
+                    if (rej) { rtDir = b.Item2; rtLevel = b.Item1; rtStory = "🧱 RETEST: " + b.Item4 + " " + P(b.Item1) + " was broken " + (b.Item2 < 0 ? "DOWN" : "UP") + " at " + b.Item3.ToString("HH:mm", IC) + "; the " + c.Time.ToString("HH:mm", IC) + " candle came back to it (" + (b.Item2 < 0 ? "high " + P(c.H) : "low " + P(c.L)) + ") and closed " + (b.Item2 < 0 ? "back under it at " : "back over it at ") + P(c.C) + " → " + (b.Item2 < 0 ? "broken support = resistance → SELL" : "broken resistance = support → BUY"); rtBroken.Remove(b); SignalText = rtStory; break; }
+                }
             }
             if (Set.EntryMode == "ENG123" && sn.Fin.Count >= 3 && sn.Fin[0].Time != e123Bar)
             {   // 1-2-3 ENGULFING (user's rule): candles 1 and 2 the same colour, candle 3 the other colour ENGULFS candle 2's BODY and closes there = the entry
