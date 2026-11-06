@@ -385,6 +385,13 @@ public static class AutoTests
                 Check(skipped && taken && faL.FullAuto && faL.Preset == "FULLAUTO" && !AutoSettings.Load("sym=XAUUSD").FullAuto, "🤖 full auto: a break with no pullback (chasing the top) is skipped; a break after a real pullback is taken with its score; saved; off by default",
                     "chaseF skips " + aC.ScoreSkips + " entries " + string.Join(",", aC.Trades.Select(t => t.Why.Split('—')[0])) + " | dipF " + string.Join(" ; ", aP.Trades.Select(t => t.Why)) + " | " + aC.LastScoreWhy + " / " + aP.LastScoreWhy + " | LOG " + string.Join(" ¦ ", aP.Log.Take(12)));
             }
+            {   // 🎯 MULTI: the iterations start from different setupsMu (not only the swing break); the setup is named in the entry and the context
+                var pMu = Enumerable.Range(0, 900).Select(i => Math.Round(4000 + 8 * Math.Sin(i / 23.0) + 3 * Math.Sin(i / 5.0) + ((i * 7919) % 13 - 6) * 0.15, 2)).ToList();
+                var sMu = AutoSettings.Model("FULLAUTO", S(), 10000); sMu.Symbol = S().Symbol; sMu.MaxIterations = 0; sMu.Target = 3; sMu.AutoScoreMin = 0; sMu.RiskGuard = false; sMu.HedgeMode = "NONE"; sMu.Swing = false; sMu.Lookback = 5;
+                var aMu = Run(Path(Day1, 4000, pMu), sMu, steps: 20000).Item2;
+                var setupsMu = aMu.Trades.Where(t => t.Why.StartsWith("ENTRY")).Select(t => t.Why.Contains("🕯") ? "ENG" : t.Why.Contains("〽") ? "VWR" : t.Why.Contains("💥") ? "AGG" : t.Why.Contains("🧲") ? "FVG" : t.Why.Contains("🌊") ? "FLOW" : t.Why.Contains("⚡") ? "BRK" : "?").Distinct().ToList();
+                Check(sMu.EntryMode == "MULTI" && setupsMu.Count >= 2 && !setupsMu.Contains("?"), "🎯 multi: FULL AUTO watches every setup — the iterations start from " + string.Join(" / ", setupsMu), "iters " + aMu.Iterations.Count + " | " + string.Join(" ¦ ", aMu.Log.Where(l => l.Contains("FULL AUTO") || l.Contains("ENTRY") || l.Contains("CLOSED")).Take(14)));
+            }
             {   // 🛡 TRIM LIMIT (06 Nov #22): a chop that breaks the lock range up, down, up … → at most 1 trim (each one books a loss); no limit = several
                 Func<List<Mt5Bar>> chopT = () => Path(Day1, 4000, Enumerable.Range(0, 400).Select(i => Math.Round(4000 + 6 * Math.Sin(i / 9.0), 2)));
                 Func<int, AutoSettings> tS = mx => { var x = S(); x.FirstDir = "BUY"; x.HedgeMode = "PRICE"; x.HedgePrice = 1.5; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.2; x.Target = 5000; x.MaxIterations = 1; x.HedgeCap = 0; x.RiskGuard = true; x.GuardMode = "LOCK"; x.GuardLots = 0.5; x.GuardChop = 0; x.GuardMargin = 0; x.GuardBreak = 0.2; x.PairOff = false; x.Rescue = false; x.DdTightEvery = 0; x.TrimMax = mx; return x; };

@@ -147,7 +147,7 @@ namespace KeystoneMT5
             if (name == "LADDER") { s.Tf = 1; s.EntryMode = "STRADDLE"; s.HedgeMode = "LADDER"; s.HedgeSize = "FIXED"; s.LadderStep = 4; s.LadderMax = 10; s.EntryLots = 0.05; s.AddLots = 0.05; s.Target = 17; s.TrendFilter = "EMA"; s.BeAfter = 6; s.MaxDrawdown = 0; s.VwapFilter = "NONE"; s.Windows = ""; s.CloseAtNy = ""; s.EodLoss = "HOLD"; s.RangeOnly = false; s.QuickHedge = false; s.LockOn = false; s.BeAfter = 0; s.Rolling = false; }
             if (name == "FULLAUTO")
             {   // 🤖 FULL AUTO = DEFENDER's protections + the scored entries (no chasing, size from the score) + the drawdown tools
-                var d = Model("DEFENDER", b, bal); d.Preset = "FULLAUTO"; d.FullAuto = true; d.AutoScoreMin = 50;   /* 50 = the best in the 2025 + 2026 replays (60 skipped too much in 2026) */ d.DdTightEvery = 2; d.DdTightBy = 10; d.DdTightFloor = 50; d.Rescue = true; d.RescuePct = 3; d.RescueMin = 0; d.DeRisk = false; d.TrimMax = 0;
+                var d = Model("DEFENDER", b, bal); d.Preset = "FULLAUTO"; d.EntryMode = "MULTI"; d.FvgTf = 1; d.FullAuto = true; d.AutoScoreMin = 50;   /* 50 = the best in the 2025 + 2026 replays (60 skipped too much in 2026) */ d.DdTightEvery = 2; d.DdTightBy = 10; d.DdTightFloor = 50; d.Rescue = true; d.RescuePct = 3; d.RescueMin = 0; d.DeRisk = false; d.TrimMax = 0;
                 return d;
             }
             if (name == "DEFENDER")
@@ -437,7 +437,7 @@ namespace KeystoneMT5
                     for (int i = first; i <= last; i++) { double c = se.Bars[i].C; e5 = double.IsNaN(e5) ? c : c * 2 / 51.0 + e5 * (1 - 2 / 51.0); e2 = double.IsNaN(e2) ? c : c * 2 / 201.0 + e2 * (1 - 2 / 201.0); }
                     if (last - first >= 200) { Ema50 = e5; Ema200 = e2; double cl = se.Bars[last].C; TrendNow = e5 > e2 && cl > e2 ? 1 : e5 < e2 && cl < e2 ? -1 : 0; } else { Ema50 = Ema200 = double.NaN; TrendNow = 0; }
                 }
-                if (Set.EntryMode.StartsWith("FVG"))
+                if (Set.EntryMode.StartsWith("FVG") || Set.EntryMode == "MULTI")
                 {
                     var sf = st.SeriesOf(Set.Symbol, Set.FvgTf); for (int i = sf.Bars.Count - 1; i >= 0 && sn.FinFvg.Count < 60; i--) if (sf.Bars[i].Time.AddMinutes(Set.FvgTf) <= sn.Now) sn.FinFvg.Add(sf.Bars[i]);
                     if (!b.IsSim && !sf.Loaded && (DateTime.Now - sf.AskedAt).TotalSeconds > 5) { sf.AskedAt = DateTime.Now; b.Send("BARS|" + Set.Symbol + "|" + Set.FvgTf + "|300"); }
@@ -736,7 +736,7 @@ namespace KeystoneMT5
                 if (Set.AddToWinner && (Set.MaxWinnerAdds == 0 || it.WinnerAdds < Set.MaxWinnerAdds) && Basket + sn.Balance - it.BalanceStart > Math.Max(1, Set.Target * 0.2))   // only to a REAL winner: the basket already in profit (≥ 20 % of the target)
                 {
                     Signals(sn); int wd; double wl; string ww, ws;
-                    if (Signal(sn, lastDir, out wd, out wl, out ww, out ws) && wd == lastDir)
+                    if (AnySignal(sn, lastDir, out wd, out wl, out ww, out ws) && wd == lastDir)
                     {
                         double wlots = wd > 0 ? Set.WinnerLots : Set.WinnerLotsSell; if (wlots <= 0) return;
                         Tell("ADD TO THE WINNER " + (wd > 0 ? "BUY " : "SELL ") + wlots.ToString("0.##", IC) + ". WHY: the leading side is " + (wd > 0 ? "BUY" : "SELL") + " and the setup " + Set.EntryMode + " signalled that way again: " + ws + ". The basket was " + M(Basket) + ".");
@@ -805,7 +805,7 @@ namespace KeystoneMT5
             if (Phase == "FIRST") { dir = Set.FirstDir == "BUY" ? 1 : -1; why = "FIRST " + Set.FirstDir + " (yours)"; story = "you chose " + Set.FirstDir + " as the first direction"; }
             else if (Phase == "AGAIN" && Set.NextStart == "WINNER") { dir = lastDir; why = "AFTER A WIN — the same direction again"; story = "the last iteration closed in profit " + (lastDir > 0 ? "long" : "short") + ", so " + (dir > 0 ? "BUY" : "SELL") + " again at once (NEXT ITERATION = after a win, the same direction)"; }
             else if (Phase == "AGAIN") { dir = lastDir; why = "AFTER THE PAUSE — the last basket's direction"; story = "the " + Set.PauseSec + " s pause after the last iteration ended; the last basket was " + (dir > 0 ? "long" : "short") + ", so " + (dir > 0 ? "BUY" : "SELL") + " again"; }
-            else if (!Signal(sn, 0, out dir, out lvl, out why, out story)) return;
+            else if (!AnySignal(sn, 0, out dir, out lvl, out why, out story)) return;
             JournalAdd(sn, dir, why);
             if (Set.Smart && Phase != "FIRST")
             {   // 🧠 SMART: the same conditions in the history mostly got stuck → no new basket here
@@ -837,7 +837,7 @@ namespace KeystoneMT5
             closedByUs = false; trimCount = 0; Current = new AutoIteration { N = Iterations.Count + 1, Start = Now, FirstDir = dir > 0 ? "BUY" : "SELL", BalanceStart = sn.Balance }; Iterations.Add(Current); Phase = "IN ITERATION";
             if (lastSig != null && (Now - lastSig.Time).TotalSeconds < 5 && lastSig.Dir == dir) lastSig.Taken = true;
             Current.Ctx = Context(sn, dir); Tell("CONTEXT: " + Current.Ctx.Replace(";", " • "));
-            Tell("ITERATION #" + Current.N + " — ENTRY " + (dir > 0 ? "BUY " : "SELL ") + eLots.ToString("0.##", IC) + " (setup " + Set.EntryMode + "). WHY: " + story + (Set.FullAuto ? " • 🤖 SCORE " + LastScore + ": " + LastScoreWhy : "") + ". Bid " + P(sn.Bid) + " / ask " + P(sn.Ask) + ", balance $" + sn.Balance.ToString("N2", IC) + ".");
+            Tell("ITERATION #" + Current.N + " — ENTRY " + (dir > 0 ? "BUY " : "SELL ") + eLots.ToString("0.##", IC) + " (setup " + (Set.EntryMode == "MULTI" ? "🎯 " + SetupName(LastSetup) : Set.EntryMode) + "). WHY: " + story + (Set.FullAuto ? " • 🤖 SCORE " + LastScore + ": " + LastScoreWhy : "") + ". Bid " + P(sn.Bid) + " / ask " + P(sn.Ask) + ", balance $" + sn.Balance.ToString("N2", IC) + ".");
             Order(sn, dir, eLots, "ENTRY " + (dir > 0 ? "BUY" : "SELL") + " — " + why, lvl);
         }
 
@@ -984,14 +984,44 @@ namespace KeystoneMT5
             var ny = Now.AddHours(Set.NyOffsetHours); int m = ny.Hour * 60 + ny.Minute; string ses = m >= 1140 || m < 180 ? "ASIA" : m < 480 ? "LONDON" : m < 720 ? "NY AM" : m < 960 ? "NY PM" : "LATE";
             var lf = fvgs.LastOrDefault(); double sh = sn.Fin.Count > 0 ? BuyShare(sn.Fin[0]) : 0.5; double rng = sn.Fin.Count >= 5 ? sn.Fin.Take(20).Average(x => x.H - x.L) : double.NaN;
             double hi = High(sn), lo = Low(sn), stopD = dir > 0 ? sn.Bid - lo : hi - sn.Bid;
-            return string.Join(";", "setup=" + Set.EntryMode, "side=" + (dir > 0 ? "BUY" : "SELL"), "session=" + ses, "hour=" + ny.Hour.ToString("00", IC),
+            return string.Join(";", "setup=" + (Set.EntryMode == "MULTI" && LastSetup != "" ? LastSetup : Set.EntryMode), "side=" + (dir > 0 ? "BUY" : "SELL"), "session=" + ses, "hour=" + ny.Hour.ToString("00", IC),
                 "vwap=" + (double.IsNaN(Vwap) ? "none" : sn.Bid > Vwap ? "above" : "below"), "withVwap=" + (double.IsNaN(Vwap) ? "?" : ((sn.Bid > Vwap) == (dir > 0) ? "yes" : "no")),
                 "fvg=" + (lf == null ? "none" : lf.Dir > 0 ? "bull" : "bear"), "withFvg=" + (lf == null ? "?" : (lf.Dir == dir ? "yes" : "no")),
                 "flow=" + (sh >= 0.6 ? "buyers" : sh <= 0.4 ? "sellers" : "even"), "withFlow=" + ((dir > 0 ? sh >= 0.6 : sh <= 0.4) ? "yes" : "no"),
                 "range=" + (double.IsNaN(rng) ? "?" : rng.ToString("0.###", IC)), "spread=" + (double.IsNaN(sn.Ask) ? "?" : (sn.Ask - sn.Bid).ToString("0.#####", IC)), "toOtherSide=" + (double.IsNaN(stopD) ? "?" : stopD.ToString("0.###", IC)), MoreContext(sn, dir));
         }
         // FVG zones and the FLOW surge candle: once per new finished candle
+        // 🎯 MULTI (FULL AUTO): the setups the engine watches together — each signal is scored, the best one starts the iteration
+        static readonly string[] MultiModes = { "BREAK", "ENGULF", "VWAPREJ", "AGGBRK", "FVG50", "FLOW" };
+        public string LastSetup = "";
         void Signals(Snap sn)
+        {
+            if (Set.EntryMode == "MULTI") { string keep = Set.EntryMode; try { foreach (var m in MultiModes) { Set.EntryMode = m; SignalsOne(sn); } } finally { Set.EntryMode = keep; } return; }
+            SignalsOne(sn);
+        }
+        static string SetupName(string m) { return m == "BREAK" ? "⚡ BREAK" : m == "ENGULF" ? "🕯 ENGULFING" : m == "VWAPREJ" ? "〽 VWAP REJECTION" : m == "AGGBRK" ? "💥 AGGRESSION BREAK" : m == "FVG50" ? "🧲 FVG 50 %" : m == "FLOW" ? "🌊 ORDER FLOW" : m; }
+        // every setup's signal now; with MULTI the best SCORED one (the others are named in the why)
+        bool AnySignal(Snap sn, int only, out int dir, out double lvl, out string why, out string story)
+        {
+            if (Set.EntryMode != "MULTI") { LastSetup = Set.EntryMode; return Signal(sn, only, out dir, out lvl, out why, out story); }
+            dir = 0; lvl = double.NaN; why = ""; story = ""; int best = -1; var seen = new List<string>(); string keep = Set.EntryMode;
+            try
+            {
+                foreach (var m in MultiModes)
+                {
+                    Set.EntryMode = m; int d; double l; string w, st;
+                    if (!Signal(sn, only, out d, out l, out w, out st) || d == 0) continue;
+                    string scW; int sc = Score(sn, d, out scW); if (m == "ENGULF" || m == "VWAPREJ" || m == "FVG50") sc += 5;   // a retrace / rejection entry: not a chase by design
+                    seen.Add(SetupName(m) + " " + (d > 0 ? "BUY" : "SELL") + " " + sc);
+                    if (sc > best) { best = sc; dir = d; lvl = l; why = SetupName(m) + " — " + w; story = st; LastSetup = m; }
+                }
+            }
+            finally { Set.EntryMode = keep; }
+            if (dir == 0) return false;
+            if (seen.Count > 1) story += " (🎯 " + seen.Count + " setups fired: " + string.Join(", ", seen) + " → the best one)";
+            return true;
+        }
+        void SignalsOne(Snap sn)
         {
             if (Set.EntryMode.StartsWith("FVG") && sn.FinFvg.Count >= 3 && sn.FinFvg[0].Time != sigFvg)
             {
