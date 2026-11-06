@@ -147,7 +147,7 @@ namespace KeystoneMT5
             if (name == "LADDER") { s.Tf = 1; s.EntryMode = "STRADDLE"; s.HedgeMode = "LADDER"; s.HedgeSize = "FIXED"; s.LadderStep = 4; s.LadderMax = 10; s.EntryLots = 0.05; s.AddLots = 0.05; s.Target = 17; s.TrendFilter = "EMA"; s.BeAfter = 6; s.MaxDrawdown = 0; s.VwapFilter = "NONE"; s.Windows = ""; s.CloseAtNy = ""; s.EodLoss = "HOLD"; s.RangeOnly = false; s.QuickHedge = false; s.LockOn = false; s.BeAfter = 0; s.Rolling = false; }
             if (name == "FULLAUTO")
             {   // 🤖 FULL AUTO = DEFENDER's protections + the scored entries (no chasing, size from the score) + the drawdown tools
-                var d = Model("DEFENDER", b, bal); d.Preset = "FULLAUTO"; d.EntryMode = "MULTI"; d.FvgTf = 1; d.FullAuto = true; d.AutoScoreMin = 50;   /* 50 = the best in the 2025 + 2026 replays (60 skipped too much in 2026) */ d.DdTightEvery = 2; d.DdTightBy = 10; d.DdTightFloor = 50; d.Rescue = true; d.RescuePct = 3; d.RescueMin = 0; d.DeRisk = false; d.TrimMax = 0;
+                var d = Model("DEFENDER", b, bal); d.Preset = "FULLAUTO"; d.FullAuto = true;   /* entry: the swing BREAK — 🎯 MULTI was worse in the 2025 replay ($6,326 vs $7,402, deepest basket −$1,405 vs −$648): an option */ d.AutoScoreMin = 50;   /* 50 = the best in the 2025 + 2026 replays (60 skipped too much in 2026) */ d.DdTightEvery = 2; d.DdTightBy = 10; d.DdTightFloor = 50; d.Rescue = true; d.RescuePct = 3; d.RescueMin = 0; d.DeRisk = false; d.TrimMax = 0;
                 return d;
             }
             if (name == "DEFENDER")
