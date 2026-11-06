@@ -512,8 +512,8 @@ public static class AutoTests
         }
         {   // 🛡 DEFENDER: sized from the balance, the guard + the danger exit on, saved and read back
             var dfn = AutoSettings.Model("DEFENDER", new AutoSettings { Symbol = "XAUUSD" }, 10000); var dfb = AutoSettings.Load(dfn.Save());
-            Check(Math.Abs(dfn.EntryLots - 0.1) < 1e-9 && Math.Abs(dfn.Target - 20) < 1e-9 && dfn.HedgeSize == "ADVANTAGE" && dfn.RiskGuard && dfn.DangerExit && dfb.DangerExit && dfb.DangerAt == 60 && dfb.DangerKeep == 25 && Math.Abs(AutoSettings.Model("DEFENDER", new AutoSettings(), 5000).EntryLots - 0.05) < 1e-9 && !AutoSettings.Load("sym=XAUUSD").DangerExit,
-                "defender: 0.01 lot per $1,000, fixed lead, risk guard, danger exit (saved and read back; old settings: off)", dfn.EntryLots + " " + dfn.Target + " " + dfb.DangerAt);
+            Check(Math.Abs(dfn.EntryLots - 0.1) < 1e-9 && Math.Abs(dfn.Target - 20) < 1e-9 && dfn.HedgeSize == "ADVANTAGE" && !dfn.RiskGuard && dfn.BeLock && !dfn.BeClose && dfn.DangerExit && dfb.DangerExit && dfb.DangerAt == 60 && dfb.DangerKeep == 25 && Math.Abs(AutoSettings.Model("DEFENDER", new AutoSettings(), 5000).EntryLots - 0.05) < 1e-9 && !AutoSettings.Load("sym=XAUUSD").DangerExit,
+                "defender (the 6-year winner): 0.01 lot per $1,000, fixed lead, NO risk-guard locks, the breakeven lock, danger exit (saved and read back; old settings: off)", dfn.EntryLots + " " + dfn.Target + " " + dfb.DangerAt);
             // 🚨 the danger meter: a SELL in a $20 climb ($200 down on $10k) → the meter rises, names the loss; the peak stays
             var sDg = S(); sDg.FirstDir = "SELL"; sDg.HedgeMode = "NONE"; sDg.MaxIterations = 1;
             var rDg = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), sDg); var aDg = rDg.Item2;

@@ -168,7 +168,7 @@ namespace KeystoneMT5
                 // size cap 0.6 lot per $5,000, unlock only on an obvious trend, pair-off) + scale out + the rescue after 3 hedges + the 🚨 DANGER EXIT
                 double k = Math.Max(0.01, Math.Round(Math.Max(1000, bal) / 1000 * 0.01, 2));
                 s.Tf = 1; s.EntryMode = "BREAK"; s.Swing = true; s.SwingK = 2; s.VwapFilter = "NONE"; s.HedgeMode = "BREAK"; s.Rolling = true; s.HedgeSize = "ADVANTAGE"; s.EntryLots = k; s.NetAdvantage = k; s.AddLots = Math.Round(k * 2, 2); s.Target = Math.Round(k * 200, 2); s.MaxDrawdown = 0; s.AfterDrawdown = "NEXT"; s.Windows = ""; s.CloseAtNy = ""; s.EodLoss = "HOLD"; s.RangeOnly = true; s.BeAfter = 3; s.LockOn = false; s.TrendFilter = "NONE"; s.QuickHedge = false; s.HedgeCap = 5;
-                s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = 0.6; s.GuardMargin = 500; s.GuardChop = 3; s.GuardMaxLead = 3; s.GuardBreak = 1.0; s.GuardLift = false; s.PairOff = true; s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; s.TrendHedge = false; s.ProtectAt = 0;
+                s.RiskGuard = false; /* 🛡 OFF (the 6-year replays: +$2,258 without its freezing locks vs +$1,723 with them) */ s.BeLock = true; s.BeLockAt = 80; s.BeLockKeep = 45; s.BeClose = false; s.LockOn = false; s.TrimMax = 0; s.GuardMode = "LOCK"; s.GuardLots = 0.6; s.GuardMargin = 500; s.GuardChop = 3; s.GuardMaxLead = 3; s.GuardBreak = 1.0; s.GuardLift = false; s.PairOff = true; s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; s.TrendHedge = false; s.ProtectAt = 0;
                 s.HardFloat = 60; s.HardMargin = 60; s.DangerExit = true; s.DangerAt = 60; s.DangerKeep = 25; s.Smart = false; s.RecoverExit = false; s.RecDeep = 2; s.RecKeep = 20;   // 🔄 off: the replay with it was far worse (closing at a small loss led the next baskets into the hard stop)   // 🧠 SMART off by default: the 5-month replay was lower with it (too little history to learn from) — tick it to learn on DEMO
             }
             if (name == "SAFE") { s.Tf = 1; s.EntryMode = "BREAK"; s.Swing = true; s.SwingK = 2; s.VwapFilter = "NONE"; s.HedgeMode = "BREAK"; s.Rolling = true; s.HedgeSize = "ADVANTAGE"; s.EntryLots = 0.01; s.NetAdvantage = 0.01; s.AddLots = 0.02; s.Target = 2; s.MaxDrawdown = 0; s.AfterDrawdown = "NEXT"; s.Windows = ""; s.CloseAtNy = ""; s.EodLoss = "HOLD"; s.RangeOnly = true; s.BeAfter = 3; s.LockOn = false; }
@@ -846,7 +846,7 @@ namespace KeystoneMT5
             if (Set.FullAuto && Phase != "FIRST")
             {   // 🤖 the score decides: skip a weak / chasing entry, size a strong one up
                 string scWhy; int sc = Score(sn, dir, out scWhy); LastScore = sc; LastScoreWhy = scWhy;
-                if (sc < Set.AutoScoreMin) { var k3 = Now.ToString("yyyyMMddHHmm", IC) + dir; if (k3 != scoreSkip) { scoreSkip = k3; ScoreSkips++; Note("🤖 FULL AUTO: " + why + " skipped — score " + sc + " < " + Set.AutoScoreMin + " (" + scWhy + ")"); Version++; } return; }
+                if (sc < Set.AutoScoreMin) { SkipLevel = double.IsNaN(lvl) ? sn.Bid : lvl; SkipAt = Now; SkipDir = dir; var k3 = Now.ToString("yyyyMMddHHmm", IC) + dir; if (k3 != scoreSkip) { scoreSkip = k3; ScoreSkips++; Note("🤖 FULL AUTO: " + why + " skipped — score " + sc + " < " + Set.AutoScoreMin + " (" + scWhy + ")"); Version++; } return; }
                 double kS = sc >= 85 ? 1.5 : sc >= 75 ? 1.25 : 1.0; if (Set.RiskDial == "NORMAL") kS *= 1.25; else if (Set.RiskDial == "BOLD") kS *= 1.5;
                 eLots = Math.Max(0.01, Math.Round(Set.EntryLots * kS, 2));
                 why += " • 🤖 score " + sc + (eLots > Set.EntryLots + 1e-9 ? " → " + eLots.ToString("0.##", IC) + " lot" : "");
@@ -862,6 +862,7 @@ namespace KeystoneMT5
 
         // 🤖 THE MARKET READING (every closed candle): regime, ATR, extension from VWAP / EMA 50, the pullback before the break, the run, the day edge
         DateTime readAt = DateTime.MinValue; public int AggRunNow; int e123Dir; DateTime e123Bar = DateTime.MinValue; string e123Story = ""; int rtDir; double rtLevel; DateTime rtBar = DateTime.MinValue; string rtStory = ""; readonly List<Tuple<double, int, DateTime, string>> rtBroken = new List<Tuple<double, int, DateTime, string>>(); DateTime bcBar = DateTime.MinValue; double bcHi = double.NaN, bcLo = double.NaN;
+        public double SkipLevel = double.NaN; public DateTime SkipAt = DateTime.MinValue; public int SkipDir;   // ⛔ the last SKIPPED break (shown on the chart)
         public string Regime = ""; public string MarketNow = ""; public int LastScore = -1; public string LastScoreWhy = ""; public int ScoreSkips; string scoreSkip = "";
         void ReadMarket(Snap sn, out double atr, out double pull, out int runUp, out int runDn)
         {
