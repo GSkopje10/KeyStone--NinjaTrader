@@ -431,7 +431,7 @@ namespace System.Windows.Controls
     public class ListBoxItem : ContentControl { public bool IsSelected { get; set; } }
     public class TabControl : Selector { public Dock TabStripPlacement { get; set; } }
     public class Menu : ItemsControl { }
-    public class MenuItem : HeaderedItemsControlCompat { public event RoutedEventHandler Click; public object Icon { get; set; } }
+    public class MenuItem : HeaderedItemsControlCompat { public event RoutedEventHandler Click; public object Icon { get; set; } public bool StaysOpenOnClick { get; set; } }
     public class HeaderedItemsControlCompat : ItemsControl { public object Header { get; set; } }
     public class Separator : Control { }
     public class ContextMenu : ItemsControl { public static readonly System.Windows.RoutedEvent OpenedEvent = new System.Windows.RoutedEvent(); public event RoutedEventHandler Opened, Closed; public bool HasDropShadow { get; set; } public bool IsOpen { get; set; } public UIElement PlacementTarget { get; set; } }
