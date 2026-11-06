@@ -1,0 +1,91 @@
+TOTAL baskets 8473
+
+SETUP  n  clean%  bad%(>=$250 deep or stuck)
+AG1    1008    49   5.8
+BCL    1056    53   6.9
+BRK    1275    53   4.9
+E12    1098    45   4.6
+ENG    1334    45   4.3
+FD5     799    31   5.0
+FVG    1037    45   5.5
+VWR     866    45   5.1
+
+=== by withTrend: setup | value: n clean% bad%
+AG1   | flat:211 52/7.1  no:447 49/5.6  yes:349 46/5.2
+BCL   | flat:283 55/5.7  no:222 48/8.6  yes:550 53/6.9
+BRK   | flat:301 56/4.3  no:425 49/4.9  yes:548 53/5.1
+E12   | flat:273 41/4.8  no:426 48/5.4  yes:398 44/3.5
+ENG   | flat:459 42/5.7  no:693 47/3.5  yes:182 47/4.4
+FD5   | flat:232 27/2.2  no:362 27/7.2  yes:205 41/4.4
+FVG   | flat:236 44/6.8  no:233 51/4.7  yes:567 44/5.3
+VWR   | flat:651 43/5.4  no:40 45/5.0  yes:175 50/4.0
+
+=== by session: setup | value: n clean% bad%
+AG1   | ASIA:325 52/4.6  LATE:110 60/6.4  LONDON:142 42/11.3  NY AM:276 50/5.4  NY PM:155 39/3.2
+BCL   | ASIA:429 53/4.9  LATE:87 48/9.2  LONDON:187 52/8.6  NY AM:255 56/7.5  NY PM:98 48/9.2
+BRK   | ASIA:340 51/4.7  LATE:123 52/3.3  LONDON:227 54/5.7  NY AM:393 53/5.1  NY PM:192 54/4.7
+E12   | ASIA:333 41/5.4  LATE:98 45/2.0  LONDON:197 43/2.0  NY AM:326 50/5.8  NY PM:144 42/4.9
+ENG   | ASIA:461 44/2.0  LATE:94 35/6.4  LONDON:260 45/5.8  NY AM:301 50/5.6  NY PM:218 46/5.0
+FD5   | ASIA:255 27/4.7  LATE:62 27/6.5  LONDON:146 29/5.5  NY AM:235 40/3.4  NY PM:101 21/7.9
+FVG   | ASIA:307 47/6.2  LATE:110 48/6.4  LONDON:194 40/4.6  NY AM:284 45/4.9  NY PM:142 46/5.6
+VWR   | ASIA:271 46/5.5  LATE:69 38/4.3  LONDON:187 42/5.3  NY AM:199 51/3.5  NY PM:140 40/6.4
+
+=== by withVwap: setup | value: n clean% bad%
+AG1   | no:518 49/4.8  yes:490 48/6.7
+BCL   | no:407 53/5.7  yes:648 53/7.7
+BRK   | no:552 51/4.7  yes:716 54/5.0
+E12   | no:569 46/5.1  yes:528 43/4.0
+ENG   | no:838 45/4.2  yes:495 45/4.6
+FD5   | no:486 28/5.8  yes:310 35/3.5
+FVG   | no:414 47/5.1  yes:622 44/5.6
+VWR   | no:303 42/7.3  yes:563 47/3.9
+
+=== by dayPos: setup | value: n clean% bad%
+AG1   | bottom:334 54/5.1  middle:399 52/7.8  top:275 37/3.6
+BCL   | bottom:295 56/7.5  middle:457 58/6.6  top:303 42/6.9
+BRK   | bottom:325 51/5.2  middle:565 56/4.8  top:383 50/4.7
+E12   | bottom:297 47/5.4  middle:497 46/5.2  top:304 40/2.6
+ENG   | bottom:336 49/3.6  middle:659 46/4.1  top:338 41/5.6
+FD5   | bottom:185 32/6.5  middle:363 32/5.0  top:250 28/3.6
+FVG   | bottom:219 47/4.1  middle:497 48/5.2  top:320 40/6.6
+VWR   | bottom:91 55/3.3  middle:596 45/5.4  top:179 39/5.0
+
+=== by vol: setup | value: n clean% bad%
+AG1   | high:178 51/3.9  low:122 48/4.9  normal:707 49/6.4
+BCL   | high:457 53/6.3  low:27 44/7.4  normal:572 53/7.3
+BRK   | high:117 59/2.6  low:271 49/4.1  normal:887 53/5.4
+E12   | high:236 46/4.7  low:79 47/0.0  normal:783 44/5.0
+ENG   | high:390 50/4.1  low:37 38/8.1  normal:907 44/4.3
+FD5   | high:103 33/2.9  low:105 18/6.7  normal:591 32/5.1
+FVG   | high:85 47/8.2  low:183 43/2.2  normal:769 46/6.0
+VWR   | high:268 44/5.6  normal:574 44/4.5
+
+=== by ema: setup | value: n clean% bad%
+AG1   | down:559 54/6.6  up:448 42/4.7
+BCL   | down:527 58/6.5  up:528 47/7.4
+BRK   | down:616 55/4.5  up:658 51/5.2
+E12   | down:538 46/5.0  up:559 43/4.1
+ENG   | down:707 50/4.1  up:626 40/4.6
+FD5   | down:363 34/5.0  up:435 28/5.1
+FVG   | down:497 51/4.2  up:537 41/6.7
+VWR   | down:399 49/3.5  up:466 42/6.4
+
+=== by withFlow: setup | value: n clean% bad%
+AG1   | no:105 58/2.9  yes:903 48/6.1
+BCL   | no:60 55/3.3  yes:996 53/7.1
+BRK   | no:400 53/5.8  yes:875 53/4.5
+E12   | no:62 40/6.5  yes:1036 45/4.4
+ENG   | no:64 39/4.7  yes:1270 46/4.3
+FD5   | no:512 23/5.9  yes:287 44/3.5
+FVG   | no:827 46/5.7  yes:210 43/4.8
+VWR   | no:629 44/5.2  yes:237 47/4.6
+
+=== by trend60: setup | value: n clean% bad%
+AG1   | down:439 52/6.4  flat:211 52/7.1  up:357 43/4.2
+BCL   | down:381 58/7.9  flat:283 55/5.7  up:391 46/6.9
+BRK   | down:478 52/5.6  flat:301 56/4.3  up:495 51/4.4
+E12   | down:408 47/5.4  flat:273 41/4.8  up:416 45/3.6
+ENG   | down:421 52/2.9  flat:459 42/5.7  up:454 42/4.4
+FD5   | down:267 36/6.4  flat:232 27/2.2  up:300 29/6.0
+FVG   | down:377 50/3.2  flat:236 44/6.8  up:423 42/6.9
+VWR   | down:107 52/3.7  flat:651 43/5.4  up:108 46/4.6
