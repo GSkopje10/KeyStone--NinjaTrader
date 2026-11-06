@@ -842,7 +842,7 @@ namespace KeystoneMT5
         }
 
         // 🤖 THE MARKET READING (every closed candle): regime, ATR, extension from VWAP / EMA 50, the pullback before the break, the run, the day edge
-        DateTime readAt = DateTime.MinValue; public int AggRunNow;
+        DateTime readAt = DateTime.MinValue; public int AggRunNow; int e123Dir; DateTime e123Bar = DateTime.MinValue; string e123Story = "";
         public string Regime = ""; public string MarketNow = ""; public int LastScore = -1; public string LastScoreWhy = ""; public int ScoreSkips; string scoreSkip = "";
         void ReadMarket(Snap sn, out double atr, out double pull, out int runUp, out int runDn)
         {
@@ -902,6 +902,11 @@ namespace KeystoneMT5
                 if (Now >= AggBar.AddMinutes(2 * Set.Tf)) { AggDir = 0; AggLevel = double.NaN; return false; }   // only during the candle after the signal candle
                 if (AggDir > 0 ? !(prevBid <= AggLevel && sn.Bid > AggLevel) : !(prevBid >= AggLevel && sn.Bid < AggLevel)) return false;
                 dir = AggDir; lvl = AggLevel; why = "AGGRESSION BREAK " + (dir > 0 ? "BUY above " : "SELL below ") + P(lvl); story = SignalText + "; the bid broke it (" + P(prevBid) + " → " + P(sn.Bid) + ")"; AggDir = 0; AggLevel = double.NaN;
+            }
+            else if (Set.EntryMode == "ENG123")
+            {
+                if (e123Dir == 0 || (only != 0 && e123Dir != only) || sn.Fin.Count == 0 || sn.Fin[0].Time != e123Bar) return false;
+                dir = e123Dir; lvl = sn.Fin[0].C; why = "1-2-3 ENGULFING " + (dir > 0 ? "BUY" : "SELL"); story = e123Story; e123Dir = 0;   // once per candle
             }
             else if (Set.EntryMode == "ENGULF" || Set.EntryMode == "VWAPREJ")
             {
@@ -993,14 +998,14 @@ namespace KeystoneMT5
         }
         // FVG zones and the FLOW surge candle: once per new finished candle
         // 🎯 MULTI (FULL AUTO): the setups the engine watches together — each signal is scored, the best one starts the iteration
-        static readonly string[] MultiModes = { "BREAK", "ENGULF", "VWAPREJ", "AGGBRK", "FVG50", "FLOW" };
+        static readonly string[] MultiModes = { "BREAK", "ENG123", "ENGULF", "VWAPREJ", "AGGBRK", "FVG50", "FLOW" };
         public string LastSetup = "";
         void Signals(Snap sn)
         {
             if (Set.EntryMode == "MULTI") { string keep = Set.EntryMode; try { foreach (var m in MultiModes) { Set.EntryMode = m; SignalsOne(sn); } } finally { Set.EntryMode = keep; } return; }
             SignalsOne(sn);
         }
-        static string SetupName(string m) { return m == "BREAK" ? "⚡ BREAK" : m == "ENGULF" ? "🕯 ENGULFING" : m == "VWAPREJ" ? "〽 VWAP REJECTION" : m == "AGGBRK" ? "💥 AGGRESSION BREAK" : m == "FVG50" ? "🧲 FVG 50 %" : m == "FLOW" ? "🌊 ORDER FLOW" : m; }
+        static string SetupName(string m) { return m == "BREAK" ? "⚡ BREAK" : m == "ENGULF" ? "🕯 ENGULFING" : m == "ENG123" ? "🕯 1-2-3 ENGULFING" : m == "VWAPREJ" ? "〽 VWAP REJECTION" : m == "AGGBRK" ? "💥 AGGRESSION BREAK" : m == "FVG50" ? "🧲 FVG 50 %" : m == "FLOW" ? "🌊 ORDER FLOW" : m; }
         // every setup's signal now; with MULTI the best SCORED one (the others are named in the why)
         bool AnySignal(Snap sn, int only, out int dir, out double lvl, out string why, out string story)
         {
@@ -1012,7 +1017,7 @@ namespace KeystoneMT5
                 {
                     Set.EntryMode = m; int d; double l; string w, st;
                     if (!Signal(sn, only, out d, out l, out w, out st) || d == 0) continue;
-                    string scW; int sc = Score(sn, d, out scW); if (m == "ENGULF" || m == "VWAPREJ" || m == "FVG50") sc += 5;   // a retrace / rejection entry: not a chase by design
+                    string scW; int sc = Score(sn, d, out scW); if (m == "ENGULF" || m == "ENG123" || m == "VWAPREJ" || m == "FVG50") sc += 5;   // a retrace / rejection entry: not a chase by design
                     seen.Add(SetupName(m) + " " + (d > 0 ? "BUY" : "SELL") + " " + sc);
                     if (sc > best) { best = sc; dir = d; lvl = l; why = SetupName(m) + " — " + w; story = st; LastSetup = m; }
                 }
@@ -1059,6 +1064,14 @@ namespace KeystoneMT5
                 for (int k = 1; k < sn.Fin.Count && run < 50; k++) { var x = sn.Fin[k]; if (green ? x.C < x.O : red ? x.C > x.O : false) run++; else break; }
                 if (run >= Set.AggRun && (green || red)) { AggRunNow = run; AggDir = green ? 1 : -1; AggLevel = green ? c.H : c.L; AggBar = c.Time; SignalText = run + " " + (green ? "red" : "green") + " " + Tf.Name(Set.Tf) + " candles, then the " + c.Time.ToString("HH:mm", IC) + " candle closed " + (green ? "GREEN" : "RED") + " (O " + P(c.O) + " C " + P(c.C) + ") — " + (green ? "BUY above its high " : "SELL below its low ") + P(AggLevel) + " during the next candle"; }
                 else if (AggDir != 0 && Now >= AggBar.AddMinutes(2 * Set.Tf)) { AggDir = 0; AggLevel = double.NaN; }
+            }
+            if (Set.EntryMode == "ENG123" && sn.Fin.Count >= 3 && sn.Fin[0].Time != e123Bar)
+            {   // 1-2-3 ENGULFING (user's rule): candles 1 and 2 the same colour, candle 3 the other colour ENGULFS candle 2's BODY and closes there = the entry
+                var c3 = sn.Fin[0]; var c2 = sn.Fin[1]; var c1 = sn.Fin[2]; e123Bar = c3.Time;
+                bool bull = c1.C < c1.O && c2.C < c2.O && c3.C > c3.O && c3.C > c2.O && c3.L <= c2.C;   // two red, a green closing above the 2nd red's body
+                bool bear = c1.C > c1.O && c2.C > c2.O && c3.C < c3.O && c3.C < c2.O && c3.H >= c2.C;   // two green, a red closing below the 2nd green's body
+                e123Dir = bull ? 1 : bear ? -1 : 0;
+                if (e123Dir != 0) { e123Story = "1-2-3 ENGULFING: " + c1.Time.ToString("HH:mm", IC) + " and " + c2.Time.ToString("HH:mm", IC) + " closed " + (bull ? "RED" : "GREEN") + ", then the " + c3.Time.ToString("HH:mm", IC) + " candle closed " + (bull ? "GREEN at " + P(c3.C) + ", above" : "RED at " + P(c3.C) + ", below") + " the 2nd candle's body (O " + P(c2.O) + " C " + P(c2.C) + ") → " + (bull ? "BUY" : "SELL"); SignalText = e123Story; }
             }
             if (Set.EntryMode == "ENGULF" && sn.Fin.Count >= 22)
             {
@@ -1522,6 +1535,7 @@ namespace KeystoneMT5
             string tf = Tf.Name(Set.Tf), f = Set.VwapFilter == "DISCOUNT" ? " — buys only UNDER the VWAP, sells only OVER it" : Set.VwapFilter == "FLOW" ? " — buys only OVER the VWAP, sells only UNDER it" : "";
             string w = Set.EntryMode == "AGGBRK" ? "AGGRESSION BREAK on " + tf + ": " + Set.AggRun + "+ candles of one colour, the first opposite close, then the break of its high (BUY) / low (SELL)"
                 : Set.EntryMode == "VWAPREJ" ? "VWAP REJECTION on " + tf + ": 6 candles fully above (under) the day's VWAP, then one dips to it and closes back above (under)"
+                : Set.EntryMode == "ENG123" ? "1-2-3 ENGULFING on " + tf + ": 2 candles of one colour, the 3rd engulfs the 2nd candle's body and closes"
                 : Set.EntryMode == "ENGULF" ? "ENGULFING on " + tf + " at the lowest low (BUY) / highest high (SELL) of the last 20 candles"
                 : Set.EntryMode == "FVG50" ? "FVG 50%: the price back to the middle of a fresh " + Tf.Name(Set.FvgTf) + " fair value gap"
                 : Set.EntryMode == "FVG" ? "FVG: the price back into a fresh " + Tf.Name(Set.FvgTf) + " fair value gap"
