@@ -171,6 +171,12 @@ public static class AccountLinkTests
             var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { DayLossLimit = 500 }; var t = Trader(); l.Arm(t0);
             b.Exec(1, 20000, "Buy"); b.Pnl = -520; string why = null; l.Disarmed = x => why = x; l.Tick(t, t0);
             Check(!l.Armed && b.Sent.Contains("FLATTEN") && why.StartsWith("DAY LOSS"), "day loss limit → flatten + disarm", why);
+            {   // 🔁 switching the chart account and back: the chart still holds the OTHER account's stop / target → the fresh link must NOT send it
+                var bS = new FakeBroker(); bS.Exec(-2, 27134, "Sell"); var tpS = bS.Submit("LIMIT", 2, 27100, "", false); var slS = bS.Submit("STOP", 2, 27200, "", false); bS.Sent.Clear();
+                var tS = Trader(); tS.StopPts = 5; tS.TargetPts = 8;   // the other account's bracket left on the chart's trader
+                var lS = new KeystoneAccountLink(bS, "MNQ") { MaxContracts = 5 }; lS.Arm(t0); lS.Tick(tS, t0); lS.Tick(tS, t0.AddSeconds(1)); lS.Tick(tS, t0.AddSeconds(2));
+                Check(bS.Sent.Count == 0 && !tpS.Done && !slS.Done && tS.Position == -2 && Math.Abs(tS.TargetPts - 34) < 0.01 && Math.Abs(tS.StopPts - 66) < 0.01, "switching back to an account: its real TP / SL are READ from NinjaTrader, nothing is sent (the other account's bracket never moves them)", string.Join(",", bS.Sent) + " | pos " + tS.Position + " tp " + tS.TargetPts + " sl " + tS.StopPts);
+            }
             {   // 🛑 re-opening the window with the day loss ALREADY past: disarm + no new entries, but the open trade is NOT closed (user's catch)
                 var bR = new FakeBroker(); bR.Exec(1, 20000, "Buy"); bR.Pnl = -900; var lR = new KeystoneAccountLink(bR, "MNQ") { DayLossLimit = 500, MaxContracts = 5 }; var tR = Trader(); string whyR = null; lR.Disarmed = x => whyR = x; lR.Arm(t0); lR.Tick(tR, t0);
                 Check(!lR.Armed && !bR.Sent.Contains("FLATTEN") && whyR != null && whyR.Contains("NOT closed"), "day loss already past when arming (window re-opened) → disarmed, the position is NOT closed", whyR + " | " + string.Join(",", bR.Sent));
