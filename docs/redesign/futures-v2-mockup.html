@@ -1,0 +1,71 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SpasiX Future v2</title>
+<style>
+:root{--bg:#131722;--panel:#181c27;--line:#2a2e39;--tx:#d1d4dc;--mu:#787b86;--up:#26a69a;--dn:#ef5350;--acc:#2962ff;--gold:#f0b90b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:12px/1.35 -apple-system,Segoe UI,Roboto,sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.top{height:38px;display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid var(--line);background:var(--panel);white-space:nowrap}
+.pill{padding:4px 8px;border-radius:5px;color:var(--tx);cursor:pointer}.pill:hover{background:#2a2e39}.on{background:#2a2e39;color:#fff}.sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.sym{font-weight:700;color:#fff}.grow{flex:1}.kpi{display:flex;flex-direction:column;align-items:flex-end;padding:0 8px;border-left:1px solid var(--line)}.kpi b{font-size:13px}.kpi small{color:var(--mu);font-size:9.5px;letter-spacing:.04em}
+.arm{background:#1b3d2f;color:#4cd59a;border:1px solid #2c6b50;border-radius:12px;padding:3px 10px;font-weight:700}
+.main{flex:1;display:flex;min-height:0}
+.tools{width:38px;border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-top:6px;gap:4px;background:var(--panel)}.tools div{width:28px;height:28px;border-radius:5px;display:grid;place-items:center;color:var(--mu);cursor:pointer}.tools div:hover{background:#2a2e39;color:#fff}
+.chart{flex:1;position:relative;background:var(--bg);overflow:hidden}
+.ohlc{position:absolute;left:10px;top:8px;font-size:12px;color:var(--mu)}.ohlc b{color:var(--tx);font-weight:600}.ohlc .u{color:var(--up)}
+.legend{position:absolute;left:10px;top:28px;font-size:11px;color:var(--mu)}
+svg{position:absolute;inset:0;width:100%;height:100%}
+.axis{position:absolute;right:0;top:0;bottom:22px;width:64px;border-left:1px solid var(--line);font-size:11px;color:var(--mu)}
+.taxis{position:absolute;left:0;right:64px;bottom:0;height:22px;border-top:1px solid var(--line);font-size:11px;color:var(--mu);display:flex;justify-content:space-around;align-items:center}
+.ptag{position:absolute;right:0;width:64px;padding:2px 4px;font-size:11px;color:#fff;background:var(--dn);text-align:right}
+.posline{position:absolute;left:0;right:64px;border-top:1px dashed #5d6de3}.postag{position:absolute;right:76px;transform:translateY(-50%);background:#1e2236;border:1px solid #5d6de3;color:#c8ccff;border-radius:4px;padding:1px 6px;font-size:11px}
+.postag i{font-style:normal;color:var(--dn);margin-left:6px}.x{margin-left:6px;color:var(--mu)}
+.hint{position:absolute;right:76px;bottom:30px;color:var(--mu);font-size:10.5px}
+.side{width:206px;border-left:1px solid var(--line);background:var(--panel);padding:8px;display:flex;flex-direction:column;gap:6px}
+.row{display:flex;gap:6px}.b{flex:1;text-align:center;padding:7px 0;border-radius:5px;font-weight:700;cursor:pointer}.buy{background:#1e4f45;color:#7ff0d6}.sell{background:#5a2328;color:#ff9e9b}.n{background:#2a2e39}
+.lab{color:var(--mu);font-size:10px;letter-spacing:.05em;margin-top:4px}.box{background:#131722;border:1px solid var(--line);border-radius:5px;padding:6px;display:flex;justify-content:space-between}
+.posbox{background:#2a1b1e;border:1px solid #5a2328;border-radius:5px;padding:7px}.posbox b{color:var(--dn)}
+.target{background:#1b2440;border:1px solid #2f3e75;border-radius:5px;padding:6px}.target b{color:#9bb0ff}
+.bottom{height:30px;display:flex;align-items:center;gap:2px;padding:0 8px;border-top:1px solid var(--line);background:var(--panel)}.tab{padding:5px 12px;border-radius:5px;color:var(--mu);cursor:pointer}.tab.on{color:#fff;background:#2a2e39}
+.status{margin-left:auto;color:var(--mu)}.dot{color:#4cd59a}
+.note{position:absolute;background:#f0b90b;color:#000;font-weight:700;border-radius:4px;padding:2px 6px;font-size:10.5px}
+</style></head><body>
+<div class="top">
+  <span class="sym">MNQ 12-26</span><span class="pill on">MNQ</span><span class="pill">MGC</span><span class="pill">＋</span><span class="sep"></span>
+  <span class="pill">1m</span><span class="pill on">5m</span><span class="pill">15m</span><span class="pill">1h</span><span class="pill">D</span><span class="sep"></span>
+  <span class="pill">📊 Candles ▾</span><span class="pill">ƒx Indicators ▾</span><span class="pill">🕒 New York ▾</span><span class="pill">⟲ Now</span>
+  <span class="grow"></span>
+  <span class="pill">TPT 6 (50K) ▾</span><span class="arm">● ARMED</span>
+  <div class="kpi"><small>BALANCE</small><b>$50,306</b></div><div class="kpi"><small>TODAY</small><b style="color:var(--dn)">−$940</b></div><div class="kpi"><small>OPEN</small><b style="color:var(--dn)">−$216</b></div><div class="kpi"><small>BUFFER</small><b style="color:var(--gold)">$1,060</b></div>
+</div>
+<div class="main">
+  <div class="tools"><div>↖</div><div>⟋</div><div>—</div><div>│</div><div>▭</div><div>𝐅</div><div>T</div><div>🗑</div></div>
+  <div class="chart">
+    <div class="ohlc">MNQ · 5m · CME &nbsp; O <b>27134.25</b> &nbsp;H <b>27141.00</b> &nbsp;L <b>27128.50</b> &nbsp;C <b>27133.75</b> &nbsp;<span class="u">+2.50 (+0.01%)</span></div>
+    <div class="legend">VWAP 27118.40 · Vol 1.2K</div>
+    <svg viewBox="0 0 1000 560" preserveAspectRatio="none">
+      <polyline fill="none" stroke="#b39ddb" stroke-width="1.5" points="0,330 100,320 200,300 300,290 400,280 500,250 600,240 700,250 800,240 900,235 935,235"/>
+      <g id="c"></g>
+    </svg>
+    <div class="posline" style="top:47%"></div><div class="postag" style="top:47%">TPT 6 · SHORT 4 @ 27134.06<i>−$224</i><span class="x">TP⇕ SL⇕ ✕</span></div>
+    <div class="ptag" style="top:46%">27133.75</div>
+    <div class="axis"></div><div class="taxis"><span>05:30</span><span>06:00</span><span>06:30</span><span>07:00</span><span>07:30</span><span>08:00</span></div>
+    <div class="hint">drag = pan · scroll = zoom · drag the price scale = stretch · double-click = auto</div>
+  </div>
+  <div class="side">
+    <div class="target"><div class="lab">TRADES ON</div><b>⇉ G1 · 50K — all 5 accounts</b><div style="color:var(--mu);font-size:10.5px;margin-top:3px">🟢 SEPARATE off · click to trade one account</div></div>
+    <div class="row"><div class="b buy">BUY MKT</div><div class="b sell">SELL MKT</div></div>
+    <div class="row"><div class="b n">Buy Limit</div><div class="b n">Sell Limit</div></div>
+    <div class="row"><div class="b n">Buy Stop</div><div class="b n">Sell Stop</div></div>
+    <div class="lab">QTY</div><div class="box"><span>−</span><b>2</b><span>＋</span></div>
+    <div class="lab">POSITION</div><div class="posbox">SHORT 4 @ 27134.06<br><b>−$224</b> · SL −$1,451 · no TP</div>
+    <div class="row"><div class="b n">Reverse</div><div class="b n">Close</div></div>
+  </div>
+</div>
+<div class="bottom">
+  <span class="tab on">📈 Chart</span><span class="tab">👥 Accounts</span><span class="tab">⇉ Copier</span><span class="tab">🏆 Prop</span><span class="tab">📡 Signals</span><span class="tab">🔄 Rotation</span><span class="tab">🗂 Data</span><span class="tab">📊 Tracker</span><span class="tab">📓 Journal</span><span class="tab">📰 News</span>
+  <span class="status"><span class="dot">●</span> Live · data OK · NY 07:44:12 · next high impact 08:30</span>
+</div>
+<script>
+const g=document.getElementById('c');let p=330,s='';for(let i=0;i<93;i++){const o=p,c=o+(Math.sin(i*0.7)*9+(Math.random()-0.5)*16);const h=Math.min(o,c)-Math.random()*8,l=Math.max(o,c)+Math.random()*8;const x=6+i*10,up=c<o;s+=`<line x1="${x}" x2="${x}" y1="${h}" y2="${l}" stroke="${up?'#26a69a':'#ef5350'}"/><rect x="${x-3}" y="${Math.min(o,c)}" width="6" height="${Math.max(1,Math.abs(c-o))}" fill="${up?'#26a69a':'#ef5350'}"/>`;p=c;}g.innerHTML=s;
+</script>
+</body></html>
