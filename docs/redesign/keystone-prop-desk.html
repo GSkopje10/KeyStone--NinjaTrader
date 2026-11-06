@@ -1,0 +1,560 @@
+<title>KeyStone Prop Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one terminal window — slim top bar, one row of workflow tabs, a big work area per tab, a status strip. Dark trading look only (deliberate). */
+:root{
+  color-scheme:dark;
+  --ink:#0f1320; --panel:#161b2b; --raise:#1d2336; --line:#2a3148; --tx:#dfe3ee; --mu:#8a91a8; --dim:#5d6480;
+  --accent:#4f7cff; --up:#22b8a0; --dn:#ef5466; --warn:#f2b33d; --lock:#b48cff;
+  --tpt:#FFB74D; --mffu:#BA68C8; --lucid:#4FC3F7; --sim:#9E9E9E;
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif; --f-body:"IBM Plex Sans",system-ui,sans-serif; --f-num:"JetBrains Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--ink);color:var(--tx);font:13px/1.45 var(--f-body);display:flex;flex-direction:column;overflow-x:hidden}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer;border:1px solid var(--line);background:var(--raise);border-radius:6px;padding:7px 12px}
+button:hover{border-color:#3d4766}
+button:focus-visible,select:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+select,input{font:inherit;color:var(--tx);background:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-width:0}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+/* top bar */
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-block:8px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{font:800 15px var(--f-display);letter-spacing:.06em;display:flex;align-items:center;gap:8px}
+.brand i{width:18px;height:18px;border-radius:4px;background:linear-gradient(135deg,var(--accent),var(--lock));display:inline-block}
+.kpis{display:flex;gap:18px;flex-wrap:wrap;margin-left:auto}
+.kpi{display:flex;flex-direction:column;align-items:flex-end}
+.kpi small{color:var(--mu);font-size:10px;letter-spacing:.08em}
+.kpi b{font:600 14px var(--f-num)}
+.arm{border-radius:20px;padding:5px 12px;font-weight:600;border:1px solid #2c6b50;background:#14352a;color:#5fe0ad}
+.arm.off{border-color:var(--line);background:var(--raise);color:var(--mu)}
+.kill{border-color:#6a2430;background:#3a1720;color:#ff9aa6;font-weight:600}
+
+/* tabs */
+.tabs{display:flex;gap:2px;overflow-x:auto;background:var(--panel);border-bottom:1px solid var(--line);padding-block:0;scrollbar-width:thin}
+.tab{border:0;background:none;border-radius:0;padding:11px 16px 10px;color:var(--mu);border-bottom:2px solid transparent;white-space:nowrap;font-weight:500}
+.tab:hover{color:var(--tx)}
+.tab[aria-selected="true"]{color:#fff;border-bottom-color:var(--accent)}
+.tab .badge{margin-left:6px;font:600 10px var(--f-num);background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:1px 6px;color:var(--tx)}
+
+main{flex:1;min-height:0;overflow:auto;padding-block:14px}
+.view{display:none}.view.on{display:block}
+h2{font:700 18px var(--f-display);letter-spacing:.02em;margin:0;text-wrap:balance}
+.sub{color:var(--mu);margin:2px 0 0}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border-radius:16px;padding:4px 11px;font-size:12px}
+.chip[aria-pressed="true"]{background:#24305a;border-color:var(--accent);color:#fff}
+.note{border:1px dashed #3a4466;border-radius:8px;padding:10px 12px;color:var(--mu);font-size:12px;margin-top:14px;max-width:110ch}
+.note b{color:var(--tx)}
+.lbl{color:var(--mu);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
+
+/* TRADE */
+.trade{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:12px;height:calc(100vh - 175px);min-height:520px}
+.chartbox{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;min-width:0;display:flex;flex-direction:column}
+.cbar{display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.cbar .sym{font:700 14px var(--f-display);margin-right:6px}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:5px 10px;background:none;color:var(--mu)}
+.seg button[aria-pressed="true"]{background:#24305a;color:#fff}
+.ohlc{position:absolute;left:12px;top:52px;font:12px var(--f-num);color:var(--mu);pointer-events:none}
+.ohlc b{color:var(--tx);font-weight:600}
+canvas{display:block;width:100%;flex:1;min-height:0}
+.dock{display:flex;flex-direction:column;gap:8px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+.target{border-color:#2f3e75;background:#161f3d}
+.target b{color:#a9bbff}
+.row{display:flex;gap:6px}
+.row>*{flex:1}
+.big{padding:11px 0;font-weight:700;letter-spacing:.03em;border:0}
+.buy{background:#17483f;color:#7ff0d6}.sell{background:#56212b;color:#ffa1ab}
+.buy:hover{background:#1c5a4f}.sell:hover{background:#6a2834}
+.qty{display:flex;align-items:center;justify-content:space-between;background:var(--ink);border:1px solid var(--line);border-radius:6px;padding:2px}
+.qty button{border:0;background:none;padding:4px 10px}
+.pos{background:#2a1b22;border-color:#5a2732}
+.pos .pl{color:var(--dn);font:600 16px var(--f-num)}
+.mini{font-size:11.5px;color:var(--mu)}
+.posrow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;font-size:12px;padding:6px 10px;border-top:1px solid var(--line)}
+.posrow.h{color:var(--mu);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase}
+
+/* account cards (EVAL / FUNDED) */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
+.acc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:8px;position:relative}
+.acc .top2{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.firm{font:700 12px var(--f-display);letter-spacing:.05em;padding:2px 8px;border-radius:4px;color:#141414}
+.state{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;border:1px solid var(--line)}
+.s-go{color:#5fe0ad;border-color:#2c6b50}.s-done{color:var(--accent);border-color:#30448a}.s-warn{color:var(--warn);border-color:#6b5420}.s-dead{color:var(--dn);border-color:#6a2430}.s-lock{color:var(--lock);border-color:#4c3a7a}
+.bar{height:8px;border-radius:5px;background:var(--ink);border:1px solid var(--line);overflow:hidden;position:relative}
+.bar i{position:absolute;inset:0 auto 0 0;border-radius:4px;transition:width .5s}
+.kv{display:flex;justify-content:space-between;font-size:12px;gap:8px}
+.kv span{color:var(--mu)}
+.dots{display:flex;gap:3px}.dots i{width:14px;height:6px;border-radius:2px;background:var(--line)}.dots i.on{background:var(--up)}
+.acc .act{display:flex;gap:6px}.acc .act button{flex:1;padding:6px 0;font-size:12px}
+.firmgroup{margin:16px 0 8px;display:flex;align-items:center;gap:10px}
+.firmgroup h3{margin:0;font:700 13px var(--f-display);letter-spacing:.06em}
+.firmgroup .mini{margin-left:auto}
+
+/* ROTATION */
+.rot{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:12px}
+.ctl{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.ctl button{padding:14px 0;font-weight:700;letter-spacing:.04em}
+.c-start{background:#17483f;color:#7ff0d6;border-color:#226b5c}.c-next{background:#1d2a55;color:#b6c6ff;border-color:#30448a}.c-pause{background:#4a3a15;color:#ffd47a;border-color:#6b5420}.c-done{background:#3a1720;color:#ff9aa6;border-color:#6a2430}
+.gauge{position:relative;height:56px;border-radius:10px;background:linear-gradient(90deg,#3a1720 0,#2a1b22 25%,#1a2230 25%,#17302b 100%);border:1px solid var(--line);margin-top:10px}
+.gauge .needle{position:absolute;top:-4px;bottom:-4px;width:3px;background:#fff;border-radius:2px;transition:left .25s;box-shadow:0 0 8px #fff8}
+.gauge .z{position:absolute;top:0;bottom:0;width:1px;background:#ffffff40}
+.gauge .t{position:absolute;bottom:4px;font:11px var(--f-num);color:var(--mu)}
+.deck{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:8px}
+.tile{border-radius:8px;padding:8px 9px;font-size:11px;border:1px solid var(--line);background:var(--raise);min-height:84px;display:flex;flex-direction:column;gap:2px;transition:background .3s,border-color .3s}
+.tile b{font:700 12px var(--f-display);letter-spacing:.04em}
+.tile .v{font:600 13px var(--f-num)}
+.tile.cur{border-color:#fff;box-shadow:0 0 0 1px #fff4,0 0 16px #4f7cff55}
+.tile.t-pass{background:#123a33;border-color:#226b5c}.tile.t-day{background:#16304a;border-color:#2b5a85}.tile.t-blown{background:#3a1720;border-color:#6a2430;opacity:.75}.tile.t-loss{background:#33201d;border-color:#5c3a2a}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--mu);margin:8px 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}
+.form label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--mu);min-width:0}
+.form .full{grid-column:1/-1}
+.log{font:11.5px var(--f-num);color:var(--mu);max-height:150px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+.log .w{color:var(--up)}.log .l{color:var(--dn)}
+
+/* LAB */
+.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.lab{display:grid;grid-template-columns:320px minmax(0,1fr);gap:12px}
+.res{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.res .card b{display:block;font:700 20px var(--f-num)}
+.cv{background:var(--panel);border:1px solid var(--line);border-radius:10px;height:260px;position:relative}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th,td{padding:7px 9px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mu);font-weight:500;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase}
+.tblwrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+
+.status{display:flex;gap:16px;align-items:center;padding-block:6px;border-top:1px solid var(--line);background:var(--panel);font-size:11.5px;color:var(--mu);flex-wrap:wrap}
+.status .ok{color:#5fe0ad}
+
+/* modal */
+.modal{position:fixed;inset:0;background:#0009;display:grid;place-items:center;padding:16px;z-index:20}
+.modal .card{max-width:420px;width:100%;padding:16px}
+.modal h3{margin:0 0 6px;font:700 15px var(--f-display)}
+
+@media (max-width:900px){
+  .trade,.rot,.lab{grid-template-columns:1fr;height:auto}
+  .trade .chartbox{height:420px}
+  .ctl{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .res{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpis{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header class="top wrap">
+  <div class="brand"><i></i>KEYSTONE PROP DESK</div>
+  <button class="arm" id="armBtn" aria-pressed="true">● ARMED · 14 accounts</button>
+  <div class="kpis">
+    <div class="kpi"><small>EVALS LIVE</small><b>11</b></div>
+    <div class="kpi"><small>FUNDED</small><b>3</b></div>
+    <div class="kpi"><small>TODAY (ALL)</small><b style="color:var(--up)">+$2,140</b></div>
+    <div class="kpi"><small>OPEN</small><b id="topOpen" style="color:var(--dn)">−$216</b></div>
+    <div class="kpi"><small>FEES SPENT / PAID OUT</small><b>$2,310 / $4,500</b></div>
+  </div>
+  <button class="kill" id="killBtn">⛔ CLOSE ALL</button>
+</header>
+
+<nav class="tabs wrap" role="tablist" aria-label="Workspaces">
+  <button class="tab" role="tab" data-v="trade">📈 Trade</button>
+  <button class="tab" role="tab" data-v="eval">🎯 Evals <span class="badge">11</span></button>
+  <button class="tab" role="tab" data-v="funded">💰 Funded <span class="badge">3</span></button>
+  <button class="tab" role="tab" data-v="rotation">🔄 Rotation</button>
+  <button class="tab" role="tab" data-v="copy">⇉ Copy</button>
+  <button class="tab" role="tab" data-v="lab">🧪 Lab</button>
+  <button class="tab" role="tab" data-v="journal">📓 Journal</button>
+  <button class="tab" role="tab" data-v="firms">🏢 Firms &amp; Rules</button>
+</nav>
+
+<main class="wrap">
+
+<!-- ========== TRADE ========== -->
+<section class="view" id="v-trade" aria-label="Trade">
+  <div class="trade">
+    <div class="chartbox">
+      <div class="cbar">
+        <span class="sym">MNQ 12-26</span>
+        <div class="seg" id="symSeg"><button aria-pressed="true" data-s="MNQ">MNQ</button><button aria-pressed="false" data-s="MGC">MGC</button><button aria-pressed="false" data-s="BOTH">MNQ + MGC</button></div>
+        <div class="seg"><button aria-pressed="false">1m</button><button aria-pressed="true">5m</button><button aria-pressed="false">15m</button><button aria-pressed="false">1h</button></div>
+        <span style="flex:1"></span>
+        <div class="seg"><button aria-pressed="true">Candles</button><button aria-pressed="false">VWAP</button><button aria-pressed="false">Levels</button></div>
+      </div>
+      <div class="ohlc" id="ohlc"></div>
+      <canvas id="chart" aria-label="Price chart with draggable take-profit and stop lines"></canvas>
+      <div class="posrow h"><span>Account</span><span>Side</span><span>Qty</span><span>Avg</span><span>TP / SL</span><span>P/L</span></div>
+      <div class="posrow"><span>TPT 3 · 50K</span><span style="color:var(--dn)">SHORT</span><span class="num">4</span><span class="num">27,134.00</span><span class="num" id="tpsl">27,104 / 27,152</span><span class="num" id="plCell" style="color:var(--dn)">−$216</span></div>
+    </div>
+    <aside class="dock">
+      <div class="card target">
+        <div class="lbl">Orders go to</div>
+        <select id="tgtSel" style="width:100%;margin-top:4px">
+          <option>TPT 3 · 50K eval (this account only)</option>
+          <option>Group G1 · 5 TPT 50K evals (all)</option>
+          <option>Group G2 · 3 MFFU 50K evals (all)</option>
+        </select>
+        <div class="mini" id="tgtNote" style="margin-top:5px">One account. Copying is off for this click.</div>
+      </div>
+      <div class="row"><button class="big buy" data-act="BUY MKT">BUY</button><button class="big sell" data-act="SELL MKT">SELL</button></div>
+      <div class="row"><button data-act="BUY LIMIT">Buy limit</button><button data-act="SELL LIMIT">Sell limit</button></div>
+      <div class="card">
+        <div class="kv"><span>Contracts</span></div>
+        <div class="qty" style="margin-top:4px"><button id="qm" aria-label="One less">−</button><b class="num" id="qv">2</b><button id="qp" aria-label="One more">+</button></div>
+        <div class="kv" style="margin-top:8px"><span>Take profit</span><b class="num">+30 pts · $120</b></div>
+        <div class="kv"><span>Stop</span><b class="num">−18 pts · $72</b></div>
+        <div class="mini" style="margin-top:4px">Drag the green and red lines on the chart to move them. They stay at the broker when you switch accounts.</div>
+      </div>
+      <div class="card pos">
+        <div class="lbl">Position · TPT 3</div>
+        <div class="kv"><span>SHORT 4 @ 27,134.00</span><span class="pl" id="plBig">−$216</span></div>
+        <div class="mini">Room to EOD floor: <b class="num" style="color:var(--warn)">$1,060</b> · target left <b class="num">$1,840</b></div>
+      </div>
+      <div class="row"><button data-act="BREAKEVEN">Breakeven</button><button data-act="REVERSE">Reverse</button><button data-act="CLOSE">Close</button></div>
+    </aside>
+  </div>
+  <div class="note"><b>Why it looks like this:</b> the chart takes the whole window, like MT5. Everything about orders lives in one narrow dock on the right. The box at the top of the dock names exactly who a click reaches: one account, or every account in a copy group. There is no separate “separate” switch to remember. Positions sit under the chart, and their take profit and stop are lines you drag.</div>
+</section>
+
+<!-- ========== EVALS ========== -->
+<section class="view" id="v-eval" aria-label="Evaluations">
+  <div class="head">
+    <div><h2>Evaluations</h2><p class="sub">Each account is detected from its name and balance. The firm's rules are applied for you. Example accounts.</p></div>
+    <div class="chips" id="evalFilter"><button class="chip" aria-pressed="true" data-f="ALL">All 11</button><button class="chip" aria-pressed="false" data-f="TPT">TPT 5</button><button class="chip" aria-pressed="false" data-f="MFFU">MFFU 4</button><button class="chip" aria-pressed="false" data-f="LUCID">Lucid 2</button><button class="chip" aria-pressed="false" data-f="NEAR">Close to passing</button></div>
+  </div>
+  <div id="evalList"></div>
+  <div class="note"><b>The flow:</b> buy an eval, connect it in NinjaTrader, and it appears here under its firm with the right target, drawdown type and consistency rule. Each card answers three things: <b>how far to pass</b> (green bar), <b>how far from blowing it</b> (the floor bar turns yellow, then red), and <b>whether today is still allowed</b> (the consistency cap). Once a card reads PASSED, one click moves it to Funded.</div>
+</section>
+
+<!-- ========== FUNDED ========== -->
+<section class="view" id="v-funded" aria-label="Funded accounts">
+  <div class="head"><div><h2>Funded</h2><p class="sub">These accounts use the funded rules: trailing drawdown, buffer, payouts. Automation follows each firm's policy. Example accounts.</p></div></div>
+  <div class="grid" id="fundList"></div>
+  <div class="note"><b>Trailing drawdown, shown live:</b> the purple line is the floor. It follows your highest balance until it locks at start + $100. After that the account can only lose the buffer above that line. The next payout date and the amount you can safely withdraw are on every card. TPT funded accounts show a hand icon (no automation): the strategy can suggest, but you click.</div>
+</section>
+
+<!-- ========== ROTATION ========== -->
+<section class="view" id="v-rotation" aria-label="Rotation">
+  <div class="head"><div><h2>Rotation · live</h2><p class="sub">MNQ and MGC open together with one button. The next account takes the next trade.</p></div>
+    <div class="chips"><button class="chip" aria-pressed="true">Pool: TPT 50K evals (5)</button><button class="chip" aria-pressed="false">MFFU 50K evals (4)</button></div></div>
+  <div class="rot">
+    <div>
+      <div class="card">
+        <div class="kv"><span>Now trading</span><b id="rotCur">TPT 1 · 50K eval</b></div>
+        <div class="kv"><span>Basket · MNQ 4 + MGC 4 · <b id="rotDir">BUY + BUY</b></span><b class="num" id="rotPl">$0</b></div>
+        <div class="gauge" id="gauge"><span class="z" style="left:25%"></span><span class="needle" id="needle" style="left:25%"></span><span class="t" style="left:6px">STOP −$500</span><span class="t" style="left:calc(25% - 8px)">0</span><span class="t" style="right:6px">TARGET +$1,500</span></div>
+        <div class="ctl" style="margin-top:12px">
+          <button class="c-start" id="rStart">▶ START</button>
+          <button class="c-next" id="rNext">⏭ NEXT ACCOUNT</button>
+          <button class="c-pause" id="rPause">⏸ PAUSE</button>
+          <button id="rResume">⏵ RESUME</button>
+          <button class="c-done" id="rDone">■ DONE FOR TODAY</button>
+        </div>
+      </div>
+      <div class="legend"><span><i style="background:#226b5c"></i>Passed</span><span><i style="background:#2b5a85"></i>Day cap banked · rests until tomorrow</span><span><i style="background:#5c3a2a"></i>Lost a rotation</span><span><i style="background:#6a2430"></i>Blown</span><span><i style="background:#fff"></i>Trading now</span></div>
+      <div class="deck" id="rotDeck"></div>
+    </div>
+    <aside class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="lbl">Rotation settings</div>
+      <div class="form">
+        <label>Risk per rotation<input class="num" value="$500" id="rRisk"></label>
+        <label>Target per rotation<input class="num" value="$1,500" id="rTgt"></label>
+        <label>MNQ contracts<input class="num" value="4"></label>
+        <label>MGC contracts<input class="num" value="4"></label>
+        <label class="full">Direction<select><option>Random · BUY+BUY or SELL+SELL</option><option>Alternate</option><option>With the 15m trend</option><option>I choose each time</option></select></label>
+        <label class="full">Session<select><option>New York 9:30 – 11:30</option><option>London 2:00 – 8:00</option><option>All day (flat by 16:55)</option></select></label>
+      </div>
+      <div class="mini">A rotation only opens when you press START. Each account keeps its firm's limits. An account rests for the day once it banks the consistency cap ($1,500 on a 50K).</div>
+      <div class="lbl">Today</div>
+      <div class="log" id="rotLog"></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ========== COPY ========== -->
+<section class="view" id="v-copy" aria-label="Copy trading">
+  <div class="head"><div><h2>Copy groups</h2><p class="sub">A group has one leader and its followers. An account belongs to one group only. Switching a group on asks once.</p></div><button>＋ New group</button></div>
+  <div class="grid" id="copyList"></div>
+  <div class="note"><b>Simplified:</b> no desks or virtual leaders to learn. Pick a group in the Trade dock and every click reaches its members, each with its own limits. Each follower shows a sync dot: green means its position matches the leader's, and yellow means it is off. FIX SYNC brings the off ones back in line, and asks first.</div>
+</section>
+
+<!-- ========== LAB ========== -->
+<section class="view" id="v-lab" aria-label="Simulation lab">
+  <div class="head"><div><h2>Lab · simulations only</h2><p class="sub">Nothing here sends an order. It runs on your saved MNQ and MGC history from 2020 to 2026.</p></div></div>
+  <div class="subtabs" id="labTabs"><button class="chip" aria-pressed="true" data-l="rb">Rotation backtest</button><button class="chip" aria-pressed="false" data-l="dd">Trailing vs EOD drawdown</button><button class="chip" aria-pressed="false" data-l="st">Strategy tests</button><button class="chip" aria-pressed="false" data-l="cmp">Compare runs</button></div>
+
+  <div id="l-rb" class="lab">
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="lbl">Set up a run</div>
+      <div class="form">
+        <label>From<input type="date" id="bFrom" value="2025-01-02"></label>
+        <label>To<input type="date" id="bTo" value="2025-03-31"></label>
+        <label class="full">Session<select id="bSess"><option>New York 9:30 – 11:30</option><option>London 2:00 – 8:00</option><option>All day</option></select></label>
+        <label class="full">Account plan<select id="bPlan"><option value="tpt">TPT 50K eval · EOD $2,000 · target $3,000 · 50%</option><option value="mffu">MFFU Rapid 50K · EOD $2,000 · target $3,000 · 30%</option><option value="tptpro">TPT PRO 50K funded · intraday trailing $2,000</option></select></label>
+        <label>Accounts<select id="bN"><option>5</option><option selected>10</option><option>20</option><option>30</option></select></label>
+        <label>Direction<select id="bDir"><option>Random</option><option>Alternate</option></select></label>
+        <label>Risk / rotation<input class="num" id="bRisk" value="500"></label>
+        <label>Target / rotation<input class="num" id="bTgt" value="1500"></label>
+        <label>MNQ contracts<input class="num" id="bQ1" value="4"></label>
+        <label>MGC contracts<input class="num" id="bQ2" value="4"></label>
+      </div>
+      <div class="row"><button class="c-start" id="bRun" style="padding:11px 0;font-weight:700">▶ RUN</button><button id="bFast">⏩ Instant</button></div>
+      <button id="bExport">⤓ Export trades + days (CSV)</button>
+      <div class="mini" id="bExportNote">The real button saves to Documents\KeyStone\lab\ so you can send the file for analysis.</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;min-width:0">
+      <div class="res">
+        <div class="card"><span class="lbl">Passed</span><b id="oPass" style="color:var(--up)">–</b></div>
+        <div class="card"><span class="lbl">Blown</span><b id="oBlown" style="color:var(--dn)">–</b></div>
+        <div class="card"><span class="lbl">Avg days to pass</span><b id="oDays">–</b></div>
+        <div class="card"><span class="lbl">Fee per pass</span><b id="oCost">–</b></div>
+      </div>
+      <div class="card"><div class="kv"><span class="lbl">Day</span><b class="num" id="oDay">–</b></div><div class="deck" id="bDeck" style="margin-top:8px"></div></div>
+      <div class="cv"><canvas id="bCurve"></canvas></div>
+      <div class="mini">⚠ This prototype draws its own random prices so it can run in a browser. The real Lab replays your 1-minute MNQ and MGC files day by day, with commissions, slippage and the firm's close time.</div>
+    </div>
+  </div>
+
+  <div id="l-dd" class="lab" hidden>
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="lbl">Same trades, two rules</div>
+      <div class="mini">The same 30 days of trades are run under an <b style="color:var(--warn)">end-of-day</b> floor (used by most evals) and an <b style="color:var(--lock)">intraday trailing</b> floor (TPT PRO funded). Watch where each one would have blown or locked.</div>
+      <div class="form">
+        <label>Drawdown $<input class="num" id="dDd" value="2000"></label>
+        <label>Lock at start +<input class="num" id="dLock" value="100"></label>
+        <label class="full">Exit style<select id="dStyle"><option value="fixed">Fixed target / stop</option><option value="scale">Scale out at +1R, trail rest</option><option value="lockb">Stop trading for the day at +$600</option></select></label>
+      </div>
+      <button class="c-start" id="dRun" style="padding:11px 0;font-weight:700">▶ PLAY</button>
+      <div class="kv"><span>End of day</span><b id="dEod">–</b></div>
+      <div class="kv"><span>Intraday trailing</span><b id="dIntra">–</b></div>
+    </div>
+    <div class="cv" style="height:360px"><canvas id="ddCurve"></canvas></div>
+  </div>
+
+  <div id="l-st" hidden>
+    <div class="tblwrap"><table>
+      <thead><tr><th>Strategy (6 years, 1-minute data)</th><th>Trades</th><th>Win %</th><th>Profit factor</th><th>Worst run</th><th>Every year up?</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Asian 75 (MGC)</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>open the saved report</td><td><button>Run</button></td></tr>
+        <tr><td>BH breakout (MNQ)</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>open the saved report</td><td><button>Run</button></td></tr>
+        <tr><td>FVG 50% · NY · with trend (gold, from the MT5 study)</td><td class="num">1,037</td><td class="num">43%</td><td class="num">1.28</td><td class="num">11 losses</td><td style="color:var(--up)">yes, 2020 → 2026</td><td><button>Run</button></td></tr>
+        <tr><td>Opening range 30m · NY</td><td class="num">1,148</td><td class="num">47%</td><td class="num">1.11</td><td class="num">14 losses</td><td style="color:var(--warn)">no</td><td><button>Run</button></td></tr>
+      </tbody></table></div>
+    <div class="note">The research tools you already have (Asian 75, BH, FVG, engulfing, opening range) are gathered here as rows. Each row has one Run button and one saved report. They no longer get their own windows.</div>
+  </div>
+  <div id="l-cmp" hidden>
+    <div class="tblwrap"><table id="cmpTbl"><thead><tr><th>Run</th><th>Plan</th><th>Risk / target</th><th>Accounts</th><th>Passed</th><th>Blown</th><th>Fee per pass</th></tr></thead><tbody><tr><td colspan="7" style="text-align:left;color:var(--mu)">Each Rotation backtest you run is added here, so you can compare settings side by side.</td></tr></tbody></table></div>
+  </div>
+</section>
+
+<!-- ========== JOURNAL ========== -->
+<section class="view" id="v-journal" aria-label="Journal">
+  <div class="head"><div><h2>Journal</h2><p class="sub">Every day, every account, saved automatically. Export any range. Example rows.</p></div><div class="chips"><button class="chip">⤓ Export days</button><button class="chip">⤓ Export trades</button></div></div>
+  <div class="res" style="margin-bottom:10px">
+    <div class="card"><span class="lbl">Evals bought</span><b class="num">14</b></div>
+    <div class="card"><span class="lbl">Passed</span><b class="num" style="color:var(--up)">4 · 29%</b></div>
+    <div class="card"><span class="lbl">Fees spent</span><b class="num">$2,310</b></div>
+    <div class="card"><span class="lbl">Payouts received</span><b class="num" style="color:var(--up)">$4,500</b></div>
+  </div>
+  <div class="tblwrap"><table><thead><tr><th>Day</th><th>Accounts traded</th><th>Rotations</th><th>Won</th><th>Lost</th><th>Net</th><th>Passed</th><th>Blown</th></tr></thead>
+  <tbody id="jBody"></tbody></table></div>
+</section>
+
+<!-- ========== FIRMS ========== -->
+<section class="view" id="v-firms" aria-label="Firms and rules">
+  <div class="head"><div><h2>Firms &amp; rules</h2><p class="sub">Detected from the account name and balance. Check them once against the firm's rules page, then they apply everywhere.</p></div></div>
+  <div class="tblwrap"><table><thead><tr><th>Plan</th><th>Drawdown</th><th>Type (eval → funded)</th><th>Target</th><th>Consistency</th><th>Min days</th><th>Flat by (NY)</th><th>Automation eval / funded</th></tr></thead>
+  <tbody>
+    <tr><td><span class="firm" style="background:var(--tpt)">TPT</span> 50K</td><td class="num">$2,000</td><td>EOD → intraday trailing, locks at +$100</td><td class="num">$3,000</td><td class="num">50%</td><td class="num">5</td><td class="num">16:55</td><td>yes / <b style="color:var(--warn)">no</b></td></tr>
+    <tr><td><span class="firm" style="background:var(--tpt)">TPT</span> 25K</td><td class="num">$1,500</td><td>EOD → intraday trailing</td><td class="num">$1,500</td><td class="num">50%</td><td class="num">5</td><td class="num">16:55</td><td>yes / <b style="color:var(--warn)">no</b></td></tr>
+    <tr><td><span class="firm" style="background:var(--mffu)">MFFU</span> Rapid 50K</td><td class="num">$2,000</td><td>EOD</td><td class="num">$3,000</td><td class="num">30%</td><td class="num">—</td><td class="num">16:10</td><td>yes / yes</td></tr>
+    <tr><td><span class="firm" style="background:var(--lucid)">LUCID</span> Flex 50K</td><td class="num">$2,000</td><td>EOD · hold 11 s</td><td class="num">$3,000</td><td class="num">—</td><td class="num">—</td><td class="num">16:45</td><td>check</td></tr>
+  </tbody></table></div>
+  <div class="note">These rows come from the plans already in KeyStone. The numbers above are illustrative: when we build it, I'll fill every cell from the code's real plans and you confirm them against each firm's rules page. A new firm or size is one row, and every tab uses it right away.</div>
+</section>
+</main>
+
+<footer class="status wrap">
+  <span class="ok">● Connected · 14 accounts</span><span>Data: MNQ + MGC live</span><span class="num" id="clock">NY 09:41:12</span><span>Next high-impact news 10:00 (CPI)</span><span style="margin-left:auto">Prototype · example data · no orders</span>
+</footer>
+
+<div class="modal" id="modal" hidden><div class="card"><h3 id="mT">Confirm</h3><p id="mB" class="mini" style="font-size:13px"></p><div class="row" style="margin-top:10px"><button id="mNo">Cancel</button><button id="mYes" class="buy" style="border:0">Confirm</button></div></div></div>
+
+<script>
+(function(){
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const money=v=>(v<0?'−':'+')+'$'+Math.abs(Math.round(v)).toLocaleString('en-US');
+const m0=v=>'$'+Math.round(v).toLocaleString('en-US');
+const FC={TPT:'var(--tpt)',MFFU:'var(--mffu)',LUCID:'var(--lucid)'};
+
+/* ---------- routing ---------- */
+const views=['trade','eval','funded','rotation','copy','lab','journal','firms'];
+function show(v){ if(!views.includes(v)) v='trade'; $$('.tab').forEach(t=>t.setAttribute('aria-selected',t.dataset.v===v)); $$('.view').forEach(s=>s.classList.toggle('on',s.id==='v-'+v)); if(v==='trade') resize(); if(v==='lab'){drawCurve();drawDD(ddState);} }
+$$('.tab').forEach(t=>t.onclick=()=>{location.hash=t.dataset.v;});
+addEventListener('hashchange',()=>show(location.hash.slice(1)));
+
+/* ---------- modal ---------- */
+let mCb=null; function ask(t,b,cb){$('#mT').textContent=t;$('#mB').textContent=b;mCb=cb;$('#modal').hidden=false;}
+$('#mNo').onclick=()=>{$('#modal').hidden=true;}; $('#mYes').onclick=()=>{$('#modal').hidden=true; if(mCb) mCb();};
+$('#killBtn').onclick=()=>ask('Close every position?','Flattens every connected account and cancels their orders. Rotations and copying stop. (Prototype: nothing is sent.)');
+$('#armBtn').onclick=e=>{const b=e.currentTarget,on=b.classList.toggle('off'); b.textContent=on?'○ DISARMED':'● ARMED · 14 accounts';};
+
+/* ---------- TRADE chart ---------- */
+const cv=$('#chart'), cx=cv.getContext('2d'); let bars=[], tp=27104, sl=27152, entry=27134, drag=null, W=0,H=0, lo=0,hi=0;
+(function seed(){let p=27060; for(let i=0;i<120;i++){const o=p,c=o+(Math.sin(i/9)*4+(Math.random()-.5)*14);bars.push({o,c,h:Math.max(o,c)+Math.random()*6,l:Math.min(o,c)-Math.random()*6});p=c;} bars[bars.length-1].c=27133.75;})();
+function resize(){const r=cv.getBoundingClientRect(); if(!r.width) return; const d=devicePixelRatio||1; cv.width=r.width*d; cv.height=r.height*d; cx.setTransform(d,0,0,d,0,0); W=r.width; H=r.height; draw();}
+addEventListener('resize',resize);
+const y=p=>18+(hi-p)/(hi-lo)*(H-36), py=Y=>hi-(Y-18)/(H-36)*(hi-lo);
+function draw(){ if(!W) return; const vis=bars.slice(-90); lo=Math.min(...vis.map(b=>b.l),tp,sl)-8; hi=Math.max(...vis.map(b=>b.h),tp,sl)+8;
+  cx.clearRect(0,0,W,H); const pw=W-70, bw=pw/vis.length;
+  cx.strokeStyle='#232a40'; cx.lineWidth=1; cx.font='11px JetBrains Mono, monospace'; cx.fillStyle='#8a91a8';
+  for(let k=0;k<6;k++){const p=lo+(hi-lo)*k/5, Y=y(p); cx.beginPath(); cx.moveTo(0,Y); cx.lineTo(pw,Y); cx.stroke(); cx.fillText(p.toFixed(2),pw+6,Y+4);}
+  vis.forEach((b,i)=>{const X=i*bw+bw/2, up=b.c>=b.o; cx.strokeStyle=cx.fillStyle=up?'#22b8a0':'#ef5466'; cx.beginPath(); cx.moveTo(X,y(b.h)); cx.lineTo(X,y(b.l)); cx.stroke(); const t=y(Math.max(b.o,b.c)), h=Math.max(1,Math.abs(y(b.o)-y(b.c))); cx.fillRect(X-bw*.32,t,bw*.64,h);});
+  const line=(p,c,label,dash)=>{const Y=y(p); cx.setLineDash(dash?[5,4]:[]); cx.strokeStyle=c; cx.lineWidth=1.4; cx.beginPath(); cx.moveTo(0,Y); cx.lineTo(pw,Y); cx.stroke(); cx.setLineDash([]); cx.fillStyle=c; const tw=cx.measureText(label).width+14; cx.fillRect(pw-tw-8,Y-10,tw,20); cx.fillStyle='#0f1320'; cx.font='600 11px IBM Plex Sans, sans-serif'; cx.fillText(label,pw-tw-1,Y+4); cx.font='11px JetBrains Mono, monospace';};
+  const last=bars[bars.length-1].c, pl=(entry-last)*2*4;
+  line(entry,'#7f8cff','SHORT 4 @ '+entry.toFixed(2)+'  '+money(pl),true);
+  line(tp,'#22b8a0','TP '+tp.toFixed(2)+'  '+money((entry-tp)*8)+'  ⇕ drag');
+  line(sl,'#ef5466','SL '+sl.toFixed(2)+'  '+money((entry-sl)*8)+'  ⇕ drag');
+  const Y=y(last); cx.fillStyle=last>=bars[bars.length-1].o?'#22b8a0':'#ef5466'; cx.fillRect(pw,Y-9,70,18); cx.fillStyle='#fff'; cx.fillText(last.toFixed(2),pw+5,Y+4);
+  const b=bars[bars.length-1]; $('#ohlc').innerHTML=`MNQ · 5m · CME &nbsp; O <b>${b.o.toFixed(2)}</b> H <b>${b.h.toFixed(2)}</b> L <b>${b.l.toFixed(2)}</b> C <b>${b.c.toFixed(2)}</b>`;
+  $('#plBig').textContent=money(pl); $('#plCell').textContent=money(pl); $('#topOpen').textContent=money(pl); const col=pl>=0?'var(--up)':'var(--dn)'; $('#plBig').style.color=col; $('#plCell').style.color=col; $('#topOpen').style.color=col; $('#tpsl').textContent=tp.toFixed(0)+' / '+sl.toFixed(0);
+}
+cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),Y=e.clientY-r.top; if(Math.abs(Y-y(tp))<8) drag='tp'; else if(Math.abs(Y-y(sl))<8) drag='sl'; if(drag) cv.setPointerCapture(e.pointerId);});
+cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),Y=e.clientY-r.top; cv.style.cursor=(Math.abs(Y-y(tp))<8||Math.abs(Y-y(sl))<8)?'ns-resize':'crosshair'; if(!drag) return; const p=Math.round(py(Y)*4)/4; if(drag==='tp') tp=Math.min(p,entry-1); else sl=Math.max(p,entry+1); draw();});
+cv.addEventListener('pointerup',()=>drag=null);
+setInterval(()=>{const b=bars[bars.length-1]; b.c+= (Math.random()-.5)*3; b.h=Math.max(b.h,b.c); b.l=Math.min(b.l,b.c); if(Math.random()<.06){bars.push({o:b.c,c:b.c,h:b.c,l:b.c});} if($('#v-trade').classList.contains('on')) draw();},700);
+$$('#symSeg button').forEach(b=>b.onclick=()=>{$$('#symSeg button').forEach(x=>x.setAttribute('aria-pressed',x===b));});
+let q=2; $('#qm').onclick=()=>{q=Math.max(1,q-1);$('#qv').textContent=q;}; $('#qp').onclick=()=>{q++;$('#qv').textContent=q;};
+$('#tgtSel').onchange=e=>{$('#tgtNote').textContent=e.target.selectedIndex===0?'One account. Copying is off for this click.':'Every account in the group gets the same click. Each account keeps its own limits. You confirm before each entry.';};
+$$('[data-act]').forEach(b=>b.onclick=()=>ask(b.dataset.act+' · '+q+' contract'+(q>1?'s':''),'To: '+$('#tgtSel').value+'. (Prototype: nothing is sent.)'));
+
+/* ---------- EVAL cards ---------- */
+const evals=[
+ ['TPT',1,50000,1840,[420,610,810],'ROTATION'],['TPT',2,50000,2950,[1500,900,550],'ROTATION'],['TPT',3,50000,1160,[300,-140,1000],'TRADING'],['TPT',4,50000,-1280,[-500,-500,-280],''],['TPT',5,50000,3020,[1500,1020,500],'PASSED'],
+ ['MFFU',1,50000,640,[640],''],['MFFU',2,50000,2210,[880,700,630],''],['MFFU',3,50000,-1720,[-1000,-720],''],['MFFU',4,50000,0,[],'NEW'],
+ ['LUCID',1,50000,1350,[500,850],''],['LUCID',2,50000,2600,[900,850,850],'']];
+const plan={TPT:{dd:2000,t:3000,c:.5,days:5},MFFU:{dd:2000,t:3000,c:.3,days:0},LUCID:{dd:2000,t:3000,c:0,days:0}};
+let evalF='ALL';
+function evalCard(e){const [f,n,size,pnl,days,tag]=e, p=plan[f], peak=Math.max(0,...days.reduce((a,d)=>{a.push((a.length?a[a.length-1]:0)+d);return a;},[])), floor=peak-p.dd, room=pnl-floor, best=days.length?Math.max(...days):0;
+  const cap=p.c?Math.max(p.c*p.t,best):Infinity, need=p.c?Math.max(p.t,best/p.c):p.t, left=Math.max(0,need-pnl), passed=tag==='PASSED';
+  const st=passed?['PASSED','s-done']:room<600?['NEAR FLOOR','s-dead']:left<400?['ALMOST','s-go']:tag==='TRADING'||tag==='ROTATION'?[tag,'s-go']:tag==='NEW'?['NEW','s-lock']:['READY','s-warn'];
+  const prog=Math.max(0,Math.min(100,pnl/need*100)), rp=Math.max(0,Math.min(100,room/p.dd*100)), rc=rp<30?'var(--dn)':rp<55?'var(--warn)':'var(--up)';
+  const dd=p.days?`<div class="kv"><span>Trading days ${days.length} / ${p.days}</span><span class="dots">${Array.from({length:p.days},(_,i)=>`<i class="${i<days.length?'on':''}"></i>`).join('')}</span></div>`:'';
+  return `<div class="acc" data-f="${f}" data-near="${left<800&&!passed}"><div class="top2"><span><span class="firm" style="background:${FC[f]}">${f} ${n}</span> <span class="mini">${size/1000}K eval</span></span><span class="state ${st[1]}">${st[0]}</span></div>
+   <div class="kv"><span>Profit</span><b class="num" style="color:${pnl>=0?'var(--up)':'var(--dn)'}">${money(pnl)}</b></div>
+   <div class="kv"><span>To pass</span><b class="num">${passed?'done':m0(left)+' left of '+m0(need)}</b></div><div class="bar"><i style="width:${prog}%;background:var(--accent)"></i></div>
+   <div class="kv"><span>Room above EOD floor</span><b class="num" style="color:${rc}">${m0(room)}</b></div><div class="bar"><i style="width:${rp}%;background:${rc}"></i></div>
+   <div class="kv"><span>Today may still make</span><b class="num">${p.c?m0(Math.max(0,cap)):'no cap'}${p.c?' ('+p.c*100+'%)':''}</b></div>${dd}
+   <div class="act">${passed?'<button class="buy" style="border:0" data-move="'+f+' '+n+'">Move to Funded →</button>':'<button>Trade</button><button>Add to rotation</button><button>Days</button>'}</div></div>`;}
+function renderEvals(){const groups=['TPT','MFFU','LUCID']; $('#evalList').innerHTML=groups.map(g=>{const list=evals.filter(e=>e[0]===g&&(evalF==='ALL'||evalF===g||(evalF==='NEAR')));if(!list.length) return '';
+  return `<div class="firmgroup"><span class="firm" style="background:${FC[g]}">${g}</span><h3>${g==='TPT'?'Take Profit Trader':g==='MFFU'?'MyFundedFutures':'Lucid Trading'}</h3><span class="mini">${list.length} evals · ${g==='TPT'?'EOD $2,000 · target $3,000 · best day ≤ 50% · 5 days':g==='MFFU'?'EOD $2,000 · target $3,000 · best day ≤ 30%':'EOD $2,000 · target $3,000 · hold ≥ 11 s'}</span></div><div class="grid">${list.map(evalCard).join('')}</div>`;}).join('');
+  if(evalF==='NEAR') $$('#evalList .acc').forEach(a=>{if(a.dataset.near!=='true') a.remove();});
+  $$('[data-move]').forEach(b=>b.onclick=()=>ask('Move '+b.dataset.move+' to Funded?','KeyStone switches it to the funded rules: intraday trailing $2,000 that locks at +$100, and no automation for TPT. Its eval history stays in the Journal.'));}
+$$('#evalFilter .chip').forEach(c=>c.onclick=()=>{$$('#evalFilter .chip').forEach(x=>x.setAttribute('aria-pressed',x===c)); evalF=c.dataset.f; renderEvals();});
+renderEvals();
+
+/* ---------- FUNDED cards with live trailing floor ---------- */
+const funded=[{f:'TPT',n:'PRO 1',bal:51840,peak:51920,pay:'Eligible now',auto:false},{f:'TPT',n:'PRO 2',bal:50380,peak:50710,pay:'In 4 trading days',auto:false},{f:'MFFU',n:'FUNDED 1',bal:52650,peak:52650,pay:'Eligible now · up to $1,200',auto:true}];
+function renderFunded(){ $('#fundList').innerHTML=funded.map((a,i)=>{const lockAt=50000+2000+100, floor=Math.min(a.peak-2000,50100), locked=a.peak>=lockAt, buf=a.bal-floor, pct=Math.max(0,Math.min(100,buf/ (locked?a.bal-50100+0.001:2000)*100));
+  return `<div class="acc"><div class="top2"><span><span class="firm" style="background:${FC[a.f]}">${a.f}</span> <b>${a.n}</b></span><span class="state ${locked?'s-lock':'s-warn'}">${locked?'FLOOR LOCKED':'FLOOR TRAILING'}</span></div>
+  <div class="kv"><span>Balance</span><b class="num" id="fb${i}">${m0(a.bal)}</b></div>
+  <svg viewBox="0 0 260 70" style="width:100%;height:70px" aria-label="Balance and trailing floor"><polyline id="fl${i}" fill="none" stroke="var(--up)" stroke-width="1.8" points=""/><polyline id="ff${i}" fill="none" stroke="var(--lock)" stroke-width="1.6" stroke-dasharray="4 3" points=""/></svg>
+  <div class="kv"><span>Floor</span><b class="num" id="fF${i}" style="color:var(--lock)">${m0(floor)}</b></div>
+  <div class="kv"><span>Buffer before breach</span><b class="num" id="fB${i}">${m0(buf)}</b></div><div class="bar"><i id="fP${i}" style="width:${pct}%;background:var(--lock)"></i></div>
+  <div class="kv"><span>Payout</span><b>${a.pay}</b></div>
+  <div class="kv"><span>Automation</span><b style="color:${a.auto?'var(--up)':'var(--warn)'}">${a.auto?'allowed':'✋ you click every trade'}</b></div></div>`;}).join('');}
+renderFunded();
+const fhist=funded.map(a=>[{b:a.bal,f:Math.min(a.peak-2000,50100)}]);
+setInterval(()=>{funded.forEach((a,i)=>{a.bal+= (Math.random()-.48)*60; a.peak=Math.max(a.peak,a.bal); const f=Math.min(a.peak-2000,50100); fhist[i].push({b:a.bal,f}); if(fhist[i].length>60) fhist[i].shift();
+  const all=fhist[i].flatMap(p=>[p.b,p.f]), lo2=Math.min(...all)-100, hi2=Math.max(...all)+100, Y=v=>66-(v-lo2)/(hi2-lo2)*62, X=k=>k/59*260;
+  const L=document.getElementById('fl'+i); if(!L) return; L.setAttribute('points',fhist[i].map((p,k)=>X(k)+','+Y(p.b)).join(' ')); document.getElementById('ff'+i).setAttribute('points',fhist[i].map((p,k)=>X(k)+','+Y(p.f)).join(' '));
+  document.getElementById('fb'+i).textContent=m0(a.bal); document.getElementById('fF'+i).textContent=m0(f); document.getElementById('fB'+i).textContent=m0(a.bal-f); document.getElementById('fP'+i).style.width=Math.max(0,Math.min(100,(a.bal-f)/2000*100))+'%';});},900);
+
+/* ---------- COPY ---------- */
+const groups=[{n:'G1 · TPT 50K evals',on:true,lead:'TPT 1',f:['TPT 2','TPT 3','TPT 4','TPT 5'],sync:[1,1,0,1]},{n:'G2 · MFFU 50K evals',on:false,lead:'MFFU 1',f:['MFFU 2','MFFU 3','MFFU 4'],sync:[1,1,1]}];
+function renderCopy(){ $('#copyList').innerHTML=groups.map((g,i)=>`<div class="acc"><div class="top2"><b>${g.n}</b><button class="state ${g.on?'s-go':''}" data-g="${i}" style="cursor:pointer">${g.on?'● ON':'○ OFF'}</button></div>
+  <div class="kv"><span>Leader</span><b>${g.lead}</b></div>${g.f.map((f,k)=>`<div class="kv"><span>${f} · same size</span><b style="color:${g.sync[k]?'var(--up)':'var(--warn)'}">${g.sync[k]?'● in sync':'● off by 1'}</b></div>`).join('')}
+  <div class="act"><button>Edit members</button>${g.sync.includes(0)?'<button>Fix sync</button>':''}</div></div>`).join('');
+  $$('[data-g]').forEach(b=>b.onclick=()=>{const g=groups[b.dataset.g]; ask((g.on?'Switch OFF ':'Switch ON ')+g.n+'?',g.on?'Followers keep their positions. New clicks reach only the leader.':'Every click on this group reaches all '+(g.f.length+1)+' accounts. Each account is armed with its own limits.',()=>{g.on=!g.on;renderCopy();});});}
+renderCopy();
+
+/* ---------- ROTATION live (simulated) ---------- */
+const rotAcc=Array.from({length:5},(_,i)=>({n:'TPT '+(i+1),pnl:[1840,2950,1160,-1280,600][i],st:i===3?'loss':'',r:0}));
+let cur=0,running=false,paused=false,basket=0,dir=1,rT=null;
+function renderDeck(){ $('#rotDeck').innerHTML=rotAcc.map((a,i)=>`<div class="tile ${i===cur&&running?'cur':''} ${a.st?'t-'+a.st:''}"><b>${a.n} · 50K</b><span class="v" style="color:${a.pnl>=0?'var(--up)':'var(--dn)'}">${money(a.pnl)}</span><span>${a.st==='pass'?'PASSED':a.st==='day'?'day cap banked':a.st==='blown'?'BLOWN':i===cur&&running?'trading…':'ready'}</span><span class="mini">rotations today ${a.r}</span></div>`).join(''); $('#rotCur').textContent=rotAcc[cur].n+' · 50K eval';}
+function log(t,c){const d=document.createElement('div'); d.className=c||''; d.textContent=new Date().toTimeString().slice(0,8)+'  '+t; $('#rotLog').prepend(d);}
+function needle(){const pct=(basket+500)/2000*100; $('#needle').style.left=Math.max(0,Math.min(100,pct))+'%'; $('#rotPl').textContent=money(basket); $('#rotPl').style.color=basket>=0?'var(--up)':'var(--dn)';}
+function nextIdx(){for(let k=1;k<=rotAcc.length;k++){const j=(cur+k)%rotAcc.length; if(!['pass','day','blown'].includes(rotAcc[j].st)) return j;} return -1;}
+function open(){dir=Math.random()<.5?1:-1; basket=0; $('#rotDir').textContent=dir>0?'BUY + BUY':'SELL + SELL'; log(rotAcc[cur].n+' opened '+(dir>0?'BUY MNQ 4 + BUY MGC 4':'SELL MNQ 4 + SELL MGC 4')); needle(); renderDeck();}
+function tick(){ if(paused) return; basket+= (Math.random()-.5)*130; needle(); const a=rotAcc[cur];
+  if(basket>=1500||basket<=-500){const v=basket>=1500?1500:-500; a.pnl+=v; a.r++; a.st=v>0?(a.pnl>=3000?'pass':'day'):(a.pnl<=-2000?'blown':'loss'); log(a.n+(v>0?' TARGET +$1,500':' STOP −$500')+(a.st==='pass'?' · PASSED':a.st==='blown'?' · BLOWN':''),v>0?'w':'l');
+    const j=nextIdx(); if(j<0){stop('Every account is done for today.');return;} cur=j; open();}}
+function stop(msg){running=false; clearInterval(rT); rT=null; if(msg) log(msg); renderDeck();}
+$('#rStart').onclick=()=>{if(running) return; ask('Start rotation?','Opens MNQ 4 + MGC 4 on '+rotAcc[cur].n+' at the market, with stop −$500 and target +$1,500. When it closes, the next account takes the next one. (Prototype: nothing is sent.)',()=>{running=true;paused=false;open();rT=setInterval(tick,250);});};
+$('#rNext').onclick=()=>{if(!running) return; ask('Close and move on?','Closes the basket on '+rotAcc[cur].n+' at '+money(basket)+'. The next account opens a new one.',()=>{rotAcc[cur].pnl+=basket; rotAcc[cur].r++; log(rotAcc[cur].n+' closed by hand '+money(basket)); const j=nextIdx(); if(j<0) return stop('No account left for today.'); cur=j; open();});};
+$('#rPause').onclick=()=>{if(running){paused=true; log('Paused · the basket stays open with its stop and target at the broker');}};
+$('#rResume').onclick=()=>{if(running&&paused){paused=false; log('Resumed');}};
+$('#rDone').onclick=()=>ask('Done for today?','Closes the open basket and stops the rotation until tomorrow. Today is saved to the Journal.',()=>stop('Done for today · saved'));
+renderDeck(); needle(); log('Pool loaded · 5 TPT 50K evals · NY 9:30 – 11:30');
+
+/* ---------- LAB: rotation backtest (synthetic prices) ---------- */
+let curve=[], bRunT=null, runs=0;
+function drawCurve(){const c=$('#bCurve'); const r=c.parentElement.getBoundingClientRect(); if(!r.width) return; const d=devicePixelRatio||1; c.width=r.width*d; c.height=r.height*d; const g=c.getContext('2d'); g.setTransform(d,0,0,d,0,0); const w=r.width,h=r.height; g.clearRect(0,0,w,h);
+  g.fillStyle='#8a91a8'; g.font='11px JetBrains Mono, monospace'; g.fillText('Pool profit after fees, by day',12,18); if(curve.length<2) {g.fillText('Press RUN',12,40);return;}
+  const lo3=Math.min(0,...curve), hi3=Math.max(0,...curve), Y=v=>h-24-(v-lo3)/(hi3-lo3||1)*(h-52), X=k=>12+k/(curve.length-1)*(w-80);
+  g.strokeStyle='#2a3148'; g.beginPath(); g.moveTo(12,Y(0)); g.lineTo(w-68,Y(0)); g.stroke(); g.fillText('$0',w-62,Y(0)+4);
+  g.beginPath(); curve.forEach((v,k)=>{k?g.lineTo(X(k),Y(v)):g.moveTo(X(k),Y(v));}); g.strokeStyle='#4f7cff'; g.lineWidth=2; g.stroke(); g.lineTo(X(curve.length-1),Y(0)); g.lineTo(X(0),Y(0)); g.closePath(); g.fillStyle='#4f7cff22'; g.fill();
+  const lv=curve[curve.length-1]; g.fillStyle=lv>=0?'#22b8a0':'#ef5466'; g.beginPath(); g.arc(X(curve.length-1),Y(lv),4,0,7); g.fill(); g.fillText(money(lv),Math.min(w-70,X(curve.length-1)+6),Y(lv)-6);}
+function runBT(instant){ clearInterval(bRunT); const N=+$('#bN').value, risk=+$('#bRisk').value||500, tgt=+$('#bTgt').value||1500, q1=+$('#bQ1').value||4, q2=+$('#bQ2').value||4, alt=$('#bDir').value==='Alternate', pl=$('#bPlan').value, intra=pl==='tptpro', cons=pl==='mffu'?.3:.5, fee=pl==='mffu'?120:150;
+  const d0=new Date($('#bFrom').value), d1=new Date($('#bTo').value); let days=Math.max(5,Math.round((d1-d0)/864e5*5/7)); const per=Math.max(1,Math.round(($('#bSess').selectedIndex===2?14:$('#bSess').selectedIndex===1?6:4)));
+  const sd=Math.sqrt((q1*2*8)**2+(q2*10*1.5)**2), cost=(q1+q2)*1.0;
+  let acc=Array.from({length:N},(_,i)=>({id:i+1,bal:0,peak:0,floor:-2000,days:[],today:0,st:'',started:0})), bought=N, passed=0, blown=0, passDays=[], day=0, net=0, k=0, flip=1; curve=[0];
+  function newAcc(){acc.push({id:acc.length+1,bal:0,peak:0,floor:-2000,days:[],today:0,st:'',started:day}); bought++;}
+  function oneDay(){ day++; acc.forEach(a=>{if(!a.st||a.st==='day'||a.st==='loss') {a.st=a.st==='day'||a.st==='loss'?'':a.st; a.today=0;}});
+    for(let r=0;r<per*N;r++){ const live=acc.filter(a=>!a.st); if(!live.length) break; const a=live[k++%live.length]; let b=0; const dirn=alt?(flip=-flip):(Math.random()<.5?1:-1);
+      while(b<tgt&&b>-risk){ b+= (Math.random()-.5)*2*sd*.9; if(intra){a.peak=Math.max(a.peak,a.bal+b); a.floor=Math.min(a.peak-2000,100);} if(a.bal+b<=a.floor){b=a.floor-a.bal;break;} }
+      b=Math.max(-risk,Math.min(tgt,b))-cost; a.bal+=b; a.today+=b; net+=b;
+      if(a.bal<=a.floor+0.01){a.st='blown'; blown++; net-=0;} else if(a.bal>=3000&&a.days.length+1>=(pl==='tpt'?5:1)&&Math.max(a.today,...a.days)<=cons*a.bal+1){a.st='pass'; passed++; passDays.push(a.days.length+1);} else if(a.today>=cons*3000) a.st='day'; else if(b<0) a.st='loss'; }
+    acc.forEach(a=>{ if(a.st!=='blown'&&a.st!=='pass'){a.days.push(a.today); if(!intra){a.peak=Math.max(a.peak,a.bal); a.floor=Math.min(a.peak-2000,1e9);}}});
+    curve.push(net-bought*fee+N*fee); paint(); return day>=days; }
+  function paint(){ const show=acc.slice(-Math.max(N,10)); $('#bDeck').innerHTML=show.map(a=>`<div class="tile ${a.st&&a.st!=='loss'?'t-'+a.st:''}"><b>#${a.id}</b><span class="v" style="color:${a.bal>=0?'var(--up)':'var(--dn)'}">${money(a.bal)}</span><span>${a.st==='pass'?'PASSED':a.st==='blown'?'BLOWN':a.st==='day'?'day cap':'in eval'}</span></div>`).join('');
+    $('#oPass').textContent=passed+' / '+bought; $('#oBlown').textContent=blown; $('#oDays').textContent=passDays.length?(passDays.reduce((s,v)=>s+v,0)/passDays.length).toFixed(1):'–'; $('#oCost').textContent=passed?m0(bought*fee/passed):'no pass yet'; $('#oDay').textContent=day+' / '+days; drawCurve(); }
+  if(instant){while(!oneDay());} else bRunT=setInterval(()=>{ if(oneDay()) {clearInterval(bRunT); done();}},instant?0:350);
+  function done(){ runs++; const tb=$('#cmpTbl tbody'); if(runs===1) tb.innerHTML=''; tb.insertAdjacentHTML('beforeend',`<tr><td>Run ${runs}</td><td>${$('#bPlan').selectedOptions[0].text.split(' · ')[0]}</td><td class="num">${m0(risk)} / ${m0(tgt)}</td><td class="num">${N}</td><td class="num">${passed}</td><td class="num">${blown}</td><td class="num">${passed?m0(bought*fee/passed):'—'}</td></tr>`);}
+  if(instant) done(); }
+$('#bRun').onclick=()=>runBT(false); $('#bFast').onclick=()=>runBT(true);
+$('#bExport').onclick=()=>{$('#bExportNote').textContent='Saved (prototype): Documents\\KeyStone\\lab\\rotation-'+$('#bFrom').value+'_'+$('#bTo').value+'.csv · one row per rotation + one per day.';};
+$$('#labTabs .chip').forEach(c=>c.onclick=()=>{$$('#labTabs .chip').forEach(x=>x.setAttribute('aria-pressed',x===c)); ['rb','dd','st','cmp'].forEach(id=>$('#l-'+id).hidden=id!==c.dataset.l); drawCurve(); drawDD(ddState);});
+
+/* ---------- LAB: EOD vs intraday trailing ---------- */
+let ddState=null, ddT=null;
+function ddSeries(){ const style=$('#dStyle').value, pts=[]; let bal=0; for(let d=0;d<30;d++){ let dayP=0; for(let m=0;m<40;m++){ let st=(Math.random()-.47)*90; if(style==='scale'&&dayP>300) st*=.5; if(style==='lockb'&&dayP>=600){st=0;} dayP+=st; bal+=st; pts.push({bal,eod:m===39});}} return pts;}
+function drawDD(s){ const c=$('#ddCurve'); const r=c.parentElement.getBoundingClientRect(); if(!r.width) return; const d=devicePixelRatio||1; c.width=r.width*d; c.height=r.height*d; const g=c.getContext('2d'); g.setTransform(d,0,0,d,0,0); const w=r.width,h=r.height; g.clearRect(0,0,w,h);
+  g.font='11px JetBrains Mono, monospace'; g.fillStyle='#8a91a8'; g.fillText('Balance (green) · EOD floor (yellow) · intraday trailing floor (purple)',12,18); if(!s){g.fillText('Press PLAY',12,40);return;}
+  const n=s.shown, P=s.pts.slice(0,n), all=P.flatMap(p=>[p.bal,p.e,p.i]), lo4=Math.min(...all)-200, hi4=Math.max(...all)+200, Y=v=>h-20-(v-lo4)/(hi4-lo4)*(h-50), X=k=>12+k/(s.pts.length-1)*(w-24);
+  const ln=(key,col,dash)=>{g.beginPath(); P.forEach((p,k)=>{k?g.lineTo(X(k),Y(p[key])):g.moveTo(X(k),Y(p[key]));}); g.setLineDash(dash||[]); g.strokeStyle=col; g.lineWidth=1.8; g.stroke(); g.setLineDash([]);};
+  ln('e','#f2b33d',[6,4]); ln('i','#b48cff',[3,3]); ln('bal','#22b8a0');
+  [['eodX','#f2b33d','EOD breach'],['intX','#b48cff','intraday breach']].forEach(([k,col,t])=>{ if(s[k]!=null&&s[k]<n){g.fillStyle=col; g.beginPath(); g.arc(X(s[k]),Y(s.pts[s[k]].bal),6,0,7); g.fill(); g.fillText(t,X(s[k])+8,Y(s.pts[s[k]].bal)+(k==='eodX'?-8:16));}});}
+$('#dRun').onclick=()=>{ clearInterval(ddT); const DD=+$('#dDd').value||2000, LK=+$('#dLock').value||100, pts=ddSeries(); let peakE=0, peakI=0, fE=-DD, fI=-DD, eodX=null, intX=null;
+  pts.forEach((p,k)=>{ peakI=Math.max(peakI,p.bal); fI=Math.min(peakI-DD,LK); p.i=fI; p.e=fE; if(intX==null&&p.bal<=fI) intX=k; if(eodX==null&&p.bal<=fE) eodX=k; if(p.eod){peakE=Math.max(peakE,p.bal); fE=Math.min(peakE-DD,LK);} });
+  ddState={pts,shown:2,eodX,intX}; const fin=pts[pts.length-1].bal;
+  $('#dEod').textContent=eodX==null?'survived · '+money(fin):'breached on day '+(Math.floor(eodX/40)+1); $('#dIntra').textContent=intX==null?'survived · '+money(fin):'breached on day '+(Math.floor(intX/40)+1);
+  $('#dEod').style.color=eodX==null?'var(--up)':'var(--dn)'; $('#dIntra').style.color=intX==null?'var(--up)':'var(--dn)';
+  ddT=setInterval(()=>{ddState.shown=Math.min(pts.length,ddState.shown+12); drawDD(ddState); if(ddState.shown>=pts.length) clearInterval(ddT);},40); };
+
+/* ---------- JOURNAL ---------- */
+const jr=[['Fri Nov 6',8,14,5,9,'+$2,140',1,0],['Thu Nov 5',9,16,4,12,'−$860',0,1],['Wed Nov 4',9,13,5,8,'+$3,020',1,0],['Tue Nov 3',10,18,4,14,'−$1,450',0,1],['Mon Nov 2',10,15,6,9,'+$4,210',2,0]];
+$('#jBody').innerHTML=jr.map(r=>`<tr>${r.map((c,i)=>`<td class="${i?'num':''}" style="${i===5?'color:'+(String(c).startsWith('+')?'var(--up)':'var(--dn)'):''}">${c}</td>`).join('')}</tr>`).join('');
+
+/* ---------- clock + start ---------- */
+let sec=9*3600+41*60+12; setInterval(()=>{sec++; const h=Math.floor(sec/3600),m=Math.floor(sec/60)%60,s2=sec%60; $('#clock').textContent='NY '+[h,m,s2].map(v=>String(v).padStart(2,'0')).join(':');},1000);
+show(location.hash.slice(1)||'trade'); requestAnimationFrame(resize);
+})();
+</script>
