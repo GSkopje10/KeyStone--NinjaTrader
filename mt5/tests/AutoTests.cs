@@ -389,7 +389,7 @@ public static class AutoTests
                 var pMu = Enumerable.Range(0, 900).Select(i => Math.Round(4000 + 8 * Math.Sin(i / 23.0) + 3 * Math.Sin(i / 5.0) + ((i * 7919) % 13 - 6) * 0.15, 2)).ToList();
                 var sMu = AutoSettings.Model("FULLAUTO", S(), 10000); sMu.Symbol = S().Symbol; sMu.EntryMode = "MULTI"; sMu.FvgTf = 1; sMu.MaxIterations = 0; sMu.Target = 3; sMu.AutoScoreMin = 0; sMu.RiskGuard = false; sMu.HedgeMode = "NONE"; sMu.Swing = false; sMu.Lookback = 5;
                 var aMu = Run(Path(Day1, 4000, pMu), sMu, steps: 20000).Item2;
-                var setupsMu = aMu.Trades.Where(t => t.Why.StartsWith("ENTRY")).Select(t => t.Why.Contains("🕯") ? "ENG" : t.Why.Contains("〽") ? "VWR" : t.Why.Contains("💥") ? "AGG" : t.Why.Contains("🧲") ? "FVG" : t.Why.Contains("🌊") ? "FLOW" : t.Why.Contains("⚡") ? "BRK" : "?").Distinct().ToList();
+                var setupsMu = aMu.Trades.Where(t => t.Why.StartsWith("ENTRY")).Select(t => t.Why.Contains("🕯") ? "ENG" : t.Why.Contains("〽") ? "VWR" : t.Why.Contains("💥") ? "AGG" : t.Why.Contains("🧲") ? "FVG" : t.Why.Contains("🌊") ? "FLOW" : t.Why.Contains("🔄") ? "FADE" : t.Why.Contains("⚡") ? "BRK" : "?").Distinct().ToList();
                 Check(sMu.EntryMode == "MULTI" && setupsMu.Count >= 2 && !setupsMu.Contains("?"), "🎯 multi: FULL AUTO watches every setup — the iterations start from " + string.Join(" / ", setupsMu), "iters " + aMu.Iterations.Count + " | " + string.Join(" ¦ ", aMu.Log.Where(l => l.Contains("FULL AUTO") || l.Contains("ENTRY") || l.Contains("CLOSED")).Take(14)));
             }
             {   // 💥 AGGRESSION (the futures BH rule): ONE red candle, a green close, the next candle breaks the green's high → BUY
@@ -411,6 +411,13 @@ public static class AutoTests
                 var pBc = Path(Day1, 4000, w0.Concat(new[] { 4000.0, 4000.0, 4001.0, 4001.2 })); pBc[30].H = 4000.6;   // candle 30: a wick to 4000.6, closes at 4000 → no entry
                 var aBc = Run(pBc, sBc).Item2; var eBc = aBc.Trades.FirstOrDefault(t => t.Why.StartsWith("ENTRY"));
                 Check(eBc != null && eBc.Side == "BUY" && eBc.Why.Contains("BREAK + CLOSE") && eBc.Time >= Day1.AddMinutes(33) && AutoSettings.Load(sBc.Save()).BreakClose && !AutoSettings.Load("sym=XAUUSD").BreakClose, "⚡ break + close: the wick through the high does not enter; the first CLOSE above it does (option, off by default)", eBc == null ? string.Join(" ¦ ", aBc.Log.Take(4)) : eBc.Time + " " + eBc.Why);
+            }
+            {   // 🔄 BREAK FADE: a long run up breaks the recent high → SELL (the other way); a small break after a flat stretch → nothing
+                var fu = Enumerable.Repeat(4000.0, 30).Concat(Line(4000, 0.5, 12)).ToList();                // a long run: +6 in 12 candles
+                var sFd = S(); sFd.EntryMode = "FADE"; sFd.Swing = false; sFd.Lookback = 5; sFd.FadeAtr = 3; sFd.MaxIterations = 1; sFd.Target = 5000; sFd.HedgeMode = "NONE"; sFd.FirstDir = "AUTO";
+                var fd = Run(Path(Day1, 4000, fu), sFd).Item2.Trades.FirstOrDefault(t => t.Why.StartsWith("ENTRY"));
+                var fl2 = Run(Path(Day1, 4000, Enumerable.Repeat(4000.0, 30).Concat(new[] { 4000.3, 4000.4 })), sFd).Item2.Trades.FirstOrDefault(t => t.Why.StartsWith("ENTRY"));
+                Check(fd != null && fd.Side == "SELL" && fd.Why.Contains("FADE") && fl2 == null && AutoSettings.Load(sFd.Save()).FadeAtr == 3, "🔄 break fade: the high broken after a long run → SELL (the other way); a small break → no entry", (fd == null ? "none" : fd.Why) + " / " + (fl2 == null ? "none" : fl2.Why));
             }
             {   // 🛡 TRIM LIMIT (06 Nov #22): a chop that breaks the lock range up, down, up … → at most 1 trim (each one books a loss); no limit = several
                 Func<List<Mt5Bar>> chopT = () => Path(Day1, 4000, Enumerable.Range(0, 400).Select(i => Math.Round(4000 + 6 * Math.Sin(i / 9.0), 2)));
