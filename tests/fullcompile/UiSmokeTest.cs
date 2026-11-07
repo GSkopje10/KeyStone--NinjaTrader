@@ -1034,6 +1034,11 @@ public static class UiSmokeTest
                 var codes = simP.Accounts.Take(4).Select(a => a.Name.Split('-')[0]).ToList(); if (codes[0] == codes[1] || codes[0] != codes[2] || codes[1] != codes[3]) throw new Exception("the run is not firm by firm: " + string.Join(",", simP.Accounts.Take(4).Select(a => a.Name)));
                 Console.WriteLine("      POOL RUN: " + string.Join(", ", simP.Accounts.Take(4).Select(a => a.Name)) + " • " + simP.Trades.Count + " trades • " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
                 foreach (var sec in new[] { "OVERVIEW", "POOLS", "PLANS", "STATS", "DATA", "ROTATE" }) ((Action<string>)G("evalLabShow"))(sec);
+                // ❓ HOW TO USE (first in the rail) + the progress bars of ⚡ CALCULATE / 📅 START-DAY / 🔁 PIPELINE
+                { var ht = G("evalLabHowTo") as System.Windows.FrameworkElement; if (ht == null) throw new Exception("the Eval Lab has no ❓ HOW TO USE tab"); ((Action<string>)G("evalLabShow"))("HOWTO"); if (ht.Visibility != System.Windows.Visibility.Visible) throw new Exception("❓ HOW TO USE did not open");
+                  if (KeystoneArc5MResearchLab.LabHowTo(false).Count < 4 || !KeystoneArc5MResearchLab.LabHowTo(false)[0].Item2[0].StartsWith("1 •")) throw new Exception("❓ HOW TO USE: the numbered steps are missing");
+                  foreach (var pn in new[] { "evalLabCalcProgress", "evalLabSdProgress" }) { var pb = G(pn) as System.Windows.Controls.ProgressBar; if (pb == null || pb.Maximum != 100) throw new Exception("no progress bar: " + pn); }
+                  Console.WriteLine("      ❓ HOW TO USE: " + KeystoneArc5MResearchLab.LabHowTo(false).Sum(x => x.Item2.Length) + " steps • ⚡ CALCULATE / 📅 START-DAY progress bars present"); }
                 // ⚡ CALCULATE (no replay) + 🔮 HINDSIGHT + 🏆 ranking, every result tab
                 Set(lab4, "evalLabCalcLast", null); ((Action<DateTime, DateTime, bool>)G("evalLabCalc"))(new DateTime(2026, 1, 5), new DateTime(2026, 2, 27), true);
                 for (int i = 0; i < 900 && G("evalLabCalcLast") == null; i++) System.Threading.Thread.Sleep(100);
@@ -1089,6 +1094,7 @@ public static class UiSmokeTest
                 KeystoneFirmPolicies.Chosen.Clear();
                 ((Action<string, string, int>)G("fundedLabNewPool"))("SMOKE FUNDED", "TPT", 3); ((Action<string, string, int>)G("fundedLabNewPool"))("SMOKE FUNDED", "LUCID", 2);
                 foreach (var sec in new[] { "OVERVIEW", "POOLS", "PLANS", "SIMULATE", "REPLAY", "STATS", "REPORT" }) ((Action<string>)G("fundedLabShow"))(sec);
+                { var ht = G("fundedLabHowTo") as System.Windows.FrameworkElement; if (ht == null) throw new Exception("the Funded Lab has no ❓ HOW TO USE tab"); ((Action<string>)G("fundedLabShow"))("HOWTO"); if (ht.Visibility != System.Windows.Visibility.Visible) throw new Exception("❓ HOW TO USE (funded) did not open"); }
                 ((Action<DateTime, DateTime>)G("fundedLabSim"))(new DateTime(2026, 2, 2), new DateTime(2026, 2, 17));
                 for (int i = 0; i < 600 && G("fundedLabLast") == null && !((System.Windows.Controls.TextBlock)G("fundedLabStatus")).Text.Contains("no saved"); i++) System.Threading.Thread.Sleep(100);
                 var frun = (KeystoneFundedRun)G("fundedLabLast"); Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("fundedLabStatus")).Text);
@@ -1137,11 +1143,12 @@ public static class UiSmokeTest
                 // 🔁 the pipeline in the Eval Lab
                 Set(lab4, "rotStudioDaysOverride", psynth); Set(lab4, "evalLabPipeOne", null); Set(lab4, "evalLabPipeStarts", null); Set(lab4, "evalLabPipeLoop", null);
                 ((Action<string>)G("evalLabShow"))("PIPELINE");
+                { var pb = G("evalLabPipeProgress") as System.Windows.Controls.ProgressBar; if (pb == null || pb.Maximum != 100) throw new Exception("🔁 PIPELINE has no progress bar"); }
                 var go = (Action<string>)G("evalLabPipe"); if (go == null) throw new Exception("no pipeline");
                 ((Action<DateTime, DateTime>)G("evalLabPipeRange"))(DateTime.Today.AddDays(-125), DateTime.Today.AddDays(-60));
                 go("ONE"); for (int i = 0; i < 900 && G("evalLabPipeOne") == null; i++) System.Threading.Thread.Sleep(100);
                 var one = (KeystonePipeBatch)G("evalLabPipeOne"); if (one == null || one.Accounts.Count != 30) throw new Exception("no batch of 30: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
-                if (!one.Accounts.Where(a => a.PassedOn != DateTime.MinValue).All(a => a.Firm == "TPT" ? a.Stage == "PARKED" : a.F != null)) throw new Exception("the passed accounts did not move to funded / parked");
+                if (!one.Accounts.Where(a => a.PassedOn != DateTime.MinValue).All(a => a.F != null && a.F.Stage != "PARKED")) throw new Exception("the passed accounts did not move to funded (TPT included: lock → withdrawals)");
                 go("ALL"); for (int i = 0; i < 1800 && G("evalLabPipeStarts") == null; i++) System.Threading.Thread.Sleep(100);
                 var all = (List<KeystonePipeBatch>)G("evalLabPipeStarts"); if (all == null || all.Count == 0) throw new Exception("no batch every weekday: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
                 go("LOOP"); for (int i = 0; i < 1800 && G("evalLabPipeLoop") == null; i++) System.Threading.Thread.Sleep(100);
@@ -1201,7 +1208,7 @@ public static class UiSmokeTest
                 System.Windows.MessageBox.Answer = (txt, b) => System.Windows.MessageBoxResult.Cancel; lw.Close();
                 if (G("labsWindow") == null || G("rotStudioWindow") == null || !System.Windows.MessageBox.LastText.Contains("replay is running")) throw new Exception("CANCEL should keep the labs open (and the dialog should name the running replay)");
                 System.Windows.MessageBox.Answer = null; ((Action)G("evalLabPlayToggle"))();
-                // 💰 the Funded Lab wizard: a simulated mix of 7 Lucid + 5 Tradeify + 1 TPT → 5 Lucid funded + 2 on the bench, TPT parked, every tile firm · model
+                // 💰 the Funded Lab wizard: a simulated mix of 7 Lucid + 5 Tradeify + 1 TPT → 5 Lucid funded + 2 on the bench, TPT traded (lock → withdrawals), every tile firm · model
                 var fz = (KeystoneLabWizard)G("fundedLabWizard"); var fnx = (Func<bool>)G("fundedLabWizardNext");
                 var fboxes = FindAll<System.Windows.Controls.TextBox>(tabs.Items[1]).ToList(); var radios = FindAll<System.Windows.Controls.RadioButton>(tabs.Items[1]).ToList();
                 var mixR = radios.First(r => Convert.ToString(r.Content) == "🎲 a simulated mix"); foreach (var r in radios.Where(r => r.GroupName == "fz1")) r.IsChecked = r == mixR;
@@ -1213,7 +1220,7 @@ public static class UiSmokeTest
                 for (int i = 0; i < 600 && G("fundedLabPayLast") == null; i++) System.Threading.Thread.Sleep(100);
                 var pr = (KeystonePayoutRun)G("fundedLabPayLast"); if (pr == null) throw new Exception("no funded result");
                 var res = ((Func<System.Windows.FrameworkElement>)G("fundedLabWizardResult"))(); var texts = FindAll<System.Windows.Controls.TextBlock>(res).Select(t => t.Text ?? "").ToList();
-                if (!texts.Any(t => t.StartsWith("Lucid · EOD trailing")) || !texts.Any(t => t.StartsWith("Tradeify · EOD trailing")) || !texts.Any(t => t.StartsWith("TPT · parked")) || !texts.Any(t => t.Contains("funded accounts (a simulated mix)")) || !texts.Any(t => t.StartsWith("🪑 BENCH")))
+                if (!texts.Any(t => t.StartsWith("Lucid · EOD trailing")) || !texts.Any(t => t.StartsWith("Tradeify · EOD trailing")) || !texts.Any(t => t.StartsWith("TPT ·")) || !texts.Any(t => t.Contains("funded accounts (a simulated mix)")) || !texts.Any(t => t.StartsWith("🪑 BENCH")))
                     throw new Exception("a mixed pool should show each firm's model + the top line + the bench: " + string.Join(" | ", texts.Take(8)));
                 if (pr.Accounts.Count(a => a.Firm == "LUCID") < 5 || !pr.Accounts.Any(a => a.Mode == "PUSH" || a.Mode == "QUALIFY")) throw new Exception("MAX IN 5 modes");
                 Console.WriteLine("      " + texts.First(t => t.StartsWith("💰")) + " • " + pr.Payouts + " payouts");
