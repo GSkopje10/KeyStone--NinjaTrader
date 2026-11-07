@@ -460,7 +460,8 @@ namespace System.Windows.Controls.Primitives
     public class ScrollEventArgs : RoutedEventArgs { public double NewValue { get; set; } }
     public delegate void ScrollEventHandler(object sender, ScrollEventArgs e);
     public class RepeatButton : ButtonBase { public int Delay { get; set; } public int Interval { get; set; } }
-    public class Popup : FrameworkElement { public bool IsOpen { get; set; } public UIElement Child { get; set; } }
+    public enum PlacementMode { Bottom, Top, Left, Right, Mouse, Relative, Absolute, Center, MousePoint, AbsolutePoint, RelativePoint, Custom }
+    public class Popup : FrameworkElement { public bool IsOpen { get; set; } public UIElement Child { get; set; } public PlacementMode Placement { get; set; } public UIElement PlacementTarget { get; set; } public bool StaysOpen { get; set; } public bool AllowsTransparency { get; set; } public double VerticalOffset { get; set; } public event System.EventHandler Opened, Closed; }
 }
 
 namespace System.Windows.Shapes

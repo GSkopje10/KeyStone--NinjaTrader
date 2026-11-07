@@ -462,6 +462,7 @@ public static class UiSmokeTest
                             if (o == null || all.Contains(o)) return; all.Add(o);
                             var pnl = o as System.Windows.Controls.Panel; if (pnl != null) foreach (var ch0 in pnl.Children.Cast<object>().ToList()) walk(ch0);
                             var bd = o as System.Windows.Controls.Border; if (bd != null) walk(bd.Child);
+                            var pp = o as System.Windows.Controls.Primitives.Popup; if (pp != null) walk(pp.Child);   // a drop-down panel (📊 INDICATORS)
                             var cc = o as System.Windows.Controls.ContentControl; if (cc != null) walk(cc.Content);
                             var ic = o as System.Windows.Controls.ItemsControl; if (ic != null) foreach (var it in ic.Items.Cast<object>().ToList()) walk(it);
                         };
