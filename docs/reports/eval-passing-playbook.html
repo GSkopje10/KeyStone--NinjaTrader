@@ -1,3 +1,4 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Eval Passing Playbook</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -25,7 +26,7 @@ th{color:var(--mu);font-weight:500;font-size:11px;letter-spacing:.05em;text-tran
 .fail{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:10px}.fail div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}.fail b{color:#fff}
 .check{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 18px}
 @media (max-width:640px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
-</style>
+</style></head><body>
 <div class="wrap">
 <h1>Eval Passing Playbook</h1>
 <p class="sub">Everything tested in this project for passing 50K evaluations (end-of-day trailing $2,000, +$3,000 target, best day ≤ 50%), on real 1-minute MNQ and MGC data from July 2020 to October 2026. Costs: $1 a contract round trip plus 1 tick of slippage each side, $120 per eval. Every plan is checked separately on 2020–23 and 2024–26. A plan counts only if it held up in both.</p>
@@ -35,7 +36,7 @@ th{color:var(--mu);font-weight:500;font-size:11px;letter-spacing:.05em;text-tran
 <div class="plans"><article class="plan best"><div class="tag">★ RECOMMENDED</div><h3>Rotation · MNQ 20 · same side</h3>
 <div class="kpis"><div><span>Passed</span><b>31.1%</b></div><div><span>Per batch of 30</span><b>9 <small>(6–13)</small></b></div><div><span>Sessions / batch</span><b>4.7</b></div><div><span>Fees / funded</span><b>$386</b></div></div>
 <div class="split">2020–23 <b>30.9%</b> · 2024–26 <b>31.2%</b> · 5+ passed in <b>97%</b> of batches · 368 batches</div>
-<ol><li>Pool of 30 evals, ordered <b>firm by firm</b> (TPT → Lucid → Tradeify → … → back).</li><li>One account trades at a time, all day (from 18:00). The first trade of the batch is <b>BUY</b>.</li><li><b>MNQ 20 contracts</b>. Take profit = <b>+$1,500 after costs</b> (limit at entry + 37.5 pts + costs). No stop: the account rides to its floor (−$2,000).</li><li>When the trade closes, the <b>next account</b> trades the <b>same side</b> (after a win and after a blow-up).</li><li>Each account trades <b>once a day</b>. After +$1,500 it waits for the next day; its floor is now −$500 and it needs one more +$1,500.</li><li>A batch ends when all 30 have passed or blown. Start a new batch the next session.</li></ol><p class="note">Steady: almost every batch gives 6–13 funded accounts. MNQ 30 gives the same rate (30.8%) in 3.3 sessions per batch.</p></article><article class="plan "><div class="tag">⚡ FASTEST</div><h3>All at once · 2:00 London · MNQ 20 · own random side</h3>
+<ol><li>Pool of 30 evals, ordered <b>firm by firm</b> (TPT → Lucid → Tradeify → … → back).</li><li>One account trades at a time, all day (from 18:00). The first trade of the batch is <b>BUY</b>.</li><li><b>MNQ 20 contracts</b>. Take profit = <b>+$1,500 after costs</b> (limit at entry + 37.5 pts + costs). No stop: the account rides to its floor (−$2,000).</li><li>When the trade closes, the <b>next account</b> trades the <b>same side</b> (after a win and after a blow-up).</li><li>Each account trades <b>once a day</b>. After +$1,500 it waits for the next day. It still has its <b>full $2,000 of room</b> (the floor moves up to $49,500 with the balance at $51,500), and it needs one more +$1,500.</li><li>A batch ends when all 30 have passed or blown. Start a new batch the next session.</li></ol><p class="note">Steady: almost every batch gives 6–13 funded accounts. MNQ 30 gives the same rate (30.8%) in 3.3 sessions per batch.</p></article><article class="plan "><div class="tag">⚡ FASTEST</div><h3>All at once · 2:00 London · MNQ 20 · own random side</h3>
 <div class="kpis"><div><span>Passed</span><b>31.2%</b></div><div><span>Per batch of 30</span><b>8 <small>(5–16)</small></b></div><div><span>Sessions / batch</span><b>2.3</b></div><div><span>Fees / funded</span><b>$385</b></div></div>
 <div class="split">2020–23 <b>30.9%</b> · 2024–26 <b>31.5%</b> · 5+ passed in <b>93%</b> of batches · 752 batches</div>
 <ol><li>At <b>2:00 New York</b> every alive account opens its own trade at the same moment.</li><li>Each account gets its <b>own coin flip</b> (BUY or SELL). Never one shared side for all.</li><li>MNQ 20, take profit +$1,500 after costs, ride to the floor, once a day.</li><li>A batch is finished in about <b>2–3 sessions</b>, the closest to "2 days".</li></ol><p class="note">Wider spread per batch (5–16 funded). Check each firm allows several accounts trading at once; opposite sides on accounts of the same firm can look like hedging to some firms.</p></article><article class="plan "><div class="tag">🛡 STEADIEST</div><h3>Rotation · 2:00 London · MNQ 10 · same side</h3>
@@ -88,4 +89,4 @@ th{color:var(--mu);font-weight:500;font-size:11px;letter-spacing:.05em;text-tran
 <li>Expect about 9 passes per 30 (6–13 is normal), about $380 of fees per funded account, and plan the funded stage with ~30% reaching the first payout.</li>
 </ol></div>
 <p class="note">Sources in the repo: docs/reports/rotation-batches-2020-2026.html (600 plans, every batch), docs/progress/eval-30-plan-study.txt, eval-ride-2k-vs-1500-sizes.txt, eval-breakeven-lock-study.txt, aggression-reversal-study.txt. Exits are checked on 1-minute closes. Past results don't promise future ones.</p>
-</div>
+</div></body></html>
