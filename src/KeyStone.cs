@@ -14697,6 +14697,14 @@ namespace NinjaTrader.NinjaScript
         {
             target = TargetOf(size); dd = DrawdownOf(size); cons = 50; minDays = 2; why = "size defaults (EOD, best day ≤ 50 %, 2 days)";
             string f = (firm ?? "").Trim().ToUpperInvariant(); string key = f == "TPT" ? "TAKE PROFIT TRADER" : f == "MFFU" ? "MYFUNDEDFUTURES" : f;
+            var bk = KeystonePayoutRules.BookOf(f);
+            if (bk != null && (bk.EvalTarget > 0 || bk.EvalDd > 0 || bk.EvalCons > 0 || bk.EvalMinDays > 0) && Math.Abs(bk.Size - size) <= 0.3 * size)
+            {   /* 🏢 FIRMS & RULES: the rules you typed for this firm win */
+                FirmRule(f + "\u0001", size, out target, out dd, out cons, out minDays, out why);   /* the plan's values first (the \u0001 key never matches the book) */
+                if (bk.EvalTarget > 0) target = bk.EvalTarget; if (bk.EvalDd > 0) dd = bk.EvalDd; if (bk.EvalCons > 0) cons = bk.EvalCons; if (bk.EvalMinDays > 0) minDays = bk.EvalMinDays;
+                why = "🏢 " + (bk.Name ?? f) + " (FIRMS & RULES): +" + target.ToString("N0", CultureInfo.InvariantCulture) + " • " + bk.EvalDdType + " " + dd.ToString("N0", CultureInfo.InvariantCulture) + " • best day ≤ " + cons.ToString("0", CultureInfo.InvariantCulture) + " % • " + minDays + " days"; return;
+            }
+            f = f.Replace("\u0001", ""); key = f == "TPT" ? "TAKE PROFIT TRADER" : f == "MFFU" ? "MYFUNDEDFUTURES" : f;
             var pr = KeystoneFirmRules.Presets.Where(x => string.Equals(x.Firm, key, StringComparison.OrdinalIgnoreCase) && x.Size > 0).OrderBy(x => Math.Abs(x.Size - size * 1000.0)).FirstOrDefault();
             if (pr == null || Math.Abs(pr.Size - size * 1000.0) > 0.3 * size * 1000.0) return;
             if (pr.Target > 0) target = pr.Target; if (pr.Dd > 0) dd = pr.Dd; if (pr.ConsistencyPct > 0) cons = pr.ConsistencyPct; minDays = Math.Max(2, pr.MinDays);
@@ -14720,7 +14728,8 @@ namespace NinjaTrader.NinjaScript
             {
                 var a0 = g.First(); string nm = Clean(a0.Firm) + " " + a0.Size + "K"; Func<double, string> d = v => v.ToString("0.##", CultureInfo.InvariantCulture);
                 double tg0, dd0, cs0; int md0; string why0; FirmRule(a0.Firm, a0.Size, out tg0, out dd0, out cs0, out md0, out why0);   /* 🏢 the firm's own evaluation rules */
-                parts.Add(string.Join(":", nm, g.Count(), d(fee), d(tg0), d(dd0), "EOD", d(r.EvalLockAt), d(cs0), Math.Max(md0, Math.Max(2, r.EvalMinDays)), d(0)));
+                var bk0 = KeystonePayoutRules.BookOf(a0.Firm); double fee0 = bk0 != null && bk0.EvalPrice > 0 && (bk0.fromBookPrice) ? bk0.EvalCost : fee;   /* 🏢 the firm's own price (incl. the discount) when you set one */
+                parts.Add(string.Join(":", nm, g.Count(), d(fee0), d(tg0), d(dd0), "EOD", d(r.EvalLockAt), d(cs0), Math.Max(md0, Math.Max(2, r.EvalMinDays)), d(0)));
             }
             return string.Join(";", parts);
         }
@@ -14749,6 +14758,7 @@ namespace NinjaTrader.NinjaScript
             return new List<KeystoneEvalPlan>
             {
                 new KeystoneEvalPlan { Name = "⚡ STAGGERED • all accounts every day • 2:00 / 8:30 / 9:30 / 10:00 / 11:00 • MNQ 20 • one side per firm", Mode = "STAG", AllSide = "FIRM", Qm = 20, Qg = 0, Tp = 1500, Stop = 0, Side = "RANDOM", Session = 3, Tries = 0, Preset = true, Note = "THE FIXED MODEL (docs/reports/prop-strategy-report.html): every alive account trades once a day, spread over 5 entry times, one side per firm per time, TP +$1,500 after costs, ride the full room — all 30 trade on day 1" },
+                new KeystoneEvalPlan { Name = "⚡ FAST CASH • $3K starter • eval ⚡ STAGGERED (funded: MNQ 6 +$1,500 / −$500, the first eligible payout)", Mode = "STAG", AllSide = "FIRM", Qm = 20, Qg = 0, Tp = 1500, Stop = 0, Side = "RANDOM", Session = 3, Tries = 0, Preset = true, Note = "docs/reports/eval-to-payout.html §11: buy evals only at $40–60 (a coupon), 25 a week (Lucid + Tradeify), keep 2/3 for weeks 2–3; funded = 💰 FUNDED LAB ▸ ⚡ FAST CASH (take the first eligible payout); reinvest 100 % until a reserve of 3 weeks of evals • went broke 13 % at $40 (44–80 % at $120)" },
                 new KeystoneEvalPlan { Name = "★ BEST • MNQ 20 • rotation all day • always BUY", Qm = 20, Qg = 0, Tp = 1500, Stop = 0, Side = "BUY", Session = 3, Tries = 0, Preset = true, Note = "6 years: ≈ 31 % passed, ≈ 9 of 30 per batch, a batch in ≈ 4.7 sessions (the side never changes: always BUY — Nasdaq rose 2020–26)" },
                 new KeystoneEvalPlan { Name = "⚡ GOING FORWARD • all at once • 2:00 • MNQ 20 • one side per firm", Mode = "ALL", AllSide = "FIRM", Qm = 20, Qg = 0, Tp = 1500, Stop = 0, Side = "RANDOM", Session = 4, Tries = 0, Preset = true, Note = "docs/reports/eval-plan-2026.html: ≈ 30 % passed, median 10 of 30, a batch in ≈ 2 days • about 1 batch in 6 passes nobody" },
                 new KeystoneEvalPlan { Name = "1:1 • −1,500 / +1,500 + recovery +1,500 flipped • all at once 9:30", Mode = "ALL", AllSide = "FIRM", Qm = 20, Qg = 0, Tp = 1500, Stop = 1500, RecT = 1500, RecSide = "FLIP", Side = "RANDOM", Session = 0, Tries = 0, Preset = true, Note = "for comparison: a 1:1 stop with a same-day recovery passed ≈ 26 % vs ≈ 30 % riding the full room" },
@@ -15024,12 +15034,13 @@ namespace NinjaTrader.NinjaScript
         public readonly List<string> Log = new List<string>();
         static string F(string firm) { return (firm ?? "").Trim().ToUpperInvariant(); }
         public int ActiveOf(string firm) { return Active.Count(x => F(x.Item2) == F(firm)); }
+        public int LimitOf(string firm) { var bk = KeystonePayoutRules.BookOf(firm); return bk != null && bk.MaxFunded > 0 ? bk.MaxFunded : MaxPerFirm; }   /* 🏢 each firm's own max funded accounts */
         // a passed account arrives: active when its firm has room, else on the bench → true = active
         public bool Add(string name, string firm)
         {
             if (Active.Any(x => x.Item1 == name) || Bench.Any(x => x.Item1 == name)) return Active.Any(x => x.Item1 == name);
-            if (ActiveOf(firm) < MaxPerFirm) { Active.Add(Tuple.Create(name, firm)); Log.Add(name + " → FUNDED (" + F(firm) + " " + ActiveOf(firm) + " / " + MaxPerFirm + ")"); return true; }
-            Bench.Add(Tuple.Create(name, firm)); Log.Add(name + " → 🪑 BENCH (" + F(firm) + " already has " + MaxPerFirm + " funded)"); return false;
+            if (ActiveOf(firm) < LimitOf(firm)) { Active.Add(Tuple.Create(name, firm)); Log.Add(name + " → FUNDED (" + F(firm) + " " + ActiveOf(firm) + " / " + LimitOf(firm) + ")"); return true; }
+            Bench.Add(Tuple.Create(name, firm)); Log.Add(name + " → 🪑 BENCH (" + F(firm) + " already has " + LimitOf(firm) + " funded)"); return false;
         }
         // an active account ends (blown / moved to live): the first benched account of the same firm takes its place → its name or null
         public string Remove(string name, string why)
@@ -16236,6 +16247,28 @@ namespace NinjaTrader.NinjaScript
     // Funded (Lucid / Tradeify; every number editable): EOD trailing $2,000 that stops at start + $100. A payout after ≥ QualDays days of ≥ QualMin profit
     // since the last one: Pct % of the profit above the start, capped, at least MinPayout; Split % to the trader; the rest stays as buffer; at most
     // MaxPayouts (then the firm moves the account to live = the end here); a blown account ends. TPT: PARKED (its funded plan comes later).
+    // 💰 THE BUDGET LADDER (report §9 + §11): starting money + the evaluation price → the steps (how many evals now, the reserve, when to scale, when to add a firm)
+    public sealed class KeystoneBudgetPlan { public int PerWeek; public double FirstSpend, Reserve, ReserveGoal; public bool TooExpensive, TooLittle; public List<string> Steps = new List<string>(); }
+    public static class KeystoneBudget
+    {
+        public static KeystoneBudgetPlan Ladder(double money, double price)
+        {
+            var b = new KeystoneBudgetPlan(); Func<double, string> m = v => "$" + Math.Round(v).ToString("N0", CultureInfo.InvariantCulture);
+            if (money <= 0 || price <= 0) { b.TooLittle = true; b.Steps.Add("Type the money you start with and the price of one evaluation."); return b; }
+            b.PerWeek = Math.Max(0, Math.Min(25, (int)Math.Floor(money / (3 * price) + 1e-9))); b.FirstSpend = b.PerWeek * price; b.Reserve = money - b.FirstSpend; b.ReserveGoal = 3 * Math.Max(1, b.PerWeek) * price;
+            b.TooExpensive = price > 60; b.TooLittle = b.PerWeek < 3;
+            if (b.TooExpensive) b.Steps.Add("⚠ At " + m(price) + " an evaluation the money runs out first in most cases (report §11: a $3,000 start at $120 went broke 44–80 % of the time). Wait for a coupon: at $40–60 it fell to ≈ 10–20 %.");
+            if (b.TooLittle) { b.Steps.Add("⚠ " + m(money) + " buys fewer than 3 evaluations a week for 3 weeks — too little to start safely. Save up or find a cheaper price."); return b; }
+            b.Steps.Add("STEP 1 • This week: buy " + b.PerWeek + " evaluations (" + m(b.FirstSpend) + "), Lucid + Tradeify (add TPT later, once the money is bigger). Keep " + m(b.Reserve) + " for weeks 2 and 3.");
+            b.Steps.Add("STEP 2 • Evaluations: ⚡ STAGGERED (all accounts every day, 5 entry times, one side per firm, MNQ 20, +$1,500 after costs, no stop). About 3 in 10 pass.");
+            b.Steps.Add("STEP 3 • Funded: ⚡ FAST CASH (MNQ 6, +$1,500 / −$500, one trade a day, each account its own entry) — take the FIRST eligible payout to keep the game going.");
+            b.Steps.Add("STEP 4 • Weeks 2 and 3: buy up to " + b.PerWeek + " more a week from what is left. STOP buying if the money is under 3 evaluations and no payout is pending.");
+            b.Steps.Add("STEP 5 • Every payout goes back into evaluations (100 %) until a reserve of " + m(b.ReserveGoal) + " (3 weeks of evaluations) is kept; above it the money is yours.");
+            b.Steps.Add("STEP 6 • Scale up when the reserve covers 3 weeks of the bigger size: 30 → 60 → 90 evaluations a week (report §9: about 1 in 4 ladders still fail — never scale with money you need).");
+            b.Steps.Add("STEP 7 • Add a firm when one firm has its maximum of funded accounts (5) and accounts wait on the 🪑 bench — 🏢 FIRMS & RULES ▸ ＋ ADD FIRM, check its rules, and the rotation includes it.");
+            return b;
+        }
+    }
     public sealed class KeystonePayoutRules
     {
         public string Firm = "LUCID", Name = "Lucid 50K funded"; public double Dd = 2000, LockAt = 100, QualMin = 150, Pct = 50, Cap = 2000, MinPayout = 250, Split = 90; public int QualDays = 5, MaxPayouts = 5; public bool Parked;
@@ -16243,6 +16276,16 @@ namespace NinjaTrader.NinjaScript
            phase 2 after the lock (the floor stays at the start): withdraw Cap (gross) each time the balance keeps the $Dd buffer above it, Split % to the
            trader, no qualifying days, never more than DailyMax profit in a day (beyond = moved to live), at most MaxPayouts */
         public bool Tpt; public double LockPayout = 2250, DailyMax = 10000; public int TptQm = 10, TptStart = 930;
+        /* 🏢 FIRMS & RULES (user's request 2026-11-09: 'I will be funding more and more prop firms'): one row per firm = its evaluation, its funded rules,
+           what happens after payouts, how many funded accounts at once (the bench) and whether automation is allowed — every lab simulation reads it.
+           EvalTarget / EvalDd / EvalCons / EvalMinDays 0 = the firm's plan of that size (KeystoneFirmRules) • EvalPrice × (1 − Discount %) = what an evaluation costs.
+           After = "LIVE" (moved to live after MaxPayouts) or "COOLDOWN" (no live, no payout-count cap: after a payout CooldownDays calendar days
+           (≈ ×5/7 trading days) without a payout request; CoolPause = no trades during the cooldown (research: slightly better than trading through it)) */
+        public string Color = "", EvalDdType = "EOD", DdType = "EOD", After = "LIVE"; public int Size = 50, EvalMinDays, CooldownDays, MaxFunded = 5; public double EvalTarget, EvalDd, EvalCons, EvalPrice = 120, Discount;
+        public bool CoolPause = true, AutoEval = true, AutoFunded = true, Template; public bool fromBookPrice;   /* fromBookPrice: you typed this firm's price → the simulations use it (else the lab's FEE box) */
+        public bool Cooldown { get { return string.Equals(After, "COOLDOWN", StringComparison.OrdinalIgnoreCase) && CooldownDays > 0; } }
+        public int CoolTradingDays { get { return Cooldown ? Math.Max(1, (int)Math.Round(CooldownDays * 5 / 7.0)) : 0; } }
+        public double EvalCost { get { return Math.Round(Math.Max(0, EvalPrice) * (1 - Math.Max(0, Math.Min(100, Discount)) / 100.0), 2); } }
         public KeystonePayoutRules Copy() { return (KeystonePayoutRules)MemberwiseClone(); }
         public double FloorOf(double peakEod) { return Math.Min(peakEod - Dd, LockAt); }
         // the payout due on a balance: Pct % of the profit, capped (MaxOnly: only the full cap) — 0 under the minimum
@@ -16256,6 +16299,7 @@ namespace NinjaTrader.NinjaScript
         {
             Func<double, string> m = v => "$" + v.ToString("N0", CultureInfo.InvariantCulture);
             if (Parked) return Name + " • PARKED: its funded plan comes later (shown, not traded)";
+            if (Cooldown && !Tpt) return Name + " • a payout after " + QualDays + " days of ≥ " + m(QualMin) + " • " + Pct.ToString("0", CultureInfo.InvariantCulture) + " % of the profit, max " + m(Cap) + " → you " + m(NetOf(Cap)) + " • then a " + CooldownDays + "-day cooldown" + (CoolPause ? " (no trades)" : "") + ", no live, no payout cap";
             if (Tpt) return Name + " • 🔒 phase 1: the one-shot lock (" + KeystoneBracket.Hm(TptStart) + ", MNQ " + TptQm + ", +" + m(LockPayout) + ", intraday trailing " + m(Dd) + " incl. open profit) • phase 2: withdraw " + m(Cap) + " each time the " + m(Dd) + " buffer stays → you " + m(NetOf(Cap)) + " (" + Split.ToString("0", CultureInfo.InvariantCulture) + " %) • never > " + m(DailyMax) + " a day • up to " + MaxPayouts;
             return Name + " • a payout after " + QualDays + " days of ≥ " + m(QualMin) + " • " + Pct.ToString("0", CultureInfo.InvariantCulture) + " % of the profit, max " + m(Cap) + " → you " + m(NetOf(Cap)) + " (" + Split.ToString("0", CultureInfo.InvariantCulture) + " %) • up to " + MaxPayouts + " • EOD trailing " + m(Dd) + " locks at +" + m(LockAt);
         }
@@ -16263,9 +16307,9 @@ namespace NinjaTrader.NinjaScript
         {
             return new List<KeystonePayoutRules>
             {
-                new KeystonePayoutRules { Firm = "LUCID", Name = "Lucid 50K funded", Cap = 2000 },
-                new KeystonePayoutRules { Firm = "TRADEIFY", Name = "Tradeify 50K funded", Cap = 2500 },
-                new KeystonePayoutRules { Firm = "TPT", Name = "TPT PRO 50K", Tpt = true, LockAt = 0, Cap = 2000, Split = 80, QualDays = 0, MinPayout = 0 },
+                new KeystonePayoutRules { Firm = "LUCID", Name = "Lucid 50K funded", Cap = 2000, After = "COOLDOWN", CooldownDays = 14, Color = "#4FC3F7" },   /* the user: Lucid never moves you to live — a 2-week cooldown after each payout */
+                new KeystonePayoutRules { Firm = "TRADEIFY", Name = "Tradeify 50K funded", Cap = 2500, Color = "#F06292" },
+                new KeystonePayoutRules { Firm = "TPT", Name = "TPT PRO 50K", Tpt = true, LockAt = 0, Cap = 2000, Split = 80, QualDays = 0, MinPayout = 0, DdType = "INTRADAY", Color = "#FFB74D", AutoEval = false, AutoFunded = false },
             };
         }
         // the rules of a firm (an unknown firm: the Lucid numbers under its own name)
@@ -16275,11 +16319,35 @@ namespace NinjaTrader.NinjaScript
             var r = src.FirstOrDefault(x => string.Equals(x.Firm, f, StringComparison.OrdinalIgnoreCase));
             if (r != null) return r; var d = Presets()[0].Copy(); d.Firm = f; d.Name = (f == "" ? "FUNDED" : f) + " 50K funded"; return d;
         }
+        // the ＋ ADD FIRM template ('other firm'): the common 50K rules — edit them to the firm's fine print
+        public static KeystonePayoutRules TemplateFor(string firm, string name, string color)
+        {
+            string f = (firm ?? "").Trim().ToUpperInvariant().Replace("|", " "); if (f == "") f = "OTHER";
+            return new KeystonePayoutRules { Firm = f, Name = string.IsNullOrWhiteSpace(name) ? f + " 50K funded" : name.Replace("|", " "), Cap = 2000, Color = string.IsNullOrWhiteSpace(color) ? "#90A4AE" : color, Template = true };
+        }
+        // 🏢 THE FIRM BOOK: one shared list for both labs (FundedLab\payout-rules.txt) — null = no book loaded (the presets / KeystoneFirmRules decide)
+        public static List<KeystonePayoutRules> Book; static string bookDir;
+        public static List<KeystonePayoutRules> LoadBook(string dir)
+        {
+            if (Book != null && string.Equals(bookDir, dir, StringComparison.OrdinalIgnoreCase)) return Book;
+            var l = Presets(); try { var f = Path.Combine(dir ?? "", "payout-rules.txt"); if (dir != null && File.Exists(f)) l = Load(File.ReadAllText(f)); } catch { }
+            foreach (var r in l) { var pol = KeystoneFirmPolicies.For(r.Firm); if (!r.fromFile) { r.AutoEval = pol.AutoEval; r.AutoFunded = pol.AutoFunded; } }
+            Book = l; bookDir = dir; return Book;
+        }
+        public static void SaveBook(string dir)
+        {
+            if (Book == null) return; try { Directory.CreateDirectory(dir); File.WriteAllText(Path.Combine(dir, "payout-rules.txt"), Save(Book)); } catch { }
+            foreach (var r in Book) KeystoneFirmPolicies.Chosen[r.Firm] = new KeystoneFirmPolicy { AutoEval = r.AutoEval, AutoFunded = r.AutoFunded, Copy = KeystoneFirmPolicies.For(r.Firm).Copy };   /* the firm's automation everywhere */
+        }
+        public static KeystonePayoutRules BookOf(string firm) { var b = Book; if (b == null) return null; string f = (firm ?? "").Trim().ToUpperInvariant(); return b.FirstOrDefault(x => string.Equals(x.Firm, f, StringComparison.OrdinalIgnoreCase)); }
+        bool fromFile;
         // payout-rules.txt: firm|name|dd|lock|qualMin|qualDays|pct|cap|min|split|max|parked
         public static string Save(IEnumerable<KeystonePayoutRules> list)
         {
             Func<double, string> f = v => v.ToString("0.##", CultureInfo.InvariantCulture);
-            return string.Join("\n", list.Select(r => string.Join("|", r.Firm, (r.Name ?? "").Replace("|", " "), f(r.Dd), f(r.LockAt), f(r.QualMin), r.QualDays, f(r.Pct), f(r.Cap), f(r.MinPayout), f(r.Split), r.MaxPayouts, r.Parked ? 1 : 0, r.Tpt ? 1 : 0, f(r.LockPayout), f(r.DailyMax), r.TptQm, r.TptStart)));
+            return string.Join("\n", list.Select(r => string.Join("|", r.Firm, (r.Name ?? "").Replace("|", " "), f(r.Dd), f(r.LockAt), f(r.QualMin), r.QualDays, f(r.Pct), f(r.Cap), f(r.MinPayout), f(r.Split), r.MaxPayouts, r.Parked ? 1 : 0, r.Tpt ? 1 : 0, f(r.LockPayout), f(r.DailyMax), r.TptQm, r.TptStart,
+                "color=" + (r.Color ?? ""), "size=" + r.Size, "etarget=" + f(r.EvalTarget), "edd=" + f(r.EvalDd), "eddtype=" + r.EvalDdType, "emin=" + r.EvalMinDays, "econs=" + f(r.EvalCons), "eprice=" + f(r.EvalPrice), "disc=" + f(r.Discount),
+                "ddtype=" + r.DdType, "after=" + r.After, "cool=" + r.CooldownDays, "coolpause=" + (r.CoolPause ? 1 : 0), "maxfunded=" + r.MaxFunded, "autoeval=" + (r.AutoEval ? 1 : 0), "autofunded=" + (r.AutoFunded ? 1 : 0), "useprice=" + (r.fromBookPrice ? 1 : 0), "tpl=" + (r.Template ? 1 : 0))));
         }
         public static List<KeystonePayoutRules> Load(string text)
         {
@@ -16291,6 +16359,19 @@ namespace NinjaTrader.NinjaScript
                 Func<int, double> D = k => double.TryParse(a[k], NumberStyles.Float, CultureInfo.InvariantCulture, out v) ? v : 0; Func<int, int> I = k => int.TryParse(a[k], out i) ? i : 0;
                 var rr = new KeystonePayoutRules { Firm = a[0].Trim().ToUpperInvariant(), Name = a[1], Dd = D(2), LockAt = D(3), QualMin = D(4), QualDays = Math.Max(1, I(5)), Pct = D(6), Cap = D(7), MinPayout = D(8), Split = D(9), MaxPayouts = Math.Max(1, I(10)), Parked = a[11].Trim() == "1" };
                 if (a.Length >= 17) { rr.Tpt = a[12].Trim() == "1"; rr.LockPayout = D(13); rr.DailyMax = D(14); rr.TptQm = Math.Max(1, I(15)); rr.TptStart = I(16); if (rr.Tpt) rr.QualDays = Math.Max(0, I(5)); }
+                var kv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); for (int z = 17; z < a.Length; z++) { int e = a[z].IndexOf('='); if (e > 0) kv[a[z].Substring(0, e).Trim()] = a[z].Substring(e + 1).Trim(); }
+                if (kv.Count > 0)
+                {   /* 🏢 the firm book columns (older files: none → the defaults) */
+                    string sv; Func<string, double, double> KD = (k0, d0) => kv.TryGetValue(k0, out sv) && double.TryParse(sv, NumberStyles.Float, CultureInfo.InvariantCulture, out v) ? v : d0; Func<string, string, string> KS = (k0, d0) => kv.TryGetValue(k0, out sv) && sv != "" ? sv : d0;
+                    rr.Color = KS("color", ""); rr.Size = Math.Max(1, (int)KD("size", 50)); rr.EvalTarget = KD("etarget", 0); rr.EvalDd = KD("edd", 0); rr.EvalDdType = KS("eddtype", "EOD"); rr.EvalMinDays = (int)KD("emin", 0); rr.EvalCons = KD("econs", 0);
+                    rr.EvalPrice = KD("eprice", 120); rr.Discount = KD("disc", 0); rr.DdType = KS("ddtype", rr.Tpt ? "INTRADAY" : "EOD"); rr.After = KS("after", "LIVE"); rr.CooldownDays = (int)KD("cool", 0); rr.CoolPause = KD("coolpause", 1) > 0;
+                    rr.MaxFunded = Math.Max(1, (int)KD("maxfunded", 5)); rr.AutoEval = KD("autoeval", 1) > 0; rr.AutoFunded = KD("autofunded", 1) > 0; rr.fromBookPrice = KD("useprice", 0) > 0; rr.Template = KD("tpl", 0) > 0; rr.fromFile = true;
+                }
+                else
+                {   /* an older file: the firm book fields of the preset (Lucid = the 2-week cooldown, no live) */
+                    var pz = Presets().FirstOrDefault(x => x.Firm == rr.Firm);
+                    if (pz != null) { rr.Color = pz.Color; rr.After = pz.After; rr.CooldownDays = pz.CooldownDays; rr.DdType = pz.DdType; }
+                }
                 res.Add(rr);
             }
             foreach (var p in Presets()) if (!res.Any(x => x.Firm == p.Firm)) res.Add(p);
@@ -16306,6 +16387,10 @@ namespace NinjaTrader.NinjaScript
         /* 🧩 SPREAD (research 2026-11-09: batches paying nothing 63 % → 26 %): every funded account trades ITS OWN entry time (SpreadTimes by account),
            the side = one coin a day per firm (all accounts of a firm the same side → never opposite positions inside one firm) */
         public bool Spread; public int[] SpreadTimes = { 200, 830, 930, 1000, 1100 };
+        /* 🎯 TPT +$10K (report section 12): TptQm1 = the lock phase's MNQ size (0 = the firm's), TptLondon = the lock trade takes the London side,
+           TptWithdraw = the withdrawal amount (0 = the firm's Cap; 10,000 → withdraw at +$12,000 keeping the $2,000 buffer), TptDayMax = the day's profit cap
+           (0 = the firm's) • ProtectRoom = half size when the room is under this (🛡 PROTECT) */
+        public int TptQm1; public bool TptLondon; public double TptWithdraw, TptDayMax, ProtectRoom = 1000;
         public int TimeOf(int accountId) { if (!Spread || SpreadTimes == null || SpreadTimes.Length == 0) return StartHhmm; return SpreadTimes[(Math.Max(1, accountId) - 1) % SpreadTimes.Length]; }
         public KeystonePayoutPlan Copy() { return (KeystonePayoutPlan)MemberwiseClone(); }
         public string Summary()
@@ -16322,6 +16407,8 @@ namespace NinjaTrader.NinjaScript
             {
                 new KeystonePayoutPlan { Name = "★ MAX IN 5 • 🧩 SPREAD • each account its own time + side • PUSH MNQ 6, then QUALIFY MNQ 2", Side = "FIRM", StartHhmm = 930, Qm = 6, Tp = 2500, Stop = 500, MaxOnly = true, MaxIn5 = true, Spread = true, Preset = true, Note = "research (2026-11-09): the funded accounts spread over 2:00 / 8:30 / 9:30 / 10:00 / 11:00 cut the batches that pay nothing from 63 % to 26 % (avg $5,555 per batch of 30) • " },
                 new KeystonePayoutPlan { Name = "★ MAX IN 5 • SAME SIDE FOR ALL (all-or-nothing) • 9:30 London side", Side = "LONDON", StartHhmm = 930, Qm = 6, Tp = 2500, Stop = 500, MaxOnly = true, MaxIn5 = true, Preset = true, Note = "all-or-nothing: every funded account takes the same 9:30 London trade — 63 % of the batches paid nothing • research (2026-11-09): $1,345 per funded account vs $958 for the old ★ • business loop +$353k (last year +$49.9k) • Lucid max $2,000 → $1,800 yours, Tradeify $2,500 → $2,250" },
+                new KeystonePayoutPlan { Name = "⚡ FAST CASH • MNQ 6 • +$1,500 / −$500 • 1 trade a day • each account its own entry • the FIRST eligible payout", Side = "FIRM", StartHhmm = 930, Qm = 6, Tp = 1500, Stop = 500, Tries = 1, Spread = true, Preset = true, Note = "the $3K starter plan (report §11): fast cash to keep the game going — reinvest 100 % until a reserve of 3 weeks of evals, then the rest is yours" },
+                new KeystonePayoutPlan { Name = "🎯 TPT +$10K • lock MNQ 15 (London side) → push MNQ 10 +$4,000 → withdraw at +$12,000", Side = "LONDON", StartHhmm = 930, Qm = 10, Tp = 4000, Stop = 0, Tries = 1, MaxOnly = true, Protect = true, ProtectRoom = 2000, TptQm1 = 15, TptLondon = true, TptWithdraw = 10000, TptDayMax = 9500, Preset = true, Note = "report §12, ONE TPT PRO account: phase 1 MNQ 15 at 9:30, the London side, TP +$2,250 until the floor locks; phase 2 MNQ 10, TP +$4,000 (capped by what is still missing and +$9,500 a day), MNQ 5 when the room < $2,000; withdraw $10,000 at +$12,000 (80 % → $8,000) • honest odds: ≈ 1 in 10 (≈ 9 in 10 blow) — +$4,000 → $2,000 is ≈ 1 in 4 • TPT funded = manual clicks" },
                 new KeystonePayoutPlan { Name = "★ FUNDED PAYOUT • London side • MNQ 4 • +$1,500 / −$500 (the old ★)", Side = "LONDON", StartHhmm = 930, Qm = 4, Tp = 1500, Stop = 500, Preset = true, Note = "research (2020–26): $985 net per funded account (2020–23 $940 / 2024–26 $1,039) • payout 1/2/3/4/5 reached by 35/15/9/5/4 %" },
                 new KeystonePayoutPlan { Name = "★ FUNDED PAYOUT • MNQ 6", Side = "LONDON", StartHhmm = 930, Qm = 6, Tp = 1500, Stop = 500, Preset = true, Note = "research: $1,124 net per funded account — more money, bigger swings" },
                 new KeystonePayoutPlan { Name = "QUALIFY • +$800 / −$500 • MNQ 4", Side = "LONDON", StartHhmm = 930, Qm = 4, Tp = 800, Stop = 500, Preset = true, Note = "research: $746 per account but the first payout most often (44 %)" },
@@ -16350,6 +16437,7 @@ namespace NinjaTrader.NinjaScript
     public sealed class KeystonePayoutEvent { public DateTime Day; public int Account, N; public string Name = "", Firm = ""; public double Gross, Net, BalAfter; }
     public sealed class KeystonePayoutAccount
     {
+        public int CoolLeft;   /* 🏢 COOLDOWN firms (Lucid): trading days left before the next payout request */
         public int Id, Qual, Days, Payouts, Trades; public string Name = "", Firm = "", Stage = "FUNDED", Mode = ""; public bool Locked; public double PeakIntra; public double Bal, PeakEod, Floor = -2000, Gross, Net, LastDay; public DateTime Funded = DateTime.MinValue, Ended = DateTime.MinValue;
         public List<KeystonePayoutEvent> Paid = new List<KeystonePayoutEvent>();
         public bool Active { get { return Stage == "FUNDED"; } }
@@ -16362,6 +16450,7 @@ namespace NinjaTrader.NinjaScript
             if (Stage == "PARKED") return head + " · TPT plan comes later";
             if (Stage == "BLOWN") return head + " · " + Payouts + " payout" + (Payouts == 1 ? "" : "s") + " · " + m(Net) + " to you";
             if (Stage == "LIVE") return head + " · moved to live after " + Payouts + " payouts · " + m(Net) + " to you";
+            if (CoolLeft > 0 && r.Cooldown) return head + " · ⏸ COOLDOWN · " + CoolLeft + " more trading day" + (CoolLeft == 1 ? "" : "s") + " before the next payout request" + (r.CoolPause ? " (no trades)" : "") + " · payouts " + Payouts + " · " + m(Net) + " to you";
             if (r.Tpt)
             {   // 🔒 TPT: 'LOCK · +$1,180 more to the lock' / 'WITHDRAW · the next $1,600 after $900 more · payouts 1/5'
                 if (!Locked) return head + " · 🔒 LOCK · " + m(Math.Max(0, r.LockPayout - Bal)) + " more to the lock (intraday trailing, open profit counts) · room " + m(Room);
@@ -16416,13 +16505,14 @@ namespace NinjaTrader.NinjaScript
         public static double Day(KeystonePayoutAccount a, KeystonePayoutRules r, KeystonePayoutPlan p, KeystoneRotDay d, int coin, KeystonePipeCtx ctx = null, List<KeystoneSimTrade> log = null, List<KeystonePayoutEvent> events = null)
         {
             if (a == null || !a.Active || r == null) return 0; if (r.Parked) { a.Stage = "PARKED"; return 0; }
+            bool cooling = false; if (a.CoolLeft > 0 && r.Cooldown && !r.Tpt) { a.CoolLeft--; cooling = true; a.Mode = "COOLDOWN"; if (r.CoolPause) { a.LastDay = 0; return 0; } }   /* 🏢 the cooldown day (a pause = no trade) */
             if (r.Tpt && !a.Locked) return TptLock(a, r, p, d, coin, log);
             a.Floor = r.Tpt ? Math.Min(0, a.Floor) : r.FloorOf(a.PeakEod); double room = a.Bal - a.Floor; if (room <= 0.01) { a.Stage = "BLOWN"; a.Ended = d.Day; return 0; }
             int dir = p.Spread ? (coin != 0 ? coin : 1) : SideOf(p, d, coin); if (dir == 0) return 0;   /* 🧩 SPREAD: one coin a day per firm */
             int qm = p.Qm, qg = p.Qg, tries = Math.Max(1, p.Tries); double pTp = p.Tp, pStop = p.Stop;
             if (r.Tpt)
             {   // 🔒 TPT phase 2: push to the next withdrawal (the buffer + one Cap), the plan's size and stop, the floor locked at the start
-                a.Mode = "WITHDRAW"; qg = 0; tries = 1; pTp = Math.Max(50, Math.Min(p.MaxIn5 ? p.PushCap : p.Tp, r.Dd + r.Cap - a.Bal)); pStop = p.Stop;
+                double wCap = p.TptWithdraw > 0 ? p.TptWithdraw : r.Cap; a.Mode = "WITHDRAW"; qg = 0; tries = 1; pTp = Math.Max(50, Math.Min(p.MaxIn5 ? p.PushCap : p.Tp, r.Dd + wCap - a.Bal)); pStop = p.Stop;
             }
             else if (p.MaxIn5 && r.Cap > 0 && r.Pct > 0)
             {   // ★ MAX IN 5: PUSH until the profit allows the max payout, then QUALIFY (no size-up after the floor locks: the sizes are fixed)
@@ -16430,14 +16520,14 @@ namespace NinjaTrader.NinjaScript
                 if (a.Bal < maxBal - 1e-6) { a.Mode = "PUSH"; qg = 0; pTp = Math.Min(p.PushCap, maxBal - a.Bal); pStop = p.Stop; tries = 1; }
                 else { a.Mode = "QUALIFY"; qm = p.QualQm; qg = 0; pTp = p.QualTp; pStop = p.QualStop; tries = Math.Max(1, p.QualTries); }
             }
-            if (p.Protect && room < 1000) { qm = qm > 0 ? Math.Max(1, qm / 2) : 0; qg = qg > 0 ? Math.Max(1, qg / 2) : 0; }
+            if (p.Protect && room < p.ProtectRoom) { qm = qm > 0 ? Math.Max(1, qm / 2) : 0; qg = qg > 0 ? Math.Max(1, qg / 2) : 0; }
             if (qm + qg <= 0) return 0;
             int k = KeystoneRotDay.Slot(p.TimeOf(a.Id)), end = KeystoneFunded.EndSlot(d); double day = 0; bool any = false; double fees = Fees(qm, qg), slip = Slip(qm, qg);
             if (room <= fees + slip + 1) { a.Stage = "BLOWN"; a.Ended = d.Day; return 0; }   /* no room left for one more trade */
             for (int t = 0; t < tries && k < end; t++)
             {
                 while (k < end && !((qm == 0 || d.HasM(k)) && (qg == 0 || d.HasG(k)))) k++; if (k >= end - 1) break;
-                double roomNow = a.Bal + day - a.Floor, tgt = pTp - day; if (r.Tpt && r.DailyMax > 0) tgt = Math.Min(tgt, r.DailyMax - 1 - day);   /* 🔒 TPT: never more than DailyMax in a day */
+                double roomNow = a.Bal + day - a.Floor, tgt = pTp - day; double dMax = p.TptDayMax > 0 ? p.TptDayMax + 1 : r.DailyMax; if (r.Tpt && dMax > 0) tgt = Math.Min(tgt, dMax - 1 - day);   /* 🔒 TPT: never more than DailyMax in a day */
                 if (roomNow <= fees + slip + 1 || tgt <= 0) break;
                 double maxStop = roomNow - fees - slip - 1, stop = pStop <= 0 ? maxStop : Math.Min(pStop, maxStop); if (stop <= 1) break;
                 var x = TradeMemo(ctx, d, k, end, dir, qm, qg, tgt + fees, stop); if (x[1] == -9) break;
@@ -16452,10 +16542,10 @@ namespace NinjaTrader.NinjaScript
             if (a.Bal <= a.Floor + 0.01) { a.Stage = "BLOWN"; a.Ended = d.Day; return day; }
             if (r.Tpt)
             {   // 🔒 TPT phase 2: withdraw Cap each time the buffer stays (no qualifying days)
-                if (a.Bal - r.Dd >= r.Cap - 1e-9 && r.Cap > 0) PayOut(a, r, r.Cap, d.Day, events);
+                double wAmt = p.TptWithdraw > 0 ? p.TptWithdraw : r.Cap; if (a.Bal - r.Dd >= wAmt - 1e-9 && wAmt > 0) PayOut(a, r, wAmt, d.Day, events);
                 return day;
             }
-            if (a.Qual >= r.QualDays)
+            if (a.Qual >= r.QualDays && !cooling && a.CoolLeft <= 0)
             {
                 double w = r.Due(a.Bal, p.MaxOnly || p.MaxIn5);
                 if (w > 0) PayOut(a, r, w, d.Day, events);
@@ -16466,6 +16556,7 @@ namespace NinjaTrader.NinjaScript
         {
             a.Bal -= w; a.Qual = 0; a.Payouts++; double net = r.NetOf(w); a.Gross += w; a.Net += net;
             var ev = new KeystonePayoutEvent { Day = day, Account = a.Id, N = a.Payouts, Name = a.Name, Firm = a.Firm, Gross = w, Net = net, BalAfter = a.Bal }; a.Paid.Add(ev); if (events != null) events.Add(ev);
+            if (r.Cooldown && !r.Tpt) { a.CoolLeft = r.CoolTradingDays; return; }   /* 🏢 no live, no cap: the cooldown */
             if (a.Payouts >= r.MaxPayouts) { a.Stage = "LIVE"; a.Ended = day; }
         }
         // 🔒 TPT phase 1: one trade a day (TptStart, MNQ TptQm, +LockPayout − balance, the stop = the INTRADAY trailing floor, open profit counts) until the
@@ -16475,9 +16566,10 @@ namespace NinjaTrader.NinjaScript
             var fr = new KeystoneFundedRules { Name = r.Name, Intraday = true, Dd = r.Dd, LockAt = 0, Payout = r.LockPayout, MicroRule = true };
             var fa = new KeystoneFundedAccount { Id = a.Id, Name = a.Name, Firm = a.Firm, Bal = a.Bal, Peak = Math.Max(a.PeakIntra, a.Bal), PeakEod = a.PeakEod, Floor = Math.Min(Math.Max(a.PeakIntra, a.Bal) - r.Dd, 0) };
             if (fa.Bal <= fa.Floor + 0.01) { a.Stage = "BLOWN"; a.Ended = d.Day; return 0; }
-            var fp = new KeystoneFundedPlan { Name = "🔒 TPT LOCK", Side = "BUY", StartHhmm = r.TptStart, Qm = Math.Max(1, r.TptQm), Tp = Math.Max(50, r.LockPayout - a.Bal), Stop = 0, PerDay = 1 };
+            var fp = new KeystoneFundedPlan { Name = "🔒 TPT LOCK", Side = "BUY", StartHhmm = r.TptStart, Qm = Math.Max(1, p != null && p.TptQm1 > 0 ? p.TptQm1 : r.TptQm), Tp = Math.Max(50, r.LockPayout - a.Bal), Stop = 0, PerDay = 1 };
             int k = KeystoneRotDay.Slot(r.TptStart), end = KeystoneFunded.EndSlot(d); while (k < end && !d.HasM(k)) k++; if (k >= end - 1) return 0;
-            int dir = coin != 0 ? coin : 1; var t = KeystoneFunded.TradeOne(d, k, dir, fp, fr, fa, 0); if (t == null) return 0;
+            int dir = coin != 0 ? coin : 1; if (p != null && p.TptLondon) { int ld = SideOf(new KeystonePayoutPlan { Side = "LONDON" }, d, dir); if (ld != 0) dir = ld; }
+            var t = KeystoneFunded.TradeOne(d, k, dir, fp, fr, fa, 0); if (t == null) return 0;
             a.Bal = fa.Bal; a.PeakIntra = fa.Peak; a.Floor = fa.Floor; a.Trades++; a.Days++; a.PeakEod = Math.Max(a.PeakEod, a.Bal); a.Mode = "LOCK"; a.LastDay = t.Pnl;
             if (log != null) log.Add(new KeystoneSimTrade { Day = d.Day, Account = a.Id, Phase = "FUNDED", Dir = dir, Pnl = t.Pnl, Reason = t.How, Source = "🔒 TPT LOCK", Legs = (dir > 0 ? "BUY " : "SELL ") + fp.Qm + " MNQ" });
             if (fa.State == "BLOWN" || a.Bal <= a.Floor + 0.01) { a.Stage = "BLOWN"; a.Ended = d.Day; return t.Pnl; }
@@ -17907,7 +17999,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-09b • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -48456,7 +48548,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private sealed class LabOpen { public KeystoneSimAccount Acc; public int DM, DG, QM, QG, K; public double EM, EG, LM, LG, Tg, Sl, Fees, Slip, Peak, Worst, Now; public string Legs = ""; public List<double> Pl = new List<double>(); }
         private KeystoneLabLog evalLabLog; private Func<string> evalLabLogExport; private Func<bool> evalLabDayDone; private Action evalLabNextDay; private Func<List<string>> evalLabVisibleButtons; private Canvas evalLabChart, fundedLabChart;
         // 🧪 EVAL LAB (stage 1) — the tests drive it through these
-        private Action<DateTime, DateTime, bool> evalLabCalc; private ProgressBar evalLabCalcProgress, evalLabSdProgress, evalLabPipeProgress; private FrameworkElement evalLabHowTo, fundedLabHowTo;   /* ❓ HOW TO USE pages (the smoke test reads them) */   /* the progress bars of ⚡ CALCULATE / 📅 START-DAY / 🔁 PIPELINE (the smoke test reads them) */ private Action<string> evalLabCalcTab, evalLabUsePlan; private KeystoneCalcRank evalLabCalcLast, evalLabCalcOracle; private List<KeystoneHindsight> evalLabCalcHind;   // ⚡ CALCULATE (tests)
+        private Action<DateTime, DateTime, bool> evalLabCalc; private ProgressBar evalLabCalcProgress, evalLabSdProgress, evalLabPipeProgress; private FrameworkElement evalLabHowTo, fundedLabHowTo; private Action<string, string> evalLabBudget; private KeystoneBudgetPlan evalLabBudgetLast;   /* 💰 BUDGET (smoke test) */   /* ❓ HOW TO USE pages (the smoke test reads them) */   /* the progress bars of ⚡ CALCULATE / 📅 START-DAY / 🔁 PIPELINE (the smoke test reads them) */ private Action<string> evalLabCalcTab, evalLabUsePlan; private KeystoneCalcRank evalLabCalcLast, evalLabCalcOracle; private List<KeystoneHindsight> evalLabCalcHind;   // ⚡ CALCULATE (tests)
         private Action<DateTime, DateTime, List<string>> evalLabStartDay; private List<Tuple<string, string, List<KeystoneStartBatch>>> evalLabStartDayLast; private string evalLabReportPath;   // 📅 START-DAY TEST (tests)
         private Action<string> evalLabNewPool, evalLabUsePool, evalLabDeletePool, evalLabShow; private Action<string, int, int> evalLabAdd; private Func<List<string>> evalLabOrder; private Action<bool> evalLabSimOnly, evalLabAuto;
         private sealed class RotStudioSnap { public DateTime Day; public int Trades, Wins, Passed, Blown, InEval; public double Pnl; public List<RotStudioTile> Tiles = new List<RotStudioTile>(); }
@@ -48620,10 +48712,124 @@ namespace NinjaTrader.NinjaScript.AddOns
                     "11 • ⤓ CSV / ⤓ HTML REPORT export the runs; 📜 EVENT LOG ▾ shows every event, ⤓ EXPORT LOG saves it.",
                     "12 • ✕ DELETE (a pool, a plan) asks first (YES / NO)." }));
             }
+            l.Add(Tuple.Create("🏢 FIRMS & RULES • ⚡ FAST CASH • 🎯 TPT +$10K • 💰 BUDGET", new[] {
+                "🏢 FIRMS & RULES (left rail, both labs): one card per firm — evaluation (size, price, discount, target, drawdown, min days, best day %), funded (drawdown, lock, qualifying days, payout %, cap, split, min payout), AFTER PAYOUTS (live after N, or a cooldown with no cap — Lucid: 14 days), max funded at once and automation. 💾 SAVE; every simulation uses them.",
+                "＋ ADD FIRM: a code, a name and a colour → the common 50K template; check each box against the firm's fine print, then 💾 SAVE. The pipeline and the round robin include it.",
+                "Presets: ⚡ FAST CASH (funded MNQ 6, +$1,500 / −$500, one trade a day, the first eligible payout) and 🎯 TPT +$10K (lock MNQ 15 London side, then MNQ 10 +$4,000, withdraw at +$12,000; manual).",
+                "🔁 PIPELINE ▸ 💰 BUDGET: your starting money + the price of one evaluation → how many to buy now, the reserve, when to scale, when to add a firm." }));
             l.Add(Tuple.Create("WHAT LIVE WILL BE (stage 3 — disabled today)", new[] {
                 "● LIVE will trade the real accounts in the same firm round robin ONLY through each account's armed link (ARM + its limits + confirmations).",
                 "AUTO only where the firm allows automation; otherwise MANUAL with flashing buttons. Today nothing in this window sends an order: it is simulation on your saved minutes." }));
             return l;
+        }
+        /* 🏢 FIRMS & RULES (user's request 2026-11-09): every prop firm's evaluation + funded rules + after-payouts (live after N / cooldown, no cap) +
+           the bench + automation, one card each, ＋ ADD FIRM as the budget grows • one shared book (FundedLab\payout-rules.txt) for both labs */
+        private Action<string, string, string> firmsLabAdd; private Action firmsLabSave; private TextBlock firmsLabMsg;   /* the smoke test drives them */
+        private FrameworkElement FirmsRulesView(Window owner, string dir, Action changed)
+        {
+            var root = new StackPanel { Margin = new Thickness(22, 16, 22, 16) };
+            root.Children.Add(Txt("🏢 FIRMS & RULES", Gold, 24, FontWeights.Bold));
+            var sub = Txt("one card per prop firm: the evaluation, the funded rules, what happens after payouts, how many funded accounts at once and whether automation is allowed • every simulation in both labs reads these rules • saved in FundedLab\\payout-rules.txt (shared by both labs) • ＋ ADD FIRM when the budget grows", Muted, 12.5, FontWeights.Normal);
+            sub.TextWrapping = TextWrapping.Wrap; sub.Margin = new Thickness(0, 2, 0, 10); root.Children.Add(sub);
+            var msg = Txt("", Cyan, 13, FontWeights.SemiBold); msg.TextWrapping = TextWrapping.Wrap; msg.Margin = new Thickness(0, 0, 0, 8); root.Children.Add(msg); firmsLabMsg = msg;
+            Func<string, UIElement, StackPanel> field = (lab, el) => { var sp = new StackPanel { Margin = new Thickness(0, 0, 10, 6) }; sp.Children.Add(Txt(lab, Muted, 10.5, FontWeights.Bold)); var fe = el as FrameworkElement; if (fe != null) { fe.Margin = new Thickness(0, 2, 0, 0); if (fe is TextBox) fe.Width = 78; } sp.Children.Add(el); return sp; };
+            Func<double, string> F = v => v.ToString("0.##", CultureInfo.InvariantCulture);
+            Func<string, string[], ComboBox> pick = (cur, opts) => { var c = Select(opts); c.MinWidth = 110; c.SelectedItem = opts.Contains(cur) ? cur : opts[0]; return c; };
+            // ＋ ADD FIRM
+            var addB = new Border { Background = Panel, BorderBrush = Tint(Gold, 120), BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 0, 0, 12) };
+            var addSp = new StackPanel(); addB.Child = addSp; root.Children.Add(addB);
+            addSp.Children.Add(Txt("＋ ADD FIRM • a code (short, e.g. APEX), a name and a colour → it starts from the common 50K template: check every box against the firm's fine print, then 💾 SAVE", Gold, 12.5, FontWeights.Bold));
+            var addRow = new WrapPanel(); addSp.Children.Add(addRow);
+            var aCode = Input(""); var aName = Input(""); aName.Width = 180; var aCol = Select(KeystoneFirmNames.Choices); aCol.SelectedIndex = 2; aCol.MinWidth = 100;
+            addRow.Children.Add(field("CODE", aCode)); var fnm = field("NAME", aName); ((FrameworkElement)fnm.Children[1]).Width = 180; addRow.Children.Add(fnm); addRow.Children.Add(field("COLOUR", aCol));
+            var addBtn = Btn("＋ ADD FIRM", Tint(Gold, 70)); addBtn.Foreground = Gold; addBtn.Height = 34; addBtn.Padding = new Thickness(12, 0, 12, 0); addBtn.Margin = new Thickness(0, 14, 8, 0); addRow.Children.Add(addBtn);
+            var saveTop = Btn("💾 SAVE EVERY FIRM", Tint(Green, 70)); saveTop.Foreground = Green; saveTop.Height = 34; saveTop.Padding = new Thickness(12, 0, 12, 0); saveTop.Margin = new Thickness(0, 14, 8, 0); addRow.Children.Add(saveTop);
+            var cards = new StackPanel(); root.Children.Add(cards);
+            var apply = new List<Action>(); Action paint = null;
+            Action save = delegate
+            {
+                foreach (var ap in apply) ap();
+                KeystonePayoutRules.SaveBook(dir); if (changed != null) changed();
+                msg.Text = "💾 saved " + KeystonePayoutRules.Book.Count + " firms • every simulation uses them from now on"; msg.Foreground = Green; paint();
+            };
+            Action<string, string, string> add = (code, name, col) =>
+            {
+                var book = KeystonePayoutRules.LoadBook(dir); foreach (var ap in apply) ap();
+                string c = (code ?? "").Trim().ToUpperInvariant().Replace("|", " ");
+                if (c == "") { msg.Text = "type the firm's code first (e.g. APEX)"; msg.Foreground = Gold; return; }
+                if (book.Any(x => string.Equals(x.Firm, c, StringComparison.OrdinalIgnoreCase))) { msg.Text = c + " is already in the list"; msg.Foreground = Gold; return; }
+                var kn = KeystoneFirmNames.Known.FirstOrDefault(k => k[0] == c);
+                book.Add(KeystonePayoutRules.TemplateFor(c, string.IsNullOrWhiteSpace(name) ? (kn != null ? kn[1] + " 50K funded" : null) : name, string.IsNullOrWhiteSpace(col) ? (kn != null ? kn[2] : null) : col));
+                KeystonePayoutRules.SaveBook(dir); if (changed != null) changed();
+                msg.Text = "＋ " + c + " added from the template — check its rules against the firm's fine print, then 💾 SAVE"; msg.Foreground = Cyan; aCode.Text = ""; aName.Text = ""; paint();
+            };
+            firmsLabAdd = add; firmsLabSave = save;
+            addBtn.Click += delegate { add(aCode.Text, aName.Text, aCol.SelectedItem as string); };
+            saveTop.Click += delegate { save(); };
+            paint = delegate
+            {
+                cards.Children.Clear(); apply.Clear();
+                foreach (var r0 in KeystonePayoutRules.LoadBook(dir).ToList())
+                {
+                    var r = r0; Brush fc = Card; try { if (!string.IsNullOrWhiteSpace(r.Color)) fc = HexBrush(r.Color); } catch { }
+                    var sp = new StackPanel(); var bd = new Border { Background = Panel, BorderBrush = fc, BorderThickness = new Thickness(1.6), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 12), Margin = new Thickness(0, 0, 0, 12), Child = sp }; cards.Children.Add(bd);
+                    var hd = new DockPanel(); sp.Children.Add(hd);
+                    bool preset = KeystonePayoutRules.Presets().Any(p => p.Firm == r.Firm);
+                    if (!preset)
+                    {
+                        var rm = Btn("✕ REMOVE", Tint(Red, 60)); rm.Foreground = Red; rm.Height = 28; rm.FontSize = 12; rm.Padding = new Thickness(10, 0, 10, 0); DockPanel.SetDock(rm, Dock.Right); hd.Children.Add(rm);
+                        rm.Click += delegate
+                        {
+                            if (KBox(owner, "Remove " + r.Firm + " (" + r.Name + ") from the firm list?\n\nThe simulations stop using its rules. Accounts of this firm then use the Lucid numbers.", "🏢 FIRMS & RULES", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                            foreach (var ap in apply) ap(); KeystonePayoutRules.Book.Remove(r); KeystonePayoutRules.SaveBook(dir); if (changed != null) changed(); msg.Text = "✕ " + r.Firm + " removed"; msg.Foreground = Gold; paint();
+                        };
+                    }
+                    else
+                    {
+                        var rs = Btn("↺ PRESET", Card); rs.Height = 28; rs.FontSize = 12; rs.Padding = new Thickness(10, 0, 10, 0); rs.ToolTip = "back to the tested preset rules of " + r.Firm; DockPanel.SetDock(rs, Dock.Right); hd.Children.Add(rs);
+                        rs.Click += delegate
+                        {
+                            if (KBox(owner, "Reset " + r.Firm + " to its preset rules?", "🏢 FIRMS & RULES", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                            foreach (var ap in apply) ap(); var bk = KeystonePayoutRules.Book; int ix = bk.IndexOf(r); if (ix >= 0) bk[ix] = KeystonePayoutRules.Presets().First(p => p.Firm == r.Firm); KeystonePayoutRules.SaveBook(dir); if (changed != null) changed(); msg.Text = "↺ " + r.Firm + " back to its preset"; msg.Foreground = Cyan; paint();
+                        };
+                    }
+                    var nm = Input(r.Name); nm.Width = 240; nm.FontWeight = FontWeights.Bold;
+                    var ttl = new WrapPanel(); ttl.Children.Add(new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(7), Background = fc, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
+                    ttl.Children.Add(Txt(r.Firm + (r.Template ? "  (template — check it)" : ""), fc, 16, FontWeights.Bold)); ttl.Children.Add(nm); hd.Children.Add(ttl);
+                    var ln = Txt(r.Line(), Text, 12, FontWeights.Normal); ln.TextWrapping = TextWrapping.Wrap; ln.Margin = new Thickness(0, 2, 0, 6); sp.Children.Add(ln);
+                    // the evaluation
+                    sp.Children.Add(Txt("📝 EVALUATION", Cyan, 12, FontWeights.Bold)); var ev = new WrapPanel(); sp.Children.Add(ev);
+                    var eSize = Input(r.Size.ToString(CultureInfo.InvariantCulture)); var ePrice = Input(F(r.EvalPrice)); var eDisc = Input(F(r.Discount)); var eTarget = Input(F(r.EvalTarget)); var eDdT = pick(r.EvalDdType, new[] { "EOD", "INTRADAY", "STATIC" }); var eDd = Input(F(r.EvalDd)); var eMin = Input(r.EvalMinDays.ToString(CultureInfo.InvariantCulture)); var eCons = Input(F(r.EvalCons));
+                    var usePrice = new CheckBox { Content = "use this price in the simulations", IsChecked = r.fromBookPrice, Foreground = Text, Margin = new Thickness(0, 16, 10, 0) };
+                    foreach (var t in new[] { Tuple.Create("SIZE $K", (UIElement)eSize), Tuple.Create("PRICE $", (UIElement)ePrice), Tuple.Create("DISCOUNT %", (UIElement)eDisc), Tuple.Create("TARGET $ (0 = plan)", (UIElement)eTarget), Tuple.Create("DRAWDOWN", (UIElement)eDdT), Tuple.Create("DD $ (0 = plan)", (UIElement)eDd), Tuple.Create("MIN DAYS", (UIElement)eMin), Tuple.Create("BEST DAY % (0 = none)", (UIElement)eCons) }) ev.Children.Add(field(t.Item1, t.Item2));
+                    ev.Children.Add(usePrice); var cost = Txt("costs $" + r.EvalCost.ToString("0.##", CultureInfo.InvariantCulture), Gold, 12, FontWeights.Bold); cost.Margin = new Thickness(0, 18, 0, 0); ev.Children.Add(cost);
+                    // funded
+                    sp.Children.Add(Txt("💰 FUNDED" + (r.Tpt ? " • 🔒 lock → withdrawals" : ""), Cyan, 12, FontWeights.Bold)); var fu = new WrapPanel(); sp.Children.Add(fu);
+                    var fDdT = pick(r.DdType, new[] { "EOD", "INTRADAY", "STATIC" }); var fDd = Input(F(r.Dd)); var fLock = Input(F(r.LockAt)); var fQd = Input(r.QualDays.ToString(CultureInfo.InvariantCulture)); var fQm = Input(F(r.QualMin)); var fPct = Input(F(r.Pct)); var fCap = Input(F(r.Cap)); var fSplit = Input(F(r.Split)); var fMin = Input(F(r.MinPayout)); var fDay = Input(F(r.DailyMax));
+                    foreach (var t in new[] { Tuple.Create("DRAWDOWN", (UIElement)fDdT), Tuple.Create("DD $", (UIElement)fDd), Tuple.Create("LOCKS AT +$", (UIElement)fLock), Tuple.Create("QUALIFYING DAYS", (UIElement)fQd), Tuple.Create("MIN $ / DAY", (UIElement)fQm), Tuple.Create("PAYOUT % OF PROFIT", (UIElement)fPct), Tuple.Create("CAP $", (UIElement)fCap), Tuple.Create("SPLIT % TO YOU", (UIElement)fSplit), Tuple.Create("MIN PAYOUT $", (UIElement)fMin) }) fu.Children.Add(field(t.Item1, t.Item2));
+                    if (r.Tpt) fu.Children.Add(field("MAX $ A DAY", fDay));
+                    // after payouts + bench + automation
+                    sp.Children.Add(Txt("🔁 AFTER PAYOUTS • 🪑 BENCH • 🤖 AUTOMATION", Cyan, 12, FontWeights.Bold)); var af = new WrapPanel(); sp.Children.Add(af);
+                    string[] afOpt = { "MOVED TO LIVE after N payouts", "COOLDOWN after each payout, no cap" };
+                    var aSel = pick(r.Cooldown ? afOpt[1] : afOpt[0], afOpt); aSel.MinWidth = 250; var aN = Input(r.MaxPayouts.ToString(CultureInfo.InvariantCulture)); var aCool = Input((r.CooldownDays > 0 ? r.CooldownDays : 14).ToString(CultureInfo.InvariantCulture));
+                    var aPause = new CheckBox { Content = "no trades during the cooldown", IsChecked = r.CoolPause, Foreground = Text, Margin = new Thickness(0, 16, 10, 0) }; var aMax = Input(r.MaxFunded.ToString(CultureInfo.InvariantCulture));
+                    var auE = new CheckBox { Content = "automation in evaluation", IsChecked = r.AutoEval, Foreground = Text, Margin = new Thickness(0, 16, 10, 0) }; var auF = new CheckBox { Content = "automation funded", IsChecked = r.AutoFunded, Foreground = Text, Margin = new Thickness(0, 16, 10, 0) };
+                    af.Children.Add(field("AFTER PAYOUTS", aSel)); af.Children.Add(field("N PAYOUTS", aN)); af.Children.Add(field("COOLDOWN DAYS", aCool)); af.Children.Add(aPause); af.Children.Add(field("MAX FUNDED AT ONCE", aMax)); af.Children.Add(auE); af.Children.Add(auF);
+                    apply.Add(delegate
+                    {
+                        if (!string.IsNullOrWhiteSpace(nm.Text)) r.Name = nm.Text.Replace("|", " ").Trim();
+                        r.Size = Math.Max(1, (int)NumberAllowZero(eSize, r.Size)); r.EvalPrice = NumberAllowZero(ePrice, r.EvalPrice); r.Discount = Math.Min(100, NumberAllowZero(eDisc, r.Discount)); r.EvalTarget = NumberAllowZero(eTarget, r.EvalTarget);
+                        r.EvalDdType = (eDdT.SelectedItem as string) ?? "EOD"; r.EvalDd = NumberAllowZero(eDd, r.EvalDd); r.EvalMinDays = (int)NumberAllowZero(eMin, r.EvalMinDays); r.EvalCons = Math.Min(100, NumberAllowZero(eCons, r.EvalCons)); r.fromBookPrice = usePrice.IsChecked == true;
+                        r.DdType = (fDdT.SelectedItem as string) ?? "EOD"; r.Dd = NumberAllowZero(fDd, r.Dd); r.LockAt = NumberAllowZero(fLock, r.LockAt); r.QualDays = Math.Max(r.Tpt ? 0 : 1, (int)NumberAllowZero(fQd, r.QualDays)); r.QualMin = NumberAllowZero(fQm, r.QualMin);
+                        r.Pct = Math.Min(100, NumberAllowZero(fPct, r.Pct)); r.Cap = NumberAllowZero(fCap, r.Cap); r.Split = Math.Min(100, NumberAllowZero(fSplit, r.Split)); r.MinPayout = NumberAllowZero(fMin, r.MinPayout); if (r.Tpt) r.DailyMax = NumberAllowZero(fDay, r.DailyMax);
+                        r.After = (aSel.SelectedItem as string) == afOpt[1] ? "COOLDOWN" : "LIVE"; r.MaxPayouts = Math.Max(1, (int)NumberAllowZero(aN, r.MaxPayouts)); r.CooldownDays = Math.Max(1, (int)NumberAllowZero(aCool, 14)); r.CoolPause = aPause.IsChecked == true;
+                        r.MaxFunded = Math.Max(1, (int)NumberAllowZero(aMax, r.MaxFunded)); r.AutoEval = auE.IsChecked == true; r.AutoFunded = auF.IsChecked == true; r.Template = false;
+                    });
+                }
+                var saveB = Btn("💾 SAVE EVERY FIRM", Tint(Green, 70)); saveB.Foreground = Green; saveB.Height = 40; saveB.FontSize = 14; saveB.Padding = new Thickness(14, 0, 14, 0); saveB.HorizontalAlignment = HorizontalAlignment.Left; saveB.Click += delegate { save(); }; cards.Children.Add(saveB);
+            };
+            paint();
+            return new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = root, Tag = "FIRMS" };
         }
         private FrameworkElement LabHowToView(bool funded)
         {
@@ -48818,7 +49024,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 return b;
             };
             // ================= 🏠 OVERVIEW =================
-            nav("HOWTO", "❓ HOW TO USE", true); fundedLabHowTo = LabHowToView(true); addSec("HOWTO", fundedLabHowTo); nav("OVERVIEW", "🏠 OVERVIEW", true); nav("POOLS", "👥 POOLS", true); nav("PLANS", "🎯 PLANS", true); nav("SIMULATE", "⚡ SIMULATE", true); nav("REPLAY", "▶ REPLAY", true); nav("PAYOUTS", "💵 PAYOUTS", true); nav("STATS", "📊 STATS", true); nav("REPORT", "📄 REPORT", true); nav("LIVE", "● LIVE • stage 3", false);
+            nav("HOWTO", "❓ HOW TO USE", true); fundedLabHowTo = LabHowToView(true); addSec("HOWTO", fundedLabHowTo); nav("OVERVIEW", "🏠 OVERVIEW", true); nav("POOLS", "👥 POOLS", true); nav("FIRMS", "🏢 FIRMS & RULES", true); addSec("FIRMS", FirmsRulesView(w, labDir, null)); nav("PLANS", "🎯 PLANS", true); nav("SIMULATE", "⚡ SIMULATE", true); nav("REPLAY", "▶ REPLAY", true); nav("PAYOUTS", "💵 PAYOUTS", true); nav("STATS", "📊 STATS", true); nav("REPORT", "📄 REPORT", true); nav("LIVE", "● LIVE • stage 3", false);
             var ovr = page("🏠 OVERVIEW", "beat the trailing drawdown: reach the payout before the floor catches up • the floor follows the highest balance (intraday: including open profit) and stops at the start"); addSec("OVERVIEW", scroll(ovr));
             refreshers["OVERVIEW"] = delegate
             {
@@ -49147,10 +49353,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 op.Click += delegate { if (fundedLabReportPath == null || !File.Exists(fundedLabReportPath)) { where.Text = "write the report first"; return; } try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(fundedLabReportPath) { UseShellExecute = true }); } catch (Exception ex) { where.Text = ex.Message; } };
             };
             // ================= 💵 PAYOUTS (Lucid / Tradeify payout cycle; TPT lock → withdrawals) — docs/reports/prop-strategy-report.html §8 =================
-            var payRules = KeystonePayoutRules.Presets(); try { var prf = Path.Combine(labDir, "payout-rules.txt"); if (File.Exists(prf)) payRules = KeystonePayoutRules.Load(File.ReadAllText(prf)); } catch { }
+            var payRules = KeystonePayoutRules.LoadBook(labDir);   /* 🏢 the shared firm book (FIRMS & RULES edits it in place) */
             var payUser = new List<KeystonePayoutPlan>(); try { var ppf = Path.Combine(labDir, "payout-plans.txt"); if (File.Exists(ppf)) payUser = KeystonePayoutPlan.LoadPlans(File.ReadAllText(ppf)); } catch { }
             var poPlan = KeystonePayoutPlan.Presets()[0].Copy(); bool poBusy = false, poCancel = false;
-            var poPg = page("💵 PAYOUTS", "the funded payout cycle: " + (payRules.Count > 0 ? payRules[0].QualDays : 5) + " qualifying days (≥ $150) → 50 % of the profit (capped: Lucid $2,000 / Tradeify $2,500) → 90 % to you • the other half stays as buffer • up to 5 payouts, then the firm moves you to live • TPT: the one-shot lock (9:30 MNQ 10, +$2,250, intraday trailing) → withdraw $2,000 keeping the $2,000 buffer (80 % → $1,600), never above $10,000 profit a day (✋ MANUAL)"); addSec("PAYOUTS", scroll(poPg));
+            var poPg = page("💵 PAYOUTS", "the funded payout cycle: " + (payRules.Count > 0 ? payRules[0].QualDays : 5) + " qualifying days (≥ $150) → 50 % of the profit (capped: Lucid $2,000 / Tradeify $2,500) → 90 % to you • the other half stays as buffer • Tradeify: up to 5 payouts, then live • Lucid: a 2-week cooldown after each payout, no live, no cap (🏢 FIRMS & RULES) • TPT: the one-shot lock (9:30 MNQ 10, +$2,250, intraday trailing) → withdraw $2,000 keeping the $2,000 buffer (80 % → $1,600), never above $10,000 profit a day (✋ MANUAL)"); addSec("PAYOUTS", scroll(poPg));
             var poChips = new StackPanel(); var poOut = new StackPanel();
             refreshers["PAYOUTS"] = delegate
             {
@@ -49171,7 +49377,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     boxes.Add(delegate { r.Cap = NumberAllowZero(cap, r.Cap); r.Split = NumberAllowZero(spl, r.Split); r.QualDays = Math.Max(1, (int)NumberAllowZero(qd, r.QualDays)); r.QualMin = NumberAllowZero(qm, r.QualMin); r.Pct = NumberAllowZero(pc, r.Pct); r.MinPayout = NumberAllowZero(mn, r.MinPayout); r.MaxPayouts = Math.Max(1, (int)NumberAllowZero(mx, r.MaxPayouts)); r.Dd = NumberAllowZero(ddb, r.Dd); r.LockAt = NumberAllowZero(lk, r.LockAt); r.Parked = pk.IsChecked == true; });
                     rsp.Children.Add(row); rsp.Children.Add(Txt(r.Line(), Muted, 11, FontWeights.Normal));
                 }
-                var sv = big("💾 SAVE THE RULES", Card); sv.Click += delegate { foreach (var b0 in boxes) b0(); try { File.WriteAllText(Path.Combine(labDir, "payout-rules.txt"), KeystonePayoutRules.Save(payRules)); status.Text = "💾 payout rules saved"; status.Foreground = Green; } catch (Exception ex) { status.Text = "save failed • " + ex.Message; status.Foreground = Red; } }; rsp.Children.Add(sv);
+                var sv = big("💾 SAVE THE RULES", Card); sv.Click += delegate { foreach (var b0 in boxes) b0(); try { KeystonePayoutRules.SaveBook(labDir); status.Text = "💾 payout rules saved"; status.Foreground = Green; } catch (Exception ex) { status.Text = "save failed • " + ex.Message; status.Foreground = Red; } }; rsp.Children.Add(sv);
                 // ② the payout plan
                 var pc2 = card(Tint(Cyan, 120)); var psp = new StackPanel(); pc2.Child = psp; poPg.Children.Add(pc2);
                 psp.Children.Add(Txt("② THE FUNDED PLAN (the research's ★ = London side, MNQ 4, +$1,500 / −$500, one trade a day, payout as soon as eligible)", Cyan, 13, FontWeights.Bold));
@@ -50793,8 +50999,20 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 if (piPg.Children.Count > 2) return;
                 piPg.Children.Add(piChips); StageChipsInto(w, piChips, piLoad, piLastSaved, null, null);
-                var payRulesP = KeystonePayoutRules.Presets(); try { var prf = Path.Combine(fundedDir, "payout-rules.txt"); if (File.Exists(prf)) payRulesP = KeystonePayoutRules.Load(File.ReadAllText(prf)); } catch { }
+                var payRulesP = KeystonePayoutRules.LoadBook(fundedDir);   /* 🏢 the shared firm book */
                 var payUserP = new List<KeystonePayoutPlan>(); try { var ppf = Path.Combine(fundedDir, "payout-plans.txt"); if (File.Exists(ppf)) payUserP = KeystonePayoutPlan.LoadPlans(File.ReadAllText(ppf)); } catch { }
+                // 💰 BUDGET: starting money + the price of one evaluation → the step-by-step ladder (docs/reports/eval-to-payout.html §11–12)
+                { var cbud = card(Tint(Green, 120)); var sb = new StackPanel(); cbud.Child = sb; piPg.Children.Add(cbud);
+                  sb.Children.Add(Txt("💰 BUDGET • the money you start with + the price of one evaluation → how many evaluations now, the reserve, when to scale, when to add a firm", Green, 13, FontWeights.Bold));
+                  var br = new WrapPanel(); sb.Children.Add(br); var bMoney = Input("3000"); bMoney.Width = 90; var bPrice = Input("40"); bPrice.Width = 70; br.Children.Add(field("STARTING MONEY $", bMoney)); br.Children.Add(field("$ PER EVALUATION", bPrice));
+                  var bGo = big("💰 MY LADDER", Tint(Green, 70)); bGo.Foreground = Green; bGo.Margin = new Thickness(0, 14, 8, 0); br.Children.Add(bGo); var bOut = new StackPanel(); sb.Children.Add(bOut);
+                  Action<string, string> ladder = (mo, pr) =>
+                  {
+                      bMoney.Text = mo; bPrice.Text = pr; bOut.Children.Clear(); var bp = KeystoneBudget.Ladder(NumberAllowZero(bMoney, 0), NumberAllowZero(bPrice, 0)); evalLabBudgetLast = bp;
+                      if (bp.PerWeek > 0) bOut.Children.Add(Txt(bp.PerWeek + " evaluations a week • now $" + bp.FirstSpend.ToString("N0", CultureInfo.InvariantCulture) + " • reserve $" + bp.Reserve.ToString("N0", CultureInfo.InvariantCulture) + " • reserve goal $" + bp.ReserveGoal.ToString("N0", CultureInfo.InvariantCulture), Gold, 13, FontWeights.Bold));
+                      foreach (var st in bp.Steps) { var t = Txt(st, st.StartsWith("⚠") ? Gold : Text, 12.5, FontWeights.Normal); t.TextWrapping = TextWrapping.Wrap; t.Margin = new Thickness(0, 3, 0, 0); bOut.Children.Add(t); }
+                  };
+                  bGo.Click += delegate { ladder(bMoney.Text, bPrice.Text); }; evalLabBudget = ladder; ladder("3000", "40"); }
                 // ① the batch: the firm mix (from the pool or typed) + the eval plan
                 var c1 = card(Tint(Gold, 120)); var s1 = new StackPanel(); c1.Child = s1; piPg.Children.Add(c1);
                 s1.Children.Add(Txt("① THE BATCH • the firm mix and the evaluation plan (⚡ GOING FORWARD: all at once, one side per firm, MNQ 20, +$1,500 after costs, ride the room)", Gold, 13, FontWeights.Bold));
@@ -51027,7 +51245,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 evalLabWizardDays = (f9, t9) => { w3From.Text = f9.ToString("yyyy-MM-dd"); w3To.Text = t9.ToString("yyyy-MM-dd"); }; evalLabWizardBack = () => { wz.Back(); wzPaint(); }; evalLabWizardMath = () => { w4Math.IsChecked = true; w4Rep.IsChecked = false; };
             }
             // the rail (LIVE = stage 3)
-            nav("HOWTO", "❓  HOW TO USE", true); evalLabHowTo = LabHowToView(false); addSec("HOWTO", evalLabHowTo); nav("WIZARD", "🧭  START HERE", true); nav("OVERVIEW", "🏠  OVERVIEW", true); nav("POOLS", "👥  POOLS", true); nav("PLANS", "🎯  PLANS", true); nav("ROTATE", "🔄  ROTATE", true); nav("CALCULATE", "⚡  CALCULATE", true); nav("PIPELINE", "🔁  PIPELINE", true); nav("STATS", "📊  STATS", true); nav("ADVISOR", "🧠  ADVISOR", true); nav("DATA", "🗂  DATA", true);
+            nav("HOWTO", "❓  HOW TO USE", true); evalLabHowTo = LabHowToView(false); addSec("HOWTO", evalLabHowTo); nav("WIZARD", "🧭  START HERE", true); nav("OVERVIEW", "🏠  OVERVIEW", true); nav("POOLS", "👥  POOLS", true); nav("FIRMS", "🏢  FIRMS & RULES", true); addSec("FIRMS", FirmsRulesView(w, Path.Combine(StudioFolder(), "FundedLab"), null)); nav("PLANS", "🎯  PLANS", true); nav("ROTATE", "🔄  ROTATE", true); nav("CALCULATE", "⚡  CALCULATE", true); nav("PIPELINE", "🔁  PIPELINE", true); nav("STATS", "📊  STATS", true); nav("ADVISOR", "🧠  ADVISOR", true); nav("DATA", "🗂  DATA", true);
             var lvN = nav("LIVE", "●  LIVE • stage 3", false); lvN.ToolTip = "stage 3: the real evaluation accounts in firm round robin through armed links (ARM + limits) — nothing in this window sends an order today";
             rail.Children.Add(new TextBlock { Text = "BACKTEST • simulation only", Foreground = Muted, FontSize = 10.5, Margin = new Thickness(16, 16, 10, 0), TextWrapping = TextWrapping.Wrap });
             evalLabShow = showSec; showSec("WIZARD");   /* 🧭 the wizard is the main entry (⚙ advanced = the other screens) */

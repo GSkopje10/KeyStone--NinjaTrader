@@ -729,7 +729,7 @@ public static class PropSimTests
             var pMx = buy3.Copy(); pMx.MaxOnly = true; var pm = new KeystonePayoutAccount { Id = 4, Name = "Lucid 3", Firm = "LUCID", Floor = luc.FloorOf(0) };
             for (int i = 0; i < 5; i++) KeystonePayout.Day(pm, luc, pMx, pUp[i], 1);
             Check(pm.Payouts == 0 && pm.Qual == 5 && Math.Abs(luc.Due(4000, true) - 2000) < 0.01 && luc.Due(3999, true) == 0 && luc.Due(400, false) == 0, "💵 ONLY THE FULL PAYOUT waits for $4,000 of profit (Lucid) • under the $250 minimum = no payout");
-            var pTwo = luc.Copy(); pTwo.MaxPayouts = 2; var pl = new KeystonePayoutAccount { Id = 5, Name = "Lucid 4", Firm = "LUCID", Floor = pTwo.FloorOf(0) };
+            var pTwo = luc.Copy(); pTwo.MaxPayouts = 2; pTwo.After = "LIVE"; var pl = new KeystonePayoutAccount { Id = 5, Name = "Lucid 4", Firm = "LUCID", Floor = pTwo.FloorOf(0) };
             for (int i = 0; i < 12 && pl.Active; i++) KeystonePayout.Day(pl, pTwo, buy3, pUp[i], 1);
             Check(pl.Payouts == 2 && pl.Stage == "LIVE", "💵 after the last payout (here 2) the firm moves the account to live = the end", pl.Stage + " " + pl.Payouts);
             var pDown = pdays(3, mm => -3.0 * mm); var pRide = new KeystonePayoutPlan { Name = "R", Side = "BUY", Qm = 4, Tp = 1500, Stop = 0 }; var pr = new KeystonePayoutAccount { Id = 6, Name = "Lucid 5", Firm = "LUCID", Floor = luc.FloorOf(0) };
@@ -748,11 +748,60 @@ public static class PropSimTests
                 var lp = new KeystonePayoutAccount { Id = 9, Name = "TPT 3", Firm = "TPT", Floor = -2000 }; KeystonePayout.Day(lp, pTpt, tptMx, pdays(1, mm => -6.0 * mm)[0], 1);
                 Check(lp.Stage == "BLOWN" && !lp.Locked, "🔒 TPT phase 1: a falling market blows it on the intraday trailing floor (no lock)", lp.Stage + " " + lp.Bal);
             }
-            var pLine = pb.RuleLine(luc); Check(pLine.StartsWith("Lucid 2 · FUNDED · next payout") && pLine.Contains("payouts 1/5"), "💵 the rule pLine on every tile: name · stage · next payout · payouts n/5 · room", pLine);
+            var pLine = pt.RuleLine(tdf); Check(pLine.StartsWith("Tradeify 1 · FUNDED · next payout") && pLine.Contains("payouts 1/5"), "💵 the rule pLine on every tile: name · stage · next payout · payouts n/5 · room", pLine);
             var pRl = KeystonePayoutRules.Load(KeystonePayoutRules.Save(new[] { new KeystonePayoutRules { Firm = "LUCID", Name = "L", Cap = 1800, Split = 80, QualDays = 4 } }));
             Check(pRl.Count == 3 && pRl[0].Cap == 1800 && pRl[0].Split == 80 && pRl[0].QualDays == 4 && pRl.Any(x => x.Firm == "TPT" && x.Tpt && !x.Parked), "💵 the firm payout rules are saved and read back (missing firms = the presets)");
             var pPlp = KeystonePayoutPlan.LoadPlans(KeystonePayoutPlan.SavePlans(new[] { new KeystonePayoutPlan { Name = "MY", Side = "LONDON", Qm = 6, Tp = 1200, Stop = 400, Tries = 2, MaxOnly = true, Protect = true } }));
-            Check(pPlp.Count == 1 && pPlp[0].Qm == 6 && pPlp[0].Tries == 2 && pPlp[0].MaxOnly && pPlp[0].Protect && KeystonePayoutPlan.Presets().Count == 7, "💵 a payout template is saved and read back • 7 presets");
+            Check(pPlp.Count == 1 && pPlp[0].Qm == 6 && pPlp[0].Tries == 2 && pPlp[0].MaxOnly && pPlp[0].Protect && KeystonePayoutPlan.Presets().Count == 9, "💵 a payout template is saved and read back • 9 presets");
+            {   // ⏸ LUCID: no live, a 2-week cooldown (14 calendar days ≈ 10 trading days) after each payout, no payout-count cap (the user, 2026-11-09)
+                var lc = KeystonePayoutRules.Presets()[0].Copy(); var up60 = pdays(100, mm => 2.0 * mm);
+                Check(lc.Cooldown && lc.CooldownDays == 14 && lc.CoolTradingDays == 10 && lc.CoolPause, "⏸ Lucid preset: COOLDOWN 14 days (10 trading days), no trades during it", lc.After + " " + lc.CooldownDays + " " + lc.CoolTradingDays);
+                foreach (bool pause in new[] { true, false })
+                {
+                    var rc = lc.Copy(); rc.CoolPause = pause; var ac = new KeystonePayoutAccount { Id = 20, Name = "Lucid C", Firm = "LUCID", Floor = rc.FloorOf(0) }; var payDays = new List<int>(); bool flatInCool = true;
+                    for (int i = 0; i < 100 && ac.Active; i++)
+                    {
+                        int before = ac.Payouts; double b0 = ac.Bal; bool coolingNow = ac.CoolLeft > 0; KeystonePayout.Day(ac, rc, pBig, up60[i], 1); if (ac.Payouts > before) payDays.Add(i);
+                        if (coolingNow && Math.Abs(ac.Bal - b0) > 0.01) flatInCool = false;
+                    }
+                    bool gaps = payDays.Count > 1 && Enumerable.Range(1, payDays.Count - 1).All(k => payDays[k] - payDays[k - 1] > 10);
+                    Check(payDays.Count > 5 && ac.Stage != "LIVE" && ac.Active && gaps && payDays[0] == 4 && (!pause || flatInCool),
+                        "⏸ Lucid " + (pause ? "PAUSE" : "KEEP TRADING") + " during the cooldown: no payout request within 10 trading days after one • more than 5 payouts • never moved to live" + (pause ? " • no trades while cooling" : ""), string.Join(",", payDays) + " " + ac.Stage + " flat " + flatInCool);
+                }
+                var trl = tdf.Copy(); Check(!trl.Cooldown && trl.After == "LIVE" && trl.CoolTradingDays == 0, "⏸ Tradeify stays 'moved to live after 5'", trl.After);
+            }
+            {   // 🏢 FIRMS & RULES: the book saved and read back (every column), ＋ ADD FIRM, automation → KeystoneFirmPolicies, the bench limit, the eval rules
+                string bdir = Path.Combine(Path.GetTempPath(), "ks-firmbook-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(bdir);
+                KeystonePayoutRules.Book = null; var fbk = KeystonePayoutRules.LoadBook(bdir); bool presetsFirst = fbk.Count == 3 && fbk[0].Firm == "LUCID" && fbk[0].Cooldown;
+                var lu = fbk[0]; lu.EvalPrice = 150; lu.Discount = 80; lu.EvalTarget = 3100; lu.EvalDd = 2100; lu.EvalCons = 40; lu.EvalMinDays = 3; lu.CooldownDays = 21; lu.CoolPause = false; lu.MaxFunded = 7; lu.fromBookPrice = true; lu.DdType = "STATIC"; lu.Color = "#81C784";
+                var ap = KeystonePayoutRules.TemplateFor("apex", null, "#E57373"); ap.AutoFunded = false; ap.After = "LIVE"; ap.MaxPayouts = 6; ap.Cap = 2500; fbk.Add(ap);
+                KeystonePayoutRules.SaveBook(bdir); KeystonePayoutRules.Book = null; var frb = KeystonePayoutRules.LoadBook(bdir); var l2 = frb.First(x => x.Firm == "LUCID"); var fa2 = frb.FirstOrDefault(x => x.Firm == "APEX");
+                Check(presetsFirst && frb.Count == 4 && fa2 != null && fa2.Template && fa2.Color == "#E57373" && fa2.MaxPayouts == 6 && fa2.Cap == 2500 && !fa2.AutoFunded && fa2.AutoEval
+                    && l2.EvalPrice == 150 && l2.Discount == 80 && Math.Abs(l2.EvalCost - 30) < 0.01 && l2.EvalTarget == 3100 && l2.EvalDd == 2100 && l2.EvalCons == 40 && l2.EvalMinDays == 3 && l2.CooldownDays == 21 && !l2.CoolPause && l2.MaxFunded == 7 && l2.fromBookPrice && l2.DdType == "STATIC" && l2.Color == "#81C784" && l2.Cooldown,
+                    "🏢 FIRMS & RULES: every firm field saved and read back • ＋ ADD FIRM (APEX from the template) • price × (1 − discount) = $30", frb.Count + " " + (fa2 == null ? "no APEX" : fa2.Line()) + " | " + l2.Line());
+                Check(!KeystoneFirmPolicies.For("APEX").AutoFunded && KeystoneFirmPolicies.For("APEX").AutoEval && new KeystoneBench().LimitOf("LUCID") == 7 && new KeystoneBench().LimitOf("TRADEIFY") == 5,
+                    "🏢 the firm's automation goes to KeystoneFirmPolicies • max funded per firm = the 🪑 bench limit (Lucid 7, Tradeify 5)");
+                double et, edd, ecs; int emd; string ewhy; KeystoneEvalLab.FirmRule("LUCID", 50, out et, out edd, out ecs, out emd, out ewhy);
+                Check(et == 3100 && edd == 2100 && ecs == 40 && emd == 3 && ewhy.StartsWith("🏢"), "🏢 the evaluation simulations use the firm's typed rules (+$3,100 • $2,100 • best day 40 % • 3 days)", et + " " + edd + " " + ecs + " " + emd + " " + ewhy);
+                var old = KeystonePayoutRules.Load("LUCID|Lucid 50K funded|2000|100|150|5|50|2000|250|90|5|0");
+                Check(old.First(x => x.Firm == "LUCID").Cooldown && old.First(x => x.Firm == "LUCID").CooldownDays == 14, "🏢 an older payout-rules.txt (no firm-book columns): Lucid takes the 2-week cooldown");
+                KeystonePayoutRules.Book = null; KeystoneFirmPolicies.Chosen.Clear(); try { Directory.Delete(bdir, true); } catch { }
+            }
+            {   // ⚡ FAST CASH + 🎯 TPT +$10K presets (docs/reports/eval-to-payout.html §11–12) + 💰 the budget ladder
+                var fcp = KeystonePayoutPlan.Presets().FirstOrDefault(p0 => p0.Name.StartsWith("⚡ FAST CASH")); var tp = KeystonePayoutPlan.Presets().FirstOrDefault(p0 => p0.Name.StartsWith("🎯 TPT +$10K"));
+                var fe = KeystoneEvalLab.Presets().FirstOrDefault(p0 => p0.Name.StartsWith("⚡ FAST CASH"));
+                Check(fcp != null && fcp.Qm == 6 && fcp.Tp == 1500 && fcp.Stop == 500 && fcp.Tries == 1 && fcp.Spread && !fcp.MaxOnly && tp != null && tp.TptQm1 == 15 && tp.TptLondon && tp.Qm == 10 && tp.Tp == 4000 && tp.TptWithdraw == 10000 && tp.TptDayMax == 9500 && tp.ProtectRoom == 2000 && fe != null && fe.Mode == "STAG",
+                    "⚡ FAST CASH (MNQ 6 +$1,500 / −$500, the first payout; eval ⚡ STAGGERED) and 🎯 TPT +$10K (lock MNQ 15 London → MNQ 10 +$4,000 → withdraw $10,000) presets");
+                var fxa = new KeystonePayoutAccount { Id = 30, Name = "Tradeify F", Firm = "TRADEIFY", Floor = tdf.FloorOf(0) }; var fev = new List<KeystonePayoutEvent>();
+                int fday = -1; for (int i = 0; i < 12 && fxa.Active && fxa.Payouts == 0; i++) { KeystonePayout.Day(fxa, tdf, fcp, pUp[i], 1, null, null, fev); if (fxa.Payouts > 0) fday = i; }
+                Check(fxa.Payouts == 1 && fev.Count == 1 && fday == 4 && fev[0].Gross > 0, "⚡ FAST CASH takes the FIRST eligible payout (the 5th qualifying day)", fxa.Payouts + " day " + fday + " " + (fev.Count > 0 ? fev[0].Gross.ToString("0") : "-"));
+                var tr = KeystonePayoutRules.For("TPT", null); var ta = new KeystonePayoutAccount { Id = 31, Name = "TPT X", Firm = "TPT", Floor = -2000 }; var tev = new List<KeystonePayoutEvent>(); var tup = pdays(40, mm => 6.0 * mm);
+                KeystonePayout.Day(ta, tr, tp, tup[0], 1); bool tlock = ta.Locked; for (int i = 1; i < 40 && ta.Active && tev.Count == 0; i++) KeystonePayout.Day(ta, tr, tp, tup[i], 1, null, null, tev);
+                Check(tlock && tev.Count == 1 && Math.Abs(tev[0].Gross - 10000) < 0.01 && Math.Abs(tev[0].Net - 8000) < 0.01, "🎯 TPT +$10K: the lock on day 1, then ONE withdrawal of $10,000 → $8,000 (80 %)", tlock + " " + string.Join(",", tev.Select(e => e.Gross + "/" + e.Net)));
+                var b3 = KeystoneBudget.Ladder(3000, 40); var b120 = KeystoneBudget.Ladder(3000, 120); var b0 = KeystoneBudget.Ladder(200, 120);
+                Check(b3.PerWeek == 25 && b3.FirstSpend == 1000 && b3.Reserve == 2000 && !b3.TooExpensive && b3.Steps.Count == 7 && b120.PerWeek == 8 && b120.TooExpensive && b0.TooLittle && b0.Steps.Count == 2,
+                    "💰 BUDGET: $3,000 at $40 → 25 a week ($1,000 now, $2,000 reserve, 7 steps) • at $120 → 8 a week + a warning • $200 → too little", b3.PerWeek + " " + b120.PerWeek + " " + b0.Steps.Count);
+            }
             // 🔁 the pipeline: a batch → the passed Lucid / Tradeify funded from the next day, TPT parked; the net = the payouts
             var pRnd = new Random(5); var pWild = new List<KeystoneRotDay>(); var pDw = new DateTime(2025, 1, 6);
             for (int i = 0; i < 70; i++, pDw = pDw.AddDays(pDw.DayOfWeek == DayOfWeek.Friday ? 3 : 1))

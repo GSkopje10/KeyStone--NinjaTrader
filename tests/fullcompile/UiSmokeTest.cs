@@ -1094,6 +1094,16 @@ public static class UiSmokeTest
                 KeystoneFirmPolicies.Chosen.Clear();
                 ((Action<string, string, int>)G("fundedLabNewPool"))("SMOKE FUNDED", "TPT", 3); ((Action<string, string, int>)G("fundedLabNewPool"))("SMOKE FUNDED", "LUCID", 2);
                 foreach (var sec in new[] { "OVERVIEW", "POOLS", "PLANS", "SIMULATE", "REPLAY", "STATS", "REPORT" }) ((Action<string>)G("fundedLabShow"))(sec);
+                {   // 🏢 FIRMS & RULES + ＋ ADD FIRM (the shared firm book)
+                    ((Action<string>)G("fundedLabShow"))("FIRMS");
+                    var addF = (Action<string, string, string>)G("firmsLabAdd"); var saveF = (Action)G("firmsLabSave"); if (addF == null || saveF == null) throw new Exception("no 🏢 FIRMS & RULES screen");
+                    int n0 = KeystonePayoutRules.Book.Count; addF("SMOKEFIRM", "Smoke Firm 50K", "#BA68C8"); var sf = KeystonePayoutRules.BookOf("SMOKEFIRM");
+                    if (sf == null || KeystonePayoutRules.Book.Count != n0 + 1 || !sf.Template) throw new Exception("＋ ADD FIRM did not add the firm: " + ((System.Windows.Controls.TextBlock)G("firmsLabMsg")).Text);
+                    addF("SMOKEFIRM", "", ""); if (KeystonePayoutRules.Book.Count != n0 + 1) throw new Exception("＋ ADD FIRM added a duplicate");
+                    saveF(); if (KeystonePayoutRules.BookOf("SMOKEFIRM").Template) throw new Exception("💾 SAVE did not apply the boxes");
+                    Console.WriteLine("      🏢 FIRMS & RULES: " + KeystonePayoutRules.Book.Count + " firms • " + ((System.Windows.Controls.TextBlock)G("firmsLabMsg")).Text);
+                    KeystonePayoutRules.Book.Remove(KeystonePayoutRules.BookOf("SMOKEFIRM")); saveF(); KeystoneFirmPolicies.Chosen.Clear();
+                }
                 { var ht = G("fundedLabHowTo") as System.Windows.FrameworkElement; if (ht == null) throw new Exception("the Funded Lab has no ❓ HOW TO USE tab"); ((Action<string>)G("fundedLabShow"))("HOWTO"); if (ht.Visibility != System.Windows.Visibility.Visible) throw new Exception("❓ HOW TO USE (funded) did not open"); }
                 ((Action<DateTime, DateTime>)G("fundedLabSim"))(new DateTime(2026, 2, 2), new DateTime(2026, 2, 17));
                 for (int i = 0; i < 600 && G("fundedLabLast") == null && !((System.Windows.Controls.TextBlock)G("fundedLabStatus")).Text.Contains("no saved"); i++) System.Threading.Thread.Sleep(100);
@@ -1142,7 +1152,9 @@ public static class UiSmokeTest
                 Console.WriteLine("      payouts: " + pr.Payouts + " • to you $" + pr.Net.ToString("0") + " • " + pr.Accounts[0].RuleLine(KeystonePayoutRules.For(pr.Accounts[0].Firm, null)));
                 // 🔁 the pipeline in the Eval Lab
                 Set(lab4, "rotStudioDaysOverride", psynth); Set(lab4, "evalLabPipeOne", null); Set(lab4, "evalLabPipeStarts", null); Set(lab4, "evalLabPipeLoop", null);
+                ((Action<string>)G("evalLabShow"))("FIRMS");
                 ((Action<string>)G("evalLabShow"))("PIPELINE");
+                { var bud = (Action<string, string>)G("evalLabBudget"); if (bud == null) throw new Exception("🔁 PIPELINE has no 💰 BUDGET box"); bud("3000", "40"); var bl = (KeystoneBudgetPlan)G("evalLabBudgetLast"); if (bl == null || bl.PerWeek != 25 || bl.Steps.Count != 7) throw new Exception("💰 BUDGET: no ladder"); Console.WriteLine("      💰 BUDGET $3,000 at $40: " + bl.PerWeek + " evals a week • " + bl.Steps.Count + " steps"); }
                 { var pb = G("evalLabPipeProgress") as System.Windows.Controls.ProgressBar; if (pb == null || pb.Maximum != 100) throw new Exception("🔁 PIPELINE has no progress bar"); }
                 var go = (Action<string>)G("evalLabPipe"); if (go == null) throw new Exception("no pipeline");
                 ((Action<DateTime, DateTime>)G("evalLabPipeRange"))(DateTime.Today.AddDays(-125), DateTime.Today.AddDays(-60));
