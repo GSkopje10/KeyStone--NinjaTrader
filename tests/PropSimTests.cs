@@ -624,6 +624,42 @@ public static class PropSimTests
             double ftz, fdz, fcz; int fmz; string fw; KeystoneEvalLab.FirmRule("TPT", 50, out ftz, out fdz, out fcz, out fmz, out fw); double mt, md, mc; int mm; string mw; KeystoneEvalLab.FirmRule("MFFU", 50, out mt, out md, out mc, out mm, out mw);
             Check(fmz == 3 && ftz == 3000 && fdz == 2000 && mc == 30, "🏢 the firms' own rules: TPT 3 days (the extra day), MFFU best day ≤ 30 %", fw + " | " + mw);
         }
+        {   // ⚡ ALL AT ONCE (one side per firm) • 🩹 SAME-DAY RECOVERY • 📅 START-DAY TEST (docs/reports/eval-plan-2026.aoHtml)
+            Func<DateTime, double, KeystoneRotDay> aoMk = (day, step) =>
+            {
+                var aoDd = new KeystoneRotDay { Day = day }; double aoM = 20000, aoG = 2500;
+                for (int aoK = 0; aoK < KeystoneRotDay.Slots; aoK++) { double aoM1 = aoM + step, aoG1 = aoG + step / 10; aoDd.MO[aoK] = (float)aoM; aoDd.MC[aoK] = (float)aoM1; aoDd.MH[aoK] = (float)(Math.Max(aoM, aoM1) + 0.25); aoDd.ML[aoK] = (float)(Math.Min(aoM, aoM1) - 0.25); aoDd.GO[aoK] = (float)aoG; aoDd.GC[aoK] = (float)aoG1; aoDd.GH[aoK] = (float)(Math.Max(aoG, aoG1) + 0.05); aoDd.GL[aoK] = (float)(Math.Min(aoG, aoG1) - 0.05); aoM = aoM1; aoG = aoG1; }
+                return aoDd;
+            };
+            var aoUp = new List<KeystoneRotDay>(); var aoD0 = new DateTime(2026, 1, 5); for (int i = 0; i < 8; i++) { var dy = aoD0.AddDays(i); if (dy.DayOfWeek == DayOfWeek.Saturday || dy.DayOfWeek == DayOfWeek.Sunday) continue; aoUp.Add(aoMk(dy, 2)); }
+            var aoPa = new KeystoneEvalPool(); foreach (var fz in new[] { "TPT", "TPT", "TPT", "LUCID", "LUCID", "LUCID" }) aoPa.Accounts.Add(new KeystoneEvalAccount { Firm = fz, Size = 50 });
+            var aoAS = new KeystoneSimSettings { Strategy = "ROTATION", AllAtOnce = true, AllSide = "FIRM", Allocation = "ROTATE", BuyRule = "BATCH", DayPlan = "NONE", Accounts = 6, Firms = KeystoneEvalLab.FirmsText(aoPa, new KeystoneSimRules(), 120), MnqQty = 20, MgcQty = 0, RotTarget = 1500, RotStop = 1e6, FundedWhen = "ASK", Seed = 3 };
+            var aoASim = KeystoneRotationLab.Run(aoAS, aoUp.Take(3).ToList(), 200, 1655, null);
+            var aoDay1 = aoASim.Trades.Where(t => t.Day == aoUp[0].Day).ToList();
+            Check(aoDay1.Count == 6 && aoDay1.Select(t => t.Entry).Distinct().Count() == 1, "⚡ ALL AT ONCE: all 6 alive accounts open at the same minute on day 1", aoDay1.Count + " trades • " + string.Join(",", aoDay1.Select(t => t.Entry.ToString("HH:mm")).Distinct()));
+            bool aoSame = true; foreach (var dg in aoASim.Trades.GroupBy(t => t.Day)) foreach (var fg in dg.GroupBy(t => aoASim.Accounts.First(a => a.Id == t.Account).Firm)) if (fg.Select(t => t.Dir).Distinct().Count() > 1) aoSame = false;
+            Check(aoSame && aoASim.Trades.GroupBy(t => t.Day + "|" + t.Account).All(g => g.Count() == 1), "⚡ ONE SIDE PER FIRM: every account of a firm takes the same side each day, one trade a day", string.Join(" | ", aoDay1.Select(t => t.Legs)));
+            var aoBS = aoAS.Copy(); aoBS.AllSide = "BUY"; var aoBSim = KeystoneRotationLab.Run(aoBS, aoUp.Take(5).ToList(), 200, 1655, null);
+            Check(aoBSim.Accounts.Take(6).All(a => a.PassedOn != DateTime.MinValue) && aoBSim.Accounts.Take(6).Where(a => aoBSim.FirmName(a).StartsWith("LUCID")).All(a => a.PassedOn == aoUp[1].Day) && aoBSim.Trades.Where(t => t.Day <= aoUp[1].Day).All(t => t.Pnl > 1499 && t.Pnl < 1501), "⚡ BUY ALL on rising days: +1,500 after costs a day → Lucid passes on day 2, TPT (3 days) after", string.Join(",", aoBSim.Accounts.Take(6).Select(a => a.PassedOn.ToString("dd"))));
+            // 🩹 recovery: SELL ALL with a −500 stop on a rising day → the flipped recovery (risking the room left) reaches +500
+            var aoS = aoAS.Copy(); aoS.AllSide = "SELL"; aoS.RotStop = 500; aoS.RecTarget = 500; aoS.RecSide = "FLIP"; var aoSim = KeystoneRotationLab.Run(aoS, aoUp.Take(1).ToList(), 200, 1655, null);
+            var aoT0 = aoSim.Trades.FirstOrDefault();
+            Check(aoT0 != null && aoT0.Reason.Contains("RECOVERY TARGET") && aoT0.Pnl > -60 && aoT0.Pnl < 1, "🩹 same-day recovery (flipped): −500 stop, then +500 risking the room left ≈ breakeven for the day", aoT0 == null ? "none" : aoT0.Reason + " " + aoT0.Pnl.ToString("0.00"));
+            var aoS2 = aoS.Copy(); aoS2.RecSide = "SAME"; var aoSim2 = KeystoneRotationLab.Run(aoS2, aoUp.Take(1).ToList(), 200, 1655, null); var aoT2 = aoSim2.Trades.FirstOrDefault();
+            Check(aoT2 != null && aoT2.Reason.Contains("RECOVERY STOP") && aoSim2.Accounts.Take(6).All(a => !a.Alive), "🩹 same-side recovery on a rising day: the second sell loses the room left → blown", aoT2 == null ? "none" : aoT2.Reason + " " + aoT2.Pnl.ToString("0"));
+            var aoS3 = aoS.Copy(); aoS3.AllAtOnce = false; aoS3.Direction = "SELL"; aoS3.Accounts = 2; aoS3.Firms = ""; var aoSim3 = KeystoneRotationLab.Run(aoS3, aoUp.Take(1).ToList(), 930, 1555, null); var aoT3 = aoSim3.Trades.FirstOrDefault();
+            Check(aoT3 != null && aoT3.Reason.Contains("RECOVERY TARGET"), "🩹 the recovery works in the rotation too", aoT3 == null ? "none" : aoT3.Reason);
+            // 📅 START-DAY TEST: a batch on every trading day; BUY ALL on rising days passes in 2 days, the last days stay open
+            var aoSS = aoBS.Copy(); var aoSb = KeystoneStartDay.Run(aoSS, aoUp, null, null, 30);
+            Check(aoSb.Count == aoUp.Count && aoSb[0].Passed == 6 && aoSb[0].Days <= 4 && aoSb[aoSb.Count - 1].Open == 6, "📅 start-day batches: one per trading day, BUY ALL passes all 6 (TPT needs its extra day), the last start is still open", string.Join(" ", aoSb.Select(bq => bq.Start.ToString("ddd") + ":" + bq.Passed + "/" + bq.Open + "/" + bq.Days)));
+            var aoTbl = KeystoneStartDay.Table(aoSb, aoUp[aoUp.Count - 1].Day); var aoAll = aoTbl.First(t => t.Period == "ALL" && t.Weekday == 0);
+            Check(aoTbl.Any(t => t.Period == "LAST 5 DAYS") && aoTbl.Any(t => t.Period == "2026") && aoAll.Batches == aoSb.Count && aoTbl.Count(t => t.Period == "ALL") == 6, "📅 the table: ALL + each year + LAST YEAR / 3 MONTHS / 3 WEEKS / 5 DAYS × all weekdays + Mon–Fri", string.Join(",", aoTbl.Select(t => t.Period).Distinct()));
+            var aoHtml = KeystoneStartDay.Html("T", new List<Tuple<string, string, List<KeystoneStartBatch>>> { Tuple.Create("BUY ALL", "x", aoSb), Tuple.Create("again", "y", aoSb) }, aoUp[0].Day, aoUp[aoUp.Count - 1].Day, aoUp[aoUp.Count - 1].Day);
+            Check(aoHtml.Contains("@media print") && aoHtml.Contains("MONDAY") && aoHtml.Contains("Plans side by side") && aoHtml.Contains("room"), "📅 the HTML report: weekday table, plans side by side, prints to PDF");
+            var aoPl = KeystoneEvalLab.LoadPlans(KeystoneEvalLab.SavePlans(new[] { new KeystoneEvalPlan { Name = "A", Mode = "ALL", AllSide = "EACH", RecT = 1500, RecSide = "FLIP", Side = "RANDOM" } }));
+            Check(aoPl.Count == 1 && aoPl[0].Mode == "ALL" && aoPl[0].AllSide == "EACH" && aoPl[0].RecT == 1500 && aoPl[0].RecSide == "FLIP", "⚡ a template keeps ALL AT ONCE, its side and the recovery");
+            Check(KeystoneEvalLab.Presets().Any(p0 => p0.Name.StartsWith("⚡ GOING FORWARD") && p0.Mode == "ALL" && p0.AllSide == "FIRM" && p0.Session == 2 && p0.Qm == 20 && p0.Stop == 0), "⚡ the GOING FORWARD preset: all at once, 2:00, MNQ 20, one side per firm, ride the full room");
+        }
         Console.WriteLine(failures == 0 ? "PROP SIM TESTS: ALL PASSED" : "PROP SIM TESTS: " + failures + " FAILED");
         return failures == 0 ? 0 : 1;
     }

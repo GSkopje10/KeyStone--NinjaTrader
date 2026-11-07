@@ -1011,7 +1011,7 @@ public static class UiSmokeTest
                 Console.WriteLine("      FUNDED: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
                 var simF = (KeystonePropSim)G("rotStudioLast"); if (simF == null || simF.S.StartAs != "FUNDED" || simF.S.Rules.FundDdType != "INTRADAY" || simF.Trades.Count == 0) throw new Exception("the funded intraday run did not trade");
                 if (simF.Trades.Any(t => t.Pnl > 200.01)) throw new Exception("a trade made more than the +$200 target");
-                wk = wk; boxes.Clear(); wk(deck); if (!boxes.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("floor "))) throw new Exception("no floor line on the tiles");
+                wk = wk; boxes.Clear(); wk(deck); if (!boxes.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("room $"))) throw new Exception("no room line on the tiles (room $ above the floor)");
                 // ✋ MANUAL REPLAY: start the day, ▲▲ BUY BOTH, play minutes → the +200 / −200 bracket closes it and the next account is up
                 ((Action)G("rotStudioManLoad"))(); var msimT = (KeystonePropSim)G("rotStudioManSim"); if (msimT == null || msimT.Active == null) throw new Exception("manual replay did not start");
                 var firstAcc = msimT.Active; ((Action<int>)G("rotStudioManStep"))(3); ((Action<int, int>)G("rotStudioManEnter"))(1, 1);
@@ -1044,6 +1044,20 @@ public static class UiSmokeTest
                 foreach (var tab in new[] { "SUMMARY", "ACCOUNTS", "TRADES", "HINDSIGHT", "BEST", "DAYS" }) ((Action<string>)G("evalLabCalcTab"))(tab);
                 ((Action<string>)G("evalLabShow"))("CALCULATE"); ((Action<string>)G("evalLabShow"))("ADVISOR");
                 Console.WriteLine("      ⚡ CALCULATE: " + cm0.Passed + " / " + cm0.N + " passed • 🔮 hindsight " + co0.Passed + " • " + ch0.Count(h => h.Match) + " of " + ch0.Count + " rotations on the winning side");
+                // ⚡ ALL AT ONCE through ⚡ CALCULATE + 📅 START-DAY TEST (two plans side by side) + the HTML report written
+                string goName = KeystoneEvalLab.Presets().First(p0 => p0.Name.StartsWith("⚡ GOING FORWARD")).Name;
+                ((Action<string>)G("evalLabUsePlan"))(goName); Set(lab4, "evalLabCalcLast", null); ((Action<DateTime, DateTime, bool>)G("evalLabCalc"))(new DateTime(2026, 1, 5), new DateTime(2026, 2, 27), false);
+                for (int i = 0; i < 900 && G("evalLabCalcLast") == null; i++) System.Threading.Thread.Sleep(100);
+                var ca0 = (KeystoneCalcRank)G("evalLabCalcLast"); if (ca0 == null || ca0.Sim == null || ca0.Sim.Trades.Count == 0) throw new Exception("⚡ ALL AT ONCE: CALCULATE gave no trade");
+                var firstDayAo = ca0.Sim.Trades.Where(t => t.Day == ca0.Sim.Trades[0].Day).ToList();
+                if (firstDayAo.Select(t => t.Entry).Distinct().Count() != 1 || firstDayAo.Count < 2) throw new Exception("⚡ ALL AT ONCE: the accounts should open together on day 1: " + firstDayAo.Count + " trades at " + string.Join(",", firstDayAo.Select(t => t.Entry.ToString("HH:mm")).Distinct()));
+                Set(lab4, "evalLabStartDayLast", null); Set(lab4, "evalLabReportPath", null);
+                ((Action<DateTime, DateTime, List<string>>)G("evalLabStartDay"))(new DateTime(2026, 1, 5), new DateTime(2026, 1, 30), new List<string> { goName, "" });
+                var sdl = (List<Tuple<string, string, List<KeystoneStartBatch>>>)G("evalLabStartDayLast");
+                if (sdl == null || sdl.Count != 2 || sdl.Any(x => x.Item3.Count == 0)) throw new Exception("📅 START-DAY TEST: " + (sdl == null ? "no result" : sdl.Count + " plans, batches " + string.Join("/", sdl.Select(x => x.Item3.Count))));
+                var rep = (string)G("evalLabReportPath"); if (rep == null || !System.IO.File.Exists(rep) || !System.IO.File.ReadAllText(rep).Contains("MONDAY")) throw new Exception("📅 the HTML report was not written: " + rep);
+                Console.WriteLine("      ⚡ ALL AT ONCE: " + firstDayAo.Count + " accounts at " + firstDayAo[0].Entry.ToString("HH:mm") + " • 📅 START-DAY TEST " + string.Join(" | ", sdl.Select(x => x.Item3.Count + " batches")) + " • report " + System.IO.Path.GetFileName(rep));
+                ((Action<string>)G("evalLabUsePlan"))(KeystoneEvalLab.Presets()[0].Name);
                 // ✋ NO STRATEGY • I DECIDE: the side is mine, the bracket is placed for me, then the next account
                 ((Action<string>)G("evalLabUsePlan"))("✋ NO STRATEGY • I DECIDE"); ((Action)G("rotStudioManLoad"))(); var msimN = (KeystonePropSim)G("rotStudioManSim");
                 ((Action<int>)G("rotStudioManStep"))(3); var accN = msimN.Active; ((Action<int, int>)G("rotStudioManEnter"))(-1, 0);
