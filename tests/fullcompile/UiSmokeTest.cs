@@ -1103,6 +1103,54 @@ public static class UiSmokeTest
                 Console.WriteLine("      replay: " + frep.Current.Name + " • " + frep.Last + " • trades " + frep.Trades.Count);
                 Set(lab4, "fundedLabWindow", null);
             });
+            Step("🏠 LAUNCHER cards 🧪 EVAL LAB + 💰 FUNDED LAB open the windows • 💵 PAYOUTS • 🔁 PIPELINE (one batch, every weekday, business loop) • 🚦 chips", () =>
+            {
+                Set(lab4, "rotStudioWindow", null); Set(lab4, "fundedLabWindow", null);
+                Call(lab4, "OpenLauncher"); var lw = (System.Windows.Window)G("launcherWindow"); if (lw == null) throw new Exception("no launcher");
+                Func<string, System.Windows.Controls.Button> openOf = title =>
+                {
+                    var card = FindAll<System.Windows.Controls.StackPanel>(lw.Content).FirstOrDefault(sp => sp.Children.OfType<System.Windows.Controls.TextBlock>().Any(tb => tb.Text == title));
+                    return card == null ? null : card.Children.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.Content) == "OPEN");
+                };
+                var evB = openOf("🧪 EVAL LAB"); var fu = openOf("💰 FUNDED LAB"); if (evB == null || fu == null) throw new Exception("the launcher has no 🧪 EVAL LAB / 💰 FUNDED LAB card with OPEN");
+                evB.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); fu.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                if (G("rotStudioWindow") == null || G("fundedLabWindow") == null) throw new Exception("the OPEN buttons did not open the labs");
+                Func<DateTime, DateTime, List<KeystoneRotDay>> psynth = (f, t) =>
+                {
+                    var rnd = new Random(41); var list = new List<KeystoneRotDay>(); var d0 = DateTime.Today.AddDays(-130); int k0 = KeystoneRotDay.Slot(200);
+                    for (; d0 <= DateTime.Today; d0 = d0.AddDays(1))
+                    {
+                        if (d0.DayOfWeek == DayOfWeek.Saturday || d0.DayOfWeek == DayOfWeek.Sunday) continue;
+                        var d = new KeystoneRotDay { Day = d0 }; double m = 20000, g = 2500; int sg = rnd.Next(2) == 0 ? 1 : -1; double amp = 0.6 + rnd.NextDouble() * 1.2;
+                        for (int k = 0; k < KeystoneRotDay.Slots; k++) { double m1 = m + (k > k0 ? sg * amp : 0) + (rnd.NextDouble() - 0.5) * 6; d.MO[k] = (float)m; d.MC[k] = (float)m1; d.MH[k] = (float)(Math.Max(m, m1) + 1); d.ML[k] = (float)(Math.Min(m, m1) - 1); d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = (float)g; m = m1; }
+                        list.Add(d);
+                    }
+                    return list;
+                };
+                // 💵 the funded payout cycles
+                Set(lab4, "fundedLabDaysOverride", psynth); Set(lab4, "fundedLabPayLast", null);
+                ((Action<string>)G("fundedLabShow"))("PAYOUTS"); ((Action<DateTime, DateTime>)G("fundedLabPayRun"))(DateTime.Today.AddMonths(-4), DateTime.Today);
+                for (int i = 0; i < 600 && G("fundedLabPayLast") == null && !((System.Windows.Controls.TextBlock)G("fundedLabStatus")).Text.StartsWith("💵 no"); i++) System.Threading.Thread.Sleep(100);
+                var pr = (KeystonePayoutRun)G("fundedLabPayLast"); Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("fundedLabStatus")).Text);
+                if (pr == null || pr.Accounts.Count != 10 || pr.Trades.Count == 0 || !pr.Accounts.All(a => a.Firm == "LUCID" || a.Firm == "TRADEIFY")) throw new Exception("no payout run of the simulated 5 Lucid + 5 Tradeify");
+                Console.WriteLine("      payouts: " + pr.Payouts + " • to you $" + pr.Net.ToString("0") + " • " + pr.Accounts[0].RuleLine(KeystonePayoutRules.For(pr.Accounts[0].Firm, null)));
+                // 🔁 the pipeline in the Eval Lab
+                Set(lab4, "rotStudioDaysOverride", psynth); Set(lab4, "evalLabPipeOne", null); Set(lab4, "evalLabPipeStarts", null); Set(lab4, "evalLabPipeLoop", null);
+                ((Action<string>)G("evalLabShow"))("PIPELINE");
+                var go = (Action<string>)G("evalLabPipe"); if (go == null) throw new Exception("no pipeline");
+                ((Action<DateTime, DateTime>)G("evalLabPipeRange"))(DateTime.Today.AddDays(-125), DateTime.Today.AddDays(-60));
+                go("ONE"); for (int i = 0; i < 900 && G("evalLabPipeOne") == null; i++) System.Threading.Thread.Sleep(100);
+                var one = (KeystonePipeBatch)G("evalLabPipeOne"); if (one == null || one.Accounts.Count != 30) throw new Exception("no batch of 30: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
+                if (!one.Accounts.Where(a => a.PassedOn != DateTime.MinValue).All(a => a.Firm == "TPT" ? a.Stage == "PARKED" : a.F != null)) throw new Exception("the passed accounts did not move to funded / parked");
+                go("ALL"); for (int i = 0; i < 1800 && G("evalLabPipeStarts") == null; i++) System.Threading.Thread.Sleep(100);
+                var all = (List<KeystonePipeBatch>)G("evalLabPipeStarts"); if (all == null || all.Count == 0) throw new Exception("no batch every weekday: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
+                go("LOOP"); for (int i = 0; i < 1800 && G("evalLabPipeLoop") == null; i++) System.Threading.Thread.Sleep(100);
+                var lp = (KeystoneLoopResult)G("evalLabPipeLoop"); if (lp == null || lp.Batches == 0) throw new Exception("no business loop");
+                Console.WriteLine("      one batch: " + one.Passed + " passed • " + one.Payouts + " payouts • every weekday: " + all.Count + " batches • loop: " + lp.Batches + " batches, net $" + lp.Net.ToString("0"));
+                var chips = (List<KeystonePayout.Chip>)G("labChipsLast"); for (int i = 0; i < 300 && chips == null; i++) { System.Threading.Thread.Sleep(100); chips = (List<KeystonePayout.Chip>)G("labChipsLast"); }
+                if (chips == null || chips.Count != 7) throw new Exception("no stage chips");
+                Set(lab4, "rotStudioDaysOverride", null); Set(lab4, "fundedLabDaysOverride", null); Set(lab4, "rotStudioWindow", null); Set(lab4, "fundedLabWindow", null);
+            });
             Step("ROTATION TESTER: MNQ + MGC rotation on the loaded bars, result tabs, optimizer", () =>
             {
                 Call(lab4, "OpenRotationTester");
