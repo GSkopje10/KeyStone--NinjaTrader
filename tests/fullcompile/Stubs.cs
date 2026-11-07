@@ -296,7 +296,7 @@ namespace System.Windows.Threading
         public DispatcherTimer(DispatcherPriority p) { }
         public DispatcherTimer(DispatcherPriority p, Dispatcher d) { }
         public TimeSpan Interval { get; set; } public bool IsEnabled { get; set; } public object Tag { get; set; }
-        public event EventHandler Tick; public void Start() { } public void Stop() { }
+        public event EventHandler Tick; public void Start() { IsEnabled = true; } public void Stop() { IsEnabled = false; }
     }
 }
 

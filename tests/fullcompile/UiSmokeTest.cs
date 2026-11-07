@@ -1151,6 +1151,76 @@ public static class UiSmokeTest
                 if (chips == null || chips.Count != 7) throw new Exception("no stage chips");
                 Set(lab4, "rotStudioDaysOverride", null); Set(lab4, "fundedLabDaysOverride", null); Set(lab4, "rotStudioWindow", null); Set(lab4, "fundedLabWindow", null);
             });
+            Step("🧪💰 LABS full version: one window with tabs, 🧭 wizard (both labs), ⚡ STAGGERED replay to DAY DONE → ▶ NEXT DAY, candles that fit, MNQ-only buttons, event log export, 💰 per-firm models + 🪑 bench, close asks", () =>
+            {
+                Set(lab4, "rotStudioWindow", null); Set(lab4, "fundedLabWindow", null);
+                Func<DateTime, DateTime, List<KeystoneRotDay>> lsynth = (f, t) =>
+                {
+                    var rnd = new Random(7); var list = new List<KeystoneRotDay>(); var d0 = new DateTime(2026, 3, 2);
+                    for (int di = 0; di < 30; di++, d0 = d0.AddDays(d0.DayOfWeek == DayOfWeek.Friday ? 3 : 1))
+                    {
+                        var d = new KeystoneRotDay { Day = d0 }; double m = 20000, g = 2500;
+                        for (int k = 0; k < KeystoneRotDay.Slots; k++) { double m1 = m + (rnd.NextDouble() - 0.5) * 30, g1 = g + (rnd.NextDouble() - 0.5) * 3; d.MO[k] = (float)m; d.MC[k] = (float)m1; d.MH[k] = (float)(Math.Max(m, m1) + 2); d.ML[k] = (float)(Math.Min(m, m1) - 2); d.GO[k] = (float)g; d.GC[k] = (float)g1; d.GH[k] = (float)(Math.Max(g, g1) + 0.3); d.GL[k] = (float)(Math.Min(g, g1) - 0.3); m = m1; g = g1; }
+                        list.Add(d);
+                    }
+                    return list.Where(x => x.Day >= f.Date && x.Day <= t.Date).ToList();
+                };
+                Set(lab4, "rotStudioDaysOverride", lsynth); Set(lab4, "fundedLabDaysOverride", lsynth);
+                Call(lab4, "OpenRotationStudio"); Call(lab4, "OpenFundedLab");
+                var lw = (System.Windows.Window)G("labsWindow"); var tabs = (System.Windows.Controls.TabControl)G("labsTabs");
+                if (lw == null || tabs == null || tabs.Items.Count != 2 || G("rotStudioWindow") != lw || G("fundedLabWindow") != lw) throw new Exception("the two labs should be TABS of ONE window");
+                if (!Convert.ToString(((System.Windows.Controls.TabItem)tabs.Items[0]).Header).Contains("EVAL") || !Convert.ToString(((System.Windows.Controls.TabItem)tabs.Items[1]).Header).Contains("FUNDED")) throw new Exception("tab order: 🧪 EVAL then 💰 FUNDED");
+                Call(lab4, "ShowLabTab", true); if (tabs.SelectedItem != tabs.Items[0]) throw new Exception("⇄ should select the 🧪 tab");
+                // 🧭 the Eval Lab wizard: a step cannot be skipped, ← BACK, then ① 30 accounts of 3 firms → ② ★ STAGGERED → ③ one picked day (+ the next) → ④ replay → ⑤ START
+                var wz = (KeystoneLabWizard)G("evalLabWizard"); var nx = (Func<bool>)G("evalLabWizardNext"); if (wz == null || nx == null || wz.Step != 0 || wz.CanOpen(1)) throw new Exception("the wizard should start at step 1 with step 2 locked");
+                if (!FindAll<System.Windows.Controls.Button>(tabs.Items[0]).Any(b => Convert.ToString(b.Content) == "⚙ advanced • every screen")) throw new Exception("no ⚙ advanced link");
+                if (!nx() || wz.Step != 1 || !wz.Summary[0].Contains("30 simulated")) throw new Exception("step 1: " + wz.Summary[0]);
+                ((Action)G("evalLabWizardBack"))(); if (wz.Step != 0) throw new Exception("← BACK"); nx();
+                if (!nx() || !wz.Summary[1].StartsWith("⚡ STAGGERED")) throw new Exception("step 2 should pre-select the ★ STAGGERED model: " + wz.Summary[1]);
+                var dayBoxes = FindAll<System.Windows.Controls.TextBox>(tabs.Items[0]).ToList(); var pick = FindAll<System.Windows.Controls.Button>(tabs.Items[0]).FirstOrDefault(b => Convert.ToString(b.Content) == "📅 PICK A DAY"); if (pick == null) throw new Exception("step 3 has no 📅 PICK A DAY");
+                ((Action<DateTime, DateTime>)G("evalLabWizardDays"))(new DateTime(2026, 3, 3), new DateTime(2026, 3, 3));
+                if (!nx() || !wz.Summary[2].Contains("2 trading days")) throw new Exception("one picked day = that day + the next: " + wz.Summary[2]);
+                if (!nx() || !wz.Summary[3].StartsWith("▶")) throw new Exception("step 4");
+                if (!nx()) throw new Exception("⑤ START");
+                var msim = (KeystonePropSim)G("rotStudioManSim"); if (msim == null || msim.Accounts.Count < 30) throw new Exception("the replay did not load the 30 accounts");
+                var vis = ((Func<List<string>>)G("evalLabVisibleButtons"))(); if (vis.Contains("▲▲ BUY BOTH") || !vis.Contains("▲ BUY MNQ")) throw new Exception("an MNQ-only plan shows only BUY / SELL MNQ: " + string.Join(",", vis));
+                // the chart: no fixed height (it fills the tab), candles drawn
+                var ch = (System.Windows.Controls.Canvas)G("evalLabChart"); var par = ch.Parent as System.Windows.Controls.DockPanel;
+                if (ch.Height > 0 || par == null || par.Children[par.Children.Count - 1] != ch) throw new Exception("the chart must take the remaining height (last child of its DockPanel, no fixed height)");
+                ((Action<int>)G("rotStudioManStep"))(KeystoneRotDay.Slot(1101) - KeystoneRotDay.Slot(155) + 5);
+                int candles = ch.Children.OfType<System.Windows.Shapes.Rectangle>().Count(); if (candles < 20) throw new Exception("no candles on the chart: " + candles);
+                var dd = (Func<bool>)G("evalLabDayDone"); for (int i = 0; i < 1400 && !dd(); i++) ((Action<int>)G("rotStudioManStep"))(1);
+                if (!dd()) throw new Exception("the replay should stop at DAY DONE");
+                var tr1 = msim.Trades.Where(t => t.Day.Date == new DateTime(2026, 3, 3)).ToList();
+                if (tr1.Select(t => t.Account).Distinct().Count() != tr1.Count) throw new Exception("one trade per account per day");
+                Console.WriteLine("      day 1: " + tr1.Count + " trades by " + tr1.Select(t => t.Account).Distinct().Count() + " accounts • " + candles + " candles • buttons " + string.Join(" ", vis));
+                ((Action)G("evalLabNextDay"))(); if (dd()) throw new Exception("▶ NEXT DAY should open the next day");
+                var lg = (KeystoneLabLog)G("evalLabLog"); var ex = ((Func<string>)G("evalLabLogExport"))(); if (lg == null || lg.Rows.Count == 0 || !System.IO.File.Exists(ex)) throw new Exception("⤓ EXPORT LOG: " + ex);
+                // ⌨ + ✋ closing: with a running replay the close asks, CANCEL keeps the window open
+                ((Action)G("evalLabPlayToggle"))(); var busy = ((Func<List<string>>)G("evalLabBusy"))(); if (!busy.Any(b => b.Contains("replay is running"))) throw new Exception("busy should report the running replay");
+                System.Windows.MessageBox.Answer = (txt, b) => System.Windows.MessageBoxResult.Cancel; lw.Close();
+                if (G("labsWindow") == null || G("rotStudioWindow") == null || !System.Windows.MessageBox.LastText.Contains("replay is running")) throw new Exception("CANCEL should keep the labs open (and the dialog should name the running replay)");
+                System.Windows.MessageBox.Answer = null; ((Action)G("evalLabPlayToggle"))();
+                // 💰 the Funded Lab wizard: a simulated mix of 7 Lucid + 5 Tradeify + 1 TPT → 5 Lucid funded + 2 on the bench, TPT parked, every tile firm · model
+                var fz = (KeystoneLabWizard)G("fundedLabWizard"); var fnx = (Func<bool>)G("fundedLabWizardNext");
+                var fboxes = FindAll<System.Windows.Controls.TextBox>(tabs.Items[1]).ToList(); var radios = FindAll<System.Windows.Controls.RadioButton>(tabs.Items[1]).ToList();
+                var mixR = radios.First(r => Convert.ToString(r.Content) == "🎲 a simulated mix"); foreach (var r in radios.Where(r => r.GroupName == "fz1")) r.IsChecked = r == mixR;
+                fboxes.First(b => Convert.ToString(b.Tag) == "fz.lucid").Text = "7"; fboxes.First(b => Convert.ToString(b.Tag) == "fz.tradeify").Text = "5"; fboxes.First(b => Convert.ToString(b.Tag) == "fz.tpt").Text = "1";
+                if (!fnx() || !fz.Summary[0].Contains("bench")) throw new Exception("funded step 1: " + fz.Summary[0]);
+                if (!fnx() || !fz.Summary[1].StartsWith("★ MAX IN 5")) throw new Exception("funded step 2 should pre-select ★ MAX IN 5: " + fz.Summary[1]);
+                ((Action<DateTime, DateTime>)G("fundedLabWizardDays"))(new DateTime(2026, 3, 2), new DateTime(2026, 4, 10));
+                if (!fnx() || !fnx()) throw new Exception("funded steps 3 / 4"); Set(lab4, "fundedLabPayLast", null); if (!fnx()) throw new Exception("funded START");
+                for (int i = 0; i < 600 && G("fundedLabPayLast") == null; i++) System.Threading.Thread.Sleep(100);
+                var pr = (KeystonePayoutRun)G("fundedLabPayLast"); if (pr == null) throw new Exception("no funded result");
+                var res = ((Func<System.Windows.FrameworkElement>)G("fundedLabWizardResult"))(); var texts = FindAll<System.Windows.Controls.TextBlock>(res).Select(t => t.Text ?? "").ToList();
+                if (!texts.Any(t => t.StartsWith("Lucid · EOD trailing")) || !texts.Any(t => t.StartsWith("Tradeify · EOD trailing")) || !texts.Any(t => t.StartsWith("TPT · parked")) || !texts.Any(t => t.Contains("funded accounts (a simulated mix)")) || !texts.Any(t => t.StartsWith("🪑 BENCH")))
+                    throw new Exception("a mixed pool should show each firm's model + the top line + the bench: " + string.Join(" | ", texts.Take(8)));
+                if (pr.Accounts.Count(a => a.Firm == "LUCID") < 5 || !pr.Accounts.Any(a => a.Mode == "PUSH" || a.Mode == "QUALIFY")) throw new Exception("MAX IN 5 modes");
+                Console.WriteLine("      " + texts.First(t => t.StartsWith("💰")) + " • " + pr.Payouts + " payouts");
+                System.Windows.MessageBox.Answer = (txt, b) => System.Windows.MessageBoxResult.No; lw.Close(); System.Windows.MessageBox.Answer = null;
+                if (G("labsWindow") != null || G("rotStudioWindow") != null || G("fundedLabWindow") != null) throw new Exception("CLOSE should close the labs");
+                Set(lab4, "rotStudioDaysOverride", null); Set(lab4, "fundedLabDaysOverride", null);
+            });
             Step("ROTATION TESTER: MNQ + MGC rotation on the loaded bars, result tabs, optimizer", () =>
             {
                 Call(lab4, "OpenRotationTester");

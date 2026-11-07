@@ -660,7 +660,7 @@ public static class PropSimTests
             Check(aoHtml.Contains("@media print") && aoHtml.Contains("MONDAY") && aoHtml.Contains("Plans side by side") && aoHtml.Contains("room"), "📅 the HTML report: weekday table, plans side by side, prints to PDF");
             var aoPl = KeystoneEvalLab.LoadPlans(KeystoneEvalLab.SavePlans(new[] { new KeystoneEvalPlan { Name = "A", Mode = "ALL", AllSide = "EACH", RecT = 1500, RecSide = "FLIP", Side = "RANDOM" } }));
             Check(aoPl.Count == 1 && aoPl[0].Mode == "ALL" && aoPl[0].AllSide == "EACH" && aoPl[0].RecT == 1500 && aoPl[0].RecSide == "FLIP", "⚡ a template keeps ALL AT ONCE, its side and the recovery");
-            Check(KeystoneEvalLab.Presets().Any(p0 => p0.Name.StartsWith("⚡ GOING FORWARD") && p0.Mode == "ALL" && p0.AllSide == "FIRM" && p0.Session == 2 && p0.Qm == 20 && p0.Stop == 0), "⚡ the GOING FORWARD preset: all at once, 2:00, MNQ 20, one side per firm, ride the full room");
+            Check(KeystoneEvalLab.Presets().Any(p0 => p0.Name.StartsWith("⚡ GOING FORWARD") && p0.Mode == "ALL" && p0.AllSide == "FIRM" && p0.Session == 4 && p0.Qm == 20 && p0.Stop == 0), "⚡ the GOING FORWARD preset: all at once, 2:00 → hold until 16:55 (its own session since the session end is kept), MNQ 20, one side per firm, ride the full room");
         }
         {   // ---- 💰 FUNDED LAB (trailing drawdown) — the engine
             Func<DateTime, Func<int, double>, KeystoneRotDay> fday = (day, path) =>
@@ -768,7 +768,68 @@ public static class PropSimTests
             Check(chU.N == 12 && chU.Side == 1 && Math.Abs(chU.Pct - 50) < 0.01 && chN.Research && Math.Abs(chN.Pct - 50.6) < 0.01 && pChips.Count == 7 && pChips.Last().Stage == "PAYOUT",
                 "🚦 a stage chip: the share of saved days hitting the target first (both sides; ▲ suggested on a rising market) • the research value without data • 7 chips", chU.Pct + " " + chU.Side + " " + pChips.Count);
         }
+        LabsTests();
         Console.WriteLine(failures == 0 ? "PROP SIM TESTS: ALL PASSED" : "PROP SIM TESTS: " + failures + " FAILED");
         return failures == 0 ? 0 : 1;
+    }
+    static void LabsTests()
+    {
+        {   // ==== 🧪💰 LABS full version (BUILD 2026-11-09a)
+            var wrnd = new Random(5); var wdays = new List<KeystoneRotDay>(); var wd0 = new DateTime(2026, 10, 5);
+            for (int di = 0; di < 24; di++, wd0 = wd0.AddDays(wd0.DayOfWeek == DayOfWeek.Friday ? 3 : 1))
+            {
+                var d = new KeystoneRotDay { Day = wd0 }; double m = 25000, g = 4000;
+                for (int k = 0; k < KeystoneRotDay.Slots; k++) { double m1 = m + (wrnd.NextDouble() - 0.5) * 16, g1 = g + (wrnd.NextDouble() - 0.5) * 1.6; d.MO[k] = (float)m; d.MC[k] = (float)m1; d.MH[k] = (float)(Math.Max(m, m1) + 3); d.ML[k] = (float)(Math.Min(m, m1) - 3); d.GO[k] = (float)g; d.GC[k] = (float)g1; d.GH[k] = (float)(Math.Max(g, g1) + 0.3); d.GL[k] = (float)(Math.Min(g, g1) - 0.3); m = m1; g = g1; }
+                wdays.Add(d);
+            }
+            var wrl = KeystoneSimRules.Presets()[0].Copy();
+            Func<bool, bool, int, int, KeystoneSimSettings> wset = (all, stag, sh, eh) => { var st = new KeystoneSimSettings { Strategy = "ROTATION", Direction = "RANDOM", Auto = true, Allocation = "ROTATE", Accounts = 30, BuyRule = "BATCH", FundedWhen = "ASK", AskEachBatch = true, ReplacePassed = true, MinRoomShare = 0.25, DayPlan = "NONE", MaxTradesPerDay = 1, AutoFallback = "WAIT", From = wdays[0].Day, To = wdays.Last().Day, DataOnly = true, Rules = wrl, StartAs = "EVAL", MnqQty = 20, MgcQty = 0, FundMnqQty = 20, FundMgcQty = 0, RotTarget = 1500, RotStop = 1500, FundRotTarget = 1500, FundRotStop = 1500 }; st.StartHhmm = sh; st.EndHhmm = eh; st.AllAtOnce = all; st.Stagger = stag; st.AllSide = "EACH"; return st; };
+            // 🐞 the user's report (BUILD 08d): ALL AT ONCE, 9:30–11:30, RANDOM, 1 trade a day, MNQ 20, −1500 / +1500, 30 evals → 0 / 30 passed, all blown at −2,000
+            var wst = wset(true, false, 930, 1130); var wsim = KeystoneRotationLab.Run(wst, wdays, 930, 1130, () => false, null, null); var wfirst = wsim.Accounts.Take(30).ToList();
+            int wpass = wfirst.Count(a => a.PassedOn != DateTime.MinValue);
+            bool wInSession = wsim.Trades.All(tq => tq.Exit == DateTime.MinValue || tq.Exit.TimeOfDay <= new TimeSpan(11, 31, 0) || tq.Exit.TimeOfDay >= new TimeSpan(18, 0, 0));
+            Check(wpass >= 3 && wInSession, "🐞 ±$1,500 RANDOM, ALL AT ONCE 9:30–11:30, 30 evals on 24 random-walk days: a sensible share passes (the session end is kept, the TP is a limit) — not 0 / 30", "passed " + wpass + " in-session " + wInSession);
+            // one trade per account per day
+            bool wOne = wsim.Trades.GroupBy(tq => tq.Account + "|" + tq.Day.Date.Ticks).All(gq => gq.Count() == 1);
+            Check(wOne, "1️⃣ ALL AT ONCE: one trade per account per day");
+            // ⚡ STAGGERED: all 30 trade on day 1, spread over the 5 entry times
+            var sst = wset(true, true, 155, 1655); var ssim = KeystoneRotationLab.Run(sst, wdays, 155, 1655, () => false, null, null);
+            var sd1 = ssim.Trades.Where(tq => tq.Day.Date == wdays[0].Day.Date).ToList();
+            var sSlots = Enumerable.Range(1, 30).Select(i => KeystoneLabFlow.SlotOf(i, 5)).Distinct().Count();
+            Check(sd1.Select(tq => tq.Account).Distinct().Count() == 30 && sd1.Count == 30 && sSlots == 5, "⚡ STAGGERED: all 30 accounts trade on day 1 (one each), spread over 2:00 / 8:30 / 9:30 / 10:00 / 11:00", sd1.Select(tq => tq.Account).Distinct().Count() + " / " + sd1.Count);
+            // the TP is a limit: it fills on the minute's high (a buy) even when the close stays under it
+            var ld = new KeystoneRotDay { Day = new DateTime(2026, 1, 5) }; int lk = KeystoneRotDay.Slot(930); for (int k = lk - 5; k < lk + 30; k++) { ld.MO[k] = ld.MC[k] = 20000; ld.MH[k] = 20001; ld.ML[k] = 19999; }
+            ld.MH[lk + 3] = 20100; int lhow, lxs; double lpk, lwr; double lv = KeystoneRotationLab.Trade(ld, lk, lk + 29, 1, 0, 1, 0, 150, 1000, 0, null, out lhow, out lxs, out lpk, out lwr, false, 1);
+            Check(lhow == 1 && lxs == lk + 3, "🎯 the take profit is a limit: filled on the minute's high (the close stayed under it)", "how " + lhow + " exit " + (lxs - lk));
+            // the plan's stop wins: 0 = no stop (ride the room), else the plan's $
+            Check(KeystoneLabFlow.PlanStop(0, 2000, 30) > 1900 && Math.Abs(KeystoneLabFlow.PlanStop(500, 2000, 30) - 500) < 0.01 && KeystoneLabFlow.PlanStop(3000, 2000, 30) < 2000, "🛑 the plan's stop wins (0 = ride the room, never a hidden −$522)", KeystoneLabFlow.PlanStop(0, 2000, 30) + "");
+            // the tile never double-counts the closed day (+3,000 / −1,044 bug)
+            Check(Math.Abs(KeystoneLabFlow.TileBalance(1500, 1500, true) - 1500) < 0.01 && Math.Abs(KeystoneLabFlow.TileBalance(0, 1500, false) - 1500) < 0.01, "🧮 a tile shows the balance once after the day closes (no +$3,000 for one +$1,500 trade)");
+            // the day is done: no open trade and nobody may still trade (or the session is over)
+            Check(KeystoneLabFlow.DayDone(0, 0, false) && !KeystoneLabFlow.DayDone(1, 0, false) && !KeystoneLabFlow.DayDone(0, 3, false) && KeystoneLabFlow.DayDone(2, 3, true) && KeystoneLabFlow.DayDoneText(new DateTime(2026, 1, 5), 30, 9, 21, 1, 3, true).Contains("NEXT DAY"), "✅ DAY DONE: every account traded (or the session ended) → the summary + ▶ NEXT DAY");
+            // 🪑 the bench: max 5 funded per firm, a blown / finished account is replaced first in, first out (same firm)
+            var bn = new KeystoneBench(); for (int i = 1; i <= 7; i++) bn.Add("L" + i, "LUCID"); bn.Add("T1", "TRADEIFY");
+            var rep1 = bn.Remove("L2", "blown"); var rep2 = bn.Remove("T1", "live");
+            Check(bn.ActiveOf("LUCID") == 5 && rep1 == "L6" && bn.Bench.Count == 1 && bn.Bench[0].Item1 == "L7" && rep2 == null, "🪑 BENCH: 5 funded per firm, the extras wait; L2 blown → L6 (first in) takes its seat; another firm's bench is never used", bn.ActiveOf("LUCID") + " " + rep1 + " " + rep2);
+            // 🧭 the wizard: a step opens only after the ones before it; ← BACK; at least 2 days
+            var wz = new KeystoneLabWizard(); bool wz1 = !wz.CanOpen(2) && !wz.Complete(1, "x") && wz.Complete(0, "30 accounts") && wz.Step == 1 && wz.Complete(1, "★") && wz.Complete(2, "days") && wz.Complete(3, "replay") && wz.Ready;
+            wz.Back(); bool wz2 = wz.Step == 3 && wz.Summary[0] == "30 accounts";
+            Check(wz1 && wz2 && KeystoneLabWizard.TwoDaysEnd(new DateTime(2026, 1, 9), new DateTime(2026, 1, 9)) == new DateTime(2026, 1, 12) && KeystoneLabWizard.Steps.SequenceEqual(new[] { "ACCOUNTS", "PLAN", "DAYS", "WATCH", "START" }), "🧭 WIZARD: ① accounts → ② plan → ③ days → ④ how to watch → ⑤ START, each step unlocks the next, ← BACK, one day = that day + the next weekday");
+            var wmix = KeystoneLabWizard.Mix(7, new[] { "tpt", "LUCID", "TRADEIFY" });
+            Check(wmix.Count == 7 && wmix[0].Firm == "TPT" && wmix[1].Firm == "LUCID" && wmix[3].Nick == "TPT 2", "🧭 a simulated mix: firm by firm (TPT 1, LUCID 1, TRADEIFY 1, TPT 2 …)");
+            // ★ MAX IN 5: PUSH (MNQ 6, TP = the profit still missing, max +2,500, stop −500) until +4,000 (Lucid), then QUALIFY (MNQ 2, +200 / −600, 3 tries), only the max payout
+            var mx = KeystonePayoutPlan.Presets()[0]; var lr = KeystonePayoutRules.Presets()[0];
+            var ma = new KeystonePayoutAccount { Name = "Lucid 1", Firm = "LUCID", Floor = lr.FloorOf(0) }; KeystonePayout.Day(ma, lr, mx, wdays[0], 1);
+            var mb = new KeystonePayoutAccount { Name = "Lucid 2", Firm = "LUCID", Bal = 4100, PeakEod = 4100, Floor = lr.FloorOf(4100) }; KeystonePayout.Day(mb, lr, mx, wdays[1], 1);
+            Check(mx.MaxIn5 && mx.Qm == 6 && ma.Mode == "PUSH" && mb.Mode == "QUALIFY" && ma.RuleLine(lr, true).Contains("PUSH") && ma.RuleLine(lr, true).Contains("more profit") && KeystoneFundedModel.Of("TPT", KeystonePayoutRules.Presets()[2]).Contains("parked"), "★ MAX IN 5 is the default funded plan: PUSH under +$4,000 (Lucid), QUALIFY above • the tracker says PUSH / QUALIFY and what is missing • TPT parked", ma.Mode + " " + mb.Mode + " " + ma.RuleLine(lr, true));
+            // 💰 a funded run with the bench: 7 Lucid → 5 active + 2 benched, TPT parked, every account labelled by firm · model
+            var fsrc = new List<KeystoneEvalAccount>(); for (int i = 1; i <= 7; i++) fsrc.Add(new KeystoneEvalAccount { Firm = "LUCID", Nick = "Lucid " + i }); fsrc.Add(new KeystoneEvalAccount { Firm = "TRADEIFY", Nick = "Tradeify 1" }); fsrc.Add(new KeystoneEvalAccount { Firm = "TPT", Nick = "TPT 1" });
+            var fb = new KeystoneBench(); var fr = KeystoneFundedBench.Run(null, mx, fsrc, wdays, fb);
+            int lucStart = fr.Accounts.Count(a => a.Firm == "LUCID"); bool fParked = fr.Accounts.Any(a => a.Firm == "TPT" && a.Stage == "PARKED");
+            bool fRepl = fr.Accounts.Where(a => a.Firm == "LUCID" && (a.Stage == "BLOWN" || a.Stage == "LIVE")).Count() == 0 || lucStart > 5;
+            Check(fb.ActiveOf("LUCID") <= 5 && fParked && fRepl && KeystoneFundedModel.TopLine(fr.Accounts, fb.Bench.Count, true).Contains("passed the eval"), "💰 funded run: max 5 Lucid active (the rest on the 🪑 bench, replacing a blown / finished one), TPT parked, the top line says what is simulated", lucStart + " lucid seats • bench " + fb.Bench.Count + " • " + KeystoneFundedModel.TopLine(fr.Accounts, fb.Bench.Count, true));
+            // 📜 the event log: CSV export
+            var lg = new KeystoneLabLog(); lg.Add(new DateTime(2026, 1, 5, 9, 30, 0), "ENTRY", "TPT 1", "BUY 20 MNQ, \"quoted\""); Check(lg.Csv().Split('\n').Length >= 2 && KeystoneLabLog.Line(lg.Rows[0]).Contains("ENTRY"), "📜 the event log exports as CSV / text");
+        }
     }
 }
