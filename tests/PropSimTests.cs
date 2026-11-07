@@ -571,6 +571,41 @@ public static class PropSimTests
             Check(sfx.FundedStarted && sfx.Active != null && sfx.Active.Funded && sfx.Accounts.Count == 2, "💜 FUNDED STAGE: the passed account trades its funded stage, nothing bought", sfx.Active == null ? "null" : sfx.Active.Name + " " + sfx.Active.Phase);
         }
 
+        {   // 🧪 EVAL LAB: the firm round robin, the engine keeps it, the take profit nets +$1,500 after costs, ALTWIN / ALTERNATE MNQ-MGC, files
+            var poolz = new KeystoneEvalPool { Name = "T" };
+            foreach (var fz in new[] { "TPT", "TPT", "LUCID", "LUCID" }) poolz.Accounts.Add(new KeystoneEvalAccount { Firm = fz, Size = 50, Nick = fz + (poolz.Accounts.Count(xz => xz.Firm == fz) + 1) });
+            var rrz = KeystoneEvalLab.RoundRobin(poolz.Accounts);
+            Check(string.Join(",", rrz.Select(xz => xz.Firm)) == "TPT,LUCID,TPT,LUCID", "🧪 round robin: firm by firm (F1, F2, F1, F2)", string.Join(",", rrz.Select(xz => xz.Nick)));
+            poolz.Accounts.Add(new KeystoneEvalAccount { Firm = "TRADEIFY", Size = 50, Nick = "TR1" }); poolz.Accounts[2].Archived = true; poolz.Accounts[3].Archived = true;
+            var rr2 = KeystoneEvalLab.RoundRobin(poolz.Accounts);
+            Check(string.Join(",", rr2.Select(xz => xz.Firm)) == "TPT,TRADEIFY,TPT", "🧪 round robin: a firm with no account left drops out", string.Join(",", rr2.Select(xz => xz.Nick)));
+            var backz = KeystoneEvalLab.LoadPools(KeystoneEvalLab.SavePools(new[] { poolz }));
+            Check(backz.Count == 1 && backz[0].Accounts.Count == 5 && backz[0].Accounts[2].Archived && backz[0].Accounts[4].Nick == "TR1", "🧪 pools saved and read back");
+            var minez = new KeystoneEvalPlan { Name = "MY PLAN", Qm = 7, Qg = 3, Tp = 1200, Stop = 400, Be = 300, Side = "ALTWIN", Session = 2, Tries = 1, AltInst = true };
+            var pbz = KeystoneEvalLab.LoadPlans(KeystoneEvalLab.SavePlans(KeystoneEvalLab.Presets().Concat(new[] { minez })));
+            Check(pbz.Count == 1 && pbz[0].Qm == 7 && pbz[0].Side == "ALTWIN" && pbz[0].AltInst && pbz[0].Be == 300, "🧪 user plan templates saved and read back (presets are not saved)");
+            // the engine buys the pool firm by firm and rotates in that order
+            var p2 = new KeystoneEvalPool(); foreach (var fz in new[] { "TPT", "TPT", "LUCID", "LUCID" }) p2.Accounts.Add(new KeystoneEvalAccount { Firm = fz, Size = 50 });
+            var es = new KeystoneSimSettings { Strategy = "ROTATION", Direction = "BUY", Allocation = "ROTATE", BuyRule = "BATCH", DayPlan = "NONE", MaxTradesPerDay = 1, Firms = KeystoneEvalLab.FirmsText(p2, new KeystoneSimRules(), 120), Accounts = 4 };
+            var esim = new KeystonePropSim(es); esim.BeginDay(new DateTime(2026, 1, 5));
+            var orderz = new List<string>(); for (int iz = 0; iz < 4 && esim.Active != null; iz++) { orderz.Add(esim.Active.Name.Split('-')[0]); esim.Lock(esim.Active, esim.Day, "test"); esim.Rotate(); }
+            Check(orderz.Count == 4 && orderz[0] != orderz[1] && orderz[0] == orderz[2] && orderz[1] == orderz[3], "🧪 the engine rotates the pool firm by firm", string.Join(",", orderz));
+            // the take profit is +$1,500 AFTER costs: the bracket adds the feesz, a trade at its target keeps exactly +1,500
+            var dayz = new KeystoneRotDay { Day = new DateTime(2026, 1, 5) }; double mz = 20000, gz = 2500;
+            for (int kz = 0; kz < KeystoneRotDay.Slots; kz++) { double m1z = mz + 2, g1z = gz + 0.2; dayz.MO[kz] = (float)mz; dayz.MC[kz] = (float)m1z; dayz.MH[kz] = (float)(m1z + 0.5); dayz.ML[kz] = (float)(mz - 0.5); dayz.GO[kz] = (float)gz; dayz.GC[kz] = (float)g1z; dayz.GH[kz] = (float)(g1z + 0.05); dayz.GL[kz] = (float)(gz - 0.05); mz = m1z; gz = g1z; }
+            var ns = new KeystoneSimSettings { Strategy = "ROTATION", Direction = "BUY", Accounts = 1, MnqQty = 20, MgcQty = 0, RotTarget = 1500, RotStop = 1e6, DayPlan = "NONE" }; var nsimz = new KeystonePropSim(ns); nsimz.BeginDay(dayz.Day);
+            double feesz = 20 * KeystoneRotationLab.CostMnq, tgz, slz; KeystoneRotationLab.Bracket(ns, nsimz.Active, feesz, nsimz.Room(nsimz.Active, 0), out tgz, out slz, nsimz);
+            int howz, xsz; double pkz, wrz; double vz = KeystoneRotationLab.Trade(dayz, KeystoneRotDay.Slot(930), KeystoneRotDay.Slot(1500), 1, 0, 20, 0, tgz, slz, 0, null, out howz, out xsz, out pkz, out wrz);
+            Check(howz == 1 && Eq(vz, 1500), "🧪 the take profit nets +$1,500 after costs (two wins = +$3,000)", "howz " + howz + " vz " + vz.ToString("0.00") + " target " + tgz.ToString("0.00"));
+            Check(slz > 1900 && slz < 2000, "🧪 stop 0 = ride to the floor: the stop is the room above the floor", slz.ToString("0.00"));
+            // ALTERNATE MNQ / MGC and ALTWIN in the instant run
+            var daysz = new List<KeystoneRotDay>(); for (int iz = 0; iz < 3; iz++) { var ddz = new KeystoneRotDay { Day = new DateTime(2026, 1, 5).AddDays(iz) }; for (int kz = 0; kz < KeystoneRotDay.Slots; kz++) { ddz.MO[kz] = dayz.MO[kz]; ddz.MC[kz] = dayz.MC[kz]; ddz.MH[kz] = dayz.MH[kz]; ddz.ML[kz] = dayz.ML[kz]; ddz.GO[kz] = dayz.GO[kz]; ddz.GC[kz] = dayz.GC[kz]; ddz.GH[kz] = dayz.GH[kz]; ddz.GL[kz] = dayz.GL[kz]; } daysz.Add(ddz); }
+            var als = new KeystoneSimSettings { Strategy = "ROTATION", Direction = "ALTWIN", Allocation = "ROTATE", Accounts = 4, MnqQty = 10, MgcQty = 10, RotTarget = 300, RotStop = 300, DayPlan = "NONE", MaxTradesPerDay = 1, AltInstrument = true, BuyRule = "BATCH" };
+            var asim = KeystoneRotationLab.Run(als, daysz, 930, 1555, null);
+            var legsz = asim.Trades.Take(4).Select(tz => tz.Legs).ToList();
+            Check(legsz.Count >= 2 && legsz[0].Contains("MNQ") && !legsz[0].Contains("MGC") && legsz[1].Contains("MGC") && !legsz[1].Contains("MNQ"), "🧪 ALTERNATE MNQ / MGC: rotation 1 MNQ only, rotation 2 MGC only", string.Join(" | ", legsz));
+            Check(legsz.Count >= 2 && legsz[0].StartsWith("BUY") && legsz[1].StartsWith("SELL"), "🧪 ALTWIN: first BUY, after a win the next account flips", string.Join(" | ", legsz));
+        }
         Console.WriteLine(failures == 0 ? "PROP SIM TESTS: ALL PASSED" : "PROP SIM TESTS: " + failures + " FAILED");
         return failures == 0 ? 0 : 1;
     }

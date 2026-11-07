@@ -971,7 +971,7 @@ public static class UiSmokeTest
                 if (G("ddLabWindow") == null) throw new Exception("no window");
                 Set(lab4, "ddLabWindow", null);
             });
-            Step("🔄 ROTATION STUDIO: its own window, ▶ RUN on 40 synthetic days, totals + account deck + days, ▶ REPLAY, ORB sides", () =>
+            Step("🧪 EVAL LAB (the 🔄 ROTATION STUDIO inside): ▶ RUN on 40 synthetic days, totals + account deck + days, ▶ REPLAY, ORB sides, pools + firm round robin, views", () =>
             {
                 Call(lab4, "OpenRotationStudio");
                 if (G("rotStudioWindow") == null) throw new Exception("no window");
@@ -1005,7 +1005,7 @@ public static class UiSmokeTest
                 wk(((System.Windows.Window)G("rotStudioWindow")).Content);
                 var planB = boxes.OfType<System.Windows.Controls.ComboBox>().FirstOrDefault(c => c.Items.Cast<object>().Any(x => Convert.ToString(x).StartsWith("💜 FUNDED"))); if (planB == null) throw new Exception("no FUNDED TPT PRO plan in the list");
                 for (int i = 0; i < planB.Items.Count; i++) if (Convert.ToString(planB.Items[i]).StartsWith("💜 FUNDED")) { planB.SelectedIndex = i; planB.SelectedItem = planB.Items[i]; }
-                var tbs = boxes.OfType<System.Windows.Controls.TextBox>().ToList(); var stopT = tbs.First(t => t.Text == "500"); var tgtT = tbs.First(t => t.Text == "1500"); stopT.Text = "200"; tgtT.Text = "200";
+                var tbs = boxes.OfType<System.Windows.Controls.TextBox>().ToList(); var stopT = tbs.First(t => Convert.ToString(t.Tag) == "rot.stop"); var tgtT = tbs.First(t => Convert.ToString(t.Tag) == "rot.tgt"); stopT.Text = "200"; tgtT.Text = "200"; tbs.First(t => Convert.ToString(t.Tag) == "rot.qm").Text = "4"; tbs.First(t => Convert.ToString(t.Tag) == "rot.qg").Text = "4";
                 Set(lab4, "rotStudioLast", null); ((Action)G("rotStudioRun"))();
                 for (int i = 0; i < 600 && G("rotStudioLast") == null && !((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text.StartsWith("🔄"); i++) System.Threading.Thread.Sleep(100);
                 Console.WriteLine("      FUNDED: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
@@ -1021,6 +1021,22 @@ public static class UiSmokeTest
                 if (mt.Pnl > 200.01 || mt.Pnl < -260) throw new Exception("the manual trade left its bracket: " + mt.Pnl);
                 if (msimT.Active == firstAcc) throw new Exception("the next account did not take over");
                 ((Action<int, int>)G("rotStudioManEnter"))(0, -1); ((Action<int>)G("rotStudioManStep"))(600);
+                // 🧪 the views + AUTO: the simulator-only view hides the chart; AUTO enters the plan's side by itself on the next day
+                ((Action<bool>)G("evalLabSimOnly"))(true); ((Action<bool>)G("evalLabSimOnly"))(false);
+                // 🧪 POOLS: 2 firms × 2 accounts → the rotation order is firm by firm (TPT, LUCID, TPT, LUCID); the run trades the pool in that order
+                string pn0 = "SMOKE POOL " + DateTime.Now.Ticks;
+                ((Action<string>)G("evalLabNewPool"))(pn0); ((Action<string, int, int>)G("evalLabAdd"))("TPT", 50, 2); ((Action<string, int, int>)G("evalLabAdd"))("LUCID", 50, 2);
+                var ord = ((Func<List<string>>)G("evalLabOrder"))(); if (string.Join(",", ord) != "TPT,LUCID,TPT,LUCID") throw new Exception("round robin order " + string.Join(",", ord));
+                for (int i = 0; i < planB.Items.Count; i++) if (!Convert.ToString(planB.Items[i]).StartsWith("💜 FUNDED")) { planB.SelectedIndex = i; planB.SelectedItem = planB.Items[i]; break; }
+                ((Action<string>)G("evalLabUsePool"))(pn0); Set(lab4, "rotStudioLast", null); ((Action)G("rotStudioRun"))();
+                for (int i = 0; i < 600 && G("rotStudioLast") == null && !((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text.StartsWith("🔄"); i++) System.Threading.Thread.Sleep(100);
+                var simP = (KeystonePropSim)G("rotStudioLast"); if (simP == null || !simP.HasFirms || simP.Accounts.Count < 4) throw new Exception("the pool run did not buy the pool's firms");
+                var codes = simP.Accounts.Take(4).Select(a => a.Name.Split('-')[0]).ToList(); if (codes[0] == codes[1] || codes[0] != codes[2] || codes[1] != codes[3]) throw new Exception("the run is not firm by firm: " + string.Join(",", simP.Accounts.Take(4).Select(a => a.Name)));
+                Console.WriteLine("      POOL RUN: " + string.Join(", ", simP.Accounts.Take(4).Select(a => a.Name)) + " • " + simP.Trades.Count + " trades • " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
+                foreach (var sec in new[] { "OVERVIEW", "POOLS", "PLANS", "STATS", "DATA", "ROTATE" }) ((Action<string>)G("evalLabShow"))(sec);
+                ((Action<bool>)G("evalLabAuto"))(true); ((Action)G("rotStudioManLoad"))(); var msimA = (KeystonePropSim)G("rotStudioManSim"); ((Action<int>)G("rotStudioManStep"))(60);
+                if (msimA == null || msimA.Trades.Count + (msimA.Active == null ? 1 : 0) == 0 && msimA.Accounts.All(a => a.Trades == 0)) Console.WriteLine("      AUTO: no entry yet in 60 minutes (the plan's session may start later)"); else Console.WriteLine("      AUTO: " + msimA.Trades.Count + " trade(s) entered by the plan");
+                ((Action<bool>)G("evalLabAuto"))(false); ((Action<string>)G("evalLabDeletePool"))(pn0);
                 Set(lab4, "rotStudioDaysOverride", null); Set(lab4, "rotStudioWindow", null);
             });
             Step("ROTATION TESTER: MNQ + MGC rotation on the loaded bars, result tabs, optimizer", () =>
