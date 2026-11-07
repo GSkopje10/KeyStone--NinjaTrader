@@ -38,6 +38,12 @@ namespace KeystoneMT5
         public double WinnerLotsSell = 0.1;    // ADD TO THE WINNER: WinnerLots on a BUY side, WinnerLotsSell on a SELL side
         public bool AddToWinner; public double WinnerLots = 0.1; public int MaxWinnerAdds = 0;   // ADD TO THE WINNER: on each new signal of the setup in the leading side's direction (0 = no limit)
         public string Preset = "";             // A = London engulfing, B = NY FVG 50%, BOX = consolidation flip, "" = your own
+        // ⏰ 9:30 STRADDLE (docs/reports/nas100-930-hedge-study.html, the user's request): at the New York open BUY + SELL the same lots;
+        // BREAKOUT (the tested winner) = at ±X cut the LOSING leg, the winner gets a stop at its entry and a target +StradTargetX × X (or a
+        // trail X behind its best, never below the entry); HOLD = the user's first idea (bank the winner at +X, hold the loser for a reversal —
+        // tested: lost money 2020–26). X = POINTS or RANGE (StradRangeK × the previous day's 9:30–16:00 range); lots = StradRisk ÷ (X × $ per point)
+        public string StradMode = "BREAKOUT", StradXMode = "RANGE", StradHoldClose = "HALF", StradLoserExit = "ENTRY", StradOpen = "09:30", StradClose = "16:00";
+        public double StradX = 100, StradRangeK = 0.5, StradRisk = 100, StradMaxLots = 1, StradTargetX = 3; public bool StradTrail, StradBankHalf;
         public string VwapFilter = "NONE";     // NONE • DISCOUNT (buy under the day's VWAP, sell over it) • FLOW (buy over it, sell under it)
         // ANTI-CHOP (user's request, each a checkbox): RangeOnly = a hedge only BEYOND the basket's range (its highest / lowest leg), never inside it;
         // LockOn = after LockAfter hedges inside LockRange $ of price, LOCK the basket (buys = sells, net 0) and wait for the break of that range,
@@ -157,6 +163,13 @@ namespace KeystoneMT5
             // hedges, small size for the balance (0.01 lot and +$2 per $5,000) so the deepest basket stays survivable; never a loss close
             if (name == "PRO") { s.Tf = 1; s.EntryMode = "BREAK"; s.Swing = true; s.SwingK = 2; s.VwapFilter = "NONE"; s.HedgeMode = "BREAK"; s.Rolling = true; s.HedgeSize = "STEPLEAD"; s.EntryLots = 0.02; s.NetAdvantage = 0.02; s.AddLots = 0.02; s.Target = 10; s.ScaleOut = true; s.ScaleLots = 0.01; s.ScaleStep = 1.5; s.MaxDrawdown = 0; s.AfterDrawdown = "NEXT"; s.Windows = ""; s.CloseAtNy = ""; s.EodLoss = "HOLD"; s.RangeOnly = true; s.BeAfter = 3; s.QuickHedge = true; s.QuickAfter = 3; s.HedgeCap = 3; s.LockOn = false; s.TrendFilter = "NONE"; s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = 1.0; s.GuardMargin = 500; s.GuardChop = 3; s.GuardMaxLead = 3; s.GuardBreak = 1.0; s.PairOff = true; s.HardFloat = 60; s.HardMargin = 60; s.ProtectAt = 0; s.TrendHedge = true; s.TrendHedgeMult = 2; }
             if (name == "LADDER") { s.Tf = 1; s.EntryMode = "STRADDLE"; s.HedgeMode = "LADDER"; s.HedgeSize = "FIXED"; s.LadderStep = 4; s.LadderMax = 10; s.EntryLots = 0.05; s.AddLots = 0.05; s.Target = 17; s.TrendFilter = "EMA"; s.BeAfter = 6; s.MaxDrawdown = 0; s.VwapFilter = "NONE"; s.Windows = ""; s.CloseAtNy = ""; s.EodLoss = "HOLD"; s.RangeOnly = false; s.QuickHedge = false; s.LockOn = false; s.BeAfter = 0; s.Rolling = false; }
+            if (name == "STRADDLE930")
+            {   // ⏰ 9:30 STRADDLE → BREAKOUT (rule set 1 of the study: +9.96 points a day per lot, both halves positive, PF 1.33)
+                s.Tf = 1; s.HedgeMode = "NONE"; s.FirstDir = "AUTO"; s.CloseAtNy = ""; s.Windows = ""; s.FullAuto = false; s.Smart = false; s.RiskGuard = false; s.BeLock = false; s.DangerExit = false; s.Rescue = false; s.ScaleOut = false;
+                s.StradMode = "BREAKOUT"; s.StradXMode = "RANGE"; s.StradRangeK = 0.5; s.StradTargetX = 3; s.StradTrail = false; s.StradBankHalf = false; s.StradOpen = "09:30"; s.StradClose = "16:00";
+                if (s.StradRisk <= 0) s.StradRisk = 100; if (s.StradMaxLots <= 0) s.StradMaxLots = 1;
+                return s;
+            }
             if (name == "FULLAUTO")
             {   // 🤖 FULL AUTO = DEFENDER's protections + the scored entries (no chasing, size from the score) + the drawdown tools
                 var d = Model("DEFENDER", b, bal); d.Preset = "FULLAUTO"; d.FullAuto = true;   /* entry: the swing BREAK — 🎯 MULTI was worse in the 2025 replay ($6,326 vs $7,402, deepest basket −$1,405 vs −$648): an option */ d.AutoScoreMin = 50;   /* 50 = the best in the 2025 + 2026 replays (60 skipped too much in 2026) */ d.DdTightEvery = 2; d.DdTightBy = 10; d.DdTightFloor = 50; d.Rescue = true; d.RescuePct = 3; d.RescueMin = 0; d.DeRisk = false; d.TrimMax = 0;
@@ -192,7 +205,7 @@ namespace KeystoneMT5
             }
             return res;
         }
-        public string Save() { return string.Join(";", "sym=" + Symbol, "tf=" + Tf, "look=" + Lookback, "entry=" + EntryLots.ToString(IC), "add=" + AddLots.ToString(IC), "target=" + Target.ToString(IC), "dd=" + MaxDrawdown.ToString(IC), "comm=" + CommissionPerLot.ToString(IC), "first=" + FirstDir, "next=" + NextStart, "pause=" + PauseSec, "afterdd=" + AfterDrawdown, "rolling=" + (Rolling ? 1 : 0), "maxit=" + MaxIterations, "hmode=" + HedgeMode, "hprice=" + HedgePrice.ToString(IC), "hmoney=" + HedgeMoney.ToString(IC), "emode=" + EntryMode, "fvol=" + FlowVol.ToString(IC), "fshare=" + FlowShare.ToString(IC), "perday=" + PerDay, "win=" + Windows.Replace(";", ","), "nyoff=" + NyOffsetHours, "news=" + NewsMode, "nb=" + NewsBefore, "na=" + NewsAfter, "win2=" + (AddToWinner ? 1 : 0), "wlots=" + WinnerLots.ToString(IC), "wmax=" + MaxWinnerAdds, "swing=" + (Swing ? 1 : 0), "swk=" + SwingK, "fvgtf=" + FvgTf, "wlots2=" + WinnerLotsSell.ToString(IC), "preset=" + Preset, "vf=" + VwapFilter, "eod=" + CloseAtNy, "man=" + (TrackManual ? 1 : 0), "fage=" + FvgAge, "fstrict=" + (FvgStrict ? 1 : 0), "hmult=" + HedgeMult.ToString(IC), "maxh=" + MaxHedges, "exit=" + ExitMode, "aggrun=" + AggRun, "fstack=" + (FvgStack ? 1 : 0), "hsize=" + HedgeSize, "hs2=1", "roll2=1", "eodl=" + EodLoss, "ronly=" + (RangeOnly ? 1 : 0), "qh=" + (QuickHedge ? 1 : 0), "chedge=" + (CandleHedge ? 1 : 0), "khedge=" + (KeyHedge ? 1 : 0), "kbuf=" + KeyBuffer.ToString(IC), "smart=" + (Smart ? 1 : 0), "sbest=" + (SmartBest ? 1 : 0), "smartn=" + SmartMin, "qafter=" + QuickAfter.ToString(IC), "pat=" + ProtectAt.ToString(IC), "rg=" + (RiskGuard ? 1 : 0), "glots=" + GuardLots.ToString(IC), "gmargin=" + GuardMargin.ToString(IC), "gchop=" + GuardChop, "glead=" + GuardMaxLead, "glift=" + (GuardLift ? 1 : 0), "gmode=" + GuardMode, "gbreak=" + GuardBreak.ToString(IC), "hfloat=" + HardFloat.ToString(IC), "hmargin=" + HardMargin.ToString(IC), "pair=" + (PairOff ? 1 : 0), "thedge=" + (TrendHedge ? 1 : 0), "scale=" + (ScaleOut ? 1 : 0), "slots=" + ScaleLots.ToString(IC), "sstep=" + ScaleStep.ToString(IC), "thmult=" + TrendHedgeMult.ToString(IC), "pkeep=" + ProtectKeep.ToString(IC), "hcap=" + HedgeCap.ToString(IC), "lstep=" + LadderStep.ToString(IC), "lmax=" + LadderMax.ToString(IC), "trend=" + TrendFilter, "beafter=" + BeAfter, "lock=" + (LockOn ? 1 : 0), "lafter=" + LockAfter, "lrange=" + LockRange.ToString(IC), "unlock=" + Unlock, "nadv=" + NetAdvantage.ToString(IC), "rmove=" + RecoverMove.ToString(IC), "hmax=" + HedgeMaxLots.ToString(IC), "dexit=" + (DangerExit ? 1 : 0), "dat=" + DangerAt.ToString(IC), "dkeep=" + DangerKeep.ToString(IC), "ddpct=" + MaxDdPct.ToString(IC), "rexit=" + (RecoverExit ? 1 : 0), "belock=" + (BeLock ? 1 : 0), "ddlstep=" + DdLeadStep.ToString(IC), "ddladd=" + DdLeadAdd.ToString(IC), "ddlmax=" + DdLeadMax.ToString(IC), "dtev=" + DdTightEvery.ToString(IC), "dtby=" + DdTightBy.ToString(IC), "dtfl=" + DdTightFloor.ToString(IC), "resc=" + (Rescue ? 1 : 0), "rpct=" + RescuePct.ToString(IC), "rmin=" + RescueMin, "derisk=" + (DeRisk ? 1 : 0), "trimmax=" + TrimMax, "fauto=" + (FullAuto ? 1 : 0), "bclose=" + (BreakClose ? 1 : 0), "punlock=" + (ProfitUnlock ? 1 : 0), "beclose=" + (BeClose ? 1 : 0), "lockmax=" + LockMaxMin.ToString(IC), "stpct=" + StuckPct.ToString(IC), "sthrs=" + StuckHours.ToString(IC), "tbreak=" + (TrendBreak ? 1 : 0), "fadeatr=" + FadeAtr.ToString(IC), "srisk=" + (SetupRisk ? 1 : 0), "hstop=" + HedgeStopPct.ToString(IC), "ascore=" + AutoScoreMin, "rdial=" + RiskDial, "belat=" + BeLockAt.ToString(IC), "belkeep=" + BeLockKeep.ToString(IC), "rdeep=" + RecDeep.ToString(IC), "rkeep=" + RecKeep.ToString(IC), "dayloss=" + DayLoss.ToString(IC), "daypct=" + DayLossPct.ToString(IC)); }
+        public string Save() { return string.Join(";", "sym=" + Symbol, "tf=" + Tf, "look=" + Lookback, "entry=" + EntryLots.ToString(IC), "add=" + AddLots.ToString(IC), "target=" + Target.ToString(IC), "dd=" + MaxDrawdown.ToString(IC), "comm=" + CommissionPerLot.ToString(IC), "first=" + FirstDir, "next=" + NextStart, "pause=" + PauseSec, "afterdd=" + AfterDrawdown, "rolling=" + (Rolling ? 1 : 0), "maxit=" + MaxIterations, "hmode=" + HedgeMode, "hprice=" + HedgePrice.ToString(IC), "hmoney=" + HedgeMoney.ToString(IC), "emode=" + EntryMode, "fvol=" + FlowVol.ToString(IC), "fshare=" + FlowShare.ToString(IC), "perday=" + PerDay, "win=" + Windows.Replace(";", ","), "nyoff=" + NyOffsetHours, "news=" + NewsMode, "nb=" + NewsBefore, "na=" + NewsAfter, "win2=" + (AddToWinner ? 1 : 0), "wlots=" + WinnerLots.ToString(IC), "wmax=" + MaxWinnerAdds, "swing=" + (Swing ? 1 : 0), "swk=" + SwingK, "fvgtf=" + FvgTf, "wlots2=" + WinnerLotsSell.ToString(IC), "preset=" + Preset, "vf=" + VwapFilter, "eod=" + CloseAtNy, "man=" + (TrackManual ? 1 : 0), "fage=" + FvgAge, "fstrict=" + (FvgStrict ? 1 : 0), "hmult=" + HedgeMult.ToString(IC), "maxh=" + MaxHedges, "exit=" + ExitMode, "aggrun=" + AggRun, "fstack=" + (FvgStack ? 1 : 0), "hsize=" + HedgeSize, "hs2=1", "roll2=1", "eodl=" + EodLoss, "ronly=" + (RangeOnly ? 1 : 0), "qh=" + (QuickHedge ? 1 : 0), "chedge=" + (CandleHedge ? 1 : 0), "khedge=" + (KeyHedge ? 1 : 0), "kbuf=" + KeyBuffer.ToString(IC), "smart=" + (Smart ? 1 : 0), "sbest=" + (SmartBest ? 1 : 0), "smartn=" + SmartMin, "qafter=" + QuickAfter.ToString(IC), "pat=" + ProtectAt.ToString(IC), "rg=" + (RiskGuard ? 1 : 0), "glots=" + GuardLots.ToString(IC), "gmargin=" + GuardMargin.ToString(IC), "gchop=" + GuardChop, "glead=" + GuardMaxLead, "glift=" + (GuardLift ? 1 : 0), "gmode=" + GuardMode, "gbreak=" + GuardBreak.ToString(IC), "hfloat=" + HardFloat.ToString(IC), "hmargin=" + HardMargin.ToString(IC), "pair=" + (PairOff ? 1 : 0), "thedge=" + (TrendHedge ? 1 : 0), "scale=" + (ScaleOut ? 1 : 0), "slots=" + ScaleLots.ToString(IC), "sstep=" + ScaleStep.ToString(IC), "thmult=" + TrendHedgeMult.ToString(IC), "pkeep=" + ProtectKeep.ToString(IC), "hcap=" + HedgeCap.ToString(IC), "lstep=" + LadderStep.ToString(IC), "lmax=" + LadderMax.ToString(IC), "trend=" + TrendFilter, "beafter=" + BeAfter, "lock=" + (LockOn ? 1 : 0), "lafter=" + LockAfter, "lrange=" + LockRange.ToString(IC), "unlock=" + Unlock, "nadv=" + NetAdvantage.ToString(IC), "rmove=" + RecoverMove.ToString(IC), "hmax=" + HedgeMaxLots.ToString(IC), "dexit=" + (DangerExit ? 1 : 0), "dat=" + DangerAt.ToString(IC), "dkeep=" + DangerKeep.ToString(IC), "ddpct=" + MaxDdPct.ToString(IC), "rexit=" + (RecoverExit ? 1 : 0), "belock=" + (BeLock ? 1 : 0), "ddlstep=" + DdLeadStep.ToString(IC), "ddladd=" + DdLeadAdd.ToString(IC), "ddlmax=" + DdLeadMax.ToString(IC), "dtev=" + DdTightEvery.ToString(IC), "dtby=" + DdTightBy.ToString(IC), "dtfl=" + DdTightFloor.ToString(IC), "resc=" + (Rescue ? 1 : 0), "rpct=" + RescuePct.ToString(IC), "rmin=" + RescueMin, "derisk=" + (DeRisk ? 1 : 0), "trimmax=" + TrimMax, "fauto=" + (FullAuto ? 1 : 0), "bclose=" + (BreakClose ? 1 : 0), "punlock=" + (ProfitUnlock ? 1 : 0), "beclose=" + (BeClose ? 1 : 0), "lockmax=" + LockMaxMin.ToString(IC), "stpct=" + StuckPct.ToString(IC), "sthrs=" + StuckHours.ToString(IC), "tbreak=" + (TrendBreak ? 1 : 0), "fadeatr=" + FadeAtr.ToString(IC), "srisk=" + (SetupRisk ? 1 : 0), "hstop=" + HedgeStopPct.ToString(IC), "ascore=" + AutoScoreMin, "rdial=" + RiskDial, "belat=" + BeLockAt.ToString(IC), "belkeep=" + BeLockKeep.ToString(IC), "rdeep=" + RecDeep.ToString(IC), "rkeep=" + RecKeep.ToString(IC), "dayloss=" + DayLoss.ToString(IC), "daypct=" + DayLossPct.ToString(IC), "smode=" + StradMode, "sxm=" + StradXMode, "sx=" + StradX.ToString(IC), "srk=" + StradRangeK.ToString(IC), "srsk=" + StradRisk.ToString(IC), "smax=" + StradMaxLots.ToString(IC), "stx=" + StradTargetX.ToString(IC), "strail=" + (StradTrail ? 1 : 0), "sbank=" + (StradBankHalf ? 1 : 0), "shold=" + StradHoldClose, "slex=" + StradLoserExit, "sopen=" + StradOpen, "sclose=" + StradClose); }
         public static AutoSettings Load(string line)
         {
             var s = new AutoSettings(); if (string.IsNullOrEmpty(line)) return s; var d = new Dictionary<string, string>();
@@ -202,6 +215,8 @@ namespace KeystoneMT5
             s.Symbol = t("sym", s.Symbol); s.Tf = (int)n("tf", 1); s.Lookback = (int)n("look", 1); s.EntryLots = n("entry", 0.1); s.AddLots = n("add", 0.2); s.Target = n("target", 20); s.MaxDrawdown = n("dd", 0); s.CommissionPerLot = n("comm", 0);
             s.FirstDir = t("first", "AUTO"); s.NextStart = t("next", "BREAK"); s.PauseSec = (int)n("pause", 60); s.AfterDrawdown = t("afterdd", "STOP"); s.Rolling = !d.ContainsKey("roll2") ? true : n("rolling", 1) == 1;   /* older saved settings (fixed by default then) → FOLLOWS */ s.MaxIterations = (int)n("maxit", 0); s.HedgeMode = t("hmode", "BREAK"); s.HedgePrice = n("hprice", 5); s.HedgeMoney = n("hmoney", 100);
             s.EntryMode = t("emode", "BREAK"); s.FlowVol = n("fvol", 1.5); s.FlowShare = n("fshare", 0.7); s.PerDay = (int)n("perday", 0); s.Windows = t("win", ""); s.NyOffsetHours = (int)n("nyoff", -7); s.NewsMode = t("news", "IGNORE"); s.NewsBefore = (int)n("nb", 15); s.NewsAfter = (int)n("na", 15); s.AddToWinner = n("win2", 0) == 1; s.WinnerLots = n("wlots", 0.1); s.MaxWinnerAdds = (int)n("wmax", 0); s.Swing = n("swing", 1) == 1; s.SwingK = (int)Math.Max(1, n("swk", 2)); s.FvgTf = (int)n("fvgtf", 5); s.WinnerLotsSell = n("wlots2", s.WinnerLots); s.Preset = t("preset", ""); s.VwapFilter = t("vf", "NONE"); s.CloseAtNy = d.ContainsKey("eod") ? d["eod"] : ""; s.TrackManual = n("man", 1) == 1; s.FvgAge = (int)n("fage", 0); s.FvgStrict = n("fstrict", 0) == 1; s.HedgeMult = n("hmult", 2); s.MaxHedges = (int)n("maxh", 1); s.ExitMode = t("exit", "BASKET"); s.AggRun = (int)Math.Max(1, n("aggrun", 1)); s.FvgStack = n("fstack", 1) == 1; s.EodLoss = t("eodl", "HOLD"); s.RangeOnly = n("ronly", 0) == 1; s.QuickHedge = n("qh", 0) == 1; s.CandleHedge = n("chedge", 0) == 1; s.KeyHedge = n("khedge", 0) == 1; s.KeyBuffer = Math.Max(0.1, Math.Min(3, n("kbuf", 0.5))); s.Smart = n("smart", 0) == 1; s.SmartBest = n("sbest", 0) == 1; s.SmartMin = (int)Math.Max(3, n("smartn", 10)); s.QuickAfter = Math.Max(0.1, n("qafter", 3)); s.ProtectAt = Math.Max(0, Math.Min(99, n("pat", 0))); s.RiskGuard = n("rg", 0) == 1; s.GuardLots = Math.Max(0.01, n("glots", 1.0)); s.GuardMargin = Math.Max(0, n("gmargin", 500)); s.GuardChop = (int)Math.Max(0, n("gchop", 3)); s.GuardMaxLead = (int)Math.Max(1, n("glead", 3)); s.GuardLift = n("glift", 0) == 1; s.GuardMode = t("gmode", "LOCK"); s.GuardBreak = Math.Max(0, n("gbreak", 1)); s.HardFloat = Math.Max(0, n("hfloat", 0)); s.HardMargin = Math.Max(0, n("hmargin", 0)); s.PairOff = n("pair", 1) == 1; s.TrendHedge = n("thedge", 0) == 1; s.ScaleOut = n("scale", 0) == 1; s.ScaleLots = Math.Max(0.01, n("slots", 0.05)); s.ScaleStep = Math.Max(0.1, n("sstep", 1.5)); s.TrendHedgeMult = Math.Max(1, n("thmult", 2)); s.ProtectKeep = Math.Max(0, Math.Min(95, n("pkeep", 10))); s.HedgeCap = Math.Max(0, n("hcap", 5)); s.LadderStep = Math.Max(0.1, n("lstep", 2.5)); s.LadderMax = (int)Math.Max(0, n("lmax", 10)); s.TrendFilter = t("trend", "NONE"); s.BeAfter = (int)Math.Max(0, n("beafter", 0)); s.LockOn = n("lock", 0) == 1; s.LockAfter = (int)Math.Max(1, n("lafter", 2)); s.LockRange = Math.Max(0.01, n("lrange", 3)); s.Unlock = t("unlock", "LEAD"); s.HedgeSize = t("hsize", "ADVANTAGE"); s.NetAdvantage = n("nadv", 0.2); if (!d.ContainsKey("hs2") && s.HedgeSize == "FIXED" && s.Preset != "BOX") s.HedgeSize = "ADVANTAGE";   /* the user's rule: the new side always LEADS BY the lots (older saved settings were FIXED by default) */ s.RecoverMove = n("rmove", 3); s.HedgeMaxLots = n("hmax", 1); s.DangerExit = n("dexit", 0) == 1; s.DangerAt = Math.Max(10, Math.Min(100, n("dat", 60))); s.DangerKeep = Math.Max(0, Math.Min(100, n("dkeep", 25))); s.MaxDdPct = Math.Max(0, Math.Min(100, n("ddpct", 0))); s.RecoverExit = n("rexit", 0) == 1; s.BeLock = n("belock", 0) == 1; s.DdLeadStep = Math.Max(0, n("ddlstep", 0)); s.DdLeadAdd = Math.Max(0.01, n("ddladd", 0.05)); s.DdLeadMax = Math.Max(0, n("ddlmax", 0.3)); s.DdTightEvery = Math.Max(0, n("dtev", 2)); s.DdTightBy = Math.Max(0, Math.Min(50, n("dtby", 10))); s.DdTightFloor = Math.Max(10, Math.Min(100, n("dtfl", 50))); s.Rescue = n("resc", 1) == 1; s.RescuePct = Math.Max(0.5, Math.Min(50, n("rpct", 3))); s.RescueMin = (int)Math.Max(0, Math.Min(1440, n("rmin", 0))); s.DeRisk = n("derisk", 0) == 1; s.TrimMax = (int)Math.Max(0, Math.Min(20, n("trimmax", 0))); s.FullAuto = n("fauto", 0) == 1; s.BreakClose = n("bclose", 0) == 1; s.ProfitUnlock = n("punlock", 0) == 1; s.BeClose = n("beclose", 0) == 1; s.LockMaxMin = Math.Max(0, n("lockmax", 0)); s.StuckPct = Math.Max(0, Math.Min(90, n("stpct", 0))); s.StuckHours = Math.Max(0, n("sthrs", 0)); s.TrendBreak = n("tbreak", 0) == 1; s.FadeAtr = Math.Max(0, Math.Min(20, n("fadeatr", 3))); s.SetupRisk = n("srisk", 1) == 1; s.HedgeStopPct = Math.Max(0, Math.Min(50, n("hstop", 0))); s.AutoScoreMin = (int)Math.Max(0, Math.Min(100, n("ascore", 50))); s.RiskDial = t("rdial", "SAFE"); s.BeLockAt = Math.Max(10, Math.Min(99, n("belat", 80))); s.BeLockKeep = Math.Max(0, Math.Min(90, n("belkeep", 10))); s.RecDeep = Math.Max(0.5, n("rdeep", 2)); s.RecKeep = Math.Max(0, Math.Min(100, n("rkeep", 20))); s.DayLoss = Math.Max(0, n("dayloss", 0)); s.DayLossPct = Math.Max(0, Math.Min(100, n("daypct", 0)));
+            s.StradMode = t("smode", "BREAKOUT"); s.StradXMode = t("sxm", "RANGE"); s.StradX = n("sx", 100); s.StradRangeK = n("srk", 0.5); s.StradRisk = n("srsk", 100); s.StradMaxLots = n("smax", 1); s.StradTargetX = n("stx", 3);
+            s.StradTrail = n("strail", 0) == 1; s.StradBankHalf = n("sbank", 0) == 1; s.StradHoldClose = t("shold", "HALF"); s.StradLoserExit = t("slex", "ENTRY"); s.StradOpen = t("sopen", "09:30"); s.StradClose = t("sclose", "16:00");
             return s;
         }
     }
@@ -582,9 +597,11 @@ namespace KeystoneMT5
 
             if (Phase == "CLOSING")
             {
+                if (Set.Preset == "STRADDLE930" && sn.Pos.Count == 0) { stStage = 0; }
                 if (sn.Pos.Count > 0) { if (pendId == null && (DateTime.Now - closeSeen).TotalSeconds > 2) CloseAll(sn, Current.Reason, true); return; }
                 Finish(sn); return;
             }
+            if (Set.Preset == "STRADDLE930") { Straddle(b, sn); return; }   // ⏰ its own flow (below): nothing else opens or closes
 
             if (Phase == "IN ITERATION")
             {
@@ -1542,6 +1559,104 @@ namespace KeystoneMT5
             pendId = id; pendKind = "SCALE"; pendTicket = win.Ticket; pendGross = gb1; pendSent = DateTime.Now; pendOk = DateTime.MinValue;
             Trades.Add(new AutoTrade { Iter = it.N, Time = Now, Side = "CLOSE", Lots = y, Price = win.Current, Level = double.NaN, Why = "🪓 DE-RISK winner #" + win.Ticket, Basket = Basket });
             return true;
+        }
+
+        // ================= ⏰ 9:30 STRADDLE =================
+        string stDay = ""; int stStage, stWin; double stRef = double.NaN, stX, stLots, stBest = double.NaN, stWinEntry; bool stHalf;
+        public string StradInfo = "";   // the chart / story line: X, the triggers, the winner's stop / target
+        // the previous New York day's 9:30–16:00 range (high − low) from the M1 candles; NaN = none
+        public double StradRange(IBroker b, DateTime nyToday)
+        {
+            lock (b.State.Gate)
+            {
+                var se = b.State.SeriesOf(Set.Symbol, 1); DateTime day = DateTime.MinValue; double hi = double.MinValue, lo = double.MaxValue;
+                for (int i = se.Bars.Count - 1; i >= 0; i--)
+                {
+                    var ny = se.Bars[i].Time.AddHours(Set.NyOffsetHours); if (ny.Date >= nyToday.Date) continue; int m = ny.Hour * 60 + ny.Minute; if (m < 570 || m >= 960) continue;
+                    if (day == DateTime.MinValue) day = ny.Date; else if (ny.Date != day) break;
+                    hi = Math.Max(hi, se.Bars[i].H); lo = Math.Min(lo, se.Bars[i].L);
+                }
+                return day == DateTime.MinValue ? double.NaN : hi - lo;
+            }
+        }
+        static double Down01(double v) { return Math.Floor(v * 100 + 1e-6) / 100; }
+        void StradClose(Mt5Position p, double lots, string why)
+        {
+            bool all = lots <= 0 || lots >= p.Lots - 1e-9; double gb = Gross(lastSnapPos);   /* before the close: the broker may change the position in place */
+            Refused = ""; var id = Ask("CLOSE", new object[] { p.Ticket, all ? 0.0 : lots }, "CLOSE " + (all ? "" : lots.ToString("0.##", IC) + " of ") + "#" + p.Ticket + " " + p.Side + " " + Set.Symbol + " (🤖 #" + Current.N + " " + why + ")");
+            if (id == null) { if (sugg) return; Note("⚠ close of #" + p.Ticket + " not sent: " + (Refused != "" ? Refused : "trading is not armed / allowed") + " — trying again"); return; }
+            pendId = id; pendKind = all ? "CLOSE1" : "SCALE"; pendTicket = p.Ticket; pendGross = gb; pendSent = DateTime.Now; pendOk = DateTime.MinValue;
+            Trades.Add(new AutoTrade { Iter = Current.N, Time = Now, Side = "CLOSE", Lots = all ? p.Lots : lots, Price = p.Current, Level = double.NaN, Why = "⏰ " + why + " #" + p.Ticket + " " + p.Side, Basket = Basket });
+        }
+        List<Mt5Position> lastSnapPos = new List<Mt5Position>();
+        void Straddle(IBroker b, Snap sn)
+        {
+            lastSnapPos = sn.Pos;
+            var ny = Now.AddHours(Set.NyOffsetHours); string today = ny.ToString("yyyy-MM-dd", IC); int nm = ny.Hour * 60 + ny.Minute;
+            int om, cm; if (!NyMin(Set.StradOpen, out om)) om = 570; if (!NyMin(Set.StradClose, out cm)) cm = 960;
+            double bid = sn.Bid, ask = double.IsNaN(sn.Ask) ? sn.Bid : sn.Ask, mid = (bid + ask) / 2;
+            if (Current == null)
+            {
+                stStage = 0; TargetPx = double.NaN; StopPx = double.NaN;
+                if (sn.Pos.Count > 0 || stDay == today || ny.DayOfWeek == DayOfWeek.Saturday || ny.DayOfWeek == DayOfWeek.Sunday) return;
+                if (nm < om || nm >= om + 5) { StradInfo = "⏰ waiting for " + Set.StradOpen + " New York"; return; }   // only the open's first 5 minutes
+                stDay = today;
+                double x = Set.StradXMode == "POINTS" ? Set.StradX : Set.StradRangeK * StradRange(b, ny.Date);
+                if (double.IsNaN(x) || x <= 0) { Tell("⏰ 9:30 STRADDLE — no candles of the previous day's 9:30–16:00 to size X (load M1 history) → no setup today"); return; }
+                double per = sn.PerPrice > 0 ? sn.PerPrice : 1, lots = Math.Min(Set.StradMaxLots, Down01(Set.StradRisk / (x * per)));
+                if (lots < 0.01) { Tell("⏰ 9:30 STRADDLE — the risk $" + Set.StradRisk.ToString("0", IC) + " is too small for X = " + x.ToString("0.##", IC) + " (0.01 lot risks " + M(0.01 * x * per) + ") → no setup today"); return; }
+                stX = x; stLots = lots; stRef = mid; stWin = 0; stHalf = false; stBest = double.NaN;
+                closedByUs = false; Current = new AutoIteration { N = Iterations.Count + 1, Start = Now, FirstDir = "BUY", BalanceStart = sn.Balance }; Iterations.Add(Current); Phase = "IN ITERATION";
+                Current.Ctx = "setup=STRADDLE930;mode=" + Set.StradMode + ";x=" + x.ToString("0.##", IC);
+                Tell("ITERATION #" + Current.N + " — ⏰ 9:30 STRADDLE: BUY " + lots.ToString("0.##", IC) + " + SELL " + lots.ToString("0.##", IC) + " " + Set.Symbol + ". X = " + x.ToString("0.##", IC) + (Set.StradXMode == "RANGE" ? " (" + Set.StradRangeK.ToString("0.##", IC) + " × yesterday's 9:30–16:00 range)" : " points") + ". " +
+                    (Set.StradMode == "HOLD" ? "At +X the winner is banked (" + Set.StradHoldClose + "), the loser waits for a reversal (tested: lost money 2020–26)." : "At ±X the LOSING leg is cut; the winner gets a stop at its entry and " + (Set.StradTrail ? "a trail of X behind its best." : "a target of +" + Set.StradTargetX.ToString("0.#", IC) + "X.")) + " Everything closes at " + Set.StradClose + " New York.");
+                stStage = 1; Order(sn, 1, lots, "⏰ 9:30 STRADDLE • BUY leg", double.NaN); return;
+            }
+            var it = Current; it.MaxDd = Math.Min(it.MaxDd, BasketTotal); it.Peak = Math.Max(it.Peak, BasketTotal); it.MaxGross = Math.Max(it.MaxGross, Gross(sn.Pos));
+            if (stStage == 0) { if (today != stDay || nm >= cm) { it.Reason = "CLOSE TIME"; CloseAll(sn, "CLOSE TIME", false); } return; }   // an adopted basket (after a restart): flat at the close time
+            if (stStage == 1) { if (sn.Pos.Any(p => p.Dir > 0)) { stStage = 2; Order(sn, -1, stLots, "⏰ 9:30 STRADDLE • SELL leg", double.NaN); } return; }
+            if (stStage == 2)
+            {
+                var bL = sn.Pos.FirstOrDefault(p => p.Dir > 0); var sL = sn.Pos.FirstOrDefault(p => p.Dir < 0); if (bL == null || sL == null) return;
+                stRef = (bL.Open + sL.Open) / 2; stStage = 3; StradInfo = "⏰ X " + stX.ToString("0.##", IC) + " • ▲ " + P(stRef + stX) + " / ▼ " + P(stRef - stX);
+                Tell("⏰ both legs open around " + P(stRef) + " → triggers ▲ " + P(stRef + stX) + " / ▼ " + P(stRef - stX) + "."); Version++; return;
+            }
+            if (sn.Pos.Count == 0) { it.Reason = "CLOSED BY HAND"; Tell("✋ the straddle's positions were closed outside the automation."); Finish(sn); return; }
+            if (today != stDay || nm >= cm) { it.Reason = "CLOSE TIME"; Tell("⏰ " + Set.StradClose + " New York → CLOSE ALL at " + M(BasketTotal) + "."); CloseAll(sn, "CLOSE TIME", false); return; }
+            if (Set.StradRisk > 0 && BasketTotal <= -3 * Set.StradRisk) { it.Reason = "SAFETY STOP"; Tell("⛔ SAFETY STOP — the straddle is at " + M(BasketTotal) + " (≤ −3 × the risk $" + Set.StradRisk.ToString("0", IC) + ") → CLOSE ALL."); CloseAll(sn, "SAFETY STOP", false); return; }
+            if (stStage == 3)
+            {
+                int dir = mid >= stRef + stX ? 1 : mid <= stRef - stX ? -1 : 0; TargetPx = stRef + stX; StopPx = stRef - stX; if (dir == 0) return;
+                var win = sn.Pos.FirstOrDefault(p => p.Dir == dir); var los = sn.Pos.FirstOrDefault(p => p.Dir == -dir); if (win == null || los == null) return;
+                stWin = dir;
+                if (Set.StradMode == "HOLD")
+                {
+                    stStage = 5; double cl = Set.StradHoldClose == "ALL" ? win.Lots : Math.Max(0.01, Down01(win.Lots / 2));
+                    Tell("⏰ +X reached " + (dir > 0 ? "UP" : "DOWN") + " → BANK " + cl.ToString("0.##", IC) + " of the winning " + win.Side + "; the losing " + los.Side + " waits for a reversal (back to " + (Set.StradLoserExit == "HALFX" ? "X/2" : "the entry") + "), +2X = close all.");
+                    StradClose(win, cl, "bank the winner at +X"); return;
+                }
+                stStage = 4; stWinEntry = win.Open; stBest = dir > 0 ? bid : ask;
+                Tell("⏰ ±X reached " + (dir > 0 ? "UP" : "DOWN") + " → CUT the losing " + los.Side + " (" + M(los.Profit + los.Swap + los.Commission) + "); the " + win.Side + " rides: stop at its entry " + P(stWinEntry) + (Set.StradTrail ? ", trailing X behind its best." : ", target " + P(stWinEntry + dir * Set.StradTargetX * stX) + "."));
+                StradClose(los, 0, "cut the losing leg at ±X"); return;
+            }
+            if (stStage == 4)
+            {
+                var win = sn.Pos.FirstOrDefault(p => p.Dir == stWin); if (win == null || sn.Pos.Count > 1) return;
+                if (Set.StradBankHalf && !stHalf && win.Lots >= 0.02) { stHalf = true; Tell("⏰ BANK HALF of the winner at +X."); StradClose(win, Down01(win.Lots / 2), "bank half at +X"); return; }
+                double px = stWin > 0 ? bid : ask; stBest = stWin > 0 ? Math.Max(stBest, px) : Math.Min(stBest, px);
+                double stop = stWinEntry; if (Set.StradTrail) { double tr = stBest - stWin * stX; stop = stWin > 0 ? Math.Max(stop, tr) : Math.Min(stop, tr); }
+                double tgt = stWinEntry + stWin * Set.StradTargetX * stX; StopPx = stop; TargetPx = Set.StradTrail ? double.NaN : tgt;
+                StradInfo = "⏰ " + win.Side + " rides • stop " + P(stop) + (Set.StradTrail ? " (trail)" : " • target " + P(tgt));
+                if (!Set.StradTrail && (stWin > 0 ? px >= tgt : px <= tgt)) { it.Reason = "TARGET +" + Set.StradTargetX.ToString("0.#", IC) + "X"; Tell("⏰ TARGET +" + Set.StradTargetX.ToString("0.#", IC) + "X reached at " + P(px) + " → CLOSE ALL " + M(BasketTotal) + "."); CloseAll(sn, it.Reason, false); return; }
+                if (stWin > 0 ? px <= stop : px >= stop) { it.Reason = Set.StradTrail && Math.Abs(stop - stWinEntry) > 1e-9 ? "TRAIL STOP" : "BREAKEVEN STOP"; Tell("⏰ " + it.Reason + " at " + P(px) + " → CLOSE ALL " + M(BasketTotal) + "."); CloseAll(sn, it.Reason, false); return; }
+                return;
+            }
+            if (stStage == 5)
+            {   // HOLD LOSER: +2X = it continued → close all; back to the loser's exit level = it reversed → close all
+                double cont = stRef + stWin * 2 * stX, back = Set.StradLoserExit == "HALFX" ? stRef + stWin * stX / 2 : stRef; TargetPx = cont; StopPx = back;
+                if (stWin > 0 ? mid >= cont : mid <= cont) { it.Reason = "CONTINUED +2X"; Tell("⏰ the move continued to +2X → CLOSE ALL " + M(BasketTotal) + "."); CloseAll(sn, it.Reason, false); return; }
+                if (stWin > 0 ? mid <= back : mid >= back) { it.Reason = "REVERSED"; Tell("⏰ the price came back to " + P(back) + " → CLOSE ALL " + M(BasketTotal) + "."); CloseAll(sn, it.Reason, false); return; }
+            }
         }
         void CloseOne(Mt5Position p)
         {

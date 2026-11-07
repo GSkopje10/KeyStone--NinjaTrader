@@ -28,6 +28,24 @@ public static class AutoTests
     }
     static AutoSettings S() { return new AutoSettings { HedgeSize = "FIXED", Rolling = false, Swing = false, FvgTf = 1, Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
 
+    // ⏰ 9:30 STRADDLE: a NAS100-like symbol ($1 a point a lot), yesterday 9:30–16:00 NY ranged 200 points (X = 100 at 0.5 ×)
+    static SimSpec Nas() { return new SimSpec { Name = "NAS100", Digits = 2, Point = 0.01, Contract = 1, TickValue = 0.01, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7 }; }
+    static Tuple<SimBroker, HedgeAuto> RunStrad(IEnumerable<double> afterOpen, Action<AutoSettings> tune, DateTime? openAt = null)
+    {
+        var bars = new List<Mt5Bar>();
+        bars.AddRange(Path(Day0.AddHours(16).AddMinutes(30), 20000, Line(20000, 200.0 / 390, 390)));   // yesterday 9:30–16:00 NY: 20000 → 20200
+        var start = openAt ?? Day1.AddHours(16).AddMinutes(30);
+        if (openAt == null) bars.AddRange(Path(Day1.AddHours(15), 20000, Enumerable.Repeat(20000.0, (int)(start - Day1.AddHours(15)).TotalMinutes)));   /* no candles before a late start */
+        var rest = afterOpen.ToList(); while (rest.Count < 400) rest.Add(rest.Count > 0 ? rest[rest.Count - 1] : 20000);
+        bars.AddRange(Path(start, 20000, rest));
+        var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "NAS100", From = Day1, To = Day1, Balance = 10000, CommissionPerLot = 0, Leverage = 100, Kind = "STANDARD", FixedSpread = 10 }, Nas(), bars); if (err != "") throw new Exception(err);
+        var s = AutoSettings.Model("STRADDLE930", new AutoSettings { Symbol = "NAS100", NyOffsetHours = -7, StradRisk = 100, StradMaxLots = 5 }); if (tune != null) tune(s);
+        var au = new HedgeAuto(); au.Send = (c, a, l) => sb.Command(c, a); sb.OnTickHook = () => au.Step(sb);
+        var chk = au.Check(sb, s); if (chk != "") throw new Exception(chk);
+        au.Start(sb, s, false); sb.Playing = true; sb.Speed = 60;
+        for (int k = 0; k < 40000 && !sb.Ended; k++) sb.Advance(0.25);
+        return Tuple.Create(sb, au);
+    }
     public static int Main4()
     {
         // 1. AUTO: the climb breaks the last candle's high → BUY 0.1; +$20 (a $2 move + the spread) closes it; the next break opens #2
@@ -495,6 +513,27 @@ public static class AutoTests
             var aMh = new HedgeAuto(); aMh.Current = new AutoIteration { N = 18, Start = Day1, FirstDir = "SELL", ManualAdds = 3 };
             var bk = HedgeAuto.ParseOpen(aMh.OpenText(new long[] { 1, 2 }));
             Check(bk != null && bk.It.ManualAdds == 3, "✋ HAND-HEDGED ×3 is saved with the open iteration and read back", bk == null ? "null" : bk.It.ManualAdds + "");
+        }
+        {   // ⏰ 9:30 STRADDLE (docs/reports/nas100-930-hedge-study.html)
+            Func<HedgeAuto, string> sum = a => string.Join(" | ", a.Iterations.Select(x => "#" + x.N + " " + x.Reason + " " + x.Result.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " b" + x.Buys + "/s" + x.Sells + " " + x.Ctx));
+            // BREAKOUT up to the +3X target: X = 0.5 × yesterday's 200-point range = 100, 1 lot (risk $100 ÷ 100 points × $1)
+            var up = Line(20000, 5, 90).ToList(); var rA = RunStrad(up, null); var iA = rA.Item2.Iterations;
+            Check(iA.Count == 1 && iA[0].Reason == "TARGET +3X" && iA[0].Buys == 1 && iA[0].Sells == 1 && iA[0].Ctx.Contains("x=100") && iA[0].Result > 150 && iA[0].Result < 220, "⏰ straddle breakout: BUY + SELL 1 lot at 9:30, X from yesterday's range (100), the SELL cut at −X, the BUY to +3X (≈ +$200)", sum(rA.Item2));
+            // down −X then back to the entry: the SELL's stop at its entry → about −X (the cut BUY) in all
+            var dn = Line(20000, -5, 30).Concat(Line(19850, 5, 40)).ToList(); var rB = RunStrad(dn, null); var iB = rB.Item2.Iterations;
+            Check(iB.Count == 1 && iB[0].Reason == "BREAKEVEN STOP" && iB[0].Result < -90 && iB[0].Result > -125, "⏰ straddle breakout down: the BUY cut at −X, the SELL stopped at its entry on the way back (≈ −$100)", sum(rB.Item2));
+            // TRAIL: up +250 then back: the stop trails X behind the best → out near +150
+            var tr = Line(20000, 5, 50).Concat(Line(20250, -5, 40)).ToList(); var rC = RunStrad(tr, x => x.StradTrail = true); var iC = rC.Item2.Iterations;
+            Check(iC.Count == 1 && iC[0].Reason == "TRAIL STOP" && iC[0].Result > 25 && iC[0].Result < 75, "⏰ straddle trail: the winner trails X behind its best (+250 → out ≈ +150, −100 for the cut leg = ≈ +$50)", sum(rC.Item2));
+            // HOLD LOSER (the user's first idea): +X banks half the winner, back to the entry closes all (≈ +$50 − spreads)
+            var hl = Line(20000, 5, 22).Concat(Line(20110, -5, 30)).ToList(); var rD = RunStrad(hl, x => x.StradMode = "HOLD"); var iD = rD.Item2.Iterations;
+            Check(iD.Count == 1 && iD[0].Reason == "REVERSED" && iD[0].Result > 20 && iD[0].Result < 60, "⏰ straddle HOLD LOSER: half the winner banked at +X, the reversal back to the entry closes the rest", sum(rD.Item2));
+            Check(rA.Item2.Trades.Count(t => t.Side == "CLOSE") >= 1 && rA.Item2.Iterations.Count == 1, "⏰ one setup a day: after the target nothing else opens the same day", sum(rA.Item2));
+            // nothing outside the 9:30 window: the data starts at 10:00 New York → no setup
+            var rE = RunStrad(up, null, Day1.AddHours(17)); Check(rE.Item2.Iterations.Count == 0 && rE.Item1.State.Deals.All(d => d.Type == "BALANCE"), "⏰ straddle: nothing is sent outside the 9:30–9:35 window", sum(rE.Item2));
+            // POINTS mode: X fixed = 50 → 2 lots for $100 of risk
+            var rF = RunStrad(up, x => { x.StradXMode = "POINTS"; x.StradX = 50; }); Check(rF.Item2.Iterations.Count == 1 && rF.Item2.Iterations[0].Ctx.Contains("x=50") && rF.Item2.Iterations[0].BuyLots > 1.99 && rF.Item2.Iterations[0].BuyLots < 2.01, "⏰ straddle POINTS: X = 50 → 2 lots for $100 risk", sum(rF.Item2));
+            var sStr = AutoSettings.Load(AutoSettings.Model("STRADDLE930", new AutoSettings { StradTrail = true }).Save()); Check(sStr.Preset == "STRADDLE930" && sStr.StradMode == "BREAKOUT" && sStr.StradXMode == "RANGE" && Math.Abs(sStr.StradRangeK - 0.5) < 1e-9 && Math.Abs(sStr.StradTargetX - 3) < 1e-9, "⏰ the straddle settings are saved and read back");
         }
         // the old tests that expect FIXED add-on lots keep FIXED
         // 14. DAY: the day replayed with every entry setup, ranked, saved and read back

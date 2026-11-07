@@ -307,3 +307,24 @@ Files: `full-auto-YYYY-MM-DD.csv` plus the existing `iterations`, `signals`, `bl
 
 - Each step is checked on the saved gold history (2025 + 2026) against DEFENDER before it becomes the default.
 - A step that is worse in the replay ships **off** and is said so, as RecoverExit and SMART were.
+
+## 11. ⏰ 9:30 STRADDLE preset (NAS100 / USTEC) — BUILD 2026-11-08a
+
+From `docs/reports/nas100-930-hedge-study.html` (987 rule sets, 1-minute Nasdaq futures 2020-07 → 2026-10 as the NAS100 proxy,
+1.5-point spread per leg). AUTO ▸ STRATEGY ▸ **⏰ 9:30 STRADDLE → BREAKOUT** (`AutoSettings.Model("STRADDLE930")`, `HedgeAuto.Straddle`).
+
+- **Open:** in the first 5 minutes after 09:30 New York (`StradOpen`), BUY then SELL the same lots, one order at a time, through the
+  same `AutoSend` checks as every preset (MT5 CanTrade + ARM + PROP limits; DEMO / BACKTEST simulated). One setup per New York day.
+- **X:** `RANGE` = `StradRangeK` (0.5) × the previous New York day's 09:30–16:00 range from the M1 candles, or `POINTS` = `StradX`.
+- **Size:** lots = `StradRisk` ÷ (X × $ a point a lot), capped by `StradMaxLots`. The cut leg loses about the risk $.
+- **BREAKOUT (default, the tested winner):** at ±X from the two fills' middle the LOSING leg is cut. The winner's stop moves to its entry,
+  and it targets +`StradTargetX` × X (3) — or, with `StradTrail`, trails X behind its best (never below the entry).
+  `StradBankHalf` closes half the winner at +X.
+  - Study: rule set 1 +9.96 points a day per lot (2020–23 +8.56 / 2024–26 +11.60, profit factor 1.33, max drawdown 1,995 points);
+    trail +8.90 (max drawdown 1,308); bank half +5.01 (max drawdown 972).
+- **HOLD LOSER** (the first idea, kept as an option): at +X bank half / all of the winner and hold the loser. Back at the entry
+  (or X/2) or +2X closes everything. **Tested: 0 of 735 variants made money in both halves.**
+- **Always:** everything closes at `StradClose` (16:00 New York); a safety stop closes all at −3 × the risk $.
+- **Tests:** `mt5/tests/AutoTests.cs` ⏰ block — breakout to +3X, breakout down then the stop at the entry, trail, hold loser,
+  one setup a day, nothing outside the 09:30–09:35 window, POINTS sizing, save / load.
+- **Before real money:** run it on DEMO / BACKTEST with the broker's real USTEC spread and contract size.
