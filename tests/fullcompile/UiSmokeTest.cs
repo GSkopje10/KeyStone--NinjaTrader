@@ -971,6 +971,58 @@ public static class UiSmokeTest
                 if (G("ddLabWindow") == null) throw new Exception("no window");
                 Set(lab4, "ddLabWindow", null);
             });
+            Step("🔄 ROTATION STUDIO: its own window, ▶ RUN on 40 synthetic days, totals + account deck + days, ▶ REPLAY, ORB sides", () =>
+            {
+                Call(lab4, "OpenRotationStudio");
+                if (G("rotStudioWindow") == null) throw new Exception("no window");
+                Func<DateTime, DateTime, List<KeystoneRotDay>> synth = (f, t) =>
+                {
+                    var rnd = new Random(11); var list = new List<KeystoneRotDay>(); var rsDay = new DateTime(2026, 1, 5);
+                    for (int di = 0; di < 40; di++, rsDay = rsDay.AddDays(rsDay.DayOfWeek == DayOfWeek.Friday ? 3 : 1))
+                    {
+                        var d = new KeystoneRotDay { Day = rsDay }; double m = 20000, g = 2500;
+                        for (int k = 0; k < KeystoneRotDay.Slots; k++)
+                        {
+                            double m1 = m + (rnd.NextDouble() - 0.5) * 30, g1 = g + (rnd.NextDouble() - 0.5) * 4;
+                            d.MO[k] = (float)m; d.MC[k] = (float)m1; d.MH[k] = (float)(Math.Max(m, m1) + 2); d.ML[k] = (float)(Math.Min(m, m1) - 2);
+                            d.GO[k] = (float)g; d.GC[k] = (float)g1; d.GH[k] = (float)(Math.Max(g, g1) + 0.3); d.GL[k] = (float)(Math.Min(g, g1) - 0.3); m = m1; g = g1;
+                        }
+                        list.Add(d);
+                    }
+                    return list;
+                };
+                Set(lab4, "rotStudioDaysOverride", synth); Set(lab4, "rotStudioLast", null);
+                ((Action)G("rotStudioRun"))();
+                for (int i = 0; i < 600 && G("rotStudioLast") == null && !((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text.StartsWith("🔄"); i++) System.Threading.Thread.Sleep(100);
+                Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
+                var sim = (KeystonePropSim)G("rotStudioLast"); if (sim == null || sim.Trades.Count == 0) throw new Exception("no trades");
+                var deck = (System.Windows.Controls.WrapPanel)G("rotStudioDeck"); if (deck == null || deck.Children.Count != 10) throw new Exception("the account deck should show the 10 evaluations, has " + (deck == null ? 0 : deck.Children.Count));
+                var orb = (Func<KeystoneRotDay, int, Tuple<int, int>>)lab4.GetType().GetMethod("RotStudioSides", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { "ORB30" });
+                var d0 = synth(DateTime.Today, DateTime.Today)[0]; int hits = 0; for (int k = 0; k < KeystoneRotDay.Slots; k++) { var sd = orb(d0, k); if (sd.Item1 != 0) { hits++; if (k <= KeystoneRotDay.Slot(1000)) throw new Exception("ORB side before 10:00"); } }
+                Console.WriteLine("      ORB30 sides on " + hits + " minutes of day 1 • " + sim.Accounts.Count(a => a.PassedOn != DateTime.MinValue) + " passed");
+                // 💜 the funded TPT PRO plan (INTRADAY trailing) with a free −200 / +200 bracket: the floor shows on every tile
+                var boxes = new List<object>(); Action<object> wk = null; wk = o => { if (o == null) return; boxes.Add(o); var pnl = o as System.Windows.Controls.Panel; if (pnl != null) foreach (var ch in pnl.Children.Cast<object>().ToList()) wk(ch); var bd = o as System.Windows.Controls.Border; if (bd != null) wk(bd.Child); var cc = o as System.Windows.Controls.ContentControl; if (cc != null) wk(cc.Content); };
+                wk(((System.Windows.Window)G("rotStudioWindow")).Content);
+                var planB = boxes.OfType<System.Windows.Controls.ComboBox>().FirstOrDefault(c => c.Items.Cast<object>().Any(x => Convert.ToString(x).StartsWith("💜 FUNDED"))); if (planB == null) throw new Exception("no FUNDED TPT PRO plan in the list");
+                for (int i = 0; i < planB.Items.Count; i++) if (Convert.ToString(planB.Items[i]).StartsWith("💜 FUNDED")) { planB.SelectedIndex = i; planB.SelectedItem = planB.Items[i]; }
+                var tbs = boxes.OfType<System.Windows.Controls.TextBox>().ToList(); var stopT = tbs.First(t => t.Text == "500"); var tgtT = tbs.First(t => t.Text == "1500"); stopT.Text = "200"; tgtT.Text = "200";
+                Set(lab4, "rotStudioLast", null); ((Action)G("rotStudioRun"))();
+                for (int i = 0; i < 600 && G("rotStudioLast") == null && !((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text.StartsWith("🔄"); i++) System.Threading.Thread.Sleep(100);
+                Console.WriteLine("      FUNDED: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
+                var simF = (KeystonePropSim)G("rotStudioLast"); if (simF == null || simF.S.StartAs != "FUNDED" || simF.S.Rules.FundDdType != "INTRADAY" || simF.Trades.Count == 0) throw new Exception("the funded intraday run did not trade");
+                if (simF.Trades.Any(t => t.Pnl > 200.01)) throw new Exception("a trade made more than the +$200 target");
+                wk = wk; boxes.Clear(); wk(deck); if (!boxes.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("floor "))) throw new Exception("no floor line on the tiles");
+                // ✋ MANUAL REPLAY: start the day, ▲▲ BUY BOTH, play minutes → the +200 / −200 bracket closes it and the next account is up
+                ((Action)G("rotStudioManLoad"))(); var msimT = (KeystonePropSim)G("rotStudioManSim"); if (msimT == null || msimT.Active == null) throw new Exception("manual replay did not start");
+                var firstAcc = msimT.Active; ((Action<int>)G("rotStudioManStep"))(3); ((Action<int, int>)G("rotStudioManEnter"))(1, 1);
+                for (int i = 0; i < 100 && msimT.Trades.Count == 0; i++) ((Action<int>)G("rotStudioManStep"))(1);
+                if (msimT.Trades.Count == 0) throw new Exception("the manual trade never closed");
+                var mt = msimT.Trades[0]; Console.WriteLine("      MANUAL: " + mt.Legs + " " + mt.Reason + " " + mt.Pnl.ToString("0.00") + " • next " + (msimT.Active != null ? msimT.Active.Name : "-"));
+                if (mt.Pnl > 200.01 || mt.Pnl < -260) throw new Exception("the manual trade left its bracket: " + mt.Pnl);
+                if (msimT.Active == firstAcc) throw new Exception("the next account did not take over");
+                ((Action<int, int>)G("rotStudioManEnter"))(0, -1); ((Action<int>)G("rotStudioManStep"))(600);
+                Set(lab4, "rotStudioDaysOverride", null); Set(lab4, "rotStudioWindow", null);
+            });
             Step("ROTATION TESTER: MNQ + MGC rotation on the loaded bars, result tabs, optimizer", () =>
             {
                 Call(lab4, "OpenRotationTester");
