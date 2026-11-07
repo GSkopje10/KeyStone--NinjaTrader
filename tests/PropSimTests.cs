@@ -741,7 +741,7 @@ public static class PropSimTests
             var pRl = KeystonePayoutRules.Load(KeystonePayoutRules.Save(new[] { new KeystonePayoutRules { Firm = "LUCID", Name = "L", Cap = 1800, Split = 80, QualDays = 4 } }));
             Check(pRl.Count == 3 && pRl[0].Cap == 1800 && pRl[0].Split == 80 && pRl[0].QualDays == 4 && pRl.Any(x => x.Firm == "TPT" && x.Parked), "💵 the firm payout rules are saved and read back (missing firms = the presets)");
             var pPlp = KeystonePayoutPlan.LoadPlans(KeystonePayoutPlan.SavePlans(new[] { new KeystonePayoutPlan { Name = "MY", Side = "LONDON", Qm = 6, Tp = 1200, Stop = 400, Tries = 2, MaxOnly = true, Protect = true } }));
-            Check(pPlp.Count == 1 && pPlp[0].Qm == 6 && pPlp[0].Tries == 2 && pPlp[0].MaxOnly && pPlp[0].Protect && KeystonePayoutPlan.Presets().Count == 5, "💵 a payout template is saved and read back • 5 presets");
+            Check(pPlp.Count == 1 && pPlp[0].Qm == 6 && pPlp[0].Tries == 2 && pPlp[0].MaxOnly && pPlp[0].Protect && KeystonePayoutPlan.Presets().Count == 6, "💵 a payout template is saved and read back • 5 presets");
             // 🔁 the pipeline: a batch → the passed Lucid / Tradeify funded from the next day, TPT parked; the net = the payouts
             var pRnd = new Random(5); var pWild = new List<KeystoneRotDay>(); var pDw = new DateTime(2025, 1, 6);
             for (int i = 0; i < 70; i++, pDw = pDw.AddDays(pDw.DayOfWeek == DayOfWeek.Friday ? 3 : 1))

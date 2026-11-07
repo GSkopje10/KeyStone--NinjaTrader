@@ -165,7 +165,8 @@ namespace System.Windows
         public static MessageBoxResult Show(string text) { return MessageBoxResult.OK; }
         public static MessageBoxResult Show(string text, string caption) { return MessageBoxResult.OK; }
         public static MessageBoxResult Show(string text, string caption, MessageBoxButton b) { return MessageBoxResult.OK; }
-        public static MessageBoxResult Show(string text, string caption, MessageBoxButton b, MessageBoxImage i) { return b == MessageBoxButton.YesNo ? MessageBoxResult.Yes : MessageBoxResult.OK; }
+        public static Func<string, MessageBoxButton, MessageBoxResult> Answer;   /* a test answers a dialog (null = the defaults) */ public static string LastText;
+        public static MessageBoxResult Show(string text, string caption, MessageBoxButton b, MessageBoxImage i) { LastText = text; if (Answer != null) return Answer(text, b); return b == MessageBoxButton.YesNo ? MessageBoxResult.Yes : MessageBoxResult.OK; }
         public static MessageBoxResult Show(Window owner, string text, string caption, MessageBoxButton b, MessageBoxImage i) { return MessageBoxResult.OK; }
     }
     public static class SystemParameters { public static double PrimaryScreenWidth { get { return 1920; } } public static double PrimaryScreenHeight { get { return 1080; } } public static Rect WorkArea { get { return new Rect(); } } public static double MinimumHorizontalDragDistance { get { return 4; } } public static double MinimumVerticalDragDistance { get { return 4; } } }
