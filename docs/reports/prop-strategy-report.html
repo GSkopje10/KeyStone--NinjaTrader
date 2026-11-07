@@ -24,7 +24,7 @@ section{scroll-margin-top:60px}h3{font:600 15px var(--fb);color:var(--mu);margin
 </style></head><body><div class="wrap">
 <h1>Prop Strategy Report</h1>
 <p class="sub">One report for passing evaluations and keeping funded accounts. Real 1-minute MNQ and MGC data from July 2020 to 2 October 2026. Costs: $1 a contract round trip plus 1 tick of slippage each side, $120 per eval. Each plan is checked separately on 2020–23 and 2024–26. Print → Save as PDF gives a clean PDF.</p>
-<nav class="nav" aria-label="Sections"><a href="#eval">1 · Eval plan</a><a href="#divided">2 · Divided rotation</a><a href="#funded">3 · Funded trailing drawdown</a><a href="#nas">4 · NAS100 9:30 hedge</a></nav>
+<nav class="nav" aria-label="Sections"><a href="#eval">1 · Eval plan</a><a href="#divided">2 · Divided rotation</a><a href="#funded">3 · Funded trailing drawdown</a><a href="#nas">4 · NAS100 9:30 hedge</a><a href="#mt5">5 · SpasiX MT5</a><a href="#futures">6 · SpasiX Futures interface</a></nav>
 
 <section id="eval"><h2>1 · Eval plan</h2>
 <p class="sub">50K evaluation: end-of-day trailing $2,000, pass at +$3,000 over at least 2 days, best day ≤ 50%. A new batch of 30 starts every weekday and trades until every account has passed or blown. The take profit is +$1,500 after costs.</p>
@@ -89,6 +89,30 @@ section{scroll-margin-top:60px}h3{font:600 15px var(--fb);color:var(--mu);margin
 <tr><td>Same, the winner trails 1X behind its best (never below entry)</td><td class="num">+8.90</td><td class="num">+7.43 / +10.62</td><td class="num">—</td><td class="num">1.36</td><td class="num">1,308 pts</td></tr>
 <tr><td>Same as the first, plus half the winner off at +X</td><td class="num">+5.01</td><td class="num">+4.12 / +6.06</td><td class="num">—</td><td class="num">1.31</td><td class="num">972 pts</td></tr></table></div>
 <p class="sub">A modest edge (about $10 a day per lot at $1 a point). Risk 1% or less a day and test it on SpasiX DEMO with the broker's real USTEC spread before going live. A buy-stop / sell-stop pair at ±X does the same and saves the cut leg's spread.</p>
+</section>
+
+<section id="mt5"><h2>5 · SpasiX MT5: what was tested and built</h2>
+<div class="box"><b>Latest build: SpasiX BUILD 2026-11-08a.</b> 239 automated tests pass, and the AUTO panel was checked in the real app (Wine screenshot).</div>
+<div class="tbl"><table><tr><th>Feature / study</th><th>Result</th><th>Status</th></tr>
+<tr class="hi"><td>⏰ 9:30 STRADDLE (AUTO ▸ STRATEGY): buy + sell at 9:30 New York. BREAKOUT mode cuts the loser at ±X; the winner gets breakeven + a +3X target or a trail. HOLD LOSER mode is kept as an option</td><td>BREAKOUT ≈ +10 points a day per lot over 2020–26, profit factor 1.33, held in both halves. HOLD LOSER: 0 of 735 versions profitable</td><td>Built + tested; try on DEMO with the broker's USTEC spread</td></tr>
+<tr><td>Gold, no hedging: FVG 50% pullback on 15m, NY 8–12, with the 200 EMA, target 3R</td><td>+153R over 1,037 trades, profit factor 1.28, up in every year 2020–2026; about +$100 a month at 1% risk on $5,000</td><td>Research; not yet a preset</td></tr>
+<tr><td>1,252 gold SL / TP strategies (break, sweep fade, engulfing, VWAP, ORB, Asia break, prior-day retest, RSI-2, Donchian trend)</td><td>Only FVG 50% (NY, with trend) held in both halves. The others failed in 2020–23 or in 2024–26</td><td>Research</td></tr>
+<tr><td>🛡 DEFENDER hedging (the AUTO default)</td><td>6-year replays: without the risk-guard locks but with the breakeven lock was best (+$2,258); 0.01 lot per $2,000 had the lowest drawdown. Strict stops, stuck exits and big lots blew accounts</td><td>Built (default preset)</td></tr>
+<tr><td>Aggression reversal (BH style) on gold, MNQ and MGC</td><td>864 versions per instrument: none profitable in both halves after costs</td><td>Rejected</td></tr>
+<tr><td>DEMO account fixes</td><td>Swap is booked at the broker's midnight even with the market closed. Hand-hedged iterations are kept in the tracker. Entry lots, target and max drawdown are back on the main panel</td><td>Built + tested</td></tr>
+</table></div>
+</section>
+<section id="futures"><h2>6 · SpasiX Futures (KeyStone) interface: what's built and tested</h2>
+<div class="box"><b>Latest build: KeyStone BUILD 2026-11-08c.</b> Every test suite passes: full-file compile against the stand-ins, the UI smoke test (it builds and drives the windows), the account-link and prop-sim tests, and the BH and Asian baselines unchanged. The real NinjaTrader F5 compile and the look on your screen are still to be checked by you.</div>
+<div class="tbl"><table><tr><th>Window / feature</th><th>What it does</th></tr>
+<tr class="hi"><td>🧪 EVAL LAB (Backtest Studio top bar)</td><td>Pools by prop firm with the firm-by-firm rotation order; plans (★ always BUY rotation, ⚡ GOING FORWARD all at once one side per firm, 1:1 + recovery, ➗ divided); ⚡ CALCULATE in one click (summary, accounts, trades, 🔮 hindsight, best strategy, by day, exports); 📅 START-DAY TEST by weekday × year / last year / 3 months / 3 weeks / 5 days with an HTML report; ROTATE replay (AUTO / MANUAL with flashing buttons + likelihood %); same-day recovery; pause between rotations; minimum time in a trade; per-firm rules (TPT passes on day 3); room shown as $; 🧠 advisor</td></tr>
+<tr class="hi"><td>💰 FUNDED LAB (next to the Eval Lab)</td><td>Intraday trailing (open profit included, locks at the start) and EOD models; presets ⚡ ONE-SHOT LOCK and 🛡 STEADY; pools of funded accounts copied from the Eval Lab; one at a time / all at once / rotation with a stop per account; ⚡ SIMULATE with "what if we had started at time Y on day X" by weekday / month / week + best plan; ▶ REPLAY with an animated drawdown gauge (room, peak, floor, payout, equity); tabs simulation / chart / data / all in one; HTML report</td></tr>
+<tr><td>Firm automation policy</td><td>Per firm and stage. TPT = MANUAL by default: in AUTO its buttons flash and nothing is sent until you press. Lucid, Tradeify and others = AUTO. Editable</td></tr>
+<tr><td>🕐 11-second rule (funded)</td><td>The automation never takes profit or closes in the entry minute; the share of trades held 11 s or more is shown</td></tr>
+<tr><td>Backtest Studio</td><td>◫ BOTH CHARTS: ▲▲ BUY BOTH / ▼▼ SELL BOTH / ✕ CLOSE BOTH with TP $ / SL $ each; SIGNALS mode pauses on a new setup with a ▶ TAKE IT card (your contracts / stop / target); the strategy box and trade tag no longer cover the candles</td></tr>
+<tr><td>Live Trading window</td><td>A bigger chart: indicators in a drop-down, messages in the header, tiles in the button row, one-line account chip; TP / SL kept when switching accounts; re-opening the window never closes trades</td></tr>
+<tr><td>Next</td><td>Stage 3: LIVE trading of the real accounts in both labs, through the existing ARM and account limits. Still to add: recovery and all-at-once in the Eval Lab's manual replay, and a full candle chart in the Funded Lab</td></tr>
+</table></div>
 </section>
 <p class="sub">How it was measured: exits are checked on 1-minute closes (so intraday peaks are slightly understated). Trades still open at the session end close at the market. Per-firm daily loss limits and consistency rules on funded accounts are not modelled. Past results don't promise future ones.</p>
 </div></body></html>
