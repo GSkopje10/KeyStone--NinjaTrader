@@ -1,0 +1,89 @@
+AGGRESSION REVERSAL vs BH-like 3-candle, 6 years 1-minute MNQ (cost 0.75 pt) and MGC (0.2), results in R, train 2020-23 / test 2024-26, 888 variants each
+
+MNQ
+BEST PER FAMILY (by the worse half):
+— AGG: 864 variants, 0 positive in BOTH halves
+   AGG REV M5 Lon+NY run>=2 break TP3R            n 11447  win   26%  avg -0.011R  PF 0.98  total    -131R  train    -40R (6237)  test    -91R (5210)  maxDD   297R  lossrun 24  +months  44%  20:+81 21:-50 22:-38 23:-33 24:-5 25:-23 26:-63
+   AGG REV M5 NY run>=4 break BE1→TP3R            n  2796  win   47%  avg -0.009R  PF 0.98  total     -25R  train    -+0R (1500)  test    -25R (1296)  maxDD   142R  lossrun 10  +months  44%  20:+76 21:-82 22:+6 23:-1 24:-12 25:-32 26:+19
+   AGG REV M5 all run>=2 break TP3R               n 14168  win   27%  avg -0.021R  PF 0.97  total    -292R  train   -179R (7846)  test   -113R (6322)  maxDD   449R  lossrun 30  +months  41%  20:+79 21:-108 22:-67 23:-83 24:-2 25:-36 26:-75
+— BHREF: 24 variants, 0 positive in BOTH halves
+   BH-LIKE 3-candle M5 all TP3R                   n 15361  win   26%  avg -0.042R  PF 0.94  total    -638R  train   -314R (8360)  test   -324R (7001)  maxDD   755R  lossrun 24  +months  32%  20:+83 21:-76 22:-183 23:-139 24:-37 25:-162 26:-124
+   BH-LIKE 3-candle M5 all BE1→TP3R               n 19799  win   47%  avg -0.043R  PF 0.92  total    -846R  train   -521R (10819)  test   -325R (8980)  maxDD   956R  lossrun 16  +months  32%  20:+55 21:-99 22:-182 23:-295 24:-14 25:-172 26:-139
+   BH-LIKE 3-candle M5 NY BE1→TP3R                n  7989  win   47%  avg -0.021R  PF 0.96  total    -169R  train    +21R (4295)  test   -190R (3694)  maxDD   315R  lossrun 19  +months  43%  20:+64 21:+26 22:-16 23:-53 24:-37 25:-80 26:-73
+
+MGC
+BEST PER FAMILY (by the worse half):
+— AGG: 864 variants, 0 positive in BOTH halves
+   AGG REV M5 NY trendH1 run>=4 break push>=1.5ATR TP1R n  1139  win   47%  avg -0.060R  PF 0.89  total     -68R  train    -40R ( 605)  test    -29R ( 534)  maxDD    91R  lossrun  9  +months  34%  20:-1 21:-6 22:-12 23:-20 24:-17 25:-15 26:+3
+   AGG REV M5 NY trendH1 run>=4 break TP3R        n  1296  win   29%  avg -0.069R  PF 0.90  total     -89R  train    -46R ( 684)  test    -43R ( 612)  maxDD   133R  lossrun 22  +months  42%  20:+1 21:+0 22:-37 23:-11 24:-23 25:-16 26:-4
+   AGG REV M5 NY trendH1 run>=4 break BE1→TP3R    n  1339  win   47%  avg -0.068R  PF 0.87  total     -90R  train    -51R ( 706)  test    -40R ( 633)  maxDD   123R  lossrun  9  +months  44%  20:+4 21:-3 22:-31 23:-20 24:-28 25:-16 26:+4
+— BHREF: 24 variants, 0 positive in BOTH halves
+   BH-LIKE 3-candle M5 all TP3R                   n 12804  win   27%  avg -0.066R  PF 0.91  total    -840R  train   -587R (6750)  test   -254R (6054)  maxDD   927R  lossrun 25  +months  32%  20:+13 21:-336 22:-78 23:-185 24:-124 25:-88 26:-41
+   BH-LIKE 3-candle M5 NY BE1→TP3R                n  6966  win   44%  avg -0.082R  PF 0.85  total    -572R  train   -354R (3689)  test   -218R (3277)  maxDD   672R  lossrun 15  +months  29%  20:+46 21:-160 22:-151 23:-89 24:-173 25:-18 26:-27
+   BH-LIKE 3-candle M5 NY BE1→trail1R             n  8036  win   45%  avg -0.097R  PF 0.82  total    -780R  train   -448R (4206)  test   -332R (3830)  maxDD   799R  lossrun 14  +months  20%  20:-23 21:-204 22:-119 23:-102 24:-180 25:-68 26:-84
+
+MNQ top 30
+ALL VARIANTS, best first by the WORSE of train / test expectancy (R per trade)
+AGG REV M5 Lon+NY run>=2 break TP3R            n 11447  win   26%  avg -0.011R  PF 0.98  total    -131R  train    -40R (6237)  test    -91R (5210)  maxDD   297R  lossrun 24  +months  44%  20:+81 21:-50 22:-38 23:-33 24:-5 25:-23 26:-63
+AGG REV M5 NY run>=4 break BE1→TP3R            n  2796  win   47%  avg -0.009R  PF 0.98  total     -25R  train    -+0R (1500)  test    -25R (1296)  maxDD   142R  lossrun 10  +months  44%  20:+76 21:-82 22:+6 23:-1 24:-12 25:-32 26:+19
+AGG REV M5 all run>=2 break TP3R               n 14168  win   27%  avg -0.021R  PF 0.97  total    -292R  train   -179R (7846)  test   -113R (6322)  maxDD   449R  lossrun 30  +months  41%  20:+79 21:-108 22:-67 23:-83 24:-2 25:-36 26:-75
+AGG REV M5 Lon+NY trendH1 run>=4 break TP3R    n  3504  win   26%  avg -0.021R  PF 0.97  total     -75R  train    -34R (1875)  test    -42R (1629)  maxDD   124R  lossrun 20  +months  56%  20:+17 21:-67 22:+50 23:-34 24:+18 25:-34 26:-25
+AGG REV M5 Lon+NY trendH1 run>=4 break TP2R    n  3616  win   33%  avg -0.032R  PF 0.95  total    -115R  train    -59R (1929)  test    -56R (1687)  maxDD   159R  lossrun 20  +months  45%  20:+19 21:-61 22:+35 23:-51 24:-8 25:-40 26:-8
+AGG REV M5 NY trendH1 run>=3 break BE1→trail1R n  3048  win   46%  avg -0.029R  PF 0.95  total     -88R  train    -38R (1623)  test    -50R (1425)  maxDD   109R  lossrun 15  +months  44%  20:-8 21:-68 22:+16 23:+23 24:+4 25:-11 26:-44
+AGG REV M5 NY run>=4 break push>=1.5ATR BE1→TP3R n  2446  win   46%  avg -0.010R  PF 0.98  total     -25R  train    +16R (1309)  test    -41R (1137)  maxDD   133R  lossrun 10  +months  44%  20:+77 21:-52 22:-1 23:-8 24:-19 25:-24 26:+3
+AGG REV M5 all run>=2 break BE1→TP3R           n 17785  win   47%  avg -0.035R  PF 0.93  total    -620R  train   -355R (9852)  test   -265R (7933)  maxDD   738R  lossrun 12  +months  40%  20:+18 21:-201 22:-4 23:-167 24:-82 25:-52 26:-131
+AGG REV M5 Lon+NY run>=2 break BE1→TP3R        n 14021  win   47%  avg -0.030R  PF 0.94  total    -425R  train   -196R (7675)  test   -229R (6346)  maxDD   539R  lossrun 12  +months  47%  20:+35 21:-133 22:+13 23:-111 24:-71 25:-45 26:-113
+AGG REV M5 all trendH1 run>=4 break TP2R       n  4878  win   33%  avg -0.038R  PF 0.94  total    -186R  train   -101R (2628)  test    -86R (2250)  maxDD   226R  lossrun 19  +months  42%  20:+3 21:-79 22:+15 23:-40 24:-34 25:-57 26:+5
+AGG REV M5 NY run>=2 break push>=1.5ATR BE1→trail1R n  4778  win   46%  avg -0.037R  PF 0.93  total    -179R  train   -104R (2614)  test    -75R (2164)  maxDD   192R  lossrun 14  +months  39%  20:-25 21:-57 22:-15 23:-7 24:-36 25:+10 26:-49
+AGG REV M5 Lon+NY run>=4 break BE1→TP3R        n  6416  win   47%  avg -0.041R  PF 0.92  total    -263R  train   -139R (3435)  test   -125R (2981)  maxDD   390R  lossrun 15  +months  32%  20:+85 21:-170 22:+32 23:-86 24:-8 25:-72 26:-45
+AGG REV M5 NY trendH1 run>=3 break TP2R        n  2947  win   33%  avg -0.033R  PF 0.95  total     -96R  train    -39R (1574)  test    -58R (1373)  maxDD   107R  lossrun 20  +months  41%  20:-2 21:-58 22:+23 23:-3 24:+3 25:-3 26:-58
+AGG REV M5 all trendH1 run>=2 break TP3R       n 12295  win   27%  avg -0.037R  PF 0.95  total    -450R  train   -284R (6701)  test   -166R (5594)  maxDD   465R  lossrun 22  +months  37%  20:-14 21:-69 22:-85 23:-117 24:-19 25:-59 26:-88
+AGG REV M5 all trendH1 run>=4 break TP3R       n  4686  win   27%  avg -0.037R  PF 0.95  total    -173R  train    -80R (2530)  test    -93R (2156)  maxDD   214R  lossrun 21  +months  49%  20:+2 21:-83 22:+31 23:-30 24:-6 25:-61 26:-27
+AGG REV M5 Lon+NY trendH1 run>=4 break BE1→TP3R n  3660  win   46%  avg -0.032R  PF 0.94  total    -115R  train    -85R (1963)  test    -31R (1697)  maxDD   158R  lossrun 12  +months  44%  20:+12 21:-88 22:+38 23:-47 24:+12 25:-28 26:-14
+AGG REV M5 Lon+NY trendH1 run>=2 break TP3R    n  9849  win   25%  avg -0.038R  PF 0.95  total    -371R  train   -242R (5295)  test   -129R (4554)  maxDD   390R  lossrun 25  +months  38%  20:-5 21:-63 22:-79 23:-94 24:+14 25:-41 26:-102
+AGG REV M5 NY trendH1 run>=2 break push>=1.5ATR BE1→trail1R n  2955  win   46%  avg -0.035R  PF 0.93  total    -105R  train    -43R (1623)  test    -61R (1332)  maxDD   110R  lossrun 12  +months  36%  20:-7 21:-42 22:+13 23:-7 24:-6 25:+29 26:-84
+BH-LIKE 3-candle M5 all TP3R                   n 15361  win   26%  avg -0.042R  PF 0.94  total    -638R  train   -314R (8360)  test   -324R (7001)  maxDD   755R  lossrun 24  +months  32%  20:+83 21:-76 22:-183 23:-139 24:-37 25:-162 26:-124
+AGG REV M5 NY trendH1 run>=2 break BE1→trail1R n  5476  win   46%  avg -0.047R  PF 0.91  total    -256R  train   -141R (2982)  test   -115R (2494)  maxDD   263R  lossrun 15  +months  37%  20:-23 21:-83 22:-29 23:-6 24:-37 25:+0 26:-78
+AGG REV M5 NY run>=2 break BE1→trail1R         n  7466  win   47%  avg -0.044R  PF 0.92  total    -326R  train   -195R (4080)  test   -131R (3386)  maxDD   341R  lossrun 14  +months  39%  20:-3 21:-115 22:-46 23:-31 24:-40 25:-41 26:-51
+BH-LIKE 3-candle M5 all BE1→TP3R               n 19799  win   47%  avg -0.043R  PF 0.92  total    -846R  train   -521R (10819)  test   -325R (8980)  maxDD   956R  lossrun 16  +months  32%  20:+55 21:-99 22:-182 23:-295 24:-14 25:-172 26:-139
+AGG REV M5 all run>=2 break BE1→trail1R        n 21092  win   47%  avg -0.047R  PF 0.91  total    -986R  train   -533R (11689)  test   -454R (9403)  maxDD   999R  lossrun 12  +months  21%  20:-74 21:-169 22:-81 23:-208 24:-69 25:-169 26:-216
+AGG REV M5 NY run>=3 break push>=1.5ATR BE1→trail1R n  3806  win   46%  avg -0.046R  PF 0.91  total    -175R  train    -87R (2061)  test    -87R (1745)  maxDD   189R  lossrun 12  +months  35%  20:-20 21:-79 22:+5 23:+6 24:-52 25:-15 26:-21
+AGG REV M5 Lon+NY trendH1 run>=2 break push>=1.5ATR TP3R n  6038  win   26%  avg -0.024R  PF 0.97  total    -146R  train     -6R (3316)  test   -140R (2722)  maxDD   216R  lossrun 22  +months  42%  20:-14 21:-5 22:+40 23:-27 24:+11 25:-67 26:-84
+BH-LIKE 3-candle M5 NY BE1→TP3R                n  7989  win   47%  avg -0.021R  PF 0.96  total    -169R  train    +21R (4295)  test   -190R (3694)  maxDD   315R  lossrun 19  +months  43%  20:+64 21:+26 22:-16 23:-53 24:-37 25:-80 26:-73
+AGG REV M5 NY run>=2 break BE1→TP3R            n  6780  win   47%  avg -0.018R  PF 0.97  total    -120R  train    +39R (3693)  test   -159R (3087)  maxDD   243R  lossrun 10  +months  41%  20:+99 21:-31 22:+16 23:-45 24:-56 25:-66 26:-38
+AGG REV M5 Lon+NY trendH1 run>=4 break TP1.5R  n  3687  win   38%  avg -0.051R  PF 0.92  total    -186R  train   -106R (1971)  test    -81R (1716)  maxDD   217R  lossrun 13  +months  34%  20:+7 21:-71 22:+13 23:-55 24:-24 25:-48 26:-9
+BH-LIKE 3-candle M5 NY TP1.5R                  n  9104  win   38%  avg -0.050R  PF 0.92  total    -458R  train   -266R (4964)  test   -192R (4140)  maxDD   487R  lossrun 21  +months  36%  20:-6 21:-103 22:-91 23:-66 24:-23 25:-82 26:-87
+AGG REV M5 all trendH1 run>=2 break push>=1.5ATR TP3R n  7513  win   27%  avg -0.027R  PF 0.96  total    -206R  train    -28R (4193)  test   -178R (3320)  maxDD   251R  lossrun 22  +months  42%  20:-24 21:-8 22:+16 23:-13 24:-17 25:-85 26:-77
+
+MGC top 30
+ALL VARIANTS, best first by the WORSE of train / test expectancy (R per trade)
+AGG REV M5 NY trendH1 run>=4 break push>=1.5ATR TP1R n  1139  win   47%  avg -0.060R  PF 0.89  total     -68R  train    -40R ( 605)  test    -29R ( 534)  maxDD    91R  lossrun  9  +months  34%  20:-1 21:-6 22:-12 23:-20 24:-17 25:-15 26:+3
+AGG REV M5 NY trendH1 run>=4 break TP3R        n  1296  win   29%  avg -0.069R  PF 0.90  total     -89R  train    -46R ( 684)  test    -43R ( 612)  maxDD   133R  lossrun 22  +months  42%  20:+1 21:+0 22:-37 23:-11 24:-23 25:-16 26:-4
+AGG REV M5 NY trendH1 run>=4 break BE1→TP3R    n  1339  win   47%  avg -0.068R  PF 0.87  total     -90R  train    -51R ( 706)  test    -40R ( 633)  maxDD   123R  lossrun  9  +months  44%  20:+4 21:-3 22:-31 23:-20 24:-28 25:-16 26:+4
+AGG REV M5 NY trendH1 run>=4 break TP1R        n  1358  win   47%  avg -0.054R  PF 0.90  total     -73R  train    -53R ( 719)  test    -20R ( 639)  maxDD    99R  lossrun  9  +months  34%  20:-4 21:-3 22:-25 23:-21 24:-15 25:-8 26:+3
+AGG REV M5 all trendH1 run>=2 break push>=1.5ATR TP3R n  6148  win   27%  avg -0.074R  PF 0.90  total    -455R  train   -249R (3245)  test   -207R (2903)  maxDD   518R  lossrun 25  +months  37%  20:-1 21:-73 22:-70 23:-105 24:-193 25:-12 26:-1
+AGG REV M5 NY trendH1 run>=4 break TP2R        n  1330  win   34%  avg -0.068R  PF 0.90  total     -90R  train    -56R ( 708)  test    -34R ( 622)  maxDD   128R  lossrun 16  +months  40%  20:+1 21:-9 22:-40 23:-8 24:-32 25:+3 26:-4
+AGG REV M5 all trendH1 run>=4 break TP3R       n  3804  win   28%  avg -0.067R  PF 0.91  total    -255R  train   -158R (1932)  test    -97R (1872)  maxDD   318R  lossrun 23  +months  29%  20:-5 21:-45 22:-89 23:-19 24:-69 25:-39 26:+11
+AGG REV M5 Lon+NY trendH1 run>=4 break TP3R    n  2946  win   26%  avg -0.076R  PF 0.90  total    -225R  train   -107R (1517)  test   -118R (1429)  maxDD   269R  lossrun 19  +months  40%  20:+1 21:-23 22:-80 23:-5 24:-68 25:-35 26:-15
+AGG REV M5 NY trendH1 run>=4 close TP1.5R      n  1800  win   38%  avg -0.071R  PF 0.88  total    -129R  train    -80R ( 966)  test    -49R ( 834)  maxDD   150R  lossrun 11  +months  42%  20:-16 21:+13 22:-32 23:-45 24:-12 25:-16 26:-20
+AGG REV M5 Lon+NY trendH1 run>=3 break push>=1.5ATR TP3R n  4015  win   26%  avg -0.081R  PF 0.89  total    -327R  train   -177R (2107)  test   -150R (1908)  maxDD   418R  lossrun 26  +months  34%  20:+27 21:-88 22:-55 23:-61 24:-130 25:-17 26:-3
+AGG REV M5 all trendH1 run>=3 break push>=1.5ATR TP3R n  4903  win   27%  avg -0.071R  PF 0.90  total    -348R  train   -214R (2544)  test   -134R (2359)  maxDD   469R  lossrun 31  +months  34%  20:+21 21:-95 22:-68 23:-74 24:-143 25:-10 26:+19
+AGG REV M5 all trendH1 run>=4 break TP2R       n  4001  win   34%  avg -0.060R  PF 0.91  total    -240R  train   -173R (2025)  test    -67R (1976)  maxDD   321R  lossrun 18  +months  37%  20:-15 21:-40 22:-89 23:-30 24:-74 25:-8 26:+15
+AGG REV M5 Lon+NY trendH1 run>=4 break TP2R    n  3068  win   32%  avg -0.071R  PF 0.90  total    -217R  train   -136R (1577)  test    -81R (1491)  maxDD   269R  lossrun 16  +months  37%  20:-1 21:-27 22:-87 23:-21 24:-70 25:-1 26:-11
+AGG REV M5 NY trendH1 run>=2 break push>=1.5ATR TP1R n  2500  win   46%  avg -0.075R  PF 0.86  total    -187R  train   -114R (1320)  test    -74R (1180)  maxDD   221R  lossrun 11  +months  30%  20:-16 21:-39 22:-18 23:-41 24:-72 25:-8 26:+7
+BH-LIKE 3-candle M5 all TP3R                   n 12804  win   27%  avg -0.066R  PF 0.91  total    -840R  train   -587R (6750)  test   -254R (6054)  maxDD   927R  lossrun 25  +months  32%  20:+13 21:-336 22:-78 23:-185 24:-124 25:-88 26:-41
+AGG REV M5 NY trendH1 run>=2 break push>=1.5ATR TP3R n  2304  win   29%  avg -0.068R  PF 0.90  total    -156R  train   -106R (1221)  test    -49R (1083)  maxDD   231R  lossrun 19  +months  47%  20:-7 21:-48 22:-22 23:-29 24:-83 25:+9 26:+25
+AGG REV M5 NY trendH1 run>=4 close push>=1.5ATR TP1.5R n  1510  win   37%  avg -0.081R  PF 0.87  total    -122R  train    -71R ( 812)  test    -51R ( 698)  maxDD   135R  lossrun 13  +months  36%  20:-11 21:+2 22:-21 23:-42 24:-18 25:-12 26:-22
+AGG REV M5 NY run>=2 break push>=1.5ATR TP2R   n  3779  win   33%  avg -0.083R  PF 0.87  total    -314R  train   -174R (1961)  test   -140R (1818)  maxDD   367R  lossrun 18  +months  35%  20:+4 21:-48 22:-64 23:-66 24:-77 25:-57 26:-5
+AGG REV M5 NY trendH1 run>=4 break BE1→trail1R n  1355  win   47%  avg -0.083R  PF 0.84  total    -112R  train    -64R ( 718)  test    -48R ( 637)  maxDD   132R  lossrun  9  +months  36%  20:+2 21:-16 22:-44 23:-5 24:-30 25:-18 26:-1
+AGG REV M5 Lon+NY trendH1 run>=2 break push>=1.5ATR TP3R n  5168  win   26%  avg -0.082R  PF 0.89  total    -425R  train   -209R (2764)  test   -216R (2404)  maxDD   457R  lossrun 28  +months  36%  20:+5 21:-68 22:-62 23:-84 24:-171 25:-29 26:-16
+AGG REV M5 all trendH1 run>=2 break TP3R       n  9999  win   27%  avg -0.076R  PF 0.89  total    -758R  train   -471R (5221)  test   -287R (4778)  maxDD   845R  lossrun 25  +months  32%  20:-42 21:-87 22:-150 23:-192 24:-200 25:-79 26:-7
+AGG REV M5 all trendH1 run>=4 break push>=1.5ATR TP3R n  3192  win   28%  avg -0.077R  PF 0.89  total    -247R  train   -149R (1650)  test    -97R (1542)  maxDD   316R  lossrun 23  +months  30%  20:+16 21:-61 22:-72 23:-33 24:-71 25:-24 26:-2
+AGG REV M5 NY run>=2 break push>=1.5ATR BE1→TP3R n  3743  win   45%  avg -0.084R  PF 0.84  total    -315R  train   -152R (1953)  test   -163R (1790)  maxDD   350R  lossrun 12  +months  35%  20:-10 21:-18 22:-48 23:-77 24:-90 25:-89 26:+16
+AGG REV M5 Lon+NY trendH1 run>=4 break BE1→TP3R n  3110  win   45%  avg -0.080R  PF 0.85  total    -248R  train   -146R (1590)  test   -102R (1520)  maxDD   267R  lossrun 14  +months  33%  20:-7 21:-29 22:-66 23:-43 24:-61 25:-34 26:-6
+AGG REV M5 all trendH1 run>=2 break push>=1.5ATR TP2R n  6619  win   33%  avg -0.079R  PF 0.88  total    -525R  train   -321R (3487)  test   -204R (3132)  maxDD   603R  lossrun 22  +months  32%  20:-16 21:-74 22:-109 23:-122 24:-200 25:-16 26:+12
+AGG REV M5 NY trendH1 run>=4 break TP1.5R      n  1339  win   38%  avg -0.089R  PF 0.86  total    -119R  train    -66R ( 713)  test    -53R ( 626)  maxDD   134R  lossrun 12  +months  34%  20:-2 21:-20 22:-39 23:-5 24:-29 25:-13 26:-11
+AGG REV M5 Lon+NY trendH1 run>=2 break TP3R    n  8398  win   25%  avg -0.087R  PF 0.88  total    -733R  train   -413R (4419)  test   -320R (3979)  maxDD   769R  lossrun 34  +months  33%  20:-39 21:-67 22:-144 23:-163 24:-225 25:-59 26:-36
+AGG REV M5 NY trendH1 run>=2 break TP2R        n  4330  win   34%  avg -0.062R  PF 0.91  total    -267R  train   -211R (2260)  test    -55R (2070)  maxDD   330R  lossrun 16  +months  34%  20:-28 21:-35 22:-61 23:-88 24:-64 25:+13 26:-5
+AGG REV M5 NY run>=2 break push>=1.5ATR TP1R   n  4460  win   45%  avg -0.090R  PF 0.83  total    -401R  train   -197R (2287)  test   -204R (2173)  maxDD   410R  lossrun 13  +months  20%  20:-24 21:-44 22:-57 23:-72 24:-114 25:-72 26:-18
+AGG REV M5 Lon+NY trendH1 run>=2 break TP2R    n  9592  win   31%  avg -0.087R  PF 0.87  total    -836R  train   -470R (4985)  test   -366R (4607)  maxDD   856R  lossrun 25  +months  25%  20:-39 21:-95 22:-170 23:-167 24:-248 25:-61 26:-57
