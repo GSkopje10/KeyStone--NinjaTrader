@@ -16307,7 +16307,7 @@ namespace NinjaTrader.NinjaScript
         {
             return new List<KeystonePayoutRules>
             {
-                new KeystonePayoutRules { Firm = "LUCID", Name = "Lucid 50K funded", Cap = 2000, After = "COOLDOWN", CooldownDays = 14, Color = "#4FC3F7" },   /* the user: Lucid never moves you to live — a 2-week cooldown after each payout */
+                new KeystonePayoutRules { Firm = "LUCID", Name = "Lucid 50K funded", Cap = 2000, After = "LIVE", CooldownDays = 14, Color = "#4FC3F7" },   /* the user (2026-11-09): the standard Lucid plan (moved to live after the payouts); the 2-week cooldown plan costs more — choose COOLDOWN in 🏢 FIRMS & RULES for it */
                 new KeystonePayoutRules { Firm = "TRADEIFY", Name = "Tradeify 50K funded", Cap = 2500, Color = "#F06292" },
                 new KeystonePayoutRules { Firm = "TPT", Name = "TPT PRO 50K", Tpt = true, LockAt = 0, Cap = 2000, Split = 80, QualDays = 0, MinPayout = 0, DdType = "INTRADAY", Color = "#FFB74D", AutoEval = false, AutoFunded = false },
             };
@@ -16368,7 +16368,7 @@ namespace NinjaTrader.NinjaScript
                     rr.MaxFunded = Math.Max(1, (int)KD("maxfunded", 5)); rr.AutoEval = KD("autoeval", 1) > 0; rr.AutoFunded = KD("autofunded", 1) > 0; rr.fromBookPrice = KD("useprice", 0) > 0; rr.Template = KD("tpl", 0) > 0; rr.fromFile = true;
                 }
                 else
-                {   /* an older file: the firm book fields of the preset (Lucid = the 2-week cooldown, no live) */
+                {   /* an older file: the firm book fields of the preset */
                     var pz = Presets().FirstOrDefault(x => x.Firm == rr.Firm);
                     if (pz != null) { rr.Color = pz.Color; rr.After = pz.After; rr.CooldownDays = pz.CooldownDays; rr.DdType = pz.DdType; }
                 }
@@ -17999,7 +17999,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;

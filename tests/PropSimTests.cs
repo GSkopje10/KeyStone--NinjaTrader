@@ -754,8 +754,8 @@ public static class PropSimTests
             var pPlp = KeystonePayoutPlan.LoadPlans(KeystonePayoutPlan.SavePlans(new[] { new KeystonePayoutPlan { Name = "MY", Side = "LONDON", Qm = 6, Tp = 1200, Stop = 400, Tries = 2, MaxOnly = true, Protect = true } }));
             Check(pPlp.Count == 1 && pPlp[0].Qm == 6 && pPlp[0].Tries == 2 && pPlp[0].MaxOnly && pPlp[0].Protect && KeystonePayoutPlan.Presets().Count == 9, "💵 a payout template is saved and read back • 9 presets");
             {   // ⏸ LUCID: no live, a 2-week cooldown (14 calendar days ≈ 10 trading days) after each payout, no payout-count cap (the user, 2026-11-09)
-                var lc = KeystonePayoutRules.Presets()[0].Copy(); var up60 = pdays(100, mm => 2.0 * mm);
-                Check(lc.Cooldown && lc.CooldownDays == 14 && lc.CoolTradingDays == 10 && lc.CoolPause, "⏸ Lucid preset: COOLDOWN 14 days (10 trading days), no trades during it", lc.After + " " + lc.CooldownDays + " " + lc.CoolTradingDays);
+                Check(KeystonePayoutRules.Presets()[0].After == "LIVE" && !KeystonePayoutRules.Presets()[0].Cooldown, "⏸ Lucid preset: the standard plan (moved to live after the payouts) • the cooldown is a choice"); var lc = KeystonePayoutRules.Presets()[0].Copy(); lc.After = "COOLDOWN"; var up60 = pdays(100, mm => 2.0 * mm);
+                Check(lc.Cooldown && lc.CooldownDays == 14 && lc.CoolTradingDays == 10 && lc.CoolPause, "⏸ Lucid with COOLDOWN chosen: 14 days (10 trading days), no trades during it", lc.After + " " + lc.CooldownDays + " " + lc.CoolTradingDays);
                 foreach (bool pause in new[] { true, false })
                 {
                     var rc = lc.Copy(); rc.CoolPause = pause; var ac = new KeystonePayoutAccount { Id = 20, Name = "Lucid C", Firm = "LUCID", Floor = rc.FloorOf(0) }; var payDays = new List<int>(); bool flatInCool = true;
@@ -772,8 +772,8 @@ public static class PropSimTests
             }
             {   // 🏢 FIRMS & RULES: the book saved and read back (every column), ＋ ADD FIRM, automation → KeystoneFirmPolicies, the bench limit, the eval rules
                 string bdir = Path.Combine(Path.GetTempPath(), "ks-firmbook-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(bdir);
-                KeystonePayoutRules.Book = null; var fbk = KeystonePayoutRules.LoadBook(bdir); bool presetsFirst = fbk.Count == 3 && fbk[0].Firm == "LUCID" && fbk[0].Cooldown;
-                var lu = fbk[0]; lu.EvalPrice = 150; lu.Discount = 80; lu.EvalTarget = 3100; lu.EvalDd = 2100; lu.EvalCons = 40; lu.EvalMinDays = 3; lu.CooldownDays = 21; lu.CoolPause = false; lu.MaxFunded = 7; lu.fromBookPrice = true; lu.DdType = "STATIC"; lu.Color = "#81C784";
+                KeystonePayoutRules.Book = null; var fbk = KeystonePayoutRules.LoadBook(bdir); bool presetsFirst = fbk.Count == 3 && fbk[0].Firm == "LUCID" && !fbk[0].Cooldown;
+                var lu = fbk[0]; lu.EvalPrice = 150; lu.Discount = 80; lu.EvalTarget = 3100; lu.EvalDd = 2100; lu.EvalCons = 40; lu.EvalMinDays = 3; lu.After = "COOLDOWN"; lu.CooldownDays = 21; lu.CoolPause = false; lu.MaxFunded = 7; lu.fromBookPrice = true; lu.DdType = "STATIC"; lu.Color = "#81C784";
                 var ap = KeystonePayoutRules.TemplateFor("apex", null, "#E57373"); ap.AutoFunded = false; ap.After = "LIVE"; ap.MaxPayouts = 6; ap.Cap = 2500; fbk.Add(ap);
                 KeystonePayoutRules.SaveBook(bdir); KeystonePayoutRules.Book = null; var frb = KeystonePayoutRules.LoadBook(bdir); var l2 = frb.First(x => x.Firm == "LUCID"); var fa2 = frb.FirstOrDefault(x => x.Firm == "APEX");
                 Check(presetsFirst && frb.Count == 4 && fa2 != null && fa2.Template && fa2.Color == "#E57373" && fa2.MaxPayouts == 6 && fa2.Cap == 2500 && !fa2.AutoFunded && fa2.AutoEval
@@ -784,7 +784,7 @@ public static class PropSimTests
                 double et, edd, ecs; int emd; string ewhy; KeystoneEvalLab.FirmRule("LUCID", 50, out et, out edd, out ecs, out emd, out ewhy);
                 Check(et == 3100 && edd == 2100 && ecs == 40 && emd == 3 && ewhy.StartsWith("🏢"), "🏢 the evaluation simulations use the firm's typed rules (+$3,100 • $2,100 • best day 40 % • 3 days)", et + " " + edd + " " + ecs + " " + emd + " " + ewhy);
                 var old = KeystonePayoutRules.Load("LUCID|Lucid 50K funded|2000|100|150|5|50|2000|250|90|5|0");
-                Check(old.First(x => x.Firm == "LUCID").Cooldown && old.First(x => x.Firm == "LUCID").CooldownDays == 14, "🏢 an older payout-rules.txt (no firm-book columns): Lucid takes the 2-week cooldown");
+                Check(!old.First(x => x.Firm == "LUCID").Cooldown && old.First(x => x.Firm == "LUCID").After == "LIVE", "🏢 an older payout-rules.txt (no firm-book columns): Lucid takes the standard plan");
                 KeystonePayoutRules.Book = null; KeystoneFirmPolicies.Chosen.Clear(); try { Directory.Delete(bdir, true); } catch { }
             }
             {   // ⚡ FAST CASH + 🎯 TPT +$10K presets (docs/reports/eval-to-payout.html §11–12) + 💰 the budget ladder

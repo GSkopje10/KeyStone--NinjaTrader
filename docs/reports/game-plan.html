@@ -1,0 +1,121 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Prop Firm Game Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a one-page game plan — the game, our rules, the numbers, how to win more, the routine, the risks. Dark, prints cleanly. */
+:root{color-scheme:dark;--bg:#0f1320;--panel:#161b2b;--raise:#1d2336;--line:#2a3148;--tx:#dfe3ee;--mu:#8a91a8;--up:#22b8a0;--dn:#ef5466;--warn:#f2b33d;--acc:#4f7cff;
+--fd:"Archivo","Arial Narrow",system-ui,sans-serif;--fb:"IBM Plex Sans",system-ui,sans-serif;--fn:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.6 var(--fb)}
+.wrap{max-width:1040px;margin:0 auto;padding-block:20px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+nav{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:4px;flex-wrap:wrap;padding:8px 0;z-index:5}
+nav a{color:var(--mu);text-decoration:none;font-size:13px;padding:4px 10px;border-radius:6px}nav a:hover{color:var(--tx);background:var(--raise)}
+h1{font:800 32px var(--fd);margin:18px 0 4px}h2{font:700 21px var(--fd);margin:36px 0 10px;scroll-margin-top:56px}
+.sub{color:var(--mu);max-width:78ch}.num{font-family:var(--fn);font-variant-numeric:tabular-nums}
+.box{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--up);border-radius:10px;padding:14px 18px;margin:12px 0}.box.warn{border-left-color:var(--warn)}.box.red{border-left-color:var(--dn)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:12px 0}.kpis div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpis span{display:block;color:var(--mu);font-size:11px;letter-spacing:.06em;text-transform:uppercase}.kpis b{font:600 22px var(--fn)}.kpis small{color:var(--mu);font-size:12px;display:block}
+.tbl{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:10px 0}table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mu);font-weight:500;font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+td.n{text-align:right;font-family:var(--fn);white-space:nowrap}ol li,ul li{margin:4px 0}b.up{color:var(--up)}b.dn{color:var(--dn)}
+@media print{body{background:#fff;color:#111}nav{display:none}.box,.tbl,.kpis div{background:#fff;border-color:#bbb}.sub,th,.kpis span,.kpis small{color:#555}h2{break-after:avoid}.tbl,.box{break-inside:avoid}}
+</style></head><body><div class="wrap">
+<nav><a href="#game">1 · The game</a><a href="#rules">2 · Our rules</a><a href="#numbers">3 · The numbers</a><a href="#more">4 · How to win more</a><a href="#start">5 · Starting with $3K</a><a href="#tpt">6 · The TPT account</a><a href="#day">7 · Daily routine</a><a href="#risk">8 · Risks</a></nav>
+<h1>Prop Firm Game Plan</h1>
+<p class="sub">Everything we tested, in one page. Real 1-minute MNQ and MGC data from July 2020 to October 2026, with costs ($1 a contract round trip plus 1 tick of slippage each side). The details are in eval-to-payout.html.</p>
+
+<section id="game"><h2>1 · The game</h2>
+<div class="box"><b>It's not about being the best trader. It's about getting the most payouts out of the firms.</b> One trade is close to a coin flip, and no entry we tested (about 7,000 plans) changes that by more than a few points. The money comes from the <b>shape of the game</b>: you pay a small ticket (an eval) for a chance at payouts many times bigger. So we win by:
+<ol><li><b>Cheap tickets:</b> a lower cost per eval is the biggest lever we control.</li>
+<li><b>Many tickets, spread out:</b> different times, sides and firms, so they don't all win or lose together.</li>
+<li><b>Rules that fit each firm:</b> payout caps, drawdown type, bench limits.</li>
+<li><b>Patience and a budget:</b> the averages only show up over several batches.</li></ol></div>
+</section>
+
+<section id="rules"><h2>2 · Our rules (the model to stick to)</h2>
+<div class="tbl"><table><tr><th>Stage</th><th>Rules</th></tr>
+<tr><td><b>Eval</b><br><small>all firms</small></td><td><ol><li>Every trading day, <b>every alive account trades once</b>. The 30 are spread over <b>2:00 · 8:30 · 9:30 · 10:00 · 11:00</b> New York.</li>
+<li><b>MNQ 20.</b> One side per firm at each time, so never opposite positions inside one firm.</li>
+<li><b>Take profit +$1,500 after costs</b> (a limit order). No stop: ride the full $2,000 room. Never more than +$1,500 in a day.</li>
+<li>Pass = +$3,000 over at least 2 days (TPT: 3 days, the 3rd a tiny trade).</li></ol></td></tr>
+<tr><td><b>Funded</b><br><small>Lucid · Tradeify</small></td><td><ol><li><b>★ MAX IN 5, spread:</b> each account at its own time; one side per firm.</li>
+<li><b>Push days:</b> MNQ 6, take profit = the profit still missing (at most +$2,500), stop −$500, one trade a day.</li>
+<li><b>Qualify days</b> (profit reached, fewer than 5 days of ≥ $150): MNQ 2, +$200 / −$600, up to 3 tries.</li>
+<li>Request only the max: Lucid $2,000 → <b>$1,800</b> to you, Tradeify $2,500 → <b>$2,250</b>. Up to 5 times.</li></ol>
+<small>While the bankroll is small, use ⚡ FAST CASH instead: take the first eligible payout (section 5).</small></td></tr>
+<tr><td><b>Funded</b><br><small>Take Profit Trader</small></td><td><ol><li>Phase 1, past the trailing drawdown: 9:30, MNQ 10–15, take profit +$2,250, one trade a day until the floor locks.</li>
+<li>Phase 2: withdraw $2,000 at a time while keeping the $2,000 buffer (80% → $1,600 to you). Never more than $10,000 profit in a day. Every trade is clicked by hand.</li></ol></td></tr>
+<tr><td><b>Portfolio</b></td><td><ul><li>Rotate <b>firm by firm</b> (Lucid → Tradeify → TPT → …) so no firm sees a burst of trading.</li>
+<li>At most <b>5 funded per firm</b>. Extras wait on the bench and replace a lost one.</li>
+<li><b>No new batch until the payouts have covered the money spent</b>, except to keep a reserve.</li>
+<li>TPT accounts are always manual. The 11-second hold rule applies on funded accounts.</li></ul></td></tr>
+</table></div>
+</section>
+
+<section id="numbers"><h2>3 · The numbers</h2>
+<p class="sub">One batch = 30 evals (10 Lucid, 10 Tradeify, 10 TPT) at $120 = $3,600. 505 batches, each starting on a different date from July 2020 to 2026.</p>
+<div class="kpis">
+<div><span>Evals passed</span><b>30.4%</b><small>median 8 of 30 (4–14)</small></div>
+<div><span>Average payouts per batch</span><b class="up">$5,555</b><small>Lucid $2,267 · Tradeify $2,192 · TPT $1,096</small></div>
+<div><span>Average return</span><b>+54%</b><small>$3,600 in → $5,555 back</small></div>
+<div><span>Median batch</span><b>$4,500</b><small>half the batches pay more</small></div>
+<div><span>Batches that pay nothing</span><b class="dn">26%</b><small>about 1 in 4</small></div>
+<div><span>Batches that don't pay back</span><b class="dn">42%</b><small>less than $3,600 back</small></div>
+<div><span>Best batch</span><b class="up">$27,800</b><small>12 passed (July 2021)</small></div>
+<div><span>Worst stretch</span><b>8</b><small>batches in a row paying nothing</small></div>
+</div>
+<div class="tbl"><table><tr><th>Batch started in</th><th class="n">Average payouts</th><th class="n">Batches paying nothing</th></tr>
+<tr><td>2020 (from July)</td><td class="n">$1,650</td><td class="n">57%</td></tr><tr><td>2021</td><td class="n">$7,253</td><td class="n">23%</td></tr>
+<tr><td>2022</td><td class="n">$6,971</td><td class="n">13%</td></tr><tr><td>2023</td><td class="n">$4,068</td><td class="n">40%</td></tr>
+<tr><td>2024</td><td class="n">$5,444</td><td class="n">21%</td></tr><tr><td>2025</td><td class="n">$5,412</td><td class="n">24%</td></tr><tr><td>2026</td><td class="n">$4,833</td><td class="n">25%</td></tr></table></div>
+<div class="tbl"><table><tr><th>Per funded account (to you)</th><th class="n">Average</th><th class="n">Ever paid</th><th class="n">The maximum</th></tr>
+<tr><td>Lucid ($1,800 a payout)</td><td class="n">$1,310</td><td class="n">30%</td><td class="n">5 × $1,800 = $9,000</td></tr>
+<tr><td>Tradeify ($2,250 a payout)</td><td class="n">$1,442</td><td class="n">27%</td><td class="n">5 × $2,250 = $11,250</td></tr>
+<tr><td>TPT (withdraw $2,000, 80%)</td><td class="n">$790–990</td><td class="n">about 1 in 3 lock</td><td class="n">—</td></tr></table></div>
+<p class="sub">At scale, every $120 eval brings back about <b>$185</b>, so <b>100 evals a month ≈ $18,500 a month</b> in payouts. Holding 20 funded accounts on the steady plan ≈ <b>$14,300 a month net</b> (about $680 per trading day) after replacing the ones that blow.</p>
+</section>
+
+<section id="more"><h2>4 · How to win more (in order of impact)</h2>
+<div class="tbl"><table><tr><th>Lever</th><th>Why</th><th>Effect</th></tr>
+<tr><td><b>1 · Buy evals only on discount</b></td><td>The payouts don't depend on the price you paid.</td><td>At $40 a batch costs $1,200 for the same ~$5,555 → about <b>4.6×</b> instead of 1.5×. Ruin with $3K drops from 44–80% to about 13%.</td></tr>
+<tr><td><b>2 · More accounts, spread out</b></td><td>The averages only show up across many accounts.</td><td>Spreading funded accounts over times and sides cut "batch pays nothing" from 63% to 26%.</td></tr>
+<tr><td><b>3 · Pick the firms that pay most per $ of risk</b></td><td>Payout cap ÷ drawdown, eval price, min days, rules.</td><td>Track the return per firm in the labs; add firms whose rules are generous; drop the weak ones (that trader does the same).</td></tr>
+<tr><td><b>4 · The right payout style for your stage</b></td><td>Small bankroll: cash fast. Bigger bankroll: max payouts.</td><td>⚡ FAST CASH while below ~$3k reserve; ★ MAX IN 5 after (+$1,345 vs $958 per account).</td></tr>
+<tr><td><b>5 · Size: aggressive, not reckless</b></td><td>Bigger size is faster but not more often.</td><td>Eval MNQ 20; funded MNQ 6–10. MNQ 15–20 funded, scalping and small brackets all paid less.</td></tr>
+<tr><td><b>6 · Never hedge inside one firm</b></td><td>It can cost every payout at that firm.</td><td>One side per firm at a time is built into the labs.</td></tr>
+<tr><td><b>7 · Keep a reserve</b></td><td>Losing stretches happen (up to 8 batches in a row).</td><td>Reserve ≈ 3 batches before taking money home.</td></tr>
+</table></div>
+<div class="box warn"><b>Don't chase:</b> "a max payout every 5 days on every account" doesn't exist in the data (the best plans manage it in 25–33% of 5-day windows). Chasing it with bigger size or more trades made accounts blow faster.</div>
+</section>
+
+<section id="start"><h2>5 · Starting with $3,000: ⚡ FAST CASH</h2>
+<ol><li>Only buy evals at a discount (~$40–60). At full price $3K usually runs out first.</li>
+<li>Week 1: 25 evals, Lucid + Tradeify (≈ $1,000). Keep $2,000 for weeks 2–3.</li>
+<li>Eval: the model above. Funded: MNQ 6, +$1,500 / −$500, one trade a day, each account its own entry; take the <b>first</b> eligible payout.</li>
+<li>Each week buy up to 25 more, reinvesting 100% until a $3,000 reserve exists; the rest is yours.</li>
+<li>At most 5 funded per firm (bench). Stop if the money drops below 3 evals with nothing pending.</li></ol>
+<div class="kpis"><div><span>Ruin (money gone first)</span><b>13%</b><small>7% for last year's starts</small></div><div><span>First payout within 4 weeks</span><b>86%</b></div><div><span>Month 3 (median)</span><b>$37.9k</b><small>optimistic: discounts always available, no activation fees</small></div></div>
+</section>
+
+<section id="tpt"><h2>6 · Your TPT account</h2>
+<div class="box warn">+$10,000 in about 2.5 weeks happens about <b>1 time in 10</b> (9 in 10 blow). A first goal of <b>+$4,000 → withdraw $2,000 ($1,600 to you)</b> happens about <b>1 time in 4</b>; then go again from there.</div>
+<ol><li>Phase 1: 9:30 NY, MNQ 15, side = Nasdaq's direction from 3:00 to 9:30, take profit +$2,250, the trailing floor as stop, one trade a day until the floor locks.</li>
+<li>Phase 2: MNQ 10, take profit +$4,000 (capped by what's missing, never more than +$9,500 a day); MNQ 5 when the room is under $2,000.</li>
+<li>Withdraw at the goal. Click every trade yourself (TPT funded doesn't allow automation).</li></ol>
+</section>
+
+<section id="day"><h2>7 · Daily routine</h2>
+<ol><li>Before 2:00 NY: open the 🧪 Eval Lab / 💰 Funded Lab, check the header: who trades at which time, room left, payouts due.</li>
+<li>At each entry time: place the trades the lab shows (AUTO where the firm allows it, flashing buttons for TPT).</li>
+<li>One trade per account per day; leave take profits as limit orders; don't move them.</li>
+<li>After the close: mark passed accounts → funded (bench if a firm already has 5), request due payouts, log blown accounts.</li>
+<li>Weekly: compare real results with the model (the labs' stats), buy the next evals only if the budget rule says so.</li></ol>
+</section>
+
+<section id="risk"><h2>8 · Risks (read once)</h2>
+<div class="box red"><ul><li>No plan guarantees profit; 1 batch in 4 pays nothing and losing stretches happen.</li>
+<li>Results are simulated on 1-minute data; real fills, fees (activation, monthly), daily loss limits and each firm's fine print can lower them.</li>
+<li>Firms change rules and prices; check them before every batch.</li>
+<li>Only use money you can afford to lose.</li></ul></div>
+</section>
+</div></body></html>
