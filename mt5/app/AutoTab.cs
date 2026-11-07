@@ -147,7 +147,11 @@ namespace KeystoneMT5
                 new Mi { Text = "🟢 SAFE — half the tested size and target (smaller dips, smaller profit)", Do = () => riskPick(0.5, "SAFE") },
                 new Mi { Text = "🔵 NORMAL — the tested 6-year default: 0.01 lot per $1,000, +$2 target per $1,000", Do = () => riskPick(1, "NORMAL") },
                 new Mi { Text = "🟠 BOLD — 1.5× size and target (bigger dips: 0.25 lot / $10 blew the account in 5 of 7 years)", Fg = Amber, Do = () => riskPick(1.5, "BOLD") } }));
-            simple.Children.Add(new TextBlock { Text = "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets the size from your balance, TARGET is in ⚙ ADVANCED", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 720, Margin = new Thickness(10, 14, 0, 0) });
+            /* the boxes you change most stay in sight (user's catch: "no parameter entries for target") */
+            simple.Children.Add(AField("entry", "ENTRY LOTS", aset.EntryLots.ToString(IC), 70, "the first trade of every iteration"));
+            simple.Children.Add(AField("target", "TARGET $ / ITERATION", aset.Target.ToString(IC), 80, "the whole basket closes at +$ (profit + swap + commission) — whatever the drawdown on the way"));
+            simple.Children.Add(AField("dd", "MAX DRAWDOWN $ (0 = NONE)", aset.MaxDrawdown.ToString(IC), 80, "0 = none: until the target or the account blows; else the basket closes at −$"));
+            simple.Children.Add(new TextBlock { Text = "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 720, Margin = new Thickness(10, 14, 0, 0) });
             aSettings.Children.Add(simple);
             var advBox = new StackPanel { Visibility = Get("auto.adv", "0") == "1" ? Visibility.Visible : Visibility.Collapsed };
             var advBtn = new Button { Content = advBox.Visibility == Visibility.Visible ? "⚙ ADVANCED ▴" : "⚙ ADVANCED ▾ (every setting)", Margin = new Thickness(0, 6, 0, 4), Padding = new Thickness(12, 4, 12, 4), HorizontalAlignment = HorizontalAlignment.Left, Background = Card, Foreground = Text, BorderBrush = Line, FontWeight = FontWeights.Bold };
@@ -159,10 +163,7 @@ namespace KeystoneMT5
             r1.Children.Add(ADrop("swing", "LEVELS (BREAKS)", () => aset.Swing ? "the last SWING high / low" : "the last N candles", () => new List<Mi> { new Mi { Text = "SWING — the most recent swing high (BUY) / swing low (SELL): a candle higher / lower than its neighbours", Do = () => aset.Swing = true }, new Mi { Text = "LAST N CANDLES — the highest high / lowest low of the last N finished candles", Do = () => aset.Swing = false } }));
             r1.Children.Add(AField("swk", "SWING STRENGTH (CANDLES EACH SIDE)", aset.SwingK.ToString(IC), 60, "a swing high = a candle higher than this many finished candles on each side (2 = the usual)"));
             r1.Children.Add(AField("look", "RECENT HIGH / LOW (CANDLES)", aset.Lookback.ToString(IC), 60, "the high / low of the last N FINISHED candles of the timeframe (1 = the previous candle)"));
-            r1.Children.Add(AField("entry", "ENTRY LOTS", aset.EntryLots.ToString(IC), 70, "the first trade of every iteration"));
             r1.Children.Add(AField("add", "FIXED ADD-ON LOTS (OTHER WAY)", aset.AddLots.ToString(IC), 70, "each add-on the other way: entry 0.5 buy → add-on 1.0 sell (net 0.5 sell) → 1.0 buy …"));
-            r1.Children.Add(AField("target", "TARGET $ / ITERATION", aset.Target.ToString(IC), 80, "the whole basket closes at +$ (profit + swap + commission) — whatever the drawdown on the way"));
-            r1.Children.Add(AField("dd", "MAX DRAWDOWN $ (0 = NONE)", aset.MaxDrawdown.ToString(IC), 80, "0 = none: until the target or the account blows; else the basket closes at −$"));
             r1.Children.Add(AField("ddpct", "⛔ MAX DRAWDOWN % (0 = none)", aset.MaxDdPct.ToString(IC), 60, "the iteration closes when it is down this % of its starting balance (open + realised) — then the next trade (AFTER MAX DRAWDOWN)"));
             r1.Children.Add(AField("dayloss", "⛔ DAILY LOSS $ (0 = none)", aset.DayLoss.ToString(IC), 70, "today's (New York day) closed + open loss reaches it → close everything, NO new iteration until tomorrow"));
             r1.Children.Add(AField("daypct", "⛔ DAILY LOSS % (0 = none)", aset.DayLossPct.ToString(IC), 60, "the same as a % of the day's starting balance"));
