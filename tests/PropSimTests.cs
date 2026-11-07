@@ -641,6 +641,8 @@ public static class PropSimTests
             Check(aoSame && aoASim.Trades.GroupBy(t => t.Day + "|" + t.Account).All(g => g.Count() == 1), "⚡ ONE SIDE PER FIRM: every account of a firm takes the same side each day, one trade a day", string.Join(" | ", aoDay1.Select(t => t.Legs)));
             var aoBS = aoAS.Copy(); aoBS.AllSide = "BUY"; var aoBSim = KeystoneRotationLab.Run(aoBS, aoUp.Take(5).ToList(), 200, 1655, null);
             Check(aoBSim.Accounts.Take(6).All(a => a.PassedOn != DateTime.MinValue) && aoBSim.Accounts.Take(6).Where(a => aoBSim.FirmName(a).StartsWith("LUCID")).All(a => a.PassedOn == aoUp[1].Day) && aoBSim.Trades.Where(t => t.Day <= aoUp[1].Day).All(t => t.Pnl > 1499 && t.Pnl < 1501), "⚡ BUY ALL on rising days: +1,500 after costs a day → Lucid passes on day 2, TPT (3 days) after", string.Join(",", aoBSim.Accounts.Take(6).Select(a => a.PassedOn.ToString("dd"))));
+            var aoTpt = aoBSim.Accounts.Take(6).Where(a => aoBSim.FirmName(a).StartsWith("TPT")).ToList();
+            Check(aoTpt.Count > 0 && aoTpt.All(a => a.PassedOn == aoUp[2].Day), "🏢 TPT passes on day 3 (two +$1,500 days, then the extra day — its commission doesn't undo the pass)", string.Join(" ", aoTpt.Select(a => a.PassedOn.ToString("MM-dd"))) + " vs " + aoUp[2].Day.ToString("MM-dd"));
             // 🩹 recovery: SELL ALL with a −500 stop on a rising day → the flipped recovery (risking the room left) reaches +500
             var aoS = aoAS.Copy(); aoS.AllSide = "SELL"; aoS.RotStop = 500; aoS.RecTarget = 500; aoS.RecSide = "FLIP"; var aoSim = KeystoneRotationLab.Run(aoS, aoUp.Take(1).ToList(), 200, 1655, null);
             var aoT0 = aoSim.Trades.FirstOrDefault();
@@ -659,6 +661,48 @@ public static class PropSimTests
             var aoPl = KeystoneEvalLab.LoadPlans(KeystoneEvalLab.SavePlans(new[] { new KeystoneEvalPlan { Name = "A", Mode = "ALL", AllSide = "EACH", RecT = 1500, RecSide = "FLIP", Side = "RANDOM" } }));
             Check(aoPl.Count == 1 && aoPl[0].Mode == "ALL" && aoPl[0].AllSide == "EACH" && aoPl[0].RecT == 1500 && aoPl[0].RecSide == "FLIP", "⚡ a template keeps ALL AT ONCE, its side and the recovery");
             Check(KeystoneEvalLab.Presets().Any(p0 => p0.Name.StartsWith("⚡ GOING FORWARD") && p0.Mode == "ALL" && p0.AllSide == "FIRM" && p0.Session == 2 && p0.Qm == 20 && p0.Stop == 0), "⚡ the GOING FORWARD preset: all at once, 2:00, MNQ 20, one side per firm, ride the full room");
+        }
+        {   // ---- 💰 FUNDED LAB (trailing drawdown) — the engine
+            Func<DateTime, Func<int, double>, KeystoneRotDay> fday = (day, path) =>
+            {   /* MNQ from 9:30: path(minutes since 9:30) points; before 9:30 flat at 20,000; MGC flat */
+                var d = new KeystoneRotDay { Day = day }; int fk0 = KeystoneRotDay.Slot(930); double last = 20000;
+                for (int k = 0; k < KeystoneRotDay.Slots; k++) { double o = last, c = k < fk0 ? 20000 : 20000 + path(k - fk0); d.MO[k] = (float)o; d.MC[k] = (float)c; d.MH[k] = (float)Math.Max(o, c); d.ML[k] = (float)Math.Min(o, c); d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = 2500; last = c; }
+                return d;
+            };
+            var fr = KeystoneFundedRules.Presets()[0].Copy(); var buy = KeystoneFunded.Presets()[0].Copy(); buy.Side = "BUY";
+            var up80dn = fday(new DateTime(2026, 3, 2), mm => mm <= 80 ? mm : Math.Max(-200, 160 - mm));
+            var xfa = new KeystoneFundedAccount { Floor = fr.FloorOf(0) }; var xft = KeystoneFunded.TradeOne(up80dn, KeystoneRotDay.Slot(930), 1, buy, fr, xfa, 0);
+            Check(xft != null && xft.How == "FLOOR" && xfa.Peak > 1500 && Math.Abs(xfa.Floor - (xfa.Peak - 2000)) < 0.01 && xft.Pnl < -300 && xft.Pnl > -700 && xfa.State == "BLOWN", "💰 INTRADAY trailing: the peak includes the open profit (+80 pts = +$1,600) → the floor rose to peak − 2,000 and caught the give-back", xft == null ? "none" : xft.How + " " + xft.Pnl.ToString("0") + " peak " + xfa.Peak.ToString("0") + " floor " + xfa.Floor.ToString("0"));
+            var rise = fday(new DateTime(2026, 3, 3), mm => 2.0 * mm); var xfb = new KeystoneFundedAccount { Floor = fr.FloorOf(0) }; var fbt = KeystoneFunded.TradeOne(rise, KeystoneRotDay.Slot(930), 1, buy, fr, xfb, 0); KeystoneFunded.EndDay(xfb, fr, rise.Day);
+            Check(fbt != null && fbt.How == "TARGET" && Eq(fbt.Pnl, 2250) && xfb.State == "PAYOUT" && xfb.Locked && Eq(xfb.Floor, 0), "💰 the one-shot +$2,250 after costs → payout-ready, the floor stopped trailing at the start (locked)", fbt == null ? "none" : fbt.How + " " + fbt.Pnl + " " + xfb.State + " floor " + xfb.Floor);
+            var jump = fday(new DateTime(2026, 3, 4), mm => 200); var xfc = new KeystoneFundedAccount { Floor = fr.FloorOf(0) }; var fct = KeystoneFunded.TradeOne(jump, KeystoneRotDay.Slot(930), 1, buy, fr, xfc, 0);
+            Check(fct != null && fct.How == "TARGET" && fct.ExitSlot > fct.EntrySlot && fct.Held && xfc.HeldPct == 100, "🕐 the 11-second rule: a target reached in the entry minute waits for the next minute (held ≥ 11 s)", fct == null ? "none" : fct.EntrySlot + "→" + fct.ExitSlot);
+            var steady = KeystoneFunded.Presets()[1].Copy(); var lond = fday(new DateTime(2026, 3, 5), mm => mm <= 70 ? mm : Math.Max(-50, 140 - mm)); lond.MO[KeystoneRotDay.Slot(300)] = 19990;   /* the London move 3:00 → 9:30 is up */
+            var xfd = new KeystoneFundedAccount { Floor = fr.FloorOf(0) }; var fde = KeystoneFunded.EntryOf(steady, lond, new Random(1), 0); var fdt = KeystoneFunded.TradeOne(lond, fde.Item1, fde.Item2, steady, fr, xfd, 0);
+            Check(fde.Item2 == 1 && fdt != null && fdt.How == "BREAKEVEN" && fdt.Pnl > 0, "🛡 STEADY: London continuation buys, half off at +$500, the rest stopped at breakeven on the way back (a profit kept)", fdt == null ? "none" : fdt.How + " " + fdt.Pnl.ToString("0.00"));
+            var xdn = new List<KeystoneRotDay> { fday(new DateTime(2026, 3, 9), mm => -3.0 * mm), fday(new DateTime(2026, 3, 10), mm => -3.0 * mm), fday(new DateTime(2026, 3, 11), mm => -3.0 * mm) };
+            var fr5 = KeystoneFunded.Run(fr, buy, null, 5, xdn, "ONE", 1);
+            Check(fr5.Accounts.Take(3).All(a => a.State == "BLOWN") && fr5.Accounts[0].Started == xdn[0].Day && fr5.Accounts[1].Started == xdn[1].Day && fr5.Accounts[2].Started == xdn[2].Day && fr5.Accounts.Skip(3).All(a => a.Started == DateTime.MinValue && !a.Done), "💰 5 accounts ONE AT A TIME: the next account starts when the last is done", string.Join(" ", fr5.Accounts.Select(a => a.State + "@" + a.Started.ToString("MM-dd"))));
+            var mixed = new List<KeystoneEvalAccount> { new KeystoneEvalAccount { Firm = "TPT", Nick = "T1" }, new KeystoneEvalAccount { Firm = "TPT", Nick = "T2" }, new KeystoneEvalAccount { Firm = "LUCID", Nick = "L1" }, new KeystoneEvalAccount { Firm = "LUCID", Nick = "L2" } };
+            var rnd = KeystoneFunded.Presets()[0].Copy(); var frA = KeystoneFunded.Run(fr, rnd, mixed, 0, new List<KeystoneRotDay> { rise }, "ALL", 3);
+            Check(frA.Trades.Count == 4 && frA.Trades.Where(t => t.Name.StartsWith("T")).Select(t => t.Dir).Distinct().Count() == 1 && frA.Trades.Where(t => t.Name.StartsWith("L")).Select(t => t.Dir).Distinct().Count() == 1, "💰 ALL AT ONCE: one side per firm (no opposite positions inside a firm)", string.Join(" ", frA.Trades.Select(t => t.Name + (t.Dir > 0 ? "▲" : "▼"))));
+            var wi = KeystoneFunded.WhatIf(fr, buy, new List<KeystoneRotDay> { rise, jump, up80dn }, KeystoneFunded.Times, 5); var wt = KeystoneFunded.Table(wi);
+            Check(wi.Count == 15 && wt.Any(x => x.Group == "TIME") && wt.Any(x => x.Group == "WEEKDAY") && wt.Any(x => x.Group == "MONTH") && wt.Any(x => x.Group == "WEEK") && wt.First(x => x.Group == "ALL").N == 15, "💰 WHAT IF: every start day × time, by time / weekday / month / week", wi.Count + " starts");
+            var rk = KeystoneFunded.Rank(fr, KeystoneFunded.Presets(), new List<KeystoneRotDay> { rise, jump });
+            Check(rk.Count == 3 && rk[0].Item2.ReadyPct >= rk[rk.Count - 1].Item2.ReadyPct, "💰 BEST PLAN: the presets ranked by payout-ready % (✋ I DECIDE left out)", string.Join(" | ", rk.Select(x => x.Item1.Name.Substring(0, 6) + " " + x.Item2.ReadyPct.ToString("0"))));
+            var fhtml = KeystoneFunded.Html(fr5, wt, rk); Check(fhtml.Contains("@media print") && fhtml.Contains("Highest peak") && fhtml.Contains("By start week"), "💰 the HTML report (→ PDF)");
+            var fp = KeystoneFunded.LoadPlans(KeystoneFunded.SavePlans(new[] { new KeystoneFundedPlan { Name = "MY", Side = "LONDON", Qm = 4, Tp = 1000, Stop = 500, HalfAt = 500, BeAfterHalf = true, Trail = 200, PerDay = 2, DayTarget = 1500, DayStop = 800 } }));
+            Check(fp.Count == 1 && fp[0].Side == "LONDON" && fp[0].BeAfterHalf && fp[0].Trail == 200 && fp[0].PerDay == 2 && fp[0].DayStop == 800, "💰 a funded template is saved and read back");
+            // the firms' automation rule (the user's): TPT manual in the evaluation and funded; Lucid / Tradeify automate
+            KeystoneFirmPolicies.Chosen.Clear();
+            Check(KeystoneFirmPolicies.ManualFor("TPT", false) && KeystoneFirmPolicies.ManualFor("TPT", true) && !KeystoneFirmPolicies.ManualFor("LUCID", false) && !KeystoneFirmPolicies.ManualFor("TRADEIFY", true), "🏢 TPT = ✋ manual (its buttons flash), Lucid / Tradeify = AUTO");
+            var rp = new KeystoneFundedReplay { Rules = fr, Plan = buy, Days = new List<KeystoneRotDay> { rise }, Auto = true, ManualFirm = f0 => KeystoneFirmPolicies.ManualFor(f0, true) };
+            rp.Accounts.Add(new KeystoneFundedAccount { Id = 1, Name = "T1", Firm = "TPT", Floor = fr.FloorOf(0) }); rp.Load(0); for (int i = 0; i < 200 && !rp.Waiting && rp.Pos == null; i++) rp.Step();
+            bool waited = rp.Waiting && rp.Pos == null; bool entered = rp.Enter(rp.PlanSide()); for (int i = 0; i < 300 && rp.Pos != null; i++) rp.Step();
+            Check(waited && entered && rp.Trades.Count == 1 && rp.Trades[0].How == "TARGET", "✋ REPLAY in AUTO on a TPT account: it waits (the buttons flash), the press enters, the target closes it", waited + " " + entered + " " + rp.Trades.Count);
+            // ➗ divided rotation template + TPT passes on day 3 (the day-count trade's commission doesn't undo the pass)
+            var dv = KeystoneEvalLab.LoadPlans(KeystoneEvalLab.SavePlans(new[] { new KeystoneEvalPlan { Name = "D", Tries = 2, DivN = 5, DayT = 1500, DayS = 1000, Side = "BUY" } }));
+            Check(dv.Count == 1 && dv[0].Tries == 2 && dv[0].DivN == 5 && dv[0].DayT == 1500 && dv[0].DayS == 1000 && KeystoneEvalLab.Presets().Any(p0 => p0.Name.StartsWith("➗ DIVIDED")), "➗ a divided-rotation template keeps its trades a day / day target / day stop");
         }
         Console.WriteLine(failures == 0 ? "PROP SIM TESTS: ALL PASSED" : "PROP SIM TESTS: " + failures + " FAILED");
         return failures == 0 ? 0 : 1;

@@ -494,7 +494,7 @@ public static class AccountLinkTests
             gs3[0].Confirmed = true; KeystoneCopyGroups.Remove(gs3, "TPT9"); Check(!gs3[0].Confirmed, "an account taken out → confirm again");
             gs3[0].Confirmed = true; KeystoneCopyGroups.Place(gs3, "ASIAN", "TPT1", true); Check(gs3[0].Confirmed, "the same chart account again → still confirmed");
             KeystoneCopyGroups.Remove(gs2, "TPT2"); Check(gs2[0].Leader == "" && KeystoneCopyGroups.GroupOf(gs2, "TPT2") == null && KeystoneCopyGroups.Place(gs2, "GROUP 1", "TPT2", true) == null, "taken out → free to join another group");
-            Check(!KeystoneFirmPolicies.AutoAllowed("TPT", true) && KeystoneFirmPolicies.AutoAllowed("TPT", false) && KeystoneFirmPolicies.CopyAllowed("TPT"), "TPT: automation in the evaluation only, copying allowed");
+            Check(!KeystoneFirmPolicies.AutoAllowed("TPT", true) && !KeystoneFirmPolicies.AutoAllowed("TPT", false) && KeystoneFirmPolicies.CopyAllowed("TPT"), "TPT (the user's rule): no automation in the evaluation nor funded — the buttons flash, you click; copying allowed");
             KeystoneFirmPolicies.Parse("TPT|1|1|0"); Check(KeystoneFirmPolicies.AutoAllowed("TPT", true) && !KeystoneFirmPolicies.CopyAllowed("TPT") && KeystoneFirmPolicies.Serialize() == "TPT|1|1|0", "your firm rules win and save"); KeystoneFirmPolicies.Parse("");
             // ACCOUNTS: auto names per firm, firm colours you pick (saved, used everywhere)
             var nn = KeystoneFirmNames.AutoNicks(new[] { Tuple.Create("TAKEPROFIT250", "TPT"), Tuple.Create("TAKEPROFIT257", "TPT"), Tuple.Create("LT1", "LUCID"), Tuple.Create("TAKEPROFIT332", "tpt") });

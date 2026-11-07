@@ -1071,6 +1071,38 @@ public static class UiSmokeTest
                 ((Action<bool>)G("evalLabAuto"))(false); ((Action<string>)G("evalLabDeletePool"))(pn0);
                 Set(lab4, "rotStudioDaysOverride", null); Set(lab4, "rotStudioWindow", null);
             });
+            Step("💰 FUNDED LAB: pool of 5 (TPT + LUCID), ⚡ SIMULATE on synthetic days, result tabs, ▶ REPLAY with the TPT flash + press, every section", () =>
+            {
+                Call(lab4, "OpenFundedLab"); if (G("fundedLabWindow") == null) throw new Exception("no window");
+                Func<DateTime, DateTime, List<KeystoneRotDay>> fsynth = (f, t) =>
+                {
+                    var rnd = new Random(23); var list = new List<KeystoneRotDay>(); var dd0 = new DateTime(2026, 2, 2);
+                    for (int di = 0; di < 12; di++, dd0 = dd0.AddDays(dd0.DayOfWeek == DayOfWeek.Friday ? 3 : 1))
+                    {
+                        var d = new KeystoneRotDay { Day = dd0 }; double m = 20000, g = 2500;
+                        for (int k = 0; k < KeystoneRotDay.Slots; k++) { double m1 = m + (rnd.NextDouble() - 0.5) * 40, g1 = g + (rnd.NextDouble() - 0.5) * 4; d.MO[k] = (float)m; d.MC[k] = (float)m1; d.MH[k] = (float)(Math.Max(m, m1) + 2); d.ML[k] = (float)(Math.Min(m, m1) - 2); d.GO[k] = (float)g; d.GC[k] = (float)g1; d.GH[k] = (float)(Math.Max(g, g1) + 0.3); d.GL[k] = (float)(Math.Min(g, g1) - 0.3); m = m1; g = g1; }
+                        list.Add(d);
+                    }
+                    return list;
+                };
+                Set(lab4, "fundedLabDaysOverride", fsynth); Set(lab4, "fundedLabLast", null);
+                KeystoneFirmPolicies.Chosen.Clear();
+                ((Action<string, string, int>)G("fundedLabNewPool"))("SMOKE FUNDED", "TPT", 3); ((Action<string, string, int>)G("fundedLabNewPool"))("SMOKE FUNDED", "LUCID", 2);
+                foreach (var sec in new[] { "OVERVIEW", "POOLS", "PLANS", "SIMULATE", "REPLAY", "STATS", "REPORT" }) ((Action<string>)G("fundedLabShow"))(sec);
+                ((Action<DateTime, DateTime>)G("fundedLabSim"))(new DateTime(2026, 2, 2), new DateTime(2026, 2, 17));
+                for (int i = 0; i < 600 && G("fundedLabLast") == null && !((System.Windows.Controls.TextBlock)G("fundedLabStatus")).Text.Contains("no saved"); i++) System.Threading.Thread.Sleep(100);
+                var frun = (KeystoneFundedRun)G("fundedLabLast"); Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("fundedLabStatus")).Text);
+                if (frun == null || frun.Accounts.Count != 5 || frun.Trades.Count == 0) throw new Exception("no funded run of the 5-account pool");
+                foreach (var tb in new[] { "WHAT IF", "BEST PLAN", "TRADES", "SUMMARY" }) ((Action<string>)G("fundedLabTab"))(tb);
+                var ftbl = (List<KeystoneFundedRow>)G("fundedLabTable"); if (ftbl == null || !ftbl.Any(x => x.Group == "TIME")) throw new Exception("no 'what if' table");
+                ((Action<DateTime, DateTime>)G("fundedLabReplayLoad"))(new DateTime(2026, 2, 2), new DateTime(2026, 2, 6));
+                var frep = (KeystoneFundedReplay)G("fundedLabReplay"); if (frep == null || frep.Accounts.Count != 5) throw new Exception("no replay");
+                ((Action<int>)G("fundedLabStep"))(400); if (!((Func<bool>)G("fundedLabFlashing"))()) throw new Exception("a TPT account in the replay should wait with flashing buttons");
+                ((Action<int>)G("fundedLabPress"))(frep.PlanSide()); if (frep.Pos == null) throw new Exception("the press did not enter");
+                ((Action<int>)G("fundedLabStep"))(30); ((Action<string>)G("fundedLabShow"))("REPLAY");
+                Console.WriteLine("      replay: " + frep.Current.Name + " • " + frep.Last + " • trades " + frep.Trades.Count);
+                Set(lab4, "fundedLabWindow", null);
+            });
             Step("ROTATION TESTER: MNQ + MGC rotation on the loaded bars, result tabs, optimizer", () =>
             {
                 Call(lab4, "OpenRotationTester");
