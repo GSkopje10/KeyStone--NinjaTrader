@@ -605,6 +605,24 @@ public static class PropSimTests
             var legsz = asim.Trades.Take(4).Select(tz => tz.Legs).ToList();
             Check(legsz.Count >= 2 && legsz[0].Contains("MNQ") && !legsz[0].Contains("MGC") && legsz[1].Contains("MGC") && !legsz[1].Contains("MNQ"), "🧪 ALTERNATE MNQ / MGC: rotation 1 MNQ only, rotation 2 MGC only", string.Join(" | ", legsz));
             Check(legsz.Count >= 2 && legsz[0].StartsWith("BUY") && legsz[1].StartsWith("SELL"), "🧪 ALTWIN: first BUY, after a win the next account flips", string.Join(" | ", legsz));
+            // ⚡ CALCULATE / 🔮 HINDSIGHT: on a rising day BUY MNQ reaches +TP first, the oracle takes it, the hindsight passes ≥ the plan's
+            var hs = new KeystoneSimSettings { Strategy = "ROTATION", Direction = "SELL", Allocation = "ROTATE", Accounts = 4, MnqQty = 20, MgcQty = 0, RotTarget = 1500, RotStop = 1e6, DayPlan = "NONE", MaxTradesPerDay = 1, BuyRule = "BATCH" };
+            double[] hp; int[] hx; var ho = KeystoneEvalCalc.Outcomes(hs, dayz, KeystoneRotDay.Slot(930), KeystoneRotDay.Slot(1500), out hp, out hx);
+            Check(ho[2] == 1 && ho[3] != 1 && ho[4] == -9 && KeystoneEvalCalc.Best(ho, hp, hx) == 2, "🔮 hindsight: rising day → BUY MNQ wins, SELL MNQ doesn't, MGC sides need contracts", string.Join(",", ho));
+            Check(KeystoneEvalCalc.IndexOfLegs("BUY 20 MNQ") == 2 && KeystoneEvalCalc.IndexOfLegs("SELL 4 MNQ + SELL 4 MGC") == 1 && KeystoneEvalCalc.IndexOfLegs("BUY 4 MNQ + SELL 4 MGC") == -1 && KeystoneEvalCalc.IndexOfLegs("BUY 3 MGC") == 4, "🔮 the plan's side from a trade's legs");
+            var hsell = KeystoneRotationLab.Run(hs, daysz, 930, 1555, null); var horc = KeystoneRotationLab.Run(hs, daysz, 930, 1555, null, KeystoneEvalCalc.Oracle(hs, KeystoneRotDay.Slot(1555)));
+            var rS = KeystoneEvalCalc.Summary("SELL", "SELL", hs, hsell, 120); var rO = KeystoneEvalCalc.Summary("HINDSIGHT", "HINDSIGHT", hs, horc, 120);
+            Check(rO.Passed >= rS.Passed && rO.Wins >= rS.Wins && horc.Trades.Count > 0 && horc.Trades.All(tz => tz.Legs.StartsWith("BUY")), "🔮 hindsight run: every rotation takes the winning side, passes ≥ the plan's", "plan " + rS.Passed + " / hindsight " + rO.Passed + " • " + string.Join(" | ", horc.Trades.Take(3).Select(tz => tz.Legs)));
+            var hl = KeystoneEvalCalc.Hindsight(hs, hsell, daysz, KeystoneRotDay.Slot(1555));
+            Check(hl.Count == hsell.Trades.Count && hl.All(hq => hq.Perfect == "BUY MNQ" && !hq.Match && hq.Plan == "SELL MNQ"), "🔮 hindsight rows: the plan sold, BUY MNQ would have won, not matched", hl.Count + " rows " + (hl.Count > 0 ? hl[0].Plan + " → " + hl[0].Perfect : ""));
+            // MIN TIME IN TRADE (whole minutes, never the entry minute) • the plan's pause / min hold saved • the firms' own rules
+            Check(KeystoneEvalLab.HoldMinutes(0) == 1 && KeystoneEvalLab.HoldMinutes(12) == 1 && KeystoneEvalLab.HoldMinutes(61) == 2, "⏱ min hold in whole minutes (≥ 1)");
+            int hh, hxs; double hpk, hwr; KeystoneRotationLab.Trade(dayz, KeystoneRotDay.Slot(930), KeystoneRotDay.Slot(1500), 1, 0, 20, 0, 40, 1e6, 0, null, out hh, out hxs, out hpk, out hwr, false, 3);
+            Check(hh == 1 && hxs - KeystoneRotDay.Slot(930) >= 3, "⏱ a take profit waits for the min hold (3 minutes)", "exit after " + (hxs - KeystoneRotDay.Slot(930)) + " min");
+            var pp = KeystoneEvalLab.LoadPlans(KeystoneEvalLab.SavePlans(new[] { new KeystoneEvalPlan { Name = "P", Pause = 45, MinHold = 13, Side = "MANUAL" } }));
+            Check(pp.Count == 1 && pp[0].Pause == 45 && pp[0].MinHold == 13 && pp[0].Side == "MANUAL", "🧪 a template keeps its pause / min hold");
+            double ftz, fdz, fcz; int fmz; string fw; KeystoneEvalLab.FirmRule("TPT", 50, out ftz, out fdz, out fcz, out fmz, out fw); double mt, md, mc; int mm; string mw; KeystoneEvalLab.FirmRule("MFFU", 50, out mt, out md, out mc, out mm, out mw);
+            Check(fmz == 3 && ftz == 3000 && fdz == 2000 && mc == 30, "🏢 the firms' own rules: TPT 3 days (the extra day), MFFU best day ≤ 30 %", fw + " | " + mw);
         }
         Console.WriteLine(failures == 0 ? "PROP SIM TESTS: ALL PASSED" : "PROP SIM TESTS: " + failures + " FAILED");
         return failures == 0 ? 0 : 1;

@@ -1034,6 +1034,24 @@ public static class UiSmokeTest
                 var codes = simP.Accounts.Take(4).Select(a => a.Name.Split('-')[0]).ToList(); if (codes[0] == codes[1] || codes[0] != codes[2] || codes[1] != codes[3]) throw new Exception("the run is not firm by firm: " + string.Join(",", simP.Accounts.Take(4).Select(a => a.Name)));
                 Console.WriteLine("      POOL RUN: " + string.Join(", ", simP.Accounts.Take(4).Select(a => a.Name)) + " • " + simP.Trades.Count + " trades • " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
                 foreach (var sec in new[] { "OVERVIEW", "POOLS", "PLANS", "STATS", "DATA", "ROTATE" }) ((Action<string>)G("evalLabShow"))(sec);
+                // ⚡ CALCULATE (no replay) + 🔮 HINDSIGHT + 🏆 ranking, every result tab
+                Set(lab4, "evalLabCalcLast", null); ((Action<DateTime, DateTime, bool>)G("evalLabCalc"))(new DateTime(2026, 1, 5), new DateTime(2026, 2, 27), true);
+                for (int i = 0; i < 900 && G("evalLabCalcLast") == null; i++) System.Threading.Thread.Sleep(100);
+                var cm0 = (KeystoneCalcRank)G("evalLabCalcLast"); var co0 = (KeystoneCalcRank)G("evalLabCalcOracle"); var ch0 = (List<KeystoneHindsight>)G("evalLabCalcHind");
+                if (cm0 == null || cm0.Sim == null || cm0.N == 0) throw new Exception("⚡ CALCULATE gave no result");
+                if (ch0 == null || ch0.Count != cm0.Sim.Trades.Count) throw new Exception("🔮 one hindsight row per trade: " + (ch0 == null ? -1 : ch0.Count) + " vs " + cm0.Sim.Trades.Count);
+                if (co0 == null || co0.Passed < cm0.Passed) throw new Exception("🔮 hindsight passes " + (co0 == null ? -1 : co0.Passed) + " < the plan's " + cm0.Passed);
+                foreach (var tab in new[] { "SUMMARY", "ACCOUNTS", "TRADES", "HINDSIGHT", "BEST", "DAYS" }) ((Action<string>)G("evalLabCalcTab"))(tab);
+                ((Action<string>)G("evalLabShow"))("CALCULATE"); ((Action<string>)G("evalLabShow"))("ADVISOR");
+                Console.WriteLine("      ⚡ CALCULATE: " + cm0.Passed + " / " + cm0.N + " passed • 🔮 hindsight " + co0.Passed + " • " + ch0.Count(h => h.Match) + " of " + ch0.Count + " rotations on the winning side");
+                // ✋ NO STRATEGY • I DECIDE: the side is mine, the bracket is placed for me, then the next account
+                ((Action<string>)G("evalLabUsePlan"))("✋ NO STRATEGY • I DECIDE"); ((Action)G("rotStudioManLoad"))(); var msimN = (KeystonePropSim)G("rotStudioManSim");
+                ((Action<int>)G("rotStudioManStep"))(3); var accN = msimN.Active; ((Action<int, int>)G("rotStudioManEnter"))(-1, 0);
+                for (int i = 0; i < 900 && msimN.Trades.Count == 0; i++) ((Action<int>)G("rotStudioManStep"))(1);
+                if (msimN.Trades.Count == 0 || !msimN.Trades[0].Legs.StartsWith("SELL") || !msimN.Trades[0].Legs.Contains("MNQ") || msimN.Trades[0].Legs.Contains("MGC")) throw new Exception("✋ NO STRATEGY trade: " + (msimN.Trades.Count == 0 ? "none" : msimN.Trades[0].Legs));
+                if (msimN.Trades[0].Reason == "TARGET" && Math.Abs(msimN.Trades[0].Pnl - 1500) > 0.01) throw new Exception("✋ the take profit should keep +1,500 after costs: " + msimN.Trades[0].Pnl);
+                Console.WriteLine("      ✋ NO STRATEGY: " + msimN.Trades[0].Legs + " • " + msimN.Trades[0].Reason + " " + msimN.Trades[0].Pnl.ToString("0.00") + " • next " + (msimN.Active != null ? msimN.Active.Name : "—"));
+                ((Action<bool>)G("evalLabSimOnly"))(true); ((Action<bool>)G("evalLabSimOnly"))(false);
                 ((Action<bool>)G("evalLabAuto"))(true); ((Action)G("rotStudioManLoad"))(); var msimA = (KeystonePropSim)G("rotStudioManSim"); ((Action<int>)G("rotStudioManStep"))(60);
                 if (msimA == null || msimA.Trades.Count + (msimA.Active == null ? 1 : 0) == 0 && msimA.Accounts.All(a => a.Trades == 0)) Console.WriteLine("      AUTO: no entry yet in 60 minutes (the plan's session may start later)"); else Console.WriteLine("      AUTO: " + msimA.Trades.Count + " trade(s) entered by the plan");
                 ((Action<bool>)G("evalLabAuto"))(false); ((Action<string>)G("evalLabDeletePool"))(pn0);
