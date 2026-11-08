@@ -6361,8 +6361,66 @@ namespace NinjaTrader.NinjaScript
 
     public sealed class KeystoneReplayFill { public DateTime EntryTime, ExitTime; public string Symbol = string.Empty, Side = string.Empty, Reason = string.Empty; public int Qty; public double Entry, Exit, Points, Net, Gross, Fee; }
 
+    // ⏱ item 36: REAL TICKS in the Backtest Studio replay — one trade print (time, price, size); the tick cache (Studio\TickCache\<SYM>\<day>.bin) loads a day once
+    public struct KeystoneTick { public DateTime Time; public double Price; public long Volume; }
+    public static class KeystoneTickCache
+    {
+        public static string FileOf(string folder, string symbol, DateTime day) { return Path.Combine(folder ?? "", "TickCache", (symbol ?? "MNQ").ToUpperInvariant(), day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".bin"); }
+        // compact: "KTK1", the count, the source, then per tick: time ticks (long), price (double), volume (int)
+        public static void Save(string folder, string symbol, DateTime day, IList<KeystoneTick> ticks, string source)
+        {
+            if (ticks == null || ticks.Count == 0) return; var f = FileOf(folder, symbol, day); Directory.CreateDirectory(Path.GetDirectoryName(f));
+            using (var bw = new BinaryWriter(File.Create(f))) { bw.Write("KTK1"); bw.Write(ticks.Count); bw.Write(source ?? "TICKS"); foreach (var t in ticks) { bw.Write(t.Time.Ticks); bw.Write(t.Price); bw.Write((int)Math.Min(int.MaxValue, t.Volume)); } }
+        }
+        public static List<KeystoneTick> Load(string folder, string symbol, DateTime day, out string source)
+        {
+            source = ""; var f = FileOf(folder, symbol, day); if (!File.Exists(f)) return null;
+            try { using (var br = new BinaryReader(File.OpenRead(f))) { if (br.ReadString() != "KTK1") return null; int n = br.ReadInt32(); source = br.ReadString(); var o = new List<KeystoneTick>(n); for (int i = 0; i < n; i++) o.Add(new KeystoneTick { Time = new DateTime(br.ReadInt64()), Price = br.ReadDouble(), Volume = br.ReadInt32() }); return o; } }
+            catch { return null; }
+        }
+        // 1-second bars → ticks (the fallback): each second gives its open, its high / low in the order the close suggests, its close — at that second
+        public static List<KeystoneTick> FromSeconds(IList<KeystoneArcBar> secs)
+        {
+            var o = new List<KeystoneTick>(); if (secs == null) return o;
+            foreach (var b in secs)
+            {
+                var t0 = b.Time.AddSeconds(-1); long v = Math.Max(1, b.Volume / 4); bool upFirst = b.Close < b.Open;
+                o.Add(new KeystoneTick { Time = t0, Price = b.Open, Volume = v }); o.Add(new KeystoneTick { Time = t0.AddMilliseconds(250), Price = upFirst ? b.High : b.Low, Volume = v });
+                o.Add(new KeystoneTick { Time = t0.AddMilliseconds(500), Price = upFirst ? b.Low : b.High, Volume = v }); o.Add(new KeystoneTick { Time = b.Time.AddMilliseconds(-1), Price = b.Close, Volume = v });
+            }
+            return o;
+        }
+    }
     public sealed class KeystoneReplayTrader
     {
+        /* ⏱ item 36 (BUILD 2026-11-11c): REAL TICKS — with a day's ticks every step is one real print at its real time (the clock moves by real time ×
+           speed, so 1× = a minute in 60 seconds, moving like the market did); the forming candle = the saved minute's open + the high / low / close / volume
+           of the ticks seen so far (clamped to the saved minute: the minute bar wins, mismatches are counted in TickNote); fills, the bracket and the
+           practice floor only at tick prices in time order. Without ticks: the 1-second bars, else the old estimated path (TickSource "ESTIMATED") */
+        List<KeystoneTick>[] barTicks; public string TickSource = "ESTIMATED", TickNote = ""; public int TickMismatch; long formingVol;
+        public bool HasTicks { get { return barTicks != null; } }
+        public void CopyTicks(KeystoneReplayTrader o) { if (o == null || o.barTicks == null || !ReferenceEquals(o.Bars, Bars)) return; barTicks = o.barTicks; TickSource = o.TickSource; TickNote = o.TickNote; TickMismatch = o.TickMismatch; }
+        public void SetTicks(IList<KeystoneTick> ticks, string source)
+        {
+            if (ticks == null || ticks.Count == 0 || Bars.Count == 0) return; var bt = new List<KeystoneTick>[Bars.Count]; int bi = 0, mis = 0, used = 0;
+            foreach (var t in ticks.OrderBy(x => x.Time))
+            {
+                while (bi < Bars.Count && t.Time >= Bars[bi].Time) bi++; if (bi >= Bars.Count) break; if (t.Time < Bars[bi].Time.AddMinutes(-1)) continue;
+                if (bt[bi] == null) bt[bi] = new List<KeystoneTick>(); var b = Bars[bi]; double p = t.Price; if (p > b.High + 1e-9 || p < b.Low - 1e-9) { mis++; p = Math.Max(b.Low, Math.Min(b.High, p)); }
+                bt[bi].Add(new KeystoneTick { Time = t.Time, Price = p, Volume = t.Volume }); used++;
+            }
+            for (int i = 0; i < bt.Length; i++) if (bt[i] != null && bt[i].Count > 0 && Math.Abs(bt[i][bt[i].Count - 1].Price - Bars[i].Close) > 1e-9) mis++;
+            if (used == 0) return; barTicks = bt; TickSource = source ?? "TICKS"; TickMismatch = mis;
+            TickNote = (TickSource == "SECONDS" ? "⏱ 1-second bars" : "⏱ real ticks") + " · " + used.ToString("N0", CultureInfo.InvariantCulture) + " prints" + (mis > 0 ? " · " + mis + " tick(s) outside / off the saved minute: the minute bar wins" : "");
+        }
+        List<KeystoneTick> TicksAt(int i) { return barTicks != null && i >= 0 && i < barTicks.Length ? barTicks[i] : null; }
+        // the time of the next step (a tick's own time, or the estimated path's step)
+        public DateTime NextTime()
+        {
+            if (Finished) return DateTime.MaxValue; var b = Bars[BarIndex]; var tl = TicksAt(BarIndex);
+            if (tl != null && tl.Count > 0) return Step < tl.Count ? tl[Step].Time : b.Time;
+            return b.Time.AddMinutes(-1).AddSeconds(60.0 * (Step + 1) / StepsPerBar);
+        }
         public readonly List<KeystoneArcBar> Bars; public readonly string Symbol; public readonly int StepsPerBar;
         public int BarIndex, Step; public double Price; public DateTime Time;
         public int Position; public double AvgPrice, StopPts, TargetPts, Realized; public DateTime PositionTime;
@@ -6458,7 +6516,9 @@ namespace NinjaTrader.NinjaScript
         public List<KeystoneArcBar> Candles(int minutes)
         {
             var done = Live ? Bars.ToList() : Bars.Take(BarIndex).ToList();
-            if (!Live && !Finished && Step > 0) { var b = Bars[BarIndex]; var part = new KeystoneArcBar { Symbol = b.Symbol, Time = b.Time, Open = b.Open, High = b.Open, Low = b.Open, Close = Price };
+            var tlF = !Live && !Finished ? TicksAt(BarIndex) : null;
+            if (tlF != null && tlF.Count > 0) { if (Step > 0) { var b = Bars[BarIndex]; var part = new KeystoneArcBar { Symbol = b.Symbol, Time = b.Time, Open = b.Open, High = b.Open, Low = b.Open, Close = Price, Volume = formingVol }; for (int k = 0; k < Step && k < tlF.Count; k++) { part.High = Math.Max(part.High, tlF[k].Price); part.Low = Math.Min(part.Low, tlF[k].Price); } done.Add(part); } }
+            else if (!Live && !Finished && Step > 0) { var b = Bars[BarIndex]; var part = new KeystoneArcBar { Symbol = b.Symbol, Time = b.Time, Open = b.Open, High = b.Open, Low = b.Open, Close = Price };
                 for (int k = 0; k <= Step; k++) { double p = PathPrice(b, k, StepsPerBar, tick); part.High = Math.Max(part.High, p); part.Low = Math.Min(part.Low, p); } done.Add(part); }
             if (minutes >= 1440) return DailyCandles(done);
             return KeystoneEngLab.Candles(done, Math.Max(1, minutes));
@@ -6487,7 +6547,15 @@ namespace NinjaTrader.NinjaScript
         {
             if (Live) return true;   // LIVE: prices come from LiveUpdate
             if (Finished) return false;
-            var b = Bars[BarIndex]; Step++;
+            var b = Bars[BarIndex]; var tl = TicksAt(BarIndex);
+            if (tl != null && tl.Count > 0)
+            {   /* ⏱ a real print */
+                if (Step < tl.Count) { var tk = tl[Step]; Step++; Price = tk.Price; Time = tk.Time; formingVol += tk.Volume; CheckOrders(); CheckBracket(); }
+                if (Step >= tl.Count) { Step = 0; BarIndex++; Time = b.Time; Price = b.Close; formingVol = 0; }
+                if (Finished) { Orders.Clear(); if (Position != 0) CloseAll("SESSION END"); }
+                return !Finished;
+            }
+            Step++;
             Price = PathPrice(b, Step, StepsPerBar, tick); Time = b.Time.AddMinutes(-1).AddSeconds(60.0 * Step / StepsPerBar);
             CheckOrders(); CheckBracket();
             if (Step >= StepsPerBar) { Step = 0; BarIndex++; Time = b.Time; }
@@ -6498,7 +6566,7 @@ namespace NinjaTrader.NinjaScript
         // Advance until the replay clock reaches t (several instruments stay on one clock); false at the end of the session.
         public bool AdvanceTo(DateTime t, int maxSteps)
         {
-            int n = 0; while (!Finished && Time < t && n < maxSteps) { Advance(); n++; }
+            int n = 0; while (!Finished && (HasTicks ? NextTime() <= t : Time < t) && n < maxSteps) { Advance(); n++; }
             return !Finished;
         }
 
@@ -6506,6 +6574,7 @@ namespace NinjaTrader.NinjaScript
 
         void CheckBracketBar(KeystoneArcBar b)
         {
+            var tl = TicksAt(Bars.IndexOf(b)); if (tl != null && tl.Count > 0) { foreach (var tk in tl) { if (Position == 0) break; Price = tk.Price; Time = tk.Time; CheckBracket(); } Price = b.Close; return; }
             for (int k = 1; k <= StepsPerBar && Position != 0; k++) { Price = PathPrice(b, k, StepsPerBar, tick); CheckBracket(); }
             Price = b.Close;
         }
@@ -17454,6 +17523,23 @@ namespace NinjaTrader.NinjaScript
             var r = src.FirstOrDefault(x => string.Equals(x.Firm, f, StringComparison.OrdinalIgnoreCase));
             if (r != null) return r; var d = Presets()[0].Copy(); d.Firm = f; d.Name = (f == "" ? "FUNDED" : f) + " 50K funded"; return d;
         }
+        // ＋ ADD A FIRM (item 3, Eval wizard step 1): the rules templates — the same as Lucid / Tradeify / TPT / Apex / MFFU / Topstep / MFF Studio 001 / 002 / 003, or custom
+        public static readonly string[] FirmTemplateNames = { "same as Lucid 50K", "same as Tradeify 50K", "same as TPT PRO 50K", "same as Apex 50K", "same as MFFU 50K", "same as Topstep 50K", "same as MFF Studio 002 ($20K)", "same as MFF Studio 001 ($10K)", "same as MFF Studio 003 ($5K)", "custom (type the rules)" };
+        public static KeystonePayoutRules FirmTemplate(int idx, string code, string name)
+        {
+            KeystonePayoutRules r; string c = (code ?? "").Trim().ToUpperInvariant().Replace("|", " "); if (c == "") c = "OTHER";
+            if (idx >= 0 && idx <= 2) r = Presets().First(x => x.Firm == (idx == 0 ? "LUCID" : idx == 1 ? "TRADEIFY" : "TPT")).Copy();
+            else if (idx >= 6 && idx <= 8) r = StudioTemplates()[idx == 6 ? 0 : idx == 7 ? 1 : 2].Copy();
+            else
+            {
+                r = TemplateFor(c, name, null);
+                if (idx == 3) { r.EvalTarget = 3000; r.EvalDd = 2500; r.EvalDdType = "INTRADAY"; r.Dd = 2500; r.DdType = "INTRADAY"; r.EvalPrice = 167; }
+                else if (idx == 4) { r.EvalTarget = 3000; r.EvalDd = 2000; r.EvalDdType = "EOD"; r.EvalCons = 50; r.EvalPrice = 165; }
+                else if (idx == 5) { r.EvalTarget = 3000; r.EvalDd = 2000; r.EvalDdType = "EOD"; r.EvalPrice = 165; }
+                else { r.EvalTarget = 3000; r.EvalDd = 2000; r.EvalDdType = "EOD"; }
+            }
+            r.Firm = c; r.Name = string.IsNullOrWhiteSpace(name) ? c + " 50K" : name.Replace("|", " "); r.Template = true; return r;
+        }
         // the ＋ ADD FIRM template ('other firm'): the common 50K rules — edit them to the firm's fine print
         public static KeystonePayoutRules TemplateFor(string firm, string name, string color)
         {
@@ -19097,6 +19183,220 @@ namespace NinjaTrader.NinjaScript
             else Say(t, "END OF DAY: closed at $" + eq.ToString("N0", CultureInfo.InvariantCulture) + " → the floor stays $" + Floor.ToString("N0", CultureInfo.InvariantCulture));
         }
     }
+    // ==== BUILD 2026-11-11c (phase C) — the pure pieces behind the new screens (tests/fullcompile/UiSmokeTest.cs pins them) ====
+    // 📅 DATE PICKING (items 18 / 28 / 29): the quick ranges (a day, a week, a month, a quarter, a year, the last 1 / 3 / 6 / 12 months, all 6 years) and the
+    // tick boxes (years "Y2025", months "M2026-09", weeks "W2026-09-07" = its Monday, days "D2026-09-01") → contiguous ticks = ONE range, ticks apart =
+    // separate periods (each run on its own, shown per period + combined) • the summary line lists what was picked ("2025 + 2026 · 470 trading days")
+        // 🏷 item 37: the chart's trade labels live in a reserved RIGHT GUTTER (like TradingView's order labels): Stack nudges the wanted y's apart (min gap,
+    // inside top..bottom, order kept); Intersects = a label rectangle against the candle area (the smoke test: none may)
+    public static class KeystoneChartGutter
+    {
+        public static List<double> Stack(IList<double> wanted, double gap, double top, double bottom)
+        {
+            var n = wanted == null ? 0 : wanted.Count; var o = new double[n]; if (n == 0) return new List<double>();
+            var idx = Enumerable.Range(0, n).OrderBy(i => wanted[i]).ToList(); double prev = double.MinValue;
+            foreach (var i in idx) { double y = Math.Max(top + gap / 2, Math.Min(bottom, wanted[i])); if (y < prev + gap) y = prev + gap; o[i] = y; prev = y; }
+            double over = prev - bottom; if (over > 0) foreach (var i in idx) o[i] -= over;   /* pushed past the bottom: shift the stack up */
+            return o.ToList();
+        }
+        public static bool Intersects(double x, double y, double w, double h, double ax, double ay, double aw, double ah) { return x < ax + aw && ax < x + w && y < ay + ah && ay < y + h; }
+    }
+    public static class KeystoneDatePick
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public static readonly string[] Quick = { "DAY", "WEEK", "MONTH", "QUARTER", "YEAR", "LAST 1 MONTH", "LAST 3 MONTHS", "LAST 6 MONTHS", "LAST 12 MONTHS", "ALL 6 YEARS" };
+        public static bool Weekday(DateTime d) { return d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday; }
+        public static int TradingDays(DateTime a, DateTime b) { int n = 0; for (var d = a.Date; d <= b.Date; d = d.AddDays(1)) if (Weekday(d)) n++; return n; }
+        static DateTime NextWeekday(DateTime d) { d = d.Date.AddDays(1); while (!Weekday(d)) d = d.AddDays(1); return d; }
+        public static Tuple<DateTime, DateTime> Clip(DateTime a, DateTime b, DateTime first, DateTime last)
+        {
+            a = a.Date; b = b.Date; if (first != DateTime.MinValue && a < first.Date) a = first.Date; if (last != DateTime.MinValue && b > last.Date) b = last.Date; if (b < a) b = a;
+            while (!Weekday(a) && a < b) a = a.AddDays(1); while (!Weekday(b) && b > a) b = b.AddDays(-1); return Tuple.Create(a, b);
+        }
+        // a quick choice → [from, to]: DAY / WEEK / MONTH / QUARTER / YEAR around the anchor (the picked day or the START), LAST n MONTHS / ALL 6 YEARS up to the last saved day
+        public static Tuple<DateTime, DateTime> Range(string kind, DateTime anchor, DateTime first, DateTime last)
+        {
+            anchor = anchor.Date; DateTime a = anchor, b = anchor; string k = (kind ?? "").Trim().ToUpperInvariant(); if (last == DateTime.MinValue) last = anchor;
+            if (k == "WEEK") { a = anchor.AddDays(-(((int)anchor.DayOfWeek + 6) % 7)); b = a.AddDays(4); }
+            else if (k == "MONTH") { a = new DateTime(anchor.Year, anchor.Month, 1); b = a.AddMonths(1).AddDays(-1); }
+            else if (k == "QUARTER") { a = new DateTime(anchor.Year, (anchor.Month - 1) / 3 * 3 + 1, 1); b = a.AddMonths(3).AddDays(-1); }
+            else if (k == "YEAR") { a = new DateTime(anchor.Year, 1, 1); b = new DateTime(anchor.Year, 12, 31); }
+            else if (k.StartsWith("LAST ")) { int n; var w = k.Split(' '); if (w.Length < 2 || !int.TryParse(w[1], out n)) n = 1; b = last.Date; a = b.AddMonths(-Math.Max(1, n)).AddDays(1); }
+            else if (k.StartsWith("ALL")) { b = last.Date; a = first != DateTime.MinValue ? first.Date : b.AddYears(-6); }
+            return Clip(a, b, first, last);
+        }
+        // contiguous (no weekday between) or overlapping ranges merge into one; the rest stay separate periods
+        public static List<Tuple<DateTime, DateTime>> Merge(IEnumerable<Tuple<DateTime, DateTime>> ranges)
+        {
+            var l = (ranges ?? new List<Tuple<DateTime, DateTime>>()).Where(r => r != null && r.Item2 >= r.Item1).OrderBy(r => r.Item1).ToList(); var o = new List<Tuple<DateTime, DateTime>>();
+            foreach (var r in l)
+            {
+                if (o.Count > 0 && r.Item1 <= NextWeekday(o[o.Count - 1].Item2)) { var p = o[o.Count - 1]; o[o.Count - 1] = Tuple.Create(p.Item1, r.Item2 > p.Item2 ? r.Item2 : p.Item2); }
+                else o.Add(Tuple.Create(r.Item1.Date, r.Item2.Date));
+            }
+            return o;
+        }
+        public static List<Tuple<DateTime, DateTime>> FromDays(IEnumerable<DateTime> days) { return Merge((days ?? new List<DateTime>()).Select(d => Tuple.Create(d.Date, d.Date))); }
+        // a tick box → its range
+        public static Tuple<DateTime, DateTime> OfTick(string tick)
+        {
+            string t = tick ?? ""; if (t.Length < 2) return null; string v = t.Substring(1); DateTime d;
+            if (t[0] == 'Y') { int y; return int.TryParse(v, out y) ? Tuple.Create(new DateTime(y, 1, 1), new DateTime(y, 12, 31)) : null; }
+            if (t[0] == 'M' && DateTime.TryParseExact(v, "yyyy-MM", IC, DateTimeStyles.None, out d)) return Tuple.Create(d, d.AddMonths(1).AddDays(-1));
+            if (t[0] == 'W' && DateTime.TryParseExact(v, "yyyy-MM-dd", IC, DateTimeStyles.None, out d)) return Tuple.Create(d, d.AddDays(4));
+            if (t[0] == 'D' && DateTime.TryParseExact(v, "yyyy-MM-dd", IC, DateTimeStyles.None, out d)) return Tuple.Create(d, d);
+            return null;
+        }
+        public static string TickLabel(string tick)
+        {
+            var r = OfTick(tick); if (r == null) return tick ?? ""; char c = tick[0];
+            return c == 'Y' ? r.Item1.Year.ToString(IC) : c == 'M' ? r.Item1.ToString("MMM yyyy", IC) : c == 'W' ? "week of " + r.Item1.ToString("d MMM yyyy", IC) : r.Item1.ToString("ddd d MMM yyyy", IC);
+        }
+        public static List<Tuple<DateTime, DateTime>> OfTicks(IEnumerable<string> ticks, DateTime first, DateTime last)
+        {
+            return Merge((ticks ?? new List<string>()).Select(OfTick).Where(r => r != null).Select(r => Clip(r.Item1, r.Item2, first, last)).Where(r => TradingDays(r.Item1, r.Item2) > 0));
+        }
+        // a range said in words: a whole year → "2025", whole years → "2025 – 2026", a whole month → "Sep 2026", one day, else "1 Sep 2026 → 3 Oct 2026"
+        public static string Label(Tuple<DateTime, DateTime> r)
+        {
+            if (r == null) return ""; DateTime a = r.Item1.Date, b = r.Item2.Date;
+            Func<DateTime, DateTime> wkF = d => { while (!Weekday(d)) d = d.AddDays(1); return d; }; Func<DateTime, DateTime> wkB = d => { while (!Weekday(d)) d = d.AddDays(-1); return d; };
+            if (a == wkF(new DateTime(a.Year, 1, 1)) && b == wkB(new DateTime(b.Year, 12, 31))) return a.Year == b.Year ? a.Year.ToString(IC) : a.Year.ToString(IC) + " – " + b.Year.ToString(IC);
+            if (a.Year == b.Year && a.Month == b.Month && a == wkF(new DateTime(a.Year, a.Month, 1)) && b == wkB(new DateTime(a.Year, a.Month, 1).AddMonths(1).AddDays(-1))) return a.ToString("MMM yyyy", IC);
+            if (a == b) return a.ToString("ddd d MMM yyyy", IC);
+            return a.ToString("d MMM yyyy", IC) + " → " + b.ToString("d MMM yyyy", IC);
+        }
+        public static string Summary(IList<Tuple<DateTime, DateTime>> periods, IList<string> picked)
+        {
+            var p = periods ?? new List<Tuple<DateTime, DateTime>>(); if (p.Count == 0) return "nothing picked";
+            var words = picked != null && picked.Count > 0 ? picked.ToList() : p.Select(Label).ToList(); int n = p.Sum(x => TradingDays(x.Item1, x.Item2));
+            return string.Join(" + ", words) + " · " + n + " trading day" + (n == 1 ? "" : "s") + (p.Count > 1 ? " · " + p.Count + " separate periods (each run on its own, shown per period + combined)" : "");
+        }
+        public static List<string> YearTicks(DateTime first, DateTime last) { var o = new List<string>(); if (last == DateTime.MinValue) return o; for (int y = last.Year; y >= (first == DateTime.MinValue ? last.Year - 6 : first.Year); y--) o.Add("Y" + y.ToString(IC)); return o; }
+        public static List<string> MonthTicks(DateTime first, DateTime last, int max)
+        {
+            var o = new List<string>(); if (last == DateTime.MinValue) return o; var m = new DateTime(last.Year, last.Month, 1);
+            while (o.Count < max && (first == DateTime.MinValue || m.AddMonths(1) > first)) { o.Add("M" + m.ToString("yyyy-MM", IC)); m = m.AddMonths(-1); }
+            return o;
+        }
+        public static List<string> WeekTicks(DateTime last, int max)
+        {
+            var o = new List<string>(); if (last == DateTime.MinValue) return o; var w = last.Date.AddDays(-(((int)last.DayOfWeek + 6) % 7));
+            for (int i = 0; i < max; i++) { o.Add("W" + w.ToString("yyyy-MM-dd", IC)); w = w.AddDays(-7); }
+            return o;
+        }
+        // shift-click: every weekday between two clicks (either order)
+        public static List<DateTime> Between(DateTime a, DateTime b) { if (b < a) { var t = a; a = b; b = t; } var o = new List<DateTime>(); for (var d = a.Date; d <= b.Date; d = d.AddDays(1)) if (Weekday(d)) o.Add(d); return o; }
+    }
+    // 🟩 THE ACCOUNT TILE (item 12 — "the simulation for trailing drawdown accounts"): one model for every pool tile (eval, funded, business run):
+    // the buffer bar floor → balance (incl. open P/L) → target / payout need, the floor's kind (TPT INTRADAY trailing incl. open profit until the +$2,000
+    // lock, then 🔒 + the $2,000 buffer filling to the next withdrawal • Lucid / Tradeify EOD trailing until it locks at +$100 • MFF STATIC), the state colour key,
+    // "days to lock: n so far / usually ≈ m" (the run record's history), the qualifying-day dots and when a tile flashes (target / payout / blow)
+    public sealed class KeystoneTileModel
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public string Firm = "", Kind = "EOD", State = "EVAL", TopLabel = "", Line = ""; public double Lo, Hi, Floor, Bal, Top, Dd, LockAt; public bool Locked, Funded;
+        static double C01(double v) { return double.IsNaN(v) ? 0 : Math.Max(0, Math.Min(1, v)); }
+        public double FloorFrac { get { return C01((Floor - Lo) / (Hi - Lo)); } }
+        public double BalFrac { get { return C01((Bal - Lo) / (Hi - Lo)); } }
+        public double StartFrac { get { return C01((0 - Lo) / (Hi - Lo)); } }
+        public double Room { get { return Bal - Floor; } }
+        public double ToTop { get { return Math.Max(0, Top - Bal); } }
+        static string M(double v) { return "$" + Math.Abs(Math.Round(v)).ToString("N0", IC); }
+        static string Sg(double v) { return (v >= 0 ? "+" : "−") + "$" + Math.Abs(Math.Round(v)).ToString("N0", IC); }
+        public static string KindOf(KeystonePayoutRules r, bool funded) { if (r == null) return "EOD"; if (r.Studio || r.StaticDd) return "STATIC"; if (r.Tpt && funded) return "INTRADAY"; string t = ((funded ? r.DdType : r.EvalDdType) ?? "EOD").ToUpperInvariant(); return t == "INTRADAY" ? "INTRADAY" : t == "STATIC" ? "STATIC" : "EOD"; }
+        // bal / floor / top counted from the start (0 = the account size) • dd = the drawdown • lockAt = where the trail stops (TPT 0 = the start, Lucid +$100)
+        public static KeystoneTileModel Make(string firm, string kind, bool funded, double bal, double floor, double dd, double lockAt, double top, bool locked, string state, string topLabel)
+        {
+            var m = new KeystoneTileModel { Firm = firm ?? "", Kind = kind ?? "EOD", Funded = funded, Bal = bal, Floor = floor, Dd = Math.Max(1, dd), LockAt = lockAt, Top = top, Locked = locked, State = state ?? "EVAL", TopLabel = topLabel ?? "" };
+            m.Lo = Math.Min(-m.Dd, Math.Min(floor, bal)); m.Hi = Math.Max(top, Math.Max(bal, floor + 1)); if (m.Hi - m.Lo < 1) m.Hi = m.Lo + 1;
+            if (m.Kind == "STATIC") m.Line = "▬ static floor " + Sg(floor) + " (never moves) · room " + M(Math.Max(0, m.Room));
+            else if (m.Kind == "INTRADAY") m.Line = locked ? "🔒 floor locked at the start · buffer " + M(Math.Max(0, m.Room)) + " of " + M(m.Dd) + (funded ? " → the next withdrawal at " + Sg(top) : "") : "⟳ intraday trailing incl. open P/L · floor " + Sg(floor) + " · locks when the best equity reaches " + Sg(lockAt + m.Dd);
+            else m.Line = locked ? "🔒 EOD trail locked at " + Sg(floor) + " · room " + M(Math.Max(0, m.Room)) : "⟳ end-of-day trailing · floor " + Sg(floor) + (lockAt < 1e8 ? " · locks at " + Sg(lockAt) : "") + " · room " + M(Math.Max(0, m.Room));
+            return m;
+        }
+        public static int Median(IList<int> v) { if (v == null || v.Count == 0) return -1; var s = v.OrderBy(x => x).ToList(); return s[s.Count / 2]; }
+        public static string DaysToLock(int soFar, IList<int> history, string what) { int md = Median(history); return "days to " + (what ?? "lock") + ": " + soFar + " so far / usually ≈ " + (md < 0 ? "–" : md.ToString(IC)); }
+        public static string Dots(int n, int of) { if (of <= 0) return ""; n = Math.Max(0, Math.Min(of, n)); return new string('●', n) + new string('○', of - n); }
+        // a tile flashes once when its state changes to the target / a payout / a blow
+        public static bool Flash(string prev, string now) { return prev != null && prev != now && (now == "PASSED" || now == "READY" || now == "PAID" || now == "BLOWN"); }
+        public static string StateName(string s) { switch (s ?? "") { case "TRADE": return "IN A TRADE"; case "BANKED": return "DAY BANKED"; case "LOST": return "LOST TODAY"; case "PASSED": return "PASSED"; case "FUNDED": return "FUNDED · building"; case "READY": return "PAYOUT READY"; case "PAID": return "PAID"; case "BLOWN": return "BLOWN"; case "LIVE": return "MOVED TO LIVE"; default: return "IN EVAL"; } }
+    }
+    // 🎯 PRACTICE AS A PROP ACCOUNT (item 34, BACKTEST STUDIO ▸ REGULAR BACKTESTING) + the AUTO BRACKET IN $ (34b) — simulation only (the Backtest Studio's
+    // own practice trader): the presets, the floor (STATIC / EOD trailing / INTRADAY trailing incl. open profit, optional lock), PASSED / BLOWN, the attempts log,
+    // the prices where the OPEN position would hit the floor / the target, and $ → points after costs for the contracts chosen (MNQ $2 / pt, MGC $10 / pt)
+    public sealed class KeystonePractice
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public string Name = "custom", DdType = "EOD"; public double Size = 50000, Dd = 2000, Target = 3000, LockAt = double.NaN; public int MaxQty = 40; public bool Funded;
+        public double Closed, Peak, PeakEod, LastOpen; public bool Blown, Passed; public int Days, Trades; public string How = "";
+        public KeystonePractice Copy() { var c = (KeystonePractice)MemberwiseClone(); c.Reset(); return c; }
+        public void Reset() { Closed = Peak = PeakEod = LastOpen = 0; Blown = Passed = false; Days = Trades = 0; How = ""; }
+        static KeystonePractice P(string n, string t, double size, double dd, double tg, int q, double lockAt, bool funded) { return new KeystonePractice { Name = n, DdType = t, Size = size, Dd = dd, Target = tg, MaxQty = q, LockAt = lockAt, Funded = funded }; }
+        public static List<KeystonePractice> Presets()
+        {
+            return new List<KeystonePractice>
+            {
+                P("MFF Studio 002 • $20K eval", "STATIC", 20000, 1000, 2000, 20, double.NaN, false),
+                P("MFF Studio 001 • $10K eval", "STATIC", 10000, 500, 1000, 10, double.NaN, false),
+                P("MFF Studio 003 • $5K eval", "STATIC", 5000, 250, 500, 5, double.NaN, false),
+                P("Lucid 50K eval", "EOD", 50000, 2000, 3000, 40, double.NaN, false),
+                P("Tradeify 50K eval", "EOD", 50000, 2000, 3000, 40, double.NaN, false),
+                P("TPT 50K eval", "EOD", 50000, 2000, 3000, 60, double.NaN, false),
+                P("MFF Studio 002 • funded ($5,000 cap)", "STATIC", 20000, 1000, 5000, 20, double.NaN, true),
+                P("Lucid 50K funded (locks at +$100)", "EOD", 50000, 2000, 4000, 40, 100, true),
+                P("Tradeify 50K funded (locks at +$100)", "EOD", 50000, 2000, 5000, 40, 100, true),
+                P("TPT PRO 50K funded (intraday, locks at the start)", "INTRADAY", 50000, 2000, 3000, 60, 0, true),
+                P("custom", "EOD", 50000, 2000, 3000, 40, double.NaN, false),
+            };
+        }
+        public static readonly string[] Types = { "STATIC", "EOD", "INTRADAY" };
+        public static string TypeName(string t) { string x = (t ?? "").ToUpperInvariant(); return x == "STATIC" ? "STATIC drawdown (the floor never moves)" : x == "INTRADAY" ? "INTRADAY trailing incl. open profit" : "END-OF-DAY trailing"; }
+        double Cap { get { return double.IsNaN(LockAt) ? double.MaxValue : LockAt; } }
+        // the floor now (money from the start): STATIC −Dd • EOD the best closed day − Dd • INTRADAY the best equity (open profit included) − Dd — both stop at LockAt
+        public double FloorNow(double open)
+        {
+            string t = (DdType ?? "").ToUpperInvariant(); if (t == "STATIC") return -Dd;
+            double pk = t == "INTRADAY" ? Math.Max(Peak, Closed + open) : PeakEod; return Math.Min(pk - Dd, Cap);
+        }
+        public bool Locked { get { string t = (DdType ?? "").ToUpperInvariant(); return t != "STATIC" && !double.IsNaN(LockAt) && (t == "INTRADAY" ? Peak : PeakEod) - Dd >= LockAt - 1e-9; } }
+        public double Equity(double open) { return Closed + open; }
+        public double Room(double open) { return Equity(open) - FloorNow(open); }
+        // every tick: the equity vs the floor and the target → "BLOWN" / "PASSED" the moment it happens (else null)
+        public string Mark(double closed, double open, string where)
+        {
+            if (Blown || Passed) return null; Closed = closed; LastOpen = open; double eq = closed + open;
+            if (string.Equals(DdType, "INTRADAY", StringComparison.OrdinalIgnoreCase) && eq > Peak) Peak = eq; double fl = FloorNow(open);
+            if (eq <= fl + 1e-9) { Blown = true; How = "💀 BLOWN at " + Sg(eq) + " (floor " + Sg(fl) + ")" + (string.IsNullOrEmpty(where) ? "" : " · " + where); return "BLOWN"; }
+            if (Target > 0 && open == 0 && closed >= Target - 1e-9) { Passed = true; How = "✅ PASSED at " + Sg(closed) + " (target +" + M(Target) + ")" + (string.IsNullOrEmpty(where) ? "" : " · " + where); return "PASSED"; }
+            return null;
+        }
+        public void EndOfDay(double closed) { Closed = closed; if (closed > PeakEod) PeakEod = closed; if (closed > Peak) Peak = closed; Days++; }
+        // the price where the OPEN position's equity reaches a level (money from the start): level = closed + dir·qty·pv·(px − avg) − the costs still due
+        public static double PriceAt(double level, double closed, int pos, double avg, double pv, double costPerContract)
+        {
+            if (pos == 0 || pv <= 0) return double.NaN; int q = Math.Abs(pos), dir = Math.Sign(pos); return avg + dir * (level - closed + costPerContract * q) / (q * pv);
+        }
+        // 💵 the AUTO BRACKET IN $: TP $ / SL $ after costs for qty contracts → points, on the tick (a TP never gives less, a stop never loses more)
+        public static double BracketPts(double usd, int qty, double pv, double cost, double tick, bool stop)
+        {
+            qty = Math.Max(1, qty); if (tick <= 0) tick = 0.25; usd = Math.Abs(usd); double raw = stop ? (usd - cost * qty) / (pv * qty) : (usd + cost * qty) / (pv * qty);
+            double n = raw / tick; n = stop ? Math.Floor(n + 1e-9) : Math.Ceiling(n - 1e-9); return Math.Max(tick, Math.Round(n * tick, 6));
+        }
+        public static double UsdOf(double pts, int qty, double pv, double cost, bool stop) { qty = Math.Max(1, qty); return stop ? -(pts * pv * qty + cost * qty) : pts * pv * qty - cost * qty; }
+        // in practice the stop can never sit below the floor: the most points a new stop may be from the entry (the room after costs)
+        public double MaxStopPts(int qty, double pv, double cost, double tick) { qty = Math.Max(1, qty); double room = Room(0) - cost * qty; if (tick <= 0) tick = 0.25; return Math.Max(tick, Math.Floor(room / (pv * qty) / tick + 1e-9) * tick); }
+        static string M(double v) { return "$" + Math.Abs(Math.Round(v)).ToString("N0", IC); }
+        static string Sg(double v) { return (v >= 0 ? "+" : "−") + "$" + Math.Abs(Math.Round(v)).ToString("N0", IC); }
+        public string Line() { return Name + " • $" + Size.ToString("N0", IC) + " • " + TypeName(DdType) + " " + M(Dd) + (double.IsNaN(LockAt) ? "" : " (locks at " + Sg(LockAt) + ")") + " • target +" + M(Target) + " • max " + MaxQty + " contracts"; }
+        public string Status(double open)
+        {
+            if (Blown) return How; if (Passed) return How;
+            return "balance " + Sg(Equity(open)) + " · floor " + Sg(FloorNow(open)) + " · room " + M(Math.Max(0, Room(open))) + " · to target " + M(Math.Max(0, Target - Equity(open))) + (Locked ? " · 🔒 locked" : "") + " · day " + (Days + 1) + " · " + Trades + " trade" + (Trades == 1 ? "" : "s");
+        }
+        public static string LogHeader = "when,account,result,days,trades,closed";
+        public string LogLine(DateTime now) { return string.Join(",", now.ToString("yyyy-MM-dd HH:mm", IC), Name.Replace(",", " "), Blown ? "BLOWN" : Passed ? "PASSED" : "RESET", Days, Trades, Closed.ToString("0.##", IC)); }
+    }
 }
 
 namespace NinjaTrader.NinjaScript.Indicators
@@ -19354,7 +19654,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-11b • 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -33541,6 +33841,24 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             catch { return null; }
         }
+        // ⏱ item 36: NinjaTrader's 1-second bars (the fallback when no tick history exists)
+        private void RequestSecondBars(Instrument inst, DateTime from, DateTime to, Dispatcher disp, Action<List<KeystoneArcBar>, string> done)
+        {
+            BarsRequest rq = null;
+            try
+            {
+                rq = new BarsRequest(inst, from, to) { BarsPeriod = new BarsPeriod { BarsPeriodType = BarsPeriodType.Second, Value = 1 }, MergePolicy = MergePolicy.UseGlobalSettings };
+                rq.Request(delegate(BarsRequest reply, ErrorCode error, string message)
+                {
+                    var list = new List<KeystoneArcBar>(); string problem = "";
+                    try { if (error != ErrorCode.NoError || reply == null || reply.Bars == null) problem = error + " " + message; else { var bs = reply.Bars; for (int i = 0; i < bs.Count; i++) { double c = bs.GetClose(i); if (c <= 0) continue; list.Add(new KeystoneArcBar { Time = bs.GetTime(i), Open = bs.GetOpen(i), High = bs.GetHigh(i), Low = bs.GetLow(i), Close = c, Volume = bs.GetVolume(i) }); } } }
+                    catch (Exception ex) { problem = ex.Message; }
+                    try { reply.Dispose(); } catch { }
+                    disp.BeginInvoke(new Action(() => done(list, problem)));
+                });
+            }
+            catch (Exception ex) { try { if (rq != null) rq.Dispose(); } catch { } disp.BeginInvoke(new Action(() => done(new List<KeystoneArcBar>(), ex.Message))); }
+        }
         private void RequestTicks(Instrument inst, DateTime from, DateTime to, Dispatcher disp, Action<List<KeystoneOfTick>, int, string> done)
         {
             BarsRequest rq = null;
@@ -33939,7 +34257,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public double Spacing = 9, RightOffset = 14, PCenter, PRange; public bool Follow = true, PriceAuto = true, FreeY;   /* FreeY: you dragged the chart up / down — it stays there (no pulling back to the price) until NOW / a double-click on the price axis */ public int LastCount, SavedFills, Pulse;
             public List<KeystoneReplaySignal> Signals = new List<KeystoneReplaySignal>(); public List<ReplayDrawing> Drawings = new List<ReplayDrawing>();
             public Canvas Canvas; public Border Hit; public TextBlock PosText; public StackPanel TradesList; public TextBox Qty, Price, Sl, Tp; public ComboBox OrderType, TfBox; public List<Button> TfButtons = new List<Button>(); public List<Border> Swatches = new List<Border>(); public KeystoneCoachReport Coach; public KeystoneAnalogAnswer Sim; public int SimKey = -1, LastPos; public double DragPrice; public DateTime LockedAt = DateTime.MinValue; public string LockedPlan = string.Empty; public List<PredRecord> Pending = new List<PredRecord>(); public int LeanSide, LeanStreak; public double SimEntry; public List<Button> CleanButtons = new List<Button>(); public bool IsSplit; public ReplayPane Main, Split; public Action<bool> SetSplit; public List<Button> SplitButtons = new List<Button>(); public FrameworkElement SplitHost; public List<Button> SplitTfButtons = new List<Button>(); public double SimBarrier; public string CoachKey = string.Empty; public KeystoneReplaySignal LastAlert; public Action<string> SetTool; public string Tool = "CURSOR"; public KeystoneReplaySignal AutoOpen, AutoDeferred; public List<KeystoneReplaySignal> AutoPending = new List<KeystoneReplaySignal>(); public KeystoneReport.Day ReportDay; public string ReportTitle = ""; public List<KeystoneArcBar> PrevBars = new List<KeystoneArcBar>(); public List<KeystoneArcBar> PrevCandles; public int PrevTf = -1; public double Pdh = double.NaN, Pdl = double.NaN, Pdc = double.NaN; public DateTime PrevDay = DateTime.MinValue; public ReplayDrawing Moving, Selected; public string ResizeCode = ""; public List<double[]> HotNo = new List<double[]>(); public List<Tuple<double[], ReplayDrawing, string>> DrawHandles = new List<Tuple<double[], ReplayDrawing, string>>(); public DateTime MoveT1, MoveT2, MoveDownTime; public double MoveP1, MoveP2, MoveDownPrice;
-            public double PlotW = 1000, PlotH = 500, Top = 8, AxisW = 84, TimeH = 24, Hi = 1, Lo = 0; public List<KeystoneArcBar> Candles = new List<KeystoneArcBar>();
+            public double PlotW = 1000, PlotH = 500, Top = 8, AxisW = 84, TimeH = 24, Hi = 1, Lo = 0, Gutter;   /* 🏷 item 37: the reserved right gutter for the trade labels (backtest 170 px) */ public List<KeystoneArcBar> Candles = new List<KeystoneArcBar>();
             public List<KeystoneReplaySignal> AiSignals = new List<KeystoneReplaySignal>(); public bool AiBusy; public DateTime AiAt = DateTime.MinValue; public List<KeystoneArcBar> AiPrior;
             public Action MatchDetails; public bool MatchesOn, MatchesBusy; public DateTime MatchesBarTime = DateTime.MinValue; public Window MatchWin;   // MATCHES as a chart indicator: on until switched off, refreshed every new minute
             public List<Tuple<double[], string>> XBoxes = new List<Tuple<double[], string>>(), LabelGrab = new List<Tuple<double[], string>>(), LabelGrabPrev = new List<Tuple<double[], string>>(); public double DragOffY;   /* each ✕ its own box (ENTRY / STOP / TARGET / ORDER:n) — a click acts only on the box it lands in; a stop / target label = a grab handle of its line */
@@ -34604,6 +34922,86 @@ namespace NinjaTrader.NinjaScript.AddOns
             Func<DateTime, KeystoneNewsEvent> newsLockAt = t => { double m = NumberAllowZero(newsLockBox, 0); if (m <= 0) return null; return sessionNews.FirstOrDefault(e => Math.Abs((t - e.Time).TotalMinutes) <= m); };
             Func<double> dayNet = () => panes.Where(p => p.Trader != null).Sum(p => p.Trader.DayNet);
             Func<double> realized = () => panes.Where(p => p.Trader != null).Sum(p => p.Trader.Realized);
+            Action<ReplayPane> pracRender = null; Action<ReplayPane, bool> attachTicksH = null;
+            // 🎯 PRACTICE AS A PROP ACCOUNT (BUILD 2026-11-11c, item 34 — REGULAR BACKTESTING only; the practice trader is simulated, nothing reaches a broker):
+            // a preset or custom rules → the gauge floor → balance incl. open P/L → target, FLOOR / TARGET lines where the OPEN position would hit them, max
+            // contracts enforced, 💀 BLOWN / ✅ PASSED, ↺ RESET, the attempts log (Studio\practice-attempts.csv) • 💵 item 34b: the AUTO BRACKET IN $ (TP $ / SL $
+            // after costs for the contracts chosen, recalculated when the size changes before the entry; in practice the stop never below the floor)
+            var pracCfg = new Dictionary<string, string>(); string pracCfgFile = Path.Combine(StudioFolder(), "practice-settings.txt"); try { if (File.Exists(pracCfgFile)) foreach (var l in File.ReadAllLines(pracCfgFile)) { int ix = l.IndexOf('='); if (ix > 0) pracCfg[l.Substring(0, ix)] = l.Substring(ix + 1); } } catch { }
+            Func<string, string, string> pGet = (k, d) => { string v; return pracCfg.TryGetValue(k, out v) && v != "" ? v : d; };
+            Action<string, string> wsSet = (k, v) => { pracCfg[k] = v ?? ""; try { Directory.CreateDirectory(StudioFolder()); File.WriteAllLines(pracCfgFile, pracCfg.Select(kv => kv.Key + "=" + kv.Value).ToArray()); } catch { } };   /* remembered (its own small file) */
+            KeystonePractice prac = null; double pracBank = 0, pracLastReal = 0; DateTime pracDay = DateTime.MinValue; string pracShown = null;
+            bool dolOn = !liveWindow && pGet("dolbr", "0") == "1"; double dolTp = ParseStudioInt(pGet("doltp", "1000"), 1000), dolSl = ParseStudioInt(pGet("dolsl", "500"), 500);
+            Func<double> pracOpen = () => panes.Where(p => p.Trader != null && !p.IsSplit && p.Trader.Position != 0).Sum(p => p.Trader.Unrealized - KeystoneMoveStudy.Cost(p.Symbol) * Math.Abs(p.Trader.Position));
+            Func<double> pracClosed = () => pracBank + realized();
+            var pracBar = new WrapPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 2, 0, 2) };
+            var pracBox = Select(KeystonePractice.Presets().Select(x => x.Name).ToArray()); pracBox.SelectedIndex = Math.Max(0, Math.Min(KeystonePractice.Presets().Count - 1, ParseStudioInt(pGet("pracpreset", "0"), 0))); pracBox.Width = 250; pracBox.Height = 30;
+            var pSize = Input("50000"); var pDd = Input("2000"); var pTg = Input("3000"); var pMax = Input("40"); foreach (var tb in new[] { pSize, pDd, pTg, pMax }) { tb.Width = 64; tb.Height = 28; } var pType = Select(KeystonePractice.Types); pType.SelectedIndex = 1; pType.Height = 28;
+            var pGaugeFill = new Border { Background = Green, HorizontalAlignment = HorizontalAlignment.Left, Width = 0, CornerRadius = new CornerRadius(3) }; var pGaugeTxt = new TextBlock { Foreground = Text, FontSize = 11.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 6, 0) };
+            var pGauge = new Grid { Width = 360, Height = 26 }; pGauge.Children.Add(new Border { Background = Tint(Text, 26), CornerRadius = new CornerRadius(3) }); pGauge.Children.Add(pGaugeFill); pGauge.Children.Add(pGaugeTxt);
+            var pStatus = new TextBlock { Foreground = Muted, FontSize = 11, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, MaxWidth = 560, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+            var pReset = Btn("↺ RESET ACCOUNT", Card); pReset.Height = 30; var pLog = new TextBlock { Foreground = Muted, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 900 };
+            Func<string> pracLogFile = () => Path.Combine(StudioFolder(), "practice-attempts.csv");
+            Action<string> pracSaveAttempt = why => { if (prac == null) return; try { Directory.CreateDirectory(StudioFolder()); if (!File.Exists(pracLogFile())) File.WriteAllText(pracLogFile(), KeystonePractice.LogHeader + "\n"); File.AppendAllText(pracLogFile(), prac.LogLine(DateTime.Now) + "\n"); } catch { } };
+            Action pracPaintLog = delegate { try { var ls = File.Exists(pracLogFile()) ? File.ReadAllLines(pracLogFile()).Skip(1).Reverse().Take(5).ToList() : new List<string>(); pLog.Text = ls.Count == 0 ? "📜 attempts: none yet" : "📜 last attempts: " + string.Join("   |   ", ls.Select(l => { var c = l.Split(','); return c.Length >= 6 ? c[0] + " " + c[1] + " → " + c[2] + " (" + c[3] + " days, " + c[4] + " trades, " + c[5] + ")" : l; })); } catch { } };
+            Func<KeystonePractice> pracRead = () =>
+            {
+                var b = KeystonePractice.Presets()[Math.Max(0, pracBox.SelectedIndex)].Copy();
+                if (b.Name == "custom") { b.Size = NumberAllowZero(pSize, 50000); b.Dd = Math.Max(50, NumberAllowZero(pDd, 2000)); b.Target = NumberAllowZero(pTg, 3000); b.MaxQty = Math.Max(1, (int)NumberAllowZero(pMax, 40)); b.DdType = KeystonePractice.Types[Math.Max(0, pType.SelectedIndex)]; }
+                return b;
+            };
+            Action pracPaint = delegate
+            {
+                if (prac == null) return; double op = pracOpen(), eq = prac.Equity(op), fl = prac.FloorNow(op), lo = Math.Min(-prac.Dd, fl), hi = Math.Max(prac.Target, eq);
+                double fr = Math.Max(0, Math.Min(1, (eq - lo) / Math.Max(1, hi - lo))); pGaugeFill.Width = 360 * fr; pGaugeFill.Background = prac.Blown ? Red : prac.Passed ? Green : prac.Room(op) < 0.25 * prac.Dd ? Orange : Cyan;
+                pGaugeTxt.Text = "floor " + Signed(fl) + "  ▸  " + Signed(eq) + (Math.Abs(op) > 0.005 ? " (open " + Signed(op) + ")" : "") + "  ▸  target +" + Cash(prac.Target);
+                pStatus.Text = prac.Status(op) + " • room " + Cash(Math.Max(0, prac.Room(op))) + " • to target " + Cash(Math.Max(0, prac.Target - eq)) + " • max " + prac.MaxQty + " contracts"; pStatus.Foreground = prac.Blown ? Red : prac.Passed ? Green : Text;
+            };
+            Action pracStart = delegate { if (prac != null && (prac.Trades > 0 || prac.Days > 0) && !prac.Blown && !prac.Passed) pracSaveAttempt("RESET"); prac = pracRead(); pracBank = -realized(); pracLastReal = 0; pracDay = session; pracShown = null; wsSet("pracpreset", pracBox.SelectedIndex.ToString(CultureInfo.InvariantCulture)); pracPaint(); pracPaintLog(); };
+            pReset.Click += delegate { pracStart(); status.Text = "🎯 " + prac.Line() + " • a fresh attempt"; status.Foreground = Cyan; foreach (var p0 in panes) if (p0.Canvas != null && pracRender != null) pracRender(p0); };
+            pracBox.SelectionChanged += delegate { var cp = KeystonePractice.Presets()[Math.Max(0, pracBox.SelectedIndex)]; pSize.Text = cp.Size.ToString("0", CultureInfo.InvariantCulture); pDd.Text = cp.Dd.ToString("0", CultureInfo.InvariantCulture); pTg.Text = cp.Target.ToString("0", CultureInfo.InvariantCulture); pMax.Text = cp.MaxQty.ToString(CultureInfo.InvariantCulture); pType.SelectedIndex = Math.Max(0, Array.IndexOf(KeystonePractice.Types, cp.DdType)); if (prac != null) pracStart(); };
+            Func<string, UIElement, StackPanel> pfx = (cap, el) => { var sp = new StackPanel { Margin = new Thickness(0, 0, 6, 0) }; sp.Children.Add(new TextBlock { Text = cap, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(el); return sp; };
+            pracBar.Children.Add(pfx("🎯 PRACTICE AS", pracBox)); pracBar.Children.Add(pfx("SIZE $", pSize)); pracBar.Children.Add(pfx("DRAWDOWN", pType)); pracBar.Children.Add(pfx("DD $", pDd)); pracBar.Children.Add(pfx("TARGET $", pTg)); pracBar.Children.Add(pfx("MAX CONTRACTS", pMax));
+            pracBar.Children.Add(pfx("FLOOR ▸ BALANCE (incl. open) ▸ TARGET", pGauge)); pracBar.Children.Add(pReset); pracBar.Children.Add(pStatus);
+            // 💵 the AUTO BRACKET IN $ (item 34b)
+            var dolBtn = Btn("", Card); dolBtn.Height = 30; var dTp = Input(dolTp.ToString("0", CultureInfo.InvariantCulture)); var dSl = Input(dolSl.ToString("0", CultureInfo.InvariantCulture)); dTp.Width = 70; dSl.Width = 70; dTp.Height = dSl.Height = 28;
+            var dolRow = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) }; dolRow.Children.Add(dolBtn); dolRow.Children.Add(pfx("TAKE PROFIT $", dTp)); dolRow.Children.Add(pfx("STOP LOSS $", dSl));
+            foreach (var qv in new[] { 250, 500, 1000, 2000 }) { int v = qv; var qb = Btn("$" + v.ToString("N0", CultureInfo.InvariantCulture), Card); qb.Height = 28; qb.MinWidth = 52; qb.Margin = new Thickness(0, 12, 4, 0); qb.ToolTip = "TP $" + v + " (right-click = the stop)"; qb.Click += delegate { dTp.Text = v.ToString(CultureInfo.InvariantCulture); }; qb.MouseRightButtonUp += delegate { dSl.Text = v.ToString(CultureInfo.InvariantCulture); }; dolRow.Children.Add(qb); }
+            var roomBtn = Btn("STOP = THE ROOM TO THE FLOOR", Card); roomBtn.Height = 28; roomBtn.Margin = new Thickness(4, 12, 4, 0); roomBtn.ToolTip = "prop practice: the stop $ = what is left above the floor"; dolRow.Children.Add(roomBtn);
+            var dolNote = new TextBlock { Foreground = Muted, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 12, 0, 0), TextWrapping = TextWrapping.Wrap, MaxWidth = 520 }; dolRow.Children.Add(dolNote);
+            Action<ReplayPane> applyDollar = null;
+            applyDollar = pn =>
+            {   /* the bracket boxes (points) = the $ after costs for the contracts chosen (or the open size) • in practice the stop never below the floor */
+                if (!dolOn || pn == null || pn.Trader == null || pn.IsSplit) return; var r = pn.Trader; int q = r.Position != 0 ? Math.Abs(r.Position) : Math.Max(1, Integer(pn.Qty, 1)); double pv = KeystoneMoveStudy.PointValue(pn.Symbol), cost = KeystoneMoveStudy.Cost(pn.Symbol), tick = r.Tick > 0 ? r.Tick : 0.25;
+                double tpP = KeystonePractice.BracketPts(NumberAllowZero(dTp, 0), q, pv, cost, tick, false), slP = KeystonePractice.BracketPts(NumberAllowZero(dSl, 0), q, pv, cost, tick, true); string clamp = "";
+                if (prac != null && !prac.Blown) { double mx = prac.MaxStopPts(q, pv, cost, tick); if (slP > mx) { slP = mx; clamp = " • ⚠ the stop is clamped at the floor (" + mx.ToString("0.##", CultureInfo.InvariantCulture) + " pts)"; } }
+                if (NumberAllowZero(dTp, 0) > 0) pn.Tp.Text = tpP.ToString("0.##", CultureInfo.InvariantCulture); if (NumberAllowZero(dSl, 0) > 0) pn.Sl.Text = slP.ToString("0.##", CultureInfo.InvariantCulture);
+                dolNote.Text = pn.Symbol + " × " + q + ": TP " + tpP.ToString("0.##", CultureInfo.InvariantCulture) + " pts = +" + Cash(KeystonePractice.UsdOf(tpP, q, pv, cost, false)) + " · SL " + slP.ToString("0.##", CultureInfo.InvariantCulture) + " pts = " + Signed(KeystonePractice.UsdOf(slP, q, pv, cost, true)) + " (after costs)" + clamp;
+            };
+            studioDollarBracket = (sym, usd, q) => { double pv = KeystoneMoveStudy.PointValue(sym), cost = KeystoneMoveStudy.Cost(sym), tick = KeystoneMoveStudy.IsMgc(sym) ? 0.1 : 0.25; return Tuple.Create(KeystonePractice.BracketPts(usd, q, pv, cost, tick, false), KeystonePractice.BracketPts(usd, q, pv, cost, tick, true)); };
+            Action paintDol = delegate { dolBtn.Content = dolOn ? "💵 AUTO BRACKET IN $: ON (points ⇄ $)" : "💵 AUTO BRACKET: IN POINTS (click = in $)"; PaintBtn(dolBtn, dolOn ? Tint(Green, 150) : Card); dTp.IsEnabled = dSl.IsEnabled = dolOn; if (!dolOn) dolNote.Text = "the point brackets (10/20 …) in the order panel stay as they are"; };
+            dolBtn.Click += delegate { dolOn = !dolOn; wsSet("dolbr", dolOn ? "1" : "0"); paintDol(); foreach (var p0 in panes) applyDollar(p0); };
+            dTp.TextChanged += delegate { wsSet("doltp", (dTp.Text ?? "").Trim()); foreach (var p0 in panes) if (p0.Trader != null && p0.Trader.Position == 0) applyDollar(p0); };
+            dSl.TextChanged += delegate { wsSet("dolsl", (dSl.Text ?? "").Trim()); foreach (var p0 in panes) if (p0.Trader != null && p0.Trader.Position == 0) applyDollar(p0); };
+            roomBtn.Click += delegate { if (prac == null) { status.Text = "🎯 STOP = THE ROOM: switch 🎯 PRACTICE AS A PROP ACCOUNT on first"; status.Foreground = Gold; return; } dSl.Text = Math.Max(0, Math.Floor(prac.Room(pracOpen()))).ToString("0", CultureInfo.InvariantCulture); };
+            paintDol();
+            var pracToggle = Btn("🎯 PRACTICE AS A PROP ACCOUNT", Card); pracToggle.Height = 30; pracToggle.ToolTip = "practise on prop rules (MFF Studio, Lucid, Tradeify, TPT, funded or custom): the floor, the target, max contracts, BLOWN / PASSED — simulation only";
+            pracToggle.Click += delegate { bool on = pracBar.Visibility != Visibility.Visible; pracBar.Visibility = dolRow.Visibility = pLog.Visibility = on ? Visibility.Visible : Visibility.Collapsed; PaintBtn(pracToggle, on ? Tint(Gold, 140) : Card); if (on) pracStart(); else { if (prac != null && (prac.Trades > 0) && !prac.Blown && !prac.Passed) pracSaveAttempt("RESET"); prac = null; } foreach (var p0 in panes) if (p0.Canvas != null && pracRender != null) pracRender(p0); };
+            dolRow.Visibility = pLog.Visibility = Visibility.Collapsed;
+            // every refresh: the account against its floor / target (once BLOWN / PASSED: flat, the overlay, the attempt saved)
+            Action pracTick = delegate
+            {
+                if (prac == null) return;
+                if (session != pracDay && pracDay != DateTime.MinValue && session != DateTime.MinValue) { pracBank += pracLastReal; prac.EndOfDay(pracBank); pracDay = session; }
+                pracLastReal = realized(); var hit = prac.Mark(pracClosed(), pracOpen(), (session == DateTime.MinValue ? "" : session.ToString("ddd d MMM", CultureInfo.InvariantCulture)) + " · trade " + prac.Trades);
+                if (hit != null)
+                {
+                    foreach (var p0 in panes.Where(p => p.Trader != null && !p.IsSplit)) { p0.Trader.CancelOrders(); if (p0.Trader.Position != 0) p0.Trader.CloseAll(hit == "BLOWN" ? "PRACTICE FLOOR" : "PRACTICE TARGET"); }
+                    pracSaveAttempt(hit); pracPaintLog(); status.Text = (hit == "BLOWN" ? "💀 " : "✅ ") + prac.How + " • ↺ RESET ACCOUNT for a new attempt"; status.Foreground = hit == "BLOWN" ? Red : Green;
+                }
+                pracPaint();
+            };
+            if (!liveWindow) { top.Children.Add(pracToggle); info.Children.Add(pracBar); info.Children.Add(dolRow); info.Children.Add(pLog); }
             string[] tfNames = { "1M", "2M", "3M", "5M", "15M", "30M", "1H", "4H", "D" }; int[] tfMinutes = { 1, 2, 3, 5, 15, 30, 60, 240, 1440 };
 
             Action<ReplayPane> saveFills = pn =>
@@ -34627,8 +35025,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             // ---- chart geometry (per pane)
             // LIVE: the chart can manage trades / orders only on a linked, connected, ARMED account that is not locked
             Func<ReplayPane, bool> tradeOkOf = p0 => !ofViewOn && (!liveWindow || ((p0 = p0.IsSplit && p0.Main != null ? p0.Main : p0) != null && p0.Link != null && p0.Link.Armed && p0.Link.Connected && !p0.Link.Locked));
-            Func<ReplayPane, double, double> xOfIndex = (pn, idx) => pn.PlotW - (pn.Candles.Count - 1 - idx + pn.RightOffset + 0.5) * pn.Spacing;
-            Func<ReplayPane, double, double> indexAt = (pn, x) => pn.Candles.Count - 1 - ((pn.PlotW - x) / pn.Spacing - pn.RightOffset - 0.5);
+            Func<ReplayPane, double, double> xOfIndex = (pn, idx) => pn.PlotW - pn.Gutter - (pn.Candles.Count - 1 - idx + pn.RightOffset + 0.5) * pn.Spacing;
+            Func<ReplayPane, double, double> indexAt = (pn, x) => pn.Candles.Count - 1 - ((pn.PlotW - pn.Gutter - x) / pn.Spacing - pn.RightOffset - 0.5);
             Func<ReplayPane, double, double> yOf = (pn, p) => pn.Top + (pn.Hi - p) / Math.Max(1e-9, pn.Hi - pn.Lo) * pn.PlotH;
             Func<ReplayPane, double, double> priceAt = (pn, y) => pn.Hi - (y - pn.Top) / Math.Max(1, pn.PlotH) * (pn.Hi - pn.Lo);
             Func<ReplayPane, DateTime, double> indexOfTime = (pn, t) =>
@@ -34685,14 +35083,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             Func<ReplayPane, bool> nextIsFunded = null;            // PROP SIM: that account is funded (its own stop / target)
             bool chartsPaused = false;   // PROP SIM • DATA ONLY: the charts are not drawn (fastest)
             Action<ReplayPane> render = null, renderCore = null;
-            render = pn => { var oS = layerSymR; layerSymR = pn.Symbol; try { renderCore(pn); } finally { layerSymR = oS; } };   // its indicators = this instrument's
+            render = pn => { var oS = layerSymR; layerSymR = pn.Symbol; try { renderCore(pn); } finally { layerSymR = oS; } };   // its indicators = this instrument's pracRender = render;
             renderCore = pn =>
             {
                 if (chartsPaused) return;
                 if (pn.IsSplit && pn.Main != null) { var m = pn.Main; if (!ReferenceEquals(pn.PrevBars, m.PrevBars)) { pn.PrevBars = m.PrevBars; pn.PrevTf = -1; } pn.Pdh = m.Pdh; pn.Pdl = m.Pdl; pn.Pdc = m.Pdc; pn.PrevDay = m.PrevDay; pn.Trader = m.Trader; pn.Drawings = m.Drawings; pn.Signals = m.Signals; pn.Sim = m.Sim; pn.SimBarrier = m.SimBarrier; pn.SimEntry = m.SimEntry; pn.LeanSide = m.LeanSide; pn.LeanStreak = m.LeanStreak; pn.Coach = m.Coach; pn.Selected = m.Selected; }
                 var cv = pn.Canvas; if (cv == null) return; cv.Children.Clear(); pn.HotX.Clear(); pn.XBoxes.Clear(); pn.LabelGrabPrev = pn.LabelGrab; pn.LabelGrab = new List<Tuple<double[], string>>(); pn.HotDrag.Clear(); pn.AHandles.Clear(); pn.GLines.Clear(); pn.InfoHot.Clear(); pn.HotActs.Clear(); pn.HotNo.Clear(); var prevHandles = pn.DrawHandles.ToList(); pn.DrawHandles.Clear();
                 double W = cv.ActualWidth > 100 ? cv.ActualWidth : 1200, H = cv.ActualHeight > 100 ? cv.ActualHeight : 620;
-                pn.PlotW = W - pn.AxisW; pn.PlotH = H - pn.Top - pn.TimeH;
+                pn.PlotW = W - pn.AxisW; pn.PlotH = H - pn.Top - pn.TimeH; pn.Gutter = liveWindow ? 0 : Math.Min(StudioGutter, Math.Max(0, pn.PlotW * 0.3));
                 var r = pn.Trader;
                 // a stop / target belongs to one trade: when the position is closed the boxes go back to 0 (no automatic bracket)
                 if (r != null && !pn.IsSplit) { if (pn.LastPos != 0 && r.Position == 0 && (NumberSigned(pn.Sl, 0) != 0 || NumberAllowZero(pn.Tp, 0) > 0)) { pn.Sl.Text = "0"; pn.Tp.Text = "0"; } pn.LastPos = r.Position; }
@@ -35229,16 +35627,16 @@ namespace NinjaTrader.NinjaScript.AddOns
                         var lt = new Border { Background = ltBg, BorderBrush = hovL ? System.Windows.Media.Brushes.White : (Brush)Tint((SolidColorBrush)(br is SolidColorBrush ? br : colorOf("#C9D3E6")), 150), BorderThickness = new Thickness(hovL ? 1.6 : 1), CornerRadius = new CornerRadius(kind == 0 ? 8 : 10), Padding = new Thickness(kind == 0 ? 10 : 8, kind == 0 ? 3 : 2, kind == 0 ? 10 : 9, kind == 0 ? 3 : 2), Child = content0 };
                         if (hovL) lt.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 8, ShadowDepth = 0, Opacity = 0.55, Color = Color.FromRgb(255, 255, 255) };
                         if (liveWindow) System.Windows.Controls.Canvas.SetRight(lt, pn.AxisW + (kind == 0 ? 186 : 32));   // LIVE: the label ends left of the ⇕ TP / SL handles (entry) or of the ✕ (stop / target) — never on top of them
-                        else System.Windows.Controls.Canvas.SetLeft(lt, pn.PlotW - (kind == 0 ? 330 : 300));
+                        else { System.Windows.Controls.Canvas.SetLeft(lt, pn.PlotW - pn.Gutter + 4); lt.MaxWidth = Math.Max(60, pn.Gutter - 34); lt.ToolTip = label; lt.Tag = "gutter-label"; foreach (var tbx in FindTexts(lt)) tbx.TextTrimming = TextTrimming.CharacterEllipsis; if (studioLabelRects.Count > 200) studioLabelRects.RemoveAt(0); studioLabelRects.Add(new[] { pn.PlotW - pn.Gutter + 4, yl - 12, pn.Gutter - 34, 24, pn.PlotW - pn.Gutter }); }
                         System.Windows.Controls.Canvas.SetTop(lt, yl - (kind == 0 ? 12 : 9));
                         cv.Children.Add(lt);
                         if (grabKind != null && dragLine)
                         {   // the label is a handle too: grab it anywhere (it can sit a step away from its line when lines are close)
                             lt.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double lw = lt.DesiredSize.Width, lh = lt.DesiredSize.Height;
-                            double lx = liveWindow ? pn.PlotW - (kind == 0 ? 186 : 32) - lw : pn.PlotW - (kind == 0 ? 330 : 300), ly = yl - (kind == 0 ? 12 : 9);
+                            double lx = liveWindow ? pn.PlotW - (kind == 0 ? 186 : 32) - lw : pn.PlotW - pn.Gutter + 4, ly = yl - (kind == 0 ? 12 : 9);
                             var lrect = new[] { lx - 2, ly - 2, lx + lw + 2, ly + lh + 2 }; pn.LabelGrab.Add(Tuple.Create(lrect, grabKind)); pn.HotDrag.Add(lrect);
                         }
-                        if (!liveWindow && Math.Abs(yl - y) > 2) cv.Children.Add(new System.Windows.Shapes.Line { X1 = pn.PlotW - (kind == 0 ? 262 : 302), X2 = pn.PlotW - (kind == 0 ? 270 : 310), Y1 = yl, Y2 = y, Stroke = br, StrokeThickness = 1, Opacity = 0.6 });
+                        if (!liveWindow && Math.Abs(yl - y) > 2) cv.Children.Add(new System.Windows.Shapes.Line { X1 = pn.PlotW - pn.Gutter + 4, X2 = pn.PlotW - pn.Gutter - 2, Y1 = yl, Y2 = y, Stroke = br, StrokeThickness = 1, Opacity = 0.6 });
                     }
                 };
                 Action<double, Brush, string, bool> axisTag = (p, br, label, solidLine) => axisTagS(p, br, label, solidLine ? 0 : 1);
@@ -35883,7 +36281,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                            // the entry's text is on hover (arrow / chip): the chart shows the box, the price and the arrow
                         cv.Children.Add(inDot);
                         string acc = fillAccount != null ? fillAccount(f) : "";
-                        var tag = new Border { Background = Tint((SolidColorBrush)wc, 215), CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 1, 5, 1), Child = new TextBlock { Text = Signed(f.Net), Foreground = System.Windows.Media.Brushes.White, FontSize = 9.5, FontWeight = FontWeights.Bold }, ToolTip = fInfo + (acc != "" ? " • " + acc : "") };
+                        var tag = new Border { Background = Tint((SolidColorBrush)wc, 215), CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 1, 5, 1), Child = new TextBlock { Text = "closed " + Signed(f.Net), Foreground = System.Windows.Media.Brushes.White, FontSize = 9.5, FontWeight = FontWeights.Bold }, ToolTip = fInfo + (acc != "" ? " • " + acc : "") };
                         System.Windows.Controls.Canvas.SetLeft(tag, Math.Min(pn.PlotW - 150, x2 + 5)); System.Windows.Controls.Canvas.SetTop(tag, y2 + (won ? -20 : 4)); cv.Children.Add(tag);
                     }
                     if (pn.Trader.Position != 0)
@@ -36158,7 +36556,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     closeXk(r.AvgPrice, liveWindow ? (Brush)colorOf("#C9D3E6") : pnlBrush, "ENTRY");   // ✕ = close the trade + its orders (asks first) — LIVE: silver like the entry line, never the stop's red
                     // THE BUFFER (as in the backtest): a bar from the stop (red) to the target (green) with the price riding on it — what is left to
                     // the target and to the stop in $ beside it; the marker pulses as it gets near either end
-                    if ((r.StopPts != 0 || r.TargetPts > 0) && (!liveWindow || chartExtras))
+                    if ((r.StopPts != 0 || r.TargetPts > 0) && liveWindow && chartExtras)   /* 🏷 item 37: the backtest's buffer bar + "left / away" pills sat on the candles — the gutter labels carry the $ now */
                     {
                         double pvB = KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position), far = Math.Max(4 * r.Tick, Math.Abs(r.Price - r.AvgPrice) * 1.5);
                         double stopPx = r.StopPts != 0 ? r.AvgPrice - dir * r.StopPts : r.AvgPrice - dir * far, tgtPx = r.TargetPts > 0 ? r.AvgPrice + dir * r.TargetPts : r.AvgPrice + dir * far;
@@ -36183,7 +36581,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         if (!hd.Item1 || !tradeOkOf(pn) || pn.IsSplit) continue;   // no SL / TP handles while disarmed
                         bool hovH = pn.MouseOver && pn.Drag == null && pn.MouseX >= hd.Item4 - 2 && pn.MouseX <= hd.Item4 + 44 && Math.Abs(pn.MouseY - yP) <= 10; pn.HotDrag.Add(new[] { hd.Item4 - 2, yP - 10, hd.Item4 + 44, yP + 10 });
                         // LIVE: the TP ⇕ / SL ⇕ handles appear only while the mouse is on the position line (a clean chart otherwise), as outlines (not the ✕'s colour)
-                        if (liveWindow && !hovH && !(pn.MouseOver && pn.Drag == null && Math.Abs(pn.MouseY - yP) <= 26)) continue;
+                        if (!hovH && !(pn.MouseOver && pn.Drag == null && Math.Abs(pn.MouseY - yP) <= 26)) continue;   /* the TP ⇕ / SL ⇕ handles only on hover (item 37: the backtest too) */
                         var hb = new Border { Width = 42, Height = 18, Background = hovH ? System.Windows.Media.Brushes.White : liveWindow ? (Brush)Tint(Bg, 230) : hd.Item3, BorderBrush = hd.Item3, BorderThickness = new Thickness(hovH ? 2 : liveWindow ? 1.5 : 0), CornerRadius = new CornerRadius(liveWindow ? 9 : 3), Child = new TextBlock { Text = hd.Item2, Foreground = hovH || liveWindow ? hd.Item3 : Bg, FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }, ToolTip = "drag up / down" };
                         System.Windows.Controls.Canvas.SetLeft(hb, hd.Item4); System.Windows.Controls.Canvas.SetTop(hb, yP - 9); cv.Children.Add(hb);
                     }
@@ -36191,6 +36589,37 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (r.StopPts > 0) { grabKind = "STOP"; axisTagS(r.AvgPrice - dir * r.StopPts, colorOf("#FF3D57"), (liveWindow ? "SL −" + Cash(r.StopPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) : "STOP −" + fmt(r.StopPts) + " pts • −" + Cash(r.StopPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position))) + "  (drag)", 2); closeXk(r.AvgPrice - dir * r.StopPts, colorOf("#FF3D57"), "STOP"); }
                     else if (r.StopPts < 0) { grabKind = "STOP"; axisTagS(r.AvgPrice - dir * r.StopPts, colorOf("#FFC400"), "PROFIT STOP • locks +" + fmt(-r.StopPts) + " pts • +" + Cash(-r.StopPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)", 3); closeXk(r.AvgPrice - dir * r.StopPts, colorOf("#FFC400"), "STOP"); }
                     grabKind = null;
+                }
+                if (!liveWindow && r != null && !pn.IsSplit && !r.Live)
+                {   /* ⏱ item 36: say where the price inside each minute comes from */
+                    if (!r.HasTicks)
+                    {
+                        var nb = new Border { Background = Tint(Orange, 50), BorderBrush = Orange, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(8, 3, 6, 3) };
+                        var nsp = new StackPanel { Orientation = Orientation.Horizontal }; nsp.Children.Add(new TextBlock { Text = "⚠ no tick data for this day: the price inside each minute is estimated from its open / high / low / close" + (r.TickNote != "" ? " · " + r.TickNote : ""), Foreground = Text, FontSize = 11, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+                        var gb = Btn("⤓ GET TICKS", Card); gb.Height = 28; gb.Margin = new Thickness(8, 0, 0, 0); var pnG = pn; gb.Click += delegate { if (attachTicksH != null) attachTicksH(pnG, true); render(pnG); }; nsp.Children.Add(gb); nb.Child = nsp;
+                        System.Windows.Controls.Canvas.SetLeft(nb, 8); System.Windows.Controls.Canvas.SetTop(nb, pn.Top + pn.PlotH - 40); cv.Children.Add(nb);
+                    }
+                    else { var tn = new TextBlock { Text = r.TickNote, Foreground = Muted, FontSize = 10, IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(tn, 8); System.Windows.Controls.Canvas.SetTop(tn, pn.Top + pn.PlotH - 16); cv.Children.Add(tn); }
+                }
+                if (!liveWindow && prac != null && !pn.IsSplit)
+                {   /* 🎯 item 34: FLOOR + TARGET at the prices where the OPEN position would hit them (they move with the size and the trailing floor), the zone between them shaded; 💀 / ✅ over the chart */
+                    if (r.Position != 0)
+                    {
+                        double opAll = pracOpen(), opMe = r.Unrealized - KeystoneMoveStudy.Cost(pn.Symbol) * Math.Abs(r.Position), closedX = prac.Equity(opAll) - opMe, pvP = KeystoneMoveStudy.PointValue(pn.Symbol), cP = KeystoneMoveStudy.Cost(pn.Symbol);
+                        double flPx = KeystonePractice.PriceAt(prac.FloorNow(opAll), closedX, r.Position, r.AvgPrice, pvP, cP), tgPx = KeystonePractice.PriceAt(prac.Target, closedX, r.Position, r.AvgPrice, pvP, cP);
+                        if (!double.IsNaN(flPx) && !double.IsNaN(tgPx))
+                        {
+                            double y1 = Math.Max(pn.Top, Math.Min(pn.Top + pn.PlotH, yOf(pn, flPx))), y2 = Math.Max(pn.Top, Math.Min(pn.Top + pn.PlotH, yOf(pn, tgPx)));
+                            var zone = new System.Windows.Shapes.Rectangle { Width = Math.Max(1, pn.PlotW - pn.Gutter), Height = Math.Max(1, Math.Abs(y2 - y1)), Fill = Tint(Cyan, 16), IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(zone, 0); System.Windows.Controls.Canvas.SetTop(zone, Math.Min(y1, y2)); cv.Children.Add(zone);
+                            axisTagS(flPx, Red, "💀 FLOOR " + fmt(flPx) + " · room " + Cash(Math.Max(0, prac.Room(opAll))), 2); axisTagS(tgPx, Green, "✅ TARGET " + fmt(tgPx) + " · +" + Cash(Math.Max(0, prac.Target - prac.Equity(opAll))), 2);
+                        }
+                    }
+                    if (prac.Blown || prac.Passed)
+                    {
+                        var ov = new Border { Background = Tint(prac.Blown ? Red : Green, 70), BorderBrush = prac.Blown ? Red : Green, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(12), Padding = new Thickness(22, 12, 22, 14), IsHitTestVisible = false };
+                        var ovs = new StackPanel(); ovs.Children.Add(new TextBlock { Text = prac.Blown ? "💀 BLOWN" : "✅ PASSED", Foreground = Text, FontSize = 34, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center }); ovs.Children.Add(new TextBlock { Text = prac.How + "\n" + prac.Days + " day(s) · " + prac.Trades + " trade(s) · ↺ RESET ACCOUNT for a new attempt", Foreground = Text, FontSize = 13, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center }); ov.Child = ovs;
+                        System.Windows.Controls.Canvas.SetLeft(ov, Math.Max(10, (pn.PlotW - pn.Gutter) / 2 - 220)); System.Windows.Controls.Canvas.SetTop(ov, pn.Top + pn.PlotH / 2 - 60); cv.Children.Add(ov);
+                    }
                 }
                 flushX();   // every ✕ of this chart, the entry's first, none on top of another
                 // the pattern plan while flat: faint dashed entry / stop / target in the lean colour
@@ -36293,6 +36722,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             Action renderInfo = null; stratBox.MouseLeftButtonUp += delegate { stratFull = !stratFull; realKeys["ui.stratfull"] = stratFull ? "1" : "0"; if (renderInfo != null) renderInfo(); };   /* remembered */ renderInfo = delegate
             {
+                if (!liveWindow) pracTick();   /* 🎯 item 34: the practice account against its floor / target on every refresh */
                 double net = dayNet();
                 // THE CANDLE NOW: every chart (MNQ, MGC …), its current candle since its open
                 try
@@ -36654,7 +37084,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 foreach (var pn in panes.Where(p => p.Trader != null && (liveWindow || playsSym(p.Symbol))))
                 {
                     int before = pn.Trader.Fills.Count; var r = pn.Trader;
-                    while (!r.Finished && r.Time < t && !dayBanked) { r.Advance(); checkLimits(); autoTrade(pn); if (dayBanked) break; }
+                    while (!r.Finished && (r.HasTicks ? r.NextTime() <= t : r.Time < t) && !dayBanked) { r.Advance(); checkLimits(); autoTrade(pn); if (dayBanked) break; }   /* ⏱ item 36: each real tick at its own time (the clock = real time × speed) */
                     if (sigCardCheck != null && !dayBanked) sigCardCheck(pn);
                     if (r.Fills.Count != before) { saveFills(pn); var f = r.Fills.Last(); status.Text = pn.Symbol + " • " + f.Reason + " • " + f.Side + " " + f.Qty + " closed " + Signed(f.Net); status.Foreground = MoneyBrush(f.Net); }
                     if (!r.Finished) any = true;
@@ -37258,6 +37688,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (hU != null) hU.Item1.MouseLeftButtonDown += (s0, e0) => { e0.Handled = true; if (topToggle != null) topToggle(); };
                 }
                 Action readBracket = delegate { if (pn.Trader == null) return; pn.Trader.StopPts = NumberSigned(pn.Sl, 0); pn.Trader.TargetPts = NumberAllowZero(pn.Tp, 0); render(pn); };
+                if (!liveWindow) pn.Qty.TextChanged += delegate { if (dolOn && pn.Trader != null && pn.Trader.Position == 0) applyDollar(pn); };   /* 💵 34b: a new size before the entry → the $ bracket recalculated */
                 pn.Sl.TextChanged += delegate { readBracket(); }; pn.Tp.TextChanged += delegate { readBracket(); };
                 Action<int> order = sign =>
                 {
@@ -37298,7 +37729,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                         double px; if (!double.TryParse(pn.Price.Text.Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out px) || px <= 0) { refuse("CLICK THE CHART (or type a price) for the " + type + " order", Gold); return; }
                         var o = r.Place(type, sign, q, px); readBracket(); status.Text = pn.Symbol + " WORKING • " + o.Label + " @ " + fmt(o.Price); status.Foreground = Cyan; render(pn); return;
                     }
-                    bool entering = Math.Sign(r.Position) != -sign; int before = r.Fills.Count, posB = r.Position; if (sign > 0) r.Buy(q); else r.Sell(q);
+                    if (!liveWindow && prac != null && Math.Sign(r.Position) != -sign)
+                    {   /* 🎯 item 34: the practice account's rules — blown / passed = no new entry; above its max contracts = refused */
+                        if (prac.Blown || prac.Passed) { refuse((prac.Blown ? "💀 THE PRACTICE ACCOUNT IS BLOWN" : "✅ THE PRACTICE ACCOUNT PASSED") + " • ↺ RESET ACCOUNT for a new attempt", prac.Blown ? Red : Green); return; }
+                        if (Math.Abs(r.Position) + pending + q > prac.MaxQty) { refuse("MAX " + prac.MaxQty + " CONTRACTS on " + prac.Name + " • " + pn.Symbol + " holds " + Math.Abs(r.Position) + " • lower the contracts", Gold); return; }
+                    }
+                    bool entering = Math.Sign(r.Position) != -sign; int before = r.Fills.Count, posB = r.Position; if (!liveWindow && dolOn && entering) applyDollar(pn); if (sign > 0) r.Buy(q); else r.Sell(q);
+                    if (!liveWindow && prac != null && entering && r.Position != 0) prac.Trades++;
                     if (liveWindow && entering && afterEntry != null) afterEntry(pn, sign, q);
                     if (r.Position == 0) pn.AutoTp = false;
                     if (liveWindow && pn.AutoTp && autoTarget != null && r.Position != 0)
@@ -37839,6 +38276,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     pn.Trader = bars.Count >= 10 ? new KeystoneReplayTrader(bars, pn.Symbol, 60) : null; pn.SavedFills = 0; pn.LastCount = 0; pn.Follow = true; pn.RightOffset = 14; pn.PriceAuto = true;
                     if (pn.Trader == null) return pn.Symbol + " no data";
                     pn.Trader.JumpTo(at); if (pn.Trader.Finished) pn.Trader = new KeystoneReplayTrader(bars, pn.Symbol, 60);
+                    if (!liveWindow && attachTicksH != null) attachTicksH(pn, false);   /* ⏱ item 36: the day's real ticks (cache, else NinjaTrader, else 1-second bars) */
                     pn.Trader.StopPts = NumberSigned(pn.Sl, 0); pn.Trader.TargetPts = NumberAllowZero(pn.Tp, 0);
                     buildSignals(pn); foreach (var sg in pn.Signals) if (sg.Time < pn.Trader.Time) sg.Taken = true;
                     return pn.Symbol + " " + bars.Count + " min" + (pn.Signals.Count > 0 ? ", " + pn.Signals.Count + " signals" : "");
@@ -38043,7 +38481,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var t = simTime.AddMinutes(-n); if (t < first) t = first;
                 foreach (var pn in panes.Where(p => p.Trader != null))
                 {
-                    var old = pn.Trader; var fresh = new KeystoneReplayTrader(old.Bars, pn.Symbol, 60);
+                    var old = pn.Trader; var fresh = new KeystoneReplayTrader(old.Bars, pn.Symbol, 60); fresh.CopyTicks(old);
                     fresh.Realized = old.Realized; fresh.Fills.AddRange(old.Fills); fresh.StopPts = old.StopPts; fresh.TargetPts = old.TargetPts;
                     fresh.JumpTo(t); fresh.AdvanceTo(t, 100000);
                     pn.Trader = fresh; pn.LastCount = 0; foreach (var sg in pn.Signals) sg.Taken = sg.Time <= t; pn.Pending.RemoveAll(x => x.Time >= t); pn.SimKey = -1;
@@ -38077,7 +38515,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 blownOverlay.Visibility = Visibility.Collapsed; int going = 0;
                 foreach (var pn in panes.Where(p => p.Trader != null))
                 {
-                    var bars = pn.Trader.Bars; var t = simTime; var fresh = new KeystoneReplayTrader(bars, pn.Symbol, 60);
+                    var bars = pn.Trader.Bars; var t = simTime; var fresh = new KeystoneReplayTrader(bars, pn.Symbol, 60); fresh.CopyTicks(pn.Trader);
                     fresh.JumpTo(t.AddMinutes(-1)); fresh.AdvanceTo(t, 100000); fresh.StopPts = NumberSigned(pn.Sl, 0); fresh.TargetPts = NumberAllowZero(pn.Tp, 0);
                     pn.Trader = fresh; pn.SavedFills = 0; pn.LastCount = 0; foreach (var sg in pn.Signals) sg.Taken = sg.Time <= t; if (!fresh.Finished) going++;
                 }
@@ -38101,6 +38539,23 @@ namespace NinjaTrader.NinjaScript.AddOns
             Action realTick = null, realStop = null, realLiveStart = null, realLinkReady = null;   // the REAL ACCOUNT bar (wired below)
             bool liveMode = false; var feeds = new Dictionary<string, LiveFeed>(); var liveTimer = new DispatcherTimer(DispatcherPriority.Normal, w.Dispatcher) { Interval = TimeSpan.FromMilliseconds(250) };
             ofInstH = sym0 => { LiveFeed fd0; if (feeds.TryGetValue(sym0, out fd0) && fd0.Inst != null) return fd0.Inst; string src0; try { return ResolveStudioInstrument(sym0, DateTime.Now, out src0); } catch { return null; } };
+            attachTicksH = (pnT, ask) =>
+            {   /* ⏱ item 36: the replayed day's REAL ticks — the cache (Studio\TickCache) first, else NinjaTrader's tick history (then cached), else its 1-second bars;
+                   none → the estimated path with the ⚠ note on the chart (⤓ GET TICKS asks again) */
+                var trT = pnT.Trader; if (trT == null || trT.Bars.Count == 0) return; DateTime dayT = KeystoneStudioStore.SessionOf(trT.Bars[trT.Bars.Count - 1].Time).Date; string srcT;
+                var cached = KeystoneTickCache.Load(sfolder, pnT.Symbol, dayT, out srcT); if (cached != null && cached.Count > 0) { trT.SetTicks(cached, srcT); return; }
+                var instT = ofInstH != null ? ofInstH(pnT.Symbol) : null; if (instT == null) { trT.TickNote = "no NinjaTrader contract for " + pnT.Symbol; return; }
+                DateTime fT = trT.Bars[0].Time.AddMinutes(-1), tT = trT.Bars[trT.Bars.Count - 1].Time; trT.TickNote = "⏳ loading the real ticks of " + dayT.ToString("ddd d MMM", CultureInfo.InvariantCulture) + " from NinjaTrader …";
+                RequestTicks(instT, fT, tT, w.Dispatcher, (list, quoted, problem) =>
+                {
+                    if (list.Count > 0) { var tks = list.Select(x => new KeystoneTick { Time = x.Time, Price = x.Price, Volume = x.Size }).ToList(); try { KeystoneTickCache.Save(sfolder, pnT.Symbol, dayT, tks, "TICKS"); } catch { } if (pnT.Trader == trT) { trT.SetTicks(tks, "TICKS"); render(pnT); } return; }
+                    RequestSecondBars(instT, fT, tT, w.Dispatcher, (secs, problem2) =>
+                    {
+                        if (secs.Count > 0) { var tks = KeystoneTickCache.FromSeconds(secs); try { KeystoneTickCache.Save(sfolder, pnT.Symbol, dayT, tks, "SECONDS"); } catch { } if (pnT.Trader == trT) { trT.SetTicks(tks, "SECONDS"); render(pnT); } return; }
+                        trT.TickNote = "no tick / 1-second history from NinjaTrader (" + (problem + " " + problem2).Trim() + ")"; if (pnT.Trader == trT) render(pnT);
+                    });
+                });
+            };
             ofLoadH = pnL =>
             {
                 // the real trades of the last N sessions (and, live, every new trade as it prints)
@@ -45335,7 +45790,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 DateTime a = ParseStudioDate(rFrom.Text), b = ParseStudioDate(rTo.Text);
                 if (a == DateTime.MinValue || b == DateTime.MinValue || b < a) { info.Text = "RANGE: type the dates as yyyy-MM-dd, FROM before TO"; return; }
                 if (b >= DateTime.Today) b = DateTime.Today.AddDays(-1);
-                var rlist = weekdays(a, b); if (rlist.Count == 0 || studioStartRange == null) { info.Text = studioStartRange == null ? "OPEN THE BACKTEST STUDIO FIRST" : "NO WEEKDAYS IN THAT RANGE"; return; }
+                var rlist = weekdays(a, b); if (rlist.Count == 0 || studioStartRange == null) { info.Text = studioStartRange == null ? "START RANGE plays the days in the 🎬 BACKTEST STUDIO's chart — open it from the launcher (in the labs: ▶ START HERE ▸ 📅 picks the dates)" : "NO WEEKDAYS IN THAT RANGE"; return; }
                 studioStartRange(rlist); CloseToolQuietly(w);
             };
             stopBtn.Click += delegate { StopStudioDownload(); };
@@ -50037,6 +50492,26 @@ namespace NinjaTrader.NinjaScript.AddOns
             { "STOP +100", "stop +$100" },
             { "STOP −100", "stop −$100" }
         };
+        // ❓ one line per lab tab (the final navigation pass): what it shows
+        private static readonly Dictionary<string, string> EvalHints = new Dictionary<string, string>
+        {
+            { "WIZARD", "START HERE: five steps — the accounts (＋ ADD A FIRM on the right), the plan, the days (📅 inside this tab), the funded plan, ⚡ calculate" },
+            { "HOWTO", "HOW TO USE: the numbered steps with the exact buttons" }, { "OVERVIEW", "OVERVIEW: the last run in big numbers + the quick buttons" },
+            { "POOLS", "POOLS: your firm groups (real pools first), one-click edit, the round robin order" }, { "FIRMS", "FIRMS & RULES: every firm's eval + funded rules — every simulation reads them" },
+            { "PLANS", "PLANS: the tested templates + yours (▶ USE THIS PLAN)" }, { "ROTATE", "TRADING · ⚙ SETTINGS (▶ START HERE, 📅 dates, ⚡ SPRINT) · 📊 RESULTS (every tab, the account cards, 📦 EXPORT) · PASSED / BLOWN (click = the card)" },
+            { "CALCULATE", "CALCULATE: rank the strategies on the picked days + the hindsight" }, { "ADVISOR", "ADVISOR: today's odds from history + the best template of the last 20 days" },
+            { "PIPELINE", "BUSINESS RUN: eval → funded → payouts for months, blown accounts replaced — the plans come from ⚙ SETTINGS" },
+            { "STATS", "STATS: the last run by firm / month / batch + the saved runs" }, { "DATA", "DATA: the saved minutes, the runs on disk, the exports (📂 OPEN FOLDER)" },
+            { "REPORTS", "REPORTS: the HTML reports written by the runs" }, { "LIVE", "● LIVE: reads your prop accounts (no order) → ✓ CONFIRM hands them to LIVE TRADING ▸ ROTATE" },
+        };
+        private static readonly Dictionary<string, string> FundedHints = new Dictionary<string, string>
+        {
+            { "WIZARD", "START HERE: the funded accounts (from the latest Eval run), the payout plan + ⚡ SPRINT, the days (📅 inside this tab), the math" },
+            { "HOWTO", "HOW TO USE: the numbered steps" }, { "OVERVIEW", "OVERVIEW: the trailing drawdown in one picture + the last run" }, { "POOLS", "POOLS: your funded accounts per firm" },
+            { "FIRMS", "FIRMS & RULES: the payout rules every simulation reads (shared with the Eval Lab)" }, { "PLANS", "PLANS: the funded presets (🛟 SAFE PAYOUT default)" },
+            { "SIMULATE", "SIMULATE: the instant run — every account's buffer bar, click a tile = its card, 📦 EXPORT FOR CLAUDE" }, { "REPLAY", "REPLAY: minute by minute on the chart" },
+            { "PAYOUTS", "PAYOUTS: the payout tracker — tiles with the buffer, qualifying dots, 📦 EXPORT FOR CLAUDE" }, { "STATS", "STATS: the distributions of the last run" }, { "REPORT", "REPORT: the HTML summary" },
+        };
         public static string LabTip(string label) { string t; return label != null && LabTips.TryGetValue(label.Trim(), out t) ? t : null; }
         public static List<Tuple<string, string[]>> LabHowTo(bool funded)
         {
@@ -50262,6 +50737,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var save = Btn("💾 SAVE", Card); save.Height = 30; save.Click += delegate { foreach (var kv in boxes) m[kv.Key] = (kv.Value.Text ?? "").Trim(); saveCfg(key, m); if (paint != null) paint(); }; ed.Children.Add(save);
                 var back = Btn("↺ back to the winning plan", Card); back.Height = 30; back.Click += delegate { var wm = winning(funded); saveCfg(key, wm); if (paint != null) paint(); }; ed.Children.Add(back);
                 sp.Children.Add(ed);
+                if (funded) sp.Children.Add(SprintControl(() => { int v9; return m.ContainsKey("sprint") && int.TryParse(m["sprint"], out v9) ? v9 : 2; }, v => { m["sprint"] = v.ToString(CultureInfo.InvariantCulture); saveCfg(key, m); }, "live.sprint." + key));   /* ⚡ item 1: the funded pool's sprint accounts (default 2) */
                 if (locked) { var un = Btn("🔓 UNLOCK (the eval plan is locked to the tested winning plan)", Card); un.Height = 30; un.HorizontalAlignment = HorizontalAlignment.Left; un.Click += delegate { if (KBox(w, "Unlock the evaluation plan of " + key + "?\n\nThe locked plan is the tested winning plan (★ STAGGERED MNQ 20, +$1,500 riding the room).", "● LIVE • UNLOCK", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return; m["unlocked"] = "1"; saveCfg(key, m); if (paint != null) paint(); }; sp.Children.Add(un); }
                 return sp;
             };
@@ -50530,6 +51006,297 @@ namespace NinjaTrader.NinjaScript.AddOns
                 else if (dw.Kind == "TEXT") { var tt0 = Txt(dw.Text, Orchid, 11.5, FontWeights.Bold); Canvas.SetLeft(tt0, X(dw.K1)); Canvas.SetTop(tt0, Y(dw.P1) - 8); chart.Children.Add(tt0); }
             }
         }
+        // ==== BUILD 2026-11-11c (phase C, item 21): the labs' IN-TAB OVERLAY — PICK A DAY, the account card, the minute chart, ＋ ADD A FIRM and the labs'
+        // confirmations open INSIDE the lab's own tab (✕ or Esc closes), never a separate window (the guards of real orders in ● LIVE TRADING stay as they are) ====
+        private sealed class LabOverlay { public Grid Host; public Border Layer; public TextBlock Title; public ContentControl Body; public Action Closed; public bool Open { get { return Layer != null && Layer.Visibility == Visibility.Visible; } } }
+        private LabOverlay evalLabOverlay, fundedLabOverlay;
+        private Action<string> evalLabCardOverlay; private Action<DateTime, DateTime> evalLabPickApply; private Func<FrameworkElement> evalLabPickView; private Action<List<Tuple<DateTime, DateTime>>, List<string>> evalLabPickPeriods;
+        private Action<string, int, string> evalLabAddFirm; private Action<string> evalLabCalcPeriods; private Func<string> fundedLabExportClaude; private Action<DateTime, DateTime, string> evalLabMinuteChart; private Func<string, double, int, Tuple<double, double>> studioDollarBracket;
+        private LabOverlay MakeLabOverlay(UIElement shell)
+        {
+            var ov = new LabOverlay(); var host = new Grid(); host.Children.Add(shell); ov.Host = host;
+            var box = new Border { Background = Panel, BorderBrush = Tint(Gold, 170), BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10, 14, 12), Margin = new Thickness(36, 22, 36, 22), MaxWidth = 1200, HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+            var dp = new DockPanel(); box.Child = dp; var head = new DockPanel { Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(head, Dock.Top); dp.Children.Add(head);
+            var x = Btn("✕ CLOSE (Esc)", Card); x.Height = 32; x.Padding = new Thickness(12, 0, 12, 0); x.ToolTip = "closes this panel — you stay in the same tab"; DockPanel.SetDock(x, Dock.Right); head.Children.Add(x);
+            ov.Title = Txt("", Gold, 17, FontWeights.Bold); ov.Title.TextWrapping = TextWrapping.Wrap; ov.Title.VerticalAlignment = VerticalAlignment.Center; head.Children.Add(ov.Title);
+            ov.Body = new ContentControl(); dp.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Content = ov.Body });
+            ov.Layer = new Border { Background = Tint(Bg, 215), Visibility = Visibility.Collapsed, Child = box }; host.Children.Add(ov.Layer);
+            x.Click += delegate { LabOverlayHide(ov); };
+            host.PreviewKeyDown += (s, e) => { if (e.Key == System.Windows.Input.Key.Escape && ov.Open) { LabOverlayHide(ov); e.Handled = true; } };
+            return ov;
+        }
+        private static void LabOverlayShow(LabOverlay ov, string title, UIElement body, Action closed)
+        {
+            if (ov == null) return; var c0 = ov.Closed; ov.Closed = null; if (c0 != null) { try { c0(); } catch { } }
+            ov.Title.Text = title ?? ""; ov.Body.Content = body; ov.Closed = closed; ov.Layer.Visibility = Visibility.Visible;
+        }
+        private static void LabOverlayHide(LabOverlay ov) { if (ov == null || ov.Layer == null) return; ov.Layer.Visibility = Visibility.Collapsed; ov.Body.Content = null; var c = ov.Closed; ov.Closed = null; if (c != null) { try { c(); } catch { } } }
+        // an in-tab confirmation (the labs' own questions: delete a pool, buy the next batch, delete a plan) — YES runs the action, NO / ✕ / Esc closes
+        private void LabConfirm(LabOverlay ov, string title, string text, string yes, Action onYes)
+        {
+            if (ov == null) { if (KBox(text, title, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes && onYes != null) onYes(); return; }
+            var sp = new StackPanel { MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left }; var t = Txt(text, Text, 14, FontWeights.SemiBold); t.TextWrapping = TextWrapping.Wrap; sp.Children.Add(t);
+            var row = new WrapPanel { Margin = new Thickness(0, 14, 0, 0) }; var yb = Btn(yes ?? "YES", Tint(Gold, 120)); yb.Height = 36; yb.Padding = new Thickness(16, 0, 16, 0); yb.Margin = new Thickness(0, 0, 10, 0);
+            var nb = Btn("NO, KEEP IT", Card); nb.Height = 36; nb.Padding = new Thickness(16, 0, 16, 0); row.Children.Add(yb); row.Children.Add(nb); sp.Children.Add(row);
+            yb.Click += delegate { LabOverlayHide(ov); if (onYes != null) onYes(); }; nb.Click += delegate { LabOverlayHide(ov); };
+            LabOverlayShow(ov, title, sp, null);
+        }
+        // ❓ one line per tab: what it shows + the cross-links (change in ⚙ SETTINGS · open in 📊 RESULTS · see the data in 🗂 DATA)
+        private static FrameworkElement LabHint(string what, params Tuple<string, Action>[] links)
+        {
+            var wp = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; var t = Txt("❓ " + what, Muted, 12, FontWeights.SemiBold); t.TextWrapping = TextWrapping.Wrap; t.MaxWidth = 860; t.VerticalAlignment = VerticalAlignment.Center; t.Margin = new Thickness(0, 0, 10, 0); wp.Children.Add(t);
+            foreach (var l in links ?? new Tuple<string, Action>[0]) { if (l == null || l.Item2 == null) continue; var b = Btn(l.Item1, Card); b.Height = 28; b.FontSize = 11.5; b.Padding = new Thickness(10, 0, 10, 0); b.Margin = new Thickness(0, 0, 6, 0); var a = l.Item2; b.Click += delegate { a(); }; wp.Children.Add(b); }
+            return wp;
+        }
+        private static Tuple<string, Action> LabLink(string label, Action a) { return Tuple.Create(label, a); }
+        // ⚡ SPRINT (item 1, the UI): ONE clear control in both labs and the funded pool settings — 0 / 1 / 2 / 3 / ALL (default 2) + the research note
+        public static readonly string SprintNote = "⚡ SPRINT (research eval30 FundSprint): N Lucid / Tradeify accounts of each batch trade their first 5 funded days on MNQ 10, no stop (ride the room), the day's TP = what the MAX payout still needs ÷ the days left ($800–$2,500); no max payout by day 5 → 🛟 SAFE from day 6 • 2 sprint + SAFE ≈ 22 % of batches get a max payout by day 5, 15 % pay nothing • default 2";
+        private static FrameworkElement SprintControl(Func<int> get, Action<int> set, string tag)
+        {
+            var sp = new StackPanel { Margin = new Thickness(0, 4, 0, 6) }; var row = new WrapPanel(); sp.Children.Add(Txt("⚡ SPRINT ACCOUNTS PER BATCH", Gold, 11.5, FontWeights.Bold)); sp.Children.Add(row);
+            var btns = new List<Button>(); Action paint = null;
+            foreach (int v0 in KeystonePayoutPlan.SprintChoices)
+            {
+                int v = v0; var b = Btn(v >= 99 ? "ALL" : v.ToString(CultureInfo.InvariantCulture), Card); b.Height = 30; b.MinWidth = 44; b.Margin = new Thickness(0, 2, 4, 0); b.Tag = (tag ?? "sprint") + "." + (v >= 99 ? "all" : v.ToString(CultureInfo.InvariantCulture));
+                b.ToolTip = KeystonePayoutPlan.SprintName(v) + (v == 2 ? " (the default — the research recommendation)" : ""); b.Click += delegate { set(v); paint(); }; btns.Add(b); row.Children.Add(b);
+            }
+            var cur = Txt("", Text, 11.5, FontWeights.SemiBold); cur.VerticalAlignment = VerticalAlignment.Center; cur.Margin = new Thickness(6, 2, 0, 0); row.Children.Add(cur);
+            var note = Txt(SprintNote, Muted, 10.5, FontWeights.Normal); note.TextWrapping = TextWrapping.Wrap; note.MaxWidth = 520; sp.Children.Add(note);
+            paint = delegate { int now = get(); for (int i = 0; i < btns.Count; i++) PaintBtn(btns[i], KeystonePayoutPlan.SprintChoices[i] == now ? Tint(Gold, 150) : Card); cur.Text = KeystonePayoutPlan.SprintName(now); };
+            paint(); return sp;
+        }
+        // 🟩 THE ANIMATED BUFFER BAR (item 12): floor → balance (incl. open P/L) → target / payout need on every pool tile — the floor slides, the bars ease to their new
+        // size (from the tile's last values), a 🔒 when the trail locked, colours by state + the firm stripe, and one flash on target / payout / blow
+        private readonly Dictionary<string, Tuple<double, double, string>> labTilePrev = new Dictionary<string, Tuple<double, double, string>>();
+        private static SolidColorBrush LabStateBrush(string state)
+        {
+            switch (state ?? "") { case "TRADE": return Gold; case "BANKED": return Blue; case "LOST": return Orange; case "PASSED": return Green; case "FUNDED": return Cyan; case "READY": return Lime(); case "PAID": return Orchid; case "BLOWN": return Red; case "LIVE": return Orchid; default: return Muted; }
+        }
+        private static SolidColorBrush Lime() { return HexBrush("#9CCC65"); }
+        private FrameworkElement LabBufferBar(string key, KeystoneTileModel m, SolidColorBrush firm, double width)
+        {
+            if (m == null) return new Border(); width = Math.Max(80, width); var col = LabStateBrush(m.State); var ease = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+            Tuple<double, double, string> prev; labTilePrev.TryGetValue(key ?? "", out prev); labTilePrev[key ?? ""] = Tuple.Create(m.BalFrac, m.FloorFrac, m.State);
+            var g = new Grid { Height = 16, Width = width, Margin = new Thickness(0, 4, 0, 1), ToolTip = m.Line + " • floor " + Signed(m.Floor) + " → balance " + Signed(m.Bal) + " → " + (m.TopLabel == "" ? "target" : m.TopLabel) + " " + Signed(m.Top) };
+            g.Children.Add(new Border { Background = Tint(Text, 26), CornerRadius = new CornerRadius(4) });
+            // the danger zone under the floor (red) • the buffer floor → balance (state colour) • the 🔒 buffer band (TPT: the $2,000 above the locked floor)
+            var under = new Border { Background = Tint(Red, 70), CornerRadius = new CornerRadius(4, 0, 0, 4), HorizontalAlignment = HorizontalAlignment.Left, Width = width * m.FloorFrac }; g.Children.Add(under);
+            if (m.Locked && m.Kind == "INTRADAY") { double bw = width * Math.Max(0, Math.Min(1, m.Dd / (m.Hi - m.Lo))); g.Children.Add(new Border { Background = Tint(Orchid, 46), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(width * m.FloorFrac, 0, 0, 0), Width = Math.Min(bw, width * (1 - m.FloorFrac)), ToolTip = "🔒 the $" + m.Dd.ToString("N0", CultureInfo.InvariantCulture) + " buffer above the locked floor" }); }
+            double fillW = Math.Max(0, width * (m.BalFrac - m.FloorFrac)); var fill = new Border { Background = m.State == "BLOWN" ? Red : m.Room < 0.25 * m.Dd ? Orange : col, CornerRadius = new CornerRadius(3), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(width * m.FloorFrac, 3, 0, 3), Width = fillW };
+            g.Children.Add(fill);
+            var floorTick = new Border { Width = 3, Background = Red, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(Math.Max(0, width * m.FloorFrac - 1.5), 0, 0, 0) }; g.Children.Add(floorTick);
+            var startTick = new Border { Width = 1, Background = Tint(Text, 120), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(width * m.StartFrac, 0, 0, 0), ToolTip = "the start" }; g.Children.Add(startTick);
+            var topTick = new Border { Width = 2, Background = Green, HorizontalAlignment = HorizontalAlignment.Right }; g.Children.Add(topTick);
+            try
+            {
+                if (prev != null)
+                {
+                    double pf = Math.Max(0, width * (prev.Item1 - prev.Item2)); if (Math.Abs(pf - fillW) > 0.5) fill.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(pf, fillW, TimeSpan.FromMilliseconds(450)) { EasingFunction = ease });
+                    if (Math.Abs(prev.Item2 - m.FloorFrac) > 0.002) { under.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(width * prev.Item2, width * m.FloorFrac, TimeSpan.FromMilliseconds(450)) { EasingFunction = ease }); }
+                    if (KeystoneTileModel.Flash(prev.Item3, m.State)) { var fl = new Border { Background = m.State == "BLOWN" ? Red : Green, CornerRadius = new CornerRadius(4), Opacity = 0 }; g.Children.Add(fl); fl.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 0.8, TimeSpan.FromMilliseconds(220)) { AutoReverse = true, RepeatBehavior = new System.Windows.Media.Animation.RepeatBehavior(3) }); }
+                }
+            }
+            catch { }
+            var sp = new StackPanel(); var top = new DockPanel(); var lk = Txt(m.Locked ? "🔒" : m.Kind == "STATIC" ? "▬" : "⟳", m.Locked ? Orchid : Muted, 11, FontWeights.Bold); DockPanel.SetDock(lk, Dock.Left); lk.Margin = new Thickness(0, 0, 4, 0); top.Children.Add(lk);
+            var tt = Txt((m.TopLabel == "" ? "target" : m.TopLabel) + " " + Signed(m.Top), Green, 10, FontWeights.SemiBold); DockPanel.SetDock(tt, Dock.Right); top.Children.Add(tt);
+            top.Children.Add(Txt("floor " + Signed(m.Floor) + " · room " + Cash(Math.Max(0, m.Room)), m.Room < 0.25 * m.Dd ? Orange : Muted, 10, FontWeights.SemiBold));
+            sp.Children.Add(top); sp.Children.Add(g); return sp;
+        }
+        // one tile: the firm stripe, the name, the state chip, the buffer bar, the trail line, days + days to lock / pass, the qualifying dots, the last trade, the next trade
+        private Border LabAccountTile(string key, string name, string firm, KeystoneTileModel m, IList<string> lines, double width, Action click)
+        {
+            var col = LabStateBrush(m == null ? "" : m.State); var fb = KeystoneFirmBrush(firm); var sp = new StackPanel();
+            var hd = new DockPanel(); var chipB = new Border { Background = col, CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 0, 5, 0), VerticalAlignment = VerticalAlignment.Top, Child = Txt(KeystoneTileModel.StateName(m == null ? "" : m.State), Bg, 10, FontWeights.Bold) }; DockPanel.SetDock(chipB, Dock.Right); hd.Children.Add(chipB);
+            var nm = Txt(name + (string.IsNullOrEmpty(firm) ? "" : " · " + KeystonePipeline.Nice(firm)), fb, 12.5, FontWeights.Bold); nm.TextWrapping = TextWrapping.Wrap; hd.Children.Add(nm); sp.Children.Add(hd);
+            if (m != null) { sp.Children.Add(LabBufferBar(key, m, fb, width - 30)); var ln = Txt(m.Line, m.Locked ? Orchid : Muted, 10.5, FontWeights.SemiBold); ln.TextWrapping = TextWrapping.Wrap; sp.Children.Add(ln); }
+            foreach (var l in lines ?? new List<string>()) { if (string.IsNullOrEmpty(l)) continue; var t = Txt(l, l.StartsWith("●") || l.Contains("●") ? Cyan : Text, 10.5, FontWeights.Normal); t.TextWrapping = TextWrapping.Wrap; sp.Children.Add(t); }
+            var dp = new DockPanel(); var stripe = new Border { Width = 5, Background = fb, CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 0, 7, 0) }; DockPanel.SetDock(stripe, Dock.Left); dp.Children.Add(stripe); dp.Children.Add(sp);
+            var b = new Border { Width = width, Background = Tint(col, (byte)(m == null || m.State == "EVAL" ? 18 : 40)), BorderBrush = Tint(col, 170), BorderThickness = new Thickness(1.3), CornerRadius = new CornerRadius(9), Padding = new Thickness(8, 6, 8, 7), Margin = new Thickness(0, 0, 8, 8), Child = dp };
+            if (click != null) { b.Cursor = System.Windows.Input.Cursors.Hand; b.ToolTip = "click → the account card of " + name; b.MouseLeftButtonUp += delegate { click(); }; }
+            return b;
+        }
+        // 📅 PICK A DAY / A RANGE / PERIODS (items 18 / 28 / 29, in-tab): quick ranges, tick boxes (years / months / weeks / days), the list with clickable
+        // year + month headers (shift-click = a range); every choice → pick(periods, the words) which fills START / END and the summary line
+        private FrameworkElement LabDatePickView(List<DateTime> saved, DateTime anchor, Action<List<Tuple<DateTime, DateTime>>, List<string>> pick)
+        {
+            var IC = CultureInfo.InvariantCulture; saved = (saved ?? new List<DateTime>()).Select(d => d.Date).Distinct().OrderBy(d => d).ToList(); var savedSet = new HashSet<DateTime>(saved);
+            DateTime last = saved.Count > 0 ? saved[saved.Count - 1] : DateTime.Today.AddDays(-1), first = saved.Count > 0 ? saved[0] : last.AddYears(-6); if (anchor == DateTime.MinValue || anchor > last) anchor = last;
+            var root = new StackPanel(); var sum = Txt("", Cyan, 13, FontWeights.Bold); sum.TextWrapping = TextWrapping.Wrap;
+            root.Children.Add(LabHint("every choice fills START + END and the summary line • ● = saved on this PC (" + saved.Count + " days, " + first.ToString("d MMM yyyy", IC) + " → " + last.ToString("d MMM yyyy", IC) + ") • ticks next to each other = ONE range, ticks apart = separate periods (each run on its own + combined)"));
+            Action<List<Tuple<DateTime, DateTime>>, List<string>> fire = (ps, words) => { if (ps == null || ps.Count == 0) { sum.Text = "nothing in that choice (no weekday in the saved data)"; sum.Foreground = Gold; return; } sum.Text = "✓ " + KeystoneDatePick.Summary(ps, words); sum.Foreground = Cyan; pick(ps, words); };
+            // ① QUICK RANGES
+            root.Children.Add(Txt("① QUICK", Gold, 12.5, FontWeights.Bold)); var q = new WrapPanel { Margin = new Thickness(0, 2, 0, 6) }; root.Children.Add(q);
+            Func<string, Action, Button> qb = (t, a) => { var b = Btn(t, Card); b.Height = 30; b.Padding = new Thickness(10, 0, 10, 0); b.Margin = new Thickness(0, 0, 6, 6); b.Click += delegate { a(); }; q.Children.Add(b); return b; };
+            Action<string, DateTime> quick = (k, at) => { var r = KeystoneDatePick.Range(k, at, first, last); fire(new List<Tuple<DateTime, DateTime>> { r }, new List<string> { k.StartsWith("LAST") || k.StartsWith("ALL") ? k.ToLowerInvariant() + " (" + KeystoneDatePick.Label(r) + ")" : KeystoneDatePick.Label(r) }); };
+            qb("A DAY (" + anchor.ToString("ddd d MMM", IC) + ")", () => quick("DAY", anchor)); qb("ITS WEEK", () => quick("WEEK", anchor));
+            var months = KeystoneDatePick.MonthTicks(first, last, 80); var mBox = Select(months.Select(KeystoneDatePick.TickLabel).ToArray()); mBox.SelectedIndex = 0; mBox.MinWidth = 110; mBox.Height = 30; q.Children.Add(mBox); qb("A MONTH ▸", () => { var r = KeystoneDatePick.OfTick(months[Math.Max(0, mBox.SelectedIndex)]); quick("MONTH", r.Item1); });
+            var quarters = new List<DateTime>(); for (var m0 = new DateTime(last.Year, (last.Month - 1) / 3 * 3 + 1, 1); m0.AddMonths(3) > first && quarters.Count < 28; m0 = m0.AddMonths(-3)) quarters.Add(m0);
+            var qBox = Select(quarters.Select(d => "Q" + ((d.Month - 1) / 3 + 1) + " " + d.Year).ToArray()); qBox.SelectedIndex = 0; qBox.MinWidth = 90; qBox.Height = 30; q.Children.Add(qBox); qb("A QUARTER ▸", () => quick("QUARTER", quarters[Math.Max(0, qBox.SelectedIndex)]));
+            var years = KeystoneDatePick.YearTicks(first, last); var yBox = Select(years.Select(KeystoneDatePick.TickLabel).ToArray()); yBox.SelectedIndex = 0; yBox.MinWidth = 80; yBox.Height = 30; q.Children.Add(yBox); qb("A YEAR ▸", () => quick("YEAR", KeystoneDatePick.OfTick(years[Math.Max(0, yBox.SelectedIndex)]).Item1));
+            foreach (var k0 in new[] { "LAST 1 MONTH", "LAST 3 MONTHS", "LAST 6 MONTHS", "LAST 12 MONTHS", "ALL 6 YEARS" }) { string k = k0; qb(k, () => quick(k, last)); }
+            // ② TICK BOXES (several years / months / weeks / days at once)
+            root.Children.Add(Txt("② TICK SEVERAL (years / months / weeks — and the days in the list below), then ✓ USE THE TICKS", Gold, 12.5, FontWeights.Bold));
+            var ticks = new HashSet<string>(); var tickBoxes = new List<CheckBox>(); var tickSum = Txt("no tick yet", Muted, 12, FontWeights.SemiBold); tickSum.TextWrapping = TextWrapping.Wrap;
+            Action paintTicks = delegate { var ps = KeystoneDatePick.OfTicks(ticks, first, last); tickSum.Text = ticks.Count == 0 ? "no tick yet" : ticks.Count + " ticked → " + KeystoneDatePick.Summary(ps, ticks.OrderBy(x => x, StringComparer.Ordinal).Select(KeystoneDatePick.TickLabel).ToList()); };
+            Func<string, CheckBox> tickBox = tk => { var cb = new CheckBox { Content = KeystoneDatePick.TickLabel(tk).Replace("week of ", "wk "), Foreground = Text, FontSize = 11.5, MinHeight = 28, Margin = new Thickness(0, 0, 10, 2), VerticalContentAlignment = VerticalAlignment.Center, Tag = "pick." + tk, IsChecked = ticks.Contains(tk) }; string t0 = tk; cb.Click += delegate { if (cb.IsChecked == true) ticks.Add(t0); else ticks.Remove(t0); paintTicks(); }; tickBoxes.Add(cb); return cb; };
+            Action<string, IEnumerable<string>> tickRow = (cap, items) => { var wp = new WrapPanel { Margin = new Thickness(0, 2, 0, 4) }; wp.Children.Add(Txt(cap, Muted, 11, FontWeights.Bold)); foreach (var tk in items) wp.Children.Add(tickBox(tk)); root.Children.Add(wp); };
+            tickRow("YEARS  ", years); tickRow("MONTHS  ", months.Take(24)); tickRow("WEEKS  ", KeystoneDatePick.WeekTicks(last, 12));
+            var useT = Btn("✓ USE THE TICKS", Tint(Green, 110)); useT.Height = 32; useT.Padding = new Thickness(14, 0, 14, 0); useT.Margin = new Thickness(0, 0, 8, 0);
+            var clrT = Btn("✕ CLEAR THE TICKS", Card); clrT.Height = 32; var tr = new WrapPanel { Margin = new Thickness(0, 2, 0, 4) }; tr.Children.Add(useT); tr.Children.Add(clrT); root.Children.Add(tr); root.Children.Add(tickSum);
+            useT.Click += delegate { var ps = KeystoneDatePick.OfTicks(ticks, first, last); fire(ps, ps.Count == 1 ? new List<string> { string.Join(" + ", ticks.OrderBy(x => x, StringComparer.Ordinal).Select(KeystoneDatePick.TickLabel)) } : ps.Select(KeystoneDatePick.Label).ToList()); };
+            clrT.Click += delegate { ticks.Clear(); foreach (var c in tickBoxes) c.IsChecked = false; paintTicks(); };
+            // ③ THE LIST: year → month headers (click = the whole year / month, shift-click = from the last click to this one) → the days (click one, shift-click = a range, tick several)
+            root.Children.Add(Txt("③ PICK A DAY — click a YEAR or a MONTH header for all of it, a day for that day; SHIFT-click a second one for the range between", Gold, 12.5, FontWeights.Bold));
+            var list = new StackPanel { Margin = new Thickness(0, 4, 0, 0) }; root.Children.Add(list); var open = new HashSet<string> { anchor.ToString("yyyy-MM", IC) }; DateTime? lastClick = null; Action paintList = null;
+            Action<DateTime, DateTime, string> clickAt = (a, b, word) =>
+            {
+                bool shift = false; try { shift = (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0; } catch { }
+                if (shift && lastClick.HasValue) { var r = KeystoneDatePick.Clip(lastClick.Value < a ? lastClick.Value : a, lastClick.Value < a ? b : lastClick.Value, first, last); fire(new List<Tuple<DateTime, DateTime>> { r }, new List<string> { KeystoneDatePick.Label(r) }); lastClick = null; return; }
+                lastClick = a; var r1 = KeystoneDatePick.Clip(a, b, first, last); fire(new List<Tuple<DateTime, DateTime>> { r1 }, new List<string> { word ?? KeystoneDatePick.Label(r1) });
+            };
+            paintList = delegate
+            {
+                list.Children.Clear();
+                foreach (var y in years.Select(t => KeystoneDatePick.OfTick(t).Item1.Year))
+                {
+                    var yr = new DockPanel { Background = Tint(Gold, 40), Margin = new Thickness(0, 4, 0, 1), Cursor = System.Windows.Input.Cursors.Hand, MinHeight = 28 }; int yy = y;
+                    yr.Children.Add(Txt("  " + y + " — the whole year (" + saved.Count(d => d.Year == y) + " saved days)", Gold, 13, FontWeights.Bold)); yr.ToolTip = "click = all of " + y + " • shift-click = from your last click to " + y;
+                    yr.MouseLeftButtonUp += delegate { clickAt(new DateTime(yy, 1, 1), new DateTime(yy, 12, 31), yy.ToString(IC)); }; list.Children.Add(yr);
+                    for (int mo = 12; mo >= 1; mo--)
+                    {
+                        var m1 = new DateTime(y, mo, 1); if (m1 > last || m1.AddMonths(1) <= first) continue; string mk = m1.ToString("yyyy-MM", IC); bool isOpen = open.Contains(mk);
+                        var mr = new DockPanel { Background = Card, Margin = new Thickness(14, 0, 0, 1), MinHeight = 28 };
+                        var tg = Btn(isOpen ? "▾" : "▸", Card); tg.Width = 30; tg.Height = 28; tg.ToolTip = isOpen ? "hide its days" : "show its days"; DockPanel.SetDock(tg, Dock.Left); mr.Children.Add(tg); tg.Click += delegate { if (!open.Remove(mk)) open.Add(mk); paintList(); };
+                        var ml = Txt(m1.ToString("MMMM yyyy", IC) + " — the whole month (" + saved.Count(d => d.Year == y && d.Month == m1.Month) + " saved)", Text, 12.5, FontWeights.Bold); ml.VerticalAlignment = VerticalAlignment.Center; ml.Margin = new Thickness(6, 0, 0, 0); mr.Children.Add(ml);
+                        mr.Cursor = System.Windows.Input.Cursors.Hand; mr.ToolTip = "click = all of " + m1.ToString("MMM yyyy", IC) + " • shift-click = the range from your last click"; DateTime mm = m1; ml.MouseLeftButtonUp += delegate { clickAt(mm, mm.AddMonths(1).AddDays(-1), mm.ToString("MMM yyyy", IC)); };
+                        list.Children.Add(mr); if (!isOpen) continue;
+                        for (var d = m1.AddMonths(1).AddDays(-1); d >= m1; d = d.AddDays(-1))
+                        {
+                            if (!KeystoneDatePick.Weekday(d) || d > last || d < first) continue; var dd = d; bool sv = savedSet.Contains(d); string tk = "D" + d.ToString("yyyy-MM-dd", IC);
+                            var dr = new DockPanel { Margin = new Thickness(30, 0, 0, 1), Background = Panel, MinHeight = 28, Cursor = System.Windows.Input.Cursors.Hand };
+                            var cb = new CheckBox { IsChecked = ticks.Contains(tk), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 6, 0), ToolTip = "tick several days (they join the ② ticks)", Tag = "pick." + tk }; DockPanel.SetDock(cb, Dock.Left); dr.Children.Add(cb);
+                            cb.Click += delegate { if (cb.IsChecked == true) ticks.Add(tk); else ticks.Remove(tk); paintTicks(); };
+                            var dl = Txt((sv ? "● " : "○ ") + d.ToString("ddd d MMM yyyy", IC) + (sv ? "" : "  (not saved — 🗂 DATA ▸ ⤓ UPDATE)"), sv ? Text : Muted, 12, FontWeights.SemiBold); dl.VerticalAlignment = VerticalAlignment.Center; dr.Children.Add(dl);
+                            dr.ToolTip = "click = this day • shift-click = the range from your last click"; dl.MouseLeftButtonUp += delegate { clickAt(dd, dd, null); }; list.Children.Add(dr);
+                        }
+                    }
+                }
+            };
+            paintList(); sum.Text = "the choice shows here and fills START / END"; root.Children.Insert(1, new Border { Background = Tint(Cyan, 26), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(0, 0, 0, 8), Child = sum });
+            return root;
+        }
+        // 🕒 → 📈 item 35: a TIMELINE row opens the chart replay AT THAT MINUTE (in-tab): the saved minute candles of that day up to the cursor, the account's
+        // trades (entry ▲▼, exit ✕, TP / stop / floor lines), ◀ ▶ one minute, ⏪ ⏩ 15 minutes, ▶ PLAY (a minute a step) — read-only, nothing is traded
+        private FrameworkElement LabMinuteChart(KeystoneRunRecord rec, DateTime day, DateTime at, string account, Action openCard)
+        {
+            var IC = CultureInfo.InvariantCulture; var root = new StackPanel(); day = day.Date;
+            KeystoneRotDay d = null; try { if (rec != null && rec.Source != null) d = rec.Source.FirstOrDefault(x => x.Day.Date == day); if (d == null) d = KeystoneRotationLab.LoadDays(StudioFolder(), new List<DateTime> { day }).FirstOrDefault(); } catch { }
+            var trades = rec == null ? new List<KeystoneRunRecord.Trade>() : rec.Trades.Where(t => t.Day == day && (account == null || t.Account == account)).OrderBy(t => t.Entry).ToList();
+            var near = trades.Where(t => t.Entry != DateTime.MinValue).OrderBy(t => Math.Abs((t.Entry - at).TotalMinutes)).FirstOrDefault(); string inst = near != null ? near.Instrument : "MNQ";
+            var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) }; root.Children.Add(bar); var info = Txt("", Text, 12.5, FontWeights.SemiBold); info.TextWrapping = TextWrapping.Wrap; root.Children.Add(info);
+            if (d == null) { info.Text = "no saved minutes for " + day.ToString("ddd d MMM yyyy", IC) + " on this PC — 🗂 DATA ▸ ⤓ UPDATE gets them"; info.Foreground = Gold; return root; }
+            bool mgc = inst == "MGC"; float[] O = mgc ? d.GO : d.MO, H = mgc ? d.GH : d.MH, Lw = mgc ? d.GL : d.ML, C = mgc ? d.GC : d.MC;
+            int k0 = KeystoneRotDay.Slot(800), kEnd = KeystoneRotDay.Slot(1610), cur = Math.Max(k0, Math.Min(kEnd, at == DateTime.MinValue ? KeystoneRotDay.Slot(930) : KeystoneRotDay.SlotOf(at)));
+            double W = 1040, Hh = 380; var cv = new Canvas { Width = W, Height = Hh, Background = Panel, ClipToBounds = true, Margin = new Thickness(0, 6, 0, 6) }; root.Children.Add(cv);
+            Action paint = null; var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(260) };
+            Func<string, Action, Button> b0 = (t, a) => { var b = Btn(t, Card); b.Height = 30; b.MinWidth = 40; b.Margin = new Thickness(0, 0, 6, 0); b.Click += delegate { a(); }; bar.Children.Add(b); return b; };
+            b0("⏪ 15", () => { cur = Math.Max(k0, cur - 15); paint(); }); b0("◀ 1 MIN", () => { cur = Math.Max(k0, cur - 1); paint(); }); var play = b0("▶ PLAY", () => { if (timer.IsEnabled) timer.Stop(); else timer.Start(); paint(); });
+            b0("1 MIN ▶", () => { cur = Math.Min(kEnd, cur + 1); paint(); }); b0("15 ⏩", () => { cur = Math.Min(kEnd, cur + 15); paint(); }); if (openCard != null) b0("🗂 THE ACCOUNT CARD", openCard);
+            timer.Tick += delegate { if (cur >= kEnd) { timer.Stop(); } else cur++; paint(); }; root.Unloaded += delegate { timer.Stop(); };
+            paint = delegate
+            {
+                play.Content = timer.IsEnabled ? "⏸ PAUSE" : "▶ PLAY"; cv.Children.Clear(); int from = Math.Max(k0, cur - 150), to = Math.Min(kEnd, Math.Max(cur + 20, from + 170)); double lo = double.MaxValue, hi = double.MinValue;
+                for (int k = from; k <= cur; k++) if (!float.IsNaN(C[k])) { lo = Math.Min(lo, Lw[k]); hi = Math.Max(hi, H[k]); }
+                foreach (var t in trades) foreach (var v in new[] { t.EntryPx, t.Tp, t.Stop }) if (!double.IsNaN(v) && v > 0 && t.Entry <= day.AddMinutes(18 * 60 - 1440 + cur)) { lo = Math.Min(lo, v); hi = Math.Max(hi, v); }
+                if (lo >= hi) { info.Text = "no " + inst + " minutes before this time"; return; } double pad = (hi - lo) * 0.06 + 0.5; lo -= pad; hi += pad;
+                double plotW = W - LabChartGutter - 64; Func<int, double> X = k => 8 + plotW * (k - from) / Math.Max(1, to - from); Func<double, double> Y = v => 10 + (Hh - 30) * (hi - v) / (hi - lo); double cw = Math.Max(2, plotW / Math.Max(1, to - from) * 0.7);
+                for (int k = from; k <= cur; k++)
+                {
+                    if (float.IsNaN(C[k])) continue; var col = C[k] >= O[k] ? Green : Red; double x = X(k);
+                    var wk = new System.Windows.Shapes.Line { X1 = x, X2 = x, Y1 = Y(H[k]), Y2 = Y(Lw[k]), Stroke = col, StrokeThickness = 1 }; cv.Children.Add(wk);
+                    var bd = new System.Windows.Shapes.Rectangle { Width = cw, Height = Math.Max(1, Math.Abs(Y(O[k]) - Y(C[k]))), Fill = col }; Canvas.SetLeft(bd, x - cw / 2); Canvas.SetTop(bd, Math.Min(Y(O[k]), Y(C[k]))); cv.Children.Add(bd);
+                }
+                var labels = new List<Tuple<double, string, SolidColorBrush>>(); var nowT = day.AddMinutes(18 * 60 - 1440 + cur);
+                foreach (var t in trades)
+                {
+                    if (t.Entry == DateTime.MinValue || t.Entry > nowT || double.IsNaN(t.EntryPx)) continue; int ke = KeystoneRotDay.SlotOf(t.Entry), kx = t.Exit == DateTime.MinValue ? cur : Math.Min(cur, KeystoneRotDay.SlotOf(t.Exit)); bool done9 = t.Exit != DateTime.MinValue && t.Exit <= nowT;
+                    Action<double, SolidColorBrush, string> hl = (v, c9, cap) => { if (double.IsNaN(v) || v <= 0) return; var ln = new System.Windows.Shapes.Line { X1 = X(Math.Max(from, ke)), X2 = X(Math.Max(from, kx)) + 4, Y1 = Y(v), Y2 = Y(v), Stroke = c9, StrokeThickness = 1.3, StrokeDashArray = new DoubleCollection { 4, 3 } }; cv.Children.Add(ln); labels.Add(Tuple.Create(Y(v), cap, c9)); };
+                    hl(t.EntryPx, Gold, (t.Dir > 0 ? "▲ LONG " : "▼ SHORT ") + t.Qty + " · " + t.EntryPx.ToString("0.00", IC)); if (!done9) { hl(t.Tp, Green, "TP " + t.Tp.ToString("0.00", IC)); hl(t.Stop, Red, "STOP " + t.Stop.ToString("0.00", IC)); hl(t.Floor, Orange, "FLOOR " + t.Floor.ToString("0.00", IC)); }
+                    if (ke >= from) { var mk = Txt(t.Dir > 0 ? "▲" : "▼", t.Dir > 0 ? Green : Red, 14, FontWeights.Bold); Canvas.SetLeft(mk, X(ke) - 6); Canvas.SetTop(mk, Y(t.EntryPx) + (t.Dir > 0 ? 4 : -22)); cv.Children.Add(mk); }
+                    if (done9 && !double.IsNaN(t.ExitPx)) { var mx = Txt("✕", Gold, 13, FontWeights.Bold); Canvas.SetLeft(mx, X(kx) - 5); Canvas.SetTop(mx, Y(t.ExitPx) - 9); cv.Children.Add(mx); labels.Add(Tuple.Create(Y(t.ExitPx), "EXIT " + t.ExitPx.ToString("0.00", IC) + " · " + Signed(t.Pnl) + " · " + t.How, t.Pnl >= 0 ? Green : Red)); }
+                }
+                var cursor = new System.Windows.Shapes.Line { X1 = X(cur), X2 = X(cur), Y1 = 0, Y2 = Hh, Stroke = Tint(Cyan, 120), StrokeThickness = 1 }; cv.Children.Add(cursor);
+                foreach (var lb in LabGutterLabels(labels, plotW + 12, LabChartGutter - 8, Hh)) cv.Children.Add(lb);   /* 🏷 item 37: the labels in the right gutter, never on the candles */
+                double last = d.CloseM(cur); if (mgc) last = d.CloseG(cur);
+                info.Text = inst + " · " + day.ToString("ddd d MMM yyyy", IC) + " · " + KeystoneLabFlow.Am(nowT) + " New York · " + (double.IsNaN(last) ? "" : last.ToString("0.00", IC)) + (account != null ? " · " + account + ": " + trades.Count + " trade(s) that day" : "") + " · read-only replay of the saved minutes";
+            };
+            paint(); return root;
+        }
+        // 🏷 item 37: the trade labels stack in the reserved right gutter (never over the candles), nudged apart so they never overlap
+        public const double LabChartGutter = 170;
+        private static List<FrameworkElement> LabGutterLabels(List<Tuple<double, string, SolidColorBrush>> labels, double x, double width, double height)
+        {
+            var o = new List<FrameworkElement>(); var ys = KeystoneChartGutter.Stack(labels.Select(l => l.Item1).ToList(), 18, 2, height - 20);
+            for (int i = 0; i < labels.Count; i++)
+            {
+                var l = labels[i]; var b = new Border { Background = Tint(l.Item3, 60), BorderBrush = l.Item3, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3), Padding = new Thickness(4, 0, 4, 0), Width = width, Height = 17, Child = Txt(l.Item2, Text, 10.5, FontWeights.SemiBold), Tag = "gutter-label" };
+                ((TextBlock)b.Child).TextTrimming = TextTrimming.CharacterEllipsis; b.ToolTip = l.Item2; Canvas.SetLeft(b, x); Canvas.SetTop(b, ys[i] - 8.5); o.Add(b);
+            }
+            return o;
+        }
+        // 🟩 item 12 for funded tiles (Funded Lab + the eval lab's funded stage): the tile model of a funded account under its firm's rules
+        private static KeystoneTileModel PayoutTileModel(KeystonePayoutAccount a, KeystonePayoutRules r, bool maxOnly)
+        {
+            if (a == null || r == null) return null; string kd = KeystoneTileModel.KindOf(r, true); bool tpt = r.Tpt; bool locked = a.Locked || (kd == "EOD" && a.Floor >= r.LockAt - 0.5);
+            double top = kd == "STATIC" ? Math.Max(r.WithdrawMin, 1) : tpt ? (locked ? r.Dd + 1000 : 0 + r.Dd) : r.Cap / Math.Max(0.01, r.Pct / 100.0);
+            bool ready = r.Due(a.Bal, maxOnly) > 0 && (r.QualDays <= 0 || a.Qual >= r.QualDays);
+            string st = a.Stage == "BLOWN" ? "BLOWN" : a.Stage == "LIVE" ? "LIVE" : ready ? "READY" : a.Payouts > 0 ? "PAID" : "FUNDED";
+            return KeystoneTileModel.Make(a.Firm, kd, true, a.Bal, a.Floor, Math.Max(1, r.Dd), tpt ? 0 : r.LockAt, top, locked, st, tpt ? (locked ? "next withdrawal" : "lock") : kd == "STATIC" ? "withdraw ≥" : "max payout");
+        }
+        private static List<string> PayoutTileLines(KeystonePayoutAccount a, KeystonePayoutRules r, KeystoneRunRecord hist)
+        {
+            var o = new List<string>(); if (a == null || r == null) return o;
+            if (r.QualDays > 0) o.Add("qualifying " + KeystoneTileModel.Dots(a.Qual, r.QualDays) + " " + a.Qual + "/" + r.QualDays);
+            var h = hist == null ? new List<int>() : r.Tpt ? hist.DaysToLock(a.Firm) : hist.DaysToPayout(a.Firm, Math.Max(1, a.Payouts + 1));
+            o.Add(KeystoneTileModel.DaysToLock(a.Days, h, r.Tpt ? "lock the trailing" : "payout " + (a.Payouts + 1)) + " · payouts " + a.Payouts + " · " + Cash(a.Net) + " to you");
+            return o;
+        }
+        // 🗂 the account card for the 💰 Funded Lab (its own run → a record): the lines, the stages, every trade — in its tab's overlay
+        private FrameworkElement LabCardSimple(KeystoneRunRecord rec, string key)
+        {
+            var sp = new StackPanel(); if (rec == null) { sp.Children.Add(Txt("no run yet", Muted, 13, FontWeights.SemiBold)); return sp; } var c = rec.Card(key);
+            if (c.Account == null) { sp.Children.Add(Txt("no account " + key + " in this run", Muted, 13, FontWeights.SemiBold)); return sp; }
+            foreach (var l in c.Lines) { var t = Txt(l, l.StartsWith("WHY") ? Gold : Text, 12.5, FontWeights.SemiBold); t.TextWrapping = TextWrapping.Wrap; sp.Children.Add(t); }
+            Action<string, List<string[]>> table = (cap, rows) =>
+            {
+                sp.Children.Add(Txt(cap, Cyan, 12, FontWeights.Bold)); if (rows == null) return; int cols = rows.Count == 0 ? 0 : rows[0].Length;
+                foreach (var r in rows.Take(300)) { var row = new StackPanel { Orientation = Orientation.Horizontal, Background = r == rows[0] ? Card : Panel }; foreach (var v in r) row.Children.Add(new TextBlock { Text = v, Width = Math.Max(60, Math.Min(260, (v ?? "").Length * 7.2 + 14)), Foreground = r == rows[0] ? Muted : Text, FontSize = 11.5, FontFamily = new FontFamily("Consolas"), Margin = new Thickness(4, 2, 4, 2) }); sp.Children.Add(row); }
+            };
+            table("THE STAGES (each payout cycle)", c.Cycles); table("EVERY TRADE (New York time)", c.Trades); return sp;
+        }
+        // 📦 item 35: EXPORT FOR CLAUDE from the 💰 Funded Lab's own run (the same JSON as the Eval Lab's: keystone-check-<date>-<time>.json in Studio\EvalLab\exports)
+        private static string FundedExportClaude(KeystonePayoutRun run, string title)
+        {
+            if (run == null) return "run first";
+            try
+            {
+                var rec = KeystoneRunRecord.Of("FUNDED", null, 0, null, null, run, run.From, run.To, run.DaysUsed); rec.Build = KeystoneBuild; rec.Header = "💰 FUNDED LAB · " + (title ?? "") + " · " + (run.Plan != null ? run.Plan.Name : "");
+                var shown = new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>("title", "💰 FUNDED ONLY • " + run.From.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + " → " + run.To.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)), new KeyValuePair<string, string>("line", run.Accounts.Count + " funded accounts · " + run.Accounts.Sum(a => a.Payouts) + " payouts · " + Cash(run.Accounts.Sum(a => a.Net)) + " to you · " + run.Accounts.Count(a => a.Stage == "BLOWN") + " blown") };
+                return rec.Export(Path.Combine(StudioFolder(), "EvalLab", "exports"), shown, false, DateTime.Now);
+            }
+            catch (Exception ex) { return "export failed • " + ex.Message; }
+        }
+        public const double StudioGutter = 170;   /* 🏷 item 37: the Backtest Studio chart's label gutter (the candles end before it; NOW scrolls the newest candle to its edge) */
+        private readonly List<double[]> studioLabelRects = new List<double[]>();   /* the last labels drawn: x, y, w, h, the candle area's right edge (the smoke test checks none intersects the candles) */
+        private static List<TextBlock> FindTexts(object root)
+        {
+            var o = new List<TextBlock>(); var st = new Stack<object>(); st.Push(root);
+            while (st.Count > 0) { var x = st.Pop(); var tb = x as TextBlock; if (tb != null) { o.Add(tb); continue; } var bd = x as Border; if (bd != null && bd.Child != null) st.Push(bd.Child); var pn = x as System.Windows.Controls.Panel; if (pn != null) foreach (var c in pn.Children) st.Push(c); }
+            return o;
+        }
+        // 🛟 item 20: the ComboBox font has no 🛟 glyph (it drew a box) — the dropdowns say the plan in plain text
+        public static string ComboText(string s) { return (s ?? "").Replace("🛟 ", "").Replace("🛟", ""); }
+        private static List<DateTime> LabSavedDays() { try { return KeystoneStudioStore.Sessions(StudioFolder(), "MNQ").Keys.Select(x => x.Date).OrderBy(x => x).ToList(); } catch { return new List<DateTime>(); } }
         private void OpenFundedLab()
         {
             if (fundedLabWindow != null) { ShowLabTab(false); return; }
@@ -50553,11 +51320,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             rail.Children.Add(new TextBlock { Text = "💰 FUNDED LAB", Foreground = Gold, FontSize = 22, FontWeight = FontWeights.Bold, Margin = new Thickness(16, 16, 10, 0) });
             rail.Children.Add(new TextBlock { Text = "trailing drawdown • backtest", Foreground = Muted, FontSize = 11.5, Margin = new Thickness(16, 0, 10, 14) });
             var stBar = new Border { Background = Panel, Padding = new Thickness(14, 6, 14, 6), Child = status }; DockPanel.SetDock(stBar, Dock.Bottom); shell.Children.Add(stBar);
+            var fHint = new ContentControl { Margin = new Thickness(14, 6, 14, 0) }; DockPanel.SetDock(fHint, Dock.Top); shell.Children.Add(fHint);   /* 🧭 final navigation pass: ❓ what this tab shows + the cross-links */
             var host = new Grid(); shell.Children.Add(host);
             var secs = new Dictionary<string, FrameworkElement>(); var navs = new Dictionary<string, Button>(); var refreshers = new Dictionary<string, Action>(); Action<string> fundedSecHook = null; Action<bool> fRailCompact = null;
-            Action<string> showSec = key =>
+            Action<string> showSec = null; showSec = key =>
             {
                 if (!secs.ContainsKey(key)) return; Action rf; if (refreshers.TryGetValue(key, out rf)) rf(); if (fundedSecHook != null) fundedSecHook(key);
+                fHint.Content = LabHint(FundedHints.ContainsKey(key) ? FundedHints[key] : "", LabLink("🧭 START HERE", () => showSec("WIZARD")), LabLink("⚡ SIMULATE / RESULTS", () => showSec("SIMULATE")), LabLink("💵 PAYOUTS", () => showSec("PAYOUTS")), LabLink("🏢 FIRMS & RULES (settings)", () => showSec("FIRMS")), LabLink("🧪 EVAL LAB RESULTS", () => { OpenRotationStudio(); if (evalLabShowTab != null) { if (evalLabShow != null) evalLabShow("ROTATE"); evalLabShowTab("RESULTS"); } }));
                 foreach (var kv in secs) kv.Value.Visibility = kv.Key == key ? Visibility.Visible : Visibility.Collapsed;
                 foreach (var kv in navs) PaintBtn(kv.Value, kv.Key == key ? Tint(Cyan, 70) : Panel);
             };
@@ -50662,7 +51431,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var pl = pl0; var c = card(pl == selPool ? Gold : Card); var sp = new StackPanel(); c.Child = sp; poolsDyn.Children.Add(c);
                     var hd = new WrapPanel(); sp.Children.Add(hd); hd.Children.Add(Txt((pl == selPool ? "▶ " : "") + pl.Name + " • " + pl.Accounts.Count(a => !a.Archived) + " accounts", Gold, 15, FontWeights.Bold));
                     var useB = Btn("▶ USE", Green); useB.Margin = new Thickness(12, 0, 6, 0); useB.Click += delegate { selPool = pl; refreshers["POOLS"](); status.Text = "👥 " + pl.Name + " is used by ⚡ SIMULATE and ▶ REPLAY"; status.Foreground = Cyan; }; hd.Children.Add(useB);
-                    var delB = Btn("✕ DELETE", Card); delB.ToolTip = "deletes this pool (asks first)"; delB.Click += delegate { if (KBox("Delete the pool '" + pl.Name + "' (" + pl.Accounts.Count + " accounts)? This cannot be undone.", "Delete pool", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return; pools.Remove(pl); if (selPool == pl) selPool = pools.FirstOrDefault(); savePools(); refreshers["POOLS"](); }; hd.Children.Add(delB);
+                    var delB = Btn("✕ DELETE", Card); delB.ToolTip = "deletes this pool (asks first)"; delB.Click += delegate { LabConfirm(fundedLabOverlay, "✕ DELETE THE POOL?", "Delete the pool '" + pl.Name + "' (" + pl.Accounts.Count + " accounts)? This cannot be undone.", "✕ DELETE IT", () => { pools.Remove(pl); if (selPool == pl) selPool = pools.FirstOrDefault(); savePools(); refreshers["POOLS"](); }); };   /* item 21: asked inside the tab */ hd.Children.Add(delB);
                     var accs = new WrapPanel(); sp.Children.Add(accs);
                     foreach (var a0 in pl.Accounts.Where(x => !x.Archived).ToList())
                     {
@@ -51149,6 +51918,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     kp.Children.Add(kpi("STILL FUNDED", run.Accounts.Count(a => a.Active).ToString(CultureInfo.InvariantCulture), Cyan)); kp.Children.Add(kpi("MOVED TO LIVE", run.Accounts.Count(a => a.Stage == "LIVE").ToString(CultureInfo.InvariantCulture), Orchid)); kp.Children.Add(kpi("BLOWN", run.Accounts.Count(a => a.Stage == "BLOWN").ToString(CultureInfo.InvariantCulture), Red));
                     kp.Children.Add(kpi("PER TRADED ACCOUNT", traded == 0 ? "—" : Cash(run.Net / traded), Gold));
                     poOut.Children.Add(Txt("PAYOUT TRACKER • " + run.From.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + " → " + run.To.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + " • " + run.DaysUsed + " trading days • " + run.Plan.Summary(), Muted, 12, FontWeights.SemiBold));
+                    { var exR = new WrapPanel { Margin = new Thickness(0, 2, 0, 4) }; var exB = Btn("📦 EXPORT FOR CLAUDE (one JSON file)", Tint(Orchid, 110)); exB.Height = 30; var exT = Txt("", Muted, 11, FontWeights.SemiBold); exT.VerticalAlignment = VerticalAlignment.Center; exT.Margin = new Thickness(8, 0, 0, 0); var run8 = run; exB.Click += delegate { exT.Text = "📦 " + FundedExportClaude(run8, "payout tracker"); }; fundedLabExportClaude = () => FundedExportClaude(run8, "payout tracker"); exR.Children.Add(exB); exR.Children.Add(exT); poOut.Children.Add(exR); }
                     var tiles = new WrapPanel { Margin = new Thickness(0, 6, 0, 6) }; poOut.Children.Add(tiles);
                     foreach (var a in run.Accounts)
                     {
@@ -51156,6 +51926,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                         var b = card(firmCol(a.Firm)); b.Width = 330; b.Padding = new Thickness(10, 8, 10, 8); var sp = new StackPanel(); b.Child = sp;
                         var hd = new DockPanel(); var st = Txt(a.Stage, sc, 11.5, FontWeights.Bold); DockPanel.SetDock(st, Dock.Right); hd.Children.Add(st); hd.Children.Add(Txt(a.Name + " • " + KeystonePipeline.Nice(a.Firm), firmCol(a.Firm), 13.5, FontWeights.Bold)); sp.Children.Add(hd);
                         var ln = Txt(a.RuleLine(r, run.Plan.MaxOnly), Text, 11, FontWeights.Normal); ln.TextWrapping = TextWrapping.Wrap; sp.Children.Add(ln);
+                        { var tmF = PayoutTileModel(a, r, run.Plan.MaxOnly); if (tmF != null && a.Stage != "PARKED") { sp.Children.Add(LabBufferBar("fp." + a.Id + "." + a.Name, tmF, firmCol(a.Firm), 300)); var tl = Txt(tmF.Line, tmF.Locked ? Orchid : Muted, 10.5, FontWeights.SemiBold); tl.TextWrapping = TextWrapping.Wrap; sp.Children.Add(tl); }
+                          var ak = a.Name; var run9 = run; b.Cursor = System.Windows.Input.Cursors.Hand; b.ToolTip = "click → the account card"; b.MouseLeftButtonUp += delegate { var rec9 = KeystoneRunRecord.Of("FUNDED", null, 0, null, null, run9, run9.From, run9.To, run9.DaysUsed); LabOverlayShow(fundedLabOverlay, "🗂 ACCOUNT CARD · " + ak, LabCardSimple(rec9, ak), null); }; }
                         if (a.Stage != "PARKED")
                         {
                             string dots = string.Concat(Enumerable.Range(0, r.QualDays).Select(i => i < a.Qual ? "✓" : "○"));
@@ -51263,18 +52035,18 @@ namespace NinjaTrader.NinjaScript.AddOns
                 };
                 // ② PLAN: the payout plan (🛟 SAFE PAYOUT by default, the saved choice — 27e) • ⚡ SPRINT + the goal (shared with the Eval Lab) • each firm its own funded model
                 string fChoice = Path.Combine(StudioFolder(), "EvalLab", "funded-plan.txt"); KeystoneFundedChoice.Load(fChoice);
-                var b2 = new StackPanel(); var pPlans = KeystonePayoutPlan.Presets(); var w2Box = Select(pPlans.Select(x => x.Name).ToArray()); w2Box.SelectedIndex = KeystoneFundedChoice.IndexIn(pPlans); w2Box.Width = 760;
+                var b2 = new StackPanel(); var pPlans = KeystonePayoutPlan.Presets(); var w2Box = Select(pPlans.Select(x => ComboText(x.Name)).ToArray()); w2Box.SelectedIndex = KeystoneFundedChoice.IndexIn(pPlans); w2Box.Width = 760;
                 var w2Sprint = Select(KeystonePayoutPlan.SprintChoices.Select(KeystonePayoutPlan.SprintName).ToArray()); w2Sprint.SelectedIndex = Math.Max(0, Array.IndexOf(KeystonePayoutPlan.SprintChoices, KeystoneFundedChoice.Sprint)); var w2Goal = Select("🏁 all payouts", "🏁 the first payout", "🏁 2 payouts", "🏁 3 payouts"); w2Goal.SelectedIndex = Math.Max(0, Math.Min(3, KeystoneFundedChoice.Goal));
                 Action w2Save = delegate { KeystoneFundedChoice.PlanName = pPlans[Math.Max(0, w2Box.SelectedIndex)].Name; KeystoneFundedChoice.Sprint = KeystonePayoutPlan.SprintChoices[Math.Max(0, w2Sprint.SelectedIndex)]; KeystoneFundedChoice.Goal = Math.Max(0, w2Goal.SelectedIndex); KeystoneFundedChoice.Save(fChoice); };
                 w2Box.SelectionChanged += delegate { w2Save(); }; w2Sprint.SelectionChanged += delegate { w2Save(); }; w2Goal.SelectionChanged += delegate { w2Save(); };
                 var w2Why = Txt("", Muted, 12.5, FontWeights.Normal); w2Why.TextWrapping = TextWrapping.Wrap; w2Why.Margin = new Thickness(0, 6, 0, 6); Action paintWhy = delegate { var pl = pPlans[Math.Max(0, w2Box.SelectedIndex)]; w2Why.Text = pl.Summary() + "\n" + (pl.Note ?? ""); }; w2Box.SelectionChanged += delegate { paintWhy(); }; paintWhy();
                 var models = new StackPanel(); foreach (var f in new[] { "LUCID", "TRADEIFY", "TPT" }) models.Children.Add(Txt("• " + KeystoneFundedModel.Of(f, KeystonePayoutRules.For(f, payRules)) + (f == "LUCID" ? " • max payout $2,000 → $1,800 yours" : f == "TRADEIFY" ? " • max payout $2,500 → $2,250 yours" : ""), firmCol(f), 12.5, FontWeights.SemiBold));
                 var w2Tpt = new CheckBox { Content = "TPT: also open the older intraday one-shot simulator (⚡ SIMULATE) — the plan above already trades TPT PRO (lock → withdrawals)", Foreground = Muted, FontSize = 12, Margin = new Thickness(0, 6, 0, 0) };
-                b2.Children.Add(w2Box); { var spr = new WrapPanel(); spr.Children.Add(field("⚡ SPRINT", w2Sprint)); spr.Children.Add(field("FUNDED GOAL", w2Goal)); b2.Children.Add(spr); } b2.Children.Add(w2Why); b2.Children.Add(Txt("EACH FIRM ITS OWN FUNDED MODEL", Cyan, 11, FontWeights.Bold)); b2.Children.Add(models); b2.Children.Add(w2Tpt);
+                b2.Children.Add(w2Box); { var spr = new WrapPanel(); spr.Children.Add(field("FUNDED GOAL", w2Goal)); w2Sprint.Visibility = Visibility.Collapsed; spr.Children.Add(w2Sprint); b2.Children.Add(spr); b2.Children.Add(SprintControl(() => KeystonePayoutPlan.SprintChoices[Math.Max(0, w2Sprint.SelectedIndex)], v => { w2Sprint.SelectedIndex = Math.Max(0, Array.IndexOf(KeystonePayoutPlan.SprintChoices, v)); }, "fz.sprint")); } b2.Children.Add(w2Why); b2.Children.Add(Txt("EACH FIRM ITS OWN FUNDED MODEL", Cyan, 11, FontWeights.Bold)); b2.Children.Add(models); b2.Children.Add(w2Tpt);
                 Func<string> c2 = () => { wTptPlan = w2Tpt.IsChecked == true; w2Save(); return pPlans[Math.Max(0, w2Box.SelectedIndex)].Name + " • " + KeystonePayoutPlan.SprintName(KeystoneFundedChoice.Sprint) + " • goal: " + KeystonePayoutPlan.GoalName(KeystoneFundedChoice.Goal) + (wTptPlan ? " • TPT: intraday one-shot (⚡ SIMULATE)" : " • TPT: lock → withdrawals"); };
                 // ③ DAYS
                 var b3 = new StackPanel(); var w3From = Input(lastSaved.AddMonths(-6).ToString("yyyy-MM-dd")); var w3To = Input(lastSaved.ToString("yyyy-MM-dd")); w3From.Width = w3To.Width = 120;
-                var w3Pick = Btn("📅 PICK A DAY", Cyan); w3Pick.Height = 34; w3Pick.Margin = new Thickness(0, 16, 8, 0); w3Pick.ToolTip = "a calendar of every saved day (weekday, news, data present / missing)"; w3Pick.Click += delegate { OpenDayPicker(d0 => { w3From.Text = d0.ToString("yyyy-MM-dd"); w3To.Text = KeystoneLabWizard.TwoDaysEnd(d0, d0).ToString("yyyy-MM-dd"); }); };
+                var w3Pick = Btn("📅 PICK A DAY", Cyan); w3Pick.Height = 34; w3Pick.Margin = new Thickness(0, 16, 8, 0); w3Pick.ToolTip = "a calendar of every saved day (weekday, news, data present / missing)"; w3Pick.Click += delegate { LabOverlayShow(fundedLabOverlay, "📅 PICK A DAY · A RANGE · PERIODS", LabDatePickView(LabSavedDays(), ParseStudioDate(w3From.Text), (ps9, ws9) => { w3From.Text = ps9[0].Item1.ToString("yyyy-MM-dd"); var e9 = ps9[ps9.Count - 1].Item2; w3To.Text = (ps9.Count == 1 && ps9[0].Item1 == e9 ? KeystoneLabWizard.TwoDaysEnd(e9, e9) : e9).ToString("yyyy-MM-dd"); }), null); };
                 var r3 = new WrapPanel(); r3.Children.Add(field("FROM", w3From)); r3.Children.Add(field("TO", w3To)); r3.Children.Add(w3Pick); b3.Children.Add(r3); b3.Children.Add(Txt("a payout cycle needs weeks: 3–6 months shows the payouts (at least 2 days)", Muted, 11.5, FontWeights.Normal));
                 DateTime wF = lastSaved, wT = lastSaved;
                 Func<string> c3 = () =>
@@ -51309,6 +52081,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         buy.Click += delegate { if (!(paid >= spent && spent > 0) && KBox(w, "The payouts (" + Cash(paid) + ") don't cover the money spent (" + Cash(spent) + ") yet.\n\nThe rule: no new batch until they do (keep 3 batches of budget). Start a new simulated batch anyway?", "🛒 THE NEXT BATCH", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return; ShowLabTab(true); if (evalLabNextBatch != null) evalLabNextBatch(); };
                         res.Children.Add(buy);
                     }
+                    { var exR = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) }; var exB = Btn("📦 EXPORT FOR CLAUDE (one JSON file)", Tint(Orchid, 110)); exB.Height = 30; var exT = Txt("", Muted, 11, FontWeights.SemiBold); exT.VerticalAlignment = VerticalAlignment.Center; exT.Margin = new Thickness(8, 0, 0, 0); var rr8 = rr; exB.Click += delegate { exT.Text = "📦 " + FundedExportClaude(rr8, "wizard run"); }; fundedLabExportClaude = () => FundedExportClaude(rr8, "wizard run"); exR.Children.Add(exB); exR.Children.Add(exT); res.Children.Add(exR); }
                     var tiles = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) }; res.Children.Add(tiles);
                     foreach (var a in rr.Accounts)
                     {
@@ -51316,6 +52089,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                         var md = KeystoneFundedModel.Of(a.Firm, r0); sp.Children.Add(Txt(a.Name, firmCol(a.Firm), 14, FontWeights.Bold));
                         sp.Children.Add(Txt(r0.Parked ? md : md.Replace(" · payout cycle", "") + " · payout cycle " + Math.Min(r0.MaxPayouts, a.Payouts + (a.Active ? 1 : 0)) + "/" + r0.MaxPayouts, Text, 11.5, FontWeights.SemiBold));
                         var rl = Txt(a.RuleLine(r0, rr.Plan.MaxOnly || rr.Plan.MaxIn5), a.Stage == "BLOWN" ? Red : a.Stage == "LIVE" ? Green : Muted, 11.5, FontWeights.Normal); rl.TextWrapping = TextWrapping.Wrap; sp.Children.Add(rl);
+                        { var tmW = PayoutTileModel(a, r0, rr.Plan.MaxOnly); if (tmW != null && !r0.Parked) { sp.Children.Add(LabBufferBar("fw." + a.Id + "." + a.Name, tmW, firmCol(a.Firm), 310)); foreach (var l9 in new[] { tmW.Line }.Concat(PayoutTileLines(a, r0, evalLabResultsLast != null ? evalLabResultsLast.Record : null))) { var t9 = Txt(l9, Muted, 10.5, FontWeights.SemiBold); t9.TextWrapping = TextWrapping.Wrap; sp.Children.Add(t9); } }
+                          var ak = a.Name; var rr9 = rr; bd.Cursor = System.Windows.Input.Cursors.Hand; bd.ToolTip = "click → the account card"; bd.MouseLeftButtonUp += delegate { var rec9 = KeystoneRunRecord.Of("FUNDED", null, 0, null, null, rr9, rr9.From, rr9.To, rr9.DaysUsed); LabOverlayShow(fundedLabOverlay, "🗂 ACCOUNT CARD · " + ak, LabCardSimple(rec9, ak), null); }; }
                         if (!r0.Parked && a.Funded != DateTime.MinValue) { var ql = Txt("started funded " + a.Funded.ToString("ddd d MMM", CultureInfo.InvariantCulture) + " · qualifying days " + a.Qual + "/" + r0.QualDays + (a.Stage == "BLOWN" ? " · 💀 blown " + (a.Ended == DateTime.MinValue ? "" : a.Ended.ToString("ddd d MMM", CultureInfo.InvariantCulture)) : a.Active && a.Payouts == 0 ? " · ⏳ data ends " + rr.To.ToString("ddd d MMM", CultureInfo.InvariantCulture) + ": download more in 🗂 DATA" : a.Payouts > 0 ? " · 💵 " + a.Payouts + " payout(s)" : ""), Cyan, 11.5, FontWeights.SemiBold); ql.TextWrapping = TextWrapping.Wrap; sp.Children.Add(ql); }
                         if (!r0.Parked) sp.Children.Add(Txt("payouts " + a.Payouts + " • $" + a.Net.ToString("N0", CultureInfo.InvariantCulture) + " to you • balance " + Signed(a.Bal) + " • floor " + Signed(a.Floor) + " • " + a.Days + " days", Text, 11.5, FontWeights.Normal));
                         tiles.Children.Add(bd);
@@ -51379,7 +52154,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 fundedLabWizardDays = (f9, t9) => { w3From.Text = f9.ToString("yyyy-MM-dd"); w3To.Text = t9.ToString("yyyy-MM-dd"); }; fundedLabWizardBack = () => { wz.Back(); wzPaint(); }; fundedLabWizardMath = () => { w4Math.IsChecked = true; w4Rep.IsChecked = false; };
                 FundedTakeLatest();   /* 💰 item 6: opening the Funded Lab lands on the latest eval run, running */
             }
-            labTab.Content = shell; showSec("WIZARD");   /* 🧭 the wizard is the main entry */
+            fundedLabOverlay = MakeLabOverlay(shell); labTab.Content = fundedLabOverlay.Host; showSec("WIZARD");   /* 🧭 the wizard is the main entry */
             w.Closed += delegate { playT.Stop(); flashT.Stop(); fundedLabTakePassed = null; fundedLabBusy = null; fundedLabSaveStop = null; fundedLabWindow = null; fundedLabSim = null; fundedLabShow = fundedLabTab = fundedLabUsePlan = null; fundedLabNewPool = null; fundedLabReplayLoad = null; fundedLabStep = fundedLabPress = null; fundedLabFlashing = null; fundedLabChartWheel = fundedLabSetTf = null; fundedLabChartDrag = null; fundedLabChartClick = null; fundedLabChartBars = fundedLabToolbarButtons = null; fundedLabTool = fundedLabPoolTab = null; fundedLabBigCards = null; fundedLabPoolTabLabels = fundedLabPoolRows = null; };
             ShowLabTab(false);
         }
@@ -51399,26 +52174,29 @@ namespace NinjaTrader.NinjaScript.AddOns
             // ① ACCOUNTS PER FIRM (BUILD 2026-11-10a, the user's request): a tick + its OWN count per firm (default 5, 1 – 50), the total worked out and shown
             // ("15 = 5 TPT + 5 Lucid + 5 Tradeify") • returns (the panel, the counts, fill from a pool without firing the change)
             string[] perFirmCodes = new[] { "TPT", "LUCID", "TRADEIFY", "MFFU", "APEX", "TOPSTEP" }.Concat(KeystonePayoutRules.LoadBook(Path.Combine(StudioFolder(), "FundedLab")).Where(x => x.Studio).Select(x => x.Firm)).Distinct().ToArray();   /* 🎬 + the MFF Studio firms of the book */
+            var firmAdders = new List<Action<string, int>>();
             Func<string, Action, Tuple<FrameworkElement, Func<List<Tuple<string, int>>>, Action<IList<Tuple<string, int>>>>> firmCounts = (tagPre, changed) =>
             {
-                var hold = new StackPanel(); var grid = new WrapPanel(); hold.Children.Add(grid); var cbs = new List<CheckBox>(); var tbs = new List<TextBox>(); bool mute = false;
+                var hold = new StackPanel(); var grid = new WrapPanel(); hold.Children.Add(grid); var codes = new List<string>(); var cbs = new List<CheckBox>(); var tbs = new List<TextBox>(); bool mute = false;
                 var total = Txt("", Gold, 14, FontWeights.Bold); total.Tag = tagPre + ".total"; total.TextWrapping = TextWrapping.Wrap; total.Margin = new Thickness(0, 4, 0, 0);
-                Func<List<Tuple<string, int>>> get = () => { var r = new List<Tuple<string, int>>(); for (int i = 0; i < cbs.Count; i++) if (cbs[i].IsChecked == true) { double v = NumberAllowZero(tbs[i], 0); r.Add(Tuple.Create(perFirmCodes[i], (int)Math.Max(0, Math.Min(50, v)))); } return r; };
+                Func<List<Tuple<string, int>>> get = () => { var r = new List<Tuple<string, int>>(); for (int i = 0; i < cbs.Count; i++) if (cbs[i].IsChecked == true) { double v = NumberAllowZero(tbs[i], 0); r.Add(Tuple.Create(codes[i], (int)Math.Max(0, Math.Min(50, v)))); } return r; };
                 Action paint = delegate { total.Text = "TOTAL " + KeystoneLabWizard.TotalText(get()) + " • firm by firm"; for (int i = 0; i < cbs.Count; i++) tbs[i].IsEnabled = cbs[i].IsChecked == true; };
                 Action fire = delegate { paint(); if (!mute && changed != null) changed(); };
-                for (int i = 0; i < perFirmCodes.Length; i++)
+                Action<string> addRow = f =>
                 {
-                    string f = perFirmCodes[i]; var cb0 = new CheckBox { Content = KeystonePipeline.Nice(f), IsChecked = i < 3, Foreground = firmCol(f), FontSize = 12.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Width = 82, Tag = tagPre + ".on." + f, ToolTip = "include " + firmName(f) + " accounts (they rotate firm by firm)" };
+                    int i = codes.Count; codes.Add(f); var cb0 = new CheckBox { Content = KeystonePipeline.Nice(f), IsChecked = i < 3, Foreground = firmCol(f), FontSize = 12.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Width = 82, Tag = tagPre + ".on." + f, ToolTip = "include " + firmName(f) + " accounts (they rotate firm by firm)" };
                     var tb0 = Input("5"); tb0.Width = 46; tb0.FontSize = 14; tb0.FontWeight = FontWeights.Bold; tb0.Tag = tagPre + "." + f; tb0.ToolTip = "how many " + KeystonePipeline.Nice(f) + " evaluation accounts (1 – 50)";
                     var mi = Btn("−", Card); mi.Width = 28; mi.Height = 28; var pl = Btn("+", Card); pl.Width = 28; pl.Height = 28; var tbx = tb0;
                     mi.Click += delegate { tbx.Text = Math.Max(1, (int)NumberAllowZero(tbx, 5) - 1).ToString(CultureInfo.InvariantCulture); }; pl.Click += delegate { tbx.Text = Math.Min(50, (int)NumberAllowZero(tbx, 5) + 1).ToString(CultureInfo.InvariantCulture); };
                     cb0.Checked += delegate { fire(); }; cb0.Unchecked += delegate { fire(); }; cb0.Click += delegate { fire(); }; tb0.TextChanged += delegate { fire(); };
                     var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 12, 4) }; row.Children.Add(cb0); row.Children.Add(mi); row.Children.Add(tb0); row.Children.Add(pl); grid.Children.Add(row); cbs.Add(cb0); tbs.Add(tb0);
-                }
+                };
+                foreach (var f00 in perFirmCodes) addRow(f00);
+                firmAdders.Add((code9, n9) => { int ix = codes.FindIndex(x => string.Equals(x, code9, StringComparison.OrdinalIgnoreCase)); if (ix < 0) { addRow(code9); ix = codes.Count - 1; } mute = true; cbs[ix].IsChecked = true; tbs[ix].Text = Math.Max(1, Math.Min(50, n9)).ToString(CultureInfo.InvariantCulture); mute = false; fire(); });   /* ＋ ADD A FIRM (item 3): the new firm joins every per-firm list */
                 var quick = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
                 foreach (var nq in new[] { 1, 5, 10 }) { int nv = nq; var qb = Btn(nv + " EACH", Card); qb.Height = 28; qb.FontSize = 11.5; qb.Margin = new Thickness(0, 0, 6, 0); qb.ToolTip = "every ticked firm gets " + nv; qb.Click += delegate { mute = true; for (int i = 0; i < cbs.Count; i++) if (cbs[i].IsChecked == true) tbs[i].Text = nv.ToString(CultureInfo.InvariantCulture); mute = false; fire(); }; quick.Children.Add(qb); }
                 hold.Children.Add(quick); hold.Children.Add(total); paint();
-                Action<IList<Tuple<string, int>>> setTo = per => { mute = true; for (int i = 0; i < cbs.Count; i++) { var hit = per == null ? null : per.FirstOrDefault(x => string.Equals(x.Item1, perFirmCodes[i], StringComparison.OrdinalIgnoreCase)); cbs[i].IsChecked = hit != null; if (hit != null) tbs[i].Text = hit.Item2.ToString(CultureInfo.InvariantCulture); } mute = false; paint(); };
+                Action<IList<Tuple<string, int>>> setTo = per => { mute = true; for (int i = 0; i < cbs.Count; i++) { var hit = per == null ? null : per.FirstOrDefault(x => string.Equals(x.Item1, codes[i], StringComparison.OrdinalIgnoreCase)); cbs[i].IsChecked = hit != null; if (hit != null) tbs[i].Text = hit.Item2.ToString(CultureInfo.InvariantCulture); } mute = false; paint(); };
                 return Tuple.Create((FrameworkElement)hold, get, setTo);
             };
             Func<KeystoneEvalPool, List<Tuple<string, int>>> poolCounts = pl0 => pl0 == null ? new List<Tuple<string, int>>() : pl0.Accounts.Where(a => !a.Archived).GroupBy(a => (a.Firm ?? "").Trim().ToUpperInvariant()).Select(g => Tuple.Create(g.Key, g.Count())).ToList();
@@ -51532,14 +52310,21 @@ namespace NinjaTrader.NinjaScript.AddOns
             stopBox.Tag = "rot.stop"; tgtBox.Tag = "rot.tgt"; qmBox.Tag = "rot.qm"; qgBox.Tag = "rot.qg";
             var evPoolBox = Select("— A SIMULATED MIX (the counts per firm above) —"); evPoolBox.SelectedIndex = 0; evPoolBox.FontSize = 13;
             evPoolBox.ToolTip = "a pool from 👥 POOLS: its accounts trade FIRM BY FIRM (F1, F2, … F1 …) with each firm's evaluation rules by size";
+            /* 👥 item 4: every pool says what it holds ("🧭 WIZARD MIX • last wizard mix · 15 accounts · 5 TPT · 5 Lucid · 5 Tradeify"); your real pools first;
+               the auto-saved mixes (🧭 wizard, 🎉 eval runs) only when asked for (or when in use) */
+            var poolShown = new List<KeystoneEvalPool>(); bool poolShowAuto = false; string poolWant = null;
+            Func<KeystoneEvalPool, bool> poolAuto = pl => pl.Name.StartsWith("🧭") || pl.Name.StartsWith("🎉");
+            Func<KeystoneEvalPool, string> poolLabel = pl => { var acc9 = pl.Accounts.Where(a => !a.Archived).ToList(); string br9 = string.Join(" · ", acc9.GroupBy(a => (a.Firm ?? "").ToUpperInvariant()).Select(g => g.Count() + " " + KeystonePipeline.Nice(g.Key))); return (pl.Simulated ? "" : "● ") + pl.Name + " • " + (pl.Name.StartsWith("🧭") ? "last wizard mix · " : pl.Name.StartsWith("🎉") ? "auto-saved · " : "") + acc9.Count + " accounts" + (br9 != "" ? " · " + br9 : ""); };
+            var poolAutoCb = new CheckBox { Content = "show the auto-saved mixes (🧭 wizard / 🎉 eval runs)", Foreground = Muted, FontSize = 11, MinHeight = 28, VerticalContentAlignment = VerticalAlignment.Center, Tag = "rot.poolauto" };
             Action fillPoolBox = delegate
             {
-                string was = evPoolBox.SelectedIndex > 0 ? Convert.ToString(evPoolBox.SelectedItem) : null; evPoolBox.Items.Clear(); evPoolBox.Items.Add("— A SIMULATED MIX (the counts per firm above) —");
-                foreach (var pl in pools) evPoolBox.Items.Add(pl.Name + " • " + pl.Accounts.Count(a => !a.Archived) + " accounts");
-                int sel = 0; if (was != null) for (int i = 1; i < evPoolBox.Items.Count; i++) if (Convert.ToString(evPoolBox.Items[i]).Split('•')[0].Trim() == was.Split('•')[0].Trim()) sel = i;
+                string was = evPoolBox.SelectedIndex > 0 ? Convert.ToString(evPoolBox.SelectedItem) : null; evPoolBox.Items.Clear(); evPoolBox.Items.Add("— A SIMULATED MIX (the counts per firm above) —"); poolShown.Clear();
+                string keep = poolWant ?? (was != null ? was.Split('•')[0].Trim().TrimStart('●').Trim() : null);
+                foreach (var pl in pools.OrderBy(p => p.Simulated ? 1 : 0).ThenBy(p => poolAuto(p) ? 1 : 0)) { if (poolAuto(pl) && !poolShowAuto && pl.Name != keep) continue; poolShown.Add(pl); evPoolBox.Items.Add(poolLabel(pl)); }
+                int sel = 0; if (was != null) for (int i = 1; i < evPoolBox.Items.Count; i++) if (poolShown[i - 1].Name == keep) sel = i;
                 evPoolBox.SelectedIndex = sel; evPoolBox.SelectedItem = evPoolBox.Items[sel];
             };
-            evPoolBoxRef = evPoolBox; evPoolBox.SelectionChanged += delegate { bool pooled = evPoolBox.SelectedIndex > 0; if (pooled && evPoolBox.SelectedIndex - 1 < pools.Count) { var pl0 = pools[evPoolBox.SelectedIndex - 1]; rotFirms.Item3(poolCounts(pl0)); accTb.Text = pl0.Accounts.Count(a => !a.Archived).ToString(CultureInfo.InvariantCulture); } };
+            evPoolBoxRef = evPoolBox; evPoolBox.SelectionChanged += delegate { bool pooled = evPoolBox.SelectedIndex > 0; if (pooled && evPoolBox.SelectedIndex - 1 < poolShown.Count) { var pl0 = poolShown[evPoolBox.SelectedIndex - 1]; rotFirms.Item3(poolCounts(pl0)); accTb.Text = pl0.Accounts.Count(a => !a.Archived).ToString(CultureInfo.InvariantCulture); } };
             fillPoolBox();
             Func<List<KeystoneEvalPlan>> allPlans = () => KeystoneEvalLab.Presets().Concat(userPlans).ToList();
             var tplBox = Select(allPlans().Select(pl => pl.Name).ToArray()); tplBox.FontSize = 13; tplBox.ToolTip = "a template from 🎯 PLANS fills the settings below (change anything after)";
@@ -51557,7 +52342,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             Action fillTplBox = delegate { var ap = allPlans(); tplBox.Items.Clear(); foreach (var pl in ap) tplBox.Items.Add(pl.Name); int k0 = ap.FindIndex(pl => pl.Name == curPlanName); tplBox.SelectedIndex = Math.Max(0, k0); tplBox.SelectedItem = tplBox.Items[Math.Max(0, k0)]; };
             tplBox.SelectionChanged += delegate { var ap = allPlans(); if (tplBox.SelectedIndex >= 0 && tplBox.SelectedIndex < ap.Count && ap[tplBox.SelectedIndex].Name != curPlanName) applyPlan(ap[tplBox.SelectedIndex]); };
-            set.Children.Insert(0, field("👥 POOL (firm round robin)", evPoolBox)); set.Children.Insert(0, field("🎯 TEMPLATE", tplBox));
+            set.Children.Insert(0, poolAutoCb); poolAutoCb.Click += delegate { poolShowAuto = poolAutoCb.IsChecked == true; fillPoolBox(); }; set.Children.Insert(0, field("👥 POOL (firm round robin)", evPoolBox)); set.Children.Insert(0, field("🎯 TEMPLATE", tplBox));
             applyPlan(KeystoneEvalLab.Presets()[0]); fillTplBox();   /* the tested ★ BEST plan is set when the lab opens */
             // ---- the results (right)
             var right = new DockPanel(); root.Children.Add(right);
@@ -51600,18 +52385,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                 sp.Children.Add(new TextBlock { Text = Signed(t.Bal), Foreground = t.Bal >= 0 ? Green : Red, FontSize = 17, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas") });
                 if (!double.IsNaN(t.Floor)) sp.Children.Add(Txt(RoomText(t.Bal - t.Floor, t.Dd), t.Bal - t.Floor < 500 ? Orange : Muted, 10.5, FontWeights.SemiBold));   /* the room in $ (never a bare negative floor: the user's catch) */
                 sp.Children.Add(Txt(t.State == "PASSED" ? (t.Funded ? "FLOOR LOCKED ✔" : "PASSED ✔") : t.State == "BLOWN" ? "BLOWN" : t.State == "DAY" ? "day target banked" : t.State == "LOSS" ? "lost today " + Signed(t.Today) : "in evaluation", col, 11, FontWeights.SemiBold));
-                if (t.Target > 0 && t.State != "BLOWN")
-                {   // 🧪 two bars: the way to the target and the buffer above the floor (they slide to their new size)
-                    Action<double, SolidColorBrush, string> bar = (frac, bc, cap) =>
-                    {
-                        frac = Math.Max(0, Math.Min(1, frac)); var g = new Grid { Height = 6, Margin = new Thickness(0, 3, 0, 0), ToolTip = cap }; g.Children.Add(new Border { Background = Tint(Text, 30), CornerRadius = new CornerRadius(3) });
-                        var fill = new Border { Background = bc, CornerRadius = new CornerRadius(3), HorizontalAlignment = HorizontalAlignment.Left, Width = 148 * frac }; g.Children.Add(fill);
-                        if (t.Animate) { try { fill.BeginAnimation(FrameworkElement.WidthProperty, new DoubleAnimation(0, 148 * frac, TimeSpan.FromMilliseconds(350))); } catch { } } else fill.Width = 148 * frac;   /* only the account in a trade animates */
-                        sp.Children.Add(g);
-                    };
-                    bar(t.Bal / t.Target, Green, "to the target " + Cash(t.Target)); if (!double.IsNaN(t.Floor) && t.Dd > 0) bar((t.Bal - t.Floor) / t.Dd, t.Bal - t.Floor < 0.3 * t.Dd ? Orange : Cyan, "buffer above the floor");
+                if (t.Target > 0 || t.Dd > 0)
+                {   // 🟩 item 12: the animated buffer bar floor → balance → target (the floor slides, the bar eases, a flash on pass / blow)
+                    var rb = KeystonePayoutRules.BookOf(t.Firm) ?? KeystonePayoutRules.For(t.Firm, null); string kd = KeystoneTileModel.KindOf(rb, t.Funded); double fl = double.IsNaN(t.Floor) ? t.Bal - t.Dd : t.Floor;
+                    var tm = KeystoneTileModel.Make(t.Firm, kd, t.Funded, t.Bal, fl, Math.Max(1, t.Dd), t.Funded ? (rb.Tpt ? 0 : rb.LockAt) : 1e9, t.Target > 0 ? t.Target : fl + 2 * Math.Max(1, t.Dd), t.Funded && t.State == "PASSED", t.State == "PASSED" ? "PASSED" : t.State == "BLOWN" ? "BLOWN" : t.State == "DAY" ? "BANKED" : t.State == "LOSS" ? "LOST" : t.Funded ? "FUNDED" : "EVAL", t.Funded ? "lock" : "target");
+                    sp.Children.Add(LabBufferBar("deck." + t.Id, tm, firmCol(t.Firm), 148));
                 }
                 var tb0 = new Border { Width = 170, MinHeight = 96, Background = Tint(col, (byte)(t.State == "" ? 18 : 40)), BorderBrush = Tint(col, 170), BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 8, 8), Child = sp };
+                { var tn9 = t.Name; tb0.Cursor = System.Windows.Input.Cursors.Hand; tb0.MouseLeftButtonUp += delegate { if (evalLabCardOverlay != null) evalLabCardOverlay(tn9); }; }
                 if (t.Firm != "") { var dp = new DockPanel(); var stripe = new Border { Width = 4, Background = firmCol(t.Firm), CornerRadius = new CornerRadius(2), Margin = new Thickness(0, 0, 8, 0) }; DockPanel.SetDock(stripe, Dock.Left); tb0.Child = null; dp.Children.Add(stripe); dp.Children.Add(sp); tb0.Child = dp; tb0.ToolTip = firmName(t.Firm); }
                 return tb0;
             };
@@ -51651,7 +52432,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (double.IsNaN(sl) || (sl < 25 && sl != 0) || double.IsNaN(tg) || tg < 25) { status.Text = "the trade's STOP $ (0 = no stop: ride to the floor, or from $25) and TARGET $ (from $25, kept AFTER costs); the fees and slippage are counted on every rotation"; status.Foreground = Red; return null; }
                 if (double.IsNaN(fee) || fee < 0) fee = 0;
                 var sess = sessions[Math.Max(0, sessBox.SelectedIndex)]; var side = sides[Math.Max(0, sideBox.SelectedIndex)][0]; int n = 0;
-                var runPool = evPoolBox.SelectedIndex > 0 && evPoolBox.SelectedIndex - 1 < pools.Count ? pools[evPoolBox.SelectedIndex - 1] : null;
+                var runPool = evPoolBox.SelectedIndex > 0 && evPoolBox.SelectedIndex - 1 < poolShown.Count ? poolShown[evPoolBox.SelectedIndex - 1] : null;
                 if (runPool == null)
                 {   /* ① a simulated mix from the counts per firm (firm by firm, each firm's own rules) */
                     var per = rotFirms.Item2(); if (per.Sum(x => x.Item2) < 1) { status.Text = "① tick at least one firm with 1 – 50 accounts"; status.Foreground = Red; return null; }
@@ -51877,10 +52658,19 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var nmT = Txt(nameOf(a) + " · " + KeystonePipeline.Nice(f1), firmCol(f1), 12.5, FontWeights.Bold); nmT.TextWrapping = TextWrapping.Wrap; l1.Children.Add(nmT); sp1.Children.Add(l1);
                     var tr1 = msim.Trades.Where(t => t.Account == a.Id && t.Day == msim.Day).Sum(t => t.Pnl) + opens.Where(o => o.Acc == a).Sum(o => o.Now);
                     var l2 = Txt("balance " + Signed(bal1) + " · today " + Signed(tr1) + (mStag && a.Alive && !passedA(a) ? " · " + KeystoneLabFlow.AmHhmm(KeystoneLabFlow.StaggerTimes[slotNoOf(a)]) : "") + (a.Alive && mDayOver && !passedA(a) ? " · " + remainOf(a) : ""), Text, 11.5, FontWeights.SemiBold); l2.TextWrapping = TextWrapping.Wrap; sp1.Children.Add(l2);
-                    double frac = Math.Max(0, Math.Min(1, (bal1 - fl1) / Math.Max(1, tg1 - fl1))); var rg = new Grid { Height = 5, Margin = new Thickness(0, 3, 0, 0), ToolTip = "room bar: floor " + Signed(fl1) + " → target " + Signed(tg1) }; rg.Children.Add(new Border { Background = Tint(Text, 30), CornerRadius = new CornerRadius(2) }); rg.Children.Add(new Border { Background = frac < 0.25 ? Orange : Green, CornerRadius = new CornerRadius(2), HorizontalAlignment = HorizontalAlignment.Left, Width = 236 * frac }); sp1.Children.Add(rg);
+                    {   /* 🟩 item 12: the animated buffer bar floor → balance (incl. open P/L) → target, the trail's kind / lock, days, the last + next trade */
+                        var br1 = KeystonePayoutRules.BookOf(f1) ?? KeystonePayoutRules.For(f1, null); string kd1 = KeystoneTileModel.KindOf(br1, mFunded); bool lk1 = mFunded && a.BufferOn != DateTime.MinValue;
+                        string ts1 = st1 == "TRADE" ? "TRADE" : st1 == "PASSED" ? "PASSED" : st1 == "BLOWN" ? "BLOWN" : st1 == "DAY" ? "BANKED" : st1 == "LOSS" ? "LOST" : mFunded ? "FUNDED" : "EVAL";
+                        var tm1 = KeystoneTileModel.Make(f1, kd1, mFunded, bal1, fl1, Math.Max(1, msim.Drawdown(a)), mFunded ? (br1.Tpt ? 0 : br1.LockAt) : 1e9, tg1, lk1, ts1, mFunded ? (lk1 ? "next withdrawal" : "lock") : "target");
+                        sp1.Children.Add(LabBufferBar("ev." + a.Id, tm1, firmCol(f1), 236));
+                        var rec1 = evalLabResultsLast != null ? evalLabResultsLast.Record : null; var trs1 = msim.Trades.Where(t => t.Account == a.Id).ToList(); int dn1 = trs1.Select(t => t.Day.Date).Distinct().Count();
+                        var hist1 = rec1 == null ? new List<int>() : mFunded ? rec1.DaysToLock(f1) : rec1.DaysToPass(f1);
+                        var lt1 = trs1.Count == 0 ? "no trade yet" : "last: " + KeystoneLabFlow.Am(trs1[trs1.Count - 1].Exit) + " · " + trs1[trs1.Count - 1].Legs + " · " + Signed(trs1[trs1.Count - 1].Pnl) + " · " + KeystoneRunRecord.HowName(trs1[trs1.Count - 1].Reason);
+                        var l3 = Txt(KeystoneTileModel.DaysToLock(dn1, hist1, mFunded ? "lock the trailing" : "pass") + " · " + lt1 + (a.Alive && !passedA(a) ? " · next " + (mStag ? KeystoneLabFlow.AmHhmm(KeystoneLabFlow.StaggerTimes[slotNoOf(a)]) : "the session start") : ""), Muted, 10.5, FontWeights.Normal); l3.TextWrapping = TextWrapping.Wrap; sp1.Children.Add(l3);
+                    }
                     var row = new Border { Width = 262, Background = Tint(col1, (byte)(st1 == "" ? 16 : 44)), BorderBrush = nx == a ? Text : Tint(col1, 120), BorderThickness = new Thickness(nx == a ? 2.2 : 1), CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 4, 6, 5), Margin = new Thickness(0, 0, 0, 4), Child = dp };
                     if (st1 == "TRADE") { row.BorderBrush = Gold; row.BorderThickness = new Thickness(2.4); pulsing.Add(row); }
-                    var aa1 = a; row.Cursor = System.Windows.Input.Cursors.Hand; row.MouseLeftButtonUp += delegate { focusAcc = aa1; poolDetail.Text = detailOf(aa1); if (paintMan != null) paintMan(); };
+                    var aa1 = a; row.Cursor = System.Windows.Input.Cursors.Hand; row.ToolTip = "click → the account card (and the chart follows it)"; row.MouseLeftButtonUp += delegate { focusAcc = aa1; poolDetail.Text = detailOf(aa1); if (paintMan != null) paintMan(); if (evalLabCardOverlay != null) evalLabCardOverlay(nameOf(aa1)); };
                     return row;
                 }
                 var st = stateOf(a); var col = stateCol(st); string f = firmOfA(a); var sp = new StackPanel();
@@ -51900,7 +52690,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 passedView.Children.Clear(); blownView.Children.Clear(); passedRows.Clear(); blownRows.Clear(); if (msim == null) { passedView.Children.Add(Txt("① START THE REPLAY first", Muted, 13, FontWeights.SemiBold)); blownView.Children.Add(Txt("① START THE REPLAY first", Muted, 13, FontWeights.SemiBold)); return; }
                 var ok = batchAcc().Where(passedA).ToList(); var bl = batchAcc().Where(a => !a.Alive && !passedA(a)).ToList();
                 passedView.Children.Add(Txt("✅ PASSED • " + ok.Count + " of " + msim.Accounts.Count + " bought" + (ok.Count > 0 ? " • " + string.Join(", ", ok.GroupBy(a => KeystonePipeline.Nice(firmOfA(a))).Select(g => g.Count() + " " + g.Key)) : ""), Green, 16, FontWeights.Bold));
-                foreach (var a in ok) { string row = nameOf(a) + " · " + KeystonePipeline.Nice(firmOfA(a)) + " · " + (msim.PassedPending(a) ? "✅ PASSED · " + KeystonePipeline.Nice(firmOfA(a)) + " · day " + (a.EvalDays + 1) + ": tiny trade to activate" : "✅ PASSED " + a.PassedOn.ToString("ddd dd MMM", CultureInfo.InvariantCulture)) + " · " + a.EvalDays + " day(s) · balance " + Signed(a.Bal); passedRows.Add(row); passedView.Children.Add(Txt(row, Text, 12.5, FontWeights.SemiBold)); }
+                foreach (var a in ok) { string row = nameOf(a) + " · " + KeystonePipeline.Nice(firmOfA(a)) + " · " + (msim.PassedPending(a) ? "✅ PASSED · " + KeystonePipeline.Nice(firmOfA(a)) + " · day " + (a.EvalDays + 1) + ": tiny trade to activate" : "✅ PASSED " + a.PassedOn.ToString("ddd dd MMM", CultureInfo.InvariantCulture)) + " · " + a.EvalDays + " day(s) · balance " + Signed(a.Bal); passedRows.Add(row); var pr9 = Txt(row + "   🗂", Text, 12.5, FontWeights.SemiBold); pr9.MinHeight = 28; pr9.Cursor = System.Windows.Input.Cursors.Hand; pr9.ToolTip = "click → the account card"; string pk9 = nameOf(a); pr9.MouseLeftButtonUp += delegate { if (evalLabCardOverlay != null) evalLabCardOverlay(pk9); }; passedView.Children.Add(pr9); }
                 if (ok.Count > 0) { var fb = Btn("🎉 " + ok.Count + " passed → ▶ START THE FUNDED STAGE", Green); fb.Height = 40; fb.FontSize = 15; fb.Margin = new Thickness(0, 10, 0, 0); fb.HorizontalAlignment = HorizontalAlignment.Left; fb.Click += delegate { if (startFunded != null) startFunded(); }; passedView.Children.Add(fb); }
                 blownView.Children.Add(Txt("💀 BLOWN • " + bl.Count + " of " + msim.Accounts.Count + " bought • the evaluations lost: " + Cash(bl.Sum(a => msim.RulesOf(a).EvalCost)), Red, 16, FontWeights.Bold));
                 foreach (var g in bl.GroupBy(a => KeystonePipeline.Nice(firmOfA(a)))) blownView.Children.Add(Txt("   " + g.Key + ": " + g.Count() + " blown · " + Signed(g.Sum(a => a.Bal)) + " · fees lost " + Cash(g.Sum(a => msim.RulesOf(a).EvalCost)), firmCol(g.First() != null ? firmOfA(g.First()) : ""), 12.5, FontWeights.SemiBold));
@@ -51908,7 +52698,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 {
                     var t = msim.Trades.Where(x => x.Account == a.Id).OrderBy(x => x.Exit).LastOrDefault();
                     string row = nameOf(a) + " · " + KeystonePipeline.Nice(firmOfA(a)) + " · " + a.Ended.ToString("ddd dd MMM", CultureInfo.InvariantCulture) + (t != null ? " · " + KeystoneLabFlow.Am(t.Exit) + " New York · " + t.Legs + " · " + Signed(t.Pnl) + " · " + (t.Reason == "SESSION CLOSE" ? "session close" : "floor hit (" + t.Reason + ")") : "") + " · balance " + Signed(a.Bal + a.DayPnl) + " · eval cost lost " + Cash(msim.RulesOf(a).EvalCost);
-                    blownRows.Add(row); blownView.Children.Add(Txt(row, Text, 12, FontWeights.Normal));
+                    blownRows.Add(row); var br9 = Txt(row + "   🗂", Text, 12, FontWeights.Normal); br9.MinHeight = 28; br9.Cursor = System.Windows.Input.Cursors.Hand; br9.ToolTip = "click → the account card"; string bk9 = nameOf(a); br9.MouseLeftButtonUp += delegate { if (evalLabCardOverlay != null) evalLabCardOverlay(bk9); }; blownView.Children.Add(br9);
                 }
             };
             evalLabPassedRows = () => { paintTabs(); return passedRows.ToList(); }; evalLabBlownRows = () => { paintTabs(); return blownRows.ToList(); };
@@ -52402,7 +53192,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 rotStudioManSim = msim; openDay(0);
             };
             mLoad.Click += delegate { loadMan(); };
-            mPick.Click += delegate { OpenDayPicker(d => { fromBox.Text = d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); toBox.Text = d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); loadMan(); }); };
+            mPick.Click += delegate { LabOverlayShow(evalLabOverlay, "📅 PICK A DAY (the replay starts there)", LabDatePickView(LabSavedDays(), ParseStudioDate(fromBox.Text), (ps9, ws9) => { fromBox.Text = ps9[0].Item1.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); toBox.Text = ps9[ps9.Count - 1].Item2.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); LabOverlayHide(evalLabOverlay); loadMan(); }), null); };
             rotStudioManLoad = loadMan; rotStudioManEnter = enter; rotStudioManStep = stepN;
             // 🗂 THE TABS: 📈 TRADING (top bar + chart + pool) • ⚙ SETTINGS (+ the instant results) • 📊 RESULTS • 📜 LOG • ✅ PASSED • 💀 BLOWN
             resHost.Children.Add(logSv); resHost.Children.Add(passedSv); resHost.Children.Add(blownSv); modeSw.Visibility = Visibility.Collapsed;
@@ -52623,9 +53413,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             var startPick = Btn("📅", Cyan); startPick.Width = 40; startPick.Height = 30; startPick.ToolTip = "a calendar of every saved day";
             var periodTxt = Txt("", Muted, 11, FontWeights.SemiBold); periodTxt.TextWrapping = TextWrapping.Wrap;
             List<DateTime> savedDays = new List<DateTime>(); try { savedDays = KeystoneStudioStore.Sessions(StudioFolder(), "MNQ").Keys.Select(x => x.Date).OrderBy(x => x).ToList(); } catch { }
-            Func<bool> tptIn = () => (evPoolBox.SelectedIndex > 0 && evPoolBox.SelectedIndex - 1 < pools.Count ? poolCounts(pools[evPoolBox.SelectedIndex - 1]) : rotFirms.Item2()).Any(x => x.Item1 == "TPT" && x.Item2 > 0);
+            Func<bool> tptIn = () => (evPoolBox.SelectedIndex > 0 && evPoolBox.SelectedIndex - 1 < poolShown.Count ? poolCounts(poolShown[evPoolBox.SelectedIndex - 1]) : rotFirms.Item2()).Any(x => x.Item1 == "TPT" && x.Item2 > 0);
             bool endTyped = false, settingEnd = false;   /* 🐞 BUILD 11a (item 19): an END you type is used (the summary, ⚡ CALCULATE, ▶ REPLAY); the auto END is the eval minimum */
             Action clearEnd = delegate { settingEnd = true; endBox.Text = ""; settingEnd = false; endTyped = false; };
+            List<Tuple<DateTime, DateTime>> pickPeriods = null; List<string> pickWords = null; bool pickSetting = false;   /* 📅 items 18 / 28 / 29: the picked periods (non-contiguous ticks = several) */
             Action applyStart = delegate
             {
                 DateTime d0, e0; if (!DateTime.TryParseExact((startBox.Text ?? "").Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d0)) { periodTxt.Text = "START DATE as yyyy-mm-dd"; periodTxt.Foreground = Red; return; }
@@ -52633,20 +53424,30 @@ namespace NinjaTrader.NinjaScript.AddOns
                 fromBox.Text = d0.ToString("yyyy-MM-dd"); toBox.Text = e0.ToString("yyyy-MM-dd"); int n0 = KeystonePropSim.Weekdays(d0, e0).Count;
                 periodTxt.Text = d0.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture) + " → " + e0.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture) + " · " + n0 + " trading days" + (endTyped ? " (your END)" : " (2 = the eval minimum" + (tptIn() ? "; TPT: + its 3rd day, the tiny trade" : "") + ")")
                     + " • EVAL ONLY runs these days (an account not finished keeps going to the END) • EVAL → FUNDED runs " + (endTyped ? "to your END" : "until every account passed or blew, then funded to the goal or the saved data's end (" + (savedDays.Count > 0 ? savedDays[savedDays.Count - 1] : lastSaved).ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture) + ")"); periodTxt.Foreground = Muted;
+                if (pickWords != null) { periodTxt.Text = "📅 " + KeystoneDatePick.Summary(pickPeriods ?? new List<Tuple<DateTime, DateTime>> { Tuple.Create(d0, e0) }, pickWords) + (pickPeriods != null ? " • ⚡ CALCULATE runs each period on its own, then shows each + combined" : "") + "\n" + periodTxt.Text; periodTxt.Foreground = Cyan; }
             };
-            startBox.TextChanged += delegate { clearEnd(); applyStart(); }; startPick.Click += delegate { OpenDayPicker(d => { startBox.Text = d.ToString("yyyy-MM-dd"); clearEnd(); applyStart(); }); };
+            startBox.TextChanged += delegate { if (!pickSetting) { pickPeriods = null; pickWords = null; } clearEnd(); applyStart(); };
+            Action<List<Tuple<DateTime, DateTime>>, List<string>> pickTo = (ps, words) =>
+            {   /* 📅 every choice fills START + END + the summary line (one range, or several periods) */
+                if (ps == null || ps.Count == 0) return; pickSetting = true; startBox.Text = ps[0].Item1.ToString("yyyy-MM-dd"); settingEnd = true; endBox.Text = ps[ps.Count - 1].Item2.ToString("yyyy-MM-dd"); settingEnd = false; endTyped = ps[ps.Count - 1].Item2 > ps[0].Item1; pickSetting = false;
+                pickPeriods = ps.Count > 1 ? ps.ToList() : null; pickWords = words != null ? words.ToList() : null; if (!endTyped) clearEnd(); applyStart();
+            };
+            evalLabPickPeriods = pickTo; startPick.ToolTip = "📅 PICK A DAY · a range · several periods — inside this tab (✕ / Esc closes)";
+            Func<FrameworkElement> pickView = () => { DateTime a9; if (!DateTime.TryParseExact((startBox.Text ?? "").Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out a9)) a9 = lastSaved; return LabDatePickView(savedDays.Count > 0 ? savedDays : LabSavedDays(), a9, pickTo); };
+            evalLabPickView = pickView; startPick.Click += delegate { LabOverlayShow(evalLabOverlay, "📅 PICK A DAY · A RANGE · PERIODS → START / END", pickView(), null); };
             endBox.TextChanged += delegate { if (settingEnd) return; DateTime e1; if (DateTime.TryParseExact((endBox.Text ?? "").Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out e1)) { endTyped = true; applyStart(); } };
             var sdRow0 = new WrapPanel(); sdRow0.Children.Add(field("START DATE", startBox)); sdRow0.Children.Add(startPick); sdRow0.Children.Add(field("END (auto · editable)", endBox)); startCard.Children.Add(sdRow0); startCard.Children.Add(periodTxt);
             var scopeBox = Select("EVAL → FUNDED → PAYOUTS (both)", "EVAL ONLY", "FUNDED ONLY (N funded accounts per firm)"); scopeBox.SelectedIndex = 0; scopeBox.Tag = "rot.scope"; startCard.Children.Add(field("SCOPE", scopeBox));
             string choiceFile = Path.Combine(labDir, "funded-plan.txt"); KeystoneFundedChoice.Load(choiceFile);   /* 💾 27e: the funded plan choice is saved between sessions (both labs) */
-            var fPlans = KeystonePayoutPlan.Presets(); var fPlanBox = Select(fPlans.Select(x => x.Name).ToArray()); fPlanBox.SelectedIndex = KeystoneFundedChoice.IndexIn(fPlans); fPlanBox.Tag = "rot.fplan"; fPlanBox.ToolTip = "the funded plan of the funded stage (🛟 SAFE PAYOUT by default; your choice is kept for the next session)"; startCard.Children.Add(field("FUNDED PLAN", fPlanBox));
+            var fPlans = KeystonePayoutPlan.Presets(); var fPlanBox = Select(fPlans.Select(x => ComboText(x.Name)).ToArray()); fPlanBox.SelectedIndex = KeystoneFundedChoice.IndexIn(fPlans); fPlanBox.Tag = "rot.fplan"; fPlanBox.ToolTip = "the funded plan of the funded stage (🛟 SAFE PAYOUT by default; your choice is kept for the next session)"; startCard.Children.Add(field("FUNDED PLAN", fPlanBox));
             var sprintBox = Select(KeystonePayoutPlan.SprintChoices.Select(KeystonePayoutPlan.SprintName).ToArray()); sprintBox.SelectedIndex = Math.Max(0, Array.IndexOf(KeystonePayoutPlan.SprintChoices, KeystoneFundedChoice.Sprint)); sprintBox.Tag = "rot.sprint";
             sprintBox.ToolTip = "⚡ SPRINT (research): N Lucid / Tradeify accounts of the batch trade their first 5 funded days on MNQ 10, no stop (ride the room), the day's TP = what the MAX payout still needs ÷ the days left ($800–$2,500); the max payout if it comes with 5 qualifying days, else SAFE from day 6 • 2 sprint + SAFE ≈ 22 % of batches get a max payout by day 5, 15 % pay nothing";
             var goalBox = Select("🏁 all payouts", "🏁 the first payout", "🏁 2 payouts", "🏁 3 payouts"); goalBox.SelectedIndex = Math.Max(0, Math.Min(3, KeystoneFundedChoice.Goal)); goalBox.Tag = "rot.goal"; goalBox.ToolTip = "each funded account runs to this goal (or blown / the end of the saved days)";
-            var spRow = new WrapPanel(); spRow.Children.Add(field("⚡ SPRINT", sprintBox)); spRow.Children.Add(field("FUNDED GOAL", goalBox)); startCard.Children.Add(spRow);
+            var spRow = new WrapPanel(); spRow.Children.Add(field("FUNDED GOAL", goalBox)); startCard.Children.Add(spRow); sprintBox.Visibility = Visibility.Collapsed; spRow.Children.Add(sprintBox);
+            startCard.Children.Add(SprintControl(() => KeystonePayoutPlan.SprintChoices[Math.Max(0, sprintBox.SelectedIndex)], v => { sprintBox.SelectedIndex = Math.Max(0, Array.IndexOf(KeystonePayoutPlan.SprintChoices, v)); }, "rot.sprint"));   /* ⚡ item 1: one clear control + the research note */
             Action saveChoice = delegate { KeystoneFundedChoice.PlanName = fPlans[Math.Max(0, fPlanBox.SelectedIndex)].Name; KeystoneFundedChoice.Sprint = KeystonePayoutPlan.SprintChoices[Math.Max(0, sprintBox.SelectedIndex)]; KeystoneFundedChoice.Goal = Math.Max(0, goalBox.SelectedIndex); KeystoneFundedChoice.Save(choiceFile); };
             fPlanBox.SelectionChanged += delegate { saveChoice(); }; sprintBox.SelectionChanged += delegate { saveChoice(); }; goalBox.SelectionChanged += delegate { saveChoice(); };
-            Func<string, string, Brush, Button> bigNote = (t, note, b) => { var x = Btn(t, b); x.Height = 40; x.FontSize = 13.5; x.Margin = new Thickness(0, 6, 0, 0); x.HorizontalAlignment = HorizontalAlignment.Stretch; x.ToolTip = note; return x; };
+            Func<string, string, Brush, Button> bigNote = (t, note, b) => { var x = Btn(t, b); x.Content = new TextBlock { Text = t, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center }; x.Height = double.NaN; x.MinHeight = 40; x.Padding = new Thickness(8, 4, 8, 4); x.FontSize = 13.5; x.Margin = new Thickness(0, 6, 0, 0); x.HorizontalAlignment = HorizontalAlignment.Stretch; x.ToolTip = note; return x; };
             var cEvalBtn = bigNote("⚡ CALCULATE EVAL ONLY", "no chart, instant: 🧪 EVAL RESULTS — passed / blown / in eval per firm, wins vs losses, the streaks, every account's day 1 / day 2", Green);
             var cAllBtn = bigNote("⚡ CALCULATE ALL: EVAL → FUNDED → PAYOUTS", "no chart, instant: ONE batch from the START DATE — the eval runs until each account passed or blew, each passed account goes funded the session after (TPT after its day-3 trade) and runs to the goal or blown or the end of the saved data; every result tab + spent / paid / net", Orchid);
             var cRepBtn = bigNote("▶ REPLAY WITH CHART", "the visual replay: the chart + the pool, AUTO / MANUAL, ✋ TPT presses", Blue);
@@ -52658,6 +53459,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             KeystoneLabResults lastRes = null; string resSub = "EVAL";
             /* 📒 BUILD 11b: the record views — PAYOUTS sub-tab, the open ACCOUNT CARD (inline, no window), the expanded payout cycle, the TIMELINE filters + day scrub,
                ⚖ COMPARE's two runs (the last runs of this session), 📦 EXPORT FOR CLAUDE (+ the price minutes) */
+            Action<KeystoneLabResults> calcHook = null; List<Tuple<string, KeystoneLabResults>> periodRes = null; int bsSortCol = -1; bool bsSortDesc = true;   /* 🏆 item 35: BEST START DAYS sorted by a column */   /* 📅 item 29: several periods → each run on its own, shown per period + combined */
             string paySub = "BYPAY", cardKey = null, expandedPay = null, tlAccount = null, tlFirm = null, tlStage = null, tlKind = null, lastExport = ""; DateTime? tlDay = null; bool exportMinutes = false; int cmpA = 0, cmpB = 1;
             var runHistory = new List<Tuple<string, KeystoneLabResults>>(); evalLabRunHistory = runHistory; Action paintResults = null;
             Func<List<string[]>, int, Func<string[], string>, FrameworkElement> tableClick = (t, max, keyOf) =>
@@ -52678,10 +53480,11 @@ namespace NinjaTrader.NinjaScript.AddOns
             Func<List<string[]>, int, FrameworkElement> tableOf = (t, max) => tableClick(t, max, null);
             Func<string[], string> acct0 = row => row.Length > 0 && !row[0].StartsWith("Σ") && row[0] != "ALL" ? row[0] : null;   /* the first column is the account */
             // 🗂 THE ACCOUNT CARD (item 9) — inline in the RESULTS tab (item 21: no separate window), ✕ closes it: the eval + each payout cycle, every trade, the balance vs the floor
+            bool cardOv = false;   /* item 35: the same card in the in-tab overlay (pool tiles, PASSED / BLOWN, the minute chart) */
             Func<KeystoneRunRecord, string, FrameworkElement> cardView = (rec, key) =>
             {
-                var c = rec.Card(key); var sp = new StackPanel(); if (c.Account == null) { sp.Children.Add(Txt("no account " + key + " in this run", Muted, 12, FontWeights.SemiBold)); return sp; }
-                var top = new DockPanel(); var close = Btn("✕ CLOSE THE CARD", Card); close.Height = 30; DockPanel.SetDock(close, Dock.Right); close.Click += delegate { cardKey = null; paintResults(); }; top.Children.Add(close);
+                bool inOv = cardOv; var c = rec.Card(key); var sp = new StackPanel(); if (c.Account == null) { sp.Children.Add(Txt("no account " + key + " in this run", Muted, 12, FontWeights.SemiBold)); return sp; }
+                var top = new DockPanel(); var close = Btn("✕ CLOSE THE CARD", Card); close.Height = 30; DockPanel.SetDock(close, Dock.Right); close.Click += delegate { if (inOv) LabOverlayHide(evalLabOverlay); else { cardKey = null; paintResults(); } }; top.Children.Add(close);
                 top.Children.Add(Txt("🗂 " + c.Lines[0], Gold, 16, FontWeights.Bold)); sp.Children.Add(top);
                 foreach (var l in c.Lines.Skip(1)) { var tl = Txt(l, l.StartsWith("WHY") ? Gold : Text, 12.5, FontWeights.SemiBold); tl.TextWrapping = TextWrapping.Wrap; sp.Children.Add(tl); }
                 if (c.Path.Count > 1)
@@ -52691,13 +53494,18 @@ namespace NinjaTrader.NinjaScript.AddOns
                     Func<int, double> X = i => 30 + (W - 40) * i / Math.Max(1, pts.Count - 1); Func<double, double> Y = v => H - 12 - (H - 24) * (v - lo) / (hi - lo);
                     var bal = new System.Windows.Shapes.Polyline { Stroke = Cyan, StrokeThickness = 2, Points = new PointCollection() }; var flo = new System.Windows.Shapes.Polyline { Stroke = Red, StrokeThickness = 1.5, Points = new PointCollection() };
                     for (int i = 0; i < pts.Count; i++) { bal.Points.Add(new Point(X(i), Y(pts[i].EndBal))); flo.Points.Add(new Point(X(i), Y(pts[i].Floor))); }
+                    if (c.Account.Firm == "TPT")
+                    {   /* 🔒 item 35: the TPT $2,000 buffer band above the locked floor (funded, after the lock) — a withdrawal only above it */
+                        double bufD = rec.RulesOf("TPT").Dd; double half = (W - 40) / Math.Max(1, pts.Count - 1) / 2;
+                        for (int i = 0; i < pts.Count; i++) { var pd = pts[i]; if (!pd.Locked || pd.Stage != "FUNDED") continue; var band = new System.Windows.Shapes.Rectangle { Width = Math.Max(2, 2 * half), Height = Math.Max(1, Y(pd.Floor) - Y(pd.Floor + bufD)), Fill = Tint(Orchid, 46) }; Canvas.SetLeft(band, X(i) - half); Canvas.SetTop(band, Y(pd.Floor + bufD)); cv.Children.Add(band); }
+                    }
                     cv.Children.Add(flo); cv.Children.Add(bal);
                     for (int i = 0; i < pts.Count; i++)
                     {
                         var pd = pts[i]; string mark = c.Paid.Any(p => p.Day == pd.Date && pd.Stage == "FUNDED") ? "💵" : pd.Locked && (i == 0 || !pts[i - 1].Locked) ? "🔒" : i > 0 && pts[i - 1].Stage == "EVAL" && pd.Stage == "FUNDED" ? "💰" : null;
                         if (mark == null) continue; var mk9 = new TextBlock { Text = mark, FontSize = 12 }; Canvas.SetLeft(mk9, X(i) - 7); Canvas.SetTop(mk9, Y(pd.EndBal) - 18); cv.Children.Add(mk9);
                     }
-                    var lg = Txt("— balance   — floor   💰 funded   💵 payout   🔒 trailing locked   (" + pts[0].Date.ToString("dd MMM", CultureInfo.InvariantCulture) + " → " + pts[pts.Count - 1].Date.ToString("dd MMM yyyy", CultureInfo.InvariantCulture) + ")", Muted, 11, FontWeights.SemiBold);
+                    var lg = Txt("— balance   — floor   💰 funded   💵 payout   🔒 trailing locked" + (c.Account.Firm == "TPT" ? "   ▒ the $2,000 buffer (TPT: a withdrawal only above it)" : "") + "   (" + pts[0].Date.ToString("dd MMM", CultureInfo.InvariantCulture) + " → " + pts[pts.Count - 1].Date.ToString("dd MMM yyyy", CultureInfo.InvariantCulture) + ")", Muted, 11, FontWeights.SemiBold);
                     sp.Children.Add(cv); sp.Children.Add(lg);
                 }
                 sp.Children.Add(Txt("THE STAGES (eval, each payout cycle)", Cyan, 12, FontWeights.Bold)); sp.Children.Add(tableOf(c.Cycles, 60));
@@ -52705,6 +53513,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                 return new Border { Background = Tint(Gold, 18), BorderBrush = Tint(Gold, 150), BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(9), Padding = new Thickness(10), Margin = new Thickness(0, 6, 0, 8), Child = sp };
             };
             Func<string> exportResults = null; Action<string> calcAgain = null; Func<string> exportClaude = null;
+            evalLabCardOverlay = key =>
+            {   /* 🗂 item 35: a pool tile / a PASSED or BLOWN row / the minute chart → the account card, in the tab's overlay */
+                var rec9 = lastRes != null ? lastRes.Record : null; if (string.IsNullOrEmpty(key)) return;
+                var acc9 = rec9 == null ? null : rec9.Find(key) ?? rec9.Accounts.FirstOrDefault(a => a.Name.EndsWith(key) || a.Key.EndsWith(key));
+                if (acc9 == null) { LabOverlayShow(evalLabOverlay, "🗂 " + key, Txt("no account card for " + key + " yet — the card comes from the latest run's record: ⚡ CALCULATE, or ▶ REPLAY (it fills as it plays)", Gold, 13, FontWeights.SemiBold), null); return; }
+                cardOv = true; FrameworkElement el9; try { el9 = cardView(rec9, acc9.Key); } finally { cardOv = false; }
+                LabOverlayShow(evalLabOverlay, "🗂 ACCOUNT CARD · " + acc9.Key + " · " + acc9.FirmNice, el9, null);
+            };
             // 💰 item 6: whenever an eval run finishes (⚡ CALCULATE or ▶ REPLAY) its passed accounts go to the Funded Lab — the latest run wins, dated
             Action<List<KeystoneEvalAccount>, DateTime, DateTime, string> pushPassed = (acc, a0, b0, how) =>
             {
@@ -52745,13 +53561,22 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 var sum = Txt(r.Accounts + " bought (" + Cash(r.Spent) + ") · ✅ " + r.Passed + " passed (" + (r.Accounts == 0 ? 0 : 100 * r.Passed / r.Accounts) + " %) · 💀 " + r.Blown + " blown · ● " + r.InEval + " in eval · trades " + r.Wins + " won / " + r.Losses + " lost (" + (r.Wins + r.Losses == 0 ? "–" : (100.0 * r.Wins / (r.Wins + r.Losses)).ToString("0", CultureInfo.InvariantCulture) + " %") + ") · streaks " + r.WinStreak + " won / " + r.LossStreak + " lost in a row" + (r.Scope != "EVAL" ? " · 💰 " + r.Payouts + " payouts" : "") + " · spent " + Cash(r.Spent) + " · paid " + Cash(r.Paid) + " · net " + Signed(r.Paid - r.Spent), Text, 13, FontWeights.SemiBold); sum.TextWrapping = TextWrapping.Wrap; resultsView.Children.Add(sum);
                 if (r.Trust != "") { var tr0 = Txt("🔎 " + r.Trust, Muted, 11.5, FontWeights.SemiBold); tr0.TextWrapping = TextWrapping.Wrap; resultsView.Children.Add(tr0); var vf = Txt(KeystoneRunRecord.Verified, Green, 11, FontWeights.SemiBold); vf.TextWrapping = TextWrapping.Wrap; resultsView.Children.Add(vf); }   /* ✔ item 16 */
+                if (periodRes != null && periodRes.Count > 1)
+                {   /* 📅 item 29: each period + combined — click a period → its full results below */
+                    var pt = new List<string[]> { new[] { "PERIOD", "SESSIONS", "BOUGHT", "PASSED", "BLOWN", "IN EVAL", "PAYOUTS", "PAID", "SPENT", "NET" } };
+                    foreach (var pr0 in periodRes) { var x = pr0.Item2; pt.Add(new[] { (x == r ? "▶ " : "") + pr0.Item1, x.Sessions.ToString(), x.Accounts.ToString(), x.Passed.ToString(), x.Blown.ToString(), x.InEval.ToString(), x.Payouts.ToString(), Cash(x.Paid), Cash(x.Spent), Signed(x.Paid - x.Spent) }); }
+                    pt.Add(new[] { "Σ COMBINED (" + periodRes.Count + " periods)", periodRes.Sum(x => x.Item2.Sessions).ToString(), periodRes.Sum(x => x.Item2.Accounts).ToString(), periodRes.Sum(x => x.Item2.Passed).ToString(), periodRes.Sum(x => x.Item2.Blown).ToString(), periodRes.Sum(x => x.Item2.InEval).ToString(), periodRes.Sum(x => x.Item2.Payouts).ToString(), Cash(periodRes.Sum(x => x.Item2.Paid)), Cash(periodRes.Sum(x => x.Item2.Spent)), Signed(periodRes.Sum(x => x.Item2.Paid - x.Item2.Spent)) });
+                    resultsView.Children.Add(Txt("📅 " + periodRes.Count + " SEPARATE PERIODS — each run on its own (one batch per period) + combined · click a period → its full results below", Cyan, 13, FontWeights.Bold));
+                    var ptv = tableOf(pt, 40) as StackPanel; resultsView.Children.Add(ptv);
+                    if (ptv != null) for (int i9 = 1; i9 <= periodRes.Count && i9 < ptv.Children.Count; i9++) { var rowEl = ptv.Children[i9] as FrameworkElement; if (rowEl == null) continue; var res9 = periodRes[i9 - 1].Item2; rowEl.Cursor = System.Windows.Input.Cursors.Hand; rowEl.ToolTip = "click → the full results of " + periodRes[i9 - 1].Item1; rowEl.MouseLeftButtonUp += delegate { lastRes = res9; evalLabResultsLast = res9; cardKey = null; paintResults(); }; }
+                }
                 var rec = r.Record; bool tptIn0 = rec != null && rec.Accounts.Any(a => a.Firm == "TPT" && (a.Passed || a.Funded));
                 var sub = new WrapPanel { Margin = new Thickness(0, 8, 0, 8) }; resultsView.Children.Add(sub);
                 foreach (var tn in new[] { "EVAL|🧪 EVAL RESULTS", "ACCOUNTS|👤 ACCOUNTS", "FUNDED|💰 FUNDED RESULTS", "TIMELINE|🕒 TIMELINE", "DAYS|📅 DAYS", "TRADES|📜 TRADES", "BLOWN|💀 BLOWN", "PAYOUTS|💵 PAYOUTS", "STATS|📊 STATS" })
                 { var pr = tn.Split('|'); if (rec == null && (pr[0] == "ACCOUNTS" || pr[0] == "FUNDED" || pr[0] == "TIMELINE")) continue; var b = Btn(pr[1], pr[0] == resSub ? Cyan : Card); b.Height = 32; b.Margin = new Thickness(0, 0, 6, 0); string key = pr[0]; b.Click += delegate { resSub = key; paintResults(); }; sub.Children.Add(b); }
                 var exRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) }; resultsView.Children.Add(exRow);
                 var ex = Btn("⤓ EXPORT (CSV + summary HTML)", Tint(Cyan, 90)); ex.Height = 30; ex.Click += delegate { var f = exportResults(); status.Text = "⤓ " + f; status.Foreground = Cyan; }; exRow.Children.Add(ex);
-                if (rec != null)
+                if (rec != null || r.BestStarts)
                 {   // 📦 item 25: ONE JSON for Claude + 📂 OPEN FOLDER + 📋 COPY PATH
                     var ec = Btn("📦 EXPORT FOR CLAUDE (one JSON file)", Tint(Orchid, 110)); ec.Height = 30; ec.ToolTip = "writes keystone-check-<date>-<time>.json to Studio\\EvalLab\\exports: the build, the data, every setting, every trade / account-day / payout, the summary as shown"; ec.Click += delegate { var f = exportClaude(); status.Text = "📦 " + f; status.Foreground = Orchid; paintResults(); }; exRow.Children.Add(ec);
                     var mc = new CheckBox { Content = "include the price minutes of the traded days (bigger file)", IsChecked = exportMinutes, Foreground = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) }; mc.Click += delegate { exportMinutes = mc.IsChecked == true; }; exRow.Children.Add(mc);
@@ -52766,9 +53591,15 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (resSub == "EVAL" && r.BestStarts)
                 {   // 🏆 BEST START DAYS: the winner cards, the weekday averages, every start (click → that start's full results)
                     note("🏆 " + r.Header); h("🏆 THE WINNERS"); resultsView.Children.Add(tableOf(r.Stats, 40)); h("📅 BY WEEKDAY"); resultsView.Children.Add(tableOf(r.Eval, 10));
-                    h("EVERY START — click a row → ⚡ CALCULATE from that day (every tab + the timeline)"); resultsView.Children.Add(tableOf(r.Days, 400));
+                    h("EVERY START — click a column header to sort (again = the other way) · click a row → ⚡ CALCULATE from that day (every tab + the timeline)");
+                    var bsRows = r.Days; if (bsSortCol >= 0 && r.Days.Count > 2 && bsSortCol < r.Days[0].Length) { int sc9 = bsSortCol; Func<string[], double> num = row => { double v; var t9 = (sc9 < row.Length ? row[sc9] : "").Replace("$", "").Replace(",", "").Replace("−", "-").Replace("+", "").Replace("%", "").Trim().Split(' ')[0]; return double.TryParse(t9, NumberStyles.Any, CultureInfo.InvariantCulture, out v) ? v : double.NaN; };
+                        var body9 = r.Days.Skip(1).ToList(); bool numeric = body9.Count(x => !double.IsNaN(num(x))) >= body9.Count / 2; var sorted = numeric ? (bsSortDesc ? body9.OrderByDescending(x => double.IsNaN(num(x)) ? double.MinValue : num(x)) : body9.OrderBy(x => double.IsNaN(num(x)) ? double.MaxValue : num(x))).ToList() : (bsSortDesc ? body9.OrderByDescending(x => sc9 < x.Length ? x[sc9] : "", StringComparer.Ordinal) : body9.OrderBy(x => sc9 < x.Length ? x[sc9] : "", StringComparer.Ordinal)).ToList();
+                        bsRows = new List<string[]> { r.Days[0].Select((c9, i9) => i9 == sc9 ? c9 + (bsSortDesc ? " ▼" : " ▲") : c9).ToArray() }; bsRows.AddRange(sorted); }
+                    resultsView.Children.Add(tableOf(bsRows, 400));
+                    { var hdr = (resultsView.Children[resultsView.Children.Count - 1] as StackPanel); var hrow = hdr != null && hdr.Children.Count > 0 ? hdr.Children[0] as StackPanel : null;
+                      if (hrow != null) for (int c9 = 0; c9 < hrow.Children.Count; c9++) { var ht = hrow.Children[c9] as FrameworkElement; if (ht == null) continue; int cc = c9; ht.Cursor = System.Windows.Input.Cursors.Hand; ht.ToolTip = "sort by this column"; ht.MouseLeftButtonUp += delegate { if (bsSortCol == cc) bsSortDesc = !bsSortDesc; else { bsSortCol = cc; bsSortDesc = true; } paintResults(); }; } }
                     var sv9 = resultsView.Children[resultsView.Children.Count - 1] as StackPanel;
-                    if (sv9 != null) for (int i = 1; i < sv9.Children.Count && i < r.Days.Count; i++) { var rowEl = sv9.Children[i] as StackPanel; DateTime d9; if (rowEl == null || !DateTime.TryParseExact(r.Days[i][0], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d9)) continue; rowEl.Cursor = System.Windows.Input.Cursors.Hand; rowEl.ToolTip = "click → the full results of the batch started " + r.Days[i][0]; DateTime dd9 = d9; rowEl.MouseLeftButtonUp += delegate { if (evalLabOpenStart != null) evalLabOpenStart(dd9); }; }
+                    if (sv9 != null) for (int i = 1; i < sv9.Children.Count && i < bsRows.Count; i++) { var rowEl = sv9.Children[i] as StackPanel; DateTime d9; if (rowEl == null || !DateTime.TryParseExact(bsRows[i][0], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out d9)) continue; rowEl.Cursor = System.Windows.Input.Cursors.Hand; rowEl.ToolTip = "click → the full results of the batch started " + r.Days[i][0]; DateTime dd9 = d9; rowEl.MouseLeftButtonUp += delegate { if (evalLabOpenStart != null) evalLabOpenStart(dd9); }; }
                 }
                 else if (resSub == "EVAL") { h("PER FIRM (funded · paid · $ to you on the right)"); resultsView.Children.Add(tableOf(r.Eval, 50)); h("EVERY ACCOUNT (day 1 / day 2 / day 3 · funded on · payouts · $) — click a row → its card"); resultsView.Children.Add(tableClick(r.PerAccount, 400, acct0)); }
                 else if (resSub == "ACCOUNTS" && rec != null) { h("👤 ONE ROW PER ACCOUNT + per firm (Σ) — click a row → the account card"); resultsView.Children.Add(tableClick(r.Accounts2, 600, acct0)); }
@@ -52788,7 +53619,17 @@ namespace NinjaTrader.NinjaScript.AddOns
                     prevB.Click += delegate { if (days9.Count == 0) return; tlDay = days9[Math.Max(0, (di9 < 0 ? days9.Count : di9) - 1)]; paintResults(); }; nextB.Click += delegate { if (days9.Count == 0) return; tlDay = days9[Math.Min(days9.Count - 1, di9 + 1)]; paintResults(); };
                     allB.Click += delegate { tlDay = tlDay.HasValue ? (DateTime?)null : (days9.Count > 0 ? (DateTime?)days9[0] : null); paintResults(); };
                     fl.Children.Add(prevB); fl.Children.Add(allB); fl.Children.Add(nextB); if (tlDay.HasValue) fl.Children.Add(Txt(tlDay.Value.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture) + " · day " + (di9 + 1) + " of " + days9.Count, Gold, 12.5, FontWeights.Bold));
-                    resultsView.Children.Add(tableClick(rec.Timeline(tlAccount, tlFirm, tlStage, tlKind, tlDay), 800, row => row.Length > 2 && row[2] != "" ? row[2] : null));
+                    var tlRows = rec.Timeline(tlAccount, tlFirm, tlStage, tlKind, tlDay); resultsView.Children.Add(Txt("click a row → the chart replay at that minute (🗂 the account card from there)", Muted, 11.5, FontWeights.SemiBold));
+                    var tlv = tableOf(tlRows, 800) as StackPanel;
+                    if (tlv != null) for (int i9 = 1; i9 < tlv.Children.Count && i9 < tlRows.Count; i9++)
+                    {   /* 🕒 → 📈 item 35: the row's day + New York minute → the minute chart replay (in-tab) */
+                        var rowEl = tlv.Children[i9] as FrameworkElement; var rw = tlRows[i9]; if (rowEl == null || rw.Length < 3) continue; DateTime dd9; var dp9 = (rw[0] ?? "").Split(' ');
+                        if (!DateTime.TryParseExact(dp9[dp9.Length - 1], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out dd9)) continue; DateTime tm9; DateTime at9 = dd9.AddHours(9.5);
+                        if (DateTime.TryParseExact((rw[1] ?? "").Split('→')[0].Trim(), "hh:mm tt", CultureInfo.InvariantCulture, DateTimeStyles.None, out tm9)) at9 = dd9.Add(tm9.TimeOfDay);
+                        string acc9 = rw[2]; rowEl.Cursor = System.Windows.Input.Cursors.Hand; rowEl.ToolTip = "click → the chart replay at " + KeystoneLabFlow.Am(at9) + " New York (" + acc9 + ")";
+                        rowEl.MouseLeftButtonUp += delegate { if (evalLabMinuteChart != null) evalLabMinuteChart(dd9, at9, acc9); };
+                    }
+                    resultsView.Children.Add(tlv);
                 }
                 else if (resSub == "PAYOUTS")
                 {   // 💵 item 26: 📜 BY PAYOUT (expandable) · 👤 BY ACCOUNT · 🏢 BY FIRM · 📅 BY MONTH · ⚖ COMPARE
@@ -52837,6 +53678,17 @@ namespace NinjaTrader.NinjaScript.AddOns
             // 📦 EXPORT FOR CLAUDE (item 25): the record → keystone-check-<date>-<time>.json (+ the result as shown)
             exportClaude = () =>
             {
+                if (lastRes != null && lastRes.BestStarts && lastRes.Record == null)
+                {   /* 📦 item 35: BEST START DAYS → the same export folder (the winners, the weekdays, every start) */
+                    try
+                    {
+                        var jw = new KeystoneJsonWriter(); jw.Open(); jw.Prop("what", "KeyStone 🏆 BEST START DAYS — simulation only on saved minutes (no orders)"); jw.Prop("build", KeystoneBuild); jw.Prop("period", lastRes.Period); jw.Prop("header", lastRes.Header);
+                        foreach (var tb9 in new[] { Tuple.Create("winners", lastRes.Stats), Tuple.Create("by_weekday", lastRes.Eval), Tuple.Create("every_start", lastRes.Days) })
+                        { jw.Key(tb9.Item1); jw.Arr(); var hd9 = tb9.Item2.Count > 0 ? tb9.Item2[0] : new string[0]; foreach (var row in tb9.Item2.Skip(1)) { jw.Open(); for (int i9 = 0; i9 < row.Length; i9++) jw.Prop(i9 < hd9.Length ? hd9[i9] : "c" + i9, row[i9]); jw.Close(); } jw.CloseArr(); }
+                        jw.Close(); string dir9 = Path.Combine(labDir, "exports"); Directory.CreateDirectory(dir9); string f9 = Path.Combine(dir9, KeystoneRunRecord.ExportName(DateTime.Now)); File.WriteAllText(f9, jw.ToString()); lastExport = f9; return f9;
+                    }
+                    catch (Exception ex) { return "export failed • " + ex.Message; }
+                }
                 if (lastRes == null || lastRes.Record == null) return "calculate first"; var rec = lastRes.Record; rec.Build = KeystoneBuild;
                 var shown = new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>("title", (lastRes.Scope == "BOTH" ? "EVAL → FUNDED → PAYOUTS" : lastRes.Scope == "FUNDED" ? "FUNDED ONLY" : lastRes.Scope == "BUSINESS" ? "BUSINESS RUN" : "EVAL ONLY") + " • " + lastRes.Period), new KeyValuePair<string, string>("header", lastRes.Header), new KeyValuePair<string, string>("note", lastRes.Note),
                     new KeyValuePair<string, string>("line", lastRes.Accounts + " bought (" + Cash(lastRes.Spent) + ") · " + lastRes.Passed + " passed · " + lastRes.Blown + " blown · " + lastRes.InEval + " in eval · trades " + lastRes.Wins + " won / " + lastRes.Losses + " lost · " + lastRes.Payouts + " payouts · paid " + Cash(lastRes.Paid) + " · net " + Signed(lastRes.Paid - lastRes.Spent)), new KeyValuePair<string, string>("payouts_header", lastRes.PayHeader), new KeyValuePair<string, string>("trust", lastRes.Trust) };
@@ -52844,6 +53696,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 try { var f = rec.Export(Path.Combine(labDir, "exports"), shown, exportMinutes, DateTime.Now); lastExport = f; if (log != null) log.Add(DateTime.MinValue, "EXPORT", "", "📦 " + f); return f; } catch (Exception ex) { return "export failed • " + ex.Message; }
             };
             evalLabShowResults = rr => { if (rr == null) return; lastRes = rr; evalLabResultsLast = rr; resSub = "EVAL"; cardKey = null; expandedPay = null; tlDay = null; if (rr.Record != null) { runHistory.Insert(0, Tuple.Create("🔁 " + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " · " + rr.Period + " · business run", rr)); if (runHistory.Count > 8) runHistory.RemoveAt(8); } paintResults(); };
+            evalLabMinuteChart = (day9, at9, acc9) => { var rec9 = lastRes != null ? lastRes.Record : null; string a9 = acc9; LabOverlayShow(evalLabOverlay, "📈 " + (a9 ?? "") + " · " + day9.ToString("ddd d MMM yyyy", CultureInfo.InvariantCulture) + " · " + KeystoneLabFlow.Am(at9) + " New York", LabMinuteChart(rec9, day9, at9, a9, a9 == null || evalLabCardOverlay == null ? (Action)null : () => evalLabCardOverlay(a9)), null); };
             evalLabExportClaude = exportClaude; evalLabOpenCard = k => { cardKey = k; paintResults(); }; evalLabResSub = k => { resSub = k; paintResults(); }; evalLabPaySub = k => { paySub = k; paintResults(); }; evalLabExpandPay = k => { expandedPay = k; paintResults(); }; evalLabTimelineDay = d => { tlDay = d; paintResults(); };
             evalLabExportResults = exportResults; paintResults();
             Action<string> calcRun = mode =>
@@ -52900,17 +53753,33 @@ namespace NinjaTrader.NinjaScript.AddOns
                     catch (Exception ex) { err = ex.Message; }
                     Action done = delegate
                     {
-                        busy = false; if (err != null || r == null) { calcProg.Text = "⚠ " + (err ?? "stopped"); status.Text = calcProg.Text; status.Foreground = Red; return; }
+                        busy = false; if (err != null || r == null) { calcProg.Text = "⚠ " + (err ?? "stopped"); status.Text = calcProg.Text; status.Foreground = Red; var hk0 = calcHook; calcHook = null; if (hk0 != null) hk0(null); return; }
                         lastRes = r; evalLabResultsLast = r; evalLabCalcSimLast = sim; resSub = scope == "FUNDED" ? "PAYOUTS" : "EVAL"; cardKey = null; expandedPay = null; tlDay = null;
                         if (r.Record != null) { runHistory.Insert(0, Tuple.Create("⚡ " + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " · " + r.Period + " · " + (plan != null ? plan.Name.Split('•')[0].Trim() : scope), r)); if (runHistory.Count > 8) runHistory.RemoveAt(8); cmpA = 0; cmpB = 1; }
                         paintResults(); showTab("RESULTS");
                         if (passedOut != null) pushPassed(passedOut, f0, evalEndOut, "⚡ calculate");   /* 💰 item 6: the latest eval run's passed accounts → the Funded Lab (latest run wins) */
-                        calcProg.Text = "✓ " + r.Period + " · " + r.Passed + " passed · " + r.Blown + " blown" + (scope != "EVAL" ? " · " + r.Payouts + " payouts · net " + Signed(r.Paid - r.Spent) : "") + (gapNote != "" ? "\n" + gapNote : ""); status.Text = "📊 RESULTS • " + calcProg.Text; status.Foreground = Green;
+                        calcProg.Text = "✓ " + r.Period + " · " + r.Passed + " passed · " + r.Blown + " blown" + (scope != "EVAL" ? " · " + r.Payouts + " payouts · net " + Signed(r.Paid - r.Spent) : "") + (gapNote != "" ? "\n" + gapNote : ""); status.Text = "📊 RESULTS • " + calcProg.Text; status.Foreground = Green; { var hk1 = calcHook; calcHook = null; if (hk1 != null) hk1(r); }
                     };
                     if (w.Dispatcher == null || w.Dispatcher.CheckAccess()) done(); else w.Dispatcher.BeginInvoke(done);
                 });
             };
-            cEvalBtn.Click += delegate { calcRun("EVAL"); }; cAllBtn.Click += delegate { calcRun("BOTH"); }; evalLabCalc2 = calcRun; calcAgain = calcRun;
+            Action<string> calcAny = mode =>
+            {   /* 📅 several picked periods: ⚡ CALCULATE each on its own (START / END set to the period), then RESULTS shows each + the combined row */
+                if (pickPeriods == null || pickPeriods.Count < 2) { periodRes = null; calcRun(mode); return; }
+                var ps = pickPeriods.ToList(); var words = pickWords; var got = new List<Tuple<string, KeystoneLabResults>>(); int pi = 0; Action next = null;
+                next = delegate
+                {
+                    if (pi >= ps.Count)
+                    {
+                        periodRes = got.Count > 1 ? got : null; pickPeriods = ps; pickWords = words; applyStart(); if (got.Count > 0) { lastRes = got[got.Count - 1].Item2; evalLabResultsLast = lastRes; } resSub = "EVAL"; paintResults();
+                        calcProg.Text = "✓ " + got.Count + " periods calculated · " + got.Sum(x => x.Item2.Passed) + " passed · " + got.Sum(x => x.Item2.Blown) + " blown" + (mode != "EVAL" ? " · " + got.Sum(x => x.Item2.Payouts) + " payouts · net " + Signed(got.Sum(x => x.Item2.Paid - x.Item2.Spent)) : "") + " (each + combined in 📊 RESULTS)"; return;
+                    }
+                    var p0 = ps[pi++]; pickSetting = true; startBox.Text = p0.Item1.ToString("yyyy-MM-dd"); settingEnd = true; endBox.Text = p0.Item2.ToString("yyyy-MM-dd"); settingEnd = false; endTyped = true; pickSetting = false;
+                    calcHook = r0 => { if (r0 != null) got.Add(Tuple.Create(KeystoneDatePick.Label(p0), r0)); next(); }; calcRun(mode);
+                };
+                periodRes = null; next();
+            };
+            evalLabCalcPeriods = calcAny; cEvalBtn.Click += delegate { calcAny("EVAL"); }; cAllBtn.Click += delegate { calcAny("BOTH"); }; evalLabCalc2 = calcRun; calcAgain = calcRun;
             evalLabStart = d => { startBox.Text = d.ToString("yyyy-MM-dd"); clearEnd(); applyStart(); };
             // ▶ item 22: the replay fills RESULTS as it plays (day n of N), then hands its passed accounts to the Funded Lab (item 6)
             evalLabReplayResults = (ms, md, di, finished) =>
@@ -53043,11 +53912,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             DockPanel.SetDock(railBd, Dock.Left); shell.Children.Add(railBd);
             rail.Children.Add(new TextBlock { Text = "🧪 EVAL LAB", Foreground = Gold, FontSize = 22, FontWeight = FontWeights.Bold, Margin = new Thickness(16, 16, 10, 0) });
             rail.Children.Add(new TextBlock { Text = "evaluations • backtest", Foreground = Muted, FontSize = 11.5, Margin = new Thickness(16, 0, 10, 14) });
+            var eHint = new ContentControl { Margin = new Thickness(14, 6, 14, 0) }; DockPanel.SetDock(eHint, Dock.Top); shell.Children.Add(eHint);   /* 🧭 final navigation pass: ❓ what this tab shows + the cross-links */
             var host = new Grid(); shell.Children.Add(host);
             var secs = new Dictionary<string, FrameworkElement>(); var navs = new Dictionary<string, Button>(); var refreshers = new Dictionary<string, Action>();
-            Action<string> showSec = key =>
+            Action<string> showSec = null; showSec = key =>
             {
-                if (!secs.ContainsKey(key)) return; Action rf; if (refreshers.TryGetValue(key, out rf)) rf(); if (railCompact != null) railCompact(key == "ROTATE" && evalLabTabNow != null && evalLabTabNow() == "TRADING");
+                if (!secs.ContainsKey(key)) return;
+                eHint.Content = LabHint(EvalHints.ContainsKey(key) ? EvalHints[key] : "", LabLink("🧭 START HERE", () => showSec("WIZARD")), LabLink("⚙ SETTINGS", () => { showSec("ROTATE"); showTab("SETTINGS"); }), LabLink("📊 RESULTS", () => { showSec("ROTATE"); showTab("RESULTS"); }), LabLink("🗂 DATA", () => showSec("DATA")), LabLink("🏢 FIRMS & RULES", () => showSec("FIRMS"))); Action rf; if (refreshers.TryGetValue(key, out rf)) rf(); if (railCompact != null) railCompact(key == "ROTATE" && evalLabTabNow != null && evalLabTabNow() == "TRADING");
                 foreach (var kv in secs) kv.Value.Visibility = kv.Key == key ? Visibility.Visible : Visibility.Collapsed;
                 foreach (var kv in navs) PaintBtn(kv.Value, kv.Key == key ? Tint(Cyan, 70) : Panel);
             };
@@ -53169,7 +54040,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             evalLabAdd = (f, sz0, cnt) => addAccounts(f, sz0, cnt);
             evalLabOrder = () => selPool == null ? new List<string>() : KeystoneEvalLab.RoundRobin(selPool.Accounts).Select(a => a.Firm).ToList();
             evalLabDeletePool = nm => { var pl = pools.FirstOrDefault(q => q.Name == nm); if (pl == null) return; pools.Remove(pl); if (selPool == pl) selPool = pools.FirstOrDefault(); persist(); };
-            evalLabUsePool = nm => { fillPoolBox(); for (int i = 1; i < evPoolBox.Items.Count; i++) if (Convert.ToString(evPoolBox.Items[i]).Split('•')[0].Trim() == nm) { evPoolBox.SelectedIndex = i; evPoolBox.SelectedItem = evPoolBox.Items[i]; } };
+            evalLabUsePool = nm => { poolWant = nm; fillPoolBox(); poolWant = null; for (int i = 1; i < evPoolBox.Items.Count; i++) if (poolShown[i - 1].Name == nm) { evPoolBox.SelectedIndex = i; evPoolBox.SelectedItem = evPoolBox.Items[i]; } };
             // ---- 🎯 PLANS: the tested templates + yours
             var plp = page("🎯 PLANS", "the tested templates (★) and your own • ▶ USE fills 🔄 ROTATE • the firm rules come from each account's size in the pool: EOD trailing ($2,000 on 50K), the target ($3,000 on 50K), best day ≤ 50 %, at least 2 days (TPT: +1 day with a tiny trade)"); addSec("PLANS", scroll(plp));
             {   // 🏆 FIND BEST (BUILD 10f): every eval plan ranked by pass % on the chosen period (FROM → TO), both halves (stability); every funded plan by
@@ -53233,7 +54104,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (pl.Note != "") sp.Children.Add(Txt(pl.Note, Muted, 11.5, FontWeights.SemiBold));
                     var br = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) }; sp.Children.Add(br);
                     var use = Btn("▶ USE IN ROTATE", Cyan); use.Height = 32; use.Click += delegate { applyPlan(p0); fillTplBox(); showSec("ROTATE"); }; br.Children.Add(use);
-                    if (!pl.Preset) { var dl = Btn("✕ DELETE", Tint(Red, 100)); dl.Height = 32; dl.Margin = new Thickness(8, 0, 0, 0); dl.ToolTip = "deletes this plan template (asks first)"; dl.Click += delegate { if (KBox("Delete the plan '" + p0.Name + "'? This cannot be undone.", "Delete plan", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return; userPlans.Remove(p0); savePlans(); fillTplBox(); refreshPlans(); }; br.Children.Add(dl); }
+                    if (!pl.Preset) { var dl = Btn("✕ DELETE", Tint(Red, 100)); dl.Height = 32; dl.Margin = new Thickness(8, 0, 0, 0); dl.ToolTip = "deletes this plan template (asks first)"; dl.Click += delegate { LabConfirm(evalLabOverlay, "✕ DELETE THE PLAN?", "Delete the plan '" + p0.Name + "'? This cannot be undone.", "✕ DELETE IT", () => { userPlans.Remove(p0); savePlans(); fillTplBox(); refreshPlans(); }); };   /* item 21: asked inside the tab */ br.Children.Add(dl); }
                 }
                 plp.Children.Add(Txt("Breakeven / profit locks are in 🔄 ROTATE ▸ ⋯ MORE — on 6 years of data they moved the pass rate by less than 1 point. Confirmations (ORB 30, short-term trend) are side rules, not filters.", Muted, 11.5, FontWeights.Normal));
             };
@@ -53830,9 +54701,34 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // ① ACCOUNTS: a simulated mix (how many + which firms) or one of your pools (● REAL EVALS included)
                 var b1 = new StackPanel(); var w1Mix = new RadioButton { Content = "🎲 a simulated mix", IsChecked = true, Foreground = Text, FontSize = 13.5, FontWeight = FontWeights.Bold, GroupName = "wz1" }; var w1Pool = new RadioButton { Content = "👥 one of my pools", Foreground = Text, FontSize = 13.5, FontWeight = FontWeights.Bold, GroupName = "wz1", Margin = new Thickness(0, 8, 0, 0) };
                 var w1Firms = firmCounts("wz.firm", delegate { w1Mix.IsChecked = true; });   /* ① accounts PER FIRM (default 5 each), the total shown */
-                var w1PoolBox = Select(pools.Count == 0 ? new[] { "(no pool yet — make one under ⚙ advanced ▸ 👥 POOLS)" } : pools.Select(x => (x.Simulated ? "" : "● ") + x.Name + " • " + x.Accounts.Count(a => !a.Archived) + " accounts").ToArray()); w1PoolBox.SelectedIndex = 0; w1PoolBox.Width = 420;
+                var w1PoolBox = Select(pools.Count == 0 ? new[] { "(no pool yet — make one under ⚙ advanced ▸ 👥 POOLS)" } : pools.Select(poolLabel).ToArray()); w1PoolBox.SelectedIndex = 0; w1PoolBox.Width = 420;
                 var mixRow = new StackPanel { Margin = new Thickness(22, 4, 0, 0) }; mixRow.Children.Add(Txt("HOW MANY PER FIRM (tick the firms, each 1 – 50)", Muted, 10.5, FontWeights.Bold)); mixRow.Children.Add(w1Firms.Item1);
-                b1.Children.Add(w1Mix); b1.Children.Add(mixRow); b1.Children.Add(w1Pool); b1.Children.Add(w1PoolBox);
+                var b1L = new StackPanel(); b1L.Children.Add(w1Mix); b1L.Children.Add(mixRow); b1L.Children.Add(w1Pool); b1L.Children.Add(w1PoolBox);
+                {   /* ＋ ADD A FIRM (item 3): the empty right side of step ① — a name, how many accounts, the rules from a template (or custom) → saved to 🏢 FIRMS & RULES */
+                    var af = new StackPanel(); var afB = new Border { Background = Tint(Gold, 20), BorderBrush = Tint(Gold, 140), BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 10), Margin = new Thickness(18, 0, 0, 0), Width = 380, VerticalAlignment = VerticalAlignment.Top, Child = af };
+                    af.Children.Add(Txt("＋ ADD A FIRM", Gold, 15, FontWeights.Bold)); var afN = Txt("a new prop firm for this run and every later one: its name, how many accounts, the rules (a template, then adjust) → saved to 🏢 FIRMS & RULES", Muted, 11, FontWeights.Normal); afN.TextWrapping = TextWrapping.Wrap; af.Children.Add(afN);
+                    var fName = Input(""); fName.Width = 200; fName.Tag = "wz.addfirm.name"; var fCnt = Input("5"); fCnt.Width = 50; fCnt.Tag = "wz.addfirm.n"; var fTpl = Select(KeystonePayoutRules.FirmTemplateNames); fTpl.SelectedIndex = 0; fTpl.Width = 330; fTpl.Tag = "wz.addfirm.tpl";
+                    var fTg = Input("3000"); var fDd = Input("2000"); var fPx = Input("120"); foreach (var tb in new[] { fTg, fDd, fPx }) tb.Width = 70; var fTy = Select(KeystonePractice.Types); fTy.SelectedIndex = 1; fTy.Width = 110;
+                    var afR1 = new WrapPanel(); afR1.Children.Add(field("NAME", fName)); afR1.Children.Add(field("ACCOUNTS", fCnt)); af.Children.Add(afR1); af.Children.Add(field("RULES", fTpl));
+                    var afR2 = new WrapPanel(); afR2.Children.Add(field("EVAL TARGET $", fTg)); afR2.Children.Add(field("DRAWDOWN $", fDd)); afR2.Children.Add(field("TYPE", fTy)); afR2.Children.Add(field("PRICE $", fPx)); af.Children.Add(afR2);
+                    var fMsg = Txt("", Cyan, 11.5, FontWeights.SemiBold); fMsg.TextWrapping = TextWrapping.Wrap;
+                    Action fillT = delegate { var t0 = KeystonePayoutRules.FirmTemplate(fTpl.SelectedIndex, "X", "x"); fTg.Text = (t0.EvalTarget > 0 ? t0.EvalTarget : 3000).ToString("0", CultureInfo.InvariantCulture); fDd.Text = (t0.EvalDd > 0 ? t0.EvalDd : t0.Dd).ToString("0", CultureInfo.InvariantCulture); fTy.SelectedIndex = Math.Max(0, Array.IndexOf(KeystonePractice.Types, (t0.EvalDdType ?? "EOD").ToUpperInvariant())); fPx.Text = t0.EvalPrice.ToString("0", CultureInfo.InvariantCulture); };
+                    fTpl.SelectionChanged += delegate { fillT(); }; fillT();
+                    var addB = Btn("＋ ADD THIS FIRM", Tint(Gold, 120)); addB.Height = 34; addB.Margin = new Thickness(0, 6, 0, 4); addB.HorizontalAlignment = HorizontalAlignment.Left; af.Children.Add(addB); af.Children.Add(fMsg);
+                    Action<string, int, string> addFirm = (nm9, n9, tpl9) =>
+                    {
+                        string nm = (nm9 ?? "").Trim(); if (nm == "") { fMsg.Text = "type the firm's name first"; fMsg.Foreground = Gold; return; }
+                        string code = new string(nm.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray()); if (code.Length > 10) code = code.Substring(0, 10); if (code == "") code = "FIRM";
+                        int ti = tpl9 == null ? fTpl.SelectedIndex : Math.Max(0, Array.IndexOf(KeystonePayoutRules.FirmTemplateNames, tpl9)); if (tpl9 != null) { fTpl.SelectedIndex = ti; fillT(); } string bdir = Path.Combine(StudioFolder(), "FundedLab"); var book = KeystonePayoutRules.LoadBook(bdir);
+                        var ex = book.FirstOrDefault(x => string.Equals(x.Firm, code, StringComparison.OrdinalIgnoreCase));
+                        if (ex == null) { var r9 = KeystonePayoutRules.FirmTemplate(ti, code, nm); double v9; if (double.TryParse(fTg.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out v9) && v9 > 0) r9.EvalTarget = v9; if (double.TryParse(fDd.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out v9) && v9 > 0) r9.EvalDd = v9; if (double.TryParse(fPx.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out v9) && v9 >= 0) { r9.EvalPrice = v9; r9.fromBookPrice = v9 > 0; } r9.EvalDdType = KeystonePractice.Types[Math.Max(0, fTy.SelectedIndex)];
+                            if (string.IsNullOrEmpty(r9.Color) || book.Any(x => x.Color == r9.Color)) r9.Color = KeystoneFirmNames.Choices[book.Count % KeystoneFirmNames.Choices.Length]; KeystoneFirmNames.Colors[code] = r9.Color; book.Add(r9); KeystonePayoutRules.SaveBook(bdir); }
+                        foreach (var ad in firmAdders) ad(code, Math.Max(1, n9)); w1Mix.IsChecked = true;
+                        fMsg.Text = "＋ " + KeystonePipeline.Nice(code) + " (" + nm + ") " + (ex == null ? "added to 🏢 FIRMS & RULES" : "was already in 🏢 FIRMS & RULES") + " · " + Math.Max(1, n9) + " accounts ticked in ① • check its rules there (⚙ advanced ▸ 🏢 FIRMS & RULES)"; fMsg.Foreground = Green; fName.Text = "";
+                    };
+                    addB.Click += delegate { addFirm(fName.Text, (int)NumberAllowZero(fCnt, 5), null); }; evalLabAddFirm = addFirm;
+                    var afTwo = new DockPanel(); DockPanel.SetDock(afB, Dock.Right); afTwo.Children.Add(afB); afTwo.Children.Add(b1L); b1.Children.Add(afTwo);
+                }
                 Func<string> c1 = () =>
                 {
                     if (w1Pool.IsChecked == true)
@@ -53856,7 +54752,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 // ③ DAYS: the calendar (one day = that day + the next) or a range — at least 2 days
                 var b3 = new StackPanel(); var w3From = Input(lastSaved.AddDays(-14).ToString("yyyy-MM-dd")); var w3To = Input(lastSaved.ToString("yyyy-MM-dd")); w3From.Width = w3To.Width = 120;
                 var w3Pick = Btn("📅 PICK A DAY", Cyan); w3Pick.Height = 34; w3Pick.Margin = new Thickness(0, 16, 8, 0); w3Pick.ToolTip = "a calendar of every saved day (weekday, news, data present / missing) — the replay starts there";
-                w3Pick.Click += delegate { OpenDayPicker(d0 => { w3From.Text = d0.ToString("yyyy-MM-dd"); w3To.Text = KeystoneLabWizard.TwoDaysEnd(d0, d0).ToString("yyyy-MM-dd"); }); };
+                w3Pick.Click += delegate { LabOverlayShow(evalLabOverlay, "📅 PICK A DAY · A RANGE · PERIODS", LabDatePickView(LabSavedDays(), ParseStudioDate(w3From.Text), (ps9, ws9) => { w3From.Text = ps9[0].Item1.ToString("yyyy-MM-dd"); var e9 = ps9[ps9.Count - 1].Item2; w3To.Text = (ps9.Count == 1 && ps9[0].Item1 == e9 ? KeystoneLabWizard.TwoDaysEnd(e9, e9) : e9).ToString("yyyy-MM-dd"); if (evalLabPickPeriods != null) evalLabPickPeriods(ps9, ws9); }), null); };
                 var r3 = new WrapPanel(); r3.Children.Add(field("FROM", w3From)); r3.Children.Add(field("TO", w3To)); r3.Children.Add(w3Pick); b3.Children.Add(r3);
                 b3.Children.Add(Txt("one day picked = that day + the next trading day (a day ends at 16:55 New York; the replay always has a next day)", Muted, 11.5, FontWeights.Normal));
                 Func<string> c3 = () =>
@@ -53928,7 +54824,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (evalLabLog != null && evalLabLog.Rows.Count > 0) l.Add("🧪 EVAL LAB: the event log has " + evalLabLog.Rows.Count + " events (SAVE AND CLOSE exports it)"); return l;
             };
             evalLabSaveStop = save => { cancel = true; cCancel = true; if (evalLabBizStop != null) evalLabBizStop(); playT.Stop(); repTimer.Stop(); if (save) { savePools(); savePlans(); if (evalLabLog != null && evalLabLog.Rows.Count > 0 && evalLabLogExport != null) evalLabLogExport(); } };
-            labTab.Content = shell; rotStudioStatus = status; rotStudioRun = run;
+            evalLabOverlay = MakeLabOverlay(shell); labTab.Content = evalLabOverlay.Host; rotStudioStatus = status; rotStudioRun = run;
             w.Closed += delegate { cancel = true; cCancel = true; repTimer.Stop(); playT.Stop(); flashT.Stop(); evalLabBusy = null; evalLabSaveStop = null; evalLabLog = null; evalLabCalc = null; evalLabCalcTab = evalLabUsePlan = null; evalLabStartDay = null; evalLabNewPool = evalLabUsePool = evalLabDeletePool = evalLabShow = null; evalLabAdd = null; evalLabOrder = null; evalLabSimOnly = evalLabAuto = null; rotStudioManLoad = null; rotStudioManEnter = null; rotStudioManStep = null; rotStudioWindow = null; rotStudioRun = null; rotStudioStatus = null; rotStudioDeck = null; };
             ShowLabTab(true);
         }

@@ -167,3 +167,26 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
 - **Right:** the POOL (290 px) with 🟢 ACTIVE / 💰 PAID / 💀 BLOWN and their counts; each row: firm colour and name, balance, the floor → payout-need bar, qualifying days n / 5, profit vs what the payout needs, the next payout date once known, the payout taken, blown on. ⤢ BIG CARDS shows the same as large cards.
 - **Bottom:** the ORDER BAR in one row: ▲ BUY / ▼ SELL (the plan's side flashes with its %) / ✕ CLOSE / ½ HALF · MNQ ± · TP $ ± · STOP $ ± · ⇢ BE · ✕ CLOSE ALL · ■ DONE · ⚡ AUTO.
 - **Left rail:** shrinks to icons on ▶ REPLAY. The rail's ● LIVE opens the Eval Lab's ● LIVE (eval + funded accounts, read only).
+
+## New in BUILD 2026-11-11c (phase C: screens and navigation)
+
+- **❓ every tab says what it shows** in one line at the top, with buttons to jump: 🧭 START HERE · ⚙ SETTINGS · 📊 RESULTS · 🗂 DATA · 🏢 FIRMS & RULES (Funded Lab: SIMULATE / PAYOUTS / the Eval Lab's RESULTS).
+- **📅 PICK A DAY opens inside the lab tab** (✕ or Esc closes it), from ▶ START HERE's 📅, the wizard's step ③ and the replay toolbar. Three ways to pick:
+  1. QUICK: a day, its week, a month (pick from the list), a quarter, a year, the last 1 / 3 / 6 / 12 months, all 6 years.
+  2. TICK SEVERAL: years, months, weeks (and days in the list), then ✓ USE THE TICKS. Ticks that touch become one range; ticks apart become separate periods.
+  3. THE LIST: click a YEAR or MONTH header for all of it, click a day for that day, SHIFT-click a second one for the range between.
+  Every choice fills START + END and the summary line ("2025 + 2026 · 483 trading days"). With separate periods, ⚡ CALCULATE runs each on its own; RESULTS shows a 📅 PERIODS table (each + Σ COMBINED). Click a period to see its full results.
+- **🟩 Account tiles** (replay pool, the instant-run deck, Funded Lab tiles) show an animated buffer bar from the floor (red tick) through the balance (incl. open P/L) to the target or payout need. TPT: ⟳ the floor trails until the lock, then 🔒 and the $2,000 buffer band. Lucid / Tradeify: EOD trailing until +$100. MFF: ▬ static. Each tile also shows its days, "days to lock / pass: n so far / usually ≈ m", the qualifying dots, the last trade and the next trade time. The bar eases and flashes on pass / payout / blow.
+- **🗂 Clicking a tile or a ✅ PASSED / 💀 BLOWN row opens the account card inside the tab.** The TPT card shades the $2,000 buffer above the locked floor.
+- **🕒 TIMELINE**: click a row to open the chart replay at that minute (◀ ▶ one minute, ⏪ ⏩ 15, ▶ PLAY). 🗂 THE ACCOUNT CARD is one click from there.
+- **🏆 BEST START DAYS**: click a column header to sort (click again to reverse). 📦 EXPORT FOR CLAUDE works here and in the Funded Lab's payout tracker / wizard results too.
+- **＋ ADD A FIRM** (Eval wizard step ①, right side): a name, how many accounts, the rules "same as" Lucid / Tradeify / TPT / Apex / MFFU / Topstep / MFF Studio 002 / 001 / 003, or custom (target, drawdown $, type, price). It is saved to 🏢 FIRMS & RULES and ticked in ① at once.
+- **👥 Pool dropdown**: each pool shows its breakdown ("5 TPT · 5 Lucid · 5 Tradeify"). Your real pools come first. The auto-saved mixes (🧭 wizard, 🎉 eval runs) are shown only when you tick "show the auto-saved mixes".
+- **⚡ SPRINT**: one control (0 / 1 / 2 / 3 / ALL, default 2) with its research note, in ▶ START HERE, the Funded wizard ② and the ● LIVE funded pool settings.
+- **Backtest Studio ▸ REGULAR BACKTESTING**:
+  - 🎯 PRACTICE AS A PROP ACCOUNT (top bar): presets for MFF Studio 002 / 001 / 003, Lucid / Tradeify / TPT eval, and the funded versions, or custom rules (size, STATIC / EOD / INTRADAY drawdown, drawdown $, target, max contracts).
+  - The gauge shows floor ▸ balance (incl. open) ▸ target. 💀 FLOOR and ✅ TARGET lines sit where the open position would hit them, with the zone between them shaded.
+  - Orders above max contracts are refused. A 💀 BLOWN / ✅ PASSED overlay appears when the floor or target is hit. ↺ RESET ACCOUNT starts a new attempt. The last attempts are listed and saved to Studio\practice-attempts.csv.
+  - 💵 AUTO BRACKET IN $: TP $ / SL $ (quick $250 / $500 / $1,000 / $2,000, STOP = THE ROOM TO THE FLOOR) placed at the price that gives exactly that $ after costs for the contracts chosen. It is recalculated when the size changes. In practice, the stop is clamped at the floor. The point brackets stay available (click to switch).
+  - ⏱ REAL TICKS: the replay plays the day's real NinjaTrader ticks. They are cached in Studio\TickCache, with 1-second bars as the fallback. Each print lands at its real time (1× = a minute in 60 s). The forming candle builds from the ticks, and fills happen only at tick prices. Without ticks, a ⚠ note and a ⤓ GET TICKS button show on the chart.
+  - 🏷 The trade labels (position, STOP, TARGET, FLOOR) sit in a right gutter. The candles end before it, and the TP ⇕ / SL ⇕ handles show on hover. A closed trade's tag reads "closed −$…", the realized result, not the open P/L.

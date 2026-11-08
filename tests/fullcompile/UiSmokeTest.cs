@@ -214,6 +214,10 @@ public static class UiSmokeTest
                     Console.WriteLine("      " + rt.Symbol + " " + rt.Bars.Count + " minutes • bought " + entry + " • " + rt.Fills.Count + " trades • today " + rt.Realized.ToString("0.00") + " • journal lines " + lines.Length);
                     if (rt.Fills.Count != 2 || lines.Length != 3 || rt.Fills[0].Side != "BUY" || rt.Fills[1].Side != "SELL") throw new Exception("replay trades / journal wrong");
                     ((Action)F("replayTraderEnd"))();
+                    {   // 🏷 item 37: every trade label drawn sits in the right gutter — none intersects the candle area
+                        var rects = (List<double[]>)F("studioLabelRects"); foreach (var rc in rects) if (KeystoneChartGutter.Intersects(rc[0], rc[1], rc[2], rc[3], 0, 0, rc[4], 100000)) throw new Exception("a trade label covers the candles at x " + rc[0] + " (candle area ends " + rc[4] + ")");
+                        Console.WriteLine("      🏷 gutter: " + rects.Count + " trade labels drawn, none over the candles");
+                    }
                     var acc = System.IO.File.ReadAllText(accountFile).Split(','); double bal = double.Parse(acc[1], System.Globalization.CultureInfo.InvariantCulture);
                     Console.WriteLine("      END DAY → account " + bal.ToString("0.00") + " of " + acc[0] + " • days file lines " + System.IO.File.ReadAllLines(daysFile).Length);
                     if (Math.Abs(bal - (2000 + rt.Realized)) > 0.01 || System.IO.File.ReadAllLines(daysFile).Length != 2) throw new Exception("END DAY did not bank the day into the account");
@@ -1103,6 +1107,37 @@ public static class UiSmokeTest
                     Set(lab4, "evalLabResultsLast", null); ((Action<DateTime, DateTime, bool>)G("evalLabBestStarts"))(new DateTime(2026, 1, 5), new DateTime(2026, 1, 16), false); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
                     var bsr = (KeystoneLabResults)G("evalLabResultsLast"); if (bsr == null || !bsr.BestStarts || bsr.Days.Count < 2 || !bsr.Stats.Any(x => x[0] == "most passed")) throw new Exception("🏆 BEST START DAYS gave no result");
                     Console.WriteLine("      🏆 " + bsr.Period + " · " + bsr.Stats.First(x => x[0] == "most passed")[1]);
+                    {   // 📦 item 35: BEST START DAYS exports too; the table sorts by a column
+                        var bf = ((Func<string>)G("evalLabExportClaude"))(); if (!System.IO.File.Exists(bf) || !System.IO.File.ReadAllText(bf).Contains("every_start")) throw new Exception("📦 BEST START DAYS export: " + bf);
+                        Set(lab4, "evalLabResultsLast", bsr); Console.WriteLine("      📦 BEST START DAYS → " + System.IO.Path.GetFileName(bf));
+                    }
+                    {   // 📅 items 18 / 28 / 29: the in-tab picker builds, fills START / END, several periods → each run + combined
+                        var pv = ((Func<System.Windows.FrameworkElement>)G("evalLabPickView"))(); if (pv == null) throw new Exception("no in-tab picker");
+                        var ov = G("evalLabOverlay"); if (ov == null) throw new Exception("the Eval Lab has no in-tab overlay");
+                        var ps = new List<Tuple<DateTime, DateTime>> { Tuple.Create(new DateTime(2026, 1, 5), new DateTime(2026, 1, 7)), Tuple.Create(new DateTime(2026, 1, 13), new DateTime(2026, 1, 15)) };
+                        ((Action<List<Tuple<DateTime, DateTime>>, List<string>>)G("evalLabPickPeriods"))(ps, null);
+                        boxes.Clear(); wk(((System.Windows.Window)G("rotStudioWindow")).Content); var sb = boxes.OfType<System.Windows.Controls.TextBox>().First(c => Convert.ToString(c.Tag) == "rot.start"); var eb = boxes.OfType<System.Windows.Controls.TextBox>().First(c => Convert.ToString(c.Tag) == "rot.end");
+                        if (sb.Text != "2026-01-05" || eb.Text != "2026-01-15") throw new Exception("the picked periods did not fill START / END: " + sb.Text + " → " + eb.Text);
+                        ((Action<string>)G("evalLabCalcPeriods"))("EVAL"); for (int i = 0; i < 1800 && !(G("evalLabResultsLast") is KeystoneLabResults && ((KeystoneLabResults)G("evalLabResultsLast")).From == new DateTime(2026, 1, 13)); i++) System.Threading.Thread.Sleep(100);
+                        var pr = (KeystoneLabResults)G("evalLabResultsLast"); if (pr == null || pr.From != new DateTime(2026, 1, 13)) throw new Exception("the second period was not calculated");
+                        Console.WriteLine("      📅 two periods calculated: " + KeystoneDatePick.Summary(ps, null) + " · last " + pr.Period);
+                    }
+                    {   // 🗂 item 35: the tile / row → the account card (in-tab) + the timeline row → the minute chart
+                        var hist = (List<Tuple<string, KeystoneLabResults>>)G("evalLabRunHistory"); var withRec = hist.Select(x => x.Item2).FirstOrDefault(x => x.Record != null && x.Record.Accounts.Count > 0 && x.Record.Trades.Count > 0);
+                        if (withRec != null)
+                        {
+                            ((Action<KeystoneLabResults>)G("evalLabShowResults"))(withRec); var acc = withRec.Record.Accounts[0].Key; ((Action<string>)G("evalLabCardOverlay"))(acc);
+                            var ov = G("evalLabOverlay"); var open = (bool)ov.GetType().GetProperty("Open").GetValue(ov, null); if (!open) throw new Exception("the account card did not open in the tab");
+                            var t0 = withRec.Record.Trades.First(t => t.Entry != DateTime.MinValue); ((Action<DateTime, DateTime, string>)G("evalLabMinuteChart"))(t0.Day, t0.Entry, t0.Account);
+                            Console.WriteLine("      🗂 card (in-tab) for " + acc + " · 📈 minute chart at " + t0.Entry.ToString("HH:mm") + " " + t0.Account);
+                        }
+                    }
+                    {   // ＋ item 3: ADD A FIRM from the wizard's step ① (a template) → FIRMS & RULES
+                        ((Action<string, int, string>)G("evalLabAddFirm"))("Smoke Prop Co", 3, KeystonePayoutRules.FirmTemplateNames[3]);
+                        var bk = KeystonePayoutRules.Book; if (bk == null || !bk.Any(x => x.Firm == "SMOKEPROPC")) throw new Exception("＋ ADD A FIRM did not reach FIRMS & RULES");
+                        var nf = bk.First(x => x.Firm == "SMOKEPROPC"); if (nf.EvalTarget != 3000 || nf.EvalDdType != "INTRADAY") throw new Exception("＋ ADD A FIRM: the Apex template was not applied (" + nf.EvalTarget + " " + nf.EvalDdType + ")");
+                        bk.Remove(nf); Console.WriteLine("      ＋ ADD A FIRM: Smoke Prop Co · same as Apex 50K → 🏢 FIRMS & RULES");
+                    }
                     ((Action<string>)G("evalLabShow"))("REPORTS"); ((Action<string>)G("evalLabShow"))("DATA"); ((Action<string>)G("evalLabShow"))("ROTATE");
                     Set(lab4, "evalLabFindBest", -1); ((Action)G("evalLabFindBestGo"))(); for (int i = 0; i < 1800 && (int)G("evalLabFindBest") < 0; i++) System.Threading.Thread.Sleep(100);
                     if ((int)G("evalLabFindBest") <= 0) throw new Exception("🏆 FIND BEST ranked no plan"); Console.WriteLine("      🏆 FIND BEST ranked " + G("evalLabFindBest") + " eval plans (top 5 + ▶ USE THIS PLAN)");
@@ -1417,6 +1452,51 @@ public static class UiSmokeTest
                 Call(lab5, "OpenManualPool"); win.Close();
             }
             finally { if (keep == null) System.IO.File.Delete(file); else System.IO.File.WriteAllText(file, keep); }
+        });
+        Step("phase C pure pieces: date picks, the tile model, the practice account + $ bracket, the gutter, real ticks", () =>
+        {
+            var IC = System.Globalization.CultureInfo.InvariantCulture;
+            // 📅 contiguous ticks = one range, apart = separate periods
+            var y = KeystoneDatePick.OfTicks(new[] { "Y2025", "Y2026" }, new DateTime(2020, 7, 1), new DateTime(2026, 11, 6)); if (y.Count != 1 || y[0].Item1 != new DateTime(2025, 1, 1) || y[0].Item2 != new DateTime(2026, 11, 6)) throw new Exception("2025 + 2026 should be one range");
+            var mm = KeystoneDatePick.OfTicks(new[] { "M2025-03", "M2026-03" }, DateTime.MinValue, DateTime.MinValue); if (mm.Count != 2) throw new Exception("every March = 2 periods");
+            var fr = KeystoneDatePick.FromDays(new[] { new DateTime(2026, 11, 6), new DateTime(2026, 11, 9) }); if (fr.Count != 1) throw new Exception("Fri + Mon are contiguous trading days");
+            var q = KeystoneDatePick.Range("QUARTER", new DateTime(2026, 5, 13), DateTime.MinValue, new DateTime(2026, 11, 6)); if (q.Item1 != new DateTime(2026, 4, 1) || q.Item2 != new DateTime(2026, 6, 30)) throw new Exception("quarter " + q);
+            var l3 = KeystoneDatePick.Range("LAST 3 MONTHS", DateTime.MinValue, new DateTime(2020, 7, 1), new DateTime(2026, 11, 6)); if (l3.Item2 != new DateTime(2026, 11, 6) || l3.Item1.Month != 8) throw new Exception("last 3 months " + l3);
+            string sum = KeystoneDatePick.Summary(y, new List<string> { "2025", "2026" }); if (!sum.StartsWith("2025 + 2026 · ") || !sum.Contains("trading days")) throw new Exception(sum);
+            // 🟩 the tile: TPT intraday locked, Lucid EOD, MFF static
+            var tp = KeystoneTileModel.Make("TPT", "INTRADAY", true, 2600, 0, 2000, 0, 3000, true, "FUNDED", "next withdrawal"); if (!tp.Line.Contains("🔒") || tp.FloorFrac <= 0 || tp.BalFrac <= tp.FloorFrac) throw new Exception("TPT tile " + tp.Line);
+            var lu = KeystoneTileModel.Make("LUCID", "EOD", true, 500, -1500, 2000, 100, 4000, false, "FUNDED", "max payout"); if (!lu.Line.Contains("locks at +$100")) throw new Exception("Lucid tile " + lu.Line);
+            var mf = KeystoneTileModel.Make("MFF002", KeystoneTileModel.KindOf(KeystonePayoutRules.StudioTemplates()[0], false), false, 300, -1000, 1000, 1e9, 2000, false, "EVAL", "target"); if (mf.Kind != "STATIC" || !mf.Line.Contains("static")) throw new Exception("MFF tile " + mf.Line);
+            if (!KeystoneTileModel.Flash("FUNDED", "READY") || KeystoneTileModel.Flash(null, "BLOWN") || KeystoneTileModel.Dots(2, 5) != "●●○○○") throw new Exception("flash / dots");
+            if (KeystoneTileModel.DaysToLock(3, new List<int> { 5, 9, 7 }, "lock") != "days to lock: 3 so far / usually ≈ 7") throw new Exception(KeystoneTileModel.DaysToLock(3, new List<int> { 5, 9, 7 }, "lock"));
+            // 💵 the $ bracket: MNQ 15 contracts, +$1,000 after costs → the TP gives at least $1,000, a tick less would not; the stop never loses more than $500
+            double cM = KeystoneMoveStudy.Cost("MNQ"); double tpP = KeystonePractice.BracketPts(1000, 15, 2, cM, 0.25, false), slP = KeystonePractice.BracketPts(500, 15, 2, cM, 0.25, true);
+            if (KeystonePractice.UsdOf(tpP, 15, 2, cM, false) < 1000 - 1e-6 || KeystonePractice.UsdOf(tpP - 0.25, 15, 2, cM, false) >= 1000) throw new Exception("TP pts " + tpP);
+            if (KeystonePractice.UsdOf(slP, 15, 2, cM, true) < -500 - 1e-6 || Math.Abs(tpP - 34.25) > 1e-9) throw new Exception("SL pts " + slP + " / TP " + tpP);
+            double gTp = KeystonePractice.BracketPts(500, 2, 10, KeystoneMoveStudy.Cost("MGC"), 0.1, false); if (KeystonePractice.UsdOf(gTp, 2, 10, KeystoneMoveStudy.Cost("MGC"), false) < 500 - 1e-6) throw new Exception("MGC TP " + gTp);
+            // 🎯 the practice account: STATIC, EOD trailing, INTRADAY incl. open profit, the floor / target prices
+            var st = KeystonePractice.Presets()[0].Copy(); if (st.Mark(0, -1000, "t") != "BLOWN" || !st.Blown) throw new Exception("MFF static floor −$1,000 not blown");
+            var evP = KeystonePractice.Presets()[3].Copy(); evP.EndOfDay(1500); if (Math.Abs(evP.FloorNow(0) - (-500)) > 1e-9) throw new Exception("EOD trail floor " + evP.FloorNow(0)); if (evP.Mark(3000, 0, "t") != "PASSED") throw new Exception("not passed at +3,000");
+            var tf = KeystonePractice.Presets().First(x => x.DdType == "INTRADAY").Copy(); tf.Mark(0, 2500, "t"); if (Math.Abs(tf.FloorNow(0) - 0) > 1e-9 || !tf.Locked) throw new Exception("TPT intraday floor should lock at the start: " + tf.FloorNow(0));
+            double fpx = KeystonePractice.PriceAt(-1000, 0, -25, 21798, 2, cM); if (Math.Abs(fpx - (21798 + (1000 - 25 * cM) / 50.0)) > 1e-9) throw new Exception("the floor price of a short " + fpx);
+            if (tf.MaxStopPts(2, 2, cM, 0.25) <= 0) throw new Exception("max stop pts");
+            // 🏷 the gutter stack never overlaps
+            var ys = KeystoneChartGutter.Stack(new List<double> { 100, 101, 102, 300 }, 18, 0, 400); for (int i = 0; i < ys.Count; i++) for (int j = i + 1; j < ys.Count; j++) if (Math.Abs(ys[i] - ys[j]) < 18 - 1e-9) throw new Exception("gutter labels overlap");
+            // ⏱ real ticks: the forming candle builds from the ticks, fills at tick prices, 60 seconds a minute at 1×, the fallback without ticks
+            var t0 = new DateTime(2026, 1, 5, 9, 31, 0); var bars = new List<KeystoneArcBar> { new KeystoneArcBar { Symbol = "MNQ", Time = t0, Open = 100, High = 105, Low = 98, Close = 104 }, new KeystoneArcBar { Symbol = "MNQ", Time = t0.AddMinutes(1), Open = 104, High = 106, Low = 103, Close = 105 } };
+            var tr = new KeystoneReplayTrader(bars, "MNQ", 60); if (tr.HasTicks) throw new Exception("no ticks yet"); 
+            var tks = new List<KeystoneTick> { new KeystoneTick { Time = t0.AddSeconds(-58), Price = 100, Volume = 3 }, new KeystoneTick { Time = t0.AddSeconds(-40), Price = 98, Volume = 2 }, new KeystoneTick { Time = t0.AddSeconds(-20), Price = 105, Volume = 1 }, new KeystoneTick { Time = t0.AddSeconds(-2), Price = 104, Volume = 4 }, new KeystoneTick { Time = t0.AddSeconds(30), Price = 104.5, Volume = 1 }, new KeystoneTick { Time = t0.AddSeconds(59), Price = 105, Volume = 1 } };
+            tr.SetTicks(tks, "TICKS"); if (!tr.HasTicks || tr.TickSource != "TICKS") throw new Exception("ticks not attached");
+            tr.AdvanceTo(t0.AddSeconds(-50), 1000); var c1 = tr.Candles(1).Last(); if (c1.Open != 100 || c1.High != 100 || c1.Low != 100 || c1.Close != 100 || tr.Time != t0.AddSeconds(-58)) throw new Exception("step 1 candle " + c1.Open + "/" + c1.High + "/" + c1.Low + "/" + c1.Close + " at " + tr.Time.ToString("HH:mm:ss"));
+            tr.TargetPts = 3; tr.Buy(1);   // long at 100, target 103: the next print that reaches it is 105 (a tick) → filled at the target price on that print's time
+            tr.AdvanceTo(t0.AddSeconds(-30), 1000); var c2 = tr.Candles(1).Last(); if (c2.Low != 98 || c2.Close != 98 || tr.Position != 1) throw new Exception("step 2 candle / position");
+            tr.AdvanceTo(t0.AddSeconds(-20), 1000); if (tr.Position != 0 || tr.Fills.Count != 1 || tr.Fills[0].Exit != 103 || tr.Fills[0].ExitTime != t0.AddSeconds(-20)) throw new Exception("the target did not fill on the 105 print at 103");
+            tr.AdvanceTo(t0, 1000); var done1 = tr.Candles(1)[0]; if (done1.Open != 100 || done1.High != 105 || done1.Low != 98 || done1.Close != 104) throw new Exception("the finished minute must equal the saved bar");
+            // 60 seconds a minute at 1×: the wall clock × 60 / 60 → after 30 s of wall time the replay stands at the print of +30 s, not later
+            tr.AdvanceTo(t0.AddSeconds(30), 1000); if (tr.Time != t0.AddSeconds(30) || tr.Price != 104.5) throw new Exception("pace: " + tr.Time.ToString("HH:mm:ss"));
+            var tr2 = new KeystoneReplayTrader(bars, "MNQ", 60); if (tr2.HasTicks || tr2.TickSource != "ESTIMATED") throw new Exception("the fallback must say ESTIMATED (the ⚠ note)");
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ksticks"); KeystoneTickCache.Save(dir, "MNQ", t0.Date, tks, "TICKS"); string src; var back = KeystoneTickCache.Load(dir, "MNQ", t0.Date, out src); if (back == null || back.Count != tks.Count || src != "TICKS" || back[2].Price != 105) throw new Exception("tick cache round trip");
+            Console.WriteLine("      📅 " + sum + " · 🟩 " + tp.Line + " · 💵 MNQ 15 +$1,000 = " + tpP + " pts · ⏱ ticks " + tr.TickNote);
         });
         Console.WriteLine(failures == 0 ? "UI SMOKE TEST PASSED" : "UI SMOKE TEST: " + failures + " FAILURE(S)");
         return failures == 0 ? 0 : 1;
