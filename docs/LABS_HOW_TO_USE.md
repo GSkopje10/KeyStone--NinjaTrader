@@ -148,3 +148,14 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
 - **● LIVE TRADING:** a 🗂 data chip (up to date or not). The 🧪 / 💰 shortcuts open the labs. No order path changed.
 - **💰 FUNDED LAB result:** the phase strip (EVAL ✓ ▸ FUNDED ▸ PAYOUT 1 ▸ …) with "next: …" in words. 🛒 BUY THE NEXT BATCH shows money in vs spent and the rule (no new batch until the payouts cover the spend; keep 3 batches of budget). It starts a new Eval Lab batch with the same counts per firm.
 - **⚡ ALL AT ONCE:** now held to 4:55 PM like STAGGERED. The old "30 of 30 blown" came from the take profit waiting for a close above it; it is a limit now (tested).
+
+## BUILD 2026-11-10f
+- **🏆 FIND BEST** (🎯 PLANS):
+  - Every eval plan is ranked by pass % on FROM → TO, with both halves of the period shown for stability.
+  - Every funded plan is ranked by "paid at least once %", then $ per account (5 Lucid + 5 Tradeify).
+  - The top 5 of each come with ▶ USE THIS PLAN.
+- **🧠 The % on the flashing buttons:**
+  - It now comes from the analog fingerprint engine: the 30 most similar earlier moments of the loaded days (±60 min of the time of day), each replayed with this trade's bracket.
+  - It shows as "similar past moments: X% reached +TP before the floor (n = …)".
+  - With fewer than 10 similar moments it falls back to the same-time history %. Either way it is labelled "history, not a forecast".
+- **Controls:** the timeframe buttons, pool tabs, ⤢ BIG CARDS, per-firm ± and "N EACH", REPORTS open buttons and the order-bar steppers are now ≥ 28 px.

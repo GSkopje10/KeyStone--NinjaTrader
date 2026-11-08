@@ -1090,6 +1090,8 @@ public static class UiSmokeTest
                     Set(lab4, "evalLabResultsLast", null); ((Action<DateTime, DateTime>)G("evalLabTwoDay"))(new DateTime(2026, 1, 5), new DateTime(2026, 1, 16)); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
                     var td = (KeystoneLabResults)G("evalLabResultsLast"); if (td == null || !td.Period.StartsWith("📅 2-DAY TEST") || td.Days.Count < 2 || !td.Stats.Any(x => x[0] == "best weekday to start")) throw new Exception("📅 2-DAY TEST gave no result");
                     ((Action<string>)G("evalLabShow"))("REPORTS"); ((Action<string>)G("evalLabShow"))("DATA"); ((Action<string>)G("evalLabShow"))("ROTATE");
+                    Set(lab4, "evalLabFindBest", -1); ((Action)G("evalLabFindBestGo"))(); for (int i = 0; i < 1800 && (int)G("evalLabFindBest") < 0; i++) System.Threading.Thread.Sleep(100);
+                    if ((int)G("evalLabFindBest") <= 0) throw new Exception("🏆 FIND BEST ranked no plan"); Console.WriteLine("      🏆 FIND BEST ranked " + G("evalLabFindBest") + " eval plans (top 5 + ▶ USE THIS PLAN)");
                     Console.WriteLine("      📅 " + td.Period + " · " + td.Stats[1][1]);
                     boxes.OfType<System.Windows.Controls.CheckBox>().First(c => Convert.ToString(c.Tag) == "rot.tptauto").IsChecked = false;
                 }

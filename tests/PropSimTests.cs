@@ -1024,6 +1024,10 @@ public static class PropSimTests
                 var tst = wset(true, true, 155, 1655); tst.AllSide = "FIRM"; tst.Accounts = 10; var rows2 = KeystoneTwoDay.Run(tst, wdays.Take(8).ToList(), 155, 1655, false); var rows3 = KeystoneTwoDay.Run(tst, wdays.Take(8).ToList(), 155, 1655, true); var rr = KeystoneTwoDay.Results(rows2, false);
                 Check(rows2.Count == 7 && rows3.Count == 6 && rows2.All(x => x.N == 10 && x.Passed + x.Blown <= 10) && rr.Eval.Count >= 2 && rr.Stats.Any(x => x[0] == "best weekday to start") && rr.Days.Count == 8, "📅 2-DAY TEST: 8 days → 7 starts (TPT 6), pass % per start day, by weekday, the distribution", string.Join(" ", rows2.Select(x => x.PassPct.ToString("0"))));
             }
+            {   // 🧠 the analog % on the buttons: the most similar earlier moments, replayed with the trade's bracket
+                var aidx = KeystoneAnalogTrade.Index(wdays); int amk = KeystoneRotDay.Slot(1000); var lkA = KeystoneAnalogTrade.Likelihood(aidx, wdays, 10, amk, KeystoneRotDay.Slot(1655), 1, 0, 20, 0, 1500, 1500); var l0 = KeystoneAnalogTrade.Likelihood(aidx, wdays, 0, amk, KeystoneRotDay.Slot(1655), 1, 0, 20, 0, 1500, 1500);
+                Check(aidx.Count > 1000 && lkA.Item2 >= 10 && lkA.Item1 >= 0 && lkA.Item1 <= 1 && l0.Item2 == 0, "🧠 analog %: similar earlier moments replayed with the bracket (n = " + lkA.Item2 + "); the first day has no history (n = 0 → the fallback)", lkA.Item1.ToString("0.00") + " n " + lkA.Item2);
+            }
             // 📜 the event log: CSV export
             var lg = new KeystoneLabLog(); lg.Add(new DateTime(2026, 1, 5, 9, 30, 0), "ENTRY", "TPT 1", "BUY 20 MNQ, \"quoted\""); Check(lg.Csv().Split('\n').Length >= 2 && KeystoneLabLog.Line(lg.Rows[0]).Contains("ENTRY"), "📜 the event log exports as CSV / text");
         }
