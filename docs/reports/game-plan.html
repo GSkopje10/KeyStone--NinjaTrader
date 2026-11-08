@@ -3,7 +3,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* The rulebook: the one model to follow, why, everything tested, what to check. Dark, prints cleanly. */
+/* The strict plan: the rules (never change), the money ladder, what to expect, the stop rules, the evidence. Dark, prints cleanly. */
 :root{color-scheme:dark;--bg:#0f1320;--panel:#161b2b;--raise:#1d2336;--line:#2a3148;--tx:#dfe3ee;--mu:#8a91a8;--up:#22b8a0;--dn:#ef5466;--warn:#f2b33d;--acc:#4f7cff;
 --fd:"Archivo","Arial Narrow",system-ui,sans-serif;--fb:"IBM Plex Sans",system-ui,sans-serif;--fn:"JetBrains Mono",ui-monospace,monospace}
 :root[data-theme="light"]{color-scheme:light;--bg:#f6f7fb;--panel:#fff;--raise:#eef0f6;--line:#d5d9e5;--tx:#151a28;--mu:#5b6378}
@@ -12,134 +12,119 @@
 nav{position:sticky;top:0;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:4px;flex-wrap:wrap;padding:8px 0;z-index:5}
 nav a{color:var(--mu);text-decoration:none;font-size:13px;padding:4px 10px;border-radius:6px}nav a:hover{color:var(--tx);background:var(--raise)}
 h1{font:800 32px var(--fd);margin:18px 0 4px}h2{font:700 21px var(--fd);margin:36px 0 10px;scroll-margin-top:56px}h3{font:700 16px var(--fd);margin:18px 0 6px}
-.sub{color:var(--mu);max-width:80ch}.num{font-family:var(--fn);font-variant-numeric:tabular-nums}
-.box{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--up);border-radius:10px;padding:14px 18px;margin:12px 0}.box.warn{border-left-color:var(--warn)}.box.red{border-left-color:var(--dn)}.box.blue{border-left-color:var(--acc)}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:12px 0}.kpis div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.sub{color:var(--mu);max-width:82ch}
+.box{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--up);border-radius:10px;padding:14px 18px;margin:12px 0}.box.warn{border-left-color:var(--warn)}.box.red{border-left-color:var(--dn)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:12px 0}.kpis div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 .kpis span{display:block;color:var(--mu);font-size:11px;letter-spacing:.06em;text-transform:uppercase}.kpis b{font:600 22px var(--fn)}.kpis small{color:var(--mu);font-size:12px;display:block}
 .tbl{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin:10px 0}table{border-collapse:collapse;width:100%;font-size:14px}
 th,td{padding:8px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mu);font-weight:500;font-size:11px;letter-spacing:.05em;text-transform:uppercase}
 td.n{text-align:right;font-family:var(--fn);white-space:nowrap}tr.win td{background:color-mix(in srgb,var(--up) 10%,transparent)}
-ol li,ul li{margin:4px 0}b.up{color:var(--up)}b.dn{color:var(--dn)}b.wa{color:var(--warn)}
-.rule{counter-increment:r;display:grid;grid-template-columns:34px 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}.rule:before{content:counter(r);font:600 18px var(--fn);color:var(--up)}
+b.up{color:var(--up)}b.dn{color:var(--dn)}b.wa{color:var(--warn)}
 .rules{counter-reset:r;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 16px;margin:10px 0}
+.rule{counter-increment:r;display:grid;grid-template-columns:34px 1fr;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}.rule:last-child{border-bottom:0}.rule:before{content:counter(r);font:600 18px var(--fn);color:var(--up)}
 @media print{body{background:#fff;color:#111}nav{display:none}.box,.tbl,.kpis div,.rules{background:#fff;border-color:#bbb}.sub,th,.kpis span,.kpis small{color:#555}h2{break-after:avoid}.tbl,.box{break-inside:avoid}}
 </style></head><body><div class="wrap">
-<nav><a href="#answer">1 · The answer</a><a href="#rules">2 · The rulebook</a><a href="#why">3 · Why this model</a><a href="#tpt">4 · TPT</a><a href="#tested">5 · Everything tested</a><a href="#check">6 · Check before you buy</a><a href="#now">7 · Your TPT today</a></nav>
+<nav><a href="#answer">1 · Do we have something?</a><a href="#rules">2 · The rules</a><a href="#money">3 · The money ladder</a><a href="#expect">4 · What to expect</a><a href="#stop">5 · Stop rules</a><a href="#household">6 · You and your wife</a><a href="#autopilot">7 · Running it</a><a href="#evidence">8 · The evidence</a></nav>
 <h1>Prop Firm Rulebook</h1>
-<p class="sub">The newest results of all our testing and the one model to follow without exception. Real 1-minute MNQ and MGC data from July 2020 to October 2026, costs included ($1 a contract round trip plus 1 tick of slippage each side). Every batch below is 30 × 50K evals (10 Lucid, 10 Tradeify, 10 TPT), a new batch started on every weekday: 1,549 batches.</p>
+<p class="sub">The strict plan to follow without changes once the accounts are bought. Every number comes from the realistic lab engine: real 1-minute MNQ highs and lows (a floor or stop is hit the moment price touches it), $1 a contract plus 1 tick of slippage each side, firm rules as modelled, data 2020-10 → 2026-10. The plan was started on every month and run for 6 and 12 months, with 5 different coin sequences each.</p>
 
-<section id="answer"><h2>1 · The answer</h2>
-<div class="box"><b>Pass the evals fast and wide, then trade every funded account small and slow until the first payout.</b> The eval stage stays as it is (★ staggered, MNQ 20). The funded stage switches to <b>🛟 SAFE PAYOUT</b>: MNQ 1, +$800 / −$300, one trade a day, each account at its own time and side, payout requested the first day it's allowed.</div>
+<section id="answer"><h2>1 · Do we have something?</h2>
+<div class="box"><b>Yes, measured, not guessed.</b> Each eval bought under these rules is worth about <b>$220</b> to you on average in payouts (95 % range <b>$169 – $276</b>, 15,396 simulated evals). Any eval bought below that price is profitable on average. The edge is not in the entries (they are close to coin flips). It comes from the firms' rules, from many accounts, from taking payouts early and from buying evals cheaply.</div>
 <div class="kpis">
-<div><span>Funded accounts paid at least once</span><b class="up">61%</b><small>vs 21% with MAX IN 5</small></div>
-<div><span>Batches that pay nothing</span><b class="up">6.8%</b><small>vs 38% with MAX IN 5</small></div>
-<div><span>Typical batch (median)</span><b>$3,765</b><small>Lucid + Tradeify payouts, vs $2,250</small></div>
-<div><span>First payout</span><b>≈ 19</b><small>funded trading days (about 4 weeks)</small></div>
+<div><span>Per eval bought (to you)</span><b class="up">$220</b><small>95 % range $169 – $276</small></div>
+<div><span>12-month runs profitable</span><b class="up">93 % · 100 %</b><small>at $120 · at $90 or less per eval</small></div>
+<div><span>Payouts per funded blow-up</span><b>1.3</b><small>more payouts than funded accounts lost</small></div>
+<div><span>Recent warning</span><b class="wa">$152</b><small>per eval in 2025, Feb–Apr 2026 starts lost at $120</small></div>
 </div>
-<p>You asked for a model that gives at least one payout instead of blowing it all. This is it. The trade-off: the payouts are smaller (about $500 each instead of $1,800–$2,250), so the <i>average</i> per batch is about the same as the big plans. The difference is that you <b>almost always get something back</b>, instead of 4 batches in 10 paying nothing.</p>
-</section>
-
-<section id="rules"><h2>2 · The rulebook (follow it to the letter)</h2>
-<h3>Eval stage: every firm</h3>
-<div class="rules">
-<div class="rule"><div>Every trading day, <b>every alive eval trades once</b>. The accounts are spread over <b>2:00 · 8:30 · 9:30 · 10:00 · 11:00 AM New York</b>, firm by firm (never two of the same firm in a row).</div></div>
-<div class="rule"><div><b>MNQ 20.</b> One side per firm at each time (a coin per firm per time), so a firm never sees opposite positions.</div></div>
-<div class="rule"><div><b>Take profit +$1,500 after costs</b>, as a limit order at the broker. <b>No stop</b>: the trade rides the $2,000 room. If neither is hit, close at the session end.</div></div>
-<div class="rule"><div>Pass = +$3,000 over at least 2 days (TPT: 3 days; the 3rd day is a tiny trade only to activate). Never trade a passed eval again.</div></div>
-</div>
-<h3>Funded stage: Lucid and Tradeify (🛟 SAFE PAYOUT)</h3>
-<div class="rules">
-<div class="rule"><div><b>MNQ 1.</b> One trade a day at the account's <b>own time</b> (the eval time it had) and its <b>own side</b>. Never opposite sides inside one firm at the same time.</div></div>
-<div class="rule"><div><b>Bracket at the broker: take profit +$800, stop −$300</b> (after costs). If neither is hit, close at the session end. No adding, no second trade, no moving the stop.</div></div>
-<div class="rule"><div>A <b>qualifying day</b> is a day that closes +$150 or more. Losing days don't reset anything; just keep going.</div></div>
-<div class="rule"><div><b>Request the payout the first day it's allowed:</b> 5 qualifying days done and at least $500 profit. Ask for 50% of the profit (Lucid max $2,000, Tradeify max $2,500); you keep 90%. Then start the next cycle the same way.</div></div>
-<div class="rule"><div>At most <b>5 funded per firm</b>. Extra passed accounts wait on the bench and replace a blown or finished one.</div></div>
-</div>
-<h3>Money rules</h3>
-<div class="rules">
-<div class="rule"><div>Keep the budget for <b>3 batches</b> before you start. A bad stretch is normal; the average only shows over several batches.</div></div>
-<div class="rule"><div><b>Every payout goes back into evals first</b>, until the money spent is covered. Then take your share.</div></div>
-<div class="rule"><div><b>Buy evals only at a discount</b> when you can. The eval price is the biggest lever we found.</div></div>
-<div class="rule"><div>TPT is always traded <b>by hand</b> (the firm doesn't allow automation). Lucid and Tradeify can run on AUTO.</div></div>
-</div>
-</section>
-
-<section id="why"><h2>3 · Why this model</h2>
-<p class="sub">Per batch of 30 evals ($3,600), with the eval stage the same in every row. Funded = the Lucid and Tradeify accounts that passed (about 5.5 per batch, max 5 per firm). TPT is counted in section 4.</p>
-<div class="tbl"><table><tr><th>Funded plan</th><th>Funded accounts paid at least once</th><th>Batches paying nothing</th><th>Median batch</th><th>Average batch</th><th>Pays back $3,600+</th><th>Payouts per batch</th><th>Last 12 months: average · nothing</th></tr>
-<tr class="win"><td><b>🛟 SAFE PAYOUT</b> · MNQ 1 · +$800 / −$300 · own time + side</td><td class="n"><b class="up">61%</b></td><td class="n"><b class="up">6.8%</b></td><td class="n">$3,765</td><td class="n">$4,178</td><td class="n">52%</td><td class="n">7.8</td><td class="n">$2,799 · 15%</td></tr>
-<tr><td>SAFE, smaller target · MNQ 1 · +$400 / −$300</td><td class="n">62%</td><td class="n">5.7%</td><td class="n">$3,562</td><td class="n">$3,870</td><td class="n">49%</td><td class="n">8.5</td><td class="n">$2,954 · 13%</td></tr>
-<tr><td>SAFE, double size · MNQ 2 · +$800 / −$300</td><td class="n">53%</td><td class="n">9.5%</td><td class="n">$3,173</td><td class="n">$4,054</td><td class="n">46%</td><td class="n">5.5</td><td class="n">$3,099 · 15%</td></tr>
-<tr><td>★ MAX IN 5 · own time + side (the previous default)</td><td class="n">21%</td><td class="n"><b class="dn">38%</b></td><td class="n">$2,250</td><td class="n">$4,544</td><td class="n">46%</td><td class="n">2.3</td><td class="n">$3,885 · 46%</td></tr>
-<tr><td>★ MAX IN 5 · everyone 9:30, same side</td><td class="n">29%</td><td class="n"><b class="dn">70%</b></td><td class="n">$0</td><td class="n">$7,892</td><td class="n">30%</td><td class="n">3.9</td><td class="n">$7,367 · 73%</td></tr>
-</table></div>
-<div class="box blue"><b>How to read it.</b> MAX IN 5 with everyone on the same side has the biggest average because a few batches pay a lot, but 7 batches in 10 pay nothing. That's a lottery, and with a small budget you can run out of money before the good batch comes. SAFE PAYOUT pays something in 93 batches out of 100, and half the batches cover their $3,600 from Lucid and Tradeify alone.</div>
-<h3>Why small size works in funded</h3>
-<p>With MNQ 1, the $2,000 room is about 1,000 Nasdaq points. An account almost never blows. It just collects +$150 days: a +$150 day needs only about a 75-point move in your direction by the close, which happens often enough. Bigger size reaches the payout sooner when it works, but blows 7–8 accounts in 10 before the first payout.</p>
-<div class="tbl"><table><tr><th>One funded account (Lucid or Tradeify), 775 start dates</th><th>Paid at least once</th><th>Reach payout 1 / 2 / 3 / 4 / 5</th><th>Per account</th><th>2020–23 / 2024–26</th><th>Days to payout 1</th></tr>
-<tr class="win"><td>🛟 SAFE · MNQ 1 · +$800 / −$300 · London side 9:30</td><td class="n">71%</td><td class="n">71 / 52 / 32 / 17 / 6 %</td><td class="n">$939</td><td class="n">$916 / $965</td><td class="n">19</td></tr>
-<tr><td>MNQ 2 · +$800 / −$300</td><td class="n">60%</td><td class="n">59 / 32 / 18 / 9 / 5 %</td><td class="n">$999</td><td class="n">$911 / $1,104</td><td class="n">13</td></tr>
-<tr><td>MNQ 4 · +$1,500 / −$500 · payout as soon as allowed</td><td class="n">34%</td><td class="n">34 / 15 / 9 / 5 / 3 %</td><td class="n">$958</td><td class="n">$882 / $1,049</td><td class="n">11</td></tr>
-<tr><td>★ MAX IN 5 · MNQ 6 · push +$2,500 / −$500</td><td class="n">28%</td><td class="n">28 / 16 / 11 / 7 / 5 %</td><td class="n">$1,345</td><td class="n">$1,286 / $1,415</td><td class="n">11</td></tr>
-<tr><td>Start SAFE, then switch to bigger after payout 1 (best of 20 mixes)</td><td class="n">71%</td><td class="n">71 / 38 / 22 / 9 / 5 %</td><td class="n">$1,061</td><td class="n">$1,014 / $1,117</td><td class="n">19</td></tr>
-</table></div>
-<p class="sub">Switching to a bigger size after the first payout adds about $100 per account on average but halves the chance of payout 2. Not worth breaking the rule for.</p>
-</section>
-
-<section id="tpt"><h2>4 · TPT (Take Profit Trader PRO)</h2>
-<p>TPT funded is harder: the drawdown trails <b>during the day, including open profit</b>, until the account has been +$2,000 up. Only then can you withdraw.</p>
-<div class="rules">
-<div class="rule"><div><b>🛟 SAFE TPT:</b> MNQ 2, one trade at 9:30 AM, the London side (Nasdaq's direction from 3:00 to 9:30), take profit +$800, stop −$300, close at the session end. By hand.</div></div>
-<div class="rule"><div>Once the account has been +$2,000 up (the drawdown locks), <b>withdraw $1,000 every time the balance is +$3,000 or more</b> (you get 80% = $800).</div></div>
-</div>
-<div class="tbl"><table><tr><th>TPT PRO plan (775 start dates)</th><th>Paid at least once</th><th>Per account</th><th>2024–26</th><th>Days to first payout</th></tr>
-<tr class="win"><td>🛟 SAFE TPT · MNQ 2 · +$800 / −$300 · withdraw $1,000</td><td class="n">33%</td><td class="n">$790</td><td class="n">$951 (35% paid)</td><td class="n">26</td></tr>
-<tr><td>Previous: one-shot lock MNQ 10 +$2,250, then MNQ 6, withdraw $2,000</td><td class="n">22%</td><td class="n">$776</td><td class="n">$757 (21% paid)</td><td class="n">5</td></tr>
-</table></div>
-<p>A batch passes about 3 TPT accounts, so TPT adds roughly <b>$2,400 per batch</b> on top of the Lucid / Tradeify numbers above (an estimate: 3 × $790, not a full batch run).</p>
-</section>
-
-<section id="tested"><h2>5 · Everything we tested, and the verdict</h2>
-<div class="tbl"><table><tr><th>Idea</th><th>Result</th><th>Verdict</th></tr>
-<tr><td>Eval: entries, sides, times (about 7,000 plans: candles, ORB, VWAP, London, break of structure, reversion)</td><td>Each trade hits +$1,500 before −$2,000 about 53–57% of the time. No entry beat good timing by more than 1–3 points.</td><td><b class="up">Keep ★ staggered</b></td></tr>
-<tr><td>Eval: spreading the 30 over 5 times vs all at 2:00</td><td>The same pass rate (≈ 30%), but all-at-once leaves 37–43% of batches with nobody passing; staggered 0.6%.</td><td><b class="up">Spread</b></td></tr>
-<tr><td>Eval size MNQ 10 / 20 / 30</td><td>28.7% / <b>30.4%</b> / 29.0%. MNQ 20 is the fastest pass rate per day.</td><td><b class="up">MNQ 20</b></td></tr>
-<tr><td>Gold (MGC), and MNQ + MGC together</td><td>MNQ 10 + MGC 10: 28.3%. In funded, gold earns about half of MNQ; MNQ 20 + MGC 20 is the worst size tested ($151 per account).</td><td><b class="dn">No</b> (alternating accounts MNQ / MGC is fine for spreading)</td></tr>
-<tr><td>Eval with a stop (1:1, −$1,500) or a recovery trade</td><td>27.2% / 26.6%: worse.</td><td><b class="dn">No</b></td></tr>
-<tr><td>Scalping: 1-minute trades again and again until +$1,500 (288 versions)</td><td>Average 5.9% passed, $68 per funded account. +$150 / −$150 scalps: 0%.</td><td><b class="dn">Never</b></td></tr>
-<tr><td>Trade again the same day until the target or blown (36 versions)</td><td>Eval 29–32% (the same within luck). Funded $325–$930 vs $1,345.</td><td><b class="dn">No</b></td></tr>
-<tr><td>Profit-lock ladder (lock +$500 at +$1,000…) and trade again after a lock</td><td>Eval 25.0% → 24.2%; funded unchanged.</td><td><b class="dn">No</b></td></tr>
-<tr><td>Funded: bigger size (MNQ 10 / 15 / 20)</td><td>Worse every time: $1,148 / $914 / $743 vs $1,345 with MNQ 6.</td><td><b class="dn">No</b></td></tr>
-<tr><td>Funded: +$3,000 first push instead of +$2,500</td><td>+$90 per account in MAX IN 5.</td><td>Small gain, only matters if you choose MAX IN 5</td></tr>
-<tr><td>Funded: "buffer days" (+$1,500 on days 3–5 instead of the small qualify trade)</td><td>$1,182–$1,293 vs $1,345.</td><td><b class="dn">No</b></td></tr>
-<tr><td>Funded: breakeven at +$500</td><td>About +$80 per account.</td><td>Optional</td></tr>
-<tr><td>Funded: the user's +$1,500 a day riding the room</td><td>99% blown, $469 per account.</td><td><b class="dn">Never</b></td></tr>
-<tr><td>Funded: everyone on the same side and time</td><td>63–70% of batches pay nothing.</td><td><b class="dn">Never</b>: always spread</td></tr>
-<tr><td>Lucid 2-week cooldown rule</td><td>Changes the results very little.</td><td>Either way</td></tr>
-<tr><td>One TPT account to +$10,000 in 2.5 weeks</td><td>About 1 start in 10 on a PRO account, 1–2 in 100 from an eval.</td><td>A long shot</td></tr>
-<tr><td>The transcript trader's model</td><td>His entries didn't beat ours. His edge is scale and spreading over sessions.</td><td>We copied the spreading</td></tr>
-<tr><td>Eval price (discounts)</td><td>At about $40 an eval, the business works from a small start; at $120 the money often runs out first.</td><td><b class="up">Biggest lever</b></td></tr>
-<tr><td><b>Funded: SAFE PAYOUT (MNQ 1–2, small target, payout as soon as allowed)</b></td><td>61–71% of funded accounts paid at least once; batches paying nothing 6–10%.</td><td><b class="up">The new default</b></td></tr>
+<div class="tbl"><table><tr><th>Firm</th><th>Pass</th><th>Funded paid at least once</th><th>$ to you per eval bought (95 % range)</th></tr>
+<tr class="win"><td><b>Lucid</b></td><td class="n">28.5 %</td><td class="n">60 %</td><td class="n">$227 ($186 – $274), the most reliable</td></tr>
+<tr><td>TPT</td><td class="n">28.4 %</td><td class="n">35 %</td><td class="n">$263 ($149 – $396), highest but least certain</td></tr>
+<tr><td>Tradeify</td><td class="n">28.3 %</td><td class="n">54 %</td><td class="n">$164 ($130 – $200), the weakest</td></tr>
 </table></div>
 </section>
 
-<section id="check"><h2>6 · Check before you buy (the model assumes these)</h2>
+<section id="rules"><h2>2 · The rules (no changes for 3 months)</h2>
+<h3>Evaluations (Lucid, Tradeify, TPT 50K)</h3>
+<div class="rules">
+<div class="rule"><div><b>One trade per account per day, at 2:00 AM New York</b> (⚡ ALL AT ONCE). The side is one coin per firm (all of a firm's accounts take the same side; never opposite sides inside one firm).</div></div>
+<div class="rule"><div><b>MNQ 20.</b> Take profit <b>+$1,500 after costs</b> (a limit order at the broker). The protective stop sits at the account's floor (it "rides the room"). If neither is hit, close at 4:54 PM.</div></div>
+<div class="rule"><div>Pass = +$3,000 over at least 2 days, best day ≤ 50 %. TPT: a tiny trade on the 3rd day. A passed eval is never traded again.</div></div>
+</div>
+<h3>Funded (🛟 SAFE PAYOUT, SPRINT 0)</h3>
+<div class="rules">
+<div class="rule"><div><b>Lucid / Tradeify:</b> MNQ 1, take profit +$800 / stop −$300, one trade a day at the account's own time. Request the payout the first day it is allowed (5 days of +$150, at least $500 profit).</div></div>
+<div class="rule"><div><b>TPT PRO:</b> MNQ 2, +$800 / −$300. First <b>beat the trailing drawdown</b> (best equity +$2,000, open profit counts; then the floor locks at the start). Then withdraw above the $2,000 buffer (the model takes $1,000 each time the balance is +$3,000). TPT is always traded by hand.</div></div>
+<div class="rule"><div>Max 5 funded per firm per person. Extra passes wait on the bench.</div></div>
+</div>
+<h3>Not allowed (tested, they lose)</h3>
+<p>Scalping or several trades a day per account · bigger funded sizes · ⚡ sprint · retrying after a loss · moving the target or stop · changing times after a bad week · gold instead of MNQ · profit-lock ladders. A rule changes only after a 3-month review (section 5), never mid-month.</p>
+</section>
+
+<section id="money"><h2>3 · The money ladder</h2>
+<p class="sub">New evals are bought only from cash on hand (the starting money plus payouts already received). Tested on 174 runs of 12 months for each case.</p>
+<div class="tbl"><table><tr><th>Eval price</th><th>Accounts at once</th><th>Start money</th><th>Ran out of money</th><th>Typical cash after 12 months</th></tr>
+<tr class="win"><td>$60</td><td><b>6</b> (2 per firm)</td><td><b>$3,000</b></td><td class="n">2 %</td><td class="n">$18,300</td></tr>
+<tr><td>$60</td><td>15 (5 per firm)</td><td>$5,000</td><td class="n">2 %</td><td class="n">$43,000</td></tr>
+<tr><td>$60</td><td>30 (you + wife)</td><td>$10,000</td><td class="n">2 %</td><td class="n">$85,000</td></tr>
+<tr><td>$120</td><td>6</td><td>$5,000</td><td class="n">9 %</td><td class="n">$12,500</td></tr>
+<tr><td>$120</td><td>15</td><td>$10,000</td><td class="n">6 %</td><td class="n">$29,000</td></tr>
+<tr><td>$120</td><td>30</td><td>$20,000</td><td class="n">5 %</td><td class="n">$55,000</td></tr>
+<tr><td>$120</td><td>30</td><td>$3,000</td><td class="n"><b class="dn">68 %</b></td><td class="n">$0</td></tr>
+</table></div>
+<div class="rules">
+<div class="rule"><div><b>Start:</b> 6 accounts (2 Lucid, 2 Tradeify, 2 TPT) on $3,000 if evals cost about $60. At full price ($120) start 6 accounts only with $5,000 – $10,000.</div></div>
+<div class="rule"><div><b>Step up to 15 accounts</b> when cash reaches $5,000 ($10,000 at full price). <b>Step up to 30</b> (you + wife) at $10,000 ($20,000 at full price).</div></div>
+<div class="rule"><div><b>Every payout goes back into the business</b> until those levels are reached. Only then keep 30 % of each payout as take-home.</div></div>
+<div class="rule"><div><b>Buy only at a discount</b> whenever possible. The eval price is the biggest lever: at $60 instead of $120 the 12-month result roughly doubles.</div></div>
+</div>
+</section>
+
+<section id="expect"><h2>4 · What to expect (30 accounts, every blown account replaced)</h2>
+<div class="tbl"><table><tr><th>Eval price</th><th>12 months: typical net</th><th>Bad year (1 in 10)</th><th>12-month runs profitable</th><th>6-month runs profitable</th><th>6 months down more than $5,000</th></tr>
+<tr><td>$120</td><td class="n">+$35k</td><td class="n">+$6k</td><td class="n">93 %</td><td class="n">69 %</td><td class="n">27 %</td></tr>
+<tr><td>$90</td><td class="n">+$54k</td><td class="n">+$29k</td><td class="n">100 %</td><td class="n">84 %</td><td class="n">12 %</td></tr>
+<tr class="win"><td>$60</td><td class="n">+$74k</td><td class="n">+$51k</td><td class="n">100 %</td><td class="n">95 %</td><td class="n">2 %</td></tr>
+<tr><td>$40</td><td class="n">+$85k</td><td class="n">+$64k</td><td class="n">100 %</td><td class="n">99 %</td><td class="n">0 %</td></tr>
+</table></div>
+<p>A typical year with 30 accounts: about 650 evals bought, 183 passed, 183 payouts (about $112,000 to you), 146 funded accounts blown. Cumulative net usually turns positive in month 3 (month 2 at $60). <b>Months are lumpy:</b> 6 of 22 quarters paid less than $120 per eval.</p>
+</section>
+
+<section id="stop"><h2>5 · Stop and review rules</h2>
+<div class="rules">
+<div class="rule"><div><b>Monthly check</b> (📦 EXPORT FOR CLAUDE): real pass rate, payouts and $ per eval against the model. Pass rates of 20 – 35 % in a month are normal noise.</div></div>
+<div class="rule"><div><b>Pause buying</b> if cash falls below the price of 2 evals with nothing funded or pending. Wait for payouts.</div></div>
+<div class="rule"><div><b>Stop and review (do not tweak)</b> after 3 months in a row below the model's bad-case line, or if a firm changes its rules (payout minimum, buffers, consistency, automation, account limits). Re-run the tests on the new rules before buying again.</div></div>
+<div class="rule"><div><b>Drop a firm</b> only after 3 months of real results clearly below its range in section 1 (Tradeify is the first candidate).</div></div>
+</div>
+</section>
+
+<section id="household"><h2>6 · You and your wife</h2>
 <div class="box warn"><ol>
-<li><b>Payout minimum:</b> the model requests a payout at $500 profit (50% = $250 minimum). If a firm's minimum is higher, or it needs a <b>buffer</b> (for example, balance at least start + $2,100 before the first payout), SAFE PAYOUT takes longer. Tell me the real number and I'll re-run it.</li>
-<li><b>No funded consistency rule</b> is modelled. SAFE days are small and even, so a consistency rule is unlikely to bite, but check it.</li>
-<li><b>Lucid / Tradeify drawdown:</b> end-of-day trailing $2,000, locking at start + $100.</li>
-<li><b>TPT PRO:</b> intraday trailing including open profit until +$2,000; withdrawals of $1,000 at 80% after that.</li>
-<li>Not modelled: activation and monthly fees, news restrictions, the time a payout takes to arrive.</li>
-<li>Past results don't promise future ones. Nothing here guarantees a payout. The model makes a payout <b>likely</b> (about 6 in 10 funded accounts, about 93 in 100 batches) and keeps losses small.</li>
+<li>Each person holds at most 5 accounts per firm. KeyStone tracks each account's owner and enforces the limit.</li>
+<li><b>Check each firm's terms before buying.</b> Most firms forbid trading another person's account and can deny payouts for linked accounts (same device, address or identical trades). A denied payout breaks the math. If the terms require it, each person trades their own accounts.</li>
+<li>Safer layout: give the two people different entry times (for example 2:00 for you, 2:30 for your wife). Untested, but it costs little and avoids identical trades across two people.</li>
 </ol></div>
 </section>
 
-<section id="now"><h2>7 · Your TPT account today (+$2,800, needs $200)</h2>
-<div class="box"><ol>
-<li>Trade <b>MNQ 2</b> at 9:30 AM with a <b>take profit of +$220</b> (so you get +$200 after costs) and a <b>stop of −$300</b>. One trade.</li>
-<li>If it wins, you're at +$3,000. Make sure you have the minimum days TPT asks for (3); if not, do the tiny trade on the next day.</li>
-<li>If it loses, do the same tomorrow. Your room is large compared with a $300 loss, so you have many tries.</li>
-<li>Once TPT gives you the PRO account, switch to 🛟 SAFE TPT (section 4). KeyStone's LIVE tab will show it as TPT · FUNDED.</li>
-</ol></div>
+<section id="autopilot"><h2>7 · Running it in KeyStone</h2>
+<div class="rules">
+<div class="rule"><div>Eval Lab ▸ ● LIVE: check every account is detected (firm, stage, owner). Tick them, ✓ CONFIRM.</div></div>
+<div class="rule"><div>● LIVE TRADING ▸ RULES: raise <b>max contracts to 20</b> for eval accounts (the default 2 caps every entry), set the day loss to the firm's limit.</div></div>
+<div class="rule"><div>● LIVE TRADING ▸ 🤖 AUTOPILOT: GUIDED for TPT (one press when it flashes), AUTO for Lucid / Tradeify only where the firm allows automation. ▶ START → YES → type START.</div></div>
+<div class="rule"><div>First week: GUIDED only on every account, to check orders, brackets and fills against the journal. Then switch Lucid / Tradeify to AUTO.</div></div>
+</div>
+</section>
+
+<section id="evidence"><h2>8 · The evidence and its limits</h2>
+<div class="tbl"><table><tr><th>Check</th><th>Result</th></tr>
+<tr><td>2020-10 → 2023 vs 2024 → 2026</td><td>$237 vs $199 per eval: both positive, ranges overlap</td></tr>
+<tr><td>5 different coin sequences</td><td>$215 – $231 per eval: the coin flips hardly matter</td></tr>
+<tr><td>Staggered times instead of 2:00</td><td>slightly worse (−$8 per eval)</td></tr>
+<tr><td>⚡ Sprint 2 instead of 0</td><td>−$16 per eval: burns funded accounts</td></tr>
+<tr><td>Alternative entry times</td><td>within the noise: not adopted</td></tr>
+<tr><td>Tiny-stop 1-minute scalps</td><td>unproven: depends on price order inside the minute; waiting for real tick data</td></tr>
+<tr><td>The JJ video strategy (mechanical)</td><td>reversion 37.9 % win vs 41.3 % needed: worse than a coin; practice only</td></tr>
+</table></div>
+<div class="box red"><b>Not in the model (each lowers the numbers):</b> activation / reset fees (each $100 per passed account costs about $28 per eval), firm rule changes, denied payouts, outages and rejected orders. There is only one market history (about 5 independent 12-month periods). 2025 and early 2026 were weaker than the average. Nothing here is a guarantee.</div>
 </section>
 </div></body></html>
