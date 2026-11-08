@@ -48,8 +48,24 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   above the floor; the rest under "show inactive / blown"), organises one group per firm per stage + your own groups (groups.txt), keeps a plan per group (the tested
   winning plan until ✏ EDIT THIS PLAN, in the tab; ↺ restores it; funded default 🛟 SAFE PAYOUT) and the daily tracking (Studio\EvalLab\live\<account>.csv, payouts
   entered by hand). It sends NO order: ✓ CONFIRM (asks first, in the tab) only writes the ticked accounts, firm by firm and MANUAL, into ● LIVE TRADING ▸ 🔄 ROTATE's pool
-  (`labLiveTake` / RotationPool.txt with its `#order` line) — arming each account with its limits and START ROTATION stay there. AUTO on real accounts is not offered from
-  the labs (a later build, after MANUAL live); its tests are in `tests/AccountLinkTests.cs`.
+  (`labLiveTake` / RotationPool.txt with its `#order` line) and the 🤖 AUTOPILOT feed (`Studio\EvalLab\live\autopilot-feed.txt`: each account + its group's plan, `KeystoneAutoFeed`) —
+  arming each account with its limits and START stay in ● LIVE TRADING. AUTO on real accounts is never offered from the labs (only ● LIVE TRADING ▸ 🤖 AUTOPILOT, below); its tests are in `tests/AccountLinkTests.cs`.
+  The 🤖 LIVE AUTOPILOT (BUILD 2026-11-11g, ● LIVE TRADING ▸ 🤖 AUTOPILOT tab + bottom tab, the pure `KeystoneAutopilot` / `KeystoneAutoSeat` / `KeystoneAutoPlan`) runs the labs' group plans
+  (eval default: ALL AT ONCE 2:00 AM NY, MNQ 20, TP +$1,500 after costs as a LIMIT, a STOP at the account's floor − costs − 2 ticks, capped by the day-loss room; funded default 🛟 SAFE
+  PAYOUT MNQ 1 — TPT PRO 2 — +$800 / −$300 at each account's own time) on the feed's accounts. NO new order path: each account gets its own `KeystoneAccountLink` (+ mirror trader),
+  ARMED at ▶ START AUTOPILOT with the RULES limits (max contracts — entries are capped to it, day loss, day cap, runaway guard 8 / minute, stops / targets counted apart, reject → disarm);
+  the autopilot only sets the mirror's intent (position + stop / target points) and the link sends the market entry, then the STOP + TARGET (OCO) at the fill. START asks first
+  (YES / NO listing every account, mode and plan) and, when any account is AUTO, the word START must be typed (`KeystoneAutopilot.Start` refuses anything else); accounts not armed /
+  locked / over their owner's limit (`KeystoneOwners`, per owner per firm per stage) never send. Side = one coin per firm per time slot (`KeystoneLabFlow.SideOf`, key = firm, slot =
+  hhmm); an account follows a position its firm already holds (never both sides inside a firm). One entry per account per day; no late entry (> 2 minutes after the minute = MISSED);
+  every position closed at 16:54 NY through the link; 💀 blown (balance ≤ floor) accounts are removed; ✅ eval target reached → stop ("wait for the firm"; target made but days short →
+  a GUIDED tiny trade MNQ 1 TP +$50, e.g. TPT's 3rd day); 💰 funded payout ready → a reminder only. GUIDED for every firm (always TPT): the ticket flashes in the tab and a topmost
+  GUIDED window, ONE press = the bracket, SKIP. AUTO only for Lucid / Tradeify AND only where `KeystoneFirmPolicies` (+ the FIRMS & RULES book) allow automation for the stage
+  (`KeystoneAutopilot.AutoAllowedFor`), and only for accounts ticked AUTO. It stops (links disarmed, positions keep their broker brackets, `KeystoneAutopilot.Stop`) on DISARM (the
+  ARM button first stops the autopilot), ⛔ CLOSE ALL POSITIONS, LOCK FOR TODAY on any of its accounts, ■ STOP AUTOPILOT, the chart linked to one of its accounts, or the window
+  closing; a disarmed link (reject, runaway guard, day limit) takes that account out. It cannot run with ROTATE / 🎲 / the copier / copy groups. Journal: every decision and order
+  (ticket, order, fill, bracket, exit with live vs model, missed / blocked / skip / blown / target / flatten / start / stop) → `Studio\EvalLab\live\autopilot-<date>.csv` + the tab's
+  TODAY list. Its tests are in `tests/AccountLinkTests.cs` (the 🤖 block).
   Research / lab / backtests stay historical; no Apex/Nexus coupling. The ⚖ DRAWDOWN LAB (its window + LIVE TRADING ▸ ⚖ TRAILING DD SIM tab, `KeystoneDdAccount` + `BuildDrawdownLabView`, tests `tests/DrawdownLabTests.cs`) is simulation only on live / saved prices: it never places an order.
 - SpasiX for MT5 (`mt5/`: the bridge EA `SpasiXBridge.mq5` v5 + the Windows app `mt5/app`, built with `dotnet publish` here, shipped in `mt5/dist`;
   a full-screen HOME picks LIVE / PROP / DEMO / BACKTEST; several can be open at once as tabs in our own title bar, `Shell.cs`, each LIVE / PROP

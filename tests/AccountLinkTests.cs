@@ -600,6 +600,199 @@ public static class AccountLinkTests
             var grp = KeystoneLabLive.Groups(ga, gs); Check(grp.Count == 2 && grp[0].Item1 == "GROUP:MY MIX" && grp[0].Item3.Count == 2 && grp[1].Item1 == "TPT · EVAL" && grp[1].Item3.Count == 1, "● the cards: your mixed group first, then TPT · EVAL for the rest (inactive left out)", string.Join(", ", grp.Select(g => g.Item1 + ":" + g.Item3.Count)));
             Check(KeystoneLabLive.PlanWords(new Dictionary<string, string> { { "mnq", "20" }, { "tp", "1500" }, { "stop", "0" }, { "times", "200 830 930 1000 1100" }, { "side", "FIRM" } }, true) == "MNQ 20 · take profit +$1,500 · no stop (rides to the floor) · at 2:00 / 8:30 / 9:30 / 10:00 / 11:00 NY · TPT = manual: its button flashes", "● the plan in plain words");
         }
+        // ================= 🤖 LIVE AUTOPILOT (BUILD 2026-11-11g): the labs' plans on real accounts ONLY through the armed links =================
+        {
+            var d0 = new DateTime(2026, 10, 6);   // a Tuesday (NY)
+            Func<string, string, string, FakeBroker, int, double, KeystoneAutoSeat> seat = (acc, firm, stage, b, max, loss) => new KeystoneAutoSeat
+            {
+                Account = acc, Nick = acc, Firm = firm, Stage = stage, Owner = "ME", Group = firm + " · " + stage, Plan = stage == "FUNDED" ? KeystoneAutoPlan.FundedDefault(firm == "TPT") : KeystoneAutoPlan.EvalDefault(),
+                Link = new KeystoneAccountLink(b, "MNQ") { MaxContracts = max, DayLossLimit = loss, AutoOco = true }, Mirror = Trader(), Start = 50000, Dd = 2000, Target = 3000, Balance = 50500, MinDays = 2
+            };
+            Func<FakeBroker, int> markets = b => b.Sent.Count(x => x.StartsWith("MARKET"));
+            // runs the autopilot second by second; every pending market order fills at px (the fake broker)
+            Action<KeystoneAutopilot, DateTime, int, double> run = (ap, from, secs, px) => { for (int i = 0; i <= secs; i++) { ap.Tick(from.AddSeconds(i), px); foreach (var s in ap.Seats) ((FakeBroker)s.Link.Broker).FillMarket(px); } };
+            KeystoneFirmPolicies.Chosen.Clear();
+
+            // 1. nothing is sent before ARM + START (typed)
+            {
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s);
+                run(ap, d0.AddHours(1).AddMinutes(59), 240, 20000);
+                Check(markets(b) == 0 && b.Sent.Count == 0 && !ap.Running, "🤖 not armed, not started: NOTHING is sent at the 2:00 entry minute", string.Join(" | ", b.Sent));
+                string e1 = ap.Start("START", d0.AddHours(1).AddMinutes(58));
+                Check(!ap.Running && s.Out && s.OutWhy == "NOT ARMED", "🤖 START with the account NOT ARMED: nothing starts (" + e1 + ")", e1 + " / " + s.OutWhy);
+                s.Link.Arm(d0.AddHours(1).AddMinutes(58)); s.Out = false;
+                string e2 = ap.Start("", d0.AddHours(1).AddMinutes(58)), e3 = ap.Start("yes", d0.AddHours(1).AddMinutes(58)), e4 = ap.Start("start", d0.AddHours(1).AddMinutes(58));
+                run(ap, d0.AddHours(1).AddMinutes(59), 240, 20000);
+                Check(!ap.Running && e2 != "" && e3 != "" && e4 != "" && b.Sent.Count == 0, "🤖 ARMED but START not typed (empty / yes / lower-case): refused, nothing sent", e2 + " | " + string.Join(" | ", b.Sent));
+                var b2 = new FakeBroker(); var ap2 = new KeystoneAutopilot(); var s2 = seat("LT-1", "LUCID", "EVAL", b2, 20, 0); s2.WantAuto = true; ap2.Seats.Add(s2); s2.Link.Arm(d0);
+                string e5 = ap2.Start("START", d0.AddHours(1).AddMinutes(58)); run(ap2, d0.AddHours(1).AddMinutes(59), 50, 20000);
+                Check(e5 == "" && ap2.Running && markets(b2) == 0, "🤖 ARMED + START typed: still nothing before the entry minute (1:59)", string.Join(" | ", b2.Sent));
+                run(ap2, d0.AddHours(2), 20, 20000);
+                Check(markets(b2) == 1 && b2.Sent.First(x => x.StartsWith("MARKET")).EndsWith(" auto") && b2.Q != 0 && Math.Abs(b2.Q) == 20, "🤖 Lucid eval AUTO: at 2:00 ONE market entry of MNQ 20 through the armed link (marked automated)", string.Join(" | ", b2.Sent));
+                // 2. brackets attached to every entry: a STOP at the floor room and a TARGET +$1,500 after costs, one cancels the other
+                var stp = b2.All.FirstOrDefault(o => !o.Done && o.Kind == "STOP"); var tgt = b2.All.FirstOrDefault(o => !o.Done && o.Kind == "LIMIT"); int dir = Math.Sign(b2.Q);
+                double tpPts = KeystoneAutopilot.TpPoints(1500, 20, 0.25), slPts = KeystoneAutopilot.StopPoints(2500, 20, 0.25, 2);
+                Check(stp != null && tgt != null && stp.Qty == 20 && tgt.Qty == 20 && stp.Oco != "" && stp.Oco == tgt.Oco && Math.Abs(tgt.Price - (20000 + dir * tpPts)) < 1e-9 && Math.Abs(stp.Price - (20000 - dir * slPts)) < 1e-9,
+                    "🤖 the bracket at the broker: TARGET " + tpPts + " pts (+$1,500 after costs) and STOP " + slPts + " pts (balance $50,500 − floor $48,000, costs + 2 ticks off), OCO", stp == null || tgt == null ? "missing" : stp.Price + " / " + tgt.Price);
+                Check(tpPts * 2 * 20 - KeystoneAutopilot.Cost * 20 >= 1500 && (tpPts - 0.25) * 2 * 20 - KeystoneAutopilot.Cost * 20 < 1500 && (slPts + 0.5) * 40 + KeystoneAutopilot.Cost * 20 <= 2500, "🤖 TP is the first tick netting ≥ $1,500 after costs; the stop leaves ≥ 2 ticks above the floor", tpPts + " / " + slPts);
+                Check(ap2.Journal.Any(r => r.Event == "TICKET") && ap2.Journal.Any(r => r.Event == "ORDER") && ap2.Journal.Any(r => r.Event == "FILL" && r.Fill == 20000) && ap2.Journal.Any(r => r.Event == "BRACKET"), "🤖 journal: TICKET → ORDER → FILL → BRACKET", string.Join(",", ap2.Journal.Select(r => r.Event)));
+                // 5. one entry per account per day (the target fills → flat; later minutes and a re-tick of 2:00 send nothing more)
+                b2.Trigger(tgt); run(ap2, d0.AddHours(2).AddMinutes(1), 5, 20000); run(ap2, d0.AddHours(9), 30, 20000); run(ap2, d0.AddHours(2), 30, 20000);
+                var ex = ap2.Journal.LastOrDefault(r => r.Event == "EXIT");
+                Check(markets(b2) == 1 && b2.Q == 0 && ex != null && ex.Net > 1499 && ex.Detail.Contains("model expected TP at"), "🤖 ONE entry per account per day: after the target, nothing more today • EXIT journalled with live vs model", markets(b2) + " / " + (ex != null ? ex.Detail : "no exit"));
+                run(ap2, d0.AddDays(1).AddHours(2), 20, 20100);
+                Check(markets(b2) == 2, "🤖 the next trading day: one new entry at 2:00", markets(b2).ToString());
+                Check(KeystoneAutoRow.Header.Split(',').Length == ap2.Journal[0].Line().Split(',').Length && ex.Line().Contains(",EXIT,"), "🤖 the journal CSV line has every column (autopilot-<date>.csv)");
+            }
+            // 3. TPT is never AUTO (even with automation switched on in its rules): GUIDED — the ticket flashes, ONE press places the bracket
+            {
+                KeystoneFirmPolicies.Chosen["TPT"] = new KeystoneFirmPolicy { AutoEval = true, AutoFunded = true, Copy = true };
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("TPT1", "TPT", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0);
+                Check(!KeystoneAutopilot.AutoAllowedFor("TPT", "EVAL") && !KeystoneAutopilot.AutoAllowedFor("TPT", "FUNDED") && !s.Auto && KeystoneAutopilot.AutoWhyNot("TPT", "EVAL").StartsWith("TPT"), "🤖 TPT: never AUTO (eval or funded), even when its rules say automation on");
+                string e = ap.Start("", d0.AddHours(1).AddMinutes(58)); run(ap, d0.AddHours(2), 30, 20000);
+                var fl = ap.Flashing();
+                Check(e == "" && markets(b) == 0 && fl.Count == 1 && fl[0] == s && s.State.StartsWith("▶ PRESS") && s.Ticket.Qty == 20 && s.Ticket.TpUsd == 1500 && s.Ticket.Reason.Contains("side coin"), "🤖 TPT GUIDED: at 2:00 the ticket flashes (size, TP, stop, the side coin) — nothing sent by itself", e + " / " + s.State + " / " + string.Join(" | ", b.Sent));
+                string pr = ap.Press("TPT1", d0.AddHours(2).AddSeconds(40), 20000); run(ap, d0.AddHours(2).AddSeconds(41), 10, 20000);
+                Check(pr == "" && markets(b) == 1 && b.All.Any(o => !o.Done && o.Kind == "STOP") && b.All.Any(o => !o.Done && o.Kind == "LIMIT") && !b.Sent.First(x => x.StartsWith("MARKET")).EndsWith(" auto"), "🤖 ONE press = the full bracket through the armed link (entry + STOP + TARGET)", pr + " | " + string.Join(" | ", b.Sent));
+                Check(ap.Press("TPT1", d0.AddHours(2).AddSeconds(50), 20000) != "" && markets(b) == 1, "🤖 a second press sends nothing (one entry a day)");
+                KeystoneFirmPolicies.Chosen.Clear();
+            }
+            // 4. a firm whose automation is OFF refuses AUTO (Lucid eval switched off; Apex / Topstep are not AUTO firms here)
+            {
+                KeystoneFirmPolicies.Chosen["LUCID"] = new KeystoneFirmPolicy { AutoEval = false, AutoFunded = true, Copy = true };
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0);
+                Check(!s.Auto && KeystoneAutopilot.AutoWhyNot("LUCID", "EVAL").Contains("automation is OFF") && KeystoneAutopilot.AutoAllowedFor("LUCID", "FUNDED"), "🤖 Lucid eval with automation OFF in its rules: AUTO refused (funded still allowed)", KeystoneAutopilot.AutoWhyNot("LUCID", "EVAL"));
+                ap.Start("", d0.AddHours(1).AddMinutes(58)); run(ap, d0.AddHours(2), 30, 20000);
+                Check(markets(b) == 0 && s.Ticket != null && !s.Ticket.Auto, "🤖 … so nothing goes by itself: it becomes a GUIDED ticket", string.Join(" | ", b.Sent));
+                Check(!KeystoneAutopilot.AutoAllowedFor("APEX", "EVAL") && !KeystoneAutopilot.AutoAllowedFor("TOPSTEP", "FUNDED") && KeystoneAutopilot.AutoAllowedFor("TRADEIFY", "EVAL"), "🤖 AUTO only for Lucid / Tradeify (Apex, Topstep … = GUIDED)");
+                KeystoneFirmPolicies.Chosen.Clear();
+            }
+            // 6. the side: the same for every account of one firm at the same slot (the labs' hash coin), and a firm never holds both sides
+            {
+                bool same = true, varies = false, firmsDiffer = false; int prevL = 0;
+                for (int k = 0; k < 40; k++)
+                {
+                    var day = d0.AddDays(k); var ap = new KeystoneAutopilot(); var bs = new List<FakeBroker>();
+                    foreach (var f in new[] { "LUCID", "LUCID", "LUCID", "TRADEIFY", "TRADEIFY", "TPT", "TPT" }) { var b = new FakeBroker(); bs.Add(b); var s = seat(f + ap.Seats.Count, f, "EVAL", b, 20, 0); s.SlotTime = 200; ap.Seats.Add(s); }
+                    var sides = ap.Seats.Select(s => ap.SideFor(s, day)).ToList();
+                    foreach (var f in new[] { "LUCID", "TRADEIFY", "TPT" }) { var fs = ap.Seats.Where(s => s.Firm == f).Select(s => ap.SideFor(s, day)).Distinct().ToList(); if (fs.Count != 1 || fs[0] != KeystoneLabFlow.SideOf(day, f, 200, 0)) same = false; }
+                    if (k > 0 && sides[0] != prevL) varies = true; prevL = sides[0]; if (sides[0] != sides[3] || sides[0] != sides[5]) firmsDiffer = true;
+                }
+                Check(same && varies && firmsDiffer, "🤖 side: one coin per firm per time slot (KeystoneLabFlow.SideOf) — every account of a firm the same side; days and firms independent");
+                var ap2 = new KeystoneAutopilot(); var bA = new FakeBroker(); var bB = new FakeBroker(); var sA = seat("LT-A", "LUCID", "FUNDED", bA, 5, 0); var sB = seat("LT-B", "LUCID", "FUNDED", bB, 5, 0); sB.SlotTime = 830; ap2.Seats.Add(sA); ap2.Seats.Add(sB);
+                int coin = KeystoneLabFlow.SideOf(d0, "LUCID", 830, 0); bA.Exec(-coin, 20000, "open");
+                Check(ap2.SideFor(sB, d0) == -coin, "🤖 an account of a firm that already holds a position takes the SAME side (never both sides inside a firm)");
+            }
+            // 7. the runaway guard (8 entries a minute) trips on the seat's link → the autopilot sends nothing more there
+            {
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0);
+                ap.Start("START", d0.AddHours(1).AddMinutes(58)); var t1 = d0.AddHours(1).AddMinutes(58).AddSeconds(30);
+                for (int k = 0; k < 9; k++) s.Mirror.Place("LIMIT", 1, 1, 19900 - k); ap.Tick(t1, 20000);
+                run(ap, t1.AddSeconds(1), 5, 20000); run(ap, d0.AddHours(2), 30, 20000);
+                Check(!s.Link.Armed && s.Link.Log.Any(x => x.Contains("RUNAWAY GUARD")) && b.Sent.Count(x => x.StartsWith("LIMIT")) == 8 && markets(b) == 0 && s.Out && ap.Journal.Any(r => r.Event == "DISARMED"), "🤖 runaway guard: the 9th order in a minute disarms the link — the autopilot's 2:00 entry is NOT sent", string.Join(" | ", b.Sent.Take(12)) + " / " + s.State);
+            }
+            // 8. a reject → that account is disarmed (the link's rule) and the autopilot sends nothing more on it
+            {
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0);
+                ap.Start("START", d0.AddHours(1).AddMinutes(58));
+                for (int i = 0; i <= 3; i++) ap.Tick(d0.AddHours(2).AddSeconds(i), 20000);
+                var mk = b.All.FirstOrDefault(o => o.Kind == "MARKET"); if (mk != null) { mk.Rejected = true; mk.Done = true; }
+                for (int i = 4; i <= 40; i++) ap.Tick(d0.AddHours(2).AddSeconds(i), 20000);
+                Check(mk != null && !s.Link.Armed && s.Out && markets(b) == 1 && b.Sent.All(x => x.StartsWith("MARKET") || x == "FLATTEN") && ap.Journal.Any(r => r.Event == "DISARMED" && r.Link.Contains("REJECTED")), "🤖 a REJECTED entry → the link disarms (its own rule: flatten) → the account is out of the autopilot (no new entry)", string.Join(" | ", b.Sent) + " / " + s.State);
+            }
+            // one order at a time: no fill → nothing is re-sent; a late fill still gets its STOP + TARGET
+            {
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0);
+                ap.Start("START", d0.AddHours(1).AddMinutes(58)); for (int i = 0; i <= 45; i++) ap.Tick(d0.AddHours(2).AddSeconds(i), 20000);
+                bool none = markets(b) == 1 && b.Q == 0 && ap.Journal.Any(r => r.Event == "NO FILL");
+                b.FillMarket(20000); for (int i = 46; i <= 55; i++) ap.Tick(d0.AddHours(2).AddSeconds(i), 20000);
+                Check(none && markets(b) == 1 && b.Q != 0 && b.All.Any(o => !o.Done && o.Kind == "STOP") && b.All.Any(o => !o.Done && o.Kind == "LIMIT"), "🤖 one order at a time: no fill in 30 s → nothing re-sent; the late fill still gets its STOP + TARGET", string.Join(" | ", b.Sent));
+            }
+            // 9. DISARM / ⛔ CLOSE ALL / LOCK FOR TODAY stop the autopilot — positions stay with their broker brackets
+            {
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0);
+                var b2 = new FakeBroker(); var s2 = seat("LT-2", "LUCID", "EVAL", b2, 20, 0); s2.WantAuto = true; s2.SlotTime = 830; s2.Plan.Times = new[] { 200, 830 }; s.Plan.Times = new[] { 200, 830 }; ap.Seats.Add(s2); s2.Link.Arm(d0);
+                ap.Start("START", d0.AddHours(1).AddMinutes(58)); run(ap, d0.AddHours(2), 20, 20000); int sentBefore = b.Sent.Count;
+                ap.Stop("⛔ CLOSE ALL POSITIONS", d0.AddHours(3)); run(ap, d0.AddHours(3), 10, 20000); run(ap, d0.AddHours(8).AddMinutes(30), 30, 20000); run(ap, d0.AddDays(1).AddHours(2), 30, 20000);
+                Check(!ap.Running && !s.Link.Armed && !s2.Link.Armed && b.Q != 0 && b.Sent.Count == sentBefore && !b.Sent.Contains("FLATTEN") && b.All.Count(o => !o.Done && (o.Kind == "STOP" || o.Kind == "LIMIT")) == 2 && markets(b2) == 0,
+                    "🤖 ⛔ CLOSE ALL / STOP: the autopilot stops, its links are disarmed, nothing more is sent (8:30 / tomorrow) — the open position keeps its broker STOP + TARGET", sentBefore + " vs " + b.Sent.Count + " / " + string.Join(" | ", b2.Sent));
+                var b3 = new FakeBroker(); var ap3 = new KeystoneAutopilot(); var s3 = seat("LT-3", "LUCID", "EVAL", b3, 20, 0); s3.WantAuto = true; ap3.Seats.Add(s3); s3.Link.Arm(d0);
+                ap3.Start("START", d0.AddHours(1).AddMinutes(58)); s3.Link.Disarm("YOU DISARMED", d0.AddHours(1).AddMinutes(59), false); run(ap3, d0.AddHours(2), 30, 20000);
+                Check(markets(b3) == 0 && s3.Out, "🤖 DISARM on an account: the autopilot sends nothing there", s3.State);
+                var b4 = new FakeBroker(); var ap4 = new KeystoneAutopilot(); var s4 = seat("LT-4", "LUCID", "EVAL", b4, 20, 0); s4.WantAuto = true; ap4.Seats.Add(s4); s4.Link.Arm(d0);
+                ap4.Start("START", d0.AddHours(1).AddMinutes(58)); s4.Link.Locked = true; run(ap4, d0.AddHours(2), 30, 20000);
+                Check(!ap4.Running && markets(b4) == 0 && ap4.StopWhy.StartsWith("LOCK FOR TODAY"), "🤖 LOCK FOR TODAY stops the autopilot", ap4.Status);
+            }
+            // 10. the day-loss limit blocks entries (and caps the stop to the room left today)
+            {
+                var b = new FakeBroker { Pnl = -600 }; var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 500); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0);
+                ap.Start("START", d0.AddHours(1).AddMinutes(58)); run(ap, d0.AddHours(2), 30, 20000);
+                Check(markets(b) == 0 && b.Sent.Count == 0 && s.Out, "🤖 day loss −$600 past the $500 limit: no autopilot entry", s.State + " / " + string.Join(" | ", b.Sent));
+                var b2 = new FakeBroker { Pnl = -450 }; var ap2 = new KeystoneAutopilot(); var s2 = seat("LT-2", "LUCID", "EVAL", b2, 20, 500); s2.WantAuto = true; ap2.Seats.Add(s2); s2.Link.Arm(d0);
+                ap2.Start("START", d0.AddHours(1).AddMinutes(58)); run(ap2, d0.AddHours(2), 30, 20000);
+                Check(markets(b2) == 0 && s2.State.Contains("no room"), "🤖 only $50 of day loss left for MNQ 20: no room for a stop → no entry", s2.State);
+                var b3 = new FakeBroker { Pnl = 0 }; var ap3 = new KeystoneAutopilot(); var s3 = seat("LT-3", "LUCID", "FUNDED", b3, 5, 200); ap3.Seats.Add(s3); s3.Link.Arm(d0); s3.SlotTime = 200;
+                string w3; var t3 = ap3.MakeTicket(s3, d0.AddHours(2), d0, 20000, out w3);
+                Check(t3 != null && t3.StopPts <= KeystoneAutopilot.StopPoints(200, 1, 0.25, 1) + 1e-9 && t3.StopUsd <= 200, "🤖 funded −$300 stop with a $200 day loss limit: the stop is capped inside the day loss room", t3 == null ? w3 : t3.StopPts + " pts $" + t3.StopUsd);
+            }
+            // 11. a blown account is skipped (💀, out of the autopilot)
+            {
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; s.Balance = 47990; ap.Seats.Add(s); s.Link.Arm(d0);
+                ap.Start("START", d0.AddHours(1).AddMinutes(58)); run(ap, d0.AddHours(2), 30, 20000);
+                Check(markets(b) == 0 && s.Blown && s.State.StartsWith("💀") && ap.Journal.Any(r => r.Event == "BLOWN"), "🤖 balance $47,990 ≤ floor $48,000: 💀 BLOWN, removed — nothing sent", s.State);
+                var days = new List<KeystoneLiveDay> { new KeystoneLiveDay { Date = d0.AddDays(-2), StartBal = 50000, EndBal = 51200 }, new KeystoneLiveDay { Date = d0.AddDays(-1), StartBal = 51200, EndBal = 50900 } };
+                Check(Math.Abs(KeystoneAutopilot.FloorOf(50000, 2000, false, "LUCID", days, d0) - 49200) < 1e-9 && Math.Abs(KeystoneAutopilot.FloorOf(50000, 2000, true, "LUCID", days, d0) - 49200) < 1e-9 && Math.Abs(KeystoneAutopilot.FloorOf(50000, 2000, true, "LUCID", new List<KeystoneLiveDay> { new KeystoneLiveDay { Date = d0.AddDays(-1), EndBal = 53000 } }, d0) - 50100) < 1e-9,
+                    "🤖 the floor trails the best end-of-day balance ($51,200 → $49,200); funded locks at start + $100");
+            }
+            // 12. the owner limit (👥 KeystoneOwners, 5 per firm per stage by default): the 6th Lucid eval of ME is never traded
+            {
+                var ap = new KeystoneAutopilot(); var bs = new List<FakeBroker>();
+                for (int i = 0; i < 6; i++) { var b = new FakeBroker(); bs.Add(b); var s = seat("LT-" + i, "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0); }
+                var bw = new FakeBroker(); var sw = seat("LT-W", "LUCID", "EVAL", bw, 20, 0); sw.Owner = "WIFE"; sw.WantAuto = true; ap.Seats.Add(sw); sw.Link.Arm(d0);
+                ap.Start("START", d0.AddHours(1).AddMinutes(58)); run(ap, d0.AddHours(2), 30, 20000);
+                Check(bs.Take(5).All(b => markets(b) == 1) && markets(bs[5]) == 0 && ap.Seats[5].OverOwner && ap.Seats[5].State.Contains("limit of 5") && markets(bw) == 1, "🤖 owner limit: ME's 6th Lucid eval is never traded (5 per owner per firm); WIFE's account trades", ap.Seats[5].State);
+            }
+            // 13. a missed minute gets no late entry (started late; a GUIDED ticket not pressed in 2 minutes)
+            {
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0);
+                ap.Start("START", d0.AddHours(2).AddMinutes(3)); run(ap, d0.AddHours(2).AddMinutes(3), 60, 20000);
+                Check(markets(b) == 0 && s.State.StartsWith("MISSED") && ap.Journal.Any(r => r.Event == "MISSED"), "🤖 AUTO started at 2:03 (> 2 min after 2:00): MISSED, no late entry", s.State);
+                var b2 = new FakeBroker(); var ap2 = new KeystoneAutopilot(); var s2 = seat("TPT1", "TPT", "EVAL", b2, 20, 0); ap2.Seats.Add(s2); s2.Link.Arm(d0);
+                ap2.Start("", d0.AddHours(1).AddMinutes(58)); run(ap2, d0.AddHours(2), 125, 20000);
+                string pr = ap2.Press("TPT1", d0.AddHours(2).AddMinutes(2).AddSeconds(6), 20000);
+                Check(markets(b2) == 0 && pr != "" && s2.State.StartsWith("MISSED") && ap2.Flashing().Count == 0, "🤖 GUIDED not pressed within 2 minutes: MISSED — a late press is refused", pr + " / " + s2.State);
+            }
+            // 14. 16:54 NY: every open position is closed (through the link)
+            {
+                var b = new FakeBroker(); var ap = new KeystoneAutopilot(); var s = seat("LT-1", "LUCID", "EVAL", b, 20, 0); s.WantAuto = true; ap.Seats.Add(s); s.Link.Arm(d0);
+                ap.Start("START", d0.AddHours(1).AddMinutes(58)); run(ap, d0.AddHours(2), 20, 20000);
+                run(ap, d0.AddHours(16).AddMinutes(53), 50, 20010); bool openAt1653 = b.Q != 0 && !b.Sent.Contains("FLATTEN");
+                run(ap, d0.AddHours(16).AddMinutes(54), 20, 20010);
+                Check(openAt1653 && b.Q == 0 && b.Sent.Contains("FLATTEN") && ap.Journal.Any(r => r.Event == "FLATTEN") && ap.Journal.Any(r => r.Event == "EXIT") && markets(b) == 1, "🤖 16:54 NY: the open position is flattened (16:53 still open), the exit journalled", string.Join(" | ", b.Sent));
+            }
+            // the plan feed, the defaults, target / payout states
+            {
+                var ev = KeystoneAutoPlan.FromMap(new Dictionary<string, string>(), false, false, "LUCID · EVAL"); var fu = KeystoneAutoPlan.FromMap(new Dictionary<string, string> { { "plan", "🛟 SAFE PAYOUT" }, { "mnq", "1" }, { "tp", "800" }, { "stop", "300" }, { "times", "200 830 930 1000 1100" } }, true, true, "TPT · FUNDED");
+                var mine = KeystoneAutoPlan.FromMap(new Dictionary<string, string> { { "plan", "✏ YOUR PLAN" }, { "mnq", "10" }, { "tp", "900" }, { "stop", "400" }, { "times", "930" }, { "side", "LONG" } }, false, false, "GROUP:A");
+                Check(ev.Qty == 20 && ev.TpUsd == 1500 && ev.StopUsd == 0 && ev.Times.SequenceEqual(new[] { 200 }) && fu.Qty == 2 && fu.TpUsd == 800 && fu.StopUsd == 300 && mine.Qty == 10 && mine.Side == "BUY" && mine.Times[0] == 930, "🤖 plans: eval default MNQ 20 / +$1,500 / floor stop at 2:00 • TPT PRO 🛟 SAFE PAYOUT = MNQ 2 +$800 / −$300 • ✏ your group's plan is used");
+                var fd = new KeystoneAutoFeed { Account = "LT-1", Firm = "LUCID", Stage = "FUNDED", Owner = "WIFE", Group = "LUCID · FUNDED", Nick = "Lucid 1", Start = 50000, Dd = 2000, Target = 3000, MinDays = 2, DaysTraded = 1, Balance = 50400 }; fd.Plan["mnq"] = "1"; fd.Plan["times"] = "200 830";
+                var back = KeystoneAutoFeed.Parse(KeystoneAutoFeed.Text(new[] { fd, fd }));
+                Check(back.Count == 1 && back[0].Owner == "WIFE" && back[0].Stage == "FUNDED" && back[0].Plan["times"] == "200 830" && back[0].Balance == 50400, "🤖 the feed (✓ CONFIRM → autopilot-feed.txt) is written and read back (one line per account)");
+                var ap = new KeystoneAutopilot(); var bs = new List<FakeBroker>();
+                for (int i = 0; i < 3; i++) { var b = new FakeBroker(); bs.Add(b); var s = seat("LF-" + i, "LUCID", "FUNDED", b, 5, 0); s.Plan = KeystoneAutoPlan.FundedDefault(false); ap.Seats.Add(s); s.Link.Arm(d0); }
+                ap.Start("", d0); Check(ap.Seats[0].SlotTime == 200 && ap.Seats[1].SlotTime == 830 && ap.Seats[2].SlotTime == 930, "🤖 funded: each account its own time (the plan's times spread over the firm's accounts)");
+                var bT = new FakeBroker(); var apT = new KeystoneAutopilot(); var sT = seat("TPT1", "TPT", "EVAL", bT, 20, 0); sT.Balance = 53050; sT.MinDays = 3; sT.DaysTraded = 2; apT.Seats.Add(sT); sT.Link.Arm(d0); apT.Start("", d0.AddHours(1));
+                run(apT, d0.AddHours(2), 10, 20000);
+                Check(sT.Ticket != null && sT.Ticket.Tiny && sT.Ticket.Qty == 1 && sT.Ticket.TpUsd == 50 && !sT.Ticket.Auto && markets(bT) == 0, "🤖 TPT target made on day 2 of 3: the 3rd-day tiny trade is GUIDED (MNQ 1, TP +$50)", sT.State);
+                var bL = new FakeBroker(); var apL = new KeystoneAutopilot(); var sL = seat("LT-9", "LUCID", "EVAL", bL, 20, 0); sL.WantAuto = true; sL.Balance = 53100; sL.DaysTraded = 2; apL.Seats.Add(sL); sL.Link.Arm(d0); apL.Start("START", d0.AddHours(1));
+                run(apL, d0.AddHours(2), 10, 20000);
+                Check(markets(bL) == 0 && sL.State.StartsWith("✅ target reached: wait for the firm"), "🤖 eval target reached (and the days): stop trading it — ✅ wait for the firm", sL.State);
+                var sp = seat("LF-P", "LUCID", "FUNDED", new FakeBroker(), 5, 0); sp.Balance = 51200; sp.Days = Enumerable.Range(1, 5).Select(i => new KeystoneLiveDay { Date = d0.AddDays(-i), StartBal = 50000, EndBal = 50200, Trades = 1 }).ToList();
+                var sq = seat("TPT-P", "TPT", "FUNDED", new FakeBroker(), 5, 0); sq.Balance = 54100;
+                Check(KeystoneAutopilot.PayoutNote(sp) == "💰 payout ready: request $600" && KeystoneAutopilot.PayoutNote(sq) == "💰 payout ready: request $2,000" && KeystoneAutopilot.PayoutNote(seat("E", "LUCID", "EVAL", new FakeBroker(), 5, 0)) == "", "🤖 funded payout eligible → 💰 payout ready: request $x (a reminder only)", KeystoneAutopilot.PayoutNote(sp) + " / " + KeystoneAutopilot.PayoutNote(sq));
+            }
+            KeystoneFirmPolicies.Chosen.Clear();
+        }
         Console.WriteLine(failures == 0 ? "ALL ACCOUNT LINK TESTS PASSED" : failures + " ACCOUNT LINK TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

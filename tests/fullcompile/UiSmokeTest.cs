@@ -589,6 +589,14 @@ public static class UiSmokeTest
                         click(modeB2); click(bb);   // BUY BOTH before START: refused with a message, nothing sent
                         all.Clear(); walk(liveWin.Content); var backDuo = btn("◀ CHART"); if (backDuo == null) throw new Exception("no way back to the chart"); click(backDuo);
                         Console.WriteLine("      MNQ+MGC ROTATION view: buttons, AUTO ⇄ MANUAL, BUY BOTH refused before START, back to the chart: OK");
+                        // 🤖 LIVE AUTOPILOT (BUILD 11g): the view opens (the explanation, ▶ START AUTOPILOT, the TODAY journal); START without accounts is refused — nothing sent
+                        all.Clear(); walk(liveWin.Content); var apB = btn("🤖 AUTOPILOT"); if (apB == null) throw new Exception("🤖 AUTOPILOT button missing");
+                        click(apB); if (Convert.ToString(apB.Content) != "◀ CHART") throw new Exception("🤖 AUTOPILOT view did not open");
+                        all.Clear(); walk(liveWin.Content); var apGo = btn("▶ START AUTOPILOT"); if (apGo == null) throw new Exception("▶ START AUTOPILOT missing");
+                        if (!all.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("🤖 LIVE AUTOPILOT"))) throw new Exception("🤖 AUTOPILOT title missing");
+                        click(apGo); all.Clear(); walk(liveWin.Content); if (btn("■ STOP AUTOPILOT") != null) throw new Exception("🤖 the autopilot started without accounts / ARM / START");
+                        click(btn("◀ CHART"));
+                        Console.WriteLine("      🤖 AUTOPILOT view: title, ▶ START AUTOPILOT refused without accounts (nothing sent), back to the chart: OK");
                     }
                     liveWin.Close(); if (F("replayTraderWindow") != null) throw new Exception("LIVE TRADING window did not close");
                     // every window asks before the X closes it

@@ -7521,6 +7521,348 @@ namespace NinjaTrader.NinjaScript
         }
     }
 
+    // ---- 🤖 LIVE AUTOPILOT (BUILD 2026-11-11g) ------------------------------------------------------------------------------------
+    // The labs' plans on the user's REAL prop accounts — through the SAME safe path as ● LIVE TRADING ▸ 🔄 ROTATE: every order is the
+    // intent of a mirror trader that the account's own armed KeystoneAccountLink turns into real orders (its limits: max contracts, day
+    // loss, day profit cap, runaway guard 8 entries a minute, stops / targets / closes counted apart, a reject disarms). No new order path.
+    // Each account handed over by 🧪 EVAL LAB ▸ ● LIVE ✓ CONFIRM (autopilot-feed.txt next to RotationPool.txt) carries its GROUP's plan:
+    //   eval default  = ⚡ ALL AT ONCE 2:00 AM NY • MNQ 20 • TP +$1,500 after costs (a LIMIT at the broker) • a STOP at the account's floor
+    //                   (balance − floor room, costs and 2 ticks of safety off) so the trade rides the room with the stop at the broker
+    //   funded default = 🛟 SAFE PAYOUT • MNQ 1 (TPT PRO: MNQ 2) • TP +$800 / SL −$300 at the account's own time (the plan's times, spread)
+    // Side = one coin per firm per time slot (KeystoneLabFlow.SideOf, the labs' hash coin), and an account never takes the other side of a
+    // position its firm already holds. One trade per account per day; positions are closed at 16:54 NY.
+    // GUIDED (every firm; always for TPT): at the entry minute a ticket flashes with the exact size / TP / stop; ONE press places the bracket
+    // through the armed link; SKIP lets it go; no press within 2 minutes = MISSED (no late entry).
+    // AUTO (Lucid / Tradeify only, where KeystoneFirmPolicies allows automation for the stage): the same bracket at the entry minute by itself,
+    // only while Running — START needs every link ARMED and, when any seat is AUTO, the word START typed. DISARM / ⛔ CLOSE ALL / LOCK FOR
+    // TODAY / closing the window stop it (Stop: the links are disarmed, positions stay with their broker brackets). Pure: no UI here.
+    public sealed class KeystoneAutoPlan
+    {
+        public string Name = "", Group = "", Side = "FIRM"; public int Qty = 20; public double TpUsd = 1500, StopUsd; public int[] Times = { 200 }; public bool Tiny;
+        public static KeystoneAutoPlan EvalDefault() { return new KeystoneAutoPlan { Name = "★ ALL AT ONCE 2:00 AM NY (the default)", Qty = 20, TpUsd = 1500, StopUsd = 0, Times = new[] { 200 } }; }
+        public static KeystoneAutoPlan FundedDefault(bool tpt) { return new KeystoneAutoPlan { Name = "🛟 SAFE PAYOUT" + (tpt ? " (TPT PRO: MNQ 2, beat the trailing drawdown first)" : ""), Qty = tpt ? 2 : 1, TpUsd = 800, StopUsd = 300, Times = new[] { 200, 830, 930, 1000, 1100 } }; }
+        // the group's plan as the labs save it (pools.txt: plan / mnq / tp / stop / times / side) — anything missing = the default
+        public static KeystoneAutoPlan FromMap(IDictionary<string, string> m, bool funded, bool tpt, string group)
+        {
+            var p = funded ? FundedDefault(tpt) : EvalDefault(); p.Group = group ?? ""; if (m == null || m.Count == 0) return p;
+            Func<string, string> g = k => { string v; return m.TryGetValue(k, out v) ? (v ?? "").Trim() : ""; };
+            int q; double d; var ic = CultureInfo.InvariantCulture;
+            if (int.TryParse(g("mnq"), NumberStyles.Integer, ic, out q) && q > 0) p.Qty = Math.Min(50, q);
+            if (double.TryParse(g("tp"), NumberStyles.Float, ic, out d) && d > 0) p.TpUsd = d;
+            if (double.TryParse(g("stop"), NumberStyles.Float, ic, out d) && d >= 0) p.StopUsd = d;
+            var t = KeystoneLabFlow.ParseTimes(g("times")); if (t != null) p.Times = t;
+            string sd = g("side").ToUpperInvariant(); if (sd == "LONG" || sd == "BUY") p.Side = "BUY"; else if (sd == "SHORT" || sd == "SELL") p.Side = "SELL"; else if (sd == "EACH" || sd == "ALL") p.Side = sd; else p.Side = "FIRM";
+            if (g("plan") != "") p.Name = g("plan");
+            // TPT PRO funded on the untouched 🛟 SAFE PAYOUT default: MNQ 2 (the user's plan), the same bracket
+            if (funded && tpt && g("plan").StartsWith("🛟 SAFE PAYOUT") && g("mnq") == "1") { p.Qty = 2; p.Name = "🛟 SAFE PAYOUT (TPT PRO: MNQ 2, beat the trailing drawdown first)"; }
+            return p;
+        }
+        public string Words() { return "MNQ " + Qty + " · TP +" + KeystoneAutopilot.Usd(TpUsd) + " · " + (StopUsd <= 0 ? "stop at the floor" : "SL −" + KeystoneAutopilot.Usd(StopUsd)) + " · at " + string.Join(" / ", Times.Select(h => (h / 100) + ":" + (h % 100).ToString("00"))) + " NY"; }
+    }
+    // one account handed over by the labs (autopilot-feed.txt: account|firm|stage|owner|group|nick|start|dd|target|mindays|daystraded|balance|plan k=v;…)
+    public sealed class KeystoneAutoFeed
+    {
+        public string Account = "", Firm = "", Stage = "EVAL", Owner = "ME", Group = "", Nick = ""; public double Start, Dd, Target, Balance; public int MinDays, DaysTraded; public Dictionary<string, string> Plan = new Dictionary<string, string>();
+        public string Line()
+        {
+            var ic = CultureInfo.InvariantCulture; Func<string, string> c = s => (s ?? "").Replace("|", " ").Replace("\n", " ").Replace("\r", " ");
+            return string.Join("|", c(Account), c(Firm), c(Stage), c(Owner), c(Group), c(Nick), Start.ToString("0.##", ic), Dd.ToString("0.##", ic), Target.ToString("0.##", ic), MinDays.ToString(ic), DaysTraded.ToString(ic), Balance.ToString("0.##", ic),
+                string.Join(";", Plan.Select(kv => c(kv.Key).Replace(";", " ").Replace("=", " ") + "=" + c(kv.Value).Replace(";", " ").Replace("=", " "))));
+        }
+        public static List<KeystoneAutoFeed> Parse(string text)
+        {
+            var res = new List<KeystoneAutoFeed>(); var ic = CultureInfo.InvariantCulture; var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var l in (text ?? "").Split('\n'))
+            {
+                var a = l.TrimEnd('\r').Split('|'); if (a.Length < 13 || a[0].Trim() == "" || a[0].StartsWith("#") || !seen.Add(a[0].Trim())) continue;
+                var f = new KeystoneAutoFeed { Account = a[0].Trim(), Firm = a[1].Trim().ToUpperInvariant(), Stage = a[2].Trim() == "FUNDED" ? "FUNDED" : "EVAL", Owner = a[3].Trim() == "" ? "ME" : a[3].Trim(), Group = a[4].Trim(), Nick = a[5].Trim() };
+                double d; int n;
+                if (double.TryParse(a[6], NumberStyles.Float, ic, out d)) f.Start = d; if (double.TryParse(a[7], NumberStyles.Float, ic, out d)) f.Dd = d; if (double.TryParse(a[8], NumberStyles.Float, ic, out d)) f.Target = d;
+                if (int.TryParse(a[9], NumberStyles.Integer, ic, out n)) f.MinDays = n; if (int.TryParse(a[10], NumberStyles.Integer, ic, out n)) f.DaysTraded = n; if (double.TryParse(a[11], NumberStyles.Float, ic, out d)) f.Balance = d;
+                foreach (var kv in a[12].Split(';')) { var p = kv.Split('='); if (p.Length == 2 && p[0].Trim() != "") f.Plan[p[0].Trim()] = p[1].Trim(); }
+                res.Add(f);
+            }
+            return res;
+        }
+        public static string Text(IEnumerable<KeystoneAutoFeed> feeds) { return "# 🤖 LIVE AUTOPILOT feed (written by 🧪 EVAL LAB ▸ ● LIVE ✓ CONFIRM) — account|firm|stage|owner|group|nick|start|dd|target|mindays|daystraded|balance|plan\n" + string.Join("\n", (feeds ?? Enumerable.Empty<KeystoneAutoFeed>()).Select(f => f.Line())); }
+    }
+    public sealed class KeystoneAutoTicket
+    {
+        public DateTime At, Deadline; public int Side, Qty, Slot; public double TpPts, StopPts, TpUsd, StopUsd, RefPrice; public string Reason = ""; public bool Auto, Tiny;
+        public double ModelTp { get { return RefPrice + Side * TpPts; } }
+        public double ModelStop { get { return RefPrice - Side * StopPts; } }
+        public string Words() { return (Side > 0 ? "BUY " : "SELL ") + Qty + " MNQ · TP +" + KeystoneAutopilot.Usd(TpUsd) + " (" + TpPts.ToString("0.00", CultureInfo.InvariantCulture) + " pts) · SL −" + KeystoneAutopilot.Usd(StopUsd) + " (" + StopPts.ToString("0.00", CultureInfo.InvariantCulture) + " pts)"; }
+    }
+    public sealed class KeystoneAutoSeat
+    {
+        public string Account = "", Nick = "", Firm = "", Stage = "EVAL", Owner = "ME", Group = ""; public KeystoneAutoPlan Plan = KeystoneAutoPlan.EvalDefault();
+        public KeystoneAccountLink Link; public KeystoneReplayTrader Mirror;
+        public double Start, Dd, Target, Balance; public int MinDays, DaysTraded; public List<KeystoneLiveDay> Days = new List<KeystoneLiveDay>();
+        public bool WantAuto;   // the user asked AUTO for this account (it is AUTO only where Mode allows it)
+        public int SlotTime = 200; public string State = "WAITING", Note = "", Payout = "";
+        public DateTime Day = DateTime.MinValue; public bool DoneToday, Blown, TargetDone, OverOwner, Out, Flattened; public KeystoneAutoTicket Ticket, Placed;
+        public DateTime SentAt; public double FillPrice; public bool BracketSeen, NoFillLogged; public string OutWhy = "";
+        public bool Funded { get { return Stage == "FUNDED"; } }
+        public bool Auto { get { return WantAuto && KeystoneAutopilot.AutoAllowedFor(Firm, Stage) && (Ticket == null || !Ticket.Tiny); } }
+        public string Display { get { return Nick != "" ? Nick : Account; } }
+    }
+    // one journal line: every decision and order (Studio\EvalLab\live\autopilot-<date>.csv)
+    public sealed class KeystoneAutoRow
+    {
+        public DateTime Time; public string Account = "", Firm = "", Stage = "", Plan = "", Mode = "", Event = "", Link = "", Detail = ""; public int Side, Qty; public double Ref, Fill, Tp, Sl, Exit, Net, TpUsd, SlUsd;
+        public const string Header = "time,account,firm,stage,plan,mode,event,side,qty,ref_price,fill,tp_price,sl_price,tp_usd,sl_usd,exit,net,link,detail";
+        public string Line()
+        {
+            var ic = CultureInfo.InvariantCulture; Func<string, string> c = s => (s ?? "").Replace(",", ";").Replace("\n", " ").Replace("\r", " "); Func<double, string> n = v => v == 0 ? "" : v.ToString("0.##", ic);
+            return string.Join(",", Time.ToString("yyyy-MM-dd HH:mm:ss", ic), c(Account), c(Firm), c(Stage), c(Plan), c(Mode), c(Event), Side > 0 ? "BUY" : Side < 0 ? "SELL" : "", Qty == 0 ? "" : Qty.ToString(ic), n(Ref), n(Fill), n(Tp), n(Sl), n(TpUsd), n(SlUsd), n(Exit), Net == 0 ? "" : Net.ToString("0.##", ic), c(Link), c(Detail));
+        }
+    }
+    public sealed class KeystoneAutopilot
+    {
+        public readonly List<KeystoneAutoSeat> Seats = new List<KeystoneAutoSeat>();
+        public bool Running { get; private set; }
+        public string Status = "NOT STARTED", StopWhy = "";
+        public readonly List<KeystoneAutoRow> Journal = new List<KeystoneAutoRow>(), NewRows = new List<KeystoneAutoRow>();   // NewRows: written by the UI, then cleared
+        public Func<DateTime, DateTime> DayOf = t => t.Hour >= 18 ? t.Date.AddDays(1) : t.Date;   // the NY trading day (a new day at 18:00)
+        public TimeSpan FlattenAt = new TimeSpan(16, 54, 0); public int LateMinutes = 2, FillWaitSeconds = 30, Seed; public string Symbol = "MNQ";
+        public const string StartWord = "START";
+        public static string Usd(double v) { return "$" + Math.Round(Math.Abs(v)).ToString("N0", CultureInfo.InvariantCulture); }
+        // AUTO only for Lucid / Tradeify AND where the firm's rules (KeystoneFirmPolicies + the 🏢 FIRMS & RULES book) allow automation for the stage — TPT never
+        public static bool AutoFirm(string firm) { string f = (firm ?? "").Trim().ToUpperInvariant(); return f == "LUCID" || f == "TRADEIFY"; }
+        public static bool AutoAllowedFor(string firm, string stage)
+        {
+            string f = (firm ?? "").Trim().ToUpperInvariant(); if (f == "TPT" || !AutoFirm(f)) return false; bool funded = stage == "FUNDED";
+            if (!KeystoneFirmPolicies.AutoAllowed(f, funded)) return false;
+            KeystonePayoutRules bk = null; try { bk = KeystonePayoutRules.BookOf(f); } catch { } if (bk != null && !(funded ? bk.AutoFunded : bk.AutoEval)) return false;
+            return true;
+        }
+        // why AUTO cannot be used on this account ("" = it can)
+        public static string AutoWhyNot(string firm, string stage)
+        {
+            string f = (firm ?? "").Trim().ToUpperInvariant();
+            if (f == "TPT") return "TPT: always GUIDED (no automation — firm rule)";
+            if (!AutoFirm(f)) return KeystonePipeline.Nice(f) + ": AUTO is offered for Lucid / Tradeify only — GUIDED";
+            if (!AutoAllowedFor(f, stage)) return KeystonePipeline.Nice(f) + " " + (stage == "FUNDED" ? "funded" : "eval") + ": automation is OFF in its rules (👥 ACCOUNTS ▸ RULES / 🏢 FIRMS & RULES) — GUIDED";
+            return "";
+        }
+        // the account's floor: start − drawdown, trailing the best end-of-day balance (funded: locks at start + $100, TPT at the start)
+        public static double FloorOf(double start, double dd, bool funded, string firm, IList<KeystoneLiveDay> days, DateTime today)
+        {
+            double fl = start - dd; if (dd <= 0) return 0;
+            double peak = start; foreach (var d in days ?? new List<KeystoneLiveDay>()) if (d.Date.Date < today.Date && d.EndBal > peak) peak = d.EndBal;
+            double trail = peak - dd; if (funded) trail = Math.Min(trail, (firm ?? "").ToUpperInvariant() == "TPT" ? start : start + 100);
+            return Math.Max(fl, trail);
+        }
+        // 💰 a funded account's payout reminder ("" = not yet) — a reminder only: requests are made on the firm's site
+        public static string PayoutNote(KeystoneAutoSeat s)
+        {
+            if (s == null || !s.Funded) return ""; var r = KeystonePayoutRules.BookOf(s.Firm) ?? KeystonePayoutRules.For(s.Firm, KeystonePayoutRules.Presets()); if (r == null || r.Parked) return "";
+            double p = s.Balance - s.Start; if (p <= 0) return "";
+            if (r.Tpt) return p >= r.Dd + r.Cap - 1e-9 ? "💰 payout ready: request " + Usd(r.Cap) : "";
+            int q = (s.Days ?? new List<KeystoneLiveDay>()).Count(x => x.Trades > 0 && x.Pnl >= r.QualMin - 1e-9); double due = r.Due(p, false);
+            return q >= r.QualDays && due > 0 ? "💰 payout ready: request " + Usd(due) : "";
+        }
+        public static DateTime EntryAt(DateTime day, int hhmm) { var t = new TimeSpan(hhmm / 100, hhmm % 100, 0); return hhmm >= 1800 ? day.Date.AddDays(-1) + t : day.Date + t; }
+        public static double Cost { get { return KeystoneMoveStudy.Cost("MNQ"); } }
+        public static double Pv { get { return KeystoneMoveStudy.PointValue("MNQ"); } }
+        // TP points so that closing `qty` there makes at least `usd` after the round-trip costs (rounded UP to the tick)
+        public static double TpPoints(double usd, int qty, double tick) { if (qty <= 0 || tick <= 0) return 0; double pts = (usd + Cost * qty) / (Pv * qty); return Math.Ceiling(pts / tick - 1e-9) * tick; }
+        // stop points so that the loss incl. costs stays within `usd` (rounded DOWN to the tick), minus `safetyTicks`
+        public static double StopPoints(double usd, int qty, double tick, int safetyTicks) { if (qty <= 0 || tick <= 0 || usd <= 0) return 0; double pts = (usd - Cost * qty) / (Pv * qty); return Math.Floor(pts / tick + 1e-9) * tick - safetyTicks * tick; }
+
+        static int Real(KeystoneAutoSeat s) { try { return s.Link.Broker.Qty; } catch { return 0; } }
+        static bool Conn(KeystoneAutoSeat s) { try { return s.Link.Broker.Connected; } catch { return false; } }
+        static double Tick0(KeystoneAutoSeat s) { try { return s.Link.Broker.Tick > 0 ? s.Link.Broker.Tick : 0.25; } catch { return 0.25; } }
+        void Log(DateTime now, KeystoneAutoSeat s, string ev, string detail, KeystoneAutoTicket t = null)
+        {
+            var r = new KeystoneAutoRow { Time = now, Event = ev, Detail = detail ?? "" };
+            if (s != null) { r.Account = s.Account; r.Firm = s.Firm; r.Stage = s.Stage; r.Plan = s.Plan != null ? s.Plan.Name : ""; r.Mode = t != null ? (t.Auto ? "AUTO" : "GUIDED") : s.Auto ? "AUTO" : "GUIDED"; try { r.Link = s.Link != null ? s.Link.State : ""; } catch { } }
+            if (t != null) { r.Side = t.Side; r.Qty = t.Qty; r.Ref = t.RefPrice; r.TpUsd = t.TpUsd; r.SlUsd = t.StopUsd; r.Tp = t.ModelTp; r.Sl = t.ModelStop; }
+            Journal.Add(r); NewRows.Add(r); if (Journal.Count > 2000) Journal.RemoveAt(0);
+        }
+
+        // ▶ START AUTOPILOT: every seat's link must be ARMED (seats that are not stay out and never send); any AUTO seat needs START typed
+        public bool AnyAuto { get { return Seats.Any(s => s.Auto && !s.Out); } }
+        public string Start(string typed, DateTime now)
+        {
+            if (Running) return "already running";
+            if (Seats.Count == 0) return "no account in the autopilot (✓ CONFIRM accounts in 🧪 EVAL LAB ▸ ● LIVE first)";
+            bool anyAuto = Seats.Any(s => s.Auto && s.Link != null && s.Link.Armed && !s.Blown);
+            if (anyAuto && (typed ?? "").Trim() != StartWord) return "AUTO needs the word START typed — nothing started";
+            int armed = 0; var mates = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in Seats)
+            {
+                s.Out = false; s.OutWhy = ""; s.OverOwner = false; if (s.Blown) { s.Out = true; s.OutWhy = "💀 BLOWN"; continue; }
+                if (s.Link == null || s.Mirror == null || !s.Link.Armed) { s.Out = true; s.OutWhy = "NOT ARMED"; s.State = "NOT ARMED • never sends"; continue; }
+                if (s.Link.Locked) { s.Out = true; s.OutWhy = "LOCKED FOR TODAY"; s.State = "LOCKED FOR TODAY • never sends today"; continue; }
+                string key = s.Owner + "|" + s.Firm.ToUpperInvariant() + "|" + (s.Funded ? "FUNDED" : "EVAL"); int n; mates.TryGetValue(key, out n); mates[key] = ++n;
+                int lim = KeystoneOwners.LimitOf(s.Firm, s.Funded ? "FUNDED" : "EVAL");
+                if (n > lim) { s.OverOwner = true; s.Out = true; s.OutWhy = "👥 over " + s.Owner + "'s limit of " + lim + " " + KeystonePipeline.Nice(s.Firm) + " " + (s.Funded ? "funded" : "eval") + " accounts"; s.State = s.OutWhy; continue; }
+                s.Link.Automated = s.Auto; armed++;
+            }
+            if (armed == 0) return "no armed account — ARM the accounts first";
+            // the entry time of each account: the group's times spread over its accounts of a firm (the eval default has one: all at 2:00)
+            foreach (var g in Seats.GroupBy(s => s.Group + "|" + s.Firm.ToUpperInvariant() + "|" + s.Stage))
+            {
+                int i = 0; foreach (var s in g) { var ts = s.Plan != null && s.Plan.Times != null && s.Plan.Times.Length > 0 ? s.Plan.Times : new[] { 200 }; s.SlotTime = ts[i % ts.Length]; i++; }
+            }
+            Running = true; StopWhy = ""; Status = "● RUNNING • " + armed + " account" + (armed == 1 ? "" : "s") + (AnyAuto ? " • AUTO + GUIDED" : " • GUIDED");
+            Log(now, null, "START", Status + (AnyAuto ? " (START typed)" : ""));
+            return "";
+        }
+        // DISARM / ⛔ CLOSE ALL / LOCK FOR TODAY / the window closed: nothing more is sent — the links are disarmed, positions stay with their broker brackets
+        public void Stop(string why, DateTime now)
+        {
+            if (!Running) return; Running = false; StopWhy = why ?? "stopped"; Status = "■ STOPPED • " + StopWhy + " • positions stay at the broker with their stop / target";
+            foreach (var s in Seats) { if (s.Ticket != null && s.Placed == null) s.Ticket = null; if (s.Link != null) s.Link.Disarm("AUTOPILOT STOPPED: " + StopWhy, now, false); }
+            Log(now, null, "STOP", Status);
+        }
+        public KeystoneAutoSeat Find(string account) { return Seats.FirstOrDefault(s => string.Equals(s.Account, account, StringComparison.OrdinalIgnoreCase)); }
+        // the GUIDED tickets flashing now
+        public List<KeystoneAutoSeat> Flashing() { return Seats.Where(s => s.Ticket != null && s.Placed == null && s.State.StartsWith("▶")).ToList(); }
+
+        // why this seat may not enter now ("" = it may)
+        string Blocked(KeystoneAutoSeat s)
+        {
+            if (!Running) return "autopilot not running";
+            if (s.Out) return s.OutWhy; if (s.Blown) return "💀 blown"; if (s.Link == null || !s.Link.Armed) return "NOT ARMED"; if (s.Link.Locked) return "LOCKED FOR TODAY";
+            if (!Conn(s)) return "NOT CONNECTED"; if (Real(s) != 0) return "holds a position";
+            double pnl = 0; try { pnl = s.Link.Broker.DayPnl; } catch { }
+            if (s.Link.DayLossLimit > 0 && pnl <= -Math.Abs(s.Link.DayLossLimit) + 1e-9) return "DAY LOSS LIMIT " + Usd(s.Link.DayLossLimit) + " reached";
+            if (s.Link.DayProfitCap > 0 && pnl >= s.Link.DayProfitCap - 1e-9) return "DAY PROFIT CAP reached";
+            return "";
+        }
+        // the firm's side now: a position the firm already holds wins (never both sides inside a firm), else the coin of the firm / slot
+        public int SideFor(KeystoneAutoSeat s, DateTime day)
+        {
+            foreach (var o in Seats) { if (o == s || !string.Equals(o.Firm, s.Firm, StringComparison.OrdinalIgnoreCase)) continue; int q = Real(o); if (q != 0) return Math.Sign(q); if (o.Placed != null && o.Mirror != null && o.Mirror.Position != 0) return Math.Sign(o.Mirror.Position); }
+            string r = s.Plan != null ? s.Plan.Side : "FIRM"; int idx = Seats.IndexOf(s) + 1;
+            return KeystoneLabFlow.PlanSide(r == "FIRM" || r == "EACH" || r == "ALL" || r == "BUY" || r == "SELL" ? r : "FIRM", day, (s.Firm ?? "").ToUpperInvariant(), idx, s.SlotTime, Seed);
+        }
+        // the ticket: size (never over the link's MAX), TP after costs, the stop (the plan's, never past the floor or the day loss room)
+        public KeystoneAutoTicket MakeTicket(KeystoneAutoSeat s, DateTime now, DateTime day, double price, out string why)
+        {
+            why = ""; var p = s.Plan ?? (s.Funded ? KeystoneAutoPlan.FundedDefault(s.Firm == "TPT") : KeystoneAutoPlan.EvalDefault());
+            bool tiny = !s.Funded && s.Start > 0 && s.Balance - s.Start >= s.Target - 0.5 && s.Target > 0 && s.DaysTraded < s.MinDays;
+            int planQ = tiny ? 1 : p.Qty; double tpUsd = tiny ? 50 : p.TpUsd, slUsd = tiny ? 50 : p.StopUsd;
+            int q = Math.Max(1, Math.Min(planQ, Math.Max(1, s.Link.MaxContracts))); double tick = Tick0(s);
+            double floor = FloorOf(s.Start, s.Dd, s.Funded, s.Firm, s.Days, day), room = s.Balance - floor;
+            double roomPts = s.Dd > 0 ? StopPoints(room, q, tick, 2) : double.MaxValue;   // to the floor, costs + 2 ticks of safety off
+            double pnl = 0; try { pnl = s.Link.Broker.DayPnl; } catch { }
+            double dayRoomPts = s.Link.DayLossLimit > 0 ? StopPoints(Math.Abs(s.Link.DayLossLimit) + pnl, q, tick, 1) : double.MaxValue;
+            double stopPts = slUsd > 0 ? StopPoints(slUsd, q, tick, 0) : roomPts; stopPts = Math.Min(stopPts, Math.Min(roomPts, dayRoomPts));
+            if (double.IsNaN(stopPts) || stopPts == double.MaxValue) { why = "no floor known for this account (its drawdown) — no stop can be set"; return null; }
+            if (stopPts < 4 * tick) { why = "no room above the floor / day loss limit for a stop (" + stopPts.ToString("0.00", CultureInfo.InvariantCulture) + " pts)"; return null; }
+            var t = new KeystoneAutoTicket { At = EntryAt(day, s.SlotTime), Qty = q, Slot = s.SlotTime, TpPts = TpPoints(tpUsd, q, tick), StopPts = stopPts, TpUsd = tpUsd, RefPrice = price, Tiny = tiny };
+            t.StopUsd = Math.Round(stopPts * Pv * q + Cost * q); t.Deadline = t.At.AddMinutes(LateMinutes); t.Side = SideFor(s, day); t.Auto = !tiny && s.Auto;
+            if (t.Side == 0) { why = "no side"; return null; }
+            t.Reason = KeystonePipeline.Nice(s.Firm) + " · " + (s.Funded ? "funded" : "eval") + " · " + (tiny ? "✅ target made, day " + (s.DaysTraded + 1) + "/" + s.MinDays + ": the tiny trade (MNQ 1, TP +$50)" : p.Name) + " · side coin " + KeystonePipeline.Nice(s.Firm) + " @ " + (s.SlotTime / 100) + ":" + (s.SlotTime % 100).ToString("00") + " = " + (t.Side > 0 ? "BUY" : "SELL") + (planQ > q ? " · ⚠ capped at the link's MAX " + q + " (plan MNQ " + planQ + ")" : "");
+            return t;
+        }
+        // the ticket → the mirror's intent; the account's armed link sends the market entry, then the STOP + TARGET at its fill (one cancels the other)
+        void Place(KeystoneAutoSeat s, DateTime now, double price)
+        {
+            var t = s.Ticket; if (t == null) return; var m = s.Mirror; m.Price = price > 0 ? price : m.Price; m.Time = now; m.Orders.Clear();
+            m.StopPts = t.StopPts; m.TargetPts = t.TpPts; m.Adopt(t.Side * t.Qty, price > 0 ? price : t.RefPrice, now);
+            s.Placed = t; s.SentAt = now; s.DoneToday = true; s.BracketSeen = false; s.NoFillLogged = false; s.FillPrice = 0; s.State = "ORDER SENT • " + t.Words();
+            Log(now, s, "ORDER", "market entry through the armed link; the STOP + TARGET follow at the fill" + (t.Auto ? "" : " (pressed)"), t);
+        }
+        // GUIDED: ONE press = the full bracket through the armed link
+        public string Press(string account, DateTime now, double price)
+        {
+            var s = Find(account); if (s == null) return "unknown account"; var t = s.Ticket;
+            if (t == null || s.Placed != null) return "no ticket for " + s.Display + " now";
+            if (now > t.Deadline) return "missed (more than " + LateMinutes + " minutes after " + t.At.ToString("HH:mm", CultureInfo.InvariantCulture) + ") — no late entry";
+            string b = Blocked(s); if (b != "") { Log(now, s, "BLOCKED", b, t); return b; }
+            Place(s, now, price); return "";
+        }
+        public string Skip(string account, DateTime now)
+        {
+            var s = Find(account); if (s == null || s.Ticket == null || s.Placed != null) return "no ticket";
+            Log(now, s, "SKIP", "you let it go", s.Ticket); s.Ticket = null; s.DoneToday = true; s.State = "SKIPPED today"; return "";
+        }
+
+        public void Tick(DateTime now, double price)
+        {
+            var day = DayOf(now); bool weekend = day.DayOfWeek == DayOfWeek.Saturday || day.DayOfWeek == DayOfWeek.Sunday;
+            bool flatTime = now.TimeOfDay >= FlattenAt && now.Hour < 18;
+            foreach (var s in Seats)
+            {
+                if (s.Day != day) { s.Day = day; s.DoneToday = false; if (s.Link == null || Real(s) == 0) { s.Ticket = null; s.Placed = null; } s.Flattened = false; if (!s.Out && !s.Blown && !s.TargetDone) s.State = "WAITING"; }
+                if (s.Mirror != null) { if (price > 0) s.Mirror.Price = price; s.Mirror.Time = now; }
+                s.Payout = PayoutNote(s);
+            }
+            if (Running)
+            {
+                // DISARM / a reject / the runaway guard on a seat's link: that account is out; LOCK FOR TODAY stops the whole autopilot
+                var locked = Seats.FirstOrDefault(s => !s.Out && s.Link != null && s.Link.Locked);
+                if (locked != null) Stop("LOCK FOR TODAY on " + locked.Display, now);
+            }
+            foreach (var s in Seats)
+            {
+                if (!Running || s.Link == null || s.Mirror == null) continue;
+                if (!s.Out && !s.Link.Armed) { s.Out = true; s.OutWhy = "DISARMED • " + s.Link.State; s.State = s.OutWhy + " • the autopilot sends nothing more here"; Log(now, s, "DISARMED", s.Link.State, s.Placed ?? s.Ticket); s.Ticket = s.Placed != null ? s.Ticket : null; }
+                if (s.Out) continue;
+                // 💀 blown: out of the autopilot for good
+                double floor = FloorOf(s.Start, s.Dd, s.Funded, s.Firm, s.Days, day);
+                if (!s.Blown && s.Dd > 0 && s.Balance > 0 && s.Balance <= floor + 0.5 && Real(s) == 0) { s.Blown = true; s.Out = true; s.OutWhy = "💀 BLOWN"; s.State = "💀 BLOWN (balance " + Usd(s.Balance) + " ≤ floor " + Usd(floor) + ") • removed from the autopilot"; Log(now, s, "BLOWN", s.State); continue; }
+                // ✅ eval target reached (and the days): stop trading it
+                if (!s.Funded && s.Target > 0 && s.Start > 0 && s.Balance - s.Start >= s.Target - 0.5 && s.DaysTraded >= s.MinDays && s.Placed == null && Real(s) == 0)
+                { if (!s.TargetDone) { s.TargetDone = true; Log(now, s, "TARGET", "✅ target reached: wait for the firm"); } s.State = "✅ target reached: wait for the firm"; continue; }
+                // 16:54 NY: close every open position (through the link), once
+                if (flatTime && Real(s) != 0 && !s.Flattened) { s.Flattened = true; s.Mirror.Orders.Clear(); s.Mirror.Adopt(0, 0, now); s.State = "16:54 FLATTEN • closing"; Log(now, s, "FLATTEN", "16:54 NY: closing the position", s.Placed); continue; }
+                if (s.DoneToday || weekend) { if (weekend && s.Placed == null) s.State = "weekend • no session"; continue; }
+                var at = EntryAt(day, s.SlotTime); var dl = at.AddMinutes(LateMinutes);
+                if (s.Ticket == null)
+                {
+                    if (now < at) { s.State = "WAITING • " + at.ToString("HH:mm", CultureInfo.InvariantCulture) + " NY (" + (s.Auto ? "AUTO" : "GUIDED") + ")"; continue; }
+                    if (now > dl || flatTime) { s.DoneToday = true; s.State = "MISSED " + at.ToString("HH:mm", CultureInfo.InvariantCulture) + " • no late entry"; Log(now, s, "MISSED", "the entry minute " + at.ToString("HH:mm", CultureInfo.InvariantCulture) + " passed (more than " + LateMinutes + " min) — no late entry"); continue; }
+                    string b = Blocked(s); if (b != "") { s.DoneToday = true; s.State = "NO ENTRY TODAY • " + b; Log(now, s, "BLOCKED", b); continue; }
+                    string why; var t = MakeTicket(s, now, day, price, out why); if (t == null) { s.DoneToday = true; s.State = "NO ENTRY TODAY • " + why; Log(now, s, "BLOCKED", why); continue; }
+                    s.Ticket = t; Log(now, s, "TICKET", t.Reason, t);
+                    if (t.Auto) Place(s, now, price);
+                    else s.State = "▶ PRESS " + (t.Side > 0 ? "BUY" : "SELL") + " • " + t.Words() + " • until " + t.Deadline.ToString("HH:mm", CultureInfo.InvariantCulture);
+                }
+                else if (s.Placed == null && now > s.Ticket.Deadline)
+                { Log(now, s, "MISSED", "not pressed within " + LateMinutes + " minutes — no late entry", s.Ticket); s.Ticket = null; s.DoneToday = true; s.State = "MISSED today (not pressed)"; }
+            }
+            // every link: the intent → real orders (only while armed), then what came back
+            foreach (var s in Seats)
+            {
+                if (s.Link == null || s.Mirror == null) continue;
+                if (Running || s.Placed != null) s.Link.Tick(s.Mirror, now);
+                var t = s.Placed; if (t == null) continue; int real = Real(s);
+                if (s.FillPrice == 0 && real != 0)
+                {
+                    double avg = 0; try { avg = s.Link.Broker.AvgPrice; } catch { } s.FillPrice = avg; int d = Math.Sign(real);
+                    Log(now, s, "FILL", "model entry ≈ " + t.RefPrice.ToString("0.00", CultureInfo.InvariantCulture) + " (TP " + t.ModelTp.ToString("0.00", CultureInfo.InvariantCulture) + ") · filled at " + avg.ToString("0.00", CultureInfo.InvariantCulture) + " (TP " + (avg + d * t.TpPts).ToString("0.00", CultureInfo.InvariantCulture) + ", SL " + (avg - d * t.StopPts).ToString("0.00", CultureInfo.InvariantCulture) + ")", t);
+                    var last = Journal[Journal.Count - 1]; last.Fill = avg; last.Tp = avg + d * t.TpPts; last.Sl = avg - d * t.StopPts;
+                    s.State = "IN THE TRADE • " + (d > 0 ? "LONG " : "SHORT ") + Math.Abs(real) + " @ " + avg.ToString("0.00", CultureInfo.InvariantCulture);
+                }
+                if (s.FillPrice != 0 && real != 0 && !s.BracketSeen)
+                {
+                    var w = new List<KeystoneBrokerOrder>(); try { w = s.Link.Broker.Working(); } catch { }
+                    var st = w.FirstOrDefault(o => !o.Done && o.Kind == "STOP" && o.Side == -Math.Sign(real)); var tg = w.FirstOrDefault(o => !o.Done && o.Kind == "LIMIT" && o.Side == -Math.Sign(real));
+                    if (st != null && tg != null) { s.BracketSeen = true; Log(now, s, "BRACKET", "at the broker: STOP " + st.Price.ToString("0.00", CultureInfo.InvariantCulture) + " · TARGET " + tg.Price.ToString("0.00", CultureInfo.InvariantCulture) + " (one cancels the other)", t); }
+                }
+                if (s.FillPrice != 0 && real == 0)
+                {
+                    var f = s.Link.NewFills.LastOrDefault(); double net = f != null ? f.Net : 0, ex = f != null ? f.Exit : 0;
+                    Log(now, s, "EXIT", "model expected TP at " + t.ModelTp.ToString("0.00", CultureInfo.InvariantCulture) + " · filled at " + s.FillPrice.ToString("0.00", CultureInfo.InvariantCulture) + " · out at " + ex.ToString("0.00", CultureInfo.InvariantCulture) + " · " + (net >= 0 ? "+" : "−") + Usd(net), t);
+                    var last = Journal[Journal.Count - 1]; last.Fill = s.FillPrice; last.Exit = ex; last.Net = net;
+                    s.Placed = null; s.Ticket = null; s.DaysTraded++; s.State = "DONE TODAY • " + (net >= 0 ? "+" : "−") + Usd(net);
+                    s.Mirror.StopPts = 0; s.Mirror.TargetPts = 0;
+                }
+                else if (s.FillPrice == 0 && real == 0 && !s.NoFillLogged && (now - s.SentAt).TotalSeconds > FillWaitSeconds)
+                {   // never re-sent: the entry stays the day's one; a late fill still gets its STOP + TARGET (the mirror keeps them), a reject disarms the link
+                    s.NoFillLogged = true; Log(now, s, "NO FILL", "no fill " + FillWaitSeconds + " s after the order — nothing re-sent; a late fill still gets its bracket", t);
+                    if (!s.Out) s.State = "ORDER SENT • no fill yet (nothing re-sent)";
+                }
+            }
+            if (Running) Status = "● RUNNING • " + Seats.Count(s => !s.Out) + " in · " + Seats.Count(s => s.Placed != null) + " in a trade · " + Flashing().Count + " to press" + (AnyAuto ? " • AUTO + GUIDED" : " • GUIDED");
+        }
+    }
+
     // ---- COPIER: the chart's account (the leader) copied to follower accounts ------------------------------------------------
     // Each follower has its own account link (its own limits, arm, lock) and a mirror trader whose "intent" is the leader's REAL
     // position × the follower's multiplier (capped at its max) with the leader's stop / target distances. Followers enter at
@@ -20251,7 +20593,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -41242,6 +41584,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             Action copierTick = null;   // the COPIER (LIVE TRADING) runs inside the live tick
             Action rotTick = null;      // the ROTATION (LIVE TRADING) runs inside the live tick
             Action duoTick = null;      // the MNQ + MGC ROTATION (LIVE TRADING) runs inside the live tick too
+            Action apTick = null; Action<string> apStopH = null; Func<bool> apOnH = null;   // 🤖 LIVE AUTOPILOT (BUILD 11g): its tick, stop (DISARM / CLOSE ALL / LOCK / window) and whether it runs
             // the firm's rules for an account (LIVE TRADING ▸ 👥 ACCOUNTS ▸ RULES): automated strategies (evaluation / funded) and copying
             Func<string, bool> autoOK = a => true, copyOK = a => true; Func<string, string> ruleWhy = a => "";
             realTick = delegate
@@ -41264,6 +41607,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (copierTick != null) copierTick();
                 if (rotTick != null) rotTick();
                 if (duoTick != null) duoTick();
+                if (apTick != null) apTick();
                 if ((DateTime.Now - realInfoAt).TotalMilliseconds > 900) { realInfoAt = DateTime.Now; realLine(); }
             };
             realStop = delegate { unlink(); realBar.Visibility = Visibility.Collapsed; saveWatches(); };   // leaving LIVE: real positions stay in NinjaTrader with their orders
@@ -41271,6 +41615,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             Func<bool> inTradeGuard = null; Func<string, bool> okSwitchInTrade = null; Action<FrameworkElement> chartAccMenuH = null; Func<bool> groupsOnH = null; Func<string> tileAccH = null, viewAccH = null;   /* tileAccH: the account the tiles above the chart show (the group tab's) */   // chartAccMenuH: the account list of the selected group tab (groupsOnH = a copy group is ON)   // okSwitchInTrade: the chart account is in a trade → YES / NO to switch anyway (its position + stop / target stay at the broker)         // 🔒 any account in a trade (chart, copier, groups, rotation): settings / disarm / account switch wait
             realArmBtn.Click += delegate
             {
+                // 🤖 DISARM stops the LIVE AUTOPILOT first (its links are disarmed; positions keep their broker stop / target) — press again for the chart
+                if (apOnH != null && apOnH()) { apStopH("DISARM pressed"); return; }
                 var offR = armOff();
                 if (offR.Count > 0)
                 {   // RE-ARM only the chart(s) that switched off, with the same limits as the armed ones (asks first)
@@ -42573,6 +42919,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Grid.SetRow(rotateHost, 3); root.Children.Add(rotateHost);
                 var rotateBtn = pill("🔄 ROTATE", Card); rotateBtn.ToolTip = "ROTATION: the chart's strategy trades a pool of your prop accounts, one account per trade, in turn (AUTO or MANUAL)";
                 strip.Children.Insert(strip.Children.IndexOf(poolBtn) + 1, rotateBtn); Action fillRotate = null;
+                var autoHost = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed, Background = Panel };
+                Grid.SetRow(autoHost, 3); root.Children.Add(autoHost);
+                var autoBtn = pill("🤖 AUTOPILOT", Card); autoBtn.ToolTip = "🤖 LIVE AUTOPILOT: the labs' plans on your real accounts through their armed links — GUIDED (flashing ticket, one press) for every firm, AUTO for Lucid / Tradeify after ARM + START typed";
+                strip.Children.Insert(strip.Children.IndexOf(rotateBtn) + 1, autoBtn); Action fillAuto = null;
                 var duoHost = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed, Background = Panel };
                 Grid.SetRow(duoHost, 3); root.Children.Add(duoHost);
                 var duoBtn = pill("🎲 MNQ+MGC ROTATION", Card); duoBtn.ToolTip = "The random rotation of the prop simulation on your real accounts: MNQ + MGC on one account at a time (BUY BOTH / SELL BOTH / mixed), a combined $ target and (trailing) stop, then the next account of your pool order — AUTO or MANUAL";
@@ -42771,6 +43121,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     newsHost.Visibility = view == "NEWS" ? Visibility.Visible : Visibility.Collapsed; if (view == "NEWS") { newsSig = ""; headSig = ""; fillNews(); }
                     execHost.Visibility = view == "EXEC" ? Visibility.Visible : Visibility.Collapsed; if (view == "EXEC" && fillExec != null) fillExec();
                     ddHost.Visibility = view == "DDSIM" ? Visibility.Visible : Visibility.Collapsed; if (view == "DDSIM" && ddHost.Children.Count == 0) { Action st; ddHost.Children.Add(BuildDrawdownLabView(w, out st)); ddStop = st; }
+                    autoHost.Visibility = view == "AUTOPILOT" ? Visibility.Visible : Visibility.Collapsed; autoBtn.Content = view == "AUTOPILOT" ? "◀ CHART" : "🤖 AUTOPILOT"; PaintBtn(autoBtn, view == "AUTOPILOT" ? Gold : Card); if (view == "AUTOPILOT" && fillAuto != null) fillAuto();
                     rotateHost.Visibility = view == "ROTATE" ? Visibility.Visible : Visibility.Collapsed; rotateBtn.Content = view == "ROTATE" ? "◀ CHART" : "🔄 ROTATE"; PaintBtn(rotateBtn, view == "ROTATE" ? Gold : Card); if (view == "ROTATE" && fillRotate != null) fillRotate();
                     duoHost.Visibility = view == "DUO" ? Visibility.Visible : Visibility.Collapsed; duoBtn.Content = view == "DUO" ? "◀ CHART" : "🎲 MNQ+MGC ROTATION"; PaintBtn(duoBtn, view == "DUO" ? Gold : Card); if (view == "DUO" && fillDuo != null) fillDuo();
                     accHost.Visibility = view == "ACCOUNTS" ? Visibility.Visible : Visibility.Collapsed; allAccBtn.Content = view == "ACCOUNTS" ? "◀ CHART" : "👥 ACCOUNTS"; PaintBtn(allAccBtn, view == "ACCOUNTS" ? Gold : Card); if (view == "ACCOUNTS" && fillAccView != null) fillAccView();
@@ -42793,7 +43144,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Grid.SetRow(tabBar, 4); root.Children.Add(tabBar);
                 var tabBtns = new List<Tuple<string, Border, TextBlock, Border>>();
                 Action<string> goTab = v => { if (v == "CHART") { if (view != "CHART") showView(view); } else if (v == "POOL" && view != "POOL" && view != "ACCOUNTS") showView("ACCOUNTS"); else if (view != v && !(v == "POOL" && view == "ACCOUNTS")) showView(v); };
-                foreach (var tb0 in new[] { Tuple.Create("CHART", "📈", "CHART"), Tuple.Create("EXEC", "🧾", "EXECUTIONS"), Tuple.Create("OF", "📊", "ORDERFLOW"), Tuple.Create("POOL", "👥", "ACCOUNTS"), Tuple.Create("COPIER", "⇉", "COPIER"), Tuple.Create("DUO", "🎲", "ROTATION"), Tuple.Create("JOURNAL", "📒", "JOURNAL"), Tuple.Create("NEWS", "📰", "NEWS"), Tuple.Create("DDSIM", "⚖", "TRAILING DD SIM") })
+                foreach (var tb0 in new[] { Tuple.Create("CHART", "📈", "CHART"), Tuple.Create("EXEC", "🧾", "EXECUTIONS"), Tuple.Create("OF", "📊", "ORDERFLOW"), Tuple.Create("POOL", "👥", "ACCOUNTS"), Tuple.Create("COPIER", "⇉", "COPIER"), Tuple.Create("DUO", "🎲", "ROTATION"), Tuple.Create("AUTOPILOT", "🤖", "AUTOPILOT"), Tuple.Create("JOURNAL", "📒", "JOURNAL"), Tuple.Create("NEWS", "📰", "NEWS"), Tuple.Create("DDSIM", "⚖", "TRAILING DD SIM") })
                 {
                     var tb = tb0; var txt = new TextBlock { Text = tb.Item2 + "  " + tb.Item3, FontSize = 13.5, FontWeight = FontWeights.Bold, Foreground = Muted, HorizontalAlignment = HorizontalAlignment.Center };
                     var line = new Border { Height = 3, CornerRadius = new CornerRadius(2), Background = Gold, Margin = new Thickness(6, 4, 6, 0), Opacity = 0 };
@@ -42884,7 +43235,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     }
                 };
                 { var execTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) }; execTimer.Tick += delegate { if (view == "EXEC" && fillExec != null) { double vo = execHost.VerticalOffset; fillExec(); execHost.ScrollToVerticalOffset(vo); } }; execTimer.Start(); w.Closed += delegate { execTimer.Stop(); }; }
-                journalBtn.Click += delegate { showView("JOURNAL"); }; copierBtn.Click += delegate { showView("COPIER"); }; poolBtn.Click += delegate { showView("POOL"); }; rotateBtn.Click += delegate { showView("ROTATE"); }; duoBtn.Click += delegate { showView("DUO"); };
+                journalBtn.Click += delegate { showView("JOURNAL"); }; copierBtn.Click += delegate { showView("COPIER"); }; poolBtn.Click += delegate { showView("POOL"); }; rotateBtn.Click += delegate { showView("ROTATE"); }; autoBtn.Click += delegate { showView("AUTOPILOT"); }; duoBtn.Click += delegate { showView("DUO"); };
                 Func<string, string> nickOf = a => { LiveProfile pf; return a != null && profiles.TryGetValue(a, out pf) && pf.Nick != "" ? pf.Nick : a ?? ""; };
                 Func<string, LiveProfile> profileFor = a => { LiveProfile pf; if (!profiles.TryGetValue(a, out pf)) { pf = new LiveProfile { Name = a }; var g = KeystoneFirmRules.Guess(a); if (g != null) { pf.Firm = g.Firm; pf.Size = g.Size; pf.Dd = g.Dd; pf.Target = g.Target; } profiles[a] = pf; } return pf; };
                 Action saveProfiles = delegate { var groups = new List<string>(); var all = LoadLiveDesk(groups); foreach (var kv in profiles) all[kv.Key] = kv.Value; SaveLiveDesk(groups, all); };
@@ -44214,6 +44565,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Action startRot = delegate
                 {
                     if (copyOn) { status.Text = "STOP THE COPIER FIRST • rotation and copying cannot run together"; status.Foreground = Gold; return; }
+                    if (apOnH != null && apOnH()) { status.Text = "STOP THE 🤖 AUTOPILOT FIRST • it trades its accounts alone"; status.Foreground = Gold; return; }
                     if (linkedName != null)
                     {
                         if (KBox(w, "The chart is linked to " + nickOf(linkedName) + ".\n\nRotation needs the chart UNLINKED: its strategy then trades a simulated position (the leader) and every trade is sent to one pool account.\n\nUnlink the chart now?", "KEYSTONE • ROTATION", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
@@ -44346,6 +44698,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Action startDuo = delegate
                 {
                     if (copyOn || rotOn) { status.Text = "TURN THE COPY GROUP OFF FIRST • the rotation trades one account at a time"; status.Foreground = Gold; return; }
+                    if (apOnH != null && apOnH()) { status.Text = "STOP THE 🤖 AUTOPILOT FIRST • it trades its accounts alone"; status.Foreground = Gold; return; }
                     if (linkedName != null)
                     {
                         if (KBox(w, "The chart is linked to " + nickOf(linkedName) + ".\n\nThe MNQ+MGC rotation trades its pool accounts by itself; the chart must be UNLINKED.\n\nUnlink the chart now?", "KEYSTONE • MNQ+MGC ROTATION", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
@@ -44599,6 +44952,183 @@ namespace NinjaTrader.NinjaScript.AddOns
                         foreach (var c in rows.Skip(Math.Max(0, rows.Count - 15)).Reverse()) learn.Children.Add(new TextBlock { Text = c[0] + "  " + c[2].PadRight(16) + " " + c[3].PadRight(10) + " " + sidesOf(c).PadRight(24) + Signed(pnlOf(c)).PadLeft(9) + "  " + c[11], Foreground = MoneyBrush(pnlOf(c)), FontSize = 11.5, FontFamily = new FontFamily("Consolas") });
                     }
                     saveDuo();
+                };
+
+                // ================= 🤖 LIVE AUTOPILOT (BUILD 2026-11-11g) =================
+                // the labs' plans (🧪 EVAL LAB ▸ ● LIVE ✓ CONFIRM → Studio\EvalLab\live\autopilot-feed.txt) on the real accounts — ONLY through each account's own
+                // armed KeystoneAccountLink with the RULES limits, exactly like 🔄 ROTATE (no new order path): GUIDED for every firm (a flashing ticket, ONE press =
+                // the bracket), AUTO for Lucid / Tradeify where the firm allows automation, after ARM + START typed. DISARM / ⛔ CLOSE ALL / LOCK FOR TODAY / closing
+                // the window stop it (the links are disarmed; positions stay with their broker stop / target). Every decision → autopilot-<date>.csv.
+                string apDir = Path.Combine(StudioFolder(), "EvalLab", "live"), apFeedFile = Path.Combine(apDir, "autopilot-feed.txt"), apSetFile = Path.Combine(apDir, "autopilot-settings.txt");
+                var apWantAuto = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // the accounts you asked AUTO for (offered only where allowed)
+                try { if (File.Exists(apSetFile)) foreach (var l0 in File.ReadAllLines(apSetFile)) { var a0 = l0.Split('|'); if (a0.Length == 2 && a0[0] == "AUTO" && a0[1] != "") apWantAuto.Add(a0[1]); } } catch { }
+                Action apSaveSet = delegate { try { Directory.CreateDirectory(apDir); File.WriteAllLines(apSetFile, apWantAuto.Select(a => "AUTO|" + a).ToArray()); } catch { } };
+                Func<List<KeystoneAutoFeed>> apFeed = () => { try { return File.Exists(apFeedFile) ? KeystoneAutoFeed.Parse(File.ReadAllText(apFeedFile)) : new List<KeystoneAutoFeed>(); } catch { return new List<KeystoneAutoFeed>(); } };
+                Func<string, List<KeystoneLiveDay>> apDays = a => { try { var f = Path.Combine(apDir, Safe(a) + ".csv"); return File.Exists(f) ? KeystoneLabLive.ParseDays(File.ReadAllText(f)) : new List<KeystoneLiveDay>(); } catch { return new List<KeystoneLiveDay>(); } };
+                Func<string, double> apBal = a => { double b0; lock (KeystoneFirmRules.Balances) { if (!KeystoneFirmRules.Balances.TryGetValue(a ?? "", out b0)) b0 = 0; } return b0; };
+                KeystoneAutopilot apl = null; ReplayPane apPane = null; bool apOn = false; Window apPop = null; StackPanel apPopBody = null; string apPopSig = ""; DateTime apPaintAt = DateTime.MinValue; bool apBlink = false;
+                var apRowTexts = new Dictionary<string, TextBlock>(StringComparer.OrdinalIgnoreCase); var apFlashBtns = new List<Button>(); TextBlock apHead = null; StackPanel apLogBox = null; int apLogN = -1;
+                Action apFlush = delegate
+                {
+                    if (apl == null || apl.NewRows.Count == 0) return;
+                    try { Directory.CreateDirectory(apDir); foreach (var g in apl.NewRows.GroupBy(r => r.Time.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))) { var f = Path.Combine(apDir, "autopilot-" + g.Key + ".csv"); bool newF = !File.Exists(f); File.AppendAllText(f, (newF ? KeystoneAutoRow.Header + Environment.NewLine : "") + string.Join(Environment.NewLine, g.Select(r => r.Line())) + Environment.NewLine); } } catch { }
+                    apl.NewRows.Clear();
+                };
+                Action<string> stopAp = why =>
+                {
+                    if (apl != null) { apl.Stop(why, nyNow()); apFlush(); }
+                    apOn = false; if (apPop != null) { try { apPop.Close(); } catch { } apPop = null; }
+                    status.Text = "🤖 AUTOPILOT STOPPED • " + why + " • open positions stay at the broker with their stop / target"; status.Foreground = Gold;
+                    if (view == "AUTOPILOT" && fillAuto != null) fillAuto();
+                };
+                apStopH = why => { if (apOn) stopAp(why); }; apOnH = () => apOn;
+                w.Closed += delegate { if (apOn && apl != null) { apl.Stop("WINDOW CLOSED", nyNow()); apFlush(); } apOn = false; };
+                Action<string> apPress = acc =>
+                {
+                    if (apl == null || !apOn) return; double px = apPane != null && apPane.Trader != null ? apPane.Trader.Price : 0;
+                    var s0 = apl.Find(acc); string e = apl.Press(acc, nyNow(), px); apFlush();
+                    status.Text = e == "" ? "🤖 " + (s0 != null ? s0.Display : acc) + ": the bracket goes through its armed link (entry, then STOP + TARGET at the fill)" : "🤖 " + (s0 != null ? s0.Display : acc) + ": NOT SENT • " + e; status.Foreground = e == "" ? Green : Red; apPopSig = "";
+                };
+                Action<string> apSkip = acc => { if (apl == null) return; apl.Skip(acc, nyNow()); apFlush(); apPopSig = ""; status.Text = "🤖 skipped " + acc + " for today"; status.Foreground = Gold; };
+                // the GUIDED window: on top of the chart while a ticket flashes — the exact side, size, TP and stop; ONE press, or SKIP
+                Action apPaintPop = delegate
+                {
+                    var fl = apl != null && apOn ? apl.Flashing() : new List<KeystoneAutoSeat>();
+                    if (fl.Count == 0) { if (apPop != null) { try { apPop.Close(); } catch { } apPop = null; } apPopSig = ""; return; }
+                    if (apPop == null)
+                    {
+                        apPopBody = new StackPanel { Margin = new Thickness(14) };
+                        apPop = new Window { Title = "KEYSTONE • 🤖 AUTOPILOT • GUIDED", Width = 560, SizeToContent = SizeToContent.Height, Topmost = true, Background = Panel, Content = apPopBody, Owner = w, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+                        apPop.Closed += delegate { apPop = null; apPopSig = ""; };
+                        try { apPop.Show(); } catch { apPop = null; return; } apPopSig = "";
+                        try { System.Media.SystemSounds.Asterisk.Play(); } catch { }
+                    }
+                    string sig = string.Join(";", fl.Select(s => s.Account + s.Ticket.Side + s.Ticket.Qty)); if (sig == apPopSig) return; apPopSig = sig;
+                    apPopBody.Children.Clear(); apFlashBtns.Clear();
+                    apPopBody.Children.Add(Txt("🤖 GUIDED • press to place the bracket (entry + STOP + TARGET) through the armed link", Gold, 15, FontWeights.Bold));
+                    foreach (var s in fl)
+                    {
+                        var t = s.Ticket; string acc = s.Account;
+                        var card = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+                        card.Children.Add(Txt(s.Display + " • " + KeystonePipeline.Nice(s.Firm) + " " + (s.Funded ? "funded" : "eval") + " • until " + t.Deadline.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " NY (no late entry)", Text, 12.5, FontWeights.Bold));
+                        var why = Txt(t.Reason, Muted, 11.5, FontWeights.Normal); why.TextWrapping = TextWrapping.Wrap; card.Children.Add(why);
+                        var row = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+                        var go = Btn("▶ " + t.Words(), t.Side > 0 ? Green : Red); go.Height = 44; go.FontSize = 14; go.Padding = new Thickness(14, 0, 14, 0); go.ToolTip = "ONE press: the market entry, then the STOP + TARGET at the fill — through this account's armed link (its RULES limits)";
+                        go.Click += delegate { apPress(acc); }; apFlashBtns.Add(go);
+                        var sk = Btn("SKIP", Card); sk.Height = 44; sk.Margin = new Thickness(8, 0, 0, 0); sk.Click += delegate { apSkip(acc); };
+                        row.Children.Add(go); row.Children.Add(sk); card.Children.Add(row); apPopBody.Children.Add(card);
+                    }
+                };
+                Action startAp = delegate
+                {
+                    if (apOn) return;
+                    if (copyOn || rotOn || duoOn || desks.Count > 0) { status.Text = "🤖 STOP THE ROTATIONS / COPY GROUPS FIRST • the autopilot trades its accounts alone"; status.Foreground = Gold; return; }
+                    var fd = apFeed(); if (fd.Count == 0) { status.Text = "🤖 NO ACCOUNTS YET • tick them in 🧪 EVAL LAB ▸ ● LIVE and press ✓ CONFIRM"; status.Foreground = Gold; return; }
+                    if (linkedName != null && fd.Any(f => string.Equals(f.Account, linkedName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (KBox(w, "The chart is linked to " + nickOf(linkedName) + " — an autopilot account.\n\nThe autopilot trades its accounts through their own links; the chart must be UNLINKED from them.\n\nUnlink the chart now?", "KEYSTONE • 🤖 AUTOPILOT", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                        unlink();
+                    }
+                    var lp = panes.FirstOrDefault(p => p.Symbol == "MNQ" && p.Trader != null); LiveFeed lfd;
+                    if (lp == null || !feeds.TryGetValue(lp.Symbol, out lfd) || lfd.Inst == null) { status.Text = "🤖 OPEN MNQ ON THE LIVE CHART FIRST (the plans trade MNQ; start the live data)"; status.Foreground = Gold; return; }
+                    int max = Math.Max(1, Integer(realMaxBox, 2)); double loss = NumberAllowZero(realLossBox, 0), cap = NumberAllowZero(realCapBox, 0); var ny = nyNow(); var tday = ny.Hour >= 18 ? ny.Date.AddDays(1) : ny.Date;
+                    var a1 = new KeystoneAutopilot();
+                    foreach (var f in fd)
+                    {
+                        var days = apDays(f.Account); double bal = apBal(f.Account);
+                        a1.Seats.Add(new KeystoneAutoSeat { Account = f.Account, Nick = f.Nick != "" ? f.Nick : nickOf(f.Account), Firm = f.Firm, Stage = f.Stage, Owner = f.Owner, Group = f.Group, Plan = KeystoneAutoPlan.FromMap(f.Plan, f.Stage == "FUNDED", f.Firm == "TPT", f.Group),
+                            Start = f.Start, Dd = f.Dd, Target = f.Target, MinDays = f.MinDays, DaysTraded = Math.Max(f.DaysTraded, days.Count(x => x.Trades > 0 && x.Date < tday)), Days = days, Balance = bal > 0 ? bal : f.Balance, WantAuto = apWantAuto.Contains(f.Account) });
+                    }
+                    bool anyAuto = a1.Seats.Any(s => s.Auto); var big = a1.Seats.Where(s => s.Plan.Qty > max).ToList();
+                    string msg = "START THE 🤖 LIVE AUTOPILOT on MNQ?\n\n" + string.Join("\n", a1.Seats.Take(25).Select(s => "  • " + s.Display + " — " + KeystonePipeline.Nice(s.Firm) + " " + (s.Funded ? "funded" : "eval") + " · 👤 " + s.Owner + " · " + (s.Auto ? "AUTO" : "GUIDED") + " · " + s.Plan.Words())) + (a1.Seats.Count > 25 ? "\n  … and " + (a1.Seats.Count - 25) + " more" : "") +
+                        "\n\nEach account is ARMED now with the RULES limits: max " + max + " contract" + (max == 1 ? "" : "s") + " • day loss " + (loss > 0 ? Cash(loss) : "off") + " • day cap " + (cap > 0 ? Cash(cap) : "off") + " • runaway guard • a rejected order disarms." +
+                        (big.Count > 0 ? "\n⚠ " + big.Count + " plan(s) ask more than max " + max + " (e.g. MNQ " + big[0].Plan.Qty + "): those entries are CAPPED at " + max + " (raise RULES ▸ max contracts to trade the full plan)." : "") +
+                        "\nOne trade per account per day • TP as a LIMIT and the STOP at the broker • missed minute = no late entry • positions closed at 16:54 NY." +
+                        (anyAuto ? "\n\nAUTO accounts (Lucid / Tradeify) send REAL orders BY THEMSELVES at their entry minute — you type START next." : "\n\nGUIDED: nothing is sent until you press each flashing ticket.") + "\nThese are REAL orders.";
+                    if (KBox(w, msg, "KEYSTONE • 🤖 AUTOPILOT", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+                    string typed = "";
+                    if (anyAuto) { typed = AskStudioText(w, "🤖 AUTO sends real orders by itself — type START to begin (anything else cancels)", ""); if ((typed ?? "").Trim() != KeystoneAutopilot.StartWord) { status.Text = "🤖 NOT STARTED • START was not typed"; status.Foreground = Gold; return; } }
+                    string err = null;
+                    foreach (var s in a1.Seats)
+                    {
+                        var acc = findAccount(s.Account); if (acc == null) { err = s.Display + " is not connected"; continue; }
+                        var lk = new KeystoneAccountLink(new NinjaBroker(acc, lfd.Inst), lp.Symbol) { MaxContracts = max, DayLossLimit = loss, DayProfitCap = cap, Automated = s.Auto, AutoOco = true };
+                        lk.Locked = dayLocks.IsLocked(s.Account, ny);
+                        var mir = KeystoneReplayTrader.LiveStart(new List<KeystoneArcBar>(), lp.Symbol, ny); mir.Slave = true;
+                        var e = lk.Arm(ny); if (e != null) { err = s.Display + ": " + e; continue; }   // not armed: the account stays out and never sends
+                        s.Link = lk; s.Mirror = mir;
+                    }
+                    string whyNot = a1.Start(typed, ny);
+                    if (whyNot != "") { foreach (var s in a1.Seats) if (s.Link != null) s.Link.Disarm("AUTOPILOT NOT STARTED", ny, false); status.Text = "🤖 NOT STARTED • " + whyNot + (err != null ? " • " + err : ""); status.Foreground = Red; return; }
+                    apl = a1; apPane = lp; apOn = true; apLogN = -1; apFlush();
+                    status.Text = "🤖 " + apl.Status + (err != null ? " • ⚠ " + err : ""); status.Foreground = Green;
+                    if (view == "AUTOPILOT" && fillAuto != null) fillAuto();
+                };
+                apTick = delegate
+                {
+                    if (apl == null) return; var ny = nyNow();
+                    if (apOn && linkedName != null && apl.Find(linkedName) != null) stopAp("the chart was linked to " + nickOf(linkedName) + " (an autopilot account)");
+                    foreach (var s in apl.Seats) { double b0 = apBal(s.Account); if (b0 > 0) s.Balance = b0; if (s.Link != null) s.Link.Locked = dayLocks.IsLocked(s.Account, ny); }
+                    apl.Tick(ny, apPane != null && apPane.Trader != null ? apPane.Trader.Price : 0);
+                    foreach (var s in apl.Seats) if (s.Link != null && s.Link.NewFills.Count > 0) journalFills(s.Account, s.Link.NewFills);
+                    apFlush();
+                    if (apOn && !apl.Running) { apOn = false; status.Text = "🤖 " + apl.Status; status.Foreground = Gold; if (view == "AUTOPILOT" && fillAuto != null) fillAuto(); }
+                    if ((DateTime.Now - apPaintAt).TotalMilliseconds < 500) return; apPaintAt = DateTime.Now; apBlink = !apBlink;
+                    apPaintPop(); foreach (var b in apFlashBtns) b.Opacity = apBlink ? 1 : 0.55;
+                    foreach (var s in apl.Seats) { TextBlock tb; if (apRowTexts.TryGetValue(s.Account, out tb)) { tb.Text = s.State + (s.Payout != "" ? "  •  " + s.Payout : ""); tb.Foreground = s.State.StartsWith("▶") ? (apBlink ? Gold : Text) : s.Placed != null ? Green : s.Out ? Red : Muted; } }
+                    if (apHead != null) { apHead.Text = apl.Status; apHead.Foreground = apOn ? Green : Muted; }
+                    if (apLogBox != null && apl.Journal.Count != apLogN)
+                    {
+                        apLogN = apl.Journal.Count; apLogBox.Children.Clear();
+                        foreach (var r in apl.Journal.Skip(Math.Max(0, apl.Journal.Count - 60)).Reverse())
+                        {
+                            var nm = apl.Find(r.Account); var tl = new TextBlock { Text = r.Time.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + (nm != null ? nm.Display : r.Account == "" ? "AUTOPILOT" : r.Account).PadRight(16) + " " + r.Event.PadRight(10) + " " + (r.Side != 0 ? (r.Side > 0 ? "BUY " : "SELL ") + r.Qty + "  " : "") + r.Detail, FontFamily = new FontFamily("Consolas"), FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 1),
+                                Foreground = r.Event == "EXIT" ? (r.Net >= 0 ? Green : Red) : r.Event == "FILL" || r.Event == "ORDER" || r.Event == "BRACKET" ? Cyan : r.Event == "TICKET" ? Gold : r.Event == "MISSED" || r.Event == "BLOCKED" || r.Event == "DISARMED" || r.Event == "BLOWN" || r.Event == "STOP" ? Orange : Muted };
+                            apLogBox.Children.Add(tl);
+                        }
+                    }
+                };
+                fillAuto = delegate
+                {
+                    var sp = new StackPanel { Margin = new Thickness(18) }; autoHost.Content = sp; apRowTexts.Clear(); apLogN = -1;
+                    sp.Children.Add(Txt("🤖 LIVE AUTOPILOT • the labs' plans on your real prop accounts", Gold, 20, FontWeights.Bold));
+                    var ex = Txt("The accounts you ✓ CONFIRM in 🧪 EVAL LAB ▸ ● LIVE come here with their GROUP's plan (eval: ⚡ ALL AT ONCE 2:00 AM NY, MNQ 20, TP +$1,500 after costs, the STOP at the account's floor • funded: 🛟 SAFE PAYOUT, MNQ 1 — TPT PRO 2 — +$800 / −$300 at the account's own time). Side = one coin per firm per time (the labs' coin). Every order goes ONLY through the account's own ARMED link with the RULES limits, like 🔄 ROTATE. GUIDED (every firm, always TPT): at the entry minute the ticket flashes — ONE press places entry + STOP + TARGET, SKIP lets it go, 2 minutes late = missed. AUTO (Lucid / Tradeify where their rules allow automation): the same bracket by itself, after ARM + START typed. DISARM, ⛔ CLOSE ALL POSITIONS, LOCK FOR TODAY or closing this window stop it (positions keep their broker stop / target). One trade per account per day • 16:54 NY: positions closed • 💀 blown and ✅ target-reached accounts stop • 👥 owner limits respected.", Muted, 12, FontWeights.Normal);
+                    ex.TextWrapping = TextWrapping.Wrap; ex.Margin = new Thickness(0, 4, 0, 10); sp.Children.Add(ex);
+                    int max = Math.Max(1, Integer(realMaxBox, 2));
+                    sp.Children.Add(Txt("RULES limits on every account: max " + max + " contracts • day loss " + (NumberAllowZero(realLossBox, 0) > 0 ? Cash(NumberAllowZero(realLossBox, 0)) : "off") + " • day cap " + (NumberAllowZero(realCapBox, 0) > 0 ? Cash(NumberAllowZero(realCapBox, 0)) : "off") + " • runaway guard 8 entries a minute • a reject disarms", Muted, 11.5, FontWeights.SemiBold));
+                    var grid = new Grid { Margin = new Thickness(0, 10, 0, 12) }; foreach (var cw in new[] { 200.0, 150, 90, 330, 120, 420 }) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(cw) }); sp.Children.Add(grid); int row = 0;
+                    Action<string[]> hdr = cells => { grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); for (int c = 0; c < cells.Length; c++) { var t0 = new TextBlock { Text = cells[c], Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold, Margin = new Thickness(4, 0, 4, 6) }; Grid.SetRow(t0, row); Grid.SetColumn(t0, c); grid.Children.Add(t0); } row++; };
+                    hdr(new[] { "ACCOUNT", "FIRM · STAGE", "OWNER", "PLAN (its group)", "MODE", "TODAY" });
+                    var list = apl != null ? apl.Seats.Select(s => Tuple.Create(s.Account, s.Display, s.Firm, s.Stage, s.Owner, s.Plan)).ToList()
+                        : apFeed().Select(f => Tuple.Create(f.Account, f.Nick != "" ? f.Nick : nickOf(f.Account), f.Firm, f.Stage, f.Owner, KeystoneAutoPlan.FromMap(f.Plan, f.Stage == "FUNDED", f.Firm == "TPT", f.Group))).ToList();
+                    if (list.Count == 0) sp.Children.Add(Txt("No account yet — tick your accounts in 🧪 EVAL LAB ▸ ● LIVE and press ✓ CONFIRM: they arrive here with their group's plan.", Orange, 13, FontWeights.Bold));
+                    foreach (var it in list)
+                    {
+                        string acct = it.Item1; grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                        string whyNot = KeystoneAutopilot.AutoWhyNot(it.Item3, it.Item4);
+                        FrameworkElement mode;
+                        if (whyNot == "") { var cb = new CheckBox { Content = "AUTO", IsChecked = apWantAuto.Contains(acct), IsEnabled = !apOn, Foreground = Text, Margin = new Thickness(4), ToolTip = "AUTO: the bracket is sent by itself at the entry minute (after ARM + START typed). Off = GUIDED (you press)." }; cb.Checked += delegate { apWantAuto.Add(acct); apSaveSet(); }; cb.Unchecked += delegate { apWantAuto.Remove(acct); apSaveSet(); }; mode = cb; }
+                        else mode = new TextBlock { Text = "✋ GUIDED", Foreground = Gold, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(4), ToolTip = whyNot };
+                        var stT = new TextBlock { Text = apOn ? "" : "not running", Foreground = Muted, FontSize = 12, Margin = new Thickness(4), TextWrapping = TextWrapping.Wrap }; apRowTexts[acct] = stT;
+                        int c = 0;
+                        foreach (var el in new FrameworkElement[] { new TextBlock { Text = it.Item2, Foreground = Text, FontSize = 12.5, FontWeight = FontWeights.Bold, Margin = new Thickness(4), TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = acct },
+                            new TextBlock { Text = KeystonePipeline.Nice(it.Item3) + " · " + (it.Item4 == "FUNDED" ? "funded" : "eval"), Foreground = KeystoneFirmBrush(it.Item3), FontSize = 12, Margin = new Thickness(4) },
+                            new TextBlock { Text = "👤 " + it.Item5, Foreground = Muted, FontSize = 12, Margin = new Thickness(4) },
+                            new TextBlock { Text = it.Item6.Words(), Foreground = Cyan, FontSize = 12, Margin = new Thickness(4), TextWrapping = TextWrapping.Wrap, ToolTip = it.Item6.Name }, mode, stT })
+                        { Grid.SetRow(el, row); Grid.SetColumn(el, c++); grid.Children.Add(el); }
+                        row++;
+                    }
+                    var btnRow = new WrapPanel(); sp.Children.Add(btnRow);
+                    var go = Btn(apOn ? "■ STOP AUTOPILOT" : "▶ START AUTOPILOT", apOn ? Red : Green); go.Height = 40; go.Padding = new Thickness(22, 0, 22, 0); go.FontSize = 14;
+                    go.ToolTip = apOn ? "Stops it: the links are disarmed, nothing more is sent; open positions keep their stop / target at the broker" : "Arms every account with the RULES limits and starts (asks first; AUTO accounts need START typed)";
+                    go.Click += delegate { if (apOn) stopAp("■ STOP AUTOPILOT pressed"); else startAp(); if (fillAuto != null) fillAuto(); };
+                    btnRow.Children.Add(go);
+                    if (apOn) { var pw = Btn("SHOW THE GUIDED WINDOW", Card); pw.Height = 40; pw.Click += delegate { apPopSig = ""; apPaintPop(); }; btnRow.Children.Add(pw); }
+                    apHead = new TextBlock { Text = apl != null ? apl.Status : "not running", Foreground = apOn ? Green : Muted, FontSize = 14, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 12, 0, 6), TextWrapping = TextWrapping.Wrap }; sp.Children.Add(apHead);
+                    sp.Children.Add(Txt("📒 TODAY • every decision and order (live vs model) — saved in Studio\\EvalLab\\live\\autopilot-<date>.csv", Text, 13, FontWeights.Bold));
+                    apLogBox = new StackPanel { Margin = new Thickness(0, 4, 0, 0) }; sp.Children.Add(apLogBox);
+                    if (apl == null) apLogBox.Children.Add(Txt("nothing yet today", Muted, 12, FontWeights.Normal));
+                    apPaintAt = DateTime.MinValue; if (apTick != null && apl == null) { }
                 };
 
                 // ================= POOL =================
@@ -45212,7 +45742,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     double openSum = open.Sum(o => { var x = snX.FirstOrDefault(y => y.Name == o.Item1); return x != null && x.Positions != "" ? x.Open : 0; });
                     if (KBox(w, (open.Count == 1 ? "1 ACCOUNT WILL EXIT ITS POSITION" : "ALL " + open.Count + " ACCOUNTS WILL EXIT THEIR POSITIONS") + " (open now " + Signed(openSum) + ")\n\n" + string.Join("\n", open.Take(25).Select(o => "• " + nickOf(o.Item1) + (nickOf(o.Item1) != o.Item1 ? " (" + o.Item1 + ")" : "") + " — " + o.Item2 + openOf(o.Item1))) + (open.Count > 25 ? "\n… and " + (open.Count - 25) + " more" : "") +
                         "\n\nEvery position above is closed AT MARKET and every working order cancelled (also the ones placed in NinjaTrader).\nThe rotations and the copy groups stop; real orders are disarmed.\n\nClose them all now?", "⛔ CLOSE ALL POSITIONS", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-                    if (rotOn) stopRot(); if (duoOn) stopDuo(); foreach (var dk in desks.Values) dk.CloseAll(DateTime.Now);
+                    if (rotOn) stopRot(); if (duoOn) stopDuo(); if (apOnH != null && apOnH()) apStopH("⛔ CLOSE ALL POSITIONS"); foreach (var dk in desks.Values) dk.CloseAll(DateTime.Now);
                     foreach (var pn in panes) { foreach (var f in pn.Followers) f.Link.Disarm("CLOSE ALL POSITIONS", DateTime.Now, false); pn.Followers.Clear(); if (pn.Trader != null && pn.Link != null && pn.Link.Armed) { pn.Trader.CancelOrders(); pn.Trader.CloseAll("CLOSE ALL POSITIONS"); } }   // the chart's account stays armed
                     copyOn = false; copyLeader = null; activeGroup = null; paintArm();
                     var doneC = FlattenEveryAccount(true); int failed = doneC.Count(x => x.Item2.Contains("FAILED"));
@@ -51683,7 +52213,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var root = new DockPanel { Margin = new Thickness(18, 14, 18, 14) };
             var head = new StackPanel(); DockPanel.SetDock(head, Dock.Top); root.Children.Add(head);
             head.Children.Add(Txt("● LIVE • your real prop accounts", Gold, 22, FontWeights.Bold));
-            var safe = Txt("This screen only READS your NinjaTrader accounts (the same balances and names as ● LIVE TRADING) — it never sends an order. Tick accounts, then ✓ CONFIRM hands them (firm by firm, MANUAL) to ● LIVE TRADING ▸ 🔄 ROTATE, where you ARM each account with its limits and confirm START ROTATION. ✋ TPT is always manual (firm rule).", Muted, 12, FontWeights.SemiBold); safe.TextWrapping = TextWrapping.Wrap; head.Children.Add(safe);
+            var safe = Txt("This screen only READS your NinjaTrader accounts (the same balances and names as ● LIVE TRADING) — it never sends an order. Tick accounts, then ✓ CONFIRM hands them (firm by firm, with their group's plan) to ● LIVE TRADING ▸ 🔄 ROTATE and 🤖 AUTOPILOT, where each account is ARMED with its limits and START is confirmed there. ✋ TPT is always GUIDED (firm rule).", Muted, 12, FontWeights.SemiBold); safe.TextWrapping = TextWrapping.Wrap; head.Children.Add(safe);
             var badge = Txt("no active prop account yet — connect your prop accounts in NinjaTrader (the ● LIVE button lights up by itself)", Orange, 14, FontWeights.Bold); badge.TextWrapping = TextWrapping.Wrap; badge.Margin = new Thickness(0, 8, 0, 6); head.Children.Add(badge);
             head.Children.Add(ownWarn); var tabs = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; head.Children.Add(tabs);
             // the bottom bar: the one clear CONFIRM button (+ ➕ make a group…), its in-tab question, never a modal box
@@ -51709,7 +52239,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var wm = winning(funded); bool isWinning = new[] { "mnq", "tp", "stop", "times", "side" }.All(k => m.ContainsKey(k) && m[k] == wm[k]);
                 var sp = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
                 var line = Txt("🎯 Plan for " + who + ": " + KeystoneLabLive.PlanWords(m, tpt), Cyan, 12.5, FontWeights.SemiBold); line.TextWrapping = TextWrapping.Wrap; sp.Children.Add(line);
-                sp.Children.Add(Txt((isWinning ? "✔ the default plan (" + wm["plan"] + ")" : "✏ your own plan for this group") + " · ✋ MANUAL (AUTO on real accounts: a later build)", isWinning ? Green : Gold, 11, FontWeights.SemiBold));
+                sp.Children.Add(Txt((isWinning ? "✔ the default plan (" + wm["plan"] + ")" : "✏ your own plan for this group") + " · runs in ● LIVE TRADING ▸ 🤖 AUTOPILOT (GUIDED; AUTO for Lucid / Tradeify after START typed)", isWinning ? Green : Gold, 11, FontWeights.SemiBold));
                 if (!editing.Contains(key))
                 {
                     var bar = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
@@ -51925,8 +52455,23 @@ namespace NinjaTrader.NinjaScript.AddOns
                 status.Text = "● LIVE: handing " + order.Count + " account" + (order.Count == 1 ? "" : "s") + " to ● LIVE TRADING ▸ 🔄 ROTATE …"; status.Foreground = Cyan;
                 if (labLiveTake != null) labLiveTake(order, funded);
                 else try { var lines = new List<string> { "#settings|mode=MANUAL|one=1|hold=1|sec=11" }; lines.AddRange(order.Select(a => a + "|1|" + (funded.Contains(a) ? "1" : "0"))); lines.Add("#order|" + string.Join("|", order)); File.WriteAllLines(Path.Combine(StudioFolder(), "RotationPool.txt"), lines.ToArray()); } catch { }
+                // 🤖 BUILD 11g: the same accounts + their GROUP's plan for ● LIVE TRADING ▸ 🤖 AUTOPILOT (autopilot-feed.txt) — a file only: nothing is sent from here
+                try
+                {
+                    var gsF = byOwner ? owners.Names.SelectMany(o => new[] { "EVAL", "FUNDED" }.Select(sg => Tuple.Create("OWNER:" + o + " · " + sg, "", act.Where(a => owners.OwnerOf(a.Account) == o && (a.Stage == "FUNDED" ? "FUNDED" : "EVAL") == sg).ToList()))).Where(g => g.Item3.Count > 0).ToList() : KeystoneLabLive.Groups(act, myGroups);
+                    var feedL = new List<KeystoneAutoFeed>();
+                    foreach (var an in order)
+                    {
+                        var a = sel.FirstOrDefault(x => string.Equals(x.Account, an, StringComparison.OrdinalIgnoreCase)); if (a == null) continue;
+                        var g = gsF.FirstOrDefault(x => x.Item3.Any(y => string.Equals(y.Account, a.Account, StringComparison.OrdinalIgnoreCase))); string gk = g != null ? g.Item1 : a.Firm + " · " + a.Stage;
+                        var pm = poolCfg(gk); if (!pm.ContainsKey("mnq")) pm = winning(a.Stage == "FUNDED");
+                        feedL.Add(new KeystoneAutoFeed { Account = a.Account, Firm = a.Firm, Stage = a.Stage == "FUNDED" ? "FUNDED" : "EVAL", Owner = owners.OwnerOf(a.Account), Group = gk, Nick = a.Display, Start = a.Start, Dd = a.Dd, Target = a.Target, MinDays = a.MinDays, DaysTraded = a.DaysTraded, Balance = a.Balance, Plan = pm });
+                    }
+                    File.WriteAllText(F("autopilot-feed.txt"), KeystoneAutoFeed.Text(feedL));
+                }
+                catch { }
                 var nick = act.ToDictionary(a => a.Account, a => a.Display, StringComparer.OrdinalIgnoreCase);
-                status.Text = "● LIVE → ● LIVE TRADING ▸ 🔄 ROTATE: " + string.Join(" → ", order.Take(10).Select(a => nick.ContainsKey(a) ? nick[a] : a)) + (order.Count > 10 ? " … (" + order.Count + ")" : "") + " (MANUAL) — ARM each account, then START ROTATION"; status.Foreground = Green;
+                status.Text = "● LIVE → ● LIVE TRADING ▸ 🔄 ROTATE + 🤖 AUTOPILOT: " + string.Join(" → ", order.Take(10).Select(a => nick.ContainsKey(a) ? nick[a] : a)) + (order.Count > 10 ? " … (" + order.Count + ")" : "") + " (with their group's plan) — there: ▶ START AUTOPILOT (arms each account) or START ROTATION"; status.Foreground = Green;
                 paintFoot();
                 if (!labLiveNoOpen) { try { if (w.Dispatcher != null) w.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate { try { OpenLiveTrading(); } catch { } })); } catch { } }
                 return order;
