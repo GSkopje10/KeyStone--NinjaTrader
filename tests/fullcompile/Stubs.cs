@@ -33,9 +33,10 @@ namespace System.Windows
     public struct CornerRadius { public CornerRadius(double u) { } public CornerRadius(double a, double b, double c, double d) { } }
     public struct GridLength
     {
-        public GridLength(double v) { } public GridLength(double v, GridUnitType t) { }
-        public static GridLength Auto { get { return new GridLength(); } }
-        public double Value { get { return 0; } }
+        GridUnitType unit; double val;
+        public GridLength(double v) { val = v; unit = GridUnitType.Pixel; } public GridLength(double v, GridUnitType t) { val = v; unit = t; }
+        public static GridLength Auto { get { return new GridLength(1, GridUnitType.Auto); } }
+        public double Value { get { return val; } } public GridUnitType GridUnitType { get { return unit; } } public bool IsStar { get { return unit == GridUnitType.Star; } } public bool IsAuto { get { return unit == GridUnitType.Auto; } }
     }
     public struct FontWeight { }
     public static class FontWeights { public static FontWeight Bold { get { return new FontWeight(); } } public static FontWeight Normal { get { return new FontWeight(); } } public static FontWeight SemiBold { get { return new FontWeight(); } } public static FontWeight Light { get { return new FontWeight(); } } public static FontWeight Black { get { return new FontWeight(); } } public static FontWeight Medium { get { return new FontWeight(); } } public static FontWeight ExtraBold { get { return new FontWeight(); } } }
@@ -192,7 +193,9 @@ namespace System.Windows.Media
     public class SolidColorBrush : Brush { public SolidColorBrush() { } public SolidColorBrush(Color c) { Color = c; } public Color Color { get; set; } public new SolidColorBrush Clone() { return this; } }
     public class GradientStop { public GradientStop() { } public GradientStop(Color c, double o) { } }
     public class GradientStopCollection : List<GradientStop> { }
-    public class LinearGradientBrush : Brush { public LinearGradientBrush() { } public LinearGradientBrush(Color a, Color b, double angle) { } public LinearGradientBrush(Color a, Color b, System.Windows.Point s, System.Windows.Point e) { } public GradientStopCollection GradientStops { get; set; } public System.Windows.Point StartPoint { get; set; } public System.Windows.Point EndPoint { get; set; } }
+    public class LinearGradientBrush : Brush { public LinearGradientBrush() { } public LinearGradientBrush(Color a, Color b, double angle) { } public LinearGradientBrush(Color a, Color b, System.Windows.Point s, System.Windows.Point e) { } public GradientStopCollection GradientStops { get; set; } = new GradientStopCollection(); public System.Windows.Point StartPoint { get; set; } public System.Windows.Point EndPoint { get; set; } public BrushMappingMode MappingMode { get; set; } public GradientSpreadMethod SpreadMethod { get; set; } }
+    public enum BrushMappingMode { Absolute, RelativeToBoundingBox }
+    public enum GradientSpreadMethod { Pad, Reflect, Repeat }
     public static class Brushes
     {
         public static SolidColorBrush Transparent, White, Black, Gray, DimGray, DarkGray, LightGray, Silver, Red, Green, Lime, LimeGreen, Blue, DodgerBlue, DeepSkyBlue, Cyan, Aqua, Turquoise, Gold, Orange, OrangeRed, Yellow, Magenta, MediumOrchid, Orchid, Purple, SlateGray, Crimson, SeaGreen, MediumSeaGreen, SteelBlue, CornflowerBlue, Khaki, Goldenrod, Tomato, SkyBlue, LightSkyBlue, Violet, HotPink, Teal, Navy;
@@ -345,8 +348,10 @@ namespace System.Windows.Controls
         private readonly ColumnDefinitionCollection cols = new ColumnDefinitionCollection();
         public RowDefinitionCollection RowDefinitions { get { return rows; } }
         public ColumnDefinitionCollection ColumnDefinitions { get { return cols; } }
-        public static void SetRow(UIElement e, int r) { } public static void SetColumn(UIElement e, int c) { } public static void SetRowSpan(UIElement e, int r) { } public static void SetColumnSpan(UIElement e, int c) { }
-        public static int GetRow(UIElement e) { return 0; } public static int GetColumn(UIElement e) { return 0; }
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, int[]> cells = new System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, int[]>();   /* row, column (the attached values, like WPF) */
+        static int[] CellOf(UIElement e) { return cells.GetValue(e, k => new int[2]); }
+        public static void SetRow(UIElement e, int r) { if (e != null) CellOf(e)[0] = r; } public static void SetColumn(UIElement e, int c) { if (e != null) CellOf(e)[1] = c; } public static void SetRowSpan(UIElement e, int r) { } public static void SetColumnSpan(UIElement e, int c) { }
+        public static int GetRow(UIElement e) { return e == null ? 0 : CellOf(e)[0]; } public static int GetColumn(UIElement e) { return e == null ? 0 : CellOf(e)[1]; }
     }
     public class StackPanel : Panel { public Orientation Orientation { get; set; } }
     public enum GridResizeDirection { Auto, Columns, Rows } public enum GridResizeBehavior { BasedOnAlignment, CurrentAndNext, PreviousAndCurrent, PreviousAndNext }

@@ -117,7 +117,7 @@ public static class LabEngineTests
             var big = KeystonePayoutPlan.Presets()[0].Copy(); big.SprintAccounts = 99; big.Spread = false; big.Side = "BUY"; var tr = KeystoneFundedBench.Run(null, big, new List<KeystoneEvalAccount> { new KeystoneEvalAccount { Firm = "TRADEIFY", Nick = "T1" }, new KeystoneEvalAccount { Firm = "TPT", Nick = "P1" } }, Days(1, (i, m) => m < -480 ? 0 : 1.0 * (m + 480)), new KeystoneBench());
             Check(tr.Accounts.First(a => a.Firm == "TRADEIFY").Sprint && !tr.Accounts.First(a => a.Firm == "TPT").Sprint && Eq(tr.Trades.First(t => t.Account == tr.Accounts.First(a => a.Firm == "TRADEIFY").Id).Pnl, 1000),
                 "⚡ SPRINT ALL: Tradeify ($2,500 max = $5,000 profit → +$1,000 a day); TPT keeps its own plan");
-            Check(KeystonePayoutPlan.Presets()[0].SprintAccounts == 2 && KeystonePayoutPlan.SprintChoices.SequenceEqual(new[] { 0, 1, 2, 3, 99 }), "⚡ the default: 2 sprint accounts per batch (0 / 1 / 2 / 3 / all)");
+            Check(KeystonePayoutPlan.Presets()[0].SprintAccounts == 0 && KeystoneFundedChoice.Sprint == 0 && KeystonePayoutPlan.SprintChoices.SequenceEqual(new[] { 0, 1, 2, 3, 99 }), "⚡ the default (BUILD 11f): no sprint account (0 / 1 / 2 / 3 / all) — the realistic lab: SPRINT lost money");
         }
         // ---- item 8: the goal — an account stops at its goal (the first payout)
         {
@@ -292,7 +292,78 @@ public static class LabEngineTests
             KeystoneFundedChoice.PlanName = ""; KeystoneFundedChoice.Sprint = 2; KeystoneFundedChoice.Goal = 0; KeystoneFundedChoice.Load(f);
             var ap = KeystoneFundedChoice.Apply(KeystonePayoutPlan.Presets()[KeystoneFundedChoice.IndexIn(KeystonePayoutPlan.Presets())]);
             Check(KeystoneFundedChoice.IndexIn(KeystonePayoutPlan.Presets()) == 3 && ap.SprintAccounts == 3 && ap.Goal == 1, "💾 27e: the funded plan + sprint + goal come back after a restart", KeystoneFundedChoice.Text());
-            try { File.Delete(f); } catch { } KeystoneFundedChoice.PlanName = ""; KeystoneFundedChoice.Sprint = 2; KeystoneFundedChoice.Goal = 0;
+            try { File.Delete(f); } catch { } KeystoneFundedChoice.PlanName = ""; KeystoneFundedChoice.Sprint = 0; KeystoneFundedChoice.Goal = 0;
+            // ⚡ BUILD 11f: SPRINT 0 = the default; an OLD file still on the old default (sprint 2, no "defaults=11f") moves to 0 ONCE (logged); a value the user chose stays
+            string dirM = Path.Combine(Path.GetTempPath(), "ks-mig-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(dirM); string fm = Path.Combine(dirM, "funded-plan.txt");
+            File.WriteAllText(fm, "plan=" + KeystonePayoutPlan.Presets()[0].Name + "\nsprint=2\ngoal=0\nonebatch=0"); KeystoneFundedChoice.Sprint = 7; KeystoneFundedChoice.Load(fm);
+            bool migrated = KeystoneFundedChoice.Sprint == 0 && KeystoneFundedChoice.Migrated != "" && File.ReadAllText(fm).Contains("defaults=11f") && File.Exists(Path.Combine(dirM, "defaults-migration.log"));
+            KeystoneFundedChoice.Sprint = 2; KeystoneFundedChoice.Save(fm); KeystoneFundedChoice.Sprint = 7; KeystoneFundedChoice.Load(fm); bool keptNew = KeystoneFundedChoice.Sprint == 2 && KeystoneFundedChoice.Migrated == "";
+            File.WriteAllText(fm, "plan=x\nsprint=3\ngoal=0"); KeystoneFundedChoice.Load(fm); bool keptOld = KeystoneFundedChoice.Sprint == 3 && KeystoneFundedChoice.Migrated == "";
+            Check(KeystonePayoutPlan.Presets()[0].SprintAccounts == 0 && migrated && keptNew && keptOld, "⚡ 11f: SPRINT 0 by default — an old file on the old default 2 migrates once to 0 (logged, saved with the marker); a chosen value (3, or 2 saved by this build) is kept");
+            try { Directory.Delete(dirM, true); } catch { } KeystoneFundedChoice.PlanName = ""; KeystoneFundedChoice.Sprint = 0; KeystoneFundedChoice.Goal = 0; KeystoneFundedChoice.Migrated = "";
+        }
+        // ---- ★ BUILD 11f: the defaults + the ⏱ time presets
+        {
+            var p0 = KeystoneEvalLab.Presets()[0];
+            Check(p0.Name == KeystoneEvalLab.DefaultName && p0.Name.StartsWith("★") && p0.Mode == "ALL" && p0.Session == 4 && p0.AllSide == "FIRM" && p0.Qm == 20 && p0.Qg == 0 && p0.Tp == 1500 && p0.Stop == 0 && p0.Note.Contains(KeystoneEvalLab.RealisticNote)
+                && KeystoneEvalLab.Presets().Count(x => x.Name.StartsWith("★")) == 1 && KeystoneEvalLab.Presets().Any(x => x.Mode == "STAG" && x.Times == null && x.Note.Contains(KeystoneEvalLab.RealisticNote)),
+                "★ 11f: the eval default = ⚡ ALL AT ONCE 2:00 AM NY (MNQ 20, +$1,500 after costs, ride the room, one side per firm per time), the only ★; STAGGERED stays a choice with the realistic-lab note");
+            var ta = KeystoneEvalLab.Presets().First(x => x.Name.StartsWith("⏱ EVAL TIMES A")); var tb = KeystonePayoutPlan.Presets().First(x => x.Name.StartsWith("⏱ FUNDED TIMES B"));
+            Check(ta.Mode == "STAG" && ta.Times.SequenceEqual(new[] { 2300, 0, 500, 700, 1100 }) && ta.Note.Contains(KeystoneEvalLab.TimesNote) && tb.Spread && tb.SpreadTimes.SequenceEqual(new[] { 930, 1400, 300, 0, 2000 }) && tb.Note.Contains(KeystoneEvalLab.TimesNote) && tb.Safe && tb.SprintAccounts == 0
+                && KeystonePayoutPlan.Presets()[0].Name.StartsWith("🛟 SAFE PAYOUT") && tb.TimeOf(2) == 1400 && tb.TimeOf(5) == 2000,
+                "⏱ 11f: the time presets (options, not defaults) — eval times A 23:00 / 0:00 / 5:00 / 7:00 / 11:00, funded times B 9:30 / 14:00 / 3:00 / 0:00 / 20:00, each with the realistic-lab warning");
+            var rt = KeystoneEvalLab.LoadPlans(KeystoneEvalLab.SavePlans(new[] { new KeystoneEvalPlan { Name = "T", Mode = "STAG", Times = new[] { 2300, 0, 700 } }, new KeystoneEvalPlan { Name = "U", Mode = "STAG" } }));
+            Check(rt.Count == 2 && rt[0].Times.SequenceEqual(new[] { 2300, 0, 700 }) && rt[1].Times == null && KeystoneLabFlow.StaggerStart(ta.Times) == 1800 && KeystoneLabFlow.StaggerStart(null) == 155 && KeystoneLabFlow.TimesText(ta.Times) == "23:00 / 0:00 / 5:00 / 7:00 / 11:00" && ta.Summary().Contains("23:00 / 0:00"),
+                "⏱ 11f: a plan keeps its own entry times (saved / loaded); a night time starts the STAGGERED day at 18:00");
+            // the times A plan through the engine: every account trades at its own time, the night times included
+            var dA = Days(3, (i, m) => 0.0); var stA = new KeystoneSimSettings { Strategy = "ROTATION", Direction = "RANDOM", Auto = true, Allocation = "ROTATE", Accounts = 5, BuyRule = "BATCH", FundedWhen = "ASK", AskEachBatch = true, DayPlan = "NONE", MaxTradesPerDay = 1,
+                From = dA[0].Day, To = dA[dA.Count - 1].Day, DataOnly = true, StartAs = "EVAL", MnqQty = 20, FundMnqQty = 20, RotTarget = 1500, RotStop = 1e6, FundRotTarget = 1500, FundRotStop = 1e6, AllAtOnce = true, Stagger = true, AllSide = "FIRM", StaggerTimes = ta.Times, StartHhmm = 1800, EndHhmm = 1655 };
+            stA.Rules = KeystoneSimRules.Presets().First().Copy(); var simA = KeystoneRotationLab.Run(stA, dA, 1800, 1655, null, null, null);
+            var hA = simA.Trades.Where(t => t.Day == dA[0].Day).Select(t => t.Entry.Hour * 100 + t.Entry.Minute).Distinct().OrderBy(x => x).ToList();
+            Check(hA.Count == 5 && hA.Contains(2300) && hA.Contains(0) && hA.Contains(500) && hA.Contains(700) && hA.Contains(1100), "⏱ 11f: eval times A in the engine — the 5 accounts enter at 23:00 / 0:00 / 5:00 / 7:00 / 11:00", string.Join(",", hA));
+        }
+        // ---- 👥 BUILD 11f: OWNERS — saved / loaded, one click = the next owner, the limit per owner per firm, the labs' slots + funded seats per owner
+        {
+            var ow = new KeystoneOwners(); Check(ow.Names.SequenceEqual(new[] { "ME", "WIFE" }) && ow.OwnerOf("TPT123") == "ME" && !ow.Assigned("TPT123"), "👥 the default owners ME / WIFE; an account not assigned = the first owner");
+            Check(ow.Next("TPT123") == "WIFE" && ow.Next("TPT123") == "ME" && ow.Next("TPT123") == "WIFE" && ow.AddName("dad") && !ow.AddName("DAD") && ow.Next("LUCID9") == "WIFE" && ow.Next("LUCID9") == "DAD" && ow.Next("LUCID9") == "ME", "👥 one click = the next owner (ME → WIFE → … → ME), more owners allowed");
+            ow.Set("TDFY1", "wife"); Check(ow.Rename("WIFE", "ANA") && ow.OwnerOf("TPT123") == "ANA" && ow.OwnerOf("TDFY1") == "ANA" && !ow.Rename("ANA", "ME") && !ow.Rename("NOBODY", "X"), "👥 a renamed owner keeps its accounts; a name in use is refused");
+            var back = KeystoneOwners.Load(ow.Save());
+            Check(back.Names.SequenceEqual(ow.Names) && back.OwnerOf("TPT123") == "ANA" && back.OwnerOf("LUCID9") == "ME" && back.OwnerOf("TDFY1") == "ANA" && back.Assigned("TDFY1") && KeystoneOwners.Load("").Names.SequenceEqual(new[] { "ME", "WIFE" }),
+                "👥 owners saved / loaded (owners.txt: the names + every account's owner)", ow.Save().Replace("\n", " ¦ "));
+            Check(back.Remove("DAD") && !back.Names.Contains("DAD") && back.OwnerOf("LUCID9") == "ME" && !KeystoneOwners.Load("OWNER|SOLO").Remove("SOLO"), "👥 removing an owner sends its accounts back to the first; the last owner stays");
+            // the limit per owner per firm (default 5 eval + 5 funded; 🏢 FIRMS & RULES overrides it)
+            var five = Enumerable.Range(1, 5).Select(i => Tuple.Create("ME", "LUCID", "EVAL")).ToList();
+            Check(KeystoneOwners.MaxEval("LUCID") == 5 && KeystoneOwners.MaxFunded("LUCID") == 5 && KeystoneOwners.CheckNew("WIFE", "LUCID", "EVAL", five) == "" && KeystoneOwners.CheckNew("ME", "LUCID", "FUNDED", five) == "" && KeystoneOwners.CheckNew("ME", "LUCID", "EVAL", five).Contains("over the limit of 5")
+                && KeystoneOwners.Over(five).Count == 0 && KeystoneOwners.Over(five.Concat(new[] { Tuple.Create("ME", "LUCID", "EVAL") })).Count == 1,
+                "👥 the limit per owner per firm: a 6th Lucid eval for ME warns (5 is fine; WIFE and funded are counted apart)");
+            var bk0 = KeystonePayoutRules.Book; var lu = KeystonePayoutRules.Presets().First(x => x.Firm == "LUCID").Copy(); lu.OwnerMaxEval = 2; lu.OwnerMaxFunded = 1; KeystonePayoutRules.Book = new List<KeystonePayoutRules> { lu };
+            var line = KeystonePayoutRules.Load(KeystonePayoutRules.Save(new[] { lu })).First();
+            Check(KeystoneOwners.MaxEval("LUCID") == 2 && KeystoneOwners.MaxFunded("lucid") == 1 && KeystoneOwners.MaxEval("TRADEIFY") == 5 && KeystoneOwners.CheckNew("ME", "LUCID", "EVAL", five.Take(2)) != "" && line.OwnerMaxEval == 2 && line.OwnerMaxFunded == 1,
+                "👥 🏢 FIRMS & RULES sets the limit per firm (saved with the firm book)");
+            Check(KeystoneOwners.SlotOwner("LUCID 1", 5, new[] { "ME", "WIFE" }) == "ME" && KeystoneOwners.SlotOwner("LUCID 5 · #3", 5, new[] { "ME", "WIFE" }) == "ME" && KeystoneOwners.SlotOwner("LUCID 6", 5, new[] { "ME", "WIFE" }) == "WIFE" && KeystoneOwners.SlotOwner("LU-10", 5, new[] { "ME", "WIFE" }) == "WIFE"
+                && KeystoneOwners.SlotOwner("LUCID", 5, new[] { "ME" }) == "" && KeystoneOwners.SplitText(2, 5) == "2 owners × 5 per firm = 10 accounts per firm" && KeystoneOwners.NamesFor(3, new[] { "ME", "ANA" }).SequenceEqual(new[] { "ME", "ANA", "OWNER 3" }),
+                "👥 the labs: 2 owners × 5 per firm → LUCID 1–5 = ME, LUCID 6–10 = WIFE");
+            // the continuous run with 2 owners × 3 Lucid each, 1 funded seat per owner (the book above): never more than 1 funded at once per owner; the results show the owner
+            var days = Days(60, (i, m) => 0.25 * Math.Max(0, m + 450)); var mix = KeystoneLabWizard.Mix(new List<Tuple<string, int>> { Tuple.Create("LUCID", 6) }); var pool = new KeystoneEvalPool { Name = "own", Simulated = true }; pool.Accounts.AddRange(mix);
+            var st = new KeystoneSimSettings { Strategy = "ROTATION", Direction = "RANDOM", Auto = true, Allocation = "ROTATE", Accounts = 6, BuyRule = "BATCH", FundedWhen = "ASK", AskEachBatch = true, ReplacePassed = true, DayPlan = "NONE", MaxTradesPerDay = 1,
+                From = days[0].Day, To = days[days.Count - 1].Day, DataOnly = true, StartAs = "EVAL", MnqQty = 20, FundMnqQty = 20, RotTarget = 1500, RotStop = 1e6, FundRotTarget = 1500, FundRotStop = 1e6, AllAtOnce = true, Stagger = true, AllSide = "BUY", StartHhmm = 155, EndHhmm = 1655 };
+            st.Rules = KeystoneSimRules.Presets().First().Copy(); st.Rules.Target = 3000; st.Rules.EvalDrawdown = 2000; st.Rules.EvalDdType = "EOD"; st.Rules.EvalConsistency = 50; st.Rules.EvalMinDays = 2; st.Firms = KeystoneEvalLab.FirmsText(pool, st.Rules, 100);
+            var plan = KeystonePayoutPlan.Presets()[0].Copy(); plan.SprintAccounts = 0; plan.Spread = false; plan.Side = "BUY";
+            var bs = new KeystoneBusinessSettings { Funding = "POCKET", Fee = 100, Delay = 1, Continuous = true, Owners = new List<string> { "ME", "WIFE" }, PerOwner = 3 }; bs.PerFirm.Add(Tuple.Create("LUCID", 6));
+            var nameOf = new Dictionary<int, string>(); for (int i = 0; i < 6; i++) nameOf[i + 1] = mix[i].Nick;
+            var run = KeystoneBusiness.Run(st, bs, days, 155, 1655, null, null, plan, null, null, (s0, a) => "LUCID", (s0, a) => nameOf.ContainsKey(a.Id) ? nameOf[a.Id] : a.Name);
+            var rec = run.Record; var fu = rec.Accounts.Where(a => a.FundedFrom != DateTime.MinValue).ToList(); int worst = 0;
+            foreach (var d in days) foreach (var o in new[] { "ME", "WIFE" }) worst = Math.Max(worst, fu.Count(a => a.Owner == o && a.FundedFrom.Date <= d.Day.Date && (a.Ended == DateTime.MinValue || a.Ended.Date >= d.Day.Date)));
+            bool owners = rec.HasOwners && rec.Accounts.Where(a => a.Slot == "LUCID 1").All(a => a.Owner == "ME") && rec.Accounts.Where(a => a.Slot == "LUCID 6").All(a => a.Owner == "WIFE") && rec.Accounts.All(a => a.Owner == "ME" || a.Owner == "WIFE");
+            var at = rec.AccountsTable(); var ft = rec.FundedFirmTable(); var ot = rec.OwnerTable(); var res = KeystoneLabResults.FromContinuous(run, "BOTH");
+            Check(owners && fu.Select(a => a.Owner).Distinct().Count() == 2 && at[0][at[0].Length - 1] == "👥 OWNER" && at.Any(r => r[0] == "Σ 👥 ME") && ft.Any(r => r[0] == "👥 WIFE") && ot.Count == 4 && ot[3][0] == "ALL" && res.Stats.Any(x => x[0] == "👥 ME") && rec.FundedAccountsTable()[0].Last() == "👥 OWNER" && bs.Describe().Contains("👥 ME / WIFE"),
+                "👥 the labs: 2 owners × 3 Lucid — each slot keeps its owner through every generation; 👤 ACCOUNTS + 💰 FUNDED RESULTS show the owner; 📊 STATS split per owner", run.ContinuousSummary());
+            Check(fu.Count >= 2 && worst <= 1, "👥 the funded limit per owner per firm (1 here) is applied: never 2 funded Lucid at once for the same owner", fu.Count + " funded, worst overlap " + worst);
+            var bsN = new KeystoneBusinessSettings { Funding = "POCKET", Fee = 100, Delay = 1, Continuous = true }; bsN.PerFirm.Add(Tuple.Create("LUCID", 6));
+            var runN = KeystoneBusiness.Run(st, bsN, days, 155, 1655, null, null, plan, null, null, (s0, a) => "LUCID", (s0, a) => nameOf.ContainsKey(a.Id) ? nameOf[a.Id] : a.Name);
+            var fuN = runN.Record.Accounts.Where(a => a.FundedFrom != DateTime.MinValue).ToList(); int worstN = days.Max(d => fuN.Count(a => a.FundedFrom.Date <= d.Day.Date && (a.Ended == DateTime.MinValue || a.Ended.Date >= d.Day.Date)));
+            Check(!runN.Record.HasOwners && runN.Record.AccountsTable()[0].Last() == "STATUS" && runN.Record.OwnerTable().Count == 1 && worstN >= 3, "👥 no owners = the tables as before (no OWNER column) — and the firm's 5 seats let ≥ 3 funded run at once (the owner limit above really bound)", "worst " + worstN);
+            KeystonePayoutRules.Book = bk0;
         }
         // ---- item 27f: the pinned regression on the real saved minutes (data/MNQ + data/MGC, when present): Lucid SAFE 9:30 London side, one account
         // from every 2nd session 2020-07-06 → 2026-08-31, 150 sessions max → paid at least once within ±3 points of 68.8 % (the cross-check)

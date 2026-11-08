@@ -660,7 +660,7 @@ public static class PropSimTests
             Check(aoHtml.Contains("@media print") && aoHtml.Contains("MONDAY") && aoHtml.Contains("Plans side by side") && aoHtml.Contains("room"), "📅 the HTML report: weekday table, plans side by side, prints to PDF");
             var aoPl = KeystoneEvalLab.LoadPlans(KeystoneEvalLab.SavePlans(new[] { new KeystoneEvalPlan { Name = "A", Mode = "ALL", AllSide = "EACH", RecT = 1500, RecSide = "FLIP", Side = "RANDOM" } }));
             Check(aoPl.Count == 1 && aoPl[0].Mode == "ALL" && aoPl[0].AllSide == "EACH" && aoPl[0].RecT == 1500 && aoPl[0].RecSide == "FLIP", "⚡ a template keeps ALL AT ONCE, its side and the recovery");
-            Check(KeystoneEvalLab.Presets().Any(p0 => p0.Name.StartsWith("⚡ GOING FORWARD") && p0.Mode == "ALL" && p0.AllSide == "FIRM" && p0.Session == 4 && p0.Qm == 20 && p0.Stop == 0), "⚡ the GOING FORWARD preset: all at once, 2:00 → hold until 16:55 (its own session since the session end is kept), MNQ 20, one side per firm, ride the full room");
+            Check(KeystoneEvalLab.Presets().Any(p0 => p0.Name == KeystoneEvalLab.DefaultName && p0.Mode == "ALL" && p0.AllSide == "FIRM" && p0.Session == 4 && p0.Qm == 20 && p0.Stop == 0), "★ the default (was ⚡ GOING FORWARD): all at once, 2:00 → hold until 16:55 (its own session since the session end is kept), MNQ 20, one side per firm, ride the full room");
         }
         {   // ---- 💰 FUNDED LAB (trailing drawdown) — the engine
             Func<DateTime, Func<int, double>, KeystoneRotDay> fday = (day, path) =>
@@ -752,7 +752,7 @@ public static class PropSimTests
             var pRl = KeystonePayoutRules.Load(KeystonePayoutRules.Save(new[] { new KeystonePayoutRules { Firm = "LUCID", Name = "L", Cap = 1800, Split = 80, QualDays = 4 } }));
             Check(pRl.Count == 3 && pRl[0].Cap == 1800 && pRl[0].Split == 80 && pRl[0].QualDays == 4 && pRl.Any(x => x.Firm == "TPT" && x.Tpt && !x.Parked), "💵 the firm payout rules are saved and read back (missing firms = the presets)");
             var pPlp = KeystonePayoutPlan.LoadPlans(KeystonePayoutPlan.SavePlans(new[] { new KeystonePayoutPlan { Name = "MY", Side = "LONDON", Qm = 6, Tp = 1200, Stop = 400, Tries = 2, MaxOnly = true, Protect = true } }));
-            Check(pPlp.Count == 1 && pPlp[0].Qm == 6 && pPlp[0].Tries == 2 && pPlp[0].MaxOnly && pPlp[0].Protect && KeystonePayoutPlan.Presets().Count == 17, "💵 a payout template is saved and read back • 17 presets (🛟 SAFE PAYOUT first, + 7 🎬 MFF STUDIO)");
+            Check(pPlp.Count == 1 && pPlp[0].Qm == 6 && pPlp[0].Tries == 2 && pPlp[0].MaxOnly && pPlp[0].Protect && KeystonePayoutPlan.Presets().Count == 18, "💵 a payout template is saved and read back • 18 presets (🛟 SAFE PAYOUT first, ⏱ FUNDED TIMES B, + 7 🎬 MFF STUDIO)");
             {   // ⏸ LUCID: no live, a 2-week cooldown (14 calendar days ≈ 10 trading days) after each payout, no payout-count cap (the user, 2026-11-09)
                 Check(KeystonePayoutRules.Presets()[0].After == "LIVE" && !KeystonePayoutRules.Presets()[0].Cooldown, "⏸ Lucid preset: the standard plan (moved to live after the payouts) • the cooldown is a choice"); var lc = KeystonePayoutRules.Presets()[0].Copy(); lc.After = "COOLDOWN"; var up60 = pdays(100, mm => 2.0 * mm);
                 Check(lc.Cooldown && lc.CooldownDays == 14 && lc.CoolTradingDays == 10 && lc.CoolPause, "⏸ Lucid with COOLDOWN chosen: 14 days (10 trading days), no trades during it", lc.After + " " + lc.CooldownDays + " " + lc.CoolTradingDays);

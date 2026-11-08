@@ -8,6 +8,7 @@ public static class UiSmokeTest
     static int failures;
     static void Step(string name, Action a)
     {
+        var only = Environment.GetEnvironmentVariable("UI_ONLY"); if (!string.IsNullOrEmpty(only) && !name.Contains(only)) { Console.WriteLine("SKIP  " + name); return; }   /* a focused run: UI_ONLY=<part of a step name> */
         try { a(); Console.WriteLine("PASS  " + name); }
         catch (Exception ex) { var e = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex; Console.WriteLine("FAIL  " + name + "  → " + e.GetType().Name + ": " + e.Message + "\n" + e.StackTrace.Split('\n').Take(6).Aggregate((x, y) => x + "\n" + y)); failures++; }
     }
@@ -213,6 +214,32 @@ public static class UiSmokeTest
                     var lines = System.IO.File.ReadAllLines(journal);
                     Console.WriteLine("      " + rt.Symbol + " " + rt.Bars.Count + " minutes • bought " + entry + " • " + rt.Fills.Count + " trades • today " + rt.Realized.ToString("0.00") + " • journal lines " + lines.Length);
                     if (rt.Fills.Count != 2 || lines.Length != 3 || rt.Fills[0].Side != "BUY" || rt.Fills[1].Side != "SELL") throw new Exception("replay trades / journal wrong");
+                    {   // 🎯 BUILD 11f — the PRACTICE ACCOUNT in the studio: TPT PRO funded (phase 1 = BEAT THE TRAILING), the trade count, the animated bar; 📜 the trades log; 📦 the ticks export
+                        var w0 = (System.Windows.Window)F("replayTraderWindow"); Action<System.Windows.Controls.Button> clickB = b9 => b9.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                        var showDp = (Action<string>)F("studioShowDrawer"); if ((string)F("studioOpenDrawer") != "PRACTICE") showDp("PRACTICE");   /* 🖥 the practice lives in its drawer */
+                        var pt = FindAll<System.Windows.Controls.Button>(w0.Content).FirstOrDefault(b9 => Convert.ToString(b9.Content) == "🎯 PRACTICE AS A PROP ACCOUNT"); if (pt == null) throw new Exception("🎯 no PRACTICE button");
+                        var pb = FindAll<System.Windows.Controls.ComboBox>(w0.Content).First(cbx => cbx.Items.Cast<object>().Any(x => Convert.ToString(x).StartsWith("TPT PRO 50K funded")));
+                        int ti = Enumerable.Range(0, pb.Items.Count).First(i => Convert.ToString(pb.Items[i]).StartsWith("TPT PRO 50K funded")); pb.SelectedIndex = ti; pb.SelectedItem = pb.Items[ti]; clickB(pt);
+                        ((Action<int>)F("replayTraderOrder"))(1); ((Action<int>)F("replayTraderStep"))(4); ((Action)F("replayTraderFlat"))(); ((Action<int>)F("replayTraderStep"))(1);
+                        var st0 = FindAll<System.Windows.Controls.TextBlock>(w0.Content).Select(t => t.Text ?? "").FirstOrDefault(t => t.StartsWith("balance ")) ?? "";
+                        if (!st0.Contains("· 1 trade ") && !st0.Contains("· 1 trade·") && !st0.Contains("1 trade · max")) throw new Exception("🎯 the practice should count its 1 closed trade: " + st0);
+                        if (!st0.Contains("BEAT THE TRAILING DRAWDOWN") && !st0.Contains("TRAILING BEATEN")) throw new Exception("🎯 TPT funded phase 1 = BEAT THE TRAILING DRAWDOWN: " + st0);
+                        if (st0.IndexOf("room ") != st0.LastIndexOf("room ")) throw new Exception("🎯 the status must say it once: " + st0);
+                        if (!FindAll<System.Windows.FrameworkElement>(w0.Content).Any(x => Convert.ToString(x.Tag) == "bar.numbers")) throw new Exception("🎯 the animated buffer bar (with its numbers) is missing");
+                        var tpLab = FindAll<System.Windows.Controls.TextBlock>(w0.Content).Any(t => t.Text == "TRAILING TO BEAT $"); if (!tpLab) throw new Exception("🎯 the TARGET field should read TRAILING TO BEAT $ for TPT funded");
+                        Console.WriteLine("      🎯 PRACTICE TPT funded: " + st0);
+                        clickB(pt); showDp("PRACTICE");
+                        string tf = System.IO.Path.Combine(studio, "practice-trades.csv"); var rowsT = System.IO.File.Exists(tf) ? KeystonePracticeTrades.Load(System.IO.File.ReadAllText(tf)) : new List<KeystonePracticeTrade>();
+                        if (rowsT.Count < 2 || rowsT.Any(t => t.Exit < t.Entry || t.Qty <= 0)) throw new Exception("📜 every closed trade should be in practice-trades.csv: " + rowsT.Count);
+                        var showD0 = (Action<string>)F("studioShowDrawer"); showD0("TRADES"); clickB(FindAll<System.Windows.Controls.Button>(w0.Content).First(b9 => Convert.ToString(b9.Tag) == "trades.filter.ALL")); clickB(FindAll<System.Windows.Controls.Button>(w0.Content).First(b9 => Convert.ToString(b9.Tag) == "trades.export"));
+                        var tex = (string)F("studioTradesExport"); if (tex == null || !System.IO.File.Exists(tex) || !System.IO.File.ReadAllText(tex).Contains("\"trades\"")) throw new Exception("📦 the trades export: " + tex); showD0("TRADES");
+                        var d9 = new DateTime(2026, 3, 9); KeystoneTickCache.Save(studio, "MNQ", d9, new List<KeystoneTick> { new KeystoneTick { Time = d9.AddHours(9.5), Price = 20000.25, Volume = 3 }, new KeystoneTick { Time = d9.AddHours(9.5).AddMilliseconds(250), Price = 20000.5, Volume = 1 } }, "TEST");
+                        showD0("TOOLS"); var tbF = FindAll<System.Windows.Controls.TextBox>(w0.Content).First(x => Convert.ToString(x.Tag) == "ticks.from"); var tbT = FindAll<System.Windows.Controls.TextBox>(w0.Content).First(x => Convert.ToString(x.Tag) == "ticks.to"); tbF.Text = "2026-03-09"; tbT.Text = "2026-03-09";
+                        clickB(FindAll<System.Windows.Controls.Button>(w0.Content).First(b9 => Convert.ToString(b9.Tag) == "ticks.go")); var gzF = (string)F("studioTicksExport"); showD0("TOOLS");
+                        string gzTxt; using (var fs9 = System.IO.File.OpenRead(gzF)) using (var gz9 = new System.IO.Compression.GZipStream(fs9, System.IO.Compression.CompressionMode.Decompress)) using (var sr9 = new System.IO.StreamReader(gz9)) gzTxt = sr9.ReadToEnd();
+                        if (!gzTxt.StartsWith("symbol,time_ny,price,size,side") || !gzTxt.Contains("MNQ,2026-03-09 09:30:00.250,20000.50,1,")) throw new Exception("📦 the ticks export: " + gzTxt.Substring(0, Math.Min(200, gzTxt.Length)));
+                        Console.WriteLine("      📜 " + rowsT.Count + " trades logged + exported • 📦 ticks → " + System.IO.Path.GetFileName(gzF));
+                    }
                     ((Action)F("replayTraderEnd"))();
                     {   // 🏷 item 37: every trade label drawn sits in the right gutter — none intersects the candle area
                         var rects = (List<double[]>)F("studioLabelRects"); foreach (var rc in rects) if (KeystoneChartGutter.Intersects(rc[0], rc[1], rc[2], rc[3], 0, 0, rc[4], 100000)) throw new Exception("a trade label covers the candles at x " + rc[0] + " (candle area ends " + rc[4] + ")");
@@ -433,6 +460,45 @@ public static class UiSmokeTest
                     ((Action<string>)F("studioAddSymbol"))("-ES");
                     if (KeystoneSymbols.Get("ES") != null) throw new Exception("ES tab not removed");
                     Console.WriteLine("      ＋ instrument: ES tab added and removed");
+                    {   // 💵 BUILD 11f: the $ bracket in the RIGHT ORDER PANEL (one source with the 💵 row), the ⚙ next to the ACCOUNT box, 🧪 JJ (practice marks + the open line)
+                        var w11 = (System.Windows.Window)F("replayTraderWindow"); Func<string, object> byTag = tgx => FindAll<System.Windows.FrameworkElement>(w11.Content).FirstOrDefault(x => Convert.ToString(x.Tag) == tgx);
+                        var dTpM = byTag("dol.tp.MNQ") as System.Windows.Controls.TextBox; var dOnM = byTag("dol.on.MNQ") as System.Windows.Controls.Button; var dNoteM = byTag("dol.note.MNQ") as System.Windows.Controls.TextBlock;
+                        if (dTpM == null || dOnM == null || dNoteM == null || byTag("acc.gear") == null) throw new Exception("💵 the order panel's TP $ / SL $ / ON block and the ACCOUNT ⚙ should exist");
+                        bool wasOn = Convert.ToString(dOnM.Content) == "💵 $ ON"; if (!wasOn) dOnM.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                        dTpM.Text = "760"; var dSlM = (System.Windows.Controls.TextBox)byTag("dol.sl.MNQ"); dSlM.Text = "500";
+                        if (Convert.ToString(dOnM.Content) != "💵 $ ON" || !dNoteM.Text.StartsWith("= SL ") || !dNoteM.Text.Contains(" pts for ")) throw new Exception("💵 ON → the points for the contracts: " + Convert.ToString(dOnM.Content) + " • " + dNoteM.Text);
+                        Console.WriteLine("      💵 order panel $ bracket: TP $760 / SL $500 → " + dNoteM.Text);
+                        dOnM.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); if (Convert.ToString(dOnM.Content) != "💵 $ OFF") throw new Exception("💵 OFF again");
+                        var stratJ = F("studioStrategy") as Action<int, bool>; if (stratJ != null) { stratJ(KeystoneReplaySignals.JjKind, false); Console.WriteLine("      🧪 JJ chosen in the studio"); stratJ(0, false); }
+                    }
+                    {   // 🖥 BUILD 11f — CHART-FIRST: the chart = the star row (no fixed height), ≤ 2 rows above it with the drawers closed; each drawer opens / closes
+                        var w12 = (System.Windows.Window)F("replayTraderWindow"); var showD = (Action<string>)F("studioShowDrawer"); var rows = (Func<int>)F("studioTopRows"); var mr = (System.Windows.FrameworkElement)F("studioMainRow");
+                        if (showD == null || rows == null || mr == null) throw new Exception("🖥 the chart-first layout is missing");
+                        var rootG = mr.Parent as System.Windows.Controls.Grid; int rr = System.Windows.Controls.Grid.GetRow(mr);
+                        if (rootG == null || rootG.RowDefinitions[rr].Height.GridUnitType != System.Windows.GridUnitType.Star || (!double.IsNaN(mr.Height) && mr.Height > 0)) throw new Exception("🖥 the chart must sit in the star row with no fixed height (row " + rr + ", " + (rootG == null ? "no grid" : rootG.RowDefinitions[rr].Height.GridUnitType.ToString()) + ", height " + mr.Height + ")");   /* the stand-ins leave an unset height at 0 (WPF: NaN) */
+                        if (F("studioOpenDrawer") != null) showD((string)F("studioOpenDrawer"));
+                        if (rows() > 2) throw new Exception("🖥 with the drawers closed at most 2 rows above the chart, got " + rows());
+                        foreach (var dk in new[] { "SETTINGS", "PRACTICE", "INDICATORS", "TOOLS" }) { showD(dk); if ((string)F("studioOpenDrawer") != dk) throw new Exception("🖥 drawer " + dk + " did not open"); showD(dk); if (F("studioOpenDrawer") != null) throw new Exception("🖥 drawer " + dk + " did not close"); }
+                        Console.WriteLine("      🖥 chart-first: the chart in the star row, " + rows() + " rows above it, 4 drawers open / close");
+                        // 🏷 the gutter labels: dollars first, never cut — 1 / 25 / 40 contracts, 5-digit prices, MNQ + MGC
+                        foreach (var sy in new[] { "MNQ", "MGC" }) foreach (int q in new[] { 1, 25, 40 }) foreach (double pts in new[] { 0.25, 3, 20.5, 250 })
+                        {
+                            double pv = KeystoneMoveStudy.PointValue(sy); var labs = new[] { KeystoneChartGutter.Tp(pts, pv, q) + "  (drag)", KeystoneChartGutter.Sl(pts, pv, q) + "  (drag)", KeystoneChartGutter.Locked(pts, pv, q) + "  (drag)", KeystoneChartGutter.Entry(q, -pts * pv * q) };
+                            double g = KeystoneChartGutter.Fit(labs.Select((l, i) => KeystoneChartGutter.LabelWidth(l, i == 3)));
+                            for (int i = 0; i < labs.Length; i++) if (!KeystoneChartGutter.Fits(labs[i], i == 3, g) || !labs[i].Contains("$")) throw new Exception("🏷 a label would be cut: " + labs[i] + " in a gutter of " + g);
+                            if (g > KeystoneChartGutter.Max || g < KeystoneChartGutter.Min) throw new Exception("🏷 the gutter " + g);
+                        }
+                        ((List<double[]>)F("studioLabelRects")).Clear(); ((Action<int>)F("replayTraderStep"))(1);   /* the gutter grew to the widest label: the next render fits them all */
+                        foreach (var rc in ((List<double[]>)F("studioLabelRects")).Where(x => x.Length > 5)) if (rc[5] > rc[2] + 0.5 && rc[2] + KeystoneChartGutter.Handle < KeystoneChartGutter.Max - 0.5) throw new Exception("🏷 a drawn label is wider than its box: " + rc[5] + " > " + rc[2]);
+                        Console.WriteLine("      🏷 gutter labels: $ first, 1 / 25 / 40 contracts fit (" + KeystoneChartGutter.Tp(20.5, 2, 25) + " · " + KeystoneChartGutter.Sl(3, 2, 25) + " · " + KeystoneChartGutter.Entry(25, 450) + ")");
+                        // 🧹 the closed-trade results: off by default; with the option, every tag clear of the candles and of each other
+                        showD("INDICATORS"); var resCb = FindAll<System.Windows.Controls.CheckBox>(w12.Content).FirstOrDefault(cbx => Convert.ToString(cbx.Tag) == "studio.showres"); if (resCb == null || resCb.IsChecked == true) throw new Exception("🧹 'show trade results on the chart' must exist and be off");
+                        resCb.IsChecked = true; resCb.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                        var tags = (List<double[]>)F("studioTradeTags");
+                        for (int i = 0; i < tags.Count; i++) { var t = tags[i]; if (t[1] < t[5] && t[1] + t[3] > t[4]) throw new Exception("🧹 a result tag covers a candle"); for (int j = i + 1; j < tags.Count; j++) if (KeystoneChartGutter.Intersects(t[0], t[1], t[2], t[3], tags[j][0], tags[j][1], tags[j][2], tags[j][3])) throw new Exception("🧹 two result tags overlap"); }
+                        resCb.IsChecked = false; resCb.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); showD("INDICATORS");
+                        Console.WriteLine("      🧹 closed-trade tags: " + tags.Count + " placed clear of the candles and of each other (option off by default)");
+                    }
                     var win = (System.Windows.Window)F("replayTraderWindow"); win.Close();
                     if (!System.IO.File.Exists(System.IO.Path.Combine(studio, "Workspace.txt"))) throw new Exception("studio workspace not saved on close");
                     Console.WriteLine("      workspace saved: " + string.Join(" ", System.IO.File.ReadAllLines(System.IO.Path.Combine(studio, "Workspace.txt")).Take(4)));
@@ -1017,10 +1083,12 @@ public static class UiSmokeTest
                 if (simF.Trades.Any(t => t.Pnl > 200.01)) throw new Exception("a trade made more than the +$200 target");
                 wk = wk; boxes.Clear(); wk(deck); if (!boxes.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("room $"))) throw new Exception("no room line on the tiles (room $ above the floor)");
                 // ✋ MANUAL REPLAY: start the day, ▲▲ BUY BOTH, play minutes → the +200 / −200 bracket closes it and the next account is up
+                /* ★ BUILD 11f: the default is now ⚡ ALL AT ONCE (in MANUAL the clock waits for every account's press at the start) — this check is the one-account press of ⚡ STAGGERED */
+                boxes.Clear(); wk(((System.Windows.Window)G("rotStudioWindow")).Content); var howB = boxes.OfType<System.Windows.Controls.ComboBox>().FirstOrDefault(c => Convert.ToString(c.Tag) == "rot.how"); if (howB == null || howB.SelectedIndex != 1) throw new Exception("★ the default HOW should be ⚡ ALL AT ONCE"); howB.SelectedIndex = 2;
                 ((Action)G("rotStudioManLoad"))(); var msimT = (KeystonePropSim)G("rotStudioManSim"); if (msimT == null || msimT.Active == null) throw new Exception("manual replay did not start");
                 var firstAcc = msimT.Active; ((Action<int>)G("rotStudioManStep"))(3); ((Action<int, int>)G("rotStudioManEnter"))(1, 1);
                 for (int i = 0; i < 100 && msimT.Trades.Count == 0; i++) ((Action<int>)G("rotStudioManStep"))(1);
-                if (msimT.Trades.Count == 0) throw new Exception("the manual trade never closed");
+                if (msimT.Trades.Count == 0) throw new Exception("the manual trade never closed: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text + " • active " + (msimT.Active == null ? "-" : msimT.Active.Name) + " • open " + msimT.Accounts.Count(a0 => a0.Trades > 0) + " • " + string.Join(" | ", FindAll<System.Windows.Controls.TextBlock>(((System.Windows.Window)G("rotStudioWindow")).Content).Select(t => t.Text ?? "").Where(t => t.Contains("trade") || t.Contains("START") || t.Contains("placed") || t.Contains("room")).Take(8)));
                 var mt = msimT.Trades[0]; Console.WriteLine("      MANUAL: " + mt.Legs + " " + mt.Reason + " " + mt.Pnl.ToString("0.00") + " • next " + (msimT.Active != null ? msimT.Active.Name : "-"));
                 if (mt.Pnl > 200.01 || mt.Pnl < -260) throw new Exception("the manual trade left its bracket: " + mt.Pnl);
                 if (msimT.Active == firstAcc) throw new Exception("the next account did not take over");
@@ -1054,7 +1122,7 @@ public static class UiSmokeTest
                 ((Action<string>)G("evalLabShow"))("CALCULATE"); ((Action<string>)G("evalLabShow"))("ADVISOR");
                 Console.WriteLine("      ⚡ CALCULATE: " + cm0.Passed + " / " + cm0.N + " passed • 🔮 hindsight " + co0.Passed + " • " + ch0.Count(h => h.Match) + " of " + ch0.Count + " rotations on the winning side");
                 // ⚡ ALL AT ONCE through ⚡ CALCULATE + 📅 START-DAY TEST (two plans side by side) + the HTML report written
-                string goName = KeystoneEvalLab.Presets().First(p0 => p0.Name.StartsWith("⚡ GOING FORWARD")).Name;
+                string goName = KeystoneEvalLab.DefaultName;
                 ((Action<string>)G("evalLabUsePlan"))(goName); Set(lab4, "evalLabCalcLast", null); ((Action<DateTime, DateTime, bool>)G("evalLabCalc"))(new DateTime(2026, 1, 5), new DateTime(2026, 2, 27), false);
                 for (int i = 0; i < 900 && G("evalLabCalcLast") == null; i++) System.Threading.Thread.Sleep(100);
                 var ca0 = (KeystoneCalcRank)G("evalLabCalcLast"); if (ca0 == null || ca0.Sim == null || ca0.Sim.Trades.Count == 0) throw new Exception("⚡ ALL AT ONCE: CALCULATE gave no trade");
@@ -1310,7 +1378,12 @@ public static class UiSmokeTest
                 }
                 if (!nx() || wz.Step != 1 || !wz.Summary[0].Contains("30 simulated")) throw new Exception("step 1: " + wz.Summary[0]);
                 ((Action)G("evalLabWizardBack"))(); if (wz.Step != 0) throw new Exception("← BACK"); nx();
-                if (!nx() || !wz.Summary[1].StartsWith("⚡ STAGGERED")) throw new Exception("step 2 should pre-select the ★ STAGGERED model: " + wz.Summary[1]);
+                {   // ★ BUILD 11f: step 2 pre-selects the default (⚡ ALL AT ONCE 2:00 AM NY); this step then replays ⚡ STAGGERED (a choice)
+                    var w2 = FindAll<System.Windows.Controls.ComboBox>(tabs.Items[0]).FirstOrDefault(c => c.Items.Count > 3 && Convert.ToString(c.Items[0]) == KeystoneEvalLab.DefaultName);
+                    if (w2 == null || w2.SelectedIndex != 0) throw new Exception("step 2 should pre-select the ★ default (⚡ ALL AT ONCE 2:00 AM NY)");
+                    int si = Enumerable.Range(0, w2.Items.Count).First(i => Convert.ToString(w2.Items[i]).StartsWith("⚡ STAGGERED")); w2.SelectedIndex = si; w2.SelectedItem = w2.Items[si];
+                }
+                if (!nx() || !wz.Summary[1].StartsWith("⚡ STAGGERED")) throw new Exception("step 2 → ⚡ STAGGERED (a choice): " + wz.Summary[1]);
                 var dayBoxes = FindAll<System.Windows.Controls.TextBox>(tabs.Items[0]).ToList(); var pick = FindAll<System.Windows.Controls.Button>(tabs.Items[0]).FirstOrDefault(b => Convert.ToString(b.Content) == "📅 PICK A DAY"); if (pick == null) throw new Exception("step 3 has no 📅 PICK A DAY");
                 ((Action<DateTime, DateTime>)G("evalLabWizardDays"))(new DateTime(2026, 3, 3), new DateTime(2026, 3, 3));
                 if (!nx() || !wz.Summary[2].Contains("2 trading days")) throw new Exception("one picked day = that day + the next: " + wz.Summary[2]);
@@ -1401,8 +1474,18 @@ public static class UiSmokeTest
                     feed(real); var bd0 = ((Func<string>)G("evalLabLiveBadge"))(); if (bd0 != "● LIVE · 1 TPT eval") throw new Exception("● LIVE badge on the user's accounts: " + bd0);
                     var picks0 = FindAll<System.Windows.Controls.CheckBox>(tabs.Items[0]).Where(c => Convert.ToString(c.Tag).StartsWith("live.pick.")).ToList(); if (picks0.Count != 1) throw new Exception("● LIVE should list only the active account: " + picks0.Count);
                     var texts0 = FindAll<System.Windows.Controls.TextBlock>(tabs.Items[0]).Select(t => t.Text ?? "").ToList();
-                    if (!texts0.Contains("TPT 13") || !texts0.Any(t => t.StartsWith("$229 to pass")) || !texts0.Any(t => t.StartsWith("🎯 Plan for these TPT evals: MNQ 20 · take profit +$1,500 · no stop (rides to the floor) · at 2:00 / 8:30 / 9:30 / 10:00 / 11:00 NY · TPT = manual")))
+                    if (!texts0.Contains("TPT 13") || !texts0.Any(t => t.StartsWith("$229 to pass")) || !texts0.Any(t => t.StartsWith("🎯 Plan for these TPT evals: MNQ 20 · take profit +$1,500 · no stop (rides to the floor) · at 2:00 NY · TPT = manual")))
                         throw new Exception("● LIVE card: nickname / progress / plan: " + string.Join(" | ", texts0.Take(20)));
+                    {   // 👥 BUILD 11f — OWNERS: one click on 👤 = the next owner (saved), group by owner, the 👤 OWNERS tab (per owner + the limits)
+                        Action<string> click = tg => { var b9 = btn(tg); if (b9 == null) throw new Exception("👥 no button " + tg); b9.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); };
+                        var ob = btn("live.owner.TAKEPROFIT104399999"); if (ob == null || !Convert.ToString(ob.Content).StartsWith("👤 ")) throw new Exception("👥 every account row has its 👤 owner button");
+                        string before = Convert.ToString(ob.Content); click("live.owner.TAKEPROFIT104399999"); string after = Convert.ToString(btn("live.owner.TAKEPROFIT104399999").Content); if (after == before) throw new Exception("👥 one click should change the owner: " + before + " → " + after);
+                        var ownF = System.IO.Path.Combine((string)typeof(KeystoneArc5MResearchLab).GetMethod("StudioFolder", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, null), "EvalLab", "live", "owners.txt"); if (!System.IO.File.Exists(ownF) || !System.IO.File.ReadAllText(ownF).Contains("ACC|TAKEPROFIT104399999|")) throw new Exception("👥 the owner is saved in owners.txt");
+                        click("live.groupby.owner"); var tx = FindAll<System.Windows.Controls.TextBlock>(tabs.Items[0]).Select(t => t.Text ?? "").ToList(); if (!tx.Any(t => t.StartsWith("👤 " + after.Replace("👤 ", "") + " · EVAL · 1 account")) || !tx.Any(t => t.StartsWith("limits per owner: TPT 1 / 5"))) throw new Exception("👥 group by owner: " + string.Join(" | ", tx.Take(12)));
+                        click("live.groupby.firm"); click("live.tab.OWNERS"); var tx2 = FindAll<System.Windows.Controls.TextBlock>(tabs.Items[0]).Select(t => t.Text ?? "").ToList(); if (!tx2.Contains("👤 OWNER") || !tx2.Contains("FEES PAID") || !tx2.Contains("EVAL / LIMIT") || !tx2.Contains("1 / 5")) throw new Exception("👥 the OWNERS tab: " + string.Join(" | ", tx2.Take(30)));
+                        click("live.tab.PROFIT"); click("live.tab.POOLS"); click("live.owner.TAKEPROFIT104399999"); while (Convert.ToString(btn("live.owner.TAKEPROFIT104399999").Content) != before) click("live.owner.TAKEPROFIT104399999");
+                        Console.WriteLine("      👥 OWNERS: " + before + " → " + after + " (one click, saved) • group by owner • 👤 OWNERS tab (fees / payouts / net + limits)");
+                    }
                     var inB = btn("live.inactive"); if (inB == null || !Convert.ToString(inB.Content).Contains("(196)")) throw new Exception("● LIVE: the inactive toggle should count 196: " + (inB == null ? "none" : Convert.ToString(inB.Content)));
                     var go0 = btn("live.confirm"); if (go0 == null || go0.IsEnabled) throw new Exception("✓ CONFIRM must be disabled with 0 ticked");
                     // ✏ EDIT THIS PLAN: in the tab, ✕ cancel
