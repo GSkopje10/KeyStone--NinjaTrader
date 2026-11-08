@@ -1237,6 +1237,12 @@ public static class UiSmokeTest
                 // the trading screen = the chart + the pool (settings in their own tab), full screen, the chart's tools
                 if ((string)((Func<string>)G("evalLabTabNow"))() != "TRADING") throw new Exception("the replay should open the 📈 TRADING tab, is " + ((Func<string>)G("evalLabTabNow"))());
                 var pnames = ((Func<List<string>>)G("evalLabPoolNames"))(); if (pnames.Count < 30 || !pnames.Contains("TPT 1") || !pnames.Contains("LUCID 1")) throw new Exception("the pool panel: " + string.Join(",", pnames.Take(6)));
+                {   // 🖥 BUILD 10c: the chart-first screen — a compact toolbar (≤ 10 buttons), the chart = the DockPanel's star (last) child, ⤢ BIG CARDS + the pool tabs
+                    int nb = ((Func<int>)G("evalLabToolbarButtons"))(); if (nb > 10) throw new Exception("the TRADING toolbar has " + nb + " buttons (≤ 10)");
+                    var mr = ch.Parent as System.Windows.Controls.DockPanel; if (mr == null || mr.Children[mr.Children.Count - 1] != ch) throw new Exception("the chart must own the rest of the TRADING screen");
+                    ((Action<bool>)G("evalLabBigCards"))(true); ((Action<bool>)G("evalLabBigCards"))(false);
+                    Console.WriteLine("      🖥 toolbar " + nb + " buttons • chart = the star child • ⤢ big cards");
+                }
                 ((Action<bool>)G("evalLabFull"))(true); if (!ch.Children.OfType<System.Windows.Controls.Border>().Any(b => b.Child is System.Windows.Controls.WrapPanel)) throw new Exception("⛶ full screen: no floating mini pool on the chart"); ((Action<bool>)G("evalLabFull"))(false);
                 { int b0 = ((Func<int>)G("evalLabChartBars"))(); ((Action<int>)G("evalLabChartWheel"))(120); int b1 = ((Func<int>)G("evalLabChartBars"))(); if (b1 >= b0) throw new Exception("wheel zoom: " + b0 + " → " + b1);
                   ((Action<double, double>)G("evalLabChartDrag"))(400, 0); if (!((Func<List<string>>)G("evalLabChartMarks"))().Any(m => m.StartsWith("BACK "))) throw new Exception("drag should pan back");

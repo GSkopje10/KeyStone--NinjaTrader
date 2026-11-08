@@ -108,3 +108,16 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
 - **Result tabs:** 🧪 EVAL RESULTS · 📅 DAYS (per date and firm) · 📜 TRADES (NY time AM / PM, instrument, side, contracts, entry, P/L after costs, how it ended) · 💀 BLOWN · 💰 PAYOUTS · 📊 STATS (by firm, by day number, by week, money). The period is in the header.
 - **⤓ EXPORT:** writes the CSVs plus `summary.html` to `Studio\EvalLab\exports\<time>-<scope>\`.
 - **One engine:** ⚡ CALCULATE and the ▶ replay share the same side source (`KeystoneLabFlow.PlanSide`) and the same trade rules. Played to the end, the replay gives the same passes, blows and trades (UI smoke test).
+
+## BUILD 2026-11-10c — the chart-first TRADING screen
+- **Top:** ONE toolbar (the New York clock, ▶ / speed / ▶▶ NEXT DAY / ⏭ NEXT ACCOUNT / 📅 / ⤓ EXPORT / ⛶ / ⋯), then ONE status line (ellipsis, the full text in its tooltip; 📰 news in a tooltip), then the latest 💬 WHY or ⏩ skip (all of them are in 📜 LOG).
+- **Chart:** owns all the rest of the height. The timeframes are on its top edge and the drawing tools down its left edge.
+- **Right:** the POOL, one row per account (firm colour bar, name, state chip, balance / today, a room bar from floor to target) with 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs and their counts. ⤢ BIG CARDS shows large cards in place of the chart.
+- **Bottom:** the ORDER BAR, in one row: BUY / SELL / ✕ CLOSE · MNQ ± · MGC ± · TP $ ± · STOP $ ± · ⇢ BE · ⏭ SKIP ACCOUNT · ✕ CLOSE ALL · ■ DONE · ⚡ AUTO, plus the last message.
+- **Moved to ⚙ SETTINGS ▸ 📈 REPLAY OPTIONS:** the plan line, the plan's ± sizes, 'let AUTO trade TPT too', ⏩ skip quiet time, the views and the AUTO explanation.
+- **Left rail:** while TRADING is shown, the rail shrinks to icons and expands on hover.
+- **BATCH DONE:** the totals come first, e.g. "15 bought (5 TPT · 5 Lucid · 5 Tradeify) · $1,800 spent · 6 passed (40 %) · 9 blown". A per-firm line follows. There is no NEXT DAY: the next step is 🎉 START THE FUNDED STAGE.
+- **Funded from the eval:**
+  - The days step fills itself, so there is no date to pick.
+  - Each account goes funded the session after it passed; TPT goes after its day-3 tiny trade.
+  - Each account runs to its payouts, or to the end of the saved data ("⏳ data ends … download more in 🗂 DATA").
