@@ -137,3 +137,14 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
   - "↺ back to the winning plan" restores the default.
 - **Tracking tabs:** 📅 DAILY · 📈 PROFITABILITY · ✅ ELIGIBILITY · ⏳ TIMELINE · 💰 PAYOUTS. Daily rows are saved per account in `Studio\EvalLab\live\<account>.csv`. Payouts and fees are entered by hand, since NinjaTrader doesn't know them.
 - **🛟 SAFE PAYOUT** is now the Funded Lab's default preset ("tested: about 6 in 10 funded accounts reach a payout"). ★ MAX IN 5 stays an option.
+
+## BUILD 2026-11-10e
+- **🏠 HOME:** three cards (● LIVE TRADING · 🧪 EVAL LAB · 💰 FUNDED LAB). The old studios sit under "🧰 Old tools (will be removed)", collapsed; their code stays until you confirm nothing is missed.
+- **📅 2-DAY TEST** (⚙ SETTINGS ▸ ▶ START HERE): every weekday from the START DATE to the RANGE END starts a batch running 2 sessions (3 with TPT). Shows the pass % per start day, by weekday (best / worst) and the distribution. Instant, same engine as CALCULATE.
+- **📁 REPORTS** (rail): every export. 🌐 OPEN SUMMARY; tick two to compare them side by side; 📥 IMPORT a .kreport.json.
+- **🗂 DATA:** MNQ / MGC coverage, the missing weekdays and MNQ days without MGC, plus ⤓ UPDATE / DOWNLOAD (the DATA LIBRARY). A CALCULATE over a period with gaps says so.
+- **🎯 PLANS:** 🏆 FIND BEST opens ⚡ CALCULATE, which ranks every plan on the period, with ▶ USE THIS PLAN.
+- **🧠 The flashing buttons' %:** labelled "history, not a forecast".
+- **● LIVE TRADING:** a 🗂 data chip (up to date or not). The 🧪 / 💰 shortcuts open the labs. No order path changed.
+- **💰 FUNDED LAB result:** the phase strip (EVAL ✓ ▸ FUNDED ▸ PAYOUT 1 ▸ …) with "next: …" in words. 🛒 BUY THE NEXT BATCH shows money in vs spent and the rule (no new batch until the payouts cover the spend; keep 3 batches of budget). It starts a new Eval Lab batch with the same counts per firm.
+- **⚡ ALL AT ONCE:** now held to 4:55 PM like STAGGERED. The old "30 of 30 blown" came from the take profit waiting for a close above it; it is a limit now (tested).

@@ -1015,6 +1015,15 @@ public static class PropSimTests
                 Check(safe.Safe && safe.Qm == 1 && Math.Abs(safe.Tp - 800) < 0.01 && Math.Abs(safe.Stop - 300) < 0.01 && safe.Note.Contains("about 6 in 10") && paidOn == lr2.QualDays,
                     "🛟 SAFE PAYOUT (the funded default): MNQ 1 · +$800 / −$300 · the payout on the " + lr2.QualDays + "th qualifying day (profit ≥ $500)", "paid on day " + paidOn + " · qual " + sa.Qual + " · bal " + sa.Bal.ToString("0"));
             }
+            {   // ⚡ BUILD 10e: ALL AT ONCE entered at 9:30 and HELD to 4:55 PM (like STAGGERED) — a sensible share passes on random-walk days, never "30 of 30 blown"
+                var hst = wset(true, false, 930, 1655); var hsim = KeystoneRotationLab.Run(hst, wdays, 930, 1655, () => false, null, null); var h30 = hsim.Accounts.Take(30).ToList();
+                int hp = h30.Count(a => hsim.PassedOrPending(a)), hb = h30.Count(a => !a.Alive && !hsim.PassedOrPending(a)); bool late = hsim.Trades.Any(tq => tq.Exit.TimeOfDay > new TimeSpan(11, 31, 0) && tq.Exit.TimeOfDay <= new TimeSpan(16, 56, 0));
+                Check(hp >= 3 && hb < 30, "⚡ ALL AT ONCE held to 4:55 PM: " + hp + " passed / " + hb + " blown of 30 (not 30 of 30) — the take profit is a limit, so a held trade can reach it", hp + " / " + hb);
+            }
+            {   // 📅 the 2-DAY TEST: every weekday = a 2-session batch start → pass % per start day, by weekday, the distribution
+                var tst = wset(true, true, 155, 1655); tst.AllSide = "FIRM"; tst.Accounts = 10; var rows2 = KeystoneTwoDay.Run(tst, wdays.Take(8).ToList(), 155, 1655, false); var rows3 = KeystoneTwoDay.Run(tst, wdays.Take(8).ToList(), 155, 1655, true); var rr = KeystoneTwoDay.Results(rows2, false);
+                Check(rows2.Count == 7 && rows3.Count == 6 && rows2.All(x => x.N == 10 && x.Passed + x.Blown <= 10) && rr.Eval.Count >= 2 && rr.Stats.Any(x => x[0] == "best weekday to start") && rr.Days.Count == 8, "📅 2-DAY TEST: 8 days → 7 starts (TPT 6), pass % per start day, by weekday, the distribution", string.Join(" ", rows2.Select(x => x.PassPct.ToString("0"))));
+            }
             // 📜 the event log: CSV export
             var lg = new KeystoneLabLog(); lg.Add(new DateTime(2026, 1, 5, 9, 30, 0), "ENTRY", "TPT 1", "BUY 20 MNQ, \"quoted\""); Check(lg.Csv().Split('\n').Length >= 2 && KeystoneLabLog.Line(lg.Rows[0]).Contains("ENTRY"), "📜 the event log exports as CSV / text");
         }

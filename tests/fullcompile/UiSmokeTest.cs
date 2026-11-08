@@ -1087,6 +1087,10 @@ public static class UiSmokeTest
                     Set(lab4, "evalLabResultsLast", null); ((Action<string>)G("evalLabCalc2"))("BOTH"); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
                     var cb2 = (KeystoneLabResults)G("evalLabResultsLast"); if (cb2 == null || cb2.Scope != "BOTH" || cb2.PayoutRows.Count < 1 || !cb2.Stats.Any(x => x[0] == "money")) throw new Exception("⚡ EVAL → FUNDED → PAYOUTS gave no result");
                     Console.WriteLine("      🎲 CALCULATE = REPLAY on " + cr.Period + ": " + cr.Passed + " passed, " + cr.Blown + " blown, " + cr.InEval + " in eval (" + cr.Accounts + " accounts) • ⤓ " + System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(html)) + " • BOTH: " + cb2.Payouts + " payouts, net " + (cb2.Paid - cb2.Spent).ToString("0"));
+                    Set(lab4, "evalLabResultsLast", null); ((Action<DateTime, DateTime>)G("evalLabTwoDay"))(new DateTime(2026, 1, 5), new DateTime(2026, 1, 16)); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
+                    var td = (KeystoneLabResults)G("evalLabResultsLast"); if (td == null || !td.Period.StartsWith("📅 2-DAY TEST") || td.Days.Count < 2 || !td.Stats.Any(x => x[0] == "best weekday to start")) throw new Exception("📅 2-DAY TEST gave no result");
+                    ((Action<string>)G("evalLabShow"))("REPORTS"); ((Action<string>)G("evalLabShow"))("DATA"); ((Action<string>)G("evalLabShow"))("ROTATE");
+                    Console.WriteLine("      📅 " + td.Period + " · " + td.Stats[1][1]);
                     boxes.OfType<System.Windows.Controls.CheckBox>().First(c => Convert.ToString(c.Tag) == "rot.tptauto").IsChecked = false;
                 }
                 ((Action<bool>)G("evalLabAuto"))(false); ((Action<string>)G("evalLabDeletePool"))(pn0);
