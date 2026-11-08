@@ -558,6 +558,24 @@ public static class AccountLinkTests
             Check(Math.Abs(w.ConsistencyPct() - 100.0 * 800 / 900) < 1e-6, "consistency = best day ÷ total profit", w.ConsistencyPct().ToString());
             var w2 = KeystoneAccountWatch.Parse(w.Serialize()); Check(w2 != null && w2.Closes.Count == 3 && w2.StartBalance == 50000, "account watch saves and loads");
         }
+        {   // ● THE LABS' LIVE SIDE (BUILD 10d): detection + stage + progress + pools + order + tracking — reads accounts only, never an order
+            var snaps = new List<Tuple<string, string, double, double, int>> { Tuple.Create("TPT123456", "TakeProfit Rithmic", 52800.0, 0.0, 0), Tuple.Create("Sim101", "Simulated", 100000.0, 0.0, 0), Tuple.Create("LT-77001", "Rithmic", 50300.0, 300.0, 1), Tuple.Create("PRO98765-TPT", "TakeProfit Rithmic", 50000.0, 0.0, 0) };
+            var acc = KeystoneLabLive.Classify(snaps, new Dictionary<string, string>(), new Dictionary<string, int> { { "TPT123456", 4 } });
+            var tpt = acc.FirstOrDefault(a => a.Account == "TPT123456"); var pro = acc.FirstOrDefault(a => a.Account == "PRO98765-TPT");
+            Check(acc.Count == 3 && tpt != null && tpt.Firm == "TPT" && tpt.Stage == "EVAL" && KeystoneLabLive.Progress(tpt).StartsWith("+$2,800 / $3,000 · $200 to go") && pro != null && pro.Stage == "FUNDED" && !acc.Any(a => a.Account == "Sim101"),
+                "● LIVE detection: TPT123456 at $52,800 = TPT · EVAL '+$2,800 / $3,000 · $200 to go' • the PRO account = TPT · FUNDED • Sim101 left out", string.Join(" | ", acc.Select(a => a.Account + "=" + a.Firm + "·" + a.Stage + " " + KeystoneLabLive.Progress(a))));
+            Check(KeystoneLabLive.Badge(acc).StartsWith("● LIVE · ") && KeystoneLabLive.Badge(new List<KeystoneLiveAcct>()) == "" && KeystoneLabLive.Badge(acc.Where(a => a.Account == "TPT123456").ToList()) == "● LIVE · 1 TPT eval", "● the LIVE button: grey without prop accounts, a count when found", KeystoneLabLive.Badge(acc));
+            var ov = KeystoneLabLive.Classify(snaps, new Dictionary<string, string> { { "TPT123456", "FUNDED" } }, null); Check(ov.First(a => a.Account == "TPT123456").Stage == "FUNDED" && ov.First(a => a.Account == "TPT123456").Overridden, "● a saved one-click override wins (TPT123456 → FUNDED)");
+            var passed = KeystoneLabLive.Classify(new[] { Tuple.Create("TPT555", "TakeProfit", 53050.0, 250.0, 1) }, null, new Dictionary<string, int> { { "TPT555", 5 } }); Check(KeystoneLabLive.TargetReached(passed[0]) && KeystoneLabLive.Progress(passed[0]).StartsWith("✅ target reached"), "● +$3,050 with the minimum days = target reached, waiting for the firm");
+            var links = new Dictionary<string, string>(); KeystoneLabLive.LinkFunded(acc, new List<Tuple<string, string>> { Tuple.Create("TPT", "TPT555") }, links); Check(pro.LinkedEval == "TPT555" && links["PRO98765-TPT"] == "TPT555", "● the TPT PRO account is linked to the eval that passed");
+            var pools = KeystoneLabLive.Pools(acc); Check(pools.Any(x => x.Item1 == "TPT · EVAL") && pools.Any(x => x.Item1 == "TPT · FUNDED") && pools.Any(x => x.Item1 == "LUCID · EVAL"), "● one pool per firm per stage", string.Join(", ", pools.Select(x => x.Item1)));
+            var pick = new List<KeystoneLiveAcct> { new KeystoneLiveAcct { Account = "T1", Firm = "TPT" }, new KeystoneLiveAcct { Account = "T2", Firm = "TPT" }, new KeystoneLiveAcct { Account = "L1", Firm = "LUCID" } };
+            Check(string.Join(",", KeystoneLabLive.Order(pick)) == "T1,L1,T2", "● the live rotation order = the backtest's (firm by firm)");
+            var days = new List<KeystoneLiveDay>(); KeystoneLabLive.Upsert(days, new DateTime(2026, 11, 9), 50000, 0, 48000); KeystoneLabLive.Upsert(days, new DateTime(2026, 11, 9), 50400, 1, 48000); KeystoneLabLive.Upsert(days, new DateTime(2026, 11, 10), 50650, 1, 48400);
+            var back = KeystoneLabLive.ParseDays(KeystoneLabLive.DaysCsv(days)); var lr = KeystonePayoutRules.For("LUCID", KeystonePayoutRules.Presets());
+            var el = KeystoneLabLive.Eligibility(back, lr, 50000, new DateTime(2026, 11, 10));
+            Check(back.Count == 2 && Math.Abs(back[0].Pnl - 400) < 0.01 && Math.Abs(back[1].StartBal - 50400) < 0.01 && Math.Abs(back[1].Pnl - 250) < 0.01 && el.StartsWith("qualifying days 2/" + lr.QualDays), "● daily tracking: a row per day (start = yesterday's end), saved and read back • eligibility n / N", el);
+        }
         Console.WriteLine(failures == 0 ? "ALL ACCOUNT LINK TESTS PASSED" : failures + " ACCOUNT LINK TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

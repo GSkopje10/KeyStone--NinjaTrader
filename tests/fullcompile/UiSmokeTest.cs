@@ -1291,7 +1291,7 @@ public static class UiSmokeTest
                 var mixR = radios.First(r => Convert.ToString(r.Content) == "🎲 a simulated mix"); foreach (var r in radios.Where(r => r.GroupName == "fz1")) r.IsChecked = r == mixR;
                 fboxes.First(b => Convert.ToString(b.Tag) == "fz.lucid").Text = "7"; fboxes.First(b => Convert.ToString(b.Tag) == "fz.tradeify").Text = "5"; fboxes.First(b => Convert.ToString(b.Tag) == "fz.tpt").Text = "1";
                 if (!fnx() || !fz.Summary[0].Contains("bench")) throw new Exception("funded step 1: " + fz.Summary[0]);
-                if (!fnx() || !fz.Summary[1].StartsWith("★ MAX IN 5")) throw new Exception("funded step 2 should pre-select ★ MAX IN 5: " + fz.Summary[1]);
+                if (!fnx() || !fz.Summary[1].StartsWith("🛟 SAFE PAYOUT")) throw new Exception("funded step 2 should pre-select 🛟 SAFE PAYOUT (the tested default): " + fz.Summary[1]);
                 ((Action<DateTime, DateTime>)G("fundedLabWizardDays"))(new DateTime(2026, 3, 2), new DateTime(2026, 4, 10));
                 if (!fnx() || !fnx()) throw new Exception("funded steps 3 / 4"); Set(lab4, "fundedLabPayLast", null); if (!fnx()) throw new Exception("funded START");
                 for (int i = 0; i < 600 && G("fundedLabPayLast") == null; i++) System.Threading.Thread.Sleep(100);
@@ -1299,8 +1299,20 @@ public static class UiSmokeTest
                 var res = ((Func<System.Windows.FrameworkElement>)G("fundedLabWizardResult"))(); var texts = FindAll<System.Windows.Controls.TextBlock>(res).Select(t => t.Text ?? "").ToList();
                 if (!texts.Any(t => t.StartsWith("Lucid · EOD trailing")) || !texts.Any(t => t.StartsWith("Tradeify · EOD trailing")) || !texts.Any(t => t.StartsWith("TPT ·")) || !texts.Any(t => t.Contains("funded accounts (a simulated mix)")) || !texts.Any(t => t.StartsWith("🪑 BENCH")))
                     throw new Exception("a mixed pool should show each firm's model + the top line + the bench: " + string.Join(" | ", texts.Take(8)));
-                if (pr.Accounts.Count(a => a.Firm == "LUCID") < 5 || !pr.Accounts.Any(a => a.Mode == "PUSH" || a.Mode == "QUALIFY")) throw new Exception("MAX IN 5 modes");
+                if (pr.Accounts.Count(a => a.Firm == "LUCID") < 5 || pr.Trades.Count == 0) throw new Exception("🛟 SAFE PAYOUT: the funded accounts should trade");
                 Console.WriteLine("      " + texts.First(t => t.StartsWith("💰")) + " • " + pr.Payouts + " payouts");
+                {   // ● THE LABS' LIVE SIDE (BUILD 10d): the button lights up with a TPT eval at +$2,800; ✓ CONFIRM writes the pool for ● LIVE TRADING (MANUAL) — no order
+                    var feed = (Action<List<Tuple<string, string, double, double, int>>>)G("evalLabLiveFeed"); if (feed == null) throw new Exception("no ● LIVE feed");
+                    feed(new List<Tuple<string, string, double, double, int>>()); if (((Func<string>)G("evalLabLiveBadge"))() != "") throw new Exception("● LIVE must stay grey without prop accounts");
+                    feed(new List<Tuple<string, string, double, double, int>> { Tuple.Create("TPT123456", "TakeProfit Rithmic", 52800.0, 0.0, 0), Tuple.Create("LT-77001", "Rithmic", 50300.0, 300.0, 1) });
+                    var bd = ((Func<string>)G("evalLabLiveBadge"))(); if (!bd.Contains("1 TPT eval")) throw new Exception("● LIVE badge: " + bd);
+                    var picks = FindAll<System.Windows.Controls.CheckBox>(tabs.Items[0]).Where(c => Convert.ToString(c.Tag).StartsWith("live.pick.")).ToList(); if (picks.Count != 2) throw new Exception("● LIVE pools: " + picks.Count + " accounts to tick");
+                    foreach (var c in picks) { c.IsChecked = true; var fe = typeof(System.Windows.Controls.Primitives.ToggleButton).GetField("Checked", BindingFlags.NonPublic | BindingFlags.Instance); var dl = fe == null ? null : fe.GetValue(c) as Delegate; if (dl != null) dl.DynamicInvoke(c, new System.Windows.RoutedEventArgs()); }
+                    Set(lab4, "labLiveNoOpen", true); System.Windows.MessageBox.Answer = (txt, b) => System.Windows.MessageBoxResult.Yes; var ord = ((Func<List<string>>)G("evalLabLiveConfirm"))(); System.Windows.MessageBox.Answer = null; Set(lab4, "labLiveNoOpen", false);
+                    if (ord.Count != 2 || ord[0] != "TPT123456") throw new Exception("● LIVE ✓ CONFIRM order: " + string.Join(",", ord));
+                    Console.WriteLine("      ● LIVE: " + bd + " • ✓ CONFIRM → " + string.Join(" → ", ord) + " (handed to LIVE TRADING ▸ ROTATE, MANUAL)");
+                    feed(new List<Tuple<string, string, double, double, int>>());
+                }
                 System.Windows.MessageBox.Answer = (txt, b) => System.Windows.MessageBoxResult.No; lw.Close(); System.Windows.MessageBox.Answer = null;
                 if (G("labsWindow") != null || G("rotStudioWindow") != null || G("fundedLabWindow") != null) throw new Exception("CLOSE should close the labs");
                 Set(lab4, "rotStudioDaysOverride", null); Set(lab4, "fundedLabDaysOverride", null);

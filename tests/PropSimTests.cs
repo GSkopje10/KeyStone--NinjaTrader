@@ -737,7 +737,7 @@ public static class PropSimTests
             Check(pr.Stage == "BLOWN" && pr.Payouts == 0 && pr.Bal > -2100, "💵 riding the room into a falling market: BLOWN pAt the floor (the end)", pr.Stage + " " + pr.Bal);
             {   // 🔒 TPT: phase 1 the one-shot lock (MNQ 10, +$2,250 − the balance, intraday trailing incl. open profit) → phase 2 withdrawals of $2,000 (80 % → $1,600) keeping the $2,000 buffer
                 var pTpt = KeystonePayoutRules.For("TPT", null); var pp = new KeystonePayoutAccount { Id = 7, Name = "TPT 1", Firm = "TPT", Floor = -2000 };
-                var tptUp = pdays(30, mm => 4.0 * mm); var tptEv = new List<KeystonePayoutEvent>(); var tptMx = KeystonePayoutPlan.Presets()[0];
+                var tptUp = pdays(30, mm => 4.0 * mm); var tptEv = new List<KeystonePayoutEvent>(); var tptMx = KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread);
                 KeystonePayout.Day(pp, pTpt, tptMx, tptUp[0], 1, null, null, tptEv); bool locked1 = pp.Locked && pp.Floor == 0 && pp.Bal >= 2249 && pp.Mode == "WITHDRAW" && pp.Payouts == 0;
                 for (int i = 1; i < 30 && pp.Active; i++) KeystonePayout.Day(pp, pTpt, tptMx, tptUp[i], 1, null, null, tptEv);
                 Check(!pTpt.Parked && pTpt.Tpt && locked1 && pp.Payouts >= 2 && tptEv.All(e => Math.Abs(e.Gross - 2000) < 0.01 && Math.Abs(e.Net - 1600) < 0.01 && e.BalAfter >= 2000 - 0.01) && pp.Floor == 0,
@@ -752,7 +752,7 @@ public static class PropSimTests
             var pRl = KeystonePayoutRules.Load(KeystonePayoutRules.Save(new[] { new KeystonePayoutRules { Firm = "LUCID", Name = "L", Cap = 1800, Split = 80, QualDays = 4 } }));
             Check(pRl.Count == 3 && pRl[0].Cap == 1800 && pRl[0].Split == 80 && pRl[0].QualDays == 4 && pRl.Any(x => x.Firm == "TPT" && x.Tpt && !x.Parked), "💵 the firm payout rules are saved and read back (missing firms = the presets)");
             var pPlp = KeystonePayoutPlan.LoadPlans(KeystonePayoutPlan.SavePlans(new[] { new KeystonePayoutPlan { Name = "MY", Side = "LONDON", Qm = 6, Tp = 1200, Stop = 400, Tries = 2, MaxOnly = true, Protect = true } }));
-            Check(pPlp.Count == 1 && pPlp[0].Qm == 6 && pPlp[0].Tries == 2 && pPlp[0].MaxOnly && pPlp[0].Protect && KeystonePayoutPlan.Presets().Count == 9, "💵 a payout template is saved and read back • 9 presets");
+            Check(pPlp.Count == 1 && pPlp[0].Qm == 6 && pPlp[0].Tries == 2 && pPlp[0].MaxOnly && pPlp[0].Protect && KeystonePayoutPlan.Presets().Count == 10, "💵 a payout template is saved and read back • 10 presets (🛟 SAFE PAYOUT first)");
             {   // ⏸ LUCID: no live, a 2-week cooldown (14 calendar days ≈ 10 trading days) after each payout, no payout-count cap (the user, 2026-11-09)
                 Check(KeystonePayoutRules.Presets()[0].After == "LIVE" && !KeystonePayoutRules.Presets()[0].Cooldown, "⏸ Lucid preset: the standard plan (moved to live after the payouts) • the cooldown is a choice"); var lc = KeystonePayoutRules.Presets()[0].Copy(); lc.After = "COOLDOWN"; var up60 = pdays(100, mm => 2.0 * mm);
                 Check(lc.Cooldown && lc.CooldownDays == 14 && lc.CoolTradingDays == 10 && lc.CoolPause, "⏸ Lucid with COOLDOWN chosen: 14 days (10 trading days), no trades during it", lc.After + " " + lc.CooldownDays + " " + lc.CoolTradingDays);
@@ -878,7 +878,7 @@ public static class PropSimTests
             var wmix = KeystoneLabWizard.Mix(7, new[] { "tpt", "LUCID", "TRADEIFY" });
             Check(wmix.Count == 7 && wmix[0].Firm == "TPT" && wmix[1].Firm == "LUCID" && wmix[3].Nick == "TPT 2", "🧭 a simulated mix: firm by firm (TPT 1, LUCID 1, TRADEIFY 1, TPT 2 …)");
             // ★ MAX IN 5: PUSH (MNQ 6, TP = the profit still missing, max +2,500, stop −500) until +4,000 (Lucid), then QUALIFY (MNQ 2, +200 / −600, 3 tries), only the max payout
-            var mx = KeystonePayoutPlan.Presets()[0]; var lr = KeystonePayoutRules.Presets()[0];
+            var mx = KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread); var lr = KeystonePayoutRules.Presets()[0];
             var ma = new KeystonePayoutAccount { Name = "Lucid 1", Firm = "LUCID", Floor = lr.FloorOf(0) }; KeystonePayout.Day(ma, lr, mx, wdays[0], 1);
             var mb = new KeystonePayoutAccount { Name = "Lucid 2", Firm = "LUCID", Bal = 4100, PeakEod = 4100, Floor = lr.FloorOf(4100) }; KeystonePayout.Day(mb, lr, mx, wdays[1], 1);
             Check(mx.MaxIn5 && mx.Qm == 6 && ma.Mode == "PUSH" && mb.Mode == "QUALIFY" && ma.RuleLine(lr, true).Contains("PUSH") && ma.RuleLine(lr, true).Contains("more profit") && KeystoneFundedModel.Of("TPT", KeystonePayoutRules.Presets()[2]).Contains("lock"), "★ MAX IN 5 is the default funded plan: PUSH under +$4,000 (Lucid), QUALIFY above • the tracker says PUSH / QUALIFY and what is missing • TPT parked", ma.Mode + " " + mb.Mode + " " + ma.RuleLine(lr, true));
@@ -890,7 +890,7 @@ public static class PropSimTests
             Check(fb.ActiveOf("LUCID") <= 5 && fParked && fRepl && KeystoneFundedModel.TopLine(fr.Accounts, fb.Bench.Count, true).Contains("passed the eval"), "💰 funded run: max 5 Lucid active (the rest on the 🪑 bench, replacing a blown / finished one), TPT parked, the top line says what is simulated", lucStart + " lucid seats • bench " + fb.Bench.Count + " • " + KeystoneFundedModel.TopLine(fr.Accounts, fb.Bench.Count, true));
             {   // 🧩 SPREAD (the funded default) : each account its own entry time (2:00 / 8:30 / 9:30 / 10:00 / 11:00), one side a day per firm (never opposite inside a firm)
                 Func<int, Func<int, double>, List<KeystoneRotDay>> pdays = (n, path) => { var L = new List<KeystoneRotDay>(); var dd0 = new DateTime(2026, 3, 2); for (int i = 0; i < n; i++, dd0 = dd0.AddDays(dd0.DayOfWeek == DayOfWeek.Friday ? 3 : 1)) { var d = new KeystoneRotDay { Day = dd0 }; int pk0 = KeystoneRotDay.Slot(930); double last = 20000; for (int k = 0; k < KeystoneRotDay.Slots; k++) { double o = last, c = k < pk0 ? 20000 : 20000 + path(k - pk0); d.MO[k] = (float)o; d.MC[k] = (float)c; d.MH[k] = (float)Math.Max(o, c); d.ML[k] = (float)Math.Min(o, c); d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = 4000; last = c; } L.Add(d); } return L; };
-                var sp = KeystonePayoutPlan.Presets()[0]; var spool = new List<KeystoneEvalAccount>(); for (int i = 1; i <= 3; i++) spool.Add(new KeystoneEvalAccount { Firm = "LUCID", Nick = "L" + i }); for (int i = 1; i <= 2; i++) spool.Add(new KeystoneEvalAccount { Firm = "TRADEIFY", Nick = "T" + i });
+                var sp = KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread); var spool = new List<KeystoneEvalAccount>(); for (int i = 1; i <= 3; i++) spool.Add(new KeystoneEvalAccount { Firm = "LUCID", Nick = "L" + i }); for (int i = 1; i <= 2; i++) spool.Add(new KeystoneEvalAccount { Firm = "TRADEIFY", Nick = "T" + i });
                 var sdays = pdays(4, mm => 2.0 * mm); var srun = KeystonePayout.Run(null, sp, spool, 0, sdays);
                 Func<int, string> firmOf = id => srun.Accounts[id - 1].Firm;
                 bool sameSide = srun.Trades.Count > 0 && srun.Trades.GroupBy(x => x.Day.Ticks + "|" + firmOf(x.Account)).All(g => g.Select(x => x.Dir).Distinct().Count() == 1);
@@ -900,7 +900,7 @@ public static class PropSimTests
             }
             {   // ★ MAX IN 5 in the replay: an account at the max-payout balance trades QUALIFY (MNQ 2, +$200 / −$600) and counts the qualifying day
                 Func<int, Func<int, double>, List<KeystoneRotDay>> pdays = (n, path) => { var L = new List<KeystoneRotDay>(); var dd0 = new DateTime(2026, 3, 2); for (int i = 0; i < n; i++, dd0 = dd0.AddDays(dd0.DayOfWeek == DayOfWeek.Friday ? 3 : 1)) { var d = new KeystoneRotDay { Day = dd0 }; int pk0 = KeystoneRotDay.Slot(930); double last = 20000; for (int k = 0; k < KeystoneRotDay.Slots; k++) { double o = last, c = k < pk0 ? 20000 : 20000 + path(k - pk0); d.MO[k] = (float)o; d.MC[k] = (float)c; d.MH[k] = (float)Math.Max(o, c); d.ML[k] = (float)Math.Min(o, c); d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = 4000; last = c; } L.Add(d); } return L; };
-                var eodR = KeystoneFundedRules.Presets()[1].Copy(); var mx5 = KeystonePayoutPlan.Presets()[0].Copy(); mx5.Spread = false; mx5.StartHhmm = 930;
+                var eodR = KeystoneFundedRules.Presets()[1].Copy(); var mx5 = KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread).Copy(); mx5.Spread = false; mx5.StartHhmm = 930;
                 var rq = new KeystoneFundedReplay { Rules = eodR, Plan = new KeystoneFundedPlan { Name = "P", Side = "BUY", StartHhmm = 930, Qm = 6, Tp = 2500 }, Days = pdays(2, mm => 2.0 * mm), Auto = true, MaxPlan = mx5, PayRules = KeystonePayoutRules.Presets() };
                 rq.Accounts.Add(new KeystoneFundedAccount { Id = 1, Name = "Lucid 1", Firm = "LUCID", Bal = 4100, PeakEod = 4100, Peak = 4100, Floor = 100 }); rq.Load(0);
                 var qpl = rq.PlanFor(rq.Accounts[0]); for (int i = 0; i < 2000 && !rq.DayDone; i++) rq.Step(); rq.EndDay();
@@ -964,11 +964,11 @@ public static class PropSimTests
                     "📈 lab chart: 1m → 5m bars (O first, C last, H / L extremes), the wheel zooms, a drag pans back, ⟲ NOW follows again, a candle's O / H / L / C", all.Count + " bars, zoom " + b0 + "→" + b1);
             }
             {   // ⇢ FUNDED: breakeven at +$500 on push days (off by default) — a push trade up +$600 then down to the stop ends near 0 instead of −stop
-                var r = KeystonePayoutRules.For("LUCID", KeystonePayoutRules.Presets()); var pp = KeystonePayoutPlan.Presets()[0].Copy(); pp.Spread = false; pp.StartHhmm = 930; pp.Side = "BUY";
+                var r = KeystonePayoutRules.For("LUCID", KeystonePayoutRules.Presets()); var pp = KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread).Copy(); pp.Spread = false; pp.StartHhmm = 930; pp.Side = "BUY";
                 var d = new KeystoneRotDay { Day = new DateTime(2026, 3, 3) }; int pk0 = KeystoneRotDay.Slot(930); for (int k = 0; k < KeystoneRotDay.Slots; k++) { double px = k < pk0 ? 20000 : k <= pk0 + 15 ? 20000 + 5.0 * (k - pk0) : 20075 - 5.0 * (k - pk0 - 15); d.MO[k] = d.MC[k] = d.MH[k] = d.ML[k] = (float)px; d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = 4000; }
                 var a0 = new KeystonePayoutAccount { Id = 1, Firm = "LUCID", Floor = r.FloorOf(0) }; var a1 = new KeystonePayoutAccount { Id = 1, Firm = "LUCID", Floor = r.FloorOf(0) };
                 double v0 = KeystonePayout.Day(a0, r, pp, d, 1); var pb = pp.Copy(); pb.PushBe = 500; double v1 = KeystonePayout.Day(a1, r, pb, d, 1);
-                Check(KeystonePayoutPlan.Presets()[0].PushBe == 0 && a1.Mode == "PUSH" && v1 > v0 + 300 && Math.Abs(v1) < 60, "⇢ funded push days: breakeven at +$500 (option, off by default) turns a +$600-then-stop day into ≈ $0", v0.ToString("0") + " → " + v1.ToString("0"));
+                Check(KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread).PushBe == 0 && a1.Mode == "PUSH" && v1 > v0 + 300 && Math.Abs(v1) < 60, "⇢ funded push days: breakeven at +$500 (option, off by default) turns a +$600-then-stop day into ≈ $0", v0.ToString("0") + " → " + v1.ToString("0"));
             }
             {   var tg = new List<string> { KeystoneLabFlow.RemainTag(2400, 3000, 1, 2, "LUCID"), KeystoneLabFlow.RemainTag(3000, 3000, 2, 3, "TPT"), KeystoneLabFlow.RemainTag(-500, 3000, 1, 2, "TRADEIFY") };
                 Check(tg[0] == "needs +$600 more (a winning day)" && tg[1].StartsWith("TPT day 3 (min 3 days") && KeystoneLabFlow.RemainLine(tg).StartsWith("3 still in evaluation — 2 need another winning day (a losing or partial day), 1 need their minimum days"), "🧾 why the accounts are still in evaluation after the close", KeystoneLabFlow.RemainLine(tg)); }
@@ -979,7 +979,7 @@ public static class PropSimTests
             }
             {   // 🐞 BUILD 10a: 5 TPT funded accounts (🧩 SPREAD) no longer live or die together — each its own entry time, the same side inside the firm
                 Func<int, Func<int, double>, List<KeystoneRotDay>> pdays = (n, path) => { var L = new List<KeystoneRotDay>(); var dd0 = new DateTime(2026, 3, 2); for (int i = 0; i < n; i++, dd0 = dd0.AddDays(dd0.DayOfWeek == DayOfWeek.Friday ? 3 : 1)) { var d = new KeystoneRotDay { Day = dd0 }; double last = 20000; for (int k = 0; k < KeystoneRotDay.Slots; k++) { double c = 20000 + 30 * Math.Sin(k / 37.0) + 0.02 * k; d.MO[k] = (float)last; d.MC[k] = (float)c; d.MH[k] = (float)Math.Max(last, c); d.ML[k] = (float)Math.Min(last, c); d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = 4000; last = c; } L.Add(d); } return L; };
-                var tp = KeystonePayoutPlan.Presets()[0]; var tpool = new List<KeystoneEvalAccount>(); for (int i = 1; i <= 5; i++) tpool.Add(new KeystoneEvalAccount { Firm = "TPT", Nick = "TPT " + i });
+                var tp = KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread); var tpool = new List<KeystoneEvalAccount>(); for (int i = 1; i <= 5; i++) tpool.Add(new KeystoneEvalAccount { Firm = "TPT", Nick = "TPT " + i });
                 var trules = KeystonePayoutRules.Presets().Select(x => x.Copy()).ToList(); foreach (var x in trules.Where(x => x.Firm == "TPT")) x.Parked = false;
                 var trun = KeystonePayout.Run(trules, tp, tpool, 0, pdays(2, null));
                 var t0 = trun.Trades.Where(x => x.Day == trun.From).ToList(); bool oneSide = t0.Select(x => x.Dir).Distinct().Count() <= 1;
@@ -998,11 +998,22 @@ public static class PropSimTests
             {   // 💰 from the eval: a funded account starts the session AFTER its pass (TPT pending: after its day-3 trade) • the wizard skips the auto-filled days step
                 Func<int, List<KeystoneRotDay>> fd = n => { var L = new List<KeystoneRotDay>(); var dd0 = new DateTime(2026, 3, 2); for (int i = 0; i < n; i++, dd0 = dd0.AddDays(dd0.DayOfWeek == DayOfWeek.Friday ? 3 : 1)) { var d = new KeystoneRotDay { Day = dd0 }; double last = 20000; for (int k = 0; k < KeystoneRotDay.Slots; k++) { double c = 20000 + 0.05 * k; d.MO[k] = (float)last; d.MC[k] = (float)c; d.MH[k] = (float)Math.Max(last, c); d.ML[k] = (float)Math.Min(last, c); d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = 4000; last = c; } L.Add(d); } return L; };
                 var fdaysF = fd(4); var pass1 = new DateTime(2026, 3, 2); var srcF = new List<KeystoneEvalAccount> { new KeystoneEvalAccount { Firm = "LUCID", Nick = "Lucid 1", StartOn = KeystoneLabFlow.FundedStart(pass1, false) }, new KeystoneEvalAccount { Firm = "LUCID", Nick = "Lucid 2", StartOn = KeystoneLabFlow.FundedStart(new DateTime(2026, 3, 3), false) } };
-                var frun = KeystoneFundedBench.Run(null, KeystonePayoutPlan.Presets()[0], srcF, fdaysF, new KeystoneBench());
+                var frun = KeystoneFundedBench.Run(null, KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread), srcF, fdaysF, new KeystoneBench());
                 var a1 = frun.Accounts.First(a => a.Name == "Lucid 1"); var a2 = frun.Accounts.First(a => a.Name == "Lucid 2");
                 var wzF = new KeystoneLabWizard(); wzF.Auto[2] = true; wzF.Done[2] = true; wzF.Complete(0, "a"); wzF.Complete(1, "b");
                 Check(a1.Funded == new DateTime(2026, 3, 3) && a2.Funded == new DateTime(2026, 3, 4) && KeystoneLabFlow.FundedStart(new DateTime(2026, 3, 6), false) == new DateTime(2026, 3, 9) && KeystoneLabFlow.FundedStart(new DateTime(2026, 3, 5), true) == new DateTime(2026, 3, 9) && wzF.Step == 3 && frun.Trades.All(tq => tq.Account != a2.Id || tq.Day >= new DateTime(2026, 3, 4)),
                     "💰 from the eval: each funded account starts the session after its pass (Mon pass → Tue; Fri → Mon; TPT Thu + day 3 → Mon) • the days step fills itself", a1.Funded.ToString("ddd dd") + " / " + a2.Funded.ToString("ddd dd") + " step " + wzF.Step);
+            }
+            {   // 🛟 SAFE PAYOUT (the funded default): MNQ 1, +$800 / −$300 — the payout fires on the 5th qualifying day once the profit is ≥ $500
+                var safe = KeystonePayoutPlan.Presets()[0]; var lr2 = KeystonePayoutRules.For("LUCID", KeystonePayoutRules.Presets());
+                var sa = new KeystonePayoutAccount { Id = 1, Firm = "LUCID", Floor = lr2.FloorOf(0) }; var dd0 = new DateTime(2026, 3, 2); int paidOn = 0;
+                for (int i = 1; i <= 7; i++, dd0 = dd0.AddDays(dd0.DayOfWeek == DayOfWeek.Friday ? 3 : 1))
+                {
+                    var d = new KeystoneRotDay { Day = dd0 }; int k0 = KeystoneRotDay.Slot(safe.TimeOf(1)); for (int k = 0; k < KeystoneRotDay.Slots; k++) { double c = k < k0 ? 20000 : 20000 + 1.0 * (k - k0); d.MO[k] = (float)(k <= k0 ? 20000 : 20000 + (k - 1 - k0)); d.MC[k] = (float)c; d.MH[k] = Math.Max(d.MO[k], d.MC[k]); d.ML[k] = Math.Min(d.MO[k], d.MC[k]); d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = 4000; }
+                    KeystonePayout.Day(sa, lr2, safe, d, 1); if (sa.Payouts > 0 && paidOn == 0) paidOn = i;
+                }
+                Check(safe.Safe && safe.Qm == 1 && Math.Abs(safe.Tp - 800) < 0.01 && Math.Abs(safe.Stop - 300) < 0.01 && safe.Note.Contains("about 6 in 10") && paidOn == lr2.QualDays,
+                    "🛟 SAFE PAYOUT (the funded default): MNQ 1 · +$800 / −$300 · the payout on the " + lr2.QualDays + "th qualifying day (profit ≥ $500)", "paid on day " + paidOn + " · qual " + sa.Qual + " · bal " + sa.Bal.ToString("0"));
             }
             // 📜 the event log: CSV export
             var lg = new KeystoneLabLog(); lg.Add(new DateTime(2026, 1, 5, 9, 30, 0), "ENTRY", "TPT 1", "BUY 20 MNQ, \"quoted\""); Check(lg.Csv().Split('\n').Length >= 2 && KeystoneLabLog.Line(lg.Rows[0]).Contains("ENTRY"), "📜 the event log exports as CSV / text");

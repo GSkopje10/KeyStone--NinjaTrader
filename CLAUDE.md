@@ -40,6 +40,12 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   The MNQ+MGC ROTATION (Live Trading ▸ 🎲, `KeystoneDuoRotation`) trades both instruments on ONE pool account at a time only
   after START ROTATION is confirmed (each account: two armed links with their limits + a hard stop at the broker per leg;
   MANUAL sends nothing until a BUY / SELL button; ROTATE COPY GROUPS: a seat's `Mates` take the same sides); its tests are in `tests/AccountLinkTests.cs`.
+  The labs' ● LIVE side (🧪 EVAL LAB rail ▸ ● LIVE, `LabLiveView` + the pure `KeystoneLabLive`, BUILD 2026-11-10d) only READS NinjaTrader's accounts and balances: it
+  detects the prop accounts (firm + EVAL / FUNDED by name patterns in Studio\EvalLab\live\patterns.txt, a saved one-click override), organises one pool per firm per stage,
+  keeps per-pool settings (eval locked to the winning plan until 🔓 UNLOCK; funded default 🛟 SAFE PAYOUT) and the daily tracking (Studio\EvalLab\live\<account>.csv, payouts
+  entered by hand). It sends NO order: ✓ CONFIRM (asks first) only writes the ticked accounts, firm by firm and MANUAL, into ● LIVE TRADING ▸ 🔄 ROTATE's pool
+  (`labLiveTake` / RotationPool.txt with its `#order` line) — arming each account with its limits and START ROTATION stay there. AUTO on real accounts is not offered from
+  the labs (a later build, after MANUAL live); its tests are in `tests/AccountLinkTests.cs`.
   Research / lab / backtests stay historical; no Apex/Nexus coupling. The ⚖ DRAWDOWN LAB (its window + LIVE TRADING ▸ ⚖ TRAILING DD SIM tab, `KeystoneDdAccount` + `BuildDrawdownLabView`, tests `tests/DrawdownLabTests.cs`) is simulation only on live / saved prices: it never places an order.
 - SpasiX for MT5 (`mt5/`: the bridge EA `SpasiXBridge.mq5` v5 + the Windows app `mt5/app`, built with `dotnet publish` here, shipped in `mt5/dist`;
   a full-screen HOME picks LIVE / PROP / DEMO / BACKTEST; several can be open at once as tabs in our own title bar, `Shell.cs`, each LIVE / PROP

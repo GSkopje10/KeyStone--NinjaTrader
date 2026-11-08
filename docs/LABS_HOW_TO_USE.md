@@ -121,3 +121,19 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
   - The days step fills itself, so there is no date to pick.
   - Each account goes funded the session after it passed; TPT goes after its day-3 tiny trade.
   - Each account runs to its payouts, or to the end of the saved data ("⏳ data ends … download more in 🗂 DATA").
+
+## BUILD 2026-11-10d — ● LIVE in the labs (stage 3: detect, organise, track)
+- **The ● LIVE button** (🧪 EVAL LAB rail) stays grey until NinjaTrader is connected to a prop account. Then it lights up and pulses with a count ("● LIVE · 1 TPT eval"). It re-checks every 5 s.
+- **Detection:**
+  - The firm comes from the account name or the connection. The stage (EVAL / FUNDED) comes from name patterns in `Studio\EvalLab\live\patterns.txt` (editable).
+  - A one-click override per account is saved.
+  - An eval shows its progress, e.g. "+$2,800 / $3,000 · $200 to go · days 4/3". At the target plus the minimum days it shows "✅ target reached: waiting for the firm to move it to funded".
+  - A funded account that appears for that firm is linked to the eval that passed.
+- **Pools:** one pool per firm per stage ("TPT · EVAL", "TPT · FUNDED", "LUCID · EVAL" …). Tick the accounts to rotate, then ✓ CONFIRM.
+- **✓ CONFIRM:** hands the ticked accounts, firm by firm (the backtest's order) and MANUAL, to ● LIVE TRADING ▸ 🔄 ROTATE. There you ARM each account with its limits and confirm START ROTATION. The labs never send an order themselves. TPT is always manual.
+- **Per-pool settings:**
+  - Eval pools are locked to the winning plan (★ STAGGERED MNQ 20, +$1,500 riding the room); 🔓 UNLOCK asks first.
+  - Funded pools default to 🛟 SAFE PAYOUT (MNQ 1, +$800 / −$300 at each account's own time and side; TPT PRO: MNQ 2 · 9:30 London · withdraw $1,000 at +$3,000).
+  - "↺ back to the winning plan" restores the default.
+- **Tracking tabs:** 📅 DAILY · 📈 PROFITABILITY · ✅ ELIGIBILITY · ⏳ TIMELINE · 💰 PAYOUTS. Daily rows are saved per account in `Studio\EvalLab\live\<account>.csv`. Payouts and fees are entered by hand, since NinjaTrader doesn't know them.
+- **🛟 SAFE PAYOUT** is now the Funded Lab's default preset ("tested: about 6 in 10 funded accounts reach a payout"). ★ MAX IN 5 stays an option.
