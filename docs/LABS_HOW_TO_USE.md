@@ -9,20 +9,20 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
 
 - 1 • ACCOUNTS — 🧭 START HERE ▸ ① how many evaluations and which firms (or pick a pool from 👥 POOLS) ▸ ✓ NEXT. They rotate firm by firm: Firm1·acc1, Firm2·acc1 …
 - 2 • THE PLAN — ② keep ★ (the tested fixed model) or ⚙ customise (instrument, contracts, take profit $, floor / stop $, side, start time) ▸ ✓ NEXT. Your own plans live in 🎯 PLANS.
-- 3 • THE DAYS — ③ FROM / TO (yyyy-mm-dd, at least 2 saved days; BACKTEST STUDIO ▸ DATA LIBRARY downloads them) ▸ ✓ NEXT.
+- 3 • THE DAYS — ③ FROM / TO (yyyy-mm-dd, at least 2 saved days; 🗂 DATA ▸ ⤓ UPDATE / DOWNLOAD gets them) ▸ ✓ NEXT.
 - 4 • CHART OR MATH — ④ ▶ watch it minute by minute on the chart (replay) or ⚡ the totals at once ▸ ✓ NEXT.
 - 5 • START — ⑤ check the summary ▸ ▶ START. ← BACK / ✎ CHANGE fix a step; ⚙ advanced shows every screen.
 
 ### READING THE RESULTS
 
-- 6 • 🔄 ROTATE shows the account tiles (floor / buffer / target bars) and the run's totals; in the replay the next account's BUY / SELL flashes when MANUAL is on — nothing happens until you press.
+- 6 • 🔄 ROTATE ▸ 📈 TRADING = the chart + the pool on the right (🟢 ACTIVE / ✅ PASSED / 💀 BLOWN, ⤢ BIG CARDS); with ⚡ AUTO off the next account's BUY / SELL flashes — nothing happens until you press.
 - 7 • ⚡ CALCULATE ranks every plan on the days (progress bar + %, ■ STOP ends it); 🔮 HINDSIGHT shows what the perfect sides would have made.
 - 8 • 📅 START-DAY TEST (in ⚡ CALCULATE) starts a batch on every day of the range (progress bar + %, ■ STOP).
 - 9 • 📊 STATS = pass rate, days to pass, fees per funded account by firm / plan / month; 🧠 ADVISOR = the likelihood of the target before the floor.
 
 ### NEXT DAY • FUNDED • EXPORTS
 
-- 10 • In the replay ▶ NEXT DAY opens the next saved day; a passed account stops trading, a blown one drops out of the round robin.
+- 10 • In the replay ▶▶ NEXT DAY opens the next saved day; a passed account stops trading, a blown one drops out of the round robin.
 - 11 • 🔁 PIPELINE: eval → funded → payouts in one run — ▶ ONE BATCH / 📅 A BATCH EVERY WEEKDAY / 🔁 BUSINESS LOOP (progress bar + %, ■ STOP).
 - 12 • ⇢ SEND THE PASSED TO 💰 FUNDED LAB moves the passed accounts there; their eval history stays here.
 - 13 • ⤓ CSV / ⤓ HTML REPORT in each screen and 🗂 DATA (saved runs) export everything; 📜 EVENT LOG ▸ ⤓ EXPORT LOG saves every event.
@@ -36,20 +36,21 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
 - 2 • THE PLAN — ② ★ MAX IN 5 • 🧩 SPREAD is the default: each account trades its own time (2:00 / 8:30 / 9:30 / 10:00 / 11:00) and a firm never holds opposite positions; PUSH MNQ 6, then QUALIFY MNQ 2 (+$200 / −$600, up to 3 tries). ‘SAME SIDE FOR ALL’ is the all-or-nothing option ▸ ✓ NEXT.
 - 3 • THE DAYS — ③ FROM / TO (saved days on this PC) ▸ ✓ NEXT.
 - 4 • CHART OR MATH — ④ ▶ the replay on the chart or ⚡ the payout math at once ▸ ✓ NEXT.
-- 5 • START — ⑤ ▶ START. In the replay: ① START THE REPLAY ▸ ▶ PLAY (SPEED 1× … ) or ▶ NEXT DAY.
+- 5 • START — ⑤ ▶ START. In ▶ REPLAY: FROM → TO ▸ ⇩ LOAD ▸ ▶ PLAY (SPEED 1× … 30×) or ▶▶ NEXT DAY.
 
 ### READING THE RESULTS
 
-- 6 • Each tile = one funded account: the gauge runs from the floor (red) to the payout (green); 🔒 LOCKED = the floor stopped at the start; ✋ = the firm wants MANUAL (the button flashes).
+- 6 • ▶ REPLAY = the chart + the pool on the right (🟢 ACTIVE / 💰 PAID / 💀 BLOWN, ⤢ BIG CARDS): each row = one funded account — the bar runs from the floor to what the payout needs, qualifying days n / 5, the next payout date once known; 🔒 LOCKED = the floor stopped at the start; ✋ = the firm wants MANUAL (BUY / SELL flash).
 - 7 • 💵 PAYOUTS ▸ ▶ RUN THE PAYOUT CYCLES = the payouts tracker: qualifying days, each payout, what reaches you (progress + ■ STOP).
 - 8 • TPT: phase 1 = the one-shot lock (9:30, MNQ 10, +$2,250, intraday trailing incl. open profit); phase 2 = withdraw $2,000 while the $2,000 buffer stays (80 % → $1,600), never above $10,000 profit a day.
 - 9 • 🪑 BENCH: at most 5 active funded accounts per firm; the extra passed ones wait and replace a blown / finished one (first in, first out).
 
 ### NEXT DAY • EXPORTS • LIVE
 
-- 10 • ▶ NEXT DAY closes the day (qualifying day counted, payout checked) and opens the next one.
-- 11 • ⤓ CSV / ⤓ HTML REPORT export the runs; 📜 EVENT LOG ▾ shows every event, ⤓ EXPORT LOG saves it.
+- 10 • ▶▶ NEXT DAY closes the day (qualifying day counted, payout checked) and opens the next one.
+- 11 • ⤓ CSV / ⤓ HTML REPORT export the runs; ▶ REPLAY ▸ 📜 TRADES lists every replay trade.
 - 12 • ✕ DELETE (a pool, a plan) asks first (YES / NO).
+- 13 • ● LIVE (🧪 EVAL LAB rail, eval + funded) only reads your NinjaTrader prop accounts and hands them to ● LIVE TRADING ▸ 🔄 ROTATE; the labs send no order.
 
 ## ● LIVE
 
@@ -60,10 +61,10 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
 - Presets: ⚡ FAST CASH (funded MNQ 6, +$1,500 / −$500, one trade a day, the first eligible payout) and 🎯 TPT +$10K (lock MNQ 15 London side, then MNQ 10 +$4,000, withdraw at +$12,000; manual).
 - 🔁 PIPELINE ▸ 💰 BUDGET: your starting money + the price of one evaluation → how many to buy now, the reserve, when to scale, when to add a firm.
 
-### WHAT LIVE WILL BE (stage 3 — disabled today)
+### ● LIVE (🧪 EVAL LAB rail — read only)
 
-- ● LIVE will trade the real accounts in the same firm round robin ONLY through each account's armed link (ARM + its limits + confirmations).
-- AUTO only where the firm allows automation; otherwise MANUAL with flashing buttons. Today nothing in this window sends an order: it is simulation on your saved minutes.
+- ● LIVE lights up when NinjaTrader is connected to a prop account: it detects the firm and the stage (EVAL / FUNDED), one pool per firm per stage, the daily tracking.
+- ✓ CONFIRM hands the ticked accounts (firm by firm, MANUAL) to ● LIVE TRADING ▸ 🔄 ROTATE — real orders exist only there, through each account's armed link (ARM + its limits + confirmations). The labs themselves send no order.
 
 ## BUILD 2026-11-10a — the trading screen
 
@@ -159,3 +160,10 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
   - It shows as "similar past moments: X% reached +TP before the floor (n = …)".
   - With fewer than 10 similar moments it falls back to the same-time history %. Either way it is labelled "history, not a forecast".
 - **Controls:** the timeframe buttons, pool tabs, ⤢ BIG CARDS, per-firm ± and "N EACH", REPORTS open buttons and the order-bar steppers are now ≥ 28 px.
+
+## BUILD 2026-11-10g — the Funded Lab's ▶ REPLAY on the chart-first screen
+- **Top:** ONE toolbar — FROM → TO on the left, the New York clock, then ▶ / speed (1× … 30×) / ▶▶ NEXT DAY / ⏭ NEXT ACCOUNT / ⇩ LOAD / 📜 TRADES / ⛶ / ⋯ (+1 MIN, +10 MIN, the stage indicators) — then ONE status line.
+- **Chart:** owns the rest (the Eval Lab's chart: timeframes on top, drawing tools down the left, wheel / drag / double-click / click a candle), the ENTRY / TP / STOP / FLOOR lines in the right gutter.
+- **Right:** the POOL (290 px) with 🟢 ACTIVE / 💰 PAID / 💀 BLOWN and their counts; each row: firm colour and name, balance, the floor → payout-need bar, qualifying days n / 5, profit vs what the payout needs, the next payout date once known, the payout taken, blown on. ⤢ BIG CARDS shows the same as large cards.
+- **Bottom:** the ORDER BAR in one row: ▲ BUY / ▼ SELL (the plan's side flashes with its %) / ✕ CLOSE / ½ HALF · MNQ ± · TP $ ± · STOP $ ± · ⇢ BE · ✕ CLOSE ALL · ■ DONE · ⚡ AUTO.
+- **Left rail:** shrinks to icons on ▶ REPLAY. The rail's ● LIVE opens the Eval Lab's ● LIVE (eval + funded accounts, read only).

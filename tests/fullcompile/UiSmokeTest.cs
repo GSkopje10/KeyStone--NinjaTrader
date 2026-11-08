@@ -1139,6 +1139,22 @@ public static class UiSmokeTest
                 ((Action<int>)G("fundedLabPress"))(frep.PlanSide()); if (frep.Pos == null) throw new Exception("the press did not enter");
                 ((Action<int>)G("fundedLabStep"))(30); ((Action<string>)G("fundedLabShow"))("REPLAY");
                 Console.WriteLine("      replay: " + frep.Current.Name + " • " + frep.Last + " • trades " + frep.Trades.Count);
+                {   // 🖥 BUILD 10g: the Funded Lab's replay on the Eval Lab's chart-first screen — the chart = the DockPanel's last child (no fixed height),
+                    // a compact toolbar (≤ 10 buttons), the pool tabs 🟢 ACTIVE / 💰 PAID / 💀 BLOWN, ⤢ BIG CARDS, the chart's tools
+                    var fch = (System.Windows.Controls.Canvas)G("fundedLabChart"); var fpar = fch.Parent as System.Windows.Controls.DockPanel;
+                    if (fch.Height > 0 || fpar == null || fpar.Children[fpar.Children.Count - 1] != fch) throw new Exception("the funded chart must take the rest of the screen (last child of its DockPanel, no fixed height)");
+                    int fc = fch.Children.OfType<System.Windows.Shapes.Rectangle>().Count(); if (fc < 20) throw new Exception("no candles on the funded chart: " + fc);
+                    int fnb = ((Func<int>)G("fundedLabToolbarButtons"))(); if (fnb > 10) throw new Exception("the funded toolbar has " + fnb + " buttons (≤ 10)");
+                    var ftabs = ((Func<List<string>>)G("fundedLabPoolTabLabels"))(); if (ftabs.Count != 3 || !ftabs[0].Contains("ACTIVE") || !ftabs[1].Contains("PAID") || !ftabs[2].Contains("BLOWN")) throw new Exception("the funded pool tabs: " + string.Join(", ", ftabs));
+                    var frows = ((Func<List<string>>)G("fundedLabPoolRows"))(); if (frows.Count == 0 || !frows.Any(r => r.Contains("qualifying days") && r.Contains("the payout needs") && r.Contains("balance"))) throw new Exception("the funded pool rows: " + string.Join(" // ", frows.Take(2)));
+                    foreach (var k in new[] { "PAID", "BLOWN", "ACTIVE" }) ((Action<string>)G("fundedLabPoolTab"))(k);
+                    ((Action<bool>)G("fundedLabBigCards"))(true); ((Action<bool>)G("fundedLabBigCards"))(false);
+                    int b0 = ((Func<int>)G("fundedLabChartBars"))(); ((Action<int>)G("fundedLabChartWheel"))(120); if (((Func<int>)G("fundedLabChartBars"))() >= b0) throw new Exception("funded wheel zoom");
+                    var fo = ((Func<double, double, string>)G("fundedLabChartClick"))(300, 120); if (!fo.Contains(" O ") || !fo.Contains(" C ")) throw new Exception("a funded candle click: " + fo);
+                    ((Action<string>)G("fundedLabTool"))("HLINE"); var fd = ((Func<double, double, string>)G("fundedLabChartClick"))(300, 120); if (!fd.StartsWith("━")) throw new Exception("funded H-LINE: " + fd);
+                    ((Action<int>)G("fundedLabSetTf"))(5); ((Action<int>)G("fundedLabSetTf"))(1); ((Action<double, double>)G("fundedLabChartDrag"))(200, 0);
+                    Console.WriteLine("      🖥 funded: toolbar " + fnb + " buttons • chart = the star child • tabs " + string.Join(" / ", ftabs) + " • " + frows[0]);
+                }
                 Set(lab4, "fundedLabWindow", null);
             });
             Step("🏠 LAUNCHER cards 🧪 EVAL LAB + 💰 FUNDED LAB open the windows • 💵 PAYOUTS • 🔁 PIPELINE (one batch, every weekday, business loop) • 🚦 chips", () =>
