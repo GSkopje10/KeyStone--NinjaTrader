@@ -206,7 +206,7 @@ public static class PropSimTests
         var simP = new KeystonePropSim(lucid2); simP.BeginDay(d1); Trade(simP, 30, 1500); simP.EndDay(); simP.BeginDay(d1.AddDays(1)); Trade(simP, 30, 1500); simP.EndDay();
         Check(simP.Accounts[0].Phase == "FUNDED", "two +1,500 days = +3,000, best day 50% → PASSED on day 2", simP.Accounts[0].Phase);
         ba.DayPnl = -500; bs.DayPlan = "RECOVER"; KeystoneRotationLab.Bracket(bs, ba, 30, 520, out bt, out bst);
-        Check(Eq(bt, 2030) && Eq(bst, 489), "FULL RECOVERY after −500: aims at +2,000 (+ fees); the stop stays inside the room to the floor", bt + " / " + bst);
+        Check(Eq(bt, 2030) && Eq(bst, 490), "FULL RECOVERY after −500: aims at +2,000 (+ fees); the stop stays inside the room to the floor (BUILD 11a: room − fees, the exit tick is in the fees)", bt + " / " + bst);
         var rd = new KeystoneRotDay { Day = d1 }; int k0 = KeystoneRotDay.Slot(930);
         Check(k0 == 15 * 60 + 30, "09:30 is slot " + (15 * 60 + 30) + " (minutes since 18:00)", k0.ToString());
         for (int i = k0; i < k0 + 60; i++) { float pm0 = 20000 + (i - k0) * 2f, pg0 = 2400 + (i - k0) * 0.5f; rd.MO[i] = pm0; rd.MH[i] = pm0 + 1; rd.ML[i] = pm0 - 1; rd.MC[i] = pm0 + 1; rd.GO[i] = pg0; rd.GH[i] = pg0 + 0.3f; rd.GL[i] = pg0 - 0.3f; rd.GC[i] = pg0 + 0.3f; }
@@ -893,10 +893,11 @@ public static class PropSimTests
                 var sp = KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread); var spool = new List<KeystoneEvalAccount>(); for (int i = 1; i <= 3; i++) spool.Add(new KeystoneEvalAccount { Firm = "LUCID", Nick = "L" + i }); for (int i = 1; i <= 2; i++) spool.Add(new KeystoneEvalAccount { Firm = "TRADEIFY", Nick = "T" + i });
                 var sdays = pdays(4, mm => 2.0 * mm); var srun = KeystonePayout.Run(null, sp, spool, 0, sdays);
                 Func<int, string> firmOf = id => srun.Accounts[id - 1].Firm;
-                bool sameSide = srun.Trades.Count > 0 && srun.Trades.GroupBy(x => x.Day.Ticks + "|" + firmOf(x.Account)).All(g => g.Select(x => x.Dir).Distinct().Count() == 1);
-                var d0t = srun.Trades.Where(x => x.Day == sdays[0].Day).GroupBy(x => x.Account).Select(g => g.First().Entry.TimeOfDay).ToList();
-                Check(sp.Spread && sameSide && d0t.Count == 5 && d0t.Distinct().Count() == 5 && sp.TimeOf(1) == 200 && sp.TimeOf(5) == 1100 && sp.TimeOf(6) == 200 && KeystonePayoutPlan.Presets().Any(x => x.Name.Contains("all-or-nothing") && !x.Spread),
-                    "🧩 SPREAD funded (default): 5 accounts → 5 entry times, the same side inside each firm every day (no opposite positions) • 'same side for all' kept as all-or-nothing", sameSide + " " + string.Join(",", d0t));
+                bool sameSide = srun.Trades.Count > 0 && srun.Trades.GroupBy(x => x.Day.Ticks + "|" + firmOf(x.Account) + "|" + x.Entry.TimeOfDay).All(g => g.Select(x => x.Dir).Distinct().Count() == 1);   /* 11a: one side per firm per TIME (never opposite at the same moment) */
+                var d0g = srun.Trades.Where(x => x.Day == sdays[0].Day).GroupBy(x => x.Account).Select(g => Tuple.Create(firmOf(g.Key), g.First().Entry.TimeOfDay)).ToList(); var d0t = d0g.Select(x => x.Item2).ToList();
+                bool ownTimes = d0g.GroupBy(x => x.Item1).All(g => g.Select(x => x.Item2).Distinct().Count() == g.Count());   /* 11a (item 27a): the time from the account's number WITHIN its firm */
+                Check(sp.Spread && sameSide && d0t.Count == 5 && ownTimes && d0t.Distinct().Count() == 3 && sp.TimeOf(1) == 200 && sp.TimeOf(5) == 1100 && sp.TimeOf(6) == 200 && KeystonePayoutPlan.Presets().Any(x => x.Name.Contains("all-or-nothing") && !x.Spread),
+                    "🧩 SPREAD funded (default): each account its own entry time WITHIN its firm (3 Lucid → 3 times, 2 Tradeify → 2), one side per firm per time (no opposite positions) • 'same side for all' kept as all-or-nothing", sameSide + " " + string.Join(",", d0t));
             }
             {   // ★ MAX IN 5 in the replay: an account at the max-payout balance trades QUALIFY (MNQ 2, +$200 / −$600) and counts the qualifying day
                 Func<int, Func<int, double>, List<KeystoneRotDay>> pdays = (n, path) => { var L = new List<KeystoneRotDay>(); var dd0 = new DateTime(2026, 3, 2); for (int i = 0; i < n; i++, dd0 = dd0.AddDays(dd0.DayOfWeek == DayOfWeek.Friday ? 3 : 1)) { var d = new KeystoneRotDay { Day = dd0 }; int pk0 = KeystoneRotDay.Slot(930); double last = 20000; for (int k = 0; k < KeystoneRotDay.Slots; k++) { double o = last, c = k < pk0 ? 20000 : 20000 + path(k - pk0); d.MO[k] = (float)o; d.MC[k] = (float)c; d.MH[k] = (float)Math.Max(o, c); d.ML[k] = (float)Math.Min(o, c); d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = 4000; last = c; } L.Add(d); } return L; };
@@ -933,7 +934,7 @@ public static class PropSimTests
                 var tiers = new KeystoneSimSettings { LockTiers = "1000:500 1450:1000" }.Tiers(); int h2, x2; double pk2, wr2;
                 double v2 = KeystoneRotationLab.Trade(ld2, k0, k0 + 58, 1, 0, 20, 0, 3000, 1e6, 0, tiers, out h2, out x2, out pk2, out wr2, false, 1);
                 double fees = 20 * KeystoneRotationLab.CostMnq, slip = 20 * KeystoneRotationLab.MnqTick * KeystoneRotationLab.MnqPv;
-                Check(tiers.Count == 2 && h2 == -3 && Math.Abs(v2 - (500 - slip - fees)) < 0.5 && pk2 >= 1000, "🔐 profit-lock ladder 1000:500 1450:1000: +$1,100 then back → closed at the +$500 lock (less costs)", "how " + h2 + " v " + v2.ToString("0.##") + " peak " + pk2);
+                Check(tiers.Count == 2 && h2 == -3 && Math.Abs(v2 - (500 - fees)) < 0.5 && slip > 0 && pk2 >= 1000, "🔐 profit-lock ladder 1000:500 1450:1000: +$1,100 then back → closed at the +$500 lock (less costs)", "how " + h2 + " v " + v2.ToString("0.##") + " peak " + pk2);
             }
             {   // 🔁 TRADE AGAIN IF THE TARGET WASN'T REACHED: after a stop, one more trade the same day (same side, the plan's TP, risking the room left)
                 var ta = wset(true, false, 930, 1130); ta.RotStop = 400; ta.FundRotStop = 400; ta.AllSide = "BUY"; KeystoneLabFlow.TradeAgain(ta, true);
@@ -982,7 +983,7 @@ public static class PropSimTests
                 var tp = KeystonePayoutPlan.Presets().First(x => x.MaxIn5 && x.Spread); var tpool = new List<KeystoneEvalAccount>(); for (int i = 1; i <= 5; i++) tpool.Add(new KeystoneEvalAccount { Firm = "TPT", Nick = "TPT " + i });
                 var trules = KeystonePayoutRules.Presets().Select(x => x.Copy()).ToList(); foreach (var x in trules.Where(x => x.Firm == "TPT")) x.Parked = false;
                 var trun = KeystonePayout.Run(trules, tp, tpool, 0, pdays(2, null));
-                var t0 = trun.Trades.Where(x => x.Day == trun.From).ToList(); bool oneSide = t0.Select(x => x.Dir).Distinct().Count() <= 1;
+                var t0 = trun.Trades.Where(x => x.Day == trun.From).ToList(); bool oneSide = t0.GroupBy(x => x.Entry.TimeOfDay).All(g => g.Select(x => x.Dir).Distinct().Count() <= 1);
                 var r0 = KeystonePayoutRules.For("TPT", trules);
                 Check(t0.Count >= 2 && t0.Select(x => x.Entry.TimeOfDay).Distinct().Count() == t0.Count && oneSide && trun.Accounts.All(a => a.Stage != "BLOWN" || a.Bal <= a.Floor + 60),
                     "🐞 TPT funded 🧩 SPREAD: each account its own entry time (not all at once), one side inside the firm • a blown TPT account ends at its intraday-trailing floor (peak − $" + r0.Dd.ToString("N0") + ", capped at the start) less the exit costs", t0.Count + " trades at " + string.Join(",", t0.Select(x => x.Entry.ToString("HH:mm"))) + " • " + string.Join(" ", trun.Accounts.Select(a => a.Stage + " " + a.Bal.ToString("0") + "/" + a.Floor.ToString("0"))));
@@ -1012,7 +1013,7 @@ public static class PropSimTests
                     var d = new KeystoneRotDay { Day = dd0 }; int k0 = KeystoneRotDay.Slot(safe.TimeOf(1)); for (int k = 0; k < KeystoneRotDay.Slots; k++) { double c = k < k0 ? 20000 : 20000 + 1.0 * (k - k0); d.MO[k] = (float)(k <= k0 ? 20000 : 20000 + (k - 1 - k0)); d.MC[k] = (float)c; d.MH[k] = Math.Max(d.MO[k], d.MC[k]); d.ML[k] = Math.Min(d.MO[k], d.MC[k]); d.GO[k] = d.GC[k] = d.GH[k] = d.GL[k] = 4000; }
                     KeystonePayout.Day(sa, lr2, safe, d, 1); if (sa.Payouts > 0 && paidOn == 0) paidOn = i;
                 }
-                Check(safe.Safe && safe.Qm == 1 && Math.Abs(safe.Tp - 800) < 0.01 && Math.Abs(safe.Stop - 300) < 0.01 && safe.Note.Contains("about 6 in 10") && paidOn == lr2.QualDays,
+                Check(safe.Safe && safe.Qm == 1 && Math.Abs(safe.Tp - 800) < 0.01 && Math.Abs(safe.Stop - 300) < 0.01 && safe.Note.Contains("measured in this lab") && safe.Note.Contains("2025–26 has been weaker") && paidOn == lr2.QualDays,
                     "🛟 SAFE PAYOUT (the funded default): MNQ 1 · +$800 / −$300 · the payout on the " + lr2.QualDays + "th qualifying day (profit ≥ $500)", "paid on day " + paidOn + " · qual " + sa.Qual + " · bal " + sa.Bal.ToString("0"));
             }
             {   // ⚡ BUILD 10e: ALL AT ONCE entered at 9:30 and HELD to 4:55 PM (like STAGGERED) — a sensible share passes on random-walk days, never "30 of 30 blown"

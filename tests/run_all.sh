@@ -101,6 +101,9 @@ mono "$here/.build/game.exe" | tail -1
 rm -f "$here/.build/propsim.exe"
 "$root/tools/compile_engine.sh" "$here/.build/propsim.exe" "$here/PropSimTests.cs"
 mono "$here/.build/propsim.exe" | tail -1
+rm -f "$here/.build/labeng.exe"
+"$root/tools/compile_engine.sh" "$here/.build/labeng.exe" "$here/LabEngineTests.cs"
+mono "$here/.build/labeng.exe" "$root/data" | tail -1
 rm -f "$here/.build/prop.exe"
 "$root/tools/compile_engine.sh" "$here/.build/prop.exe" "$here/PropPlannerTests.cs"
 mono "$here/.build/prop.exe" | tail -1
