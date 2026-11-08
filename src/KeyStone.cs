@@ -16206,7 +16206,7 @@ namespace NinjaTrader.NinjaScript
         public List<Tuple<string, int>> PerFirm = new List<Tuple<string, int>>(); public string Funding = "REINVEST"; public double Budget = 3000, KeepPct = 0, Fee = 120; public int Delay = 1, BatchEvery = 20, MaxFunded = 5;
         /* 🔁 BUILD 11d (the user's rule: "it should keep running … new eval new funded payouts over and over again until the date we entered"): ⚡ CALCULATE runs this
            engine by default — Continuous = the CALCULATE wording; EvalOnly = EVAL ONLY scope: no funded stage, a passed account's slot buys a new eval too */
-        public bool Continuous, EvalOnly;
+        public bool Continuous, EvalOnly; public int DelayJitter;   /* research check: + a random 0–N sessions before a replacement (hash of the slot + generation) — tests the "replacements start right after losing days" selection effect */
         public Dictionary<string, double> Price = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);   /* a firm's evaluation price after discounts (missing = the book's / the FEE) */
         public double PriceOf(string firm) { double v; if (Price.TryGetValue(firm ?? "", out v) && v >= 0) return v; var bk = KeystonePayoutRules.BookOf(firm); return bk != null && bk.fromBookPrice && bk.EvalPrice > 0 ? bk.EvalCost : Fee; }
         public static readonly string[][] Fundings = { new[] { "REINVEST", "① REINVEST: a start budget — replacements are paid from the cash + the payouts (a slot waits when the cash can't pay)" }, new[] { "POCKET", "② OUT OF POCKET: always replace (the next session) — the total out of pocket is tracked" }, new[] { "BATCH", "③ A NEW BATCH every N sessions (the full mix), no replacement" } };
@@ -16276,7 +16276,7 @@ namespace NinjaTrader.NinjaScript
     }
     public static class KeystoneBusiness
     {
-        sealed class Fund { public KeystonePayoutAccount A; public string Firm, Slot; public DateTime Start; public int Seat; }
+        sealed class Fund { public KeystonePayoutAccount A; public string Firm, Slot; public DateTime Start; public int Seat, Gen; }
         sealed class Due { public string Firm, Slot; public int At; }
         // 🔁 firstFirmOf / firstNameOf (BUILD 11d, the continuous ⚡ CALCULATE): the first cohort is the CALCULATE's own batch (its settings, pool and names = the
         // slots, "LUCID 1"); every account of a slot is named "<slot> · #<generation>" ("LUCID 1 · #3" = the third account in slot LUCID 1)
@@ -16288,6 +16288,7 @@ namespace NinjaTrader.NinjaScript
             Func<DateTime, int> at = d => { int i; if (idx.TryGetValue(d.Date, out i)) return i; for (int j = 0; j < ds.Count; j++) if (ds[j].Day.Date >= d.Date) return j; return ds.Count; };
             res.From = ds[0].Day; res.To = ds[ds.Count - 1].Day; res.Sessions = ds.Count; res.Record.From = res.From; res.Record.To = res.To; res.Record.Source = ds; res.Record.Rules = rules.ToList();
             bool asIs = firstNameOf != null; int delay = Math.Max(1, bs.Delay);
+            Func<string, int, int> jit = (sl, g) => bs.DelayJitter <= 0 ? 0 : (int)(KeystoneLabFlow.Mix64(KeystoneLabFlow.KeyHash(sl) ^ (ulong)(uint)g) % (ulong)(bs.DelayJitter + 1));
             var due = new List<Due>();   /* (firm, slot, the session index it may be bought from) */
             if (!asIs) foreach (var e in KeystoneLabWizard.Mix(bs.PerFirm)) due.Add(new Due { Firm = e.Firm, Slot = e.Nick, At = 0 });
             res.Slots = asIs ? evalSt.Accounts : due.Count;
@@ -16315,7 +16316,7 @@ namespace NinjaTrader.NinjaScript
                     var a = f.A; if (a.Funded == DateTime.MinValue) { a.Funded = d.Day; if (a.Stage != "PARKED") mo.Funded++; } int p0 = a.Payouts; double n0 = a.Net;
                     KeystonePayout.DayTracked(a, KeystonePayoutRules.For(a.Firm, rules), plan, d, KeystonePayout.CoinOf(plan, d.Day, a, 1), ctx, fundRun); KeystonePayout.ReachGoal(a, plan, d.Day);
                     if (a.Payouts > p0) { double got = a.Net - n0; double keep = bs.Funding == "REINVEST" ? got * Math.Max(0, Math.Min(100, bs.KeepPct)) / 100.0 : got; res.TakeHome += keep; cash += got - keep; res.PaidNet += got; mo.Payouts += a.Payouts - p0; mo.PaidNet += got; mo.TakeHome += keep; }
-                    if (!a.Active) { active.Remove(f); if (a.Stage == "BLOWN") mo.FundedBlown++; else mo.Done++; if (bs.Funding != "BATCH") due.Add(new Due { Firm = f.Firm, Slot = f.Slot, At = i + delay }); }
+                    if (!a.Active) { active.Remove(f); if (a.Stage == "BLOWN") mo.FundedBlown++; else mo.Done++; if (bs.Funding != "BATCH") due.Add(new Due { Firm = f.Firm, Slot = f.Slot, At = i + delay + jit(f.Slot, f.Gen) }); }
                 }
                 // ④ buy what is due (REINVEST: only with the cash) → one cohort today, run through the eval engine (KeystoneBatch, until each passed or blew)
                 var buy = new List<Due>(); bool first = asIs && i == 0;
@@ -16359,15 +16360,15 @@ namespace NinjaTrader.NinjaScript
                         if (ok)
                         {
                             var passDay = a.PassedOn != DateTime.MinValue ? a.PassedOn : br.Sim.Trades.Where(t => t.Account == a.Id).Select(t => t.Day).DefaultIfEmpty(br.EvalEnd).Max();
-                            if (bs.EvalOnly) { if (bs.Funding != "BATCH") due.Add(new Due { Firm = firm, Slot = slot, At = at(passDay) + delay }); }   /* EVAL ONLY: the slot is done (it would go funded) → a new eval */
+                            if (bs.EvalOnly) { if (bs.Funding != "BATCH") due.Add(new Due { Firm = firm, Slot = slot, At = at(passDay) + delay + jit(slot, g0) }); }   /* EVAL ONLY: the slot is done (it would go funded) → a new eval */
                             else
                             {
                                 var r = KeystonePayoutRules.For(firm, rules); var fa = new KeystonePayoutAccount { Id = ++fid, Name = nm, Firm = firm, Floor = r.FloorOf(0) };
-                                if (r.Parked) fa.Stage = "PARKED"; fundRun.Accounts.Add(fa); waitingFund.Add(new Fund { A = fa, Firm = firm, Slot = slot, Start = KeystoneLabFlow.FundedStart(passDay, br.Sim.PassedPending(a)) });
+                                if (r.Parked) fa.Stage = "PARKED"; fundRun.Accounts.Add(fa); waitingFund.Add(new Fund { A = fa, Firm = firm, Slot = slot, Gen = g0, Start = KeystoneLabFlow.FundedStart(passDay, br.Sim.PassedPending(a)) });
                             }
                             passPending.Add(passDay.Date);
                         }
-                        else if (!a.Alive) { int bi = at(a.Ended); if (bs.Funding != "BATCH") due.Add(new Due { Firm = firm, Slot = slot, At = bi + delay }); blownEval.Add(a.Ended.Date); }   /* the replacement can only be bought after the blow (causal) */
+                        else if (!a.Alive) { int bi = at(a.Ended); if (bs.Funding != "BATCH") due.Add(new Due { Firm = firm, Slot = slot, At = bi + delay + jit(slot, g0) }); blownEval.Add(a.Ended.Date); }   /* the replacement can only be bought after the blow (causal) */
                     }
                     sims.Add(Tuple.Create(br.Sim, st.Accounts, names, firms, c));
                 }

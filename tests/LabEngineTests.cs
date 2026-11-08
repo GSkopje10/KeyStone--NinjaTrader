@@ -259,6 +259,24 @@ public static class LabEngineTests
                 Check(!one.DaysRanOut && one.LastDay < end60 && (one.Pay == null || one.Pay.Accounts.All(a => !a.Active)) && one.EndedEarly(end60) && one.EndedText(end60).StartsWith("the batch ended ") && one.EndedText(end60).Contains("all 6 accounts finished (") && one.EndedText(end60).Contains("nothing left to trade until " + end60.ToString("ddd d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)),
                     "🔁 11d: \"one batch only\" still stops when nobody is active — and says so (the batch ended …, nothing left to trade until END)", one.EndedText(end60));
                 Check(KeystoneFundedChoice.Text().Contains("onebatch=0"), "💾 11d: the one-batch choice is saved with the funded plan choice");
+                // 🔬 11d regression (the coordinator's check): a continuous EVAL ONLY run passes at the same rate as one batch started on every session of the same data
+                // (no carry-over between generations, no trading on the blow day, no selection effect) — also with the replacement delayed a random 0–4 sessions
+                {
+                    Func<int, int, double> rnd = (i, k) => (double)(KeystoneLabFlow.Mix64((ulong)(i * 1000 + k + 77)) % 10000) / 10000.0;
+                    var dR = Days(160, (i, m) => { double up = rnd(i, 1) < 0.5 ? 1 : -1, sw = 0.12 + 0.3 * rnd(i, 2); int turn = (int)(60 + 300 * rnd(i, 3)); return m < -450 ? 0 : up * sw * (Math.Min(m + 450, turn + 450) - Math.Max(0, m - turn) * (rnd(i, 4) < 0.5 ? 1.6 : 0.4)); });
+                    var mixR = KeystoneLabWizard.Mix(new List<Tuple<string, int>> { Tuple.Create("LUCID", 10), Tuple.Create("TRADEIFY", 10) }); var poolR = new KeystoneEvalPool { Name = "r", Simulated = true }; poolR.Accounts.AddRange(mixR);
+                    var stR = st.Copy(); stR.Accounts = 20; stR.Firms = KeystoneEvalLab.FirmsText(poolR, st.Rules, 100);
+                    int nb = 0, pb = 0; for (int i = 0; i < dR.Count - 30; i++) { var s0 = stR.Copy(); s0.From = dR[i].Day; var b1 = KeystoneBatch.Run(s0, dR.Skip(i).Take(30).ToList(), 155, 1655, null, false, null, plan2, null, null); foreach (var a in b1.Sim.Accounts.Take(20)) { bool ok = b1.Sim.PassedOrPending(a); if (ok || !a.Alive) { nb++; if (ok) pb++; } } }
+                    double oneP = 100.0 * pb / Math.Max(1, nb); var res2 = new List<string>(); bool allIn = true;
+                    foreach (int jt in new[] { 0, 4 })
+                    {
+                        var ceR = new KeystoneBusinessSettings { Funding = "POCKET", Fee = 100, Delay = 1, Continuous = true, EvalOnly = true, DelayJitter = jt }; ceR.PerFirm.Add(Tuple.Create("LUCID", 10)); ceR.PerFirm.Add(Tuple.Create("TRADEIFY", 10));
+                        var cr = KeystoneBusiness.Run(stR, ceR, dR.Take(dR.Count - 30).ToList(), 155, 1655, null, null, plan2, null, null, firm6, (s0, a) => firm6(s0, a).ToUpperInvariant() + " " + a.Id);
+                        int fin = cr.Record.PassedN + cr.Record.EvalBlownN; double cp = 100.0 * cr.Record.PassedN / Math.Max(1, fin); var g2 = cr.Record.Accounts.Where(a => a.Gen > 1 && (a.Passed || a.EvalBlown)).ToList(); double gp = 100.0 * g2.Count(a => a.Passed) / Math.Max(1, g2.Count);
+                        res2.Add("jitter " + jt + ": " + cp.ToString("0.0") + " % of " + fin + " (gen 2+ " + gp.ToString("0.0") + " %)"); allIn &= fin > 300 && Math.Abs(cp - oneP) <= 3 && Math.Abs(gp - oneP) <= 3.5;
+                    }
+                    Check(nb > 2000 && oneP > 10 && oneP < 60 && allIn, "🔬 11d: continuous EVAL ONLY pass % = one batch from every start (±3 points), also with a random 0–4 session replacement delay and for generation 2+"); Console.WriteLine("      🔬 one batch " + oneP.ToString("0.0") + " % of " + nb + " · " + string.Join(" · ", res2));
+                }
             }
             Check(biz.MonthTable().Count == biz.Months.Count + 2 && biz.FirmTable().Count == 4 /* 2 firms + ALL (11d) */ && biz.Record.AccountsTable().Count > biz.Bought, "🔁 the month-by-month table, the firm totals and 👤 ACCOUNTS work on a business run");
             // ---- 🏆 item 17: BEST START DAYS — every weekday start through the same engine
