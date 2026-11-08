@@ -228,7 +228,39 @@ public static class LabEngineTests
             Check(biz2.Cash.All(c => c.Item2 >= -1e-6) && biz2.Months[0].Bought == 2 && biz2.WaitDays > 0, "🔁 REINVEST: never spends money it doesn't have ($250 buys 2 of 3 on day 1, the 3rd slot waits for a payout)", biz2.Summary());
             var b3 = new KeystoneBusinessSettings { Funding = "BATCH", Fee = 100, BatchEvery = 10 }; b3.PerFirm.Add(Tuple.Create("LUCID", 2));
             var biz3 = KeystoneBusiness.Run(st, b3, days, 155, 1655, null, null, plan); Check(biz3.Bought == 2 * ((days.Count - 1) / 10 + 1), "🔁 BATCH: a new batch of the mix every 10 sessions, no replacement", biz3.Bought.ToString());
-            Check(biz.MonthTable().Count == biz.Months.Count + 2 && biz.FirmTable().Count == 3 && biz.Record.AccountsTable().Count > biz.Bought, "🔁 the month-by-month table, the firm totals and 👤 ACCOUNTS work on a business run");
+            // ---- 🔁 BUILD 11d: CONTINUOUS ⚡ CALCULATE — the user's rule "keep running … new eval new funded payouts over and over again until the date we entered"
+            {
+                var days60 = Days(60, (i, m) => (i % 3 == 0 ? -1 : 1) * 0.25 * Math.Max(0, m + 450));
+                var mix = KeystoneLabWizard.Mix(new List<Tuple<string, int>> { Tuple.Create("LUCID", 3), Tuple.Create("TRADEIFY", 3) }); var pool6 = new KeystoneEvalPool { Name = "six", Simulated = true }; pool6.Accounts.AddRange(mix);
+                var st6 = st.Copy(); st6.Accounts = 6; st6.Firms = KeystoneEvalLab.FirmsText(pool6, st.Rules, 100); st6.From = days60[0].Day; st6.To = days60[days60.Count - 1].Day;
+                var plan2 = plan.Copy(); plan2.SprintAccounts = 2;
+                var cs = new KeystoneBusinessSettings { Funding = "POCKET", Fee = 100, Delay = 1, Continuous = true }; cs.PerFirm.Add(Tuple.Create("LUCID", 3)); cs.PerFirm.Add(Tuple.Create("TRADEIFY", 3));
+                Func<KeystonePropSim, KeystoneSimAccount, string> firm6 = (s0, a) => (s0.FirmName(a) ?? "").Trim().Split(' ')[0];
+                var cont = KeystoneBusiness.Run(st6, cs, days60, 155, 1655, null, null, plan2, null, null, firm6, (s0, a) => firm6(s0, a).ToUpperInvariant() + " " + a.Id);
+                var crec = cont.Record; var bySlot = crec.Accounts.GroupBy(a => a.Slot).ToList();
+                var blownThenNew = crec.Accounts.Where(a => a.Blown).Any(a => crec.Accounts.Any(y => y.Slot == a.Slot && y.Gen == a.Gen + 1 && y.Bought > a.Ended && y.Firm == a.Firm));
+                Check(cont.FirstN == 6 && cont.Bought > 6 && blownThenNew && bySlot.Count == 6 && bySlot.Count(g => g.Count() >= 2) >= 3 && cont.Generations >= 3 && crec.Accounts.All(a => a.Name == a.Slot + " · #" + a.Gen) && bySlot.All(g => g.Select(a => a.Firm).Distinct().Count() == 1),
+                    "🔁 11d: a CONTINUOUS run over 60 sessions buys a new eval of the same firm after a blow-up (the session after) — the record holds every generation of every slot (\"LUCID 1 · #3\")", cont.ContinuousSummary() + " · slots " + string.Join(" ", bySlot.Select(g => g.Key + "×" + g.Count())));
+                Check(Eq(cont.Spent, cont.Bought * 100) && Eq(crec.Accounts.Sum(a => a.Spent), cont.Spent) && crec.Accounts.Count == cont.Bought && cont.Months.Sum(m => m.Bought) == cont.Bought && Eq(cont.Months.Sum(m => m.Spent), cont.Spent) && Eq(cont.Months.Sum(m => m.PaidNet), crec.PaidNet) && cont.Months.Sum(m => m.Payouts) == crec.PayoutN,
+                    "🔁 11d: the totals match — spent = evals × price, the months add up to the run, the record = the money", cont.Bought + " × $100 = " + cont.Spent);
+                var cres = KeystoneLabResults.FromContinuous(cont, "BOTH"); var mt = cont.ContinuousMonthTable(false);
+                Check(cres.Continuous && cres.Scope == "BOTH" && cres.Months.Count == cont.Months.Count + 2 && mt[0].Contains("CUMULATIVE NET") && mt[0].Contains("FUNDED ALIVE (MONTH END)") && mt[mt.Count - 1][10] == mt[mt.Count - 1][9] && cres.Header.Contains("continuous: " + cont.Bought + " evals bought") && cres.Header.Contains("went funded") && cres.Header.Contains(" net ")
+                    && cres.Accounts == cont.Bought && cres.Accounts2.Count > cont.Bought && cres.PerAccount.Count > cont.Bought && cres.Eval[0].Contains("$ PER PASSED") && cres.PayoutRows.Count - 1 == crec.PayoutN && cres.Days.Count > 1 && cres.Stats.Any(x => x[0] == "cost per passed account"),
+                    "🔁 11d: RESULTS of a continuous run — the header, MONTH BY MONTH (the cumulative net), per-firm totals, every account of every generation", cres.Header);
+                int spr = crec.Accounts.Count(a => a.Sprint);
+                Check(KeystoneBusiness.SprintBudget(2, 30, 30) == 2 && KeystoneBusiness.SprintBudget(2, 31, 30) == 4 && KeystoneBusiness.SprintBudget(99, 5, 30) == int.MaxValue && spr <= KeystoneBusiness.SprintBudget(2, cont.Bought, cont.Slots) && (cont.WentFunded == 0 || spr >= 1)
+                    && (spr == 0 || (crec.AccountsTable().Any(x => x[0].EndsWith("⚡ SPRINT")) && crec.Card(crec.Accounts.First(a => a.Sprint).Name + " · ⚡ SPRINT").Lines[0].Contains("⚡ SPRINT") && crec.FundedFirmTable().Any(x => x[0].EndsWith("· ⚡ SPRINT")) && (!crec.Accounts.Any(a => a.Funded && !a.Sprint) || crec.FundedFirmTable().Any(x => x[0].EndsWith("· 🛟 SAFE"))))),
+                    "⚡ 11d: SPRINT = N per batch-worth of evals bought; the badge on rows + the card, FUNDED RESULTS split ⚡ SPRINT / 🛟 SAFE per firm", spr + " sprint of " + cont.WentFunded + " funded");
+                var ce = new KeystoneBusinessSettings { Funding = "POCKET", Fee = 100, Delay = 1, Continuous = true, EvalOnly = true }; ce.PerFirm.AddRange(cs.PerFirm);
+                var conte = KeystoneBusiness.Run(st6, ce, days60, 155, 1655, null, null, plan2, null, null, firm6, (s0, a) => firm6(s0, a).ToUpperInvariant() + " " + a.Id); var eres = KeystoneLabResults.FromContinuous(conte, "EVAL");
+                Check(conte.Bought > 6 && conte.Record.Accounts.All(a => !a.Funded) && conte.Record.PassedN > 0 && Eq(conte.Spent, conte.Bought * 100) && eres.Scope == "EVAL" && eres.Header.Contains("per passed account") && eres.Months[0].Contains("$ PER PASSED") && eres.Stats.Any(x => x[0] == "pass rate"),
+                    "🔁 11d: EVAL ONLY is continuous too — blown (and passed) evals replaced until END, the pass rate + the cost per passed account", conte.ContinuousSummary());
+                var one = KeystoneBatch.Run(st6, days60, 155, 1655, null, true, null, plan2, (s0, a) => firm6(s0, a), null); DateTime end60 = days60[days60.Count - 1].Day;
+                Check(!one.DaysRanOut && one.LastDay < end60 && (one.Pay == null || one.Pay.Accounts.All(a => !a.Active)) && one.EndedEarly(end60) && one.EndedText(end60).StartsWith("the batch ended ") && one.EndedText(end60).Contains("all 6 accounts finished (") && one.EndedText(end60).Contains("nothing left to trade until " + end60.ToString("ddd d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture)),
+                    "🔁 11d: \"one batch only\" still stops when nobody is active — and says so (the batch ended …, nothing left to trade until END)", one.EndedText(end60));
+                Check(KeystoneFundedChoice.Text().Contains("onebatch=0"), "💾 11d: the one-batch choice is saved with the funded plan choice");
+            }
+            Check(biz.MonthTable().Count == biz.Months.Count + 2 && biz.FirmTable().Count == 4 /* 2 firms + ALL (11d) */ && biz.Record.AccountsTable().Count > biz.Bought, "🔁 the month-by-month table, the firm totals and 👤 ACCOUNTS work on a business run");
             // ---- 🏆 item 17: BEST START DAYS — every weekday start through the same engine
             var rows = KeystoneBestStarts.Run(st, days, 155, 1655, null, true, null, plan, days[0].Day, days[9].Day); var br0 = KeystoneBatch.Run(st, days.Take(KeystoneBestStarts.FundedCap).ToList(), 155, 1655, null, true, null, plan, null, null);
             var bres = KeystoneBestStarts.Results(rows, true);

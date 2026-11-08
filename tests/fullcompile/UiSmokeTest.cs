@@ -1080,6 +1080,8 @@ public static class UiSmokeTest
                 {   // 🎲 ONE ENGINE (BUILD 10b): ⚡ CALCULATE EVAL ONLY == the ▶ replay played to the end (AUTO, TPT ticked for the backtest) — the same passes / blows / balances
                     ((Action<string>)G("evalLabUsePlan"))(KeystoneEvalLab.Presets()[0].Name);
                     boxes.Clear(); wk(((System.Windows.Window)G("rotStudioWindow")).Content); boxes.OfType<System.Windows.Controls.CheckBox>().First(c => Convert.ToString(c.Tag) == "rot.tptauto").IsChecked = true;
+                    var oneCb = boxes.OfType<System.Windows.Controls.CheckBox>().First(c => Convert.ToString(c.Tag) == "rot.onebatch"); if (oneCb.IsChecked == true) throw new Exception("🔁 11d: 'one batch only' must be OFF by default (continuous until END)");
+                    oneCb.IsChecked = true;   /* 🔁 11d: the CALCULATE = REPLAY comparison is about ONE batch (the old behaviour, kept as an option) */
                     ((Action<DateTime>)G("evalLabStart"))(new DateTime(2026, 1, 6));
                     Set(lab4, "evalLabResultsLast", null); ((Action<string>)G("evalLabCalc2"))("EVAL"); for (int i = 0; i < 600 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
                     var cr = (KeystoneLabResults)G("evalLabResultsLast"); var cs = (KeystonePropSim)G("evalLabCalcSimLast"); if (cr == null || cs == null) throw new Exception("⚡ CALCULATE EVAL ONLY gave no result: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
@@ -1088,8 +1090,25 @@ public static class UiSmokeTest
                     if (diff.Count > 0) throw new Exception("⚡ CALCULATE ≠ ▶ replay: " + string.Join(" | ", diff.Take(6)));
                     if (cr.PerAccount.Count != cr.Accounts + 1 || cr.Eval.Count < 2 || !cr.Period.Contains("→")) throw new Exception("🧪 EVAL RESULTS tables");
                     ((Action<string>)G("evalLabShowTab"))("RESULTS"); var html = ((Func<string>)G("evalLabExportResults"))(); if (!System.IO.File.Exists(html) || !System.IO.File.Exists(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(html), "trades.csv"))) throw new Exception("⤓ results export: " + html);
-                    Set(lab4, "evalLabResultsLast", null); ((Action<string>)G("evalLabCalc2"))("BOTH"); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
+                    {   // 🔁 11d: one batch only + EVAL → FUNDED: when the batch ends before END the header says so + the 🔁 keep buying button paints
+                        Set(lab4, "evalLabResultsLast", null); ((Action<string>)G("evalLabCalc2"))("BOTH"); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
+                        var ob = (KeystoneLabResults)G("evalLabResultsLast"); if (ob == null || ob.Continuous || !ob.Header.StartsWith("one batch of")) throw new Exception("🔁 11d: 'one batch only' should run ONE batch: " + (ob == null ? "no result" : ob.Header));
+                        Console.WriteLine("      🔁 one batch only: " + ob.Header + (ob.EndedEarly ? " [🔁 keep buying until " + ob.EndTo.ToString("dd MMM yyyy") + "]" : ""));
+                    }
+                    oneCb.IsChecked = false;   /* back to the default: ⚡ CALCULATE keeps buying until END */
+                    Set(lab4, "evalLabResultsLast", null); ((Action<string>)G("evalLabCalc2"))("BOTH"); for (int i = 0; i < 1800 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
                     var cb2 = (KeystoneLabResults)G("evalLabResultsLast"); if (cb2 == null || cb2.Scope != "BOTH" || cb2.PayoutRows.Count < 1 || !cb2.Stats.Any(x => x[0] == "money")) throw new Exception("⚡ EVAL → FUNDED → PAYOUTS gave no result");
+                    {   // 🔁 11d: the default is CONTINUOUS — the header, the MONTH BY MONTH table at the top of EVAL RESULTS, every generation, the ⚡ SPRINT badge (row + card)
+                        if (!cb2.Continuous || cb2.Months.Count < 3 || !cb2.Header.Contains("continuous: ") || !cb2.Header.Contains("went funded") || cb2.Record.Accounts.Any(a => !a.Name.Contains(" · #"))) throw new Exception("🔁 11d: CALCULATE is not continuous: " + cb2.Header);
+                        ((Action<string>)G("evalLabResSub"))("EVAL"); var rv = (System.Windows.Controls.StackPanel)G("evalLabResultsView"); boxes.Clear(); wk(rv);
+                        var texts = boxes.OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text ?? "").ToList();
+                        if (!texts.Any(t => t.StartsWith("📅 MONTH BY MONTH")) || !texts.Any(t => t == "CUMULATIVE NET") || !texts.Any(t => t.Contains("🔁 CONTINUOUS")) || !texts.Any(t => t.StartsWith("🏢 PER FIRM"))) throw new Exception("🔁 11d: the MONTH BY MONTH table is not at the top of EVAL RESULTS");
+                        var spA = cb2.Record.Accounts.FirstOrDefault(a => a.Sprint) ?? cb2.Record.Accounts.First(); spA.Sprint = true; cb2.FromRecord(cb2.Record);
+                        ((Action<string>)G("evalLabResSub"))("ACCOUNTS"); boxes.Clear(); wk(rv); if (!boxes.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "") == spA.Name + " · ⚡ SPRINT")) throw new Exception("⚡ 11d: no SPRINT badge on the ACCOUNTS row of " + spA.Name);
+                        ((Action<string>)G("evalLabOpenCard"))(spA.Name + " · ⚡ SPRINT"); boxes.Clear(); wk(rv); if (!boxes.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").StartsWith("🗂 " + spA.Name + " · ⚡ SPRINT")) || !boxes.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").Contains("not a bug"))) throw new Exception("⚡ 11d: the account card has no SPRINT badge");
+                        ((Action<string>)G("evalLabOpenCard"))(null); ((Action<string>)G("evalLabResSub"))("FUNDED"); ((Action<string>)G("evalLabResSub"))("EVAL");
+                        Console.WriteLine("      🔁 continuous: " + cb2.Header + " · " + (cb2.Months.Count - 2) + " months · max generation #" + cb2.Record.Accounts.Max(a => a.Gen));
+                    }
                     {   // 📒 BUILD 11b: the ONE run record behind every tab — 👤 ACCOUNTS, 💰 FUNDED, 🕒 TIMELINE, 💵 PAYOUTS (+ sub-tabs), the account card, 📦 EXPORT FOR CLAUDE
                         if (cb2.Record == null || cb2.Record.PassedN != cb2.Passed || cb2.Record.PayoutN != cb2.Payouts || cb2.Trust == "" || cb2.Record.Source == null || cb2.Record.Settings.Count < 8) throw new Exception("📒 the run record does not match the header / has no data facts");
                         foreach (var sub in new[] { "ACCOUNTS", "FUNDED", "TIMELINE", "DAYS", "TRADES", "BLOWN", "PAYOUTS", "STATS", "EVAL" }) ((Action<string>)G("evalLabResSub"))(sub);
@@ -1119,7 +1138,7 @@ public static class UiSmokeTest
                         boxes.Clear(); wk(((System.Windows.Window)G("rotStudioWindow")).Content); var sb = boxes.OfType<System.Windows.Controls.TextBox>().First(c => Convert.ToString(c.Tag) == "rot.start"); var eb = boxes.OfType<System.Windows.Controls.TextBox>().First(c => Convert.ToString(c.Tag) == "rot.end");
                         if (sb.Text != "2026-01-05" || eb.Text != "2026-01-15") throw new Exception("the picked periods did not fill START / END: " + sb.Text + " → " + eb.Text);
                         ((Action<string>)G("evalLabCalcPeriods"))("EVAL"); for (int i = 0; i < 1800 && !(G("evalLabResultsLast") is KeystoneLabResults && ((KeystoneLabResults)G("evalLabResultsLast")).From == new DateTime(2026, 1, 13)); i++) System.Threading.Thread.Sleep(100);
-                        var pr = (KeystoneLabResults)G("evalLabResultsLast"); if (pr == null || pr.From != new DateTime(2026, 1, 13)) throw new Exception("the second period was not calculated");
+                        var pr = (KeystoneLabResults)G("evalLabResultsLast"); if (pr == null || pr.From != new DateTime(2026, 1, 13)) throw new Exception("the second period was not calculated: " + (pr == null ? "none" : pr.Period) + " · " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
                         Console.WriteLine("      📅 two periods calculated: " + KeystoneDatePick.Summary(ps, null) + " · last " + pr.Period);
                     }
                     {   // 🗂 item 35: the tile / row → the account card (in-tab) + the timeline row → the minute chart
