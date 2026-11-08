@@ -576,6 +576,30 @@ public static class AccountLinkTests
             var el = KeystoneLabLive.Eligibility(back, lr, 50000, new DateTime(2026, 11, 10));
             Check(back.Count == 2 && Math.Abs(back[0].Pnl - 400) < 0.01 && Math.Abs(back[1].StartBal - 50400) < 0.01 && Math.Abs(back[1].Pnl - 250) < 0.01 && el.StartsWith("qualifying days 2/" + lr.QualDays), "● daily tracking: a row per day (start = yesterday's end), saved and read back • eligibility n / N", el);
         }
+        {   // ● LIVE (BUILD 11e): the stage on the name's tokens AFTER the firm's prefix (TAKE-PRO-FIT is not "PRO"), unsure = EVAL; only ACTIVE accounts count
+            Check(KeystoneLabLive.Stage("TPT", "TAKEPROFIT104385428") == "EVAL", "● TAKEPROFIT104385428 = TPT · EVAL (the PRO inside TAKE-PRO-FIT does not count)", KeystoneLabLive.Stage("TPT", "TAKEPROFIT104385428"));
+            Check(KeystoneLabLive.Stage("TPT", "TAKEPROFITPRO999531172") == "FUNDED", "● TAKEPROFITPRO999531172 → PRO… = TPT · FUNDED");
+            Check(KeystoneLabLive.Stage("TPT", "PRO98765-TPT") == "FUNDED" && KeystoneLabLive.Stage("TPT", "TPT-PRO-123") == "FUNDED" && KeystoneLabLive.Stage("TPT", "TPT123456") == "EVAL", "● PRO98765-TPT / TPT-PRO-123 = FUNDED • TPT123456 = EVAL");
+            Check(KeystoneLabLive.Stage("MFFU", "MFFUEVREOD723518001") == "EVAL", "● MFFUEVREOD723518001 → EV… = MFFU · EVAL");
+            Check(KeystoneLabLive.Stage("LUCID", "LT-77001") == "EVAL" && KeystoneLabLive.Stage("LUCID", "LFP12345") == "FUNDED" && KeystoneLabLive.Stage("TRADEIFY", "TDFYSF5501") == "FUNDED" && KeystoneLabLive.Stage("TRADEIFY", "TDFY5501") == "EVAL", "● Lucid LT- = eval, LFP = funded • Tradeify TDFYSF = funded, TDFY = eval");
+            Check(KeystoneLabLive.Stage("NOSUCHFIRM", "XYZPRO1") == "EVAL", "● an unknown firm / name: EVAL, never FUNDED by accident");
+            var keep = KeystoneLabLive.SaveKeys(); KeystoneLabLive.LoadKeys("FUNDED|TPT|PRO,PA-,FUNDED,LIVE\nPREFIX|TPT|TAKEPROFIT,TPT"); Check(KeystoneLabLive.Stage("TPT", "TAKEPROFIT104385428") == "EVAL" && KeystoneLabLive.Stage("TPT", "TAKEPROFITPRO1") == "FUNDED" && keep.Contains("PREFIX|TPT|"), "● patterns.txt (an old file without PREFIX lines too) keeps the token rule"); KeystoneLabLive.LoadKeys(keep);
+            var raw = new List<KeystoneLiveRaw>(); for (int i = 0; i < 195; i++) raw.Add(new KeystoneLiveRaw { Name = "TAKEPROFIT" + (104385000 + i), Connection = "TakeProfit Rithmic", Balance = 0, Connected = i % 3 != 0 });
+            raw.Add(new KeystoneLiveRaw { Name = "TAKEPROFIT104385428", Connection = "TakeProfit Rithmic", Balance = 52771, Nick = "TPT 13" });
+            raw.Add(new KeystoneLiveRaw { Name = "MFFUEVREOD723518001", Connection = "Rithmic", Balance = 0 });
+            raw.Add(new KeystoneLiveRaw { Name = "TAKEPROFIT104300001", Connection = "TakeProfit Rithmic", Balance = 47900 });
+            raw.Add(new KeystoneLiveRaw { Name = "TAKEPROFIT104300002", Connection = "TakeProfit Rithmic", Balance = 51000, Status = "Disabled" });
+            var all = KeystoneLabLive.Classify(raw, null, null); var actv = KeystoneLabLive.ActiveOnly(all); var t13 = all.First(a => a.Account == "TAKEPROFIT104385428");
+            Check(all.Count(a => a.Stage == "FUNDED") == 0, "● the user's 195 TPT accounts + the MFFU eval: none is FUNDED", string.Join(",", all.Where(a => a.Stage == "FUNDED").Select(a => a.Account).Take(5)));
+            Check(actv.Count == 1 && actv[0] == t13 && t13.Display == "TPT 13" && KeystoneLabLive.Badge(all) == "● LIVE · 1 TPT eval", "● only the active account counts: ● LIVE · 1 TPT eval (TPT 13)", KeystoneLabLive.Badge(all) + " / " + actv.Count);
+            Check(KeystoneLabLive.ShortProgress(t13).StartsWith("$229 to pass · days 0/"), "● TPT 13 at $52,771: $229 to pass", KeystoneLabLive.ShortProgress(t13));
+            Check(all.First(a => a.Account == "TAKEPROFIT104300001").Why.StartsWith("blown") && all.First(a => a.Account == "TAKEPROFIT104300002").Why.StartsWith("disabled") && all.First(a => a.Account == "MFFUEVREOD723518001").Why == "balance 0 / unknown" && all.First(a => a.Account == "TAKEPROFIT104385000").Why == "disconnected",
+                "● inactive reasons: blown at / under the floor • disabled • balance 0 • disconnected", string.Join(" | ", all.Where(a => !a.Active).Take(3).Select(a => a.Account + " " + a.Why)));
+            var gs = KeystoneLabLive.ParseGroups("MY MIX|LT-1,TPT1\nBAD\nOTHER|TPT1,TPT2"); Check(gs.Count == 2 && gs[1].Item2.Count == 1 && gs[1].Item2[0] == "TPT2" && KeystoneLabLive.ParseGroups(KeystoneLabLive.GroupsText(gs)).Count == 2, "● your groups: an account in one group only, saved and read back");
+            var ga = new List<KeystoneLiveAcct> { new KeystoneLiveAcct { Account = "LT-1", Firm = "LUCID", Stage = "EVAL" }, new KeystoneLiveAcct { Account = "TPT1", Firm = "TPT", Stage = "EVAL" }, new KeystoneLiveAcct { Account = "TPT3", Firm = "TPT", Stage = "EVAL" }, new KeystoneLiveAcct { Account = "OLD", Firm = "TPT", Stage = "EVAL", Active = false } };
+            var grp = KeystoneLabLive.Groups(ga, gs); Check(grp.Count == 2 && grp[0].Item1 == "GROUP:MY MIX" && grp[0].Item3.Count == 2 && grp[1].Item1 == "TPT · EVAL" && grp[1].Item3.Count == 1, "● the cards: your mixed group first, then TPT · EVAL for the rest (inactive left out)", string.Join(", ", grp.Select(g => g.Item1 + ":" + g.Item3.Count)));
+            Check(KeystoneLabLive.PlanWords(new Dictionary<string, string> { { "mnq", "20" }, { "tp", "1500" }, { "stop", "0" }, { "times", "200 830 930 1000 1100" }, { "side", "FIRM" } }, true) == "MNQ 20 · take profit +$1,500 · no stop (rides to the floor) · at 2:00 / 8:30 / 9:30 / 10:00 / 11:00 NY · TPT = manual: its button flashes", "● the plan in plain words");
+        }
         Console.WriteLine(failures == 0 ? "ALL ACCOUNT LINK TESTS PASSED" : failures + " ACCOUNT LINK TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

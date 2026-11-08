@@ -1390,17 +1390,40 @@ public static class UiSmokeTest
                     throw new Exception("a mixed pool should show each firm's model + the top line + the bench: " + string.Join(" | ", texts.Take(8)));
                 if (pr.Accounts.Count(a => a.Firm == "LUCID") < 5 || pr.Trades.Count == 0) throw new Exception("🛟 SAFE PAYOUT: the funded accounts should trade");
                 Console.WriteLine("      " + texts.First(t => t.StartsWith("💰")) + " • " + pr.Payouts + " payouts");
-                {   // ● THE LABS' LIVE SIDE (BUILD 10d): the button lights up with a TPT eval at +$2,800; ✓ CONFIRM writes the pool for ● LIVE TRADING (MANUAL) — no order
-                    var feed = (Action<List<Tuple<string, string, double, double, int>>>)G("evalLabLiveFeed"); if (feed == null) throw new Exception("no ● LIVE feed");
-                    feed(new List<Tuple<string, string, double, double, int>>()); if (((Func<string>)G("evalLabLiveBadge"))() != "") throw new Exception("● LIVE must stay grey without prop accounts");
-                    feed(new List<Tuple<string, string, double, double, int>> { Tuple.Create("TPT123456", "TakeProfit Rithmic", 52800.0, 0.0, 0), Tuple.Create("LT-77001", "Rithmic", 50300.0, 300.0, 1) });
+                {   // ● THE LABS' LIVE SIDE (BUILD 11e): only ACTIVE accounts count + show; ✓ CONFIRM asks in the tab, then writes the pool for ● LIVE TRADING (MANUAL) — no order
+                    var feed = (Action<List<KeystoneLiveRaw>>)G("evalLabLiveFeed"); if (feed == null) throw new Exception("no ● LIVE feed");
+                    feed(new List<KeystoneLiveRaw>()); if (((Func<string>)G("evalLabLiveBadge"))() != "") throw new Exception("● LIVE must stay grey without prop accounts");
+                    Action<System.Windows.Controls.CheckBox> tick = c => { c.IsChecked = true; var fe = typeof(System.Windows.Controls.Primitives.ToggleButton).GetField("Checked", BindingFlags.NonPublic | BindingFlags.Instance); var dl = fe == null ? null : fe.GetValue(c) as Delegate; if (dl != null) dl.DynamicInvoke(c, new System.Windows.RoutedEventArgs()); };
+                    Func<string, System.Windows.Controls.Button> btn = tg => FindAll<System.Windows.Controls.Button>(tabs.Items[0]).FirstOrDefault(x => Convert.ToString(x.Tag) == tg);
+                    // the user's real case: 195 old TPT accounts (balance 0 / disconnected) + ONE active TPT eval at $52,771 + an inactive MFFU eval
+                    var real = new List<KeystoneLiveRaw>(); for (int i = 0; i < 195; i++) real.Add(new KeystoneLiveRaw { Name = "TAKEPROFIT" + (104385000 + i), Connection = "TakeProfit Rithmic", Balance = 0, Connected = i % 2 == 0 });
+                    real.Add(new KeystoneLiveRaw { Name = "TAKEPROFIT104399999", Connection = "TakeProfit Rithmic", Balance = 52771, Nick = "TPT 13" }); real.Add(new KeystoneLiveRaw { Name = "MFFUEVREOD723518001", Connection = "Rithmic", Balance = 0 });
+                    feed(real); var bd0 = ((Func<string>)G("evalLabLiveBadge"))(); if (bd0 != "● LIVE · 1 TPT eval") throw new Exception("● LIVE badge on the user's accounts: " + bd0);
+                    var picks0 = FindAll<System.Windows.Controls.CheckBox>(tabs.Items[0]).Where(c => Convert.ToString(c.Tag).StartsWith("live.pick.")).ToList(); if (picks0.Count != 1) throw new Exception("● LIVE should list only the active account: " + picks0.Count);
+                    var texts0 = FindAll<System.Windows.Controls.TextBlock>(tabs.Items[0]).Select(t => t.Text ?? "").ToList();
+                    if (!texts0.Contains("TPT 13") || !texts0.Any(t => t.StartsWith("$229 to pass")) || !texts0.Any(t => t.StartsWith("🎯 Plan for these TPT evals: MNQ 20 · take profit +$1,500 · no stop (rides to the floor) · at 2:00 / 8:30 / 9:30 / 10:00 / 11:00 NY · TPT = manual")))
+                        throw new Exception("● LIVE card: nickname / progress / plan: " + string.Join(" | ", texts0.Take(20)));
+                    var inB = btn("live.inactive"); if (inB == null || !Convert.ToString(inB.Content).Contains("(196)")) throw new Exception("● LIVE: the inactive toggle should count 196: " + (inB == null ? "none" : Convert.ToString(inB.Content)));
+                    var go0 = btn("live.confirm"); if (go0 == null || go0.IsEnabled) throw new Exception("✓ CONFIRM must be disabled with 0 ticked");
+                    // ✏ EDIT THIS PLAN: in the tab, ✕ cancel
+                    btn("live.edit.TPT · EVAL").RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); if (btn("live.save.TPT · EVAL") == null) throw new Exception("✏ EDIT THIS PLAN should open the fields in the tab");
+                    btn("live.cancel.TPT · EVAL").RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); if (btn("live.save.TPT · EVAL") != null) throw new Exception("✕ CANCEL should close the editor");
+                    // ✓ CONFIRM with 200 synthetic ACTIVE accounts, all ticked: asks in the tab, YES returns at once
+                    var many = new List<KeystoneLiveRaw>(); for (int i = 0; i < 200; i++) many.Add(new KeystoneLiveRaw { Name = (i % 2 == 0 ? "TAKEPROFIT" : "LT-") + (500000 + i), Connection = i % 2 == 0 ? "TakeProfit Rithmic" : "Rithmic", Balance = 51000 + i, Today = 10 });
+                    var sw = System.Diagnostics.Stopwatch.StartNew(); feed(many); var picks = FindAll<System.Windows.Controls.CheckBox>(tabs.Items[0]).Where(c => Convert.ToString(c.Tag).StartsWith("live.pick.")).ToList(); if (picks.Count != 200) throw new Exception("● LIVE: 200 active accounts to tick, got " + picks.Count);
+                    foreach (var c in picks) tick(c);
+                    var go = btn("live.confirm"); if (go == null || !go.IsEnabled || !Convert.ToString(go.Content).StartsWith("✓ CONFIRM 200 ticked accounts")) throw new Exception("✓ CONFIRM label: " + (go == null ? "none" : Convert.ToString(go.Content)));
+                    Set(lab4, "labLiveNoOpen", true); var ask = ((Func<List<string>>)G("evalLabLiveConfirm"))(); if (ask.Count != 200 || btn("live.confirm.yes") == null) throw new Exception("✓ CONFIRM should ask in the tab first");
+                    btn("live.confirm.yes").RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Set(lab4, "labLiveNoOpen", false); sw.Stop();
+                    if (sw.ElapsedMilliseconds > 20000) throw new Exception("● LIVE ✓ CONFIRM with 200 accounts took " + sw.ElapsedMilliseconds + " ms");
+                    // the two-account hand-over (order firm by firm)
+                    feed(new List<KeystoneLiveRaw> { new KeystoneLiveRaw { Name = "TPT123456", Connection = "TakeProfit Rithmic", Balance = 52800 }, new KeystoneLiveRaw { Name = "LT-77001", Connection = "Rithmic", Balance = 50300, Today = 300, Trades = 1 } });
                     var bd = ((Func<string>)G("evalLabLiveBadge"))(); if (!bd.Contains("1 TPT eval")) throw new Exception("● LIVE badge: " + bd);
-                    var picks = FindAll<System.Windows.Controls.CheckBox>(tabs.Items[0]).Where(c => Convert.ToString(c.Tag).StartsWith("live.pick.")).ToList(); if (picks.Count != 2) throw new Exception("● LIVE pools: " + picks.Count + " accounts to tick");
-                    foreach (var c in picks) { c.IsChecked = true; var fe = typeof(System.Windows.Controls.Primitives.ToggleButton).GetField("Checked", BindingFlags.NonPublic | BindingFlags.Instance); var dl = fe == null ? null : fe.GetValue(c) as Delegate; if (dl != null) dl.DynamicInvoke(c, new System.Windows.RoutedEventArgs()); }
-                    Set(lab4, "labLiveNoOpen", true); System.Windows.MessageBox.Answer = (txt, b) => System.Windows.MessageBoxResult.Yes; var ord = ((Func<List<string>>)G("evalLabLiveConfirm"))(); System.Windows.MessageBox.Answer = null; Set(lab4, "labLiveNoOpen", false);
+                    foreach (var c in FindAll<System.Windows.Controls.CheckBox>(tabs.Items[0]).Where(c => Convert.ToString(c.Tag).StartsWith("live.pick."))) tick(c);
+                    Set(lab4, "labLiveNoOpen", true); ((Func<List<string>>)G("evalLabLiveConfirm"))(); var ord = ((Func<List<string>>)G("evalLabLiveConfirmYes"))(); Set(lab4, "labLiveNoOpen", false);
                     if (ord.Count != 2 || ord[0] != "TPT123456") throw new Exception("● LIVE ✓ CONFIRM order: " + string.Join(",", ord));
-                    Console.WriteLine("      ● LIVE: " + bd + " • ✓ CONFIRM → " + string.Join(" → ", ord) + " (handed to LIVE TRADING ▸ ROTATE, MANUAL)");
-                    feed(new List<Tuple<string, string, double, double, int>>());
+                    Console.WriteLine("      ● LIVE: 197 NinjaTrader accounts → " + bd0 + " (196 inactive hidden) • 200 accounts ✓ CONFIRM in " + sw.ElapsedMilliseconds + " ms • " + string.Join(" → ", ord) + " (handed to LIVE TRADING ▸ ROTATE, MANUAL)");
+                    feed(new List<KeystoneLiveRaw>());
                 }
                 System.Windows.MessageBox.Answer = (txt, b) => System.Windows.MessageBoxResult.No; lw.Close(); System.Windows.MessageBox.Answer = null;
                 if (G("labsWindow") != null || G("rotStudioWindow") != null || G("fundedLabWindow") != null) throw new Exception("CLOSE should close the labs");
