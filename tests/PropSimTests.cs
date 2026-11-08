@@ -987,6 +987,14 @@ public static class PropSimTests
                 Check(t0.Count >= 2 && t0.Select(x => x.Entry.TimeOfDay).Distinct().Count() == t0.Count && oneSide && trun.Accounts.All(a => a.Stage != "BLOWN" || a.Bal <= a.Floor + 60),
                     "🐞 TPT funded 🧩 SPREAD: each account its own entry time (not all at once), one side inside the firm • a blown TPT account ends at its intraday-trailing floor (peak − $" + r0.Dd.ToString("N0") + ", capped at the start) less the exit costs", t0.Count + " trades at " + string.Join(",", t0.Select(x => x.Entry.ToString("HH:mm"))) + " • " + string.Join(" ", trun.Accounts.Select(a => a.Stage + " " + a.Bal.ToString("0") + "/" + a.Floor.ToString("0"))));
             }
+            {   // 📊 the result tables + 🎲 the one side source + 📅 the period
+                int w0, l0; KeystoneLabResults.Streaks(new List<double> { 5, 6, -1, -2, -3, 4 }, out w0, out l0);
+                var rst = wset(true, true, 155, 1655); rst.AllSide = "FIRM"; var rsim = KeystoneRotationLab.Run(rst, wdays, 155, 1655, () => false, null, null); var res = KeystoneLabResults.Of("EVAL", rsim, 30, null, null, null, wdays[0].Day, wdays.Last().Day, wdays.Count);
+                bool sides = Enumerable.Range(0, 20).All(i => KeystoneLabFlow.PlanSide("FIRM", new DateTime(2026, 3, 3), "F1", 7, 2, 0) == KeystoneLabFlow.SideOf(new DateTime(2026, 3, 3), "F1", 2, 0)) && KeystoneLabFlow.PlanSide("BUY", DateTime.Today, "x", 1, 0, 0) == 1;
+                bool same = rsim.Trades.Where(tq => tq.Day == wdays[0].Day).All(tq => tq.Dir == KeystoneLabFlow.PlanSide("FIRM", wdays[0].Day, KeystoneLabFlow.SideKey(rsim.HasFirms, rsim.Accounts.First(a => a.Id == tq.Account).Firm, tq.Account), tq.Account, 0, rst.Seed) || rst.Stagger);
+                Check(w0 == 2 && l0 == 3 && res.Passed + res.Blown + res.InEval == 30 && res.Eval.Count >= 2 && res.PerAccount.Count == 31 && res.Trades.Count == rsim.Trades.Count + 1 && res.Html().Contains("EVAL RESULTS") && sides && KeystoneLabPeriod.End(new DateTime(2026, 4, 10), false, null) == new DateTime(2026, 4, 13) && KeystoneLabPeriod.End(new DateTime(2026, 4, 10), true, null) == new DateTime(2026, 4, 14) && KeystoneLabPeriod.End(new DateTime(2026, 4, 10), false, new[] { new DateTime(2026, 4, 10), new DateTime(2026, 4, 14) }) == new DateTime(2026, 4, 14),
+                    "📊 result tables (per firm, every account, trades, streaks 2 / 3) • 🎲 one side source • 📅 Fri 10 Apr → Mon 13 Apr (TPT: Tue 14), holidays skipped from the saved days", res.Passed + " passed " + res.Blown + " blown " + res.InEval + " in eval");
+            }
             // 📜 the event log: CSV export
             var lg = new KeystoneLabLog(); lg.Add(new DateTime(2026, 1, 5, 9, 30, 0), "ENTRY", "TPT 1", "BUY 20 MNQ, \"quoted\""); Check(lg.Csv().Split('\n').Length >= 2 && KeystoneLabLog.Line(lg.Rows[0]).Contains("ENTRY"), "📜 the event log exports as CSV / text");
         }

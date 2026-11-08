@@ -1073,6 +1073,22 @@ public static class UiSmokeTest
                 ((Action<bool>)G("evalLabSimOnly"))(true); ((Action<bool>)G("evalLabSimOnly"))(false);
                 ((Action<bool>)G("evalLabAuto"))(true); ((Action)G("rotStudioManLoad"))(); var msimA = (KeystonePropSim)G("rotStudioManSim"); ((Action<int>)G("rotStudioManStep"))(60);
                 if (msimA == null || msimA.Trades.Count + (msimA.Active == null ? 1 : 0) == 0 && msimA.Accounts.All(a => a.Trades == 0)) Console.WriteLine("      AUTO: no entry yet in 60 minutes (the plan's session may start later)"); else Console.WriteLine("      AUTO: " + msimA.Trades.Count + " trade(s) entered by the plan");
+                {   // 🎲 ONE ENGINE (BUILD 10b): ⚡ CALCULATE EVAL ONLY == the ▶ replay played to the end (AUTO, TPT ticked for the backtest) — the same passes / blows / balances
+                    ((Action<string>)G("evalLabUsePlan"))(KeystoneEvalLab.Presets()[0].Name);
+                    boxes.Clear(); wk(((System.Windows.Window)G("rotStudioWindow")).Content); boxes.OfType<System.Windows.Controls.CheckBox>().First(c => Convert.ToString(c.Tag) == "rot.tptauto").IsChecked = true;
+                    ((Action<DateTime>)G("evalLabStart"))(new DateTime(2026, 1, 6));
+                    Set(lab4, "evalLabResultsLast", null); ((Action<string>)G("evalLabCalc2"))("EVAL"); for (int i = 0; i < 600 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
+                    var cr = (KeystoneLabResults)G("evalLabResultsLast"); var cs = (KeystonePropSim)G("evalLabCalcSimLast"); if (cr == null || cs == null) throw new Exception("⚡ CALCULATE EVAL ONLY gave no result: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
+                    ((Action<bool>)G("evalLabAuto"))(true); ((Action)G("rotStudioManLoad"))(); ((Action)G("evalLabReplayToEnd"))(); var rs = (KeystonePropSim)G("rotStudioManSim");
+                    var diff = cs.Accounts.Take(cr.Accounts).Where(a => { var b = rs.Accounts.FirstOrDefault(x => x.Id == a.Id); return b == null || cs.PassedOrPending(a) != rs.PassedOrPending(b) || a.Alive != b.Alive || (!cs.PassedOrPending(a) && Math.Abs(a.Bal - b.Bal) > 0.5) || cs.Trades.Count(t => t.Account == a.Id) != rs.Trades.Count(t => t.Account == b.Id); })   /* a passed account's funded balance starts at 0 after its activation day (the replay stops at BATCH DONE) */.Select(a => a.Name + " calc " + a.Bal.ToString("0") + (a.Alive ? "" : " blown") + " / replay " + rs.Accounts.First(x => x.Id == a.Id).Bal.ToString("0") + (rs.Accounts.First(x => x.Id == a.Id).Alive ? "" : " blown")).ToList();
+                    if (diff.Count > 0) throw new Exception("⚡ CALCULATE ≠ ▶ replay: " + string.Join(" | ", diff.Take(6)));
+                    if (cr.PerAccount.Count != cr.Accounts + 1 || cr.Eval.Count < 2 || !cr.Period.Contains("→")) throw new Exception("🧪 EVAL RESULTS tables");
+                    ((Action<string>)G("evalLabShowTab"))("RESULTS"); var html = ((Func<string>)G("evalLabExportResults"))(); if (!System.IO.File.Exists(html) || !System.IO.File.Exists(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(html), "trades.csv"))) throw new Exception("⤓ results export: " + html);
+                    Set(lab4, "evalLabResultsLast", null); ((Action<string>)G("evalLabCalc2"))("BOTH"); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
+                    var cb2 = (KeystoneLabResults)G("evalLabResultsLast"); if (cb2 == null || cb2.Scope != "BOTH" || cb2.PayoutRows.Count < 1 || !cb2.Stats.Any(x => x[0] == "money")) throw new Exception("⚡ EVAL → FUNDED → PAYOUTS gave no result");
+                    Console.WriteLine("      🎲 CALCULATE = REPLAY on " + cr.Period + ": " + cr.Passed + " passed, " + cr.Blown + " blown, " + cr.InEval + " in eval (" + cr.Accounts + " accounts) • ⤓ " + System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(html)) + " • BOTH: " + cb2.Payouts + " payouts, net " + (cb2.Paid - cb2.Spent).ToString("0"));
+                    boxes.OfType<System.Windows.Controls.CheckBox>().First(c => Convert.ToString(c.Tag) == "rot.tptauto").IsChecked = false;
+                }
                 ((Action<bool>)G("evalLabAuto"))(false); ((Action<string>)G("evalLabDeletePool"))(pn0);
                 Set(lab4, "rotStudioDaysOverride", null); Set(lab4, "rotStudioWindow", null);
             });

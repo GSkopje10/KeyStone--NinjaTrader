@@ -95,3 +95,16 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
 - Live runs in real time. Between entry times the lab sleeps, and it wakes 1 minute before each slot with a countdown.
 - A ✋ TPT account's slot raises an alert and a sound, and its button flashes. Nothing is sent without the press, and every order still goes through the armed `KeystoneAccountLink` with its limits.
 - No time skip in live: the skip is a backtest feature only.
+
+## BUILD 2026-11-10b — ▶ START HERE (⚙ SETTINGS, at the top)
+- **START DATE:** any saved day. The END is filled in automatically as that session plus the next one (2 trading days, the eval minimum), or 3 trading days when TPT is in the mix (its 3rd day is the tiny activation trade). Holidays are skipped using the saved days. The END stays editable.
+- **SCOPE:** EVAL → FUNDED → PAYOUTS (both) · EVAL ONLY · FUNDED ONLY (N funded accounts per firm, taken from the per-firm boxes). Plus the FUNDED PLAN (★ MAX IN 5 spread by default).
+- **⚡ CALCULATE EVAL ONLY:** no chart, instant. Opens 📊 RESULTS ▸ 🧪 EVAL RESULTS:
+  - per firm: passed / blown / in eval, trades won / lost, win %;
+  - every account's day 1 / day 2 / day 3 and its status;
+  - the longest winning and losing streaks.
+- **⚡ CALCULATE EVAL → FUNDED → PAYOUTS:** no chart. The passed accounts go funded under the chosen plan (bench rule applied) on the days after the eval, running to payouts or blown. Shows every tab plus spent / paid / net.
+- **▶ REPLAY WITH CHART:** the 📈 TRADING screen. **⏩ TO THE END** plays every loaded day with AUTO.
+- **Result tabs:** 🧪 EVAL RESULTS · 📅 DAYS (per date and firm) · 📜 TRADES (NY time AM / PM, instrument, side, contracts, entry, P/L after costs, how it ended) · 💀 BLOWN · 💰 PAYOUTS · 📊 STATS (by firm, by day number, by week, money). The period is in the header.
+- **⤓ EXPORT:** writes the CSVs plus `summary.html` to `Studio\EvalLab\exports\<time>-<scope>\`.
+- **One engine:** ⚡ CALCULATE and the ▶ replay share the same side source (`KeystoneLabFlow.PlanSide`) and the same trade rules. Played to the end, the replay gives the same passes, blows and trades (UI smoke test).
