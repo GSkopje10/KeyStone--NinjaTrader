@@ -64,3 +64,34 @@ Everything in the labs is simulation on the minutes saved on this PC: nothing se
 
 - ● LIVE will trade the real accounts in the same firm round robin ONLY through each account's armed link (ARM + its limits + confirmations).
 - AUTO only where the firm allows automation; otherwise MANUAL with flashing buttons. Today nothing in this window sends an order: it is simulation on your saved minutes.
+
+## BUILD 2026-11-10a — the trading screen
+
+- **Tabs:** 📈 TRADING (top bar + chart + pool) · ⚙ SETTINGS (+ the instant results) · 📊 RESULTS · 📜 LOG · ✅ PASSED · 💀 BLOWN.
+- **Accounts per firm:** each firm has its own count box (default 5, 1–50), and the total is shown ("15 = 5 TPT + 5 Lucid + 5 Tradeify"). The same boxes appear in wizard step ① and in ⚙ SETTINGS.
+- **Firm by firm:**
+  - Every day the active accounts are dealt in turn (TPT 1, Lucid 1, Tradeify 1, TPT 2 …).
+  - The entry times are given out in blocks, so the next account always comes from another firm, both within one entry time and from one time to the next.
+- **One time zone:** every time in the lab is New York time (the strategy's time) with AM / PM. The 🌐 SESSIONS box shows the same moment in New York, Chicago (CME), London and Tokyo, plus the day's entry times (✓ done / ▶ next).
+- **AUTO / MANUAL:**
+  - ⚡ AUTO trades Lucid / Tradeify by itself and writes a 💬 WHY sentence for every trade.
+  - At a ✋ TPT account's minute the clock **stops** and a banner explains why. The press fills at that minute's price, then the replay resumes.
+  - "let AUTO trade TPT too" works in the backtest only.
+  - With AUTO unticked (MANUAL) nothing happens by itself: you pick any side, MNQ / MGC / both, your size, your TP and your stop.
+- **⏩ Skip quiet time:** with AUTO on in the backtest, when nothing is open and nothing is due, the clock jumps straight to the next entry time (one step), and the jump is logged. ⏭ NEXT ACCOUNT'S TIME does the same by hand.
+- **Chart:**
+  - Timeframes 1m 2m 3m 5m 15m 30m 1h.
+  - Wheel = zoom. Drag = pan. Drag the price axis = stretch. Double-click = fit.
+  - Clicking a candle shows its O / H / L / C. A crosshair shows price / time.
+  - Drawing tools: H-line, trend, rect, text, delete.
+  - ⟲ NOW follows the newest candle again.
+  - A 6 PM New York separator marks the day; the minutes before the session are shaded as history.
+  - ⛶ FULL SCREEN keeps only the chart, with a small floating pool.
+- **The pool:** only the active accounts. Blown and passed accounts leave at the close (💀 BLOWN / ✅ PASSED tabs). A TPT account at +$3,000 counts as PASSED; day 3 is only a tiny trade to activate it.
+- **DAY DONE:** the box shows why accounts are still in evaluation. At the end of the batch you get 🏁 BATCH DONE and 🎉 ▶ START THE FUNDED STAGE, which opens the Funded Lab with step ① done.
+- **⤓ EXPORT WHAT HAPPENED:** writes the events, trades, accounts, settings and days to `Studio\EvalLab\exports\<time>\`.
+
+### LIVE (stage 3, not built yet) — design note
+- Live runs in real time. Between entry times the lab sleeps, and it wakes 1 minute before each slot with a countdown.
+- A ✋ TPT account's slot raises an alert and a sound, and its button flashes. Nothing is sent without the press, and every order still goes through the armed `KeystoneAccountLink` with its limits.
+- No time skip in live: the skip is a backtest feature only.

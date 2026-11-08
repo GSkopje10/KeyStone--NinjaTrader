@@ -996,7 +996,7 @@ public static class UiSmokeTest
                 for (int i = 0; i < 600 && G("rotStudioLast") == null && !((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text.StartsWith("🔄"); i++) System.Threading.Thread.Sleep(100);
                 Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
                 var sim = (KeystonePropSim)G("rotStudioLast"); if (sim == null || sim.Trades.Count == 0) throw new Exception("no trades");
-                var deck = (System.Windows.Controls.WrapPanel)G("rotStudioDeck"); if (deck == null || deck.Children.Count != 10) throw new Exception("the account deck should show the 10 evaluations, has " + (deck == null ? 0 : deck.Children.Count));
+                var deck = (System.Windows.Controls.WrapPanel)G("rotStudioDeck"); if (deck == null || deck.Children.Count != 15) throw new Exception("the account deck should show the 15 evaluations (5 TPT + 5 Lucid + 5 Tradeify by default), has " + (deck == null ? 0 : deck.Children.Count));
                 var orb = (Func<KeystoneRotDay, int, Tuple<int, int>>)lab4.GetType().GetMethod("RotStudioSides", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { "ORB30" });
                 var d0 = synth(DateTime.Today, DateTime.Today)[0]; int hits = 0; for (int k = 0; k < KeystoneRotDay.Slots; k++) { var sd = orb(d0, k); if (sd.Item1 != 0) { hits++; if (k <= KeystoneRotDay.Slot(1000)) throw new Exception("ORB side before 10:00"); } }
                 Console.WriteLine("      ORB30 sides on " + hits + " minutes of day 1 • " + sim.Accounts.Count(a => a.PassedOn != DateTime.MinValue) + " passed");
@@ -1193,6 +1193,16 @@ public static class UiSmokeTest
                 // 🧭 the Eval Lab wizard: a step cannot be skipped, ← BACK, then ① 30 accounts of 3 firms → ② ★ STAGGERED → ③ one picked day (+ the next) → ④ replay → ⑤ START
                 var wz = (KeystoneLabWizard)G("evalLabWizard"); var nx = (Func<bool>)G("evalLabWizardNext"); if (wz == null || nx == null || wz.Step != 0 || wz.CanOpen(1)) throw new Exception("the wizard should start at step 1 with step 2 locked");
                 if (!FindAll<System.Windows.Controls.Button>(tabs.Items[0]).Any(b => Convert.ToString(b.Content) == "⚙ advanced • every screen")) throw new Exception("no ⚙ advanced link");
+                {   // ① accounts PER FIRM: each firm its own box (default 5), the total worked out • 10 + 10 + 10 = 30
+                    Action<System.Windows.Controls.TextBox, string> type = (tb0, v) => { tb0.Text = v; var fe = typeof(System.Windows.Controls.TextBox).GetField("TextChanged", BindingFlags.NonPublic | BindingFlags.Instance); var dl = fe == null ? null : fe.GetValue(tb0) as Delegate; if (dl != null) dl.DynamicInvoke(tb0, new System.Windows.Controls.TextChangedEventArgs()); };   /* = the user typing */
+                    var fbx = FindAll<System.Windows.Controls.TextBox>(tabs.Items[0]).Where(b => Convert.ToString(b.Tag).StartsWith("wz.firm.")).ToList();
+                    if (fbx.Count < 3 || fbx.First(b => Convert.ToString(b.Tag) == "wz.firm.LUCID").Text != "5") throw new Exception("① no count box per firm (default 5)");
+                    foreach (var f in new[] { "TPT", "LUCID", "TRADEIFY" }) type(fbx.First(b => Convert.ToString(b.Tag) == "wz.firm." + f), "10");
+                    var tot = FindAll<System.Windows.Controls.TextBlock>(tabs.Items[0]).FirstOrDefault(t => Convert.ToString(t.Tag) == "wz.firm.total"); if (tot == null || !tot.Text.Contains("30 = 10 TPT + 10 Lucid + 10 Tradeify")) throw new Exception("① the total: " + (tot == null ? "none" : tot.Text));
+                    var rbx = FindAll<System.Windows.Controls.TextBox>(tabs.Items[0]).First(b => Convert.ToString(b.Tag) == "rot.firm.LUCID"); type(rbx, "7"); var rtot = FindAll<System.Windows.Controls.TextBlock>(tabs.Items[0]).First(t => Convert.ToString(t.Tag) == "rot.firm.total");
+                    if (!rtot.Text.Contains("17 = 5 TPT + 7 Lucid + 5 Tradeify")) throw new Exception("ROTATE ① per firm: " + rtot.Text); type(rbx, "5");
+                    Console.WriteLine("      ① per firm: " + tot.Text + " • ROTATE edits too");
+                }
                 if (!nx() || wz.Step != 1 || !wz.Summary[0].Contains("30 simulated")) throw new Exception("step 1: " + wz.Summary[0]);
                 ((Action)G("evalLabWizardBack"))(); if (wz.Step != 0) throw new Exception("← BACK"); nx();
                 if (!nx() || !wz.Summary[1].StartsWith("⚡ STAGGERED")) throw new Exception("step 2 should pre-select the ★ STAGGERED model: " + wz.Summary[1]);
@@ -1208,12 +1218,45 @@ public static class UiSmokeTest
                 if (ch.Height > 0 || par == null || par.Children[par.Children.Count - 1] != ch) throw new Exception("the chart must take the remaining height (last child of its DockPanel, no fixed height)");
                 ((Action<int>)G("rotStudioManStep"))(KeystoneRotDay.Slot(1101) - KeystoneRotDay.Slot(155) + 5);
                 int candles = ch.Children.OfType<System.Windows.Shapes.Rectangle>().Count(); if (candles < 20) throw new Exception("no candles on the chart: " + candles);
-                var dd = (Func<bool>)G("evalLabDayDone"); for (int i = 0; i < 1400 && !dd(); i++) ((Action<int>)G("rotStudioManStep"))(1);
+                // the trading screen = the chart + the pool (settings in their own tab), full screen, the chart's tools
+                if ((string)((Func<string>)G("evalLabTabNow"))() != "TRADING") throw new Exception("the replay should open the 📈 TRADING tab, is " + ((Func<string>)G("evalLabTabNow"))());
+                var pnames = ((Func<List<string>>)G("evalLabPoolNames"))(); if (pnames.Count < 30 || !pnames.Contains("TPT 1") || !pnames.Contains("LUCID 1")) throw new Exception("the pool panel: " + string.Join(",", pnames.Take(6)));
+                ((Action<bool>)G("evalLabFull"))(true); if (!ch.Children.OfType<System.Windows.Controls.Border>().Any(b => b.Child is System.Windows.Controls.WrapPanel)) throw new Exception("⛶ full screen: no floating mini pool on the chart"); ((Action<bool>)G("evalLabFull"))(false);
+                { int b0 = ((Func<int>)G("evalLabChartBars"))(); ((Action<int>)G("evalLabChartWheel"))(120); int b1 = ((Func<int>)G("evalLabChartBars"))(); if (b1 >= b0) throw new Exception("wheel zoom: " + b0 + " → " + b1);
+                  ((Action<double, double>)G("evalLabChartDrag"))(400, 0); if (!((Func<List<string>>)G("evalLabChartMarks"))().Any(m => m.StartsWith("BACK "))) throw new Exception("drag should pan back");
+                  ((Action<int>)G("evalLabChartWheel"))(-120); var ohlc = ((Func<double, double, string>)G("evalLabChartClick"))(300, 120); if (!ohlc.Contains(" O ") || !ohlc.Contains(" H ") || !ohlc.Contains(" C ")) throw new Exception("a candle click: " + ohlc);
+                  ((Action<int>)G("evalLabSetTf"))(5); ((Action<string>)G("evalLabTool"))("HLINE"); var drawn = ((Func<double, double, string>)G("evalLabChartClick"))(300, 120); if (!drawn.StartsWith("━")) throw new Exception("H-LINE: " + drawn); ((Action<int>)G("evalLabSetTf"))(1);
+                  ((Action<double, double>)G("evalLabChartDrag"))(40000, 0); var marks = ((Func<List<string>>)G("evalLabChartMarks"))(); if (!marks.Any(m => m.StartsWith("SEP 06:00 PM"))) throw new Exception("the 6 PM New York day separator is missing at the start of the day: " + string.Join(" | ", marks.Take(5)));
+                  if (marks.Any(m => m.StartsWith("AXIS") && !m.EndsWith("M"))) throw new Exception("the time axis must be New York AM / PM"); ((Action<double, double>)G("evalLabChartDrag"))(-80000, 0);
+                  Console.WriteLine("      chart: wheel " + b0 + " → " + b1 + " bars • drag pans • " + ohlc + " • " + drawn); }
+                { var hdr = ((Func<string>)G("evalLabHeader"))(); if (!hdr.Contains("New York") || hdr.Contains("CET") || !hdr.Contains("range ")) throw new Exception("the header (New York time, AM / PM, the range): " + hdr); }
+                // ✋ TPT: the clock STOPS at its minute until the press; the fill is at that minute • ⏩ quiet time skipped (AUTO)
+                var dd = (Func<bool>)G("evalLabDayDone"); int waits = 0;
+                for (int i = 0; i < 1400 && !dd(); i++)
+                {
+                    var wf = ((Func<string>)G("evalLabWaitingFor"))();
+                    if (wf != null) { int m0 = ((Func<int>)G("evalLabMinute"))(); ((Action<int>)G("rotStudioManStep"))(3); if (((Func<int>)G("evalLabMinute"))() != m0) throw new Exception("the clock moved while " + wf + " waited for a press"); ((Action)G("evalLabPressPlan"))(); waits++; continue; }
+                    ((Action<int>)G("rotStudioManStep"))(1);
+                }
                 if (!dd()) throw new Exception("the replay should stop at DAY DONE");
+                var skips = (List<string>)G("evalLabSkips"); if (skips == null || !skips.Any(x => x.StartsWith("⏩"))) throw new Exception("⏩ quiet time was not skipped with AUTO on");
+                var stagT = new HashSet<TimeSpan>(KeystoneLabFlow.StaggerTimes.Select(h => new TimeSpan(h / 100, h % 100, 0)));
+                var tptT = msim.Trades.Where(t => t.Day.Date == new DateTime(2026, 3, 3) && (msim.FirmName(msim.Accounts.First(a => a.Id == t.Account)) ?? "").ToUpperInvariant().Replace(" ", "").Contains("TAKEPROFIT") || (msim.FirmName(msim.Accounts.First(a => a.Id == t.Account)) ?? "").ToUpperInvariant().StartsWith("TPT")).ToList();
+                if (waits == 0 || tptT.Count == 0 || tptT.Any(t => !stagT.Contains(t.Entry.TimeOfDay))) throw new Exception("✋ TPT fills must be at their entry minute: " + waits + " waits, " + string.Join(",", tptT.Select(t => t.Entry.ToString("HH:mm"))) + " firms " + string.Join(",", msim.Accounts.Take(4).Select(a => a.Name + "=" + msim.FirmName(a))));
+                var whys = (List<string>)G("evalLabWhy"); if (whys == null || whys.Count == 0 || !whys[0].Contains(" — ") || !whys[0].Contains("after costs")) throw new Exception("💬 no WHY line for the automated trades");
+                Console.WriteLine("      ✋ " + waits + " TPT presses (the clock waited) • ⏩ " + skips.Count + " skips: " + skips[0] + " • 💬 " + whys[0]);
                 var tr1 = msim.Trades.Where(t => t.Day.Date == new DateTime(2026, 3, 3)).ToList();
                 if (tr1.Select(t => t.Account).Distinct().Count() != tr1.Count) throw new Exception("one trade per account per day");
                 Console.WriteLine("      day 1: " + tr1.Count + " trades by " + tr1.Select(t => t.Account).Distinct().Count() + " accounts • " + candles + " candles • buttons " + string.Join(" ", vis));
-                ((Action)G("evalLabNextDay"))(); if (dd()) throw new Exception("▶ NEXT DAY should open the next day");
+                {   // 💀 a day with blown accounts: NEXT DAY's pool leaves them out, the 💀 BLOWN tab lists them
+                    if (!msim.Accounts.Any(a => !a.Alive)) { var victim = msim.Accounts.First(a => a.Alive && !msim.PassedOrPending(a)); msim.Blow(victim, msim.Day, "smoke test"); }
+                    ((Action)G("evalLabNextDay"))(); if (dd()) throw new Exception("▶ NEXT DAY should open the next day");
+                    var pn2 = ((Func<List<string>>)G("evalLabPoolNames"))(); var bl = ((Func<List<string>>)G("evalLabBlownRows"))(); var blownN = msim.Accounts.Where(a => !a.Alive && !msim.PassedOrPending(a)).ToList();
+                    if (bl.Count != blownN.Count || pn2.Count != msim.Accounts.Count(a => a.Alive && !msim.PassedOrPending(a))) throw new Exception("💀 the next day's pool / the BLOWN tab: pool " + pn2.Count + ", blown rows " + bl.Count + " of " + blownN.Count);
+                    ((Action<string>)G("evalLabShowTab"))("BLOWN"); ((Action<string>)G("evalLabShowTab"))("PASSED"); ((Action<string>)G("evalLabShowTab"))("LOG"); ((Action<string>)G("evalLabShowTab"))("TRADING");
+                    var exd = ((Func<string>)G("evalLabExportAll"))(); if (!System.IO.Directory.Exists(exd) || !System.IO.File.Exists(System.IO.Path.Combine(exd, "trades.csv")) || !System.IO.File.Exists(System.IO.Path.Combine(exd, "events.csv"))) throw new Exception("⤓ EXPORT WHAT HAPPENED: " + exd);
+                    Console.WriteLine("      💀 " + bl.Count + " blown listed, the pool now " + pn2.Count + " • ⤓ " + System.IO.Path.GetFileName(exd));
+                }
                 var lg = (KeystoneLabLog)G("evalLabLog"); var ex = ((Func<string>)G("evalLabLogExport"))(); if (lg == null || lg.Rows.Count == 0 || !System.IO.File.Exists(ex)) throw new Exception("⤓ EXPORT LOG: " + ex);
                 // ⌨ + ✋ closing: with a running replay the close asks, CANCEL keeps the window open
                 ((Action)G("evalLabPlayToggle"))(); var busy = ((Func<List<string>>)G("evalLabBusy"))(); if (!busy.Any(b => b.Contains("replay is running"))) throw new Exception("busy should report the running replay");
