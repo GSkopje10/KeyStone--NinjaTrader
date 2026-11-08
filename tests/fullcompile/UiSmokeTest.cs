@@ -1086,9 +1086,23 @@ public static class UiSmokeTest
                     ((Action<string>)G("evalLabShowTab"))("RESULTS"); var html = ((Func<string>)G("evalLabExportResults"))(); if (!System.IO.File.Exists(html) || !System.IO.File.Exists(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(html), "trades.csv"))) throw new Exception("⤓ results export: " + html);
                     Set(lab4, "evalLabResultsLast", null); ((Action<string>)G("evalLabCalc2"))("BOTH"); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
                     var cb2 = (KeystoneLabResults)G("evalLabResultsLast"); if (cb2 == null || cb2.Scope != "BOTH" || cb2.PayoutRows.Count < 1 || !cb2.Stats.Any(x => x[0] == "money")) throw new Exception("⚡ EVAL → FUNDED → PAYOUTS gave no result");
+                    {   // 📒 BUILD 11b: the ONE run record behind every tab — 👤 ACCOUNTS, 💰 FUNDED, 🕒 TIMELINE, 💵 PAYOUTS (+ sub-tabs), the account card, 📦 EXPORT FOR CLAUDE
+                        if (cb2.Record == null || cb2.Record.PassedN != cb2.Passed || cb2.Record.PayoutN != cb2.Payouts || cb2.Trust == "" || cb2.Record.Source == null || cb2.Record.Settings.Count < 8) throw new Exception("📒 the run record does not match the header / has no data facts");
+                        foreach (var sub in new[] { "ACCOUNTS", "FUNDED", "TIMELINE", "DAYS", "TRADES", "BLOWN", "PAYOUTS", "STATS", "EVAL" }) ((Action<string>)G("evalLabResSub"))(sub);
+                        ((Action<string>)G("evalLabOpenCard"))(cb2.Record.Accounts[0].Key); ((Action<DateTime?>)G("evalLabTimelineDay"))(cb2.Record.TimelineDays().FirstOrDefault()); ((Action<string>)G("evalLabResSub"))("TIMELINE");
+                        ((Action<string>)G("evalLabResSub"))("PAYOUTS"); foreach (var ps in new[] { "BYACC", "BYFIRM", "BYMONTH", "COMPARE", "BYPAY" }) ((Action<string>)G("evalLabPaySub"))(ps);
+                        if (cb2.Record.Payouts.Count > 0) ((Action<string>)G("evalLabExpandPay"))(cb2.Record.Payouts[0].Account + "|" + cb2.Record.Payouts[0].N);
+                        var jf = ((Func<string>)G("evalLabExportClaude"))(); if (!System.IO.File.Exists(jf) || !System.IO.Path.GetFileName(jf).StartsWith("keystone-check-")) throw new Exception("📦 EXPORT FOR CLAUDE: " + jf);
+                        var jo = KeystoneJson.Parse(System.IO.File.ReadAllText(jf)) as Dictionary<string, object>; if (jo == null || !jo.ContainsKey("trades") || !jo.ContainsKey("account_days") || !jo.ContainsKey("settings") || !((string)jo["build"]).StartsWith("BUILD")) throw new Exception("📦 the JSON export is not complete");
+                        Console.WriteLine("      📦 EXPORT FOR CLAUDE: " + System.IO.Path.GetFileName(jf) + " · " + ((List<object>)jo["trades"]).Count + " trades · " + ((List<object>)jo["account_days"]).Count + " account-days"); try { System.IO.File.Delete(jf); } catch { }
+                        ((Action<string>)G("evalLabOpenCard"))(null);
+                    }
                     Console.WriteLine("      🎲 CALCULATE = REPLAY on " + cr.Period + ": " + cr.Passed + " passed, " + cr.Blown + " blown, " + cr.InEval + " in eval (" + cr.Accounts + " accounts) • ⤓ " + System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(html)) + " • BOTH: " + cb2.Payouts + " payouts, net " + (cb2.Paid - cb2.Spent).ToString("0"));
                     Set(lab4, "evalLabResultsLast", null); ((Action<DateTime, DateTime>)G("evalLabTwoDay"))(new DateTime(2026, 1, 5), new DateTime(2026, 1, 16)); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
                     var td = (KeystoneLabResults)G("evalLabResultsLast"); if (td == null || !td.Period.StartsWith("📅 2-DAY TEST") || td.Days.Count < 2 || !td.Stats.Any(x => x[0] == "best weekday to start")) throw new Exception("📅 2-DAY TEST gave no result");
+                    Set(lab4, "evalLabResultsLast", null); ((Action<DateTime, DateTime, bool>)G("evalLabBestStarts"))(new DateTime(2026, 1, 5), new DateTime(2026, 1, 16), false); for (int i = 0; i < 900 && G("evalLabResultsLast") == null; i++) System.Threading.Thread.Sleep(100);
+                    var bsr = (KeystoneLabResults)G("evalLabResultsLast"); if (bsr == null || !bsr.BestStarts || bsr.Days.Count < 2 || !bsr.Stats.Any(x => x[0] == "most passed")) throw new Exception("🏆 BEST START DAYS gave no result");
+                    Console.WriteLine("      🏆 " + bsr.Period + " · " + bsr.Stats.First(x => x[0] == "most passed")[1]);
                     ((Action<string>)G("evalLabShow"))("REPORTS"); ((Action<string>)G("evalLabShow"))("DATA"); ((Action<string>)G("evalLabShow"))("ROTATE");
                     Set(lab4, "evalLabFindBest", -1); ((Action)G("evalLabFindBestGo"))(); for (int i = 0; i < 1800 && (int)G("evalLabFindBest") < 0; i++) System.Threading.Thread.Sleep(100);
                     if ((int)G("evalLabFindBest") <= 0) throw new Exception("🏆 FIND BEST ranked no plan"); Console.WriteLine("      🏆 FIND BEST ranked " + G("evalLabFindBest") + " eval plans (top 5 + ▶ USE THIS PLAN)");
@@ -1157,7 +1171,7 @@ public static class UiSmokeTest
                 }
                 Set(lab4, "fundedLabWindow", null);
             });
-            Step("🏠 LAUNCHER cards 🧪 EVAL LAB + 💰 FUNDED LAB open the windows • 💵 PAYOUTS • 🔁 PIPELINE (one batch, every weekday, business loop) • 🚦 chips", () =>
+            Step("🏠 LAUNCHER cards 🧪 EVAL LAB + 💰 FUNDED LAB open the windows • 💵 PAYOUTS • 🔁 BUSINESS RUN (replacements, the money, month by month → RESULTS) • 🚦 chips in ADVISOR", () =>
             {
                 Set(lab4, "rotStudioWindow", null); Set(lab4, "fundedLabWindow", null);
                 Call(lab4, "OpenLauncher"); var lw = (System.Windows.Window)G("launcherWindow"); if (lw == null) throw new Exception("no launcher");
@@ -1188,22 +1202,21 @@ public static class UiSmokeTest
                 var pr = (KeystonePayoutRun)G("fundedLabPayLast"); Console.WriteLine("      " + ((System.Windows.Controls.TextBlock)G("fundedLabStatus")).Text);
                 if (pr == null || pr.Accounts.Count != 10 || pr.Trades.Count == 0 || !pr.Accounts.All(a => a.Firm == "LUCID" || a.Firm == "TRADEIFY")) throw new Exception("no payout run of the simulated 5 Lucid + 5 Tradeify");
                 Console.WriteLine("      payouts: " + pr.Payouts + " • to you $" + pr.Net.ToString("0") + " • " + pr.Accounts[0].RuleLine(KeystonePayoutRules.For(pr.Accounts[0].Firm, null)));
-                // 🔁 the pipeline in the Eval Lab
-                Set(lab4, "rotStudioDaysOverride", psynth); Set(lab4, "evalLabPipeOne", null); Set(lab4, "evalLabPipeStarts", null); Set(lab4, "evalLabPipeLoop", null);
+                // 🔁 the BUSINESS RUN in the Eval Lab (BUILD 11b: replaces the PIPELINE — the same engine, replacements, the money)
+                Set(lab4, "rotStudioDaysOverride", psynth); Set(lab4, "evalLabBizLast", null);
                 ((Action<string>)G("evalLabShow"))("FIRMS");
                 ((Action<string>)G("evalLabShow"))("PIPELINE");
-                { var bud = (Action<string, string>)G("evalLabBudget"); if (bud == null) throw new Exception("🔁 PIPELINE has no 💰 BUDGET box"); bud("3000", "40"); var bl = (KeystoneBudgetPlan)G("evalLabBudgetLast"); if (bl == null || bl.PerWeek != 25 || bl.Steps.Count != 7) throw new Exception("💰 BUDGET: no ladder"); Console.WriteLine("      💰 BUDGET $3,000 at $40: " + bl.PerWeek + " evals a week • " + bl.Steps.Count + " steps"); }
-                { var pb = G("evalLabPipeProgress") as System.Windows.Controls.ProgressBar; if (pb == null || pb.Maximum != 100) throw new Exception("🔁 PIPELINE has no progress bar"); }
-                var go = (Action<string>)G("evalLabPipe"); if (go == null) throw new Exception("no pipeline");
-                ((Action<DateTime, DateTime>)G("evalLabPipeRange"))(DateTime.Today.AddDays(-125), DateTime.Today.AddDays(-60));
-                go("ONE"); for (int i = 0; i < 900 && G("evalLabPipeOne") == null; i++) System.Threading.Thread.Sleep(100);
-                var one = (KeystonePipeBatch)G("evalLabPipeOne"); if (one == null || one.Accounts.Count != 30) throw new Exception("no batch of 30: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
-                if (!one.Accounts.Where(a => a.PassedOn != DateTime.MinValue).All(a => a.F != null && a.F.Stage != "PARKED")) throw new Exception("the passed accounts did not move to funded (TPT included: lock → withdrawals)");
-                go("ALL"); for (int i = 0; i < 1800 && G("evalLabPipeStarts") == null; i++) System.Threading.Thread.Sleep(100);
-                var all = (List<KeystonePipeBatch>)G("evalLabPipeStarts"); if (all == null || all.Count == 0) throw new Exception("no batch every weekday: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
-                go("LOOP"); for (int i = 0; i < 1800 && G("evalLabPipeLoop") == null; i++) System.Threading.Thread.Sleep(100);
-                var lp = (KeystoneLoopResult)G("evalLabPipeLoop"); if (lp == null || lp.Batches == 0) throw new Exception("no business loop");
-                Console.WriteLine("      one batch: " + one.Passed + " passed • " + one.Payouts + " payouts • every weekday: " + all.Count + " batches • loop: " + lp.Batches + " batches, net $" + lp.Net.ToString("0"));
+                { var bud = (Action<string, string>)G("evalLabBudget"); if (bud == null) throw new Exception("🔁 BUSINESS RUN has no 📏 MONEY RULES ladder"); bud("3000", "40"); var bl = (KeystoneBudgetPlan)G("evalLabBudgetLast"); if (bl == null || bl.PerWeek != 25 || bl.Steps.Count != 7) throw new Exception("💰 BUDGET: no ladder"); Console.WriteLine("      💰 MONEY RULES $3,000 at $40: " + bl.PerWeek + " evals a week • " + bl.Steps.Count + " steps"); }
+                { var pb = G("evalLabPipeProgress") as System.Windows.Controls.ProgressBar; if (pb == null || pb.Maximum != 100) throw new Exception("🔁 BUSINESS RUN has no progress bar"); }
+                var bset = (Action<string, DateTime, DateTime>)G("evalLabBizSet"); var bgo = (Action)G("evalLabBiz"); if (bset == null || bgo == null) throw new Exception("no business run");
+                bset("POCKET", DateTime.Today.AddDays(-125), DateTime.Today.AddDays(-40)); bgo(); for (int i = 0; i < 1800 && G("evalLabBizLast") == null; i++) System.Threading.Thread.Sleep(100);
+                var biz = (KeystoneBusinessRun)G("evalLabBizLast"); if (biz == null || biz.Bought < 15 || biz.Months.Count < 2 || biz.Record.Accounts.Count != biz.Bought) throw new Exception("no business run: " + ((System.Windows.Controls.TextBlock)G("rotStudioStatus")).Text);
+                Console.WriteLine("      🔁 " + biz.Summary());
+                ((Action<KeystoneLabResults>)G("evalLabShowResults"))(KeystoneLabResults.FromBusiness(biz));
+                foreach (var sub in new[] { "ACCOUNTS", "FUNDED", "TIMELINE", "PAYOUTS", "STATS", "EVAL" }) ((Action<string>)G("evalLabResSub"))(sub);
+                ((Action<string>)G("evalLabOpenCard"))(biz.Record.Accounts[0].Key);
+                ((Action<string>)G("evalLabResSub"))("PAYOUTS"); foreach (var ps in new[] { "BYACC", "BYFIRM", "BYMONTH", "COMPARE", "BYPAY" }) ((Action<string>)G("evalLabPaySub"))(ps);
+                ((Action<string>)G("evalLabShow"))("ADVISOR");
                 var chips = (List<KeystonePayout.Chip>)G("labChipsLast"); for (int i = 0; i < 300 && chips == null; i++) { System.Threading.Thread.Sleep(100); chips = (List<KeystonePayout.Chip>)G("labChipsLast"); }
                 if (chips == null || chips.Count != 7) throw new Exception("no stage chips");
                 Set(lab4, "rotStudioDaysOverride", null); Set(lab4, "fundedLabDaysOverride", null); Set(lab4, "rotStudioWindow", null); Set(lab4, "fundedLabWindow", null);

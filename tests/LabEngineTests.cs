@@ -148,6 +148,93 @@ public static class LabEngineTests
             var shortDays = days.Take(2).ToList(); var br2 = KeystoneBatch.Run(st, shortDays, 155, 1655, null, true, null, plan, (s0, a) => "LUCID", null);
             Check((br2.StillEval > 0 || br2.StillFunded > 0) && br2.DaysRanOut && br2.StillNote.Contains("a payout needs ≥ 5 funded trading days"), "⏳ item 5: the days end with accounts still running → 'still running · the days end …'", br2.StillNote);
         }
+        // ==== PHASE B (BUILD 2026-11-11b) ====
+        // ---- item 32: MFF STUDIO — the static floor, instant withdrawals, the $5,000 total cap; "only at the cap" withdraws exactly once, at $5,000
+        {
+            var st2 = KeystonePayoutRules.StudioTemplates(); var r = st2.First(x => x.Firm == "MFF002");
+            Check(r.Studio && r.StaticDd && Eq(r.FloorOf(0), -1000) && Eq(r.FloorOf(3000), -1000) && Eq(r.TotalCap, 5000) && Eq(r.Split, 80) && r.QualDays == 0 && r.EvalMinDays == 1 && Eq(r.EvalTarget, 2000) && Eq(r.EvalPrice, 280) && r.Size == 20,
+                "🎬 32: MFF Studio 002 = $20K, eval +$2,000, STATIC $1,000 (the floor never trails), no minimum days, $280 • funded 80 %, $5,000 total cap");
+            var back = KeystonePayoutRules.Load(KeystonePayoutRules.Save(st2)).First(x => x.Firm == "MFF002");
+            Check(back.Studio && back.Withdraw == "WIN" && Eq(back.WithdrawMin, 250) && Eq(back.TotalCap, 5000) && back.QualDays == 0 && back.MaxPayouts >= 999, "🎬 the firm book keeps the Studio rules (kind, policy, threshold, cap)");
+            var cap = KeystonePayoutPlan.Presets().First(x => x.Name.StartsWith("🎬 MFF MAX $5K")).Copy();
+            Func<int, int, double> lon = (i, m) => m < -390 ? 0 : m < 0 ? 0.05 * (m + 390) : Math.Min(350, 19.5 + 0.8 * m);   // up from 3:00 (the London side = BUY), +330 points after 9:30 (MNQ 5 = +$3,300 a day)
+            var up = Days(6, lon);
+            var run = KeystoneFundedBench.Run(st2, cap, new List<KeystoneEvalAccount> { new KeystoneEvalAccount { Firm = "MFF002", Nick = "M1" } }, up, new KeystoneBench()); var a = run.Accounts[0];
+            Check(a.Payouts == 1 && Eq(a.Gross, 5000) && Eq(a.Net, 4000) && a.Stage == "LIVE" && run.Events.Count == 1 && run.Trades.All(t => t.Legs.Contains("5 MNQ")),
+                "🎬 32 (the user's test): an MFF funded account with 'only at the cap' withdraws exactly ONCE, at $5,000 (80 % → $4,000), then moves to live", a.Payouts + " payouts · gross " + a.Gross + " · " + a.Stage + " · " + string.Join(" ", run.Trades.Select(t => t.Pnl.ToString("0"))));
+            var steady = KeystonePayoutPlan.Presets().First(x => x.Name.StartsWith("🎬 MFF STEADY")).Copy(); var run2 = KeystoneFundedBench.Run(st2, steady, new List<KeystoneEvalAccount> { new KeystoneEvalAccount { Firm = "MFF002", Nick = "M1" } }, Days(25, lon), new KeystoneBench()); var b = run2.Accounts[0];
+            Check(b.Payouts == 20 && Eq(b.Gross, 5000) && b.Paid.All(e => Eq(e.Gross, 250)) && b.Stage == "LIVE", "🎬 32: STEADY withdraws every +$250 at once (20 × $250 = the $5,000 cap → live)", b.Payouts + " · " + b.Gross);
+            var daily = KeystonePayoutPlan.Presets().First(x => x.Name.StartsWith("🎬 MFF DAILY")).Copy(); var run3 = KeystoneFundedBench.Run(st2, daily, new List<KeystoneEvalAccount> { new KeystoneEvalAccount { Firm = "MFF002", Nick = "M1" } }, Days(1, lon), new KeystoneBench());
+            Check(run3.Accounts[0].Payouts == 1 && Eq(run3.Accounts[0].Gross, 2000), "🎬 32c: DAILY +$2,000 a day, withdrawn at the day's end", run3.Accounts[0].Gross.ToString("0"));
+            var dn = Days(1, (i, m) => m < 0 ? 0 : -1.0 * m); var ride = KeystonePayoutPlan.Presets().First(x => x.Name.StartsWith("🎬 MFF RIDE")).Copy(); var c = new KeystonePayoutAccount { Id = 1, Name = "M", Firm = "MFF002", FirmNo = 1, Floor = r.FloorOf(0), Bal = 600, PeakEod = 3000 };
+            KeystonePayout.Day(c, r, ride, dn[0], 1, null, null, null);
+            Check(c.Stage == "BLOWN" && Eq(c.Floor, -1000) && c.Bal <= -999, "🎬 the static floor stays at −$1,000 after gains (a +$3,000 peak does not lift it)", c.Stage + " " + c.Bal.ToString("0"));
+            var other = KeystonePayoutRules.For("LUCID", null); Check(!other.Studio && Eq(other.FloorOf(1000), -1000) && Eq(other.FloorOf(3000), 100), "🎬 the other firms keep their EOD trailing floor");
+            Check(KeystonePayoutPlan.EvalsFor(0.11, 0.85) == 17 && KeystonePayoutPlan.EvalsFor(0.09, 0.85) == 21 && KeystonePayoutPlan.Presets().First(x => x.Name.StartsWith("🎬 MFF MAX")).Note.Contains("17 evals for an 85 %"), "🎬 32b: N evals for an 85 % chance of at least one $5K (11 % → 17, 9 % → 21)");
+            Check(KeystonePayoutPlan.Presets().Count(x => x.Name.StartsWith("🎬 MFF")) == 7 && KeystoneEvalLab.Presets().Count(x => x.Name.StartsWith("🎬 MFF EVAL")) == 2, "🎬 32 / 32b / 32c: 7 funded MFF presets + 2 eval presets");
+        }
+        // ---- item 32b: the direction rules only read prices known at the entry minute (the MOk guard) — no rule reads a bar after the entry minute
+        {
+            var rnd = new Random(11); var prev = Days(1, (i, m) => 40 * Math.Sin(m / 37.0))[0]; bool allSame = true; int checkedN = 0; string bad = "";
+            foreach (int mode in Enumerable.Range(0, 7)) foreach (int hhmm in new[] { 200, 301, 830, 930, 935, 1000, 1100 })
+            {
+                if (!KeystoneMffDir.MOk(mode, hhmm)) continue;
+                for (int rep = 0; rep < 20; rep++)
+                {
+                    var d = Days(1, (i, m) => 30 * Math.Sin((m + rep * 13) / 29.0) + rnd.NextDouble())[0]; int k = KeystoneRotDay.Slot(hhmm); int coin = rep % 2 == 0 ? 1 : -1;
+                    int before = KeystoneMffDir.Dir(d, prev, k, mode, coin);
+                    for (int j = k; j < KeystoneRotDay.Slots; j++) { d.MC[j] = (float)(19000 + 2000 * rnd.NextDouble()); d.MH[j] = d.MC[j] + 5; d.ML[j] = d.MC[j] - 5; if (j > k) d.MO[j] = (float)(19000 + 2000 * rnd.NextDouble()); }
+                    int after = KeystoneMffDir.Dir(d, prev, k, mode, coin); checkedN++; if (before != after) { allSame = false; bad = "mode " + mode + " at " + hhmm; }
+                }
+            }
+            Check(allSame && checkedN > 400, "🔎 32b MOk guard: every MFF direction rule gives the same side when every bar after the entry minute is scrambled (" + checkedN + " checks)", bad);
+            Check(!KeystoneMffDir.MOk(5, 930) && !KeystoneMffDir.MOk(1, 300) && !KeystoneMffDir.MOk(3, 929) && KeystoneMffDir.MOk(5, 935) && KeystoneMffDir.MOk(1, 930), "🔎 MOk refuses a rule whose base is not before the entry (first 5 min at 9:30, London at 3:00, the gap before 9:30)");
+            var d2 = Days(1, (i, m) => m < 0 ? 0 : 1.0 * m)[0]; Check(KeystoneMffDir.Dir(d2, null, KeystoneRotDay.Slot(930), 5, -1) == -1 && KeystoneMffDir.Dir(d2, null, KeystoneRotDay.Slot(935), 5, -1) == 1, "🔎 a refused rule falls back to the coin; 9:35 follows the first 5 minutes (up → BUY)");
+        }
+        // ---- items 9 / 13 / 15 / 23 / 25 / 26 / 16: ONE run record — every view reads it, the counts agree everywhere, the export is valid JSON
+        {
+            var days = Days(40, (i, m) => (i % 3 == 0 ? -1 : 1) * 0.25 * Math.Max(0, m + 450));
+            var st = new KeystoneSimSettings { Strategy = "ROTATION", Direction = "RANDOM", Auto = true, Allocation = "ROTATE", Accounts = 8, BuyRule = "BATCH", FundedWhen = "ASK", AskEachBatch = true, ReplacePassed = true, DayPlan = "NONE", MaxTradesPerDay = 1,
+                From = days[0].Day, To = days[days.Count - 1].Day, DataOnly = true, StartAs = "EVAL", MnqQty = 20, FundMnqQty = 20, RotTarget = 1500, RotStop = 1e6, FundRotTarget = 1500, FundRotStop = 1e6, AllAtOnce = true, Stagger = true, AllSide = "FIRM", StartHhmm = 155, EndHhmm = 1655 };
+            st.Rules = KeystoneSimRules.Presets().First().Copy(); st.Rules.Target = 3000; st.Rules.EvalDrawdown = 2000; st.Rules.EvalDdType = "EOD"; st.Rules.EvalConsistency = 50; st.Rules.EvalMinDays = 2;
+            var plan = KeystonePayoutPlan.Presets()[0].Copy(); plan.SprintAccounts = 0; plan.Spread = false; plan.Side = "BUY";
+            var br = KeystoneBatch.Run(st, days, 155, 1655, null, true, null, plan, (s0, a) => a.Id % 2 == 0 ? "LUCID" : "TRADEIFY", null);
+            var res = KeystoneLabResults.Of("BOTH", br.Sim, 8, null, a => a.Id % 2 == 0 ? "LUCID" : "TRADEIFY", br.Pay, br.Start, br.LastDay, br.Sessions); var rec = res.Record;
+            Check(rec != null && rec.Accounts.Count == 8 && rec.PassedN == res.Passed && rec.EvalBlownN == res.Blown && rec.PayoutN == res.Payouts && Eq(rec.PaidNet, res.Paid) && res.PayoutRows.Count - 1 == rec.PayoutN && res.PayByPayout.Count - 1 == rec.PayoutN,
+                "📒 one record: the header counts (passed incl. TPT pending, blown, payouts, $) = the record = the PAYOUTS rows", rec == null ? "null" : rec.PassedN + "/" + res.Passed + " " + rec.PayoutN + "/" + res.Payouts);
+            int evTr = br.Sim.Trades.Count(t => t.Phase != "FUNDED"), fuTr = br.Pay == null ? 0 : br.Pay.Trades.Count;
+            Check(rec.Trades.Count == evTr + fuTr && rec.Trades.Count(t => t.Stage == "FUNDED") == fuTr && rec.Trades.Where(t => t.Stage == "FUNDED").All(t => !double.IsNaN(t.EntryPx) && !double.IsNaN(t.ExitPx)) && rec.Days.Count(d => d.Stage == "EVAL") > 0 && (fuTr == 0 || rec.Days.Count(d => d.Stage == "FUNDED") > 0),
+                "📒 every trade (eval + funded, with entry / exit prices) and every account-day is in the record", rec.Trades.Count + " vs " + (evTr + fuTr));
+            var acc = res.Accounts2; var firms = rec.Accounts.Select(a => a.FirmNice).Distinct().Count();
+            Check(acc.Count == 1 + 8 + firms && acc.Skip(1).Take(8).All(row => row.Length == acc[0].Length) && res.FundedFirm.Count >= 2 && res.Eval[0].Contains("$ TO YOU") && res.PerAccount[0].Contains("FUNDED ON"), "👤 item 9 / 23: ACCOUNTS = one row per account + per-firm rows; the EVAL tables carry the funded columns");
+            var tl = rec.Timeline(); var tAll = tl.Skip(1).ToList(); var tFirm = rec.Timeline(null, "LUCID");
+            Check(tAll.Count == rec.Trades.Count + rec.Events.Count && tFirm.Skip(1).All(x => x[3] == "Lucid") && rec.Timeline(null, null, null, "PAYOUT").Count - 1 == rec.PayoutN, "🕒 item 15: the TIMELINE = every trade + event in time order; the filters (firm, event type) work");
+            var withFunded = rec.Accounts.FirstOrDefault(a => a.Funded); if (withFunded != null) { var card = rec.Card(withFunded.Key); Check(card.Trades.Count - 1 == rec.Trades.Count(t => t.Account == withFunded.Key) && card.Cycles.Count >= 2 && card.Path.Count > 0 && card.Lines.Count >= 2, "🗂 item 9: the ACCOUNT CARD = every trade, the eval + each payout cycle, the balance-vs-floor path"); }
+            var paid = rec.Payouts.FirstOrDefault(); if (paid != null) { var cy = rec.Cycle(paid.Account, paid.N); Check(cy.Count - 1 >= paid.CycleDays && cy.Skip(1).Count(x => x[3].StartsWith("✓")) >= Math.Min(5, paid.CycleQual) && paid.Rule.Contains("qualifying"), "💵 item 26: a payout opens its cycle (each day, the qualifying days, the rule that allowed it)", cy.Count + " rows · " + paid.CycleDays + " days"); }
+            Check(rec.NoPayout().Skip(1).All(x => x[3] != "") && rec.PayoutHeader().Contains("payouts"), "💵 item 26: the accounts with no payout are listed with WHY");
+            Check(KeystoneRunRecord.Dist(new List<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }) == "median 6 · 10th–90th 2–10 (n = 11)" && res.Dist.Count >= 2, "📊 item 13: the distributions (median, 10th–90th) per firm");
+            var json = rec.Json(new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>("shown", "a \"quoted\" line\nwith a break") }, true); var parsed = KeystoneJson.Parse(json) as Dictionary<string, object>;
+            Check(parsed != null && ((List<object>)parsed["trades"]).Count == rec.Trades.Count && ((List<object>)parsed["payouts"]).Count == rec.PayoutN && parsed.ContainsKey("account_days") && parsed.ContainsKey("minutes") && ((Dictionary<string, object>)parsed["data"]).ContainsKey("mnq_minutes") && ((Dictionary<string, object>)parsed["summary"])["shown"].ToString().Contains("\"quoted\""),
+                "📦 item 25: EXPORT FOR CLAUDE = one valid JSON (data facts, settings, firm rules, every trade / account-day / payout / event, the summary as shown, the price minutes optional)", json.Length + " chars");
+            Check(KeystoneRunRecord.ExportName(new DateTime(2026, 11, 8, 9, 5, 7)) == "keystone-check-2026-11-08-090507.json" && res.Trust.Contains("1-minute MNQ / MGC") && res.Trust.Contains("$1 a contract + 1 tick") && res.Trust.Contains("TP on a touch") && KeystoneRunRecord.Verified.Contains("tests/LabEngineTests.cs"), "✔ item 16: the trust line (data, costs, fills) + the verified note pinned to tests/LabEngineTests.cs");
+            var cmp = KeystoneRunRecord.Compare(rec, "SAFE", rec, "SAFE again"); Check(cmp.Count >= 10 && cmp.Skip(1).All(x => x[1] == x[2]), "⚖ item 26: COMPARE two records side by side");
+            // ---- 🔁 items 11 + 14: the BUSINESS RUN — the same engine, blown accounts replaced, the money causal
+            var bs = new KeystoneBusinessSettings { Funding = "POCKET", Fee = 100, Delay = 1 }; bs.PerFirm.Add(Tuple.Create("LUCID", 2)); bs.PerFirm.Add(Tuple.Create("TRADEIFY", 2));
+            var biz = KeystoneBusiness.Run(st, bs, days, 155, 1655, null, null, plan);
+            Check(biz.Bought > 4 && Eq(biz.Spent, biz.Bought * 100) && biz.Months.Sum(m => m.Bought) == biz.Bought && biz.Record.Accounts.Count == biz.Bought && Eq(biz.Record.PaidNet, biz.PaidNet) && biz.Cash.Count == days.Count,
+                "🔁 item 11: OUT OF POCKET — every blown / finished account is replaced (" + biz.Bought + " evals for 4 slots), the months add up, the record holds every account", biz.Summary());
+            var b2 = new KeystoneBusinessSettings { Funding = "REINVEST", Budget = 250, Fee = 100, Delay = 1 }; b2.PerFirm.Add(Tuple.Create("LUCID", 3));
+            var biz2 = KeystoneBusiness.Run(st, b2, days, 155, 1655, null, null, plan);
+            Check(biz2.Cash.All(c => c.Item2 >= -1e-6) && biz2.Months[0].Bought == 2 && biz2.WaitDays > 0, "🔁 REINVEST: never spends money it doesn't have ($250 buys 2 of 3 on day 1, the 3rd slot waits for a payout)", biz2.Summary());
+            var b3 = new KeystoneBusinessSettings { Funding = "BATCH", Fee = 100, BatchEvery = 10 }; b3.PerFirm.Add(Tuple.Create("LUCID", 2));
+            var biz3 = KeystoneBusiness.Run(st, b3, days, 155, 1655, null, null, plan); Check(biz3.Bought == 2 * ((days.Count - 1) / 10 + 1), "🔁 BATCH: a new batch of the mix every 10 sessions, no replacement", biz3.Bought.ToString());
+            Check(biz.MonthTable().Count == biz.Months.Count + 2 && biz.FirmTable().Count == 3 && biz.Record.AccountsTable().Count > biz.Bought, "🔁 the month-by-month table, the firm totals and 👤 ACCOUNTS work on a business run");
+            // ---- 🏆 item 17: BEST START DAYS — every weekday start through the same engine
+            var rows = KeystoneBestStarts.Run(st, days, 155, 1655, null, true, null, plan, days[0].Day, days[9].Day); var br0 = KeystoneBatch.Run(st, days.Take(KeystoneBestStarts.FundedCap).ToList(), 155, 1655, null, true, null, plan, null, null);
+            var bres = KeystoneBestStarts.Results(rows, true);
+            Check(rows.Count == 10 && rows[0].Passed == br0.Sim.Accounts.Take(8).Count(br0.Sim.PassedOrPending) && Eq(rows[0].ToYou, br0.Pay == null ? 0 : br0.Pay.Net) && bres.Stats.Any(x => x[0] == "most $ to you") && bres.Days.Count == 11 && bres.Header.Contains("hindsight"),
+                "🏆 item 17: one row per weekday start = the same numbers as ⚡ CALCULATE from that day; winner cards; the hindsight note");
+        }
         // ---- item 27e: the funded plan choice saved between sessions
         {
             string f = Path.Combine(Path.GetTempPath(), "ks-fplan-" + Guid.NewGuid().ToString("N") + ".txt");
