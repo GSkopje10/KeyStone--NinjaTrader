@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-09a";
+        public const string Build = "SpasiX • BUILD 2026-11-09b";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -182,10 +182,10 @@ namespace KeystoneMT5
             var accRow = new Grid { Margin = new Thickness(0, 0, 0, 4) }; accRow.Children.Add(acc); modeBanner.Padding = new Thickness(16, 2, 16, 3); modeBannerText.FontSize = 13; Shell.SetCenter(this, modeBanner); acc.Margin = new Thickness(0); acc.VerticalAlignment = VerticalAlignment.Center;
             mid.Children.Add(accRow);
             var row = new WrapPanel(); mid.Children.Add(row);
-            foreach (var k in new[] { "OPEN P/L", "BALANCE", "EQUITY", "TODAY", "MARGIN LEVEL", "FREE MARGIN" })
+            foreach (var k in new[] { "OPEN P/L", "ITER TOTAL", "BALANCE", "EQUITY", "TODAY", "MARGIN LEVEL", "FREE MARGIN" })
             {
-                bool big = k == "OPEN P/L", eq = k == "EQUITY";   // the two numbers that matter most stand out: a coloured, pulsing border
-                var cap = new TextBlock { Text = k == "MARGIN LEVEL" ? "MARGIN" : k == "OPEN P/L" ? "OPEN P/L = IF ALL CLOSED NOW" : k, Foreground = big || eq ? Gold : Muted, FontSize = big || eq ? 10.5 : 9.5, FontWeight = FontWeights.Bold };
+                bool big = k == "OPEN P/L" || k == "ITER TOTAL", eq = k == "EQUITY";   // the two numbers that matter most stand out: a coloured, pulsing border
+                var cap = new TextBlock { Text = k == "MARGIN LEVEL" ? "MARGIN" : k == "OPEN P/L" ? "OPEN P/L = IF ALL CLOSED NOW" : k == "ITER TOTAL" ? "🧮 ITERATION TOTAL IF CLOSED NOW" : k, Foreground = big || eq ? Gold : Muted, FontSize = big || eq ? 10.5 : 9.5, FontWeight = FontWeights.Bold };
                 var val = new TextBlock { Text = "—", Foreground = Text, FontSize = big ? 27 : eq ? 22 : 17, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
                 var sp = new StackPanel(); sp.Children.Add(cap); sp.Children.Add(val);
                 if (k == "EQUITY") { var track = new Grid { Height = 4, Width = 108, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 3, 0, 0) }; track.Children.Add(new Border { CornerRadius = new CornerRadius(2), Background = Line }); eqFill = new Border { CornerRadius = new CornerRadius(2), Background = Green, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 }; track.Children.Add(eqFill); sp.Children.Add(track); }
@@ -199,6 +199,16 @@ namespace KeystoneMT5
             if (Mode == "PROP") { propStrip = BuildPropStrip(); mid.Children.Add(propStrip); }
             if (streamMode && !Sim) ApplyStream();
             return new Border { Background = Sx.HeadGrad, BorderBrush = Line, BorderThickness = new Thickness(0, 0, 0, 1), Child = dp };
+        }
+        // 🧮 the iteration's total if everything on the symbol closed now = open + its closed legs (ONE function for the header, the strip and the previews)
+        // the automation's iteration on its symbol, else the chart's symbol: the trades closed since the first ticket still open there
+        Tuple<double, double, double> IterTotal(Mt5State s, out string sym)
+        {
+            if (auto != null && auto.Running && auto.Current != null) { sym = auto.Set.Symbol; return Tuple.Create(auto.BasketTotal, auto.Basket, auto.Banked); }
+            sym = panes != null && panes.Count > 0 ? Act.Sym : ""; var sy = sym;
+            var ps = s.Positions.Where(p => string.Equals(p.Symbol, sy, StringComparison.OrdinalIgnoreCase)).ToList(); if (ps.Count == 0) return Tuple.Create(double.NaN, 0.0, 0.0);
+            double open = HedgeAuto.OpenPl(ps, sym), closed = HedgeAuto.ClosedSince(s.Deals, ps, sym, ps.Min(p => p.Time));
+            return Tuple.Create(open + closed, open, closed);
         }
         // STREAM MODE: the name and number blurred under a violet veil — the rest of the line and every number stay visible
         void SetStream(bool on) { streamMode = on; Put("stream", on ? "1" : "0"); ApplyStream(); }
@@ -368,6 +378,8 @@ namespace KeystoneMT5
                 {
                     card("BALANCE", Money(a.Balance, cur), Text); card("EQUITY", Money(a.Equity, cur), a.Equity >= a.Balance ? Green : Red); PaintEq(a.Equity, a.Balance);
                     double fl = a.Floating; card("OPEN P/L", Signed(fl, cur), fl >= 0 ? (fl > 0 ? Green : Text) : Red); PaintPl(fl, s.Positions.Count > 0);
+                    { var itc = cards["ITER TOTAL"]; string isym; var tt = IterTotal(s, out isym); itc.Item3.Visibility = double.IsNaN(tt.Item1) ? Visibility.Collapsed : Visibility.Visible;
+                      if (!double.IsNaN(tt.Item1)) { card("ITER TOTAL", Signed(tt.Item1, cur), tt.Item1 > 0 ? Green : tt.Item1 < 0 ? Red : Text); itc.Item1.Text = "🧮 " + isym + " TOTAL IF CLOSED NOW  •  open " + Signed(tt.Item2, cur) + " · closed legs " + Signed(tt.Item3, cur); itc.Item3.ToolTip = "the open tickets on " + isym + " (" + Signed(tt.Item2, cur) + ") + what this " + (auto != null && auto.Current != null ? "iteration (#" + auto.Current.N + ")" : "set of trades (since its first open ticket)") + " already closed (" + Signed(tt.Item3, cur) + "), commissions and swap included"; } }
                     card("FREE MARGIN", Money(a.FreeMargin, cur), a.FreeMargin < 0 ? Red : Text);
                     double today = TodayClosed(s) + fl; card("TODAY", Signed(today, cur), today > 0 ? Green : today < 0 ? Red : Text); cards["TODAY"].Item3.BorderBrush = today > 0 ? Tint(Green, 100) : today < 0 ? Tint(Red, 120) : Line;
                     card("MARGIN LEVEL", a.Margin > 0 ? a.MarginLevel.ToString("N0", IC) + " %" : "—", a.Margin <= 0 ? Muted : a.MarginLevel < 200 ? Red : a.MarginLevel < 500 ? Gold : Green);

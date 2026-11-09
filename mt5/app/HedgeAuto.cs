@@ -160,6 +160,15 @@ namespace KeystoneMT5
         public string CompressMode = "OFF"; public int CompressBefore = 15; public bool Compress { get { return CompressMode == "ROLLOVER" || CompressMode == "ALWAYS"; } }
         public string ExitMode = "BASKET";     // BASKET = everything closes at +Target; LEGS = each position closes at its own +Target × its lots / the entry lots                 // FVG: the middle candle's body must be bigger than the average range of the last 20 candles (the research's gap)
         public AutoSettings Copy() { return (AutoSettings)MemberwiseClone(); }
+        // ⚡ what changes between two settings, in words ("🧹 COMPRESS HEDGES: OFF → ALWAYS"), for the APPLY NOW question
+        static readonly Dictionary<string, string> DiffNames = new Dictionary<string, string> { { "cmp", "🧹 COMPRESS HEDGES" }, { "target", "TARGET $" }, { "entry", "ENTRY LOTS" }, { "nadv", "LEAD (net lots)" }, { "add", "ADD-ON LOTS" }, { "dd", "MAX DRAWDOWN $" }, { "preset", "STRATEGY" }, { "hcap", "MAX HEDGE DISTANCE" }, { "scale", "📉 SCALE OUT" }, { "belock", "🔐 BREAKEVEN LOCK" }, { "dexit", "🚨 DANGER EXIT" }, { "resc", "🛟 RESCUE" }, { "rg", "🛡 RISK GUARD" }, { "ronly", "RANGE-ONLY HEDGE" }, { "hsize", "HEDGE SIZE" }, { "emode", "ENTRY SETUP" }, { "hmode", "HEDGE MODE" } };
+        public static List<string> Diff(AutoSettings a, AutoSettings b)
+        {
+            Func<AutoSettings, Dictionary<string, string>> kv = x => x.Save().Split(';').Select(p => p.Split(new[] { '=' }, 2)).Where(p => p.Length == 2).GroupBy(p => p[0]).ToDictionary(g => g.Key, g => g.First()[1]);
+            var da = kv(a); var db = kv(b); var res = new List<string>();
+            foreach (var k in db.Keys) { string va; da.TryGetValue(k, out va); if (va != db[k]) { string nm; if (!DiffNames.TryGetValue(k, out nm)) nm = k; res.Add(nm + ": " + (va ?? "—") + " → " + db[k]); } }
+            return res;
+        }
         // the researched models (docs/research/hedge/scalp20.html, report.html)
         public static AutoSettings Model(string name, AutoSettings b) { return Model(name, b, 5000); }
         public static AutoSettings Model(string name, AutoSettings b, double bal)
@@ -417,7 +426,7 @@ namespace KeystoneMT5
             Note("▶ START " + Set.Symbol + " " + Tf.Name(Set.Tf) + " • entry " + Set.EntryLots.ToString("0.##", IC) + " • add-on " + Set.AddLots.ToString("0.##", IC) + " • target $" + Set.Target.ToString("0.##", IC) + " • max drawdown " + (Set.MaxDrawdown > 0 ? "$" + Set.MaxDrawdown.ToString("0.##", IC) : "none") + " • first " + Set.FirstDir + " • next " + (Set.NextStart == "PAUSE" ? "pause " + Set.PauseSec + " s" : "the next break"));
             if (sn.Pos.Count > 0 && adopt)
             {
-                var last = sn.Pos.OrderBy(p => p.Time).ThenBy(p => p.Ticket).Last(); lastDir = last.Dir;
+                var last = sn.Pos.OrderBy(p => p.Time).ThenBy(p => p.Ticket).Last(); lastDir = NetSide(sn.Pos, last.Dir);
                 Current = new AutoIteration { N = Iterations.Count + 1, Start = Now, FirstDir = sn.Pos.OrderBy(p => p.Time).First().Side, BalanceStart = sn.Balance, Adopted = true, Buys = sn.Pos.Count(p => p.Dir > 0), Sells = sn.Pos.Count(p => p.Dir < 0), BuyLots = sn.Pos.Where(p => p.Dir > 0).Sum(p => p.Lots), SellLots = sn.Pos.Where(p => p.Dir < 0).Sum(p => p.Lots) };
                 Current.AddOns = Math.Max(0, sn.Pos.Count - 1);
                 // the SAME basket as before the restart (its positions match the saved open iteration): it keeps its number, its start, its numbers
@@ -589,14 +598,14 @@ namespace KeystoneMT5
                 pendId = null;
                 if (pendKind == "ORDER") Opened(sn);
                 if (pendKind == "CLOSE") entryFvg = null;
-                if (pendKind == "CLOSE1") { knownGross = Gross(sn.Pos); closedByUs = true; }
+                if (pendKind == "CLOSE1") { knownGross = Gross(sn.Pos); closedByUs = true; SyncSideToNet(sn); }
                 if (pendKind == "PAIR")
                 {   // the losing leg is closed: now its winning partner
                     knownGross = Gross(sn.Pos); closedByUs = true; var w2 = sn.Pos.FirstOrDefault(p => p.Ticket == pairNext);
                     if (w2 != null) { Refused = ""; var id2 = Ask("CLOSE", new object[] { w2.Ticket, 0.0 }, "CLOSE #" + w2.Ticket + " " + w2.Side + " " + w2.Lots.ToString("0.##", IC) + " " + Set.Symbol + " (🤖 #" + Current.N + " 🛟 pair-off)"); if (id2 != null) { pendId = id2; pendKind = "PAIR2"; pendTicket = w2.Ticket; pendSent = DateTime.Now; pendOk = DateTime.MinValue; return; } }
                 }
-                if (pendKind == "SCALE") { knownGross = Gross(sn.Pos); closedByUs = true; Version++; }
-                if (pendKind == "PAIR2") { knownGross = Gross(sn.Pos); closedByUs = true; Tell("🛟 PAIRED OFF — the basket is now " + Gross(sn.Pos).ToString("0.##", IC) + " lots (" + sn.Pos.Count + " legs), " + M(Basket) + " open. " + Plan(sn)); Version++; }
+                if (pendKind == "SCALE") { knownGross = Gross(sn.Pos); closedByUs = true; SyncSideToNet(sn); Version++; }
+                if (pendKind == "PAIR2") { knownGross = Gross(sn.Pos); closedByUs = true; SyncSideToNet(sn); Tell("🛟 PAIRED OFF — the basket is now " + Gross(sn.Pos).ToString("0.##", IC) + " lots (" + sn.Pos.Count + " legs), " + M(Basket) + " open. " + Plan(sn)); Version++; }
                 if (pendKind == "TRIM") { knownGross = Gross(sn.Pos); closedByUs = true; lastDir = liftDir; quickBest = double.NaN; SetHedgeLevel(sn, liftDir); Tell("🛡 TRIMMED — the basket now leans " + (liftDir > 0 ? "LONG" : "SHORT") + " with the break, " + Gross(sn.Pos).ToString("0.##", IC) + " lots. " + Plan(sn)); Version++; }
                 if (pendKind == "CLOSESIDE") { knownGross = Gross(sn.Pos); lastDir = liftDir; SetHedgeLevel(sn, liftDir); Tell("🔓 LIFTED — the " + pendSide + "s are closed; the " + (liftDir > 0 ? "BUYS" : "SELLS") + " run with the break. " + Plan(sn)); Version++; }
             }
@@ -624,7 +633,7 @@ namespace KeystoneMT5
                     }
                     else { it.Reason = "END OF DAY"; Tell("END OF DAY. WHY: it is " + Set.CloseAtNy + " New York (the close time) → CLOSE ALL at " + M(Basket) + "."); CloseAll(sn, "END OF DAY", false); return; }
                 }
-                double total = Basket + (Set.ExitMode == "LEGS" ? sn.Balance - it.BalanceStart : 0);   // LEGS: what the closed legs made counts too
+                double total = Basket + (Set.ExitMode == "LEGS" || Set.Compress ? sn.Balance - it.BalanceStart : 0);   // LEGS / 🧹 COMPRESS: what the closed legs made counts too (the worst drawdown, the rescue)
                 foreach (var p in sn.Pos) it.FeeByTicket[p.Ticket] = OpenComm(sn, p) * 2 + (Set.CommissionPerLot > 0 ? p.Lots * Set.CommissionPerLot : 0);   // the commissions so far (live)
                 it.Fees = it.FeeByTicket.Values.Sum();
                 if (OnOpenState != null && (DateTime.Now - openSavedAt).TotalSeconds >= 30) { openSavedAt = DateTime.Now; OnOpenState(OpenText(sn.Pos.Select(p => p.Ticket))); }
@@ -1840,7 +1849,7 @@ namespace KeystoneMT5
         // ✋ a trade you opened by hand: it becomes an iteration the automation manages (target, max drawdown, end of day) and records
         void Adopt(Snap sn)
         {
-            var ps = sn.Pos.OrderBy(p => p.Time).ThenBy(p => p.Ticket).ToList(); var last = ps.Last(); lastDir = last.Dir;
+            var ps = sn.Pos.OrderBy(p => p.Time).ThenBy(p => p.Ticket).ToList(); var last = ps.Last(); lastDir = NetSide(sn.Pos, last.Dir);
             Current = new AutoIteration { N = Iterations.Count + 1, Start = Now, FirstDir = ps[0].Side, BalanceStart = sn.Balance, Adopted = true, Manual = true, Buys = ps.Count(p => p.Dir > 0), Sells = ps.Count(p => p.Dir < 0), BuyLots = ps.Where(p => p.Dir > 0).Sum(p => p.Lots), SellLots = ps.Where(p => p.Dir < 0).Sum(p => p.Lots) };
             closedByUs = false; Current.Ctx = Context(sn, lastDir) + ";manual=yes"; Iterations.Add(Current); Phase = "IN ITERATION"; knownGross = Gross(sn.Pos); Current.MaxGross = knownGross;
             foreach (var p in ps) Trades.Add(new AutoTrade { Iter = Current.N, Time = p.Time > DateTime.MinValue ? p.Time : Now, Side = p.Side, Lots = p.Lots, Price = p.Open, Level = double.NaN, Why = "✋ MANUAL " + p.Side, Basket = BasketOf(sn) });
@@ -1848,6 +1857,41 @@ namespace KeystoneMT5
             Tell("✋ MANUAL TRADE — iteration #" + Current.N + ": " + string.Join(", ", ps.Select(p => p.Side + " " + p.Lots.ToString("0.##", IC) + " @ " + P(p.Open))) + " opened by hand. The automation now manages it: " + Plan(sn) + (Set.CloseAtNy != "" ? " Closes at " + Set.CloseAtNy + " New York if still open." : ""));
         }
         // ✋ positions added or closed by hand during an iteration: recorded, the add-on level follows the newest leg
+        // the side the basket LEANS (its net lots); flat → the given side (the newest leg's)
+        // the chart shows the automation's preview (the "it would enter" chip, the break / hedge lines) only while it runs, can be resumed, or a 🏁 RACE engine is shown
+        // 🧮 ITERATION TOTAL IF CLOSED NOW (user's request): the open tickets + what this set already closed (the same function everywhere)
+        public static double OpenPl(IEnumerable<Mt5Position> pos, string sym) { return pos.Where(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)).Sum(p => p.Profit + p.Swap + p.Commission); }
+        // the closed part since `from` on the symbol: every OUT deal (profit, swap, commission) + the IN commission of the positions no longer open
+        public static double ClosedSince(IEnumerable<Mt5Deal> deals, IEnumerable<Mt5Position> open, string sym, DateTime from)
+        {
+            var still = new HashSet<long>(open.Select(p => p.Ticket)); double x = 0;
+            foreach (var d in deals) if (string.Equals(d.Symbol, sym, StringComparison.OrdinalIgnoreCase) && d.Time >= from && (d.Type == "BUY" || d.Type == "SELL") && (d.Entry == "OUT" || (d.Entry == "IN" && !still.Contains(d.Position)))) x += d.Profit + d.Swap + d.Commission;
+            return x;
+        }
+        // what a close button would do now: "SELL" / "BUY" = that side, "ALL" = everything; total = the iteration's open + closed
+        public static string ClosePreview(IEnumerable<Mt5Position> pos, string sym, string which, double total, double target, double perPrice)
+        {
+            var ps = pos.Where(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); if (ps.Count == 0) return "nothing open on " + sym;
+            Func<double, string> M = v => (v < 0 ? "−$" : "+$") + Math.Abs(v).ToString("0.00", IC);
+            if (which == "ALL") return "close all now: the iteration ends at " + M(total);
+            int d = which == "BUY" ? 1 : -1; var side = ps.Where(p => p.Dir == d).ToList(); if (side.Count == 0) return "no " + which.ToLowerInvariant() + "s open";
+            double bank = side.Sum(p => p.Profit + p.Swap + p.Commission), netAfter = Math.Round(ps.Sum(p => p.Dir * p.Lots) - d * side.Sum(p => p.Lots), 2);
+            string tail = Math.Abs(netAfter) < 0.005 ? ", nothing left open the other way" : ", net then " + (netAfter > 0 ? "LONG " : "SHORT ") + Math.Abs(netAfter).ToString("0.##", IC) + (target > 0 && perPrice > 0 ? (total >= target ? " (the target is already reached)" : " (needs a $" + ((target - total) / (Math.Abs(netAfter) * perPrice)).ToString("0.00", IC) + " move " + (netAfter > 0 ? "UP" : "DOWN") + " to the +$" + target.ToString("0.##", IC) + " target)") : "");
+            return "close the " + which.ToLowerInvariant() + "s now: " + M(bank) + " banked → total stays " + M(total) + tail;
+        }
+        // 🔐 armed breakeven: the price meets the BE line before the hedge (long basket: BE above the hedge; short: below)
+        public static bool BeComesFirst(int lastDir, double hedge, double be) { return !double.IsNaN(hedge) && !double.IsNaN(be) && (lastDir > 0 ? be > hedge : be < hedge); }
+        public static bool ShowPreview(bool running, bool raceLane, bool resumable) { return running || raceLane || resumable; }
+        public static int NetSide(IEnumerable<Mt5Position> pos, int flat) { double n = pos.Sum(p => p.Dir * p.Lots); return n > 0.005 ? 1 : n < -0.005 ? -1 : flat; }
+        // 🐞 user's catch (#35: all SELLs closed by hand, net LONG 0.40, yet the next hedge was a BUY above): after ANY close (by hand, scale out,
+        // compress, a leg target, a pair-off) the next hedge follows the CURRENT net — net long → a SELL below, net short → a BUY above
+        void SyncSideToNet(Snap sn)
+        {
+            if (sn.Pos.Count == 0 || Set.HedgeMode == "NONE" || Set.HedgeMode == "LADDER") return;
+            int side = NetSide(sn.Pos, lastDir); if (side == lastDir) return;
+            lastDir = side; quickBest = double.NaN; scaleRef = double.NaN; ManualHedge = double.NaN; ManualNoHedge = false; SetHedgeLevel(sn, lastDir); Version++;
+            Note("↻ the basket now leans " + (side > 0 ? "LONG" : "SHORT") + " " + Math.Abs(sn.Pos.Sum(p => p.Dir * p.Lots)).ToString("0.##", IC) + " lot → the next hedge is a " + (side > 0 ? "SELL below" : "BUY above"));
+        }
         void Manual(Snap sn, AutoIteration it)
         {
             double g = Gross(sn.Pos);
@@ -1858,7 +1902,7 @@ namespace KeystoneMT5
                 Trades.Add(new AutoTrade { Iter = it.N, Time = Now, Side = p.Side, Lots = g - knownGross, Price = p.Open, Level = double.NaN, Why = "✋ MANUAL ADD " + p.Side, Basket = Basket });
                 lastDir = p.Dir; quickBest = double.NaN; SetHedgeLevel(sn, lastDir); Tell("✋ MANUAL ADD " + p.Side + " " + (g - knownGross).ToString("0.##", IC) + " @ " + P(p.Open) + " — added by hand; " + Plan(sn));
             }
-            else Tell("✋ PART CLOSED BY HAND — " + (knownGross - g).ToString("0.##", IC) + " lots closed outside the automation; " + Plan(sn));
+            else { SyncSideToNet(sn); Tell("✋ PART CLOSED BY HAND — " + (knownGross - g).ToString("0.##", IC) + " lots closed outside the automation; " + Plan(sn)); }
             knownGross = g; Version++;
         }
 

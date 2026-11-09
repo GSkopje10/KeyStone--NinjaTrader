@@ -84,7 +84,9 @@ namespace KeystoneMT5
             aNowBtn.Click += delegate
             {
                 if (!auto.Running) return; AutoSaveSet(); var ns = aset.Copy(); ns.Symbol = auto.Set.Symbol; var err = auto.Check(broker, ns); if (err != "") { Sx.Info(this, "🤖 AUTO", err, Red); return; }
-                if (auto.Current != null && !Sx.Ask(this, "⚡ Apply now", "The new settings take over AT ONCE — also for the open iteration #" + auto.Current.N + " (" + auto.Current.Buys + " buys / " + auto.Current.Sells + " sells). Its positions stay; from now on its hedges, its exit and its target follow the new settings.", "⚡ APPLY NOW", "CANCEL", Amber)) return;
+                var chg = AutoSettings.Diff(auto.Set, ns); int legs; lock (broker.State.Gate) legs = broker.State.Positions.Count(p => string.Equals(p.Symbol, ns.Symbol, StringComparison.OrdinalIgnoreCase));
+                string what = chg.Count == 0 ? "(nothing changed)" : string.Join("\n", chg.Take(14).Select(x => "• " + x)) + (chg.Count > 14 ? "\n• … " + (chg.Count - 14) + " more" : "");
+                if (!Sx.Ask(this, "⚡ Apply now", "What changes:\n" + what + "\n\n" + (auto.Current != null ? "The open basket #" + auto.Current.N + " (" + legs + " legs, " + auto.BasketTotal.ToString("+$0.00;−$0.00", IC) + ") STAYS OPEN and is managed with the new settings from now on — nothing is closed or opened by this button; only what the new settings themselves decide (e.g. 🧹 COMPRESS pairs) goes through the normal order path" + (auto.ManualManage ? " (✋ MANUAL MANAGE: only 💡 suggestions)" : "") + "." : "No iteration is open: the new settings are used from the next one."), "⚡ APPLY NOW", "CANCEL", Amber)) return;
                 auto.ApplyNow(ns); Toast("⚡ applied — the open basket follows the new settings from now on"); AutoPaint(true);
             };
             aUndoBtn = Pill("↺  UNDO CHANGES", Card); aUndoBtn.Height = 40; aUndoBtn.FontSize = 13; aUndoBtn.Margin = new Thickness(10, 0, 0, 0);
@@ -610,6 +612,7 @@ namespace KeystoneMT5
             if (!double.IsNaN(SetupScan.LastVwap) && (pre == "C" || s.VwapFilter != "NONE" || s.EntryMode == "VWAPREJ" || s.EntryMode == "VWAP"))   // only when the strategy USES the VWAP (its filter or its entry) g.Add(new ChartGuide { P1 = SetupScan.LastVwap, Color = Gold, Label = "VWAP " + SetupScan.LastVwap.ToString("0.##", IC) + (s.VwapFilter == "DISCOUNT" ? " — buy UNDER / sell OVER" : s.VwapFilter == "FLOW" ? " — buy OVER / sell UNDER" : "") });
             foreach (var st in list) if (want(st.Key)) foreach (var d in st.Draw)
                 g.Add(new ChartGuide { Kind = d.Kind, P1 = d.P1, P2 = d.P2, From = d.From, Label = d.Label, Dash = d.Dash, Color = col(st.Key), Blink = st.Level == "STRONG" && (d.Kind != "LINE" || st.Key == "BOX" || st.Key == "B") });
+            int nSetups = g.Count;   // what is above = the strategy's 🎯 setups (their own CHART GUIDES toggle); below = the automation's own preview
             // the BREAK levels the automation enters on (and hedges on): the swing high / low, or the high / low of the last N candles
             bool inTrade = ga.Running && ga.Current != null;
             if (inTrade)
@@ -625,9 +628,10 @@ namespace KeystoneMT5
                 if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel) && !ga.Locked)
                 {
                     double lossTo = double.IsNaN(bid) ? 0 : Math.Abs(ga.HedgeLevel - bid) * Math.Abs(ga.NetLots) * ga.PerPrice;
-                    g.Add(new ChartGuide { P1 = ga.HedgeLevel, Color = Red, Dash = true, DragId = ga == auto ? "HEDGE" : "", Blink = !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.3, Core = true, Label = (!double.IsNaN(ga.ManualHedge) ? "✋ " : "") + "🛡 HEDGE " + (ga.LastDir > 0 ? "SELL " : "BUY ") + (double.IsNaN(ga.NextHedgeLots) ? s.AddLots : ga.NextHedgeLots).ToString("0.##", IC) + " @ " + ga.HedgeLevel.ToString("0.00", IC) + away(ga.HedgeLevel) + (lossTo > 0 ? " ≈ −$" + lossTo.ToString("0", IC) : "") });
+                    bool beFirst = HedgeAuto.BeComesFirst(ga.LastDir, ga.HedgeLevel, ga.BeLockPx);   // 🔐 armed: the price meets the BE line before the hedge
+                    g.Add(new ChartGuide { P1 = ga.HedgeLevel, Color = beFirst ? Muted : Red, Dash = true, DragId = ga == auto ? "HEDGE" : "", Blink = !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.3, Core = true, Label = (!double.IsNaN(ga.ManualHedge) ? "✋ " : "") + "🛡 HEDGE " + (ga.LastDir > 0 ? "SELL " : "BUY ") + (double.IsNaN(ga.NextHedgeLots) ? s.AddLots : ga.NextHedgeLots).ToString("0.##", IC) + " @ " + ga.HedgeLevel.ToString("0.00", IC) + away(ga.HedgeLevel) + (beFirst ? "  (not reachable first: the 🔐 BE at " + ga.BeLockPx.ToString("0.00", IC) + " comes first)" : lossTo > 0 ? " ≈ −$" + lossTo.ToString("0", IC) : "") });
                 }
-                if (!double.IsNaN(ga.BeLockPx)) g.Add(new ChartGuide { P1 = ga.BeLockPx, Color = Gold, Dash = true, Core = true, Blink = true, Label = "🔐 BREAKEVEN PROFIT: closes all @ " + ga.BeLockPx.ToString("0.00", IC) + " (the profit is kept if the price comes back here)" });
+                if (!double.IsNaN(ga.BeLockPx)) g.Add(new ChartGuide { P1 = ga.BeLockPx, Color = Gold, Dash = true, Core = true, Blink = true, Label = s.BeClose ? "🔐 BREAKEVEN PROFIT: closes all @ " + ga.BeLockPx.ToString("0.00", IC) + " (the profit is kept if the price comes back here)" : "🔐 BREAKEVEN LOCK @ " + ga.BeLockPx.ToString("0.00", IC) + " — a return here LOCKS the basket at +$" + (s.Target * s.BeLockKeep / 100).ToString("0.##", IC) + " (buys = sells; it does NOT close)" });
                 if (ga == auto && ga.ManualNoHedge && !double.IsNaN(ga.AutoLevelShadow)) g.Add(new ChartGuide { P1 = ga.AutoLevelShadow, Color = Muted, Dash = true, DragId = "HEDGE", Core = true, Label = "✋ NO HEDGE (you removed it) • drag = hedge there • right-click = ↺ BACK TO AUTO" });
                 if (!double.IsNaN(ga.StopPx)) g.Add(new ChartGuide { P1 = ga.StopPx, Color = Red, Core = true, Label = "⛔ STOP −$" + s.MaxDrawdown.ToString("0.##", IC) + " @ " + ga.StopPx.ToString("0.00", IC) + away(ga.StopPx) });
             }
@@ -666,6 +670,7 @@ namespace KeystoneMT5
             }
             // ⏳ the banner at the top of the chart: ALWAYS says what the automation waits for, where and how far (it blinks faster when close)
             try { var bn = AutoBanner(sym, ga, s, shadow, inTrade); if (bn != null) g.Add(bn); } catch { }
+            if (!HedgeAuto.ShowPreview(ga.Running, shadow, AutoWasRunning())) g = g.Take(nSetups).ToList();   // user's request: AUTO OFF → no "it would enter" chip, no break / hedge lines on the chart
             g.RemoveAll(x => double.IsNaN(x.P1) && x.Kind != "BANNER"); if (!ga.Running) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER") gx.Label += "  (AUTO OFF)"; } else if (shadow) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER") gx.Label = "🏁 " + gx.Label; } aGuides = g; aGuideSym = sym;
         }
         int aSeenIter;
@@ -691,6 +696,18 @@ namespace KeystoneMT5
             else if (s.Compress && ga.CompressWhy != "" && ga.CompressWhy.StartsWith("not")) t += "  •  🧹 " + ga.CompressWhy;
             return t;
         }
+        // 💤 the positions on the symbol (yours, the automation off): what they pay / earn at tonight's rollover, and what the hedged pairs cost
+        string AutoSwapLine(string sym)
+        {
+            string txt = "";
+            {   // 💤 positions on the symbol (yours, the automation off): what they pay / earn at tonight's rollover
+                double bl = 0, sl = 0, pxs = double.NaN; Mt5Symbol msy = null; DateTime now = DateTime.MinValue;
+                lock (broker.State.Gate) { foreach (var p in broker.State.Positions) if (string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)) { if (p.Dir > 0) bl += p.Lots; else sl += p.Lots; } broker.State.Symbols.TryGetValue(sym, out msy); now = broker.State.ServerNow; Mt5Quote q; if (broker.State.Quotes.TryGetValue(sym, out q)) pxs = q.Bid; }
+                double sw = bl + sl > 0 && msy != null && !double.IsNaN(pxs) ? HedgeAuto.SwapTonight(msy, bl, sl, pxs, now) : 0, pair = Math.Min(bl, sl) >= 0.01 && msy != null && !double.IsNaN(pxs) ? -HedgeAuto.SwapTonight(msy, Math.Min(bl, sl), Math.Min(bl, sl), pxs, now) : 0;
+                if (Math.Abs(sw) >= 0.005) txt += "  •  💤 swap tonight " + (sw < 0 ? "−$" : "+$") + Math.Abs(sw).ToString("0.00", IC) + (pair >= 0.005 ? " (the hedged " + Math.Min(bl, sl).ToString("0.##", IC) + " / " + Math.Min(bl, sl).ToString("0.##", IC) + " pays $" + pair.ToString("0.00", IC) + " of it — 🧹 COMPRESS HEDGES saves that)" : "");
+            }
+            return txt;
+        }
         ChartGuide AutoBanner(string sym, HedgeAuto ga, AutoSettings s, bool shadow, bool inTrade)
         {
             double bid = double.NaN; lock (broker.State.Gate) { Mt5Quote q; if (broker.State.Quotes.TryGetValue(sym, out q)) bid = q.Bid; }
@@ -709,6 +726,7 @@ namespace KeystoneMT5
                 txt = who + "IN ITERATION #" + (ga.Current != null ? ga.Current.N.ToString(IC) : "?") + "  basket " + ga.Basket.ToString("+0.00;−0.00", IC) + (Math.Abs(ga.Banked) >= 0.01 ? " open " + ga.Banked.ToString("+0.00;−0.00", IC) + " closed legs = " + ga.BasketTotal.ToString("+0.00;−0.00", IC) + " TOTAL" : "") + (ga.RescueActive(ga.Current) ? "  🛟 RESCUE: closes at $0" : "") + (ga.Set.FullAuto && ga.MarketNow != "" ? "  🤖 " + ga.MarketNow + (ga.LastScore >= 0 ? " • entry score " + ga.LastScore : "") : "");
                 if (!double.IsNaN(ga.TargetPx)) { txt += "  •  🎯 TP " + P2(ga.TargetPx) + dist(ga.TargetPx); fast |= !double.IsNaN(bid) && Math.Abs(ga.TargetPx - bid) < 0.5; }
                 txt += SwapText(ga, s);
+                if (!double.IsNaN(ga.BeLockPx)) txt += "  •  🔐 BE armed: a return to " + P2(ga.BeLockPx) + (s.BeClose ? " closes all at +$" + (s.Target * s.BeLockKeep / 100).ToString("0.##", IC) + ", then waits for the next entry" : " LOCKS the basket at +$" + (s.Target * s.BeLockKeep / 100).ToString("0.##", IC) + " (buys = sells) and waits for a break");
                 if (s.HedgeMode == "LADDER" && !double.IsNaN(ga.LadderHi)) { txt += "  •  🪜 next BUY > " + P2(ga.LadderHi) + dist(ga.LadderHi) + " • next SELL < " + P2(ga.LadderLo) + dist(ga.LadderLo); fast |= !double.IsNaN(bid) && (ga.LadderHi - bid < 0.4 || bid - ga.LadderLo < 0.4); }
                 else if (ga.Locked && !double.IsNaN(ga.LockHi)) txt += "  •  🔒 LOCKED " + P2(ga.LockLo) + " – " + P2(ga.LockHi);
                 else if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel)) { txt += "  •  🛡 next hedge " + (ga.LastDir > 0 ? "SELL " : "BUY ") + (double.IsNaN(ga.NextHedgeLots) ? "" : ga.NextHedgeLots.ToString("0.##", IC) + " ") + "@ " + P2(ga.HedgeLevel) + dist(ga.HedgeLevel); fast |= !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.5; }
@@ -734,13 +752,7 @@ namespace KeystoneMT5
                 fast = near < 0.5; col = ga.Running ? Gold : Muted;
             }
             else txt = who + (ga.Running ? "⏳ WAITING — " + ga.Phase + (ga.SignalText != "" ? ": " + ga.SignalText : "") : "AUTO OFF");
-            if (!inTrade && !shadow)
-            {   // 💤 positions on the symbol (yours, the automation off): what they pay / earn at tonight's rollover
-                double bl = 0, sl = 0, pxs = double.NaN; Mt5Symbol msy = null; DateTime now = DateTime.MinValue;
-                lock (broker.State.Gate) { foreach (var p in broker.State.Positions) if (string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)) { if (p.Dir > 0) bl += p.Lots; else sl += p.Lots; } broker.State.Symbols.TryGetValue(sym, out msy); now = broker.State.ServerNow; Mt5Quote q; if (broker.State.Quotes.TryGetValue(sym, out q)) pxs = q.Bid; }
-                double sw = bl + sl > 0 && msy != null && !double.IsNaN(pxs) ? HedgeAuto.SwapTonight(msy, bl, sl, pxs, now) : 0, pair = Math.Min(bl, sl) >= 0.01 && msy != null && !double.IsNaN(pxs) ? -HedgeAuto.SwapTonight(msy, Math.Min(bl, sl), Math.Min(bl, sl), pxs, now) : 0;
-                if (Math.Abs(sw) >= 0.005) txt += "  •  💤 swap tonight " + (sw < 0 ? "−$" : "+$") + Math.Abs(sw).ToString("0.00", IC) + (pair >= 0.005 ? " (the hedged " + Math.Min(bl, sl).ToString("0.##", IC) + " / " + Math.Min(bl, sl).ToString("0.##", IC) + " pays $" + pair.ToString("0.00", IC) + " of it — 🧹 COMPRESS HEDGES saves that)" : "");
-            }
+            if (!inTrade && !shadow) txt += AutoSwapLine(sym);
             if (s.Smart && !inTrade && ga.SmartState != "") txt += "  •  " + ga.SmartState + (ga.SmartSkips > 0 ? " • " + ga.SmartSkips + " risky entries skipped" : "");
             if (!shadow && ga.ManualManage)
             {   // ✋ MANUAL MANAGING: AUTO only suggests — the latest suggestion first, in violet, blinking
@@ -845,14 +857,14 @@ namespace KeystoneMT5
             if (!Virtual)
             {
                 if (!IsVisible) Shell.Switch(this);   // the question shows on this account's own tab (a window never shown cannot own a dialog)
-                string msg = "The 🤖 automation was RUNNING when SpasiX closed" + (open > 0 ? " — " + open + " position" + (open == 1 ? "" : "s") + " open on " + sym + " (nobody manages them until it runs)" : "") + ".\n\n⟳ RESUME = ARM this account and start the automation again with the same settings; it takes the open positions over.";
+                string msg = "The 🤖 automation was RUNNING when SpasiX closed" + (open > 0 ? " — " + open + " position" + (open == 1 ? "" : "s") + " open on " + sym + " (nobody manages them until it runs)" : "") + ".\n\n⟳ RESUME = ARM this account and start the automation again with the CURRENT settings of this version (" + (aset.Preset != "" ? aset.Preset + ", " : "") + "🧹 COMPRESS " + aset.CompressMode + ", target $" + aset.Target.ToString("0.##", IC) + "); it takes the open positions over and manages them with these settings.";
                 if (kind == "REAL") { var typed = Sx.Prompt(this, "⟳ RESUME on a REAL account (" + login + ")", msg + "\n\nType RESUME to go on.", ""); if (typed == null || typed.Trim().ToUpperInvariant() != "RESUME") { Log("⟳ resume declined — press ⟳ RESUME in 🤖 AUTO when ready", Amber); return; } }
                 else if (!Sx.Ask(this, "⟳ RESUME the automation (" + kind + " " + login + ")", msg, "⟳ RESUME", "NOT NOW", Green)) { Log("⟳ resume declined — press ⟳ RESUME in 🤖 AUTO when ready", Amber); return; }
                 if (!armed) SetArmed(true, null);
             }
             AutoSaveSet(); var s = aset.Copy(); var err = auto.Check(broker, s); if (err != "") { Log("⟳ could not resume: " + err, Red); return; }
             AutoLoadHistory(); aView = "STORY"; auto.Start(broker, s, open > 0); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
-            Log("⟳ AUTO RESUMED after the restart" + (open > 0 ? " — " + open + " open position" + (open == 1 ? "" : "s") + " taken over" : ""), Green); Toast("⟳ the automation resumed by itself" + (open > 0 ? " (" + open + " positions taken over)" : ""));
+            Log("⟳ AUTO RESUMED after the restart" + (open > 0 ? " — " + open + " open position" + (open == 1 ? "" : "s") + " taken over" : "") + " with the CURRENT settings (" + (s.Preset != "" ? s.Preset + ", " : "") + "🧹 COMPRESS " + s.CompressMode + ")", Green); auto.Note("⟳ RESUMED after the restart with the CURRENT settings of " + MainWindow.Build + " (" + (s.Preset != "" ? s.Preset + ", " : "") + "🧹 COMPRESS " + s.CompressMode + ", target $" + s.Target.ToString("0.##", IC) + ") — the open positions are managed with them from now on"); Toast("⟳ the automation resumed by itself" + (open > 0 ? " (" + open + " positions taken over)" : ""));
         }
         // a DEMO made before the % commission existed charges nothing: on Duramarkets it gets its 0.001 % of each deal by itself (once; the
         // DEMO ACCOUNT box can still change it)
@@ -1145,7 +1157,7 @@ namespace KeystoneMT5
             aBasket.Text = it != null ? Signed(auto.Basket, "USD") + "  /  +$" + s.Target.ToString("0.##", IC) : "—"; aBasket.Foreground = it == null ? Muted : auto.Basket >= 0 ? Green : Red;
             aInfo.Text = on ? (it != null ? "iteration #" + it.N + " since " + it.Start.ToString("dd MMM HH:mm:ss", IC) + "  •  " + it.Buys + " buys (" + it.BuyLots.ToString("0.##", IC) + ") / " + it.Sells + " sells (" + it.SellLots.ToString("0.##", IC) + ")  •  " + it.AddOns + " add-ons  •  max drawdown " + it.MaxDd.ToString("0.00", IC) + (s.MaxDrawdown > 0 ? " (limit −$" + s.MaxDrawdown.ToString("0.##", IC) + ")" : " (no limit)")
                     : auto.Phase == "PAUSE" ? "pause until " + auto.PauseUntil.ToString("HH:mm:ss", IC) + " (" + Math.Max(0, (auto.PauseUntil - auto.Now).TotalSeconds).ToString("0", IC) + " s)" : auto.Phase == "FIRST" ? "the first " + s.FirstDir + " goes now" : "waiting for the next " + auto.WaitingFor() + (auto.Blocked != "" ? "  •  NOT NOW: " + auto.Blocked : ""))
-                : (auto.StopReason != "" ? "stopped: " + auto.StopReason + "  •  " : "") + (Sim ? "BACKTEST: press START here, then ▶ play on the 📈 CHART." : Paper ? "DEMO account: simulated on live prices." : "MT5 account: needs 🔓 ARM (chart panel) and MT5's Algo Trading.");
+                : (auto.StopReason != "" ? "stopped: " + auto.StopReason + "  •  " : "") + (Sim ? "BACKTEST: press START here, then ▶ play on the 📈 CHART." : Paper ? "DEMO account: simulated on live prices." : "MT5 account: needs 🔓 ARM (chart panel) and MT5's Algo Trading.") + AutoSwapLine(s.Symbol != "" ? s.Symbol : aset.Symbol);
             aInfo.Foreground = !on && auto.StopReason != "" ? Amber : Muted;
             aLevels.Text = on ? (s.HedgeMode == "NONE" || s.HedgeMode == "SIGNAL" ? "" : "hedge levels: recent high " + Px(auto.BuyLevel) + "  •  recent low " + Px(auto.SellLevel)) + (!double.IsNaN(auto.Vwap) ? "  •  VWAP " + Px(auto.Vwap) : "") + (it != null ? "  •  next add-on (" + (s.HedgeMode == "PRICE" ? "price move" : s.HedgeMode == "MONEY" ? "$ loss" : "break") + ") at " + Px(auto.HedgeLevel) : "") : "";
             if (aGuideBtn != null) aGuideBtn.Content = aGuidesOn ? "🎯 CHART GUIDES: ON" : "🎯 CHART GUIDES: OFF";

@@ -682,6 +682,7 @@ namespace KeystoneMT5
         // ⛶ FULL: the chart takes the whole window; only one small strip of buttons stays on top (instrument, timeframe, its P/L, SELL / BUY, the panel, exit)
         FrameworkElement chartBar, chartRail; Border fullStrip; Button fsSym, fsSell, fsBuy; TextBlock fsPl; readonly List<Tuple<int, Button>> fsTf = new List<Tuple<int, Button>>(); bool panelBeforeFull;
         // ✕ SELLS / ✕ ALL / ✕ BUYS of the chart's instrument on the toolbar: solid colours, easy to see on every look (each asks first)
+        readonly List<Tuple<Button, string>> closeBtns = new List<Tuple<Button, string>>();
         FrameworkElement CloseBtns(double h)
         {
             var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 4, 0) };
@@ -689,7 +690,7 @@ namespace KeystoneMT5
             {
                 var which = m.Item2; var b = Pill(m.Item1, new SolidColorBrush(m.Item3)); b.Foreground = which == "SELL" ? Brushes.White : new SolidColorBrush(Sx.C("#101418")); b.BorderBrush = new SolidColorBrush(Sx.C("#FFFFFF")) { Opacity = 0.35 };
                 b.Height = h; b.FontSize = 12; b.FontWeight = FontWeights.Bold; b.Padding = new Thickness(10, 0, 10, 0); b.Margin = new Thickness(0, 0, 4, 0);
-                b.ToolTip = "close " + (which == "ALL" ? "every ticket" : "the " + which.ToLowerInvariant() + "s") + " of the chart's instrument (asks first)"; b.Click += delegate { CloseAll(Act.Sym, which); }; sp.Children.Add(b);
+                b.ToolTip = "close " + (which == "ALL" ? "every ticket" : "the " + which.ToLowerInvariant() + "s") + " of the chart's instrument (asks first)"; b.Click += delegate { CloseAll(Act.Sym, which); }; sp.Children.Add(b); closeBtns.Add(Tuple.Create(b, which));
             }
             return sp;
         }
@@ -863,6 +864,12 @@ namespace KeystoneMT5
             if (both) { double net = bl - sl; symHedge.Item2.Text = Math.Abs(net) < 1e-9 ? "⇅ HEDGED • even" : "⇅ " + (net > 0 ? "BUYS" : "SELLS") + " +" + Math.Abs(net).ToString("0.00", IC) + " lots heavier"; symHedge.Item3.Text = Math.Abs(net) < 1e-9 ? "fully hedged" : "to even: " + (net > 0 ? "SELL " : "BUY ") + Math.Abs(net).ToString("0.00", IC);
                 symHedge.Item1.ToolTip = sym + ": " + bl.ToString("0.00", IC) + " lots bought vs " + sl.ToString("0.00", IC) + " sold" + (Math.Abs(net) < 1e-9 ? " — fully hedged" : " — the " + (net > 0 ? "buys" : "sells") + " are " + Math.Abs(net).ToString("0.00", IC) + " lots heavier; " + (net > 0 ? "SELL " : "BUY ") + Math.Abs(net).ToString("0.00", IC) + " lots more (or close that much of the " + (net > 0 ? "buys" : "sells") + ") to even it up"); }
             symPlInfo.Text = os > 0 ? "⏳ " + os + " order" + (os == 1 ? "" : "s") : "";
+            {   // 🧮 the same TOTAL as the header (open + the closed legs) + a live preview on each close button
+                string isym; var tt = IterTotal(s, out isym); bool mine = string.Equals(isym, sym, StringComparison.OrdinalIgnoreCase) && !double.IsNaN(tt.Item1);
+                if (mine && Math.Abs(tt.Item3) >= 0.005) symPlCap.Text = sym + " • TOTAL " + Signed(tt.Item1, cur) + " (closed legs " + Signed(tt.Item3, cur) + ")";
+                double tgt = auto != null && auto.Running ? auto.Set.Target : 0, per = 0; Mt5Symbol msy; if (s.Symbols.TryGetValue(sym, out msy) && msy.TickSize > 0) per = msy.TickValue / msy.TickSize;
+                foreach (var cb in closeBtns) cb.Item1.ToolTip = ps.Count == 0 ? "nothing open on " + sym : HedgeAuto.ClosePreview(ps, sym, cb.Item2, mine ? tt.Item1 : pl, tgt, per) + " (asks first)";
+            }
             int sg = ps.Count == 0 ? 0 : pl >= 0 ? 1 : -1; if (sg == symPlSign) return; symPlSign = sg;
             if (sg == 0) { symPlBox.BorderBrush = Line; return; }
             var br = new SolidColorBrush(sg > 0 ? Green.Color : Red.Color); symPlBox.BorderBrush = br;

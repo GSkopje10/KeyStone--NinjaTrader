@@ -709,7 +709,7 @@ public static class AutoTests
                 Check(Math.Abs(zsl1 + 62.4) < 1e-9 && Math.Abs(zss1 - 28.1) < 1e-9 && Math.Abs(zmon + 8.73) < 1e-9 && Math.Abs(zwed + 26.18) < 1e-9 && zsat == 0 && Math.Abs(HedgeAuto.CompressLots(0.32, 0.40) - 0.32) < 1e-9 && Math.Abs(-HedgeAuto.SwapTonight(zgs, 0.32, 0.32, 4125, new DateTime(2026, 11, 9, 20, 0, 0)) - 10.98) < 1e-9,
                     "🧹 swap math: 0.32 B / 0.40 S = −$8.73 a night (−62.4 / +28.1 a lot), Wednesday ×3 = −$26.18, none on Saturday; the pairs = 0.32 (they pay $10.98 a night)", zsl1 + " " + zss1 + " " + zmon + " " + zwed + " " + zsat);
                 var zgspec = Gold(); zgspec.SwapLong = -62.4; zgspec.SwapShort = 28.1; zgspec.SwapMode = 1; zgspec.Swap3Day = DayOfWeek.Wednesday;
-                Func<string, DateTime, Action<HedgeAuto>, Action<AutoSettings>, Tuple<SimBroker, HedgeAuto, double[]>> zcmpRun = (mode, start, prep, tune) =>
+                Action<SimBroker, HedgeAuto> zmid = null; Func<string, DateTime, Action<HedgeAuto>, Action<AutoSettings>, Tuple<SimBroker, HedgeAuto, double[]>> zcmpRun = (mode, start, prep, tune) =>
                 {   // the screenshot's basket opened by hand (adopted): SELL 0.08, BUY 0.16, SELL 0.16, BUY 0.16, SELL 0.16 — then a flat price
                     var warm = Path(start.AddHours(-2), 4125, Enumerable.Repeat(4125.0, 60)); var test = Path(start, 4125, Enumerable.Repeat(4125.0, 40));
                     var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = start.Date, To = start.Date, Balance = 8000, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 10, StartNyHour = start.Hour + start.Minute / 60.0 - 7 }, zgspec, warm.Concat(test).ToList()); if (err != "") throw new Exception(err);
@@ -721,7 +721,7 @@ public static class AutoTests
                     sb.Playing = true; sb.Speed = 60; sb.Advance(0.25);
                     foreach (var o in new[] { Tuple.Create("SELL", 0.08), Tuple.Create("BUY", 0.16), Tuple.Create("SELL", 0.16), Tuple.Create("BUY", 0.16), Tuple.Create("SELL", 0.16) }) { sb.Command("ORDER", "XAUUSD", o.Item1, o.Item2, 0.0, 0.0, 0.0); sb.Advance(0.05); }
                     ha.Start(sb, s0, false);
-                    for (int k = 0; k < 3000 && !sb.Ended; k++) sb.Advance(0.25);
+                    for (int k = 0; k < 3000 && !sb.Ended; k++) { sb.Advance(0.25); if (k == 40 && zmid != null) zmid(sb, ha); }
                     return Tuple.Create(sb, ha, seen);
                 };
                 Func<SimBroker, double[]> zbook = sb => { lock (sb.State.Gate) return new[] { sb.State.Positions.Where(p => p.Dir > 0).Sum(p => p.Lots), sb.State.Positions.Where(p => p.Dir < 0).Sum(p => p.Lots), sb.State.Positions.Count }; };
@@ -740,6 +740,33 @@ public static class AutoTests
                 var zcO = zcmpRun("OFF", zwedNight, null, null); var zbO = zbook(zcO.Item1);
                 Check(Math.Abs(zbO[0] - 0.32) < 1e-9 && Math.Abs(zbO[1] - 0.40) < 1e-9 && zcO.Item2.Compressions == 0 && AutoSettings.Load("sym=XAUUSD").CompressMode == "OFF" && AutoSettings.Load(new AutoSettings { CompressMode = "ALWAYS" }.Save()).CompressMode == "ALWAYS" && AutoSettings.Model("DEFENDER", new AutoSettings(), 8000).CompressMode == "OFF",
                     "🧹 OFF (the default, DEFENDER too): the basket keeps every leg; the mode is saved and read back", string.Join(" ", zbO));
+                // ⚡ APPLY NOW on an open basket: OFF → ALWAYS at once — the same iteration, the net and the legs' total kept, only the compress pairs closed
+                int zn0 = 0; double ztot0 = double.NaN, zg0 = 0, zstep = double.NaN; var zns = new AutoSettings();
+                zmid = (sb, ha) => { zn0 = ha.Current != null ? ha.Current.N : -1; ztot0 = ha.BasketTotal; lock (sb.State.Gate) zg0 = sb.State.Positions.Sum(p => p.Lots); zns = ha.Set.Copy(); zns.CompressMode = "ALWAYS"; ha.ApplyNow(zns); };
+                var zap = zcmpRun("OFF", new DateTime(2026, 10, 21, 10, 0, 0), null, null); var zbap = zbook(zap.Item1); zmid = null;
+                Check(zn0 == 1 && Math.Abs(zg0 - 0.72) < 1e-9 && zap.Item2.Current != null && zap.Item2.Current.N == 1 && zap.Item2.Set.CompressMode == "ALWAYS" && Math.Abs(zbap[0] + zbap[1] - 0.24) < 1e-9 && Math.Abs(zbap[1] - zbap[0] - 0.08) < 1e-9 && Math.Abs(zap.Item2.BasketTotal - ztot0) < 2.5 && zap.Item2.Trades.All(t => t.Side == "CLOSE" || t.Why.StartsWith("✋")) && AutoSettings.Diff(new AutoSettings(), zns).Any(x => x.StartsWith("🧹 COMPRESS HEDGES: OFF → ALWAYS")),
+                    "⚡ APPLY NOW in an open iteration: COMPRESS OFF → ALWAYS acts at once on the same basket (#1 still open, 0.72 → 0.24 lot, net SELL 0.08, the total kept); nothing opened; the question lists the change", zn0 + " " + zg0 + " → " + string.Join(" ", zbap) + " total " + ztot0 + " → " + zap.Item2.BasketTotal);
+                zmid = (sb, ha) => { ha.SetManualManage(true); var x = ha.Set.Copy(); x.CompressMode = "ALWAYS"; ha.ApplyNow(x); };
+                var zapm = zcmpRun("OFF", new DateTime(2026, 10, 21, 10, 0, 0), null, null); var zbapm = zbook(zapm.Item1); zmid = null;
+                Check(Math.Abs(zbapm[0] - 0.32) < 1e-9 && Math.Abs(zbapm[1] - 0.40) < 1e-9 && zapm.Item2.Suggestion.Contains("🧹 compress"), "⚡ APPLY NOW + ✋ MANUAL MANAGE: the new compress only suggests", string.Join(" ", zbapm) + " / " + zapm.Item2.Suggestion);
+                // 🐞 #35: every SELL closed by hand → the basket leans LONG → the next hedge is a SELL below (net + lead), not a BUY above
+                zmid = (sb, ha) => { List<long> sells; lock (sb.State.Gate) sells = sb.State.Positions.Where(p => p.Dir < 0).Select(p => p.Ticket).ToList(); foreach (var t in sells) sb.Command("CLOSE", t, 0.0); };
+                var zsd = zcmpRun("OFF", new DateTime(2026, 10, 21, 10, 0, 0), null, x => { x.HedgeMode = "BREAK"; x.HedgeSize = "ADVANTAGE"; x.NetAdvantage = 0.08; x.HedgeCap = 5; x.Swing = true; x.Rolling = true; });
+                double zbid; lock (zsd.Item1.State.Gate) zbid = zsd.Item1.State.Quotes["XAUUSD"].Bid; var zbs = zbook(zsd.Item1);
+                Check(Math.Abs(zbs[1]) < 1e-9 && Math.Abs(zbs[0] - 0.32) < 1e-9 && zsd.Item2.LastDir == 1 && !double.IsNaN(zsd.Item2.HedgeLevel) && zsd.Item2.HedgeLevel < zbid && Math.Abs(zsd.Item2.NextHedgeLots - 0.40) < 1e-9,
+                    "🐞 the sells closed by hand → net LONG 0.32: the next hedge is SELL 0.40 (net + lead) BELOW the price, not a BUY above", "lastDir " + zsd.Item2.LastDir + " hedge " + zsd.Item2.HedgeLevel + " vs bid " + zbid + " lots " + zsd.Item2.NextHedgeLots);
+                Check(!HedgeAuto.ShowPreview(false, false, false) && HedgeAuto.ShowPreview(true, false, false) && HedgeAuto.ShowPreview(false, true, false) && HedgeAuto.ShowPreview(false, false, true),
+                    "📈 AUTO OFF (not running, not resumable) → no \"it would enter\" chip / break lines on the chart; running, resumable or a 🏁 RACE lane → shown");
+                Check(HedgeAuto.BeComesFirst(1, 4115.46, 4119.54) && !HedgeAuto.BeComesFirst(1, 4115.46, double.NaN) && HedgeAuto.BeComesFirst(-1, 4125, 4121) && !HedgeAuto.BeComesFirst(-1, 4120, 4121),
+                    "🔐 BE armed (BUY 0.01 @4118.52, BE 4119.54, hedge SELL @4115.46): the BE line comes first → the hedge line is drawn faded \"not reachable first\"");
+                {   // 🧮 ITERATION TOTAL IF CLOSED NOW = open + the closed legs (the sells closed by hand above): the same number as the engine's total
+                    double zop, zcl, zbt; lock (zsd.Item1.State.Gate) { var pp = zsd.Item1.State.Positions.ToList(); zop = HedgeAuto.OpenPl(pp, "XAUUSD"); zcl = HedgeAuto.ClosedSince(zsd.Item1.State.Deals, pp, "XAUUSD", zsd.Item2.Current.Start.AddMinutes(-1)); } zbt = zsd.Item2.BasketTotal;
+                    var zpp = new List<Mt5Position> { new Mt5Position { Ticket = 1, Symbol = "XAUUSD", Side = "BUY", Lots = 0.40, Profit = -250 }, new Mt5Position { Ticket = 2, Symbol = "XAUUSD", Side = "SELL", Lots = 0.48, Profit = 51.84 } };
+                    string zpv = HedgeAuto.ClosePreview(zpp, "XAUUSD", "SELL", -270.64, 16, 100), zpa = HedgeAuto.ClosePreview(zpp, "XAUUSD", "ALL", -270.64, 16, 100);
+                    Check(Math.Abs(zop + zcl - zbt) < 0.02 && zcl < -1 && zpv.Contains("+$51.84 banked") && zpv.Contains("total stays −$270.64") && zpv.Contains("LONG 0.4") && zpv.Contains("$7.17 move UP") && zpa == "close all now: the iteration ends at −$270.64",
+                        "🧮 the iteration total = open + the closed legs (the same as the engine's); ✕ SELLS preview: +$51.84 banked, total stays −$270.64, net LONG 0.40 needs $7.17 UP to +$16; ✕ ALL: ends at −$270.64", zop + " + " + zcl + " vs " + zbt + " | " + zpv);
+                }
+                Check(zcA.Item2.LastDir == -1 && zcR.Item2.LastDir == -1, "🐞 after a compress the next hedge still follows the net (SELL basket → a BUY above)", zcA.Item2.LastDir + " " + zcR.Item2.LastDir);
             }
             // 🧹 a pending order placed during the iteration is cancelled when it closes
             var rPo = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), S(), mid: (b0, a0) => b0.Command("ORDER", "XAUUSD", "BUY LIMIT", 0.1, 3950.0, 0.0, 0.0)); int ordPo; lock (rPo.Item1.State.Gate) ordPo = rPo.Item1.State.Orders.Count;
