@@ -298,6 +298,14 @@ public static class ReplayTraderTests
             Check(KeystonePracticeAttempts.Filter(all, "Lucid 50K eval", "", DateTime.MinValue, DateTime.MinValue).Count == 2 && KeystonePracticeAttempts.Filter(all, "", "live demo", DateTime.MinValue, DateTime.MinValue).Count == 2 && KeystonePracticeAttempts.Chip("RESET") == "↺ reset by hand", "📊 filters by preset / mode + the result chips");
             var days = new List<KeystonePracticeAttempt> { new KeystonePracticeAttempt { No = 5, Result = "DAY", Pnl = 300 } }; Check(KeystonePracticeAttempts.Summary(all.Concat(days).ToList()).First(x => x[0] == "attempts")[1] == "4", "📊 🆓 MANUAL day rows are not attempts");
         }
+        {   /* 🏷 BUILD 11l — the position / order labels are part of the stack: PEAK within 2 ticks of the entry rides on it, the rest keep clear of every reserved label */
+            var pr = new List<double> { 27919.50, 27900.00, 27921.00 }; var yy = new List<double> { 200.5, 202, 204 }; var tx = new List<string> { "PEAK $0", "FLOOR $1,356 left", "LOCK +$2,000" };
+            var near = KeystoneLabelStack.NearPrice(pr, 27919.25, 0.25); Check(near.Count == 1 && near[0] == 0, "🏷 PEAK at 27,919.50 is within 2 ticks of LONG 60 @ 27,919.25 → merged into the position label (\"LONG 60 −$644 · PEAK $0\")");
+            var rest = new List<int> { 1, 2 }; var reserved = new List<double> { 195, 200, 205, 260 };   /* the entry label (24 px: ±5 around 200), the price label 260 */
+            var lay = KeystoneLabelStack.Layout(rest.Select(i => yy[i]).ToList(), rest.Select(i => pr[i]).ToList(), rest.Select(i => tx[i]).ToList(), 16, 0.25, reserved);
+            bool ok = lay.Count == 2; foreach (var it in lay) foreach (var r0 in reserved) if (it.Item1 < r0 + 8 + 2 && it.Item1 + 16 + 2 > r0 - 8) ok = false; if (lay.Count == 2 && lay[1].Item1 < lay[0].Item1 + 16) ok = false;
+            Check(ok, "🏷 FLOOR / LOCK next to the position label are pushed clear of it (and of each other)", string.Join(" | ", lay.Select(x => x.Item1.ToString("0") + " " + x.Item2)));
+        }
         Console.WriteLine(failures == 0 ? "ALL REPLAY TRADER TESTS PASSED" : failures + " REPLAY TRADER TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

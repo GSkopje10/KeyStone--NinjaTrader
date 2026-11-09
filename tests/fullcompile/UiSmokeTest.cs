@@ -803,6 +803,13 @@ public static class UiSmokeTest
                         ((Action<string>)F("studioShowDrawer"))("ATTEMPTS"); string at0 = (string)F("studioAttemptsText") ?? ""; if (!at0.Contains(" BLOWN ") || !at0.Contains(" RESET ")) throw new Exception("📊 after the restart the attempts are gone: " + at0); ((Action<string>)F("studioShowDrawer"))("ATTEMPTS");
                         Console.WriteLine("      📊 11l restart: attempts reloaded · " + at0.Substring(0, Math.Min(160, at0.Length)));
                     }
+                    {   /* 🧠 11l ENTRY ANALYZER: ⟳ REBUILD on the saved minutes (walk-forward + calibration), the 🧠 ENTRY SCORE layer on the chart, model.json saved, nothing sent */
+                        var en = (Func<string, string>)F("studioEntry"); if (en == null) throw new Exception("🧠 no ENTRY ANALYZER hook");
+                        en("X 6"); string et = en("REBUILD"); if (!et.Contains("base LONG") || !et.Contains("|| calib ") || et.Contains("|| calib 0")) throw new Exception("🧠 rebuild: " + et);
+                        if (!System.IO.File.Exists(System.IO.Path.Combine(sf, "EntryAnalyzer", "model.json"))) throw new Exception("🧠 model.json not saved");
+                        en("SCORE ON"); { var tbar = FindAll<System.Windows.FrameworkElement>(bt.Content).First(x => Convert.ToString(x.Tag) == "studio.toolbar"); var dbx = FindAll<System.Windows.Controls.TextBox>(tbar).First(); dbx.Text = "2019-03-06"; } ((Action)F("replayTraderLoad"))(); ((Action<int>)F("replayTraderStep"))(90); string es = (string)F("studioEntryScore") ?? ""; if (!es.StartsWith("🧠")) { var rtx = (KeystoneReplayTrader)F("replayTrader"); throw new Exception("🧠 the ENTRY SCORE badge: " + es + " · trader " + (rtx == null ? "null" : rtx.Bars.Count + " bars, finished " + rtx.Finished)); } en("SCORE OFF");
+                        Console.WriteLine("      🧠 11l " + et.Substring(0, Math.Min(240, et.Length)) + " · score: " + es);
+                    }
                     var showD = (Action<string>)F("studioShowDrawer"); showD("ROTSIM"); if ((string)F("studioOpenDrawer") != "ROTSIM") throw new Exception("🔄 the ROTATION SIM drawer did not open");
                     var rs = (Func<string, string>)F("studioRotSim"); if (rs == null) throw new Exception("🔄 no ROTATION SIM hook");
                     string cl = rs("SET qty=1;tp.usd=20;sl.usd=20;pattern=BS;from=2019-03-04;to=2019-04-05;days=5;every=1");
