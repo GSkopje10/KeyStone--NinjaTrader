@@ -447,7 +447,8 @@ namespace System.Windows.Controls
         public CornerRadius CornerRadius { get; set; } public Thickness Padding { get; set; }
         private UIElement child; public UIElement Child { get { return child; } set { if (ReferenceEquals(child, value)) return; UIElement.Release(child); UIElement.Adopt(this, value); child = value; } }
     }
-    public class Viewbox : FrameworkElement { public UIElement Child { get; set; } public Stretch Stretch { get; set; } }
+    public enum StretchDirection { UpOnly, DownOnly, Both }
+    public class Viewbox : FrameworkElement { public UIElement Child { get; set; } public Stretch Stretch { get; set; } public StretchDirection StretchDirection { get; set; } }
     public class Image : FrameworkElement { public ImageSource Source { get; set; } public Stretch Stretch { get; set; } }
     public class ProgressBar : System.Windows.Controls.Primitives.RangeBase { public bool IsIndeterminate { get; set; } }
     public class Slider : System.Windows.Controls.Primitives.RangeBase { public double TickFrequency { get; set; } public bool IsSnapToTickEnabled { get; set; } }

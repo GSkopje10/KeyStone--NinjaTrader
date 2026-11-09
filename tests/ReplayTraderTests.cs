@@ -263,6 +263,41 @@ public static class ReplayTraderTests
             var h3 = KeystoneLiveHistory.Merge(sv, ntb, today, 3, out sx, out nx); Check(h3.Select(b => b.Time.Date).Distinct().Count() == 3 && h3[0].Time.Date == new DateTime(2026, 3, 10), "📼 only the newest N sessions");
             var miss = KeystoneLiveHistory.Missing(new[] { new DateTime(2026, 3, 10) }, new DateTime(2026, 3, 6), new DateTime(2026, 3, 12)); Check(miss.Count == 4 && !miss.Contains(new DateTime(2026, 3, 7)) && !miss.Contains(new DateTime(2026, 3, 10)), "📼 the missing weekdays (what to ask NinjaTrader for)", string.Join(",", miss.Select(d => d.Day)));
         }
+        {   /* 🧮 BUILD 11l — the header TILES, the user's session: TPT PRO 50K funded, LONG 60 MNQ @ 27,982.50, the peak +$135.60 (at 27,984.50), now 27,981.00 */
+            var tp = KeystonePractice.Presets().First(x => x.Name.StartsWith("TPT PRO 50K funded")).Copy(); double c60 = 60 * 1.74;
+            double opPk = 120 * (27984.50 - 27982.50) - c60; tp.Mark(0, opPk, ""); double opNow = 120 * (27981.00 - 27982.50) - c60; tp.Mark(0, opNow, "");
+            var tl = KeystonePracticeTiles.Of(tp, 0, opNow, 60, 27982.50, 27981.00, 2, 1.74, opNow, new DateTime(2026, 11, 9, 10, 1, 0), 0, 0);
+            Check(Math.Abs(tl.Peak - 135.6) < 1e-9 && Math.Abs(tl.Equity + 284.4) < 1e-9 && Math.Abs(tl.GivenBack - 420) < 1e-9, "🧮 peak +$135.60, equity −$284.40, given back $420", tl.Peak + " " + tl.Equity + " " + tl.GivenBack);
+            Check(Math.Abs(tl.Floor + 1864.4) < 1e-9 && Math.Abs(tl.Room - 1580) < 1e-9 && Math.Abs(tl.RoomPts - 1580 / 120.0) < 1e-9 && Math.Abs(tl.RoomFrac - 0.79) < 1e-9, "🧮 floor −$1,864.40 · room $1,580 = 13.17 pts for 60 · 79 % of the DD", tl.Floor + " " + tl.Room + " " + tl.RoomPts);
+            Check(Math.Abs(tl.FloorPx - (27982.50 - 1760.0 / 120)) < 1e-9 && tl.GoalName == "TO LOCK" && Math.Abs(tl.ToGoal - 1864.4) < 1e-9 && Math.Abs(tl.ToGoalPts - 1864.4 / 120) < 1e-9 && tl.PosText == "LONG 60 @ 27982.50", "🧮 the floor price 27,967.83, TO LOCK $1,864.40 (15.54 pts), the chip LONG 60 @ 27982.50", tl.FloorPx + " " + tl.ToGoal + " " + tl.PosText);
+            Check(Math.Abs(tl.Progress - (135.6 + 2000) / 4000) < 1e-9 && tl.FloorKind == "trailing incl. open", "🧮 the lock progress (peak + DD) / (lock + DD) = 53.4 %", tl.Progress.ToString());
+            // 🆓 MANUAL: never blown / passed / reset, no floor or goal tiles, the max drawdown seen from the peak
+            var mn = KeystonePractice.Presets().First(x => x.Manual).Copy(); mn.Size = 25000;
+            Check(mn.Name == KeystonePractice.ManualName && KeystonePractice.Presets().FindIndex(x => x.Manual) == 12, "🆓 MANUAL is preset #12 (after custom)");
+            string h1 = mn.Mark(0, 500, ""), h2 = mn.Mark(-30000, 0, ""), h3 = mn.Mark(-30000, -9000, ""); mn.EndOfDay(-30000);
+            var tm = KeystonePracticeTiles.Of(mn, -30000, 0, 0, 0, 0, 2, 1.74, -30500, DateTime.MinValue, 3, 1);
+            Check(h1 == null && h2 == null && h3 == null && !mn.Blown && !mn.Passed && mn.GoalHit(500) == "" && !tm.HasGoal && Math.Abs(tm.Peak - 500) < 1e-9 && Math.Abs(tm.MaxDdSeen - 39500) < 1e-9 && Math.Abs(tm.WinPct - 100.0 / 3) < 1e-9,
+                "🆓 MANUAL: −$39,000 never blows / passes / resets, no goal, peak +$500, max drawdown seen $39,500, win % 33.3", tm.MaxDdSeen + " " + tm.Peak);
+        }
+        {   /* 📊 BUILD 11l — the ATTEMPTS tracker: a lock, a blow, a reset by hand, a running one → the rows + the summary; written and read back (a restart) */
+            var t0 = new DateTime(2026, 11, 9, 9, 30, 0); var all = new List<KeystonePracticeAttempt>
+            {
+                new KeystonePracticeAttempt { No = 1, Preset = "TPT PRO 50K funded", Mode = "live demo", Result = "LOCKED", When = t0, Start = t0, End = t0.AddMinutes(42), Trades = 3, Wins = 2, Losses = 1, Pnl = 2026, Peak = 2026, MaxDd = 310, Floor = 0 },
+                new KeystonePracticeAttempt { No = 2, Preset = "TPT PRO 50K funded", Mode = "live demo", Result = "BLOWN", When = t0, Start = t0.AddMinutes(42), End = t0.AddMinutes(60), Trades = 2, Wins = 0, Losses = 2, Pnl = -2004, Peak = 0, MaxDd = 2004, Floor = -2000 },
+                new KeystonePracticeAttempt { No = 3, Preset = "Lucid 50K eval", Mode = "replay", Result = "RESET", When = t0, Start = t0.AddMinutes(60), End = t0.AddMinutes(70), Trades = 1, Wins = 1, Losses = 0, Pnl = 120, Peak = 150, MaxDd = 30, Floor = -2000 },
+                new KeystonePracticeAttempt { No = 4, Preset = "Lucid 50K eval", Mode = "replay", Result = "OPEN", When = t0, Start = t0.AddMinutes(70), End = t0.AddMinutes(75), Trades = 0, Pnl = 0, Floor = -2000 },
+            };
+            var text = KeystonePracticeAttempts.Header + "\n2026-11-08 10:00,old preset,BLOWN,1,4,-2010\n" + string.Join("\n", all.Take(3).Select(KeystonePracticeAttempts.Line)) + "\n";
+            var back = KeystonePracticeAttempts.Load(text); var old = back[0];
+            Check(back.Count == 4 && old.No == 1 && old.Result == "BLOWN" && old.Trades == 4 && back[1].No == 1 && back[3].Result == "RESET" && Math.Abs(back[3].Pnl - 120) < 1e-9 && back[1].Duration == TimeSpan.FromMinutes(42) && back[2].Mode == "live demo" && Math.Abs(back[2].Floor + 2000) < 1e-9 && back[1].Wins == 2,
+                "📊 restart: the old 6-column line + 3 new lines read back with every field", back.Count + " rows");
+            Check(KeystonePracticeAttempts.NextNo(back) == 4, "📊 the attempt numbers continue after a restart (#4 next)");
+            var sm = KeystonePracticeAttempts.Summary(all).ToDictionary(x => x[0], x => x[1]);
+            Check(sm["attempts"] == "4" && sm["🔒 / ✅ passed"] == "1" && sm["💀 blown"] == "1" && sm["⏸ open"] == "1" && sm["pass %"] == "50.0 %" && sm["time to pass (avg / median)"] == "42m 00s / 42m 00s" && sm["trades / attempt"] == "1.5" && sm["net P/L"] == "+$142" && sm["streak"] == "1 × ↺ reset by hand",
+                "📊 summary: 4 attempts · 1 locked · 1 blown · 1 open · pass 50 % · 42m to pass · 1.5 trades · +$142 · streak 1 × reset", string.Join(" | ", sm.Select(kv => kv.Key + "=" + kv.Value)));
+            Check(KeystonePracticeAttempts.Filter(all, "Lucid 50K eval", "", DateTime.MinValue, DateTime.MinValue).Count == 2 && KeystonePracticeAttempts.Filter(all, "", "live demo", DateTime.MinValue, DateTime.MinValue).Count == 2 && KeystonePracticeAttempts.Chip("RESET") == "↺ reset by hand", "📊 filters by preset / mode + the result chips");
+            var days = new List<KeystonePracticeAttempt> { new KeystonePracticeAttempt { No = 5, Result = "DAY", Pnl = 300 } }; Check(KeystonePracticeAttempts.Summary(all.Concat(days).ToList()).First(x => x[0] == "attempts")[1] == "4", "📊 🆓 MANUAL day rows are not attempts");
+        }
         Console.WriteLine(failures == 0 ? "ALL REPLAY TRADER TESTS PASSED" : failures + " REPLAY TRADER TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

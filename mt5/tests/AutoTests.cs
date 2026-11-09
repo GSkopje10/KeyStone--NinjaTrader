@@ -772,6 +772,8 @@ public static class AutoTests
                     Check(zlg.Count == 3 && zlg.All(x => x.Item1 == "SELL") && Math.Abs(zlg.Sum(x => x.Item2) - 0.40) < 1e-9 && zlg.All(x => !double.IsNaN(x.Item3)) && Math.Abs(zbe - 4124.466) < 1e-6 && Math.Abs(ztp - 4124.866) < 1e-6 && double.IsNaN(HedgeAuto.PriceForTotal(-10, 0, 0, 100, 4117)),
                         "✔ closed this iteration: 3 sells · 0.40 lots (open → close prices kept); 🎯 net LONG 0.40 at −$270.64: $0 at 4124.47, +$16 at 4124.87; flat → no price", zlg.Count + " legs " + zbe + " " + ztp);
                 }
+                Check(HedgeAuto.BadgeText("LIVE", false, false, "REAL", "Duramarkets-Server", 512563) == "● REAL MONEY · Duramarkets 512563" && HedgeAuto.BadgeText("DEMO", false, true, "", "ICMarketsSC-MT5-2", 5298760) == "🎮 DEMO · simulated · ICMarketsSC 5298760" && HedgeAuto.BadgeText("BACKTEST", true, false, "", "", 0).StartsWith("🧪 BACKTEST") && HedgeAuto.BadgeText("PROP", false, false, "CONTEST", "FTMO-Demo", 7).StartsWith("🏆 PROP · FTMO 7"),
+                    "● the HEDGE tab names its account: REAL MONEY · Duramarkets 512563 / 🎮 DEMO · simulated · ICMarketsSC 5298760 / 🏆 PROP / 🧪 BACKTEST");
                 Check(zcA.Item2.LastDir == -1 && zcR.Item2.LastDir == -1, "🐞 after a compress the next hedge still follows the net (SELL basket → a BUY above)", zcA.Item2.LastDir + " " + zcR.Item2.LastDir);
             }
             // 🧹 a pending order placed during the iteration is cancelled when it closes

@@ -1892,6 +1892,15 @@ namespace KeystoneMT5
             string tail = Math.Abs(netAfter) < 0.005 ? ", nothing left open the other way" : ", net then " + (netAfter > 0 ? "LONG " : "SHORT ") + Math.Abs(netAfter).ToString("0.##", IC) + (target > 0 && perPrice > 0 ? (total >= target ? " (the target is already reached)" : " (needs a $" + ((target - total) / (Math.Abs(netAfter) * perPrice)).ToString("0.00", IC) + " move " + (netAfter > 0 ? "UP" : "DOWN") + " to the +$" + target.ToString("0.##", IC) + " target)") : "");
             return "close the " + which.ToLowerInvariant() + "s now: " + M(bank) + " banked → total stays " + M(total) + tail;
         }
+        // ● the HEDGE tab's account badge: REAL / MT5 demo / 🎮 DEMO (simulated) / 🏆 PROP / 🧪 BACKTEST + the broker and login
+        public static string BadgeText(string mode, bool sim, bool paper, string kind, string server, long login)
+        {
+            string who = ((server ?? "") != "" ? server.Split('-')[0] + " " : "") + (login > 0 ? login.ToString(IC) : "");
+            if (sim) return "🧪 BACKTEST · history replay — nothing is real";
+            if (paper) return "🎮 DEMO · simulated · " + who;
+            if (mode == "PROP") return "🏆 PROP · " + who + (kind != "" ? " · " + kind : "");
+            return kind == "REAL" ? "● REAL MONEY · " + who : "● MT5 " + (kind != "" ? kind : "ACCOUNT") + " · " + who;
+        }
         // 🔐 armed breakeven: the price meets the BE line before the hedge (long basket: BE above the hedge; short: below)
         public static bool BeComesFirst(int lastDir, double hedge, double be) { return !double.IsNaN(hedge) && !double.IsNaN(be) && (lastDir > 0 ? be > hedge : be < hedge); }
         public static bool ShowPreview(bool running, bool raceLane, bool resumable) { return running || raceLane || resumable; }

@@ -36335,6 +36335,23 @@ namespace NinjaTrader.NinjaScript.AddOns
             var goalGrid = new Grid { Width = 320, Height = 24 }; goalGrid.Children.Add(goalFill); goalGrid.Children.Add(goalText);
             var goalBorder = new Border { BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4), Child = goalGrid, Background = Card, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center };
             var accText = new TextBlock { Text = "", Foreground = Gold, FontSize = 15, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0), Width = 300, TextTrimming = TextTrimming.CharacterEllipsis };
+            /* 🧮 BUILD 11l — THE PRACTICE TILES in the header (where the long account line was): BALANCE · OPEN P/L · 🏔 PEAK (+ its time, given back) · 🧱 FLOOR ($ + the price,
+               "▲ +$30" when it moves) · ROOM LEFT ($ + pts, a drain bar) · 🎯 TO LOCK / TARGET ($ + pts, a progress bar) · the position chip — 🆓 MANUAL: BALANCE · OPEN · DAY P/L ·
+               PEAK · MAX DD SEEN · TRADES / WIN %. Each number once; the row shrinks (a Viewbox, never taller than 60 px) instead of wrapping under the chart. */
+            var tilesRow = new StackPanel { Orientation = Orientation.Horizontal, Tag = "prac.tiles" };
+            var tilesBox = new Viewbox { Child = tilesRow, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, Height = 60, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0), Visibility = Visibility.Collapsed, Tag = "prac.tilesbox" };
+            var tileParts = new Dictionary<string, Tuple<Border, TextBlock, TextBlock, TextBlock, Border>>();
+            foreach (var tk0 in new[] { "BAL|BALANCE", "OPEN|OPEN P/L", "DAY|DAY P/L", "PEAK|🏔 PEAK", "MAXDD|MAX DD SEEN", "FLOOR|🧱 FLOOR", "ROOM|ROOM LEFT", "GOAL|🎯 TO LOCK", "TRADES|TRADES / WIN %", "POS|POSITION" })
+            {
+                var pr0 = tk0.Split('|'); var cap = new TextBlock { Text = pr0[1], Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold };
+                var big = new TextBlock { Foreground = Text, FontSize = 18, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), Tag = "prac.tile." + pr0[0] };
+                var sub = new TextBlock { Foreground = Muted, FontSize = 9.5, FontFamily = new FontFamily("Consolas"), TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 190 };
+                var barBg = new Grid { Height = 4, Width = 120, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 2, 0, 0), Visibility = pr0[0] == "ROOM" || pr0[0] == "GOAL" ? Visibility.Visible : Visibility.Collapsed };
+                var barFill = new Border { HorizontalAlignment = HorizontalAlignment.Left, Width = 0, Background = Green, CornerRadius = new CornerRadius(2) }; barBg.Children.Add(new Border { Background = Tint(Text, 30), CornerRadius = new CornerRadius(2) }); barBg.Children.Add(barFill);
+                var sp0 = new StackPanel(); sp0.Children.Add(cap); sp0.Children.Add(big); sp0.Children.Add(sub); sp0.Children.Add(barBg);
+                var bd0 = new Border { Background = Card, BorderBrush = Tint(Muted, 90), BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(8), Padding = new Thickness(9, 3, 9, 3), Margin = new Thickness(0, 0, 6, 0), MinWidth = 112, Height = 58, Child = sp0, Tag = "prac.tilebox." + pr0[0] };
+                tilesRow.Children.Add(bd0); tileParts[pr0[0]] = Tuple.Create(bd0, cap, big, sub, barFill);
+            }
             var status = new TextBlock { Text = sessionList.Count == 0 ? "NOTHING SAVED YET • type a DATE and press LOAD DAY: the studio gets that week from NinjaTrader and saves it (DATA LIBRARY = many months at once)." + (firstOpen ? " Looking for 1-minute data the lab saved earlier…" : "") : "Pick a session and press LOAD DAY." + (labImport != "" ? " • " + labImport : ""), Foreground = sessionList.Count == 0 ? Red : Cyan, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, Width = 900, Height = 34 };
             var entryText = new TextBlock { Text = "", Foreground = Text, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Top, TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis, Width = 640, Height = 64 };
             var entryBorder = new Border { BorderBrush = Cyan, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(4), Child = entryText, Background = Card, Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Height = 72, ClipToBounds = true };
@@ -36342,7 +36359,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             // THE CANDLE NOW (header, off the chart): each chart's current candle on its own timeframe — points and $ (a contract, and × the contracts box)
             var candleNow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             var candleBorder = new Border { Background = Card, CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 0, 14, 0), Child = candleNow, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Hidden, Width = 830, Height = 26, ClipToBounds = true, ToolTip = "The candle forming now on each chart's timeframe: up / down since its open, in points and $ (one contract • × your contracts)" };
-            info.Children.Add(clock); info.Children.Add(candleBorder); info.Children.Add(goalBorder); info.Children.Add(accText); info.Children.Add(entryBorder); info.Children.Add(dataLine); info.Children.Add(status);
+            info.Children.Add(clock); info.Children.Add(candleBorder); info.Children.Add(goalBorder); info.Children.Add(accText); info.Children.Add(tilesBox); info.Children.Add(entryBorder); info.Children.Add(dataLine); info.Children.Add(status);
             Grid.SetRow(info, 1); root.Children.Add(info);
             // ---- REAL ACCOUNT bar (LIVE only): pick a NinjaTrader account, its firm rules, limits, ARM → the studio's trades go there
             var realBar = new WrapPanel { Margin = new Thickness(0, 0, 0, 2), Visibility = Visibility.Collapsed };

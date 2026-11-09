@@ -19,7 +19,7 @@ namespace KeystoneMT5
     {
         readonly HedgeAuto auto = new HedgeAuto();
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
-        AutoSettings aset; TextBlock aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose, aManual; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
+        AutoSettings aset; TextBlock aBadge, aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose, aManual; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
         bool aProAsked;
         bool aResumePending, aPctChecked; DateTime aArchAt = DateTime.MinValue; DateTime aResumeAt; CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall, aNowBtn; TextBlock aLockTxt; string aView = "⚙ SETTINGS"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
@@ -66,7 +66,7 @@ namespace KeystoneMT5
             var info = new StackPanel(); aPhase = new TextBlock { FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Muted, Text = "🤖 AUTO — OFF" };
             aBasket = new TextBlock { FontSize = 26, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, Foreground = Muted, Text = "—" };
             aInfo = new TextBlock { FontSize = 12.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap }; aLevels = new TextBlock { FontSize = 12.5, Foreground = Cyan, FontFamily = Sx.Mono };
-            var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aPhase); var bk = new StackPanel { Margin = new Thickness(24, 0, 0, 0) }; bk.Children.Add(new TextBlock { Text = "BASKET (all positions on the symbol)", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Muted }); bk.Children.Add(aBasket); row.Children.Add(bk);
+            aBadge = new TextBlock { FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) }; info.Children.Add(aBadge); var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aPhase); var bk = new StackPanel { Margin = new Thickness(24, 0, 0, 0) }; bk.Children.Add(new TextBlock { Text = "BASKET (all positions on the symbol)", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Muted }); bk.Children.Add(aBasket); row.Children.Add(bk);
             info.Children.Add(row); info.Children.Add(aInfo); info.Children.Add(aLevels);
             aCard = new Border { Child = info, Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 10, 0) };
             top.Children.Add(aCard); root.Children.Add(top);
@@ -86,7 +86,7 @@ namespace KeystoneMT5
                 if (!auto.Running) return; AutoSaveSet(); var ns = aset.Copy(); ns.Symbol = auto.Set.Symbol; var err = auto.Check(broker, ns); if (err != "") { Sx.Info(this, "🤖 AUTO", err, Red); return; }
                 var chg = AutoSettings.Diff(auto.Set, ns); int legs; lock (broker.State.Gate) legs = broker.State.Positions.Count(p => string.Equals(p.Symbol, ns.Symbol, StringComparison.OrdinalIgnoreCase));
                 string what = chg.Count == 0 ? "(nothing changed)" : string.Join("\n", chg.Take(14).Select(x => "• " + x)) + (chg.Count > 14 ? "\n• … " + (chg.Count - 14) + " more" : "");
-                if (!Sx.Ask(this, "⚡ Apply now", "What changes:\n" + what + "\n\n" + (auto.Current != null ? "The open basket #" + auto.Current.N + " (" + legs + " legs, " + auto.BasketTotal.ToString("+$0.00;−$0.00", IC) + ") STAYS OPEN and is managed with the new settings from now on — nothing is closed or opened by this button; only what the new settings themselves decide (e.g. 🧹 COMPRESS pairs) goes through the normal order path" + (auto.ManualManage ? " (✋ MANUAL MANAGE: only 💡 suggestions)" : "") + "." : "No iteration is open: the new settings are used from the next one."), "⚡ APPLY NOW", "CANCEL", Amber)) return;
+                if (!Sx.Ask(this, "⚡ Apply now", BadgeLine() + "What changes:\n" + what + "\n\n" + (auto.Current != null ? "The open basket #" + auto.Current.N + " (" + legs + " legs, " + auto.BasketTotal.ToString("+$0.00;−$0.00", IC) + ") STAYS OPEN and is managed with the new settings from now on — nothing is closed or opened by this button; only what the new settings themselves decide (e.g. 🧹 COMPRESS pairs) goes through the normal order path" + (auto.ManualManage ? " (✋ MANUAL MANAGE: only 💡 suggestions)" : "") + "." : "No iteration is open: the new settings are used from the next one."), "⚡ APPLY NOW", "CANCEL", Amber)) return;
                 auto.ApplyNow(ns); Toast("⚡ applied — the open basket follows the new settings from now on"); AutoPaint(true);
             };
             aUndoBtn = Pill("↺  UNDO CHANGES", Card); aUndoBtn.Height = 40; aUndoBtn.FontSize = 13; aUndoBtn.Margin = new Thickness(10, 0, 0, 0);
@@ -98,7 +98,7 @@ namespace KeystoneMT5
                 auto.Queue(ns); Toast(auto.Current != null ? "💾 saved — iteration #" + auto.Current.N + " keeps its settings, the NEXT one uses the new ones" : "💾 saved — in use now (no iteration open)"); AutoPaint(true);
             };
             aUndoBtn.Click += delegate { if (!auto.Running) return; aset = (auto.Next ?? auto.Set).Copy(); AutoModelBoxes(); AutoSaveSet(); AutoPaint(true); Toast("↺ the boxes show the settings in use again"); };
-            stopSmall.Click += delegate { if (!auto.Running) return; if (!Sx.Ask(this, "■ STOP the automation", "STOP now? The open positions stay as they are; ▶ START / RESUME takes them over again.", "■ STOP", "KEEP RUNNING", Amber)) return; auto.Stop("stopped by you"); AutoPaint(true); };
+            stopSmall.Click += delegate { if (!auto.Running) return; if (!Sx.Ask(this, "■ STOP the automation", BadgeLine() + "STOP now? The open positions stay as they are; ▶ START / RESUME takes them over again.", "■ STOP", "KEEP RUNNING", Amber)) return; auto.Stop("stopped by you"); AutoPaint(true); };
             aStopSmall = stopSmall;
             DockPanel.SetDock(stopSmall, Dock.Right); DockPanel.SetDock(aUndoBtn, Dock.Right); DockPanel.SetDock(aNowBtn, Dock.Right); DockPanel.SetDock(aSaveBtn, Dock.Right);
             lockRow.Children.Add(stopSmall); lockRow.Children.Add(aUndoBtn); lockRow.Children.Add(aNowBtn); lockRow.Children.Add(aSaveBtn);
@@ -574,8 +574,23 @@ namespace KeystoneMT5
             var sp = new StackPanel { Orientation = Orientation.Horizontal }; foreach (var c in cells) sp.Children.Add(c);
             return new Border { Child = sp, Background = Sx.CardGrad, BorderBrush = stripe, BorderThickness = new Thickness(4, 0, 0, 0), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(4, 2, 4, 2) };
         }
+        // ● WHICH account and mode this HEDGE tab is for (user's request: a REAL and a DEMO window must never look the same)
+        Tuple<string, SolidColorBrush> AccountBadge()
+        {
+            string kind = "", server = ""; long login = 0;
+            if (Paper && live != null) lock (live.State.Gate) { server = live.State.Account.Server ?? ""; login = live.State.Account.Login; }
+            else lock (broker.State.Gate) { kind = broker.State.Account.Kind ?? ""; server = broker.State.Account.Server ?? ""; login = broker.State.Account.Login; }
+            var t = HedgeAuto.BadgeText(Mode, Sim, Paper, kind, server, login);
+            return Tuple.Create(t, t.StartsWith("🧪") ? Cyan : t.StartsWith("🎮") ? Orange : t.StartsWith("🏆") ? Violet : t.StartsWith("● REAL") ? Red : Green);
+        }
+        FrameworkElement AccountBadgeEl()
+        {
+            var b = AccountBadge(); return new Border { Child = new TextBlock { Text = b.Item1, Foreground = b.Item2, FontSize = 15, FontWeight = FontWeights.Bold }, Background = Tint(b.Item2, 36), BorderBrush = b.Item2, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 4, 12, 5), Margin = new Thickness(4, 2, 4, 6), HorizontalAlignment = HorizontalAlignment.Left };
+        }
+        string BadgeLine() { return AccountBadge().Item1 + "\n\n"; }
         void AutoRowsOf(HedgeAuto e, StackPanel aRows, string aView)
         {
+            if (e == auto) aRows.Children.Add(AccountBadgeEl());
             if (aView == "ITERATIONS")
             {
                 var d = e.Iterations.Where(x => x.Done).ToList(); double avgS = d.Count > 0 ? d.Average(x => (x.End - x.Start).TotalSeconds) : 0;
@@ -927,19 +942,19 @@ namespace KeystoneMT5
             string what = (s.Preset != "" ? "STRATEGY " + (s.Preset == "BOX" ? "HEDGE BOX (swap-free accounts only)" : s.Preset) + "  •  setup " + s.EntryMode + "  •  VWAP filter " + s.VwapFilter + (s.HedgeMode == "NONE" ? "  •  NO HEDGE" : "") + (s.CloseAtNy != "" ? "  •  closes at " + s.CloseAtNy + " NY" : "") + (s.Windows != "" ? "  •  " + s.Windows + " NY" : "") + "\n" : "") + s.Symbol + " " + Tf.Name(s.Tf) + "  •  entry " + s.EntryLots.ToString("0.##", IC) + "  •  add-on " + s.AddLots.ToString("0.##", IC) + " the other way (" + (s.HedgeMode == "PRICE" ? "a " + s.HedgePrice.ToString("0.#####", IC) + " price move" : s.HedgeMode == "MONEY" ? "−$" + s.HedgeMoney.ToString("0.##", IC) : "the break of the recent low / high") + ")\n"
                 + "target +$" + s.Target.ToString("0.##", IC) + " per iteration  •  max drawdown " + (s.MaxDrawdown > 0 ? "$" + s.MaxDrawdown.ToString("0.##", IC) + " then " + s.AfterDrawdown : "NONE — until the target or the account blows") + "\n"
                 + "first: " + (s.FirstDir == "AUTO" ? "the first break" : s.FirstDir + " at once") + "  •  next: " + (s.NextStart == "PAUSE" ? "after " + s.PauseSec + " s" : "the next break") + (s.MaxIterations > 0 ? "  •  " + s.MaxIterations + " iterations" : "");
-            if (Sim || Paper) { if (!Sx.Ask(this, "🤖 START the automation", (Sim ? "On the BACKTEST's simulated account (press ▶ play on the 📈 CHART)." : "On the DEMO account (simulated, live prices).") + "\n\n" + what, "▶ START", "CANCEL", Green)) return; }
+            if (Sim || Paper) { if (!Sx.Ask(this, "🤖 START the automation", BadgeLine() + (Sim ? "On the BACKTEST's simulated account (press ▶ play on the 📈 CHART)." : "On the DEMO account (simulated, live prices).") + "\n\n" + what, "▶ START", "CANCEL", Green)) return; }
             else if (kind == "REAL")
             {
-                var typed = Sx.Prompt(this, "⚠ 🤖 START on a REAL account", "This MT5 account (" + login + ") is REAL MONEY. The automation sends orders by itself, with no stop" + (s.MaxDrawdown > 0 ? " but the max drawdown" : "") + ".\n\n" + what + "\n\nType START to go on.", "");
+                var typed = Sx.Prompt(this, "⚠ 🤖 START on a REAL account", BadgeLine() + "This MT5 account (" + login + ") is REAL MONEY. The automation sends orders by itself, with no stop" + (s.MaxDrawdown > 0 ? " but the max drawdown" : "") + ".\n\n" + what + "\n\nType START to go on.", "");
                 if (typed == null || typed.Trim().ToUpperInvariant() != "START") return;
             }
-            else if (!Sx.Ask(this, "🤖 START on MT5 (" + kind + " account " + login + ")", "Orders go to MT5 by themselves while it runs.\n\n" + what, "▶ START", "CANCEL", Green)) return;
+            else if (!Sx.Ask(this, "🤖 START on MT5 (" + kind + " account " + login + ")", BadgeLine() + "Orders go to MT5 by themselves while it runs.\n\n" + what, "▶ START", "CANCEL", Green)) return;
             AutoLoadHistory(); if (aView == "⚙ SETTINGS") aView = "STORY"; auto.Start(broker, s, adopt); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
         }
         void AutoStopClose()
         {
             var sym = auto.Running ? auto.Set.Symbol : (af["sym"].Text ?? "").Trim(); int open; lock (broker.State.Gate) open = broker.State.Positions.Count(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase));
-            if (!Sx.Ask(this, "⛔ STOP + CLOSE ALL", "The automation stops and the " + open + " position" + (open == 1 ? "" : "s") + " on " + sym + " close at the market.", "⛔ STOP + CLOSE", "CANCEL", Red)) return;
+            if (!Sx.Ask(this, "⛔ STOP + CLOSE ALL", BadgeLine() + "The automation stops and the " + open + " position" + (open == 1 ? "" : "s") + " on " + sym + " close at the market.", "⛔ STOP + CLOSE", "CANCEL", Red)) return;
             auto.Stop("stopped by you (close all)"); if (open > 0) { string id = Virtual || armed ? broker.Command("CLOSEALL", sym, "ALL") : null; if (id == null) Sx.Info(this, "🤖 AUTO", "Not closed: trading is not armed — close them on the 💼 POSITIONS tab.", Amber); else sent[id] = "🤖 close all " + sym; }
             AutoPaint(true);
         }
@@ -1152,6 +1167,7 @@ namespace KeystoneMT5
             if (aManual != null) { aManual.Content = auto.ManualManage ? "✋  MANUAL MANAGE: ON" : "✋  MANUAL MANAGE: OFF"; aManual.Background = auto.ManualManage ? Tint(Violet, 170) : Tint(Violet, 50); }
             if (aRebornBtn != null) { aRebornBtn.Content = "💥 AUTO RESTART: " + (RebornOn ? "ON" : "OFF"); aRebornBtn.Background = RebornOn ? Tint(Green, 90) : Tint(Sx.Card2, 220); }
             if (aChartManual != null) { aChartManual.Content = auto.ManualManage ? "✋ MANUAL: ON" : "✋ MANUAL: OFF"; aChartManual.Background = auto.ManualManage ? Tint(Violet, 170) : (Brush)Card; }
+            { var bdg = AccountBadge(); aBadge.Text = bdg.Item1; aBadge.Foreground = bdg.Item2; }
             aPhase.Text = "🛡 HEDGE — " + (on ? auto.Phase : "OFF") + (on ? "  •  " + s.Symbol + " " + Tf.Name(s.Tf) : ""); aPhase.Foreground = on ? Green : Muted;
             aCard.BorderBrush = on ? Green : Line;
             aBasket.Text = it != null ? Signed(auto.Basket, "USD") + "  /  +$" + s.Target.ToString("0.##", IC) : "—"; aBasket.Foreground = it == null ? Muted : auto.Basket >= 0 ? Green : Red;
