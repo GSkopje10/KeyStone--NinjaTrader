@@ -152,6 +152,12 @@ namespace KeystoneMT5
             simple.Children.Add(AField("entry", "ENTRY LOTS", aset.EntryLots.ToString(IC), 70, "the first trade of every iteration"));
             simple.Children.Add(AField("target", "TARGET $ / ITERATION", aset.Target.ToString(IC), 80, "the whole basket closes at +$ (profit + swap + commission) — whatever the drawdown on the way"));
             simple.Children.Add(AField("dd", "MAX DRAWDOWN $ (0 = NONE)", aset.MaxDrawdown.ToString(IC), 80, "0 = none: until the target or the account blows; else the basket closes at −$"));
+                { var cmp = ADrop("compress", "🧹 COMPRESS HEDGES", () => aset.CompressMode == "ALWAYS" ? "ALWAYS" : aset.CompressMode == "ROLLOVER" ? "BEFORE THE ROLLOVER" : "OFF", () => new List<Mi> {
+                    new Mi { Text = "OFF — every hedge leg stays open until the basket closes (pays swap on every lot, both sides)", Do = () => aset.CompressMode = "OFF" },
+                    new Mi { Text = "BEFORE THE ROLLOVER — " + aset.CompressBefore + " min before the server's midnight swap, matched BUY / SELL lots close in pairs down to the net", Do = () => aset.CompressMode = "ROLLOVER" },
+                    new Mi { Text = "ALWAYS — after every hedge: gross ≤ 2 × net + the entry lots (the best in the 6-year replays)", Do = () => aset.CompressMode = "ALWAYS" } });
+                  cmp.ToolTip = "Closing an equal amount of BUY and SELL lots leaves the NET (the market risk) exactly the same: the realised part stays in the iteration (TP / breakeven / rescue / DANGER count open + closed), only the swap and margin on those lots stop.\n6 years of 1-minute gold, $8,000, your DEFENDER settings, the broker's swap (−$62.4 / +$28.1 a lot a night): OFF wiped the account out in 7 of 7 yearly runs (47 hard stops); BEFORE THE ROLLOVER 0 of 7 (1 hard stop); ALWAYS 0 of 7 (1 hard stop, worst basket −$1,687 vs −$9,338, at most 0.40 lot).\nWithout swap: ALWAYS −$778 vs OFF −$3,893 (both halves better); BEFORE THE ROLLOVER −$6,636 (a little worse). Your live week 2–9 Nov: the same result, swap −$47 vs −$170.\nIt stops the wipe-outs; it does not make the strategy profitable by itself (with swap the 6 years are still −$8,920 in all, OFF −$53,417).";
+                  simple.Children.Add(cmp); }
             simple.Children.Add(new TextBlock { Text = "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 720, Margin = new Thickness(10, 14, 0, 0) });
             aSettings.Children.Add(simple);
             {   // ⏰ 9:30 STRADDLE: its own row (only with that strategy)
@@ -675,6 +681,16 @@ namespace KeystoneMT5
             if (auto.Running) { auto.Queue(pro); aset = pro; Put(AKey, aset.Save()); AutoModelBoxes(); Toast("★ SAFE HEDGE PRO — from the next iteration" + (open ? " (#" + auto.Current.N + " keeps running as it is)" : "")); }
             else { aset = pro; Put(AKey, aset.Save()); AutoModelBoxes(); Toast("★ SAFE HEDGE PRO — set (START when you are ready)"); }
         }
+        // 💤 the basket's swap tonight (the symbol's swap spec, the triple day counted) + 🧹 what a compress does: gross → net, the swap it saves, why / why not
+        public static string SwapText(HedgeAuto ga, AutoSettings s)
+        {
+            string t = "";
+            if (Math.Abs(ga.SwapNight) >= 0.005) t += "  •  💤 swap tonight " + (ga.SwapNight < 0 ? "−$" : "+$") + Math.Abs(ga.SwapNight).ToString("0.00", IC);
+            if (s.Compress && ga.CompressSave >= 0.005 && Math.Abs(ga.CompressGross - Math.Abs(ga.CompressNet)) >= 0.005)
+                t += "  •  🧹 " + (s.CompressMode == "ALWAYS" ? "compress" : "compress at " + ga.CompressAt.ToString("HH:mm", IC)) + ": gross " + ga.CompressGross.ToString("0.##", IC) + " → net " + Math.Abs(ga.CompressNet).ToString("0.##", IC) + " lot, saves ≈ $" + ga.CompressSave.ToString("0.00", IC) + " tonight" + (Math.Abs(ga.Banked) >= 0.01 ? ", realised " + ga.Banked.ToString("+$0.00;−$0.00", IC) + " carried in the total" : "");
+            else if (s.Compress && ga.CompressWhy != "" && ga.CompressWhy.StartsWith("not")) t += "  •  🧹 " + ga.CompressWhy;
+            return t;
+        }
         ChartGuide AutoBanner(string sym, HedgeAuto ga, AutoSettings s, bool shadow, bool inTrade)
         {
             double bid = double.NaN; lock (broker.State.Gate) { Mt5Quote q; if (broker.State.Quotes.TryGetValue(sym, out q)) bid = q.Bid; }
@@ -692,6 +708,7 @@ namespace KeystoneMT5
             {
                 txt = who + "IN ITERATION #" + (ga.Current != null ? ga.Current.N.ToString(IC) : "?") + "  basket " + ga.Basket.ToString("+0.00;−0.00", IC) + (Math.Abs(ga.Banked) >= 0.01 ? " open " + ga.Banked.ToString("+0.00;−0.00", IC) + " closed legs = " + ga.BasketTotal.ToString("+0.00;−0.00", IC) + " TOTAL" : "") + (ga.RescueActive(ga.Current) ? "  🛟 RESCUE: closes at $0" : "") + (ga.Set.FullAuto && ga.MarketNow != "" ? "  🤖 " + ga.MarketNow + (ga.LastScore >= 0 ? " • entry score " + ga.LastScore : "") : "");
                 if (!double.IsNaN(ga.TargetPx)) { txt += "  •  🎯 TP " + P2(ga.TargetPx) + dist(ga.TargetPx); fast |= !double.IsNaN(bid) && Math.Abs(ga.TargetPx - bid) < 0.5; }
+                txt += SwapText(ga, s);
                 if (s.HedgeMode == "LADDER" && !double.IsNaN(ga.LadderHi)) { txt += "  •  🪜 next BUY > " + P2(ga.LadderHi) + dist(ga.LadderHi) + " • next SELL < " + P2(ga.LadderLo) + dist(ga.LadderLo); fast |= !double.IsNaN(bid) && (ga.LadderHi - bid < 0.4 || bid - ga.LadderLo < 0.4); }
                 else if (ga.Locked && !double.IsNaN(ga.LockHi)) txt += "  •  🔒 LOCKED " + P2(ga.LockLo) + " – " + P2(ga.LockHi);
                 else if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel)) { txt += "  •  🛡 next hedge " + (ga.LastDir > 0 ? "SELL " : "BUY ") + (double.IsNaN(ga.NextHedgeLots) ? "" : ga.NextHedgeLots.ToString("0.##", IC) + " ") + "@ " + P2(ga.HedgeLevel) + dist(ga.HedgeLevel); fast |= !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.5; }
@@ -717,6 +734,13 @@ namespace KeystoneMT5
                 fast = near < 0.5; col = ga.Running ? Gold : Muted;
             }
             else txt = who + (ga.Running ? "⏳ WAITING — " + ga.Phase + (ga.SignalText != "" ? ": " + ga.SignalText : "") : "AUTO OFF");
+            if (!inTrade && !shadow)
+            {   // 💤 positions on the symbol (yours, the automation off): what they pay / earn at tonight's rollover
+                double bl = 0, sl = 0, pxs = double.NaN; Mt5Symbol msy = null; DateTime now = DateTime.MinValue;
+                lock (broker.State.Gate) { foreach (var p in broker.State.Positions) if (string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)) { if (p.Dir > 0) bl += p.Lots; else sl += p.Lots; } broker.State.Symbols.TryGetValue(sym, out msy); now = broker.State.ServerNow; Mt5Quote q; if (broker.State.Quotes.TryGetValue(sym, out q)) pxs = q.Bid; }
+                double sw = bl + sl > 0 && msy != null && !double.IsNaN(pxs) ? HedgeAuto.SwapTonight(msy, bl, sl, pxs, now) : 0, pair = Math.Min(bl, sl) >= 0.01 && msy != null && !double.IsNaN(pxs) ? -HedgeAuto.SwapTonight(msy, Math.Min(bl, sl), Math.Min(bl, sl), pxs, now) : 0;
+                if (Math.Abs(sw) >= 0.005) txt += "  •  💤 swap tonight " + (sw < 0 ? "−$" : "+$") + Math.Abs(sw).ToString("0.00", IC) + (pair >= 0.005 ? " (the hedged " + Math.Min(bl, sl).ToString("0.##", IC) + " / " + Math.Min(bl, sl).ToString("0.##", IC) + " pays $" + pair.ToString("0.00", IC) + " of it — 🧹 COMPRESS HEDGES saves that)" : "");
+            }
             if (s.Smart && !inTrade && ga.SmartState != "") txt += "  •  " + ga.SmartState + (ga.SmartSkips > 0 ? " • " + ga.SmartSkips + " risky entries skipped" : "");
             if (!shadow && ga.ManualManage)
             {   // ✋ MANUAL MANAGING: AUTO only suggests — the latest suggestion first, in violet, blinking

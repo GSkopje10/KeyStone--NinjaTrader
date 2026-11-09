@@ -702,6 +702,45 @@ public static class AutoTests
                 double nD = rD.Item1.State.Positions.Sum(p => (p.Dir) * p.Lots);
                 Check(did && !rD0.Item2.Trades.Any(t => t.Why.StartsWith("🪓")) && AutoSettings.Load(sD0.Save()).DeRisk == false, "🪓 de-risk: in rescue part of the winner + part of the loser are closed together (off: nothing)", "did " + did + " gross " + gD + " vs " + gD0 + " net " + nD + " | " + string.Join(" ; ", rD.Item2.Trades.Select(t => t.Side + " " + t.Lots + " " + t.Why)));
             }
+            {   // 🧹 COMPRESS HEDGES: the swap math (MT5's points mode, the triple day), the pairs, and the engine on the screenshot's basket
+                var zgs = new Mt5Symbol { Name = "XAUUSD", Point = 0.01, TickSize = 0.01, TickValue = 1, Contract = 100, SwapLong = -62.4, SwapShort = 28.1, SwapMode = 1, Swap3Day = 3 };
+                double zsl1 = HedgeAuto.SwapPerLotNight(zgs, 1, 4125), zss1 = HedgeAuto.SwapPerLotNight(zgs, -1, 4125);
+                double zmon = HedgeAuto.SwapTonight(zgs, 0.32, 0.40, 4125, new DateTime(2026, 11, 9, 20, 0, 0)), zwed = HedgeAuto.SwapTonight(zgs, 0.32, 0.40, 4125, new DateTime(2026, 11, 11, 20, 0, 0)), zsat = HedgeAuto.SwapTonight(zgs, 0.32, 0.40, 4125, new DateTime(2026, 11, 14, 20, 0, 0));
+                Check(Math.Abs(zsl1 + 62.4) < 1e-9 && Math.Abs(zss1 - 28.1) < 1e-9 && Math.Abs(zmon + 8.73) < 1e-9 && Math.Abs(zwed + 26.18) < 1e-9 && zsat == 0 && Math.Abs(HedgeAuto.CompressLots(0.32, 0.40) - 0.32) < 1e-9 && Math.Abs(-HedgeAuto.SwapTonight(zgs, 0.32, 0.32, 4125, new DateTime(2026, 11, 9, 20, 0, 0)) - 10.98) < 1e-9,
+                    "🧹 swap math: 0.32 B / 0.40 S = −$8.73 a night (−62.4 / +28.1 a lot), Wednesday ×3 = −$26.18, none on Saturday; the pairs = 0.32 (they pay $10.98 a night)", zsl1 + " " + zss1 + " " + zmon + " " + zwed + " " + zsat);
+                var zgspec = Gold(); zgspec.SwapLong = -62.4; zgspec.SwapShort = 28.1; zgspec.SwapMode = 1; zgspec.Swap3Day = DayOfWeek.Wednesday;
+                Func<string, DateTime, Action<HedgeAuto>, Action<AutoSettings>, Tuple<SimBroker, HedgeAuto, double[]>> zcmpRun = (mode, start, prep, tune) =>
+                {   // the screenshot's basket opened by hand (adopted): SELL 0.08, BUY 0.16, SELL 0.16, BUY 0.16, SELL 0.16 — then a flat price
+                    var warm = Path(start.AddHours(-2), 4125, Enumerable.Repeat(4125.0, 60)); var test = Path(start, 4125, Enumerable.Repeat(4125.0, 40));
+                    var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = start.Date, To = start.Date, Balance = 8000, CommissionPerLot = 0, Leverage = 500, Kind = "STANDARD", FixedSpread = 10, StartNyHour = start.Hour + start.Minute / 60.0 - 7 }, zgspec, warm.Concat(test).ToList()); if (err != "") throw new Exception(err);
+                    var s0 = S(); s0.HedgeMode = "NONE"; s0.Target = 16; s0.EntryLots = 0.08; s0.TrackManual = true; s0.CompressMode = mode; s0.Rescue = false; s0.FirstDir = "AUTO"; if (tune != null) tune(s0);
+                    var ha = new HedgeAuto(); ha.Send = (c, a, l) => sb.Command(c, a); if (prep != null) prep(ha);
+                    double[] seen = { double.NaN, double.NaN, double.NaN, double.NaN };   // the total and the TP distance before the first compress / at the end
+                    sb.OnTickHook = () => { ha.Step(sb); if (ha.Current != null && !double.IsNaN(ha.TargetPx) && ha.Compressions == 0) { seen[0] = ha.BasketTotal; seen[1] = ha.TargetPx - sb.State.Quotes["XAUUSD"].Bid; } if (ha.Current != null && !double.IsNaN(ha.TargetPx) && sb.State.ServerNow < start.Date.AddDays(1)) { seen[2] = ha.BasketTotal; seen[3] = ha.TargetPx - sb.State.Quotes["XAUUSD"].Bid; } };
+                    var chk = ha.Check(sb, s0); if (chk != "") throw new Exception(chk);
+                    sb.Playing = true; sb.Speed = 60; sb.Advance(0.25);
+                    foreach (var o in new[] { Tuple.Create("SELL", 0.08), Tuple.Create("BUY", 0.16), Tuple.Create("SELL", 0.16), Tuple.Create("BUY", 0.16), Tuple.Create("SELL", 0.16) }) { sb.Command("ORDER", "XAUUSD", o.Item1, o.Item2, 0.0, 0.0, 0.0); sb.Advance(0.05); }
+                    ha.Start(sb, s0, false);
+                    for (int k = 0; k < 3000 && !sb.Ended; k++) sb.Advance(0.25);
+                    return Tuple.Create(sb, ha, seen);
+                };
+                Func<SimBroker, double[]> zbook = sb => { lock (sb.State.Gate) return new[] { sb.State.Positions.Where(p => p.Dir > 0).Sum(p => p.Lots), sb.State.Positions.Where(p => p.Dir < 0).Sum(p => p.Lots), sb.State.Positions.Count }; };
+                var zwedNight = new DateTime(2026, 10, 21, 23, 30, 0);   // a Wednesday (triple swap), 15 min before the window
+                var zcR = zcmpRun("ROLLOVER", zwedNight, null, null); var zbR = zbook(zcR.Item1); var zsR = zcR.Item3;
+                Check(Math.Abs(zbR[0]) < 1e-9 && Math.Abs(zbR[1] - 0.08) < 1e-9 && zcR.Item2.Compressions == 4 && zcR.Item2.Trades.Count(t => t.Why.StartsWith("🧹 COMPRESS")) == 8 && zcR.Item2.Story.Any(x => x.Item2.Contains("🧹 COMPRESS BEFORE THE ROLLOVER") && x.Item2.Contains("×3")),
+                    "🧹 rollover compress (Wednesday 23:45): 0.32 B / 0.40 S → SELL 0.08 only (net −0.08 unchanged), 4 pairs, the oldest legs first with partial lots (8 closes), the story shows the math ×3", string.Join(" ", zbR) + " / " + zcR.Item2.Compressions + " / " + zcR.Item2.Trades.Count(t => t.Why.StartsWith("🧹")));
+                Check(!double.IsNaN(zsR[0]) && Math.Abs(zsR[2] - zsR[0]) < 0.6 && Math.Abs(zsR[3] - zsR[1]) < 0.1 && zcR.Item2.Current != null && zcR.Item2.Banked < -6 && zcR.Item2.Banked > -7.5,
+                    "🧹 the ledger: the realised part stays in the iteration — the total (open + closed) and the TP distance are the same after the compress (until the midnight swap: on the net only)", "total " + zsR[0] + " → " + zsR[2] + ", TP distance " + zsR[1] + " → " + zsR[3] + ", banked " + zcR.Item2.Banked);
+                var zcE = zcmpRun("ROLLOVER", new DateTime(2026, 10, 21, 22, 0, 0), null, null); var zbE = zbook(zcE.Item1);
+                Check(Math.Abs(zbE[0] - 0.32) < 1e-9 && Math.Abs(zbE[1] - 0.40) < 1e-9 && zcE.Item2.Compressions == 0 && zcE.Item2.CompressWhy.StartsWith("waits for 23:45"), "🧹 rollover compress: nothing before the window (22:00–22:40): it waits for 23:45", string.Join(" ", zbE) + " " + zcE.Item2.CompressWhy);
+                var zcA = zcmpRun("ALWAYS", new DateTime(2026, 10, 21, 10, 0, 0), null, null); var zbA = zbook(zcA.Item1);
+                Check(Math.Abs(zbA[0] + zbA[1] - 0.24) < 1e-9 && Math.Abs(zbA[1] - zbA[0] - 0.08) < 1e-9 && zcA.Item2.Compressions >= 1, "🧹 always compress: gross 0.72 → 0.24 (≤ 2 × net 0.08 + the entry 0.08), the net SELL 0.08 unchanged", string.Join(" ", zbA));
+                var zcM = zcmpRun("ROLLOVER", zwedNight, h => h.SetManualManage(true), null); var zbM = zbook(zcM.Item1);
+                Check(Math.Abs(zbM[0] - 0.32) < 1e-9 && Math.Abs(zbM[1] - 0.40) < 1e-9 && zcM.Item2.Suggestion.Contains("🧹 compress"), "🧹 ✋ MANUAL MANAGE: the compress is only a 💡 suggestion, nothing is closed", string.Join(" ", zbM) + " / " + zcM.Item2.Suggestion);
+                var zcO = zcmpRun("OFF", zwedNight, null, null); var zbO = zbook(zcO.Item1);
+                Check(Math.Abs(zbO[0] - 0.32) < 1e-9 && Math.Abs(zbO[1] - 0.40) < 1e-9 && zcO.Item2.Compressions == 0 && AutoSettings.Load("sym=XAUUSD").CompressMode == "OFF" && AutoSettings.Load(new AutoSettings { CompressMode = "ALWAYS" }.Save()).CompressMode == "ALWAYS" && AutoSettings.Model("DEFENDER", new AutoSettings(), 8000).CompressMode == "OFF",
+                    "🧹 OFF (the default, DEFENDER too): the basket keeps every leg; the mode is saved and read back", string.Join(" ", zbO));
+            }
             // 🧹 a pending order placed during the iteration is cancelled when it closes
             var rPo = Run(Path(Day1, 4000, Line(4000, 0.5, 40)), S(), mid: (b0, a0) => b0.Command("ORDER", "XAUUSD", "BUY LIMIT", 0.1, 3950.0, 0.0, 0.0)); int ordPo; lock (rPo.Item1.State.Gate) ordPo = rPo.Item1.State.Orders.Count;
             Check(rPo.Item2.Iterations.Any(x => x.Done) && ordPo == 0 && rPo.Item2.Story.Any(x => x.Item2.Contains("pending order")), "iteration closed → its pending limit / stop orders are cancelled (off the chart)", ordPo + " orders left");
