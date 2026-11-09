@@ -156,6 +156,29 @@ a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   <h2 id="s-builds">6 · What was built</h2>
   <h3>KeyStone · BUILD 2026-11-11j (installed link from last night)</h3>
   <p>● LIVE DEMO in the Backtest Studio, several studios open at once, 🎯 PROP PRACTICE in LIVE TRADING, the trailing-drawdown view, 🎯 LOCK RACE.</p>
-  <p class="note" id="builds-pending">BUILD 2026-11-11k (🔄 ROTATION SIM, the clean chart-first layout, live-demo history, drawdown presets, auto reset) and the SpasiX hedge build appear here when finished and tested.</p>
+  <h3>KeyStone · BUILD 2026-11-11k (install this one)</h3>
+  <ul>
+    <li><b>🔄 ROTATION SIM</b> (Backtest Studio drawer, simulation only):
+      <ul>
+        <li>Size, TP / SL in $ or points, a typed B/S pattern or a rule (switch or stay on target, 60-minute trend, candle colour, coin).</li>
+        <li>Non-stop rotation against the live trailing floor. It uses your NinjaTrader ticks when cached; otherwise the minute path, with an orange "NOT reliable" warning when the bracket is too small for it.</li>
+        <li>📋 POOL of accounts, 🧪 every pattern on one day, 📊 ANALYZER with the no-edge line, 🏆 FIND OPTIMAL checked on both halves.</li>
+        <li>💾 every run saved, ⚖ COMPARE, and a replay in the drawer's own chart.</li>
+      </ul></li>
+    <li><b>Chart-first practice layout:</b>
+      <ul>
+        <li>Drawers open over the chart instead of pushing it down; a click on the chart closes them.</li>
+        <li>Starting practice leaves one thin strip: preset · max · TP / SL · attempt · 🔒 / 💀 · ⚙ edit · ↺ reset.</li>
+        <li>ROOM LEFT and its bar sit in one block above BUY / SELL.</li>
+        <li>The chart shows only FLOOR / LOCK / PEAK, with no lines while flat; gutter labels never overlap.</li>
+        <li>The big HUD is an optional draggable card.</li>
+      </ul></li>
+    <li><b>Live demo history:</b> 30 days by default (5 / 30 / 90 / 365): your saved days first, NinjaTrader for the gaps, every timeframe up to D.</li>
+    <li><b>Drawdown presets</b> from the firm book (TPT, Lucid, Tradeify, MFF and more): intraday trailing moves live, end-of-day trailing moves at the close, static never moves. ＋ SAVE AS PRESET.</li>
+    <li><b>Auto new attempt</b> after a blow or a lock (on by default): the attempt is saved, a fresh account starts, a short message shows, and the replay or live demo keeps running.</li>
+  </ul>
+  <p class="note">Verified here: every test suite passes, both baselines are identical, and the UI smoke test passes. The WPF layout cannot be drawn here, so the real check is your F5 in NinjaTrader.</p>
+  <div class="link">https://github.com/GSkopje10/KeyStone--NinjaTrader/raw/356fb718f3498808fae9a4cfee3aed515627af20/src/KeyStone.cs<br>header: BUILD 2026-11-11k</div>
+  <p class="note" id="builds-pending">The SpasiX hedge build appears here when finished and tested.</p>
 </section>
 </div>
