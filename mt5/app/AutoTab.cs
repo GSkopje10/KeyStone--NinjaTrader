@@ -154,6 +154,10 @@ namespace KeystoneMT5
             simple.Children.Add(AField("entry", "ENTRY LOTS", aset.EntryLots.ToString(IC), 70, "the first trade of every iteration"));
             simple.Children.Add(AField("target", "TARGET $ / ITERATION", aset.Target.ToString(IC), 80, "the whole basket closes at +$ (profit + swap + commission) — whatever the drawdown on the way"));
             simple.Children.Add(AField("dd", "MAX DRAWDOWN $ (0 = NONE)", aset.MaxDrawdown.ToString(IC), 80, "0 = none: until the target or the account blows; else the basket closes at −$"));
+                simple.Children.Add(ADrop("beclose", "🔐 AT THE BREAKEVEN LINE", () => !aset.BeLock ? "OFF" : aset.BeClose ? "CLOSE ALL (bank it)" : "LOCK (hedge to even)", () => new List<Mi> {
+                    new Mi { Text = "CLOSE ALL — the basket came back from ≥ " + aset.BeLockAt.ToString("0", IC) + " % of the target to " + aset.BeLockKeep.ToString("0", IC) + " %: close everything at the market, the profit is banked, the iteration ends", Do = () => { aset.BeLock = true; aset.BeClose = true; } },
+                    new Mi { Text = "LOCK — there: buys = sells (the profit is frozen, NOT closed), then the normal hedges go on (the 6-year replays of 07e preferred it; the Nov weeks did not)", Do = () => { aset.BeLock = true; aset.BeClose = false; } },
+                    new Mi { Text = "OFF — no breakeven line, only the target", Do = () => { aset.BeLock = false; } } }));
                 { var cmp = ADrop("compress", "🧹 COMPRESS HEDGES", () => aset.CompressMode == "ALWAYS" ? "ALWAYS" : aset.CompressMode == "ROLLOVER" ? "BEFORE THE ROLLOVER" : "OFF", () => new List<Mi> {
                     new Mi { Text = "OFF — every hedge leg stays open until the basket closes (pays swap on every lot, both sides)", Do = () => aset.CompressMode = "OFF" },
                     new Mi { Text = "BEFORE THE ROLLOVER — " + aset.CompressBefore + " min before the server's midnight swap, matched BUY / SELL lots close in pairs down to the net", Do = () => aset.CompressMode = "ROLLOVER" },
@@ -738,7 +742,7 @@ namespace KeystoneMT5
             }
             else if (inTrade)
             {
-                txt = who + "IN ITERATION #" + (ga.Current != null ? ga.Current.N.ToString(IC) : "?") + "  basket " + ga.Basket.ToString("+0.00;−0.00", IC) + (Math.Abs(ga.Banked) >= 0.01 ? " open " + ga.Banked.ToString("+0.00;−0.00", IC) + " closed legs = " + ga.BasketTotal.ToString("+0.00;−0.00", IC) + " TOTAL" : "") + (ga.RescueActive(ga.Current) ? "  🛟 RESCUE: closes at $0" : "") + (ga.Set.FullAuto && ga.MarketNow != "" ? "  🤖 " + ga.MarketNow + (ga.LastScore >= 0 ? " • entry score " + ga.LastScore : "") : "");
+                txt = who + "IN ITERATION #" + (ga.Current != null ? ga.Current.N.ToString(IC) : "?") + "  basket " + ga.Basket.ToString("+0.00;−0.00", IC) + (Math.Abs(ga.Banked) >= 0.01 ? " open " + ga.Banked.ToString("+0.00;−0.00", IC) + " closed legs = " + ga.BasketTotal.ToString("+0.00;−0.00", IC) + " TOTAL" : "") + (ga.RescueActive(ga.Current) ? "  🛟 RESCUE: closes at ≥ +$" + Math.Max(0.5, s.CommissionPerLot * ga.CompressGross).ToString("0.00", IC) + " (breakeven after the fees)" : "") + (ga.Set.FullAuto && ga.MarketNow != "" ? "  🤖 " + ga.MarketNow + (ga.LastScore >= 0 ? " • entry score " + ga.LastScore : "") : "");
                 if (!double.IsNaN(ga.TargetPx)) { txt += "  •  🎯 TP " + P2(ga.TargetPx) + dist(ga.TargetPx); fast |= !double.IsNaN(bid) && Math.Abs(ga.TargetPx - bid) < 0.5; }
                 txt += SwapText(ga, s);
                 if (!double.IsNaN(ga.BeLockPx)) txt += "  •  🔐 BE armed: a return to " + P2(ga.BeLockPx) + (s.BeClose ? " closes all at +$" + (s.Target * s.BeLockKeep / 100).ToString("0.##", IC) + ", then waits for the next entry" : " LOCKS the basket at +$" + (s.Target * s.BeLockKeep / 100).ToString("0.##", IC) + " (buys = sells) and waits for a break");

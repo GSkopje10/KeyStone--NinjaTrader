@@ -516,6 +516,9 @@ namespace KeystoneMT5
         // the basket = what closing everything now would give: profit + swap + the commission paid at the open AND the same again for the close
         // (brokers that charge "in / out deals", like Duramarkets' 0.001 %) — so +$20 is +$20 after every commission
         double OpenComm(Snap sn, Mt5Position p) { double c; return Math.Max(Math.Abs(p.Commission), sn.InComm.TryGetValue(p.Ticket, out c) ? c : 0); }
+        // 🐞 audit: the iteration's total = the open basket (profit + swap − its opening AND closing commission) + what the balance moved since the
+        // start — the balance already holds the opening commission of the legs still open (booked on the IN deal), so it is added back once
+        double Tot(Snap sn, AutoIteration it) { return it == null ? Basket : Basket + sn.Balance - it.BalanceStart + sn.Pos.Sum(p => OpenComm(sn, p)); }
         double BasketOf(Snap sn) { return sn.Pos.Sum(p => p.Profit + p.Swap - 2 * OpenComm(sn, p)) - (Set.CommissionPerLot > 0 ? Gross(sn.Pos) * Set.CommissionPerLot : 0); }
 
         // AFTER THE TARGET: followed on every step, also when the automation is stopped (a target reached just before STOP is still measured)
@@ -564,9 +567,9 @@ namespace KeystoneMT5
             }
             NetLots = sn.Pos.Sum(p => p.Dir * p.Lots); PerPrice = sn.PerPrice; LastDir = lastDir; SwapFigures(sn);
             double move = Math.Abs(NetLots) > 1e-9 && sn.PerPrice > 0 ? NetLots * sn.PerPrice : 0;   // $ per 1.0 of price on what is open
-            BasketTotal = Current != null ? Basket + sn.Balance - Current.BalanceStart : Basket; Banked = Current != null ? sn.Balance - Current.BalanceStart : 0;   // what the exits count: open + the legs already closed in this iteration
-            TargetPx = Current != null && move != 0 ? sn.Bid + (Set.Target - (Set.Compress ? BasketTotal : Basket)) / move : double.NaN;
-            if (Current != null && move != 0 && RescueActive(Current)) TargetPx = sn.Bid + (RescueKeep(sn) - (Basket + sn.Balance - Current.BalanceStart)) / move;   // 🛟 the line = break-even
+            BasketTotal = Current != null ? Tot(sn, Current) : Basket; Banked = Current != null ? BasketTotal - Basket : 0;   // what the exits count: open + the legs already closed in this iteration
+            TargetPx = Current != null && move != 0 ? sn.Bid + (Set.Target - (Set.Compress || Set.ScaleOut || Set.RiskGuard ? BasketTotal : Basket)) / move : double.NaN;   // 🐞 audit: the TP line counts what the exit counts
+            if (Current != null && move != 0 && RescueActive(Current)) TargetPx = sn.Bid + (RescueKeep(sn) - (Tot(sn, Current))) / move;   // 🛟 the line = break-even
             StopPx = Current != null && move != 0 && Set.MaxDrawdown > 0 ? sn.Bid + (-Set.MaxDrawdown - Basket - (Set.ExitMode == "LEGS" ? sn.Balance - Current.BalanceStart : 0)) / move : double.NaN;
             prevBuyLvl = BuyLevel; prevSellLvl = SellLevel; BuyLevel = High(sn); SellLevel = Low(sn);
             if (Set.FullAuto && sn.Fin.Count > 0 && sn.Fin[0].Time != readAt) { readAt = sn.Fin[0].Time; double a0, p0; int u0, d0; ReadMarket(sn, out a0, out p0, out u0, out d0); }   // 🤖 the market reading, once a closed candle
@@ -633,23 +636,23 @@ namespace KeystoneMT5
                     }
                     else { it.Reason = "END OF DAY"; Tell("END OF DAY. WHY: it is " + Set.CloseAtNy + " New York (the close time) → CLOSE ALL at " + M(Basket) + "."); CloseAll(sn, "END OF DAY", false); return; }
                 }
-                double total = Basket + (Set.ExitMode == "LEGS" || Set.Compress ? sn.Balance - it.BalanceStart : 0);   // LEGS / 🧹 COMPRESS: what the closed legs made counts too (the worst drawdown, the rescue)
+                double total = Set.ExitMode == "LEGS" || Set.Compress ? Tot(sn, it) : Basket;   // LEGS / 🧹 COMPRESS: what the closed legs made counts too (the worst drawdown, the rescue)
                 foreach (var p in sn.Pos) it.FeeByTicket[p.Ticket] = OpenComm(sn, p) * 2 + (Set.CommissionPerLot > 0 ? p.Lots * Set.CommissionPerLot : 0);   // the commissions so far (live)
                 it.Fees = it.FeeByTicket.Values.Sum();
                 if (OnOpenState != null && (DateTime.Now - openSavedAt).TotalSeconds >= 30) { openSavedAt = DateTime.Now; OnOpenState(OpenText(sn.Pos.Select(p => p.Ticket))); }
                 { var pm = new DateTime(Now.Year, Now.Month, Now.Day, Now.Hour, Now.Minute, 0); if (pm != pathMin && OnPath != null) { pathMin = pm; OnPath(string.Join(",", it.N.ToString(IC), Now.Ticks.ToString(IC), sn.Bid.ToString("R", IC), Basket.ToString("0.00", IC), sn.Pos.Sum(p => p.Dir * p.Lots).ToString("0.##", IC), sn.Pos.Count.ToString(IC), Gross(sn.Pos).ToString("0.##", IC), Locked ? "LOCKED" : "")); } }
                 it.MaxDd = Math.Min(it.MaxDd, total); it.Peak = Math.Max(it.Peak, Basket); it.MaxGross = Math.Max(it.MaxGross, Gross(sn.Pos));
-                if (sn.Pos.Count > 0 && ((Set.HardFloat > 0 && Basket + sn.Balance - it.BalanceStart <= -Set.HardFloat / 100 * Math.Max(1, it.BalanceStart)) || (Set.HardMargin > 0 && sn.MarginLevel > 0 && sn.MarginLevel <= Set.HardMargin)))
+                if (sn.Pos.Count > 0 && ((Set.HardFloat > 0 && Tot(sn, it) <= -Set.HardFloat / 100 * Math.Max(1, it.BalanceStart)) || (Set.HardMargin > 0 && sn.MarginLevel > 0 && sn.MarginLevel <= Set.HardMargin)))
                 {   // ⛔ HARD STOP (user's): it is what it is — close everything before the broker does it worse
-                    bool byF = Set.HardFloat > 0 && Basket + sn.Balance - it.BalanceStart <= -Set.HardFloat / 100 * Math.Max(1, it.BalanceStart); it.Reason = "HARD STOP";
-                    Tell("⛔ HARD STOP. WHY: " + (byF ? "the iteration's loss " + M(Basket + sn.Balance - it.BalanceStart) + " (open + realised) reached " + Set.HardFloat.ToString("0", IC) + " % of the balance $" + it.BalanceStart.ToString("N0", IC) : "the margin level " + sn.MarginLevel.ToString("0", IC) + " % is at / under " + Set.HardMargin.ToString("0", IC) + " %") + " → CLOSE EVERYTHING (" + sn.Pos.Count + " positions).");
+                    bool byF = Set.HardFloat > 0 && Tot(sn, it) <= -Set.HardFloat / 100 * Math.Max(1, it.BalanceStart); it.Reason = "HARD STOP";
+                    Tell("⛔ HARD STOP. WHY: " + (byF ? "the iteration's loss " + M(Tot(sn, it)) + " (open + realised) reached " + Set.HardFloat.ToString("0", IC) + " % of the balance $" + it.BalanceStart.ToString("N0", IC) : "the margin level " + sn.MarginLevel.ToString("0", IC) + " % is at / under " + Set.HardMargin.ToString("0", IC) + " %") + " → CLOSE EVERYTHING (" + sn.Pos.Count + " positions).");
                     hardNow = true; try { CloseAll(sn, "HARD STOP", false); } finally { hardNow = false; } return;
                 }
                 DangerNow(sn, it);
                 if (Set.BeLock && !Locked && Set.ExitMode != "LEGS" && Set.Target > 0 && sn.PerPrice > 0 && !double.IsNaN(sn.Bid))
                 {   // 🔐 BREAKEVEN LOCK
-                    double totB = Basket + sn.Balance - it.BalanceStart, netB = sn.Pos.Sum(p => p.Dir * p.Lots);
-                    if (!it.BeLockArmed && totB >= Set.Target * Set.BeLockAt / 100) { it.BeLockArmed = true; Tell("🔐 BREAKEVEN PROFIT ARMED: the basket reached " + M(totB) + " (≥ " + Set.BeLockAt.ToString("0", IC) + " % of the target " + M(Set.Target) + ") — if the price turns back to where it would be " + M(Set.Target * Set.BeLockKeep / 100) + ", everything closes there (the profit is kept, no lock)."); }
+                    double totB = Tot(sn, it), netB = sn.Pos.Sum(p => p.Dir * p.Lots);
+                    if (!it.BeLockArmed && totB >= Set.Target * Set.BeLockAt / 100) { it.BeLockArmed = true; Tell("🔐 BREAKEVEN PROFIT ARMED: the basket reached " + M(totB) + " (≥ " + Set.BeLockAt.ToString("0", IC) + " % of the target " + M(Set.Target) + ") — if the price turns back to where it would be " + M(Set.Target * Set.BeLockKeep / 100) + ", " + (Set.BeClose ? "everything CLOSES there at the market (the profit is kept, the iteration ends)." : "the basket LOCKS there (buys = sells: the profit is frozen, it does NOT close — 🔐 AT THE BREAKEVEN LINE = LOCK; choose CLOSE ALL to bank it instead).")); }
                     if (it.BeLockArmed && Math.Abs(netB) > 0.005)
                     {
                         double keep = Set.Target * Set.BeLockKeep / 100, px = netB > 0 ? sn.Bid : sn.Ask; if (double.IsNaN(px)) px = sn.Bid;
@@ -661,12 +664,12 @@ namespace KeystoneMT5
                 else BeLockPx = double.NaN;
                 if (Set.DangerExit && Set.ExitMode != "LEGS" && DangerPeak >= Set.DangerAt)
                 {
-                    double tot = Basket + sn.Balance - it.BalanceStart, keep = Math.Max(0.5, Set.Target * Set.DangerKeep / 100);
+                    double tot = Tot(sn, it), keep = Math.Max(0.5, Set.Target * Set.DangerKeep / 100);
                     if (tot >= keep) { it.Reason = "DANGER EXIT"; Tell("🚨 DANGER EXIT (a smaller profit). WHY: this basket's danger meter reached " + DangerPeak + " (≥ " + Set.DangerAt.ToString("0", IC) + ": " + DangerPeakWhy + ") and the basket is back at " + M(tot) + " (≥ " + M(keep) + " = " + Set.DangerKeep.ToString("0", IC) + " % of the target) → take it, CLOSE ALL " + sn.Pos.Count + " positions."); CloseAll(sn, "DANGER EXIT", false); return; }
                 }
                 if (Set.Rescue && Set.ExitMode != "LEGS" && RescueActive(it))
                 {
-                    double tot = Basket + sn.Balance - it.BalanceStart, keep = RescueKeep(sn);
+                    double tot = Tot(sn, it), keep = RescueKeep(sn);
                     if (tot >= keep) { it.Reason = "RESCUE BE"; Tell("🛟 RESCUED TO BREAKEVEN. WHY: this basket went " + M(it.MaxDd) + " deep (" + (it.BalanceStart > 0 ? (100 * -it.MaxDd / it.BalanceStart).ToString("0.0", IC) + " % of the balance" : "") + (DangerPeak >= Set.DangerAt ? ", danger " + DangerPeak : "") + ")" + (Set.RescueMin > 0 && (Now - it.Start).TotalMinutes >= Set.RescueMin ? " • " + ((int)(Now - it.Start).TotalMinutes) + " min in the trade (≥ " + Set.RescueMin + ")" : "") + " — the goal became getting out without a loss, and it is back at " + M(tot) + " (≥ " + M(keep) + " incl. the fees) → CLOSE ALL " + sn.Pos.Count + " positions."); CloseAll(sn, "RESCUE BE", false); return; }
                 }
                 if (Set.DeRisk && Set.Rescue && Set.ExitMode != "LEGS" && RescueActive(it) && !Locked && DeRiskStep(sn, it)) return;
@@ -675,23 +678,23 @@ namespace KeystoneMT5
                     foreach (var p in sn.Pos) { double own = p.Profit + p.Swap + p.Commission - (Set.CommissionPerLot > 0 ? p.Lots * Set.CommissionPerLot : 0), goal = Set.Target * p.Lots / Set.EntryLots;
                         if (own >= goal) { Tell("LEG TARGET. WHY: " + p.Side + " " + p.Lots.ToString("0.##", IC) + " @ " + P(p.Open) + " (#" + p.Ticket + ") is " + M(own) + " ≥ its own target " + M(goal) + " (+$" + Set.Target.ToString("0.##", IC) + " per " + Set.EntryLots.ToString("0.##", IC) + " lot) → close it."); CloseOne(p); return; } }
                 }
-                else if ((Set.RiskGuard || Set.ScaleOut || Set.Compress ? Basket + sn.Balance - it.BalanceStart : Basket) >= Set.Target) { it.Reason = "TARGET"; Tell("TAKE PROFIT. WHY: the basket reached " + M(Set.RiskGuard || Set.ScaleOut || Set.Compress ? Basket + sn.Balance - it.BalanceStart : Basket) + (Set.RiskGuard || Set.ScaleOut || Set.Compress ? " (open " + M(Basket) + " + banked " + M(sn.Balance - it.BalanceStart) + ")" : "") + " ≥ the target " + M(Set.Target) + " at a bid of " + P(sn.Bid) + " → CLOSE ALL " + sn.Pos.Count + " positions."); CloseAll(sn, "TARGET", false); return; }
+                else if ((Set.RiskGuard || Set.ScaleOut || Set.Compress ? Tot(sn, it) : Basket) >= Set.Target) { it.Reason = "TARGET"; Tell("TAKE PROFIT. WHY: the basket reached " + M(Set.RiskGuard || Set.ScaleOut || Set.Compress ? Tot(sn, it) : Basket) + (Set.RiskGuard || Set.ScaleOut || Set.Compress ? " (open " + M(Basket) + " + banked " + M(sn.Balance - it.BalanceStart) + ")" : "") + " ≥ the target " + M(Set.Target) + " at a bid of " + P(sn.Bid) + " → CLOSE ALL " + sn.Pos.Count + " positions."); CloseAll(sn, "TARGET", false); return; }
                 if (Set.ProtectAt > 0 && Set.ExitMode != "LEGS")
                 {   // 🔐 PROTECT: armed once the basket reached ProtectAt % of the target; it closes when it falls back to ProtectKeep % of the target
                     if (!it.ProtectArmed && Basket >= Set.Target * Set.ProtectAt / 100) { it.ProtectArmed = true; Tell("🔐 PROTECT ARMED: the basket reached " + M(Basket) + " (≥ " + Set.ProtectAt.ToString("0", IC) + " % of the target " + M(Set.Target) + ") — if it falls back to " + M(Set.Target * Set.ProtectKeep / 100) + " it closes there"); }
                     if (it.ProtectArmed && Basket <= Set.Target * Set.ProtectKeep / 100) { it.Reason = "PROTECT"; Tell("🔐 PROTECT EXIT. WHY: the basket was near the target (" + Set.ProtectAt.ToString("0", IC) + " % reached) and came back to " + M(Basket) + " ≤ " + M(Set.Target * Set.ProtectKeep / 100) + " → CLOSE ALL " + sn.Pos.Count + " positions (a near miss never turns into a long hedge)."); CloseAll(sn, "PROTECT", false); return; }
                 }
-                if (Set.BeAfter > 0 && it.AddOns >= Set.BeAfter && (Set.RiskGuard || Set.Compress ? Basket + sn.Balance - it.BalanceStart : Basket) >= 0 && Set.ExitMode != "LEGS") { it.Reason = "RESCUE"; Tell("🛟 RESCUE EXIT. WHY: the basket has " + it.AddOns + " hedges (≥ " + Set.BeAfter + ") and is back at " + M(Basket) + " (breakeven or better) → CLOSE ALL " + sn.Pos.Count + " positions — no endless basket."); CloseAll(sn, "RESCUE", false); return; }
+                if (Set.BeAfter > 0 && it.AddOns >= Set.BeAfter && (Set.RiskGuard || Set.Compress ? Tot(sn, it) : Basket) >= 0 && Set.ExitMode != "LEGS") { it.Reason = "RESCUE"; Tell("🛟 RESCUE EXIT. WHY: the basket has " + it.AddOns + " hedges (≥ " + Set.BeAfter + ") and is back at " + M(Basket) + " (breakeven or better) → CLOSE ALL " + sn.Pos.Count + " positions — no endless basket."); CloseAll(sn, "RESCUE", false); return; }
                 {
-                    double totR = Basket + sn.Balance - it.BalanceStart;
+                    double totR = Tot(sn, it);
                     if (Set.MaxDdPct > 0 && totR <= -Set.MaxDdPct / 100 * Math.Max(1, it.BalanceStart)) { it.Reason = "MAX DRAWDOWN"; Tell("⛔ MAX DRAWDOWN %. WHY: the iteration is at " + M(totR) + " (open + realised) ≤ −" + Set.MaxDdPct.ToString("0.##", IC) + " % of its starting balance $" + it.BalanceStart.ToString("N2", IC) + " → CLOSE ALL " + sn.Pos.Count + " positions" + (Set.AfterDrawdown == "STOP" ? " and stop." : ", then the next trade.")); CloseAll(sn, "MAX DRAWDOWN", false); return; }
                     if (Set.RecoverExit && Set.ExitMode != "LEGS" && Set.Target > 0 && it.MaxDd <= -Set.RecDeep * Set.Target && totR >= -Set.Target * Set.RecKeep / 100)
                     { it.Reason = "RECOVERED"; Tell("🔄 RECOVERED EXIT. WHY: the basket went " + M(it.MaxDd) + " deep (≥ " + Set.RecDeep.ToString("0.#", IC) + " × the target) and came back to " + M(totR) + " (within " + Set.RecKeep.ToString("0", IC) + " % of the target from breakeven) → CLOSE ALL " + sn.Pos.Count + " positions: the drawdown is gone, the account waits for the next setup."); CloseAll(sn, "RECOVERED", false); return; }
                     string dl = DayLossHit(sn, totR);
                     if (dl != "") { it.Reason = "DAY LOSS"; dayBlocked = NyDay(); Tell("⛔ DAILY LOSS. WHY: " + dl + " → CLOSE ALL " + sn.Pos.Count + " positions — no new iteration until tomorrow (New York day)."); CloseAll(sn, "DAY LOSS", false); return; }
                 }
-                if (Set.StuckPct > 0 && Set.StuckHours > 0 && it.BalanceStart > 0 && (Now - it.Start).TotalHours >= Set.StuckHours && Basket + sn.Balance - it.BalanceStart <= -Set.StuckPct / 100 * it.BalanceStart)
-                { it.Reason = "STUCK EXIT"; Tell("🧯 STUCK EXIT. WHY: the basket is " + M(Basket + sn.Balance - it.BalanceStart) + " after " + ((int)(Now - it.Start).TotalHours) + " h (≥ " + Set.StuckHours.ToString("0", IC) + " h and ≥ " + Set.StuckPct.ToString("0.#", IC) + " % of the balance down) — in 6 years of replays baskets like this took weeks or never came back → CLOSE ALL " + sn.Pos.Count + " positions and start fresh."); CloseAll(sn, "STUCK EXIT", false); return; }
+                if (Set.StuckPct > 0 && Set.StuckHours > 0 && it.BalanceStart > 0 && (Now - it.Start).TotalHours >= Set.StuckHours && Tot(sn, it) <= -Set.StuckPct / 100 * it.BalanceStart)
+                { it.Reason = "STUCK EXIT"; Tell("🧯 STUCK EXIT. WHY: the basket is " + M(Tot(sn, it)) + " after " + ((int)(Now - it.Start).TotalHours) + " h (≥ " + Set.StuckHours.ToString("0", IC) + " h and ≥ " + Set.StuckPct.ToString("0.#", IC) + " % of the balance down) — in 6 years of replays baskets like this took weeks or never came back → CLOSE ALL " + sn.Pos.Count + " positions and start fresh."); CloseAll(sn, "STUCK EXIT", false); return; }
                 if (Set.MaxDrawdown > 0 && total <= -Set.MaxDrawdown) { it.Reason = "MAX DRAWDOWN"; Tell("MAX DRAWDOWN. WHY: the basket fell to " + M(Basket) + " ≤ −$" + Set.MaxDrawdown.ToString("0.##", IC) + " at a bid of " + P(sn.Bid) + " → CLOSE ALL " + sn.Pos.Count + " positions."); CloseAll(sn, "MAX DRAWDOWN", false); return; }
                 if (Set.Rolling && Set.HedgeMode == "BREAK") SetHedgeLevel(sn, lastDir); else if ((Set.QuickHedge || Set.CandleHedge || Set.KeyHedge) && Set.HedgeMode != "NONE" && Set.HedgeMode != "SIGNAL" && Set.HedgeMode != "LADDER") { double spQ = !double.IsNaN(sn.Ask) && sn.Ask > sn.Bid ? sn.Ask - sn.Bid : 0; QuickLevel(sn, lastDir, spQ); CandleLevel(sn, lastDir, spQ); KeyLevel(sn, lastDir, spQ); TrendLevel(sn, lastDir, spQ); }
                 if (!(Set.Rolling && Set.HedgeMode == "BREAK") && Set.DdTightEvery > 0) { double spT = !double.IsNaN(sn.Ask) && sn.Ask > sn.Bid ? sn.Ask - sn.Bid : 0; DdTightLevel(sn, lastDir, spT, false); }   // 📉 the basket got deeper: the hedge comes closer
@@ -704,8 +707,8 @@ namespace KeystoneMT5
                 if ((Set.LockOn || Set.RiskGuard) && Set.HedgeMode != "NONE" && Set.HedgeMode != "LADDER")
                 {
                     double spL = !double.IsNaN(sn.Ask) && sn.Ask > sn.Bid ? sn.Ask - sn.Bid : 0, netL = sn.Pos.Sum(p => p.Dir * p.Lots);
-                    if (Locked && Set.LockMaxMin > 0 && (Now - lockAt).TotalMinutes >= Set.LockMaxMin && Basket + sn.Balance - it.BalanceStart >= Math.Max(0.5, Set.CommissionPerLot * Gross(sn.Pos)))
-                    { it.Reason = "LOCK TIMEOUT"; Tell("⏱ LOCK TIMEOUT. WHY: locked " + ((int)(Now - lockAt).TotalMinutes) + " min (≥ " + Set.LockMaxMin.ToString("0", IC) + ") and the basket is in profit " + M(Basket + sn.Balance - it.BalanceStart) + " → CLOSE ALL and trade again"); CloseAll(sn, "LOCK TIMEOUT", false); return; }
+                    if (Locked && Set.LockMaxMin > 0 && (Now - lockAt).TotalMinutes >= Set.LockMaxMin && Tot(sn, it) >= Math.Max(0.5, Set.CommissionPerLot * Gross(sn.Pos)))
+                    { it.Reason = "LOCK TIMEOUT"; Tell("⏱ LOCK TIMEOUT. WHY: locked " + ((int)(Now - lockAt).TotalMinutes) + " min (≥ " + Set.LockMaxMin.ToString("0", IC) + ") and the basket is in profit " + M(Tot(sn, it)) + " → CLOSE ALL and trade again"); CloseAll(sn, "LOCK TIMEOUT", false); return; }
                     if (Locked)
                     {   // 🔒 LOCKED: nothing happens inside the range; the break of its high / low unlocks
                         int bd = sn.Bid > LockHi + spL ? 1 : sn.Bid < LockLo - spL ? -1 : 0; if (bd == 0) return;
@@ -713,7 +716,7 @@ namespace KeystoneMT5
                         {   // 🛟 only an OBVIOUS trend unlocks: far enough beyond the range AND the EMA 50 / 200 the same way
                             double avgR = sn.Fin.Count >= 5 ? sn.Fin.Take(14).Average(x => x.H - x.L) : 0;
                             bool far = bd > 0 ? sn.Bid >= LockHi + Set.GuardBreak * avgR : sn.Bid <= LockLo - Set.GuardBreak * avgR;
-                            bool inProfit = Set.ProfitUnlock && Basket + sn.Balance - it.BalanceStart >= 0;   // a BREAKEVEN lock (in profit): any clear break goes for the target — the trend check only guards a LOSING lock
+                            bool inProfit = Set.ProfitUnlock && Tot(sn, it) >= 0;   // a BREAKEVEN lock (in profit): any clear break goes for the target — the trend check only guards a LOSING lock
                             if (!far || (!inProfit && !double.IsNaN(Ema200) && TrendNow != bd)) return;
                             if (Set.PairOff && sn.Pos.Count > 2)
                             {   // PAIR-OFF: the best leg with the trend + the worst leg against it, closed together when they add up to ≥ $0
@@ -790,7 +793,7 @@ namespace KeystoneMT5
                 }
                 if (CompressStep(sn, it)) return;
                 // ADD TO THE WINNER: the setup signals again in the leading side's direction (the last leg's)
-                if (Set.AddToWinner && (Set.MaxWinnerAdds == 0 || it.WinnerAdds < Set.MaxWinnerAdds) && Basket + sn.Balance - it.BalanceStart > Math.Max(1, Set.Target * 0.2))   // only to a REAL winner: the basket already in profit (≥ 20 % of the target)
+                if (Set.AddToWinner && (Set.MaxWinnerAdds == 0 || it.WinnerAdds < Set.MaxWinnerAdds) && Tot(sn, it) > Math.Max(1, Set.Target * 0.2))   // only to a REAL winner: the basket already in profit (≥ 20 % of the target)
                 {
                     Signals(sn); int wd; double wl; string ww, ws;
                     if (AnySignal(sn, lastDir, out wd, out wl, out ww, out ws) && wd == lastDir)
@@ -834,9 +837,9 @@ namespace KeystoneMT5
                 }
                 if (Set.HedgeMode != "NONE" && !double.IsNaN(HedgeLevel) && (lastDir > 0 ? sn.Bid <= HedgeLevel : sn.Bid >= HedgeLevel))
                 {
-                    if (Set.HedgeStopPct > 0 && it.BalanceStart > 0 && Basket + sn.Balance - it.BalanceStart <= -Set.HedgeStopPct / 100 * it.BalanceStart)
+                    if (Set.HedgeStopPct > 0 && it.BalanceStart > 0 && Tot(sn, it) <= -Set.HedgeStopPct / 100 * it.BalanceStart)
                     {   // 🧯 deep enough: no new lots — the basket waits (target / 🛟 rescue / ⛔ the hard floor)
-                        if (hstopNoted != it.N) { hstopNoted = it.N; Tell("🧯 HEDGE STOP. WHY: the basket is " + M(Basket + sn.Balance - it.BalanceStart) + " (≥ " + Set.HedgeStopPct.ToString("0.#", IC) + " % of $" + it.BalanceStart.ToString("N0", IC) + ") → no more hedges or locks in this iteration: no new lots; it waits for the target / the rescue" + (Set.MaxDdPct > 0 ? ", and closes everything at −" + Set.MaxDdPct.ToString("0.#", IC) + " %" : "") + "."); }
+                        if (hstopNoted != it.N) { hstopNoted = it.N; Tell("🧯 HEDGE STOP. WHY: the basket is " + M(Tot(sn, it)) + " (≥ " + Set.HedgeStopPct.ToString("0.#", IC) + " % of $" + it.BalanceStart.ToString("N0", IC) + ") → no more hedges or locks in this iteration: no new lots; it waits for the target / the rescue" + (Set.MaxDdPct > 0 ? ", and closes everything at −" + Set.MaxDdPct.ToString("0.#", IC) + " %" : "") + "."); }
                         return;
                     }
                     if (Set.RiskGuard && !Locked) { var gw = GuardWhy(sn, it, HedgeLots(sn)); if (gw != "") { if (Set.GuardMode == "HOLD" || Now < guardQuiet) { if (gw != guardHeld) { guardHeld = gw; Tell("🛡 RISK GUARD → HOLD. WHY: " + gw + " → no more hedges; the basket keeps its small lead (" + sn.Pos.Sum(p => p.Dir * p.Lots).ToString("+0.##;−0.##", IC) + " lots) and waits for the target / rescue"); } return; } GuardLock(sn, it, gw); return; } }
@@ -1429,7 +1432,7 @@ namespace KeystoneMT5
         {
             if (Set.DdTightEvery <= 0 || Set.DdTightBy <= 0 || double.IsNaN(HedgeLevel) || Current == null || sn.Pos.Count == 0 || Current.BalanceStart <= 0) return;
             if (Set.HedgeMode == "NONE" || Set.HedgeMode == "SIGNAL" || Set.HedgeMode == "LADDER") return;
-            double dd = Math.Max(0, -(Basket + sn.Balance - Current.BalanceStart)), ddPct = 100 * dd / Current.BalanceStart; int steps = (int)Math.Floor(ddPct / Set.DdTightEvery); if (steps <= 0) return;
+            double dd = Math.Max(0, -(Tot(sn, Current))), ddPct = 100 * dd / Current.BalanceStart; int steps = (int)Math.Floor(ddPct / Set.DdTightEvery); if (steps <= 0) return;
             var leg = sn.Pos.Where(p => p.Dir == dir).OrderBy(p => p.Time).ThenBy(p => p.Ticket).LastOrDefault(); if (leg == null) return;
             double normal = dir > 0 ? leg.Open - HedgeLevel : HedgeLevel - leg.Open; if (normal <= 0) return;
             double f = Math.Max(Set.DdTightFloor / 100.0, 1 - steps * Set.DdTightBy / 100.0);
@@ -1468,7 +1471,7 @@ namespace KeystoneMT5
         public double BeLockPx = double.NaN; public int Danger, DangerPeak; public string DangerWhy = "", DangerPeakWhy = "", Similar = "";   // the peak = the worst of this basket (it stays after the basket recovers)
         void DangerNow(Snap sn, AutoIteration it)
         {
-            double bal = Math.Max(1, it.BalanceStart), loss = -(Basket + sn.Balance - it.BalanceStart), ddPct = Math.Max(0, loss) / bal * 100;
+            double bal = Math.Max(1, it.BalanceStart), loss = -(Tot(sn, it)), ddPct = Math.Max(0, loss) / bal * 100;
             double sDd = Math.Min(40, ddPct * 4), sMl = sn.MarginLevel > 0 ? Math.Max(0, Math.Min(1, (2000 - sn.MarginLevel) / 1600)) * 20 : 0;
             int chop = Hedges.Count(h => h.Iter == it.N && (Now - h.Time).TotalMinutes <= 60); double sCh = Math.Min(15, chop * 5);
             double hrs = Math.Max(0, (Now - it.Start).TotalHours), sT = Math.Min(10, hrs * 2);
@@ -1507,7 +1510,7 @@ namespace KeystoneMT5
         {
             double netL = sn.Pos.Sum(p => p.Dir * p.Lots); if (Math.Abs(netL) < 0.005) { Locked = true; LockHi = Math.Max(PHi(sn), sn.Ask); LockLo = Math.Min(PLo(sn), sn.Bid); return; }
             Locked = true; lockAt = Now; LockHi = Math.Max(PHi(sn), sn.Ask); LockLo = Math.Min(PLo(sn), sn.Bid); int ld = netL > 0 ? -1 : 1; double ll = Math.Round(Math.Abs(netL), 2);
-            Tell("🛡 RISK GUARD → LOCK. WHY: " + why + " → " + (ld > 0 ? "BUY " : "SELL ") + ll.ToString("0.##", IC) + " so buys = sells (net 0): the basket is frozen at about " + M(Basket) + " and waits for the break of " + P(LockLo) + "–" + P(LockHi) + " (no more hedges inside)");
+            Tell("🛡 RISK GUARD → LOCK. WHY: " + why + " → " + (ld > 0 ? "BUY " : "SELL ") + ll.ToString("0.##", IC) + " so buys = sells (net 0): the basket is frozen at about " + M(Basket) + (Set.LockOn || Set.RiskGuard ? " and waits for the break of " + P(LockLo) + "–" + P(LockHi) + " (no more hedges inside)" : " — LOCK / RISK GUARD are off, so nothing waits for a break: the normal hedge rules go on from here (the lock ends as soon as a hedge makes the basket uneven)"));
             Order(sn, ld, ll, "🛡 RISK GUARD LOCK " + (ld > 0 ? "BUY" : "SELL") + " — " + why.Split('—')[0].Trim(), sn.Bid);
         }
         void CandleLevel(Snap sn, int dir, double sp)
@@ -1818,7 +1821,7 @@ namespace KeystoneMT5
         double DdLead(Snap sn)
         {
             double lead = Math.Max(0.01, Set.NetAdvantage); if (Set.DdLeadStep <= 0 || Set.DdLeadAdd <= 0 || Current == null) return lead;
-            double dd = Math.Max(0, -(Basket + sn.Balance - Current.BalanceStart)); int steps = (int)Math.Floor(dd / Set.DdLeadStep);
+            double dd = Math.Max(0, -(Tot(sn, Current))); int steps = (int)Math.Floor(dd / Set.DdLeadStep);
             double l2 = lead + steps * Set.DdLeadAdd; if (Set.DdLeadMax > 0) l2 = Math.Min(l2, Set.DdLeadMax); return Math.Round(Math.Max(lead, l2), 2);
         }
         double HedgeLots(Snap sn)

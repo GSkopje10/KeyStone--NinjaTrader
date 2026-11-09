@@ -785,7 +785,23 @@ public static class AutoTests
                     bool zsawLock = false; HedgeAuto zba = null;
                     var zbr = Run(Path(Day1, 4000, Line(4000, 0, 5).Concat(Line(4000, 0.1, 18)).Concat(Line(4001.8, -0.2, 10)).Concat(Line(3999.8, 0.25, 16))), zb, null, a => zba = a, sb => { var prev = sb.OnTickHook; sb.OnTickHook = () => { prev(); if (zba != null && zba.Locked) zsawLock = true; }; });
                     double zbn; lock (zbr.Item1.State.Gate) zbn = zbr.Item1.State.Positions.Sum(p => p.Dir * p.Lots);
-                    Check(zsawLock && zbr.Item2.Story.Any(x => x.Item2.Contains("BREAKEVEN LOCK")) && zbr.Item2.Log.Any(x => x.Contains("no longer even")) && !zbr.Item2.Locked, "🐞 breakeven lock, then a hedge: the basket leans again → the LOCKED state is cleared (the banner shows the real net and the next hedge)", "sawLock " + zsawLock + " locked " + zbr.Item2.Locked + " net " + zbn + " | " + string.Join(" / ", zbr.Item2.Log.Skip(Math.Max(0, zbr.Item2.Log.Count - 6))));
+                    Check(zsawLock && zbr.Item2.Story.Any(x => x.Item2.Contains("BREAKEVEN LOCK")) && zbr.Item2.Story.Any(x => x.Item2.Contains("the basket LOCKS there")) && zbr.Item2.Log.Any(x => x.Contains("no longer even")) && !zbr.Item2.Locked, "🐞 breakeven lock, then a hedge: the basket leans again → the LOCKED state is cleared (the banner shows the real net and the next hedge)", "sawLock " + zsawLock + " locked " + zbr.Item2.Locked + " net " + zbn + " | " + string.Join(" / ", zbr.Item2.Log.Skip(Math.Max(0, zbr.Item2.Log.Count - 6))));
+                }
+                {   // 🔐 #39: SELL entry, the BE line armed, the price comes back past it → BeClose = CLOSE ALL at the market (the iteration ends in profit); the ARMED text says what it will do
+                    var zc = S(); zc.FirstDir = "SELL"; zc.MaxIterations = 1; zc.Target = 20; zc.EntryLots = 0.1; zc.HedgeSize = "ADVANTAGE"; zc.NetAdvantage = 0.1; zc.HedgeMode = "PRICE"; zc.HedgePrice = 1.5; zc.HedgeCap = 0; zc.BeLock = true; zc.BeClose = true; zc.BeLockAt = 80; zc.BeLockKeep = 10; zc.Rescue = false;
+                    var zcr = Run(Path(Day1, 4000, Line(4000, 0, 5).Concat(Line(4000, -0.1, 18)).Concat(Line(3998.2, 0.2, 10)).Concat(Line(4000.2, 0.25, 10))), zc);
+                    var zit = zcr.Item2.Iterations.FirstOrDefault();
+                    Check(zit != null && zit.Done && zit.Reason == "BE PROFIT" && zit.Result > 0 && zcr.Item2.Story.Any(x => x.Item2.Contains("BREAKEVEN PROFIT ARMED") && x.Item2.Contains("CLOSES there at the market")) && !zcr.Item2.Trades.Any(t => t.Why.StartsWith("🛡 RISK GUARD LOCK")),
+                        "🔐 #39 with CLOSE ALL: armed → the price comes back → everything closes at the market in profit (no lock leg); the armed text says CLOSES", zit == null ? "none" : zit.Reason + " " + zit.Result.ToString("0.00"));
+                }
+                {   // 🐞 audit: the opening commission sits in the balance already (the IN deal) — the iteration total counts it ONCE: +$20 means +$20 after every fee
+                    var zqwarm = Path(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)); var zqtest = Path(Day1, 4000, Line(4000, 0, 3).Concat(Line(4000, 0.02, 200)));
+                    var zqsbC = new SimBroker(); zqsbC.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = 10000, CommissionPerLot = 7, Leverage = 500, Kind = "STANDARD", FixedSpread = 10 }, Gold(), zqwarm.Concat(zqtest).ToList());
+                    var zqsC = S(); zqsC.FirstDir = "BUY"; zqsC.MaxIterations = 1; zqsC.EntryLots = 0.1; zqsC.Target = 20; zqsC.HedgeMode = "NONE"; zqsC.ScaleOut = true; zqsC.ScaleLots = 0.01; zqsC.ScaleStep = 50; zqsC.NetAdvantage = 0.1;
+                    var zqaC = new HedgeAuto(); zqaC.Send = (c, a, l) => zqsbC.Command(c, a); zqsbC.OnTickHook = () => zqaC.Step(zqsbC); zqaC.Start(zqsbC, zqsC, false); zqsbC.Playing = true; zqsbC.Speed = 15;
+                    for (int k = 0; k < 6000 && !zqsbC.Ended; k++) zqsbC.Advance(0.25);
+                    var zqiC = zqaC.Iterations.FirstOrDefault();
+                    Check(zqiC != null && zqiC.Done && zqiC.Reason == "TARGET" && zqiC.Result >= 20 && zqiC.Result < 20.3, "🐞 the opening commission is counted once: a +$20 target closes at +$20.00–20.30 after every fee (it was +$20 + the opening commission)", zqiC == null ? "none" : zqiC.Reason + " " + zqiC.Result.ToString("0.00"));
                 }
                 Check(zcA.Item2.LastDir == -1 && zcR.Item2.LastDir == -1, "🐞 after a compress the next hedge still follows the net (SELL basket → a BUY above)", zcA.Item2.LastDir + " " + zcR.Item2.LastDir);
             }
