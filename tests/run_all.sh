@@ -35,6 +35,9 @@ mono "$here/.build/move.exe" | tail -1
 rm -f "$here/.build/rot.exe"
 "$root/tools/compile_engine.sh" "$here/.build/rot.exe" "$here/RotationTests.cs"
 mono "$here/.build/rot.exe" | tail -1
+rm -f "$here/.build/rsim.exe"
+"$root/tools/compile_engine.sh" "$here/.build/rsim.exe" "$here/RotationSimTests.cs"
+mono "$here/.build/rsim.exe" | tail -1
 rm -f "$here/.build/dd.exe"
 "$root/tools/compile_engine.sh" "$here/.build/dd.exe" "$here/DrawdownLabTests.cs"
 mono "$here/.build/dd.exe" | tail -1

@@ -241,7 +241,10 @@ public static class UiSmokeTest
                         if (!st0.Contains("· 1 trade ") && !st0.Contains("· 1 trade·") && !st0.Contains("1 trade · max")) throw new Exception("🎯 the practice should count its 1 closed trade: " + st0);
                         if (!st0.Contains("BEAT THE TRAILING DRAWDOWN") && !st0.Contains("TRAILING BEATEN")) throw new Exception("🎯 TPT funded phase 1 = BEAT THE TRAILING DRAWDOWN: " + st0);
                         if (st0.IndexOf("room ") != st0.LastIndexOf("room ")) throw new Exception("🎯 the status must say it once: " + st0);
-                        if (!FindAll<System.Windows.FrameworkElement>(w0.Content).Any(x => Convert.ToString(x.Tag) == "bar.numbers")) throw new Exception("🎯 the animated buffer bar (with its numbers) is missing");
+                        var stripX = FindAll<System.Windows.Controls.TextBlock>(w0.Content).FirstOrDefault(x => Convert.ToString(x.Tag) == "prac.strip"); if (stripX == null || !stripX.Text.StartsWith("🎯 TPT PRO 50K funded") || !stripX.Text.Contains("attempt #")) throw new Exception("🖥 11k: the one-line practice strip: " + (stripX == null ? "missing" : stripX.Text));
+                        if ((string)F("studioOpenDrawer") == "PRACTICE") throw new Exception("🖥 11k: the PRACTICE drawer should close by itself once the practice runs");
+                        if (!FindAll<System.Windows.FrameworkElement>(w0.Content).Any(x => Convert.ToString(x.Tag) == "prac.compact.MNQ")) throw new Exception("🖥 11k: the compact trailing block in the order column is missing");
+                        Console.WriteLine("      🖥 11k strip: " + stripX.Text);
                         var tpLab = FindAll<System.Windows.Controls.TextBlock>(w0.Content).Any(t => t.Text == "TRAILING TO BEAT $"); if (!tpLab) throw new Exception("🎯 the TARGET field should read TRAILING TO BEAT $ for TPT funded");
                         Console.WriteLine("      🎯 PRACTICE TPT funded: " + st0);
                         clickB(pt); showDp("PRACTICE");
@@ -653,7 +656,14 @@ public static class UiSmokeTest
                     Console.WriteLine("      🪟 BACKTEST STUDIO + 🧪 EVAL LAB + ● LIVE TRADING open together; reopening focuses the open one (one per kind): OK");
                     // 2. ● LIVE DEMO in the backtest studio
                     int made0 = (int)nbMade.GetValue(null);
+                    S("studioLiveHistFake", (Func<string, DateTime, DateTime, List<KeystoneArcBar>>)((sym, a, z) => { var l = new List<KeystoneArcBar>(); double px0 = sym == "MGC" ? 2400 : 21000; for (var d = a.Date; d < z.Date; d = d.AddDays(1)) { if (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday) continue; for (int m = 1; m <= 120; m++) l.Add(new KeystoneArcBar { Symbol = sym, Time = d.AddHours(9.5).AddMinutes(m), Open = px0, High = px0 + 2, Low = px0 - 2, Close = px0 + (m % 3) - 1, Volume = 10 }); px0 += 5; } return l; }));
                     ((Action<bool>)F("studioLiveDemo"))(true); var badge = ((Func<string>)F("studioLiveBadge"))();
+                    {   /* 📼 BUILD 11k: the live demo opens WITH HISTORY (a stubbed NinjaTrader bars request for the days the store does not have) — the D chart shows more than one candle */
+                        string hh = ((Func<string, string>)F("studioLiveHistory"))("MNQ"); int dc = int.Parse(hh.Substring(hh.IndexOf("dcandles=") + 9));
+                        if (!hh.StartsWith("history: ") || !hh.Contains("NinjaTrader ") || hh.Contains("NinjaTrader 0)") || dc <= 1) throw new Exception("📼 live demo history: " + hh);
+                        Console.WriteLine("      📼 11k " + hh);
+                    }
+                    S("studioLiveHistFake", null);
                     if (!badge.StartsWith("● LIVE DEMO · simulated · nothing is sent|LIVE|links=0")) throw new Exception("● LIVE DEMO badge / mode: " + badge);
                     if (!((Func<string>)F("studioModeNow"))().StartsWith("LIVE")) throw new Exception("mode is not LIVE: " + ((Func<string>)F("studioModeNow"))());
                     var trM = ((Func<string, KeystoneReplayTrader>)F("studioTrader"))("MNQ"); if (trM == null || !trM.Live) throw new Exception("the MNQ chart is not on the live feed");
@@ -674,7 +684,18 @@ public static class UiSmokeTest
                     if (!(f2 > f1 + 50)) throw new Exception("🎯 the TPT floor did not follow the open profit on the live tick: " + ga + " → " + gb);
                     {   /* 📐 the hugely visual trailing view: band, solid floor, lock line, the flash, the big panel; a pull-back → the dotted peak + GIVEN BACK */
                         Func<List<string>> tagsNow = () => FindAll<System.Windows.FrameworkElement>(w0.Content).Select(x => Convert.ToString(x.Tag)).ToList();
-                        var t1 = tagsNow(); foreach (var need in new[] { "prac.band", "prac.floorline", "prac.lockline", "prac.panel", "prac.floorflash" }) if (!t1.Contains(need)) throw new Exception("📐 missing on the chart: " + need);
+                        var t1 = tagsNow(); foreach (var need in new[] { "prac.floorline", "prac.lockline", "prac.floorflash", "prac.compact.MNQ" }) if (!t1.Contains(need)) throw new Exception("📐 missing: " + need);
+                        if (FindAll<System.Windows.Controls.Canvas>(w0.Content).SelectMany(cvx => cvx.Children.OfType<System.Windows.Shapes.Line>()).Any(x => Convert.ToString(x.Tag) == "prac.floorline") && !t1.Contains("prac.glabel")) throw new Exception("🏷 a FLOOR line on the chart without its gutter label");
+                        {   /* 🖥 BUILD 11k — the chart first: the drawers overlay the chart (never push it), ≤ 2 thin rows + the 1-line strip above it, nothing of the trailing panel on the candles */
+                            if (!((Func<bool>)F("studioDrawerOverlay"))()) throw new Exception("🖥 11k: the drawers must overlay the chart (same grid cell), not sit above it");
+                            ((Action<string>)F("studioShowDrawer"))("PRACTICE"); int rowsUp = ((Func<int>)F("studioTopRows"))(); ((Action<string>)F("studioShowDrawer"))("PRACTICE");
+                            if (rowsUp > 2) throw new Exception("🖥 11k: with the PRACTICE drawer open and the practice running, " + rowsUp + " rows above the chart (≤ 2 + the strip)");
+                            double share = (900.0 - (rowsUp * 34 + 26)) / 900.0; if (share < 0.75) throw new Exception("🖥 11k: the chart share " + share);
+                            var allowed = new HashSet<string> { "prac.floorline", "prac.lockline", "prac.peakline", "prac.glabel", "prac.floorflash", "prac.toast" };
+                            foreach (var cvx in FindAll<System.Windows.Controls.Canvas>(w0.Content)) foreach (var ch in cvx.Children.OfType<System.Windows.FrameworkElement>()) { var tg9 = Convert.ToString(ch.Tag); if (tg9.StartsWith("prac.") && !allowed.Contains(tg9)) throw new Exception("🖥 11k: '" + tg9 + "' is drawn on the chart (only the 3 lines + gutter labels may be)"); }
+                            if (t1.Contains("prac.band") || t1.Contains("prac.panel")) throw new Exception("🖥 11k: the old band / big panel is still drawn");
+                            Console.WriteLine("      🖥 11k chart first: drawer overlay ✓ · " + rowsUp + " thin row(s) + the strip above the chart (nominal share " + (share * 100).ToString("0") + " % of a 900 px window) · on the chart only FLOOR / LOCK / PEAK + gutter labels");
+                        }
                         string pan = (string)F("studioPracPanel") ?? ""; if (!pan.Contains("ROOM LEFT") || !pan.Contains("TO LOCK") || !pan.Contains("BALANCE")) throw new Exception("📐 the big panel: " + pan);
                         push("MNQ", new KeystoneArcBar { Symbol = "MNQ", Time = lastB.Time, Open = lastB.Open, High = lastB.Close + 60, Low = lastB.Low, Close = lastB.Close + 40, Volume = 90 }); ((Action)F("studioLiveStep"))();
                         var t2 = tagsNow(); if (!t2.Contains("prac.peakline")) throw new Exception("📐 no dotted PEAK marker after the pull-back");
@@ -683,6 +704,11 @@ public static class UiSmokeTest
                     }
                     ((Action)F("replayTraderFlat"))(); ((Action)F("studioLiveStep"))();
                     if (trM.Position != 0 || trM.Fills.Count == 0) throw new Exception("the live demo CLOSE did not fill");
+                    {   /* 🖥 11k: flat → NO ghost lines by default */
+                        var ghostTags = FindAll<System.Windows.Controls.Canvas>(w0.Content).SelectMany(cvx => cvx.Children.OfType<System.Windows.FrameworkElement>()).Select(x => Convert.ToString(x.Tag)).Where(x => x == "prac.floorline" || x == "prac.lockline").ToList();
+                        if (ghostTags.Count > 0) throw new Exception("🖥 11k: flat, yet " + ghostTags.Count + " if-long / if-short lines are drawn (they are an option, off by default)");
+                        Console.WriteLine("      🖥 11k flat: no if-long / if-short lines (option off by default)");
+                    }
                     {   /* 🎯 LOCK RACE: the preset shows its size row (MNQ 10 by default) + the research note; RACE ENTRY answers (no 9:30 trend on this stand-in feed) */
                         int ri = Enumerable.Range(0, pb.Items.Count).First(i => Convert.ToString(pb.Items[i]).StartsWith("🎯 LOCK RACE")); pb.SelectedIndex = ri; pb.SelectedItem = pb.Items[ri]; clickB(pt); clickB(pt);   /* the practice restarts on the race preset (the stub box raises no SelectionChanged) */
                         var rs = FindAll<System.Windows.Controls.ComboBox>(w0.Content).FirstOrDefault(c9 => Convert.ToString(c9.Tag) == "prac.race.size"); if (rs == null || Convert.ToString(rs.Items[rs.SelectedIndex]) != "MNQ 10") throw new Exception("🎯 LOCK RACE size box missing / not MNQ 10");
@@ -691,9 +717,24 @@ public static class UiSmokeTest
                         foreach (var tg in new[] { "prac.race.tp", "prac.race.sl", "prac.race.be" }) if (FindAll<System.Windows.Controls.ComboBox>(w0.Content).All(c9 => Convert.ToString(c9.Tag) != tg)) throw new Exception("🎯 LOCK RACE choice missing: " + tg);
                         if (trM.Position != 0) ((Action)F("replayTraderFlat"))();
                         ((Action<int>)F("replayTraderOrder"))(1); ((Action)F("studioLiveStep"))();
-                        var ctr = FindAll<System.Windows.Controls.TextBlock>(w0.Content).FirstOrDefault(t9 => Convert.ToString(t9.Tag) == "prac.race.counter"); if (ctr == null || !ctr.Text.Contains("still to the lock")) throw new Exception("🎯 the race counter is missing in the panel: " + (string)F("studioPracPanel") + " / pos " + trM.Position + " / " + ((Func<string>)F("studioLiveBadge"))());
+                        var ctr = FindAll<System.Windows.Controls.TextBlock>(w0.Content).FirstOrDefault(t9 => Convert.ToString(t9.Tag) == "prac.race.counter" && !string.IsNullOrEmpty(t9.Text)); if (ctr == null || !ctr.Text.Contains("still to the lock")) throw new Exception("🎯 the race counter is missing in the panel: " + (string)F("studioPracPanel") + " / pos " + trM.Position + " / " + ((Func<string>)F("studioLiveBadge"))());
                         Console.WriteLine("      🎯 LOCK RACE: TP / SL / BE choices, panel counter: " + ctr.Text);
                         ((Action)F("replayTraderFlat"))(); ((Action)F("studioLiveStep"))();
+                    }
+                    {   /* 🔁 BUILD 11k: a BLOW → AUTO NEW ATTEMPT (on by default): the practice position closed, the attempt saved, a fresh account of the SAME preset, trading goes on */
+                        pb.SelectedIndex = ti; pb.SelectedItem = pb.Items[ti]; clickB(pt); clickB(pt);
+                        var dOn9 = FindAll<System.Windows.Controls.Button>(w0.Content).FirstOrDefault(b9 => Convert.ToString(b9.Tag) == "dol.on.MNQ"); if (dOn9 != null && Convert.ToString(dOn9.Content) == "💵 $ ON") clickB(dOn9);   /* no bracket: the price runs to the floor */
+                        var side9 = (System.Windows.FrameworkElement)FindAll<System.Windows.FrameworkElement>(w0.Content).First(x => Convert.ToString(x.Tag) == "prac.compact.MNQ").Parent; foreach (var tb9 in FindAll<System.Windows.Controls.TextBox>(side9).Where(x => x.Width == 60)) tb9.Text = "0";
+                        string s0 = ((Func<string>)F("studioPracState"))(); int a0 = int.Parse(s0.Split('|')[0].Split('=')[1]); string logF = System.IO.Path.Combine((string)lab2.GetType().GetMethod("StudioFolder", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null), "practice-attempts.csv"); int l0 = System.IO.File.Exists(logF) ? System.IO.File.ReadAllLines(logF).Length : 0;
+                        ((Action<int>)F("replayTraderOrder"))(1); ((Action)F("studioLiveStep"))(); if (trM.Position == 0) throw new Exception("🔁 the BUY before the blow did not fill");
+                        var lb1 = trM.Bars[trM.Bars.Count - 1]; push("MNQ", new KeystoneArcBar { Symbol = "MNQ", Time = lb1.Time, Open = lb1.Open, High = lb1.High, Low = lb1.Close - 1200, Close = lb1.Close - 1200, Volume = 99 }); ((Action)F("studioLiveStep"))();
+                        string s1 = ((Func<string>)F("studioPracState"))(); var kv = s1.Split('|').Where(x => x.Contains("=")).ToDictionary(x => x.Substring(0, x.IndexOf('=')), x => x.Substring(x.IndexOf('=') + 1));
+                        int l1 = System.IO.File.Exists(logF) ? System.IO.File.ReadAllLines(logF).Length : 0;
+                        if (int.Parse(kv["attempt"]) != a0 + 1 || kv["blownNow"] != "False" || trM.Position != 0 || !kv["preset"].StartsWith("TPT PRO 50K funded") || l1 != l0 + 1 || !System.IO.File.ReadAllLines(logF).Last().Contains("BLOWN") || !kv["toast"].Contains("BLOWN — attempt #" + a0 + " saved · new account ready") || !kv["strip"].Contains("attempt #" + (a0 + 1)) || !kv["strip"].Contains("💀"))
+                            throw new Exception("🔁 auto new attempt after the blow: " + s1 + " · position " + trM.Position + " · log " + l0 + " → " + l1);
+                        ((Action<int>)F("replayTraderOrder"))(1); ((Action)F("studioLiveStep"))(); if (trM.Position == 0) throw new Exception("🔁 trading should go on after the auto new attempt: " + ((Func<string>)F("studioLiveBadge"))() + " · " + ((Func<string>)F("studioPracState"))() + " · price " + trM.Price + " · orders " + trM.Orders.Count);
+                        ((Action)F("replayTraderFlat"))(); ((Action)F("studioLiveStep"))();
+                        Console.WriteLine("      🔁 11k blow → " + kv["toast"] + " · strip: " + kv["strip"]);
                     }
                     badge = ((Func<string>)F("studioLiveBadge"))(); int made1 = (int)nbMade.GetValue(null);
                     if (!badge.Contains("|links=0|") || made1 != made0) throw new Exception("🛡 the LIVE DEMO touched an account link / NinjaBroker: " + badge + " · brokers " + made0 + " → " + made1);
@@ -716,6 +757,37 @@ public static class UiSmokeTest
                     if (F("backtestStudioWindow") != bt || F("replayTraderWindow") != bt || F("studioTrader") == null) throw new Exception("closing LIVE TRADING broke the BACKTEST STUDIO's hooks");
                     bt.Close(); if (F("backtestStudioWindow") != null || F("replayTraderWindow") != null) throw new Exception("the BACKTEST STUDIO did not close");
                     Console.WriteLine("      closing LIVE TRADING keeps the BACKTEST STUDIO working; then it closes too: OK");
+                });
+            if (strategy == "MAD")
+                Step("🔄 BUILD 11k: ROTATION SIM drawer — settings ($ ↔ points), 👥 POOL, 📊 ANALYZER, 🏆 FIND OPTIMAL (unreliable rows never best), ▶ ONE + 🎬 REPLAY (FLOOR / LOCK / band / panel), 💾 saved + reopen + compare, NOTHING sent", () =>
+                {
+                    var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
+                    var nbMade = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public); int made0 = (int)nbMade.GetValue(null);
+                    string sf = (string)lab2.GetType().GetMethod("StudioFolder", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+                    var rnd = new Random(5); var bars = new List<KeystoneArcBar>(); double px = 18000; var dy = new DateTime(2019, 3, 4); int nd = 0;
+                    for (; nd < 30; dy = dy.AddDays(1)) { if (dy.DayOfWeek == DayOfWeek.Saturday || dy.DayOfWeek == DayOfWeek.Sunday) continue; nd++; for (int m = 1; m <= 9 * 60; m++) { double o0 = px, c0 = Math.Round((px + (rnd.NextDouble() - 0.5) * 12) * 4) / 4; bars.Add(new KeystoneArcBar { Symbol = "MNQ", Time = dy.AddHours(8).AddMinutes(m), Open = o0, High = Math.Max(o0, c0) + 1.5, Low = Math.Min(o0, c0) - 1.5, Close = c0, Volume = 50 }); px = c0; } }
+                    KeystoneStudioStore.Merge(sf, "MNQ", bars);
+                    Call(lab2, "OpenReplayTrader"); var bt = (System.Windows.Window)F("backtestStudioWindow"); if (bt == null) throw new Exception("no BACKTEST STUDIO");
+                    var showD = (Action<string>)F("studioShowDrawer"); showD("ROTSIM"); if ((string)F("studioOpenDrawer") != "ROTSIM") throw new Exception("🔄 the ROTATION SIM drawer did not open");
+                    var rs = (Func<string, string>)F("studioRotSim"); if (rs == null) throw new Exception("🔄 no ROTATION SIM hook");
+                    string cl = rs("SET qty=1;tp.usd=20;sl.usd=20;pattern=BS;from=2019-03-04;to=2019-04-05;days=5;every=1");
+                    if (!cl.Contains("TP 10 pts = $20") || !cl.Contains("SL 10 pts = $20") || !cl.Contains("a win nets TP − costs")) throw new Exception("🔄 $ ↔ points / cost line: " + cl);
+                    cl = rs("SET qty=5"); if (!cl.Contains("TP 2 pts = $20")) throw new Exception("🔄 size 5 → $20 = 2 pts: " + cl);
+                    string p = rs("POOL"); if (!p.Contains("✓ 👥 POOL") || !p.Contains("saved")) throw new Exception("🔄 POOL: " + p);
+                    string an = rs("TAB ANALYZER"); if (!an.Contains("LOCKED") || !an.Contains("NO-EDGE") || !an.Contains("expectancy per trade")) throw new Exception("🔄 ANALYZER: " + an);
+                    Console.WriteLine("      🔄 POOL: " + p.Substring(0, Math.Min(150, p.Length)));
+                    rs("SET qty=1;tp.usd=200;sl.usd=200;days=3;every=2");
+                    string oo = rs("OPT"); if (!oo.Contains("combinations") || !oo.Contains("unreliable ranked 0")) throw new Exception("🔄 OPT: " + oo);
+                    Console.WriteLine("      🏆 " + oo.Substring(0, Math.Min(200, oo.Length)));
+                    string one = rs("ONE"); string rp = rs("REPLAY");
+                    foreach (var need in new[] { "ROOM LEFT", "PEAK", "TO LOCK", "BALANCE", "rsim.replay.price", "rsim.replay.floor", "rsim.replay.lock" }) if (!rp.Contains(need)) throw new Exception("🎬 replay missing " + need + ": " + rp);
+                    Console.WriteLine("      🎬 " + rp.Substring(0, Math.Min(220, rp.Length)));
+                    string op = rs("OPEN"); if (!op.Contains("reopened")) throw new Exception("📂 reopen: " + op);
+                    rs("COMPARE"); string cmp = rs("TAB COMPARE"); if (!cmp.Contains("LOCK PCT")) throw new Exception("⚖ compare: " + cmp);
+                    if (!System.IO.File.Exists(System.IO.Path.Combine(sf, "RotationSim", "runs.csv"))) throw new Exception("💾 runs.csv missing");
+                    if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the ROTATION SIM built a NinjaBroker");
+                    showD("ROTSIM"); bt.Close();
+                    Console.WriteLine("      🔄 saved runs: " + (System.IO.File.ReadAllLines(System.IO.Path.Combine(sf, "RotationSim", "runs.csv")).Length - 1) + " · NinjaBroker built 0 · nothing sent: OK");
                 });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {

@@ -230,6 +230,39 @@ public static class ReplayTraderTests
             Check(a1 == 276 && a2 == 223 && clear(a2) && clear(a3) && clear(a4) && a4 == 156 && KeystoneBracketDrag.LabelTop(5, 21, 186, 214, 0, 500) == 0 && a3 == 163,
                 "✋ the live label: above its line, flipped below near the entry's label, past it when the line is on the entry — never under the entry label", a1 + " " + a2 + " " + a3 + " " + a4);
         }
+        {   /* 📚 BUILD 11k — the trailing-drawdown PRESETS follow their type: INTRADAY moves the floor with the open profit, EOD only at the session close, STATIC never */
+            Func<string, KeystonePractice> pick = n => KeystonePractice.Presets().First(x => x.Name.StartsWith(n)).Copy();
+            var tpt = pick("TPT PRO 50K funded"); tpt.Mark(0, 600, ""); Check(tpt.FloorNow(600) == -1400 && tpt.DdType == "INTRADAY", "📚 TPT PRO 50K funded: +$600 OPEN → the floor −$1,400 at once (intraday incl. open)", tpt.FloorNow(600).ToString());
+            tpt.Mark(-100, 0, ""); Check(tpt.FloorNow(0) == -1400, "📚 intraday: the floor never moves back (closed −$100 → still −$1,400)");
+            var luc = pick("Lucid 50K eval"); luc.Mark(0, 600, ""); Check(luc.FloorNow(600) == -2000, "📚 Lucid 50K eval (EOD): +$600 open → the floor stays −$2,000 during the day");
+            luc.Mark(500, 0, ""); Check(luc.FloorNow(0) == -2000, "📚 EOD: +$500 closed → still −$2,000 until the session close"); luc.EndOfDay(500); Check(luc.FloorNow(0) == -1500, "📚 EOD: at the close the floor moves to −$1,500", luc.FloorNow(0).ToString());
+            luc.Mark(200, 0, ""); luc.EndOfDay(200); Check(luc.FloorNow(0) == -1500, "📚 EOD: a lower close never moves it back");
+            var mff = pick("MFF Studio 002"); mff.Mark(0, 900, ""); mff.EndOfDay(900); Check(mff.FloorNow(0) == -1000 && mff.DdType == "STATIC", "📚 MFF Studio (STATIC): +$900 → the floor stays at −$1,000");
+            var lucF = pick("Lucid 50K funded"); lucF.EndOfDay(2500); Check(lucF.FloorNow(0) == 100 && lucF.Locked, "📚 Lucid funded (EOD, locks at +$100): a +$2,500 close → the floor locks at +$100");
+            var tptT = KeystonePracticeTrail.Of(pick("Lucid 50K eval"), 0, 1, 100, 150, 2, 1.74); Check(Math.Abs(tptT.Floor + 2000) < 1e-9, "📚 the trailing VIEW follows the EOD type (the floor at −$2,000 while +$98 open)", tptT.Floor.ToString());
+            var book = KeystonePractice.BookExtras(); Check(book.Any(b => b.Name.StartsWith("MFFU RAPID EOD 25K") && b.Dd == 1000 && b.Target == 1500 && b.MaxQty == 15) && book.Any(b => b.Name.StartsWith("LUCID FLEX 150K") && b.Dd == 4500) && book.Any(b => b.Name.StartsWith("TAKE PROFIT TRADER 25K") && b.Dd == 1500)
+                && !book.Any(b => b.Name.StartsWith("LUCID FLEX 50K")), "📚 the firm book's plans not already listed are added (MFFU 25K / 50K, Lucid 150K, TPT 25K), with the book's numbers", string.Join(" · ", book.Select(b => b.Name + " " + b.Dd)));
+            KeystonePractice.LoadUser("# head\nmy 50K static|STATIC|50000|1500|2500|10||EVAL|0\nbad line\n"); var u = KeystonePractice.Presets().Last();
+            Check(KeystonePractice.User.Count == 1 && u.Name == "★ my 50K static" && u.DdType == "STATIC" && u.Dd == 1500 && u.MaxQty == 10 && KeystonePractice.FromPresetLine(u.PresetLine()).Dd == 1500, "📚 ＋ SAVE AS PRESET: a user line is read back (and appended after the book)", u.Name);
+            int nCustom = KeystonePractice.Presets().FindIndex(x => x.Name == "custom"); Check(nCustom == 11, "📚 the saved preset numbers stay valid (custom is still #11)", nCustom.ToString()); KeystonePractice.LoadUser("");
+        }
+        {   /* 🏷 BUILD 11k — the gutter label stack: 5 labels within 1 point → merged within 2 ticks, never overlapping, clear of the live price label */
+            var ys = new List<double> { 200, 203, 206, 209, 212 }; var pxL = new List<double> { 100, 100.25, 100.5, 100.75, 101 }; var tx = new List<string> { "FLOOR", "PEAK", "LOCK", "TP", "SL" };
+            var lay = KeystoneLabelStack.Layout(ys, pxL, tx, 16, 0.25, 205);
+            bool ok = lay.Count >= 2 && lay.Count < 5; for (int i = 0; i < lay.Count; i++) { if (lay[i].Item1 < 205 + 8 && lay[i].Item1 + 16 > 205 - 8) ok = false; for (int j = i + 1; j < lay.Count; j++) if (lay[j].Item1 < lay[i].Item1 + 16 && lay[i].Item1 < lay[j].Item1 + 16) ok = false; }
+            Check(ok && lay.Sum(x => x.Item3.Length) == 5 && lay.Any(x => x.Item2.Contains(" · ")), "🏷 5 labels within 1 point: merged within 2 ticks, stacked without overlap, clear of the live price label", string.Join(" | ", lay.Select(x => x.Item1.ToString("0") + " " + x.Item2)));
+            var lay2 = KeystoneLabelStack.Layout(new List<double> { 100, 101, 102 }, new List<double> { 10, 20, 30 }, new List<string> { "A", "B", "C" }, 16, 0.25);
+            Check(lay2.Count == 3 && lay2[1].Item1 >= lay2[0].Item1 + 16 && lay2[2].Item1 >= lay2[1].Item1 + 16, "🏷 far-apart prices drawn 1 px apart are pushed ≥ the label height apart (no merge)");
+        }
+        {   /* 📼 BUILD 11k — live demo history: saved days first, NinjaTrader for the gaps, no duplicates, the newest N sessions */
+            Func<DateTime, double, List<KeystoneArcBar>> dayB = (d, px0) => Enumerable.Range(1, 60).Select(m => new KeystoneArcBar { Symbol = "MNQ", Time = d.AddHours(9.5).AddMinutes(m), Open = px0, High = px0 + 1, Low = px0 - 1, Close = px0 }).ToList();
+            var today = new DateTime(2026, 3, 13); var sv = dayB(new DateTime(2026, 3, 10), 100).Concat(dayB(new DateTime(2026, 3, 11), 101)).ToList();
+            var ntb = dayB(new DateTime(2026, 3, 11), 999).Concat(dayB(new DateTime(2026, 3, 12), 102)).Concat(dayB(new DateTime(2026, 3, 9), 99)).Concat(dayB(today, 103)).ToList();
+            int sx, nx; var h = KeystoneLiveHistory.Merge(sv, ntb, today, 30, out sx, out nx);
+            Check(sx == 2 && nx == 2 && h.Count == 240 && h.All(b => b.Time.Date < today) && h.Where(b => b.Time.Date == new DateTime(2026, 3, 11)).All(b => b.Close == 101) && h.Select(b => b.Time).Distinct().Count() == h.Count, "📼 history: saved 10 + 11 kept, NinjaTrader adds 9 + 12 (its 11th ignored), today left to the live bars", sx + " + " + nx + " · " + h.Count);
+            var h3 = KeystoneLiveHistory.Merge(sv, ntb, today, 3, out sx, out nx); Check(h3.Select(b => b.Time.Date).Distinct().Count() == 3 && h3[0].Time.Date == new DateTime(2026, 3, 10), "📼 only the newest N sessions");
+            var miss = KeystoneLiveHistory.Missing(new[] { new DateTime(2026, 3, 10) }, new DateTime(2026, 3, 6), new DateTime(2026, 3, 12)); Check(miss.Count == 4 && !miss.Contains(new DateTime(2026, 3, 7)) && !miss.Contains(new DateTime(2026, 3, 10)), "📼 the missing weekdays (what to ask NinjaTrader for)", string.Join(",", miss.Select(d => d.Day)));
+        }
         Console.WriteLine(failures == 0 ? "ALL REPLAY TRADER TESTS PASSED" : failures + " REPLAY TRADER TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
