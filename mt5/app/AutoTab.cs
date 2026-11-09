@@ -690,7 +690,7 @@ namespace KeystoneMT5
             // ⏳ the banner at the top of the chart: ALWAYS says what the automation waits for, where and how far (it blinks faster when close)
             try { var bn = AutoBanner(sym, ga, s, shadow, inTrade); if (bn != null) g.Add(bn); } catch { }
             if (!HedgeAuto.ShowPreview(ga.Running, shadow, AutoWasRunning())) g = g.Take(nSetups).ToList();   // user's request: AUTO OFF → no "it would enter" chip, no break / hedge lines on the chart
-            g.RemoveAll(x => double.IsNaN(x.P1) && x.Kind != "BANNER"); if (!ga.Running) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER") gx.Label += "  (AUTO OFF)"; } else if (shadow) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER") gx.Label = "🏁 " + gx.Label; } aGuides = g; aGuideSym = sym;
+            g.RemoveAll(x => double.IsNaN(x.P1) && x.Kind != "BANNER"); if (!ga.Running) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER") gx.Label += "  (AUTO OFF)"; } else if (shadow) { foreach (var gx in g) if (gx.Label != "" && gx.Kind != "BANNER") gx.Label = "🏁 " + gx.Label; } try { ManualGuides(sym, g); } catch { } aGuides = g; aGuideSym = sym;
         }
         int aSeenIter;
         double sn0Bid(string sym) { lock (broker.State.Gate) { Mt5Quote q; return broker.State.Quotes.TryGetValue(sym, out q) ? q.Bid : 0; } }
@@ -1045,6 +1045,7 @@ namespace KeystoneMT5
                 W("03-trades.csv", new[] { "iteration,time,side,lots,price,level,basket,why" }.Concat(trs.Select(t => string.Join(",", t.Iter.ToString(IC), T(t.Time), t.Side, N(t.Lots), N(t.Price), N(t.Level), N(t.Basket), Q(t.Why)))));
 
                 // 04-07 the views as on the screen
+                try { ManualExport(dir); foreach (var mf in new[] { "14-manual-iterations.csv", "15-manual-legs.csv", "16-manual-story.txt" }) if (File.Exists(Path.Combine(dir, mf))) files.Add(mf); } catch { }
                 W("04-story.txt", AutoLines("STORY")); W("05-analysis.txt", AutoLines("ANALYSIS")); W("06-learn.txt", AutoLines("LEARN")); W("07-log.txt", AutoLines("LOG"));
 
                 // 10 the recorded hedges (with what the price did after each)

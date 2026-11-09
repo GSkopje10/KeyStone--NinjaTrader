@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-09b";
+        public const string Build = "SpasiX • BUILD 2026-11-09c";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -71,6 +71,7 @@ namespace KeystoneMT5
             views["ANALYSIS"] = BuildAnalysis(); order.Add(Tuple.Create("ANALYSIS", "📊  ANALYSIS"));
             views["POSITIONS"] = BuildPositions(); order.Add(Tuple.Create("POSITIONS", "💼  POSITIONS"));
             views["AUTO"] = BuildAuto(); order.Add(Tuple.Create("AUTO", "🛡  HEDGE"));
+            views["MANUAL"] = BuildManual(); order.Add(Tuple.Create("MANUAL", "✋  MANUAL"));
             views["DAY"] = BuildDay(); order.Add(Tuple.Create("DAY", "📅  DAY"));
             views["DECODE"] = BuildDecode(); order.Add(Tuple.Create("DECODE", "🔍  DECODE"));
             if (Mode == "PROP") { views["PROP"] = BuildProp(); order.Add(Tuple.Create("PROP", "🏆  PROP")); }
@@ -388,6 +389,7 @@ namespace KeystoneMT5
                     cards["EQUITY"].Item3.ToolTip = "equity = " + (100 * (a.Balance > 0 ? a.Equity / a.Balance : 0)).ToString("0", IC) + " % of the balance";
                 }
                 ReadResults(s);
+                try { ManualTick(s); } catch { } if (view == "MANUAL") FillManual();
                 if (Mode == "PROP") FillPropStrip(s);
                 if (view == "CHART") FillChart(s); if (view == "ANALYSIS") FillAnalysis(s); if (view == "POSITIONS") FillPositions(s); if (view == "TRACKER") FillTracker(s); if (view == "PROP") FillProp(s); if (view == "POOL") FillPool();
                 if (!Sim) { if (view == "MARKET") FillMarket(s); if (view == "NEWS") FillNews(); PaintNewsBadge(); }
