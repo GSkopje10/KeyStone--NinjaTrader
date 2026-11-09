@@ -158,6 +158,9 @@ namespace KeystoneMT5
         // and the margin on the matched lots stop. ROLLOVER = down to the net CompressBefore minutes before the server's midnight swap (only when
         // the pairs pay swap); ALWAYS = after every hedge, whenever gross > 2 × |net| + the entry lots (at most one matched pair stays). Never when the pair EARNS swap, or the basket is frozen in a RISK GUARD lock — also in DANGER (a basket in danger is the one that sits overnight: the replays with a danger gate kept paying)
         public double SizePer1k = 0, TargetPerLot = 200; public string CompressMode = "OFF"; public int CompressBefore = 15; public bool Compress { get { return CompressMode == "ROLLOVER" || CompressMode == "ALWAYS"; } }
+        // 📦 NO FLIPS IN A BOX (🏁 RACE lane NFB only — experimental, not a live option): while the price is still inside the high–low of the
+        // last BoxBars finished candles, no hedge — the hedge line moves just beyond that box (0 = off; never saved with the live settings)
+        public int BoxBars = 0;
         public string ExitMode = "BASKET";     // BASKET = everything closes at +Target; LEGS = each position closes at its own +Target × its lots / the entry lots                 // FVG: the middle candle's body must be bigger than the average range of the last 20 candles (the research's gap)
         public AutoSettings Copy() { return (AutoSettings)MemberwiseClone(); }
         // ⚡ what changes between two settings, in words ("🧹 COMPRESS HEDGES: OFF → ALWAYS"), for the APPLY NOW question
@@ -185,6 +188,10 @@ namespace KeystoneMT5
                 if (s.StradRisk <= 0) s.StradRisk = 100; if (s.StradMaxLots <= 0) s.StradMaxLots = 1;
                 return s;
             }
+            if (name == "SAFELIVE")
+            {   // 🔒 SAFE LIVE (small accounts, 09d): the setup that survived the small-account sweeps — NOT the default (DEFENDER stays)
+                var d = Model("DEFENDER", b, bal); d.Preset = "SAFELIVE"; ApplySafeLive(d, bal); return d;
+            }
             if (name == "FULLAUTO")
             {   // 🤖 FULL AUTO = DEFENDER's protections + the scored entries (no chasing, size from the score) + the drawdown tools
                 var d = Model("DEFENDER", b, bal); d.Preset = "FULLAUTO"; d.FullAuto = true;   /* entry: the swing BREAK — 🎯 MULTI was worse in the 2025 replay ($6,326 vs $7,402, deepest basket −$1,405 vs −$648): an option */ d.AutoScoreMin = 50;   /* 50 = the best in the 2025 + 2026 replays (60 skipped too much in 2026) */ d.DdTightEvery = 2; d.DdTightBy = 10; d.DdTightFloor = 50; d.Rescue = true; d.RescuePct = 3; d.RescueMin = 0; d.DeRisk = false; d.TrimMax = 0;
@@ -208,6 +215,35 @@ namespace KeystoneMT5
             else if (name == "C") { s.Tf = 15; s.Swing = false; s.Lookback = 100; s.EntryMode = "VWAPREJ"; s.VwapFilter = "NONE"; s.HedgeMode = "NONE"; s.EntryLots = 0.1; s.AddLots = 0.2; s.Target = 20; s.MaxDrawdown = 200; s.AfterDrawdown = "NEXT"; s.Windows = "03:00-15:30"; s.CloseAtNy = "16:55"; }
             else if (name == "BOX") { s.HedgeSize = "FIXED"; s.Tf = 60; s.Swing = false; s.Lookback = 96; s.EntryMode = "BREAK"; s.VwapFilter = "NONE"; s.HedgeMode = "BREAK"; s.Rolling = true; s.EntryLots = 0.1; s.AddLots = 0.2; s.Target = 150; s.MaxDrawdown = 0; s.AfterDrawdown = "STOP"; s.Windows = ""; s.CloseAtNy = ""; }
             return s;
+        }
+        // 🔒 SAFE LIVE's values (every one stays an ordinary, editable box after picking it)
+        public static void ApplySafeLive(AutoSettings s, double bal)
+        {
+            s.SizePer1k = 0.01; s.TargetPerLot = 200;   // 💰 0.01 lot per $1,000 of the live balance (the broker minimum + a warning below $1,000), +$2 per 0.01 lot
+            var sz = SizeFor(bal, bal, false, null, s.SizePer1k, s.TargetPerLot); s.EntryLots = sz.Item1; s.NetAdvantage = sz.Item1; s.AddLots = sz.Item1; s.Target = sz.Item2;
+            s.HedgeSize = "SAME";                       // every hedge = the entry lots (not net + lead)
+            s.CompressMode = "ALWAYS";                  // 🧹 compress after every hedge
+            s.MaxDdPct = 10; s.AfterDrawdown = "NEXT"; // ⛔ −10 % of the iteration's starting balance → the basket closes, the next iteration
+            s.DayLossPct = 5;                           // ⛔ −5 % on the day → closed, no new iteration until tomorrow
+            s.BeLock = true; s.BeClose = true;          // 🔐 AT THE BREAKEVEN LINE = CLOSE ALL
+            s.DangerExit = true;                        // 🚨 DANGER EXIT
+            s.ScaleOut = false;                         // (a same-size basket never holds more than its lead: nothing to scale out)
+        }
+        // the evidence, in words (the STRATEGY list, its tooltip and the line under it) — the sweeps of 09c (scratchpad small/: HedgeLab, 1-minute
+        // gold 2020–26, a 90-day run from every 20th day, spread 35 points, $7 a lot, the broker's swap; "blown" = under half the start)
+        public const string SafeLiveEvidence = "Tested (1-minute gold 2020–26, a 90-day run from every 20th trading day, 74 runs per balance, same-size hedges + compress + a 10 % basket stop): $431 → 3 % (2020–22) and 5 % (2023–26) of the runs fell under half the balance within 90 days, the median run ended at $396 / $415; $1,000 → 0 % and 0 %, median $972 / $989. It PROTECTS the account — it did NOT grow it in the tests. The 5 % daily loss, the breakeven close and the DANGER EXIT were not part of that sweep.";
+        // ⚠ the START check on a REAL account: no basket stop or no daily loss limit (both 0) → a warning ("" = fine)
+        public static string LiveLimitsWarning(string kind, AutoSettings s)
+        {
+            if (kind != "REAL" || s == null) return "";
+            bool noBasket = s.MaxDrawdown <= 0 && s.MaxDdPct <= 0, noDay = s.DayLoss <= 0 && s.DayLossPct <= 0; if (!noBasket && !noDay) return "";
+            return "⚠ " + (noBasket && noDay ? "NO BASKET STOP and NO DAILY LOSS LIMIT" : noBasket ? "NO BASKET STOP (MAX DRAWDOWN $ and % are 0)" : "NO DAILY LOSS LIMIT (DAILY LOSS $ and % are 0)") + " on a REAL account — the tests blew small accounts without one. Use 🔒 SAFE LIVE's limits (−10 % per iteration, −5 % a day)?";
+        }
+        // the one-click "apply SAFE LIVE limits": only the missing ones, nothing else changes
+        public static void ApplySafeLiveLimits(AutoSettings s)
+        {
+            if (s.MaxDrawdown <= 0 && s.MaxDdPct <= 0) { s.MaxDdPct = 10; s.AfterDrawdown = "NEXT"; }
+            if (s.DayLoss <= 0 && s.DayLossPct <= 0) s.DayLossPct = 5;
         }
         // the New York windows ("08:30-11:00, 13:00-16:00") as minutes of the day; null = all the time; a bad window = an empty list
         public List<Tuple<int, int>> WindowList()
@@ -884,7 +920,7 @@ namespace KeystoneMT5
                 return;
             }
             if (Phase != "FIRST" && Phase != "AGAIN" && !VwapOk(sn, dir)) { var sk = why + " — skipped: the VWAP filter " + Set.VwapFilter + " wants " + (Set.VwapFilter == "DISCOUNT" ? (dir > 0 ? "a buy UNDER" : "a sell OVER") : (dir > 0 ? "a buy OVER" : "a sell UNDER")) + " the VWAP " + P(Vwap) + " (bid " + P(sn.Bid) + ")"; if (sk != vwapSkip) { vwapSkip = sk; Tell("NO ENTRY: " + sk + "."); } return; }
-            if (Set.SizePer1k > 0) { var sz = SizeFor(sn.Balance, sn.Equity, sn.Pos.Count == 0 && OtherOpen(sn), sn.Sym, Set.SizePer1k, Set.TargetPerLot); Set.EntryLots = sz.Item1; Set.NetAdvantage = sz.Item1; Set.AddLots = Math.Round(2 * sz.Item1, 2); Set.Target = sz.Item2; if (sz.Item3 != "") Note(sz.Item3); }
+            if (Set.SizePer1k > 0) { var sz = SizeFor(sn.Balance, sn.Equity, sn.Pos.Count == 0 && OtherOpen(sn), sn.Sym, Set.SizePer1k, Set.TargetPerLot); Set.EntryLots = sz.Item1; Set.NetAdvantage = sz.Item1; Set.AddLots = Set.HedgeSize == "SAME" ? sz.Item1 : Math.Round(2 * sz.Item1, 2); Set.Target = sz.Item2; if (sz.Item3 != "") Note(sz.Item3); }
             double eLots = Set.EntryLots;
             if (Set.FullAuto && Phase != "FIRST")
             {   // 🤖 the score decides: skip a weak / chasing entry, size a strong one up
@@ -1371,14 +1407,22 @@ namespace KeystoneMT5
             {
                 var last = sn.Pos.Where(p => p.Dir == dir).OrderBy(p => p.Time).ThenBy(p => p.Ticket).LastOrDefault(); double from = last != null ? (dir > 0 ? last.Open - sp : last.Open + sp) : sn.Bid;   // the bid when the leg opened
                 double net = Math.Abs(sn.Pos.Sum(p => p.Dir * p.Lots)); double dist = Set.HedgeMode == "PRICE" ? Set.HedgePrice : sn.PerPrice > 0 && net > 1e-9 ? Set.HedgeMoney / (net * sn.PerPrice) : double.NaN;
-                HedgeLevel = double.IsNaN(dist) ? double.NaN : dir > 0 ? from - Math.Max(dist, sp) : from + Math.Max(dist, sp); RangeOnlyLevel(sn, dir, sp); CapLevel(sn, dir, sp); QuickLevel(sn, dir, sp); CandleLevel(sn, dir, sp); KeyLevel(sn, dir, sp); TrendLevel(sn, dir, sp); DdTightLevel(sn, dir, sp); ApplyManual(); return;
+                HedgeLevel = double.IsNaN(dist) ? double.NaN : dir > 0 ? from - Math.Max(dist, sp) : from + Math.Max(dist, sp); RangeOnlyLevel(sn, dir, sp); CapLevel(sn, dir, sp); QuickLevel(sn, dir, sp); CandleLevel(sn, dir, sp); KeyLevel(sn, dir, sp); TrendLevel(sn, dir, sp); DdTightLevel(sn, dir, sp); BoxLevel(sn, dir, sp); ApplyManual(); return;
             }
             double lv = dir > 0 ? Low(sn) : High(sn);
-            if (double.IsNaN(lv) && Set.HedgeCap > 0 && sn.Pos.Count > 0) { HedgeLevel = double.NaN; HedgeWhy = ""; CapLevel(sn, dir, sp); QuickLevel(sn, dir, sp); CandleLevel(sn, dir, sp); KeyLevel(sn, dir, sp); DdTightLevel(sn, dir, sp); return; }   // no swing (a straight trend): the max distance is the hedge
+            if (double.IsNaN(lv) && Set.HedgeCap > 0 && sn.Pos.Count > 0) { HedgeLevel = double.NaN; HedgeWhy = ""; CapLevel(sn, dir, sp); QuickLevel(sn, dir, sp); CandleLevel(sn, dir, sp); KeyLevel(sn, dir, sp); DdTightLevel(sn, dir, sp); BoxLevel(sn, dir, sp); return; }   // no swing (a straight trend): the max distance is the hedge
             if (double.IsNaN(lv)) { HedgeLevel = double.NaN; HedgeWhy = ""; return; }
             HedgeLevel = Set.Rolling ? lv : dir > 0 ? Math.Min(lv, sn.Bid - sp) : Math.Max(lv, sn.Bid + sp);
             HedgeWhy = Candles(sn, dir < 0) + (Math.Abs(HedgeLevel - lv) > 1e-9 ? ", moved to " + P(HedgeLevel) + " (at least the spread from the price)" : "");
-            RangeOnlyLevel(sn, dir, sp); CapLevel(sn, dir, sp); QuickLevel(sn, dir, sp); CandleLevel(sn, dir, sp); KeyLevel(sn, dir, sp); TrendLevel(sn, dir, sp); DdTightLevel(sn, dir, sp); ApplyManual();
+            RangeOnlyLevel(sn, dir, sp); CapLevel(sn, dir, sp); QuickLevel(sn, dir, sp); CandleLevel(sn, dir, sp); KeyLevel(sn, dir, sp); TrendLevel(sn, dir, sp); DdTightLevel(sn, dir, sp); BoxLevel(sn, dir, sp); ApplyManual();
+        }
+        // 📦 NO FLIPS IN A BOX (RACE lane only): the hedge waits beyond the high / low of the last BoxBars finished candles
+        void BoxLevel(Snap sn, int dir, double sp)
+        {
+            if (Set.BoxBars <= 0 || double.IsNaN(HedgeLevel) || sn.Fin.Count == 0) return;
+            var box = sn.Fin.Take(Set.BoxBars).ToList(); double lo = box.Min(x => x.L), hi = box.Max(x => x.H), was = HedgeLevel;
+            HedgeLevel = dir > 0 ? Math.Min(HedgeLevel, lo - sp) : Math.Max(HedgeLevel, hi + sp);
+            if (Math.Abs(HedgeLevel - was) > 1e-9) HedgeWhy += " → 📦 no flip inside the " + box.Count + "-candle box " + P(lo) + "–" + P(hi) + ": moved to " + P(HedgeLevel);
         }
         // the key levels near the price: repeated swing lows / highs (2+ touches), VWAP, EMA 50 / 200, the day's high / low, round $5 numbers
         List<Tuple<double, string>> KeyLevels(Snap sn)
@@ -1826,6 +1870,7 @@ namespace KeystoneMT5
         }
         double HedgeLots(Snap sn)
         {
+            if (Set.HedgeSize == "SAME") return Math.Max(0.01, Math.Round(Set.EntryLots, 2));   // 🔒 SAME SIZE: every hedge = the entry lots
             if (Set.HedgeSize == "ADVANTAGE") { double nnet = Math.Abs(sn.Pos.Sum(p => p.Dir * p.Lots)); return Math.Max(0.01, Math.Round(nnet + DdLead(sn), 2)); }
             // STEP LEAD (user's request): the lead GROWS by LEAD BY with every hedge — the 1st hedge leads by 0.1, the 2nd by 0.2, the 3rd by 0.3 …
             if (Set.HedgeSize == "STEPLEAD") { double nnet = Math.Abs(sn.Pos.Sum(p => p.Dir * p.Lots)); int k = (Current != null ? Current.AddOns : 0) + 1; if (Set.RiskGuard) k = Math.Min(k, Math.Max(1, Set.GuardMaxLead)); return Math.Max(0.01, Math.Round(nnet + Math.Max(0.01, Set.NetAdvantage) * k, 2)); }
