@@ -149,7 +149,28 @@ a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 <section aria-labelledby="s-hedge" id="hedge">
   <h2 id="s-hedge">5 · SpasiX hedge: faster recovery</h2>
   <p>Your export (8 Nov): 23 iterations, all won, net +$254.56. One iteration needed 4 add-ons, went down −$496.73 and was stuck about 4 hours to earn +$1.75. Iteration #24 was stuck around −$140 (BUY 0.32 / SELL 0.40) while the price chopped between 4120 and 4133.</p>
-  <p class="note" id="hedge-pending">The add-to-winner study on your export is still running. Its numbers and the built option will appear here.</p>
+  <h3>Why basket #24 is stuck</h3>
+  <ul>
+    <li>Every hedge is sized "the other side's net + 0.08", so the basket's net is always 0.08 lot, which is $8 per $1 move. Each flip across the $5–6 chop band costs about $40–50, so four hedges come to about −$138.</li>
+    <li>The way out is the same 0.08 net recovering it: (138 + 16) ÷ 8 ≈ $19 of clean move. The next hedge (BUY 0.16 @ 4132.73) would cost about $55 more and push that to about $27.</li>
+    <li>A stuck basket is, by definition, a range market. Adding to the winner is a momentum bet at the edge of that range, exactly where the earlier legs were reversed.</li>
+  </ul>
+  <h3>Add-to-the-winner variants against your settings</h3>
+  <p>Gold 1-minute history 2020 → Oct 2026, plus your real XAUUSD week. A fresh $8,000 account each year, run through the app's own engine (SimBroker + HedgeAuto), with no lookahead. Spread 35 points, $7 per lot. Swap off in the table below.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Variant</th><th>Net, all years</th><th>2020-22</th><th>2023-26</th><th>Worst basket (H1 / H2)</th><th>Years better than yours</th></tr></thead>
+    <tbody>
+      <tr class="hl"><td>Your settings (DEFENDER)</td><td class="n">−3,893</td><td class="n">−2,774</td><td class="n">−1,119</td><td class="n">−2,635 / −9,928</td><td class="n">–</td></tr>
+      <tr><td>P4 · one 2× add at +$5 (best near miss)</td><td class="n">+3,522</td><td class="n">−2,277</td><td class="n">+5,799</td><td class="n">−3,018 / −4,884</td><td class="n">3 of 7</td></tr>
+      <tr><td>T1 · range break gets a 2× lead</td><td class="n">+4,886</td><td class="n">−3,674</td><td class="n">+8,560</td><td class="n">−3,716 / −6,465</td><td class="n">2 of 7</td></tr>
+      <tr><td>P2 · add every +$3, max 2</td><td class="n">+1,643</td><td class="n">−2,605</td><td class="n">+4,248</td><td class="n">−2,795 / −5,817</td><td class="n">3 of 7</td></tr>
+      <tr><td>B1–B3 · add after a confirmed break</td><td class="n">−5,559 to −11,190</td><td class="n">—</td><td class="n">two blew in 2026</td><td class="n">—</td><td class="n">2–3 of 7</td></tr>
+      <tr><td>U1 · unwind the worst ticket</td><td class="n">−7,257</td><td class="n">−4,345</td><td class="n">−2,912</td><td class="n">−2,541 / −6,783</td><td class="n">1 of 7</td></tr>
+    </tbody></table></div>
+  <p><span class="chip c-bad">not built</span> No variant beats your settings in both halves and in most years. The leads of T1, P2 and P4 come almost entirely from 2026, and from which basket happened to be open at year end.</p>
+  <h3>The bigger finding: overnight swap</h3>
+  <p><span class="chip c-bad">risk for a real account</span> With your broker's swap charged (about −$62 long and +$28 short per lot per night, triple on Wednesday), every variant, your settings included, hits the 60 % hard stop in 6 or 7 of 7 years. Baskets that stay hedged for weeks with 2–4 gross lots pay $40–70 a night. A plain time stop ("exit if stuck 24 h") was tested and made it worse. The fix being tested now is below.</p>
+  <p class="note" id="hedge-pending">Being tested now: 🧹 compressing hedged pairs before the daily rollover. Matching BUY and SELL lots are closed together, so the net position and the market risk stay the same, but the swap on those lots stops. Its result appears here.</p>
 </section>
 
 <section aria-labelledby="s-builds" id="builds">
