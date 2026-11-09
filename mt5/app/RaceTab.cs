@@ -14,8 +14,8 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow
     {
-        public static readonly string[] RaceKeys = { "MINE", "CMP", "RNG", "LKL", "LKF", "BH1", "BH5", "BH15", "BH30", "BH60", "A", "AH", "B", "C", "D", "F", "BOX" };   // BH* = MY SETTINGS with the futures' BREAK OF HIGH entry on that timeframe (user's request)   // RNG / LKL / LKF = MY SETTINGS + the anti-chop options
-        static string RaceName(string k) { if (k.StartsWith("BH")) return "★ MINE + BH entry " + Tf.Name(int.Parse(k.Substring(2), CultureInfo.InvariantCulture)); return k == "MINE" ? "★ MY SETTINGS" : k == "CMP" ? "★ MINE + 🧹 compress hedges" : k == "RNG" ? "★ MINE + range-only hedge" : k == "LKL" ? "★ MINE + 🔒 lock → lead" : k == "LKF" ? "★ MINE + 🔒 lock → lift" : k == "A" ? "A · London engulfing" : k == "AH" ? "A + signal hedge" : k == "B" ? "B · NY FVG 50%" : k == "C" ? "C · all-day VWAP rejection" : k == "D" ? "D · M1 aggression break" : k == "F" ? "F · FVG 50% + FVG hedge" : k == "BOX" ? "HEDGE BOX" : k; }
+        public static readonly string[] RaceKeys = { "MINE", "CMP", "RNG", "LKL", "LKF", "BH1", "BH5", "BH15", "BH30", "BH60", "A", "AH", "B", "C", "D", "F", "BOX", "SLV", "FX10", "NFB" };   // BH* = MY SETTINGS with the futures' BREAK OF HIGH entry on that timeframe (user's request)   // RNG / LKL / LKF = MY SETTINGS + the anti-chop options
+        static string RaceName(string k) { if (k == "SLV") return "🧪 🔒 SAFE LIVE (experimental — not proven)"; if (k == "FX10") return "🧪 FIXED $10 hedge distance (experimental — not proven)"; if (k == "NFB") return "🧪 NO FLIPS IN A BOX (experimental — not proven)"; if (k.StartsWith("BH")) return "★ MINE + BH entry " + Tf.Name(int.Parse(k.Substring(2), CultureInfo.InvariantCulture)); return k == "MINE" ? "★ MY SETTINGS" : k == "CMP" ? "★ MINE + 🧹 compress hedges" : k == "RNG" ? "★ MINE + range-only hedge" : k == "LKL" ? "★ MINE + 🔒 lock → lead" : k == "LKF" ? "★ MINE + 🔒 lock → lift" : k == "A" ? "A · London engulfing" : k == "AH" ? "A + signal hedge" : k == "B" ? "B · NY FVG 50%" : k == "C" ? "C · all-day VWAP rejection" : k == "D" ? "D · M1 aggression break" : k == "F" ? "F · FVG 50% + FVG hedge" : k == "BOX" ? "HEDGE BOX" : k; }
         readonly List<RaceLane> lanes = new List<RaceLane>(); bool raceOn; string raceShow = "", raceView = "TODAY", racePeriod = "7"; DateTime raceDay = DateTime.MinValue, raceAskAt = DateTime.MinValue;
         DockPanel aRaceHost; StackPanel raceBody, raceTabs; TextBlock raceStatus; Button raceStart; TextBox raceBal, raceComm; ComboBox raceShowBox; readonly Dictionary<string, CheckBox> raceChecks = new Dictionary<string, CheckBox>();
 
@@ -60,7 +60,7 @@ namespace KeystoneMT5
             raceBal = Sx.Input(Get("race.bal", "5000"), 80); raceComm = Sx.Input(Get("race.comm", "0"), 60);   // extra $/lot on top; the DEMO's own % commission is copied to every lane by itself
             bar.Children.Add(fld("BALANCE EACH $", raceBal)); bar.Children.Add(fld("COMMISSION $ / LOT", raceComm));
             var checks = new WrapPanel { Margin = new Thickness(10, 12, 0, 0) };
-            foreach (var k in RaceKeys) { var kk = k; var cb = new CheckBox { Content = RaceName(k), Foreground = Text, Margin = new Thickness(0, 0, 12, 0), IsChecked = Get("race.on." + k, "1") == "1" }; cb.Click += delegate { Put("race.on." + kk, cb.IsChecked == true ? "1" : "0"); }; raceChecks[k] = cb; checks.Children.Add(cb); }
+            foreach (var k in RaceKeys) { var kk = k; var cb = new CheckBox { Content = RaceName(k), Foreground = RaceLanes.IsExperimental(k) ? Amber : Text, Margin = new Thickness(0, 0, 12, 0), IsChecked = Get("race.on." + k, "1") == "1" }; if (RaceLanes.IsExperimental(k)) cb.ToolTip = RaceLanes.Tip(k); cb.Click += delegate { Put("race.on." + kk, cb.IsChecked == true ? "1" : "0"); }; raceChecks[k] = cb; checks.Children.Add(cb); }
             bar.Children.Add(checks);
             raceShowBox = new ComboBox { Width = 230, Margin = new Thickness(0, 0, 0, 0) };
             raceShowBox.Items.Add("🤖 MY AUTO (the real one)"); foreach (var k in RaceKeys) raceShowBox.Items.Add(RaceName(k)); raceShowBox.SelectedIndex = 0;
@@ -99,9 +99,7 @@ namespace KeystoneMT5
             foreach (var k in RaceKeys)
             {
                 if (raceChecks[k].IsChecked != true) continue;
-                var set = k == "MINE" || k == "CMP" || k == "RNG" || k == "LKL" || k == "LKF" || k.StartsWith("BH") ? mine.Copy() : AutoSettings.Model(k, mine);
-                if (k.StartsWith("BH")) { set.EntryMode = "AGGBRK"; set.Tf = int.Parse(k.Substring(2), CultureInfo.InvariantCulture); set.AggRun = Math.Max(2, set.AggRun); set.FirstDir = "AUTO"; set.NextStart = "BREAK"; }   // BREAK OF HIGH: an aggression run, the first opposite close, its high (buy) / low (sell) broken — your hedging untouched
-                if (k == "CMP") set.CompressMode = "ALWAYS"; else if (k == "RNG") { set.RangeOnly = true; set.LockOn = false; } else if (k == "LKL") { set.LockOn = true; set.Unlock = "LEAD"; set.RangeOnly = true; } else if (k == "LKF") { set.LockOn = true; set.Unlock = "LIFT"; set.RangeOnly = true; } set.Symbol = mine.Symbol; set.TrackManual = false;   // a lane never adopts anything: its account is its own
+                var set = RaceLanes.For(k, mine, bal);
                 var l = new RaceLane { Key = k, Name = RaceName(k), Set = set, Br = new ShadowBroker(market, send, new SimAccountSettings { Balance = acc.Balance, CommissionPerLot = acc.CommissionPerLot, Leverage = acc.Leverage, Kind = acc.Kind, MarkupPts = acc.MarkupPts, Currency = acc.Currency, StopOutPct = acc.StopOutPct, CommissionPct = acc.CommissionPct }) };
                 l.StartBalance = l.PeakEq = bal; l.Eng.Send = (c, a, lab) => l.Br.Command(c, a);
                 bool had = false;

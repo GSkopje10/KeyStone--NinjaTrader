@@ -13,10 +13,21 @@ namespace KeystoneMT5
         readonly Mt5Bridge live; readonly Mt5State state; public readonly SimAccount Acct; int cmdSeq; DateTime savedAt = DateTime.MinValue; bool dirty;
         readonly Dictionary<string, Mt5Quote> seenQuote = new Dictionary<string, Mt5Quote>(StringComparer.OrdinalIgnoreCase);
         public static string FilePath { get { return Path.Combine(MainWindow.Dir, "demo-account.txt"); } }
-        // each broker its own DEMO account: demo-account-LOGIN@SERVER.txt; the first broker keeps demo-account.txt (as before)
-        string file;
-        string MyFile { get { if (file != null) return file; var k = live.Key ?? ""; if (k == "" || live == Shell.Bridge && !File.Exists(KeyFile(k)) && File.Exists(FilePath)) return file = FilePath; return file = KeyFile(k); } }
-        static string KeyFile(string k) { foreach (var c in Path.GetInvalidFileNameChars()) k = k.Replace(c, '_'); return Path.Combine(MainWindow.Dir, "demo-account-" + k + ".txt"); }
+        // each broker its own DEMO account, for good: demo-account-LOGIN@SERVER.txt (09d — never the connection order; the old shared
+        // demo-account.txt moves once to the broker that owns it, Continuity.DemoFile)
+        string file, fileKey;
+        public static Func<List<string>, string> AskOwner;   // the app's "which broker owns the old DEMO?" question (asked once, remembered)
+        public string OwnerKey { get { return fileKey ?? ""; } }
+        string MyFile
+        {
+            get
+            {
+                var k = live.Key ?? ""; if (k == "") return null; if (file != null && fileKey == k) return file;
+                List<string> keys; try { keys = live.Hub != null ? live.Hub.Links.Select(l => l.Key).Where(x => x != "").ToList() : new List<string> { k }; } catch { keys = new List<string> { k }; }
+                var f = Continuity.DemoFile(MainWindow.Dir, k, keys, AskOwner); if (f == null) return null; fileKey = k; return file = f;
+            }
+        }
+        bool keyTried;
         public PaperBroker(Mt5Bridge live) { this.live = live; state = new Mt5State(live.State); Acct = new SimAccount(state); state.BridgeVersion = 5; }
         public Mt5State State { get { return state; } } public bool IsSim { get { return true; } } public string Problem { get { return live.Problem; } } public int Port { get { return live.Port; } }
         public bool Ready { get; private set; }
@@ -24,7 +35,7 @@ namespace KeystoneMT5
         // a saved account on this PC? (then it opens straight away)
         public bool LoadSaved()
         {
-            try { if (!File.Exists(MyFile)) return false; lock (state.Gate) { Ready = Acct.Load(File.ReadAllLines(MyFile)); } return Ready; } catch { return false; }
+            try { var f = MyFile; if (f == null) return false; keyTried = true; if (!File.Exists(f)) return false; lock (state.Gate) { Ready = Acct.Load(File.ReadAllLines(f)); } return Ready; } catch { return false; }
         }
         public void Start(SimAccountSettings s)
         {
@@ -34,7 +45,8 @@ namespace KeystoneMT5
         public void Save()
         {
             if (!Ready) return; List<string> l; lock (state.Gate) l = Acct.Save();
-            try { Directory.CreateDirectory(MainWindow.Dir); File.WriteAllLines(MyFile, l); savedAt = DateTime.Now; dirty = false; } catch { }
+            var f = MyFile; if (f == null) return; l.Add("KEY|" + fileKey);   // the owner stamped in the file
+            try { Directory.CreateDirectory(MainWindow.Dir); File.WriteAllLines(f, l); savedAt = DateTime.Now; dirty = false; } catch { }
         }
         // every refresh: the live market → the simulated account (fills, stops, targets, P/L), the link's state mirrored
         public void Sync()
@@ -43,7 +55,7 @@ namespace KeystoneMT5
             {
                 var m = live.State; state.Linked = m.Linked; state.LastLine = m.LastLine; state.LinkedAt = m.LinkedAt; state.ServerNow = m.ServerNow; state.ServerOffsetSec = m.ServerOffsetSec; state.Company = m.Company;
                 state.AllowInput = state.AlgoTerminal = state.AlgoEa = state.AccountTrade = state.AccountExpert = true; state.CanKnown = true; state.MaxLots = 100; state.BridgeVersion = Math.Max(5, m.BridgeVersion);
-                if (!Ready) return;
+                if (!Ready) { if (!keyTried && (live.Key ?? "") != "") { keyTried = true; try { var f = MyFile; if (f != null && File.Exists(f)) Ready = Acct.Load(File.ReadAllLines(f)); } catch { } } if (!Ready) return; }   // the account's key arrived after the window opened
                 if (m.ServerNow > DateTime.MinValue && m.ServerNow.Date > Acct.Now.Date && Acct.Now > DateTime.MinValue) { Acct.Clock(m.ServerNow); dirty = true; }   // swap at midnight even with no price (market closed)
                 var need = new HashSet<string>(state.Positions.Select(p => p.Symbol).Concat(state.Orders.Select(o => o.Symbol)), StringComparer.OrdinalIgnoreCase);
                 foreach (var sym in need)

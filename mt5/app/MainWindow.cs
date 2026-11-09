@@ -120,7 +120,8 @@ namespace KeystoneMT5
                 e.Cancel = true;
             };
             Closed += delegate { ui.Stop(); if (simTimer != null) simTimer.Stop(); SaveDrawings(); if (Paper) paper.Save(); if (Sim && sim.Spec != null) { SaveRun(); PoolSaveAll(); } };
-            if (Paper) Loaded += delegate { Dispatcher.BeginInvoke(new Action(() => { if (!paper.Ready) DemoSetup(true); }), DispatcherPriority.Background); };
+            if (Paper && PaperBroker.AskOwner == null) PaperBroker.AskOwner = keys => { string ans = null; Dispatcher.Invoke(new Action(() => { var bs = keys.Concat(new[] { "NOT SURE — ASK LATER" }).ToArray(); int k = Sx.Choice(this, "🎮 Which broker owns your old DEMO account?", "The old builds kept ONE simulated DEMO account (demo-account.txt) for whichever broker connected FIRST. From 09d each broker keeps its own DEMO for good.\n\nWhich broker's DEMO is it (its balance, positions and deals)? Your answer is remembered; nothing is deleted.", null, bs, bs.Select(x => (System.Windows.Media.SolidColorBrush)null).ToArray()); if (k >= 0 && k < keys.Count) ans = keys[k]; })); return ans; };
+            if (Paper) Loaded += delegate { Dispatcher.BeginInvoke(new Action(() => { if (!paper.Ready && (live.Key ?? "") != "") DemoSetup(true); }), DispatcherPriority.Background); };   // 09d: never offer a NEW demo before the account's own file is known
             if (!Sim) StartNews();
         }
         // back to the start screen (asks first while armed / in a backtest with trades)
