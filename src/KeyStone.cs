@@ -35819,6 +35819,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Action<double> replayTraderNewAccount; private Action studioDataChanged; private Action<int> replayTraderRewind;
         private Action<bool> studioLiveDemo; private Action studioLiveStep; private Func<string> studioLiveBadge; private Action<string, KeystoneArcBar> studioLivePush;   /* ● LIVE DEMO (BUILD 11j) test hooks: switch it, one loop tick, the badge + status, a live bar */
         private Func<string, DateTime, DateTime, List<KeystoneArcBar>> studioLiveHistFake;   /* tests only: a stand-in for NinjaTrader's history BarsRequest (symbol, from, to) */ private Func<string, string> studioLiveHistory;
+        private string studioTiles;   /* 🧮 11l: the header tiles as text (the smoke test) */
         private string studioPracPanel; private Func<string> studioRaceGo; private Func<bool> studioDrawerOverlay; private Func<string> studioPracState;   /* 🖥 11k: the drawers overlay the chart · the practice state (attempt / tallies / preset / position) */   /* 📐 11j: the big practice panel's tiles as text (the smoke test) */
         private Func<string, List<KeystoneArcBar>> studioLiveFeedFake;   /* tests only: a stand-in for NinjaTrader's real-time feed (the session so far per symbol) */
         private static string ReplayJournalFile() { return Path.Combine(StudioFolder(), "ReplayJournal.csv"); }
@@ -36128,7 +36129,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string[] StudioHookNames = { "replayTraderWindow", "replayTrader", "replayTraderTimer", "replayTraderLoad", "replayTraderFlat", "replayTraderEnd", "replayTraderOrder", "replayTraderStep", "replayTraderNewAccount", "replayTraderRewind",
             "studioStartRange", "studioPropStart", "studioPropSim", "studioPropRunDay", "studioAddSymbol", "studioRotEnter", "studioBoth", "studioTrader", "studioPropExport", "studioPropCompare", "studioPropFastStop", "studioPropNext", "studioPropView",
             "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
-            "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory" };
+            "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts" };
         private static System.Reflection.FieldInfo StudioHookField(string n) { return typeof(KeystoneArc5MResearchLab).GetField(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public); }
         private void SaveStudioHooks(Window owner)
         {
@@ -36340,7 +36341,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                PEAK · MAX DD SEEN · TRADES / WIN %. Each number once; the row shrinks (a Viewbox, never taller than 60 px) instead of wrapping under the chart. */
             var tilesRow = new StackPanel { Orientation = Orientation.Horizontal, Tag = "prac.tiles" };
             var tilesBox = new Viewbox { Child = tilesRow, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, Height = 60, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0), Visibility = Visibility.Collapsed, Tag = "prac.tilesbox" };
-            var tileParts = new Dictionary<string, Tuple<Border, TextBlock, TextBlock, TextBlock, Border>>();
+            var tileParts = new Dictionary<string, Tuple<Border, TextBlock, TextBlock, TextBlock, Border>>(); KeystonePractice tilePrac = null; double tilePeakSeen = double.NaN, tileFloorSeen = double.NaN; DateTime tilePeakAt = DateTime.MinValue, tileFloorFlashUntil = DateTime.MinValue; string tileFloorFlash = "";
             foreach (var tk0 in new[] { "BAL|BALANCE", "OPEN|OPEN P/L", "DAY|DAY P/L", "PEAK|🏔 PEAK", "MAXDD|MAX DD SEEN", "FLOOR|🧱 FLOOR", "ROOM|ROOM LEFT", "GOAL|🎯 TO LOCK", "TRADES|TRADES / WIN %", "POS|POSITION" })
             {
                 var pr0 = tk0.Split('|'); var cap = new TextBlock { Text = pr0[1], Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold };
@@ -36859,14 +36860,32 @@ namespace NinjaTrader.NinjaScript.AddOns
             Func<double> pracClosed = () => pracBank + realized();
             var pracBar = new WrapPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 2, 0, 2) };
             string pracPresetFile = Path.Combine(StudioFolder(), "practice-presets.txt"); try { KeystonePractice.LoadUser(File.Exists(pracPresetFile) ? File.ReadAllText(pracPresetFile) : ""); } catch { }   /* 📚 11k: ＋ SAVE AS PRESET (yours, after the firm book's) */
-            var pracBox = Select(KeystonePractice.Presets().Select(x => x.Name).ToArray()); pracBox.SelectedIndex = Math.Max(0, Math.Min(KeystonePractice.Presets().Count - 1, ParseStudioInt(pGet("pracpreset", "0"), 0))); pracBox.Width = 250; pracBox.Height = 30;
+            var pracBox = Select(KeystonePractice.Presets().Select(x => x.Name).ToArray()); pracBox.SelectedIndex = Math.Max(0, Math.Min(KeystonePractice.Presets().Count - 1, ParseStudioInt(pGet("pracpreset", "0"), 0))); { int byName = KeystonePractice.Presets().FindIndex(x => x.Name == pGet("pracpresetname", "")); if (byName >= 0) pracBox.SelectedIndex = byName; }   /* 🆓 11l: the last choice by its name */ pracBox.Width = 250; pracBox.Height = 30;
+            var pDl = Input(""); pDl.Width = 64; pDl.Height = 28; pDl.Tag = "prac.dailyloss"; pDl.ToolTip = "🆓 MANUAL: a daily loss that stops new entries for the day (empty = none)";
             var pSize = Input("50000"); var pDd = Input("2000"); var pTg = Input("3000"); var pMax = Input("40"); foreach (var tb in new[] { pSize, pDd, pTg, pMax }) { tb.Width = 64; tb.Height = 28; } var pType = Select(KeystonePractice.Types); pType.SelectedIndex = 1; pType.Height = 28;
             var pGaugeFill = new Border { Background = Green, HorizontalAlignment = HorizontalAlignment.Left, Width = 0, CornerRadius = new CornerRadius(3) }; var pGaugeTxt = new TextBlock { Foreground = Text, FontSize = 11.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 6, 0) };
             var pGauge = new Grid { Width = 360, Height = 26 }; pGauge.Children.Add(new Border { Background = Tint(Text, 26), CornerRadius = new CornerRadius(3) }); pGauge.Children.Add(pGaugeFill); pGauge.Children.Add(pGaugeTxt);
             var pStatus = new TextBlock { Foreground = Muted, FontSize = 11, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, MaxWidth = 560, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
             var pReset = Btn("↺ RESET ACCOUNT", Card); pReset.Height = 30; var pLog = new TextBlock { Foreground = Muted, FontSize = 10.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 900 };
             Func<string> pracLogFile = () => Path.Combine(StudioFolder(), "practice-attempts.csv");
-            Action<string> pracSaveAttempt = why => { if (prac == null) return; try { Directory.CreateDirectory(StudioFolder()); if (!File.Exists(pracLogFile())) File.WriteAllText(pracLogFile(), KeystonePractice.LogHeader + "\n"); File.AppendAllText(pracLogFile(), prac.LogLine(DateTime.Now) + "\n"); } catch { } };
+            /* 📊 BUILD 11l — every attempt in practice-attempts.csv (the 11c columns first, then #, mode, start → end in the practice's time, wins / losses, peak, max DD, floor):
+               LOCKED / PASSED / BLOWN by the rules, RESET = ↺ by hand (or the account changed), DAY = one 🆓 MANUAL session */
+            Func<int, int[]> pracWinLoss = n0 => new[] { 0, 0 }; DateTime pracAttemptStart = DateTime.MinValue; double pracDayStartClosed = 0;
+            Func<DateTime> pracNow = () => simTime != DateTime.MinValue ? simTime : DateTime.Now;
+            Func<string> pracModeOf = () => liveWindow ? (livePracFor ?? "Sim101") : studioMode == "LIVE" ? "live demo" : "replay";
+            Action<string> pracSaveAttempt = why =>
+            {
+                if (prac == null) return;
+                try
+                {
+                    Directory.CreateDirectory(StudioFolder()); if (!File.Exists(pracLogFile())) File.WriteAllText(pracLogFile(), KeystonePracticeAttempts.Header + "\n");
+                    var wl = pracWinLoss(pracAttemptNo); string res = prac.Manual ? "DAY" : why == "BLOWN" ? "BLOWN" : why == "PASSED" ? (prac.Kind == "TPT" ? "LOCKED" : "PASSED") : "RESET"; double eqS = prac.Closed + prac.LastOpen;
+                    var a = new KeystonePracticeAttempt { No = pracAttemptNo, Preset = prac.Name, Mode = pracModeOf(), Result = res, When = DateTime.Now, Start = pracAttemptStart == DateTime.MinValue ? pracNow() : pracAttemptStart, End = pracNow(), Days = prac.Days + 1,
+                        Trades = prac.Manual ? wl[0] + wl[1] : prac.Trades, Wins = wl[0], Losses = wl[1], Pnl = prac.Manual ? eqS - pracDayStartClosed : eqS, Peak = prac.BestEq, MaxDd = prac.MaxDdSeen, Floor = prac.Manual ? double.NaN : prac.FloorNow(prac.LastOpen) };
+                    File.AppendAllText(pracLogFile(), KeystonePracticeAttempts.Line(a) + "\n");
+                }
+                catch { }
+            };
             Action pracPaintLog = delegate { try { var ls = File.Exists(pracLogFile()) ? File.ReadAllLines(pracLogFile()).Skip(1).Reverse().Take(5).ToList() : new List<string>(); pLog.Text = ls.Count == 0 ? "📜 attempts: none yet" : "📜 last attempts: " + string.Join("   |   ", ls.Select(l => { var c = l.Split(','); return c.Length >= 6 ? c[0] + " " + c[1] + " → " + c[2] + " (" + c[3] + " days, " + c[4] + " trades, " + c[5] + ")" : l; })); } catch { } };
             CheckBox pClose = null; Action pracFill = null, pracTgCap = null; int pracFilled = -1;   /* 11f: the fields follow the preset (also when the box was set without its event) */   /* ✅ 11f: close everything at the account target / lock (built with the practice row) */
             Func<KeystonePractice> pracRead = () =>
@@ -36875,6 +36894,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var b = KeystonePractice.Presets()[Math.Max(0, pracBox.SelectedIndex)].Copy(); if (pClose != null) b.CloseAtGoal = pClose.IsChecked == true; if (liveWindow) b.CloseAtGoal = false;   /* 🎯 live Sim practice: never closes anything (a toast only) */
                 /* 🐞 11f: the TYPED fields win over the preset's defaults (the gauge, the lines and the status all read this one account) — TPT funded: TARGET = the LOCK amount */
                 b.Size = NumberAllowZero(pSize, b.Size); b.Dd = Math.Max(50, NumberAllowZero(pDd, b.Dd)); b.Target = NumberAllowZero(pTg, b.Target); b.MaxQty = Math.Max(1, (int)NumberAllowZero(pMax, b.MaxQty)); b.DdType = KeystonePractice.Types[Math.Max(0, pType.SelectedIndex)];
+                if (b.Manual) { b.MaxQty = string.IsNullOrWhiteSpace(pMax.Text) ? 9999 : b.MaxQty; b.DailyLoss = NumberAllowZero(pDl, 0); b.Dd = b.Size; b.DdType = "INTRADAY"; }   /* 🆓 11l: empty = no limit */
                 b.ApplyTyped(); return b;
             };
             var pBig = new Border { Margin = new Thickness(0, 2, 0, 4), Visibility = Visibility.Collapsed, Tag = "prac.gauge" };   /* 🎯 11f: the labs' animated buffer bar, big (the practice row's width, 28 px, numbers on it) */
@@ -36911,13 +36931,26 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (pnO != null) { var rO = pnO.Trader; double opMe = rO.Unrealized - KeystoneMoveStudy.Cost(pnO.Symbol) * Math.Abs(rO.Position); double gPx = KeystonePractice.PriceAt(prac.Goal, eq - opMe, rO.Position, rO.AvgPrice, KeystoneMoveStudy.PointValue(pnO.Symbol), KeystoneMoveStudy.Cost(pnO.Symbol)); if (!double.IsNaN(gPx)) atPx = " · " + prac.GoalName + " @ " + gPx.ToString("N2", CultureInfo.InvariantCulture) + " for " + (rO.Position > 0 ? "LONG " : "SHORT ") + Math.Abs(rO.Position); }
                 pStatus.Text = prac.Status(op) + atPx + " · max " + prac.MaxQty + " contracts";   /* 🐞 11f: one clean line (it was said twice) */ pStatus.Foreground = prac.Blown ? Red : prac.Passed ? Green : Text;
             };
-            Action pracStart = delegate { if (liveWindow && livePracAcct != null) livePracFor = livePracAcct(); if (prac != null && (prac.Trades > 0 || prac.Days > 0) && !prac.Blown && !prac.Passed) pracSaveAttempt("RESET"); prac = pracRead(); pracBank = -realized(); pracLastReal = 0; pracFillBase = -pracFillsNow(); pracLastFills = 0; pracDay = session; pracShown = null; wsSet("pracpreset", pracBox.SelectedIndex.ToString(CultureInfo.InvariantCulture)); pracPaint(); pracPaintLog(); };
+            Action pracStart = delegate { if (liveWindow && livePracAcct != null) livePracFor = livePracAcct(); if (prac != null && (prac.Trades > 0 || prac.Days > 0) && !prac.Blown && !prac.Passed) { pracSaveAttempt("RESET"); pracAttemptNo++; } else if (prac != null && (prac.Blown || prac.Passed)) pracAttemptNo++; prac = pracRead(); pracAttemptStart = pracNow(); pracDayStartClosed = 0; wsSet("pracpresetname", prac.Name); pracBank = -realized(); pracLastReal = 0; pracFillBase = -pracFillsNow(); pracLastFills = 0; pracDay = session; pracShown = null; wsSet("pracpreset", pracBox.SelectedIndex.ToString(CultureInfo.InvariantCulture)); pracPaint(); pracPaintLog(); };
             stripReset.Click += delegate { pReset.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }; stripEdit.Click += delegate { if (pracUnfold != null) pracUnfold(); };
             pReset.Click += delegate { pracStart(); status.Text = "🎯 " + prac.Line() + " • a fresh attempt"; status.Foreground = Cyan; foreach (var p0 in panes) if (p0.Canvas != null && pracRender != null) pracRender(p0); };
             pracFill = delegate { var cp = KeystonePractice.Presets()[Math.Max(0, pracBox.SelectedIndex)]; pracFilled = pracBox.SelectedIndex; pSize.Text = cp.Size.ToString("0", CultureInfo.InvariantCulture); pDd.Text = cp.Dd.ToString("0", CultureInfo.InvariantCulture); pTg.Text = cp.Target.ToString("0", CultureInfo.InvariantCulture); pMax.Text = cp.MaxQty.ToString(CultureInfo.InvariantCulture); pType.SelectedIndex = Math.Max(0, Array.IndexOf(KeystonePractice.Types, cp.DdType)); if (pracTgCap != null) pracTgCap(); };
-            pracBox.SelectionChanged += delegate { pracFill(); if (prac != null) pracStart(); }; pracFill();   /* 🐞 11f: the fields = the chosen preset from the start (then what you type wins) */
+            bool pracSwitchVeto = false; int pracBoxLast = pracBox.SelectedIndex;
+            pracBox.SelectionChanged += delegate
+            {   /* 🆓 11l: preset ↔ MANUAL with a practice position open asks first (practice only — nothing is sent) */
+                int ni = pracBox.SelectedIndex; if (pracSwitchVeto) { if (ni == pracBoxLast) return; pracSwitchVeto = false; }   /* the revert itself keeps the veto (the rest of this change is skipped) */ var lst9 = KeystonePractice.Presets();
+                bool open9 = panes.Any(p => p.Trader != null && !p.IsSplit && p.Trader.Position != 0);
+                if (prac != null && open9 && ni >= 0 && pracBoxLast >= 0 && ni < lst9.Count && pracBoxLast < lst9.Count && lst9[ni].Manual != lst9[pracBoxLast].Manual
+                    && KBox(w, "A practice position is open.\n\nSwitch the practice account to " + lst9[ni].Name + " now?\n(The practice restarts; the position itself stays.)", "🎯 PRACTICE · SWITCH", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                { pracSwitchVeto = true; pracBox.SelectedIndex = pracBoxLast; return; }
+                pracBoxLast = ni;
+            };
+            pracBox.SelectionChanged += delegate { if (pracSwitchVeto) return; pracFill(); if (prac != null) pracStart(); }; pracFill();   /* 🐞 11f: the fields = the chosen preset from the start (then what you type wins) */
             Func<string, UIElement, StackPanel> pfx = (cap, el) => { var sp = new StackPanel { Margin = new Thickness(0, 0, 6, 0) }; sp.Children.Add(new TextBlock { Text = cap, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(el); return sp; };
-            pracBar.Children.Add(pfx("🎯 PRACTICE AS", pracBox)); pracBar.Children.Add(pfx("SIZE $", pSize)); pracBar.Children.Add(pfx("DRAWDOWN", pType)); pracBar.Children.Add(pfx("DD $", pDd)); var pTgF = pfx("TARGET $", pTg); pracBar.Children.Add(pTgF); pracBar.Children.Add(pfx("MAX CONTRACTS", pMax));
+            var fType = pfx("DRAWDOWN", pType); var fDd = pfx("DD $", pDd); var fDl = pfx("DAILY LOSS $ (empty = none)", pDl);
+            pracBar.Children.Add(pfx("🎯 PRACTICE AS", pracBox)); pracBar.Children.Add(pfx("START BALANCE $", pSize)); pracBar.Children.Add(fType); pracBar.Children.Add(fDd); var pTgF = pfx("TARGET $", pTg); pracBar.Children.Add(pTgF); pracBar.Children.Add(pfx("MAX CONTRACTS", pMax)); pracBar.Children.Add(fDl);
+            Action pManualFields = delegate { bool man = KeystonePractice.Presets()[Math.Max(0, pracBox.SelectedIndex)].Manual; fType.Visibility = fDd.Visibility = pTgF.Visibility = man ? Visibility.Collapsed : Visibility.Visible; fDl.Visibility = man ? Visibility.Visible : Visibility.Collapsed; if (man) { pMax.Text = ""; } };
+            pracBox.SelectionChanged += delegate { pManualFields(); }; pManualFields();
             Action pTgCap = delegate { var cp9 = KeystonePractice.Presets()[Math.Max(0, pracBox.SelectedIndex)]; var tb9 = pTgF.Children[0] as TextBlock; if (tb9 != null) tb9.Text = cp9.TargetLabel; pTg.ToolTip = cp9.Kind == "TPT" ? "🔒 the LOCK: the floor trails until the best equity (incl. open) is this far above the start, then it is locked at the start (TPT PRO: $2,000)" : cp9.Kind == "PAYOUT" ? "the profit a payout needs (after the qualifying days)" : cp9.Kind == "MFF" ? "the smallest withdrawal ($250); up to the $5,000 cap" : "the evaluation target"; };
             pracBox.SelectionChanged += delegate { pTgCap(); }; pTgCap();
             pClose = new CheckBox { Content = "✅ CLOSE EVERYTHING when the account target / lock is reached", Foreground = Text, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 12, 6, 0), Tag = "prac.closegoal", ToolTip = "the account's target (eval: the pass is banked) or the TPT lock: every position is flattened at that moment — the green line is the ACCOUNT level, not a take-profit order" };
@@ -36974,13 +37007,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             roomBtn.Click += delegate { if (prac == null) { status.Text = "🎯 STOP = THE ROOM: switch 🎯 PRACTICE AS A PROP ACCOUNT on first"; status.Foreground = Gold; return; } dSl.Text = Math.Max(0, Math.Floor(prac.Room(pracOpen()))).ToString("0", CultureInfo.InvariantCulture); };
             paintDol(); pracBracketTxt = () => dolOn ? " · TP $" + (dTp.Text ?? "").Trim() + " / SL $" + (dSl.Text ?? "").Trim() : "";
             var pracToggle = Btn("🎯 PRACTICE AS A PROP ACCOUNT", Card); pracToggle.Height = 30; pracToggle.ToolTip = "practise on prop rules (MFF Studio, Lucid, Tradeify, TPT, funded or custom): the floor, the target, max contracts, BLOWN / PASSED — simulation only";
-            pracToggle.Click += delegate { if (liveWindow && !livePracOk() && pracBar.Visibility != Visibility.Visible) { status.Text = "🎯 PRACTICE AS A PROP ACCOUNT is offered on a NinjaTrader SIMULATION account only (Sim101 …) — never on a real prop account • pick 🎮 SIM in the account list"; status.Foreground = Gold; if (livePracSwitchH != null) livePracSwitchH(); return; } bool on = pracBar.Visibility != Visibility.Visible; pracBar.Visibility = dolRow.Visibility = pLog.Visibility = on ? Visibility.Visible : Visibility.Collapsed; PaintBtn(pracToggle, on ? Tint(Gold, 140) : Card); if (on) { pracStart(); if (pracFold != null) pracFold(); } else { if (prac != null && (prac.Trades > 0) && !prac.Blown && !prac.Passed) pracSaveAttempt("RESET"); prac = null; pBig.Visibility = Visibility.Collapsed; } if (pracHudPaint != null) pracHudPaint(); foreach (var p0 in panes) if (p0.Canvas != null && pracRender != null) pracRender(p0); };
+            pracToggle.Click += delegate { if (liveWindow && !livePracOk() && pracBar.Visibility != Visibility.Visible) { status.Text = "🎯 PRACTICE AS A PROP ACCOUNT is offered on a NinjaTrader SIMULATION account only (Sim101 …) — never on a real prop account • pick 🎮 SIM in the account list"; status.Foreground = Gold; if (livePracSwitchH != null) livePracSwitchH(); return; } bool on = pracBar.Visibility != Visibility.Visible; pracBar.Visibility = dolRow.Visibility = pLog.Visibility = on ? Visibility.Visible : Visibility.Collapsed; PaintBtn(pracToggle, on ? Tint(Gold, 140) : Card); if (on) { pracStart(); if (pracFold != null) pracFold(); } else { if (prac != null && (prac.Trades > 0) && !prac.Blown && !prac.Passed) { pracSaveAttempt("RESET"); pracAttemptNo++; } else if (prac != null && (prac.Blown || prac.Passed)) pracAttemptNo++; prac = null; pBig.Visibility = Visibility.Collapsed; } if (pracHudPaint != null) pracHudPaint(); foreach (var p0 in panes) if (p0.Canvas != null && pracRender != null) pracRender(p0); };
             dolRow.Visibility = pLog.Visibility = Visibility.Collapsed;
             // every refresh: the account against its floor / target (once BLOWN / PASSED: flat, the overlay, the attempt saved)
             Action pracTick = delegate
             {
                 if (prac == null) return;
-                if (session != pracDay && pracDay != DateTime.MinValue && session != DateTime.MinValue) { pracBank += pracLastReal; pracFillBase += pracLastFills; prac.EndOfDay(pracBank); pracDay = session; }
+                if (session != pracDay && pracDay != DateTime.MinValue && session != DateTime.MinValue) { pracBank += pracLastReal; pracFillBase += pracLastFills; if (prac.Manual && prac.Trades > 0) { pracSaveAttempt("DAY"); pracDayStartClosed = pracBank; pracAttemptStart = pracNow(); } prac.EndOfDay(pracBank); pracDay = session; }   /* 🆓 11l: MANUAL logs one row per session */
                 { string gh = prac.GoalHit(pracOpen()); if (gh != "") { foreach (var p0 in panes.Where(p => p.Trader != null && !p.IsSplit)) { p0.Trader.CancelOrders(); if (p0.Trader.Position != 0) p0.Trader.CloseAll(gh == "LOCK" ? "PRACTICE LOCK" : "PRACTICE TARGET"); } status.Text = (gh == "LOCK" ? "🔒 the lock reached → closed (✅ CLOSE EVERYTHING at the account target / lock)" : "✅ target reached → closed (the pass is banked)"); status.Foreground = Green; pracFlashUntil = DateTime.Now.AddSeconds(4); pracFlashText = gh == "LOCK" ? "🔒 LOCKED" : "✅ TARGET"; } }   /* ✅ 11f */
                 if (raceTickH != null) raceTickH();
                 pracLastFills = pracFillsNow(); prac.Trades = Math.Max(0, pracFillBase + pracLastFills);   /* 🐞 11f: the practice counts its closed trades (was "0 trades" after a +$982 trade) */
@@ -37009,7 +37042,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (!liveWindow) foreach (var p0 in panes.Where(p => p.Trader != null && !p.IsSplit)) { p0.Trader.CancelOrders(); if (p0.Trader.Position != 0) p0.Trader.CloseAll(hit == "BLOWN" ? "PRACTICE FLOOR" : "PRACTICE TARGET"); }   /* live Sim practice: the toast only — the Sim position is yours */
                     if (prac.How == "" && hit == "PASSED") prac.How = "🔒 LOCKED at " + Signed(prac.Equity(pracOpen()));
                     pracSaveAttempt(hit); pracPaintLog(); string howE = prac.How; bool again = hit == "BLOWN" ? pAutoB.IsChecked == true : pAuto.IsChecked == true;
-                    if (again) { int doneNo = pracAttemptNo; prac = pracRead(); pracBank = -realized(); pracLastReal = 0; pracFillBase = -pracFillsNow(); pracLastFills = 0; pracDay = session; pracAttemptNo++;
+                    if (again) { int doneNo = pracAttemptNo; prac = pracRead(); pracAttemptStart = pracNow(); pracDayStartClosed = 0; pracBank = -realized(); pracLastReal = 0; pracFillBase = -pracFillsNow(); pracLastFills = 0; pracDay = session; pracAttemptNo++;
                         pracFlashUntil = DateTime.Now.AddSeconds(3); pracFlashText = (hit == "BLOWN" ? "💀 BLOWN" : howE.Contains("🔒") || howE.Contains("LOCK") || howE.Contains("TRAILING") ? "🔒 LOCKED" : "✅ PASSED") + " — attempt #" + doneNo + " saved · new account ready"; }   /* 🔁 11k: a short toast, no pause */
                     status.Text = (hit == "BLOWN" ? "💀 " : "✅ ") + howE + (again ? " • 🔁 attempt " + pracAttemptNo + " started (the start balance, the floor at start − DD, the target " + Cash(prac.Target) + ")" : " • ↺ RESET ACCOUNT for a new attempt"); status.Foreground = hit == "BLOWN" ? Red : Green;
                     pTally.Text = KeystonePractice.Tally(pracAttempts, pracPassedN, pracBlownN, pracDaysPass);
@@ -37019,6 +37052,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             /* 📜 BUILD 11f — THE TRADES LOG: every closed trade of the studio's simulated trader (with the practice attempt + preset when practice is on) → Studio\practice-trades.csv;
                MFE / MAE = the best / worst open $ seen (the forming candle's high / low since the entry included), adds = the times the size grew */
             var tradeRows = new List<KeystonePracticeTrade>(); string tradeFile = Path.Combine(StudioFolder(), "practice-trades.csv"); try { if (File.Exists(tradeFile)) tradeRows = KeystonePracticeTrades.Load(File.ReadAllText(tradeFile)); } catch { }
+            /* 📊 11l: the attempt numbers continue after a restart (the attempts log + the trades log), wins / losses per attempt from the trades log */
+            try { var allA0 = KeystonePracticeAttempts.Load(File.Exists(pracLogFile()) ? File.ReadAllText(pracLogFile()) : ""); pracAttemptNo = Math.Max(KeystonePracticeAttempts.NextNo(allA0), tradeRows.Count == 0 ? 1 : tradeRows.Max(x => x.Attempt) + 1); } catch { }
+            pracWinLoss = n0 => { var rr = prac != null && prac.Manual ? tradeRows.Where(x => x.Attempt == n0 && (session == DateTime.MinValue || x.Entry.Date == pracDay.Date || pracDay == DateTime.MinValue)).ToList() : tradeRows.Where(x => x.Attempt == n0).ToList(); return new[] { rr.Count(x => x.Net > 0), rr.Count(x => x.Net <= 0) }; };
             Action tradesPaint = null;
             Action tradeLogTick = delegate
             {
@@ -38865,7 +38901,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                         }
                     };
                     KeystonePracticeTrail tvMain = null; bool flatP = r.Position == 0; int qP = r.Position != 0 ? Math.Abs(r.Position) : Math.Max(1, Integer(pn.Qty, 1));
-                    if (r.Position != 0)
+                    if (prac.Manual) { }   /* 🆓 11l: MANUAL has no floor / lock — nothing drawn, no compact block */
+                    else if (r.Position != 0)
                     {
                         double opMe = r.Unrealized - cP * Math.Abs(r.Position), closedX = prac.Equity(opAll) - opMe;
                         tvMain = KeystonePracticeTrail.Of(prac, closedX, r.Position, r.AvgPrice, r.Price, pvP, cP); drawTrail(tvMain, r.Price, false, r.Position);
@@ -38886,11 +38923,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                             System.Windows.Controls.Canvas.SetLeft(lb, gx); System.Windows.Controls.Canvas.SetTop(lb, Math.Max(pn.Top, Math.Min(pn.Top + pn.PlotH - lh, it.Item1))); cv.Children.Add(lb);
                         }
                     }
-                    Dictionary<string, FrameworkElement> cdP; pracCompacts.TryGetValue(pn, out cdP);
+                    Dictionary<string, FrameworkElement> cdP; pracCompacts.TryGetValue(pn, out cdP); if (cdP != null && prac.Manual) cdP["box"].Visibility = Visibility.Collapsed;
                     if (tvMain != null && cdP != null)
                     {   /* 🖥 11k: the ONE compact block in the order column (no panel on the candles) */
                         double frR = Math.Max(0, Math.Min(1, tvMain.Room / Math.Max(1, prac.Dd))), prog = tvMain.Locked ? 1 : Math.Max(0, Math.Min(1, (tvMain.Peak + prac.Dd) / Math.Max(1, tvMain.LockLevel + prac.Dd)));
-                        cdP["box"].Visibility = Visibility.Visible; var cBig = (TextBlock)cdP["room"]; cBig.Text = prac.Blown ? "💀 BLOWN" : Cash(tvMain.Room) + "  " + tvMain.RoomPts.ToString("0.0", CultureInfo.InvariantCulture) + " pts"; cBig.Foreground = prac.Blown || frR < 0.25 ? Red : frR < 0.5 ? Orange : Green;
+                        cdP["box"].Visibility = Visibility.Visible; foreach (var k9 in new[] { "head", "room", "line", "floor" }) cdP[k9].Visibility = liveWindow ? Visibility.Visible : Visibility.Collapsed;   /* 🧮 11l: the studio's header tiles carry the numbers — the order column keeps the bar */
+                        var cBig = (TextBlock)cdP["room"]; cBig.Text = prac.Blown ? "💀 BLOWN" : Cash(tvMain.Room) + "  " + tvMain.RoomPts.ToString("0.0", CultureInfo.InvariantCulture) + " pts"; cBig.Foreground = prac.Blown || frR < 0.25 ? Red : frR < 0.5 ? Orange : Green;
                         string toL = tvMain.HasLock ? (tvMain.Locked ? "🔒 LOCKED" : "TO LOCK " + Cash(tvMain.ToLock)) : "TO " + prac.GoalName.ToUpperInvariant() + " " + Cash(tvMain.ToLock);
                         ((TextBlock)cdP["line"]).Text = (eodT ? "BEST CLOSE " : "PEAK ") + Signed(tvMain.Peak) + " · GIVEN BACK " + Cash(tvMain.GivenBack) + " · " + toL + " · BALANCE " + Signed(tvMain.Equity);
                         ((TextBlock)cdP["floor"]).Text = "floor " + Signed(tvMain.Floor) + (statT ? " (static)" : prac.Locked ? " (at the start)" : eodT ? " (moves at the close)" : " (trailing incl. open)") + (flatP ? " · flat: pts for " + qP : "");
@@ -39076,10 +39114,36 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (net >= 0) { double f = goal > 0 ? Math.Min(1, net / goal) : 0; goalFill.Width = 320 * f; goalFill.Fill = goal > 0 && net >= goal ? Green : Gold; goalText.Text = goal > 0 ? "DAY GOAL " + Cash(goal) + " • " + Signed(net) + " (" + (100 * net / goal).ToString("0") + "%)" + (net >= goal ? " ✓" : "") : "DAY GOAL OFF • " + Signed(net); }
                 else { double f = lossLim > 0 ? Math.Min(1, -net / lossLim) : 0; goalFill.Width = 320 * f; goalFill.Fill = Red; goalText.Text = lossLim > 0 ? "LOSS LIMIT " + Cash(lossLim) + " • " + Signed(net) + " (" + (100 * -net / lossLim).ToString("0") + "%)" : "LOSS • " + Signed(net); }
                 goalText.Foreground = goalFill.Width > 160 ? Bg : Text; if (dayLocked) goalText.Text += " • LOCKED";
-                if (sim != null && simOn) { accText.Text = "🏦 PROP SIM • " + sim.Bought + " evaluations"; accText.Foreground = Gold; }
-                else if (prac != null && !liveWindow) { double eqP = prac.Equity(pracOpen()), flP = prac.FloorNow(pracOpen()); accText.Width = double.NaN; accText.MaxWidth = 640;
-                    accText.Text = "🎯 " + prac.Name.Split('•')[0].Split('(')[0].Trim() + " · " + Cash(prac.Size + eqP) + " of " + Cash(prac.Size) + " · bal " + Signed(eqP) + " · floor " + Signed(flP) + (prac.Blown ? " • BLOWN" : prac.Passed ? " • PASSED" : prac.Kind == "TPT" ? (prac.Locked ? " · 💰 " + Cash(prac.CanWithdraw(0)) + " withdrawable" : " · 🔒 " + Cash(Math.Max(0, prac.Goal - Math.Max(prac.Peak, eqP))) + " to lock") : " · " + prac.GoalName + " " + Signed(prac.Goal)); accText.ToolTip = "🎯 the PRACTICE ACCOUNT (simulation only): " + prac.Line() + " • ⚙ = its settings"; accText.Foreground = prac.Blown ? Red : prac.Passed ? Green : MoneyBrush(eqP); }   /* 🎯 BUILD 11f: practice on → the ACCOUNT box is the practice account */
-                else { accText.ToolTip = null; accText.Text = "ACCOUNT " + Cash(accBalance + (dayBanked ? 0 : net)) + " of " + Cash(accStart) + (blown ? " • BLOWN" : ""); accText.Foreground = blown ? Red : MoneyBrush(accBalance + (dayBanked ? 0 : net) - accStart); }
+                if (sim != null && simOn) { accText.Visibility = Visibility.Visible; tilesBox.Visibility = Visibility.Collapsed; accText.Text = "🏦 PROP SIM • " + sim.Bought + " evaluations"; accText.Foreground = Gold; }
+                else if (prac != null && !liveWindow)
+                {   /* 🧮 BUILD 11l: practice on → the TILES (each number once); the long account line is hidden */
+                    accText.Visibility = Visibility.Collapsed; tilesBox.Visibility = Visibility.Visible; tilesBox.MaxWidth = Math.Max(520, (w.ActualWidth > 0 ? w.ActualWidth : 1600) - 640);
+                    double opT = pracOpen(), clT = pracClosed(); var pnT = panes.FirstOrDefault(p => p.Trader != null && !p.IsSplit && p.Trader.Position != 0); int posT = pnT == null ? 0 : pnT.Trader.Position;
+                    if (!ReferenceEquals(tilePrac, prac)) { tilePrac = prac; tilePeakSeen = double.NaN; tilePeakAt = DateTime.MinValue; tileFloorSeen = double.NaN; tileFloorFlashUntil = DateTime.MinValue; }
+                    var rowsA = tradeRows.Where(x => x.Attempt == pracAttemptNo).ToList();
+                    var tl = KeystonePracticeTiles.Of(prac, clT, opT, posT, pnT == null ? 0 : pnT.Trader.AvgPrice, pnT == null ? 0 : pnT.Trader.Price, pnT == null ? 2 : KeystoneMoveStudy.PointValue(pnT.Symbol), pnT == null ? 0 : KeystoneMoveStudy.Cost(pnT.Symbol), dayNet(), tilePeakAt, rowsA.Count, rowsA.Count(x => x.Net > 0));
+                    if (double.IsNaN(tilePeakSeen) || tl.Peak > tilePeakSeen + 0.005) { tilePeakSeen = tl.Peak; tilePeakAt = simTime != DateTime.MinValue ? simTime : DateTime.Now; }
+                    if (!tl.Manual) { if (!double.IsNaN(tileFloorSeen) && tl.Floor > tileFloorSeen + 0.5) { tileFloorFlash = "▲ +" + Cash(tl.Floor - tileFloorSeen); tileFloorFlashUntil = DateTime.Now.AddSeconds(2); } tileFloorSeen = tl.Floor; }
+                    Action<string, bool, string, string, Brush, Brush> put = (k, show, big, sub, fg, edge) => { var tp0 = tileParts[k]; tp0.Item1.Visibility = show ? Visibility.Visible : Visibility.Collapsed; if (!show) return; tp0.Item3.Text = big; tp0.Item3.Foreground = fg; tp0.Item4.Text = sub; tp0.Item1.BorderBrush = Tint((SolidColorBrush)edge, 150); };
+                    string q0 = posT == 0 ? "" : " · " + Math.Abs(posT) + " " + pnT.Symbol;
+                    put("BAL", true, Signed(tl.Balance), Cash(prac.Size + tl.Balance) + " · attempt #" + pracAttemptNo, MoneyBrush(tl.Balance), Card);
+                    put("OPEN", true, posT == 0 ? "flat" : Signed(tl.Open), posT == 0 ? "no position" : "live" + q0, posT == 0 ? Muted : MoneyBrush(tl.Open), posT == 0 ? Card : (SolidColorBrush)MoneyBrush(tl.Open));
+                    put("DAY", tl.Manual, Signed(tl.DayPnl), "today (realised + open)", MoneyBrush(tl.DayPnl), Card);
+                    put("PEAK", true, Signed(tl.Peak), (tilePeakAt != DateTime.MinValue ? "at " + tilePeakAt.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " · " : "") + "given back " + Cash(tl.GivenBack), Gold, tl.GivenBack > 0.5 ? Orange : Gold);
+                    put("MAXDD", tl.Manual, Cash(tl.MaxDdSeen), "from the peak", tl.MaxDdSeen > 0.5 ? Orange : Muted, Card);
+                    put("TRADES", tl.Manual, tl.Trades + (tl.Trades > 0 ? " · " + tl.WinPct.ToString("0", CultureInfo.InvariantCulture) + " %" : ""), tl.Wins + " won · " + (tl.Trades - tl.Wins) + " lost", Text, Card);
+                    bool flashF = DateTime.Now < tileFloorFlashUntil;
+                    put("FLOOR", !tl.Manual, Signed(tl.Floor), (flashF ? tileFloorFlash + " · " : "") + (double.IsNaN(tl.FloorPx) ? tl.FloorKind : "@ " + fmt(tl.FloorPx) + " · " + tl.FloorKind), flashF ? Orange : Red, flashF ? Orange : Red);
+                    SolidColorBrush roomC = prac.Blown || tl.RoomFrac < 0.25 ? Red : tl.RoomFrac < 0.5 ? Orange : Green;
+                    put("ROOM", !tl.Manual, prac.Blown ? "💀 BLOWN" : Cash(tl.Room), double.IsNaN(tl.RoomPts) ? (tl.RoomFrac * 100).ToString("0", CultureInfo.InvariantCulture) + " % of " + Cash(prac.Dd) : tl.RoomPts.ToString("0.00", CultureInfo.InvariantCulture) + " pts for " + Math.Abs(posT), roomC, roomC);
+                    tileParts["ROOM"].Item5.Width = 120 * tl.RoomFrac; tileParts["ROOM"].Item5.Background = roomC;
+                    tileParts["GOAL"].Item2.Text = "🎯 " + (tl.GoalName == "" ? "TO GOAL" : tl.GoalName);
+                    put("GOAL", !tl.Manual, tl.Locked && prac.Kind == "TPT" ? "🔒 " + Cash(prac.CanWithdraw(0)) : Cash(tl.ToGoal), (double.IsNaN(tl.ToGoalPts) ? "" : tl.ToGoalPts.ToString("0.00", CultureInfo.InvariantCulture) + " pts · ") + (tl.Progress * 100).ToString("0", CultureInfo.InvariantCulture) + " %", tl.Locked ? Orchid : Cyan, Cyan);
+                    tileParts["GOAL"].Item5.Width = 120 * tl.Progress; tileParts["GOAL"].Item5.Background = tl.Locked ? Orchid : Cyan;
+                    put("POS", posT != 0, tl.PosText, posT == 0 ? "" : pnT.Symbol + " · open " + Signed(tl.Open), posT > 0 ? Green : Red, posT > 0 ? Green : Red);
+                    studioTiles = string.Join(" | ", tileParts.Where(kv => kv.Value.Item1.Visibility == Visibility.Visible).Select(kv => kv.Key + "=" + kv.Value.Item3.Text + " · " + kv.Value.Item4.Text));
+                }
+                else { accText.Visibility = Visibility.Visible; tilesBox.Visibility = Visibility.Collapsed; accText.ToolTip = null; accText.Text = "ACCOUNT " + Cash(accBalance + (dayBanked ? 0 : net)) + " of " + Cash(accStart) + (blown ? " • BLOWN" : ""); accText.Foreground = blown ? Red : MoneyBrush(accBalance + (dayBanked ? 0 : net) - accStart); }
                 // NEWS box: today's high-impact news with a countdown on the replay clock
                 if (session == DateTime.MinValue || simTime == DateTime.MinValue) newsBox.Visibility = Visibility.Collapsed;
                 else
@@ -39794,7 +39858,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var cRace = new TextBlock { Text = "", Foreground = Gold, FontSize = 11, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Tag = "prac.race.counter" };
                     var cHud = Btn("⤢ big HUD", Card); cHud.Height = 20; cHud.FontSize = 9.5; cHud.Margin = new Thickness(0, 3, 0, 0); cHud.Padding = new Thickness(6, 0, 6, 0); cHud.HorizontalAlignment = HorizontalAlignment.Right; cHud.Tag = "prac.hud"; cHud.ToolTip = "a larger card in a corner (drag it anywhere, semi-transparent) — off by default";
                     foreach (var e9 in new FrameworkElement[] { cHead, cBig, cL2, cBar, cLk, cL3, cRace, cHud }) csp.Children.Add(e9); cB.Child = csp;
-                    cd["box"] = cB; cd["room"] = cBig; cd["line"] = cL2; cd["floor"] = cL3; cd["roombar"] = cRoom; cd["lockbar"] = cLock; cd["race"] = cRace; cd["hud"] = cHud; pracCompacts[pn] = cd;
+                    cd["box"] = cB; cd["head"] = cHead; cd["room"] = cBig; cd["line"] = cL2; cd["floor"] = cL3; cd["roombar"] = cRoom; cd["lockbar"] = cLock; cd["race"] = cRace; cd["hud"] = cHud; pracCompacts[pn] = cd;
                     cHud.Click += delegate { pracHud = !pracHud; wsSet("prachud", pracHud ? "1" : "0"); if (pracHudPaint != null) pracHudPaint(); };
                     side.Children.Add(cB);
                 }
@@ -40062,6 +40126,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     {   /* 🎯 11i live Sim practice: blown / passed or above its MAX CONTRACTS → refused here (closing is always allowed) */
                         int qP0 = Math.Max(1, Integer(pn.Qty, 1)), pendP0 = r.Orders.Where(o => o.Dir == sign).Sum(o => o.Qty);
                         if (prac.Blown || prac.Passed) { refuse((prac.Blown ? "💀 THE PRACTICE ACCOUNT IS BLOWN" : "✅ THE PRACTICE ACCOUNT PASSED") + " • ↺ RESET for a new attempt (the Sim account itself is untouched)", prac.Blown ? Red : Green); return; }
+                        if (prac.Manual && prac.DailyLoss > 0 && dayNet() <= -prac.DailyLoss) { refuse("🆓 DAILY LOSS " + Cash(prac.DailyLoss) + " reached today • no new entries (the Sim account is untouched)", Red); return; }
                         if (Math.Abs(r.Position) + pendP0 + qP0 > prac.MaxQty) { refuse("🎯 PRACTICE MAX " + prac.MaxQty + " CONTRACTS on " + prac.Name + " • " + pn.Symbol + " holds " + Math.Abs(r.Position), Gold); return; }
                     }
                     if (liveWindow && pn.Link != null && pn.Link.ExternalLocked && Math.Sign(r.Position) != -sign) { refuse(pn.Link.ExternalLockLabel + " • ENTRY REFUSED (closing / cancelling is allowed)", Orange); return; }   // 🔒 BUILD 11i: a NinjaTrader lockout — refused here, before the link
@@ -40099,6 +40164,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (!liveWindow && prac != null && Math.Sign(r.Position) != -sign)
                     {   /* 🎯 item 34: the practice account's rules — blown / passed = no new entry; above its max contracts = refused */
                         if (prac.Blown || prac.Passed) { refuse((prac.Blown ? "💀 THE PRACTICE ACCOUNT IS BLOWN" : "✅ THE PRACTICE ACCOUNT PASSED") + " • ↺ RESET ACCOUNT for a new attempt", prac.Blown ? Red : Green); return; }
+                        if (prac.Manual && prac.DailyLoss > 0 && dayNet() <= -prac.DailyLoss) { refuse("🆓 DAILY LOSS " + Cash(prac.DailyLoss) + " reached today (" + Signed(dayNet()) + ") • no new entries — closing is allowed", Red); return; }
                         if (Math.Abs(r.Position) + pending + q > prac.MaxQty) { refuse("MAX " + prac.MaxQty + " CONTRACTS on " + prac.Name + " • " + pn.Symbol + " holds " + Math.Abs(r.Position) + " • lower the contracts", Gold); return; }
                     }
                     bool entering = Math.Sign(r.Position) != -sign; int before = r.Fills.Count, posB = r.Position;
@@ -40131,7 +40197,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         if (r.StopPts != 0) pn.Sl.Text = dS(r.StopPts); if (r.TargetPts > 0 && !pn.AutoTp) pn.Tp.Text = dS(r.TargetPts);
                     }
                     readBracket(); if (r.Fills.Count != before) saveFills(pn); checkLimits();
-                    status.Text = pn.Symbol + (sign > 0 ? " BOUGHT " : " SOLD ") + q + " @ " + fmt(r.Price); status.Foreground = sign > 0 ? Green : Red;
+                    status.Text = prac != null && !liveWindow ? "✓ " + pn.Symbol + (sign > 0 ? " buy" : " sell") + " filled — the POSITION tile shows it" : pn.Symbol + (sign > 0 ? " BOUGHT " : " SOLD ") + q + " @ " + fmt(r.Price); status.Foreground = sign > 0 ? Green : Red;   /* 🧮 11l: no duplicate of the position chip */
                     if (probing) { status.Text += " • 🧪 PROBE: wait " + probeSec + " s → add " + (pn.ProbeQ - 1) + " if ≥ +" + probeTicks.ToString("0.##", CultureInfo.InvariantCulture) + " ticks" + (r.HasTicks ? "" : " • ⚠ no ticks: seconds are estimated"); status.Foreground = Cyan; }
                     if (!liveWindow && entering && r.Position != 0 && r.TargetPts <= 0 && r.StopPts == 0) { status.Text += " • no take profit / stop on this trade: 💵 turn the $ bracket ON (the order panel's 💵 $ ON) — the green ACCOUNT line is not an order"; status.Foreground = Orange; }   /* 11f */
                     render(pn); renderInfo();
@@ -47637,7 +47703,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     lockBtn.Content = lockedNow ? "🔒 LOCKED ▾" : "🔒 LOCK FOR TODAY ▾";
                     {   /* 🎯 11i: the live practice toggle only on a SIMULATION chart account; another account on the chart → the practice ends (never carried to a prop account) */
                         bool okP = livePracOk(); pracToggle.Visibility = Visibility.Visible; if (livePracPaint != null) livePracPaint(okP);   /* 11j: always shown (greyed off a Sim account) */
-                        if (prac != null && (!okP || livePracFor != linkedName)) { if (prac.Trades > 0 && !prac.Blown && !prac.Passed) pracSaveAttempt("ACCOUNT CHANGED"); prac = null; pracBar.Visibility = pBig.Visibility = pLog.Visibility = Visibility.Collapsed; PaintBtn(pracToggle, Card); status.Text = "🎯 the live practice ended: the chart account is not " + (livePracFor ?? "the Sim account") + " any more"; status.Foreground = Gold; }
+                        if (prac != null && (!okP || livePracFor != linkedName)) { if (prac.Trades > 0 && !prac.Blown && !prac.Passed) { pracSaveAttempt("ACCOUNT CHANGED"); pracAttemptNo++; } prac = null; pracBar.Visibility = pBig.Visibility = pLog.Visibility = Visibility.Collapsed; PaintBtn(pracToggle, Card); status.Text = "🎯 the live practice ended: the chart account is not " + (livePracFor ?? "the Sim account") + " any more"; status.Foreground = Gold; }
                     }
                     { string fs = linkedName != null && fundStateOf != null ? fundStateOf(linkedName) : "EVAL"; fundBtn.Content = fs == "EVAL" ? "🏁 EVALUATION ▾" : fs == "EOD" ? "🛡 FUNDED • EOD TRAILING ▾" : "🛡 FUNDED • TRAILING ▾"; PaintBtn(fundBtn, fs == "EVAL" ? Card : Orchid); }
                     addStopBig.Visibility = realAddStopBtn.Visibility;
