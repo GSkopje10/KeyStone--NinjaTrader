@@ -96,7 +96,7 @@ namespace KeystoneMT5
             {   // ✔ closed legs • 🧮 total if closed now • 🎯 to breakeven / target (user's request: between the BUY / SELL boxes and the ✕ buttons; hidden when flat)
                 symClosed = cell(Green); symTotal = cell(Gold); symToTp = cell(Cyan);
                 symExtra = new WrapPanel { VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 6, 0) };
-                foreach (var c in new[] { symClosed, symTotal, symToTp }) { c.Item1.Width = double.NaN; c.Item1.MinWidth = 150; c.Item1.MaxWidth = 300; c.Item1.Margin = new Thickness(0, 1, 6, 1); c.Item1.Visibility = Visibility.Visible; c.Item3.TextTrimming = TextTrimming.CharacterEllipsis; c.Item2.TextTrimming = TextTrimming.CharacterEllipsis; symExtra.Children.Add(c.Item1); }
+                foreach (var c in new[] { symClosed, symTotal, symToTp }) { c.Item1.Width = double.NaN; c.Item1.MinWidth = 120; c.Item1.MaxWidth = 172; c.Item3.FontSize = 10.5; c.Item2.FontSize = 9; c.Item1.Margin = new Thickness(0, 1, 6, 1); c.Item1.Visibility = Visibility.Visible; c.Item3.TextTrimming = TextTrimming.CharacterEllipsis; c.Item2.TextTrimming = TextTrimming.CharacterEllipsis; symExtra.Children.Add(c.Item1); }
                 bar.Children.Add(symExtra);
             }
             bar.Children.Add(CloseBtns(34));
@@ -859,7 +859,8 @@ namespace KeystoneMT5
         }
         void FillSymExtra(Mt5State s, string sym, List<Mt5Position> ps, double total, double open, double banked, double target, double per, string cur)
         {
-            if (symExtra == null) return; if (ps.Count == 0 || double.IsNaN(total)) { symExtra.Visibility = Visibility.Collapsed; return; }
+            if (symExtra == null) return; bool show = ps.Count > 0 && !double.IsNaN(total); foreach (var c in new[] { symBuy, symSell, symHedge }) c.Item1.Width = show ? 150 : 182; symPlInfo.Width = show && symPlInfo.Text == "" ? 0 : 70;   // room for the 3 boxes, the ✕ buttons stay on the row
+            if (!show) { symExtra.Visibility = Visibility.Collapsed; return; }
             symExtra.Visibility = Visibility.Visible;
             DateTime from = auto != null && auto.Running && auto.Current != null && string.Equals(auto.Set.Symbol, sym, StringComparison.OrdinalIgnoreCase) ? auto.Current.Start : ps.Min(p => p.Time);
             var legs = HedgeAuto.ClosedLegs(s.Deals, sym, from); int nb = legs.Count(x => x.Item1 == "BUY"), ns = legs.Count(x => x.Item1 == "SELL");

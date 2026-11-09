@@ -20507,6 +20507,91 @@ namespace NinjaTrader.NinjaScript
             return o;
         }
     }
+    /* 🧮 BUILD 11l — THE PRACTICE TILES (the studio header, the user: "better data representation"): every number once, from the practice account + the open position.
+       Balance = realised since the attempt start · Open = the open P/L after costs · Peak = the best equity incl. open (its time) · Given back = peak − equity ·
+       Floor = the live drawdown line ($ and the price for the open position) · Room = equity − floor ($ + points for the open size, the drain fraction of the DD) ·
+       To lock / target ($ + points + progress) · MANUAL: day P/L, peak, the max drawdown seen, trades / win % (no floor, no goal). Pure. */
+    public sealed class KeystonePracticeTiles
+    {
+        public bool Manual, InTrade, HasGoal, Locked, Blown; public double Balance, Open, Equity, Peak, GivenBack, Floor, FloorPx = double.NaN, Room, RoomPts = double.NaN, RoomFrac, ToGoal, ToGoalPts = double.NaN, Progress, DayPnl, MaxDdSeen, WinPct;
+        public int Trades, Wins; public DateTime PeakTime; public string GoalName = "", PosText = "", FloorKind = "";
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public static KeystonePracticeTiles Of(KeystonePractice p, double closed, double open, int pos, double avg, double price, double pv, double cost, double dayPnl, DateTime peakTime, int trades, int wins)
+        {
+            var t = new KeystonePracticeTiles(); if (p == null) return t; t.Manual = p.Manual; t.Balance = closed; t.Open = open; t.Equity = closed + open; t.DayPnl = dayPnl; t.Trades = trades; t.Wins = wins; t.WinPct = trades > 0 ? 100.0 * wins / trades : 0;
+            t.InTrade = pos != 0; int q = Math.Abs(pos); if (t.InTrade) t.PosText = (pos > 0 ? "LONG " : "SHORT ") + q + " @ " + avg.ToString("0.00", IC);
+            double pk = p.Manual || string.Equals(p.DdType, "INTRADAY", StringComparison.OrdinalIgnoreCase) ? Math.Max(p.Peak, t.Equity) : string.Equals(p.DdType, "STATIC", StringComparison.OrdinalIgnoreCase) ? Math.Max(Math.Max(0, p.BestEq), t.Equity) : Math.Max(p.PeakEod, 0);
+            t.Peak = pk; t.PeakTime = peakTime; t.GivenBack = Math.Max(0, pk - t.Equity); t.MaxDdSeen = Math.Max(p.MaxDdSeen, Math.Max(p.BestEq, t.Equity) - t.Equity); t.Blown = p.Blown;
+            if (p.Manual) return t;
+            t.Floor = p.FloorNow(open); t.Room = Math.Max(0, t.Equity - t.Floor); t.RoomFrac = Math.Max(0, Math.Min(1, t.Room / Math.Max(1, p.Dd))); t.Locked = p.Locked;
+            t.FloorKind = string.Equals(p.DdType, "STATIC", StringComparison.OrdinalIgnoreCase) ? "static" : p.Locked ? "locked at the start" : string.Equals(p.DdType, "EOD", StringComparison.OrdinalIgnoreCase) ? "moves at the close" : "trailing incl. open";
+            if (t.InTrade && pv > 0) { t.FloorPx = KeystonePractice.PriceAt(t.Floor, closed, pos, avg, pv, cost); t.RoomPts = t.Room / (q * pv); }
+            t.HasGoal = true; bool tpt = p.Kind == "TPT";
+            t.GoalName = tpt ? (p.Locked ? "WITHDRAWABLE ABOVE" : "TO LOCK") : p.Kind == "EVAL" ? "TO TARGET" : "TO " + p.GoalName.ToUpperInvariant();
+            double goal = p.Goal; t.ToGoal = Math.Max(0, goal - (tpt ? Math.Max(pk, t.Equity) : t.Equity)); if (t.InTrade && pv > 0) t.ToGoalPts = t.ToGoal / (q * pv);
+            t.Progress = tpt && p.Locked ? 1 : Math.Max(0, Math.Min(1, ((tpt ? Math.Max(pk, t.Equity) : t.Equity) + p.Dd) / Math.Max(1, goal + p.Dd)));
+            return t;
+        }
+    }
+    /* 📊 BUILD 11l — THE PRACTICE ATTEMPTS TRACKER (Studio\practice-attempts.csv — the 11c file, extended: the first six columns stay as they were): one row per attempt
+       (#, preset, mode replay / live demo / Sim101, start → end in the practice's own time, result LOCKED / PASSED / BLOWN / RESET (↺ by hand) / DAY (🆓 MANUAL: one row a
+       session), trades, wins / losses, P/L, peak, the max drawdown from the peak, the floor at the end) + the summary bar. Attempt numbers continue after a restart. Pure. */
+    public sealed class KeystonePracticeAttempt
+    {
+        public int No, Days, Trades, Wins, Losses; public string Preset = "", Mode = "", Result = ""; public DateTime When, Start, End; public double Pnl, Peak, MaxDd, Floor = double.NaN;
+        public TimeSpan Duration { get { return End > Start ? End - Start : TimeSpan.Zero; } }
+        public bool Passed { get { return Result == "LOCKED" || Result == "PASSED"; } }
+    }
+    public static class KeystonePracticeAttempts
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public const string Header = "when,account,result,days,trades,closed,attempt,mode,start,end,wins,losses,peak,maxdd,floor";
+        static string C(string x) { return (x ?? "").Replace(",", " ").Replace("\n", " "); }
+        static string T(DateTime d) { return d == DateTime.MinValue ? "" : d.ToString("yyyy-MM-dd HH:mm:ss", IC); }
+        public static string Line(KeystonePracticeAttempt a)
+        {
+            return string.Join(",", a.When.ToString("yyyy-MM-dd HH:mm", IC), C(a.Preset), a.Result, a.Days, a.Trades, a.Pnl.ToString("0.##", IC), a.No, C(a.Mode), T(a.Start), T(a.End), a.Wins, a.Losses, a.Peak.ToString("0.##", IC), a.MaxDd.ToString("0.##", IC), double.IsNaN(a.Floor) ? "" : a.Floor.ToString("0.##", IC));
+        }
+        public static KeystonePracticeAttempt Parse(string line, int fallbackNo)
+        {
+            var c = (line ?? "").Split(','); if (c.Length < 6 || c[0] == "when") return null;
+            try
+            {
+                Func<int, double> D = k => k < c.Length && c[k] != "" ? double.Parse(c[k], NumberStyles.Float, IC) : 0; Func<int, int> I = k => k < c.Length && c[k] != "" ? int.Parse(c[k], IC) : 0;
+                Func<int, DateTime> Tm = k => { DateTime d; return k < c.Length && DateTime.TryParseExact(c[k], "yyyy-MM-dd HH:mm:ss", IC, DateTimeStyles.None, out d) ? d : DateTime.MinValue; };
+                var a = new KeystonePracticeAttempt { When = DateTime.ParseExact(c[0], "yyyy-MM-dd HH:mm", IC), Preset = c[1], Result = c[2], Days = I(3), Trades = I(4), Pnl = D(5), No = c.Length > 6 && c[6] != "" ? I(6) : fallbackNo, Mode = c.Length > 7 ? c[7] : "", Start = Tm(8), End = Tm(9), Wins = I(10), Losses = I(11), Peak = D(12), MaxDd = D(13), Floor = c.Length > 14 && c[14] != "" ? D(14) : double.NaN };
+                if (a.Start == DateTime.MinValue) a.Start = a.When; if (a.End == DateTime.MinValue) a.End = a.When; return a;
+            }
+            catch { return null; }
+        }
+        public static List<KeystonePracticeAttempt> Load(string text)
+        {
+            var o = new List<KeystonePracticeAttempt>(); int n = 0; foreach (var l in (text ?? "").Split('\n')) { var a = Parse(l.TrimEnd('\r'), n + 1); if (a != null) { o.Add(a); n = Math.Max(n, a.No); } } return o;
+        }
+        public static int NextNo(IList<KeystonePracticeAttempt> all) { return (all == null || all.Count == 0 ? 0 : all.Max(a => a.No)) + 1; }
+        public static string Chip(string result) { switch (result) { case "LOCKED": return "🔒 LOCKED"; case "PASSED": return "✅ PASSED"; case "BLOWN": return "💀 BLOWN"; case "OPEN": return "⏸ open"; case "DAY": return "📅 DAY"; default: return "↺ reset by hand"; } }
+        public static string Dur(TimeSpan t) { return t.TotalDays >= 1 ? ((int)t.TotalDays) + "d " + t.Hours + "h" : t.TotalHours >= 1 ? ((int)t.TotalHours) + "h " + t.Minutes.ToString("00", IC) + "m" : ((int)t.TotalMinutes) + "m " + t.Seconds.ToString("00", IC) + "s"; }
+        public static List<KeystonePracticeAttempt> Filter(IList<KeystonePracticeAttempt> all, string preset, string mode, DateTime from, DateTime to)
+        {
+            return (all ?? new List<KeystonePracticeAttempt>()).Where(a => (string.IsNullOrEmpty(preset) || a.Preset == preset) && (string.IsNullOrEmpty(mode) || a.Mode == mode) && (from == DateTime.MinValue || a.Start.Date >= from.Date) && (to == DateTime.MinValue || a.Start.Date <= to.Date)).ToList();
+        }
+        // the summary bar: attempts (📅 DAY rows apart), 🔒 / ✅, 💀, open, pass % (of the finished ones), avg / median time to pass, avg trades, the net, the streak
+        public static List<string[]> Summary(IList<KeystonePracticeAttempt> all)
+        {
+            var at = (all ?? new List<KeystonePracticeAttempt>()).Where(a => a.Result != "DAY").ToList(); int pass = at.Count(a => a.Passed), blown = at.Count(a => a.Result == "BLOWN"), open = at.Count(a => a.Result == "OPEN"), fin = pass + blown;
+            var tp = at.Where(a => a.Passed).Select(a => a.Duration.TotalSeconds).OrderBy(x => x).ToList(); Func<double, string> dur = sec => Dur(TimeSpan.FromSeconds(sec));
+            string streak = "–"; var seq = at.Where(a => a.Result != "OPEN").OrderBy(a => a.No).ToList();
+            if (seq.Count > 0) { var last = seq[seq.Count - 1]; bool lp = last.Passed; int k = 0; for (int i = seq.Count - 1; i >= 0 && (lp ? seq[i].Passed : seq[i].Result == last.Result); i--) k++; streak = k + " × " + (lp ? "🔒 / ✅" : Chip(last.Result)); }
+            Func<double, string> sg = v => (v >= 0 ? "+" : "−") + "$" + Math.Abs(Math.Round(v)).ToString("N0", IC);
+            return new List<string[]>
+            {
+                new[] { "attempts", at.Count.ToString(IC) }, new[] { "🔒 / ✅ passed", pass.ToString(IC) }, new[] { "💀 blown", blown.ToString(IC) }, new[] { "⏸ open", open.ToString(IC) },
+                new[] { "pass %", fin == 0 ? "–" : (100.0 * pass / fin).ToString("0.0", IC) + " %" },
+                new[] { "time to pass (avg / median)", tp.Count == 0 ? "–" : dur(tp.Average()) + " / " + dur(tp.Count % 2 == 1 ? tp[tp.Count / 2] : (tp[tp.Count / 2 - 1] + tp[tp.Count / 2]) / 2) },
+                new[] { "trades / attempt", at.Count == 0 ? "–" : at.Average(a => a.Trades).ToString("0.0", IC) }, new[] { "net P/L", sg(at.Sum(a => a.Pnl)) }, new[] { "streak", streak },
+            };
+        }
+    }
     public static class KeystoneLabelStack
     {
         public const int MergeTicks = 2;
@@ -20551,7 +20636,12 @@ namespace NinjaTrader.NinjaScript
         public string Kind = "EVAL"; public double WithdrawAt = 3000, WithdrawAmt = 1000, Split = 80, QualMin = 150, Pct = 50, PayCap; public int QualDays = 5;
         public int Qual, Payouts; public double Withdrawn, ToYou; bool lockSeen; double eodClosed, dayWd;
         public KeystonePractice Copy() { var c = (KeystonePractice)MemberwiseClone(); c.Reset(); return c; }
-        public void Reset() { Closed = Peak = PeakEod = LastOpen = 0; Blown = Passed = false; Days = Trades = 0; How = ""; Qual = Payouts = 0; Withdrawn = ToYou = 0; lockSeen = false; eodClosed = dayWd = 0; }
+        public void Reset() { Closed = Peak = PeakEod = LastOpen = 0; Blown = Passed = false; Days = Trades = 0; How = ""; Qual = Payouts = 0; Withdrawn = ToYou = 0; lockSeen = false; eodClosed = dayWd = 0; BestEq = MaxDdSeen = 0; }
+        /* 🆓 BUILD 11l — MANUAL (no rules): a plain simulated account — a start balance, optional max contracts / daily loss — no floor, no lock, no pass, never blown,
+           never auto-reset; the tiles show balance, open, day P/L, peak and the max drawdown seen from the peak • BestEq / MaxDdSeen are kept for every kind (the attempts log) */
+        public bool Manual { get { return Kind == "MANUAL"; } }
+        public double DailyLoss, BestEq, MaxDdSeen;
+        public const string ManualName = "🆓 MANUAL — no rules (a plain simulated account)";
         public static string TargetLabelOf(string kind) { return kind == "TPT" ? "TRAILING TO BEAT $" : kind == "PAYOUT" ? "PAYOUT NEED $" : kind == "MFF" ? "WITHDRAW ≥ $" : "TARGET $"; }
         public string TargetLabel { get { return TargetLabelOf(Kind); } }
         // the goal now (money from the start): TPT the lock (+Dd above LockAt), then the next withdrawal • PAYOUT the profit needed • MFF the next withdrawal • EVAL the target
@@ -20612,11 +20702,13 @@ namespace NinjaTrader.NinjaScript
                 F(P("TPT PRO 50K funded (intraday, locks at the start)", "INTRADAY", 50000, 2000, 2000, 60, 0, true), "TPT", 0, 80),
                 AsRace(F(P(RaceName, "INTRADAY", 50000, 2000, 2000, 60, 0, true), "TPT", 0, 80)),
                 P("custom", "EOD", 50000, 2000, 3000, 40, double.NaN, false),
+                AsManual(P(ManualName, "INTRADAY", 50000, 50000, 0, 9999, double.NaN, false)),
             }.Concat(BookExtras()).Concat(User.Select(u => u.Copy())).ToList();
         }
         /* 📚 BUILD 11k — TRAILING DRAWDOWN PRESETS from the FIRM BOOK (never invented): every evaluation plan of KeystoneFirmRules (MFFU 25K / 50K, Lucid 50K / 150K,
            TPT 25K / 50K …) that the built-in list above does not already carry with the same size / drawdown / target / max contracts, as an END-OF-DAY trailing eval
            (the book's EodTrailing) — appended AFTER "custom" so the saved choices keep their numbers • then the user's own (＋ SAVE AS PRESET → Studio\practice-presets.txt) */
+        static KeystonePractice AsManual(KeystonePractice p) { p.Kind = "MANUAL"; p.CloseAtGoal = false; return p; }
         public static List<KeystonePractice> BookExtras()
         {
             var have = new List<KeystonePractice>
@@ -20649,7 +20741,7 @@ namespace NinjaTrader.NinjaScript
         // the floor now (money from the start): STATIC −Dd • EOD the best closed day − Dd • INTRADAY the best equity (open profit included) − Dd — both stop at LockAt
         public double FloorNow(double open)
         {
-            string t = (DdType ?? "").ToUpperInvariant(); if (t == "STATIC") return -Dd;
+            string t = (DdType ?? "").ToUpperInvariant(); if (Manual) return -Size; if (t == "STATIC") return -Dd;   /* 🆓 MANUAL: only the cash (never drawn, never ends it) */
             double pk = t == "INTRADAY" ? Math.Max(Peak, Closed + open) : PeakEod; return Math.Min(pk - Dd, Cap);
         }
         public bool Locked { get { string t = (DdType ?? "").ToUpperInvariant(); return t != "STATIC" && !double.IsNaN(LockAt) && (t == "INTRADAY" ? Peak : PeakEod) - Dd >= LockAt - 1e-9; } }
@@ -20659,6 +20751,8 @@ namespace NinjaTrader.NinjaScript
         public string Mark(double closed, double open, string where)
         {
             if (Blown || Passed) return null; Closed = closed; LastOpen = open; double eq = closed + open;
+            if (eq > BestEq) BestEq = eq; if (BestEq - eq > MaxDdSeen) MaxDdSeen = BestEq - eq;
+            if (Manual) { if (eq > Peak) Peak = eq; return null; }   /* 🆓 no floor, no lock, no pass: never an end */
             if (string.Equals(DdType, "INTRADAY", StringComparison.OrdinalIgnoreCase) && eq > Peak) Peak = eq; double fl = FloorNow(open);
             if (eq <= fl + 1e-9) { Blown = true; How = "💀 BLOWN at " + Sg(eq) + " (floor " + Sg(fl) + ")" + (string.IsNullOrEmpty(where) ? "" : " · " + where); return "BLOWN"; }
             if (Funded) { if (Locked && !lockSeen) { lockSeen = true; How = Kind == "TPT" ? "🔒 TRAILING BEATEN: the floor is locked at the start (" + M(Size + FloorNow(open)) + ") · keep the " + M(Dd) + " buffer, withdraw anything above it" : "🔒 LOCKED: the floor stops trailing at " + Sg(FloorNow(open)); return "LOCKED"; } return null; }   /* 🎯 11f: a funded account never "passes" */
