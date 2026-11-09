@@ -37,6 +37,12 @@ namespace KeystoneMT5
             auto.Send = AutoSend; auto.NewsNear = AutoNews; auto.OnSignalDone = AutoSignalSave;
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
             auto.OnPath = line => AutoAppend("paths", line);
+            auto.OnHandStop += what => Dispatcher.BeginInvoke(new Action(() =>
+            {   // ⏸ 09d: stopped because you traded by hand — the warning on every open SpasiX tab, the red bar + ▶ RESUME AUTOMATION here
+                Put("auto.run." + AKey, "0"); var msg = AccountBadge().Item1 + " — ⏸ AUTOMATION STOPPED: you traded by hand (" + what + "). Your positions are untouched. To continue: 🛡 HEDGE ▸ ▶ RESUME AUTOMATION";
+                foreach (var m in Shell.Modes.ToList()) try { m.Toast(msg); } catch { }
+                Log("⏸ " + msg, Red); AutoPaint(true);
+            }));
             auto.OnOpenState = line => { try { if (string.IsNullOrEmpty(aHist)) return; var f = AutoFile("open"); if (line == "") { if (File.Exists(f)) File.Delete(f); } else { Directory.CreateDirectory(Path.GetDirectoryName(f)); File.WriteAllText(f, line); } } catch { } };
             auto.RestoreOpen = () => { try { if (string.IsNullOrEmpty(aHist)) AutoLoadHistory(); var f = string.IsNullOrEmpty(aHist) ? null : AutoFile("open"); return f != null && File.Exists(f) ? HedgeAuto.ParseOpen(File.ReadAllText(f)) : null; } catch { return null; } };
             auto.OnAfterDone = ia => AutoAppend("after", string.Join(",", ia.N.ToString(IC), ia.Start.Ticks.ToString(IC), ia.AfterMax.ToString("0.##", IC), ia.AfterMaxMin.ToString("0.#", IC), ia.AfterBackTargetMin.ToString("0.#", IC), ia.AfterBreakevenMin.ToString("0.#", IC), ia.AfterMove.ToString("0.###", IC)));
@@ -134,6 +140,9 @@ namespace KeystoneMT5
             r0.Children.Add(ADrop("eodl", "AT THAT TIME, IN A LOSS", () => aset.EodLoss == "CLOSE" ? "CLOSE anyway" : "HOLD OPEN (hedging)", () => new List<Mi> {
                 new Mi { Text = "HOLD OPEN (default) — a hedge never closes at a loss: the basket stays open, hedged and managed until its target", Fg = Green, Do = () => aset.EodLoss = "HOLD" },
                 new Mi { Text = "CLOSE anyway — everything closes at that time, even at a loss", Fg = Amber, Do = () => aset.EodLoss = "CLOSE" } }));
+            r0.Children.Add(ADrop("onman", "WHEN YOU TRADE BY HAND", () => aset.OnManual == "ADOPT" ? "ADOPT + go on" : "⏸ STOP (default)", () => new List<Mi> {
+                new Mi { Text = "⏸ STOP ON MANUAL (the default) — anything you do by hand on the symbol (a SpasiX order / ✕ close / line drag / breakeven, or an order / close / SL-TP / pending order in MT5 desktop, mobile, web) STOPS the automation at once, positions untouched; ▶ RESUME AUTOMATION takes the basket over again", Fg = Green, Do = () => aset.OnManual = "STOP" },
+                new Mi { Text = "ADOPT MANUAL TRADES WITHOUT STOPPING — the old way: your trade becomes part of the basket (or a new ✋ iteration) and the automation goes on", Fg = Amber, Do = () => aset.OnManual = "ADOPT" } }));
             r0.Children.Add(ADrop("man", "MANUAL TRADES", () => aset.TrackManual ? "TRACK + MANAGE ✋" : "ignore", () => new List<Mi> {
                 new Mi { Text = "TRACK + MANAGE — a trade you open by hand on the symbol becomes an iteration (✋): the automation takes it to the target / stop / close time and records it", Do = () => aset.TrackManual = true },
                 new Mi { Text = "IGNORE — wait until your trades are closed (the old way)", Do = () => aset.TrackManual = false } }));
@@ -170,7 +179,7 @@ namespace KeystoneMT5
                     new Mi { Text = "ALWAYS — after every hedge: gross ≤ 2 × net + the entry lots (the best in the 6-year replays)", Do = () => aset.CompressMode = "ALWAYS" } });
                   cmp.ToolTip = "Closing an equal amount of BUY and SELL lots leaves the NET (the market risk) exactly the same: the realised part stays in the iteration (TP / breakeven / rescue / DANGER count open + closed), only the swap and margin on those lots stop.\n6 years of 1-minute gold, $8,000, your DEFENDER settings, the broker's swap (−$62.4 / +$28.1 a lot a night): OFF wiped the account out in 7 of 7 yearly runs (47 hard stops); BEFORE THE ROLLOVER 0 of 7 (1 hard stop); ALWAYS 0 of 7 (1 hard stop, worst basket −$1,687 vs −$9,338, at most 0.40 lot).\nWithout swap: ALWAYS −$778 vs OFF −$3,893 (both halves better); BEFORE THE ROLLOVER −$6,636 (a little worse). Your live week 2–9 Nov: the same result, swap −$47 vs −$170.\nIt stops the wipe-outs; it does not make the strategy profitable by itself (with swap the 6 years are still −$8,920 in all, OFF −$53,417).";
                   simple.Children.Add(cmp); }
-            simple.Children.Add(new TextBlock { Text = "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 720, Margin = new Thickness(10, 14, 0, 0) });
+            simple.Children.Add(aPresetNote = new TextBlock { Text = "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 720, Margin = new Thickness(10, 14, 0, 0) });
             aSettings.Children.Add(simple);
             {   // ⏰ 9:30 STRADDLE: its own row (only with that strategy)
                 var strad = new WrapPanel { Margin = new Thickness(0, 4, 0, 2) };
@@ -359,6 +368,13 @@ namespace KeystoneMT5
             root.Children.Remove(card); aSetScroll = new ScrollViewer { Content = card, VerticalScrollBarVisibility = ScrollBarVisibility.Visible, Visibility = Visibility.Collapsed }; tableHost.Children.Add(aSetScroll);
             tableHost.Children.Add(BuildRace());
             root.Children.Remove(aViews); root.Children.Insert(1, aViews);   // the views stay at the top, always reachable
+            {   // ⏸ 09d: the red bar after a stop by hand + the big ▶ RESUME AUTOMATION
+                aHandTxt = new TextBlock { Foreground = Sx.White, FontSize = 14, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+                aResumeBtn = Pill("▶  RESUME AUTOMATION", Tint(Green, 150)); aResumeBtn.Height = 40; aResumeBtn.FontSize = 15; aResumeBtn.Margin = new Thickness(12, 0, 0, 0); aResumeBtn.Click += delegate { AutoHandResume(); };
+                var hd = new DockPanel(); DockPanel.SetDock(aResumeBtn, Dock.Right); hd.Children.Add(aResumeBtn); hd.Children.Add(aHandTxt);
+                aHandBar = new Border { Child = hd, Background = Tint(Red, 150), BorderBrush = Red, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 8, 10, 8), Margin = new Thickness(0, 0, 0, 8), Visibility = Visibility.Collapsed };
+                DockPanel.SetDock(aHandBar, Dock.Top); root.Children.Insert(2, aHandBar);
+            }
 
             // the engine's clock: every tick of the BACKTEST; every 200 ms live (the bridge sends the state every 200 ms)
             if (Sim) sim.OnTickHook = () => { auto.Step(sim); RaceStep(); };
@@ -600,7 +616,7 @@ namespace KeystoneMT5
             var b = AccountBadge(); return new Border { Child = new TextBlock { Text = b.Item1, Foreground = b.Item2, FontSize = 15, FontWeight = FontWeights.Bold }, Background = Tint(b.Item2, 36), BorderBrush = b.Item2, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 4, 12, 5), Margin = new Thickness(4, 2, 4, 6), HorizontalAlignment = HorizontalAlignment.Left };
         }
         // 🔁 09d: after START / RESUME the banner says what continued ("resumed: 39 iterations · today +$248.89 · open basket #40 taken over")
-        string aResumeTxt = ""; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
+        string aResumeTxt = ""; TextBlock aPresetNote; Border aHandBar; TextBlock aHandTxt; Button aResumeBtn; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
         void AutoResumeNote() { try { var t = Continuity.ResumeLine(auto.Iterations, auto.Current, auto.Now > DateTime.MinValue ? auto.Now : DateTime.Now); aResumeTxt = t; if (t != "") { auto.Note(t); Toast(t); } } catch { } }
         string BadgeLine() { return AccountBadge().Item1 + "\n\n"; }
         void AutoRowsOf(HedgeAuto e, StackPanel aRows, string aView)
@@ -837,6 +853,11 @@ namespace KeystoneMT5
         // only the boxes the chosen options use: ONE add-on trigger (BREAK / PRICE / $), the pause, the FVG timeframe, the flow numbers, the news minutes, the winner lots
         void AutoVis()
         {
+            if (aPresetNote != null)
+            {   // 🔒 09d: SAFE LIVE's evidence stays in sight under the settings while it is the strategy
+                bool sl = aset.Preset == "SAFELIVE"; aPresetNote.Text = sl ? "🔒 SAFE LIVE (optional — DEFENDER stays the default). " + AutoSettings.SafeLiveEvidence + " Every box can still be changed." : "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED";
+                aPresetNote.Foreground = sl ? Green : Muted; aPresetNote.MaxWidth = sl ? 1100 : 720;
+            }
             Action<string, bool> v = (k, on) => { FrameworkElement e; if (afBox.TryGetValue(k, out e)) e.Visibility = on ? Visibility.Visible : Visibility.Collapsed; };
             v("stradbox", aset.Preset == "STRADDLE930"); v("sx", aset.StradXMode == "POINTS"); v("srk", aset.StradXMode != "POINTS");
             v("hprice", aset.HedgeMode == "PRICE"); v("hmoney", aset.HedgeMode == "MONEY" || aset.HedgeMode == "SIGNAL"); v("hmult", aset.HedgeMode == "SIGNAL"); v("maxh", aset.HedgeMode == "SIGNAL"); v("roll", aset.HedgeMode == "BREAK");
@@ -951,7 +972,7 @@ namespace KeystoneMT5
             bool adopt = false;
             if (open > 0)
             {
-                int k = Sx.Choice(this, "🤖 " + open + " position" + (open == 1 ? "" : "s") + " already open on " + s.Symbol, "The automation owns EVERY position on its symbol. Take these over as the current iteration (their P/L " + Signed(pl, "USD") + " counts toward the target), or cancel and close them first.", null, new[] { "TAKE THEM OVER", "CANCEL" }, new[] { Gold, (SolidColorBrush)null });
+                int k = Sx.Choice(this, "🤖 " + open + " position" + (open == 1 ? "" : "s") + " already open on " + s.Symbol, BadgeLine() + "The automation owns EVERY position on its symbol. Take these over as the current iteration (their P/L " + Signed(pl, "USD") + " counts toward the target), or cancel and close them first.", null, new[] { "TAKE THEM OVER", "CANCEL" }, new[] { Gold, (SolidColorBrush)null });
                 if (k != 0) return; adopt = true;
             }
             string what = (s.Preset != "" ? "STRATEGY " + (s.Preset == "BOX" ? "HEDGE BOX (swap-free accounts only)" : s.Preset) + "  •  setup " + s.EntryMode + "  •  VWAP filter " + s.VwapFilter + (s.HedgeMode == "NONE" ? "  •  NO HEDGE" : "") + (s.CloseAtNy != "" ? "  •  closes at " + s.CloseAtNy + " NY" : "") + (s.Windows != "" ? "  •  " + s.Windows + " NY" : "") + "\n" : "") + s.Symbol + " " + Tf.Name(s.Tf) + "  •  entry " + s.EntryLots.ToString("0.##", IC) + "  •  add-on " + s.AddLots.ToString("0.##", IC) + " the other way (" + (s.HedgeMode == "PRICE" ? "a " + s.HedgePrice.ToString("0.#####", IC) + " price move" : s.HedgeMode == "MONEY" ? "−$" + s.HedgeMoney.ToString("0.##", IC) : "the break of the recent low / high") + ")\n"
@@ -977,6 +998,20 @@ namespace KeystoneMT5
             }
             else if (!Sx.Ask(this, "🤖 START on MT5 (" + kind + " account " + login + ")", BadgeLine() + "Orders go to MT5 by themselves while it runs.\n\n" + what, "▶ START", "CANCEL", Green)) return;
             AutoLoadHistory(); if (aView == "⚙ SETTINGS") aView = "STORY"; auto.Start(broker, s, adopt); AutoResumeNote(); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
+        }
+        // ▶ RESUME AUTOMATION after a stop by hand: asks (the account, the positions it takes over, the settings), then the same basket goes on
+        void AutoHandResume()
+        {
+            if (auto.Running) return; AutoSaveSet(); var s = aset.Copy(); var err = auto.Check(broker, s); if (err != "") { Sx.Info(this, "▶ RESUME", err, Red); return; }
+            bool can; string kind; long login; List<Mt5Position> ps; lock (broker.State.Gate) { can = broker.State.CanTrade; kind = broker.State.Account.Kind; login = broker.State.Account.Login; ps = broker.State.Positions.Where(p => string.Equals(p.Symbol, s.Symbol, StringComparison.OrdinalIgnoreCase)).ToList(); }
+            if (!Virtual && !can) { Sx.Info(this, "▶ RESUME", BadgeLine() + "MT5 does not allow trading right now (Algo Trading / the EA's Allow Algo Trading).", Red); return; }
+            if (!Virtual && !armed) { Sx.Info(this, "▶ RESUME", BadgeLine() + "Trading is not ARMED — press 🔓 ARM TRADING on the 📈 CHART first.", Amber); return; }
+            var cur = auto.Iterations.LastOrDefault(x => !x.Done);
+            string txt = BadgeLine() + "Stopped because you traded by hand: " + auto.HandWhat + "\n\n" + (ps.Count == 0 ? "Nothing is open on " + s.Symbol + ": it waits for the next entry." : "It takes over these " + ps.Count + " position" + (ps.Count == 1 ? "" : "s") + " on " + s.Symbol + (cur != null ? " as iteration #" + cur.N + " (its closed legs still count)" : "") + ":\n" + string.Join("\n", ps.OrderBy(p => p.Time).Select(p => "  #" + p.Ticket + "  " + p.Side + " " + p.Lots.ToString("0.##", IC) + " @ " + p.Open.ToString("0.#####", IC) + "  " + Signed(p.Profit + p.Swap + p.Commission, "USD"))))
+                + "\n\nwith the CURRENT settings: " + (s.Preset != "" ? s.Preset + " • " : "") + "entry " + s.EntryLots.ToString("0.##", IC) + (s.SizePer1k > 0 ? " (" + s.SizePer1k.ToString("0.###", IC) + " per $1,000)" : "") + " • target +$" + s.Target.ToString("0.##", IC) + " • hedge " + s.HedgeSize + " • max drawdown " + (s.MaxDdPct > 0 ? s.MaxDdPct.ToString("0.#", IC) + " %" : s.MaxDrawdown > 0 ? "$" + s.MaxDrawdown.ToString("0", IC) : "none") + " • daily loss " + (s.DayLossPct > 0 ? s.DayLossPct.ToString("0.#", IC) + " %" : s.DayLoss > 0 ? "$" + s.DayLoss.ToString("0", IC) : "none");
+            if (Sim || Paper || kind != "REAL") { if (!Sx.Ask(this, "▶ RESUME AUTOMATION", txt, "▶ RESUME", "NOT NOW", Green)) return; }
+            else { var typed = Sx.Prompt(this, "⚠ ▶ RESUME on a REAL account (" + login + ")", txt + "\n\nREAL MONEY: type START to go on (the same rule as ▶ START).", ""); if (typed == null || typed.Trim().ToUpperInvariant() != "START") return; }
+            AutoLoadHistory(); auto.Start(broker, s, ps.Count > 0); AutoResumeNote(); Put("auto.run." + AKey, "1"); aWasOn = true; AutoPaint(true);
         }
         void AutoStopClose()
         {
@@ -1159,6 +1194,26 @@ namespace KeystoneMT5
             catch { }
             aSaved = auto.Iterations.Count(x => x.Done); auto.Version++;
         }
+        static string IterCsv(AutoIteration x) { return string.Join(",", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.End.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.Result.ToString("R", IC), (x.Reason ?? "").Replace(",", ";"), x.BalanceStart.ToString("R", IC), x.BalanceEnd.ToString("R", IC), x.Peak.ToString("R", IC), x.WinnerAdds.ToString(IC), (x.Ctx ?? "").Replace(",", " "), x.Fees.ToString("0.##", IC), x.ManualAdds.ToString(IC)); }
+        // 🧮 09d: once per account, when its deals are here — every saved result recomputed from its own deals, the file rewritten (a copy of the old one kept)
+        bool aFixDone;
+        void AutoRepairResults()
+        {
+            if (aFixDone || Sim || string.IsNullOrEmpty(aHist)) return; if (Get("auto.fix09d." + aHist, "") == "1") { aFixDone = true; return; }
+            List<Mt5Deal> deals; lock (broker.State.Gate) deals = broker.State.Deals.ToList(); if (deals.Count == 0) return;
+            aFixDone = true; var sym = (auto.Set ?? aset).Symbol; var ch = Continuity.RepairResults(auto.Iterations, deals, sym);
+            if (ch.Count > 0)
+            {
+                try
+                {
+                    var f = AutoFile("iterations"); if (File.Exists(f)) File.Copy(f, f + ".before-09d", true);
+                    File.WriteAllLines(f, new[] { "n,start,end,first,buys,sells,addons,buylots,selllots,maxgross,maxdd,result,reason,balstart,balend,peak,winneradds,context,fees" }.Concat(auto.Iterations.Where(x => x.Done).Select(IterCsv)));
+                }
+                catch { }
+                foreach (var l in ch) { auto.Note("🧮 09d repair: " + l); Log("🧮 09d repair: " + l, Amber); } auto.Version++; Toast("🧮 " + ch.Count + " saved iteration result" + (ch.Count == 1 ? "" : "s") + " recomputed from their deals (see LOG)");
+            }
+            Put("auto.fix09d." + aHist, "1");
+        }
         void AutoSaveNew()
         {
             if (aHist == null) AutoLoadHistory(); if (string.IsNullOrEmpty(aHist)) return; var done = auto.Iterations.Where(x => x.Done).ToList(); if (done.Count <= aSaved) return;
@@ -1169,7 +1224,7 @@ namespace KeystoneMT5
                 if (!File.Exists(t)) File.WriteAllText(t, "iteration,time,side,lots,price,level,basket,why\n");
                 foreach (var x in done.Skip(aSaved))
                 {
-                    File.AppendAllText(f, string.Join(",", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.End.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.Result.ToString("R", IC), x.Reason, x.BalanceStart.ToString("R", IC), x.BalanceEnd.ToString("R", IC), x.Peak.ToString("R", IC), x.WinnerAdds.ToString(IC), (x.Ctx ?? "").Replace(",", " "), x.Fees.ToString("0.##", IC), x.ManualAdds.ToString(IC)) + "\n");
+                    File.AppendAllText(f, IterCsv(x) + "\n");
                     File.AppendAllLines(t, auto.Trades.Where(tr => tr.Iter == x.N && tr.Time >= x.Start).Select(tr => string.Join(",", tr.Iter.ToString(IC), tr.Time.Ticks.ToString(IC), tr.Side, tr.Lots.ToString("R", IC), tr.Price.ToString("R", IC), (double.IsNaN(tr.Level) ? 0 : tr.Level).ToString("R", IC), tr.Basket.ToString("R", IC), "\"" + tr.Why.Replace("\"", "'").Replace(",", ";") + "\"")));
                 }
                 aSaved = done.Count;
@@ -1190,6 +1245,7 @@ namespace KeystoneMT5
         {
             if (aPhase == null) return; bool on = auto.Running; var s = on ? auto.Set : aset; var it = auto.Current;
             if (aHist == null && !Sim) AutoLoadHistory();
+            if (!aFixDone && !Sim) AutoRepairResults();
             if (aWasOn && !on && auto.StopReason != "the window closed") Put("auto.run." + AKey, "0"); aWasOn = on;
             if (!on) aStart.Content = AutoWasRunning() ? "⟳  RESUME (it was running)" : "▶  START";
             try { AutoPostMortems(); } catch { }
@@ -1216,6 +1272,7 @@ namespace KeystoneMT5
                 if (aFullBtn != null) { aFullBtn.Content = aFull ? "⤡ BANNER BACK" : "⤢ FULL LIST"; aFullBtn.Background = aFull ? Tint(Cyan, 70) : Tint(Sx.Card2, 220); }
             }
             aStart.IsEnabled = !on; aStop.IsEnabled = on;
+            if (aHandBar != null) { bool hs = auto.HandStopped && !on; aHandBar.Visibility = hs ? Visibility.Visible : Visibility.Collapsed; if (hs) aHandTxt.Text = "⏸ AUTOMATION STOPPED — you traded by hand (" + auto.HandWhat + "). Your positions are untouched. To continue: ▶ RESUME AUTOMATION (it asks first)."; }
             if (aLockTxt != null)
             {   // the settings bar: running → SAVE for the next iteration (amber while there are unsaved changes); stopped → START / RESUME here
                 string inUse = (auto.Next ?? auto.Set).Save(), boxes = AutoRead().Save(); bool dirty = on && inUse != boxes, queued = on && auto.Next != null;

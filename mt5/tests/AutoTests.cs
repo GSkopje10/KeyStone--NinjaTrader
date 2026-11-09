@@ -26,7 +26,7 @@ public static class AutoTests
         for (int k = 0; k < steps && !sb.Ended; k++) { sb.Advance(0.25); if (mid != null && k == 3) mid(sb, au); }
         return Tuple.Create(sb, au);
     }
-    static AutoSettings S() { return new AutoSettings { HedgeSize = "FIXED", Rolling = false, Swing = false, FvgTf = 1, Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
+    static AutoSettings S() { return new AutoSettings { OnManual = "ADOPT", HedgeSize = "FIXED", Rolling = false, Swing = false, FvgTf = 1, Symbol = "XAUUSD", Tf = 1, Lookback = 1, EntryLots = 0.1, AddLots = 0.2, Target = 20, FirstDir = "AUTO", NextStart = "BREAK" }; }
 
     // ⏰ 9:30 STRADDLE: a NAS100-like symbol ($1 a point a lot), yesterday 9:30–16:00 NY ranged 200 points (X = 100 at 0.5 ×)
     static SimSpec Nas() { return new SimSpec { Name = "NAS100", Digits = 2, Point = 0.01, Contract = 1, TickValue = 0.01, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7 }; }

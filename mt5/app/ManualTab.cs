@@ -46,7 +46,7 @@ namespace KeystoneMT5
         void ManualTick(Mt5State s)
         {
             if (mList == null) return;
-            var id = AutoId(); if (id != manualId || manualSaved < 0) { if (id != manualId && manualSaved >= 0) manual.Reset(); manualId = id; manual.Load(ManualPrefix()); manualSaved = manual.Iters.Count(x => x.Done); }
+            var id = AutoId(); if (!Sim && id == "") return;   /* 09d: wait for the account's login@server — never a file under a guessed name */ if (id != manualId || manualSaved < 0) { if (id != manualId && manualSaved >= 0) manual.Reset(); manualId = id; if (!Sim && live != null) try { Continuity.LinkHistory(Dir, Mode, live.Key); } catch { } manual.Load(ManualPrefix()); manualSaved = manual.Iters.Count(x => x.Done); }
             List<Mt5Position> pos; List<Mt5Deal> deals; DateTime now;
             lock (broker.State.Gate) { pos = broker.State.Positions.ToList(); deals = broker.State.Deals.ToList(); now = broker.State.ServerNow > DateTime.MinValue ? broker.State.ServerNow : DateTime.Now; }
             manual.Update(pos, deals, now, auto.Running, auto.Set != null ? auto.Set.Symbol : "", auto.Current != null ? auto.Current.N : 0);

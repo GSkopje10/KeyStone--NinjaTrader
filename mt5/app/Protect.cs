@@ -67,7 +67,7 @@ namespace KeystoneMT5
             }
             string unit = beUnitUsd ? "$" + Num(beOff).ToString("0.##", IC) + " kept" : Num(beOff).ToString("0.##", IC) + " points";
             if (todo.Count == 0) { Toast(inProfit == 0 ? "no ticket in profit" + (sym != "" ? " on " + sym : "") : "every ticket in profit already has its stop there or better (or the price is too close)"); return; }
-            if (!Sx.Ask(this, "⚖ Breakeven", "Move the stop of " + todo.Count + " ticket" + (todo.Count == 1 ? "" : "s") + " in profit" + (sym == "" ? " on every symbol" : " on " + sym) + " to the entry + " + unit + "?\n\n" + string.Join("\n", todo.Take(8).Select(t => "#" + t.Item1.Ticket + " " + t.Item1.Side + " " + t.Item1.Lots.ToString("0.00", IC) + " " + t.Item1.Symbol + " → S/L " + t.Item2.ToString("0.#####", IC))) + (todo.Count > 8 ? "\n…" : ""), "SET THE STOPS", "NO", Gold, "BREAKEVEN " + todo.Count + " TICKET" + (todo.Count == 1 ? "" : "S"))) return;
+            if (!Sx.Ask(this, "⚖ Breakeven", BadgeLine() + "Move the stop of " + todo.Count + " ticket" + (todo.Count == 1 ? "" : "s") + " in profit" + (sym == "" ? " on every symbol" : " on " + sym) + " to the entry + " + unit + "?\n\n" + string.Join("\n", todo.Take(8).Select(t => "#" + t.Item1.Ticket + " " + t.Item1.Side + " " + t.Item1.Lots.ToString("0.00", IC) + " " + t.Item1.Symbol + " → S/L " + t.Item2.ToString("0.#####", IC))) + (todo.Count > 8 ? "\n…" : ""), "SET THE STOPS", "NO", Gold, "BREAKEVEN " + todo.Count + " TICKET" + (todo.Count == 1 ? "" : "S"))) return;
             foreach (var t in todo) if (!Cmd("breakeven #" + t.Item1.Ticket, "MODIFY", t.Item1.Ticket, t.Item2, t.Item1.Tp)) break;
         }
 
@@ -79,7 +79,7 @@ namespace KeystoneMT5
             if (tp <= 0 && sl <= 0) { Toast("type a take profit (+$) and / or a stop (−$) first"); return; }
             if (!Virtual && !armed) { Toast("🔒 press 🔓 ARM TRADING first — the basket closes through the armed link"); return; }
             string what = (tp > 0 ? "reaches +" + Money(tp, "USD") : "") + (tp > 0 && sl > 0 ? " or " : "") + (sl > 0 ? "falls to −" + Money(sl, "USD") : "");
-            if (!Sx.Ask(this, "🧺 Basket", "Close EVERY ticket on every symbol when the open P/L " + what + "?\n\nIt closes once by itself, then the basket switches off.", "START THE BASKET", "NO", Gold, "+" + Money(tp, "USD") + " / −" + Money(sl, "USD"))) return;
+            if (!Sx.Ask(this, "🧺 Basket", BadgeLine() + "Close EVERY ticket on every symbol when the open P/L " + what + "?\n\nIt closes once by itself, then the basket switches off.", "START THE BASKET", "NO", Gold, "+" + Money(tp, "USD") + " / −" + Money(sl, "USD"))) return;
             basketTp = tp; basketSl = sl; basketOn = true; basketFired = false; PaintBasket(0, 0);
         }
         void BasketWatch(Mt5State s)

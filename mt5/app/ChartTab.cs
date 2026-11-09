@@ -101,7 +101,7 @@ namespace KeystoneMT5
                     c.Item1.Width = double.NaN; c.Item1.MinWidth = 120; c.Item3.FontSize = 10.5; c.Item2.FontSize = 9.5; c.Item1.Margin = new Thickness(0, 1, 6, 1); c.Item1.Visibility = Visibility.Visible;
                     var st = (StackPanel)c.Item1.Child; st.Children.Clear(); var big = new TextBlock { FontSize = 15, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
                     c.Item2.VerticalAlignment = VerticalAlignment.Center; var top = new StackPanel { Orientation = Orientation.Horizontal }; top.Children.Add(c.Item2); top.Children.Add(big); st.Children.Add(top); st.Children.Add(c.Item3);
-                    c.Item1.Child = new Viewbox { Child = st, StretchDirection = StretchDirection.DownOnly, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left }; symBig[c.Item1] = big; symExtra.Children.Add(c.Item1);
+                    c.Item1.Child = null; c.Item1.Child = new Viewbox { Child = st, StretchDirection = StretchDirection.DownOnly, MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left }; symBig[c.Item1] = big; symExtra.Children.Add(c.Item1);
                 }
                 bar.Children.Add(symExtra);
             }
@@ -865,7 +865,7 @@ namespace KeystoneMT5
         }
         void FillSymExtra(Mt5State s, string sym, List<Mt5Position> ps, double total, double open, double banked, double target, double per, string cur)
         {
-            if (symExtra == null) return; bool show = ps.Count > 0 && !double.IsNaN(total); foreach (var c in new[] { symBuy, symSell, symHedge }) c.Item1.Width = show ? 150 : 182; symPlInfo.Width = show && symPlInfo.Text == "" ? 0 : 70;   // room for the 3 boxes, the ✕ buttons stay on the row
+            if (symExtra == null) return; bool show = ps.Count > 0 && !double.IsNaN(total); foreach (var c in new[] { symBuy, symSell, symHedge }) { c.Item1.Width = double.NaN; c.Item1.MinWidth = show ? 150 : 182; }   /* 09d: sized to the numbers — never cut */ symPlInfo.Width = show && symPlInfo.Text == "" ? 0 : 70;   // room for the 3 boxes, the ✕ buttons stay on the row
             if (!show) { symExtra.Visibility = Visibility.Collapsed; return; }
             symExtra.Visibility = Visibility.Visible;
             DateTime from = auto != null && auto.Running && auto.Current != null && string.Equals(auto.Set.Symbol, sym, StringComparison.OrdinalIgnoreCase) ? auto.Current.Start : ps.Min(p => p.Time);
@@ -1045,7 +1045,7 @@ namespace KeystoneMT5
             var v = p.V; int dir = d.Kind == "LONG" ? 1 : -1; double px = Math.Round(d.P1 / v.Point) * v.Point, sl = Math.Round(d.P2 / v.Point) * v.Point, tp = Math.Round(d.P3 / v.Point) * v.Point;
             string kind = dir > 0 ? (px < v.Ask ? "BUY LIMIT" : "BUY STOP") : (px > v.Bid ? "SELL LIMIT" : "SELL STOP"); double lots = Num(lotsBox); string f = "F" + v.Digits;
             string what = kind + " " + lots.ToString("0.00", IC) + " " + p.Sym + " @ " + px.ToString(f, IC) + " • S/L " + sl.ToString(f, IC) + " • T/P " + tp.ToString(f, IC);
-            if (!Sx.Ask(this, "⚡ Place the " + (dir > 0 ? "long" : "short"), what + "?", "PLACE", "NO", dir > 0 ? Green : Red, kind + " " + lots.ToString("0.00", IC) + " LOTS")) return;
+            if (!Sx.Ask(this, "⚡ Place the " + (dir > 0 ? "long" : "short"), BadgeLine() + what + "?", "PLACE", "NO", dir > 0 ? Green : Red, kind + " " + lots.ToString("0.00", IC) + " LOTS")) return;
             Cmd(what, "ORDER", p.Sym, kind, lots, px, sl, tp);
         }
 
@@ -1244,7 +1244,7 @@ namespace KeystoneMT5
         }
         void EscapeAsk(string sym, double px, int dir, int n, double pl, string f)
         {
-            if (!Sx.Ask(this, "⛑ Close all at a price • " + sym, "When the price " + (dir > 0 ? "RISES" : "FALLS") + " to " + px.ToString(f, IC) + ", ALL " + n + " " + sym + " positions close by themselves (≈ " + Signed(pl, "USD") + " now).\n\nIt needs trading ARMED. It stays until it fires, you remove it (right-click) or the positions are gone.", "SET IT", "CANCEL", Gold)) return;
+            if (!Sx.Ask(this, "⛑ Close all at a price • " + sym, BadgeLine() + "When the price " + (dir > 0 ? "RISES" : "FALLS") + " to " + px.ToString(f, IC) + ", ALL " + n + " " + sym + " positions close by themselves (≈ " + Signed(pl, "USD") + " now).\n\nIt needs trading ARMED. It stays until it fires, you remove it (right-click) or the positions are gone.", "SET IT", "CANCEL", Gold)) return;
             escapes[sym] = Tuple.Create(px, dir); Toast("⛑ escape set on " + sym + " @ " + px.ToString(f, IC));
         }
         void EscapeWatch(Mt5State s)
@@ -1286,7 +1286,7 @@ namespace KeystoneMT5
             string text = (stop ? "Set the STOP LOSS of " : "Set the TAKE PROFIT of ") + list.Count + " " + side + (list.Count == 1 ? "" : "s") + " on " + sym + " to " + px.ToString(f, IC) + "?\n\n"
                 + (stop ? inProfit + " of them close in profit (or at breakeven) if it is hit, " + (list.Count - inProfit) + " at a loss.\n" : "")
                 + "If every one closes there: " + Signed(sum, "USD") + ".\nTheir " + (stop ? "targets" : "stops") + " stay as they are.";
-            if (!Sx.Ask(this, stop ? "🛡 Stop loss for every " + side : "🎯 Take profit for every " + side, text, "SET " + list.Count, "CANCEL", stop ? Gold : Green)) return;
+            if (!Sx.Ask(this, stop ? "🛡 Stop loss for every " + side : "🎯 Take profit for every " + side, BadgeLine() + text, "SET " + list.Count, "CANCEL", stop ? Gold : Green)) return;
             int n = 0; foreach (var x in list) if (Cmd((stop ? "S/L " : "T/P ") + px.ToString(f, IC) + " on #" + x.Ticket, "MODIFY", x.Ticket, stop ? px : x.Sl, stop ? x.Tp : px)) n++; else break;
             if (n > 0) Toast((stop ? "🛡 S/L " : "🎯 T/P ") + px.ToString(f, IC) + " sent for " + n + " " + side + (n == 1 ? "" : "s") + " on " + sym);
         }
@@ -1304,7 +1304,19 @@ namespace KeystoneMT5
             if (!Virtual && (!armed || !can)) { Toast("🔒 " + (!can ? "trading is not allowed by the bridge yet (see the red lines in the panel)" : "press 🔓 ARM TRADING in the panel first")); return false; }
             string why; if (cmd == "ORDER" && !PropAllows(out why)) { Toast("🛑 " + why); Log("✖ " + why, Red); return false; }
             var id = broker.Command(cmd, args); if (id == null) { Toast("⚠ MT5 is not connected"); return false; }
-            sent[id] = label; Log("→ " + label, Muted); return true;
+            sent[id] = label; Log("→ " + label, Muted); HandOn(cmd, args, label); return true;
+        }
+        // ⏸ 09d (user's rule): anything you do by hand in SpasiX on the symbol the 🛡 HEDGE runs stops it at once (positions untouched)
+        void HandOn(string cmd, object[] args, string label)
+        {
+            try
+            {
+                if (auto == null || !auto.StopsOnHand || args == null || args.Length == 0) return; string sym = args[0] as string;
+                if (sym == null) { long tk = Convert.ToInt64(args[0]); lock (broker.State.Gate) { var p = broker.State.Positions.FirstOrDefault(x => x.Ticket == tk); var o = broker.State.Orders.FirstOrDefault(x => x.Ticket == tk); sym = p != null ? p.Symbol : o != null ? o.Symbol : null; } }
+                if (sym == null || !string.Equals(sym, auto.Set.Symbol, StringComparison.OrdinalIgnoreCase)) return;
+                auto.HandStop(label + " in SpasiX, " + DateTime.Now.ToString("HH:mm:ss", IC));
+            }
+            catch { }
         }
         double Num(TextBox b) { double v; return b != null && double.TryParse(b.Text.Replace(',', '.'), NumberStyles.Float, IC, out v) ? v : 0; }
         void Market(int dir)
@@ -1334,7 +1346,7 @@ namespace KeystoneMT5
                 string list; lock (broker.State.Gate) list = string.Join("\n", broker.State.Positions.GroupBy(x => x.Symbol).OrderBy(x => x.Key).Select(gq => "   • " + gq.Key + ": " + gq.Count() + " position" + (gq.Count() == 1 ? "" : "s") + ", " + gq.Sum(x => x.Lots).ToString("0.00", IC) + " lots, P/L " + Signed(gq.Sum(x => x.Profit + x.Swap), "USD")));
                 what = "close EVERY position on EVERY instrument — " + n + " ticket" + (n == 1 ? "" : "s") + ", P/L " + Signed(pl, "USD") + ":\n" + list + "\n\n(pending orders stay — cancel them on each instrument's card)";
             }
-            if (!Sx.Ask(this, sym == "" ? "⛔ Close everything — ALL instruments" : "Close on " + sym + " only", (what.Substring(0, 1).ToUpperInvariant() + what.Substring(1) + "?").Replace(":\n", "?\n").Replace("card)?", "card)"), "CLOSE", "KEEP", Red, "CLOSE " + n + " TICKET" + (n == 1 ? "" : "S"))) return;
+            if (!Sx.Ask(this, sym == "" ? "⛔ Close everything — ALL instruments" : "Close on " + sym + " only", BadgeLine() + (what.Substring(0, 1).ToUpperInvariant() + what.Substring(1) + "?").Replace(":\n", "?\n").Replace("card)?", "card)"), "CLOSE", "KEEP", Red, "CLOSE " + n + " TICKET" + (n == 1 ? "" : "S"))) return;
             Cmd(what, "CLOSEALL", sym, which);
         }
         void Log(string msg, Brush fg)
