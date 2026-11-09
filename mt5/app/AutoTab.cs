@@ -69,8 +69,11 @@ namespace KeystoneMT5
             aBadge = new TextBlock { FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) }; info.Children.Add(aBadge); var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aPhase); var bk = new StackPanel { Margin = new Thickness(24, 0, 0, 0) }; bk.Children.Add(new TextBlock { Text = "BASKET (all positions on the symbol)", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Muted }); bk.Children.Add(aBasket); row.Children.Add(bk);
             info.Children.Add(row); info.Children.Add(aInfo); info.Children.Add(aLevels);
             aCard = new Border { Child = info, Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 10, 0) };
-            top.Children.Add(aCard); root.Children.Add(top);
+            top.Children.Add(aCard); root.Children.Add(top); aTop = top;
             aSetups = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(aSetups, Dock.Top); root.Children.Add(aSetups);
+            // 09d (user's request): in the list views the setup cards fold into ONE thin line (▸ opens them) — the table gets the room
+            aSetLine = new Button { Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = Muted, FontSize = 11.5, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(4, 0, 4, 2), Cursor = System.Windows.Input.Cursors.Hand, Visibility = Visibility.Collapsed, ToolTip = "the setups the strategy watches — click to open / fold the cards" };
+            aSetLine.Click += delegate { aSetOpen = !aSetOpen; AutoPaint(true); }; DockPanel.SetDock(aSetLine, Dock.Top); root.Children.Add(aSetLine);
 
             // the parameters
             var card = new Border { Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(card, Dock.Top); aSetCard = card; aShowSet = Get("auto.showset", "1") == "1";
@@ -348,6 +351,7 @@ namespace KeystoneMT5
             var exp = Pill("📦 EXPORT FOR CLAUDE", Tint(Violet, 90)); exp.Height = 26; exp.ToolTip = "everything of this account in ONE organized folder + ONE .zip (settings, iterations, trades, story, analysis, learn, log, the candles, the race) — send the .zip to Claude to analyze"; exp.Click += delegate { AutoExport(); }; aViews.Children.Add(exp);
             aRebornBtn = Pill("", Tint(Sx.Card2, 220)); aRebornBtn.Height = 26; aRebornBtn.ToolTip = "DEMO only: a blown account (no money / margin, or under 10 % of the start) restarts by itself at the DEMO's start balance — the blow-up and every iteration are saved"; aRebornBtn.Click += delegate { Put("auto.reborn." + AKey, RebornOn ? "0" : "1"); AutoPaint(true); }; aRebornBtn.Visibility = Paper ? Visibility.Visible : Visibility.Collapsed; aViews.Children.Add(aRebornBtn);
             var clr = Pill("🗑 CLEAR HISTORY", Tint(Sx.Card2, 220)); clr.Height = 26; clr.Click += delegate { AutoClear(); }; aViews.Children.Add(clr);
+            aFullBtn = Pill("⤢ FULL LIST", Tint(Sx.Card2, 220)); aFullBtn.Height = 26; aFullBtn.ToolTip = "the list gets the whole tab: the HEDGE banner, the setup cards and the number tiles hide (click again to bring them back)"; aFullBtn.Click += delegate { aFull = !aFull; AutoPaint(true); }; aViews.Children.Add(aFullBtn);
             root.Children.Add(aViews);
             aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 13.5, MinHeight = 160, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Visible, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
             aRows = new StackPanel(); aRowsView = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Visible, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Content = aRows, Background = Panel, Visibility = Visibility.Collapsed };
@@ -557,7 +561,7 @@ namespace KeystoneMT5
         {
             if (aSetups == null) return; var sym = auto.Running ? auto.Set.Symbol : (af.ContainsKey("sym") ? (af["sym"].Text ?? "").Trim() : ""); int off = auto.Running ? auto.Set.NyOffsetHours : (int)ANum("nyoff", -7);
             List<SetupState> list; try { list = SetupScan.Scan(broker, sym, off); } catch { return; }
-            aSetups.Children.Clear(); AutoGuidesBuild(sym, list);
+            aSetups.Children.Clear(); AutoGuidesBuild(sym, list); aSetSum = string.Join("   ·   ", list.Select(x => x.Name.Split('—')[0].Trim() + " " + x.Level + (x.Dir > 0 ? " ▲" : x.Dir < 0 ? " ▼" : "")));
             foreach (var x in list)
             {
                 var col = x.Level == "STRONG" ? Green : x.Level == "WEAK" ? Amber : Muted;
@@ -580,7 +584,7 @@ namespace KeystoneMT5
         Border Row(Brush stripe, params FrameworkElement[] cells)
         {
             var sp = new StackPanel { Orientation = Orientation.Horizontal }; foreach (var c in cells) sp.Children.Add(c);
-            return new Border { Child = sp, Background = Sx.CardGrad, BorderBrush = stripe, BorderThickness = new Thickness(4, 0, 0, 0), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(4, 2, 4, 2) };
+            return new Border { Child = sp, Background = Sx.CardGrad, BorderBrush = stripe, BorderThickness = new Thickness(4, 0, 0, 0), CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(4, 1, 4, 1), MinHeight = 28 };   // 09d: ~28 px rows — 20+ rows on 1080p
         }
         // ● WHICH account and mode this HEDGE tab is for (user's request: a REAL and a DEMO window must never look the same)
         Tuple<string, SolidColorBrush> AccountBadge()
@@ -596,12 +600,11 @@ namespace KeystoneMT5
             var b = AccountBadge(); return new Border { Child = new TextBlock { Text = b.Item1, Foreground = b.Item2, FontSize = 15, FontWeight = FontWeights.Bold }, Background = Tint(b.Item2, 36), BorderBrush = b.Item2, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 4, 12, 5), Margin = new Thickness(4, 2, 4, 6), HorizontalAlignment = HorizontalAlignment.Left };
         }
         // 🔁 09d: after START / RESUME the banner says what continued ("resumed: 39 iterations · today +$248.89 · open basket #40 taken over")
-        string aResumeTxt = "";
+        string aResumeTxt = ""; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
         void AutoResumeNote() { try { var t = Continuity.ResumeLine(auto.Iterations, auto.Current, auto.Now > DateTime.MinValue ? auto.Now : DateTime.Now); aResumeTxt = t; if (t != "") { auto.Note(t); Toast(t); } } catch { } }
         string BadgeLine() { return AccountBadge().Item1 + "\n\n"; }
         void AutoRowsOf(HedgeAuto e, StackPanel aRows, string aView)
         {
-            if (e == auto) aRows.Children.Add(AccountBadgeEl());
             if (aView == "ITERATIONS")
             {
                 var d = e.Iterations.Where(x => x.Done).ToList(); double avgS = d.Count > 0 ? d.Average(x => (x.End - x.Start).TotalSeconds) : 0;
@@ -1206,7 +1209,11 @@ namespace KeystoneMT5
             if (aGuideBtn != null) aGuideBtn.Content = aGuidesOn ? "🎯 CHART GUIDES: ON" : "🎯 CHART GUIDES: OFF";
             if (aSetScroll != null) { aSetScroll.Visibility = aView == "⚙ SETTINGS" ? Visibility.Visible : Visibility.Collapsed; if (aRaceHost != null) aRaceHost.Visibility = aView == "🏁 RACE" ? Visibility.Visible : Visibility.Collapsed; }
             {   // SETTINGS and RACE get the whole room: the setup cards and the number tiles belong to the 🤖 views
-                bool full = aView == "⚙ SETTINGS" || aView == "🏁 RACE"; if (aSetups != null) aSetups.Visibility = full ? Visibility.Collapsed : Visibility.Visible; if (aTiles != null) aTiles.Visibility = full ? Visibility.Collapsed : Visibility.Visible;
+                bool full = aView == "⚙ SETTINGS" || aView == "🏁 RACE", list = aView == "ITERATIONS" || aView == "STORY" || aView == "TRADES", fl = aFull && !full;
+                if (aSetups != null) aSetups.Visibility = full || fl || (list && !aSetOpen) ? Visibility.Collapsed : Visibility.Visible; if (aTiles != null) aTiles.Visibility = full || fl ? Visibility.Collapsed : Visibility.Visible;
+                if (aSetLine != null) { aSetLine.Visibility = list && !fl ? Visibility.Visible : Visibility.Collapsed; aSetLine.Content = (aSetOpen ? "▾ " : "▸ ") + "SETUPS NOW: " + (aSetSum != "" ? aSetSum : "—"); }
+                if (aTop != null) aTop.Visibility = fl ? Visibility.Collapsed : Visibility.Visible;
+                if (aFullBtn != null) { aFullBtn.Content = aFull ? "⤡ BANNER BACK" : "⤢ FULL LIST"; aFullBtn.Background = aFull ? Tint(Cyan, 70) : Tint(Sx.Card2, 220); }
             }
             aStart.IsEnabled = !on; aStop.IsEnabled = on;
             if (aLockTxt != null)
