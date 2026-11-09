@@ -14,6 +14,7 @@ namespace NinjaTrader.Cbi
     {
         public static readonly System.Collections.ObjectModel.Collection<Account> All = new System.Collections.ObjectModel.Collection<Account>();
         public string Name { get; set; }
+        public DateTime LockedUntil { get; set; }   // 🔒 stand-in for NinjaTrader's account Lockout ("Locked until 5:00 PM"); KeyStone reads it by reflection, never by name
         public object Connection { get; set; }
         public Dictionary<AccountItem, double> StubValues = new Dictionary<AccountItem, double>();
         public double Get(AccountItem item, Currency currency) { double v; return StubValues.TryGetValue(item, out v) ? v : 0; }

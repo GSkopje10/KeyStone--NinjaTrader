@@ -28,6 +28,13 @@ public static class UiSmokeTest
     public static int Main()
     {
         Environment.SetEnvironmentVariable("HOME", System.IO.Path.GetTempPath());
+        Step("🔒 NinjaTrader lockout read from the (stub) Account by reflection: LockedUntil ahead → locked, past → not", () =>
+        {
+            var a1 = new NinjaTrader.Cbi.Account { Name = "TAKEPROFIT893", LockedUntil = DateTime.Now.AddHours(2) }; var a2 = new NinjaTrader.Cbi.Account { Name = "TAKEPROFIT894", LockedUntil = DateTime.Now.AddHours(-2) };
+            var s1 = KeystoneNtLockout.Read(a1, DateTime.Now); var s2 = KeystoneNtLockout.Read(a2, DateTime.Now);
+            if (!s1.Locked || s1.Source != "LockedUntil" || s2.Locked) throw new Exception("lockout: " + s1.Members + " / " + s2.Members);
+            Console.WriteLine("      members seen: " + s1.Members);
+        });
         var lab = new KeystoneArc5MResearchLab();
         Step("open the lab window (every tab built)", () => Call(lab, "OpenWindow"));
         Step("live theme switch re-colours the open window", () =>
@@ -206,6 +213,15 @@ public static class UiSmokeTest
                     var rt = (KeystoneReplayTrader)F("replayTrader");
                     if (rt != null && rt.Finished) throw new Exception("the loaded day starts finished");
                     if (rt == null || rt.Bars.Count == 0) throw new Exception("no day loaded");
+                    {   // 🎯 BUILD 11i: the REVERSAL FVG scanner on the studio chart (buys + sells, every bar) — draws without an error and never trades
+                        var lay = (Action<string, int>)F("studioLayer"); if (lay == null) throw new Exception("🎯 studioLayer hook missing");
+                        int posB = rt.Position, ordB = rt.Orders.Count; lay("IND.RFVG", KeystoneLiveTools.Always); lay("IND.RFVG.SELL", 1); lay("IND.RFVG.D", 8);   /* a small move so the synthetic day has signals (the menu offers 60 / 100 / 150) */
+                        ((Action<int>)F("replayTraderStep"))(30); var errR = (string)F("studioRfvgErr");
+                        if (!string.IsNullOrEmpty(errR)) throw new Exception("🎯 REVERSAL FVG drawing error: " + errR);
+                        if (rt.Position != posB || rt.Orders.Count != ordB) throw new Exception("🎯 the scanner changed the practice position / orders");
+                        Console.WriteLine("      🎯 REVERSAL FVG drawn on the studio chart (" + (int)F("studioRfvgSeen") + " signals so far) — no order");
+                        lay("IND.RFVG.SELL", 0); lay("IND.RFVG.D", 100);
+                    }
                     ((Action<int>)F("replayTraderStep"))(5);
                     ((Action<int>)F("replayTraderOrder"))(1);
                     double entry = rt.AvgPrice; ((Action<int>)F("replayTraderStep"))(20);
@@ -460,7 +476,7 @@ public static class UiSmokeTest
                     ((Action<string>)F("studioAddSymbol"))("-ES");
                     if (KeystoneSymbols.Get("ES") != null) throw new Exception("ES tab not removed");
                     Console.WriteLine("      ＋ instrument: ES tab added and removed");
-                    {   // 💵 BUILD 11f: the $ bracket in the RIGHT ORDER PANEL (one source with the 💵 row), the ⚙ next to the ACCOUNT box, 🧪 JJ (practice marks + the open line)
+                    {   // 💵 BUILD 11f: the $ bracket in the RIGHT ORDER PANEL (one source with the 💵 row), the ⚙ next to the ACCOUNT box
                         var w11 = (System.Windows.Window)F("replayTraderWindow"); Func<string, object> byTag = tgx => FindAll<System.Windows.FrameworkElement>(w11.Content).FirstOrDefault(x => Convert.ToString(x.Tag) == tgx);
                         var dTpM = byTag("dol.tp.MNQ") as System.Windows.Controls.TextBox; var dOnM = byTag("dol.on.MNQ") as System.Windows.Controls.Button; var dNoteM = byTag("dol.note.MNQ") as System.Windows.Controls.TextBlock;
                         if (dTpM == null || dOnM == null || dNoteM == null || byTag("acc.gear") == null) throw new Exception("💵 the order panel's TP $ / SL $ / ON block and the ACCOUNT ⚙ should exist");
@@ -469,7 +485,6 @@ public static class UiSmokeTest
                         if (Convert.ToString(dOnM.Content) != "💵 $ ON" || !dNoteM.Text.StartsWith("= SL ") || !dNoteM.Text.Contains(" pts for ")) throw new Exception("💵 ON → the points for the contracts: " + Convert.ToString(dOnM.Content) + " • " + dNoteM.Text);
                         Console.WriteLine("      💵 order panel $ bracket: TP $760 / SL $500 → " + dNoteM.Text);
                         dOnM.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); if (Convert.ToString(dOnM.Content) != "💵 $ OFF") throw new Exception("💵 OFF again");
-                        var stratJ = F("studioStrategy") as Action<int, bool>; if (stratJ != null) { stratJ(KeystoneReplaySignals.JjKind, false); Console.WriteLine("      🧪 JJ chosen in the studio"); stratJ(0, false); }
                     }
                     {   // 🖥 BUILD 11f — CHART-FIRST: the chart = the star row (no fixed height), ≤ 2 rows above it with the drawers closed; each drawer opens / closes
                         var w12 = (System.Windows.Window)F("replayTraderWindow"); var showD = (Action<string>)F("studioShowDrawer"); var rows = (Func<int>)F("studioTopRows"); var mr = (System.Windows.FrameworkElement)F("studioMainRow");

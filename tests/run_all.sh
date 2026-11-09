@@ -68,6 +68,9 @@ mono "$here/.build/sides.exe" | tail -1
 rm -f "$here/.build/rtrade.exe"
 "$root/tools/compile_engine.sh" "$here/.build/rtrade.exe" "$here/ReplayTraderTests.cs"
 mono "$here/.build/rtrade.exe" | tail -1
+rm -f "$here/.build/rfvg.exe"
+"$root/tools/compile_engine.sh" "$here/.build/rfvg.exe" "$here/ReversalFvgTests.cs"
+mono "$here/.build/rfvg.exe" | tail -1
 rm -f "$here/.build/studio.exe"
 "$root/tools/compile_engine.sh" "$here/.build/studio.exe" "$here/StudioStoreTests.cs"
 mono "$here/.build/studio.exe" | tail -1

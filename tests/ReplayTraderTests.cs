@@ -84,53 +84,6 @@ public static class ReplayTraderTests
             if (pth[0] != o || pth[60] != c) ends = false;
         }
         Check(inside && touches && ends, "realistic path: inside the real high / low, touches both, exact open + close (5,000 minutes)", inside + " " + touches + " " + ends);
-        {   // 🧪 BUILD 11f — JJ · 9:30 open reversion / continuation (practice marks): the rules + NO LOOKAHEAD (the jb after a mark scrambled → the mark stays)
-            Func<int, DateTime, double, double, List<KeystoneArcBar>> sess = (seed, dJ, sd, openKick) =>
-            {   /* one session 18:00 → 16:00 (Time = the bar's close), a random walk; openKick = the 9:30 candle's push (0 = a normal candle) */
-                var rnd = new Random(seed); var l = new List<KeystoneArcBar>(); double pj = 20000; var t0 = dJ.Date.AddDays(-1).AddHours(18);
-                for (int m = 0; m < 22 * 60; m++)
-                {
-                    var t = t0.AddMinutes(m + 1); double o = pj, c = o + (rnd.NextDouble() - 0.5) * 2 * sd; bool open930 = t == dJ.Date.AddHours(9).AddMinutes(31); if (open930 && openKick != 0) c = o + openKick;
-                    double h = Math.Max(o, c) + rnd.NextDouble() * sd * (open930 && openKick != 0 ? 0.2 : 0.6), lo = Math.Min(o, c) - rnd.NextDouble() * sd * (open930 && openKick != 0 ? 0.2 : 0.6);
-                    l.Add(new KeystoneArcBar { Symbol = "MNQ", Time = t, Open = Math.Round(o * 4) / 4, High = Math.Round(h * 4) / 4, Low = Math.Round(lo * 4) / 4, Close = Math.Round(c * 4) / 4 }); pj = c;
-                }
-                foreach (var b in l) { b.High = Math.Max(b.High, Math.Max(b.Open, b.Close)); b.Low = Math.Min(b.Low, Math.Min(b.Open, b.Close)); }
-                return l;
-            };
-            var dayJ = new DateTime(2026, 3, 11); var prior = new List<KeystoneArcBar>();
-            for (int k = 1; k <= 25; k++) { var pd = dayJ.AddDays(-k); prior.Add(new KeystoneArcBar { Symbol = "MNQ", Time = pd.Date.AddHours(9).AddMinutes(31), Open = 100, High = 110 + (k % 5), Low = 100, Close = 105 }); }   /* opening ranges 10 … 14 → median 12 (the last 20) */
-            Check(Math.Abs(KeystoneJJ.MedianOpenRange(prior, dayJ) - 12) < 1e-9 && KeystoneJJ.Decisive(new KeystoneArcBar { Open = 100, High = 113, Low = 99.5, Close = 112 }, 12) && !KeystoneJJ.Decisive(new KeystoneArcBar { Open = 100, High = 113, Low = 99, Close = 104 }, 12) && !KeystoneJJ.Decisive(new KeystoneArcBar { Open = 100, High = 105, Low = 99, Close = 105 }, 12),
-                "🧪 JJ decisive 9:30 candle = range ≥ the median of the last 20 opening candles AND body ≥ 60 % of the range");
-            int contDays = 0, contOk = 0, revMarks = 0, revOk = 0, lateMarks = 0, lateOk = 0, overlapBad = 0, checks = 0, changed = 0; string bad = "";
-            for (int seed = 1; seed <= 160; seed++)
-            {
-                var jb = sess(seed, dayJ, 6, seed % 4 == 0 ? (seed % 8 == 0 ? 30 : -30) : 0); var ob = KeystoneJJ.OpenBar(jb, dayJ); double open = ob.Open;
-                var sg = KeystoneReplaySignals.Build(KeystoneReplaySignals.JjKind, jb, "MNQ", null, 0, prior);
-                bool dec = KeystoneJJ.Decisive(ob, KeystoneJJ.MedianOpenRange(prior, dayJ));
-                if (dec) { contDays++; if (sg.Count > 0 && sg[0].Time == ob.Time && sg[0].Tag.StartsWith("JJ CONTINUATION") && sg[0].Dir == Math.Sign(ob.Close - ob.Open) && sg.Where(x => x.Time.Hour < 11 || (x.Time.Hour == 11 && x.Time.Minute == 0)).All(x => x.Tag.StartsWith("JJ CONTINUATION") && x.Dir == sg[0].Dir)) contOk++; else bad += " cont" + seed; }
-                else foreach (var x in sg.Where(x => x.Tag.StartsWith("JJ REVERSION"))) { revMarks++; if (Math.Abs(x.Entry - open) >= KeystoneJJ.AwayPts - 1e-9 && x.Dir == -Math.Sign(x.Entry - open)) revOk++; else bad += " rev" + seed; }
-                foreach (var x in sg.Where(x => x.Time.AddMinutes(-1).Hour >= 11)) { lateMarks++; if (x.Tag.StartsWith("JJ BOS WITH THE TREND") && x.Dir == Math.Sign(x.Entry - open)) lateOk++; else bad += " late" + seed; }
-                for (int k = 1; k < sg.Count; k++) if (sg[k].Time <= sg[k - 1].Exit) overlapBad++;
-                if (dec) { bool lost = false; foreach (var x in sg) { if (lost && x.Tag.StartsWith("JJ CONTINUATION")) { overlapBad++; bad += " afterloss" + seed; } if (x.Tag.StartsWith("JJ CONTINUATION") && x.Exit < dayJ.AddHours(16) && (x.Dir > 0 ? jb.First(b => b.Time == x.Exit).Low <= x.Stop : jb.First(b => b.Time == x.Exit).High >= x.Stop)) lost = true; } }
-                // NO LOOKAHEAD: scramble every bar after a mark (a new random walk from its close) — the marks up to it must not change
-                foreach (var x in sg.Take(4))
-                {
-                    var rnd = new Random(seed * 977 + checks); var sc = jb.Select(b => new KeystoneArcBar { Symbol = b.Symbol, Time = b.Time, Open = b.Open, High = b.High, Low = b.Low, Close = b.Close }).ToList(); double pj = x.Entry;
-                    foreach (var b in sc.Where(b => b.Time > x.Time)) { double o = pj, c = o + (rnd.NextDouble() - 0.5) * 40; b.Open = o; b.Close = c; b.High = Math.Max(o, c) + rnd.NextDouble() * 10; b.Low = Math.Min(o, c) - rnd.NextDouble() * 10; pj = c; }
-                    var sg2 = KeystoneReplaySignals.Build(KeystoneReplaySignals.JjKind, sc, "MNQ", null, 0, prior);
-                    Func<IEnumerable<KeystoneReplaySignal>, string> key = l => string.Join(";", l.Where(y => y.Time <= x.Time).Select(y => y.Time.ToString("HHmm") + y.Dir + y.Entry + y.Tag));
-                    checks++; if (key(sg) != key(sg2)) { changed++; bad += " LOOKAHEAD" + seed + "@" + x.Time.ToString("HH:mm"); }
-                }
-            }
-            Check(KeystoneReplaySignals.Names[KeystoneReplaySignals.JjKind].StartsWith("JJ · 9:30 open reversion / continuation") && KeystoneJJ.StopPts == 25 && KeystoneJJ.TargetPts == 38 && KeystoneJJ.Honest.Contains("37.9 % win vs 41.3 % needed") && KeystoneJJ.Honest.Contains("not an edge — practice only")
-                && KeystoneJJ.Signals(sess(3, dayJ, 6, 30), prior, "MGC").Count == 0 && KeystoneReplaySignals.Build(KeystoneReplaySignals.JjKind, sess(3, dayJ, 6, 30), "MNQ", null, 0, prior).All(x => x.PracticeOnly && x.StopDist == 25 && x.TargetDist == 38 && Math.Abs(x.Target - x.Entry) == 38),
-                "🧪 JJ: the strategy choice, the 25 / 38-point bracket, the honest note, practice-only marks (AUTO never enters them), MNQ only");
-            Check(contDays >= 20 && contOk == contDays, "🧪 JJ: a decisive 9:30 candle → CONTINUATION marks its way (the first at the candle's close) until 11:00", contOk + " / " + contDays + bad);
-            Check(revMarks >= 30 && revOk == revMarks, "🧪 JJ: otherwise REVERSION marks only toward the open and only ≥ 38 points away (displacement / break of structure)", revOk + " / " + revMarks + bad);
-            Check(lateMarks >= 10 && lateOk == lateMarks, "🧪 JJ: after 11:00 only a break of structure WITH the trend", lateOk + " / " + lateMarks);
-            Check(overlapBad == 0, "🧪 JJ: one mark at a time (the next only after the last bracket closed) and no continuation mark after a realised loss", bad);
-            Check(checks >= 200 && changed == 0, "🧪 JJ NO LOOKAHEAD: the bars after a mark scrambled → every mark up to it stays the same (" + checks + " scrambles)", bad);
-        }
         {   // 🎯 BUILD 11f — the PRACTICE ACCOUNT: the peak (open profit included), the floor never wentDown, the TPT funded phases, the goal close, the withdrawals, the status
             Func<string, KeystonePractice> pre = nm => KeystonePractice.Presets().First(p => p.Name.StartsWith(nm)).Copy();
             var ev = new KeystonePractice { Name = "t", DdType = "INTRADAY", Size = 50000, Dd = 2000, Target = 3000, MaxQty = 40 };

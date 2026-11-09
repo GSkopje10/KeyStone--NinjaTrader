@@ -45,6 +45,13 @@ public sealed class FakeBroker : IKeystoneBroker
     public KeystoneBrokerOrder External(string kind, int signedQty, double price) { var o = new KeystoneBrokerOrder { Id = "N" + (++seq), Kind = kind, Side = Math.Sign(signedQty), Qty = Math.Abs(signedQty), Price = price, Name = "Stop1" }; All.Add(o); return o; }
 }
 
+// 🔒 stand-ins for NinjaTrader accounts with a lockout member (the real name is read by reflection)
+public sealed class StubNtAccount { public string Name { get; set; } public DateTime LockedUntil { get; set; } }
+public sealed class StubNtRisk { public bool IsLocked { get; set; } }
+public sealed class StubNtRiskAccount { public string Name = "R"; public StubNtRisk Risk { get; set; } public StubNtRiskAccount() { Risk = new StubNtRisk(); } }
+public sealed class StubNtNullable { public DateTime? LockoutTime { get; set; } }
+public sealed class StubNtSettings { public bool AllowUnlock { get; set; } public bool LockFlatten { get; set; } }
+
 public static class AccountLinkTests
 {
     static int failures;
@@ -792,6 +799,93 @@ public static class AccountLinkTests
                 Check(KeystoneAutopilot.PayoutNote(sp) == "💰 payout ready: request $600" && KeystoneAutopilot.PayoutNote(sq) == "💰 payout ready: request $2,000" && KeystoneAutopilot.PayoutNote(seat("E", "LUCID", "EVAL", new FakeBroker(), 5, 0)) == "", "🤖 funded payout eligible → 💰 payout ready: request $x (a reminder only)", KeystoneAutopilot.PayoutNote(sp) + " / " + KeystoneAutopilot.PayoutNote(sq));
             }
             KeystoneFirmPolicies.Chosen.Clear();
+        }
+        // ================= 🎮 SIM ACCOUNTS + 🎯 LIVE PROP PRACTICE (BUILD 2026-11-11i) =================
+        {
+            var menu = KeystoneSimAccounts.MenuOrder(new[] { Tuple.Create("Sim101", true, 0.0), Tuple.Create("TAKEPROFIT893", true, 120.0), Tuple.Create("LT-77", true, 300.0), Tuple.Create("DEMO4", false, 0.0), Tuple.Create("Playback101", true, 0.0) });
+            Check(string.Join("|", menu) == "LT-77|TAKEPROFIT893||Playback101|Sim101", "🎮 the account dropdown: prop accounts first, then the 🎮 SIMULATION header and Sim101 / Playback101 (connected only)", string.Join("|", menu));
+            Check(KeystoneSimAccounts.IsSim("Sim101") && KeystoneSimAccounts.IsSim("DEMO123") && !KeystoneSimAccounts.IsSim("SIMONE-PA") && !KeystoneSimAccounts.IsSim("TAKEPROFIT893") && KeystoneFirmNames.Detect("Sim101", "TPT_TEST_PRO")[0] == "SIM" && KeystoneFirmNames.Detect("Sim101", "TakeProfitTrader")[0] == "SIM",
+                "🎮 Sim101 is SIM by its name, whatever its connection (TPT_TEST_PRO / TakeProfitTrader)");
+            var raws = new[] { new KeystoneLiveRaw { Name = "Sim101", Connection = "TPT_TEST_PRO", Balance = 2830488.5 }, new KeystoneLiveRaw { Name = "TAKEPROFIT893", Connection = "TPT", Balance = 53000 } };
+            var cls = KeystoneLabLive.Classify(raws, null, null);
+            Check(cls.Count == 1 && cls[0].Account == "TAKEPROFIT893" && !KeystoneLabLive.IsProp("SIM"), "🎮 Sim101 ($2.8M) stays OUT of the prop logic (labs' counts → the autopilot feed, copier / rotation pools)", string.Join(",", cls.Select(a => a.Account)));
+            Check(KeystoneSimAccounts.PracticeOffered("Sim101", "TPT_TEST_PRO", null) && KeystoneSimAccounts.PracticeOffered("DEMO4", "", null) && !KeystoneSimAccounts.PracticeOffered("TAKEPROFIT893", "", null) && !KeystoneSimAccounts.PracticeOffered("LT-77", "", null) && !KeystoneSimAccounts.PracticeOffered("Sim101", "", "TPT"),
+                "🎯 the live practice overlay is offered ONLY on a simulation account (never a prop account, never a Sim set to a prop firm)");
+            // TPT PRO 50K funded on live updates: the INTRADAY peak includes the open profit seen at the bar's high, the floor trails it, the lock at +$2,000
+            var pr = KeystonePractice.Presets().First(x => x.Name.StartsWith("TPT PRO 50K funded")).Copy(); pr.ApplyTyped(); var led = new KeystonePracticeLedger();
+            double realized = 1234.5; led.Rebase(realized);   // the Sim account had already made $1,234.50 today: the practice starts at 0
+            Check(Math.Abs(led.Closed(realized)) < 1e-9 && pr.Mark(led.Closed(realized), 0, "start") == null, "🎯 the practice start re-bases on the Sim's realized P/L (a ledger — the Sim account is untouched)");
+            pr.Mark(led.Closed(realized), 300, "open +300"); pr.SeeBest(led.Closed(realized), 900);   // a live tick: +300 open, the bar's high showed +900
+            Check(Math.Abs(pr.PeakNow(300) - 900) < 1e-9 && Math.Abs(pr.FloorNow(300) - (900 - 2000)) < 1e-9 && !pr.Locked, "🎯 the INTRADAY peak includes the open profit from the live updates (+$900 at the bar's high → floor −$1,100)", pr.PeakNow(300) + " / " + pr.FloorNow(300));
+            realized += 1500; string h1 = pr.Mark(led.Closed(realized), 0, "closed +1500");
+            pr.SeeBest(led.Closed(realized), 2100); string h2 = pr.Mark(led.Closed(realized), 2100, "open +2100");
+            Check(h1 == null && h2 == "LOCKED" && pr.Locked && Math.Abs(pr.FloorNow(0) - 0) < 1e-9 && pr.Mark(led.Closed(realized), 2100, "again") == null, "🎯 the 🔒 LOCK transition once the peak reaches +$2,000 above the trailing (floor locked at the start), reported once", h1 + " / " + h2 + " / floor " + pr.FloorNow(0));
+            realized += 2100; pr.Mark(led.Closed(realized), 0, "closed +2100");   // flat at +$3,600 → withdrawable = above the $2,000 buffer, flat only
+            Check(Math.Abs(pr.CanWithdraw(0) - 1600) < 1e-9 && pr.CanWithdraw(50) == 0, "🎯 \"withdrawable now\" = only above the $2,000 buffer ($3,600 → $1,600), flat only", pr.CanWithdraw(0) + " / " + pr.CanWithdraw(50));
+            double got = pr.Withdraw(0, 1000); Check(Math.Abs(got - 1000) < 1e-9 && pr.Withdrawn >= 1000, "🎯 💰 a practice withdrawal is booked on the practice ledger only", got + "");
+            realized += 3000; led.Rebase(realized); var fresh = pr.Copy();
+            Check(Math.Abs(led.Closed(realized)) < 1e-9 && fresh.Mark(led.Closed(realized), 0, "reset") == null && !fresh.Locked && fresh.Peak == 0, "🎯 RESET re-bases the ledger on the Sim's realized now: a fresh attempt at 0");
+        }
+        // ================= 🔒 NINJATRADER LOCKOUT (BUILD 2026-11-11i): read by reflection; entries refused, closes go, the autopilot blocked =================
+        {
+            KeystoneNtLockout.Clear(); KeystoneFirmPolicies.Chosen.Clear();
+            var nowL = DateTime.Now;
+            var fut = new StubNtAccount { Name = "TAKEPROFIT893", LockedUntil = nowL.AddHours(3) }; var past = new StubNtAccount { Name = "TAKEPROFIT893", LockedUntil = nowL.AddHours(-3) };
+            var rf = KeystoneNtLockout.Read(fut, nowL); var rp = KeystoneNtLockout.Read(past, nowL);
+            Check(rf.Locked && rf.Until == fut.LockedUntil && rf.Source == "LockedUntil" && rf.Label.StartsWith("🔒 LOCKED by NinjaTrader until ") && rf.Members.Contains("LockedUntil"), "🔒 LockedUntil in the future → locked until that time (label " + rf.Label + ")", rf.Members);
+            Check(!rp.Locked, "🔒 LockedUntil in the past → not locked", rp.Members);
+            Check(new KeystoneNtLock { Locked = true, Until = new DateTime(2026, 11, 9, 17, 0, 0) }.Label == "🔒 LOCKED by NinjaTrader until 5:00 PM", "🔒 the label reads like NinjaTrader's column: \"until 5:00 PM\"");
+            var nested = new StubNtRiskAccount(); nested.Risk.IsLocked = true; var rn = KeystoneNtLockout.Read(nested, nowL);
+            var nul = new StubNtNullable { LockoutTime = nowL.AddMinutes(30) }; var rnl = KeystoneNtLockout.Read(nul, nowL); var rnn = KeystoneNtLockout.Read(new StubNtNullable(), nowL);
+            Check(rn.Locked && rn.Source == "Risk.IsLocked" && rnl.Locked && rnl.Source == "LockoutTime" && !rnn.Locked && !KeystoneNtLockout.Read(new StubNtAccount { Name = "X" }, nowL).Locked,
+                "🔒 robust: a bool IsLocked on a related Risk object, a nullable DateTime LockoutTime (set / null), an unset (MinValue) time", rn.Source + " / " + rnl.Source);
+            Check(!KeystoneNtLockout.Read(new StubNtSettings { AllowUnlock = true, LockFlatten = true }, nowL).Locked, "🔒 not a lock: AllowUnlock / LockFlatten switches are ignored");
+            Check(KeystoneNtLockout.IsEntry(0, 1) && KeystoneNtLockout.IsEntry(2, 1) && KeystoneNtLockout.IsEntry(2, -3) && !KeystoneNtLockout.IsEntry(2, -2) && !KeystoneNtLockout.IsEntry(-3, 1), "🔒 entry = opens, adds or reverses; a reduce / close is not");
+
+            // the link: ARMED, then NinjaTrader locks it → disarmed, every entry refused (no order reaches the broker), a full close still goes
+            {
+                var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 5, AccountName = "TAKEPROFIT893" }; var t = Trader();
+                Check(l.Arm(t0) == null && l.Armed, "🔒 unlocked: ARM works");
+                KeystoneNtLockout.Set("TAKEPROFIT893", rf); l.Tick(t, t0);
+                Check(!l.Armed && l.ExternalLocked && l.State.StartsWith("🔒 LOCKED by NinjaTrader until"), "🔒 locked by NinjaTrader → the link disarms itself and shows the lock (not ARMED)", l.State);
+                t.Buy(2); l.Tick(t, t0.AddSeconds(1)); l.Tick(t, t0.AddSeconds(2));
+                var pl = t.Place("LIMIT", 1, 2, 19990); l.Tick(t, t0.AddSeconds(3));
+                Check(b.Sent.Count == 0 && t.Position == 0 && !t.Orders.Contains(pl) && l.Warning.Contains("ENTRIES REFUSED"), "🔒 every ENTRY refused locally: a market BUY and a BUY LIMIT never reach the broker", string.Join(" | ", b.Sent) + " / " + l.Warning);
+                Check(l.Arm(t0.AddSeconds(4)) != null && !l.Armed, "🔒 ARM is refused while NinjaTrader keeps it locked", l.Arm(t0.AddSeconds(4)) ?? "");
+                b.External("MARKET", 2, 0); b.Exec(2, 20000, "NT"); l.Tick(t, t0.AddSeconds(5));
+                Check(t.Position == 2, "🔒 a position (opened before / in NinjaTrader) shows on the chart", t.Position.ToString());
+                t.Buy(1); l.Tick(t, t0.AddSeconds(6)); bool addRefused = !b.Sent.Any(x => x.StartsWith("MARKET")) && t.Position == 2;
+                t.Sell(2); l.Tick(t, t0.AddSeconds(7));
+                Check(addRefused && b.Sent.Contains("FLATTEN") && b.Q == 0, "🔒 adding is refused, CLOSING goes (a full close → FLATTEN at the broker)", string.Join(" | ", b.Sent));
+                // the lock ends: shown as unlocked, NOT re-armed by itself
+                KeystoneNtLockout.Set("TAKEPROFIT893", rp); l.Tick(t, t0.AddSeconds(30));
+                Check(!l.ExternalLocked && !l.Armed && KeystoneNtLockout.Change("TAKEPROFIT893") == 0, "🔒 the lock ended (time in the past): the link is unlocked but NOT re-armed by itself", l.State);
+                KeystoneNtLockout.Set("TAKEPROFIT893", rf); Check(KeystoneNtLockout.Change("X-NONE") == 0 && KeystoneNtLockout.Change("TAKEPROFIT893") == 1 && KeystoneNtLockout.Change("TAKEPROFIT893") == 0, "🔒 Change(): +1 once when the lock starts");
+                KeystoneNtLockout.Set("TAKEPROFIT893", rp); Check(KeystoneNtLockout.Change("TAKEPROFIT893") == -1, "🔒 Change(): −1 once when it ends (→ \"unlocked\" shown)");
+            }
+            // the 🤖 autopilot: a locked account gets no ticket (journalled "locked by NinjaTrader"); unlocked (past) → the normal 2:00 entry
+            {
+                var d0 = new DateTime(2026, 10, 6);
+                Func<string, FakeBroker, KeystoneAutoSeat> seat = (acc, b) => new KeystoneAutoSeat { Account = acc, Nick = acc, Firm = "LUCID", Stage = "EVAL", Owner = "ME", Group = "L", Plan = KeystoneAutoPlan.EvalDefault(), WantAuto = true,
+                    Link = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 20, AccountName = acc }, Mirror = Trader(), Start = 50000, Dd = 2000, Target = 3000, Balance = 50500, MinDays = 2 };
+                Action<KeystoneAutopilot, DateTime, int> run = (ap, from, secs) => { for (int i = 0; i <= secs; i++) { ap.Tick(from.AddSeconds(i), 20000); foreach (var s in ap.Seats) ((FakeBroker)s.Link.Broker).FillMarket(20000); } };
+                // locked before START
+                KeystoneNtLockout.Set("LT-LOCK", rf); KeystoneNtLockout.Set("LT-OPEN", rp);
+                var bA = new FakeBroker(); var bB = new FakeBroker(); var ap1 = new KeystoneAutopilot(); var sA = seat("LT-LOCK", bA); var sB = seat("LT-OPEN", bB); ap1.Seats.Add(sA); ap1.Seats.Add(sB);
+                sA.Link.Arm(d0); sB.Link.Arm(d0); string e = ap1.Start("START", d0.AddHours(1).AddMinutes(58)); run(ap1, d0.AddHours(2), 20);
+                Check(e == "" && ap1.Running && sA.Out && sA.Ticket == null && bA.Sent.Count == 0 && ap1.Journal.Any(r => r.Account == "LT-LOCK" && r.Event == "LOCKED" && r.Detail.Contains("locked by NinjaTrader")),
+                    "🔒🤖 locked by NinjaTrader at START: no ticket, nothing sent, journalled \"locked by NinjaTrader\"", string.Join(" | ", bA.Sent) + " / " + sA.State);
+                Check(bB.Sent.Count(x => x.StartsWith("MARKET")) == 1 && sB.Placed != null, "🔒🤖 the unlocked account (lock time in the past) trades normally at 2:00", string.Join(" | ", bB.Sent));
+                // locked while running, before the entry minute → blocked, journalled once, the whole autopilot keeps running
+                KeystoneNtLockout.Set("LT-LATE", null); var bC = new FakeBroker(); var ap2 = new KeystoneAutopilot(); var sC = seat("LT-LATE", bC); ap2.Seats.Add(sC); sC.Link.Arm(d0);
+                ap2.Start("START", d0.AddHours(1).AddMinutes(50)); run(ap2, d0.AddHours(1).AddMinutes(55), 5);
+                KeystoneNtLockout.Set("LT-LATE", rf); run(ap2, d0.AddHours(1).AddMinutes(59), 200);
+                Check(ap2.Running && bC.Sent.Count == 0 && sC.Ticket == null && !sC.Link.Armed && ap2.Journal.Count(r => r.Event == "LOCKED" && r.Detail.Contains("locked by NinjaTrader")) == 1 && sC.State.StartsWith("🔒 LOCKED by NinjaTrader"),
+                    "🔒🤖 locked by NinjaTrader while running: no ticket at 2:00, journalled once, the autopilot keeps running for the others", string.Join(",", ap2.Journal.Select(r => r.Event)) + " / " + sC.State);
+                KeystoneNtLockout.Set("LT-LATE", rp); run(ap2, d0.AddHours(2).AddMinutes(5), 3);
+                Check(ap2.Journal.Any(r => r.Event == "UNLOCKED") && !sC.Link.Armed && bC.Sent.Count == 0, "🔒🤖 the lock ends: journalled UNLOCKED, NOT re-armed by itself, nothing sent", string.Join(",", ap2.Journal.Select(r => r.Event)));
+            }
+            KeystoneNtLockout.Clear();
         }
         Console.WriteLine(failures == 0 ? "ALL ACCOUNT LINK TESTS PASSED" : failures + " ACCOUNT LINK TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
