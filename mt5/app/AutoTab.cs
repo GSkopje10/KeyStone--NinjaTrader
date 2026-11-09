@@ -144,7 +144,7 @@ namespace KeystoneMT5
             {
                 AutoModel("DEFENDER"); aset.EntryLots = Math.Max(0.01, Math.Round(aset.EntryLots * k, 2)); aset.NetAdvantage = Math.Max(0.01, Math.Round(aset.NetAdvantage * k, 2)); aset.AddLots = Math.Max(0.01, Math.Round(aset.AddLots * k, 2)); aset.Target = Math.Round(aset.Target * k, 2);
                 TextBox tb; if (af.TryGetValue("entry", out tb)) tb.Text = aset.EntryLots.ToString(IC); if (af.TryGetValue("nadv", out tb)) tb.Text = aset.NetAdvantage.ToString(IC); if (af.TryGetValue("add", out tb)) tb.Text = aset.AddLots.ToString(IC); if (af.TryGetValue("target", out tb)) tb.Text = aset.Target.ToString(IC);
-                Put("auto.risk." + AKey, nm);
+                aset.SizePer1k = Math.Round(0.01 * k, 4); aset.TargetPerLot = 200; Put("auto.risk." + AKey, nm);
             };
             simple.Children.Add(ADrop("risk", "RISK", () => { var rv = Get("auto.risk." + AKey, "NORMAL"); return rv == "SAFE" ? "🟢 SAFE (½ size)" : rv == "BOLD" ? "🟠 BOLD (1.5× size)" : "🔵 NORMAL (the tested size)"; }, () => new List<Mi> {
                 new Mi { Text = "🟢 SAFE — half the tested size and target (smaller dips, smaller profit)", Do = () => riskPick(0.5, "SAFE") },

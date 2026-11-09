@@ -774,6 +774,19 @@ public static class AutoTests
                 }
                 Check(HedgeAuto.BadgeText("LIVE", false, false, "REAL", "Duramarkets-Server", 512563) == "● REAL MONEY · Duramarkets 512563" && HedgeAuto.BadgeText("DEMO", false, true, "", "ICMarketsSC-MT5-2", 5298760) == "🎮 DEMO · simulated · ICMarketsSC 5298760" && HedgeAuto.BadgeText("BACKTEST", true, false, "", "", 0).StartsWith("🧪 BACKTEST") && HedgeAuto.BadgeText("PROP", false, false, "CONTEST", "FTMO-Demo", 7).StartsWith("🏆 PROP · FTMO 7"),
                     "● the HEDGE tab names its account: REAL MONEY · Duramarkets 512563 / 🎮 DEMO · simulated · ICMarketsSC 5298760 / 🏆 PROP / 🧪 BACKTEST");
+                {   // 💰 SIZE FROM THE LIVE ACCOUNT: 0.01 lot per $1,000 at every iteration start, rounded down to the step, never under the minimum (+ a warning)
+                    var zsy = new Mt5Symbol { VolMin = 0.01, VolStep = 0.01 };
+                    var z1 = HedgeAuto.SizeFor(431, 431, false, zsy, 0.01, 200); var z2 = HedgeAuto.SizeFor(8000, 8000, false, zsy, 0.01, 200); var z3 = HedgeAuto.SizeFor(12345, 12345, false, zsy, 0.01, 200); var z4 = HedgeAuto.SizeFor(8000, 7000, true, zsy, 0.01, 200);
+                    Check(Math.Abs(z1.Item1 - 0.01) < 1e-9 && Math.Abs(z1.Item2 - 2) < 1e-9 && z1.Item3.Contains("2.3× the tested risk at $431") && Math.Abs(z2.Item1 - 0.08) < 1e-9 && Math.Abs(z2.Item2 - 16) < 1e-9 && z2.Item3 == "" && Math.Abs(z3.Item1 - 0.12) < 1e-9 && Math.Abs(z3.Item2 - 24) < 1e-9 && Math.Abs(z4.Item1 - 0.07) < 1e-9 && AutoSettings.Load(new AutoSettings { SizePer1k = 0.01 }.Save()).SizePer1k == 0.01,
+                        "💰 size from the account: $431 → 0.01 (+ \"2.3× the tested risk\" warning), target $2; $8,000 → 0.08 / $16; $12,345 → 0.12 (rounded down); another basket open → the equity $7,000 → 0.07", z1.Item3);
+                }
+                {   // 🐞 #39: the 🔐 breakeven lock (LOCK / RISK GUARD off) then a hedge → the basket is no longer even → NOT "LOCKED" any more
+                    var zb = S(); zb.FirstDir = "BUY"; zb.MaxIterations = 1; zb.Target = 20; zb.EntryLots = 0.1; zb.HedgeSize = "ADVANTAGE"; zb.NetAdvantage = 0.1; zb.HedgeMode = "PRICE"; zb.HedgePrice = 1.5; zb.HedgeCap = 0; zb.BeLock = true; zb.BeClose = false; zb.BeLockAt = 80; zb.BeLockKeep = 10; zb.Rescue = false;
+                    bool zsawLock = false; HedgeAuto zba = null;
+                    var zbr = Run(Path(Day1, 4000, Line(4000, 0, 5).Concat(Line(4000, 0.1, 18)).Concat(Line(4001.8, -0.2, 10)).Concat(Line(3999.8, 0.25, 16))), zb, null, a => zba = a, sb => { var prev = sb.OnTickHook; sb.OnTickHook = () => { prev(); if (zba != null && zba.Locked) zsawLock = true; }; });
+                    double zbn; lock (zbr.Item1.State.Gate) zbn = zbr.Item1.State.Positions.Sum(p => p.Dir * p.Lots);
+                    Check(zsawLock && zbr.Item2.Story.Any(x => x.Item2.Contains("BREAKEVEN LOCK")) && zbr.Item2.Log.Any(x => x.Contains("no longer even")) && !zbr.Item2.Locked, "🐞 breakeven lock, then a hedge: the basket leans again → the LOCKED state is cleared (the banner shows the real net and the next hedge)", "sawLock " + zsawLock + " locked " + zbr.Item2.Locked + " net " + zbn + " | " + string.Join(" / ", zbr.Item2.Log.Skip(Math.Max(0, zbr.Item2.Log.Count - 6))));
+                }
                 Check(zcA.Item2.LastDir == -1 && zcR.Item2.LastDir == -1, "🐞 after a compress the next hedge still follows the net (SELL basket → a BUY above)", zcA.Item2.LastDir + " " + zcR.Item2.LastDir);
             }
             // 🧹 a pending order placed during the iteration is cancelled when it closes
