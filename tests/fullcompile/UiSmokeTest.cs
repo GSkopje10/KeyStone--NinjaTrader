@@ -733,8 +733,39 @@ public static class UiSmokeTest
                         if (int.Parse(kv["attempt"]) != a0 + 1 || kv["blownNow"] != "False" || trM.Position != 0 || !kv["preset"].StartsWith("TPT PRO 50K funded") || l1 != l0 + 1 || !System.IO.File.ReadAllLines(logF).Last().Contains("BLOWN") || !kv["toast"].Contains("BLOWN — attempt #" + a0 + " saved · new account ready") || !kv["strip"].Contains("attempt #" + (a0 + 1)) || !kv["strip"].Contains("💀"))
                             throw new Exception("🔁 auto new attempt after the blow: " + s1 + " · position " + trM.Position + " · log " + l0 + " → " + l1);
                         ((Action<int>)F("replayTraderOrder"))(1); ((Action)F("studioLiveStep"))(); if (trM.Position == 0) throw new Exception("🔁 trading should go on after the auto new attempt: " + ((Func<string>)F("studioLiveBadge"))() + " · " + ((Func<string>)F("studioPracState"))() + " · price " + trM.Price + " · orders " + trM.Orders.Count);
+                        {   /* 🧮 BUILD 11l — the header TILES (in a trade): every number once, the long account line hidden, no "BOUGHT … @" status duplicate */
+                            string tl = (string)F("studioTiles") ?? ""; foreach (var k9 in new[] { "BAL=", "OPEN=", "PEAK=", "FLOOR=", "ROOM=", "GOAL=", "POS=LONG " }) if (!tl.Contains(k9)) throw new Exception("🧮 tile missing " + k9 + ": " + tl);
+                            if (tl.Contains("DAY=") || tl.Contains("MAXDD=")) throw new Exception("🧮 the MANUAL tiles show on a rules preset: " + tl);
+                            var dupl = FindAll<System.Windows.Controls.TextBlock>(w0.Content).Where(t9 => t9.Visibility == System.Windows.Visibility.Visible && (t9.Text ?? "").Contains(" · bal ") && (t9.Text ?? "").StartsWith("🎯 ")).ToList();
+                            if (dupl.Count > 0) throw new Exception("🧮 the long header line is still shown: " + dupl[0].Text);
+                            if (((Func<string>)F("studioLiveBadge"))().Contains(" BOUGHT ")) throw new Exception("🧮 the BOUGHT status line duplicates the position chip");
+                            if (FindAll<System.Windows.FrameworkElement>(w0.Content).All(x => Convert.ToString(x.Tag) != "prac.tilesbox")) throw new Exception("🧮 no tiles row in the header");
+                            Console.WriteLine("      🧮 11l tiles: " + tl.Substring(0, Math.Min(300, tl.Length)));
+                        }
                         ((Action)F("replayTraderFlat"))(); ((Action)F("studioLiveStep"))();
                         Console.WriteLine("      🔁 11k blow → " + kv["toast"] + " · strip: " + kv["strip"]);
+                        {   /* 📊 BUILD 11l — a ↺ reset by hand is logged as its own result; the 📊 ATTEMPTS drawer shows the rows + the summary */
+                            ((Action<int>)F("replayTraderOrder"))(1); ((Action)F("studioLiveStep"))(); ((Action)F("replayTraderFlat"))(); ((Action)F("studioLiveStep"))();
+                            clickB(FindAll<System.Windows.Controls.Button>(w0.Content).First(b9 => Convert.ToString(b9.Tag) == "prac.strip.reset"));
+                            int l2 = System.IO.File.ReadAllLines(logF).Length; if (!System.IO.File.ReadAllLines(logF).Last().Contains(",RESET,")) throw new Exception("📊 the ↺ reset by hand is not logged: " + System.IO.File.ReadAllLines(logF).Last());
+                            clickB(FindAll<System.Windows.Controls.Button>(w0.Content).First(b9 => Convert.ToString(b9.Tag) == "prac.strip.attempts")); if ((string)F("studioOpenDrawer") != "ATTEMPTS") throw new Exception("📊 the strip's 📊 button should open the ATTEMPTS drawer");
+                            string at = (string)F("studioAttemptsText") ?? ""; if (!at.Contains("💀 blown=") || !at.Contains(" BLOWN ") || !at.Contains(" RESET ") || !at.Contains(" OPEN ")) throw new Exception("📊 attempts view: " + at);
+                            var rowB = FindAll<System.Windows.Controls.Button>(w0.Content).First(b9 => Convert.ToString(b9.Tag) == "attempts.row"); clickB(rowB);
+                            clickB(FindAll<System.Windows.Controls.Button>(w0.Content).First(b9 => Convert.ToString(b9.Tag) == "attempts.export")); var ex9 = (string)F("studioAttemptsExport"); if (ex9 == null || !System.IO.File.Exists(ex9) || System.IO.File.ReadAllLines(ex9).Length < 3) throw new Exception("📊 the export: " + ex9);
+                            ((Action<string>)F("studioShowDrawer"))("ATTEMPTS");
+                            Console.WriteLine("      📊 11l attempts: " + at.Substring(0, Math.Min(260, at.Length)));
+                        }
+                        {   /* 🆓 BUILD 11l — MANUAL (no rules): no FLOOR / LOCK lines, never blown / reset, its own tiles */
+                            int mi = Enumerable.Range(0, pb.Items.Count).First(i => Convert.ToString(pb.Items[i]).StartsWith("🆓 MANUAL")); pb.SelectedIndex = mi; pb.SelectedItem = pb.Items[mi]; clickB(pt); clickB(pt);
+                            string m0 = ((Func<string>)F("studioPracState"))(); if (!m0.Contains("preset=🆓 MANUAL")) throw new Exception("🆓 MANUAL not chosen: " + m0); int am = int.Parse(m0.Split('|')[0].Split('=')[1]);
+                            ((Action<int>)F("replayTraderOrder"))(1); ((Action)F("studioLiveStep"))(); var lb2 = trM.Bars[trM.Bars.Count - 1]; push("MNQ", new KeystoneArcBar { Symbol = "MNQ", Time = lb2.Time, Open = lb2.Open, High = lb2.High, Low = lb2.Close - 1500, Close = lb2.Close - 1500, Volume = 99 }); ((Action)F("studioLiveStep"))();
+                            string m1 = ((Func<string>)F("studioPracState"))(); var lines9 = FindAll<System.Windows.Controls.Canvas>(w0.Content).SelectMany(cvx => cvx.Children.OfType<System.Windows.FrameworkElement>()).Select(x => Convert.ToString(x.Tag)).Where(x => x == "prac.floorline" || x == "prac.lockline" || x == "prac.glabel").ToList();
+                            if (lines9.Count > 0 || !m1.Contains("attempt=" + am + "|") || m1.Contains("blownNow=True") || trM.Position == 0) throw new Exception("🆓 MANUAL drew the floor / blew / reset: " + m1 + " · lines " + lines9.Count + " · pos " + trM.Position);
+                            string tlm = (string)F("studioTiles") ?? ""; if (!tlm.Contains("DAY=") || !tlm.Contains("MAXDD=") || !tlm.Contains("TRADES=") || tlm.Contains("FLOOR=") || tlm.Contains("GOAL=")) throw new Exception("🆓 MANUAL tiles: " + tlm);
+                            ((Action)F("replayTraderFlat"))(); ((Action)F("studioLiveStep"))();
+                            Console.WriteLine("      🆓 11l MANUAL: −$3,000 open, no floor / lock, no reset · tiles " + tlm.Substring(0, Math.Min(200, tlm.Length)));
+                            int ti2 = Enumerable.Range(0, pb.Items.Count).First(i => Convert.ToString(pb.Items[i]).StartsWith("TPT PRO 50K funded")); pb.SelectedIndex = ti2; pb.SelectedItem = pb.Items[ti2]; clickB(pt); clickB(pt);
+                        }
                     }
                     badge = ((Func<string>)F("studioLiveBadge"))(); int made1 = (int)nbMade.GetValue(null);
                     if (!badge.Contains("|links=0|") || made1 != made0) throw new Exception("🛡 the LIVE DEMO touched an account link / NinjaBroker: " + badge + " · brokers " + made0 + " → " + made1);
@@ -768,6 +799,10 @@ public static class UiSmokeTest
                     for (; nd < 30; dy = dy.AddDays(1)) { if (dy.DayOfWeek == DayOfWeek.Saturday || dy.DayOfWeek == DayOfWeek.Sunday) continue; nd++; for (int m = 1; m <= 9 * 60; m++) { double o0 = px, c0 = Math.Round((px + (rnd.NextDouble() - 0.5) * 12) * 4) / 4; bars.Add(new KeystoneArcBar { Symbol = "MNQ", Time = dy.AddHours(8).AddMinutes(m), Open = o0, High = Math.Max(o0, c0) + 1.5, Low = Math.Min(o0, c0) - 1.5, Close = c0, Volume = 50 }); px = c0; } }
                     KeystoneStudioStore.Merge(sf, "MNQ", bars);
                     Call(lab2, "OpenReplayTrader"); var bt = (System.Windows.Window)F("backtestStudioWindow"); if (bt == null) throw new Exception("no BACKTEST STUDIO");
+                    {   /* 📊 11l: a restart → the attempts are reloaded from the file */
+                        ((Action<string>)F("studioShowDrawer"))("ATTEMPTS"); string at0 = (string)F("studioAttemptsText") ?? ""; if (!at0.Contains(" BLOWN ") || !at0.Contains(" RESET ")) throw new Exception("📊 after the restart the attempts are gone: " + at0); ((Action<string>)F("studioShowDrawer"))("ATTEMPTS");
+                        Console.WriteLine("      📊 11l restart: attempts reloaded · " + at0.Substring(0, Math.Min(160, at0.Length)));
+                    }
                     var showD = (Action<string>)F("studioShowDrawer"); showD("ROTSIM"); if ((string)F("studioOpenDrawer") != "ROTSIM") throw new Exception("🔄 the ROTATION SIM drawer did not open");
                     var rs = (Func<string, string>)F("studioRotSim"); if (rs == null) throw new Exception("🔄 no ROTATION SIM hook");
                     string cl = rs("SET qty=1;tp.usd=20;sl.usd=20;pattern=BS;from=2019-03-04;to=2019-04-05;days=5;every=1");

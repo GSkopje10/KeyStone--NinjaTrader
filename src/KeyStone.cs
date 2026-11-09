@@ -20778,6 +20778,7 @@ namespace NinjaTrader.NinjaScript
         static string Sg(double v) { return (v >= 0 ? "+" : "−") + "$" + Math.Abs(Math.Round(v)).ToString("N0", IC); }
         public string Line()
         {
+            if (Manual) return Name + " • start $" + Size.ToString("N0", IC) + " • no floor, no lock, no reset" + (MaxQty < 9999 ? " • max " + MaxQty : "") + (DailyLoss > 0 ? " • daily loss " + M(DailyLoss) : "");
             string goal = Kind == "TPT" ? "① beat the trailing: +" + M(LockAt + Dd) + " best equity (open profit included) → ② withdraw anything above the " + M(Dd) + " buffer (" + Split.ToString("0", IC) + " % to you)" : Kind == "PAYOUT" ? "payout: " + QualDays + " qualifying days (≥ " + M(QualMin) + ") + profit ≥ " + M(Target) + " (" + Pct.ToString("0", IC) + " %, max " + M(PayCap) + ")" : Kind == "MFF" ? "withdraw any profit ≥ " + M(Math.Max(250, Target)) + " up to " + M(PayCap) : "target +" + M(Target);
             return Name + " • $" + Size.ToString("N0", IC) + " • " + TypeName(DdType) + " " + M(Dd) + (double.IsNaN(LockAt) ? "" : " (locks at " + Sg(LockAt) + ")") + " • " + goal + " • max " + MaxQty + " contracts";
         }
@@ -20785,6 +20786,7 @@ namespace NinjaTrader.NinjaScript
         public string Status(double open)
         {
             if (Blown) return How; if (Passed) return How; double eq = Equity(open), fl = FloorNow(open);
+            if (Manual) return "🆓 MANUAL (no rules) · balance " + Sg(eq) + " · peak " + Sg(Math.Max(Peak, eq)) + " · max drawdown seen " + M(MaxDdSeen) + (DailyLoss > 0 ? " · daily loss " + M(DailyLoss) : "") + " · day " + (Days + 1) + " · " + Trades + " trade" + (Trades == 1 ? "" : "s") + " · max " + (MaxQty >= 9999 ? "no limit" : MaxQty.ToString(IC));
             string trail = string.Equals(DdType, "STATIC", StringComparison.OrdinalIgnoreCase) ? " (static)" : Locked ? (Kind == "TPT" ? " (at the start)" : " (🔒 locked)") : " (trailing)";
             string next = Kind == "TPT" ? (Locked ? "🔒 TRAILING BEATEN (floor locked at the start " + M(Size + fl) + ") · buffer " + M(Math.Min(Dd, Math.Max(0, eq - fl))) + " / " + M(Dd) + " · 💰 WITHDRAWABLE NOW " + M(Math.Max(0, eq - fl - Dd)) + " (balance − the " + M(Dd) + " buffer)" + (Withdrawn > 0 ? " · withdrawn so far " + M(Withdrawn) + " (you " + M(ToYou) + ")" : "")
                     : "BEAT THE TRAILING DRAWDOWN: " + M(Math.Max(0, LockAt + Dd - Math.Max(Peak, eq))) + " to go (best equity incl. open " + Sg(Math.Max(Peak, eq)) + " / " + Sg(LockAt + Dd) + ")")
@@ -35819,7 +35821,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Action<double> replayTraderNewAccount; private Action studioDataChanged; private Action<int> replayTraderRewind;
         private Action<bool> studioLiveDemo; private Action studioLiveStep; private Func<string> studioLiveBadge; private Action<string, KeystoneArcBar> studioLivePush;   /* ● LIVE DEMO (BUILD 11j) test hooks: switch it, one loop tick, the badge + status, a live bar */
         private Func<string, DateTime, DateTime, List<KeystoneArcBar>> studioLiveHistFake;   /* tests only: a stand-in for NinjaTrader's history BarsRequest (symbol, from, to) */ private Func<string, string> studioLiveHistory;
-        private string studioTiles;   /* 🧮 11l: the header tiles as text (the smoke test) */
+        private string studioTiles, studioAttemptsText, studioAttemptsExport; private Action studioAttempts;   /* 📊 11l: the attempts view's text / its export / repaint (the smoke test) */   /* 🧮 11l: the header tiles as text (the smoke test) */
         private string studioPracPanel; private Func<string> studioRaceGo; private Func<bool> studioDrawerOverlay; private Func<string> studioPracState;   /* 🖥 11k: the drawers overlay the chart · the practice state (attempt / tallies / preset / position) */   /* 📐 11j: the big practice panel's tiles as text (the smoke test) */
         private Func<string, List<KeystoneArcBar>> studioLiveFeedFake;   /* tests only: a stand-in for NinjaTrader's real-time feed (the session so far per symbol) */
         private static string ReplayJournalFile() { return Path.Combine(StudioFolder(), "ReplayJournal.csv"); }
@@ -36129,7 +36131,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string[] StudioHookNames = { "replayTraderWindow", "replayTrader", "replayTraderTimer", "replayTraderLoad", "replayTraderFlat", "replayTraderEnd", "replayTraderOrder", "replayTraderStep", "replayTraderNewAccount", "replayTraderRewind",
             "studioStartRange", "studioPropStart", "studioPropSim", "studioPropRunDay", "studioAddSymbol", "studioRotEnter", "studioBoth", "studioTrader", "studioPropExport", "studioPropCompare", "studioPropFastStop", "studioPropNext", "studioPropView",
             "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
-            "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts" };
+            "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts", "studioAttemptsText", "studioAttemptsExport" };
         private static System.Reflection.FieldInfo StudioHookField(string n) { return typeof(KeystoneArc5MResearchLab).GetField(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public); }
         private void SaveStudioHooks(Window owner)
         {
@@ -36904,7 +36906,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             var stripT = new TextBlock { Foreground = Gold, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(8, 0, 10, 0), Tag = "prac.strip" };
             var stripEdit = Btn("⚙ edit", Card); var stripReset = Btn("↺ reset", Card); foreach (var sb9 in new[] { stripEdit, stripReset }) { sb9.Height = 22; sb9.FontSize = 10.5; sb9.Margin = new Thickness(0, 1, 6, 1); sb9.Padding = new Thickness(8, 0, 8, 0); }
             stripEdit.Tag = "prac.strip.edit"; stripReset.Tag = "prac.strip.reset"; stripEdit.ToolTip = "the practice settings (preset, size, drawdown, target, max contracts, auto new attempt …)"; stripReset.ToolTip = "↺ RESET: a fresh attempt of the same preset";
-            var stripRow = new StackPanel { Orientation = Orientation.Horizontal, Background = Tint(Gold, 24), Height = 24 }; stripRow.Children.Add(stripT); stripRow.Children.Add(stripEdit); stripRow.Children.Add(stripReset); pBig.Child = stripRow;
+            var stripRow = new StackPanel { Orientation = Orientation.Horizontal, Background = Tint(Gold, 24), Height = 24 }; var stripAtt = Btn("📊 attempts", Card); stripAtt.Height = 22; stripAtt.FontSize = 10.5; stripAtt.Margin = new Thickness(0, 1, 6, 1); stripAtt.Padding = new Thickness(8, 0, 8, 0); stripAtt.Tag = "prac.strip.attempts"; stripAtt.ToolTip = "📊 every practice attempt: the results, the summary, each attempt's trades";
+            stripRow.Children.Add(stripT); stripRow.Children.Add(stripEdit); stripRow.Children.Add(stripReset); stripRow.Children.Add(stripAtt); pBig.Child = stripRow;
+            Window pracAttemptsWin = null; Func<Tuple<FrameworkElement, Action>> pracMakeAttempts = null;
             Action pracFold = null, pracUnfold = null; Func<string> pracBracketTxt = () => ""; bool pracGhosts = pGet("pracghost", "0") == "1", pracHud = pGet("prachud", "0") == "1";
             var pracCompacts = new Dictionary<ReplayPane, Dictionary<string, FrameworkElement>>();   /* the compact trailing block of each chart's order column */
             Action pracHudPaint = null; var hudText = new TextBlock { Foreground = Text, FontSize = 15, FontWeight = FontWeights.Bold, Tag = "prac.hud.text" };
@@ -36932,7 +36936,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                 pStatus.Text = prac.Status(op) + atPx + " · max " + prac.MaxQty + " contracts";   /* 🐞 11f: one clean line (it was said twice) */ pStatus.Foreground = prac.Blown ? Red : prac.Passed ? Green : Text;
             };
             Action pracStart = delegate { if (liveWindow && livePracAcct != null) livePracFor = livePracAcct(); if (prac != null && (prac.Trades > 0 || prac.Days > 0) && !prac.Blown && !prac.Passed) { pracSaveAttempt("RESET"); pracAttemptNo++; } else if (prac != null && (prac.Blown || prac.Passed)) pracAttemptNo++; prac = pracRead(); pracAttemptStart = pracNow(); pracDayStartClosed = 0; wsSet("pracpresetname", prac.Name); pracBank = -realized(); pracLastReal = 0; pracFillBase = -pracFillsNow(); pracLastFills = 0; pracDay = session; pracShown = null; wsSet("pracpreset", pracBox.SelectedIndex.ToString(CultureInfo.InvariantCulture)); pracPaint(); pracPaintLog(); };
-            stripReset.Click += delegate { pReset.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }; stripEdit.Click += delegate { if (pracUnfold != null) pracUnfold(); };
+            stripReset.Click += delegate { pReset.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); };
+            stripAtt.Click += delegate
+            {   /* 📊 11l: the studio → its 📊 ATTEMPTS drawer; ● LIVE TRADING → a window with the same view */
+                if (!liveWindow && studioShowDrawer != null) { if (studioOpenDrawer != "ATTEMPTS") studioShowDrawer("ATTEMPTS"); return; }
+                if (pracAttemptsWin != null) { pracAttemptsWin.Activate(); return; }
+                var av = pracMakeAttempts(); var aw = new KeystoneWindow { Title = "📊 PRACTICE ATTEMPTS (Sim practice + the studio) — simulation only", Width = 1250, Height = 640, Background = Bg, Owner = w, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+                aw.Content = new ScrollViewer { Content = new Border { Padding = new Thickness(12), Child = av.Item1 }, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; aw.Closed += delegate { pracAttemptsWin = null; }; pracAttemptsWin = aw; aw.Show();
+            }; stripEdit.Click += delegate { if (pracUnfold != null) pracUnfold(); };
             pReset.Click += delegate { pracStart(); status.Text = "🎯 " + prac.Line() + " • a fresh attempt"; status.Foreground = Cyan; foreach (var p0 in panes) if (p0.Canvas != null && pracRender != null) pracRender(p0); };
             pracFill = delegate { var cp = KeystonePractice.Presets()[Math.Max(0, pracBox.SelectedIndex)]; pracFilled = pracBox.SelectedIndex; pSize.Text = cp.Size.ToString("0", CultureInfo.InvariantCulture); pDd.Text = cp.Dd.ToString("0", CultureInfo.InvariantCulture); pTg.Text = cp.Target.ToString("0", CultureInfo.InvariantCulture); pMax.Text = cp.MaxQty.ToString(CultureInfo.InvariantCulture); pType.SelectedIndex = Math.Max(0, Array.IndexOf(KeystonePractice.Types, cp.DdType)); if (pracTgCap != null) pracTgCap(); };
             bool pracSwitchVeto = false; int pracBoxLast = pracBox.SelectedIndex;
@@ -37055,6 +37066,83 @@ namespace NinjaTrader.NinjaScript.AddOns
             /* 📊 11l: the attempt numbers continue after a restart (the attempts log + the trades log), wins / losses per attempt from the trades log */
             try { var allA0 = KeystonePracticeAttempts.Load(File.Exists(pracLogFile()) ? File.ReadAllText(pracLogFile()) : ""); pracAttemptNo = Math.Max(KeystonePracticeAttempts.NextNo(allA0), tradeRows.Count == 0 ? 1 : tradeRows.Max(x => x.Attempt) + 1); } catch { }
             pracWinLoss = n0 => { var rr = prac != null && prac.Manual ? tradeRows.Where(x => x.Attempt == n0 && (session == DateTime.MinValue || x.Entry.Date == pracDay.Date || pracDay == DateTime.MinValue)).ToList() : tradeRows.Where(x => x.Attempt == n0).ToList(); return new[] { rr.Count(x => x.Net > 0), rr.Count(x => x.Net <= 0) }; };
+            /* 📊 BUILD 11l — THE ATTEMPTS TRACKER view (BACKTEST STUDIO ▸ 📊 ATTEMPTS drawer; ● LIVE TRADING ▸ the practice strip's 📊 button opens it in a window): the summary
+               bar, one row per attempt (+ the running one), click → its trades (+ ▶ JUMP to its day in replay), filters preset / mode / date, ⬇ EXPORT CSV, 🧹 CLEAR (asks) */
+            Func<List<KeystonePracticeAttempt>> attemptsAll = () =>
+            {
+                var l = new List<KeystonePracticeAttempt>(); try { if (File.Exists(pracLogFile())) l = KeystonePracticeAttempts.Load(File.ReadAllText(pracLogFile())); } catch { }
+                if (prac != null && !prac.Blown && !prac.Passed) { var wl = pracWinLoss(pracAttemptNo); double eqO = prac.Equity(pracOpen()); l.Add(new KeystonePracticeAttempt { No = pracAttemptNo, Preset = prac.Name, Mode = pracModeOf(), Result = prac.Manual ? "DAY" : "OPEN", When = DateTime.Now, Start = pracAttemptStart == DateTime.MinValue ? pracNow() : pracAttemptStart, End = pracNow(), Trades = wl[0] + wl[1], Wins = wl[0], Losses = wl[1], Pnl = prac.Manual ? eqO - pracDayStartClosed : eqO, Peak = Math.Max(prac.BestEq, eqO), MaxDd = prac.MaxDdSeen, Floor = prac.Manual ? double.NaN : prac.FloorNow(pracOpen()) }); }
+                return l;
+            };
+            Func<Tuple<FrameworkElement, Action>> makeAttemptsView = null; makeAttemptsView = () =>
+            {
+                var v = new StackPanel { Tag = "attempts.view", MinWidth = 900 }; var fRow = new WrapPanel(); v.Children.Add(fRow);
+                var fPreset = Select(new[] { "all presets" }); fPreset.Width = 230; fPreset.Height = 26; fPreset.Tag = "attempts.preset"; var fMode = Select(new[] { "all modes" }); fMode.Width = 120; fMode.Height = 26; fMode.Tag = "attempts.mode";
+                var fFrom = Input(""); var fTo = Input(""); fFrom.Width = fTo.Width = 96; fFrom.Height = fTo.Height = 26; fFrom.ToolTip = fTo.ToolTip = "yyyy-mm-dd (empty = all)"; fFrom.Tag = "attempts.from"; fTo.Tag = "attempts.to";
+                Func<string, Brush, Button> sb = (t, br) => { var b = Btn(t, br); b.Height = 26; b.Margin = new Thickness(0, 12, 6, 0); b.Padding = new Thickness(8, 0, 8, 0); return b; };
+                var bRef = sb("🔄 REFRESH", Card); var bExp = sb("⬇ EXPORT CSV", Tint(Cyan, 90)); bExp.Tag = "attempts.export"; var bClr = sb("🧹 CLEAR", Card); bClr.Tag = "attempts.clear";
+                Func<string, UIElement, StackPanel> lb = (c, e) => { var sp = new StackPanel { Margin = new Thickness(0, 0, 6, 0) }; sp.Children.Add(new TextBlock { Text = c, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(e); return sp; };
+                fRow.Children.Add(lb("PRESET", fPreset)); fRow.Children.Add(lb("MODE", fMode)); fRow.Children.Add(lb("FROM", fFrom)); fRow.Children.Add(lb("TO", fTo)); fRow.Children.Add(bRef); fRow.Children.Add(bExp); fRow.Children.Add(bClr);
+                var sumRow = new WrapPanel { Margin = new Thickness(0, 4, 0, 4), Tag = "attempts.summary" }; v.Children.Add(sumRow);
+                var tbl = new StackPanel(); v.Children.Add(new ScrollViewer { Content = tbl, MaxHeight = 260, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto });
+                var detail = new StackPanel { Margin = new Thickness(0, 6, 0, 0), Tag = "attempts.detail" }; v.Children.Add(detail);
+                double[] wd = { 40, 190, 80, 210, 74, 120, 54, 70, 84, 80, 84, 84 };
+                Func<string[], bool, Brush, StackPanel> rowOf = (cells, h, fg) => { var sp = new StackPanel { Orientation = Orientation.Horizontal, Background = h ? Card : null }; for (int i = 0; i < cells.Length; i++) sp.Children.Add(new TextBlock { Text = cells[i], Width = wd[Math.Min(i, wd.Length - 1)], FontSize = 10.5, Foreground = h ? Muted : fg ?? Text, FontWeight = h ? FontWeights.Bold : FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 4, 1) }); return sp; };
+                Func<List<KeystonePracticeAttempt>> shown = () =>
+                {
+                    DateTime a = ParseStudioDate(fFrom.Text), z = ParseStudioDate(fTo.Text);
+                    string pr = fPreset.SelectedIndex > 0 ? Convert.ToString(fPreset.SelectedItem ?? fPreset.Items[fPreset.SelectedIndex]) : "", md = fMode.SelectedIndex > 0 ? Convert.ToString(fMode.SelectedItem ?? fMode.Items[fMode.SelectedIndex]) : "";
+                    return KeystonePracticeAttempts.Filter(attemptsAll(), pr, md, a, z);
+                };
+                Action paint = null;
+                Action<KeystonePracticeAttempt> showTrades = at =>
+                {
+                    detail.Children.Clear(); var tr = tradeRows.Where(x => x.Attempt == at.No && (at.Result != "DAY" || x.Entry.Date == at.Start.Date)).OrderBy(x => x.Entry).ToList();
+                    var hd = new WrapPanel(); hd.Children.Add(new TextBlock { Text = "#" + at.No + " · " + at.Preset + " · " + KeystonePracticeAttempts.Chip(at.Result) + " · " + tr.Count + " trade(s)", Foreground = Gold, FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) });
+                    if (!liveWindow && at.Mode == "replay" && studioMode != "LIVE")
+                    {
+                        var jb = sb("▶ JUMP to its day on the chart", Tint(Green, 110)); jb.Margin = new Thickness(0, 0, 6, 0); jb.Tag = "attempts.jump"; var at0 = at;
+                        jb.Click += delegate { dateBox.Text = at0.Start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); loadBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); status.Text = "📊 attempt #" + at0.No + " started at " + at0.Start.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " NY on " + at0.Start.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture) + " — the day is loaded"; status.Foreground = Cyan; };
+                        hd.Children.Add(jb);
+                    }
+                    detail.Children.Add(hd); double[] wt = { 130, 70, 50, 50, 90, 90, 90, 160 };
+                    Func<string[], bool, Brush, StackPanel> r2 = (cells, h, fg) => { var sp = new StackPanel { Orientation = Orientation.Horizontal, Background = h ? Card : null }; for (int i = 0; i < cells.Length; i++) sp.Children.Add(new TextBlock { Text = cells[i], Width = wt[Math.Min(i, wt.Length - 1)], FontSize = 10.5, Foreground = h ? Muted : fg ?? Text, FontWeight = h ? FontWeights.Bold : FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 4, 1) }); return sp; };
+                    detail.Children.Add(r2(new[] { "TIME", "SIDE", "SIZE", "SYM", "ENTRY", "EXIT", "$", "WHY IT CLOSED" }, true, null));
+                    foreach (var t in tr) detail.Children.Add(r2(new[] { t.Entry.ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture), t.Side, t.Qty.ToString(CultureInfo.InvariantCulture), t.Symbol, t.EntryPx.ToString("0.00", CultureInfo.InvariantCulture), t.ExitPx.ToString("0.00", CultureInfo.InvariantCulture), Signed(Math.Round(t.Net, 2)), t.How }, false, t.Net >= 0 ? Green : Red));
+                    if (tr.Count == 0) detail.Children.Add(new TextBlock { Text = "no trade saved for this attempt", Foreground = Muted, FontSize = 11 });
+                };
+                paint = delegate
+                {
+                    var all = attemptsAll(); string selP = fPreset.SelectedIndex > 0 ? Convert.ToString(fPreset.Items[fPreset.SelectedIndex]) : "", selM = fMode.SelectedIndex > 0 ? Convert.ToString(fMode.Items[fMode.SelectedIndex]) : "";
+                    var ps = all.Select(x => x.Preset).Where(x => x != "").Distinct().OrderBy(x => x).ToList(); var ms = all.Select(x => x.Mode).Where(x => x != "").Distinct().OrderBy(x => x).ToList();
+                    fPreset.Items.Clear(); fPreset.Items.Add("all presets"); foreach (var x in ps) fPreset.Items.Add(x); fPreset.SelectedIndex = Math.Max(0, ps.IndexOf(selP) + 1);
+                    fMode.Items.Clear(); fMode.Items.Add("all modes"); foreach (var x in ms) fMode.Items.Add(x); fMode.SelectedIndex = Math.Max(0, ms.IndexOf(selM) + 1);
+                    var rows = shown(); sumRow.Children.Clear();
+                    foreach (var kv in KeystonePracticeAttempts.Summary(rows)) { var sp = new StackPanel { Margin = new Thickness(0, 0, 8, 0) }; sp.Children.Add(new TextBlock { Text = kv[0].ToUpperInvariant(), Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold }); sp.Children.Add(new TextBlock { Text = kv[1], Foreground = kv[0].StartsWith("net") ? (kv[1].StartsWith("−") ? Red : Green) : Text, FontSize = 15, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas") }); sumRow.Children.Add(new Border { Child = sp, Background = Card, CornerRadius = new CornerRadius(7), Padding = new Thickness(8, 3, 8, 3), Margin = new Thickness(0, 0, 6, 4), Tag = "attempts.tile" }); }
+                    tbl.Children.Clear(); tbl.Children.Add(rowOf(new[] { "#", "PRESET", "MODE", "START → END", "DURATION", "RESULT", "TRADES", "W / L", "P/L", "PEAK", "MAX DD", "FLOOR (END)" }, true, null));
+                    foreach (var at in rows.OrderByDescending(x => x.No).ThenByDescending(x => x.Start).Take(500))
+                    {
+                        var rw = rowOf(new[] { "#" + at.No, at.Preset, at.Mode, at.Start.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture) + " → " + at.End.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture), KeystonePracticeAttempts.Dur(at.Duration), KeystonePracticeAttempts.Chip(at.Result), at.Trades.ToString(CultureInfo.InvariantCulture), at.Wins + " / " + at.Losses, Signed(Math.Round(at.Pnl)), Signed(Math.Round(at.Peak)), Cash(at.MaxDd), double.IsNaN(at.Floor) ? "—" : Signed(Math.Round(at.Floor)) },
+                            false, at.Passed ? Green : at.Result == "BLOWN" ? Red : at.Result == "OPEN" ? Cyan : Text);
+                        var b = new Button { Content = rw, Background = Panel, BorderThickness = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(0), Margin = new Thickness(0), Cursor = System.Windows.Input.Cursors.Hand, Tag = "attempts.row" }; var at1 = at; b.Click += delegate { showTrades(at1); }; tbl.Children.Add(b);
+                    }
+                    if (rows.Count == 0) tbl.Children.Add(new TextBlock { Text = "no attempt yet — every 🎯 practice attempt (locked / passed / blown / reset by hand; 🆓 MANUAL: one row a day) is saved here (Studio\\practice-attempts.csv)", Foreground = Muted, FontSize = 11 });
+                    studioAttemptsText = string.Join(" | ", KeystonePracticeAttempts.Summary(rows).Select(x => x[0] + "=" + x[1])) + " || rows " + rows.Count + " || " + string.Join(" ; ", rows.Select(x => "#" + x.No + " " + x.Result + " " + x.Trades + " " + Math.Round(x.Pnl)));
+                };
+                bRef.Click += delegate { paint(); }; fPreset.SelectionChanged += delegate { }; 
+                bExp.Click += delegate
+                {
+                    try { var rows = shown(); string dir9 = Path.Combine(StudioFolder(), "exports"); Directory.CreateDirectory(dir9); string f9 = Path.Combine(dir9, "practice-attempts-" + DateTime.Now.ToString("yyyy-MM-dd-HHmmss", CultureInfo.InvariantCulture) + ".csv"); File.WriteAllText(f9, KeystonePracticeAttempts.Header + "\n" + string.Join("\n", rows.Select(KeystonePracticeAttempts.Line)) + "\n"); status.Text = "⬇ " + rows.Count + " attempts → " + f9; status.Foreground = Green; studioAttemptsExport = f9; }
+                    catch (Exception ex) { status.Text = "export failed • " + ex.Message; status.Foreground = Red; }
+                };
+                bClr.Click += delegate
+                {
+                    if (KBox(w, "🧹 CLEAR every saved practice attempt (Studio\\practice-attempts.csv)?\n\nThe trades log (📜 TRADES) is kept.", "📊 ATTEMPTS · CLEAR", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                    try { if (File.Exists(pracLogFile())) File.Delete(pracLogFile()); } catch { } detail.Children.Clear(); paint(); pracPaintLog(); status.Text = "🧹 the attempts log is cleared"; status.Foreground = Muted;
+                };
+                paint(); return Tuple.Create((FrameworkElement)v, paint);
+            };
+            pracMakeAttempts = makeAttemptsView;
             Action tradesPaint = null;
             Action tradeLogTick = delegate
             {
@@ -48007,7 +48095,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                 clock.Width = double.NaN; clock.FontSize = 15; clock.Margin = new Thickness(10, 12, 6, 0); unparent(clock); bar1.Children.Add(clock); bar1.Children.Add(tabStrip);
                 // the drawers
                 var drawers = new Dictionary<string, WrapPanel>(); var drawerHost = new Border { Background = Panel, BorderBrush = Card, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 2, 6, 4), Margin = new Thickness(0, 0, 0, 2), Visibility = Visibility.Collapsed, Tag = "studio.drawer" };
-                foreach (var dk in new[] { "SETTINGS", "PRACTICE", "INDICATORS", "TOOLS", "TRADES", "ROTSIM" }) drawers[dk] = new WrapPanel { Tag = "studio.drawer." + dk };
+                foreach (var dk in new[] { "SETTINGS", "PRACTICE", "INDICATORS", "TOOLS", "TRADES", "ATTEMPTS", "ROTSIM" }) drawers[dk] = new WrapPanel { Tag = "studio.drawer." + dk };
+                var attV = makeAttemptsView(); drawers["ATTEMPTS"].Children.Add(attV.Item1); studioAttempts = attV.Item2;   /* 📊 11l */
                 drawers["ROTSIM"].Children.Add(BuildRotationSimDrawer(sfolder, w, status));   /* 🔄 BUILD 11k: the ROTATION SIM (simulation only, never an order) */
                 var settingsSet = new HashSet<UIElement> { modeSwitch, boxOf(rangeToBox), boxOf(startBox), boxOf(signalBox), stratSetBtn, buysBox, sellsBox, boxOf(howRow), boxOf(playsRow), simPrevBtn, simNextBtn, propBtn };
                 foreach (var c0 in top.Children.Cast<UIElement>().ToList())
@@ -48076,11 +48165,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                 showDrawer = k =>
                 {
                     openDrawer = k == openDrawer ? null : k; studioOpenDrawer = openDrawer; wsSet("drawer", openDrawer ?? "");
-                    if (openDrawer != null) { var dp = drawers[openDrawer]; if (drawerScroll.Content != dp) { drawerScroll.Content = null; drawerScroll.Content = dp; } if (drawerHost.Child != drawerScroll) drawerHost.Child = drawerScroll; if (openDrawer == "TRADES" && tradesPaint != null) tradesPaint(); }   /* 🖥 11k: closed = hidden (its controls stay where they are), scrollable when tall */
+                    if (openDrawer != null) { var dp = drawers[openDrawer]; if (drawerScroll.Content != dp) { drawerScroll.Content = null; drawerScroll.Content = dp; } if (drawerHost.Child != drawerScroll) drawerHost.Child = drawerScroll; if (openDrawer == "TRADES" && tradesPaint != null) tradesPaint(); if (openDrawer == "ATTEMPTS") attV.Item2(); }   /* 🖥 11k: closed = hidden (its controls stay where they are), scrollable when tall */
                     drawerHost.Visibility = openDrawer == null ? Visibility.Collapsed : Visibility.Visible;
                     foreach (var kv in tabBtns) PaintBtn(kv.Value, kv.Key == openDrawer ? Tint(Gold, 130) : Card);
                 };
-                foreach (var tn in new[] { "SETTINGS|⚙ SETTINGS", "PRACTICE|🎯 PRACTICE", "INDICATORS|📈 INDICATORS", "TOOLS|🔗 TOOLS", "TRADES|📜 TRADES", "ROTSIM|🔄 ROTATION SIM" })
+                foreach (var tn in new[] { "SETTINGS|⚙ SETTINGS", "PRACTICE|🎯 PRACTICE", "INDICATORS|📈 INDICATORS", "TOOLS|🔗 TOOLS", "TRADES|📜 TRADES", "ATTEMPTS|📊 ATTEMPTS", "ROTSIM|🔄 ROTATION SIM" })
                 {
                     var pr = tn.Split('|'); string k = pr[0]; var tb = small(pr[1], Card); tb.Height = 26; tb.Margin = new Thickness(0, 12, 4, 0); tb.Padding = new Thickness(8, 0, 8, 0); tb.Tag = "studio.tab." + k; tb.Click += delegate { showDrawer(k); }; tabBtns[k] = tb; tabStrip.Children.Add(tb);
                 }
