@@ -1,0 +1,161 @@
+<title>Overnight Research Brief</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Libre+Franklin:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a single reading column like a desk briefing; each finding = a verdict chip + the numbers that prove it. */
+:root{
+  --bg:#f3f5f7; --panel:#ffffff; --ink:#18212b; --mute:#5b6875; --line:#dbe1e7;
+  --accent:#c47a00; --accent-soft:#fff2db; --good:#17803d; --good-soft:#e3f4e9; --bad:#b42b2b; --bad-soft:#fbe6e6; --warn:#8a6100; --warn-soft:#fdf3d9;
+  --bar:#2f6f9f;
+  --f-display:"Barlow Condensed","Arial Narrow",Arial,sans-serif; --f-body:"Libre Franklin",system-ui,-apple-system,"Segoe UI",sans-serif; --f-data:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f151c; --panel:#161f29; --ink:#e4e9ee; --mute:#93a1af; --line:#26323f;
+  --accent:#f0a832; --accent-soft:#33260f; --good:#4cc47a; --good-soft:#12301f; --bad:#ef6b6b; --bad-soft:#3a1717; --warn:#e8c25a; --warn-soft:#352b10; --bar:#5aa6dc; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f151c; --panel:#161f29; --ink:#e4e9ee; --mute:#93a1af; --line:#26323f;
+  --accent:#f0a832; --accent-soft:#33260f; --good:#4cc47a; --good-soft:#12301f; --bad:#ef6b6b; --bad-soft:#3a1717; --warn:#e8c25a; --warn-soft:#352b10; --bar:#5aa6dc; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55}
+.wrap{max-width:980px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:28px}
+header{display:flex;flex-direction:column;gap:6px;border-bottom:3px solid var(--accent);padding-bottom:16px}
+.eyebrow{font-family:var(--f-data);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(34px,6vw,52px);line-height:1;margin:0;letter-spacing:.01em;text-wrap:balance}
+h2{font-family:var(--f-display);font-weight:600;font-size:28px;line-height:1.1;margin:0;text-wrap:balance}
+h3{font-family:var(--f-body);font-weight:600;font-size:16px;margin:0}
+p{margin:0;max-width:68ch}
+.lede{color:var(--mute);font-size:16px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:22px clamp(16px,3vw,28px);display:flex;flex-direction:column;gap:14px;min-width:0}
+.verdicts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.v{border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
+.chip{display:inline-block;align-self:flex-start;font-family:var(--f-data);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:3px}
+.c-good{background:var(--good-soft);color:var(--good)} .c-bad{background:var(--bad-soft);color:var(--bad)} .c-warn{background:var(--warn-soft);color:var(--warn)} .c-acc{background:var(--accent-soft);color:var(--accent)}
+.big{font-family:var(--f-display);font-weight:700;font-size:34px;line-height:1}
+.tbl{overflow-x:auto;min-width:0}
+table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--f-data);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);font-weight:600}
+td.n{font-family:var(--f-data);white-space:nowrap}
+tr.hl td{background:var(--accent-soft)}
+.barcell{display:flex;align-items:center;gap:8px;min-width:150px}
+.bar{height:10px;border-radius:2px;background:var(--bar)}
+.bar.bad{background:var(--bad)} .bar.good{background:var(--good)}
+ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+.note{font-size:13px;color:var(--mute)}
+.rule{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.card{border-left:4px solid var(--accent);background:var(--bg);padding:12px 14px;border-radius:0 6px 6px 0;display:flex;flex-direction:column;gap:4px}
+code,.mono{font-family:var(--f-data);font-size:13px}
+.link{word-break:break-all;font-family:var(--f-data);font-size:13px;background:var(--bg);border:1px solid var(--line);padding:10px;border-radius:4px}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Keystone + SpasiX · research night of 8 → 9 Nov 2026 · MNQ minute data 2020-10 → 2026-10, your gold export of 8 Nov</span>
+  <h1>Overnight Research Brief</h1>
+  <p class="lede">What was tested on the TPT trailing lock, the rotation / scalp ideas and your own setups, what holds up on both halves of six years of data, and what was built.</p>
+</header>
+
+<section aria-labelledby="s-verdict">
+  <h2 id="s-verdict">The short version</h2>
+  <div class="verdicts">
+    <div class="v"><span class="chip c-good">Works</span><span class="big">≈ 40 %</span><p>Locking the TPT PRO funded trailing in 1–2 days with one or a few big brackets. The ceiling without an edge is 37–38 %; the best plans add 2–4 points and hold on both halves.</p></div>
+    <div class="v"><span class="chip c-bad">Does not work</span><span class="big">0–12 %</span><p>Small scalps toward the lock ($20–$100 targets, any direction pattern). The costs eat the whole $2,000 before the lock.</p></div>
+    <div class="v"><span class="chip c-bad">Tested, negative</span><span class="big">−0.15 R</span><p>VWAP rejection and pullback entries on MNQ. A pullback entry locks less than entering at the market.</p></div>
+    <div class="v"><span class="chip c-warn">Undecided</span><span class="big">ticks</span><p>"Stay on a win, switch on a stop" with 5–10 point brackets. It looks huge on minute data but collapses on a noisier price path. Only your real ticks can settle it.</p></div>
+  </div>
+</section>
+
+<section aria-labelledby="s-lock">
+  <h2 id="s-lock">1 · The TPT trailing lock: which plan</h2>
+  <p>The rule: the floor is the peak equity including open profit minus $2,000. The goal is to reach +$2,000 so the floor locks at the start. Each test is one account per start day (every second weekday). Costs are $2 per contract per round trip. Anything open is closed at 16:54 and the race continues the next day, for at most 40 days. Every figure is worst-case: when a stop and a target fall inside the same minute, the stop counts first.</p>
+  <div class="rule">
+    <div class="card"><h3>Plan A · fastest</h3><p>MNQ 10 at 9:30 NY in the 60-minute direction, TP $2,000 (100 pts), stop = the floor.</p><p class="mono">40.2 % lock · 35.8 % on day 1 · 1 trade</p></div>
+    <div class="card"><h3>Plan B · best that holds</h3><p>MNQ 5, ±50 pts ($500 / $500), stay on a win, switch on a stop, non-stop from 9:30.</p><p class="mono">41.8 % lock · 11 trades · 2 days · 41.8 / 41.9 % by half</p></div>
+    <div class="card"><h3>Plan C · slower</h3><p>MNQ 5 at 4:00 AM, TP $1,000 (100 pts), SL $250, breakeven at 75 %.</p><p class="mono">45 % lock · ~10 trades / ~10 days · 46.5 / 43.2 % by half</p></div>
+  </div>
+  <h3>Contract size, one trade a day toward the lock (60-minute trend)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Size</th><th>9:30 AM</th><th>4:00 AM</th><th>Points of room</th></tr></thead>
+    <tbody>
+      <tr><td>MNQ 5</td><td class="n">39.4 %</td><td class="n">—</td><td class="n">200</td></tr>
+      <tr class="hl"><td>MNQ 10</td><td class="n">40.2 % (35.8 % day 1)</td><td class="n">—</td><td class="n">100</td></tr>
+      <tr><td>MNQ 15</td><td class="n">36.7 %</td><td class="n">—</td><td class="n">67</td></tr>
+      <tr><td>MNQ 20</td><td class="n">31.6 %</td><td class="n">—</td><td class="n">50</td></tr>
+      <tr><td>MNQ 30</td><td class="n">≈ 30 %</td><td class="n">37.8 %</td><td class="n">33</td></tr>
+      <tr><td>MNQ 40</td><td class="n">≈ 30 %</td><td class="n">38.7 %</td><td class="n">25</td></tr>
+      <tr><td>MNQ 60</td><td class="n">≈ 31 %</td><td class="n">—</td><td class="n">17</td></tr>
+    </tbody></table></div>
+  <p class="note">At 9:30 the opening noise knocks out big sizes before the trend shows; the quiet 4 AM hour tolerates a bigger size. Breakeven moves add 1–3 points; "keep half the open profit" makes it worse; pullback entries make it worse (section 3).</p>
+</section>
+
+<section aria-labelledby="s-ladder">
+  <h2 id="s-ladder">2 · Smaller targets and non-stop rotation</h2>
+  <p>Below is the best result found for each target size, over all sizes, stops, breakeven options and 1 / 3 / unlimited trades a day. The next trade starts as soon as the last one closes.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Target per trade</th><th>Best lock (with costs)</th><th>Trades to +$2K</th><th>Best settings found</th></tr></thead>
+    <tbody>
+      <tr><td>$2,000 (one trade)</td><td><div class="barcell"><span class="bar good" style="width:120px"></span><span class="mono">40.0 %</span></div></td><td class="n">1</td><td>MNQ 10, stop = floor, 9:30</td></tr>
+      <tr><td>$1,000</td><td><div class="barcell"><span class="bar good" style="width:123px"></span><span class="mono">41.0 %</span></div></td><td class="n">3–6</td><td>MNQ 5, SL $500, ≤ 3 a day</td></tr>
+      <tr><td>$500</td><td><div class="barcell"><span class="bar" style="width:118px"></span><span class="mono">39.4 %</span></div></td><td class="n">11</td><td>MNQ 5, SL $500, all day</td></tr>
+      <tr><td>$250</td><td><div class="barcell"><span class="bar" style="width:104px"></span><span class="mono">34.6 %</span></div></td><td class="n">19–40</td><td>MNQ 2–5, SL 2× target</td></tr>
+      <tr><td>$100</td><td><div class="barcell"><span class="bar bad" style="width:87px"></span><span class="mono">29.1 %</span></div></td><td class="n">120–195</td><td>MNQ 1–2, SL 2× target</td></tr>
+      <tr><td>$50</td><td><div class="barcell"><span class="bar bad" style="width:36px"></span><span class="mono">12.1 %</span></div></td><td class="n">≈ 300</td><td>MNQ 1, SL $100</td></tr>
+      <tr><td>$20 (1 MNQ, 10 pts)</td><td><div class="barcell"><span class="bar bad" style="width:2px"></span><span class="mono">0 %</span></div></td><td class="n">≈ 1,000+</td><td>every direction pattern</td></tr>
+    </tbody></table></div>
+  <h3>Your examples</h3>
+  <ul>
+    <li><b>1 MNQ, $20 / $20, sell-buy-sell-buy:</b> 0 of 502 accounts locked. A win nets +$18 and a loss −$22. At about 1,000 trades, the costs alone are about $2,000.</li>
+    <li><b>3 MNQ, $50 / $50:</b> 0 % to 11 % depending on the order of prices inside each minute, with about 750 trades needed.</li>
+    <li><b>15 MNQ, $100 / $100:</b> 0–1 % in every direction mode. Costs are $30 a trade, so a win nets only +$70 and a loss costs −$130.</li>
+  </ul>
+  <h3>Direction patterns (528 combinations, sizes 1–15, brackets 5–150 pts)</h3>
+  <p>With brackets of 50 points or more, where minute data can be trusted, every rule ends at 37–42 %: alternate B S B S, B B S S, always buy, always sell, coin flip, trend, candle colour. The direction pattern does not create an edge. The exact maths for a 50/50 sequence with this trailing floor gives 38 % without costs.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Stay on win / switch on stop</th><th>Minute path</th><th>Noisier path</th><th>Read it as</th></tr></thead>
+    <tbody>
+      <tr><td>MNQ 15, ±5 pts</td><td class="n">71.1 %</td><td class="n">9.0 %</td><td><span class="chip c-warn">artifact</span></td></tr>
+      <tr><td>MNQ 15, ±10 pts</td><td class="n">50.8 %</td><td class="n">36.3 %</td><td><span class="chip c-warn">artifact</span></td></tr>
+      <tr class="hl"><td>MNQ 5, ±50 pts</td><td class="n">41.8 %</td><td class="n">41.4 %</td><td><span class="chip c-good">holds</span></td></tr>
+    </tbody></table></div>
+  <p class="note">A minute candle only gives the open, high, low and close, so a simulated path runs straight from one extreme to the other, which looks like momentum. Real ticks zigzag. The 🔄 ROTATION SIM uses your NinjaTrader ticks when your PC has them and flags brackets too small for minute data.</p>
+</section>
+
+<section aria-labelledby="s-ideas">
+  <h2 id="s-ideas">3 · Scalp ideas from your own trades</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Idea</th><th>What was tested</th><th>Result</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td>VWAP rejection (your short at VWAP)</td><td>RTH 9:45–15:30. Price had been 15 / 30 / 60 pts away, touched VWAP and closed back. Stop beyond the candle +2 pts, targets 1–3R. Also tested with the 60-minute trend and first touch of the day only.</td><td class="n">−0.09 to −0.21 R per trade, 657–3,601 trades; the best variant (60 pts + trend) was +0.05 R in 2020-23 and −0.22 R in 2024-26</td><td><span class="chip c-bad">no edge</span></td></tr>
+      <tr><td>Reversal FVG after a hard move (the 🎯 scanner)</td><td>The first 1-minute FVG after a 60 / 100 / 150 pt move. Limit entry at the gap, stop past the extreme, 1–3R.</td><td class="n">−0.06 R overall; the ★ high-volume version +0.18 R at 3R (about 60 a year), uneven between the halves</td><td><span class="chip c-warn">weak · practice only</span></td></tr>
+      <tr><td>Lock race with a pullback entry</td><td>60-minute side at 9:30, then a limit 10 / 20 / 40 pts back or at VWAP until 11:00, instead of entering at the market.</td><td class="n">33–39 % lock against 40.2 % at the market (MNQ 10)</td><td><span class="chip c-bad">worse</span></td></tr>
+      <tr><td>Gold signals in your export</td><td>70 BREAK signals; did the target come before the same move against?</td><td class="n">56 % overall · with VWAP 62 % against 46 % without · NY PM 73 % · Asia 33 %</td><td><span class="chip c-acc">hint, small sample</span></td></tr>
+    </tbody></table></div>
+  <p>What would actually move the numbers is a real entry edge measured on ticks. Two candidates are left: the ★ reversal FVG and "stay on win" with small brackets. Export ticks from NinjaTrader (📦 EXPORT TICKS) and both can be measured exactly.</p>
+</section>
+
+<section aria-labelledby="s-plan">
+  <h2 id="s-plan">4 · How to make the lock concept profitable</h2>
+  <ul>
+    <li><b>Do the cost maths first.</b> Cost per locked account = (eval fee ÷ eval pass rate) ÷ lock rate. For example, $220 ÷ 25 % ÷ 40 % ≈ <b>$2,200</b>. A locked account has to pay out more than that over its life.</li>
+    <li><b>The money is after the lock.</b> Once the floor stops at the start balance, trade the slow SAFE plan and withdraw everything above the buffer. The race only buys the lock quickly.</li>
+    <li><b>Stagger the races.</b> All 5 accounts on the same day in the same direction is a single bet: all lock or all blow. One or two a day lands you closer to the expected 2 of 5.</li>
+    <li><b>Don't pair long and short accounts.</b> A pair produces exactly one lock about 75 % of the time, but each account still averages 37.5 %, so nothing is gained. Most firms also treat opposite positions across accounts as a rule break.</li>
+    <li><b>Next step:</b> compare "race then SAFE" against "SAFE from the start" in the Funded Lab's 🔁 BUSINESS RUN, in dollars spent vs withdrawn, before committing your 5 funded accounts.</li>
+  </ul>
+</section>
+
+<section aria-labelledby="s-hedge" id="hedge">
+  <h2 id="s-hedge">5 · SpasiX hedge: faster recovery</h2>
+  <p>Your export (8 Nov): 23 iterations, all won, net +$254.56. One iteration needed 4 add-ons, went down −$496.73 and was stuck about 4 hours to earn +$1.75. Iteration #24 was stuck around −$140 (BUY 0.32 / SELL 0.40) while the price chopped between 4120 and 4133.</p>
+  <p class="note" id="hedge-pending">The add-to-winner study on your export is still running. Its numbers and the built option will appear here.</p>
+</section>
+
+<section aria-labelledby="s-builds" id="builds">
+  <h2 id="s-builds">6 · What was built</h2>
+  <h3>KeyStone · BUILD 2026-11-11j (installed link from last night)</h3>
+  <p>● LIVE DEMO in the Backtest Studio, several studios open at once, 🎯 PROP PRACTICE in LIVE TRADING, the trailing-drawdown view, 🎯 LOCK RACE.</p>
+  <p class="note" id="builds-pending">BUILD 2026-11-11k (🔄 ROTATION SIM, the clean chart-first layout, live-demo history, drawdown presets, auto reset) and the SpasiX hedge build appear here when finished and tested.</p>
+</section>
+</div>
