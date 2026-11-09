@@ -84,6 +84,71 @@ public static class ReplayTraderTests
             if (pth[0] != o || pth[60] != c) ends = false;
         }
         Check(inside && touches && ends, "realistic path: inside the real high / low, touches both, exact open + close (5,000 minutes)", inside + " " + touches + " " + ends);
+        {   // 📐 BUILD 11j — a STOP MOVED INTO PROFIT, counted exactly (the user's screenshot): TPT trailing $2,000, start $0, costs $2 / contract round trip;
+            // long 8 MNQ @ 27,249.75, sell STP 27,251.50 (in profit), sell LMT 27,265.25; up to 27,261.00 (target not hit), then down through 27,251.50
+            // our cost model books the WHOLE round trip in the open equity (open = 8·2·(px − entry) − 8·$2): peak = $180 − $16 = $164 (the user's gross $180), floor −$1,836
+            double c2 = 2, pv2 = 2, e2 = 27249.75; int q2 = 8; var tpS = KeystonePractice.Presets().First(x => x.Name.StartsWith("TPT PRO 50K funded")).Copy(); tpS.ApplyTyped(); tpS.CloseAtGoal = false;
+            Func<double, double> op2 = x => q2 * pv2 * (x - e2) - c2 * q2; double realized2 = 0; bool open2 = true, stopIn = false; double exitPx = double.NaN;
+            var stopWalk = new List<double>(); for (double x = e2; x <= 27261.0 + 1e-9; x += 0.25) stopWalk.Add(Math.Round(x, 2)); for (double x = 27260.75; x >= 27250.0 - 1e-9; x -= 0.25) stopWalk.Add(Math.Round(x, 2));
+            foreach (var x in stopWalk)
+            {
+                if (x >= 27255.0) stopIn = true;   /* the stop is dragged to 27,251.50 once the price is above it */
+                if (open2 && stopIn && x <= 27251.50 + 1e-9) { exitPx = 27251.50; realized2 = q2 * pv2 * (exitPx - e2) - c2 * q2; open2 = false; }   /* the stop fills AT its price (the practice trader does the same, below) */
+                tpS.Mark(realized2, open2 ? op2(x) : 0, "");
+            }
+            var afterX = KeystonePracticeTrail.Of(tpS, tpS.Closed, q2, 27250.0, 27250.0, pv2, 0);
+            Console.WriteLine("      📐 stop in profit: peak +$" + tpS.Peak.ToString("0.00") + " (gross $180 − $16 costs) · floor $" + tpS.FloorNow(0).ToString("0.00") + " · realized +$" + realized2.ToString("0.00") + " · room $" + afterX.Room.ToString("0.00") + " · given back $" + afterX.GivenBack.ToString("0.00") + " · to lock $" + afterX.ToLock.ToString("0.00"));
+            Check(Math.Abs(realized2 - 12.0) < 1e-9 && Math.Abs(tpS.Peak - 164) < 1e-9 && Math.Abs(tpS.FloorNow(0) + 1836) < 1e-9 && Math.Abs(afterX.Equity - 12) < 1e-9 && Math.Abs(afterX.Room - 1848) < 1e-9 && Math.Abs(afterX.GivenBack - 152) < 1e-9 && Math.Abs(afterX.ToLock - 1988) < 1e-9 && !tpS.Blown,
+                "📐 a stop moved into profit: realized +$12.00 (8 × $2 × 1.75 − $16), the peak keeps +$164 (= $180 gross − $16 costs), floor −$1,836, ROOM $1,848, GIVEN BACK $152, TO LOCK $1,988", tpS.Peak + " / " + afterX.Room + " / " + afterX.GivenBack + " / " + afterX.ToLock);
+            Check(Math.Abs((afterX.Room) - (2000 - afterX.GivenBack)) < 1e-9, "📐 ROOM LEFT shrinks by exactly what was given back from the peak (room = $2,000 − given back)", afterX.Room + " vs " + afterX.GivenBack);
+            // the practice trader itself: the profit stop fills AT 27,251.50, the floor kept the trade's best
+            var lt = KeystoneReplayTrader.LiveStart(new List<KeystoneArcBar> { new KeystoneArcBar { Symbol = "MNQ", Time = new DateTime(2026, 3, 4, 10, 0, 0), Open = e2, High = e2, Low = e2, Close = e2 } }, "MNQ", new DateTime(2026, 3, 4, 10, 0, 0));
+            lt.Buy(q2); lt.TargetPts = 15.5; double cT = KeystoneMoveStudy.Cost("MNQ"); var pr2 = KeystonePractice.Presets().First(x => x.Name.StartsWith("TPT PRO 50K funded")).Copy(); pr2.ApplyTyped(); pr2.CloseAtGoal = false;
+            var tB = new DateTime(2026, 3, 4, 10, 1, 0); double hiT = e2;
+            foreach (var x in stopWalk) { hiT = Math.Max(hiT, x); if (x >= 27255.0 && lt.Position != 0) lt.StopPts = -1.75; /* dragged into profit */ lt.LiveUpdate(new KeystoneArcBar { Symbol = "MNQ", Time = tB, Open = e2, High = hiT, Low = Math.Min(e2, x), Close = x }, tB); pr2.Mark(lt.Realized, lt.Position == 0 ? 0 : lt.Unrealized - cT * Math.Abs(lt.Position), ""); }
+            var fl2 = lt.Fills.LastOrDefault();
+            Check(lt.Position == 0 && fl2 != null && fl2.Reason == "PROFIT STOP" && Math.Abs(lt.Realized - (q2 * pv2 * 1.75 - cT * q2)) < 1e-6 && Math.Abs(pr2.Peak - (q2 * pv2 * 11.25 - cT * q2)) < 1e-6 && Math.Abs(pr2.FloorNow(0) - (pr2.Peak - 2000)) < 1e-9,
+                "📐 the studio's practice trader: the profit stop fills AT 27,251.50 (realized 8 × $2 × 1.75 − costs), the peak keeps the trade's best (27,261.00), the floor never drops back", (fl2 == null ? "no fill" : fl2.Reason) + " / " + lt.Realized + " / " + pr2.Peak);
+        }
+        {   // 📐 BUILD 11j — the user's scenario (TPT PRO 50K funded): 60 MNQ long @ 27,246.50, goingUp to 27,262.00 tick by tick, then back towards 27,240.00
+            var tp = KeystonePractice.Presets().First(x => x.Name.StartsWith("TPT PRO 50K funded")).Copy(); tp.ApplyTyped(); tp.CloseAtGoal = false;
+            double pv = 2, c = KeystoneMoveStudy.Cost("MNQ"), avg = 27246.50; int q = 60; Func<double, double> opn = x9 => q * pv * (x9 - avg) - c * q;
+            var tickPath = new List<double>(); for (double pq = avg; pq <= 27262.0 + 1e-9; pq += 0.25) tickPath.Add(Math.Round(pq, 2)); for (double pq = 27261.75; pq >= 27240.0 - 1e-9; pq -= 0.25) tickPath.Add(Math.Round(pq, 2));
+            var at0 = KeystonePracticeTrail.Of(tp, 0, q, avg, avg, pv, c);
+            KeystonePracticeTrail top = null, mid = null; double blownAt = double.NaN; bool goingUp = true;
+            foreach (var pq in tickPath)
+            {
+                if (pq >= 27262.0 - 1e-9) goingUp = false; var hit = tp.Mark(0, opn(pq), "");
+                if (Math.Abs(pq - 27262.0) < 1e-9 && top == null) top = KeystonePracticeTrail.Of(tp, 0, q, avg, pq, pv, c);
+                if (!goingUp && Math.Abs(pq - 27250.0) < 1e-9) mid = KeystonePracticeTrail.Of(tp, 0, q, avg, pq, pv, c);
+                if (hit == "BLOWN" && double.IsNaN(blownAt)) blownAt = pq;
+            }
+            double peakX = 120 * (27262.0 - avg) - 60 * c, floorX = peakX - 2000, floorPxX = avg + (floorX + c * q) / (q * pv);
+            Console.WriteLine("      📐 60 MNQ long @ 27,246.50 (costs $" + c.ToString("0.00") + " / contract round trip): at the start floor @ " + at0.FloorPx.ToString("0.00") + " (−$2,000), lock @ " + at0.LockPx.ToString("0.00")
+                + " • at 27,262: peak +$" + top.Peak.ToString("0.00") + ", floor $" + top.Floor.ToString("0.00") + " @ " + top.FloorPx.ToString("0.0000") + " (dies at " + KeystonePracticeTrail.DeathTick(top.FloorPx, q, 0.25).ToString("0.00") + "), room $" + top.Room.ToString("0.00") + " = " + top.RoomPts.ToString("0.000") + " pts, to the lock $" + top.ToLock.ToString("0.00")
+                + " • back at 27,250: room $" + mid.Room.ToString("0.00") + ", given back $" + mid.GivenBack.ToString("0.00") + " • 💀 blown at " + blownAt.ToString("0.00"));
+            Check(Math.Abs(top.Peak - peakX) < 1e-6 && Math.Abs(top.Floor - floorX) < 1e-6 && Math.Abs(top.FloorPx - floorPxX) < 1e-9 && Math.Abs(top.FloorPx - (27262.0 - 2000.0 / 120)) < 1e-9 && Math.Abs(top.Room - 2000) < 1e-6 && Math.Abs(top.RoomPts - 2000.0 / 120) < 1e-9 && Math.Abs(top.GivenBack) < 1e-9,
+                "📐 at 27,262: the peak (incl. open, net of costs) = +$" + peakX.ToString("0.00") + ", the floor = peak − $2,000, its price 27,245.3333 (costs cancel), room $2,000 = 16.667 pts", top.Peak + " / " + top.Floor + " / " + top.FloorPx + " / " + top.Room);
+            Check(Math.Abs(top.ToLock - (2000 - peakX)) < 1e-6 && Math.Abs(top.LockPx - (avg + (2000 + c * q) / (q * pv))) < 1e-9 && Math.Abs(at0.FloorPx - (avg + (-2000 + c * q) / (q * pv))) < 1e-9 && !top.Locked,
+                "📐 the LOCK = equity +$2,000 net of costs (@ " + (avg + (2000 + c * q) / (q * pv)).ToString("0.0000") + "), the start floor @ " + at0.FloorPx.ToString("0.0000"), top.ToLock + " / " + top.LockPx);
+            Check(mid != null && Math.Abs(mid.Equity - (120 * 3.5 - 60 * c)) < 1e-6 && Math.Abs(mid.Room - 560) < 1e-6 && Math.Abs(mid.GivenBack - 1440) < 1e-6 && Math.Abs(mid.RoomPts - 560.0 / 120) < 1e-9 && Math.Abs(mid.Floor - floorX) < 1e-6,
+                "📐 back at 27,250: the floor did not move down, room $560 (4.667 pts), given back $1,440", mid == null ? "null" : mid.Room + " / " + mid.GivenBack);
+            Check(Math.Abs(blownAt - 27245.25) < 1e-9 && KeystonePracticeTrail.DeathTick(top.FloorPx, q, 0.25) == 27245.25 && tp.Blown && !tp.Locked, "📐 the reversal to 27,240 blows it at the first tick through the floor: 27,245.25", blownAt.ToString());
+            var race = KeystonePractice.Presets().First(x => x.Race).Copy();
+            Check(race.Name == KeystonePractice.RaceName && race.RaceQty == 10 && race.RaceTp == 2000 && race.Kind == "TPT" && race.DdType == "INTRADAY" && race.Dd == 2000 && KeystonePractice.RaceSizes.SequenceEqual(new[] { 5, 10, 15, 20, 30, 40, 60 }) && KeystonePractice.RaceNote.Contains("MNQ 10 @9:30 trend ≈ 40% lock (36% day 1); MNQ 5 ≈ 39%; MNQ 60 ≈ 31%. No edge ceiling ≈ 37%."),
+                "🎯 LOCK RACE preset: MNQ 10 by default (5 / 10 / 15 / 20 / 30 / 40 / 60), +$2,000 lock, stop = the trailing floor (TPT PRO rules) + the research note");
+            Check(KeystonePractice.RaceTps.SequenceEqual(new double[] { 2000, 1000 }) && KeystonePractice.RaceSls.SequenceEqual(new double[] { 0, 1000, 500, 250 })
+                && KeystonePractice.RaceNextTp(2000, 0, 2000) == 2000 && KeystonePractice.RaceNextTp(2000, 1250, 2000) == 750 && KeystonePractice.RaceNextTp(1000, 1250, 2000) == 750 && KeystonePractice.RaceNextTp(1000, -300, 2000) == 1000
+                && KeystonePractice.RaceStopUsd(0, 1700) == 1700 && KeystonePractice.RaceStopUsd(500, 1700) == 500 && KeystonePractice.RaceStopUsd(1000, 640) == 640
+                && KeystonePractice.BeTrigger(1000) == 750 && Math.Abs(KeystonePractice.BeStopPts(1.74, 2, 0.25) - 1.0) < 1e-9 && Math.Abs(KeystonePractice.BeStopPts(2.24, 10, 0.1) - 0.3) < 1e-9
+                && KeystonePractice.RaceNote.Contains("9:30 trend MNQ 5, TP $2K, SL $500 ≈ 41–43%") && KeystonePractice.RaceNote.Contains("4:00 trend MNQ 5, TP $1K, SL $250, BE 75% ≈ 45%"),
+                "🎯 LOCK RACE choices: TP $2,000 / $1,000 (the next trade aims for what is still missing), SL floor / $1,000 / $500 / $250 (the tighter of it and the floor), BE at 75 % → entry + costs");
+            {   // the 9:30 side = the last 60 minutes' close vs open
+                var d0 = new DateTime(2026, 3, 4); var upB = new List<KeystoneArcBar>(); var dnB = new List<KeystoneArcBar>();
+                for (int i = 1; i <= 120; i++) { var t = d0.AddHours(8).AddMinutes(i); upB.Add(new KeystoneArcBar { Time = t, Open = 100 + i * 0.25, Close = 100 + i * 0.25 + 0.25, High = 101 + i, Low = 99 }); dnB.Add(new KeystoneArcBar { Time = t, Open = 200 - i * 0.25, Close = 200 - i * 0.25 - 0.25, High = 201, Low = 100 }); }
+                Check(KeystonePractice.RaceSide(upB, d0) == 1 && KeystonePractice.RaceSide(dnB, d0) == -1 && KeystonePractice.RaceSide(upB.Take(40).ToList(), d0) == 0, "🎯 LOCK RACE side at 9:30: the last 60 minutes upB → LONG, down → SHORT, too few bars → none");
+            }
+        }
         {   // 🎯 BUILD 11f — the PRACTICE ACCOUNT: the peak (open profit included), the floor never wentDown, the TPT funded phases, the goal close, the withdrawals, the status
             Func<string, KeystonePractice> pre = nm => KeystonePractice.Presets().First(p => p.Name.StartsWith(nm)).Copy();
             var ev = new KeystonePractice { Name = "t", DdType = "INTRADAY", Size = 50000, Dd = 2000, Target = 3000, MaxQty = 40 };

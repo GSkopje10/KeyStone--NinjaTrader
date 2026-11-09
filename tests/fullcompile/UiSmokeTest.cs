@@ -625,6 +625,98 @@ public static class UiSmokeTest
                     Call(lab2, "OpenPatternLab"); ((Action<string>)F("patternLabRun"))("MNQ");
                     Console.WriteLine("      PATTERN LAB opened and asked for a test (" + KeystoneStudioStore.Sessions(studio, "MNQ").Count + " saved MNQ days here — too few, it says so)");
                 });
+            if (strategy == "MAD")
+                Step("🪟 BUILD 11j: BACKTEST STUDIO + EVAL LAB + LIVE TRADING open together, reopen = focus • ● LIVE DEMO: real-time feed (stand-in), simulated fills, 🎯 TPT practice floor follows every tick, NOTHING sent", () =>
+                {
+                    var BF = BindingFlags.Instance | BindingFlags.NonPublic;
+                    Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2); Action<string, object> S = (n, v) => lab2.GetType().GetField(n, BF).SetValue(lab2, v);
+                    var nbMade = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public);
+                    DateTime ny; try { ny = TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, "Eastern Standard Time"); } catch { ny = DateTime.Now; }
+                    var m0 = new DateTime(ny.Year, ny.Month, ny.Day, ny.Hour, ny.Minute, 0);
+                    S("studioLiveFeedFake", (Func<string, List<KeystoneArcBar>>)(sym => { var l = new List<KeystoneArcBar>(); double px = sym == "MGC" ? 2400 : 21000; for (int i = -40; i <= 0; i++) { l.Add(new KeystoneArcBar { Symbol = sym, Time = m0.AddMinutes(i + 1), Open = px, High = px + 1, Low = px - 1, Close = px, Volume = 50 }); } return l; }));
+                    // 1. three studios at once
+                    Call(lab2, "OpenReplayTrader"); var bt = (System.Windows.Window)F("backtestStudioWindow"); if (bt == null) throw new Exception("no BACKTEST STUDIO");
+                    Call(lab2, "OpenRotationStudio"); if (F("rotStudioWindow") == null || F("labsWindow") == null) throw new Exception("no EVAL LAB");
+                    Call(lab2, "OpenLiveTrading"); var lv = (System.Windows.Window)F("liveStudioWindow"); if (lv == null) throw new Exception("no LIVE TRADING");
+                    if (F("backtestStudioWindow") != bt || F("rotStudioWindow") == null) throw new Exception("opening LIVE TRADING closed another studio");
+                    if (F("replayTraderWindow") != lv) throw new Exception("the hooks did not follow the new LIVE TRADING window");
+                    {   /* ⧉ WINDOWS ▾ lists the three (the title-bar switcher) */
+                        var kw = lab2.GetType().GetNestedType("KeystoneWindow", BindingFlags.NonPublic); var open = ((System.Collections.IEnumerable)kw.GetMethod("MainOpen").Invoke(null, null)).Cast<object>().ToList();
+                        if (!open.Contains(bt) || !open.Contains(lv) || !open.Contains(F("labsWindow"))) throw new Exception("⧉ WINDOWS does not list the open studios (" + open.Count + ")");
+                        kw.GetMethod("ShowWindowsMenu").Invoke(null, new object[] { bt, null });
+                        if (FindAll<System.Windows.FrameworkElement>(bt.Content).All(x => Convert.ToString(x.Tag) != "win.windows")) throw new Exception("⧉ WINDOWS button missing in the title bar");
+                    }
+                    Call(lab2, "OpenReplayTrader"); if (F("backtestStudioWindow") != bt) throw new Exception("reopening the BACKTEST STUDIO built a second one");
+                    if (F("replayTraderWindow") != bt) throw new Exception("reopening the BACKTEST STUDIO did not bring it (and its hooks) to the front");
+                    Call(lab2, "OpenLiveTrading"); if (F("liveStudioWindow") != lv || F("replayTraderWindow") != lv) throw new Exception("● LIVE TRADING is not single-instance / not focused");
+                    Call(lab2, "OpenReplayTrader");
+                    Console.WriteLine("      🪟 BACKTEST STUDIO + 🧪 EVAL LAB + ● LIVE TRADING open together; reopening focuses the open one (one per kind): OK");
+                    // 2. ● LIVE DEMO in the backtest studio
+                    int made0 = (int)nbMade.GetValue(null);
+                    ((Action<bool>)F("studioLiveDemo"))(true); var badge = ((Func<string>)F("studioLiveBadge"))();
+                    if (!badge.StartsWith("● LIVE DEMO · simulated · nothing is sent|LIVE|links=0")) throw new Exception("● LIVE DEMO badge / mode: " + badge);
+                    if (!((Func<string>)F("studioModeNow"))().StartsWith("LIVE")) throw new Exception("mode is not LIVE: " + ((Func<string>)F("studioModeNow"))());
+                    var trM = ((Func<string, KeystoneReplayTrader>)F("studioTrader"))("MNQ"); if (trM == null || !trM.Live) throw new Exception("the MNQ chart is not on the live feed");
+                    var w0 = bt; Action<System.Windows.Controls.Button> clickB = b9 => b9.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                    var showDp = (Action<string>)F("studioShowDrawer"); if ((string)F("studioOpenDrawer") != "PRACTICE") showDp("PRACTICE");
+                    var pt = FindAll<System.Windows.Controls.Button>(w0.Content).FirstOrDefault(b9 => Convert.ToString(b9.Content) == "🎯 PRACTICE AS A PROP ACCOUNT"); if (pt == null) throw new Exception("🎯 no PRACTICE button");
+                    var pb = FindAll<System.Windows.Controls.ComboBox>(w0.Content).First(cbx => cbx.Items.Cast<object>().Any(x => Convert.ToString(x).StartsWith("TPT PRO 50K funded")));
+                    int ti = Enumerable.Range(0, pb.Items.Count).First(i => Convert.ToString(pb.Items[i]).StartsWith("TPT PRO 50K funded")); pb.SelectedIndex = ti; pb.SelectedItem = pb.Items[ti]; clickB(pt);
+                    Func<string> gauge = () => FindAll<System.Windows.Controls.TextBlock>(w0.Content).Select(t => t.Text ?? "").FirstOrDefault(t => t.StartsWith("floor ")) ?? "";
+                    Func<string, double> floorOf = g => { var a = g.Substring(6).Split(' ')[0].Replace("$", "").Replace(",", "").Replace("+", ""); double v; return double.TryParse(a, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out v) ? v : double.NaN; };
+                    ((Action<int>)F("replayTraderOrder"))(1); ((Action)F("studioLiveStep"))();
+                    if (trM.Position != 1) throw new Exception("the live demo BUY did not fill on the simulated trader (position " + trM.Position + ")");
+                    double f1 = floorOf(gauge()); string ga = gauge();
+                    var push = (Action<string, KeystoneArcBar>)F("studioLivePush"); var lastB0 = trM.Bars[trM.Bars.Count - 1]; var lastB = new KeystoneArcBar { Time = lastB0.Time, Open = lastB0.Open, High = lastB0.High, Low = lastB0.Low, Close = lastB0.Close };
+                    push("MNQ", new KeystoneArcBar { Symbol = "MNQ", Time = lastB.Time, Open = lastB.Open, High = lastB.Close + 60, Low = lastB.Low, Close = lastB.Close + 60, Volume = 80 }); ((Action)F("studioLiveStep"))();
+                    double f2 = floorOf(gauge()); string gb = gauge();
+                    if (Math.Abs(trM.Price - (lastB.Close + 60)) > 1e-9) throw new Exception("the live tick did not move the trader's price: " + trM.Price + " vs " + (lastB.Close + 60) + " same trader " + (((Func<string, KeystoneReplayTrader>)F("studioTrader"))("MNQ") == trM) + " bars " + trM.Bars.Count + " last " + trM.Bars[trM.Bars.Count - 1].Close);
+                    if (!(f2 > f1 + 50)) throw new Exception("🎯 the TPT floor did not follow the open profit on the live tick: " + ga + " → " + gb);
+                    {   /* 📐 the hugely visual trailing view: band, solid floor, lock line, the flash, the big panel; a pull-back → the dotted peak + GIVEN BACK */
+                        Func<List<string>> tagsNow = () => FindAll<System.Windows.FrameworkElement>(w0.Content).Select(x => Convert.ToString(x.Tag)).ToList();
+                        var t1 = tagsNow(); foreach (var need in new[] { "prac.band", "prac.floorline", "prac.lockline", "prac.panel", "prac.floorflash" }) if (!t1.Contains(need)) throw new Exception("📐 missing on the chart: " + need);
+                        string pan = (string)F("studioPracPanel") ?? ""; if (!pan.Contains("ROOM LEFT") || !pan.Contains("TO LOCK") || !pan.Contains("BALANCE")) throw new Exception("📐 the big panel: " + pan);
+                        push("MNQ", new KeystoneArcBar { Symbol = "MNQ", Time = lastB.Time, Open = lastB.Open, High = lastB.Close + 60, Low = lastB.Low, Close = lastB.Close + 40, Volume = 90 }); ((Action)F("studioLiveStep"))();
+                        var t2 = tagsNow(); if (!t2.Contains("prac.peakline")) throw new Exception("📐 no dotted PEAK marker after the pull-back");
+                        pan = (string)F("studioPracPanel") ?? ""; if (!pan.Contains("GIVEN BACK $40") && !pan.Contains("GIVEN BACK $")) throw new Exception("📐 GIVEN BACK missing: " + pan);
+                        Console.WriteLine("      📐 trailing view on the live demo: band + solid FLOOR + LOCK + ▲ floor moved + dotted PEAK · panel: " + pan);
+                    }
+                    ((Action)F("replayTraderFlat"))(); ((Action)F("studioLiveStep"))();
+                    if (trM.Position != 0 || trM.Fills.Count == 0) throw new Exception("the live demo CLOSE did not fill");
+                    {   /* 🎯 LOCK RACE: the preset shows its size row (MNQ 10 by default) + the research note; RACE ENTRY answers (no 9:30 trend on this stand-in feed) */
+                        int ri = Enumerable.Range(0, pb.Items.Count).First(i => Convert.ToString(pb.Items[i]).StartsWith("🎯 LOCK RACE")); pb.SelectedIndex = ri; pb.SelectedItem = pb.Items[ri]; clickB(pt); clickB(pt);   /* the practice restarts on the race preset (the stub box raises no SelectionChanged) */
+                        var rs = FindAll<System.Windows.Controls.ComboBox>(w0.Content).FirstOrDefault(c9 => Convert.ToString(c9.Tag) == "prac.race.size"); if (rs == null || Convert.ToString(rs.Items[rs.SelectedIndex]) != "MNQ 10") throw new Exception("🎯 LOCK RACE size box missing / not MNQ 10");
+                        string rr = ((Func<string>)F("studioRaceGo"))(); if (!rr.Contains("LOCK RACE")) throw new Exception("🎯 RACE ENTRY: " + rr);
+                        Console.WriteLine("      🎯 LOCK RACE: size MNQ 10 (5 … 60), RACE ENTRY → " + rr.Substring(0, Math.Min(110, rr.Length)));
+                        foreach (var tg in new[] { "prac.race.tp", "prac.race.sl", "prac.race.be" }) if (FindAll<System.Windows.Controls.ComboBox>(w0.Content).All(c9 => Convert.ToString(c9.Tag) != tg)) throw new Exception("🎯 LOCK RACE choice missing: " + tg);
+                        if (trM.Position != 0) ((Action)F("replayTraderFlat"))();
+                        ((Action<int>)F("replayTraderOrder"))(1); ((Action)F("studioLiveStep"))();
+                        var ctr = FindAll<System.Windows.Controls.TextBlock>(w0.Content).FirstOrDefault(t9 => Convert.ToString(t9.Tag) == "prac.race.counter"); if (ctr == null || !ctr.Text.Contains("still to the lock")) throw new Exception("🎯 the race counter is missing in the panel: " + (string)F("studioPracPanel") + " / pos " + trM.Position + " / " + ((Func<string>)F("studioLiveBadge"))());
+                        Console.WriteLine("      🎯 LOCK RACE: TP / SL / BE choices, panel counter: " + ctr.Text);
+                        ((Action)F("replayTraderFlat"))(); ((Action)F("studioLiveStep"))();
+                    }
+                    badge = ((Func<string>)F("studioLiveBadge"))(); int made1 = (int)nbMade.GetValue(null);
+                    if (!badge.Contains("|links=0|") || made1 != made0) throw new Exception("🛡 the LIVE DEMO touched an account link / NinjaBroker: " + badge + " · brokers " + made0 + " → " + made1);
+                    Console.WriteLine("      ● LIVE DEMO: BUY filled on the simulated trader, a live tick +60 pts → 🎯 TPT floor " + ga + "  ⇒  " + gb + " • closed " + trM.Fills[trM.Fills.Count - 1].Net.ToString("0.00") + " • links 0, NinjaBroker built 0: OK");
+                    clickB(pt);   // practice off
+                    ((Action<bool>)F("studioLiveDemo"))(false); badge = ((Func<string>)F("studioLiveBadge"))(); if (badge.StartsWith("●") || badge.Contains("|LIVE|")) throw new Exception("● LIVE DEMO did not stop: " + badge);
+                    // 3. no data feed → the message
+                    S("studioLiveFeedFake", (Func<string, List<KeystoneArcBar>>)(sym => new List<KeystoneArcBar>()));
+                    ((Action<bool>)F("studioLiveDemo"))(true); badge = ((Func<string>)F("studioLiveBadge"))();
+                    if (!badge.Contains("connect a data feed in NinjaTrader")) throw new Exception("no-feed message missing: " + badge);
+                    ((Action<bool>)F("studioLiveDemo"))(false); S("studioLiveFeedFake", null);
+                    Console.WriteLine("      ● LIVE DEMO without data: \"connect a data feed in NinjaTrader\": OK");
+                    // 4. ● LIVE TRADING: 🎯 PROP PRACTICE always on the top bar (greyed off a Sim account) + 🎮 SWITCH TO SIM101 + ⚖ TRAILING DD SIM
+                    var ppB = FindAll<System.Windows.Controls.Button>(lv.Content).FirstOrDefault(b9 => Convert.ToString(b9.Tag) == "live.prac");
+                    if (ppB == null || Convert.ToString(ppB.Content) != "🎯 PROP PRACTICE" || ppB.Visibility != System.Windows.Visibility.Visible) throw new Exception("🎯 PROP PRACTICE button missing / hidden in LIVE TRADING");
+                    if (FindAll<System.Windows.Controls.Button>(lv.Content).All(b9 => Convert.ToString(b9.Tag) != "live.prac.tosim") || FindAll<System.Windows.Controls.Button>(lv.Content).All(b9 => Convert.ToString(b9.Tag) != "live.prac.ddsim")) throw new Exception("🎮 SWITCH TO SIM101 / ⚖ TRAILING DD SIM missing");
+                    Console.WriteLine("      ● LIVE TRADING: 🎯 PROP PRACTICE on the top bar, 🎮 SWITCH TO SIM101, ⚖ TRAILING DD SIM: OK");
+                    // 5. closing one studio leaves the others (and their hooks) alone
+                    lv.Close(); if (F("liveStudioWindow") != null) throw new Exception("LIVE TRADING did not close");
+                    if (F("backtestStudioWindow") != bt || F("replayTraderWindow") != bt || F("studioTrader") == null) throw new Exception("closing LIVE TRADING broke the BACKTEST STUDIO's hooks");
+                    bt.Close(); if (F("backtestStudioWindow") != null || F("replayTraderWindow") != null) throw new Exception("the BACKTEST STUDIO did not close");
+                    Console.WriteLine("      closing LIVE TRADING keeps the BACKTEST STUDIO working; then it closes too: OK");
+                });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {
                 Call(lab2, "OpenEvidenceChart"); Call(lab2, "RequestEvidenceBars"); Call(lab2, "RenderEvidenceChart");
