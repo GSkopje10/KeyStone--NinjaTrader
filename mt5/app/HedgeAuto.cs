@@ -1868,6 +1868,19 @@ namespace KeystoneMT5
             foreach (var d in deals) if (string.Equals(d.Symbol, sym, StringComparison.OrdinalIgnoreCase) && d.Time >= from && (d.Type == "BUY" || d.Type == "SELL") && (d.Entry == "OUT" || (d.Entry == "IN" && !still.Contains(d.Position)))) x += d.Profit + d.Swap + d.Commission;
             return x;
         }
+        // ✔ the legs closed since `from` on the symbol: (the side of the CLOSED position, lots, its open price, the close price, $ with swap + commission)
+        public static List<Tuple<string, double, double, double, double>> ClosedLegs(IEnumerable<Mt5Deal> deals, string sym, DateTime from)
+        {
+            var all = deals.Where(d => string.Equals(d.Symbol, sym, StringComparison.OrdinalIgnoreCase) && (d.Type == "BUY" || d.Type == "SELL")).ToList(); var res = new List<Tuple<string, double, double, double, double>>();
+            foreach (var d in all.Where(d => d.Entry == "OUT" && d.Time >= from).OrderBy(d => d.Time))
+            {
+                var inn = all.FirstOrDefault(x => x.Entry == "IN" && x.Position == d.Position);
+                res.Add(Tuple.Create(d.Type == "BUY" ? "SELL" : "BUY", d.Lots, inn != null ? inn.Price : double.NaN, d.Price, d.Profit + d.Swap + d.Commission + (inn != null && inn.Lots > 0 ? inn.Commission * d.Lots / inn.Lots : 0)));
+            }
+            return res;
+        }
+        // 🎯 the price where the iteration's TOTAL is $0 / the target with the current net (NaN when flat): px = the closing price now (bid for a long net)
+        public static double PriceForTotal(double total, double want, double net, double perPrice, double px) { return Math.Abs(net) < 0.005 || perPrice <= 0 || double.IsNaN(px) ? double.NaN : px + (want - total) / (net * perPrice); }
         // what a close button would do now: "SELL" / "BUY" = that side, "ALL" = everything; total = the iteration's open + closed
         public static string ClosePreview(IEnumerable<Mt5Position> pos, string sym, string which, double total, double target, double perPrice)
         {

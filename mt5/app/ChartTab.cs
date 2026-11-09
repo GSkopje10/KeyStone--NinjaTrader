@@ -31,7 +31,7 @@ namespace KeystoneMT5
         bool armed; Button armBtn, buyBtn, sellBtn, placeBtn; TextBlock armText, panelSym, panelExpo, toastText, riskText, spreadText; TextBox lotsBox, slBox, tpBox, pendPrice, beOff; bool oneClickOn; string pendKind = "BUY LIMIT";
         readonly List<Tuple<string, Button>> pendBtns = new List<Tuple<string, Button>>(); StackPanel logPanel, armChecks; Border panelHost, toastBox, armCard;
         int resSeen, notesSeen; readonly Dictionary<string, string> sent = new Dictionary<string, string>();
-        Tuple<Border, TextBlock, TextBlock> symBuy, symSell, symHedge;
+        Tuple<Border, TextBlock, TextBlock> symBuy, symSell, symHedge, symClosed, symTotal, symToTp; WrapPanel symExtra;
         string ticketMode = "AUTO"; Border symPlBox; TextBlock symPlCap, symPlVal, symPlInfo; int symPlSign = 9;
 
         Pane Act { get { return panes[Math.Max(0, Math.Min(panes.Count - 1, activePane))]; } }
@@ -93,6 +93,12 @@ namespace KeystoneMT5
             var spl = new StackPanel { Width = 190 }; spl.Children.Add(symPlCap); spl.Children.Add(symPlVal); var sph = new StackPanel { Orientation = Orientation.Horizontal }; sph.Children.Add(spl); sph.Children.Add(symBuy.Item1); sph.Children.Add(symSell.Item1); sph.Children.Add(symHedge.Item1); sph.Children.Add(symPlInfo);
             symPlBox = new Border { Child = sph, Background = Card, BorderBrush = Line, BorderThickness = new Thickness(1.8), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 2, 12, 3), Margin = new Thickness(4, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center, MinWidth = 260, ToolTip = "the P/L of this instrument only (its open tickets)" };
             bar.Children.Add(symPlBox);
+            {   // ✔ closed legs • 🧮 total if closed now • 🎯 to breakeven / target (user's request: between the BUY / SELL boxes and the ✕ buttons; hidden when flat)
+                symClosed = cell(Green); symTotal = cell(Gold); symToTp = cell(Cyan);
+                symExtra = new WrapPanel { VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 6, 0) };
+                foreach (var c in new[] { symClosed, symTotal, symToTp }) { c.Item1.Width = double.NaN; c.Item1.MinWidth = 150; c.Item1.MaxWidth = 300; c.Item1.Margin = new Thickness(0, 1, 6, 1); c.Item1.Visibility = Visibility.Visible; c.Item3.TextTrimming = TextTrimming.CharacterEllipsis; c.Item2.TextTrimming = TextTrimming.CharacterEllipsis; symExtra.Children.Add(c.Item1); }
+                bar.Children.Add(symExtra);
+            }
             bar.Children.Add(CloseBtns(34));
             // ---- the replay bar (backtest)
             if (Sim) { var rb = BuildReplayBar(); Grid.SetRow(rb, 1); Grid.SetColumnSpan(rb, 3); g.Children.Add(rb); }
@@ -851,6 +857,21 @@ namespace KeystoneMT5
             FillSymPl(s); FillSpreads(s); FillSpreadStrip(s);
             FillPanel(s);
         }
+        void FillSymExtra(Mt5State s, string sym, List<Mt5Position> ps, double total, double open, double banked, double target, double per, string cur)
+        {
+            if (symExtra == null) return; if (ps.Count == 0 || double.IsNaN(total)) { symExtra.Visibility = Visibility.Collapsed; return; }
+            symExtra.Visibility = Visibility.Visible;
+            DateTime from = auto != null && auto.Running && auto.Current != null && string.Equals(auto.Set.Symbol, sym, StringComparison.OrdinalIgnoreCase) ? auto.Current.Start : ps.Min(p => p.Time);
+            var legs = HedgeAuto.ClosedLegs(s.Deals, sym, from); int nb = legs.Count(x => x.Item1 == "BUY"), ns = legs.Count(x => x.Item1 == "SELL");
+            symClosed.Item2.Text = "✔ CLOSED THIS ITERATION"; symClosed.Item3.Text = legs.Count == 0 ? "nothing closed yet" : (nb > 0 ? nb + " buy" + (nb == 1 ? "" : "s") : "") + (nb > 0 && ns > 0 ? " + " : "") + (ns > 0 ? ns + " sell" + (ns == 1 ? "" : "s") : "") + " · " + legs.Sum(x => x.Item2).ToString("0.##", IC) + " lots · " + Signed(banked, cur);
+            symClosed.Item3.Foreground = banked > 0 ? Green : banked < 0 ? Red : Muted;
+            symClosed.Item1.ToolTip = legs.Count == 0 ? "no leg of this iteration closed yet" : string.Join("\n", legs.Select(x => x.Item1 + " " + x.Item2.ToString("0.##", IC) + "  " + (double.IsNaN(x.Item3) ? "?" : x.Item3.ToString("0.00", IC)) + " → " + x.Item4.ToString("0.00", IC) + "  " + Signed(x.Item5, cur))) + "\n= " + Signed(banked, cur) + " banked (the iteration's ledger: commissions and swap included)";
+            symTotal.Item2.Text = "🧮 TOTAL IF CLOSED NOW"; symTotal.Item3.Text = Signed(open, cur) + " " + (banked < 0 ? "− " : "+ ") + Money(Math.Abs(banked), cur) + " = " + Signed(total, cur); symTotal.Item3.Foreground = total > 0 ? Green : total < 0 ? Red : Text;
+            double net = ps.Sum(p => p.Dir * p.Lots); Mt5Quote q; double px = double.NaN; if (s.Quotes.TryGetValue(sym, out q)) px = net > 0 ? q.Bid : q.Ask;
+            double be = HedgeAuto.PriceForTotal(total, 0, net, per, px), tp = HedgeAuto.PriceForTotal(total, target, net, per, px);
+            symToTp.Item2.Text = "🎯 TO BREAKEVEN / TARGET"; symToTp.Item3.Text = double.IsNaN(be) ? "flat (net 0): the total does not move" : "$0 at " + be.ToString("0.00", IC) + " (" + (be - px).ToString("+0.0;−0.0", IC) + ")" + (target > 0 ? " · +$" + target.ToString("0.##", IC) + " at " + tp.ToString("0.00", IC) + " (" + (tp - px).ToString("+0.0;−0.0", IC) + ")" : "");
+            symToTp.Item1.ToolTip = "with the net " + (net > 0 ? "LONG " : "SHORT ") + Math.Abs(net).ToString("0.##", IC) + " lot ($" + (Math.Abs(net) * per).ToString("0.##", IC) + " per $1 of price)";
+        }
         void FillSymPl(Mt5State s)
         {
             if (symPlBox == null) return; var sym = Act.Sym; var cur = s.Account.Currency;
@@ -868,6 +889,7 @@ namespace KeystoneMT5
                 string isym; var tt = IterTotal(s, out isym); bool mine = string.Equals(isym, sym, StringComparison.OrdinalIgnoreCase) && !double.IsNaN(tt.Item1);
                 if (mine && Math.Abs(tt.Item3) >= 0.005) symPlCap.Text = sym + " • TOTAL " + Signed(tt.Item1, cur) + " (closed legs " + Signed(tt.Item3, cur) + ")";
                 double tgt = auto != null && auto.Running ? auto.Set.Target : 0, per = 0; Mt5Symbol msy; if (s.Symbols.TryGetValue(sym, out msy) && msy.TickSize > 0) per = msy.TickValue / msy.TickSize;
+                FillSymExtra(s, sym, ps, mine ? tt.Item1 : double.NaN, mine ? tt.Item2 : double.NaN, mine ? tt.Item3 : double.NaN, tgt > 0 ? tgt : aset != null ? aset.Target : 0, per, cur);
                 foreach (var cb in closeBtns) cb.Item1.ToolTip = ps.Count == 0 ? "nothing open on " + sym : HedgeAuto.ClosePreview(ps, sym, cb.Item2, mine ? tt.Item1 : pl, tgt, per) + " (asks first)";
             }
             int sg = ps.Count == 0 ? 0 : pl >= 0 ? 1 : -1; if (sg == symPlSign) return; symPlSign = sg;

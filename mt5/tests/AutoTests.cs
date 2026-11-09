@@ -766,6 +766,12 @@ public static class AutoTests
                     Check(Math.Abs(zop + zcl - zbt) < 0.02 && zcl < -1 && zpv.Contains("+$51.84 banked") && zpv.Contains("total stays −$270.64") && zpv.Contains("LONG 0.4") && zpv.Contains("$7.17 move UP") && zpa == "close all now: the iteration ends at −$270.64",
                         "🧮 the iteration total = open + the closed legs (the same as the engine's); ✕ SELLS preview: +$51.84 banked, total stays −$270.64, net LONG 0.40 needs $7.17 UP to +$16; ✕ ALL: ends at −$270.64", zop + " + " + zcl + " vs " + zbt + " | " + zpv);
                 }
+                {   // ✔ the closed legs of the iteration (the 3 sells closed by hand) + 🎯 the breakeven / target prices with the current net
+                    List<Tuple<string, double, double, double, double>> zlg; lock (zsd.Item1.State.Gate) zlg = HedgeAuto.ClosedLegs(zsd.Item1.State.Deals, "XAUUSD", zsd.Item2.Current.Start.AddMinutes(-1));
+                    double zbe = HedgeAuto.PriceForTotal(-270.64, 0, 0.40, 100, 4117.70), ztp = HedgeAuto.PriceForTotal(-270.64, 16, 0.40, 100, 4117.70);
+                    Check(zlg.Count == 3 && zlg.All(x => x.Item1 == "SELL") && Math.Abs(zlg.Sum(x => x.Item2) - 0.40) < 1e-9 && zlg.All(x => !double.IsNaN(x.Item3)) && Math.Abs(zbe - 4124.466) < 1e-6 && Math.Abs(ztp - 4124.866) < 1e-6 && double.IsNaN(HedgeAuto.PriceForTotal(-10, 0, 0, 100, 4117)),
+                        "✔ closed this iteration: 3 sells · 0.40 lots (open → close prices kept); 🎯 net LONG 0.40 at −$270.64: $0 at 4124.47, +$16 at 4124.87; flat → no price", zlg.Count + " legs " + zbe + " " + ztp);
+                }
                 Check(zcA.Item2.LastDir == -1 && zcR.Item2.LastDir == -1, "🐞 after a compress the next hedge still follows the net (SELL basket → a BUY above)", zcA.Item2.LastDir + " " + zcR.Item2.LastDir);
             }
             // 🧹 a pending order placed during the iteration is cancelled when it closes
