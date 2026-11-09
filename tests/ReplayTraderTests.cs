@@ -181,7 +181,63 @@ public static class ReplayTraderTests
             Check(nT == 2 && txt.Split('\n').Length == 4 && txt.Contains("MNQ,2026-03-09 09:30:00.007,20000.25,3,") && txt.Contains("MNQ,2026-03-09 09:30:11.000,20001.00,2,"), "📦 EXPORT TICKS: the cached ticks of the range → one CSV.gz (time to the ms, price, size)", txt);
             try { System.IO.Directory.Delete(dir, true); } catch { }
         }
+        {   // ✋ BUILD 2026-11-11h: dragging the TP / SL over the entry (the user's short 1 @ 27016): the drag owns the mouse, the entry is never grabbed,
+            // the live label reads points + $ after costs, Esc restores, the order is modified once — on release (DragChart = a stand-in of the chart's handlers)
+            var ch = new DragChart { Entry = 27016, Side = -1, Qty = 1, Last = 27010, StopPts = 20, TargetPts = 40 };
+            ch.Down("TARGET");
+            foreach (var dpx in new[] { 26980.0, 27000.10, 27015.9, 27016.0, 27016.13, 27030.0, 27016.0, 26990.0, 26960.0 }) ch.MoveTo(dpx);
+            Check(ch.Drag.Kind == "TARGET" && ch.Grabbed.All(g => g == "TARGET") && !ch.Grabbed.Contains("ENTRY") && ch.Entry == 27016 && ch.EntryHandleY == 27016 && ch.EntrySelected == false && !ch.Drag.EntryInteractive && Math.Abs(ch.Drag.EntryOpacity - 0.3) < 1e-9,
+                "✋ a TP drag that crosses the entry never grabs / moves / selects the entry (it fades to 30 %, the drag keeps its kind)", string.Join(",", ch.Grabbed));
+            Check(ch.Seen.SequenceEqual(new[] { 26980.0, 27000.0, 27016.0, 27016.0, 27016.25, 27030.0, 27016.0, 26990.0, 26960.0 }), "✋ the dragged line follows the mouse rounded to the tick only (no snapping to the entry)", string.Join(" ", ch.Seen));
+            Check(ch.Modifies == 0 && ch.TargetPts == 40, "✋ nothing is sent while dragging (the target stays at 40 pts until the release)");
+            ch.Up();
+            Check(ch.Modifies == 1 && Math.Abs(ch.TargetPts - 56) < 1e-9 && ch.Drag.Commits == 1 && !ch.Drag.Active && ch.Drag.EntryInteractive && ch.Drag.EntryOpacity == 1, "✋ the order is modified ONCE, on release (TP 56 pts = 26960), then the entry is back to normal", ch.Modifies + " " + ch.TargetPts);
+            ch.Up(); Check(ch.Modifies == 1, "✋ a second release sends nothing");
+            ch.Down("STOP"); ch.MoveTo(27030); ch.MoveTo(27045.6);
+            Check(ch.Drag.Price == 27045.5 && ch.Modifies == 1, "✋ the stop previews at 27045.50");
+            ch.Esc(); ch.Up();
+            Check(ch.Modifies == 1 && ch.StopPts == 20 && ch.LastCancel == 27036 && !ch.Drag.Active, "✋ Esc cancels the drag: the stop stays at 27036 (20 pts), nothing is sent, the release after it does nothing", ch.LastCancel + " " + ch.StopPts);
+            ch.Down("STOP"); ch.MoveTo(27000); ch.MoveTo(27005);
+            Check(ch.Drag.Price == 27010.5 && ch.Drag.Clamped, "✋ a short's stop can't be dragged through the price (27010) into an instant fill: held 2 ticks above it (27010.50) + a note", ch.Drag.Price.ToString());
+            ch.MoveTo(27020); Check(ch.Drag.Price == 27020 && !ch.Drag.Clamped, "✋ back on the loss side: free again");
+            ch.Up(); Check(ch.Modifies == 2 && Math.Abs(ch.StopPts - 4) < 1e-9, "✋ released: one modification, stop 4 pts (27020)");
+            double c = 1.74;
+            Check(KeystoneBracketDrag.Label("TARGET", -1, 27016, 26895.25, 2, 1, c) == "TP 120.75 pts · +$240", "✋ the live label: TP 120.75 pts on 1 MNQ = +$241.50 − $1.74 costs → \"TP 120.75 pts · +$240\"", KeystoneBracketDrag.Label("TARGET", -1, 27016, 26895.25, 2, 1, c));
+            Check(KeystoneBracketDrag.Label("TARGET", 1, 100, 221, 2, 1, 0) == "TP 121.00 pts · +$242" && KeystoneBracketDrag.Label("STOP", -1, 27016, 27028.25, 2, 1, c) == "SL 12.25 pts · −$26.24"
+                && KeystoneBracketDrag.Label("STOP", -1, 27016, 27000, 2, 1, c) == "SL 🔒 16.00 pts · +$30.26" && KeystoneBracketDrag.Label("TARGET", 1, 20000, 20010, 2, 3, c) == "TP 10.00 pts · +$54.78",
+                "✋ the label: points from the entry and $ for the size after costs (stop = a loss incl. costs, a profit stop 🔒 = locked $, 3 contracts)", KeystoneBracketDrag.Label("STOP", -1, 27016, 27028.25, 2, 1, c));
+            // the label sits on the line, never under the entry's label (entry label band 186..214, the chart 0..500, a label 21 px tall)
+            double a1 = KeystoneBracketDrag.LabelTop(300, 21, 186, 214, 0, 500), a2 = KeystoneBracketDrag.LabelTop(220, 21, 186, 214, 0, 500), a3 = KeystoneBracketDrag.LabelTop(200, 21, 186, 214, 0, 500), a4 = KeystoneBracketDrag.LabelTop(180, 21, 186, 214, 0, 500);
+            Func<double, bool> clear = t => !KeystoneBracketDrag.Overlaps(t, t + 21, 186, 214);
+            Check(a1 == 276 && a2 == 223 && clear(a2) && clear(a3) && clear(a4) && a4 == 156 && KeystoneBracketDrag.LabelTop(5, 21, 186, 214, 0, 500) == 0 && a3 == 163,
+                "✋ the live label: above its line, flipped below near the entry's label, past it when the line is on the entry — never under the entry label", a1 + " " + a2 + " " + a3 + " " + a4);
+        }
         Console.WriteLine(failures == 0 ? "ALL REPLAY TRADER TESTS PASSED" : failures + " REPLAY TRADER TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
 }
+
+// ✋ 11h: a stand-in of the chart's TP / SL mouse handlers (down → move → up / Esc) around the real KeystoneBracketDrag; Modifies counts the order changes
+public sealed class DragChart
+{
+    public double Entry, Last, StopPts, TargetPts, Tick = 0.25, EntryHandleY, LastCancel = double.NaN; public int Side, Qty, Modifies; public bool EntrySelected;
+    public string DragKind; public KeystoneBracketDrag Drag = new KeystoneBracketDrag(); public List<string> Grabbed = new List<string>(); public List<double> Seen = new List<double>();
+    public void Down(string kind) { if (Drag.Active) Drag.Cancel(); DragKind = kind; EntryHandleY = Entry; }
+    public void MoveTo(double price)
+    {
+        if (DragKind == null) return;
+        if (!Drag.Active) Drag.Begin(DragKind, DragKind == "STOP" ? Entry - Side * StopPts : Entry + Side * TargetPts);
+        // what the chart would hit under the mouse: the entry when the mouse is on it — the drag must keep its own kind
+        string under = Math.Abs(price - Entry) < 1 ? "ENTRY" : DragKind; string g = Drag.Grab(under); Grabbed.Add(g); if (g == "ENTRY") EntrySelected = true;
+        DragKind = g; Seen.Add(Drag.Move(price, Tick, Side, Last));
+    }
+    public void Esc() { if (Drag.Active) { LastCancel = Drag.Cancel(); DragKind = null; } }
+    public void Up()
+    {
+        string was = DragKind; DragKind = null; if (was == null || !Drag.Active) return;
+        double p = Drag.Release(); if (double.IsNaN(p)) return;
+        if (was == "STOP") StopPts = -Side * (p - Entry); else TargetPts = Side * (p - Entry);
+        Modifies++;
+    }
+}
+

@@ -20081,6 +20081,65 @@ namespace NinjaTrader.NinjaScript
         public static double Fit(IEnumerable<double> widths) { double mx = (widths ?? Enumerable.Empty<double>()).DefaultIfEmpty(0).Max(); return Math.Max(Min, Math.Min(Max, Math.Ceiling(mx + Handle + 4))); }
         public static bool Fits(string main, bool entry, double gutter) { return LabelWidth(main, entry) <= gutter - Handle + 1e-9; }
     }
+    // ✋ BUILD 2026-11-11h (the user: "when we drag the TP / SL over the entry it skips and bugs"): ONE drag of the position's own TP / SL line, owned
+    // from the first move to the release. While it is Active nothing else can be grabbed (Grab = the dragged kind, the entry is not interactive and fades
+    // to EntryOpacity), the price follows the mouse rounded to the tick only (no snapping to other lines), a STOP is held 2 ticks short of the last price
+    // (never an instant fill: Clamped + a note), Esc = Cancel (the old price stays, nothing sent), and Release hands the price over ONCE — the only moment
+    // the real order changes (through the same armed link, limits and checks as before). Label = the live "TP 120.75 pts · +$242" (after costs),
+    // LabelTop = where that label sits on the line so it never covers the entry's label (above, else below, else past the entry's label)
+    public sealed class KeystoneBracketDrag
+    {
+        public string Kind { get; private set; }
+        public bool Active { get { return Kind != null; } }
+        public double OrigPrice { get; private set; }
+        public double Price { get; private set; }
+        public bool Clamped { get; private set; }
+        public int Commits { get; private set; }
+        public bool EntryInteractive { get { return !Active; } }
+        public double EntryOpacity { get { return Active ? 0.3 : 1.0; } }
+        public const double FadedOpacity = 0.3;
+        public void Begin(string kind, double origPrice) { Kind = kind == "STOP" || kind == "TARGET" ? kind : null; OrigPrice = origPrice; Price = 0; Clamped = false; }
+        /* what a click / hover may grab: during a drag only the dragged line — never the entry, the other bracket line or any level */
+        public string Grab(string candidate) { return Active ? Kind : candidate; }
+        public double Move(double rawPrice, double tick, int side, double lastPrice)
+        {
+            if (!Active || tick <= 0 || double.IsNaN(rawPrice)) return Price;
+            double p = Math.Round(Math.Round(rawPrice / tick) * tick, 8); Clamped = false;
+            if (Kind == "STOP" && side != 0 && lastPrice > 0)
+            {
+                double lim = Math.Round(lastPrice - side * 2 * tick, 8);
+                if (side * (p - lim) > 0) { p = lim; Clamped = true; }
+            }
+            Price = p; return p;
+        }
+        /* the mouse is released: the price to place (once), NaN = nothing to place */
+        public double Release() { if (!Active) return double.NaN; Kind = null; double p = Price; Price = 0; Clamped = false; if (p <= 0) return double.NaN; Commits++; return p; }
+        /* Esc: the drag ends, nothing is placed — the line stays at OrigPrice */
+        public double Cancel() { Kind = null; Price = 0; Clamped = false; return OrigPrice; }
+        public static double Points(double entry, double price) { return Math.Abs(price - entry); }
+        public static double NetUsd(string kind, int side, double entry, double price, double pointValue, int qty, double costPerContract)
+        {
+            int q = Math.Abs(qty); double gross = side * (price - entry) * pointValue * q;
+            return gross - costPerContract * q;
+        }
+        public static string Usd(double v) { double a = Math.Abs(v); return (v >= 0 ? "+$" : "−$") + a.ToString(a >= 100 ? "N0" : "N2", CultureInfo.InvariantCulture); }
+        public static string Label(string kind, int side, double entry, double price, double pointValue, int qty, double costPerContract)
+        {
+            double pts = Points(entry, price), net = NetUsd(kind, side, entry, price, pointValue, qty, costPerContract);
+            bool profitStop = kind == "STOP" && side * (price - entry) > 0;
+            return (kind == "STOP" ? (profitStop ? "SL 🔒" : "SL") : "TP") + " " + pts.ToString("0.00", CultureInfo.InvariantCulture) + " pts · " + Usd(net);
+        }
+        public static bool Overlaps(double a0, double a1, double b0, double b1) { return a0 < b1 && b0 < a1; }
+        public static double LabelTop(double lineY, double labelH, double entryTop, double entryBottom, double top, double bottom)
+        {
+            Func<double, double> fit = y => Math.Max(top, Math.Min(bottom - labelH, y));
+            double above = fit(lineY - labelH - 3); if (!Overlaps(above, above + labelH, entryTop, entryBottom)) return above;
+            double below = fit(lineY + 3); if (!Overlaps(below, below + labelH, entryTop, entryBottom)) return below;
+            double mid = (entryTop + entryBottom) / 2, past = lineY <= mid ? entryTop - labelH - 2 : entryBottom + 2;
+            if (past < top || past + labelH > bottom) past = lineY <= mid ? entryBottom + 2 : entryTop - labelH - 2;
+            return fit(past);
+        }
+    }
     public static class KeystoneDatePick
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -20593,7 +20652,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -35207,7 +35266,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public Action MatchDetails; public bool MatchesOn, MatchesBusy; public DateTime MatchesBarTime = DateTime.MinValue; public Window MatchWin;   // MATCHES as a chart indicator: on until switched off, refreshed every new minute
             public List<Tuple<double[], string>> XBoxes = new List<Tuple<double[], string>>(), LabelGrab = new List<Tuple<double[], string>>(), LabelGrabPrev = new List<Tuple<double[], string>>(); public double DragOffY;   /* each ✕ its own box (ENTRY / STOP / TARGET / ORDER:n) — a click acts only on the box it lands in; a stop / target label = a grab handle of its line */
             public bool MouseOver; public double MouseX, MouseY; public ReplayDrawing Preview; public Action UsdRefresh, DoBuy, DoSell, DoBe, DoClose; public List<Tuple<double[], string>> AHandles = new List<Tuple<double[], string>>(); public List<Tuple<double, string, string>> GLines = new List<Tuple<double, string, string>>(); public string DragGroup; /* a group's own stop / target lines on the chart (y, group, GSTOP / GTARGET) — draggable */ public DateTime LoadingAt; /* when the history request started (stuck > 30 s = try again) */ public bool AutoTp; /* AutoTp: 🎯 the auto take profit was accepted for this trade → it re-sizes by itself when contracts are added / taken off */ public List<double[]> HotX = new List<double[]>(), HotDrag = new List<double[]>(); public int FvgPick = -1; public double SideW = 250; public List<double[]> Ghosts; public string[] GhostInfo = new string[0]; public Button MatchesBtn; public DateTime GhostsAt, GhostTime; public double GhostEntry; public Action TpRefresh; public int WantDays = 1; public List<Tuple<double[], string, string[], Brush>> InfoHot = new List<Tuple<double[], string, string[], Brush>>(); public string InfoOpenKey; public Dictionary<string, Action> HotActs = new Dictionary<string, Action>(); public Action<string, Point> EditPrice; public FrameworkElement ChkBox; public string ChkKey; /* the ✅ CONFIRMATIONS box, rebuilt only when its inputs change */ /* ✏ the price box of a stop / target / order line */ public double SideBack = 250; public double TradeBest, TradeWorst; public int TradePos; public bool TradeSeen; public StackPanel MiniStats; public string Toast; public DateTime ToastAt; public List<Button> TradeButtons = new List<Button>(); public Border DisabledBanner, PosQtyBox, PosPnlBox; public TextBlock PosQty, PosAvg, PosPnl; public ColumnDefinition SideCol; public FrameworkElement SideScroll, Mini; public TextBlock MiniPnl; public KeystoneAccountLink Link; public List<KeystoneCopyFollower> Followers = new List<KeystoneCopyFollower>(); public Border PosCard; public Action LoadOlder; public bool LoadingOlder, HistoryEnd, PrependAdjust;
-            public string Drag; public double DownX, DownY, Ro0, Pc0, Pr0, S0; public KeystoneReplayOrder DragOrder; public bool Moved;
+            public string Drag; public double DownX, DownY, Ro0, Pc0, Pr0, S0; public KeystoneReplayOrder DragOrder; public bool Moved; public KeystoneBracketDrag BDrag = new KeystoneBracketDrag();   /* ✋ 11h: the TP / SL drag in progress (it owns the mouse until release / Esc) */
         }
 
         private static SolidColorBrush Tint(SolidColorBrush b, byte alpha) { var x = new SolidColorBrush(Color.FromArgb(alpha, b.Color.R, b.Color.G, b.Color.B)); x.Freeze(); return x; }
@@ -36672,13 +36731,16 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var labelSlots = new List<double>(); var axisSlots = new List<double>();
                 Func<List<double>, double, double> freeY = (slots, y0) => { double y1 = y0; for (int k = 0; k < 6 && slots.Any(v => Math.Abs(v - y1) < 17); k++) y1 += y0 >= pn.Top + pn.PlotH - 30 ? -18 : 18; slots.Add(y1); return y1; };
                 string grabKind = null;   // set around the position's own STOP / TARGET lines: their label becomes a grab handle
+                double lastLabelY = double.NaN, entryLabelY = double.NaN;   // ✋ 11h: where the last label landed (the entry's: the dragged TP / SL label keeps clear of it)
+                // ✋ 11h: what a TP / SL drag in progress fades (the entry, the old line): see-through and never hit-testable until the release
+                Action<int, int, double> fadeFrom = (c0, c1, op) => { for (int k = c0; k < Math.Min(c1, cv.Children.Count); k++) { var el = cv.Children[k] as UIElement; if (el != null) { el.Opacity = el.Opacity * op; el.IsHitTestVisible = false; } } };
                 Action<double, Brush, string, int> axisTagS = (p, br, label, kind) =>
                 {
                     double y = yOf(pn, p); if (y < pn.Top - 2 || y > pn.Top + pn.PlotH + 2) return;
                     var dash = kind == 0 ? null : kind == 4 ? new DoubleCollection { 1, 3 } : kind == 2 ? new DoubleCollection { 6, 4 } : kind == 3 ? new DoubleCollection { 8, 3, 2, 3 } : new DoubleCollection { 4, 3 };   /* 4 = an ACCOUNT level (no order): thin dotted */
                     // a line you can drag: the cursor turns into a hand over it and the line lights up (thicker, solid, a soft glow)
                     bool dragLine = kind != 0 && !string.IsNullOrEmpty(label) && (label.Contains("(drag") || label.Contains("release to set")) && tradeOkOf(pn);
-                    bool hovL = dragLine && pn.MouseOver && (Math.Abs(pn.MouseY - y) <= 6 || (grabKind != null && pn.LabelGrabPrev.Any(b => b.Item2 == grabKind && pn.MouseX >= b.Item1[0] && pn.MouseX <= b.Item1[2] && pn.MouseY >= b.Item1[1] && pn.MouseY <= b.Item1[3]))) && pn.MouseX < pn.PlotW - 28 && (pn.Drag == null || (pn.Drag != "PAN" && pn.Drag != "MOVEDRAW" && pn.Drag != "PRICEAXIS"));
+                    bool hovL = dragLine && pn.MouseOver && (Math.Abs(pn.MouseY - y) <= 6 || (grabKind != null && pn.LabelGrabPrev.Any(b => b.Item2 == grabKind && pn.MouseX >= b.Item1[0] && pn.MouseX <= b.Item1[2] && pn.MouseY >= b.Item1[1] && pn.MouseY <= b.Item1[3]))) && pn.MouseX < pn.PlotW - 28 && (pn.Drag == null || (pn.Drag != "PAN" && pn.Drag != "MOVEDRAW" && pn.Drag != "PRICEAXIS" && pn.Drag != "STOP" && pn.Drag != "TARGET" && pn.Drag != "BRACKET")) && !pn.BDrag.Active;   /* ✋ 11h: while a TP / SL is dragged no other line lights up or grabs */
                     if (dragLine) pn.HotDrag.Add(new[] { 0, y - 6, pn.PlotW - 29, y + 6 });
                     else if (kind != 0 && !string.IsNullOrEmpty(label) && label.Contains("(drag") && !tradeOkOf(pn)) pn.HotNo.Add(new[] { 0, y - 6, pn.PlotW - 29, y + 6 });   // disarmed: 🚫 cursor
                     if (hovL) cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = y, Y2 = y, Stroke = System.Windows.Media.Brushes.White, StrokeThickness = 6, Opacity = 0.13 });   // a soft white halo: "you can grab this"
@@ -36690,7 +36752,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     string tipFull = label; if (!string.IsNullOrEmpty(label) && label.Contains("\n")) { tipFull = label.Replace("\n", " • "); label = label.Substring(0, label.IndexOf('\n')); }   /* 💵 11f: the points / price only on the tooltip */
                     if (!string.IsNullOrEmpty(label))
                     {
-                        double yl = freeY(labelSlots, y);
+                        double yl = freeY(labelSlots, y); lastLabelY = yl;
                         UIElement content0 = new TextBlock { Text = label, Foreground = br, FontSize = 10.5, FontWeight = FontWeights.Bold };
                         if (kind == 0 && label.Contains(" • "))
                         {
@@ -37683,8 +37745,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                             System.Windows.Controls.Canvas.SetLeft(mb2, pn.PlotW - 104); System.Windows.Controls.Canvas.SetTop(mb2, (yA2 + yB2) / 2 - 17); cv.Children.Add(mb2);
                         }
                     }
+                    bool bdragOn = (pn.Drag == "STOP" || pn.Drag == "TARGET") && pn.Moved && pn.DragPrice > 0; int cEn = cv.Children.Count; lastLabelY = double.NaN;
                     axisTagS(r.AvgPrice, colorOf("#C9D3E6"), liveWindow ? (ownGroupName != null && ownGroupName() != "" ? ownGroupName() + " • " : "") + (dir > 0 ? "LONG " : "SHORT ") + Math.Abs(r.Position) + " @ " + fmt(r.AvgPrice) + " • " + ((r.Unrealized - KeystoneMoveStudy.Cost(pn.Symbol) * Math.Abs(r.Position)) >= 0 ? "+$" : "−$") + Math.Abs(r.Unrealized - KeystoneMoveStudy.Cost(pn.Symbol) * Math.Abs(r.Position)).ToString("N2", CultureInfo.InvariantCulture)
                         : KeystoneChartGutter.Entry(r.Position, r.Unrealized - KeystoneMoveStudy.Cost(pn.Symbol) * Math.Abs(r.Position)) + "\n@ " + fmt(r.AvgPrice) + " · open P/L after costs", 0);   /* 💵 11f: the studio — "LONG 25 • +$450" (the price on the tooltip) */   // the entry: silver, its own look
+                    entryLabelY = double.IsNaN(lastLabelY) ? yOf(pn, r.AvgPrice) : lastLabelY; if (bdragOn) fadeFrom(cEn, cv.Children.Count, KeystoneBracketDrag.FadedOpacity);   /* ✋ 11h: dragging a TP / SL: the entry fades to 30 % and can't be grabbed */
                     closeXk(r.AvgPrice, liveWindow ? (Brush)colorOf("#C9D3E6") : pnlBrush, "ENTRY");   // ✕ = close the trade + its orders (asks first) — LIVE: silver like the entry line, never the stop's red
                     // THE BUFFER (as in the backtest): a bar from the stop (red) to the target (green) with the price riding on it — what is left to
                     // the target and to the stop in $ beside it; the marker pulses as it gets near either end
@@ -37717,9 +37781,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                         var hb = new Border { Width = 42, Height = 18, Background = hovH ? System.Windows.Media.Brushes.White : liveWindow ? (Brush)Tint(Bg, 230) : hd.Item3, BorderBrush = hd.Item3, BorderThickness = new Thickness(hovH ? 2 : liveWindow ? 1.5 : 0), CornerRadius = new CornerRadius(liveWindow ? 9 : 3), Child = new TextBlock { Text = hd.Item2, Foreground = hovH || liveWindow ? hd.Item3 : Bg, FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }, ToolTip = "drag up / down" };
                         System.Windows.Controls.Canvas.SetLeft(hb, hd.Item4); System.Windows.Controls.Canvas.SetTop(hb, yP - 9); cv.Children.Add(hb);
                     }
+                    int cT0 = cv.Children.Count;
                     if (r.TargetPts > 0) { grabKind = "TARGET"; axisTagS(r.AvgPrice + dir * r.TargetPts, colorOf("#00E676"), (liveWindow ? "TP +" + Cash(r.TargetPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)" : KeystoneChartGutter.Tp(r.TargetPts, KeystoneMoveStudy.PointValue(pn.Symbol), Math.Abs(r.Position)) + "  (drag)\n" + KeystoneChartGutter.Detail(r.TargetPts, r.AvgPrice + dir * r.TargetPts, fmt(r.AvgPrice + dir * r.TargetPts))), 1); closeXk(r.AvgPrice + dir * r.TargetPts, colorOf("#00E676"), "TARGET"); }
+                    int cT1 = cv.Children.Count;
                     if (r.StopPts > 0) { grabKind = "STOP"; axisTagS(r.AvgPrice - dir * r.StopPts, colorOf("#FF3D57"), (liveWindow ? "SL −" + Cash(r.StopPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)" : KeystoneChartGutter.Sl(r.StopPts, KeystoneMoveStudy.PointValue(pn.Symbol), Math.Abs(r.Position)) + "  (drag)\n" + KeystoneChartGutter.Detail(-r.StopPts, r.AvgPrice - dir * r.StopPts, fmt(r.AvgPrice - dir * r.StopPts))), 2); closeXk(r.AvgPrice - dir * r.StopPts, colorOf("#FF3D57"), "STOP"); }
                     else if (r.StopPts < 0) { grabKind = "STOP"; axisTagS(r.AvgPrice - dir * r.StopPts, colorOf("#FFC400"), liveWindow ? "PROFIT STOP • locks +" + fmt(-r.StopPts) + " pts • +" + Cash(-r.StopPts * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + "  (drag)" : KeystoneChartGutter.Locked(r.StopPts, KeystoneMoveStudy.PointValue(pn.Symbol), Math.Abs(r.Position)) + "  (drag)\nprofit stop · " + KeystoneChartGutter.Detail(-r.StopPts, r.AvgPrice - dir * r.StopPts, fmt(r.AvgPrice - dir * r.StopPts)), 3); closeXk(r.AvgPrice - dir * r.StopPts, colorOf("#FFC400"), "STOP"); }
+                    int cS1 = cv.Children.Count; if (bdragOn) { if (pn.Drag == "TARGET") fadeFrom(cT0, cT1, 0.35); else fadeFrom(cT1, cS1, 0.35); }   /* ✋ 11h: the old line of the one being dragged = a faint ghost (its old price) */
                     grabKind = null;
                 }
                 if (!liveWindow && r != null && !pn.IsSplit && !r.Live)
@@ -37789,9 +37856,29 @@ namespace NinjaTrader.NinjaScript.AddOns
                         }
                     }
                 }
-                // stop / target being dragged: a preview line, placed on release
+                // stop / target being dragged: a preview line, placed on release • ✋ 11h: its own solid line + price tag exactly at the mouse (no label slots →
+                // it never jumps around the entry), and a live label ON the line ("TP 120.75 pts · +$242", after costs) that keeps clear of the entry's label
                 if ((pn.Drag == "STOP" || pn.Drag == "TARGET") && pn.Moved && pn.DragPrice > 0 && r.Position != 0)
-                    axisTag(pn.DragPrice, pn.Drag == "STOP" && Math.Sign(r.Position) * (pn.DragPrice - r.AvgPrice) < 0 ? Red : Green, (pn.Drag == "STOP" ? (Math.Sign(r.Position) * (pn.DragPrice - r.AvgPrice) >= 0 ? "🔒 +" : "SL −") : "TP +") + Cash(Math.Abs(pn.DragPrice - r.AvgPrice) * KeystoneMoveStudy.PointValue(pn.Symbol) * Math.Abs(r.Position)) + " · release\n" + fmt(Math.Abs(pn.DragPrice - r.AvgPrice)) + " pts", false);
+                {
+                    int sgD = Math.Sign(r.Position); double yD = yOf(pn, pn.DragPrice);
+                    if (yD >= pn.Top - 2 && yD <= pn.Top + pn.PlotH + 2)
+                    {
+                        bool isTD = pn.Drag == "TARGET", lockD = !isTD && sgD * (pn.DragPrice - r.AvgPrice) > 0; Brush brD = isTD ? Green : lockD ? (Brush)colorOf("#FFC400") : Red;
+                        cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = yD, Y2 = yD, Stroke = System.Windows.Media.Brushes.White, StrokeThickness = 6, Opacity = 0.12, IsHitTestVisible = false });
+                        cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = yD, Y2 = yD, Stroke = brD, StrokeThickness = 2, IsHitTestVisible = false });
+                        var tagD = new Border { Background = brD, CornerRadius = new CornerRadius(6), Padding = new Thickness(4, 0, 4, 0), IsHitTestVisible = false, Child = new TextBlock { Text = fmt(pn.DragPrice), Foreground = Bg, FontSize = 10.5, FontWeight = FontWeights.Bold } };
+                        if (liveWindow) { tagD.Width = Math.Max(40, pn.AxisW - 6); tagD.Height = 17; }
+                        System.Windows.Controls.Canvas.SetLeft(tagD, pn.PlotW + 2); System.Windows.Controls.Canvas.SetTop(tagD, yD - 8); cv.Children.Add(tagD);
+                        string txD = "⇕ " + KeystoneBracketDrag.Label(pn.Drag, sgD, r.AvgPrice, pn.DragPrice, KeystoneMoveStudy.PointValue(pn.Symbol), Math.Abs(r.Position), KeystoneMoveStudy.Cost(pn.Symbol))
+                            + (pn.BDrag.Clamped ? "  · held 2 ticks from the price " + fmt(r.Price) : "") + "  · release to set · Esc = cancel";
+                        var lblD = new Border { Background = brD, BorderBrush = System.Windows.Media.Brushes.White, BorderThickness = new Thickness(1.4), CornerRadius = new CornerRadius(8), Padding = new Thickness(9, 2, 9, 3), IsHitTestVisible = false,
+                            Child = new TextBlock { Text = txD, Foreground = Bg, FontSize = 12, FontWeight = FontWeights.Bold } };
+                        lblD.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double lwD = lblD.DesiredSize.Width > 0 ? lblD.DesiredSize.Width : 7.2 * txD.Length, lhD = lblD.DesiredSize.Height > 0 ? lblD.DesiredSize.Height : 21;
+                        double eY = double.IsNaN(entryLabelY) ? yOf(pn, r.AvgPrice) : entryLabelY, eTop = Math.Min(eY, yOf(pn, r.AvgPrice)) - 14, eBot = Math.Max(eY, yOf(pn, r.AvgPrice)) + 14;
+                        double lyD = KeystoneBracketDrag.LabelTop(yD, lhD, eTop, eBot, pn.Top, pn.Top + pn.PlotH), lxD = Math.Max(4, pn.PlotW - 36 - lwD);
+                        System.Windows.Controls.Canvas.SetLeft(lblD, lxD); System.Windows.Controls.Canvas.SetTop(lblD, lyD); cv.Children.Add(lblD);
+                    }
+                }
                 // the last price
                 bool lastUp = cs.Count == 0 || cs[cs.Count - 1].Close >= cs[cs.Count - 1].Open;
                 if (r.Position != 0) axisTag(r.Price, r.Unrealized >= 0 ? Green : Red, "", false);
@@ -38515,7 +38602,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 };
                 hit2.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs args)
                 {
-                    var pt = args.GetPosition(hit2); sp.DownX = pt.X; sp.DownY = pt.Y; sp.Moved = false; sp.Ro0 = sp.RightOffset; sp.Pc0 = sp.PCenter; sp.Pr0 = sp.PRange;
+                    var pt = args.GetPosition(hit2); sp.DownX = pt.X; sp.DownY = pt.Y; sp.Moved = false; if (sp.BDrag.Active) { sp.BDrag.Cancel(); sp.DragPrice = 0; } sp.Ro0 = sp.RightOffset; sp.Pc0 = sp.PCenter; sp.Pr0 = sp.PRange;
                     if (args.ClickCount == 2) { if (pt.X > sp.PlotW) sp.PriceAuto = true; else { sp.Follow = true; sp.RightOffset = 14; } render(sp); return; }
                     sp.Drag = pt.X > sp.PlotW ? "PRICEAXIS" : pt.Y > sp.Top + sp.PlotH ? "TIMEAXIS" : "PAN"; sp.S0 = sp.Spacing;
                     // the open trade's stop / target can be dragged here too (same rules as the main chart)
@@ -38538,15 +38625,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (sp.Drag == "PAN") { sp.RightOffset = sp.Ro0 - dx / sp.Spacing; sp.Follow = sp.RightOffset > -0.5; if (Math.Abs(dy) > 6) sp.FreeY = true; if (sp.PriceAuto && Math.Abs(dy) > 6) { sp.PriceAuto = false; sp.PRange = sp.Pr0; } /* up/down drag works at any zoom: it switches the price scale to manual */ if (!sp.PriceAuto) sp.PCenter = sp.Pc0 + dy * sp.PRange / Math.Max(1, sp.PlotH); }
                     else if (sp.Drag == "PRICEAXIS") { sp.PriceAuto = false; sp.PCenter = sp.Pc0; sp.PRange = Math.Max(sp.Trader.Tick * 4, sp.Pr0 * Math.Exp(dy / 160.0)); }
                     else if (sp.Drag == "TIMEAXIS") { sp.Spacing = Math.Max(1.5, Math.Min(60, sp.S0 * Math.Exp(-dx / 160.0))); }
-                    else if ((sp.Drag == "STOP" || sp.Drag == "TARGET") && sp.Moved) sp.DragPrice = Math.Round(priceAt(sp, pt.Y) / sp.Trader.Tick) * sp.Trader.Tick;
+                    else if ((sp.Drag == "STOP" || sp.Drag == "TARGET") && sp.Moved && sp.Trader.Position != 0)
+                    {   // ✋ 11h: the same owned drag as the main chart (tick rounding only, a stop held short of the price, Esc cancels)
+                        var rS = sp.Trader; int sgS = Math.Sign(rS.Position);
+                        if (!sp.BDrag.Active) sp.BDrag.Begin(sp.Drag, sp.Drag == "STOP" ? (rS.StopPts != 0 ? rS.AvgPrice - sgS * rS.StopPts : double.NaN) : (rS.TargetPts > 0 ? rS.AvgPrice + sgS * rS.TargetPts : double.NaN));
+                        sp.Drag = sp.BDrag.Grab(sp.Drag); sp.DragPrice = sp.BDrag.Move(priceAt(sp, pt.Y), rS.Tick, sgS, rS.Price);
+                    }
                     render(sp);
                 };
                 hit2.MouseLeftButtonUp += delegate
                 {
                     string wasS = sp.Drag; sp.Drag = null; hit2.ReleaseMouseCapture(); var r = pn.Trader;
-                    if ((wasS == "STOP" || wasS == "TARGET") && r != null && r.Position != 0 && sp.Moved && sp.DragPrice > 0 && tradeOkOf(pn))
+                    double pS = sp.BDrag.Active && sp.BDrag.Kind == wasS ? sp.BDrag.Release() : double.NaN; if (sp.BDrag.Active) sp.BDrag.Cancel();   // ✋ 11h: placed once, on release
+                    if ((wasS == "STOP" || wasS == "TARGET") && r != null && r.Position != 0 && sp.Moved && !double.IsNaN(pS) && pS > 0 && tradeOkOf(pn))
                     {
-                        int sgn = Math.Sign(r.Position); double p0 = sp.DragPrice; sp.DragPrice = 0;
+                        int sgn = Math.Sign(r.Position); double p0 = pS; sp.DragPrice = 0;
                         if (wasS == "STOP")
                         {
                             double dist = -sgn * (p0 - r.AvgPrice);
@@ -38995,7 +39088,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 };
                 hit.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs args)
                 {
-                    var pt = args.GetPosition(hit); pn.DownX = pt.X; pn.DownY = pt.Y; pn.Moved = false; pn.Ro0 = pn.RightOffset; pn.Pc0 = pn.PCenter; pn.Pr0 = pn.PRange; pn.S0 = pn.Spacing; pn.DragOrder = null;
+                    var pt = args.GetPosition(hit); pn.DownX = pt.X; pn.DownY = pt.Y; pn.Moved = false; pn.Ro0 = pn.RightOffset; pn.Pc0 = pn.PCenter; pn.Pr0 = pn.PRange; pn.S0 = pn.Spacing; pn.DragOrder = null; if (pn.BDrag.Active) { pn.BDrag.Cancel(); pn.DragPrice = 0; }   /* ✋ 11h: a drag left over (lost mouse) never places anything */
                     var r = pn.Trader; hit.Focus();
                     {
                         // indicator markers: click = its details box (click again or anywhere else = close)
@@ -39152,7 +39245,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else if (pn.Drag == "PRICEAXIS") { pn.PriceAuto = false; pn.PCenter = pn.Pc0; pn.PRange = Math.Max(r.Tick * 4, pn.Pr0 * Math.Exp(dy / 160.0)); }
                     else if (pn.Drag == "TIMEAXIS") { pn.Spacing = Math.Max(1.5, Math.Min(60, pn.S0 * Math.Exp(-dx / 160.0))); }
                     else if (pn.Drag == "DRAW" && pn.Preview != null) { pn.Preview.T2 = timeOfIndex(pn, indexAt(pn, pt.X)); pn.Preview.P2 = px; }
-                    else if ((pn.Drag == "STOP" || pn.Drag == "TARGET") && r.Position != 0 && pn.Moved) pn.DragPrice = Math.Round(priceAt(pn, pt.Y + pn.DragOffY) / r.Tick) * r.Tick;   // a preview: placed on release (grabbed by the label: keeps the offset)
+                    else if ((pn.Drag == "STOP" || pn.Drag == "TARGET") && r.Position != 0 && pn.Moved)
+                    {   // a preview: placed on release (grabbed by the label: keeps the offset) • ✋ 11h: the drag owns the mouse — tick rounding only, the entry / other lines can't be grabbed, a stop is held short of the price
+                        int sgB = Math.Sign(r.Position);
+                        if (!pn.BDrag.Active) pn.BDrag.Begin(pn.Drag, pn.Drag == "STOP" ? (r.StopPts != 0 ? r.AvgPrice - sgB * r.StopPts : double.NaN) : (r.TargetPts > 0 ? r.AvgPrice + sgB * r.TargetPts : double.NaN));
+                        pn.Drag = pn.BDrag.Grab(pn.Drag); pn.DragPrice = pn.BDrag.Move(priceAt(pn, pt.Y + pn.DragOffY), r.Tick, sgB, r.Price);
+                    }
                     else if (pn.Drag == "ORDER" && pn.DragOrder != null) pn.DragOrder.Price = px;
                     else if ((pn.Drag == "ASTOP" || pn.Drag == "ATARGET" || pn.Drag == "GSTOP" || pn.Drag == "GTARGET") && pn.Moved) pn.DragPrice = px;
                     else if (pn.Drag == "ABRACKET" && pn.Moved && anchorOf(pn) != null) { var lo = anchorOf(pn); pn.Drag = lo.Item2 * (px - lo.Item1) > 0 ? "ATARGET" : "ASTOP"; pn.DragPrice = px; }
@@ -39209,13 +39307,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                 upH = delegate(object sender, MouseButtonEventArgs args)
                 {
                     var pt = args != null ? args.GetPosition(hit) : new Point(0, 0); var r = pn.Trader; string was = pn.Drag; pn.Drag = null; hit.ReleaseMouseCapture();
+                    if (pn.BDrag.Active && was != pn.BDrag.Kind) { pn.BDrag.Cancel(); pn.DragPrice = 0; }   // ✋ 11h: a stale drag never places anything
                     // ✏ a CLICK (no drag) on a stop / target / order line = type its price
                     if (args != null && !pn.Moved && r != null && tradeOkOf(pn) && (was == "STOP" || was == "TARGET" || was == "ASTOP" || was == "ATARGET" || (was == "ORDER" && pn.DragOrder != null))) { pn.EditPrice(was, pt); return; }
                     if (was == "DRAW" && pn.Preview != null) { if (pn.Moved) { pn.Drawings.Add(pn.Preview); SaveStudioDrawings(panes); pn.SetTool("CURSOR"); } pn.Preview = null; }
-                    else if ((was == "STOP" || was == "TARGET") && r != null && r.Position != 0 && pn.Moved && pn.DragPrice > 0)
+                    else if ((was == "STOP" || was == "TARGET") && r != null && r.Position != 0 && pn.Moved && pn.DragPrice > 0 && (!pn.BDrag.Active || pn.BDrag.Kind == was))
                     {
-                        // place on release; refuse a stop / target the price is already through (it would close the trade at once)
-                        int sgn = Math.Sign(r.Position); double p0 = pn.DragPrice; pn.DragPrice = 0;
+                        // place on release (✋ 11h: the ONLY moment the order changes — BDrag hands the price over once); refuse a stop / target the price is already through (it would close the trade at once)
+                        int sgn = Math.Sign(r.Position); double p0 = pn.BDrag.Active ? pn.BDrag.Release() : pn.DragPrice; pn.DragPrice = 0; if (double.IsNaN(p0) || p0 <= 0) { render(pn); return; }
                         if (was == "STOP")
                         {
                             double dist = -sgn * (p0 - r.AvgPrice);
@@ -39240,6 +39339,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else if (was == "MOVEDRAW" || was == "RESIZEDRAW") { if (pn.Moved) SaveStudioDrawings(panes); pn.Selected = pn.Moving; pn.Moving = null; status.Text = "DRAWING SELECTED • Delete = remove • drag = move • right-click = colour / width / text"; status.Foreground = Cyan; }
                     else if (was == "PAN" && !pn.Moved && pn.Selected != null) pn.Selected = null;
                     else if (was == "PAN" && !pn.Moved && r != null && pn.OrderType.SelectedIndex > 0) { pn.Price.Text = fmt(Math.Round(priceAt(pn, pt.Y) / r.Tick) * r.Tick); status.Text = pn.Symbol + " PRICE " + pn.Price.Text + " • BUY or SELL places the " + Convert.ToString(pn.OrderType.Items[pn.OrderType.SelectedIndex]) + " order"; status.Foreground = Cyan; }
+                    if (pn.BDrag.Active) { pn.BDrag.Cancel(); pn.DragPrice = 0; }   // ✋ 11h: released without placing (flat now, refused): the drag ends, the entry is back to normal
                     render(pn);
                 };
                 hit.MouseLeftButtonUp += upH;
@@ -39709,6 +39809,17 @@ namespace NinjaTrader.NinjaScript.AddOns
             blownLook.Click += delegate { blownOverlay.Visibility = Visibility.Collapsed; };
             Func<ReplayPane, Tuple<Action<int>, Action>> paneActions = pn => (Tuple<Action<int>, Action>)pn.Hit.Tag;
             // keyboard (the visible instrument): B = buy, S = sell, C = close, space = play / pause; not while typing, no key repeat
+            // ✋ 11h: Esc during a TP / SL drag = cancel it — the line stays at its old price, nothing is sent
+            w.PreviewKeyDown += (s2, e2) =>
+            {
+                if (e2.Key != System.Windows.Input.Key.Escape) return;
+                foreach (var pE in panes.SelectMany(p0 => new[] { p0, p0.Split }).Where(p0 => p0 != null && p0.BDrag.Active).ToList())
+                {
+                    string kE = pE.BDrag.Kind; double back = pE.BDrag.Cancel(); pE.Drag = null; pE.DragPrice = 0; pE.Moved = false; if (pE.Hit != null) pE.Hit.ReleaseMouseCapture();
+                    status.Text = (pE.Main ?? pE).Symbol + " " + (kE == "STOP" ? "STOP" : "TARGET") + " DRAG CANCELLED (Esc) • " + (double.IsNaN(back) ? "nothing placed" : "it stays at " + fmt(back)) + " • nothing sent"; status.Foreground = Gold;
+                    render(pE); e2.Handled = true;
+                }
+            };
             w.KeyDown += (s2, e2) => { if (e2.OriginalSource is TextBox || e2.IsRepeat || active == null) return; var acts = paneActions(active); if (e2.Key == System.Windows.Input.Key.B) acts.Item1(1); else if (e2.Key == System.Windows.Input.Key.S) acts.Item1(-1); else if (e2.Key == System.Windows.Input.Key.C) acts.Item2(); else if (e2.Key == System.Windows.Input.Key.Space) { togglePlay(); e2.Handled = true; } else if ((e2.Key == System.Windows.Input.Key.Delete || e2.Key == System.Windows.Input.Key.Back) && active.Selected != null) { active.Drawings.Remove(active.Selected); active.Selected = null; SaveStudioDrawings(panes); render(active); status.Text = "DRAWING DELETED"; status.Foreground = Gold; e2.Handled = true; }
                 else if (e2.Key == System.Windows.Input.Key.Escape) { active.Selected = null; active.SetTool("CURSOR"); render(active); }
                 else if (e2.Key == System.Windows.Input.Key.Left) { rewind(1); e2.Handled = true; } else if (e2.Key == System.Windows.Input.Key.Right) { stepMinutes(1); e2.Handled = true; } else if (e2.Key >= System.Windows.Input.Key.D1 && e2.Key <= System.Windows.Input.Key.D9) active.TfBox.SelectedIndex = (int)e2.Key - (int)System.Windows.Input.Key.D1; };
