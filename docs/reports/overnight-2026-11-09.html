@@ -63,6 +63,7 @@ a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     <div class="v"><span class="chip c-good">Works</span><span class="big">≈ 40 %</span><p>Locking the TPT PRO funded trailing in 1–2 days with one or a few big brackets. The ceiling without an edge is 37–38 %; the best plans add 2–4 points and hold on both halves.</p></div>
     <div class="v"><span class="chip c-bad">Does not work</span><span class="big">0–12 %</span><p>Small scalps toward the lock ($20–$100 targets, any direction pattern). The costs eat the whole $2,000 before the lock.</p></div>
     <div class="v"><span class="chip c-bad">Tested, negative</span><span class="big">−0.15 R</span><p>VWAP rejection and pullback entries on MNQ. A pullback entry locks less than entering at the market.</p></div>
+    <div class="v"><span class="chip c-good">Built · SpasiX</span><span class="big">0 of 7</span><p>Years wiped out with 🧹 COMPRESS HEDGES, against 7 of 7 with your current settings once overnight swap is charged. Adding to the winner did not hold up.</p></div>
     <div class="v"><span class="chip c-warn">Undecided</span><span class="big">ticks</span><p>"Stay on a win, switch on a stop" with 5–10 point brackets. It looks huge on minute data but collapses on a noisier price path. Only your real ticks can settle it.</p></div>
   </div>
 </section>
@@ -148,6 +149,7 @@ a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 <section aria-labelledby="s-hedge" id="hedge">
   <h2 id="s-hedge">5 · SpasiX hedge: faster recovery</h2>
+  <p><b>Bottom line:</b> adding to the winner did not hold up, so it was not built. The real risk is overnight swap on stuck baskets. A new option, 🧹 COMPRESS HEDGES, removes it without changing your market position.</p>
   <p>Your export (8 Nov): 23 iterations, all won, net +$254.56. One iteration needed 4 add-ons, went down −$496.73 and was stuck about 4 hours to earn +$1.75. Iteration #24 was stuck around −$140 (BUY 0.32 / SELL 0.40) while the price chopped between 4120 and 4133.</p>
   <h3>Why basket #24 is stuck</h3>
   <ul>
@@ -170,7 +172,25 @@ a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   <p><span class="chip c-bad">not built</span> No variant beats your settings in both halves and in most years. The leads of T1, P2 and P4 come almost entirely from 2026, and from which basket happened to be open at year end.</p>
   <h3>The bigger finding: overnight swap</h3>
   <p><span class="chip c-bad">risk for a real account</span> With your broker's swap charged (about −$62 long and +$28 short per lot per night, triple on Wednesday), every variant, your settings included, hits the 60 % hard stop in 6 or 7 of 7 years. Baskets that stay hedged for weeks with 2–4 gross lots pay $40–70 a night. A plain time stop ("exit if stuck 24 h") was tested and made it worse. The fix being tested now is below.</p>
-  <p class="note" id="hedge-pending">Being tested now: 🧹 compressing hedged pairs before the daily rollover. Matching BUY and SELL lots are closed together, so the net position and the market risk stay the same, but the swap on those lots stops. Its result appears here.</p>
+  <h3>The fix: 🧹 COMPRESS HEDGES</h3>
+  <p>A hedged basket holds BUYs and SELLs that cancel each other out. Closing an equal amount of both leaves your real market position exactly the same. It only stops paying overnight swap and margin on lots that do nothing. The money already won or lost on those lots stays in the iteration, so the TP, breakeven and rescue lines stay exactly where they were.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Six years of gold, $8,000 a year</th><th>Net, all years</th><th>2020-22</th><th>2023-26</th><th>Years wiped out</th><th>Worst basket</th><th>Most lots held</th></tr></thead>
+    <tbody>
+      <tr><td>With swap · your settings</td><td class="n">−53,417</td><td class="n">−21,540</td><td class="n">−31,877</td><td class="n">7 of 7</td><td class="n">−9,338</td><td class="n">4.08</td></tr>
+      <tr><td>With swap · compress before the rollover</td><td class="n">−9,744</td><td class="n">−3,631</td><td class="n">−6,113</td><td class="n">0 of 7</td><td class="n">−2,736</td><td class="n">2.32</td></tr>
+      <tr class="hl"><td>With swap · compress ALWAYS</td><td class="n">−8,920</td><td class="n">−6,514</td><td class="n">−2,406</td><td class="n">0 of 7</td><td class="n">−1,687</td><td class="n">0.40</td></tr>
+      <tr><td>No swap · your settings</td><td class="n">−3,893</td><td class="n">−2,774</td><td class="n">−1,119</td><td class="n">0 of 7</td><td class="n">−9,928</td><td class="n">4.88</td></tr>
+      <tr class="hl"><td>No swap · compress ALWAYS</td><td class="n">−778</td><td class="n">−1,789</td><td class="n">+1,011</td><td class="n">0 of 7</td><td class="n">−1,234</td><td class="n">0.40</td></tr>
+      <tr><td>Your real week 2–9 Nov (yours / always)</td><td class="n">−296 / −297</td><td class="n" colspan="3">same result</td><td class="n">−1,133 / −272</td><td class="n">1.84 / 0.40</td></tr>
+    </tbody></table></div>
+  <ul>
+    <li><span class="chip c-good">built · off by default</span> In the HEDGE tab: 🧹 COMPRESS HEDGES = OFF / BEFORE THE ROLLOVER / ALWAYS. <b>ALWAYS is the recommended setting.</b> Compare it live in 🏁 RACE, lane "★ MINE + 🧹 compress hedges".</li>
+    <li>The banner shows "💤 swap tonight −$X" for the open basket, and before each compress it shows the maths: gross → net lots, swap saved tonight, realised amount carried.</li>
+    <li>Every close goes through the same checks as every other order. With ✋ MANUAL MANAGE it is only a 💡 suggestion.</li>
+    <li><b>Limits:</b> the swap rates used (−$62.4 long / +$28.1 short per lot per night) are typical for IC Markets gold, not your confirmed numbers; the app reads the real ones live. Compression cuts the risk but is not a profit engine: six years with swap are still negative in total, so the target and entry rules still need work.</li>
+    <li><b>Also found, not fixed yet:</b> DEFENDER's 🔐 breakeven lock never unlocks unless LOCK or RISK GUARD is on. Scale-out then stays off for the rest of that iteration.</li>
+  </ul>
 </section>
 
 <section aria-labelledby="s-builds" id="builds">
@@ -200,6 +220,7 @@ a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   </ul>
   <p class="note">Verified here: every test suite passes, both baselines are identical, and the UI smoke test passes. The WPF layout cannot be drawn here, so the real check is your F5 in NinjaTrader.</p>
   <div class="link">https://github.com/GSkopje10/KeyStone--NinjaTrader/raw/356fb718f3498808fae9a4cfee3aed515627af20/src/KeyStone.cs<br>header: BUILD 2026-11-11k</div>
-  <p class="note" id="builds-pending">The SpasiX hedge build appears here when finished and tested.</p>
+  <h3>SpasiX · BUILD 2026-11-09a</h3>
+  <p>🧹 COMPRESS HEDGES (OFF / before the rollover / always), 💤 swap tonight in the HEDGE banner, and a new 🏁 RACE lane. Tests: 244 pass, 0 fail, 7 of them new for compression. The HEDGE tab was checked in a screenshot of the real app. File: <span class="mono">mt5/dist/SpasiX.exe</span> (sent as a file).</p>
 </section>
 </div>
