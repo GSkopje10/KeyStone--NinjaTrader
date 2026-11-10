@@ -221,7 +221,7 @@ namespace KeystoneMT5
             var why = Budget != null ? Budget.Check(basket, input.Now, auto) : ""; if (why != "") { LastStatus = "🧠 not asked: " + why; return null; }
             var ctx = AiCopilot.Context(input); var hash = AiCopilot.Hash(ctx); LastStatus = "🧠 asking " + Advisor.ModelName + " …";
             AiReply rep; try { rep = await Advisor.AskAsync(AiCopilot.System, "The basket and the market now (JSON):\n" + ctx, ct); } catch (Exception ex) { rep = new AiReply { Error = ex.Message }; }
-            double cost = AiCopilot.Cost(rep.InputTokens, rep.OutputTokens, rep.CacheRead, rep.CacheWrite); if (Budget != null && (rep.InputTokens > 0 || rep.OutputTokens > 0)) Budget.Record(basket, input.Now, cost);
+            double cost = AiCopilot.Cost(rep.InputTokens, rep.OutputTokens, rep.CacheRead, rep.CacheWrite); if (Budget != null) Budget.Record(basket, input.Now, cost);   // every attempt counts for the rate limits (an error / a refusal too), its $ from the usage
             AiAdvice ad;
             if (rep.Error != "") { ad = new AiAdvice { Action = "hold" }; ad.Problems.Add("no answer: " + rep.Error); }
             else if (rep.StopReason == "refusal") { ad = new AiAdvice { Action = "hold" }; ad.Problems.Add("the model declined" + (rep.RefusalCategory != "" ? " (" + rep.RefusalCategory + ")" : "") + (rep.RefusalExplanation != "" ? ": " + rep.RefusalExplanation : "") + " — nothing to execute"); }

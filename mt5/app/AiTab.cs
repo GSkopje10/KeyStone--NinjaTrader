@@ -25,7 +25,7 @@ namespace KeystoneMT5
         static string AiKeyFile { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpasiX", "ai-key.bin"); } }   // never in the data folder (exports / copies)
         static AiKeyStore aiKeys; static AiBudget aiBudget; static IAiAdvisor aiAdvisor; static string aiTest = "";
         static AiKeyStore AiKeys { get { return aiKeys ?? (aiKeys = new AiKeyStore(AiKeyFile, b => ProtectedData.Protect(b, AiEntropy, DataProtectionScope.CurrentUser), b => ProtectedData.Unprotect(b, AiEntropy, DataProtectionScope.CurrentUser))); } }
-        static IAiAdvisor AiAdvisor { get { if (aiAdvisor == null && AiKeys.Has) { var k = AiKeys.Load(); if (k != "") aiAdvisor = new ClaudeAdvisor(k); } return aiAdvisor; } }
+        static IAiAdvisor AiAdvisor { get { if (aiAdvisor == null && Environment.GetEnvironmentVariable("SPASIX_TEST_AI") == "1") aiAdvisor = new CannedAdvisor(); if (aiAdvisor == null && AiKeys.Has) { var k = AiKeys.Load(); if (k != "") aiAdvisor = new ClaudeAdvisor(k); } return aiAdvisor; } }
 
         AiCoordinator aiCo; bool aiBusy, aiNew; Border aiCard; TextBlock aiTxt; Button aiAskBtn, aiExecBtn; AiInput aiLastIn; string aiLastBasket = ""; int aiLastIter; WhatIfCase aiLastCase;
         readonly List<WhatIfCase> aiWi = new List<WhatIfCase>(); string aiFor = ""; DateTime aiTrigAt = DateTime.MinValue; CancellationTokenSource aiCts;
@@ -42,7 +42,7 @@ namespace KeystoneMT5
         FrameworkElement AiCardBuild()
         {
             aiCo = new AiCoordinator();
-            aiTxt = new TextBlock { FontSize = 12.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap, MaxWidth = 900 };
+            aiTxt = new TextBlock { FontSize = 12.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap, MaxWidth = 1400, HorizontalAlignment = HorizontalAlignment.Left };
             aiAskBtn = Pill("🧠 ASK AI", Tint(Violet, 70)); aiAskBtn.Height = 28; aiAskBtn.Margin = new Thickness(0, 4, 8, 0); aiAskBtn.Click += delegate { AiAsk(false, "your click"); };
             aiAskBtn.ToolTip = "asks Claude (" + AiCopilot.Model + ") about this basket now: the account, the legs, the total, the radar, similar past baskets, the candles, the trend, the news — one structured recommendation. It sends NOTHING by itself.";
             aiExecBtn = Pill("", Tint(Green, 90)); aiExecBtn.Height = 28; aiExecBtn.Margin = new Thickness(0, 4, 8, 0); aiExecBtn.Visibility = Visibility.Collapsed; aiExecBtn.Click += delegate { AiExecute(false); };
@@ -229,6 +229,18 @@ namespace KeystoneMT5
             au.Click += delegate { if (!Virtual) { au.IsChecked = false; Sx.Info(this, "🧠 AI AUTO", AiCoordinator.AutoNo, Amber); return; } Put("ai.auto", au.IsChecked == true ? "1" : "0"); }; st.Children.Add(au);
             show();
             return new Border { Background = Card, CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10, 14, 10), BorderBrush = Tint(Violet, 120), BorderThickness = new Thickness(1), Child = st, Margin = new Thickness(0, 8, 0, 8) };
+        }
+    }
+
+    // screens.sh only (SPASIX_TEST_AI=1): a canned answer, no network, no key — to see the AI line / card / panel with advice in them
+    sealed class CannedAdvisor : IAiAdvisor
+    {
+        public string ModelName { get { return AiCopilot.Model + " (TEST — canned, no network)"; } }
+        public Task<string> TestAsync(CancellationToken ct) { return Task.FromResult("test mode — no network"); }
+        public Task<AiReply> AskAsync(string system, string user, CancellationToken ct)
+        {
+            var json = "{\"action\":\"hold\",\"close_tickets\":[],\"order\":{\"side\":\"NONE\",\"lots\":0,\"entry_type\":\"MARKET\",\"entry_level\":0,\"stop\":0,\"exit\":\"the basket's breakeven\"},\"confidence\":0.55,\"risk_usd\":-120,\"expected_usd\":40,\"reason\":\"TEST ANSWER: the basket is small against the trend; hold and let the exit guard take breakeven.\",\"change_my_mind\":\"a close below the last swing low\"}";
+            return Task.FromResult(new AiReply { Text = json, StopReason = "end_turn", Model = "test", InputTokens = 0, OutputTokens = 0 });
         }
     }
 }

@@ -88,7 +88,7 @@ namespace KeystoneMT5
         {
             var l = rows.OrderByDescending(r => r.Total).ThenBy(r => r.Key, StringComparer.Ordinal).ToList(); var mine = l.FirstOrDefault(r => r.Key == "MINE");
             foreach (var r in l) { r.Vs = mine == null ? double.NaN : Math.Round(r.Total - mine.Total, 2); r.Leader = false; }
-            if (l.Count > 0) l[0].Leader = true; return l;
+            if (l.Count > 0) l[0].Leader = l.Count == 1 || l[0].Total > l[1].Total + 0.005; return l;   // a tie (e.g. all at $0) has no leader
         }
     }
 

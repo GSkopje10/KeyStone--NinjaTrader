@@ -149,6 +149,22 @@ public static class NineITests
                 && rec.What.StartsWith("🧠 RECOVERY SELL 0.51") && hold == null && back != null && back.Legs.Count == 6,
                 "🧠 the advice's what-if: CLOSE ALL = −$266 at once; CLOSE #3 + #5 = " + pl35.ToString("0.00", IC) + " banked, 3 legs replayed; RECOVERY = a SELL 0.51 at the bid 4139.31 added, then the automation alone (in-memory, never MT5) vs what really happened; HOLD = nothing to compare", "");
         }
+        {   // 09j: the HEDGE tab's layout limits, the compact banner lines, the recovery stub, the 🏁 RACE comparison + scoreboard
+            bool lay = true; foreach (var wh in new[] { Tuple.Create(1600.0, 1000.0), Tuple.Create(1920.0, 1080.0), Tuple.Create(1280.0, 800.0) })
+            {   // the top part ≤ 45 % of the tab; the banner ≥ 520 px whatever the buttons need; the tab strip + body keep ≥ 50 % of the tab (≤ 5 % for the strip)
+                double top = HedgeLayout.TopMax(wh.Item2), btn = HedgeLayout.ButtonsMax(wh.Item1); lay &= top <= 0.45 * wh.Item2 + 1e-9 && wh.Item2 - top - 0.05 * wh.Item2 >= 0.5 * wh.Item2 && wh.Item1 - btn >= HedgeLayout.BannerMin;
+            }
+            var gt = "🎯 EXIT AT BREAKEVEN (+$0.5) 4023.02 (+13.0) — the basket was −$1079, open 2 h, a manual trade was added · total now −$302.25"; var sh = HedgeLayout.Short(gt);
+            var tr = new TrendState { Dir = 1, Strength = 75, SwingHi = 4009, SwingLo = 4004, Close = 4010, Atr1 = 1, Atr5 = 3 };
+            var stub = TrendDetect.Recovery(-1100, 32, 0.25, 4010, 100, 7974, 0.07, 1.5, 633, 300, tr); var rok = TrendDetect.Recovery(-325, 32, 0.25, 4010, 100, 7974, 0.07, 1.5, 633, 300, tr);
+            var board = RaceBoard.Rank(new[] { new RaceScore { Key = "MINE", Total = -40 }, new RaceScore { Key = "REC", Total = 25 }, new RaceScore { Key = "AOP", Total = -90 }, new RaceScore { Key = "TAH", Total = 5 } });
+            var mine9 = AutoSettings.Model("DEFENDER", new AutoSettings { Symbol = "XAUUSD" }, 8000); var rec = RaceLanes.For("REC", mine9, 8000);
+            Check(lay && sh == "🎯 EXIT AT BREAKEVEN (+$0.5) 4023.02 (+13.0) · total now −$302.25" && !HedgeLayout.IsLong("a\nb\nc\nd") && HedgeLayout.IsLong("a\nb\nc\nd\ne")
+                && stub.Dir == 0 && stub.Text.Contains("no useful trade") && stub.Text.Contains("net cap 0.56") && rok.Dir == 1 && rok.Lots >= 0.01 && rok.Detail.Contains("breakeven")
+                && string.Join(",", board.Select(b => b.Key)) == "REC,TAH,MINE,AOP" && board[0].Leader && !board[1].Leader && board[0].Vs == 65 && board.First(b => b.Key == "MINE").Vs == 0 && board.First(b => b.Key == "AOP").Vs == -50
+                && string.Join(",", RaceLanes.Compare) == "MINE,REC,AOP,TAH" && rec.CompressMode == "ALWAYS" && rec.BeLock && rec.BeClose && !mine9.BeClose && RaceLanes.For("AOP", mine9, 8000).AddOnBreak,
+                "📐 09j: the HEDGE top part ≤ 45 % of the tab and the banner ≥ 520 px (1280 / 1600 / 1920), the guard line short (" + sh + "); a RECOVERY the net cap squeezes to a stub is not offered (\"" + (stub.Text.Length > 60 ? stub.Text.Substring(0, 60) : stub.Text) + "…\"); 🏁 ▶ COMPARE = MINE, MINE + RECOMMENDED (compress ALWAYS + BE close), ADD ON BREAK + PROTECT, TAH; the scoreboard sorted by total, the leader marked, vs MY SETTINGS", sh + " | " + stub.Text + " | " + rok.Text + " | " + string.Join(",", board.Select(b => b.Key + b.Vs)));
+        }
         try { Directory.Delete(dir, true); } catch { }
         Console.WriteLine(fails == 0 ? "ALL 09i TESTS PASSED" : fails + " 09i TEST(S) FAILED");
         return fails;

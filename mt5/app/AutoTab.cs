@@ -1103,14 +1103,15 @@ namespace KeystoneMT5
             aRec = null; aAob = null; if (aRecBtn == null) return; var sym = auto.Running && auto.Set != null ? auto.Set.Symbol : aset.Symbol;
             Action hide = () => { aRecBtn.Visibility = Visibility.Collapsed; if (aAobBtn != null) aAobBtn.Visibility = Visibility.Collapsed; if (aSugTxt != null) aSugTxt.Visibility = Visibility.Collapsed; };
             if (double.IsNaN(auto.GuardTotal) || auto.GuardTotal >= 0) { hide(); return; }   /* only a basket under $0 needs a recovery */
-            List<Mt5Bar> m1; List<Mt5Position> ps; double net, px, per = 0, bal, ml; DateTime now;
+            List<Mt5Bar> m1; List<Mt5Position> ps; double net, px, per = 0, bal, ml; DateTime now; bool askM1 = false;
             lock (broker.State.Gate)
             {
-                var st = broker.State; now = st.ServerNow > DateTime.MinValue ? st.ServerNow : DateTime.Now; var se = st.SeriesOf(sym, 1); m1 = se.Bars.Where(b => b.Time.AddMinutes(1) <= now).ToList(); if (m1.Count > 220) m1 = m1.Skip(m1.Count - 220).ToList();
+                var st = broker.State; now = st.ServerNow > DateTime.MinValue ? st.ServerNow : DateTime.Now; var se = st.SeriesOf(sym, 1); m1 = se.Bars.Where(b => b.Time.AddMinutes(1) <= now).ToList(); if (!Sim && !se.Loaded && (DateTime.Now - se.AskedAt).TotalSeconds > 5) { se.AskedAt = DateTime.Now; askM1 = true; } if (m1.Count > 220) m1 = m1.Skip(m1.Count - 220).ToList();
                 ps = st.Positions.Where(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); net = ps.Sum(p => p.Dir * p.Lots); Mt5Quote q; st.Quotes.TryGetValue(sym, out q);
                 Mt5Symbol ms; if (st.Symbols.TryGetValue(sym, out ms) && ms.TickSize > 0) per = ms.TickValue / ms.TickSize; bal = st.Account.Balance; ml = st.Account.MarginLevel; px = q == null ? double.NaN : 0; if (q != null) aRecPx = Tuple.Create(q.Bid, q.Ask);
                 if (ps.Count == 0 || q == null) { hide(); return; }
             }
+            if (askM1) try { broker.Send("BARS|" + sym + "|1|300"); } catch { }   // 09j: the suggestions need the 1-minute candles even when no chart shows them
             var tr = TrendDetect.Read(m1, TrendDetect.DayVwap(m1, now)); px = tr.Dir > 0 ? aRecPx.Item2 : aRecPx.Item1;
             var s = auto.Running && auto.Set != null ? auto.Set : aset;
             if (auto.GuardExit == "BREAKEVEN")
