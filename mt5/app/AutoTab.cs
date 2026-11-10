@@ -26,7 +26,7 @@ namespace KeystoneMT5
 
         FrameworkElement BuildAuto()
         {
-            aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, "")));
+            aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, ""))); if (!Virtual) aset.TrendStack = false;   // 🚀 09e: the experiment never on an MT5 account
             // ★ the tested defaults (user's request, once per window): the boxes open with ★ SAFE HEDGE's values — every box can still be changed
             // (a window whose automation was running keeps the settings it ran with)
             // 🛡 the new default (user's request): DEFENDER once per window, sized from the balance (a running automation keeps its settings — pick it in STRATEGY)
@@ -179,6 +179,13 @@ namespace KeystoneMT5
                     new Mi { Text = "ALWAYS — after every hedge: gross ≤ 2 × net + the entry lots (the best in the 6-year replays)", Do = () => aset.CompressMode = "ALWAYS" } });
                   cmp.ToolTip = "Closing an equal amount of BUY and SELL lots leaves the NET (the market risk) exactly the same: the realised part stays in the iteration (TP / breakeven / rescue / DANGER count open + closed), only the swap and margin on those lots stop.\n6 years of 1-minute gold, $8,000, your DEFENDER settings, the broker's swap (−$62.4 / +$28.1 a lot a night): OFF wiped the account out in 7 of 7 yearly runs (47 hard stops); BEFORE THE ROLLOVER 0 of 7 (1 hard stop); ALWAYS 0 of 7 (1 hard stop, worst basket −$1,687 vs −$9,338, at most 0.40 lot).\nWithout swap: ALWAYS −$778 vs OFF −$3,893 (both halves better); BEFORE THE ROLLOVER −$6,636 (a little worse). Your live week 2–9 Nov: the same result, swap −$47 vs −$170.\nIt stops the wipe-outs; it does not make the strategy profitable by itself (with swap the 6 years are still −$8,920 in all, OFF −$53,417).";
                   simple.Children.Add(cmp); }
+                if (Virtual)
+                {   // 🚀 TREND STACK (09e): the experiment, only in a simulated window (DEMO / BACKTEST) — not even shown on an MT5 account
+                    var ts = ADrop("tstack", "🚀 TREND STACK (EXPERIMENT)", () => aset.TrendStack ? "ON — stacks with the trend" : "OFF", () => new List<Mi> {
+                        new Mi { Text = "OFF (the default)", Do = () => aset.TrendStack = false },
+                        new Mi { Text = "ON — EXPERIMENT, simulated accounts only: a short-term trend detector (M1 + M5: EMA 9 / 21, higher highs / lows, the swing break, VWAP, ATR) → while a basket is open and the trend agrees, each new swing break adds lots on the trend's side, sized to reach the target in " + aset.StackK.ToString("0.#", IC) + " × ATR(M5) (cap " + aset.StackCapPer1k.ToString("0.##", IC) + " net lot per $1,000, max " + aset.StackMax + " stacks, never under " + aset.StackMargin.ToString("0", IC) + " % margin); a trend flip closes the stacks at once; a strong trend banks the profitable legs of the other side. NOT PROVEN — see the 🏁 RACE lane", Fg = Amber, Do = () => aset.TrendStack = true } });
+                    ts.ToolTip = "🚀 an experiment (09e): never offered or run on an MT5 account (REAL / PROP / MT5 demo) — HedgeAuto.Check refuses it there."; simple.Children.Add(ts);
+                }
             simple.Children.Add(aPresetNote = new TextBlock { Text = "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 720, Margin = new Thickness(10, 14, 0, 0) });
             aSettings.Children.Add(simple);
             {   // ⏰ 9:30 STRADDLE: its own row (only with that strategy)
@@ -1260,6 +1267,7 @@ namespace KeystoneMT5
             aInfo.Text = on ? (it != null ? "iteration #" + it.N + " since " + it.Start.ToString("dd MMM HH:mm:ss", IC) + "  •  " + it.Buys + " buys (" + it.BuyLots.ToString("0.##", IC) + ") / " + it.Sells + " sells (" + it.SellLots.ToString("0.##", IC) + ")  •  " + it.AddOns + " add-ons  •  max drawdown " + it.MaxDd.ToString("0.00", IC) + (s.MaxDrawdown > 0 ? " (limit −$" + s.MaxDrawdown.ToString("0.##", IC) + ")" : " (no limit)")
                     : auto.Phase == "PAUSE" ? "pause until " + auto.PauseUntil.ToString("HH:mm:ss", IC) + " (" + Math.Max(0, (auto.PauseUntil - auto.Now).TotalSeconds).ToString("0", IC) + " s)" : auto.Phase == "FIRST" ? "the first " + s.FirstDir + " goes now" : "waiting for the next " + auto.WaitingFor() + (auto.Blocked != "" ? "  •  NOT NOW: " + auto.Blocked : ""))
                 : (auto.StopReason != "" ? "stopped: " + auto.StopReason + "  •  " : "") + (Sim ? "BACKTEST: press START here, then ▶ play on the 📈 CHART." : Paper ? "DEMO account: simulated on live prices." : "MT5 account: needs 🔓 ARM (chart panel) and MT5's Algo Trading.") + AutoSwapLine(s.Symbol != "" ? s.Symbol : aset.Symbol);
+            if (s.TrendStack && on && auto.Trend != null) aInfo.Text += "\n" + auto.Trend.Text + (auto.StackText != "" && !auto.StackText.StartsWith(auto.Trend.Text) ? "\n" + auto.StackText : auto.StackText.Length > auto.Trend.Text.Length ? auto.StackText.Substring(auto.Trend.Text.Length) : "");
             aInfo.Foreground = !on && auto.StopReason != "" ? Amber : Muted;
             aLevels.Text = on ? (s.HedgeMode == "NONE" || s.HedgeMode == "SIGNAL" ? "" : "hedge levels: recent high " + Px(auto.BuyLevel) + "  •  recent low " + Px(auto.SellLevel)) + (!double.IsNaN(auto.Vwap) ? "  •  VWAP " + Px(auto.Vwap) : "") + (it != null ? "  •  next add-on (" + (s.HedgeMode == "PRICE" ? "price move" : s.HedgeMode == "MONEY" ? "$ loss" : "break") + ") at " + Px(auto.HedgeLevel) : "") : "";
             if (aGuideBtn != null) aGuideBtn.Content = aGuidesOn ? "🎯 CHART GUIDES: ON" : "🎯 CHART GUIDES: OFF";

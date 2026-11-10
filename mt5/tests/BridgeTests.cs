@@ -7,6 +7,7 @@ public static class BridgeTests
     public static int Main()
     {
         if (Environment.GetEnvironmentVariable("ONLY09D") == "1") return NineDTests.Main7() == 0 ? 0 : 1;   // the 09d block alone (quick)
+        if (Environment.GetEnvironmentVariable("ONLY09E") == "1") return NineETests.Main8() == 0 ? 0 : 1;   // the 09e block alone
         var br = new Mt5Bridge(47999); br.Start(); Check(br.Problem == "", "the app listens on 127.0.0.1", br.Problem);
         using (var c = new TcpClient("127.0.0.1", 47999))
         {
@@ -66,6 +67,7 @@ public static class BridgeTests
         fails += ManualTests.Main6();
         fails += MultiTests.Main5();
         fails += NineDTests.Main7();
+        fails += NineETests.Main8();
         return fails == 0 ? 0 : 1;
     }
 }

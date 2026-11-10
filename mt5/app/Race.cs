@@ -82,23 +82,25 @@ namespace KeystoneMT5
     // the settings of each lane (pure: tested) — the 09d forward-test lanes SLV / FX10 / NFB are EXPERIMENTAL, simulation only, never live options
     public static class RaceLanes
     {
-        public static readonly string[] Experimental = { "SLV", "FX10", "NFB" };
+        public static readonly string[] Experimental = { "SLV", "FX10", "NFB", "TST" };
         public static bool IsExperimental(string k) { return Array.IndexOf(Experimental, k) >= 0; }
         public static string Tip(string k)
         {
             if (k == "SLV") return "🧪 EXPERIMENTAL — not proven live. 🔒 SAFE LIVE on its own simulated account (same-size hedges, 🧹 compress always, −10 % per iteration, −5 % a day, breakeven close, DANGER EXIT). " + AutoSettings.SafeLiveEvidence;
             if (k == "FX10") return "🧪 EXPERIMENTAL — not proven. MY SETTINGS, but every hedge at a FIXED $10 of price from the last leg's fill (no swing, no max-distance / closer-hedge moves) — the R10 variant of the research, here only to compare on new data. Gold: $10 = 1,000 points.";
+            if (k == "TST") return "🧪 EXPERIMENTAL — not proven. 🚀 TREND STACK on MY SETTINGS: the short-term trend detector stacks lots on the trend's side at each new swing break (sized to reach the target in 1.5 × ATR M5, capped), a flip closes the stacks, a strong trend banks the other side's winners — simulation only.";
             if (k == "NFB") return "🧪 EXPERIMENTAL — not proven. MY SETTINGS, but NO FLIP INSIDE A BOX: while the price is still inside the high–low of the last 30 finished candles no hedge opens — the hedge waits just beyond the box (the R2-W variant of the research), here only to compare on new data.";
             return "";
         }
         public static AutoSettings For(string k, AutoSettings mine, double bal)
         {
-            bool mineBased = k == "MINE" || k == "CMP" || k == "RNG" || k == "LKL" || k == "LKF" || k == "FX10" || k == "NFB" || k.StartsWith("BH");
+            bool mineBased = k == "MINE" || k == "CMP" || k == "RNG" || k == "LKL" || k == "LKF" || k == "FX10" || k == "NFB" || k == "TST" || k.StartsWith("BH");
             var set = mineBased ? mine.Copy() : k == "SLV" ? AutoSettings.Model("SAFELIVE", mine, bal) : AutoSettings.Model(k, mine);
             if (k.StartsWith("BH")) { set.EntryMode = "AGGBRK"; set.Tf = int.Parse(k.Substring(2), CultureInfo.InvariantCulture); set.AggRun = Math.Max(2, set.AggRun); set.FirstDir = "AUTO"; set.NextStart = "BREAK"; }   // BREAK OF HIGH: an aggression run, the first opposite close, its high (buy) / low (sell) broken — your hedging untouched
             if (k == "CMP") set.CompressMode = "ALWAYS"; else if (k == "RNG") { set.RangeOnly = true; set.LockOn = false; } else if (k == "LKL") { set.LockOn = true; set.Unlock = "LEAD"; set.RangeOnly = true; } else if (k == "LKF") { set.LockOn = true; set.Unlock = "LIFT"; set.RangeOnly = true; }
             else if (k == "FX10") { set.HedgeMode = "PRICE"; set.HedgePrice = 10; set.HedgeCap = 0; set.RangeOnly = false; set.QuickHedge = false; set.CandleHedge = false; set.KeyHedge = false; set.TrendHedge = false; set.DdTightEvery = 0; set.BoxBars = 0; }
             else if (k == "NFB") { set.BoxBars = 30; }
+            else if (k == "TST") { set.TrendStack = true; }
             set.Symbol = mine.Symbol; set.TrackManual = false;   // a lane never adopts anything: its account is its own
             return set;
         }
