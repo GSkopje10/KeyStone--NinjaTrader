@@ -29,6 +29,7 @@ send("HELLO|5|%s|5120" % COMPANY)
 XS = {"XAUUSD": "-62.4|28.1|1|3|0|2|0|800.00|3997|1.0|0", "USTEC": "-9.8|2.1|1|5|0|4|0|40.30|20150|0|0", "BTCUSD": "-18|-12|6|5|0|2|0|134.50|67250|1.0|0", "EURUSD": "-6.9|1.2|1|3|0|0|0|216.60|1.0832|0.5|0"}
 for k, v in SY.items(): send("SYM|%s|%d|%s|0.01|0.01|100|%s|%s|%s|%s" % (k, v[0], v[3], v[2], v[4], v[5], v[6])); send("SYMX|%s|%s" % (k, XS[k]))
 pos = [(3524004628, "XAUUSD", "SELL", 0.20, 3994.56, 0, 3985.0), (3524004629, "XAUUSD", "SELL", 0.10, 3999.10, 4006.0, 0), (3524004630, "XAUUSD", "BUY", 0.30, 3990.20, 3984.0, 4008.0), (3524004640, "BTCUSD", "BUY", 0.05, 66900.0, 0, 0)]
+CLOSED = os.environ.get("FAKE_CLOSED") == "1"   # 09l screens: one closed leg inside the open XAUUSD set (the TOTAL ≠ the open P/L)
 BIG = os.environ.get("FAKE_BIG") == "1"   # screens with 5-digit $ amounts (the strip boxes must never cut a number)
 if BIG: pos = [(p[0], p[1], p[2], round(p[3] * 10, 2) if p[1] == "XAUUSD" else p[3], p[4], p[5], p[6]) for p in pos]
 if TREND: pos = [(3524004701, "XAUUSD", "BUY", 0.25, 4013.00, 0, 0), (3524004702, "XAUUSD", "SELL", 0.50, 4007.00, 0, 0), (3524004703, "XAUUSD", "BUY", 0.50, 4012.00, 0, 0)]
@@ -69,6 +70,8 @@ def reader():
                     out.append("D|%d|%d|XAUUSD|%s|OUT|0.10|%.2f|%.2f|-0.35|0.00|%d|0|%s|" % (tk+1, t0 + 3600*(8+j) + 1800, "SELL" if side == "BUY" else "BUY", op + pl/10, pl, tk, r.choice(["TP", "SL", "DESKTOP"])))
             if BIG:   # a leg of the open set closed an hour ago: +$13,064.00
                 nw = NOW + int(time.time()) - T0; out.append("D|%d|%d|XAUUSD|SELL|IN|1.00|3990.00|0.00|-3.50|0.00|%d|0||" % (tk+10, nw - 5400, tk+10)); out.append("D|%d|%d|XAUUSD|BUY|OUT|1.00|3859.36|13064.00|-3.50|0.00|%d|0|DESKTOP|" % (tk+11, nw - 3600, tk+10))
+            if CLOSED:   # 09l screens: a leg of the open set closed (compressed) 1 hour ago at a loss: −$90.41 with both commissions
+                nw = NOW + int(time.time()) - T0; out.append("D|%d|%d|XAUUSD|BUY|IN|0.10|3999.00|0.00|-0.35|0.00|%d|0||" % (tk+20, nw - 5400, tk+20)); out.append("D|%d|%d|XAUUSD|SELL|OUT|0.10|3990.03|-89.71|-0.35|0.00|%d|0|EXPERT|" % (tk+21, nw - 3600, tk+20))
             send("DEALS|%s|%s|%d\n" % (a[1], a[2], len(out)) + "\n".join(out) + "\nDEALEND")
         elif a[0] == "MODIFY" and len(a) >= 5:   # a ticket's new S/L / T/P is applied, like MT5
             for i, q in enumerate(pos):

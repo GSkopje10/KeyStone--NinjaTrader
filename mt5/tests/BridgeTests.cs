@@ -14,6 +14,7 @@ public static class BridgeTests
         if (Environment.GetEnvironmentVariable("ONLY09I") == "1") return NineITests.Main12() == 0 ? 0 : 1;   // the 09i block alone
         TickRecorder.RootOverride = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "spasix-test-ticks-" + Environment.ProcessId);   // 🎞 09k: the fake MT5's quotes are recorded here, not in the real data folder
         if (Environment.GetEnvironmentVariable("ONLY09K") == "1") return NineKTests.Main13() == 0 ? 0 : 1;   // the 09k block alone
+        if (Environment.GetEnvironmentVariable("ONLY09L") == "1") return NineLTests.Main14() == 0 ? 0 : 1;   // the 09l block alone
         var br = new Mt5Bridge(47999); br.Start(); Check(br.Problem == "", "the app listens on 127.0.0.1", br.Problem);
         using (var c = new TcpClient("127.0.0.1", 47999))
         {
@@ -79,6 +80,7 @@ public static class BridgeTests
         fails += NineHTests.Main11();
         fails += NineITests.Main12();
         fails += NineKTests.Main13();
+        fails += NineLTests.Main14();
         try { TickRecorder.Flush(); System.IO.Directory.Delete(TickRecorder.RootOverride, true); } catch { }
         return fails == 0 ? 0 : 1;
     }

@@ -19,7 +19,7 @@ namespace KeystoneMT5
     {
         readonly HedgeAuto auto = new HedgeAuto();
         readonly Dictionary<string, TextBox> af = new Dictionary<string, TextBox>();
-        AutoSettings aset; TextBlock aBadge, aPhase, aBasket, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose, aManual; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
+        AutoSettings aset; TextBlock aBadge, aPhase, aBasket, aBasketCap, aBasketSub, aInfo, aLevels; WrapPanel aSetups; DateTime aScanAt; Border aSetCard, aLock; ScrollViewer aSetScroll; Button aSetBtn, aGuideBtn; bool aShowSet = true, aGuidesOn = true; List<ChartGuide> aGuides = new List<ChartGuide>(); string aGuideSym = ""; Border aCard; Button aStart, aStop, aStopClose, aManual; ContentControl aTiles; TextBox aTable; StackPanel aViews, aSettings, aRows; ScrollViewer aRowsView;
         readonly Dictionary<string, Button> aDrops = new Dictionary<string, Button>();
         bool aProAsked;
         bool aResumePending, aPctChecked; DateTime aArchAt = DateTime.MinValue; DateTime aResumeAt; CheckBox aRollCb; Button aSaveBtn, aUndoBtn, aStopSmall, aNowBtn; TextBlock aLockTxt; string aView = "⚙ SETTINGS"; int aSeen = -1, aSaved; string aHist = null; bool aWasOn; DispatcherTimer aTimer; readonly Dictionary<string, FrameworkElement> afBox = new Dictionary<string, FrameworkElement>();
@@ -93,7 +93,7 @@ namespace KeystoneMT5
             var info = new StackPanel(); aPhase = new TextBlock { FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Muted, Text = "🤖 AUTO — OFF" };
             aBasket = new TextBlock { FontSize = 26, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, Foreground = Muted, Text = "—" };
             aInfo = new TextBlock { FontSize = 12.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap }; aLevels = new TextBlock { FontSize = 12.5, Foreground = Cyan, FontFamily = Sx.Mono };
-            aBadge = new TextBlock { FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) }; info.Children.Add(aBadge); var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aPhase); var bk = new StackPanel { Margin = new Thickness(24, 0, 0, 0) }; bk.Children.Add(new TextBlock { Text = "BASKET (all positions on the symbol)", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Muted }); bk.Children.Add(aBasket); row.Children.Add(bk);
+            aBadge = new TextBlock { FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) }; info.Children.Add(aBadge); var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aPhase); var bk = new StackPanel { Margin = new Thickness(24, 0, 0, 0) }; aBasketCap = new TextBlock { Text = "TOTAL IF CLOSED NOW (open + this iteration's closed legs)", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Muted }; bk.Children.Add(aBasketCap); bk.Children.Add(aBasket); aBasketSub = new TextBlock { FontSize = 11.5, FontFamily = Sx.Mono, Foreground = Muted }; bk.Children.Add(aBasketSub); row.Children.Add(bk);
             info.Children.Add(row); info.Children.Add(aInfo); info.Children.Add(aLevels);
             {   // 💡 09j: the suggestions live IN the banner (short labels, the details in one line under them + the tooltip) — never in the button row
                 aSugRow = new WrapPanel(); aSugRow.Children.Add(aAobBtn); aSugRow.Children.Add(aRecBtn); aSugTxt = new TextBlock { FontSize = 11.5, Foreground = Muted, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed };
@@ -201,6 +201,11 @@ namespace KeystoneMT5
             simple.Children.Add(AField("dd", "MAX DRAWDOWN $ (0 = NONE)", aset.MaxDrawdown.ToString(IC), 80, "0 = none: until the target or the account blows; else the basket closes at −$"));
             simple.Children.Add(AField("sz1k", "💰 LOTS PER $1,000 (0 = THE BOXES)", aset.SizePer1k.ToString(IC), 70, "at every iteration start the ENTRY LOTS = this × the live balance / $1,000 (rounded down to the lot step, never under the broker's minimum — then a warning) and the TARGET = the lots × $ PER LOT; 0 = your ENTRY LOTS and TARGET boxes exactly as typed"));
             simple.Children.Add(AField("tpl", "TARGET $ PER LOT", aset.TargetPerLot.ToString(IC), 60, "with LOTS PER $1,000: the target = the lots × this (200 = +$2 per 0.01 lot)"));
+            {   // 💰 09l: what LOTS PER $1,000 / TARGET $ PER LOT mean NOW (the engine's own SizeFor; updates as you type and with the balance)
+                var pv = new StackPanel { Margin = new Thickness(0, 0, 12, 4), MaxWidth = 420 }; pv.Children.Add(new TextBlock { Text = "💰 SIZE NOW", Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
+                aSizePrev = new TextBlock { FontSize = 12, FontFamily = Sx.Mono, Foreground = Cyan, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center }; pv.Children.Add(aSizePrev); simple.Children.Add(pv);
+                af["sz1k"].TextChanged += delegate { ASizePreview(); }; af["tpl"].TextChanged += delegate { ASizePreview(); }; ASizePreview();
+            }
                 simple.Children.Add(ADrop("beclose", "🔐 AT THE BREAKEVEN LINE", () => !aset.BeLock ? "OFF" : aset.BeClose ? "CLOSE ALL (bank it)" : "LOCK (hedge to even)", () => new List<Mi> {
                     new Mi { Text = "CLOSE ALL — the basket came back from ≥ " + aset.BeLockAt.ToString("0", IC) + " % of the target to " + aset.BeLockKeep.ToString("0", IC) + " %: close everything at the market, the profit is banked, the iteration ends", Do = () => { aset.BeLock = true; aset.BeClose = true; } },
                     new Mi { Text = "LOCK — there: buys = sells (the profit is frozen, NOT closed), then the normal hedges go on (the 6-year replays of 07e preferred it; the Nov weeks did not)", Do = () => { aset.BeLock = true; aset.BeClose = false; } },
@@ -634,13 +639,32 @@ namespace KeystoneMT5
             auto.Note("✔ PROTECTIONS ON: 🛡 RISK GUARD (lock at 0.6 lot per $5k / margin 500 % / chop) + 🚨 DANGER EXIT + 📉 SCALE OUT + range-only hedge + 🛟 rescue + ⛔ hard stops" + (auto.Running ? " — from the next iteration" : ""));
             Toast("✔ the protections are ON" + (auto.Running ? " from the next iteration" : "")); AutoPaint(true);
         }
+        TextBlock aSizePrev; string aSizePrevSig = "";
+        // screens.sh only (SPASIX_TEST_ITER=1, with fakemt5.py FAKE_CLOSED=1): the open XAUUSD tickets as an open iteration (as after ⏸ STOP ON MANUAL), so the
+        // ITERATIONS row / the banner / the strip show a basket with closed legs — its total is the 🎯 guard's own count of the fake deals; sends nothing
+        bool aTestIter;
+        void AutoTestIter()
+        {
+            List<Mt5Position> ps; lock (broker.State.Gate) ps = broker.State.Positions.Where(p => string.Equals(p.Symbol, "XAUUSD", StringComparison.OrdinalIgnoreCase)).ToList(); if (ps.Count == 0) return;
+            aTestIter = true; var f = ps.OrderBy(p => p.Time).First(); var it = new AutoIteration { N = auto.Iterations.Count + 1, Start = f.Time, FirstDir = f.Side, Buys = ps.Count(p => p.Dir > 0), Sells = ps.Count(p => p.Dir < 0), Manual = true };
+            auto.Iterations.Add(it); auto.Current = it; auto.Version++;
+        }
+        void ASizePreview()
+        {
+            if (aSizePrev == null || !af.ContainsKey("sz1k") || !af.ContainsKey("tpl")) return;
+            double per1k = Math.Max(0, ANum("sz1k", 0)), tpl = Math.Max(1, ANum("tpl", 200)), bal = 0; Mt5Symbol msy = null;
+            try { lock (broker.State.Gate) { bal = broker.State.Account.Balance; if (aset != null && aset.Symbol != "") broker.State.Symbols.TryGetValue(aset.Symbol, out msy); } } catch { }
+            string sig = per1k.ToString("R", IC) + "|" + tpl.ToString("R", IC) + "|" + Math.Round(bal, 0).ToString(IC) + "|" + (aset != null && aset.IsRunner) + "|" + (msy != null ? msy.VolStep + "/" + msy.VolMin : ""); if (sig == aSizePrevSig) return; aSizePrevSig = sig;
+            var t = HedgeAuto.SizePreview(per1k, tpl, bal, aset != null && aset.IsRunner, msy); aSizePrev.Text = t; aSizePrev.Foreground = t.Contains("⚠") ? Amber : per1k > 0 ? Cyan : Muted;
+            aSizePrev.ToolTip = per1k > 0 ? "at the next iteration start the ENTRY LOTS = " + per1k.ToString("0.###", IC) + " × the live balance / $1,000 (" + (aset != null && aset.IsRunner ? "🦅 RUNNER: to the NEAREST lot step" : "rounded DOWN to the lot step") + ", never under the broker's minimum) and the TARGET = the lots × $" + tpl.ToString("0.##", IC) : "0: the ENTRY LOTS and TARGET boxes are used exactly as typed";
+        }
         double AutoBal() { try { lock (broker.State.Gate) return broker.State.Account.Balance > 0 ? broker.State.Account.Balance : 5000; } catch { return 5000; } }
         // 🦅 09k: the RUNNER experiment is offered only on a simulated account (🎮 DEMO, 🧪 BACKTEST) — never in the LIVE / PROP settings
         string RunnerWarnLine() { double bal = 0; try { bal = AutoBal(); } catch { } var w = AutoSettings.RunnerSizeWarning(bal); return w == "" ? "" : "\n" + w + "."; }
         List<Mi> WithRunner(List<Mi> l)
         {
             if (!Virtual) return l; int at = l.FindIndex(m => m.Text != null && m.Text.StartsWith("🛡 DEFENDER")); if (at < 0) at = l.Count - 1; else at++;
-            l.Insert(at, new Mi { Text = AutoSettings.RunnerText + RunnerWarnLine() + "\nIts values: DEFENDER for the balance, then " + AutoSettings.RunnerPer1k.ToString("0.###", IC) + " lot per $1,000 of the LIVE balance at every iteration start (nearest lot step, min 0.01), lead = the entry, add-ons 2×, target = the lots × $" + (200 * AutoSettings.RunnerTargetMult).ToString("0", IC) + " (" + AutoSettings.RunnerTargetMult.ToString("0.#", IC) + "× DEFENDER's), 🧹 COMPRESS ALWAYS, 🛡 RISK GUARD in LOCK mode (0.6 lot per $5,000, margin 500 %, 3 hedges an hour, pair-off). Every box can be changed after picking it.", Fg = Amber, Do = () => AutoModel("RUNNER") });
+            l.Insert(at, new Mi { Text = AutoSettings.RunnerText + RunnerWarnLine() + "\nIts values: DEFENDER for the balance, then " + AutoSettings.RunnerPer1k.ToString("0.###", IC) + " lot per $1,000 of the LIVE balance at every iteration start (nearest lot step, min 0.01), lead = the entry, add-ons 2×, target = the lots × $" + (200 * AutoSettings.RunnerTargetMult).ToString("0", IC) + " (" + (AutoSettings.RunnerTargetMult == 1 ? "as DEFENDER" : AutoSettings.RunnerTargetMult.ToString("0.#", IC) + "× DEFENDER's") + "), 🧹 COMPRESS ALWAYS, 🛡 RISK GUARD in LOCK mode (0.6 lot per $5,000, margin 500 %, 3 hedges an hour, pair-off). Every box can be changed after picking it.", Fg = Amber, Do = () => AutoModel("RUNNER") });
             return l;
         }
         void AutoModel(string name)
@@ -709,19 +733,23 @@ namespace KeystoneMT5
                 var d = e.Iterations.Where(x => x.Done && !x.Unverified).ToList(); double avgS = d.Count > 0 ? d.Average(x => (x.End - x.Start).TotalSeconds) : 0;
                 aRows.Children.Add(new TextBlock { Text = e.Iterations.Count + " iterations  •  won " + d.Count(x => x.Won) + " / lost " + d.Count(x => !x.Won) + "  •  net " + Signed(d.Sum(x => x.Result), "USD") + " (after " + Signed(-e.Iterations.Sum(x => x.Fees), "USD") + " commission • gross " + Signed(d.Sum(x => x.Result + x.Fees), "USD") + ")  •  average time in the trade " + (d.Count > 0 ? Dur(TimeSpan.FromSeconds(avgS)) : "—") + "  •  winners " + (d.Any(x => x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—") + ", losers " + (d.Any(x => !x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => !x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—"), Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13, Margin = new Thickness(8, 6, 8, 6) });
                 aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("START → END", 150, Muted, true, 11), Cell("⏱ IN TRADE", 92, Muted, true, 11), Cell("FIRST", 64, Muted, true, 11), Cell("BUYS / SELLS / HEDGES", 230, Muted, true, 11), Cell("MAX LOTS", 74, Muted, true, 11), Cell("WORST", 90, Muted, true, 11), Cell("COMMISSION", 96, Muted, true, 11), Cell("RESULT (NET)", 110, Muted, true, 11), Cell("HOW", 200, Muted, true, 11), Cell("🤖 WITHOUT YOU (the automation alone)", 380, Muted, true, 11), Cell("📈 AFTER THE TARGET (if it had stayed open)", 330, Muted, true, 11)));
+                var liveT = e.LiveTotal();   // 🧮 09l: the OPEN row's RESULT = the TOTAL if closed now (open + this iteration's closed legs), as the header
                 foreach (var x in e.Iterations.AsEnumerable().Reverse())
                 {
                     var end = x.Done ? x.End : e.Now; var col = !x.Done ? Cyan : x.Unverified ? Muted : x.Won ? Green : Red;
+                    var openRes = !x.Done ? HedgeAuto.OpenRowResult(double.IsNaN(liveT.Item1) ? e.Basket : liveT.Item1, double.IsNaN(liveT.Item1) ? e.Basket : liveT.Item2, double.IsNaN(liveT.Item1) ? 0 : liveT.Item3) : null;
+                    FrameworkElement resCell = x.Done ? Cell(x.Result.ToString("+0.00;−0.00", IC), 110, col, true, 14) : Cell(openRes.Item1, 110, openRes.Item3 > 0.004 ? Green : openRes.Item3 < -0.004 ? Red : Text, true, 14);
+                    if (openRes != null) resCell.ToolTip = openRes.Item2;
                     aRows.Children.Add(Row(col, Cell("#" + x.N, 36, Text, true), Cell(x.Start.ToString("dd MMM", IC), 84, Muted), Cell(x.Start.ToString("HH:mm:ss", IC) + " → " + (x.Done ? x.End.ToString("HH:mm:ss", IC) : "open"), 150, Text),
                         Cell(Dur(end - x.Start), 92, Violet, true, 12.5, Violet), Cell(x.FirstDir, 64, x.FirstDir == "BUY" ? Green : Red, true, 12, x.FirstDir == "BUY" ? Green : Red),
                         Cell(x.Buys + " / " + x.Sells + " / " + x.AddOns + (x.ManualAdds > 0 ? "  ✋ " + x.ManualAdds + " manual leg" + (x.ManualAdds == 1 ? "" : "s") + (x.ManualLots > 0 ? " (" + x.ManualLots.ToString("0.##", IC) + " lots)" : "") : ""), 230, Text), Cell(x.MaxGross.ToString("0.##", IC), 74, Text), Cell(x.MaxDd.ToString("0.00", IC), 90, x.MaxDd < 0 ? Red : Muted), Cell(x.Fees > 0 ? "−" + x.Fees.ToString("0.00", IC) : "0.00", 96, x.Fees > 0 ? Amber : Muted, true),
-                        Cell(x.Done ? x.Result.ToString("+0.00;−0.00", IC) : "(" + e.Basket.ToString("+0.00;−0.00", IC) + ")", 110, col, true, 14), Cell((x.Manual || x.ManualAdds > 0 ? "✋ MANAGED BY HAND • " : "") + (x.Done ? x.Reason : x.Start.Date < e.Now.Date ? "OPEN ↪ since " + x.Start.ToString("dd MMM", IC) : "OPEN"), 200, col, true, 11.5, col), WiCell(e, x), Cell(AfterText(x), 330, double.IsNaN(x.AfterMax) ? Muted : x.AfterMax >= x.Result * 2 ? Gold : Cyan, true, 11.5)));
+                        resCell, Cell((x.Manual || x.ManualAdds > 0 ? "✋ MANAGED BY HAND • " : "") + (x.Done ? x.Reason : x.Start.Date < e.Now.Date ? "OPEN ↪ since " + x.Start.ToString("dd MMM", IC) : "OPEN"), 200, col, true, 11.5, col), WiCell(e, x), Cell(AfterText(x), 330, double.IsNaN(x.AfterMax) ? Muted : x.AfterMax >= x.Result * 2 ? Gold : Cyan, true, 11.5)));
                 }
                 if (e.Iterations.Count == 0) aRows.Children.Add(new TextBlock { Text = "no iterations yet — START the automation", Foreground = Muted, Margin = new Thickness(10) });
             }
             else
             {
-                aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("TIME", 80, Muted, true, 11), Cell("SIDE", 70, Muted, true, 11), Cell("LOTS", 60, Muted, true, 11), Cell("PRICE", 100, Muted, true, 11), Cell("LEVEL", 100, Muted, true, 11), Cell("BASKET", 90, Muted, true, 11), Cell("WHY", 520, Muted, true, 11)));
+                aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("TIME", 80, Muted, true, 11), Cell("SIDE", 70, Muted, true, 11), Cell("LOTS", 60, Muted, true, 11), Cell("PRICE", 100, Muted, true, 11), Cell("LEVEL", 100, Muted, true, 11), Cell("BASKET (open)", 90, Muted, true, 11), Cell("WHY", 520, Muted, true, 11)));
                 foreach (var t in e.Trades.AsEnumerable().Reverse().Take(1500))
                 {
                     var col = t.Side == "BUY" ? Green : t.Side == "SELL" ? Red : Amber;
@@ -846,7 +874,7 @@ namespace KeystoneMT5
             AutoTrade last = ga.Trades.Count > 0 ? ga.Trades[ga.Trades.Count - 1] : null; bool fresh = last != null && inTrade && (ga.Now - last.Time).TotalSeconds >= 0 && (ga.Now - last.Time).TotalSeconds < 90;
             if (fresh)
             {   // ⚡ for 90 s after every order: WHAT it did, WHEN and WHY
-                txt = who + "⚡ " + last.Side + " " + last.Lots.ToString("0.##", IC) + " @ " + P2(last.Price) + " at " + last.Time.ToString("HH:mm:ss", IC) + " — " + last.Why + "  •  basket " + ga.Basket.ToString("+0.00;−0.00", IC)
+                txt = who + "⚡ " + last.Side + " " + last.Lots.ToString("0.##", IC) + " @ " + P2(last.Price) + " at " + last.Time.ToString("HH:mm:ss", IC) + " — " + last.Why + (Math.Abs(ga.Banked) >= 0.01 ? "  •  TOTAL " + ga.BasketTotal.ToString("+0.00;−0.00", IC) + " (open " + ga.Basket.ToString("+0.00;−0.00", IC) + ")" : "  •  basket " + ga.Basket.ToString("+0.00;−0.00", IC))
                     + (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel) && !ga.Locked ? "  •  🛡 hedge " + (ga.LastDir > 0 ? "SELL" : "BUY") + " " + P2(ga.HedgeLevel) + dist(ga.HedgeLevel) : "");
                 col = last.Side == "BUY" ? Green : last.Side == "SELL" ? Red : Amber; fast = true;
             }
@@ -859,7 +887,7 @@ namespace KeystoneMT5
                 if (s.HedgeMode == "LADDER" && !double.IsNaN(ga.LadderHi)) { txt += "  •  🪜 next BUY > " + P2(ga.LadderHi) + dist(ga.LadderHi) + " • next SELL < " + P2(ga.LadderLo) + dist(ga.LadderLo); fast |= !double.IsNaN(bid) && (ga.LadderHi - bid < 0.4 || bid - ga.LadderLo < 0.4); }
                 else if (ga.Locked && !double.IsNaN(ga.LockHi)) txt += "  •  🔒 LOCKED " + P2(ga.LockLo) + " – " + P2(ga.LockHi);
                 else if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel)) { txt += "  •  🛡 next hedge " + (ga.LastDir > 0 ? "SELL " : "BUY ") + (double.IsNaN(ga.NextHedgeLots) ? "" : ga.NextHedgeLots.ToString("0.##", IC) + " ") + "@ " + P2(ga.HedgeLevel) + dist(ga.HedgeLevel); fast |= !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.5; }
-                col = ga.Basket >= 0 ? Green : Amber;
+                col = ga.BasketTotal >= 0 ? Green : Amber;
                 if (ga.Danger > 0 || ga.DangerWhy != "")
                 {   // 🚨 the danger meter, always in the trade's banner
                     string lvl = ga.Danger >= 60 ? "🔴 DANGER " : ga.Danger >= 35 ? "🟡 CAUTION " : "🟢 CALM ";
@@ -1505,7 +1533,8 @@ namespace KeystoneMT5
         // ---- the screen
         void AutoPaint(bool force)
         {
-            if (aPhase == null) return; bool on = auto.Running; var s = on ? auto.Set : aset; var it = auto.Current;
+            if (aPhase == null) return; try { ASizePreview(); } catch { }
+            if (Environment.GetEnvironmentVariable("SPASIX_TEST_ITER") == "1" && !aTestIter && !auto.Running && auto.Current == null) try { AutoTestIter(); } catch { } bool on = auto.Running; var s = on ? auto.Set : aset; var it = auto.Current;
             if (aHist == null && !Sim) AutoLoadHistory();
             if (!aFixDone && !Sim) AutoRepairResults();
             if (aWasOn && !on && auto.StopReason != "the window closed") Put("auto.run." + AKey, "0"); aWasOn = on;
@@ -1518,7 +1547,10 @@ namespace KeystoneMT5
             { var bdg = AccountBadge(); aBadge.Text = bdg.Item1 + (aResumeTxt != "" && auto.Running ? "   " + aResumeTxt : ""); aBadge.Foreground = bdg.Item2; }
             aPhase.Text = "🛡 HEDGE — " + (on ? auto.Phase : "OFF") + (on ? "  •  " + s.Symbol + " " + Tf.Name(s.Tf) : ""); aPhase.Foreground = on ? Green : Muted;
             aCard.BorderBrush = on ? Green : Line;
-            aBasket.Text = it != null ? Signed(auto.Basket, "USD") + "  /  +$" + s.Target.ToString("0.##", IC) : "—"; aBasket.Foreground = it == null ? Muted : auto.Basket >= 0 ? Green : Red;
+            {   // 🧮 09l: the big number = the TOTAL if closed now (as the header), the open part small under it
+                var lt = auto.LiveTotal(); bool has = it != null && !it.Done; var hl = HedgeAuto.BannerHeadline(double.IsNaN(lt.Item1) ? auto.Basket : lt.Item1, double.IsNaN(lt.Item1) ? auto.Basket : lt.Item2, double.IsNaN(lt.Item1) ? 0 : lt.Item3, s.Target, v => Signed(v, "USD"));
+                aBasketCap.Text = hl.Item1; aBasket.Text = has ? hl.Item2 : "—"; aBasket.Foreground = !has ? Muted : hl.Item4 >= 0 ? Green : Red; aBasketSub.Text = has ? hl.Item3 : ""; aBasketSub.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
+            }
             aInfo.Text = on ? (it != null ? "iteration #" + it.N + " since " + it.Start.ToString("dd MMM HH:mm:ss", IC) + "  •  " + it.Buys + " buys (" + it.BuyLots.ToString("0.##", IC) + ") / " + it.Sells + " sells (" + it.SellLots.ToString("0.##", IC) + ")  •  " + it.AddOns + " add-ons  •  max drawdown " + it.MaxDd.ToString("0.00", IC) + (s.MaxDrawdown > 0 ? " (limit −$" + s.MaxDrawdown.ToString("0.##", IC) + ")" : " (no limit)")
                     : auto.Phase == "PAUSE" ? "pause until " + auto.PauseUntil.ToString("HH:mm:ss", IC) + " (" + Math.Max(0, (auto.PauseUntil - auto.Now).TotalSeconds).ToString("0", IC) + " s)" : auto.Phase == "FIRST" ? "the first " + s.FirstDir + " goes now" : "waiting for the next " + auto.WaitingFor() + (auto.Blocked != "" ? "  •  NOT NOW: " + auto.Blocked : ""))
                 : (auto.StopReason != "" ? "stopped: " + auto.StopReason + "  •  " : "") + (Sim ? "BACKTEST: press START here, then ▶ play on the 📈 CHART." : Paper ? "DEMO account: simulated on live prices." : "MT5 account: needs 🔓 ARM (chart panel) and MT5's Algo Trading.") + AutoSwapLine(s.Symbol != "" ? s.Symbol : aset.Symbol);
@@ -1591,7 +1623,7 @@ namespace KeystoneMT5
                 if (aView == "ITERATIONS")
                 {
                     L.Add(string.Format("{0,4}  {1,-10} {2,-8} {3,-8} {4,-5} {5,5} {6,5} {7,7} {8,9} {9,9} {10,9} {11,11} {12,11}  {13}", "#", "DATE", "START", "END", "FIRST", "BUYS", "SELLS", "HEDGES", "BUY LOTS", "SELL LOTS", "MAX LOTS", "MAX DD", "RESULT", "HOW"));
-                    foreach (var x in auto.Iterations.AsEnumerable().Reverse()) L.Add(string.Format(IC, "{0,4}  {1,-10} {2,-8} {3,-8} {4,-5} {5,5} {6,5} {7,7} {8,9:0.##} {9,9:0.##} {10,9:0.##} {11,11:N2} {12,11}  {13}", x.N, x.Start.ToString("dd MMM yy", IC), x.Start.ToString("HH:mm:ss", IC), x.Done ? x.End.ToString("HH:mm:ss", IC) : "open", x.FirstDir, x.Buys, x.Sells, x.AddOns, x.BuyLots, x.SellLots, x.MaxGross, x.MaxDd, x.Done ? x.Result.ToString("+#,0.00;−#,0.00;0.00", IC) : "(" + auto.Basket.ToString("+0.00;−0.00", IC) + ")", (x.Manual ? "✋ " : "") + x.Reason + (x.WinnerAdds > 0 ? " • " + x.WinnerAdds + " added to the winner" : "") + (x.ManualAdds > 0 ? " • " + x.ManualAdds + " added by hand" : "") + (x.Manual ? " (your trade)" : x.Adopted ? " (taken over)" : "")));
+                    foreach (var x in auto.Iterations.AsEnumerable().Reverse()) L.Add(string.Format(IC, "{0,4}  {1,-10} {2,-8} {3,-8} {4,-5} {5,5} {6,5} {7,7} {8,9:0.##} {9,9:0.##} {10,9:0.##} {11,11:N2} {12,11}  {13}", x.N, x.Start.ToString("dd MMM yy", IC), x.Start.ToString("HH:mm:ss", IC), x.Done ? x.End.ToString("HH:mm:ss", IC) : "open", x.FirstDir, x.Buys, x.Sells, x.AddOns, x.BuyLots, x.SellLots, x.MaxGross, x.MaxDd, x.Done ? x.Result.ToString("+#,0.00;−#,0.00;0.00", IC) : HedgeAuto.OpenRowResult(double.IsNaN(auto.LiveTotal().Item1) ? auto.Basket : auto.LiveTotal().Item1, 0, 0).Item1, (x.Manual ? "✋ " : "") + x.Reason + (x.WinnerAdds > 0 ? " • " + x.WinnerAdds + " added to the winner" : "") + (x.ManualAdds > 0 ? " • " + x.ManualAdds + " added by hand" : "") + (x.Manual ? " (your trade)" : x.Adopted ? " (taken over)" : "")));
                     if (auto.Iterations.Count == 0) L.Add("no iterations yet");
                 }
                 else if (aView == "TRADES")

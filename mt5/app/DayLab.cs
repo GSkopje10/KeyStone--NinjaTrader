@@ -39,10 +39,10 @@ namespace KeystoneMT5
                 au.Start(sb, s, false); sb.Playing = true; sb.Speed = SimBroker.MaxSpeed;
                 for (int k = 0; k < 100000 && !sb.Ended && (au.Running || au.Current != null); k++) sb.Advance(1);
                 var d = au.Iterations.Where(x => x.Done).ToList(); var open = au.Current;
-                r.Iterations = d.Count; r.Won = d.Count(x => x.Won); r.Lost = d.Count(x => !x.Won); r.Net = d.Sum(x => x.Result) + (open != null ? au.Basket : 0);
+                r.Iterations = d.Count; r.Won = d.Count(x => x.Won); r.Lost = d.Count(x => !x.Won); r.Net = d.Sum(x => x.Result) + (open != null ? au.BasketTotal : 0);   // 09l: the open iteration counts its closed legs too (the TOTAL)
                 r.WorstDd = au.Iterations.Count > 0 ? au.Iterations.Min(x => x.MaxDd) : 0; r.MaxAddOns = au.Iterations.Count > 0 ? au.Iterations.Max(x => x.AddOns) : 0; r.Legs = au.Trades.Count;
                 r.Best = d.Count > 0 ? d.Max(x => x.Result) : 0; r.Worst = d.Count > 0 ? d.Min(x => x.Result) : 0;
-                r.Note = (open != null ? "still open at the day's end " + au.Basket.ToString("+0.00;−0.00", CultureInfo.InvariantCulture) + " (counted)" : "") + (!au.Running && au.StopReason != "" && open == null && au.StopReason.Contains("drawdown") ? (open != null ? "; " : "") + "stopped: " + au.StopReason : "");
+                r.Note = (open != null ? "still open at the day's end, total " + au.BasketTotal.ToString("+0.00;−0.00", CultureInfo.InvariantCulture) + (Math.Abs(au.BasketTotal - au.Basket) >= 0.01 ? " (open " + au.Basket.ToString("+0.00;−0.00", CultureInfo.InvariantCulture) + ")" : "") + " (counted)" : "") + (!au.Running && au.StopReason != "" && open == null && au.StopReason.Contains("drawdown") ? (open != null ? "; " : "") + "stopped: " + au.StopReason : "");
                 res.Add(r);
             }
             return res.OrderByDescending(x => x.Net).ToList();

@@ -825,7 +825,13 @@ namespace KeystoneMT5
                     b.ToolTip = hasPos ? "you have tickets on " + sy + " • P/L " + Signed(cpl, s.Account.Currency) : sy; if (hasPos && !on) b.Foreground = cpl >= 0 ? Green : Red; symChips.Children.Add(b);
                 }
             }
-            foreach (var kv in chipLabs) { double cpl = plOf(kv.Key); string t0 = "● " + kv.Key + "  " + (cpl >= 0 ? "+" : "−") + "$" + Math.Abs(cpl).ToString("N0", IC); if (kv.Value.Item1.Text != t0) { kv.Value.Item1.Text = t0; kv.Value.Item2.ToolTip = "you have tickets on " + kv.Key + " • P/L " + Signed(cpl, s.Account.Currency); } }
+            string chipIt = ""; Tuple<double, double, double> chipTt = null; try { if (chipLabs.Count > 0) chipTt = IterTotal(s, out chipIt); } catch { }
+            foreach (var kv in chipLabs)
+            {   // 🧮 09l: the iteration's symbol with closed legs → its TOTAL if closed now (the open P/L in the tooltip)
+                double cpl = plOf(kv.Key); bool tot = chipTt != null && string.Equals(chipIt, kv.Key, StringComparison.OrdinalIgnoreCase) && !double.IsNaN(chipTt.Item1) && Math.Abs(chipTt.Item3) >= 0.005; double shown = tot ? chipTt.Item1 : cpl;
+                string t0 = "● " + kv.Key + "  " + (shown >= 0 ? "+" : "−") + "$" + Math.Abs(shown).ToString("N0", IC);
+                if (kv.Value.Item1.Text != t0) { kv.Value.Item1.Text = t0; kv.Value.Item2.ToolTip = "you have tickets on " + kv.Key + (tot ? " • TOTAL IF CLOSED NOW " + Signed(shown, s.Account.Currency) + " (open " + Signed(chipTt.Item2, s.Account.Currency) + " + closed legs " + Signed(chipTt.Item3, s.Account.Currency) + ")" : " • P/L " + Signed(cpl, s.Account.Currency)); }
+            }
             string zn; var conv = ZoneConv(s, out zn); int nyOff = NyOffset(s);
             if (manageTitle != null) manageTitle.Text = "🧹 MANAGE " + (Act.Sym == "" ? "THIS SYMBOL" : Act.Sym + " ONLY");
             // every timeframe's countdown (the selected chart's symbol)
@@ -899,7 +905,8 @@ namespace KeystoneMT5
             symPlInfo.Text = os > 0 ? "⏳ " + os + " order" + (os == 1 ? "" : "s") : "";
             {   // 🧮 the same TOTAL as the header (open + the closed legs) + a live preview on each close button
                 string isym; var tt = IterTotal(s, out isym); bool mine = string.Equals(isym, sym, StringComparison.OrdinalIgnoreCase) && !double.IsNaN(tt.Item1);
-                if (mine && Math.Abs(tt.Item3) >= 0.005) symPlCap.Text = sym + " • TOTAL NOW " + Signed(tt.Item1, cur);
+                var ph = HedgeAuto.PillHeadline(sym, mine, tt.Item1, tt.Item2, tt.Item3, pl, ps.Count > 0, v => Signed(v, cur));   // 🧮 09l: closed legs → the big number is the TOTAL, the open part small
+                symPlCap.Text = ph.Item1; symPlVal.Text = ph.Item2; symPlVal.Foreground = ps.Count == 0 ? Muted : ph.Item3 > 0 ? Green : ph.Item3 < 0 ? Red : Text; pl = ph.Item3;
                 symPlBox.ToolTip = HedgeAuto.TotalTip(mine && ps.Count > 0, tt.Item1, tt.Item2, tt.Item3, v => Signed(v, cur));   // 09h: rebuilt EVERY refresh from the same numbers as the boxes (never a stale basket)
                 double tgt = auto != null && auto.Running ? auto.Set.Target : 0, per = 0; Mt5Symbol msy; if (s.Symbols.TryGetValue(sym, out msy) && msy.TickSize > 0) per = msy.TickValue / msy.TickSize;
                 FillSymExtra(s, sym, ps, mine ? tt.Item1 : double.NaN, mine ? tt.Item2 : double.NaN, mine ? tt.Item3 : double.NaN, tgt > 0 ? tgt : aset != null ? aset.Target : 0, per, cur);

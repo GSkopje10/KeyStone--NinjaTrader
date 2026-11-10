@@ -28,11 +28,11 @@ public static class NineKTests
         // ---------------------------------------------------------------- 1. RUNNER's settings
         var b0 = new AutoSettings { Symbol = "XAUUSD" };
         var r8 = AutoSettings.Model("RUNNER", b0, 8000); var r4 = AutoSettings.Model("RUNNER", b0, 431); var d8 = AutoSettings.Model("DEFENDER", b0, 8000);
-        Check(r8.Preset == "RUNNER" && r8.IsRunner && Eq(r8.EntryLots, 0.05) && Eq(r8.NetAdvantage, 0.05) && Eq(r8.AddLots, 0.10) && Eq(r8.Target, 30) && Eq(r8.ScaleLots, 0.01) && Eq(r8.SizePer1k, 0.006) && Eq(r8.TargetPerLot, 200 * AutoSettings.RunnerTargetMult) && AutoSettings.RunnerTargetMult == 3,
-            "🦅 RUNNER at $8,000: entry 0.05 (0.006 × 8 = 0.048 → nearest step), lead 0.05, add-ons 0.10, target $30 (0.05 × 200 × 3), scale 0.01, re-sized from the balance (0.006 per $1,000, $600 per lot)",
+        Check(r8.Preset == "RUNNER" && r8.IsRunner && Eq(r8.EntryLots, 0.05) && Eq(r8.NetAdvantage, 0.05) && Eq(r8.AddLots, 0.10) && Eq(r8.Target, 10) && Eq(r8.ScaleLots, 0.01) && Eq(r8.SizePer1k, 0.006) && Eq(r8.TargetPerLot, 200 * AutoSettings.RunnerTargetMult) && AutoSettings.RunnerTargetMult == 1,
+            "🦅 RUNNER at $8,000: entry 0.05 (0.006 × 8 = 0.048 → nearest step), lead 0.05, add-ons 0.10, target $10 (0.05 × 200 × 1, 09l), scale 0.01, re-sized from the balance (0.006 per $1,000, $200 per lot)",
             r8.EntryLots + " " + r8.NetAdvantage + " " + r8.AddLots + " " + r8.Target + " " + r8.SizePer1k + " " + r8.TargetPerLot);
-        Check(Eq(r4.EntryLots, 0.01) && Eq(r4.NetAdvantage, 0.01) && Eq(r4.AddLots, 0.02) && Eq(r4.Target, 6),
-            "🦅 RUNNER at $431: the broker minimum 0.01, lead 0.01, add-ons 0.02, target $6", r4.EntryLots + " " + r4.AddLots + " " + r4.Target);
+        Check(Eq(r4.EntryLots, 0.01) && Eq(r4.NetAdvantage, 0.01) && Eq(r4.AddLots, 0.02) && Eq(r4.Target, 2),
+            "🦅 RUNNER at $431: the broker minimum 0.01, lead 0.01, add-ons 0.02, target $2", r4.EntryLots + " " + r4.AddLots + " " + r4.Target);
         Check(r8.CompressMode == "ALWAYS" && r8.RiskGuard && r8.GuardMode == "LOCK" && Eq(r8.GuardLots, 0.6) && Eq(r8.GuardMargin, 500) && r8.GuardChop == 3 && r8.PairOff && r8.HedgeSize == "ADVANTAGE"
             && r4.CompressMode == "ALWAYS" && r4.RiskGuard && r4.GuardMode == "LOCK",
             "🦅 RUNNER: 🧹 COMPRESS ALWAYS + the chop LOCK (RISK GUARD in LOCK mode: 0.6 lot, margin 500 %, 3 hedges, pair-off)", r8.CompressMode + " " + r8.RiskGuard + " " + r8.GuardMode);
@@ -44,7 +44,7 @@ public static class NineKTests
                 "🦅 RUNNER at $431: 0.01 (never under the smallest lot) and the warning \"" + w4 + "\"; none at $8,000 / $834", w4 + " | " + w800 + " | " + w833);
         }
         var rl = AutoSettings.Load(r8.Save());
-        Check(rl.IsRunner && Eq(rl.SizePer1k, 0.006) && Eq(rl.TargetPerLot, 600) && rl.RiskGuard && rl.CompressMode == "ALWAYS" && !new AutoSettings().IsRunner, "🦅 RUNNER survives save / load; nothing is RUNNER by default");
+        Check(rl.IsRunner && Eq(rl.SizePer1k, 0.006) && Eq(rl.TargetPerLot, 200) && rl.RiskGuard && rl.CompressMode == "ALWAYS" && !new AutoSettings().IsRunner, "🦅 RUNNER survives save / load; nothing is RUNNER by default");
         {   // the live sizing: nearest step for RUNNER, the old floor for 💰 RISK / SAFE LIVE
             var n = HedgeAuto.SizeFor(8000, 8000, false, null, 0.006, 600, true); var f = HedgeAuto.SizeFor(8000, 8000, false, null, 0.006, 600); var n4 = HedgeAuto.SizeFor(431, 431, false, null, 0.006, 600, true); var n12 = HedgeAuto.SizeFor(12345, 12345, false, null, 0.006, 600, true);
             Check(Eq(n.Item1, 0.05) && Eq(n.Item2, 30) && n.Item3 == "" && Eq(f.Item1, 0.04) && Eq(n4.Item1, 0.01) && n4.Item3.Contains("minimum") && Eq(n12.Item1, 0.07) && Eq(n12.Item2, 42),
@@ -63,8 +63,8 @@ public static class NineKTests
         // ---------------------------------------------------------------- 3. the 🏁 RACE lane RUN
         {
             var mine = d8.Copy(); var set = RaceLanes.For("RUN", mine, 5000); set.Swing = false; set.Lookback = 1;
-            Check(RaceLanes.Compare.Contains("RUN") && RaceLanes.Compare[0] == "MINE" && RaceLanes.Compare[1] == "RUN" && RaceLanes.IsExperimental("RUN") && RaceLanes.Tip("RUN").Contains("simulated accounts only") && set.IsRunner && Eq(set.EntryLots, 0.03) && Eq(set.Target, 18) && set.RiskGuard && set.CompressMode == "ALWAYS" && set.Symbol == "XAUUSD" && !set.TrackManual,
-                "🏁 RACE: the 🦅 RUNNER lane (RUN) is in ▶ COMPARE WITH MY SETTINGS next to MINE, experimental, sized from the race balance ($5,000 → 0.03 / $18)", string.Join(",", RaceLanes.Compare) + " " + set.EntryLots + " " + set.Target);
+            Check(RaceLanes.Compare.Contains("RUN") && RaceLanes.Compare[0] == "MINE" && RaceLanes.Compare[1] == "RUN" && RaceLanes.IsExperimental("RUN") && RaceLanes.Tip("RUN").Contains("simulated accounts only") && set.IsRunner && Eq(set.EntryLots, 0.03) && Eq(set.Target, 6) && set.RiskGuard && set.CompressMode == "ALWAYS" && set.Symbol == "XAUUSD" && !set.TrackManual,
+                "🏁 RACE: the 🦅 RUNNER lane (RUN) is in ▶ COMPARE WITH MY SETTINGS next to MINE, experimental, sized from the race balance ($5,000 → 0.03 / $6)", string.Join(",", RaceLanes.Compare) + " " + set.EntryLots + " " + set.Target);
             var mk = new SimBroker(); mk.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = 10000, Kind = "STANDARD", FixedSpread = 10 }, Gold(), Path0(Day0.AddHours(10), 4000, Enumerable.Repeat(4000.0, 30)).Concat(Path0(Day1, 4000, Zz(4000, 400, 4, 0.5, 2, 0.3))).ToList());
             int sent = 0; var l = new RaceLane { Key = "RUN", Set = set, Br = new ShadowBroker(mk.State, line => { if (line.StartsWith("ORDER") || line.StartsWith("CLOSE")) sent++; return false; }, new SimAccountSettings { Balance = 5000, Leverage = 500, Kind = "STANDARD" }) };
             l.Eng.Send = (c, a, lab) => l.Br.Command(c, a); var e = l.Eng.Check(l.Br, set); if (e == "") l.Eng.Start(l.Br, set, false);

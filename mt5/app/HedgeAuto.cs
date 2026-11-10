@@ -188,11 +188,11 @@ namespace KeystoneMT5
         // then small entries (RunnerPer1k lot per $1,000 of the LIVE balance at each iteration start, to the nearest lot step, min the broker's minimum),
         // the hedge lead = the entry, add-ons 2×, a target RunnerTargetMult × DEFENDER's (+$2 per 0.01 lot × RunnerTargetMult), 🧹 COMPRESS ALWAYS and the
         // RISK GUARD in LOCK mode (the "chop lock": 0.6 lot per $5,000, margin 500 %, 3 hedges an hour → lock instead of hedging, pair-off)
-        public const double RunnerTargetMult = 3;   // ← the ONE number to change: the target = entry lots × 200 × this ($6 per 0.01 lot at 3)
+        public const double RunnerTargetMult = 1;   // ← the ONE number to change: the target = entry lots × 200 × this ($2 per 0.01 lot at 1; 09l: 3 → 1, the 3× target blew the account in one 6-year model)
         public const double RunnerPer1k = 0.006;
         public static bool RunnerAllowed(bool simulated) { return simulated; }
         public const string RunnerNo = "🦅 RUNNER is an EXPERIMENT: only on a simulated account (🎮 DEMO, 🏁 RACE, 🧪 BACKTEST) — never on an MT5 account (REAL, PROP or MT5 demo). Pick another STRATEGY (🛡 DEFENDER is the default) to start here.";
-        public const string RunnerText = "🦅 RUNNER (experiment, simulated accounts only): small entries 0.006 lot per $1,000, 3× bigger targets, COMPRESS, and the chop LOCK (no more hedges while the price whipsaws — it waits for a clean break). 6-year replays: better than today's engine in both price models, still slightly negative — test it on DEMO / RACE.";
+        public const string RunnerText = "🦅 RUNNER (experiment, simulated accounts only): small entries 0.006 lot per $1,000, COMPRESS, and the chop LOCK (no more hedges while the price whipsaws — it waits for a clean break). 6-year replays with your brokers' real costs: the most stable version (never blew the account, worst year about −$2,000), near breakeven overall — test it on DEMO / RACE.";
         public bool IsRunner { get { return Preset == "RUNNER"; } }
         // the smallest lot is the broker's minimum (0.01): when RUNNER's formula asks for less ($431 → 0.0026), 0.01 trades and this says how much bigger the risk is ("" = no warning)
         public static string RunnerSizeWarning(double bal, double minLot = 0.01)
@@ -235,7 +235,7 @@ namespace KeystoneMT5
                 return s;
             }
             if (name == "RUNNER")
-            {   // 🦅 RUNNER (09k, experiment — simulated accounts only): DEFENDER for the balance + small entries, 3× targets, compress, the chop LOCK
+            {   // 🦅 RUNNER (09k, experiment — simulated accounts only): DEFENDER for the balance + small entries, compress, the chop LOCK (09l: target 1×)
                 var d = Model("DEFENDER", b, bal); d.Preset = "RUNNER"; ApplyRunner(d, bal); return d;
             }
             if (name == "SAFELIVE")
@@ -403,6 +403,42 @@ namespace KeystoneMT5
         public double Basket, HedgeLevel = double.NaN, BuyLevel = double.NaN, SellLevel = double.NaN;   // live numbers for the window
         public DateTime Now, PauseUntil = DateTime.MinValue;
         public double BasketTotal, Banked;   // BasketTotal = Basket (open) + Banked (closed legs of this iteration, scale-outs / trims)
+        // 🧮 09l (user's confusion): the OPEN iteration's numbers = (TOTAL if closed now, open, closed legs) — the headline everywhere is the TOTAL;
+        // running → the engine's own; stopped (⏸ STOP ON MANUAL) → the 🎯 guard's count of the iteration's deals; NaN total = no open iteration
+        public Tuple<double, double, double> LiveTotal()
+        {
+            if (Current == null || Current.Done) return Tuple.Create(double.NaN, 0.0, 0.0);
+            if (!Running && !double.IsNaN(GuardTotal)) return Tuple.Create(GuardTotal, GuardOpen, Math.Round(GuardTotal - GuardOpen, 2));
+            return Tuple.Create(BasketTotal, Basket, Banked);
+        }
+        static string Sg(double v) { return v.ToString("+0.00;−0.00;0.00", IC); }
+        public static string Usd(double v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + "$" + Math.Abs(v).ToString("N2", IC); }   // = the window's Signed(v, "USD")
+        // the ITERATIONS table's RESULT (NET) for the OPEN row: (the text "(−70.74)", its tooltip, the value that colours it)
+        public static Tuple<string, string, double> OpenRowResult(double total, double open, double closed)
+        {
+            return Tuple.Create("(" + Sg(total) + ")", "if closed now: open " + Sg(open) + " + closed " + Sg(closed) + " = " + Sg(total) + " (this iteration, commissions and swap included)", total);
+        }
+        // the 🛡 HEDGE banner's big number: (caption, the big text, the small "open • closed" line, the value that colours it)
+        public static Tuple<string, string, string, double> BannerHeadline(double total, double open, double closed, double target, Func<double, string> fmt = null)
+        {
+            fmt = fmt ?? Usd;
+            return Tuple.Create("TOTAL IF CLOSED NOW (open + this iteration's closed legs)", fmt(total) + "  /  +$" + target.ToString("0.##", IC), "open " + fmt(open) + "  •  closed " + fmt(closed), total);
+        }
+        // the 📈 chart strip's pill for the symbol: (caption, the big text, the value that colours it); closed legs → the big number is the TOTAL, the open part small
+        public static Tuple<string, string, double> PillHeadline(string sym, bool mine, double total, double open, double closed, double openPl, bool any, Func<double, string> fmt = null)
+        {
+            fmt = fmt ?? Usd;
+            if (mine && !double.IsNaN(total) && Math.Abs(closed) >= 0.005) return Tuple.Create(sym + " • TOTAL IF CLOSED NOW  (open " + fmt(open) + " • closed " + fmt(closed) + ")", fmt(total), total);
+            return Tuple.Create(sym + " • P/L of this instrument", any ? fmt(openPl) : "no ticket", openPl);
+        }
+        // ⚙ SETTINGS: the live preview next to 💰 LOTS PER $1,000 / TARGET $ PER LOT (the engine's own SizeFor, RUNNER = the nearest step)
+        public static string SizePreview(double per1k, double targetPerLot, double balance, bool runner, Mt5Symbol sym = null)
+        {
+            if (!(per1k > 0)) return "0 = the boxes (ENTRY LOTS / TARGET used as typed)";
+            if (!(balance > 0)) return "→ the lots follow the balance (no balance yet)";
+            var sz = SizeFor(balance, balance, false, sym, per1k, Math.Max(1, targetPerLot), runner);
+            return "→ " + sz.Item1.ToString("0.00", IC) + " lots now at $" + balance.ToString("N0", IC) + " · target $" + sz.Item2.ToString("0.##", IC) + (sz.Item3 != "" ? "\n" + sz.Item3 : "");
+        }
         public double NetLots, PerPrice, TargetPx = double.NaN, StopPx = double.NaN; public int LastDir;   // for the chart's guides while a trade is open
         // the order path: (command, args, label) → the command's id, or null with the reason in `refused`
         public Func<string, object[], string, string> Send;
@@ -2190,7 +2226,7 @@ namespace KeystoneMT5
         }
         // ---- 🎯 TOTAL EXIT GUARD (09f): runs on every tick, the automation running or not; never opens anything
         public Func<string, string> GuardClose;   // the tab's close-only path (CLOSEALL through the armed link; null = not armed / not allowed)
-        public string GuardText = "", GuardExit = ""; public bool GuardAlert; public double GuardLevel = double.NaN, GuardTotal = double.NaN, GuardBePx = double.NaN; public event Action<string> OnGuard;
+        public string GuardText = "", GuardExit = ""; public bool GuardAlert; public double GuardLevel = double.NaN, GuardTotal = double.NaN, GuardBePx = double.NaN, GuardOpen; public event Action<string> OnGuard;
         double guardWorst; DateTime guardFrom = DateTime.MinValue, guardClosedAt = DateTime.MinValue; string guardKey = ""; bool guardWarned;
         // which exit: (kind, the $ level of the total, why) — BREAKEVEN once the basket is in trouble, else the TARGET
         public static Tuple<string, double, string> ExitLevel(double target, double keep, double worst, double minutesOpen, bool manualHedge, double troubleX, double troubleMin)
@@ -2257,7 +2293,7 @@ namespace KeystoneMT5
             if (it == null && !s.GuardManual) { GuardText = ""; return; }
             DateTime from = it != null ? it.Start : pos.Min(p => p.Time); string key = (it != null ? "#" + it.N : "M") + "|" + from.Ticks;
             if (key != guardKey) { guardKey = key; guardWorst = it != null ? Math.Min(0, it.MaxDd) : 0; guardFrom = from; guardWarned = false; GuardAlert = false; }
-            double total = OpenPl(pos, sym) + ClosedSince(deals.Where(d => d.Time >= from.AddSeconds(-1)), pos, sym, from); guardWorst = Math.Min(guardWorst, total); GuardTotal = total;
+            double total = OpenPl(pos, sym) + ClosedSince(deals.Where(d => d.Time >= from.AddSeconds(-1)), pos, sym, from); guardWorst = Math.Min(guardWorst, total); GuardTotal = total; GuardOpen = OpenPl(pos, sym);
             bool manualHedge = it != null ? (it.ManualAdds > 0 || HandStopped || it.Manual) : (pos.Any(p => p.Dir > 0) && pos.Any(p => p.Dir < 0));
             double target = Running && Set != null ? Set.Target : s.Target;
             var ex = ExitLevel(target, s.GuardKeep, guardWorst, (now - from).TotalMinutes, manualHedge, s.GuardTroubleX, s.GuardMinutes); GuardExit = ex.Item1; GuardLevel = ex.Item2;
