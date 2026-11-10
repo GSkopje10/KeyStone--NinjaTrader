@@ -96,10 +96,13 @@ namespace KeystoneMT5
             aBadge = new TextBlock { FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) }; info.Children.Add(aBadge); var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aPhase); var bk = new StackPanel { Margin = new Thickness(24, 0, 0, 0) }; bk.Children.Add(new TextBlock { Text = "BASKET (all positions on the symbol)", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Muted }); bk.Children.Add(aBasket); row.Children.Add(bk);
             info.Children.Add(row); info.Children.Add(aInfo); info.Children.Add(aLevels);
             {   // 💡 09j: the suggestions live IN the banner (short labels, the details in one line under them + the tooltip) — never in the button row
-                aSugRow = new WrapPanel(); aSugRow.Children.Add(aAobBtn); aSugRow.Children.Add(aRecBtn); aSugTxt = new TextBlock { FontSize = 11.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+                aSugRow = new WrapPanel(); aSugRow.Children.Add(aAobBtn); aSugRow.Children.Add(aRecBtn); aSugTxt = new TextBlock { FontSize = 11.5, Foreground = Muted, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed };
                 info.Children.Add(aSugRow); info.Children.Add(aSugTxt);
             }
-            info.Children.Add(AiCardBuild());   // 🧠 09i
+            aInfoMore = new Button { Content = "▸ details", Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = Cyan, FontSize = 11, Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left, Cursor = System.Windows.Input.Cursors.Hand, Visibility = Visibility.Collapsed };
+            aInfoMore.Click += delegate { aInfoOpen = !aInfoOpen; AutoPaint(true); }; info.Children.Insert(info.Children.IndexOf(aInfo) + 1, aInfoMore);
+            aAiLine = new Button { Content = "🧠 new AI advice — open the 🧠 AI tab", Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = Violet, FontSize = 12, FontWeight = FontWeights.Bold, Padding = new Thickness(0, 2, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Cursor = System.Windows.Input.Cursors.Hand, Visibility = Visibility.Collapsed };
+            aAiLine.Click += delegate { aView = "🧠 AI"; aiNew = false; AutoPaint(true); }; info.Children.Add(aAiLine);   // 🧠 09j: ONE line in the banner; the card is in the 🧠 AI tab
             aCard = new Border { Child = new ScrollViewer { Content = info, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, MinWidth = HedgeLayout.BannerMin, Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 10, 0) };
             top.Children.Add(aCard); root.Children.Add(top); aTop = top;
             // 09j layout guard: the button row gets at most (width − the banner's minimum); the top part at most HedgeLayout.TopShare of the height (it scrolls inside)
@@ -428,6 +431,7 @@ namespace KeystoneMT5
             var clr = Pill("🗑 CLEAR HISTORY", Tint(Sx.Card2, 220)); clr.Height = 26; clr.Click += delegate { AutoClear(); }; aViews.Children.Add(clr);
             aFullBtn = Pill("⤢ FULL LIST", Tint(Sx.Card2, 220)); aFullBtn.Height = 26; aFullBtn.ToolTip = "the list gets the whole tab: the HEDGE banner, the setup cards and the number tiles hide (click again to bring them back)"; aFullBtn.Click += delegate { aFull = !aFull; AutoPaint(true); }; aViews.Children.Add(aFullBtn);
             root.Children.Add(aViews);
+            { var ac = AiCardBuild(); DockPanel.SetDock(ac, Dock.Top); ac.Visibility = Visibility.Collapsed; root.Children.Add(ac); }   // 🧠 09j: the AI card above the 🧠 AI tab's list
             aTable = new TextBox { IsReadOnly = true, FontFamily = Sx.Mono, FontSize = 13.5, MinHeight = 160, Background = Panel, Foreground = Text, BorderBrush = Line, VerticalScrollBarVisibility = ScrollBarVisibility.Visible, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, TextWrapping = TextWrapping.NoWrap, Padding = new Thickness(8) };
             aRows = new StackPanel(); aRowsView = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Visible, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, Content = aRows, Background = Panel, Visibility = Visibility.Collapsed };
             var tableHost = new Grid(); tableHost.Children.Add(aTable); tableHost.Children.Add(aRowsView); root.Children.Add(tableHost);
@@ -682,7 +686,7 @@ namespace KeystoneMT5
             var b = AccountBadge(); return new Border { Child = new TextBlock { Text = b.Item1, Foreground = b.Item2, FontSize = 15, FontWeight = FontWeights.Bold }, Background = Tint(b.Item2, 36), BorderBrush = b.Item2, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 4, 12, 5), Margin = new Thickness(4, 2, 4, 6), HorizontalAlignment = HorizontalAlignment.Left };
         }
         // 🔁 09d: after START / RESUME the banner says what continued ("resumed: 39 iterations · today +$248.89 · open basket #40 taken over")
-        string aResumeTxt = ""; RadarReading aRadar; double aRadarPrevP = double.NaN; Button aNearBtn; readonly List<string> aRadarRows = new List<string>(); string aRadarFor = ""; readonly List<WhatIfCase> aWi = new List<WhatIfCase>(); string aWiFor = ""; bool aWiBusy; DateTime aWiAt = DateTime.MinValue; Button aRecBtn, aAobBtn; WrapPanel aSugRow; TextBlock aSugTxt; RecoveryTicket aRec; AddBreakTicket aAob; string aRecSym = ""; Button aGuardBtn, aGuardNow; TextBlock aPresetNote; Border aHandBar; TextBlock aHandTxt; Button aResumeBtn; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
+        string aResumeTxt = ""; RadarReading aRadar; double aRadarPrevP = double.NaN; Button aNearBtn; readonly List<string> aRadarRows = new List<string>(); string aRadarFor = ""; readonly List<WhatIfCase> aWi = new List<WhatIfCase>(); string aWiFor = ""; bool aWiBusy; DateTime aWiAt = DateTime.MinValue; Button aRecBtn, aAobBtn, aInfoMore, aAiLine; bool aInfoOpen; WrapPanel aSugRow; TextBlock aSugTxt; RecoveryTicket aRec; AddBreakTicket aAob; string aRecSym = ""; Button aGuardBtn, aGuardNow; TextBlock aPresetNote; Border aHandBar; TextBlock aHandTxt; Button aResumeBtn; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
         void AutoResumeNote() { try { var t = Continuity.ResumeLine(auto.Iterations, auto.Current, auto.Now > DateTime.MinValue ? auto.Now : DateTime.Now); aResumeTxt = t; if (t != "") { auto.Note(t); Toast(t); } } catch { } }
         string BadgeLine() { return AccountBadge().Item1 + "\n\n"; }
         void AutoRowsOf(HedgeAuto e, StackPanel aRows, string aView)
@@ -1067,7 +1071,7 @@ namespace KeystoneMT5
                 if (typed == null || typed.Trim().ToUpperInvariant() != "START") return;
             }
             else if (!Sx.Ask(this, "🤖 START on MT5 (" + kind + " account " + login + ")", BadgeLine() + "Orders go to MT5 by themselves while it runs.\n\n" + what, "▶ START", "CANCEL", Green)) return;
-            AutoLoadHistory(); if (aView == "⚙ SETTINGS") aView = "STORY"; auto.Start(broker, s, adopt); auto.NoCatchUp = startNoCatch; startNoCatch = false; AutoResumeNote(); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
+            AutoLoadHistory(); if (aView == "⚙ SETTINGS") aView = "STORY"; auto.Start(broker, s, adopt); if (Get("race.auto", "0") == "1" && !raceOn && raceChecks.Count > 0) try { RaceCompare(true); } catch { }   /* 🏁 09j: the comparison starts with the automation (option) */ auto.NoCatchUp = startNoCatch; startNoCatch = false; AutoResumeNote(); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
         }
         // ▶ RESUME AUTOMATION after a stop by hand: asks (the account, the positions it takes over, the settings), then the same basket goes on
         void AutoHandResume()
@@ -1124,7 +1128,7 @@ namespace KeystoneMT5
             if (aSugTxt != null)
             {   // one line of numbers under the 💡 buttons (the full story is in each button's tooltip)
                 var l = new List<string>(); if (aAob != null && aAob.Ok) l.Add("ADD: " + aAob.Detail); if (aRec != null && aRec.Dir != 0) l.Add("RECOVERY: " + aRec.Detail);
-                aSugTxt.Text = string.Join("   ·   ", l); aSugTxt.Visibility = l.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+                aSugTxt.Text = string.Join("   ·   ", l); aSugTxt.ToolTip = string.Join("\n\n", new[] { aAob != null && aAob.Ok ? aAob.Text : null, aRec != null && aRec.Dir != 0 ? aRec.Text : null }.Where(x => x != null)); aSugTxt.Visibility = l.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             }
         }
         // 09j: screens.sh's layout check (only when SPASIX_TEST_LAYOUT names a file): the banner's width, where the tab strip starts, the window's height
@@ -1513,9 +1517,17 @@ namespace KeystoneMT5
             }
             aStart.IsEnabled = !on; aStop.IsEnabled = on;
             if (aGuardBtn != null) { aGuardBtn.Content = aset.ExitGuard ? "🎯 EXIT GUARD: ON" : "🎯 EXIT GUARD: OFF"; aGuardBtn.Background = aset.ExitGuard ? Tint(Gold, 90) : Tint(Sx.Card2, 220); aGuardNow.Visibility = auto.GuardAlert ? Visibility.Visible : Visibility.Collapsed; }
-            if (aset.ExitGuard && auto.GuardText != "") aInfo.Text += "\n" + auto.GuardText + (auto.GuardAlert ? "  ⚠ REACHED — ✋ MANUAL MANAGE: press ⛔ CLOSE ALL NOW" : "");
-            if (aRec != null && auto.GuardExit == "BREAKEVEN" && auto.GuardTotal < 0) aInfo.Text += "\n" + aRec.Text;
+            if (aset.ExitGuard && auto.GuardText != "") aInfo.Text += "\n" + HedgeLayout.Short(auto.GuardText) + (auto.GuardAlert ? "  ⚠ REACHED — press ⛔ CLOSE ALL NOW" : "");   // 09j: one short line (the reasons are in the tooltip)
             { var rr = auto.Running && auto.Current != null ? auto.Radar : null; if (rr != null && rr.Text != "") { aInfo.Text += "\n" + rr.Text + (rr.Near.Count > 0 ? "  ·  🔎 like " + rr.Near[0].Date + " (" + rr.Near[0].Depth.ToString("0.0", IC) + "×, " + (string.IsNullOrEmpty(rr.Near[0].Reason) ? "open" : rr.Near[0].Reason) + ")" : ""); } if (aNearBtn != null) { aNearBtn.Visibility = rr != null && !double.IsNaN(rr.P) ? Visibility.Visible : Visibility.Collapsed; if (rr != null && !double.IsNaN(rr.P)) { var col = rr.P * 100 >= (auto.Set ?? aset).RadarAlert ? Red : rr.P >= 0.3 ? Amber : Green; aNearBtn.Content = "⚠ " + (100 * rr.P).ToString("0", IC) + " % · 🔎 SIMILAR"; aNearBtn.Background = Tint(col, 120); } } }
+            {   // 09j: the banner stays COMPACT — at most HedgeLayout.InfoLines lines, the whole text in the tooltip and behind ▸ details
+                var full = aInfo.Text + (aset.ExitGuard && auto.GuardText != "" ? "\n\n" + auto.GuardText : "") + (aRec != null && aRec.Text != "" && auto.GuardTotal < 0 ? "\n\n" + aRec.Text : "");
+                aInfo.ToolTip = full; bool longT = HedgeLayout.IsLong(aInfo.Text);
+                aInfo.MaxHeight = aInfoOpen ? double.PositiveInfinity : HedgeLayout.InfoLines * aInfo.FontSize * 1.36;
+                if (aInfoMore != null) { aInfoMore.Visibility = longT || aInfoOpen ? Visibility.Visible : Visibility.Collapsed; aInfoMore.Content = aInfoOpen ? "▾ less" : "▸ details"; }
+            }
+            if (aView == "🧠 AI") aiNew = false;
+            if (aiCard != null) aiCard.Visibility = aView == "🧠 AI" ? Visibility.Visible : Visibility.Collapsed;   // 🧠 the AI card lives in the 🧠 AI tab only
+            if (aAiLine != null) { bool nw = aiNew && AiAdvisor != null && aView != "🧠 AI"; aAiLine.Visibility = nw ? Visibility.Visible : Visibility.Collapsed; }
             if (aHandBar != null) { bool hs = auto.HandStopped && !on; aHandBar.Visibility = hs ? Visibility.Visible : Visibility.Collapsed; if (hs) aHandTxt.Text = "⏸ AUTOMATION STOPPED — you traded by hand (" + auto.HandWhat + "). Your positions are untouched. To continue: ▶ RESUME AUTOMATION (it asks first)."; }
             if (aLockTxt != null)
             {   // the settings bar: running → SAVE for the next iteration (amber while there are unsaved changes); stopped → START / RESUME here

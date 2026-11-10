@@ -31,7 +31,7 @@ for k, v in SY.items(): send("SYM|%s|%d|%s|0.01|0.01|100|%s|%s|%s|%s" % (k, v[0]
 pos = [(3524004628, "XAUUSD", "SELL", 0.20, 3994.56, 0, 3985.0), (3524004629, "XAUUSD", "SELL", 0.10, 3999.10, 4006.0, 0), (3524004630, "XAUUSD", "BUY", 0.30, 3990.20, 3984.0, 4008.0), (3524004640, "BTCUSD", "BUY", 0.05, 66900.0, 0, 0)]
 BIG = os.environ.get("FAKE_BIG") == "1"   # screens with 5-digit $ amounts (the strip boxes must never cut a number)
 if BIG: pos = [(p[0], p[1], p[2], round(p[3] * 10, 2) if p[1] == "XAUUSD" else p[3], p[4], p[5], p[6]) for p in pos]
-if TREND: pos = [(3524004701, "XAUUSD", "BUY", 0.25, 4040.00, 0, 0), (3524004702, "XAUUSD", "SELL", 0.50, 4025.00, 0, 0), (3524004703, "XAUUSD", "BUY", 0.50, 4032.00, 0, 0)]
+if TREND: pos = [(3524004701, "XAUUSD", "BUY", 0.25, 4013.00, 0, 0), (3524004702, "XAUUSD", "SELL", 0.50, 4007.00, 0, 0), (3524004703, "XAUUSD", "BUY", 0.50, 4012.00, 0, 0)]
 BAL = 7974.00 if TREND else 15708.30
 orders = [(3524005232, "XAUUSD", "BUY LIMIT", 0.20, 3988.50, 3982.0, 4000.0)]
 def reader():

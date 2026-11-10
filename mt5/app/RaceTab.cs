@@ -14,8 +14,8 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow
     {
-        public static readonly string[] RaceKeys = { "MINE", "CMP", "RNG", "LKL", "LKF", "BH1", "BH5", "BH15", "BH30", "BH60", "A", "AH", "B", "C", "D", "F", "BOX", "SLV", "FX10", "NFB", "TST", "RNA", "RLK", "RBE", "TAH", "AOB", "AOP" };   // BH* = MY SETTINGS with the futures' BREAK OF HIGH entry on that timeframe (user's request)   // RNG / LKL / LKF = MY SETTINGS + the anti-chop options
-        static string RaceName(string k) { if (k == "SLV") return "🧪 🔒 SAFE LIVE (experimental — not proven)"; if (k == "FX10") return "🧪 FIXED $10 hedge distance (experimental — not proven)"; if (k == "NFB") return "🧪 NO FLIPS IN A BOX (experimental — not proven)"; if (k == "TST") return "🚀 TREND STACK (experimental)"; if (k == "RNA") return "⚠ RADAR: no add-ons (experimental)"; if (k == "RLK") return "⚠ RADAR: lock (experimental)"; if (k == "RBE") return "⚠ RADAR: breakeven (experimental)"; if (k == "TAH") return "🧪 TAH H1 slope entries (experimental)"; if (k == "AOB") return "➕ ADD ON BREAK (experimental)"; if (k == "AOP") return "➕ ADD ON BREAK + 🛡 PROTECT (experimental)"; if (k.StartsWith("BH")) return "★ MINE + BH entry " + Tf.Name(int.Parse(k.Substring(2), CultureInfo.InvariantCulture)); return k == "MINE" ? "★ MY SETTINGS" : k == "CMP" ? "★ MINE + 🧹 compress hedges" : k == "RNG" ? "★ MINE + range-only hedge" : k == "LKL" ? "★ MINE + 🔒 lock → lead" : k == "LKF" ? "★ MINE + 🔒 lock → lift" : k == "A" ? "A · London engulfing" : k == "AH" ? "A + signal hedge" : k == "B" ? "B · NY FVG 50%" : k == "C" ? "C · all-day VWAP rejection" : k == "D" ? "D · M1 aggression break" : k == "F" ? "F · FVG 50% + FVG hedge" : k == "BOX" ? "HEDGE BOX" : k; }
+        public static readonly string[] RaceKeys = { "MINE", "REC", "CMP", "RNG", "LKL", "LKF", "BH1", "BH5", "BH15", "BH30", "BH60", "A", "AH", "B", "C", "D", "F", "BOX", "SLV", "FX10", "NFB", "TST", "RNA", "RLK", "RBE", "TAH", "AOB", "AOP" };   // BH* = MY SETTINGS with the futures' BREAK OF HIGH entry on that timeframe (user's request)   // RNG / LKL / LKF = MY SETTINGS + the anti-chop options
+        static string RaceName(string k) { if (k == "REC") return "★ MINE + RECOMMENDED (compress + BE close)"; if (k == "SLV") return "🧪 🔒 SAFE LIVE (experimental — not proven)"; if (k == "FX10") return "🧪 FIXED $10 hedge distance (experimental — not proven)"; if (k == "NFB") return "🧪 NO FLIPS IN A BOX (experimental — not proven)"; if (k == "TST") return "🚀 TREND STACK (experimental)"; if (k == "RNA") return "⚠ RADAR: no add-ons (experimental)"; if (k == "RLK") return "⚠ RADAR: lock (experimental)"; if (k == "RBE") return "⚠ RADAR: breakeven (experimental)"; if (k == "TAH") return "🧪 TAH H1 slope entries (experimental)"; if (k == "AOB") return "➕ ADD ON BREAK (experimental)"; if (k == "AOP") return "➕ ADD ON BREAK + 🛡 PROTECT (experimental)"; if (k.StartsWith("BH")) return "★ MINE + BH entry " + Tf.Name(int.Parse(k.Substring(2), CultureInfo.InvariantCulture)); return k == "MINE" ? "★ MY SETTINGS" : k == "CMP" ? "★ MINE + 🧹 compress hedges" : k == "RNG" ? "★ MINE + range-only hedge" : k == "LKL" ? "★ MINE + 🔒 lock → lead" : k == "LKF" ? "★ MINE + 🔒 lock → lift" : k == "A" ? "A · London engulfing" : k == "AH" ? "A + signal hedge" : k == "B" ? "B · NY FVG 50%" : k == "C" ? "C · all-day VWAP rejection" : k == "D" ? "D · M1 aggression break" : k == "F" ? "F · FVG 50% + FVG hedge" : k == "BOX" ? "HEDGE BOX" : k; }
         readonly List<RaceLane> lanes = new List<RaceLane>(); bool raceOn; string raceShow = "", raceView = "TODAY", racePeriod = "7"; DateTime raceDay = DateTime.MinValue, raceAskAt = DateTime.MinValue;
         DockPanel aRaceHost; StackPanel raceBody, raceTabs; TextBlock raceStatus; Button raceStart; TextBox raceBal, raceComm; ComboBox raceShowBox; readonly Dictionary<string, CheckBox> raceChecks = new Dictionary<string, CheckBox>();
 
@@ -45,6 +45,9 @@ namespace KeystoneMT5
         {
             aRaceHost = new DockPanel { Visibility = Visibility.Collapsed, Background = Panel };
             var bar = new WrapPanel { Margin = new Thickness(6, 6, 6, 4) }; DockPanel.SetDock(bar, Dock.Top);
+            var cmp = Pill("▶  COMPARE WITH MY SETTINGS", Tint(Gold, 200)); cmp.Foreground = Bg; cmp.Height = 40; cmp.FontSize = 14; cmp.Margin = new Thickness(0, 0, 10, 0);
+            cmp.ToolTip = "starts the ready-made comparison on this account's balance: ★ MY SETTINGS (the baseline), ★ MINE + RECOMMENDED (compress ALWAYS + breakeven CLOSE ALL), ➕ ADD ON BREAK + 🛡 PROTECT, TAH — each on its own simulated account, never MT5";
+            cmp.Click += delegate { RaceCompare(false); }; bar.Children.Add(cmp);
             raceStart = Pill("▶  START RACE", Tint(Green, 90)); raceStart.Height = 34; raceStart.Click += delegate { if (raceOn) { if (!Sx.Ask(this, "■ STOP RACE", "Stop every racing strategy? Their simulated accounts are put aside — the next ▶ START RACE begins fresh, each with the BALANCE EACH below. (Finished iterations stay in 📅 HISTORY.)", "■ STOP RACE", "KEEP RACING", Red)) return; RaceStop(); lanes.Clear(); RacePaint(); } else RaceStartAll(); }; bar.Children.Add(raceStart);
             // 🗑 RESET: a fresh start for every lane (their accounts back to BALANCE EACH, nothing open) — the race history can be cleared too
             var raceReset = Pill("🗑  RESET RACE", Tint(Sx.Card2, 220)); raceReset.Height = 34; raceReset.Margin = new Thickness(6, 0, 0, 0); raceReset.ToolTip = "stop the race, clear every lane's simulated account (and, if you want, the race history) — then ▶ START RACE begins from zero";
@@ -59,9 +62,18 @@ namespace KeystoneMT5
             Func<string, FrameworkElement, StackPanel> fld = (lab, el) => { var sp = new StackPanel { Margin = new Thickness(10, 0, 4, 0) }; sp.Children.Add(new TextBlock { Text = lab, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp.Children.Add(el); return sp; };
             raceBal = Sx.Input(Get("race.bal", "5000"), 80); raceComm = Sx.Input(Get("race.comm", "0"), 60);   // extra $/lot on top; the DEMO's own % commission is copied to every lane by itself
             bar.Children.Add(fld("BALANCE EACH $", raceBal)); bar.Children.Add(fld("COMMISSION $ / LOT", raceComm));
-            var checks = new WrapPanel { Margin = new Thickness(10, 12, 0, 0) };
-            foreach (var k in RaceKeys) { var kk = k; var cb = new CheckBox { Content = RaceName(k), Foreground = RaceLanes.IsExperimental(k) ? Amber : Text, Margin = new Thickness(0, 0, 12, 0), IsChecked = Get("race.on." + k, "1") == "1" }; if (RaceLanes.IsExperimental(k)) cb.ToolTip = RaceLanes.Tip(k); cb.Click += delegate { Put("race.on." + kk, cb.IsChecked == true ? "1" : "0"); }; raceChecks[k] = cb; checks.Children.Add(cb); }
-            bar.Children.Add(checks);
+            // 09j: no wall of checkboxes — the ready-made comparison + "add more lanes ▾" (the ticks are kept per lane, as before)
+            foreach (var k in RaceKeys) { var kk = k; var cb = new CheckBox { Content = RaceName(k), IsChecked = Get("race.on." + k, RaceLanes.Compare.Contains(k) ? "1" : "0") == "1" }; raceChecks[k] = cb; }
+            var more = Pill("➕ add more lanes ▾", Tint(Sx.Card2, 220)); more.Height = 34; more.Margin = new Thickness(6, 0, 0, 0);
+            more.Click += delegate
+            {
+                var items = new List<Mi> { Mi.H("the lanes of the race (★ = the comparison set) — they start with the next ▶") };
+                foreach (var k in RaceKeys) { var kk = k; items.Add(new Mi { Text = (RaceLanes.Compare.Contains(k) ? "★ " : "") + RaceName(k), Check = raceChecks[k].IsChecked == true, Fg = RaceLanes.IsExperimental(k) ? Amber : null, Hint = RaceLanes.IsExperimental(k) ? RaceLanes.Tip(k) : "", KeepOpen = true, Do = () => { raceChecks[kk].IsChecked = raceChecks[kk].IsChecked != true; Put("race.on." + kk, raceChecks[kk].IsChecked == true ? "1" : "0"); } }); }
+                SxMenu.Show(more, new Point(0, more.ActualHeight), items);
+            };
+            bar.Children.Add(more);
+            var autoCb = new CheckBox { Content = "start this comparison with the automation", Foreground = Muted, IsChecked = Get("race.auto", "0") == "1", Margin = new Thickness(12, 10, 0, 0), ToolTip = "▶ START of the 🛡 HEDGE also starts the race (if it is not running) — it keeps running in the background and resumes after a restart" };
+            autoCb.Click += delegate { Put("race.auto", autoCb.IsChecked == true ? "1" : "0"); }; bar.Children.Add(autoCb);
             raceShowBox = new ComboBox { Width = 230, Margin = new Thickness(0, 0, 0, 0) };
             raceShowBox.Items.Add("🤖 MY AUTO (the real one)"); foreach (var k in RaceKeys) raceShowBox.Items.Add(RaceName(k)); raceShowBox.SelectedIndex = 0;
             raceShowBox.SelectionChanged += delegate { int i = raceShowBox.SelectedIndex; raceShow = i <= 0 ? "" : RaceKeys[i - 1]; foreach (var pq in panes) pq.V.InvalidateVisual(); RacePaint(); };
@@ -87,6 +99,14 @@ namespace KeystoneMT5
             if (raceOn) { raceResumePending = false; return; } if ((DateTime.Now - raceResumeAt).TotalMinutes > 5) { raceResumePending = false; return; }
             string sym = aset.Symbol; bool ready; lock (broker.State.Gate) { Mt5Quote q; ready = broker.State.Quotes.TryGetValue(sym, out q) && q.Bid > 0 && broker.State.SeriesOf(sym, 1).Bars.Count >= 20; }
             if (!ready || (Paper && !paper.Ready)) return; raceResumePending = false; RaceStartAll(true);
+        }
+        // ▶ COMPARE WITH MY SETTINGS (09j): the comparison set on (other ticked lanes stay), the balance = this account's, start (a running race restarts)
+        void RaceCompare(bool silent)
+        {
+            foreach (var k in RaceLanes.Compare) { raceChecks[k].IsChecked = true; Put("race.on." + k, "1"); }
+            double bal; lock (broker.State.Gate) bal = broker.State.Account.Balance; if (bal > 0) raceBal.Text = Math.Round(bal, 2).ToString("0.##", IC);
+            if (raceOn) { if (silent) return; RaceStop(); }
+            raceView = "TODAY"; RaceStartAll();
         }
         void RaceStartAll() { RaceStartAll(false); }
         void RaceStartAll(bool restore)
@@ -167,19 +187,19 @@ namespace KeystoneMT5
             if (lane != null) { RaceLaneView(lane); return; }
             // 🏆 TODAY: the leaderboard of the server day
             if (lanes.Count == 0) { raceBody.Children.Add(new TextBlock { Text = "Tick the strategies above and press ▶ START RACE. Each one gets its own simulated $" + raceBal.Text + " account on the live prices" + (Sim ? " (here: the backtest's replay — press ▶ play on the 📈 CHART)" : "") + ".", Foreground = Muted, FontSize = 13, Margin = new Thickness(10) }); return; }
-            var today = (lanes[0].Eng.Now > DateTime.MinValue ? lanes[0].Eng.Now : DateTime.Now).Date; int rank = 0;
-            foreach (var l in lanes.OrderByDescending(x => x.Equity))
+            var today = (lanes[0].Eng.Now > DateTime.MinValue ? lanes[0].Eng.Now : DateTime.Now).Date;
+            var board = RaceBoard.Rank(lanes.Select(l => { var d = l.Eng.Iterations.Where(x => x.Done).ToList(); return new RaceScore { Key = l.Key, Name = l.Name, Today = Math.Round(d.Where(x => x.End.Date == today).Sum(x => x.Result), 2), Total = Math.Round(l.Equity - l.StartBalance, 2), Iterations = d.Count, Won = d.Count(x => x.Won), Lost = d.Count(x => !x.Won), Worst = l.Eng.Iterations.Count > 0 ? l.Eng.Iterations.Min(x => x.MaxDd) : 0, Open = l.Eng.Current != null && !l.Eng.Current.Done ? l.Eng.BasketTotal : double.NaN }; }));
+            raceBody.Children.Add(new TextBlock { Text = "🏁 SCOREBOARD — each lane on its own simulated $" + raceBal.Text + " account (never MT5) · sorted by the total · click a row for its iterations", Foreground = Muted, FontSize = 12, Margin = new Thickness(8, 4, 8, 4) });
+            raceBody.Children.Add(Row(Line, Cell("#", 40, Muted, true, 11), Cell("LANE", 300, Muted, true, 11), Cell("TODAY $", 110, Muted, true, 11), Cell("TOTAL $", 120, Muted, true, 11), Cell("ITERATIONS", 90, Muted, true, 11), Cell("WON / LOST", 100, Muted, true, 11), Cell("WORST", 100, Muted, true, 11), Cell("OPEN NOW", 110, Muted, true, 11), Cell("VS MY SETTINGS", 130, Muted, true, 11)));
+            int rank = 0;
+            foreach (var r in board)
             {
-                rank++; var it = l.Eng.Iterations.Where(x => x.Done && x.End.Date == today).ToList(); double net = l.Equity - l.StartBalance; var col = net > 0.005 ? Green : net < -0.005 ? Red : Muted;
-                var sp = new StackPanel { Orientation = Orientation.Horizontal };
-                sp.Children.Add(Cell(rank == 1 ? "🥇" : rank == 2 ? "🥈" : rank == 3 ? "🥉" : "#" + rank, 44, Text, true, 16));
-                var nm = new StackPanel { Width = 260 }; nm.Children.Add(new TextBlock { Text = l.Name, Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 14 }); nm.Children.Add(new TextBlock { Text = l.Problem != "" ? "⚠ " + l.Problem : (l.Eng.Running ? l.Eng.Phase : "stopped") + (l.Eng.Current != null ? "  •  basket " + Money(l.Eng.Basket) : ""), Foreground = l.Problem != "" ? Red : Muted, FontSize = 11 }); sp.Children.Add(nm);
-                sp.Children.Add(Cell(Money(net), 130, col, true, 18));
-                sp.Children.Add(Cell(it.Count + " iterations", 120, Text)); sp.Children.Add(Cell(it.Count(x => x.Won) + " won / " + it.Count(x => !x.Won) + " lost", 140, it.Any(x => !x.Won) ? Amber : Green));
-                sp.Children.Add(Cell("worst basket " + (it.Count > 0 ? it.Min(x => x.MaxDd).ToString("0", IC) : "0"), 140, Red)); sp.Children.Add(Cell("account DD −$" + l.MaxDdEq.ToString("0", IC), 140, l.MaxDdEq > 0 ? Red : Muted)); if (l.Blowups > 0) sp.Children.Add(Cell("💥 " + l.Blowups + " blow-up" + (l.Blowups == 1 ? "" : "s"), 110, Red));
-                sp.Children.Add(Cell("max lots " + (it.Count > 0 ? it.Max(x => x.MaxGross).ToString("0.##", IC) : "0"), 100, Text)); sp.Children.Add(Cell("⏱ " + (it.Count > 0 ? Dur(TimeSpan.FromSeconds(it.Average(x => (x.End - x.Start).TotalSeconds))) : "—"), 90, Violet, true, 12.5, Violet));
-                var card = new Border { Child = sp, Background = Sx.CardGrad, BorderBrush = l.Key == raceShow ? Cyan : col, BorderThickness = new Thickness(5, 1, 1, 1), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(6, 3, 6, 3), Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "click: this strategy's own tab" };
-                var key = l.Key; card.MouseLeftButtonUp += delegate { raceView = key; RacePaint(); }; raceBody.Children.Add(card);
+                rank++; var l = lanes.First(x => x.Key == r.Key); var col = r.Total > 0.005 ? Green : r.Total < -0.005 ? Red : Muted;
+                var row = Row(r.Leader ? Gold : col, Cell(rank == 1 ? "🥇" : rank == 2 ? "🥈" : rank == 3 ? "🥉" : "#" + rank, 40, Text, true, 15), Cell((l.Problem != "" ? "⚠ " : "") + r.Name + (l.Blowups > 0 ? "  💥" + l.Blowups : ""), 300, r.Leader ? Gold : Text, true, 12.5),
+                    Cell(Money(r.Today), 110, r.Today >= 0 ? Green : Red, true), Cell(Money(r.Total), 120, col, true, 14), Cell(r.Iterations.ToString(IC), 90, Text), Cell(r.Won + " / " + r.Lost, 100, r.Lost > 0 ? Amber : Green),
+                    Cell(r.Worst.ToString("0", IC), 100, r.Worst < 0 ? Red : Muted), Cell(double.IsNaN(r.Open) ? "—" : Money(r.Open), 110, double.IsNaN(r.Open) ? Muted : r.Open >= 0 ? Green : Red), Cell(r.Key == "MINE" ? "the baseline" : double.IsNaN(r.Vs) ? "—" : Money(r.Vs), 130, r.Key == "MINE" || double.IsNaN(r.Vs) ? Muted : r.Vs >= 0 ? Green : Red, true));
+                if (r.Leader) { var bd = new Border { Child = row, BorderBrush = Gold, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(6), Background = Tint(Gold, 25) }; row = bd; }
+                row.ToolTip = RaceLanes.Tip(r.Key) != "" ? RaceLanes.Tip(r.Key) : r.Name; var key = r.Key; row.MouseLeftButtonUp += delegate { raceView = key; RacePaint(); }; row.Cursor = System.Windows.Input.Cursors.Hand; raceBody.Children.Add(row);
             }
         }
         void RaceLaneView(RaceLane l)

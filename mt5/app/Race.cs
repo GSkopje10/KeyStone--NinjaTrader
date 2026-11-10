@@ -80,8 +80,22 @@ namespace KeystoneMT5
     }
 
     // the settings of each lane (pure: tested) — the 09d forward-test lanes SLV / FX10 / NFB are EXPERIMENTAL, simulation only, never live options
+    // 09j: the 🏁 RACE scoreboard row (pure: tested) — lane · today $ · total $ · iterations · won / lost · worst · open now · vs MY SETTINGS
+    public sealed class RaceScore { public string Key = "", Name = ""; public double Today, Total, Worst, Open = double.NaN, Vs = double.NaN; public int Iterations, Won, Lost; public bool Leader; }
+    public static class RaceBoard
+    {
+        public static List<RaceScore> Rank(IEnumerable<RaceScore> rows)
+        {
+            var l = rows.OrderByDescending(r => r.Total).ThenBy(r => r.Key, StringComparer.Ordinal).ToList(); var mine = l.FirstOrDefault(r => r.Key == "MINE");
+            foreach (var r in l) { r.Vs = mine == null ? double.NaN : Math.Round(r.Total - mine.Total, 2); r.Leader = false; }
+            if (l.Count > 0) l[0].Leader = true; return l;
+        }
+    }
+
     public static class RaceLanes
     {
+        // ▶ COMPARE WITH MY SETTINGS (09j): the ready-made set — the baseline, the recommended protections, ➕ ADD ON BREAK + 🛡 PROTECT, TAH
+        public static readonly string[] Compare = { "MINE", "REC", "AOP", "TAH" };
         static string RadarText { get { return "50 %"; } }
         public static readonly string[] Experimental = { "SLV", "FX10", "NFB", "TST", "RNA", "RLK", "RBE", "TAH", "AOB", "AOP" };
         public static bool IsExperimental(string k) { return Array.IndexOf(Experimental, k) >= 0; }
@@ -94,6 +108,7 @@ namespace KeystoneMT5
             if (k == "RBE") return "🧪 EXPERIMENTAL — not proven. MY SETTINGS + ⚠ RADAR: close at the next breakeven above DANGER " + RadarText + " (lost to 🧹 COMPRESS ALWAYS in the 6-year test) — simulation only.";
             if (k == "TAH") return "🧪 EXPERIMENTAL — unproven. MY SETTINGS, but a new iteration only WITH the H1 EMA 20's 3-hour slope (BUY when it rises, SELL when it falls). The opposite rule did about as well in the research — unproven.";
             if (k == "AOB") return "🧪 EXPERIMENTAL — not proven. MY SETTINGS + ➕ ADD ON BREAK: while the basket loses, ONE add (1× the entry) in the net's direction on a trend ≥ 70 that way + a finished M1 close beyond the last swing, its stop at the last leg; the 🎯 exit guard closes all at the target. " + TrendDetect.AddBreakEvidence;
+            if (k == "REC") return "★ MY SETTINGS + the RECOMMENDED protections: 🧹 COMPRESS HEDGES ALWAYS (the best of the 6-year replays: no wipe-out) + 🔐 at the breakeven line CLOSE ALL.";
             if (k == "AOP") return "🧪 EXPERIMENTAL — not proven. ➕ ADD ON BREAK + 🛡 PROTECT THE ADD on MY SETTINGS: the add is protected at once (entry − 1 × ATR M1); reached → lock at net 0, a 15-minute cool-down, then restart with the entry size on the first break.";
             if (k == "TST") return "🧪 EXPERIMENTAL — not proven. 🚀 TREND STACK on MY SETTINGS: the short-term trend detector stacks lots on the trend's side at each new swing break (sized to reach the target in 1.5 × ATR M5, capped), a flip closes the stacks, a strong trend banks the other side's winners — simulation only.";
             if (k == "NFB") return "🧪 EXPERIMENTAL — not proven. MY SETTINGS, but NO FLIP INSIDE A BOX: while the price is still inside the high–low of the last 30 finished candles no hedge opens — the hedge waits just beyond the box (the R2-W variant of the research), here only to compare on new data.";
@@ -101,14 +116,15 @@ namespace KeystoneMT5
         }
         public static AutoSettings For(string k, AutoSettings mine, double bal)
         {
-            bool mineBased = k == "MINE" || k == "CMP" || k == "RNG" || k == "LKL" || k == "LKF" || k == "FX10" || k == "NFB" || k == "TST" || k == "RNA" || k == "RLK" || k == "RBE" || k == "TAH" || k == "AOB" || k == "AOP" || k.StartsWith("BH");
+            bool mineBased = k == "MINE" || k == "CMP" || k == "RNG" || k == "LKL" || k == "LKF" || k == "FX10" || k == "NFB" || k == "TST" || k == "RNA" || k == "RLK" || k == "RBE" || k == "TAH" || k == "AOB" || k == "AOP" || k == "REC" || k.StartsWith("BH");
             var set = mineBased ? mine.Copy() : k == "SLV" ? AutoSettings.Model("SAFELIVE", mine, bal) : AutoSettings.Model(k, mine);
             if (k.StartsWith("BH")) { set.EntryMode = "AGGBRK"; set.Tf = int.Parse(k.Substring(2), CultureInfo.InvariantCulture); set.AggRun = Math.Max(2, set.AggRun); set.FirstDir = "AUTO"; set.NextStart = "BREAK"; }   // BREAK OF HIGH: an aggression run, the first opposite close, its high (buy) / low (sell) broken — your hedging untouched
             if (k == "CMP") set.CompressMode = "ALWAYS"; else if (k == "RNG") { set.RangeOnly = true; set.LockOn = false; } else if (k == "LKL") { set.LockOn = true; set.Unlock = "LEAD"; set.RangeOnly = true; } else if (k == "LKF") { set.LockOn = true; set.Unlock = "LIFT"; set.RangeOnly = true; }
             else if (k == "FX10") { set.HedgeMode = "PRICE"; set.HedgePrice = 10; set.HedgeCap = 0; set.RangeOnly = false; set.QuickHedge = false; set.CandleHedge = false; set.KeyHedge = false; set.TrendHedge = false; set.DdTightEvery = 0; set.BoxBars = 0; }
             else if (k == "NFB") { set.BoxBars = 30; }
             else if (k == "TST") { set.TrendStack = true; }
-            else if (k == "RNA") set.RadarNoAdd = true; else if (k == "RLK") set.RadarLock = true; else if (k == "RBE") set.RadarBe = true; else if (k == "TAH") set.SlopeFilter = true; else if (k == "AOB") { set.AddOnBreak = true; set.ProtectAdd = "OFF"; } else if (k == "AOP") { set.AddOnBreak = true; set.ProtectAdd = "ON"; }
+            else if (k == "RNA") set.RadarNoAdd = true; else if (k == "RLK") set.RadarLock = true; else if (k == "RBE") set.RadarBe = true; else if (k == "TAH") set.SlopeFilter = true; else if (k == "REC") { set.CompressMode = "ALWAYS"; set.BeLock = true; set.BeClose = true; }
+            else if (k == "AOB") { set.AddOnBreak = true; set.ProtectAdd = "OFF"; } else if (k == "AOP") { set.AddOnBreak = true; set.ProtectAdd = "ON"; }
             set.Symbol = mine.Symbol; set.TrackManual = false;   // a lane never adopts anything: its account is its own
             return set;
         }

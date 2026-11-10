@@ -27,7 +27,7 @@ namespace KeystoneMT5
         static AiKeyStore AiKeys { get { return aiKeys ?? (aiKeys = new AiKeyStore(AiKeyFile, b => ProtectedData.Protect(b, AiEntropy, DataProtectionScope.CurrentUser), b => ProtectedData.Unprotect(b, AiEntropy, DataProtectionScope.CurrentUser))); } }
         static IAiAdvisor AiAdvisor { get { if (aiAdvisor == null && AiKeys.Has) { var k = AiKeys.Load(); if (k != "") aiAdvisor = new ClaudeAdvisor(k); } return aiAdvisor; } }
 
-        AiCoordinator aiCo; bool aiBusy; Border aiCard; TextBlock aiTxt; Button aiAskBtn, aiExecBtn; AiInput aiLastIn; string aiLastBasket = ""; int aiLastIter; WhatIfCase aiLastCase;
+        AiCoordinator aiCo; bool aiBusy, aiNew; Border aiCard; TextBlock aiTxt; Button aiAskBtn, aiExecBtn; AiInput aiLastIn; string aiLastBasket = ""; int aiLastIter; WhatIfCase aiLastCase;
         readonly List<WhatIfCase> aiWi = new List<WhatIfCase>(); string aiFor = ""; DateTime aiTrigAt = DateTime.MinValue; CancellationTokenSource aiCts;
 
         AiBudget AiBudgetNow()
@@ -46,10 +46,10 @@ namespace KeystoneMT5
             aiAskBtn = Pill("🧠 ASK AI", Tint(Violet, 70)); aiAskBtn.Height = 28; aiAskBtn.Margin = new Thickness(0, 4, 8, 0); aiAskBtn.Click += delegate { AiAsk(false, "your click"); };
             aiAskBtn.ToolTip = "asks Claude (" + AiCopilot.Model + ") about this basket now: the account, the legs, the total, the radar, similar past baskets, the candles, the trend, the news — one structured recommendation. It sends NOTHING by itself.";
             aiExecBtn = Pill("", Tint(Green, 90)); aiExecBtn.Height = 28; aiExecBtn.Margin = new Thickness(0, 4, 8, 0); aiExecBtn.Visibility = Visibility.Collapsed; aiExecBtn.Click += delegate { AiExecute(false); };
-            var more = Pill("🧠 AI PANEL", Tint(Sx.Card2, 220)); more.Height = 28; more.Margin = new Thickness(0, 4, 8, 0); more.Click += delegate { aView = "🧠 AI"; AutoPaint(true); };
-            var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aiAskBtn); row.Children.Add(aiExecBtn); row.Children.Add(more);
+            var more = new TextBlock();
+            var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aiAskBtn); row.Children.Add(aiExecBtn);
             var sp = new StackPanel(); sp.Children.Add(aiTxt); sp.Children.Add(row);
-            aiCard = new Border { Child = sp, Background = Tint(Violet, 22), BorderBrush = Tint(Violet, 120), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 6, 0, 0) };
+            aiCard = new Border { Child = sp, Background = Tint(Violet, 22), BorderBrush = Tint(Violet, 120), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 0, 6) };
             return aiCard;
         }
         // per account: the journal + the what-if cases (loaded when the account is known)
@@ -123,7 +123,7 @@ namespace KeystoneMT5
                     {
                         var e = aiCo.Journal.LastOrDefault(); Log(aiCo.LastStatus + (e != null ? " · $" + e.Cost.ToString("0.000", IC) : ""), ad.Valid ? Violet : Amber);
                         if (ad.Valid && ad.Action != "hold" && !Sim) AiWhatIfNew(ad, a);
-                        if (trigger || ad.Valid) Toast(AccountBadge().Item1 + " — " + aiCo.LastStatus);
+                        aiNew = true; if (trigger || ad.Valid) Toast(AccountBadge().Item1 + " — " + aiCo.LastStatus);
                         if (ad.Valid && ad.Action != "hold" && AiAutoOn) AiExecute(true);   // 🧠 AI AUTO: the simulated DEMO only
                     }
                     AiPaint(); if (aView == "🧠 AI") AutoPaint(true);

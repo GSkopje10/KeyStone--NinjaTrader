@@ -2421,5 +2421,9 @@ namespace KeystoneMT5
         public const double BannerMin = 520, ButtonsMin = 260, TopShare = 0.45, TopMinPx = 160;
         public static double ButtonsMax(double topWidth) { return Math.Max(ButtonsMin, topWidth - BannerMin - 20); }
         public static double TopMax(double rootHeight) { return Math.Max(TopMinPx, rootHeight * TopShare); }
+        public const int InfoLines = 4;
+        public static bool IsLong(string t) { return (t ?? "").Split('\n').Length > InfoLines || (t ?? "").Length > 90 * InfoLines; }
+        // a long banner line → its first part (before " — "), the rest goes to the tooltip
+        public static string Short(string t) { t = t ?? ""; int i = t.IndexOf(" — ", StringComparison.Ordinal); var s = i > 0 ? t.Substring(0, i) : t; int k = t.LastIndexOf(" · total now ", StringComparison.Ordinal); if (i > 0 && k > i) s += t.Substring(k); return s.Length > 140 ? s.Substring(0, 137) + "…" : s; }
     }
 }
