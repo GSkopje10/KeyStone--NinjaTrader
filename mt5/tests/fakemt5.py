@@ -4,7 +4,9 @@ random.seed(7)
 NOW = int(time.time()) + 3*3600   # "server time" = UTC+3
 SY = {"XAUUSD": (2, 3997.0, 0.01, 100, 1.0, 0.01, "Gold vs US Dollar"), "USTEC": (2, 20150.0, 0.01, 1, 0.01, 0.01, "US Tech 100 Index"), "BTCUSD": (2, 67250.0, 0.01, 1, 0.01, 0.01, "Bitcoin vs US Dollar"), "EURUSD": (5, 1.0832, 0.00001, 100000, 1.0, 0.00001, "Euro vs US Dollar")}
 px = {k: v[1] for k, v in SY.items()}
+TREND = os.environ.get("FAKE_TREND") == "1"   # 09j screens: a strong gold uptrend with small swings + a LOSING net-long basket (the 💡 ADD / RECOVERY buttons appear)
 def price(sym, t):
+    if TREND and sym == "XAUUSD": return 4010.0 + 0.12 * (t - NOW) / 60.0 + 0.9 * math.sin(2 * math.pi * t / 420.0)
     b = SY[sym][1]; h = (math.sin(t * 12.9898) * 43758.5453) % 1.0
     return b * (1 + 0.0030*math.sin(2*math.pi*t/(3600*9)) + 0.0016*math.sin(2*math.pi*t/5400 + 1) + 0.0007*math.sin(2*math.pi*t/1300) + 0.00025*math.sin(2*math.pi*t/240) + 0.00012*(h - 0.5))
 def bars(sym, m, n, end):
@@ -29,6 +31,8 @@ for k, v in SY.items(): send("SYM|%s|%d|%s|0.01|0.01|100|%s|%s|%s|%s" % (k, v[0]
 pos = [(3524004628, "XAUUSD", "SELL", 0.20, 3994.56, 0, 3985.0), (3524004629, "XAUUSD", "SELL", 0.10, 3999.10, 4006.0, 0), (3524004630, "XAUUSD", "BUY", 0.30, 3990.20, 3984.0, 4008.0), (3524004640, "BTCUSD", "BUY", 0.05, 66900.0, 0, 0)]
 BIG = os.environ.get("FAKE_BIG") == "1"   # screens with 5-digit $ amounts (the strip boxes must never cut a number)
 if BIG: pos = [(p[0], p[1], p[2], round(p[3] * 10, 2) if p[1] == "XAUUSD" else p[3], p[4], p[5], p[6]) for p in pos]
+if TREND: pos = [(3524004701, "XAUUSD", "BUY", 0.25, 4040.00, 0, 0), (3524004702, "XAUUSD", "SELL", 0.50, 4025.00, 0, 0), (3524004703, "XAUUSD", "BUY", 0.50, 4032.00, 0, 0)]
+BAL = 7974.00 if TREND else 15708.30
 orders = [(3524005232, "XAUUSD", "BUY LIMIT", 0.20, 3988.50, 3982.0, 4000.0)]
 def reader():
     for line in f:
@@ -84,7 +88,7 @@ while True:
     lines.append("POSEND"); lines.append("ORDS|%d" % len(orders))
     for o in orders: lines.append("O|%d|%s|%s|%.2f|%s|%s|%s|%d" % (o[0], o[1], o[2], o[3], fmt(o[4], 2), fmt(o[5], 2), fmt(o[6], 2), srv - 600))
     lines.append("ORDEND")
-    send("ACC|%s|Goran Spasic|%s|USD|15708.30|%.2f|802.46|%.2f|633.00|500|HEDGE|1|%s" % (LOGIN, SERVER, 15708.30 + pl, 15708.30 + pl - 802.46, sys.argv[1] if len(sys.argv) > 1 else "DEMO"))
+    send("ACC|%s|Goran Spasic|%s|USD|%.2f|%.2f|802.46|%.2f|633.00|500|HEDGE|1|%s" % (LOGIN, SERVER, BAL, BAL + pl, BAL + pl - 802.46, sys.argv[1] if len(sys.argv) > 1 else "DEMO"))
     send("CAN|1|1|1|5.00|10800|%d|1|1" % srv)
     for k, v in SY.items(): send("TICK|%s|%s|%s|%d" % (k, fmt(px[k], v[0]), fmt(px[k] + 25 * v[2], v[0]), srv * 1000))
     send("\n".join(lines))

@@ -69,7 +69,7 @@ namespace KeystoneMT5
 
             // the live card + the buttons
             var top = new DockPanel { Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(top, Dock.Top);
-            var btns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center }; DockPanel.SetDock(btns, Dock.Right);
+            var btns = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center }; DockPanel.SetDock(btns, Dock.Right);   // 09j: the buttons WRAP, never squeeze the banner (HedgeLayout)
             aStart = Pill("▶  START", Tint(Green, 90)); aStart.Height = 40; aStart.FontSize = 14; aStart.Click += delegate { AutoStart(); }; btns.Children.Add(aStart);
             aStop = Pill("■  STOP (positions stay)", Tint(Amber, 70)); aStop.Height = 40; aStop.ToolTip = "the automation stops; the open positions stay as they are"; aStop.Click += delegate { auto.Stop("stopped by you"); AutoPaint(true); }; btns.Children.Add(aStop);
             aStopClose = Pill("⛔  STOP + CLOSE ALL", Tint(Red, 170)); aStopClose.Height = 40; aStopClose.Foreground = Sx.White; aStopClose.Click += delegate { AutoStopClose(); }; btns.Children.Add(aStopClose);
@@ -85,10 +85,8 @@ namespace KeystoneMT5
             aGuardNow = Pill("⛔  CLOSE ALL NOW", Tint(Red, 170)); aGuardNow.Height = 40; aGuardNow.Foreground = Sx.White; aGuardNow.Margin = new Thickness(0, 0, 8, 0); aGuardNow.Visibility = Visibility.Collapsed;
             aGuardNow.Click += delegate { var sym = auto.Running && auto.Set != null ? auto.Set.Symbol : aset.Symbol; string id = Virtual || armed ? broker.Command("CLOSEALL", sym, "ALL") : null; if (id == null) Sx.Info(this, "⛔ CLOSE ALL", BadgeLine() + "Not closed: trading is not armed — press 🔓 ARM TRADING on the 📈 CHART first.", Amber); else { sent[id] = "🎯 close all " + sym + " (exit guard alert)"; auto.GuardAlert = false; Toast("⛔ CLOSE ALL " + sym + " sent"); } AutoPaint(true); };
             btns.Children.Insert(0, aGuardNow);
-            aRecBtn = Pill("", Tint(Cyan, 70)); aRecBtn.Height = 40; aRecBtn.Margin = new Thickness(0, 0, 8, 0); aRecBtn.Visibility = Visibility.Collapsed; aRecBtn.Click += delegate { AutoRecoveryPlace(); };
-            btns.Children.Insert(0, aRecBtn);
-            aAobBtn = Pill("", Tint(Cyan, 70)); aAobBtn.Height = 40; aAobBtn.Margin = new Thickness(0, 0, 8, 0); aAobBtn.Visibility = Visibility.Collapsed; aAobBtn.Click += delegate { AutoAobPlace(); };
-            btns.Children.Insert(0, aAobBtn);
+            aRecBtn = Pill("", Tint(Cyan, 70)); aRecBtn.Height = 30; aRecBtn.Margin = new Thickness(0, 4, 8, 0); aRecBtn.Visibility = Visibility.Collapsed; aRecBtn.Click += delegate { AutoRecoveryPlace(); };
+            aAobBtn = Pill("", Tint(Cyan, 70)); aAobBtn.Height = 30; aAobBtn.Margin = new Thickness(0, 4, 8, 0); aAobBtn.Visibility = Visibility.Collapsed; aAobBtn.Click += delegate { AutoAobPlace(); };
             aNearBtn = Pill("", Tint(Amber, 90)); aNearBtn.Height = 40; aNearBtn.Margin = new Thickness(0, 0, 8, 0); aNearBtn.Visibility = Visibility.Collapsed; aNearBtn.ToolTip = "⚠ DANGER RADAR: the calibrated chance this basket goes below −10 × its target, how long such baskets stayed stuck, the 5 most similar past baskets and how honest the model is"; aNearBtn.Click += delegate { AutoRadarNear(); };
             btns.Children.Insert(0, aNearBtn);
             top.Children.Add(btns);
@@ -96,9 +94,17 @@ namespace KeystoneMT5
             aBasket = new TextBlock { FontSize = 26, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, Foreground = Muted, Text = "—" };
             aInfo = new TextBlock { FontSize = 12.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap }; aLevels = new TextBlock { FontSize = 12.5, Foreground = Cyan, FontFamily = Sx.Mono };
             aBadge = new TextBlock { FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) }; info.Children.Add(aBadge); var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aPhase); var bk = new StackPanel { Margin = new Thickness(24, 0, 0, 0) }; bk.Children.Add(new TextBlock { Text = "BASKET (all positions on the symbol)", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Muted }); bk.Children.Add(aBasket); row.Children.Add(bk);
-            info.Children.Add(row); info.Children.Add(aInfo); info.Children.Add(aLevels); info.Children.Add(AiCardBuild());   // 🧠 09i
-            aCard = new Border { Child = info, Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 10, 0) };
+            info.Children.Add(row); info.Children.Add(aInfo); info.Children.Add(aLevels);
+            {   // 💡 09j: the suggestions live IN the banner (short labels, the details in one line under them + the tooltip) — never in the button row
+                aSugRow = new WrapPanel(); aSugRow.Children.Add(aAobBtn); aSugRow.Children.Add(aRecBtn); aSugTxt = new TextBlock { FontSize = 11.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+                info.Children.Add(aSugRow); info.Children.Add(aSugTxt);
+            }
+            info.Children.Add(AiCardBuild());   // 🧠 09i
+            aCard = new Border { Child = new ScrollViewer { Content = info, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, MinWidth = HedgeLayout.BannerMin, Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 10, 0) };
             top.Children.Add(aCard); root.Children.Add(top); aTop = top;
+            // 09j layout guard: the button row gets at most (width − the banner's minimum); the top part at most HedgeLayout.TopShare of the height (it scrolls inside)
+            top.SizeChanged += delegate { btns.MaxWidth = HedgeLayout.ButtonsMax(top.ActualWidth); };
+            root.SizeChanged += delegate { top.MaxHeight = HedgeLayout.TopMax(root.ActualHeight); };
             aSetups = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(aSetups, Dock.Top); root.Children.Add(aSetups);
             // 09d (user's request): in the list views the setup cards fold into ONE thin line (▸ opens them) — the table gets the room
             aSetLine = new Button { Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = Muted, FontSize = 11.5, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(4, 0, 4, 2), Cursor = System.Windows.Input.Cursors.Hand, Visibility = Visibility.Collapsed, ToolTip = "the setups the strategy watches — click to open / fold the cards" };
@@ -442,7 +448,7 @@ namespace KeystoneMT5
             aResumeAt = DateTime.Now; aResumePending = !Sim && AutoWasRunning();
             raceResumeAt = DateTime.Now; raceResumePending = !Sim && Get("race.run", "0") == "1";
             aTimer.Tick += delegate {  int curN = auto.Running && auto.Current != null ? auto.Current.N : 0; if (curN != 0 && curN != aSeenIter) { aSeenIter = curN; if (raceShow != "") { raceShow = ""; if (raceShowBox != null) raceShowBox.SelectedIndex = 0; raceChipsSig = ""; } }   // your automation opened an iteration: the chart goes back to 🤖 MINE
-                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } try { auto.GuardStep(broker, aset); } catch { } try { auto.ProtectStep(broker, aset); } catch { } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); try { AutoRecovery(); } catch { } try { AiTriggers(); AiPaint(); } catch { } if (!Sim && (DateTime.Now - aWiAt).TotalSeconds >= 60) { aWiAt = DateTime.Now; AutoWhatIfRun(); } if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } try { auto.GuardStep(broker, aset); } catch { } try { auto.ProtectStep(broker, aset); } catch { } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); try { AutoRecovery(); } catch { } try { AiTriggers(); AiPaint(); } catch { } AutoLayoutProbe(); if (!Sim && (DateTime.Now - aWiAt).TotalSeconds >= 60) { aWiAt = DateTime.Now; AutoWhatIfRun(); } if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -676,7 +682,7 @@ namespace KeystoneMT5
             var b = AccountBadge(); return new Border { Child = new TextBlock { Text = b.Item1, Foreground = b.Item2, FontSize = 15, FontWeight = FontWeights.Bold }, Background = Tint(b.Item2, 36), BorderBrush = b.Item2, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 4, 12, 5), Margin = new Thickness(4, 2, 4, 6), HorizontalAlignment = HorizontalAlignment.Left };
         }
         // 🔁 09d: after START / RESUME the banner says what continued ("resumed: 39 iterations · today +$248.89 · open basket #40 taken over")
-        string aResumeTxt = ""; RadarReading aRadar; double aRadarPrevP = double.NaN; Button aNearBtn; readonly List<string> aRadarRows = new List<string>(); string aRadarFor = ""; readonly List<WhatIfCase> aWi = new List<WhatIfCase>(); string aWiFor = ""; bool aWiBusy; DateTime aWiAt = DateTime.MinValue; Button aRecBtn, aAobBtn; RecoveryTicket aRec; AddBreakTicket aAob; string aRecSym = ""; Button aGuardBtn, aGuardNow; TextBlock aPresetNote; Border aHandBar; TextBlock aHandTxt; Button aResumeBtn; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
+        string aResumeTxt = ""; RadarReading aRadar; double aRadarPrevP = double.NaN; Button aNearBtn; readonly List<string> aRadarRows = new List<string>(); string aRadarFor = ""; readonly List<WhatIfCase> aWi = new List<WhatIfCase>(); string aWiFor = ""; bool aWiBusy; DateTime aWiAt = DateTime.MinValue; Button aRecBtn, aAobBtn; WrapPanel aSugRow; TextBlock aSugTxt; RecoveryTicket aRec; AddBreakTicket aAob; string aRecSym = ""; Button aGuardBtn, aGuardNow; TextBlock aPresetNote; Border aHandBar; TextBlock aHandTxt; Button aResumeBtn; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
         void AutoResumeNote() { try { var t = Continuity.ResumeLine(auto.Iterations, auto.Current, auto.Now > DateTime.MinValue ? auto.Now : DateTime.Now); aResumeTxt = t; if (t != "") { auto.Note(t); Toast(t); } } catch { } }
         string BadgeLine() { return AccountBadge().Item1 + "\n\n"; }
         void AutoRowsOf(HedgeAuto e, StackPanel aRows, string aView)
@@ -1091,7 +1097,7 @@ namespace KeystoneMT5
         void AutoRecovery()
         {
             aRec = null; aAob = null; if (aRecBtn == null) return; var sym = auto.Running && auto.Set != null ? auto.Set.Symbol : aset.Symbol;
-            Action hide = () => { aRecBtn.Visibility = Visibility.Collapsed; if (aAobBtn != null) aAobBtn.Visibility = Visibility.Collapsed; };
+            Action hide = () => { aRecBtn.Visibility = Visibility.Collapsed; if (aAobBtn != null) aAobBtn.Visibility = Visibility.Collapsed; if (aSugTxt != null) aSugTxt.Visibility = Visibility.Collapsed; };
             if (double.IsNaN(auto.GuardTotal) || auto.GuardTotal >= 0) { hide(); return; }   /* only a basket under $0 needs a recovery */
             List<Mt5Bar> m1; List<Mt5Position> ps; double net, px, per = 0, bal, ml; DateTime now;
             lock (broker.State.Gate)
@@ -1106,15 +1112,26 @@ namespace KeystoneMT5
             if (auto.GuardExit == "BREAKEVEN")
             {
                 aRec = TrendDetect.Recovery(auto.GuardTotal, s.Target, net, px, per, bal, s.StackCapPer1k, s.StackK, ml, s.StackMargin, tr); aRecSym = sym;
-                aRecBtn.Visibility = aRec.Dir != 0 ? Visibility.Visible : Visibility.Collapsed; aRecBtn.Content = aRec.Dir != 0 ? "💡 " + (aRec.Dir > 0 ? "BUY " : "SELL ") + aRec.Lots.ToString("0.##", IC) + " (recovery)" : "";
+                aRecBtn.Visibility = aRec.Dir != 0 ? Visibility.Visible : Visibility.Collapsed; aRecBtn.Content = aRec.Dir != 0 ? "💡 RECOVERY " + (aRec.Dir > 0 ? "BUY " : "SELL ") + aRec.Lots.ToString("0.##", IC) : "";
                 aRecBtn.ToolTip = aRec.Text;
             }
             else aRecBtn.Visibility = Visibility.Collapsed;
             if (aAobBtn != null)
             {   // ➕ 09h: the ADD ON BREAK idea as a 💡 one-click (asks first) — same conditions as the option, 1× / 2× the entry from the settings
                 aAob = TrendDetect.AddOnBreak(ps, auto.GuardTotal, s.Target, aRecPx.Item1, aRecPx.Item2, per, s.CommissionPerLot, auto.Running ? auto.HedgeLevel : double.NaN, tr, s.AobMin, s.AobMult, s.AobStop, 0, 1);
-                aAobBtn.Visibility = aAob.Ok ? Visibility.Visible : Visibility.Collapsed; aAobBtn.Content = aAob.Ok ? "💡 " + aAob.Short : ""; aAobBtn.ToolTip = aAob.Text;
+                aAobBtn.Visibility = aAob.Ok ? Visibility.Visible : Visibility.Collapsed; aAobBtn.Content = aAob.Ok ? "💡 ADD " + (aAob.Dir > 0 ? "BUY " : "SELL ") + aAob.Lots.ToString("0.##", IC) : ""; aAobBtn.ToolTip = aAob.Text;
             }
+            if (aSugTxt != null)
+            {   // one line of numbers under the 💡 buttons (the full story is in each button's tooltip)
+                var l = new List<string>(); if (aAob != null && aAob.Ok) l.Add("ADD: " + aAob.Detail); if (aRec != null && aRec.Dir != 0) l.Add("RECOVERY: " + aRec.Detail);
+                aSugTxt.Text = string.Join("   ·   ", l); aSugTxt.Visibility = l.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+        // 09j: screens.sh's layout check (only when SPASIX_TEST_LAYOUT names a file): the banner's width, where the tab strip starts, the window's height
+        void AutoLayoutProbe()
+        {
+            var f = Environment.GetEnvironmentVariable("SPASIX_TEST_LAYOUT"); if (string.IsNullOrEmpty(f) || aCard == null || aViews == null || !aViews.IsVisible) return;
+            try { var y = aViews.TranslatePoint(new Point(0, 0), this).Y; File.WriteAllText(f, string.Join("|", "LAYOUT", ActualWidth.ToString("0", IC), ActualHeight.ToString("0", IC), aCard.ActualWidth.ToString("0", IC), y.ToString("0", IC), ((ActualHeight - y) / Math.Max(1, ActualHeight)).ToString("0.000", IC), aAobBtn.IsVisible ? "AOB" : "-", aRecBtn.IsVisible ? "REC" : "-")); } catch { }
         }
         Tuple<double, double> aRecPx = Tuple.Create(double.NaN, double.NaN);
         void AutoRecoveryPlace()

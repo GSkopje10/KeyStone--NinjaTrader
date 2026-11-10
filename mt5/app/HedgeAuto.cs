@@ -2411,3 +2411,15 @@ namespace KeystoneMT5
         }
     }
 }
+
+namespace KeystoneMT5
+{
+    // 09j (the user's 1920 px screen: two long 💡 buttons in the button row squeezed the banner to ~60 px and pushed the tab body out): the 🛡 HEDGE
+    // top part's limits — the banner never below BannerMin wide, the button row at most what is left (it wraps), the top part at most TopShare of the height
+    public static class HedgeLayout
+    {
+        public const double BannerMin = 520, ButtonsMin = 260, TopShare = 0.45, TopMinPx = 160;
+        public static double ButtonsMax(double topWidth) { return Math.Max(ButtonsMin, topWidth - BannerMin - 20); }
+        public static double TopMax(double rootHeight) { return Math.Max(TopMinPx, rootHeight * TopShare); }
+    }
+}

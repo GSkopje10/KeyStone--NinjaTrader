@@ -17,8 +17,16 @@ namespace KeystoneMT5
         public string Text { get { return Dir == 0 ? "➖ NO TREND " + Strength + (Why != "" ? " · " + Why : "") : (Dir > 0 ? "📈 TREND UP " : "📉 TREND DOWN ") + Strength + " · " + Why; } }
     }
 
-    public sealed class AddBreakTicket { public bool Ok; public int Dir; public double Lots, Entry, Swing = double.NaN, Stop = double.NaN, NetBefore, NetAfter, Cost, ExitPx = double.NaN, BePx = double.NaN, AddAtStop, BasketAtStop, NextHedge = double.NaN, RiskAtHedge = double.NaN, RiskAtHedgeStopped = double.NaN, RiskNoAdd = double.NaN; public string Why = "", StopWhy = "", Short = "", Text = ""; }
-    public sealed class RecoveryTicket { public int Dir; public double Lots, Entry, Protect = double.NaN, RiskLeg, BasketAtProtect, BePx = double.NaN, TpPx = double.NaN, GainAtMove, Move, NetAfter; public string Text = ""; }
+    public sealed class AddBreakTicket
+    {
+        public string Detail { get { var ic = CultureInfo.InvariantCulture; Func<double, string> u = v => (v < 0 ? "−$" : "+$") + Math.Abs(v).ToString("N0", ic); return !Ok ? "" : "exit " + ExitPx.ToString("0.0", ic) + " · stop " + Stop.ToString("0.00", ic) + " (" + u(AddAtStop) + " on the add)" + (double.IsNaN(RiskAtHedge) ? "" : " · the basket " + u(RiskAtHedge) + " at the next hedge " + NextHedge.ToString("0.00", ic) + " (" + u(RiskNoAdd) + " without the add)"); } }
+        public bool Ok; public int Dir; public double Lots, Entry, Swing = double.NaN, Stop = double.NaN, NetBefore, NetAfter, Cost, ExitPx = double.NaN, BePx = double.NaN, AddAtStop, BasketAtStop, NextHedge = double.NaN, RiskAtHedge = double.NaN, RiskAtHedgeStopped = double.NaN, RiskNoAdd = double.NaN; public string Why = "", StopWhy = "", Short = "", Text = ""; }
+    public sealed class RecoveryTicket
+    {
+        public int Dir; public double Lots, Entry, Protect = double.NaN, RiskLeg, BasketAtProtect, BePx = double.NaN, TpPx = double.NaN, GainAtMove, Move, NetAfter, Needed, Cap; public bool Capped; public string Text = "";
+        // 09j: one line under the 💡 button
+        public string Detail { get { return Dir == 0 ? "" : "breakeven " + BePx.ToString("0.0", CultureInfo.InvariantCulture) + ", target " + TpPx.ToString("0.0", CultureInfo.InvariantCulture) + " · stop " + Protect.ToString("0.0", CultureInfo.InvariantCulture) + " (−$" + RiskLeg.ToString("0", CultureInfo.InvariantCulture) + " on the leg)" + (Capped ? " · capped by the net cap " + Cap.ToString("0.##", CultureInfo.InvariantCulture) + " (needs " + Needed.ToString("0.##", CultureInfo.InvariantCulture) + ")" : ""); } }
+    }
 
     public static class TrendDetect
     {
@@ -98,6 +106,9 @@ namespace KeystoneMT5
             if (marginLevel > 0 && marginLevel < minMargin) { r.Text = "💡 RECOVERY: no trade — margin " + marginLevel.ToString("0", IC) + " % < " + minMargin.ToString("0", IC) + " %"; return r; }
             int dir = tr.Dir; double cap = Math.Max(step, Math.Round(Math.Max(1, balance) / 1000 * capPer1k, 2)); r.Move = k * (double.IsNaN(tr.Atr5) ? 0 : tr.Atr5); string why;
             double lots = StackLots(total, target, r.Move, perPrice, net * dir, step, cap, out why); if (lots < step - 1e-9) { r.Text = "💡 RECOVERY: no trade — " + why; return r; }
+            string w2; double need = StackLots(total, target, r.Move, perPrice, net * dir, step, 1000, out w2); r.Needed = need; r.Cap = cap; r.Capped = lots < need - 1e-9;
+            if (r.Capped && lots < 0.25 * need - 1e-9)   // 09j: a stub the net cap leaves (his "BUY 0.01 (recovery)") is no recovery: say why, suggest nothing
+            { r.Text = "💡 RECOVERY: no useful trade — the net cap " + cap.ToString("0.##", IC) + " lots (" + capPer1k.ToString("0.##", IC) + " per $1,000 of balance) leaves only " + lots.ToString("0.##", IC) + " on the " + (dir > 0 ? "BUY" : "SELL") + " side, the recovery needs " + need.ToString("0.##", IC) + " (the net already " + (net * dir).ToString("0.##", IC) + " that way)"; return r; }
             r.Dir = dir; r.Lots = lots; r.Entry = px; double after = Math.Round(net + dir * lots, 2); r.NetAfter = after;
             r.BePx = Math.Abs(after) < 0.005 || perPrice <= 0 ? double.NaN : px + (0 - total) / (after * perPrice); r.TpPx = Math.Abs(after) < 0.005 || perPrice <= 0 ? double.NaN : px + (target - total) / (after * perPrice);
             double sw = dir < 0 ? tr.SwingHi : tr.SwingLo; r.Protect = !double.IsNaN(sw) && (dir < 0 ? sw > px : sw < px) ? sw : px - dir * (double.IsNaN(tr.Atr5) ? 0 : tr.Atr5);
