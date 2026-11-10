@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-09g";
+        public const string Build = "SpasiX • BUILD 2026-11-09h";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -208,6 +208,10 @@ namespace KeystoneMT5
         Tuple<double, double, double> IterTotal(Mt5State s, out string sym)
         {
             if (auto != null && auto.Running && auto.Current != null) { sym = auto.Set.Symbol; return Tuple.Create(auto.BasketTotal, auto.Basket, auto.Banked); }
+            if (auto != null && !auto.Running && auto.Current != null && !auto.Current.Done && auto.Set != null && !double.IsNaN(auto.GuardTotal) && s.Positions.Any(p => string.Equals(p.Symbol, auto.Set.Symbol, StringComparison.OrdinalIgnoreCase)))
+            {   // stopped (⏸ STOP ON MANUAL): the iteration's total as the 🎯 guard counts it (all its deals since its start)
+                sym = auto.Set.Symbol; var sy0 = sym; double op = HedgeAuto.OpenPl(s.Positions.Where(p => string.Equals(p.Symbol, sy0, StringComparison.OrdinalIgnoreCase)), sym); return Tuple.Create(auto.GuardTotal, op, auto.GuardTotal - op);
+            }
             sym = panes != null && panes.Count > 0 ? Act.Sym : ""; var sy = sym;
             var ps = s.Positions.Where(p => string.Equals(p.Symbol, sy, StringComparison.OrdinalIgnoreCase)).ToList(); if (ps.Count == 0) return Tuple.Create(double.NaN, 0.0, 0.0);
             double open = HedgeAuto.OpenPl(ps, sym), closed = HedgeAuto.ClosedSince(s.Deals, ps, sym, ps.Min(p => p.Time));

@@ -38,8 +38,14 @@ namespace KeystoneMT5
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
             auto.OnPath = line => AutoAppend("paths", line);
             auto.OnManualAction += (it, legs, banked, at, what) => Dispatcher.BeginInvoke(new Action(() => AutoWhatIfNew(it, legs, banked, at, what)));
+            // ⚠ DANGER RADAR (09h): the candles (archive + loaded), your own past readings as neighbours, the banner + a toast over the alert level
+            auto.RadarBars = sym => Sim ? null : AutoCandles(sym, DateTime.Now.AddDays(-8));
+            auto.RadarMine = () => AutoRadarMine();
+            auto.OnRadar += r => Dispatcher.BeginInvoke(new Action(() => AutoRadarShow(r)));
             // 🎯 TOTAL EXIT GUARD (09f): close-only, through the armed link like every close; no question (the user's rule), a loud toast instead
             auto.GuardClose = sym => (Virtual || armed) ? broker.Command("CLOSEALL", sym, "ALL") : null;
+            // 🛡 PROTECT THE ADD (09h): while the automation is stopped it still locks / resumes — through AutoSend (MT5 CanTrade + ARM + PROP limits); on an MT5 account only when ticked ON
+            auto.ProtectSend = (sym, side, lots, why) => AutoSend("ORDER", new object[] { sym, side, lots, 0.0, 0.0, 0.0 }, side + " " + lots.ToString("0.##", IC) + " " + sym + " (" + why + ")");
             auto.OnGuard += msg => Dispatcher.BeginInvoke(new Action(() => { var m = AccountBadge().Item1 + " — " + msg; foreach (var w in Shell.Modes.ToList()) try { w.Toast(m); } catch { } Log(m, msg.StartsWith("⚠") ? Red : Gold); AutoPaint(true); }));
             auto.OnHandStop += what => Dispatcher.BeginInvoke(new Action(() =>
             {   // ⏸ 09d: stopped because you traded by hand — the warning on every open SpasiX tab, the red bar + ▶ RESUME AUTOMATION here
@@ -81,6 +87,10 @@ namespace KeystoneMT5
             btns.Children.Insert(0, aGuardNow);
             aRecBtn = Pill("", Tint(Cyan, 70)); aRecBtn.Height = 40; aRecBtn.Margin = new Thickness(0, 0, 8, 0); aRecBtn.Visibility = Visibility.Collapsed; aRecBtn.Click += delegate { AutoRecoveryPlace(); };
             btns.Children.Insert(0, aRecBtn);
+            aAobBtn = Pill("", Tint(Cyan, 70)); aAobBtn.Height = 40; aAobBtn.Margin = new Thickness(0, 0, 8, 0); aAobBtn.Visibility = Visibility.Collapsed; aAobBtn.Click += delegate { AutoAobPlace(); };
+            btns.Children.Insert(0, aAobBtn);
+            aNearBtn = Pill("", Tint(Amber, 90)); aNearBtn.Height = 40; aNearBtn.Margin = new Thickness(0, 0, 8, 0); aNearBtn.Visibility = Visibility.Collapsed; aNearBtn.ToolTip = "⚠ DANGER RADAR: the calibrated chance this basket goes below −10 × its target, how long such baskets stayed stuck, the 5 most similar past baskets and how honest the model is"; aNearBtn.Click += delegate { AutoRadarNear(); };
+            btns.Children.Insert(0, aNearBtn);
             top.Children.Add(btns);
             var info = new StackPanel(); aPhase = new TextBlock { FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Muted, Text = "🤖 AUTO — OFF" };
             aBasket = new TextBlock { FontSize = 26, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, Foreground = Muted, Text = "—" };
@@ -192,6 +202,36 @@ namespace KeystoneMT5
                     new Mi { Text = "ALWAYS — after every hedge: gross ≤ 2 × net + the entry lots (the best in the 6-year replays)", Do = () => aset.CompressMode = "ALWAYS" } });
                   cmp.ToolTip = "Closing an equal amount of BUY and SELL lots leaves the NET (the market risk) exactly the same: the realised part stays in the iteration (TP / breakeven / rescue / DANGER count open + closed), only the swap and margin on those lots stop.\n6 years of 1-minute gold, $8,000, your DEFENDER settings, the broker's swap (−$62.4 / +$28.1 a lot a night): OFF wiped the account out in 7 of 7 yearly runs (47 hard stops); BEFORE THE ROLLOVER 0 of 7 (1 hard stop); ALWAYS 0 of 7 (1 hard stop, worst basket −$1,687 vs −$9,338, at most 0.40 lot).\nWithout swap: ALWAYS −$778 vs OFF −$3,893 (both halves better); BEFORE THE ROLLOVER −$6,636 (a little worse). Your live week 2–9 Nov: the same result, swap −$47 vs −$170.\nIt stops the wipe-outs; it does not make the strategy profitable by itself (with swap the 6 years are still −$8,920 in all, OFF −$53,417).";
                   simple.Children.Add(cmp); }
+                {   // ⚠ DANGER RADAR (09h): its optional actions, OFF by default — each shows its 6-year result (they LOST to 🧹 COMPRESS ALWAYS)
+                    var ra = ADrop("radar", "⚠ RADAR ACTIONS (OFF = alert only)", () => !aset.RadarNoAdd && !aset.RadarLock && !aset.RadarBe ? "OFF — alert only" : string.Join(" + ", new[] { aset.RadarNoAdd ? "no add-ons" : null, aset.RadarLock ? "lock" : null, aset.RadarBe ? "breakeven" : null }.Where(x => x != null)) + " ≥ " + aset.RadarAt.ToString("0", IC) + " %", () => new List<Mi> {
+                        new Mi { Text = "OFF (the default) — the radar only shows the danger and alerts at " + aset.RadarAlert.ToString("0", IC) + " %; nothing is done by itself. 6 years, COMPRESS ALWAYS alone: " + DangerRadar.BenchCmp, Fg = Green, Do = () => { aset.RadarNoAdd = aset.RadarLock = aset.RadarBe = false; } },
+                        new Mi { Text = (aset.RadarNoAdd ? "✔ " : "") + "NO MORE ADD-ONS above DANGER " + aset.RadarAt.ToString("0", IC) + " % — 6 years: " + DangerRadar.BenchNoAdd, Fg = Amber, Do = () => aset.RadarNoAdd = !aset.RadarNoAdd },
+                        new Mi { Text = (aset.RadarLock ? "✔ " : "") + "LOCK AT NET 0 above DANGER " + aset.RadarAt.ToString("0", IC) + " % (unlocks on the break) — 6 years: " + DangerRadar.BenchLock, Fg = Amber, Do = () => aset.RadarLock = !aset.RadarLock },
+                        new Mi { Text = (aset.RadarBe ? "✔ " : "") + "CLOSE AT THE NEXT BREAKEVEN above DANGER " + aset.RadarAt.ToString("0", IC) + " % — 6 years: " + DangerRadar.BenchBe, Fg = Amber, Do = () => aset.RadarBe = !aset.RadarBe } });
+                    ra.ToolTip = "⚠ DANGER RADAR: at each new hedge, the calibrated chance the basket goes below −10 × its target (walk-forward AUC " + RadarModel.Default.Auc.ToString("0.00", IC) + "). The actions are yours to tick and each LOST to COMPRESS ALWAYS over 6 years — the numbers are in the list."; simple.Children.Add(ra);
+                    simple.Children.Add(AField("rat", "ACT ABOVE DANGER %", aset.RadarAt.ToString(IC), 50, "the radar actions you ticked act above this calibrated danger"));
+                    simple.Children.Add(AField("ralert", "ALERT AT DANGER %", aset.RadarAlert.ToString(IC), 50, "a toast when the danger crosses this level (display only)"));
+                }
+                {   // ➕ ADD ON BREAK (09h, user's request with his DEMO #47): OFF by default, every account kind once switched on, its 6-year evidence shown
+                    var ab = ADrop("aob", "➕ ADD ON BREAK", () => !aset.AddOnBreak ? "OFF" : "ON — " + (aset.AobMult >= 2 ? "2×" : "1×") + " the entry, stop at the " + (aset.AobStop == "SWING" ? "swing" : "last leg") + ", max " + aset.AobMax + " a basket", () => new List<Mi> {
+                        new Mi { Text = "OFF (the default)", Fg = Green, Do = () => aset.AddOnBreak = false },
+                        new Mi { Text = (aset.AddOnBreak && aset.AobMult < 2 ? "✔ " : "") + "ON 1× the entry — while the basket LOSES, ONE add in the NET's direction when the trend detector is ≥ " + aset.AobMin + " that way AND a finished M1 candle closes beyond the last swing; the 🎯 exit guard closes everything at the target / breakeven. " + TrendDetect.AddBreakEvidence, Fg = Amber, Do = () => { aset.AddOnBreak = true; aset.AobMult = 1; } },
+                        new Mi { Text = (aset.AddOnBreak && aset.AobMult >= 2 ? "✔ " : "") + "ON 2× the entry (more risk at the next hedge) — " + TrendDetect.AddBreakEvidence, Fg = Amber, Do = () => { aset.AddOnBreak = true; aset.AobMult = 2; } },
+                        new Mi { Text = (aset.AobStop != "SWING" ? "✔ " : "") + "the add's stop at the LAST LEG on the net's side (the default)", Do = () => aset.AobStop = "LEG" },
+                        new Mi { Text = (aset.AobStop == "SWING" ? "✔ " : "") + "the add's stop at the broken SWING (tighter)", Do = () => aset.AobStop = "SWING" },
+                        new Mi { Text = (aset.AobMax == 1 ? "✔ " : "") + "max 1 add a basket (the default)", Do = () => aset.AobMax = 1 },
+                        new Mi { Text = (aset.AobMax == 2 ? "✔ " : "") + "max 2 adds a basket (each on a NEW swing break)", Do = () => aset.AobMax = 2 } });
+                    ab.ToolTip = "➕ ADD ON BREAK sends a real order through the same AutoSend as every engine order (REAL only if you switch it on here). Its protective stop closes only the add; the basket goes on.\n" + TrendDetect.AddBreakEvidence + "\nThe same idea is offered as a 💡 one-click in RECOVERY ASSIST (asks first), and races as the 🏁 lane ➕ ADD ON BREAK."; simple.Children.Add(ab);
+                    var pr = ADrop("padd", "🛡 PROTECT THE ADD", () => AddProtector.On(aset.ProtectAdd, Virtual) ? "ON — " + (aset.ProtectMode == "SWING" ? "the last swing" : aset.ProtectK.ToString("0.#", IC) + " × ATR M1") + ", lock, " + aset.ProtectCool + " min, restart small" : "OFF" + (aset.ProtectAdd == "AUTO" ? " on this MT5 account (tick ON)" : ""), () => new List<Mi> {
+                        new Mi { Text = (aset.ProtectAdd == "AUTO" ? "✔ " : "") + "DEFAULT — ON on 🎮 DEMO / 🧪 BACKTEST / 🏁 RACE, OFF on an MT5 account (REAL / PROP / MT5 demo) until you tick ON", Do = () => aset.ProtectAdd = "AUTO" },
+                        new Mi { Text = (aset.ProtectAdd == "ON" ? "✔ " : "") + "ON everywhere — also on this MT5 account (needs ARM): when a BIGGER ADD is placed (➕ ADD ON BREAK, a 💡 RECOVERY click, or by hand ≥ " + aset.ProtectBigX.ToString("0.#", IC) + "× the entry in the net's direction) a level is armed; reached → it OPENS the opposite lots to net 0 (locked), waits " + aset.ProtectCool + " min (no hedges / adds), then restarts with the entry size on the first break — also while the automation is stopped by STOP ON MANUAL", Fg = Amber, Do = () => aset.ProtectAdd = "ON" },
+                        new Mi { Text = (aset.ProtectAdd == "OFF" ? "✔ " : "") + "OFF everywhere", Do = () => aset.ProtectAdd = "OFF" },
+                        new Mi { Text = (aset.ProtectMode != "SWING" ? "✔ " : "") + "the level: the add's entry − " + aset.ProtectK.ToString("0.#", IC) + " × ATR(M1)", Do = () => aset.ProtectMode = "ATR" },
+                        new Mi { Text = (aset.ProtectMode == "SWING" ? "✔ " : "") + "the level: the last M1 swing low (buy) / high (sell) behind the add", Do = () => aset.ProtectMode = "SWING" } });
+                    pr.ToolTip = "🛡 PROTECT THE ADD never acts on the automation's normal hedges. It is not proven by a long test: a locked basket stops losing but pays the spread of the lock and waits."; simple.Children.Add(pr);
+                    simple.Children.Add(AField("pcool", "🛡 COOL-DOWN MIN", aset.ProtectCool.ToString(IC), 50, "after the lock: no hedges / adds for this many minutes, then the entry size on the first break"));
+                    simple.Children.Add(AField("pk", "🛡 ATR × ", aset.ProtectK.ToString(IC), 50, "the protection level = the add's entry − this × ATR(M1, 14)"));
+                }
                 if (Virtual)
                 {   // 🚀 TREND STACK (09e): the experiment, only in a simulated window (DEMO / BACKTEST) — not even shown on an MT5 account
                     var ts = ADrop("tstack", "🚀 TREND STACK (EXPERIMENT)", () => aset.TrendStack ? "ON — stacks with the trend" : "OFF", () => new List<Mi> {
@@ -397,12 +437,12 @@ namespace KeystoneMT5
             }
 
             // the engine's clock: every tick of the BACKTEST; every 200 ms live (the bridge sends the state every 200 ms)
-            if (Sim) sim.OnTickHook = () => { auto.Step(sim); try { auto.GuardStep(sim, aset); } catch { } RaceStep(); };
+            if (Sim) sim.OnTickHook = () => { auto.Step(sim); try { auto.GuardStep(sim, aset); } catch { } try { auto.ProtectStep(sim, aset); } catch { } RaceStep(); };
             aTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = TimeSpan.FromMilliseconds(200) };
             aResumeAt = DateTime.Now; aResumePending = !Sim && AutoWasRunning();
             raceResumeAt = DateTime.Now; raceResumePending = !Sim && Get("race.run", "0") == "1";
             aTimer.Tick += delegate {  int curN = auto.Running && auto.Current != null ? auto.Current.N : 0; if (curN != 0 && curN != aSeenIter) { aSeenIter = curN; if (raceShow != "") { raceShow = ""; if (raceShowBox != null) raceShowBox.SelectedIndex = 0; raceChipsSig = ""; } }   // your automation opened an iteration: the chart goes back to 🤖 MINE
-                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } try { auto.GuardStep(broker, aset); } catch { } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); try { AutoRecovery(); } catch { } if (!Sim && (DateTime.Now - aWiAt).TotalSeconds >= 60) { aWiAt = DateTime.Now; AutoWhatIfRun(); } if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } try { auto.GuardStep(broker, aset); } catch { } try { auto.ProtectStep(broker, aset); } catch { } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); try { AutoRecovery(); } catch { } if (!Sim && (DateTime.Now - aWiAt).TotalSeconds >= 60) { aWiAt = DateTime.Now; AutoWhatIfRun(); } if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -440,7 +480,7 @@ namespace KeystoneMT5
         {
             Action<string, string> t = (k, v) => { TextBox tb; if (af.TryGetValue(k, out tb)) tb.Text = v; }; Func<double, string> d = v => v.ToString(IC);
             t("sx", d(aset.StradX)); t("srk", d(aset.StradRangeK)); t("srsk", d(aset.StradRisk)); t("smax", d(aset.StradMaxLots)); t("sopen", aset.StradOpen); t("sclose", aset.StradClose);
-            t("sz1k", d(aset.SizePer1k)); t("tpl", d(aset.TargetPerLot)); t("ddpct", d(aset.MaxDdPct)); t("daypct", d(aset.DayLossPct)); t("dayloss", d(aset.DayLoss));
+            t("sz1k", d(aset.SizePer1k)); t("tpl", d(aset.TargetPerLot)); t("rat", d(aset.RadarAt)); t("ralert", d(aset.RadarAlert)); t("pcool", d(aset.ProtectCool)); t("pk", d(aset.ProtectK)); t("ddpct", d(aset.MaxDdPct)); t("daypct", d(aset.DayLossPct)); t("dayloss", d(aset.DayLoss));
             t("sym", aset.Symbol); t("look", d(aset.Lookback)); t("entry", d(aset.EntryLots)); t("add", d(aset.AddLots)); t("target", d(aset.Target)); t("dd", d(aset.MaxDrawdown)); t("comm", d(aset.CommissionPerLot));
             t("pause", d(aset.PauseSec)); t("maxit", d(aset.MaxIterations)); t("hprice", d(aset.HedgePrice)); t("hmoney", d(aset.HedgeMoney)); t("win", aset.Windows); t("nyoff", d(aset.NyOffsetHours)); t("perday", d(aset.PerDay));
             t("nb", d(aset.NewsBefore)); t("na", d(aset.NewsAfter)); t("wlots", d(aset.WinnerLots)); t("wlots2", d(aset.WinnerLotsSell)); t("wmax", d(aset.MaxWinnerAdds)); t("swk", d(aset.SwingK)); t("fvol", d(aset.FlowVol)); t("fshare", d(aset.FlowShare));
@@ -636,7 +676,7 @@ namespace KeystoneMT5
             var b = AccountBadge(); return new Border { Child = new TextBlock { Text = b.Item1, Foreground = b.Item2, FontSize = 15, FontWeight = FontWeights.Bold }, Background = Tint(b.Item2, 36), BorderBrush = b.Item2, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 4, 12, 5), Margin = new Thickness(4, 2, 4, 6), HorizontalAlignment = HorizontalAlignment.Left };
         }
         // 🔁 09d: after START / RESUME the banner says what continued ("resumed: 39 iterations · today +$248.89 · open basket #40 taken over")
-        string aResumeTxt = ""; readonly List<WhatIfCase> aWi = new List<WhatIfCase>(); string aWiFor = ""; bool aWiBusy; DateTime aWiAt = DateTime.MinValue; Button aRecBtn; RecoveryTicket aRec; string aRecSym = ""; Button aGuardBtn, aGuardNow; TextBlock aPresetNote; Border aHandBar; TextBlock aHandTxt; Button aResumeBtn; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
+        string aResumeTxt = ""; RadarReading aRadar; double aRadarPrevP = double.NaN; Button aNearBtn; readonly List<string> aRadarRows = new List<string>(); string aRadarFor = ""; readonly List<WhatIfCase> aWi = new List<WhatIfCase>(); string aWiFor = ""; bool aWiBusy; DateTime aWiAt = DateTime.MinValue; Button aRecBtn, aAobBtn; RecoveryTicket aRec; AddBreakTicket aAob; string aRecSym = ""; Button aGuardBtn, aGuardNow; TextBlock aPresetNote; Border aHandBar; TextBlock aHandTxt; Button aResumeBtn; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
         void AutoResumeNote() { try { var t = Continuity.ResumeLine(auto.Iterations, auto.Current, auto.Now > DateTime.MinValue ? auto.Now : DateTime.Now); aResumeTxt = t; if (t != "") { auto.Note(t); Toast(t); } } catch { } }
         string BadgeLine() { return AccountBadge().Item1 + "\n\n"; }
         void AutoRowsOf(HedgeAuto e, StackPanel aRows, string aView)
@@ -645,14 +685,14 @@ namespace KeystoneMT5
             {
                 var d = e.Iterations.Where(x => x.Done && !x.Unverified).ToList(); double avgS = d.Count > 0 ? d.Average(x => (x.End - x.Start).TotalSeconds) : 0;
                 aRows.Children.Add(new TextBlock { Text = e.Iterations.Count + " iterations  •  won " + d.Count(x => x.Won) + " / lost " + d.Count(x => !x.Won) + "  •  net " + Signed(d.Sum(x => x.Result), "USD") + " (after " + Signed(-e.Iterations.Sum(x => x.Fees), "USD") + " commission • gross " + Signed(d.Sum(x => x.Result + x.Fees), "USD") + ")  •  average time in the trade " + (d.Count > 0 ? Dur(TimeSpan.FromSeconds(avgS)) : "—") + "  •  winners " + (d.Any(x => x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—") + ", losers " + (d.Any(x => !x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => !x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—"), Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13, Margin = new Thickness(8, 6, 8, 6) });
-                aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("START → END", 150, Muted, true, 11), Cell("⏱ IN TRADE", 92, Muted, true, 11), Cell("FIRST", 64, Muted, true, 11), Cell("BUYS / SELLS / HEDGES", 150, Muted, true, 11), Cell("MAX LOTS", 74, Muted, true, 11), Cell("WORST", 90, Muted, true, 11), Cell("COMMISSION", 96, Muted, true, 11), Cell("RESULT (NET)", 110, Muted, true, 11), Cell("HOW", 200, Muted, true, 11), Cell("🤖 WITHOUT YOU (the automation alone)", 380, Muted, true, 11), Cell("📈 AFTER THE TARGET (if it had stayed open)", 330, Muted, true, 11)));
+                aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("START → END", 150, Muted, true, 11), Cell("⏱ IN TRADE", 92, Muted, true, 11), Cell("FIRST", 64, Muted, true, 11), Cell("BUYS / SELLS / HEDGES", 230, Muted, true, 11), Cell("MAX LOTS", 74, Muted, true, 11), Cell("WORST", 90, Muted, true, 11), Cell("COMMISSION", 96, Muted, true, 11), Cell("RESULT (NET)", 110, Muted, true, 11), Cell("HOW", 200, Muted, true, 11), Cell("🤖 WITHOUT YOU (the automation alone)", 380, Muted, true, 11), Cell("📈 AFTER THE TARGET (if it had stayed open)", 330, Muted, true, 11)));
                 foreach (var x in e.Iterations.AsEnumerable().Reverse())
                 {
                     var end = x.Done ? x.End : e.Now; var col = !x.Done ? Cyan : x.Unverified ? Muted : x.Won ? Green : Red;
                     aRows.Children.Add(Row(col, Cell("#" + x.N, 36, Text, true), Cell(x.Start.ToString("dd MMM", IC), 84, Muted), Cell(x.Start.ToString("HH:mm:ss", IC) + " → " + (x.Done ? x.End.ToString("HH:mm:ss", IC) : "open"), 150, Text),
                         Cell(Dur(end - x.Start), 92, Violet, true, 12.5, Violet), Cell(x.FirstDir, 64, x.FirstDir == "BUY" ? Green : Red, true, 12, x.FirstDir == "BUY" ? Green : Red),
-                        Cell(x.Buys + " / " + x.Sells + " / " + x.AddOns + (x.ManualAdds > 0 ? " ✋" + x.ManualAdds : ""), 150, Text), Cell(x.MaxGross.ToString("0.##", IC), 74, Text), Cell(x.MaxDd.ToString("0.00", IC), 90, x.MaxDd < 0 ? Red : Muted), Cell(x.Fees > 0 ? "−" + x.Fees.ToString("0.00", IC) : "0.00", 96, x.Fees > 0 ? Amber : Muted, true),
-                        Cell(x.Done ? x.Result.ToString("+0.00;−0.00", IC) : "(" + e.Basket.ToString("+0.00;−0.00", IC) + ")", 110, col, true, 14), Cell((x.Manual ? "✋ " : "") + (x.ManualAdds > 0 ? "✋ HAND-HEDGED ×" + x.ManualAdds + " • " : "") + (x.Done ? x.Reason : x.Start.Date < e.Now.Date ? "OPEN ↪ since " + x.Start.ToString("dd MMM", IC) : "OPEN"), 200, col, true, 11.5, col), WiCell(e, x), Cell(AfterText(x), 330, double.IsNaN(x.AfterMax) ? Muted : x.AfterMax >= x.Result * 2 ? Gold : Cyan, true, 11.5)));
+                        Cell(x.Buys + " / " + x.Sells + " / " + x.AddOns + (x.ManualAdds > 0 ? "  ✋ " + x.ManualAdds + " manual leg" + (x.ManualAdds == 1 ? "" : "s") + (x.ManualLots > 0 ? " (" + x.ManualLots.ToString("0.##", IC) + " lots)" : "") : ""), 230, Text), Cell(x.MaxGross.ToString("0.##", IC), 74, Text), Cell(x.MaxDd.ToString("0.00", IC), 90, x.MaxDd < 0 ? Red : Muted), Cell(x.Fees > 0 ? "−" + x.Fees.ToString("0.00", IC) : "0.00", 96, x.Fees > 0 ? Amber : Muted, true),
+                        Cell(x.Done ? x.Result.ToString("+0.00;−0.00", IC) : "(" + e.Basket.ToString("+0.00;−0.00", IC) + ")", 110, col, true, 14), Cell((x.Manual || x.ManualAdds > 0 ? "✋ MANAGED BY HAND • " : "") + (x.Done ? x.Reason : x.Start.Date < e.Now.Date ? "OPEN ↪ since " + x.Start.ToString("dd MMM", IC) : "OPEN"), 200, col, true, 11.5, col), WiCell(e, x), Cell(AfterText(x), 330, double.IsNaN(x.AfterMax) ? Muted : x.AfterMax >= x.Result * 2 ? Gold : Cyan, true, 11.5)));
                 }
                 if (e.Iterations.Count == 0) aRows.Children.Add(new TextBlock { Text = "no iterations yet — START the automation", Foreground = Muted, Margin = new Thickness(10) });
             }
@@ -696,6 +736,7 @@ namespace KeystoneMT5
                     bool beFirst = HedgeAuto.BeComesFirst(ga.LastDir, ga.HedgeLevel, ga.BeLockPx);   // 🔐 armed: the price meets the BE line before the hedge
                     g.Add(new ChartGuide { P1 = ga.HedgeLevel, Color = beFirst ? Muted : Red, Dash = true, DragId = ga == auto ? "HEDGE" : "", Blink = !double.IsNaN(bid) && Math.Abs(ga.HedgeLevel - bid) < 0.3, Core = true, Label = (!double.IsNaN(ga.ManualHedge) ? "✋ " : "") + "🛡 HEDGE " + (ga.LastDir > 0 ? "SELL " : "BUY ") + (double.IsNaN(ga.NextHedgeLots) ? s.AddLots : ga.NextHedgeLots).ToString("0.##", IC) + " @ " + ga.HedgeLevel.ToString("0.00", IC) + away(ga.HedgeLevel) + (beFirst ? "  (not reachable first: the 🔐 BE at " + ga.BeLockPx.ToString("0.00", IC) + " comes first)" : lossTo > 0 ? " ≈ −$" + lossTo.ToString("0", IC) : "") });
                 }
+                if (ga.Prot.Phase == "ARMED" && !double.IsNaN(ga.Prot.Level)) g.Add(new ChartGuide { P1 = ga.Prot.Level, Color = Cyan, Dash = true, Core = true, Blink = !double.IsNaN(bid) && Math.Abs(ga.Prot.Level - bid) < 0.3, Label = "🛡 PROTECT " + ga.Prot.Level.ToString("0.0", IC) + " → lock at net 0 (≈ " + (ga.Prot.EstLockTotal < 0 ? "−$" : "+$") + Math.Abs(ga.Prot.EstLockTotal).ToString("0", IC) + "), " + ga.Prot.CoolMin + " min, restart " + ga.Prot.EntryLots.ToString("0.##", IC) });
                 if (!double.IsNaN(ga.BeLockPx)) g.Add(new ChartGuide { P1 = ga.BeLockPx, Color = Gold, Dash = true, Core = true, Blink = true, Label = s.BeClose ? "🔐 BREAKEVEN PROFIT: closes all @ " + ga.BeLockPx.ToString("0.00", IC) + " (the profit is kept if the price comes back here)" : "🔐 BREAKEVEN LOCK @ " + ga.BeLockPx.ToString("0.00", IC) + " — a return here LOCKS the basket at +$" + (s.Target * s.BeLockKeep / 100).ToString("0.##", IC) + " (buys = sells; it does NOT close)" });
                 if (ga == auto && ga.ManualNoHedge && !double.IsNaN(ga.AutoLevelShadow)) g.Add(new ChartGuide { P1 = ga.AutoLevelShadow, Color = Muted, Dash = true, DragId = "HEDGE", Core = true, Label = "✋ NO HEDGE (you removed it) • drag = hedge there • right-click = ↺ BACK TO AUTO" });
                 if (!double.IsNaN(ga.StopPx)) g.Add(new ChartGuide { P1 = ga.StopPx, Color = Red, Core = true, Label = "⛔ STOP −$" + s.MaxDrawdown.ToString("0.##", IC) + " @ " + ga.StopPx.ToString("0.00", IC) + away(ga.StopPx) });
@@ -861,6 +902,8 @@ namespace KeystoneMT5
             s.Windows = (af["win"].Text ?? "").Trim(); s.CloseAtNy = (af["eod"].Text ?? "").Trim(); s.FvgAge = (int)Math.Max(0, ANum("fage", 0)); s.NyOffsetHours = (int)ANum("nyoff", -7); s.PerDay = (int)Math.Max(0, ANum("perday", 0)); s.NewsBefore = (int)Math.Max(0, ANum("nb", 15)); s.NewsAfter = (int)Math.Max(0, ANum("na", 15));
             s.BeAfter = (int)Math.Max(0, ANum("beafter", 0)); s.QuickAfter = Math.Max(0.1, ANum("qafter", 3)); s.ProtectAt = Math.Max(0, Math.Min(99, ANum("pat", 0))); s.GuardLots = Math.Max(0.01, ANum("glots", 1)); s.DdLeadStep = Math.Max(0, ANum("ddlstep", 0)); s.DdLeadAdd = Math.Max(0.01, ANum("ddladd", 0.05)); s.DdLeadMax = Math.Max(0, ANum("ddlmax", 0.3)); s.DdTightEvery = Math.Max(0, ANum("dtev", 2)); s.DdTightBy = Math.Max(0, Math.Min(50, ANum("dtby", 10))); s.DdTightFloor = Math.Max(10, Math.Min(100, ANum("dtfl", 50))); { double rP = ANum("rpct", 3); s.Rescue = rP > 0; if (rP > 0) s.RescuePct = Math.Max(0.5, Math.Min(50, rP)); s.RescueMin = (int)Math.Max(0, Math.Min(1440, ANum("rmin", 0))); s.DeRisk = ANum("derisk", 0) > 0; s.TrimMax = (int)Math.Max(0, Math.Min(20, ANum("trimmax", 0))); s.BreakClose = ANum("bclose", 0) > 0; s.ProfitUnlock = ANum("punlock", 0) > 0; s.StuckPct = Math.Max(0, Math.Min(90, ANum("stpct", 0))); s.StuckHours = Math.Max(0, ANum("sthrs", 0)); s.TrendBreak = ANum("tbreak", 0) > 0; s.FadeAtr = Math.Max(0, Math.Min(20, ANum("fadeatr", 3))); } s.KeyBuffer = Math.Max(0.1, Math.Min(3, ANum("kbuf", 0.5))); s.BeLockAt = Math.Max(10, Math.Min(99, ANum("belat", 80))); s.BeLockKeep = Math.Max(0, Math.Min(90, ANum("belkeep", 10))); s.RecDeep = Math.Max(0.5, ANum("rdeep", 2)); s.RecKeep = Math.Max(0, Math.Min(100, ANum("rkeep", 20))); s.MaxDdPct = Math.Max(0, Math.Min(100, ANum("ddpct", 0))); s.DayLoss = Math.Max(0, ANum("dayloss", 0)); s.DayLossPct = Math.Max(0, Math.Min(100, ANum("daypct", 0))); { double dA = ANum("dat", 0); s.DangerExit = dA > 0; if (dA > 0) s.DangerAt = Math.Max(10, Math.Min(100, dA)); s.DangerKeep = Math.Max(0, Math.Min(100, ANum("dkeep", 25))); } s.GuardBreak = Math.Max(0, ANum("gbreak", 1)); s.ScaleLots = Math.Max(0.01, ANum("slots", 0.05)); s.ScaleStep = Math.Max(0.1, ANum("sstep", 1.5)); s.HardFloat = Math.Max(0, ANum("hfloat", 0)); s.HardMargin = Math.Max(0, ANum("hmargin", 0)); s.GuardMargin = Math.Max(0, ANum("gmargin", 500)); s.GuardChop = (int)Math.Max(0, ANum("gchop", 3)); s.GuardMaxLead = (int)Math.Max(1, ANum("glead", 3)); s.ProtectKeep = Math.Max(0, Math.Min(95, ANum("pkeep", 10))); s.HedgeCap = Math.Max(0, ANum("hcap", 5)); s.LadderStep = Math.Max(0.1, ANum("lstep", 2.5)); s.LadderMax = (int)Math.Max(0, ANum("lmax", 10)); s.LockAfter = (int)Math.Max(1, ANum("lafter", 2)); s.LockRange = Math.Max(0.01, ANum("lrange", 3));
             if (af.ContainsKey("sz1k")) { s.SizePer1k = Math.Max(0, ANum("sz1k", 0)); s.TargetPerLot = Math.Max(1, ANum("tpl", 200)); }
+            if (af.ContainsKey("pcool")) { s.ProtectCool = (int)Math.Max(1, Math.Min(240, ANum("pcool", 15))); s.ProtectK = Math.Max(0.2, Math.Min(10, ANum("pk", 1))); }
+            if (af.ContainsKey("rat")) { s.RadarAt = Math.Max(5, Math.Min(95, ANum("rat", 50))); s.RadarAlert = Math.Max(5, Math.Min(95, ANum("ralert", 35))); }
             s.WinnerLots = Math.Max(0, ANum("wlots", 0.1)); s.WinnerLotsSell = Math.Max(0, ANum("wlots2", 0.1)); s.SwingK = (int)Math.Max(1, ANum("swk", 2)); s.MaxWinnerAdds = (int)Math.Max(0, ANum("wmax", 0)); s.FlowVol = Math.Max(1, ANum("fvol", 1.5)); s.FlowShare = Math.Max(0.5, Math.Min(1, ANum("fshare", 0.7)));
             return s;
         }
@@ -1047,28 +1090,46 @@ namespace KeystoneMT5
         // ticket: the confirmed short-term trend's side, the stack size (capped), the protection, the exit = the basket's breakeven / target
         void AutoRecovery()
         {
-            aRec = null; if (aRecBtn == null) return; var sym = auto.Running && auto.Set != null ? auto.Set.Symbol : aset.Symbol;
-            if (auto.GuardExit != "BREAKEVEN" || double.IsNaN(auto.GuardTotal) || auto.GuardTotal >= 0) { aRecBtn.Visibility = Visibility.Collapsed; return; }   /* only a basket under $0 needs a recovery */
-            List<Mt5Bar> m1; double net, px, per = 0, bal, ml; DateTime now;
+            aRec = null; aAob = null; if (aRecBtn == null) return; var sym = auto.Running && auto.Set != null ? auto.Set.Symbol : aset.Symbol;
+            Action hide = () => { aRecBtn.Visibility = Visibility.Collapsed; if (aAobBtn != null) aAobBtn.Visibility = Visibility.Collapsed; };
+            if (double.IsNaN(auto.GuardTotal) || auto.GuardTotal >= 0) { hide(); return; }   /* only a basket under $0 needs a recovery */
+            List<Mt5Bar> m1; List<Mt5Position> ps; double net, px, per = 0, bal, ml; DateTime now;
             lock (broker.State.Gate)
             {
                 var st = broker.State; now = st.ServerNow > DateTime.MinValue ? st.ServerNow : DateTime.Now; var se = st.SeriesOf(sym, 1); m1 = se.Bars.Where(b => b.Time.AddMinutes(1) <= now).ToList(); if (m1.Count > 220) m1 = m1.Skip(m1.Count - 220).ToList();
-                var ps = st.Positions.Where(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); net = ps.Sum(p => p.Dir * p.Lots); Mt5Quote q; st.Quotes.TryGetValue(sym, out q);
+                ps = st.Positions.Where(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); net = ps.Sum(p => p.Dir * p.Lots); Mt5Quote q; st.Quotes.TryGetValue(sym, out q);
                 Mt5Symbol ms; if (st.Symbols.TryGetValue(sym, out ms) && ms.TickSize > 0) per = ms.TickValue / ms.TickSize; bal = st.Account.Balance; ml = st.Account.MarginLevel; px = q == null ? double.NaN : 0; if (q != null) aRecPx = Tuple.Create(q.Bid, q.Ask);
-                if (ps.Count == 0 || q == null) { aRecBtn.Visibility = Visibility.Collapsed; return; }
+                if (ps.Count == 0 || q == null) { hide(); return; }
             }
             var tr = TrendDetect.Read(m1, TrendDetect.DayVwap(m1, now)); px = tr.Dir > 0 ? aRecPx.Item2 : aRecPx.Item1;
             var s = auto.Running && auto.Set != null ? auto.Set : aset;
-            aRec = TrendDetect.Recovery(auto.GuardTotal, s.Target, net, px, per, bal, s.StackCapPer1k, s.StackK, ml, s.StackMargin, tr); aRecSym = sym;
-            aRecBtn.Visibility = aRec.Dir != 0 ? Visibility.Visible : Visibility.Collapsed; aRecBtn.Content = aRec.Dir != 0 ? "💡 " + (aRec.Dir > 0 ? "BUY " : "SELL ") + aRec.Lots.ToString("0.##", IC) + " (recovery)" : "";
-            aRecBtn.ToolTip = aRec.Text;
+            if (auto.GuardExit == "BREAKEVEN")
+            {
+                aRec = TrendDetect.Recovery(auto.GuardTotal, s.Target, net, px, per, bal, s.StackCapPer1k, s.StackK, ml, s.StackMargin, tr); aRecSym = sym;
+                aRecBtn.Visibility = aRec.Dir != 0 ? Visibility.Visible : Visibility.Collapsed; aRecBtn.Content = aRec.Dir != 0 ? "💡 " + (aRec.Dir > 0 ? "BUY " : "SELL ") + aRec.Lots.ToString("0.##", IC) + " (recovery)" : "";
+                aRecBtn.ToolTip = aRec.Text;
+            }
+            else aRecBtn.Visibility = Visibility.Collapsed;
+            if (aAobBtn != null)
+            {   // ➕ 09h: the ADD ON BREAK idea as a 💡 one-click (asks first) — same conditions as the option, 1× / 2× the entry from the settings
+                aAob = TrendDetect.AddOnBreak(ps, auto.GuardTotal, s.Target, aRecPx.Item1, aRecPx.Item2, per, s.CommissionPerLot, auto.Running ? auto.HedgeLevel : double.NaN, tr, s.AobMin, s.AobMult, s.AobStop, 0, 1);
+                aAobBtn.Visibility = aAob.Ok ? Visibility.Visible : Visibility.Collapsed; aAobBtn.Content = aAob.Ok ? "💡 " + aAob.Short : ""; aAobBtn.ToolTip = aAob.Text;
+            }
         }
         Tuple<double, double> aRecPx = Tuple.Create(double.NaN, double.NaN);
         void AutoRecoveryPlace()
         {
             var r = aRec; if (r == null || r.Dir == 0) return;
             if (!Sx.Ask(this, "💡 RECOVERY TRADE — your click", BadgeLine() + r.Text + "\n\nIt is placed as YOUR trade (market " + (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.##", IC) + ", stop at the protection " + r.Protect.ToString("0.00", IC) + ", no take profit: the 🎯 EXIT GUARD closes the WHOLE basket at its breakeven / target)." + (auto.Running ? "\nThe automation stops (⏸ STOP ON MANUAL) until you ▶ RESUME; the guard keeps watching the total." : ""), "💡 PLACE IT", "NO", Cyan, (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.00", IC) + " LOTS")) return;
+            DateTime srvNow; lock (broker.State.Gate) srvNow = broker.State.ServerNow > DateTime.MinValue ? broker.State.ServerNow : DateTime.Now; auto.Prot.FlagNext(r.Dir, srvNow.AddSeconds(90));   // 🛡 the recovery leg gets its protection at once
             Cmd("💡 RECOVERY " + (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.##", IC) + " " + aRecSym + " (stop " + r.Protect.ToString("0.00", IC) + ")", "ORDER", aRecSym, r.Dir > 0 ? "BUY" : "SELL", r.Lots, 0.0, Math.Round(r.Protect, 2), 0.0);
+        }
+        void AutoAobPlace()
+        {
+            var r = aAob; if (r == null || !r.Ok) return; var sym = auto.Running && auto.Set != null ? auto.Set.Symbol : aset.Symbol;
+            if (!Sx.Ask(this, "💡 ADD ON BREAK — your click", BadgeLine() + r.Text + "\n\nIt is placed as YOUR trade (market " + (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.##", IC) + ", stop at " + r.Stop.ToString("0.00", IC) + ", no take profit: the 🎯 EXIT GUARD closes the WHOLE basket at " + r.ExitPx.ToString("0.00", IC) + ")." + (AddProtector.On(aset.ProtectAdd, Virtual) ? "\n🛡 PROTECT THE ADD arms at once." : "") + (auto.Running ? "\nThe automation stops (⏸ STOP ON MANUAL) until you ▶ RESUME; the guard keeps watching the total." : ""), "💡 PLACE IT", "NO", Cyan, (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.00", IC) + " LOTS")) return;
+            DateTime srvNow; lock (broker.State.Gate) srvNow = broker.State.ServerNow > DateTime.MinValue ? broker.State.ServerNow : DateTime.Now; auto.Prot.FlagNext(r.Dir, srvNow.AddSeconds(90));
+            Cmd("💡 ADD ON BREAK " + (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.##", IC) + " " + sym + " (stop " + r.Stop.ToString("0.00", IC) + ")", "ORDER", sym, r.Dir > 0 ? "BUY" : "SELL", r.Lots, 0.0, Math.Round(r.Stop, 2), 0.0);
         }
         // 🤖 WHAT IF (09g): a case at the first manual action of an iteration — the basket just before it, replayed by the automation alone
         void AutoWhatIfNew(AutoIteration it, List<WhatIfLeg> legs, double banked, DateTime at, string what)
@@ -1128,6 +1189,46 @@ namespace KeystoneMT5
                 foreach (var y in new[] { hi, 0.0, lo }) { var t = new TextBlock { Text = (y < 0 ? "−$" : "$") + Math.Abs(y).ToString("0", IC), Foreground = Muted, FontSize = 10 }; Canvas.SetLeft(t, 0); Canvas.SetTop(t, P(Tuple.Create(t0, y)).Y - 7); cv.Children.Add(t); }
             }
             Sx.Choice(this, "🤖 WHAT IF #" + c.N + " — " + c.Verdict, BadgeLine() + "Your first manual action: " + c.What + "\n🤖 The automation alone (simulated from " + c.SnapAt.ToString("dd MMM HH:mm:ss", IC) + " with the same settings on the real prices): " + c.WithoutYou + "\n✋ You: " + (c.ActualDone ? "closed " : "now ") + (c.Actual < 0 ? "−$" : "+$") + Math.Abs(c.Actual).ToString("N2", IC) + "\n\nGOLD = your basket (open P/L) • CYAN = the automation alone (its total)", cv, new[] { "OK" }, new[] { (SolidColorBrush)null });
+        }
+        // the 1-minute candles of a symbol since `from`: the archive (auto\candles) + what is loaded now
+        List<Mt5Bar> AutoCandles(string sym, DateTime from)
+        {
+            var bars = new Dictionary<DateTime, Mt5Bar>(); var dir = Path.Combine(Dir, "auto", "candles");
+            try { if (Directory.Exists(dir)) foreach (var f in Directory.GetFiles(dir, sym + "-*.csv")) { DateTime d; if (!DateTime.TryParseExact(Path.GetFileNameWithoutExtension(f).Substring(sym.Length + 1), "yyyy-MM-dd", IC, DateTimeStyles.None, out d) || d < from.Date.AddDays(-1)) continue; foreach (var l in File.ReadAllLines(f).Skip(1)) { var a = l.Split(','); DateTime t; if (a.Length >= 7 && DateTime.TryParseExact(a[0], "yyyy-MM-dd HH:mm", IC, DateTimeStyles.None, out t)) bars[t] = new Mt5Bar { Time = t, O = double.Parse(a[1], IC), H = double.Parse(a[2], IC), L = double.Parse(a[3], IC), C = double.Parse(a[4], IC), V = long.Parse(a[5], IC), Spread = int.Parse(a[6], IC) }; } } } catch { }
+            lock (broker.State.Gate) foreach (var b in broker.State.SeriesOf(sym, 1).Bars) bars[b.Time] = b.Copy();
+            return bars.Values.OrderBy(b => b.Time).ToList();
+        }
+        // ⚠ the reading after a hedge: banner, colour, a toast when it crosses your alert level; saved as YOUR neighbour (its outcome when the iteration ends)
+        void AutoRadarShow(RadarReading r)
+        {
+            aRadar = r; var s = auto.Set ?? aset;
+            if (!double.IsNaN(r.P) && r.P * 100 >= s.RadarAlert && (double.IsNaN(aRadarPrevP) || aRadarPrevP * 100 < s.RadarAlert)) { var m = AccountBadge().Item1 + " — " + r.Text + " (alert ≥ " + s.RadarAlert.ToString("0", IC) + " %). Nothing is done by itself" + (s.RadarNoAdd || s.RadarLock || s.RadarBe ? " except your radar option" : "") + "."; Toast(m); Log(m, Amber); }
+            aRadarPrevP = r.P;
+            if (r.X != null && auto.Current != null && !string.IsNullOrEmpty(aHist)) { var line = "R|" + auto.Current.N + "|" + auto.Current.Start.Ticks + "|" + r.At.Ticks + "|" + r.Hedges + "|" + string.Join(",", r.X.Select(v => v.ToString("R", IC))); aRadarRows.Add(line); try { File.AppendAllText(AutoFile("radar"), line + "\n"); } catch { } }
+            AutoPaint(true);
+        }
+        // your past readings whose iteration has ended → neighbours (depth / time / how it ended)
+        List<Tuple<RadarNeighbour, double[]>> aRadarMineCache; int aRadarMineVer = -1;
+        IEnumerable<Tuple<RadarNeighbour, double[]>> AutoRadarMine()
+        {
+            if (aRadarFor != aHist) { aRadarFor = aHist; aRadarRows.Clear(); try { var f = AutoFile("radar"); if (File.Exists(f)) aRadarRows.AddRange(File.ReadAllLines(f)); } catch { } aRadarMineVer = -1; }
+            int done = auto.Iterations.Count(x => x.Done); if (aRadarMineCache != null && aRadarMineVer == done + aRadarRows.Count * 100000) return aRadarMineCache;
+            var res = new List<Tuple<RadarNeighbour, double[]>>(); var m = RadarModel.Default; var target = (auto.Set ?? aset).Target;
+            if (m.Ready) foreach (var l in aRadarRows)
+            {
+                var a = l.Split('|'); if (a.Length < 6) continue; int n; long st, at; if (!int.TryParse(a[1], out n) || !long.TryParse(a[2], out st) || !long.TryParse(a[3], out at)) continue;
+                var it = auto.Iterations.FirstOrDefault(x => x.N == n && x.Start.Ticks == st && x.Done); if (it == null) continue;
+                double[] x0; try { x0 = a[5].Split(',').Select(v => double.Parse(v, IC)).ToArray(); } catch { continue; }
+                res.Add(Tuple.Create(new RadarNeighbour { Date = new DateTime(at).ToString("yyyy-MM-dd HH:mm", IC), Hedges = int.Parse(a[4], IC), Depth = target > 0 ? it.MaxDd / target : 0, Hours = (it.End - new DateTime(at)).TotalHours, Reason = it.Reason, Result = target > 0 ? it.Result / target : double.NaN, Mine = true }, m.Z(x0)));
+            }
+            aRadarMineCache = res; aRadarMineVer = done + aRadarRows.Count * 100000; return res;
+        }
+        void AutoRadarNear()
+        {
+            var r = aRadar ?? auto.Radar; var m = RadarModel.Default; var lines = new List<string>();
+            if (r != null) { lines.Add(r.Text); lines.Add(""); lines.Add("🔎 THE 5 MOST SIMILAR PAST BASKETS (the same features — the 6-year engine runs + yours):"); foreach (var n in r.Near) lines.Add("  • " + n.Text); lines.Add(""); }
+            lines.AddRange(DangerRadar.CalibrationText(m));
+            Sx.Info(this, "⚠ DANGER RADAR", BadgeLine() + string.Join("\n", lines) + "\n\nDisplay + alert only: the radar itself never sends or closes anything.", Amber);
         }
         void AutoStopClose()
         {
@@ -1377,6 +1478,8 @@ namespace KeystoneMT5
             aInfo.Text = on ? (it != null ? "iteration #" + it.N + " since " + it.Start.ToString("dd MMM HH:mm:ss", IC) + "  •  " + it.Buys + " buys (" + it.BuyLots.ToString("0.##", IC) + ") / " + it.Sells + " sells (" + it.SellLots.ToString("0.##", IC) + ")  •  " + it.AddOns + " add-ons  •  max drawdown " + it.MaxDd.ToString("0.00", IC) + (s.MaxDrawdown > 0 ? " (limit −$" + s.MaxDrawdown.ToString("0.##", IC) + ")" : " (no limit)")
                     : auto.Phase == "PAUSE" ? "pause until " + auto.PauseUntil.ToString("HH:mm:ss", IC) + " (" + Math.Max(0, (auto.PauseUntil - auto.Now).TotalSeconds).ToString("0", IC) + " s)" : auto.Phase == "FIRST" ? "the first " + s.FirstDir + " goes now" : "waiting for the next " + auto.WaitingFor() + (auto.Blocked != "" ? "  •  NOT NOW: " + auto.Blocked : ""))
                 : (auto.StopReason != "" ? "stopped: " + auto.StopReason + "  •  " : "") + (Sim ? "BACKTEST: press START here, then ▶ play on the 📈 CHART." : Paper ? "DEMO account: simulated on live prices." : "MT5 account: needs 🔓 ARM (chart panel) and MT5's Algo Trading.") + AutoSwapLine(s.Symbol != "" ? s.Symbol : aset.Symbol);
+            if (auto.ProtText != "") aInfo.Text += "\n" + auto.ProtText;   // 🛡 PROTECT THE ADD: what it will do, with the numbers
+            if (s.AddOnBreak && on && auto.AobText != "") aInfo.Text += "\n" + (auto.Trend != null && !s.TrendStack ? auto.Trend.Text + "\n" : "") + auto.AobText;   // ➕ each decision with its numbers
             if (s.TrendStack && on && auto.Trend != null) aInfo.Text += "\n" + auto.Trend.Text + (auto.StackText != "" && !auto.StackText.StartsWith(auto.Trend.Text) ? "\n" + auto.StackText : auto.StackText.Length > auto.Trend.Text.Length ? auto.StackText.Substring(auto.Trend.Text.Length) : "");
             aInfo.Foreground = !on && auto.StopReason != "" ? Amber : Muted;
             aLevels.Text = on ? (s.HedgeMode == "NONE" || s.HedgeMode == "SIGNAL" ? "" : "hedge levels: recent high " + Px(auto.BuyLevel) + "  •  recent low " + Px(auto.SellLevel)) + (!double.IsNaN(auto.Vwap) ? "  •  VWAP " + Px(auto.Vwap) : "") + (it != null ? "  •  next add-on (" + (s.HedgeMode == "PRICE" ? "price move" : s.HedgeMode == "MONEY" ? "$ loss" : "break") + ") at " + Px(auto.HedgeLevel) : "") : "";
@@ -1393,6 +1496,7 @@ namespace KeystoneMT5
             if (aGuardBtn != null) { aGuardBtn.Content = aset.ExitGuard ? "🎯 EXIT GUARD: ON" : "🎯 EXIT GUARD: OFF"; aGuardBtn.Background = aset.ExitGuard ? Tint(Gold, 90) : Tint(Sx.Card2, 220); aGuardNow.Visibility = auto.GuardAlert ? Visibility.Visible : Visibility.Collapsed; }
             if (aset.ExitGuard && auto.GuardText != "") aInfo.Text += "\n" + auto.GuardText + (auto.GuardAlert ? "  ⚠ REACHED — ✋ MANUAL MANAGE: press ⛔ CLOSE ALL NOW" : "");
             if (aRec != null && auto.GuardExit == "BREAKEVEN" && auto.GuardTotal < 0) aInfo.Text += "\n" + aRec.Text;
+            { var rr = auto.Running && auto.Current != null ? auto.Radar : null; if (rr != null && rr.Text != "") { aInfo.Text += "\n" + rr.Text + (rr.Near.Count > 0 ? "  ·  🔎 like " + rr.Near[0].Date + " (" + rr.Near[0].Depth.ToString("0.0", IC) + "×, " + (string.IsNullOrEmpty(rr.Near[0].Reason) ? "open" : rr.Near[0].Reason) + ")" : ""); } if (aNearBtn != null) { aNearBtn.Visibility = rr != null && !double.IsNaN(rr.P) ? Visibility.Visible : Visibility.Collapsed; if (rr != null && !double.IsNaN(rr.P)) { var col = rr.P * 100 >= (auto.Set ?? aset).RadarAlert ? Red : rr.P >= 0.3 ? Amber : Green; aNearBtn.Content = "⚠ " + (100 * rr.P).ToString("0", IC) + " % · 🔎 SIMILAR"; aNearBtn.Background = Tint(col, 120); } } }
             if (aHandBar != null) { bool hs = auto.HandStopped && !on; aHandBar.Visibility = hs ? Visibility.Visible : Visibility.Collapsed; if (hs) aHandTxt.Text = "⏸ AUTOMATION STOPPED — you traded by hand (" + auto.HandWhat + "). Your positions are untouched. To continue: ▶ RESUME AUTOMATION (it asks first)."; }
             if (aLockTxt != null)
             {   // the settings bar: running → SAVE for the next iteration (amber while there are unsaved changes); stopped → START / RESUME here
@@ -1446,6 +1550,7 @@ namespace KeystoneMT5
                 else if (aView == "ANALYSIS")
                 {
                     var st = auto.Calc(auto.Iterations); var d = auto.Iterations.Where(x => x.Done).ToList();
+                    if (RadarModel.Default.Ready) { L.AddRange(DangerRadar.CalibrationText(RadarModel.Default)); L.Add(""); }
                     if (aWi.Count > 0) { L.Add(WhatIf.Summary(aWi)); foreach (var w in aWi) L.Add("   #" + w.N + "  " + w.Verdict + " · " + w.WithoutYou + "  (your first manual action: " + w.What + ")"); L.Add(""); }
                     L.Add("ITERATIONS " + st.Done + "   won " + st.Wins + "   lost " + st.Losses + (st.Done > 0 ? "   win rate " + (100.0 * st.Wins / st.Done).ToString("0.0", IC) + "%" : ""));
                     L.Add("NET " + Signed(st.Net, "USD") + "   average " + Signed(st.Avg, "USD") + "   best " + Signed(st.BestIt, "USD") + "   worst " + Signed(st.WorstIt, "USD"));

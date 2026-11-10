@@ -899,7 +899,8 @@ namespace KeystoneMT5
             symPlInfo.Text = os > 0 ? "⏳ " + os + " order" + (os == 1 ? "" : "s") : "";
             {   // 🧮 the same TOTAL as the header (open + the closed legs) + a live preview on each close button
                 string isym; var tt = IterTotal(s, out isym); bool mine = string.Equals(isym, sym, StringComparison.OrdinalIgnoreCase) && !double.IsNaN(tt.Item1);
-                if (mine && Math.Abs(tt.Item3) >= 0.005) { symPlCap.Text = sym + " • TOTAL NOW " + Signed(tt.Item1, cur); symPlBox.ToolTip = "open " + Signed(tt.Item2, cur) + " + closed legs " + Signed(tt.Item3, cur) + " = " + Signed(tt.Item1, cur); }
+                if (mine && Math.Abs(tt.Item3) >= 0.005) symPlCap.Text = sym + " • TOTAL NOW " + Signed(tt.Item1, cur);
+                symPlBox.ToolTip = HedgeAuto.TotalTip(mine && ps.Count > 0, tt.Item1, tt.Item2, tt.Item3, v => Signed(v, cur));   // 09h: rebuilt EVERY refresh from the same numbers as the boxes (never a stale basket)
                 double tgt = auto != null && auto.Running ? auto.Set.Target : 0, per = 0; Mt5Symbol msy; if (s.Symbols.TryGetValue(sym, out msy) && msy.TickSize > 0) per = msy.TickValue / msy.TickSize;
                 FillSymExtra(s, sym, ps, mine ? tt.Item1 : double.NaN, mine ? tt.Item2 : double.NaN, mine ? tt.Item3 : double.NaN, tgt > 0 ? tgt : aset != null ? aset.Target : 0, per, cur);
                 foreach (var cb in closeBtns) cb.Item1.ToolTip = ps.Count == 0 ? "nothing open on " + sym : HedgeAuto.ClosePreview(ps, sym, cb.Item2, mine ? tt.Item1 : pl, tgt, per) + " (asks first)";

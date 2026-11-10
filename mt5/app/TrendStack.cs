@@ -17,6 +17,7 @@ namespace KeystoneMT5
         public string Text { get { return Dir == 0 ? "➖ NO TREND " + Strength + (Why != "" ? " · " + Why : "") : (Dir > 0 ? "📈 TREND UP " : "📉 TREND DOWN ") + Strength + " · " + Why; } }
     }
 
+    public sealed class AddBreakTicket { public bool Ok; public int Dir; public double Lots, Entry, Swing = double.NaN, Stop = double.NaN, NetBefore, NetAfter, Cost, ExitPx = double.NaN, BePx = double.NaN, AddAtStop, BasketAtStop, NextHedge = double.NaN, RiskAtHedge = double.NaN, RiskAtHedgeStopped = double.NaN, RiskNoAdd = double.NaN; public string Why = "", StopWhy = "", Short = "", Text = ""; }
     public sealed class RecoveryTicket { public int Dir; public double Lots, Entry, Protect = double.NaN, RiskLeg, BasketAtProtect, BePx = double.NaN, TpPx = double.NaN, GainAtMove, Move, NetAfter; public string Text = ""; }
 
     public static class TrendDetect
@@ -106,6 +107,55 @@ namespace KeystoneMT5
                 + " · ≈ " + Usd(r.GainAtMove) + " total if the price moves 1.5 ATR ($" + r.Move.ToString("0.00", IC) + ") your way. " + RecoveryHonest;
             return r;
         }
+        // ➕ ADD ON BREAK (09h, user's request with his DEMO #47; OFF by default, every account kind when he switches it on): while a basket is LOSING,
+        // ONE add (1× / 2× the entry) in the NET's direction when (a) the trend detector is ≥ minStrength that way and (b) the newest FINISHED M1 candle
+        // closed beyond the last swing that way; its protective stop = the last leg on the net's side (or the swing); the 🎯 EXIT GUARD closes everything at the
+        // target / breakeven. Prices: bid / ask now; the exit is the BID (net long) / ASK (net short) where the total incl. the add's spread + commission = target;
+        // the risk = the total at the next hedge with the add still open (and with the add stopped at its stop).
+        public const string AddBreakEvidence = "6 years (near miss P4): a better total and a smaller worst basket in 2023–26, but it LOST to the plain settings in 4 of 7 years — unproven.";
+        public static AddBreakTicket AddOnBreak(IList<Mt5Position> pos, double total, double target, double bid, double ask, double perPrice, double commPerLot, double nextHedge,
+            TrendState tr, int minStrength, double mult, string stopMode, int addsUsed, int maxAdds, double lastSwingUsed = double.NaN, double step = 0.01)
+        {
+            var r = new AddBreakTicket(); double net = pos == null ? 0 : Math.Round(pos.Sum(p => p.Dir * p.Lots), 2); int nd = Math.Sign(net); r.NetBefore = net;
+            Func<string, AddBreakTicket> no = w => { r.Why = w; r.Text = "➕ ADD ON BREAK: waits — " + w; return r; };
+            if (pos == null || pos.Count == 0) return no("no basket");
+            if (total >= 0) return no("the basket is not losing (" + Usd(total) + ")");
+            if (nd == 0) return no("the net is 0 (nothing leads)");
+            if (addsUsed >= maxAdds) return no(addsUsed + "/" + maxAdds + " add" + (maxAdds == 1 ? "" : "s") + " used in this basket");
+            if (tr == null || tr.Dir != nd || tr.Strength < minStrength) return no("the trend " + (tr == null ? "—" : tr.Text) + " is not " + (nd > 0 ? "UP" : "DOWN") + " ≥ " + minStrength + " (the net is " + (nd > 0 ? "LONG" : "SHORT") + " " + Math.Abs(net).ToString("0.##", IC) + ")");
+            double sw = nd > 0 ? tr.SwingHi : tr.SwingLo;
+            if (double.IsNaN(sw) || !(nd > 0 ? tr.Close > sw : tr.Close < sw)) return no("no finished M1 close beyond the last swing " + (nd > 0 ? "high" : "low") + (double.IsNaN(sw) ? "" : " " + sw.ToString("0.00", IC)) + " (the close " + tr.Close.ToString("0.00", IC) + ")");
+            if (!double.IsNaN(lastSwingUsed) && Math.Abs(sw - lastSwingUsed) < 1e-9) return no("this swing " + sw.ToString("0.00", IC) + " was already used");
+            if (perPrice <= 0 || double.IsNaN(bid) || double.IsNaN(ask)) return no("no price");
+            var first = pos.OrderBy(p => p.Time).ThenBy(p => p.Ticket).First(); double lots = Math.Max(step, Math.Round(Math.Round(first.Lots * Math.Max(1, Math.Min(2, mult)) / step) * step, 2));
+            r.Dir = nd; r.Lots = lots; r.Entry = nd > 0 ? ask : bid; r.Swing = sw; double after = Math.Round(net + nd * lots, 2); r.NetAfter = after;
+            double mark = nd > 0 ? bid : ask, cost = (ask - bid) * lots * perPrice + commPerLot * lots; r.Cost = cost;   // the add starts −spread (and −commission)
+            r.ExitPx = mark + (target - (total - cost)) / (after * perPrice); r.BePx = mark + (0 - (total - cost)) / (after * perPrice);
+            var lastLeg = pos.Where(p => p.Dir == nd).OrderBy(p => p.Time).ThenBy(p => p.Ticket).LastOrDefault(); double legPx = lastLeg != null ? lastLeg.Open : double.NaN;
+            bool legOk = !double.IsNaN(legPx) && (nd > 0 ? legPx < mark : legPx > mark), swOk = nd > 0 ? sw < mark : sw > mark;
+            if (stopMode == "SWING" && swOk) { r.Stop = sw; r.StopWhy = "the broken swing " + (nd > 0 ? "high" : "low"); }
+            else if (legOk) { r.Stop = legPx; r.StopWhy = "the last " + (nd > 0 ? "BUY" : "SELL") + " leg " + lastLeg.Lots.ToString("0.##", IC) + " @ " + legPx.ToString("0.00", IC); }
+            else if (swOk) { r.Stop = sw; r.StopWhy = "the broken swing (the last leg is not behind the price)"; }
+            else { r.Stop = mark - nd * (double.IsNaN(tr.Atr1) ? 1 : tr.Atr1); r.StopWhy = "1 ATR M1 (no leg / swing behind the price)"; }
+            r.AddAtStop = (r.Stop - r.Entry) * nd * lots * perPrice - commPerLot * lots;   // the add's own loss at its stop (≤ 0)
+            r.BasketAtStop = total + net * perPrice * (r.Stop - mark) + r.AddAtStop;
+            r.NextHedge = nextHedge;
+            if (!double.IsNaN(nextHedge))
+            {
+                r.RiskAtHedge = total - cost + after * perPrice * (nextHedge - mark);   // the add still open at the next hedge
+                r.RiskAtHedgeStopped = total + net * perPrice * (nextHedge - mark) + r.AddAtStop;   // the add stopped first
+                r.RiskNoAdd = total + net * perPrice * (nextHedge - mark);
+            }
+            r.Ok = true; r.Why = "the net " + (nd > 0 ? "LONG +" : "SHORT −") + Math.Abs(net).ToString("0.##", IC) + ", " + tr.Text + " (≥ " + minStrength + "), the M1 close " + tr.Close.ToString("0.00", IC) + " broke the swing " + (nd > 0 ? "high " : "low ") + sw.ToString("0.00", IC);
+            r.Short = (nd > 0 ? "BUY " : "SELL ") + lots.ToString("0.##", IC) + " (add to winner) — exit " + r.ExitPx.ToString("0.0", IC) + (double.IsNaN(r.RiskAtHedge) ? "" : " · risk " + Usd0(r.RiskAtHedge) + " if it fails");
+            r.Text = "➕ ADD ON BREAK " + (addsUsed + 1) + "/" + maxAdds + ": " + (nd > 0 ? "BUY " : "SELL ") + lots.ToString("0.##", IC) + " @ " + r.Entry.ToString("0.00", IC) + " — WHY: " + r.Why
+                + " · the basket " + Usd(total) + ", net after " + after.ToString("+0.##;−0.##", IC) + " → breakeven " + r.BePx.ToString("0.00", IC) + ", +$" + target.ToString("0.##", IC) + " exit at " + r.ExitPx.ToString("0.00", IC) + " (the 🎯 EXIT GUARD closes everything there)"
+                + " · the add's stop " + r.Stop.ToString("0.00", IC) + " (" + r.StopWhy + ") = " + Usd(r.AddAtStop) + " on the add, the basket " + Usd(r.BasketAtStop) + " there"
+                + (double.IsNaN(nextHedge) ? "" : " · at the next hedge " + nextHedge.ToString("0.00", IC) + ": " + Usd(r.RiskAtHedge) + " with the add open (" + Usd(r.RiskAtHedgeStopped) + " if its stop went first, " + Usd(r.RiskNoAdd) + " without it)")
+                + ". " + AddBreakEvidence;
+            return r;
+        }
+        static string Usd0(double v) { return (v < 0 ? "−$" : "+$") + Math.Abs(v).ToString("N0", IC); }
         static string Usd(double v) { return (v < 0 ? "−$" : "+$") + Math.Abs(v).ToString("N2", IC); }
         // 🚀 the stack size: add = clamp((debt + target) ÷ (expected move × $ per 1.0 per lot) − the net already with the trend, step, cap)
         // debt = how far the basket total is under 0 (≥ 0); cap = the most net lots the trend side may hold; "" = sized, else why not

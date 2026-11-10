@@ -16,6 +16,7 @@
     <Company>SpasiX</Company>
     <Version>0.3.0</Version>
   </PropertyGroup>
+  <ItemGroup><EmbeddedResource Include="danger-model.txt" LogicalName="KeystoneMT5.danger-model.txt" /></ItemGroup>
   <ItemGroup>
     <Resource Include="assets\spasix.png" />
   </ItemGroup>

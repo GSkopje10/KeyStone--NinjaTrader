@@ -10,6 +10,7 @@ public static class BridgeTests
         if (Environment.GetEnvironmentVariable("ONLY09E") == "1") return NineETests.Main8() == 0 ? 0 : 1;   // the 09e block alone
         if (Environment.GetEnvironmentVariable("ONLY09F") == "1") return NineFTests.Main9() == 0 ? 0 : 1;   // the 09f block alone
         if (Environment.GetEnvironmentVariable("ONLY09G") == "1") return NineGTests.Main10() == 0 ? 0 : 1;   // the 09g block alone
+        if (Environment.GetEnvironmentVariable("ONLY09H") == "1") return NineHTests.Main11() == 0 ? 0 : 1;   // the 09h block alone
         var br = new Mt5Bridge(47999); br.Start(); Check(br.Problem == "", "the app listens on 127.0.0.1", br.Problem);
         using (var c = new TcpClient("127.0.0.1", 47999))
         {
@@ -72,6 +73,7 @@ public static class BridgeTests
         fails += NineETests.Main8();
         fails += NineFTests.Main9();
         fails += NineGTests.Main10();
+        fails += NineHTests.Main11();
         return fails == 0 ? 0 : 1;
     }
 }
