@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-09h";
+        public const string Build = "SpasiX • BUILD 2026-11-09i";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -314,6 +314,7 @@ namespace KeystoneMT5
                 Grid.SetColumn(tx, 1); g.Children.Add(tx);
                 setupSteps.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10, 12, 10), BorderBrush = Line, BorderThickness = new Thickness(1), Child = g, Margin = new Thickness(0, 0, 0, 8) });
             }
+            sp.Children.Add(AiSetupCard());   // 🧠 09i: the Anthropic API key (encrypted), TEST CONNECTION, spend, caps
             sp.Children.Add(DataFolderCard());
             return new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = sp };
         }

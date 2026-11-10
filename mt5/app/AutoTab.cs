@@ -96,7 +96,7 @@ namespace KeystoneMT5
             aBasket = new TextBlock { FontSize = 26, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, Foreground = Muted, Text = "—" };
             aInfo = new TextBlock { FontSize = 12.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap }; aLevels = new TextBlock { FontSize = 12.5, Foreground = Cyan, FontFamily = Sx.Mono };
             aBadge = new TextBlock { FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) }; info.Children.Add(aBadge); var row = new StackPanel { Orientation = Orientation.Horizontal }; row.Children.Add(aPhase); var bk = new StackPanel { Margin = new Thickness(24, 0, 0, 0) }; bk.Children.Add(new TextBlock { Text = "BASKET (all positions on the symbol)", FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Muted }); bk.Children.Add(aBasket); row.Children.Add(bk);
-            info.Children.Add(row); info.Children.Add(aInfo); info.Children.Add(aLevels);
+            info.Children.Add(row); info.Children.Add(aInfo); info.Children.Add(aLevels); info.Children.Add(AiCardBuild());   // 🧠 09i
             aCard = new Border { Child = info, Background = Sx.CardGrad, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 10, 0) };
             top.Children.Add(aCard); root.Children.Add(top); aTop = top;
             aSetups = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; DockPanel.SetDock(aSetups, Dock.Top); root.Children.Add(aSetups);
@@ -413,7 +413,7 @@ namespace KeystoneMT5
             // the numbers, the views
             aTiles = new ContentControl { Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aTiles, Dock.Top); root.Children.Add(aTiles);
             aViews = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) }; DockPanel.SetDock(aViews, Dock.Top);
-            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "LOG", "🗂 TESTS" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); aTable.ScrollToHome(); }; aViews.Children.Add(b); }
+            foreach (var v in new[] { "STORY", "ITERATIONS", "TRADES", "ANALYSIS", "LEARN", "🧠 AI", "LOG", "🗂 TESTS" }) { var vv = v; var b = Pill(v, Tint(Sx.Card2, 220)); b.Height = 26; b.Click += delegate { aView = vv; AutoPaint(true); aTable.ScrollToHome(); }; aViews.Children.Add(b); }
             aSetBtn = Pill("⚙ 1 · SETTINGS — SET UP FIRST", Tint(Gold, 200)); aSetBtn.Foreground = Bg; aSetBtn.Height = 26; aSetBtn.ToolTip = "step 1: the strategy's settings (they lock while it runs) — then ▶ START"; aSetBtn.Click += delegate { aView = "⚙ SETTINGS"; AutoPaint(true); }; aViews.Children.Insert(0, aSetBtn);   // user's request: the first tab, an obvious colour
             var raceBtn = Pill("🏁 RACE", Tint(Sx.Card2, 220)); raceBtn.Height = 26; raceBtn.ToolTip = "every strategy at once in the background, each on its own simulated account — the leaderboard of the day and the history"; raceBtn.Click += delegate { aView = "🏁 RACE"; AutoPaint(true); RacePaint(); }; aViews.Children.Add(raceBtn);
             aGuideBtn = Pill("🎯 CHART GUIDES", Tint(Sx.Card2, 220)); aGuideBtn.Height = 26; aGuideBtn.ToolTip = "draw what the strategy watches on the 📈 CHART (VWAP, the 20-candle high / low, the FVG zone, the hedge box, the next hedge) — a STRONG setup blinks"; aGuideBtn.Click += delegate { aGuidesOn = !aGuidesOn; Put("auto.guides", aGuidesOn ? "1" : "0"); AutoPaint(true); }; aViews.Children.Add(aGuideBtn);
@@ -442,7 +442,7 @@ namespace KeystoneMT5
             aResumeAt = DateTime.Now; aResumePending = !Sim && AutoWasRunning();
             raceResumeAt = DateTime.Now; raceResumePending = !Sim && Get("race.run", "0") == "1";
             aTimer.Tick += delegate {  int curN = auto.Running && auto.Current != null ? auto.Current.N : 0; if (curN != 0 && curN != aSeenIter) { aSeenIter = curN; if (raceShow != "") { raceShow = ""; if (raceShowBox != null) raceShowBox.SelectedIndex = 0; raceChipsSig = ""; } }   // your automation opened an iteration: the chart goes back to 🤖 MINE
-                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } try { auto.GuardStep(broker, aset); } catch { } try { auto.ProtectStep(broker, aset); } catch { } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); try { AutoRecovery(); } catch { } if (!Sim && (DateTime.Now - aWiAt).TotalSeconds >= 60) { aWiAt = DateTime.Now; AutoWhatIfRun(); } if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } try { auto.GuardStep(broker, aset); } catch { } try { auto.ProtectStep(broker, aset); } catch { } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); try { AutoRecovery(); } catch { } try { AiTriggers(); AiPaint(); } catch { } if (!Sim && (DateTime.Now - aWiAt).TotalSeconds >= 60) { aWiAt = DateTime.Now; AutoWhatIfRun(); } if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -1144,7 +1144,8 @@ namespace KeystoneMT5
         void AutoWhatIfRun()
         {
             if (aWiBusy) return; foreach (var c in aWi) { var it = auto.Iterations.FirstOrDefault(x => x.N == c.N && x.Start == c.Start); if (it != null) { c.ActualDone = it.Done; c.Actual = it.Done ? it.Result : auto.Current == it ? auto.BasketTotal : it.Result; } }
-            var todo = aWi.Where(c => !c.Done).ToList(); if (todo.Count == 0) return;
+            foreach (var c in aiWi) { var it = auto.Iterations.FirstOrDefault(x => x.N == c.N && x.Start == c.Start); if (it != null) { c.ActualDone = it.Done; c.Actual = it.Done ? it.Result : auto.Current == it ? auto.BasketTotal : it.Result; } }
+            var todo = aWi.Where(c => !c.Done).Concat(aiWi.Where(c => !c.Done)).ToList(); if (todo.Count == 0) return;
             AutoArchiveCandles(); var sym = todo[0].Symbol; SimSpec spec = null; List<Mt5Bar> mem;
             lock (broker.State.Gate) { Mt5Symbol ms; if (broker.State.Symbols.TryGetValue(sym, out ms)) spec = SimSpec.From(ms, broker.State.ServerOffsetSec, -7, broker.State.Account.Currency); mem = broker.State.SeriesOf(sym, 1).Bars.Select(b => b.Copy()).ToList(); }
             if (spec == null) return; var dir = Path.Combine(Dir, "auto", "candles"); var from = todo.Min(c => c.SnapAt).Date.AddDays(-3); aWiBusy = true;
@@ -1158,7 +1159,8 @@ namespace KeystoneMT5
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     aWiBusy = false;
-                    foreach (var r in done) { var c = aWi.FirstOrDefault(x => x.N == r.N && x.Start == r.Start); if (c == null) continue; bool was = c.Done; c.Done = r.Done; c.Reason = r.Reason; c.Result = r.Result; c.End = r.End; c.Worst = r.Worst; c.NowTotal = r.NowTotal; c.LastBar = r.LastBar; c.Path = r.Path; if (!was && c.Done) { var m = AccountBadge().Item1 + " — 🤖 WHAT IF #" + c.N + ": the automation alone " + c.WithoutYou + " · " + c.Verdict; Log(m, Cyan); Toast(m); } }
+                    for (int di = 0; di < done.Count && di < todo.Count; di++) { var r = done[di]; var c = todo[di]; bool isAi = aiWi.Contains(c); bool was = c.Done; c.Done = r.Done; c.Reason = r.Reason; c.Result = r.Result; c.End = r.End; c.Worst = r.Worst; c.NowTotal = r.NowTotal; c.LastBar = r.LastBar; c.Path = r.Path; if (!was && c.Done && !isAi) { var m = AccountBadge().Item1 + " — 🤖 WHAT IF #" + c.N + ": the automation alone " + c.WithoutYou + " · " + c.Verdict; Log(m, Cyan); Toast(m); } }
+                    if (todo.Any(x => aiWi.Contains(x))) WhatIf.SaveAll(AutoFile("aiwhatif"), aiWi);   // 🧠 the AI advice what-ifs
                     auto.Version++; AutoPaint(true);
                 }));
             });
@@ -1322,7 +1324,7 @@ namespace KeystoneMT5
 
                 // 04-07 the views as on the screen
                 try { ManualExport(dir); foreach (var mf in new[] { "14-manual-iterations.csv", "15-manual-legs.csv", "16-manual-story.txt" }) if (File.Exists(Path.Combine(dir, mf))) files.Add(mf); } catch { }
-                W("04-story.txt", AutoLines("STORY")); W("05-analysis.txt", AutoLines("ANALYSIS")); W("06-learn.txt", AutoLines("LEARN")); W("07-log.txt", AutoLines("LOG"));
+                W("04-story.txt", AutoLines("STORY")); W("05-analysis.txt", AutoLines("ANALYSIS")); W("06-learn.txt", AutoLines("LEARN")); W("08-ai.txt", AutoLines("🧠 AI")); W("07-log.txt", AutoLines("LOG"));
 
                 // 10 the recorded hedges (with what the price did after each)
                 try { if (System.IO.File.Exists(SigFile)) W("13-signals.csv", System.IO.File.ReadAllLines(SigFile)); } catch { }
@@ -1535,6 +1537,7 @@ namespace KeystoneMT5
         List<string> AutoLines(string aView)
         {
                 var L = new List<string>();
+                if (aView == "🧠 AI") return AiLines();
                 if (aView == "ITERATIONS")
                 {
                     L.Add(string.Format("{0,4}  {1,-10} {2,-8} {3,-8} {4,-5} {5,5} {6,5} {7,7} {8,9} {9,9} {10,9} {11,11} {12,11}  {13}", "#", "DATE", "START", "END", "FIRST", "BUYS", "SELLS", "HEDGES", "BUY LOTS", "SELL LOTS", "MAX LOTS", "MAX DD", "RESULT", "HOW"));
@@ -1567,6 +1570,7 @@ namespace KeystoneMT5
                 else if (aView == "LEARN")
                 {
                     if (aWi.Count > 0) { L.Add(WhatIf.Summary(aWi)); L.Add(""); }   // 🤖 09g: you vs the automation alone
+                    if (aiCo != null && (aiCo.Journal.Count > 0 || aiWi.Count > 0)) { L.Add(aiCo.Summary(DateTime.Now)); L.Add(AiWiSummary()); L.Add(""); }   // 🧠 09i
                     {   // 📡 THE SIGNAL JOURNAL: the entries the engine saw — what the next hour did — by how extended the move was at the signal
                         var sr = SigRows(); Func<string, double> nf = x => { double v; return double.TryParse(x, NumberStyles.Float, IC, out v) ? v : 0; };
                         L.Add("📡 THE SIGNAL JOURNAL — " + sr.Count + " entry signals with what the price did in the next 15 / 30 / 60 min (taken or not) • saved in " + SigFile);
@@ -1680,7 +1684,7 @@ namespace KeystoneMT5
         {
             foreach (Button b in aViews.Children) if (b.Content is string) { if (b == aRebornBtn) continue; if (b == aSetBtn) { bool selS = aView == "⚙ SETTINGS"; b.Background = Tint(Gold, (byte)(selS ? 255 : 190)); b.Foreground = Bg; b.BorderBrush = selS ? Sx.White : Gold; continue; } b.Background = (string)b.Content == aView ? Tint(Cyan, 70) : Tint(Sx.Card2, 220); }   // ⚙ SETTINGS stays gold (step 1)
             var L = AutoLines(aView);
-            aTable.TextWrapping = aView == "STORY" || aView == "LOG" ? TextWrapping.Wrap : TextWrapping.NoWrap;
+            aTable.TextWrapping = aView == "STORY" || aView == "LOG" || aView == "🧠 AI" ? TextWrapping.Wrap : TextWrapping.NoWrap;
             bool other = aView == "⚙ SETTINGS" || aView == "🏁 RACE", rowsView = !other && (aView == "ITERATIONS" || aView == "TRADES" || aView == "🗂 TESTS");
             aRowsView.Visibility = rowsView ? Visibility.Visible : Visibility.Collapsed; aTable.Visibility = !other && !rowsView ? Visibility.Visible : Visibility.Collapsed;
             if (other) return; if (rowsView) { aRows.Children.Clear(); if (aView == "🗂 TESTS") AutoTestsRows(); else AutoRowsOf(auto, aRows, aView); return; }
