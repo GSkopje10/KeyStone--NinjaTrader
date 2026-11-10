@@ -379,7 +379,7 @@ namespace KeystoneMT5
         public void HandStop(string what)
         {
             if (!StopsOnHand) return;
-            HandStopped = true; HandWhat = what; HandAt = DateTime.Now; Running = false; Phase = "OFF"; pendId = null;
+            ManualAction(what); HandStopped = true; HandWhat = what; HandAt = DateTime.Now; Running = false; Phase = "OFF"; pendId = null;
             StopReason = "⏸ you traded by hand: " + what;
             TellNow("⏸ AUTOMATION STOPPED — you traded by hand (" + what + "). Your positions are untouched (nothing was closed or sent). To continue: 🛡 HEDGE ▸ ▶ RESUME AUTOMATION.");
             Version++; if (OnHandStop != null) try { OnHandStop(what); } catch { }
@@ -405,7 +405,16 @@ namespace KeystoneMT5
             if (g > knownGross + 1e-6) { var p = sn.Pos.OrderBy(x => x.Time).ThenBy(x => x.Ticket).Last(); return p.Side + " " + (g - knownGross).ToString("0.##", IC) + " @ " + P(p.Open) + " opened outside the automation, " + Now.ToString("HH:mm:ss", IC); }
             return (knownGross - g).ToString("0.##", IC) + " lots closed outside the automation, " + Now.ToString("HH:mm:ss", IC);
         }
-        public bool NoCatchUp; bool catchNoted;   // ▶ RESUME without the catch-up order (09f): a hedge line already passed at the start is not acted on
+        public bool NoCatchUp; bool catchNoted;
+        // 🤖 WHAT IF (09g): the basket after the last step with nothing done by hand — at the FIRST manual action of an iteration it is handed out once
+        public event Action<AutoIteration, List<WhatIfLeg>, double, DateTime, string> OnManualAction;
+        List<WhatIfLeg> cleanLegs; double cleanBanked; DateTime cleanAt; int wiIter = -1;
+        void CleanSnap(Snap sn) { cleanLegs = sn.Pos.Select(p => new WhatIfLeg { Ticket = p.Ticket, Side = p.Side, Lots = p.Lots, Open = p.Open, Time = p.Time }).ToList(); cleanBanked = Current != null ? Math.Round(BasketTotal - Basket, 2) : 0; cleanAt = Now; }
+        void ManualAction(string what)
+        {
+            var it = Current; if (it == null || it.Done || wiIter == it.N || OnManualAction == null) return; wiIter = it.N;
+            try { OnManualAction(it, cleanLegs != null ? cleanLegs.ToList() : new List<WhatIfLeg>(), cleanBanked, cleanAt > DateTime.MinValue ? cleanAt : Now, what); } catch { }
+        }   // ▶ RESUME without the catch-up order (09f): a hedge line already passed at the start is not acted on
         // ▶ what RESUME / START would do AT ONCE (09f): a dry run on a throw-away engine — nothing is sent (its orders are only written down)
         public static List<string> PreviewStart(IBroker b, AutoSettings s, Func<OpenSave> restore, IEnumerable<AutoIteration> history)
         {
@@ -754,8 +763,9 @@ namespace KeystoneMT5
                         if (!b.IsSim && !sn.Deals.Any(d => d.Time >= Now.AddSeconds(-60) && IsHandDeal(d))) { if (handWait == DateTime.MinValue) handWait = DateTime.Now; if ((DateTime.Now - handWait).TotalSeconds < 10) return; }
                         handWait = DateTime.MinValue; HandStop(HandGross(sn)); return;
                     }
-                    handWait = DateTime.MinValue; Manual(sn, it);
+                    handWait = DateTime.MinValue; ManualAction(HandGross(sn)); Manual(sn, it);
                 }
+                else if (pendId == null) CleanSnap(sn);
                 if (EndOfDay())
                 {
                     if (Basket < 0 && Set.EodLoss != "CLOSE")

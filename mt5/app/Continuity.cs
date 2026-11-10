@@ -109,9 +109,14 @@ namespace KeystoneMT5
         // 🧮 09d one-time REPAIR of the saved results (#41: "+$204.37 in 4 s"): each finished iteration recomputed from its OWN deals on the symbol
         // (the legs it opened — a leg opened more than 60 s before its start was taken over and its earlier P/L is not this iteration's); no
         // deal at all while the deals history covers that time → flagged "result unverified". Returns one line per change.
-        public static List<string> RepairResults(List<AutoIteration> its, IList<Mt5Deal> deals, string sym, double target = 0)
+        public static List<string> RepairResults(List<AutoIteration> its, IList<Mt5Deal> deals, string sym, double target = 0, bool completeHistory = true)
         {
             var res = new List<string>();
+            if (!completeHistory)
+            {   // 09g: an MT5 account's deals history (what the bridge sends) can have gaps → "no deals of its own" is NOT evidence there: undo that flag
+                foreach (var x in its) foreach (var tag in new[] { " · result unverified — balance jump (no deals of its own)", " · 09d: result unverified (no deals)" })
+                    if ((x.Reason ?? "").Contains(tag)) { x.Reason = x.Reason.Replace(tag, ""); res.Add("#" + x.N + ": the \"no deals\" flag removed (an MT5 account's history can have gaps) — counted again"); }
+            }
             // 09f: the #41 pattern — far more than the target (> 5 ×) within a minute, never below $0, several legs = a basket taken over / a balance
             // jump, not a trade (its deals were in the other DEMO file of the 09c swap) → "result unverified" (listed grey, not counted)
             foreach (var x in its.Where(i => i.Done && !i.Unverified))
@@ -125,12 +130,12 @@ namespace KeystoneMT5
                 if ((x.Reason ?? "").Contains("09d") || x.Unverified) continue;   // already repaired / flagged
                 DateTime from = new DateTime(x.Start.Ticks - x.Start.Ticks % TimeSpan.TicksPerSecond), to = x.End.AddSeconds(3);
                 var outs = mine.Where(d => d.Entry == "OUT" && d.Time >= from && d.Time <= to).ToList();
-                if (outs.Count == 0) { if (first < from && Math.Abs(x.Result) >= 0.01) { x.Reason += " · result unverified — balance jump (no deals of its own)"; res.Add("#" + x.N + " " + x.Start.ToString("dd MMM HH:mm", IC) + ": no deal found — result " + x.Result.ToString("0.00", IC) + " unverified"); } continue; }
+                if (outs.Count == 0) { if (completeHistory && first < from && Math.Abs(x.Result) >= 0.01) { x.Reason += " · result unverified — balance jump (no deals of its own)"; res.Add("#" + x.N + " " + x.Start.ToString("dd MMM HH:mm", IC) + ": no deal found — result " + x.Result.ToString("0.00", IC) + " unverified"); } continue; }
                 double sum = 0; int before = 0;
                 foreach (var d in outs)
                 {
                     var inn = mine.FirstOrDefault(i => i.Entry == "IN" && i.Position == d.Position);
-                    if (inn == null || inn.Time < from.AddSeconds(-60)) { before++; continue; }   // opened before it (or not in this account's history): not this iteration's P/L   // taken over: its P/L began before this iteration
+                    if (inn == null ? completeHistory : inn.Time < from.AddSeconds(-60)) { before++; continue; }   /* no opening deal: on the DEMO = opened elsewhere; on MT5 maybe just a gap in the history → counted */   // opened before it (or not in this account's history): not this iteration's P/L   // taken over: its P/L began before this iteration
                     sum += d.Profit + d.Swap + d.Commission + (inn != null && inn.Lots > 0 ? inn.Commission * d.Lots / inn.Lots : 0);
                 }
                 sum = Math.Round(sum, 2);
