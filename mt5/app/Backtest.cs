@@ -388,7 +388,7 @@ namespace KeystoneMT5
             {
                 var spec = SpecNow(sym); if (spec == null) { miss.Add(sym + " (no spec — connect MT5 once)"); continue; }
                 var m1 = HistoryStore.LoadRange(sym, f.AddDays(-Warm()), t); if (m1.Count == 0) { DateTime fd; bool kf; lock (live.State.Gate) kf = live.State.FirstDate.TryGetValue(sym, out fd); miss.Add(sym + (kf && fd.Date > t ? " (MT5's history of " + sym + " starts " + fd.ToString("dd MMM yyyy", IC) + " — choose later days)" : " (no candles on this PC" + (kf ? "; MT5's history starts " + fd.ToString("dd MMM yyyy", IC) : "") + ")")); continue; }
-                var tk = btTicks ? HistoryStore.LoadTickRange(sym, f, t) : null; if (tk != null) ticks += tk.Count; bars += m1.Count;
+                string srv; lock (live.State.Gate) srv = live.State.Account.Server; var tk = btTicks ? HistoryStore.LoadTickRange(sym, f, t, srv) : null;   /* 🎞 09k: a day with no downloaded ticks uses the recorded ones (this account's server first) */ if (tk != null) ticks += tk.Count; bars += m1.Count;
                 input.Add(Tuple.Create(spec, m1, tk));
             }
             if (input.Count == 0) { btStatus.Text = "✖ nothing to replay: " + string.Join(", ", miss) + " — connect MT5 and press ▶ START (it downloads)"; btStatus.Foreground = Red; return; }

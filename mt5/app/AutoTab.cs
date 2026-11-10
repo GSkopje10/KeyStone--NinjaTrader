@@ -146,7 +146,7 @@ namespace KeystoneMT5
             aLockTxt = new TextBlock { Text = "", Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }; lockRow.Children.Add(aLockTxt);
             aLock.Child = lockRow; aSettings.Children.Add(aLock);
             var r0 = new WrapPanel();
-            r0.Children.Add(ADrop("preset", "STRATEGY (FROM THE RESEARCH)", () => aset.Preset == "SAFELIVE" ? "🔒 SAFE LIVE (small accounts)" : aset.Preset == "STRADDLE930" ? "⏰ 9:30 STRADDLE (NAS100, tested)" : aset.Preset == "FULLAUTO" ? "🤖 FULL AUTO (step 1 — scored entries)" : aset.Preset == "DEFENDER" ? "🛡 DEFENDER (default — capital first)" : aset.Preset == "PRO" ? "★ SAFE HEDGE PRO (+ recovery)" : aset.Preset == "LADDER" ? "🪜 HM LADDER (draft, DEMO)" : aset.Preset == "SAFE" ? "★ SAFE HEDGE (tested)" : aset.Preset == "AH" ? "A + SIGNAL HEDGE" : aset.Preset == "A" ? "A · London engulfing — lower risk" : aset.Preset == "B" ? "B · NY FVG 50% — no stop" : aset.Preset == "C" ? "C · all day VWAP rejection" : aset.Preset == "D" ? "D · M1 aggression break" : aset.Preset == "F" ? "F · FVG 50% + FVG hedge" : aset.Preset == "BOX" ? "HEDGE BOX · consolidation flip (swap-free only)" : "your own settings", () => new List<Mi> {
+            r0.Children.Add(ADrop("preset", "STRATEGY (FROM THE RESEARCH)", () => aset.Preset == "SAFELIVE" ? "🔒 SAFE LIVE (small accounts)" : aset.Preset == "RUNNER" ? "🦅 RUNNER (experiment — simulated only)" : aset.Preset == "STRADDLE930" ? "⏰ 9:30 STRADDLE (NAS100, tested)" : aset.Preset == "FULLAUTO" ? "🤖 FULL AUTO (step 1 — scored entries)" : aset.Preset == "DEFENDER" ? "🛡 DEFENDER (default — capital first)" : aset.Preset == "PRO" ? "★ SAFE HEDGE PRO (+ recovery)" : aset.Preset == "LADDER" ? "🪜 HM LADDER (draft, DEMO)" : aset.Preset == "SAFE" ? "★ SAFE HEDGE (tested)" : aset.Preset == "AH" ? "A + SIGNAL HEDGE" : aset.Preset == "A" ? "A · London engulfing — lower risk" : aset.Preset == "B" ? "B · NY FVG 50% — no stop" : aset.Preset == "C" ? "C · all day VWAP rejection" : aset.Preset == "D" ? "D · M1 aggression break" : aset.Preset == "F" ? "F · FVG 50% + FVG hedge" : aset.Preset == "BOX" ? "HEDGE BOX · consolidation flip (swap-free only)" : "your own settings", () => WithRunner(new List<Mi> {
                 new Mi { Text = "★ MY DEFAULT — the settings you saved yourself" + (Get("auto.mydefault", "") == "" ? " (none saved yet: set the boxes, then 💾 SAVE AS MY DEFAULT below)" : ""), Fg = Gold, Do = () => { var md = Get("auto.mydefault", ""); if (md == "") { Toast("★ no default saved yet — set the boxes, then 💾 SAVE AS MY DEFAULT"); return; } aset = AutoSettings.Load(md); AutoModelBoxes(); } },
                 new Mi { Text = "💾 SAVE THESE SETTINGS AS ★ MY DEFAULT (every box as it is now)", Do = () => { Put("auto.mydefault", AutoRead().Save()); Toast("💾 saved as ★ MY DEFAULT — pick it in STRATEGY any time"); } },
                 new Mi { Text = "✔ TURN ON ALL THE PROTECTIONS — keep MY entry, size and target; add 🛡 RISK GUARD + 🚨 DANGER EXIT + 📉 SCALE OUT + range-only hedge + 🛟 rescue + ⛔ hard stops (from the next iteration while it runs)", Fg = Green, Do = () => AutoProtectAll() },
@@ -164,7 +164,7 @@ namespace KeystoneMT5
                 new Mi { Text = "D · M1 AGGRESSION BREAK (high frequency) — 4+ one-colour M1 candles, the first opposite close, then the break of its high / low; buy over VWAP / sell under; 03:00-15:30 NY, +$20, stop −$300, close 16:55 NY (2023-26 at Duramarkets' cost: +$4,045 / +$2,320 / +$2,423, 88% won, ~5 trades a day, worst drawdown $2,908)", Fg = Green, Do = () => AutoModel("D") },
                 new Mi { Text = "F · FVG 50% + FVG HEDGE — the entry at the 50% of the fair value gap (stacked gaps in a row = the 50% of all of them), the hedge at the LOW (buys) / HIGH (sells) of the gap's first candle, +$20 (not in the research yet — test it on DEMO)", Fg = Amber, Do = () => AutoModel("F") },
                 new Mi { Text = "HEDGE BOX — the 96-hour H1 consolidation: hedge (flip 0.1 → 0.2 the other way) only at a break of its high / low, nothing inside, basket +$150 — ONLY on a swap-free account (deep floating losses, −$11k per 0.1 lot seen)", Fg = Red, Do = () => AutoModel("BOX") },
-                new Mi { Text = "YOUR OWN — keep the settings below as you set them", Do = () => aset.Preset = "" } }));
+                new Mi { Text = "YOUR OWN — keep the settings below as you set them", Do = () => aset.Preset = "" } })));
             r0.Children.Add(ADrop("vf", "VWAP FILTER", () => aset.VwapFilter == "DISCOUNT" ? "buy UNDER / sell OVER" : aset.VwapFilter == "FLOW" ? "buy OVER / sell UNDER" : "none", () => new List<Mi> {
                 new Mi { Text = "NONE — every signal", Do = () => aset.VwapFilter = "NONE" }, new Mi { Text = "DISCOUNT — buy only under the day's VWAP, sell only over it (reversals: A)", Do = () => aset.VwapFilter = "DISCOUNT" },
                 new Mi { Text = "FLOW — buy only over the VWAP, sell only under it (with the flow: B)", Do = () => aset.VwapFilter = "FLOW" } }));
@@ -519,12 +519,16 @@ namespace KeystoneMT5
             if (spec == null || m1.Count(b => b.Time >= it.Start && b.Time <= it.End) < 2) return;
             double comm = Paper && paper != null ? paper.Acct.Set.CommissionPerLot : Math.Max(0, set.CommissionPerLot); string file = PmFile; pmBusy = true;
             var tape = auto.TickTape.Where(t => t.T >= it.Start.AddMinutes(-3) && t.T <= it.End.AddHours(6)).ToList();   // 🎞 the real ticks of that basket (and after)
+            string srv = TickServer();
             System.Threading.Tasks.Task.Run(() =>
             {
+                try { var rec = TickRecorder.LoadRange(set.Symbol, it.Start.AddMinutes(-3), it.End.AddHours(6), srv).Where(t => t.T >= it.Start.AddMinutes(-3) && t.T <= it.End.AddHours(6)).ToList(); if (rec.Count > tape.Count) tape = rec; } catch { }   // 🎞 09k: the ticks recorded live (e.g. after a restart the tape is short)
                 PostMortemRow r = null; try { r = PostMortem.Run(spec, m1, it, set, bal, spread, comm, tape); if (r.RealTicks) r.Lesson = "🎞 " + r.Lesson; PostMortem.Save(file, r); } catch { }
                 Dispatcher.BeginInvoke(new Action(() => { pmBusy = false; if (r != null) { pmRows = PostMortem.Load(file); auto.Note("🧠 POST-MORTEM " + r.Lesson); AutoSelfTune(); if (aView == "LEARN") AutoPaint(true); } }));
             });
         }
+        // 🎞 09k: the MT5 server whose recorded ticks come first (this window's terminal; the DEMO reads the same terminal's prices)
+        string TickServer() { try { if (live != null) lock (live.State.Gate) return live.State.Account.Server; } catch { } return null; }
         // 🧠 SELF-TUNING (SMART on): when one protection was the post-mortems' best in 6+ of the last 10 iterations, it becomes part of the settings
         // from the NEXT iteration — by itself on DEMO / BACKTEST (the user's call: these are tests), only proposed in the story on a real account
         void AutoSelfTune()
@@ -631,8 +635,17 @@ namespace KeystoneMT5
             Toast("✔ the protections are ON" + (auto.Running ? " from the next iteration" : "")); AutoPaint(true);
         }
         double AutoBal() { try { lock (broker.State.Gate) return broker.State.Account.Balance > 0 ? broker.State.Account.Balance : 5000; } catch { return 5000; } }
+        // 🦅 09k: the RUNNER experiment is offered only on a simulated account (🎮 DEMO, 🧪 BACKTEST) — never in the LIVE / PROP settings
+        string RunnerWarnLine() { double bal = 0; try { bal = AutoBal(); } catch { } var w = AutoSettings.RunnerSizeWarning(bal); return w == "" ? "" : "\n" + w + "."; }
+        List<Mi> WithRunner(List<Mi> l)
+        {
+            if (!Virtual) return l; int at = l.FindIndex(m => m.Text != null && m.Text.StartsWith("🛡 DEFENDER")); if (at < 0) at = l.Count - 1; else at++;
+            l.Insert(at, new Mi { Text = AutoSettings.RunnerText + RunnerWarnLine() + "\nIts values: DEFENDER for the balance, then " + AutoSettings.RunnerPer1k.ToString("0.###", IC) + " lot per $1,000 of the LIVE balance at every iteration start (nearest lot step, min 0.01), lead = the entry, add-ons 2×, target = the lots × $" + (200 * AutoSettings.RunnerTargetMult).ToString("0", IC) + " (" + AutoSettings.RunnerTargetMult.ToString("0.#", IC) + "× DEFENDER's), 🧹 COMPRESS ALWAYS, 🛡 RISK GUARD in LOCK mode (0.6 lot per $5,000, margin 500 %, 3 hedges an hour, pair-off). Every box can be changed after picking it.", Fg = Amber, Do = () => AutoModel("RUNNER") });
+            return l;
+        }
         void AutoModel(string name)
         {
+            if (name == "RUNNER" && !Virtual) { Sx.Info(this, "🦅 RUNNER", AutoSettings.RunnerNo, Amber); return; }
             aset = AutoSettings.Model(name, AutoRead(), AutoBal());
             Action<string, string> t = (k, v) => { TextBox tb; if (af.TryGetValue(k, out tb)) tb.Text = v; };
             t("sx", aset.StradX.ToString(IC)); t("srk", aset.StradRangeK.ToString(IC)); t("srsk", aset.StradRisk.ToString(IC)); t("smax", aset.StradMaxLots.ToString(IC)); t("sopen", aset.StradOpen); t("sclose", aset.StradClose);
@@ -928,8 +941,8 @@ namespace KeystoneMT5
         {
             if (aPresetNote != null)
             {   // 🔒 09d: SAFE LIVE's evidence stays in sight under the settings while it is the strategy
-                bool sl = aset.Preset == "SAFELIVE"; aPresetNote.Text = sl ? "🔒 SAFE LIVE (optional — DEFENDER stays the default). " + AutoSettings.SafeLiveEvidence + " Every box can still be changed." : "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED";
-                aPresetNote.Foreground = sl ? Green : Muted; aPresetNote.MaxWidth = sl ? 1100 : 720;
+                bool sl = aset.Preset == "SAFELIVE", rn = aset.IsRunner; aPresetNote.Text = rn ? AutoSettings.RunnerText + RunnerWarnLine() + " Every box can still be changed." + (Virtual ? "" : " ⛔ NOT on this MT5 account: START refuses it.") : sl ? "🔒 SAFE LIVE (optional — DEFENDER stays the default). " + AutoSettings.SafeLiveEvidence + " Every box can still be changed." : "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED";
+                aPresetNote.Foreground = rn ? Amber : sl ? Green : Muted; aPresetNote.MaxWidth = sl || rn ? 1100 : 720;
             }
             Action<string, bool> v = (k, on) => { FrameworkElement e; if (afBox.TryGetValue(k, out e)) e.Visibility = on ? Visibility.Visible : Visibility.Collapsed; };
             v("stradbox", aset.Preset == "STRADDLE930"); v("sx", aset.StradXMode == "POINTS"); v("srk", aset.StradXMode != "POINTS");
@@ -1170,14 +1183,15 @@ namespace KeystoneMT5
             var todo = aWi.Where(c => !c.Done).Concat(aiWi.Where(c => !c.Done)).ToList(); if (todo.Count == 0) return;
             AutoArchiveCandles(); var sym = todo[0].Symbol; SimSpec spec = null; List<Mt5Bar> mem;
             lock (broker.State.Gate) { Mt5Symbol ms; if (broker.State.Symbols.TryGetValue(sym, out ms)) spec = SimSpec.From(ms, broker.State.ServerOffsetSec, -7, broker.State.Account.Currency); mem = broker.State.SeriesOf(sym, 1).Bars.Select(b => b.Copy()).ToList(); }
-            if (spec == null) return; var dir = Path.Combine(Dir, "auto", "candles"); var from = todo.Min(c => c.SnapAt).Date.AddDays(-3); aWiBusy = true;
+            if (spec == null) return; var dir = Path.Combine(Dir, "auto", "candles"); var from = todo.Min(c => c.SnapAt).Date.AddDays(-3); aWiBusy = true; string wsrv = TickServer(); var wTo = mem.Count > 0 ? mem.Max(b => b.Time) : DateTime.Today;
             System.Threading.Tasks.Task.Run(() =>
             {
+                List<SimTick> wtk = null; try { wtk = TickRecorder.LoadRange(sym, todo.Min(c => c.SnapAt).Date, wTo, wsrv); } catch { }   // 🎞 09k: the recorded ticks of those days (the replay follows them where they exist)
                 var bars = new Dictionary<DateTime, Mt5Bar>();
                 try { if (Directory.Exists(dir)) foreach (var f in Directory.GetFiles(dir, sym + "-*.csv")) { DateTime d; if (!DateTime.TryParseExact(Path.GetFileNameWithoutExtension(f).Substring(sym.Length + 1), "yyyy-MM-dd", IC, DateTimeStyles.None, out d) || d < from) continue; foreach (var l in File.ReadAllLines(f).Skip(1)) { var a = l.Split(','); DateTime t; if (a.Length >= 7 && DateTime.TryParseExact(a[0], "yyyy-MM-dd HH:mm", IC, DateTimeStyles.None, out t)) bars[t] = new Mt5Bar { Time = t, O = double.Parse(a[1], IC), H = double.Parse(a[2], IC), L = double.Parse(a[3], IC), C = double.Parse(a[4], IC), V = long.Parse(a[5], IC), Spread = int.Parse(a[6], IC) }; } } } catch { }
                 foreach (var b in mem) bars[b.Time] = b;
                 var list = bars.Values.OrderBy(b => b.Time).ToList(); var done = new List<WhatIfCase>();
-                foreach (var c in todo) { var copy = WhatIfCase.Load(c.Save()); try { WhatIf.Replay(copy, list, spec); } catch { } done.Add(copy); }
+                foreach (var c in todo) { var copy = WhatIfCase.Load(c.Save()); try { WhatIf.Replay(copy, list, spec, wtk); } catch { } done.Add(copy); }
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     aWiBusy = false;
@@ -1384,6 +1398,9 @@ namespace KeystoneMT5
                     files.Add("09-race\\ (" + raceFiles + " day files + leaderboard.txt)");
                 }
 
+                // 17 🎞 09k: the real ticks (recorded live by SpasiX, or downloaded by the BACKTEST) of the days that had an iteration — the last 10 such days
+                int tickFiles = 0; long tickBytes = 0;
+                try { var tf17 = TickRecorder.ExportDays(s.Symbol, its.SelectMany(x => { var e = x.Done && x.End > x.Start ? x.End : x.Start; var l = new List<DateTime>(); for (var d = x.Start.Date; d <= e.Date && l.Count < 10; d = d.AddDays(1)) l.Add(d); return l; }), Path.Combine(dir, "17-ticks"), ExportTickDays, TickServer()); tickFiles = tf17.Count; tickBytes = tf17.Sum(f => new FileInfo(f).Length); if (tickFiles > 0) files.Add("17-ticks\\ (" + tickFiles + " days)"); } catch { }
                 // 00 README: what this is and what every file holds
                 var rd0 = new List<string> {
                     "SPASIX EXPORT FOR CLAUDE", "",
@@ -1406,6 +1423,8 @@ namespace KeystoneMT5
                     "  11-basket-paths.csv every open basket once a minute: price, basket $, net lots, legs, gross lots (LOCKED when locked)",
                     "  12-candles-by-day\\ the 1-minute candles of every day that had an iteration (archived by SpasiX every 10 minutes)",
                     "  10-hedges.csv       every hedge / lock / unlock: the basket's range, ATR, hedges before it, its best / worst move in the next 30 min, whipsaw = 1",
+                    "  17-ticks\\           " + (tickFiles > 0 ? "the REAL TICKS of the last " + tickFiles + " day(s) with an iteration (" + (tickBytes / 1048576.0).ToString("0.0", IC) + " MB before the zip; capped at the newest " + ExportTickDays + " such days to keep the zip reasonable): <SYMBOL>-yyyyMMdd-<server or download>.ticks — recorded live by SpasiX from MT5 (or downloaded by the BACKTEST)" : "(no recorded / downloaded ticks for the iteration days — 🎞 SAVE LIVE TICKS in ⚙ SETUP records them from now on)"),
+                    "                      tick format: " + TickRecorder.FormatText,
                     "  09-race\\            " + (raceFiles > 0 ? "every strategy of the 🏁 RACE: the saved iterations / trades per day + leaderboard.txt" : "(no race saved yet)") };
                 File.WriteAllLines(Path.Combine(dir, "00-README.txt"), rd0);
 
@@ -1415,6 +1434,7 @@ namespace KeystoneMT5
             }
             catch (Exception ex) { Log("📦 export failed: " + ex.Message, Red); Toast("📦 export failed: " + ex.Message); }
         }
+        const int ExportTickDays = 10;   // 📦 17-ticks: at most the newest 10 iteration days
         // the recorded hedges / locks / unlocks of this account (each with what the price did in the 30 minutes after it)
         List<string[]> AutoHedgeRows() { var res = new List<string[]>(); if (string.IsNullOrEmpty(aHist)) return res; try { var f = AutoFile("hedges"); if (File.Exists(f)) foreach (var l in File.ReadAllLines(f)) { var a = l.Split(','); if (a.Length >= 15 && a[0] != "iteration") res.Add(a); } } catch { } return res; }
         const string HedgeHeader = "iteration,time,kind,side,lots,price,range_low,range_high,atr,hedges_before,basket,best_30min,worst_30min,whipsaw,context";

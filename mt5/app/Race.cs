@@ -95,9 +95,9 @@ namespace KeystoneMT5
     public static class RaceLanes
     {
         // ▶ COMPARE WITH MY SETTINGS (09j): the ready-made set — the baseline, the recommended protections, ➕ ADD ON BREAK + 🛡 PROTECT, TAH
-        public static readonly string[] Compare = { "MINE", "REC", "AOP", "TAH" };
+        public static readonly string[] Compare = { "MINE", "RUN", "REC", "AOP", "TAH" };   // 09k: 🦅 RUNNER next to MINE
         static string RadarText { get { return "50 %"; } }
-        public static readonly string[] Experimental = { "SLV", "FX10", "NFB", "TST", "RNA", "RLK", "RBE", "TAH", "AOB", "AOP" };
+        public static readonly string[] Experimental = { "SLV", "FX10", "NFB", "TST", "RNA", "RLK", "RBE", "TAH", "AOB", "AOP", "RUN" };
         public static bool IsExperimental(string k) { return Array.IndexOf(Experimental, k) >= 0; }
         public static string Tip(string k)
         {
@@ -110,6 +110,7 @@ namespace KeystoneMT5
             if (k == "AOB") return "🧪 EXPERIMENTAL — not proven. MY SETTINGS + ➕ ADD ON BREAK: while the basket loses, ONE add (1× the entry) in the net's direction on a trend ≥ 70 that way + a finished M1 close beyond the last swing, its stop at the last leg; the 🎯 exit guard closes all at the target. " + TrendDetect.AddBreakEvidence;
             if (k == "REC") return "★ MY SETTINGS + the RECOMMENDED protections: 🧹 COMPRESS HEDGES ALWAYS (the best of the 6-year replays: no wipe-out) + 🔐 at the breakeven line CLOSE ALL.";
             if (k == "AOP") return "🧪 EXPERIMENTAL — not proven. ➕ ADD ON BREAK + 🛡 PROTECT THE ADD on MY SETTINGS: the add is protected at once (entry − 1 × ATR M1); reached → lock at net 0, a 15-minute cool-down, then restart with the entry size on the first break.";
+            if (k == "RUN") return "🧪 EXPERIMENTAL — " + AutoSettings.RunnerText + " Here on its own simulated account, sized from the race balance.";
             if (k == "TST") return "🧪 EXPERIMENTAL — not proven. 🚀 TREND STACK on MY SETTINGS: the short-term trend detector stacks lots on the trend's side at each new swing break (sized to reach the target in 1.5 × ATR M5, capped), a flip closes the stacks, a strong trend banks the other side's winners — simulation only.";
             if (k == "NFB") return "🧪 EXPERIMENTAL — not proven. MY SETTINGS, but NO FLIP INSIDE A BOX: while the price is still inside the high–low of the last 30 finished candles no hedge opens — the hedge waits just beyond the box (the R2-W variant of the research), here only to compare on new data.";
             return "";
@@ -117,7 +118,7 @@ namespace KeystoneMT5
         public static AutoSettings For(string k, AutoSettings mine, double bal)
         {
             bool mineBased = k == "MINE" || k == "CMP" || k == "RNG" || k == "LKL" || k == "LKF" || k == "FX10" || k == "NFB" || k == "TST" || k == "RNA" || k == "RLK" || k == "RBE" || k == "TAH" || k == "AOB" || k == "AOP" || k == "REC" || k.StartsWith("BH");
-            var set = mineBased ? mine.Copy() : k == "SLV" ? AutoSettings.Model("SAFELIVE", mine, bal) : AutoSettings.Model(k, mine);
+            var set = mineBased ? mine.Copy() : k == "SLV" ? AutoSettings.Model("SAFELIVE", mine, bal) : k == "RUN" ? AutoSettings.Model("RUNNER", mine, bal) : AutoSettings.Model(k, mine);
             if (k.StartsWith("BH")) { set.EntryMode = "AGGBRK"; set.Tf = int.Parse(k.Substring(2), CultureInfo.InvariantCulture); set.AggRun = Math.Max(2, set.AggRun); set.FirstDir = "AUTO"; set.NextStart = "BREAK"; }   // BREAK OF HIGH: an aggression run, the first opposite close, its high (buy) / low (sell) broken — your hedging untouched
             if (k == "CMP") set.CompressMode = "ALWAYS"; else if (k == "RNG") { set.RangeOnly = true; set.LockOn = false; } else if (k == "LKL") { set.LockOn = true; set.Unlock = "LEAD"; set.RangeOnly = true; } else if (k == "LKF") { set.LockOn = true; set.Unlock = "LIFT"; set.RangeOnly = true; }
             else if (k == "FX10") { set.HedgeMode = "PRICE"; set.HedgePrice = 10; set.HedgeCap = 0; set.RangeOnly = false; set.QuickHedge = false; set.CandleHedge = false; set.KeyHedge = false; set.TrendHedge = false; set.DdTightEvery = 0; set.BoxBars = 0; }

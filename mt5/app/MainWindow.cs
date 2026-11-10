@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-09j";
+        public const string Build = "SpasiX • BUILD 2026-11-09k";
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,
@@ -187,7 +187,8 @@ namespace KeystoneMT5
             foreach (var k in new[] { "OPEN P/L", "BALANCE", "EQUITY", "ITER TOTAL", "TODAY", "MARGIN LEVEL", "FREE MARGIN" })
             {
                 bool big = k == "OPEN P/L" || k == "ITER TOTAL", eq = k == "EQUITY";   // the two numbers that matter most stand out: a coloured, pulsing border
-                var cap = new TextBlock { Text = k == "MARGIN LEVEL" ? "MARGIN" : k == "OPEN P/L" ? "OPEN P/L = IF ALL CLOSED NOW" : k == "ITER TOTAL" ? "🧮 TOTAL NOW" : k, Foreground = big || eq ? Gold : Muted, FontSize = big || eq ? 10.5 : 9.5, FontWeight = FontWeights.Bold };
+                var cap = new TextBlock { Text = k == "MARGIN LEVEL" ? "MARGIN" : k == "OPEN P/L" ? "OPEN POSITIONS (P/L of what is still open)" : k == "ITER TOTAL" ? "IF CLOSED NOW • THIS ITERATION (closed + open)" : k, Foreground = big || eq ? Gold : Muted, FontSize = big || eq ? 10.5 : 9.5, FontWeight = FontWeights.Bold };
+                if (big) { cap.TextWrapping = TextWrapping.Wrap; cap.MaxWidth = 196; }   // 09k: the longer captions wrap inside the box (the header keeps its two rows)
                 var val = new TextBlock { Text = "—", Foreground = Text, FontSize = k == "ITER TOTAL" ? 22 : big ? 27 : eq ? 22 : 17, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono };
                 var sp = new StackPanel(); sp.Children.Add(cap); sp.Children.Add(val);
                 if (k == "ITER TOTAL") { iterSub = new TextBlock { Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.SemiBold, FontFamily = Sx.Mono }; sp.Children.Add(iterSub); }   // 09d: the math stays visible under the number
@@ -288,6 +289,12 @@ namespace KeystoneMT5
                 DataDir.Change(n.Trim()); Sx.Info(this, "📁 The data folder", "Saved. Close SpasiX and start it again — your data moves to\n" + n.Trim(), Gold);
             };
             st.Children.Add(b);
+            {   // 🎞 09k: SAVE LIVE TICKS (on by default) — every quote from MT5 saved to <data folder>\ticks\<server>\<symbol>\yyyyMMdd.ticks; only files, nothing is sent
+                var tr = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) }; var tb = Pill("", Card); var tinfo = new TextBlock { Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+                Action paint = () => { bool on = TickRecorder.On; tb.Content = "🎞 SAVE LIVE TICKS: " + (on ? "ON" : "OFF"); tb.Foreground = on ? Green : Muted; int n = TickRecorder.DaysRecorded(); tinfo.Text = n + " day" + (n == 1 ? "" : "s") + " recorded (" + (TickRecorder.BytesRecorded() / 1048576.0).ToString("0.#", IC) + " MB)"; };
+                tb.ToolTip = "every quote MT5 sends (LIVE / PROP / the DEMO's prices) is saved to " + TickRecorder.Root + "\\<server>\\<symbol>\\yyyyMMdd.ticks — the BACKTEST, the post-mortems and the what-ifs replay them, 📦 EXPORT FOR CLAUDE includes them. Only writes files; nothing is sent; a write failure never stops trading";
+                tb.Click += delegate { TickRecorder.On = !TickRecorder.On; paint(); }; paint(); tr.Children.Add(tb); tr.Children.Add(tinfo); st.Children.Add(tr);
+            }
             return new Border { Background = Card, CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10, 14, 12), BorderBrush = Tint(Gold, 110), BorderThickness = new Thickness(1), Child = st, Margin = new Thickness(0, 6, 0, 8) };
         }
 
@@ -387,7 +394,7 @@ namespace KeystoneMT5
                     card("BALANCE", Money(a.Balance, cur), Text); card("EQUITY", Money(a.Equity, cur), a.Equity >= a.Balance ? Green : Red); PaintEq(a.Equity, a.Balance);
                     double fl = a.Floating; card("OPEN P/L", Signed(fl, cur), fl >= 0 ? (fl > 0 ? Green : Text) : Red); PaintPl(fl, s.Positions.Count > 0);
                     { var itc = cards["ITER TOTAL"]; string isym; var tt = IterTotal(s, out isym); itc.Item3.Visibility = double.IsNaN(tt.Item1) ? Visibility.Collapsed : Visibility.Visible;
-                      if (iterSub != null && double.IsNaN(tt.Item1)) iterSub.Text = ""; if (!double.IsNaN(tt.Item1)) { card("ITER TOTAL", Signed(tt.Item1, cur), tt.Item1 > 0 ? Green : tt.Item1 < 0 ? Red : Text); itc.Item1.Text = "🧮 TOTAL NOW (" + isym + ")"; if (iterSub != null) iterSub.Text = "open " + Signed(tt.Item2, cur) + " + closed " + Signed(tt.Item3, cur); itc.Item3.ToolTip = "open " + Signed(tt.Item2, cur) + " · closed legs " + Signed(tt.Item3, cur) + " = " + Signed(tt.Item1, cur) + "\nthe open tickets on " + isym + " (" + Signed(tt.Item2, cur) + ") + what this " + (auto != null && auto.Current != null ? "iteration (#" + auto.Current.N + ")" : "set of trades (since its first open ticket)") + " already closed (" + Signed(tt.Item3, cur) + "), commissions and swap included"; } }
+                      if (iterSub != null && double.IsNaN(tt.Item1)) iterSub.Text = ""; if (!double.IsNaN(tt.Item1)) { card("ITER TOTAL", Signed(tt.Item1, cur), tt.Item1 > 0 ? Green : tt.Item1 < 0 ? Red : Text); itc.Item1.Text = "IF CLOSED NOW • THIS ITERATION (closed + open)"; if (iterSub != null) iterSub.Text = "open " + Signed(tt.Item2, cur) + " + closed " + Signed(tt.Item3, cur); itc.Item3.ToolTip = "open " + Signed(tt.Item2, cur) + " · closed legs " + Signed(tt.Item3, cur) + " = " + Signed(tt.Item1, cur) + "\nthe open tickets on " + isym + " (" + Signed(tt.Item2, cur) + ") + what this " + (auto != null && auto.Current != null ? "iteration (#" + auto.Current.N + ")" : "set of trades (since its first open ticket)") + " already closed (" + Signed(tt.Item3, cur) + "), commissions and swap included"; } }
                     card("FREE MARGIN", Money(a.FreeMargin, cur), a.FreeMargin < 0 ? Red : Text);
                     double today = TodayClosed(s) + fl; card("TODAY", Signed(today, cur), today > 0 ? Green : today < 0 ? Red : Text); cards["TODAY"].Item3.BorderBrush = today > 0 ? Tint(Green, 100) : today < 0 ? Tint(Red, 120) : Line;
                     card("MARGIN LEVEL", a.Margin > 0 ? a.MarginLevel.ToString("N0", IC) + " %" : "—", a.Margin <= 0 ? Muted : a.MarginLevel < 200 ? Red : a.MarginLevel < 500 ? Gold : Green);

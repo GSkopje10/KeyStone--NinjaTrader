@@ -74,13 +74,17 @@ namespace KeystoneMT5
             Directory.CreateDirectory(DirOf(sym));
             using (var w = new BinaryWriter(File.Create(TickFile(sym, day)))) foreach (var t in ticks) { w.Write((int)(t.T - day).TotalMilliseconds); w.Write(t.Bid); w.Write(t.Ask); }
         }
-        public static List<SimTick> LoadTicks(string sym, DateTime day)
+        public static string TickFileOf(string sym, DateTime day) { return TickFile(sym, day); }
+        // 🎞 09k: a day without downloaded ticks uses the ticks the app RECORDED live (TickRecorder; the given server first, else the last one seen)
+        public static bool HasAnyTicks(string sym, DateTime day) { return HasTicks(sym, day) || TickRecorder.Has(sym, day); }
+        public static List<SimTick> LoadTicks(string sym, DateTime day) { return LoadTicks(sym, day, null); }
+        public static List<SimTick> LoadTicks(string sym, DateTime day, string server)
         {
-            var res = new List<SimTick>(); var f = TickFile(sym, day); if (!File.Exists(f)) return res;
+            var res = new List<SimTick>(); var f = TickFile(sym, day); if (!File.Exists(f)) return TickRecorder.Load(sym, day, server);
             try { using (var r = new BinaryReader(File.OpenRead(f))) { long n = r.BaseStream.Length / 20; res.Capacity = (int)n; for (long i = 0; i < n; i++) { int ms = r.ReadInt32(); double b = r.ReadDouble(), a = r.ReadDouble(); res.Add(new SimTick { T = day.AddMilliseconds(ms), Bid = b, Ask = a }); } } } catch { }
             return res;
         }
-        public static List<SimTick> LoadTickRange(string sym, DateTime from, DateTime to) { var res = new List<SimTick>(); for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) res.AddRange(LoadTicks(sym, d)); return res; }
+        public static List<SimTick> LoadTickRange(string sym, DateTime from, DateTime to, string server = null) { var res = new List<SimTick>(); for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) res.AddRange(LoadTicks(sym, d, server)); return res; }
         public static int TickDays(string sym) { try { var d = DirOf(sym); return Directory.Exists(d) ? Directory.GetFiles(d, "*.ticks").Length : 0; } catch { return 0; } }
         public static List<Mt5Bar> LoadRange(string sym, DateTime from, DateTime to) { var res = new List<Mt5Bar>(); for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) res.AddRange(LoadDay(sym, d)); res.Sort((a, b) => a.Time.CompareTo(b.Time)); return res; }
         public static List<DateTime> Days(string sym)

@@ -184,6 +184,29 @@ namespace KeystoneMT5
         public bool TrendStack; public double StackK = 1.5, StackCapPer1k = 0.07, StackMargin = 300; public int StackMax = 3, StackMin = 60, BankAt = 70;
         public static bool TrendStackAllowed(bool simulated) { return simulated; }
         public const string TrendStackNo = "🚀 TREND STACK is an EXPERIMENT: only on a simulated account (🎮 DEMO, 🏁 RACE, 🧪 BACKTEST) — never on an MT5 account (REAL, PROP or MT5 demo). Turn it off in ⚙ ADVANCED to start here.";
+        // 🦅 RUNNER (09k, EXPERIMENT — only on simulated accounts: 🎮 DEMO, 🏁 RACE, 🧪 BACKTEST; refused on every MT5 account): DEFENDER for the balance,
+        // then small entries (RunnerPer1k lot per $1,000 of the LIVE balance at each iteration start, to the nearest lot step, min the broker's minimum),
+        // the hedge lead = the entry, add-ons 2×, a target RunnerTargetMult × DEFENDER's (+$2 per 0.01 lot × RunnerTargetMult), 🧹 COMPRESS ALWAYS and the
+        // RISK GUARD in LOCK mode (the "chop lock": 0.6 lot per $5,000, margin 500 %, 3 hedges an hour → lock instead of hedging, pair-off)
+        public const double RunnerTargetMult = 3;   // ← the ONE number to change: the target = entry lots × 200 × this ($6 per 0.01 lot at 3)
+        public const double RunnerPer1k = 0.006;
+        public static bool RunnerAllowed(bool simulated) { return simulated; }
+        public const string RunnerNo = "🦅 RUNNER is an EXPERIMENT: only on a simulated account (🎮 DEMO, 🏁 RACE, 🧪 BACKTEST) — never on an MT5 account (REAL, PROP or MT5 demo). Pick another STRATEGY (🛡 DEFENDER is the default) to start here.";
+        public const string RunnerText = "🦅 RUNNER (experiment, simulated accounts only): small entries 0.006 lot per $1,000, 3× bigger targets, COMPRESS, and the chop LOCK (no more hedges while the price whipsaws — it waits for a clean break). 6-year replays: better than today's engine in both price models, still slightly negative — test it on DEMO / RACE.";
+        public bool IsRunner { get { return Preset == "RUNNER"; } }
+        // the smallest lot is the broker's minimum (0.01): when RUNNER's formula asks for less ($431 → 0.0026), 0.01 trades and this says how much bigger the risk is ("" = no warning)
+        public static string RunnerSizeWarning(double bal, double minLot = 0.01)
+        {
+            if (!(bal > 0)) return ""; double want = bal / 1000 * RunnerPer1k; if (Math.Round(want / minLot, MidpointRounding.AwayFromZero) >= 1) return "";
+            return "⚠ at this balance ($" + bal.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + ") " + minLot.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " lot (the smallest lot) is " + (minLot / want).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "× the planned risk (" + RunnerPer1k.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " × " + (bal / 1000).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " = " + want.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture) + " lot) — the planned size needs ≥ $" + Math.Ceiling(minLot / 2 / RunnerPer1k * 1000).ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        public static void ApplyRunner(AutoSettings s, double bal)
+        {
+            s.SizePer1k = RunnerPer1k; s.TargetPerLot = Math.Round(200 * RunnerTargetMult, 2);   // 💰 re-sized from the live balance at every iteration start (HedgeAuto.SizeFor, nearest step)
+            var sz = HedgeAuto.SizeFor(bal, bal, false, null, s.SizePer1k, s.TargetPerLot, true); s.EntryLots = sz.Item1; s.NetAdvantage = sz.Item1; s.AddLots = Math.Round(2 * sz.Item1, 2); s.Target = sz.Item2; s.ScaleLots = 0.01;
+            s.HedgeSize = "ADVANTAGE"; s.CompressMode = "ALWAYS";
+            s.RiskGuard = true; s.GuardMode = "LOCK"; s.GuardLots = 0.6; s.GuardMargin = 500; s.GuardChop = 3; s.PairOff = true;   // the chop LOCK
+        }
         public string ExitMode = "BASKET";     // BASKET = everything closes at +Target; LEGS = each position closes at its own +Target × its lots / the entry lots                 // FVG: the middle candle's body must be bigger than the average range of the last 20 candles (the research's gap)
         public AutoSettings Copy() { return (AutoSettings)MemberwiseClone(); }
         // ⚡ what changes between two settings, in words ("🧹 COMPRESS HEDGES: OFF → ALWAYS"), for the APPLY NOW question
@@ -210,6 +233,10 @@ namespace KeystoneMT5
                 s.StradMode = "BREAKOUT"; s.StradXMode = "RANGE"; s.StradRangeK = 0.5; s.StradTargetX = 3; s.StradTrail = false; s.StradBankHalf = false; s.StradOpen = "09:30"; s.StradClose = "16:00";
                 if (s.StradRisk <= 0) s.StradRisk = 100; if (s.StradMaxLots <= 0) s.StradMaxLots = 1;
                 return s;
+            }
+            if (name == "RUNNER")
+            {   // 🦅 RUNNER (09k, experiment — simulated accounts only): DEFENDER for the balance + small entries, 3× targets, compress, the chop LOCK
+                var d = Model("DEFENDER", b, bal); d.Preset = "RUNNER"; ApplyRunner(d, bal); return d;
             }
             if (name == "SAFELIVE")
             {   // 🔒 SAFE LIVE (small accounts, 09d): the setup that survived the small-account sweeps — NOT the default (DEFENDER stays)
@@ -545,6 +572,7 @@ namespace KeystoneMT5
         public string Check(IBroker b, AutoSettings s)
         {
             if (s.TrendStack && (b == null || !AutoSettings.TrendStackAllowed(b.IsSim))) return AutoSettings.TrendStackNo;   // 🚀 09e: never on an MT5 account
+            if (s.IsRunner && (b == null || !AutoSettings.RunnerAllowed(b.IsSim))) return AutoSettings.RunnerNo;   // 🦅 09k: never on an MT5 account
             if ((s.HedgeMode == "LADDER" || s.EntryMode == "STRADDLE") && b != null && !b.IsSim) return "🪜 HM LADDER is a DRAFT (decoded from one day of his stream; the 12-month backtest was thin and can get stuck) — DEMO / BACKTEST only for now";
             if (string.IsNullOrWhiteSpace(s.Symbol)) return "choose a symbol";
             if (s.EntryLots <= 0 || (s.AddLots <= 0 && s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL")) return "the entry and add-on lots must be above 0";
@@ -700,6 +728,7 @@ namespace KeystoneMT5
             if (!Running) return;
             if (Set.TrendStack && !b.IsSim) { Stop(AutoSettings.TrendStackNo); return; }   // 🚀 defence in depth: an experiment never runs on MT5
             if (Next != null && Current == null) ApplyNext();   // between iterations: the saved changes take over
+            if (Set.IsRunner && !b.IsSim) { Stop(AutoSettings.RunnerNo); return; }   // 🦅 defence in depth: the experiment never runs on MT5
             var sn = Read(b); if (sn.Now < (b.IsSim ? Now : Now.AddMinutes(-1))) { Stop("the clock went back (the backtest was rewound or restarted)"); return; }
             Now = sn.Now; if (pendId == null && HandCheck(sn, !b.IsSim)) return;
             if (double.IsNaN(sn.Bid) || sn.Bid <= 0) return;
@@ -1075,7 +1104,7 @@ namespace KeystoneMT5
                 double sl = sb1 == null ? double.NaN : DangerRadar.H1Ema20Slope3(sb1, Now); if (double.IsNaN(sl) || Math.Sign(sl) != dir) { Blocked = "🧪 TAH: the H1 EMA 20 slope (3 h) " + (double.IsNaN(sl) ? "unknown" : sl.ToString("+0.00;−0.00", IC)) + " is not " + (dir > 0 ? "up" : "down"); return; }
             }
             if (Phase != "FIRST" && Phase != "AGAIN" && !VwapOk(sn, dir)) { var sk = why + " — skipped: the VWAP filter " + Set.VwapFilter + " wants " + (Set.VwapFilter == "DISCOUNT" ? (dir > 0 ? "a buy UNDER" : "a sell OVER") : (dir > 0 ? "a buy OVER" : "a sell UNDER")) + " the VWAP " + P(Vwap) + " (bid " + P(sn.Bid) + ")"; if (sk != vwapSkip) { vwapSkip = sk; Tell("NO ENTRY: " + sk + "."); } return; }
-            if (Set.SizePer1k > 0) { var sz = SizeFor(sn.Balance, sn.Equity, sn.Pos.Count == 0 && OtherOpen(sn), sn.Sym, Set.SizePer1k, Set.TargetPerLot); Set.EntryLots = sz.Item1; Set.NetAdvantage = sz.Item1; Set.AddLots = Set.HedgeSize == "SAME" ? sz.Item1 : Math.Round(2 * sz.Item1, 2); Set.Target = sz.Item2; if (sz.Item3 != "") Note(sz.Item3); }
+            if (Set.SizePer1k > 0) { var sz = SizeFor(sn.Balance, sn.Equity, sn.Pos.Count == 0 && OtherOpen(sn), sn.Sym, Set.SizePer1k, Set.TargetPerLot, Set.IsRunner); Set.EntryLots = sz.Item1; Set.NetAdvantage = sz.Item1; Set.AddLots = Set.HedgeSize == "SAME" ? sz.Item1 : Math.Round(2 * sz.Item1, 2); Set.Target = sz.Item2; if (sz.Item3 != "") Note(sz.Item3); }
             double eLots = Set.EntryLots;
             if (Set.FullAuto && Phase != "FIRST")
             {   // 🤖 the score decides: skip a weak / chasing entry, size a strong one up
@@ -2299,10 +2328,11 @@ namespace KeystoneMT5
         // 💰 SIZE FROM THE LIVE ACCOUNT (user's request): at every iteration start, lots = SizePer1k per $1,000 of the balance (the equity when a basket
         // of another symbol is open), rounded DOWN to the lot step, never under the minimum (then a warning: the minimum is more than the tested risk);
         // the target = lots × TargetPerLot ($2 per 0.01 lot in DEFENDER)
-        public static Tuple<double, double, string> SizeFor(double balance, double equity, bool otherOpen, Mt5Symbol sym, double per1k, double targetPerLot)
+        // nearest = to the NEAREST lot step (🦅 RUNNER: 0.048 → 0.05 at $8,000) instead of down
+        public static Tuple<double, double, string> SizeFor(double balance, double equity, bool otherOpen, Mt5Symbol sym, double per1k, double targetPerLot, bool nearest = false)
         {
             double basis = otherOpen ? Math.Min(balance, equity) : balance, step = sym != null && sym.VolStep > 0 ? sym.VolStep : 0.01, min = sym != null && sym.VolMin > 0 ? sym.VolMin : 0.01;
-            double want = basis / 1000 * per1k, lots = Math.Floor(want / step + 1e-9) * step; string warn = "";
+            double want = basis / 1000 * per1k, lots = (nearest ? Math.Round(want / step + 1e-9, MidpointRounding.AwayFromZero) : Math.Floor(want / step + 1e-9)) * step; string warn = "";
             if (lots < min) { lots = min; warn = "⚠ SIZE: " + min.ToString("0.##", IC) + " lot (the broker's minimum) = " + (want > 0 ? (min / want).ToString("0.0", IC) : "∞") + "× the tested risk at $" + basis.ToString("N0", IC) + " (" + per1k.ToString("0.###", IC) + " lot per $1,000)"; }
             lots = Math.Round(lots, 2); return Tuple.Create(lots, Math.Round(lots * targetPerLot, 2), warn);
         }

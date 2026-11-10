@@ -71,13 +71,15 @@ namespace KeystoneMT5
     {
         // 🤖 the replay: the snapshot's legs in a fresh simulated account, the automation alone (the same settings) from the snapshot on the candles
         // that followed; m1 = 1-minute candles (warm-up before the snapshot welcome); spec = the symbol (swap at the rollover counted)
-        public static void Replay(WhatIfCase c, List<Mt5Bar> m1, SimSpec spec)
+        // ticks (09k, optional) = real ticks of those days (recorded live / downloaded): where they exist the replay follows them exactly
+        public static void Replay(WhatIfCase c, List<Mt5Bar> m1, SimSpec spec, List<SimTick> ticks = null)
         {
             c.Done = false; c.Reason = ""; c.Path.Clear(); c.Worst = Math.Min(0, c.MaxDd); c.NowTotal = double.NaN; c.LastBar = DateTime.MinValue;
             var after = m1.Where(b => b.Time >= c.SnapAt.AddMinutes(-1)).ToList(); if (after.Count < 2) return;
             var last = m1.Max(b => b.Time); var from = c.SnapAt.Date;
             var sb = new SimBroker();
-            var err = sb.Load(new SimSettings { Symbol = c.Symbol, From = from, To = last.Date, Balance = c.Balance, CommissionPerLot = c.Commission, Leverage = c.Leverage, Kind = c.Kind, FixedSpread = c.Spread, StartNyHour = (c.SnapAt - from).TotalHours + spec.NyOffsetHours }, spec, m1.Where(b => b.Time <= last).ToList());
+            var rtk = ticks != null && ticks.Count(t => t.T >= c.SnapAt && t.T <= last.AddMinutes(1)) >= 10 ? ticks.Where(t => t.T <= last.AddMinutes(1)).OrderBy(t => t.T).ToList() : null;   // 🎞 real ticks
+            var err = sb.Load(new SimSettings { Symbol = c.Symbol, From = from, To = last.Date, Balance = c.Balance, CommissionPerLot = c.Commission, Leverage = c.Leverage, Kind = c.Kind, FixedSpread = rtk != null ? -1 : c.Spread, StartNyHour = (c.SnapAt - from).TotalHours + spec.NyOffsetHours }, new List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> { Tuple.Create(spec, m1.Where(b => b.Time <= last).ToList(), rtk) });
             if (err != "") { c.Reason = "no replay: " + err; return; }
             sb.Playing = true; sb.Speed = 60; sb.Advance(0.02);
             lock (sb.State.Gate)

@@ -198,7 +198,7 @@ namespace KeystoneMT5
                     case "TICK":
                         if (a.Length < 5) return;
                         var qt = new Mt5Quote { Symbol = a[1], Bid = D(a[2]), Ask = D(a[3]), Time = new DateTime(1970, 1, 1).AddMilliseconds(L(a[4])) };   // MT5 server time
-                        Quotes[a[1]] = qt;
+                        Quotes[a[1]] = qt; TickRecorder.Record(Account.Server, qt.Symbol, qt.Time, qt.Bid, qt.Ask);   // 🎞 09k: saved to DataDir\ticks (memory now, the disk every 3 s — never blocks)
                         foreach (var se in Series.Values) if (string.Equals(se.Symbol, qt.Symbol, StringComparison.OrdinalIgnoreCase) && se.Loaded) se.OnTick(qt.Time, qt.Bid);
                         break;
                     case "POSS": posIn = new List<Mt5Position>(); break;
