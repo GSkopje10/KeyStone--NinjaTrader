@@ -37,6 +37,9 @@ namespace KeystoneMT5
             auto.Send = AutoSend; auto.NewsNear = AutoNews; auto.OnSignalDone = AutoSignalSave;
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
             auto.OnPath = line => AutoAppend("paths", line);
+            // 🎯 TOTAL EXIT GUARD (09f): close-only, through the armed link like every close; no question (the user's rule), a loud toast instead
+            auto.GuardClose = sym => (Virtual || armed) ? broker.Command("CLOSEALL", sym, "ALL") : null;
+            auto.OnGuard += msg => Dispatcher.BeginInvoke(new Action(() => { var m = AccountBadge().Item1 + " — " + msg; foreach (var w in Shell.Modes.ToList()) try { w.Toast(m); } catch { } Log(m, msg.StartsWith("⚠") ? Red : Gold); AutoPaint(true); }));
             auto.OnHandStop += what => Dispatcher.BeginInvoke(new Action(() =>
             {   // ⏸ 09d: stopped because you traded by hand — the warning on every open SpasiX tab, the red bar + ▶ RESUME AUTOMATION here
                 Put("auto.run." + AKey, "0"); var msg = AccountBadge().Item1 + " — ⏸ AUTOMATION STOPPED: you traded by hand (" + what + "). Your positions are untouched. To continue: 🛡 HEDGE ▸ ▶ RESUME AUTOMATION";
@@ -68,6 +71,15 @@ namespace KeystoneMT5
             aManual.ToolTip = "ON = you manage the positions: AUTO sends nothing by itself (only the ⛔ hard stops) — it shows 💡 suggestions on the chart and in the story; your trades are adopted. OFF = AUTO sends its orders again.";
             aManual.Click += delegate { AutoManualToggle(); };
             btns.Children.Insert(0, aManual);
+            aGuardBtn = Pill("", Tint(Gold, 60)); aGuardBtn.Height = 40; aGuardBtn.Margin = new Thickness(0, 0, 8, 0);
+            aGuardBtn.ToolTip = "🎯 TOTAL EXIT GUARD (your rule): the basket's TOTAL (open + the closed legs of this iteration) is watched on every tick — also when the automation is stopped by a manual trade or off — and at the TARGET (or at BREAKEVEN once the basket was in trouble: −3 × the target, open 60 min+, or a manual trade added) EVERYTHING on the symbol closes, no question. It never opens anything. Under ✋ MANUAL MANAGE it only alerts.";
+            aGuardBtn.Click += delegate { aset.ExitGuard = !aset.ExitGuard; if (auto.Running && auto.Set != null) auto.Set.ExitGuard = aset.ExitGuard; AutoSaveSet(); Toast(aset.ExitGuard ? "🎯 TOTAL EXIT GUARD ON" : "🎯 TOTAL EXIT GUARD OFF — nothing closes the basket at its total but the automation itself"); AutoPaint(true); };
+            btns.Children.Insert(0, aGuardBtn);
+            aGuardNow = Pill("⛔  CLOSE ALL NOW", Tint(Red, 170)); aGuardNow.Height = 40; aGuardNow.Foreground = Sx.White; aGuardNow.Margin = new Thickness(0, 0, 8, 0); aGuardNow.Visibility = Visibility.Collapsed;
+            aGuardNow.Click += delegate { var sym = auto.Running && auto.Set != null ? auto.Set.Symbol : aset.Symbol; string id = Virtual || armed ? broker.Command("CLOSEALL", sym, "ALL") : null; if (id == null) Sx.Info(this, "⛔ CLOSE ALL", BadgeLine() + "Not closed: trading is not armed — press 🔓 ARM TRADING on the 📈 CHART first.", Amber); else { sent[id] = "🎯 close all " + sym + " (exit guard alert)"; auto.GuardAlert = false; Toast("⛔ CLOSE ALL " + sym + " sent"); } AutoPaint(true); };
+            btns.Children.Insert(0, aGuardNow);
+            aRecBtn = Pill("", Tint(Cyan, 70)); aRecBtn.Height = 40; aRecBtn.Margin = new Thickness(0, 0, 8, 0); aRecBtn.Visibility = Visibility.Collapsed; aRecBtn.Click += delegate { AutoRecoveryPlace(); };
+            btns.Children.Insert(0, aRecBtn);
             top.Children.Add(btns);
             var info = new StackPanel(); aPhase = new TextBlock { FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Muted, Text = "🤖 AUTO — OFF" };
             aBasket = new TextBlock { FontSize = 26, FontWeight = FontWeights.Bold, FontFamily = Sx.Mono, Foreground = Muted, Text = "—" };
@@ -384,12 +396,12 @@ namespace KeystoneMT5
             }
 
             // the engine's clock: every tick of the BACKTEST; every 200 ms live (the bridge sends the state every 200 ms)
-            if (Sim) sim.OnTickHook = () => { auto.Step(sim); RaceStep(); };
+            if (Sim) sim.OnTickHook = () => { auto.Step(sim); try { auto.GuardStep(sim, aset); } catch { } RaceStep(); };
             aTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = TimeSpan.FromMilliseconds(200) };
             aResumeAt = DateTime.Now; aResumePending = !Sim && AutoWasRunning();
             raceResumeAt = DateTime.Now; raceResumePending = !Sim && Get("race.run", "0") == "1";
             aTimer.Tick += delegate {  int curN = auto.Running && auto.Current != null ? auto.Current.N : 0; if (curN != 0 && curN != aSeenIter) { aSeenIter = curN; if (raceShow != "") { raceShow = ""; if (raceShowBox != null) raceShowBox.SelectedIndex = 0; raceChipsSig = ""; } }   // your automation opened an iteration: the chart goes back to 🤖 MINE
-                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
+                if (aResumePending) AutoTryResume(); if (raceResumePending) RaceTryResume(); if (Paper && !aPctChecked) AutoDemoCommission(); if (Paper && !aHedgedAsked) AutoDemoHedgedMargin(); if (!Sim) { try { auto.Step(broker); } catch (Exception ex) { auto.Stop("error: " + ex.Message); } try { auto.GuardStep(broker, aset); } catch { } RaceBars(); RaceStep(); } AutoSaveNew(); AutoPaint(false); if ((DateTime.Now - aScanAt).TotalSeconds >= 1) { aScanAt = DateTime.Now; AutoSetups(); try { AutoRecovery(); } catch { } if (!Sim && (DateTime.Now - aArchAt).TotalMinutes >= 10) { aArchAt = DateTime.Now; AutoArchiveCandles(); } if (aView == "🏁 RACE") RacePaint(); RaceChipsPaint(); } };
             aTimer.Start();
             Closed += delegate { aTimer.Stop(); if (auto.Running) auto.Stop("the window closed"); if (Sim) sim.OnTickHook = null; };
             AutoVis(); AutoPaint(true);
@@ -623,19 +635,19 @@ namespace KeystoneMT5
             var b = AccountBadge(); return new Border { Child = new TextBlock { Text = b.Item1, Foreground = b.Item2, FontSize = 15, FontWeight = FontWeights.Bold }, Background = Tint(b.Item2, 36), BorderBrush = b.Item2, BorderThickness = new Thickness(1.5), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 4, 12, 5), Margin = new Thickness(4, 2, 4, 6), HorizontalAlignment = HorizontalAlignment.Left };
         }
         // 🔁 09d: after START / RESUME the banner says what continued ("resumed: 39 iterations · today +$248.89 · open basket #40 taken over")
-        string aResumeTxt = ""; TextBlock aPresetNote; Border aHandBar; TextBlock aHandTxt; Button aResumeBtn; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
+        string aResumeTxt = ""; Button aRecBtn; RecoveryTicket aRec; string aRecSym = ""; Button aGuardBtn, aGuardNow; TextBlock aPresetNote; Border aHandBar; TextBlock aHandTxt; Button aResumeBtn; DockPanel aTop; Button aSetLine, aFullBtn; bool aSetOpen, aFull; string aSetSum = "";
         void AutoResumeNote() { try { var t = Continuity.ResumeLine(auto.Iterations, auto.Current, auto.Now > DateTime.MinValue ? auto.Now : DateTime.Now); aResumeTxt = t; if (t != "") { auto.Note(t); Toast(t); } } catch { } }
         string BadgeLine() { return AccountBadge().Item1 + "\n\n"; }
         void AutoRowsOf(HedgeAuto e, StackPanel aRows, string aView)
         {
             if (aView == "ITERATIONS")
             {
-                var d = e.Iterations.Where(x => x.Done).ToList(); double avgS = d.Count > 0 ? d.Average(x => (x.End - x.Start).TotalSeconds) : 0;
+                var d = e.Iterations.Where(x => x.Done && !x.Unverified).ToList(); double avgS = d.Count > 0 ? d.Average(x => (x.End - x.Start).TotalSeconds) : 0;
                 aRows.Children.Add(new TextBlock { Text = e.Iterations.Count + " iterations  •  won " + d.Count(x => x.Won) + " / lost " + d.Count(x => !x.Won) + "  •  net " + Signed(d.Sum(x => x.Result), "USD") + " (after " + Signed(-e.Iterations.Sum(x => x.Fees), "USD") + " commission • gross " + Signed(d.Sum(x => x.Result + x.Fees), "USD") + ")  •  average time in the trade " + (d.Count > 0 ? Dur(TimeSpan.FromSeconds(avgS)) : "—") + "  •  winners " + (d.Any(x => x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—") + ", losers " + (d.Any(x => !x.Won) ? Dur(TimeSpan.FromSeconds(d.Where(x => !x.Won).Average(x => (x.End - x.Start).TotalSeconds))) : "—"), Foreground = Text, FontWeight = FontWeights.Bold, FontSize = 13, Margin = new Thickness(8, 6, 8, 6) });
                 aRows.Children.Add(Row(Line, Cell("#", 36, Muted, true, 11), Cell("DATE", 84, Muted, true, 11), Cell("START → END", 150, Muted, true, 11), Cell("⏱ IN TRADE", 92, Muted, true, 11), Cell("FIRST", 64, Muted, true, 11), Cell("BUYS / SELLS / HEDGES", 150, Muted, true, 11), Cell("MAX LOTS", 74, Muted, true, 11), Cell("WORST", 90, Muted, true, 11), Cell("COMMISSION", 96, Muted, true, 11), Cell("RESULT (NET)", 110, Muted, true, 11), Cell("HOW", 200, Muted, true, 11), Cell("📈 AFTER THE TARGET (if it had stayed open)", 330, Muted, true, 11)));
                 foreach (var x in e.Iterations.AsEnumerable().Reverse())
                 {
-                    var end = x.Done ? x.End : e.Now; var col = !x.Done ? Cyan : x.Won ? Green : Red;
+                    var end = x.Done ? x.End : e.Now; var col = !x.Done ? Cyan : x.Unverified ? Muted : x.Won ? Green : Red;
                     aRows.Children.Add(Row(col, Cell("#" + x.N, 36, Text, true), Cell(x.Start.ToString("dd MMM", IC), 84, Muted), Cell(x.Start.ToString("HH:mm:ss", IC) + " → " + (x.Done ? x.End.ToString("HH:mm:ss", IC) : "open"), 150, Text),
                         Cell(Dur(end - x.Start), 92, Violet, true, 12.5, Violet), Cell(x.FirstDir, 64, x.FirstDir == "BUY" ? Green : Red, true, 12, x.FirstDir == "BUY" ? Green : Red),
                         Cell(x.Buys + " / " + x.Sells + " / " + x.AddOns + (x.ManualAdds > 0 ? " ✋" + x.ManualAdds : ""), 150, Text), Cell(x.MaxGross.ToString("0.##", IC), 74, Text), Cell(x.MaxDd.ToString("0.00", IC), 90, x.MaxDd < 0 ? Red : Muted), Cell(x.Fees > 0 ? "−" + x.Fees.ToString("0.00", IC) : "0.00", 96, x.Fees > 0 ? Amber : Muted, true),
@@ -979,8 +991,9 @@ namespace KeystoneMT5
             bool adopt = false;
             if (open > 0)
             {
-                int k = Sx.Choice(this, "🤖 " + open + " position" + (open == 1 ? "" : "s") + " already open on " + s.Symbol, BadgeLine() + "The automation owns EVERY position on its symbol. Take these over as the current iteration (their P/L " + Signed(pl, "USD") + " counts toward the target), or cancel and close them first.", null, new[] { "TAKE THEM OVER", "CANCEL" }, new[] { Gold, (SolidColorBrush)null });
-                if (k != 0) return; adopt = true;
+                var pv = AutoPreview(s);
+                int k = Sx.Choice(this, "🤖 " + open + " position" + (open == 1 ? "" : "s") + " already open on " + s.Symbol, BadgeLine() + "The automation owns EVERY position on its symbol. Take these over as the current iteration (their P/L " + Signed(pl, "USD") + " counts toward the target), or cancel and close them first." + (pv != "" ? "\n\n" + pv : ""), null, pv != "" ? new[] { "TAKE THEM OVER", "TAKE OVER — NO CATCH-UP ORDER", "CANCEL" } : new[] { "TAKE THEM OVER", "CANCEL" }, pv != "" ? new[] { Gold, Green, (SolidColorBrush)null } : new[] { Gold, (SolidColorBrush)null });
+                if (k < 0 || k == (pv != "" ? 2 : 1)) return; adopt = true; startNoCatch = pv != "" && k == 1;
             }
             string what = (s.Preset != "" ? "STRATEGY " + (s.Preset == "BOX" ? "HEDGE BOX (swap-free accounts only)" : s.Preset) + "  •  setup " + s.EntryMode + "  •  VWAP filter " + s.VwapFilter + (s.HedgeMode == "NONE" ? "  •  NO HEDGE" : "") + (s.CloseAtNy != "" ? "  •  closes at " + s.CloseAtNy + " NY" : "") + (s.Windows != "" ? "  •  " + s.Windows + " NY" : "") + "\n" : "") + s.Symbol + " " + Tf.Name(s.Tf) + "  •  entry " + s.EntryLots.ToString("0.##", IC) + "  •  add-on " + s.AddLots.ToString("0.##", IC) + " the other way (" + (s.HedgeMode == "PRICE" ? "a " + s.HedgePrice.ToString("0.#####", IC) + " price move" : s.HedgeMode == "MONEY" ? "−$" + s.HedgeMoney.ToString("0.##", IC) : "the break of the recent low / high") + ")\n"
                 + "target +$" + s.Target.ToString("0.##", IC) + " per iteration  •  max drawdown " + (s.MaxDrawdown > 0 ? "$" + s.MaxDrawdown.ToString("0.##", IC) + " then " + s.AfterDrawdown : "NONE — until the target or the account blows") + "\n"
@@ -1004,7 +1017,7 @@ namespace KeystoneMT5
                 if (typed == null || typed.Trim().ToUpperInvariant() != "START") return;
             }
             else if (!Sx.Ask(this, "🤖 START on MT5 (" + kind + " account " + login + ")", BadgeLine() + "Orders go to MT5 by themselves while it runs.\n\n" + what, "▶ START", "CANCEL", Green)) return;
-            AutoLoadHistory(); if (aView == "⚙ SETTINGS") aView = "STORY"; auto.Start(broker, s, adopt); AutoResumeNote(); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
+            AutoLoadHistory(); if (aView == "⚙ SETTINGS") aView = "STORY"; auto.Start(broker, s, adopt); auto.NoCatchUp = startNoCatch; startNoCatch = false; AutoResumeNote(); Put("auto.run." + AKey, "1"); if (Paper && live != null) Put("auto.run.demolink", live.Key); aWasOn = true; AutoPaint(true);
         }
         // ▶ RESUME AUTOMATION after a stop by hand: asks (the account, the positions it takes over, the settings), then the same basket goes on
         void AutoHandResume()
@@ -1016,9 +1029,45 @@ namespace KeystoneMT5
             var cur = auto.Iterations.LastOrDefault(x => !x.Done);
             string txt = BadgeLine() + "Stopped because you traded by hand: " + auto.HandWhat + "\n\n" + (ps.Count == 0 ? "Nothing is open on " + s.Symbol + ": it waits for the next entry." : "It takes over these " + ps.Count + " position" + (ps.Count == 1 ? "" : "s") + " on " + s.Symbol + (cur != null ? " as iteration #" + cur.N + " (its closed legs still count)" : "") + ":\n" + string.Join("\n", ps.OrderBy(p => p.Time).Select(p => "  #" + p.Ticket + "  " + p.Side + " " + p.Lots.ToString("0.##", IC) + " @ " + p.Open.ToString("0.#####", IC) + "  " + Signed(p.Profit + p.Swap + p.Commission, "USD"))))
                 + "\n\nwith the CURRENT settings: " + (s.Preset != "" ? s.Preset + " • " : "") + "entry " + s.EntryLots.ToString("0.##", IC) + (s.SizePer1k > 0 ? " (" + s.SizePer1k.ToString("0.###", IC) + " per $1,000)" : "") + " • target +$" + s.Target.ToString("0.##", IC) + " • hedge " + s.HedgeSize + " • max drawdown " + (s.MaxDdPct > 0 ? s.MaxDdPct.ToString("0.#", IC) + " %" : s.MaxDrawdown > 0 ? "$" + s.MaxDrawdown.ToString("0", IC) : "none") + " • daily loss " + (s.DayLossPct > 0 ? s.DayLossPct.ToString("0.#", IC) + " %" : s.DayLoss > 0 ? "$" + s.DayLoss.ToString("0", IC) : "none");
-            if (Sim || Paper || kind != "REAL") { if (!Sx.Ask(this, "▶ RESUME AUTOMATION", txt, "▶ RESUME", "NOT NOW", Green)) return; }
+            var pv = ps.Count > 0 ? AutoPreview(s) : ""; bool noCatch = false; if (pv != "") txt += "\n\n" + pv;
+            if (pv != "") { int k = Sx.Choice(this, "▶ RESUME AUTOMATION", txt, null, new[] { "▶ RESUME", "▶ RESUME WITHOUT THE CATCH-UP ORDER", "NOT NOW" }, new[] { Green, Gold, (SolidColorBrush)null }); if (k < 0 || k == 2) return; noCatch = k == 1; if (!(Sim || Paper || kind != "REAL")) { var typed = Sx.Prompt(this, "⚠ ▶ RESUME on a REAL account (" + login + ")", BadgeLine() + "REAL MONEY: type START to go on (the same rule as ▶ START)." + (noCatch ? "\nWithout the catch-up order." : ""), ""); if (typed == null || typed.Trim().ToUpperInvariant() != "START") return; } }
+            else if (Sim || Paper || kind != "REAL") { if (!Sx.Ask(this, "▶ RESUME AUTOMATION", txt, "▶ RESUME", "NOT NOW", Green)) return; }
             else { var typed = Sx.Prompt(this, "⚠ ▶ RESUME on a REAL account (" + login + ")", txt + "\n\nREAL MONEY: type START to go on (the same rule as ▶ START).", ""); if (typed == null || typed.Trim().ToUpperInvariant() != "START") return; }
-            AutoLoadHistory(); auto.Start(broker, s, ps.Count > 0); AutoResumeNote(); Put("auto.run." + AKey, "1"); aWasOn = true; AutoPaint(true);
+            AutoLoadHistory(); auto.Start(broker, s, ps.Count > 0); auto.NoCatchUp = noCatch; AutoResumeNote(); Put("auto.run." + AKey, "1"); aWasOn = true; AutoPaint(true);
+        }
+        // ▶ 09f: what START / RESUME would do at once (a dry run that sends nothing) — "" = nothing at once
+        bool startNoCatch;
+        string AutoPreview(AutoSettings s)
+        {
+            List<string> said; try { said = HedgeAuto.PreviewStart(broker, s, auto.RestoreOpen, auto.Iterations); } catch { return ""; }
+            return HedgeAuto.PreviewText(said);
+        }
+        // 🧭 RECOVERY ASSIST (09f, every account — it only SUGGESTS): a basket in trouble (the guard's breakeven mode) gets a one-click recovery
+        // ticket: the confirmed short-term trend's side, the stack size (capped), the protection, the exit = the basket's breakeven / target
+        void AutoRecovery()
+        {
+            aRec = null; if (aRecBtn == null) return; var sym = auto.Running && auto.Set != null ? auto.Set.Symbol : aset.Symbol;
+            if (auto.GuardExit != "BREAKEVEN" || double.IsNaN(auto.GuardTotal)) { aRecBtn.Visibility = Visibility.Collapsed; return; }
+            List<Mt5Bar> m1; double net, px, per = 0, bal, ml; DateTime now;
+            lock (broker.State.Gate)
+            {
+                var st = broker.State; now = st.ServerNow > DateTime.MinValue ? st.ServerNow : DateTime.Now; var se = st.SeriesOf(sym, 1); m1 = se.Bars.Where(b => b.Time.AddMinutes(1) <= now).ToList(); if (m1.Count > 220) m1 = m1.Skip(m1.Count - 220).ToList();
+                var ps = st.Positions.Where(p => string.Equals(p.Symbol, sym, StringComparison.OrdinalIgnoreCase)).ToList(); net = ps.Sum(p => p.Dir * p.Lots); Mt5Quote q; st.Quotes.TryGetValue(sym, out q);
+                Mt5Symbol ms; if (st.Symbols.TryGetValue(sym, out ms) && ms.TickSize > 0) per = ms.TickValue / ms.TickSize; bal = st.Account.Balance; ml = st.Account.MarginLevel; px = q == null ? double.NaN : 0; if (q != null) aRecPx = Tuple.Create(q.Bid, q.Ask);
+                if (ps.Count == 0 || q == null) { aRecBtn.Visibility = Visibility.Collapsed; return; }
+            }
+            var tr = TrendDetect.Read(m1, TrendDetect.DayVwap(m1, now)); px = tr.Dir > 0 ? aRecPx.Item2 : aRecPx.Item1;
+            var s = auto.Running && auto.Set != null ? auto.Set : aset;
+            aRec = TrendDetect.Recovery(auto.GuardTotal, s.Target, net, px, per, bal, s.StackCapPer1k, s.StackK, ml, s.StackMargin, tr); aRecSym = sym;
+            aRecBtn.Visibility = aRec.Dir != 0 ? Visibility.Visible : Visibility.Collapsed; aRecBtn.Content = aRec.Dir != 0 ? "💡 " + (aRec.Dir > 0 ? "BUY " : "SELL ") + aRec.Lots.ToString("0.##", IC) + " (recovery)" : "";
+            aRecBtn.ToolTip = aRec.Text;
+        }
+        Tuple<double, double> aRecPx = Tuple.Create(double.NaN, double.NaN);
+        void AutoRecoveryPlace()
+        {
+            var r = aRec; if (r == null || r.Dir == 0) return;
+            if (!Sx.Ask(this, "💡 RECOVERY TRADE — your click", BadgeLine() + r.Text + "\n\nIt is placed as YOUR trade (market " + (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.##", IC) + ", stop at the protection " + r.Protect.ToString("0.00", IC) + ", no take profit: the 🎯 EXIT GUARD closes the WHOLE basket at its breakeven / target)." + (auto.Running ? "\nThe automation stops (⏸ STOP ON MANUAL) until you ▶ RESUME; the guard keeps watching the total." : ""), "💡 PLACE IT", "NO", Cyan, (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.00", IC) + " LOTS")) return;
+            Cmd("💡 RECOVERY " + (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.##", IC) + " " + aRecSym + " (stop " + r.Protect.ToString("0.00", IC) + ")", "ORDER", aRecSym, r.Dir > 0 ? "BUY" : "SELL", r.Lots, 0.0, Math.Round(r.Protect, 2), 0.0);
         }
         void AutoStopClose()
         {
@@ -1206,9 +1255,9 @@ namespace KeystoneMT5
         bool aFixDone;
         void AutoRepairResults()
         {
-            if (aFixDone || Sim || string.IsNullOrEmpty(aHist)) return; if (Get("auto.fix09d." + aHist, "") == "1") { aFixDone = true; return; }
-            List<Mt5Deal> deals; lock (broker.State.Gate) deals = broker.State.Deals.ToList(); if (deals.Count == 0) return;
-            aFixDone = true; var sym = (auto.Set ?? aset).Symbol; var ch = Continuity.RepairResults(auto.Iterations, deals, sym);
+            if (aFixDone || Sim || string.IsNullOrEmpty(aHist)) return; if (Get("auto.fix09f." + aHist, "") == "1") { aFixDone = true; return; }
+            List<Mt5Deal> deals; lock (broker.State.Gate) deals = broker.State.Deals.ToList(); if (deals.Count == 0 && !Paper && (DateTime.Now - aResumeAt).TotalSeconds < 60) return;   /* the real account's deals may still be on the way: wait ≤ 60 s, then the pattern check runs anyway */
+            aFixDone = true; var sym = (auto.Set ?? aset).Symbol; var ch = Continuity.RepairResults(auto.Iterations, deals, sym, (auto.Set ?? aset).Target);
             if (ch.Count > 0)
             {
                 try
@@ -1219,7 +1268,7 @@ namespace KeystoneMT5
                 catch { }
                 foreach (var l in ch) { auto.Note("🧮 09d repair: " + l); Log("🧮 09d repair: " + l, Amber); } auto.Version++; Toast("🧮 " + ch.Count + " saved iteration result" + (ch.Count == 1 ? "" : "s") + " recomputed from their deals (see LOG)");
             }
-            Put("auto.fix09d." + aHist, "1");
+            Put("auto.fix09f." + aHist, "1");
         }
         void AutoSaveNew()
         {
@@ -1280,6 +1329,9 @@ namespace KeystoneMT5
                 if (aFullBtn != null) { aFullBtn.Content = aFull ? "⤡ BANNER BACK" : "⤢ FULL LIST"; aFullBtn.Background = aFull ? Tint(Cyan, 70) : Tint(Sx.Card2, 220); }
             }
             aStart.IsEnabled = !on; aStop.IsEnabled = on;
+            if (aGuardBtn != null) { aGuardBtn.Content = aset.ExitGuard ? "🎯 EXIT GUARD: ON" : "🎯 EXIT GUARD: OFF"; aGuardBtn.Background = aset.ExitGuard ? Tint(Gold, 90) : Tint(Sx.Card2, 220); aGuardNow.Visibility = auto.GuardAlert ? Visibility.Visible : Visibility.Collapsed; }
+            if (aset.ExitGuard && auto.GuardText != "") aInfo.Text += "\n" + auto.GuardText + (auto.GuardAlert ? "  ⚠ REACHED — ✋ MANUAL MANAGE: press ⛔ CLOSE ALL NOW" : "");
+            if (aRec != null && auto.GuardExit == "BREAKEVEN") aInfo.Text += "\n" + aRec.Text;
             if (aHandBar != null) { bool hs = auto.HandStopped && !on; aHandBar.Visibility = hs ? Visibility.Visible : Visibility.Collapsed; if (hs) aHandTxt.Text = "⏸ AUTOMATION STOPPED — you traded by hand (" + auto.HandWhat + "). Your positions are untouched. To continue: ▶ RESUME AUTOMATION (it asks first)."; }
             if (aLockTxt != null)
             {   // the settings bar: running → SAVE for the next iteration (amber while there are unsaved changes); stopped → START / RESUME here
@@ -1302,7 +1354,7 @@ namespace KeystoneMT5
         void AutoTilesPaint()
         {
             var st = auto.Calc(auto.Iterations); var today = (auto.Now > DateTime.MinValue ? auto.Now : DateTime.Now).Date;
-            var td = auto.Iterations.Where(x => x.Done && x.End.Date == today).ToList(); double tdNet = td.Sum(x => x.Result); var first = auto.Iterations.FirstOrDefault(x => x.Start.Date == today); double tdBase = first != null ? first.BalanceStart : 0;
+            var td = auto.Iterations.Where(x => x.Done && !x.Unverified && x.End.Date == today).ToList(); double tdNet = td.Sum(x => x.Result); var first = auto.Iterations.FirstOrDefault(x => x.Start.Date == today); double tdBase = first != null ? first.BalanceStart : 0;
             aTiles.Content = Sx.Tiles(
                 Tuple.Create("ITERATIONS", st.Done + (auto.Current != null ? " (+1 open)" : ""), Text),
                 Tuple.Create("WON / LOST", st.Wins + " / " + st.Losses + (st.Done > 0 ? "  " + (100.0 * st.Wins / st.Done).ToString("0", IC) + "%" : ""), st.Losses > 0 ? Amber : Green),

@@ -17,6 +17,8 @@ namespace KeystoneMT5
         public string Text { get { return Dir == 0 ? "➖ NO TREND " + Strength + (Why != "" ? " · " + Why : "") : (Dir > 0 ? "📈 TREND UP " : "📉 TREND DOWN ") + Strength + " · " + Why; } }
     }
 
+    public sealed class RecoveryTicket { public int Dir; public double Lots, Entry, Protect = double.NaN, RiskLeg, BasketAtProtect, BePx = double.NaN, TpPx = double.NaN, GainAtMove, Move, NetAfter; public string Text = ""; }
+
     public static class TrendDetect
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
@@ -79,6 +81,32 @@ namespace KeystoneMT5
             t.Why = w.Count > 0 ? string.Join(", ", w) : "no alignment";
             return t;
         }
+        // the day's VWAP from finished M1 candles (typical price × tick volume)
+        public static double DayVwap(IList<Mt5Bar> m1, DateTime day)
+        {
+            double pv = 0, v = 0; foreach (var b in m1) if (b.Time.Date == day.Date) { double w = Math.Max(1, b.V); pv += (b.H + b.L + b.C) / 3 * w; v += w; }
+            return v > 0 ? pv / v : double.NaN;
+        }
+        public const string RecoveryHonest = "The six-year test of automatic stacking LOST (09e); this is a suggestion with its risk shown, not a proven edge.";
+        // 🧭 RECOVERY ASSIST (09f): a recovery trade for a basket in trouble — side = the confirmed short-term trend, size = the stack formula
+        // (capped), the protection = the last swing against it (else 1 ATR M5), the exit = the BASKET's breakeven / target (the 🎯 EXIT GUARD closes all there)
+        public static RecoveryTicket Recovery(double total, double target, double net, double px, double perPrice, double balance, double capPer1k, double k, double marginLevel, double minMargin, TrendState tr, double step = 0.01)
+        {
+            var r = new RecoveryTicket();
+            if (tr == null || tr.Dir == 0) { r.Text = "💡 RECOVERY: no trade — no clear trend" + (tr != null ? " (" + tr.Text + ")" : ""); return r; }
+            if (marginLevel > 0 && marginLevel < minMargin) { r.Text = "💡 RECOVERY: no trade — margin " + marginLevel.ToString("0", IC) + " % < " + minMargin.ToString("0", IC) + " %"; return r; }
+            int dir = tr.Dir; double cap = Math.Max(step, Math.Round(Math.Max(1, balance) / 1000 * capPer1k, 2)); r.Move = k * (double.IsNaN(tr.Atr5) ? 0 : tr.Atr5); string why;
+            double lots = StackLots(total, target, r.Move, perPrice, net * dir, step, cap, out why); if (lots < step - 1e-9) { r.Text = "💡 RECOVERY: no trade — " + why; return r; }
+            r.Dir = dir; r.Lots = lots; r.Entry = px; double after = Math.Round(net + dir * lots, 2); r.NetAfter = after;
+            r.BePx = Math.Abs(after) < 0.005 || perPrice <= 0 ? double.NaN : px + (0 - total) / (after * perPrice); r.TpPx = Math.Abs(after) < 0.005 || perPrice <= 0 ? double.NaN : px + (target - total) / (after * perPrice);
+            double sw = dir < 0 ? tr.SwingHi : tr.SwingLo; r.Protect = !double.IsNaN(sw) && (dir < 0 ? sw > px : sw < px) ? sw : px - dir * (double.IsNaN(tr.Atr5) ? 0 : tr.Atr5);
+            r.RiskLeg = Math.Abs(r.Protect - px) * lots * perPrice; r.BasketAtProtect = total + (r.Protect - px) * after * perPrice; r.GainAtMove = total + after * perPrice * dir * r.Move;
+            r.Text = "💡 RECOVERY: " + (dir > 0 ? "BUY " : "SELL ") + lots.ToString("0.##", IC) + " now @ " + px.ToString("0.00", IC) + " — " + tr.Text + " · the basket " + Usd(total) + " → breakeven " + r.BePx.ToString("0.00", IC) + ", +$" + target.ToString("0.##", IC) + " at " + r.TpPx.ToString("0.00", IC) + " (the 🎯 EXIT GUARD closes everything there)"
+                + " · protection " + r.Protect.ToString("0.00", IC) + " (" + (!double.IsNaN(sw) && r.Protect == sw ? "the last swing " + (dir < 0 ? "high" : "low") : "1 ATR") + ") = −$" + r.RiskLeg.ToString("0", IC) + " on this leg, the basket " + Usd(r.BasketAtProtect) + " there"
+                + " · ≈ " + Usd(r.GainAtMove) + " total if the price moves 1.5 ATR ($" + r.Move.ToString("0.00", IC) + ") your way. " + RecoveryHonest;
+            return r;
+        }
+        static string Usd(double v) { return (v < 0 ? "−$" : "+$") + Math.Abs(v).ToString("N2", IC); }
         // 🚀 the stack size: add = clamp((debt + target) ÷ (expected move × $ per 1.0 per lot) − the net already with the trend, step, cap)
         // debt = how far the basket total is under 0 (≥ 0); cap = the most net lots the trend side may hold; "" = sized, else why not
         public static double StackLots(double total, double target, double expMove, double perPrice, double netWithTrend, double step, double cap, out string why)

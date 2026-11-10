@@ -109,22 +109,28 @@ namespace KeystoneMT5
         // 🧮 09d one-time REPAIR of the saved results (#41: "+$204.37 in 4 s"): each finished iteration recomputed from its OWN deals on the symbol
         // (the legs it opened — a leg opened more than 60 s before its start was taken over and its earlier P/L is not this iteration's); no
         // deal at all while the deals history covers that time → flagged "result unverified". Returns one line per change.
-        public static List<string> RepairResults(List<AutoIteration> its, IList<Mt5Deal> deals, string sym)
+        public static List<string> RepairResults(List<AutoIteration> its, IList<Mt5Deal> deals, string sym, double target = 0)
         {
-            var res = new List<string>(); if (deals == null || deals.Count == 0) return res;
+            var res = new List<string>();
+            // 09f: the #41 pattern — far more than the target (> 5 ×) within a minute, never below $0, several legs = a basket taken over / a balance
+            // jump, not a trade (its deals were in the other DEMO file of the 09c swap) → "result unverified" (listed grey, not counted)
+            foreach (var x in its.Where(i => i.Done && !i.Unverified))
+                if (target > 0 && x.Result > 5 * target && (x.End - x.Start).TotalSeconds < 60 && x.MaxDd >= 0 && x.Buys + x.Sells >= 2)
+                { x.Reason += " · result unverified — balance jump"; res.Add("#" + x.N + " " + x.Start.ToString("dd MMM HH:mm", IC) + ": " + x.Result.ToString("+0.00;−0.00", IC) + " in " + (x.End - x.Start).TotalSeconds.ToString("0", IC) + " s (> 5 × the $" + target.ToString("0.##", IC) + " target, worst $0) — result unverified, left out of NET / TODAY"); }
+            if (deals == null || deals.Count == 0) return res;
             var mine = deals.Where(d => string.Equals(d.Symbol, sym, StringComparison.OrdinalIgnoreCase) && (d.Type == "BUY" || d.Type == "SELL")).ToList();
             var first = deals.Min(d => d.Time);
             foreach (var x in its.Where(i => i.Done && i.End >= i.Start))
             {
-                if ((x.Reason ?? "").Contains("09d")) continue;   // already repaired
+                if ((x.Reason ?? "").Contains("09d") || x.Unverified) continue;   // already repaired / flagged
                 DateTime from = new DateTime(x.Start.Ticks - x.Start.Ticks % TimeSpan.TicksPerSecond), to = x.End.AddSeconds(3);
                 var outs = mine.Where(d => d.Entry == "OUT" && d.Time >= from && d.Time <= to).ToList();
-                if (outs.Count == 0) { if (first < from && Math.Abs(x.Result) >= 0.01) { x.Reason += " · 09d: result unverified (no deals)"; res.Add("#" + x.N + " " + x.Start.ToString("dd MMM HH:mm", IC) + ": no deal found — result " + x.Result.ToString("0.00", IC) + " unverified"); } continue; }
+                if (outs.Count == 0) { if (first < from && Math.Abs(x.Result) >= 0.01) { x.Reason += " · result unverified — balance jump (no deals of its own)"; res.Add("#" + x.N + " " + x.Start.ToString("dd MMM HH:mm", IC) + ": no deal found — result " + x.Result.ToString("0.00", IC) + " unverified"); } continue; }
                 double sum = 0; int before = 0;
                 foreach (var d in outs)
                 {
                     var inn = mine.FirstOrDefault(i => i.Entry == "IN" && i.Position == d.Position);
-                    if (inn != null && inn.Time < from.AddSeconds(-60)) { before++; continue; }   // taken over: its P/L began before this iteration
+                    if (inn == null || inn.Time < from.AddSeconds(-60)) { before++; continue; }   // opened before it (or not in this account's history): not this iteration's P/L   // taken over: its P/L began before this iteration
                     sum += d.Profit + d.Swap + d.Commission + (inn != null && inn.Lots > 0 ? inn.Commission * d.Lots / inn.Lots : 0);
                 }
                 sum = Math.Round(sum, 2);
@@ -139,7 +145,7 @@ namespace KeystoneMT5
         // the HEDGE banner after START / RESUME: "resumed: 39 iterations · today +$248.89 · open basket #40 taken over"
         public static string ResumeLine(IEnumerable<AutoIteration> its, AutoIteration current, DateTime today)
         {
-            var done = its.Where(x => x.Done).ToList(); if (done.Count == 0 && current == null) return "";
+            var done = its.Where(x => x.Done && !x.Unverified).ToList(); if (done.Count == 0 && current == null) return "";
             double t = done.Where(x => x.End.Date == today.Date).Sum(x => x.Result);
             return "🔁 resumed: " + done.Count + " iteration" + (done.Count == 1 ? "" : "s") + " · today " + (t >= 0 ? "+$" : "−$") + Math.Abs(t).ToString("N2", IC) + (current != null && !current.Done ? " · open basket #" + current.N + " taken over" : "");
         }
