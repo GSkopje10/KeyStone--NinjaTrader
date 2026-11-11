@@ -952,7 +952,7 @@ public static class AccountLinkTests
             var again = g4.Feed(bars.Concat(new[] { new KeystoneArcBar { Symbol = "MNQ", Time = at(9, 41, 0), Open = 110, High = 110.5, Low = 109.5, Close = 110 } }).ToList(), at(9, 41, 5), 110);
             Check(again.Count == 0, "🎯 Feed: each setup is offered once", again.Count.ToString());
             // 💰 the FUNDED bracket + the day goal in the guided source
-            var r5 = mk(new[] { "EV", "FD" }, "ROTATE"); var g5 = r5.Item1; var b5 = r5.Item2; g5.S = KeystoneTriSettings.ClaudePlan(); g5.IsFunded = a => a == "FD";
+            var r5 = mk(new[] { "EV", "FD" }, "ROTATE"); var g5 = r5.Item1; var b5 = r5.Item2; g5.S = new KeystoneTriSettings { Window = "ALLDAY", Qty = 15, StopUsd = 500, TargetUsd = 1500, FQty = 5, FStop = 300, FTarget = 300, FDayLock = 150 }.ApplyWindow(); g5.IsFunded = a => a == "FD";
             var t5a = g5.Offer(cand(1, at(10, 0, 0)), at(10, 0, 1), 20000); g5.Skip(at(10, 0, 2)); g5.Press(at(10, 0, 3), 20000);
             var t5b = g5.Offer(cand(1, at(10, 1, 0)), at(10, 1, 1), 20000);
             Check(t5a != null && t5a.Account == "EV" && t5a.Qty == 15 && Math.Abs(t5a.StopPts - 16.75) < 1e-9 && t5b != null && t5b.Account == "EV", "💰 the eval account's ticket: 15 MNQ −$500 / +$1,500 (unchanged)", t5a == null ? "none" : t5a.Words());
@@ -960,6 +960,27 @@ public static class AccountLinkTests
             Check(t5c != null && t5c.Account == "FD" && t5c.Phase == "FUNDED" && t5c.Qty == 5 && Math.Abs(t5c.StopPts - 30) < 1e-9 && Math.Abs(t5c.TargetPts - 30) < 1e-9, "💰 the FUNDED account's ticket: 5 MNQ −$300 / +$300 (30 / 30 pts)", t5c == null ? "none" : t5c.Words());
             g5.Skip(at(10, 2, 2)); b5[1].Pnl = 160; var t5d = g5.Offer(cand(1, at(10, 3, 0)), at(10, 3, 1), 20000);
             Check(t5d == null && g5.WhyNot(g5.Pool[1]).StartsWith("DAY GOAL $150 REACHED") && b5.All(b => b.Sent.Count == 0), "💰 FD is up $160 today (≥ the $150 day goal) → skipped for the rest of the day, nothing sent", g5.WhyNot(g5.Pool[1]));
+            // 💡 11r: ONE TRADE A DAY (BOLD 1-A-DAY) — an account that traded a ticket today is skipped until the next session, win OR lose; still one press per ticket
+            var r6 = mk(new[] { "O1", "O2" }, "ROTATE"); var g6 = r6.Item1; var b6 = r6.Item2; g6.S = KeystoneTriSettings.BoldOneADay();
+            Check(g6.S.Qty == 10 && Math.Abs(g6.S.StopPts - 50) < 1e-9 && Math.Abs(g6.S.TargetPts - 52.5) < 1e-9 && g6.S.EOneTrade && g6.S.FOneTrade, "💡 BOLD 1-A-DAY in the guide: 10 MNQ, stop 50 pts / target 52.5 pts, one trade a day eval + funded");
+            var t6a = g6.Offer(cand(1, at(10, 0, 0)), at(10, 0, 1), 20000);
+            Check(t6a != null && t6a.Account == "O1" && b6.All(b => b.Sent.Count == 0), "💡 1-A-DAY: the first ticket is for O1 — nothing sent before the press", t6a == null ? "none" : t6a.Words());
+            g6.Press(at(10, 0, 2), 20000); run(g6, at(10, 0, 3), 3); b6[0].FillMarket(20000); run(g6, at(10, 0, 5), 4);
+            var st6 = b6[0].All.FirstOrDefault(o => o.Kind == "STOP" && !o.Done); if (st6 != null) b6[0].Trigger(st6); run(g6, at(10, 1, 0), 4);
+            Check(g6.Current == null && g6.TradedToday("O1", at(10, 2, 0)) && g6.WhyNot(g6.Pool[0]).StartsWith("ONE TRADE A DAY"), "💡 1-A-DAY: O1's trade stopped out (a LOSS) → O1 is done for today", g6.WhyNot(g6.Pool[0]));
+            var t6b = g6.Offer(cand(1, at(10, 5, 0)), at(10, 5, 1), 20000);
+            Check(t6b != null && t6b.Account == "O2", "💡 1-A-DAY: the next ticket goes to O2", t6b == null ? "none" : t6b.Account);
+            g6.Press(at(10, 5, 2), 20000); run(g6, at(10, 5, 3), 3); b6[1].FillMarket(20000); run(g6, at(10, 5, 5), 4);
+            var tg6 = b6[1].All.FirstOrDefault(o => o.Kind == "LIMIT" && !o.Done); if (tg6 != null) b6[1].Trigger(tg6); run(g6, at(10, 6, 0), 4);
+            int sent6 = b6.Sum(b => b.Sent.Count); var t6c = g6.Offer(cand(1, at(10, 10, 0)), at(10, 10, 1), 20000);
+            Check(t6c == null && g6.Journal.Last().Event == "NO ACCOUNT" && b6.Sum(b => b.Sent.Count) == sent6 && g6.WhyNot(g6.Pool[1]).StartsWith("ONE TRADE A DAY"), "💡 1-A-DAY: O2 won and O1 lost — both traded today → the next setup has NO ACCOUNT, nothing sent", g6.Journal.Last().Event);
+            var nextDay = gd.AddDays(1).AddHours(9).AddMinutes(45); var t6d = g6.Offer(cand(-1, nextDay), nextDay.AddSeconds(1), 20000);
+            Check(t6d != null && (t6d.Account == "O1" || t6d.Account == "O2") && !g6.TradedToday("O1", nextDay) && b6.Sum(b => b.Sent.Count) == sent6, "💡 1-A-DAY: the next session both may trade again (a ticket, still nothing sent without the press)", t6d == null ? "none" : t6d.Account);
+            var g7 = mk(new[] { "J1", "J2" }, "ROTATE").Item1; g7.S = KeystoneTriSettings.SmallOneADay(); g7.MarkTraded("J1", at(9, 40, 0));
+            var t7 = g7.Offer(cand(1, at(10, 0, 0)), at(10, 0, 1), 20000);
+            Check(t7 != null && t7.Account == "J2" && t7.Qty == 5 && Math.Abs(t7.StopPts - 50) < 1e-9 && Math.Abs(t7.TargetPts - 105) < 1e-9, "💡 SMALL 1-A-DAY: J1 already traded today (journal) → the ticket is J2's, 5 MNQ 50 / 105 pts", t7 == null ? "none" : t7.Words());
+            var g8 = mk(new[] { "K1", "K2" }, "ROTATE").Item1; g8.MarkTraded("K1", at(9, 40, 0)); var t8 = g8.Offer(cand(1, at(10, 0, 0)), at(10, 0, 1), 20000);
+            Check(t8 != null && t8.Account == "K1", "💡 ONE TRADE A DAY off (the default) → K1 may trade again", t8 == null ? "none" : t8.Account);
         }
         // 💰 11q: the FUNDED trailing peak = the firm's LIQUIDATION value (NetLiquidation − the closing commission of the open contracts) — the user's
         //     TPT funded 50K: Tradovate DRAWDOWN AUTO 49,102.75 (peak 51,102.75) vs KeyStone 49,113.25; trade #3 SHORT 10 MNQ best open +$568.75

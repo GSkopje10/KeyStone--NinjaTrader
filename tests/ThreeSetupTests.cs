@@ -171,7 +171,7 @@ public static class ThreeSetupTests
                 "RUNS: 3 random-control runs, the trades CSV (comment + header + one line a trade), runs.csv lists it", lst.Count > 0 ? string.Join("|", lst[0]) : "none");
         }
         finally { try { System.IO.Directory.Delete(tmpS, true); } catch { } }
-        // ---- 10. BUILD 11p: the FUNDED bracket + the day goal (💡 CLAUDE PLAN); the eval is unchanged
+        // ---- 10. BUILD 11p: the FUNDED bracket + the day goal (the 11p funded plan); the eval is unchanged
         {
             var dF = KeystoneTriData.From(rise(3)); var cF = every(dF, 10);
             var sE = s.Copy(); sE.Mode = "STAY"; sE.Accounts = 1; sE.ConsistencyGuard = false; sE.Rules.Target = 1400; sE.Rules.EvalMinDays = 1; sE.Rules.EvalConsistency = 0;
@@ -182,8 +182,48 @@ public static class ThreeSetupTests
             var fund = rF.Trades.Where(t => t.Phase == "FUNDED").ToList(); var fundE = rE.Trades.Where(t => t.Phase == "FUNDED").ToList();
             Check(fund.Count > 0 && fund.All(t => Eq(t.TargetPx - t.EntryPx, 30) && Eq(t.EntryPx - t.StopPx, 30)) && Eq(fund[0].Pnl, 300 - 5 * KeystoneMoveStudy.Cost("MNQ")), "FUNDED trades use the funded bracket: 5 MNQ −$300 / +$300 (30 / 30 pts) → +$300 − 5 × costs", fund.Count > 0 ? fund[0].Pnl + " " + (fund[0].TargetPx - fund[0].EntryPx) : "none");
             Check(fund.GroupBy(t => t.Day).All(g => g.Count() == 1) && fundE.GroupBy(t => t.Day).Any(g => g.Count() > 1) && rF.SkippedNoAccount > rE.SkippedNoAccount, "the funded day goal ($150): after its first win the account stops for the day (the day's other signals are skipped)", string.Join(",", fund.Select(t => t.Day.ToString("dd"))) + " skipped " + rF.SkippedNoAccount + " vs " + rE.SkippedNoAccount);
-            var cp = KeystoneTriSettings.ClaudePlan(); var cpF = cp.ForPhase("FUNDED");
-            Check(cp.Window == "ALLDAY" && cp.Mode == "ROTATE" && cp.Qty == 15 && cpF.Qty == 5 && Eq(cpF.StopPts, 30) && Eq(cpF.TargetPts, 30) && Eq(cp.FDayLock, 150) && ReferenceEquals(cp.ForPhase("EVAL"), cp), "💡 CLAUDE PLAN: ALL DAY, ONE TRADE PER ACCOUNT, eval 15 MNQ −$500 / +$1,500, funded 5 MNQ −$300 / +$300, funded day goal $150");
+        }
+        // ---- 11. BUILD 11r: the Lucid payout floor, the payout hold, ONE TRADE A DAY, the 1-A-DAY presets, the bracket re-priced for every trade
+        {
+            Check(s.Rules.PayoutLocksFloor && KeystoneSimRules.Presets().Where(x => x.PayoutLocksFloor).All(x => x.Name.Contains("LUCID")) && !KeystoneSimRules.Presets().First(x => x.Name == "GENERIC PROP 50K").PayoutLocksFloor && Eq(s.Rules.PayoutHoldAbove, 0),
+                "Lucid Flex 50K: a payout locks the funded floor (only the Lucid presets), no payout hold by default");
+            Func<KeystoneSimRules, KeystonePropSim> fundedSim = rules =>
+            {
+                var tx = s.Copy(); tx.Rules = rules; var sm = KeystoneTriRotation.NewBatch(tx); sm.BeginDay(D0); var fa = sm.Accounts[0]; fa.Phase = "FUNDED"; fa.WasPhase = "FUNDED"; fa.PassedOn = D0; fa.Bal = 1000; fa.PeakEod = 1000; fa.PeakIntra = 1000; fa.Qualifying = 4; return sm;
+            };
+            var sl = fundedSim(KeystoneTriSettings.LucidFlex50K()); var la = sl.Accounts[0];
+            Check(Eq(sl.Floor(la), -1000), "funded +$1,000 before any payout: the EOD floor trails at −$1,000", sl.Floor(la).ToString());
+            sl.AddFill(la, 200); sl.EndTrade(la, new KeystoneSimTrade { Entry = D0.AddHours(10), Exit = D0.AddHours(11), Pnl = 200, Dir = 1 }); sl.EndDay();
+            Check(la.Payouts == 1 && Eq(la.Gross, 600) && Eq(la.Bal, 600) && Eq(sl.Floor(la), 100) && Eq(sl.Trail(la, 0).Floor, 100) && sl.Trail(la, 0).Locked, "LUCID: the 5th $150 day → payout $600 (50 % of $1,200) → the floor moves to start + $100 for good (was −$800)", la.Gross + " bal " + la.Bal + " floor " + sl.Floor(la));
+            sl.BeginDay(D0.AddDays(1)); sl.AddFill(la, -520); sl.EndTrade(la, new KeystoneSimTrade { Entry = D0.AddDays(1).AddHours(10), Exit = D0.AddDays(1).AddHours(11), Pnl = -520, Dir = 1 }); sl.EndDay();
+            Check(la.Phase == "BLOWN", "… so a −$520 day (balance +$80 < +$100) blows it — without the rule it had $1,400 of room", la.Phase + " " + la.Bal);
+            var rOff = KeystoneTriSettings.LucidFlex50K(); rOff.PayoutLocksFloor = false; var so = fundedSim(rOff); var oa = so.Accounts[0];
+            so.AddFill(oa, 200); so.EndTrade(oa, new KeystoneSimTrade { Entry = D0.AddHours(10), Exit = D0.AddHours(11), Pnl = 200, Dir = 1 }); so.EndDay();
+            Check(oa.Payouts == 1 && Eq(so.Floor(oa), -800), "rule off (other firms): the same payout leaves the trailing floor at −$800", so.Floor(oa).ToString());
+            var rH = KeystoneTriSettings.LucidFlex50K(); rH.PayoutHoldAbove = KeystoneTriSettings.PayoutHoldFull; var sh = fundedSim(rH); var ha = sh.Accounts[0]; var dh = D0; double[] hdays = { 200, 1000, 1000, 1000, 1000 }; int paidH = -1;
+            for (int k = 0; k < hdays.Length; k++) { if (k > 0) { dh = dh.AddDays(1); sh.BeginDay(dh); } sh.AddFill(ha, hdays[k]); sh.EndTrade(ha, new KeystoneSimTrade { Entry = dh.AddHours(10), Exit = dh.AddHours(11), Pnl = hdays[k], Dir = 1 }); sh.EndDay(); if (paidH < 0 && ha.Payouts > 0) paidH = k; }
+            Check(paidH == 3 && Eq(ha.Gross, 2000) && Eq(ha.Cash, 1800) && Eq(sh.Floor(ha), 100), "PAYOUT HOLD +$4,100: no payout at +$1,200 / $2,200 / $3,200; at +$4,200 the full $2,000 (→ $1,800), then the floor locks at +$100", "paid on day " + paidH + " gross " + ha.Gross);
+            var hs = s.Copy(); hs.PayoutHold = 4100; Check(Eq(KeystoneTriRotation.NewBatch(hs).S.Rules.PayoutHoldAbove, 4100) && Eq(KeystoneTriRotation.NewBatch(s).S.Rules.PayoutHoldAbove, 0), "the tri settings' PayoutHold reaches the batch's rules");
+            // ONE TRADE A DAY: after a LOSS too
+            var fallD = new List<KeystoneArcBar>(); var fd0 = D0; for (int k = 0; k < 3; k++, fd0 = fd0.AddDays(1)) { double px = 5000; for (var t = fd0.AddHours(9).AddMinutes(31); t <= fd0.AddHours(16); t = t.AddMinutes(1), px -= 1) fallD.Add(new KeystoneArcBar { Symbol = "MNQ", Time = t, Open = px + 1, High = px + 1.5, Low = px, Close = px }); }
+            var dfo = KeystoneTriData.From(fallD); var so1 = s.Copy(); so1.Accounts = 1; so1.EOneTrade = true; so1.FOneTrade = true; var ro1 = KeystoneTriRotation.Run(dfo, every(dfo, 20), so1, D0, D0.AddDays(3));
+            var so0 = so1.Copy(); so0.EOneTrade = false; so0.FOneTrade = false; var ro0 = KeystoneTriRotation.Run(dfo, every(dfo, 20), so0, D0, D0.AddDays(3));
+            Check(ro1.Trades.Count == 3 && ro1.Trades.All(t => t.Pnl < 0) && ro1.Trades.GroupBy(t => t.Day).All(g => g.Count() == 1) && ro1.SkippedNoAccount > 0 && ro0.Trades.GroupBy(t => t.Day).Any(g => g.Count() > 1),
+                "ONE TRADE A DAY: every trade LOSES and the account still stops after its one trade each day (off: several a day)", ro1.Trades.Count + " trades, " + ro0.Trades.Count + " without");
+            var dro = KeystoneTriData.From(rise(3)); var sw = s.Copy(); sw.Accounts = 1; sw.ConsistencyGuard = false; sw.EOneTrade = true; var rw = KeystoneTriRotation.Run(dro, every(dro, 10), sw, D0, D0.AddDays(5));
+            Check(rw.Trades.Count == 3 && rw.Trades.All(t => t.Pnl > 0) && rw.Trades.GroupBy(t => t.Day).All(g => g.Count() == 1), "ONE TRADE A DAY after a WIN too: one trade a day", rw.Trades.Count.ToString());
+            // the presets
+            var bo = KeystoneTriSettings.BoldOneADay(); var sm2 = KeystoneTriSettings.SmallOneADay();
+            Check(bo.Window == "NY" && bo.StartHhmm == 930 && bo.EndHhmm == 1600 && bo.Mode == "ROTATE" && bo.Qty == 10 && Eq(bo.StopUsd, 1000) && Eq(bo.TargetUsd, 1050) && Eq(bo.StopPts, 50) && Eq(bo.TargetPts, 52.5) && bo.EOneTrade && bo.FOneTrade && Eq(bo.PayoutHold, 0) && bo.FQty == 0 && ReferenceEquals(bo.ForPhase("FUNDED"), bo) && bo.Rules.PayoutLocksFloor,
+                "💡 BOLD 1-A-DAY: NY, ONE TRADE PER ACCOUNT, 10 MNQ −$1,000 (50 pts) / +$1,050 (52.5 pts), one trade a day eval + funded (same bracket), payout ASAP, Lucid payout floor", bo.Describe());
+            Check(sm2.Window == "NY" && sm2.Mode == "ROTATE" && sm2.Qty == 5 && Eq(sm2.StopPts, 50) && Eq(sm2.TargetPts, 105) && sm2.EOneTrade && sm2.FOneTrade && Eq(sm2.PayoutHold, 0) && sm2.Describe().Contains("ONE TRADE A DAY"),
+                "💡 SMALL 1-A-DAY: NY, 5 MNQ −$500 (50 pts) / +$1,050 (105 pts), one trade a day eval + funded, payout ASAP", sm2.Describe());
+            Check(KeystoneTriSettings.BoldStudy.Contains("+$714") && KeystoneTriSettings.BoldStudy.Contains("+$1,356") && KeystoneTriSettings.SmallStudy.Contains("+$1,083") && KeystoneTriSettings.SmallStudy.Contains("+$1,927") && KeystoneTriSettings.PlanResearch.Contains("verify on simulation first"), "the presets carry their study numbers + the research warning");
+            // RE-PRICING: a candidate made with the default 15 MNQ bracket (16.75 / 50 pts) traded with 10 MNQ $1,000 / $1,050 → 50 / 52.5 pts on an EVAL trade
+            var dp = KeystoneTriData.From(rise(1)); var cdef = every(dp, 60); var sp = s.Copy(); sp.Accounts = 1; sp.ConsistencyGuard = false; sp.Qty = 10; sp.StopUsd = 1000; sp.TargetUsd = 1050;
+            var rp1 = KeystoneTriRotation.Run(dp, cdef, sp, D0, D0); var tp0 = rp1.Trades.FirstOrDefault();
+            Check(tp0 != null && tp0.Phase == "EVAL" && Eq(tp0.EntryPx - tp0.StopPx, 50) && Eq(tp0.TargetPx - tp0.EntryPx, 52.5) && Eq(cdef[0].TargetPx - cdef[0].EntryPx, 50) && (tp0.Reason != "TARGET" || Eq(tp0.Pnl, 1050 - 10 * KeystoneMoveStudy.Cost("MNQ"))),
+                "RE-PRICED: changing STOP $ / TARGET $ changes an EVAL trade's points (50 / 52.5, not the candidate's 16.75 / 50)", tp0 == null ? "none" : (tp0.EntryPx - tp0.StopPx) + " / " + (tp0.TargetPx - tp0.EntryPx) + " " + tp0.Reason + " " + tp0.Pnl);
         }
         Console.WriteLine(failures == 0 ? "ALL THREE-SETUP TESTS PASSED" : "THREE-SETUP TESTS: " + failures + " FAILED");
         return failures == 0 ? 0 : 1;

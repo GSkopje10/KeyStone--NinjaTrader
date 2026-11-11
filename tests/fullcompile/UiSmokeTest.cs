@@ -613,10 +613,11 @@ public static class UiSmokeTest
                             Action<System.Windows.Controls.ComboBox, int> pickC = (c9, i9) => { c9.SelectedIndex = i9; var fe = typeof(System.Windows.Controls.Selector).GetField("SelectionChanged", BindingFlags.Instance | BindingFlags.NonPublic); var dg9 = fe == null ? null : fe.GetValue(c9) as Delegate; if (dg9 != null) dg9.DynamicInvoke(c9, null); };   /* the stand-ins do not raise SelectionChanged */
                             pickC(srcC, 1); all.Clear(); walk(liveWin.Content);
                             if (!all.OfType<System.Windows.Controls.ComboBox>().Any(c9 => Convert.ToString(c9.Tag) == "rot.tri.mode") || !all.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").Contains("no edge yet")) || !all.OfType<System.Windows.Controls.TextBox>().Any(t => Convert.ToString(t.Tag) == "rot.tri.flock")) throw new Exception("🎯 ROTATE ▸ 3 SETUPS settings missing");
+                            if (!all.OfType<System.Windows.Controls.CheckBox>().Any(c9 => Convert.ToString(c9.Tag) == "rot.tri.eone") || !all.OfType<System.Windows.Controls.CheckBox>().Any(c9 => Convert.ToString(c9.Tag) == "rot.tri.fone") || !all.OfType<System.Windows.Controls.Button>().Any(b9 => Convert.ToString(b9.Tag) == "rot.tri.plan.bold") || !all.OfType<System.Windows.Controls.Button>().Any(b9 => Convert.ToString(b9.Tag) == "rot.tri.plan.small")) throw new Exception("🎯 ROTATE ▸ 3 SETUPS: ONE TRADE A DAY ticks / 1-A-DAY presets missing");
                             var startB = btn("▶ START ROTATION"); if (startB != null) click(startB);   /* no pool → refused with a message */
                             all.Clear(); walk(liveWin.Content); var srcC2 = all.OfType<System.Windows.Controls.ComboBox>().First(c9 => Convert.ToString(c9.Tag) == "rot.tri.src"); pickC(srcC2, 0);
                             all.Clear(); walk(liveWin.Content); var backR = btn("◀ CHART"); if (backR != null) click(backR);
-                            Console.WriteLine("      🔄 ROTATE ▸ 🎯 3 SETUPS source: window / account order / eval + funded bracket / day goals / 💡 CLAUDE PLAN / DONE marks, START refused without a pool: OK");
+                            Console.WriteLine("      🔄 ROTATE ▸ 🎯 3 SETUPS source: window / account order / eval + funded bracket / day goals / ONE TRADE A DAY / 💡 BOLD + SMALL 1-A-DAY / DONE marks, START refused without a pool: OK");
                         }
                         // 🤖 LIVE AUTOPILOT (BUILD 11g): the view opens (the explanation, ▶ START AUTOPILOT, the TODAY journal); START without accounts is refused — nothing sent
                         all.Clear(); walk(liveWin.Content); var apB = btn("🤖 AUTOPILOT"); if (apB == null) throw new Exception("🤖 AUTOPILOT button missing");
@@ -843,7 +844,7 @@ public static class UiSmokeTest
                     Console.WriteLine("      🔄 saved runs: " + (System.IO.File.ReadAllLines(System.IO.Path.Combine(sf, "RotationSim", "runs.csv")).Length - 1) + " · NinjaBroker built 0 · nothing sent: OK");
                 });
             if (strategy == "MAD")
-                Step("🎯 BUILD 11p: 3 SETUPS — the indicator layer (closed bars, no error), a 🎮 practice ticket TAKE on the simulated trader, the 3-SETUP ROTATION drawer (RUN / RANDOM / 💡 CLAUDE PLAN / saved runs), NOTHING sent", () =>
+                Step("🎯 BUILD 11p: 3 SETUPS — the indicator layer (closed bars, no error), a 🎮 practice ticket TAKE on the simulated trader, the 3-SETUP ROTATION drawer (RUN / RANDOM / 💡 BOLD / SMALL 1-A-DAY / saved runs), NOTHING sent", () =>
                 {
                     var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
                     var nbMade = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public); int made0 = (int)nbMade.GetValue(null);
@@ -866,8 +867,9 @@ public static class UiSmokeTest
                     string st = rs("TAB STATS"); if (!st.Contains("BUSINESS NET") || !st.Contains("no edge yet")) throw new Exception("🎯 STATS: " + st);
                     string rd = rs("RANDOM"); if (!rd.Contains("RANDOM CONTROL")) throw new Exception("🎲 RANDOM: " + rd);
                     string b0 = rs("TAB BATCHES"); if (!b0.Contains("START")) throw new Exception("📋 BATCHES: " + b0);
-                    string pl = rs("PLAN"); if (!pl.Contains("FUNDED 5 micros") || !pl.Contains("funded day goal $150")) throw new Exception("💡 CLAUDE PLAN: " + pl);
-                    string run2 = rs("RUN"); if (!run2.Contains("✓ ▶ RUN")) throw new Exception("🎯 RUN (CLAUDE PLAN): " + run2);
+                    string pls = rs("PLAN SMALL"); if (!pls.Contains("5 micros") || !pls.Contains("(105.00 pts)") || !pls.Contains("ONE TRADE A DAY (eval + funded")) throw new Exception("💡 SMALL 1-A-DAY: " + pls);
+                    string pl = rs("PLAN BOLD"); if (!pl.Contains("10 micros") || !pl.Contains("(50.00 pts") || !pl.Contains("(52.50 pts)") || !pl.Contains("ONE TRADE A DAY (eval + funded") || !pl.Contains("payout as soon as allowed") || !pl.Contains("a payout locks the floor")) throw new Exception("💡 BOLD 1-A-DAY: " + pl);
+                    string run2 = rs("RUN"); if (!run2.Contains("✓ ▶ RUN")) throw new Exception("🎯 RUN (BOLD 1-A-DAY): " + run2);
                     var runs = System.IO.Path.Combine(sf, "TriRotation", "runs.csv"); if (!System.IO.File.Exists(runs) || System.IO.File.ReadAllLines(runs).Length < 4) throw new Exception("💾 TriRotation\\runs.csv missing / short");
                     if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the 3 SETUPS layer / drawer built a NinjaBroker");
                     showD("TRIROT"); bt.Close();
