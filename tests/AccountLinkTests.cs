@@ -887,6 +887,80 @@ public static class AccountLinkTests
             }
             KeystoneNtLockout.Clear();
         }
+        // ================= 🎯 3 SETUPS ▸ 🔄 ROTATE GUIDED source (BUILD 2026-11-11p): a ticket per setup, ONE press = the bracket through that account's ARMED link =================
+        {
+            var gd = new DateTime(2026, 10, 6); Func<int, int, double, DateTime> at = (h, m, sec) => gd.AddHours(h).AddMinutes(m).AddSeconds(sec);
+            Func<string[], string, Tuple<KeystoneTriGuide, FakeBroker[]>> mk = (names, mode) =>
+            {
+                var g = new KeystoneTriGuide { Mode = mode }; var bs = names.Select(n => new FakeBroker()).ToArray();
+                for (int i = 0; i < names.Length; i++) { var f = new KeystoneCopyFollower { Account = names[i], MaxQty = 20, Link = new KeystoneAccountLink(bs[i], "MNQ") { MaxContracts = 20, DayLossLimit = 0 }, Mirror = Trader() }; f.Link.Arm(at(9, 0, 0)); g.Pool.Add(f); }
+                return Tuple.Create(g, bs);
+            };
+            Func<int, DateTime, KeystoneTriCandidate> cand = (dir, t) => new KeystoneTriCandidate { Setup = "AGG", Dir = dir, Day = gd, Signal = t, Entry = t, EntryPx = 20000, Why = "test" };
+            Action<KeystoneTriGuide, DateTime, int> run = (g, t, n) => { for (int k = 0; k < n; k++) g.Tick(t.AddSeconds(k * 0.5), 20000); };
+            Func<FakeBroker, int> sent = b => b.Sent.Count;
+            var p = mk(new[] { "A", "B", "C" }, "ROTATE"); var g1 = p.Item1; var b1 = p.Item2;
+            Check(Math.Abs(g1.S.StopPts - 16.75) < 1e-9 && Math.Abs(g1.S.TargetPts - 50) < 1e-9 && g1.S.Qty == 15, "🎯 3 SETUPS guide: 15 MNQ, stop 16.75 pts ($500) / target 50 pts ($1,500)");
+            var tk = g1.Offer(cand(1, at(9, 50, 0)), at(9, 50, 1), 20000); run(g1, at(9, 50, 2), 12);
+            Check(tk != null && tk.Account == "A" && tk.Qty == 15 && b1.All(b => sent(b) == 0) && g1.Ticket != null, "🎯 a setup → a ticket for A (the first account) — NOTHING is sent without the press", string.Join(" | ", b1.SelectMany(b => b.Sent)));
+            run(g1, at(9, 52, 30), 4);
+            Check(g1.Ticket == null && g1.Missed == 1 && b1.All(b => sent(b) == 0) && g1.Journal.Any(r => r.Event == "MISSED"), "🎯 not pressed within 2 minutes → MISSED, still nothing sent");
+            Check(g1.Press(at(9, 53, 0), 20000) != "" && b1.All(b => sent(b) == 0), "🎯 a press with no ticket sends nothing");
+            g1.Offer(cand(1, at(10, 0, 0)), at(10, 0, 1), 20000); string pe = g1.Press(at(10, 0, 3), 20000); run(g1, at(10, 0, 4), 3);
+            Check(pe == "" && b1[0].Sent.Contains("MARKET 15") && sent(b1[1]) == 0 && sent(b1[2]) == 0 && g1.Current != null && g1.Current.Account == "A", "🎯 ONE press → A's own armed link sends MARKET 15 (B and C untouched)", string.Join(" | ", b1[0].Sent));
+            b1[0].FillMarket(20000); run(g1, at(10, 0, 6), 6);
+            Check(b1[0].Sent.Any(x => x.StartsWith("STOP -15 @ 19983.25")) && b1[0].Sent.Any(x => x.StartsWith("LIMIT -15 @ 20050")), "🎯 at the fill: A's STOP 19983.25 (16.75 pts) + TARGET 20050 (50 pts) at the broker", string.Join(" | ", b1[0].Sent));
+            var busy = g1.Offer(cand(-1, at(10, 5, 0)), at(10, 5, 1), 20000);
+            Check(busy == null && g1.Journal.Last().Event == "BUSY" && sent(b1[1]) == 0, "🎯 a setup while the 3-setup trade is open → BUSY (one at a time), no ticket");
+            b1[0].Trigger(b1[0].All.First(o => o.Kind == "LIMIT" && !o.Done)); run(g1, at(10, 10, 0), 6);
+            Check(g1.Current == null && g1.Journal.Any(r => r.Event == "EXIT"), "🎯 A's target filled → the trade is done (journalled EXIT)", string.Join(",", g1.Journal.Select(r => r.Event)));
+            var tB = g1.Offer(cand(-1, at(10, 20, 0)), at(10, 20, 1), 20000);
+            Check(tB != null && tB.Account == "B", "🎯 ONE TRADE PER ACCOUNT: the next setup's ticket is for B", tB == null ? "none" : tB.Account);
+            g1.Skip(at(10, 20, 5)); g1.Pool[1].Link.Locked = true;
+            var tC = g1.Offer(cand(1, at(10, 30, 0)), at(10, 30, 1), 20000);
+            Check(tC != null && tC.Account == "C" && g1.WhyNot(g1.Pool[1]) == "LOCKED FOR TODAY", "🎯 B LOCKED FOR TODAY → skipped, the ticket is for C", tC == null ? "none" : tC.Account);
+            g1.Pool[2].Link.Disarm("test", at(10, 30, 2), false); string pc = g1.Press(at(10, 30, 3), 20000); run(g1, at(10, 30, 4), 3);
+            Check(pc != "" && sent(b1[2]) == 0 && g1.Journal.Last().Event == "BLOCKED", "🎯 C disarmed before the press → BLOCKED, nothing sent", pc);
+            var tA = g1.Offer(cand(1, at(10, 40, 0)), at(10, 40, 1), 20000);
+            Check(tA != null && tA.Account == "A", "🎯 B locked + C disarmed → the ticket goes back to A", tA == null ? "none" : tA.Account);
+            // STAY UNTIL DONE: A keeps every trade until it is passed / blown, then B
+            var q = mk(new[] { "A", "B" }, "STAY"); var g2 = q.Item1; var b2 = q.Item2; var done = new Dictionary<string, string>(); g2.DoneOf = a => done.ContainsKey(a) ? done[a] : "";
+            Action<int, int> trade = (h, m) =>
+            {
+                var t0x = g2.Offer(cand(1, at(h, m, 0)), at(h, m, 1), 20000); if (t0x == null) return; int ix = g2.Pool.FindIndex(f => f.Account == t0x.Account); g2.Press(at(h, m, 2), 20000); run(g2, at(h, m, 3), 3);
+                b2[ix].FillMarket(20000); run(g2, at(h, m, 5), 4); var st = b2[ix].All.FirstOrDefault(o => o.Kind == "STOP" && !o.Done); if (st != null) b2[ix].Trigger(st); run(g2, at(h, m + 1, 0), 4);
+            };
+            trade(10, 0); trade(10, 10);
+            Check(g2.Journal.Where(r => r.Event == "ORDER").All(r => r.Account == "A") && g2.Journal.Count(r => r.Event == "ORDER") == 2 && sent(b2[1]) == 0, "🎯 STAY UNTIL DONE: A takes the 1st and the 2nd trade (B untouched)", string.Join(",", g2.Journal.Where(r => r.Event == "ORDER").Select(r => r.Account)));
+            done["A"] = "💀 BLOWN"; var tS = g2.Offer(cand(1, at(10, 20, 0)), at(10, 20, 1), 20000);
+            Check(tS != null && tS.Account == "B", "🎯 STAY: A is done (blown) → the next ticket is for B", tS == null ? "none" : tS.Account);
+            g2.Skip(at(10, 20, 2)); done.Remove("A"); done["B"] = "✅ PASSED"; g2.Seat = g2.Pool[1]; var tS2 = g2.Offer(cand(1, at(10, 30, 0)), at(10, 30, 1), 20000);
+            Check(tS2 != null && tS2.Account == "A", "🎯 STAY: the seat B passed → the next account in turn takes over", tS2 == null ? "none" : tS2.Account);
+            // the window's end: the open 3-setup trade is closed through the link
+            var r3 = mk(new[] { "W" }, "ROTATE"); var g3 = r3.Item1; var b3 = r3.Item2; g3.Offer(cand(1, at(15, 58, 0)), at(15, 58, 1), 20000); g3.Press(at(15, 58, 2), 20000); run(g3, at(15, 58, 3), 3); b3[0].FillMarket(20000); run(g3, at(15, 58, 5), 4);
+            b3[0].Sent.Clear(); run(g3, at(16, 0, 1), 6);
+            Check(g3.Journal.Any(r => r.Event == "FLATTEN") && b3[0].Q == 0, "🎯 NY window: 16:00 → the open trade is closed through the link", string.Join(" | ", b3[0].Sent));
+            // Feed(): the chart's CLOSED bars → a ticket only once the 5-minute candle has closed (no lookahead)
+            var bars = new List<KeystoneArcBar>();
+            for (var tm = at(8, 1, 0); tm <= at(9, 35, 0); tm = tm.AddMinutes(1)) bars.Add(new KeystoneArcBar { Symbol = "MNQ", Time = tm, Open = 100, High = 101, Low = 99, Close = 100 });
+            double[] up = { 102, 104, 106, 108, 110 }; for (int k = 0; k < 5; k++) bars.Add(new KeystoneArcBar { Symbol = "MNQ", Time = at(9, 36 + k, 0), Open = k == 0 ? 100 : up[k - 1], High = up[k] + 0.5, Low = k == 0 ? 99.5 : up[k - 1] - 0.25, Close = up[k] });
+            var r4 = mk(new[] { "F1", "F2" }, "ROTATE"); var g4 = r4.Item1;
+            var early = g4.Feed(bars.Where(b => b.Time <= at(9, 38, 0)).ToList(), at(9, 38, 5), 106);
+            Check(early.Count == 0 && g4.Ticket == null, "🎯 Feed: the 9:40 candle is still forming at 9:38 → no signal (closed candles only)", early.Count.ToString());
+            var fresh = g4.Feed(bars, at(9, 40, 5), 110);
+            Check(fresh.Count == 1 && fresh[0].Setup == "AGG" && fresh[0].Dir == 1 && g4.Ticket != null && g4.Ticket.Account == "F1" && r4.Item2.All(b => sent(b) == 0), "🎯 Feed: the 9:40 aggression break closes → a BUY ticket for F1, nothing sent", string.Join(";", fresh.Select(c => c.Setup + c.Dir)));
+            var again = g4.Feed(bars.Concat(new[] { new KeystoneArcBar { Symbol = "MNQ", Time = at(9, 41, 0), Open = 110, High = 110.5, Low = 109.5, Close = 110 } }).ToList(), at(9, 41, 5), 110);
+            Check(again.Count == 0, "🎯 Feed: each setup is offered once", again.Count.ToString());
+            // 💰 the FUNDED bracket + the day goal in the guided source
+            var r5 = mk(new[] { "EV", "FD" }, "ROTATE"); var g5 = r5.Item1; var b5 = r5.Item2; g5.S = KeystoneTriSettings.ClaudePlan(); g5.IsFunded = a => a == "FD";
+            var t5a = g5.Offer(cand(1, at(10, 0, 0)), at(10, 0, 1), 20000); g5.Skip(at(10, 0, 2)); g5.Press(at(10, 0, 3), 20000);
+            var t5b = g5.Offer(cand(1, at(10, 1, 0)), at(10, 1, 1), 20000);
+            Check(t5a != null && t5a.Account == "EV" && t5a.Qty == 15 && Math.Abs(t5a.StopPts - 16.75) < 1e-9 && t5b != null && t5b.Account == "EV", "💰 the eval account's ticket: 15 MNQ −$500 / +$1,500 (unchanged)", t5a == null ? "none" : t5a.Words());
+            g5.Skip(at(10, 1, 2)); g5.Pool[0].Link.Locked = true; var t5c = g5.Offer(cand(1, at(10, 2, 0)), at(10, 2, 1), 20000);
+            Check(t5c != null && t5c.Account == "FD" && t5c.Phase == "FUNDED" && t5c.Qty == 5 && Math.Abs(t5c.StopPts - 30) < 1e-9 && Math.Abs(t5c.TargetPts - 30) < 1e-9, "💰 the FUNDED account's ticket: 5 MNQ −$300 / +$300 (30 / 30 pts)", t5c == null ? "none" : t5c.Words());
+            g5.Skip(at(10, 2, 2)); b5[1].Pnl = 160; var t5d = g5.Offer(cand(1, at(10, 3, 0)), at(10, 3, 1), 20000);
+            Check(t5d == null && g5.WhyNot(g5.Pool[1]).StartsWith("DAY GOAL $150 REACHED") && b5.All(b => b.Sent.Count == 0), "💰 FD is up $160 today (≥ the $150 day goal) → skipped for the rest of the day, nothing sent", g5.WhyNot(g5.Pool[1]));
+        }
         Console.WriteLine(failures == 0 ? "ALL ACCOUNT LINK TESTS PASSED" : failures + " ACCOUNT LINK TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

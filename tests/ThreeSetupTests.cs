@@ -152,6 +152,39 @@ public static class ThreeSetupTests
         var per = new Dictionary<DateTime, int> { { D0, 7 } }; var ra = KeystoneTriSetup.Random(dr, s, per, 5); var rb2 = KeystoneTriSetup.Random(dr, s, per, 5);
         Check(ra.Count == 7 && ra.All(c => c.Setup == "RANDOM" && c.Entry > D0.AddHours(9).AddMinutes(30) && c.Entry < D0.AddHours(16)) && ra.Select(c => c.EntryIdx).SequenceEqual(rb2.Select(c => c.EntryIdx)), "RANDOM: 7 entries in the window, the same seed = the same entries");
 
+        // ---- 9. BUILD 11p: the indicator's FVG zones (the same rule as the entries), closed candles only, saved runs + the random control
+        var z1 = KeystoneTriLive.FvgZones(d1, s); var z2 = KeystoneTriLive.FvgZones(d2, s);
+        Check(z1.Count >= 1 && z1[0].Status == "FILLED" && Eq(z1[0].Level, 103) && z1[0].At == f1[0].Entry && Eq(z1[0].Lo, 101) && Eq(z1[0].Hi, 105), "ZONES: the 101–105 gap, 50 % = 103, FILLED at 9:46 = the FVG entry", string.Join(";", z1.Select(z => z.Status + " " + z.Level + " " + z.At)));
+        Check(z2.Count >= 1 && z2[0].Status == "CANCELLED" && z2.All(z => z.Status != "FILLED"), "ZONES: never retraced to 50 % → CANCELLED (the window ended)", string.Join(";", z2.Select(z => z.Status + " " + z.Why)));
+        var part = fvgDay(103).Where(b => b.Time <= D0.AddHours(9).AddMinutes(45)).ToList(); var zp = KeystoneTriLive.FvgZones(KeystoneTriData.From(part, true), s);
+        Check(zp.Count == 1 && zp[0].Status == "PENDING", "ZONES: right after c3 closed (9:45, data ends) → PENDING", string.Join(";", zp.Select(z => z.Status)));
+        var part2 = fvgDay(103).Where(b => b.Time <= D0.AddHours(9).AddMinutes(43)).ToList(); var dp2 = KeystoneTriData.From(part2, true);
+        Check(KeystoneTriLive.FvgZones(dp2, s).Count == 0 && dp2.Five.Last().Time == D0.AddHours(9).AddMinutes(40) && KeystoneTriData.From(part2).Five.Last().Time == D0.AddHours(9).AddMinutes(45), "closed candles only: at 9:43 the 9:45 candle is still forming → dropped (no gap yet)");
+        var scan = KeystoneTriLive.Scan(fvgDay(103), s, true, false); var scanS = KeystoneTriLive.Scan(fvgDay(103), s, false, true);
+        Check(scan.Item1.Count == f1.Count && scan.Item2.Count == z1.Count && scanS.Item1.Count == 0 && scanS.Item2.Count == 0, "SCAN: buys only / sells only filter the signals and the zones");
+        string tmpS = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ks-tri11p-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var rnd = KeystoneTriRuns.Random(dr, sr, cr, D0, D0, 3);
+            string fsaved = KeystoneTriRuns.Save(tmpS, rr, "test, run", new DateTime(2026, 11, 11, 10, 0, 0), rnd.Average(x => x.Stats.BusinessNet)); var lst = KeystoneTriRuns.List(tmpS);
+            Check(rnd.Count == 3 && rnd.All(x => x.Trades.All(t => t.Setup == "RANDOM")) && System.IO.File.Exists(fsaved) && System.IO.File.ReadAllLines(fsaved).Length == rr.Trades.Count + 2 && lst.Count == 1 && lst[0][1] == "test; run" && lst[0][6] == "FVG+AGG+ENG",
+                "RUNS: 3 random-control runs, the trades CSV (comment + header + one line a trade), runs.csv lists it", lst.Count > 0 ? string.Join("|", lst[0]) : "none");
+        }
+        finally { try { System.IO.Directory.Delete(tmpS, true); } catch { } }
+        // ---- 10. BUILD 11p: the FUNDED bracket + the day goal (💡 CLAUDE PLAN); the eval is unchanged
+        {
+            var dF = KeystoneTriData.From(rise(3)); var cF = every(dF, 10);
+            var sE = s.Copy(); sE.Mode = "STAY"; sE.Accounts = 1; sE.ConsistencyGuard = false; sE.Rules.Target = 1400; sE.Rules.EvalMinDays = 1; sE.Rules.EvalConsistency = 0;
+            var sF = sE.Copy(); sF.FQty = 5; sF.FStop = 300; sF.FTarget = 300; sF.FDayLock = 150;
+            var rE = KeystoneTriRotation.Run(dF, cF, sE, D0, D0.AddDays(5)); var rF = KeystoneTriRotation.Run(dF, cF, sF, D0, D0.AddDays(5));
+            var e1 = rE.Trades.Where(t => t.Phase == "EVAL").Select(t => t.Pnl + "@" + t.Entry.Ticks).ToList(); var f1x = rF.Trades.Where(t => t.Phase == "EVAL").Select(t => t.Pnl + "@" + t.Entry.Ticks).ToList();
+            Check(e1.Count > 0 && e1.SequenceEqual(f1x), "FUNDED settings: the evaluation trades are unchanged", e1.Count + " vs " + f1x.Count);
+            var fund = rF.Trades.Where(t => t.Phase == "FUNDED").ToList(); var fundE = rE.Trades.Where(t => t.Phase == "FUNDED").ToList();
+            Check(fund.Count > 0 && fund.All(t => Eq(t.TargetPx - t.EntryPx, 30) && Eq(t.EntryPx - t.StopPx, 30)) && Eq(fund[0].Pnl, 300 - 5 * KeystoneMoveStudy.Cost("MNQ")), "FUNDED trades use the funded bracket: 5 MNQ −$300 / +$300 (30 / 30 pts) → +$300 − 5 × costs", fund.Count > 0 ? fund[0].Pnl + " " + (fund[0].TargetPx - fund[0].EntryPx) : "none");
+            Check(fund.GroupBy(t => t.Day).All(g => g.Count() == 1) && fundE.GroupBy(t => t.Day).Any(g => g.Count() > 1) && rF.SkippedNoAccount > rE.SkippedNoAccount, "the funded day goal ($150): after its first win the account stops for the day (the day's other signals are skipped)", string.Join(",", fund.Select(t => t.Day.ToString("dd"))) + " skipped " + rF.SkippedNoAccount + " vs " + rE.SkippedNoAccount);
+            var cp = KeystoneTriSettings.ClaudePlan(); var cpF = cp.ForPhase("FUNDED");
+            Check(cp.Window == "ALLDAY" && cp.Mode == "ROTATE" && cp.Qty == 15 && cpF.Qty == 5 && Eq(cpF.StopPts, 30) && Eq(cpF.TargetPts, 30) && Eq(cp.FDayLock, 150) && ReferenceEquals(cp.ForPhase("EVAL"), cp), "💡 CLAUDE PLAN: ALL DAY, ONE TRADE PER ACCOUNT, eval 15 MNQ −$500 / +$1,500, funded 5 MNQ −$300 / +$300, funded day goal $150");
+        }
         Console.WriteLine(failures == 0 ? "ALL THREE-SETUP TESTS PASSED" : "THREE-SETUP TESTS: " + failures + " FAILED");
         return failures == 0 ? 0 : 1;
     }

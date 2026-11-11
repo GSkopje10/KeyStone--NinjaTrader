@@ -607,6 +607,17 @@ public static class UiSmokeTest
                         click(modeB2); click(bb);   // BUY BOTH before START: refused with a message, nothing sent
                         all.Clear(); walk(liveWin.Content); var backDuo = btn("◀ CHART"); if (backDuo == null) throw new Exception("no way back to the chart"); click(backDuo);
                         Console.WriteLine("      MNQ+MGC ROTATION view: buttons, AUTO ⇄ MANUAL, BUY BOTH refused before START, back to the chart: OK");
+                        {   // 🎯 BUILD 11p: ROTATE ▸ SIGNAL SOURCE "🎯 3 SETUPS" (GUIDED / MANUAL only): the settings + the research label; START refused without a pool — nothing sent
+                            all.Clear(); walk(liveWin.Content); var rotB = btn("🔄 ROTATE"); if (rotB == null) throw new Exception("🔄 ROTATE button missing"); click(rotB); all.Clear(); walk(liveWin.Content);
+                            var srcC = all.OfType<System.Windows.Controls.ComboBox>().FirstOrDefault(c9 => Convert.ToString(c9.Tag) == "rot.tri.src"); if (srcC == null) throw new Exception("🎯 ROTATE: no SIGNAL SOURCE");
+                            Action<System.Windows.Controls.ComboBox, int> pickC = (c9, i9) => { c9.SelectedIndex = i9; var fe = typeof(System.Windows.Controls.Selector).GetField("SelectionChanged", BindingFlags.Instance | BindingFlags.NonPublic); var dg9 = fe == null ? null : fe.GetValue(c9) as Delegate; if (dg9 != null) dg9.DynamicInvoke(c9, null); };   /* the stand-ins do not raise SelectionChanged */
+                            pickC(srcC, 1); all.Clear(); walk(liveWin.Content);
+                            if (!all.OfType<System.Windows.Controls.ComboBox>().Any(c9 => Convert.ToString(c9.Tag) == "rot.tri.mode") || !all.OfType<System.Windows.Controls.TextBlock>().Any(t => (t.Text ?? "").Contains("no edge yet")) || !all.OfType<System.Windows.Controls.TextBox>().Any(t => Convert.ToString(t.Tag) == "rot.tri.flock")) throw new Exception("🎯 ROTATE ▸ 3 SETUPS settings missing");
+                            var startB = btn("▶ START ROTATION"); if (startB != null) click(startB);   /* no pool → refused with a message */
+                            all.Clear(); walk(liveWin.Content); var srcC2 = all.OfType<System.Windows.Controls.ComboBox>().First(c9 => Convert.ToString(c9.Tag) == "rot.tri.src"); pickC(srcC2, 0);
+                            all.Clear(); walk(liveWin.Content); var backR = btn("◀ CHART"); if (backR != null) click(backR);
+                            Console.WriteLine("      🔄 ROTATE ▸ 🎯 3 SETUPS source: window / account order / eval + funded bracket / day goals / 💡 CLAUDE PLAN / DONE marks, START refused without a pool: OK");
+                        }
                         // 🤖 LIVE AUTOPILOT (BUILD 11g): the view opens (the explanation, ▶ START AUTOPILOT, the TODAY journal); START without accounts is refused — nothing sent
                         all.Clear(); walk(liveWin.Content); var apB = btn("🤖 AUTOPILOT"); if (apB == null) throw new Exception("🤖 AUTOPILOT button missing");
                         click(apB); if (Convert.ToString(apB.Content) != "◀ CHART") throw new Exception("🤖 AUTOPILOT view did not open");
@@ -830,6 +841,37 @@ public static class UiSmokeTest
                     if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the ROTATION SIM built a NinjaBroker");
                     showD("ROTSIM"); bt.Close();
                     Console.WriteLine("      🔄 saved runs: " + (System.IO.File.ReadAllLines(System.IO.Path.Combine(sf, "RotationSim", "runs.csv")).Length - 1) + " · NinjaBroker built 0 · nothing sent: OK");
+                });
+            if (strategy == "MAD")
+                Step("🎯 BUILD 11p: 3 SETUPS — the indicator layer (closed bars, no error), a 🎮 practice ticket TAKE on the simulated trader, the 3-SETUP ROTATION drawer (RUN / RANDOM / 💡 CLAUDE PLAN / saved runs), NOTHING sent", () =>
+                {
+                    var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
+                    var nbMade = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public); int made0 = (int)nbMade.GetValue(null);
+                    string sf = (string)lab2.GetType().GetMethod("StudioFolder", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, null);
+                    Call(lab2, "OpenReplayTrader"); var bt = (System.Windows.Window)F("backtestStudioWindow"); if (bt == null) throw new Exception("no BACKTEST STUDIO");
+                    var lay = (Action<string, int>)F("studioLayer"); lay("IND.TRI", KeystoneLiveTools.Always); lay("IND.TRI.TICKET", 1);
+                    { var tbar = FindAll<System.Windows.FrameworkElement>(bt.Content).First(x => Convert.ToString(x.Tag) == "studio.toolbar"); var dbx = FindAll<System.Windows.Controls.TextBox>(tbar).First(); dbx.Text = "2019-03-06"; }
+                    ((Action)F("replayTraderLoad"))(); var rt = (KeystoneReplayTrader)F("replayTrader"); if (rt == null || rt.Bars.Count == 0) throw new Exception("no day loaded");
+                    string tick = ""; for (int k = 0; k < 420 && tick == ""; k++) { ((Action<int>)F("replayTraderStep"))(1); var e0 = (string)F("studioTriErr"); if (!string.IsNullOrEmpty(e0)) throw new Exception("🎯 3 SETUPS drawing error: " + e0); if (rt.Position != 0 || rt.Orders.Count != 0) throw new Exception("🎯 the layer changed the practice position"); tick = (string)F("studioTriTicket") ?? ""; }
+                    if (tick == "") throw new Exception("🎯 no 3-setup practice ticket in 7 hours of the synthetic day (signals seen " + (int)F("studioTriSeen") + ")");
+                    { var na = (Action<double>)F("replayTraderNewAccount"); if (na != null) na(50000); ((Action<int>)F("replayTraderStep"))(0); }   /* a fresh studio account (an earlier step may have blown it — a blown account refuses entries, as it should) */
+                    var take = (Action)F("studioTriTake"); if (take == null) throw new Exception("🎮 no TAKE on the ticket"); take(); tick = (string)F("studioTriTicket") ?? tick; rt = (KeystoneReplayTrader)F("replayTrader");
+                    if (rt.Position == 0) throw new Exception("🎮 TAKE did not open the simulated practice position: " + tick + " • " + (string)F("studioTriTicket"));
+                    Console.WriteLine("      🎯 3 SETUPS layer: " + (int)F("studioTriSeen") + " signals / zones · 🎮 ticket: " + tick.Substring(0, Math.Min(140, tick.Length)) + " → TAKE: practice position " + rt.Position + " (simulated trader)");
+                    ((Action)F("replayTraderFlat"))(); lay("IND.TRI", KeystoneLiveTools.Off);
+                    var showD = (Action<string>)F("studioShowDrawer"); showD("TRIROT"); if ((string)F("studioOpenDrawer") != "TRIROT") throw new Exception("🎯 the 3-SETUP ROTATION drawer did not open");
+                    var rs = (Func<string, string>)F("studioTriRot"); if (rs == null) throw new Exception("🎯 no 3-SETUP ROTATION hook");
+                    string cl = rs("SET from=2019-03-04;to=2019-04-12;accounts=5"); if (!cl.Contains("15 micros") || !cl.Contains("5 accounts") || !cl.Contains("LUCID FLEX 50K")) throw new Exception("🎯 settings line: " + cl);
+                    string run = rs("RUN"); if (!run.Contains("✓ ▶ RUN") || !run.Contains("saved")) throw new Exception("🎯 RUN: " + run);
+                    string st = rs("TAB STATS"); if (!st.Contains("BUSINESS NET") || !st.Contains("no edge yet")) throw new Exception("🎯 STATS: " + st);
+                    string rd = rs("RANDOM"); if (!rd.Contains("RANDOM CONTROL")) throw new Exception("🎲 RANDOM: " + rd);
+                    string b0 = rs("TAB BATCHES"); if (!b0.Contains("START")) throw new Exception("📋 BATCHES: " + b0);
+                    string pl = rs("PLAN"); if (!pl.Contains("FUNDED 5 micros") || !pl.Contains("funded day goal $150")) throw new Exception("💡 CLAUDE PLAN: " + pl);
+                    string run2 = rs("RUN"); if (!run2.Contains("✓ ▶ RUN")) throw new Exception("🎯 RUN (CLAUDE PLAN): " + run2);
+                    var runs = System.IO.Path.Combine(sf, "TriRotation", "runs.csv"); if (!System.IO.File.Exists(runs) || System.IO.File.ReadAllLines(runs).Length < 4) throw new Exception("💾 TriRotation\\runs.csv missing / short");
+                    if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the 3 SETUPS layer / drawer built a NinjaBroker");
+                    showD("TRIROT"); bt.Close();
+                    Console.WriteLine("      🎯 " + run.Substring(0, Math.Min(150, run.Length)) + " · " + rd.Substring(0, Math.Min(120, rd.Length)) + " · runs " + (System.IO.File.ReadAllLines(runs).Length - 1) + " · NinjaBroker built 0 · nothing sent: OK");
                 });
             Step(strategy + ": " + ev2.Count + " setups • open evidence chart + draw", () =>
             {

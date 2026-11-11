@@ -21404,6 +21404,15 @@ namespace NinjaTrader.NinjaScript
         // the next account takes over and stays until it is done)
         public string Mode = "ROTATE";
         public int Accounts = 30;
+        // 💰 BUILD 11p: a separate FUNDED bracket (FQty 0 = the same as the eval) and the day goals (0 = off): an account up FDayLock (funded) / EDayLock
+        // (eval) today stops for the day after that trade
+        public int FQty = 0; public double FStop = 0, FTarget = 0, FDayLock = 0, EDayLock = 0;
+        // the settings a trade of this phase uses (FUNDED with FQty > 0: the funded size / bracket)
+        public KeystoneTriSettings ForPhase(string phase) { if (phase != "FUNDED" || FQty <= 0) return this; var x = Copy(); x.Qty = FQty; x.StopUsd = FStop > 0 ? FStop : StopUsd; x.TargetUsd = FTarget > 0 ? FTarget : TargetUsd; return x; }
+        public double DayLockOf(string phase) { return phase == "FUNDED" ? FDayLock : phase == "EVAL" ? EDayLock : 0; }
+        // 💡 CLAUDE PLAN (preset): ALL DAY, the 3 setups, ONE TRADE PER ACCOUNT, eval 15 MNQ −$500 / +$1,500, FUNDED 5 MNQ −$300 / +$300, a funded account stops
+        // for the day after its first $150+ day
+        public static KeystoneTriSettings ClaudePlan() { return new KeystoneTriSettings { Window = "ALLDAY", Setups = "FVG,AGG,ENG", Mode = "ROTATE", Qty = 15, StopUsd = 500, TargetUsd = 1500, FQty = 5, FStop = 300, FTarget = 300, FDayLock = 150 }.ApplyWindow(); }
         public bool ConsistencyGuard = true;    // an evaluation up today stops for the day when one more win would break the consistency day cap
         public KeystoneSimRules Rules = LucidFlex50K();
         public static readonly KeystoneTriWindow[] Windows =
@@ -21438,7 +21447,7 @@ namespace NinjaTrader.NinjaScript
         {
             var ic = CultureInfo.InvariantCulture;
             return Symbol + " " + Qty + " micros • stop −$" + StopUsd.ToString("N0", ic) + " (" + StopPts.ToString("0.00", ic) + " pts, +" + StopSlipTicks + " tick) / target +$" + TargetUsd.ToString("N0", ic) + " (" + TargetPts.ToString("0.00", ic) + " pts) • costs $" + Costs.ToString("0.00", ic)
-                + " a trade • setups " + Setups + " • window " + KeystoneBracket.Hm(StartHhmm) + "–" + KeystoneBracket.Hm(EndHhmm) + " • " + (Mode == "STAY" ? "STAY UNTIL DONE (wait)" : Mode == "STAYNEXT" ? "STAY UNTIL DONE (next on a stopped day)" : "ONE TRADE PER ACCOUNT") + " • " + Accounts + " accounts • " + Rules.Describe();
+                + " a trade • setups " + Setups + " • window " + KeystoneBracket.Hm(StartHhmm) + "–" + KeystoneBracket.Hm(EndHhmm) + " • " + (Mode == "STAY" ? "STAY UNTIL DONE (wait)" : Mode == "STAYNEXT" ? "STAY UNTIL DONE (next on a stopped day)" : "ONE TRADE PER ACCOUNT") + " • " + Accounts + " accounts" + (FQty > 0 ? " • FUNDED " + FQty + " micros −$" + (FStop > 0 ? FStop : StopUsd).ToString("N0", ic) + " / +$" + (FTarget > 0 ? FTarget : TargetUsd).ToString("N0", ic) : "") + (FDayLock > 0 ? " • funded day goal $" + FDayLock.ToString("N0", ic) : "") + (EDayLock > 0 ? " • eval day goal $" + EDayLock.ToString("N0", ic) : "") + " • " + Rules.Describe();
         }
     }
     // the 1-minute bars as arrays (close-stamped, NY time) + the 5-minute candles built from them
@@ -21459,6 +21468,14 @@ namespace NinjaTrader.NinjaScript
             for (int k = 0; k < d.Five.Count; k++) { d.FiveIdx[k] = d.LastAtOrBefore(d.Five[k].Time.Ticks); d.FiveOff[k] = OffOf(d.Five[k].Time); }
             return d;
         }
+        // 🎯 BUILD 11p (live / replay): only CLOSED 5-minute candles — a candle whose end is after the last closed 1-minute bar is still forming and is dropped
+        public static KeystoneTriData From(List<KeystoneArcBar> one, bool closedOnly)
+        {
+            var d = From(one); if (!closedOnly || d.N == 0 || d.Five.Count == 0) return d;
+            long lastT = d.T[d.N - 1]; int k = d.Five.Count; while (k > 0 && d.Five[k - 1].Time.Ticks > lastT) k--;
+            if (k < d.Five.Count) { d.Five = d.Five.Take(k).ToList(); d.FiveIdx = d.FiveIdx.Take(k).ToArray(); d.FiveOff = d.FiveOff.Take(k).ToArray(); }
+            return d;
+        }
         public int LastAtOrBefore(long t) { int lo = 0, hi = T.Length; while (lo < hi) { int mid = (lo + hi) / 2; if (T[mid] > t) hi = mid; else lo = mid + 1; } return lo - 1; }
     }
     public sealed class KeystoneTriCandidate
@@ -21466,6 +21483,8 @@ namespace NinjaTrader.NinjaScript
         public string Setup = ""; public int Dir; public DateTime Day, Signal, Entry; public int EntryIdx; public bool Limit; public double EntryPx, StopPx, TargetPx, ZoneLo = double.NaN, ZoneHi = double.NaN;
         public string Why = "";
         public static int Rank(string setup) { return setup == "FVG" ? 0 : setup == "AGG" ? 1 : setup == "ENG" ? 2 : 3; }
+        // the same entry with another bracket (the FUNDED size / $): its stop / target prices for those settings
+        public KeystoneTriCandidate With(KeystoneTriSettings s) { var c = (KeystoneTriCandidate)MemberwiseClone(); c.StopPx = EntryPx - Dir * s.StopPts; c.TargetPx = EntryPx + Dir * s.TargetPts; return c; }
     }
     public sealed class KeystoneTriExit { public DateTime Exit; public int ExitIdx; public double ExitPx, Pnl, WorstUsd, BestUsd; public string Reason = ""; public bool Both, Liquidated; }
     public static class KeystoneTriSetup
@@ -21656,10 +21675,12 @@ namespace NinjaTrader.NinjaScript
                     {
                         if (c.Entry.Ticks < busy) { r.SkippedBusy++; continue; }
                         var a = Pick(sim, s, st); if (a == null) { r.SkippedNoAccount++; continue; }
-                        var x = KeystoneTriSetup.Resolve(d, s, c, sim.Room(a, 0)); string phase = a.Phase;
-                        sim.AddFill(a, x.Pnl); sim.EndTrade(a, new KeystoneSimTrade { Entry = c.Entry, Exit = x.Exit, Dir = c.Dir, Pnl = x.Pnl, EntryPx = c.EntryPx, ExitPx = x.ExitPx, Reason = x.Reason, Source = c.Setup, Legs = s.Qty + " " + s.Symbol });
-                        r.Trades.Add(new KeystoneTriTrade { No = r.Trades.Count + 1, Batch = b.No, Account = a.Id, Phase = phase, Setup = c.Setup, Dir = c.Dir, Day = day, Signal = c.Signal, Entry = c.Entry, Exit = x.Exit, EntryPx = c.EntryPx, ExitPx = x.ExitPx, StopPx = c.StopPx, TargetPx = c.TargetPx, Pnl = x.Pnl, Reason = x.Reason, Both = x.Both, Liquidated = x.Liquidated, Worst = x.WorstUsd, Best = x.BestUsd });
+                        string phase = a.Phase; var sx = s.ForPhase(phase); var cx = ReferenceEquals(sx, s) ? c : c.With(sx);   /* 💰 11p: the FUNDED bracket */
+                        var x = KeystoneTriSetup.Resolve(d, sx, cx, sim.Room(a, 0));
+                        sim.AddFill(a, x.Pnl); sim.EndTrade(a, new KeystoneSimTrade { Entry = c.Entry, Exit = x.Exit, Dir = c.Dir, Pnl = x.Pnl, EntryPx = c.EntryPx, ExitPx = x.ExitPx, Reason = x.Reason, Source = c.Setup, Legs = sx.Qty + " " + s.Symbol });
+                        r.Trades.Add(new KeystoneTriTrade { No = r.Trades.Count + 1, Batch = b.No, Account = a.Id, Phase = phase, Setup = c.Setup, Dir = c.Dir, Day = day, Signal = c.Signal, Entry = c.Entry, Exit = x.Exit, EntryPx = c.EntryPx, ExitPx = x.ExitPx, StopPx = cx.StopPx, TargetPx = cx.TargetPx, Pnl = x.Pnl, Reason = x.Reason, Both = x.Both, Liquidated = x.Liquidated, Worst = x.WorstUsd, Best = x.BestUsd });
                         b.Trades++; if (x.Pnl > 0) b.Wins++; b.TradingPnl += x.Pnl; busy = x.Exit.Ticks;
+                        if (a.Alive && !a.LockedToday && s.DayLockOf(phase) > 0 && a.DayPnl >= s.DayLockOf(phase) - 1e-9) sim.Lock(a, x.Exit, "day goal reached");   /* 💰 11p: the day goal */
                         if (ConsistencyStop(sim, s, a)) sim.Lock(a, x.Exit, "consistency: one more win would make today more than " + s.Rules.EvalConsistency.ToString("0", CultureInfo.InvariantCulture) + "% of the target");
                     }
                 sim.EndDay(); Book(sim, b);
@@ -21730,6 +21751,231 @@ namespace NinjaTrader.NinjaScript
         public static List<KeystoneTriSetupRow> RawRows(KeystoneTriData d, KeystoneTriSettings s, IEnumerable<KeystoneTriCandidate> cands, DateTime from, DateTime to)
         {
             return SetupRows(cands.Where(c => c.Day >= from.Date && c.Day <= to.Date).Select(c => { var x = KeystoneTriSetup.Resolve(d, s, c, double.PositiveInfinity); return Tuple.Create(c.Setup, c.Dir, x.Pnl, x.Reason, x.Both); }));
+        }
+    }
+    // ---- 🎯 3 SETUPS EVERYWHERE (BUILD 2026-11-11p) — 🧪 RESEARCH: the 6-year study found NO EDGE yet (slightly better than random, still losing) ------
+    // The same engine (KeystoneTriSetup) in four places, for TESTING only:
+    //   • the 📈 indicator layer "🎯 3 SETUPS (5 min)" (FvgZones + Candidates on CLOSED bars only) — display; a click fills the order panel, never sends
+    //   • the BACKTEST STUDIO drawer "🎯 3-SETUP ROTATION" (KeystoneTriRotation.Run + KeystoneTriRuns: saved runs, the random control) — simulation only
+    //   • the practice tickets (the studio's simulated practice trader only)
+    //   • ● LIVE TRADING ▸ 🔄 ROTATE source "🎯 3 SETUPS" (KeystoneTriGuide below): GUIDED / MANUAL only — a ticket for the next pool account, ONE press =
+    //     the bracket through THAT account's own ARMED KeystoneAccountLink (max contracts, day loss / cap, runaway guard, lockouts); nothing without the press.
+    public sealed class KeystoneTriZone
+    {
+        public int Dir, FiveIdx; public double Lo, Hi, Level; public DateTime C1, Formed, At; public string Status = "PENDING", Why = "";   // PENDING / FILLED / CANCELLED
+    }
+    public static class KeystoneTriLive
+    {
+        public const string Research = "🧪 research — 6-year study: no edge yet";
+        public static string NameOf(string setup) { return setup == "FVG" ? "FVG 50 %" : setup == "AGG" ? "AGGRESSION BREAK" : setup == "ENG" ? "123 ENGULFING" : setup == "RANDOM" ? "RANDOM" : setup ?? ""; }
+        // every 3-candle FVG of the window with its 50 % limit and what became of it — the SAME rule as KeystoneTriSetup.Fvg (a FILLED zone = an FVG entry)
+        public static List<KeystoneTriZone> FvgZones(KeystoneTriData d, KeystoneTriSettings s)
+        {
+            var o = new List<KeystoneTriZone>(); var f = d.Five; double tk = s.Tick; var ic = CultureInfo.InvariantCulture;
+            for (int i = 2; i < f.Count; i++)
+            {
+                var c1 = f[i - 2]; var c3 = f[i]; int co = d.FiveOff[i]; if ((c3.Time - c1.Time).TotalMinutes != 10 || !(co - 5 >= s.OffStart && co < s.OffEnd)) continue; int ci = d.FiveIdx[i]; if (ci < 0) continue;
+                int dir = c1.High < c3.Low ? 1 : c1.Low > c3.High ? -1 : 0; if (dir == 0) continue;
+                double lo = dir > 0 ? c1.High : c3.High, hi = dir > 0 ? c3.Low : c1.Low; double v = dir > 0 ? hi - s.FvgPct / 100.0 * (hi - lo) : lo + s.FvgPct / 100.0 * (hi - lo);
+                double lv = dir > 0 ? Math.Floor(v / tk + 0.5 - 1e-9) * tk : Math.Ceiling(v / tk - 0.5 + 1e-9) * tk; var ses = d.Session[ci];
+                var z = new KeystoneTriZone { Dir = dir, FiveIdx = i, Lo = lo, Hi = hi, Level = lv, C1 = c1.Time.AddMinutes(-5), Formed = c3.Time };
+                int j = ci + 1; bool done = false;
+                for (; j < d.N && d.Session[j] == ses && d.Off[j] < s.OffEnd; j++)
+                {
+                    if (dir > 0 ? d.L[j] <= lv : d.H[j] >= lv) { z.Status = "FILLED"; z.At = new DateTime(d.T[j]); z.Why = "the limit " + lv.ToString("0.00", ic) + " filled"; done = true; break; }
+                    if (new DateTime(d.T[j]).Minute % 5 == 0 && (dir > 0 ? d.C[j] < lo : d.C[j] > hi)) { z.Status = "CANCELLED"; z.At = new DateTime(d.T[j]); z.Why = "a 5-minute close beyond the far side (no retrace = no trade)"; done = true; break; }
+                }
+                if (!done && j < d.N) { z.Status = "CANCELLED"; z.At = new DateTime(d.T[Math.Max(ci, j - 1)]); z.Why = "the window ended before a retrace to 50 % (no retrace = no trade)"; }
+                o.Add(z);
+            }
+            return o;
+        }
+        // the indicator's signals on CLOSED 1-minute bars (no lookahead): the candidates + the FVG zones of the chosen window / setups / sides
+        public static Tuple<List<KeystoneTriCandidate>, List<KeystoneTriZone>> Scan(List<KeystoneArcBar> closedOneMin, KeystoneTriSettings s, bool buys, bool sells)
+        {
+            var d = KeystoneTriData.From(closedOneMin, true);
+            var c = KeystoneTriSetup.Candidates(d, s).Where(x => x.Dir > 0 ? buys : sells).ToList();
+            var z = s.Has("FVG") ? FvgZones(d, s).Where(x => x.Dir > 0 ? buys : sells).ToList() : new List<KeystoneTriZone>();
+            return Tuple.Create(c, z);
+        }
+        // the order panel's numbers for a signal: qty, stop / target POINTS (the $ of the settings for its qty, 0.25 tick)
+        public static double[] Bracket(KeystoneTriSettings s) { return new[] { (double)s.Qty, s.StopPts, s.TargetPts }; }
+        public static string Words(KeystoneTriCandidate c, KeystoneTriSettings s)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return "🎯 " + NameOf(c.Setup) + " " + (c.Dir > 0 ? "▲ BUY " : "▼ SELL ") + s.Qty + " " + s.Symbol + " @ " + c.EntryPx.ToString("0.00", ic) + (c.Limit ? " (the 50 % limit)" : " (the 5-min close)")
+                + " • STOP " + c.StopPx.ToString("0.00", ic) + " (−$" + (s.StopPts * s.PointValue * s.Qty).ToString("N0", ic) + ") • TARGET " + c.TargetPx.ToString("0.00", ic) + " (+$" + (s.TargetPts * s.PointValue * s.Qty).ToString("N0", ic) + ")";
+        }
+    }
+    // the studio drawer's saved runs (Studio\TriRotation\runs.csv + one trades CSV a run) and the 🎲 random control
+    public static class KeystoneTriRuns
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public const string RunsHeader = "saved,name,file,from,to,window,setups,mode,accounts,rules,qty,stop_usd,target_usd,sessions,trades,win_pct,trading_net,batches,finished,cost,pass_pct,payouts,cash,business_net,net_mean,net_median,first_payout_median,breakeven_median,random_net_mean";
+        static string Cl(string s) { return (s ?? "").Replace(",", ";").Replace("\n", " ").Replace("\r", " "); }
+        static string Nn(double v) { return double.IsNaN(v) ? "" : v.ToString("0.##", IC); }
+        public static string Folder(string studio) { return Path.Combine(studio ?? "", "TriRotation"); }
+        public static string Save(string studio, KeystoneTriResult r, string name, DateTime now, double randomNetMean)
+        {
+            string dir = Folder(studio); Directory.CreateDirectory(dir); var s = r.Settings ?? new KeystoneTriSettings(); var st = r.Stats ?? new KeystoneTriStats();
+            string safe = new string((name ?? "run").Select(ch => char.IsLetterOrDigit(ch) || ch == '-' || ch == '_' ? ch : '-').ToArray()).Trim('-'); if (safe.Length == 0) safe = "run"; if (safe.Length > 40) safe = safe.Substring(0, 40);
+            string stamp = now.ToString("yyyy-MM-dd-HHmmss", IC), f = Path.Combine(dir, stamp + "-" + safe + "-trades.csv"), fb = Path.Combine(dir, stamp + "-" + safe + "-batches.csv");
+            var sb = new StringBuilder(); sb.Append("# ").Append(Cl(s.Describe())).Append(" • ").Append(KeystoneTriLive.Research).Append('\n').Append(KeystoneTriTrade.Header).Append('\n');
+            foreach (var t in r.Trades) sb.Append(t.Line()).Append('\n'); File.WriteAllText(f, sb.ToString());
+            var sbb = new StringBuilder(); sbb.Append(KeystoneTriBatch.Header).Append('\n'); foreach (var b in r.Batches) sbb.Append(b.Line()).Append('\n'); File.WriteAllText(fb, sbb.ToString());
+            string runs = Path.Combine(dir, "runs.csv"); if (!File.Exists(runs)) File.WriteAllText(runs, RunsHeader + "\n");
+            File.AppendAllText(runs, string.Join(",", now.ToString("yyyy-MM-dd HH:mm:ss", IC), Cl(name), Path.GetFileName(f), r.From.ToString("yyyy-MM-dd", IC), r.To.ToString("yyyy-MM-dd", IC), s.Window, Cl(s.Setups.Replace(",", "+")), s.Mode, s.Accounts, Cl(s.Rules.Name), s.Qty, s.StopUsd.ToString("0", IC), s.TargetUsd.ToString("0", IC),
+                st.Sessions, st.Trades, st.WinPct.ToString("0.0", IC), st.TradingNet.ToString("0", IC), st.Batches, st.Finished, st.TotalCost.ToString("0", IC), st.PassPct.ToString("0.0", IC), r.Batches.Sum(b => b.Payouts), st.TotalCash.ToString("0", IC), st.BusinessNet.ToString("0", IC), st.NetMean.ToString("0", IC), Nn(st.NetMedian), Nn(st.FirstPayoutMedian), Nn(st.BreakevenMedian), Nn(randomNetMean)) + "\n");
+            return f;
+        }
+        public static List<string[]> List(string studio)
+        {
+            string f = Path.Combine(Folder(studio), "runs.csv"); if (!File.Exists(f)) return new List<string[]>();
+            return File.ReadAllLines(f).Skip(1).Where(l => l.Trim() != "").Select(l => l.Split(',')).Where(a => a.Length >= 29).Reverse().ToList();
+        }
+        // 🎲 THE RANDOM CONTROL: as many entries a session as the setups gave (same window, bracket, rotation), random minute + side, `seeds` seeds
+        public static List<KeystoneTriResult> Random(KeystoneTriData d, KeystoneTriSettings s, List<KeystoneTriCandidate> cands, DateTime from, DateTime to, int seeds)
+        {
+            var per = new Dictionary<DateTime, int>(); foreach (var c in cands ?? new List<KeystoneTriCandidate>()) { if (c.Day < from.Date || c.Day > to.Date) continue; int n; per.TryGetValue(c.Day, out n); per[c.Day] = n + 1; }
+            var o = new List<KeystoneTriResult>(); for (int k = 1; k <= Math.Max(1, seeds); k++) o.Add(KeystoneTriRotation.Run(d, KeystoneTriSetup.Random(d, s, per, k), s, from, to)); return o;
+        }
+    }
+    // ---- ● LIVE TRADING ▸ 🔄 ROTATE ▸ SOURCE "🎯 3 SETUPS" (GUIDED / MANUAL only) ----------------------------------------------------------------
+    // Feed() reads the chart's CLOSED 1-minute bars; a setup inside the window (no older than LateMinutes) becomes a TICKET for the next pool account
+    // (ROTATE: the next account after the last trade • STAY: the same account until it is done — DoneOf says passed / payout / blown); an account that
+    // is not armed, locked (LOCK FOR TODAY / NinjaTrader lockout), not connected, holds a position or is done is skipped. Press() = ONE press: the
+    // ticket's side × qty (capped at the link's MAX) with the stop / target points becomes the account mirror's intent; THAT account's own armed link
+    // sends the market entry, then the STOP + TARGET at its fill (its limits, runaway guard, reject → disarm). Nothing is ever sent without the press;
+    // Skip() lets it go; no press within LateMinutes = MISSED. One 3-setup trade at a time; at the window's end (or the firm's flat-by time) it is closed.
+    public sealed class KeystoneTriTicket
+    {
+        public string Key = "", Account = "", Setup = "", Why = "", Phase = "EVAL"; public int Side, Qty, PlanQty; public double StopPts, TargetPts, RefPrice, SetupPx, StopUsd, TargetUsd; public DateTime Signal, At, Deadline;
+        public string Words()
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return KeystoneTriLive.NameOf(Setup) + " " + (Side > 0 ? "▲ BUY " : "▼ SELL ") + Qty + " MNQ on " + Account + (Phase == "FUNDED" ? " (FUNDED)" : "") + " • STOP " + StopPts.ToString("0.00", ic) + " pts (−$" + StopUsd.ToString("N0", ic) + ") • TARGET " + TargetPts.ToString("0.00", ic) + " pts (+$" + TargetUsd.ToString("N0", ic) + ")"
+                + (PlanQty > Qty ? " • ⚠ capped at the link's MAX " + Qty + " (plan " + PlanQty + ")" : "");
+        }
+    }
+    public sealed class KeystoneTriGuideRow
+    {
+        public DateTime Time; public string Event = "", Account = "", Setup = "", Detail = ""; public int Side, Qty; public double Ref, Net;
+        public const string Header = "time,event,account,setup,side,qty,ref_price,net,detail";
+        public string Line() { var ic = CultureInfo.InvariantCulture; Func<string, string> c = s => (s ?? "").Replace(",", ";").Replace("\n", " "); return string.Join(",", Time.ToString("yyyy-MM-dd HH:mm:ss", ic), c(Event), c(Account), c(Setup), Side > 0 ? "BUY" : Side < 0 ? "SELL" : "", Qty == 0 ? "" : Qty.ToString(ic), Ref == 0 ? "" : Ref.ToString("0.##", ic), Net == 0 ? "" : Net.ToString("0.##", ic), c(Detail)); }
+    }
+    public sealed class KeystoneTriGuide
+    {
+        public KeystoneTriSettings S = new KeystoneTriSettings().ApplyWindow();
+        public string Mode = "ROTATE";   // ROTATE = ONE TRADE PER ACCOUNT (the next account after each trade) • STAY = STAY UNTIL DONE (passed / payout / blown)
+        public readonly List<KeystoneCopyFollower> Pool = new List<KeystoneCopyFollower>();
+        public Func<string, string> DoneOf = a => "";   // "" = still going; else why it is done (✅ PASSED / 💰 PAYOUT / 💀 BLOWN)
+        public Func<string, bool> IsFunded = a => false;   // 💰 a FUNDED account: the funded size / bracket (S.FQty) and the funded day goal (S.FDayLock)
+        public int LateMinutes = 2, FillWaitSeconds = 30; public bool FlatAtWindowEnd = true;
+        public KeystoneTriTicket Ticket { get; private set; }
+        public KeystoneCopyFollower Current { get; private set; }   // the account holding the 3-setup trade now
+        public KeystoneCopyFollower Seat;                            // STAY: the account the trades stay on
+        public string Status = "WAITING FOR A SETUP";
+        public readonly List<KeystoneTriGuideRow> Journal = new List<KeystoneTriGuideRow>(), NewRows = new List<KeystoneTriGuideRow>();
+        readonly HashSet<string> seen = new HashSet<string>(); int lastIdx = -1; bool filled, flattened, noFillLogged; DateTime sentAt; KeystoneTriTicket placed; string dataKey = "";
+        public int Offered, Pressed, Skipped, Missed;
+
+        static int Real(KeystoneCopyFollower f) { try { return f.Link.Broker.Qty; } catch { return 0; } }
+        void Log(DateTime now, string ev, KeystoneCopyFollower f, KeystoneTriTicket t, string detail, double net = 0)
+        {
+            var r = new KeystoneTriGuideRow { Time = now, Event = ev, Account = f != null ? f.Account : t != null ? t.Account : "", Detail = detail ?? "", Net = net };
+            if (t != null) { r.Setup = t.Setup; r.Side = t.Side; r.Qty = t.Qty; r.Ref = t.RefPrice; }
+            Journal.Add(r); NewRows.Add(r); if (Journal.Count > 2000) Journal.RemoveAt(0);
+        }
+        public KeystoneCopyFollower Find(string account) { return Pool.FirstOrDefault(f => string.Equals(f.Account, account, StringComparison.OrdinalIgnoreCase)); }
+        // why this account cannot take the next 3-setup trade ("" = it can)
+        public string WhyNot(KeystoneCopyFollower f)
+        {
+            if (f == null) return "unknown account"; if (f.Paused) return "PAUSED"; if (f.Link == null || f.Mirror == null) return "no link";
+            if (f.Link.ExternalLocked) return "LOCKED BY NINJATRADER • " + f.Link.ExternalLockLabel; if (f.Link.Locked) return "LOCKED FOR TODAY";
+            if (!f.Link.Armed) return "NOT ARMED"; bool conn; try { conn = f.Link.Broker.Connected; } catch { conn = false; } if (!conn) return "NOT CONNECTED";
+            if (Real(f) != 0) return "holds a position"; string dn = DoneOf != null ? DoneOf(f.Account) ?? "" : ""; if (dn != "") return "DONE • " + dn;
+            double goal = S.DayLockOf(PhaseOf(f.Account)); if (goal > 0) { double dp = 0; try { dp = f.Link.Broker.DayPnl; } catch { } if (dp >= goal - 1e-9) return "DAY GOAL $" + goal.ToString("N0", CultureInfo.InvariantCulture) + " REACHED • done for today"; }
+            return "";
+        }
+        // the account the next ticket goes to: STAY = the seat while it can trade; else the next one after the last (round robin)
+        public KeystoneCopyFollower NextAccount()
+        {
+            if (Mode == "STAY" && Seat != null && Pool.Contains(Seat) && WhyNot(Seat) == "") return Seat;
+            int n = Pool.Count; if (n == 0) return null; int from = Mode == "STAY" && Seat != null && Pool.Contains(Seat) ? Pool.IndexOf(Seat) : lastIdx;
+            for (int j = 1; j <= n; j++) { var f = Pool[((from + j) % n + n) % n]; if (WhyNot(f) == "") return f; }
+            return null;
+        }
+        public string PhaseOf(string account) { return IsFunded != null && IsFunded(account) ? "FUNDED" : "EVAL"; }
+        public static string KeyOf(KeystoneTriCandidate c) { return c.Setup + "|" + c.Dir + "|" + c.Signal.Ticks + "|" + c.Entry.Ticks; }
+        // the chart's CLOSED 1-minute bars (NY time) → the new setups (each once) → a ticket (or BUSY / NO ACCOUNT in the journal)
+        public List<KeystoneTriCandidate> Feed(List<KeystoneArcBar> closedOneMin, DateTime now, double price)
+        {
+            var fresh = new List<KeystoneTriCandidate>(); if (closedOneMin == null || closedOneMin.Count == 0) return fresh;
+            string k = closedOneMin.Count + "|" + closedOneMin[closedOneMin.Count - 1].Time.Ticks; if (k == dataKey) return fresh; dataKey = k;
+            var d = KeystoneTriData.From(closedOneMin, true);
+            foreach (var c in KeystoneTriSetup.Candidates(d, S)) { if (!seen.Add(KeyOf(c))) continue; if ((now - c.Entry).TotalMinutes > LateMinutes || c.Entry > now.AddMinutes(1)) continue; fresh.Add(c); }
+            foreach (var c in fresh) Offer(c, now, price);
+            return fresh;
+        }
+        // one setup → a ticket for the next account (never two at once; never while the 3-setup trade is open)
+        public KeystoneTriTicket Offer(KeystoneTriCandidate c, DateTime now, double price)
+        {
+            var tk = new KeystoneTriTicket { Key = KeyOf(c), Setup = c.Setup, Side = c.Dir, PlanQty = S.Qty, StopPts = S.StopPts, TargetPts = S.TargetPts, SetupPx = c.EntryPx, RefPrice = price > 0 ? price : c.EntryPx, Signal = c.Signal, At = now, Deadline = now.AddMinutes(LateMinutes), Why = c.Why };
+            if (Current != null) { Log(now, "BUSY", Current, tk, "the 3-setup trade on " + Current.Account + " is still open — one at a time"); Status = "IN THE TRADE • " + Current.Account + " (a new " + KeystoneTriLive.NameOf(c.Setup) + " was skipped)"; return null; }
+            if (Ticket != null) { Log(now, "BUSY", null, tk, "a ticket is already waiting for a press"); return null; }
+            var f = NextAccount(); if (f == null) { Log(now, "NO ACCOUNT", null, tk, "no pool account may trade now (armed, connected, flat, not locked, not done)"); Status = "SETUP SKIPPED • no account free"; return null; }
+            var sx = S.ForPhase(PhaseOf(f.Account)); tk.Phase = PhaseOf(f.Account); tk.PlanQty = sx.Qty; tk.StopPts = sx.StopPts; tk.TargetPts = sx.TargetPts;   /* 💰 a funded account: the funded size / bracket */
+            int q = Math.Max(1, Math.Min(sx.Qty, Math.Max(1, f.Link.MaxContracts))); tk.Qty = q; tk.Account = f.Account;
+            tk.StopUsd = Math.Round(sx.StopPts * sx.PointValue * q); tk.TargetUsd = Math.Round(sx.TargetPts * sx.PointValue * q);
+            Ticket = tk; Offered++; Log(now, "TICKET", f, tk, c.Why); Status = "▶ PRESS " + (tk.Side > 0 ? "BUY" : "SELL") + " • " + tk.Words() + " • until " + tk.Deadline.ToString("HH:mm", CultureInfo.InvariantCulture);
+            return tk;
+        }
+        // ONE press = the bracket through the ticket account's own armed link
+        public string Press(DateTime now, double price)
+        {
+            var t = Ticket; if (t == null) return "no ticket now";
+            if (now > t.Deadline) { Log(now, "MISSED", null, t, "pressed after " + t.Deadline.ToString("HH:mm", CultureInfo.InvariantCulture) + " — no late entry"); Ticket = null; Missed++; return "missed (more than " + LateMinutes + " minutes) — no late entry"; }
+            var f = Find(t.Account); string why = WhyNot(f); if (why != "") { Log(now, "BLOCKED", f, t, why); Ticket = null; Status = "BLOCKED • " + t.Account + " • " + why; return why; }
+            var m = f.Mirror; double px = price > 0 ? price : t.RefPrice; m.Price = px; m.Time = now; m.Orders.Clear(); m.StopPts = t.StopPts; m.TargetPts = t.TargetPts; m.Adopt(t.Side * t.Qty, px, now);
+            Current = f; placed = t; filled = false; flattened = false; noFillLogged = false; sentAt = now; Ticket = null; lastIdx = Pool.IndexOf(f); if (Mode == "STAY") Seat = f; Pressed++;
+            Log(now, "ORDER", f, t, "pressed: market entry through " + f.Account + "'s armed link; the STOP + TARGET follow at the fill"); Status = "ORDER SENT • " + t.Words();
+            return "";
+        }
+        public string Skip(DateTime now) { var t = Ticket; if (t == null) return "no ticket"; Log(now, "SKIP", null, t, "you let it go"); Ticket = null; Skipped++; Status = "SKIPPED • waiting for the next setup"; return ""; }
+        public void Tick(DateTime now, double price)
+        {
+            foreach (var f in Pool) if (f.Mirror != null) { if (price > 0) f.Mirror.Price = price; f.Mirror.Time = now; }
+            if (Ticket != null && now > Ticket.Deadline) { Log(now, "MISSED", null, Ticket, "not pressed within " + LateMinutes + " minutes — no late entry"); Ticket = null; Missed++; Status = "MISSED • waiting for the next setup"; }
+            foreach (var f in Pool) if (f.Link != null && f.Mirror != null) f.Link.Tick(f.Mirror, now);
+            var c = Current;
+            if (c != null && placed != null)
+            {
+                int real = Real(c); var m = c.Mirror;
+                if (real != 0 && !filled) { filled = true; double avg = 0; try { avg = c.Link.Broker.AvgPrice; } catch { } Log(now, "FILL", c, placed, (real > 0 ? "LONG " : "SHORT ") + Math.Abs(real) + " @ " + avg.ToString("0.00", CultureInfo.InvariantCulture)); Status = "IN THE TRADE • " + c.Account; }
+                int off = KeystoneTriSettings.Off(now.Hour * 100 + now.Minute); bool late = off >= S.OffFlat || KeystoneStudioStore.SessionOf(now) != KeystoneStudioStore.SessionOf(placed.At);
+                if (FlatAtWindowEnd && late && real != 0 && !flattened) { flattened = true; m.Orders.Clear(); m.Adopt(0, 0, now); Log(now, "FLATTEN", c, placed, "the window's end / the firm's flat-by time: closing through the link"); }
+                if (filled && real == 0)
+                {
+                    var fl = c.Link.NewFills.LastOrDefault(); double net = fl != null ? fl.Net : 0;
+                    Log(now, "EXIT", c, placed, "out at " + (fl != null ? fl.Exit.ToString("0.00", CultureInfo.InvariantCulture) : "?"), net);
+                    m.StopPts = 0; m.TargetPts = 0; Current = null; placed = null;
+                    string dn = DoneOf != null ? DoneOf(c.Account) ?? "" : "";
+                    if (Mode == "STAY" && dn != "") { Log(now, "DONE", c, null, dn + " → the next account takes over"); Seat = null; }
+                    Status = "TRADE DONE • " + c.Account + " " + (net >= 0 ? "+" : "−") + "$" + Math.Abs(net).ToString("N0", CultureInfo.InvariantCulture) + " • waiting for the next setup";
+                }
+                else if (!filled && real == 0 && (now - sentAt).TotalSeconds > FillWaitSeconds)
+                {
+                    if (!noFillLogged) { noFillLogged = true; Log(now, "NO FILL", c, placed, "no fill " + FillWaitSeconds + " s after the order — nothing re-sent"); }
+                    if ((now - sentAt).TotalSeconds > 4 * FillWaitSeconds || !c.Link.Armed) { m.Orders.Clear(); if (m.Position != 0) m.Adopt(0, 0, now); Current = null; placed = null; Status = "NO FILL • released (nothing re-sent)"; }
+                }
+            }
+            var nx = Ticket == null && Current == null ? NextAccount() : null;
+            foreach (var f in Pool)
+            {
+                string why = WhyNot(f);
+                f.Status = f == Current ? (filled ? "IN THE 🎯 TRADE • " + f.Link.State : "ORDER SENT • " + f.Link.State) : Ticket != null && string.Equals(Ticket.Account, f.Account, StringComparison.OrdinalIgnoreCase) ? "▶ TICKET WAITING FOR YOUR PRESS"
+                    : why != "" ? why : f == nx ? "NEXT ▶" : Mode == "STAY" && f == Seat ? "STAYING (next trade)" : "READY";
+            }
         }
     }
 }
@@ -21989,7 +22235,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-11p • 🎯 3 SETUPS: indicator layer, studio 3-SETUP ROTATION drawer, practice tickets, ROTATE guided source • BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -36364,7 +36610,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Window replayTraderWindow; private KeystoneReplayTrader replayTrader; private DispatcherTimer replayTraderTimer; private Action replayTraderLoad, replayTraderFlat, replayTraderEnd; private Action<int> replayTraderOrder, replayTraderStep;
         private Action<List<DateTime>> studioStartRange;
         private Action<KeystoneSimSettings, bool> studioPropStart; private Func<KeystonePropSim> studioPropSim; private Action studioPropRunDay; private Action<string> studioAddSymbol; private Func<int, int, string> studioRotEnter; private Action<bool> studioBoth; private Func<string, KeystoneReplayTrader> studioTrader;   // test hooks (prop sim, ＋ instruments)
-        private Func<string> studioPropExport; private Action studioPropCompare, studioPropFastStop; private Action<int> studioPropNext; private Func<string> studioPropView; private Action<int, bool> studioStrategy; private Action<string, int> studioLayer; private string studioRfvgErr; private int studioRfvgSeen;   /* 🎯 11i test hooks: a layer on / off, the scanner's last drawing error, signals seen */ private Action<string> studioSetMode; private Func<string> studioModeNow; private Action<string> studioRotSides;   // test hooks: export (no browser), compare, RUN ALL ■ STOP, the next-day prompt's choice, which panel view shows
+        private Func<string> studioPropExport; private Action studioPropCompare, studioPropFastStop; private Action<int> studioPropNext; private Func<string> studioPropView; private Action<int, bool> studioStrategy; private Action<string, int> studioLayer; private string studioRfvgErr; private int studioRfvgSeen; private string studioTriErr, studioTriTicket; private int studioTriSeen; private Action studioTriTake; private Func<string, string> studioTriRot;   /* 🎯 11p test hooks */   /* 🎯 11i test hooks: a layer on / off, the scanner's last drawing error, signals seen */ private Action<string> studioSetMode; private Func<string> studioModeNow; private Action<string> studioRotSides;   // test hooks: export (no browser), compare, RUN ALL ■ STOP, the next-day prompt's choice, which panel view shows
         private Action<double> replayTraderNewAccount; private Action studioDataChanged; private Action<int> replayTraderRewind;
         private Action<bool> studioLiveDemo; private Action studioLiveStep; private Func<string> studioLiveBadge; private Action<string, KeystoneArcBar> studioLivePush;   /* ● LIVE DEMO (BUILD 11j) test hooks: switch it, one loop tick, the badge + status, a live bar */
         private Func<string, DateTime, DateTime, List<KeystoneArcBar>> studioLiveHistFake;   /* tests only: a stand-in for NinjaTrader's history BarsRequest (symbol, from, to) */ private Func<string, string> studioLiveHistory;
@@ -36638,7 +36884,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public List<KeystoneReplaySignal> AiSignals = new List<KeystoneReplaySignal>(); public bool AiBusy; public DateTime AiAt = DateTime.MinValue; public List<KeystoneArcBar> AiPrior;
             public Action MatchDetails; public bool MatchesOn, MatchesBusy; public DateTime MatchesBarTime = DateTime.MinValue; public Window MatchWin;   // MATCHES as a chart indicator: on until switched off, refreshed every new minute
             public List<Tuple<double[], string>> XBoxes = new List<Tuple<double[], string>>(), LabelGrab = new List<Tuple<double[], string>>(), LabelGrabPrev = new List<Tuple<double[], string>>(); public double DragOffY;   /* each ✕ its own box (ENTRY / STOP / TARGET / ORDER:n) — a click acts only on the box it lands in; a stop / target label = a grab handle of its line */
-            public bool MouseOver; public double MouseX, MouseY; public ReplayDrawing Preview; public Action UsdRefresh, DoBuy, DoSell, DoBe, DoClose; public List<Tuple<double[], string>> AHandles = new List<Tuple<double[], string>>(); public List<Tuple<double, string, string>> GLines = new List<Tuple<double, string, string>>(); public string DragGroup; /* a group's own stop / target lines on the chart (y, group, GSTOP / GTARGET) — draggable */ public DateTime LoadingAt; /* when the history request started (stuck > 30 s = try again) */ public bool AutoTp; /* AutoTp: 🎯 the auto take profit was accepted for this trade → it re-sizes by itself when contracts are added / taken off */ public List<double[]> HotX = new List<double[]>(), HotDrag = new List<double[]>(); public int FvgPick = -1; public double SideW = 250; public List<double[]> Ghosts; public string[] GhostInfo = new string[0]; public Button MatchesBtn; public DateTime GhostsAt, GhostTime; public double GhostEntry; public Action TpRefresh; public int WantDays = 1; public List<Tuple<double[], string, string[], Brush>> InfoHot = new List<Tuple<double[], string, string[], Brush>>(); public string InfoOpenKey; public Dictionary<string, Action> HotActs = new Dictionary<string, Action>(); public Action<string, Point> EditPrice; public FrameworkElement ChkBox; public string ChkKey; /* the ✅ CONFIRMATIONS box, rebuilt only when its inputs change */ /* ✏ the price box of a stop / target / order line */ public double SideBack = 250; public double TradeBest, TradeWorst; public int TradePos; public bool TradeSeen; public StackPanel MiniStats; public string Toast; public DateTime ToastAt; public List<Button> TradeButtons = new List<Button>(); public Border DisabledBanner, PosQtyBox, PosPnlBox; public TextBlock PosQty, PosAvg, PosPnl; public ColumnDefinition SideCol; public FrameworkElement SideScroll, Mini; public TextBlock MiniPnl; public KeystoneAccountLink Link; public List<KeystoneCopyFollower> Followers = new List<KeystoneCopyFollower>(); public Border PosCard; public Action LoadOlder; public bool LoadingOlder, HistoryEnd, PrependAdjust;
+            public bool MouseOver; public double MouseX, MouseY; public ReplayDrawing Preview; public Action UsdRefresh, DoBuy, DoSell, DoBe, DoClose; public Action<int> TriOrder; /* 🎮 11p: the studio's practice BUY / SELL (never set in LIVE TRADING) */ public List<Tuple<double[], string>> AHandles = new List<Tuple<double[], string>>(); public List<Tuple<double, string, string>> GLines = new List<Tuple<double, string, string>>(); public string DragGroup; /* a group's own stop / target lines on the chart (y, group, GSTOP / GTARGET) — draggable */ public DateTime LoadingAt; /* when the history request started (stuck > 30 s = try again) */ public bool AutoTp; /* AutoTp: 🎯 the auto take profit was accepted for this trade → it re-sizes by itself when contracts are added / taken off */ public List<double[]> HotX = new List<double[]>(), HotDrag = new List<double[]>(); public int FvgPick = -1; public double SideW = 250; public List<double[]> Ghosts; public string[] GhostInfo = new string[0]; public Button MatchesBtn; public DateTime GhostsAt, GhostTime; public double GhostEntry; public Action TpRefresh; public int WantDays = 1; public List<Tuple<double[], string, string[], Brush>> InfoHot = new List<Tuple<double[], string, string[], Brush>>(); public string InfoOpenKey; public Dictionary<string, Action> HotActs = new Dictionary<string, Action>(); public Action<string, Point> EditPrice; public FrameworkElement ChkBox; public string ChkKey; /* the ✅ CONFIRMATIONS box, rebuilt only when its inputs change */ /* ✏ the price box of a stop / target / order line */ public double SideBack = 250; public double TradeBest, TradeWorst; public int TradePos; public bool TradeSeen; public StackPanel MiniStats; public string Toast; public DateTime ToastAt; public List<Button> TradeButtons = new List<Button>(); public Border DisabledBanner, PosQtyBox, PosPnlBox; public TextBlock PosQty, PosAvg, PosPnl; public ColumnDefinition SideCol; public FrameworkElement SideScroll, Mini; public TextBlock MiniPnl; public KeystoneAccountLink Link; public List<KeystoneCopyFollower> Followers = new List<KeystoneCopyFollower>(); public Border PosCard; public Action LoadOlder; public bool LoadingOlder, HistoryEnd, PrependAdjust;
             public string Drag; public double DownX, DownY, Ro0, Pc0, Pr0, S0; public KeystoneReplayOrder DragOrder; public bool Moved; public KeystoneBracketDrag BDrag = new KeystoneBracketDrag();   /* ✋ 11h: the TP / SL drag in progress (it owns the mouse until release / Esc) */
         }
 
@@ -36678,7 +36924,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Window backtestStudioWindow, liveStudioWindow; private readonly Dictionary<Window, Dictionary<string, object>> studioHookSets = new Dictionary<Window, Dictionary<string, object>>();
         private static readonly string[] StudioHookNames = { "replayTraderWindow", "replayTrader", "replayTraderTimer", "replayTraderLoad", "replayTraderFlat", "replayTraderEnd", "replayTraderOrder", "replayTraderStep", "replayTraderNewAccount", "replayTraderRewind",
             "studioStartRange", "studioPropStart", "studioPropSim", "studioPropRunDay", "studioAddSymbol", "studioRotEnter", "studioBoth", "studioTrader", "studioPropExport", "studioPropCompare", "studioPropFastStop", "studioPropNext", "studioPropView",
-            "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
+            "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioTriErr", "studioTriTicket", "studioTriSeen", "studioTriTake", "studioTriRot", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
             "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts", "studioAttemptsText", "studioAttemptsExport", "studioEntryScore", "studioEntry" };
         private static System.Reflection.FieldInfo StudioHookField(string n) { return typeof(KeystoneArc5MResearchLab).GetField(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public); }
         private void SaveStudioHooks(Window owner)
@@ -37264,6 +37510,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (ek != k && ws.TryGetValue("layer." + ek, out sv) && int.TryParse(sv, out v)) { layerModes[k] = v; return v; }   // this instrument's own value
                 if (ek != k && layerModes.TryGetRaw(k, out v)) { layerModes[k] = v; return v; }   // not set on this instrument yet: the shared one
                 v = ws.TryGetValue("layer." + k, out sv) && int.TryParse(sv, out v) ? v : d; layerModes[k] = v; return v; };
+            // 🎯 3 SETUPS (5 min) layer (BUILD 11p): its cache per pane, the practice tickets taken / skipped, the sounds played, its settings from the ▾ menu
+            var triCache = new Dictionary<ReplayPane, Tuple<string, Tuple<List<KeystoneTriCandidate>, List<KeystoneTriZone>>>>(); var triDone = new Dictionary<string, string>(); var triAlerted = new HashSet<string>();
+            Func<string, KeystoneTriSettings> triSettingsOf = sym =>
+            {
+                var ws0 = KeystoneTriSettings.Windows; int wi = Math.Max(0, Math.Min(ws0.Length - 1, layerOf("IND.TRI.W", 0)));
+                var setl = new List<string>(); foreach (var st0 in new[] { "FVG", "AGG", "ENG" }) if (layerOf("IND.TRI." + st0, 1) == 1) setl.Add(st0);
+                return new KeystoneTriSettings { Symbol = sym == "MGC" ? "MGC" : "MNQ", Window = ws0[wi].Code, Setups = string.Join(",", setl), Qty = Math.Max(1, layerOf("IND.TRI.QTY", 15)) }.ApplyWindow();
+            };
             // which order flow part the ORDERFLOW tab's view shows (ALL = the parts switched on in the ▾ menu); nothing on the trading chart
             Func<bool> ofChartNeeds = () => layerOf("OF.BADGE", layerOf("OF.ON", 0)) == 1 || layerOf("OF.BATTLE", 1) == 1 || layerOf("OF.CHARTSIG", 0) == 1 || layerOf("OF.CNUM", 0) == 1 || layerOf("OF.CONF", 0) == 1;   // the trading chart's badge / ⚔ arena / contracts / ✅ confirmations
             // ⚔ BULLS vs BEARS: a tug of war on a glowing track — the knot slides toward the side that is losing, the bull (facing right) and the bear
@@ -38727,6 +38981,90 @@ namespace NinjaTrader.NinjaScript.AddOns
                             }
                         }
                         catch (Exception exR) { status.Text = "🎯 REVERSAL FVG • drawing error: " + exR.Message; studioRfvgErr = exR.Message + " @ " + exR.StackTrace; }   // never takes the chart down
+                    }
+                    // 🎯 3 SETUPS (5 min) (BUILD 11p) — 🧪 RESEARCH, DISPLAY ONLY: the 3-setup engine (KeystoneTriSetup) on the CLOSED 1-minute bars (closed 5-minute
+                    // candles only — no lookahead): the window's FVGs with their 50 % limit (pending / filled / cancelled), the aggression-break and 123-engulfing
+                    // entries, buy green / sell red, the setup's name. A click on a signal fills the order panel (MARKET, qty, stop / target points) — NEVER sends.
+                    // 🎮 In the BACKTEST STUDIO (replay + ● LIVE DEMO) a fresh signal also shows a practice ticket: TAKE = the studio's simulated practice trader only.
+                    if (layerOf("IND.TRI", KeystoneLiveTools.Off) != KeystoneLiveTools.Off && !pn.IsSplit && (pn.Symbol == "MNQ" || pn.Symbol == "MGC"))
+                    {
+                        try
+                        {
+                            var sT = triSettingsOf(pn.Symbol); bool buysT = layerOf("IND.TRI.BUY", 1) == 1, sellsT = layerOf("IND.TRI.SELL", 1) == 1, pastT = layerOf("IND.TRI.PAST", 0) == 1;
+                            var closedT = oneMin.Where(b => b.Time <= r.Time && b.Time >= r.Time.AddDays(-4)).ToList();
+                            string ckT = pn.Symbol + "|" + closedT.Count + "|" + (closedT.Count > 0 ? closedT[closedT.Count - 1].Time.Ticks : 0) + "|" + sT.Window + "|" + sT.Setups + "|" + sT.Qty + "|" + buysT + sellsT;
+                            Tuple<string, Tuple<List<KeystoneTriCandidate>, List<KeystoneTriZone>>> cT; Tuple<List<KeystoneTriCandidate>, List<KeystoneTriZone>> scT;
+                            if (triCache.TryGetValue(pn, out cT) && cT.Item1 == ckT) scT = cT.Item2; else { scT = KeystoneTriLive.Scan(closedT, sT, buysT, sellsT); triCache[pn] = Tuple.Create(ckT, scT); }
+                            var dayT = KeystoneStudioStore.SessionOf(r.Time.AddMinutes(1)); var gT = colorOf("#00E676"); var rT = colorOf("#FF1744"); var oT = colorOf("#FFAB00");
+                            var zonesT = scT.Item2.Where(z => pastT || KeystoneStudioStore.SessionOf(z.Formed) == dayT).ToList(); var sigT = scT.Item1.Where(c => pastT || c.Day == dayT).ToList();
+                            studioTriSeen = Math.Max(studioTriSeen, sigT.Count + zonesT.Count);
+                            foreach (var z in zonesT)
+                            {
+                                double zxa = xOfIndex(pn, indexOfTime(pn, z.C1.AddMinutes(1))) - pn.Spacing / 2, zxb = z.Status == "PENDING" ? pn.PlotW : Math.Min(pn.PlotW, xOfIndex(pn, indexOfTime(pn, z.At)) + pn.Spacing / 2);
+                                if (zxb < 0 || zxa > pn.PlotW) continue; zxa = Math.Max(0, zxa); var zc = z.Dir > 0 ? gT : rT; double zya = yOf(pn, z.Hi), zyb = yOf(pn, z.Lo), zyl = yOf(pn, z.Level);
+                                rect(zxa, zya, zxb, zyb, zc, z.Status == "PENDING" ? 0.14 + 0.08 * ph : z.Status == "FILLED" ? 0.12 : 0.05);
+                                cv.Children.Add(new System.Windows.Shapes.Line { X1 = zxa, X2 = zxb, Y1 = zyl, Y2 = zyl, Stroke = z.Status == "CANCELLED" ? Muted : (Brush)oT, StrokeThickness = z.Status == "PENDING" ? 1.6 : 1, StrokeDashArray = new DoubleCollection { 2, 3 }, Opacity = z.Status == "CANCELLED" ? 0.5 : 0.9, IsHitTestVisible = false });
+                                var zl = new TextBlock { Text = "🎯 FVG " + (z.Dir > 0 ? "▲" : "▼") + " 50 % " + fmt(z.Level) + " · " + (z.Status == "PENDING" ? "PENDING (limit waiting)" : z.Status == "FILLED" ? "FILLED" : "CANCELLED"), Foreground = z.Status == "CANCELLED" ? Muted : (Brush)zc, FontSize = 9, FontWeight = FontWeights.Bold, IsHitTestVisible = false, Opacity = z.Status == "CANCELLED" ? 0.7 : 1, ToolTip = z.Why };
+                                System.Windows.Controls.Canvas.SetLeft(zl, zxa + 2); System.Windows.Controls.Canvas.SetTop(zl, z.Dir > 0 ? Math.Max(zya, zyb) + 1 : Math.Min(zya, zyb) - 13); cv.Children.Add(zl);
+                            }
+                            int nT = 0;
+                            foreach (var c in sigT)
+                            {
+                                double cx = xOfIndex(pn, indexOfTime(pn, c.Entry)); if (cx < -10 || cx > pn.PlotW) continue; var cc = c.Dir > 0 ? gT : rT; double cy = yOf(pn, c.EntryPx);
+                                string keyT = KeystoneTriGuide.KeyOf(c); string doneT; triDone.TryGetValue(keyT, out doneT);
+                                var mk = new Border { Background = Tint(cc, 200), CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 0, 4, 1), Cursor = System.Windows.Input.Cursors.Hand, IsHitTestVisible = false,
+                                    Child = new TextBlock { Text = (c.Dir > 0 ? "▲ " : "▼ ") + (c.Setup == "FVG" ? "FVG 50%" : c.Setup == "AGG" ? "AGG BREAK" : "123 ENG") + (doneT != null ? " · " + doneT : ""), Foreground = System.Windows.Media.Brushes.White, FontSize = 9.5, FontWeight = FontWeights.Bold } };
+                                mk.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double mw = mk.DesiredSize.Width > 0 ? mk.DesiredSize.Width : 70, mh = 15;
+                                double mx = Math.Max(0, Math.Min(pn.PlotW - mw, cx - mw / 2)), my = c.Dir > 0 ? cy + 7 : cy - mh - 7;
+                                cv.Children.Add(new System.Windows.Shapes.Line { X1 = cx, X2 = cx, Y1 = cy, Y2 = c.Dir > 0 ? my : my + mh, Stroke = cc, StrokeThickness = 1.2, IsHitTestVisible = false });
+                                System.Windows.Controls.Canvas.SetLeft(mk, mx); System.Windows.Controls.Canvas.SetTop(mk, my); cv.Children.Add(mk);
+                                string akT = "ACT:TRI" + (nT++); var cS = c; var pnS = pn; var sS = sT;
+                                pn.InfoHot.Add(Tuple.Create(new[] { mx, my, mx + mw, my + mh }, akT, new string[0], (Brush)cc));
+                                pn.HotActs[akT] = () =>
+                                {   /* fills the order panel's fields only — no trader / link / broker is touched (in a position: refused, the boxes would move its bracket) */
+                                    var tq = pnS.Trader; if (tq != null && tq.Position != 0) { status.Text = "🎯 3 SETUPS • IN A POSITION: the order panel is not filled (its STOP / TARGET boxes would move your open trade's bracket)"; status.Foreground = Gold; return; }
+                                    Func<double, string> f2 = v => v.ToString("0.##", CultureInfo.InvariantCulture);
+                                    if (pnS.OrderType != null) pnS.OrderType.SelectedIndex = 0; if (pnS.Qty != null) pnS.Qty.Text = sS.Qty.ToString(CultureInfo.InvariantCulture); if (pnS.Sl != null) pnS.Sl.Text = f2(sS.StopPts); if (pnS.Tp != null) pnS.Tp.Text = f2(sS.TargetPts);
+                                    status.Text = "🎯 order panel filled: " + KeystoneTriLive.NameOf(cS.Setup) + " " + (cS.Dir > 0 ? "BUY" : "SELL") + " MARKET " + sS.Qty + " • stop " + f2(sS.StopPts) + " pts (−" + Cash(sS.StopUsd) + ") • target " + f2(sS.TargetPts) + " pts (+" + Cash(sS.TargetUsd) + ") • NOTHING SENT — press " + (cS.Dir > 0 ? "BUY" : "SELL") + " yourself • " + KeystoneTriLive.Research; status.Foreground = cS.Dir > 0 ? Green : Red;
+                                };
+                            }
+                            // 🎮 the PRACTICE TICKET (BACKTEST STUDIO only — the replay and the ● LIVE DEMO): the newest signal of the last 2 minutes, TAKE / SKIP
+                            var tkC = liveWindow || layerOf("IND.TRI.TICKET", 1) != 1 ? null : sigT.LastOrDefault(c => (r.Time - c.Entry).TotalMinutes >= 0 && (r.Time - c.Entry).TotalMinutes <= 2 && !triDone.ContainsKey(KeystoneTriGuide.KeyOf(c)));
+                            studioTriTicket = tkC == null ? "" : KeystoneTriLive.Words(tkC, sT); studioTriTake = null;
+                            if (tkC != null)
+                            {
+                                string keyK = KeystoneTriGuide.KeyOf(tkC); if (triAlerted.Add(keyK)) { try { System.Media.SystemSounds.Asterisk.Play(); } catch { } }
+                                var kc = tkC.Dir > 0 ? gT : rT; var kb = new StackPanel();
+                                kb.Children.Add(new TextBlock { Text = "🎮 PRACTICE TICKET • " + KeystoneTriLive.NameOf(tkC.Setup) + " " + (tkC.Dir > 0 ? "▲ BUY " : "▼ SELL ") + sT.Qty + " " + pn.Symbol, Foreground = kc, FontSize = 12.5, FontWeight = FontWeights.Bold });
+                                kb.Children.Add(new TextBlock { Text = "MARKET now ≈ " + fmt(r.Price) + " • STOP " + sT.StopPts.ToString("0.##", CultureInfo.InvariantCulture) + " pts (−" + Cash(sT.StopUsd) + ") • TARGET " + sT.TargetPts.ToString("0.##", CultureInfo.InvariantCulture) + " pts (+" + Cash(sT.TargetUsd) + ")", Foreground = Text, FontSize = 10.5, FontWeight = FontWeights.SemiBold });
+                                kb.Children.Add(new TextBlock { Text = tkC.Why + " • the studio's simulated practice trader only — nothing is sent", Foreground = Muted, FontSize = 9.5, TextWrapping = TextWrapping.Wrap, MaxWidth = 380 });
+                                kb.Children.Add(new TextBlock { Text = "⚠ " + KeystoneTriLive.Research, Foreground = Orange, FontSize = 9.5, FontWeight = FontWeights.SemiBold });
+                                var kbb = new Border { Background = Tint(Bg, 235), BorderBrush = ph > 0.5 ? (Brush)Gold : kc, BorderThickness = new Thickness(1.6), CornerRadius = new CornerRadius(7), Padding = new Thickness(8, 4, 8, 5), Child = kb, Tag = "tri.ticket" };
+                                kbb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double kw = kbb.DesiredSize.Width > 0 ? kbb.DesiredSize.Width : 390, kh = kbb.DesiredSize.Height > 0 ? kbb.DesiredSize.Height : 80;
+                                double kx = Math.Max(4, pn.PlotW - kw - 96), ky = pn.Top + 34; System.Windows.Controls.Canvas.SetLeft(kbb, kx); System.Windows.Controls.Canvas.SetTop(kbb, ky); cv.Children.Add(kbb);
+                                var pnK = pn; var sK = sT; var cK = tkC;
+                                Action takeK = () =>
+                                {
+                                    var tr = pnK.Trader; if (tr == null || pnK.TriOrder == null) return;
+                                    if (tr.Position != 0) { status.Text = "🎮 PRACTICE TICKET • you already hold a position — close it first (or SKIP)"; status.Foreground = Gold; return; }
+                                    Func<double, string> f2 = v => v.ToString("0.##", CultureInfo.InvariantCulture);
+                                    if (pnK.OrderType != null) pnK.OrderType.SelectedIndex = 0; pnK.Qty.Text = sK.Qty.ToString(CultureInfo.InvariantCulture); pnK.Sl.Text = f2(sK.StopPts); pnK.Tp.Text = f2(sK.TargetPts);
+                                    pnK.TriOrder(cK.Dir); if (tr.Position == 0 && tr.Orders.Count == 0) { studioTriTicket = "NOT TAKEN: " + status.Text; return; }   /* refused by the practice rules: the ticket stays, the reason is on the status line */
+                                    triDone[keyK] = "TAKEN";
+                                    status.Text = "🎮 PRACTICE • " + KeystoneTriLive.NameOf(cK.Setup) + " " + (cK.Dir > 0 ? "BUY " : "SELL ") + sK.Qty + " on the simulated practice trader (stop " + f2(sK.StopPts) + " / target " + f2(sK.TargetPts) + " pts) • nothing is sent • " + KeystoneTriLive.Research; status.Foreground = Cyan;
+                                };
+                                Action skipK = () => { triDone[keyK] = "SKIPPED"; status.Text = "🎮 PRACTICE TICKET skipped • " + KeystoneTriLive.NameOf(cK.Setup); status.Foreground = Muted; };
+                                studioTriTake = takeK;
+                                double by = ky + kh + 3; int bi = 0;
+                                foreach (var bt in new[] { Tuple.Create("✅ TAKE (practice)", (Brush)Tint(kc, 210), takeK, 132.0), Tuple.Create("SKIP", (Brush)Card, skipK, 64.0) })
+                                {
+                                    double bx = kx + (bi == 0 ? 0 : 138); var bb = new Border { Background = bt.Item2, CornerRadius = new CornerRadius(5), Width = bt.Item4, Height = 24, Child = new TextBlock { Text = bt.Item1, Foreground = System.Windows.Media.Brushes.White, FontSize = 11.5, FontWeight = FontWeights.Bold, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center }, Tag = "tri.ticket.btn" };
+                                    System.Windows.Controls.Canvas.SetLeft(bb, bx); System.Windows.Controls.Canvas.SetTop(bb, by); cv.Children.Add(bb);
+                                    string akK = "ACT:TRITK" + bi; var actK = bt.Item3; pn.InfoHot.Add(Tuple.Create(new[] { bx, by, bx + bt.Item4, by + 24 }, akK, new string[0], bt.Item2)); pn.HotActs[akK] = () => actK(); bi++;
+                                }
+                            }
+                        }
+                        catch (Exception exT) { status.Text = "🎯 3 SETUPS • drawing error: " + exT.Message; studioTriErr = exT.Message + " @ " + exT.StackTrace; }   // never takes the chart down
                     }
                     // open fair-value gaps on this timeframe (3-candle gaps not filled yet): the last 8, to the right edge with their 50% line
                     if (layerOf("IND.FVG", KeystoneLiveTools.Off) != KeystoneLiveTools.Off)
@@ -40874,6 +41212,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     render(pn); renderInfo();
                 };
                 buy.Click += delegate { order(1); }; sell.Click += delegate { order(-1); };
+                if (!liveWindow) pn.TriOrder = sgn => order(sgn);   /* 🎮 11p: the 3-setup practice ticket presses the studio's own BUY / SELL (the simulated practice trader) */
                 autoTpResizers.Add(delegate
                 {
                     // 🎯 AUTO, live: another instrument opened / closed (the shared room changed) → this take profit follows
@@ -43839,6 +44178,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 { "IND.FVG", "WHAT YOU SEE\n• A fair-value gap: 3 candles where candle 1's wick and candle 3's wick do not overlap — a price area the market skipped.\n• Green shades = BULLISH gap (formed going up, under price = support).\n• Red / pink shades = BEARISH gap (formed going down, above price = resistance).\n• Dotted line = the gap's 50% level.\n\nWHERE TO BUY ▲ (bullish gap)\n• Price comes back DOWN into the gap, then the entry is whichever comes FIRST:\n  – BH: after a red candle, a green candle breaks the green candle's high, or\n  – 25% (then 50%) into the gap is reached.\n• Stop: below the gap's far edge. Target: 2× the risk (2R).\n\nWHERE TO SELL ▼ (bearish gap)\n• The mirror: price comes back UP into it; BH = after a green candle, a red candle breaks the low; or 25% / 50% into the gap. Stop above the gap, target 2R.\n\nTHE MARKER (click it for the details)\n• Flashing green / red = waiting for the entry (buy / sell).\n• Solid green = it won, red = it lost, grey = FAILED (price broke through the gap before any entry — no trade).\n• Hollow = you did not take it, filled = you took it.\n• Every decided one is recorded: JOURNAL → INDICATED ENTRIES." },
                 { "IND.AI", "WHAT YOU SEE\n• Nothing until a strong setup: a blinking gold ▲ (buy) or ▼ (sell) arrow with 🤖 and its score, plus its entry, stop (red) and target (green) lines.\n\nHOW IT DECIDES\n• In the background every minute: 1M FVG (50% and candle close), BH, opening drive, ORB 15 and ORB 30 look for setups on the session.\n• A setup scores 1, +1 for each OTHER strategy with a setup the same way within 15 minutes, +1 when the price is on that side of the session VWAP, +1 when the last 5 minutes moved that way.\n• Score 3 or more = an AI signal. The stop is the setup's; the target is at least 1.5 × the risk.\n\nHOW TO USE IT\n• In SIGNALS mode a window asks you to click (always on accounts without automation). You decide; nothing is sent by itself.\n• It is a filter, not a promise: test it on the practice account first." },
                 { "IND.RFVG", "WHAT YOU SEE\n• 🎯 A shaded zone after an AGGRESSIVE move: the high of the last 40 minutes down to a new low (within the last 15 minutes) of at least D points (default 100; 60 / 150 in ▾).\n• The zone = the FIRST bullish 3-candle fair-value gap after that low (candle-3 low − candle-1 high ≥ 2 pts). ★ = the middle candle traded ≥ 2× the average volume of the 30 bars before (the high-volume variant).\n• Only CLOSED 1-minute bars are read: a zone never changes afterwards.\n\nTHE PROPOSAL (the newest zone, 30 minutes)\n• Entry = the gap's near edge (a LIMIT), stop = the low − 2 pts, targets 1R / 2R / 3R with $ for the order panel's contracts.\n• Click 1R / 2R / 3R on the chart = the order panel's PRICE / STOP / TARGET are filled in. NOTHING is sent: you still press Buy Lmt (and, live, the account must be ARMED).\n• 🔔 a sound + a note when price comes back into the zone.\n\nSELLS\n• The mirror (a rally, then the first bearish gap) — off by default (▾ to show).\n\n📜 SIGNALS (▾): every signal is logged to Studio\\reversal-fvg-signals.csv with whether price came back and the outcome at 1R / 2R / 3R, live or in the replay — your own forward evidence.\n\n⚠ HONEST: " + KeystoneRevFvg.Research },
+                { "IND.TRI", "🎯 3 SETUPS (5 min) — " + KeystoneTriLive.Research + "\n\nWHAT YOU SEE (5-minute candles built from the CLOSED 1-minute bars — no lookahead, inside the chosen window, NY 9:30–16:00 by default)\n• FVG 50 %: a 3-candle fair-value gap (green = bullish, red = bearish) with its dotted 50 % line = the LIMIT. PENDING (flashing, to the right edge) = waiting for a retrace; FILLED = the limit traded (an entry); CANCELLED (grey) = a 5-minute close beyond the far side or the window ended — no retrace = no trade.\n• ▲ / ▼ AGG BREAK: a strong candle (body ≥ 60 % of its range, range ≥ 1.5 × ATR) closing beyond the last 10 candles' high / low → entry at its close.\n• ▲ / ▼ 123 ENG: a run of ≥ 2 opposite candles, then a close beyond the last run candle's open → entry at its close.\n\nTHE BRACKET\n• 15 MNQ (▾ to change), stop −$500 / target +$1,500 for that size (15 MNQ = 16.75 / 50 pts).\n• Click a marker = the order panel gets MARKET, the size, the stop and target points. NOTHING is sent: you press BUY / SELL yourself (live: the account must be ARMED).\n\n🎮 PRACTICE (BACKTEST STUDIO replay + ● LIVE DEMO): a fresh signal shows a ticket — ✅ TAKE = the studio's simulated practice trader only, SKIP lets it go.\n\n⚠ HONEST: the 6-year study (docs/reports/data/three-setups) found NO EDGE yet — slightly better than random entries, still losing after costs. Use it to TEST." },
                 { "SETUPS", "WHAT YOU SEE\n• The setups of the strategy picked in STRATEGY, as box arrows on the candle that triggers them:\n  – green box ▲ under the candle = BUY setup\n  – red box ▼ over the candle = SELL setup\n• The letter next to it = grade (A = the strongest kind historically, then B, C).\n• The newest one flashes for 5 minutes. While you are flat, dashed IN / SL / TP lines show its plan.\n\nHOW TO USE\n• MODE = SIGNALS: the strategy marks its entries, you decide and click BUY / SELL (with the SL / TP from the plan).\n• Use ▾ to show only buys or only sells, and ONLY NEW to hide the ones that formed before the window opened.\n• Every setup's outcome (won / lost / never filled, taken by you or not) is recorded: JOURNAL → INDICATED ENTRIES." } };
             foreach (var ind in new[] {
                 Tuple.Create("IND.VWAP", "VWAP ±1σ", "#FFD54F", "VWAP from the 18:00 open with its ±1 standard-deviation band — the VWAP SNAP-BACK strategy fades stretches back to this line"),
@@ -43847,6 +44187,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Tuple.Create("IND.FVG", "FVG ZONES", "#00E5FF", "Every fair-value gap on this timeframe: open ones run to the right edge, filled ones (price went all the way through) are dashed and end where they were filled (▾ to hide them) — green = bullish, red / pink = bearish, dotted = 50%"),
                 Tuple.Create("IND.AI", "🤖 AI", "#FFD740", "AI: every strategy (FVG, BH, opening drive, ORB 15 / 30) runs in the background; a blinking arrow appears only when they agree with each other, the VWAP side and the last 5 minutes — with its stop and target"),
                 Tuple.Create("SETUPS", "SETUPS ▲▼", "#69F0AE", "The chosen strategy's setups as arrows on the chart (pick the strategy in the strip)"),
+                Tuple.Create("IND.TRI", "🎯 3 SETUPS (5 min)", "#FFAB00", "🎯 3 SETUPS (5 min) — " + KeystoneTriLive.Research + "\nFVG 50 % (pending / filled / cancelled), AGGRESSION BREAK and 123 ENGULFING on closed 5-minute candles; click a signal = the order panel is filled (15 MNQ, −$500 / +$1,500) — nothing is sent. In the BACKTEST STUDIO a fresh signal shows a 🎮 practice ticket (TAKE / SKIP, the simulated trader only)."),
                 Tuple.Create("IND.RFVG", "🎯 REVERSAL FVG", "#FF9100", "🎯 REVERSAL FVG (signals / alerts only — it never places an order): a ≥ 100-pt drop (the 40-minute high down to a new low within 15 minutes) → the FIRST bullish 3-candle FVG after it (≥ 2 pts) → the zone, an alert when price comes back into it, a proposal (entry = the gap's near edge, stop = the low − 2, 1R / 2R / 3R). ★ = the middle candle's volume ≥ 2× the 30-bar average. Sells (the mirror) are off by default (▾).\n⚠ " + KeystoneRevFvg.Research) })
             {
                 var ik = ind.Item1; var col = colorOf(ind.Item3); int defMode = ik == "SETUPS" ? KeystoneLiveTools.Always : KeystoneLiveTools.Off;
@@ -43868,6 +44209,17 @@ namespace NinjaTrader.NinjaScript.AddOns
                 filt.MouseLeftButtonUp += (fs0, fe0) =>
                 {
                     fe0.Handled = true; var fm = new ContextMenu();
+                    if (ik == "IND.TRI")
+                    {   /* 🎯 BUILD 11p: the setups, the sides, the window, the size, earlier days, the practice tickets */
+                        foreach (var sr in new[] { Tuple.Create("IND.TRI.FVG", "FVG 50 % (limit at the gap's middle)"), Tuple.Create("IND.TRI.AGG", "AGGRESSION BREAK"), Tuple.Create("IND.TRI.ENG", "123 ENGULFING"), Tuple.Create("IND.TRI.BUY", "▲ BUYS"), Tuple.Create("IND.TRI.SELL", "▼ SELLS"), Tuple.Create("IND.TRI.TICKET", "🎮 practice tickets (BACKTEST STUDIO only)"), Tuple.Create("IND.TRI.PAST", "earlier days too") })
+                        { var keyT = sr.Item1; int defT = keyT == "IND.TRI.PAST" ? 0 : 1; bool onT = layerOf(keyT, defT) == 1; var itT = new MenuItem { Header = (onT ? "✓ " : "    ") + sr.Item2 }; itT.Click += delegate { layerModes[keyT] = onT ? 0 : 1; saveWorkspace(); triCache.Clear(); renderAll(); }; fm.Items.Add(itT); }
+                        fm.Items.Add(new Separator()); int wCur = layerOf("IND.TRI.W", 0);
+                        for (int wi0 = 0; wi0 < KeystoneTriSettings.Windows.Length; wi0++) { int wiT = wi0; var itW = new MenuItem { Header = (wCur == wiT ? "● " : "○ ") + "window " + KeystoneTriSettings.Windows[wiT].Name + (wiT == 0 ? " (the study's)" : "") }; itW.Click += delegate { layerModes["IND.TRI.W"] = wiT; saveWorkspace(); triCache.Clear(); renderAll(); }; fm.Items.Add(itW); }
+                        fm.Items.Add(new Separator()); int qCur = layerOf("IND.TRI.QTY", 15);
+                        foreach (int qv in new[] { 1, 3, 5, 10, 15, 20 }) { int qq = qv; var itQ = new MenuItem { Header = (qCur == qq ? "● " : "○ ") + qq + " MNQ (stop −$500 / target +$1,500 for it)" + (qq == 15 ? " (default)" : "") }; itQ.Click += delegate { layerModes["IND.TRI.QTY"] = qq; saveWorkspace(); triCache.Clear(); renderAll(); }; fm.Items.Add(itQ); }
+                        fm.Items.Add(new Separator()); fm.Items.Add(new MenuItem { Header = "⚠ " + KeystoneTriLive.Research, IsEnabled = false });
+                        fm.PlacementTarget = filt; fm.IsOpen = true; return;
+                    }
                     if (ik == "IND.RFVG")
                     {   /* 🎯 BUILD 11i: buys (default on) / sells (default OFF) / ★ only / the move D / the 📜 SIGNALS log */
                         foreach (var sr in new[] { Tuple.Create("IND.RFVG.BUY", "▲ BUYS after a drop (your setup)", 1), Tuple.Create("IND.RFVG.SELL", "▼ SELLS after a rally (the mirror)", 0), Tuple.Create("IND.RFVG.STAR", "★ only the high-volume ones", 0) })
@@ -45073,7 +45425,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 strip.Children.Insert(strip.Children.IndexOf(journalBtn) + 1, copierBtn); strip.Children.Insert(strip.Children.IndexOf(copierBtn) + 1, poolBtn);
                 var rotateHost = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed, Background = Panel };
                 Grid.SetRow(rotateHost, 3); root.Children.Add(rotateHost);
-                var rotateBtn = pill("🔄 ROTATE", Card); rotateBtn.ToolTip = "ROTATION: the chart's strategy trades a pool of your prop accounts, one account per trade, in turn (AUTO or MANUAL)";
+                var rotateBtn = pill("🔄 ROTATE", Card); rotateBtn.ToolTip = "ROTATION: the chart's strategy trades a pool of your prop accounts, one account per trade, in turn (AUTO or MANUAL) — or SOURCE 🎯 3 SETUPS: a GUIDED ticket per setup, ONE press = the bracket on the next account (🧪 research — 6-year study: no edge yet)";
                 strip.Children.Insert(strip.Children.IndexOf(poolBtn) + 1, rotateBtn); Action fillRotate = null;
                 var autoHost = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed, Background = Panel };
                 Grid.SetRow(autoHost, 3); root.Children.Add(autoHost);
@@ -46700,11 +47052,48 @@ namespace NinjaTrader.NinjaScript.AddOns
                 };
                 KeystoneRotator rotor = null; ReplayPane rotPane = null; bool rotOn = false; Window rotPop = null; TextBlock rotPopInfo = null; Button rotEnterBtn = null, rotNextBtn = null; DateTime rotPaintAt = DateTime.MinValue;
                 var rotStatusTexts = new Dictionary<string, TextBlock>(StringComparer.OrdinalIgnoreCase); TextBlock rzHead = null;
+                // 🎯 BUILD 11p: the ROTATE source "🎯 3 SETUPS" — GUIDED / MANUAL only: KeystoneTriGuide on the SAME armed pool links (their limits, runaway guard,
+                // lockouts); a setup inside the window → a ticket for the next pool account (ONE TRADE PER ACCOUNT / STAY UNTIL DONE); ONE press = the bracket
+                // through that account's own link; SKIP; nothing is sent without the press. Settings + the accounts marked done in Studio\TriGuide.txt.
+                string triFile = Path.Combine(StudioFolder(), "TriGuide.txt");
+                var triSet = new Dictionary<string, string> { { "src", "CHART" }, { "mode", "ROTATE" }, { "window", "0" }, { "qty", "15" }, { "stop", "500" }, { "target", "1500" }, { "fqty", "0" }, { "fstop", "0" }, { "ftarget", "0" }, { "flock", "0" }, { "elock", "0" } };
+                var triDoneAcc = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                try { if (File.Exists(triFile)) foreach (var tl in File.ReadAllLines(triFile)) { var tp = tl.Split('|'); if (tp.Length == 3 && tp[0] == "done") triDoneAcc[tp[1]] = tp[2]; else { var kv = tl.Split(new[] { '=' }, 2); if (kv.Length == 2 && triSet.ContainsKey(kv[0])) triSet[kv[0]] = kv[1]; } } } catch { }
+                Action saveTri = delegate { try { Directory.CreateDirectory(StudioFolder()); File.WriteAllLines(triFile, triSet.Select(kv => kv.Key + "=" + kv.Value).Concat(triDoneAcc.Select(kv => "done|" + kv.Key + "|" + kv.Value.Replace("|", " "))).ToArray()); } catch { } };
+                Func<string, double> triNum = k => { double v; return double.TryParse(triSet.ContainsKey(k) ? triSet[k] : "", NumberStyles.Float, CultureInfo.InvariantCulture, out v) ? v : 0; };
+                Func<KeystoneTriSettings> triS = () =>
+                {
+                    int wi = Math.Max(0, Math.Min(KeystoneTriSettings.Windows.Length - 1, (int)triNum("window")));
+                    return new KeystoneTriSettings { Window = KeystoneTriSettings.Windows[wi].Code, Mode = triSet["mode"] == "STAY" ? "STAY" : "ROTATE", Qty = Math.Max(1, (int)triNum("qty")), StopUsd = triNum("stop") > 0 ? triNum("stop") : 500, TargetUsd = triNum("target") > 0 ? triNum("target") : 1500,
+                        FQty = Math.Max(0, (int)triNum("fqty")), FStop = triNum("fstop"), FTarget = triNum("ftarget"), FDayLock = triNum("flock"), EDayLock = triNum("elock") }.ApplyWindow();
+                };
+                KeystoneTriGuide triG = null; Window triPop = null; TextBlock triPopInfo = null, triTabInfo = null; Button triPopPress = null, triTabPress = null, triTabSkip = null; string triPopKey = ""; DateTime triLogDay = DateTime.MinValue;
+                Action<bool> triAct = press =>
+                {
+                    if (triG == null || rotPane == null || rotPane.Trader == null) return; var tk0 = triG.Ticket; if (tk0 == null) { status.Text = "🎯 3 SETUPS • no ticket now"; status.Foreground = Gold; return; }
+                    if (!press) { triG.Skip(nyNow()); status.Text = "🎯 3 SETUPS • ticket skipped"; status.Foreground = Muted; return; }
+                    string e0 = triG.Press(nyNow(), rotPane.Trader.Price);
+                    status.Text = e0 == "" ? "🎯 3 SETUPS • PRESSED: " + tk0.Words() + " → through " + nickOf(tk0.Account) + "'s armed link" : "🎯 3 SETUPS • NOT SENT: " + e0; status.Foreground = e0 == "" ? Green : Gold;
+                };
+                Action triShowPop = delegate
+                {
+                    if (triPop != null) return; var pb = new StackPanel { Margin = new Thickness(14) };
+                    pb.Children.Add(new TextBlock { Text = "🎯 3 SETUPS • GUIDED — ONE press = the bracket (entry + STOP + TARGET) through the account's ARMED link", Foreground = Gold, FontSize = 15, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap });
+                    pb.Children.Add(new TextBlock { Text = "⚠ " + KeystoneTriLive.Research, Foreground = Orange, FontSize = 11.5, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 4) });
+                    triPopInfo = new TextBlock { Foreground = Text, FontSize = 13, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 10), MinHeight = 54 }; pb.Children.Add(triPopInfo);
+                    triPopPress = Btn("▶ PRESS = PLACE THE BRACKET", Green); triPopPress.Height = 50; triPopPress.FontSize = 16; triPopPress.Click += delegate { triAct(true); };
+                    var sk = Btn("SKIP", Card); sk.Height = 34; sk.Margin = new Thickness(0, 6, 0, 0); sk.Click += delegate { triAct(false); };
+                    pb.Children.Add(triPopPress); pb.Children.Add(sk);
+                    triPop = new Window { Title = "KEYSTONE • 🔄 ROTATE • 🎯 3 SETUPS GUIDED", Width = 560, SizeToContent = SizeToContent.Height, Topmost = true, Background = Panel, Content = new Border { BorderBrush = Gold, BorderThickness = new Thickness(3), Child = pb }, Owner = w, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+                    triPop.Closed += delegate { triPop = null; };
+                    try { triPop.Show(); } catch { triPop = null; }
+                };
                 Func<DateTime, DateTime> rotDay = t => { var ny = nyNow(); return ny.Hour >= 18 ? ny.Date.AddDays(1) : ny.Date; };
                 Action stopRot = delegate
                 {
                     if (rotor != null) foreach (var rf in rotor.Pool) if (rf.Link != null) rf.Link.Disarm("ROTATION STOPPED", DateTime.Now, false);
                     rotor = null; rotPane = null; rotOn = false; if (rotPop != null) { try { rotPop.Close(); } catch { } rotPop = null; }
+                    triG = null; triPopKey = ""; if (triPop != null) { try { triPop.Close(); } catch { } triPop = null; }   /* 🎯 11p */
                     status.Text = "ROTATION STOPPED • open positions stay at the broker with their stop / target"; status.Foreground = Gold;
                 };
                 Action openRotPop = delegate
@@ -46731,28 +47120,36 @@ namespace NinjaTrader.NinjaScript.AddOns
                         if (KBox(w, "The chart is linked to " + nickOf(linkedName) + ".\n\nRotation needs the chart UNLINKED: its strategy then trades a simulated position (the leader) and every trade is sent to one pool account.\n\nUnlink the chart now?", "KEYSTONE • ROTATION", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                         unlink();
                     }
+                    bool triSrc = triSet["src"] == "TRI";   /* 🎯 11p: the 3 SETUPS source = GUIDED / MANUAL only (never AUTO) */
                     var accs = realAccBox.Items.OfType<string>().Where(a => rotIn.Contains(a)).ToList();
                     if (rotOrder != null && rotOrder.Count > 0) accs = accs.OrderBy(a => { int ix = rotOrder.FindIndex(x => string.Equals(x, a, StringComparison.OrdinalIgnoreCase)); return ix < 0 ? 1000 : ix; }).ToList();   /* 🧪 the lab's firm-by-firm order */
-                    if (accs.Count < 2) { status.Text = "PICK AT LEAST 2 ACCOUNTS FOR THE POOL"; status.Foreground = Gold; return; }
-                    if (!rotManual) { var noAuto = accs.Where(a => !autoOK(a)).ToList(); if (noAuto.Count > 0) { status.Text = "AUTO NOT ALLOWED for " + string.Join(", ", noAuto.Select(nickOf)) + " (their firm's rules: 👥 ACCOUNTS ▸ RULES) — remove them or use MANUAL"; status.Foreground = Red; return; } }
+                    if (accs.Count < (triSrc ? 1 : 2)) { status.Text = "PICK AT LEAST " + (triSrc ? 1 : 2) + " ACCOUNT" + (triSrc ? "" : "S") + " FOR THE POOL"; status.Foreground = Gold; return; }
+                    if (!rotManual && !triSrc) { var noAuto = accs.Where(a => !autoOK(a)).ToList(); if (noAuto.Count > 0) { status.Text = "AUTO NOT ALLOWED for " + string.Join(", ", noAuto.Select(nickOf)) + " (their firm's rules: 👥 ACCOUNTS ▸ RULES) — remove them or use MANUAL"; status.Foreground = Red; return; } }
                     var lp = panes.FirstOrDefault(p => p.Symbol == "MNQ" && p.Trader != null) ?? panes.FirstOrDefault(p => p.Trader != null); LiveFeed lfd;
                     if (lp == null || !feeds.TryGetValue(lp.Symbol, out lfd) || lfd.Inst == null) { status.Text = "NO LIVE CHART TO ROTATE FROM (start the live data first)"; status.Foreground = Gold; return; }
                     string msg = "START ROTATION on " + lp.Symbol + "?\n\nMode: " + (rotManual ? "MANUAL — nothing is sent until you press ENTER; NEXT ACCOUNT picks the next one" : "AUTO — each new setup of the chart's strategy goes to the next account by itself") + "\nPool (in turn):\n" + string.Join("\n", accs.Select(a => "  • " + nickOf(a) + (rotFunded.Contains(a) ? "  (FUNDED" + (rotHold ? " • " + rotSec + "-second hold" : "") + ")" : ""))) +
                         "\n\nOne account holds each trade (never two sides at once). " + (rotOne ? "One trade per account per day. " : "") + "Each account keeps the RULES limits: max " + Math.Max(1, Integer(realMaxBox, 2)) + " contracts, day loss " + (NumberAllowZero(realLossBox, 0) > 0 ? Cash(NumberAllowZero(realLossBox, 0)) : "off") + ".\nThese are REAL orders on every pool account.";
+                    if (triSrc)
+                    {
+                        var ts0 = triS(); msg = "START ROTATION • SOURCE 🎯 3 SETUPS on " + lp.Symbol + "?\n\n⚠ " + KeystoneTriLive.Research + "\n\nGUIDED / MANUAL: when a setup fires inside " + KeystoneBracket.Hm(ts0.StartHhmm) + "–" + KeystoneBracket.Hm(ts0.EndHhmm) + " NY a ticket flashes (this tab + a window on top) — NOTHING is sent until you PRESS it; SKIP lets it go; 2 minutes late = missed.\n" + ts0.Describe() + "\nAccount order: " + (ts0.Mode == "STAY" ? "STAY UNTIL DONE (the same account until you mark it done / it is locked)" : "ONE TRADE PER ACCOUNT (the next account after each trade)") +
+                            "\nPool (in turn):\n" + string.Join("\n", accs.Select(a => "  • " + nickOf(a) + (rotFunded.Contains(a) ? "  (FUNDED)" : ""))) + "\n\nEach pressed bracket goes ONLY through that account's own ARMED link with the RULES limits: max " + Math.Max(1, Integer(realMaxBox, 2)) + " contracts (the ticket's size is capped to it), day loss " + (NumberAllowZero(realLossBox, 0) > 0 ? Cash(NumberAllowZero(realLossBox, 0)) : "off") + ", runaway guard, LOCK FOR TODAY / NinjaTrader lockouts.\nThese are REAL orders when you press.";
+                    }
                     if (KBox(w, msg, "KEYSTONE • ROTATION", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-                    var r0 = new KeystoneRotator { Manual = rotManual, OnePerDay = rotOne, HoldOn = rotHold, HoldSeconds = Math.Max(0, rotSec), DayOf = rotDay };
+                    var r0 = new KeystoneRotator { Manual = rotManual || triSrc, OnePerDay = rotOne, HoldOn = rotHold, HoldSeconds = Math.Max(0, rotSec), DayOf = rotDay };
                     r0.IsFunded = a => rotFunded.Contains(a); string err = null;
                     foreach (var a in accs)
                     {
                         var acc = findAccount(a); if (acc == null) { err = nickOf(a) + " is not connected"; continue; }
-                        var lk = new KeystoneAccountLink(new NinjaBroker(acc, lfd.Inst), lp.Symbol) { MaxContracts = Math.Max(1, Integer(realMaxBox, 2)), DayLossLimit = NumberAllowZero(realLossBox, 0), DayProfitCap = NumberAllowZero(realCapBox, 0), Automated = !rotManual, AutoOco = true };
+                        var lk = new KeystoneAccountLink(new NinjaBroker(acc, lfd.Inst), lp.Symbol) { MaxContracts = Math.Max(1, Integer(realMaxBox, 2)), DayLossLimit = NumberAllowZero(realLossBox, 0), DayProfitCap = NumberAllowZero(realCapBox, 0), Automated = !rotManual && !triSrc, AutoOco = true };
                         var mir = KeystoneReplayTrader.LiveStart(new List<KeystoneArcBar>(), lp.Symbol, nyNow()); mir.Slave = true;
                         var e = lk.Arm(DateTime.Now); if (e != null) { err = nickOf(a) + ": " + e; continue; }
                         r0.Pool.Add(new KeystoneCopyFollower { Account = a, MaxQty = Math.Max(1, Integer(realMaxBox, 2)), Link = lk, Mirror = mir });
                     }
-                    if (r0.Pool.Count < 2) { foreach (var rf in r0.Pool) rf.Link.Disarm("ROTATION NOT STARTED", DateTime.Now, false); status.Text = "ROTATION NOT STARTED • " + (err ?? "fewer than 2 accounts armed"); status.Foreground = Red; return; }
-                    rotor = r0; rotPane = lp; rotOn = true; if (rotManual) openRotPop();
-                    status.Text = "● ROTATING " + lp.Symbol + " • " + r0.Pool.Count + " accounts • " + (rotManual ? "MANUAL" : "AUTO") + (err != null ? " • ⚠ " + err : ""); status.Foreground = Green;
+                    if (r0.Pool.Count < (triSrc ? 1 : 2)) { foreach (var rf in r0.Pool) rf.Link.Disarm("ROTATION NOT STARTED", DateTime.Now, false); status.Text = "ROTATION NOT STARTED • " + (err ?? "fewer than 2 accounts armed"); status.Foreground = Red; return; }
+                    rotor = r0; rotPane = lp; rotOn = true;
+                    if (triSrc) { var tg = new KeystoneTriGuide { S = triS(), Mode = triSet["mode"] == "STAY" ? "STAY" : "ROTATE", IsFunded = a => rotFunded.Contains(a), DoneOf = a => { string dw; return triDoneAcc.TryGetValue(a, out dw) ? dw : ""; } }; tg.Pool.AddRange(r0.Pool); triG = tg; triPopKey = ""; }
+                    else if (rotManual) openRotPop();
+                    status.Text = "● ROTATING " + lp.Symbol + " • " + r0.Pool.Count + " accounts • " + (triSrc ? "🎯 3 SETUPS GUIDED (press each ticket)" : rotManual ? "MANUAL" : "AUTO") + (err != null ? " • ⚠ " + err : ""); status.Foreground = Green;
                     if (view == "ROTATE") fillRotate();
                 };
                 rotTick = delegate
@@ -46760,11 +47157,28 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (!rotOn || rotor == null || rotPane == null || rotPane.Trader == null) return;
                     if (linkedName != null) { stopRot(); status.Text = "ROTATION STOPPED • the chart was linked to an account"; return; }
                     foreach (var rf in rotor.Pool) { rf.Link.Locked = dayLocks.IsLocked(rf.Account, nyNow()); rf.Link.DayLossLimit = NumberAllowZero(realLossBox, 0); rf.Link.DayProfitCap = NumberAllowZero(realCapBox, 0); rf.Link.MaxContracts = Math.Max(1, Integer(realMaxBox, 2)); rf.MaxQty = rf.Link.MaxContracts; }
-                    rotor.Tick(rotPane.Trader, DateTime.Now);
+                    if (triG != null)
+                    {   /* 🎯 11p: the 3 SETUPS source — the chart's CLOSED 1-minute bars → tickets; the links tick inside the guide (only a press sends) */
+                        var ldT = rotPane.Trader; var nowT = nyNow();
+                        try { var closedT = rotPane.PrevBars.Concat(ldT.Bars).Where(b => b.Time <= ldT.Time && b.Time >= ldT.Time.AddDays(-4)).ToList(); triG.Feed(closedT, nowT, ldT.Price); } catch { }
+                        triG.Tick(nowT, ldT.Price);
+                        if (triG.NewRows.Count > 0)
+                        {
+                            try { string jd = Path.Combine(KeystoneTriRuns.Folder(StudioFolder()), "live-" + nowT.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".csv"); Directory.CreateDirectory(Path.GetDirectoryName(jd)); if (!File.Exists(jd)) File.WriteAllText(jd, KeystoneTriGuideRow.Header + "\n"); File.AppendAllLines(jd, triG.NewRows.Select(x => x.Line()).ToArray()); } catch { }
+                            triG.NewRows.Clear();
+                        }
+                        var tkT = triG.Ticket;
+                        if (tkT != null && tkT.Key != triPopKey) { triPopKey = tkT.Key; triShowPop(); try { System.Media.SystemSounds.Asterisk.Play(); } catch { } }
+                        if (tkT == null && triPop != null && triPopKey != "") { try { triPop.Close(); } catch { } triPop = null; }
+                        bool flT = DateTime.Now.Millisecond < 500; string tkTxt = tkT == null ? "no ticket now • " + triG.Status : "▶ " + tkT.Words() + "\n" + tkT.Why + "\nprice now ≈ " + ldT.Price.ToString("0.00", CultureInfo.InvariantCulture) + " • press before " + tkT.Deadline.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " NY (no late entry)";
+                        if (triPopInfo != null) triPopInfo.Text = tkTxt; if (triPopPress != null) { triPopPress.IsEnabled = tkT != null; triPopPress.Content = tkT == null ? "no ticket" : "▶ PRESS = " + (tkT.Side > 0 ? "BUY " : "SELL ") + tkT.Qty + " ON " + nickOf(tkT.Account); PaintBtn(triPopPress, tkT == null ? Card : flT ? Gold : (tkT.Side > 0 ? Green : Red)); }
+                        if (triTabInfo != null) { triTabInfo.Text = tkTxt; triTabInfo.Foreground = tkT == null ? Muted : flT ? Gold : Text; } if (triTabPress != null) { triTabPress.IsEnabled = tkT != null; PaintBtn(triTabPress, tkT == null ? Card : flT ? Gold : Green); } if (triTabSkip != null) triTabSkip.IsEnabled = tkT != null;
+                    }
+                    else rotor.Tick(rotPane.Trader, DateTime.Now);
                     foreach (var rf in rotor.Pool) if (rf.Link.NewFills.Count > 0) journalFills(rf.Account, rf.Link.NewFills);
                     if ((DateTime.Now - rotPaintAt).TotalMilliseconds < 500) return; rotPaintAt = DateTime.Now;
                     foreach (var rf in rotor.Pool) { TextBlock tb; if (rotStatusTexts.TryGetValue(rf.Account, out tb)) { tb.Text = rf.Status; tb.Foreground = rf == rotor.Current ? Green : rf.Status.StartsWith("READY") || rf.Status.StartsWith("NEXT") ? Cyan : Muted; } }
-                    if (rzHead != null) rzHead.Text = "● " + (rotor.Manual ? "MANUAL" : "AUTO") + " • " + rotor.Status;
+                    if (rzHead != null) rzHead.Text = triG != null ? "● 🎯 3 SETUPS GUIDED (" + (triG.Mode == "STAY" ? "STAY UNTIL DONE" : "ONE TRADE PER ACCOUNT") + ") • " + triG.Status + " • offered " + triG.Offered + " · pressed " + triG.Pressed + " · skipped " + triG.Skipped + " · missed " + triG.Missed : "● " + (rotor.Manual ? "MANUAL" : "AUTO") + " • " + rotor.Status;
                     if (rotPop != null && rotPopInfo != null)
                     {
                         var ld = rotPane.Trader; bool busy = ld.Position != 0 || ld.Orders.Count > 0;
@@ -46788,6 +47202,48 @@ namespace NinjaTrader.NinjaScript.AddOns
                     holdBox.Checked += delegate { rotHold = true; saveRot(); }; holdBox.Unchecked += delegate { rotHold = false; saveRot(); };
                     var secBox = Input(rotSec.ToString(CultureInfo.InvariantCulture)); secBox.Width = 44; secBox.IsEnabled = !rotOn; secBox.TextChanged += delegate { int v; if (int.TryParse(secBox.Text.Trim(), out v) && v >= 0 && v <= 120) { rotSec = v; saveRot(); } };
                     sets.Children.Add(modeSel); sets.Children.Add(oneBox); sets.Children.Add(holdBox); sets.Children.Add(secBox);
+                    {   /* 🎯 BUILD 11p: the SIGNAL SOURCE — the chart's strategy (as before) or 🎯 3 SETUPS (GUIDED / MANUAL only, 🧪 research) */
+                        bool triOnS = triSet["src"] == "TRI"; var srcRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; rp0.Children.Add(srcRow);
+                        srcRow.Children.Add(new TextBlock { Text = "SIGNAL SOURCE", Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+                        var srcSel = Select("📈 the chart's strategy (as before)", "🎯 3 SETUPS (GUIDED / MANUAL only) — " + KeystoneTriLive.Research); srcSel.Width = 520; srcSel.SelectedIndex = triOnS ? 1 : 0; srcSel.IsEnabled = !rotOn; srcSel.Tag = "rot.tri.src";
+                        srcSel.SelectionChanged += delegate { triSet["src"] = srcSel.SelectedIndex == 1 ? "TRI" : "CHART"; saveTri(); fillRotate(); }; srcRow.Children.Add(srcSel);
+                        if (triOnS)
+                        {
+                            modeSel.SelectedIndex = 1; modeSel.IsEnabled = false; modeSel.ToolTip = "🎯 3 SETUPS: always GUIDED / MANUAL — nothing is sent without your press";
+                            var tb = new Border { BorderBrush = Tint(Gold, 140), BorderThickness = new Thickness(1.2), CornerRadius = new CornerRadius(7), Padding = new Thickness(10, 6, 10, 8), Margin = new Thickness(0, 0, 0, 10), MaxWidth = 1100, HorizontalAlignment = HorizontalAlignment.Left };
+                            var tsp = new StackPanel(); tb.Child = tsp; rp0.Children.Add(tb);
+                            tsp.Children.Add(new TextBlock { Text = "🎯 3 SETUPS • FVG 50 % / AGGRESSION BREAK / 123 ENGULFING on the chart's closed 5-minute candles • GUIDED: a ticket flashes here + in a window on top — ONE press = the bracket through the account's own ARMED link; SKIP; nothing is sent without the press", Foreground = Gold, FontSize = 12, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap });
+                            tsp.Children.Add(new TextBlock { Text = "⚠ " + KeystoneTriLive.Research + " — the 6-year study: slightly better than random entries, still losing after costs. For TESTING (Sim accounts first).", Foreground = Orange, FontSize = 11.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 6) });
+                            var tw = new WrapPanel(); tsp.Children.Add(tw);
+                            Func<string, UIElement, UIElement> lb = (t0, c0) => { var sp1 = new StackPanel { Margin = new Thickness(0, 0, 8, 2) }; sp1.Children.Add(new TextBlock { Text = t0, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold }); sp1.Children.Add(c0); return sp1; };
+                            var wSel = new ComboBox { Height = 26, MinWidth = 200, IsEnabled = !rotOn, Tag = "rot.tri.window" }; foreach (var wn in KeystoneTriSettings.Windows) wSel.Items.Add(wn.Name); wSel.SelectedIndex = Math.Max(0, Math.Min(KeystoneTriSettings.Windows.Length - 1, (int)triNum("window")));
+                            wSel.SelectionChanged += delegate { triSet["window"] = Math.Max(0, wSel.SelectedIndex).ToString(CultureInfo.InvariantCulture); saveTri(); }; tw.Children.Add(lb("WINDOW (NY)", wSel));
+                            var mSel = new ComboBox { Height = 26, MinWidth = 230, IsEnabled = !rotOn, Tag = "rot.tri.mode" }; mSel.Items.Add("ONE TRADE PER ACCOUNT"); mSel.Items.Add("STAY UNTIL DONE (passed / payout / blown)"); mSel.SelectedIndex = triSet["mode"] == "STAY" ? 1 : 0;
+                            mSel.SelectionChanged += delegate { triSet["mode"] = mSel.SelectedIndex == 1 ? "STAY" : "ROTATE"; saveTri(); }; tw.Children.Add(lb("ACCOUNT ORDER", mSel));
+                            foreach (var fx in new[] { Tuple.Create("qty", "EVAL MNQ"), Tuple.Create("stop", "STOP $"), Tuple.Create("target", "TARGET $"), Tuple.Create("fqty", "FUNDED MNQ (0 = same)"), Tuple.Create("fstop", "F STOP $"), Tuple.Create("ftarget", "F TARGET $"), Tuple.Create("flock", "FUNDED DAY GOAL $"), Tuple.Create("elock", "EVAL DAY GOAL $") })
+                            { var key = fx.Item1; var ib = Input(triSet[key]); ib.Width = 70; ib.Height = 26; ib.IsEnabled = !rotOn; ib.Tag = "rot.tri." + key; ib.TextChanged += delegate { double v; if (double.TryParse(ib.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v) && v >= 0) { triSet[key] = ib.Text.Trim(); saveTri(); } }; tw.Children.Add(lb(fx.Item2, ib)); }
+                            var planB = Btn("💡 CLAUDE PLAN", Tint(Cyan, 110)); planB.Height = 30; planB.IsEnabled = !rotOn; planB.Margin = new Thickness(0, 12, 0, 0); planB.ToolTip = "ALL DAY, the 3 setups, ONE TRADE PER ACCOUNT, eval 15 MNQ −$500 / +$1,500, FUNDED 5 MNQ −$300 / +$300, a funded account stops for the day after its first $150+ day";
+                            planB.Click += delegate { var cp = KeystoneTriSettings.ClaudePlan(); triSet["window"] = Math.Max(0, Array.FindIndex(KeystoneTriSettings.Windows, x => x.Code == cp.Window)).ToString(CultureInfo.InvariantCulture); triSet["mode"] = "ROTATE"; triSet["qty"] = cp.Qty.ToString(CultureInfo.InvariantCulture); triSet["stop"] = "500"; triSet["target"] = "1500"; triSet["fqty"] = "5"; triSet["fstop"] = "300"; triSet["ftarget"] = "300"; triSet["flock"] = "150"; triSet["elock"] = "0"; saveTri(); fillRotate(); };
+                            tw.Children.Add(planB);
+                            tsp.Children.Add(new TextBlock { Text = "💵 " + triS().Describe() + " • a FUNDED-ticked account below uses the funded size / bracket", Foreground = Cyan, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 4) });
+                            // ✅ DONE marks (STAY UNTIL DONE moves on; every mode skips a done account)
+                            var dw = new WrapPanel(); tsp.Children.Add(new TextBlock { Text = "✅ DONE (passed / payout / blown — skipped by the 3 SETUPS tickets; STAY moves to the next account):", Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 2) }); tsp.Children.Add(dw);
+                            foreach (var a in realAccBox.Items.OfType<string>().Where(x => rotIn.Contains(x)))
+                            {
+                                string acct = a; var dcb = new CheckBox { Content = nickOf(acct), IsChecked = triDoneAcc.ContainsKey(acct), Foreground = Text, Margin = new Thickness(0, 2, 12, 2), Tag = "rot.tri.done" };
+                                dcb.Checked += delegate { triDoneAcc[acct] = "✅ marked done " + nyNow().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); saveTri(); }; dcb.Unchecked += delegate { triDoneAcc.Remove(acct); saveTri(); }; dw.Children.Add(dcb);
+                            }
+                            if (rotOn && triG != null)
+                            {
+                                triTabInfo = new TextBlock { Text = "waiting for a setup", Foreground = Muted, FontSize = 14, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 6) }; tsp.Children.Add(triTabInfo);
+                                var tr = new WrapPanel(); tsp.Children.Add(tr);
+                                triTabPress = Btn("▶ PRESS = PLACE THE BRACKET", Card); triTabPress.Height = 42; triTabPress.FontSize = 14; triTabPress.Padding = new Thickness(18, 0, 18, 0); triTabPress.Click += delegate { triAct(true); }; tr.Children.Add(triTabPress);
+                                triTabSkip = Btn("SKIP", Card); triTabSkip.Height = 42; triTabSkip.Margin = new Thickness(8, 0, 0, 0); triTabSkip.Click += delegate { triAct(false); }; tr.Children.Add(triTabSkip);
+                                var popB = Btn("SHOW THE GUIDED WINDOW", Card); popB.Height = 42; popB.Margin = new Thickness(8, 0, 0, 0); popB.Click += delegate { triShowPop(); }; tr.Children.Add(popB);
+                            }
+                            else { triTabInfo = null; triTabPress = null; triTabSkip = null; }
+                        }
+                    }
                     rp0.Children.Add(new TextBlock { Text = "Every pool account keeps the RULES limits: max " + Math.Max(1, Integer(realMaxBox, 2)) + " contracts • day loss " + (NumberAllowZero(realLossBox, 0) > 0 ? Cash(NumberAllowZero(realLossBox, 0)) : "off") + " • day cap " + (NumberAllowZero(realCapBox, 0) > 0 ? Cash(NumberAllowZero(realCapBox, 0)) : "off") + " • LOCK FOR TODAY is respected.", Foreground = Muted, FontSize = 11.5, Margin = new Thickness(0, 0, 0, 10) });
                     var grid = new Grid { Margin = new Thickness(0, 0, 0, 12) }; foreach (var cw in new[] { 70.0, 280, 110, 420 }) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(cw) });
                     rp0.Children.Add(grid); int row = 0;
@@ -48703,9 +49159,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                 clock.Width = double.NaN; clock.FontSize = 15; clock.Margin = new Thickness(10, 12, 6, 0); unparent(clock); bar1.Children.Add(clock); bar1.Children.Add(tabStrip);
                 // the drawers
                 var drawers = new Dictionary<string, WrapPanel>(); var drawerHost = new Border { Background = Panel, BorderBrush = Card, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 2, 6, 4), Margin = new Thickness(0, 0, 0, 2), Visibility = Visibility.Collapsed, Tag = "studio.drawer" };
-                foreach (var dk in new[] { "SETTINGS", "PRACTICE", "INDICATORS", "TOOLS", "TRADES", "ATTEMPTS", "ENTRY", "ROTSIM" }) drawers[dk] = new WrapPanel { Tag = "studio.drawer." + dk };
+                foreach (var dk in new[] { "SETTINGS", "PRACTICE", "INDICATORS", "TOOLS", "TRADES", "ATTEMPTS", "ENTRY", "ROTSIM", "TRIROT" }) drawers[dk] = new WrapPanel { Tag = "studio.drawer." + dk };
                 var attV = makeAttemptsView(); drawers["ATTEMPTS"].Children.Add(attV.Item1); studioAttempts = attV.Item2;   /* 📊 11l */
-                drawers["ROTSIM"].Children.Add(BuildRotationSimDrawer(sfolder, w, status));   /* 🔄 BUILD 11k: the ROTATION SIM (simulation only, never an order) */
+                drawers["ROTSIM"].Children.Add(BuildRotationSimDrawer(sfolder, w, status));
+                drawers["TRIROT"].Children.Add(BuildTriRotationDrawer(sfolder, w, status));   /* 🎯 BUILD 11p: the 3-SETUP ROTATION (🧪 research, simulation only, never an order) */   /* 🔄 BUILD 11k: the ROTATION SIM (simulation only, never an order) */
                 var settingsSet = new HashSet<UIElement> { modeSwitch, boxOf(rangeToBox), boxOf(startBox), boxOf(signalBox), stratSetBtn, buysBox, sellsBox, boxOf(howRow), boxOf(playsRow), simPrevBtn, simNextBtn, propBtn };
                 foreach (var c0 in top.Children.Cast<UIElement>().ToList())
                 {
@@ -48831,7 +49288,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     drawerHost.Visibility = openDrawer == null ? Visibility.Collapsed : Visibility.Visible;
                     foreach (var kv in tabBtns) PaintBtn(kv.Value, kv.Key == openDrawer ? Tint(Gold, 130) : Card);
                 };
-                foreach (var tn in new[] { "SETTINGS|⚙ SETTINGS", "PRACTICE|🎯 PRACTICE", "INDICATORS|📈 INDICATORS", "TOOLS|🔗 TOOLS", "TRADES|📜 TRADES", "ATTEMPTS|📊 ATTEMPTS", "ENTRY|🧠 ENTRY ANALYZER", "ROTSIM|🔄 ROTATION SIM" })
+                foreach (var tn in new[] { "SETTINGS|⚙ SETTINGS", "PRACTICE|🎯 PRACTICE", "INDICATORS|📈 INDICATORS", "TOOLS|🔗 TOOLS", "TRADES|📜 TRADES", "ATTEMPTS|📊 ATTEMPTS", "ENTRY|🧠 ENTRY ANALYZER", "ROTSIM|🔄 ROTATION SIM", "TRIROT|🎯 3-SETUP ROTATION" })
                 {
                     var pr = tn.Split('|'); string k = pr[0]; var tb = small(pr[1], Card); tb.Height = 26; tb.Margin = new Thickness(0, 12, 4, 0); tb.Padding = new Thickness(8, 0, 8, 0); tb.Tag = "studio.tab." + k; tb.Click += delegate { showDrawer(k); }; tabBtns[k] = tb; tabStrip.Children.Add(tb);
                 }
@@ -49175,6 +49632,162 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else if (c == "REPLAY") { if (curR == null || curR.Count == 0) return "no run"; startReplay(curS, curR[0].Start); rpAt = steps == null ? 0 : steps.Count / 2; rpDraw(); return rpPanel.Text + " | " + string.Join(",", rpCanvas.Children.Cast<object>().Select(x => Convert.ToString(((FrameworkElement)x).Tag)).Where(x => x != "").Distinct()); }
                     else if (c.StartsWith("TAB ")) { tab = c.Substring(4); paint(); return string.Join(" | ", RsimTexts(host).Take(400)); }
                     return msg.Text + " | runs " + cRuns.Items.Count + (curOpt != null ? " | best " + (KeystoneRotationSim.Best(curOpt) == null ? "none" : KeystoneRotationSim.Best(curOpt).S.Short) + " | unreliable ranked " + curOpt.Count(x => !x.All.Reliable && x.Rank > 0) : "");
+                }
+                finally { sync = false; }
+            };
+            return root;
+        }
+        /* 🎯 BUILD 2026-11-11p — the 3-SETUP ROTATION drawer (BACKTEST STUDIO ▸ 🎯 3-SETUP ROTATION): the user's prop test (FVG 50 % / AGGRESSION BREAK / 123 ENGULFING
+           on 5-minute MNQ, one trade at a time rotated over a batch of evaluations) on the saved minutes: dates, window, setups × direction, mode, accounts, firm rules,
+           the eval + FUNDED bracket and day goals, ▶ RUN on a background thread → batches / trades / key stats, 🎲 RANDOM CONTROL, every run saved in Studio\TriRotation\.
+           🧪 RESEARCH, SIMULATION ONLY — the pure KeystoneTriRotation; nothing here can reach NinjaTrader or an account (no link, no broker). */
+        private UIElement BuildTriRotationDrawer(string sfolder, Window w, TextBlock status)
+        {
+            var IC = CultureInfo.InvariantCulture; bool sync = false; bool busy = false;
+            var root = new StackPanel { Tag = "tri.root", MinWidth = 900 };
+            Func<string, UIElement, UIElement> lbl = (t, c) => { var sp = new StackPanel { Margin = new Thickness(0, 0, 6, 2) }; sp.Children.Add(new TextBlock { Text = t, Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 2, 0, 0) }); sp.Children.Add(c); return sp; };
+            Func<string, double, string, TextBox> box = (v, wd, tag) => { var b = Input(v); b.Width = wd; b.Height = 26; b.Margin = new Thickness(2); b.Padding = new Thickness(3, 2, 3, 2); b.Tag = tag; return b; };
+            Func<string, Brush, Button> btn = (t, br) => { var b = Btn(t, br); b.Height = 28; b.Margin = new Thickness(0, 4, 6, 2); b.Padding = new Thickness(8, 0, 8, 0); return b; };
+            Func<string[], int, string, ComboBox> combo = (items, sel, tag) => { var c = new ComboBox { Height = 26, Margin = new Thickness(2), Tag = tag, MinWidth = 70 }; foreach (var x in items) c.Items.Add(x); c.SelectedIndex = sel; return c; };
+            Func<string, double> num = t => { double v; return double.TryParse((t ?? "").Replace("$", "").Replace(",", "").Trim(), NumberStyles.Float, IC, out v) ? v : double.NaN; };
+            root.Children.Add(new TextBlock { Text = "🎯 3-SETUP ROTATION · FVG 50 % / AGGRESSION BREAK / 123 ENGULFING on 5-minute MNQ, one trade at a time over a batch of prop evaluations (eval → funded → payouts) · simulation only, nothing is sent", Foreground = Gold, FontSize = 12, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 2, 0, 0) });
+            root.Children.Add(new TextBlock { Text = "⚠ " + KeystoneTriLive.Research + " (slightly better than random entries, still losing after costs — docs/reports/data/three-setups). Use it to TEST ideas, not as proof.", Foreground = Orange, FontSize = 11, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 0, 4), Tag = "tri.research" });
+            DateTime last = DateTime.Today; try { var ss = KeystoneStudioStore.Sessions(sfolder, "MNQ"); if (ss.Count > 0) last = ss.Keys.Last(); } catch { }
+            var r1 = new WrapPanel(); root.Children.Add(r1);
+            var tFrom = box(last.AddYears(-1).ToString("yyyy-MM-dd", IC), 92, "tri.from"); var tTo = box(last.ToString("yyyy-MM-dd", IC), 92, "tri.to");
+            var cWin = combo(KeystoneTriSettings.Windows.Select(x => x.Name).ToArray(), 0, "tri.window");
+            var cMode = combo(new[] { "ONE TRADE PER ACCOUNT", "STAY UNTIL DONE (wait on a stopped day)", "STAY UNTIL DONE (next on a stopped day)" }, 0, "tri.mode");
+            var tAcc = box("30", 44, "tri.accounts");
+            var rulesList = KeystoneSimRules.Presets().Where(x => x.Name != "CUSTOM" && !x.Name.ToUpperInvariant().Contains("TAKE PROFIT") && !x.Name.ToUpperInvariant().Contains("TPT")).ToList();
+            var cRules = combo(rulesList.Select(x => x.Name).ToArray(), Math.Max(0, rulesList.FindIndex(x => x.Name == "LUCID FLEX 50K")), "tri.rules");
+            r1.Children.Add(lbl("FROM", tFrom)); r1.Children.Add(lbl("TO", tTo)); r1.Children.Add(lbl("WINDOW (NY)", cWin)); r1.Children.Add(lbl("MODE", cMode)); r1.Children.Add(lbl("ACCOUNTS", tAcc)); r1.Children.Add(lbl("FIRM RULES (no TPT)", cRules));
+            var r2 = new WrapPanel(); root.Children.Add(r2);
+            var setBoxes = new List<Tuple<CheckBox, string, int>>(); var sp0 = new WrapPanel();
+            foreach (var st in new[] { "FVG", "AGG", "ENG" }) foreach (int dr in new[] { 1, -1 })
+                { var cb = new CheckBox { Content = (st == "FVG" ? "FVG 50 %" : st == "AGG" ? "AGG BREAK" : "123 ENG") + (dr > 0 ? " ▲" : " ▼"), IsChecked = true, Foreground = dr > 0 ? Green : Red, FontSize = 11, Margin = new Thickness(4, 6, 6, 0), Tag = "tri.set." + st + (dr > 0 ? "B" : "S") }; setBoxes.Add(Tuple.Create(cb, st, dr)); sp0.Children.Add(cb); }
+            r2.Children.Add(lbl("SETUPS × DIRECTION", sp0));
+            var tQty = box("15", 40, "tri.qty"); var tStop = box("500", 54, "tri.stop"); var tTgt = box("1500", 58, "tri.target");
+            var tFQty = box("0", 40, "tri.fqty"); var tFStop = box("0", 54, "tri.fstop"); var tFTgt = box("0", 54, "tri.ftarget"); var tFLock = box("0", 54, "tri.flock"); var tELock = box("0", 54, "tri.elock");
+            tFQty.ToolTip = "FUNDED size: 0 = the same bracket as the evaluation"; tFLock.ToolTip = "FUNDED day goal $: an account up this much today stops for the day after that trade (0 = off)"; tELock.ToolTip = "EVAL day goal $ (0 = off)";
+            var r3 = new WrapPanel(); root.Children.Add(r3);
+            foreach (var x in new[] { Tuple.Create("EVAL MNQ", (UIElement)tQty), Tuple.Create("STOP $", (UIElement)tStop), Tuple.Create("TARGET $", (UIElement)tTgt), Tuple.Create("FUNDED MNQ (0 = same)", (UIElement)tFQty), Tuple.Create("F STOP $", (UIElement)tFStop), Tuple.Create("F TARGET $", (UIElement)tFTgt), Tuple.Create("FUNDED DAY GOAL $", (UIElement)tFLock), Tuple.Create("EVAL DAY GOAL $", (UIElement)tELock) }) r3.Children.Add(lbl(x.Item1, x.Item2));
+            var bPlan = btn("💡 CLAUDE PLAN", Tint(Cyan, 110)); bPlan.Tag = "tri.plan"; bPlan.ToolTip = "ALL DAY, the 3 setups, ONE TRADE PER ACCOUNT, eval 15 MNQ −$500 / +$1,500, FUNDED 5 MNQ −$300 / +$300 with a $150 funded day goal"; r3.Children.Add(bPlan);
+            var costLine = new TextBlock { Foreground = Cyan, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 0, 2), Tag = "tri.costline" }; root.Children.Add(costLine);
+            Func<KeystoneTriSettings> readS = () =>
+            {
+                var s = new KeystoneTriSettings { Window = KeystoneTriSettings.Windows[Math.Max(0, cWin.SelectedIndex)].Code, Mode = cMode.SelectedIndex == 1 ? "STAY" : cMode.SelectedIndex == 2 ? "STAYNEXT" : "ROTATE" }.ApplyWindow();
+                var sets = setBoxes.Where(x => x.Item1.IsChecked == true).Select(x => x.Item2).Distinct().ToList(); s.Setups = sets.Count == 0 ? "FVG" : string.Join(",", sets);
+                double a = num(tAcc.Text), q = num(tQty.Text), sl = num(tStop.Text), tp = num(tTgt.Text); s.Accounts = double.IsNaN(a) ? 30 : (int)Math.Max(1, Math.Min(300, a)); s.Qty = double.IsNaN(q) ? 15 : (int)Math.Max(1, Math.Min(60, q)); s.StopUsd = double.IsNaN(sl) || sl <= 0 ? 500 : sl; s.TargetUsd = double.IsNaN(tp) || tp <= 0 ? 1500 : tp;
+                double fq = num(tFQty.Text), fs = num(tFStop.Text), ft = num(tFTgt.Text), fl = num(tFLock.Text), el = num(tELock.Text); s.FQty = double.IsNaN(fq) ? 0 : (int)Math.Max(0, Math.Min(60, fq)); s.FStop = double.IsNaN(fs) ? 0 : Math.Max(0, fs); s.FTarget = double.IsNaN(ft) ? 0 : Math.Max(0, ft); s.FDayLock = double.IsNaN(fl) ? 0 : Math.Max(0, fl); s.EDayLock = double.IsNaN(el) ? 0 : Math.Max(0, el);
+                var rr = rulesList[Math.Max(0, Math.Min(rulesList.Count - 1, cRules.SelectedIndex))].Copy(); if (rr.Name == "LUCID FLEX 50K") rr = KeystoneTriSettings.LucidFlex50K(); s.Rules = rr; return s;
+            };
+            Func<KeystoneTriCandidate, bool> wanted = c => setBoxes.Any(x => x.Item1.IsChecked == true && x.Item2 == c.Setup && x.Item3 == c.Dir);
+            Action showCost = () => { try { costLine.Text = "💵 " + readS().Describe(); } catch (Exception ex) { costLine.Text = ex.Message; } };
+            foreach (var tb in new[] { tQty, tStop, tTgt, tFQty, tFStop, tFTgt, tFLock, tELock, tAcc }) tb.TextChanged += delegate { showCost(); };
+            foreach (var cb in new[] { cWin, cMode, cRules }) cb.SelectionChanged += delegate { showCost(); };
+            foreach (var sb in setBoxes) { sb.Item1.Checked += delegate { showCost(); }; sb.Item1.Unchecked += delegate { showCost(); }; }
+            bPlan.Click += delegate
+            {
+                var p = KeystoneTriSettings.ClaudePlan(); cWin.SelectedIndex = Math.Max(0, Array.FindIndex(KeystoneTriSettings.Windows, x => x.Code == p.Window)); cMode.SelectedIndex = 0; foreach (var sb in setBoxes) sb.Item1.IsChecked = true;
+                tQty.Text = p.Qty.ToString(IC); tStop.Text = p.StopUsd.ToString("0", IC); tTgt.Text = p.TargetUsd.ToString("0", IC); tFQty.Text = p.FQty.ToString(IC); tFStop.Text = p.FStop.ToString("0", IC); tFTgt.Text = p.FTarget.ToString("0", IC); tFLock.Text = p.FDayLock.ToString("0", IC); tELock.Text = "0"; showCost();
+            };
+            showCost();
+            var r4 = new WrapPanel(); root.Children.Add(r4);
+            var bRun = btn("▶ RUN", Tint(Green, 120)); bRun.Tag = "tri.run"; var bRnd = btn("🎲 RANDOM CONTROL (5 seeds)", Card); bRnd.Tag = "tri.random"; bRnd.ToolTip = "the same number of entries a session as the setups gave, at random minutes with random sides — same window, bracket and rotation: is there an edge?";
+            var cRuns = combo(new string[0], -1, "tri.runs"); cRuns.MinWidth = 420; var bFolder = btn("📂 RUNS FOLDER", Card);
+            r4.Children.Add(bRun); r4.Children.Add(bRnd); r4.Children.Add(lbl("▾ SAVED RUNS (Studio\\TriRotation\\runs.csv)", cRuns)); r4.Children.Add(bFolder);
+            var msg = new TextBlock { Foreground = Muted, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 2, 0, 2), Tag = "tri.msg", Text = "pick the settings, then ▶ RUN (a background thread) · 🎲 RANDOM CONTROL compares with random entries" }; root.Children.Add(msg);
+            var tabs = new WrapPanel(); root.Children.Add(tabs); var host = new StackPanel { Tag = "tri.host" }; root.Children.Add(new ScrollViewer { Content = host, MaxHeight = 340, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto });
+            string tab = "STATS"; Action paint = null;
+            foreach (var tk in new[] { "STATS|📊 KEY STATS", "BATCHES|📋 BATCHES", "TRADES|📜 TRADES", "SETUPS|🎯 BY SETUP" }) { var p = tk.Split('|'); string k = p[0]; var b = btn(p[1], Card); b.Height = 26; b.Tag = "tri.tab." + k; b.Click += delegate { tab = k; paint(); }; tabs.Children.Add(b); }
+            KeystoneTriResult cur = null; List<KeystoneTriResult> rnd = null; KeystoneTriData data = null; string dataKey = ""; List<KeystoneTriCandidate> curC = null;
+            Action<string, Brush> say = (t, b) => { msg.Text = t; msg.Foreground = b; };
+            Action refreshRuns = () => { cRuns.Items.Clear(); foreach (var a in KeystoneTriRuns.List(sfolder).Take(200)) cRuns.Items.Add(a[0] + " · " + a[1] + " · " + a[3] + "→" + a[4] + " · " + a[5] + " " + a[7] + " · net " + a[23] + " · pass " + a[20] + " %" + (a[28] != "" ? " · random " + a[28] : "")); };
+            refreshRuns();
+            bFolder.Click += delegate { try { Directory.CreateDirectory(KeystoneTriRuns.Folder(sfolder)); System.Diagnostics.Process.Start(KeystoneTriRuns.Folder(sfolder)); } catch { } };
+            Func<double, string> M = v => (v < 0 ? "−$" : "$") + Math.Abs(v).ToString("N0", IC); Func<double, string> N1 = v => double.IsNaN(v) ? "—" : v.ToString("0.#", IC);
+            Action<string, Brush, bool> line = (t, b, mono) => { var tb0 = new TextBlock { Text = t, Foreground = b, FontSize = mono ? 11 : 12, FontWeight = mono ? FontWeights.Normal : FontWeights.SemiBold, TextWrapping = mono ? TextWrapping.NoWrap : TextWrapping.Wrap, Margin = new Thickness(2, 1, 0, 1) }; if (mono) tb0.FontFamily = new FontFamily("Consolas"); host.Children.Add(tb0); };
+            paint = () =>
+            {
+                host.Children.Clear(); if (cur == null) { line("no run yet — ▶ RUN", Muted, false); return; }
+                var st = cur.Stats;
+                if (tab == "STATS")
+                {
+                    line(cur.Settings.Describe(), Cyan, false); line(cur.From.ToString("yyyy-MM-dd", IC) + " → " + cur.To.ToString("yyyy-MM-dd", IC) + " · " + st.Sessions + " sessions · " + st.Candidates + " setups · " + st.Trades + " trades (" + st.SkippedBusy + " skipped: busy · " + st.SkippedNoAccount + " skipped: no account)", Text, false);
+                    line("TRADES  win " + N1(st.WinPct) + " % · avg " + M(st.AvgUsd) + " · net " + M(st.TradingNet) + " · profit factor " + st.ProfitFactor.ToString("0.00", IC) + " · both touched " + st.Both + " · liquidated " + st.Liquidated + " · streaks +" + st.MaxWinStreak + " / −" + st.MaxLoseStreak, st.TradingNet >= 0 ? Green : Red, false);
+                    line("BATCHES  " + st.Batches + " (" + st.Finished + " finished, basis " + st.Basis + ") · cost " + M(st.TotalCost) + " · cash " + M(st.TotalCash) + " · BUSINESS NET " + M(st.BusinessNet) + " · ROI " + N1(st.Roi) + " %", st.BusinessNet >= 0 ? Green : Red, false);
+                    line("PER BATCH  passed " + N1(st.PassPct) + " % · funded " + N1(st.FundedPerBatch) + " · payouts " + N1(st.PayoutsPerBatch) + " · cash " + M(st.CashPerBatch) + " · cost " + M(st.CostPerBatch) + " · net mean " + M(st.NetMean) + " / median " + (double.IsNaN(st.NetMedian) ? "—" : M(st.NetMedian)) + " · " + N1(st.PctPositive) + " % positive", Text, false);
+                    line("DAYS  to the first payout: median " + N1(st.FirstPayoutMedian) + " sessions (" + N1(st.CalFirstPayoutMedian) + " calendar days) · to break even: median " + N1(st.BreakevenMedian) + " sessions · " + N1(st.PctBrokeEven) + " % of batches broke even", Text, false);
+                    if (st.BestBatch != "") line("best " + st.BestBatch + " · worst " + st.WorstBatch, Muted, false);
+                    if (rnd != null && rnd.Count > 0)
+                    {
+                        double rn = rnd.Average(x => x.Stats.BusinessNet), rw = rnd.Average(x => x.Stats.WinPct), rp = rnd.Average(x => x.Stats.PassPct), rt = rnd.Average(x => x.Stats.TradingNet);
+                        line("🎲 RANDOM CONTROL (" + rnd.Count + " seeds, same entries a session): win " + N1(rw) + " % · trading net " + M(rt) + " · pass " + N1(rp) + " % · business net " + M(rn) + "  ⇒  the setups " + (st.BusinessNet > rn ? "beat" : "did NOT beat") + " random by " + M(st.BusinessNet - rn), st.BusinessNet > rn ? Green : Orange, false);
+                    }
+                    line("⚠ " + KeystoneTriLive.Research, Orange, false);
+                }
+                else if (tab == "BATCHES")
+                {
+                    line(string.Format(IC, "{0,4} {1,-10} {2,-10} {3,4} {4,8} {5,6} {6,6} {7,7} {8,9} {9,9} {10,9} {11,9}", "#", "START", "END", "DONE", "COST", "PASS", "PAYS", "CASH", "NET", "1ST PAY", "BREAKEV", "TRADES"), Muted, true);
+                    foreach (var b in cur.Batches) line(string.Format(IC, "{0,4} {1,-10} {2,-10} {3,4} {4,8} {5,6} {6,6} {7,7} {8,9} {9,9} {10,9} {11,9}", b.No, b.Start.ToString("yyyy-MM-dd", IC), b.End.ToString("yyyy-MM-dd", IC), b.Finished ? "yes" : "open", b.Cost.ToString("0", IC), b.Passed, b.Payouts, b.PayoutCash.ToString("0", IC), b.Net.ToString("0", IC), b.SessionsToFirstPayout < 0 ? "—" : b.SessionsToFirstPayout + "d", b.SessionsToBreakeven < 0 ? "—" : b.SessionsToBreakeven + "d", b.Trades), b.Net >= 0 ? Green : Text, true);
+                }
+                else if (tab == "TRADES")
+                {
+                    line(string.Format(IC, "{0,5} {1,3} {2,4} {3,-6} {4,-16} {5,-4} {6,-4} {7,9} {8,9} {9,-11} {10,8}", "NO", "B", "ACC", "PHASE", "ENTRY", "SET", "SIDE", "IN", "OUT", "WHY", "NET"), Muted, true);
+                    foreach (var t in cur.Trades.Take(600)) line(string.Format(IC, "{0,5} {1,3} {2,4} {3,-6} {4,-16} {5,-4} {6,-4} {7,9} {8,9} {9,-11} {10,8}", t.No, t.Batch, t.Account, t.Phase, t.Entry.ToString("yyyy-MM-dd HH:mm", IC), t.Setup, t.Dir > 0 ? "BUY" : "SELL", t.EntryPx.ToString("0.00", IC), t.ExitPx.ToString("0.00", IC), t.Reason, t.Pnl.ToString("0", IC)), t.Pnl > 0 ? Green : Red, true);
+                    if (cur.Trades.Count > 600) line("… " + (cur.Trades.Count - 600) + " more in the saved trades CSV", Muted, false);
+                }
+                else
+                {
+                    line(string.Format(IC, "{0,-6} {1,-5} {2,6} {3,6} {4,9} {5,9} {6,6}", "SETUP", "SIDE", "N", "WIN %", "NET", "AVG", "PF"), Muted, true);
+                    foreach (var x in cur.SetupRows()) line(string.Format(IC, "{0,-6} {1,-5} {2,6} {3,6:0.0} {4,9:0} {5,9:0} {6,6:0.00}", x.Setup, x.Side, x.N, x.WinPct, x.Net, x.Avg, x.Pf), x.Net >= 0 ? Green : Red, true);
+                }
+            };
+            paint();
+            Action<Func<object>, Action<object>> runBg = (work, done) =>
+            {
+                if (sync) { object r0; try { r0 = work(); } catch (Exception ex) { r0 = ex; } done(r0); return; }
+                busy = true; bRun.IsEnabled = false; bRnd.IsEnabled = false;
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate { object r0; try { r0 = work(); } catch (Exception ex) { r0 = ex; } try { w.Dispatcher.BeginInvoke(new Action(() => { busy = false; bRun.IsEnabled = true; bRnd.IsEnabled = true; done(r0); })); } catch { } });
+            };
+            Func<DateTime[]> range = () => { DateTime a = ParseStudioDate(tFrom.Text), z = ParseStudioDate(tTo.Text); if (a == DateTime.MinValue) a = last.AddYears(-1); if (z == DateTime.MinValue || z < a) z = last; return new[] { a, z }; };
+            Func<DateTime, DateTime, KeystoneTriData> load = (a, z) => { string k = a.ToString("yyyyMMdd") + "|" + z.ToString("yyyyMMdd"); if (data != null && k == dataKey) return data; var d = KeystoneTriData.From(KeystoneStudioStore.Load(sfolder, "MNQ", a.AddDays(-3), z)); data = d; dataKey = k; return d; };
+            bRun.Click += delegate
+            {
+                if (busy) return; var s = readS(); var rg = range(); say("▶ running " + s.Describe() + " …", Cyan);
+                runBg(() =>
+                {
+                    var d = load(rg[0], rg[1]); if (d.N == 0) return "no saved MNQ minutes for " + rg[0].ToString("yyyy-MM-dd", IC) + " → " + rg[1].ToString("yyyy-MM-dd", IC) + " (🗂 DATA / ● LIVE DEMO history first)";
+                    var c = KeystoneTriSetup.Candidates(d, s).Where(wanted).ToList(); var r = KeystoneTriRotation.Run(d, c, s, rg[0], rg[1]); return Tuple.Create(r, c);
+                }, res =>
+                {
+                    var ex = res as Exception; if (ex != null) { say("run failed • " + ex.Message, Red); return; } var sres = res as string; if (sres != null) { say(sres, Gold); return; }
+                    var t = (Tuple<KeystoneTriResult, List<KeystoneTriCandidate>>)res; cur = t.Item1; curC = t.Item2; rnd = null;
+                    string f = ""; try { f = KeystoneTriRuns.Save(sfolder, cur, s.Window + "-" + s.Mode, DateTime.Now, double.NaN); refreshRuns(); } catch (Exception ex2) { f = "save failed: " + ex2.Message; }
+                    say("✓ ▶ RUN · " + cur.Stats.Trades + " trades · " + cur.Stats.Batches + " batches · business net " + M(cur.Stats.BusinessNet) + " · saved " + Path.GetFileName(f) + " · " + KeystoneTriLive.Research, cur.Stats.BusinessNet >= 0 ? Green : Orange); tab = "STATS"; paint();
+                });
+            };
+            bRnd.Click += delegate
+            {
+                if (busy) return; if (cur == null || data == null || curC == null) { say("▶ RUN first — the random control uses the same number of entries a session", Gold); return; }
+                var s = cur.Settings; var rg = new[] { cur.From, cur.To }; var cands = curC; var d = data; say("🎲 random control (5 seeds) …", Cyan);
+                runBg(() => KeystoneTriRuns.Random(d, s, cands, rg[0], rg[1], 5), res =>
+                {
+                    var ex = res as Exception; if (ex != null) { say("random failed • " + ex.Message, Red); return; }
+                    rnd = (List<KeystoneTriResult>)res; double rn = rnd.Average(x => x.Stats.BusinessNet);
+                    try { KeystoneTriRuns.Save(sfolder, cur, s.Window + "-" + s.Mode + "-vs-random", DateTime.Now, rn); refreshRuns(); } catch { }
+                    say("✓ 🎲 RANDOM CONTROL · random business net " + M(rn) + " vs the setups " + M(cur.Stats.BusinessNet) + " · " + KeystoneTriLive.Research, Cyan); tab = "STATS"; paint();
+                });
+            };
+            studioTriRot = cmd =>
+            {
+                sync = true; try
+                {
+                    var c = (cmd ?? "").ToUpperInvariant(); Action<Button> click = b9 => b9.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    if (c.StartsWith("SET ")) { foreach (var kv in cmd.Substring(4).Split(';')) { var p = kv.Split('='); if (p.Length != 2) continue; var tb = new[] { tFrom, tTo, tAcc, tQty, tStop, tTgt, tFQty, tFStop, tFTgt, tFLock, tELock }.FirstOrDefault(x => Convert.ToString(x.Tag) == "tri." + p[0]); if (tb != null) tb.Text = p[1]; if (p[0] == "mode") cMode.SelectedIndex = int.Parse(p[1]); if (p[0] == "window") cWin.SelectedIndex = int.Parse(p[1]); } showCost(); return costLine.Text; }
+                    if (c == "RUN") click(bRun); else if (c == "RANDOM") click(bRnd); else if (c == "PLAN") { click(bPlan); showCost(); return costLine.Text; }
+                    else if (c.StartsWith("TAB ")) { tab = c.Substring(4); paint(); return string.Join(" | ", RsimTexts(host).Take(400)); }
+                    return msg.Text + " | runs " + cRuns.Items.Count;
                 }
                 finally { sync = false; }
             };
