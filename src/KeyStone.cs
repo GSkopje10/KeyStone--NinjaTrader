@@ -8226,16 +8226,78 @@ namespace NinjaTrader.NinjaScript
             return u.Contains("TAKEPROFITPRO") || u.StartsWith("PRO") || u.Contains("-PRO") || u.Contains("_PRO") || u.Contains(" PRO");
         }
         // the funded floor now: INTRADAY from the best equity since funded, EOD from the account watch's closes; both stop at the start
-        public double FundedFloor(double balNow, double dd, double start, double eodFloor) { if (dd <= 0) return 0; if (FundedDd == "EOD" && !double.IsNaN(eodFloor) && eodFloor > 0) return Math.Min(eodFloor, start); return IntradayFloor(Math.Max(FundedPeak, balNow), dd, start); }
-        public void Observe(double equity)
+        public double FundedFloor(double balNow, double dd, double start, double eodFloor) { if (dd <= 0) return 0; if (FundedDd == "EOD" && !double.IsNaN(eodFloor) && eodFloor > 0) return Math.Min(eodFloor, start); return IntradayFloor(PeakNow(balNow), dd, start); }
+        // 💰 11q (not saved): the cost to close what is open now (open contracts × the per-side commission, KeystoneFundedLiq) and whether the last
+        // NinjaTrader reading was consistent — the funded peak follows the LIQUIDATION value (NetLiquidation − OpenCloseCost), never a stale reading
+        public double OpenCloseCost; public bool LastStale;
+        public double PeakNow(double balNow) { return LastStale || balNow <= 0 ? FundedPeak : Math.Max(FundedPeak, balNow - OpenCloseCost); }
+        public void Observe(double equity) { Observe(equity, 0, true); }
+        public void Observe(double equity, double closeCost, bool consistent)
         {
             if (equity <= 0) return;
             if (PeakBal <= 0 || equity > PeakBal) PeakBal = equity; if (LowBal <= 0 || equity < LowBal) LowBal = equity; MaxDd = Math.Max(MaxDd, PeakBal - equity);
-            if (Funded && equity > FundedPeak) FundedPeak = equity;
+            OpenCloseCost = Math.Max(0, double.IsNaN(closeCost) ? 0 : closeCost); LastStale = !consistent;
+            if (Funded && consistent && equity - OpenCloseCost > FundedPeak) FundedPeak = equity - OpenCloseCost;
         }
         public void MarkFunded(DateTime day, double equity) { if (FundedOn == DateTime.MinValue) FundedOn = day.Date; if (equity > FundedPeak) FundedPeak = equity; }
         // funded INTRADAY trailing: the floor is dd below the highest equity since funded and stops trailing at the start balance
         public static double IntradayFloor(double peak, double dd, double start) { return peak <= 0 || dd <= 0 ? 0 : Math.Min(peak - dd, start); }
+    }
+
+    // 💰 FUNDED TRAILING PEAK = THE FIRM'S LIQUIDATION VALUE (BUILD 2026-11-11q, user's catch on a TPT funded 50K, intraday trailing $2,000):
+    // Tradovate's Accounts ▸ DRAWDOWN AUTO was $49,102.75 (its peak 51,102.75) while KeyStone showed BLOWS AT $49,113.25 — a peak $10.50 too high.
+    // NinjaTrader's NetLiquidation = the balance + the GROSS open P/L: the open contracts carry no commission yet. Tradovate / the firm value the
+    // account AFTER one side of commission per open contract (charged at the fill), so its intraday peak is lower by exactly that.
+    // CALIBRATION (the user's day): before trade #3 the balance was 51,076.50 − 532 = 50,544.50; #3's best open P/L in NinjaTrader +$568.75 (SHORT 10
+    // MNQ) → NetLiquidation 51,113.25; Tradovate's peak 51,102.75 = 51,113.25 − 10 × $1.05. NinjaTrader's Accounts grid: gross 1,121.50 − realized
+    // 1,076.50 = $45 of commissions for 21 round turns = $1.07 a side → 51,113.25 − 10 × 1.0714 = 51,102.54 (within $0.25 of Tradovate's number).
+    // So: liquidation equity = NetLiquidation − open contracts × the per-side commission LEARNED FROM NINJATRADER today (the executions' own
+    // Commission, else (gross − realized) / the closed sides), else the last rate learned for that account, else $0.62; flat = no adjustment.
+    // A new peak is taken only from a CONSISTENT reading (a position listed when there is an open P/L; nothing open → no open P/L).
+    // EXECUTIONS: Tradovate's executions reach NinjaTrader with Commission 0 — the day's fees are NinjaTrader's gross − realized (ApplyNtFees).
+    public static class KeystoneFundedLiq
+    {
+        public const double DefaultPerSide = 0.62;
+        public static readonly Dictionary<string, double> Learned = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);   // account → $ per contract per side
+        // execCommission / execQty: today's executions (sum of Commission, sum of contracts); gross / realized: NinjaTrader's Accounts grid today
+        public static double PerSide(double execCommission, int execQty, double gross, double realized, int openContracts, double fallback, out string source)
+        {
+            if (execCommission > 0.0001 && execQty > 0) { source = "NinjaTrader executions"; return execCommission / execQty; }
+            int closedSides = execQty - Math.Max(0, openContracts);   // the sides of the round turns already closed (2 per contract)
+            double fees = double.IsNaN(gross) || double.IsNaN(realized) ? 0 : gross - realized;
+            if (fees > 0.0001 && closedSides >= 2) { source = "NinjaTrader gross − realized"; return fees / closedSides; }
+            if (fallback > 0 && !double.IsNaN(fallback)) { source = "last rate learned"; return fallback; }
+            source = "default"; return DefaultPerSide;
+        }
+        public static double CloseCost(int openContracts, double perSide) { return Math.Max(0, openContracts) * Math.Max(0, double.IsNaN(perSide) ? 0 : perSide); }
+        public static double Equity(double netLiq, int openContracts, double perSide) { return netLiq - CloseCost(openContracts, perSide); }
+        // a reading the peak may follow: a balance, and an open P/L only when a position is listed (a just-closed position whose open P/L is still shown = stale)
+        public static bool Consistent(double netLiq, double unrealized, int openContracts)
+        {
+            if (double.IsNaN(netLiq) || netLiq <= 0 || double.IsNaN(unrealized)) return false;
+            return openContracts > 0 || Math.Abs(unrealized) <= 0.5;
+        }
+        // the peak candidate from one reading (NaN = not consistent → keep the old peak)
+        public static double PeakCandidate(double netLiq, double unrealized, int openContracts, double perSide) { return Consistent(netLiq, unrealized, openContracts) ? Equity(netLiq, openContracts, perSide) : double.NaN; }
+        // the day's commissions as NinjaTrader books them (Accounts grid: Gross realized − Realized); NaN = not known
+        public static double DayFees(double gross, double realized) { if (double.IsNaN(gross) || double.IsNaN(realized) || gross == 0 && realized == 0) return double.NaN; double f = gross - realized; return f > 0.004 ? f : double.NaN; }
+        // EXECUTIONS: the day's fees from NinjaTrader shared by contracts over the day's finished trades (only when the executions carried none /
+        // different ones); true = changed. The day's NET shown = NinjaTrader's realized itself (ShownNet).
+        public static bool ApplyNtFees(List<KeystoneJTrade> trades, double gross, double realized)
+        {
+            double fees = DayFees(gross, realized); if (trades == null || trades.Count == 0 || double.IsNaN(fees)) return false;
+            if (Math.Abs(trades.Sum(t => t.Fees) - fees) < 0.5) return false;
+            double q = trades.Sum(t => (double)Math.Max(1, t.MaxQty)); if (q <= 0) return false;
+            foreach (var t in trades) t.Fees = fees * Math.Max(1, t.MaxQty) / q;
+            return true;
+        }
+        public static double ShownNet(List<KeystoneJTrade> trades, double gross, double realized) { return !double.IsNaN(DayFees(gross, realized)) ? realized : (trades ?? new List<KeystoneJTrade>()).Sum(t => t.Net); }
+        public static string Format() { lock (Learned) return string.Join("\n", Learned.Select(kv => kv.Key + "|" + kv.Value.ToString("0.####", CultureInfo.InvariantCulture))); }
+        public static void Parse(string text)
+        {
+            lock (Learned) foreach (var l in (text ?? "").Split('\n'))
+            { var a = l.Trim().Split('|'); double v; if (a.Length == 2 && a[0] != "" && double.TryParse(a[1], NumberStyles.Float, CultureInfo.InvariantCulture, out v) && v > 0 && v < 20) Learned[a[0]] = v; }
+        }
     }
     // ---- 📊 PROP TRACKER: one self-contained web page (saved on your PC, re-read by the browser every 10 s) with what you bought,
     // spent, earned and paid out — per account, per firm, per day and per month — from the POOL (purchases, dated expenses, payouts,
@@ -22235,7 +22297,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-11p • 🎯 3 SETUPS: indicator layer, studio 3-SETUP ROTATION drawer, practice tickets, ROTATE guided source • BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-11q • funded trailing peak = the firm's liquidation value (closing commission), ✎ SYNC with Tradovate, EXECUTIONS fees from NinjaTrader • BUILD 2026-11-11p • 🎯 3 SETUPS: indicator layer, studio 3-SETUP ROTATION drawer, practice tickets, ROTATE guided source • BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;
@@ -43746,12 +43808,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             realCapBox.TextChanged += delegate { if (linkedName != null) realKeys["cap." + linkedName] = realCapBox.Text.Trim(); };
             realMaxBox.TextChanged += delegate { if (linkedName != null) realKeys["max." + linkedName] = realMaxBox.Text.Trim(); };
             // the LIVE TRADING today panel reads these (animated there)
-            var todayVals = new Dictionary<string, double>(); string todayWarn = "";
+            var todayVals = new Dictionary<string, double>(); string todayWarn = ""; string ntFloorFrom = "";   // ntFloorFrom: the AccountItem NinjaTrader's trailing level came from
             Func<string, double, double, double> fundedFloorOf = null;   // a FUNDED account's trailing floor (NaN = not funded): set by the POOL
             Func<KeystonePoolAccount, double, double, double, double> fundedFloorPa = null;   // pool account, balance now, drawdown, start → its funded floor (INTRADAY / EOD)
             Func<string, string> fundStateOf = null; Action<string, string> setFundState = null;   // the live bar's 🛡 EVAL / FUNDED menu (set by the POOL)
             Func<string, double> fundedPeakOf = null; Action<string, double> setFundPeak = null;   // setFundPeak: the funded best equity matched to the broker's own number (Tradovate's DRAWDOWN AUTO + the drawdown)   // a funded account's best equity since funded (NaN = not funded)
-            Action<string, double> observeEquity = null;                 // every connected account's balance with open P/L → its POOL record
+            Action<string, double, double, bool> observeEquity = null;   // every connected account's balance with open P/L (+ 💰 11q the cost to close the open contracts, a consistent reading) → its POOL record
+            Func<string, double> closeCostOf = null;                     // 💰 11q: a pool account's cost to close its open contracts now (NetLiquidation − this = the firm's liquidation value)
             Func<string, double> startOf = null;   // account → its start balance (the account watch, else the firm preset's size; set by the POOL)
             Func<string, double, Tuple<double, string, string>> liqInfo = null;   // account, balance → auto-liquidation, EVAL / FUNDED, the consistency plan (set by the POOL)
             Func<string, double, KeystoneConsistencyPlan> planFor = null;   // an EVALUATION account's consistency plan from its balance now (null = no rule / funded)
@@ -43759,6 +43822,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             var dayLocks = new KeystoneDayLocks(); string locksFile = Path.Combine(StudioFolder(), "DayLocks.txt");
             try { if (File.Exists(locksFile)) dayLocks = KeystoneDayLocks.Parse(File.ReadAllText(locksFile)); } catch { }
             // the account line: balance, today, the firm's floor and room, target / payout progress, consistency, the link's state
+            var ntItemsLogged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // 💰 11q: the AccountItem levels written to the log once per account
             Action realLine = delegate
             {
                 var name = linkedName; var acc = name == null ? null : findAccount(name); var pr = selPreset();
@@ -43768,7 +43832,18 @@ namespace NinjaTrader.NinjaScript.AddOns
                 double unrealT = 0, grossT = double.NaN;
                 try { realizedT = acc.Get(AccountItem.RealizedProfitLoss, Currency.UsDollar); unrealT = acc.Get(AccountItem.UnrealizedProfitLoss, Currency.UsDollar); today = realizedT + unrealT; } catch { }
                 try { grossT = acc.Get(AccountItem.GrossRealizedProfitLoss, Currency.UsDollar); } catch { }
-                double ntTrail = 0; try { var aiT = (AccountItem)Enum.Parse(typeof(AccountItem), "TrailingMaxDrawdown"); ntTrail = acc.Get(aiT, Currency.UsDollar); } catch { }   // the connection's own trailing liquidation level, when NinjaTrader passes it on
+                double ntTrail = 0; string ntTrailFrom = "";   // the connection's own trailing liquidation level, when NinjaTrader passes it on
+                {   // 💰 11q: every AccountItem whose name speaks of a drawdown / liquidation / trailing level — logged ONCE per account (Studio\KeyStone.log)
+                    // so we learn what the connection provides; TrailingMaxDrawdown first, then any other Trailing / Drawdown item (a level near ours is used)
+                    var itemsT = new List<string>(); string[] namesT = new string[0]; try { namesT = Enum.GetNames(typeof(AccountItem)); } catch { }
+                    foreach (var nmT in namesT.Where(x => x.IndexOf("Drawdown", StringComparison.OrdinalIgnoreCase) >= 0 || x.IndexOf("Liquidation", StringComparison.OrdinalIgnoreCase) >= 0 || x.IndexOf("Trailing", StringComparison.OrdinalIgnoreCase) >= 0).OrderBy(x => x == "TrailingMaxDrawdown" ? 0 : 1))
+                    {
+                        double vT = double.NaN; try { vT = acc.Get((AccountItem)Enum.Parse(typeof(AccountItem), nmT), Currency.UsDollar); } catch { }
+                        itemsT.Add(nmT + " = " + (double.IsNaN(vT) ? "n/a" : vT.ToString("0.##", CultureInfo.InvariantCulture)));
+                        if (ntTrail <= 0 && !double.IsNaN(vT) && vT > 0 && nmT.IndexOf("NetLiquidation", StringComparison.OrdinalIgnoreCase) < 0 && (nmT.IndexOf("Trailing", StringComparison.OrdinalIgnoreCase) >= 0 || nmT.IndexOf("Drawdown", StringComparison.OrdinalIgnoreCase) >= 0)) { ntTrail = vT; ntTrailFrom = nmT; }
+                    }
+                    if (ntItemsLogged.Add(name)) KeystoneLogLine(new[] { "💰 AccountItem levels on " + name + ": " + (itemsT.Count > 0 ? string.Join(" • ", itemsT) : "NONE named Drawdown / Liquidation / Trailing") + " (all items: " + string.Join(", ", namesT) + ")" });
+                }
                 KeystoneAccountWatch aw; if (!watches.TryGetValue(name, out aw)) { aw = new KeystoneAccountWatch { Account = name, StartBalance = pr != null && pr.Size > 0 ? pr.Size : bal }; watches[name] = aw; }
                 var day = KeystoneStudioStore.SessionOf(nyNow()); aw.Observe(day, bal); if ((DateTime.Now - watchSaved).TotalSeconds > 60) saveWatches();
                 var parts = new List<string> { name + " " + Cash(bal), "TODAY " + Signed(today) };
@@ -43779,7 +43854,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     double ffl = fundedFloorOf != null ? fundedFloorOf(name, pr.Dd, aw.StartBalance) : double.NaN; bool fundedL = !double.IsNaN(ffl);
                     if (fundedL)
                     {   // FUNDED: the trailing floor (best equity − drawdown) until the best reaches start + drawdown, then it stays at the start
-                        floor = ffl; room = bal - floor; double pkL = fundedPeakOf != null ? Math.Max(fundedPeakOf(name), bal) : bal; bool lockedL = floor >= aw.StartBalance - 0.01;
+                        double adjL0 = closeCostOf != null ? closeCostOf(name) : 0; floor = ffl; room = bal - adjL0 - floor; double pkL = fundedPeakOf != null ? Math.Max(fundedPeakOf(name), bal - adjL0) : bal - adjL0; bool lockedL = floor >= aw.StartBalance - 0.01;
                         parts.Add("🛡 FUNDED • " + (fundStateOf != null && fundStateOf(name) == "EOD" ? "END-OF-DAY" : "INTRADAY") + " TRAILING • FLOOR " + Cash(floor) + " • ROOM " + Cash(room));
                         parts.Add(lockedL ? "FLOOR LOCKED at the start " + Cash(aw.StartBalance) : "LOCKS at " + Cash(aw.StartBalance) + " when the best reaches " + Cash(aw.StartBalance + pr.Dd) + " (" + Cash(Math.Max(0, aw.StartBalance + pr.Dd - pkL)) + " to go)");
                     }
@@ -43800,8 +43875,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 }
                 todayVals["bal"] = bal; todayVals["today"] = today; todayVals["realized"] = realizedT; todayVals["unreal"] = unrealT; todayVals["gross"] = double.IsNaN(grossT) ? realizedT : grossT; todayVals["start"] = aw.StartBalance;   // NinjaTrader's own numbers (Accounts tab) + the start balance
                 todayVals["dd"] = pr != null ? pr.Dd : 0; todayVals["floor"] = pr != null && pr.Dd > 0 ? aw.Floor(KeystoneAccountWatch.LiquidationDay(nyNow(), day), pr.Dd, true) : 0; todayVals["funded"] = 0;
-                { double ff = fundedFloorOf != null && linkedName != null && pr != null ? fundedFloorOf(linkedName, pr.Dd, aw.StartBalance) : double.NaN; if (!double.IsNaN(ff) && ntTrail > 0 && Math.Abs(ntTrail - ff) <= 500 && setFundPeak != null) { setFundPeak(linkedName, ntTrail + pr.Dd); ff = ntTrail; todayVals["ntfloor"] = 1; }   // NinjaTrader's own number wins: the best equity follows it
-                if (!double.IsNaN(ff)) { todayVals["floor"] = ff; todayVals["funded"] = 1; todayVals["fpeak"] = fundedPeakOf != null ? Math.Max(fundedPeakOf(linkedName), bal) : bal; todayVals["fundEod"] = fundStateOf != null && fundStateOf(linkedName) == "EOD" ? 1 : 0; } }
+                { double ff = fundedFloorOf != null && linkedName != null && pr != null ? fundedFloorOf(linkedName, pr.Dd, aw.StartBalance) : double.NaN; todayVals["ntfloor"] = 0; if (!double.IsNaN(ff) && ntTrail > 0 && Math.Abs(ntTrail - ff) <= 500 && setFundPeak != null) { setFundPeak(linkedName, ntTrail + pr.Dd); ff = ntTrail; todayVals["ntfloor"] = 1; ntFloorFrom = ntTrailFrom; }   // NinjaTrader's own number wins: the best equity follows it
+                double adjF = closeCostOf != null ? closeCostOf(linkedName) : 0; todayVals["liqAdj"] = adjF;   // 💰 11q: NetLiquidation − this = the firm's liquidation value
+                if (!double.IsNaN(ff)) { todayVals["floor"] = ff; todayVals["funded"] = 1; todayVals["fpeak"] = fundedPeakOf != null ? Math.Max(fundedPeakOf(linkedName), bal - adjF) : bal - adjF; todayVals["fundEod"] = fundStateOf != null && fundStateOf(linkedName) == "EOD" ? 1 : 0; } }
                 { var cpl = planFor != null && linkedName != null && bal > 0 ? planFor(linkedName, bal) : null; todayVals["planOn"] = cpl != null ? 1 : 0; if (cpl != null) { todayVals["planCap"] = cpl.DayCap; todayVals["planToday"] = cpl.Today; todayVals["planBig"] = cpl.TodayTooBig ? 1 : 0; planText = cpl.Text; } } todayVals["target"] = pr != null ? pr.Target : 0; todayVals["payout"] = pr != null ? pr.PayoutBuffer : 0;
                 todayVals["cap"] = NumberAllowZero(realCapBox, 0); todayVals["loss"] = NumberAllowZero(realLossBox, 0); todayVals["cons"] = aw.ConsistencyPct(); todayVals["consMax"] = pr != null ? pr.ConsistencyPct : 0;
                 todayWarn = string.Join(" • ", panes.Where(p => p.Link != null && p.Link.Warning != "").Select(p => p.Symbol + ": " + p.Link.Warning));
@@ -45131,16 +45207,23 @@ namespace NinjaTrader.NinjaScript.AddOns
                         Width = mk == "BLOW" ? 190 : mk == "TRADE" || mk == "EQ" ? 170 : 150, Height = 52 };
                     bufRow.Children.Add(bM); minis[mk] = Tuple.Create(capM, fM, vM, gM, bM, sM); miniShown[mk] = 0;
                 }
+                Button syncChip = null;   // 💰 11q: ✎ SYNC next to BLOWS AT — "✓ TRADOVATE hh:mm" after a sync (the time kept per account: pk.sync.<account>)
                 {   // ✎ BLOWS AT: type the broker's own number (Tradovate's DRAWDOWN AUTO) once — KeyStone's best equity follows it from then on
                     var blowBox = minis["BLOW"].Item5; blowBox.Cursor = System.Windows.Input.Cursors.Hand;
-                    blowBox.MouseLeftButtonUp += delegate
+                    Action syncBlow = delegate
                     {
                         double ddB, flB, fdB; todayVals.TryGetValue("dd", out ddB); todayVals.TryGetValue("floor", out flB); todayVals.TryGetValue("funded", out fdB);
                         if (linkedName == null || setFundPeak == null || fdB <= 0 || ddB <= 0) { status.Text = "✎ BLOW-UP LEVEL: only for a FUNDED account with the firm rules set"; status.Foreground = Gold; return; }
                         var tx = AskStudioText(w, "Your broker's auto-liquidation level (Tradovate: Accounts ▸ DRAWDOWN AUTO), e.g. 48691.25", flB.ToString("0.##", CultureInfo.InvariantCulture)); double vB;
                         if (tx == null || !double.TryParse(tx.Replace("$", "").Replace(",", "").Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out vB) || vB <= 0) return;
-                        setFundPeak(linkedName, vB + ddB); realLine(); status.Text = "✎ BLOW-UP LEVEL now " + Cash(vB) + " (as your broker shows) — the best equity is " + Cash(vB + ddB) + " and it keeps following from here"; status.Foreground = Cyan;
+                        setFundPeak(linkedName, vB + ddB); realKeys["pk.sync." + linkedName] = nyNow().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture); realLine();
+                        status.Text = "✎ BLOW-UP LEVEL now " + Cash(vB) + " (matched to Tradovate " + nyNow().ToString("HH:mm", CultureInfo.InvariantCulture) + " NY) — the best equity is " + Cash(vB + ddB) + " and it keeps following from here (the firm's liquidation value: open contracts count after their closing commission)"; status.Foreground = Cyan;
                     };
+                    blowBox.MouseLeftButtonUp += delegate { syncBlow(); };
+                    syncChip = new Button { Content = "✎ SYNC", FontSize = 10.5, FontWeight = FontWeights.Bold, Height = 24, Padding = new Thickness(7, 0, 7, 0), Margin = new Thickness(-2, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, Background = Tint(Card, 220), Foreground = Orchid, BorderBrush = Tint(Orchid, 120), BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand,
+                        ToolTip = "✎ SYNC WITH TRADOVATE: type Tradovate's Accounts ▸ DRAWDOWN AUTO — KeyStone's best equity becomes that level + the drawdown and follows the firm's liquidation value from there" };
+                    syncChip.Click += delegate { syncBlow(); };
+                    int iB = bufRow.Children.IndexOf(blowBox); bufRow.Children.Insert(iB + 1, syncChip);
                 }
                 // 🛡 11n: WHICH ACCOUNT / RULES, always in words on the left of the boxes (e.g. "🛡 TAKE PROFIT TRADER • FUNDED" / "INTRADAY TRAILING DRAWDOWN $2,000")
                 var acctPresetCache = new Dictionary<string, KeystoneFirmPreset>();
@@ -45402,7 +45485,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                             var gp2 = KeystoneFirmRules.Guess(sn.Name); if (gp2 != null && gp2.Size > 0 && Math.Abs(gp2.Size - sn.Balance) < Math.Abs(wv.StartBalance - sn.Balance)) wv.StartBalance = gp2.Size;
                         }
                         wv.Observe(KeystoneStudioStore.SessionOf(nyNow()), sn.Balance);
-                        if (observeEquity != null && sn.Connected) observeEquity(sn.Name, sn.Balance);
+                        if (observeEquity != null && sn.Connected) observeEquity(sn.Name, sn.Balance, sn.CloseCost, sn.Consistent);
                         Tuple<Border, TextBlock, TextBlock, TextBlock> v; if (!cardViews.TryGetValue(sn.Name, out v)) continue; bool sel = sn.Name == linkedName;
                         string fsC = fundStateOf != null ? fundStateOf(sn.Name) : "EVAL"; bool fundedC = fsC != "EVAL";   // a FUNDED account: its own colour (violet) + 🛡 FUNDED on the card
                         v.Item1.BorderBrush = sel ? Gold : fundedC ? Orchid : Card; v.Item1.Background = fundedC ? (Brush)new SolidColorBrush(Color.FromArgb(90, 120, 60, 160)) : Card; v.Item2.Text = Cash(sn.Balance) + "  •  " + Signed(sn.Today); v.Item2.Foreground = MoneyBrush(sn.Today);
@@ -45719,14 +45802,20 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var dayT = allX.Where(t => t.Day.Date == selX).OrderByDescending(t => t.Open).ToList();
                     root2.Children.Add(Txt("🧾 EXECUTIONS • " + DeskNick(accX) + " • " + selX.ToString("dddd dd MMMM yyyy", CultureInfo.InvariantCulture), Gold, 16, FontWeights.Bold));
                     var dwX = new WrapPanel { Margin = new Thickness(0, 6, 0, 8) }; root2.Children.Add(dwX);
-                    foreach (var d1 in daysX) { var dk = d1; var nD = allX.Where(t => t.Day.Date == d1).Sum(t => t.Net); var bd = Btn((d1 == todayX ? "TODAY • " : "") + d1.ToString("ddd dd MMM", CultureInfo.InvariantCulture).ToUpperInvariant() + (allX.Any(t => t.Day.Date == d1) ? "  " + Signed(nD) : ""), d1 == selX ? (Brush)Tint(Cyan, 150) : Card); bd.Height = 26; bd.FontSize = 11; bd.Margin = new Thickness(0, 0, 6, 4); bd.Padding = new Thickness(10, 0, 10, 0); bd.Click += delegate { execDayS = dk.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); fillExec(); }; dwX.Children.Add(bd); }
+                    double ntGT = double.NaN, ntRT = double.NaN; { var snX = ReadNinjaAccounts().FirstOrDefault(x => string.Equals(x.Name, accX, StringComparison.OrdinalIgnoreCase)); if (snX != null && snX.Connected) { ntGT = snX.Gross; ntRT = snX.Closed; } }   // 💰 11q: NinjaTrader's gross / realized today
+                    foreach (var d1 in daysX) { var dk = d1; var nD = d1 == todayX && !double.IsNaN(KeystoneFundedLiq.DayFees(ntGT, ntRT)) ? ntRT : allX.Where(t => t.Day.Date == d1).Sum(t => t.Net); var bd = Btn((d1 == todayX ? "TODAY • " : "") + d1.ToString("ddd dd MMM", CultureInfo.InvariantCulture).ToUpperInvariant() + (allX.Any(t => t.Day.Date == d1) ? "  " + Signed(nD) : ""), d1 == selX ? (Brush)Tint(Cyan, 150) : Card); bd.Height = 26; bd.FontSize = 11; bd.Margin = new Thickness(0, 0, 6, 4); bd.Padding = new Thickness(10, 0, 10, 0); bd.Click += delegate { execDayS = dk.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); fillExec(); }; dwX.Children.Add(bd); }
                     // the day in numbers
                     Func<TimeSpan, string> duX = ts => ts.TotalHours >= 1 ? ((int)ts.TotalHours) + "h " + ts.Minutes.ToString("00") + "m" : ts.TotalMinutes >= 1 ? ((int)ts.TotalMinutes) + "m " + ts.Seconds.ToString("00") + "s" : ts.Seconds + "s";
                     var tilesX = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) }; root2.Children.Add(tilesX);
                     Action<string, string, Brush> tileX = (cap, val, br) => { var sp = new StackPanel(); sp.Children.Add(Txt(cap, Muted, 9.5, FontWeights.Bold)); sp.Children.Add(new TextBlock { Text = val, Foreground = br, FontSize = 16, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas") }); tilesX.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 5, 14, 6), Margin = new Thickness(0, 0, 8, 6), BorderBrush = Tint((SolidColorBrush)br, 110), BorderThickness = new Thickness(1.2), Child = sp }); };
-                    int nX = dayT.Count, wnX = dayT.Count(t => t.Net > 0); double netX = dayT.Sum(t => t.Net);
+                    // 💰 11q: FEES / NET from NinjaTrader (user's catch: FEES −$0 / NET +$1,122 while NinjaTrader's Realized PnL was +$1,076.50): Tradovate's
+                    // executions carry no commission — today's fees = NinjaTrader's Gross realized − Realized (shared by contracts), the day's NET = its Realized
+                    double ntGX = double.NaN, ntRX = double.NaN; string feeFromX = ""; Func<double, string> sgnC = vC => (vC >= 0 ? "+$" : "−$") + Math.Abs(vC).ToString("N2", CultureInfo.InvariantCulture);
+                    if (selX == todayX) { ntGX = ntGT; ntRX = ntRT; }
+                    if (!double.IsNaN(KeystoneFundedLiq.DayFees(ntGX, ntRX))) { dayT = dayT.Select(t => new KeystoneJTrade { Account = t.Account, Instrument = t.Instrument, Note = t.Note, Day = t.Day, Open = t.Open, Close = t.Close, Side = t.Side, MaxQty = t.MaxQty, ByTarget = t.ByTarget, ByStop = t.ByStop, ByOther = t.ByOther, AvgIn = t.AvgIn, AvgOut = t.AvgOut, Gross = t.Gross, Fees = t.Fees, Best = t.Best, Worst = t.Worst }).ToList(); KeystoneFundedLiq.ApplyNtFees(dayT, ntGX, ntRX); feeFromX = " • from NinjaTrader"; }
+                    int nX = dayT.Count, wnX = dayT.Count(t => t.Net > 0); double netX = feeFromX != "" ? KeystoneFundedLiq.ShownNet(dayT, ntGX, ntRX) : dayT.Sum(t => t.Net), grossX = feeFromX != "" ? ntGX : dayT.Sum(t => t.Gross), feesX = feeFromX != "" ? KeystoneFundedLiq.DayFees(ntGX, ntRX) : dayT.Sum(t => t.Fees);
                     tileX("TRADES", nX.ToString(CultureInfo.InvariantCulture), Text); tileX("WON / LOST", wnX + " / " + (nX - wnX) + (nX > 0 ? "  " + (100.0 * wnX / nX).ToString("0", CultureInfo.InvariantCulture) + "%" : ""), wnX >= nX - wnX ? Green : Red);
-                    tileX("NET (AFTER FEES)", Signed(netX), MoneyBrush(netX)); tileX("GROSS", Signed(dayT.Sum(t => t.Gross)), MoneyBrush(dayT.Sum(t => t.Gross))); tileX("FEES", nX > 0 ? "−" + Cash(dayT.Sum(t => t.Fees)) : "$0", Orange);
+                    tileX("NET (AFTER FEES)" + feeFromX, sgnC(netX), MoneyBrush(netX)); tileX("GROSS" + feeFromX, sgnC(grossX), MoneyBrush(grossX)); tileX("FEES" + feeFromX, nX > 0 || feesX > 0.004 ? "−$" + feesX.ToString("N2", CultureInfo.InvariantCulture) : "$0", Orange);
                     tileX("BEST TRADE", nX > 0 ? Signed(dayT.Max(t => t.Net)) : "—", Green); tileX("WORST TRADE", nX > 0 ? Signed(dayT.Min(t => t.Net)) : "—", Red);
                     tileX("AVG TIME IN A TRADE", nX > 0 ? duX(TimeSpan.FromSeconds(dayT.Average(t => (t.Close - t.Open).TotalSeconds))) : "—", Cyan); tileX("CONTRACTS TRADED", dayT.Sum(t => t.MaxQty).ToString(CultureInfo.InvariantCulture), Orchid);
                     if (nX == 0) { root2.Children.Add(Txt("no finished trade this day yet (open positions show on the chart; a trade appears here when it is closed)", Muted, 12.5, FontWeights.Normal)); return; }
@@ -47828,11 +47917,12 @@ namespace NinjaTrader.NinjaScript.AddOns
                 Action<KeystonePoolAccount, string> setStatus = (a, ns) =>
                 {
                     if (ns == a.Status) return; a.Status = ns;
-                    if (a.Funded) { var sn = ReadNinjaAccounts().FirstOrDefault(x => x.Name == a.Account); a.MarkFunded(nyNow(), sn != null && sn.Connected ? sn.Balance : 0); }
+                    if (a.Funded) { var sn = ReadNinjaAccounts().FirstOrDefault(x => x.Name == a.Account); a.MarkFunded(nyNow(), sn != null && sn.Connected && sn.Consistent ? sn.Balance - sn.CloseCost : 0); }
                     if (ns == "EVAL") blownSeen.Remove(a.Account);
                     savePool();
                 };
-                observeEquity = (acct, eq) => { var pa = pool.FirstOrDefault(p => p.Account == acct); if (pa == null || !inScope(pa)) return; double pk = pa.PeakBal, lo = pa.LowBal, fp = pa.FundedPeak; pa.Observe(eq); if (pa.PeakBal != pk || pa.LowBal != lo || pa.FundedPeak != fp) poolDirty = true; };
+                closeCostOf = acct => { var pa = pool.FirstOrDefault(p => p.Account == acct); return pa != null ? pa.OpenCloseCost : 0; };
+                observeEquity = (acct, eq, cc, okR) => { var pa = pool.FirstOrDefault(p => p.Account == acct); if (pa == null || !inScope(pa)) return; double pk = pa.PeakBal, lo = pa.LowBal, fp = pa.FundedPeak; pa.Observe(eq, cc, okR); if (pa.PeakBal != pk || pa.LowBal != lo || pa.FundedPeak != fp) poolDirty = true; };
                 planFor = (acct, balNow) =>
                 {
                     var pa = pool.FirstOrDefault(p => p.Account == acct); if (pa != null && (pa.Funded || pa.Archived)) return null;
@@ -48226,7 +48316,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         {
                             if (fund)
                             {
-                                double pk = Math.Max(a.FundedPeak, bal), fl = fundedFloorPa(a, bal, dd, start), room = bal - fl;
+                                double pk = a.PeakNow(bal), fl = fundedFloorPa(a, bal, dd, start), room = bal - a.OpenCloseCost - fl;
                                 bar((a.FundedDd == "EOD" ? "🛡 END-OF-DAY TRAILING • " : "🛡 INTRADAY TRAILING • ") + Cash(room) + " above the floor " + Cash(fl) + (fl >= start - 0.01 ? " (LOCKED)" : " • follows your best " + Cash(pk)), room / dd, room < dd * 0.3 ? Red : room < dd * 0.6 ? Gold : Orchid);
                                 if (fl < start - 0.01) bar("TO LOCK THE FLOOR (best equity " + Cash(start + dd) + ") • " + Cash(Math.Max(0, start + dd - pk)) + " to go", (pk - start) / dd, Green);
                             }
@@ -49064,10 +49154,10 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else meter("DAY LOSS", loss > 0 ? Math.Max(0, -target) / loss : 0, loss > 0 ? Cash(Math.Max(0, -target)) + " of " + Cash(loss) : "no limit set", -target >= loss * 0.6 && loss > 0 ? Red : Orange);
                     bool fundedNow = tv("funded") > 0; meters["ROOM TO FLOOR"].Item1.Text = fundedNow ? (tv("fundEod") > 0 ? "🛡 FUNDED • END-OF-DAY TRAILING" : "🛡 FUNDED • INTRADAY TRAILING") : "AUTO-LIQUIDATION • END OF DAY";
                     meters["ROOM TO FLOOR"].Item1.Foreground = fundedNow ? (Brush)new SolidColorBrush(Color.FromArgb((byte)(170 + 85 * Math.Abs(Math.Sin(animTick / 12.0))), 186, 104, 200)) : Muted;   // funded: the caption breathes
-                    meter("ROOM TO FLOOR", dd > 0 ? (bal - floor) / dd : 0, dd > 0 ? Cash(bal - floor) + " above " + Cash(floor) + (fundedNow ? " • the floor follows your best equity" + (floor >= start - 0.01 ? " • LOCKED at the start" : "") : "") : "set the firm rules", dd > 0 && bal - floor < dd * 0.3 ? Red : dd > 0 && bal - floor < dd * 0.6 ? Gold : fundedNow ? Orchid : Cyan);
+                    meter("ROOM TO FLOOR", dd > 0 ? (bal - tv("liqAdj") - floor) / dd : 0, dd > 0 ? Cash(bal - tv("liqAdj") - floor) + " above " + Cash(floor) + (fundedNow ? " • the floor follows your best equity" + (floor >= start - 0.01 ? " • LOCKED at the start" : "") : "") : "set the firm rules", dd > 0 && bal - tv("liqAdj") - floor < dd * 0.3 ? Red : dd > 0 && bal - tv("liqAdj") - floor < dd * 0.6 ? Gold : fundedNow ? Orchid : Cyan);
                     double tgt = tv("target"), made = bal - start;
                     meters["TARGET"].Item1.Text = fundedNow ? "🔒 TO LOCK THE FLOOR" : "TARGET";
-                    if (fundedNow && dd > 0) { double pkF = Math.Max(tv("fpeak"), bal); bool lk = floor >= start - 0.01; meter("TARGET", lk ? 1 : (pkF - start) / dd, lk ? "LOCKED — the floor stays at " + Cash(start) + " • now " + Signed(made) : "best " + Signed(pkF - start) + " of +" + Cash(dd) + " → the floor locks at " + Cash(start) + " • now " + Signed(made), lk ? Gold : Green); } else
+                    if (fundedNow && dd > 0) { double pkF = Math.Max(tv("fpeak"), bal - tv("liqAdj")); bool lk = floor >= start - 0.01; meter("TARGET", lk ? 1 : (pkF - start) / dd, lk ? "LOCKED — the floor stays at " + Cash(start) + " • now " + Signed(made) : "best " + Signed(pkF - start) + " of +" + Cash(dd) + " → the floor locks at " + Cash(start) + " • now " + Signed(made), lk ? Gold : Green); } else
                     meter("TARGET", tgt > 0 ? made / tgt : 0, tgt > 0 ? Signed(made) + " of " + Cash(tgt) + (tv("payout") > 0 ? " • funded payout at +" + Cash(tv("payout")) : "") : "—", made >= tgt && tgt > 0 ? Gold : Blue);
                     double cons = tv("cons"), consMax = tv("consMax");
                     meters["BEST DAY"].Item1.Text = tv("planOn") > 0 ? "CONSISTENCY • TODAY" : "BEST DAY";
@@ -49084,7 +49174,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                                 string svT; realKeys.TryGetValue("realpreset." + accT, out svT); var prT = KeystoneFirmRules.Resolve(svT, accT);
                                 bal = sT.Balance; dd = prT != null ? prT.Dd : 0; start = startOf != null ? startOf(accT) : (prT != null ? prT.Size : 0); if (start <= 0 && prT != null) start = prT.Size;
                                 var lqT = liqInfo != null ? liqInfo(accT, bal) : null; floor = lqT != null && !double.IsNaN(lqT.Item1) && lqT.Item1 > 0 ? lqT.Item1 : start - dd;
-                                ovT["target"] = prT != null ? prT.Target : 0; ovT["funded"] = lqT != null && lqT.Item2 == "FUNDED" ? 1 : 0; ovT["realized"] = sT.Closed; ovT["unreal"] = sT.Open; ovT["fpeak"] = bal; ovT["dayPeakNow"] = 0; ovT["ntfloor"] = 0; ovT["payout"] = 0;
+                                ovT["target"] = prT != null ? prT.Target : 0; ovT["funded"] = lqT != null && lqT.Item2 == "FUNDED" ? 1 : 0; ovT["realized"] = sT.Closed; ovT["unreal"] = sT.Open; ovT["liqAdj"] = sT.CloseCost; ovT["fpeak"] = fundedPeakOf != null && !double.IsNaN(fundedPeakOf(accT)) ? Math.Max(fundedPeakOf(accT), bal - sT.CloseCost) : bal; ovT["dayPeakNow"] = 0; ovT["ntfloor"] = 0; ovT["payout"] = 0;
                                 tagT = " • " + nickOf(accT) + (prT != null ? " (" + (prT.Size / 1000).ToString("0", CultureInfo.InvariantCulture) + "K)" : "");
                             }
                         }
@@ -49098,7 +49188,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                             m.Item5.BorderBrush = pulseM ? (Brush)new SolidColorBrush(Color.FromArgb((byte)(90 + 160 * pz), cc.R, cc.G, cc.B)) : new SolidColorBrush(Color.FromArgb(70, cc.R, cc.G, cc.B));
                         };
                         Func<double, string> usd = vU => "$" + Math.Round(vU).ToString("N0", CultureInfo.InvariantCulture); Func<double, string> sgn = vS => (vS >= 0 ? "+$" : "−$") + Math.Abs(Math.Round(vS)).ToString("N0", CultureInfo.InvariantCulture);
-                        bool fundM = tvT("funded") > 0, haveDd = dd > 0 && bal > 0; double roomM = bal - floor; bool lockedM = fundM && floor >= start - 0.01; double pkM = Math.Max(tvT("fpeak"), bal);
+                        bool fundM = tvT("funded") > 0, haveDd = dd > 0 && bal > 0; double liqAdjM = tvT("liqAdj"), roomM = bal - liqAdjM - floor; bool lockedM = fundM && floor >= start - 0.01; double pkM = Math.Max(tvT("fpeak"), bal - liqAdjM);
                         double rzN = tvT("realized"), unN = tvT("unreal");
                         {   // 🛡 11n: the account in words — the firm, EVALUATION / FUNDED, the drawdown type and size (user's request: "a clear information that this is a TPT funded account, trailing drawdown")
                             string accS = tagT != "" ? accT : linkedName; KeystoneFirmPreset prS = null;
@@ -49121,7 +49211,15 @@ namespace NinjaTrader.NinjaScript.AddOns
                             else mini("BACK", "↩ TODAY'S BREAKEVEN", dayBe > 0.5 ? sgn(dayBe) : "IN PROFIT ✔", dayBe > 0.5 ? "to get today back to $0" : "today " + sgn(rzN + unN), dayBe > 0.5 && dd > 0 ? 1 - dayBe / dd : 1, dayBe > 0.5 ? Orange : Green, false);
                         }
                         // 2. BLOWS AT: the auto-liquidation level
-                        if (haveDd) mini("BLOW", tvT("ntfloor") > 0 ? "💥 BLOW-UP LEVEL (auto-liquidation) • from NinjaTrader" : "💥 BLOW-UP LEVEL (auto-liquidation) • ✎ click = match Tradovate", "$" + floor.ToString("N2", CultureInfo.InvariantCulture), fundM ? (lockedM ? "locked at the start — it never moves again" : "trails: your best " + usd(pkM) + " − " + usd(dd)) : "evaluation • the level for today (no intraday trailing)", 0, Red, roomM < dd * 0.3);
+                        string syncS = null; { string accSy = tagT != "" ? accT : linkedName, svSy; if (accSy != null && realKeys.TryGetValue("pk.sync." + accSy, out svSy) && svSy.Length >= 16) syncS = svSy; }   // 💰 11q: the last ✎ SYNC with Tradovate
+                        bool syncToday = syncS != null && syncS.StartsWith(nyNow().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                        if (syncChip != null)
+                        {
+                            bool showSy = haveDd && fundM && tagT == ""; syncChip.Visibility = showSy ? Visibility.Visible : Visibility.Collapsed;
+                            string chipT = tvT("ntfloor") > 0 ? "✓ NINJATRADER" : syncS != null ? "✓ TRADOVATE " + (syncToday ? syncS.Substring(11, 5) : syncS.Substring(5, 5)) : "✎ SYNC"; if (Convert.ToString(syncChip.Content) != chipT) syncChip.Content = chipT;
+                        }
+                        string blowCap = tvT("ntfloor") > 0 ? "💥 BLOW-UP LEVEL (auto-liquidation) • from NinjaTrader" + (ntFloorFrom != "" ? " (" + ntFloorFrom + ")" : "") : syncS != null ? "💥 BLOW-UP LEVEL (auto-liquidation) • matched to Tradovate " + (syncToday ? syncS.Substring(11, 5) : syncS) + " • ✎ click = match again" : "💥 BLOW-UP LEVEL (auto-liquidation) • ✎ click = match Tradovate";
+                        if (haveDd) mini("BLOW", blowCap, "$" + floor.ToString("N2", CultureInfo.InvariantCulture), fundM ? (lockedM ? "locked at the start — it never moves again" : "trails: your best " + usd(pkM) + " − " + usd(dd) + (liqAdjM > 0.004 ? " (open contracts after closing fees −" + "$" + liqAdjM.ToString("0.00", CultureInfo.InvariantCulture) + ")" : "")) : "evaluation • the level for today (no intraday trailing)", 0, Red, roomM < dd * 0.3);
                         else mini("BLOW", "💥 BLOW-UP LEVEL", "—", "pick the firm in ACCOUNT LIMITS", 0, Muted, false);
                         // 3. BUFFER LEFT: what you can lose from here before it blows
                         if (haveDd) mini("BUF", "🛡 BUFFER LEFT", usd(roomM), "of " + usd(dd) + " • you can lose " + usd(roomM) + " before it blows", roomM / dd, roomM < dd * 0.3 ? Red : roomM < dd * 0.6 ? Gold : Green, roomM < dd * 0.3);
@@ -52767,7 +52865,8 @@ namespace NinjaTrader.NinjaScript.AddOns
         // target progress, groups (drag a card onto a group). It reads NinjaTrader's Account list only; it places NO orders.
         private sealed class LiveProfile { public string Name = string.Empty, Nick = string.Empty, Firm = string.Empty, Group = string.Empty, Status = "EVAL"; public double Size, Dd, Target, Peak; public bool Hidden, StopsAtStart = true; public string Plan = string.Empty; }
         private static string DeskNick(string acc) { try { LiveProfile p; var d = LoadLiveDesk(new List<string>()); return acc != null && d.TryGetValue(acc, out p) && p.Nick != "" ? p.Nick : acc; } catch { return acc; } }
-        private sealed class LiveSnap { public DateTime LastExecNy = DateTime.MinValue; public string Name = string.Empty, Connection = string.Empty, Positions = string.Empty, AccStatus = string.Empty; public double Balance, Today, Open, Closed, OpenCost, Gross; public int Contracts, Trades; public bool Connected; public Dictionary<string, int> Qty = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); }   // Qty: signed contracts per instrument (MNQ, MGC …)   // Gross: realized before commissions; Trades ≈ today's executions / 2   // Open / Closed: NinjaTrader's unrealized / realized P/L today; OpenCost ≈ commissions + 1 tick to close the open contracts
+        private sealed class LiveSnap { public DateTime LastExecNy = DateTime.MinValue; public string Name = string.Empty, Connection = string.Empty, Positions = string.Empty, AccStatus = string.Empty; public double Balance, Today, Open, Closed, OpenCost, Gross; public int Contracts, Trades; public bool Connected;
+            public double ExecComm, PerSide = KeystoneFundedLiq.DefaultPerSide, CloseCost; public int ExecQty; public bool Consistent = true; public string PerSideFrom = "";   /* 💰 11q: today's executions (commission, contracts), the per-side commission learned + where from, the cost to close the open contracts, a consistent reading */ public Dictionary<string, int> Qty = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); }   // Qty: signed contracts per instrument (MNQ, MGC …)   // Gross: realized before commissions; Trades ≈ today's executions / 2   // Open / Closed: NinjaTrader's unrealized / realized P/L today; OpenCost ≈ commissions + 1 tick to close the open contracts
         private Window liveDeskWindow; private Action liveDeskRefresh; private Action<string, string> liveDeskMove; private Func<string, string> liveDeskNewGroup;
         private static string LiveDeskFile() { return Path.Combine(DataStoreDirectory(), "LiveDesk.txt"); }
 
@@ -52832,6 +52931,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             }
             return res;
         }
+        // 💰 11q: the per-side commission learned per account (Studio\CommissionRates.txt), the start-of-day fallback before NinjaTrader shows today's fees
+        private static bool feeRatesLoaded; private static DateTime feeRatesSaved = DateTime.MinValue;
+        private static void LoadFeeRates() { if (feeRatesLoaded) return; feeRatesLoaded = true; try { var f = Path.Combine(StudioFolder(), "CommissionRates.txt"); if (File.Exists(f)) KeystoneFundedLiq.Parse(File.ReadAllText(f)); } catch { } }
+        private static void SaveFeeRates() { if ((DateTime.Now - feeRatesSaved).TotalSeconds < 30) return; feeRatesSaved = DateTime.Now; try { Directory.CreateDirectory(StudioFolder()); File.WriteAllText(Path.Combine(StudioFolder(), "CommissionRates.txt"), KeystoneFundedLiq.Format()); } catch { } }
         private static List<LiveSnap> ReadNinjaAccounts()
         {
             var list = new List<LiveSnap>();
@@ -52852,7 +52955,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         // today's fills (from 18:00 New York) → trades ≈ fills / 2
                         var ex = ReflectionValue(a, "Executions") as System.Collections.IEnumerable; int nEx = 0; DateTime nyL = DateTime.Now; try { nyL = TimeZoneInfo.ConvertTimeBySystemTimeZoneId(DateTime.UtcNow, "Eastern Standard Time"); } catch { }
                         DateTime nyStart = nyL.Hour >= 18 ? nyL.Date.AddHours(18) : nyL.Date.AddDays(-1).AddHours(18), from = DateTime.Now - (nyL - nyStart);   // the session start (18:00 New York) on this PC's clock
-                        if (ex != null) foreach (var e in ex) { var tt = ReflectionValue(e, "Time"); if (!(tt is DateTime)) continue; if ((DateTime)tt >= from) nEx++; var tNy = (DateTime)tt + (nyL - DateTime.Now); if (tNy > s.LastExecNy) s.LastExecNy = tNy; }   // the last fill, New York time
+                        if (ex != null) foreach (var e in ex) { var tt = ReflectionValue(e, "Time"); if (!(tt is DateTime)) continue; if ((DateTime)tt >= from) { nEx++; try { s.ExecQty += Math.Abs(Convert.ToInt32(ReflectionValue(e, "Quantity") ?? 0)); s.ExecComm += Math.Max(0, Convert.ToDouble(ReflectionValue(e, "Commission") ?? 0.0)); } catch { } } var tNy = (DateTime)tt + (nyL - DateTime.Now); if (tNy > s.LastExecNy) s.LastExecNy = tNy; }   // the last fill, New York time
                         s.Trades = (nEx + 1) / 2;
                     }
                     catch { }
@@ -52873,7 +52976,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                             }
                     }
                     catch { }
-                    s.Positions = string.Join(" • ", parts); list.Add(s);
+                    s.Positions = string.Join(" • ", parts);
+                    {   // 💰 11q: the per-side commission from NinjaTrader's own numbers today → the cost to close what is open (the funded peak's liquidation value)
+                        LoadFeeRates(); double fb; lock (KeystoneFundedLiq.Learned) KeystoneFundedLiq.Learned.TryGetValue(s.Name, out fb); string src;
+                        s.PerSide = KeystoneFundedLiq.PerSide(s.ExecComm, s.ExecQty, s.Gross, realized, s.Contracts, fb, out src); s.PerSideFrom = src;
+                        if (src.StartsWith("NinjaTrader") && Math.Abs(fb - s.PerSide) > 0.005) { lock (KeystoneFundedLiq.Learned) KeystoneFundedLiq.Learned[s.Name] = s.PerSide; SaveFeeRates(); }
+                        s.CloseCost = KeystoneFundedLiq.CloseCost(s.Contracts, s.PerSide); s.Consistent = KeystoneFundedLiq.Consistent(s.Balance, unrealized, s.Contracts);
+                    }
+                    list.Add(s);
                 }
             }
             catch { }

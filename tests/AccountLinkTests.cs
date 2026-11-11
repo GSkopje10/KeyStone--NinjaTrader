@@ -961,6 +961,40 @@ public static class AccountLinkTests
             g5.Skip(at(10, 2, 2)); b5[1].Pnl = 160; var t5d = g5.Offer(cand(1, at(10, 3, 0)), at(10, 3, 1), 20000);
             Check(t5d == null && g5.WhyNot(g5.Pool[1]).StartsWith("DAY GOAL $150 REACHED") && b5.All(b => b.Sent.Count == 0), "💰 FD is up $160 today (≥ the $150 day goal) → skipped for the rest of the day, nothing sent", g5.WhyNot(g5.Pool[1]));
         }
+        // 💰 11q: the FUNDED trailing peak = the firm's LIQUIDATION value (NetLiquidation − the closing commission of the open contracts) — the user's
+        //     TPT funded 50K: Tradovate DRAWDOWN AUTO 49,102.75 (peak 51,102.75) vs KeyStone 49,113.25; trade #3 SHORT 10 MNQ best open +$568.75
+        {
+            double before3 = 51076.50 - 532, netLiqPeak = before3 + 568.75;   // 51,113.25 = NinjaTrader's NetLiquidation at #3's best
+            Check(Math.Abs(KeystoneFundedLiq.PeakCandidate(netLiqPeak, 568.75, 10, 1.05) - 51102.75) < 1e-6, "💰 open SHORT 10 at +$568.75, $1.05 a side → peak equity 51,102.75 (= Tradovate's)", KeystoneFundedLiq.PeakCandidate(netLiqPeak, 568.75, 10, 1.05).ToString());
+            Check(Math.Abs(KeystoneFundedLiq.PeakCandidate(51076.50, 0, 0, 1.05) - 51076.50) < 1e-9, "💰 flat → no adjustment (the balance itself)");
+            Check(double.IsNaN(KeystoneFundedLiq.PeakCandidate(51113.25, 568.75, 0, 1.05)) && double.IsNaN(KeystoneFundedLiq.PeakCandidate(0, 0, 0, 1.05)), "💰 an open P/L with no position listed (stale) / no balance → no peak taken");
+            string src;
+            // the day's Accounts grid: gross 1,121.50 − realized 1,076.50 = $45 for 21 round turns (42 sides) → $1.0714 a side
+            double ps = KeystoneFundedLiq.PerSide(0, 42, 1121.50, 1076.50, 0, 0, out src);
+            Check(Math.Abs(ps - 45.0 / 42) < 1e-9 && src == "NinjaTrader gross − realized", "💰 commission learned from gross − realized: $45 / 42 sides = $1.0714 a side", ps + " " + src);
+            Check(Math.Abs(KeystoneFundedLiq.PeakCandidate(netLiqPeak, 568.75, 10, ps) - 51102.75) <= 0.25, "💰 with the learned $1.0714 the peak is 51,102.75 ± $0.25", KeystoneFundedLiq.PeakCandidate(netLiqPeak, 568.75, 10, ps).ToString("0.00"));
+            // during #3: 11 round turns closed (22 sides) + the 10 open → the closed sides only; the executions' own commission wins when reported
+            double ps2 = KeystoneFundedLiq.PerSide(0, 32, 23.10 + 1000, 1000, 10, 0, out src);
+            Check(Math.Abs(ps2 - 1.05) < 1e-9, "💰 with 10 open: (gross − realized) / the 22 closed sides = $1.05", ps2.ToString());
+            Check(Math.Abs(KeystoneFundedLiq.PerSide(21.0, 20, 0, 0, 0, 0, out src) - 1.05) < 1e-9 && src == "NinjaTrader executions", "💰 the executions' own commission first ($21 / 20 contracts)");
+            Check(Math.Abs(KeystoneFundedLiq.PerSide(0, 10, 0, 0, 10, 1.07, out src) - 1.07) < 1e-9 && src == "last rate learned" && Math.Abs(KeystoneFundedLiq.PerSide(0, 0, 0, 0, 0, 0, out src) - KeystoneFundedLiq.DefaultPerSide) < 1e-9, "💰 nothing closed yet → the last rate learned, else the default");
+            // the pool account: the peak follows the liquidation value, a stale reading never raises it, the floor = peak − $2,000
+            var pa = new KeystonePoolAccount { Account = "TAKEPROFITPRO382305483", Status = "FUNDED", FundedPeak = before3 };
+            pa.Observe(netLiqPeak, KeystoneFundedLiq.CloseCost(10, 1.05), true);
+            Check(Math.Abs(pa.FundedPeak - 51102.75) < 1e-6 && Math.Abs(pa.FundedFloor(netLiqPeak, 2000, 50000, double.NaN) - 49102.75) < 1e-6, "💰 pool: peak 51,102.75 → BLOWS AT 49,102.75 (Tradovate's DRAWDOWN AUTO), not 49,113.25", pa.FundedPeak + " / " + pa.FundedFloor(netLiqPeak, 2000, 50000, double.NaN));
+            pa.Observe(51200, 0, false);
+            Check(Math.Abs(pa.FundedPeak - 51102.75) < 1e-6 && Math.Abs(pa.FundedFloor(51200, 2000, 50000, double.NaN) - 49102.75) < 1e-6, "💰 a stale / inconsistent reading (51,200) does not move the peak or the floor");
+            pa.Observe(51076.50, 0, true);
+            Check(Math.Abs(pa.FundedPeak - 51102.75) < 1e-6 && Math.Abs(pa.FundedFloor(51076.50, 2000, 50000, double.NaN) - 49102.75) < 1e-6, "💰 flat after #3 at 51,076.50: the peak stays 51,102.75");
+            var ev = new KeystonePoolAccount { Account = "E", Status = "EVAL" }; ev.Observe(51000, 10, true); Check(ev.FundedPeak == 0 && ev.PeakBal == 51000, "💰 an EVAL account keeps no funded peak (PeakBal = NinjaTrader's equity as before)");
+            // EXECUTIONS: fees / net from NinjaTrader (Tradovate's executions carry Commission 0)
+            var tr = new List<KeystoneJTrade> { new KeystoneJTrade { MaxQty = 5, Gross = -1.25 * 2 + 0 }, new KeystoneJTrade { MaxQty = 6, Gross = 588.75 }, new KeystoneJTrade { MaxQty = 10, Gross = 534.0 } };
+            Check(KeystoneFundedLiq.ApplyNtFees(tr, 1121.50, 1076.50) && Math.Abs(tr.Sum(t => t.Fees) - 45) < 1e-9 && Math.Abs(tr[2].Fees - 45.0 * 10 / 21) < 1e-9, "💰 EXECUTIONS: the $45 of fees shared by contracts (10 of 21 → $21.43)", string.Join(",", tr.Select(t => t.Fees.ToString("0.00"))));
+            Check(Math.Abs(KeystoneFundedLiq.ShownNet(tr, 1121.50, 1076.50) - 1076.50) < 1e-9 && KeystoneFundedLiq.DayFees(1121.50, 1076.50) == 45, "💰 EXECUTIONS: the day's NET = NinjaTrader's Realized PnL +$1,076.50, FEES $45");
+            Check(!KeystoneFundedLiq.ApplyNtFees(tr, 1121.50, 1076.50) && double.IsNaN(KeystoneFundedLiq.DayFees(0, 0)) && Math.Abs(KeystoneFundedLiq.ShownNet(tr, double.NaN, double.NaN) - tr.Sum(t => t.Net)) < 1e-9, "💰 EXECUTIONS: already right → unchanged; NinjaTrader's numbers unknown → the executions' own");
+            KeystoneFundedLiq.Learned.Clear(); KeystoneFundedLiq.Parse("TAKEPROFITPRO382305483|1.0714\nBAD|x"); var fmt = KeystoneFundedLiq.Format();
+            Check(KeystoneFundedLiq.Learned.Count == 1 && Math.Abs(KeystoneFundedLiq.Learned["takeprofitpro382305483"] - 1.0714) < 1e-9 && fmt == "TAKEPROFITPRO382305483|1.0714", "💰 the learned rates are saved / read per account", fmt);
+        }
         Console.WriteLine(failures == 0 ? "ALL ACCOUNT LINK TESTS PASSED" : failures + " ACCOUNT LINK TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

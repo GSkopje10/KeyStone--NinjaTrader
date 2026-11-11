@@ -81,6 +81,10 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   SOURCE 🎯 3 SETUPS is GUIDED / MANUAL only (never AUTO): a ticket (the next pool account per ONE TRADE PER ACCOUNT / STAY UNTIL DONE, a FUNDED-ticked account gets the funded size /
   bracket, an account over its day goal / marked DONE / locked / disarmed is skipped) flashes in the tab + a topmost window; ONE press = the bracket through THAT account's own ARMED link
   with its limits (the rotator's START confirmation, runaway guard, lockouts all apply); SKIP; 2 minutes late = missed; nothing is ever sent without the press; journal Studio\TriRotation\live-<date>.csv.
+  💰 11q (display / read-only): a FUNDED account's intraday trailing peak follows the firm's LIQUIDATION value (`KeystoneFundedLiq`: NinjaTrader's NetLiquidation − open contracts ×
+  the per-side commission learned from NinjaTrader today — executions' Commission, else gross − realized, Studio\CommissionRates.txt), only from a consistent reading; a NinjaTrader
+  trailing AccountItem still wins (every Drawdown / Liquidation / Trailing item is logged once to Studio\KeyStone.log); ✎ SYNC next to BLOWS AT = Tradovate's DRAWDOWN AUTO (time kept,
+  `pk.sync.<account>`); EXECUTIONS fees / net = NinjaTrader's gross − realized / realized. Nothing here sends or closes anything; tests in `tests/AccountLinkTests.cs` (💰 11q block).
   Research / lab / backtests stay historical; no Apex/Nexus coupling. The ⚖ DRAWDOWN LAB (its window + LIVE TRADING ▸ ⚖ TRAILING DD SIM tab, `KeystoneDdAccount` + `BuildDrawdownLabView`, tests `tests/DrawdownLabTests.cs`) is simulation only on live / saved prices: it never places an order.
 - SpasiX for MT5 (`mt5/`: the bridge EA `SpasiXBridge.mq5` v5 + the Windows app `mt5/app`, built with `dotnet publish` here, shipped in `mt5/dist`;
   a full-screen HOME picks LIVE / PROP / DEMO / BACKTEST; several can be open at once as tabs in our own title bar, `Shell.cs`, each LIVE / PROP
