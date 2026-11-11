@@ -6473,7 +6473,9 @@ namespace NinjaTrader.NinjaScript
             if (ticks == null || ticks.Count == 0) return; var f = FileOf(folder, symbol, day); Directory.CreateDirectory(Path.GetDirectoryName(f));
             using (var bw = new BinaryWriter(File.Create(f))) { bw.Write("KTK1"); bw.Write(ticks.Count); bw.Write(source ?? "TICKS"); foreach (var t in ticks) { bw.Write(t.Time.Ticks); bw.Write(t.Price); bw.Write((int)Math.Min(int.MaxValue, t.Volume)); } }
         }
-        public static List<KeystoneTick> Load(string folder, string symbol, DateTime day, out string source)
+        // 📥 11s: the TICK LIBRARY reads both formats (v2 with side / bid-ask, the old v1) + the live recording + the 1-second bars (source SECONDS)
+        public static List<KeystoneTick> Load(string folder, string symbol, DateTime day, out string source) { return KeystoneTickLib.LoadForReplay(folder, symbol, day, out source); }
+        public static List<KeystoneTick> LoadV1(string folder, string symbol, DateTime day, out string source)
         {
             source = ""; var f = FileOf(folder, symbol, day); if (!File.Exists(f)) return null;
             try { using (var br = new BinaryReader(File.OpenRead(f))) { if (br.ReadString() != "KTK1") return null; int n = br.ReadInt32(); source = br.ReadString(); var o = new List<KeystoneTick>(n); for (int i = 0; i < n; i++) o.Add(new KeystoneTick { Time = new DateTime(br.ReadInt64()), Price = br.ReadDouble(), Volume = br.ReadInt32() }); return o; } }
@@ -6506,6 +6508,349 @@ namespace NinjaTrader.NinjaScript
                 o.Add(new KeystoneTick { Time = t0.AddMilliseconds(500), Price = upFirst ? b.Low : b.High, Volume = v }); o.Add(new KeystoneTick { Time = b.Time.AddMilliseconds(-1), Price = b.Close, Volume = v });
             }
             return o;
+        }
+    }
+    /* 📥 BUILD 2026-11-11s — the TICK LIBRARY (user: "how can I download tick data … saved permanently and then just loaded for testing"). NinjaTrader's REAL trades
+       kept for good, one file per symbol + SESSION day (18:00 the evening before → 17:00) in Studio\TickCache\<SYM>\ (the old cache's folder):
+         <day>.bin  — v2 = gzip of "KTK2", the version, symbol, session day, source, complete flag, counts, then every trade: time (varint delta, 100 ns), price,
+                      size, side (+1 bought at the ask / −1 sold at the bid, from NinjaTrader's bid / ask at the trade, else the tick rule) and the bid / ask-quoted flag.
+                      The old v1 files (KTK1, no side) are still read (the side then comes from the tick rule, never the bid / ask).
+         seconds\<day>.sec — the 1-SECOND bars of a day with no tick history (stored apart, flagged "no bid / ask": they are NEVER order flow)
+         live\<day>.live  — ● LIVE TRADING's own trades of today, appended in the background (merged with a download on load)
+         <day>.none — NinjaTrader had no session that day (holidays it did not know about)
+       It only reads NinjaTrader's history and writes files: nothing here sends an order. */
+    public sealed class KeystoneTickDay
+    {
+        public DateTime Day; public string Symbol = "", Status = "MISSING", Source = "", Note = ""; public int Count, Quoted, Version; public long Bytes; public DateTime First, Last; public bool Complete, Live;
+        public double QuotedPct { get { return Count == 0 ? 0 : 100.0 * Quoted / Count; } }
+        public bool RealTicks { get { return Status == "COMPLETE" || Status == "PARTIAL"; } }
+    }
+    public static class KeystoneTickLib
+    {
+        public const string Magic = "KTK2"; public const int Version = 2; const int LiveRec = 22;
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public static string Norm(string sym) { var s = (sym ?? "MNQ").Trim().ToUpperInvariant(); foreach (var c in Path.GetInvalidFileNameChars().Concat(new[] { ' ' })) s = s.Replace(c, '_'); return s == "" ? "MNQ" : s; }
+        public static string SymFolder(string folder, string sym) { return Path.Combine(folder ?? "", "TickCache", Norm(sym)); }
+        static string D(DateTime day) { return day.ToString("yyyy-MM-dd", IC); }
+        public static string FileOf(string folder, string sym, DateTime day) { return Path.Combine(SymFolder(folder, sym), D(day) + ".bin"); }
+        public static string SecondsFile(string folder, string sym, DateTime day) { return Path.Combine(SymFolder(folder, sym), "seconds", D(day) + ".sec"); }
+        public static string LiveFile(string folder, string sym, DateTime day) { return Path.Combine(SymFolder(folder, sym), "live", D(day) + ".live"); }
+        public static string NoneFile(string folder, string sym, DateTime day) { return Path.Combine(SymFolder(folder, sym), D(day) + ".none"); }
+        // ---- the session calendar (CME equity / metals futures): a session day D runs from D−1 18:00 to D 17:00 NY; no session on Saturday / Sunday,
+        // New Year's Day, Good Friday and Christmas (a Sunday holiday → the Monday). Anything else NinjaTrader has no trades for is marked .none quietly.
+        public static DateTime SessionOfTick(DateTime t) { return t.Hour >= 18 ? t.Date.AddDays(1) : t.Date; }
+        public static DateTime SessionStart(DateTime day) { return day.Date.AddDays(-1).AddHours(18); }
+        public static DateTime SessionEnd(DateTime day) { return day.Date.AddHours(17); }
+        public static DateTime Easter(int y)
+        {
+            int a = y % 19, b = y / 100, c = y % 100, d = b / 4, e = b % 4, f = (b + 8) / 25, g = (b - f + 1) / 3, h = (19 * a + b - d - g + 15) % 30, i = c / 4, k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = (a + 11 * h + 22 * l) / 451;
+            int month = (h + l - 7 * m + 114) / 31, day = (h + l - 7 * m + 114) % 31 + 1; return new DateTime(y, month, day);
+        }
+        public static bool Holiday(DateTime d)
+        {
+            d = d.Date; Func<DateTime, bool> obs = h => h == d || (h.DayOfWeek == DayOfWeek.Sunday && h.AddDays(1) == d);
+            return obs(new DateTime(d.Year, 1, 1)) || obs(new DateTime(d.Year, 12, 25)) || (new DateTime(d.Year, 12, 25).DayOfWeek == DayOfWeek.Saturday && d == new DateTime(d.Year, 12, 24)) || Easter(d.Year).AddDays(-2) == d;
+        }
+        public static bool IsSessionDay(DateTime d) { d = d.Date; return d.DayOfWeek != DayOfWeek.Saturday && d.DayOfWeek != DayOfWeek.Sunday && !Holiday(d); }
+        // ---- varints (the times as deltas: a day of ~500 k trades is a few MB)
+        static void WV(BinaryWriter w, ulong v) { while (v >= 0x80) { w.Write((byte)(v | 0x80)); v >>= 7; } w.Write((byte)v); }
+        static ulong RV(BinaryReader r) { ulong v = 0; int sh = 0; while (true) { byte b = r.ReadByte(); v |= (ulong)(b & 0x7F) << sh; if ((b & 0x80) == 0) return v; sh += 7; if (sh > 63) throw new InvalidDataException("varint"); } }
+        static ulong Zz(long v) { return (ulong)((v << 1) ^ (v >> 63)); }
+        static long Uz(ulong v) { return (long)(v >> 1) ^ -(long)(v & 1); }
+        // ---- v2 write / read
+        public static void Write(Stream s, string sym, DateTime day, IList<KeystoneOfTick> ticks, string source, bool complete)
+        {
+            ticks = ticks ?? new List<KeystoneOfTick>();
+            using (var gz = new System.IO.Compression.GZipStream(s, System.IO.Compression.CompressionMode.Compress, true)) using (var w = new BinaryWriter(gz, Encoding.UTF8))
+            {
+                int q = 0; foreach (var t in ticks) if (t.Quoted) q++;
+                w.Write(Magic); w.Write(Version); w.Write(Norm(sym)); w.Write(day.Date.Ticks); w.Write(source ?? "TICKS"); w.Write(complete); w.Write(ticks.Count); w.Write(q);
+                w.Write(ticks.Count > 0 ? ticks[0].Time.Ticks : 0L); w.Write(ticks.Count > 0 ? ticks[ticks.Count - 1].Time.Ticks : 0L);
+                long prev = ticks.Count > 0 ? ticks[0].Time.Ticks : 0;
+                foreach (var t in ticks)
+                {
+                    WV(w, Zz(t.Time.Ticks - prev)); prev = t.Time.Ticks; w.Write(t.Price); WV(w, (ulong)Math.Max(0, t.Size));
+                    w.Write((byte)((t.Side > 0 ? 1 : 0) | (t.Side < 0 ? 2 : 0) | (t.Quoted ? 4 : 0)));
+                }
+            }
+        }
+        static KeystoneTickDay ReadHeader(BinaryReader r, KeystoneTickDay m)
+        {
+            m.Version = r.ReadInt32(); m.Symbol = r.ReadString(); m.Day = new DateTime(r.ReadInt64()); m.Source = r.ReadString(); m.Complete = r.ReadBoolean(); m.Count = r.ReadInt32(); m.Quoted = r.ReadInt32();
+            long f = r.ReadInt64(), l = r.ReadInt64(); m.First = f > 0 ? new DateTime(f) : DateTime.MinValue; m.Last = l > 0 ? new DateTime(l) : DateTime.MinValue; return m;
+        }
+        // one stored day file (v2 or the old v1) → its trades + what it is; headerOnly = the counts only (the calendar)
+        public static List<KeystoneOfTick> ReadFile(string file, bool headerOnly, out KeystoneTickDay meta)
+        {
+            meta = new KeystoneTickDay(); if (!File.Exists(file)) return null;
+            try
+            {
+                using (var fs = File.OpenRead(file))
+                {
+                    meta.Bytes = fs.Length; int b0 = fs.ReadByte(), b1 = fs.ReadByte(); fs.Position = 0;
+                    if (b0 == 0x1F && b1 == 0x8B)
+                    {
+                        using (var gz = new System.IO.Compression.GZipStream(fs, System.IO.Compression.CompressionMode.Decompress)) using (var r = new BinaryReader(gz, Encoding.UTF8))
+                        {
+                            if (r.ReadString() != Magic) return null; ReadHeader(r, meta); if (headerOnly) return null;
+                            var o = new List<KeystoneOfTick>(meta.Count); long t = meta.First.Ticks;
+                            for (int i = 0; i < meta.Count; i++)
+                            {
+                                t += Uz(RV(r)); double px = r.ReadDouble(); long sz = (long)RV(r); byte fl = r.ReadByte();
+                                o.Add(new KeystoneOfTick { Time = new DateTime(t), Price = px, Size = sz, Side = (fl & 1) != 0 ? 1 : (fl & 2) != 0 ? -1 : 0, Quoted = (fl & 4) != 0 });
+                            }
+                            return o;
+                        }
+                    }
+                    using (var r = new BinaryReader(fs))
+                    {   /* v1 (KTK1): no side, no bid / ask → the tick rule */
+                        if (r.ReadString() != "KTK1") return null; int n = r.ReadInt32(); meta.Version = 1; meta.Count = n; meta.Source = r.ReadString(); meta.Complete = false; meta.Note = "old cache (no bid / ask) — ↻ REPAIR downloads it again with bid / ask";
+                        if (headerOnly) return null; var o = new List<KeystoneOfTick>(n); double prev = 0; int ps = 0;
+                        for (int i = 0; i < n; i++) { var tt = new DateTime(r.ReadInt64()); double px = r.ReadDouble(); int v = r.ReadInt32(); int sd = KeystoneOrderFlow.Classify(px, 0, 0, prev, ps); o.Add(new KeystoneOfTick { Time = tt, Price = px, Size = v, Side = sd, Quoted = false }); prev = px; ps = sd; }
+                        if (o.Count > 0) { meta.First = o[0].Time; meta.Last = o[o.Count - 1].Time; }
+                        return o;
+                    }
+                }
+            }
+            catch { return null; }
+        }
+        // ---- save (written to a temp file first, then moved: a half-written file never replaces a good one)
+        public static void Save(string folder, string sym, DateTime day, IList<KeystoneOfTick> ticks, string source, bool complete)
+        {
+            if (ticks == null || ticks.Count == 0) return; var f = FileOf(folder, sym, day); Directory.CreateDirectory(Path.GetDirectoryName(f)); string tmp = f + ".tmp";
+            using (var fs = File.Create(tmp)) Write(fs, sym, day, ticks, source, complete);
+            if (File.Exists(f)) File.Delete(f); File.Move(tmp, f); try { var nf = NoneFile(folder, sym, day); if (File.Exists(nf)) File.Delete(nf); } catch { }
+        }
+        public static void MarkNoSession(string folder, string sym, DateTime day) { var f = NoneFile(folder, sym, day); Directory.CreateDirectory(Path.GetDirectoryName(f)); File.WriteAllText(f, "no session in NinjaTrader's history"); }
+        // the ticks of ONE session day from a longer list (NinjaTrader's request may cover several days)
+        public static List<KeystoneOfTick> DayOf(IList<KeystoneOfTick> ticks, DateTime day) { var a = SessionStart(day); var z = SessionEnd(day); return (ticks ?? new List<KeystoneOfTick>()).Where(t => t.Time > a && t.Time <= z).OrderBy(t => t.Time).ToList(); }
+        // ---- the live recorder: fixed 22-byte records appended to live\<day>.live (time, price, size, side, quoted)
+        public static int AppendLive(string folder, string sym, IList<KeystoneOfTick> ticks)
+        {
+            int n = 0; if (ticks == null) return 0;
+            foreach (var g in ticks.GroupBy(t => SessionOfTick(t.Time)))
+            {
+                var f = LiveFile(folder, sym, g.Key); Directory.CreateDirectory(Path.GetDirectoryName(f));
+                using (var fs = new FileStream(f, FileMode.Append, FileAccess.Write, FileShare.Read)) using (var w = new BinaryWriter(fs))
+                    foreach (var t in g) { w.Write(t.Time.Ticks); w.Write(t.Price); w.Write((int)Math.Min(int.MaxValue, Math.Max(0, t.Size))); w.Write((sbyte)Math.Sign(t.Side)); w.Write(t.Quoted ? (byte)1 : (byte)0); n++; }
+            }
+            return n;
+        }
+        public static List<KeystoneOfTick> LoadLive(string folder, string sym, DateTime day)
+        {
+            var f = LiveFile(folder, sym, day); if (!File.Exists(f)) return null; var o = new List<KeystoneOfTick>();
+            try
+            {
+                using (var fs = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) using (var r = new BinaryReader(fs))
+                    while (fs.Length - fs.Position >= LiveRec) o.Add(new KeystoneOfTick { Time = new DateTime(r.ReadInt64()), Price = r.ReadDouble(), Size = r.ReadInt32(), Side = r.ReadSByte(), Quoted = r.ReadByte() != 0 });
+            }
+            catch { }
+            return o.OrderBy(t => t.Time).ToList();
+        }
+        // a download + the live recording of the same day: the download wins where it covers, the live trades before / after it are kept
+        public static List<KeystoneOfTick> Merge(IList<KeystoneOfTick> download, IList<KeystoneOfTick> live)
+        {
+            var a = (download ?? new List<KeystoneOfTick>()).OrderBy(t => t.Time).ToList(); var b = (live ?? new List<KeystoneOfTick>()).OrderBy(t => t.Time).ToList();
+            if (a.Count == 0) return b; if (b.Count == 0) return a; DateTime f = a[0].Time, l = a[a.Count - 1].Time;
+            var o = b.Where(t => t.Time < f).ToList(); o.AddRange(a); o.AddRange(b.Where(t => t.Time > l)); return o;
+        }
+        // ---- 1-second bars (a day without tick history): stored apart, flagged no bid / ask
+        public static void SaveSeconds(string folder, string sym, DateTime day, IList<KeystoneArcBar> secs)
+        {
+            if (secs == null || secs.Count == 0) return; var f = SecondsFile(folder, sym, day); Directory.CreateDirectory(Path.GetDirectoryName(f));
+            using (var fs = File.Create(f)) using (var gz = new System.IO.Compression.GZipStream(fs, System.IO.Compression.CompressionMode.Compress)) using (var w = new BinaryWriter(gz))
+            { w.Write("KSEC1"); w.Write(secs.Count); foreach (var b in secs) { w.Write(b.Time.Ticks); w.Write(b.Open); w.Write(b.High); w.Write(b.Low); w.Write(b.Close); w.Write(b.Volume); } }
+        }
+        public static List<KeystoneArcBar> LoadSeconds(string folder, string sym, DateTime day)
+        {
+            var f = SecondsFile(folder, sym, day); if (!File.Exists(f)) return null;
+            try
+            {
+                using (var fs = File.OpenRead(f)) using (var gz = new System.IO.Compression.GZipStream(fs, System.IO.Compression.CompressionMode.Decompress)) using (var r = new BinaryReader(gz))
+                { if (r.ReadString() != "KSEC1") return null; int n = r.ReadInt32(); var o = new List<KeystoneArcBar>(n); for (int i = 0; i < n; i++) o.Add(new KeystoneArcBar { Symbol = sym, Time = new DateTime(r.ReadInt64()), Open = r.ReadDouble(), High = r.ReadDouble(), Low = r.ReadDouble(), Close = r.ReadDouble(), Volume = r.ReadInt64() }); return o; }
+            }
+            catch { return null; }
+        }
+        // ---- what the library has for a day (the calendar: COMPLETE green • PARTIAL amber • SECONDS blue • MISSING grey • NOSESSION dark)
+        public static KeystoneTickDay Info(string folder, string sym, DateTime day)
+        {
+            day = day.Date; var m = new KeystoneTickDay { Day = day, Symbol = Norm(sym) }; long bytes = 0;
+            KeystoneTickDay h; var f = FileOf(folder, sym, day); ReadFile(f, true, out h); bool main = File.Exists(f) && h.Count > 0;
+            var lf = LiveFile(folder, sym, day); long liveN = File.Exists(lf) ? new FileInfo(lf).Length / LiveRec : 0; if (File.Exists(lf)) bytes += new FileInfo(lf).Length;
+            var sf = SecondsFile(folder, sym, day); bool secs = File.Exists(sf); if (secs) bytes += new FileInfo(sf).Length;
+            if (main)
+            {
+                m.Count = h.Count; m.Quoted = h.Quoted; m.Source = h.Source; m.Version = h.Version; m.Complete = h.Complete; m.First = h.First; m.Last = h.Last; m.Note = h.Note; bytes += h.Bytes;
+                if (h.Version == 1 && h.Source == "SECONDS") { m.Status = "SECONDS"; m.Note = "1-second bars (old cache) — no bid / ask, never order flow"; }
+                else m.Status = h.Complete ? "COMPLETE" : "PARTIAL";
+                if (liveN > 0) { m.Live = true; if (m.Status == "SECONDS") { m.Status = "PARTIAL"; m.Source = "LIVE"; m.Count = (int)liveN; } }
+            }
+            else if (liveN > 0) { m.Status = "PARTIAL"; m.Source = "LIVE"; m.Count = (int)liveN; m.Live = true; m.Note = "recorded live by ● LIVE TRADING (today's part only) — ⬇ DOWNLOAD fills the rest"; }
+            else if (secs) { m.Status = "SECONDS"; m.Source = "SECONDS"; m.Note = "1-second bars — no tick history that day; no bid / ask, never order flow"; }
+            else if (!IsSessionDay(day) || File.Exists(NoneFile(folder, sym, day))) { m.Status = "NOSESSION"; m.Note = "no session"; }
+            m.Bytes = bytes; return m;
+        }
+        public static List<KeystoneTickDay> Range(string folder, string sym, DateTime from, DateTime to) { var o = new List<KeystoneTickDay>(); for (var d = from.Date; d <= to.Date; d = d.AddDays(1)) o.Add(Info(folder, sym, d)); return o; }
+        public static long DiskUse(string folder, string sym = null)
+        {
+            try { var root = sym == null ? Path.Combine(folder ?? "", "TickCache") : SymFolder(folder, sym); if (!Directory.Exists(root)) return 0; return new DirectoryInfo(root).GetFiles("*", SearchOption.AllDirectories).Sum(x => x.Length); } catch { return 0; }
+        }
+        public static string Mb(long bytes) { return bytes >= 1L << 30 ? (bytes / (double)(1L << 30)).ToString("0.00", IC) + " GB" : (bytes / (double)(1L << 20)).ToString("0.0", IC) + " MB"; }
+        public static string Count(long n) { return n >= 1000000 ? (n / 1e6).ToString("0.0", IC) + " M" : n >= 1000 ? (n / 1e3).ToString("0", IC) + " k" : n.ToString(IC); }
+        // ---- the ORDER FLOW of a day: ONLY real trades (the download / the old v1 cache / the live recording) — 1-second bars are NEVER turned into order flow
+        public static List<KeystoneOfTick> OrderFlowTicks(string folder, string sym, DateTime day, out KeystoneTickDay meta)
+        {
+            meta = Info(folder, sym, day); if (!meta.RealTicks) return null; KeystoneTickDay h;
+            var main = ReadFile(FileOf(folder, sym, day), false, out h); if (h != null && h.Version == 1 && h.Source == "SECONDS") main = null;
+            var o = Merge(main, LoadLive(folder, sym, day)); return o.Count == 0 ? null : o;
+        }
+        // ---- the REPLAY's ticks: real trades first, else the day's 1-second bars as a path (source SECONDS) — what the studio / ROTATION SIM / 3-SETUP drawer walk on
+        public static List<KeystoneTick> LoadForReplay(string folder, string sym, DateTime day, out string source)
+        {
+            source = ""; KeystoneTickDay m; var real = OrderFlowTicks(folder, sym, day, out m);
+            if (real != null) { source = "TICKS"; return real.Select(t => new KeystoneTick { Time = t.Time, Price = t.Price, Volume = t.Size }).ToList(); }
+            KeystoneTickDay h; var old = ReadFile(FileOf(folder, sym, day), false, out h); if (old != null && old.Count > 0) { source = h.Source == "" ? "TICKS" : h.Source; return old.Select(t => new KeystoneTick { Time = t.Time, Price = t.Price, Volume = t.Size }).ToList(); }
+            var secs = LoadSeconds(folder, sym, day); if (secs != null && secs.Count > 0) { source = "SECONDS"; return KeystoneTickCache.FromSeconds(secs); }
+            return null;
+        }
+        // "real ticks ✓ n days of m" — the line every replay / simulation shows
+        public static int RealDays(string folder, string sym, IEnumerable<DateTime> days) { int n = 0; foreach (var d in days ?? new DateTime[0]) if (Info(folder, sym, d).RealTicks) n++; return n; }
+        public static string CoverageText(int n, int m) { return m <= 0 ? "" : n <= 0 ? "no real ticks in the library for these " + m + " days — 1-minute path (📥 TICK LIBRARY downloads them)" : (n >= m ? "real ticks ✓ " : "real ticks ✓ ") + n + " days of " + m + (n < m ? " (the rest: 1-minute path)" : ""); }
+        // ---- 📦 EXPORT FOR CLAUDE: one .zip per month — <SYM>/<day>.csv.gz (time NY to the ms, ms since the 18:00 session start, price, size, side +1 / −1, bid / ask-quoted 1 / 0) + README.txt
+        public const string CsvHeader = "time_ny,ms_of_session,price,size,side,bidask_quoted";
+        public static byte[] DayCsvGz(IList<KeystoneOfTick> ticks, DateTime day)
+        {
+            using (var ms = new MemoryStream())
+            {
+                using (var gz = new System.IO.Compression.GZipStream(ms, System.IO.Compression.CompressionMode.Compress, true)) using (var sw = new StreamWriter(gz, new UTF8Encoding(false)))
+                {
+                    sw.Write(CsvHeader); sw.Write('\n'); var s0 = SessionStart(day);
+                    foreach (var t in ticks) { sw.Write(t.Time.ToString("yyyy-MM-dd HH:mm:ss.fff", IC)); sw.Write(','); sw.Write(((long)(t.Time - s0).TotalMilliseconds).ToString(IC)); sw.Write(','); sw.Write(t.Price.ToString("0.00###", IC)); sw.Write(','); sw.Write(t.Size.ToString(IC)); sw.Write(','); sw.Write(t.Side > 0 ? "1" : t.Side < 0 ? "-1" : "0"); sw.Write(','); sw.Write(t.Quoted ? "1" : "0"); sw.Write('\n'); }
+                }
+                return ms.ToArray();
+            }
+        }
+        public static string Readme(string sym, DateTime month, IList<KeystoneTickDay> days)
+        {
+            var sb = new StringBuilder(); sb.Append("KeyStone 📥 TICK LIBRARY export — " + Norm(sym) + " " + month.ToString("yyyy-MM", IC) + "\n\n");
+            sb.Append("One CSV.gz per SESSION day (D = 18:00 NY of the day before → 17:00 NY of D), every trade NinjaTrader recorded, in time order.\n");
+            sb.Append("Columns: " + CsvHeader + "\n  time_ny        trade time, New York, to the millisecond\n  ms_of_session  milliseconds since the 18:00 session start\n  price, size    the trade\n  side           +1 = the buyer was the aggressor (at / above the ask), -1 = the seller (at / below the bid), 0 = unknown\n  bidask_quoted  1 = the side comes from NinjaTrader's bid / ask at that trade, 0 = from the tick rule (up-tick = buy)\n\n");
+            sb.Append("Days (status, trades, % with bid / ask, source):\n"); foreach (var d in days) sb.Append("  " + D(d.Day) + "  " + d.Status + "  " + d.Count.ToString(IC) + "  " + d.QuotedPct.ToString("0", IC) + " %  " + d.Source + (d.Note != "" ? "  (" + d.Note + ")" : "") + "\n");
+            sb.Append("\nReal trades only: 1-second bars are never exported as ticks. Nothing here was sent anywhere — files written by KeyStone on this PC.\n"); return sb.ToString();
+        }
+        public static int ExportMonthZip(string folder, string sym, DateTime month, string outZip)
+        {
+            month = new DateTime(month.Year, month.Month, 1); var days = new List<KeystoneTickDay>(); var entries = new List<Tuple<string, byte[]>>();
+            for (var d = month; d < month.AddMonths(1); d = d.AddDays(1))
+            {
+                KeystoneTickDay m; var tk = OrderFlowTicks(folder, sym, d, out m); if (tk == null || tk.Count == 0) continue;
+                days.Add(m); entries.Add(Tuple.Create(Norm(sym) + "/" + D(d) + ".csv.gz", DayCsvGz(tk, d)));
+            }
+            if (entries.Count == 0) return 0;
+            entries.Insert(0, Tuple.Create("README.txt", Encoding.UTF8.GetBytes(Readme(sym, month, days))));
+            Directory.CreateDirectory(Path.GetDirectoryName(outZip)); KeystoneZip.Write(outZip, entries); return days.Count;
+        }
+        public static List<string> ExportForClaude(string folder, string sym, DateTime from, DateTime to, string outDir)
+        {
+            var o = new List<string>();
+            for (var m = new DateTime(from.Year, from.Month, 1); m <= to; m = m.AddMonths(1)) { var f = Path.Combine(outDir, "ticks-" + Norm(sym) + "-" + m.ToString("yyyy-MM", IC) + ".zip"); if (ExportMonthZip(folder, sym, m, f) > 0) o.Add(f); }
+            return o;
+        }
+    }
+    // a minimal .zip writer (STORED entries + CRC-32): the day files are already gzip-compressed — no extra assembly needed in NinjaTrader
+    public static class KeystoneZip
+    {
+        static uint[] table;
+        public static uint Crc32(byte[] data)
+        {
+            if (table == null) { var t = new uint[256]; for (uint i = 0; i < 256; i++) { uint c = i; for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? 0xEDB88320u ^ (c >> 1) : c >> 1; t[i] = c; } table = t; }
+            uint crc = 0xFFFFFFFFu; foreach (var b in data) crc = table[(crc ^ b) & 0xFF] ^ (crc >> 8); return crc ^ 0xFFFFFFFFu;
+        }
+        public static void Write(string file, IList<Tuple<string, byte[]>> entries)
+        {
+            var now = DateTime.Now; ushort dt = (ushort)((now.Hour << 11) | (now.Minute << 5) | (now.Second / 2)), dd = (ushort)(((Math.Max(1980, now.Year) - 1980) << 9) | (now.Month << 5) | now.Day);
+            using (var fs = File.Create(file)) using (var w = new BinaryWriter(fs))
+            {
+                var cd = new List<Tuple<byte[], uint, int, long>>();
+                foreach (var e in entries)
+                {
+                    var name = Encoding.UTF8.GetBytes(e.Item1); uint crc = Crc32(e.Item2); long off = fs.Position;
+                    w.Write(0x04034b50u); w.Write((ushort)20); w.Write((ushort)0x0800); w.Write((ushort)0); w.Write(dt); w.Write(dd); w.Write(crc); w.Write(e.Item2.Length); w.Write(e.Item2.Length); w.Write((ushort)name.Length); w.Write((ushort)0); w.Write(name); w.Write(e.Item2);
+                    cd.Add(Tuple.Create(name, crc, e.Item2.Length, off));
+                }
+                long cdStart = fs.Position;
+                foreach (var c in cd) { w.Write(0x02014b50u); w.Write((ushort)20); w.Write((ushort)20); w.Write((ushort)0x0800); w.Write((ushort)0); w.Write(dt); w.Write(dd); w.Write(c.Item2); w.Write(c.Item3); w.Write(c.Item3); w.Write((ushort)c.Item1.Length); w.Write((ushort)0); w.Write((ushort)0); w.Write((ushort)0); w.Write((ushort)0); w.Write(0u); w.Write((uint)c.Item4); w.Write(c.Item1); }
+                long cdEnd = fs.Position; w.Write(0x06054b50u); w.Write((ushort)0); w.Write((ushort)0); w.Write((ushort)cd.Count); w.Write((ushort)cd.Count); w.Write((uint)(cdEnd - cdStart)); w.Write((uint)cdStart); w.Write((ushort)0);
+            }
+        }
+        // the entries of a zip this writer made (name → bytes) — the tests read the export back
+        public static Dictionary<string, byte[]> Read(string file)
+        {
+            var o = new Dictionary<string, byte[]>(); var all = File.ReadAllBytes(file); int p = 0;
+            while (p + 30 <= all.Length && BitConverter.ToUInt32(all, p) == 0x04034b50u)
+            {
+                int csz = BitConverter.ToInt32(all, p + 18); int nl = BitConverter.ToUInt16(all, p + 26), xl = BitConverter.ToUInt16(all, p + 28); uint crc = BitConverter.ToUInt32(all, p + 14);
+                string name = Encoding.UTF8.GetString(all, p + 30, nl); var data = new byte[csz]; Array.Copy(all, p + 30 + nl + xl, data, 0, csz); if (Crc32(data) != crc) throw new InvalidDataException("CRC " + name); o[name] = data; p += 30 + nl + xl + csz;
+            }
+            return o;
+        }
+    }
+    // ⬇ the DOWNLOAD plan (pure): the session days of a range not complete yet (↻ REPAIR = only the partial / old / 1-second ones), one at a time, a failed day
+    // retried once, a day NinjaTrader has nothing for = no session (skipped quietly), ⏸ PAUSE / ▶ RESUME; the UI does the requests and the saving
+    public sealed class KeystoneTickDownload
+    {
+        public string Symbol = "MNQ"; public List<DateTime> Days = new List<DateTime>(); public int Pos, Skipped, Saved, NoSession, Failed, Retries, SecondsDays; public long Ticks, Quoted; public bool Paused;
+        public readonly List<string> Log = new List<string>(); readonly Dictionary<DateTime, int> tries = new Dictionary<DateTime, int>();
+        public bool Done { get { return Pos >= Days.Count; } }
+        public static KeystoneTickDownload Plan(string sym, DateTime from, DateTime to, Func<DateTime, KeystoneTickDay> info, bool repair, DateTime today)
+        {
+            var p = new KeystoneTickDownload { Symbol = KeystoneTickLib.Norm(sym) };
+            for (var d = from.Date; d <= to.Date && d <= today.Date; d = d.AddDays(1))
+            {
+                if (!KeystoneTickLib.IsSessionDay(d)) continue; var m = info(d);
+                bool want = repair ? (m.Status == "PARTIAL" || m.Status == "SECONDS" || m.Version == 1) && !(m.Status == "PARTIAL" && d == today.Date && m.Live && m.Version == 0) : m.Status != "COMPLETE" && m.Status != "NOSESSION";
+                if (repair && m.Status == "PARTIAL" && d >= today.Date) want = false;   // today is still trading: repaired after it closes
+                if (want) p.Days.Add(d); else p.Skipped++;
+            }
+            return p;
+        }
+        public DateTime? Next() { if (Paused || Done) return null; return Days[Pos]; }
+        // the answer for Days[Pos] → SAVE (keep these trades) • RETRY (asked again once) • NOSESSION (nothing that day) • FAILED (twice an error) • SECONDS (no ticks, 1-second bars kept)
+        public string OnResult(DateTime day, int count, int quoted, string problem, int secondsBars = 0)
+        {
+            if (Done || Days[Pos] != day.Date) return "IGNORED"; problem = (problem ?? "").Trim(); string ds = day.ToString("ddd yyyy-MM-dd", CultureInfo.InvariantCulture);
+            if (count > 0) { Ticks += count; Quoted += quoted; Saved++; Pos++; Log.Add(ds + " ✓ " + KeystoneTickLib.Count(count) + " trades • bid / ask " + (100.0 * quoted / count).ToString("0", CultureInfo.InvariantCulture) + " %"); return "SAVE"; }
+            if (problem != "")
+            {
+                int n; tries.TryGetValue(day.Date, out n); tries[day.Date] = n + 1;
+                if (n == 0) { Retries++; Log.Add(ds + " ⚠ " + problem + " — trying once more"); return "RETRY"; }
+                Failed++; Pos++; Log.Add(ds + " ✖ failed twice: " + problem); return "FAILED";
+            }
+            if (secondsBars > 0) { SecondsDays++; Pos++; Log.Add(ds + " • no tick history — " + secondsBars + " 1-second bars kept (no bid / ask)"); return "SECONDS"; }
+            NoSession++; Pos++; return "NOSESSION";
+        }
+        public string Progress()
+        {
+            var IC = CultureInfo.InvariantCulture; int n = Days.Count;
+            return (Done ? "✓ done • " : Paused ? "⏸ paused • " : "") + "day " + Math.Min(Pos + (Done ? 0 : 1), n) + " / " + n + " • " + KeystoneTickLib.Count(Ticks) + " ticks • bid/ask " + (Ticks == 0 ? "–" : (100.0 * Quoted / Ticks).ToString("0", IC) + " %")
+                + (Skipped > 0 ? " • " + Skipped + " already there" : "") + (NoSession > 0 ? " • " + NoSession + " no session" : "") + (SecondsDays > 0 ? " • " + SecondsDays + " 1-second only" : "") + (Failed > 0 ? " • " + Failed + " failed" : "");
+        }
+    }
+    // the ORDER FLOW's SOURCE BADGE (user: "be sure the order flow data is actually coming from Ninja and we are not making it from candlesticks"): order flow exists
+    // only from real trades — level 2 = with NinjaTrader's bid / ask (green), 1 = real trades, side from the tick rule (amber), 0 = none: the panel shows NOTHING
+    public static class KeystoneOfSource
+    {
+        public const string NoneText = "NO ORDER FLOW — download ticks (📥)";
+        public static int Level(long ticks, long quoted) { return ticks <= 0 ? 0 : quoted * 2 >= ticks ? 2 : 1; }
+        public static string Badge(long ticks, long quoted)
+        {
+            int lv = Level(ticks, quoted); if (lv == 0) return NoneText;
+            return lv == 2 ? "● REAL TICKS • bid/ask " + (100.0 * quoted / ticks).ToString("0", CultureInfo.InvariantCulture) + " %" : "● REAL TICKS • tick rule";
+        }
+        // the order flow of trades: none without real trades (the guardrail — there is no path from candles to a delta)
+        public static List<KeystoneFootprint> FootprintsOrNone(List<KeystoneOfTick> ticks, List<Tuple<DateTime, DateTime>> windows, double tick, KeystoneOfSettings s)
+        {
+            if (ticks == null || ticks.Count == 0) return null; return KeystoneOrderFlow.Footprints(ticks, windows, tick, s);
         }
     }
     // 📜 BUILD 11f — the Backtest Studio's TRADES LOG (the user's 1-minute scalps): every closed trade with its seconds, size (+ adds), prices, $ after costs, points,
@@ -21493,6 +21838,17 @@ namespace NinjaTrader.NinjaScript
         public static KeystoneTriSettings BoldOneADay() { return new KeystoneTriSettings { Window = "NY", Setups = "FVG,AGG,ENG", Mode = "ROTATE", Qty = 10, StopUsd = 1000, TargetUsd = 1050, EOneTrade = true, FOneTrade = true, PayoutHold = 0 }.ApplyWindow(); }
         // 💡 SMALL 1-A-DAY: 5 MNQ, stop $500 (50 pts) / target $1,050 (105 pts)
         public static KeystoneTriSettings SmallOneADay() { return new KeystoneTriSettings { Window = "NY", Setups = "FVG,AGG,ENG", Mode = "ROTATE", Qty = 5, StopUsd = 500, TargetUsd = 1050, EOneTrade = true, FOneTrade = true, PayoutHold = 0 }.ApplyWindow(); }
+        // 💡 BUILD 11s: 3 SETUPS + OVERNIGHT + SKIP WILD DAYS — Overnight = trade only the way of the overnight move (the session's 18:00 open → the 9:30 close; nothing
+        // before 9:30, a flat night = no trade); AtrSkipTop = skip a signal when the 14-period ATR of the 5-minute candles at it is in the top AtrSkipTop share of the
+        // previous AtrSkipSessions sessions' window candles (trailing: earlier sessions only; fewer than 10 of them = no skip)
+        public bool Overnight = false; public double AtrSkipTop = 0; public int AtrSkipSessions = 20;
+        // 📥 11s: a session's real trades from the TICK LIBRARY (null = the 1-minute bars only): a minute that touches both the stop and the target is decided by the ticks
+        public Func<DateTime, List<KeystoneTick>> TicksOf;
+        public const string OvernightStudy = "2025-26 out of sample: +$4,606 per batch (BOLD) / +$6,987 (SMALL), 70 % of batches positive, win rate 49.9 % vs 48.9 % random";
+        public const string OvernightWarn = "not proven — paper-trade first";
+        // 💡 3 SETUPS + OVERNIGHT + SKIP WILD DAYS: FVG + AGG (no ENG), the overnight side, wild days skipped, the SMALL 1-A-DAY structure (5 MNQ, −$500 / +$1,050, one trade
+        // per account per day, payout as soon as allowed)
+        public static KeystoneTriSettings OvernightSkipWild() { return new KeystoneTriSettings { Window = "NY", Setups = "FVG,AGG", Mode = "ROTATE", Qty = 5, StopUsd = 500, TargetUsd = 1050, EOneTrade = true, FOneTrade = true, PayoutHold = 0, Overnight = true, AtrSkipTop = 1.0 / 3, AtrSkipSessions = 20 }.ApplyWindow(); }
         public bool ConsistencyGuard = true;    // an evaluation up today stops for the day when one more win would break the consistency day cap
         public KeystoneSimRules Rules = LucidFlex50K();
         public static readonly KeystoneTriWindow[] Windows =
@@ -21528,7 +21884,7 @@ namespace NinjaTrader.NinjaScript
             var ic = CultureInfo.InvariantCulture;
             return Symbol + " " + Qty + " micros • stop −$" + StopUsd.ToString("N0", ic) + " (" + StopPts.ToString("0.00", ic) + " pts, +" + StopSlipTicks + " tick) / target +$" + TargetUsd.ToString("N0", ic) + " (" + TargetPts.ToString("0.00", ic) + " pts) • costs $" + Costs.ToString("0.00", ic)
                 + " a trade • setups " + Setups + " • window " + KeystoneBracket.Hm(StartHhmm) + "–" + KeystoneBracket.Hm(EndHhmm) + " • " + (Mode == "STAY" ? "STAY UNTIL DONE (wait)" : Mode == "STAYNEXT" ? "STAY UNTIL DONE (next on a stopped day)" : "ONE TRADE PER ACCOUNT") + " • " + Accounts + " accounts" + (FQty > 0 ? " • FUNDED " + FQty + " micros −$" + (FStop > 0 ? FStop : StopUsd).ToString("N0", ic) + " / +$" + (FTarget > 0 ? FTarget : TargetUsd).ToString("N0", ic) : "") + (FDayLock > 0 ? " • funded day goal $" + FDayLock.ToString("N0", ic) : "") + (EDayLock > 0 ? " • eval day goal $" + EDayLock.ToString("N0", ic) : "")
-                + (EOneTrade || FOneTrade ? " • ONE TRADE A DAY (" + (EOneTrade && FOneTrade ? "eval + funded" : EOneTrade ? "eval" : "funded") + ", win or lose)" : "") + " • payout " + (PayoutHold > 0 ? "held to +$" + PayoutHold.ToString("N0", ic) : "as soon as allowed") + " • " + Rules.Describe();
+                + (EOneTrade || FOneTrade ? " • ONE TRADE A DAY (" + (EOneTrade && FOneTrade ? "eval + funded" : EOneTrade ? "eval" : "funded") + ", win or lose)" : "") + " • payout " + (PayoutHold > 0 ? "held to +$" + PayoutHold.ToString("N0", ic) : "as soon as allowed") + (Overnight ? " • OVERNIGHT side only (18:00 → 9:30)" : "") + (AtrSkipTop > 0 ? " • SKIP WILD (ATR 5m in the top " + (AtrSkipTop * 100).ToString("0", ic) + " % of " + AtrSkipSessions + " sessions)" : "") + " • " + Rules.Describe();
         }
     }
     // the 1-minute bars as arrays (close-stamped, NY time) + the 5-minute candles built from them
@@ -21567,7 +21923,7 @@ namespace NinjaTrader.NinjaScript
         // the same entry with another bracket (the FUNDED size / $): its stop / target prices for those settings
         public KeystoneTriCandidate With(KeystoneTriSettings s) { var c = (KeystoneTriCandidate)MemberwiseClone(); c.StopPx = EntryPx - Dir * s.StopPts; c.TargetPx = EntryPx + Dir * s.TargetPts; return c; }
     }
-    public sealed class KeystoneTriExit { public DateTime Exit; public int ExitIdx; public double ExitPx, Pnl, WorstUsd, BestUsd; public string Reason = ""; public bool Both, Liquidated; }
+    public sealed class KeystoneTriExit { public DateTime Exit; public int ExitIdx; public double ExitPx, Pnl, WorstUsd, BestUsd; public string Reason = ""; public bool Both, Liquidated, TickDecided; }
     public static class KeystoneTriSetup
     {
         static bool Inside(KeystoneTriSettings s, int closeOff) { return closeOff - 5 >= s.OffStart && closeOff < s.OffEnd; }
@@ -21629,7 +21985,58 @@ namespace NinjaTrader.NinjaScript
         {
             var o = new List<KeystoneTriCandidate>();
             if (s.Has("FVG")) o.AddRange(Fvg(d, s)); if (s.Has("AGG")) o.AddRange(Aggression(d, s)); if (s.Has("ENG")) o.AddRange(Engulfing(d, s));
-            return Sort(o);
+            return Sort(Filter(d, s, o));
+        }
+        // 💡 11s: the overnight move of each session (+1 / −1 / 0): the close of the 9:30 minute − the open of the session's first minute (it must start by 18:30)
+        public static Dictionary<DateTime, int> OvernightDirs(KeystoneTriData d)
+        {
+            var o = new Dictionary<DateTime, int>(); int i = 0, at930 = KeystoneTriSettings.Off(930);
+            while (i < d.N)
+            {
+                int j = i; var ses = d.Session[i]; int last = -1; for (; j < d.N && d.Session[j] == ses; j++) if (d.Off[j] <= at930) last = j;
+                if (d.Off[i] <= 30 && last >= 0 && d.Off[last] == at930) o[ses] = Math.Sign(Math.Round((d.C[last] - d.O[i]) / 1e-6));
+                i = j;
+            }
+            return o;
+        }
+        // the 14-period ATR of the 5-minute candles at candle i (its own true range included: it is closed)
+        public static double AtrAt(KeystoneTriData d, int i, int len)
+        {
+            var f = d.Five; if (i < 1) return double.NaN; int n = Math.Min(len, i); double tr = 0; for (int k = i - n + 1; k <= i; k++) tr += Math.Max(f[k].High, f[k - 1].Close) - Math.Min(f[k].Low, f[k - 1].Close); return tr / n;
+        }
+        // the ATR line a signal must stay under: the (1 − top) quantile of the window candles' ATR in the previous `sessions` sessions (NaN: fewer than 10 of them)
+        public static double AtrLine(Dictionary<DateTime, List<double>> bySession, List<DateTime> order, DateTime session, double top, int sessions)
+        {
+            int at = order.BinarySearch(session); if (at < 0) at = ~at; var pool = new List<double>(); int used = 0;
+            for (int k = at - 1; k >= 0 && used < sessions; k--) { List<double> v; if (bySession.TryGetValue(order[k], out v) && v.Count > 0) { pool.AddRange(v); used++; } }
+            if (used < 10 || pool.Count == 0) return double.NaN; pool.Sort(); return pool[Math.Min(pool.Count - 1, (int)Math.Floor((1 - top) * pool.Count))];
+        }
+        public static List<KeystoneTriCandidate> Filter(KeystoneTriData d, KeystoneTriSettings s, List<KeystoneTriCandidate> list)
+        {
+            if (!s.Overnight && s.AtrSkipTop <= 0) return list;
+            var on = s.Overnight ? OvernightDirs(d) : null; Dictionary<DateTime, List<double>> atrS = null; List<DateTime> order = null; var fiveAt = new Dictionary<DateTime, int>();
+            for (int i = 0; i < d.Five.Count; i++) fiveAt[d.Five[i].Time] = i;
+            if (s.AtrSkipTop > 0)
+            {
+                atrS = new Dictionary<DateTime, List<double>>();
+                for (int i = 1; i < d.Five.Count; i++) { int co = d.FiveOff[i]; if (!(co - 5 >= s.OffStart && co < s.OffEnd) || d.FiveIdx[i] < 0) continue; var ses = d.Session[d.FiveIdx[i]]; List<double> v; if (!atrS.TryGetValue(ses, out v)) atrS[ses] = v = new List<double>(); v.Add(AtrAt(d, i, s.AtrLen)); }
+                order = atrS.Keys.Concat(d.Days).Distinct().OrderBy(x => x).ToList();
+            }
+            var keep = new List<KeystoneTriCandidate>();
+            foreach (var c in list)
+            {
+                if (s.Overnight)
+                {
+                    int dir; if (!on.TryGetValue(c.Day, out dir) || dir == 0 || dir != c.Dir) continue;
+                    if (c.Signal < c.Day.Date.AddHours(9).AddMinutes(30) || c.Entry < c.Day.Date.AddHours(9).AddMinutes(30)) continue;   // the night's move is known at 9:30 only
+                }
+                if (s.AtrSkipTop > 0)
+                {
+                    int fi; if (fiveAt.TryGetValue(c.Signal, out fi)) { double a = AtrAt(d, fi, s.AtrLen), line = AtrLine(atrS, order, c.Day, s.AtrSkipTop, Math.Max(1, s.AtrSkipSessions)); if (!double.IsNaN(line) && a >= line - 1e-12) continue; }
+                }
+                keep.Add(c);
+            }
+            return keep;
         }
         public static List<KeystoneTriCandidate> Sort(IEnumerable<KeystoneTriCandidate> c) { return c.OrderBy(x => x.EntryIdx).ThenBy(x => KeystoneTriCandidate.Rank(x.Setup)).ThenBy(x => x.Signal).ToList(); }
         // 🎲 THE RANDOM-ENTRY CONTROL: per session as many entries as perDay says, each at a random minute of the window (market, its close)
@@ -21661,16 +22068,29 @@ namespace NinjaTrader.NinjaScript
                 bool hitStop = dir > 0 ? adv <= c.StopPx + 1e-9 : adv >= c.StopPx - 1e-9, hitTgt = !fillBar && (dir > 0 ? fav >= c.TargetPx - 1e-9 : fav <= c.TargetPx + 1e-9);
                 bool hitFloor = !double.IsNaN(floorPx) && (dir > 0 ? adv <= floorPx + 1e-9 : adv >= floorPx - 1e-9);
                 x.Exit = new DateTime(d.T[j]); x.ExitIdx = j;
+                if (hitStop && hitTgt && !hitFloor && s.TicksOf != null)
+                {   /* 📥 11s: the stop AND the target inside this minute — the real trades say which came first */
+                    List<KeystoneTick> tk = null; try { tk = s.TicksOf(ses); } catch { tk = null; }
+                    int first = FirstTouch(tk, new DateTime(d.T[j]).AddMinutes(-1), new DateTime(d.T[j]), dir, c.StopPx, c.TargetPx);
+                    if (first != 0) { x.TickDecided = true; if (first > 0) { x.ExitPx = c.TargetPx; x.Pnl = dir * (c.TargetPx - c.EntryPx) * pv * q - cost; x.Reason = "TARGET (TICKS)"; x.Both = true; return x; } hitTgt = false; x.Both = true; }
+                }
                 if (hitFloor && (dir > 0 ? floorPx >= c.StopPx - 1e-9 : floorPx <= c.StopPx + 1e-9)) { x.ExitPx = floorPx; x.Pnl = -room; x.Reason = "FLOOR"; x.Liquidated = true; x.Both = hitTgt; return x; }
                 if (hitStop)
                 {
                     double px = fillBar ? c.StopPx : dir > 0 ? Math.Min(d.O[j], c.StopPx) : Math.Max(d.O[j], c.StopPx); px -= dir * slip;
-                    x.ExitPx = px; x.Pnl = dir * (px - c.EntryPx) * pv * q - cost; x.Both = hitTgt; x.Reason = hitTgt ? "STOP (BOTH)" : "STOP"; return x;
+                    x.ExitPx = px; x.Pnl = dir * (px - c.EntryPx) * pv * q - cost; x.Both = x.Both || hitTgt; x.Reason = x.TickDecided ? "STOP (TICKS)" : hitTgt ? "STOP (BOTH)" : "STOP"; return x;
                 }
                 if (hitTgt) { x.ExitPx = c.TargetPx; x.Pnl = dir * (c.TargetPx - c.EntryPx) * pv * q - cost; x.Reason = "TARGET"; return x; }
             }
             x.ExitIdx = last; x.Exit = new DateTime(d.T[last]); x.ExitPx = d.C[last]; x.Pnl = dir * (d.C[last] - c.EntryPx) * pv * q - cost; x.Reason = "FLAT";
             return x;
+        }
+        // which level the real trades of (from, to] reached first: +1 the target, −1 the stop, 0 neither / no ticks
+        public static int FirstTouch(IList<KeystoneTick> ticks, DateTime from, DateTime to, int dir, double stop, double target)
+        {
+            if (ticks == null || ticks.Count == 0) return 0; int lo = 0, hi = ticks.Count; while (lo < hi) { int m = (lo + hi) / 2; if (ticks[m].Time <= from) lo = m + 1; else hi = m; }
+            for (int i = lo; i < ticks.Count && ticks[i].Time <= to; i++) { double p = ticks[i].Price; if (dir > 0 ? p <= stop + 1e-9 : p >= stop - 1e-9) return -1; if (dir > 0 ? p >= target - 1e-9 : p <= target + 1e-9) return 1; }
+            return 0;
         }
     }
     public sealed class KeystoneTriTrade
