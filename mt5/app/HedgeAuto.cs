@@ -382,7 +382,7 @@ namespace KeystoneMT5
         long pairNext;   // the pair-off's second leg
         double quickBest = double.NaN; DateTime guardQuiet = DateTime.MinValue, lockAt = DateTime.MinValue; string guardHeld = "";   // the quick hedge's closest level so far (per leg)
         public double StraddleRef = double.NaN, LadderHi = double.NaN, LadderLo = double.NaN; string ladderFull = "";
-        public bool Locked; public double LockHi = double.NaN, LockLo = double.NaN; string pendSide = ""; int liftDir, lockFrom;   // lockFrom: the add-ons count after the last unlock — a new lock needs LockAfter NEW hedges after it
+        public bool Locked; public double LockHi = double.NaN, LockLo = double.NaN; public double LockFarHi = double.NaN, LockFarLo = double.NaN;   /* 09m: the REAL unlock prices (RISK GUARD: one average M1 candle × GuardBreak past the range; otherwise the range + the spread) — the chart labels show these */ string pendSide = ""; int liftDir, lockFrom;   // lockFrom: the add-ons count after the last unlock — a new lock needs LockAfter NEW hedges after it
         // ⚡ APPLY NOW: the new settings take over at once, the open basket included (its positions stay; the next hedge / exit uses the new rules)
         public void ApplyNow(AutoSettings s) { if (s == null) return; Next = s.Copy(); ApplyNext(); if (Current != null) Tell("⚡ the new settings apply to the OPEN iteration #" + Current.N + " too (its positions stay)."); }
         public void Queue(AutoSettings s) { Next = s == null ? null : s.Copy(); Version++; if (Next != null && Current == null && Running) ApplyNext(); }
@@ -405,6 +405,14 @@ namespace KeystoneMT5
         public double BasketTotal, Banked;   // BasketTotal = Basket (open) + Banked (closed legs of this iteration, scale-outs / trims)
         // 🧮 09l (user's confusion): the OPEN iteration's numbers = (TOTAL if closed now, open, closed legs) — the headline everywhere is the TOTAL;
         // running → the engine's own; stopped (⏸ STOP ON MANUAL) → the 🎯 guard's count of the iteration's deals; NaN total = no open iteration
+        // 09m (user's catch: "it says it unlocks above / below, the price gets there and it stays locked"): what the unlock ALSO needs besides the price.
+        // RISK GUARD: the EMA 50 / 200 trend the same way as the break — unless PROFIT LOCK (ProfitUnlock) and the basket is ≥ $0; "" = the price alone unlocks
+        public static string UnlockNeeds(int dir, bool riskGuard, bool profitUnlock, double total, int trendNow, bool haveEma)
+        {
+            if (!riskGuard || !haveEma || (profitUnlock && total >= 0)) return "";
+            string want = dir > 0 ? "UP" : "DOWN", now = trendNow > 0 ? "UP" : trendNow < 0 ? "DOWN" : "flat";
+            return trendNow == dir ? " + trend " + want + " ✔" : " + the trend " + want + " (EMA 50/200 now " + now + ")";
+        }
         public Tuple<double, double, double> LiveTotal()
         {
             if (Current == null || Current.Done) return Tuple.Create(double.NaN, 0.0, 0.0);
@@ -950,6 +958,10 @@ namespace KeystoneMT5
                     { it.Reason = "LOCK TIMEOUT"; Tell("⏱ LOCK TIMEOUT. WHY: locked " + ((int)(Now - lockAt).TotalMinutes) + " min (≥ " + Set.LockMaxMin.ToString("0", IC) + ") and the basket is in profit " + M(Tot(sn, it)) + " → CLOSE ALL and trade again"); CloseAll(sn, "LOCK TIMEOUT", false); return; }
                     if (Locked)
                     {   // 🔒 LOCKED: nothing happens inside the range; the break of its high / low unlocks
+                        {   // 09m: keep the real unlock prices for the chart labels (the same rule as below)
+                            double avgR0 = Set.RiskGuard && sn.Fin.Count >= 5 ? sn.Fin.Take(14).Average(x => x.H - x.L) : 0;
+                            LockFarHi = Set.RiskGuard ? Math.Max(LockHi + spL, LockHi + Set.GuardBreak * avgR0) : LockHi + spL; LockFarLo = Set.RiskGuard ? Math.Min(LockLo - spL, LockLo - Set.GuardBreak * avgR0) : LockLo - spL;
+                        }
                         int bd = sn.Bid > LockHi + spL ? 1 : sn.Bid < LockLo - spL ? -1 : 0; if (bd == 0) return;
                         if (Set.RiskGuard)
                         {   // 🛟 only an OBVIOUS trend unlocks: far enough beyond the range AND the EMA 50 / 200 the same way

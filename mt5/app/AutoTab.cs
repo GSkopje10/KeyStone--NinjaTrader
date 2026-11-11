@@ -778,8 +778,13 @@ namespace KeystoneMT5
                 if (!double.IsNaN(ga.TargetPx)) g.Add(new ChartGuide { P1 = ga.TargetPx, Color = Green, Blink = !double.IsNaN(bid) && Math.Abs(ga.TargetPx - bid) < 0.3, Core = true, Label = "🎯 TP +$" + s.Target.ToString("0.##", IC) + " @ " + ga.TargetPx.ToString("0.00", IC) + away(ga.TargetPx) });
                 if (ga.Locked && !double.IsNaN(ga.LockHi))
                 {   // 🔒 LOCKED: the range it waits to break (violet), nothing in between
-                    g.Add(new ChartGuide { P1 = ga.LockHi, Color = Violet, Dash = true, Blink = !double.IsNaN(bid) && ga.LockHi - bid < 0.3, Core = true, Label = "🔒 LOCKED • UNLOCK ▲ above " + ga.LockHi.ToString("0.00", IC) + away(ga.LockHi) });
-                    g.Add(new ChartGuide { P1 = ga.LockLo, Color = Violet, Dash = true, Blink = !double.IsNaN(bid) && bid - ga.LockLo < 0.3, Core = true, Label = "🔒 LOCKED • UNLOCK ▼ below " + ga.LockLo.ToString("0.00", IC) + away(ga.LockLo) });
+                    // 09m: the labels show the REAL unlock prices (RISK GUARD: one average candle past the range) and what else it waits for (the trend)
+                    double fHi = double.IsNaN(ga.LockFarHi) ? ga.LockHi : ga.LockFarHi, fLo = double.IsNaN(ga.LockFarLo) ? ga.LockLo : ga.LockFarLo; double totL = ga.LiveTotal().Item1;
+                    string nUp = HedgeAuto.UnlockNeeds(1, s.RiskGuard, s.ProfitUnlock, totL, ga.TrendNow, !double.IsNaN(ga.Ema200)), nDn = HedgeAuto.UnlockNeeds(-1, s.RiskGuard, s.ProfitUnlock, totL, ga.TrendNow, !double.IsNaN(ga.Ema200));
+                    g.Add(new ChartGuide { P1 = ga.LockHi, Color = Violet, Dash = true, Core = true, Label = "🔒 LOCK RANGE high " + ga.LockHi.ToString("0.00", IC) });
+                    g.Add(new ChartGuide { P1 = ga.LockLo, Color = Violet, Dash = true, Core = true, Label = "🔒 LOCK RANGE low " + ga.LockLo.ToString("0.00", IC) });
+                    g.Add(new ChartGuide { P1 = fHi, Color = Violet, Dash = false, Blink = !double.IsNaN(bid) && fHi - bid < 0.3 && nUp.IndexOf('(') < 0, Core = true, Label = "🔓 UNLOCK ▲ above " + fHi.ToString("0.00", IC) + nUp + away(fHi) });
+                    g.Add(new ChartGuide { P1 = fLo, Color = Violet, Dash = false, Blink = !double.IsNaN(bid) && bid - fLo < 0.3 && nDn.IndexOf('(') < 0, Core = true, Label = "🔓 UNLOCK ▼ below " + fLo.ToString("0.00", IC) + nDn + away(fLo) });
                 }
                 if (s.HedgeMode != "NONE" && s.HedgeMode != "SIGNAL" && !double.IsNaN(ga.HedgeLevel) && !ga.Locked)
                 {

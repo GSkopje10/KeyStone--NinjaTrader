@@ -62,6 +62,12 @@ public static class NineLTests
             Check(p4.StartsWith("→ 0.01 lots now at $431 · target $2") && p4.Contains("⚠") && p4.Contains("minimum") && !p8.Contains("⚠") && pn.Contains("no balance") && pb.StartsWith("→ 0.10 lots") && pb.Contains("⚠"),
                 "💰 preview: 0.01 above the plan → the ⚠ minimum-lot warning (\"" + p4.Replace("\n", " / ") + "\"); the symbol's own lot step / minimum", p4 + " | " + pn + " | " + pb);
         }
+        {   // 09m: the 🔒 lock's unlock labels say what the RISK GUARD really waits for (the user saw "unlock below …" reached and it stayed locked)
+            string dnUp = HedgeAuto.UnlockNeeds(-1, true, false, 2.65, 1, true), upUp = HedgeAuto.UnlockNeeds(1, true, false, 2.65, 1, true);
+            string plain = HedgeAuto.UnlockNeeds(-1, false, false, 2.65, 1, true), prof = HedgeAuto.UnlockNeeds(-1, true, true, 2.65, 1, true), profLoss = HedgeAuto.UnlockNeeds(-1, true, true, -5, 1, true), noEma = HedgeAuto.UnlockNeeds(-1, true, false, 0, 0, false);
+            Check(dnUp == " + the trend DOWN (EMA 50/200 now UP)" && upUp == " + trend UP ✔" && plain == "" && prof == "" && profLoss.Contains("DOWN") && noEma == "",
+                "🔓 09m unlock labels: RISK GUARD + trend UP → ▼ \"" + dnUp + "\", ▲ \"" + upUp + "\"; no RISK GUARD / PROFIT LOCK in profit / no EMA yet → the price alone", dnUp + "|" + upUp + "|" + plain + "|" + prof + "|" + profLoss + "|" + noEma);
+        }
         Console.WriteLine(fails == 0 ? "ALL 09l TESTS PASSED" : fails + " 09l TEST(S) FAILED");
         return fails;
     }
