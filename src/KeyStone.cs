@@ -21356,6 +21356,382 @@ namespace NinjaTrader.NinjaScript
             return o;
         }
     }
+
+    // ---- 🎯 3-SETUP ROTATION (BUILD 2026-11-11o) — RESEARCH ONLY ---------------------------------------------------------------------------
+    // The user's prop test: MNQ, 15 micros, stop −$500 / target +$1,500 from the fill, three 5-minute setups (bullish AND bearish) — the first one
+    // that forms takes the trade — ONE trade at a time rotated over a batch of 30 Lucid Flex 50K accounts (eval → funded → payouts, the firm's
+    // rules, the account lifecycle of KeystonePropSim). It reads saved 1-minute bars only and books simulated trades to simulated accounts:
+    // it NEVER sends an order, builds no link / NinjaBroker and touches no account.
+    //   API (pure, no UI):
+    //     var d = KeystoneTriData.From(oneMinuteBars);                        // NY-time, close-stamped 1-minute bars (KeystoneStudioStore.Load)
+    //     var s = new KeystoneTriSettings { Window = "NY", Setups = "FVG,AGG,ENG", Mode = "ROTATE" }.ApplyWindow();
+    //     var c = KeystoneTriSetup.Candidates(d, s);                         // every entry the setups give (time, side, setup, entry price)
+    //     var r = KeystoneTriRotation.Run(d, c, s, from, to);                // trades + batches + r.Stats (KeystoneTriStats)
+    //     KeystoneTriSetup.Random(d, s, perDayCounts, seed)                  // the random-entry control (same window, same frequency)
+    //   SETUPS (5-minute candles built from the 1-minute bars, clock-aligned, only CLOSED candles — no lookahead):
+    //     FVG  bull: c1.High < c3.Low (3 consecutive candles) → a BUY LIMIT at FvgPct (50 %) of the gap once c3 closed; filled only when a later
+    //          1-minute low trades to it (fill = the level, or the open if it opened through it) before a 5-minute close below c1.High (the far
+    //          side: invalidated) or the window's end — no retrace = no trade. Bear mirror (c1.Low > c3.High, SELL LIMIT, invalid above c1.Low).
+    //     AGG  bull: a green candle closing above the highest high of the previous AggLookback (10) candles, body ≥ AggBodyPct (60 %) of its
+    //          range and range ≥ AggAtrMult (1.5) × the average true range of the previous AtrLen (14) candles → BUY at its close. Bear mirror.
+    //     ENG  the 123 ENGULFING rule of the labs (KeystoneEngLab.Signals: a run of opposite candles, then a close beyond the last run candle's
+    //          open) with the run ≥ EngMinRun (2, the strategy's MIN RUN default) → entry at the engulfing close.
+    //     A signal candle must lie wholly inside the window (open ≥ start, close < end); the FVG fill must come before the window's end.
+    //   OUTCOME on the 1-minute bars after the entry: stop / target = StopUsd / TargetUsd ÷ ($2 × Qty) rounded to the 0.25 tick (15 micros:
+    //     16.75 / 50.00 points); the stop fills StopSlipTicks (1) tick worse (or at the open beyond it); a minute that touches both = STOP
+    //     (pessimistic, counted as Both); the FVG fill minute can only stop (its high / low may have come before the fill); flat at the
+    //     window's end (or the firm's flat-by time, whichever is first) at that minute's close; costs = KeystoneMoveStudy.Cost per micro (round
+    //     trip + 1 tick). An account whose room to its trailing floor is smaller than the loss is LIQUIDATED at the floor (−room, blown).
+    //   ROTATION: one trade at a time over every account; ROTATE (mode A) = each trade to the NEXT account that may trade today (round robin by
+    //     number) • STAY (mode B) = the same account takes every trade until it is done (eval: passed or blown • funded: its payout taken,
+    //     blown or retired), then the next one; on a day the firm's rules stop it (the evaluation's consistency day cap — ConsistencyGuard —
+    //     or the target made before the minimum days) the signals wait for it (STAYNEXT: the next account takes over instead).
+    //     ConsistencyGuard (both modes): an evaluation already up today stops for the day when one more win would make the day bigger than
+    //     the consistency cap (50 % of the target, KeystoneConsistency) — Lucid has no daily loss limit, so this is the only day stop. Batch = Accounts (30) evaluations bought on its first session; evals and funded trade together; a
+    //     blown account drops out, an account at its MaxPayouts is retired; when none of the batch is alive the next batch starts the next
+    //     session.
+    public sealed class KeystoneTriWindow { public string Code = "", Name = ""; public int StartHhmm, EndHhmm; }
+    public sealed class KeystoneTriSettings
+    {
+        public string Symbol = "MNQ"; public int Qty = 15; public double StopUsd = 500, TargetUsd = 1500; public int StopSlipTicks = 1;
+        public string Setups = "FVG,AGG,ENG";   // any of FVG / AGG / ENG • RANDOM = the random-entry control (KeystoneTriSetup.Random)
+        public double FvgPct = 50;
+        public int AggLookback = 10, AtrLen = 14; public double AggBodyPct = 60, AggAtrMult = 1.5;
+        public int EngMinRun = 2;
+        public string Window = "NY"; public int StartHhmm = 930, EndHhmm = 1600;
+        // ROTATE (A: one trade per account) • STAY (B: stay on the account until it is done; on a day the firm's rules stop it — e.g. the
+        // consistency day cap or the target reached before the minimum days — the signals WAIT for it) • STAYNEXT (B variant: on such a day
+        // the next account takes over and stays until it is done)
+        public string Mode = "ROTATE";
+        public int Accounts = 30;
+        public bool ConsistencyGuard = true;    // an evaluation up today stops for the day when one more win would break the consistency day cap
+        public KeystoneSimRules Rules = LucidFlex50K();
+        public static readonly KeystoneTriWindow[] Windows =
+        {
+            new KeystoneTriWindow { Code = "NY", Name = "NY 9:30–16:00", StartHhmm = 930, EndHhmm = 1600 },
+            new KeystoneTriWindow { Code = "ALLDAY", Name = "ALL DAY 18:00–16:45 (firm flat)", StartHhmm = 1800, EndHhmm = 1645 },
+            new KeystoneTriWindow { Code = "ASIA", Name = "ASIA 18:00–02:00", StartHhmm = 1800, EndHhmm = 200 },
+            new KeystoneTriWindow { Code = "LONDON", Name = "LONDON 02:00–09:30", StartHhmm = 200, EndHhmm = 930 },
+            new KeystoneTriWindow { Code = "NYAM", Name = "NY AM 9:30–12:00", StartHhmm = 930, EndHhmm = 1200 },
+            new KeystoneTriWindow { Code = "NYPM", Name = "NY PM 12:00–16:00", StartHhmm = 1200, EndHhmm = 1600 },
+        };
+        // Lucid Flex 50K (KeystoneSimRules) + the firm book's minimum payout (KeystonePayoutRules: Lucid $250 — the sim preset has none)
+        public static KeystoneSimRules LucidFlex50K()
+        {
+            var r = KeystoneSimRules.Presets().First(x => x.Name == "LUCID FLEX 50K").Copy();
+            r.PayoutMin = KeystonePayoutRules.Presets().First(x => x.Firm == "LUCID").MinPayout; return r;
+        }
+        public KeystoneTriSettings Copy() { var c = (KeystoneTriSettings)MemberwiseClone(); c.Rules = Rules.Copy(); return c; }
+        public KeystoneTriSettings ApplyWindow() { var w = Windows.FirstOrDefault(x => x.Code == Window); if (w != null) { StartHhmm = w.StartHhmm; EndHhmm = w.EndHhmm; } return this; }
+        public double Tick { get { return KeystoneMoveStudy.TickSize(Symbol); } }
+        public double PointValue { get { return KeystoneMoveStudy.PointValue(Symbol); } }
+        public double StopPts { get { return Math.Round(StopUsd / (PointValue * Qty) / Tick, MidpointRounding.AwayFromZero) * Tick; } }
+        public double TargetPts { get { return Math.Round(TargetUsd / (PointValue * Qty) / Tick, MidpointRounding.AwayFromZero) * Tick; } }
+        public double Costs { get { return KeystoneMoveStudy.Cost(Symbol) * Qty; } }
+        public bool Has(string setup) { return ("," + (Setups ?? "").ToUpperInvariant().Replace(" ", "") + ",").Contains("," + setup + ","); }
+        // minutes since the session start (18:00 NY); a window end at 18:00 = 1440
+        public static int Off(int hhmm) { int m = hhmm / 100 * 60 + hhmm % 100; return ((m - 1080) % 1440 + 1440) % 1440; }
+        public int OffStart { get { return Off(StartHhmm); } }
+        public int OffEnd { get { int o = Off(EndHhmm); return o == 0 ? 1440 : o; } }
+        public int OffFlat { get { return Math.Min(OffEnd, Off(Rules.FlatByHhmm)); } }   // flat at the window's end or the firm's flat-by time
+        public string Describe()
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return Symbol + " " + Qty + " micros • stop −$" + StopUsd.ToString("N0", ic) + " (" + StopPts.ToString("0.00", ic) + " pts, +" + StopSlipTicks + " tick) / target +$" + TargetUsd.ToString("N0", ic) + " (" + TargetPts.ToString("0.00", ic) + " pts) • costs $" + Costs.ToString("0.00", ic)
+                + " a trade • setups " + Setups + " • window " + KeystoneBracket.Hm(StartHhmm) + "–" + KeystoneBracket.Hm(EndHhmm) + " • " + (Mode == "STAY" ? "STAY UNTIL DONE (wait)" : Mode == "STAYNEXT" ? "STAY UNTIL DONE (next on a stopped day)" : "ONE TRADE PER ACCOUNT") + " • " + Accounts + " accounts • " + Rules.Describe();
+        }
+    }
+    // the 1-minute bars as arrays (close-stamped, NY time) + the 5-minute candles built from them
+    public sealed class KeystoneTriData
+    {
+        public long[] T = new long[0]; public double[] O = new double[0], H = new double[0], L = new double[0], C = new double[0]; public int[] Off = new int[0]; public DateTime[] Session = new DateTime[0];
+        public List<KeystoneArcBar> Five = new List<KeystoneArcBar>(); public int[] FiveIdx = new int[0], FiveOff = new int[0];   // the 1-minute index of each candle's close, its close offset
+        public List<DateTime> Days = new List<DateTime>();
+        public int N { get { return T.Length; } }
+        // minutes since 18:00 of a close-stamped bar (18:00 itself = 1440, the end of the session before)
+        public static int OffOf(DateTime close) { var t = close.AddMinutes(-1); int m = t.Hour * 60 + t.Minute; return ((m - 1080) % 1440 + 1440) % 1440 + 1; }
+        public static KeystoneTriData From(List<KeystoneArcBar> one)
+        {
+            var d = new KeystoneTriData(); var b = (one ?? new List<KeystoneArcBar>()).Where(x => x != null && x.High >= x.Low).OrderBy(x => x.Time).ToList(); int n = b.Count;
+            d.T = new long[n]; d.O = new double[n]; d.H = new double[n]; d.L = new double[n]; d.C = new double[n]; d.Off = new int[n]; d.Session = new DateTime[n];
+            for (int i = 0; i < n; i++) { d.T[i] = b[i].Time.Ticks; d.O[i] = b[i].Open; d.H[i] = b[i].High; d.L[i] = b[i].Low; d.C[i] = b[i].Close; d.Off[i] = OffOf(b[i].Time); d.Session[i] = KeystoneStudioStore.SessionOf(b[i].Time); if (i == 0 || d.Session[i] != d.Session[i - 1]) d.Days.Add(d.Session[i]); }
+            d.Five = KeystoneEngLab.Candles(b, 5); d.FiveIdx = new int[d.Five.Count]; d.FiveOff = new int[d.Five.Count];
+            for (int k = 0; k < d.Five.Count; k++) { d.FiveIdx[k] = d.LastAtOrBefore(d.Five[k].Time.Ticks); d.FiveOff[k] = OffOf(d.Five[k].Time); }
+            return d;
+        }
+        public int LastAtOrBefore(long t) { int lo = 0, hi = T.Length; while (lo < hi) { int mid = (lo + hi) / 2; if (T[mid] > t) hi = mid; else lo = mid + 1; } return lo - 1; }
+    }
+    public sealed class KeystoneTriCandidate
+    {
+        public string Setup = ""; public int Dir; public DateTime Day, Signal, Entry; public int EntryIdx; public bool Limit; public double EntryPx, StopPx, TargetPx, ZoneLo = double.NaN, ZoneHi = double.NaN;
+        public string Why = "";
+        public static int Rank(string setup) { return setup == "FVG" ? 0 : setup == "AGG" ? 1 : setup == "ENG" ? 2 : 3; }
+    }
+    public sealed class KeystoneTriExit { public DateTime Exit; public int ExitIdx; public double ExitPx, Pnl, WorstUsd, BestUsd; public string Reason = ""; public bool Both, Liquidated; }
+    public static class KeystoneTriSetup
+    {
+        static bool Inside(KeystoneTriSettings s, int closeOff) { return closeOff - 5 >= s.OffStart && closeOff < s.OffEnd; }
+        static KeystoneTriCandidate Make(KeystoneTriData d, KeystoneTriSettings s, string setup, int dir, int signalFive, int entryIdx, double px, bool limit)
+        {
+            double tk = s.Tick; px = Math.Round(px / tk) * tk;
+            return new KeystoneTriCandidate { Setup = setup, Dir = dir, Day = d.Session[entryIdx], Signal = signalFive >= 0 ? d.Five[signalFive].Time : new DateTime(d.T[entryIdx]), Entry = new DateTime(d.T[entryIdx]), EntryIdx = entryIdx, Limit = limit, EntryPx = px, StopPx = px - dir * s.StopPts, TargetPx = px + dir * s.TargetPts };
+        }
+        // FVG: the limit at FvgPct of the gap, filled on a retrace before invalidation / the window's end
+        public static List<KeystoneTriCandidate> Fvg(KeystoneTriData d, KeystoneTriSettings s)
+        {
+            var o = new List<KeystoneTriCandidate>(); var f = d.Five; double tk = s.Tick;
+            for (int i = 2; i < f.Count; i++)
+            {
+                var c1 = f[i - 2]; var c3 = f[i]; if ((c3.Time - c1.Time).TotalMinutes != 10 || !Inside(s, d.FiveOff[i])) continue; int ci = d.FiveIdx[i]; if (ci < 0) continue;
+                int dir = c1.High < c3.Low ? 1 : c1.Low > c3.High ? -1 : 0; if (dir == 0) continue;
+                double lo = dir > 0 ? c1.High : c3.High, hi = dir > 0 ? c3.Low : c1.Low; double v = dir > 0 ? hi - s.FvgPct / 100.0 * (hi - lo) : lo + s.FvgPct / 100.0 * (hi - lo);
+                double lv = dir > 0 ? Math.Floor(v / tk + 0.5 - 1e-9) * tk : Math.Ceiling(v / tk - 0.5 + 1e-9) * tk; var ses = d.Session[ci];
+                for (int j = ci + 1; j < d.N && d.Session[j] == ses && d.Off[j] < s.OffEnd; j++)
+                {
+                    if (dir > 0 ? d.L[j] <= lv : d.H[j] >= lv)
+                    {
+                        var c = Make(d, s, "FVG", dir, i, j, dir > 0 ? Math.Min(d.O[j], lv) : Math.Max(d.O[j], lv), true); c.ZoneLo = lo; c.ZoneHi = hi;
+                        c.Why = (dir > 0 ? "bullish" : "bearish") + " FVG " + lo.ToString("0.00", CultureInfo.InvariantCulture) + "–" + hi.ToString("0.00", CultureInfo.InvariantCulture) + " • limit " + lv.ToString("0.00", CultureInfo.InvariantCulture); o.Add(c); break;
+                    }
+                    if (new DateTime(d.T[j]).Minute % 5 == 0 && (dir > 0 ? d.C[j] < lo : d.C[j] > hi)) break;   // a 5-minute close beyond the far side: invalidated
+                }
+            }
+            return o;
+        }
+        // AGGRESSION BREAK: a strong candle closing beyond the last N candles' extreme
+        public static List<KeystoneTriCandidate> Aggression(KeystoneTriData d, KeystoneTriSettings s)
+        {
+            var o = new List<KeystoneTriCandidate>(); var f = d.Five; int n = Math.Max(1, s.AggLookback), an = Math.Max(1, s.AtrLen);
+            for (int i = Math.Max(n, an + 1); i < f.Count; i++)
+            {
+                if (!Inside(s, d.FiveOff[i]) || d.FiveIdx[i] < 0) continue; var c = f[i]; double range = c.High - c.Low, body = Math.Abs(c.Close - c.Open); if (range <= 0) continue;
+                double tr = 0; for (int k = i - an; k < i; k++) tr += Math.Max(f[k].High, f[k - 1].Close) - Math.Min(f[k].Low, f[k - 1].Close); double atr = tr / an;
+                if (body < s.AggBodyPct / 100.0 * range - 1e-9 || range < s.AggAtrMult * atr - 1e-9) continue;
+                double hh = double.MinValue, ll = double.MaxValue; for (int k = i - n; k < i; k++) { hh = Math.Max(hh, f[k].High); ll = Math.Min(ll, f[k].Low); }
+                int dir = c.Close > c.Open && c.Close > hh ? 1 : c.Close < c.Open && c.Close < ll ? -1 : 0; if (dir == 0) continue;
+                var x = Make(d, s, "AGG", dir, i, d.FiveIdx[i], c.Close, false); x.Why = (dir > 0 ? "close above the " + n + "-candle high " : "close below the " + n + "-candle low ") + " • body " + (100 * body / range).ToString("0") + "% • range " + (range / Math.Max(1e-9, atr)).ToString("0.0") + "× ATR"; o.Add(x);
+            }
+            return o;
+        }
+        // 123 ENGULFING: the labs' rule (KeystoneEngLab.Signals) with the run ≥ EngMinRun
+        public static List<KeystoneTriCandidate> Engulfing(KeystoneTriData d, KeystoneTriSettings s)
+        {
+            var o = new List<KeystoneTriCandidate>(); var at = new Dictionary<DateTime, int>(); for (int i = 0; i < d.Five.Count; i++) at[d.Five[i].Time] = i;
+            foreach (var g in KeystoneEngLab.Signals(d.Five, s.Symbol, 0, 0, 2400))
+            {
+                int i; if (g.Run < Math.Max(1, s.EngMinRun) || !at.TryGetValue(g.Time, out i) || !Inside(s, d.FiveOff[i]) || d.FiveIdx[i] < 0) continue;
+                var x = Make(d, s, "ENG", g.Buy ? 1 : -1, i, d.FiveIdx[i], d.Five[i].Close, false); x.Why = "123 engulfing after " + g.Run + " " + (g.Buy ? "red" : "green") + " candles" + (g.Sweep ? " • SWEEP" : "") + (g.Wick ? " • WICK" : ""); o.Add(x);
+            }
+            return o;
+        }
+        // every entry of the chosen setups, in time order (same minute: FVG, AGG, ENG)
+        public static List<KeystoneTriCandidate> Candidates(KeystoneTriData d, KeystoneTriSettings s)
+        {
+            var o = new List<KeystoneTriCandidate>();
+            if (s.Has("FVG")) o.AddRange(Fvg(d, s)); if (s.Has("AGG")) o.AddRange(Aggression(d, s)); if (s.Has("ENG")) o.AddRange(Engulfing(d, s));
+            return Sort(o);
+        }
+        public static List<KeystoneTriCandidate> Sort(IEnumerable<KeystoneTriCandidate> c) { return c.OrderBy(x => x.EntryIdx).ThenBy(x => KeystoneTriCandidate.Rank(x.Setup)).ThenBy(x => x.Signal).ToList(); }
+        // 🎲 THE RANDOM-ENTRY CONTROL: per session as many entries as perDay says, each at a random minute of the window (market, its close)
+        // with a random side — the same window, bracket and rotation as the setups
+        public static List<KeystoneTriCandidate> Random(KeystoneTriData d, KeystoneTriSettings s, IDictionary<DateTime, int> perDay, int seed)
+        {
+            var o = new List<KeystoneTriCandidate>(); var rnd = new System.Random(seed); int i = 0;
+            while (i < d.N)
+            {
+                int j = i; var ses = d.Session[i]; var mins = new List<int>();
+                for (; j < d.N && d.Session[j] == ses; j++) if (d.Off[j] - 1 >= s.OffStart && d.Off[j] < s.OffEnd) mins.Add(j);
+                int want; if (perDay != null && perDay.TryGetValue(ses, out want) && mins.Count > 0)
+                    for (int k = 0; k < want; k++) { int idx = mins[rnd.Next(mins.Count)]; int dir = rnd.Next(2) == 0 ? 1 : -1; var c = Make(d, s, "RANDOM", dir, -1, idx, d.C[idx], false); c.Why = "random"; o.Add(c); }
+                i = j;
+            }
+            return Sort(o);
+        }
+        // the outcome of one entry on the 1-minute bars (room = the account's $ room to its floor; +∞ = no account)
+        public static KeystoneTriExit Resolve(KeystoneTriData d, KeystoneTriSettings s, KeystoneTriCandidate c, double room)
+        {
+            double pv = s.PointValue, q = s.Qty, cost = s.Costs, slip = s.StopSlipTicks * s.Tick; int dir = c.Dir; var x = new KeystoneTriExit();
+            double floorPx = double.IsInfinity(room) || double.IsNaN(room) ? double.NaN : c.EntryPx - dir * Math.Max(0, room - cost) / (pv * q);
+            int offFlat = s.OffFlat; var ses = d.Session[c.EntryIdx]; int last = c.EntryIdx;
+            for (int j = c.Limit ? c.EntryIdx : c.EntryIdx + 1; j < d.N && d.Session[j] == ses && d.Off[j] <= offFlat; j++)
+            {
+                last = j; bool fillBar = c.Limit && j == c.EntryIdx;
+                double adv = dir > 0 ? d.L[j] : d.H[j], fav = dir > 0 ? d.H[j] : d.L[j];
+                x.WorstUsd = Math.Min(x.WorstUsd, dir * (adv - c.EntryPx) * pv * q); if (!fillBar) x.BestUsd = Math.Max(x.BestUsd, dir * (fav - c.EntryPx) * pv * q);
+                bool hitStop = dir > 0 ? adv <= c.StopPx + 1e-9 : adv >= c.StopPx - 1e-9, hitTgt = !fillBar && (dir > 0 ? fav >= c.TargetPx - 1e-9 : fav <= c.TargetPx + 1e-9);
+                bool hitFloor = !double.IsNaN(floorPx) && (dir > 0 ? adv <= floorPx + 1e-9 : adv >= floorPx - 1e-9);
+                x.Exit = new DateTime(d.T[j]); x.ExitIdx = j;
+                if (hitFloor && (dir > 0 ? floorPx >= c.StopPx - 1e-9 : floorPx <= c.StopPx + 1e-9)) { x.ExitPx = floorPx; x.Pnl = -room; x.Reason = "FLOOR"; x.Liquidated = true; x.Both = hitTgt; return x; }
+                if (hitStop)
+                {
+                    double px = fillBar ? c.StopPx : dir > 0 ? Math.Min(d.O[j], c.StopPx) : Math.Max(d.O[j], c.StopPx); px -= dir * slip;
+                    x.ExitPx = px; x.Pnl = dir * (px - c.EntryPx) * pv * q - cost; x.Both = hitTgt; x.Reason = hitTgt ? "STOP (BOTH)" : "STOP"; return x;
+                }
+                if (hitTgt) { x.ExitPx = c.TargetPx; x.Pnl = dir * (c.TargetPx - c.EntryPx) * pv * q - cost; x.Reason = "TARGET"; return x; }
+            }
+            x.ExitIdx = last; x.Exit = new DateTime(d.T[last]); x.ExitPx = d.C[last]; x.Pnl = dir * (d.C[last] - c.EntryPx) * pv * q - cost; x.Reason = "FLAT";
+            return x;
+        }
+    }
+    public sealed class KeystoneTriTrade
+    {
+        public int No, Batch, Account, Dir; public string Phase = "", Setup = "", Reason = ""; public DateTime Day, Signal, Entry, Exit; public double EntryPx, ExitPx, StopPx, TargetPx, Pnl, Worst, Best; public bool Both, Liquidated;
+        public const string Header = "no,batch,account,phase,day,setup,side,signal,entry_time,entry_px,stop_px,target_px,exit_time,exit_px,reason,both_touched,net,worst_open,best_open";
+        public string Line()
+        {
+            var ic = CultureInfo.InvariantCulture; Func<double, string> f = v => v.ToString("0.##", ic);
+            return string.Join(",", No, Batch, Account, Phase, Day.ToString("yyyy-MM-dd", ic), Setup, Dir > 0 ? "BUY" : "SELL", Signal.ToString("yyyy-MM-dd HH:mm", ic), Entry.ToString("yyyy-MM-dd HH:mm", ic), f(EntryPx), f(StopPx), f(TargetPx), Exit.ToString("yyyy-MM-dd HH:mm", ic), f(ExitPx), Reason, Both ? 1 : 0, f(Pnl), f(Worst), f(Best));
+        }
+    }
+    public sealed class KeystoneTriBatch
+    {
+        public int No, Accounts, Passed, BlownEval, BlownFunded, Retired, Payouts, PaidAccounts, Trades, Wins, Sessions = 0, SessionsToFirstPayout = -1, SessionsToBreakeven = -1, CalDaysToFirstPayout = -1, CalDaysToBreakeven = -1;
+        public DateTime Start, End, FirstPayout = DateTime.MinValue, Breakeven = DateTime.MinValue; public bool Finished; public double Cost, PayoutGross, PayoutCash, TradingPnl;
+        public double Net { get { return PayoutCash - Cost; } }
+        public double PassPct { get { return Accounts == 0 ? 0 : 100.0 * Passed / Accounts; } }
+        public double Roi { get { return Cost <= 0 ? 0 : 100.0 * Net / Cost; } }
+        public const string Header = "batch,start,end,finished,sessions,accounts,cost,passed,pass_pct,blown_eval,blown_funded,retired_max_payouts,payouts,paid_accounts,payout_gross,payout_cash,net,roi_pct,trades,wins,trading_pnl,first_payout,sessions_to_first_payout,cal_days_to_first_payout,breakeven,sessions_to_breakeven,cal_days_to_breakeven";
+        public string Line()
+        {
+            var ic = CultureInfo.InvariantCulture; Func<double, string> f = v => v.ToString("0.##", ic); Func<DateTime, string> t = v => v == DateTime.MinValue ? "" : v.ToString("yyyy-MM-dd", ic);
+            return string.Join(",", No, t(Start), t(End), Finished ? 1 : 0, Sessions, Accounts, f(Cost), Passed, f(PassPct), BlownEval, BlownFunded, Retired, Payouts, PaidAccounts, f(PayoutGross), f(PayoutCash), f(Net), f(Roi), Trades, Wins, f(TradingPnl), t(FirstPayout), SessionsToFirstPayout, CalDaysToFirstPayout, t(Breakeven), SessionsToBreakeven, CalDaysToBreakeven);
+        }
+    }
+    public sealed class KeystoneTriSetupRow { public string Setup = "", Side = ""; public int N, Wins, Losses, Flat, Both; public double Net, GrossWin, GrossLoss; public double WinPct { get { return N == 0 ? 0 : 100.0 * Wins / N; } } public double Avg { get { return N == 0 ? 0 : Net / N; } } public double Pf { get { return GrossLoss <= 0 ? (GrossWin > 0 ? 999 : 0) : GrossWin / GrossLoss; } } }
+    public sealed class KeystoneTriStats
+    {
+        public int Sessions, Candidates, SkippedBusy, SkippedNoAccount, Trades, Wins, Losses, Flat, Both, Liquidated, MaxWinStreak, MaxLoseStreak, MaxWinDays, MaxLoseDays;
+        public double WinPct, AvgUsd, TradingNet, ProfitFactor, TradesPerSession;
+        public int Batches, Finished, OpenBatches, BestPositiveRun; public double PassPct, PassPctAll, FundedPerBatch, PayoutsPerBatch, PayoutsPerAccount, CashPerBatch, CostPerBatch, NetMean, NetMedian, NetWorst, NetBest, PctPositive, Roi;
+        public double TotalCost, TotalCash, BusinessNet; public double FirstPayoutMedian = double.NaN, FirstPayoutMin = double.NaN, BreakevenMedian = double.NaN, BreakevenMin = double.NaN, PctBrokeEven, CalBreakevenMedian = double.NaN, CalFirstPayoutMedian = double.NaN;
+        public string BestBatch = "", WorstBatch = "", Basis = "";   // Basis: FINISHED (the batch numbers are finished batches) or OPEN (none finished: the open batch so far)
+    }
+    public sealed class KeystoneTriResult
+    {
+        public KeystoneTriSettings Settings; public DateTime From, To; public List<KeystoneTriTrade> Trades = new List<KeystoneTriTrade>(); public List<KeystoneTriBatch> Batches = new List<KeystoneTriBatch>();
+        public List<DateTime> Sessions = new List<DateTime>(); public int Candidates, SkippedBusy, SkippedNoAccount; public KeystoneTriStats Stats = new KeystoneTriStats();
+        public List<KeystoneTriSetupRow> SetupRows() { return KeystoneTriRotation.SetupRows(Trades.Select(t => Tuple.Create(t.Setup, t.Dir, t.Pnl, t.Reason, t.Both))); }
+    }
+    public static class KeystoneTriRotation
+    {
+        // a fresh batch: KeystonePropSim with the firm's rules, evals + funded together, no day plan / trade cap (the bracket decides)
+        public static KeystonePropSim NewBatch(KeystoneTriSettings s)
+        {
+            var ss = new KeystoneSimSettings { Strategy = "STUDIO", Auto = true, DayPlan = "NONE", FundDayPlan = "SAME", MaxTradesPerDay = 0, FundMaxTrades = 0, MaxLossesPerDay = 0, AcctDayTarget = 0, AcctDayStop = 0, FundedWhen = "WITH", BuyRule = "BREAKEVEN", ReplacePassed = false, Accounts = Math.Max(1, s.Accounts), RotateBy = "TRADE", MinRoomShare = 0, Rules = s.Rules.Copy() };
+            return new KeystonePropSim(ss);
+        }
+        // the next account (round robin by number) that may trade today after `after`
+        public static KeystoneSimAccount NextAfter(KeystonePropSim sim, int after)
+        {
+            KeystoneSimAccount first = null; foreach (var a in sim.Accounts) { if (!sim.CanTrade(a)) continue; if (first == null || a.Id < first.Id) first = a; }
+            KeystoneSimAccount nx = null; foreach (var a in sim.Accounts) { if (!sim.CanTrade(a) || a.Id <= after) continue; if (nx == null || a.Id < nx.Id) nx = a; }
+            return nx ?? first;
+        }
+        sealed class Seat { public KeystoneSimAccount A; public string Phase = ""; public int Payouts; public int LastId; }
+        static KeystoneSimAccount Pick(KeystonePropSim sim, KeystoneTriSettings s, Seat st)
+        {
+            if (s.Mode == "STAY" || s.Mode == "STAYNEXT")
+            {
+                var c = st.A; bool open = c != null && c.Alive && c.Phase == st.Phase && c.Payouts == st.Payouts;
+                if (open && sim.CanTrade(c)) return c;
+                if (open && s.Mode == "STAY") return null;   // WAIT: the account is stopped for today (the firm's day rules) — no trade until it may trade again
+                var n = NextAfter(sim, c != null ? c.Id : st.LastId); st.A = n; if (n != null) { st.Phase = n.Phase; st.Payouts = n.Payouts; st.LastId = n.Id; }
+                return n;
+            }
+            var a = NextAfter(sim, st.LastId); if (a != null) st.LastId = a.Id; return a;
+        }
+        public static KeystoneTriResult Run(KeystoneTriData d, List<KeystoneTriCandidate> cands, KeystoneTriSettings s, DateTime from, DateTime to)
+        {
+            var r = new KeystoneTriResult { Settings = s, From = from.Date, To = to.Date }; var byDay = new Dictionary<DateTime, List<KeystoneTriCandidate>>();
+            foreach (var c in cands ?? new List<KeystoneTriCandidate>()) { if (c.Day < from.Date || c.Day > to.Date) continue; List<KeystoneTriCandidate> l; if (!byDay.TryGetValue(c.Day, out l)) byDay[c.Day] = l = new List<KeystoneTriCandidate>(); l.Add(c); r.Candidates++; }
+            KeystonePropSim sim = null; KeystoneTriBatch b = null; var st = new Seat(); long busy = 0; var trades = new List<KeystoneTriTrade>();
+            foreach (var day in d.Days.Where(x => x >= from.Date && x <= to.Date))
+            {
+                r.Sessions.Add(day);
+                if (sim == null) { sim = NewBatch(s); b = new KeystoneTriBatch { No = r.Batches.Count + 1, Start = day }; r.Batches.Add(b); st = new Seat(); }
+                sim.BeginDay(day); sim.S.Accounts = 1;   /* the batch is bought on its first session: never refilled (the next batch starts when none is alive) */
+                b.Sessions++;
+                List<KeystoneTriCandidate> list; if (byDay.TryGetValue(day, out list))
+                    foreach (var c in list)
+                    {
+                        if (c.Entry.Ticks < busy) { r.SkippedBusy++; continue; }
+                        var a = Pick(sim, s, st); if (a == null) { r.SkippedNoAccount++; continue; }
+                        var x = KeystoneTriSetup.Resolve(d, s, c, sim.Room(a, 0)); string phase = a.Phase;
+                        sim.AddFill(a, x.Pnl); sim.EndTrade(a, new KeystoneSimTrade { Entry = c.Entry, Exit = x.Exit, Dir = c.Dir, Pnl = x.Pnl, EntryPx = c.EntryPx, ExitPx = x.ExitPx, Reason = x.Reason, Source = c.Setup, Legs = s.Qty + " " + s.Symbol });
+                        r.Trades.Add(new KeystoneTriTrade { No = r.Trades.Count + 1, Batch = b.No, Account = a.Id, Phase = phase, Setup = c.Setup, Dir = c.Dir, Day = day, Signal = c.Signal, Entry = c.Entry, Exit = x.Exit, EntryPx = c.EntryPx, ExitPx = x.ExitPx, StopPx = c.StopPx, TargetPx = c.TargetPx, Pnl = x.Pnl, Reason = x.Reason, Both = x.Both, Liquidated = x.Liquidated, Worst = x.WorstUsd, Best = x.BestUsd });
+                        b.Trades++; if (x.Pnl > 0) b.Wins++; b.TradingPnl += x.Pnl; busy = x.Exit.Ticks;
+                        if (ConsistencyStop(sim, s, a)) sim.Lock(a, x.Exit, "consistency: one more win would make today more than " + s.Rules.EvalConsistency.ToString("0", CultureInfo.InvariantCulture) + "% of the target");
+                    }
+                sim.EndDay(); Book(sim, b);
+                if (!sim.Accounts.Any(a => a.Alive)) { b.Finished = true; sim = null; }
+            }
+            r.Stats = Stats(r); return r;
+        }
+        // 🧮 the evaluation's CONSISTENCY rule (Lucid: best day ≤ 50 % of the profit) as a day stop: an evaluation already up today stops for
+        // the day when one more win would make today bigger than the day cap (KeystoneConsistency: 50 % of the target, or the best day so far)
+        // — a bigger day is no breach at the firm, but it moves the pass further away (the plan a trader follows); the next account trades on
+        public static bool ConsistencyStop(KeystonePropSim sim, KeystoneTriSettings s, KeystoneSimAccount a)
+        {
+            if (!s.ConsistencyGuard || a == null || !a.Alive || a.Phase != "EVAL" || a.LockedToday) return false; var r = sim.RulesOf(a); if (r.EvalConsistency <= 0) return false;
+            double cap = Math.Max(r.EvalConsistency / 100.0 * r.Target, a.BestDay), win = s.TargetPts * s.PointValue * s.Qty - s.Costs;
+            return a.DayPnl > 0 && a.DayPnl + win > cap + 1e-9;
+        }
+        // the batch's numbers from its KeystonePropSim (money, passes, payouts, the first payout, the day the payouts paid it back)
+        static void Book(KeystonePropSim sim, KeystoneTriBatch b)
+        {
+            var acc = sim.Accounts; b.End = sim.Day; b.Accounts = acc.Count; b.Cost = acc.Sum(a => a.Spent); b.Passed = acc.Count(a => a.PassedOn != DateTime.MinValue);
+            b.BlownEval = acc.Count(a => a.Phase == "BLOWN" && a.WasPhase == "EVAL"); b.BlownFunded = acc.Count(a => a.Phase == "BLOWN" && a.WasPhase == "FUNDED"); b.Retired = acc.Count(a => a.Phase == "RETIRED");
+            b.Payouts = acc.Sum(a => a.Payouts); b.PaidAccounts = acc.Count(a => a.Payouts > 0); b.PayoutGross = acc.Sum(a => a.Gross); b.PayoutCash = acc.Sum(a => a.Cash);
+            var last = sim.Days.LastOrDefault(); if (last == null) return;
+            if (b.FirstPayout == DateTime.MinValue && last.Payouts > 0) { b.FirstPayout = last.Day; b.SessionsToFirstPayout = sim.Days.Count; b.CalDaysToFirstPayout = (int)(last.Day - b.Start).TotalDays; }
+            if (b.Breakeven == DateTime.MinValue && last.CumSpent > 0 && last.CumCash >= last.CumSpent - 1e-6) { b.Breakeven = last.Day; b.SessionsToBreakeven = sim.Days.Count; b.CalDaysToBreakeven = (int)(last.Day - b.Start).TotalDays; }
+        }
+        public static double Median(IList<double> v) { if (v == null || v.Count == 0) return double.NaN; var s = v.OrderBy(x => x).ToList(); int n = s.Count; return n % 2 == 1 ? s[n / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; }
+        static void Streaks(IList<double> v, out int win, out int lose) { win = lose = 0; int w = 0, l = 0; foreach (var x in v) { if (x > 0) { w++; l = 0; } else { l++; w = 0; } win = Math.Max(win, w); lose = Math.Max(lose, l); } }
+        public static KeystoneTriStats Stats(KeystoneTriResult r)
+        {
+            var s = new KeystoneTriStats { Sessions = r.Sessions.Count, Candidates = r.Candidates, SkippedBusy = r.SkippedBusy, SkippedNoAccount = r.SkippedNoAccount }; var t = r.Trades;
+            s.Trades = t.Count; s.Wins = t.Count(x => x.Pnl > 0); s.Losses = t.Count(x => x.Pnl <= 0); s.Flat = t.Count(x => x.Reason == "FLAT"); s.Both = t.Count(x => x.Both); s.Liquidated = t.Count(x => x.Liquidated);
+            s.WinPct = s.Trades == 0 ? 0 : 100.0 * s.Wins / s.Trades; s.TradingNet = t.Sum(x => x.Pnl); s.AvgUsd = s.Trades == 0 ? 0 : s.TradingNet / s.Trades; s.TradesPerSession = s.Sessions == 0 ? 0 : (double)s.Trades / s.Sessions;
+            double gw = t.Where(x => x.Pnl > 0).Sum(x => x.Pnl), gl = -t.Where(x => x.Pnl <= 0).Sum(x => x.Pnl); s.ProfitFactor = gl <= 0 ? (gw > 0 ? 999 : 0) : gw / gl;
+            Streaks(t.Select(x => x.Pnl).ToList(), out s.MaxWinStreak, out s.MaxLoseStreak);
+            Streaks(t.GroupBy(x => x.Day).OrderBy(g => g.Key).Select(g => g.Sum(x => x.Pnl)).ToList(), out s.MaxWinDays, out s.MaxLoseDays);
+            var all = r.Batches; var fin = all.Where(b => b.Finished).ToList(); s.Batches = all.Count; s.Finished = fin.Count; s.OpenBatches = all.Count - fin.Count;
+            var use = fin.Count > 0 ? fin : all; s.Basis = fin.Count > 0 ? "FINISHED" : "OPEN";
+            s.TotalCost = all.Sum(b => b.Cost); s.TotalCash = all.Sum(b => b.PayoutCash); s.BusinessNet = s.TotalCash - s.TotalCost;
+            s.PassPctAll = all.Sum(b => b.Accounts) == 0 ? 0 : 100.0 * all.Sum(b => b.Passed) / all.Sum(b => b.Accounts);
+            if (use.Count > 0)
+            {
+                int accs = use.Sum(b => b.Accounts); s.PassPct = accs == 0 ? 0 : 100.0 * use.Sum(b => b.Passed) / accs; s.FundedPerBatch = use.Average(b => (double)b.Passed); s.PayoutsPerBatch = use.Average(b => (double)b.Payouts);
+                s.PayoutsPerAccount = accs == 0 ? 0 : (double)use.Sum(b => b.Payouts) / accs; s.CashPerBatch = use.Average(b => b.PayoutCash); s.CostPerBatch = use.Average(b => b.Cost);
+                var nets = use.Select(b => b.Net).ToList(); s.NetMean = nets.Average(); s.NetMedian = Median(nets); s.NetWorst = nets.Min(); s.NetBest = nets.Max(); s.PctPositive = 100.0 * nets.Count(x => x > 0) / nets.Count;
+                s.Roi = use.Sum(b => b.Cost) <= 0 ? 0 : 100.0 * use.Sum(b => b.Net) / use.Sum(b => b.Cost);
+                int run = 0; foreach (var b in use) { run = b.Net > 0 ? run + 1 : 0; s.BestPositiveRun = Math.Max(s.BestPositiveRun, run); }
+                var fp = use.Where(b => b.SessionsToFirstPayout > 0).ToList(); if (fp.Count > 0) { s.FirstPayoutMedian = Median(fp.Select(b => (double)b.SessionsToFirstPayout).ToList()); s.FirstPayoutMin = fp.Min(b => b.SessionsToFirstPayout); s.CalFirstPayoutMedian = Median(fp.Select(b => (double)b.CalDaysToFirstPayout).ToList()); }
+                var be = use.Where(b => b.SessionsToBreakeven > 0).ToList(); s.PctBrokeEven = 100.0 * be.Count / use.Count; if (be.Count > 0) { s.BreakevenMedian = Median(be.Select(b => (double)b.SessionsToBreakeven).ToList()); s.BreakevenMin = be.Min(b => b.SessionsToBreakeven); s.CalBreakevenMedian = Median(be.Select(b => (double)b.CalDaysToBreakeven).ToList()); }
+                Func<KeystoneTriBatch, string> name = b => "#" + b.No + " " + b.Start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "→" + b.End.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + " net " + b.Net.ToString("+0;-0", CultureInfo.InvariantCulture);
+                s.BestBatch = name(use.OrderByDescending(b => b.Net).First()); s.WorstBatch = name(use.OrderBy(b => b.Net).First());
+            }
+            return s;
+        }
+        // setup × side rows from (setup, dir, pnl, reason, both)
+        public static List<KeystoneTriSetupRow> SetupRows(IEnumerable<Tuple<string, int, double, string, bool>> rows)
+        {
+            var o = new Dictionary<string, KeystoneTriSetupRow>();
+            foreach (var x in rows)
+                foreach (var key in new[] { x.Item1 + "|" + (x.Item2 > 0 ? "BUY" : "SELL"), x.Item1 + "|BOTH" })
+                {
+                    KeystoneTriSetupRow r; if (!o.TryGetValue(key, out r)) { var k = key.Split('|'); o[key] = r = new KeystoneTriSetupRow { Setup = k[0], Side = k[1] }; }
+                    r.N++; r.Net += x.Item3; if (x.Item3 > 0) { r.Wins++; r.GrossWin += x.Item3; } else { r.Losses++; r.GrossLoss -= x.Item3; } if (x.Item4 == "FLAT") r.Flat++; if (x.Item5) r.Both++;
+                }
+            return o.Values.OrderBy(r => KeystoneTriCandidate.Rank(r.Setup)).ThenBy(r => r.Side).ToList();
+        }
+        // every signal resolved on its own (no rotation, no overlap rule, no account floor): the setups' raw edge
+        public static List<KeystoneTriSetupRow> RawRows(KeystoneTriData d, KeystoneTriSettings s, IEnumerable<KeystoneTriCandidate> cands, DateTime from, DateTime to)
+        {
+            return SetupRows(cands.Where(c => c.Day >= from.Date && c.Day <= to.Date).Select(c => { var x = KeystoneTriSetup.Resolve(d, s, c, double.PositiveInfinity); return Tuple.Create(c.Setup, c.Dir, x.Pnl, x.Reason, x.Both); }));
+        }
+    }
 }
 
 namespace NinjaTrader.NinjaScript.Indicators
@@ -21613,7 +21989,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private static readonly string KeystoneBuildShort = KeystoneBuild.Split('•')[0].Trim();   // always the newest label (it was a separate, forgotten constant)
         private const string KeystoneStartHere = "START HERE → STEP 1: STRATEGY = FIRST 5M FVG STUDY or ROTATION • INSTRUMENTS = BOTH • DATE RANGE (end yesterday) • START";
         private static string flatAlertedKey = "";   // the firm close-time alarm sounds once a day per account
-        private const string KeystoneBuild = "BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
+        private const string KeystoneBuild = "BUILD 2026-11-11o • 🎯 3-SETUP ROTATION engine + study (FVG 50 % / aggression break / 123 engulfing, 30-account rotation, Lucid Flex 50K) • BUILD 2026-11-11n • LIVE TRADING: the account boxes fixed in their own row above the chart (bigger, never move / hide, kept in FULL CHART) + the account in words (firm • FUNDED / EVALUATION • trailing drawdown) + the bottom tab bar shrinks to fit • BUILD 2026-11-11m • entry marker: a small tick beside the candle (no big arrow / glow over the entry candle) • BUILD 2026-11-11l • 🧮 header TILES (balance, open, peak + time, floor $ + price + ▲ flash, room + drain bar, to lock / target + progress, the position) — each number once · 🆓 MANUAL practice (no rules) · 📊 ATTEMPTS tracker (summary, every attempt, its trades, ▶ jump, export, clear) · 🏷 gutter labels include the position / TP / SL (PEAK near the entry rides on it) · 🧠 ENTRY ANALYZER + 🧠 ENTRY SCORE (walk-forward, calibrated, says when there is no edge) • BUILD 2026-11-11k • 🔄 ROTATION SIM in the Backtest Studio (non-stop TP / SL brackets to the TPT lock or the blow: B / S patterns or rules, real ticks or the minute path with the reliability flag, ONE account + replay with FLOOR / PEAK / LOCK, 👥 POOL, 📊 ANALYZER + the no-edge maths, 🏆 FIND OPTIMAL checked on both halves, 💾 runs saved / reopened / compared) · 🖥 the chart first (drawers overlay it, one practice strip, the trailing numbers in the order column, FLOOR / LOCK / PEAK only, gutter labels never overlap) · 🔁 AUTO NEW ATTEMPT after a pass / lock / blow (on) · 📚 trailing-drawdown presets from the firm book + ＋ SAVE AS PRESET · 📼 LIVE DEMO history (saved + NinjaTrader, 5 / 30 / 90 / 365 days) • BUILD 2026-11-11j • ● LIVE DEMO in the Backtest Studio (real-time data, simulated fills, full prop practice) · several studios open at once · 🎯 PROP PRACTICE button in LIVE TRADING · 📐 the trailing-drawdown view (solid FLOOR / dotted PEAK / LOCK lines, the red room band, ▲ floor moved, the big panel: room $ + pts, peak, given back, to lock, balance) · 🎯 LOCK RACE preset (MNQ 5 … 60, 10 by default @ 9:30 with the 60-min trend; TP $2,000 / $1,000, SL floor / $1,000 / $500 / $250, BE at 75 %, the next trade aims for what is missing) • BUILD 2026-11-11i • 🔒 NinjaTrader Lockout recognised (entries refused, autopilot blocked) · 🎯 REVERSAL FVG scanner (signals only, ★ high volume, forward log) · 🎮 Sim101 listed · 🎯 live Sim101 prop practice · JJ removed • BUILD 2026-11-11h • TP / SL drag: the entry fades and can't be grabbed while dragging, a live points / $ label on the line, the order changes only on release • BUILD 2026-11-11g • 🤖 LIVE AUTOPILOT: GUIDED (flashing bracket, one press) for every firm, AUTO for Lucid / Tradeify only after ARM + typed START, through the armed links + limits • BUILD 2026-11-11f • defaults: ALL AT ONCE 2:00 + SPRINT 0 · 👥 owners (me / wife, 5 per firm each) · time presets · JJ strategy (practice) • BUILD 2026-11-11e • ● LIVE: only your active accounts (TPT eval / funded detected right, real balances, nicknames), groups + plan per group, CONFIRM no longer freezes • ▢ every window opens maximized (restore = 90 % of the screen), larger readable question dialogs • BUILD 2026-11-11d • 🔁 continuous runs until END by default (new eval → funded → payouts over and over), month by month, sprint badges • BUILD 2026-11-11c • 🟩 animated buffer tiles (TPT lock + $2,000 buffer, EOD +$100 lock, static) → the account card in-tab • 📅 in-tab PICK A DAY: quick ranges, tick boxes, separate periods + combined • ＋ ADD A FIRM • ⚡ SPRINT control • 🎯 practice as a prop account + 💵 $ bracket • ⏱ real ticks in the replay • 🏷 labels in the right gutter • ❓ every tab cross-linked • (11b) 📒 ONE RUN RECORD behind every result: 👤 ACCOUNTS + the account card (every trade, eval + payout cycles, balance vs floor), 💰 FUNDED RESULTS, 🕒 TIMELINE, 💵 PAYOUTS by payout (its cycle) / account / firm / month + ⚖ COMPARE, 📊 days to pass / lock / payout, 📦 EXPORT FOR CLAUDE (one JSON), the trust line • 🔁 BUSINESS RUN replaces the PIPELINE (replacements, reinvest / out of pocket / batch, month by month, the cash curve) • 🏆 BEST START DAYS • 🎬 MFF STUDIO firm type (static floor, instant withdrawals, $5,000 cap) + its plans • the replay continues into funded, use an older run ▾ • BUILD 2026-11-11a • 🧪💰 LABS ENGINE: independent side coins per firm / time (no more copy batches), funded accounts timed + sided within their firm, costs counted once ($1 + 1 tick a side), TPT SAFE phase 1 daily +$800/−$300, ONE BATCH runs until done (eval → funded on its own date → goal), ⚡ SPRINT accounts, latest eval run → Funded Lab, RESULTS = the latest run (replay too) • BUILD 2026-11-10g • 💰 FUNDED LAB ▶ REPLAY on the chart-first trading screen (one toolbar, one status line, the chart owns the rest, pool 🟢 ACTIVE / 💰 PAID / 💀 BLOWN with floor → payout bars, qualifying days, next payout, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), shared lab screen helpers, both labs + ● LIVE reviewed (● LIVE buttons lead to the read-only ● LIVE, stale stage-3 / BACKTEST STUDIO texts fixed, clipped table cells trimmed) • BUILD 2026-11-10f • 🏆 FIND BEST top 5 (eval by pass %, funded by paid %, both halves, ▶ USE THIS PLAN), 🧠 the analog % on the flashing buttons (similar past moments, n = …), controls ≥ 28 px • BUILD 2026-11-10e • 🏠 home = ● LIVE TRADING / 🧪 EVAL LAB / 💰 FUNDED LAB (old tools collapsed), 📅 2-DAY TEST, 📁 REPORTS (compare two runs), 🗂 DATA coverage + update, 🏆 FIND BEST, the Live data chip, Funded Lab phase strip + 🛒 BUY THE NEXT BATCH, ⚡ ALL AT ONCE held to 4:55 PM • BUILD 2026-11-10d • ● LIVE in the labs: detects your prop accounts (firm + eval / funded, TPT +$2,800 / $3,000 · $200 to go), one pool per firm per stage, per-pool settings (eval locked to the winning plan, funded 🛟 SAFE PAYOUT), daily tracking tabs, ✓ CONFIRM → LIVE TRADING ▸ ROTATE (MANUAL, armed links — no new order path) • 🛟 SAFE PAYOUT = the funded default • BUILD 2026-11-10c • 🖥 chart-first TRADING screen (one toolbar, one status line, the chart owns the rest, pool rows + 🟢 ACTIVE / ✅ PASSED / 💀 BLOWN tabs, ⤢ BIG CARDS, one-row order bar, the rail shrinks to icons), BATCH DONE with the totals, funded from the eval: each account from the session after its pass (no dates to pick) • BUILD 2026-11-10b • ▶ START HERE: a start date (+ the next session; TPT + its 3rd day), scope EVAL / FUNDED / BOTH, ⚡ CALCULATE EVAL ONLY • ⚡ CALCULATE EVAL → FUNDED → PAYOUTS • ▶ REPLAY WITH CHART, result tabs (EVAL RESULTS / DAYS / TRADES / BLOWN / PAYOUTS / STATS) + export, one side source (calculate = replay), ⏩ TO THE END • BUILD 2026-11-10a • 🧪 trading screen = chart + pool (settings in tabs, full screen), accounts per firm (default 5), firm-by-firm order fixed, full chart tools, manual trading + AUTO explained, why messages, lock ladder / trade again options • BUILD 2026-11-09d • Lucid back to the standard plan (moved to live after the payouts; the 2-week cooldown stays a choice in 🏢 FIRMS & RULES) • BUILD 2026-11-09c • 🏢 FIRMS & RULES editor (+ ADD FIRM; Lucid 2-week cooldown, no live), ⚡ FAST CASH + 🎯 TPT +$10K presets, 💰 budget ladder • 🧪💰 LABS final: funded spread by default (each account its own time + side), progress on every run, MAX IN 5 qualify in replay, TPT lock → withdrawals, ❓ HOW TO USE";
         // Asian 75 optimizer window state.
         private Button asianOptimizeButton, asianOptRunButton, asianOptCancelButton, asianOptApplyButton, asianOptSaveButton;
         private UniformGrid historyControls;

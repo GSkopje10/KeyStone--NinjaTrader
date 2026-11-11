@@ -1,0 +1,384 @@
+3-SETUP ROTATION STUDY (BUILD 2026-11-11o) — research only, nothing is sent
+data MNQ 2020-06-28 → 2026-10-02 (1716 sessions, 1-minute bars; no real ticks in the repo → a minute touching both stop and target = STOP)
+MNQ 15 micros • stop −$500 (16.75 pts, +1 tick) / target +$1,500 (50.00 pts) • costs $26.10 a trade • setups FVG,AGG,ENG • window 09:30–16:00 • ONE TRADE PER ACCOUNT • 30 accounts • LUCID FLEX 50K • evaluation $120 → +$3,000 (drawdown $2,000 EOD, best day ≤ 50%, ≥ 2 days) • funded: drawdown $2,000 EOD • payout after 5 day(s) of ≥ $150: 50% up to $2,000, min $250, you keep 90%, max 5 • 11-second rule • max 40 micros • flat by 16:45
+a win nets +1,474, a stop -536 → break-even win rate 26.7 %
+periods: FULL 2020-06-28→2026-10-02 • Y1 2025-10-03→2026-10-02 • M1 2026-09-03→2026-10-02 • W1 2026-09-26→2026-10-02 • IS 2020-06-28→2024-12-31 • OOS 2025-01-01→2026-10-02
+
+KEY NUMBERS (3 setups combined) — net/batch = payouts to you − 30 × $120; batch numbers = finished batches (OPEN = none finished: the open batch so far)
+window mode     per   trades  win% $/trade batches  fin  pass%  pay/b    net/b    med/b  pos% 1stPay     BE    busNet basis
+NY     ROTATE   FULL   19356  25.8     -28      52   51   21.2    1.5     -917   -1,800    20     25     32   -50,378FINISHED
+NY     STAY     FULL    8888  25.1     -35      26   25   19.7    0.7   -2,376   -3,600    12     66     83   -63,002FINISHED
+NY     STAYNEXT FULL   19402  25.8     -30      48   48   22.6    0.9   -2,063   -3,600    17     30     47   -99,000FINISHED
+NY     ROTATE   Y1      4186  24.6     -44      12   11   17.9    1.6     -742   -1,800     9     16     26   -11,764FINISHED
+NY     STAY     Y1      1895  25.8     -22       5    4   22.5    1.0   -1,800   -2,700    25     63     64   -10,800FINISHED
+NY     STAYNEXT Y1      4196  24.5     -47      11   10   19.0    0.7   -2,375   -3,600    10     20     29   -27,346FINISHED
+NY     ROTATE   M1       314  23.2     -79       2    1   26.7    0.0   -3,600   -3,600     0      –      –    -7,200FINISHED
+NY     STAY     M1       102  21.6    -104       1    0   10.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NY     STAYNEXT M1       330  22.4     -89       2    1   16.7    0.0   -3,600   -3,600     0      –      –    -7,200FINISHED
+NY     ROTATE   W1        89  20.2    -139       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NY     STAY     W1        16  31.3     +98       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NY     STAYNEXT W1        90  20.0    -123       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NY     ROTATE   IS     12494  26.5     -19      33   32   22.6    1.7     -721   -1,800    25     28     35   -26,674FINISHED
+NY     STAY     IS      6275  25.5     -32      18   17   20.0    0.9   -2,012   -3,600    18     59     83   -37,802FINISHED
+NY     STAYNEXT IS     12589  26.4     -22      29   28   23.0    1.2   -1,479   -3,600    21     33     47   -45,000FINISHED
+NY     ROTATE   OOS     6853  24.5     -46      20   19   18.8    1.3   -1,342   -3,600    11     16     26   -29,104FINISHED
+NY     STAY     OOS     2957  25.5     -26       8    7   20.5    0.7   -2,314   -3,600    14     60     73   -19,800FINISHED
+NY     STAYNEXT OOS     6869  24.5     -46      18   17   18.6    0.7   -2,329   -3,600    12     23     35   -43,200FINISHED
+ALLDAY ROTATE   FULL   41282  25.9     -20      88   87   22.5    0.9   -2,059   -3,600    14     14     19  -182,753FINISHED
+ALLDAY STAY     FULL   14303  25.9     -17      28   27   21.9    0.9   -1,934   -3,600    11     61     76   -55,805FINISHED
+ALLDAY STAYNEXT FULL   41506  25.9     -21      72   72   21.7    0.7   -2,300   -3,600    14     19     29  -165,600FINISHED
+ALLDAY ROTATE   Y1     10568  25.6     -20      19   18   23.5    0.7   -2,300   -3,600    11     10     17   -45,000FINISHED
+ALLDAY STAY     Y1      2150  24.7     -31       6    5   22.0    0.4   -2,880   -3,600     0     52     61   -18,000FINISHED
+ALLDAY STAYNEXT Y1     10467  25.4     -24      18   18   21.3    0.4   -2,800   -3,600     6     15     27   -50,400FINISHED
+ALLDAY ROTATE   M1       813  22.5     -70       3    2   23.3    0.0   -3,600   -3,600     0      –      –   -10,800FINISHED
+ALLDAY STAY     M1       140  20.0    -110       1    0   13.3    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+ALLDAY STAYNEXT M1       881  24.2     -47       3    2   25.0    0.0   -3,600   -3,600     0      –      –   -10,800FINISHED
+ALLDAY ROTATE   W1       219  20.5    -102       1    0   10.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+ALLDAY STAY     W1        19  26.3     +16       1    0    3.3    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+ALLDAY STAYNEXT W1       223  22.4     -73       1    0   23.3    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+ALLDAY ROTATE   IS     24599  26.0     -20      59   58   22.5    0.9   -2,028   -3,600    12     16     19  -121,199FINISHED
+ALLDAY STAY     IS      8848  25.7     -21      20   19   21.4    0.9   -1,895   -3,600    11     54     69   -39,605FINISHED
+ALLDAY STAYNEXT IS     24921  26.0     -22      48   47   21.5    0.7   -2,260   -3,600    15     21     29  -109,800FINISHED
+ALLDAY ROTATE   OOS    16586  25.8     -19      30   29   23.1    0.9   -2,060   -3,600    17     10     19   -63,354FINISHED
+ALLDAY STAY     OOS     3321  24.2     -38      10    9   20.7    0.1   -3,400   -3,600     0     55      –   -34,200FINISHED
+ALLDAY STAYNEXT OOS    16476  25.8     -20      25   25   21.9    0.7   -2,376   -3,600    12     15     29   -59,400FINISHED
+ASIA   ROTATE   FULL    8754  30.2      -9      24   23   24.9    2.5     +350     -263    43     44     51    +4,456FINISHED
+ASIA   STAY     FULL    5658  29.7     -26      15   14   21.2    1.0   -1,800   -2,700    14    127    116   -28,805FINISHED
+ASIA   ROTATE   Y1      2913  27.8      -7       8    7   23.3    2.4     +543     +551    57     21     25      +198FINISHED
+ASIA   STAY     Y1      1373  25.9     -29       4    3   22.2    1.0   -1,800   -3,600    33     62     71    -9,000FINISHED
+ASIA   ROTATE   M1       230  27.8      +4       1    0   20.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+ASIA   STAY     M1        94  23.4     -57       1    0   10.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+ASIA   ROTATE   W1        64  26.6      -8       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+ASIA   STAY     W1        19  26.3     +16       1    0    3.3    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+ASIA   ROTATE   IS      4532  31.5     -21      14   13   22.8    2.0     -656   -1,800    23     65     70   -12,130FINISHED
+ASIA   STAY     IS      3538  31.6     -22       9    8   20.8    1.4   -1,126   -1,800    13    130    145   -12,605FINISHED
+ASIA   ROTATE   OOS     4212  28.8      +2      11   10   25.0    2.9   +1,359     +275    50     24     30    +9,994FINISHED
+ASIA   STAY     OOS     3101  28.6      -1       5    4   18.3    3.5   +2,700   +2,700    50     70     90    +7,200FINISHED
+LONDON ROTATE   FULL   12806  26.8     -31      39   38   20.8    1.4   -1,269   -2,193    18     36     49   -51,816FINISHED
+LONDON STAY     FULL    7609  27.0     -24      19   18   22.8    1.2   -1,432   -2,825    17     78     78   -27,572FINISHED
+LONDON ROTATE   Y1      3407  25.4     -32      11   10   23.0    0.8   -2,160   -3,600    10     20     29   -25,200FINISHED
+LONDON STAY     Y1      1815  25.5     -31       4    3   22.2    1.3   -1,200   -1,800    33     56     85    -7,200FINISHED
+LONDON ROTATE   M1       309  24.6     -40       1    0   16.7    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+LONDON STAY     M1        79  26.6     +15       1    0    6.7    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+LONDON ROTATE   W1        80  23.8     -71       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+LONDON STAY     W1        20  25.0     -21       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+LONDON ROTATE   IS      7549  27.8     -29      23   22   19.1    1.7     -728   -1,800    23     39     58   -19,616FINISHED
+LONDON STAY     IS      4692  27.9     -23      13   12   22.8    1.5     -948   -1,925    17     78     77   -14,972FINISHED
+LONDON ROTATE   OOS     5281  25.3     -36      17   16   22.1    0.9   -1,996   -2,700     6     22     26   -35,541FINISHED
+LONDON STAY     OOS     2825  25.2     -32       7    6   22.2    0.3   -3,017   -3,600     0     83      –   -19,900FINISHED
+NYAM   ROTATE   FULL    9252  26.5     -36      30   29   19.3    1.9     -577   -1,800    34     44     55   -20,335FINISHED
+NYAM   STAY     FULL    6095  26.6     -31      19   18   21.5    0.8   -2,215   -3,600    17     83     96   -43,465FINISHED
+NYAM   ROTATE   Y1      1976  24.6     -42       7    6   18.3    1.3   -1,406   -1,800    17     37     51   -12,038FINISHED
+NYAM   STAY     Y1      1247  25.1     -30       4    3   21.1    1.3   -1,200   -1,800    33     78     98    -7,200FINISHED
+NYAM   ROTATE   M1       158  25.9     -19       1    0   13.3    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NYAM   STAY     M1        73  27.4     +21       1    0   10.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NYAM   ROTATE   W1        40  27.5      -7       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NYAM   STAY     W1        16  31.3     +98       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NYAM   ROTATE   IS      6049  27.1     -34      20   19   19.5    1.9     -392   -1,800    37     50     68   -11,041FINISHED
+NYAM   STAY     IS      4055  27.2     -29      13   12   23.6    0.7   -2,422   -3,600    17     80    103   -32,665FINISHED
+NYAM   ROTATE   OOS     3207  25.4     -41      11   10   18.7    1.7     -929   -2,489    30     39     53   -12,893FINISHED
+NYAM   STAY     OOS     1985  24.5     -48       7    6   16.7    0.5   -2,700   -3,600     0     75     69   -19,800FINISHED
+NYPM   ROTATE   FULL   10406  26.9     -27      33   32   21.6    2.0     -385   -1,800    19     44     50   -15,920FINISHED
+NYPM   STAY     FULL    6581  26.7     -30      20   19   21.8    1.0   -1,805   -3,600    16     85     93   -37,901FINISHED
+NYPM   ROTATE   Y1      2174  24.3     -54       8    7   21.0    0.4   -2,829   -3,600     0     29      –   -23,400FINISHED
+NYPM   STAY     Y1      1295  22.9     -81       5    4   16.7    0.5   -2,700   -3,600     0     65     72   -14,400FINISHED
+NYPM   ROTATE   M1       172  22.1    -119       1    0   13.3    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NYPM   STAY     M1       109  18.3    -186       1    0    3.3    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NYPM   ROTATE   W1        47  12.8    -298       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NYPM   STAY     W1        29  13.8    -260       1    0    0.0    0.0   -3,600   -3,600     0      –      –    -3,600  OPEN
+NYPM   ROTATE   IS      6736  28.2     -12      20   19   22.5    2.8     +870     -889    32     47     46   +12,922FINISHED
+NYPM   STAY     IS      4576  28.1     -13      12   11   23.6    1.7     -500   -1,800    27     85     93    -9,101FINISHED
+NYPM   ROTATE   OOS     3677  25.3     -40      12   11   19.4    1.4   -1,431   -2,214    18     34     37   -19,339FINISHED
+NYPM   STAY     OOS     2016  23.4     -72       8    7   18.1    0.1   -3,343   -3,600     0     83      –   -27,000FINISHED
+
+EACH SETUP ALONE vs COMBINED (full history + last 12 months)
+window setups      mode     per   trades  win% $/trade  pass%  pay/b    net/b  pos%     BE
+NY     ALL3        ROTATE   FULL   19356  25.8     -28   21.2    1.5     -917    20     32
+NY     ALL3        STAY     FULL    8888  25.1     -35   19.7    0.7   -2,376    12     83
+NY     FVG         ROTATE   FULL   12708  26.8     -13   23.6    2.1       +9    22     39
+NY     FVG         STAY     FULL    7980  26.5     -17   21.2    1.7     -580    21     79
+NY     AGG         ROTATE   FULL    4386  26.8     -16   24.8    2.4     +226    43    111
+NY     AGG         STAY     FULL    3475  27.3      -2   28.1    2.7     +769    33    158
+NY     ENG         ROTATE   FULL   10299  25.1     -41   20.4    1.3   -1,586    14     42
+NY     ENG         STAY     FULL    6620  24.5     -54   18.2    0.7   -2,373     9     83
+NY     ALL3        ROTATE   Y1      4186  24.6     -44   17.9    1.6     -742     9     26
+NY     ALL3        STAY     Y1      1895  25.8     -22   22.5    1.0   -1,800    25     64
+NY     FVG         ROTATE   Y1      2551  26.1     -17   22.2    1.7     -606    17     31
+NY     FVG         STAY     Y1      1617  27.0      -6   24.4    1.7     -600    33     75
+NY     AGG         ROTATE   Y1       722  22.9     -84   13.3    1.0   -2,128     0      –
+NY     AGG         STAY     Y1       547  23.4     -65   21.7    0.0   -3,600     0      –
+NY     ENG         ROTATE   Y1      2081  24.5     -43   22.4    1.3   -1,510    29     38
+NY     ENG         STAY     Y1      1257  23.5     -61   20.0    0.8   -2,250     0     72
+ALLDAY ALL3        ROTATE   FULL   41282  25.9     -20   22.5    0.9   -2,059    14     19
+ALLDAY ALL3        STAY     FULL   14303  25.9     -17   21.9    0.9   -1,934    11     76
+ALLDAY FVG         ROTATE   FULL   31256  26.4     -11   22.9    1.7     -617    24     22
+ALLDAY FVG         STAY     FULL   13435  26.3     -13   22.8    1.3   -1,275    21     76
+ALLDAY AGG         ROTATE   FULL   12342  25.7     -16   23.9    2.2      -40    35     39
+ALLDAY AGG         STAY     FULL    7658  26.0     -12   25.2    1.4   -1,100    11     88
+ALLDAY ENG         ROTATE   FULL   23634  24.8     -38   20.9    0.9   -2,019    13     30
+ALLDAY ENG         STAY     FULL   10092  25.3     -27   22.8    0.7   -2,388     8     71
+ALLDAY ALL3        ROTATE   Y1     10568  25.6     -20   23.5    0.7   -2,300    11     17
+ALLDAY ALL3        STAY     Y1      2150  24.7     -31   22.0    0.4   -2,880     0     61
+ALLDAY FVG         ROTATE   Y1      7833  26.7      -2   24.4    1.5     -969    23     18
+ALLDAY FVG         STAY     Y1      3058  26.9      +3   25.6    1.7     -600    33     85
+ALLDAY AGG         ROTATE   Y1      2354  23.9     -43   19.5    0.7   -2,442     0     37
+ALLDAY AGG         STAY     Y1      1332  23.8     -49   16.7    0.5   -2,700     0      –
+ALLDAY ENG         ROTATE   Y1      5539  24.0     -47   19.6    0.5   -2,650     7     26
+ALLDAY ENG         STAY     Y1      2141  23.9     -48   20.0    0.4   -2,880     0     50
+ASIA   ALL3        ROTATE   FULL    8754  30.2      -9   24.9    2.5     +350    43     51
+ASIA   ALL3        STAY     FULL    5658  29.7     -26   21.2    1.0   -1,800    14    116
+ASIA   FVG         ROTATE   FULL    6701  30.4     -22   21.3    2.3     -205    33     90
+ASIA   FVG         STAY     FULL    4833  30.5     -22   23.6    1.3   -1,714    25    160
+ASIA   AGG         ROTATE   FULL    3715  33.4      +2   27.4    3.0     +325    44    159
+ASIA   AGG         STAY     FULL    3148  33.5      +1   25.7    3.4   +2,165    57    196
+ASIA   ENG         ROTATE   FULL    5964  29.9     -32   19.0    1.8     -765    29     62
+ASIA   ENG         STAY     FULL    4445  29.4     -40   21.0    0.5   -2,924     0     94
+ASIA   ALL3        ROTATE   Y1      2913  27.8      -7   23.3    2.4     +543    57     25
+ASIA   ALL3        STAY     Y1      1373  25.9     -29   22.2    1.0   -1,800    33     71
+ASIA   FVG         ROTATE   Y1      2094  28.2       0   28.9    2.0     -840    33     47
+ASIA   FVG         STAY     Y1      1306  27.4      -4   25.0    1.5   -1,011    50    103
+ASIA   AGG         ROTATE   Y1       767  30.5     +22   35.0    2.0     -708     0    112
+ASIA   AGG         STAY     Y1       619  29.9     +15   23.3    5.0   +5,400   100    162
+ASIA   ENG         ROTATE   Y1      1680  27.0     -22   20.8    2.3     +142    25     53
+ASIA   ENG         STAY     Y1      1110  26.4     -21   18.9    2.0        0    33     74
+LONDON ALL3        ROTATE   FULL   12806  26.8     -31   20.8    1.4   -1,269    18     49
+LONDON ALL3        STAY     FULL    7609  27.0     -24   22.8    1.2   -1,432    17     78
+LONDON FVG         ROTATE   FULL    9709  27.5     -24   24.1    1.6   -1,100    24     55
+LONDON FVG         STAY     FULL    6303  27.6     -23   21.6    1.1   -1,588    12     97
+LONDON AGG         ROTATE   FULL    4596  25.9     -48   19.8    0.8   -2,559     6    109
+LONDON AGG         STAY     FULL    3682  25.9     -47   18.3    0.9   -2,042    17    144
+LONDON ENG         ROTATE   FULL    7832  26.7     -37   20.0    1.5   -1,059    23     70
+LONDON ENG         STAY     FULL    5529  26.3     -39   21.8    0.7   -2,501     6     95
+LONDON ALL3        ROTATE   Y1      3407  25.4     -32   23.0    0.8   -2,160    10     29
+LONDON ALL3        STAY     Y1      1815  25.5     -31   22.2    1.3   -1,200    33     85
+LONDON FVG         ROTATE   Y1      2450  26.2     -17   25.7    1.1   -1,705    14     48
+LONDON FVG         STAY     Y1      1218  24.9     -35   21.1    0.0   -3,600     0      –
+LONDON AGG         ROTATE   Y1       817  23.7     -65   14.4    1.3   -1,275    33     98
+LONDON AGG         STAY     Y1       623  24.2     -51   11.7    0.5   -2,700     0      –
+LONDON ENG         ROTATE   Y1      1868  23.9     -59   21.9    0.3   -3,110     0      –
+LONDON ENG         STAY     Y1      1107  23.6     -60   18.3    0.3   -3,150     0      –
+NYAM   ALL3        ROTATE   FULL    9252  26.5     -36   19.3    1.9     -577    34     55
+NYAM   ALL3        STAY     FULL    6095  26.6     -31   21.5    0.8   -2,215    17     96
+NYAM   FVG         ROTATE   FULL    5191  28.3     -24   21.9    2.3     -188    31    108
+NYAM   FVG         STAY     FULL    4240  28.3     -19   20.9    2.4     +502    45    120
+NYAM   AGG         ROTATE   FULL    2197  27.4      +6   27.8    4.2   +3,209    67    218
+NYAM   AGG         STAY     FULL    1926  26.9      +2   28.7    2.6     +907    20    260
+NYAM   ENG         ROTATE   FULL    4626  26.7     -46   20.0    1.6   -1,445    19    132
+NYAM   ENG         STAY     FULL    3782  25.8     -58   17.2    0.8   -2,252    17    197
+NYAM   ALL3        ROTATE   Y1      1976  24.6     -42   18.3    1.3   -1,406    17     51
+NYAM   ALL3        STAY     Y1      1247  25.1     -30   21.1    1.3   -1,200    33     98
+NYAM   FVG         ROTATE   Y1       998  26.6     -16   13.3    4.5   +4,498   100     80
+NYAM   FVG         STAY     Y1       724  25.3     -32   20.0    1.0   -2,148     0      –
+NYAM   AGG         ROTATE   Y1       380  22.6     -66   30.0    2.0     -655     0      –
+NYAM   AGG         STAY     Y1       314  22.9     -53   30.0    0.0   -3,600     0      –
+NYAM   ENG         ROTATE   Y1       914  24.9     -44   20.0    1.0   -2,033    33    108
+NYAM   ENG         STAY     Y1       718  23.1     -68   18.3    0.5   -2,700     0      –
+NYPM   ALL3        ROTATE   FULL   10406  26.9     -27   21.6    2.0     -385    19     50
+NYPM   ALL3        STAY     FULL    6581  26.7     -30   21.8    1.0   -1,805    16     93
+NYPM   FVG         ROTATE   FULL    6956  28.4      -3   25.2    3.1   +1,514    40     66
+NYPM   FVG         STAY     FULL    5343  28.6      -2   24.2    2.9   +1,507    42    126
+NYPM   AGG         ROTATE   FULL    2176  28.2     -22   23.3    1.9     -794    14    308
+NYPM   AGG         STAY     FULL    1935  28.4     -17   24.7    3.2   +1,650    60    258
+NYPM   ENG         ROTATE   FULL    5906  26.9     -28   23.3    1.6     -910    21    100
+NYPM   ENG         STAY     FULL    4471  27.2     -21   24.0    1.4   -1,350    21    153
+NYPM   ALL3        ROTATE   Y1      2174  24.3     -54   21.0    0.4   -2,829     0      –
+NYPM   ALL3        STAY     Y1      1295  22.9     -81   16.7    0.5   -2,700     0     72
+NYPM   FVG         ROTATE   Y1      1404  26.3     -25   20.8    2.8   +1,350    25     46
+NYPM   FVG         STAY     Y1       900  26.1     -33   20.0    1.0   -1,800     0     77
+NYPM   AGG         ROTATE   Y1       336  22.3    -130   10.0    0.0   -3,600     0      –
+NYPM   AGG         STAY     Y1       294  20.1    -158   10.0    0.0   -3,600     0      –
+NYPM   ENG         ROTATE   Y1      1152  24.2     -56   14.2    2.0     -248    25     67
+NYPM   ENG         STAY     Y1       853  23.6     -61   18.9    0.3   -3,000     0      –
+
+RANDOM CONTROL (20 seeds, same window / frequency / bracket / rotation) — random median [p5..p95] vs the 3 setups (seeds beaten of 20)
+NY ROTATE FULL: WinPct 25.1 [24.6..25.7] vs 25.8 (20/20) • AvgUsd -38 [-47..-28] vs -28 (19/20) • PassPct 20.6 [18.8..23.1] vs 21.2 (13/20) • NetMean -1,876 [-2,516..-1,322] vs -917 (20/20) • PctPositive 13.3 [5.2..18.9] vs 19.6 (20/20)
+NY ROTATE Y1: WinPct 24.8 [23.3..26.3] vs 24.6 (9/20) • AvgUsd -35 [-61..-7] vs -44 (4/20) • PassPct 20.4 [16.4..27.3] vs 17.9 (4/20) • NetMean -2,196 [-3,020..+380] vs -742 (18/20) • PctPositive 9.1 [0.0..37.5] vs 9.1 (5/20)
+NY ROTATE M1: WinPct 25.7 [20.6..30.7] vs 23.2 (3/20) • AvgUsd -8 [-115..+72] vs -79 (1/20) • PassPct 26.7 [10.0..40.0] vs 26.7 (8/20) • NetMean -3,600 [-3,600..-1,800] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NY ROTATE W1: WinPct 26.8 [18.8..33.3] vs 20.2 (3/20) • AvgUsd -7 [-173..+120] vs -139 (3/20) • PassPct 0.0 [0.0..6.7] vs 0.0 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NY ROTATE IS: WinPct 25.3 [24.6..26.1] vs 26.5 (20/20) • AvgUsd -38 [-51..-23] vs -19 (20/20) • PassPct 20.7 [18.7..24.8] vs 22.6 (18/20) • NetMean -1,817 [-2,477..-1,132] vs -721 (20/20) • PctPositive 13.7 [7.9..25.0] vs 25.0 (19/20)
+NY ROTATE OOS: WinPct 24.7 [24.0..26.0] vs 24.5 (7/20) • AvgUsd -37 [-49..-13] vs -46 (2/20) • PassPct 20.6 [17.8..25.6] vs 18.8 (2/20) • NetMean -2,077 [-2,623..-588] vs -1,342 (18/20) • PctPositive 10.5 [5.0..33.3] vs 10.5 (9/20)
+NY STAY FULL: WinPct 25.0 [24.2..25.8] vs 25.1 (13/20) • AvgUsd -38 [-49..-23] vs -35 (14/20) • PassPct 20.3 [17.7..23.2] vs 19.7 (7/20) • NetMean -2,484 [-3,084..-1,658] vs -2,376 (11/20) • PctPositive 8.2 [3.8..20.0] vs 12.0 (15/20)
+NY STAY Y1: WinPct 24.4 [22.3..26.3] vs 25.8 (18/20) • AvgUsd -38 [-74..-1] vs -22 (16/20) • PassPct 20.4 [15.8..24.2] vs 22.5 (15/20) • NetMean -3,015 [-3,600..-600] vs -1,800 (15/20) • PctPositive 0.0 [0.0..33.3] vs 25.0 (13/20)
+NY STAY M1: WinPct 25.9 [18.9..38.1] vs 21.6 (3/20) • AvgUsd -4 [-147..+224] vs -104 (3/20) • PassPct 10.0 [3.3..20.0] vs 10.0 (5/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NY STAY W1: WinPct 29.8 [13.2..50.0] vs 31.3 (10/20) • AvgUsd +78 [-245..+469] vs +98 (10/20) • PassPct 3.3 [0.0..3.3] vs 0.0 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NY STAY IS: WinPct 25.1 [24.0..26.2] vs 25.5 (14/20) • AvgUsd -39 [-55..-19] vs -32 (14/20) • PassPct 20.6 [16.7..22.9] vs 20.0 (7/20) • NetMean -2,411 [-3,234..-1,130] vs -2,012 (13/20) • PctPositive 8.7 [0.0..25.0] vs 17.6 (15/20)
+NY STAY OOS: WinPct 24.5 [23.2..25.5] vs 25.5 (20/20) • AvgUsd -36 [-62..-21] vs -26 (17/20) • PassPct 20.0 [14.6..25.8] vs 20.5 (12/20) • NetMean -2,925 [-3,600..-1,200] vs -2,314 (16/20) • PctPositive 0.0 [0.0..33.3] vs 14.3 (15/20)
+ALLDAY ROTATE FULL: WinPct 25.0 [24.8..25.4] vs 25.9 (20/20) • AvgUsd -36 [-40..-30] vs -20 (20/20) • PassPct 21.3 [19.9..22.1] vs 22.5 (20/20) • NetMean -2,591 [-2,897..-2,068] vs -2,059 (20/20) • PctPositive 7.0 [3.1..10.7] vs 13.8 (20/20)
+ALLDAY ROTATE Y1: WinPct 24.6 [23.9..25.1] vs 25.6 (20/20) • AvgUsd -38 [-50..-31] vs -20 (20/20) • PassPct 20.9 [17.9..22.3] vs 23.5 (20/20) • NetMean -3,138 [-3,375..-2,500] vs -2,300 (20/20) • PctPositive 0.0 [0.0..9.5] vs 11.1 (20/20)
+ALLDAY ROTATE M1: WinPct 25.1 [21.4..28.6] vs 22.5 (2/20) • AvgUsd -28 [-97..+28] vs -70 (2/20) • PassPct 20.8 [13.3..36.7] vs 23.3 (11/20) • NetMean -3,600 [-3,600..+1,800] vs -3,600 (0/20) • PctPositive 0.0 [0.0..100.0] vs 0.0 (0/20)
+ALLDAY ROTATE W1: WinPct 24.7 [18.4..29.8] vs 20.5 (2/20) • AvgUsd -29 [-150..+67] vs -102 (4/20) • PassPct 18.3 [6.7..33.3] vs 10.0 (1/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+ALLDAY ROTATE IS: WinPct 25.3 [24.8..26.0] vs 26.0 (20/20) • AvgUsd -33 [-45..-21] vs -20 (20/20) • PassPct 21.6 [19.9..23.3] vs 22.5 (19/20) • NetMean -2,372 [-2,846..-1,540] vs -2,028 (17/20) • PctPositive 8.3 [3.1..16.1] vs 12.1 (17/20)
+ALLDAY ROTATE OOS: WinPct 24.6 [24.1..25.1] vs 25.8 (20/20) • AvgUsd -40 [-48..-32] vs -19 (20/20) • PassPct 20.6 [18.5..21.9] vs 23.1 (20/20) • NetMean -2,959 [-3,331..-2,297] vs -2,060 (20/20) • PctPositive 5.4 [0.0..8.6] vs 17.2 (20/20)
+ALLDAY STAY FULL: WinPct 24.9 [24.2..25.8] vs 25.9 (20/20) • AvgUsd -34 [-47..-21] vs -17 (20/20) • PassPct 21.8 [19.9..24.2] vs 21.9 (11/20) • NetMean -2,779 [-3,484..-2,267] vs -1,934 (20/20) • PctPositive 6.9 [0.0..13.8] vs 11.1 (17/20)
+ALLDAY STAY Y1: WinPct 24.1 [22.7..26.1] vs 24.7 (19/20) • AvgUsd -43 [-66..-14] vs -31 (19/20) • PassPct 20.0 [11.3..25.3] vs 22.0 (16/20) • NetMean -3,600 [-3,600..-1,800] vs -2,880 (19/20) • PctPositive 0.0 [0.0..20.0] vs 0.0 (0/20)
+ALLDAY STAY M1: WinPct 23.8 [18.9..35.9] vs 20.0 (2/20) • AvgUsd -35 [-137..+203] vs -110 (2/20) • PassPct 10.0 [3.3..16.7] vs 13.3 (14/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+ALLDAY STAY W1: WinPct 24.4 [11.1..62.5] vs 26.3 (12/20) • AvgUsd -23 [-279..+720] vs +16 (12/20) • PassPct 3.3 [0.0..3.3] vs 3.3 (9/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+ALLDAY STAY IS: WinPct 25.4 [24.3..26.0] vs 25.7 (17/20) • AvgUsd -28 [-47..-20] vs -21 (19/20) • PassPct 22.0 [19.7..24.7] vs 21.4 (7/20) • NetMean -2,486 [-3,514..-1,807] vs -1,895 (19/20) • PctPositive 10.5 [0.0..15.8] vs 10.5 (9/20)
+ALLDAY STAY OOS: WinPct 24.6 [23.1..25.6] vs 24.2 (7/20) • AvgUsd -38 [-59..-19] vs -38 (10/20) • PassPct 20.4 [17.0..26.7] vs 20.7 (10/20) • NetMean -3,220 [-3,600..-2,475] vs -3,400 (4/20) • PctPositive 0.0 [0.0..12.5] vs 0.0 (0/20)
+ASIA ROTATE FULL: WinPct 29.0 [28.6..30.3] vs 30.2 (19/20) • AvgUsd -33 [-42..-12] vs -9 (20/20) • PassPct 21.0 [18.5..24.9] vs 24.9 (20/20) • NetMean -891 [-2,029..+151] vs +350 (20/20) • PctPositive 24.0 [8.0..36.4] vs 43.5 (20/20)
+ASIA ROTATE Y1: WinPct 26.2 [24.2..27.5] vs 27.8 (20/20) • AvgUsd -32 [-64..-8] vs -7 (20/20) • PassPct 21.0 [16.7..28.1] vs 23.3 (15/20) • NetMean -1,682 [-2,800..-254] vs +543 (20/20) • PctPositive 12.5 [0.0..33.3] vs 57.1 (20/20)
+ASIA ROTATE M1: WinPct 25.8 [21.4..32.5] vs 27.8 (15/20) • AvgUsd -36 [-118..+77] vs +4 (16/20) • PassPct 15.0 [6.7..30.0] vs 20.0 (11/20) • NetMean -3,600 [-3,600..-1,800] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+ASIA ROTATE W1: WinPct 25.0 [17.5..36.2] vs 26.6 (11/20) • AvgUsd -32 [-186..+144] vs -8 (12/20) • PassPct 0.0 [0.0..0.0] vs 0.0 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+ASIA ROTATE IS: WinPct 31.5 [29.9..33.2] vs 31.5 (10/20) • AvgUsd -32 [-48..-5] vs -21 (13/20) • PassPct 20.7 [16.4..26.4] vs 22.8 (16/20) • NetMean -394 [-2,602..+1,782] vs -656 (7/20) • PctPositive 29.0 [0.0..54.5] vs 23.1 (4/20)
+ASIA ROTATE OOS: WinPct 26.7 [25.4..28.2] vs 28.8 (20/20) • AvgUsd -33 [-55..-8] vs +2 (20/20) • PassPct 21.7 [19.0..25.2] vs 25.0 (19/20) • NetMean -1,686 [-2,691..+42] vs +1,359 (20/20) • PctPositive 17.4 [0.0..33.3] vs 50.0 (20/20)
+ASIA STAY FULL: WinPct 29.5 [28.9..31.1] vs 29.7 (12/20) • AvgUsd -29 [-41..-8] vs -26 (11/20) • PassPct 21.9 [18.4..26.2] vs 21.2 (7/20) • NetMean -1,392 [-2,435..+1,539] vs -1,800 (5/20) • PctPositive 14.8 [6.7..50.0] vs 14.3 (8/20)
+ASIA STAY Y1: WinPct 25.6 [22.6..27.4] vs 25.9 (11/20) • AvgUsd -36 [-86..-2] vs -29 (13/20) • PassPct 21.1 [13.3..31.1] vs 22.2 (15/20) • NetMean -2,400 [-3,600..+600] vs -1,800 (13/20) • PctPositive 0.0 [0.0..66.7] vs 33.3 (14/20)
+ASIA STAY M1: WinPct 24.1 [16.9..31.4] vs 23.4 (9/20) • AvgUsd -56 [-194..+103] vs -57 (10/20) • PassPct 6.7 [0.0..16.7] vs 10.0 (12/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+ASIA STAY W1: WinPct 23.1 [10.0..41.7] vs 26.3 (14/20) • AvgUsd -65 [-288..+313] vs +16 (13/20) • PassPct 3.3 [0.0..3.3] vs 3.3 (9/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+ASIA STAY IS: WinPct 31.5 [30.7..33.8] vs 31.6 (12/20) • AvgUsd -26 [-44..+2] vs -22 (12/20) • PassPct 20.7 [18.8..28.6] vs 20.8 (10/20) • NetMean -946 [-2,766..+2,532] vs -1,126 (9/20) • PctPositive 25.0 [0.0..71.4] vs 12.5 (7/20)
+ASIA STAY OOS: WinPct 26.6 [24.8..27.9] vs 28.6 (20/20) • AvgUsd -28 [-59..-6] vs -1 (20/20) • PassPct 22.1 [16.7..30.0] vs 18.3 (2/20) • NetMean -2,188 [-3,600..+1,080] vs +2,700 (20/20) • PctPositive 16.7 [0.0..60.0] vs 50.0 (17/20)
+LONDON ROTATE FULL: WinPct 26.6 [25.5..27.9] vs 26.8 (13/20) • AvgUsd -39 [-56..-16] vs -31 (18/20) • PassPct 20.4 [18.0..22.8] vs 20.8 (14/20) • NetMean -1,652 [-2,327..-631] vs -1,269 (15/20) • PctPositive 19.2 [7.3..26.5] vs 18.4 (9/20)
+LONDON ROTATE Y1: WinPct 24.4 [23.1..26.6] vs 25.4 (17/20) • AvgUsd -49 [-71..-16] vs -32 (17/20) • PassPct 19.6 [16.0..23.3] vs 23.0 (19/20) • NetMean -2,761 [-3,514..+341] vs -2,160 (14/20) • PctPositive 0.0 [0.0..25.0] vs 10.0 (13/20)
+LONDON ROTATE M1: WinPct 26.3 [19.9..30.3] vs 24.6 (5/20) • AvgUsd -18 [-133..+54] vs -40 (6/20) • PassPct 23.3 [10.0..33.3] vs 16.7 (3/20) • NetMean -3,600 [-3,600..-1,800] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+LONDON ROTATE W1: WinPct 25.3 [19.5..36.1] vs 23.8 (7/20) • AvgUsd -44 [-163..+171] vs -71 (7/20) • PassPct 0.0 [0.0..6.7] vs 0.0 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+LONDON ROTATE IS: WinPct 27.7 [26.7..29.2] vs 27.8 (10/20) • AvgUsd -34 [-50..-9] vs -29 (12/20) • PassPct 20.9 [17.7..24.8] vs 19.1 (2/20) • NetMean -1,131 [-2,261..+146] vs -728 (15/20) • PctPositive 22.7 [8.7..35.0] vs 22.7 (7/20)
+LONDON ROTATE OOS: WinPct 24.8 [23.5..25.9] vs 25.3 (15/20) • AvgUsd -48 [-70..-32] vs -36 (17/20) • PassPct 19.5 [15.4..23.1] vs 22.1 (18/20) • NetMean -2,360 [-3,224..-1,057] vs -1,996 (14/20) • PctPositive 9.6 [0.0..21.4] vs 6.3 (6/20)
+LONDON STAY FULL: WinPct 26.6 [25.5..28.3] vs 27.0 (14/20) • AvgUsd -35 [-56..-6] vs -24 (16/20) • PassPct 21.3 [16.5..23.2] vs 22.8 (17/20) • NetMean -2,047 [-2,956..-128] vs -1,432 (15/20) • PctPositive 10.3 [0.0..31.3] vs 16.7 (15/20)
+LONDON STAY Y1: WinPct 23.9 [22.2..26.6] vs 25.5 (16/20) • AvgUsd -51 [-80..-6] vs -31 (14/20) • PassPct 18.8 [14.0..27.8] vs 22.2 (14/20) • NetMean -3,150 [-3,600..+600] vs -1,200 (19/20) • PctPositive 0.0 [0.0..33.3] vs 33.3 (19/20)
+LONDON STAY M1: WinPct 27.8 [18.5..36.4] vs 26.6 (8/20) • AvgUsd +40 [-157..+211] vs +15 (8/20) • PassPct 13.3 [6.7..16.7] vs 6.7 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+LONDON STAY W1: WinPct 25.5 [14.6..54.5] vs 25.0 (9/20) • AvgUsd -9 [-218..+560] vs -21 (9/20) • PassPct 3.3 [0.0..3.3] vs 0.0 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+LONDON STAY IS: WinPct 27.5 [26.2..29.3] vs 27.9 (13/20) • AvgUsd -31 [-54..-4] vs -23 (13/20) • PassPct 21.7 [17.7..26.4] vs 22.8 (16/20) • NetMean -1,634 [-2,658..+336] vs -948 (13/20) • PctPositive 16.0 [0.0..40.0] vs 16.7 (10/20)
+LONDON STAY OOS: WinPct 24.6 [22.2..26.7] vs 25.2 (16/20) • AvgUsd -46 [-90..-11] vs -32 (17/20) • PassPct 18.3 [14.4..25.2] vs 22.2 (15/20) • NetMean -3,128 [-3,600..-360] vs -3,017 (12/20) • PctPositive 0.0 [0.0..20.0] vs 0.0 (0/20)
+NYAM ROTATE FULL: WinPct 26.7 [26.0..27.3] vs 26.5 (6/20) • AvgUsd -36 [-50..-27] vs -36 (12/20) • PassPct 20.8 [18.7..22.6] vs 19.3 (1/20) • NetMean -1,333 [-1,773..-509] vs -577 (19/20) • PctPositive 21.1 [13.3..33.3] vs 34.5 (20/20)
+NYAM ROTATE Y1: WinPct 25.2 [23.6..26.6] vs 24.6 (3/20) • AvgUsd -42 [-65..-15] vs -42 (10/20) • PassPct 20.0 [15.0..25.0] vs 18.3 (5/20) • NetMean -1,833 [-3,000..-9] vs -1,406 (12/20) • PctPositive 16.7 [0.0..40.0] vs 16.7 (6/20)
+NYAM ROTATE M1: WinPct 26.6 [22.8..34.1] vs 25.9 (9/20) • AvgUsd -27 [-94..+100] vs -19 (10/20) • PassPct 10.0 [3.3..16.7] vs 13.3 (13/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NYAM ROTATE W1: WinPct 28.6 [12.2..41.7] vs 27.5 (9/20) • AvgUsd -13 [-309..+249] vs -7 (10/20) • PassPct 0.0 [0.0..0.0] vs 0.0 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NYAM ROTATE IS: WinPct 27.4 [26.1..28.4] vs 27.1 (7/20) • AvgUsd -32 [-56..-18] vs -34 (10/20) • PassPct 21.3 [17.4..23.1] vs 19.5 (3/20) • NetMean -1,206 [-1,733..+195] vs -392 (19/20) • PctPositive 22.2 [11.1..41.2] vs 36.8 (17/20)
+NYAM ROTATE OOS: WinPct 25.3 [24.5..26.4] vs 25.4 (10/20) • AvgUsd -45 [-57..-23] vs -41 (13/20) • PassPct 20.3 [17.0..24.1] vs 18.7 (3/20) • NetMean -2,096 [-2,742..-148] vs -929 (17/20) • PctPositive 10.6 [0.0..33.3] vs 30.0 (16/20)
+NYAM STAY FULL: WinPct 26.4 [24.9..27.5] vs 26.6 (12/20) • AvgUsd -34 [-63..-18] vs -31 (15/20) • PassPct 20.7 [15.3..24.3] vs 21.5 (13/20) • NetMean -1,674 [-3,000..-322] vs -2,215 (4/20) • PctPositive 11.8 [5.3..33.3] vs 16.7 (12/20)
+NYAM STAY Y1: WinPct 24.8 [22.7..27.1] vs 25.1 (11/20) • AvgUsd -38 [-88..-11] vs -30 (11/20) • PassPct 20.6 [8.3..31.1] vs 21.1 (10/20) • NetMean -3,000 [-3,600..+596] vs -1,200 (19/20) • PctPositive 0.0 [0.0..33.3] vs 33.3 (19/20)
+NYAM STAY M1: WinPct 25.0 [21.4..33.3] vs 27.4 (16/20) • AvgUsd -29 [-100..+119] vs +21 (16/20) • PassPct 6.7 [3.3..13.3] vs 10.0 (11/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NYAM STAY W1: WinPct 22.9 [13.8..55.6] vs 31.3 (14/20) • AvgUsd -56 [-245..+581] vs +98 (14/20) • PassPct 0.0 [0.0..3.3] vs 0.0 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NYAM STAY IS: WinPct 27.0 [25.2..28.2] vs 27.2 (14/20) • AvgUsd -32 [-66..-13] vs -29 (14/20) • PassPct 20.6 [14.6..24.7] vs 23.6 (19/20) • NetMean -1,444 [-2,850..-303] vs -2,422 (3/20) • PctPositive 13.3 [0.0..30.0] vs 16.7 (10/20)
+NYAM STAY OOS: WinPct 25.5 [23.8..27.0] vs 24.5 (3/20) • AvgUsd -36 [-64..-15] vs -48 (3/20) • PassPct 20.7 [12.8..27.3] vs 16.7 (2/20) • NetMean -2,267 [-3,426..-360] vs -2,700 (6/20) • PctPositive 18.3 [0.0..40.0] vs 0.0 (0/20)
+NYPM ROTATE FULL: WinPct 26.1 [25.2..26.8] vs 26.9 (20/20) • AvgUsd -36 [-54..-22] vs -27 (15/20) • PassPct 21.1 [18.8..22.5] vs 21.6 (13/20) • NetMean -1,154 [-2,407..-116] vs -385 (19/20) • PctPositive 20.9 [2.9..31.0] vs 18.8 (7/20)
+NYPM ROTATE Y1: WinPct 25.1 [23.3..27.1] vs 24.3 (3/20) • AvgUsd -42 [-68..-1] vs -54 (1/20) • PassPct 19.8 [15.2..29.4] vs 21.0 (12/20) • NetMean -1,751 [-3,428..+3,509] vs -2,829 (3/20) • PctPositive 16.7 [0.0..60.0] vs 0.0 (0/20)
+NYPM ROTATE M1: WinPct 28.0 [18.2..36.0] vs 22.1 (1/20) • AvgUsd -3 [-175..+157] vs -119 (1/20) • PassPct 10.0 [0.0..16.7] vs 13.3 (14/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NYPM ROTATE W1: WinPct 28.6 [16.7..39.5] vs 12.8 (0/20) • AvgUsd +38 [-234..+203] vs -298 (0/20) • PassPct 0.0 [0.0..0.0] vs 0.0 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NYPM ROTATE IS: WinPct 26.6 [25.5..27.7] vs 28.2 (20/20) • AvgUsd -34 [-56..-17] vs -12 (20/20) • PassPct 20.6 [17.9..24.6] vs 22.5 (16/20) • NetMean -1,040 [-2,556..+646] vs +870 (20/20) • PctPositive 20.0 [0.0..44.4] vs 31.6 (15/20)
+NYPM ROTATE OOS: WinPct 25.2 [23.4..26.9] vs 25.3 (10/20) • AvgUsd -38 [-66..-7] vs -40 (9/20) • PassPct 20.9 [17.7..26.3] vs 19.4 (5/20) • NetMean -1,285 [-2,828..+936] vs -1,431 (9/20) • PctPositive 18.2 [0.0..44.4] vs 18.2 (6/20)
+NYPM STAY FULL: WinPct 26.2 [24.3..26.9] vs 26.7 (16/20) • AvgUsd -34 [-63..-21] vs -30 (13/20) • PassPct 21.3 [17.6..24.5] vs 21.8 (13/20) • NetMean -1,790 [-2,867..-126] vs -1,805 (10/20) • PctPositive 11.8 [0.0..31.3] vs 15.8 (12/20)
+NYPM STAY Y1: WinPct 24.1 [22.2..27.3] vs 22.9 (5/20) • AvgUsd -53 [-85..-3] vs -81 (2/20) • PassPct 17.8 [13.3..21.7] vs 16.7 (6/20) • NetMean -2,460 [-3,600..+900] vs -2,700 (8/20) • PctPositive 0.0 [0.0..50.0] vs 0.0 (0/20)
+NYPM STAY M1: WinPct 25.3 [17.8..37.3] vs 18.3 (1/20) • AvgUsd -14 [-184..+203] vs -186 (0/20) • PassPct 8.3 [0.0..13.3] vs 3.3 (2/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NYPM STAY W1: WinPct 25.0 [8.3..71.4] vs 13.8 (2/20) • AvgUsd -23 [-345..+900] vs -260 (1/20) • PassPct 3.3 [0.0..3.3] vs 0.0 (0/20) • NetMean -3,600 [-3,600..-3,600] vs -3,600 (0/20) • PctPositive 0.0 [0.0..0.0] vs 0.0 (0/20)
+NYPM STAY IS: WinPct 26.7 [24.6..28.1] vs 28.1 (20/20) • AvgUsd -33 [-66..-12] vs -13 (18/20) • PassPct 21.7 [16.4..26.7] vs 23.6 (15/20) • NetMean -1,567 [-2,911..+1,418] vs -500 (16/20) • PctPositive 16.2 [0.0..50.0] vs 27.3 (16/20)
+NYPM STAY OOS: WinPct 24.7 [22.5..27.3] vs 23.4 (1/20) • AvgUsd -48 [-82..-8] vs -72 (1/20) • PassPct 19.1 [14.3..25.8] vs 18.1 (5/20) • NetMean -2,069 [-3,600..+2,700] vs -3,343 (1/20) • PctPositive 8.3 [0.0..50.0] vs 0.0 (0/20)
+
+SETUP × SIDE, every signal resolved alone (no rotation / overlap / floor) — full history and last 12 months
+NY     FULL FVG BOTH   18346   28.8     -12  0.97    9  1512
+NY     FULL FVG BUY     9745   29.3      -7  0.98    4   903
+NY     FULL FVG SELL    8601   28.1     -18  0.95    5   609
+NY     FULL AGG BOTH    4846   28.4      -5  0.99    9   330
+NY     FULL AGG BUY     2005   30.1     +15  1.04    4   177
+NY     FULL AGG SELL    2841   27.3     -19  0.95    5   153
+NY     FULL ENG BOTH   14195   27.2     -37  0.90    8  1053
+NY     FULL ENG BUY     7145   27.8     -30  0.92    7   597
+NY     FULL ENG SELL    7050   26.6     -43  0.89    1   456
+NY     Y1   FVG BOTH    3072   27.1     -22  0.94    3   133
+NY     Y1   FVG BUY     1612   26.8     -31  0.92    2    74
+NY     Y1   FVG SELL    1460   27.4     -13  0.97    1    59
+NY     Y1   AGG BOTH     745   23.2    -100  0.75    7    32
+NY     Y1   AGG BUY      329   22.2    -119  0.71    3    14
+NY     Y1   AGG SELL     416   24.0     -85  0.79    4    18
+NY     Y1   ENG BOTH    2442   25.7     -44  0.89    3    89
+NY     Y1   ENG BUY     1270   24.6     -63  0.84    3    42
+NY     Y1   ENG SELL    1172   27.0     -23  0.94    0    47
+ALLDAY FULL FVG BOTH   72144   26.7     -20  0.95  149  2287
+ALLDAY FULL FVG BUY    37921   27.2     -10  0.97   94  1283
+ALLDAY FULL FVG SELL   34223   26.1     -30  0.92   55  1004
+ALLDAY FULL AGG BOTH   17706   26.2     -22  0.94   32   392
+ALLDAY FULL AGG BUY     8001   27.0     -11  0.97   11   236
+ALLDAY FULL AGG SELL    9705   25.6     -32  0.92   21   156
+ALLDAY FULL ENG BOTH   48410   26.0     -32  0.92   91  1820
+ALLDAY FULL ENG BUY    24113   26.7     -19  0.95   59   954
+ALLDAY FULL ENG SELL   24297   25.4     -45  0.89   32   866
+ALLDAY Y1   FVG BOTH   12363   26.7     -12  0.97   20   253
+ALLDAY Y1   FVG BUY     6486   27.1      -3  0.99    9   119
+ALLDAY Y1   FVG SELL    5877   26.3     -22  0.95   11   134
+ALLDAY Y1   AGG BOTH    2727   25.3     -36  0.91   11    25
+ALLDAY Y1   AGG BUY     1260   24.9     -44  0.89    4    13
+ALLDAY Y1   AGG SELL    1467   25.6     -29  0.93    7    12
+ALLDAY Y1   ENG BOTH    8377   25.4     -39  0.90   17   206
+ALLDAY Y1   ENG BUY     4228   26.0     -25  0.94   13    99
+ALLDAY Y1   ENG SELL    4149   24.8     -52  0.87    4   107
+ASIA   FULL FVG BOTH   21664   36.4     -25  0.92    0  8070
+ASIA   FULL FVG BUY    11298   37.8     -15  0.95    0  4330
+ASIA   FULL FVG SELL   10366   34.8     -36  0.88    0  3740
+ASIA   FULL AGG BOTH    6026   35.5     -11  0.96    1  2044
+ASIA   FULL AGG BUY     2852   38.0      +5  1.02    0  1062
+ASIA   FULL AGG SELL    3174   33.2     -26  0.92    1   982
+ASIA   FULL ENG BOTH   16324   35.5     -28  0.91    0  5672
+ASIA   FULL ENG BUY     8125   37.7      -3  0.99    0  2891
+ASIA   FULL ENG SELL    8199   33.3     -53  0.83    0  2781
+ASIA   Y1   FVG BOTH    3750   30.9       0  1.00    0   498
+ASIA   Y1   FVG BUY     1937   31.4     +11  1.03    0   284
+ASIA   Y1   FVG SELL    1813   30.4     -12  0.97    0   214
+ASIA   Y1   AGG BOTH     954   33.2     +52  1.15    0   107
+ASIA   Y1   AGG BUY      452   33.4     +32  1.09    0    66
+ASIA   Y1   AGG SELL     502   33.1     +71  1.20    0    41
+ASIA   Y1   ENG BOTH    2832   29.6     -17  0.95    0   333
+ASIA   Y1   ENG BUY     1421   31.0     +10  1.03    0   169
+ASIA   Y1   ENG SELL    1411   28.1     -45  0.88    0   164
+LONDON FULL FVG BOTH   23107   30.0     -25  0.93   85  3451
+LONDON FULL FVG BUY    12068   30.8     -13  0.96   51  1844
+LONDON FULL FVG SELL   11039   29.2     -38  0.90   34  1607
+LONDON FULL AGG BOTH    6345   27.5     -49  0.87   13   677
+LONDON FULL AGG BUY     2888   27.6     -59  0.84    4   336
+LONDON FULL AGG SELL    3457   27.5     -41  0.89    9   341
+LONDON FULL ENG BOTH   16208   29.0     -38  0.90   60  2201
+LONDON FULL ENG BUY     7995   28.9     -42  0.89   37  1112
+LONDON FULL ENG SELL    8213   29.0     -34  0.91   23  1089
+LONDON Y1   FVG BOTH    3917   27.4     -19  0.95    8   215
+LONDON Y1   FVG BUY     2061   28.3      +2  1.01    6   120
+LONDON Y1   FVG SELL    1856   26.3     -43  0.89    2    95
+LONDON Y1   AGG BOTH     931   24.1     -79  0.81    1    25
+LONDON Y1   AGG BUY      426   24.2     -80  0.80    1    15
+LONDON Y1   AGG SELL     505   24.0     -77  0.81    0    10
+LONDON Y1   ENG BOTH    2772   25.8     -50  0.87    7   138
+LONDON Y1   ENG BUY     1367   26.2     -47  0.88    6    73
+LONDON Y1   ENG SELL    1405   25.5     -54  0.86    1    65
+NYAM   FULL FVG BOTH    6222   30.4     -27  0.92    3  1074
+NYAM   FULL FVG BUY     3243   31.6     -22  0.94    2   605
+NYAM   FULL FVG SELL    2979   29.2     -31  0.91    1   469
+NYAM   FULL AGG BOTH    2396   28.7     +13  1.03    7   110
+NYAM   FULL AGG BUY     1016   31.0     +53  1.15    3    60
+NYAM   FULL AGG SELL    1380   27.0     -16  0.96    4    50
+NYAM   FULL ENG BOTH    5450   29.0     -43  0.88    3   796
+NYAM   FULL ENG BUY     2752   30.1     -32  0.91    3   421
+NYAM   FULL ENG SELL    2698   28.0     -54  0.85    0   375
+NYAM   Y1   FVG BOTH    1064   27.4     -21  0.94    2    75
+NYAM   Y1   FVG BUY      547   29.1      -1  1.00    2    46
+NYAM   Y1   FVG SELL     517   25.7     -42  0.89    0    29
+NYAM   Y1   AGG BOTH     392   23.7     -62  0.85    6     2
+NYAM   Y1   AGG BUY      173   23.1     -80  0.81    2     1
+NYAM   Y1   AGG SELL     219   24.2     -48  0.88    4     1
+NYAM   Y1   ENG BOTH     982   26.5     -44  0.89    3    55
+NYAM   Y1   ENG BUY      531   26.0     -61  0.84    3    31
+NYAM   Y1   ENG SELL     451   27.1     -23  0.94    0    24
+NYPM   FULL FVG BOTH   10344   30.6      -4  0.99    6  1303
+NYPM   FULL FVG BUY     5533   31.4      +1  1.00    2   795
+NYPM   FULL FVG SELL    4811   29.6      -9  0.98    4   508
+NYPM   FULL AGG BOTH    2427   29.5     -21  0.94    2   315
+NYPM   FULL AGG BUY      984   30.8     -25  0.93    1   170
+NYPM   FULL AGG SELL    1443   28.7     -18  0.95    1   145
+NYPM   FULL ENG BOTH    8566   28.7     -30  0.92    5   953
+NYPM   FULL ENG BUY     4312   29.3     -25  0.93    4   534
+NYPM   FULL ENG SELL    4254   28.1     -34  0.91    1   419
+NYPM   Y1   FVG BOTH    1743   27.8     -25  0.93    1   123
+NYPM   Y1   FVG BUY      907   26.8     -50  0.87    0    69
+NYPM   Y1   FVG SELL     836   28.9      +1  1.00    1    54
+NYPM   Y1   AGG BOTH     349   22.6    -147  0.64    1    31
+NYPM   Y1   AGG BUY      156   21.2    -172  0.58    1    14
+NYPM   Y1   AGG SELL     193   23.8    -127  0.69    0    17
+NYPM   Y1   ENG BOTH    1426   26.4     -42  0.89    0    83
+NYPM   Y1   ENG BUY      725   24.7     -71  0.82    0    39
+NYPM   Y1   ENG SELL     701   28.2     -12  0.97    0    44
+
+WALK-FORWARD (windows ranked by net per batch, 3 setups)
+  ROTATE: best in-sample (→2024) NYPM (+870/batch) → out-of-sample (2025→) rank 4 of 6 (-1431/batch); best out-of-sample ASIA (+1359)
+  STAY: best in-sample (→2024) NYPM (-500/batch) → out-of-sample (2025→) rank 5 of 6 (-3343/batch); best out-of-sample ASIA (+2700)
+
+MAIN VARIANT DETAIL (NY 9:30–16:00, 3 setups, full history)
+  ROTATE: PF 0.93 • streaks: wins 7 / losses 27 trades, 10 / 12 days • both-touched 20 • liquidated at the floor 1523 • skipped (in a trade) 17045 • no account 986 • best batch #18 2022-12-15→2023-03-23 net +12600 • worst #1 2020-06-28→2020-11-05 net -3600 • longest run of positive batches 2 • fastest break-even 15 sessions (29.4 % of batches broke even) • fastest first payout 14 sessions • median calendar days to break even 39 / to the first payout 28 • ROI -25.5 %
+  STAY: PF 0.91 • streaks: wins 5 / losses 26 trades, 11 / 7 days • both-touched 10 • liquidated at the floor 753 • skipped (in a trade) 8487 • no account 20012 • best batch #2 2021-01-15→2021-05-20 net +5400 • worst #1 2020-06-28→2021-01-14 net -3600 • longest run of positive batches 2 • fastest break-even 69 sessions (12.0 % of batches broke even) • fastest first payout 54 sessions • median calendar days to break even 103 / to the first payout 83 • ROI -66.0 %
+  STAYNEXT: PF 0.92 • streaks: wins 7 / losses 29 trades, 10 / 13 days • both-touched 19 • liquidated at the floor 1436 • skipped (in a trade) 17212 • no account 773 • best batch #4 2021-01-31→2021-06-16 net +9000 • worst #1 2020-06-28→2020-11-11 net -3600 • longest run of positive batches 3 • fastest break-even 31 sessions (18.8 % of batches broke even) • fastest first payout 15 sessions • median calendar days to break even 56 / to the first payout 38 • ROI -57.3 %
