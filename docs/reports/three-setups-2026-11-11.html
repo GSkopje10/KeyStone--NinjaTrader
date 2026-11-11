@@ -1,0 +1,314 @@
+<title>3-Setup Rotation Study</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@600;800&display=swap">
+<style>
+/* Layout: one reading column; verdict first, then the big comparison table, then detail sections. */
+:root{
+  --bg:#f5f6f8; --surface:#ffffff; --ink:#151a22; --muted:#5d6675; --line:#dde1e8;
+  --accent:#1f5f8b; --pos:#1d7a4d; --neg:#b43a2e; --warn:#a86a0a; --posbg:#e5f3ec; --negbg:#f8e9e7;
+  --display:"Archivo","IBM Plex Sans",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0f141b;--surface:#161d27;--ink:#e6eaf0;--muted:#97a2b3;--line:#273242;--accent:#6fb3e0;--pos:#4cc38a;--neg:#ef7a6c;--warn:#e0a84a;--posbg:#173326;--negbg:#3a1d1a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0f141b;--surface:#161d27;--ink:#e6eaf0;--muted:#97a2b3;--line:#273242;--accent:#6fb3e0;--pos:#4cc38a;--neg:#ef7a6c;--warn:#e0a84a;--posbg:#173326;--negbg:#3a1d1a;color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--body)}
+.wrap{max-width:1040px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:34px}
+h1{font:800 clamp(28px,4.4vw,42px)/1.08 var(--display);margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font:600 22px/1.2 var(--display);margin:0 0 6px;text-wrap:balance}
+h3{font:600 16px/1.3 var(--body);margin:14px 0 6px}
+p{margin:0;max-width:68ch}
+.eyebrow{font:600 12px/1 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--accent)}
+.lede{color:var(--muted);font-size:16px}
+.head{display:flex;flex-direction:column;gap:12px}
+.spec{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:500 12.5px/1 var(--mono);padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);white-space:nowrap}
+.verdict{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--neg);border-radius:8px;padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+.verdict ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.tile .k{font:600 11.5px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.tile .v{font:600 26px/1.15 var(--mono);font-variant-numeric:tabular-nums}
+.tile .s{font-size:13px;color:var(--muted)}
+.pos{color:var(--pos)} .neg{color:var(--neg)} .warn{color:var(--warn)}
+section{display:flex;flex-direction:column;gap:12px;min-width:0}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font:13.5px/1.35 var(--body);font-variant-numeric:tabular-nums}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font:600 11.5px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--bg);position:sticky;top:0}
+td:first-child,th:first-child,td.l,th.l{text-align:left}
+tr:last-child td{border-bottom:0}
+tr.main td{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+td.num{font-family:var(--mono)}
+.pill{display:inline-block;font:600 11.5px/1 var(--mono);padding:4px 7px;border-radius:999px}
+.pill.pos{background:var(--posbg)} .pill.neg{background:var(--negbg)}
+.note{font-size:13px;color:var(--muted);max-width:80ch}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.chart{width:100%;height:auto;display:block}
+.chart .grid{stroke:var(--line);stroke-width:1}
+.chart .zero{stroke:var(--muted);stroke-width:1}
+.chart .ax{fill:var(--muted);font:11px var(--mono)}
+.chart rect.pos{fill:var(--pos)} .chart rect.neg{fill:var(--neg);opacity:.8}
+dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0}
+dt{font:600 12.5px/1.4 var(--mono);color:var(--muted)} dd{margin:0}
+ol.steps{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;max-width:76ch}
+</style>
+<div class="wrap">
+<header class="head">
+  <div class="eyebrow">KeyStone research · MNQ · 30-account prop rotation</div>
+  <h1>3 setups, 30 accounts, 6 years: the rotation loses money</h1>
+  <p class="lede">FVG 50% retrace, aggression break and 123 engulfing on 5-minute MNQ, both directions, first setup wins. 15 micros, −$500 / +$1,500. Lucid Flex 50K rules, evaluations and funded accounts running together, a new batch of 30 when the last one ends. Data: 1-minute MNQ bars, 28 Jun 2020 – 2 Oct 2026 (1,716 sessions).</p>
+  <div class="spec">
+    <span class="chip">15 MNQ</span><span class="chip">stop 16.75 pts = −$536 net</span><span class="chip">target 50 pts = +$1,474 net</span><span class="chip">break-even win rate 26.7%</span><span class="chip">30 × $120 = $3,600 / batch</span><span class="chip">pass $3K · ≥2 days · best day ≤50%</span><span class="chip">payout: 5 days ≥ $150 · 50% up to $2,000 · keep 90%</span>
+  </div>
+</header>
+
+<div class="verdict">
+  <h2>The answer</h2>
+  <ul>
+    <li><b>No version makes money over the whole history.</b> The best 6-year result in your NY 9:30–16:00 window is <span class="neg">−$917 per 30-account batch</span>; only 1 in 5 batches ends in profit.</li>
+    <li><b>The setups win 25.8% of trades; you need 26.7%</b> to break even with this bracket after costs. Every main window sits just under that line.</li>
+    <li><b>The setups do beat random entries a little over 6 years</b> (NY: −$28 vs −$38 a trade), but <b>in the last 12 months in NY they are no better than random</b>.</li>
+    <li><b>One trade per account beats “stay until done”</b> in almost every case: payouts come about 2–3× sooner and the losses per batch are smaller.</li>
+    <li><b>The last month and the last week made no payout at all</b>; every batch is still at −$3,600 (the evaluation fees).</li>
+    <li><b>ASIA (18:00–02:00) is the only window above zero</b> (+$350 / batch over 6 years, +$543 in the last 12 months), but it is negative per trade and was negative before 2025. That is the payout structure, not an edge.</li>
+  </ul>
+</div>
+
+<div class="tiles">
+  <div class="tile"><span class="k">NY · net per batch · 6 yrs</span><span class="v neg">−$917</span><span class="s">one trade per account · 51 batches</span></div>
+  <div class="tile"><span class="k">Batches in profit</span><span class="v">20%</span><span class="s">10 of 51 · longest run 2 in a row</span></div>
+  <div class="tile"><span class="k">Accounts that pass</span><span class="v">21%</span><span class="s">about 6 of 30 per batch</span></div>
+  <div class="tile"><span class="k">Whole business · NY · 6 yrs</span><span class="v neg">−$50,378</span><span class="s">ROI −25% on the evaluation fees</span></div>
+</div>
+
+<section>
+  <h2>Every window, both rotation modes</h2>
+  <p class="note">3 setups combined. <b>A</b> = one trade per account (each signal goes to the next account). <b>B</b> = stay on one account until it passes, takes its payout or blows. Net/batch = payouts to you (after the 90% split) − $3,600. “Days” = sessions. Your window is highlighted.</p>
+  <div class="tbl"><table>
+  <thead><tr><th class="l">Window</th><th class="l">Mode</th><th>Trades</th><th>Win %</th><th>$ / trade</th><th>Pass %</th><th>Payouts / batch</th><th>Net / batch</th><th>Batches +</th><th>1st payout</th><th>Break-even</th></tr></thead>
+  <tbody>
+  <tr><td colspan="11" class="l" style="color:var(--muted);font:600 11.5px var(--mono);letter-spacing:.06em">FULL HISTORY · 2020-06 → 2026-10</td></tr>
+  <tr class="main"><td><b>NY 9:30–16:00</b></td><td class="l">A</td><td class="num">19,356</td><td class="num">25.8</td><td class="num neg">−28</td><td class="num">21.2</td><td class="num">1.5</td><td class="num neg">−917</td><td class="num">20%</td><td class="num">25</td><td class="num">32</td></tr>
+  <tr class="main"><td><b>NY 9:30–16:00</b></td><td class="l">B</td><td class="num">8,888</td><td class="num">25.1</td><td class="num neg">−35</td><td class="num">19.7</td><td class="num">0.7</td><td class="num neg">−2,376</td><td class="num">12%</td><td class="num">66</td><td class="num">83</td></tr>
+  <tr><td>All day</td><td class="l">A</td><td class="num">41,282</td><td class="num">25.9</td><td class="num neg">−20</td><td class="num">22.5</td><td class="num">0.9</td><td class="num neg">−2,059</td><td class="num">14%</td><td class="num">14</td><td class="num">19</td></tr>
+  <tr><td>All day</td><td class="l">B</td><td class="num">14,303</td><td class="num">25.9</td><td class="num neg">−17</td><td class="num">21.9</td><td class="num">0.9</td><td class="num neg">−1,934</td><td class="num">11%</td><td class="num">61</td><td class="num">76</td></tr>
+  <tr><td>Asia 18:00–02:00</td><td class="l">A</td><td class="num">8,754</td><td class="num">30.2</td><td class="num neg">−9</td><td class="num">24.9</td><td class="num">2.5</td><td class="num pos">+350</td><td class="num">43%</td><td class="num">44</td><td class="num">51</td></tr>
+  <tr><td>Asia 18:00–02:00</td><td class="l">B</td><td class="num">5,658</td><td class="num">29.7</td><td class="num neg">−26</td><td class="num">21.2</td><td class="num">1.0</td><td class="num neg">−1,800</td><td class="num">14%</td><td class="num">127</td><td class="num">116</td></tr>
+  <tr><td>London 02:00–09:30</td><td class="l">A</td><td class="num">12,806</td><td class="num">26.8</td><td class="num neg">−31</td><td class="num">20.8</td><td class="num">1.4</td><td class="num neg">−1,269</td><td class="num">18%</td><td class="num">36</td><td class="num">49</td></tr>
+  <tr><td>London 02:00–09:30</td><td class="l">B</td><td class="num">7,609</td><td class="num">27.0</td><td class="num neg">−24</td><td class="num">22.8</td><td class="num">1.2</td><td class="num neg">−1,432</td><td class="num">17%</td><td class="num">78</td><td class="num">78</td></tr>
+  <tr><td>NY AM 9:30–12:00</td><td class="l">A</td><td class="num">9,252</td><td class="num">26.5</td><td class="num neg">−36</td><td class="num">19.3</td><td class="num">1.9</td><td class="num neg">−577</td><td class="num">34%</td><td class="num">44</td><td class="num">55</td></tr>
+  <tr><td>NY AM 9:30–12:00</td><td class="l">B</td><td class="num">6,095</td><td class="num">26.6</td><td class="num neg">−31</td><td class="num">21.5</td><td class="num">0.8</td><td class="num neg">−2,215</td><td class="num">17%</td><td class="num">83</td><td class="num">96</td></tr>
+  <tr><td>NY PM 12:00–16:00</td><td class="l">A</td><td class="num">10,406</td><td class="num">26.9</td><td class="num neg">−27</td><td class="num">21.6</td><td class="num">2.0</td><td class="num neg">−385</td><td class="num">19%</td><td class="num">44</td><td class="num">50</td></tr>
+  <tr><td>NY PM 12:00–16:00</td><td class="l">B</td><td class="num">6,581</td><td class="num">26.7</td><td class="num neg">−30</td><td class="num">21.8</td><td class="num">1.0</td><td class="num neg">−1,805</td><td class="num">16%</td><td class="num">85</td><td class="num">93</td></tr>
+  <tr><td colspan="11" class="l" style="color:var(--muted);font:600 11.5px var(--mono);letter-spacing:.06em">LAST 12 MONTHS · 2025-10-03 → 2026-10-02</td></tr>
+  <tr class="main"><td><b>NY 9:30–16:00</b></td><td class="l">A</td><td class="num">4,186</td><td class="num">24.6</td><td class="num neg">−44</td><td class="num">17.9</td><td class="num">1.6</td><td class="num neg">−742</td><td class="num">9%</td><td class="num">16</td><td class="num">26</td></tr>
+  <tr class="main"><td><b>NY 9:30–16:00</b></td><td class="l">B</td><td class="num">1,895</td><td class="num">25.8</td><td class="num neg">−22</td><td class="num">22.5</td><td class="num">1.0</td><td class="num neg">−1,800</td><td class="num">25%</td><td class="num">63</td><td class="num">64</td></tr>
+  <tr><td>All day</td><td class="l">A</td><td class="num">10,568</td><td class="num">25.6</td><td class="num neg">−20</td><td class="num">23.5</td><td class="num">0.7</td><td class="num neg">−2,300</td><td class="num">11%</td><td class="num">10</td><td class="num">17</td></tr>
+  <tr><td>All day</td><td class="l">B</td><td class="num">2,150</td><td class="num">24.7</td><td class="num neg">−31</td><td class="num">22.0</td><td class="num">0.4</td><td class="num neg">−2,880</td><td class="num">0%</td><td class="num">52</td><td class="num">61</td></tr>
+  <tr><td>Asia</td><td class="l">A</td><td class="num">2,913</td><td class="num">27.8</td><td class="num neg">−7</td><td class="num">23.3</td><td class="num">2.4</td><td class="num pos">+543</td><td class="num">57%</td><td class="num">21</td><td class="num">25</td></tr>
+  <tr><td>London</td><td class="l">A</td><td class="num">3,407</td><td class="num">25.4</td><td class="num neg">−32</td><td class="num">23.0</td><td class="num">0.8</td><td class="num neg">−2,160</td><td class="num">10%</td><td class="num">20</td><td class="num">29</td></tr>
+  <tr><td>NY AM</td><td class="l">A</td><td class="num">1,976</td><td class="num">24.6</td><td class="num neg">−42</td><td class="num">18.3</td><td class="num">1.3</td><td class="num neg">−1,406</td><td class="num">17%</td><td class="num">37</td><td class="num">51</td></tr>
+  <tr><td>NY PM</td><td class="l">A</td><td class="num">2,174</td><td class="num">24.3</td><td class="num neg">−54</td><td class="num">21.0</td><td class="num">0.4</td><td class="num neg">−2,829</td><td class="num">0%</td><td class="num">29</td><td class="num">–</td></tr>
+  </tbody></table></div>
+  <p class="note">“1st payout” and “Break-even” are the median sessions from buying the 30 accounts, counted only for batches that got there. Pass % is the share of the 30 accounts that passed the evaluation.</p>
+</section>
+
+<section>
+  <h2>Last month and last week</h2>
+  <div class="tbl"><table>
+  <thead><tr><th class="l">NY 9:30–16:00</th><th class="l">Mode</th><th>Trades</th><th>Win %</th><th>$ / trade</th><th>Passed (of 30)</th><th>Payouts</th><th>Net so far</th></tr></thead>
+  <tbody>
+  <tr><td>Last month · 3 Sep – 2 Oct</td><td class="l">A</td><td class="num">314</td><td class="num">23.2</td><td class="num neg">−79</td><td class="num">27%</td><td class="num">0</td><td class="num neg">−$3,600 a batch</td></tr>
+  <tr><td>Last month</td><td class="l">B</td><td class="num">102</td><td class="num">21.6</td><td class="num neg">−104</td><td class="num">10%</td><td class="num">0</td><td class="num neg">−$3,600</td></tr>
+  <tr><td>Last week · 26 Sep – 2 Oct</td><td class="l">A</td><td class="num">89</td><td class="num">20.2</td><td class="num neg">−139</td><td class="num">0%</td><td class="num">0</td><td class="num neg">−$3,600</td></tr>
+  <tr><td>Last week</td><td class="l">B</td><td class="num">16</td><td class="num">31.3</td><td class="num pos">+98</td><td class="num">0%</td><td class="num">0</td><td class="num neg">−$3,600</td></tr>
+  </tbody></table></div>
+  <p class="note">A month or a week is too short to finish a batch: no account reached a payout, so every row is the $3,600 of fees so far. The last week in mode B had 16 trades; that is too few to mean anything.</p>
+</section>
+
+<section>
+  <h2>Each 30-account batch, NY 9:30–16:00</h2>
+  <div class="grid2">
+    <div class="card"><h3>One trade per account (A) · 51 batches</h3><svg viewBox="0 0 760 230" role="img" aria-label="Net per 30-account batch, NY one trade per account" class="chart">
+<line x1="52" x2="750" y1="191.7" y2="191.7" class="grid"/>
+<text x="46" y="195.7" class="ax" text-anchor="end">-3,600</text>
+<line x1="52" x2="750" y1="153.4" y2="153.4" class="zero"/>
+<text x="46" y="157.4" class="ax" text-anchor="end">0</text>
+<line x1="52" x2="750" y1="110.9" y2="110.9" class="grid"/>
+<text x="46" y="114.9" class="ax" text-anchor="end">+4,000</text>
+<line x1="52" x2="750" y1="68.3" y2="68.3" class="grid"/>
+<text x="46" y="72.3" class="ax" text-anchor="end">+8,000</text>
+<line x1="52" x2="750" y1="25.7" y2="25.7" class="grid"/>
+<text x="46" y="29.7" class="ax" text-anchor="end">+12,000</text>
+<rect x="54.1" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 1 · 2020-06-28 → 2020-11-05 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<rect x="67.7" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 2 · 2020-11-06 → 2020-12-23 · passed 6/30 · payouts 1 · net -1,800</title></rect>
+<rect x="81.4" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 3 · 2020-12-24 → 2021-02-01 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<rect x="95.1" y="146.9" width="9.6" height="6.5" class="pos"><title>Batch 4 · 2021-02-02 → 2021-03-10 · passed 11/30 · payouts 3 · net +609</title></rect>
+<rect x="108.8" y="117.8" width="9.6" height="35.7" class="pos"><title>Batch 5 · 2021-03-11 → 2021-05-06 · passed 8/30 · payouts 4 · net +3,351</title></rect>
+<rect x="122.5" y="153.4" width="9.6" height="1.0" class="neg"><title>Batch 6 · 2021-05-07 → 2021-07-01 · passed 7/30 · payouts 2 · net +0</title></rect>
+<rect x="136.2" y="116.5" width="9.6" height="36.9" class="pos"><title>Batch 7 · 2021-07-02 → 2021-10-06 · passed 8/30 · payouts 4 · net +3,469</title></rect>
+<rect x="149.9" y="134.3" width="9.6" height="19.2" class="pos"><title>Batch 8 · 2021-10-07 → 2021-12-29 · passed 9/30 · payouts 3 · net +1,800</title></rect>
+<rect x="163.5" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 9 · 2021-12-30 → 2022-02-10 · passed 10/30 · payouts 0 · net -3,600</title></rect>
+<rect x="177.2" y="153.4" width="9.6" height="1.0" class="neg"><title>Batch 10 · 2022-02-11 → 2022-04-07 · passed 4/30 · payouts 2 · net +0</title></rect>
+<rect x="190.9" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 11 · 2022-04-08 → 2022-05-02 · passed 9/30 · payouts 0 · net -3,600</title></rect>
+<rect x="204.6" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 12 · 2022-05-03 → 2022-05-20 · passed 8/30 · payouts 0 · net -3,600</title></rect>
+<rect x="218.3" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 13 · 2022-05-22 → 2022-06-15 · passed 5/30 · payouts 1 · net -1,800</title></rect>
+<rect x="232.0" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 14 · 2022-06-16 → 2022-07-13 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<rect x="245.7" y="153.4" width="9.6" height="22.0" class="neg"><title>Batch 15 · 2022-07-14 → 2022-08-12 · passed 9/30 · payouts 1 · net -2,066</title></rect>
+<rect x="259.3" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 16 · 2022-08-15 → 2022-09-15 · passed 9/30 · payouts 0 · net -3,600</title></rect>
+<rect x="273.0" y="96.3" width="9.6" height="57.2" class="pos"><title>Batch 17 · 2022-09-16 → 2022-12-14 · passed 7/30 · payouts 5 · net +5,370</title></rect>
+<rect x="286.7" y="19.3" width="9.6" height="134.1" class="pos"><title>Batch 18 · 2022-12-15 → 2023-03-23 · passed 4/30 · payouts 9 · net +12,600</title></rect>
+<rect x="300.4" y="153.4" width="9.6" height="9.9" class="neg"><title>Batch 19 · 2023-03-24 → 2023-05-11 · passed 10/30 · payouts 2 · net -928</title></rect>
+<rect x="314.1" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 20 · 2023-05-12 → 2023-07-05 · passed 8/30 · payouts 1 · net -1,800</title></rect>
+<rect x="327.8" y="134.3" width="9.6" height="19.2" class="pos"><title>Batch 21 · 2023-07-06 → 2023-09-21 · passed 3/30 · payouts 3 · net +1,800</title></rect>
+<rect x="341.5" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 22 · 2023-09-22 → 2023-11-10 · passed 3/30 · payouts 1 · net -1,800</title></rect>
+<rect x="355.2" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 23 · 2023-11-11 → 2024-01-04 · passed 6/30 · payouts 1 · net -1,800</title></rect>
+<rect x="368.8" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 24 · 2024-01-05 → 2024-02-20 · passed 11/30 · payouts 0 · net -3,600</title></rect>
+<rect x="382.5" y="62.7" width="9.6" height="90.7" class="pos"><title>Batch 25 · 2024-02-21 → 2024-05-02 · passed 4/30 · payouts 7 · net +8,520</title></rect>
+<rect x="396.2" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 26 · 2024-05-03 → 2024-06-14 · passed 11/30 · payouts 0 · net -3,600</title></rect>
+<rect x="409.9" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 27 · 2024-06-17 → 2024-07-19 · passed 8/30 · payouts 0 · net -3,600</title></rect>
+<rect x="423.6" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 28 · 2024-07-21 → 2024-08-09 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<rect x="437.3" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 29 · 2024-08-12 → 2024-09-18 · passed 5/30 · payouts 1 · net -1,800</title></rect>
+<rect x="451.0" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 30 · 2024-09-19 → 2024-10-23 · passed 7/30 · payouts 1 · net -1,800</title></rect>
+<rect x="464.6" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 31 · 2024-10-24 → 2024-11-14 · passed 2/30 · payouts 0 · net -3,600</title></rect>
+<rect x="478.3" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 32 · 2024-11-15 → 2024-12-26 · passed 5/30 · payouts 1 · net -1,800</title></rect>
+<rect x="492.0" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 33 · 2024-12-27 → 2025-01-21 · passed 4/30 · payouts 0 · net -3,600</title></rect>
+<rect x="505.7" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 34 · 2025-01-22 → 2025-02-18 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<rect x="519.4" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 35 · 2025-02-19 → 2025-03-17 · passed 7/30 · payouts 1 · net -1,800</title></rect>
+<rect x="533.1" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 36 · 2025-03-18 → 2025-04-08 · passed 6/30 · payouts 0 · net -3,600</title></rect>
+<rect x="546.8" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 37 · 2025-04-09 → 2025-04-28 · passed 7/30 · payouts 0 · net -3,600</title></rect>
+<rect x="560.4" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 38 · 2025-04-29 → 2025-06-06 · passed 9/30 · payouts 1 · net -1,800</title></rect>
+<rect x="574.1" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 39 · 2025-06-08 → 2025-07-07 · passed 7/30 · payouts 0 · net -3,600</title></rect>
+<rect x="587.8" y="96.0" width="9.6" height="57.5" class="pos"><title>Batch 40 · 2025-07-08 → 2025-09-24 · passed 5/30 · payouts 5 · net +5,400</title></rect>
+<rect x="601.5" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 41 · 2025-09-25 → 2025-10-30 · passed 4/30 · payouts 1 · net -1,800</title></rect>
+<rect x="615.2" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 42 · 2025-10-31 → 2025-11-28 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<rect x="628.9" y="153.4" width="9.6" height="1.0" class="neg"><title>Batch 43 · 2025-12-01 → 2026-01-08 · passed 5/30 · payouts 2 · net +0</title></rect>
+<rect x="642.6" y="153.4" width="9.6" height="1.0" class="neg"><title>Batch 44 · 2026-01-09 → 2026-02-06 · passed 5/30 · payouts 2 · net -76</title></rect>
+<rect x="656.2" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 45 · 2026-02-09 → 2026-02-27 · passed 6/30 · payouts 0 · net -3,600</title></rect>
+<rect x="669.9" y="40.9" width="9.6" height="112.5" class="pos"><title>Batch 46 · 2026-03-02 → 2026-04-27 · passed 6/30 · payouts 8 · net +10,572</title></rect>
+<rect x="683.6" y="153.4" width="9.6" height="1.0" class="neg"><title>Batch 47 · 2026-04-28 → 2026-06-04 · passed 5/30 · payouts 2 · net +0</title></rect>
+<rect x="697.3" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 48 · 2026-06-05 → 2026-06-24 · passed 4/30 · payouts 0 · net -3,600</title></rect>
+<rect x="711.0" y="153.4" width="9.6" height="38.3" class="neg"><title>Batch 49 · 2026-06-25 → 2026-07-14 · passed 7/30 · payouts 0 · net -3,600</title></rect>
+<rect x="724.7" y="153.4" width="9.6" height="1.0" class="neg"><title>Batch 50 · 2026-07-15 → 2026-09-01 · passed 5/30 · payouts 2 · net +0</title></rect>
+<rect x="738.4" y="153.4" width="9.6" height="19.2" class="neg"><title>Batch 51 · 2026-09-02 → 2026-09-25 · passed 5/30 · payouts 1 · net -1,800</title></rect>
+<text x="52.0" y="218" class="ax">2020</text>
+<text x="93.1" y="218" class="ax">2021</text>
+<text x="175.2" y="218" class="ax">2022</text>
+<text x="298.4" y="218" class="ax">2023</text>
+<text x="366.8" y="218" class="ax">2024</text>
+<text x="503.6" y="218" class="ax">2025</text>
+<text x="640.5" y="218" class="ax">2026</text>
+</svg><p class="note">10 batches in profit. Best: #18, 15 Dec 2022 – 23 Mar 2023, <span class="pos">+$12,600</span>. Worst: −$3,600 (no payout at all), many times. Fastest break-even 15 sessions; median 39 calendar days for the batches that got there (29% did).</p></div>
+    <div class="card"><h3>Stay until done (B) · 25 batches</h3><svg viewBox="0 0 760 230" role="img" aria-label="Net per 30-account batch, NY stay until done" class="chart">
+<line x1="52" x2="750" y1="191.7" y2="191.7" class="grid"/>
+<text x="46" y="195.7" class="ax" text-anchor="end">-3,600</text>
+<line x1="52" x2="750" y1="153.2" y2="153.2" class="zero"/>
+<text x="46" y="157.2" class="ax" text-anchor="end">0</text>
+<line x1="52" x2="750" y1="110.4" y2="110.4" class="grid"/>
+<text x="46" y="114.4" class="ax" text-anchor="end">+4,000</text>
+<line x1="52" x2="750" y1="67.5" y2="67.5" class="grid"/>
+<text x="46" y="71.5" class="ax" text-anchor="end">+8,000</text>
+<line x1="52" x2="750" y1="24.7" y2="24.7" class="grid"/>
+<text x="46" y="28.7" class="ax" text-anchor="end">+12,000</text>
+<rect x="56.2" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 1 · 2020-06-28 → 2021-01-14 · passed 6/30 · payouts 0 · net -3,600</title></rect>
+<rect x="84.1" y="95.4" width="19.5" height="57.8" class="pos"><title>Batch 2 · 2021-01-15 → 2021-05-20 · passed 5/30 · payouts 5 · net +5,400</title></rect>
+<rect x="112.0" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 3 · 2021-05-21 → 2021-08-19 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<rect x="139.9" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 4 · 2021-08-20 → 2021-11-19 · passed 7/30 · payouts 0 · net -3,600</title></rect>
+<rect x="167.9" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 5 · 2021-11-21 → 2022-02-11 · passed 8/30 · payouts 0 · net -3,600</title></rect>
+<rect x="195.8" y="153.2" width="19.5" height="19.3" class="neg"><title>Batch 6 · 2022-02-14 → 2022-05-03 · passed 6/30 · payouts 1 · net -1,800</title></rect>
+<rect x="223.7" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 7 · 2022-05-04 → 2022-07-08 · passed 8/30 · payouts 0 · net -3,600</title></rect>
+<rect x="251.6" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 8 · 2022-07-11 → 2022-09-30 · passed 7/30 · payouts 0 · net -3,600</title></rect>
+<rect x="279.5" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 9 · 2022-10-03 → 2022-12-14 · passed 8/30 · payouts 0 · net -3,600</title></rect>
+<rect x="307.5" y="114.6" width="19.5" height="38.5" class="pos"><title>Batch 10 · 2022-12-15 → 2023-05-15 · passed 4/30 · payouts 4 · net +3,600</title></rect>
+<rect x="335.4" y="133.9" width="19.5" height="19.3" class="pos"><title>Batch 11 · 2023-05-16 → 2023-09-20 · passed 5/30 · payouts 3 · net +1,800</title></rect>
+<rect x="363.3" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 12 · 2023-09-21 → 2023-11-22 · passed 4/30 · payouts 0 · net -3,600</title></rect>
+<rect x="391.2" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 13 · 2023-11-23 → 2024-02-14 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<rect x="419.1" y="153.2" width="19.5" height="1.0" class="neg"><title>Batch 14 · 2024-02-15 → 2024-05-13 · passed 6/30 · payouts 2 · net -2</title></rect>
+<rect x="447.1" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 15 · 2024-05-14 → 2024-08-12 · passed 10/30 · payouts 0 · net -3,600</title></rect>
+<rect x="475.0" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 16 · 2024-08-13 → 2024-10-10 · passed 4/30 · payouts 0 · net -3,600</title></rect>
+<rect x="502.9" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 17 · 2024-10-11 → 2024-12-17 · passed 4/30 · payouts 0 · net -3,600</title></rect>
+<rect x="530.8" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 18 · 2024-12-18 → 2025-02-13 · passed 3/30 · payouts 0 · net -3,600</title></rect>
+<rect x="558.7" y="153.2" width="19.5" height="19.3" class="neg"><title>Batch 19 · 2025-02-14 → 2025-06-17 · passed 8/30 · payouts 1 · net -1,800</title></rect>
+<rect x="586.7" y="153.2" width="19.5" height="19.3" class="neg"><title>Batch 20 · 2025-06-18 → 2025-09-17 · passed 6/30 · payouts 1 · net -1,800</title></rect>
+<rect x="614.6" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 21 · 2025-09-18 → 2025-12-01 · passed 6/30 · payouts 0 · net -3,600</title></rect>
+<rect x="642.5" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 22 · 2025-12-02 → 2026-02-16 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<rect x="670.4" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 23 · 2026-02-17 → 2026-05-01 · passed 7/30 · payouts 0 · net -3,600</title></rect>
+<rect x="698.3" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 24 · 2026-05-04 → 2026-07-13 · passed 6/30 · payouts 0 · net -3,600</title></rect>
+<rect x="726.3" y="153.2" width="19.5" height="38.5" class="neg"><title>Batch 25 · 2026-07-14 → 2026-09-04 · passed 5/30 · payouts 0 · net -3,600</title></rect>
+<text x="52.0" y="218" class="ax">2020</text>
+<text x="79.9" y="218" class="ax">2021</text>
+<text x="191.6" y="218" class="ax">2022</text>
+<text x="331.2" y="218" class="ax">2023</text>
+<text x="415.0" y="218" class="ax">2024</text>
+<text x="554.6" y="218" class="ax">2025</text>
+<text x="666.2" y="218" class="ax">2026</text>
+</svg><p class="note">3 batches in profit. Best: #2, Jan – May 2021, <span class="pos">+$5,400</span>. Staying on one account means every other signal waits (20,012 signals had no account to take them), so payouts come 2–3× later.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Each setup on its own (NY, net per batch)</h2>
+  <div class="tbl"><table>
+  <thead><tr><th class="l">Setup</th><th>Win % (6 yrs)</th><th>$ / trade</th><th>A · 6 yrs</th><th>A · last 12 months</th><th>B · 6 yrs</th><th>B · last 12 months</th></tr></thead>
+  <tbody>
+  <tr><td>FVG 50% retrace</td><td class="num">26.8</td><td class="num neg">−13</td><td class="num pos">+9</td><td class="num neg">−606</td><td class="num neg">−580</td><td class="num neg">−600</td></tr>
+  <tr><td>Aggression break</td><td class="num">26.8</td><td class="num neg">−16</td><td class="num pos">+226</td><td class="num neg">−2,128</td><td class="num pos">+769</td><td class="num neg">−3,600</td></tr>
+  <tr><td>123 engulfing</td><td class="num">25.1</td><td class="num neg">−41</td><td class="num neg">−1,586</td><td class="num neg">−1,510</td><td class="num neg">−2,373</td><td class="num neg">−2,250</td></tr>
+  <tr class="main"><td><b>All 3 combined</b></td><td class="num">25.8</td><td class="num neg">−28</td><td class="num neg">−917</td><td class="num neg">−742</td><td class="num neg">−2,376</td><td class="num neg">−1,800</td></tr>
+  </tbody></table></div>
+  <p class="note">The 123 engulfing is clearly the weakest and drags the combination down. Aggression BUY is the only setup-and-side that is positive per trade over 6 years (+$15 a trade, profit factor 1.04, 2,005 trades), and it turned to −$100 a trade in the last 12 months.</p>
+</section>
+
+<section>
+  <h2>Setups vs random entries</h2>
+  <p class="note">Same window, same number of trades, same bracket and rotation, but random entry times and directions (20 runs). If the setups had an edge, they would beat almost every random run.</p>
+  <div class="tbl"><table>
+  <thead><tr><th class="l">NY · mode A</th><th>Setups $ / trade</th><th>Random (median)</th><th>Setups net / batch</th><th>Random (median)</th><th class="l">Verdict</th></tr></thead>
+  <tbody>
+  <tr><td>6 years</td><td class="num">−28</td><td class="num">−38</td><td class="num">−917</td><td class="num">−1,876</td><td class="l"><span class="pill pos">beats 20 of 20</span></td></tr>
+  <tr><td>Before 2025</td><td class="num">−19</td><td class="num">−38</td><td class="num">−721</td><td class="num">−1,817</td><td class="l"><span class="pill pos">beats 20 of 20</span></td></tr>
+  <tr><td>2025 → Oct 2026</td><td class="num">−46</td><td class="num">−37</td><td class="num">−1,342</td><td class="num">−2,077</td><td class="l"><span class="pill neg">worse per trade (2 of 20)</span></td></tr>
+  <tr><td>Last 12 months</td><td class="num">−44</td><td class="num">−35</td><td class="num">−742</td><td class="num">−2,196</td><td class="l"><span class="pill neg">worse per trade (4 of 20)</span></td></tr>
+  </tbody></table></div>
+  <p class="note">All day, the setups beat all 20 random runs in every period, but still lose money (−$20 a trade vs −$36 random). The setups were a real but too small advantage until 2024, and it has faded since.</p>
+</section>
+
+<section>
+  <h2>Does the best session hold up?</h2>
+  <p>Ranked on 2020–2024, the best window was <b>NY PM</b> (+$870 a batch). On 2025–2026 it fell to 4th of 6 (−$1,431 a batch). The best window on 2025–2026 was <b>Asia</b> (+$1,359). The winner changes from one period to the next, which is what noise looks like. No window can be picked in advance with confidence.</p>
+</section>
+
+<section>
+  <h2>What one 30-account purchase looks like</h2>
+  <div class="grid2">
+    <div class="card"><dl>
+      <dt>You pay</dt><dd>$3,600 (30 × $120)</dd>
+      <dt>Accounts that pass</dt><dd>about 6 of 30 (21%)</dd>
+      <dt>Payouts</dt><dd>1.5 per batch on average, most batches 0–1</dd>
+      <dt>Typical result</dt><dd><span class="neg">−$1,800</span> (median)</dd>
+      <dt>Average result</dt><dd><span class="neg">−$917</span></dd>
+      <dt>Chance of profit</dt><dd>1 in 5</dd>
+      <dt>When it works</dt><dd>first payout around session 14–25, paid back around session 15–32</dd>
+    </dl></div>
+    <div class="card"><h3>Streaks, NY mode A</h3><dl>
+      <dt>Longest losing run</dt><dd>27 trades in a row (12 days)</dd>
+      <dt>Longest winning run</dt><dd>7 trades</dd>
+      <dt>Profit factor</dt><dd>0.93</dd>
+      <dt>Profitable batches in a row</dt><dd>2 at most</dd>
+      <dt>Liquidated at the floor</dt><dd>1,523 trades hit an account's drawdown floor</dd>
+    </dl></div>
+  </div>
+</section>
+
+<section>
+  <h2>How the test was run</h2>
+  <ol class="steps">
+    <li><b>Setups on 5-minute candles</b> (built from 1-minute bars, closed candles only). FVG: a 3-candle gap, a limit order at 50% of the gap; if price never comes back, no trade. Aggression: a candle closing beyond the last 10 candles' high (low) with a body ≥ 60% of its range and a range ≥ 1.5× the average. 123 engulfing: the KeyStone rule (a run of 2+ candles, then an engulfing close).</li>
+    <li><b>One trade at a time</b> across all accounts. The first setup that triggers while flat takes the trade.</li>
+    <li><b>Outcome on 1-minute bars.</b> There is no tick data for MNQ in the repository, so a minute that touches both the stop and the target counts as a stop (20 times in 19,356 trades). The stop fills one tick worse; costs are $26.10 a trade.</li>
+    <li><b>Lucid Flex 50K, from the KeyStone firm book:</b> $120 evaluation; $2,000 end-of-day trailing drawdown that locks at +$100; pass at +$3,000 with at least 2 days and no day above 50% of the target; payout after 5 days of $150+, 50% of the profit up to $2,000, a $250 minimum, 90% to you, up to 5 payouts; flat by 16:45. Two wins ($2,948) fall just short of $3,000, so a pass usually needs 3 winning days.</li>
+    <li><b>Batches:</b> 30 accounts bought together; the next 30 the session after the last one blows or retires.</li>
+  </ol>
+  <p class="note">The engine and the study are in KeyStone (BUILD 2026-11-11o): <code>KeystoneTriSetup</code>, <code>KeystoneTriRotation</code>, <code>tests/ThreeSetupStudy.cs</code>. Every number here comes from <code>docs/reports/data/three-setups/</code>. Research only: nothing in it sends an order.</p>
+</section>
+</div>
