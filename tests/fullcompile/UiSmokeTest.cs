@@ -556,6 +556,10 @@ public static class UiSmokeTest
                             var ic = o as System.Windows.Controls.ItemsControl; if (ic != null) foreach (var it in ic.Items.Cast<object>().ToList()) walk(it);
                         };
                         walk(liveWin.Content);
+                        {   /* 🗺 13d: the NEXT LEVELS panel in the ● LIVE TRADING order column (text only) */
+                            var lvP = all.OfType<System.Windows.Controls.TextBlock>().FirstOrDefault(x => Convert.ToString(x.Tag) == "lvl.panel.MNQ"); if (lvP == null || !lvP.Text.StartsWith("🗺 NEXT LEVELS")) throw new Exception("🗺 no NEXT LEVELS panel in LIVE TRADING: " + (lvP == null ? "missing" : lvP.Text));
+                            Console.WriteLine("      🗺 13d LIVE TRADING panel: " + lvP.Text.Split('\n')[0]);
+                        }
                         Func<string, System.Windows.Controls.Button> btn = t => all.OfType<System.Windows.Controls.Button>().FirstOrDefault(b => Convert.ToString(b.Content) == t);
                         var dual = btn("◫ MNQ + MGC"); var focusB = btn("⛶ FOCUS"); if (dual == null || focusB == null) throw new Exception("MNQ + MGC / FOCUS button missing");
                         Action<System.Windows.Controls.Button> click = b => b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
@@ -957,7 +961,7 @@ public static class UiSmokeTest
                     if (st0.StartsWith("active=0")) throw new Exception("⭐ no active candle setup in 7 hours of the synthetic day: " + st0);
                     if (!st0.Contains("need=True") || !st0.Contains("chartNeeds=True") || st0.Contains("badges=⭐") || st0.Contains("badges=⚠")) throw new Exception("⭐ an active setup with the chip ON = the engine may run, and no badge without order flow: " + st0);
                     string inj = oc("INJECT ✔"); if (!inj.Contains("⭐ OF ✔ absorbed at the") || !inj.Contains("supports your")) throw new Exception("⭐ an absorption at the zone must put ⭐ OF ✔ on the setup's label: " + inj);
-                    Func<List<string>> tags = () => FindAll<System.Windows.Controls.Canvas>(bt.Content).Where(c0 => c0.Children.OfType<System.Windows.FrameworkElement>().Any(x => Convert.ToString(x.Tag).StartsWith("layerbar."))).SelectMany(c0 => c0.Children.OfType<System.Windows.FrameworkElement>()).Select(x => Convert.ToString(x.Tag)).ToList();   /* the chart's plot canvas(es) */
+                    Func<List<string>> tags = () => FindAll<System.Windows.Controls.Canvas>(bt.Content).Where(c0 => Convert.ToString(c0.Tag) == "chart.plot").SelectMany(c0 => c0.Children.OfType<System.Windows.FrameworkElement>()).Select(x => Convert.ToString(x.Tag)).ToList();   /* the chart's plot canvas(es) */
                     var forb = tags().Where(t0 => t0 == "of.decision" || t0 == "of.toast" || t0.StartsWith("of.setup") || t0.StartsWith("of.zone") || t0.StartsWith("of.mark") || t0.StartsWith("of.big") || t0.StartsWith("of.trademap") || t0 == "of.event.pill" || t0 == "of.vp" || t0 == "of.drow" || t0 == "of.dprof" || t0 == "of.trap").Distinct().ToList();
                     if (forb.Count > 0) throw new Exception("⭐ the 📈 CHART must show nothing else from order flow: " + string.Join(",", forb));
                     if (tags().Count(t0 => t0 == "of.confirm") < 1) throw new Exception("⭐ no of.confirm badge on the canvas");
@@ -1055,7 +1059,7 @@ public static class UiSmokeTest
                         if (noTip.Count > 0) throw new Exception("❓ controls without a WHAT / WHY / HOW tooltip: " + string.Join(",", noTip));
                         foreach (var want in new[] { "of.dtab.NOW", "of.dtab.EVENTS", "of.dtab.GUIDE", "of.view.SIGNALS", "of.view.ALL", "of.view.ON", "of.view.SETTINGS", "of.view.BACK", "of.num.BADGE", "of.num.CANDLE Δ", "of.num.CUM Δ", "of.num.BUYERS", "of.num.IN CONTROL", "of.style.SCALP", "of.style.SWING", "of.style.BOTH", "of.beginner", "of.calm", "of.howto" })
                             if (!need.Any(x => Convert.ToString(x.Tag) == want)) throw new Exception("❓ missing control " + want);
-                        if (need.Count(x => Convert.ToString(x.Tag).StartsWith("of.dtab.")) != 12) throw new Exception("❓ not all 12 dock tabs carry help");
+                        if (need.Count(x => Convert.ToString(x.Tag).StartsWith("of.dtab.")) != 13) throw new Exception("❓ not all 13 dock tabs carry help (🗺 13d: + LEVELS)");
                         foreach (var cap0 in new[] { "◫ SPLIT", "PATTERN", "CLEAN", "MATCHES", "⏭ NOW" })
                         { var bH = FindAll<System.Windows.Controls.Button>(bt.Content).FirstOrDefault(x => Convert.ToString(x.Content) == cap0); if (bH != null && !Convert.ToString(bH.ToolTip).StartsWith("WHAT: ")) throw new Exception("❓ the toolbar button " + cap0 + " has no help: " + bH.ToolTip); }
                         var calmH = need.First(x => Convert.ToString(x.Tag) == "of.calm"); calmH.RaiseToolTipOpening(); if (!Convert.ToString(calmH.ToolTip).Contains("NOW: OFF")) throw new Exception("❓ REDUCE MOTION's hover must say ON / OFF: " + calmH.ToolTip);
@@ -1088,14 +1092,15 @@ public static class UiSmokeTest
                     {   /* 🧼 11y: SIMPLE is the default — the plot holds only the allowed tags (candles, labels, ONE decision line, the setup's lines / arrow, ≤ 2 zone outlines, 3 chips);
                            the toast goes to the dock; ▥ PROFILE / 🧱 EVENTS / 📚 DOM in the dock; 🔬 DETAILED restores the exact previous chip set; no NinjaBroker */
                         var lbS = (Func<string, string>)F("studioLayerBar"); string ls0 = lbS("LIST"); if (!ls0.Contains("MODE=SIMPLE")) throw new Exception("🧼 SIMPLE must be the default: " + ls0);
-                        Func<System.Windows.Controls.Canvas> plotCv = () => FindAll<System.Windows.Controls.Canvas>(bt.Content).FirstOrDefault(c0 => c0.Children.OfType<System.Windows.FrameworkElement>().Any(x => Convert.ToString(x.Tag) == "layerbar.MODE"));
+                        Func<System.Windows.Controls.Canvas> plotCv = () => FindAll<System.Windows.Controls.Canvas>(bt.Content).FirstOrDefault(c0 => Convert.ToString(c0.Tag) == "chart.plot" && c0.Children.Count > 10);   /* 👁 13d: the chips left the canvas — the plot is tagged */
                         Action<string> plotOk = when =>
                         {
                             ((Action<int>)F("replayTraderStep"))(0); var cv0 = plotCv(); if (cv0 == null) throw new Exception("🧼 no plot canvas with the mode chip (" + when + ")");
                             var tg = cv0.Children.OfType<System.Windows.FrameworkElement>().Select(x => Convert.ToString(x.Tag)).ToList();
                             var bad = tg.Where(t0 => !KeystoneOfSimple.Allowed(t0)).Distinct().ToList(); if (bad.Count > 0) throw new Exception("🧼 SIMPLE plot (" + when + ") holds: " + string.Join(",", bad));
                             if (tg.Count(t0 => t0 == "of.zone.simple") > 2) throw new Exception("🧼 more than 2 zone outlines");
-                            var chips = string.Join(",", tg.Where(t0 => t0.StartsWith("layerbar."))); if (chips != "layerbar.MODE,layerbar.CLEAN,layerbar.GEAR") throw new Exception("🧼 SIMPLE chips: " + chips);
+                            var chips = lbS("CHIPS"); if (chips != "layerbar.MODE,layerbar.CLEAN,layerbar.GEAR") throw new Exception("🧼 SIMPLE chips (header row): " + chips);
+                            if (tg.Any(t0 => t0.StartsWith("layerbar."))) throw new Exception("👁 13d: a layer-bar chip is drawn ON the plot");
                             if (tg.Count(t0 => t0 == "of.decision") != 1) throw new Exception("🧼 not exactly one decision line (" + when + ")");
                             var dl = FindAll<System.Windows.Controls.TextBlock>(cv0).First(x => Convert.ToString(x.Tag) == "of.decision.text").Text;
                             if (dl.Contains("\n") || !(dl.StartsWith("⏳") || dl.StartsWith("⛔") || dl.StartsWith("✅") || dl.StartsWith("🧪") || dl.StartsWith("⚠") || dl.StartsWith("✋")) || (dl.Contains(" • ") && dl.Substring(dl.IndexOf(" • ") + 3).Split(' ').Length > 8)) throw new Exception("🧼 the decision line: " + dl);
@@ -1129,6 +1134,41 @@ public static class UiSmokeTest
                             if (FindAll<System.Windows.Controls.TextBlock>(cvP).Any(t9 => (t9.Text ?? "").Contains("buyer failed"))) throw new Exception("🎯 opposite failed prints must be ONE ⚖ pill, not two contradicting ones");
                             if (nPill == 0) throw new Exception("🎯 no event pill drawn in the studio's right gutter");
                             Console.WriteLine("      🎯 event pills in the right column: " + nPill + " drawn, none over a candle, ring ≤ 8 px");
+                        }
+                        {   /* ● 👁 🗺 13d: big prints (closed minutes, behind the candles, beside the bodies, ONE latest), the layer bar in the HEADER (never on the plot, each chip toggles its key,
+                               the ⚙ OVERLAYS ▾ list when narrow), the 🗺 LEVELS tab / NOW line, the in-trade words + add ideas, the CHART's 🗺 NEXT LEVELS chip (OFF by default, ≤ 2 + 2 lines) */
+                            var lbD = (Func<string, string>)F("studioLayerBar"); ((Action<int>)F("replayTraderStep"))(0);
+                            var cvB = plotCv(); var kidsB = cvB.Children.OfType<System.Windows.FrameworkElement>().ToList();
+                            var circ = kidsB.Where(x => Convert.ToString(x.Tag) == "bigp.circle").ToList(); if (circ.Count == 0) throw new Exception("● no big-print circle (closed minutes) after FAILPRINTS");
+                            if (circ.Any(x => System.Windows.Controls.Panel.GetZIndex(x) >= 0)) throw new Exception("● a big-print circle is not BEHIND the candles");
+                            if (kidsB.Any(x => Convert.ToString(x.Tag) == "of.big" || Convert.ToString(x.Tag) == "of.big.failed")) throw new Exception("● the old live-resizing circles are still drawn");
+                            if (kidsB.Count(x => Convert.ToString(x.Tag) == "bigp.latest") != 1) throw new Exception("● not exactly ONE latest marker");
+                            var bodiesB = kidsB.OfType<System.Windows.Shapes.Rectangle>().Where(x => x.Tag == null && x.Fill != null && x.Width >= 2 && x.Width < 40).Select(x => new System.Windows.Rect(System.Windows.Controls.Canvas.GetLeft(x), System.Windows.Controls.Canvas.GetTop(x), x.Width, x.Height)).ToList();
+                            foreach (var c9 in circ) { double cx9 = System.Windows.Controls.Canvas.GetLeft(c9) + c9.Width / 2, cy9 = System.Windows.Controls.Canvas.GetTop(c9) + c9.Height / 2; var hit9 = bodiesB.FirstOrDefault(b9 => cx9 > b9.X && cx9 < b9.X + b9.Width && cy9 >= b9.Y && cy9 <= b9.Y + b9.Height); if (hit9.Width > 0) throw new Exception("● a big-print circle's centre is inside a candle body: " + cx9 + "," + cy9 + " vs " + hit9.X + "," + hit9.Y + " " + hit9.Width + "×" + hit9.Height); }   /* behind the candles (z −1) and centred beside the body */
+                            string onCv = lbD("ONCANVAS"); if (onCv != "") throw new Exception("👁 13d: layer-bar chips drawn on the plot canvas: " + onCv);
+                            string nar = lbD("NARROW"); if (nar != "layerbar.MODE,layerbar.CLEAN,layerbar.GEAR") throw new Exception("👁 13d: narrow = 🔬 / 👁 / ⚙ OVERLAYS ▾ only: " + nar);
+                            var gearB = FindAll<System.Windows.Controls.Border>(bt.Content).FirstOrDefault(x => Convert.ToString(x.Tag) == "layerbar.GEAR"); if (gearB == null || !((System.Windows.Controls.TextBlock)gearB.Child).Text.Contains("OVERLAYS ▾")) throw new Exception("👁 13d: no ⚙ OVERLAYS ▾ dropdown at narrow width");
+                            string wide = lbD("WIDE"); if (!wide.Contains("layerbar.BIGP") || !wide.Contains("layerbar.EVENTS")) throw new Exception("👁 13d: wide = every chip in the header: " + wide);
+                            string lst = lbD("LIST"); if (!lst.Contains("BIGP=on")) throw new Exception("● the ORDERFLOW view's ● BIG PRINTS chip keeps its default ON: " + lst);
+                            int tog = 0; foreach (var it9 in lst.Split(';').Where(x => x.EndsWith("=on") || x.EndsWith("=off")))
+                            {
+                                string id9 = it9.Substring(0, it9.IndexOf('=')); if (id9 == "SETUP") continue; bool was = it9.EndsWith("=on");
+                                string a9 = lbD(id9); if (!a9.Contains(id9 + "=" + (was ? "off" : "on"))) throw new Exception("👁 13d: the chip " + id9 + " did not toggle its key: " + a9);
+                                string b9 = lbD(id9); if (!b9.Contains(id9 + "=" + (was ? "on" : "off"))) throw new Exception("👁 13d: the chip " + id9 + " did not toggle back: " + b9); tog++;
+                            }
+                            string lvT = desk("TAB LEVELS"); if (!lvT.Contains("🗺 NEXT LEVELS") || !lvT.Contains("▲ above:") || !lvT.Contains("▼ below:") || !lvT.Contains("text only")) throw new Exception("🗺 LEVELS tab: " + lvT.Substring(0, Math.Min(400, lvT.Length)));
+                            string nwL = desk("TAB NOW"); if (!nwL.Contains("🗺 next:")) throw new Exception("🗺 the NOW line: " + nwL.Substring(0, Math.Min(300, nwL.Length)));
+                            var rtL = (KeystoneReplayTrader)F("replayTrader"); rtL.Buy(1); ((Action<int>)F("replayTraderStep"))(0);
+                            string inT = desk("TAB LEVELS"); if (!inT.Contains("LONG 1 @") || !inT.Contains("✅ in your favour:") || !inT.Contains("⚠ against you:") || !inT.Contains("add to the winner") && !inT.Contains("ADD TO THE WINNER") || !inT.Contains("add to the loser") && !inT.Contains("SCALE IN") || !inT.Contains("a suggestion — you decide")) throw new Exception("🗺 in-trade words: " + inT.Substring(0, Math.Min(700, inT.Length)));
+                            rtL.Sell(1); ((Action<int>)F("replayTraderStep"))(0);
+                            desk("CLOSE"); string lc = lbD("LIST"); if (!lc.Contains("NEXTLV=off") || !lc.Contains("BIGP=off")) throw new Exception("🗺 ● the CHART's NEXT LEVELS / BIG PRINTS chips must be OFF by default: " + lc);
+                            Func<List<string>> lvLab = () => { ((Action<int>)F("replayTraderStep"))(0); var cvN = plotCv(); return cvN.Children.OfType<System.Windows.Controls.Border>().Where(b9 => Convert.ToString(b9.Tag) == "lvl.next.label").Select(b9 => ((System.Windows.Controls.TextBlock)b9.Child).Text).ToList(); };
+                            if (lvLab().Count != 0) throw new Exception("🗺 NEXT LEVELS drawn while its chip is OFF");
+                            lbD("NEXTLV"); var labs = lvLab(); int upC = labs.Count(t9 => t9.StartsWith("▲")), dnC = labs.Count(t9 => t9.StartsWith("▼"));
+                            if (labs.Count == 0 || upC > 2 || dnC > 2) throw new Exception("🗺 the chip ON must draw ≤ 2 above + ≤ 2 below (≥ 1): " + string.Join(" | ", labs));
+                            lbD("NEXTLV"); if (lvLab().Count != 0) throw new Exception("🗺 the chip OFF again still draws");
+                            desk("OPEN");
+                            Console.WriteLine("      ● 13d big prints: " + circ.Count + " closed-minute circles behind the candles, beside the bodies, 1 latest • 👁 header layer bar: " + tog + " chips toggle their keys, none on the plot, ⚙ OVERLAYS ▾ when narrow • 🗺 LEVELS tab + NOW line + in-trade words / add ideas • CHART chip: " + string.Join(" | ", labs));
                         }
                         if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 11y built a NinjaBroker");
                         desk("RAW"); Console.WriteLine("      🧼 SIMPLE plot: allowed tags only, 3 chips, one decision line • toast in 🧭 NOW • ▥ PROFILE / 🧱 EVENTS / 📚 DOM (31 rows, wall) in the dock • 🔬 DETAILED = the same chips: OK");

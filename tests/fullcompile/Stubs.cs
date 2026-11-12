@@ -344,7 +344,9 @@ namespace System.Windows.Controls
         private readonly UIElementCollection children = new UIElementCollection();
         public UIElementCollection Children { get { children.Owner = this; return children; } }
         public Brush Background { get; set; }
-        public static void SetZIndex(UIElement e, int z) { }
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, int[]> zs = new System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, int[]>();
+        public static void SetZIndex(UIElement e, int z) { if (e != null) zs.GetValue(e, k => new int[1])[0] = z; }
+        public static int GetZIndex(UIElement e) { int[] v; return e != null && zs.TryGetValue(e, out v) ? v[0] : 0; }
     }
     public class RowDefinition { public GridLength Height { get; set; } public double MinHeight { get; set; } public double MaxHeight { get; set; } public double ActualHeight { get { return 0; } } }
     public class ColumnDefinition { public GridLength Width { get; set; } public double MinWidth { get; set; } public double MaxWidth { get; set; } public double ActualWidth { get { return 0; } } }

@@ -59,6 +59,9 @@ mono "$here/.build/of.exe" | tail -1
 rm -f "$here/.build/fc.exe"
 "$root/tools/compile_engine.sh" "$here/.build/fc.exe" "$here/FlowCompassTests.cs"
 mono "$here/.build/fc.exe" | tail -1
+rm -f "$here/.build/lvl.exe"
+"$root/tools/compile_engine.sh" "$here/.build/lvl.exe" "$here/LevelMapTests.cs"
+mono "$here/.build/lvl.exe" | tail -1
 rm -f "$here/.build/flip.exe"
 "$root/tools/compile_engine.sh" "$here/.build/flip.exe" "$here/FlipTests.cs"
 mono "$here/.build/flip.exe" | tail -1

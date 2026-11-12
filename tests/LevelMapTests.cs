@@ -158,6 +158,39 @@ public static class LevelMapTests
             var lg = KeystoneAddAdvice.Loser(1, 2, 20000, 19990, 0, new KeystoneLevel { Type = "PDL", Name = "PDL", Price = 19970 }, edge, 1000, 10, double.NaN, 2, 0.25, 1.74, 4);
             Check(lg.Ok && lg.Add == 2 && Math.Abs(lg.NewAvg - 19985) < 1e-9 && Math.Abs(lg.Stop - 19966) < 1e-9 && lg.Text.Contains("set it"), "loser LONG with no stop: +2 at PDL (never more than doubling), a stop beyond it suggested", lg.Text);
         }
+        // ---- 9. ● BIG PRINTS on the chart: closed minutes only, the session history (cap, numbering), the age fade, beside the body, the latest marker, the card
+        {
+            var now = new DateTime(2026, 3, 11, 10, 30, 20); var hist = new List<KeystoneBigMark>();
+            var found = new List<KeystoneFlowBigPrint> { new KeystoneFlowBigPrint { Time = new DateTime(2026, 3, 11, 10, 28, 10), Side = 1, Size = 40, Price = 20000, After = "held" },
+                new KeystoneFlowBigPrint { Time = new DateTime(2026, 3, 11, 10, 29, 50), Side = -1, Size = 60, Price = 20004, After = "failed" },
+                new KeystoneFlowBigPrint { Time = new DateTime(2026, 3, 11, 10, 30, 5), Side = 1, Size = 90, Price = 20006, After = "just now" } };
+            KeystoneBigPrints.Merge(hist, found, now);
+            Check(hist.Count == 2 && hist.All(h => h.Print.Time.Minute < 30), "only prints of CLOSED minutes get a circle (10:30's forming minute excluded)");
+            var fm = KeystoneBigPrints.Forming(found, now); Check(fm != null && fm.Size == 90, "the forming minute's biggest print = the small 'forming' dot");
+            var latest = KeystoneBigPrints.Latest(hist); Check(latest != null && latest.Seq == 2 && KeystoneBigPrints.IsNew(latest, now) && !KeystoneBigPrints.IsNew(latest, now.AddSeconds(70)), "the latest = #2, NEW for 60 s after its minute closed");
+            KeystoneBigPrints.Merge(hist, found, now.AddMinutes(1)); Check(hist.Count == 3 && hist[2].Seq == 3 && hist[0].Seq == 1, "the next minute: 10:30's print joins as #3, the older ones stay");
+            for (int i = 0; i < 60; i++) KeystoneBigPrints.Merge(hist, new[] { new KeystoneFlowBigPrint { Time = new DateTime(2026, 3, 11, 11, 0, 0).AddMinutes(i), Side = 1, Size = 30, Price = 20010 } }, new DateTime(2026, 3, 11, 12, 30, 0));
+            Check(hist.Count == KeystoneBigPrints.Cap && hist[0].Seq > 3 && hist.Last().Seq == 63, "cap 40: the oldest removed first, numbering continues", hist.Count + " #" + hist[0].Seq + "…#" + hist.Last().Seq);
+            Check(Math.Abs(KeystoneBigPrints.Opacity(0) - 0.85) < 1e-9 && Math.Abs(KeystoneBigPrints.Opacity(60) - 0.55) < 1e-9 && Math.Abs(KeystoneBigPrints.Opacity(500) - 0.25) < 1e-9, "faded by age: 0.85 → 0.25 over 2 h");
+            double d = KeystoneBigPrints.Diameter(90, 90), cxW = KeystoneBigPrints.CenterX(100, 80, 30, d), cxN = KeystoneBigPrints.CenterX(100, 9, 6.48, d);
+            Check(d <= KeystoneBigPrints.MaxD && KeystoneBigPrints.Diameter(10, 90) < d, "size by contracts (capped)");
+            Check(cxW - d / 2 >= 100 + 15 && cxW + d / 2 <= 180 - 15, "zoomed in: the circle sits fully in the gap right of its body", cxW.ToString());
+            Check(cxN > 100 + 3.24 && cxN < 109 - 3.24, "zoomed out: the centre in the gap between the bodies (never inside one; drawn behind them)", cxN.ToString());
+            string card = KeystoneBigPrints.Card(hist[1], 20020, 0.25, null, new[] { "▲ BUY ZONE 20,000–20,004" });
+            Check(card.Contains("#") && card.Contains("of today") && card.Contains("contracts @") && (card.Contains("if the price comes BACK") || card.Contains("back into")) && card.Contains("BUY ZONE"), "the card: #n of today, contracts @ price, the IF / THEN", card);
+            var hy = new List<KeystoneBigMark>(); KeystoneBigPrints.Merge(hy, found, now); KeystoneBigPrints.Merge(hy, new[] { new KeystoneFlowBigPrint { Time = new DateTime(2026, 3, 11, 18, 5, 0), Side = 1, Size = 50, Price = 20100 } }, new DateTime(2026, 3, 11, 18, 10, 0));
+            Check(hy.Count == 1 && hy[0].Seq == 1, "a new session starts its own history");
+            Check(KeystoneBigPrints.Role(found[1]) == "FAILED" && KeystoneBigPrints.Role(found[0]) == "BUY", "colour role: FAILED (amber ring) / BUY / SELL");
+        }
+        // ---- 10. the in-trade box follows ADDS (user: SHORT 2 after an add read "@ 28197.00 −$998" while the real average was 28362.38 −$302)
+        {
+            var t0 = new DateTime(2026, 11, 12, 10, 0, 0); var e1 = Tuple.Create(-1, t0, 28197.0);
+            var e2 = KeystoneAddAdvice.FollowPosition(e1, -2, 28362.38);
+            Check(e2 != e1 && e2.Item1 == -2 && Math.Abs(e2.Item3 - 28362.38) < 1e-9 && e2.Item2 == t0, "after an ADD: the current size (2) + the account's average (28362.38), the start time kept");
+            Check(ReferenceEquals(KeystoneAddAdvice.FollowPosition(e2, -2, 28362.38), e2), "nothing changed → the same trade");
+            Check(ReferenceEquals(KeystoneAddAdvice.FollowPosition(e2, 1, 28400), e2), "a flip to the other side is a NEW trade (not followed here)");
+            var e3 = KeystoneAddAdvice.FollowPosition(e2, -1, 28362.38); Check(e3.Item1 == -1, "a partial exit: the size follows (1)");
+        }
         Console.WriteLine(failures == 0 ? "LEVEL MAP TESTS: ALL PASS" : "LEVEL MAP TESTS: " + failures + " FAILED");
         return failures == 0 ? 0 : 1;
     }
