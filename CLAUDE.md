@@ -139,6 +139,15 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   path (`ACT:TICKS|GET` / `|LIB`, test hook `studioTickBanner`); one click downloads the day (ticks → else 1-second bars), saves it to the TICK LIBRARY and replays it; no history = a plain sentence (never "()").
   📥 TICK LIBRARY ⤓ DOWNLOAD EVERYTHING AVAILABLE (`KeystoneTickBackfill`): MNQ then MGC, today backwards, saved days skipped, a symbol ends after 3 empty session days, background + ■ CANCEL (tests `tests/TickLibraryTests.cs`).
   Tests: `tests/FlowCompassTests.cs` (24–26) + the 🧼 / 🎯 blocks of the 11s step of `tests/fullcompile/UiSmokeTest.cs` (the stand-in Canvas keeps Left / Top for the overlap check).
+  ⭐ 11z (display / text / journal only — NO new order path, no new `NinjaBroker`; the 3 SETUPS / REVERSAL FVG clicks still only fill the order panel): every order-flow event's LEVEL gets IF / THEN lines
+  (`KeystoneOfIfThen`: defend events — absorption, failed print, trapped, divergence, zone retest / mark, flip — "↩ back to L and holds → that side again (stop past L ± 20 ticks)" / "↘ ↗ a CLOSED candle beyond → the defenders
+  failed"; push events — stacked, big print — "↩ back into the area = a rejection supports that side" / "a close beyond = absorbed → the other way") + its status on CLOSED candles after it (held so far +x pts / back at
+  the level now / broken hh:mm / expired after 30 min) in the toast, 🧱 EVENTS, 📖 STORY and the marks' details box. ⭐ CANDLE SETUP + ORDER FLOW (`KeystoneOfConfirm`): an ACTIVE candle setup (a pending FVG 50 %,
+  a 3-SETUPS entry of the last 15 min, a REVERSAL FVG inside its 30 min) gets ONE badge on its own label on the 📈 CHART — ⭐ OF ✔ (a defend event on its side within 8 ticks of its zone, the last 30 min, only
+  what was KNOWN by then: a trapped zone counts from when it was found) / ⚠ OF ✖ (a push / big print against it, or the other side defending there) / nothing; hover / click = one sentence; chip ⭐ OF CONFIRM
+  (`OF.CONFIRM`, default ON); the order-flow engine runs for the CHART only while that chip is on AND a setup is active (`OfConfNeed`, else the 11y rule). Journal (`KeystoneOfConfJournal`,
+  Studio\OrderFlow\candle-of-<SYM>.csv): each triggered setup with the verdict at its entry (frozen) + its outcome by the setup's own rules (`KeystoneTriSetup.Resolve` / the REVERSAL FVG 1R) → 📊 ANALYZE +
+  the 3 SETUPS ▾ menu: "FVG alone vs FVG + OF ✔ / — / ✖" win % / $ with n (n < 20 = "not enough yet"); 🎓 GUIDE "⭐ Candle setup + order flow". Tests: `tests/FlowCompassTests.cs` (27–28) + the ⭐ 11z step of `tests/fullcompile/UiSmokeTest.cs`.
   📥 11s: the TICK LIBRARY (`OpenTickLibrary`, the pure `KeystoneTickLib` / `KeystoneTickDownload` / `KeystoneZip`, Studio\TickCache\<SYM>\ v2 gz files + seconds\ + live\, tests
   `tests/TickLibraryTests.cs`) only READS NinjaTrader's history (tick / 1-second BarsRequests) and WRITES files; ● LIVE TRADING's "save today's live ticks" (☰ TOOLS, on by default) only
   appends files from its own MarketData tap. Order flow exists only from real trades (`KeystoneOfSource` badge: green bid / ask, amber tick rule, grey = nothing shown — never from

@@ -499,6 +499,68 @@ public static class FlowCompassTests
             string d1 = KeystoneOfTradeEvents.Distances(1, 28200, 28190, 28230, 2, 2), d2 = KeystoneOfTradeEvents.Distances(1, 28200, 0, 0, 2, 2);
             Check(d1 == "STOP 28190.00 • −10.00 pts • −$40\nTARGET 28230.00 • +30.00 pts • +$120" && d2 == KeystoneOfSimple.NoStop + "\nno target set" && !d2.Contains("0.00"), "the in-trade box: stop / target with pts and $ — or NO STOP SET", d1 + " | " + d2);
         }
+        // ---- 27. ⭐ 11z: IF / THEN for every event level (text per type × side) + the level status (held / back / broken / expired)
+        {
+            var T = new DateTime(2026, 11, 12, 10, 0, 0);
+            var fail = new KeystoneOfEvent { Time = T, Symbol = "MNQ", Type = "FAILED PRINT", Side = 1, Price = 28165, Text = "🪤 seller failed → BUY pressure" };
+            var it = KeystoneOfIfThen.For(fail, 0.25);
+            Check(it.Length == 2 && it[0] == "↩ if the price comes BACK to 28165 and holds → buyers defending again → supports a BUY (stop under 28160)" && it[1] == "↘ if it BREAKS below 28160 on a closed candle → the defenders failed → expect lower (a SELL idea)", "a failed sell print (buy side) at 28165: back + holds → BUY, a close below 28160 → SELL", string.Join(" | ", it));
+            var absS = KeystoneOfIfThen.For(new KeystoneOfEvent { Time = T, Type = "ABSORPTION", Side = -1, Price = 28250 }, 0.25);
+            Check(absS[0].Contains("BACK to 28250 and is rejected → sellers defending again → supports a SELL (stop above 28255)") && absS[1].StartsWith("↗ if it BREAKS above 28255") && absS[1].Contains("expect higher (a BUY idea)"), "sell-side absorption: rejected → SELL, a break above → BUY", string.Join(" | ", absS));
+            var push = KeystoneOfIfThen.For(new KeystoneOfEvent { Time = T, Type = "STACKED", Side = -1, Price = 28185 }, 0.25);
+            Check(push.Length == 2 && push[0] == "↩ back into 28184–28186 = sellers' area: a rejection there supports a SELL" && push[1] == "↗ a close above 28186.5 = sellers absorbed → BUY", "▤ sellers pushing at 28185: back into the area = a SELL, a close above = BUY", string.Join(" | ", push));
+            var bigB = KeystoneOfIfThen.For(new KeystoneOfEvent { Time = T, Type = "BIG PRINT", Side = 1, Price = 28100 }, 0.25);
+            Check(bigB[0].Contains("buyers' area: a hold there supports a BUY") && bigB[1].StartsWith("↘ a close below 28098.5 = buyers absorbed → SELL"), "a big buy: the buyers' area, a close below = SELL", string.Join(" | ", bigB));
+            Check(KeystoneOfIfThen.For(new KeystoneOfEvent { Time = T, Type = "COMPASS", Side = 1, Price = 28100 }, 0.25).Length == 0 && KeystoneOfIfThen.For(new KeystoneOfEvent { Time = T, Type = "ABSORPTION", Side = 0, Price = 28100 }, 0.25).Length == 0, "no level for the compass / a neutral event");
+            // the status: candles that end after the event only, the forming one never used
+            var lv = KeystoneOfIfThen.LevelOf(fail, 0.25); Func<int, double, KeystoneFootprint> fp = (m, c) => new KeystoneFootprint { Start = T.AddMinutes(m - 1), End = T.AddMinutes(m), Open = c, High = c + 1, Low = c - 1, Close = c, Trades = 10 };
+            var fps = new List<KeystoneFootprint> { fp(0, 28150), fp(1, 28170), fp(2, 28178), fp(3, 28150) };   // the 10:00 candle (before / at the event) is ignored; 10:03 = forming
+            KeystoneOfIfThen.Update(lv, fps, T.AddMinutes(3));
+            string s1 = KeystoneOfIfThen.Status(lv, 28177.25, 0.25);
+            Check(lv.State == "LIVE" && s1 == "✔ price left the level +11.25 pts — the level held so far", "price up 12 pts from 28165: left the level, held so far (the candle before it and the forming one ignored)", lv.State + " " + s1);
+            Check(KeystoneOfIfThen.Status(lv, 28165.5, 0.25) == "↩ price is back at the level now — watch the next close", "back at the level → watch the next close");
+            Check(KeystoneOfIfThen.Status(lv, 28161, 0.25).StartsWith("⚠ price is through the level (−3.00 pts)"), "through it without a close → the next closed candle decides");
+            fps.Add(fp(4, 28158)); KeystoneOfIfThen.Update(lv, fps, T.AddMinutes(4));
+            Check(lv.State == "BROKEN" && lv.BrokenAt == T.AddMinutes(3) && KeystoneOfIfThen.Status(lv, 28158, 0.25) == "✖ level broken 10:03 — the defenders failed", "a CLOSED candle below 28160 → broken 10:03", lv.State + " " + KeystoneOfIfThen.Status(lv, 28158, 0.25));
+            var lv2 = KeystoneOfIfThen.LevelOf(fail, 0.25); KeystoneOfIfThen.Update(lv2, new List<KeystoneFootprint> { fp(10, 28170), fp(31, 28100), fp(32, 28100) }, T.AddMinutes(32));
+            Check(lv2.State == "EXPIRED" && KeystoneOfIfThen.Status(lv2, 28100, 0.25).StartsWith("⌛ expired (30 min)"), "after 30 min the level expires (a later break no longer counts)", lv2.State);
+            var lvP = KeystoneOfIfThen.LevelOf(new KeystoneOfEvent { Time = T, Type = "STACKED", Side = -1, Price = 28185 }, 0.25); KeystoneOfIfThen.Update(lvP, new List<KeystoneFootprint> { fp(1, 28187), fp(2, 28190) }, T.AddMinutes(2));
+            Check(lvP.State == "BROKEN" && KeystoneOfIfThen.Status(lvP, 28190, 0.25).Contains("sellers absorbed"), "a sellers' push area closed above → broken: sellers absorbed");
+        }
+        // ---- 28. ⭐ 11z: the CANDLE SETUP + ORDER FLOW classifier (✔ / ✖ / —, at the zone only, closed / known data only) + the journal split
+        {
+            var T = new DateTime(2026, 11, 12, 10, 30, 0); double lo = 28160, hi = 28170;   // a BUY FVG 28160–28170
+            Func<string, int, double, int, KeystoneOfEvent> ev = (type, side, px, min) => new KeystoneOfEvent { Time = T.AddMinutes(min), Symbol = "MNQ", Type = type, Side = side, Price = px };
+            var c1 = KeystoneOfConfirm.Check("FVG", 1, lo, hi, T, new[] { ev("ABSORPTION", 1, 28165, -4) }, 0.25);
+            Check(c1.Verdict == 1 && c1.Badge == "⭐ OF ✔ absorbed at the FVG" && c1.Tip.Contains("supports your BUY"), "buyers' absorption inside the BUY FVG → ⭐ OF ✔ absorbed at the FVG", c1.Badge + " | " + c1.Tip);
+            var c2 = KeystoneOfConfirm.Check("FVG", 1, lo, hi, T, new[] { ev("STACKED", -1, 28172, -3) }, 0.25);
+            Check(c2.Verdict == -1 && c2.Badge == "⚠ OF ✖ sellers pushing into it" && c2.Tip.Contains("against your BUY"), "sellers stacked at the BUY FVG → ⚠ OF ✖ sellers pushing into it", c2.Badge);
+            var c3 = KeystoneOfConfirm.Check("FVG", 1, lo, hi, T, new[] { ev("ABSORPTION", 1, 28200, -4), ev("STACKED", -1, 28120, -2) }, 0.25);
+            Check(c3.Verdict == 0 && c3.Badge == "", "events away from the zone (> 8 ticks) → — (no badge)");
+            var c4 = KeystoneOfConfirm.Check("FVG", 1, lo, hi, T, new[] { ev("ABSORPTION", 1, 28165, 2), ev("ABSORPTION", 1, 28165, -40) }, 0.25);
+            Check(c4.Verdict == 0, "no lookahead: an event after the moment is ignored; one older than 30 min too");
+            var trap = ev("TRAPPED", 1, 28166, -2); trap.Seen = T.AddMinutes(1);
+            Check(KeystoneOfConfirm.Check("FVG", 1, lo, hi, T, new[] { trap }, 0.25).Verdict == 0, "a trapped zone found AFTER the moment (it needs the move after it) is not used");
+            trap.Seen = T.AddMinutes(-1); Check(KeystoneOfConfirm.Check("FVG", 1, lo, hi, T, new[] { trap }, 0.25).Badge == "⭐ OF ✔ trapped sellers at the FVG", "… found before it: ✔ trapped sellers at the FVG");
+            var fp0 = ev("FAILED PRINT", 1, 28161, -1); Check(KeystoneOfConfirm.Check("FVG", 1, lo, hi, T, new[] { fp0 }, 0.25).Badge == "⭐ OF ✔ a big sell failed at the FVG", "a failed sell print at the zone → ✔");
+            var c5 = KeystoneOfConfirm.Check("ENG", -1, 28300, 28300, T, new[] { ev("BIG PRINT", 1, 28301, -2) }, 0.25);
+            Check(c5.Verdict == -1 && c5.Badge == "⚠ OF ✖ big buying into it", "a SELL engulfing with a big buy at its entry → ✖", c5.Badge);
+            Check(KeystoneOfConfirm.Check("FVG", 1, lo, hi, T, new[] { ev("STACKED", 1, 28165, -2) }, 0.25).Verdict == 0, "a push on the setup's own side = neutral");
+            var c6 = KeystoneOfConfirm.Check("FVG", 1, lo, hi, T, new[] { ev("ABSORPTION", 1, 28165, -10), ev("STACKED", -1, 28166, -2) }, 0.25);
+            Check(c6.Verdict == -1 && c6.Tip.Contains("Mixed (1 for / 1 against)"), "both → the newest decides (said in the hover)", c6.Tip);
+            // the journal split: FVG alone vs + OF ✔ / — / ✖, n < 20 = not enough yet; the CSV round trip
+            var rows = new List<KeystoneOfConfRow>();
+            for (int i = 0; i < 24; i++) rows.Add(new KeystoneOfConfRow { Time = T.AddDays(-i), Symbol = "MNQ", Setup = "FVG", Dir = 1, Of = 1, Result = i % 4 == 0 ? -1 : 1, Usd = i % 4 == 0 ? -500 : 1000, Done = true, Key = "k" + i, Qty = 5 });
+            for (int i = 0; i < 6; i++) rows.Add(new KeystoneOfConfRow { Time = T.AddDays(-i).AddHours(1), Symbol = "MNQ", Setup = "FVG", Dir = 1, Of = -1, Result = -1, Usd = -500, Done = true, Key = "x" + i });
+            rows.Add(new KeystoneOfConfRow { Time = T, Symbol = "MNQ", Setup = "FVG", Dir = 1, Of = 0, Result = 0, Done = false, Key = "open" });
+            var sp = KeystoneOfConfJournal.Split(rows, "FVG");
+            Check(sp.Count == 4 && sp[0][1] == "30" && sp[1][1] == "24" && sp[1][2] == "18" && sp[1][3] == "75 %" && sp[1][4] == "+$15,000" && sp[3][1] == "6" && sp[3][3].StartsWith("not enough yet (n 6") && sp[2][3] == "none yet", "FVG alone 30 / + OF ✔ 24 (75 %, +$15,000) / + OF — none / + OF ✖ 6 → not enough yet", string.Join(" ; ", sp.Select(a => string.Join("|", a))));
+            Check(sp[0][3] == "60 %", "FVG alone = every decided one (18 of 30)", sp[0][3]);
+            string dir = Path.Combine(Path.GetTempPath(), "ks11z-" + Guid.NewGuid().ToString("N")); KeystoneOfConfJournal.Save(dir, "MNQ", rows); var back = KeystoneOfConfJournal.Load(dir, "MNQ");
+            Check(back.Count == rows.Count && back.Count(r => r.Of > 0) == 24 && back.Any(r => r.Key == "open" && !r.Done) && KeystoneOfConfJournal.Text(back).Contains("FVG + OF ✖") && KeystoneOfConfJournal.Text(back).Contains("not enough yet"), "the journal CSV round trip + the ANALYZE text");
+            try { Directory.Delete(dir, true); } catch { }
+            Check(KeystoneOfConfirm.Guide.Contains("FVG") && KeystoneOfConfirm.Guide.Contains("⭐ OF ✔") && KeystoneOfConfirm.Guide.Contains("never sends"), "the GUIDE section in plain words with the FVG example");
+        }
         Console.WriteLine(failures == 0 ? "ALL FLOW COMPASS TESTS PASSED" : failures + " FLOW COMPASS TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

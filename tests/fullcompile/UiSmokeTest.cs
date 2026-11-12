@@ -906,6 +906,37 @@ public static class UiSmokeTest
                     Console.WriteLine("      🎯 " + run.Substring(0, Math.Min(150, run.Length)) + " · " + rd.Substring(0, Math.Min(120, rd.Length)) + " · runs " + (System.IO.File.ReadAllLines(runs).Length - 1) + " · NinjaBroker built 0 · nothing sent: OK");
                 });
             if (strategy == "MAD")
+                Step("⭐ BUILD 11z: your candle setups + order flow — the ⭐ OF ✔ / ✖ badge on an ACTIVE 3-SETUPS label (the only order flow on the 📈 CHART), the ⭐ OF CONFIRM chip hides it and stops the engine, NOTHING sent", () =>
+                {
+                    var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
+                    var nbMade = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public); int made0 = (int)nbMade.GetValue(null);
+                    Call(lab2, "OpenReplayTrader"); var bt = (System.Windows.Window)F("backtestStudioWindow"); if (bt == null) throw new Exception("no BACKTEST STUDIO");
+                    var lay = (Action<string, int>)F("studioLayer"); lay("IND.TRI", KeystoneLiveTools.Always); lay("IND.TRI.TICKET", 0);
+                    foreach (var k0 in new[] { "OF.BADGE", "OF.ON", "OF.BATTLE", "OF.CHARTSIG", "OF.CNUM", "OF.CONF", "OF.V.CH.SIGLINES", "OF.V.CH.PROF", "OF.V.CH.DROW", "OF.V.CH.BIG", "OF.V.CH.TRAP", "OF.V.CH.MARKS", "OF.V.CH.ZONES", "OF.V.CH.CVDL", "OF.V.CH.DECISION", "OF.V.CH.TOAST" }) lay(k0, 0);   /* the 📈 CHART's own defaults (a saved workspace may hold an earlier run's chips) */
+                    lay("OF.CONFIRM", 1);
+                    { var tbar = FindAll<System.Windows.FrameworkElement>(bt.Content).First(x => Convert.ToString(x.Tag) == "studio.toolbar"); var dbx = FindAll<System.Windows.Controls.TextBox>(tbar).First(); dbx.Text = "2019-03-06"; }
+                    ((Action)F("replayTraderLoad"))(); var rt = (KeystoneReplayTrader)F("replayTrader"); if (rt == null || rt.Bars.Count == 0) throw new Exception("no day loaded");
+                    var oc = (Func<string, string>)F("studioOfConfirm"); if (oc == null) throw new Exception("⭐ no studioOfConfirm hook");
+                    string st0 = oc("STATE"); for (int k = 0; k < 420 && st0.StartsWith("active=0"); k++) { ((Action<int>)F("replayTraderStep"))(1); var e0 = (string)F("studioTriErr"); if (!string.IsNullOrEmpty(e0)) throw new Exception("🎯 3 SETUPS drawing error: " + e0); st0 = oc("STATE"); }
+                    if (st0.StartsWith("active=0")) throw new Exception("⭐ no active candle setup in 7 hours of the synthetic day: " + st0);
+                    if (!st0.Contains("need=True") || !st0.Contains("chartNeeds=True") || st0.Contains("badges=⭐") || st0.Contains("badges=⚠")) throw new Exception("⭐ an active setup with the chip ON = the engine may run, and no badge without order flow: " + st0);
+                    string inj = oc("INJECT ✔"); if (!inj.Contains("⭐ OF ✔ absorbed at the") || !inj.Contains("supports your")) throw new Exception("⭐ an absorption at the zone must put ⭐ OF ✔ on the setup's label: " + inj);
+                    Func<List<string>> tags = () => FindAll<System.Windows.Controls.Canvas>(bt.Content).Where(c0 => c0.Children.OfType<System.Windows.FrameworkElement>().Any(x => Convert.ToString(x.Tag).StartsWith("layerbar."))).SelectMany(c0 => c0.Children.OfType<System.Windows.FrameworkElement>()).Select(x => Convert.ToString(x.Tag)).ToList();   /* the chart's plot canvas(es) */
+                    var forb = tags().Where(t0 => t0 == "of.decision" || t0 == "of.toast" || t0.StartsWith("of.setup") || t0.StartsWith("of.zone") || t0.StartsWith("of.mark") || t0.StartsWith("of.big") || t0.StartsWith("of.trademap") || t0 == "of.event.pill" || t0 == "of.vp" || t0 == "of.drow" || t0 == "of.dprof" || t0 == "of.trap").Distinct().ToList();
+                    if (forb.Count > 0) throw new Exception("⭐ the 📈 CHART must show nothing else from order flow: " + string.Join(",", forb));
+                    if (tags().Count(t0 => t0 == "of.confirm") < 1) throw new Exception("⭐ no of.confirm badge on the canvas");
+                    oc("CLEAR"); string bad = oc("INJECT ✖"); if (!bad.Contains("⚠ OF ✖") || !bad.Contains("pushing into it")) throw new Exception("⚠ a push against it must read ⚠ OF ✖ … pushing into it: " + bad);
+                    var lb = (Func<string, string>)F("studioLayerBar"); string l1 = lb("LIST"); if (!l1.Contains("OFCONF=on")) throw new Exception("⭐ the ⭐ OF CONFIRM chip must be ON by default: " + l1);
+                    lb("OFCONF"); string offS = oc("APPLY"); if (offS.Contains("badges=⭐") || offS.Contains("badges=⚠") || tags().Contains("of.confirm")) throw new Exception("⭐ the chip did not hide the badge: " + offS);
+                    if (!offS.Contains("need=False") || !offS.Contains("chartNeeds=False") || !offS.Contains("engine=False")) throw new Exception("⭐ chip OFF = the 11y CPU rule (the engine stops on the CHART): " + offS);
+                    lb("OFCONF"); string onS = oc("STATE"); if (!onS.Contains("need=True")) throw new Exception("⭐ the chip back ON: " + onS);
+                    oc("CLEAR"); lay("IND.TRI", KeystoneLiveTools.Off); string endS = oc("APPLY"); if (!endS.Contains("need=False") || !endS.Contains("engine=False")) throw new Exception("⭐ no candle setup layer = no need, the engine off: " + endS);
+                    if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 11z built a NinjaBroker");
+                    if (rt.Position != 0 || rt.Orders.Count != 0) throw new Exception("⭐ the badge changed the practice position / orders");
+                    bt.Close();
+                    Console.WriteLine("      ⭐ " + inj.Substring(0, Math.Min(150, inj.Length)) + " • ✖ → " + bad.Substring(bad.IndexOf("→") + 1, Math.Min(60, bad.Length - bad.IndexOf("→") - 1)).Trim() + " • chip OFF → hidden, engine off • nothing else drawn • NinjaBroker built 0: OK");
+                });
+            if (strategy == "MAD")
             {
                 Step("📥 BUILD 11s: TICK LIBRARY window — ⬇ DOWNLOAD day by day (stand-in NinjaTrader: a failed day retried, a 1-second day, a no-session day, the weekend never asked), the calendar, ✔ CHECK, ↻ REPAIR, 📦 EXPORT, NOTHING sent", () =>
                 {
