@@ -57,8 +57,65 @@ Outcomes of the 6 deep ones: 1 green, 3 breakeven, 2 losses (one of them the sav
 
 ## 4. Backtest (the bench: scratchpad `stepbench/`, `stepbench3/`)
 
-BACKTEST_RESULTS
+Engine = the app's own `HedgeAuto` + `StepIn.cs` on the 🧪 BACKTEST's `SimBroker` (never MT5): his DEFENDER settings of the
+12 Nov export, $8,000, leverage 1:500, stop-out 50 %, spread 35 points, $7 a lot, the broker's swap; 💥 AUTO RESTART as the DEMO does
+it (a blown account is reset to $8,000 and counted). Data: the repo's 1-minute gold (data/MGC, Jun 2020 – Oct 2026, futures as a
+stand-in for XAUUSD, ticks synthesised inside each candle) + the exports' own XAUUSD M1 candles of 4 – 12 Nov 2026. The 🎯 EXIT GUARD
+(a tab feature) is not in the bench. "The automation alone" = `WhatIf.Replay` of the basket at the trigger, the same settings without
+STEP IN, up to 10 days (3 days for the November week). STEP IN defaults as shipped (trigger 8× / 120 min at 3×, MAX RISK 100 %,
+floor $0, M1 breaks, ≤ 20 % of the equity per stack).
+
+### 4a. The six years, per year (net = Σ iteration results; blow-ups = resets)
+
+| year | DEFENDER alone: net / blow-ups / hard stops | DEFENDER + 🚑 STEP IN: net / blow-ups / step-ins |
+|---|---|---|
+| 2020 (Jun–Dec) | +$2,584 / 0 / 0 | −$53,104 / 7 / 20 |
+| 2021 | −$4,231 / 1 / 2 | −$59,143 / 8 / 41 |
+| 2022 | −$7,119 / 0 / 3 | −$64,442 / 9 / 52 |
+| 2023 | −$7,232 / 1 / 3 | −$69,976 / 10 / 50 |
+| 2024 | −$6,200 / 1 / 2 | −$99,332 / 12 / 75 |
+| 2025 | −$13,278 / 1 / 5 | −$131,548 / 18 / 189 |
+| 2026 (Jan–Oct) | −$48,467 / 6 / 23 | −$106,906 / 13 / 232 |
+| **all** | **−$83,943 / 10 blow-ups / 38 hard stops** | **−$584,451 / 77 blow-ups / 659 step-ins** |
+
+(DEFENDER itself loses in this bench — without 🧹 COMPRESS its swap and long baskets cost it, as the 09h replays already showed.)
+
+### 4b. The 659 step-ins
+
+* recovered GREEN (closed at breakeven + the target): **581 = 88.2 %**, average **+$97.90**
+* 💥 BLOWN (a stop-out → the account reset): **77 = 11.7 %**, average **−$9,525**; 1 other loss
+* back to breakeven only: 0 (the goal is breakeven + the target; nothing else ends an episode)
+* depth at the trigger: average −5.9× the target (most fired on the 120-minute rule at ≥ 3×); the worst depth AFTER the step-in:
+  average −46×, the worst −447×; median time to recover 141 min
+* $ net of all step-ins **−$679,101** vs CLOSE AT THE TRIGGER **−$195,852** vs THE AUTOMATION ALONE (10-day replays) **−$262,416**
+  (566 of 659 would have closed green alone, 38 at the hard stop)
+* per trigger depth: < 5× 290 step-ins, 41 blown, −$329,182 • 5–10× 367, 36 blown, −$350,115 • 10–20× 2, 0 blown, +$196
+* per year the blow-up rate fell from 35 % (2020) to 6 % (2026): wider ATR in later years puts the stops further from the spread
+
+### 4c. Variants (the same six years)
+
+| variant | step-ins | green | blown | net of all iterations |
+|---|---|---|---|---|
+| default (MAX RISK 100 %, ≤ 20 % a stack) | 659 | 88.2 % | 11.7 % (77) | −$584,451 |
+| ≤ 5 % a stack (smaller stacks) | 354 | 77.1 % | 21.8 % (77) | −$618,476 — WORSE: small stacks rarely reach the goal, the episode drags on |
+| MAX RISK 50 % (neutralise at the floor, the live default) | 22 | 86.4 % | 13.6 % (3) | −$20,783 — the account is parked at the floor for months (2024: 2 iterations, 2026: 1) |
+| an earlier draft without the per-stack cap / spread floor / no stacks against an open stack | 246 (2020–24) | 69.1 % | 30.9 % (76) | −$604,185 (2020–24 only) |
+
+### 4d. His own week, 4 – 12 Nov 2026 (the exports' XAUUSD candles — 8 days, small)
+
+DEFENDER alone **−$6,667** (1 blow-up, 4 hard stops) • DEFENDER + STEP IN **+$3,120**: 16 step-ins, **16 green, 0 blown**, the
+episodes +$1,197 vs the automation alone on the same 16 baskets +$441 (3-day replays) vs closing at the trigger −$4,921.
 
 ## 5. Honest summary
 
-HONEST_SUMMARY
+* STEP IN does what it was asked: it recovers most deep baskets (88 % green over six years, 16 / 16 in his own week) — and it blows
+  the account in about 1 step-in of 8 (77 blow-ups in 659 over six years). One blow-up (−$9,525 on average) wipes out ~97 recoveries
+  (+$98 each), so over six years it lost far more than closing at the trigger, and more than the automation alone.
+* The losses come from what makes it "on steroids": stacks sized to reach the goal in 2 × ATR, re-stacked after every failed stack,
+  until the goal or the account is gone. Smaller stacks (5 %) were worse; a 50 % floor turns blow-ups into baskets parked for months.
+* His own saves were mostly CUTS (#83, #35) and one trend add; the bench says the cut ("close at the trigger") is the cheapest
+  of the three paths over six years. The statistics panel (🛡 HEDGE ▸ ANALYSIS / LEARN, the 🏁 RACE lanes STP / DEF+STP) will now
+  count the same thing on his own DEMO.
+* The study n is tiny (10 step-ins, 6 deep); the backtest is futures 1-minute data with synthetic ticks, without the 🎯 EXIT GUARD.
+  On an MT5 account STEP IN stays an opt-in (typed STEP IN each session, MAX RISK 50 % by default) — the six-year numbers above are
+  the reason to keep it that way.

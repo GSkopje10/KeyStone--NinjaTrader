@@ -1,0 +1,57 @@
+// 🚑 09n STEP IN bench (the numbers of mt5/docs/step-in-study.md): a console project that compiles mt5/app/{Bridge,Bars,Sim,SimAccount,PoolStore,HedgeLab,HedgeAuto,TradeWatch,DayLab,SetupScan,Race,ManualTrack,TrendStack,StepIn,AddProtect,TickRecorder,Radar,WhatIf,Continuity,HedgeDecode,PostMortem,DataDir}.cs + study/Gold.cs + this file;
+// usage: dotnet stepbench.dll <DEF|DEF+STP[+SR5|+R50|+M5|+X12|+BE]> <from yyyy-MM-dd> <to> <balance> [candles.csv]  (his.txt = an export's 01-settings.txt; NOALONE=1 skips the "automation alone" replays)
+// 🚑 STEP IN bench: the user's DEFENDER settings (his 12 Nov export) with and without STEP IN on 1-minute gold (data/MGC as XAUUSD, server time),
+// one run per period, $8,000, 💥 AUTO RESTART like the DEMO (a blown account is reset to the start), every step-in episode + its "automation alone"
+// replay (WhatIf.Replay from the trigger snapshot, the same settings without STEP IN) printed as EP lines.
+using System; using System.Collections.Generic; using System.Globalization; using System.IO; using System.Linq; using KeystoneMT5;
+public static class P {
+  static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+  public static int Main(string[] a) {
+    string v = a[0]; var from = DateTime.ParseExact(a[1], "yyyy-MM-dd", IC); var to = DateTime.ParseExact(a[2], "yyyy-MM-dd", IC); double bal = double.Parse(a[3], IC);
+    List<Mt5Bar> bars; if (a.Length > 4) bars = File.ReadAllLines(a[4]).Select(l => l.Split(',')).Where(x => x.Length >= 5 && x[0].Length >= 19).Select(x => new Mt5Bar { Time = DateTime.ParseExact(x[0], "yyyy-MM-dd HH:mm:ss", IC), O = double.Parse(x[1], IC), H = double.Parse(x[2], IC), L = double.Parse(x[3], IC), C = double.Parse(x[4], IC), V = x.Length > 5 ? (long)double.Parse(x[5], IC) : 0, Spread = 25 }).OrderBy(b => b.Time).ToList(); else { bars = Gold.Load("/home/user/keystone--ninjatrader/data/MGC", from, to); foreach (var b in bars) b.Spread = 35; }
+    var spec = new SimSpec { Name = "XAUUSD", Digits = 2, Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7, SwapLong = -62.4, SwapShort = 28.1, SwapMode = 1, Swap3Day = DayOfWeek.Wednesday };
+    var s = AutoSettings.Load(string.Join(";", File.ReadAllLines("his.txt").Where(l => l.Contains("=")).Select(l => l.Trim())));
+    s.TrackManual = false; s.Windows = ""; s.OnManual = "ADOPT";
+    if (v.Contains("STP")) { s.StepIn = true; s.StepInRisk = 100; s.StepInFloor = 0; }
+    if (v.Contains("X12")) s.StepInX = 12; if (v.Contains("X5")) s.StepInX = 5; if (v.Contains("BE")) s.StepInGoal = "BE"; if (v.Contains("M5")) s.StepInTf = 5; if (v.Contains("R50")) s.StepInRisk = 50; if (v.Contains("SR5")) s.StepInStackRisk = 5;
+    RadarModel.Default = RadarModel.Parse(File.ReadAllText("/home/user/keystone--ninjatrader/mt5/app/danger-model.txt"));
+    var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = from, To = to, Balance = bal, CommissionPerLot = 7, Leverage = 500, Kind = "STANDARD", FixedSpread = 35, StopOutPct = 50 }, spec, bars);
+    if (err != "") { Console.WriteLine("ERR " + err); return 1; }
+    var au = new HedgeAuto(); au.RadarWfYear = 1; au.Send = (c, x, l) => sb.Command(c, x); sb.OnTickHook = () => au.Step(sb); au.StopOutPct = 50;
+    var snaps = new List<WhatIfCase>();
+    au.OnStepInSnap += (it, legs, banked, at) => { double b0; lock (sb.State.Gate) b0 = sb.State.Account.Balance; var s0 = au.Set.Copy(); s0.StepIn = false;
+      snaps.Add(new WhatIfCase { N = it.N, Symbol = "XAUUSD", Start = it.Start, SnapAt = at, Banked = banked, MaxDd = it.MaxDd, Balance = Math.Max(100, b0), Target = s0.Target, Settings = s0.Save(), Legs = legs, Commission = 7, Kind = "STANDARD", Leverage = 500, Spread = 35 }); };
+    var chk = au.Check(sb, s); if (chk != "") { Console.WriteLine(chk); return 1; }
+    au.Start(sb, s, false); sb.Playing = true; sb.Speed = 60;
+    int blowups = 0, siBlowSeen = 0; double minEq = 1e9; var t0 = DateTime.Now;
+    for (long k = 0; k < 80000000 && !sb.Ended; k++)
+    {
+      sb.Advance(0.5); double eq, b1; int open; lock (sb.State.Gate) { eq = sb.State.Account.Equity; b1 = sb.State.Account.Balance; open = sb.State.Positions.Count; } minEq = Math.Min(minEq, eq); if (Environment.GetEnvironmentVariable("DBG") == "1" && k % 20000 == 0) Console.WriteLine("D " + sb.State.ServerNow.ToString("MM-dd HH:mm") + " step " + au.Set.StepIn + " tot " + au.BasketTotal.ToString("0") + " tgt " + au.Set.Target + " phase " + au.Phase + " locked " + au.Locked + " si " + au.SI.Active + " " + au.StepInText);
+      bool siBlown = open == 0 && b1 < 0.9 * bal && au.StepIns.Count(x => x.Blown) > siBlowSeen; bool broke = !au.Running && HedgeAuto.IsBlowReason(au.StopReason), low = open == 0 && b1 < 0.1 * bal;
+      if (broke || low || siBlown)
+      {   // 💥 AUTO RESTART as the DEMO does it
+        siBlowSeen = au.StepIns.Count(x => x.Blown); if (open > 0) { sb.Command("CLOSEALL", "XAUUSD", "ALL"); continue; }
+        blowups++; lock (sb.State.Gate) sb.Account.SetBalance(bal, sb.State.ServerNow); if (au.Running) au.Stop("💥 restart"); if (au.Check(sb, s) == "") au.Start(sb, s, false);
+        Console.WriteLine("BLOW " + sb.State.ServerNow.ToString("yyyy-MM-dd HH:mm", IC) + " " + b1.ToString("0", IC));
+      }
+      if (!au.Running && !broke) { if (au.Check(sb, s) == "") au.Start(sb, s, true); }
+    }
+    if (Environment.GetEnvironmentVariable("DBG") == "1") foreach (var st in au.Story.Where(x => x.Item2.Contains("🚑") || x.Item2.Contains("MARGIN")).Take(int.Parse(Environment.GetEnvironmentVariable("DBGN") ?? "40"))) Console.WriteLine("S " + st.Item2.Substring(0, Math.Min(300, st.Item2.Length)));
+    var its = au.Iterations.Where(x => x.Done).ToList(); double net = its.Sum(x => x.Result);
+    Console.WriteLine(string.Join("\t", new object[] { "RES", v, a[1].Substring(0, 7), its.Count, its.Count(x => x.Result >= 0), net.ToString("0", IC), (minEq - bal).ToString("0", IC), blowups, its.Count(x => x.Reason == "HARD STOP"), au.StepIns.Count, au.Iterations.Count > 0 ? au.Iterations.Min(x => x.MaxDd).ToString("0", IC) : "0", (DateTime.Now - t0).TotalSeconds.ToString("0", IC) + "s" }));
+    // each episode + the automation alone from its trigger (bars up to 45 days after)
+    int AD = int.Parse(Environment.GetEnvironmentVariable("ALONEDAYS") ?? "10");
+    foreach (var e in au.StepIns)
+    {
+      var c = snaps.FirstOrDefault(x => x.N == e.Iter && Math.Abs((x.SnapAt - e.At).TotalSeconds) < 2);
+      if (c != null && Environment.GetEnvironmentVariable("NOALONE") != "1")
+      {
+        var win = bars.Where(b => b.Time >= c.SnapAt.AddDays(-2) && b.Time <= c.SnapAt.AddDays(AD)).ToList();
+        try { WhatIf.Replay(c, win, spec); } catch (Exception ex) { c.Reason = "ERR " + ex.Message; }
+        e.Alone = c.Done ? c.Result : c.NowTotal; e.AloneReason = c.Done ? c.Reason : "still open after " + AD + " days";
+      }
+      Console.WriteLine("EP\t" + v + "\t" + e.Csv());
+    }
+    return 0;
+  }
+}
