@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KeyStone Order Flow Field Guide</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a trading-desk manual — one column of "chart panels" on the navy desk; each term is a card with the exact mark you see on the chart, a BUY / SELL / CONTEXT verdict chip, and plain words. */
+:root{
+  --bg:#F3F5FA; --panel:#FFFFFF; --panel2:#E9EDF5; --line:#D3DAE7; --fg:#18202F; --muted:#5B6578;
+  --buy:#0E9DAF; --sell:#D9466F; --poc:#B98300; --trap:#C77700; --vio:#7B5CD6; --mine-g:#15924A; --mine-r:#D23B3B;
+  --buy-soft:rgba(14,157,175,.12); --sell-soft:rgba(217,70,111,.12); --vio-soft:rgba(123,92,214,.12); --trap-soft:rgba(199,119,0,.13); --poc-soft:rgba(185,131,0,.12);
+  --display:"Chakra Petch","Segoe UI",system-ui,sans-serif; --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",Consolas,ui-monospace,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E1422; --panel:#151D2E; --panel2:#1B2538; --line:#2A3650; --fg:#E6ECF7; --muted:#93A0B8;
+  --buy:#26C6DA; --sell:#FF5C8A; --poc:#F2C14E; --trap:#FFAB40; --vio:#B388FF; --mine-g:#2ECC71; --mine-r:#FF4D4D;
+  --buy-soft:rgba(38,198,218,.13); --sell-soft:rgba(255,92,138,.13); --vio-soft:rgba(179,136,255,.14); --trap-soft:rgba(255,171,64,.14); --poc-soft:rgba(242,193,78,.13);
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1422; --panel:#151D2E; --panel2:#1B2538; --line:#2A3650; --fg:#E6ECF7; --muted:#93A0B8;
+  --buy:#26C6DA; --sell:#FF5C8A; --poc:#F2C14E; --trap:#FFAB40; --vio:#B388FF; --mine-g:#2ECC71; --mine-r:#FF4D4D;
+  --buy-soft:rgba(38,198,218,.13); --sell-soft:rgba(255,92,138,.13); --vio-soft:rgba(179,136,255,.14); --trap-soft:rgba(255,171,64,.14); --poc-soft:rgba(242,193,78,.13);
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.6;margin:0}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(2rem,5vw,3.1rem);letter-spacing:.01em}
+h2{font-size:1.7rem;margin-bottom:6px}
+h3{font-size:1.15rem}
+p{margin:0}
+.lede{color:var(--muted);max-width:62ch;font-size:1.05rem}
+.eyebrow{font-family:var(--mono);font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+a{color:var(--buy)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--vio);outline-offset:2px}
+/* hero */
+.hero{display:grid;grid-template-columns:1.1fr 1fr;gap:28px;align-items:center;margin-bottom:22px}
+.hero>*{min-width:0}
+.hero .copy{display:flex;flex-direction:column;gap:14px}
+.chartbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;overflow-x:auto}
+.chartbox svg{display:block;width:100%;height:auto;min-width:420px}
+.nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:6px;flex-wrap:wrap;padding-block:10px;margin-bottom:26px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.nav a{font-family:var(--mono);font-size:.8rem;text-decoration:none;color:var(--fg);padding:5px 11px;border:1px solid var(--line);border-radius:999px;background:var(--panel)}
+.nav a:hover{border-color:var(--vio)}
+section{margin-top:42px;scroll-margin-top:70px;display:flex;flex-direction:column;gap:16px}
+.idea{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.idea>div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.idea .k{font-family:var(--display);font-weight:700;font-size:1.05rem}
+/* legend */
+.legend{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.sw{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.dot{width:14px;height:14px;border-radius:4px;flex:none}
+.sw b{font-family:var(--display);font-weight:600}
+.sw small{display:block;color:var(--muted);font-size:.82rem;line-height:1.35}
+/* term cards */
+.terms{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.term{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:9px;min-width:0}
+.term header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mark{font-family:var(--mono);font-weight:600;font-size:.85rem;padding:2px 9px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.m-buy{color:var(--buy);background:var(--buy-soft)} .m-sell{color:var(--sell);background:var(--sell-soft)} .m-vio{color:var(--vio);background:var(--vio-soft)}
+.m-trap{color:var(--trap);background:var(--trap-soft)} .m-poc{color:var(--poc);background:var(--poc-soft)} .m-neu{color:var(--muted);background:var(--panel2)}
+.verdict{margin-left:auto;font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:var(--panel2);color:var(--muted)}
+.term dl{margin:0;display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;font-size:.93rem}
+.term dt{color:var(--muted);font-family:var(--mono);font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;padding-top:3px}
+.term dd{margin:0}
+/* callout */
+.callout{background:var(--vio-soft);border:1px solid var(--vio);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.callout h3{color:var(--vio)}
+/* setups */
+.setups{display:flex;flex-direction:column;gap:12px}
+.setup{background:var(--panel);border:1px solid var(--line);border-radius:12px;display:grid;grid-template-columns:220px 1fr;overflow:hidden}
+.setup .side{padding:16px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.setup .side.buy{background:var(--buy-soft)} .setup .side.sell{background:var(--sell-soft)} .setup .side.both{background:var(--vio-soft)}
+.setup .body{padding:16px;display:grid;grid-template-columns:repeat(2,1fr);gap:10px 18px;min-width:0}
+.setup .body div{min-width:0}
+.setup .body b{display:block;font-family:var(--mono);font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+/* interface */
+.ui{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.ui .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.ui ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px}
+.chip{display:inline-block;font-family:var(--mono);font-size:.8rem;padding:1px 8px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);white-space:nowrap}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.tile{border-radius:10px;padding:10px;border:1px solid var(--line);display:flex;flex-direction:column;gap:3px;min-width:0}
+.tile b{font-family:var(--display);font-size:1.05rem}
+.tile small{color:var(--muted);font-size:.82rem;line-height:1.35}
+.t-ok{background:var(--buy-soft);border-color:var(--buy)} .t-learn{background:var(--vio-soft);border-color:var(--vio)} .t-wait{background:var(--poc-soft);border-color:var(--poc)} .t-avoid{background:var(--sell-soft);border-color:var(--sell)}
+.steps{counter-reset:s;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;list-style:none;margin:0;padding:0}
+.steps li{counter-increment:s;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.steps li::before{content:counter(s);font-family:var(--display);font-weight:700;font-size:1.6rem;color:var(--vio);line-height:1}
+.example{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:10px}
+.example ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.foot{margin-top:46px;color:var(--muted);font-size:.85rem}
+@media (max-width:860px){.hero,.terms,.ui,.idea{grid-template-columns:1fr}.setup{grid-template-columns:1fr}.setup .side{border-right:0;border-bottom:1px solid var(--line)}.tiles,.steps{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:480px){.setup .body,.tiles,.steps{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:no-preference){.pulse{animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.35}}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="copy">
+      <span class="eyebrow">KeyStone • 📊 ORDERFLOW • field guide</span>
+      <h1>Every mark on your chart, decoded</h1>
+      <p class="lede">What each label means, whether it points to a buy or a sell, and how KeyStone turns it into one simple decision: BUY, SELL, or WAIT.</p>
+      <p class="lede"><b style="color:var(--fg)">The short answer to "what does STACKED mean for us":</b> it is <i>information</i>, not an order. A coral ▤ = sellers pushed hard there → bearish pressure and a future SELL ZONE. A teal ▤ = buyers pushed → bullish pressure and a future BUY ZONE. You trade it when the price comes back to it and that side defends it again.</p>
+    </div>
+    <div class="chartbox" aria-label="Example chart: a buy zone, a retest, the entry, stop loss and take profit">
+      <svg viewBox="0 0 460 300" role="img">
+        <title>A buy zone retest</title>
+        <rect x="0" y="0" width="460" height="300" fill="var(--panel)"/>
+        <line x1="20" y1="70" x2="350" y2="70" stroke="var(--poc)" stroke-width="2"/>
+        <text x="24" y="63" fill="var(--poc)" font-family="JetBrains Mono,monospace" font-size="11">POC — the magnet</text>
+        <rect x="70" y="190" width="300" height="20" fill="var(--buy-soft)" stroke="var(--buy)" stroke-width="1"/>
+        <text x="270" y="204" fill="var(--buy)" font-family="JetBrains Mono,monospace" font-size="11" font-weight="600">▲ BUY ZONE ✔</text>
+        <g stroke-width="1.5">
+          <line x1="80" y1="215" x2="80" y2="160" stroke="var(--buy)"/><rect x="74" y="168" width="12" height="40" fill="var(--buy)"/>
+          <line x1="102" y1="180" x2="102" y2="120" stroke="var(--buy)"/><rect x="96" y="128" width="12" height="44" fill="var(--buy)"/>
+          <line x1="124" y1="140" x2="124" y2="100" stroke="var(--buy)"/><rect x="118" y="106" width="12" height="26" fill="var(--buy)"/>
+          <line x1="146" y1="150" x2="146" y2="108" stroke="var(--sell)"/><rect x="140" y="112" width="12" height="30" fill="var(--sell)"/>
+          <line x1="168" y1="182" x2="168" y2="136" stroke="var(--sell)"/><rect x="162" y="140" width="12" height="36" fill="var(--sell)"/>
+          <line x1="190" y1="212" x2="190" y2="170" stroke="var(--sell)"/><rect x="184" y="174" width="12" height="28" fill="var(--sell)"/>
+          <line x1="212" y1="214" x2="212" y2="176" stroke="var(--buy)"/><rect x="206" y="182" width="12" height="22" fill="var(--buy)"/>
+          <line x1="234" y1="196" x2="234" y2="150" stroke="var(--buy)"/><rect x="228" y="156" width="12" height="34" fill="var(--buy)"/>
+        </g>
+        <text x="66" y="236" fill="var(--buy)" font-family="JetBrains Mono,monospace" font-size="12">▤ stacked buyers</text>
+        <text x="176" y="232" fill="var(--buy)" font-family="JetBrains Mono,monospace" font-size="12">🧱 sellers absorbed</text>
+        <line x1="240" y1="186" x2="440" y2="186" stroke="var(--vio)" stroke-dasharray="3 4" stroke-width="1.6"/>
+        <line x1="240" y1="222" x2="440" y2="222" stroke="var(--vio)" stroke-dasharray="3 4" stroke-width="1.6"/>
+        <line x1="240" y1="74" x2="440" y2="74" stroke="var(--vio)" stroke-dasharray="3 4" stroke-width="1.6"/>
+        <text x="352" y="182" fill="var(--vio)" font-family="JetBrains Mono,monospace" font-size="11">💡 ENTRY</text>
+        <text x="330" y="238" fill="var(--vio)" font-family="JetBrains Mono,monospace" font-size="11">💡 STOP LOSS</text>
+        <text x="320" y="90" fill="var(--vio)" font-family="JetBrains Mono,monospace" font-size="11">💡 TAKE PROFIT</text>
+        <text class="pulse" x="248" y="170" fill="var(--buy)" font-size="18">▲</text>
+        <text x="20" y="284" fill="var(--muted)" font-family="IBM Plex Sans,sans-serif" font-size="12">mark → wait for the price to come back → it holds → enter</text>
+      </svg>
+    </div>
+  </header>
+
+  <nav class="nav" aria-label="Sections">
+    <a href="#idea">The one idea</a><a href="#colors">Colours</a><a href="#marks">Chart marks</a><a href="#numbers">Header numbers</a><a href="#setups">When to buy / sell</a><a href="#interface">The interface</a><a href="#routine">Your routine</a><a href="#example">Worked example</a>
+  </nav>
+
+  <section id="idea">
+    <span class="eyebrow">Start here</span>
+    <h2>The one idea behind all of it</h2>
+    <p class="lede">Every trade has a buyer and a seller. Order flow asks one question: who was in a hurry, and did their hurry move the price?</p>
+    <div class="idea">
+      <div><span class="k" style="color:var(--buy)">Aggressive buyer</span><p>Buys right now at the higher price (the ask). Pushes the price up. Counted as <span class="mono">+</span> in the delta.</p></div>
+      <div><span class="k" style="color:var(--sell)">Aggressive seller</span><p>Sells right now at the lower price (the bid). Pushes the price down. Counted as <span class="mono">−</span> in the delta.</p></div>
+      <div><span class="k">Patient traders</span><p>Wait with limit orders. They don't push; they absorb the push. When a big push fails to move the price, a patient wall is there.</p></div>
+    </div>
+    <p>All KeyStone order flow comes from real NinjaTrader trades (the green <span class="chip">REAL TICKS • bid/ask</span> badge), never from candles.</p>
+  </section>
+
+  <section id="colors">
+    <span class="eyebrow">Read the colours first</span>
+    <h2>Each colour has one job</h2>
+    <div class="legend">
+      <div class="sw"><span class="dot" style="background:var(--buy)"></span><div><b>Teal = buyers</b><small>buy zones, stacked buyers, buying in the profile and delta row</small></div></div>
+      <div class="sw"><span class="dot" style="background:var(--sell)"></span><div><b>Coral = sellers</b><small>sell zones, stacked sellers, selling in the profile and delta row</small></div></div>
+      <div class="sw"><span class="dot" style="background:var(--poc)"></span><div><b>Gold = POC</b><small>the busiest price of the day, the fair price</small></div></div>
+      <div class="sw"><span class="dot" style="background:var(--trap)"></span><div><b>Amber = trapped</b><small>traders stuck on the wrong side</small></div></div>
+      <div class="sw"><span class="dot" style="background:var(--vio)"></span><div><b>Violet 💡 = suggestion</b><small>a setup's ENTRY / TAKE PROFIT / STOP LOSS — not an order</small></div></div>
+      <div class="sw"><span class="dot" style="background:linear-gradient(90deg,var(--mine-g) 50%,var(--mine-r) 50%)"></span><div><b>Solid green / red = yours</b><small>MY TAKE PROFIT / MY STOP LOSS, your real orders</small></div></div>
+    </div>
+  </section>
+
+  <section id="marks">
+    <span class="eyebrow">On the chart</span>
+    <h2>The chart marks, one by one</h2>
+    <p class="lede">The chip in the corner says what each mark means for a trade: <b>bullish</b>, <b>bearish</b>, <b>by colour</b> (teal = bullish, coral = bearish), or <b>context</b> (a level, not a direction). Click any mark on the chart for its numbers.</p>
+    <div class="terms">
+      <article class="term"><header><span class="mark m-sell">▤ STACKED</span><span class="mark m-buy">▤ STACKED</span><span class="verdict">by colour</span></header>
+        <h3>Stacked imbalance</h3>
+        <dl><dt>What</dt><dd>3 or more prices in a row where one side traded about 3× more than the other. A real push, not noise. "▤×3" means it happened 3 times close together.</dd>
+        <dt>Means</dt><dd>Coral = sellers are strong there (bearish). Teal = buyers are strong there (bullish). It often becomes a zone that side defends later.</dd>
+        <dt>Trade?</dt><dd>Not on its own. Wait for the price to come back to it (the watch zone) and for that side to defend it again.</dd></dl></article>
+      <article class="term"><header><span class="mark m-buy">🧱</span><span class="mark m-sell">🧱</span><span class="verdict">reversal hint</span></header>
+        <h3>Absorption (the wall)</h3>
+        <dl><dt>What</dt><dd>One side pushes hard, lots of volume, but the price barely moves. Someone big is quietly taking the other side.</dd>
+        <dt>Means</dt><dd>Teal 🧱 = sellers got absorbed, buyers defending → bullish. Coral 🧱 = buyers got absorbed, sellers defending → bearish.</dd>
+        <dt>Trade?</dt><dd>Strongest at a zone, VAL / VAH or the day's high / low. Enter after a candle closes holding the wall.</dd></dl></article>
+      <article class="term"><header><span class="mark m-trap">🪤 trapped buyers</span><span class="verdict">bearish</span></header>
+        <h3>Trapped buyers / trapped sellers</h3>
+        <dl><dt>What</dt><dd>A crowd bought (or sold) aggressively at a price, then the price went against them. They are now losing.</dd>
+        <dt>Means</dt><dd>Trapped buyers will sell to get out → fuel for a move down (bearish). Trapped sellers will buy to get out → fuel up (bullish).</dd>
+        <dt>Trade?</dt><dd>Trade against the trapped side while the price stays beyond their zone. Stop on the other side of the trap.</dd></dl></article>
+      <article class="term"><header><span class="mark m-buy">⇅</span><span class="mark m-sell">⇅</span><span class="verdict">warning</span></header>
+        <h3>Delta divergence</h3>
+        <dl><dt>What</dt><dd>The price makes a new high but the buying behind it is weaker (or a new low with weaker selling).</dd>
+        <dt>Means</dt><dd>The move is running out of fuel. Coral ⇅ at a high = bearish warning; teal ⇅ at a low = bullish warning.</dd>
+        <dt>Trade?</dt><dd>A warning, not an entry. Combine it with absorption or a zone.</dd></dl></article>
+      <article class="term"><header><span class="mark m-buy">⚡ ●</span><span class="mark m-sell">⚡ ●</span><span class="verdict">by colour</span></header>
+        <h3>Big print (bubble)</h3>
+        <dl><dt>What</dt><dd>One very large trade. Bigger bubble = bigger trade. Only the 8 biggest of the last 15 minutes are shown.</dd>
+        <dt>Means</dt><dd>A big player acted there. Teal = a big buyer, coral = a big seller.</dd>
+        <dt>Trade?</dt><dd>If the price holds above a big buy (or below a big sell), that price becomes support (or resistance).</dd></dl></article>
+      <article class="term"><header><span class="mark m-buy">▲ BUY ZONE ✔</span><span class="mark m-sell">▼ SELL ZONE</span><span class="verdict">by colour</span></header>
+        <h3>Watch zone</h3>
+        <dl><dt>What</dt><dd>A box KeyStone draws where one side showed strength (stacked, absorption, trapped traders). Only the 2 nearest per side are shown. ✔ = a retest was already confirmed there.</dd>
+        <dt>Means</dt><dd>BUY ZONE = buyers' ground (support). SELL ZONE = sellers' ground (resistance).</dd>
+        <dt>Trade?</dt><dd>BUY when the price comes back DOWN into a buy zone and a candle closes holding it. SELL when it comes back UP into a sell zone and gets rejected.</dd></dl></article>
+      <article class="term"><header><span class="mark m-poc">POC</span><span class="verdict">context</span></header>
+        <h3>POC (point of control)</h3>
+        <dl><dt>What</dt><dd>The single price where the most contracts traded today. The gold line.</dd>
+        <dt>Means</dt><dd>The day's "fair price". The price is often pulled back to it like a magnet.</dd>
+        <dt>Trade?</dt><dd>A natural take profit for trades from the edges. Price far from the POC with weak flow often drifts back.</dd></dl></article>
+      <article class="term"><header><span class="mark m-neu">VAH</span><span class="mark m-neu">VAL</span><span class="verdict">context</span></header>
+        <h3>Value area (VAH / VAL)</h3>
+        <dl><dt>What</dt><dd>The band where about 70 % of today's volume traded. VAH = its top, VAL = its bottom.</dd>
+        <dt>Means</dt><dd>VAL acts like support, VAH like resistance. Breaking out with strong flow = a new move; failing outside and coming back = a move back to the POC.</dd>
+        <dt>Trade?</dt><dd>Best places to look for buys (at VAL) and sells (at VAH) when the flow agrees.</dd></dl></article>
+      <article class="term"><header><span class="mark m-neu">PROFILE</span><span class="verdict">context</span></header>
+        <h3>Volume profile (the bars on the right)</h3>
+        <dl><dt>What</dt><dd>How much traded at each price today. Each row is split: teal = bought, coral = sold.</dd>
+        <dt>Means</dt><dd>Long rows (HVN) = prices people accepted; the price slows down there. Short rows (LVN) = prices the market rushed through; the price moves fast across them.</dd>
+        <dt>Trade?</dt><dd>Targets go at the next long row; stops go past a short row.</dd></dl></article>
+      <article class="term"><header><span class="mark m-buy">▮</span><span class="mark m-sell">▮</span><span class="verdict">by colour</span></header>
+        <h3>Δ / CONTRACTS row (under the candles)</h3>
+        <dl><dt>What</dt><dd>One small bar per candle: teal if more was bought aggressively, coral if more was sold. The number is the delta; grey is the total contracts.</dd>
+        <dt>Means</dt><dd>A rising candle with a coral bar = buyers are not really behind it (weak). A falling candle with a teal bar = sellers are being absorbed.</dd>
+        <dt>Trade?</dt><dd>Use it to confirm: you want the bar's colour to match your direction on the confirming candle.</dd></dl></article>
+    </div>
+  </section>
+
+  <section id="numbers">
+    <span class="eyebrow">Top of the screen</span>
+    <h2>The header numbers</h2>
+    <div class="terms">
+      <article class="term"><header><span class="mark m-sell">CANDLE Δ −403</span><span class="verdict">by sign</span></header>
+        <dl><dt>Means</dt><dd>In the current candle, 403 more contracts were sold aggressively than bought. Negative = sellers pushing, positive = buyers pushing.</dd></dl></article>
+      <article class="term"><header><span class="mark m-buy">CUM Δ +17.9k</span><span class="verdict">by sign</span></header>
+        <dl><dt>Means</dt><dd>The delta added up over the whole session. The day's overall winner. The candle delta can disagree with it for a while.</dd></dl></article>
+      <article class="term"><header><span class="mark m-neu">BUYERS 49 %</span><span class="verdict">context</span></header>
+        <dl><dt>Means</dt><dd>The share of volume that was aggressive buying. Near 50 % = even. Above 60 % or below 40 % = one side clearly pushing.</dd></dl></article>
+      <article class="term"><header><span class="mark m-sell">IN CONTROL SELLERS −64 • 57 s</span><span class="verdict">the main read</span></header>
+        <dl><dt>Means</dt><dd>KeyStone's one steady answer to who is winning: BUYERS, SELLERS or BALANCED, a score from −100 to +100, and how long it has held. It changes only after a clear 20-second push and holds at least a minute. "SELLERS fading → BUYERS +48" means it is about to change.</dd></dl></article>
+    </div>
+  </section>
+
+  <section id="setups">
+    <span class="eyebrow">Putting it together</span>
+    <h2>When to buy, when to sell</h2>
+    <p class="lede">A mark alone is never the trade. A setup needs three things: a good location, one side clearly winning there, and a closed candle that confirms it.</p>
+    <div class="setups">
+      <article class="setup"><div class="side buy"><span class="mark m-buy">▲ BUY</span><h3>Buy zone retest</h3><p>The main setup.</p></div>
+        <div class="body"><div><b>You see</b>A ▲ BUY ZONE below the price (from stacked buyers or absorption).</div><div><b>You wait for</b>The price to come back down into it.</div><div><b>Confirmation</b>Selling into the zone gets absorbed 🧱, a candle closes holding the zone, the Δ bar turns teal.</div><div><b>Plan</b>Entry at the zone. Stop loss just below it. Take profit at the POC or the next long profile row.</div></div></article>
+      <article class="setup"><div class="side sell"><span class="mark m-sell">▼ SELL</span><h3>Sell zone retest</h3><p>The mirror.</p></div>
+        <div class="body"><div><b>You see</b>A ▼ SELL ZONE above the price.</div><div><b>You wait for</b>The price to come back up into it.</div><div><b>Confirmation</b>Buying into it gets absorbed, a candle closes rejecting it, the Δ bar turns coral.</div><div><b>Plan</b>Entry at the zone. Stop loss just above it. Take profit at the POC or the next long row below.</div></div></article>
+      <article class="setup"><div class="side both"><span class="mark m-vio">▲ / ▼</span><h3>Absorption at the edge</h3><p>VAL / VAH, the day's high or low.</p></div>
+        <div class="body"><div><b>You see</b>A big push into VAL (or VAH) with heavy volume, but the price stops.</div><div><b>You wait for</b>🧱 absorption and the push to fade (often ⇅ divergence too).</div><div><b>Confirmation</b>A closed candle back inside, IN CONTROL turning to the defending side.</div><div><b>Plan</b>Stop loss past the extreme. Take profit at the POC.</div></div></article>
+      <article class="setup"><div class="side both"><span class="mark m-trap">🪤</span><h3>Trapped traders</h3><p>Trade against the stuck crowd.</p></div>
+        <div class="body"><div><b>You see</b>🪤 trapped buyers above (or trapped sellers below) the price.</div><div><b>You wait for</b>The price to stay beyond their zone.</div><div><b>Confirmation</b>The flow turns against them (IN CONTROL, Δ row).</div><div><b>Plan</b>SELL below trapped buyers / BUY above trapped sellers. Stop loss on the other side of the trap.</div></div></article>
+      <article class="setup"><div class="side both"><span class="mark m-neu">⏳</span><h3>When to WAIT</h3><p>Most of the time.</p></div>
+        <div class="body"><div><b>Middle of nowhere</b>The price is between levels, far from any zone.</div><div><b>Balanced</b>IN CONTROL says BALANCED or is fading.</div><div><b>Not confirmed</b>The candle hasn't closed yet ("raw").</div><div><b>News</b>Around high-impact news (the NEWS lock).</div></div></article>
+    </div>
+    <div class="callout"><h3>The point for us: patience + proof</h3><p>With 🧘 PATIENT on (the default), KeyStone only shows ✅ for a setup type that has proven itself: at least 30 past cases that made money after commissions. Until then it says 🧪 learning. Fewer signals, better ones.</p></div>
+  </section>
+
+  <section id="interface">
+    <span class="eyebrow">KeyStone screen tour</span>
+    <h2>Everything in the ORDERFLOW interface</h2>
+    <h3>The 🧭 NOW tile: one verdict at a time</h3>
+    <div class="tiles">
+      <div class="tile t-ok"><b>✅ BUY / SELL</b><small>A proven setup is on: entry, take profit, stop loss, contracts, best account.</small></div>
+      <div class="tile t-learn"><b>🧪 LEARNING</b><small>A setup is there but not proven yet (fewer than 30 cases).</small></div>
+      <div class="tile t-wait"><b>⏳ WAIT</b><small>Says exactly what it waits for, e.g. "a 5-min close below 28212.50".</small></div>
+      <div class="tile t-avoid"><b>⛔ AVOID</b><small>Says why: chop, against the flow, reward below risk, news.</small></div>
+    </div>
+    <div class="ui">
+      <div class="card"><h3>The setup card</h3><ul>
+        <li><span class="chip">#14 ▲ BUY 4 MNQ • 20:39</span> one setup at a time, numbered; its prices never move.</li>
+        <li><span class="chip">💡 ENTRY</span> <span class="chip">💡 TAKE PROFIT</span> <span class="chip">💡 STOP LOSS</span> with fixed "planned" dollars from the entry.</li>
+        <li>Contracts are fixed when the card appears and written on the TAKE button.</li>
+        <li>🏦 account fit and the best of your accounts for this setup.</li>
+        <li><span class="chip">FILL ORDER</span> fills the order panel only. <span class="chip">TAKE</span> asks first, then uses the chart's own BUY / SELL. <span class="chip">SKIP</span> dismisses it.</li>
+        <li>It ends at its first touch: <span class="chip">✔ TAKE PROFIT HIT</span> or <span class="chip">✖ STOP LOSS HIT</span>.</li></ul></div>
+      <div class="card"><h3>TRADE FROM HERE + in-trade view</h3><ul>
+        <li>Your contracts, BUY / SELL, and <span class="chip">ADD</span> <span class="chip">REDUCE</span> <span class="chip">CLOSE</span> (they press the chart's own buttons and ask first).</li>
+        <li>In a trade: position, $, time, and a CONFIDENCE meter from +++ to −−−.</li>
+        <li>Suggestions in words only: HOLD, ⚠ TIGHTEN, ⚠ PROTECT THE PROFIT, ⛔ GET OUT. They never act by themselves.</li>
+        <li>The battle map on the chart: bought vs sold at each price since your entry.</li></ul></div>
+      <div class="card"><h3>The layer bar (top-left of the chart)</h3><ul>
+        <li>One click shows or hides each group: <span class="chip">SETUP</span> <span class="chip">PAST SIGNALS</span> <span class="chip">PROFILE</span> <span class="chip">DELTA ROW</span> <span class="chip">EVENTS</span> <span class="chip">ZONES</span> <span class="chip">LEVELS</span>.</li>
+        <li><span class="chip">👁 CLEAN</span> or the <span class="chip">H</span> key hides everything; press again to bring it back.</li>
+        <li>Price axis looks squashed? "PRICE SCALE: MANUAL" → double-click the price axis for auto.</li></ul></div>
+      <div class="card"><h3>The tabs on the right</h3><ul>
+        <li><b>🧭 NOW</b> the verdict, the card, your trade.</li>
+        <li><b>🔍 WHY</b> every check of the setup with ✔ / ✖ and its own hit rate, who's buying / selling, key levels, account fit.</li>
+        <li><b>📖 STORY</b> what happened in the last hour, and why each setup ended.</li>
+        <li><b>📒 SETUPS</b> every setup saved with its result. <b>📊 ANALYZE</b> win rates by type, side, location, time. <b>🧠 LEARN</b> similar past setups and the "no edge yet" check.</li>
+        <li><b>⚡ FLOW</b> live buying / selling and the tape. <b>📚 BOOK</b> the order book. <b>📈 STATS</b> details. <b>🎓 GUIDE</b> this, inside KeyStone.</li></ul></div>
+      <div class="card"><h3>Proving setups</h3><ul>
+        <li>📥 TICK LIBRARY downloads NinjaTrader's real tick history.</li>
+        <li>🧠 LEARN ▸ 📜 PROVE FROM HISTORY replays every setup on those days, using only past data at each moment.</li>
+        <li>Live and history results are kept separate.</li></ul></div>
+      <div class="card"><h3>Sharing with Claude</h3><ul>
+        <li>📦 EXPORT FOR CLAUDE (☰ TOOLS, SETUPS, LEARN) writes one zip: ticks, candles, setups, STORY, your executions, the drawdown tracking.</li>
+        <li>Upload it in the chat to get the setups analysed on your real data.</li></ul></div>
+    </div>
+  </section>
+
+  <section id="routine">
+    <span class="eyebrow">Every trade</span>
+    <h2>Your 4-step routine</h2>
+    <ol class="steps">
+      <li><h3>Where are we?</h3><p>At a zone, VAL / VAH, the POC or the day's high / low? In the middle → don't trade.</p></li>
+      <li><h3>Who is winning?</h3><p>IN CONTROL and the candle's Δ bar. Is someone defending the level?</p></li>
+      <li><h3>Wait for the close</h3><p>No setup counts until its candle has closed.</p></li>
+      <li><h3>Let NOW decide</h3><p>Only ✅ is a trade. Check 🔍 WHY if unsure. Size from the card, never bigger.</p></li>
+    </ol>
+  </section>
+
+  <section id="example">
+    <span class="eyebrow">From your screen</span>
+    <h2>Worked example: "▤ STACKED • for sellers @ 28222.00"</h2>
+    <div class="example">
+      <p><span class="mark m-sell">▤ STACKED for sellers</span> <span class="mono">3 selling imbalances 28212.75–28213.50 • delta −401</span></p>
+      <ol>
+        <li><b>What happened:</b> sellers hit 3 prices in a row hard, 401 more contracts sold than bought. Bearish pressure right there.</li>
+        <li><b>Where:</b> right on top of a ▲ BUY ZONE and the VAL, the bottom of today's value area. Buyers' ground.</li>
+        <li><b>So it's a battle:</b> sellers attacking the buyers' zone. It is not a sell signal by itself.</li>
+        <li><b>If buyers win:</b> the selling gets absorbed 🧱, a candle closes holding the zone, IN CONTROL turns to BUYERS → ✅ BUY toward the POC 28240.</li>
+        <li><b>If sellers win:</b> a candle closes below the zone, the buy zone breaks, and KeyStone marks a new ▼ SELL ZONE there. You then SELL when the price comes back up into it and gets rejected.</li>
+        <li><b>Until one side wins:</b> ⏳ WAIT. That is exactly what the NOW tile said.</li>
+      </ol>
+    </div>
+  </section>
+
+  <p class="foot">KeyStone order flow is analysis only: nothing on this page places an order. Every trade goes through your chart's own BUY / SELL, asks first, and uses your armed account's limits.</p>
+</div>
+
+</body>
+</html>

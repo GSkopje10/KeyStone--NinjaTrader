@@ -991,7 +991,7 @@ public static class UiSmokeTest
                     rt = (KeystoneReplayTrader)F("replayTrader"); int pos0 = rt.Position; string fill = desk("FILL"); var fp = fill.Split('|'); double v1, v2, v3;
                     if (fp.Length != 3 || !double.TryParse(fp[0], out v1) || !double.TryParse(fp[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v2) || !double.TryParse(fp[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v3) || v1 < 1 || v2 <= 0 || v3 <= 0 || rt.Position != pos0) throw new Exception("FILL ORDER: " + fill + " position " + rt.Position);
                     foreach (var tb in new[] { Tuple.Create("FLOW", "FUEL vs ENGINE"), Tuple.Create("BOOK", "only LIVE"), Tuple.Create("STATS", "HOW OFTEN EACH SIGNAL WORKED"), Tuple.Create("GUIDE", "ABSORPTION"), Tuple.Create("NOW", "TRADE FROM HERE"),
-                        Tuple.Create("WHY", "THE CONFIRMATIONS OF THIS SETUP"), Tuple.Create("STORY", "THE LAST HOUR"), Tuple.Create("SETUPS", "every one shown or not offered"), Tuple.Create("ANALYZE", "scalp first"), Tuple.Create("LEARN", "LEARN") })
+                        Tuple.Create("WHY", "THE CONFIRMATIONS OF THIS SETUP"), Tuple.Create("STORY", "THE LAST HOUR"), Tuple.Create("SETUPS", "every one shown or not offered"), Tuple.Create("ANALYZE", "⚡ SCALP and 🏃 SWING"), Tuple.Create("LEARN", "LEARN") })
                     { string tx = desk("TAB " + tb.Item1); if (!tx.Contains(tb.Item2)) throw new Exception("tab " + tb.Item1 + ": " + tx.Substring(0, Math.Min(300, tx.Length))); }
                     string guide = desk("TAB GUIDE"); foreach (var g in new[] { "DELTA", "POC", "HVN / LVN", "DIVERGENCE", "STACKED IMBALANCES", "FUEL vs ENGINE", "THE FLOW COMPASS", "TRAPPED TRADERS", "ZONE RETEST", "TEAL" }) if (!guide.Contains(g)) throw new Exception("ⓘ GUIDE misses " + g);
                     { string why9 = desk("TAB WHY"); if (!why9.Contains("1. Signal") || !why9.Contains("3. Flow") || !why9.Contains("WHO'S DOING WHAT")) throw new Exception("🔍 WHY: " + why9.Substring(0, Math.Min(400, why9.Length))); }
@@ -1004,6 +1004,28 @@ public static class UiSmokeTest
                     if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the ORDERFLOW desk built a NinjaBroker");
                     desk("OPEN"); desk("SIGNAL"); if (desk("SKIP") != "HIDDEN") throw new Exception("SKIP did not hide the card");
                     { string st9 = desk("TAB STORY"); if (!st9.Contains("you pressed SKIP")) throw new Exception("📖 SKIP must say why the setup went: " + st9.Substring(0, Math.Min(400, st9.Length))); desk("TAB NOW"); }
+                    {   /* 🏃 11x: the STYLE selector, a SWING card with its named take profit, both rows under ⚖ BOTH, TAKE = the chart's own BUY / SELL, no NinjaBroker */
+                        string sty = desk("STYLE BOTH"); if (!sty.Contains("⚡ SCALP") || !sty.Contains("🏃 SWING") || !sty.Contains("⚖ BOTH")) throw new Exception("🏃 the STYLE selector: " + sty);
+                        string sw9 = desk("SWING"); if (!sw9.Contains("shown")) throw new Exception("🏃 the swing setup was not shown: " + sw9);
+                        string c2 = desk("CARD2"), c1 = desk("CARD");
+                        if (!c2.StartsWith("VISIBLE") || !c2.Contains("🏃 SWING") || !(c2.Contains("(PRIOR HIGH)") || c2.Contains("(PRIOR LOW)")) || !c2.Contains("from the wider stop") || !c2.Contains("⚖ idea") || !c2.Contains("text only")) throw new Exception("🏃 the swing card: " + c2);
+                        if (!c1.StartsWith("VISIBLE") || !c1.Contains("⚡ SCALP")) throw new Exception("⚖ BOTH must show the scalp row too: " + c1);
+                        ((Action<int>)F("replayTraderStep"))(0);
+                        var tags = FindAll<System.Windows.FrameworkElement>(bt.Content).Select(x => Convert.ToString(x.Tag)).ToList(); if (!tags.Contains("of.swing.chip") || !tags.Contains("of.swing.label")) throw new Exception("🏃 the swing's lines / chip are not on the chart");
+                        if (!FindAll<System.Windows.Controls.TextBlock>(bt.Content).Any(t0 => (t0.Text ?? "").StartsWith("🏃 💡 TAKE PROFIT") && ((t0.Text ?? "").Contains("(PRIOR HIGH)") || (t0.Text ?? "").Contains("(PRIOR LOW)")))) throw new Exception("🏃 the swing's TAKE PROFIT label does not name its level");
+                        { string v9 = desk("VERDICT"); if (!v9.Contains("SCALP") && !v9.Contains("SWING")) throw new Exception("🚦 the verdict must name the style: " + v9); }
+                        desk("STYLE SWING"); desk("SWING"); if (!desk("CARD").StartsWith("HIDDEN") || !desk("CARD2").StartsWith("VISIBLE")) throw new Exception("🏃 STYLE SWING must show only the swing card");
+                        rt = (KeystoneReplayTrader)F("replayTrader"); int p9 = rt.Position;
+                        System.Windows.MessageBox.Answer = (t, b) => System.Windows.MessageBoxResult.Yes; string tk2; try { tk2 = desk("TAKE2"); } finally { System.Windows.MessageBox.Answer = null; }
+                        rt = (KeystoneReplayTrader)F("replayTrader"); if (rt.Position == p9 || !tk2.Contains("style SWING")) throw new Exception("🏃 TAKE (swing) = the chart's own BUY / SELL: " + tk2);
+                        ((Action)F("replayTraderFlat"))(); desk("OPEN");
+                        desk("SWING"); if (desk("SKIP2") != "HIDDEN") throw new Exception("🏃 SKIP did not hide the swing card");
+                        { string st9 = desk("TAB STORY"); if (!st9.Contains("🏃")) throw new Exception("📖 the swing is not in the STORY: " + st9.Substring(0, Math.Min(300, st9.Length))); }
+                        { string an9 = desk("TAB ANALYZE"); if (!an9.Contains("🏃 SWING")) throw new Exception("📊 ANALYZE has no SWING section"); }
+                        { string g9 = desk("TAB GUIDE"); if (!g9.Contains("⚡ SCALP vs 🏃 SWING")) throw new Exception("🎓 GUIDE misses ⚡ SCALP vs 🏃 SWING"); }
+                        desk("STYLE BOTH"); desk("TAB NOW");
+                        if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the swing card built a NinjaBroker");
+                    }
                     { string ex9 = desk("EXPORT"); if (!ex9.Contains("README.txt") || !ex9.Contains("keystone-export-")) throw new Exception("📦 EXPORT: " + ex9); }
                     desk("CLOSE");
                     {   /* ▦ 11s: the grid lines on / off (the axis labels stay) */
