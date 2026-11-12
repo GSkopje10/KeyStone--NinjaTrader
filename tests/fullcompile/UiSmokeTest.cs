@@ -939,6 +939,21 @@ public static class UiSmokeTest
                     string sr; var rt = KeystoneTickCache.Load(sf, "MES", new DateTime(2019, 3, 4), out sr); if (rt == null || rt.Count != 3000 || sr != "TICKS") throw new Exception("📥 the replay does not load the library day");
                     KeystoneTickDay mt; if (KeystoneTickLib.OrderFlowTicks(sf, "MES", new DateTime(2019, 3, 8), out mt) != null) throw new Exception("🛡 a 1-second day became order flow");
                     if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the TICK LIBRARY built a NinjaBroker");
+                    {   /* ⤓ 11y: DOWNLOAD EVERYTHING AVAILABLE — MNQ then MGC, today backwards, stops after 3 empty session days, no weekend asked, files written, nothing sent */
+                        var askedA = new List<Tuple<string, DateTime>>(); DateTime t0 = DateTime.Today;
+                        Set(lab2, "tickLibFetchFake", (Func<string, DateTime, DateTime, Tuple<List<KeystoneOfTick>, string>>)((sym, a, z) =>
+                        {
+                            askedA.Add(Tuple.Create(sym, z.Date)); if (z.Date < t0.AddDays(-4)) return Tuple.Create(new List<KeystoneOfTick>(), "");
+                            var l = new List<KeystoneOfTick>(); for (int i = 0; i < 200; i++) l.Add(new KeystoneOfTick { Time = a.AddSeconds(5 + i * 30), Price = 7000, Size = 1, Side = 1, Quoted = true }); return Tuple.Create(l, "");
+                        }));
+                        string ra = cmd("ALL");
+                        if (!ra.Contains("✓ done") || !askedA.Any(x => x.Item1 == "MNQ") || !askedA.Any(x => x.Item1 == "MGC") || askedA.Any(x => x.Item2.DayOfWeek == DayOfWeek.Saturday || x.Item2.DayOfWeek == DayOfWeek.Sunday)) throw new Exception("⤓ EVERYTHING: " + ra + " • asked " + string.Join(",", askedA.Select(x => x.Item1 + " " + x.Item2.ToString("MM-dd"))));
+                        foreach (var sy in new[] { "MNQ", "MGC" }) { var olds = askedA.Where(x => x.Item1 == sy && x.Item2 < t0.AddDays(-4)).Count(); if (olds != 3) throw new Exception("⤓ " + sy + " must stop after 3 empty days: " + olds); }
+                        if (!askedA.Where(x => x.Item2 >= t0.AddDays(-4)).All(x => KeystoneTickLib.Info(sf, x.Item1, x.Item2).Count > 0)) throw new Exception("⤓ the downloaded days were not saved to the library");
+                        askedA.Clear(); cmd("ALL"); if (askedA.Any(x => x.Item2 >= t0.AddDays(-4) && x.Item2 < t0.AddDays(-1))) throw new Exception("⤓ a second run asked again for days already saved");
+                        foreach (var sy in new[] { "MNQ", "MGC" }) foreach (var d in Enumerable.Range(0, 6).Select(k => t0.AddDays(-k))) try { var f9 = KeystoneTickLib.FileOf(sf, sy, d); foreach (var g in System.IO.Directory.GetFiles(System.IO.Path.GetDirectoryName(f9), d.ToString("yyyy-MM-dd") + "*")) System.IO.File.Delete(g); } catch { }
+                        Console.WriteLine("      ⤓ EVERYTHING AVAILABLE: " + ra.Split('|')[0].Trim());
+                    }
                     Set(lab2, "tickLibFetchFake", null); Set(lab2, "tickLibSecondsFake", null); tw.Close(); if (F("tickLibWindow") != null) throw new Exception("📥 the window did not close");
                     Console.WriteLine("      📥 " + rD.Split('|')[0].Trim() + " · " + st.Split(';').Length + " days on the calendar · ↻ REPAIR re-asked 03-08 only · 📦 " + System.IO.Path.GetFileName(zf) + " · NinjaBroker built 0 · nothing sent: OK");
                 });
@@ -951,6 +966,13 @@ public static class UiSmokeTest
                     ((Action)F("replayTraderLoad"))(); var rt = (KeystoneReplayTrader)F("replayTrader"); if (rt == null || rt.Bars.Count == 0) throw new Exception("no day loaded");
                     for (int k = 0; k < 150; k++) ((Action<int>)F("replayTraderStep"))(1);
                     { var na = (Action<double>)F("replayTraderNewAccount"); if (na != null) na(50000); ((Action<int>)F("replayTraderStep"))(0); }
+                    {   /* 🛠 11y: the "no tick data" banner's ⤓ GET TICKS / 📥 TICK LIBRARY are hot rects of the chart's own click path (the mouse layer no longer swallows them) */
+                        var tb = (Func<string, string>)F("studioTickBanner"); string bl = tb("LIST");
+                        if (!bl.Contains("ACT:TICKS|GET@") || !bl.Contains("ACT:TICKS|LIB@")) throw new Exception("🛠 the GET TICKS banner's buttons are not on the click path: " + bl);
+                        string gn = tb("GET"); if (gn.Contains("()") || gn.StartsWith("no button")) throw new Exception("🛠 GET TICKS: " + gn);
+                        string ln = tb("LIB"); var tlw = (System.Windows.Window)F("tickLibWindow"); if (tlw == null) throw new Exception("🛠 the banner's 📥 TICK LIBRARY did not open the library"); tlw.Close();
+                        Console.WriteLine("      🛠 GET TICKS banner: " + bl + " • GET → " + gn);
+                    }
                     var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
                     {   /* 🧼 11y (user: "I will stick to my candlestick strategies"): the 📈 CHART view shows NO order flow by default (decision, toasts, setup lines, zones, events, battle map) */
                         string chL = ((Func<string, string>)F("studioLayerBar"))("LIST"); foreach (var ck in new[] { "DECISION=off", "TOAST=off", "SETUP=off", "ZONES=off", "EVENTS=off", "PROF=off" }) if (!chL.Contains(ck)) throw new Exception("🧼 the CHART view's order flow must be OFF by default: " + chL);

@@ -189,6 +189,16 @@ public static class TickLibraryTests
             }
             else Check(false, "source file not found for the guardrail scan", srcF);
         }
+        {   // ⤓ 11y DOWNLOAD EVERYTHING AVAILABLE: today backwards, skip saved days / weekends, stop a symbol after 3 empty session days, then the next symbol
+            var today = new DateTime(2026, 11, 12); var have = new HashSet<string> { "MNQ|2026-11-10" };
+            var bf = new KeystoneTickBackfill(new[] { "MNQ", "MGC" }, today, (sy, d) => have.Contains(sy + "|" + d.ToString("yyyy-MM-dd")));
+            var asked = new List<string>(); int guard = 0;
+            for (var d = bf.Next(); d != null && guard++ < 200; d = bf.Next()) { asked.Add(bf.Symbol + " " + d.Value.ToString("MM-dd")); bf.OnResult(d.Value, d.Value >= today.AddDays(-6) ? 100 : 0); }
+            Check(bf.Done && asked.First() == "MNQ 11-12" && !asked.Contains("MNQ 11-10") && !asked.Any(x => x.EndsWith("11-08") || x.EndsWith("11-07")), "today first, a saved day and the weekend are never asked", string.Join(",", asked));
+            var mnq = asked.Where(x => x.StartsWith("MNQ")).ToList(); var mgc = asked.Where(x => x.StartsWith("MGC")).ToList();
+            Check(mnq.Last() == "MNQ 11-03" && mnq.Count(x => string.CompareOrdinal(x, "MNQ 11-06") < 0) == 3 && mgc.Count > 0 && mgc.First() == "MGC 11-12" && bf.Skipped == 1 && bf.Saved == 9, "3 empty session days in a row end a symbol, then the next one starts from today", string.Join(",", mnq) + " | saved " + bf.Saved);
+            var bc = new KeystoneTickBackfill(new[] { "MNQ" }, today, null); bc.Next(); bc.Cancelled = true; Check(bc.Next() == null && bc.Progress().StartsWith("■ cancelled"), "CANCEL stops it");
+        }
         try { Directory.Delete(root, true); } catch { }
         Console.WriteLine(failures == 0 ? "ALL TICK LIBRARY TESTS PASSED" : failures + " TICK LIBRARY TEST(S) FAILED");
         return failures == 0 ? 0 : 1;

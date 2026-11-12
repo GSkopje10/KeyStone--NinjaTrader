@@ -135,6 +135,9 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   (`KeystoneLabelStack`, `of.event.pill`, never drawn over a candle); every event while in a trade carries "for your LONG 2 @ …: supports HOLD / against you — counts toward ⚠ TIGHTEN / neutral"
   (`KeystoneOfTradeEvents.ForTrade`, in the toast, 🧱 EVENTS, 📖 STORY); opposite events of the same type within 3 candles / 8 ticks = ONE "⚖ both sides failed here → balance / chop: no new information —
   follow your plan" line / pill (`KeystoneOfTradeEvents.Merge`); the 🧭 NOW in-trade box always shows the stop (or NO STOP SET) and the target with pts and $ (`Distances`) + the last 3 events for the trade.
+  🛠 11y GET TICKS (reads NinjaTrader history / writes files only): the replay's "no tick data" banner is drawn only and its ⤓ GET TICKS / 📥 TICK LIBRARY buttons are hot rects of the chart's click
+  path (`ACT:TICKS|GET` / `|LIB`, test hook `studioTickBanner`); one click downloads the day (ticks → else 1-second bars), saves it to the TICK LIBRARY and replays it; no history = a plain sentence (never "()").
+  📥 TICK LIBRARY ⤓ DOWNLOAD EVERYTHING AVAILABLE (`KeystoneTickBackfill`): MNQ then MGC, today backwards, saved days skipped, a symbol ends after 3 empty session days, background + ■ CANCEL (tests `tests/TickLibraryTests.cs`).
   Tests: `tests/FlowCompassTests.cs` (24–26) + the 🧼 / 🎯 blocks of the 11s step of `tests/fullcompile/UiSmokeTest.cs` (the stand-in Canvas keeps Left / Top for the overlap check).
   📥 11s: the TICK LIBRARY (`OpenTickLibrary`, the pure `KeystoneTickLib` / `KeystoneTickDownload` / `KeystoneZip`, Studio\TickCache\<SYM>\ v2 gz files + seconds\ + live\, tests
   `tests/TickLibraryTests.cs`) only READS NinjaTrader's history (tick / 1-second BarsRequests) and WRITES files; ● LIVE TRADING's "save today's live ticks" (☰ TOOLS, on by default) only
