@@ -91,6 +91,10 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   today, trailing peak, BLOWS AT, buffer, to lock); day totals = Σ the iterations; NinjaTrader's realized is only a separate "NinjaTrader says" reconciliation line (never
   gross − realized as fees again; `KeystoneFundedLiq.MaxPerSide` refuses an absurd per-side rate); saved Studio\Executions\<account>\<yyyy-MM-dd>.csv (rebuilt by execution
   id, never double-counted) + 📤 EXPORT CSV; tests `tests/ExecJournalTests.cs` + the 🧾 step of `tests/fullcompile/UiSmokeTest.cs`.
+  🛡 11u (user's request after a card TAKE sent 16 micros while it said 3): the 📊 ORDERFLOW 🎯 SIGNAL card's plan is FROZEN when the card appears (`KeystoneOfCardPlan`: contracts + stop / target
+  prices never change; the card turns off at its stop / target), min stop MNQ 5 / MGC 1.5 pts (`MinStopTicks`), size cap `OF.MAXQ` (10); TAKE names "N CONTRACTS of SYM" on the button and
+  the question, refuses another instrument, and sends nothing unless the order panel holds exactly the confirmed contracts (same armed link and limits). The chart's 💡 SIGNAL stop / target
+  (violet, dashed, left labels) are display only; your own lines read MY TP / MY SL; tests: the 11u block of `tests/TickLibraryTests.cs`.
   📥 11s: the TICK LIBRARY (`OpenTickLibrary`, the pure `KeystoneTickLib` / `KeystoneTickDownload` / `KeystoneZip`, Studio\TickCache\<SYM>\ v2 gz files + seconds\ + live\, tests
   `tests/TickLibraryTests.cs`) only READS NinjaTrader's history (tick / 1-second BarsRequests) and WRITES files; ● LIVE TRADING's "save today's live ticks" (☰ TOOLS, on by default) only
   appends files from its own MarketData tap. Order flow exists only from real trades (`KeystoneOfSource` badge: green bid / ask, amber tick rule, grey = nothing shown — never from

@@ -147,6 +147,32 @@ public static class TickLibraryTests
             Check(KeystoneOfDesk.Plan(new KeystoneOfSignal { Bar = 0, Dir = 1 }, fps1, null, 99.0, 0.25, 2, 100, 40, 2) == null, "price already through the defended level → no plan (never a made-up stop)");
         }
 
+        // ---- 11u. 🛡 the card's TAKE sends EXACTLY the card's contracts (user's case: the card said 3 MGC, TAKE sent 16)
+        {
+            // the user's card: SELL MGC, stop beyond the level 5.40 pts away → 3 contracts for $200
+            var fS = new KeystoneFootprint { Open = 3991, High = 3992.1, Low = 3990, Close = 3991.6, Trades = 10 };
+            var fpsS = new List<KeystoneFootprint> { fS };
+            var card = KeystoneOfDesk.Plan(new KeystoneOfSignal { Bar = 0, Dir = 1, Kind = "TREND" }, new List<KeystoneFootprint> { new KeystoneFootprint { Open = 3990, High = 3992, Low = 3986.4, Close = 3991.5, Trades = 9 } }, null, 3991.6, 0.1, 10, 200, 40, 2, KeystoneOfCardPlan.MinStopTicks("MGC", 0), 10);
+            Check(card != null && card.Qty == 3 && Math.Abs(card.Stop - 3986.2) < 1e-9, "the user's card: BUY 3 MGC, stop 3986.20 (got " + (card == null ? "null" : card.Qty + " @ " + card.Stop) + ")");
+            card.Symbol = "MGC";
+            // the price falls to 3987.45 (1.25 pts above the stop): the OLD code re-sized to floor(200 / 12.5) = 16 — the frozen card stays 3
+            var later = KeystoneOfCardPlan.Requote(card, 3987.45, 10);
+            Check(later != null && later.Qty == 3 && Math.Abs(later.Stop - 3986.2) < 1e-9 && Math.Abs(later.StopPts - 1.25) < 1e-6 && Math.Abs(later.RiskUsd - 37.5) < 1e-6, "price near the stop: still 3 contracts, same stop price (never 16)");
+            Check(KeystoneOfCardPlan.Requote(card, 3986.2, 10) == null && KeystoneOfCardPlan.Requote(card, 3986.0, 10) == null, "price at / through the stop → the card is off (no new size)");
+            Check(KeystoneOfCardPlan.Requote(card, card.Target, 10) == null, "price at the target → the card is off");
+            // the minimum stop: a 2-tick structure stop on MNQ is widened to 5 pts (20 ticks) → no 44-contract cards
+            var fT = new KeystoneFootprint { Open = 100, High = 100.75, Low = 100.0, Close = 100.5, Trades = 5 };
+            var tight = KeystoneOfDesk.Plan(new KeystoneOfSignal { Bar = 0, Dir = 1 }, new List<KeystoneFootprint> { fT }, null, 100.5, 0.25, 2, 200, 40, 0, KeystoneOfCardPlan.MinStopTicks("MNQ", 0), 0);
+            Check(tight != null && tight.Widened && Math.Abs(tight.StopPts - 5) < 1e-9 && tight.Qty == 20, "MNQ minimum stop 5 pts: $200 → 20 contracts, not 400 (got " + (tight == null ? "null" : tight.Qty + " / " + tight.StopPts) + ")");
+            var capped = KeystoneOfDesk.Plan(new KeystoneOfSignal { Bar = 0, Dir = 1 }, new List<KeystoneFootprint> { fT }, null, 100.5, 0.25, 2, 200, 40, 0, KeystoneOfCardPlan.MinStopTicks("MNQ", 0), 10);
+            Check(capped != null && capped.Capped && capped.Qty == 10, "the size cap: 10 contracts at most");
+            Check(KeystoneOfCardPlan.MinStopTicks("MGC", 0) == 15 && KeystoneOfCardPlan.MinStopTicks("MNQ", 0) == 20 && KeystoneOfCardPlan.MinStopTicks("MNQ", 40) == 40, "minimum stops MGC 1.5 / MNQ 5 pts; a larger setting wins");
+            Check(KeystoneOfCardPlan.Mismatch(card, "MGC", 3, 1) == "" && KeystoneOfCardPlan.Mismatch(card, "MGC", 16, 1).Contains("16") && KeystoneOfCardPlan.Mismatch(card, "MNQ", 3, 1).Contains("MNQ") && KeystoneOfCardPlan.Mismatch(card, "MGC", 3, -1) != "", "TAKE refuses another size / instrument / side");
+            // the source: TAKE checks the panel's contracts before sending, the button names the contracts, the plan is frozen per card
+            string srcU = File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "src", "KeyStone.cs"));
+            Check(srcU.Contains("if (sentQ != ofQtyT)") && srcU.Contains("\"▲ TAKE BUY \" : \"▼ TAKE SELL \") + plS.Qty + \" \" + pa.Symbol") && srcU.Contains("KeystoneOfCardPlan.Requote(frz, px, pvS)") && !srcU.Contains("var plS = KeystoneOfDesk.Plan("), "guardrail: frozen card plan, contracts on the button, the panel's contracts checked before sending");
+        }
+
         // ---- 12. GUARDRAILS in the source: real trades are made only from NinjaTrader's trades / the library files (never from a candle), the INDICATORS toggles stay open
         {
             string srcF = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "src", "KeyStone.cs");
