@@ -45385,7 +45385,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             ofTake = (dir, qtyT, stPT, tgPT, whyT) =>
             {
                 // the trade from the ORDERFLOW tab = the chart's own BUY / SELL (same armed account, same limits): asks first, then the chart opens
-                var pa = active; if (pa == null || pa.Trader == null || pa.DoBuy == null) return;
+                var pa = active; if (pa == null || pa.Trader == null || (pa.DoBuy == null && liveWindow)) return;   /* 11s: the BACKTEST STUDIO has no mini panel — its chart's own BUY / SELL (paneActions) */
                 if (liveWindow && (pa.Link == null || !pa.Link.Armed || !pa.Link.Connected || pa.Link.Locked)) { KBox(w, "LIVE TRADING DISABLED for " + pa.Symbol + "\n\nPress ARM REAL ORDERS on the 📈 CHART tab first (once per session).", "ORDERFLOW • TRADE", MessageBoxButton.OK, MessageBoxImage.Information); return; }
                 double tick = pa.Trader.Tick > 0 ? pa.Trader.Tick : 0.25, pv = KeystoneMoveStudy.PointValue(pa.Symbol); bool br = stPT > 0 || tgPT > 0; int ofQtyT = Math.Max(1, qtyT);
                 double stP = stPT, tgP = tgPT, px = pa.Trader.Price;
@@ -45395,6 +45395,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (KBox(w, msg, "ORDERFLOW • TRADE", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
                 if (ofViewOn && ofExitH != null) ofExitH();   // back to the trading chart first: the order goes out from there
                 pa.OrderType.SelectedIndex = 0; pa.Qty.Text = ofQtyT.ToString(CultureInfo.InvariantCulture); pa.Sl.Text = stP.ToString(CultureInfo.InvariantCulture); pa.Tp.Text = tgP.ToString(CultureInfo.InvariantCulture);
+                if (pa.DoBuy == null) { paneActions(pa).Item1(dir); return; }
                 if (dir > 0) pa.DoBuy(); else pa.DoSell();
             };
             ofBackBtn.Click += delegate { if (ofExitH != null) ofExitH(); };
@@ -45477,7 +45478,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 if (c == "STRIP") return texts(ofBar);
                 if (c == "CARD") return (sgCard.Visibility == Visibility.Visible ? "VISIBLE" : "HIDDEN") + " | " + sgCardTitle.Text + " | " + sgCardBody.Text;
                 if (c == "FILL") { click(sgFill); return pa.Qty.Text + "|" + pa.Sl.Text + "|" + pa.Tp.Text; }
-                if (c == "TAKE") { click(sgTake); return "position " + pa.Trader.Position + " | view " + (ofViewOn ? "ORDERFLOW" : "CHART"); }
+                if (c == "TAKE") { bool hadPlan = ofPlanNow != null; click(sgTake); return "position " + pa.Trader.Position + " | view " + (ofViewOn ? "ORDERFLOW" : "CHART") + " | plan " + hadPlan + " | doBuy " + (pa.DoBuy != null) + " | card " + (sgCard.Visibility == Visibility.Visible); }
                 if (c == "SKIP") { click(sgSkip); ofDockUpdate(); return sgCard.Visibility == Visibility.Visible ? "VISIBLE" : "HIDDEN"; }
                 if (c == "DOCK") return texts(ofDock);
                 return "?";
