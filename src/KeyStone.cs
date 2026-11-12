@@ -38585,6 +38585,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             public double OfStrip; public KeystoneFlowCompass Compass = new KeystoneFlowCompass(); public KeystoneOfCardHold Hold = new KeystoneOfCardHold(); public KeystoneFlowTimeline Story = new KeystoneFlowTimeline(); public KeystoneFlowVerdict Verdict = new KeystoneFlowVerdict();
             public List<KeystoneFlowTrapZone> OfTraps = new List<KeystoneFlowTrapZone>(); public List<KeystoneFlowBigPrint> OfBig = new List<KeystoneFlowBigPrint>(); public DateTime OfAuxAt = DateTime.MinValue, OfCompassLogAt = DateTime.MinValue; public int OfAuxN = -1;
             public List<KeystoneOfSetupRow> OfBook = new List<KeystoneOfSetupRow>(); public DateTime OfBookDay = DateTime.MinValue, OfBookSaved = DateTime.MinValue; public bool OfBookDirty; public StringBuilder OfCompassLog = new StringBuilder();
+            /* 🏃 11x: the SWING setup's own hold (one at a time per instrument per style), its 🧠 judgement, the 5-min footprints / confirmations of a 1- / 2- / 3-min chart (rebuilt when a 5-min window closes), the style of the trade taken from a card */
+            public KeystoneOfCardHold SwHold = KeystoneOfCardHold.NewSwing(); public KeystoneOfLearnResult OfSwLearnNow; public string OfSwGateText = "", OfSwNoRoom = ""; public List<KeystoneFootprint> Of5Fps; public List<KeystoneOfSignal> Of5Conf; public string Of5Key = ""; public string OfTradeStyle = ""; public double OfTradeStruct = double.NaN; public int OfTradeDir;
             public List<KeystoneOfSetupRow> OfLearnRows; public DateTime OfLearnAt = DateTime.MinValue; public KeystoneOfLearnResult OfLearnNow; public string OfGateText = "", OfWatch = ""; public int OfLastStoryState = 9;
             public List<KeystoneOfSignal> OfConfSeen = new List<KeystoneOfSignal>(); public KeystoneFlowZones Zones = new KeystoneFlowZones(); public int ZonesBar = -1; public DateTime OfEntryAt = DateTime.MinValue; public double OfEntryPx; public int OfEntryQ; public List<KeystoneOfSignal> ZoneConf = new List<KeystoneOfSignal>(); public object ZonesSrc;
             public List<KeystoneFootprint> OfFps; public int OfI0; public KeystoneProfile OfProf; public List<KeystoneOfSignal> OfSigs; public Dictionary<string, Tuple<int, int>> OfStats, OfConfStats; public List<KeystoneOfSignal> OfConf; public DateTime OfFrom = DateTime.MaxValue, OfBuiltAt = DateTime.MinValue; public Button OfBtn; public Action<bool> OfRun; public DateTime AiFirst; public double BattlePos = 0.5;
@@ -46682,7 +46684,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             Action<ReplayPane, KeystoneOfSetupRecord, string> ofBookStatus = (pa0, rec0, st0) =>
             {
-                if (rec0 == null) return; var row = pa0.OfBook.FirstOrDefault(r0 => r0.Time == rec0.Time && r0.Dir == rec0.Dir); if (row == null) return;
+                if (rec0 == null) return; var row = pa0.OfBook.FirstOrDefault(r0 => r0.Time == rec0.Time && r0.Dir == rec0.Dir && KeystoneOfStyle.Of(r0) == (rec0.Style == "SWING" ? "SWING" : "SCALP")); if (row == null) return;
                 row.Status = st0; if (st0.StartsWith("taken")) row.Taken = "YES"; pa0.OfBookDirty = true;
             };
             Action ofDockUpdate = delegate
@@ -46819,9 +46821,16 @@ namespace NinjaTrader.NinjaScript.AddOns
                         hold.TouchAll(tk, endN, now); var chk = hold.Check(now, px, closed, comp.State);
                         if (chk != null && chk.Item1 != "") { var recE = hold.End(now, chk.Item1, chk.Item2); ofBookStatus(pa, recE, chk.Item1 + ": " + chk.Item2); pa.Story.Add(now, "E|" + recE.Key, "🎯 " + hold.LastRemoved); ofCardPlan = null; }
                     }
+                    // 🏃 11x: the SWING card the same way (its own hold: up to OF.SWMIN = 60 min, expires at 16:50 NY, first-touch resolution, every removal with its reason)
+                    var swh = pa.SwHold; swh.PointValue = pvS; swh.MaxMinutes = Math.Max(10, layerOf("OF.SWMIN", 60)); int ofStyle = KeystoneOfStyle.Clamp(layerOf("OF.STYLE", KeystoneOfStyle.Both));
+                    if (swh.Current != null)
+                    {
+                        swh.TouchAll(tk, endN, now); var chkW = swh.Check(now, px, closed, comp.State);
+                        if (chkW != null && chkW.Item1 != "") { var recW = swh.End(now, chkW.Item1, chkW.Item2); ofBookStatus(pa, recW, chkW.Item1 + ": " + chkW.Item2); pa.Story.Add(now, "E|" + recW.Key, "🏃 " + swh.LastRemoved); }
+                    }
                     // … then a NEW confirmed setup: its frozen plan (⚡ SCALP first), its context row in 📒 SETUPS, 🧠 its history, the gate (compass, R:R, 🧘 PATIENT, cool-down)
                     bool patient = layerOf("OF.PATIENT", 1) == 1, scalp = layerOf("OF.SCALPMODE", 1) == 1; var learnAll = ofLearnRows(pa);
-                    if (conf != null && fp != null)
+                    if (conf != null && fp != null && KeystoneOfStyle.WantsScalp(ofStyle))
                     {
                         string ckey = pa.Symbol + "|" + conf.Time.Ticks + "|" + conf.Dir;
                         if (!ofEvaluated.Contains(ckey) && !hold.WasShown(ckey))
@@ -46854,6 +46863,59 @@ namespace NinjaTrader.NinjaScript.AddOns
                             else { string why0 = gate.Item2 != "" ? gate.Item2 : "not offered"; row.Status = "not offered: " + why0; hold.Note(conf, pa.Symbol, now, "not offered", why0); pa.Story.Add(now, "N|" + ckey, "· " + label + " not offered — " + why0); }
                             pa.OfGateText = gate.Item1 == KeystoneFlowGate.Offer ? "" : gate.Item1 + "|" + gate.Item2 + "|" + (frz == null ? "" : KeystoneFlowGate.Rr(frz).ToString("0.0", IC)) + "|" + closed;
                             if (!pa.OfBook.Any(r0 => r0.Key == row.Key)) { pa.OfBook.Add(row); pa.OfBookDirty = true; }
+                        }
+                    }
+                    // 🏃 11x: a NEW SWING candidate — a confirmed zone retest (any timeframe) or a confirmed signal on 5 min or higher (a 1- / 2- / 3-min chart: the 5-min
+                    // footprints built from the same real trades, closed 5-min candles only); the swing plan (stop beyond the structure, the first major level ≥ 2 R,
+                    // contracts from the wider stop), its own 🧠 history (per type × side × STYLE), the swing gate (R:R ≥ 2, compass, 🧘 PATIENT, cool-down)
+                    if (KeystoneOfStyle.WantsSwing(ofStyle) && fp != null && fp.Count >= 3)
+                    {
+                        KeystoneOfSignal swSig = null; KeystoneFootprint swCdl = null; string swKind = "";
+                        var zcW = pa.ZoneConf.Count > 0 ? pa.ZoneConf[pa.ZoneConf.Count - 1] : null; if (zcW != null && (zcW.Bar < closed - 3 || zcW.Bar >= closed + 1 || zcW.Time > now)) zcW = null;
+                        if (zcW != null) { swSig = zcW; swCdl = zcW.Bar >= 0 && zcW.Bar < fp.Count ? fp[zcW.Bar] : null; swKind = zcW.Kind; }
+                        if (pa.Tf >= 5)
+                        {
+                            var c5 = pa.OfConf != null && pa.OfConf.Count > 0 ? pa.OfConf[pa.OfConf.Count - 1] : null; if (c5 != null && (c5.Bar < closed - 3 || c5.Bar >= closed + 1 || c5.Time > now)) c5 = null;
+                            if (c5 != null && (swSig == null || c5.Time > swSig.Time)) { swSig = c5; swCdl = fp[c5.Bar]; swKind = c5.Kind; }
+                        }
+                        else
+                        {
+                            var w5 = KeystoneOfStyle.Windows5(now, 6); string k5 = (w5.Count > 0 ? w5[w5.Count - 1].Item2.Ticks : 0) + "|" + (tk.Count > 0 ? tk[0].Time.Ticks : 0) + "|" + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(tk);
+                            if (k5 != pa.Of5Key && w5.Count >= 6)
+                            {
+                                pa.Of5Key = k5; var s5 = new KeystoneOfSettings { TicksPerRow = layerOf("OF.ROW", 1), ValueAreaPct = layerOf("OF.VA", 70), ImbRatio = layerOf("OF.IMB10", 30) / 10.0, ImbMinVol = layerOf("OF.MINV", 5), StackMin = layerOf("OF.STACK", 3), AbsorbFrac = layerOf("OF.ABS", 35) / 100.0, DivLookback = layerOf("OF.DIV", 10), ConfirmBars = Math.Max(1, layerOf("OF.CB", 3)), SweepLook = Math.Max(3, layerOf("OF.SWL", 10)), NeedSweep = layerOf("OF.NSW", 1) == 1, Trend = layerOf("OF.TREND", 1) == 1 };
+                                var f5 = KeystoneOrderFlow.Footprints(tk, w5, tick, s5, 0, 0, endN); pa.Of5Fps = f5; pa.Of5Conf = KeystoneOrderFlow.Confirm(KeystoneOrderFlow.Signals(f5, tick, s5), f5, tick, s5, false);   // every window here is CLOSED
+                            }
+                            var f5L = pa.Of5Fps; var c5 = pa.Of5Conf != null && pa.Of5Conf.Count > 0 ? pa.Of5Conf[pa.Of5Conf.Count - 1] : null;
+                            if (c5 != null && f5L != null && c5.Bar >= f5L.Count - 1 && c5.Bar < f5L.Count && c5.Time <= now && (swSig == null || c5.Time > swSig.Time))
+                            { swSig = new KeystoneOfSignal { Bar = Math.Max(0, closed - 1), Dir = c5.Dir, Kind = "5M " + c5.Kind, Price = c5.Price, Time = c5.Time, Why = "5-min: " + c5.Why }; swCdl = f5L[c5.Bar]; swKind = swSig.Kind; }
+                        }
+                        if (swSig != null)
+                        {
+                            string ckW = pa.Symbol + "|" + swSig.Time.Ticks + "|" + swSig.Dir + "|SW";
+                            if (!ofEvaluated.Contains(ckW) && !swh.WasShown(ckW))
+                            {
+                                ofEvaluated.Add(ckW); if (ofEvaluated.Count > 2000) ofEvaluated.Clear();
+                                var lvW = KeystoneOfSwing.MajorLevels(pr, pa.Pdh, pa.Pdl, pa.Pdc, onHi, onLo, dayHi, dayLo);
+                                var swP = KeystoneOfSwing.Plan(swSig, swCdl, px, tick, pvS, layerOf("OF.RISK", 200), lvW, 2, KeystoneOfStyle.SwingMinStopTicks(pa.Symbol, layerOf("OF.SWMINSTOP", 0)), Math.Max(1, layerOf("OF.MAXQ", 10)));
+                                var rowW = new KeystoneOfSetupRow { Style = "SWING", Time = swSig.Time, Symbol = pa.Symbol, Kind = swKind, Dir = swSig.Dir, Compass = comp.State, CompassScore = comp.Score, Location = KeystoneOfSetupBook.Location(px, pr, vwR, dayHi, dayLo, tick), Delta = swCdl != null ? swCdl.Delta : 0,
+                                    Big = pa.OfBig.Where(b => b.Time >= now.AddMinutes(-5)).Sum(b => (double)b.Side * b.Size), Trapped = pa.OfTraps.Sum(z => (double)-z.Side * z.Volume), Entry = px, Status = "new" };
+                                if (swP.Plan != null) { swP.Plan.Symbol = pa.Symbol; rowW.Stop = swP.Plan.Stop; rowW.Target = swP.Plan.Target; rowW.Qty = swP.Plan.Qty; }
+                                var learnW = KeystoneOfLearner.Judge(learnAll, rowW, costPts);
+                                string hSkipW = learnW.Skip != "" ? learnW.Skip : patient && !learnW.Proven ? "🧘 not offered — " + (learnW.N < KeystoneOfLearner.MinN ? "learning (" + learnW.N + ")" : "no edge yet (" + learnW.Wins + " of " + learnW.N + ")") + " — the 🏃 SWING proves itself separately" : null;
+                                var gateW = KeystoneFlowGate.DecideSwing(swSig, closed, comp.State, swP, hSkipW);
+                                string labelW = "🏃 " + (swSig.Dir > 0 ? "▲ " : "▼ ") + swKind + " " + tzShow(swSig.Time).ToString("HH:mm", IC);
+                                if (gateW.Item1 == KeystoneFlowGate.Offer && swh.Cooling(closed)) gateW = Tuple.Create(KeystoneFlowGate.HistorySkip, "🧘 cool-down: no new swing for 2 candles after the last one");
+                                pa.OfSwNoRoom = gateW.Item1 == KeystoneFlowGate.NoRoom ? gateW.Item2 : "";
+                                if (gateW.Item1 == KeystoneFlowGate.Offer && swh.Offer(swSig, swP.Plan, pa.Symbol, now, closed))
+                                {
+                                    rowW.Status = "shown"; pa.OfSwLearnNow = learnW;
+                                    pa.Story.Add(now, "O|" + ckW, "🏃 swing #" + swh.Current.Id + " shown: " + labelW + " • ENTRY " + fmt(px) + " • TAKE PROFIT " + fmt(swP.Plan.Target) + " (" + swP.Plan.TargetName + ") • STOP LOSS " + fmt(swP.Plan.Stop) + " • " + swP.Plan.Qty + " " + pa.Symbol + " • R:R " + KeystoneFlowGate.Rr(swP.Plan).ToString("0.0", IC));
+                                }
+                                else { string whyW = gateW.Item2 != "" ? gateW.Item2 : "not offered"; rowW.Status = "not offered: " + whyW; swh.Note(swSig, pa.Symbol, now, "not offered", whyW); pa.Story.Add(now, "N|" + ckW, "· " + labelW + " not offered — " + whyW); }
+                                pa.OfSwGateText = gateW.Item1 == KeystoneFlowGate.Offer ? "" : gateW.Item1 + "|" + gateW.Item2 + "|" + (swP.Plan == null ? "" : KeystoneFlowGate.Rr(swP.Plan).ToString("0.0", IC)) + "|" + closed;
+                                if (!pa.OfBook.Any(r0 => r0.Key == rowW.Key)) { pa.OfBook.Add(rowW); pa.OfBookDirty = true; }
+                            }
                         }
                     }
                     foreach (var r0 in pa.OfBook.Where(x => !x.Done)) { KeystoneOfSetupBook.Measure(r0, tk, endN, now, tick); if (r0.Done) pa.OfBookDirty = true; }
