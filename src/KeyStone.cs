@@ -38981,7 +38981,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             Func<string, Instrument> ofInstH = null; Action<ReplayPane> ofLoadH = null; Action<ReplayPane> ofSettingsH = null;   // 📊 ORDER FLOW: the instrument, load the ticks, the settings window
             // 📊 ORDERFLOW tab: the same chart, analysis only (ofViewOn), one view at a time (ofSub); the trading chart shows only a flashing badge
             bool ofTabGuard = false;   // the ORDERFLOW view picks its instrument tab itself (that does not leave the view)
-            bool ofViewOn = false; KeystoneOfPlan ofCardPlan = null; /* 🛡 11u: the card on screen (frozen) — the chart draws its 💡 SIGNAL stop / target */ string ofSub = "SIGNALS"; Action ofGoH = null, ofExitH = null; Action<bool> setOfView = null; FrameworkElement ofDualHost = null; var ofAlerted = new HashSet<string>();
+            var ofSetupWall = new Dictionary<string, DateTime>(); bool ofViewOn = false; KeystoneOfPlan ofCardPlan = null; /* 🛡 11u: the card on screen (frozen) — the chart draws its 💡 SIGNAL stop / target */ string ofSub = "SIGNALS"; Action ofGoH = null, ofExitH = null; Action<bool> setOfView = null; FrameworkElement ofDualHost = null; var ofAlerted = new HashSet<string>();
             // 🎯 REVERSAL FVG SCANNER (BUILD 11i, INDICATORS ▸ 🎯 REVERSAL FVG): signals / alerts only — never an order. Per pane the closed 1-minute bars are
             // scanned when a bar closes (KeystoneRevFvg), each signal is tracked forward on the closed bars, logged to Studio\reversal-fvg-signals.csv (📜 SIGNALS)
             var rfCache = new Dictionary<ReplayPane, Tuple<string, List<KeystoneRevFvgSignal>>>(); var rfSeen = new Dictionary<string, KeystoneRevFvgSignal>(); var rfLogged = new Dictionary<string, DateTime>();
@@ -40966,30 +40966,60 @@ namespace NinjaTrader.NinjaScript.AddOns
                     mark(pn.FvgPick, "1");
                     if (pn.MouseOver) { int hc = (int)Math.Round(indexAt(pn, pn.MouseX)); if (hc != pn.FvgPick) mark(hc, pn.FvgPick >= 0 ? "3" : "1"); }
                 }
-                var cpl = ofCardPlan;
-                if (cpl != null && cpl.Symbol == pn.Symbol && layerOf("OF.SIGLINES", 1) == 1)
                 {
-                    // 💡 11u: the SIGNAL's suggested stop / target (the 🎯 card) — violet, dashed, labelled on the LEFT; YOUR orders stay solid green / red "MY TP / MY SL" on the right
-                    var vio = colorOf("#B388FF"); double pvL = KeystoneMoveStudy.PointValue(pn.Symbol); double xr = Math.Max(60, pn.PlotW - Math.Max(pn.Gutter, 120) - 8), xl = Math.Max(4, xr - 150);
-                    double yE = yOf(pn, cpl.Entry), yT = yOf(pn, cpl.Target), yS = yOf(pn, cpl.Stop), ylo = pn.Top, yhi = pn.Top + pn.PlotH; Func<double, double> cl = v => Math.Max(ylo, Math.Min(yhi, v));
-                    foreach (var z in new[] { Tuple.Create(yT, colorOf("#00E676")), Tuple.Create(yS, colorOf("#FF5252")) })
-                    {   // the reward / risk zone: a soft box from the price to the level, just left of the labels
-                        var rz = new System.Windows.Shapes.Rectangle { Width = xr - xl, Height = Math.Max(1, Math.Abs(cl(z.Item1) - cl(yE))), Fill = Tint(z.Item2, 34), Stroke = Tint(vio, 90), StrokeThickness = 0.8, IsHitTestVisible = false };
-                        System.Windows.Controls.Canvas.SetLeft(rz, xl); System.Windows.Controls.Canvas.SetTop(rz, Math.Min(cl(z.Item1), cl(yE))); cv.Children.Add(rz);
-                    }
-                    foreach (var lv in new[] { Tuple.Create(cpl.Target, "💡 SIGNAL TARGET " + fmt(cpl.Target) + "  +" + Cash(cpl.RewardUsd), colorOf("#00E676")), Tuple.Create(cpl.Stop, "💡 SIGNAL STOP " + fmt(cpl.Stop) + "  −" + Cash(cpl.RiskUsd), colorOf("#FF5252")) })
+                    /* 💡 11v: the OFFERED setup of THIS instrument (one at a time, its levels FIXED from the moment it appeared): violet dashed TAKE PROFIT / STOP LOSS lines with the
+                       PLANNED $ from its ENTRY (never the distance from the current price), the chip "#id ▲ BUY n SYM • time • R:R", a gently blinking ▲ / ▼ at the entry on the
+                       latest candle (30 s), and a fading "✔ TAKE PROFIT HIT / ✖ STOP LOSS HIT" when it resolves. ☑ per view (INDICATORS ▸ ORDERFLOW): ORDERFLOW on, CHART off. */
+                    var rec = pn.Hold.Current; var vio = ofVioB; double pvL = KeystoneMoveStudy.PointValue(pn.Symbol); var IC7 = CultureInfo.InvariantCulture;
+                    double xr = Math.Max(60, pn.PlotW - Math.Max(pn.Gutter, 0) - pn.OfStrip - 8), xl = Math.Max(4, xr - 150), ylo = pn.Top, yhi = pn.Top + pn.PlotH; Func<double, double> cl = v => Math.Max(ylo, Math.Min(yhi, v));
+                    if (rec != null && ofPart("SIGLINES"))
                     {
-                        double yv = yOf(pn, lv.Item1); if (yv < ylo - 2 || yv > yhi + 2) continue;
-                        cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = xr, Y1 = yv, Y2 = yv, Stroke = vio, StrokeThickness = 1.4, StrokeDashArray = new DoubleCollection { 2, 4 }, Opacity = 0.9, IsHitTestVisible = false });
-                        var sp1 = new StackPanel { Orientation = Orientation.Horizontal };
-                        sp1.Children.Add(new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Fill = lv.Item3, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center });
-                        sp1.Children.Add(new TextBlock { Text = lv.Item2, Foreground = colorOf("#E9DDFF"), FontSize = 10.5, FontWeight = FontWeights.Bold });
-                        var lb1 = new Border { Background = Tint(colorOf("#2A1F4A"), 235), BorderBrush = vio, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(7, 1, 8, 2), Child = sp1, IsHitTestVisible = false, ToolTip = "suggested by the order-flow signal (the 🎯 card) — not an order" };
-                        lb1.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double w1 = lb1.DesiredSize.Width > 0 ? lb1.DesiredSize.Width : 220; System.Windows.Controls.Canvas.SetLeft(lb1, Math.Max(150, xl - w1 - 6)); System.Windows.Controls.Canvas.SetTop(lb1, yv - 10);   /* left of the zone, clear of the VAH / POC names at the far left */ System.Windows.Controls.Panel.SetZIndex(lb1, 50); cv.Children.Add(lb1);
+                        double yE = yOf(pn, rec.Entry); double tpUsd = KeystoneOfCardHold.PlannedProfit(rec, pvL), slUsd = KeystoneOfCardHold.PlannedLoss(rec, pvL);
+                        foreach (var z in new[] { Tuple.Create(yOf(pn, rec.Target), rec.Dir > 0 ? ofBuyB : ofSellB), Tuple.Create(yOf(pn, rec.Stop), rec.Dir > 0 ? ofSellB : ofBuyB) })
+                        {   // the reward / risk zone: a soft box from the entry to the level, just left of the strip
+                            var rz = new System.Windows.Shapes.Rectangle { Width = xr - xl, Height = Math.Max(1, Math.Abs(cl(z.Item1) - cl(yE))), Fill = Tint(z.Item2, 30), Stroke = Tint(vio, 90), StrokeThickness = 0.8, IsHitTestVisible = false, Tag = "of.setup.zone" };
+                            System.Windows.Controls.Canvas.SetLeft(rz, xl); System.Windows.Controls.Canvas.SetTop(rz, Math.Min(cl(z.Item1), cl(yE))); cv.Children.Add(rz);
+                        }
+                        var labs = new[] {
+                            Tuple.Create(rec.Target, "💡 TAKE PROFIT " + fmt(rec.Target) + " • +" + Cash(tpUsd) + " planned (+" + fmt(Math.Abs(rec.Target - rec.Entry)) + " pts)", rec.Dir > 0 ? ofBuyB : ofSellB),
+                            Tuple.Create(rec.Stop, "💡 STOP LOSS " + fmt(rec.Stop) + " • −" + Cash(slUsd) + " planned (−" + fmt(Math.Abs(rec.Entry - rec.Stop)) + " pts)", rec.Dir > 0 ? ofSellB : ofBuyB) };
+                        var slots7 = new List<double>();
+                        foreach (var lv in labs)
+                        {
+                            double yv = yOf(pn, lv.Item1); if (yv < ylo - 2 || yv > yhi + 2) continue;
+                            cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = xr, Y1 = yv, Y2 = yv, Stroke = vio, StrokeThickness = 1.4, StrokeDashArray = new DoubleCollection { 2, 4 }, Opacity = 0.9, IsHitTestVisible = false });
+                            var sp1 = new StackPanel { Orientation = Orientation.Horizontal };
+                            sp1.Children.Add(new System.Windows.Shapes.Ellipse { Width = 7, Height = 7, Fill = lv.Item3, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center });
+                            sp1.Children.Add(new TextBlock { Text = lv.Item2, Foreground = colorOf("#E9DDFF"), FontSize = 10.5, FontWeight = FontWeights.Bold });
+                            var lb1 = new Border { Background = Tint(colorOf("#2A1F4A"), 235), BorderBrush = vio, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(7, 1, 8, 2), Child = sp1, IsHitTestVisible = false, Tag = "of.setup.label" };
+                            lb1.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double w1 = lb1.DesiredSize.Width > 0 ? lb1.DesiredSize.Width : 240; double yl1 = yv - 10; while (slots7.Any(v => Math.Abs(v - yl1) < 20)) yl1 += yl1 > (ylo + yhi) / 2 ? -20 : 20; slots7.Add(yl1);
+                            System.Windows.Controls.Canvas.SetLeft(lb1, Math.Max(150, xl - w1 - 6)); System.Windows.Controls.Canvas.SetTop(lb1, yl1); System.Windows.Controls.Panel.SetZIndex(lb1, 40); cv.Children.Add(lb1);
+                        }
+                        cv.Children.Add(new System.Windows.Shapes.Line { X1 = xl - 20, X2 = xr, Y1 = yE, Y2 = yE, Stroke = vio, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 1, 3 }, Opacity = 0.8, IsHitTestVisible = false });
+                        string agp = KeystoneFlowGate.AgainstPosition(rec.Dir, pn.Trader != null ? pn.Trader.Position : 0);
+                        var chip = new Border { Background = Tint(colorOf("#2A1F4A"), 240), BorderBrush = vio, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 1, 6, 2), IsHitTestVisible = false, Tag = "of.setup.chip",
+                            Child = new TextBlock { Text = "💡 ENTRY " + fmt(rec.Entry) + " • " + KeystoneOfCardHold.Chip(rec, pn.Hold.Frozen, pn.Symbol) + (agp != "" ? "\n" + agp : ""), Foreground = colorOf("#E9DDFF"), FontSize = 10.5, FontWeight = FontWeights.Bold } };
+                        chip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double cwd = chip.DesiredSize.Width > 0 ? chip.DesiredSize.Width : 260;
+                        double ycp = cl(yE) + (rec.Dir > 0 ? 6 : -24); while (slots7.Any(v => Math.Abs(v - ycp) < 20)) ycp += rec.Dir > 0 ? 20 : -20;
+                        System.Windows.Controls.Canvas.SetLeft(chip, Math.Max(150, xl - cwd - 6)); System.Windows.Controls.Canvas.SetTop(chip, ycp); System.Windows.Controls.Panel.SetZIndex(chip, 40); cv.Children.Add(chip);
+                        // ▲ / ▼ at the entry on the latest candle: a gentle 1 Hz pulse for 30 s after it appeared, then steady
+                        if (cs.Count > 0)
+                        {
+                            DateTime wall; if (!ofSetupWall.TryGetValue(rec.Key, out wall)) { wall = DateTime.Now; if (ofSetupWall.Count > 200) ofSetupWall.Clear(); ofSetupWall[rec.Key] = wall; }
+                            double ax = xOfIndex(pn, cs.Count - 1) + pn.Spacing * 0.9, pulse = (DateTime.Now - wall).TotalSeconds < 30 ? 0.55 + 0.45 * Math.Abs(Math.Cos(Math.PI * (DateTime.Now - wall).TotalSeconds)) : 1;
+                            var arw = new TextBlock { Text = rec.Dir > 0 ? "▲" : "▼", Foreground = vio, FontSize = 18, FontWeight = FontWeights.Bold, Opacity = pulse, IsHitTestVisible = false, Tag = "of.setup.arrow" };
+                            System.Windows.Controls.Canvas.SetLeft(arw, ax); System.Windows.Controls.Canvas.SetTop(arw, yE + (rec.Dir > 0 ? 2 : -24)); cv.Children.Add(arw);
+                        }
                     }
-                    var lb2 = new Border { Background = Tint(colorOf("#2A1F4A"), 235), BorderBrush = vio, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 1, 6, 2), IsHitTestVisible = false,
-                        Child = new TextBlock { Text = "💡 " + (cpl.Dir > 0 ? "BUY " : "SELL ") + cpl.Qty + " " + pn.Symbol + " • R:R " + (cpl.StopPts > 0 ? (cpl.TargetPts / cpl.StopPts).ToString("0.0", CultureInfo.InvariantCulture) : "—"), Foreground = colorOf("#E9DDFF"), FontSize = 10, FontWeight = FontWeights.Bold } };
-                    System.Windows.Controls.Canvas.SetLeft(lb2, xl + 4); System.Windows.Controls.Canvas.SetTop(lb2, cl(yE) + (cpl.Dir > 0 ? 4 : -20)); cv.Children.Add(lb2);
+                    var lr = pn.Hold.LastResolved; var clk7 = ofClock(pn);
+                    if (lr != null && ofPart("SIGLINES") && clk7 != null && (clk7.Item2 - pn.Hold.LastResolvedAt).TotalSeconds < 10 && (clk7.Item2 - pn.Hold.LastResolvedAt).TotalSeconds >= -1)
+                    {   // ✔ / ✖ for ~10 s, fading
+                        double age7 = Math.Max(0, (clk7.Item2 - pn.Hold.LastResolvedAt).TotalSeconds), yv = yOf(pn, lr.Result == "target" ? lr.Target : lr.Stop); bool win7 = lr.Result == "target";
+                        string t7 = (win7 ? "✔ TAKE PROFIT HIT +" + Cash(KeystoneOfCardHold.PlannedProfit(lr, pvL)) : "✖ STOP LOSS HIT −" + Cash(KeystoneOfCardHold.PlannedLoss(lr, pvL))) + " (#" + lr.Id + " " + lr.Ended.ToString("HH:mm", IC7) + ")";
+                        var rb7 = new Border { Background = Tint(win7 ? ofBuyB : ofSellB, 210), CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 2, 8, 3), Opacity = Math.Max(0.15, 1 - age7 / 10), IsHitTestVisible = false, Tag = "of.setup.resolved",
+                            Child = new TextBlock { Text = t7, Foreground = Bg, FontSize = 11.5, FontWeight = FontWeights.Bold } };
+                        System.Windows.Controls.Canvas.SetLeft(rb7, xl - 120); System.Windows.Controls.Canvas.SetTop(rb7, cl(yv) - 12); cv.Children.Add(rb7);
+                    }
                 }
                 if (pn.InfoOpenKey != null)
                 {
@@ -46144,26 +46174,36 @@ namespace NinjaTrader.NinjaScript.AddOns
             // panel for the indicated trade, how to read the view, and the trades coming in. Updated 7 times a second while the tab is open.
             var ofDockSp = new StackPanel { Margin = new Thickness(8, 6, 8, 8) };
             /* 🎯 BUILD 11s: the side panel = TABS, only one open — 🎯 SIGNAL • 📊 FLOW • 📚 BOOK • 📈 STATS • ⓘ GUIDE */
-            var tabSig = new StackPanel { Tag = "of.tab.SIGNAL" }; var tabFlow = new StackPanel { Tag = "of.tab.FLOW" }; var tabBook = new StackPanel { Tag = "of.tab.BOOK" }; var tabStats = new StackPanel { Tag = "of.tab.STATS" }; var tabGuide = new StackPanel { Tag = "of.tab.GUIDE" };
-            foreach (var tp0 in new[] { tabSig, tabFlow, tabBook, tabStats, tabGuide }) ofDockSp.Children.Add(tp0);
-            var ofTabRow = new UniformGrid { Columns = 5, Margin = new Thickness(6, 6, 6, 2) }; var ofTabBtns = new List<Tuple<string, Button, StackPanel>>(); string ofDockTab = "SIGNAL";
-            { var sv1 = layerOf("OF.DTAB", 0); var names0 = new[] { "SIGNAL", "FLOW", "BOOK", "STATS", "GUIDE" }; if (sv1 >= 0 && sv1 < names0.Length) ofDockTab = names0[sv1]; }
+            /* 📊 11v: 🧭 NOW (the front: the verdict + the setup only) • 🔍 WHY (the analyzer of the current setup) • 📖 STORY • 📒 SETUPS • 📊 ANALYZE • 🧠 LEARN • ⚡ FLOW • 📚 BOOK • 📈 STATS • 🎓 GUIDE — two rows that fit */
+            var tabSig = new StackPanel { Tag = "of.tab.NOW" }; var tabWhy = new StackPanel { Tag = "of.tab.WHY" }; var tabStory = new StackPanel { Tag = "of.tab.STORY" }; var tabSetups = new StackPanel { Tag = "of.tab.SETUPS" }; var tabAnalyze = new StackPanel { Tag = "of.tab.ANALYZE" }; var tabLearn = new StackPanel { Tag = "of.tab.LEARN" };
+            var tabFlow = new StackPanel { Tag = "of.tab.FLOW" }; var tabBook = new StackPanel { Tag = "of.tab.BOOK" }; var tabStats = new StackPanel { Tag = "of.tab.STATS" }; var tabGuide = new StackPanel { Tag = "of.tab.GUIDE" };
+            foreach (var tp0 in new[] { tabSig, tabWhy, tabStory, tabSetups, tabAnalyze, tabLearn, tabFlow, tabBook, tabStats, tabGuide }) ofDockSp.Children.Add(tp0);
+            var ofTabRow = new UniformGrid { Columns = 5, Margin = new Thickness(6, 6, 6, 2) }; var ofTabBtns = new List<Tuple<string, Button, StackPanel>>(); string ofDockTab = "NOW";
+            var ofTabNames = new[] { "NOW", "WHY", "STORY", "SETUPS", "ANALYZE", "LEARN", "FLOW", "BOOK", "STATS", "GUIDE" };
+            { var sv1 = layerOf("OF.DTAB2", 0); if (sv1 >= 0 && sv1 < ofTabNames.Length) ofDockTab = ofTabNames[sv1]; }
             Action paintDockTabs = delegate { foreach (var tb0 in ofTabBtns) { bool on0 = tb0.Item1 == ofDockTab; PaintBtn(tb0.Item2, on0 ? Cyan : Card); tb0.Item3.Visibility = on0 ? Visibility.Visible : Visibility.Collapsed; } };
             Action ofDockRefresh = null;
-            foreach (var tdef in new[] { Tuple.Create("SIGNAL", "🎯 SIGNAL", tabSig), Tuple.Create("FLOW", "📊 FLOW", tabFlow), Tuple.Create("BOOK", "📚 BOOK", tabBook), Tuple.Create("STATS", "📈 STATS", tabStats), Tuple.Create("GUIDE", "ⓘ GUIDE", tabGuide) })
+            foreach (var tdef in new[] { Tuple.Create("NOW", "🧭 NOW", tabSig), Tuple.Create("WHY", "🔍 WHY", tabWhy), Tuple.Create("STORY", "📖 STORY", tabStory), Tuple.Create("SETUPS", "📒 SETUPS", tabSetups), Tuple.Create("ANALYZE", "📊 ANALYZE", tabAnalyze), Tuple.Create("LEARN", "🧠 LEARN", tabLearn), Tuple.Create("FLOW", "⚡ FLOW", tabFlow), Tuple.Create("BOOK", "📚 BOOK", tabBook), Tuple.Create("STATS", "📈 STATS", tabStats), Tuple.Create("GUIDE", "🎓 GUIDE", tabGuide) })
             {
-                var td = tdef; int tix = ofTabBtns.Count; var tb1 = Btn(td.Item2, Card); tb1.Height = 28; tb1.FontSize = 11; tb1.Margin = new Thickness(1, 0, 1, 0); tb1.Padding = new Thickness(2, 0, 2, 0); tb1.Tag = "of.dtab." + td.Item1;
-                tb1.Click += delegate { ofDockTab = td.Item1; layerModes["OF.DTAB"] = tix; saveWorkspace(); paintDockTabs(); if (ofDockRefresh != null) ofDockRefresh(); };
+                var td = tdef; int tix = ofTabBtns.Count; var tb1 = Btn(td.Item2, Card); tb1.Height = 27; tb1.FontSize = 10.5; tb1.Margin = new Thickness(1, 0, 1, 2); tb1.Padding = new Thickness(1, 0, 1, 0); tb1.Tag = "of.dtab." + td.Item1; tb1.ToolTip = td.Item2;
+                tb1.Click += delegate { ofDockTab = td.Item1; layerModes["OF.DTAB2"] = tix; saveWorkspace(); paintDockTabs(); if (ofDockRefresh != null) ofDockRefresh(); };
                 ofTabRow.Children.Add(tb1); ofTabBtns.Add(Tuple.Create(td.Item1, tb1, td.Item3));
             }
             var ofDockDp = new DockPanel(); DockPanel.SetDock(ofTabRow, Dock.Top); ofDockDp.Children.Add(ofTabRow); ofDockDp.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = ofDockSp });
-            var ofDock = new Border { Visibility = Visibility.Collapsed, Width = 344, HorizontalAlignment = HorizontalAlignment.Right, Background = Panel, BorderBrush = Tint(Cyan, 110), BorderThickness = new Thickness(1, 0, 0, 0), Tag = "of.dock", Child = ofDockDp };
+            var ofDock = new Border { Visibility = Visibility.Collapsed, Width = 420, HorizontalAlignment = HorizontalAlignment.Right, Background = Panel, BorderBrush = Tint(Cyan, 110), BorderThickness = new Thickness(1, 0, 0, 0), Tag = "of.dock", Child = ofDockDp };
             Grid.SetRow(ofDock, 3); root.Children.Add(ofDock);
             Func<string, SolidColorBrush, Border> dockCard = (head0, edge) => new Border { Background = Tint(Bg, 235), BorderBrush = Tint(edge, 140), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(10, 7, 10, 8), Margin = new Thickness(0, 0, 0, 8) };
             // 1. the VERDICT: does everything agree?
             var vTitle = new TextBlock { Text = "📊 loading the order flow …", FontSize = 15, FontWeight = FontWeights.Bold, Foreground = Text, TextWrapping = TextWrapping.Wrap };
             var vSub = new TextBlock { Text = "", FontSize = 11, Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
-            var vSp = new StackPanel(); vSp.Children.Add(vTitle); vSp.Children.Add(vSub); var vCard = dockCard("", Cyan); vCard.Child = vSp; tabSig.Children.Add(vCard);
+            var vSp = new StackPanel(); vSp.Children.Add(vTitle); vSp.Children.Add(vSub); var vCard = dockCard("", Cyan); vCard.Child = vSp; vCard.Tag = "of.status"; tabSig.Children.Add(vCard);
+            /* 🚦 11v: the ONE verdict tile (✅ BUY / ✅ SELL / 🧪 learning / ⏳ WAIT / ⛔ AVOID + the reason) — while in a trade it becomes the IN-TRADE strip (position, confidence meter, what changed) */
+            var vdHead = new TextBlock { Text = "⏳ WAIT", FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Text, FontFamily = new FontFamily("Segoe UI Semibold"), TextWrapping = TextWrapping.Wrap, Tag = "of.verdict.head" };
+            var vdWhy = new TextBlock { Text = "", FontSize = 12, Foreground = Text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0), LineHeight = 17, Tag = "of.verdict.why" };
+            var vdMeter = new TextBlock { Text = "", FontSize = 11.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0), FontFamily = new FontFamily("Consolas") };
+            var vdCompassHost = new Border { Height = 14, Margin = new Thickness(0, 6, 0, 0), Tag = "of.verdict.compass" };
+            var vdSp = new StackPanel(); vdSp.Children.Add(vdHead); vdSp.Children.Add(vdWhy); vdSp.Children.Add(vdCompassHost); vdSp.Children.Add(vdMeter);
+            var vdCard = dockCard("", Cyan); vdCard.Child = vdSp; vdCard.Tag = "of.verdict"; tabSig.Children.Add(vdCard);
             /* 🎯 11s: the STRONG BUY / SELL card — the suggested STOP (beyond the defended level) / TARGET (the next volume node, else the plan's bracket) / size from the $ risk;
                FILL ORDER fills the order panel only • TAKE = the chart's own BUY / SELL (asks first, every guard of the chart) • SKIP hides this signal */
             var sgCardTitle = new TextBlock { Text = "", FontSize = 15, FontWeight = FontWeights.Bold, Foreground = Text, TextWrapping = TextWrapping.Wrap };
@@ -46172,7 +46212,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             var sgTake = ofPill("TAKE", Gold); sgTake.Tag = "of.sig.take"; sgTake.ToolTip = "the chart's own BUY / SELL with this stop / target (asks first; LIVE: the armed account and its limits)";
             var sgSkip = ofPill("SKIP", Card); sgSkip.Tag = "of.sig.skip";
             var sgBtnRow = new UniformGrid { Columns = 3 }; foreach (var b9 in new[] { sgFill, sgTake, sgSkip }) { b9.Margin = new Thickness(0, 0, 4, 0); b9.Height = 32; b9.FontSize = 12; sgBtnRow.Children.Add(b9); }
-            var sgCardSp = new StackPanel(); sgCardSp.Children.Add(sgCardTitle); sgCardSp.Children.Add(sgCardBody); sgCardSp.Children.Add(sgBtnRow);
+            var sgFit = new TextBlock { Text = "", FontSize = 11.5, Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6), Tag = "of.sigcard.fit" };
+            var sgWhyBtn = ofPill("🔍 why?", Card); sgWhyBtn.Height = 24; sgWhyBtn.FontSize = 11; sgWhyBtn.HorizontalAlignment = HorizontalAlignment.Left; sgWhyBtn.Margin = new Thickness(0, 4, 0, 0); sgWhyBtn.Tag = "of.sig.why";
+            var sgCardSp = new StackPanel(); sgCardSp.Children.Add(sgCardTitle); sgCardSp.Children.Add(sgCardBody); sgCardSp.Children.Add(sgFit); sgCardSp.Children.Add(sgBtnRow); sgCardSp.Children.Add(sgWhyBtn);
             var sgCard = dockCard("", Gold); sgCard.Child = sgCardSp; sgCard.Tag = "of.sigcard"; sgCard.Visibility = Visibility.Collapsed; tabSig.Children.Add(sgCard);
             KeystoneOfPlan ofPlanNow = null; string ofPlanKey = ""; var ofFrozen = new Dictionary<string, KeystoneOfPlan>(); var ofSkipped = new HashSet<string>();
             // 2. TRADE FROM HERE: the indicated trade (asks first, then the 📈 CHART tab opens to manage it)
@@ -46207,13 +46249,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var tt0 = new TextBlock { Text = hd, Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold }; var tb0 = new TextBlock { Text = "…", Foreground = Text, FontSize = 11.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
                 var sp0 = new StackPanel(); sp0.Children.Add(tt0); sp0.Children.Add(tb0);
                 var bd0 = new Border { Background = Tint(Bg, 235), BorderBrush = Muted, BorderThickness = new Thickness(4, 0, 0, 0), CornerRadius = new CornerRadius(6), Padding = new Thickness(9, 5, 8, 6), Margin = new Thickness(0, 0, 0, 5), Child = sp0 };
-                (hd.StartsWith("🎯") || hd.StartsWith("💰") ? tabSig : tabFlow).Children.Add(bd0); storyRows.Add(Tuple.Create(bd0, tt0, tb0));
+                (hd.StartsWith("🎯") || hd.StartsWith("💰") ? tabStats : tabFlow).Children.Add(bd0); storyRows.Add(Tuple.Create(bd0, tt0, tb0));   /* 11v: the raw signal + expectancy details live in 📈 STATS */
             }
             // 4b. 🧭 THE MARKET READING (like SpasiX for MT5's ANALYSIS): the trend (EMA 21 / 50 of this timeframe), the VWAP, the sessions open now,
             // today's gap (09:30 vs yesterday's 16:00) and the next high-impact news → LEAN LONG / LEAN SHORT / WAIT with the reasons (a reading, not a signal)
             var rdTitle = new TextBlock { Text = "🧭 MARKET READING", FontSize = 13.5, FontWeight = FontWeights.Bold, Foreground = Gold, TextWrapping = TextWrapping.Wrap };
             var rdBody = new TextBlock { Text = "…", FontSize = 11.5, Foreground = Text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0), LineHeight = 17 };
-            var rdSp = new StackPanel(); rdSp.Children.Add(rdTitle); rdSp.Children.Add(rdBody); var rdCard = dockCard("", Gold); rdCard.Child = rdSp; tabSig.Children.Add(rdCard);
+            var rdSp = new StackPanel(); rdSp.Children.Add(rdTitle); rdSp.Children.Add(rdBody); var rdCard = dockCard("", Gold); rdCard.Child = rdSp;   /* 11v: the CONTEXT (no second verdict) — added to 🔍 WHY below */
             // 5. how to read the view on screen
             var helpT = new TextBlock { Text = "", Foreground = Text, FontSize = 11, TextWrapping = TextWrapping.Wrap }; var hCard = dockCard("", Muted); var hSp = new StackPanel(); hCard.Child = hSp; hCard.Margin = new Thickness(0, 4, 0, 8);
             hSp.Children.Add(new TextBlock { Text = "ⓘ THIS VIEW", Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) }); hSp.Children.Add(helpT); tabGuide.Children.Add(hCard);
@@ -46474,7 +46516,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     else { Tuple<GridLength, double> sv; if (ofSideSave.TryGetValue(pn, out sv)) { pn.SideCol.MinWidth = sv.Item2; pn.SideCol.Width = sv.Item1; } }
                 }
                 if (!on) ofSideSave.Clear();
-                ofDock.Visibility = on ? Visibility.Visible : Visibility.Collapsed; tabs.Margin = on ? new Thickness(0, 0, 348, 0) : tabsMargin0; if (ofDualHost != null) ofDualHost.Margin = on ? new Thickness(0, 0, 348, 0) : new Thickness(0);
+                ofDock.Visibility = on ? Visibility.Visible : Visibility.Collapsed; tabs.Margin = on ? new Thickness(0, 0, 424, 0) : tabsMargin0; if (ofDualHost != null) ofDualHost.Margin = on ? new Thickness(0, 0, 424, 0) : new Thickness(0);
                 if (on && layerOf("OF.TAB", 1) != 1) { layerModes["OF.TAB"] = 1; saveWorkspace(); paintOfTab(); }   // opening the tab = the order flow ON (it was left OFF: an empty tab)
                 if (on) { var paOn = active; if (paOn != null && paOn.OfRun != null) paOn.OfRun(true); }
                 if (on) { ofDockUpdate(); ofDockTimer.Start(); } else ofDockTimer.Stop();
@@ -57271,6 +57313,14 @@ namespace NinjaTrader.NinjaScript.AddOns
                 new[] { "STACKED IMBALANCES", "3+ prices in a row where buyers outnumbered the sellers one tick lower by 3 × or more (or the mirror) = one side took over decisively. The zone often holds when price comes back — the STOP goes just beyond it." },
                 new[] { "FUEL vs ENGINE", "Fuel = the aggressive orders (the delta). Engine = the price. Both the same way = a healthy move. Fuel without engine = absorbed (watch for a turn). Engine without fuel = a thin move / stops being run — it can snap back." },
                 new[] { "THE SIGNAL CARD", "A setup + where price is (value area), the flow of the last minute and the delta: when all agree the card says STRONG. The STOP goes beyond the level the setup defended, the TARGET at the next thick volume row; FILL ORDER only fills the order panel, TAKE uses the chart's own BUY / SELL (it asks first). A setup is a reading, not a promise — check its hit rate in 📈 STATS." },
+                new[] { "🎨 THE COLOURS (11v)", "Buyers = TEAL, sellers = CORAL, POC = GOLD, the value area = a faint SLATE band, trapped traders = AMBER, big players = VIOLET outline, neutral = GREY. The 💡 suggestion (a setup's ENTRY / TAKE PROFIT / STOP LOSS) is VIOLET and dashed; your own orders stay solid: MY TP / MY SL. 🎨 template ▸ ORDERFLOW COLOURS: TEAL / CORAL (default), CLASSIC green / red, MONO." },
+                new[] { "🧭 THE FLOW COMPASS", "ONE answer to \"who is in control\": the aggressive volume (½) and the price's progress (½) over the last ~60 s → a score −100 … +100. A side takes control only after +35 / −35 held for 20 s, leaves only under ±15, and every state lasts at least 60 s — no flipping every second. Every place that says BUYERS / SELLERS IN CONTROL reads it." },
+                new[] { "🚦 THE VERDICT", "✅ BUY / ✅ SELL = a confirmed setup (closed candles only) in the compass direction whose type has a PROVEN history (n ≥ 30, walk-forward, beats break-even after costs). 🧪 = offered but still learning (n). ⏳ WAIT says what it waits for. ⛔ AVOID says why (chop, against the flow, reward < risk, history says skip, news, at max contracts). 🧘 PATIENT: few setups a day, a cool-down of 2 candles after each." },
+                new[] { "TRAPPED TRADERS 🪤", "One side traded hard at a price band (≥ the size threshold, ≥ 60 % of the band) and within 5 min the price went ≥ 8 ticks against them — and is still beyond the band. Their stops / exits become fuel for the other side. Drawn as a small amber box at the right edge with the contracts." },
+                new[] { "BIG PRINTS ⚡", "Trades ≥ the big-trade size (⚙ SETTINGS), neighbours within 2 s merged. A bubble at the price; click = the size and what the price did after (pushed / held / failed)." },
+                new[] { "R:R, TAKE PROFIT, STOP LOSS", "R:R = the planned reward ÷ the planned risk from the ENTRY. The 💡 TAKE PROFIT / STOP LOSS $ are PLANNED from the entry and never move. Once you take the trade, MY TP / MY SL show the live $ of YOUR position." },
+                new[] { "THE SETUPS (what you see • what confirms • stop / take profit)", "ABSORPTION REVERSAL: 🧱 at a low / high • a closed candle back beyond it with the delta on its side • stop beyond the absorbed level, take profit at the next volume node. STACKED CONTINUATION: ▤ three+ imbalanced rows • the close beyond the signal candle • stop under the stack. DIVERGENCE + ABSORPTION: ⇅ + 🧱 together at an extreme. TRAPPED TRADERS: 🪤 box • the price stays beyond it • stop back inside the box. Coming (not built yet): EXHAUSTION FADE, FAILED AUCTION back into value, BIG-PRINT CONTINUATION." },
+                new[] { "⚡ SCALP FIRST • 📜 HISTORY REPLAY", "Each setup type's scalp targets (8 / 12 / 16 / 20 ticks) are measured against its own stop: win %, average ticks and the expectancy $ a contract AFTER costs (📊 ANALYZE). 🧠 LEARN ▸ 📜 PROVE FROM HISTORY replays the same detectors walk-forward over your saved real-tick days (📥 TICK LIBRARY) — labelled \"history replay\", never mixed up with live." },
             };
         }
         private void OpenTickLibrary(Window owner, string sym0)
