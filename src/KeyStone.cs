@@ -8660,7 +8660,7 @@ namespace NinjaTrader.NinjaScript
         public bool Empty { get { return Trades == 0; } }
     }
     public sealed class KeystoneProfile { public SortedDictionary<double, KeystoneOfRow> Rows = new SortedDictionary<double, KeystoneOfRow>(); public double Poc = double.NaN, Vah = double.NaN, Val = double.NaN; public long Volume, Buy, Sell; public List<double> Hvn = new List<double>(), Lvn = new List<double>(); }
-    public sealed class KeystoneOfSignal { public DateTime Time; public int Bar, Dir, Outcome, N, Wins; public string Kind = "", Why = ""; public double Price, Prob = double.NaN; }
+    public sealed class KeystoneOfSignal { public DateTime Time; public int Bar, Dir, Outcome, N, Wins; public string Kind = "", Why = ""; public double Price, Prob = double.NaN, ZoneLo = double.NaN, ZoneHi = double.NaN; /* 🏃 11x: a zone retest carries its zone */ }
     public sealed class KeystoneOfSettings
     {
         public int TicksPerRow = 1; public double ValueAreaPct = 70, ImbRatio = 3, AbsorbFrac = 0.35; public long ImbMinVol = 5; public int StackMin = 3;
@@ -8993,7 +8993,7 @@ namespace NinjaTrader.NinjaScript
     // 🎯 BUILD 11s — the ORDERFLOW desk's SIGNAL card (display only: it fills the order panel or goes through the chart's own BUY / SELL): the STOP just beyond the
     // level the signal defended (its side's stacked imbalance zone in the signal candle or the 2 before, else the signal candle's low / high) + 2 ticks, the TARGET at
     // the next volume node the trade's way at least 1 R away (a thick row HVN, then the POC / VAH / VAL), else the plan's bracket; the size from the $ risk
-    public sealed class KeystoneOfPlan { public int Dir, Qty; public double Entry, Stop, Target, StopPts, TargetPts, RiskUsd, RewardUsd; public string Level = "", TargetWhy = "", Symbol = "", Key = ""; public bool Capped, Widened; }
+    public sealed class KeystoneOfPlan { public int Dir, Qty; public double Entry, Stop, Target, StopPts, TargetPts, RiskUsd, RewardUsd, StructLevel = double.NaN; public string Level = "", TargetWhy = "", Symbol = "", Key = "", Style = "SCALP", TargetName = ""; public bool Capped, Widened; }
     public static class KeystoneOfDesk
     {
         // ⛽ FUEL vs ENGINE over the last candles: the fuel = the aggressive orders (the cumulative delta change), the engine = where the price went (ticks)
@@ -9041,7 +9041,7 @@ namespace NinjaTrader.NinjaScript
             if (frozen == null || price <= 0) return null; int d = frozen.Dir;
             double sp = d * (price - frozen.Stop), tp = d * (frozen.Target - price); if (sp <= 0 || tp <= 0) return null;
             return new KeystoneOfPlan { Dir = d, Qty = frozen.Qty, Entry = price, Stop = frozen.Stop, Target = frozen.Target, StopPts = sp, TargetPts = tp, RiskUsd = sp * pointValue * frozen.Qty, RewardUsd = tp * pointValue * frozen.Qty,
-                Level = frozen.Level, TargetWhy = frozen.TargetWhy, Symbol = frozen.Symbol, Key = frozen.Key, Capped = frozen.Capped, Widened = frozen.Widened };
+                Level = frozen.Level, TargetWhy = frozen.TargetWhy, Symbol = frozen.Symbol, Key = frozen.Key, Capped = frozen.Capped, Widened = frozen.Widened, Style = frozen.Style, TargetName = frozen.TargetName, StructLevel = frozen.StructLevel };
         }
         // the minimum stop (ticks) and the size cap of a card, per instrument: MNQ 5 pts, MGC 1.5 pts (the setting OF.MINSTOP wins when larger)
         public static int MinStopTicks(string symbol, int setting) { int d = symbol == "MGC" ? 15 : symbol == "MNQ" ? 20 : 8; return Math.Max(d, setting); }
@@ -9053,6 +9053,78 @@ namespace NinjaTrader.NinjaScript
             if (panelQty != card.Qty) return "the order panel holds " + panelQty + " contracts but the card says " + card.Qty;
             if (dir != card.Dir) return "the side differs from the card";
             return "";
+        }
+    }
+    // 🏃 BUILD 11x — the setup STYLE (user: "the entries are all a few points — we should also take some longer trades"): ⚡ SCALP (the 11v card: a few points, quick)
+    // or 🏃 SWING (a zone retest / a 5-min confirmation, the stop beyond the defended structure, the take profit at the next MAJOR level ≥ 2 R, fewer contracts from
+    // the wider stop) or ⚖ BOTH. Display / analysis only: TAKE stays the chart's own BUY / SELL with ONE bracket (asks first, the 11u contracts check, the armed link).
+    public sealed class KeystoneOfSwingResult { public KeystoneOfPlan Plan; public string Why = ""; public double BestR = double.NaN; }
+    public static class KeystoneOfStyle
+    {
+        public const int Scalp = 0, Swing = 1, Both = 2;
+        public static readonly string[] Names = { "⚡ SCALP", "🏃 SWING", "⚖ BOTH" };
+        public static int Clamp(int v) { return v < 0 || v > 2 ? Both : v; }
+        public static bool WantsScalp(int style) { return Clamp(style) != Swing; }
+        public static bool WantsSwing(int style) { return Clamp(style) != Scalp; }
+        public static string Icon(string style) { return style == "SWING" ? "🏃" : "⚡"; }
+        public static string Word(string style) { return style == "SWING" ? "🏃 SWING" : "⚡ SCALP"; }
+        public static string Of(KeystoneOfSetupRow r) { return r == null || string.IsNullOrEmpty(r.Style) ? "SCALP" : r.Style; }
+        // the SWING minimum stop (ticks): MNQ 12 pts, MGC 3 pts (the setting OF.SWMINSTOP wins when larger)
+        public static int SwingMinStopTicks(string symbol, int setting) { int d = symbol == "MGC" ? 30 : symbol == "MNQ" ? 48 : 32; return Math.Max(d, setting); }
+        // a swing card expires at 16:50 New York (times here are New York); after 16:50 → the next day's 16:50 (its 60-min life ends first)
+        public static DateTime SwingEnd(DateTime shownNy) { var e = shownNy.Date.AddHours(16).AddMinutes(50); return shownNy < e ? e : e.AddDays(1); }
+        // the CLOSED 5-minute windows (start, end] of the last `hours` up to now — a SWING on a 1- / 2- / 3-min chart is judged on 5-min footprints built from the same trades
+        public static List<Tuple<DateTime, DateTime>> Windows5(DateTime now, double hours, int minutes = 5)
+        {
+            var o = new List<Tuple<DateTime, DateTime>>(); if (minutes <= 0) return o; var e = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute - now.Minute % minutes, 0);
+            for (var t = e.AddHours(-hours); t.AddMinutes(minutes) <= e; t = t.AddMinutes(minutes)) o.Add(Tuple.Create(t, t.AddMinutes(minutes)));
+            return o;
+        }
+        // ⚖ the SCALE-OUT idea on a SWING card — TEXT only (never an order, never a split): part off at +partTicks, the rest to the named level
+        public static string ScaleOutIdea(KeystoneOfPlan p, int partTicks, double tick)
+        {
+            if (p == null || p.Style != "SWING" || tick <= 0) return ""; var IC = CultureInfo.InvariantCulture; double part = Math.Round((p.Entry + p.Dir * partTicks * tick) / tick) * tick;
+            string lvl = (string.IsNullOrEmpty(p.TargetName) ? "the target " : "the " + p.TargetName + " ") + p.Target.ToString("0.00", IC);
+            return "⚖ idea: take part off at +" + partTicks + " ticks (" + part.ToString("0.00", IC) + ") and let the rest run to " + lvl + (p.Qty < 2 ? " — with 1 contract there is no part to take off" : "") + " • text only: TAKE sends ONE bracket, nothing is split";
+        }
+    }
+    public static class KeystoneOfSwing
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        // the MAJOR levels a swing aims for: today's POC / VAH / VAL, the prior day's high / low / close, the overnight high / low, the day high / low, the 2 biggest HVNs
+        public static List<Tuple<double, string>> MajorLevels(KeystoneProfile prof, double pdh, double pdl, double pdc, double onHi, double onLo, double dayHi, double dayLo)
+        {
+            var o = new List<Tuple<double, string>>(); Action<double, string> add = (v, n) => { if (!double.IsNaN(v) && v > 0) o.Add(Tuple.Create(v, n)); };
+            if (prof != null) { add(prof.Poc, "POC"); add(prof.Vah, "VAH"); add(prof.Val, "VAL"); int k = 0; foreach (var h in prof.Hvn) { if (k++ >= 2) break; add(h, "HVN"); } }
+            add(pdh, "PRIOR HIGH"); add(pdl, "PRIOR LOW"); add(pdc, "PRIOR CLOSE"); add(onHi, "OVERNIGHT HIGH"); add(onLo, "OVERNIGHT LOW"); add(dayHi, "DAY HIGH"); add(dayLo, "DAY LOW");
+            return o;
+        }
+        // the SWING plan: the stop beyond the defended structure (the zone's far edge and / or the signal candle's far extreme, whichever is farther) + buffer ticks,
+        // at least minStopTicks; the TAKE PROFIT = the first major level ≥ rrMin R away the trade's way (named); none → no swing ("no room for a swing: next level 1.3 R");
+        // contracts = riskUsd ÷ the (wider) stop $, capped at maxQty (the 11u cap)
+        public static KeystoneOfSwingResult Plan(KeystoneOfSignal sg, KeystoneFootprint candle, double price, double tick, double pointValue, double riskUsd, List<Tuple<double, string>> levels, int bufferTicks, int minStopTicks, int maxQty, double rrMin = 2)
+        {
+            var res = new KeystoneOfSwingResult(); if (sg == null || sg.Dir == 0 || tick <= 0 || price <= 0) { res.Why = "no signal"; return res; }
+            int dir = sg.Dir; double level = double.NaN; string why = "";
+            double zEdge = dir > 0 ? sg.ZoneLo : sg.ZoneHi; if (!double.IsNaN(zEdge) && dir * (price - zEdge) > 0) { level = zEdge; why = "the zone " + sg.ZoneLo.ToString("0.00", IC) + "–" + sg.ZoneHi.ToString("0.00", IC); }
+            if (candle != null && !candle.Empty) { double v = dir > 0 ? candle.Low : candle.High; if (dir * (price - v) > 0 && (double.IsNaN(level) || dir * (level - v) > 0)) { level = v; why = "the signal candle's " + (dir > 0 ? "low " : "high ") + v.ToString("0.00", IC) + (why != "" ? " (under " + why + ")" : ""); } }
+            if (double.IsNaN(level)) { res.Why = "no swing: the price already went through the structure it defended"; return res; }
+            Func<double, double> rt = x => Math.Round(x / tick) * tick;
+            double stop = rt(level - dir * Math.Max(0, bufferTicks) * tick), risk = dir * (price - stop); bool widened = false; int minT = Math.Max(2, minStopTicks);
+            if (risk < minT * tick - 1e-9) { stop = rt(price - dir * minT * tick); risk = dir * (price - stop); widened = true; }
+            var ahead = (levels ?? new List<Tuple<double, string>>()).Where(l => dir * (l.Item1 - price) > tick * 0.5).OrderBy(l => dir * (l.Item1 - price)).ToList();
+            if (ahead.Count > 0) res.BestR = ahead.Max(l => dir * (l.Item1 - price)) / risk;
+            var best = ahead.FirstOrDefault(l => dir * (rt(l.Item1) - price) >= rrMin * risk - 1e-9);
+            if (best == null) { res.Why = ahead.Count == 0 ? "no room for a swing: no major level ahead" : "no room for a swing: next level " + res.BestR.ToString("0.0", IC) + " R (" + ahead.OrderByDescending(l => dir * (l.Item1 - price)).First().Item2 + ")"; return res; }
+            double target = rt(best.Item1); int qty = Math.Max(1, (int)Math.Floor(riskUsd / Math.Max(1e-9, risk * pointValue) + 1e-9)); bool capped = false; if (maxQty > 0 && qty > maxQty) { qty = maxQty; capped = true; }
+            res.Plan = new KeystoneOfPlan { Style = "SWING", TargetName = best.Item2, StructLevel = level, Capped = capped, Widened = widened, Dir = dir, Qty = qty, Entry = price, Stop = stop, Target = target, StopPts = risk, TargetPts = dir * (target - price),
+                RiskUsd = risk * pointValue * qty, RewardUsd = dir * (target - price) * pointValue * qty, Level = why, TargetWhy = "🏃 SWING → the " + best.Item2 + " " + target.ToString("0.00", IC) + " (the first major level ≥ " + rrMin.ToString("0", IC) + " R)" };
+            res.Why = "ok"; return res;
+        }
+        // the chart label of a TAKE PROFIT: "💡 TAKE PROFIT 28300.00 (VAH) +$… planned"
+        public static string TpLabel(KeystoneOfSetupRecord r, double usd, string fmtPrice)
+        {
+            return (r != null && r.Style == "SWING" ? "🏃 " : "⚡ ") + "💡 TAKE PROFIT " + fmtPrice + (r != null && !string.IsNullOrEmpty(r.TargetName) ? " (" + r.TargetName + ")" : "") + " • +$" + Math.Round(usd).ToString("N0", IC) + " planned";
         }
     }
     // ================= 📊 BUILD 2026-11-12v — the CALM ORDERFLOW (display / analysis only: nothing here sends, sizes or places an order) =================
@@ -9128,6 +9200,15 @@ namespace NinjaTrader.NinjaScript
         public static string StateText(int s) { return s > 0 ? "BUYERS IN CONTROL" : s < 0 ? "SELLERS IN CONTROL" : "BALANCED"; }
         public static string SideWord(int s) { return s > 0 ? "BUYERS" : s < 0 ? "SELLERS" : "BALANCED"; }
         public string Text { get { return StateText(State); } }
+        // 11x fix (user saw "SELLERS +48" while buyers were clearly winning): the state is HELD 60 s minimum, so it can disagree with the score —
+        // shown as "SELLERS fading → BUYERS +48" (muted) instead of a plain "SELLERS +48"
+        public static bool Fading(int state, double score) { return state != 0 && score * state < 15; }
+        public static string Shown(int state, double score)
+        {
+            if (!Fading(state, score)) return SideWord(state) + " " + ScoreText(score);
+            return SideWord(state) + " fading → " + (Math.Abs(score) >= 15 ? SideWord(Math.Sign(score)) : "BALANCED") + " " + ScoreText(score);
+        }
+        public static string ShownLong(int state, double score) { return Fading(state, score) ? Shown(state, score) : StateText(state) + " " + ScoreText(score); }
         public double HeldSec(DateTime now) { return Since == DateTime.MinValue ? 0 : Math.Max(0, (now - Since).TotalSeconds); }
         public static string Held(double sec) { return sec < 60 ? ((int)sec).ToString(CultureInfo.InvariantCulture) + " s" : sec < 3600 ? ((int)(sec / 60)).ToString(CultureInfo.InvariantCulture) + " min" : (sec / 3600).ToString("0.0", CultureInfo.InvariantCulture) + " h"; }
         public static string ScoreText(double sc) { return (sc > 0 ? "+" : sc < 0 ? "−" : "") + Math.Abs(sc).ToString("0", CultureInfo.InvariantCulture); }
@@ -9279,7 +9360,7 @@ namespace NinjaTrader.NinjaScript
     // and not flagged by its history, is offered; the rest is one grey line in the dock (never lines on the chart, never a TAKE)
     public static class KeystoneFlowGate
     {
-        public const int None = 0, Offer = 1, SkipRr = 2, Against = 3, NoPlan = 4, HistorySkip = 5, Forming = 6;
+        public const int None = 0, Offer = 1, SkipRr = 2, Against = 3, NoPlan = 4, HistorySkip = 5, Forming = 6, NoRoom = 7;
         public static double Rr(KeystoneOfPlan p) { return p == null || p.StopPts <= 0 ? 0 : p.TargetPts / p.StopPts; }
         public static Tuple<int, string> Decide(KeystoneOfSignal confirmed, int closedBars, int compassState, KeystoneOfPlan plan, string historySkip = null, double rrMin = 1)
         {
@@ -9292,6 +9373,15 @@ namespace NinjaTrader.NinjaScript
             if (!string.IsNullOrEmpty(historySkip)) return Tuple.Create(HistorySkip, historySkip);
             return Tuple.Create(Offer, compassState == 0 ? "against no one / balanced" : "with the " + KeystoneFlowCompass.SideWord(compassState).ToLowerInvariant());
         }
+        // 🏃 11x: the SWING gate — the same rules (closed candle, compass, history) with R:R ≥ 2 and "no room" when no major level is ≥ 2 R away
+        public static Tuple<int, string> DecideSwing(KeystoneOfSignal confirmed, int closedBars, int compassState, KeystoneOfSwingResult sw, string historySkip = null)
+        {
+            if (confirmed == null) return Tuple.Create(None, "");
+            string nm = "🏃 " + (confirmed.Dir > 0 ? "▲ " : "▼ ") + confirmed.Kind;
+            if (confirmed.Bar >= closedBars) return Tuple.Create(Forming, "watching: " + nm + " — waits for the closed candle");
+            if (sw == null || sw.Plan == null) return Tuple.Create(NoRoom, (sw == null ? "no swing" : sw.Why) + " — " + nm);
+            return Decide(confirmed, closedBars, compassState, sw.Plan, historySkip, 2);
+        }
         public static string Watching(KeystoneOfSignal raw) { return raw == null ? "" : "watching: raw " + (raw.Dir > 0 ? "▲ " : "▼ ") + raw.Kind + " — waits for the closed candle"; }
         // ⚠ a setup against the position open on the chart's account
         public static string AgainstPosition(int setupDir, int position)
@@ -9302,17 +9392,20 @@ namespace NinjaTrader.NinjaScript
     }
     // 🎯 the CARD HOLD — a shown card stays until its stop / target, SKIP, TAKE, 10 minutes, or (only after its candle + 1 closed) the compass turning against it;
     // every removal carries its reason and goes into the recent setups (last 10). Never a silent disappearance; never replaced by another card while shown.
-    public sealed class KeystoneOfSetupRecord { public string Key = "", Kind = "", Symbol = "", Result = "", Reason = ""; public int Id, Dir, Qty, Bar, ShownClosed; public DateTime Time, Shown, Ended; public double Entry, Stop, Target; }
+    public sealed class KeystoneOfSetupRecord { public string Key = "", Kind = "", Symbol = "", Result = "", Reason = "", Style = "SCALP", TargetName = ""; public int Id, Dir, Qty, Bar, ShownClosed; public DateTime Time, Shown, Ended, ExpireAt = DateTime.MaxValue; public double Entry, Stop, Target, StructLevel = double.NaN; }
     public sealed class KeystoneOfCardHold
     {
-        public KeystoneOfSetupRecord Current; public KeystoneOfPlan Frozen; public double MaxMinutes = 10; public string LastRemoved = ""; public int NextId = 1, CoolBars = 2, coolUntil = -1;   /* 🧘 after a setup ends: no new one for CoolBars closed candles */
+        public KeystoneOfSetupRecord Current; public KeystoneOfPlan Frozen; public double MaxMinutes = 10; public string LastRemoved = "", Style = "SCALP"; public int WithdrawAfter = 1;   /* 🏃 11x: a SWING hold = Style "SWING", MaxMinutes 60, expires at 16:50 NY, withdrawn later */
+        public static KeystoneOfCardHold NewSwing(double maxMinutes = 60) { return new KeystoneOfCardHold { Style = "SWING", MaxMinutes = maxMinutes, WithdrawAfter = 3 }; }
+        public int NextId = 1, CoolBars = 2, coolUntil = -1;   /* 🧘 after a setup ends: no new one for CoolBars closed candles */
         public readonly List<KeystoneOfSetupRecord> History = new List<KeystoneOfSetupRecord>(); readonly HashSet<string> done = new HashSet<string>();
         public bool Offer(KeystoneOfSignal sg, KeystoneOfPlan frozen, string symbol, DateTime now, int closedBars)
         {
             if (Current != null || sg == null || frozen == null || sg.Bar >= closedBars) return false;   // the forming candle never shows a card
             if (closedBars < coolUntil) return false;   // 🧘 the cool-down after the last one
-            string key = (symbol ?? "") + "|" + sg.Time.Ticks + "|" + sg.Dir; if (done.Contains(key)) return false;
-            Current = new KeystoneOfSetupRecord { Id = NextId++, Key = key, Kind = sg.Kind, Symbol = symbol ?? "", Dir = sg.Dir, Qty = frozen.Qty, Bar = sg.Bar, ShownClosed = closedBars, Time = sg.Time, Shown = now, Entry = frozen.Entry, Stop = frozen.Stop, Target = frozen.Target };
+            string key = (symbol ?? "") + "|" + sg.Time.Ticks + "|" + sg.Dir + (Style == "SWING" ? "|SW" : ""); if (done.Contains(key)) return false;
+            Current = new KeystoneOfSetupRecord { Id = NextId++, Key = key, Kind = sg.Kind, Symbol = symbol ?? "", Dir = sg.Dir, Qty = frozen.Qty, Bar = sg.Bar, ShownClosed = closedBars, Time = sg.Time, Shown = now, Entry = frozen.Entry, Stop = frozen.Stop, Target = frozen.Target,
+                Style = Style, TargetName = frozen.TargetName ?? "", StructLevel = frozen.StructLevel, ExpireAt = Style == "SWING" ? KeystoneOfStyle.SwingEnd(now) : DateTime.MaxValue };
             Frozen = frozen; frozen.Key = key; return true;
         }
         public bool WasShown(string key) { return done.Contains(key) || (Current != null && Current.Key == key); }
@@ -9338,8 +9431,9 @@ namespace NinjaTrader.NinjaScript
             if (pending != null) return pending;
             if (price > 0 && d * (price - Current.Stop) <= 0) return Tuple.Create("stopped", "price hit its stop " + Current.Stop.ToString("0.00", IC));
             if (price > 0 && d * (Current.Target - price) <= 0) return Tuple.Create("target", "price reached its target " + Current.Target.ToString("0.00", IC));
+            if (now >= Current.ExpireAt) return Tuple.Create("expired", "expired at 16:50 NY (a swing never stays into the close)");
             if ((now - Current.Shown).TotalMinutes >= MaxMinutes) return Tuple.Create("expired", "expired after " + MaxMinutes.ToString("0", IC) + " min");
-            if (compassState == -d && closedBars >= Current.ShownClosed + 1) return Tuple.Create("withdrawn", "the compass turned " + KeystoneFlowCompass.SideWord(compassState) + " — not offered any more");
+            if (compassState == -d && closedBars >= Current.ShownClosed + Math.Max(1, WithdrawAfter)) return Tuple.Create("withdrawn", "the compass turned " + KeystoneFlowCompass.SideWord(compassState) + " — not offered any more");
             return Tuple.Create("", "");
         }
         public KeystoneOfSetupRecord End(DateTime now, string result, string reason)
@@ -9352,12 +9446,12 @@ namespace NinjaTrader.NinjaScript
         // a setup that was never shown (against the flow, R:R < 1, history says skip) — listed with its reason, once
         public void Note(KeystoneOfSignal sg, string symbol, DateTime now, string result, string reason)
         {
-            if (sg == null) return; string key = (symbol ?? "") + "|" + sg.Time.Ticks + "|" + sg.Dir + "|n"; if (done.Contains(key)) return; done.Add(key);
-            History.Insert(0, new KeystoneOfSetupRecord { Key = key, Kind = sg.Kind, Symbol = symbol ?? "", Dir = sg.Dir, Time = sg.Time, Shown = now, Ended = now, Entry = sg.Price, Result = result, Reason = reason });
+            if (sg == null) return; string key = (symbol ?? "") + "|" + sg.Time.Ticks + "|" + sg.Dir + (Style == "SWING" ? "|SW" : "") + "|n"; if (done.Contains(key)) return; done.Add(key);
+            History.Insert(0, new KeystoneOfSetupRecord { Style = Style, Key = key, Kind = sg.Kind, Symbol = symbol ?? "", Dir = sg.Dir, Time = sg.Time, Shown = now, Ended = now, Entry = sg.Price, Result = result, Reason = reason });
             if (History.Count > 10) History.RemoveAt(History.Count - 1);
         }
         // the chart chip / card title: the setup's id + time, so the same setup is recognisable ("#14 ▲ BUY 10 MNQ • 20:39 • R:R 2.2")
-        public static string Chip(KeystoneOfSetupRecord r, KeystoneOfPlan p, string sym) { return r == null || p == null ? "" : "#" + r.Id + " " + (r.Dir > 0 ? "▲ BUY " : "▼ SELL ") + r.Qty + " " + sym + " • " + r.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + " • R:R " + KeystoneFlowGate.Rr(p).ToString("0.0", CultureInfo.InvariantCulture); }
+        public static string Chip(KeystoneOfSetupRecord r, KeystoneOfPlan p, string sym) { return r == null || p == null ? "" : (r.Style == "SWING" ? "🏃 " : "") + "#" + r.Id + " " + (r.Dir > 0 ? "▲ BUY " : "▼ SELL ") + r.Qty + " " + sym + " • " + r.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + " • R:R " + KeystoneFlowGate.Rr(p).ToString("0.0", CultureInfo.InvariantCulture); }
         // the PLANNED $ from the setup's ENTRY (fixed for the setup's life — never the distance from the current price)
         public static double PlannedProfit(KeystoneOfSetupRecord r, double pv) { return r == null ? 0 : Math.Abs(r.Target - r.Entry) * pv * r.Qty; }
         public static double PlannedLoss(KeystoneOfSetupRecord r, double pv) { return r == null ? 0 : Math.Abs(r.Entry - r.Stop) * pv * r.Qty; }
@@ -9369,13 +9463,14 @@ namespace NinjaTrader.NinjaScript
             if (worse > 0 && stopD > 0 && worse > 0.25 * stopD) { missed = true; return "⚠ entry missed — WAIT for a return to " + r.Entry.ToString("0.00", IC) + " (price now " + price.ToString("0.00", IC) + ")"; }
             return "price now " + price.ToString("0.00", IC) + " (" + Math.Abs(worse).ToString("0.00", IC) + " pts " + (worse > 0 ? "worse" : "better") + " than the entry)";
         }
-        public static string Line(KeystoneOfSetupRecord r) { return (r.Id > 0 ? "#" + r.Id + " " : "") + r.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + "  " + (r.Dir > 0 ? "▲ " : "▼ ") + r.Kind + "  " + r.Result.ToUpperInvariant() + " — " + r.Reason; }
+        public static string Line(KeystoneOfSetupRecord r) { return KeystoneOfStyle.Icon(r.Style) + " " + (r.Id > 0 ? "#" + r.Id + " " : "") + r.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + "  " + (r.Dir > 0 ? "▲ " : "▼ ") + r.Kind + "  " + r.Result.ToUpperInvariant() + " — " + r.Reason; }
     }
     // 🚦 WHAT TO DO — exactly ONE verdict (✅ TAKE / ⏳ WAIT / ⛔ AVOID) with its reason. TAKE only with an offered card; the hard AVOIDs (in a trade at max,
     // news, no trades) are immediate; any other change of verdict must hold HoldSec (15 s) first and a reason is kept ≥ 10 s → no flicker.
     public sealed class KeystoneFlowVerdictInput
     {
-        public bool Proven, EntryMissed, Patient, NoHistory; public int CardDir; public string LearnText = "", MissedText = "", LastText = "", ZoneWait = "";
+        public bool Proven, EntryMissed, Patient, NoHistory; public int CardDir; public string LearnText = "", MissedText = "", LastText = "", ZoneWait = "", CardStyle = "", CardSummary = "";   /* 🏃 11x: "SWING" + "3 MNQ • R:R 2.4 • TP at VAH" */
+       
         public bool CardOffered, InTradeAtMax, NewsLock, Quiet, AgainstFlow, AgainstPosition, HistorySkip; public string CardText = "", NewsText = "", AgainstText = "", RawWait = "", NearLevel = "", PositionText = "", HistoryText = "";
         public double SkippedRr = double.NaN; public int CompassState; public double CompassScore;
     }
@@ -9407,10 +9502,10 @@ namespace NinjaTrader.NinjaScript
             }
             return Tuple.Create("WAIT", "a confirmed " + (x.CompassState > 0 ? "▲" : "▼") + " setup with the " + KeystoneFlowCompass.SideWord(x.CompassState).ToLowerInvariant() + (string.IsNullOrEmpty(x.NearLevel) ? "" : " — or " + x.NearLevel), false);
         }
-        public bool Proven; public int Dir; public string Learn = "";
+        public bool Proven; public int Dir; public string Learn = "", Style = "", Summary = "";
         public void Update(KeystoneFlowVerdictInput x, DateTime now)
         {
-            var r = Raw(x); Proven = x.Proven; Dir = x.CardDir; Learn = x.LearnText ?? "";
+            var r = Raw(x); Proven = x.Proven; Dir = x.CardDir; Learn = x.LearnText ?? ""; Style = x.CardStyle ?? ""; Summary = x.CardSummary ?? "";
             if (Since == DateTime.MinValue) { Kind = r.Item1; Reason = r.Item2; Since = reasonAt = now; pendKind = ""; return; }
             if (r.Item1 == Kind) { pendKind = ""; if (r.Item2 != Reason && (Kind == "TAKE" || r.Item3 || (now - reasonAt).TotalSeconds >= ReasonSec)) { Reason = r.Item2; reasonAt = now; } return; }
             if (r.Item3 || Kind == "TAKE") { Kind = r.Item1; Reason = r.Item2; Since = reasonAt = now; pendKind = ""; return; }
@@ -9418,7 +9513,7 @@ namespace NinjaTrader.NinjaScript
             if ((now - pendSince).TotalSeconds >= HoldSec) { Kind = r.Item1; Reason = r.Item2; Since = reasonAt = now; pendKind = ""; }
         }
         // ✅ BUY / ✅ SELL only when the setup type's measured win rate (n ≥ 30, walk-forward) beats its break-even; else 🧪 … learning (n) — never a made-up %
-        public string Head { get { return Kind == "TAKE" ? (Proven ? "✅ " : "🧪 ") + (Dir < 0 ? "SELL" : "BUY") + (Proven ? "" : " • " + (Learn != "" ? Learn : "learning")) : Kind == "AVOID" ? "⛔ AVOID" : "⏳ WAIT"; } }
+        public string Head { get { return Kind == "TAKE" ? (Proven ? "✅ " : "🧪 ") + (Style != "" ? Style + " " : "") + (Dir < 0 ? "SELL" : "BUY") + (Summary != "" ? " " + Summary : "") + (Proven ? "" : " • " + (Learn != "" ? Learn : "learning")) : Kind == "AVOID" ? "⛔ AVOID" : "⏳ WAIT"; } }
     }
     // 🏦 ACCOUNT FIT — does the frozen plan fit the chart account's rules? display only (the card's contracts never change by themselves)
     public static class KeystoneFlowFit
@@ -9457,16 +9552,17 @@ namespace NinjaTrader.NinjaScript
     // OUTCOMES measured on the REAL trades that followed it (never before it, never after the clock): target-or-stop, R, MFE / MAE, the scalp ±8 ticks, the 5 / 15 / 30-min move
     public sealed class KeystoneOfSetupRow
     {
-        public DateTime Time; public string Symbol = "", Kind = "", Status = "", Location = "", Taken = "", MyResult = "", Scalps = ""; public int Dir, Compass, Qty, Result, Scalp; public bool Done;   /* Scalps: "8:+1;12:-1;…" = each scalp target (ticks) vs the setup's stop: +1 first, −1 stop first, 0 neither */
+        public DateTime Time; public string Symbol = "", Kind = "", Status = "", Location = "", Taken = "", MyResult = "", Scalps = "", Style = "SCALP";   /* 🏃 11x: SCALP / SWING (old files = SCALP) */
+        public int Dir, Compass, Qty, Result, Scalp; public bool Done;   /* Scalps: "8:+1;12:-1;…" = each scalp target (ticks) vs the setup's stop: +1 first, −1 stop first, 0 neither */
         public double CompassScore, Delta, Big, Trapped, Entry, Stop, Target, R = double.NaN, Mfe, Mae, M5 = double.NaN, M15 = double.NaN, M30 = double.NaN;
-        public string Key { get { return Time.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "|" + Symbol + "|" + Dir + "|" + Kind; } }
+        public string Key { get { return Time.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "|" + Symbol + "|" + Dir + "|" + Kind + (Style == "SWING" ? "|SWING" : ""); } }
         public int Agree { get { return Compass == 0 ? 0 : Compass == Dir ? 1 : -1; } }
         public double Rr { get { double s = Dir * (Entry - Stop); return s > 0 ? Dir * (Target - Entry) / s : 0; } }
     }
     public static class KeystoneOfSetupBook
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
-        public const string Header = "time,symbol,kind,side,status,compass,compass_score,location,delta,big,trapped,entry,stop,target,qty,result,r,mfe,mae,scalp,m5,m15,m30,done,taken,my_result,scalps";
+        public const string Header = "time,symbol,kind,side,status,compass,compass_score,location,delta,big,trapped,entry,stop,target,qty,result,r,mfe,mae,scalp,m5,m15,m30,done,taken,my_result,scalps,style";
         public static readonly int[] ScalpTicks = { 8, 12, 16, 20 };
         public static string PathOf(string folder, string sym, DateTime day) { return Path.Combine(folder ?? "", "OrderFlow", "setups-" + (sym ?? "") + "-" + day.ToString("yyyy-MM-dd", IC) + ".csv"); }
         static string N(double v) { return double.IsNaN(v) ? "" : v.ToString("0.####", IC); }
@@ -9475,7 +9571,7 @@ namespace NinjaTrader.NinjaScript
         {
             Func<string, string> q = s => (s ?? "").Replace(",", ";").Replace("\n", " ");
             return string.Join(",", r.Time.ToString("yyyy-MM-dd HH:mm:ss", IC), q(r.Symbol), q(r.Kind), r.Dir > 0 ? "BUY" : "SELL", q(r.Status), r.Compass, N(r.CompassScore), q(r.Location), N(r.Delta), N(r.Big), N(r.Trapped),
-                N(r.Entry), N(r.Stop), N(r.Target), r.Qty, r.Result, N(r.R), N(r.Mfe), N(r.Mae), r.Scalp, N(r.M5), N(r.M15), N(r.M30), r.Done ? 1 : 0, q(r.Taken), q(r.MyResult), q(r.Scalps));
+                N(r.Entry), N(r.Stop), N(r.Target), r.Qty, r.Result, N(r.R), N(r.Mfe), N(r.Mae), r.Scalp, N(r.M5), N(r.M15), N(r.M30), r.Done ? 1 : 0, q(r.Taken), q(r.MyResult), q(r.Scalps), r.Style == "SWING" ? "SWING" : "SCALP");
         }
         public static KeystoneOfSetupRow Parse(string l)
         {
@@ -9483,7 +9579,7 @@ namespace NinjaTrader.NinjaScript
             if (!DateTime.TryParseExact(a[0], "yyyy-MM-dd HH:mm:ss", IC, DateTimeStyles.None, out t)) return null;
             Func<string, int> I = s => { int v; return int.TryParse(s, NumberStyles.Integer, IC, out v) ? v : 0; };
             return new KeystoneOfSetupRow { Time = t, Symbol = a[1], Kind = a[2], Dir = a[3] == "SELL" ? -1 : 1, Status = a[4], Compass = I(a[5]), CompassScore = D(a[6]), Location = a[7], Delta = D(a[8]), Big = D(a[9]), Trapped = D(a[10]),
-                Entry = D(a[11]), Stop = D(a[12]), Target = D(a[13]), Qty = I(a[14]), Result = I(a[15]), R = D(a[16]), Mfe = D(a[17]), Mae = D(a[18]), Scalp = I(a[19]), M5 = D(a[20]), M15 = D(a[21]), M30 = D(a[22]), Done = a[23] == "1", Taken = a[24], MyResult = a[25], Scalps = a.Length > 26 ? a[26] : "" };
+                Entry = D(a[11]), Stop = D(a[12]), Target = D(a[13]), Qty = I(a[14]), Result = I(a[15]), R = D(a[16]), Mfe = D(a[17]), Mae = D(a[18]), Scalp = I(a[19]), M5 = D(a[20]), M15 = D(a[21]), M30 = D(a[22]), Done = a[23] == "1", Taken = a[24], MyResult = a[25], Scalps = a.Length > 26 ? a[26] : "", Style = a.Length > 27 && a[27].Trim() == "SWING" ? "SWING" : "SCALP" };
         }
         // the outcomes from the trades AFTER the setup's time up to `now` only (no look-ahead); done when decided and the 30-min move is known (or 60 min passed)
         public static void Measure(KeystoneOfSetupRow r, List<KeystoneOfTick> t, int endN, DateTime now, double tick, int scalpTicks = 8)
@@ -9576,7 +9672,7 @@ namespace NinjaTrader.NinjaScript
     // day one. Research only: it reads saved trades and sends nothing.
     public static class KeystoneOfHistory
     {
-        public static List<KeystoneOfSetupRow> Replay(List<KeystoneOfTick> t, string sym, double tick, double pv, KeystoneOfSettings s, int minStopTicks, int scalpTicks, int tfMin = 1)
+        public static List<KeystoneOfSetupRow> Replay(List<KeystoneOfTick> t, string sym, double tick, double pv, KeystoneOfSettings s, int minStopTicks, int scalpTicks, int tfMin = 1, bool swing = false, int swMinStopTicks = 48, int maxQty = 10)
         {
             var rows = new List<KeystoneOfSetupRow>(); if (t == null || t.Count < 100 || tick <= 0) return rows; s = s ?? new KeystoneOfSettings();
             var wins = new List<Tuple<DateTime, DateTime>>(); DateTime a = new DateTime(t[0].Time.Year, t[0].Time.Month, t[0].Time.Day, t[0].Time.Hour, t[0].Time.Minute, 0), end = t[t.Count - 1].Time;
@@ -9602,6 +9698,33 @@ namespace NinjaTrader.NinjaScript
                     Delta = fps[g.Bar].Delta, Entry = g.Price, Stop = plan.Stop, Target = tgt, Qty = plan.Qty };
                 KeystoneOfSetupBook.Measure(r, t, t.Count, end, tick); rows.Add(r);
             }
+            if (swing) rows.AddRange(ReplaySwing(t, sym, tick, pv, s, fps, zc, swMinStopTicks, maxQty));
+            return rows.OrderBy(x => x.Time).ToList();
+        }
+        // 🏃 11x: the SWING setups of the day — confirmed 5-min signals (5-min footprints from the same trades) + the zone retests, the swing plan (stop beyond the
+        // structure, the first major level ≥ 2 R: today's profile so far, the day / overnight high / low so far), outcomes from the trades after each (60 min)
+        public static List<KeystoneOfSetupRow> ReplaySwing(List<KeystoneOfTick> t, string sym, double tick, double pv, KeystoneOfSettings s, List<KeystoneFootprint> fps1, List<KeystoneOfSignal> zoneConf, int swMinStopTicks, int maxQty)
+        {
+            var rows = new List<KeystoneOfSetupRow>(); if (t == null || t.Count < 100 || fps1 == null) return rows; DateTime end = t[t.Count - 1].Time;
+            var w5 = new List<Tuple<DateTime, DateTime>>(); var a = new DateTime(t[0].Time.Year, t[0].Time.Month, t[0].Time.Day, t[0].Time.Hour, t[0].Time.Minute - t[0].Time.Minute % 5, 0);
+            for (var w = a; w < end; w = w.AddMinutes(5)) w5.Add(Tuple.Create(w, w.AddMinutes(5)));
+            var fp5 = KeystoneOrderFlow.Footprints(t, w5, tick, s); var c5 = fp5.Count >= 6 ? KeystoneOrderFlow.Confirm(KeystoneOrderFlow.Signals(fp5, tick, s), fp5, tick, s, false) : new List<KeystoneOfSignal>();
+            var cands = c5.Select(g => Tuple.Create(g, fp5[g.Bar], "5M " + g.Kind)).Concat((zoneConf ?? new List<KeystoneOfSignal>()).Select(g => Tuple.Create(g, g.Bar >= 0 && g.Bar < fps1.Count ? fps1[g.Bar] : null, g.Kind))).OrderBy(x => x.Item1.Time).ToList();
+            var comp = new KeystoneFlowCompass(); int ti = 0; DateTime last = DateTime.MinValue;
+            foreach (var c in cands)
+            {
+                var g = c.Item1; if (g.Time <= last.AddMinutes(10)) continue;   // one swing at a time (roughly: 10 min apart)
+                for (; ti < t.Count && t[ti].Time <= g.Time; ti++) comp.Feed(t[ti].Time, t[ti].Price, t[ti].Size, t[ti].Side, tick); comp.Advance(g.Time, tick);
+                var upto = fps1.Where(f => !f.Empty && f.End <= g.Time).ToList(); if (upto.Count < 10) continue;
+                var prof = KeystoneOrderFlow.Profile(upto, tick, s); DateTime sess = g.Time.Hour >= 18 ? g.Time.Date.AddDays(1) : g.Time.Date;
+                var on = upto.Where(f => f.End <= sess.AddHours(9.5) && f.End > sess.AddHours(-6)).ToList();
+                var lv = KeystoneOfSwing.MajorLevels(prof, double.NaN, double.NaN, double.NaN, on.Count > 0 ? on.Max(f => f.High) : double.NaN, on.Count > 0 ? on.Min(f => f.Low) : double.NaN, upto.Max(f => f.High), upto.Min(f => f.Low));
+                var sw = KeystoneOfSwing.Plan(g, c.Item2, g.Price, tick, pv, 200, lv, 2, swMinStopTicks, maxQty); if (sw.Plan == null) continue;
+                if (comp.State != 0 && comp.State != g.Dir) continue;   // against the compass: never offered live either
+                var r = new KeystoneOfSetupRow { Style = "SWING", Time = g.Time, Symbol = sym, Kind = c.Item3, Dir = g.Dir, Status = "history replay", Compass = comp.State, CompassScore = comp.Score, Location = KeystoneOfSetupBook.Location(g.Price, prof, double.NaN, double.NaN, double.NaN, tick),
+                    Delta = c.Item2 != null ? c.Item2.Delta : 0, Entry = g.Price, Stop = sw.Plan.Stop, Target = sw.Plan.Target, Qty = sw.Plan.Qty };
+                KeystoneOfSetupBook.Measure(r, t, t.Count, end, tick); rows.Add(r); last = g.Time;
+            }
             return rows;
         }
     }
@@ -9610,7 +9733,7 @@ namespace NinjaTrader.NinjaScript
     {
         // pos = signed contracts; compass state / score; deltaSince = bought − sold since the entry; evFor / evAgainst = absorption / trapped events for / against;
         // toStop / toTarget in points (NaN = none) → level −3 … +3, the meter text, the suggestion, up to 3 reasons
-        public static Tuple<int, string, string, List<string>> Of(int pos, int compassState, double compassScore, long deltaSince, long volSince, int evFor, int evAgainst, double toStopPts, double toTargetPts, double openUsd = double.NaN, double heldSec = double.NaN)
+        public static Tuple<int, string, string, List<string>> Of(int pos, int compassState, double compassScore, long deltaSince, long volSince, int evFor, int evAgainst, double toStopPts, double toTargetPts, double openUsd = double.NaN, double heldSec = double.NaN, string style = "SCALP", int zoneHolds = 0)
         {
             var why = new List<string>(); if (pos == 0) return Tuple.Create(0, "", "", why); int d = Math.Sign(pos); double sc = 0; var IC = CultureInfo.InvariantCulture;
             // 11x fix (user: "it tells me to get out while in profit" — LONG 1, the compass HELD "SELLERS" by its 60 s minimum while its score was already +48 for buyers):
@@ -9624,6 +9747,10 @@ namespace NinjaTrader.NinjaScript
             if (!double.IsNaN(toStopPts) && !double.IsNaN(toTargetPts) && toStopPts >= 0 && toTargetPts >= 0 && toStopPts < toTargetPts * 0.25) { sc -= 0.5; why.Add("close to your stop"); }
             int lv = (int)Math.Max(-3, Math.Min(3, Math.Round(sc)));
             string meter = lv >= 3 ? "+++" : lv == 2 ? "++" : lv == 1 ? "+" : lv == 0 ? "±" : lv == -1 ? "−" : lv == -2 ? "−−" : "−−−";
+            // 🏃 11x: a SWING tolerates a pullback — HOLD while its zone / structure holds; the structure broken = one more reason against
+            if (style == "SWING" && zoneHolds < 0) { lv = Math.Max(-3, lv - 1); why.Insert(0, "🏃 the swing's zone / structure broke"); }
+            if (style == "SWING" && zoneHolds > 0 && lv < 0 && lv > -3) { why.Insert(0, "🏃 a swing tolerates a pullback — the zone still holds"); lv = 0; }
+            meter = lv >= 3 ? "+++" : lv == 2 ? "++" : lv == 1 ? "+" : lv == 0 ? "±" : lv == -1 ? "−" : lv == -2 ? "−−" : "−−−";
             if (lv <= -3 && !double.IsNaN(heldSec) && heldSec < 60) lv = -2;   // a fresh trade (< 1 min) is never told to get out on the first noise
             string sug = lv >= 0 ? "HOLD" : lv >= -2 ? "⚠ TIGHTEN" : "⛔ GET OUT";
             if (lv <= -2 && !double.IsNaN(openUsd) && openUsd > 0) sug = "⚠ PROTECT THE PROFIT (tighten the stop / take part off)";   // in profit: protect it, don't panic out
@@ -9695,7 +9822,7 @@ namespace NinjaTrader.NinjaScript
         // a confirmed retest as a setup signal (closed candle → never the forming one); Kind = "ZONE " + its source
         public static KeystoneOfSignal Signal(KeystoneFlowZone z, int bar, DateTime t, double close)
         {
-            return new KeystoneOfSignal { Bar = bar, Dir = z.Side, Kind = "ZONE " + z.Source, Price = close, Time = t, Why = "👀 mark: " + z.Why + " " + z.Created.ToString("HH:mm", CultureInfo.InvariantCulture) + " • wait: the price came back to " + z.Lo.ToString("0.00", CultureInfo.InvariantCulture) + "–" + z.Hi.ToString("0.00", CultureInfo.InvariantCulture) + " • confirm: a closed candle held it with the delta on its side" };
+            return new KeystoneOfSignal { Bar = bar, Dir = z.Side, Kind = "ZONE " + z.Source, Price = close, Time = t, ZoneLo = z.Lo, ZoneHi = z.Hi, Why = "👀 mark: " + z.Why + " " + z.Created.ToString("HH:mm", CultureInfo.InvariantCulture) + " • wait: the price came back to " + z.Lo.ToString("0.00", CultureInfo.InvariantCulture) + "–" + z.Hi.ToString("0.00", CultureInfo.InvariantCulture) + " • confirm: a closed candle held it with the delta on its side" };
         }
     }
     // 🧠 LEARN — from the PAST setups only (walk-forward, no look-ahead): similar setups (same kind / side / compass agreement, then location / hour), a calibrated
@@ -9705,14 +9832,14 @@ namespace NinjaTrader.NinjaScript
     public static class KeystoneOfLearner
     {
         public const int MinN = 30; public const double Prior = 10;
-        static string Group(KeystoneOfSetupRow r) { return r.Kind + "|" + r.Dir + "|" + r.Agree; }
-        public static string GroupName(KeystoneOfSetupRow r) { return (r.Dir > 0 ? "▲ " : "▼ ") + r.Kind + (r.Agree > 0 ? " with the compass" : r.Agree < 0 ? " against " + KeystoneFlowCompass.SideWord(r.Compass) + " compass" : " (compass balanced)"); }
+        static string Group(KeystoneOfSetupRow r) { return r.Kind + "|" + r.Dir + "|" + r.Agree + "|" + KeystoneOfStyle.Of(r); }   /* 🏃 11x: type × side × compass × STYLE — a proven scalp never makes the swing ✅ */
+        public static string GroupName(KeystoneOfSetupRow r) { return (KeystoneOfStyle.Of(r) == "SWING" ? "🏃 SWING " : "") + (r.Dir > 0 ? "▲ " : "▼ ") + r.Kind + (r.Agree > 0 ? " with the compass" : r.Agree < 0 ? " against " + KeystoneFlowCompass.SideWord(r.Compass) + " compass" : " (compass balanced)"); }
         // break-even win rate for a bracket after costs (points a contract, round trip): (stop + cost) ÷ (stop + target)
         public static double BreakEven(double stopPts, double targetPts, double costPts) { return stopPts + targetPts <= 0 ? 0.5 : Math.Min(1, (stopPts + Math.Max(0, costPts)) / (stopPts + targetPts)); }
         public static KeystoneOfLearnResult Judge(IEnumerable<KeystoneOfSetupRow> all, KeystoneOfSetupRow now, double costPts = 0)
         {
             var IC = CultureInfo.InvariantCulture; var res = new KeystoneOfLearnResult(); if (now == null) return res;
-            var past = all.Where(r => r.Result != 0 && r.Time < now.Time && r.Key != now.Key).ToList();   // only what was decided BEFORE this setup
+            var past = all.Where(r => r.Result != 0 && r.Time < now.Time && r.Key != now.Key && KeystoneOfStyle.Of(r) == KeystoneOfStyle.Of(now)).ToList();   // only what was decided BEFORE this setup, of ITS style
             res.Base = past.Count == 0 ? double.NaN : past.Count(r => r.Result > 0) / (double)past.Count;
             var grp = past.Where(r => Group(r) == Group(now)).ToList(); res.N = grp.Count; res.Wins = grp.Count(r => r.Result > 0);
             double b = double.IsNaN(res.Base) ? 0.5 : res.Base; res.Calibrated = (res.Wins + Prior * b) / (res.N + Prior);
