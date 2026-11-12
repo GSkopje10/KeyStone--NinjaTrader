@@ -310,6 +310,11 @@ namespace KeystoneMT5
                     double y1 = Y(Math.Max(g.P1, g.P2)), y2 = Y(Math.Min(g.P1, g.P2)); if (y2 < TopPad || y1 > TopPad + plotH) continue;
                     dc.DrawRectangle(new SolidColorBrush(Color.FromArgb((byte)(g.Blink ? 40 + 70 * ph : 38), col.R, col.G, col.B)), pen, new Rect(x0, Math.Max(TopPad, y1), Math.Max(1, plotW - x0), Math.Max(1, Math.Min(TopPad + plotH, y2) - Math.Max(TopPad, y1))));
                 }
+                else if (g.Kind == "COUNT")
+                {   // 🪜 09o: a swing the 2ND-SWING hedge counted — a small circled number under the low (over the high), drawing only
+                    if (g.From < bars[0].Time) continue; double cx = X(IndexOf(g.From)), cy = Y(g.P1); if (cy < TopPad - 20 || cy > TopPad + plotH + 20 || cx < 0 || cx > plotW) continue;
+                    var ct = T(g.Label, 12, br, true, true); dc.DrawText(ct, new Point(cx - ct.Width / 2, g.Dash ? cy - ct.Height - 3 : cy + 3)); continue;
+                }
                 else if (g.Kind == "SIGNAL")
                 {
                     double x = X(bars.Count - 1), y = Y(g.P1); if (y < TopPad || y > TopPad + plotH) continue; double r = 7 + 5 * (g.Blink ? ph : 0);

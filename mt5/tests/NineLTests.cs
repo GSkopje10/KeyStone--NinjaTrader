@@ -49,8 +49,8 @@ public static class NineLTests
                 "🏁 RACE lane DEF = 🛡 DEFENDER sized from the race balance ($5,000 → " + def.EntryLots + " / $" + def.Target + "), not from MY SETTINGS (0.33 / $99)", def.Preset + " " + def.EntryLots + " " + def.Target);
             var run = AutoSettings.Model("RUNNER", mine, 8000);
             var cDef = RaceLanes.CompareFor(mine); var cRun = RaceLanes.CompareFor(run); var cNull = RaceLanes.CompareFor(null);
-            Check(string.Join(",", cDef) == "MINE,RUN,REC,AOP,TAH" && string.Join(",", cRun) == "MINE,DEF,REC,AOP,TAH" && !cRun.Contains("RUN") && string.Join(",", cNull) == "MINE,RUN,REC,AOP,TAH" && RaceLanes.Keys.Contains("DEF") && RaceLanes.Keys.Contains("RUN"),
-                "🏁 ▶ COMPARE WITH MY SETTINGS: MINE, RUN, REC, AOP, TAH — and MINE, DEF, REC, AOP, TAH when MY SETTINGS are 🦅 RUNNER (never RUNNER twice); DEF in the lane list", string.Join(",", cDef) + " | " + string.Join(",", cRun));
+            Check(string.Join(",", cDef) == "MINE,RUN,REC,AOP,TAH,SW2" && string.Join(",", cRun) == "MINE,DEF,REC,AOP,TAH,SW2" && !cRun.Contains("RUN") && string.Join(",", cNull) == "MINE,RUN,REC,AOP,TAH,SW2" && RaceLanes.Keys.Contains("DEF") && RaceLanes.Keys.Contains("RUN"),
+                "🏁 ▶ COMPARE WITH MY SETTINGS: MINE, RUN, REC, AOP, TAH, SW2 — and MINE, DEF, REC, AOP, TAH, SW2 when MY SETTINGS are 🦅 RUNNER (never RUNNER twice); DEF in the lane list", string.Join(",", cDef) + " | " + string.Join(",", cRun));
         }
         // ---------------------------------------------------------------- 4. ⚙ SETTINGS: the 💰 size preview
         {

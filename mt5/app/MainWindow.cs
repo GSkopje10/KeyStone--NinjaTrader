@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-13n";   // 09n: 🚑 STEP IN (the iteration handed to a trend-stacking manager when a basket is deep; simulated = may blow, MT5 = opt-in, typed STEP IN)
+        public const string Build = "SpasiX • BUILD 2026-11-13o";   // 09o: 🪜 2ND-SWING HEDGE (a hedge trigger: in drawdown the hedge at the break of the 2nd swing low / high after the entry, the flip back at the last swing; LEAD stays the default) • 09n: 🚑 STEP IN (the iteration handed to a trend-stacking manager when a basket is deep; simulated = may blow, MT5 = opt-in, typed STEP IN)
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,

@@ -162,7 +162,7 @@ public static class NineITests
             Check(lay && sh == "🎯 EXIT AT BREAKEVEN (+$0.5) 4023.02 (+13.0) · total now −$302.25" && !HedgeLayout.IsLong("a\nb\nc\nd") && HedgeLayout.IsLong("a\nb\nc\nd\ne")
                 && stub.Dir == 0 && stub.Text.Contains("no useful trade") && stub.Text.Contains("net cap 0.56") && rok.Dir == 1 && rok.Lots >= 0.01 && rok.Detail.Contains("breakeven")
                 && string.Join(",", board.Select(b => b.Key)) == "REC,TAH,MINE,AOP" && board[0].Leader && !board[1].Leader && board[0].Vs == 65 && board.First(b => b.Key == "MINE").Vs == 0 && board.First(b => b.Key == "AOP").Vs == -50
-                && string.Join(",", RaceLanes.Compare) == "MINE,RUN,REC,AOP,TAH" && rec.CompressMode == "ALWAYS" && rec.BeLock && rec.BeClose && !mine9.BeClose && RaceLanes.For("AOP", mine9, 8000).AddOnBreak,
+                && string.Join(",", RaceLanes.Compare) == "MINE,RUN,REC,AOP,TAH,SW2" /* 09o: + 🪜 SW2 */ && rec.CompressMode == "ALWAYS" && rec.BeLock && rec.BeClose && !mine9.BeClose && RaceLanes.For("AOP", mine9, 8000).AddOnBreak,
                 "📐 09j: the HEDGE top part ≤ 45 % of the tab and the banner ≥ 520 px (1280 / 1600 / 1920), the guard line short (" + sh + "); a RECOVERY the net cap squeezes to a stub is not offered (\"" + (stub.Text.Length > 60 ? stub.Text.Substring(0, 60) : stub.Text) + "…\"); 🏁 ▶ COMPARE = MINE, MINE + RECOMMENDED (compress ALWAYS + BE close), ADD ON BREAK + PROTECT, TAH; the scoreboard sorted by total, the leader marked, vs MY SETTINGS", sh + " | " + stub.Text + " | " + rok.Text + " | " + string.Join(",", board.Select(b => b.Key + b.Vs)));
         }
         try { Directory.Delete(dir, true); } catch { }

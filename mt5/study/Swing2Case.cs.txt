@@ -1,0 +1,28 @@
+// 🪜 09o: the user's case (12 Nov, DEMO XAUUSD M1, a BUY 0.60 @ 3881.09 that reversed) replayed on the export's real ticks — LEAD vs SWING2
+using System; using System.Collections.Generic; using System.Globalization; using System.IO; using System.Linq; using KeystoneMT5;
+public static class C {
+  static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+  public static int Main(string[] a) {
+    string v = a[0], dir = "/tmp/claude-0/-home-user/07f253da-c522-5b4a-9f68-5df95bd74817/scratchpad/exp1112/"; var t0 = DateTime.Parse(a[1], IC); double lots = a.Length > 2 ? double.Parse(a[2], IC) : 0.6;
+    var bars = File.ReadAllLines(dir + "08-candles-XAUUSD-M1.csv").Skip(1).Select(l => l.Split(',')).Select(x => new Mt5Bar { Time = DateTime.Parse(x[0], IC), O = double.Parse(x[1], IC), H = double.Parse(x[2], IC), L = double.Parse(x[3], IC), C = double.Parse(x[4], IC), V = (long)double.Parse(x[5], IC), Spread = 20 }).OrderBy(b => b.Time).ToList();
+    var day = new DateTime(2026, 11, 12); var raw = File.ReadAllBytes(dir + "17-ticks/XAUUSD-20261112-ICMarketsSC-MT5.ticks"); var ticks = new List<SimTick>();
+    for (int i = 0; i + 20 <= raw.Length; i += 20) ticks.Add(new SimTick { T = day.AddMilliseconds(BitConverter.ToInt32(raw, i)), Bid = BitConverter.ToDouble(raw, i + 4), Ask = BitConverter.ToDouble(raw, i + 12) });
+    var spec = new SimSpec { Name = "XAUUSD", Digits = 2, Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7 };
+    var s = AutoSettings.Load(string.Join(";", File.ReadAllLines("his.txt").Where(l => l.Contains("=")).Select(l => l.Trim())));
+    s.TrackManual = false; s.Windows = ""; s.OnManual = "ADOPT"; s.FirstDir = "BUY"; s.EntryLots = lots; s.FullAuto = false; s.NextStart = "PAUSE"; s.PauseSec = 999999; s.MaxIterations = 1;
+    if (v.StartsWith("SW")) { s.HedgeTrigger = "SWING2"; s.SwN = int.Parse(v.Substring(2, 1)); } if (v.Contains("+H0")) s.SwChop = 0; if (v.Contains("+K1")) s.SwingK = 1;
+    var sb = new SimBroker(); var err = sb.Load(new SimSettings { Symbol = "XAUUSD", From = day, To = day, Balance = 8000, CommissionPerLot = 7, Leverage = 500, Kind = "STANDARD", FixedSpread = -1, StopOutPct = 50 }, new List<Tuple<SimSpec, List<Mt5Bar>, List<SimTick>>> { Tuple.Create(spec, bars, ticks) });
+    if (err != "") { Console.WriteLine("ERR " + err); return 1; }
+    var au = new HedgeAuto(); au.Send = (c, x, l) => sb.Command(c, x); sb.Playing = true; sb.Speed = 1;
+    while (!sb.Ended && sb.State.ServerNow < t0) sb.Advance(1);
+    sb.OnTickHook = () => au.Step(sb); var chk = au.Check(sb, s); if (chk != "") { Console.WriteLine(chk); return 1; } au.Start(sb, s, false);
+    double carried = a.Length > 3 ? double.Parse(a[3], IC) : 0; bool carriedSet = carried == 0;
+    double minTot = 0; DateTime minAt = t0; var seen = new HashSet<string>(); string lastLv = "";
+    while (!sb.Ended) { sb.Advance(1); if (!carriedSet && au.Current != null) { au.Current.BalanceStart -= carried; carriedSet = true; } var tot = au.LiveTotal().Item1; if (au.Current != null && tot < minTot) { minTot = tot; minAt = sb.State.ServerNow; }
+      var lv = double.IsNaN(au.HedgeLevel) ? "" : au.HedgeLevel.ToString("0.00", IC) + " " + au.HedgeTag; if (lv != lastLv && au.Current != null) { lastLv = lv; Console.WriteLine("L " + sb.State.ServerNow.ToString("HH:mm:ss", IC) + " bid " + sb.State.Quotes["XAUUSD"].Bid.ToString("0.00", IC) + " line " + lv + " | total " + tot.ToString("0.00", IC)); } }
+    foreach (var t in au.Trades) Console.WriteLine("T " + t.Time.ToString("HH:mm:ss", IC) + " " + t.Side + " " + t.Lots + " @ " + t.Price.ToString("0.00", IC) + "  " + t.Why);
+    var it = au.Iterations.LastOrDefault(); var lt = au.LiveTotal();
+    Console.WriteLine("RES " + v + " entry " + t0.ToString("HH:mm:ss", IC) + " worst total " + minTot.ToString("0.00", IC) + " at " + minAt.ToString("HH:mm", IC) + (it != null && it.Done ? " CLOSED " + it.Reason + " " + it.Result.ToString("0.00", IC) + " at " + it.End.ToString("HH:mm", IC) : " still open at 17:12, total " + lt.Item1.ToString("0.00", IC)));
+    return 0;
+  }
+}
