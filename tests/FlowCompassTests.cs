@@ -275,6 +275,67 @@ public static class FlowCompassTests
         // ---- 16. palette
         Check(KeystoneOfPalette.Names.Length == 3 && KeystoneOfPalette.Buy(0) == "#26C6DA" && KeystoneOfPalette.Sell(0) == "#FF5C8A" && KeystoneOfPalette.Buy(9) == KeystoneOfPalette.Buy(0), "three palettes, TEAL / CORAL default");
 
+        // ---- 17. 🏃 11x SWING beside ⚡ SCALP
+        {
+            var sg = new KeystoneOfSignal { Bar = 5, Dir = 1, Kind = "ZONE STACKED", Price = 100, Time = T0, ZoneLo = 98, ZoneHi = 99 };
+            var cdl = new KeystoneFootprint { Start = T0.AddMinutes(-5), End = T0, Open = 99.5, High = 100.25, Low = 98.5, Close = 100, Trades = 50, Buy = 30, Sell = 20 };
+            var lv = new List<Tuple<double, string>> { Tuple.Create(103.0, "VAH"), Tuple.Create(106.0, "POC"), Tuple.Create(110.0, "PRIOR HIGH"), Tuple.Create(95.0, "VAL") };
+            var sw = KeystoneOfSwing.Plan(sg, cdl, 100, 0.25, 2, 200, lv, 2, 8, 10);
+            Check(sw.Plan != null && sw.Plan.Stop == 97.5 && sw.Plan.Target == 106 && sw.Plan.TargetName == "POC" && sw.Plan.Style == "SWING" && sw.Plan.TargetWhy.Contains("POC 106.00"), "swing: stop beyond the zone's far edge + 2 ticks, take profit = the FIRST major level ≥ 2 R (VAH at 1.2 R skipped → POC), named", sw.Plan == null ? sw.Why : sw.Plan.Stop + " " + sw.Plan.Target + " " + sw.Plan.TargetWhy);
+            var rec0 = new KeystoneOfSetupRecord { Style = "SWING", TargetName = "POC", Entry = 100, Target = 106 }; string lab = KeystoneOfSwing.TpLabel(rec0, 120, "106.00");
+            Check(lab == "🏃 💡 TAKE PROFIT 106.00 (POC) • +$120 planned", "the chart label names the level + 🏃", lab);
+            var no = KeystoneOfSwing.Plan(sg, cdl, 100, 0.25, 2, 200, new List<Tuple<double, string>> { Tuple.Create(103.0, "VAH") }, 2, 8, 10);
+            Check(no.Plan == null && no.Why == "no room for a swing: next level 1.2 R (VAH)", "no major level ≥ 2 R → no swing, says why", no.Why);
+            var g0 = KeystoneFlowGate.DecideSwing(sg, 8, 0, no); Check(g0.Item1 == KeystoneFlowGate.NoRoom && g0.Item2.StartsWith("no room for a swing: next level 1.2 R"), "the swing gate: no room → not offered with the reason", g0.Item2);
+            Check(KeystoneFlowGate.DecideSwing(sg, 8, 0, sw).Item1 == KeystoneFlowGate.Offer && KeystoneFlowGate.DecideSwing(sg, 8, -1, sw).Item1 == KeystoneFlowGate.Against && KeystoneFlowGate.DecideSwing(sg, 5, 0, sw).Item1 == KeystoneFlowGate.Forming, "the swing gate: closed candle + compass like the scalp");
+            // the SWING minimum stop (MNQ 12 pts, MGC 3 pts, OF.SWMINSTOP when larger) + contracts from the wider stop (fewer than the scalp)
+            Check(KeystoneOfStyle.SwingMinStopTicks("MNQ", 0) == 48 && KeystoneOfStyle.SwingMinStopTicks("MGC", 0) == 30 && KeystoneOfStyle.SwingMinStopTicks("MNQ", 60) == 60, "swing min stop: MNQ 12 pts, MGC 3 pts, the setting wins when larger");
+            var tight = new KeystoneOfSignal { Bar = 5, Dir = 1, Kind = "ZONE ABSORB", Price = 100, Time = T0, ZoneLo = 99.75, ZoneHi = 100.25 };
+            var lv2 = new List<Tuple<double, string>> { Tuple.Create(130.0, "PRIOR HIGH") };
+            var sw2 = KeystoneOfSwing.Plan(tight, null, 100, 0.25, 2, 200, lv2, 0, KeystoneOfStyle.SwingMinStopTicks("MNQ", 0), 0);
+            var sc2 = KeystoneOfDesk.Plan(new KeystoneOfSignal { Bar = 0, Dir = 1, Kind = "STACKED", Price = 100, Time = T0 }, new List<KeystoneFootprint> { Fp(T0) }, null, 100, 0.25, 2, 200, 40, 2, KeystoneOfCardPlan.MinStopTicks("MNQ", 0), 0);
+            Check(sw2.Plan != null && sw2.Plan.Widened && sw2.Plan.Stop == 88 && sw2.Plan.Qty == 8 && sc2 != null && sc2.Qty == 20 && sw2.Plan.Qty < sc2.Qty, "a tiny zone → the swing stop widened to 12 pts; $200 risk → 8 MNQ on the swing vs 20 on the scalp", sw2.Plan == null ? sw2.Why : sw2.Plan.Stop + " q" + sw2.Plan.Qty + " vs " + (sc2 == null ? -1 : sc2.Qty));
+            var sw3 = KeystoneOfSwing.Plan(tight, null, 100, 0.25, 2, 2000, lv2, 0, 48, 10); Check(sw3.Plan != null && sw3.Plan.Qty == 10 && sw3.Plan.Capped, "the 11u size cap applies to the swing too");
+            // styles gated separately: 40 scalp wins prove the scalp, never the swing
+            var rows = new List<KeystoneOfSetupRow>(); for (int i = 0; i < 40; i++) rows.Add(new KeystoneOfSetupRow { Time = T0.AddMinutes(i), Kind = "ZONE STACKED", Dir = 1, Compass = 1, Entry = 100, Stop = 98, Target = 104, Result = 1 });
+            var jS = KeystoneOfLearner.Judge(rows, new KeystoneOfSetupRow { Time = T0.AddHours(2), Kind = "ZONE STACKED", Dir = 1, Compass = 1, Entry = 100, Stop = 98, Target = 104 });
+            var jW = KeystoneOfLearner.Judge(rows, new KeystoneOfSetupRow { Style = "SWING", Time = T0.AddHours(2), Kind = "ZONE STACKED", Dir = 1, Compass = 1, Entry = 100, Stop = 88, Target = 130 });
+            Check(jS.Proven && !jW.Proven && jW.N == 0 && jW.Text.StartsWith("🧠 learning (0)"), "a proven SCALP does not make the SWING ✅ (per type × side × style)", jS.Text + " | " + jW.Text);
+            Check(KeystoneOfLearner.Lessons(rows.Concat(new[] { new KeystoneOfSetupRow { Style = "SWING", Time = T0, Kind = "ZONE STACKED", Dir = 1, Compass = 1, Entry = 100, Stop = 88, Target = 130, Result = -1 } })).Any(l => l.StartsWith("🏃 SWING ▲ ZONE STACKED")), "the lessons list the swing group on its own");
+            // the swing card: lives up to 60 min, resolves on the first touch, expires at 16:50 NY, its own hold (BOTH = two cards for the same signal)
+            var hs = KeystoneOfCardHold.NewSwing(); hs.PointValue = 2; var hc = new KeystoneOfCardHold { PointValue = 2 }; var sig = new KeystoneOfSignal { Bar = 5, Dir = 1, Kind = "ZONE STACKED", Price = 100, Time = T0 };
+            bool o1 = hc.Offer(sig, new KeystoneOfPlan { Dir = 1, Qty = 10, Entry = 100, Stop = 98, Target = 101, StopPts = 2, TargetPts = 1 }, "MNQ", T0, 6), o2 = hs.Offer(sig, sw.Plan, "MNQ", T0, 6);
+            Check(o1 && o2 && hc.Current.Key != hs.Current.Key && hs.Current.Style == "SWING" && hs.Current.TargetName == "POC" && KeystoneOfStyle.WantsScalp(KeystoneOfStyle.Both) && KeystoneOfStyle.WantsSwing(KeystoneOfStyle.Both) && !KeystoneOfStyle.WantsSwing(KeystoneOfStyle.Scalp), "⚖ BOTH: the same signal → a SCALP row and a SWING row, each its own setup");
+            Check(hs.Check(T0.AddMinutes(30), 101, 12, 0).Item1 == "" && hc.Check(T0.AddMinutes(30), 100.5, 12, 0).Item1 == "expired", "at 30 min the scalp card expired (10 min), the swing card still lives");
+            Check(hs.Check(T0.AddMinutes(20), 101, 7, -1).Item1 == "", "a swing is not withdrawn one candle after the compass turns (it tolerates a pullback)");
+            var e60 = hs.Check(T0.AddMinutes(60), 101, 30, 0); Check(e60.Item1 == "expired" && e60.Item2 == "expired after 60 min", "a swing card lives up to 60 minutes", e60.Item2);
+            var hs2 = KeystoneOfCardHold.NewSwing(); hs2.PointValue = 2; hs2.Offer(sig, sw.Plan, "MNQ", T0, 6);
+            var pth = new List<KeystoneOfTick> { new KeystoneOfTick { Time = T0.AddMinutes(25), Price = 106, Size = 1, Side = 1 }, new KeystoneOfTick { Time = T0.AddMinutes(26), Price = 101, Size = 1, Side = -1 } };
+            hs2.TouchAll(pth, pth.Count, T0.AddMinutes(27)); var rs = hs2.Check(T0.AddMinutes(27), 101, 20, 0); Check(rs.Item1 == "target" && rs.Item2.StartsWith("✔ TAKE PROFIT HIT"), "the swing resolves on the FIRST touch of its target (then a pull-back = still a win)", rs.Item2);
+            var hs3 = KeystoneOfCardHold.NewSwing(); var late = new DateTime(2026, 11, 12, 16, 30, 0); hs3.Offer(new KeystoneOfSignal { Bar = 5, Dir = 1, Kind = "ZONE STACKED", Price = 100, Time = late }, sw.Plan, "MNQ", late, 6);
+            var e1650 = hs3.Check(late.AddMinutes(20), 101, 8, 0); Check(e1650.Item1 == "expired" && e1650.Item2.StartsWith("expired at 16:50 NY"), "a swing expires at 16:50 NY", e1650.Item2);
+            Check(KeystoneOfCardHold.Line(hs2.History.Count > 0 ? hs2.History[0] : hs2.End(T0.AddMinutes(27), rs.Item1, rs.Item2)).StartsWith("🏃 #1"), "the recent setups line carries the style");
+            // ⚖ the scale-out idea: TEXT only on a swing, nothing on a scalp
+            string so = KeystoneOfStyle.ScaleOutIdea(sw.Plan, 12, 0.25); Check(so.StartsWith("⚖ idea: take part off at +12 ticks (103.00) and let the rest run to the POC 106.00") && so.Contains("text only") && so.Contains("nothing is split") && KeystoneOfStyle.ScaleOutIdea(new KeystoneOfPlan { Dir = 1, Qty = 3 }, 12, 0.25) == "", "⚖ scale-out = a text idea on a swing card only (never an order, never a split)", so);
+            // the verdict names the style; the 📒 book keeps it
+            var vv = new KeystoneFlowVerdict(); vv.Update(new KeystoneFlowVerdictInput { CardOffered = true, CardDir = -1, CompassState = -1, Proven = true, CardStyle = "SWING", CardSummary = "3 MNQ • R:R 2.4 • TP at VAH" }, T0);
+            Check(vv.Head == "✅ SWING SELL 3 MNQ • R:R 2.4 • TP at VAH", "the NOW verdict says which style", vv.Head);
+            var br = new KeystoneOfSetupRow { Style = "SWING", Time = T0, Symbol = "MNQ", Kind = "5M CONFIRMED", Dir = -1, Entry = 100, Stop = 112, Target = 76 }; var back = KeystoneOfSetupBook.Parse(KeystoneOfSetupBook.Line(br));
+            var old = KeystoneOfSetupBook.Parse(string.Join(",", KeystoneOfSetupBook.Line(br).Split(',').Take(27)));
+            Check(back.Style == "SWING" && back.Key.EndsWith("|SWING") && old.Style == "SCALP" && KeystoneOfSetupBook.Header.EndsWith(",style"), "📒 SETUPS records the style (old files read as SCALP)");
+            // 🎯 in-trade: a swing holds while its zone holds; a broken structure counts against
+            var cs1 = KeystoneTradeConfidence.Of(1, -1, -40, -100, 1000, 0, 1, double.NaN, double.NaN, -20, 300, "SWING", 1); var cs2 = KeystoneTradeConfidence.Of(1, -1, -40, -100, 1000, 0, 1, double.NaN, double.NaN, -20, 300, "SCALP", 0);
+            Check(cs1.Item3 == "HOLD" && cs1.Item4[0].Contains("tolerates a pullback") && cs2.Item3 != "HOLD", "a swing in a pullback: HOLD while the zone holds (the same scalp is told to tighten)", cs1.Item3 + " / " + cs2.Item3);
+            // 🧭 the compass shown honestly while its state is held but the score turned
+            Check(KeystoneFlowCompass.Shown(-1, 48) == "SELLERS fading → BUYERS +48" && KeystoneFlowCompass.Fading(-1, 48) && KeystoneFlowCompass.Shown(1, 50) == "BUYERS +50" && KeystoneFlowCompass.Shown(1, 5) == "BUYERS fading → BALANCED +5" && KeystoneFlowCompass.Shown(0, 20) == "BALANCED +20" && KeystoneFlowCompass.ShownLong(-1, -60) == "SELLERS IN CONTROL −60", "the held state vs the score: \"SELLERS fading → BUYERS +48\"", KeystoneFlowCompass.Shown(-1, 48));
+            // 📜 the history replay measures both styles
+            var r = new Random(4); var t = new List<KeystoneOfTick>(); double px = 20000; var st0 = new DateTime(2026, 3, 9, 9, 30, 0);
+            for (int i = 0; i < 20000; i++) { px += (r.Next(3) - 1) * 0.25 + (i / 2000 % 2 == 0 ? 0.03 : -0.03); px = Math.Round(px * 4) / 4; t.Add(new KeystoneOfTick { Time = st0.AddMilliseconds(i * 900), Price = px, Size = 1 + r.Next(6), Side = r.Next(2) == 0 ? 1 : -1, Quoted = true }); }
+            var rr = KeystoneOfHistory.Replay(t, "MNQ", 0.25, 2, new KeystoneOfSettings { NeedSweep = false }, 20, 12, 1, true, 48, 10);
+            var sws = rr.Where(x => x.Style == "SWING").ToList(); var scs = rr.Where(x => x.Style != "SWING").ToList();
+            Check(scs.Count > 0 && scs.All(x => Math.Abs(x.Target - x.Entry - x.Dir * 3) < 1e-9) && sws.All(x => x.Status == "history replay" && x.Rr >= 2 - 1e-9 && Math.Abs(x.Entry - x.Stop) >= 12 - 1e-9), "📜 PROVE FROM HISTORY: scalp rows + swing rows (R:R ≥ 2, stop ≥ 12 pts), " + scs.Count + " scalp / " + sws.Count + " swing");
+            var w5 = KeystoneOfStyle.Windows5(new DateTime(2026, 11, 12, 10, 7, 30), 1); Check(w5.Count == 12 && w5[w5.Count - 1].Item2 == new DateTime(2026, 11, 12, 10, 5, 0), "5-min windows: closed ones only (the forming 10:05–10:10 is left out)");
+        }
         Console.WriteLine(failures == 0 ? "ALL FLOW COMPASS TESTS PASSED" : failures + " FLOW COMPASS TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

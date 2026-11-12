@@ -9749,7 +9749,7 @@ namespace NinjaTrader.NinjaScript
             string meter = lv >= 3 ? "+++" : lv == 2 ? "++" : lv == 1 ? "+" : lv == 0 ? "±" : lv == -1 ? "−" : lv == -2 ? "−−" : "−−−";
             // 🏃 11x: a SWING tolerates a pullback — HOLD while its zone / structure holds; the structure broken = one more reason against
             if (style == "SWING" && zoneHolds < 0) { lv = Math.Max(-3, lv - 1); why.Insert(0, "🏃 the swing's zone / structure broke"); }
-            if (style == "SWING" && zoneHolds > 0 && lv < 0 && lv > -3) { why.Insert(0, "🏃 a swing tolerates a pullback — the zone still holds"); lv = 0; }
+            if (style == "SWING" && zoneHolds > 0 && lv < 0) { why.Insert(0, "🏃 a swing tolerates a pullback — the zone still holds"); lv = 0; }
             meter = lv >= 3 ? "+++" : lv == 2 ? "++" : lv == 1 ? "+" : lv == 0 ? "±" : lv == -1 ? "−" : lv == -2 ? "−−" : "−−−";
             if (lv <= -3 && !double.IsNaN(heldSec) && heldSec < 60) lv = -2;   // a fresh trade (< 1 min) is never told to get out on the first noise
             string sug = lv >= 0 ? "HOLD" : lv >= -2 ? "⚠ TIGHTEN" : "⛔ GET OUT";
