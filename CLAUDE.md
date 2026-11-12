@@ -159,6 +159,7 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   (`OF.CONFIRM`, default ON); the order-flow engine runs for the CHART only while that chip is on AND a setup is active (`OfConfNeed`, else the 11y rule). Journal (`KeystoneOfConfJournal`,
   Studio\OrderFlow\candle-of-<SYM>.csv): each triggered setup with the verdict at its entry (frozen) + its outcome by the setup's own rules (`KeystoneTriSetup.Resolve` / the REVERSAL FVG 1R) → 📊 ANALYZE +
   the 3 SETUPS ▾ menu: "FVG alone vs FVG + OF ✔ / — / ✖" win % / $ with n (n < 20 = "not enough yet"); 🎓 GUIDE "⭐ Candle setup + order flow". Tests: `tests/FlowCompassTests.cs` (27–28) + the ⭐ 11z step of `tests/fullcompile/UiSmokeTest.cs`.
+  🩹 13b (data only, sends nothing): ● LIVE TRADING refills missing minutes on the live chart from the live feed's own NinjaTrader bars (`LiveFeed.Request.Bars`) first, finds gaps up to the chart's last bar (its own time base), and keeps asking NinjaTrader's history once a minute for gaps younger than 3 h.
   📥 11s: the TICK LIBRARY (`OpenTickLibrary`, the pure `KeystoneTickLib` / `KeystoneTickDownload` / `KeystoneZip`, Studio\TickCache\<SYM>\ v2 gz files + seconds\ + live\, tests
   `tests/TickLibraryTests.cs`) only READS NinjaTrader's history (tick / 1-second BarsRequests) and WRITES files; ● LIVE TRADING's "save today's live ticks" (☰ TOOLS, on by default) only
   appends files from its own MarketData tap. Order flow exists only from real trades (`KeystoneOfSource` badge: green bid / ask, amber tick rule, grey = nothing shown — never from
