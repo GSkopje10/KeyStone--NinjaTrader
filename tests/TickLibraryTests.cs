@@ -146,6 +146,23 @@ public static class TickLibraryTests
             Check(p1 != null && Math.Abs(p1.Stop - 101.25) < 1e-9 && Math.Abs(p1.Target - 89.5) < 1e-9 && p1.TargetWhy.Contains("plan's bracket") && p1.Level.Contains("high"), "SELL: stop above the signal candle's high + 2 ticks, no node → the plan's bracket (40 ticks)", p1 == null ? "null" : p1.Stop + " " + p1.Target);
             Check(KeystoneOfDesk.Plan(new KeystoneOfSignal { Bar = 0, Dir = 1 }, fps1, null, 99.0, 0.25, 2, 100, 40, 2) == null, "price already through the defended level → no plan (never a made-up stop)");
         }
+
+        // ---- 12. GUARDRAILS in the source: real trades are made only from NinjaTrader's trades / the library files (never from a candle), the INDICATORS toggles stay open
+        {
+            string srcF = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "src", "KeyStone.cs");
+            if (File.Exists(srcF))
+            {
+                var lines = File.ReadAllLines(srcF); var made = lines.Select((l, i) => Tuple.Create(i + 1, l)).Where(x => x.Item2.Contains("new KeystoneOfTick")).ToList();
+                var bad = made.Where(x => !x.Item2.Contains("TEST-ONLY")).Where(x => x.Item2.Contains(".Open") || x.Item2.Contains(".High") || x.Item2.Contains(".Low") || x.Item2.Contains("Close") || x.Item2.Contains("KeystoneArcBar") || x.Item2.Contains("FromSeconds")).ToList();
+                Check(made.Count > 0 && bad.Count == 0, "GUARDRAIL: no KeystoneOfTick (a trade with a side) is ever made from a candle / 1-second bar (" + made.Count + " places, all from trades)", string.Join(" ; ", bad.Select(x => x.Item1.ToString())));
+                Check(!lines.Any(l => l.Contains("FromSeconds(") && l.Contains("OfTicks")), "GUARDRAIL: the 1-second path never feeds the order flow");
+                string all = string.Join("\n", lines); int im = all.IndexOf("var indM = mi(\"📈 INDICATORS\""), ie = im < 0 ? -1 : all.IndexOf("cm.Items.Add(indM);", im);
+                string menu = im < 0 || ie < 0 ? "" : all.Substring(im, ie - im);
+                Check(menu.Contains("StaysOpenOnClick = true") && menu.Contains("📊 ORDERFLOW view") && menu.Contains("📚 ORDER BOOK") && !menu.Contains("open the ORDERFLOW view ▸"), "MENU: the INDICATORS toggles stay open on a click; ORDERFLOW is a real submenu of its views");
+                Check(all.Contains("layerOf(\"GRID\", 1)") && all.Contains("▦ Grid lines"), "▦ the grid lines switch (default ON) is in the chart's menu");
+            }
+            else Check(false, "source file not found for the guardrail scan", srcF);
+        }
         try { Directory.Delete(root, true); } catch { }
         Console.WriteLine(failures == 0 ? "ALL TICK LIBRARY TESTS PASSED" : failures + " TICK LIBRARY TEST(S) FAILED");
         return failures == 0 ? 0 : 1;

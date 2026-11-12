@@ -935,7 +935,7 @@ public static class UiSmokeTest
                     if (FindAll<System.Windows.FrameworkElement>(bt.Content).All(x => Convert.ToString(x.Tag) != "of.dprof")) throw new Exception("no Δ DELTA PROFILE drawn by the price axis");
                     desk("SIGNAL"); string card = desk("CARD");
                     if (!card.StartsWith("VISIBLE") || !card.Contains("▲ BUY") || !card.Contains("STOP ") || !card.Contains("TARGET ") || !card.Contains("SIZE ") || !card.Contains("stacked buying zone")) throw new Exception("🎯 SIGNAL card: " + card);
-                    int pos0 = rt.Position; string fill = desk("FILL"); var fp = fill.Split('|'); double v1, v2, v3;
+                    rt = (KeystoneReplayTrader)F("replayTrader"); int pos0 = rt.Position; string fill = desk("FILL"); var fp = fill.Split('|'); double v1, v2, v3;
                     if (fp.Length != 3 || !double.TryParse(fp[0], out v1) || !double.TryParse(fp[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v2) || !double.TryParse(fp[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v3) || v1 < 1 || v2 <= 0 || v3 <= 0 || rt.Position != pos0) throw new Exception("FILL ORDER: " + fill + " position " + rt.Position);
                     foreach (var tb in new[] { Tuple.Create("FLOW", "FUEL vs ENGINE"), Tuple.Create("BOOK", "only LIVE"), Tuple.Create("STATS", "HOW OFTEN EACH SIGNAL WORKED"), Tuple.Create("GUIDE", "ABSORPTION"), Tuple.Create("SIGNAL", "TRADE FROM HERE") })
                     { string tx = desk("TAB " + tb.Item1); if (!tx.Contains(tb.Item2)) throw new Exception("tab " + tb.Item1 + ": " + tx.Substring(0, Math.Min(300, tx.Length))); }
@@ -943,10 +943,15 @@ public static class UiSmokeTest
                     desk("TAB SIGNAL");
                     System.Windows.MessageBox.Answer = (t, b) => System.Windows.MessageBoxResult.Yes;
                     string take; try { take = desk("TAKE"); } finally { System.Windows.MessageBox.Answer = null; }
-                    if (!take.Contains("view CHART") || rt.Position <= 0) throw new Exception("TAKE (the chart's own BUY on the simulated trader): " + take);
+                    rt = (KeystoneReplayTrader)F("replayTrader"); if (!take.Contains("view CHART") || rt.Position <= 0) throw new Exception("TAKE (the chart's own BUY on the simulated trader): " + take);
                     ((Action)F("replayTraderFlat"))();
                     if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the ORDERFLOW desk built a NinjaBroker");
                     desk("OPEN"); desk("SIGNAL"); if (desk("SKIP") != "HIDDEN") throw new Exception("SKIP did not hide the card"); desk("CLOSE");
+                    {   /* ▦ 11s: the grid lines on / off (the axis labels stay) */
+                        var lay = (Action<string, int>)F("studioLayer"); Func<int> grids = () => FindAll<System.Windows.FrameworkElement>(bt.Content).Count(x => Convert.ToString(x.Tag) == "chart.grid");
+                        lay("GRID", 0); ((Action<int>)F("replayTraderStep"))(0); int g0 = grids(); lay("GRID", 1); ((Action<int>)F("replayTraderStep"))(0); int gOn = grids();
+                        if (g0 != 0 || gOn == 0) throw new Exception("▦ grid lines: off " + g0 + " / on " + gOn);
+                    }
                     bt.Close();
                     Console.WriteLine("      🎯 badges: " + KeystoneOfSource.NoneText + " / " + amber.Split('•')[0] + "tick rule / " + green.Split('•').Take(2).Aggregate((a, b) => a + "•" + b) + " · card: " + card.Split('|')[1].Trim() + " · FILL " + fill + " · TAKE → " + take + " · NinjaBroker built 0: OK");
                 });

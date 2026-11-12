@@ -90,7 +90,7 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   appends files from its own MarketData tap. Order flow exists only from real trades (`KeystoneOfSource` badge: green bid / ask, amber tick rule, grey = nothing shown — never from
   candles, never from 1-second bars). The 📊 ORDERFLOW desk (strip, Δ profile, 🎯 SIGNAL card `KeystoneOfDesk`, 📊 FLOW / 📚 BOOK / 📈 STATS / ⓘ GUIDE tabs) sends nothing: FILL ORDER
   only fills the order panel, TAKE = the chart's own BUY / SELL (asks first, same armed link and limits). 💡 3 SETUPS + OVERNIGHT + SKIP WILD DAYS (`KeystoneTriSettings.Overnight` /
-  `AtrSkipTop`) is research — GUIDED / MANUAL only in ROTATE, never AUTO.
+  `AtrSkipTop`) is research — GUIDED / MANUAL only in ROTATE, never AUTO. ▦ Grid lines on / off (chart right-click menu + 🎨 template menu, layer `GRID`, default ON) is display only.
   Research / lab / backtests stay historical; no Apex/Nexus coupling. The ⚖ DRAWDOWN LAB (its window + LIVE TRADING ▸ ⚖ TRAILING DD SIM tab, `KeystoneDdAccount` + `BuildDrawdownLabView`, tests `tests/DrawdownLabTests.cs`) is simulation only on live / saved prices: it never places an order.
 - SpasiX for MT5 (`mt5/`: the bridge EA `SpasiXBridge.mq5` v5 + the Windows app `mt5/app`, built with `dotnet publish` here, shipped in `mt5/dist`;
   a full-screen HOME picks LIVE / PROP / DEMO / BACKTEST; several can be open at once as tabs in our own title bar, `Shell.cs`, each LIVE / PROP
