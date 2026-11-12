@@ -49156,6 +49156,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                     int posQ = 0; double posAvg = 0; try { if (liveWindow && pa.Link != null && pa.Link.Broker != null && pa.Link.Broker.Qty != 0) { posQ = pa.Link.Broker.Qty; posAvg = pa.Link.Broker.AvgPrice; } } catch { } if (posQ == 0 && pa.Trader.Position != 0) { posQ = pa.Trader.Position; posAvg = pa.Trader.AvgPrice; }
                     Tuple<int, DateTime, double> ent; ofEntryAt.TryGetValue(pa, out ent);
                     if (posQ != 0 && (ent == null || Math.Sign(ent.Item1) != Math.Sign(posQ))) { ent = Tuple.Create(posQ, now, posAvg); ofEntryAt[pa] = ent; pa.OfEntryAt = now; pa.OfEntryPx = posAvg; pa.OfEntryQ = posQ; pa.Story.Add(now, "P|" + now.Ticks, "🧾 position opened: " + (posQ > 0 ? "LONG " : "SHORT ") + Math.Abs(posQ) + " " + pa.Symbol + " @ " + fmt(posAvg)); }
+                    else if (posQ != 0 && ent != null && (ent.Item1 != posQ || Math.Abs(ent.Item3 - posAvg) > 1e-9) && posAvg > 0)
+                    {   /* 13d fix (user: "shows the wrong drawdown" — SHORT 2 after an add read "@ 28197.00 −$998" while the real average was 28362.38 −$302): an ADD / partial exit
+                           keeps the trade's start time but takes the account's CURRENT size + average price, so the in-trade box, the plan and the floor check use the real numbers */
+                        ent = Tuple.Create(posQ, ent.Item2, posAvg); ofEntryAt[pa] = ent; pa.OfEntryPx = posAvg; pa.OfEntryQ = posQ;
+                    }
                     if (posQ == 0 && ent != null)
                     {
                         var mapE = KeystoneTradeMap.Rows(tk, endN, ent.Item2, now, tick); double mxF = 0, mxA = 0; for (int i = KeystoneOrderFlow.FirstAfter(tk, ent.Item2, endN); i < endN; i++) { double m = Math.Sign(ent.Item1) * (tk[i].Price - ent.Item3); mxF = Math.Max(mxF, m); mxA = Math.Max(mxA, -m); }
