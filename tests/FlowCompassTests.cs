@@ -226,6 +226,13 @@ public static class FlowCompassTests
             var bad = KeystoneTradeConfidence.Of(2, -1, -52, -400, 1000, 0, 3, 1, 10); Check(bad.Item1 <= -2 && bad.Item3 == "⛔ GET OUT" && bad.Item4.Any(x => x.Contains("against you")), "LONG while SELLERS lead, delta + events against → ⛔ GET OUT (text only)", bad.Item2);
             var mid = KeystoneTradeConfidence.Of(-1, 0, 5, 0, 0, 0, 0, double.NaN, double.NaN); Check(mid.Item1 == 0 && mid.Item3 == "HOLD", "nothing either way → ± HOLD");
             Check(KeystoneTradeConfidence.Of(0, 1, 50, 1, 1, 1, 0, 1, 1).Item2 == "", "flat → nothing");
+            // 11x: the user's case — LONG 1 in profit 20 s after the entry, the compass still HELD on SELLERS (min hold) while its score is +48 for buyers
+            var held = KeystoneTradeConfidence.Of(1, -1, 48, 20, 100, 0, 0, double.NaN, double.NaN, 6, 20);
+            Check(held.Item1 >= 0 && held.Item3 == "HOLD" && !held.Item4.Any(x => x.Contains("against you")) && held.Item4.Any(x => x.Contains("changing")), "a held SELLERS state with a +48 score is 'changing', never 'against you' → HOLD", held.Item2 + " " + held.Item3);
+            var fresh = KeystoneTradeConfidence.Of(2, -1, -52, -400, 1000, 0, 3, 1, 10, double.NaN, 30);
+            Check(fresh.Item3 == "⚠ TIGHTEN", "a trade under 1 minute is never told GET OUT", fresh.Item3);
+            var prof = KeystoneTradeConfidence.Of(2, -1, -52, -400, 1000, 0, 3, 1, 10, 120, 300);
+            Check(prof.Item3.StartsWith("⚠ PROTECT THE PROFIT"), "in profit with the flow against → protect the profit, not GET OUT", prof.Item3);
             var tm = new List<KeystoneOfTick> { new KeystoneOfTick { Time = T0.AddSeconds(-5), Price = 99, Size = 50, Side = 1 }, new KeystoneOfTick { Time = T0.AddSeconds(2), Price = 100, Size = 3, Side = 1 }, new KeystoneOfTick { Time = T0.AddSeconds(3), Price = 100, Size = 2, Side = -1 }, new KeystoneOfTick { Time = T0.AddSeconds(4), Price = 100.25, Size = 4, Side = -1 }, new KeystoneOfTick { Time = T0.AddSeconds(90), Price = 101, Size = 9, Side = 1 } };
             var map = KeystoneTradeMap.Rows(tm, tm.Count, T0, T0.AddSeconds(10), 0.25); Check(map.Count == 2 && map[100][0] == 3 && map[100][1] == 2 && map[100.25][1] == 4, "battle map: buy / sell per row since the entry, nothing before it or after the clock");
         }

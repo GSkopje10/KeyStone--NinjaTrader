@@ -9610,9 +9610,12 @@ namespace NinjaTrader.NinjaScript
     {
         // pos = signed contracts; compass state / score; deltaSince = bought − sold since the entry; evFor / evAgainst = absorption / trapped events for / against;
         // toStop / toTarget in points (NaN = none) → level −3 … +3, the meter text, the suggestion, up to 3 reasons
-        public static Tuple<int, string, string, List<string>> Of(int pos, int compassState, double compassScore, long deltaSince, long volSince, int evFor, int evAgainst, double toStopPts, double toTargetPts)
+        public static Tuple<int, string, string, List<string>> Of(int pos, int compassState, double compassScore, long deltaSince, long volSince, int evFor, int evAgainst, double toStopPts, double toTargetPts, double openUsd = double.NaN, double heldSec = double.NaN)
         {
             var why = new List<string>(); if (pos == 0) return Tuple.Create(0, "", "", why); int d = Math.Sign(pos); double sc = 0; var IC = CultureInfo.InvariantCulture;
+            // 11x fix (user: "it tells me to get out while in profit" — LONG 1, the compass HELD "SELLERS" by its 60 s minimum while its score was already +48 for buyers):
+            // a held state whose score points the other way is "changing", never "against you"
+            if (compassState != 0 && compassScore * compassState < 15) { why.Add("the compass is changing (" + KeystoneFlowCompass.SideWord(compassState) + " fading, score now " + KeystoneFlowCompass.ScoreText(compassScore) + ")"); if (compassScore * d >= 15) sc += 0.5; compassState = 0; compassScore = 0; }
             if (compassState == d) { sc += 1.5; why.Add("the compass is with you (" + KeystoneFlowCompass.SideWord(compassState) + " " + KeystoneFlowCompass.ScoreText(compassScore) + ")"); }
             else if (compassState == -d) { sc -= 1.5; why.Add("the compass turned against you (" + KeystoneFlowCompass.SideWord(compassState) + " " + KeystoneFlowCompass.ScoreText(compassScore) + ")"); }
             else if (Math.Sign(compassScore) * d * Math.Abs(compassScore) <= -15) { sc -= 0.5; why.Add("the flow leans against you (score " + KeystoneFlowCompass.ScoreText(compassScore) + ")"); }
@@ -9621,7 +9624,9 @@ namespace NinjaTrader.NinjaScript
             if (!double.IsNaN(toStopPts) && !double.IsNaN(toTargetPts) && toStopPts >= 0 && toTargetPts >= 0 && toStopPts < toTargetPts * 0.25) { sc -= 0.5; why.Add("close to your stop"); }
             int lv = (int)Math.Max(-3, Math.Min(3, Math.Round(sc)));
             string meter = lv >= 3 ? "+++" : lv == 2 ? "++" : lv == 1 ? "+" : lv == 0 ? "±" : lv == -1 ? "−" : lv == -2 ? "−−" : "−−−";
-            string sug = lv >= 0 ? "HOLD" : lv == -1 ? "⚠ TIGHTEN" : "⛔ GET OUT";
+            if (lv <= -3 && !double.IsNaN(heldSec) && heldSec < 60) lv = -2;   // a fresh trade (< 1 min) is never told to get out on the first noise
+            string sug = lv >= 0 ? "HOLD" : lv >= -2 ? "⚠ TIGHTEN" : "⛔ GET OUT";
+            if (lv <= -2 && !double.IsNaN(openUsd) && openUsd > 0) sug = "⚠ PROTECT THE PROFIT (tighten the stop / take part off)";   // in profit: protect it, don't panic out
             return Tuple.Create(lv, meter, sug, why.Take(3).ToList());
         }
     }
@@ -46745,7 +46750,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     {   // 🎯 IN-TRADE: position • $ • time, the CONFIDENCE meter, the suggestion (TEXT only), what changed since the entry
                         double opl = (px - ent.Item3) * posQ * pvS; long dSince = 0, vSince = 0; for (int i = KeystoneOrderFlow.FirstAfter(tk, ent.Item2, endN); i < endN; i++) { dSince += tk[i].Side > 0 ? tk[i].Size : -tk[i].Size; vSince += tk[i].Size; }
                         int d0 = Math.Sign(posQ); int evF = pa.OfTraps.Count(z => z.Side == -d0 && z.Time >= ent.Item2) + (pa.OfSigs ?? new List<KeystoneOfSignal>()).Count(g => g.Kind == "ABSORB" && g.Dir == d0 && g.Time >= ent.Item2), evA = pa.OfTraps.Count(z => z.Side == d0 && z.Time >= ent.Item2) + (pa.OfSigs ?? new List<KeystoneOfSignal>()).Count(g => g.Kind == "ABSORB" && g.Dir == -d0 && g.Time >= ent.Item2);
-                        double slN = NumberSigned(pa.Sl, 0), tpN = NumberAllowZero(pa.Tp, 0); var cf = KeystoneTradeConfidence.Of(posQ, comp.State, comp.Score, dSince, vSince, evF, evA, slN > 0 ? Math.Abs(px - (ent.Item3 - d0 * slN)) : double.NaN, tpN > 0 ? Math.Abs(ent.Item3 + d0 * tpN - px) : double.NaN);
+                        double slN = NumberSigned(pa.Sl, 0), tpN = NumberAllowZero(pa.Tp, 0); var cf = KeystoneTradeConfidence.Of(posQ, comp.State, comp.Score, dSince, vSince, evF, evA, slN > 0 ? Math.Abs(px - (ent.Item3 - d0 * slN)) : double.NaN, tpN > 0 ? Math.Abs(ent.Item3 + d0 * tpN - px) : double.NaN, opl, (now - ent.Item2).TotalSeconds);
                         setT(vdHead, (posQ > 0 ? "LONG " : "SHORT ") + Math.Abs(posQ) + " " + pa.Symbol + " @ " + fmt(ent.Item3) + " • " + (opl >= 0 ? "+" : "−") + Cash(Math.Abs(opl)) + " • " + KeystoneFlowCompass.Held((now - ent.Item2).TotalSeconds));
                         vdHead.Foreground = opl >= 0 ? ofBuyB : ofSellB;
                         setT(vdWhy, "CONFIDENCE " + cf.Item2 + "  →  " + cf.Item3 + " (a suggestion — you act with the chart's own buttons)\n" + string.Join("\n", cf.Item4.Select(x => "• " + x)));
