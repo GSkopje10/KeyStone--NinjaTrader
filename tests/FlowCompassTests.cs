@@ -251,7 +251,21 @@ public static class FlowCompassTests
             Check(rows.All(x => x.Status == "history replay" && x.Entry > 0 && Math.Abs(x.Target - x.Entry - x.Dir * 3) < 1e-9), "history replay rows: labelled, scalp target 12 ticks from the entry (" + rows.Count + " setups)");
             Check(rows.All(x => x.Result == 0 || x.Mfe >= 0), "outcomes measured from the trades after each setup");
         }
-        // ---- 15. palette
+        // ---- 15. 👀 zone retest: creation, expiry, break, retest + confirmation required
+        {
+            var zs = new KeystoneFlowZones(); var z = zs.Add("A|1", 1, 100, 100.5, "STACKED", "stacked buyers", T0, 10, 3);
+            Check(z != null && zs.Add("A|1", 1, 100, 100.5, "STACKED", "x", T0, 10, 3) == null && zs.Live.Count == 1, "an event makes ONE buy zone (dedup)");
+            var r1 = zs.OnClosed(11, T0.AddMinutes(1), 103, 104, 102.5, 103.5, 50, 0.25); Check(r1.Item1.Count == 0 && zs.Live.Count == 1, "price away: no setup");
+            Check(KeystoneFlowZones.WaitText(z, 103.5).StartsWith("price 3.00 pts above the BUY ZONE 100.00–100.50"), "WAIT says how far and what to wait for", KeystoneFlowZones.WaitText(z, 103.5));
+            var r2 = zs.OnClosed(12, T0.AddMinutes(2), 101, 101.25, 100.25, 100.5, -30, 0.25); Check(r2.Item1.Count == 0, "back into the zone but closing weak with the delta against → no confirmation, no setup");
+            var r3 = zs.OnClosed(13, T0.AddMinutes(3), 100.5, 101.5, 100.25, 101.25, 40, 0.25); Check(r3.Item1.Count == 1 && r3.Item1[0].ConfirmBar == 13, "back into the zone + a closed candle holding it with the delta → retest CONFIRMED");
+            var sg = KeystoneFlowZones.Signal(r3.Item1[0], 13, T0.AddMinutes(3), 101.25); Check(sg.Kind == "ZONE STACKED" && sg.Dir == 1 && sg.Why.Contains("mark") && sg.Why.Contains("confirm"), "the confirmed retest becomes a setup signal (mark → wait → confirm)");
+            var zs2 = new KeystoneFlowZones(); zs2.Add("B", -1, 200, 200.5, "ABSORB", "sellers absorbed", T0, 1, 1); var r4 = zs2.OnClosed(2, T0.AddMinutes(1), 200.5, 202, 200.4, 201.75, 60, 0.25);
+            Check(r4.Item2.Count == 1 && zs2.Live.Count == 0 && zs2.Ended[0].State.StartsWith("zone broken"), "a close through the sell zone with the flow against it → broken, removed with why");
+            var zs3 = new KeystoneFlowZones(); zs3.Add("C", 1, 50, 51, "TRAP", "trapped sellers", T0, 1, 1); var r5 = zs3.OnClosed(2, T0.AddHours(5), 55, 56, 54, 55, 1, 0.25); Check(r5.Item2.Count == 1 && zs3.Ended[0].State.StartsWith("expired"), "zones expire after 4 h");
+            var zs4 = new KeystoneFlowZones(); for (int i = 0; i < 9; i++) zs4.Add("D" + i, 1, i, i + 0.5, "BIG", "big buys", T0, 1, i); Check(zs4.Live.Count == 6 && zs4.Live.All(x => x.Strength >= 3), "max 6 live zones (the weakest go)");
+        }
+        // ---- 16. palette
         Check(KeystoneOfPalette.Names.Length == 3 && KeystoneOfPalette.Buy(0) == "#26C6DA" && KeystoneOfPalette.Sell(0) == "#FF5C8A" && KeystoneOfPalette.Buy(9) == KeystoneOfPalette.Buy(0), "three palettes, TEAL / CORAL default");
 
         Console.WriteLine(failures == 0 ? "ALL FLOW COMPASS TESTS PASSED" : failures + " FLOW COMPASS TEST(S) FAILED");

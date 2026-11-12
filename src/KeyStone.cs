@@ -9583,6 +9583,14 @@ namespace NinjaTrader.NinjaScript
             var fps = KeystoneOrderFlow.Footprints(t, wins, tick, s); if (fps == null || fps.Count < 30) return rows;
             var conf = KeystoneOrderFlow.Confirm(KeystoneOrderFlow.Signals(fps, tick, s), fps, tick, s, false).OrderBy(x => x.Time).ToList();
             var comp = new KeystoneFlowCompass(); int ti = 0;
+            // 👀 the zone retests of the day: zones from the raw signals, confirmed on the closed candles that come back to them
+            var zs = new KeystoneFlowZones(); var raw = KeystoneOrderFlow.Signals(fps, tick, s); var zc = new List<KeystoneOfSignal>();
+            for (int j = 0; j < fps.Count; j++)
+            {
+                var f = fps[j]; if (f.Empty) continue; var oc = zs.OnClosed(j, f.End, f.Open, f.High, f.Low, f.Close, f.Delta, tick); foreach (var z in oc.Item1) zc.Add(KeystoneFlowZones.Signal(z, j, f.End, f.Close));
+                foreach (var g in raw.Where(x => x.Bar == j)) zs.FromSignal(g, f, tick, sym);
+            }
+            conf = conf.Concat(zc).OrderBy(x => x.Time).ToList();
             foreach (var g in conf)
             {
                 for (; ti < t.Count && t[ti].Time <= g.Time; ti++) comp.Feed(t[ti].Time, t[ti].Price, t[ti].Size, t[ti].Side, tick); comp.Advance(g.Time, tick);
@@ -9628,6 +9636,60 @@ namespace NinjaTrader.NinjaScript
                 if (x.Side > 0) v[0] += x.Size; else v[1] += x.Size;
             }
             return o;
+        }
+    }
+    // 👀 ZONE RETEST — "mark → wait → confirm → enter": an order-flow event (stacked imbalance, absorption, trapped traders, a big-print cluster) marks a WATCH ZONE;
+    // the setup exists only when the price COMES BACK into the zone and a CLOSED candle confirms there (it trades into the zone, closes back on the zone's side,
+    // with the delta on the zone's side). A zone expires after MaxHours, or is BROKEN when a closed candle closes more than BreakTicks through it against its side.
+    public sealed class KeystoneFlowZone { public int Id, Side; public double Lo, Hi; public string Source = "", Why = ""; public DateTime Created; public int CreatedBar; public double Strength; public string State = "WATCH"; public int ConfirmBar = -1; public DateTime Ended = DateTime.MinValue; }
+    public sealed class KeystoneFlowZones
+    {
+        public readonly List<KeystoneFlowZone> Live = new List<KeystoneFlowZone>(); public readonly List<KeystoneFlowZone> Ended = new List<KeystoneFlowZone>();
+        public int MaxLive = 6, BreakTicks = 4; public double MaxHours = 4; int nextId = 1; readonly HashSet<string> seen = new HashSet<string>();
+        // a new zone from an event (dedup by key); the weakest goes when there are more than MaxLive
+        public KeystoneFlowZone Add(string key, int side, double lo, double hi, string source, string why, DateTime t, int bar, double strength)
+        {
+            if (side == 0 || hi < lo || !seen.Add(key)) return null; if (seen.Count > 5000) seen.Clear();
+            var z = new KeystoneFlowZone { Id = nextId++, Side = side, Lo = lo, Hi = hi, Source = source, Why = why, Created = t, CreatedBar = bar, Strength = strength }; Live.Add(z);
+            while (Live.Count > MaxLive) { var w = Live.OrderBy(x => x.Strength).ThenBy(x => x.Created).First(); End(w, "replaced by a stronger zone", t); }
+            return z;
+        }
+        void End(KeystoneFlowZone z, string why, DateTime t) { z.State = why; z.Ended = t; Live.Remove(z); Ended.Insert(0, z); if (Ended.Count > 50) Ended.RemoveAt(Ended.Count - 1); }
+        // one CLOSED candle (index bar, after the zone was made): broken / retest confirmed / still waiting; returns the zones confirmed on this candle + the ended ones (with why)
+        public Tuple<List<KeystoneFlowZone>, List<KeystoneFlowZone>> OnClosed(int bar, DateTime t, double open, double high, double low, double close, long delta, double tick)
+        {
+            var conf = new List<KeystoneFlowZone>(); var gone = new List<KeystoneFlowZone>();
+            foreach (var z in Live.ToList())
+            {
+                if (bar <= z.CreatedBar) continue;
+                if ((t - z.Created).TotalHours >= MaxHours) { End(z, "expired after " + MaxHours.ToString("0", CultureInfo.InvariantCulture) + " h", t); gone.Add(z); continue; }
+                bool broken = z.Side > 0 ? close < z.Lo - BreakTicks * tick - 1e-9 && delta < 0 : close > z.Hi + BreakTicks * tick + 1e-9 && delta > 0;
+                if (broken) { End(z, "zone broken — a candle closed through it with the flow against it", t); gone.Add(z); continue; }
+                bool touched = z.Side > 0 ? low <= z.Hi + 1e-9 : high >= z.Lo - 1e-9;
+                bool rejected = z.Side > 0 ? close >= z.Lo - 1e-9 && close > open - 1e-9 && delta > 0 : close <= z.Hi + 1e-9 && close < open + 1e-9 && delta < 0;
+                if (touched && rejected && z.ConfirmBar < 0) { z.ConfirmBar = bar; z.State = "RETEST CONFIRMED"; conf.Add(z); }
+            }
+            return Tuple.Create(conf, gone);
+        }
+        // the zone an order-flow signal marks: STACKED = its stacked rows on its side, ABSORB = the absorbed price ± 2 ticks (DIVERGE marks none)
+        public KeystoneFlowZone FromSignal(KeystoneOfSignal g, KeystoneFootprint f, double tick, string sym)
+        {
+            if (g == null || f == null || (g.Kind != "STACKED" && g.Kind != "ABSORB")) return null; double lo = g.Price - 2 * tick, hi = g.Price + 2 * tick; double str = 1;
+            if (g.Kind == "STACKED") { var st = f.Stacks.Where(x => x.Side == g.Dir).OrderByDescending(x => x.Count).FirstOrDefault(); if (st == null) return null; lo = st.Lo; hi = st.Hi + tick; str = st.Count; }
+            return Add((sym ?? "") + "|" + g.Kind + "|" + g.Time.Ticks + "|" + g.Dir, g.Dir, lo, hi, g.Kind, g.Kind == "STACKED" ? "stacked " + (g.Dir > 0 ? "buyers" : "sellers") : (g.Dir > 0 ? "buyers" : "sellers") + " absorbed", g.Time, g.Bar, str);
+        }
+        // the distance from the price to a zone (0 inside), in points
+        public static double Away(KeystoneFlowZone z, double price) { return price > z.Hi ? price - z.Hi : price < z.Lo ? z.Lo - price : 0; }
+        public static string Label(KeystoneFlowZone z) { return "👀 " + (z.Side > 0 ? "BUY ZONE" : "SELL ZONE") + " • " + z.Why + " " + z.Created.ToString("HH:mm", CultureInfo.InvariantCulture); }
+        public static string WaitText(KeystoneFlowZone z, double price)
+        {
+            var IC = CultureInfo.InvariantCulture; double a = Away(z, price); string zr = z.Lo.ToString("0.00", IC) + "–" + z.Hi.ToString("0.00", IC);
+            return a <= 0 ? "price is IN the " + (z.Side > 0 ? "BUY" : "SELL") + " ZONE " + zr + " (" + z.Why + ") — wait for a closed candle to hold it" : "price " + a.ToString("0.00", IC) + " pts " + (price > z.Hi ? "above" : "below") + " the " + (z.Side > 0 ? "BUY" : "SELL") + " ZONE " + zr + " (" + z.Why + " " + z.Created.ToString("HH:mm", IC) + "): wait for it to come back and hold";
+        }
+        // a confirmed retest as a setup signal (closed candle → never the forming one); Kind = "ZONE " + its source
+        public static KeystoneOfSignal Signal(KeystoneFlowZone z, int bar, DateTime t, double close)
+        {
+            return new KeystoneOfSignal { Bar = bar, Dir = z.Side, Kind = "ZONE " + z.Source, Price = close, Time = t, Why = "👀 mark: " + z.Why + " " + z.Created.ToString("HH:mm", CultureInfo.InvariantCulture) + " • wait: the price came back to " + z.Lo.ToString("0.00", CultureInfo.InvariantCulture) + "–" + z.Hi.ToString("0.00", CultureInfo.InvariantCulture) + " • confirm: a closed candle held it with the delta on its side" };
         }
     }
     // 🧠 LEARN — from the PAST setups only (walk-forward, no look-ahead): similar setups (same kind / side / compass agreement, then location / hour), a calibrated
