@@ -42448,6 +42448,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                         }
                         cmT.Items.Add(new Separator());
                         var grd = new MenuItem { Header = (layerOf("GRID", 1) == 1 ? "✓ " : "") + "▦ Grid lines" }; grd.Click += delegate { chosen = true; layerModes["GRID"] = layerOf("GRID", 1) == 1 ? 0 : 1; foreach (var p2 in panes) render(p2); if (saveWorkspace != null) saveWorkspace(); }; cmT.Items.Add(grd);
+                        {   /* 🎨 11v: the ORDERFLOW colours (saved): TEAL / CORAL (default), CLASSIC green / red, MONO */
+                            var palM = new MenuItem { Header = "📊 ORDERFLOW COLOURS", Tag = "of.palette" };
+                            for (int pi = 0; pi < KeystoneOfPalette.Names.Length; pi++) { int pk = pi; var pmi = new MenuItem { Header = (KeystoneOfPalette.Clamp(layerOf("OF.PAL", 0)) == pk ? "✓ " : "") + KeystoneOfPalette.Names[pk] }; pmi.Click += delegate { chosen = true; layerModes["OF.PAL"] = pk; ofPalApply(); foreach (var p2 in panes) render(p2); if (saveWorkspace != null) saveWorkspace(); }; palM.Items.Add(pmi); }
+                            cmT.Items.Add(palM);
+                        }
                         var hol = new MenuItem { Header = (hollowUp ? "✓ " : "") + "Hollow up candles" }; hol.Click += delegate { chosen = true; hollowUp = !hollowUp; foreach (var p2 in panes) render(p2); if (saveWorkspace != null) saveWorkspace(); }; cmT.Items.Add(hol);
                         cmT.Closed += delegate { if (!chosen || themeIndex != kept) show(kept); };
                         cmT.PlacementTarget = tmplBtn; cmT.IsOpen = true;
@@ -43338,6 +43343,20 @@ namespace NinjaTrader.NinjaScript.AddOns
                             string[][] ofVs = { new[] { "SIGNALS", "🎯 SIGNALS" }, new[] { "PROFILE", "📊 VOLUME PROFILE" }, new[] { "DELTA", "⚖ DELTA" }, new[] { "FLOW", "● LIVE FLOW" }, new[] { "BOOK", "📚 ORDER BOOK" }, new[] { "ALL", "✦ ALL" } };
                             for (int vi = 0; vi < ofVs.Length; vi++) { var code = ofVs[vi][0]; int idx = vi; ofVm.Items.Add(mi((ofViewOn && ofSub == code ? "◉  " : "○  ") + ofVs[vi][1], delegate { ofSub = code; layerModes["OF.SUB"] = idx; saveWorkspace(); if (ofGoH != null) ofGoH(); })); }
                             indM.Items.Add(ofVm);
+                        }
+                        {   /* 📊 11v: every order-flow overlay its own ☑ per view — the 📈 CHART view (default OFF) and the 📊 ORDERFLOW view (default ON) — + 🧘 PATIENT / ⚡ SCALP */
+                            var ofOv = mi("📊 ORDERFLOW overlays (per view)", null); ofOv.Tag = "of.overlays";
+                            var partNames = new[] { Tuple.Create("SIGLINES", "💡 the setup: ENTRY / TAKE PROFIT / STOP LOSS lines + chip + arrow"), Tuple.Create("PROF", "▥ VOLUME PROFILE strip (POC / value area)"), Tuple.Create("DROW", "Δ / CONTRACTS row under the candles"), Tuple.Create("BIG", "⚡ BIG PRINTS bubbles"), Tuple.Create("TRAP", "🪤 TRAPPED zones"), Tuple.Create("MARKS", "🧱 ⇅ ▤ event marks (absorption / divergence / stacked)"), Tuple.Create("CVDL", "cumulative-delta line") };
+                            foreach (var vw in new[] { Tuple.Create(false, "📈 CHART view"), Tuple.Create(true, "📊 ORDERFLOW view") })
+                            {
+                                var vm = mi(vw.Item2, null); bool inOfV = vw.Item1;
+                                foreach (var pnm in partNames) { var key0 = "OF.V." + (inOfV ? "OF" : "CH") + "." + pnm.Item1; int def0 = inOfV ? (pnm.Item1 == "CVDL" ? 0 : 1) : 0; vm.Items.Add(tog(pnm.Item2, () => layerOf(key0, def0) == 1, delegate { layerModes[key0] = layerOf(key0, def0) == 1 ? 0 : 1; ofRefresh(); })); }
+                                ofOv.Items.Add(vm);
+                            }
+                            ofOv.Items.Add(new Separator());
+                            ofOv.Items.Add(tog("🧘 PATIENT — only setups with a proven history (n ≥ 30, beats break-even after costs)", () => layerOf("OF.PATIENT", 1) == 1, delegate { layerModes["OF.PATIENT"] = layerOf("OF.PATIENT", 1) == 1 ? 0 : 1; ofRefresh(); }));
+                            ofOv.Items.Add(tog("⚡ SCALP first — the take profit = the measured scalp distance (the structure target = the runner)", () => layerOf("OF.SCALPMODE", 1) == 1, delegate { layerModes["OF.SCALPMODE"] = layerOf("OF.SCALPMODE", 1) == 1 ? 0 : 1; ofRefresh(); }));
+                            indM.Items.Add(ofOv);
                         }
                         cm.Items.Add(indM);
                         bool tsEnd = layerOf("TS.END", 0) == 1; var tsM = mi("🕘 Candle time", null);
@@ -46235,6 +46254,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             var ofBr = new CheckBox { IsChecked = layerOf("OF.BRK", 1) == 1, Foreground = Text, FontSize = 11, Content = "with the signal's stop / target" };
             ofBr.Click += delegate { layerModes["OF.BRK"] = ofBr.IsChecked == true ? 1 : 0; saveWorkspace(); }; tSp.Children.Add(ofBr);
             var tHint = new TextBlock { Text = liveWindow ? "market order on the chart's account • asks first • then the 📈 CHART tab opens to manage it" : "market order on the backtest account at the replay price • asks first • then the chart opens to manage it", Foreground = Muted, FontSize = 10, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) }; tSp.Children.Add(tHint);
+            /* 11v: the position on the chart's account (any source: TAKE, the panel, NinjaTrader by hand) + ADD / REDUCE / CLOSE through the chart's OWN BUY / SELL / CLOSE (each asks first) */
+            var tPos = new TextBlock { Text = "", FontSize = 13, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), Foreground = Text, Margin = new Thickness(0, 6, 0, 4), TextWrapping = TextWrapping.Wrap, Tag = "of.trade.pos" }; tSp.Children.Insert(1, tPos);
+            var arcRow = new UniformGrid { Columns = 3, Margin = new Thickness(0, 4, 0, 0) }; var ofAdd = ofPill("＋ ADD", Card); var ofRed = ofPill("－ REDUCE", Card); var ofClose = ofPill("✕ CLOSE", Card);
+            foreach (var b9 in new[] { ofAdd, ofRed, ofClose }) { b9.Margin = new Thickness(0, 0, 4, 0); b9.Height = 28; b9.FontSize = 11.5; arcRow.Children.Add(b9); } tSp.Children.Add(arcRow);
             // 3. BULLS vs BEARS: the fight of the last 30 seconds (who hits the market harder), the speed, the big trades
             var aCard = dockCard("", Cyan); var aSp = new StackPanel(); aCard.Child = aSp; tabFlow.Children.Add(aCard);
             aSp.Children.Add(new TextBlock { Text = "⚔ BULLS vs BEARS • last 30 seconds", Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
@@ -46279,225 +46302,456 @@ namespace NinjaTrader.NinjaScript.AddOns
             var guideSp = new StackPanel(); guideSp.Children.Add(new TextBlock { Text = "ⓘ HOW TO READ ORDER FLOW", Foreground = Gold, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
             foreach (var g in OrderFlowGuide()) { guideSp.Children.Add(new TextBlock { Text = g[0], Foreground = Cyan, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 6, 0, 1) }); guideSp.Children.Add(new TextBlock { Text = g[1], Foreground = Text, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, LineHeight = 17 }); }
             var guideCard = dockCard("", Gold); guideCard.Child = guideSp; guideCard.Tag = "of.guide"; tabGuide.Children.Insert(0, guideCard);
+            /* ================= 11v: 🔍 WHY • 📖 STORY • 📒 SETUPS • 📊 ANALYZE • 🧠 LEARN (display / analysis only — nothing here sends anything) ================= */
+            var ofSemi = new FontFamily("Segoe UI Semibold"); var ofMono = new FontFamily("Consolas");
+            Func<string, SolidColorBrush, TextBlock> ofH = (t0, b0) => new TextBlock { Text = t0, Foreground = b0, FontSize = 14.5, FontFamily = ofSemi, FontWeight = FontWeights.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) };
+            Func<string, TextBlock> ofP = tag0 => new TextBlock { Text = "", Foreground = Text, FontSize = 12, TextWrapping = TextWrapping.Wrap, LineHeight = 18, Tag = tag0 };
+            Func<string, TextBlock> ofM = tag0 => new TextBlock { Text = "", Foreground = Text, FontSize = 11.5, FontFamily = ofMono, TextWrapping = TextWrapping.Wrap, LineHeight = 17, Tag = tag0 };
+            Func<StackPanel, SolidColorBrush, UIElement[], Border> ofCard = (host, edge, kids) => { var sp0 = new StackPanel(); foreach (var k0 in kids) sp0.Children.Add(k0); var c0 = dockCard("", edge); c0.Child = sp0; host.Children.Add(c0); return c0; };
+            // 🔍 WHY: the compass, every confirmation step with ✔ / ✖ and its numbers, who's doing what, the key levels, the context, the account fit
+            var whyHead = ofH("🧭 FLOW COMPASS", Text); whyHead.Tag = "of.why.compass"; var whyBar = new Border { Height = 16, Margin = new Thickness(0, 2, 0, 6) }; var whyStory = ofP("of.why.story");
+            ofCard(tabWhy, Cyan, new UIElement[] { whyHead, whyBar, whyStory });
+            var whySteps = ofP("of.why.steps"); ofCard(tabWhy, Orchid, new UIElement[] { ofH("✔ THE CONFIRMATIONS OF THIS SETUP", Text), whySteps });
+            var whoBuy = ofM("of.who.buy"); var whoSell = ofM("of.who.sell"); var whoBig = ofM("of.who.big"); var whoTrap = ofM("of.who.trap"); var whoWhy = ofP("of.who.why");
+            ofCard(tabWhy, Gold, new UIElement[] { ofH("👥 WHO'S DOING WHAT", Text), whoBuy, whoSell, new TextBlock { Text = "⚡ BIG PLAYERS (15 min)", Foreground = Muted, FontSize = 11.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 6, 0, 0) }, whoBig, new TextBlock { Text = "🪤 TRAPPED", Foreground = Muted, FontSize = 11.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 6, 0, 0) }, whoTrap, new TextBlock { Text = "WHY", Foreground = Muted, FontSize = 11.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 6, 0, 0) }, whoWhy });
+            var lvT = ofM("of.levels"); ofCard(tabWhy, Cyan, new UIElement[] { ofH("📍 KEY LEVELS (nearest first)", Text), lvT });
+            tabWhy.Children.Add(rdCard); rdTitle.Text = "🧭 CONTEXT"; rdTitle.FontSize = 14.5;
+            var fitT = ofP("of.fit"); ofCard(tabWhy, Gold, new UIElement[] { ofH("🏦 ACCOUNT FIT", Text), fitT });
+            // 📖 STORY: the last hour, one line per change, newest on top + the recent setups and what happened to each
+            var storyT = ofM("of.story"); ofCard(tabStory, Cyan, new UIElement[] { ofH("📖 THE LAST HOUR", Text), storyT });
+            var recentT = ofM("of.recent"); ofCard(tabStory, Orchid, new UIElement[] { ofH("🎯 RECENT SETUPS (last 10)", Text), recentT });
+            // 📒 SETUPS: every setup shown / not offered (saved per instrument per day) with filters and totals
+            var suRes = Select(new[] { "all results", "wins", "losses", "open" }); var suSide = Select(new[] { "both sides", "▲ buys", "▼ sells" }); var suTaken = Select(new[] { "taken or not", "taken", "not taken" }); var suSrc = Select(new[] { "live + history", "live only", "history replay" });
+            foreach (var cb9 in new[] { suRes, suSide, suTaken, suSrc }) { cb9.SelectedIndex = 0; cb9.Width = 128; cb9.Margin = new Thickness(0, 0, 4, 4); }
+            var suFil = new WrapPanel(); foreach (var cb9 in new[] { suRes, suSide, suTaken, suSrc }) suFil.Children.Add(cb9);
+            var suTot = ofP("of.setups.totals"); var suList = ofM("of.setups.list"); var suExport = ofPill("📦 EXPORT FOR CLAUDE", Card); suExport.Tag = "of.export";
+            ofCard(tabSetups, Cyan, new UIElement[] { ofH("📒 SETUPS — every one shown or not offered", Text), suFil, suTot, suList, suExport });
+            // 📊 ANALYZE: scalp first, then the target, by kind × side × compass × location × time of day — n on every number
+            var anT = ofM("of.analyze"); ofCard(tabAnalyze, Cyan, new UIElement[] { ofH("📊 ANALYZE — scalp first", Text), anT });
+            // 🧠 LEARN: the current setup vs its similar past ones, the lessons, model vs random
+            var lnNow = ofP("of.learn.now"); var lnSim = ofM("of.learn.similar"); var lnLes = ofM("of.learn.lessons"); var lnBase = ofP("of.learn.base");
+            var lnRetrain = ofPill("⟳ RETRAIN NOW", Card); var lnProve = ofPill("📜 PROVE FROM HISTORY", Card); lnProve.Tag = "of.learn.prove"; var lnExport = ofPill("📦 EXPORT FOR CLAUDE", Card); lnExport.Tag = "of.export2";
+            var lnBtns = new WrapPanel(); foreach (var b9 in new[] { lnRetrain, lnProve, lnExport }) lnBtns.Children.Add(b9);
+            ofCard(tabLearn, Orchid, new UIElement[] { ofH("🧠 LEARN — only what is displayed changes; it never places or sizes a trade", Text), lnNow, lnSim, new TextBlock { Text = "LESSONS", Foreground = Muted, FontSize = 11.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 6, 0, 0) }, lnLes, lnBase, lnBtns });
+            // ⚡ FLOW: the live flow (everybody's trades over 10 s / 1 min / 5 min) — moved off the chart
+            var lfT = ofM("of.flow.live"); var lfCard = dockCard("", Cyan); { var sp9 = new StackPanel(); sp9.Children.Add(ofH("⚡ LIVE FLOW • everybody's trades", Text)); sp9.Children.Add(lfT); lfCard.Child = sp9; } tabFlow.Children.Insert(0, lfCard);
             paintDockTabs();
             var tapeRows = new List<TextBlock>(); for (int k = 0; k < 10; k++) { var tr0 = new TextBlock { FontFamily = new FontFamily("Consolas"), FontSize = 11, Text = "" }; tapeSp.Children.Add(tr0); tapeRows.Add(tr0); }
             int ofIndicated = 0; string ofBadgeKey = ""; DateTime ofStatsAt = DateTime.MinValue; Func<long, string> sgnShort = v => (v > 0 ? "+" : v < 0 ? "−" : "") + (Math.Abs(v) >= 10000 ? (Math.Abs(v) / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + "k" : Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture));
+            /* 📊 11v: calm updates — the heavy part at most once a second (or when a tab / button asks), the text changes only when its value changes, a changed number
+               flashes its colour once, the compass bar glides (~300 ms), the verdict tile fades in when it changes */
+            DateTime ofHeavyAt = DateTime.MinValue; bool ofForce = true; var ofFlash = new Dictionary<TextBlock, DateTime>(); double ofCmpShown = 0, ofCmpTarget = 0; string ofVdKind = ""; var ofEvaluated = new HashSet<string>();
+            var ofEntryAt = new Dictionary<ReplayPane, Tuple<int, DateTime, double>>(); var ofTradeLog = new Dictionary<ReplayPane, string>(); string ofLastTradeSummary = "";
+            List<KeystoneFitAccount> ofAccts = null; DateTime ofAcctsAt = DateTime.MinValue; bool ofProving = false; string ofProveMsg = "";
+            Action<TextBlock, string> setT = (tb, v) => { if (tb != null && tb.Text != v) tb.Text = v ?? ""; };
+            Action<TextBlock, string, Brush> setN = (tb, v, b) => { if (tb == null) return; if (tb.Text != v) { if (!string.IsNullOrEmpty(tb.Text) && tb.Text != "—") ofFlash[tb] = DateTime.Now.AddMilliseconds(650); tb.Text = v; } if (tb.Foreground != b) tb.Foreground = b; };
+            // the compass bar: sellers' arc left (coral), buyers' arc right (teal), the needle at the score; built once per host, the widths follow ofCmpShown
+            var cmpBars = new Dictionary<Border, System.Windows.Shapes.Rectangle[]>();
+            Action<Border, double, double> paintCompass = (host, score, wdt) =>
+            {
+                System.Windows.Shapes.Rectangle[] r3;
+                if (!cmpBars.TryGetValue(host, out r3))
+                {
+                    var cvC = new System.Windows.Controls.Canvas { Width = wdt, Height = host.Height > 0 ? host.Height : 14 }; double hC = cvC.Height;
+                    r3 = new[] { new System.Windows.Shapes.Rectangle { Height = hC, Width = wdt / 2, Fill = Tint(ofSellB, 60) }, new System.Windows.Shapes.Rectangle { Height = hC, Width = wdt / 2, Fill = Tint(ofBuyB, 60) }, new System.Windows.Shapes.Rectangle { Height = hC, Width = 4, Fill = Text } };
+                    System.Windows.Controls.Canvas.SetLeft(r3[1], wdt / 2); foreach (var x3 in r3) cvC.Children.Add(x3);
+                    cvC.Children.Add(new System.Windows.Shapes.Line { X1 = wdt / 2, X2 = wdt / 2, Y1 = 0, Y2 = hC, Stroke = Muted, StrokeThickness = 1 });
+                    host.Child = cvC; host.CornerRadius = new CornerRadius(4); host.ClipToBounds = true; host.ToolTip = "the FLOW COMPASS −100 (sellers) … +100 (buyers): BUYERS / SELLERS IN CONTROL past ±35 for 20 s, BALANCED under ±15"; cmpBars[host] = r3;
+                }
+                double sc = Math.Max(-100, Math.Min(100, score)), xN = wdt / 2 + sc / 100 * (wdt / 2 - 3);
+                r3[0].Fill = Tint(ofSellB, (byte)(sc < 0 ? 70 + 1.5 * -sc : 50)); r3[1].Fill = Tint(ofBuyB, (byte)(sc > 0 ? 70 + 1.5 * sc : 50));
+                System.Windows.Controls.Canvas.SetLeft(r3[2], xN - 2); r3[2].Fill = sc >= 35 ? ofBuyB : sc <= -35 ? ofSellB : (Brush)Text;
+            };
+            Func<ReplayPane, List<KeystoneOfSetupRow>> ofLearnRows = pa0 =>
+            {   // past setups (saved live days + 📜 history replay), reloaded every 30 min or on ⟳ RETRAIN, + today's rows in memory (distinct by key)
+                if (pa0.OfLearnRows == null || (DateTime.Now - pa0.OfLearnAt).TotalMinutes >= 30) { pa0.OfLearnRows = KeystoneOfSetupBook.LoadAll(sfolder, pa0.Symbol); pa0.OfLearnAt = DateTime.Now; }
+                var keys = new HashSet<string>(pa0.OfBook.Select(r0 => r0.Key)); return pa0.OfLearnRows.Where(r0 => !keys.Contains(r0.Key)).Concat(pa0.OfBook).ToList();
+            };
+            Action<ReplayPane, bool> ofBookSave = (pa0, now0) =>
+            {   // 📒 today's setups → Studio\OrderFlow\setups-<SYM>-<day>.csv (files only; a failed write is silent)
+                if (!pa0.OfBookDirty || (!now0 && (DateTime.Now - pa0.OfBookSaved).TotalSeconds < 10)) return; pa0.OfBookDirty = false; pa0.OfBookSaved = DateTime.Now;
+                try { foreach (var g in pa0.OfBook.GroupBy(r0 => KeystoneTickLib.SessionOfTick(r0.Time))) KeystoneOfSetupBook.SaveDay(sfolder, pa0.Symbol, g.Key, g); } catch { }
+            };
+            Action<ReplayPane, KeystoneOfSetupRecord, string> ofBookStatus = (pa0, rec0, st0) =>
+            {
+                if (rec0 == null) return; var row = pa0.OfBook.FirstOrDefault(r0 => r0.Time == rec0.Time && r0.Dir == rec0.Dir); if (row == null) return;
+                row.Status = st0; if (st0.StartsWith("taken")) row.Taken = "YES"; pa0.OfBookDirty = true;
+            };
             Action ofDockUpdate = delegate
             {
                 try
                 {
-                    var pa = active; bool flash = DateTime.Now.Millisecond < 500;
+                    var pa = active; bool flash = false; var IC = CultureInfo.InvariantCulture;
+                    {   // the animations (every timer tick): the compass glides, the verdict fades in, a changed number flashes once
+                        ofCmpShown += (ofCmpTarget - ofCmpShown) * 0.45; paintCompass(vdCompassHost, ofCmpShown, 380); paintCompass(whyBar, ofCmpShown, 380);
+                        if (vdCard.Opacity < 1) vdCard.Opacity = Math.Min(1, vdCard.Opacity + 0.2);
+                        foreach (var kv in ofFlash.ToList()) { if (DateTime.Now >= kv.Value) { kv.Key.Background = null; ofFlash.Remove(kv.Key); } else kv.Key.Background = Tint(Gold, 60); }
+                    }
+                    if (!ofForce && (DateTime.Now - ofHeavyAt).TotalMilliseconds < 1000) return; ofForce = false; ofHeavyAt = DateTime.Now; ofPalApply();
                     {   /* 🎯 11s: the numbers strip + the SOURCE BADGE (grey = no real trades: nothing is shown, never an estimate from candles) */
                         long nT = pa != null ? pa.OfTicks.Count : 0, nQ = pa != null ? pa.OfQuoted : 0; string bkey = KeystoneOfSource.Badge(nT, nQ) + "|" + (pa != null ? pa.OfLib : "");
                         if (bkey != ofBadgeKey) { ofBadgeKey = bkey; ofNumBadge.Child = OfBadgeChip(nT, nQ, pa != null && nT > 0 ? pa.OfLib : ""); }
                         var fpN = pa != null && nT > 0 ? pa.OfFps : null; var flN = fpN != null && fpN.Count > 0 ? fpN[fpN.Count - 1] : null;
-                        if (flN == null || flN.Empty) { foreach (var tN in new[] { ofNumCandle, ofNumCvd, ofNumBuy, ofNumCtl }) { tN.Text = "—"; tN.Foreground = Muted; } }
+                        if (flN == null || flN.Empty) { foreach (var tN in new[] { ofNumCandle, ofNumCvd, ofNumBuy, ofNumCtl }) setN(tN, "—", Muted); }
                         else
                         {
-                            ofNumCandle.Text = sgnShort(flN.Delta); ofNumCandle.Foreground = flN.Delta >= 0 ? Green : Red; ofNumCvd.Text = sgnShort(flN.Cvd); ofNumCvd.Foreground = flN.Cvd >= 0 ? Green : Red;
+                            setN(ofNumCandle, sgnShort(flN.Delta), flN.Delta >= 0 ? ofBuyB : ofSellB); setN(ofNumCvd, sgnShort(flN.Cvd), flN.Cvd >= 0 ? ofBuyB : ofSellB);
                             long bb5 = 0, ss5 = 0; for (int i = Math.Max(0, fpN.Count - 5); i < fpN.Count; i++) { bb5 += fpN[i].Buy; ss5 += fpN[i].Sell; }
-                            double shN = bb5 + ss5 > 0 ? 100.0 * bb5 / (bb5 + ss5) : 50; ofNumBuy.Text = shN.ToString("0", CultureInfo.InvariantCulture) + " %"; ofNumBuy.Foreground = shN >= 55 ? Green : shN <= 45 ? Red : Text; ofNumBuy.ToolTip = "the share bought at the ask in the last 5 candles";
+                            double shN = bb5 + ss5 > 0 ? 100.0 * bb5 / (bb5 + ss5) : 50; setN(ofNumBuy, shN.ToString("0", IC) + " %", shN >= 55 ? ofBuyB : shN <= 45 ? ofSellB : Text); ofNumBuy.ToolTip = "the share bought at the ask in the last 5 candles";
                         }
                     }
-                    helpT.Text = ofSub == "SIGNALS" ? "▲ / ▼ on the chart = a buy / sell setup; the % = how often that setup reached its target before its stop on the loaded history (·n = how many). Worth a look: ≥ " + layerOf("OF.BMINP", 55) + " % with n ≥ " + layerOf("OF.BMINN", 20) + ", at a POC / VAH / VAL line."
-                        : ofSub == "PROFILE" ? "The bars on the right = where today's contracts traded. POC (gold) = the most traded price, a magnet. VAH – VAL = the value area: outside it and holding = a move; back inside = often back to the POC. Thin rows get crossed fast, thick rows stop price."
-                        : ofSub == "DELTA" ? "Under the candles: VOLUME, BUY, SELL and DELTA of each candle (green = more bought at the ask). Strong = price and delta the same way. Warning = a new high with a falling delta, or a big red delta that does not push price lower (sellers absorbed)."
-                        : ofSub == "FLOW" ? "Everybody's buying vs selling right now over 10 s / 1 min / 5 min, the speed and the delta every 15 s. A burst of speed with one side in control at a level = commitment."
-                        : ofSub == "BOOK" ? "The orders WAITING at each price (they can be pulled any time). Big walls = where others want to trade; a wall that gets eaten = strength through it. Needs market depth from your data connection."
-                        : "Everything together — choose the parts with ▾ next to ORDER FLOW on the chart bar.";
+                    setT(helpT, ofSub == "SIGNALS" ? "▲ ▼ 🧱 ⇅ ▤ on the chart = the order-flow events (click one = its meaning). The VOLUME PROFILE sits in its own strip by the price axis, the Δ / CONTRACTS row under the candles. A setup shows only when it is confirmed on closed candles, agrees with the 🧭 compass and is proven (🧘 PATIENT)."
+                        : ofSub == "PROFILE" ? "The strip on the right = where today's contracts traded (bought right / sold left). POC (gold) = the most traded price, a magnet. VAH – VAL = the value area (the faint band)."
+                        : ofSub == "DELTA" ? "Under the candles: VOLUME, BUY, SELL and DELTA of each candle (teal = more bought at the ask). Strong = price and delta the same way."
+                        : ofSub == "FLOW" ? "The live flow (10 s / 1 min / 5 min) and the tape are in the ⚡ FLOW tab of this panel — nothing floats over the chart."
+                        : ofSub == "BOOK" ? "The orders WAITING at each price are in the 📚 BOOK tab of this panel (they can be pulled any time)."
+                        : "Everything together — choose the parts with ▾ next to ORDER FLOW on the chart bar.");
                     bool armedA = pa != null && pa.Link != null && pa.Link.Armed && pa.Link.Connected && !pa.Link.Locked;
-                    tArm.Text = pa == null ? "" : !liveWindow ? "REPLAY • " + pa.Symbol + " on the backtest account" : (armedA ? "● ARMED • " + pa.Symbol + " on the chart's account" : "not armed — press ARM REAL ORDERS on the 📈 CHART tab first"); tArm.Foreground = armedA || !liveWindow ? Green : Gold;
-                    if (layerOf("OF.TAB", 1) != 1) { vTitle.Text = "○ ORDER FLOW IS OFF in this tab"; vTitle.Foreground = Muted; vSub.Text = "press ● ON in the bar above • the trading chart's ☑ ORDER FLOW badge is separate"; ofIndicated = 0; return; }
-                    if (pa == null || !pa.OfOn || pa.OfTicks.Count == 0 || pa.Trader == null) { vTitle.Text = pa != null && pa.OfStatus != "" ? pa.OfStatus : "📊 loading the order flow …"; vSub.Text = ""; ofIndicated = 0; return; }
-                    var tk = pa.OfTicks; int endN = liveWindow ? tk.Count : KeystoneOrderFlow.FirstAfter(tk, pa.Trader.Time, tk.Count);
-                    if (endN == 0) { vTitle.Text = "⏳ no trades yet before the replay clock"; vTitle.Foreground = Muted; vSub.Text = ""; ofIndicated = 0; return; }
-                    DateTime lastT = tk[endN - 1].Time, now = !liveWindow ? pa.Trader.Time : DateTime.Now > lastT && (DateTime.Now - lastT).TotalMinutes < 30 ? DateTime.Now : lastT;
-                    var f30 = KeystoneOrderFlow.Flow(tk, endN, now, 30); var f60 = KeystoneOrderFlow.Flow(tk, endN, now, 60); var f10 = KeystoneOrderFlow.Flow(tk, endN, now, 10);
-                    double sh30 = f30[0] + f30[1] > 0 ? (double)f30[0] / (f30[0] + f30[1]) : 0.5, sh60 = f60[0] + f60[1] > 0 ? (double)f60[0] / (f60[0] + f60[1]) : 0.5, spd = (f10[0] + f10[1]) / 10.0;
-                    // ⚔ the arena: who is in control = the share bought AND where the price went (not the share alone)
-                    var ctl30 = KeystoneOrderFlow.Control(tk, endN, now, 30, pa.Trader.Tick > 0 ? pa.Trader.Tick : 0.25); var ctl60 = KeystoneOrderFlow.Control(tk, endN, now, 60, pa.Trader.Tick > 0 ? pa.Trader.Tick : 0.25);
-                    double tgtPos = Math.Max(0.06, Math.Min(0.94, 0.5 + ctl30.Item1 * (0.08 + 0.36 * ctl30.Item2) + (sh30 - 0.5) * 0.4)); battlePos += (tgtPos - battlePos) * 0.2;
+                    setT(tArm, pa == null ? "" : !liveWindow ? "REPLAY • " + pa.Symbol + " on the backtest account" : (armedA ? "● ARMED • " + pa.Symbol + " on the chart's account" : "not armed — press ARM REAL ORDERS on the 📈 CHART tab first")); tArm.Foreground = armedA || !liveWindow ? ofBuyB : Gold;
+                    Action<string, string> ofStatus = (t1, t2) => { setT(vTitle, t1); setT(vSub, t2); vTitle.Foreground = Muted; vCard.Visibility = Visibility.Visible; vdCard.Visibility = Visibility.Collapsed; sgCard.Visibility = Visibility.Collapsed; ofIndicated = 0; };
+                    if (layerOf("OF.TAB", 1) != 1) { ofStatus("○ ORDER FLOW IS OFF in this tab", "press ● ON in the bar above • the trading chart's ☑ ORDER FLOW badge is separate"); return; }
+                    if (pa == null || !pa.OfOn || pa.OfTicks.Count == 0 || pa.Trader == null) { ofStatus(pa != null && pa.OfStatus != "" ? pa.OfStatus : "📊 loading the order flow …", "every number comes from real trades only — the source badge says where they come from"); return; }
+                    var ck = ofClock(pa); if (ck == null) { ofStatus("⏳ no trades yet before the replay clock", ""); return; }
+                    vCard.Visibility = Visibility.Collapsed; vdCard.Visibility = Visibility.Visible;
+                    ofSync(pa); var tk = pa.OfTicks; int endN = ck.Item1; DateTime now = ck.Item2; double tick = ck.Item3, px = pa.Trader.Price; var comp = pa.Compass; var hold = pa.Hold;
+                    double pvS = KeystoneMoveStudy.PointValue(pa.Symbol), costUsd = KeystoneMoveStudy.Cost(pa.Symbol), costPts = costUsd / Math.Max(1e-9, pvS); hold.PointValue = pvS;
+                    var f30 = KeystoneOrderFlow.Flow(tk, endN, now, 30); var f60 = KeystoneOrderFlow.Flow(tk, endN, now, 60); var f10 = KeystoneOrderFlow.Flow(tk, endN, now, 10); var f300 = KeystoneOrderFlow.Flow(tk, endN, now, 300);
+                    double sh30 = f30[0] + f30[1] > 0 ? (double)f30[0] / (f30[0] + f30[1]) : 0.5, spd = (f10[0] + f10[1]) / 10.0;
+                    string heldTx = KeystoneFlowCompass.Held(comp.HeldSec(now)); SolidColorBrush cmpB = comp.State > 0 ? ofBuyB : comp.State < 0 ? ofSellB : ofNeuB; ofCmpTarget = comp.Score;
+                    // 🧭 the header chip = the compass (state, score, how long it has held) — the only "who is in control" anywhere
+                    setN(ofNumCtl, KeystoneFlowCompass.SideWord(comp.State) + " " + KeystoneFlowCompass.ScoreText(comp.Score) + " • " + heldTx, cmpB); ofNumCtl.ToolTip = "🧭 FLOW COMPASS: " + comp.Text + " • score " + KeystoneFlowCompass.ScoreText(comp.Score) + " • held " + heldTx;
+                    // ⚔ the arena (⚡ FLOW tab): its colour follows the compass
+                    double tgtPos = Math.Max(0.06, Math.Min(0.94, 0.5 + comp.Score / 100 * 0.42)); battlePos += (tgtPos - battlePos) * 0.5;
                     long bigT = Math.Max(1, layerOf("OF.BIG", 10)); long boomQ = 0;
                     for (int q = endN - 1; q >= 0 && q >= endN - 400 && tk[q].Time >= now.AddSeconds(-3); q--) if (tk[q].Size >= bigT) { boomQ = tk[q].Side > 0 ? tk[q].Size : -tk[q].Size; break; }
-                    arenaHost.Child = buildArena(battlePos, sh30, ctl30.Item1, boomQ, aW, aH, flash);
-                    bool quiet = f30[0] + f30[1] == 0;
-                    aCap.Text = quiet ? "• quiet — nobody is trading" : (ctl30.Item1 > 0 ? "🐂 " : ctl30.Item1 < 0 ? "🐻 " : "⚔ ") + ctl30.Item3;
-                    aCap.Foreground = quiet ? Muted : ctl30.Item1 > 0 ? Green : ctl30.Item1 < 0 ? Red : Gold;
-                    aSpeed.Text = "speed " + spd.ToString("0.#", CultureInfo.InvariantCulture) + " contracts / sec • 30 s: " + f30[0].ToString("N0", CultureInfo.InvariantCulture) + " bought vs " + f30[1].ToString("N0", CultureInfo.InvariantCulture) + " sold" + (spd >= 5 ? " • ⚡ FAST MARKET" : "");
+                    if (ofDockTab == "FLOW") arenaHost.Child = buildArena(battlePos, sh30, comp.State, boomQ, aW, aH, false);
+                    bool quiet = f60[0] + f60[1] == 0;
+                    setT(aCap, quiet ? "• quiet — nobody is trading" : "🧭 " + comp.Text + " (score " + KeystoneFlowCompass.ScoreText(comp.Score) + ", held " + heldTx + ")"); aCap.Foreground = quiet ? Muted : cmpB;
+                    setT(aSpeed, "speed " + spd.ToString("0.#", IC) + " contracts / sec • 30 s: " + f30[0].ToString("N0", IC) + " bought vs " + f30[1].ToString("N0", IC) + " sold" + (spd >= 5 ? " • ⚡ FAST MARKET" : ""));
                     // 📍 location vs today's profile
-                    double px = pa.Trader.Price, tick = pa.Trader.Tick > 0 ? pa.Trader.Tick : 0.25; var pr = pa.OfProf; int locSide = 0; bool atLevel = false; string loc = "no profile yet";
+                    var pr = pa.OfProf; int locSide = 0; bool atLevel = false; string loc = "no profile yet";
                     if (pr != null && !double.IsNaN(pr.Poc) && px > 0)
                     {
                         double near = Math.Max(8 * tick, (pr.Vah - pr.Val) * 0.06);
-                        if (Math.Abs(px - pr.Vah) <= near) { atLevel = true; loc = "AT VAH " + fmt(pr.Vah) + " — the top of value: a rejection here = short, holding above = long"; }
-                        else if (Math.Abs(px - pr.Val) <= near) { atLevel = true; loc = "AT VAL " + fmt(pr.Val) + " — the bottom of value: holding here = long, breaking below = short"; }
-                        else if (Math.Abs(px - pr.Poc) <= near) { atLevel = true; loc = "AT POC " + fmt(pr.Poc) + " — the magnet: price often chops here; trade the move away from it"; }
-                        else if (px > pr.Vah) { locSide = 1; loc = "ABOVE VALUE (VAH " + fmt(pr.Vah) + ") — buyers accepted higher prices: longs favoured while it holds"; }
-                        else if (px < pr.Val) { locSide = -1; loc = "BELOW VALUE (VAL " + fmt(pr.Val) + ") — sellers accepted lower prices: shorts favoured while it holds"; }
-                        else loc = "INSIDE VALUE between the lines (POC " + fmt(pr.Poc) + ") — no edge from the location here";
+                        if (Math.Abs(px - pr.Vah) <= near) { atLevel = true; loc = "AT VAH " + fmt(pr.Vah) + " — the top of value"; }
+                        else if (Math.Abs(px - pr.Val) <= near) { atLevel = true; loc = "AT VAL " + fmt(pr.Val) + " — the bottom of value"; }
+                        else if (Math.Abs(px - pr.Poc) <= near) { atLevel = true; loc = "AT POC " + fmt(pr.Poc) + " — the magnet"; }
+                        else if (px > pr.Vah) { locSide = 1; loc = "ABOVE VALUE (VAH " + fmt(pr.Vah) + ") — buyers accepted higher prices"; }
+                        else if (px < pr.Val) { locSide = -1; loc = "BELOW VALUE (VAL " + fmt(pr.Val) + ") — sellers accepted lower prices"; }
+                        else loc = "INSIDE VALUE (POC " + fmt(pr.Poc) + ") — no edge from the location";
                     }
-                    int flowSide = ctl60.Item1;
-                    { string cw = ctl60.Item3.Split('•')[0].Trim(); ofNumCtl.Text = cw.StartsWith("BUYERS IN") ? "BUYERS" : cw.StartsWith("SELLERS IN") ? "SELLERS" : cw.Contains("ABSORBED") ? (cw.StartsWith("BUYERS") ? "BUYERS ABSORBED" : "SELLERS ABSORBED") : cw.StartsWith("quiet") ? "QUIET" : "EVEN"; ofNumCtl.Foreground = ctl60.Item1 > 0 ? Green : ctl60.Item1 < 0 ? Red : Gold; ofNumCtl.ToolTip = "the last minute: " + ctl60.Item3; }
-                    string flowT = "last minute: " + ctl60.Item3 + " • " + spd.ToString("0.#", CultureInfo.InvariantCulture) + " contracts / sec";
-                    // ⚖ delta of the last 5 candles vs the price
-                    var fp = pa.OfFps; int dSide = 0; string dT = "—";
+                    int flowSide = comp.State; string flowT = "🧭 " + comp.Text + " (score " + KeystoneFlowCompass.ScoreText(comp.Score) + ", held " + heldTx + ") • " + spd.ToString("0.#", IC) + " contracts / sec";
+                    var fp = pa.OfFps; int dSide = 0; string dT = "—"; int closed = fp == null ? 0 : fp.Count - 1;
                     if (fp != null && fp.Count >= 6)
                     {
-                        var a0 = fp[fp.Count - 6]; var a1 = fp[fp.Count - 1]; long dc = a1.Cvd - a0.Cvd; double dp = (a1.Empty ? px : a1.Close) - (a0.Empty ? px : a0.Close);
-                        if (dp > 2 * tick && dc < 0) { dSide = -1; dT = "⚠ price UP but delta DOWN (" + sgnShort(dc) + ") over 5 candles — the buyers are weak"; }
-                        else if (dp < -2 * tick && dc > 0) { dSide = 1; dT = "⚠ price DOWN but delta UP (" + sgnShort(dc) + ") over 5 candles — the sellers are weak"; }
-                        else { dSide = Math.Sign(dc); dT = (dc >= 0 ? "buyers" : "sellers") + " stronger over 5 candles (delta " + sgnShort(dc) + "), the price agrees • this candle " + sgnShort(a1.Delta); }
+                        var a0 = fp[fp.Count - 6]; var a1 = fp[fp.Count - 2]; long dc = a1.Cvd - a0.Cvd; double dp = (a1.Empty ? px : a1.Close) - (a0.Empty ? px : a0.Close);
+                        if (dp > 2 * tick && dc < 0) { dSide = -1; dT = "price UP but delta DOWN (" + sgnShort(dc) + ") over 4 closed candles — the buyers are weak"; }
+                        else if (dp < -2 * tick && dc > 0) { dSide = 1; dT = "price DOWN but delta UP (" + sgnShort(dc) + ") over 4 closed candles — the sellers are weak"; }
+                        else { dSide = Math.Sign(dc); dT = (dc >= 0 ? "buyers" : "sellers") + " stronger over 4 closed candles (delta " + sgnShort(dc) + "), the price agrees • last closed candle " + sgnShort(a1.Delta); }
                     }
-                    // 🎯 the latest signal (last 3 candles)
-                    bool onlyCD = layerOf("OF.ONLYCONF", 1) == 1; var rawL = pa.OfSigs != null && pa.OfSigs.Count > 0 ? pa.OfSigs[pa.OfSigs.Count - 1] : null; if (rawL != null && fp != null && rawL.Bar < fp.Count - 3) rawL = null;
-                    var sg = onlyCD ? (pa.OfConf != null && pa.OfConf.Count > 0 ? pa.OfConf[pa.OfConf.Count - 1] : null) : rawL; if (sg != null && fp != null && sg.Bar < fp.Count - 3) sg = null;
-                    int minP = layerOf("OF.BMINP", 55), minN = onlyCD ? layerOf("OF.CMINN", 10) : layerOf("OF.BMINN", 20); bool good = sg != null && !double.IsNaN(sg.Prob) && sg.Prob >= minP && sg.N >= minN;
-                    string sgT = sg == null ? (onlyCD && rawL != null ? "raw " + (rawL.Dir > 0 ? "▲ BUY " : "▼ SELL ") + rawL.Kind + " — waiting for CONFIRMATION (a stop run before it + a closed candle beyond its " + (rawL.Dir > 0 ? "high" : "low") + " with the delta on its side)" : "no setup in the last 3 candles") : (sg.Dir > 0 ? "▲ BUY " : "▼ SELL ") + sg.Kind + " • " + (double.IsNaN(sg.Prob) ? "no history yet" : sg.Prob.ToString("0", CultureInfo.InvariantCulture) + "% of " + sg.N + " worked") + (good ? " ✔ strong enough" : " ✖ below " + minP + "% / n " + minN) + " • " + sg.Why;
-                    string expT = "no setup on screen"; int expSide = 0; string plan = "";
-                    var exSig = sg ?? rawL;
-                    if (exSig != null && fp != null)
+                    // 🎯 the signals: RAW = only a "watching" line; CONFIRMED (closed candles only) = the setup candidates
+                    var rawL = pa.OfSigs != null && pa.OfSigs.Count > 0 ? pa.OfSigs[pa.OfSigs.Count - 1] : null; if (rawL != null && fp != null && rawL.Bar < fp.Count - 3) rawL = null;
+                    var conf = pa.OfConf != null && pa.OfConf.Count > 0 ? pa.OfConf[pa.OfConf.Count - 1] : null; if (conf != null && (fp == null || conf.Bar < closed - 3 || conf.Bar >= closed + 1 || conf.Time > now)) conf = null;
+                    string rawWait = ""; if (rawL != null && fp != null && rawL.Bar < fp.Count && (conf == null || conf.Time < rawL.Time)) { var fr = fp[rawL.Bar]; if (!fr.Empty) rawWait = "the " + pa.Tf + "-min candle to close " + (rawL.Dir > 0 ? "above " + fmt(fr.High) : "below " + fmt(fr.Low)) + " (raw " + (rawL.Dir > 0 ? "▲ " : "▼ ") + rawL.Kind + " — not confirmed yet)"; }
+                    pa.OfWatch = rawL == null ? "" : KeystoneFlowGate.Watching(rawL);
+                    // the 💰 EXPECTANCY + raw signal details (📈 STATS tab)
                     {
-                        var pool = sg != null && onlyCD ? pa.OfConf : pa.OfSigs.Where(x => x.Kind == exSig.Kind).ToList(); double pvT = KeystoneMoveStudy.PointValue(pa.Symbol) * tick;
-                        int sT = Math.Max(1, layerOf("OF.STGT", 8)), sS = Math.Max(1, layerOf("OF.SSTP", 8)), sH = Math.Max(1, layerOf("OF.SHOR", 5)), lT = layerOf("OF.TGT", 40), lS = layerOf("OF.STP", 40), lH = layerOf("OF.HOR", 30);
-                        var eS = KeystoneOrderFlow.Edge(pool, fp, tick, sT, sS, sH, exSig.Dir, exSig.Bar); var eL = KeystoneOrderFlow.Edge(pool, fp, tick, lT, lS, lH, exSig.Dir, exSig.Bar);
-                        Func<double[], int, int, string> one = (e, t0, s0) => e[0] + e[1] == 0 ? "+" + t0 + " / −" + s0 + " ticks: no finished ones yet" : "+" + t0 + " / −" + s0 + " ticks: " + (100.0 * e[0] / (e[0] + e[1])).ToString("0", CultureInfo.InvariantCulture) + "% of " + (e[0] + e[1]) + " • " + (e[2] >= 0 ? "+" : "") + e[2].ToString("0.0", CultureInfo.InvariantCulture) + " ticks a trade (" + (e[2] >= 0 ? "+" : "−") + Cash(Math.Abs(e[2] * pvT)) + " a contract)";
-                        expT = "SCALP " + one(eS, sT, sS) + "\nTREND " + one(eL, lT, lS) + (double.IsNaN(eL[3]) ? "" : "\nit usually runs " + eL[3].ToString("0", CultureInfo.InvariantCulture) + " ticks its way before the stop");
-                        bool sOk = eS[0] + eS[1] >= 5 && eS[2] > 0, lOk = eL[0] + eL[1] >= 5 && eL[2] > 0;
-                        plan = sOk && (!lOk || eS[2] * sH >= eL[2]) ? "→ best as a SCALP (+" + sT + " ticks)" : lOk ? "→ let it RUN (TREND +" + lT + " ticks)" : "→ NO EDGE so far — skip or size down";
-                        expT += "\n" + plan; expSide = sOk || lOk ? exSig.Dir : 0;
+                        string sgT = conf != null ? "✅ CONFIRMED " + (conf.Dir > 0 ? "▲ BUY " : "▼ SELL ") + " • " + conf.Why : rawL != null ? pa.OfWatch : "no setup in the last 3 candles";
+                        string expT = "no setup on screen"; int expSide = 0; var exSig = conf ?? rawL;
+                        if (exSig != null && fp != null)
+                        {
+                            var pool = conf != null ? pa.OfConf : pa.OfSigs.Where(x => x.Kind == exSig.Kind).ToList(); double pvT = pvS * tick;
+                            int sT = Math.Max(1, layerOf("OF.STGT", 8)), sS = Math.Max(1, layerOf("OF.SSTP", 8)), sH = Math.Max(1, layerOf("OF.SHOR", 5)), lT = layerOf("OF.TGT", 40), lS = layerOf("OF.STP", 40), lH = layerOf("OF.HOR", 30);
+                            var eS = KeystoneOrderFlow.Edge(pool, fp, tick, sT, sS, sH, exSig.Dir, exSig.Bar); var eL = KeystoneOrderFlow.Edge(pool, fp, tick, lT, lS, lH, exSig.Dir, exSig.Bar);
+                            Func<double[], int, int, string> one = (e, t0, s0) => e[0] + e[1] == 0 ? "+" + t0 + " / −" + s0 + " ticks: no finished ones yet" : "+" + t0 + " / −" + s0 + " ticks: " + (100.0 * e[0] / (e[0] + e[1])).ToString("0", IC) + "% of " + (e[0] + e[1]) + " • " + (e[2] >= 0 ? "+" : "") + e[2].ToString("0.0", IC) + " ticks a trade (" + (e[2] >= 0 ? "+" : "−") + Cash(Math.Abs(e[2] * pvT)) + " a contract)";
+                            expT = "SCALP " + one(eS, sT, sS) + "\nTREND " + one(eL, lT, lS); expSide = (eS[0] + eS[1] >= 5 && eS[2] > 0) || (eL[0] + eL[1] >= 5 && eL[2] > 0) ? exSig.Dir : 0;
+                        }
+                        var vals = new[] { Tuple.Create(loc, atLevel ? 0 : locSide), Tuple.Create(flowT, flowSide), Tuple.Create(dT, dSide), Tuple.Create(sgT, exSig == null ? 0 : exSig.Dir), Tuple.Create(expT, expSide) };
+                        for (int k = 0; k < 5; k++) { var row = storyRows[k]; setT(row.Item3, vals[k].Item1); row.Item1.BorderBrush = vals[k].Item2 > 0 ? ofBuyB : vals[k].Item2 < 0 ? ofSellB : Muted; }
                     }
-                    var vals = new[] { Tuple.Create(loc, atLevel ? 0 : locSide, atLevel), Tuple.Create(flowT, flowSide, false), Tuple.Create(dT, dSide, false), Tuple.Create(sgT, sg == null ? 0 : sg.Dir, good), Tuple.Create(expT, expSide, plan.Contains("SCALP") || plan.Contains("RUN")) };
-                    for (int k = 0; k < 5; k++) { var row = storyRows[k]; row.Item3.Text = vals[k].Item1; row.Item1.BorderBrush = vals[k].Item2 > 0 ? Green : vals[k].Item2 < 0 ? Red : vals[k].Item3 ? (Brush)Gold : Muted; }
+                    // 🧭 CONTEXT (🔍 WHY): the trend, the VWAP, the sessions, the gap, the news — a context, never a second verdict; the order-flow words = the compass
+                    double vwR = double.NaN, dayHi = double.NaN, dayLo = double.NaN, onHi = double.NaN, onLo = double.NaN; int trendR = 0; KeystoneNewsEvent nxR = null; DateTime nyR = now;
                     try
                     {
                         var cR = pa.Candles; int nR = cR.Count;
                         if (nR >= 30)
                         {
                             Func<int, double> emaR = len => { int i0r = Math.Max(0, nR - len * 4); double kR = 2.0 / (len + 1), e = cR[i0r].Close; for (int i = i0r + 1; i < nR; i++) e = cR[i].Close * kR + e * (1 - kR); return e; };
-                            double e21 = emaR(21), e50 = emaR(50); int trendR = px > e21 && e21 > e50 ? 1 : px < e21 && e21 < e50 ? -1 : 0;
+                            double e21 = emaR(21), e50 = emaR(50); trendR = px > e21 && e21 > e50 ? 1 : px < e21 && e21 < e50 ? -1 : 0;
                             Func<DateTime, DateTime> sessR = t0 => { var t1 = t0.AddMinutes(-1); return t1.Hour >= 18 ? t1.Date.AddDays(1) : t1.Date; };
                             var sNow = sessR(cR[nR - 1].Time); double pvR = 0, vvR = 0; bool anyVR = cR.Any(c0 => c0.Volume > 0);
-                            for (int i = nR - 1; i >= 0 && sessR(cR[i].Time) == sNow; i--) { double wv = anyVR ? Math.Max(1, cR[i].Volume) : 1; pvR += (cR[i].High + cR[i].Low + cR[i].Close) / 3 * wv; vvR += wv; }
-                            double vwR = vvR > 0 ? pvR / vvR : px; int vwS = px > vwR ? 1 : px < vwR ? -1 : 0;
-                            // today's gap: the 09:30 open vs yesterday's 16:00 close (1-minute bars)
+                            for (int i = nR - 1; i >= 0 && sessR(cR[i].Time) == sNow; i--) { double wv = anyVR ? Math.Max(1, cR[i].Volume) : 1; pvR += (cR[i].High + cR[i].Low + cR[i].Close) / 3 * wv; vvR += wv; dayHi = double.IsNaN(dayHi) ? cR[i].High : Math.Max(dayHi, cR[i].High); dayLo = double.IsNaN(dayLo) ? cR[i].Low : Math.Min(dayLo, cR[i].Low); if (cR[i].Time <= sNow.AddHours(9.5)) { onHi = double.IsNaN(onHi) ? cR[i].High : Math.Max(onHi, cR[i].High); onLo = double.IsNaN(onLo) ? cR[i].Low : Math.Min(onLo, cR[i].Low); } }
+                            vwR = vvR > 0 ? pvR / vvR : px; int vwS = px > vwR ? 1 : px < vwR ? -1 : 0;
                             string gapR = "—"; var allR = pa.All; DateTime dR = sNow.Date;
                             var o930 = allR.FirstOrDefault(b => b.Time > dR.AddHours(9.5) && b.Time <= dR.AddHours(9.5).AddMinutes(1)); var c1600 = allR.LastOrDefault(b => b.Time <= dR.AddDays(-1).AddHours(16) && b.Time > dR.AddDays(-4));
                             if (o930 != null && c1600 != null) { double gp = o930.Open - c1600.Close; gapR = Math.Abs(gp) < tick ? "no gap at 09:30" : (gp > 0 ? "▲ GAP UP " : "▼ GAP DOWN ") + fmt(Math.Abs(gp)) + " pts at 09:30 • yesterday's close " + fmt(c1600.Close) + (Math.Sign(px - c1600.Close) != Math.Sign(gp) ? " • FILLED" : " • not filled yet"); }
-                            var nyR = liveWindow ? NewYorkTime(DateTimeOffset.Now) : pa.Trader.Time; var nxR = (liveWindow ? newsCal : newsAll).Where(e => e.Currency == "USD" && (e.Impact ?? "").ToUpperInvariant() == "HIGH" && e.Time >= nyR.AddMinutes(-5)).OrderBy(e => e.Time).FirstOrDefault();
-                            int scR = trendR + vwS + locSide + flowSide;
-                            string verdR = scR >= 3 ? "▲ LEAN LONG — strong" : scR == 2 ? "▲ LEAN LONG" : scR <= -3 ? "▼ LEAN SHORT — strong" : scR == -2 ? "▼ LEAN SHORT" : "⏸ WAIT — mixed signals";
-                            Func<int, string> ar = v => v > 0 ? "▲" : v < 0 ? "▼" : "•";
-                            rdTitle.Text = "🧭 " + verdR + "   (" + scR.ToString("+0;−0;0", CultureInfo.InvariantCulture) + " of ±4)"; rdTitle.Foreground = scR >= 2 ? Green : scR <= -2 ? Red : Gold;
-                            rdBody.Text = ar(trendR) + " trend  " + ar(vwS) + " VWAP  " + ar(locSide) + " value area  " + ar(flowSide) + " order flow\n"
-                                + "📈 TREND " + (trendR > 0 ? "UP — price over EMA 21 over EMA 50" : trendR < 0 ? "DOWN — price under EMA 21 under EMA 50" : "SIDEWAYS — the averages are mixed") + " (" + pa.Tf + "M: " + fmt(e21) + " / " + fmt(e50) + ")\n"
-                                + "≈ VWAP " + fmt(vwR) + " — price " + (vwS > 0 ? "ABOVE (+" : "BELOW (") + fmt(px - vwR) + " pts): " + (vwS > 0 ? "the buyers pay up" : "the sellers lead") + "\n"
-                                + "🌐 " + SessionsText(liveWindow ? DateTime.UtcNow : NyToUtc(nyR)) + "\n"
-                                + "⇅ TODAY'S GAP " + gapR + "\n"
-                                + "📰 " + (nxR == null ? "no high-impact USD news ahead this week" : "NEXT HIGH IMPACT • " + tzShow(nxR.Time).ToString("ddd HH:mm", CultureInfo.InvariantCulture) + " " + tzLabel() + " • " + nxR.Title + " • " + KeystoneNews.Until(nxR.Time, nyR)) + "\n"
-                                + "a reading, not a signal — confirm on the chart";
+                            nyR = liveWindow ? NewYorkTime(DateTimeOffset.Now) : pa.Trader.Time; nxR = (liveWindow ? newsCal : newsAll).Where(e => e.Currency == "USD" && (e.Impact ?? "").ToUpperInvariant() == "HIGH" && e.Time >= nyR.AddMinutes(-5)).OrderBy(e => e.Time).FirstOrDefault();
+                            if (ofDockTab == "WHY")
+                                setT(rdBody, "the trend is " + (trendR > 0 ? "UP (EMA 21 > 50)" : trendR < 0 ? "DOWN (EMA 21 < 50)" : "SIDEWAYS (the averages are mixed)") + ", " + (vwS > 0 ? "above" : "below") + " VWAP " + fmt(vwR) + "; the order flow: " + comp.Text.ToLowerInvariant() + " (score " + KeystoneFlowCompass.ScoreText(comp.Score) + ")\n"
+                                    + "📈 " + pa.Tf + "M EMA 21 / 50: " + fmt(e21) + " / " + fmt(e50) + "\n🌐 " + SessionsText(liveWindow ? DateTime.UtcNow : NyToUtc(nyR)) + "\n⇅ TODAY'S GAP " + gapR + "\n"
+                                    + "📰 " + (nxR == null ? "no high-impact USD news ahead this week" : "NEXT HIGH IMPACT • " + tzShow(nxR.Time).ToString("ddd HH:mm", IC) + " " + tzLabel() + " • " + nxR.Title + " • " + KeystoneNews.Until(nxR.Time, nyR)));
                         }
-                        else { rdTitle.Text = "🧭 MARKET READING • waiting for candles"; rdTitle.Foreground = Muted; rdBody.Text = ""; }
+                        else setT(rdBody, "waiting for candles");
                     }
                     catch { }
-                    // ✅ the verdict: signal strong enough + at a level + the flow with it + the delta with it
-                    if (sg == null) { vTitle.Text = onlyCD && rawL != null ? "⏳ RAW SIGNAL — NOT CONFIRMED YET" : "⏳ NO SETUP RIGHT NOW"; vTitle.Foreground = Muted; vSub.Text = "watching • " + (flowSide > 0 ? "buyers lead" : flowSide < 0 ? "sellers lead" : "nobody leads") + (atLevel ? " • price is AT a level — a setup may form" : ""); vCard.BorderBrush = Tint(Muted, 120); ofIndicated = 0; }
-                    else
+                    // 🧾 the position on the chart's account (any source) — its open time is remembered here (the IN-TRADE view)
+                    int posQ = 0; double posAvg = 0; try { if (liveWindow && pa.Link != null && pa.Link.Broker != null && pa.Link.Broker.Qty != 0) { posQ = pa.Link.Broker.Qty; posAvg = pa.Link.Broker.AvgPrice; } } catch { } if (posQ == 0 && pa.Trader.Position != 0) { posQ = pa.Trader.Position; posAvg = pa.Trader.AvgPrice; }
+                    Tuple<int, DateTime, double> ent; ofEntryAt.TryGetValue(pa, out ent);
+                    if (posQ != 0 && (ent == null || Math.Sign(ent.Item1) != Math.Sign(posQ))) { ent = Tuple.Create(posQ, now, posAvg); ofEntryAt[pa] = ent; pa.Story.Add(now, "P|" + now.Ticks, "🧾 position opened: " + (posQ > 0 ? "LONG " : "SHORT ") + Math.Abs(posQ) + " " + pa.Symbol + " @ " + fmt(posAvg)); }
+                    if (posQ == 0 && ent != null)
                     {
-                        int dir = sg.Dir; var why = new List<string>(); int sc = 0;
-                        if (good) sc++; else why.Add("hit rate too low");
-                        if (atLevel || locSide == dir) sc++; else why.Add("not at a level");
-                        if (flowSide == dir) sc++; else why.Add("the flow is not with it");
-                        if (dSide == dir) sc++; else why.Add("the delta is not with it");
-                        string side = dir > 0 ? "▲ BUY" : "▼ SELL"; SolidColorBrush sb = dir > 0 ? Green : Red;
-                        if (sc >= 4) { vTitle.Text = "✅ STRONG " + (onlyCD ? "CONFIRMED " : "") + side + " — all 4 agree"; vTitle.Foreground = sb; vCard.BorderBrush = flash ? sb : Tint(sb, 120); }
-                        else if (sc == 3) { vTitle.Text = "👀 " + (onlyCD ? "✅ " : "") + side + " WORTH A LOOK — 3 of 4 agree"; vTitle.Foreground = Gold; vCard.BorderBrush = Tint(Gold, flash ? (byte)230 : (byte)120); }
-                        else { vTitle.Text = "⏳ WAIT — only " + sc + " of 4 agree for " + side; vTitle.Foreground = Muted; vCard.BorderBrush = Tint(Muted, 120); }
-                        vSub.Text = (sc >= 4 ? sg.Kind + " • signal, location, flow and delta all point the same way" : "missing: " + string.Join(", ", why)) + (plan != "" ? "\n" + plan : "");
-                        ofIndicated = sc >= 3 ? dir : 0;
+                        var mapE = KeystoneTradeMap.Rows(tk, endN, ent.Item2, now, tick); double mxF = 0, mxA = 0; for (int i = KeystoneOrderFlow.FirstAfter(tk, ent.Item2, endN); i < endN; i++) { double m = Math.Sign(ent.Item1) * (tk[i].Price - ent.Item3); mxF = Math.Max(mxF, m); mxA = Math.Max(mxA, -m); }
+                        ofLastTradeSummary = "last trade: " + (ent.Item1 > 0 ? "LONG " : "SHORT ") + Math.Abs(ent.Item1) + " @ " + fmt(ent.Item3) + " • " + KeystoneFlowCompass.Held((now - ent.Item2).TotalSeconds) + " • best +" + fmt(mxF) + " pts / worst −" + fmt(mxA) + " pts • its fills are in 🧾 EXECUTIONS";
+                        pa.Story.Add(now, "PX|" + now.Ticks, "🧾 position closed — " + ofLastTradeSummary); ofEntryAt.Remove(pa);
                     }
-                    PaintBtn(ofBuy, ofIndicated > 0 && flash ? Gold : Green); PaintBtn(ofSell, ofIndicated < 0 && flash ? Gold : Red);
-                    ofBuy.Content = ofIndicated > 0 ? "▲ BUY ◀ indicated" : "▲ BUY"; ofSell.Content = ofIndicated < 0 ? "▼ SELL ◀ indicated" : "▼ SELL";
-                    double stP = layerOf("OF.STP", 40) * tick, tgP = layerOf("OF.TGT", 40) * tick;
-                    ofBr.Content = "with the signal's stop / target (" + fmt(stP) + " / " + fmt(tgP) + " pts)";
-                    // 🧾 the latest trades
-                    for (int k = 0; k < tapeRows.Count; k++)
+                    // 🎯 THE SETUP: the card on screen first (resolved on the FIRST trade at / beyond its take profit / stop loss since it appeared, expiry, withdrawal) …
+                    if (hold.Current != null)
                     {
-                        int q = endN - 1 - k; var trr = tapeRows[k]; if (q < 0) { trr.Text = ""; continue; } var t = tk[q]; bool big = t.Size >= bigT;
-                        trr.Text = t.Time.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + fmt(t.Price) + "  " + t.Size.ToString(CultureInfo.InvariantCulture).PadLeft(4) + (t.Side > 0 ? "  BUY " : "  SELL") + (big ? "  💥" : "");
-                        trr.Foreground = t.Side > 0 ? Green : Red; trr.FontWeight = big ? FontWeights.Bold : FontWeights.Normal; trr.Background = big ? Tint(t.Side > 0 ? Green : Red, 60) : null;
+                        hold.TouchAll(tk, endN, now); var chk = hold.Check(now, px, closed, comp.State);
+                        if (chk != null && chk.Item1 != "") { var recE = hold.End(now, chk.Item1, chk.Item2); ofBookStatus(pa, recE, chk.Item1 + ": " + chk.Item2); pa.Story.Add(now, "E|" + recE.Key, "🎯 " + hold.LastRemoved); ofCardPlan = null; }
                     }
-                    // 🎯 11s: the STRONG BUY / SELL card of the current setup (confirmed, else the raw one) with its suggested stop / target / size
-                    var cs0 = sg ?? rawL; string pk0 = cs0 == null ? "" : pa.Symbol + "|" + cs0.Time.Ticks + "|" + cs0.Dir;
-                    if (cs0 == null || ofSkipped.Contains(pk0)) { sgCard.Visibility = Visibility.Collapsed; ofPlanNow = null; ofPlanKey = ""; ofCardPlan = null; }
-                    else
+                    // … then a NEW confirmed setup: its frozen plan (⚡ SCALP first), its context row in 📒 SETUPS, 🧠 its history, the gate (compass, R:R, 🧘 PATIENT, cool-down)
+                    bool patient = layerOf("OF.PATIENT", 1) == 1, scalp = layerOf("OF.SCALPMODE", 1) == 1; var learnAll = ofLearnRows(pa);
+                    if (conf != null && fp != null)
                     {
-                        double pvS = KeystoneMoveStudy.PointValue(pa.Symbol), riskS = layerOf("OF.RISK", 200);
-                        // 🛡 11u: the plan is made ONCE when the card appears (min stop, size cap) and frozen: the contracts never change after that
-                        KeystoneOfPlan frz; bool gone = false;
-                        if (!ofFrozen.TryGetValue(pk0, out frz))
+                        string ckey = pa.Symbol + "|" + conf.Time.Ticks + "|" + conf.Dir;
+                        if (!ofEvaluated.Contains(ckey) && !hold.WasShown(ckey))
                         {
-                            frz = KeystoneOfDesk.Plan(cs0, fp, pr, px, tick, pvS, riskS, layerOf("OF.TGT", 40), 2, KeystoneOfCardPlan.MinStopTicks(pa.Symbol, layerOf("OF.MINSTOP", 0)), Math.Max(1, layerOf("OF.MAXQ", 10)));
-                            if (frz != null) { frz.Symbol = pa.Symbol; frz.Key = pk0; } if (ofFrozen.Count > 200) ofFrozen.Clear(); ofFrozen[pk0] = frz;
+                            ofEvaluated.Add(ckey); if (ofEvaluated.Count > 2000) ofEvaluated.Clear();
+                            var frz = KeystoneOfDesk.Plan(conf, fp, pr, px, tick, pvS, layerOf("OF.RISK", 200), layerOf("OF.TGT", 40), 2, KeystoneOfCardPlan.MinStopTicks(pa.Symbol, layerOf("OF.MINSTOP", 0)), Math.Max(1, layerOf("OF.MAXQ", 10)));
+                            var row = new KeystoneOfSetupRow { Time = conf.Time, Symbol = pa.Symbol, Kind = conf.Kind, Dir = conf.Dir, Compass = comp.State, CompassScore = comp.Score, Location = KeystoneOfSetupBook.Location(px, pr, vwR, dayHi, dayLo, tick), Delta = conf.Bar < fp.Count ? fp[conf.Bar].Delta : 0,
+                                Big = pa.OfBig.Where(b => b.Time >= now.AddMinutes(-5)).Sum(b => (double)b.Side * b.Size), Trapped = pa.OfTraps.Sum(z => (double)-z.Side * z.Volume), Entry = px, Status = "new" };
+                            string runner = "";
+                            if (frz != null)
+                            {
+                                frz.Symbol = pa.Symbol;
+                                if (scalp)
+                                {   // ⚡ SCALP: the measured best scalp distance of this setup type (n ≥ 30, positive after costs), else the OF.SCALP setting (12 ticks); the structure target = the RUNNER
+                                    var grpRows = learnAll.Where(r0 => r0.Kind == conf.Kind && r0.Dir == conf.Dir).ToList(); int bt = KeystoneOfScalp.BestTicks(grpRows, tick, pvS, costUsd); if (bt <= 0) bt = Math.Max(4, layerOf("OF.SCALP", 12));
+                                    runner = "RUNNER (structure) " + fmt(frz.Target) + " — " + frz.TargetWhy; frz.Target = Math.Round((px + conf.Dir * bt * tick) / tick) * tick; frz.TargetPts = conf.Dir * (frz.Target - px); frz.RewardUsd = frz.TargetPts * pvS * frz.Qty; frz.TargetWhy = "⚡ SCALP +" + bt + " ticks";
+                                }
+                                row.Stop = frz.Stop; row.Target = frz.Target; row.Qty = frz.Qty;
+                            }
+                            var learn = KeystoneOfLearner.Judge(learnAll, row, costPts);
+                            string hSkip = learn.Skip != "" ? learn.Skip : patient && !learn.Proven ? "🧘 not offered — " + (learn.N < KeystoneOfLearner.MinN ? "learning (" + learn.N + ")" : "no edge yet (" + learn.Wins + " of " + learn.N + ")") : null;
+                            var gate = KeystoneFlowGate.Decide(conf, closed, comp.State, frz, hSkip, scalp ? 0 : 1);
+                            string label = (conf.Dir > 0 ? "▲ " : "▼ ") + conf.Kind + " " + tzShow(conf.Time).ToString("HH:mm", IC);
+                            if (gate.Item1 == KeystoneFlowGate.Offer && hold.Cooling(closed)) gate = Tuple.Create(KeystoneFlowGate.HistorySkip, "🧘 cool-down: no new setup for 2 candles after the last one");
+                            if (gate.Item1 == KeystoneFlowGate.Offer && hold.Offer(conf, frz, pa.Symbol, now, closed))
+                            {
+                                row.Status = "shown"; pa.OfLearnNow = learn; ofCardPlan = frz; frz.Level = frz.Level + (runner != "" ? "|" + runner : "");
+                                pa.Story.Add(now, "O|" + ckey, "🎯 setup #" + hold.Current.Id + " shown: " + label + " • ENTRY " + fmt(px) + " • TAKE PROFIT " + fmt(frz.Target) + " • STOP LOSS " + fmt(frz.Stop) + " • " + frz.Qty + " " + pa.Symbol);
+                            }
+                            else { string why0 = gate.Item2 != "" ? gate.Item2 : "not offered"; row.Status = "not offered: " + why0; hold.Note(conf, pa.Symbol, now, "not offered", why0); pa.Story.Add(now, "N|" + ckey, "· " + label + " not offered — " + why0); }
+                            pa.OfGateText = gate.Item1 == KeystoneFlowGate.Offer ? "" : gate.Item1 + "|" + gate.Item2 + "|" + (frz == null ? "" : KeystoneFlowGate.Rr(frz).ToString("0.0", IC)) + "|" + closed;
+                            if (!pa.OfBook.Any(r0 => r0.Key == row.Key)) { pa.OfBook.Add(row); pa.OfBookDirty = true; }
                         }
-                        var plS = KeystoneOfCardPlan.Requote(frz, px, pvS); if (frz != null && plS == null) gone = true;
-                        sgCard.Visibility = Visibility.Visible; ofPlanKey = pk0; ofPlanNow = plS; ofCardPlan = plS; SolidColorBrush dc0 = cs0.Dir > 0 ? Green : Red; bool strongS = ofIndicated == cs0.Dir;
-                        if (plS == null) { sgCardTitle.Text = (cs0.Dir > 0 ? "▲ BUY " : "▼ SELL ") + cs0.Kind + (gone ? " — over" : " — no plan"); sgCardTitle.Foreground = Muted; sgCardBody.Text = gone ? "the price reached this card's " + (cs0.Dir * (px - frz.Stop) <= 0 ? "stop " + fmt(frz.Stop) : "target " + fmt(frz.Target)) + " — the card is off (it is never re-sized: wait for the next setup)" : "the price already went through the level this setup defended — no stop to put beyond it (no made-up stop)"; sgTake.Content = "TAKE";  sgFill.IsEnabled = sgTake.IsEnabled = false; sgCard.BorderBrush = Tint(Muted, 120); }
+                    }
+                    foreach (var r0 in pa.OfBook.Where(x => !x.Done)) { KeystoneOfSetupBook.Measure(r0, tk, endN, now, tick); if (r0.Done) pa.OfBookDirty = true; }
+                    ofBookSave(pa, false);
+                    // 🚦 THE VERDICT (one tile, hysteresis) — or the IN-TRADE strip while the chart account holds a position
+                    var cur = hold.Current; string gTx = pa.OfGateText ?? ""; var gParts = gTx.Split('|'); int gCode = gParts.Length >= 4 ? int.Parse(gParts[0], IC) : 0; int gBar = gParts.Length >= 4 ? int.Parse(gParts[3], IC) : -99; bool gFresh = gCode != 0 && closed - gBar <= 2;
+                    bool missed = false; string drift = cur == null ? "" : KeystoneOfCardHold.EntryDrift(cur, px, out missed);
+                    var lastRes = hold.History.FirstOrDefault(h0 => h0.Result == "target" || h0.Result == "stopped");
+                    var vin = new KeystoneFlowVerdictInput { CompassState = comp.State, CompassScore = comp.Score, CardOffered = cur != null, CardDir = cur != null ? cur.Dir : 0, Proven = pa.OfLearnNow != null && pa.OfLearnNow.Proven, LearnText = pa.OfLearnNow == null ? "" : pa.OfLearnNow.N < KeystoneOfLearner.MinN ? "learning (" + pa.OfLearnNow.N + ")" : "not proven",
+                        CardText = cur == null ? "" : (cur.Dir > 0 ? "BUY " : "SELL ") + cur.Qty + " " + pa.Symbol + " • ENTRY " + fmt(cur.Entry) + " • TAKE PROFIT " + fmt(cur.Target) + " • STOP LOSS " + fmt(cur.Stop) + " • R:R " + KeystoneFlowGate.Rr(hold.Frozen).ToString("0.0", IC),
+                        Quiet = quiet, RawWait = rawWait, EntryMissed = missed, MissedText = drift, Patient = patient, NoHistory = learnAll.Count == 0,
+                        LastText = lastRes == null ? "" : tzShow(lastRes.Time).ToString("HH:mm", IC) + " " + (lastRes.Result == "target" ? "✔ +" + Cash(KeystoneOfCardHold.PlannedProfit(lastRes, pvS)) : "✖ −" + Cash(KeystoneOfCardHold.PlannedLoss(lastRes, pvS))),
+                        SkippedRr = gFresh && gCode == KeystoneFlowGate.SkipRr ? double.Parse(gParts[2], IC) : double.NaN, AgainstFlow = gFresh && gCode == KeystoneFlowGate.Against, AgainstText = gFresh ? gParts[1] : "", HistorySkip = gFresh && gCode == KeystoneFlowGate.HistorySkip, HistoryText = gFresh ? gParts[1] : "" };
+                    string posTx = KeystoneFlowGate.AgainstPosition(cur != null ? cur.Dir : 0, posQ); vin.AgainstPosition = posTx != ""; vin.PositionText = posTx;
+                    int maxQ = pa.Link != null && pa.Link.Armed ? pa.Link.MaxContracts : 0; vin.InTradeAtMax = posQ != 0 && maxQ > 0 && Math.Abs(posQ) >= maxQ && (cur == null || Math.Sign(posQ) == cur.Dir); if (vin.InTradeAtMax && vin.PositionText == "") vin.PositionText = (posQ > 0 ? "LONG " : "SHORT ") + Math.Abs(posQ);
+                    if (liveWindow && nxR != null && Math.Abs((nxR.Time - nyR).TotalMinutes) <= 5) { vin.NewsLock = true; vin.NewsText = nxR.Title + " " + KeystoneNews.Until(nxR.Time, nyR); }
+                    if (pr != null && !double.IsNaN(pr.Poc) && comp.State != 0) { double lvl = comp.State > 0 ? Math.Min(pr.Poc, double.IsNaN(vwR) ? pr.Poc : vwR) : Math.Max(pr.Poc, double.IsNaN(vwR) ? pr.Poc : vwR); if (comp.State * (px - lvl) > 2 * tick) vin.NearLevel = "the price back to the " + (lvl == pr.Poc ? "POC " : "VWAP ") + fmt(lvl); }
+                    pa.Verdict.Update(vin, now); var vd = pa.Verdict;
+                    if (posQ != 0 && ent != null)
+                    {   // 🎯 IN-TRADE: position • $ • time, the CONFIDENCE meter, the suggestion (TEXT only), what changed since the entry
+                        double opl = (px - ent.Item3) * posQ * pvS; long dSince = 0, vSince = 0; for (int i = KeystoneOrderFlow.FirstAfter(tk, ent.Item2, endN); i < endN; i++) { dSince += tk[i].Side > 0 ? tk[i].Size : -tk[i].Size; vSince += tk[i].Size; }
+                        int d0 = Math.Sign(posQ); int evF = pa.OfTraps.Count(z => z.Side == -d0 && z.Time >= ent.Item2) + (pa.OfSigs ?? new List<KeystoneOfSignal>()).Count(g => g.Kind == "ABSORB" && g.Dir == d0 && g.Time >= ent.Item2), evA = pa.OfTraps.Count(z => z.Side == d0 && z.Time >= ent.Item2) + (pa.OfSigs ?? new List<KeystoneOfSignal>()).Count(g => g.Kind == "ABSORB" && g.Dir == -d0 && g.Time >= ent.Item2);
+                        double slN = NumberSigned(pa.Sl, 0), tpN = NumberAllowZero(pa.Tp, 0); var cf = KeystoneTradeConfidence.Of(posQ, comp.State, comp.Score, dSince, vSince, evF, evA, slN > 0 ? Math.Abs(px - (ent.Item3 - d0 * slN)) : double.NaN, tpN > 0 ? Math.Abs(ent.Item3 + d0 * tpN - px) : double.NaN);
+                        setT(vdHead, (posQ > 0 ? "LONG " : "SHORT ") + Math.Abs(posQ) + " " + pa.Symbol + " @ " + fmt(ent.Item3) + " • " + (opl >= 0 ? "+" : "−") + Cash(Math.Abs(opl)) + " • " + KeystoneFlowCompass.Held((now - ent.Item2).TotalSeconds));
+                        vdHead.Foreground = opl >= 0 ? ofBuyB : ofSellB;
+                        setT(vdWhy, "CONFIDENCE " + cf.Item2 + "  →  " + cf.Item3 + " (a suggestion — you act with the chart's own buttons)\n" + string.Join("\n", cf.Item4.Select(x => "• " + x)));
+                        setT(vdMeter, string.Join("\n", pa.Story.Items.Where(x => x.Item1 >= ent.Item2).Take(4).Select(x => tzShow(x.Item1).ToString("HH:mm", IC) + " " + x.Item2)));
+                        vdCard.BorderBrush = cf.Item1 >= 1 ? ofBuyB : cf.Item1 <= -2 ? ofSellB : Tint(Gold, 160);
+                    }
+                    else
+                    {
+                        if (vd.Kind != ofVdKind) { ofVdKind = vd.Kind; vdCard.Opacity = 0.25; }   // the tile fades in when the verdict changes
+                        setT(vdHead, vd.Head); vdHead.Foreground = vd.Kind == "TAKE" ? (vd.Proven ? (vd.Dir > 0 ? ofBuyB : ofSellB) : ofVioB) : vd.Kind == "AVOID" ? ofSellB : Gold;
+                        setT(vdWhy, vd.Reason); setT(vdMeter, "🧭 " + comp.Text + " " + KeystoneFlowCompass.ScoreText(comp.Score) + " • held " + heldTx + (ofLastTradeSummary != "" ? "\n" + ofLastTradeSummary : "") + (hold.LastRemoved != "" ? "\n" + hold.LastRemoved : ""));
+                        vdCard.BorderBrush = vd.Kind == "TAKE" ? (Brush)ofVioB : vd.Kind == "AVOID" ? Tint(ofSellB, 150) : Tint(Gold, 150);
+                    }
+                    ofIndicated = cur != null && vd.Kind == "TAKE" ? cur.Dir : 0;
+                    PaintBtn(ofBuy, ofBuyB); PaintBtn(ofSell, ofSellB); ofBuy.Content = ofIndicated > 0 ? "▲ BUY ◀ the setup" : "▲ BUY"; ofSell.Content = ofIndicated < 0 ? "▼ SELL ◀ the setup" : "▼ SELL";
+                    double stP = layerOf("OF.STP", 40) * tick, tgP = layerOf("OF.TGT", 40) * tick; ofBr.Content = "with the default stop / take profit (" + fmt(stP) + " / " + fmt(tgP) + " pts)";
+                    setT(tPos, posQ == 0 ? "FLAT on " + pa.Symbol : (posQ > 0 ? "LONG " : "SHORT ") + Math.Abs(posQ) + " " + pa.Symbol + " @ " + fmt(posAvg) + " " + ((px - posAvg) * posQ * pvS >= 0 ? "+" : "−") + Cash(Math.Abs((px - posAvg) * posQ * pvS))); tPos.Foreground = posQ == 0 ? Muted : (px - posAvg) * posQ >= 0 ? ofBuyB : ofSellB;
+                    ofAdd.IsEnabled = ofRed.IsEnabled = ofClose.IsEnabled = posQ != 0;
+                    // 🏦 the accounts (live: every 5 s, read only) → the chart account's fit + the ranking
+                    if (liveWindow && (ofAccts == null || (DateTime.Now - ofAcctsAt).TotalSeconds >= 5))
+                    {
+                        ofAcctsAt = DateTime.Now; ofAccts = new List<KeystoneFitAccount>();
+                        try
+                        {
+                            var snaps = ReadNinjaAccounts(); var raw = snaps.Select(x => new KeystoneLiveRaw { Name = x.Name, Connection = x.Connection, Balance = x.Balance, Today = x.Today, Trades = x.Trades, Connected = x.Connected }).ToList();
+                            foreach (var a in KeystoneLabLive.Classify(raw, null, null))
+                            {
+                                var sn = snaps.FirstOrDefault(x => x.Name == a.Account); var rl = KeystoneLabLive.RulesOf(a.Firm); bool funded = a.Stage == "FUNDED"; double dl = funded ? rl.FundDailyLoss : rl.EvalDailyLoss;
+                                ofAccts.Add(new KeystoneFitAccount { Name = a.Account, Display = a.Display, Firm = a.Firm, Stage = a.Stage, Connected = a.Connected, Blown = a.Balance > 0 && a.Balance <= a.Floor, InTrade = sn != null && sn.Contracts != 0, TradedToday = a.Trades > 0,
+                                    Intraday = (funded ? rl.FundDdType : rl.EvalDdType) == "INTRADAY", Buffer = a.Balance - a.Floor, DayRoom = dl > 0 ? dl + Math.Min(0, a.Today) : double.NaN, ToTarget = funded ? double.NaN : a.Start + a.Target - a.Balance, Locked = KeystoneNtLockout.IsLocked(a.Account),
+                                    MaxQty = pa.Link != null && pa.Link.LockKey == a.Account ? pa.Link.MaxContracts : 0 });
+                            }
+                            foreach (var x in snaps.Where(x => KeystoneSimAccounts.IsSim(x.Name))) ofAccts.Add(new KeystoneFitAccount { Name = x.Name, Display = x.Name, Sim = true });
+                        }
+                        catch { }
+                    }
+                    string fitTx = "", rankTx = "";
+                    if (cur != null && hold.Frozen != null)
+                    {
+                        var grp = learnAll.Where(r0 => r0.Kind == cur.Kind && r0.Dir == cur.Dir && r0.Result != 0).ToList(); double stopPer = Math.Abs(cur.Entry - cur.Stop) * pvS, runPer = Math.Abs(cur.Target - cur.Entry) * pvS; string src = "the plan's stop";
+                        if (grp.Count >= 20) { var maes = grp.Select(r0 => r0.Mae).OrderBy(v => v).ToList(); double m80 = maes[(int)(maes.Count * 0.8)] * pvS; if (m80 > 0 && m80 < stopPer) { src = "the journal's typical MAE (n " + grp.Count + ") — the stop is " + Cash(stopPer); } }
+                        var ca = ofAccts == null || pa.Link == null ? null : ofAccts.FirstOrDefault(x => x.Name == pa.Link.LockKey && !x.Sim);
+                        fitTx = KeystoneFlowFit.Text(cur.Qty, stopPer, runPer, ca == null ? double.NaN : ca.Buffer, ca == null ? double.NaN : ca.DayRoom, ca != null && ca.Intraday, ca != null, maxQ, pa.Symbol, src).Item1;
+                        rankTx = liveWindow ? KeystoneSetupAccountFit.Text(KeystoneSetupAccountFit.Rank(ofAccts, stopPer, runPer, cur.Qty, pa.Symbol)) : "🏦 best for: the backtest account (BACKTEST STUDIO)";
+                    }
+                    // 🎯 THE CARD (only for the one offered setup): side, entry, take profit, stop loss, contracts, best account, TAKE / SKIP — nothing else
+                    if (cur == null) { sgCard.Visibility = Visibility.Collapsed; ofPlanNow = null; ofPlanKey = ""; }
+                    else
+                    {
+                        var plS = KeystoneOfCardPlan.Requote(hold.Frozen, px, pvS); sgCard.Visibility = Visibility.Visible; ofPlanKey = cur.Key; ofPlanNow = plS; ofCardPlan = hold.Frozen; SolidColorBrush dc0 = cur.Dir > 0 ? ofBuyB : ofSellB; bool proven = vd.Kind == "TAKE" && vd.Proven;
+                        string runner2 = hold.Frozen.Level != null && hold.Frozen.Level.Contains("|") ? hold.Frozen.Level.Substring(hold.Frozen.Level.IndexOf('|') + 1) : ""; string lvlTx = hold.Frozen.Level != null && hold.Frozen.Level.Contains("|") ? hold.Frozen.Level.Substring(0, hold.Frozen.Level.IndexOf('|')) : hold.Frozen.Level;
+                        setT(sgCardTitle, "#" + cur.Id + " " + (proven ? "✅ " : "🧪 ") + (cur.Dir > 0 ? "▲ BUY " : "▼ SELL ") + cur.Qty + " " + pa.Symbol + " • " + tzShow(cur.Time).ToString("HH:mm", IC) + (posTx != "" ? "\n" + posTx : "")); sgCardTitle.Foreground = posTx != "" ? Gold : proven ? dc0 : ofVioB;
+                        setT(sgCardBody, "ENTRY " + fmt(cur.Entry) + (drift != "" ? "   (" + drift + ")" : "") + "\n"
+                            + "TAKE PROFIT " + fmt(cur.Target) + "  +" + Cash(KeystoneOfCardHold.PlannedProfit(cur, pvS)) + " planned (+" + fmt(Math.Abs(cur.Target - cur.Entry)) + " pts) — " + hold.Frozen.TargetWhy + "\n"
+                            + "STOP LOSS " + fmt(cur.Stop) + "  −" + Cash(KeystoneOfCardHold.PlannedLoss(cur, pvS)) + " planned (−" + fmt(Math.Abs(cur.Entry - cur.Stop)) + " pts) — beyond " + lvlTx + "\n"
+                            + cur.Qty + " CONTRACTS of " + pa.Symbol + " (fixed when it appeared" + (hold.Frozen.Capped ? ", capped" : "") + (hold.Frozen.Widened ? ", stop widened to the minimum" : "") + ") • R:R " + KeystoneFlowGate.Rr(hold.Frozen).ToString("0.0", IC) + "\n"
+                            + (pa.OfLearnNow != null ? pa.OfLearnNow.Text : "") + (runner2 != "" ? "\n" + runner2 : ""));
+                        setT(sgFit, (rankTx != "" ? rankTx + "\n" : "") + fitTx);
+                        sgCard.BorderBrush = proven ? dc0 : ofVioB;
+                        sgTake.Content = (cur.Dir > 0 ? "▲ TAKE BUY " : "▼ TAKE SELL ") + cur.Qty + " " + pa.Symbol; PaintBtn(sgTake, dc0); sgFill.IsEnabled = sgTake.IsEnabled = plS != null;
+                    }
+                    if (ofDockTab == "WHY")
+                    {
+                        setT(whyHead, "🧭 " + comp.Text + "  " + KeystoneFlowCompass.ScoreText(comp.Score) + " • held " + heldTx); whyHead.Foreground = cmpB;
+                        // the defender = the latest absorption near the price (10 candles), the target / invalidation = the nearest levels on each side
+                        var absN = (pa.OfSigs ?? new List<KeystoneOfSignal>()).Where(g => g.Kind == "ABSORB" && fp != null && g.Bar >= fp.Count - 11 && g.Time <= now).LastOrDefault();
+                        var lvRaw = new List<Tuple<string, double, string>> { Tuple.Create("DAY HIGH", dayHi, ""), Tuple.Create("DAY LOW", dayLo, ""), Tuple.Create("OVERNIGHT HIGH", onHi, ""), Tuple.Create("OVERNIGHT LOW", onLo, ""), Tuple.Create("PRIOR HIGH", pa.Pdh, ""), Tuple.Create("PRIOR LOW", pa.Pdl, ""), Tuple.Create("PRIOR CLOSE", pa.Pdc, "magnet"), Tuple.Create("VWAP", vwR, "magnet") };
+                        if (pr != null) { lvRaw.Add(Tuple.Create("POC", pr.Poc, "magnet")); lvRaw.Add(Tuple.Create("VAH", pr.Vah, "")); lvRaw.Add(Tuple.Create("VAL", pr.Val, "")); int hk = 1; foreach (var h in pr.Hvn.Take(2)) lvRaw.Add(Tuple.Create("HVN " + hk++, h, "")); hk = 1; foreach (var l in pr.Lvn.Take(2)) lvRaw.Add(Tuple.Create("LVN " + hk++, l, "")); }
+                        foreach (var z in pa.OfTraps) lvRaw.Add(Tuple.Create("🪤 TRAPPED " + (z.Side > 0 ? "BUYERS " : "SELLERS ") + fmt(z.Lo), (z.Lo + z.Hi) / 2, "trap"));
+                        var lvs = KeystoneFlowLevels.Build(px, lvRaw, v => KeystoneFlowLevels.TouchedRecently(tk, endN, now, v, tick));
+                        var tgtL = lvs.FirstOrDefault(l => comp.State != 0 && Math.Sign(l.Dist) == comp.State && Math.Abs(l.Dist) >= 2 * tick); var invL = lvs.FirstOrDefault(l => comp.State != 0 && Math.Sign(l.Dist) == -comp.State && Math.Abs(l.Dist) >= 2 * tick);
+                        double winPct = double.NaN; int winN = 0; try { var jr = KeystoneOfJournal.All().Where(a => a.Length >= 6 && a[1] == pa.Symbol && a[3] == (comp.State > 0 ? "BUY" : "SELL")).ToList(); if (jr.Count >= 20) { winN = jr.Count; winPct = 100.0 * jr.Count(a => a[5] == "WIN") / jr.Count; } } catch { }
+                        var stl = KeystoneFlowStory.Lines(comp.State, comp.Score, heldTx, absN == null ? 0 : absN.Dir, absN == null ? double.NaN : absN.Price, winPct, winN, tgtL == null ? "" : tgtL.Name + " " + fmt(tgtL.Price), invL == null ? "" : fmt(invL.Price) + " (" + invL.Name + ")");
+                        setT(whyStory, string.Join("\n", stl));
+                        setT(lvT, string.Join("\n", lvs.Select(l => (l.Name.Length > 22 ? l.Name.Substring(0, 22) : l.Name).PadRight(22) + fmt(l.Price).PadLeft(10) + "  " + (l.Dist >= 0 ? "+" : "−") + fmt(Math.Abs(l.Dist)).PadLeft(7) + " pts  " + l.Role + (l.Touched ? "  • just touched" : ""))));
+                        // the numbered confirmations of THE setup (or the latest confirmed / raw one), each with its numbers and its own measured hit rate
+                        var sgW = cur != null ? new KeystoneOfSignal { Dir = cur.Dir, Kind = cur.Kind, Time = cur.Time, Price = cur.Entry, Why = conf != null && conf.Time == cur.Time ? conf.Why : "" } : conf ?? rawL; var stp = new StringBuilder();
+                        if (sgW == null) stp.Append("no setup right now — the steps appear when a setup forms.\n" + (pa.OfWatch != "" ? pa.OfWatch : ""));
                         else
                         {
-                            sgFill.IsEnabled = sgTake.IsEnabled = true;
-                            sgCardTitle.Text = (strongS ? "✅ STRONG " : sg == null ? "⏳ RAW " : "👀 ") + (cs0.Dir > 0 ? "▲ BUY " : "▼ SELL ") + plS.Qty + " " + pa.Symbol + " • " + cs0.Kind; sgCardTitle.Foreground = strongS ? dc0 : sg == null ? Muted : Gold;
-                            sgCardBody.Text = "ENTRY ≈ " + fmt(plS.Entry) + " (market)\n"
-                                + "STOP " + fmt(plS.Stop) + "  (−" + fmt(plS.StopPts) + " pts • −" + Cash(plS.RiskUsd) + ") — beyond " + plS.Level + "\n"
-                                + "TARGET " + fmt(plS.Target) + "  (+" + fmt(plS.TargetPts) + " pts • +" + Cash(plS.RewardUsd) + ") — " + plS.TargetWhy + "\n"
-                                + "SIZE " + plS.Qty + " CONTRACTS of " + pa.Symbol + " (fixed when the card appeared" + (plS.Capped ? ", capped at " + plS.Qty : "") + (plS.Widened ? ", stop widened to the minimum" : "") + ") • risk now " + Cash(plS.RiskUsd) + " • reward : risk " + (plS.StopPts > 0 ? (plS.TargetPts / plS.StopPts).ToString("0.0", CultureInfo.InvariantCulture) : "—") + "\n"
-                                + (strongS ? "signal, location, flow and delta agree" : sg == null ? "not confirmed yet — wait for the closed candle" : vSub.Text.Split('\n')[0]);
-                            sgCard.BorderBrush = strongS ? (flash ? dc0 : Tint(dc0, 150)) : Tint(Gold, 120);
-                            sgTake.Content = (cs0.Dir > 0 ? "▲ TAKE BUY " : "▼ TAKE SELL ") + plS.Qty + " " + pa.Symbol; PaintBtn(sgTake, cs0.Dir > 0 ? Green : Red);
+                            int dW = sgW.Dir; bool isConf = sgW.Kind == "CONFIRMED" || sgW.Kind == "TREND"; Tuple<int, int> hr0 = null; if (pa.OfConfStats != null) pa.OfConfStats.TryGetValue("CONFIRMED|" + dW, out hr0);
+                            Func<Tuple<int, int>, string> hrT = h => h == null || h.Item2 == 0 ? "measured: none yet" : h.Item2 < 20 ? "measured: " + h.Item1 + " of " + h.Item2 + " (n < 20)" : "measured: " + (100.0 * h.Item1 / h.Item2).ToString("0", IC) + " % of " + h.Item2;
+                            stp.Append("1. Signal: " + (dW > 0 ? "▲ " : "▼ ") + sgW.Kind + " — " + (string.IsNullOrEmpty(sgW.Why) ? "(details on the chart mark)" : sgW.Why) + (isConf ? " ✔" : " ✖ waits for the closed candle") + "  [" + hrT(hr0) + "]\n");
+                            stp.Append("2. Location: " + loc + (atLevel || locSide == dW ? " ✔" : " ✖") + "\n");
+                            stp.Append("3. Flow: compass " + comp.Text + " " + KeystoneFlowCompass.ScoreText(comp.Score) + " for " + heldTx + (comp.State == dW ? " ✔" : comp.State == 0 ? " ~ balanced" : " ✖ against") + "\n");
+                            stp.Append("4. Delta: " + dT + (dSide == dW ? " ✔" : " ✖") + "\n");
+                            stp.Append("5. History: " + (pa.OfLearnNow != null && cur != null ? pa.OfLearnNow.Text : KeystoneOfLearner.Judge(learnAll, new KeystoneOfSetupRow { Time = now, Kind = sgW.Kind, Dir = dW, Compass = comp.State, Entry = px }, costPts).Text) + "\n");
+                            stp.Append("6. Account: " + (fitTx != "" ? fitTx : "—") + (rankTx != "" ? "\n   " + rankTx : ""));
+                        }
+                        setT(whySteps, stp.ToString());
+                        // 👥 WHO'S DOING WHAT
+                        var b1 = KeystoneFlowSides.Of(tk, endN, now, 60, 1, px); var s1 = KeystoneFlowSides.Of(tk, endN, now, 60, -1, px); var b5 = KeystoneFlowSides.Of(tk, endN, now, 300, 1, px); var s5 = KeystoneFlowSides.Of(tk, endN, now, 300, -1, px);
+                        setT(whoBuy, "1 min  " + KeystoneFlowSides.Line(b1, "1 min") + "\n5 min  " + KeystoneFlowSides.Line(b5, "5 min")); whoBuy.Foreground = ofBuyB;
+                        setT(whoSell, "1 min  " + KeystoneFlowSides.Line(s1, "1 min") + "\n5 min  " + KeystoneFlowSides.Line(s5, "5 min")); whoSell.Foreground = ofSellB;
+                        setT(whoBig, pa.OfBig.Count == 0 ? "none ≥ " + bigT + " contracts" : string.Join("\n", pa.OfBig.AsEnumerable().Reverse().Take(5).Select(b => tzShow(b.Time).ToString("HH:mm:ss", IC) + "  " + (b.Side > 0 ? "BUY  " : "SELL ") + b.Size.ToString("N0", IC).PadLeft(5) + " @ " + fmt(b.Price) + "  → " + b.After))); whoBig.Foreground = ofBigB;
+                        setT(whoTrap, pa.OfTraps.Count == 0 ? "no trapped zone (the rule did not fire)" : string.Join("\n", pa.OfTraps.Select(KeystoneFlowTrap.Text))); whoTrap.Foreground = ofTrapB;
+                        setT(whoWhy, stl[0] + " → " + vd.Head + (vd.Reason != "" ? ": " + vd.Reason : ""));
+                        setT(fitT, cur == null ? "shown with a setup: does its stop fit the chart account (buffer, today's room, max contracts) + which of your accounts it suits" : fitTx + "\n" + rankTx);
+                    }
+                    if (ofDockTab == "STORY")
+                    {
+                        setT(storyT, pa.Story.Items.Count == 0 ? "nothing yet — the compass changes, absorption, big prints, trapped zones and setups appear here" : string.Join("\n", pa.Story.Items.Take(40).Select(x => tzShow(x.Item1).ToString("HH:mm:ss", IC) + "  " + x.Item2)));
+                        setT(recentT, hold.History.Count == 0 ? "no setup yet" + (pa.OfWatch != "" ? "\n" + pa.OfWatch : "") : string.Join("\n", hold.History.Select(KeystoneOfCardHold.Line)) + (pa.OfWatch != "" ? "\n" + pa.OfWatch : ""));
+                    }
+                    if (ofDockTab == "SETUPS" || ofDockTab == "ANALYZE" || ofDockTab == "LEARN")
+                    {
+                        var all = learnAll; Func<KeystoneOfSetupRow, bool> keep = r0 => (suRes.SelectedIndex == 0 || suRes.SelectedIndex == 1 && r0.Result > 0 || suRes.SelectedIndex == 2 && r0.Result < 0 || suRes.SelectedIndex == 3 && r0.Result == 0)
+                            && (suSide.SelectedIndex == 0 || suSide.SelectedIndex == 1 && r0.Dir > 0 || suSide.SelectedIndex == 2 && r0.Dir < 0) && (suTaken.SelectedIndex == 0 || suTaken.SelectedIndex == 1 && r0.Taken == "YES" || suTaken.SelectedIndex == 2 && r0.Taken != "YES")
+                            && (suSrc.SelectedIndex == 0 || suSrc.SelectedIndex == 1 && r0.Status != "history replay" || suSrc.SelectedIndex == 2 && r0.Status == "history replay");
+                        if (ofDockTab == "SETUPS")
+                        {
+                            var fl = all.Where(keep).OrderByDescending(r0 => r0.Time).ToList(); int w0 = fl.Count(r0 => r0.Result > 0), l0 = fl.Count(r0 => r0.Result < 0);
+                            setT(suTot, fl.Count + " setups • " + w0 + " won • " + l0 + " lost • " + (fl.Count - w0 - l0) + " open" + (w0 + l0 > 0 ? " • " + (100.0 * w0 / (w0 + l0)).ToString("0", IC) + " % of the decided" : "") + " • saved in Studio\\OrderFlow\\setups-" + pa.Symbol + "-<day>.csv");
+                            setT(suList, fl.Count == 0 ? "none with these filters" : string.Join("\n", fl.Take(60).Select(r0 => r0.Time.ToString("MM-dd HH:mm", IC) + " " + (r0.Dir > 0 ? "▲" : "▼") + " " + r0.Kind.PadRight(9) + (r0.Result > 0 ? " ✔ WIN " : r0.Result < 0 ? " ✖ LOSS" : " • open") + (double.IsNaN(r0.R) ? "" : " " + (r0.R >= 0 ? "+" : "−") + Math.Abs(r0.R).ToString("0.0", IC) + "R") + " scalp " + (r0.Scalp > 0 ? "✔" : r0.Scalp < 0 ? "✖" : "•") + (r0.Taken == "YES" ? " TAKEN" : "") + " — " + r0.Status)));
+                        }
+                        if (ofDockTab == "ANALYZE")
+                        {
+                            var sb = new StringBuilder(); var src = all.Where(keep).ToList();
+                            foreach (var lab in new[] { "live", "history replay" })
+                            {
+                                var part = src.Where(r0 => (r0.Status == "history replay") == (lab == "history replay")).ToList(); sb.Append("── " + lab.ToUpperInvariant() + " (" + part.Count + " setups) ──\n"); if (part.Count == 0) { sb.Append("none yet" + (lab == "history replay" ? " — 🧠 LEARN ▸ 📜 PROVE FROM HISTORY" : "") + "\n\n"); continue; }
+                                sb.Append("⚡ SCALP vs its stop (after costs " + Cash(costUsd) + " a contract):\n"); foreach (var g in part.GroupBy(r0 => (r0.Dir > 0 ? "▲ " : "▼ ") + r0.Kind)) foreach (var st in KeystoneOfScalp.Of(g, tick, pvS, costUsd)) if (st.N > 0) sb.Append("  " + g.Key.PadRight(12) + " +" + st.Ticks.ToString().PadLeft(2) + " t  " + (st.N < KeystoneOfSetupStats.MinN ? "n " + st.N + " < 20: not enough yet" : st.WinPct.ToString("0", IC) + " %  avg " + st.AvgTicks.ToString("+0.0;−0.0", IC) + " t  " + (st.ExpUsd >= 0 ? "+" : "−") + Cash(Math.Abs(st.ExpUsd)) + "/contract  n " + st.N) + "\n");
+                                foreach (var by in new[] { Tuple.Create("KIND × SIDE", (Func<KeystoneOfSetupRow, string>)(r0 => (r0.Dir > 0 ? "▲ " : "▼ ") + r0.Kind)), Tuple.Create("COMPASS", (Func<KeystoneOfSetupRow, string>)(r0 => r0.Agree > 0 ? "with the compass" : r0.Agree < 0 ? "against it" : "balanced")), Tuple.Create("LOCATION", (Func<KeystoneOfSetupRow, string>)(r0 => r0.Location == "" ? "?" : r0.Location)), Tuple.Create("TIME OF DAY", (Func<KeystoneOfSetupRow, string>)(r0 => KeystoneOfSetupStats.HourBucket(r0.Time))) })
+                                { sb.Append("🎯 TAKE PROFIT / STOP LOSS by " + by.Item1 + ":\n"); foreach (var t0 in KeystoneOfSetupStats.Table(part, by.Item2)) sb.Append("  " + (t0[0].Length > 26 ? t0[0].Substring(0, 26) : t0[0]).PadRight(26) + " n " + t0[1].PadLeft(3) + "  " + t0[2] + "  " + t0[3] + "  " + t0[4] + "\n"); }
+                                sb.Append("\n");
+                            }
+                            setT(anT, sb.ToString());
+                        }
+                        if (ofDockTab == "LEARN")
+                        {
+                            var jn = pa.OfLearnNow; setT(lnNow, cur == null || jn == null ? "no setup on screen — the current setup's similar past setups appear here" : jn.Text + (jn.Skip != "" ? "\n" + jn.Skip : ""));
+                            setT(lnSim, jn == null || cur == null ? "" : string.Join("\n", jn.Similar.Select(r0 => r0.Time.ToString("MM-dd HH:mm", IC) + " " + (r0.Result > 0 ? "✔ WIN " : "✖ LOSS") + " " + r0.Location + (r0.Status == "history replay" ? " (history)" : ""))));
+                            setT(lnLes, string.Join("\n", KeystoneOfLearner.Lessons(all).Take(12))); setT(lnBase, (ofProveMsg != "" ? ofProveMsg + "\n" : "") + KeystoneOfLearner.Baseline(all) + "\n🧘 PATIENT " + (patient ? "ON" : "OFF") + " • ⚡ SCALP " + (scalp ? "ON" : "OFF") + " • retrained " + pa.OfLearnAt.ToString("HH:mm", IC));
                         }
                     }
                     if (ofDockTab == "FLOW")
                     {
-                        // ⛽ fuel vs engine over the last 5 candles
-                        if (fp != null && fp.Count >= 6) { var a0 = fp[fp.Count - 6]; var a1 = fp[fp.Count - 1]; long vol5 = 0; for (int i = fp.Count - 5; i < fp.Count; i++) vol5 += fp[i].Volume; var fe = KeystoneOfDesk.FuelEngine(a1.Cvd - a0.Cvd, ((a1.Empty ? px : a1.Close) - (a0.Empty ? px : a0.Close)) / tick, vol5); fuelT.Text = fe.Item2 + "\n(the last 5 candles • fuel = the aggressive orders, engine = the price)"; fuelT.Foreground = fe.Item1 > 0 ? Green : fe.Item1 < 0 ? Red : Text; }
-                        else fuelT.Text = "waiting for 6 candles of real trades";
-                        // ⚖ the delta every 15 s
-                        var sl = KeystoneOrderFlow.DeltaSlices(tk, endN, now, 15, 20); long mx = Math.Max(1, sl.Select(v => Math.Abs(v)).DefaultIfEmpty(1).Max()); var cvB = new System.Windows.Controls.Canvas { Height = 70, Width = 312 }; double bwB = 312.0 / sl.Length;
-                        cvB.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = 312, Y1 = 35, Y2 = 35, Stroke = Muted, StrokeThickness = 1, Opacity = 0.5 });
-                        for (int i = 0; i < sl.Length; i++) { double hB = 33.0 * Math.Abs(sl[i]) / mx; if (hB < 0.5) continue; var rB = new System.Windows.Shapes.Rectangle { Width = Math.Max(2, bwB - 3), Height = hB, Fill = sl[i] >= 0 ? Green : Red, Opacity = i == sl.Length - 1 ? 1 : 0.75 }; System.Windows.Controls.Canvas.SetLeft(rB, i * bwB + 1); System.Windows.Controls.Canvas.SetTop(rB, sl[i] >= 0 ? 35 - hB : 35); cvB.Children.Add(rB); }
+                        var sbL = new StringBuilder(); foreach (var wf in new[] { Tuple.Create("10 SEC", f10), Tuple.Create("1 MIN ", f60), Tuple.Create("5 MIN ", f300) }) { long tot = wf.Item2[0] + wf.Item2[1]; sbL.Append(wf.Item1 + "  BUY " + wf.Item2[0].ToString("N0", IC).PadLeft(6) + "  SELL " + wf.Item2[1].ToString("N0", IC).PadLeft(6) + "  Δ " + sgnShort(wf.Item2[0] - wf.Item2[1]).PadLeft(6) + (tot > 0 ? "  " + (100.0 * wf.Item2[0] / tot).ToString("0", IC) + "% bought" : "") + "\n"); }
+                        sbL.Append("speed " + spd.ToString("0.#", IC) + " contracts / sec • the compass: " + comp.Text); setT(lfT, sbL.ToString());
+                        for (int k = 0; k < tapeRows.Count; k++)
+                        {
+                            int q = endN - 1 - k; var trr = tapeRows[k]; if (q < 0) { trr.Text = ""; continue; } var t = tk[q]; bool big = t.Size >= bigT;
+                            trr.Text = t.Time.ToString("HH:mm:ss", IC) + "  " + fmt(t.Price) + "  " + t.Size.ToString(IC).PadLeft(4) + (t.Side > 0 ? "  BUY " : "  SELL") + (big ? "  ⚡" : "");
+                            trr.Foreground = t.Side > 0 ? ofBuyB : ofSellB; trr.FontWeight = big ? FontWeights.Bold : FontWeights.Normal; trr.Background = big ? Tint(t.Side > 0 ? ofBuyB : ofSellB, 60) : null;
+                        }
+                        if (fp != null && fp.Count >= 6) { var a0 = fp[fp.Count - 6]; var a1 = fp[fp.Count - 1]; long vol5 = 0; for (int i = fp.Count - 5; i < fp.Count; i++) vol5 += fp[i].Volume; var fe = KeystoneOfDesk.FuelEngine(a1.Cvd - a0.Cvd, ((a1.Empty ? px : a1.Close) - (a0.Empty ? px : a0.Close)) / tick, vol5); setT(fuelT, fe.Item2 + "\n(the last 5 candles • fuel = the aggressive orders, engine = the price)"); fuelT.Foreground = fe.Item1 > 0 ? ofBuyB : fe.Item1 < 0 ? ofSellB : Text; }
+                        else setT(fuelT, "waiting for 6 candles of real trades");
+                        var sl = KeystoneOrderFlow.DeltaSlices(tk, endN, now, 15, 20); long mx = Math.Max(1, sl.Select(v => Math.Abs(v)).DefaultIfEmpty(1).Max()); var cvB = new System.Windows.Controls.Canvas { Height = 70, Width = 380 }; double bwB = 380.0 / sl.Length;
+                        cvB.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = 380, Y1 = 35, Y2 = 35, Stroke = Muted, StrokeThickness = 1, Opacity = 0.5 });
+                        for (int i = 0; i < sl.Length; i++) { double hB = 33.0 * Math.Abs(sl[i]) / mx; if (hB < 0.5) continue; var rB = new System.Windows.Shapes.Rectangle { Width = Math.Max(2, bwB - 3), Height = hB, Fill = sl[i] >= 0 ? ofBuyB : ofSellB, Opacity = i == sl.Length - 1 ? 1 : 0.75 }; System.Windows.Controls.Canvas.SetLeft(rB, i * bwB + 1); System.Windows.Controls.Canvas.SetTop(rB, sl[i] >= 0 ? 35 - hB : 35); cvB.Children.Add(rB); }
                         dBarsHost.Child = cvB;
-                        var mks = (pa.OfSigs ?? new List<KeystoneOfSignal>()).Where(x => x.Kind == "ABSORB" || x.Kind == "DIVERGE").Reverse().Take(5).ToList();
-                        mkT.Text = mks.Count == 0 ? "no absorption / divergence in the loaded candles" : string.Join("\n", mks.Select(x => tzShow(x.Time).ToString("HH:mm", CultureInfo.InvariantCulture) + "  " + (x.Dir > 0 ? "▲ " : "▼ ") + x.Kind + " @ " + fmt(x.Price) + (double.IsNaN(x.Prob) ? "" : " • " + x.Prob.ToString("0", CultureInfo.InvariantCulture) + "% of " + x.N)));
+                        var mks = (pa.OfSigs ?? new List<KeystoneOfSignal>()).Where(x => (x.Kind == "ABSORB" || x.Kind == "DIVERGE") && x.Time <= now).Reverse().Take(5).ToList();
+                        setT(mkT, mks.Count == 0 ? "no absorption / divergence in the loaded candles" : string.Join("\n", mks.Select(x => tzShow(x.Time).ToString("HH:mm", IC) + "  " + (x.Dir > 0 ? "▲ " : "▼ ") + (x.Kind == "ABSORB" ? "🧱 ABSORPTION" : "⇅ DIVERGENCE") + " @ " + fmt(x.Price) + (double.IsNaN(x.Prob) ? "" : " • " + x.Prob.ToString("0", IC) + "% of " + x.N))));
                     }
                     else if (ofDockTab == "BOOK")
                     {
                         var dep = pa.OfDepth as OfDepthTap;
-                        if (!liveWindow) bookT.Text = "the order book exists only LIVE — NinjaTrader keeps no history of it\n(the replay has the trades, not the resting orders)";
-                        else if (dep == null || dep.Count == 0) bookT.Text = dep != null && dep.Problem != "" ? "no market depth: " + dep.Problem : "waiting for market depth (Level 2) from the connection …";
+                        if (!liveWindow) setT(bookT, "the order book exists only LIVE — NinjaTrader keeps no history of it\n(the replay has the trades, not the resting orders)");
+                        else if (dep == null || dep.Count == 0) setT(bookT, dep != null && dep.Problem != "" ? "no market depth: " + dep.Problem : "waiting for market depth (Level 2) from the connection …");
                         else
                         {
                             var asks = dep.Side(true, 8); var bids = dep.Side(false, 8); double mxB = Math.Max(1, asks.Concat(bids).Select(x => x[1]).DefaultIfEmpty(1).Max()); var sbB = new StringBuilder();
                             Func<double, string> barB = v => new string('█', (int)Math.Max(1, Math.Round(12 * v / mxB)));
-                            foreach (var a in asks.AsEnumerable().Reverse()) sbB.Append("ASK " + fmt(a[0]).PadLeft(9) + " " + a[1].ToString("0", CultureInfo.InvariantCulture).PadLeft(5) + " " + barB(a[1]) + "\n");
+                            foreach (var a in asks.AsEnumerable().Reverse()) sbB.Append("ASK " + fmt(a[0]).PadLeft(9) + " " + a[1].ToString("0", IC).PadLeft(5) + " " + barB(a[1]) + "\n");
                             sbB.Append("──── last " + fmt(px) + " ────\n");
-                            foreach (var b in bids) sbB.Append("BID " + fmt(b[0]).PadLeft(9) + " " + b[1].ToString("0", CultureInfo.InvariantCulture).PadLeft(5) + " " + barB(b[1]) + "\n");
-                            double sa = asks.Sum(x => x[1]), sbd = bids.Sum(x => x[1]); sbB.Append("resting: " + sbd.ToString("0", CultureInfo.InvariantCulture) + " to buy vs " + sa.ToString("0", CultureInfo.InvariantCulture) + " to sell (" + (sa + sbd > 0 ? (100 * sbd / (sa + sbd)).ToString("0", CultureInfo.InvariantCulture) : "–") + " % bids)");
-                            bookT.Text = sbB.ToString();
+                            foreach (var b in bids) sbB.Append("BID " + fmt(b[0]).PadLeft(9) + " " + b[1].ToString("0", IC).PadLeft(5) + " " + barB(b[1]) + "\n");
+                            double sa = asks.Sum(x => x[1]), sbd = bids.Sum(x => x[1]); sbB.Append("resting: " + sbd.ToString("0", IC) + " to buy vs " + sa.ToString("0", IC) + " to sell (" + (sa + sbd > 0 ? (100 * sbd / (sa + sbd)).ToString("0", IC) : "–") + " % bids)");
+                            setT(bookT, sbB.ToString());
                         }
                     }
                     else if (ofDockTab == "STATS" && (DateTime.Now - ofStatsAt).TotalSeconds >= 3)
                     {
-                        ofStatsAt = DateTime.Now; var sbS = new StringBuilder(); var IC5 = CultureInfo.InvariantCulture;
+                        ofStatsAt = DateTime.Now; var sbS = new StringBuilder();
                         sbS.Append("on the loaded real trades (" + KeystoneOfSource.Badge(tk.Count, pa.OfQuoted) + (pa.OfLib != "" ? " • " + pa.OfLib : "") + ")\n+" + layerOf("OF.TGT", 40) + " ticks before −" + layerOf("OF.STP", 40) + ", within " + layerOf("OF.HOR", 30) + " candles:\n");
-                        Func<Dictionary<string, Tuple<int, int>>, string, string> hr = (d0, k0) => { Tuple<int, int> v0; return d0 != null && d0.TryGetValue(k0, out v0) && v0.Item2 > 0 ? (100.0 * v0.Item1 / v0.Item2).ToString("0", IC5) + " % of " + v0.Item2 : "—"; };
+                        Func<Dictionary<string, Tuple<int, int>>, string, string> hr = (d0, k0) => { Tuple<int, int> v0; return d0 != null && d0.TryGetValue(k0, out v0) && v0.Item2 > 0 ? (v0.Item2 < 20 ? v0.Item1 + " of " + v0.Item2 + " (n < 20)" : (100.0 * v0.Item1 / v0.Item2).ToString("0", IC) + " % of " + v0.Item2) : "—"; };
                         foreach (var kd in new[] { "STACKED", "ABSORB", "DIVERGE" }) sbS.Append("  " + kd.PadRight(8) + " ▲ " + hr(pa.OfStats, kd + "|1") + "   ▼ " + hr(pa.OfStats, kd + "|-1") + "\n");
                         sbS.Append("  ✅ CONFIRMED ▲ " + hr(pa.OfConfStats, "CONFIRMED|1") + "   ▼ " + hr(pa.OfConfStats, "CONFIRMED|-1") + "\n");
                         var jr = KeystoneOfJournal.All().Where(a => a.Length >= 6 && a[1] == pa.Symbol).ToList();
-                        if (jr.Count > 0) { sbS.Append("\n📒 SETUP JOURNAL (" + pa.Symbol + ", every decided ✅ setup):\n"); foreach (var g in jr.GroupBy(a => a[4] + " " + a[3]).OrderBy(g => g.Key)) { int wn = g.Count(a => a[5] == "WIN"); sbS.Append("  " + g.Key + ": " + wn + " / " + g.Count() + " won (" + (100.0 * wn / g.Count()).ToString("0", IC5) + " %)\n"); } }
+                        if (jr.Count > 0) { sbS.Append("\n📒 SETUP JOURNAL (" + pa.Symbol + ", every decided ✅ setup):\n"); foreach (var g in jr.GroupBy(a => a[4] + " " + a[3]).OrderBy(g => g.Key)) { int wn = g.Count(a => a[5] == "WIN"); sbS.Append("  " + g.Key + ": " + wn + " / " + g.Count() + " won (" + (100.0 * wn / g.Count()).ToString("0", IC) + " %)\n"); } }
                         try { var dsS = Enumerable.Range(0, 30).Select(k => KeystoneTickLib.SessionOfTick(DateTime.Now).AddDays(-k)).Where(KeystoneTickLib.IsSessionDay).Take(20).ToList(); sbS.Append("\n📥 TICK LIBRARY " + pa.Symbol + ": " + KeystoneTickLib.CoverageText(KeystoneTickLib.RealDays(sfolder, pa.Symbol, dsS), dsS.Count) + " (the last 20 sessions)"); } catch { }
-                        sbS.Append("\n\na hit rate is measured only on setups FINISHED before each signal (no look-ahead); a small n means little proof."); statT.Text = sbS.ToString();
+                        sbS.Append("\n\na hit rate is measured only on setups FINISHED before each signal (no look-ahead); a small n means little proof."); setT(statT, sbS.ToString());
                     }
                 }
-                catch (Exception exD) { vTitle.Text = "📊 ORDERFLOW • " + exD.Message; }
+                catch (Exception exD) { setT(vTitle, "📊 ORDERFLOW • " + exD.Message); vCard.Visibility = Visibility.Visible; }
             };
             var ofDockTimer = new DispatcherTimer(DispatcherPriority.Normal, w.Dispatcher) { Interval = TimeSpan.FromMilliseconds(150) };
             ofDockTimer.Tick += delegate { if (!ofViewOn) { ofDockTimer.Stop(); return; } ofDockUpdate(); if (ofPlay != null) { ofPlay.Content = playBtn.Content; PaintBtn(ofPlay, (playBtn.Content as string ?? "").Contains("PAUSE") ? Gold : Green); } };
