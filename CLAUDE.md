@@ -108,6 +108,7 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   after the setup only) / 📊 ANALYZE / 🧠 LEARN (📜 history replay of the TickCache days, labelled) / ⚡ FLOW / 📚 BOOK / 📈 STATS / 🎓 GUIDE; 🎨 ORDERFLOW COLOURS (TEAL / CORAL,
   CLASSIC, MONO); 👁 the layer bar (one chip per overlay, per view, H = CLEAN / restore; the CHART view's order-flow overlays default OFF); 📦 EXPORT FOR CLAUDE
   (`KeystoneOfExport`: one zip of saved files, sends nothing). Tests: `tests/FlowCompassTests.cs` + the 11v step of `tests/fullcompile/UiSmokeTest.cs`.
+  🧹 11w (display only): order-flow event marks merge (same kind + side within 5 candles = one icon ×n, last 30 min, ≤ 5, de-overlapped), watch zones show the 2 nearest per side (overlaps merged) with a short label at the right edge, big prints = the 8 biggest of 15 min.
   📥 11s: the TICK LIBRARY (`OpenTickLibrary`, the pure `KeystoneTickLib` / `KeystoneTickDownload` / `KeystoneZip`, Studio\TickCache\<SYM>\ v2 gz files + seconds\ + live\, tests
   `tests/TickLibraryTests.cs`) only READS NinjaTrader's history (tick / 1-second BarsRequests) and WRITES files; ● LIVE TRADING's "save today's live ticks" (☰ TOOLS, on by default) only
   appends files from its own MarketData tap. Order flow exists only from real trades (`KeystoneOfSource` badge: green bid / ask, amber tick rule, grey = nothing shown — never from
