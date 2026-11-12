@@ -10636,6 +10636,463 @@ namespace NinjaTrader.NinjaScript
             if (!(dd > 0) || !(floor > 0) || !(bal > 0)) return double.NaN; return bal - (funded ? Math.Max(0, liqAdj) : 0) - floor;
         }
     }
+    // ================= 🗺 BUILD 2026-11-13d — NEXT LEVELS + ➕ ADD suggestions (display / text only: nothing here sends, sizes or places an order) =================
+    // User (5M MNQ, SHORT 1 @ 28197, the price ran into yesterday's 30-minute FVG ≈ 28600 and turned down): "guidance on what price is most likely to visit next, if it's
+    // going in our favour or against us … any FVG, swing highs / lows, previous day highs, support / resistance … and suggestions to add to the loser or to the winner, how many
+    // contracts". KeystoneLevelState = the level map from CLOSED 1-minute bars only (fed in time order, incremental): unfilled FVGs on 1 / 5 / 15 / 30 / 60 min (previous
+    // sessions' too, their remaining edges + the 50 %), 5M / 15M fractal swings not taken out, prior-day RTH high / low / close, overnight high / low, today's high / low,
+    // the session VWAP ± 1σ, POC / VAH / VAL (today + yesterday, from the minutes' volume), round numbers. KeystoneReachTable = how often the nearest level above was
+    // reached before the nearest level below (and the other way), measured on the saved history with levels built from the bars BEFORE each sample (no lookahead) —
+    // with what the distances alone would give (a random walk: the other side's distance ÷ both), n < 50 = learning. Order flow may only change the WORDS.
+    public sealed class KeystoneLevel
+    {
+        public double Price, Lo = double.NaN, Hi = double.NaN, Mid = double.NaN, Strength; public string Type = "", Tf = "", Name = "", Also = ""; public DateTime Born = DateTime.MinValue; public int Dir, Defended; public string DefendedText = ""; public bool Touched;
+        public string StatKey { get { return Type + (Tf != "" ? "|" + Tf : ""); } }
+        public string Id { get { return Type + "|" + Tf + "|" + Born.Ticks.ToString(CultureInfo.InvariantCulture) + "|" + Math.Round((double.IsNaN(Mid) ? Price : Mid) * 100).ToString(CultureInfo.InvariantCulture); } }
+        public string Label { get { return Name + (Also != "" ? " + " + Also : ""); } }
+        public KeystoneLevel Copy() { return (KeystoneLevel)MemberwiseClone(); }
+    }
+    public sealed class KeystoneLevelState
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public static readonly int[] Tfs = { 1, 5, 15, 30, 60 };
+        sealed class Agg { public int Tf; public DateTime End; public double H, L; public bool Has; public readonly List<double[]> Last = new List<double[]>(); }
+        sealed class Gap { public int Tf, Dir; public double Lo, Hi, OLo, OHi; public DateTime Born, Sess; public bool Touched; }
+        sealed class Swing { public int Tf, Dir; public double Px; public DateTime Born, Sess; }
+        public readonly string Symbol; public readonly double Tick, Scale, Bin, Round; public int MaxGapsPerTf = 30, MaxSwingsPerTf = 12;
+        readonly Agg[] aggs; readonly List<Gap> gaps = new List<Gap>(); readonly List<Swing> swings = new List<Swing>();
+        public DateTime Session = DateTime.MinValue, LastTime = DateTime.MinValue; public int Sessions, SessionBars; public double LastClose = double.NaN;
+        double sH = double.NaN, sL = double.NaN, onH = double.NaN, onL = double.NaN, rH = double.NaN, rL = double.NaN, rC = double.NaN;
+        public double Pdh = double.NaN, Pdl = double.NaN, Pdc = double.NaN, YPoc = double.NaN, YVah = double.NaN, YVal = double.NaN;
+        double spv, sv, spv2; readonly Dictionary<long, double> prof = new Dictionary<long, double>(); double profVol;
+        public KeystoneLevelState(string symbol)
+        {
+            Symbol = (symbol ?? "MNQ").ToUpperInvariant(); bool mgc = Symbol == "MGC"; Tick = KeystoneMoveStudy.TickSize(Symbol); if (!(Tick > 0)) Tick = 0.25;
+            Scale = mgc ? 0.2 : 1; Bin = mgc ? 0.2 : 1; Round = mgc ? 10 : 100;
+            aggs = Tfs.Select(t => new Agg { Tf = t }).ToArray();
+        }
+        public static double MinGap(int tf, double scale) { return scale * (tf <= 1 ? 2 : tf <= 5 ? 3 : 4); }
+        public static int KeepSessions(int tf) { return tf <= 1 ? 1 : tf <= 5 ? 2 : 5; }
+        public static DateTime CeilTo(DateTime t, int tf)
+        {
+            var m = new DateTime(t.Year, t.Month, t.Day, t.Hour, t.Minute, 0); if (m < t) m = m.AddMinutes(1);
+            int mod = (m.Hour * 60 + m.Minute) % tf; return mod == 0 ? m : m.AddMinutes(tf - mod);
+        }
+        public void Feed(KeystoneArcBar b)
+        {
+            if (b == null || !(b.High >= b.Low) || b.Close <= 0) return; if (LastTime != DateTime.MinValue && b.Time <= LastTime) return;
+            var sd = KeystoneIdeas.SessionDay(b.Time.AddMinutes(-1));
+            if (sd != Session)
+            {
+                if (Session != DateTime.MinValue)
+                {
+                    if (!double.IsNaN(rH)) { Pdh = rH; Pdl = rL; Pdc = rC; } else if (!double.IsNaN(sH)) { Pdh = sH; Pdl = sL; Pdc = LastClose; }
+                    var va = ValueArea(prof, Bin); if (va != null) { YPoc = va.Item1; YVah = va.Item2; YVal = va.Item3; }
+                }
+                Session = sd; Sessions++; SessionBars = 0; sH = sL = onH = onL = rH = rL = rC = double.NaN; spv = sv = spv2 = 0; prof.Clear(); profVol = 0;
+                gaps.RemoveAll(g => (sd - g.Sess).TotalDays > KeepSessions(g.Tf) * 1.0 + (sd.DayOfWeek == DayOfWeek.Monday ? 2 : 0));
+                swings.RemoveAll(s => (sd - s.Sess).TotalDays > (s.Tf <= 5 ? 2 : 3) + (sd.DayOfWeek == DayOfWeek.Monday ? 2 : 0));
+            }
+            SessionBars++;
+            sH = double.IsNaN(sH) ? b.High : Math.Max(sH, b.High); sL = double.IsNaN(sL) ? b.Low : Math.Min(sL, b.Low);
+            var open = Session.Date.AddHours(9).AddMinutes(30); var close = Session.Date.AddHours(16);
+            if (b.Time <= open) { onH = double.IsNaN(onH) ? b.High : Math.Max(onH, b.High); onL = double.IsNaN(onL) ? b.Low : Math.Min(onL, b.Low); }
+            else if (b.Time <= close) { rH = double.IsNaN(rH) ? b.High : Math.Max(rH, b.High); rL = double.IsNaN(rL) ? b.Low : Math.Min(rL, b.Low); rC = b.Close; }
+            double tp = (b.High + b.Low + b.Close) / 3, v = Math.Max(1, b.Volume); spv += tp * v; sv += v; spv2 += tp * tp * v;
+            { long k0 = (long)Math.Floor(b.Low / Bin + 1e-9), k1 = (long)Math.Floor(b.High / Bin + 1e-9); double per = v / (k1 - k0 + 1); for (long k = k0; k <= k1; k++) { double o; prof.TryGetValue(k, out o); prof[k] = o + per; } profVol += v; }
+            // the open gaps fill from the price that comes back into them (the remaining part shrinks; fully traded through = gone)
+            for (int i = gaps.Count - 1; i >= 0; i--)
+            {
+                var g = gaps[i];
+                if (g.Dir > 0) { if (b.Low < g.Hi) { g.Touched = true; if (b.Low <= g.Lo + 1e-9) { gaps.RemoveAt(i); continue; } g.Hi = b.Low; } }
+                else { if (b.High > g.Lo) { g.Touched = true; if (b.High >= g.Hi - 1e-9) { gaps.RemoveAt(i); continue; } g.Lo = b.High; } }
+            }
+            swings.RemoveAll(s => s.Dir > 0 ? b.High > s.Px + 1e-9 : b.Low < s.Px - 1e-9);   // taken out
+            foreach (var a in aggs)
+            {
+                var end = CeilTo(b.Time, a.Tf);
+                if (a.Has && a.End != end) CloseAgg(a);
+                if (!a.Has) { a.Has = true; a.End = end; a.H = b.High; a.L = b.Low; } else { a.H = Math.Max(a.H, b.High); a.L = Math.Min(a.L, b.Low); }
+                if (b.Time >= end) CloseAgg(a);
+            }
+            LastTime = b.Time; LastClose = b.Close;
+        }
+        void CloseAgg(Agg a)
+        {
+            a.Has = false; a.Last.Add(new[] { a.H, a.L, a.End.Ticks }); if (a.Last.Count > 6) a.Last.RemoveAt(0); int n = a.Last.Count; var born = a.End;
+            if (n >= 3)
+            {
+                double[] c1 = a.Last[n - 3], c3 = a.Last[n - 1]; double mg = MinGap(a.Tf, Scale);
+                if (c3[1] - c1[0] >= mg - 1e-9) AddGap(new Gap { Tf = a.Tf, Dir = 1, Lo = c1[0], Hi = c3[1], OLo = c1[0], OHi = c3[1], Born = born, Sess = Session });
+                else if (c1[1] - c3[0] >= mg - 1e-9) AddGap(new Gap { Tf = a.Tf, Dir = -1, Lo = c3[0], Hi = c1[1], OLo = c3[0], OHi = c1[1], Born = born, Sess = Session });
+            }
+            if ((a.Tf == 5 || a.Tf == 15) && n >= 5)
+            {
+                double[] c = a.Last[n - 3]; bool hi = true, lo = true;
+                for (int k = n - 5; k < n; k++) { if (k == n - 3) continue; if (a.Last[k][0] >= c[0]) hi = false; if (a.Last[k][1] <= c[1]) lo = false; }
+                var cb = new DateTime((long)c[2]);
+                if (hi) { swings.Add(new Swing { Tf = a.Tf, Dir = 1, Px = c[0], Born = cb, Sess = Session }); Trim(a.Tf, 1); }
+                if (lo) { swings.Add(new Swing { Tf = a.Tf, Dir = -1, Px = c[1], Born = cb, Sess = Session }); Trim(a.Tf, -1); }
+            }
+        }
+        void AddGap(Gap g) { gaps.Add(g); var mine = gaps.Where(x => x.Tf == g.Tf).ToList(); if (mine.Count > MaxGapsPerTf) gaps.Remove(mine[0]); }
+        void Trim(int tf, int dir) { var mine = swings.Where(x => x.Tf == tf && x.Dir == dir).ToList(); if (mine.Count > MaxSwingsPerTf) swings.Remove(mine[0]); }
+        // POC + the 70 % value area (high, low) of a volume-at-price map
+        public static Tuple<double, double, double> ValueArea(Dictionary<long, double> p, double bin)
+        {
+            if (p == null || p.Count == 0) return null; var keys = p.Keys.OrderBy(k => k).ToList(); double tot = p.Values.Sum(); if (!(tot > 0)) return null;
+            int pi = 0; for (int i = 1; i < keys.Count; i++) if (p[keys[i]] > p[keys[pi]]) pi = i;
+            int lo = pi, hi = pi; double acc = p[keys[pi]];
+            while (acc < 0.7 * tot && (lo > 0 || hi < keys.Count - 1))
+            {
+                double up = hi < keys.Count - 1 ? p[keys[hi + 1]] : -1, dn = lo > 0 ? p[keys[lo - 1]] : -1;
+                if (up >= dn) { hi++; acc += up; } else { lo--; acc += dn; }
+            }
+            return Tuple.Create((keys[pi] + 0.5) * bin, (keys[hi] + 1) * bin, keys[lo] * bin);
+        }
+        public static double Strength(string type, string tf)
+        {
+            int t; int.TryParse(tf, NumberStyles.Any, IC, out t);
+            switch (type)
+            {
+                case "FVG": return t >= 60 ? 9 : t >= 30 ? 8.5 : t >= 15 ? 7.5 : t >= 5 ? 4 : 2;
+                case "PDH": case "PDL": return 8;
+                case "ONH": case "ONL": return 7;
+                case "VAH": case "VAL": case "POC": return 6.5;
+                case "YVAH": case "YVAL": case "YPOC": return 6;
+                case "VWAP": return 6;
+                case "PDC": return 5.5;
+                case "SWH": case "SWL": return t >= 15 ? 5.5 : 4.5;
+                case "HOD": case "LOD": return 5;
+                case "ZONE": return 4;
+                case "VWAPU": case "VWAPD": return 3;
+                default: return 1;
+            }
+        }
+        static KeystoneLevel L(string type, string tf, string name, double px, DateTime born) { return new KeystoneLevel { Type = type, Tf = tf, Name = name, Price = px, Born = born, Strength = Strength(type, tf) }; }
+        // every level known NOW (closed bars only) around `price` (the live price, or the last close)
+        public List<KeystoneLevel> Snapshot(double price)
+        {
+            var o = new List<KeystoneLevel>(); if (Session == DateTime.MinValue) return o; if (double.IsNaN(price) || price <= 0) price = LastClose;
+            foreach (var g in gaps)
+            {
+                double near = price >= g.Hi ? g.Hi : price <= g.Lo ? g.Lo : double.NaN; if (double.IsNaN(near)) continue;   // the price inside the gap: it is being filled now
+                string tf = g.Tf.ToString(IC); var l = L("FVG", tf, tf + "m FVG", near, g.Born); l.Lo = g.Lo; l.Hi = g.Hi; l.Dir = g.Dir; l.Touched = g.Touched; double mid = (g.OLo + g.OHi) / 2; l.Mid = mid >= g.Lo - 1e-9 && mid <= g.Hi + 1e-9 ? mid : double.NaN;
+                if (g.Sess != Session) l.Name = (g.Sess == Session.AddDays(-1) || (Session.DayOfWeek == DayOfWeek.Monday && (Session - g.Sess).TotalDays <= 3) ? "yesterday's " : "older ") + l.Name;
+                o.Add(l);
+            }
+            foreach (var s in swings) { string tf = s.Tf.ToString(IC); o.Add(L(s.Dir > 0 ? "SWH" : "SWL", tf, tf + "m swing " + (s.Dir > 0 ? "high" : "low"), s.Px, s.Born)); }
+            var sb = Session.Date.AddHours(-6);
+            if (!double.IsNaN(Pdh)) { o.Add(L("PDH", "", "PDH", Pdh, sb)); o.Add(L("PDL", "", "PDL", Pdl, sb)); if (!double.IsNaN(Pdc)) o.Add(L("PDC", "", "PDC", Pdc, sb)); }
+            bool rth = LastTime > Session.Date.AddHours(9).AddMinutes(30);
+            if (rth && !double.IsNaN(onH)) { o.Add(L("ONH", "", "ON HIGH", onH, sb)); o.Add(L("ONL", "", "ON LOW", onL, sb)); }
+            if (!double.IsNaN(sH) && SessionBars >= 15) { o.Add(L("HOD", "", "TODAY HIGH", sH, sb)); o.Add(L("LOD", "", "TODAY LOW", sL, sb)); }
+            if (sv > 0 && SessionBars >= 15)
+            {
+                double vw = spv / sv, sd = Math.Sqrt(Math.Max(0, spv2 / sv - vw * vw)); o.Add(L("VWAP", "", "VWAP", vw, sb));
+                if (sd > Tick) { o.Add(L("VWAPU", "", "VWAP +1σ", vw + sd, sb)); o.Add(L("VWAPD", "", "VWAP −1σ", vw - sd, sb)); }
+            }
+            if (SessionBars >= 60) { var va = ValueArea(prof, Bin); if (va != null) { o.Add(L("POC", "", "POC", va.Item1, sb)); o.Add(L("VAH", "", "VAH", va.Item2, sb)); o.Add(L("VAL", "", "VAL", va.Item3, sb)); } }
+            if (!double.IsNaN(YPoc)) { var yb = sb.AddDays(-1); o.Add(L("YPOC", "", "yesterday's POC", YPoc, yb)); o.Add(L("YVAH", "", "yesterday's VAH", YVah, yb)); o.Add(L("YVAL", "", "yesterday's VAL", YVal, yb)); }
+            double up = Math.Ceiling(price / Round + 1e-9) * Round, dn = Math.Floor(price / Round - 1e-9) * Round;
+            o.Add(L("ROUND", "", "round " + up.ToString("N0", IC), up, sb)); o.Add(L("ROUND", "", "round " + dn.ToString("N0", IC), dn, sb));
+            return o;
+        }
+    }
+    public static class KeystoneLevelMap
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        // the levels of one side (+1 above / −1 below) from the nearest out; levels within `merge` of each other are ONE level (the strongest names it, the others in Also)
+        public static List<KeystoneLevel> Side(IEnumerable<KeystoneLevel> all, double price, int side, int k, double tick, double merge)
+        {
+            var o = new List<KeystoneLevel>(); if (all == null || side == 0) return o; double minD = Math.Max(tick, 1e-9) * 1.5;
+            foreach (var l in all.Where(x => side * (x.Price - price) >= minD).OrderBy(x => side * (x.Price - price)))
+            {
+                var last = o.Count > 0 ? o[o.Count - 1] : null;
+                if (last != null && Math.Abs(l.Price - last.Price) <= merge + 1e-9)
+                {
+                    if (l.Strength > last.Strength) { var c = l.Copy(); c.Also = Join(last.Also, last.Name); if (last.Defended != 0 && c.Defended == 0) { c.Defended = last.Defended; c.DefendedText = last.DefendedText; } o[o.Count - 1] = c; }
+                    else if (!(last.Name == l.Name) && !last.Also.Contains(l.Name)) last.Also = Join(last.Also, l.Name);
+                    continue;
+                }
+                if (o.Count >= k) break; o.Add(l.Copy());
+            }
+            return o;
+        }
+        static string Join(string a, string b) { return string.IsNullOrEmpty(a) ? b : a + " + " + b; }
+        // order flow may only change the WORDS: a DEFEND event (absorption, failed print, trapped, divergence, zone retest …) within `ticks` of a level = "buyers / sellers defended it hh:mm"
+        public static void MarkDefended(IEnumerable<KeystoneLevel> levels, IEnumerable<Tuple<DateTime, double, int, string>> events, double tick, int ticks = 8)
+        {
+            if (levels == null || events == null) return; var ev = events.Where(e => e != null && KeystoneOfIfThen.IsDefend(e.Item4) && e.Item3 != 0).OrderByDescending(e => e.Item1).ToList();
+            foreach (var l in levels)
+            {
+                var e = ev.FirstOrDefault(x => Math.Abs(x.Item2 - l.Price) <= ticks * tick + 1e-9 || (!double.IsNaN(l.Lo) && x.Item2 >= l.Lo - ticks * tick && x.Item2 <= l.Hi + ticks * tick)); if (e == null) continue;
+                l.Defended = e.Item3; l.DefendedText = (e.Item3 > 0 ? "buyers" : "sellers") + " defended it " + e.Item1.ToString("HH:mm", IC);
+            }
+        }
+        public static string Px(double v) { return v.ToString(v >= 1000 ? "#,##0.00" : "0.00", IC).Replace(".00", ""); }
+        public static string Pts(double v) { return Math.Abs(v).ToString("0.##", IC); }
+        public static string Usd(double v) { return (v >= 0 ? "+$" : "−$") + Math.Round(Math.Abs(v)).ToString("N0", IC); }
+        static string Range(KeystoneLevel l) { return !double.IsNaN(l.Lo) && l.Type == "FVG" ? " " + Px(l.Lo) + "–" + Px(l.Hi) + (double.IsNaN(l.Mid) ? "" : " (50 % " + Px(l.Mid) + ")") : " " + Px(l.Price); }
+        // one level in words: "30m FVG 28,560–28,600 (50 % 28,580) (+128 pts) • reached first 61 % (n = 1,240)"
+        public static string Words(KeystoneLevel l, double price, string stat)
+        {
+            if (l == null) return ""; double d = l.Price - price;
+            return l.Label + Range(l) + " (" + (d >= 0 ? "+" : "−") + Pts(d) + " pts)" + (string.IsNullOrEmpty(stat) ? "" : " • " + stat) + (l.DefendedText != "" ? " • " + l.DefendedText : "");
+        }
+        // FLAT: "above: … • … / below: … • …"
+        public static string Flat(List<KeystoneLevel> above, List<KeystoneLevel> below, double price, Func<KeystoneLevel, string> stat)
+        {
+            Func<List<KeystoneLevel>, string> j = ls => ls == null || ls.Count == 0 ? "nothing known" : string.Join(" • ", ls.Select(l => Words(l, price, stat != null ? stat(l) : "")));
+            return "▲ above: " + j(above) + "\n▼ below: " + j(below);
+        }
+        // IN A TRADE, told from the position's side: the favour side (with your TP in its place) and the against side (your stop, the account's floor)
+        public static string InTrade(int dir, int qty, double avg, double price, double stop, double target, double floorPx, List<KeystoneLevel> above, List<KeystoneLevel> below, double pv, Func<KeystoneLevel, string> stat)
+        {
+            dir = Math.Sign(dir); qty = Math.Max(1, Math.Abs(qty)); if (dir == 0) return Flat(above, below, price, stat);
+            var fav = dir > 0 ? above : below; var ag = dir > 0 ? below : above; string q = " for " + qty;
+            var fItems = (fav ?? new List<KeystoneLevel>()).Select(l => Tuple.Create(dir * (l.Price - price), l.Label + " " + Px(l.Price) + " (" + Usd(dir * (l.Price - avg) * pv * qty) + q + ")" + (stat != null && stat(l) != "" ? " " + stat(l) : "") + (l.DefendedText != "" ? " — " + l.DefendedText : ""))).ToList();
+            if (target > 0 && !double.IsNaN(target) && dir * (target - price) > 0) fItems.Add(Tuple.Create(dir * (target - price), "your TP " + Px(target) + " (" + Usd(dir * (target - avg) * pv * qty) + ")"));
+            var aItems = (ag ?? new List<KeystoneLevel>()).Select(l => Tuple.Create(dir * (price - l.Price), l.Label + " " + Px(l.Price) + " (" + Usd(dir * (l.Price - avg) * pv * qty) + q + ")" + (stat != null && stat(l) != "" ? " " + stat(l) : "") + (l.DefendedText != "" ? " — " + l.DefendedText : ""))).ToList();
+            bool hasStop = KeystoneOfSimple.HasStop(stop) && dir * (price - stop) > 0;
+            if (hasStop) aItems.Add(Tuple.Create(dir * (price - stop), "your stop " + Px(stop) + " (" + Usd(dir * (stop - avg) * pv * qty) + ")"));
+            if (!double.IsNaN(floorPx) && dir * (price - floorPx) > 0) aItems.Add(Tuple.Create(dir * (price - floorPx), "the floor ≈ " + Px(floorPx)));
+            // levels beyond your stop / the floor do not matter for this trade
+            double cut = aItems.Where(a => a.Item2.StartsWith("your stop") || a.Item2.StartsWith("the floor")).Select(a => a.Item1).DefaultIfEmpty(double.MaxValue).Min();
+            aItems = aItems.Where(a => a.Item1 <= cut + 1e-9).OrderBy(a => a.Item1).ToList();
+            double fcut = fItems.Where(a => a.Item2.StartsWith("your TP")).Select(a => a.Item1).DefaultIfEmpty(double.MaxValue).Min();
+            fItems = fItems.Where(a => a.Item1 <= fcut + 1e-9).OrderBy(a => a.Item1).ToList();
+            return "✅ in your favour: " + (fItems.Count == 0 ? "no level known yet" : string.Join(" → ", fItems.Select(a => a.Item2))) +
+                   "\n⚠ against you: " + (aItems.Count == 0 ? "no level known yet" : string.Join(" → ", aItems.Select(a => a.Item2))) + (hasStop ? "" : "\n⚠ NO STOP SET — the first level against you is where the idea is wrong");
+        }
+        // the nearest favour / against level words for one line (the chart's tooltip, the decision line)
+        public static string Lead(int dir, double price, List<KeystoneLevel> above, List<KeystoneLevel> below)
+        {
+            var a = above != null && above.Count > 0 ? above[0] : null; var b = below != null && below.Count > 0 ? below[0] : null;
+            if (dir == 0) return "next: ▲ " + (a == null ? "—" : a.Label + " " + Px(a.Price)) + " / ▼ " + (b == null ? "—" : b.Label + " " + Px(b.Price));
+            var f = dir > 0 ? a : b; var g = dir > 0 ? b : a;
+            return "next for you: " + (f == null ? "—" : f.Label + " " + Px(f.Price)) + " • against: " + (g == null ? "—" : g.Label + " " + Px(g.Price));
+        }
+        // a level that may STOP the price against a position (scale-in candidates): higher-TF FVGs, prior-day / overnight extremes, value-area edges, 15m swings, a zone of the other side
+        public static bool Strong(KeystoneLevel l, int posDir)
+        {
+            if (l == null) return false; int t; int.TryParse(l.Tf, NumberStyles.Any, IC, out t);
+            if (l.Type == "FVG") return t >= 15;
+            if (l.Type == "ZONE") return l.Dir == posDir;   // a SELL ZONE for a short, a BUY ZONE for a long
+            if (posDir < 0) return l.Type == "PDH" || l.Type == "ONH" || l.Type == "VAH" || l.Type == "YVAH" || (l.Type == "SWH" && t >= 15);
+            return l.Type == "PDL" || l.Type == "ONL" || l.Type == "VAL" || l.Type == "YVAL" || (l.Type == "SWL" && t >= 15);
+        }
+    }
+    // the measured table: R:<type|tf>|<share band> = reached FIRST (before the nearest level on the other side) + Base = Σ what the distances alone would give;
+    // D:<type|tf>|<distance band> the same by distance; H:<type|tf> = once touched, the level TURNED the price (≥ hold pts back before hold pts through)
+    public sealed class KeystoneReachCell { public int N, Wins, NOld, WOld, NNew, WNew; public double Base; public double Pct { get { return N > 0 ? 100.0 * Wins / N : double.NaN; } } }
+    public sealed class KeystoneReachTable
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public const int MinN = 50; public static readonly double[] ShareCuts = { 0.2, 0.4, 0.6, 0.8 }; public static readonly double[] DistCuts = { 10, 20, 40, 80 };
+        public readonly Dictionary<string, KeystoneReachCell> Cells = new Dictionary<string, KeystoneReachCell>();
+        public string Symbol = ""; public DateTime Built = DateTime.MinValue, Through = DateTime.MinValue, Split = DateTime.MinValue; public int Sessions, Samples, Neither, Ambiguous; public double HoldPts;
+        public static int ShareBand(double share) { int b = 0; foreach (var c in ShareCuts) if (share >= c) b++; return b; }
+        public static string ShareName(int b) { return b == 0 ? "much closer" : b == 1 ? "closer" : b == 2 ? "about as far" : b == 3 ? "farther" : "much farther"; }
+        public static int DistBand(double pts, double scale) { int b = 0; foreach (var c in DistCuts) if (pts >= c * scale) b++; return b; }
+        public KeystoneReachCell Get(string key) { KeystoneReachCell c; return key != null && Cells.TryGetValue(key, out c) ? c : null; }
+        public void Add(string key, bool win, double baseP, bool old)
+        {
+            KeystoneReachCell c; if (!Cells.TryGetValue(key, out c)) Cells[key] = c = new KeystoneReachCell();
+            c.N++; if (win) c.Wins++; c.Base += baseP; if (old) { c.NOld++; if (win) c.WOld++; } else { c.NNew++; if (win) c.WNew++; }
+        }
+        static string N(int n) { return n.ToString("N0", IC); }
+        // "reached first 61 % (n = 1,240; distances alone ≈ 52 %)" — or "learning (n = 23)"; the type's own cell, else its distance cell, else all types (said)
+        public string FirstText(KeystoneLevel l, double dThis, double dOther)
+        {
+            if (l == null || !(dThis > 0) || !(dOther > 0)) return ""; double share = dThis / (dThis + dOther); int sb = ShareBand(share);
+            var c = Get("R:" + l.StatKey + "|" + sb); string note = "";
+            if (c == null || c.N < MinN) { var c2 = Get("R:ANY|" + sb); if (c2 != null && c2.N >= MinN && (c == null || c.N < MinN)) { if (c == null || c.N == 0) { c = c2; note = " all levels"; } else return "learning (n = " + N(c.N) + ")"; } }
+            if (c == null || c.N == 0) return "learning (n = 0)"; if (c.N < MinN) return "learning (n = " + N(c.N) + ")";
+            double bp = 100 * c.Base / c.N; return "reached first " + c.Pct.ToString("0", IC) + " % (n = " + N(c.N) + note + "; distances alone ≈ " + bp.ToString("0", IC) + " %)";
+        }
+        // the level TYPE's hold rate once touched: (held, n, text, edge = the 95 % Wilson low above 50 %)
+        public Tuple<int, int, string, bool> Hold(string statKey)
+        {
+            var c = Get("H:" + statKey); int n = c == null ? 0 : c.N, w = c == null ? 0 : c.Wins;
+            if (n < MinN) return Tuple.Create(w, n, "learning (n = " + N(n) + ") — no measured edge yet", false);
+            var ci = KeystoneOfEdge.Wilson(w, n); bool edge = ci.Item1 > 50;
+            return Tuple.Create(w, n, "turned the price " + (100.0 * w / n).ToString("0", IC) + " % (n = " + N(n) + ", " + HoldPts.ToString("0.#", IC) + " pts back before " + HoldPts.ToString("0.#", IC) + " through)" + (edge ? " = an edge" : " = no edge"), edge);
+        }
+        public const string Header = "key,n,wins,base,n_old,wins_old,n_new,wins_new";
+        public string ToCsv()
+        {
+            var sb = new StringBuilder(); sb.Append("# KeyStone 🗺 NEXT LEVELS reach statistics • ").Append(Symbol).Append(" • built ").Append(Built.ToString("yyyy-MM-dd HH:mm", IC)).Append(" • through ").Append(Through.ToString("yyyy-MM-dd", IC))
+              .Append(" • sessions ").Append(Sessions).Append(" • samples ").Append(Samples).Append(" • neither ").Append(Neither).Append(" • ambiguous ").Append(Ambiguous).Append(" • split ").Append(Split.ToString("yyyy-MM-dd", IC)).Append(" • hold ").Append(HoldPts.ToString("0.##", IC)).Append('\n');
+            sb.Append(Header).Append('\n');
+            foreach (var kv in Cells.OrderBy(k => k.Key, StringComparer.Ordinal)) { var c = kv.Value; sb.Append(kv.Key).Append(',').Append(c.N).Append(',').Append(c.Wins).Append(',').Append(c.Base.ToString("0.###", IC)).Append(',').Append(c.NOld).Append(',').Append(c.WOld).Append(',').Append(c.NNew).Append(',').Append(c.WNew).Append('\n'); }
+            return sb.ToString();
+        }
+        public static KeystoneReachTable Parse(IEnumerable<string> lines)
+        {
+            var t = new KeystoneReachTable(); if (lines == null) return t;
+            foreach (var raw in lines)
+            {
+                var l = (raw ?? "").Trim(); if (l == "" || l == Header) continue;
+                if (l.StartsWith("#"))
+                {
+                    foreach (var part in l.TrimStart('#').Split('•').Select(x => x.Trim()))
+                    {
+                        var sp = part.Split(new[] { ' ' }, 2); if (sp.Length < 2) continue; DateTime d; int i; double v;
+                        if (sp[0] == "built" && DateTime.TryParseExact(sp[1], "yyyy-MM-dd HH:mm", IC, DateTimeStyles.None, out d)) t.Built = d;
+                        else if (sp[0] == "through" && DateTime.TryParseExact(sp[1], "yyyy-MM-dd", IC, DateTimeStyles.None, out d)) t.Through = d;
+                        else if (sp[0] == "split" && DateTime.TryParseExact(sp[1], "yyyy-MM-dd", IC, DateTimeStyles.None, out d)) t.Split = d;
+                        else if (sp[0] == "sessions" && int.TryParse(sp[1], NumberStyles.Any, IC, out i)) t.Sessions = i;
+                        else if (sp[0] == "samples" && int.TryParse(sp[1], NumberStyles.Any, IC, out i)) t.Samples = i;
+                        else if (sp[0] == "neither" && int.TryParse(sp[1], NumberStyles.Any, IC, out i)) t.Neither = i;
+                        else if (sp[0] == "ambiguous" && int.TryParse(sp[1], NumberStyles.Any, IC, out i)) t.Ambiguous = i;
+                        else if (sp[0] == "hold" && double.TryParse(sp[1], NumberStyles.Any, IC, out v)) t.HoldPts = v;
+                    }
+                    var segs = l.Split('•'); if (segs.Length > 1) t.Symbol = segs[1].Trim();
+                    continue;
+                }
+                var f = l.Split(','); if (f.Length < 8) continue; var c = new KeystoneReachCell(); int nx;
+                if (!int.TryParse(f[1], NumberStyles.Any, IC, out nx)) continue; c.N = nx; int.TryParse(f[2], NumberStyles.Any, IC, out c.Wins); double.TryParse(f[3], NumberStyles.Any, IC, out c.Base);
+                int.TryParse(f[4], NumberStyles.Any, IC, out c.NOld); int.TryParse(f[5], NumberStyles.Any, IC, out c.WOld); int.TryParse(f[6], NumberStyles.Any, IC, out c.NNew); int.TryParse(f[7], NumberStyles.Any, IC, out c.WNew);
+                t.Cells[f[0]] = c;
+            }
+            return t;
+        }
+        // the honest summary (the report + 🎓 GUIDE): per type, reached first vs distances alone, the older 2/3 vs the newest 1/3, the hold rate
+        public List<string> Highlights(int top = 12)
+        {
+            var o = new List<string>(); var types = Cells.Keys.Where(k => k.StartsWith("R:") && !k.StartsWith("R:ANY")).Select(k => k.Substring(2, k.LastIndexOf('|') - 2)).Distinct().ToList();
+            var rows = new List<Tuple<double, string>>();
+            foreach (var ty in types)
+            {
+                int n = 0, w = 0, no = 0, wo = 0, nn = 0, wn = 0; double b = 0;
+                foreach (var kv in Cells.Where(k => k.Key.StartsWith("R:" + ty + "|") && k.Key.Substring(2 + ty.Length + 1).IndexOf('|') < 0)) { n += kv.Value.N; w += kv.Value.Wins; b += kv.Value.Base; no += kv.Value.NOld; wo += kv.Value.WOld; nn += kv.Value.NNew; wn += kv.Value.WNew; }
+                if (n < MinN) continue; var h = Hold(ty); double pct = 100.0 * w / n, bp = 100 * b / n;
+                rows.Add(Tuple.Create(pct - bp, ty + ": reached first " + pct.ToString("0", IC) + " % vs distances alone " + bp.ToString("0", IC) + " % (n = " + N(n) + "; older " + (no > 0 ? (100.0 * wo / no).ToString("0", IC) : "—") + " % / newest " + (nn > 0 ? (100.0 * wn / nn).ToString("0", IC) : "—") + " %) • once touched: " + h.Item3));
+            }
+            foreach (var r in rows.OrderByDescending(x => x.Item1).Take(top)) o.Add(r.Item2);
+            return o;
+        }
+    }
+    public static class KeystoneLevelReach
+    {
+        public static double HoldPts(string symbol) { return KeystoneMoveStudy.IsMgc(symbol) ? 2 : 10; }
+        // the walk over saved minutes (chunks of WHOLE sessions, in time order): every `sampleMin` minutes the levels known from the bars BEFORE it (no lookahead), the nearest
+        // above (A) and below (B), then the bars AFTER it (same session) decide which is reached first (a minute touching both = ambiguous, skipped; neither by the session's end = neither).
+        // One sample per (A, B) pair per session (the same question asked again later is not new information). Only sessions before `beforeSession`.
+        public static KeystoneReachTable Study(IEnumerable<List<KeystoneArcBar>> chunks, string symbol, DateTime beforeSession, DateTime splitSession, int sampleMin = 15, Func<bool> cancel = null)
+        {
+            symbol = (symbol ?? "MNQ").ToUpperInvariant(); var st = new KeystoneLevelState(symbol); var t = new KeystoneReachTable { Symbol = symbol, Built = DateTime.Now, Split = splitSession, HoldPts = HoldPts(symbol) };
+            double tick = st.Tick, merge = 4 * tick, hp = t.HoldPts; var pairSeen = new HashSet<string>(); var holdSeen = new HashSet<string>(); DateTime pairSess = DateTime.MinValue, lastSess = DateTime.MinValue; int sessions = 0;
+            foreach (var chunk in chunks)
+            {
+                if (chunk == null) continue; var bars = chunk;
+                for (int i = 0; i < bars.Count; i++)
+                {
+                    if (cancel != null && (i & 1023) == 0 && cancel()) return t;
+                    var b = bars[i]; st.Feed(b); var sess = st.Session; if (sess >= beforeSession) continue;
+                    if (sess != lastSess) { lastSess = sess; sessions++; t.Through = sess; }
+                    if (sess != pairSess) { pairSess = sess; pairSeen.Clear(); holdSeen.Clear(); }
+                    if (b.Time.Minute % sampleMin != 0 || st.Sessions < 2 || st.SessionBars < 15 || b.Time.Hour == 17) continue;
+                    var all = st.Snapshot(b.Close); var aL = KeystoneLevelMap.Side(all, b.Close, 1, 1, tick, merge); var bL = KeystoneLevelMap.Side(all, b.Close, -1, 1, tick, merge);
+                    if (aL.Count == 0 || bL.Count == 0) continue; var A = aL[0]; var B = bL[0]; string pk = A.Id + "/" + B.Id; if (!pairSeen.Add(pk)) continue;
+                    double dA = A.Price - b.Close, dB = b.Close - B.Price; if (dA < 2 * tick || dB < 2 * tick) continue;
+                    int res = 0, hitAt = -1; t.Samples++;
+                    for (int j = i + 1; j < bars.Count; j++)
+                    {
+                        var x = bars[j]; if (KeystoneIdeas.SessionDay(x.Time.AddMinutes(-1)) != sess) break;
+                        bool ha = x.High >= A.Price - 1e-9, hb = x.Low <= B.Price + 1e-9; if (ha && hb) { res = 9; break; } if (ha) { res = 1; hitAt = j; break; } if (hb) { res = -1; hitAt = j; break; }
+                    }
+                    if (res == 9) { t.Ambiguous++; continue; } if (res == 0) { t.Neither++; continue; }
+                    bool old = splitSession != DateTime.MinValue && sess < splitSession; double sA = dA / (dA + dB), sB = 1 - sA;
+                    foreach (var side in new[] { 1, -1 })
+                    {
+                        var L = side > 0 ? A : B; double d = side > 0 ? dA : dB, share = side > 0 ? sA : sB; bool win = res == side; double baseP = 1 - share;
+                        t.Add("R:" + L.StatKey + "|" + KeystoneReachTable.ShareBand(share), win, baseP, old); t.Add("R:ANY|" + KeystoneReachTable.ShareBand(share), win, baseP, old);
+                        t.Add("D:" + L.StatKey + "|" + KeystoneReachTable.DistBand(d, st.Scale), win, baseP, old);
+                    }
+                    // the reached level: did it TURN the price (hold pts back) before hold pts through? — once per level per session
+                    var R = res > 0 ? A : B; if (!holdSeen.Add(R.Id)) continue; int hs = 0;
+                    for (int j = hitAt; j < bars.Count; j++)
+                    {
+                        var x = bars[j]; if (KeystoneIdeas.SessionDay(x.Time.AddMinutes(-1)) != sess) break;
+                        bool through = res > 0 ? x.High >= R.Price + hp - 1e-9 : x.Low <= R.Price - hp + 1e-9, back = j > hitAt && (res > 0 ? x.Low <= R.Price - hp + 1e-9 : x.High >= R.Price + hp - 1e-9);
+                        if (through && back) { hs = 9; break; } if (through) { hs = -1; break; } if (back) { hs = 1; break; }
+                    }
+                    if (hs == 1 || hs == -1) { t.Add("H:" + R.StatKey, hs == 1, 0.5, old); t.Add("H:ANY", hs == 1, 0.5, old); }
+                }
+            }
+            t.Sessions = sessions; return t;
+        }
+        public static bool Stale(KeystoneReachTable t, DateTime now) { return t == null || t.Built == DateTime.MinValue || (now - t.Built).TotalDays >= 7; }
+    }
+    // ➕ ADD suggestions — TEXT ONLY (never automatic: you add with the chart's own buttons, which ask first and use the armed link's limits). Sizes from your risk setting,
+    // max contracts and the account's floor (room ≥ 1.5 × what the stop would cost from now).
+    public sealed class KeystoneAddIdea { public bool Ok; public int Add, Total; public double At = double.NaN, Stop = double.NaN, NewAvg = double.NaN, BreakEven = double.NaN, RiskUsd, LossFromNowUsd, RoomUsd = double.NaN; public string Kind = "", Text = "", Why = ""; }
+    public static class KeystoneAddAdvice
+    {
+        public const double RoomMult = 1.5; public const string YouDecide = "a suggestion — you decide (the chart's own buttons ask first, the armed account's limits apply)";
+        static string Px(double v) { return KeystoneLevelMap.Px(v); }
+        static string U(double v) { return "$" + Math.Round(Math.Abs(v)).ToString("N0", CultureInfo.InvariantCulture); }
+        static double LossTo(int dir, double from, double stop, int q, double pv) { return Math.Max(0, dir * (from - stop)) * pv * q; }
+        // ADD TO THE WINNER: only after a pullback HELD at a level in your favour (the last CLOSED candle touched it and closed on your side, no event defended against you there).
+        // The combined stop = just beyond that level (the plan's stop when it is tighter); N = the most that keeps the total risk ≤ your risk setting, the total ≤ max contracts
+        // and the room to the floor ≥ 1.5 × the loss at that stop from now.
+        public static KeystoneAddIdea Winner(int dir, int qty, double avg, double price, double planStop, KeystoneLevel held, double candleLow, double candleHigh, double candleClose, bool defendedAgainst, double riskUsd, int maxContracts, double roomUsd, double pv, double tick, double minStopPts)
+        {
+            var o = new KeystoneAddIdea { Kind = "WINNER" }; dir = Math.Sign(dir); qty = Math.Abs(qty); o.RoomUsd = roomUsd;
+            if (dir == 0 || qty == 0) { o.Why = "no position"; o.Text = ""; return o; }
+            if (dir * (price - avg) <= 0) { o.Why = "the trade is not in profit — adding to a winner needs a winner"; o.Text = "➕ add to the winner: not now — " + o.Why; return o; }
+            if (held == null) { o.Why = "no pullback has held at a level in your favour yet"; o.Text = "➕ add to the winner: not now — " + o.Why + " (wait: a CLOSED candle touching a level and closing on your side)"; return o; }
+            double L = held.Price; bool touched = dir > 0 ? candleLow <= L + 2 * tick && candleClose > L : candleHigh >= L - 2 * tick && candleClose < L;
+            if (!touched) { o.Why = "the last closed candle did not test and hold " + held.Label + " " + Px(L); o.Text = "➕ add to the winner: not now — " + o.Why; return o; }
+            if (defendedAgainst) { o.Why = "the other side defended at " + held.Label + " (order flow) — the pullback may not be over"; o.Text = "➕ add to the winner: ⛔ not here — " + o.Why; return o; }
+            double stop = Math.Round((L - dir * Math.Max(minStopPts, 4 * tick)) / tick) * tick; if (KeystoneOfSimple.HasStop(planStop) && dir * (planStop - stop) > 0) stop = planStop;
+            if (dir * (price - stop) <= tick) { o.Why = "no room for a stop under the level"; o.Text = "➕ add to the winner: ⛔ not here — " + o.Why; return o; }
+            int best = 0; double bestRisk = 0, bestLoss = 0; int cap = maxContracts > 0 ? maxContracts - qty : 0; string bind = maxContracts > 0 && cap <= 0 ? "you already hold the max contracts (" + maxContracts + ")" : "";
+            for (int n = 1; n <= Math.Max(0, cap); n++)
+            {
+                double risk = Math.Max(0, dir * (avg - stop) * pv * qty + dir * (price - stop) * pv * n);   // the whole position's P/L at the stop, as a loss (a locked profit on the old contracts offsets the new ones)
+                double loss = LossTo(dir, price, stop, qty + n, pv);
+                if (risk > riskUsd + 1e-9) { if (bind == "") bind = "your risk setting " + U(riskUsd); break; }
+                if (!double.IsNaN(roomUsd) && roomUsd < RoomMult * loss) { if (bind == "") bind = "the account's floor (room " + U(roomUsd) + " < 1.5 × " + U(loss) + ")"; break; }
+                best = n; bestRisk = risk; bestLoss = loss;
+            }
+            if (best < 1) { o.Why = bind == "" ? "nothing fits" : bind; o.Text = "➕ add to the winner: ⛔ don't add — " + o.Why; return o; }
+            o.Ok = true; o.Add = best; o.Total = qty + best; o.At = price; o.Stop = stop; o.NewAvg = (qty * avg + best * price) / (qty + best); o.RiskUsd = bestRisk; o.LossFromNowUsd = bestLoss;
+            o.Text = "➕ ADD TO THE WINNER: +" + best + " at ≈ " + Px(price) + " (the pullback held " + held.Label + " " + Px(L) + ") → " + o.Total + " contracts, average " + Px(o.NewAvg) + " • move the stop for ALL to " + Px(stop) + " (beyond the level) • total risk at that stop " + U(bestRisk) +
+                     (double.IsNaN(roomUsd) ? "" : " • room to the floor " + U(roomUsd)) + (bind != "" ? " • limited by " + bind : "") + "\n" + YouDecide;
+            return o;
+        }
+        // ADD TO THE LOSER (scale in): only AT the next STRONG level against you (a higher-TF FVG, PDH / PDL, ON high / low, VAH / VAL, a 15m swing, the other side's zone)
+        // with a measured hold edge, never beyond your stop, the room to the floor ≥ 1.5 × the loss at the stop from now, the total risk ≤ your risk setting, ≤ max contracts,
+        // never more than doubling. The full math: the new average, break-even after costs, the total $ at the stop.
+        public static KeystoneAddIdea Loser(int dir, int qty, double avg, double price, double planStop, KeystoneLevel level, Tuple<int, int, string, bool> hold, double riskUsd, int maxContracts, double roomUsd, double pv, double tick, double costPerContract, double minStopPts)
+        {
+            var o = new KeystoneAddIdea { Kind = "LOSER" }; dir = Math.Sign(dir); qty = Math.Abs(qty); o.RoomUsd = roomUsd; string head = "➕ add to the loser: ⛔ don't add — ";
+            if (dir == 0 || qty == 0) { o.Why = "no position"; return o; }
+            if (level == null) { o.Why = "no strong level against you nearby (higher-TF FVG, prior-day / overnight extreme, value-area edge, 15m swing, a zone)"; o.Text = head + o.Why; return o; }
+            double L = level.Price; if (dir * (price - L) <= 0) { o.Why = "the price is already at / beyond " + level.Label; o.Text = head + o.Why; return o; }
+            bool hasStop = KeystoneOfSimple.HasStop(planStop);
+            if (hasStop && dir * (planStop - L) >= 0) { o.Why = "your stop " + Px(planStop) + " comes BEFORE " + level.Label + " " + Px(L) + " — the add would never fill before the stop"; o.Text = head + o.Why; return o; }
+            if (hold == null || !hold.Item4) { o.Why = level.Label + ": " + (hold == null ? "no measured edge" : hold.Item3); o.Text = head + o.Why; return o; }
+            double stop = hasStop ? planStop : Math.Round((L - dir * Math.Max(minStopPts, 8 * tick)) / tick) * tick;
+            int best = 0; double bestRisk = 0, bestLoss = 0, bestAvg = double.NaN; string bind = ""; int cap = Math.Min(qty, maxContracts > 0 ? maxContracts - qty : qty);
+            if (maxContracts > 0 && maxContracts - qty <= 0) bind = "you already hold the max contracts (" + maxContracts + ")";
+            for (int n = 1; n <= Math.Max(0, cap); n++)
+            {
+                double na = (qty * avg + n * L) / (qty + n), risk = LossTo(dir, na, stop, qty + n, pv), loss = LossTo(dir, price, stop, qty, pv) + LossTo(dir, L, stop, n, pv);
+                if (risk > riskUsd + 1e-9) { if (bind == "") bind = "your risk setting " + U(riskUsd) + " (the total at the stop would be " + U(risk) + ")"; break; }
+                if (!double.IsNaN(roomUsd) && roomUsd < RoomMult * loss) { if (bind == "") bind = "the account's floor: room " + U(roomUsd) + " < 1.5 × " + U(loss) + " (the loss at the stop from now)"; break; }
+                best = n; bestRisk = risk; bestLoss = loss; bestAvg = na;
+            }
+            if (best < 1) { o.Why = bind == "" ? "nothing fits" : bind; o.Text = head + o.Why; return o; }
+            o.Ok = true; o.Add = best; o.Total = qty + best; o.At = L; o.Stop = stop; o.NewAvg = bestAvg; o.BreakEven = bestAvg + dir * costPerContract / pv; o.RiskUsd = bestRisk; o.LossFromNowUsd = bestLoss;
+            o.Text = "➕ SCALE IN at " + level.Label + " " + Px(L) + ": +" + best + " → " + o.Total + " contracts • new average " + Px(bestAvg) + " • break-even after costs " + Px(o.BreakEven) + " • stop " + Px(stop) + (hasStop ? "" : " (set it — none is working)") + " • total at the stop −" + U(bestRisk) +
+                     (double.IsNaN(roomUsd) ? " • the floor: unknown (no firm rules on this account)" : " • room to the floor " + U(roomUsd) + " (needs ≥ 1.5 × " + U(bestLoss) + ")") + " • this level type " + hold.Item3 + (bind != "" ? " • limited by " + bind : "") + "\n" + YouDecide;
+            return o;
+        }
+    }
     // 📊 13c — the HONEST event layer (user's live screenshot: MNQ +324 pts, a strong up-trend, "buyer failed → SELL pressure" shown while the price kept going up; the app's own
     // stats said 46–48 % of 59–102 = no edge). Every event's MEASURED follow-through (+8 ticks before −8, decided ones only, before the event): n < 30 = 🧪 learning (grey),
     // ≥ 55 % with the 95 % interval (Wilson) above 50 % = an EDGE (bright), else NO EDGE (grey + "no edge", never "SELL pressure" / "supports a SELL").

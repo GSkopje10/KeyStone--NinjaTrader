@@ -1,0 +1,66 @@
+== MNQ • 2020-06-28 → 2026-10-02 • 1716 sessions • 131767 samples (neither 695, ambiguous 10510) • older 2/3 before 2024-09-28 • hold 10 pts
+  ALL LEVELS, this side much closer: reached first 86.9 % vs distances alone 87.5 % (n = 34497)
+  ALL LEVELS, this side closer: reached first 69.8 % vs distances alone 69.9 % (n = 55354)
+  ALL LEVELS, this side about as far: reached first 50.2 % vs distances alone 50.2 % (n = 60201)
+  ALL LEVELS, this side farther: reached first 30.5 % vs distances alone 30.4 % (n = 56067)
+  ALL LEVELS, this side much farther: reached first 13.2 % vs distances alone 12.6 % (n = 35005)
+  ALL LEVELS once touched: turned the price 47.0 % (n = 100368)
+  ONL: reached first 52 % vs distances alone 50 % (n = 1,322; older 52 % / newest 49 %) • once touched: turned the price 38 % (n = 384, 10 pts back before 10 through) = no edge
+  PDC: reached first 52 % vs distances alone 51 % (n = 4,068; older 52 % / newest 52 %) • once touched: turned the price 43 % (n = 846, 10 pts back before 10 through) = no edge
+  VAH: reached first 53 % vs distances alone 51 % (n = 14,627; older 53 % / newest 52 %) • once touched: turned the price 47 % (n = 6,709, 10 pts back before 10 through) = no edge
+  HOD: reached first 51 % vs distances alone 50 % (n = 8,820; older 52 % / newest 50 %) • once touched: turned the price 47 % (n = 4,322, 10 pts back before 10 through) = no edge
+  YVAL: reached first 51 % vs distances alone 50 % (n = 2,596; older 52 % / newest 50 %) • once touched: turned the price 47 % (n = 543, 10 pts back before 10 through) = no edge
+  POC: reached first 56 % vs distances alone 55 % (n = 21,211; older 56 % / newest 56 %) • once touched: turned the price 46 % (n = 6,940, 10 pts back before 10 through) = no edge
+  PDL: reached first 52 % vs distances alone 51 % (n = 2,139; older 54 % / newest 48 %) • once touched: turned the price 42 % (n = 456, 10 pts back before 10 through) = no edge
+  VAL: reached first 52 % vs distances alone 51 % (n = 11,952; older 52 % / newest 52 %) • once touched: turned the price 47 % (n = 5,465, 10 pts back before 10 through) = no edge
+  ROUND: reached first 53 % vs distances alone 53 % (n = 12,481; older 54 % / newest 52 %) • once touched: turned the price 42 % (n = 3,047, 10 pts back before 10 through) = no edge
+  FVG|1: reached first 52 % vs distances alone 52 % (n = 37,938; older 52 % / newest 52 %) • once touched: turned the price 47 % (n = 19,066, 10 pts back before 10 through) = no edge
+  YPOC: reached first 51 % vs distances alone 51 % (n = 3,296; older 52 % / newest 49 %) • once touched: turned the price 49 % (n = 675, 10 pts back before 10 through) = no edge
+  VWAPU: reached first 52 % vs distances alone 52 % (n = 13,041; older 52 % / newest 52 %) • once touched: turned the price 47 % (n = 6,747, 10 pts back before 10 through) = no edge
+  VWAPD: reached first 52 % vs distances alone 52 % (n = 11,273; older 52 % / newest 53 %) • once touched: turned the price 47 % (n = 5,818, 10 pts back before 10 through) = no edge
+  YVAH: reached first 52 % vs distances alone 52 % (n = 2,819; older 52 % / newest 50 %) • once touched: turned the price 47 % (n = 576, 10 pts back before 10 through) = no edge
+  FVG|30: reached first 46 % vs distances alone 47 % (n = 7,938; older 46 % / newest 48 %) • once touched: turned the price 49 % (n = 3,296, 10 pts back before 10 through) = no edge
+  VWAP: reached first 50 % vs distances alone 51 % (n = 15,109; older 50 % / newest 50 %) • once touched: turned the price 46 % (n = 7,390, 10 pts back before 10 through) = no edge
+  SWH|15: reached first 38 % vs distances alone 38 % (n = 3,586; older 37 % / newest 39 %) • once touched: turned the price 45 % (n = 1,236, 10 pts back before 10 through) = no edge
+  SWL|5: reached first 38 % vs distances alone 39 % (n = 7,215; older 38 % / newest 40 %) • once touched: turned the price 49 % (n = 2,607, 10 pts back before 10 through) = no edge
+  LOD: reached first 47 % vs distances alone 47 % (n = 5,907; older 46 % / newest 48 %) • once touched: turned the price 48 % (n = 2,674, 10 pts back before 10 through) = no edge
+  FVG|60: reached first 45 % vs distances alone 45 % (n = 9,428; older 45 % / newest 45 %) • once touched: turned the price 48 % (n = 3,469, 10 pts back before 10 through) = no edge
+  PDH: reached first 50 % vs distances alone 51 % (n = 3,606; older 51 % / newest 50 %) • once touched: turned the price 48 % (n = 661, 10 pts back before 10 through) = no edge
+  FVG|15: reached first 47 % vs distances alone 48 % (n = 11,830; older 48 % / newest 47 %) • once touched: turned the price 49 % (n = 5,215, 10 pts back before 10 through) = no edge
+  ONH: reached first 50 % vs distances alone 51 % (n = 1,665; older 50 % / newest 49 %) • once touched: turned the price 41 % (n = 456, 10 pts back before 10 through) = no edge
+  SWH|5: reached first 39 % vs distances alone 40 % (n = 7,172; older 39 % / newest 40 %) • once touched: turned the price 47 % (n = 2,648, 10 pts back before 10 through) = no edge
+  FVG|5: reached first 49 % vs distances alone 51 % (n = 17,341; older 49 % / newest 50 %) • once touched: turned the price 48 % (n = 8,242, 10 pts back before 10 through) = no edge
+  SWL|15: reached first 34 % vs distances alone 36 % (n = 2,744; older 35 % / newest 33 %) • once touched: turned the price 46 % (n = 880, 10 pts back before 10 through) = no edge
+== MGC • 2020-06-28 → 2026-10-02 • 1701 sessions • 112953 samples (neither 560, ambiguous 4657) • older 2/3 before 2024-09-22 • hold 2 pts
+  ALL LEVELS, this side much closer: reached first 84.6 % vs distances alone 85.5 % (n = 17037)
+  ALL LEVELS, this side closer: reached first 68.9 % vs distances alone 69.4 % (n = 55831)
+  ALL LEVELS, this side about as far: reached first 50.0 % vs distances alone 50.0 % (n = 69410)
+  ALL LEVELS, this side farther: reached first 31.2 % vs distances alone 30.7 % (n = 56058)
+  ALL LEVELS, this side much farther: reached first 15.5 % vs distances alone 14.5 % (n = 17136)
+  ALL LEVELS once touched: turned the price 48.4 % (n = 84894)
+  VAL: reached first 51 % vs distances alone 50 % (n = 13,121; older 51 % / newest 51 %) • once touched: turned the price 47 % (n = 5,511, 2 pts back before 2 through) = no edge
+  PDL: reached first 49 % vs distances alone 48 % (n = 3,634; older 49 % / newest 50 %) • once touched: turned the price 50 % (n = 581, 2 pts back before 2 through) = no edge
+  YVAH: reached first 51 % vs distances alone 50 % (n = 2,304; older 52 % / newest 50 %) • once touched: turned the price 51 % (n = 529, 2 pts back before 2 through) = no edge
+  PDH: reached first 49 % vs distances alone 48 % (n = 4,803; older 49 % / newest 49 %) • once touched: turned the price 46 % (n = 713, 2 pts back before 2 through) = no edge
+  PDC: reached first 51 % vs distances alone 51 % (n = 3,114; older 52 % / newest 51 %) • once touched: turned the price 49 % (n = 730, 2 pts back before 2 through) = no edge
+  ONH: reached first 51 % vs distances alone 50 % (n = 1,540; older 49 % / newest 53 %) • once touched: turned the price 43 % (n = 342, 2 pts back before 2 through) = no edge
+  FVG|1: reached first 54 % vs distances alone 53 % (n = 34,677; older 55 % / newest 52 %) • once touched: turned the price 49 % (n = 17,505, 2 pts back before 2 through) = no edge
+  YVAL: reached first 50 % vs distances alone 50 % (n = 2,482; older 50 % / newest 52 %) • once touched: turned the price 50 % (n = 532, 2 pts back before 2 through) = no edge
+  VAH: reached first 51 % vs distances alone 50 % (n = 13,306; older 50 % / newest 52 %) • once touched: turned the price 48 % (n = 5,678, 2 pts back before 2 through) = no edge
+  ONL: reached first 50 % vs distances alone 49 % (n = 1,440; older 49 % / newest 52 %) • once touched: turned the price 48 % (n = 290, 2 pts back before 2 through) = no edge
+  HOD: reached first 51 % vs distances alone 50 % (n = 5,573; older 50 % / newest 52 %) • once touched: turned the price 50 % (n = 2,692, 2 pts back before 2 through) = no edge
+  SWL|5: reached first 44 % vs distances alone 44 % (n = 6,403; older 46 % / newest 40 %) • once touched: turned the price 49 % (n = 2,380, 2 pts back before 2 through) = no edge
+  ROUND: reached first 52 % vs distances alone 52 % (n = 12,853; older 52 % / newest 52 %) • once touched: turned the price 44 % (n = 3,359, 2 pts back before 2 through) = no edge
+  FVG|5: reached first 52 % vs distances alone 52 % (n = 13,442; older 52 % / newest 51 %) • once touched: turned the price 49 % (n = 6,532, 2 pts back before 2 through) = no edge
+  POC: reached first 52 % vs distances alone 52 % (n = 18,752; older 51 % / newest 53 %) • once touched: turned the price 47 % (n = 5,386, 2 pts back before 2 through) = no edge
+  SWH|5: reached first 45 % vs distances alone 45 % (n = 6,149; older 46 % / newest 42 %) • once touched: turned the price 50 % (n = 2,351, 2 pts back before 2 through) = no edge
+  LOD: reached first 48 % vs distances alone 48 % (n = 4,735; older 49 % / newest 47 %) • once touched: turned the price 51 % (n = 2,160, 2 pts back before 2 through) = no edge
+  YPOC: reached first 50 % vs distances alone 50 % (n = 3,579; older 49 % / newest 53 %) • once touched: turned the price 50 % (n = 719, 2 pts back before 2 through) = no edge
+  VWAPU: reached first 53 % vs distances alone 54 % (n = 7,747; older 53 % / newest 53 %) • once touched: turned the price 48 % (n = 4,000, 2 pts back before 2 through) = no edge
+  SWL|15: reached first 40 % vs distances alone 41 % (n = 3,818; older 40 % / newest 41 %) • once touched: turned the price 48 % (n = 1,316, 2 pts back before 2 through) = no edge
+  FVG|60: reached first 45 % vs distances alone 46 % (n = 9,278; older 45 % / newest 44 %) • once touched: turned the price 51 % (n = 3,181, 2 pts back before 2 through) = no edge
+  VWAPD: reached first 52 % vs distances alone 53 % (n = 7,668; older 53 % / newest 52 %) • once touched: turned the price 45 % (n = 3,897, 2 pts back before 2 through) = no edge
+  FVG|15: reached first 47 % vs distances alone 48 % (n = 10,816; older 47 % / newest 46 %) • once touched: turned the price 50 % (n = 4,487, 2 pts back before 2 through) = no edge
+  SWH|15: reached first 42 % vs distances alone 42 % (n = 3,831; older 42 % / newest 40 %) • once touched: turned the price 49 % (n = 1,343, 2 pts back before 2 through) = no edge
+  FVG|30: reached first 46 % vs distances alone 47 % (n = 7,755; older 46 % / newest 44 %) • once touched: turned the price 50 % (n = 3,018, 2 pts back before 2 through) = no edge
+  VWAP: reached first 49 % vs distances alone 50 % (n = 12,652; older 48 % / newest 49 %) • once touched: turned the price 48 % (n = 5,662, 2 pts back before 2 through) = no edge
