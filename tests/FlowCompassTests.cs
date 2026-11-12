@@ -218,7 +218,38 @@ public static class FlowCompassTests
             Check(z.ContainsKey("ticks/MNQ/2026-03-09.csv.gz") && z.ContainsKey("setups/setups-MNQ-2026-03-09.csv") && z.ContainsKey("story.csv") && !z.ContainsKey("compass.csv"), "the bundle: ticks, setups, story; an empty piece left out", string.Join(",", z.Keys));
             Check(rd.Contains("compass.csv") && rd.Contains("no compass readings yet") && rd.Contains("no 🧾 EXECUTIONS days saved for ACC1") && rd.Contains("no saved 1-minute candles for MNQ") && prog.Contains("done"), "README describes every file + notes the skipped pieces; progress reported");
         }
-        // ---- 12. palette
+        // ---- 12. in-trade confidence + the battle map since the entry
+        {
+            var good = KeystoneTradeConfidence.Of(2, 1, 48, 300, 1000, 2, 0, 10, 8); Check(good.Item1 >= 2 && good.Item3 == "HOLD" && good.Item4.Count <= 3 && good.Item4[0].Contains("with you"), "LONG with BUYERS, delta + events for → ++ / +++ HOLD", good.Item2);
+            var bad = KeystoneTradeConfidence.Of(2, -1, -52, -400, 1000, 0, 3, 1, 10); Check(bad.Item1 <= -2 && bad.Item3 == "⛔ GET OUT" && bad.Item4.Any(x => x.Contains("against you")), "LONG while SELLERS lead, delta + events against → ⛔ GET OUT (text only)", bad.Item2);
+            var mid = KeystoneTradeConfidence.Of(-1, 0, 5, 0, 0, 0, 0, double.NaN, double.NaN); Check(mid.Item1 == 0 && mid.Item3 == "HOLD", "nothing either way → ± HOLD");
+            Check(KeystoneTradeConfidence.Of(0, 1, 50, 1, 1, 1, 0, 1, 1).Item2 == "", "flat → nothing");
+            var tm = new List<KeystoneOfTick> { new KeystoneOfTick { Time = T0.AddSeconds(-5), Price = 99, Size = 50, Side = 1 }, new KeystoneOfTick { Time = T0.AddSeconds(2), Price = 100, Size = 3, Side = 1 }, new KeystoneOfTick { Time = T0.AddSeconds(3), Price = 100, Size = 2, Side = -1 }, new KeystoneOfTick { Time = T0.AddSeconds(4), Price = 100.25, Size = 4, Side = -1 }, new KeystoneOfTick { Time = T0.AddSeconds(90), Price = 101, Size = 9, Side = 1 } };
+            var map = KeystoneTradeMap.Rows(tm, tm.Count, T0, T0.AddSeconds(10), 0.25); Check(map.Count == 2 && map[100][0] == 3 && map[100][1] == 2 && map[100.25][1] == 4, "battle map: buy / sell per row since the entry, nothing before it or after the clock");
+        }
+        // ---- 13. patience: the cool-down, PATIENT shows nothing unproven, scalp expectancy after costs
+        {
+            var h = new KeystoneOfCardHold(); var pl = new KeystoneOfPlan { Dir = 1, Qty = 1, Entry = 100, Stop = 98, Target = 104, StopPts = 2, TargetPts = 4 };
+            h.Offer(new KeystoneOfSignal { Bar = 5, Dir = 1, Kind = "CONFIRMED", Price = 100, Time = T0 }, pl, "MNQ", T0, 6); h.Check(T0.AddSeconds(5), 100, 6, 0); h.End(T0.AddSeconds(5), "skipped", "you pressed SKIP");
+            bool o1 = h.Offer(new KeystoneOfSignal { Bar = 6, Dir = 1, Kind = "CONFIRMED", Price = 100, Time = T0.AddMinutes(1) }, pl, "MNQ", T0.AddMinutes(1), 7);
+            bool o2 = h.Offer(new KeystoneOfSignal { Bar = 7, Dir = 1, Kind = "CONFIRMED", Price = 100, Time = T0.AddMinutes(2) }, pl, "MNQ", T0.AddMinutes(2), 8);
+            Check(!o1 && o2, "🧘 cool-down: no new setup for 2 closed candles after one ends");
+            var rows = new List<KeystoneOfSetupRow>(); for (int i = 0; i < 12; i++) rows.Add(new KeystoneOfSetupRow { Time = T0.AddMinutes(i), Kind = "CONFIRMED", Dir = 1, Compass = 1, Entry = 100, Stop = 98, Target = 104, Result = 1 });
+            var j = KeystoneOfLearner.Judge(rows, new KeystoneOfSetupRow { Time = T0.AddHours(1), Kind = "CONFIRMED", Dir = 1, Compass = 1, Entry = 100, Stop = 98, Target = 104 });
+            Check(!j.Proven && KeystoneFlowGate.Decide(new KeystoneOfSignal { Bar = 3, Dir = 1, Kind = "CONFIRMED", Price = 100 }, 5, 1, pl, j.Proven ? null : "not offered — " + j.Text).Item1 == KeystoneFlowGate.HistorySkip, "PATIENT: n < 30 (even all wins) → not offered");
+            Check(Math.Abs(KeystoneOfLearner.BreakEven(2, 4, 0.31) - (2.31 / 6)) < 1e-9, "break-even includes the costs");
+            var sr = new List<KeystoneOfSetupRow>(); for (int i = 0; i < 40; i++) sr.Add(new KeystoneOfSetupRow { Entry = 100, Stop = 98, Scalps = "8:" + (i % 2 == 0 ? "+1" : "-1") + ";12:0;16:0;20:0" });
+            var st = KeystoneOfScalp.Of(sr, 0.25, 2, 1.24); Check(st[0].N == 40 && Math.Abs(st[0].AvgTicks - 0) < 1e-9 && Math.Abs(st[0].ExpUsd + 1.24) < 1e-9 && KeystoneOfScalp.BestTicks(sr, 0.25, 2, 1.24) == 0, "scalp: +8 / −8 ticks 50 % = $0 before costs → −$1.24 after → not proven");
+        }
+        // ---- 14. history replay on synthetic real ticks: rows labelled, outcomes measured from later trades only
+        {
+            var r = new Random(4); var t = new List<KeystoneOfTick>(); double px = 20000; var st0 = new DateTime(2026, 3, 9, 9, 30, 0);
+            for (int i = 0; i < 20000; i++) { px += (r.Next(3) - 1) * 0.25 + (i / 2000 % 2 == 0 ? 0.02 : -0.02); px = Math.Round(px * 4) / 4; t.Add(new KeystoneOfTick { Time = st0.AddMilliseconds(i * 900), Price = px, Size = 1 + r.Next(6), Side = r.Next(2) == 0 ? 1 : -1, Quoted = true }); }
+            var rows = KeystoneOfHistory.Replay(t, "MNQ", 0.25, 2, new KeystoneOfSettings { NeedSweep = false }, 20, 12);
+            Check(rows.All(x => x.Status == "history replay" && x.Entry > 0 && Math.Abs(x.Target - x.Entry - x.Dir * 3) < 1e-9), "history replay rows: labelled, scalp target 12 ticks from the entry (" + rows.Count + " setups)");
+            Check(rows.All(x => x.Result == 0 || x.Mfe >= 0), "outcomes measured from the trades after each setup");
+        }
+        // ---- 15. palette
         Check(KeystoneOfPalette.Names.Length == 3 && KeystoneOfPalette.Buy(0) == "#26C6DA" && KeystoneOfPalette.Sell(0) == "#FF5C8A" && KeystoneOfPalette.Buy(9) == KeystoneOfPalette.Buy(0), "three palettes, TEAL / CORAL default");
 
         Console.WriteLine(failures == 0 ? "ALL FLOW COMPASS TESTS PASSED" : failures + " FLOW COMPASS TEST(S) FAILED");

@@ -9456,7 +9456,7 @@ namespace NinjaTrader.NinjaScript
     // OUTCOMES measured on the REAL trades that followed it (never before it, never after the clock): target-or-stop, R, MFE / MAE, the scalp ±8 ticks, the 5 / 15 / 30-min move
     public sealed class KeystoneOfSetupRow
     {
-        public DateTime Time; public string Symbol = "", Kind = "", Status = "", Location = "", Taken = "", MyResult = ""; public int Dir, Compass, Qty, Result, Scalp; public bool Done;
+        public DateTime Time; public string Symbol = "", Kind = "", Status = "", Location = "", Taken = "", MyResult = "", Scalps = ""; public int Dir, Compass, Qty, Result, Scalp; public bool Done;   /* Scalps: "8:+1;12:-1;…" = each scalp target (ticks) vs the setup's stop: +1 first, −1 stop first, 0 neither */
         public double CompassScore, Delta, Big, Trapped, Entry, Stop, Target, R = double.NaN, Mfe, Mae, M5 = double.NaN, M15 = double.NaN, M30 = double.NaN;
         public string Key { get { return Time.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "|" + Symbol + "|" + Dir + "|" + Kind; } }
         public int Agree { get { return Compass == 0 ? 0 : Compass == Dir ? 1 : -1; } }
@@ -9465,7 +9465,8 @@ namespace NinjaTrader.NinjaScript
     public static class KeystoneOfSetupBook
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
-        public const string Header = "time,symbol,kind,side,status,compass,compass_score,location,delta,big,trapped,entry,stop,target,qty,result,r,mfe,mae,scalp,m5,m15,m30,done,taken,my_result";
+        public const string Header = "time,symbol,kind,side,status,compass,compass_score,location,delta,big,trapped,entry,stop,target,qty,result,r,mfe,mae,scalp,m5,m15,m30,done,taken,my_result,scalps";
+        public static readonly int[] ScalpTicks = { 8, 12, 16, 20 };
         public static string PathOf(string folder, string sym, DateTime day) { return Path.Combine(folder ?? "", "OrderFlow", "setups-" + (sym ?? "") + "-" + day.ToString("yyyy-MM-dd", IC) + ".csv"); }
         static string N(double v) { return double.IsNaN(v) ? "" : v.ToString("0.####", IC); }
         static double D(string s) { double v; return double.TryParse(s, NumberStyles.Float, IC, out v) ? v : double.NaN; }
@@ -9473,7 +9474,7 @@ namespace NinjaTrader.NinjaScript
         {
             Func<string, string> q = s => (s ?? "").Replace(",", ";").Replace("\n", " ");
             return string.Join(",", r.Time.ToString("yyyy-MM-dd HH:mm:ss", IC), q(r.Symbol), q(r.Kind), r.Dir > 0 ? "BUY" : "SELL", q(r.Status), r.Compass, N(r.CompassScore), q(r.Location), N(r.Delta), N(r.Big), N(r.Trapped),
-                N(r.Entry), N(r.Stop), N(r.Target), r.Qty, r.Result, N(r.R), N(r.Mfe), N(r.Mae), r.Scalp, N(r.M5), N(r.M15), N(r.M30), r.Done ? 1 : 0, q(r.Taken), q(r.MyResult));
+                N(r.Entry), N(r.Stop), N(r.Target), r.Qty, r.Result, N(r.R), N(r.Mfe), N(r.Mae), r.Scalp, N(r.M5), N(r.M15), N(r.M30), r.Done ? 1 : 0, q(r.Taken), q(r.MyResult), q(r.Scalps));
         }
         public static KeystoneOfSetupRow Parse(string l)
         {
@@ -9481,12 +9482,13 @@ namespace NinjaTrader.NinjaScript
             if (!DateTime.TryParseExact(a[0], "yyyy-MM-dd HH:mm:ss", IC, DateTimeStyles.None, out t)) return null;
             Func<string, int> I = s => { int v; return int.TryParse(s, NumberStyles.Integer, IC, out v) ? v : 0; };
             return new KeystoneOfSetupRow { Time = t, Symbol = a[1], Kind = a[2], Dir = a[3] == "SELL" ? -1 : 1, Status = a[4], Compass = I(a[5]), CompassScore = D(a[6]), Location = a[7], Delta = D(a[8]), Big = D(a[9]), Trapped = D(a[10]),
-                Entry = D(a[11]), Stop = D(a[12]), Target = D(a[13]), Qty = I(a[14]), Result = I(a[15]), R = D(a[16]), Mfe = D(a[17]), Mae = D(a[18]), Scalp = I(a[19]), M5 = D(a[20]), M15 = D(a[21]), M30 = D(a[22]), Done = a[23] == "1", Taken = a[24], MyResult = a[25] };
+                Entry = D(a[11]), Stop = D(a[12]), Target = D(a[13]), Qty = I(a[14]), Result = I(a[15]), R = D(a[16]), Mfe = D(a[17]), Mae = D(a[18]), Scalp = I(a[19]), M5 = D(a[20]), M15 = D(a[21]), M30 = D(a[22]), Done = a[23] == "1", Taken = a[24], MyResult = a[25], Scalps = a.Length > 26 ? a[26] : "" };
         }
         // the outcomes from the trades AFTER the setup's time up to `now` only (no look-ahead); done when decided and the 30-min move is known (or 60 min passed)
         public static void Measure(KeystoneOfSetupRow r, List<KeystoneOfTick> t, int endN, DateTime now, double tick, int scalpTicks = 8)
         {
             if (r == null || t == null || r.Done || tick <= 0 || r.Entry <= 0) return; endN = Math.Min(endN, t.Count); int d = r.Dir; double mfe = 0, mae = 0; int res = 0, sc = 0;
+            var sres = new int[ScalpTicks.Length]; bool hasStop = r.Stop > 0 && d * (r.Entry - r.Stop) > 0;
             bool br = r.Stop > 0 && r.Target > 0 && d * (r.Entry - r.Stop) > 0 && d * (r.Target - r.Entry) > 0; double m5 = double.NaN, m15 = double.NaN, m30 = double.NaN; double last = r.Entry; DateTime lastT = r.Time;
             for (int i = KeystoneOrderFlow.FirstAfter(t, r.Time, endN); i < endN; i++)
             {
@@ -9495,11 +9497,13 @@ namespace NinjaTrader.NinjaScript
                 double m = d * (x.Price - r.Entry);
                 if (res == 0) { mfe = Math.Max(mfe, m); mae = Math.Max(mae, -m); if (br) { if (d * (x.Price - r.Stop) <= 0) res = -1; else if (d * (x.Price - r.Target) >= 0) res = 1; } }
                 if (sc == 0) { if (m >= scalpTicks * tick - 1e-9) sc = 1; else if (-m >= scalpTicks * tick - 1e-9) sc = -1; }
+                if (hasStop) for (int q = 0; q < sres.Length; q++) if (sres[q] == 0) { if (d * (x.Price - r.Stop) <= 0) sres[q] = -1; else if (m >= ScalpTicks[q] * tick - 1e-9) sres[q] = 1; }
                 last = x.Price; lastT = x.Time;
             }
             DateTime horizon = now < r.Time.AddMinutes(60) ? now : r.Time.AddMinutes(60);
             if (double.IsNaN(m5) && horizon >= r.Time.AddMinutes(5)) m5 = d * (last - r.Entry); if (double.IsNaN(m15) && horizon >= r.Time.AddMinutes(15)) m15 = d * (last - r.Entry); if (double.IsNaN(m30) && horizon >= r.Time.AddMinutes(30)) m30 = d * (last - r.Entry);
             r.Mfe = mfe; r.Mae = mae; r.Result = res; r.Scalp = sc; r.M5 = m5; r.M15 = m15; r.M30 = m30;
+            r.Scalps = hasStop ? string.Join(";", ScalpTicks.Select((v, q) => v + ":" + (sres[q] > 0 ? "+1" : sres[q] < 0 ? "-1" : "0"))) : "";
             r.R = res > 0 ? r.Rr : res < 0 ? -1 : double.NaN;
             r.Done = (res != 0 || !br) && !double.IsNaN(m30) || now >= r.Time.AddMinutes(60);
         }
@@ -9540,6 +9544,91 @@ namespace NinjaTrader.NinjaScript
             return o;
         }
         public static string HourBucket(DateTime t) { int h = t.Hour; return h < 3 || h >= 18 ? "Asia" : h < 9 || (h == 9 && t.Minute < 30) ? "London" : h < 11 ? "NY open" : h < 14 ? "NY midday" : h < 16 ? "NY close" : "after hours"; }
+    }
+    // ⚡ SCALP FIRST — each setup type's scalp targets (8 / 12 / 16 / 20 ticks) against its own stop: win %, average ticks, expectancy $ a contract AFTER costs, n
+    public static class KeystoneOfScalp
+    {
+        public sealed class Stat { public int Ticks, N, Wins; public double WinPct = double.NaN, AvgTicks = double.NaN, ExpUsd = double.NaN; }
+        public static List<Stat> Of(IEnumerable<KeystoneOfSetupRow> rows, double tick, double pv, double costUsd)
+        {
+            var o = new List<Stat>(); var list = rows.Where(r => !string.IsNullOrEmpty(r.Scalps)).ToList();
+            for (int q = 0; q < KeystoneOfSetupBook.ScalpTicks.Length; q++)
+            {
+                int tt = KeystoneOfSetupBook.ScalpTicks[q]; int n = 0, w = 0; double sumT = 0;
+                foreach (var r in list)
+                {
+                    var parts = r.Scalps.Split(';'); if (q >= parts.Length) continue; var kv = parts[q].Split(':'); if (kv.Length != 2 || kv[1] == "0") continue;
+                    double stopT = Math.Abs(r.Entry - r.Stop) / Math.Max(1e-9, tick); n++; if (kv[1] == "+1") { w++; sumT += tt; } else sumT -= stopT;
+                }
+                var st = new Stat { Ticks = tt, N = n, Wins = w }; if (n > 0) { st.WinPct = 100.0 * w / n; st.AvgTicks = sumT / n; st.ExpUsd = st.AvgTicks * tick * pv - costUsd; } o.Add(st);
+            }
+            return o;
+        }
+        // the best scalp distance with n ≥ minN and a positive expectancy after costs; 0 = none proven
+        public static int BestTicks(IEnumerable<KeystoneOfSetupRow> rows, double tick, double pv, double costUsd, int minN = 30)
+        {
+            var b = Of(rows, tick, pv, costUsd).Where(x => x.N >= minN && x.ExpUsd > 0).OrderByDescending(x => x.ExpUsd).FirstOrDefault(); return b == null ? 0 : b.Ticks;
+        }
+    }
+    // 📜 HISTORY REPLAY — the same detectors walked forward over one saved day of REAL ticks (TickCache; 1-minute candles built from the trades, closed candles
+    // only, the compass from the trades up to each setup, the outcomes from the trades after it): rows labelled "history replay", so proven setups can exist from
+    // day one. Research only: it reads saved trades and sends nothing.
+    public static class KeystoneOfHistory
+    {
+        public static List<KeystoneOfSetupRow> Replay(List<KeystoneOfTick> t, string sym, double tick, double pv, KeystoneOfSettings s, int minStopTicks, int scalpTicks, int tfMin = 1)
+        {
+            var rows = new List<KeystoneOfSetupRow>(); if (t == null || t.Count < 100 || tick <= 0) return rows; s = s ?? new KeystoneOfSettings();
+            var wins = new List<Tuple<DateTime, DateTime>>(); DateTime a = new DateTime(t[0].Time.Year, t[0].Time.Month, t[0].Time.Day, t[0].Time.Hour, t[0].Time.Minute, 0), end = t[t.Count - 1].Time;
+            for (var w = a; w <= end; w = w.AddMinutes(tfMin)) wins.Add(Tuple.Create(w, w.AddMinutes(tfMin)));
+            var fps = KeystoneOrderFlow.Footprints(t, wins, tick, s); if (fps == null || fps.Count < 30) return rows;
+            var conf = KeystoneOrderFlow.Confirm(KeystoneOrderFlow.Signals(fps, tick, s), fps, tick, s, false).OrderBy(x => x.Time).ToList();
+            var comp = new KeystoneFlowCompass(); int ti = 0;
+            foreach (var g in conf)
+            {
+                for (; ti < t.Count && t[ti].Time <= g.Time; ti++) comp.Feed(t[ti].Time, t[ti].Price, t[ti].Size, t[ti].Side, tick); comp.Advance(g.Time, tick);
+                var prof = KeystoneOrderFlow.Profile(fps.Take(g.Bar + 1), tick, s);
+                var plan = KeystoneOfDesk.Plan(g, fps, prof, g.Price, tick, pv, 200, scalpTicks, 2, minStopTicks, 10); if (plan == null) continue;
+                double tgt = Math.Round((g.Price + g.Dir * scalpTicks * tick) / tick) * tick;
+                var r = new KeystoneOfSetupRow { Time = g.Time, Symbol = sym, Kind = g.Kind, Dir = g.Dir, Status = "history replay", Compass = comp.State, CompassScore = comp.Score, Location = KeystoneOfSetupBook.Location(g.Price, prof, double.NaN, double.NaN, double.NaN, tick),
+                    Delta = fps[g.Bar].Delta, Entry = g.Price, Stop = plan.Stop, Target = tgt, Qty = plan.Qty };
+                KeystoneOfSetupBook.Measure(r, t, t.Count, end, tick); rows.Add(r);
+            }
+            return rows;
+        }
+    }
+    // 🎯 IN-TRADE — the confidence in an open position (display only: HOLD / ⚠ TIGHTEN / ⛔ GET OUT are TEXT, never an action) and the battle map since the entry
+    public static class KeystoneTradeConfidence
+    {
+        // pos = signed contracts; compass state / score; deltaSince = bought − sold since the entry; evFor / evAgainst = absorption / trapped events for / against;
+        // toStop / toTarget in points (NaN = none) → level −3 … +3, the meter text, the suggestion, up to 3 reasons
+        public static Tuple<int, string, string, List<string>> Of(int pos, int compassState, double compassScore, long deltaSince, long volSince, int evFor, int evAgainst, double toStopPts, double toTargetPts)
+        {
+            var why = new List<string>(); if (pos == 0) return Tuple.Create(0, "", "", why); int d = Math.Sign(pos); double sc = 0; var IC = CultureInfo.InvariantCulture;
+            if (compassState == d) { sc += 1.5; why.Add("the compass is with you (" + KeystoneFlowCompass.SideWord(compassState) + " " + KeystoneFlowCompass.ScoreText(compassScore) + ")"); }
+            else if (compassState == -d) { sc -= 1.5; why.Add("the compass turned against you (" + KeystoneFlowCompass.SideWord(compassState) + " " + KeystoneFlowCompass.ScoreText(compassScore) + ")"); }
+            else if (Math.Sign(compassScore) * d * Math.Abs(compassScore) <= -15) { sc -= 0.5; why.Add("the flow leans against you (score " + KeystoneFlowCompass.ScoreText(compassScore) + ")"); }
+            if (volSince > 0) { double sh = (double)deltaSince / volSince * d; if (sh >= 0.1) { sc += 1; why.Add("since the entry " + (d > 0 ? "buyers" : "sellers") + " out-traded the other side (Δ " + (deltaSince >= 0 ? "+" : "−") + Math.Abs(deltaSince).ToString("N0", IC) + ")"); } else if (sh <= -0.1) { sc -= 1; why.Add("since the entry the other side out-traded you (Δ " + (deltaSince >= 0 ? "+" : "−") + Math.Abs(deltaSince).ToString("N0", IC) + ")"); } }
+            if (evFor > evAgainst) { sc += 0.75; why.Add(evFor + " absorption / trapped event(s) for you"); } else if (evAgainst > evFor) { sc -= 0.75 * Math.Min(2, evAgainst - evFor); why.Add(evAgainst + " absorption / trapped event(s) against you"); }
+            if (!double.IsNaN(toStopPts) && !double.IsNaN(toTargetPts) && toStopPts >= 0 && toTargetPts >= 0 && toStopPts < toTargetPts * 0.25) { sc -= 0.5; why.Add("close to your stop"); }
+            int lv = (int)Math.Max(-3, Math.Min(3, Math.Round(sc)));
+            string meter = lv >= 3 ? "+++" : lv == 2 ? "++" : lv == 1 ? "+" : lv == 0 ? "±" : lv == -1 ? "−" : lv == -2 ? "−−" : "−−−";
+            string sug = lv >= 0 ? "HOLD" : lv == -1 ? "⚠ TIGHTEN" : "⛔ GET OUT";
+            return Tuple.Create(lv, meter, sug, why.Take(3).ToList());
+        }
+    }
+    public static class KeystoneTradeMap
+    {
+        // buy / sell contracts at every price row traded SINCE the entry (up to the clock): row → { bought, sold }
+        public static SortedDictionary<double, long[]> Rows(List<KeystoneOfTick> t, int endN, DateTime entry, DateTime now, double step)
+        {
+            var o = new SortedDictionary<double, long[]>(); if (t == null || step <= 0) return o; endN = Math.Min(endN, t.Count);
+            for (int i = KeystoneOrderFlow.FirstAfter(t, entry, endN); i < endN; i++)
+            {
+                var x = t[i]; if (x.Time > now) break; double r = KeystoneOrderFlow.Row(x.Price, step); long[] v; if (!o.TryGetValue(r, out v)) o[r] = v = new long[2];
+                if (x.Side > 0) v[0] += x.Size; else v[1] += x.Size;
+            }
+            return o;
+        }
     }
     // 🧠 LEARN — from the PAST setups only (walk-forward, no look-ahead): similar setups (same kind / side / compass agreement, then location / hour), a calibrated
     // win rate (shrunk to the base rate: (wins + 10 × base) ÷ (n + 10)), "learning (n)" under 30, and the ONLY thing it may change: a setup type whose calibrated
