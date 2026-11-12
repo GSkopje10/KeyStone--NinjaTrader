@@ -38281,6 +38281,12 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             // 📊 ORDER FLOW (real NinjaTrader trades): the ticks, their footprints per candle, the session profile, the signals + hit rates
             public bool OfOn, OfBusy, OfAutoTried, OfBuilding; public object OfLoggedRef; public string OfBase = ""; public object OfFpsSrc; public List<KeystoneOfTick> OfTicks = new List<KeystoneOfTick>(); public int OfQuoted; public string OfStatus = "", OfLib = ""; public object OfTap, OfDepth; public string OfKey = "";
+            /* 📊 11v: the calm ORDERFLOW state of this instrument — the ONE compass, the card hold, the STORY, the verdict, trapped / big prints, the setup book */
+            public double OfStrip; public KeystoneFlowCompass Compass = new KeystoneFlowCompass(); public KeystoneOfCardHold Hold = new KeystoneOfCardHold(); public KeystoneFlowTimeline Story = new KeystoneFlowTimeline(); public KeystoneFlowVerdict Verdict = new KeystoneFlowVerdict();
+            public List<KeystoneFlowTrapZone> OfTraps = new List<KeystoneFlowTrapZone>(); public List<KeystoneFlowBigPrint> OfBig = new List<KeystoneFlowBigPrint>(); public DateTime OfAuxAt = DateTime.MinValue, OfCompassLogAt = DateTime.MinValue; public int OfAuxN = -1;
+            public List<KeystoneOfSetupRow> OfBook = new List<KeystoneOfSetupRow>(); public DateTime OfBookDay = DateTime.MinValue, OfBookSaved = DateTime.MinValue; public bool OfBookDirty; public StringBuilder OfCompassLog = new StringBuilder();
+            public List<KeystoneOfSetupRow> OfLearnRows; public DateTime OfLearnAt = DateTime.MinValue; public KeystoneOfLearnResult OfLearnNow; public string OfGateText = "", OfWatch = ""; public int OfLastStoryState = 9;
+            public List<KeystoneOfSignal> OfConfSeen = new List<KeystoneOfSignal>();
             public List<KeystoneFootprint> OfFps; public int OfI0; public KeystoneProfile OfProf; public List<KeystoneOfSignal> OfSigs; public Dictionary<string, Tuple<int, int>> OfStats, OfConfStats; public List<KeystoneOfSignal> OfConf; public DateTime OfFrom = DateTime.MaxValue, OfBuiltAt = DateTime.MinValue; public Button OfBtn; public Action<bool> OfRun; public DateTime AiFirst; public double BattlePos = 0.5;
             public string Symbol = string.Empty; public List<KeystoneArcBar> All = new List<KeystoneArcBar>(); public KeystoneReplayTrader Trader; public int Tf = 1;
             public double Spacing = 9, RightOffset = 14, PCenter, PRange; public bool Follow = true, PriceAuto = true, FreeY;   /* FreeY: you dragged the chart up / down — it stays there (no pulling back to the price) until NOW / a double-click on the price axis */ public int LastCount, SavedFills, Pulse;
@@ -38935,7 +38941,11 @@ namespace NinjaTrader.NinjaScript.AddOns
                 return new KeystoneTriSettings { Symbol = sym == "MGC" ? "MGC" : "MNQ", Window = ws0[wi].Code, Setups = string.Join(",", setl), Qty = Math.Max(1, layerOf("IND.TRI.QTY", 15)) }.ApplyWindow();
             };
             // which order flow part the ORDERFLOW tab's view shows (ALL = the parts switched on in the ▾ menu); nothing on the trading chart
-            Func<bool> ofChartNeeds = () => layerOf("OF.BADGE", layerOf("OF.ON", 0)) == 1 || layerOf("OF.BATTLE", 1) == 1 || layerOf("OF.CHARTSIG", 0) == 1 || layerOf("OF.CNUM", 0) == 1 || layerOf("OF.CONF", 0) == 1;   // the trading chart's badge / ⚔ arena / contracts / ✅ confirmations
+            /* 📊 11v: each order-flow overlay its own ☑ per view — the 📈 CHART view (default OFF) and the 📊 ORDERFLOW view (default ON; the cumulative-delta line OFF) */
+            string[] ofPartKeys = { "SIGLINES", "PROF", "DROW", "BIG", "TRAP", "CVDL" };
+            Func<string, bool, bool> ofPartIn = (part, inOf) => layerOf("OF.V." + (inOf ? "OF" : "CH") + "." + part, inOf ? (part == "CVDL" ? 0 : 1) : 0) == 1;
+            Func<string, bool> ofPart = part => ofPartIn(part, ofViewOn) && (!ofViewOn || layerOf("OF.TAB", 1) == 1);
+            Func<bool> ofChartNeeds = () => layerOf("OF.BADGE", layerOf("OF.ON", 0)) == 1 || layerOf("OF.BATTLE", 1) == 1 || layerOf("OF.CHARTSIG", 0) == 1 || layerOf("OF.CNUM", 0) == 1 || layerOf("OF.CONF", 0) == 1 || ofPartKeys.Any(k0 => ofPartIn(k0, false));   // the trading chart's badge / ⚔ arena / contracts / ✅ confirmations
             // ⚔ BULLS vs BEARS: a tug of war on a glowing track — the knot slides toward the side that is losing, the bull (facing right) and the bear
             // (facing left) push against each other at the knot, the winner glows and pulses, the loser dims; a big trade flashes its side
             Func<double, double, int, long, double, double, bool, FrameworkElement> buildArena = (pos, share, win, boom, w0, h0, flash) =>
@@ -38971,9 +38981,14 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             Func<string, int, bool> ofLay = (k, d) =>
             {
+                /* 📊 11v: NOTHING floats over the plot — the live flow, the tape, the book and the info box live in the dock (FLOW / BOOK tabs); the volume profile sits
+                   in its own strip left of the price axis and the delta / contracts row under the candles, each with its ☑ per view (ofPart) */
+                if (k == "FLOW" || k == "TAPE" || k == "BOOK" || k == "BOX") return false;
+                if (k == "PROF") return ofPart("PROF") && (!ofViewOn || layerOf("OF.PROFS", 1) == 1);
+                if (k == "CVD") return ofPart("CVDL") || (ofViewOn && layerOf("OF.TAB", 1) == 1 && (ofSub == "DELTA" || ofSub == "ALL" && layerOf("OF.L.CVD", 0) == 1));
                 if (!ofViewOn || layerOf("OF.TAB", 1) != 1) return false; if (ofSub == "ALL") return layerOf("OF.L." + k, d) == 1;
-                string set = ofSub == "SIGNALS" ? "SIG,LVL,PROF,DPROF" : ofSub == "PROFILE" ? "PROF,LVL,DPROF" : ofSub == "DELTA" ? "STAT,CVD,STK,DPROF" : ofSub == "FLOW" ? "FLOW,TAPE" : ofSub == "BOOK" ? "BOOK,TAPE" : "";
-                if ((k == "PROF" || k == "DPROF") && ofSub != "PROFILE" && layerOf("OF.PROFS", 1) != 1) return false;   /* 🎯 11s: ▥ PROFILES on / off (the PROFILE view always shows them) */
+                string set = ofSub == "SIGNALS" ? "SIG,LVL,DPROF" : ofSub == "PROFILE" ? "LVL,DPROF" : ofSub == "DELTA" ? "STAT,STK,DPROF" : "";
+                if (k == "DPROF" && (layerOf("OF.PROFS", 1) != 1 || !ofPart("PROF"))) return false;   /* 🎯 11s: ▥ PROFILES on / off */
                 return ("," + set + ",").Contains("," + k + ",");
             };
             // TIME ZONE for the clock and the time axis (the data stays New York time inside)
@@ -39043,6 +39058,10 @@ namespace NinjaTrader.NinjaScript.AddOns
             double layerNear; if (!double.TryParse(wsGet("layer.near", "15"), NumberStyles.Float, CultureInfo.InvariantCulture, out layerNear) || layerNear <= 0) layerNear = 15;   // MNQ points (MGC: ÷ 7.5)
             bool cleanChart = false; bool splitOn = wsGet("split", "0") == "1"; int splitTf = ParseStudioInt(wsGet("splittf", "3"), 3); bool preloadAsked = wsGet("preloadasked", "0") == "1"; Action saveWorkspace = null; string drawColor = wsGet("drawcolor", "#E040FB"); double drawWidth = 1.5; var brushCache = new Dictionary<string, SolidColorBrush>();
             Func<string, SolidColorBrush> colorOf = hex => { SolidColorBrush b; if (!brushCache.TryGetValue(hex ?? "", out b)) brushCache[hex ?? ""] = b = HexBrush(hex); return b; };
+            /* 🎨 11v: the order-flow palette (🎨 template ▸ ORDERFLOW COLOURS, saved as OF.PAL): buyers / sellers / POC / value area / trapped / big players / neutral */
+            SolidColorBrush ofBuyB = Green, ofSellB = Red, ofPocB = Gold, ofVaB = Muted, ofTrapB = Gold, ofBigB = Orchid, ofNeuB = Muted, ofVioB = colorOf("#B388FF");
+            Action ofPalApply = delegate { int pi = KeystoneOfPalette.Clamp(layerOf("OF.PAL", 0)); ofBuyB = colorOf(KeystoneOfPalette.Buy(pi)); ofSellB = colorOf(KeystoneOfPalette.Sell(pi)); ofPocB = colorOf(KeystoneOfPalette.Poc(pi)); ofVaB = colorOf(KeystoneOfPalette.Va(pi)); ofTrapB = colorOf(KeystoneOfPalette.Trap(pi)); ofBigB = colorOf(KeystoneOfPalette.Big(pi)); ofNeuB = colorOf(KeystoneOfPalette.Neutral(pi)); };
+            ofPalApply();
             // the high-impact news whose lock window (± NEWS LOCK minutes) holds t, or null
             // the coach's plan for one setup: (text, take?) — target in R of the setup's own stop, contracts for RISK $
             Func<ReplayPane, KeystoneReplaySignal, Tuple<string, bool>> coachAdvice = (pn, sg) =>
@@ -39485,8 +39504,8 @@ namespace NinjaTrader.NinjaScript.AddOns
             // ---- chart geometry (per pane)
             // LIVE: the chart can manage trades / orders only on a linked, connected, ARMED account that is not locked
             Func<ReplayPane, bool> tradeOkOf = p0 => !ofViewOn && (!liveWindow || ((p0 = p0.IsSplit && p0.Main != null ? p0.Main : p0) != null && p0.Link != null && p0.Link.Connected && ((p0.Link.Armed && !p0.Link.Locked) || p0.Link.ExternalLocked)));   /* 🔒 locked by NinjaTrader: closing / cancelling stays possible, every entry is refused (order + the link) */
-            Func<ReplayPane, double, double> xOfIndex = (pn, idx) => pn.PlotW - pn.Gutter - (pn.Candles.Count - 1 - idx + pn.RightOffset + 0.5) * pn.Spacing;
-            Func<ReplayPane, double, double> indexAt = (pn, x) => pn.Candles.Count - 1 - ((pn.PlotW - pn.Gutter - x) / pn.Spacing - pn.RightOffset - 0.5);
+            Func<ReplayPane, double, double> xOfIndex = (pn, idx) => pn.PlotW - pn.Gutter - pn.OfStrip - (pn.Candles.Count - 1 - idx + pn.RightOffset + 0.5) * pn.Spacing;   /* 📊 11v: the candles end before the volume-profile strip */
+            Func<ReplayPane, double, double> indexAt = (pn, x) => pn.Candles.Count - 1 - ((pn.PlotW - pn.Gutter - pn.OfStrip - x) / pn.Spacing - pn.RightOffset - 0.5);
             Func<ReplayPane, double, double> yOf = (pn, p) => pn.Top + (pn.Hi - p) / Math.Max(1e-9, pn.Hi - pn.Lo) * pn.PlotH;
             Func<ReplayPane, double, double> priceAt = (pn, y) => pn.Hi - (y - pn.Top) / Math.Max(1, pn.PlotH) * (pn.Hi - pn.Lo);
             Func<ReplayPane, DateTime, double> indexOfTime = (pn, t) =>
@@ -39551,6 +39570,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 var cv = pn.Canvas; if (cv == null) return; cv.Children.Clear(); pn.HotX.Clear(); pn.XBoxes.Clear(); pn.LabelGrabPrev = pn.LabelGrab; pn.LabelGrab = new List<Tuple<double[], string>>(); pn.HotDrag.Clear(); pn.AHandles.Clear(); pn.GLines.Clear(); pn.InfoHot.Clear(); pn.HotActs.Clear(); pn.HotNo.Clear(); var prevHandles = pn.DrawHandles.ToList(); pn.DrawHandles.Clear();
                 double W = cv.ActualWidth > 100 ? cv.ActualWidth : 1200, H = cv.ActualHeight > 100 ? cv.ActualHeight : 620;
                 pn.PlotW = W - pn.AxisW; pn.PlotH = H - pn.Top - pn.TimeH; pn.Gutter = liveWindow ? 0 : Math.Min(Math.Max(StudioGutter, Math.Min(KeystoneChartGutter.Max, pn.GutterWant)), Math.Max(0, pn.PlotW * 0.3));
+                pn.OfStrip = !pn.IsSplit && pn.OfOn && pn.OfTicks.Count > 0 && pn.OfProf != null && ofLay("PROF", 1) ? Math.Max(90, Math.Min(220, pn.PlotW * 0.14)) : 0;   /* 📊 11v: the volume profile's own strip (≈ 14 % of the plot) — the candles end before it */
                 var r = pn.Trader;
                 // a stop / target belongs to one trade: when the position is closed the boxes go back to 0 (no automatic bracket)
                 if (r != null && !pn.IsSplit) { if (pn.LastPos != 0 && r.Position == 0 && (NumberSigned(pn.Sl, 0) != 0 || NumberAllowZero(pn.Tp, 0) > 0)) { pn.Sl.Text = "0"; pn.Tp.Text = "0"; } pn.LastPos = r.Position; }
@@ -39585,7 +39605,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (pn.Follow && entryPx > 0 && Math.Abs(entryPx - r.Price) < (hi - lo) * 4 + 50 * r.Tick) { hi = Math.Max(hi, entryPx); lo = Math.Min(lo, entryPx); }
                     double pad = Math.Max((hi - lo) * 0.08, r.Tick * 8); pn.Hi = hi + pad; pn.Lo = lo - pad;
                     // 📊 the order flow panels at the bottom (bar statistics, cumulative delta) get their own room: the candles stay above them
-                    double resPx = !pn.OfOn || pn.OfFps == null ? 0 : (ofLay("STAT", 1) ? 84 : 0) + (ofLay("CVD", 1) ? 50 : 0);
+                    double resPx = !pn.OfOn || pn.OfFps == null ? 0 : (ofLay("STAT", 1) ? 84 : 0) + (ofLay("CVD", 1) ? 50 : 0) + (ofPart("DROW") ? 40 : 0);   /* 📊 11v: + the delta / contracts row */
                     if (resPx > 0 && pn.PlotH > resPx * 2) pn.Lo -= (pn.Hi - pn.Lo) * resPx / (pn.PlotH - resPx);
                     pn.PCenter = (pn.Hi + pn.Lo) / 2; pn.PRange = pn.Hi - pn.Lo; pn.FreeY = false;
                 }
