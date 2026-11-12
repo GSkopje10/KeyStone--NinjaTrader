@@ -11058,6 +11058,7 @@ namespace NinjaTrader.NinjaScript
                 if (!double.IsNaN(roomUsd) && roomUsd < RoomMult * loss) { if (bind == "") bind = "the account's floor (room " + U(roomUsd) + " < 1.5 × " + U(loss) + ")"; break; }
                 best = n; bestRisk = risk; bestLoss = loss;
             }
+            if (bind == "" && maxContracts > 0 && best == cap && cap > 0) bind = "max contracts " + maxContracts;
             if (best < 1) { o.Why = bind == "" ? "nothing fits" : bind; o.Text = "➕ add to the winner: ⛔ don't add — " + o.Why; return o; }
             o.Ok = true; o.Add = best; o.Total = qty + best; o.At = price; o.Stop = stop; o.NewAvg = (qty * avg + best * price) / (qty + best); o.RiskUsd = bestRisk; o.LossFromNowUsd = bestLoss;
             o.Text = "➕ ADD TO THE WINNER: +" + best + " at ≈ " + Px(price) + " (the pullback held " + held.Label + " " + Px(L) + ") → " + o.Total + " contracts, average " + Px(o.NewAvg) + " • move the stop for ALL to " + Px(stop) + " (beyond the level) • total risk at that stop " + U(bestRisk) +
@@ -11086,6 +11087,7 @@ namespace NinjaTrader.NinjaScript
                 if (!double.IsNaN(roomUsd) && roomUsd < RoomMult * loss) { if (bind == "") bind = "the account's floor: room " + U(roomUsd) + " < 1.5 × " + U(loss) + " (the loss at the stop from now)"; break; }
                 best = n; bestRisk = risk; bestLoss = loss; bestAvg = na;
             }
+            if (bind == "" && best == cap && cap > 0) bind = cap == qty ? "never more than doubling" : "max contracts " + maxContracts;
             if (best < 1) { o.Why = bind == "" ? "nothing fits" : bind; o.Text = head + o.Why; return o; }
             o.Ok = true; o.Add = best; o.Total = qty + best; o.At = L; o.Stop = stop; o.NewAvg = bestAvg; o.BreakEven = bestAvg + dir * costPerContract / pv; o.RiskUsd = bestRisk; o.LossFromNowUsd = bestLoss;
             o.Text = "➕ SCALE IN at " + level.Label + " " + Px(L) + ": +" + best + " → " + o.Total + " contracts • new average " + Px(bestAvg) + " • break-even after costs " + Px(o.BreakEven) + " • stop " + Px(stop) + (hasStop ? "" : " (set it — none is working)") + " • total at the stop −" + U(bestRisk) +
