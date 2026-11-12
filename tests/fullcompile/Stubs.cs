@@ -95,6 +95,13 @@ namespace System.Windows
         public static readonly DependencyProperty OpacityProperty = new DependencyProperty();
         public event System.Windows.Input.MouseButtonEventHandler MouseLeftButtonDown, MouseLeftButtonUp, MouseRightButtonDown, MouseRightButtonUp, MouseDown, MouseUp, PreviewMouseLeftButtonDown, PreviewMouseDown;
         public event System.Windows.Input.MouseEventHandler MouseMove, MouseEnter, MouseLeave, PreviewMouseMove, LostMouseCapture;
+        /* ✋ 13h test helper: a real left-button DOWN / MOVE / UP at (x, y) through the element's own handlers (GetPosition returns that point while it runs) */
+        public void TestMouse(string ev, double x, double y)
+        {
+            System.Windows.Input.MouseEventArgs.TestPos = new System.Windows.Point(x, y); var a = new System.Windows.Input.MouseButtonEventArgs();
+            try { if (ev == "DOWN" && MouseLeftButtonDown != null) MouseLeftButtonDown(this, a); else if (ev == "MOVE" && MouseMove != null) MouseMove(this, a); else if (ev == "UP" && MouseLeftButtonUp != null) MouseLeftButtonUp(this, a); }
+            finally { System.Windows.Input.MouseEventArgs.TestPos = new System.Windows.Point(); }
+        }
         public event System.Windows.Input.MouseWheelEventHandler MouseWheel, PreviewMouseWheel;
         public event System.Windows.Input.KeyEventHandler KeyDown, KeyUp, PreviewKeyDown;
         public event RoutedEventHandler GotFocus, LostFocus;
@@ -255,7 +262,8 @@ namespace System.Windows.Input
     public class InputEventArgs : System.Windows.RoutedEventArgs { public int Timestamp { get; set; } }
     public class MouseEventArgs : InputEventArgs
     {
-        public System.Windows.Point GetPosition(System.Windows.IInputElementCompat relativeTo) { return new System.Windows.Point(); }
+        public static System.Windows.Point TestPos;
+        public System.Windows.Point GetPosition(System.Windows.IInputElementCompat relativeTo) { return TestPos; }
         public MouseButtonState LeftButton { get { return MouseButtonState.Released; } }
         public MouseButtonState RightButton { get { return MouseButtonState.Released; } }
         public MouseButtonState MiddleButton { get { return MouseButtonState.Released; } }

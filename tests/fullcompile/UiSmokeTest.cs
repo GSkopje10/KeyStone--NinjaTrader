@@ -1103,6 +1103,64 @@ public static class UiSmokeTest
                         }
                         finally { lp("CANCELALL"); lp("ADOPT " + was9[0] + "," + was9[1]); lp("SET " + fields9); lp("5,5"); }
                     }
+                    {   /* ✋ 13h (user: "when I hover there are no take-profit and stop-loss lines to be dragged" — a SHORT 1 with NO stop, its target 374 pts off-screen, a BUY LIMIT under it):
+                           + SL next to the position label (grab = the existing ESTOP drag → the SL field), the off-screen TP pinned at the edge and draggable into view, the BUY LIMIT
+                           says "closes your SHORT 1 (+$…)" and its label grabs the order, a bigger one warns it reverses, an entry order's + SL / + TP sit next to ITS label — hovered = grabbed */
+                        var lp = (Func<string, string>)F("studioLinePick"); var ic = System.Globalization.CultureInfo.InvariantCulture;
+                        var hitO = ((Func<object>)F("studioActiveHit"))(); if (hitO == null) throw new Exception("✋ 13h no chart mouse layer");
+                        var tm = hitO.GetType().GetMethod("TestMouse"); Action<string, double, double> mouse = (e0, x0, y0) => tm.Invoke(hitO, new object[] { e0, x0, y0 });
+                        Func<string, string, double[]> boxOf = (lst, code) => { var it = lst.Split(';').LastOrDefault(x => x.StartsWith(code + ":box@")); return it == null ? null : it.Substring(it.IndexOf('@') + 1).Split(',').Select(v => double.Parse(v, ic)).ToArray(); };
+                        Func<string, string, double[]> lineOf = (lst, code) => { var it = lst.Split(';').LastOrDefault(x => x.StartsWith(code + ":line@")); return it == null ? null : it.Substring(it.IndexOf('@') + 1).Split(',').Select(v => v == "-" ? double.NaN : double.Parse(v, ic)).ToArray(); };
+                        Func<double[], string> ctr = b => ((b[0] + b[2]) / 2).ToString("0.##", ic) + "," + ((b[1] + b[3]) / 2).ToString("0.##", ic);
+                        Func<double[], double[], bool> beside = (a, l) => Math.Abs(((a[1] + a[3]) / 2) - ((l[1] + l[3]) / 2)) <= 14 && ((a[0] >= l[2] - 2 && a[0] - l[2] <= 60) || (a[2] <= l[0] + 2 && l[0] - a[2] <= 60));
+                        Func<List<string>> texts = () => FindAll<System.Windows.Controls.TextBlock>(bt.Content).Select(t => t.Text ?? "").ToList();
+                        string fieldsH = lp("FIELDS"); var wasH = lp("ADOPT 0,0").Split(','); double pxH = double.Parse(wasH[2], ic);
+                        try
+                        {
+                            lp("CANCELALL"); lp("ADOPT -1,PRICE"); lp("SET 0|374");
+                            string L = lp("LIST"); var pr = lp("POSRECT").Split(',').Where(v => v != "").Select(v => double.Parse(v, ic)).ToArray(); var es = boxOf(L, "ESTOP"); var pin = boxOf(L, "PINTARGET"); var brk = lineOf(L, "BRACKET");
+                            if (pr.Length != 4 || es == null || brk == null) throw new Exception("✋ 13h a SHORT with no stop needs a + SL pill (ESTOP box) next to its label: " + L + " • label " + string.Join(",", pr));
+                            double plotW = brk[2];
+                            if (!beside(es, pr) || es[0] < 0 || es[2] > plotW) throw new Exception("✋ 13h the + SL pill must sit right next to the position label, inside the plot: + SL " + string.Join(",", es) + " • label " + string.Join(",", pr) + " • plot " + plotW);
+                            if (lineOf(L, "TARGET") != null || pin == null) throw new Exception("✋ 13h the target 374 pts away must be off-screen and pinned at the edge (PINTARGET): " + L);
+                            string pinT = lp("TEXTS pos.pin"), ns = lp("TEXTS pos.nostop"), adT = lp("TEXTS pos.add");
+                            if (!pinT.StartsWith("↓ TP ") || !pinT.Contains("+$") || ns != "⚠ NO STOP SET" || adT != "+ SL") throw new Exception("✋ 13h pin '" + pinT + "' • badge '" + ns + "' • pills '" + adT + "'");
+                            string hE = lp(ctr(es)), hP = lp(ctr(pin));
+                            if (hE != "ESTOP|ESTOP|box" || hP != "PINTARGET|PINTARGET|box") throw new Exception("✋ 13h hovered ≠ grabbed: + SL " + hE + " • pin " + hP);
+                            // the BUY LIMIT under the SHORT: it EXITS the short — said in words, its label grabs it, the hover explains where the protection is
+                            lp("LIMITAT 1,1," + (pxH - 15).ToString("0.00", ic)); string L2 = lp("LIST"); var ob = boxOf(L2, "ORDER:0");
+                            if (ob == null || L2.Contains("ASTOP#") || L2.Contains("ATARGET#")) throw new Exception("✋ 13h the closing BUY LIMIT: its label is a grab, no after-fill bracket of its own: " + L2);
+                            if (!texts().Any(t => t.Contains("closes your SHORT 1 (+$"))) throw new Exception("✋ 13h the BUY LIMIT must read \"closes your SHORT 1 (+$…)\": " + string.Join(" | ", texts().Where(t => t.Contains("⏳")).Take(6)));
+                            string hO = lp(ctr(ob)); string tipO = lp("TEXTS order.closes.tip");
+                            if (hO != "ORDER:0|ORDER:0|box" || !tipO.Contains("it has no stop / target of its own") || !tipO.Contains("+ SL on the position line")) throw new Exception("✋ 13h the closing order's hover: " + hO + " • tip '" + tipO + "'");
+                            double oy0 = (ob[1] + ob[3]) / 2, ox0 = (ob[0] + ob[2]) / 2; mouse("DOWN", ox0, oy0); mouse("MOVE", ox0, oy0 - 12); mouse("MOVE", ox0, oy0 - 20); mouse("UP", ox0, oy0 - 20);
+                            string om = lp("ORDERS"); double opx = double.Parse(om.Split(':')[3], ic);
+                            if (!(opx > pxH - 15)) throw new Exception("✋ 13h dragging the closing order's label must move its price (the ORDER:n drag): " + om);
+                            lp("CANCELALL"); lp("LIMITAT 1,3," + (pxH - 15).ToString("0.00", ic)); lp("5,5");
+                            if (!texts().Any(t => t.Contains("⚠ then reverses into LONG 2"))) throw new Exception("✋ 13h a BUY LIMIT 3 under a SHORT 1 must warn it reverses into LONG 2");
+                            lp("CANCELALL");
+                            // drag the pinned take profit into view: the line comes to the mouse, released = the TP field (→ readBracket / SetBracket, the existing path)
+                            L = lp("LIST"); pin = boxOf(L, "PINTARGET"); double px0 = (pin[0] + pin[2]) / 2, py0 = (pin[1] + pin[3]) / 2;
+                            mouse("DOWN", px0, py0); mouse("MOVE", px0, py0 - 30); mouse("MOVE", px0, py0 - 50); mouse("UP", px0, py0 - 50);
+                            var fT = lp("FIELDS").Split('|'); double tpN = double.Parse(fT[1], ic);
+                            if (!(tpN > 0 && tpN < 374) || fT[0] != "0") throw new Exception("✋ 13h the pinned TP dragged into view must set a nearer take profit through the TP field: " + string.Join("|", fT));
+                            lp("SET 0|" + fT[1]); L = lp("LIST"); if (lineOf(L, "TARGET") == null || boxOf(L, "PINTARGET") != null) throw new Exception("✋ 13h after the drag the take profit is on screen (its line), no pin: " + L);
+                            // + SL: drag it out (up = the loss side of a short) → the SL field; the ⚠ badge goes
+                            es = boxOf(L, "ESTOP"); double sx = (es[0] + es[2]) / 2, sy = (es[1] + es[3]) / 2; mouse("DOWN", sx, sy); mouse("MOVE", sx, sy - 20); mouse("MOVE", sx, sy - 40); mouse("UP", sx, sy - 40);
+                            var fS = lp("FIELDS").Split('|'); double slN = double.Parse(fS[0], ic);
+                            if (!(slN > 0)) throw new Exception("✋ 13h + SL dragged up must set a stop through the SL field: " + string.Join("|", fS));
+                            lp("SET " + fS[0] + "|" + fS[1]); if (lp("TEXTS pos.nostop") != "" || lp("TEXTS pos.add") != "") throw new Exception("✋ 13h with a stop and a target: no ⚠ NO STOP SET, no + pills");
+                            // flat with a working entry order: its + SL / + TP right next to ITS label, inside the plot, hovered = grabbed
+                            lp("ADOPT 0,0"); lp("SET 0|0"); string idE = lp("LIMITAT -1,1," + (pxH + 10).ToString("0.00", ic)); string L3 = lp("LIST");
+                            var lb = boxOf(L3, "ORDER:0"); var aS = boxOf(L3, "ASTOP#" + idE); var aT = boxOf(L3, "ATARGET#" + idE); var oln = lineOf(L3, "ORDER:0");
+                            if (lb == null || aS == null || aT == null || oln == null) throw new Exception("✋ 13h the entry order's label + its + SL / + TP: " + L3);
+                            var pair = new[] { Math.Min(aS[0], aT[0]), Math.Min(aS[1], aT[1]), Math.Max(aS[2], aT[2]), Math.Max(aS[3], aT[3]) };
+                            if (!beside(pair, lb) || pair[0] < 0 || pair[2] > oln[2] + 28) throw new Exception("✋ 13h + SL / + TP must sit next to their order's label, inside the plot: pills " + string.Join(",", pair) + " • label " + string.Join(",", lb));
+                            foreach (var b0 in new[] { aS, aT, lb }) { string h0 = lp(ctr(b0)); var hp0 = h0.Split('|'); if (hp0[0] != hp0[1] || hp0[2] != "box") throw new Exception("✋ 13h hovered ≠ grabbed on the entry order: " + h0); }
+                            Console.WriteLine("      ✋ 13h: + SL beside the position label (dragged out → SL " + fS[0] + "), ↓ TP pinned at the edge (dragged in → TP " + fT[1] + "), ⚠ NO STOP SET, the BUY LIMIT \"closes your SHORT 1\" (label drags it), reverse warning, entry pills next to their label");
+                        }
+                        finally { lp("CANCELALL"); lp("ADOPT " + wasH[0] + "," + wasH[1]); lp("SET " + fieldsH); lp("5,5"); }
+                    }
                     var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
                     {   /* 🧼 11y (user: "I will stick to my candlestick strategies"): the 📈 CHART view shows NO order flow by default (decision, toasts, setup lines, zones, events, battle map) */
                         string chL = ((Func<string, string>)F("studioLayerBar"))("LIST"); foreach (var ck in new[] { "DECISION=off", "TOAST=off", "SETUP=off", "ZONES=off", "EVENTS=off", "PROF=off" }) if (!chL.Contains(ck)) throw new Exception("🧼 the CHART view's order flow must be OFF by default: " + chL);

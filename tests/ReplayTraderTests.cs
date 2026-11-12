@@ -374,6 +374,42 @@ public static class ReplayTraderTests
             int agree = 0, tot = 0; for (double y = 105; y <= 165; y += 1) for (double x = 460; x <= 770; x += 7) { tot++; var h = KeystoneLinePick.Pick(g, x, y); var c = KeystoneLinePick.PickShown(g, x, y, h == null ? null : h.Code); if ((h == null && c == null) || (h != null && c != null && h.Code == c.Code)) agree++; }
             Check(agree == tot, "⏳ hovered = grabbed with the ✕ in place (" + tot + " points)", agree + " / " + tot);
         }
+        {   /* ✋ BUILD 2026-11-13h — the user: "when I hover there are no take-profit and stop-loss lines to be dragged" (SHORT 1 @ 28430.75 with NO stop, its target 374 pts
+               off-screen, a BUY LIMIT 1 @ 28271.75 under it). The BUY LIMIT EXITS the short (no bracket of its own, by design) → it says so; the position always has a grab. */
+            double pv = KeystoneMoveStudy.PointValue("MNQ"), cost = KeystoneMoveStudy.Cost("MNQ");
+            string cl = KeystoneBracketLeg.ClosesText(-1, 28430.75, 1, 1, 28271.75, pv, cost);
+            Check(cl.StartsWith("closes your SHORT 1 (+$") && KeystoneBracketLeg.ClosingQty(-1, 1, 1) == 1 && Math.Abs(KeystoneBracketLeg.ClosingUsd(-1, 28430.75, 1, 1, 28271.75, pv, cost) - (159 * pv - cost)) < 1e-9,
+                "✋ 13h a BUY LIMIT under a SHORT 1 = \"closes your SHORT 1 (+$…)\" — 159 pts at the fill, after costs", cl);
+            Check(KeystoneBracketLeg.ClosesText(-1, 28430.75, -1, 1, 28300, pv, cost) == "" && KeystoneBracketLeg.ClosesText(0, 0, 1, 1, 28300, pv, cost) == "" && KeystoneBracketLeg.ClosingQty(2, 1, 1) == 0, "✋ 13h a same-side order (an add-on) or an order while flat is not a closing order");
+            string pc = KeystoneBracketLeg.ClosesText(3, 100, -1, 1, 110, pv, cost);
+            Check(pc.StartsWith("closes 1 of your LONG 3 (+$") && !pc.Contains("reverses"), "✋ 13h a partial exit: \"closes 1 of your LONG 3\"", pc);
+            string rv = KeystoneBracketLeg.ClosesText(-1, 28430.75, 1, 3, 28271.75, pv, cost);
+            Check(KeystoneBracketLeg.ReverseQty(-1, 1, 3) == 2 && rv.StartsWith("closes your SHORT 1 (+$") && rv.Contains("⚠ then reverses into LONG 2"), "✋ 13h a BUY LIMIT 3 under a SHORT 1: closes the 1, ⚠ reverses into LONG 2 (13g gives a reversing fill no bracket of its own → a note, never a phantom bracket)", rv);
+            Check(!KeystoneBracketLeg.TakesOrderBracket(-1, 2), "✋ 13h …and the reversing fill indeed takes no order bracket (the 13g rule: only a fill from FLAT)");
+            Check(KeystoneLinePick.Same("PINTARGET") == "TARGET" && KeystoneLinePick.Same("PINSTOP") == "STOP" && KeystoneLinePick.AtMouse("PINTARGET") && KeystoneLinePick.AtMouse("ESTOP") && !KeystoneLinePick.AtMouse("TARGET"),
+                "✋ 13h the edge pin / + SL / + TP move the position's own TARGET / STOP, at the mouse (the existing drag → panel fields → SetBracket path)");
+            Check(KeystoneLinePick.OffScreen(900, 30, 600) == 1 && KeystoneLinePick.OffScreen(-40, 30, 600) == -1 && KeystoneLinePick.OffScreen(300, 30, 600) == 0, "✋ 13h a leg below the plot pins at the bottom (↓), above at the top (↑)");
+            string pt = KeystoneBracketLeg.PinText(true, 1, "28056.75", KeystoneBracketLeg.Usd(374, 1, pv, cost));
+            Check(pt.StartsWith("↓ TP 28056.75 +$7"), "✋ 13h the pin reads \"↓ TP 28056.75 +$…\" (after costs)", pt);
+            // pills NEXT TO their label: right of it when they fit (LIVE's position label), else left of it (an order label at the axis / the studio gutter) — always inside the plot
+            double[] posLbl = { 600, 290, 814, 314 }, ordLbl = { 820, 400, 968, 418 };
+            double xr = KeystoneLinePick.NextToX(posLbl, 2, 44, 4, 4, 970), xl = KeystoneLinePick.NextToX(ordLbl, 2, 44, 4, 4, 944), xw = KeystoneLinePick.NextToX(new double[] { 2, 0, 900, 20 }, 2, 44, 4, 4, 944);
+            Check(xr == 818 && xl == 820 - 4 - 92 && xw >= 4 && xw + 92 <= 944, "✋ 13h + SL / + TP sit right beside the label (right of the position label, left of an order label at the axis), never off the plot", xr + " / " + xl + " / " + xw);
+            var occ = new List<double[]> { new double[] { 700, 395, 800, 415 } };
+            double yf = KeystoneLinePick.FreeTop(occ, 720, 812, 398, 20, 32, 600);
+            Check(!occ.Any(o => KeystoneLinePick.Overlap(o, new[] { 720, yf, 812, yf + 20 })) && Math.Abs(yf - 398) <= 44 && KeystoneLinePick.FreeTop(occ, 0, 50, 398, 20, 32, 600) == 398, "✋ 13h a pill never lands on another label (it steps off it; free = stays on its line)", yf.ToString());
+            // the pick: + SL / + TP pills, the edge pin and the order's LABEL are boxes — hovered = grabbed everywhere
+            var g = new List<KeystoneGrab>(); KeystoneLinePick.Line(g, "BRACKET", 302, 670, 970, 8); KeystoneLinePick.Line(g, "ORDER:0", 409, 670, 942);
+            KeystoneLinePick.Box(g, "ORDER:0", new double[] { 520, 400, 917, 418 }); KeystoneLinePick.Box(g, "ESTOP", new double[] { 817, 292, 863, 312 }); KeystoneLinePick.Box(g, "PINTARGET", new double[] { 800, 578, 940, 600 });
+            Func<double, double, string> pk = (x, y) => { var h = KeystoneLinePick.Pick(g, x, y); return h == null ? "-" : h.Code; };
+            Check(pk(840, 302) == "ESTOP" && pk(600, 409) == "ORDER:0" && pk(860, 590) == "PINTARGET" && pk(700, 303) == "BRACKET", "✋ 13h + SL on the position line, the closing order's label, the off-screen TP's edge pin: each its own grab");
+            int agree = 0, tot = 0; for (double y = 280; y <= 605; y += 1) for (double x = 500; x <= 960; x += 9) { tot++; var h = KeystoneLinePick.Pick(g, x, y); var c = KeystoneLinePick.PickShown(g, x, y, h == null ? null : h.Code); if ((h == null && c == null) || (h != null && c != null && h.Code == c.Code)) agree++; }
+            Check(agree == tot, "✋ 13h hovered = grabbed (" + tot + " points)", agree + " / " + tot);
+            // the replay trader: the BUY LIMIT under a SHORT really exits it (flat, no bracket left), a bigger one reverses with NO bracket of its own
+            var tc = KeystoneReplayTrader.LiveStart(new List<KeystoneArcBar> { B(0, 20000, 20001, 19999, 20000) }, "MNQ", new DateTime(2026, 3, 10, 9, 30, 0)); tc.Sell(1); tc.StopPts = 0; tc.TargetPts = 40;
+            var xo = tc.Place("LIMIT", 1, 1, 19990); tc.LiveUpdate(B(1, 20000, 20000, 19989, 19989), new DateTime(2026, 3, 10, 9, 31, 0));
+            Check(tc.Position == 0, "✋ 13h the closing BUY LIMIT exits the SHORT (flat)", tc.Position.ToString());
+        }
         Console.WriteLine(failures == 0 ? "ALL REPLAY TRADER TESTS PASSED" : failures + " REPLAY TRADER TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
