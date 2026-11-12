@@ -140,6 +140,17 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   📥 TICK LIBRARY ⤓ DOWNLOAD EVERYTHING AVAILABLE (`KeystoneTickBackfill`): MNQ then MGC, today backwards, saved days skipped, a symbol ends after 3 empty session days, background + ■ CANCEL (tests `tests/TickLibraryTests.cs`).
   Tests: `tests/FlowCompassTests.cs` (24–26) + the 🧼 / 🎯 blocks of the 11s step of `tests/fullcompile/UiSmokeTest.cs` (the stand-in Canvas keeps Left / Top for the overlap check).
   ⭐ 11z (display / text / journal only — NO new order path, no new `NinjaBroker`; the 3 SETUPS / REVERSAL FVG clicks still only fill the order panel): every order-flow event's LEVEL gets IF / THEN lines
+  ⚡ 13a (user: "the interface lags since order flow — we don't need it running"; display / analysis only — NO new order path, no new `NinjaBroker`): order flow is OFF by default everywhere (one-time migration `OF.MIG13A`).
+  ONE ☐ / ☑ 📊 ORDER FLOW switch per window (`OF.MASTER`, the old ORDER FLOW button's place, ● LIVE TRADING + BACKTEST STUDIO, + INDICATORS): off = the 📊 ORDERFLOW tab hidden, no engine, no dock / timers
+  (the tick recorder keeps its own file append); on = the engine starts and the tab opens. The 📈 CHART's ONE chip "📊 OF" (`OF.CHART`, off) = 🎯 REVERSAL SCORE arrows + the ⭐ OF CONFIRM badge only, the engine for
+  the chart on screen only. ☰ TOOLS ▸ ⚡ ORDER FLOW ENGINE AUTO / OFF (`OF.ENGINE`) = the hard kill over both. ONE rule decides every instrument's engine (`KeystoneOfGate.Want` via `ofWant` / `ofConfApply`).
+  Speed: event outcomes / the session totals are incremental (`KeystoneOfEvents.Measure` cursor, `KeystoneOfRunningFlow`), the per-candle analysis (profile + signals + hit rates) runs off the UI thread
+  (`KeystonePerf.AsyncOk`, the stand-in smoke test keeps it synchronous), the ORDERFLOW view redraws ≤ 2 / s, the event / reversal journals are written on a background thread every 10 s.
+  🎯 REVERSAL SCORE (`KeystoneReversalScore` / `KeystoneRevJournal`): a weighted CONFLUENCE score (not a win probability) on CLOSED candles at a swing high / low, known data only — location 25, delta
+  divergence 15, volume drying 10, absorption 15, trapped / failed print 10, flow turning 10, reversal candle 15; drawn only ≥ 75 % (75–84 amber, 85–94 teal / coral, 95–100 gold), the last 5 visible; click =
+  the checklist + the idea (entry / stop beyond the extreme / scalp target) + the measured band hit rate (n ≥ 20, else learning (n)); ⤵ FILL ORDER PANEL fills the fields only; journal
+  Studio\OrderFlow\reversals-<SYM>.csv, 📊 ANALYZE by band, 📜 PROVE FROM HISTORY scores the TickCache days. Perf harness `tests/fullcompile/PerfTest.cs` (in run_all: the engine-idle rule asserted;
+  `PERF_STRICT=1` also asserts ≤ 25 ms/s and ≤ 50 ms blocks). Tests: `tests/ReversalScoreTests.cs` + the 13a step of `tests/fullcompile/UiSmokeTest.cs`.
   (`KeystoneOfIfThen`: defend events — absorption, failed print, trapped, divergence, zone retest / mark, flip — "↩ back to L and holds → that side again (stop past L ± 20 ticks)" / "↘ ↗ a CLOSED candle beyond → the defenders
   failed"; push events — stacked, big print — "↩ back into the area = a rejection supports that side" / "a close beyond = absorbed → the other way") + its status on CLOSED candles after it (held so far +x pts / back at
   the level now / broken hh:mm / expired after 30 min) in the toast, 🧱 EVENTS, 📖 STORY and the marks' details box. ⭐ CANDLE SETUP + ORDER FLOW (`KeystoneOfConfirm`): an ACTIVE candle setup (a pending FVG 50 %,

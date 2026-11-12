@@ -28,6 +28,7 @@ public static class UiSmokeTest
     public static int Main()
     {
         Environment.SetEnvironmentVariable("HOME", System.IO.Path.GetTempPath());
+        KeystonePerf.AsyncOk = false;   /* ⚡ 13a: this stand-in dispatcher drops BeginInvoke — keep the order-flow analysis synchronous here (the perf harness pumps it) */
         Step("🔒 NinjaTrader lockout read from the (stub) Account by reflection: LockedUntil ahead → locked, past → not", () =>
         {
             var a1 = new NinjaTrader.Cbi.Account { Name = "TAKEPROFIT893", LockedUntil = DateTime.Now.AddHours(2) }; var a2 = new NinjaTrader.Cbi.Account { Name = "TAKEPROFIT894", LockedUntil = DateTime.Now.AddHours(-2) };
@@ -906,6 +907,41 @@ public static class UiSmokeTest
                     Console.WriteLine("      🎯 " + run.Substring(0, Math.Min(150, run.Length)) + " · " + rd.Substring(0, Math.Min(120, rd.Length)) + " · runs " + (System.IO.File.ReadAllLines(runs).Length - 1) + " · NinjaBroker built 0 · nothing sent: OK");
                 });
             if (strategy == "MAD")
+                Step("⚡ BUILD 13a: order flow OFF by default — no engine, the ORDERFLOW tab / button hidden; ☑ 📊 ORDER FLOW starts it + opens the tab, ☐ stops it; the 📈 CHART's 📊 OF chip runs it for the chart only; ⚡ ENGINE OFF kills both; 🎯 REVERSAL arrows ≥ 75 % only + the click box + FILL fills the fields only; NOTHING sent", () =>
+                {
+                    var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
+                    var nbMade = lab2.GetType().GetNestedType("NinjaBroker", BindingFlags.NonPublic).GetField("Made", BindingFlags.Static | BindingFlags.Public); int made0 = (int)nbMade.GetValue(null);
+                    Call(lab2, "OpenReplayTrader"); var bt = (System.Windows.Window)F("backtestStudioWindow"); if (bt == null) throw new Exception("no BACKTEST STUDIO");
+                    { var tbar = FindAll<System.Windows.FrameworkElement>(bt.Content).First(x => Convert.ToString(x.Tag) == "studio.toolbar"); var dbx = FindAll<System.Windows.Controls.TextBox>(tbar).First(); dbx.Text = "2019-03-06"; }
+                    ((Action)F("replayTraderLoad"))(); for (int k = 0; k < 200; k++) ((Action<int>)F("replayTraderStep"))(1);
+                    var eng = (Func<string, string>)F("studioOfEngine"); eng("KILL 0"); eng("CHIP 0"); eng("MASTER 0");
+                    string d0 = eng("STATE"); if (!d0.Contains("master=0") || !d0.Contains("chip=0") || !d0.Contains("view=0") || !d0.Contains("dockTimer=0") || d0.Contains("=on/")) throw new Exception("⚡ default must be: nothing order-flow runs: " + d0);
+                    var openB = FindAll<System.Windows.Controls.Button>(bt.Content).FirstOrDefault(b9 => Convert.ToString(b9.Tag) == "of.open"); if (openB == null || openB.Visibility != System.Windows.Visibility.Collapsed) throw new Exception("⚡ the 📊 ORDERFLOW ▸ button must be hidden while 📊 ORDER FLOW is off");
+                    var mB = FindAll<System.Windows.Controls.Button>(bt.Content).FirstOrDefault(b9 => Convert.ToString(b9.Tag) == "of.master"); if (mB == null || !Convert.ToString(mB.Content).StartsWith("☐")) throw new Exception("⚡ no ☐ 📊 ORDER FLOW switch");
+                    var chB = FindAll<System.Windows.Controls.Button>(bt.Content).FirstOrDefault(b9 => Convert.ToString(b9.Tag) == "of.chartchip"); if (chB == null || Convert.ToString(chB.Content) != "📊 OF") throw new Exception("⚡ no 📊 OF chip (off)");
+                    mB.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                    string mOn = eng("STATE"); if (!mOn.Contains("master=1") || !mOn.Contains("view=1") || !mOn.Contains("dockTimer=1") || !mOn.Contains("=on/") || openB.Visibility != System.Windows.Visibility.Visible) throw new Exception("⚡ ☑ must start the engine and open the tab: " + mOn);
+                    mB.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                    string m0 = eng("STATE"); if (!m0.Contains("master=0") || !m0.Contains("view=0") || !m0.Contains("dockTimer=0") || m0.Contains("=on/")) throw new Exception("⚡ ☐ must stop everything: " + m0);
+                    chB.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                    string c1 = eng("STATE"); int onN = c1.Split(';').Count(x => x.Contains("=on/")); if (!c1.Contains("chip=1") || !c1.Contains("view=0") || onN != 1) throw new Exception("⚡ the chip runs the engine for the chart on screen only: " + c1);
+                    var desk = (Func<string, string>)F("studioOfDesk"); desk("TICKS 6000 0.97"); string rv = desk("REVTEST");
+                    if (!rv.StartsWith("arrows=1;") || !rv.Contains("pcts=88%;") || rv.Contains("60%")) throw new Exception("🎯 only the ≥ 75 % reversal is drawn: " + rv.Substring(0, Math.Min(200, rv.Length)));
+                    if (!rv.Contains("🎯 REVERSAL ▲ 88 %") || !rv.Contains("confluence score") || !rv.Contains("✔ at VAL") || !rv.Contains("✖ no trapped") || !rv.Contains("learning (")) throw new Exception("🎯 the click box: " + rv);
+                    if (!rv.Contains(";fill=") || rv.Contains(";fill=/") || !rv.Contains(";pos=0;")) throw new Exception("🎯 FILL must fill the stop / target fields and send nothing: " + rv.Substring(0, Math.Min(260, rv.Length)));
+                    eng("KILL 1"); string k1 = eng("STATE"); if (!k1.Contains("kill=1") || k1.Contains("=on/") || openB.Visibility != System.Windows.Visibility.Collapsed) throw new Exception("⚡ ENGINE OFF must kill everything: " + k1);
+                    eng("KILL 0"); eng("CHIP 0"); string e0 = eng("STATE"); if (e0.Contains("=on/")) throw new Exception("⚡ chip off → the engine stops: " + e0);
+                    if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 13a built a NinjaBroker");
+                    bt.Close();
+                    {   /* ● LIVE TRADING: its 📊 ORDERFLOW bottom tab is hidden while the switch is off */
+                        Call(lab2, "OpenLiveTrading"); var lv = (System.Windows.Window)F("liveStudioWindow"); var tabL = FindAll<System.Windows.FrameworkElement>(lv.Content).FirstOrDefault(x => Convert.ToString(x.Tag) == "of.tab.live");
+                        if (tabL == null || tabL.Visibility != System.Windows.Visibility.Collapsed) throw new Exception("⚡ ● LIVE TRADING shows its 📊 ORDERFLOW tab while 📊 ORDER FLOW is off");
+                        var engL = (Func<string, string>)F("studioOfEngine"); engL("MASTER 1"); if (tabL.Visibility != System.Windows.Visibility.Visible || !engL("STATE").Contains("view=1")) throw new Exception("⚡ ● LIVE TRADING: ☑ must show + open the tab: " + engL("STATE"));
+                        engL("MASTER 0"); if (tabL.Visibility != System.Windows.Visibility.Collapsed) throw new Exception("⚡ ● LIVE TRADING: ☐ must hide the tab"); lv.Close();
+                    }
+                    Console.WriteLine("      ⚡ default " + d0 + " • ☑ → " + mOn + " • chip → " + c1 + " • 🎯 " + rv.Substring(0, Math.Min(120, rv.Length)) + " • NinjaBroker built 0: OK");
+                });
+            if (strategy == "MAD")
                 Step("⭐ BUILD 11z: your candle setups + order flow — the ⭐ OF ✔ / ✖ badge on an ACTIVE 3-SETUPS label (the only order flow on the 📈 CHART), the ⭐ OF CONFIRM chip hides it and stops the engine, NOTHING sent", () =>
                 {
                     var BF = BindingFlags.Instance | BindingFlags.NonPublic; Func<string, object> F = n => lab2.GetType().GetField(n, BF).GetValue(lab2);
@@ -913,7 +949,7 @@ public static class UiSmokeTest
                     Call(lab2, "OpenReplayTrader"); var bt = (System.Windows.Window)F("backtestStudioWindow"); if (bt == null) throw new Exception("no BACKTEST STUDIO");
                     var lay = (Action<string, int>)F("studioLayer"); lay("IND.TRI", KeystoneLiveTools.Always); lay("IND.TRI.TICKET", 0);
                     foreach (var k0 in new[] { "OF.BADGE", "OF.ON", "OF.BATTLE", "OF.CHARTSIG", "OF.CNUM", "OF.CONF", "OF.V.CH.SIGLINES", "OF.V.CH.PROF", "OF.V.CH.DROW", "OF.V.CH.BIG", "OF.V.CH.TRAP", "OF.V.CH.MARKS", "OF.V.CH.ZONES", "OF.V.CH.CVDL", "OF.V.CH.DECISION", "OF.V.CH.TOAST" }) lay(k0, 0);   /* the 📈 CHART's own defaults (a saved workspace may hold an earlier run's chips) */
-                    lay("OF.CONFIRM", 1);
+                    lay("OF.CONFIRM", 1); lay("OF.CHART", 1);   /* ⚡ 13a: the ⭐ OF CONFIRM badge lives under the 📈 CHART's 📊 OF chip (off by default) */
                     { var tbar = FindAll<System.Windows.FrameworkElement>(bt.Content).First(x => Convert.ToString(x.Tag) == "studio.toolbar"); var dbx = FindAll<System.Windows.Controls.TextBox>(tbar).First(); dbx.Text = "2019-03-06"; }
                     ((Action)F("replayTraderLoad"))(); var rt = (KeystoneReplayTrader)F("replayTrader"); if (rt == null || rt.Bars.Count == 0) throw new Exception("no day loaded");
                     var oc = (Func<string, string>)F("studioOfConfirm"); if (oc == null) throw new Exception("⭐ no studioOfConfirm hook");
@@ -928,9 +964,9 @@ public static class UiSmokeTest
                     oc("CLEAR"); string bad = oc("INJECT ✖"); if (!bad.Contains("⚠ OF ✖") || !bad.Contains("pushing into it")) throw new Exception("⚠ a push against it must read ⚠ OF ✖ … pushing into it: " + bad);
                     var lb = (Func<string, string>)F("studioLayerBar"); string l1 = lb("LIST"); if (!l1.Contains("OFCONF=on")) throw new Exception("⭐ the ⭐ OF CONFIRM chip must be ON by default: " + l1);
                     lb("OFCONF"); string offS = oc("APPLY"); if (offS.Contains("badges=⭐") || offS.Contains("badges=⚠") || tags().Contains("of.confirm")) throw new Exception("⭐ the chip did not hide the badge: " + offS);
-                    if (!offS.Contains("need=False") || !offS.Contains("chartNeeds=False") || !offS.Contains("engine=False")) throw new Exception("⭐ chip OFF = the 11y CPU rule (the engine stops on the CHART): " + offS);
+                    lay("OF.CHART", 0); string offC = oc("APPLY"); if (!offC.Contains("chartNeeds=False") || !offC.Contains("engine=False")) throw new Exception("⚡ 13a: the 📊 OF chip OFF = the engine stops on the CHART: " + offC); lay("OF.CHART", 1);
                     lb("OFCONF"); string onS = oc("STATE"); if (!onS.Contains("need=True")) throw new Exception("⭐ the chip back ON: " + onS);
-                    oc("CLEAR"); lay("IND.TRI", KeystoneLiveTools.Off); string endS = oc("APPLY"); if (!endS.Contains("need=False") || !endS.Contains("engine=False")) throw new Exception("⭐ no candle setup layer = no need, the engine off: " + endS);
+                    oc("CLEAR"); lay("IND.TRI", KeystoneLiveTools.Off); lay("OF.CHART", 0); string endS = oc("APPLY"); if (!endS.Contains("need=False") || !endS.Contains("engine=False")) throw new Exception("⭐ no candle setup layer = no need, the engine off: " + endS);
                     if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 11z built a NinjaBroker");
                     if (rt.Position != 0 || rt.Orders.Count != 0) throw new Exception("⭐ the badge changed the practice position / orders");
                     bt.Close();
@@ -1135,7 +1171,7 @@ public static class UiSmokeTest
                             string nw9 = desk("TAB NOW"); if (!nw9.Contains("WHAT'S HAPPENING NOW") || !has("of.beginner")) throw new Exception("👀 NOW: " + nw9);
                             ((Action<string, int>)F("studioLayer"))("OF.V.CH.DECISION", 1);   /* 🧼 11y: the CHART view's decision line is OFF by default — switched on here to test its chip */
                             desk("CLOSE"); ((Action<int>)F("replayTraderStep"))(0); if (!has("of.decision")) throw new Exception("🚥 no decision bar on the 📈 CHART view once its chip is on");
-                            lbx("DECISION"); ((Action<int>)F("replayTraderStep"))(0); if (has("of.decision")) throw new Exception("🚥 the CHART view's DECISION chip did not hide the bar"); lbx("DECISION"); desk("OPEN");
+                            lbx("DECISION"); ((Action<int>)F("replayTraderStep"))(0); if (has("of.decision")) throw new Exception("🚥 the CHART view's DECISION chip did not hide the bar"); lbx("DECISION"); desk("OPEN"); desk("TICKS 6000 0.97");   /* ⚡ 13a: the chip OFF stopped the engine (nothing needed it) — the test's trades again */
                         }
                         desk("STYLE SWING"); desk("SWING"); if (!desk("CARD").StartsWith("HIDDEN") || !desk("CARD2").StartsWith("VISIBLE")) throw new Exception("🏃 STYLE SWING must show only the swing card");
                         rt = (KeystoneReplayTrader)F("replayTrader"); int p9 = rt.Position;

@@ -284,10 +284,14 @@ namespace System.Windows.Threading
     {
         public static Dispatcher CurrentDispatcher { get { return new Dispatcher(); } }
         public bool CheckAccess() { return true; }
-        public DispatcherOperation BeginInvoke(Delegate method, params object[] args) { return null; }
-        public DispatcherOperation BeginInvoke(DispatcherPriority p, Delegate method) { return null; }
-        public DispatcherOperation BeginInvoke(Action a) { return null; }
-        public DispatcherOperation BeginInvoke(Action a, DispatcherPriority p) { return null; }
+        /* the perf harness (PerfTest.cs) only: QueueMode = BeginInvoke'd work is kept and run by Pump() on the test's "UI" thread (default: dropped, as before) */
+        public static bool QueueMode; static readonly Queue<Delegate> queued = new Queue<Delegate>(); static readonly object qGate = new object();
+        static DispatcherOperation Keep(Delegate d) { if (QueueMode && d != null) lock (qGate) queued.Enqueue(d); return null; }
+        public static int Pump() { int n = 0; while (true) { Delegate d; lock (qGate) { if (queued.Count == 0) return n; d = queued.Dequeue(); } d.DynamicInvoke(); n++; } }
+        public DispatcherOperation BeginInvoke(Delegate method, params object[] args) { return (args == null || args.Length == 0) ? Keep(method) : null; }
+        public DispatcherOperation BeginInvoke(DispatcherPriority p, Delegate method) { return Keep(method); }
+        public DispatcherOperation BeginInvoke(Action a) { return Keep(a); }
+        public DispatcherOperation BeginInvoke(Action a, DispatcherPriority p) { return Keep(a); }
         public void Invoke(Action a) { a(); }
         public object Invoke(Delegate method, params object[] args) { return null; }
         public void InvokeAsync(Action a) { }
@@ -295,11 +299,14 @@ namespace System.Windows.Threading
     }
     public class DispatcherTimer
     {
-        public DispatcherTimer() { }
-        public DispatcherTimer(DispatcherPriority p) { }
-        public DispatcherTimer(DispatcherPriority p, Dispatcher d) { }
+        public DispatcherTimer() { Track(); }
+        public DispatcherTimer(DispatcherPriority p) { Track(); }
+        public DispatcherTimer(DispatcherPriority p, Dispatcher d) { Track(); }
         public TimeSpan Interval { get; set; } public bool IsEnabled { get; set; } public object Tag { get; set; }
         public event EventHandler Tick; public void Start() { IsEnabled = true; } public void Stop() { IsEnabled = false; }
+        /* the perf harness only: every timer ever made (to fire the enabled ones at their interval) */
+        public static readonly List<DispatcherTimer> All = new List<DispatcherTimer>(); public DispatcherTimer Track() { lock (All) All.Add(this); return this; }
+        public void Fire() { if (IsEnabled && Tick != null) Tick(this, EventArgs.Empty); } public bool HasHandlers { get { return Tick != null; } }
     }
 }
 

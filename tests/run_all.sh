@@ -92,6 +92,9 @@ mono "$here/.build/studio.exe" | tail -1
 rm -f "$here/.build/orb.exe"
 "$root/tools/compile_engine.sh" "$here/.build/orb.exe" "$here/OpeningRangeTests.cs"
 mono "$here/.build/orb.exe" | tail -1
+rm -f "$here/.build/rev.exe"
+"$root/tools/compile_engine.sh" "$here/.build/rev.exe" "$here/ReversalScoreTests.cs"
+mono "$here/.build/rev.exe" | tail -1
 rm -f "$here/.build/link.exe"
 "$root/tools/compile_engine.sh" "$here/.build/link.exe" "$here/AccountLinkTests.cs"
 mono "$here/.build/link.exe" | tail -1
@@ -139,3 +142,4 @@ cmp -s "$here/.build/bh_detection.txt" "$here/bh_detection_baseline.txt" && echo
 ( cd "$here/fullcompile" && mcs -langversion:6 -nowarn:67,169,414,649,618,219,168,162,1998,429,108,114 -r:System.Core.dll -out:.build/saved.exe Stubs.cs NinjaStubs.cs ../../src/KeyStone.cs SavedDataTest.cs >/dev/null && mono .build/saved.exe | tail -1 )
 ( cd "$here/fullcompile" && mcs -langversion:6 -nowarn:67,169,414,649,618,219,168,162,1998,429,108,114 -r:System.Core.dll -out:.build/report.exe Stubs.cs NinjaStubs.cs ../../src/KeyStone.cs ReportPreview.cs >/dev/null && for s in BH ASIAN75 FVG ENG RLY VWP GLD; do mono .build/report.exe .build/report_$s.html $s | sed "s/^/$s /"; done )
 ( cd "$here/fullcompile" && mcs -langversion:6 -nowarn:67,169,414,649,618,219,168,162,1998,429,108,114 -r:System.Core.dll -out:.build/ui.exe Stubs.cs NinjaStubs.cs ../../src/KeyStone.cs UiSmokeTest.cs >/dev/null && mono .build/ui.exe | tail -1 )
+( cd "$here/fullcompile" && mcs -langversion:6 -optimize+ -nowarn:67,169,414,649,618,219,168,162,1998,429,108,114 -r:System.Core.dll -out:.build/perf.exe Stubs.cs NinjaStubs.cs ../../src/KeyStone.cs PerfTest.cs >/dev/null && mono .build/perf.exe "${PERF_SECONDS:-4}" | grep -E "^(SUMMARY|FAIL|WARN|PERF)" )
