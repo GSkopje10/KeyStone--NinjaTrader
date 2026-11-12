@@ -9837,6 +9837,8 @@ namespace NinjaTrader.NinjaScript
     public sealed class KeystoneOfEvent
     {
         public DateTime Time; public string Symbol = "", Type = "", Text = "", Location = "", Narrator = "", Trade = "";   /* 🎯 11y: Trade = "for your LONG 2 @ …" (memory only) */ public DateTime Seen = DateTime.MinValue; /* ⭐ 11z: the clock when the app first knew it (memory only) */ public int Side, Compass, Result; public double Price, CompassScore, Mfe, Mae, M5 = double.NaN, M15 = double.NaN, M30 = double.NaN; public bool Done;
+        /* 📊 13c: Trend = the session trend at the event (KeystoneOfTrend: ±1, STRONG ±2, 0 none; saved) — the edge is measured WITH vs AGAINST it; Edge / Act = memory only */
+        public int Trend; public KeystoneOfEdgeResult Edge; public string Act = "";
         public string Key { get { return Time.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture) + "|" + Symbol + "|" + Type + "|" + Side; } }
         /* ⚡ 13a: Measure's incremental cursor (memory only): the trades already walked, so each call reads only the NEW trades — never 30 minutes again */
         internal object MSrc; internal int MNext = -1, MRes; internal double MMfe, MMae, MLast, MM5 = double.NaN, MM15 = double.NaN; internal DateTime MNow = DateTime.MinValue;
@@ -9844,20 +9846,20 @@ namespace NinjaTrader.NinjaScript
     public static class KeystoneOfEvents
     {
         static readonly CultureInfo IC = CultureInfo.InvariantCulture; public const int Ticks = 8;
-        public const string Header = "time,symbol,type,side,price,compass,compass_score,location,text,narrator,result,mfe,mae,m5,m15,m30,done";
+        public const string Header = "time,symbol,type,side,price,compass,compass_score,location,text,narrator,result,mfe,mae,m5,m15,m30,done,trend";
         public static string PathOf(string folder, string sym, DateTime day) { return Path.Combine(folder ?? "", "OrderFlow", "events-" + (sym ?? "") + "-" + day.ToString("yyyy-MM-dd", IC) + ".csv"); }
         static string N(double v) { return double.IsNaN(v) ? "" : v.ToString("0.####", IC); }
         static double D(string x) { double v; return double.TryParse(x, NumberStyles.Float, IC, out v) ? v : double.NaN; }
         static string Q(string x) { return (x ?? "").Replace(",", ";").Replace("\n", " ").Replace("\r", " "); }
         public static string Line(KeystoneOfEvent e)
         {
-            return string.Join(",", e.Time.ToString("yyyy-MM-dd HH:mm:ss.fff", IC), Q(e.Symbol), Q(e.Type), e.Side, N(e.Price), e.Compass, N(e.CompassScore), Q(e.Location), Q(e.Text), Q(e.Narrator), e.Result, N(e.Mfe), N(e.Mae), N(e.M5), N(e.M15), N(e.M30), e.Done ? 1 : 0);
+            return string.Join(",", e.Time.ToString("yyyy-MM-dd HH:mm:ss.fff", IC), Q(e.Symbol), Q(e.Type), e.Side, N(e.Price), e.Compass, N(e.CompassScore), Q(e.Location), Q(e.Text), Q(e.Narrator), e.Result, N(e.Mfe), N(e.Mae), N(e.M5), N(e.M15), N(e.M30), e.Done ? 1 : 0, e.Trend);
         }
         public static KeystoneOfEvent Parse(string l)
         {
             var a = (l ?? "").Split(','); if (a.Length < 17 || a[0] == "time") return null; DateTime t; if (!DateTime.TryParseExact(a[0], "yyyy-MM-dd HH:mm:ss.fff", IC, DateTimeStyles.None, out t)) return null;
             Func<string, int> I = x => { int v; return int.TryParse(x, NumberStyles.Integer, IC, out v) ? v : 0; };
-            return new KeystoneOfEvent { Time = t, Symbol = a[1], Type = a[2], Side = I(a[3]), Price = D(a[4]), Compass = I(a[5]), CompassScore = D(a[6]), Location = a[7], Text = a[8], Narrator = a[9], Result = I(a[10]), Mfe = D(a[11]), Mae = D(a[12]), M5 = D(a[13]), M15 = D(a[14]), M30 = D(a[15]), Done = a[16] == "1" };
+            return new KeystoneOfEvent { Time = t, Symbol = a[1], Type = a[2], Side = I(a[3]), Price = D(a[4]), Compass = I(a[5]), CompassScore = D(a[6]), Location = a[7], Text = a[8], Narrator = a[9], Result = I(a[10]), Mfe = D(a[11]), Mae = D(a[12]), M5 = D(a[13]), M15 = D(a[14]), M30 = D(a[15]), Done = a[16] == "1", Trend = a.Length >= 18 ? I(a[17]) : 0 };
         }
         public static void SaveDay(string folder, string sym, DateTime day, IEnumerable<KeystoneOfEvent> rows) { var p = PathOf(folder, sym, day); Directory.CreateDirectory(Path.GetDirectoryName(p)); File.WriteAllText(p, Header + "\n" + string.Join("\n", rows.OrderBy(r => r.Time).Select(Line)) + "\n"); }
         public static List<KeystoneOfEvent> LoadAll(string folder, string sym)
@@ -10365,7 +10367,7 @@ namespace NinjaTrader.NinjaScript
             if ((now - candSince).TotalSeconds >= need * m && (now - ShownSince).TotalSeconds >= 60 * m) { Shown = raw; ShownSince = now; cand = ""; }
             return Shown;
         }
-        public static Tuple<string, string> Plan(string sug, int dir, double price, double invalidation, string invName, double stop, double entry, bool closedBreak, double againstSec, bool deltaAgainst, bool eventAgainst, double openUsd, double plannedRiskUsd, bool swing)
+        public static Tuple<string, string> Plan(string sug, int dir, double price, double invalidation, string invName, double stop, double entry, bool closedBreak, double againstSec, bool deltaAgainst, bool eventAgainst, double openUsd, double plannedRiskUsd, bool swing, KeystoneFloorCheck floor = null)
         {
             var IC = CultureInfo.InvariantCulture; string inv = double.IsNaN(invalidation) ? "" : invalidation.ToString("0.00", IC) + (string.IsNullOrEmpty(invName) ? "" : " (" + invName + ")");
             double needSec = 90 * (swing ? 2 : 1);
@@ -10373,13 +10375,17 @@ namespace NinjaTrader.NinjaScript
             if (againstSec >= needSec && deltaAgainst && eventAgainst) return Tuple.Create("⛔ GET OUT", "the flow has been against you for " + ((int)againstSec).ToString(IC) + " s, the delta since your entry is against you and an event went against you");
             bool inside = double.IsNaN(invalidation) || dir * (price - invalidation) > 0; double sd = Math.Abs(entry - stop), room = stop > 0 && sd > 0 ? dir * (price - stop) / sd : 1;
             if (KeystoneTradeAdvice.Rank(sug) == 2) sug = "⚠ TIGHTEN";
+            /* ⛔ 13c: the stop beyond the account's floor (or no room left) → the red warning ONLY — never "drawdown is normal" / "the plan holds" */
+            if (floor != null && floor.Level == 2) return Tuple.Create(KeystoneTradeAdvice.Rank(sug) == 0 ? "⚠ TIGHTEN" : sug, floor.Text);
+            string fw = floor != null && floor.Level == 1 ? floor.Text : "";
             string tx = "";
             /* 🧼 11y BUG FIX (user's screenshot: "the plan holds while price stays above your stop 0.00" with NO stop set): a stop of 0 / none is never printed —
                the invalidation (the card's stop / the zone) speaks for the plan, else "⚠ NO STOP SET — set your stop" and no "plan holds" text */
             string holdAt = inv != "" ? inv : KeystoneOfSimple.HasStop(stop) ? "your stop " + stop.ToString("0.00", IC) : "";
-            if (holdAt == "") return Tuple.Create(sug, KeystoneOfSimple.NoStop + (openUsd < 0 ? " • open −$" + Math.Round(-openUsd).ToString("N0", IC) : ""));
+            if (holdAt == "") return Tuple.Create(sug, (fw.StartsWith("⚠ NO STOP", StringComparison.Ordinal) ? fw : KeystoneOfSimple.NoStop + (fw != "" ? " • " + fw : "")) + (openUsd < 0 ? " • open −$" + Math.Round(-openUsd).ToString("N0", IC) : ""));
             if (inside && room > 0.3 && KeystoneTradeAdvice.Rank(sug) >= 1) tx = "normal pullback — the plan holds while price stays " + (dir > 0 ? "above " : "below ") + holdAt;
             if (openUsd < 0 && inside && room > 0) tx = (tx != "" ? tx + " • " : "") + "DRAWDOWN IS NORMAL: −$" + Math.Round(-openUsd).ToString("N0", IC) + (plannedRiskUsd > 0 ? " of the planned −$" + Math.Round(plannedRiskUsd).ToString("N0", IC) + " risk" : "") + " • the plan holds";
+            if (fw != "") tx = fw + (tx != "" ? " • " + tx : "");
             return Tuple.Create(sug, tx);
         }
     }
@@ -10451,9 +10457,11 @@ namespace NinjaTrader.NinjaScript
             string st = style == "SWING" ? "🏃 SWING" : "⚡ SCALP"; return Line((proven ? "✅ " : "🧪 ") + st + " " + (dir < 0 ? "SELL" : "BUY") + (qty > 0 ? " " + qty.ToString(IC) : ""), "TAP for details");
         }
         // in a trade: ✋ HOLD / ⚠ TIGHTEN / ⚠ PROTECT / ⛔ GET OUT + the level the plan lives on — or the NO STOP warning first (the bar turns orange)
-        public static string InTrade(string sug, int dir, double level, bool closedBreak)
+        public static string InTrade(string sug, int dir, double level, bool closedBreak, KeystoneFloorCheck floor = null)
         {
+            if (floor != null && floor.Level == 2) return floor.Short;   /* ⛔ 13c: the account's floor first (red) */
             string w = string.IsNullOrEmpty(sug) || sug.StartsWith("HOLD", StringComparison.Ordinal) ? "✋ HOLD" : sug.StartsWith("⛔", StringComparison.Ordinal) ? "⛔ GET OUT" : sug.StartsWith("⚠ PROTECT", StringComparison.Ordinal) ? "⚠ PROTECT" : "⚠ TIGHTEN";
+            if (floor != null && floor.Level == 1 && (dir == 0 || !HasStop(level) || floor.Short.StartsWith("⚠ FLOOR", StringComparison.Ordinal))) return floor.Short + " • " + w.Substring(2);   /* ⚠ 13c */
             if (!HasStop(level) || dir == 0) return KeystoneOfSimple.NoStop + " • " + w.Substring(2);
             string at = (dir > 0 ? "above " : "below ") + level.ToString("0.00", IC);
             if (w == "⛔ GET OUT") return Line(w, closedBreak ? "a candle closed " + (dir > 0 ? "below " : "above ") + level.ToString("0.00", IC) : "flow, delta and an event against you");
@@ -10552,12 +10560,14 @@ namespace NinjaTrader.NinjaScript
         public const string Chop = "balance / chop: no new information — follow your plan (stop / target)";
         public static string Position(int pos, double entry) { return pos == 0 ? "" : (pos > 0 ? "LONG " : "SHORT ") + Math.Abs(pos).ToString(IC) + (entry > 0 ? " @ " + entry.ToString("0.00", IC) : ""); }
         // "for your LONG 2 @ 28198.38: supports HOLD — …" / "against you — counts toward TIGHTEN …" / "neutral — …"
-        public static string ForTrade(int pos, double entry, int evSide, string evName)
+        public static string ForTrade(int pos, double entry, int evSide, string evName, KeystoneFloorCheck floor = null, int trend = 0)
         {
             if (pos == 0) return ""; string who = "for your " + Position(pos, entry) + ": "; evName = string.IsNullOrEmpty(evName) ? "this event" : evName;
-            if (evSide == 0) return who + "neutral — " + evName + " changes nothing for it";
-            if (evSide == Math.Sign(pos)) return who + "supports HOLD — " + evName + " is on your side";
-            return who + "against you — " + evName + " counts toward ⚠ TIGHTEN (not a reason to close on its own — the plan decides)";
+            /* ⛔ 13c: the account's floor and a strong trend against the position are said in the same line */
+            string tail = (floor != null && floor.Level >= 1 && floor.Trade != "" ? " • " + floor.Trade : "") + (KeystoneOfTrend.ForPosition(trend, pos) != "" ? " • " + KeystoneOfTrend.ForPosition(trend, pos) : "");
+            if (evSide == 0) return who + "neutral — " + evName + " changes nothing for it" + tail;
+            if (evSide == Math.Sign(pos)) return who + "supports HOLD — " + evName + " is on your side" + tail;
+            return who + "against you — " + evName + " counts toward ⚠ TIGHTEN (not a reason to close on its own — the plan decides)" + tail;
         }
         // opposite-side events of the same type within windowMin and nearTicks of each other → ONE summary line; the rest stay as they are (newest first)
         public static List<Tuple<DateTime, string, List<KeystoneOfEvent>>> Merge(IList<KeystoneOfEvent> evs, double tick, double windowMin, int nearTicks = 8)
@@ -10582,6 +10592,273 @@ namespace NinjaTrader.NinjaScript
             string t = target > 0 && !double.IsNaN(target) ? "TARGET " + target.ToString("0.00", IC) + " • +" + Math.Abs(target - px).ToString("0.00", IC) + " pts • +$" + Math.Round(Math.Abs(target - px) * pv * qty).ToString("N0", IC) : "no target set";
             return s + "\n" + t;
         }
+    }
+    // ⛔ 13c — the account's FLOOR vs your STOP (user's screenshot: "DRAWDOWN IS NORMAL: −$870 of the planned −$1,668 risk • the plan holds" on a TPT funded account with
+    // DD LEFT $1,036 — the account blows ≈ $1,036 further, long before the stop). Pure, display only — it never moves or sends anything. roomUsd = the chart account's
+    // room to its floor NOW (DD LEFT: NetLiquidation − the floor, the intraday trailing floor + the closing commission included), dir / qty = the position, pv = $ a point.
+    // Level 2 (red) = the stop is beyond the floor (or no room left); level 1 (orange) = the floor is close (room < 1.5 × what the stop still risks) or NO STOP SET.
+    public sealed class KeystoneFloorCheck { public int Level; public double FloorPx = double.NaN, RoomUsd = double.NaN, StopRiskUsd = double.NaN; public string Text = "", Short = "", Trade = ""; }
+    public static class KeystoneFloorGuard
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public const double CloseMult = 1.5;
+        static string P(double v) { return v.ToString("0.00", IC); }
+        static string U(double v) { return "$" + Math.Round(Math.Abs(v)).ToString("N0", IC); }
+        public static KeystoneFloorCheck Check(int dir, int qty, double px, double stop, double pv, double roomUsd)
+        {
+            var o = new KeystoneFloorCheck(); dir = Math.Sign(dir); qty = Math.Abs(qty);
+            if (dir == 0 || qty == 0 || !(px > 0) || !(pv > 0) || double.IsNaN(roomUsd) || double.IsInfinity(roomUsd)) return o;
+            double room = Math.Max(0, roomUsd); o.RoomUsd = roomUsd; o.FloorPx = px - dir * room / (qty * pv);
+            bool hasStop = KeystoneOfSimple.HasStop(stop); double risk = hasStop ? Math.Max(0, dir * (px - stop)) * pv * qty : double.NaN; o.StopRiskUsd = risk;
+            string fl = P(o.FloorPx);
+            if (room <= 0.5)
+            {
+                o.Level = 2; o.Text = "⛔ YOUR ACCOUNT IS AT ITS FLOOR — no room left: any more loss blows it. Close or reduce now."; o.Short = "⛔ AT YOUR ACCOUNT'S FLOOR • no room left"; o.Trade = "⛔ the account is at its floor — no room left";
+            }
+            else if (!hasStop)
+            {
+                o.Level = 1; o.Text = "⚠ NO STOP SET — your account blows at ≈ " + fl + " (−" + U(room) + " more): that is your real stop. Set a stop inside it."; o.Short = "⚠ NO STOP • floor ≈ " + fl; o.Trade = "⚠ no stop — the account blows at ≈ " + fl + " (−" + U(room) + " more)";
+            }
+            else if (risk > room)
+            {
+                o.Level = 2; o.Text = "⛔ YOUR STOP IS BEYOND YOUR ACCOUNT'S FLOOR — the account blows at ≈ " + fl + " (−" + U(room) + " more), the stop is at " + P(stop) + ". Move the stop inside the floor or reduce.";
+                o.Short = "⛔ STOP BEYOND FLOOR • blows ≈ " + fl; o.Trade = "⛔ your stop is beyond your account's floor (blows at ≈ " + fl + ", −" + U(room) + " more)";
+            }
+            else if (room < CloseMult * risk)
+            {
+                o.Level = 1; o.Text = "⚠ the floor is close: " + U(room) + " left (the account blows at ≈ " + fl + ", your stop at " + P(stop) + " risks " + U(risk) + ")"; o.Short = "⚠ FLOOR CLOSE • " + U(room) + " left"; o.Trade = "⚠ the floor is close: " + U(room) + " left";
+            }
+            return o;
+        }
+        // the chart account's room from KeyStone's own numbers: balance (NetLiquidation, open P/L in it) − the closing commission (funded) − the floor; NaN = no firm rules
+        public static double Room(double bal, double floor, double dd, double liqAdj, bool funded)
+        {
+            if (!(dd > 0) || !(floor > 0) || !(bal > 0)) return double.NaN; return bal - (funded ? Math.Max(0, liqAdj) : 0) - floor;
+        }
+    }
+    // 📊 13c — the HONEST event layer (user's live screenshot: MNQ +324 pts, a strong up-trend, "buyer failed → SELL pressure" shown while the price kept going up; the app's own
+    // stats said 46–48 % of 59–102 = no edge). Every event's MEASURED follow-through (+8 ticks before −8, decided ones only, before the event): n < 30 = 🧪 learning (grey),
+    // ≥ 55 % with the 95 % interval (Wilson) above 50 % = an EDGE (bright), else NO EDGE (grey + "no edge", never "SELL pressure" / "supports a SELL").
+    // Context = the session trend at the event (KeystoneOfTrend): measured WITH vs AGAINST it, apart; fewer than 30 in its context = all contexts together (said).
+    public sealed class KeystoneOfEdgeResult { public int N, Wins; public double Pct = double.NaN, Lo = double.NaN, Hi = double.NaN; public string State = "LEARNING", Text = "", Context = ""; public bool Edge { get { return State == "EDGE"; } } }
+    public static class KeystoneOfEdge
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public const int MinN = 30; public const double MinPct = 55;
+        public static bool Gated(string type) { return KeystoneOfIfThen.IsPush(type) || KeystoneOfIfThen.IsDefend(type); }
+        // 95 % Wilson interval of wins / n, in %
+        public static Tuple<double, double> Wilson(int wins, int n)
+        {
+            if (n <= 0) return Tuple.Create(0.0, 100.0); double z = 1.96, p = (double)wins / n, d = 1 + z * z / n, c = p + z * z / (2 * n), m = z * Math.Sqrt(p * (1 - p) / n + z * z / (4.0 * n * n));
+            return Tuple.Create(100 * Math.Max(0, (c - m) / d), 100 * Math.Min(1, (c + m) / d));
+        }
+        public static KeystoneOfEdgeResult Of(int wins, int n)
+        {
+            var r = new KeystoneOfEdgeResult { N = n, Wins = wins };
+            if (n < MinN) { r.State = "LEARNING"; r.Text = "learning (" + n + ")"; if (n > 0) r.Pct = 100.0 * wins / n; return r; }
+            r.Pct = 100.0 * wins / n; var ci = Wilson(wins, n); r.Lo = ci.Item1; r.Hi = ci.Item2;
+            string pc = r.Pct.ToString("0", IC) + " % of " + n.ToString(IC);
+            if (r.Pct >= MinPct && r.Lo > 50) { r.State = "EDGE"; r.Text = pc; } else { r.State = "NOEDGE"; r.Text = pc + " = no edge"; }
+            return r;
+        }
+        // with (+1) / against (−1) / no (0) session trend for an event: its side × the trend at the event
+        public static int Ctx(int side, int trend) { return Math.Sign(side) * Math.Sign(trend); }
+        public static string CtxWord(int ctx) { return ctx > 0 ? "with the trend" : ctx < 0 ? "against the trend" : "no clear trend"; }
+        public static KeystoneOfEdgeResult Measure(IEnumerable<KeystoneOfEvent> past, string type, int side, DateTime before, int trend)
+        {
+            var all = (past ?? Enumerable.Empty<KeystoneOfEvent>()).Where(e => e != null && e.Type == type && e.Side == side && e.Side != 0 && e.Result != 0 && e.Time < before).ToList();
+            int ctx = Ctx(side, trend); var inCtx = all.Where(e => Ctx(e.Side, e.Trend) == ctx).ToList();
+            if (inCtx.Count >= MinN) { var r = Of(inCtx.Count(e => e.Result > 0), inCtx.Count); r.Context = CtxWord(ctx); r.Text += " (" + r.Context + ")"; return r; }
+            var ra = Of(all.Count(e => e.Result > 0), all.Count); ra.Context = "all"; if (all.Count >= MinN) ra.Text += " (all contexts — " + CtxWord(ctx) + " has " + inCtx.Count + ")"; return ra;
+        }
+        // the words with no proven edge: never "→ SELL pressure" / "this supports a SELL" — "a big buyer failed here (no proven edge)"
+        public static string Honest(string text, KeystoneOfEdgeResult r)
+        {
+            text = text ?? ""; if (r != null && r.Edge) return text;
+            string t = text.Replace("🪤 seller failed → BUY pressure", "🪤 a big seller failed here").Replace("🪤 buyer failed → SELL pressure", "🪤 a big buyer failed here")
+                .Replace(" → the seller is trapped; this supports a BUY", "").Replace(" → the buyer is trapped; this supports a SELL", "")
+                .Replace("; this supports a BUY", "").Replace("; this supports a SELL", "").Replace(" (BUY pressure)", "").Replace(" (SELL pressure)", "")
+                .Replace("BUY pressure", "a failed seller").Replace("SELL pressure", "a failed buyer").Replace("supports a BUY", "no proven edge").Replace("supports a SELL", "no proven edge");
+            return t + (r == null ? "" : r.State == "LEARNING" ? " (🧪 " + r.Text + ")" : " (no proven edge)");
+        }
+        // the label on the chart / in the lists: the words + the measured follow-through, e.g. "🪤 a big buyer failed here (no proven edge) • 48 % of 102 = no edge"
+        public static string Label(string baseLabel, KeystoneOfEdgeResult r)
+        {
+            if (r == null) return baseLabel ?? ""; return (r.Edge ? baseLabel ?? "" : Honest(baseLabel, r)) + " • " + r.Text;
+        }
+    }
+    // 📈 13c — the SESSION TREND for the event layer: dir = the day's move when the price is on the same side of VWAP; STRONG (±2) when the day's move is ≥ StrongFrac × the
+    // 20-session average range, or the price is ≥ 2 ATR from VWAP — and the compass is not against it (the VWAP leg needs the compass WITH it). Display / text only.
+    public static class KeystoneOfTrend
+    {
+        public const double StrongFrac = 0.6, VwapAtr = 2;
+        public static int Of(double px, double sessOpen, double vwap, double avgRange20, double atr, int compass)
+        {
+            if (!(px > 0) || !(sessOpen > 0)) return 0; double mv = px - sessOpen; int dir = Math.Sign(mv);
+            if (dir == 0) return 0; if (!double.IsNaN(vwap) && vwap > 0 && Math.Sign(px - vwap) != dir) return 0;
+            bool strong = compass != -dir && ((avgRange20 > 0 && Math.Abs(mv) >= StrongFrac * avgRange20) || (atr > 0 && !double.IsNaN(vwap) && vwap > 0 && dir * (px - vwap) >= VwapAtr * atr && compass == dir));
+            return strong ? 2 * dir : dir;
+        }
+        public static bool Strong(int trend) { return Math.Abs(trend) >= 2; }
+        static string W(int trend) { return trend > 0 ? "UP" : "DOWN"; }
+        // a counter-trend event in a strong trend: "⚠ against a strong UP trend — counter-trend signals mostly fail"
+        public static string Counter(int trend, int evSide) { return Strong(trend) && evSide != 0 && Math.Sign(evSide) == -Math.Sign(trend) ? "⚠ against a strong " + W(trend) + " trend — counter-trend signals mostly fail" : ""; }
+        public static string ForPosition(int trend, int pos) { return Strong(trend) && pos != 0 && Math.Sign(pos) == -Math.Sign(trend) ? "your " + (pos > 0 ? "LONG" : "SHORT") + " is against a strong " + W(trend).ToLowerInvariant() + "-trend" : ""; }
+        public static string Text(int trend) { return trend == 0 ? "no clear session trend" : (Strong(trend) ? "STRONG " : "") + W(trend) + " session trend"; }
+    }
+    // 👉 13c — "what to do now" on every toast / event card: built from the in-trade advice (the same word, never another opinion), the compass, the measured edge and the
+    // trend; flat + no proven edge / counter-trend / against the compass = "nothing to act on". Text only.
+    public static class KeystoneOfAct
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public const string Head = "👉 what to do now: ";
+        public static string Now(int evSide, string type, int compassState, double compassScore, int position, string advice, double level, KeystoneOfEdgeResult edge, int trend, KeystoneFloorCheck floor)
+        {
+            if (position != 0)
+            {
+                if (floor != null && floor.Level == 2) return Head + "for your trade: ⛔ your stop is beyond your account's floor — move it inside or reduce";
+                string a = advice ?? ""; string w = a.StartsWith("⛔", StringComparison.Ordinal) ? "⛔ get out — the plan says it is broken" : a.StartsWith("⚠ PROTECT", StringComparison.Ordinal) ? "protect the profit (tighten the stop behind the price)" : a.StartsWith("⚠", StringComparison.Ordinal) ? "tighten — keep the stop, bring it closer only if the plan allows" : "hold — the plan decides (your stop / target)";
+                string pt = KeystoneOfTrend.ForPosition(trend, position);
+                return Head + "for your trade: " + w + (pt != "" ? " • " + pt : "") + (floor != null && floor.Level == 1 ? " • " + floor.Trade : "");
+            }
+            if (evSide == 0 || type == "COMPASS" || type == "ZONE REMOVED" || type == "SETUP ENDED") return Head + "nothing — wait for a zone, a failure there and a closed candle";
+            if (type == "SETUP SHOWN") return Head + "read the card in 🧭 NOW — TAKE asks first; skip it if it is not your plan";
+            if (KeystoneOfEdge.Gated(type) && (edge == null || !edge.Edge)) return Head + "nothing to act on — " + (edge == null || edge.State == "LEARNING" ? "this event is still learning" : "this event has no proven edge") + (KeystoneOfTrend.Counter(trend, evSide) != "" ? " (and it is against a strong trend)" : "");
+            if (KeystoneOfTrend.Counter(trend, evSide) != "") return Head + "nothing to act on — it is against a strong " + (trend > 0 ? "UP" : "DOWN") + " trend";
+            int lean = KeystoneFlowCompass.Fading(compassState, compassScore) ? (Math.Abs(compassScore) >= 15 ? Math.Sign(compassScore) : 0) : compassState;
+            if (lean == -evSide) return Head + "nothing — wait: it goes against the " + KeystoneFlowCompass.SideWord(lean).ToLowerInvariant() + " in control";
+            string L = level > 0 ? level.ToString("0.00", IC) : "";
+            if (L == "" || lean == 0) return Head + (L != "" ? "watch the level " + L + " — act only on a confirmed setup" : "nothing — wait for a confirmed setup");
+            if (KeystoneOfIfThen.IsPush(type)) return Head + "watch the level " + L + ": a pullback that holds there supports a " + (evSide > 0 ? "BUY" : "SELL");
+            return Head + "consider a " + (evSide > 0 ? "BUY if a candle CLOSES back above " : "SELL if a candle CLOSES back below ") + L + " and holds (stop past it)";
+        }
+    }
+    // 🎓 13c — HOW TO USE THE 📊 ORDERFLOW TAB, and how to act (the user's Execution Card), the one-time QUICK START (5 lines) — plain words, text only.
+    public static class KeystoneOfHowTo
+    {
+        public const string Title = "❓ HOW TO USE THIS TAB — and how to act";
+        public static readonly string[] Steps =
+        {
+            "① WHO IS PUSHING — read IN CONTROL and CANDLE Δ in the strip on top. BUYERS in control + a positive Δ = buyers push; SELLERS + a negative Δ = sellers push. Do not trade against IN CONTROL.",
+            "② WHERE — look for a zone or level near the price: ▲ BUY ZONE / ▼ SELL ZONE, VAL / VAH (the value area's edges), POC (the most traded price). No level near = nothing to do.",
+            "③ THE ATTACK FAILS — wait for an event that shows the attacker FAILING at that level: 🧱 absorption, 🪤 a failed big print, 🪤 trapped traders, a divergence. Check its measured % — grey \"no edge\" = do not act on it alone.",
+            "④ THE CLOSE — wait for the candle to CLOSE back on your side of the level. A forming candle can still turn.",
+            "⑤ ACT — only then: TAKE on a card (it asks first), or your own setup with the stop just beyond the level. Size so the stop fits INSIDE your account's floor."
+        };
+        public static readonly string[] InTrade =
+        {
+            "✋ HOLD — the plan is intact: keep the stop and target, do nothing.",
+            "⚠ TIGHTEN — something went against you for a while: keep the stop, or bring it closer if the plan allows. Not a reason to close by itself.",
+            "⚠ PROTECT — you are in profit: move the stop behind the price so a winner does not become a loser.",
+            "⛔ GET OUT — a CLOSED candle broke your level, or flow + delta + an event were against you for 90 s: the plan is broken — close with the chart's CLOSE.",
+            "⛔ STOP BEYOND YOUR FLOOR — the account would blow before your stop: move the stop inside the floor or reduce, now."
+        };
+        public static readonly string[] DoNot =
+        {
+            "✖ do not trade raw or forming signals — only CLOSED candles count;",
+            "✖ do not fight IN CONTROL or a strong session trend — counter-trend events mostly fail;",
+            "✖ do not act on an event marked \"no edge\" or \"learning\";",
+            "✖ never move the stop AWAY from the price — move it closer or close."
+        };
+        public static string Text() { return string.Join("\n", Steps) + "\n\nIN A TRADE — the box in 🧭 NOW:\n" + string.Join("\n", InTrade) + "\n\nWHAT NOT TO DO:\n" + string.Join("\n", DoNot) + "\n\nNothing here sends an order: TAKE / CLOSE are the chart's own buttons (they ask first, the armed account and its limits)."; }
+        public static readonly string[] QuickStart =
+        {
+            "1. IN CONTROL (top strip) = who pushes now — never trade against it.",
+            "2. Wait for the price at a ▲ / ▼ zone or VAL / VAH / POC.",
+            "3. Wait for the attacker to FAIL there (absorbed / trapped / failed print) — grey \"no edge\" = ignore.",
+            "4. Wait for the candle to CLOSE back on your side, then TAKE (asks first) — stop beyond the level, inside your floor.",
+            "5. In a trade: follow the box — HOLD / TIGHTEN / PROTECT / GET OUT. ❓ HOW TO USE has the rest."
+        };
+    }
+    // ❓ 13c — every chip, tab and button explains itself on hover (user: "when I hover, they need to tell me what they are doing and explain their features"). ONE
+    // dictionary: WHAT it shows / does • WHY it helps • HOW TO USE it (+ "NOW: ON / OFF" where it switches). Plain words, ≤ 60 words each. Text only.
+    public static class KeystoneHelp
+    {
+        static readonly Dictionary<string, string[]> T = new Dictionary<string, string[]>
+        {
+            // 👁 the layer bar (📈 CHART + 📊 ORDERFLOW views)
+            { "LB.MODE", new[] { "switches SIMPLE (candles + one decision line) and DETAILED (every overlay you switched on).", "less on the chart = clearer decisions.", "start in SIMPLE; open DETAILED only to study." } },
+            { "LB.SETUP", new[] { "the offered setup's ENTRY arrow and its TAKE PROFIT / STOP LOSS lines (violet, dashed).", "you see the plan before you act.", "no setup = it opens 🔍 WHY (what is missing)." } },
+            { "LB.PAST", new[] { "labels of earlier signals on the candles.", "you learn how past signals played out.", "turn it on to review; off while trading." } },
+            { "LB.PROF", new[] { "the volume profile strip by the price axis: POC (most traded price), VAH / VAL (value area edges).", "these levels attract and stop the price.", "trade at their edges, not in the middle." } },
+            { "LB.DROW", new[] { "a row under the candles: Δ delta (buyers minus sellers) and contracts per candle.", "shows who pushed each candle.", "a big candle with weak Δ = suspect move." } },
+            { "LB.EVENTS", new[] { "order-flow marks: 🧱 absorption, ⚡ big prints, 🪤 trapped traders.", "they show where one side failed.", "only act on events with a proven % — grey \"no edge\" = ignore." } },
+            { "LB.ZONES", new[] { "👀 watch zones: ▲ BUY ZONE / ▼ SELL ZONE boxes where one side was strong.", "the best trades start at a zone.", "wait for the price to come back and a candle to close holding it." } },
+            { "LB.LEVELS", new[] { "key levels: VWAP, prior day high / low / close, overnight high / low.", "the price reacts at them.", "use them for stops beyond and targets before." } },
+            { "LB.DECISION", new[] { "one line on top: the verdict (WAIT / TAKE / AVOID or your trade's HOLD / TIGHTEN …).", "one clear answer instead of many marks.", "click it for 🔍 WHY." } },
+            { "LB.TOAST", new[] { "short pop-ups for new events, each with 👉 what to do now.", "you notice what just happened.", "read the 👉 line; grey = nothing to act on." } },
+            { "LB.BATTLE", new[] { "⚔ the battle map: bought vs sold at each price SINCE your entry.", "shows if your side is winning your trade.", "check it while in a trade; not the day's profile." } },
+            { "LB.OFCONF", new[] { "a ⭐ OF ✔ / ⚠ OF ✖ badge on your candle setups (FVG, engulfing, aggression).", "order flow confirms or warns about your setup.", "✔ = defended at the zone; ✖ = pushed against it." } },
+            { "LB.CANDLE", new[] { "your candle setups: 🎯 3 SETUPS + REVERSAL FVG.", "your own strategy on the chart.", "a click only fills the order panel — it sends nothing." } },
+            { "LB.DRAW", new[] { "your drawings (lines, boxes).", "keep your own levels.", "turn off to see a clean chart; they are kept." } },
+            { "LB.CLEAN", new[] { "hides every overlay at once (RESTORE brings them back).", "a quick clean look at the candles.", "press again to restore exactly what you had." } },
+            { "LB.GEAR", new[] { "the list of every overlay with a switch each.", "choose exactly what SIMPLE / DETAILED shows.", "tick the parts you want." } },
+            // 📈 the chart toolbar
+            { "TB.TF", new[] { "the candle size (1 minute … 1 day; keys 1–9).", "small = timing, big = the trend.", "decide on 5M+, time the entry on 1M." } },
+            { "TB.NOW", new[] { "jumps back to the newest candle and follows it.", "you never trade on an old screen.", "press after scrolling back." } },
+            { "TB.PAST", new[] { "how many past days the chart loads.", "more days = more context and levels.", "7 days is plenty for trading." } },
+            { "TB.OFMASTER", new[] { "the ONE order-flow switch: ☑ = the engine runs and the 📊 ORDERFLOW tab opens.", "off = fastest chart.", "turn on only when you use order flow." } },
+            { "TB.OFCHIP", new[] { "📊 OF on this chart: reversal arrows + the ⭐ OF ✔ / ✖ badge on your setups.", "order-flow help without the full tab.", "click an arrow for its checklist." } },
+            { "TB.OFMENU", new[] { "what the order flow shows and its settings.", "fine-tune the overlays.", "change only what you understand." } },
+            { "TB.OFOPEN", new[] { "opens the 📊 ORDERFLOW tab.", "the full order-flow desk with guidance.", "orders still go from the 📈 CHART." } },
+            { "TB.SPLIT", new[] { "two timeframes side by side.", "see the trend and the entry at once.", "big timeframe left, entry timeframe right." } },
+            { "TB.PATTERN", new[] { "shows / hides the pattern box (similar past moments).", "what usually came next.", "context only — not a signal." } },
+            { "TB.CLEAN", new[] { "switches every indicator off and deletes your drawings (asks first).", "a fresh chart.", "use when the chart is cluttered." } },
+            { "TB.MATCHES", new[] { "the closest past moments as paths on the chart.", "how similar moments ended.", "click one to see what came next." } },
+            { "TB.TEMPLATE", new[] { "the chart's colours / template.", "a look that is easy on your eyes.", "point to preview, click to keep." } },
+            { "TB.ACCOUNT", new[] { "your accounts: the one on the chart, balances, status.", "you always know which account trades.", "click to switch (in a trade it asks first)." } },
+            // 📊 ORDERFLOW header
+            { "OFH.SIGNALS", new[] { "the ▲ ▼ setups and how often each worked.", "only proven setups deserve your money.", "act on ✅ cards; 🧪 = still learning." } },
+            { "OFH.PROFILE", new[] { "where today's contracts traded: POC, VAH, VAL.", "the price rotates inside value and reacts at its edges.", "look for trades at VAH / VAL." } },
+            { "OFH.DELTA", new[] { "buyers vs sellers per candle, cumulative delta, imbalances.", "shows who is really pushing.", "price up with falling delta = weak move." } },
+            { "OFH.FLOW", new[] { "live buying vs selling (10 s / 1 min / 5 min) + the tape.", "the speed and the side right now.", "a burst at a level = commitment." } },
+            { "OFH.BOOK", new[] { "the orders waiting at each price (live only).", "walls can stop the price — or be pulled.", "watch if a wall HOLDS when hit." } },
+            { "OFH.ALL", new[] { "every order-flow view together.", "the full picture for study.", "too much for trading — prefer one view." } },
+            { "OFH.ON", new[] { "the order flow in THIS tab on / off.", "off = a calm chart.", "keep ON while you use the tab." } },
+            { "OFH.SYM", new[] { "which instrument this view shows (MNQ / MGC).", "each has its own flow.", "pick the one you trade." } },
+            { "OFH.SETTINGS", new[] { "rows, imbalances, signals, tape, risk.", "match the desk to your style.", "defaults are fine to start." } },
+            { "OFH.PROFS", new[] { "the volume + delta profiles by the price axis.", "levels at a glance.", "turn off for more room." } },
+            { "OFH.TICKLIB", new[] { "downloads and keeps NinjaTrader's real ticks day by day.", "order flow needs real trades; replays need them saved.", "download once, test any time." } },
+            { "OFH.BACK", new[] { "back to the trading chart.", "orders are placed there.", "TAKE here also switches you back." } },
+            { "OFN.BADGE", new[] { "where the order flow comes from: green = real bid / ask trades, amber = tick rule, grey = none.", "never trust order flow without real trades.", "grey = ignore every order-flow mark." } },
+            { "OFN.CANDLE", new[] { "CANDLE Δ: buyers minus sellers in the forming candle (contracts).", "who is attacking right now.", "a strong Δ that does not move the price = absorption." } },
+            { "OFN.CVD", new[] { "CUM Δ: delta added up over the loaded trades.", "the bigger picture of who pushed.", "price and CUM Δ going opposite ways = warning." } },
+            { "OFN.BUYERS", new[] { "BUYERS %: the share of contracts bought at the ask.", "above 55 % = buyers active, below 45 % = sellers.", "read it with IN CONTROL." } },
+            { "OFN.CONTROL", new[] { "IN CONTROL: the flow compass — BUYERS / SELLERS / BALANCED (stable, no flicker).", "the side you trade WITH.", "never take a trade against it." } },
+            // 🧭 the dock tabs
+            { "DT.NOW", new[] { "the verdict, the 5 steps, the card and your trade's advice.", "everything you need to decide.", "start here; ❓ HOW TO USE explains the routine." } },
+            { "DT.WHY", new[] { "why the verdict says what it says: trend, VWAP, levels, news.", "you understand before you act.", "check it when a card appears." } },
+            { "DT.STORY", new[] { "every event of the last hour with what it means for you.", "the session in plain words.", "read it to catch up." } },
+            { "DT.SETUPS", new[] { "every setup shown today with its result and $ after costs.", "you see what really worked.", "review it after the session." } },
+            { "DT.ANALYZE", new[] { "statistics per setup type, side and style.", "only trade what is proven.", "look for n ≥ 30 and above break-even." } },
+            { "DT.LEARN", new[] { "replays saved days to measure the setups.", "more history = honest numbers.", "run it on the TICK LIBRARY days." } },
+            { "DT.FLOW", new[] { "buying vs selling totals, delta, the tape, the speed.", "the raw fight in numbers.", "watch it at your level." } },
+            { "DT.BOOK", new[] { "the DOM ladder: waiting orders, walls, pulled walls, refills.", "who waits where.", "a price click only fills the order panel." } },
+            { "DT.STATS", new[] { "how often each signal worked on the loaded ticks.", "honest hit rates.", "below 55 % = no edge." } },
+            { "DT.GUIDE", new[] { "how to use the tab and how to read order flow.", "learn the routine.", "start with HOW TO USE." } },
+            { "DT.PROFILE", new[] { "the session profile + your trade's battle map as mini-charts.", "levels without cluttering the chart.", "check VAH / VAL / POC before a trade." } },
+            { "DT.EVENTS", new[] { "the last 20 events with what happened after and their measured %.", "see which events really work.", "grey \"no edge\" = do not act on them." } },
+            // 🧭 NOW switches
+            { "NOW.BEGINNER", new[] { "short words next to the newest marks (🧱 ABSORBED, 🪤 TRAPPED …).", "you learn what each icon means.", "keep ON until the icons are familiar." } },
+            { "NOW.CALM", new[] { "no pulsing marks, bars or toasts.", "a calmer screen.", "turn ON if the motion distracts you." } },
+            { "NOW.SCALP", new[] { "⚡ SCALP cards: a few points, quick, many chances.", "fast trades with tight stops.", "needs quick hands and clear flow." } },
+            { "NOW.SWING", new[] { "🏃 SWING cards: a zone retest or a 5-min confirmation, wider stop, target the next big level (≥ 2 R).", "fewer but bigger trades.", "fewer contracts — the stop is wider." } },
+            { "NOW.BOTH", new[] { "⚖ BOTH: scalp and swing cards, one TAKE each.", "see every chance.", "pick the one that fits your account." } },
+            { "NOW.HOWTO", new[] { "the step-by-step routine: who pushes, where, the failure, the close, then act — and what NOT to do.", "a fixed routine beats guessing.", "read it once, then follow the 5 steps." } },
+        };
+        public static IEnumerable<string> Keys { get { return T.Keys; } }
+        public static bool Has(string key) { return key != null && T.ContainsKey(key); }
+        // the tooltip: "WHAT … \nWHY … \nHOW … " (+ "\nNOW: ON / OFF"); "" for an unknown key
+        public static string Tip(string key, bool? on = null)
+        {
+            string[] a; if (key == null || !T.TryGetValue(key, out a)) return "";
+            return "WHAT: " + a[0] + "\nWHY: " + a[1] + "\nHOW: " + a[2] + (on.HasValue ? "\nNOW: " + (on.Value ? "ON" : "OFF") : "");
+        }
+        public static int Words(string key) { string[] a; return key != null && T.TryGetValue(key, out a) ? string.Join(" ", a).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Length : 0; }
+        // the layer-bar chip id → its key (MODE / SETUP / … / CLEAN / GEAR)
+        public static string Chip(string id) { return "LB." + (id ?? ""); }
+        public static string Dock(string tab) { return "DT." + (tab ?? ""); }
+        public static string View(string id) { return "OFH." + (id ?? ""); }
     }
     public static class KeystoneTradeMap
     {
@@ -39601,6 +39878,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             public List<KeystoneOfSetupRow> OfBook = new List<KeystoneOfSetupRow>(); public DateTime OfBookDay = DateTime.MinValue, OfBookSaved = DateTime.MinValue; public bool OfBookDirty; public StringBuilder OfCompassLog = new StringBuilder();
             /* 🏃 11x: the SWING setup's own hold (one at a time per instrument per style), its 🧠 judgement, the 5-min footprints / confirmations of a 1- / 2- / 3-min chart (rebuilt when a 5-min window closes), the style of the trade taken from a card */
             public List<KeystoneOfEvent> OfEvents = new List<KeystoneOfEvent>(); public HashSet<string> OfEventKeys = new HashSet<string>(); public Dictionary<string, KeystoneOfLevel> OfLevels = new Dictionary<string, KeystoneOfLevel>(); public bool OfConfNeed; public List<KeystoneRevResult> Rev = new List<KeystoneRevResult>(); public string RevKey = ""; public int RevNext = -1; public List<KeystoneRevResult> RevRows; public bool RevDirty; public DateTime RevSaved = DateTime.MinValue; /* 🎯 13a REVERSAL SCORE */ public KeystoneOfRunningFlow OfSessFlow = new KeystoneOfRunningFlow(); public bool OfAnalyzing; public DateTime OfAnalyzeAt = DateTime.MinValue; public List<Tuple<string, int, double, double, DateTime, string>> OfConfActive = new List<Tuple<string, int, double, double, DateTime, string>>(); public List<KeystoneOfConfRow> OfConfRows; public bool OfConfDirty; public DateTime OfConfSaved = DateTime.MinValue; /* ⭐ 11z: the event levels (IF / THEN), the candle-setup confluence need + journal */ public List<KeystoneOfEvent> OfEventHist; public DateTime OfEventSaved = DateTime.MinValue, OfEventHistAt = DateTime.MinValue; public KeystoneOfToasts Toasts = new KeystoneOfToasts();
+            public KeystoneFloorCheck OfFloor; public int OfTrend; public double OfAvgRange = double.NaN; public DateTime OfAvgRangeDay = DateTime.MinValue, OfEdgeAt = DateTime.MinValue; public Dictionary<string, KeystoneOfEdgeResult> OfEdges = new Dictionary<string, KeystoneOfEdgeResult>();   /* ⛔ 📊 13c: the floor vs the stop, the session trend, the measured edge per event type × side */
             public KeystoneTradeAdvice OfAdvice = new KeystoneTradeAdvice(); public DateTime OfAdviceEntry = DateTime.MinValue; public string OfStepPills = ""; public int OfStep = 1; public double OfStepLo = double.NaN, OfStepHi = double.NaN;   /* 🧭 11x: the 5-step guide */
             public string OfDecision = "", OfDecisionCls = "WAIT", OfDecisionTip = "", OfClsScalp = "SCALP", OfClsSwing = "SWING", OfHappening = ""; public DateTime OfDecisionAt = DateTime.MinValue;   /* 🚥 11x: the decision bar (= the NOW verdict) + the setup classes */
             public KeystoneOfCardHold SwHold = KeystoneOfCardHold.NewSwing(); public KeystoneOfLearnResult OfSwLearnNow; public string OfSwGateText = "", OfSwNoRoom = ""; public List<KeystoneFootprint> Of5Fps; public List<KeystoneOfSignal> Of5Conf; public string Of5Key = ""; public string OfTradeStyle = ""; public double OfTradeStruct = double.NaN; public int OfTradeDir; public double OfTradeCardStop = double.NaN, OfTradeInv = double.NaN; public bool OfTradeBreak, OfTradeNoStop; public string OfDecisionShort = "";   /* 🧼 11y: the card's stop of a taken card, the plan's invalidation, the SIMPLE decision line */
@@ -48504,7 +48782,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                             }
                             var lcI = fp != null && fp.Count >= 2 ? fp[fp.Count - 2] : null; bool brk = lcI != null && !lcI.Empty && !double.IsNaN(invL) && d0 * (lcI.Close - invL) < 0 && lcI.End >= ent.Item2;
                             double agS = comp.State == -d0 && !cmpFade ? (now - comp.Since).TotalSeconds : 0;
-                            var plI = KeystoneTradeAdvice.Plan(cf.Item3, d0, px, invL, invN, stopPx, ent.Item3, brk, agS, dSince * d0 < 0, evA > 0, opl, KeystoneOfSimple.HasStop(stopPx) ? Math.Abs(ent.Item3 - stopPx) * pvS * Math.Abs(posQ) : 0, swT);
+                            {   /* ⛔ 13c: the chart account's room to its floor (DD LEFT: NetLiquidation − the closing commission when funded − the floor, intraday trailing included) vs the stop */
+                                double roomF = double.NaN, bF, flF, ddF, laF, fdF;
+                                if (liveWindow && linkedName != null && todayVals.TryGetValue("bal", out bF) && todayVals.TryGetValue("floor", out flF) && todayVals.TryGetValue("dd", out ddF)) { todayVals.TryGetValue("liqAdj", out laF); todayVals.TryGetValue("funded", out fdF); roomF = KeystoneFloorGuard.Room(bF, flF, ddF, laF, fdF > 0); }
+                                if (ofTestRoom.ContainsKey(pa.Symbol)) roomF = ofTestRoom[pa.Symbol];   /* the smoke test's stand-in account */
+                                pa.OfFloor = KeystoneFloorGuard.Check(d0, posQ, px, stopPx, pvS, roomF);
+                            }
+                            var plI = KeystoneTradeAdvice.Plan(cf.Item3, d0, px, invL, invN, stopPx, ent.Item3, brk, agS, dSince * d0 < 0, evA > 0, opl, KeystoneOfSimple.HasStop(stopPx) ? Math.Abs(ent.Item3 - stopPx) * pvS * Math.Abs(posQ) : 0, swT, pa.OfFloor);
                             pa.OfTradeInv = invL; pa.OfTradeBreak = brk; pa.OfTradeNoStop = !KeystoneOfSimple.HasStop(stopPx);
                             string shownA = pa.OfAdvice.Update(plI.Item1, now); var whyA = new List<string>(); if (plI.Item2 != "") whyA.Add(plI.Item2); whyA.AddRange(cf.Item4);
                             if (shownA != plI.Item1) whyA.Insert(0, "(the computed " + plI.Item1 + " must hold " + (KeystoneTradeAdvice.Rank(plI.Item1) == 2 ? 90 : KeystoneTradeAdvice.Rank(plI.Item1) > KeystoneTradeAdvice.Rank(shownA) ? 45 : 30) * (swT ? 2 : 1) + " s before it shows)");
@@ -48521,6 +48805,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                             var evT = KeystoneOfTradeEvents.Merge(pa.OfEvents.Where(e9 => e9.Time >= ent.Item2 && e9.Time <= now).ToList(), tick, 3 * Math.Max(1, pa.Tf)).Take(3).ToList();
                             setT(vdMeter, dist + "\n" + (evT.Count == 0 ? "no event since your entry" : "EVENTS FOR YOUR TRADE\n" + string.Join("\n", evT.Select(m9 => tzShow(m9.Item1).ToString("HH:mm", IC) + " " + (m9.Item3.Count > 1 ? m9.Item2 : (m9.Item3[0].Trade != "" ? m9.Item3[0].Trade.Substring(m9.Item3[0].Trade.IndexOf(':') + 1).Trim() + " (" + KeystoneOfSimple.Words(m9.Item2, 6) + ")" : m9.Item2))))));
                             vdMeter.Foreground = KeystoneOfSimple.HasStop(stB) ? Muted : Orange;
+                            if (pa.OfFloor != null && pa.OfFloor.Level >= 1) { setT(vdMeter, pa.OfFloor.Text + "\n" + vdMeter.Text); vdMeter.Foreground = pa.OfFloor.Level == 2 ? Red : Orange; }   /* ⛔ 13c: the floor warning first, red / orange */
                         }
                         vdCard.BorderBrush = cf.Item1 >= 1 ? ofBuyB : cf.Item1 <= -2 ? ofSellB : Tint(Gold, 160);
                     }
@@ -48532,7 +48817,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                         vdCard.BorderBrush = vd.Kind == "TAKE" ? (Brush)ofVioB : vd.Kind == "AVOID" ? Tint(ofSellB, 150) : Tint(Gold, 150);
                     }
                     ofIndicated = vCur != null && vd.Kind == "TAKE" ? vCur.Dir : 0;
-                    if (posQ == 0) pa.OfTradeStyle = "";
+                    if (posQ == 0) { pa.OfTradeStyle = ""; pa.OfFloor = null; }
                     {   /* 🚥 11x: the classes (⭐ STRONG = proven + flow + location + compass all agree), the DECISION BAR (= this verdict, the same object), WHAT'S HAPPENING NOW */
                         Func<KeystoneOfSetupRecord, KeystoneOfLearnResult, string> clsOf = (rc, ln) => rc == null ? (rc == curW ? "SWING" : "SCALP") : KeystoneOfClass.Of("TAKE", ln != null && ln.Proven, rc.Style, KeystoneOfClass.IsStrong(ln != null && ln.Proven, dSide == rc.Dir, atLevel || locSide == rc.Dir, comp.State == rc.Dir && !cmpFade));
                         pa.OfClsScalp = cur != null ? clsOf(cur, pa.OfLearnNow) : "SCALP"; pa.OfClsSwing = curW != null ? clsOf(curW, pa.OfSwLearnNow) : "SWING";
@@ -48557,7 +48842,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                             if (cfNow == null) dtx = si.CardOffered ? stR.Item2 : vd.Head + " • " + stR.Item2;
                             /* 🧼 11y: the SIMPLE chart's ONE short line (verdict word first + ≤ 8 words) + the 5 steps in full sentences for 🧭 NOW */
                             string shortL;
-                            if (cfNow != null) { shortL = KeystoneOfSimple.InTrade(cfNow.Item3, Math.Sign(posQ), pa.OfTradeInv, pa.OfTradeBreak); if (pa.OfTradeNoStop && double.IsNaN(pa.OfTradeInv)) dcls = "PROTECT"; }
+                            if (cfNow != null) { shortL = KeystoneOfSimple.InTrade(cfNow.Item3, Math.Sign(posQ), pa.OfTradeInv, pa.OfTradeBreak, pa.OfFloor); if (pa.OfTradeNoStop && double.IsNaN(pa.OfTradeInv)) dcls = "PROTECT"; if (pa.OfFloor != null && pa.OfFloor.Level == 2) dcls = "CLOSE"; else if (pa.OfFloor != null && pa.OfFloor.Level == 1) dcls = "PROTECT"; }
                             else if (si.CardOffered) shortL = KeystoneOfSimple.Card(vd.Proven, vd.Style, vCur.Dir, vCur.Qty);
                             else if (vd.Kind == "AVOID") shortL = KeystoneOfSimple.Line("⛔ AVOID", vd.Reason);
                             else shortL = KeystoneOfSimple.Line("⏳ WAIT", zS == null && !string.IsNullOrEmpty(vd.Reason) ? vd.Reason : KeystoneOfSimple.StepPhrase(si, pa.OfStep));
