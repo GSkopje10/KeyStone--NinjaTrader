@@ -38942,7 +38942,7 @@ namespace NinjaTrader.NinjaScript.AddOns
             };
             // which order flow part the ORDERFLOW tab's view shows (ALL = the parts switched on in the ▾ menu); nothing on the trading chart
             /* 📊 11v: each order-flow overlay its own ☑ per view — the 📈 CHART view (default OFF) and the 📊 ORDERFLOW view (default ON; the cumulative-delta line OFF) */
-            string[] ofPartKeys = { "SIGLINES", "PROF", "DROW", "BIG", "TRAP", "CVDL" };
+            string[] ofPartKeys = { "SIGLINES", "PROF", "DROW", "BIG", "TRAP", "MARKS", "CVDL" };
             Func<string, bool, bool> ofPartIn = (part, inOf) => layerOf("OF.V." + (inOf ? "OF" : "CH") + "." + part, inOf ? (part == "CVDL" ? 0 : 1) : 0) == 1;
             Func<string, bool> ofPart = part => ofPartIn(part, ofViewOn) && (!ofViewOn || layerOf("OF.TAB", 1) == 1);
             Func<bool> ofChartNeeds = () => layerOf("OF.BADGE", layerOf("OF.ON", 0)) == 1 || layerOf("OF.BATTLE", 1) == 1 || layerOf("OF.CHARTSIG", 0) == 1 || layerOf("OF.CNUM", 0) == 1 || layerOf("OF.CONF", 0) == 1 || ofPartKeys.Any(k0 => ofPartIn(k0, false));   // the trading chart's badge / ⚔ arena / contracts / ✅ confirmations
@@ -39062,6 +39062,32 @@ namespace NinjaTrader.NinjaScript.AddOns
             SolidColorBrush ofBuyB = Green, ofSellB = Red, ofPocB = Gold, ofVaB = Muted, ofTrapB = Gold, ofBigB = Orchid, ofNeuB = Muted, ofVioB = colorOf("#B388FF");
             Action ofPalApply = delegate { int pi = KeystoneOfPalette.Clamp(layerOf("OF.PAL", 0)); ofBuyB = colorOf(KeystoneOfPalette.Buy(pi)); ofSellB = colorOf(KeystoneOfPalette.Sell(pi)); ofPocB = colorOf(KeystoneOfPalette.Poc(pi)); ofVaB = colorOf(KeystoneOfPalette.Va(pi)); ofTrapB = colorOf(KeystoneOfPalette.Trap(pi)); ofBigB = colorOf(KeystoneOfPalette.Big(pi)); ofNeuB = colorOf(KeystoneOfPalette.Neutral(pi)); };
             ofPalApply();
+            /* 📊 11v: the per-instrument order-flow state, from the REAL trades up to the clock (live: now; replay: the replay clock — never after it): the compass,
+               the trapped zones / big prints (≤ once a second), the STORY lines, the compass readings (every 10 s, for 📦 EXPORT) */
+            Func<ReplayPane, Tuple<int, DateTime, double>> ofClock = pn =>
+            {
+                if (pn == null || pn.Trader == null || pn.OfTicks == null || pn.OfTicks.Count == 0) return null; var tk = pn.OfTicks;
+                int endN = liveWindow ? tk.Count : KeystoneOrderFlow.FirstAfter(tk, pn.Trader.Time, tk.Count); if (endN <= 0) return null;
+                DateTime lastT = tk[endN - 1].Time, now = !liveWindow ? pn.Trader.Time : DateTime.Now > lastT && (DateTime.Now - lastT).TotalMinutes < 30 ? DateTime.Now : lastT;
+                return Tuple.Create(endN, now, pn.Trader.Tick > 0 ? pn.Trader.Tick : 0.25);
+            };
+            Action<ReplayPane> ofSync = pn =>
+            {
+                var ck = ofClock(pn); if (ck == null) return; var tk = pn.OfTicks; int endN = ck.Item1; DateTime now = ck.Item2; double tick = ck.Item3; var IC = CultureInfo.InvariantCulture;
+                if (pn.Story.Items.Count > 0 && pn.Story.Items[0].Item1 > now.AddMinutes(1)) pn.Story.Clear();   // the replay went back: a new story
+                pn.Compass.Sync(tk, endN, now, tick);
+                foreach (var ch in pn.Compass.Changes) pn.Story.Add(ch.Item1, "C|" + ch.Item1.Ticks, "🧭 the compass: " + KeystoneFlowCompass.StateText(ch.Item2) + " (score " + KeystoneFlowCompass.ScoreText(ch.Item3) + ")");
+                if ((now - pn.OfCompassLogAt).TotalSeconds >= 10 || now < pn.OfCompassLogAt) { pn.OfCompassLogAt = now; if (pn.OfCompassLog.Length > 400000) pn.OfCompassLog.Clear(); pn.OfCompassLog.Append(now.ToString("yyyy-MM-dd HH:mm:ss", IC) + "," + pn.Symbol + "," + pn.Compass.State + "," + pn.Compass.Score.ToString("0.#", IC) + "\n"); }
+                if (pn.OfAuxN == endN && Math.Abs((now - pn.OfAuxAt).TotalSeconds) < 1) return; pn.OfAuxN = endN; pn.OfAuxAt = now;
+                var f15 = KeystoneOrderFlow.Flow(tk, endN, now, 900); long minV = Math.Max(20, (f15[0] + f15[1]) / 25);
+                pn.OfTraps = KeystoneFlowTrap.Find(tk, endN, now, tick, pn.Trader.Price, minV);
+                pn.OfBig = KeystoneFlowBig.Find(tk, endN, now, tick, Math.Max(1, layerOf("OF.BIG", 10)));
+                foreach (var z in pn.OfTraps) pn.Story.Add(z.Time, "T|" + z.Side + "|" + z.Lo.ToString(IC), "🪤 trapped " + (z.Side > 0 ? "buyers" : "sellers") + " • " + KeystoneFlowTrap.Text(z));
+                foreach (var b in pn.OfBig.Where(x => x.Size >= 3 * Math.Max(1, layerOf("OF.BIG", 10)))) pn.Story.Add(b.Time, "B|" + b.Time.Ticks, "⚡ BIG PRINT • " + (b.Side > 0 ? "bought " : "sold ") + b.Size.ToString("N0", IC) + " @ " + b.Price.ToString("0.00", IC));
+                if (pn.OfSigs != null) foreach (var g in pn.OfSigs.Where(x => (x.Kind == "ABSORB" || x.Kind == "DIVERGE") && x.Time > now.AddMinutes(-60) && x.Time <= now))
+                    pn.Story.Add(g.Time, "S|" + g.Kind + "|" + g.Time.Ticks, (g.Kind == "ABSORB" ? "🧱 ABSORPTION • " + (g.Dir > 0 ? "buyers absorbed the selling" : "sellers absorbed the buying") : "⇅ DIVERGENCE • the price and the delta disagree (" + (g.Dir > 0 ? "▲" : "▼") + ")") + " @ " + g.Price.ToString("0.00", IC));
+                pn.Story.Prune(now);
+            };
             // the high-impact news whose lock window (± NEWS LOCK minutes) holds t, or null
             // the coach's plan for one setup: (text, take?) — target in R of the setup's own stop, contracts for RISK $
             Func<ReplayPane, KeystoneReplaySignal, Tuple<string, bool>> coachAdvice = (pn, sg) =>
@@ -39732,40 +39758,55 @@ namespace NinjaTrader.NinjaScript.AddOns
                     Func<double, bool> onPlot = yy => yy >= pn.Top && yy <= pn.Top + pn.PlotH;
                     if (prD != null && prD.Rows.Count > 0 && (lProf || lLvl || lDprof))
                     {
+                        /* 📊 11v: the session VOLUME PROFILE in its own strip left of the price axis (the candles end before it): each row split bought (buyers' colour, right)
+                           vs sold (sellers' colour), the POC row gold + "POC", the value area a faint band with VAH / VAL, HVN / LVN as small marks; the Δ profile a thin column at its left */
                         double rowPx = Math.Abs(yOf(pn, prD.Poc) - yOf(pn, prD.Poc + stepD)); int grp = Math.Max(1, (int)Math.Ceiling(2.5 / Math.Max(0.01, rowPx)));
                         var keysP = prD.Rows.Keys.ToList(); var buckets = new List<Tuple<double, double, long, long>>();   // lo, hi, buy, sell
                         for (int k = 0; k < keysP.Count; k += grp) { long bb = 0, ss = 0; for (int q = k; q < Math.Min(keysP.Count, k + grp); q++) { bb += prD.Rows[keysP[q]].Buy; ss += prD.Rows[keysP[q]].Sell; } buckets.Add(Tuple.Create(keysP[k], keysP[Math.Min(keysP.Count - 1, k + grp - 1)] + stepD, bb, ss)); }
-                        long maxB = Math.Max(1, buckets.Max(x => x.Item3 + x.Item4)); double maxW = Math.Min(170, pn.PlotW * 0.2);
-                        foreach (var bk in buckets)
+                        long maxB = Math.Max(1, buckets.Max(x => x.Item3 + x.Item4));
+                        double sw = pn.OfStrip > 0 ? pn.OfStrip : Math.Min(170, pn.PlotW * 0.14), sx0 = pn.PlotW - pn.Gutter - sw, dCol = lDprof ? Math.Min(34, sw * 0.22) : 0, sx1 = pn.PlotW - pn.Gutter - 4, maxW = Math.Max(10, sx1 - (sx0 + dCol + 6));
+                        if (lProf)
                         {
-                            if (!lProf) break;
-                            double y1 = yOf(pn, bk.Item2), y2 = yOf(pn, bk.Item1); if (y2 < pn.Top || y1 > pn.Top + pn.PlotH) continue;
-                            long tot = bk.Item3 + bk.Item4; double wd = maxW * tot / maxB; bool inVa = bk.Item1 >= prD.Val - 1e-9 && bk.Item2 <= prD.Vah + 1e-9, isPoc = prD.Poc >= bk.Item1 - 1e-9 && prD.Poc < bk.Item2 - 1e-9;
-                            double hgt = Math.Max(1, Math.Abs(y2 - y1) - (rowPx * grp > 3 ? 1 : 0)), xr = pn.PlotW - 6 - (lDprof ? 54 : 0);
-                            double wBuy = tot > 0 ? wd * bk.Item3 / tot : 0;
-                            var rs = new System.Windows.Shapes.Rectangle { Width = Math.Max(1, wd - wBuy), Height = hgt, Fill = isPoc ? (Brush)Gold : Red, Opacity = isPoc ? 0.9 : inVa ? 0.5 : 0.25, IsHitTestVisible = false };
-                            System.Windows.Controls.Canvas.SetLeft(rs, xr - wd); System.Windows.Controls.Canvas.SetTop(rs, Math.Min(y1, y2)); cv.Children.Add(rs);
-                            if (wBuy >= 1) { var rb = new System.Windows.Shapes.Rectangle { Width = wBuy, Height = hgt, Fill = isPoc ? (Brush)Gold : Green, Opacity = isPoc ? 0.9 : inVa ? 0.55 : 0.28, IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(rb, xr - wBuy); System.Windows.Controls.Canvas.SetTop(rb, Math.Min(y1, y2)); cv.Children.Add(rb); }
+                            var stripBg = new System.Windows.Shapes.Rectangle { Width = sw, Height = pn.PlotH, Fill = Tint(Bg, 120), IsHitTestVisible = false, Tag = "of.vp" }; System.Windows.Controls.Canvas.SetLeft(stripBg, sx0); System.Windows.Controls.Canvas.SetTop(stripBg, pn.Top); cv.Children.Add(stripBg);
+                            cv.Children.Add(new System.Windows.Shapes.Line { X1 = sx0, X2 = sx0, Y1 = pn.Top, Y2 = pn.Top + pn.PlotH, Stroke = ofVaB, StrokeThickness = 1, Opacity = 0.5, IsHitTestVisible = false });
+                            if (!double.IsNaN(prD.Vah) && !double.IsNaN(prD.Val))
+                            {
+                                double yv1 = Math.Max(pn.Top, yOf(pn, prD.Vah)), yv2 = Math.Min(pn.Top + pn.PlotH, yOf(pn, prD.Val));
+                                if (yv2 > yv1) { var va = new System.Windows.Shapes.Rectangle { Width = sw, Height = yv2 - yv1, Fill = Tint(ofVaB, 55), IsHitTestVisible = false, Tag = "of.va" }; System.Windows.Controls.Canvas.SetLeft(va, sx0); System.Windows.Controls.Canvas.SetTop(va, yv1); cv.Children.Add(va); }
+                            }
+                            foreach (var bk in buckets)
+                            {
+                                double y1 = yOf(pn, bk.Item2), y2 = yOf(pn, bk.Item1); if (y2 < pn.Top || y1 > pn.Top + pn.PlotH) continue;
+                                long tot = bk.Item3 + bk.Item4; double wd = maxW * tot / maxB; bool inVa = bk.Item1 >= prD.Val - 1e-9 && bk.Item2 <= prD.Vah + 1e-9, isPoc = prD.Poc >= bk.Item1 - 1e-9 && prD.Poc < bk.Item2 - 1e-9;
+                                double hgt = Math.Max(1, Math.Abs(y2 - y1) - (rowPx * grp > 3 ? 1 : 0)), wBuy = tot > 0 ? wd * bk.Item3 / tot : 0;
+                                var rs = new System.Windows.Shapes.Rectangle { Width = Math.Max(1, wd - wBuy), Height = hgt, Fill = isPoc ? ofPocB : ofSellB, Opacity = isPoc ? 0.95 : inVa ? 0.6 : 0.3, IsHitTestVisible = false };
+                                System.Windows.Controls.Canvas.SetLeft(rs, sx1 - wd); System.Windows.Controls.Canvas.SetTop(rs, Math.Min(y1, y2)); cv.Children.Add(rs);
+                                if (wBuy >= 1) { var rb = new System.Windows.Shapes.Rectangle { Width = wBuy, Height = hgt, Fill = isPoc ? ofPocB : ofBuyB, Opacity = isPoc ? 0.95 : inVa ? 0.65 : 0.32, IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(rb, sx1 - wBuy); System.Windows.Controls.Canvas.SetTop(rb, Math.Min(y1, y2)); cv.Children.Add(rb); }
+                            }
+                            Action<double, string, SolidColorBrush> stripLab = (pv0, t0, b0) => { double yy = yOf(pn, pv0); if (!onPlot(yy)) return; var lb = new TextBlock { Text = t0, Foreground = b0, FontSize = 10.5, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(lb, sx0 + dCol + 4); System.Windows.Controls.Canvas.SetTop(lb, yy - 14); cv.Children.Add(lb); };
+                            if (!double.IsNaN(prD.Poc)) stripLab(prD.Poc + stepD / 2, "POC " + fmt(prD.Poc), ofPocB);
+                            if (!double.IsNaN(prD.Vah)) stripLab(prD.Vah, "VAH", ofNeuB); if (!double.IsNaN(prD.Val)) stripLab(prD.Val + 14 * (pn.Hi - pn.Lo) / Math.Max(1, pn.PlotH), "VAL", ofNeuB);
+                            foreach (var hv in prD.Hvn.Take(4)) { double yy = yOf(pn, hv); if (!onPlot(yy)) continue; cv.Children.Add(new System.Windows.Shapes.Line { X1 = sx0, X2 = sx0 + 6, Y1 = yy, Y2 = yy, Stroke = ofNeuB, StrokeThickness = 2, Opacity = 0.7, IsHitTestVisible = false }); }
+                            foreach (var lv in prD.Lvn.Take(4)) { double yy = yOf(pn, lv); if (!onPlot(yy)) continue; cv.Children.Add(new System.Windows.Shapes.Line { X1 = sx0, X2 = sx0 + 6, Y1 = yy, Y2 = yy, Stroke = ofNeuB, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 1, 2 }, Opacity = 0.6, IsHitTestVisible = false }); }
                         }
                         if (lDprof)
-                        {   /* 🎯 BUILD 11s: the DELTA PROFILE — a thin column by the price axis: bought − sold at each price (green right of the middle line, red left), from the real trades only */
-                            long maxDl = Math.Max(1, buckets.Max(x => Math.Abs(x.Item3 - x.Item4))); double xc = pn.PlotW - 30, half = 22;
+                        {   /* 🎯 BUILD 11s: the DELTA PROFILE — bought − sold at each price (buyers right of the middle line, sellers left), from the real trades only; 11v: inside the strip */
+                            long maxDl = Math.Max(1, buckets.Max(x => Math.Abs(x.Item3 - x.Item4))); double half = Math.Max(6, dCol / 2 - 1), xc = sx0 + half + 1;
                             cv.Children.Add(new System.Windows.Shapes.Line { X1 = xc, X2 = xc, Y1 = pn.Top, Y2 = pn.Top + pn.PlotH, Stroke = Muted, StrokeThickness = 1, Opacity = 0.35, IsHitTestVisible = false, Tag = "of.dprof" });
                             foreach (var bk in buckets)
                             {
                                 double y1 = yOf(pn, bk.Item2), y2 = yOf(pn, bk.Item1); if (y2 < pn.Top || y1 > pn.Top + pn.PlotH) continue; long dl = bk.Item3 - bk.Item4; if (dl == 0) continue;
                                 double wdl = Math.Max(1, half * Math.Abs(dl) / maxDl), hgt = Math.Max(1, Math.Abs(y2 - y1) - (rowPx * grp > 3 ? 1 : 0));
-                                var rd = new System.Windows.Shapes.Rectangle { Width = wdl, Height = hgt, Fill = dl > 0 ? Green : Red, Opacity = 0.75, IsHitTestVisible = false };
+                                var rd = new System.Windows.Shapes.Rectangle { Width = wdl, Height = hgt, Fill = dl > 0 ? ofBuyB : ofSellB, Opacity = 0.75, IsHitTestVisible = false };
                                 System.Windows.Controls.Canvas.SetLeft(rd, dl > 0 ? xc : xc - wdl); System.Windows.Controls.Canvas.SetTop(rd, Math.Min(y1, y2)); cv.Children.Add(rd);
                             }
-                            var dlab = new TextBlock { Text = "Δ PROFILE", Foreground = Muted, FontSize = 9, FontWeight = FontWeights.Bold, IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(dlab, xc - 24); System.Windows.Controls.Canvas.SetTop(dlab, pn.Top + 2); cv.Children.Add(dlab);
+                            var dlab = new TextBlock { Text = "Δ", Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold, IsHitTestVisible = false, ToolTip = "Δ PROFILE: bought − sold at each price" }; System.Windows.Controls.Canvas.SetLeft(dlab, xc - 4); System.Windows.Controls.Canvas.SetTop(dlab, pn.Top + 2); cv.Children.Add(dlab);
                         }
-                        foreach (var lv0 in new[] { Tuple.Create(prD.Poc + stepD / 2, (Brush)Gold, "POC"), Tuple.Create(prD.Vah, (Brush)Cyan, "VAH"), Tuple.Create(prD.Val, (Brush)Cyan, "VAL") })
-                        {
+                        var vpLab = new TextBlock { Text = "VOLUME PROFILE", Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, IsHitTestVisible = false }; if (lProf) { System.Windows.Controls.Canvas.SetLeft(vpLab, sx0 + dCol + 4); System.Windows.Controls.Canvas.SetTop(vpLab, pn.Top + 2); cv.Children.Add(vpLab); }
+                        foreach (var lv0 in new[] { Tuple.Create(prD.Poc + stepD / 2, (Brush)ofPocB, "POC"), Tuple.Create(prD.Vah, (Brush)ofNeuB, "VAH"), Tuple.Create(prD.Val, (Brush)ofNeuB, "VAL") })
+                        {   // faint lines across the candles (no name boxes on the plot — the names sit in the strip)
                             double yy = yOf(pn, lv0.Item1); if (!lLvl || !onPlot(yy)) continue;
-                            cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = yy, Y2 = yy, Stroke = lv0.Item2, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 5, 4 }, Opacity = 0.6, IsHitTestVisible = false });
-                            var lt = new TextBlock { Text = lv0.Item3 + " " + fmt(lv0.Item1 - (lv0.Item3 == "POC" ? stepD / 2 : 0)), Foreground = lv0.Item2, FontSize = 10, FontWeight = FontWeights.Bold, IsHitTestVisible = false };
-                            System.Windows.Controls.Canvas.SetLeft(lt, 6); System.Windows.Controls.Canvas.SetTop(lt, yy - 14); cv.Children.Add(lt);
+                            cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW - pn.Gutter - pn.OfStrip, Y1 = yy, Y2 = yy, Stroke = lv0.Item2, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 5, 4 }, Opacity = 0.45, IsHitTestVisible = false });
                         }
                     }
                     if (fpsD != null && fpsD.Count > 0)
@@ -39774,13 +39815,13 @@ namespace NinjaTrader.NinjaScript.AddOns
                         for (int i = i0; i <= i1; i++)
                         {
                             int k = i - pn.OfI0; if (k < 0 || k >= fpsD.Count) continue; var f = fpsD[k]; if (f.Empty) continue; double x = xOfIndex(pn, i), yl = yOf(pn, cs[i].Low);
-                            Brush dB = f.Delta >= 0 ? Green : Red;
+                            Brush dB = f.Delta >= 0 ? ofBuyB : ofSellB;
                             if (!lDlt) { }
                             else if (pn.Spacing >= 26) { var dt = new TextBlock { Text = sgnL(f.Delta), Foreground = dB, FontSize = 9.5, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(dt, x - 12); System.Windows.Controls.Canvas.SetTop(dt, yl + 3); cv.Children.Add(dt); }
                             else if (pn.Spacing >= 5) { var dq = new System.Windows.Shapes.Rectangle { Width = Math.Max(2, bw), Height = 3, Fill = dB, Opacity = 0.25 + 0.75 * Math.Abs(f.Delta) / maxD, IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(dq, x - Math.Max(2, bw) / 2); System.Windows.Controls.Canvas.SetTop(dq, yl + 4); cv.Children.Add(dq); }
                             if (lStk) foreach (var stk in f.Stacks)
                             {
-                                double ya = yOf(pn, stk.Hi), yb = yOf(pn, stk.Lo); var sr = new System.Windows.Shapes.Rectangle { Width = 3, Height = Math.Max(2, Math.Abs(yb - ya)), Fill = stk.Side > 0 ? Green : Red, Opacity = 0.9, IsHitTestVisible = false };
+                                double ya = yOf(pn, stk.Hi), yb = yOf(pn, stk.Lo); var sr = new System.Windows.Shapes.Rectangle { Width = 3, Height = Math.Max(2, Math.Abs(yb - ya)), Fill = stk.Side > 0 ? ofBuyB : ofSellB, Opacity = 0.9, IsHitTestVisible = false };
                                 System.Windows.Controls.Canvas.SetLeft(sr, x + bw / 2 + 2); System.Windows.Controls.Canvas.SetTop(sr, Math.Min(ya, yb)); cv.Children.Add(sr);
                             }
                         }
@@ -39801,21 +39842,21 @@ namespace NinjaTrader.NinjaScript.AddOns
                                 for (int rr = 0; rr < 4; rr++)
                                 {
                                     long v = rr == 0 ? f.Volume : rr == 1 ? f.Buy : rr == 2 ? f.Sell : f.Delta; long mx = rr == 0 ? mxV : rr == 3 ? mxDl : mxS;
-                                    Brush cb = rr == 0 ? (Brush)Cyan : rr == 1 ? Green : rr == 2 ? Red : (v >= 0 ? Green : Red);
+                                    Brush cb = rr == 0 ? (Brush)Cyan : rr == 1 ? ofBuyB : rr == 2 ? ofSellB : (v >= 0 ? ofBuyB : ofSellB);
                                     var cell = new System.Windows.Shapes.Rectangle { Width = cw, Height = rh - 1, Fill = cb, Opacity = 0.12 + 0.6 * Math.Abs(v) / mx, IsHitTestVisible = false };
                                     System.Windows.Controls.Canvas.SetLeft(cell, x - cw / 2); System.Windows.Controls.Canvas.SetTop(cell, pTop + 1 + rr * rh); cv.Children.Add(cell);
                                     if (txtS) { var ct = new TextBlock { Text = rr == 3 ? sgnL(v) : numL(v), Foreground = Text, FontSize = 9, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), Width = cw, TextAlignment = TextAlignment.Center, IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(ct, x - cw / 2); System.Windows.Controls.Canvas.SetTop(ct, pTop + rr * rh); cv.Children.Add(ct); }
                                 }
                             }
                             var lab = new StackPanel { Background = Tint(Bg, 240), IsHitTestVisible = false };
-                            foreach (var rn in rowN) lab.Children.Add(new TextBlock { Text = rn, Height = rh, Foreground = rn == "BUY" ? Green : rn == "SELL" ? Red : rn == "DELTA" ? Gold : Cyan, FontSize = 9, FontWeight = FontWeights.Bold, Padding = new Thickness(4, 1, 6, 0) });
+                            foreach (var rn in rowN) lab.Children.Add(new TextBlock { Text = rn, Height = rh, Foreground = rn == "BUY" ? ofBuyB : rn == "SELL" ? ofSellB : rn == "DELTA" ? Gold : Cyan, FontSize = 9, FontWeight = FontWeights.Bold, Padding = new Thickness(4, 1, 6, 0) });
                             System.Windows.Controls.Canvas.SetLeft(lab, 0); System.Windows.Controls.Canvas.SetTop(lab, pTop + 1); cv.Children.Add(lab);
                             var fl = fpsD[fpsD.Count - 1]; int lastI = pn.OfI0 + fpsD.Count - 1;
                             if (!fl.Empty)
                             {
                                 int endN = liveWindow ? pn.OfTicks.Count : KeystoneOrderFlow.FirstAfter(pn.OfTicks, r.Time, pn.OfTicks.Count); long perMin = 0;
                                 if (endN > 0) { var tEnd = pn.OfTicks[endN - 1].Time; for (int q = endN - 1; q >= 0 && pn.OfTicks[q].Time > tEnd.AddMinutes(-1); q--) perMin += pn.OfTicks[q].Size; }
-                                var nowT = new Border { Background = Tint(Bg, 235), BorderBrush = Tint(fl.Delta >= 0 ? Green : Red, 160), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 2, 8, 2), IsHitTestVisible = false,
+                                var nowT = new Border { Background = Tint(Bg, 235), BorderBrush = Tint(fl.Delta >= 0 ? ofBuyB : ofSellB, 160), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 2, 8, 2), IsHitTestVisible = false,
                                     Child = new TextBlock { Text = (lastI >= cs.Count - 1 ? "THIS CANDLE" : "LAST CANDLE") + "  VOL " + numL(fl.Volume) + "  •  BUY " + numL(fl.Buy) + "  •  SELL " + numL(fl.Sell) + "  •  Δ " + sgnL(fl.Delta) + " (high " + sgnL(fl.MaxDelta) + " / low " + sgnL(fl.MinDelta) + ")  •  " + fl.Trades.ToString("N0", CultureInfo.InvariantCulture) + " trades  •  " + numL(perMin) + " contracts in the last minute",
                                         Foreground = Text, FontSize = 10.5, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas") } };
                                 System.Windows.Controls.Canvas.SetLeft(nowT, 58); System.Windows.Controls.Canvas.SetTop(nowT, pTop - 22); cv.Children.Add(nowT);
@@ -39832,7 +39873,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                             var fx = new StackPanel(); var f60 = KeystoneOrderFlow.Flow(pn.OfTicks, endF, nowF, 60); var f10 = KeystoneOrderFlow.Flow(pn.OfTicks, endF, nowF, 10);
                             double bp60 = f60[0] + f60[1] > 0 ? 100.0 * f60[0] / (f60[0] + f60[1]) : 50;
                             string ctl = f60[0] + f60[1] == 0 ? "• QUIET — no trades in the last minute" : bp60 >= 60 ? "▲ BUYERS IN CONTROL" : bp60 <= 40 ? "▼ SELLERS IN CONTROL" : "≈ BALANCED";
-                            SolidColorBrush ctlB = f60[0] + f60[1] == 0 ? Muted : bp60 >= 60 ? Green : bp60 <= 40 ? Red : Gold;
+                            SolidColorBrush ctlB = f60[0] + f60[1] == 0 ? Muted : bp60 >= 60 ? ofBuyB : bp60 <= 40 ? ofSellB : Gold;
                             fx.Children.Add(new TextBlock { Text = "⚡ LIVE FLOW • everybody's trades", Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold });
                             fx.Children.Add(new TextBlock { Text = ctl + (f60[0] + f60[1] > 0 ? "  " + bp60.ToString("0", CultureInfo.InvariantCulture) + "% bought" : ""), Foreground = ctlB, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 1, 0, 1) });
                             fx.Children.Add(new TextBlock { Text = "speed " + ((f10[0] + f10[1]) / 10.0).ToString("0.#", CultureInfo.InvariantCulture) + " contracts / sec • " + f10[2].ToString("N0", CultureInfo.InvariantCulture) + " trades in 10 s", Foreground = Text, FontSize = 9.5, Margin = new Thickness(0, 0, 0, 3) });
@@ -39842,8 +39883,8 @@ namespace NinjaTrader.NinjaScript.AddOns
                                 var rowF = new StackPanel { Margin = new Thickness(0, 1, 0, 2) };
                                 rowF.Children.Add(new TextBlock { Text = wf.Item1 + "  BUY " + numL(fv[0]) + " / SELL " + numL(fv[1]) + "  Δ " + sgnL(fv[0] - fv[1]), Foreground = Text, FontSize = 9.5, FontWeight = FontWeights.SemiBold, FontFamily = new FontFamily("Consolas") });
                                 var bar = new System.Windows.Controls.Canvas { Width = 220, Height = 8 };
-                                bar.Children.Add(new System.Windows.Shapes.Rectangle { Width = Math.Max(0, 220 * bShare), Height = 8, Fill = Green, Opacity = 0.85 });
-                                var rB = new System.Windows.Shapes.Rectangle { Width = Math.Max(0, 220 * (1 - bShare)), Height = 8, Fill = Red, Opacity = 0.85 }; System.Windows.Controls.Canvas.SetLeft(rB, 220 * bShare); bar.Children.Add(rB);
+                                bar.Children.Add(new System.Windows.Shapes.Rectangle { Width = Math.Max(0, 220 * bShare), Height = 8, Fill = ofBuyB, Opacity = 0.85 });
+                                var rB = new System.Windows.Shapes.Rectangle { Width = Math.Max(0, 220 * (1 - bShare)), Height = 8, Fill = ofSellB, Opacity = 0.85 }; System.Windows.Controls.Canvas.SetLeft(rB, 220 * bShare); bar.Children.Add(rB);
                                 bar.Children.Add(new System.Windows.Shapes.Line { X1 = 110, X2 = 110, Y1 = 0, Y2 = 8, Stroke = Text, StrokeThickness = 1, Opacity = 0.6 });
                                 rowF.Children.Add(bar); fx.Children.Add(rowF);
                             }
@@ -39851,7 +39892,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                             var sl = KeystoneOrderFlow.DeltaSlices(pn.OfTicks, endF, nowF, 15, 20); long slMax = Math.Max(1, sl.Max(v => Math.Abs(v)));
                             var spk = new System.Windows.Controls.Canvas { Width = 220, Height = 40, Margin = new Thickness(0, 3, 0, 0) };
                             spk.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = 220, Y1 = 20, Y2 = 20, Stroke = Muted, StrokeThickness = 1, Opacity = 0.5 });
-                            for (int q = 0; q < sl.Length; q++) { double hq = Math.Max(1, 19.0 * Math.Abs(sl[q]) / slMax); var bq = new System.Windows.Shapes.Rectangle { Width = 9, Height = hq, Fill = sl[q] >= 0 ? Green : Red, Opacity = q == sl.Length - 1 ? 1 : 0.7 }; System.Windows.Controls.Canvas.SetLeft(bq, q * 11); System.Windows.Controls.Canvas.SetTop(bq, sl[q] >= 0 ? 20 - hq : 20); spk.Children.Add(bq); }
+                            for (int q = 0; q < sl.Length; q++) { double hq = Math.Max(1, 19.0 * Math.Abs(sl[q]) / slMax); var bq = new System.Windows.Shapes.Rectangle { Width = 9, Height = hq, Fill = sl[q] >= 0 ? ofBuyB : ofSellB, Opacity = q == sl.Length - 1 ? 1 : 0.7 }; System.Windows.Controls.Canvas.SetLeft(bq, q * 11); System.Windows.Controls.Canvas.SetTop(bq, sl[q] >= 0 ? 20 - hq : 20); spk.Children.Add(bq); }
                             fx.Children.Add(new TextBlock { Text = "DELTA every 15 s • last 5 min (newest right)", Foreground = Muted, FontSize = 9, Margin = new Thickness(0, 2, 0, 0) }); fx.Children.Add(spk);
                             rightCol.Children.Add(new Border { Background = Tint(Bg, 230), BorderBrush = Tint(ctlB, 150), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7), Padding = new Thickness(8, 4, 8, 5), Margin = new Thickness(0, 0, 0, 4), Child = fx });
                         }
@@ -39864,15 +39905,15 @@ namespace NinjaTrader.NinjaScript.AddOns
                             {
                                 double sumA = asksR.Sum(x => x[1]), sumB = bidsR.Sum(x => x[1]), bShareB = sumA + sumB > 0 ? 100 * sumB / (sumA + sumB) : 50, mxB = Math.Max(1, asksR.Concat(bidsR).Max(x => x[1]));
                                 bk.Children.Add(new TextBlock { Text = "📚 ORDER BOOK • resting orders", Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold });
-                                bk.Children.Add(new TextBlock { Text = "BIDS " + sumB.ToString("N0", CultureInfo.InvariantCulture) + " vs ASKS " + sumA.ToString("N0", CultureInfo.InvariantCulture) + " • " + bShareB.ToString("0", CultureInfo.InvariantCulture) + "% buy side", Foreground = bShareB >= 60 ? Green : bShareB <= 40 ? Red : Text, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
+                                bk.Children.Add(new TextBlock { Text = "BIDS " + sumB.ToString("N0", CultureInfo.InvariantCulture) + " vs ASKS " + sumA.ToString("N0", CultureInfo.InvariantCulture) + " • " + bShareB.ToString("0", CultureInfo.InvariantCulture) + "% buy side", Foreground = bShareB >= 60 ? ofBuyB : bShareB <= 40 ? ofSellB : Text, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
                                 Action<double[], SolidColorBrush> lvl = (x, cb) =>
                                 {
                                     var g0 = new Grid { Height = 13 }; g0.Children.Add(new System.Windows.Shapes.Rectangle { Width = 220 * x[1] / mxB, Height = 11, Fill = cb, Opacity = 0.35, HorizontalAlignment = HorizontalAlignment.Right });
                                     g0.Children.Add(new TextBlock { Text = fmt(x[0]) + "   " + x[1].ToString("N0", CultureInfo.InvariantCulture).PadLeft(5), Foreground = cb, FontSize = 10, FontFamily = new FontFamily("Consolas"), FontWeight = FontWeights.SemiBold }); bk.Children.Add(g0);
                                 };
-                                for (int q = asksR.Count - 1; q >= 0; q--) lvl(asksR[q], Red);
+                                for (int q = asksR.Count - 1; q >= 0; q--) lvl(asksR[q], ofSellB);
                                 bk.Children.Add(new System.Windows.Shapes.Rectangle { Height = 1, Fill = Gold, Margin = new Thickness(0, 1, 0, 1) });
-                                foreach (var x in bidsR) lvl(x, Green);
+                                foreach (var x in bidsR) lvl(x, ofBuyB);
                             }
                             rightCol.Children.Add(new Border { Background = Tint(Bg, 230), BorderBrush = Tint(Cyan, 110), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7), Padding = new Thickness(8, 4, 8, 5), Margin = new Thickness(0, 0, 0, 4), Child = bk });
                         }
@@ -39885,7 +39926,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                                 var tp0 = new StackPanel(); tp0.Children.Add(new TextBlock { Text = "TAPE • last trades", Foreground = Muted, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 2) });
                                 for (int q = endT - 1; q >= Math.Max(0, endT - (ofSub == "FLOW" || ofSub == "BOOK" ? 14 : rightCol.Children.Count > 0 ? 7 : 12)); q--)
                                 {
-                                    var tq = pn.OfTicks[q]; SolidColorBrush tb0 = tq.Side > 0 ? Green : Red; bool bigQ = tq.Size >= bigT;
+                                    var tq = pn.OfTicks[q]; SolidColorBrush tb0 = tq.Side > 0 ? ofBuyB : ofSellB; bool bigQ = tq.Size >= bigT;
                                     tp0.Children.Add(new TextBlock { Text = tq.Time.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + fmt(tq.Price) + "  " + tq.Size.ToString(CultureInfo.InvariantCulture).PadLeft(4) + (tq.Side > 0 ? "  BUY" : "  SELL"), Foreground = tb0, Background = bigQ ? Tint(tb0, 70) : null,
                                         FontSize = 10, FontWeight = bigQ ? FontWeights.Bold : FontWeights.Normal, FontFamily = new FontFamily("Consolas") });
                                 }
@@ -39901,9 +39942,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                             var bandBg = new Border { Width = pn.PlotW, Height = bandH, Background = Tint(Bg, 170), IsHitTestVisible = false }; System.Windows.Controls.Canvas.SetLeft(bandBg, 0); System.Windows.Controls.Canvas.SetTop(bandBg, bTop); cv.Children.Add(bandBg);
                             double yz = bTop + bandH - (0 - cmin) / crng * bandH;
                             cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = pn.PlotW, Y1 = yz, Y2 = yz, Stroke = Muted, StrokeThickness = 1, StrokeDashArray = new DoubleCollection { 3, 3 }, Opacity = 0.5, IsHitTestVisible = false });
-                            var pl = new System.Windows.Shapes.Polyline { Stroke = vis[vis.Count - 1].Item2 >= 0 ? Green : Red, StrokeThickness = 1.6, IsHitTestVisible = false };
+                            var pl = new System.Windows.Shapes.Polyline { Stroke = vis[vis.Count - 1].Item2 >= 0 ? ofBuyB : ofSellB, StrokeThickness = 1.6, IsHitTestVisible = false };
                             foreach (var v in vis) pl.Points.Add(new Point(v.Item1, bTop + bandH - (v.Item2 - cmin) / crng * bandH)); cv.Children.Add(pl);
-                            var cl = new TextBlock { Text = "CUMULATIVE DELTA " + sgnL(vis[vis.Count - 1].Item2), Foreground = vis[vis.Count - 1].Item2 >= 0 ? Green : Red, FontSize = 10, FontWeight = FontWeights.Bold, IsHitTestVisible = false };
+                            var cl = new TextBlock { Text = "CUMULATIVE DELTA " + sgnL(vis[vis.Count - 1].Item2), Foreground = vis[vis.Count - 1].Item2 >= 0 ? ofBuyB : ofSellB, FontSize = 10, FontWeight = FontWeights.Bold, IsHitTestVisible = false };
                             System.Windows.Controls.Canvas.SetLeft(cl, 6); System.Windows.Controls.Canvas.SetTop(cl, bTop + 2); cv.Children.Add(cl);
                         }
                         // the signals: ▲ / ▼ with the kind and its hit rate so far (n = how many earlier signals of that kind + side were decided)
@@ -39921,7 +39962,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                                 var lastC = pn.OfConf.Count > 0 ? pn.OfConf[pn.OfConf.Count - 1] : null;
                                 foreach (var cg in pn.OfConf)
                                 {
-                                    int i = pn.OfI0 + cg.Bar; if (i < i0 || i > i1 || i >= cs.Count) continue; double x = xOfIndex(pn, i); Brush cb = cg.Dir > 0 ? Green : Red;
+                                    int i = pn.OfI0 + cg.Bar; if (i < i0 || i > i1 || i >= cs.Count) continue; double x = xOfIndex(pn, i); Brush cb = cg.Dir > 0 ? ofBuyB : ofSellB;
                                     bool nowC = ReferenceEquals(cg, lastC) && fpsD != null && cg.Bar >= fpsD.Count - 3;
                                     // every timeframe shows its setups (user's request: higher timeframes have fewer setups, so few reached the hit-rate minimum and they were all hidden):
                                     // a strong one (hit rate ≥ the %, enough earlier ones) is bold, a weaker / new one smaller; a decided one shows ✔ WIN / ✖ LOSS in its colour
@@ -39929,7 +39970,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                                     var IC0 = CultureInfo.InvariantCulture; double tkC = KeystoneMoveStudy.TickSize(pn.Symbol), pvC = KeystoneMoveStudy.PointValue(pn.Symbol); int stpT = layerOf("OF.STP", 40), tgtT = layerOf("OF.TGT", 40); double riskBud = layerOf("OF.RISK", 200);
                                     double stopPx = cg.Price - cg.Dir * stpT * tkC, tgtPx = cg.Price + cg.Dir * tgtT * tkC;
                                     int agree = 0, nTf = 0; foreach (var tfm in new[] { 5, 15, 60 }) { if (tfm < pn.Tf) continue; nTf++; var em = KeystoneMtf.Ema(cs, tfm); if (i < em.Length && !double.IsNaN(em[i]) && (cg.Dir > 0 ? cs[i].Close > em[i] : cs[i].Close < em[i])) agree++; }
-                                    Brush rb = nowC ? cb : cg.Outcome > 0 ? Green : cg.Outcome < 0 ? Red : cb; string res = nowC ? " ◀ NOW" : cg.Outcome > 0 ? " ✔ WIN" : cg.Outcome < 0 ? " ✖ LOSS" : " • open";
+                                    Brush rb = nowC ? cb : cg.Outcome > 0 ? ofBuyB : cg.Outcome < 0 ? ofSellB : cb; string res = nowC ? " ◀ NOW" : cg.Outcome > 0 ? " ✔ WIN" : cg.Outcome < 0 ? " ✖ LOSS" : " • open";
                                     double ymC = cg.Dir > 0 ? yOf(pn, cs[i].Low) + 18 : yOf(pn, cs[i].High) - 40;
                                     string tipC = (cg.Dir > 0 ? "▲ BUY" : "▼ SELL") + " • " + cg.Kind + " • " + cs[i].Time.ToString("ddd dd MMM HH:mm", IC0) + " • " + pn.Tf + "m candle\n"
                                         + "entry " + cg.Price.ToString("0.00", IC0) + "   stop " + stopPx.ToString("0.00", IC0) + " (" + stpT + " ticks)   target " + tgtPx.ToString("0.00", IC0) + " (" + tgtT + " ticks)\n"
