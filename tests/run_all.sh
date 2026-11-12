@@ -101,6 +101,9 @@ mono "$here/.build/news.exe" | tail -1
 rm -f "$here/.build/ajl.exe"
 "$root/tools/compile_engine.sh" "$here/.build/ajl.exe" "$here/AccountJournalTests.cs"
 mono "$here/.build/ajl.exe" | tail -1
+rm -f "$here/.build/xj.exe"
+"$root/tools/compile_engine.sh" "$here/.build/xj.exe" "$here/ExecJournalTests.cs"
+mono "$here/.build/xj.exe" | tail -1
 rm -f "$here/.build/aicoach.exe"
 "$root/tools/compile_engine.sh" "$here/.build/aicoach.exe" "$here/AiCoachTests.cs"
 mono "$here/.build/aicoach.exe" | tail -1

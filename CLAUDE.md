@@ -84,7 +84,13 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   💰 11q (display / read-only): a FUNDED account's intraday trailing peak follows the firm's LIQUIDATION value (`KeystoneFundedLiq`: NinjaTrader's NetLiquidation − open contracts ×
   the per-side commission learned from NinjaTrader today — executions' Commission, else gross − realized, Studio\CommissionRates.txt), only from a consistent reading; a NinjaTrader
   trailing AccountItem still wins (every Drawdown / Liquidation / Trailing item is logged once to Studio\KeyStone.log); ✎ SYNC next to BLOWS AT = Tradovate's DRAWDOWN AUTO (time kept,
-  `pk.sync.<account>`); EXECUTIONS fees / net = NinjaTrader's gross − realized / realized. Nothing here sends or closes anything; tests in `tests/AccountLinkTests.cs` (💰 11q block).
+  `pk.sync.<account>`); (11t: EXECUTIONS no longer uses gross − realized — see 🧾 11t.) Nothing here sends or closes anything; tests in `tests/AccountLinkTests.cs` (💰 11q block).
+  🧾 11t (read-only, sends nothing): ● LIVE TRADING ▸ 🧾 EXECUTIONS is a per-account trade journal (ACCOUNT selector: the chart's account / Σ ALL / each, remembered
+  `realexec.acct`) built ONLY from NinjaTrader's executions (the pure `KeystoneExecJournal`: fills → ITERATIONS flat → flat per instrument, FIFO, every leg ENTRY / ADD /
+  PARTIAL EXIT n / EXIT with its realized $ + commission — "est." only when the connection reports 0 —, MFE / MAE, the account snapshot at the start and the close: balance,
+  today, trailing peak, BLOWS AT, buffer, to lock); day totals = Σ the iterations; NinjaTrader's realized is only a separate "NinjaTrader says" reconciliation line (never
+  gross − realized as fees again; `KeystoneFundedLiq.MaxPerSide` refuses an absurd per-side rate); saved Studio\Executions\<account>\<yyyy-MM-dd>.csv (rebuilt by execution
+  id, never double-counted) + 📤 EXPORT CSV; tests `tests/ExecJournalTests.cs` + the 🧾 step of `tests/fullcompile/UiSmokeTest.cs`.
   📥 11s: the TICK LIBRARY (`OpenTickLibrary`, the pure `KeystoneTickLib` / `KeystoneTickDownload` / `KeystoneZip`, Studio\TickCache\<SYM>\ v2 gz files + seconds\ + live\, tests
   `tests/TickLibraryTests.cs`) only READS NinjaTrader's history (tick / 1-second BarsRequests) and WRITES files; ● LIVE TRADING's "save today's live ticks" (☰ TOOLS, on by default) only
   appends files from its own MarketData tap. Order flow exists only from real trades (`KeystoneOfSource` badge: green bid / ask, amber tick rule, grey = nothing shown — never from
