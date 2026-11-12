@@ -9315,10 +9315,24 @@ namespace NinjaTrader.NinjaScript
             Frozen = frozen; frozen.Key = key; return true;
         }
         public bool WasShown(string key) { return done.Contains(key) || (Current != null && Current.Key == key); }
+        // ✔ / ✖ resolved on the FIRST real trade at or beyond the target / stop since the card appeared (a touch then a pull-back still counts); once resolved it never comes back
+        public double PointValue = 2; Tuple<string, string> pending; public KeystoneOfSetupRecord LastResolved; public DateTime LastResolvedAt = DateTime.MinValue;
+        public void Touch(DateTime t, double price)
+        {
+            if (Current == null || pending != null || price <= 0 || t < Current.Shown.AddSeconds(-1)) return; var IC = CultureInfo.InvariantCulture; int d = Current.Dir;
+            if (d * (price - Current.Stop) <= 0) pending = Tuple.Create("stopped", "✖ STOP LOSS HIT −$" + (Math.Abs(Current.Entry - Current.Stop) * PointValue * Current.Qty).ToString("N0", IC) + " (" + t.ToString("HH:mm", IC) + ") — price hit its stop " + Current.Stop.ToString("0.00", IC));
+            else if (d * (price - Current.Target) >= 0) pending = Tuple.Create("target", "✔ TAKE PROFIT HIT +$" + (Math.Abs(Current.Target - Current.Entry) * PointValue * Current.Qty).ToString("N0", IC) + " (" + t.ToString("HH:mm", IC) + ") — " + Current.Target.ToString("0.00", IC));
+        }
+        public void TouchAll(List<KeystoneOfTick> t, int endN, DateTime now)
+        {
+            if (Current == null || t == null) return; endN = Math.Min(endN, t.Count);
+            for (int i = KeystoneOrderFlow.FirstAfter(t, Current.Shown.AddSeconds(-1), endN); i < endN && pending == null; i++) { if (t[i].Time > now) break; Touch(t[i].Time, t[i].Price); }
+        }
         // "" = the card stays; else the result word and why it goes (the caller passes it to End)
         public Tuple<string, string> Check(DateTime now, double price, int closedBars, int compassState)
         {
             if (Current == null) return null; var IC = CultureInfo.InvariantCulture; int d = Current.Dir;
+            if (pending != null) return pending;
             if (price > 0 && d * (price - Current.Stop) <= 0) return Tuple.Create("stopped", "price hit its stop " + Current.Stop.ToString("0.00", IC));
             if (price > 0 && d * (Current.Target - price) <= 0) return Tuple.Create("target", "price reached its target " + Current.Target.ToString("0.00", IC));
             if ((now - Current.Shown).TotalMinutes >= MaxMinutes) return Tuple.Create("expired", "expired after " + MaxMinutes.ToString("0", IC) + " min");
@@ -9327,7 +9341,8 @@ namespace NinjaTrader.NinjaScript
         }
         public KeystoneOfSetupRecord End(DateTime now, string result, string reason)
         {
-            var c = Current; if (c == null) return null; c.Ended = now; c.Result = result; c.Reason = reason; done.Add(c.Key); if (done.Count > 500) done.Clear();
+            var c = Current; if (c == null) return null; c.Ended = now; c.Result = result; c.Reason = reason; done.Add(c.Key); if (done.Count > 500) done.Clear(); pending = null;
+            if (result == "target" || result == "stopped") { LastResolved = c; LastResolvedAt = now; }
             History.Insert(0, c); if (History.Count > 10) History.RemoveAt(History.Count - 1);
             LastRemoved = "setup #" + c.Id + " " + (c.Dir > 0 ? "▲ " : "▼ ") + c.Kind + " " + c.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + " removed: " + reason; Current = null; Frozen = null; return c;
         }
