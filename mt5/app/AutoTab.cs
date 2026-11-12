@@ -38,6 +38,10 @@ namespace KeystoneMT5
             auto.OnTell = (n, l) => AutoAppend("story", "#" + n + "  " + l);
             auto.OnPath = line => AutoAppend("paths", line);
             auto.OnManualAction += (it, legs, banked, at, what) => Dispatcher.BeginInvoke(new Action(() => AutoWhatIfNew(it, legs, banked, at, what)));
+            // 🚑 STEP IN (09n): the basket at the trigger (the automation alone is replayed from it), every episode journaled (…-stepin.csv)
+            auto.OnStepInSnap += (it, legs, banked, at) => Dispatcher.BeginInvoke(new Action(() => AutoStepInSnap(it, legs, banked, at)));
+            auto.OnStepInDone += ep => Dispatcher.BeginInvoke(new Action(() => AutoStepInDone(ep)));
+            auto.OnStepInStart += ep => Dispatcher.BeginInvoke(new Action(() => { var m = AccountBadge().Item1 + " — 🚑 STEP IN ACTIVE on #" + ep.Iter + " (" + ep.Why + ")"; Toast(m); Log(m, Red); AutoPaint(true); }));
             // ⚠ DANGER RADAR (09h): the candles (archive + loaded), your own past readings as neighbours, the banner + a toast over the alert level
             auto.RadarBars = sym => Sim ? null : AutoCandles(sym, DateTime.Now.AddDays(-8));
             auto.RadarMine = () => AutoRadarMine();
@@ -253,6 +257,30 @@ namespace KeystoneMT5
                         new Mi { Text = "ON — EXPERIMENT, simulated accounts only: a short-term trend detector (M1 + M5: EMA 9 / 21, higher highs / lows, the swing break, VWAP, ATR) → while a basket is open and the trend agrees, each new swing break adds lots on the trend's side, sized to reach the target in " + aset.StackK.ToString("0.#", IC) + " × ATR(M5) (cap " + aset.StackCapPer1k.ToString("0.##", IC) + " net lot per $1,000, max " + aset.StackMax + " stacks, never under " + aset.StackMargin.ToString("0", IC) + " % margin); a trend flip closes the stacks at once; a strong trend banks the profitable legs of the other side. NOT PROVEN — see the 🏁 RACE lane", Fg = Amber, Do = () => aset.TrendStack = true } });
                     ts.ToolTip = "🚀 an experiment (09e): never offered or run on an MT5 account (REAL / PROP / MT5 demo) — HedgeAuto.Check refuses it there."; simple.Children.Add(ts);
                 }
+            {   // 🚑 STEP IN (09n): every window; simulated = may use the whole account, MT5 = an opt-in with the typed STEP IN each session (red REAL MONEY note)
+                var si = ADrop("stepin", "🚑 STEP IN" + (Virtual ? " (EXPERIMENT)" : " — REAL MONEY"), () => !aset.StepIn ? "OFF" : "ON — at " + (aset.StepInUsd > 0 ? "−$" + aset.StepInUsd.ToString("0.##", IC) : "−" + aset.StepInX.ToString("0.#", IC) + "× target") + ", max risk " + aset.StepInRisk.ToString("0", IC) + " %", () => new List<Mi> {
+                    new Mi { Text = "OFF (the default) — a deep basket keeps the normal hedges / exits", Fg = Green, Do = () => aset.StepIn = false },
+                    new Mi { Text = "ON — when a basket reaches the trigger, the iteration is handed to the STEP IN manager: larger lots WITH the trend on finished swing breaks (up to the risk budget), trims the stack's profit in steps, trails it, cuts counter-trend losers against winners (net-neutral or better), freezes at net 0 in a chop, and closes everything at the recovery goal. "
+                        + (Virtual ? StepInGate.SimNote : "REAL MONEY: you will type STEP IN (and WHOLE ACCOUNT for 100 %) — again after every SpasiX restart and after DISARM."), Fg = Virtual ? Amber : Red,
+                        Do = () => { if (!Virtual) { if (aset.StepInRisk >= 99.999 && Get("si.live." + AKey, "") != "1") aset.StepInRisk = AutoSettings.StepInLiveRisk; Put("si.live." + AKey, "1"); TextBox rb; if (af.TryGetValue("sirisk", out rb)) rb.Text = aset.StepInRisk.ToString(IC); if (!AutoStepInConfirm(aset.StepInRisk)) return; } aset.StepIn = true; } } });
+                si.ToolTip = "🚑 STEP IN — learned from your own step-ins (mt5/docs/step-in-study.md): you stepped in at a median ≈ 8× the target deep or ≈ 2 h stuck; what saved the baskets was going WITH the trend in size and stopping the flip-flop; a pure chop was cut (#83). Unproven as an automation — the RACE lanes STP / DEF+STP and the BACKTEST count how often it recovers and how often it blows."; simple.Children.Add(si);
+                simple.Children.Add(AField("six", "🚑 TRIGGER × TARGET", aset.StepInX.ToString(IC), 50, "STEP IN takes over when the basket's TOTAL (open + closed legs) is this many times the target below $0 (8 = his median step-in)"));
+                simple.Children.Add(AField("siusd", "🚑 OR $ (0 = × TARGET)", aset.StepInUsd.ToString(IC), 60, "a fixed $ depth instead of × the target (0 = use × TARGET)"));
+                simple.Children.Add(AField("simin", "🚑 OR STUCK MIN", aset.StepInMin.ToString(IC), 50, "…or open this many minutes while at least 3 × the target down (0 = off)"));
+                simple.Children.Add(AField("sirisk", "🚑 MAX RISK % OF THE ACCOUNT", aset.StepInRisk.ToString(IC), 50, Virtual ? "how much of the equity at the trigger it may lose (100 = the whole simulated account: it may blow)" : "REQUIRED on an MT5 account: how much of the equity at the trigger it may lose (default 50; 100 = THE WHOLE ACCOUNT, typed twice); at that floor it neutralises (net 0), never closes at a loss"));
+                simple.Children.Add(AField("sifloor", "🚑 EQUITY FLOOR $", aset.StepInFloor.ToString(IC), 70, "never under this equity: there it neutralises (net 0) and adds nothing more (0 = only MAX RISK counts)"));
+                simple.Children.Add(ADrop("sitf", "🚑 TREND BREAKS ON", () => aset.StepInTf >= 5 ? "M5 swing breaks" : "M1 swing breaks", () => new List<Mi> {
+                    new Mi { Text = "M1 — each new finished M1 swing break in the trend's way can stack (faster, more stacks)", Do = () => aset.StepInTf = 1 },
+                    new Mi { Text = "M5 — only finished M5 swing breaks (slower, fewer and surer stacks)", Do = () => aset.StepInTf = 5 } }));
+                simple.Children.Add(AField("sitrim", "🚑 TRIM EVERY × ATR M5", aset.StepInTrimAtr.ToString(IC), 50, "each time the stack is this many ATR(M5) in its favour, a part of it is banked"));
+                simple.Children.Add(AField("sitrimp", "🚑 TRIM % OF THE STACK", aset.StepInTrimPct.ToString(IC), 50, "how much of the stack each trim banks (0 = no trims)"));
+                simple.Children.Add(AField("sitrail", "🚑 TRAIL × ATR M5", aset.StepInTrailAtr.ToString(IC), 50, "once the stack is 1 ATR(M5) in profit, its stop trails this far behind its best price; hit → the stack closes"));
+                simple.Children.Add(ADrop("sigoal", "🚑 RECOVERY GOAL", () => aset.StepInGoal == "BE" ? "BREAKEVEN" : "BREAKEVEN + THE TARGET", () => new List<Mi> {
+                    new Mi { Text = "BREAKEVEN + THE TARGET (the default) — the total ≥ +target closes everything", Do = () => aset.StepInGoal = "TARGET" },
+                    new Mi { Text = "BREAKEVEN — the total ≥ +$" + aset.GuardKeep.ToString("0.##", IC) + " closes everything (out sooner, no profit)", Do = () => aset.StepInGoal = "BE" } }));
+                var sn2 = new TextBlock { Text = Virtual ? StepInGate.SimNote : StepInGate.LiveNote, Foreground = Virtual ? Amber : Red, FontSize = 11.5, FontWeight = Virtual ? FontWeights.Normal : FontWeights.Bold, TextWrapping = TextWrapping.Wrap, MaxWidth = 900, Margin = new Thickness(0, 2, 12, 6), VerticalAlignment = VerticalAlignment.Center };
+                afBox["sinote"] = sn2; simple.Children.Add(sn2);
+            }
             simple.Children.Add(aPresetNote = new TextBlock { Text = "the tested default is set: 🛡 DEFENDER • break entries • 🔐 breakeven lock • no risk-guard locks — RISK sets lots + target from your balance (or type your own) • every other setting is under ⚙ ADVANCED", Foreground = Muted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, MaxWidth = 720, Margin = new Thickness(10, 14, 0, 0) });
             aSettings.Children.Add(simple);
             {   // ⏰ 9:30 STRADDLE: its own row (only with that strategy)
@@ -495,7 +523,7 @@ namespace KeystoneMT5
         {
             Action<string, string> t = (k, v) => { TextBox tb; if (af.TryGetValue(k, out tb)) tb.Text = v; }; Func<double, string> d = v => v.ToString(IC);
             t("sx", d(aset.StradX)); t("srk", d(aset.StradRangeK)); t("srsk", d(aset.StradRisk)); t("smax", d(aset.StradMaxLots)); t("sopen", aset.StradOpen); t("sclose", aset.StradClose);
-            t("sz1k", d(aset.SizePer1k)); t("tpl", d(aset.TargetPerLot)); t("rat", d(aset.RadarAt)); t("ralert", d(aset.RadarAlert)); t("pcool", d(aset.ProtectCool)); t("pk", d(aset.ProtectK)); t("ddpct", d(aset.MaxDdPct)); t("daypct", d(aset.DayLossPct)); t("dayloss", d(aset.DayLoss));
+            t("sz1k", d(aset.SizePer1k)); t("tpl", d(aset.TargetPerLot)); t("rat", d(aset.RadarAt)); t("ralert", d(aset.RadarAlert)); t("pcool", d(aset.ProtectCool)); t("six", d(aset.StepInX)); t("siusd", d(aset.StepInUsd)); t("simin", d(aset.StepInMin)); t("sirisk", d(aset.StepInRisk)); t("sifloor", d(aset.StepInFloor)); t("sitrim", d(aset.StepInTrimAtr)); t("sitrimp", d(aset.StepInTrimPct)); t("sitrail", d(aset.StepInTrailAtr)); t("pk", d(aset.ProtectK)); t("ddpct", d(aset.MaxDdPct)); t("daypct", d(aset.DayLossPct)); t("dayloss", d(aset.DayLoss));
             t("sym", aset.Symbol); t("look", d(aset.Lookback)); t("entry", d(aset.EntryLots)); t("add", d(aset.AddLots)); t("target", d(aset.Target)); t("dd", d(aset.MaxDrawdown)); t("comm", d(aset.CommissionPerLot));
             t("pause", d(aset.PauseSec)); t("maxit", d(aset.MaxIterations)); t("hprice", d(aset.HedgePrice)); t("hmoney", d(aset.HedgeMoney)); t("win", aset.Windows); t("nyoff", d(aset.NyOffsetHours)); t("perday", d(aset.PerDay));
             t("nb", d(aset.NewsBefore)); t("na", d(aset.NewsAfter)); t("wlots", d(aset.WinnerLots)); t("wlots2", d(aset.WinnerLotsSell)); t("wmax", d(aset.MaxWinnerAdds)); t("swk", d(aset.SwingK)); t("fvol", d(aset.FlowVol)); t("fshare", d(aset.FlowShare));
@@ -557,7 +585,7 @@ namespace KeystoneMT5
         // blown = stopped for lack of money / margin, or flat under 10 % of the start balance → close what is left, save the blow-up
         // (DataDir\auto\blowups-*.csv + the story), the simulated balance back to the DEMO's start balance (a balance deal: the history and
         // every iteration stay) and the automation starts again by itself with the same settings. 💥 AUTO RESTART in the views row turns it off.
-        Button aRebornBtn; DateTime aRebornAt = DateTime.MinValue;
+        Button aRebornBtn; DateTime aRebornAt = DateTime.MinValue; int aSiBlowSeen;
         bool RebornOn { get { return Get("auto.reborn." + AKey, "1") == "1"; } }
         void AutoReborn()
         {
@@ -574,7 +602,8 @@ namespace KeystoneMT5
                 return;
             }
             bool broke = !auto.Running && HedgeAuto.IsBlowReason(auto.StopReason), low = open == 0 && bal < 0.1 * start && (auto.Running || wasOn);
-            if (!(broke || low)) return;
+            bool siBlown = open == 0 && auto.StepIns.Count(x => x.Blown) > aSiBlowSeen; if (siBlown) aSiBlowSeen = auto.StepIns.Count(x => x.Blown);   // 🚑 09n: a step-in that blew (a stop-out) restarts the DEMO too
+            if (!(broke || low || siBlown)) return;
             aRebornAt = DateTime.Now;
             if (open > 0)
             {   // positions still open = NOT blown (the demo's own stop-out closes a truly blown account): never close them here — the
@@ -583,8 +612,8 @@ namespace KeystoneMT5
                 return;
             }
             int life = 1; int.TryParse(Get("auto.life." + AKey, "0"), out life); life++; Put("auto.life." + AKey, life.ToString(IC));
-            string why = broke ? auto.StopReason : "the balance $" + bal.ToString("N2", IC) + " is under 10 % of the start $" + start.ToString("N0", IC);
-            try { var f = System.IO.Path.Combine(Dir, "auto", "blowups-" + string.Concat(AKey.Where(c => !System.IO.Path.GetInvalidFileNameChars().Contains(c))) + ".csv"); System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(f)); if (!System.IO.File.Exists(f)) System.IO.File.WriteAllText(f, "time,blowup,balance,equity,iterations_done,why\n"); System.IO.File.AppendAllText(f, now.ToString("yyyy-MM-dd HH:mm:ss", IC) + "," + life + "," + bal.ToString("0.00", IC) + "," + eq.ToString("0.00", IC) + "," + auto.Iterations.Count(x => x.Done) + ",\"" + why.Replace("\"", "'") + "\"\n"); } catch { }
+            string why = siBlown && !broke ? "🚑 STEP IN blew the account (a stop-out), balance $" + bal.ToString("N2", IC) : broke ? auto.StopReason : "the balance $" + bal.ToString("N2", IC) + " is under 10 % of the start $" + start.ToString("N0", IC);
+            try { var f = System.IO.Path.Combine(Dir, "auto", "blowups-" + string.Concat(AKey.Where(c => !System.IO.Path.GetInvalidFileNameChars().Contains(c))) + ".csv"); System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(f)); if (!System.IO.File.Exists(f)) System.IO.File.WriteAllText(f, "time,blowup,balance,equity,iterations_done,why,stepin,x_at_trigger,worst,stacks,outcome\n"); System.IO.File.AppendAllText(f, now.ToString("yyyy-MM-dd HH:mm:ss", IC) + "," + life + "," + bal.ToString("0.00", IC) + "," + eq.ToString("0.00", IC) + "," + auto.Iterations.Count(x => x.Done) + ",\"" + why.Replace("\"", "'") + "\"," + StepInBlowCtx(auto) + "\n"); } catch { }
             if (auto.Running) auto.Stop("💥 blow-up: the DEMO restarts");
             lock (broker.State.Gate) paper.Acct.SetBalance(start, now);
             var s = (auto.Set ?? aset).Copy(); auto.Note("💥 BLOW-UP #" + life + " — " + why + " → the DEMO balance is back at $" + start.ToString("N0", IC) + " and the automation starts again by itself (every iteration and the blow-up are saved)");
@@ -958,6 +987,7 @@ namespace KeystoneMT5
             s.Windows = (af["win"].Text ?? "").Trim(); s.CloseAtNy = (af["eod"].Text ?? "").Trim(); s.FvgAge = (int)Math.Max(0, ANum("fage", 0)); s.NyOffsetHours = (int)ANum("nyoff", -7); s.PerDay = (int)Math.Max(0, ANum("perday", 0)); s.NewsBefore = (int)Math.Max(0, ANum("nb", 15)); s.NewsAfter = (int)Math.Max(0, ANum("na", 15));
             s.BeAfter = (int)Math.Max(0, ANum("beafter", 0)); s.QuickAfter = Math.Max(0.1, ANum("qafter", 3)); s.ProtectAt = Math.Max(0, Math.Min(99, ANum("pat", 0))); s.GuardLots = Math.Max(0.01, ANum("glots", 1)); s.DdLeadStep = Math.Max(0, ANum("ddlstep", 0)); s.DdLeadAdd = Math.Max(0.01, ANum("ddladd", 0.05)); s.DdLeadMax = Math.Max(0, ANum("ddlmax", 0.3)); s.DdTightEvery = Math.Max(0, ANum("dtev", 2)); s.DdTightBy = Math.Max(0, Math.Min(50, ANum("dtby", 10))); s.DdTightFloor = Math.Max(10, Math.Min(100, ANum("dtfl", 50))); { double rP = ANum("rpct", 3); s.Rescue = rP > 0; if (rP > 0) s.RescuePct = Math.Max(0.5, Math.Min(50, rP)); s.RescueMin = (int)Math.Max(0, Math.Min(1440, ANum("rmin", 0))); s.DeRisk = ANum("derisk", 0) > 0; s.TrimMax = (int)Math.Max(0, Math.Min(20, ANum("trimmax", 0))); s.BreakClose = ANum("bclose", 0) > 0; s.ProfitUnlock = ANum("punlock", 0) > 0; s.StuckPct = Math.Max(0, Math.Min(90, ANum("stpct", 0))); s.StuckHours = Math.Max(0, ANum("sthrs", 0)); s.TrendBreak = ANum("tbreak", 0) > 0; s.FadeAtr = Math.Max(0, Math.Min(20, ANum("fadeatr", 3))); } s.KeyBuffer = Math.Max(0.1, Math.Min(3, ANum("kbuf", 0.5))); s.BeLockAt = Math.Max(10, Math.Min(99, ANum("belat", 80))); s.BeLockKeep = Math.Max(0, Math.Min(90, ANum("belkeep", 10))); s.RecDeep = Math.Max(0.5, ANum("rdeep", 2)); s.RecKeep = Math.Max(0, Math.Min(100, ANum("rkeep", 20))); s.MaxDdPct = Math.Max(0, Math.Min(100, ANum("ddpct", 0))); s.DayLoss = Math.Max(0, ANum("dayloss", 0)); s.DayLossPct = Math.Max(0, Math.Min(100, ANum("daypct", 0))); { double dA = ANum("dat", 0); s.DangerExit = dA > 0; if (dA > 0) s.DangerAt = Math.Max(10, Math.Min(100, dA)); s.DangerKeep = Math.Max(0, Math.Min(100, ANum("dkeep", 25))); } s.GuardBreak = Math.Max(0, ANum("gbreak", 1)); s.ScaleLots = Math.Max(0.01, ANum("slots", 0.05)); s.ScaleStep = Math.Max(0.1, ANum("sstep", 1.5)); s.HardFloat = Math.Max(0, ANum("hfloat", 0)); s.HardMargin = Math.Max(0, ANum("hmargin", 0)); s.GuardMargin = Math.Max(0, ANum("gmargin", 500)); s.GuardChop = (int)Math.Max(0, ANum("gchop", 3)); s.GuardMaxLead = (int)Math.Max(1, ANum("glead", 3)); s.ProtectKeep = Math.Max(0, Math.Min(95, ANum("pkeep", 10))); s.HedgeCap = Math.Max(0, ANum("hcap", 5)); s.LadderStep = Math.Max(0.1, ANum("lstep", 2.5)); s.LadderMax = (int)Math.Max(0, ANum("lmax", 10)); s.LockAfter = (int)Math.Max(1, ANum("lafter", 2)); s.LockRange = Math.Max(0.01, ANum("lrange", 3));
             if (af.ContainsKey("sz1k")) { s.SizePer1k = Math.Max(0, ANum("sz1k", 0)); s.TargetPerLot = Math.Max(1, ANum("tpl", 200)); }
+            if (af.ContainsKey("six")) { s.StepInX = Math.Max(1, Math.Min(500, ANum("six", 8))); s.StepInUsd = Math.Max(0, ANum("siusd", 0)); s.StepInMin = (int)Math.Max(0, Math.Min(10000, ANum("simin", 120))); s.StepInRisk = Math.Max(1, Math.Min(100, ANum("sirisk", Virtual ? 100 : AutoSettings.StepInLiveRisk))); s.StepInFloor = Math.Max(0, ANum("sifloor", 0)); s.StepInTrimAtr = Math.Max(0.2, Math.Min(10, ANum("sitrim", 1))); s.StepInTrimPct = Math.Max(0, Math.Min(90, ANum("sitrimp", 33))); s.StepInTrailAtr = Math.Max(0.3, Math.Min(10, ANum("sitrail", 1.5))); }
             if (af.ContainsKey("pcool")) { s.ProtectCool = (int)Math.Max(1, Math.Min(240, ANum("pcool", 15))); s.ProtectK = Math.Max(0.2, Math.Min(10, ANum("pk", 1))); }
             if (af.ContainsKey("rat")) { s.RadarAt = Math.Max(5, Math.Min(95, ANum("rat", 50))); s.RadarAlert = Math.Max(5, Math.Min(95, ANum("ralert", 35))); }
             s.WinnerLots = Math.Max(0, ANum("wlots", 0.1)); s.WinnerLotsSell = Math.Max(0, ANum("wlots2", 0.1)); s.SwingK = (int)Math.Max(1, ANum("swk", 2)); s.MaxWinnerAdds = (int)Math.Max(0, ANum("wmax", 0)); s.FlowVol = Math.Max(1, ANum("fvol", 1.5)); s.FlowShare = Math.Max(0.5, Math.Min(1, ANum("fshare", 0.7)));
@@ -982,6 +1012,7 @@ namespace KeystoneMT5
             v("hprice", aset.HedgeMode == "PRICE"); v("hmoney", aset.HedgeMode == "MONEY" || aset.HedgeMode == "SIGNAL"); v("hmult", aset.HedgeMode == "SIGNAL"); v("maxh", aset.HedgeMode == "SIGNAL"); v("roll", aset.HedgeMode == "BREAK");
             v("pause", aset.NextStart == "PAUSE"); v("fvgtf", aset.EntryMode.StartsWith("FVG")); v("fvol", aset.EntryMode == "FLOW"); v("fshare", aset.EntryMode == "FLOW");
             v("nb", aset.NewsMode != "IGNORE"); v("na", aset.NewsMode != "IGNORE"); foreach (var k in new[] { "wlots", "wlots2", "wmax" }) v(k, aset.AddToWinner);
+            foreach (var k in new[] { "six", "siusd", "simin", "sirisk", "sifloor", "sitf", "sitrim", "sitrimp", "sitrail", "sigoal" }) v(k, aset.StepIn);   // 🚑 the step-in boxes only while it is ON
             v("lafter", aset.LockOn); v("lrange", aset.LockOn); v("unlock", aset.LockOn);
             v("look", !aset.Swing); v("swk", aset.Swing); bool hedge = aset.HedgeMode != "NONE" && aset.HedgeMode != "SIGNAL"; v("add", hedge); v("roll", hedge && aset.HedgeMode == "BREAK"); v("fage", aset.EntryMode.StartsWith("FVG")); v("aggrun", aset.EntryMode == "AGGBRK"); bool hb = aset.HedgeMode == "BREAK" || aset.HedgeMode == "PRICE" || aset.HedgeMode == "MONEY" || aset.HedgeMode == "FVG"; v("hsize", hb); v("rmove", hb && aset.HedgeSize == "RECOVER"); v("lstep", aset.HedgeMode == "LADDER" || aset.EntryMode == "STRADDLE"); v("lmax", aset.HedgeMode == "LADDER"); v("nadv", hb && (aset.HedgeSize == "ADVANTAGE" || aset.HedgeSize == "STEPLEAD")); v("add", aset.HedgeMode != "NONE" && aset.HedgeMode != "SIGNAL" && aset.HedgeSize == "FIXED"); v("hmax", hb && aset.HedgeSize == "RECOVER"); v("fstack", aset.EntryMode.StartsWith("FVG")); v("fstrict", aset.EntryMode.StartsWith("FVG"));
         }
@@ -1082,7 +1113,7 @@ namespace KeystoneMT5
         }
         void AutoStart()
         {
-            if (auto.Running) return; AutoSaveSet(); var s = aset.Copy();
+            if (auto.Running) return; AutoSaveSet(); var s = aset.Copy(); if (!AutoStepInGate(s)) return; auto.StopOutPct = Paper ? paper.Acct.Set.StopOutPct : 50;
             var err = auto.Check(broker, s); if (err != "") { Sx.Info(this, "🤖 AUTO", err, Red); return; }
             bool can; string kind; long login; int open; double pl; double bal;
             lock (broker.State.Gate) { can = broker.State.CanTrade; kind = broker.State.Account.Kind; login = broker.State.Account.Login; var ps = broker.State.Positions.Where(p => string.Equals(p.Symbol, s.Symbol, StringComparison.OrdinalIgnoreCase)).ToList(); open = ps.Count; pl = ps.Sum(p => p.Profit + p.Swap + p.Commission); bal = broker.State.Account.Balance; }
@@ -1122,7 +1153,7 @@ namespace KeystoneMT5
         // ▶ RESUME AUTOMATION after a stop by hand: asks (the account, the positions it takes over, the settings), then the same basket goes on
         void AutoHandResume()
         {
-            if (auto.Running) return; AutoSaveSet(); var s = aset.Copy(); var err = auto.Check(broker, s); if (err != "") { Sx.Info(this, "▶ RESUME", err, Red); return; }
+            if (auto.Running) return; AutoSaveSet(); var s = aset.Copy(); if (!AutoStepInGate(s)) return; auto.StopOutPct = Paper ? paper.Acct.Set.StopOutPct : 50; var err = auto.Check(broker, s); if (err != "") { Sx.Info(this, "▶ RESUME", err, Red); return; }
             bool can; string kind; long login; List<Mt5Position> ps; lock (broker.State.Gate) { can = broker.State.CanTrade; kind = broker.State.Account.Kind; login = broker.State.Account.Login; ps = broker.State.Positions.Where(p => string.Equals(p.Symbol, s.Symbol, StringComparison.OrdinalIgnoreCase)).ToList(); }
             if (!Virtual && !can) { Sx.Info(this, "▶ RESUME", BadgeLine() + "MT5 does not allow trading right now (Algo Trading / the EA's Allow Algo Trading).", Red); return; }
             if (!Virtual && !armed) { Sx.Info(this, "▶ RESUME", BadgeLine() + "Trading is not ARMED — press 🔓 ARM TRADING on the 📈 CHART first.", Amber); return; }
@@ -1199,6 +1230,60 @@ namespace KeystoneMT5
             DateTime srvNow; lock (broker.State.Gate) srvNow = broker.State.ServerNow > DateTime.MinValue ? broker.State.ServerNow : DateTime.Now; auto.Prot.FlagNext(r.Dir, srvNow.AddSeconds(90));
             Cmd("💡 ADD ON BREAK " + (r.Dir > 0 ? "BUY " : "SELL ") + r.Lots.ToString("0.##", IC) + " " + sym + " (stop " + r.Stop.ToString("0.00", IC) + ")", "ORDER", sym, r.Dir > 0 ? "BUY" : "SELL", r.Lots, 0.0, Math.Round(r.Stop, 2), 0.0);
         }
+        // ---- 🚑 STEP IN (09n): the journal per account, the "automation alone" replays from the trigger, the typed confirmation on an MT5 account
+        readonly List<StepInEpisode> aSi = new List<StepInEpisode>(); readonly List<WhatIfCase> aSiWi = new List<WhatIfCase>(); string aSiFor = null;
+        void AutoSiLoad()
+        {
+            if (Sim || string.IsNullOrEmpty(aHist) || aSiFor == aHist) return; aSiFor = aHist; aSi.Clear(); aSi.AddRange(StepInEpisode.LoadAll(AutoFile("stepin"))); aSiWi.Clear(); aSiWi.AddRange(WhatIf.LoadAll(AutoFile("stepinwhatif")));
+        }
+        void AutoStepInSnap(AutoIteration it, List<WhatIfLeg> legs, double banked, DateTime at)
+        {
+            if (Sim || string.IsNullOrEmpty(aHist) || legs.Count == 0) return; AutoSiLoad();
+            var s = (auto.Set ?? aset).Copy(); s.StepIn = false; double bal; lock (broker.State.Gate) bal = broker.State.Account.Balance;   // the automation ALONE = the same settings without STEP IN
+            var c = new WhatIfCase { N = it.N, Symbol = s.Symbol, Start = it.Start, SnapAt = at, Banked = banked, MaxDd = it.MaxDd, Balance = Math.Max(100, bal), Target = s.Target, Settings = s.Save(), What = "🚑 STEP IN trigger", Legs = legs,
+                Commission = Paper ? paper.Acct.Set.CommissionPerLot : s.CommissionPerLot, Kind = Paper ? paper.Acct.Set.Kind : "STANDARD", Leverage = Paper ? paper.Acct.Set.Leverage : 500 };
+            aSiWi.Add(c); WhatIf.SaveAll(AutoFile("stepinwhatif"), aSiWi); aWiAt = DateTime.MinValue;
+        }
+        void AutoStepInDone(StepInEpisode e)
+        {
+            if (Sim) { AutoPaint(true); return; }   // the BACKTEST keeps its episodes in the engine (auto.StepIns)
+            AutoSiLoad(); e.Account = aHist ?? ""; aSi.Add(e); AutoSiAlone(); if (!string.IsNullOrEmpty(aHist)) StepInEpisode.SaveAll(AutoFile("stepin"), aSi);
+            var m = AccountBadge().Item1 + " — 🚑 STEP IN #" + e.Iter + " ended " + e.Outcome + " " + Signed(e.Result, "USD"); Toast(m); Log(m, e.Outcome == "GREEN" ? Green : e.Outcome == "BE" ? Amber : Red); AutoPaint(true);
+        }
+        void AutoSiAlone()
+        {
+            bool ch = false;
+            foreach (var e in aSi) if (double.IsNaN(e.Alone)) { var c = aSiWi.FirstOrDefault(w => w.N == e.Iter && Math.Abs((w.SnapAt - e.At).TotalSeconds) < 2); if (c != null && c.Done) { e.Alone = c.Result; e.AloneReason = c.Reason; ch = true; } }
+            if (ch && !string.IsNullOrEmpty(aHist)) StepInEpisode.SaveAll(AutoFile("stepin"), aSi);
+        }
+        List<string> AutoStepInLines()
+        {
+            var L = new List<string>(); var eps = Sim ? auto.StepIns.ToList() : aSi.ToList();
+            if (eps.Count == 0 && !(auto.Set ?? aset).StepIn) return L;
+            foreach (var g in new[] { "LIVE", "SIM" }) { var l = eps.Where(e => e.Mode == g).ToList(); if (l.Count == 0 && !(g == (Virtual ? "SIM" : "LIVE"))) continue; L.AddRange(StepInStats.Of(l).Lines(g == "LIVE" ? "🚑 STEP IN — LIVE (MT5)" : "🚑 STEP IN — SIMULATED")); }
+            foreach (var e in eps.AsEnumerable().Reverse().Take(12)) L.Add(string.Format(IC, "   #{0,-4} {1:dd MMM HH:mm}  at {2,10} ({3,5:0.0}×, {4,4:0.#} % of the balance, {5,4:0} min open)  worst {6,10}  {7,-6} {8,10}  stacks {9} trims {10} cuts {11}{12}",
+                e.Iter, e.At, Signed(e.Total0, "USD"), e.X0, -e.Pct0, e.Minutes0, Signed(e.Worst, "USD"), e.Outcome, double.IsNaN(e.Result) ? "open" : Signed(e.Result, "USD"), e.Stacks, e.Trims, e.Cuts, double.IsNaN(e.Alone) ? "" : "  · alone " + Signed(e.Alone, "USD") + " (" + e.AloneReason + ")"));
+            if (L.Count > 0) L.Add("");
+            return L;
+        }
+        bool AutoStepInConfirm(double risk)
+        {
+            var key = HedgeAuto.AccKeyOf(broker); double bal = AutoBal();
+            var typed = Sx.Prompt(this, "⚠ 🚑 STEP IN on an MT5 account", BadgeLine() + StepInGate.Dialog(risk, bal), "");
+            if (!StepInGate.Typed(typed, StepInGate.Word)) { if (typed != null) Sx.Info(this, "🚑 STEP IN", "Not switched on: the words STEP IN were not typed.", Amber); return false; }
+            string whole = null;
+            if (risk >= 99.999) { whole = Sx.Prompt(this, "⚠ 🚑 STEP IN — THE WHOLE ACCOUNT", BadgeLine() + "MAX RISK is 100 % = THE WHOLE ACCOUNT ($" + bal.ToString("N0", IC) + "). STEP IN may lose all of it before it neutralises.\nType WHOLE ACCOUNT to allow it (or set MAX RISK lower).", ""); if (!StepInGate.Typed(whole, StepInGate.WholeWord)) { Sx.Info(this, "🚑 STEP IN", "Not switched on: WHOLE ACCOUNT was not typed (MAX RISK 100 %).", Amber); return false; } }
+            bool ok = StepInGate.Confirm(key, typed, risk, whole); if (ok) { Toast("🚑 STEP IN confirmed for " + key + " — MAX RISK " + risk.ToString("0", IC) + " % (until DISARM / SpasiX closes)"); auto.Note("🚑 STEP IN confirmed by typing (MAX RISK " + risk.ToString("0", IC) + " %) for this session"); }
+            return ok;
+        }
+        // START / RESUME on an MT5 account with STEP IN ON: the typed confirmation of this session (else it starts WITHOUT step-in, said so)
+        bool AutoStepInGate(AutoSettings s)
+        {
+            if (!s.StepIn || Virtual || StepInGate.Ok(HedgeAuto.AccKeyOf(broker), s.StepInRisk)) return true;
+            if (AutoStepInConfirm(s.StepInRisk)) return true;
+            int k = Sx.Choice(this, "🚑 STEP IN not confirmed", BadgeLine() + "STEP IN is ON in the settings but was not confirmed for this session.", null, new[] { "START WITHOUT STEP IN", "CANCEL" }, new[] { Amber, (SolidColorBrush)null });
+            if (k != 0) return false; s.StepIn = false; aset.StepIn = false; Put(AKey, aset.Save()); AutoVis(); return true;
+        }
         // 🤖 WHAT IF (09g): a case at the first manual action of an iteration — the basket just before it, replayed by the automation alone
         void AutoWhatIfNew(AutoIteration it, List<WhatIfLeg> legs, double banked, DateTime at, string what)
         {
@@ -1213,7 +1298,7 @@ namespace KeystoneMT5
         {
             if (aWiBusy) return; foreach (var c in aWi) { var it = auto.Iterations.FirstOrDefault(x => x.N == c.N && x.Start == c.Start); if (it != null) { c.ActualDone = it.Done; c.Actual = it.Done ? it.Result : auto.Current == it ? auto.BasketTotal : it.Result; } }
             foreach (var c in aiWi) { var it = auto.Iterations.FirstOrDefault(x => x.N == c.N && x.Start == c.Start); if (it != null) { c.ActualDone = it.Done; c.Actual = it.Done ? it.Result : auto.Current == it ? auto.BasketTotal : it.Result; } }
-            var todo = aWi.Where(c => !c.Done).Concat(aiWi.Where(c => !c.Done)).ToList(); if (todo.Count == 0) return;
+            var todo = aWi.Where(c => !c.Done).Concat(aiWi.Where(c => !c.Done)).Concat(aSiWi.Where(c => !c.Done)).ToList(); if (todo.Count == 0) return;
             AutoArchiveCandles(); var sym = todo[0].Symbol; SimSpec spec = null; List<Mt5Bar> mem;
             lock (broker.State.Gate) { Mt5Symbol ms; if (broker.State.Symbols.TryGetValue(sym, out ms)) spec = SimSpec.From(ms, broker.State.ServerOffsetSec, -7, broker.State.Account.Currency); mem = broker.State.SeriesOf(sym, 1).Bars.Select(b => b.Copy()).ToList(); }
             if (spec == null) return; var dir = Path.Combine(Dir, "auto", "candles"); var from = todo.Min(c => c.SnapAt).Date.AddDays(-3); aWiBusy = true; string wsrv = TickServer(); var wTo = mem.Count > 0 ? mem.Max(b => b.Time) : DateTime.Today;
@@ -1228,8 +1313,9 @@ namespace KeystoneMT5
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     aWiBusy = false;
-                    for (int di = 0; di < done.Count && di < todo.Count; di++) { var r = done[di]; var c = todo[di]; bool isAi = aiWi.Contains(c); bool was = c.Done; c.Done = r.Done; c.Reason = r.Reason; c.Result = r.Result; c.End = r.End; c.Worst = r.Worst; c.NowTotal = r.NowTotal; c.LastBar = r.LastBar; c.Path = r.Path; if (!was && c.Done && !isAi) { var m = AccountBadge().Item1 + " — 🤖 WHAT IF #" + c.N + ": the automation alone " + c.WithoutYou + " · " + c.Verdict; Log(m, Cyan); Toast(m); } }
+                    for (int di = 0; di < done.Count && di < todo.Count; di++) { var r = done[di]; var c = todo[di]; bool isAi = aiWi.Contains(c) || aSiWi.Contains(c); bool was = c.Done; c.Done = r.Done; c.Reason = r.Reason; c.Result = r.Result; c.End = r.End; c.Worst = r.Worst; c.NowTotal = r.NowTotal; c.LastBar = r.LastBar; c.Path = r.Path; if (!was && c.Done && !isAi) { var m = AccountBadge().Item1 + " — 🤖 WHAT IF #" + c.N + ": the automation alone " + c.WithoutYou + " · " + c.Verdict; Log(m, Cyan); Toast(m); } }
                     if (todo.Any(x => aiWi.Contains(x))) WhatIf.SaveAll(AutoFile("aiwhatif"), aiWi);   // 🧠 the AI advice what-ifs
+                    if (todo.Any(x => aSiWi.Contains(x))) { WhatIf.SaveAll(AutoFile("stepinwhatif"), aSiWi); AutoSiAlone(); }   // 🚑 09n: the automation alone from each trigger
                     auto.Version++; AutoPaint(true);
                 }));
             });
@@ -1487,7 +1573,8 @@ namespace KeystoneMT5
             }
             catch { }
             aSaved = auto.Iterations.Count(x => x.Done); auto.Version++;
-            if (!Sim && aWiFor != aHist) { aWiFor = aHist; aWi.Clear(); aWi.AddRange(WhatIf.LoadAll(AutoFile("whatif"))); aWiAt = DateTime.MinValue; }   // 🤖 WHAT IF: this account's cases (replayed again — deterministic)
+            if (!Sim && aWiFor != aHist) { aWiFor = aHist; aWi.Clear(); aWi.AddRange(WhatIf.LoadAll(AutoFile("whatif"))); aWiAt = DateTime.MinValue; }
+            AutoSiLoad();   // 🚑 09n: this account's step-ins + their "automation alone" replays   // 🤖 WHAT IF: this account's cases (replayed again — deterministic)
         }
         static string IterCsv(AutoIteration x) { return string.Join(",", x.N.ToString(IC), x.Start.Ticks.ToString(IC), x.End.Ticks.ToString(IC), x.FirstDir, x.Buys.ToString(IC), x.Sells.ToString(IC), x.AddOns.ToString(IC), x.BuyLots.ToString("R", IC), x.SellLots.ToString("R", IC), x.MaxGross.ToString("R", IC), x.MaxDd.ToString("R", IC), x.Result.ToString("R", IC), (x.Reason ?? "").Replace(",", ";"), x.BalanceStart.ToString("R", IC), x.BalanceEnd.ToString("R", IC), x.Peak.ToString("R", IC), x.WinnerAdds.ToString(IC), (x.Ctx ?? "").Replace(",", " "), x.Fees.ToString("0.##", IC), x.ManualAdds.ToString(IC)); }
         // 🧮 09d: once per account, when its deals are here — every saved result recomputed from its own deals, the file rewritten (a copy of the old one kept)
@@ -1559,10 +1646,11 @@ namespace KeystoneMT5
             aInfo.Text = on ? (it != null ? "iteration #" + it.N + " since " + it.Start.ToString("dd MMM HH:mm:ss", IC) + "  •  " + it.Buys + " buys (" + it.BuyLots.ToString("0.##", IC) + ") / " + it.Sells + " sells (" + it.SellLots.ToString("0.##", IC) + ")  •  " + it.AddOns + " add-ons  •  max drawdown " + it.MaxDd.ToString("0.00", IC) + (s.MaxDrawdown > 0 ? " (limit −$" + s.MaxDrawdown.ToString("0.##", IC) + ")" : " (no limit)")
                     : auto.Phase == "PAUSE" ? "pause until " + auto.PauseUntil.ToString("HH:mm:ss", IC) + " (" + Math.Max(0, (auto.PauseUntil - auto.Now).TotalSeconds).ToString("0", IC) + " s)" : auto.Phase == "FIRST" ? "the first " + s.FirstDir + " goes now" : "waiting for the next " + auto.WaitingFor() + (auto.Blocked != "" ? "  •  NOT NOW: " + auto.Blocked : ""))
                 : (auto.StopReason != "" ? "stopped: " + auto.StopReason + "  •  " : "") + (Sim ? "BACKTEST: press START here, then ▶ play on the 📈 CHART." : Paper ? "DEMO account: simulated on live prices." : "MT5 account: needs 🔓 ARM (chart panel) and MT5's Algo Trading.") + AutoSwapLine(s.Symbol != "" ? s.Symbol : aset.Symbol);
+            if (auto.StepInActive && auto.StepInText != "") aInfo.Text = auto.StepInText + "\n" + aInfo.Text; else if (s.StepIn && on) aInfo.Text += "\n🚑 STEP IN armed — takes over at " + (s.StepInUsd > 0 ? "−$" + s.StepInUsd.ToString("0.##", IC) : "−" + s.StepInX.ToString("0.#", IC) + " × the target") + (s.StepInMin > 0 ? " or " + s.StepInMin + " min stuck" : "") + (Virtual ? "" : " • REAL MONEY: MAX RISK " + s.StepInRisk.ToString("0", IC) + " %");   // 🚑 09n
             if (auto.ProtText != "") aInfo.Text += "\n" + auto.ProtText;   // 🛡 PROTECT THE ADD: what it will do, with the numbers
             if (s.AddOnBreak && on && auto.AobText != "") aInfo.Text += "\n" + (auto.Trend != null && !s.TrendStack ? auto.Trend.Text + "\n" : "") + auto.AobText;   // ➕ each decision with its numbers
             if (s.TrendStack && on && auto.Trend != null) aInfo.Text += "\n" + auto.Trend.Text + (auto.StackText != "" && !auto.StackText.StartsWith(auto.Trend.Text) ? "\n" + auto.StackText : auto.StackText.Length > auto.Trend.Text.Length ? auto.StackText.Substring(auto.Trend.Text.Length) : "");
-            aInfo.Foreground = !on && auto.StopReason != "" ? Amber : Muted;
+            aInfo.Foreground = auto.StepInActive ? Orange : !on && auto.StopReason != "" ? Amber : Muted;
             aLevels.Text = on ? (s.HedgeMode == "NONE" || s.HedgeMode == "SIGNAL" ? "" : "hedge levels: recent high " + Px(auto.BuyLevel) + "  •  recent low " + Px(auto.SellLevel)) + (!double.IsNaN(auto.Vwap) ? "  •  VWAP " + Px(auto.Vwap) : "") + (it != null ? "  •  next add-on (" + (s.HedgeMode == "PRICE" ? "price move" : s.HedgeMode == "MONEY" ? "$ loss" : "break") + ") at " + Px(auto.HedgeLevel) : "") : "";
             if (aGuideBtn != null) aGuideBtn.Content = aGuidesOn ? "🎯 CHART GUIDES: ON" : "🎯 CHART GUIDES: OFF";
             if (aSetScroll != null) { aSetScroll.Visibility = aView == "⚙ SETTINGS" ? Visibility.Visible : Visibility.Collapsed; if (aRaceHost != null) aRaceHost.Visibility = aView == "🏁 RACE" ? Visibility.Visible : Visibility.Collapsed; }
@@ -1640,6 +1728,7 @@ namespace KeystoneMT5
                 else if (aView == "ANALYSIS")
                 {
                     var st = auto.Calc(auto.Iterations); var d = auto.Iterations.Where(x => x.Done).ToList();
+                    L.AddRange(AutoStepInLines());   // 🚑 09n: the step-in statistics (live and simulated apart)
                     if (RadarModel.Default.Ready) { L.AddRange(DangerRadar.CalibrationText(RadarModel.Default)); L.Add(""); }
                     if (aWi.Count > 0) { L.Add(WhatIf.Summary(aWi)); foreach (var w in aWi) L.Add("   #" + w.N + "  " + w.Verdict + " · " + w.WithoutYou + "  (your first manual action: " + w.What + ")"); L.Add(""); }
                     L.Add("ITERATIONS " + st.Done + "   won " + st.Wins + "   lost " + st.Losses + (st.Done > 0 ? "   win rate " + (100.0 * st.Wins / st.Done).ToString("0.0", IC) + "%" : ""));
@@ -1657,6 +1746,7 @@ namespace KeystoneMT5
                 else if (aView == "LEARN")
                 {
                     if (aWi.Count > 0) { L.Add(WhatIf.Summary(aWi)); L.Add(""); }   // 🤖 09g: you vs the automation alone
+                    L.AddRange(AutoStepInLines());   // 🚑 09n
                     if (aiCo != null && (aiCo.Journal.Count > 0 || aiWi.Count > 0)) { L.Add(aiCo.Summary(DateTime.Now)); L.Add(AiWiSummary()); L.Add(""); }   // 🧠 09i
                     {   // 📡 THE SIGNAL JOURNAL: the entries the engine saw — what the next hour did — by how extended the move was at the signal
                         var sr = SigRows(); Func<string, double> nf = x => { double v; return double.TryParse(x, NumberStyles.Float, IC, out v) ? v : 0; };
