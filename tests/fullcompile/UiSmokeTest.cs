@@ -961,20 +961,51 @@ public static class UiSmokeTest
                     string strip = desk("STRIP"); if (!strip.Contains("● REAL TICKS • bid/ask") || !strip.Contains("BUYERS") || !strip.Contains("IN CONTROL")) throw new Exception("strip: " + strip);
                     if (FindAll<System.Windows.FrameworkElement>(bt.Content).Count(x => Convert.ToString(x.Tag) == "of.profs" || Convert.ToString(x.Tag) == "of.ticklib") != 2) throw new Exception("▥ PROFILES / 📥 TICK LIBRARY buttons missing in the ORDERFLOW bar");
                     if (FindAll<System.Windows.FrameworkElement>(bt.Content).All(x => Convert.ToString(x.Tag) != "of.dprof")) throw new Exception("no Δ DELTA PROFILE drawn by the price axis");
-                    desk("SIGNAL"); string card = desk("CARD");
-                    if (!card.StartsWith("VISIBLE") || !card.Contains("▲ BUY") || !card.Contains("STOP ") || !card.Contains("TARGET ") || !card.Contains("SIZE ") || !card.Contains("stacked buying zone")) throw new Exception("🎯 SIGNAL card: " + card);
+                    {   /* 📊 11v: the calm ORDERFLOW chart — the profile strip + the Δ / contracts row drawn, NO floating live flow / tape box, no wide box on the plot */
+                        var cvs = FindAll<System.Windows.Controls.Canvas>(bt.Content).Where(c0 => c0.Children.OfType<System.Windows.FrameworkElement>().Any(x => Convert.ToString(x.Tag) == "of.vp")).ToList();
+                        if (cvs.Count == 0) throw new Exception("📊 11v: no VOLUME PROFILE strip (of.vp) on the ORDERFLOW chart");
+                        var kids = cvs[0].Children.OfType<System.Windows.FrameworkElement>().ToList();
+                        if (!kids.Any(x => Convert.ToString(x.Tag) == "of.drow")) throw new Exception("📊 11v: no Δ / CONTRACTS row (of.drow)");
+                        if (FindAll<System.Windows.Controls.TextBlock>(cvs[0]).Any(t0 => (t0.Text ?? "").Contains("LIVE FLOW") || (t0.Text ?? "").StartsWith("TAPE"))) throw new Exception("📊 11v: a LIVE FLOW / TAPE box is still on the chart canvas");
+                        var wide = kids.OfType<System.Windows.Controls.Border>().Where(b0 => b0.Width > 260 || (b0.Child is System.Windows.Controls.TextBlock && ((System.Windows.Controls.TextBlock)b0.Child).Text != null && ((System.Windows.Controls.TextBlock)b0.Child).Text.Length > 90)).ToList();
+                        if (wide.Count > 0) throw new Exception("📊 11v: a wide box floats over the plot: " + string.Join(" / ", wide.Select(b0 => Convert.ToString(b0.Tag))));
+                        string cmp = desk("COMPASS"), strip9 = desk("STRIP"); string sideW = cmp.StartsWith("BUYERS") ? "BUYERS" : cmp.StartsWith("SELLERS") ? "SELLERS" : "BALANCED";
+                        if (!strip9.Contains("IN CONTROL") || !strip9.Contains(sideW)) throw new Exception("🧭 the header chip must read the compass (" + cmp + "): " + strip9);
+                        foreach (var bad in new[] { "BUYERS IN CONTROL", "SELLERS IN CONTROL" }) if (bad != cmp && (desk("DOCK") + desk("VERDICT")).Contains(bad)) throw new Exception("🧭 a second control text in the dock: " + bad + " while the compass says " + cmp);
+                        desk("RAW"); if (!desk("CARD").StartsWith("HIDDEN")) throw new Exception("🚦 a RAW signal showed a card");
+                        if (FindAll<System.Windows.FrameworkElement>(bt.Content).Any(x => Convert.ToString(x.Tag).StartsWith("of.setup."))) throw new Exception("🚦 a RAW signal drew setup lines on the chart");
+                        string vd9 = desk("VERDICT"); if (!(vd9.Contains("WAIT") || vd9.Contains("AVOID"))) throw new Exception("🚦 the verdict with a raw signal: " + vd9);
+                        var lb = (Func<string, string>)F("studioLayerBar"); string l0 = lb("LIST"); if (!l0.Contains("PROF=on") || !l0.Contains("DROW=on")) throw new Exception("👁 layer bar: " + l0);
+                        foreach (var chip in new[] { "SETUP", "PAST", "PROF", "DROW", "EVENTS", "ZONES", "LEVELS" }) { string a1 = lb(chip), a2 = lb(chip); bool was = l0.Contains(chip + "=on"); if (a1.Contains(chip + "=" + (was ? "on" : "off")) || !a2.Contains(chip + "=" + (was ? "on" : "off"))) throw new Exception("👁 chip " + chip + " did not flip: " + a1 + " / " + a2); }
+                        string c1 = lb("CLEAN"); ((Action<int>)F("replayTraderStep"))(0);
+                        if (!c1.Contains("CLEAN=1") || c1.Contains("=on;")) throw new Exception("👁 CLEAN left something on: " + c1);
+                        var left = FindAll<System.Windows.FrameworkElement>(bt.Content).Select(x => Convert.ToString(x.Tag)).Where(t0 => t0.StartsWith("of.vp") || t0 == "of.drow" || t0 == "of.big" || t0 == "of.trap" || t0 == "of.mark" || t0 == "of.zone" || t0.StartsWith("of.setup.") || t0 == "of.dprof").ToList();
+                        if (left.Count > 0) throw new Exception("👁 after CLEAN the plot still shows: " + string.Join(",", left.Distinct()));
+                        string c2 = lb("CLEAN"); if (c2.Replace("CLEAN=0", "") != l0.Replace("CLEAN=0", "")) throw new Exception("👁 CLEAN did not restore the exact set: " + l0 + " vs " + c2);
+                        ((Action<int>)F("replayTraderStep"))(0);
+                    }
+                    string sigR = desk("SIGNAL"); string card = desk("CARD"); bool sellCard = sigR.Contains("SELL");
+                    if (!card.StartsWith("VISIBLE") || !card.Contains(sellCard ? "▼ SELL" : "▲ BUY") || !card.Contains("STOP LOSS ") || !card.Contains("TAKE PROFIT ") || !card.Contains("CONTRACTS of") || !card.Contains("stacked " + (sellCard ? "selling" : "buying") + " zone") || !card.Contains("planned")) throw new Exception("🎯 SIGNAL card: " + card);
+                    if (!FindAll<System.Windows.FrameworkElement>(bt.Content).Any(x => Convert.ToString(x.Tag) == "of.setup.chip")) throw new Exception("💡 the offered setup's chip is not on the ORDERFLOW chart");
+                    { string vdT = desk("VERDICT"); if (!vdT.Contains(sellCard ? "SELL" : "BUY")) throw new Exception("🚦 the verdict with an offered card: " + vdT); }
                     rt = (KeystoneReplayTrader)F("replayTrader"); int pos0 = rt.Position; string fill = desk("FILL"); var fp = fill.Split('|'); double v1, v2, v3;
                     if (fp.Length != 3 || !double.TryParse(fp[0], out v1) || !double.TryParse(fp[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v2) || !double.TryParse(fp[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v3) || v1 < 1 || v2 <= 0 || v3 <= 0 || rt.Position != pos0) throw new Exception("FILL ORDER: " + fill + " position " + rt.Position);
-                    foreach (var tb in new[] { Tuple.Create("FLOW", "FUEL vs ENGINE"), Tuple.Create("BOOK", "only LIVE"), Tuple.Create("STATS", "HOW OFTEN EACH SIGNAL WORKED"), Tuple.Create("GUIDE", "ABSORPTION"), Tuple.Create("SIGNAL", "TRADE FROM HERE") })
+                    foreach (var tb in new[] { Tuple.Create("FLOW", "FUEL vs ENGINE"), Tuple.Create("BOOK", "only LIVE"), Tuple.Create("STATS", "HOW OFTEN EACH SIGNAL WORKED"), Tuple.Create("GUIDE", "ABSORPTION"), Tuple.Create("NOW", "TRADE FROM HERE"),
+                        Tuple.Create("WHY", "THE CONFIRMATIONS OF THIS SETUP"), Tuple.Create("STORY", "THE LAST HOUR"), Tuple.Create("SETUPS", "every one shown or not offered"), Tuple.Create("ANALYZE", "scalp first"), Tuple.Create("LEARN", "LEARN") })
                     { string tx = desk("TAB " + tb.Item1); if (!tx.Contains(tb.Item2)) throw new Exception("tab " + tb.Item1 + ": " + tx.Substring(0, Math.Min(300, tx.Length))); }
-                    string guide = desk("TAB GUIDE"); foreach (var g in new[] { "DELTA", "POC", "HVN / LVN", "DIVERGENCE", "STACKED IMBALANCES", "FUEL vs ENGINE" }) if (!guide.Contains(g)) throw new Exception("ⓘ GUIDE misses " + g);
-                    desk("TAB SIGNAL");
+                    string guide = desk("TAB GUIDE"); foreach (var g in new[] { "DELTA", "POC", "HVN / LVN", "DIVERGENCE", "STACKED IMBALANCES", "FUEL vs ENGINE", "THE FLOW COMPASS", "TRAPPED TRADERS", "ZONE RETEST", "TEAL" }) if (!guide.Contains(g)) throw new Exception("ⓘ GUIDE misses " + g);
+                    { string why9 = desk("TAB WHY"); if (!why9.Contains("1. Signal") || !why9.Contains("3. Flow") || !why9.Contains("WHO'S DOING WHAT")) throw new Exception("🔍 WHY: " + why9.Substring(0, Math.Min(400, why9.Length))); }
+                    desk("TAB NOW");
                     System.Windows.MessageBox.Answer = (t, b) => System.Windows.MessageBoxResult.Yes;
                     string take; try { take = desk("TAKE"); } finally { System.Windows.MessageBox.Answer = null; }
-                    rt = (KeystoneReplayTrader)F("replayTrader"); if (!take.Contains("view CHART") || rt.Position <= 0) throw new Exception("TAKE (the chart's own BUY on the simulated trader): " + take);
+                    rt = (KeystoneReplayTrader)F("replayTrader"); if (!take.Contains("view CHART") || (sellCard ? rt.Position >= 0 : rt.Position <= 0)) throw new Exception("TAKE (the chart's own BUY / SELL on the simulated trader): " + take);
+                    { string st9 = desk("TAB STORY"); if (!st9.Contains("TAKEN") && !st9.Contains("taken")) throw new Exception("📖 the TAKE is not in the recent setups / STORY: " + st9.Substring(0, Math.Min(400, st9.Length))); }
                     ((Action)F("replayTraderFlat"))();
                     if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the ORDERFLOW desk built a NinjaBroker");
-                    desk("OPEN"); desk("SIGNAL"); if (desk("SKIP") != "HIDDEN") throw new Exception("SKIP did not hide the card"); desk("CLOSE");
+                    desk("OPEN"); desk("SIGNAL"); if (desk("SKIP") != "HIDDEN") throw new Exception("SKIP did not hide the card");
+                    { string st9 = desk("TAB STORY"); if (!st9.Contains("you pressed SKIP")) throw new Exception("📖 SKIP must say why the setup went: " + st9.Substring(0, Math.Min(400, st9.Length))); desk("TAB NOW"); }
+                    { string ex9 = desk("EXPORT"); if (!ex9.Contains("README.txt") || !ex9.Contains("keystone-export-")) throw new Exception("📦 EXPORT: " + ex9); }
+                    desk("CLOSE");
                     {   /* ▦ 11s: the grid lines on / off (the axis labels stay) */
                         var lay = (Action<string, int>)F("studioLayer"); Func<int> grids = () => FindAll<System.Windows.FrameworkElement>(bt.Content).Count(x => Convert.ToString(x.Tag) == "chart.grid");
                         lay("GRID", 0); ((Action<int>)F("replayTraderStep"))(0); int g0 = grids(); lay("GRID", 1); ((Action<int>)F("replayTraderStep"))(0); int gOn = grids();

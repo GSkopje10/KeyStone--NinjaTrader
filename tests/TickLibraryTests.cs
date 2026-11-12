@@ -170,7 +170,7 @@ public static class TickLibraryTests
             Check(KeystoneOfCardPlan.Mismatch(card, "MGC", 3, 1) == "" && KeystoneOfCardPlan.Mismatch(card, "MGC", 16, 1).Contains("16") && KeystoneOfCardPlan.Mismatch(card, "MNQ", 3, 1).Contains("MNQ") && KeystoneOfCardPlan.Mismatch(card, "MGC", 3, -1) != "", "TAKE refuses another size / instrument / side");
             // the source: TAKE checks the panel's contracts before sending, the button names the contracts, the plan is frozen per card
             string srcU = File.ReadAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "src", "KeyStone.cs"));
-            Check(srcU.Contains("if (sentQ != ofQtyT)") && srcU.Contains("\"▲ TAKE BUY \" : \"▼ TAKE SELL \") + plS.Qty + \" \" + pa.Symbol") && srcU.Contains("KeystoneOfCardPlan.Requote(frz, px, pvS)") && !srcU.Contains("var plS = KeystoneOfDesk.Plan("), "guardrail: frozen card plan, contracts on the button, the panel's contracts checked before sending");
+            Check(srcU.Contains("if (sentQ != ofQtyT)") && srcU.Contains("\"▲ TAKE BUY \" : \"▼ TAKE SELL \") + cur.Qty + \" \" + pa.Symbol") && srcU.Contains("KeystoneOfCardPlan.Requote(hold.Frozen, px, pvS)") /* 11v: the frozen plan lives in the card hold (one setup at a time) */ && !srcU.Contains("var plS = KeystoneOfDesk.Plan("), "guardrail: frozen card plan, contracts on the button, the panel's contracts checked before sending");
         }
 
         // ---- 12. GUARDRAILS in the source: real trades are made only from NinjaTrader's trades / the library files (never from a candle), the INDICATORS toggles stay open

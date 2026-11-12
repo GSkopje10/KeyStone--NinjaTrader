@@ -95,6 +95,19 @@ Read `docs/` first: the Manus takeover handoff (.docx), the Claude session hando
   prices never change; the card turns off at its stop / target), min stop MNQ 5 / MGC 1.5 pts (`MinStopTicks`), size cap `OF.MAXQ` (10); TAKE names "N CONTRACTS of SYM" on the button and
   the question, refuses another instrument, and sends nothing unless the order panel holds exactly the confirmed contracts (same armed link and limits). The chart's 💡 SIGNAL stop / target
   (violet, dashed, left labels) are display only; your own lines read MY TP / MY SL; tests: the 11u block of `tests/TickLibraryTests.cs`.
+  📊 11v (display / analysis only — NO new order path, no new `NinjaBroker`, order flow from real trades only, the source badge stays): the 📊 ORDERFLOW view draws the
+  volume profile in its own strip left of the price axis + a Δ / CONTRACTS row under the candles, ⚡ big prints, 🪤 trapped zones (`KeystoneFlowTrap`), 🧱 ⇅ ▤ event marks and
+  👀 WATCH ZONES (`KeystoneFlowZones`: mark → wait → a closed candle confirms the retest); nothing floats over the plot (live flow + tape → the dock's ⚡ FLOW tab). ONE
+  🧭 FLOW COMPASS (`KeystoneFlowCompass`, hysteresis ±35 / 20 s in, ±15 out, 60 s hold) is the only "who is in control" anywhere (header chip, dock, ⚔ arena). A setup =
+  a CONFIRMED signal on CLOSED candles only (`KeystoneFlowGate`: compass agreement, R:R ≥ 1 or ⚡ SCALP, 🧘 PATIENT = a proven history n ≥ 30 beating break-even after costs
+  via `KeystoneOfLearner`, a cool-down), ONE at a time per instrument (`KeystoneOfCardHold`: #id, levels + planned $ fixed from its entry, resolved on the first trade at its
+  TAKE PROFIT / STOP LOSS, every removal with its reason in 📖 STORY); one verdict tile (`KeystoneFlowVerdict`: ✅ / 🧪 learning / ⏳ WAIT / ⛔ AVOID, no flicker); 🏦 account
+  fit + ranking of the connected prop accounts (`KeystoneFlowFit`, `KeystoneSetupAccountFit`, read only — it never switches the account); 🎯 in-trade confidence + battle map
+  (`KeystoneTradeConfidence`, `KeystoneTradeMap`: HOLD / TIGHTEN / GET OUT are TEXT only). TAKE / ADD / REDUCE / CLOSE = the chart's own BUY / SELL / CLOSE (asks first, the
+  same armed link and limits, the 11u frozen-contracts check). Dock tabs 🧭 NOW / 🔍 WHY / 📖 STORY / 📒 SETUPS (Studio\OrderFlow\setups-<SYM>-<day>.csv, outcomes measured
+  after the setup only) / 📊 ANALYZE / 🧠 LEARN (📜 history replay of the TickCache days, labelled) / ⚡ FLOW / 📚 BOOK / 📈 STATS / 🎓 GUIDE; 🎨 ORDERFLOW COLOURS (TEAL / CORAL,
+  CLASSIC, MONO); 👁 the layer bar (one chip per overlay, per view, H = CLEAN / restore; the CHART view's order-flow overlays default OFF); 📦 EXPORT FOR CLAUDE
+  (`KeystoneOfExport`: one zip of saved files, sends nothing). Tests: `tests/FlowCompassTests.cs` + the 11v step of `tests/fullcompile/UiSmokeTest.cs`.
   📥 11s: the TICK LIBRARY (`OpenTickLibrary`, the pure `KeystoneTickLib` / `KeystoneTickDownload` / `KeystoneZip`, Studio\TickCache\<SYM>\ v2 gz files + seconds\ + live\, tests
   `tests/TickLibraryTests.cs`) only READS NinjaTrader's history (tick / 1-second BarsRequests) and WRITES files; ● LIVE TRADING's "save today's live ticks" (☰ TOOLS, on by default) only
   appends files from its own MarketData tap. Order flow exists only from real trades (`KeystoneOfSource` badge: green bid / ask, amber tick rule, grey = nothing shown — never from
