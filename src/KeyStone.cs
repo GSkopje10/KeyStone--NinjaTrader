@@ -38123,7 +38123,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Window replayTraderWindow; private KeystoneReplayTrader replayTrader; private DispatcherTimer replayTraderTimer; private Action replayTraderLoad, replayTraderFlat, replayTraderEnd; private Action<int> replayTraderOrder, replayTraderStep;
         private Action<List<DateTime>> studioStartRange;
         private Action<KeystoneSimSettings, bool> studioPropStart; private Func<KeystonePropSim> studioPropSim; private Action studioPropRunDay; private Action<string> studioAddSymbol; private Func<int, int, string> studioRotEnter; private Action<bool> studioBoth; private Func<string, KeystoneReplayTrader> studioTrader;   // test hooks (prop sim, ＋ instruments)
-        private Func<string> studioPropExport; private Action studioPropCompare, studioPropFastStop; private Action<int> studioPropNext; private Func<string> studioPropView; private Action<int, bool> studioStrategy; private Action<string, int> studioLayer; private string studioRfvgErr; private int studioRfvgSeen; private string studioTriErr, studioTriTicket; private int studioTriSeen; private Action studioTriTake; private Func<string, string> studioTriRot; private Func<string, string> studioOfDesk;   /* 🎯 11s test hook: the ORDERFLOW desk */   /* 🎯 11p test hooks */   /* 🎯 11i test hooks: a layer on / off, the scanner's last drawing error, signals seen */ private Action<string> studioSetMode; private Func<string> studioModeNow; private Action<string> studioRotSides;   // test hooks: export (no browser), compare, RUN ALL ■ STOP, the next-day prompt's choice, which panel view shows
+        private Func<string> studioPropExport; private Action studioPropCompare, studioPropFastStop; private Action<int> studioPropNext; private Func<string> studioPropView; private Action<int, bool> studioStrategy; private Action<string, int> studioLayer; private string studioRfvgErr; private int studioRfvgSeen; private string studioTriErr, studioTriTicket; private int studioTriSeen; private Action studioTriTake; private Func<string, string> studioTriRot; private Func<string, string> studioOfDesk, studioLayerBar;   /* 🎯 11s test hook: the ORDERFLOW desk */   /* 🎯 11p test hooks */   /* 🎯 11i test hooks: a layer on / off, the scanner's last drawing error, signals seen */ private Action<string> studioSetMode; private Func<string> studioModeNow; private Action<string> studioRotSides;   // test hooks: export (no browser), compare, RUN ALL ■ STOP, the next-day prompt's choice, which panel view shows
         private Action<double> replayTraderNewAccount; private Action studioDataChanged; private Action<int> replayTraderRewind;
         private Action<bool> studioLiveDemo; private Action studioLiveStep; private Func<string> studioLiveBadge; private Action<string, KeystoneArcBar> studioLivePush;   /* ● LIVE DEMO (BUILD 11j) test hooks: switch it, one loop tick, the badge + status, a live bar */
         private Func<string, DateTime, DateTime, List<KeystoneArcBar>> studioLiveHistFake;   /* tests only: a stand-in for NinjaTrader's history BarsRequest (symbol, from, to) */ private Func<string, string> studioLiveHistory;
@@ -38451,7 +38451,7 @@ namespace NinjaTrader.NinjaScript.AddOns
         private Window backtestStudioWindow, liveStudioWindow; private readonly Dictionary<Window, Dictionary<string, object>> studioHookSets = new Dictionary<Window, Dictionary<string, object>>();
         private static readonly string[] StudioHookNames = { "replayTraderWindow", "replayTrader", "replayTraderTimer", "replayTraderLoad", "replayTraderFlat", "replayTraderEnd", "replayTraderOrder", "replayTraderStep", "replayTraderNewAccount", "replayTraderRewind",
             "studioStartRange", "studioPropStart", "studioPropSim", "studioPropRunDay", "studioAddSymbol", "studioRotEnter", "studioBoth", "studioTrader", "studioPropExport", "studioPropCompare", "studioPropFastStop", "studioPropNext", "studioPropView",
-            "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioTriErr", "studioTriTicket", "studioTriSeen", "studioTriTake", "studioTriRot", "studioOfDesk", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
+            "studioStrategy", "studioLayer", "studioRfvgErr", "studioRfvgSeen", "studioTriErr", "studioTriTicket", "studioTriSeen", "studioTriTake", "studioTriRot", "studioOfDesk", "studioLayerBar", "studioSetMode", "studioModeNow", "studioRotSides", "studioDataChanged", "studioShowReportDay", "studioDollarBracket", "studioTradeTags", "studioPoolAct", "studioPoolToggle",
             "studioMainRow", "studioOpenDrawer", "studioShowDrawer", "studioTopRows", "studioTicksExport", "studioTradesExport", "studioLiveDemo", "studioLiveStep", "studioLiveBadge", "studioLivePush", "studioPracPanel", "studioRaceGo", "studioIsLive", "studioRotSim", "studioDrawerOverlay", "studioPracState", "studioLiveHistory", "studioTiles", "studioAttempts", "studioAttemptsText", "studioAttemptsExport", "studioEntryScore", "studioEntry" };
         private static System.Reflection.FieldInfo StudioHookField(string n) { return typeof(KeystoneArc5MResearchLab).GetField(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public); }
         private void SaveStudioHooks(Window owner)
@@ -39694,6 +39694,39 @@ namespace NinjaTrader.NinjaScript.AddOns
             bool chartsPaused = false;   // PROP SIM • DATA ONLY: the charts are not drawn (fastest)
             Action<ReplayPane> render = null, renderCore = null;
             render = pn => { var oS = layerSymR; layerSymR = pn.Symbol; try { renderCore(pn); } finally { layerSymR = oS; } };   // its indicators = this instrument's pracRender = render;
+            /* 👁 11v LAYER BAR: one chip per overlay group on the chart (top-left), each view its own state — the SAME layerModes keys as the INDICATORS menu (one source of truth);
+               👁 CLEAN hides them all, a second click restores the exact previous set (saved); keyboard H = CLEAN */
+            Func<string, int, int> lbRaw = (k, d) => { int v0; return layerModes.TryGetValue(k, out v0) ? v0 : d; };   /* the saved value without the ORDERFLOW view's IND.* masking */
+            Func<bool, List<Tuple<string, string, string[], int[]>>> layerGroups = inOf =>
+            {
+                string v = inOf ? "OF" : "CH"; int d1 = inOf ? 1 : 0; var o = new List<Tuple<string, string, string[], int[]>>();   // id, label, keys, {default, on value, off value}
+                o.Add(Tuple.Create("SETUP", "💡 SETUP", new[] { "OF.V." + v + ".SIGLINES" }, new[] { d1, 1, 0 }));
+                o.Add(Tuple.Create("PAST", "🏷 PAST SIGNALS", new[] { inOf ? "OF.V.OF.PAST" : "OF.CHARTSIG" }, new[] { d1, 1, 0 }));
+                o.Add(Tuple.Create("PROF", "📊 PROFILE", new[] { "OF.V." + v + ".PROF" }, new[] { d1, 1, 0 }));
+                o.Add(Tuple.Create("DROW", "▤ DELTA ROW", new[] { "OF.V." + v + ".DROW" }, new[] { d1, 1, 0 }));
+                o.Add(Tuple.Create("EVENTS", "🧱 EVENTS", new[] { "OF.V." + v + ".MARKS", "OF.V." + v + ".BIG", "OF.V." + v + ".TRAP" }, new[] { d1, 1, 0 }));
+                o.Add(Tuple.Create("LEVELS", "📏 LEVELS", new[] { inOf ? "OF.V.OF.LVL" : "LVL.ST" }, new[] { d1, 1, 0 }));
+                if (!inOf) { o.Add(Tuple.Create("CANDLE", "🎯 CANDLE SETUPS", new[] { "IND.TRI", "IND.RFVG" }, new[] { KeystoneLiveTools.Off, KeystoneLiveTools.Always, KeystoneLiveTools.Off })); o.Add(Tuple.Create("DRAW", "✏ DRAWINGS", new[] { "DRAWINGS" }, new[] { KeystoneLiveTools.Always, KeystoneLiveTools.Always, KeystoneLiveTools.Off })); }
+                return o;
+            };
+            Func<Tuple<string, string, string[], int[]>, bool> lbGroupOn = g => g.Item3.Any(k => (ofViewOn && (k.StartsWith("IND.") || k == "DRAWINGS") ? lbRaw(k, g.Item4[0]) : layerOf(k, g.Item4[0])) != g.Item4[2]);
+            Action<Tuple<string, string, string[], int[]>> lbGroupToggle = g => { bool on = lbGroupOn(g); foreach (var k in g.Item3) layerModes[k] = on ? g.Item4[2] : g.Item4[1]; layerModes["OF.CLEAN." + (ofViewOn ? "OF" : "CH")] = 0; if (saveWorkspace != null) saveWorkspace(); foreach (var p2 in panes) { if (p2.OfRun != null && (ofChartNeeds() || (ofViewOn && ReferenceEquals(p2, active)))) p2.OfRun(true); render(p2); } };
+            Action ofLayerClean = delegate
+            {
+                string v = ofViewOn ? "OF" : "CH"; bool clean = layerOf("OF.CLEAN." + v, 0) == 1; var gs = layerGroups(ofViewOn);
+                foreach (var g in gs) foreach (var k in g.Item3)
+                {
+                    if (!clean) { layerModes["OF.CLSV." + v + "." + k] = lbRaw(k, g.Item4[0]); layerModes[k] = g.Item4[2]; }
+                    else { int sv; if (layerModes.TryGetValue("OF.CLSV." + v + "." + k, out sv)) layerModes[k] = sv; }
+                }
+                layerModes["OF.CLEAN." + v] = clean ? 0 : 1; if (saveWorkspace != null) saveWorkspace(); foreach (var p2 in panes) render(p2);
+            };
+            studioLayerBar = cmd =>
+            {   /* 👁 11v test hook: "LIST" = every chip id=on/off of the active view; "<id>" = click that chip; "CLEAN" = the 👁 chip */
+                var c0 = (cmd ?? "").Trim().ToUpperInvariant(); var gs = layerGroups(ofViewOn);
+                if (c0 == "CLEAN") ofLayerClean(); else if (c0 != "LIST") { var g = gs.FirstOrDefault(x => x.Item1 == c0); if (g == null) return "no chip " + c0; lbGroupToggle(g); }
+                return string.Join(";", gs.Select(x => x.Item1 + "=" + (lbGroupOn(x) ? "on" : "off"))) + ";CLEAN=" + layerOf("OF.CLEAN." + (ofViewOn ? "OF" : "CH"), 0);
+            };
             renderCore = pn =>
             {
                 if (chartsPaused) return;
@@ -39858,7 +39891,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var fpsD = pn.OfFps; var prD = pn.OfProf; double stepD = KeystoneOrderFlow.RowStep(tkO, ofS);
                     ofSync(pn);   /* 📊 11v: the compass, trapped zones, big prints, the STORY */
                     // each part is its own layer (right-click / ▾ on 📊 ORDER FLOW): ENTRIES ONLY = just the ▲ ▼ signals
-                    bool lSig = ofLay("SIG", 1), lProf = ofLay("PROF", 1), lLvl = ofLay("LVL", 1), lStk = ofLay("STK", 1), lDlt = ofLay("DLT", 0),
+                    bool lSig = ofLay("SIG", 1) && layerOf("OF.V.OF.PAST", 1) == 1, lProf = ofLay("PROF", 1), lLvl = ofLay("LVL", 1) && layerOf("OF.V.OF.LVL", 1) == 1, lStk = ofLay("STK", 1), lDlt = ofLay("DLT", 0),
                          lCvd = ofLay("CVD", 1), lBox = ofLay("BOX", 1), lStat = ofLay("STAT", 1), lTape = ofLay("TAPE", 1), lFlow = ofLay("FLOW", 1), lBook = ofLay("BOOK", 1), lDprof = ofLay("DPROF", 1);
                     Func<long, string> numL = v => Math.Abs(v) >= 10000 ? (v / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + "k" : v.ToString("N0", CultureInfo.InvariantCulture);
                     Func<double, bool> onPlot = yy => yy >= pn.Top && yy <= pn.Top + pn.PlotH;
@@ -40130,7 +40163,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                             int minPs = layerOf("OF.BMINP", 55), minNs = layerOf("OF.BMINN", 20); var lastSgD = pn.OfSigs.Count > 0 ? pn.OfSigs[pn.OfSigs.Count - 1] : null; bool flS = DateTime.Now.Millisecond < 500;
                             bool onlyC = layerOf("OF.ONLYCONF", 1) == 1 || !lSig;
                             if (pn.OfConf != null && !ReferenceEquals(pn.OfLoggedRef, pn.OfConf)) { pn.OfLoggedRef = pn.OfConf; var snapL = pn.OfConf.ToList(); var symL = pn.Symbol; int tfL = pn.Tf; System.Threading.Tasks.Task.Run(() => { foreach (var g0 in snapL) KeystoneOfJournal.Log(symL, tfL, g0); }); }   // 📒 the setup tracker
-                            if (onlyC && pn.OfConf != null && ofViewOn)
+                            if (onlyC && pn.OfConf != null && ofViewOn && layerOf("OF.V.OF.PAST", 1) == 1)
                             {
                                 var lastC = pn.OfConf.Count > 0 ? pn.OfConf[pn.OfConf.Count - 1] : null;
                                 foreach (var cg in pn.OfConf)
@@ -40282,6 +40315,19 @@ namespace NinjaTrader.NinjaScript.AddOns
                     var fl0 = new Border { CornerRadius = new CornerRadius(0, 0, 7, 0), Padding = new Thickness(8, 1, 8, 2), Background = Tint(frO, 60), IsHitTestVisible = false,
                         Child = new TextBlock { Text = ofViewOn ? "📊 ORDERFLOW • ANALYSIS ONLY  •  " + KeystoneOfSource.Badge(pn.OfTicks.Count, pn.OfQuoted) : liveWindow ? "● TRADING" : "● TRADING • REPLAY", Foreground = frO, FontSize = 10, FontWeight = FontWeights.Bold } };
                     System.Windows.Controls.Canvas.SetLeft(fl0, 0); System.Windows.Controls.Canvas.SetTop(fl0, pn.Top); cv.Children.Add(fl0);
+                    {   // 👁 the LAYER BAR: small chips, lit = on, dim = off; click = toggle (the chart's own click layer runs it)
+                        double xb = 4, yb = pn.Top + 19; var gsB = layerGroups(ofViewOn); bool cleanB = layerOf("OF.CLEAN." + (ofViewOn ? "OF" : "CH"), 0) == 1;
+                        foreach (var g in gsB.Select(x => Tuple.Create(x.Item1, x.Item2, lbGroupOn(x))).Concat(new[] { Tuple.Create("CLEAN", cleanB ? "👁 RESTORE" : "👁 CLEAN", cleanB) }))
+                        {
+                            var chB = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 0, 6, 1), Background = g.Item3 ? Tint(ofViewOn ? Cyan : Gold, 70) : Tint(Bg, 170), BorderBrush = g.Item3 ? Tint(ofViewOn ? Cyan : Gold, 200) : Tint(Muted, 110), BorderThickness = new Thickness(1), IsHitTestVisible = false, Tag = "layerbar." + g.Item1,
+                                Child = new TextBlock { Text = g.Item2, Foreground = g.Item3 ? Text : Muted, FontSize = 10, FontWeight = FontWeights.SemiBold } };
+                            chB.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double wB = chB.DesiredSize.Width > 0 ? chB.DesiredSize.Width : 70, hB = chB.DesiredSize.Height > 0 ? chB.DesiredSize.Height : 16;
+                            System.Windows.Controls.Canvas.SetLeft(chB, xb); System.Windows.Controls.Canvas.SetTop(chB, yb); cv.Children.Add(chB);
+                            string ak = "ACT:LB|" + g.Item1; var gid = g.Item1; pn.InfoHot.Add(Tuple.Create(new[] { xb, yb, xb + wB, yb + hB }, ak, new string[0], (Brush)Muted));
+                            pn.HotActs[ak] = () => { if (gid == "CLEAN") ofLayerClean(); else { var gg = layerGroups(ofViewOn).FirstOrDefault(x => x.Item1 == gid); if (gg != null) lbGroupToggle(gg); } };
+                            xb += wB + 3;
+                        }
+                    }
                     if (entryScoreOn && !ofViewOn)
                     {   /* 🧠 11l ENTRY SCORE: the closed candle's chance to reach +X before −X, LONG / SHORT vs the base — coloured only when clearly above it with enough samples */
                         var lastC = r.Bars.Where(x => x.Time <= r.Time).Select(x => x.Time).DefaultIfEmpty(DateTime.MinValue).Max(); Tuple<DateTime, string, int> sc0;
@@ -43748,6 +43794,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     render(pE); e2.Handled = true;
                 }
             };
+            w.KeyDown += (s2, e2) => { if (e2.OriginalSource is TextBox || e2.IsRepeat) return; if (e2.Key == System.Windows.Input.Key.H) { ofLayerClean(); e2.Handled = true; } };   // 👁 11v: H = CLEAN / RESTORE the chart's layers
             w.KeyDown += (s2, e2) => { if (e2.OriginalSource is TextBox || e2.IsRepeat || active == null) return; var acts = paneActions(active); if (e2.Key == System.Windows.Input.Key.B) acts.Item1(1); else if (e2.Key == System.Windows.Input.Key.S) acts.Item1(-1); else if (e2.Key == System.Windows.Input.Key.C) acts.Item2(); else if (e2.Key == System.Windows.Input.Key.Space) { togglePlay(); e2.Handled = true; } else if ((e2.Key == System.Windows.Input.Key.Delete || e2.Key == System.Windows.Input.Key.Back) && active.Selected != null) { active.Drawings.Remove(active.Selected); active.Selected = null; SaveStudioDrawings(panes); render(active); status.Text = "DRAWING DELETED"; status.Foreground = Gold; e2.Handled = true; }
                 else if (e2.Key == System.Windows.Input.Key.Escape) { active.Selected = null; active.SetTool("CURSOR"); render(active); }
                 else if (e2.Key == System.Windows.Input.Key.Left) { rewind(1); e2.Handled = true; } else if (e2.Key == System.Windows.Input.Key.Right) { stepMinutes(1); e2.Handled = true; } else if (e2.Key >= System.Windows.Input.Key.D1 && e2.Key <= System.Windows.Input.Key.D9) active.TfBox.SelectedIndex = (int)e2.Key - (int)System.Windows.Input.Key.D1; };
@@ -46878,15 +46925,15 @@ namespace NinjaTrader.NinjaScript.AddOns
                     if (!show) { hdrArena.Visibility = Visibility.Collapsed; return; }
                     var tk = pa.OfTicks; int endB = liveWindow ? tk.Count : KeystoneOrderFlow.FirstAfter(tk, pa.Trader.Time, tk.Count); if (endB == 0) { hdrArena.Visibility = Visibility.Collapsed; return; }
                     DateTime lastB = tk[endB - 1].Time, nowB = !liveWindow ? pa.Trader.Time : DateTime.Now > lastB && (DateTime.Now - lastB).TotalMinutes < 30 ? DateTime.Now : lastB; double tkO = pa.Trader.Tick > 0 ? pa.Trader.Tick : 0.25;
-                    var fB = KeystoneOrderFlow.Flow(tk, endB, nowB, 30); var fB10 = KeystoneOrderFlow.Flow(tk, endB, nowB, 10); var ctB = KeystoneOrderFlow.Control(tk, endB, nowB, 30, tkO);
+                    var fB = KeystoneOrderFlow.Flow(tk, endB, nowB, 30); var fB10 = KeystoneOrderFlow.Flow(tk, endB, nowB, 10); ofSync(pa); var cmpB = pa.Compass;   /* 🧭 11v: the ONE compass */
                     double shB = fB[0] + fB[1] > 0 ? (double)fB[0] / (fB[0] + fB[1]) : 0.5, spdB = (fB10[0] + fB10[1]) / 10.0; bool flB = DateTime.Now.Millisecond < 500;
-                    double tgB = Math.Max(0.06, Math.Min(0.94, 0.5 + ctB.Item1 * (0.08 + 0.36 * ctB.Item2) + (shB - 0.5) * 0.4)); hdrPos += (tgB - hdrPos) * 0.3;
+                    double tgB = Math.Max(0.06, Math.Min(0.94, 0.5 + cmpB.Score / 100 * 0.42)); hdrPos += (tgB - hdrPos) * 0.3;
                     long bigB = Math.Max(1, layerOf("OF.BIG", 10)); long boomQ = 0;
                     for (int q = endB - 1; q >= 0 && q >= endB - 400 && tk[q].Time >= nowB.AddSeconds(-3); q--) if (tk[q].Size >= bigB) { boomQ = tk[q].Side > 0 ? tk[q].Size : -tk[q].Size; break; }
-                    bool quietB = fB[0] + fB[1] == 0; SolidColorBrush capB = quietB ? Muted : ctB.Item1 > 0 ? Green : ctB.Item1 < 0 ? Red : Gold;
-                    var sp = new StackPanel(); sp.Children.Add(buildArena(hdrPos, shB, ctB.Item1, boomQ, 248, 58, flB));
+                    bool quietB = fB[0] + fB[1] == 0; SolidColorBrush capB = quietB ? Muted : cmpB.State > 0 ? ofBuyB : cmpB.State < 0 ? ofSellB : Gold;
+                    var sp = new StackPanel(); sp.Children.Add(buildArena(hdrPos, shB, cmpB.State, boomQ, 248, 58, false));
                     sp.Children.Add(new TextBlock { Text = KeystoneOfSource.Badge(tk.Count, pa.OfQuoted), Foreground = OfBadgeBrush(tk.Count, pa.OfQuoted), FontSize = 10, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 0, 0, 1), Tag = "of.badge.battle" });
-                    sp.Children.Add(new TextBlock { Text = pa.Symbol + " • " + (quietB ? "quiet" : (ctB.Item1 > 0 ? "🐂 " : ctB.Item1 < 0 ? "🐻 " : "⚔ ") + ctB.Item3.Split('•')[0].Trim()) + (spdB >= 5 ? " • ⚡ FAST" : ""), Foreground = capB, FontSize = 10.5, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
+                    sp.Children.Add(new TextBlock { Text = pa.Symbol + " • " + (quietB ? "quiet" : "🧭 " + cmpB.Text + " " + KeystoneFlowCompass.ScoreText(cmpB.Score)) + (spdB >= 5 ? " • ⚡ FAST" : ""), Foreground = capB, FontSize = 10.5, FontWeight = FontWeights.Bold, Margin = new Thickness(2, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
                     hdrArena.Child = sp; hdrArena.BorderBrush = Tint(capB, 150); hdrArena.Visibility = Visibility.Visible;
                 }
                 catch { hdrArena.Visibility = Visibility.Collapsed; }
