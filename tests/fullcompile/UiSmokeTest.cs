@@ -641,7 +641,7 @@ public static class UiSmokeTest
                             upX(execTab); walkX();
                             var accCb = all.OfType<System.Windows.Controls.ComboBox>().FirstOrDefault(c9 => Convert.ToString(c9.ToolTip).StartsWith("Which account")); if (accCb == null) throw new Exception("🧾 the ACCOUNT selector is missing");
                             int idxX = accCb.Items.Cast<object>().ToList().FindIndex(o => Convert.ToString(o).Contains("TAKEPROFITPRO382305483")); if (idxX < 2 || !Convert.ToString(accCb.Items[1]).Contains("ALL")) throw new Exception("🧾 the selector does not list ALL + the account: " + string.Join(" / ", accCb.Items.Cast<object>()));
-                            pickX(accCb, idxX); upX(execTab); walkX();
+                            pickX(accCb, idxX); var chartTab0 = all.OfType<System.Windows.Controls.Border>().First(b => Convert.ToString(b.ToolTip) == "CHART"); upX(chartTab0); upX(execTab); walkX();
                             var txX = all.OfType<System.Windows.Controls.TextBlock>().Select(t => t.Text ?? "").ToList();
                             if (!txX.Any(t => t.Contains("TAKEPROFITPRO382305483")) || !txX.Contains("−$33.08") || !txX.Contains("+$121.30") || !txX.Contains("+$88.22") || txX.Any(t => t.Contains("391") || t.Contains("797"))) throw new Exception("🧾 EXECUTIONS rows / totals wrong: " + string.Join(" | ", txX.Where(t => t.Contains("$")).Take(30)));
                             if (!txX.Any(t => t.StartsWith("NinjaTrader says: realized today +$357.75") && t.Contains("difference")) || !txX.Any(t => t.Contains("GROSS differs"))) throw new Exception("🧾 the NinjaTrader reconciliation line is missing");
