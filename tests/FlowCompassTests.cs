@@ -322,7 +322,7 @@ public static class FlowCompassTests
             Check(vv.Head == "✅ SWING SELL 3 MNQ • R:R 2.4 • TP at VAH", "the NOW verdict says which style", vv.Head);
             var br = new KeystoneOfSetupRow { Style = "SWING", Time = T0, Symbol = "MNQ", Kind = "5M CONFIRMED", Dir = -1, Entry = 100, Stop = 112, Target = 76 }; var back = KeystoneOfSetupBook.Parse(KeystoneOfSetupBook.Line(br));
             var old = KeystoneOfSetupBook.Parse(string.Join(",", KeystoneOfSetupBook.Line(br).Split(',').Take(27)));
-            Check(back.Style == "SWING" && back.Key.EndsWith("|SWING") && old.Style == "SCALP" && KeystoneOfSetupBook.Header.EndsWith(",style"), "📒 SETUPS records the style (old files read as SCALP)");
+            Check(back.Style == "SWING" && back.Key.EndsWith("|SWING") && old.Style == "SCALP" && KeystoneOfSetupBook.Header.Contains(",style,"), "📒 SETUPS records the style (old files read as SCALP)");
             // 🎯 in-trade: a swing holds while its zone holds; a broken structure counts against
             var cs1 = KeystoneTradeConfidence.Of(1, -1, -40, -100, 1000, 0, 1, double.NaN, double.NaN, -20, 300, "SWING", 1); var cs2 = KeystoneTradeConfidence.Of(1, -1, -40, -100, 1000, 0, 1, double.NaN, double.NaN, -20, 300, "SCALP", 0);
             Check(cs1.Item3 == "HOLD" && cs1.Item4[0].Contains("tolerates a pullback") && cs2.Item3 != "HOLD", "a swing in a pullback: HOLD while the zone holds (the same scalp is told to tighten)", cs1.Item3 + " / " + cs2.Item3);
@@ -392,6 +392,58 @@ public static class FlowCompassTests
             var past = new List<KeystoneOfEvent>(); for (int i = 0; i < 25; i++) past.Add(new KeystoneOfEvent { Time = T0.AddMinutes(-60 + i), Type = "STACKED", Side = 1, Result = i < 15 ? 1 : -1 });
             Check(KeystoneOfEvents.Probability(past, "STACKED", 1, T0) == "buyers' stacked led to +8 ticks before −8 in 60 % of 25 cases" && KeystoneOfEvents.Probability(past.Take(10), "STACKED", 1, T0) == "learning (10)" && KeystoneOfEvents.Probability(past, "STACKED", 1, T0.AddMinutes(-50)) == "learning (10)", "a % only from n ≥ 20 decided past events (else learning (n))", KeystoneOfEvents.Probability(past, "STACKED", 1, T0));
             Check(KeystoneOfEvents.Classify("T|1|100", "🪤 trapped buyers • x").Item2 == -1 && KeystoneOfEvents.Classify("BF|1", "🪤 BIG PRINT FAILED • a big seller hit the bid at 1 but the price went UP after it → the seller is trapped; this supports a BUY").Item2 == 1 && KeystoneOfEvents.Classify("C|1", "🧭 the compass turned SELLERS").Item2 == -1 && KeystoneOfEvents.Classify("X|", "").Item1 == "", "events classified from the STORY");
+        }
+        // ---- 20. 💵 11x setup P/L
+        {
+            var w = new KeystoneOfSetupRow { Time = T0, Kind = "ZONE STACKED", Dir = 1, Entry = 100, Stop = 98, Target = 103, Qty = 4, Result = 1, Status = "shown" };
+            var l = new KeystoneOfSetupRow { Time = T0.AddMinutes(5), Kind = "FLIP", Dir = -1, Entry = 100, Stop = 101.5, Target = 97, Qty = 2, Result = -1, Status = "not offered: 🧘 not offered — learning (2)" };
+            var o = new KeystoneOfSetupRow { Time = T0.AddMinutes(9), Kind = "5M CONFIRMED", Dir = 1, Entry = 100, Stop = 88, Target = 130, Qty = 1, Result = 0, Status = "shown", Style = "SWING" };
+            Check(KeystoneOfSetupPl.Ticks(w, 0.25) == 12 && KeystoneOfSetupPl.UsdCard(w, 0.25, 2, 1.74) == 12 * 0.25 * 2 * 4 - 1.74 * 4 && KeystoneOfSetupPl.Usd1(w, 0.25, 2, 1.74) == 6 - 1.74, "$ per row = ticks × tick value × contracts − costs (card / 1 contract)");
+            Check(KeystoneOfSetupPl.Ticks(l, 0.25) == -6 && Math.Abs(KeystoneOfSetupPl.UsdCard(l, 0.25, 2, 1.74) - (-6 * 0.5 * 2 - 3.48)) < 1e-9 && double.IsNaN(KeystoneOfSetupPl.UsdCard(o, 0.25, 2, 1.74)), "a loss = the stop ticks; an open setup has no $");
+            var tt = KeystoneOfSetupPl.Totals(new[] { w, l, o }, 0.25, 2, 1.74);
+            Check(tt.Count == 3 && tt.Wins == 1 && tt.Losses == 1 && Math.Abs(tt.TotalUsd - (KeystoneOfSetupPl.UsdCard(w, 0.25, 2, 1.74) + KeystoneOfSetupPl.UsdCard(l, 0.25, 2, 1.74))) < 1e-9 && Math.Abs(tt.TotalUsd1 - (4.26 - 4.74)) < 1e-9 && Math.Abs(tt.TotalR - 0.5) < 1e-9 && tt.WinPct == 50, "totals = Σ the rows (R, $ card, $ per contract, win %)");
+            Check(KeystoneOfSetupPl.Shown(w) == "✅ offered" && KeystoneOfSetupPl.Shown(l) == "🧪 learning 2" && KeystoneOfSetupPl.Shown(new KeystoneOfSetupRow { Status = "not offered: against the flow" }) == "✖ not offered" && KeystoneOfSetupPl.ResultWord(o) == "⏳ open" && KeystoneOfSetupPl.TypeOf("5M CONFIRMED") == "CONFIRMED" && KeystoneOfSetupPl.TypeOf("ZONE TRAP") == "ZONE", "SHOWN / RESULT / TYPE columns (no repeated \"not offered — not offered\")");
+            var rowTx = KeystoneOfSetupPl.Row(w, 0.25, 2, 1.74); Check(rowTx.Contains("✔ TP") && rowTx.Contains("+12") && rowTx.Contains("+$17") && rowTx.Contains("+$4") && rowTx.Contains("ZONE"), "a table row: result, ticks, $ card, $ 1 contract", rowTx);
+            KeystoneOfSetupPl.Fill(w, 0.25, 2, 1.74); var bk = KeystoneOfSetupBook.Parse(KeystoneOfSetupBook.Line(w)); Check(Math.Abs(bk.UsdCard - w.UsdCard) < 0.01 && KeystoneOfSetupBook.Header.EndsWith(",usd_card,usd_1"), "the CSV keeps its columns and adds the $ ones");
+            var filt = new[] { w, l, o }.Where(r => KeystoneOfStyle.Of(r) == "SWING").ToList(); Check(filt.Count == 1 && KeystoneOfSetupPl.Totals(filt, 0.25, 2, 1.74).TotalUsd == 0, "the style filter + totals of the filtered rows");
+        }
+        // ---- 21. ⚡ 11x the longer-scalp rule
+        {
+            Check(KeystoneOfScalpRule.TargetTicks(12, 0.25, 10, 20) == 40 && KeystoneOfScalpRule.TargetTicks(60, 0.25, 10, 20) == 60 && KeystoneOfScalpRule.TargetTicks(120, 0.25, 10, 20) == 80 && KeystoneOfScalpRule.TargetTicks(8, 0.1, KeystoneOfScalpRule.MinPts("MGC", 0), KeystoneOfScalpRule.MaxPts("MGC", 0)) == 20, "the scalp target clamped: MNQ 10–20 pts (40–80 ticks), MGC 2–4 pts");
+            Check(KeystoneOfScalpRule.MinPts("MNQ", 0) == 10 && KeystoneOfScalpRule.MaxPts("MNQ", 0) == 20 && KeystoneOfScalpRule.MinPts("MNQ", 12) == 12, "OF.SCMIN / OF.SCMAX per symbol (defaults 10 / 20 MNQ)");
+            var opp = new List<Tuple<double, string>> { Tuple.Create(106.0, "sell zone"), Tuple.Create(95.0, "VAL"), Tuple.Create(130.0, "VAH") };
+            Check(KeystoneOfScalpRule.NoRoom(1, 100, 10, opp) == "no room for a 10-pt scalp: the sell zone is 6 pts away" && KeystoneOfScalpRule.NoRoom(-1, 100, 10, opp) == "no room for a 10-pt scalp: the VAL is 5 pts away" && KeystoneOfScalpRule.NoRoom(1, 100, 5, opp) == "", "an opposing level closer than the minimum → no scalp, with the reason");
+            Check(KeystoneOfScalpRule.Money(12, 2, 4) == "+12.00 pts • +$24 per contract • +$96 for 4", "the $ text on cards / labels", KeystoneOfScalpRule.Money(12, 2, 4));
+            var pl = new KeystoneOfPlan { Dir = 1, Qty = 4, Entry = 100, Stop = 95, Target = 110, StopPts = 5, TargetPts = 10 }; Check(Math.Abs(KeystoneFlowGate.Rr(pl) - 2) < 1e-9 && KeystoneFlowGate.Decide(new KeystoneOfSignal { Bar = 1, Dir = 1, Kind = "STACKED" }, 3, 0, new KeystoneOfPlan { Dir = 1, Entry = 100, Stop = 88, Target = 110, StopPts = 12, TargetPts = 10 }, null, 1).Item1 == KeystoneFlowGate.SkipRr, "min stop 5 pts + a 10-pt scalp = 1:2; a stop wider than the target → skipped (R:R ≥ 1)");
+        }
+        // ---- 22. 🧭 11x the 5-step guide + the mark rule
+        {
+            var b = new KeystoneFlowStepInput { ZoneSide = 1, ZoneLo = 28258, ZoneHi = 28262, Price = 28270, Tf = 1, VerdictHead = "⏳ WAIT", VerdictReason = "a confirmed ▲ setup" };
+            var s1 = KeystoneFlowSteps.Of(b); Check(s1.Item1[0] == 1 && s1.Item2.StartsWith("① LOCATION — price 8.00 pts above the BUY ZONE 28258.00–28262.00"), "① LOCATION: price away from the zone → wait for it", s1.Item2);
+            b.Price = 28260; b.CandleDelta = -180; var s2 = KeystoneFlowSteps.Of(b);
+            Check(s2.Item1[0] == 2 && s2.Item1[1] == 1 && s2.Item2 == "② BATTLE — sellers are attacking the BUY ZONE 28258.00–28262.00 (Δ −180 this candle): watch if they fail", "② BATTLE: sellers attacking the buy zone", s2.Item2);
+            b.FailureText = "🧱 sellers absorbed at 28259.00"; var s3 = KeystoneFlowSteps.Of(b);
+            Check(s3.Item1[2] == 2 && s3.Item1[3] == 1 && s3.Item2 == "③ FAILURE ✔ — 🧱 sellers absorbed at 28259.00; ④ wait for this 1-min candle to close above 28262.00", "③ FAILURE ✔ → ④ wait for the close", s3.Item2);
+            b.ZoneConfirmed = true; var s4 = KeystoneFlowSteps.Of(b); Check(s4.Item1[4] == 1 && s4.Item2.Contains("⏳ WAIT") && !s4.Item2.Contains("TAKE"), "④ ✔ but no card → ⑤ says the verdict (never TAKE without a card)", s4.Item2);
+            b.CardOffered = true; b.CardLine = "✅ SCALP BUY 4 MNQ — TP +12 pts (+$96), SL −5 pts (−$40): TAKE"; var s5 = KeystoneFlowSteps.Of(b); Check(s5.Item2 == "⑤ ✅ SCALP BUY 4 MNQ — TP +12 pts (+$96), SL −5 pts (−$40): TAKE" && KeystoneFlowSteps.Current(s5.Item1) == 5, "⑤ EXECUTE only with the offered card");
+            var s6 = KeystoneFlowSteps.Of(new KeystoneFlowStepInput { InTrade = true, TradeLine = "HOLD — buyers still in control +41" }); Check(s6.Item2 == "HOLD — buyers still in control +41" && s6.Item1.All(v => v == 2), "in a trade the strip is the management line");
+            Check(KeystoneFlowSteps.Of(new KeystoneFlowStepInput { Price = 100 }).Item2.StartsWith("① LOCATION — no zone") && KeystoneFlowSteps.Pills(s3.Item1) == "①✔ ②✔ ③✔ ④⏳ ⑤·", "no zone → step ①; the pills", KeystoneFlowSteps.Pills(s3.Item1));
+            Check(KeystoneFlowSteps.Bright(28259, 28258, 28262, null, 0.25) && !KeystoneFlowSteps.Bright(28200, 28258, 28262, new[] { 28100.0 }, 0.25) && KeystoneFlowSteps.Bright(28101, double.NaN, double.NaN, new[] { 28100.0 }, 0.25), "marks are bright only near the step's zone / a key level, else dimmed");
+        }
+        // ---- 23. 🛡 11x a stable in-trade suggestion — the plan decides
+        {
+            var ad = new KeystoneTradeAdvice(); ad.Update("HOLD", T0); bool changed = false;
+            for (int i = 1; i <= 300; i++) { var sh = ad.Update(i % 2 == 0 ? "⛔ GET OUT" : i % 3 == 0 ? "⚠ TIGHTEN" : "HOLD", T0.AddSeconds(i)); if (sh != "HOLD") changed = true; }
+            Check(!changed, "noise flipping every second never changes the shown advice");
+            var ad2 = new KeystoneTradeAdvice(); ad2.Update("HOLD", T0); string a44 = ad2.Update("⚠ TIGHTEN", T0.AddSeconds(16)); string a61 = ad2.Update("⚠ TIGHTEN", T0.AddSeconds(61)); string a62 = ad2.Update("HOLD", T0.AddSeconds(80)); string a92 = ad2.Update("HOLD", T0.AddSeconds(111)); string a125 = ad2.Update("HOLD", T0.AddSeconds(122));
+            Check(a44 == "HOLD" && a61 == "⚠ TIGHTEN" && a62 == "⚠ TIGHTEN" && a92 == "⚠ TIGHTEN" && a125 == "HOLD", "TIGHTEN after 45 s held; back to HOLD after 30 s and the 60-s minimum", a44 + "/" + a61 + "/" + a62 + "/" + a92 + "/" + a125);
+            var ad3 = new KeystoneTradeAdvice { Swing = true }; ad3.Update("HOLD", T0); ad3.Update("⚠ TIGHTEN", T0.AddSeconds(1)); Check(ad3.Update("⚠ TIGHTEN", T0.AddSeconds(80)) == "HOLD" && ad3.Update("⚠ TIGHTEN", T0.AddSeconds(125)) == "⚠ TIGHTEN", "a 🏃 swing doubles the times (90 s for TIGHTEN, 120-s minimum)");
+            var p1 = KeystoneTradeAdvice.Plan("⛔ GET OUT", 1, 28260, 28258, "the BUY ZONE", 28255, 28265, false, 30, true, true, -24, 40, false);
+            Check(p1.Item1 == "⚠ TIGHTEN" && p1.Item2.StartsWith("normal pullback — the plan holds while price stays above 28258.00 (the BUY ZONE)") && p1.Item2.Contains("DRAWDOWN IS NORMAL: −$24 of the planned −$40 risk • the plan holds"), "a red trade inside its plan: TIGHTEN at worst + the plan-holds / drawdown-is-normal text", p1.Item2);
+            var p2 = KeystoneTradeAdvice.Plan("⛔ GET OUT", 1, 28256, 28258, "the BUY ZONE", 28250, 28265, true, 0, false, false, -36, 60, false);
+            Check(p2.Item1 == "⛔ GET OUT" && p2.Item2.StartsWith("a CLOSED candle broke 28258.00 (the BUY ZONE)"), "GET OUT on a closed-candle break of the invalidation, saying which", p2.Item2);
+            var p3 = KeystoneTradeAdvice.Plan("HOLD", 1, 28262, 28258, "z", 28250, 28265, false, 95, true, true, -6, 30, false); var p4 = KeystoneTradeAdvice.Plan("HOLD", 1, 28262, 28258, "z", 28250, 28265, false, 95, true, false, -6, 30, false); var p5 = KeystoneTradeAdvice.Plan("HOLD", 1, 28262, 28258, "z", 28250, 28265, false, 95, true, true, -6, 30, true);
+            Check(p3.Item1 == "⛔ GET OUT" && p3.Item2.Contains("against you for 95 s") && p4.Item1 != "⛔ GET OUT" && p5.Item1 != "⛔ GET OUT", "… or the triple condition (flow ≥ 90 s + delta + an event); a swing needs 180 s");
         }
         Console.WriteLine(failures == 0 ? "ALL FLOW COMPASS TESTS PASSED" : failures + " FLOW COMPASS TEST(S) FAILED");
         return failures == 0 ? 0 : 1;

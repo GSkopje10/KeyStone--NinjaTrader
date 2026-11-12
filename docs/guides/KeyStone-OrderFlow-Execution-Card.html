@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Order Flow Execution Card</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one trading-desk card you keep open beside KeyStone — the 5 steps as a horizontal pipeline, then the 3 setups as if/then tickets, then risk + management. */
+:root{
+  --bg:#F3F5FA; --panel:#FFFFFF; --panel2:#E9EDF5; --line:#D3DAE7; --fg:#18202F; --muted:#5B6578;
+  --buy:#0E9DAF; --sell:#D9466F; --poc:#B98300; --trap:#C77700; --vio:#7B5CD6; --ok:#15924A; --bad:#D23B3B;
+  --buy-soft:rgba(14,157,175,.12); --sell-soft:rgba(217,70,111,.12); --vio-soft:rgba(123,92,214,.12); --trap-soft:rgba(199,119,0,.13); --poc-soft:rgba(185,131,0,.12);
+  --display:"Chakra Petch","Segoe UI",system-ui,sans-serif; --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif; --mono:"JetBrains Mono",Consolas,ui-monospace,monospace;
+  color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E1422; --panel:#151D2E; --panel2:#1B2538; --line:#2A3650; --fg:#E6ECF7; --muted:#93A0B8;
+  --buy:#26C6DA; --sell:#FF5C8A; --poc:#F2C14E; --trap:#FFAB40; --vio:#B388FF; --ok:#2ECC71; --bad:#FF4D4D;
+  --buy-soft:rgba(38,198,218,.13); --sell-soft:rgba(255,92,138,.13); --vio-soft:rgba(179,136,255,.14); --trap-soft:rgba(255,171,64,.14); --poc-soft:rgba(242,193,78,.13);
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1422; --panel:#151D2E; --panel2:#1B2538; --line:#2A3650; --fg:#E6ECF7; --muted:#93A0B8;
+  --buy:#26C6DA; --sell:#FF5C8A; --poc:#F2C14E; --trap:#FFAB40; --vio:#B388FF; --ok:#2ECC71; --bad:#FF4D4D;
+  --buy-soft:rgba(38,198,218,.13); --sell-soft:rgba(255,92,138,.13); --vio-soft:rgba(179,136,255,.14); --trap-soft:rgba(255,171,64,.14); --poc-soft:rgba(242,193,78,.13);
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15.5px;line-height:1.55;margin:0}
+.wrap{max-width:1080px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:26px 56px;display:flex;flex-direction:column;gap:30px}
+h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0;text-wrap:balance}
+h1{font-size:clamp(1.9rem,4.6vw,2.8rem)} h2{font-size:1.45rem} h3{font-size:1.08rem}
+p{margin:0}
+.eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.lede{color:var(--muted);max-width:64ch}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+section{display:flex;flex-direction:column;gap:14px}
+.head{display:flex;flex-direction:column;gap:10px}
+.rule{display:inline-flex;gap:8px;align-items:center;font-family:var(--display);font-weight:600;background:var(--vio-soft);border:1px solid var(--vio);color:var(--fg);border-radius:10px;padding:8px 12px;align-self:flex-start}
+/* pipeline */
+.pipe{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;list-style:none;margin:0;padding:0;counter-reset:s}
+.pipe li{counter-increment:s;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:6px;min-width:0;position:relative}
+.pipe li::before{content:counter(s);font-family:var(--display);font-weight:700;font-size:1.5rem;color:var(--vio);line-height:1}
+.pipe .q{font-family:var(--display);font-weight:600}
+.pipe small{color:var(--muted);font-size:.86rem;line-height:1.4}
+.pipe .no{font-family:var(--mono);font-size:.78rem;color:var(--bad)}
+/* tickets */
+.tickets{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.ticket{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.ticket .top{padding:12px 14px;display:flex;flex-direction:column;gap:4px;border-bottom:1px solid var(--line)}
+.ticket.b .top{background:var(--buy-soft)} .ticket.s .top{background:var(--sell-soft)} .ticket.t .top{background:var(--trap-soft)}
+.tag{font-family:var(--mono);font-weight:600;font-size:.8rem;padding:1px 8px;border-radius:999px;border:1px solid currentColor;align-self:flex-start}
+.tb{color:var(--buy)} .ts{color:var(--sell)} .tt{color:var(--trap)}
+.ticket dl{margin:0;padding:12px 14px;display:grid;grid-template-columns:max-content 1fr;gap:6px 10px;font-size:.92rem}
+.ticket dt{font-family:var(--mono);font-size:.72rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding-top:3px}
+.ticket dd{margin:0}
+/* risk */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.tablebox{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-size:.72rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600}
+td.mono{white-space:nowrap}
+ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px}
+.manage{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.m{border-radius:10px;padding:12px;border:1px solid var(--line);display:flex;flex-direction:column;gap:4px;min-width:0}
+.m b{font-family:var(--display);font-size:1.02rem}
+.m small{color:var(--muted);font-size:.86rem;line-height:1.4}
+.m.hold{background:var(--buy-soft);border-color:var(--buy)} .m.tight{background:var(--poc-soft);border-color:var(--poc)} .m.prot{background:var(--trap-soft);border-color:var(--trap)} .m.out{background:var(--sell-soft);border-color:var(--sell)}
+.never{background:var(--sell-soft);border:1px solid var(--sell);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.foot{color:var(--muted);font-size:.84rem}
+@media (max-width:900px){.pipe{grid-template-columns:repeat(2,1fr)}.tickets,.grid2{grid-template-columns:1fr}.manage{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:460px){.pipe,.manage{grid-template-columns:1fr}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <span class="eyebrow">KeyStone • MNQ • keep this open next to the chart</span>
+    <h1>Order Flow Execution Card</h1>
+    <p class="lede">Three setups, five steps, one risk rule. If a trade doesn't pass every step, it isn't a trade. Patience is the edge.</p>
+    <span class="rule">The one rule: trade where one side <i>&nbsp;fails&nbsp;</i>, never where one side is still winning.</span>
+  </header>
+
+  <section>
+    <span class="eyebrow">Every trade, in this order</span>
+    <h2>The 5 steps</h2>
+    <ol class="pipe">
+      <li><span class="q">Location</span><small>Is the price at a ▲ BUY ZONE / ▼ SELL ZONE, VAL / VAH, the POC, or the day's high / low?</small><span class="no">middle of nowhere → stop</span></li>
+      <li><span class="q">The battle</span><small>Who is attacking the level? Read the toast, the Δ row and IN CONTROL.</small><span class="no">BALANCED / flipping → wait</span></li>
+      <li><span class="q">The failure</span><small>The attacker fails: 🧱 absorbed, 🪤 trapped, a failed ⚡ big print, ⇅ divergence.</small><span class="no">no failure → no trade</span></li>
+      <li><span class="q">The close</span><small>A candle closes back on your side, Δ bar in your colour, IN CONTROL turns your way.</small><span class="no">candle not closed → wait</span></li>
+      <li><span class="q">Execute</span><small>NOW tile ✅ (or the decision bar) → check contracts on the button → TAKE → confirm.</small><span class="no">🧪 learning → paper only</span></li>
+    </ol>
+  </section>
+
+  <section>
+    <span class="eyebrow">Only these</span>
+    <h2>The 3 setups</h2>
+    <div class="tickets">
+      <article class="ticket b"><div class="top"><span class="tag tb">▲ BUY</span><h3>Buy zone holds</h3><p class="foot">Sellers attack a buy zone / VAL and fail.</p></div>
+        <dl><dt>If</dt><dd>Price comes back DOWN into a ▲ BUY ZONE or VAL, sellers hit it (coral Δ) and it won't break.</dd>
+        <dt>Then</dt><dd>🧱 absorption or ⇅ divergence, a candle closes back above, Δ teal, IN CONTROL → BUYERS.</dd>
+        <dt>Entry</dt><dd>TAKE on the close (or the zone's top edge).</dd>
+        <dt>Stop</dt><dd>Just below the zone / the low of the push.</dd>
+        <dt>Target</dt><dd>⚡ scalp first, 🏃 runner to the POC or the next long profile row.</dd></dl></article>
+      <article class="ticket s"><div class="top"><span class="tag ts">▼ SELL</span><h3>Sell zone holds</h3><p class="foot">Buyers attack a sell zone / VAH and fail.</p></div>
+        <dl><dt>If</dt><dd>Price comes back UP into a ▼ SELL ZONE or VAH, buyers lift it (teal Δ) and it won't break.</dd>
+        <dt>Then</dt><dd>🧱 absorption or ⇅ divergence, a candle closes back below, Δ coral, IN CONTROL → SELLERS.</dd>
+        <dt>Entry</dt><dd>TAKE on the close (or the zone's bottom edge).</dd>
+        <dt>Stop</dt><dd>Just above the zone / the high of the push.</dd>
+        <dt>Target</dt><dd>⚡ scalp first, 🏃 runner to the POC or the next long row below.</dd></dl></article>
+      <article class="ticket t"><div class="top"><span class="tag tt">🪤 FLIP</span><h3>Trapped traders</h3><p class="foot">Your 22:49 trade: sellers trapped at the low.</p></div>
+        <dl><dt>If</dt><dd>A zone breaks the wrong way and snaps back: heavy selling at the low, a failed big sell print, price back above.</dd>
+        <dt>Then</dt><dd>KeyStone flags "🪤 TRAPPED SELLERS → ▲ BUY" (or buyers → ▼ SELL).</dd>
+        <dt>Entry</dt><dd>On the close back inside the zone.</dd>
+        <dt>Stop</dt><dd>Beyond the trapped traders' extreme.</dd>
+        <dt>Target</dt><dd>The trapped side's stops fuel it: POC first, then the opposite zone.</dd></dl></article>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Risk first</span>
+    <h2>Size and limits</h2>
+    <div class="grid2">
+      <div class="card"><h3>Contracts from the stop (MNQ = $2 a point)</h3>
+        <div class="tablebox"><table>
+          <thead><tr><th>Stop (pts)</th><th>$ per contract</th><th>Risk $100</th><th>Risk $200</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">5</td><td class="mono">$10</td><td class="mono">10</td><td class="mono">20 → cap 10</td></tr>
+            <tr><td class="mono">8</td><td class="mono">$16</td><td class="mono">6</td><td class="mono">12 → cap 10</td></tr>
+            <tr><td class="mono">12</td><td class="mono">$24</td><td class="mono">4</td><td class="mono">8</td></tr>
+            <tr><td class="mono">20</td><td class="mono">$40</td><td class="mono">2</td><td class="mono">5</td></tr>
+          </tbody></table></div>
+        <p class="foot">The card's contracts are already worked out and frozen. Never add to a loser. Use the 🏦 account fit line: the smaller of the two numbers wins.</p></div>
+      <div class="card"><h3>Day limits (suggested — set your own)</h3>
+        <ul>
+          <li><b>Max 3 trades a day.</b> The best setups come 1–3 times.</li>
+          <li><b>Stop after 2 losses in a row.</b> Come back tomorrow.</li>
+          <li><b>Funded intraday trailing (TPT):</b> risk per trade ≤ 5 % of the buffer (≈ $100 on $1,900). A profit run raises your floor — take the scalp part.</li>
+          <li><b>End-of-day trailing (Lucid Flex):</b> the floor moves only at the close, so a 🏃 runner fits better.</li>
+          <li><b>Hit the day's goal → LOCK FOR TODAY.</b></li>
+          <li><b>No trades</b> 2 minutes either side of high-impact news (the NEWS lock).</li>
+        </ul></div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Once you're in</span>
+    <h2>Managing the trade</h2>
+    <div class="manage">
+      <div class="m hold"><b>HOLD</b><small>IN CONTROL is your side, the battle map is your colour. Do nothing.</small></div>
+      <div class="m tight"><b>⚠ TIGHTEN</b><small>The flow is fading against you. Move the stop closer, below the last pullback.</small></div>
+      <div class="m prot"><b>⚠ PROTECT THE PROFIT</b><small>In profit and the other side took over: take part off or lock the stop in profit.</small></div>
+      <div class="m out"><b>⛔ GET OUT</b><small>Everything turned: control, delta since entry, absorption against you. Close it.</small></div>
+    </div>
+    <p class="foot">A fresh trade under 1 minute is never told to get out. "Fading" is not "against you". KeyStone only suggests; you act with the chart's buttons.</p>
+  </section>
+
+  <section class="never">
+    <h3>Never</h3>
+    <ul>
+      <li>Never buy into sellers who are still winning, or sell into buyers who are still winning.</li>
+      <li>Never trade a "raw" signal before its candle closes.</li>
+      <li>Never trade a 🧪 learning setup with real money, only watch it or paper-trade it.</li>
+      <li>Never move the stop further away.</li>
+      <li>Never take more contracts than the card or the account fit shows.</li>
+    </ul>
+  </section>
+
+  <p class="foot">KeyStone order flow is analysis only. Orders go only through your chart's own BUY / SELL / TAKE, which ask first and use your armed account's limits. The day limits above are suggestions to adapt to your accounts' rules.</p>
+</div>
+
+</body>
+</html>

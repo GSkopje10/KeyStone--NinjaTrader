@@ -967,7 +967,7 @@ public static class UiSmokeTest
                         var kids = cvs[0].Children.OfType<System.Windows.FrameworkElement>().ToList();
                         if (!kids.Any(x => Convert.ToString(x.Tag) == "of.drow")) throw new Exception("📊 11v: no Δ / CONTRACTS row (of.drow)");
                         if (FindAll<System.Windows.Controls.TextBlock>(cvs[0]).Any(t0 => (t0.Text ?? "").Contains("LIVE FLOW") || (t0.Text ?? "").StartsWith("TAPE"))) throw new Exception("📊 11v: a LIVE FLOW / TAPE box is still on the chart canvas");
-                        var wide = kids.OfType<System.Windows.Controls.Border>().Where(b0 => b0.Width > 260 || (b0.Child is System.Windows.Controls.TextBlock && ((System.Windows.Controls.TextBlock)b0.Child).Text != null && ((System.Windows.Controls.TextBlock)b0.Child).Text.Length > 90)).ToList();
+                        var wide = kids.OfType<System.Windows.Controls.Border>().Where(b0 => Convert.ToString(b0.Tag) != "of.toast" && Convert.ToString(b0.Tag) != "of.decision").Where(b0 => b0.Width > 260 || (b0.Child is System.Windows.Controls.TextBlock && ((System.Windows.Controls.TextBlock)b0.Child).Text != null && ((System.Windows.Controls.TextBlock)b0.Child).Text.Length > 90)).ToList();
                         if (wide.Count > 0) throw new Exception("📊 11v: a wide box floats over the plot: " + string.Join(" / ", wide.Select(b0 => Convert.ToString(b0.Tag))));
                         string cmp = desk("COMPASS"), strip9 = desk("STRIP"); string sideW = cmp.StartsWith("BUYERS") ? "BUYERS" : cmp.StartsWith("SELLERS") ? "SELLERS" : "BALANCED";
                         if (!strip9.Contains("IN CONTROL") || !strip9.Contains(sideW)) throw new Exception("🧭 the header chip must read the compass (" + cmp + "): " + strip9);
@@ -976,7 +976,7 @@ public static class UiSmokeTest
                         if (FindAll<System.Windows.FrameworkElement>(bt.Content).Any(x => Convert.ToString(x.Tag).StartsWith("of.setup."))) throw new Exception("🚦 a RAW signal drew setup lines on the chart");
                         string vd9 = desk("VERDICT"); if (!(vd9.Contains("WAIT") || vd9.Contains("AVOID"))) throw new Exception("🚦 the verdict with a raw signal: " + vd9);
                         var lb = (Func<string, string>)F("studioLayerBar"); string l0 = lb("LIST"); if (!l0.Contains("PROF=on") || !l0.Contains("DROW=on")) throw new Exception("👁 layer bar: " + l0);
-                        foreach (var chip in new[] { "SETUP", "PAST", "PROF", "DROW", "EVENTS", "ZONES", "LEVELS" }) { string a1 = lb(chip), a2 = lb(chip); bool was = l0.Contains(chip + "=on"); if (a1.Contains(chip + "=" + (was ? "on" : "off")) || !a2.Contains(chip + "=" + (was ? "on" : "off"))) throw new Exception("👁 chip " + chip + " did not flip: " + a1 + " / " + a2); }
+                        foreach (var chip in new[] { "PAST", "PROF", "DROW", "EVENTS", "ZONES", "LEVELS" })   /* 11x: SETUP without a setup opens 🔍 WHY (tested in the 11x step) */ { string a1 = lb(chip), a2 = lb(chip); bool was = l0.Contains(chip + "=on"); if (a1.Contains(chip + "=" + (was ? "on" : "off")) || !a2.Contains(chip + "=" + (was ? "on" : "off"))) throw new Exception("👁 chip " + chip + " did not flip: " + a1 + " / " + a2); }
                         string c1 = lb("CLEAN"); ((Action<int>)F("replayTraderStep"))(0);
                         if (!c1.Contains("CLEAN=1") || c1.Contains("=on;")) throw new Exception("👁 CLEAN left something on: " + c1);
                         var left = FindAll<System.Windows.FrameworkElement>(bt.Content).Select(x => Convert.ToString(x.Tag)).Where(t0 => t0.StartsWith("of.vp") || t0 == "of.drow" || t0 == "of.big" || t0 == "of.trap" || t0 == "of.mark" || t0 == "of.zone" || t0.StartsWith("of.setup.") || t0 == "of.dprof").ToList();
@@ -1012,17 +1012,42 @@ public static class UiSmokeTest
                         if (!c1.StartsWith("VISIBLE") || !c1.Contains("⚡ SCALP")) throw new Exception("⚖ BOTH must show the scalp row too: " + c1);
                         ((Action<int>)F("replayTraderStep"))(0);
                         var tags = FindAll<System.Windows.FrameworkElement>(bt.Content).Select(x => Convert.ToString(x.Tag)).ToList(); if (!tags.Contains("of.swing.chip") || !tags.Contains("of.swing.label")) throw new Exception("🏃 the swing's lines / chip are not on the chart");
-                        if (!FindAll<System.Windows.Controls.TextBlock>(bt.Content).Any(t0 => (t0.Text ?? "").StartsWith("🏃 💡 TAKE PROFIT") && ((t0.Text ?? "").Contains("(PRIOR HIGH)") || (t0.Text ?? "").Contains("(PRIOR LOW)")))) throw new Exception("🏃 the swing's TAKE PROFIT label does not name its level");
+                        if (!FindAll<System.Windows.Controls.TextBlock>(bt.Content).Any(t0 => (t0.Text ?? "").TrimStart('↑', '↓', ' ').StartsWith("🏃 💡 TAKE PROFIT") && ((t0.Text ?? "").Contains("(PRIOR HIGH)") || (t0.Text ?? "").Contains("(PRIOR LOW)")))) throw new Exception("🏃 the swing's TAKE PROFIT label does not name its level");
                         { string v9 = desk("VERDICT"); if (!v9.Contains("SCALP") && !v9.Contains("SWING")) throw new Exception("🚦 the verdict must name the style: " + v9); }
+                        Func<string, bool> has = tg => FindAll<System.Windows.FrameworkElement>(bt.Content).Any(x => Convert.ToString(x.Tag) == tg);
+                        {   /* 🚥 11x: the DECISION BAR (= the NOW verdict) + its chip, 🔔 a toast, 📊 TOTALS, 🧾 TAPE title, 💵 the SETUPS table, 🎓 BEGINNER */
+                            desk("TAB NOW"); ((Action<int>)F("replayTraderStep"))(0);
+                            if (!has("of.decision")) throw new Exception("🚥 no decision bar on the ORDERFLOW chart");
+                            var dtx = FindAll<System.Windows.Controls.TextBlock>(bt.Content).First(x => Convert.ToString(x.Tag) == "of.decision.text").Text; string vh = desk("VERDICT");
+                            if (!vh.Contains(dtx.Split('•')[0].Replace("⑤", "").Trim())) throw new Exception("🚥 the decision bar disagrees with the NOW tile: " + dtx + " vs " + vh);
+                            if (!has("of.decision.steps") && !dtx.StartsWith("⑤")) throw new Exception("🧭 the 5-step pills are missing from the decision bar");
+                            var lbx = (Func<string, string>)F("studioLayerBar"); lbx("DECISION"); ((Action<int>)F("replayTraderStep"))(0); if (has("of.decision")) throw new Exception("🚥 the DECISION chip did not hide the bar"); lbx("DECISION"); ((Action<int>)F("replayTraderStep"))(0);
+                            if (!has("of.toast")) throw new Exception("🔔 no event toast after a new setup");
+                            string fl9 = desk("TAB FLOW"); if (!fl9.Contains("📊 TOTALS — contracts") || !fl9.Contains("TAPE — every trade")) throw new Exception("📊 TOTALS card / TAPE title missing: " + fl9.Substring(0, Math.Min(300, fl9.Length)));
+                            string su9 = desk("TAB SETUPS"); if (!su9.Contains("💵 TOTAL") || !su9.Contains("$ CARD")) throw new Exception("💵 the SETUPS table / totals strip: " + su9.Substring(0, Math.Min(400, su9.Length)));
+                            string nw9 = desk("TAB NOW"); if (!nw9.Contains("WHAT'S HAPPENING NOW") || !has("of.beginner")) throw new Exception("👀 NOW: " + nw9);
+                            desk("CLOSE"); ((Action<int>)F("replayTraderStep"))(0); if (!has("of.decision")) throw new Exception("🚥 no decision bar on the 📈 CHART view");
+                            lbx("DECISION"); ((Action<int>)F("replayTraderStep"))(0); if (has("of.decision")) throw new Exception("🚥 the CHART view's DECISION chip did not hide the bar"); lbx("DECISION"); desk("OPEN");
+                        }
                         desk("STYLE SWING"); desk("SWING"); if (!desk("CARD").StartsWith("HIDDEN") || !desk("CARD2").StartsWith("VISIBLE")) throw new Exception("🏃 STYLE SWING must show only the swing card");
                         rt = (KeystoneReplayTrader)F("replayTrader"); int p9 = rt.Position;
                         System.Windows.MessageBox.Answer = (t, b) => System.Windows.MessageBoxResult.Yes; string tk2; try { tk2 = desk("TAKE2"); } finally { System.Windows.MessageBox.Answer = null; }
                         rt = (KeystoneReplayTrader)F("replayTrader"); if (rt.Position == p9 || !tk2.Contains("style SWING")) throw new Exception("🏃 TAKE (swing) = the chart's own BUY / SELL: " + tk2);
+                        {   /* ⚔ 11x: the battle map is labelled and has its own chip */
+                            desk("OPEN"); ((Action<int>)F("replayTraderStep"))(0);
+                            if (!has("of.trademap.label")) throw new Exception("⚔ the in-trade battle map has no \"SINCE YOUR ENTRY\" label");
+                            var lbB = (Func<string, string>)F("studioLayerBar"); lbB("BATTLE"); ((Action<int>)F("replayTraderStep"))(0); if (has("of.trademap.label") || has("of.trademap")) throw new Exception("⚔ the BATTLE MAP chip did not hide it"); lbB("BATTLE");
+                        }
                         ((Action)F("replayTraderFlat"))(); desk("OPEN");
                         desk("SWING"); if (desk("SKIP2") != "HIDDEN") throw new Exception("🏃 SKIP did not hide the swing card");
                         { string st9 = desk("TAB STORY"); if (!st9.Contains("🏃")) throw new Exception("📖 the swing is not in the STORY: " + st9.Substring(0, Math.Min(300, st9.Length))); }
                         { string an9 = desk("TAB ANALYZE"); if (!an9.Contains("🏃 SWING")) throw new Exception("📊 ANALYZE has no SWING section"); }
                         { string g9 = desk("TAB GUIDE"); if (!g9.Contains("⚡ SCALP vs 🏃 SWING")) throw new Exception("🎓 GUIDE misses ⚡ SCALP vs 🏃 SWING"); }
+                        {   /* 💡 11x: the SETUP chip without a setup says so and opens 🔍 WHY (never a silent no-op) */
+                            ((Action<int>)F("replayTraderStep"))(0); var chipT = FindAll<System.Windows.Controls.Border>(bt.Content).FirstOrDefault(x => Convert.ToString(x.Tag) == "layerbar.SETUP");
+                            if (chipT == null || !(((System.Windows.Controls.TextBlock)chipT.Child).Text ?? "").Contains("no setup — ⏳ step")) throw new Exception("💡 the SETUP chip without a setup: " + (chipT == null ? "missing" : ((System.Windows.Controls.TextBlock)chipT.Child).Text));
+                            string sc9 = ((Func<string, string>)F("studioLayerBar"))("SETUP"); if (!sc9.Contains("WHY") || !desk("DOCK").Contains("THE CONFIRMATIONS OF THIS SETUP")) throw new Exception("💡 the SETUP chip without a setup must open 🔍 WHY: " + sc9);
+                        }
                         desk("STYLE BOTH"); desk("TAB NOW");
                         if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the swing card built a NinjaBroker");
                     }
