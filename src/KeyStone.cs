@@ -9525,6 +9525,114 @@ namespace NinjaTrader.NinjaScript
         // ✅ BUY / ✅ SELL only when the setup type's measured win rate (n ≥ 30, walk-forward) beats its break-even; else 🧪 … learning (n) — never a made-up %
         public string Head { get { return Kind == "TAKE" ? (Proven ? "✅ " : "🧪 ") + (Style != "" ? Style + " " : "") + (Dir < 0 ? "SELL" : "BUY") + (Summary != "" ? " " + Summary : "") + (Proven ? "" : " • " + (Learn != "" ? Learn : "learning")) : Kind == "AVOID" ? "⛔ AVOID" : "⏳ WAIT"; } }
     }
+    // 🔔 11x — EVENT TOASTS + the NARRATOR + the EVENT JOURNAL (display / files only — nothing here sends anything): a new order-flow event shows its explanation
+    // for 6 s in a pulsing card (max 2, newest on top, never over the newest candles), ends with ONE line "→ what it means for you", and is saved with its outcome
+    // (Studio\OrderFlow\events-<SYM>-<day>.csv) for ANALYZE / LEARN / backtests. A % only from the journal with n ≥ 20, else "learning (n)".
+    public sealed class KeystoneOfEvent
+    {
+        public DateTime Time; public string Symbol = "", Type = "", Text = "", Location = "", Narrator = ""; public int Side, Compass, Result; public double Price, CompassScore, Mfe, Mae, M5 = double.NaN, M15 = double.NaN, M30 = double.NaN; public bool Done;
+        public string Key { get { return Time.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture) + "|" + Symbol + "|" + Type + "|" + Side; } }
+    }
+    public static class KeystoneOfEvents
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture; public const int Ticks = 8;
+        public const string Header = "time,symbol,type,side,price,compass,compass_score,location,text,narrator,result,mfe,mae,m5,m15,m30,done";
+        public static string PathOf(string folder, string sym, DateTime day) { return Path.Combine(folder ?? "", "OrderFlow", "events-" + (sym ?? "") + "-" + day.ToString("yyyy-MM-dd", IC) + ".csv"); }
+        static string N(double v) { return double.IsNaN(v) ? "" : v.ToString("0.####", IC); }
+        static double D(string x) { double v; return double.TryParse(x, NumberStyles.Float, IC, out v) ? v : double.NaN; }
+        static string Q(string x) { return (x ?? "").Replace(",", ";").Replace("\n", " ").Replace("\r", " "); }
+        public static string Line(KeystoneOfEvent e)
+        {
+            return string.Join(",", e.Time.ToString("yyyy-MM-dd HH:mm:ss.fff", IC), Q(e.Symbol), Q(e.Type), e.Side, N(e.Price), e.Compass, N(e.CompassScore), Q(e.Location), Q(e.Text), Q(e.Narrator), e.Result, N(e.Mfe), N(e.Mae), N(e.M5), N(e.M15), N(e.M30), e.Done ? 1 : 0);
+        }
+        public static KeystoneOfEvent Parse(string l)
+        {
+            var a = (l ?? "").Split(','); if (a.Length < 17 || a[0] == "time") return null; DateTime t; if (!DateTime.TryParseExact(a[0], "yyyy-MM-dd HH:mm:ss.fff", IC, DateTimeStyles.None, out t)) return null;
+            Func<string, int> I = x => { int v; return int.TryParse(x, NumberStyles.Integer, IC, out v) ? v : 0; };
+            return new KeystoneOfEvent { Time = t, Symbol = a[1], Type = a[2], Side = I(a[3]), Price = D(a[4]), Compass = I(a[5]), CompassScore = D(a[6]), Location = a[7], Text = a[8], Narrator = a[9], Result = I(a[10]), Mfe = D(a[11]), Mae = D(a[12]), M5 = D(a[13]), M15 = D(a[14]), M30 = D(a[15]), Done = a[16] == "1" };
+        }
+        public static void SaveDay(string folder, string sym, DateTime day, IEnumerable<KeystoneOfEvent> rows) { var p = PathOf(folder, sym, day); Directory.CreateDirectory(Path.GetDirectoryName(p)); File.WriteAllText(p, Header + "\n" + string.Join("\n", rows.OrderBy(r => r.Time).Select(Line)) + "\n"); }
+        public static List<KeystoneOfEvent> LoadAll(string folder, string sym)
+        {
+            var o = new List<KeystoneOfEvent>(); try { var dir = Path.Combine(folder ?? "", "OrderFlow"); if (!Directory.Exists(dir)) return o; foreach (var f in Directory.GetFiles(dir, "events-" + sym + "-*.csv").OrderBy(x => x)) foreach (var l in File.ReadAllLines(f)) { var r = Parse(l); if (r != null) o.Add(r); } } catch { }
+            return o.OrderBy(r => r.Time).ToList();
+        }
+        // the outcome from the trades AFTER the event up to `now` only (no look-ahead): +Ticks its way first (+1) / −Ticks first (−1), MFE / MAE, the 5 / 15 / 30-min move its way
+        public static void Measure(KeystoneOfEvent e, List<KeystoneOfTick> t, int endN, DateTime now, double tick, int ticks = Ticks)
+        {
+            if (e == null || t == null || e.Done || tick <= 0 || e.Price <= 0 || e.Side == 0) { if (e != null && e.Side == 0 && now >= e.Time.AddMinutes(30)) e.Done = true; return; }
+            endN = Math.Min(endN, t.Count); int d = e.Side, res = 0; double mfe = 0, mae = 0, last = e.Price, m5 = double.NaN, m15 = double.NaN, m30 = double.NaN;
+            for (int i = KeystoneOrderFlow.FirstAfter(t, e.Time, endN); i < endN; i++)
+            {
+                var x = t[i]; if (x.Time > now || x.Time > e.Time.AddMinutes(30)) break;
+                if (double.IsNaN(m5) && x.Time > e.Time.AddMinutes(5)) m5 = d * (last - e.Price); if (double.IsNaN(m15) && x.Time > e.Time.AddMinutes(15)) m15 = d * (last - e.Price);
+                double m = d * (x.Price - e.Price); mfe = Math.Max(mfe, m); mae = Math.Max(mae, -m);
+                if (res == 0) { if (m >= ticks * tick - 1e-9) res = 1; else if (-m >= ticks * tick - 1e-9) res = -1; }
+                last = x.Price;
+            }
+            DateTime hz = now < e.Time.AddMinutes(30) ? now : e.Time.AddMinutes(30);
+            if (double.IsNaN(m5) && hz >= e.Time.AddMinutes(5)) m5 = d * (last - e.Price); if (double.IsNaN(m15) && hz >= e.Time.AddMinutes(15)) m15 = d * (last - e.Price); if (hz >= e.Time.AddMinutes(30)) m30 = d * (last - e.Price);
+            e.Result = res; e.Mfe = mfe; e.Mae = mae; e.M5 = m5; e.M15 = m15; e.M30 = m30; e.Done = now >= e.Time.AddMinutes(30);
+        }
+        // → what it means for you: the event's side vs the compass (fading = the score's side), your position and what to wait for — never against the compass, never
+        // "get out" of an open position without the reason (an event against it = "warning … tighten" with the event named)
+        public static string Narrate(int evSide, string evName, int compassState, double compassScore, int position, string waitFor)
+        {
+            string side = evSide > 0 ? "BUY" : "SELL"; int lean = KeystoneFlowCompass.Fading(compassState, compassScore) ? (Math.Abs(compassScore) >= 15 ? Math.Sign(compassScore) : 0) : compassState;
+            if (position != 0)
+            {
+                string pw = position > 0 ? "LONG" : "SHORT";
+                if (evSide == 0 || evSide == Math.Sign(position)) return "→ for your " + pw + ": HOLD" + (evSide == 0 ? " — nothing changed for it" : " — " + evName + " is on your side");
+                return "→ warning for your " + pw + ": tighten — " + evName + " points the other way" + (lean == Math.Sign(position) ? " (the compass is still with you)" : "");
+            }
+            if (evSide == 0) return "→ nothing to do yet — WAIT for " + (string.IsNullOrEmpty(waitFor) ? "a confirmed setup" : waitFor);
+            if (lean == 0 || lean == evSide) return "→ supports " + side + (lean == evSide ? " (with the " + KeystoneFlowCompass.SideWord(lean).ToLowerInvariant() + " in control)" : " — still WAIT for a confirmed setup");
+            return "→ nothing to do yet — WAIT: it goes against the " + KeystoneFlowCompass.SideWord(lean).ToLowerInvariant() + " in control";
+        }
+        // the measured follow-through of this event type × side from the journal (decided ones only, n ≥ 20) — never an invented %
+        public static string Probability(IEnumerable<KeystoneOfEvent> past, string type, int side, DateTime before, int minN = 20)
+        {
+            var g = (past ?? Enumerable.Empty<KeystoneOfEvent>()).Where(e => e.Type == type && e.Side == side && e.Result != 0 && e.Time < before).ToList(); string who = side > 0 ? "buyers'" : side < 0 ? "sellers'" : "";
+            if (side == 0) return ""; if (g.Count < minN) return "learning (" + g.Count + ")";
+            return who + " " + type.ToLowerInvariant() + " led to +" + Ticks + " ticks before −" + Ticks + " in " + (100.0 * g.Count(e => e.Result > 0) / g.Count).ToString("0", IC) + " % of " + g.Count + " cases";
+        }
+        // the event type + side from a 📖 STORY key / text (the timeline is the one place every event is announced)
+        public static Tuple<string, int> Classify(string key, string text)
+        {
+            key = key ?? ""; text = text ?? ""; string t = "";
+            if (key.StartsWith("C|")) t = "COMPASS"; else if (key.StartsWith("T|")) t = "TRAPPED"; else if (key.StartsWith("BF|")) t = "FAILED PRINT"; else if (key.StartsWith("B|")) t = "BIG PRINT";
+            else if (key.StartsWith("S|ABSORB")) t = "ABSORPTION"; else if (key.StartsWith("S|DIVERGE")) t = "DIVERGENCE"; else if (key.StartsWith("S|STACKED")) t = "STACKED";
+            else if (key.StartsWith("FL|")) t = "FLIP"; else if (key.StartsWith("ZN|")) t = "ZONE MARKED"; else if (key.StartsWith("ZC|")) t = "ZONE RETEST"; else if (key.StartsWith("ZE|")) t = "ZONE REMOVED";
+            else if (key.StartsWith("O|")) t = "SETUP SHOWN"; else if (key.StartsWith("E|")) t = "SETUP ENDED"; else return Tuple.Create("", 0);
+            int side = 0; string u = text.ToUpperInvariant();
+            if (t == "TRAPPED") side = u.Contains("TRAPPED BUYERS") ? -1 : u.Contains("TRAPPED SELLERS") ? 1 : 0;
+            else if (t == "FAILED PRINT" || t == "FLIP") side = u.Contains("→ BUY") || u.Contains("SUPPORTS A BUY") ? 1 : u.Contains("→ SELL") || u.Contains("SUPPORTS A SELL") ? -1 : 0;
+            else if (t == "BIG PRINT") side = u.Contains("BOUGHT") ? 1 : u.Contains("SOLD") ? -1 : 0;
+            else if (t == "COMPASS") side = u.Contains("TURNED BUYERS") ? 1 : u.Contains("TURNED SELLERS") ? -1 : 0;
+            else if (t == "ZONE REMOVED" || t == "SETUP ENDED") side = 0;
+            else side = u.Contains("▲") || u.Contains("BUY ZONE") || u.Contains("BUYERS ABSORBED") ? 1 : u.Contains("▼") || u.Contains("SELL ZONE") || u.Contains("SELLERS ABSORBED") ? -1 : 0;
+            return Tuple.Create(t, side);
+        }
+        public static bool Quiet(string type) { return type == "SETUP SHOWN" || type == "SETUP ENDED" || type == "FLIP" || type == "COMPASS" || type == "FAILED PRINT"; }
+    }
+    public sealed class KeystoneOfToast { public string Key = "", Title = "", Body = "", Cls = ""; public DateTime Born; public int Side; }
+    public sealed class KeystoneOfToasts
+    {
+        public double LifeSec = 6, FadeSec = 1.5; public int Max = 2; public readonly List<KeystoneOfToast> Items = new List<KeystoneOfToast>(); readonly HashSet<string> seen = new HashSet<string>();
+        public bool Add(string key, string title, string body, string cls, int side, DateTime now)
+        {
+            if (string.IsNullOrEmpty(key) || !seen.Add(key)) return false; if (seen.Count > 3000) seen.Clear();
+            Items.Insert(0, new KeystoneOfToast { Key = key, Title = title ?? "", Body = body ?? "", Cls = cls ?? "", Side = side, Born = now }); while (Items.Count > Max) Items.RemoveAt(Items.Count - 1); return true;
+        }
+        public void Prune(DateTime now) { Items.RemoveAll(x => (now - x.Born).TotalSeconds >= LifeSec + FadeSec || now < x.Born.AddSeconds(-5)); }
+        public double Opacity(KeystoneOfToast x, DateTime now) { double a = (now - x.Born).TotalSeconds; return a < LifeSec ? 1 : Math.Max(0, 1 - (a - LifeSec) / FadeSec); }
+        // x of a toast of width w: in the free space left of the profile strip when the newest candles leave room; else left of the newest candles — never over [newestLeft, newestRight]
+        public static double Place(double plotLeft, double newestLeft, double newestRight, double stripLeft, double w)
+        {
+            double right = stripLeft - 8; if (right - w >= newestRight + 6) return right - w;
+            return Math.Max(plotLeft + 4, Math.Min(newestLeft - w - 8, right - w));
+        }
+    }
     // 🚥 11x — the DECISION BAR + the setup CLASSES (display only): one line on top of the plot = the SAME verdict as the 🧭 NOW tile (never a second opinion),
     // a class per setup with its own colour + a gentle 1 Hz pulse for 30 s then steady (none for LEARNING / WAIT; "reduce motion" = steady):
     // ⚡ SCALP cyan • 🏃 SWING violet • ⭐ STRONG gold (proven n ≥ 30 AND the order flow, the location and the compass all agree) • 🧪 LEARNING grey •
@@ -9534,7 +9642,7 @@ namespace NinjaTrader.NinjaScript
         public static bool IsStrong(bool proven, bool flowAgrees, bool locationAgrees, bool compassAgrees) { return proven && flowAgrees && locationAgrees && compassAgrees; }
         public static string Of(string verdictKind, bool proven, string style, bool strong, string inTradeSug = null)
         {
-            if (!string.IsNullOrEmpty(inTradeSug)) return inTradeSug.StartsWith("⛔") ? "CLOSE" : inTradeSug.StartsWith("⚠") ? "PROTECT" : "HOLD";
+            if (!string.IsNullOrEmpty(inTradeSug)) return inTradeSug.StartsWith("⛔", StringComparison.Ordinal) ? "CLOSE" : inTradeSug.StartsWith("⚠", StringComparison.Ordinal) ? "PROTECT" : "HOLD";
             if (verdictKind == "TAKE") return !proven ? "LEARNING" : strong ? "STRONG" : style == "SWING" ? "SWING" : "SCALP";
             return verdictKind == "AVOID" ? "AVOID" : "WAIT";
         }
@@ -9771,7 +9879,7 @@ namespace NinjaTrader.NinjaScript
             var zs = new KeystoneFlowZones(); var raw = KeystoneOrderFlow.Signals(fps, tick, s); var zc = new List<KeystoneOfSignal>();
             for (int j = 0; j < fps.Count; j++)
             {
-                var f = fps[j]; if (f.Empty) continue; var oc = zs.OnClosed(j, f.End, f.Open, f.High, f.Low, f.Close, f.Delta, tick); foreach (var z in oc.Item1) zc.Add(KeystoneFlowZones.Signal(z, j, f.End, f.Close));
+                var f = fps[j]; if (f.Empty) continue; var oc = zs.OnClosed(j, f.End, f.Open, f.High, f.Low, f.Close, f.Delta, tick); foreach (var z in oc.Item1) zc.Add(KeystoneFlowZones.Signal(z, j, f.End, f.Close)); zc.AddRange(zs.NewFlips);   /* 🪤 11x: failed zones → FLIP setups */
                 foreach (var g in raw.Where(x => x.Bar == j)) zs.FromSignal(g, f, tick, sym);
             }
             conf = conf.Concat(zc).OrderBy(x => x.Time).ToList();
@@ -9868,7 +9976,7 @@ namespace NinjaTrader.NinjaScript
         public int MaxLive = 6, BreakTicks = 4; public double MaxHours = 4; int nextId = 1; readonly HashSet<string> seen = new HashSet<string>();
         /* 🪤 11x: a zone that FAILS (a closed candle through it with the flow the other way) = its side is trapped → a FLIP setup the other way (Kind "FLIP"),
            entry at the market on that closed candle, its "zone" = the failed push (the stop goes beyond the push's extreme); filled by OnClosed */
-        public readonly List<KeystoneOfSignal> Flips = new List<KeystoneOfSignal>(); public readonly List<string> FlipStory = new List<string>();
+        public readonly List<KeystoneOfSignal> Flips = new List<KeystoneOfSignal>(), NewFlips = new List<KeystoneOfSignal>(); public readonly List<string> FlipStory = new List<string>(), NewFlipStory = new List<string>();
         // a new zone from an event (dedup by key); the weakest goes when there are more than MaxLive
         public KeystoneFlowZone Add(string key, int side, double lo, double hi, string source, string why, DateTime t, int bar, double strength)
         {
@@ -9881,7 +9989,7 @@ namespace NinjaTrader.NinjaScript
         // one CLOSED candle (index bar, after the zone was made): broken / retest confirmed / still waiting; returns the zones confirmed on this candle + the ended ones (with why)
         public Tuple<List<KeystoneFlowZone>, List<KeystoneFlowZone>> OnClosed(int bar, DateTime t, double open, double high, double low, double close, long delta, double tick)
         {
-            var conf = new List<KeystoneFlowZone>(); var gone = new List<KeystoneFlowZone>();
+            var conf = new List<KeystoneFlowZone>(); var gone = new List<KeystoneFlowZone>(); NewFlips.Clear(); NewFlipStory.Clear();
             foreach (var z in Live.ToList())
             {
                 if (bar <= z.CreatedBar) continue;
@@ -9894,6 +10002,7 @@ namespace NinjaTrader.NinjaScript
                     if (fd > 0) { pLo = Math.Min(low, z.Lo); pHi = z.Hi; } else { pLo = z.Lo; pHi = Math.Max(high, z.Hi); }
                     Flips.Add(new KeystoneOfSignal { Bar = bar, Dir = fd, Kind = "FLIP", Price = close, Time = t, ZoneLo = pLo, ZoneHi = pHi,
                         Why = "🪤 " + (z.Side < 0 ? "▼ SELL" : "▲ BUY") + " ZONE " + z.Lo.ToString("0.00", IC) + "–" + z.Hi.ToString("0.00", IC) + " failed → trapped " + (z.Side < 0 ? "sellers → ▲ BUY" : "buyers → ▼ SELL") });
+                    NewFlips.Add(Flips[Flips.Count - 1]); NewFlipStory.Add((z.Side < 0 ? "▼ SELL" : "▲ BUY") + " ZONE " + z.Lo.ToString("0.00", IC) + "–" + z.Hi.ToString("0.00", IC) + " FAILED — " + (z.Side < 0 ? "sellers absorbed, 🪤 trapped sellers → BUY setup" : "buyers absorbed, 🪤 trapped buyers → SELL setup"));
                     FlipStory.Add((z.Side < 0 ? "▼ SELL" : "▲ BUY") + " ZONE " + z.Lo.ToString("0.00", IC) + "–" + z.Hi.ToString("0.00", IC) + " FAILED — " + (z.Side < 0 ? "sellers absorbed, 🪤 trapped sellers → BUY setup" : "buyers absorbed, 🪤 trapped buyers → SELL setup"));
                     if (Flips.Count > 50) { Flips.RemoveAt(0); FlipStory.RemoveAt(0); }
                     continue;
@@ -10031,6 +10140,7 @@ namespace NinjaTrader.NinjaScript
             sb.Append("ticks/<SYM>/<yyyy-MM-dd>.csv.gz   real trades (Tick Library format): " + KeystoneTickLib.CsvHeader + " — side +1 = buyer aggressor, −1 = seller; bidask_quoted 1 = side from bid / ask, 0 = tick rule\n");
             sb.Append("candles/<SYM>-1min.csv            time_ny (bar close),open,high,low,close,volume\n");
             sb.Append("setups/setups-<SYM>-<day>.csv     " + KeystoneOfSetupBook.Header + "\n   status = shown / taken / skipped / expired / stopped / target / withdrawn / not offered: <why>; result +1 target first, −1 stop first, 0 open; r = R multiple; mfe / mae / m5 / m15 / m30 in points in the setup's direction; scalp ±8 ticks first\n");
+            sb.Append("events/events-<SYM>-<day>.csv     " + KeystoneOfEvents.Header + "\n   every order-flow event (stacked, absorption, divergence, big print / failed print, trapped, zone marked / broken / FLIP, compass change, setup shown / resolved) + what the narrator said + its outcome (result +1 = +8 ticks the event's way first, −1 = −8 first; m5 / m15 / m30 = the move its way, measured after it only)\n");
             sb.Append("story.csv                         time_ny,text — the 📖 STORY timeline (compass changes, absorption, big prints, level breaks, trapped zones, setups)\n");
             sb.Append("compass.csv                       time_ny,symbol,state(+1 buyers / −1 sellers / 0 balanced),score(−100…+100) — one reading every 10 s\n");
             sb.Append("executions/<account>/<day>.csv    the 🧾 EXECUTIONS journal days as saved (fills → iterations)\n");
@@ -10059,7 +10169,7 @@ namespace NinjaTrader.NinjaScript
                     else entries.Add(Tuple.Create("candles/" + KeystoneTickLib.Norm(sym) + "-1min.csv", Encoding.UTF8.GetBytes("time_ny,open,high,low,close,volume\n" + string.Join("\n", bars.Select(b => b.Time.ToString("yyyy-MM-dd HH:mm:ss", IC) + "," + b.Open.ToString(IC) + "," + b.High.ToString(IC) + "," + b.Low.ToString(IC) + "," + b.Close.ToString(IC) + "," + b.Volume.ToString(IC))) + "\n")));
                 }
                 catch (Exception e) { notes.Add("candles " + sym + ": " + e.Message); }
-                int ns = 0; foreach (var d in days ?? new List<DateTime>()) { var p = KeystoneOfSetupBook.PathOf(folder, sym, d); if (File.Exists(p)) { entries.Add(Tuple.Create("setups/" + Path.GetFileName(p), File.ReadAllBytes(p))); ns++; } }
+                int ns = 0; foreach (var d in days ?? new List<DateTime>()) { var p = KeystoneOfSetupBook.PathOf(folder, sym, d); if (File.Exists(p)) { entries.Add(Tuple.Create("setups/" + Path.GetFileName(p), File.ReadAllBytes(p))); ns++; } var pe = KeystoneOfEvents.PathOf(folder, sym, d); if (File.Exists(pe)) entries.Add(Tuple.Create("events/" + Path.GetFileName(pe), File.ReadAllBytes(pe))); }   /* 🔔 11x: the event journal too */
                 if (ns == 0) notes.Add("no order-flow setups saved for " + sym + " on the chosen days");
             }
             if (!string.IsNullOrEmpty(storyCsv)) entries.Add(Tuple.Create("story.csv", Encoding.UTF8.GetBytes(storyCsv))); else notes.Add("no STORY lines yet");

@@ -336,6 +336,63 @@ public static class FlowCompassTests
             Check(scs.Count > 0 && scs.All(x => Math.Abs(x.Target - x.Entry - x.Dir * 3) < 1e-9) && sws.All(x => x.Status == "history replay" && x.Rr >= 2 - 1e-9 && Math.Abs(x.Entry - x.Stop) >= 12 - 1e-9), "📜 PROVE FROM HISTORY: scalp rows + swing rows (R:R ≥ 2, stop ≥ 12 pts), " + scs.Count + " scalp / " + sws.Count + " swing");
             var w5 = KeystoneOfStyle.Windows5(new DateTime(2026, 11, 12, 10, 7, 30), 1); Check(w5.Count == 12 && w5[w5.Count - 1].Item2 == new DateTime(2026, 11, 12, 10, 5, 0), "5-min windows: closed ones only (the forming 10:05–10:10 is left out)");
         }
+        // ---- 18. 🪤 11x FAILED ZONE → FLIP, 🪤 the failed big print, 🚥 the decision bar + classes, 👀 what's happening now (beginner phrases)
+        {
+            var zf = new KeystoneFlowZones(); zf.Add("S1", -1, 100, 101, "STACKED", "stacked sellers", T0, 1, 3);
+            zf.OnClosed(2, T0.AddMinutes(1), 100.5, 101.5, 100.25, 100.75, 40, 0.25);   // into the zone, closes inside: nothing yet
+            Check(zf.Flips.Count == 0 && zf.Live.Count == 1, "a sell zone traded into but not failed → no FLIP yet");
+            zf.OnClosed(3, T0.AddMinutes(2), 99.5, 102.75, 99.25, 102.5, 120, 0.25);   // pushed below, then a CLOSED candle back above it with buying delta
+            Check(zf.Flips.Count == 1 && zf.NewFlips.Count == 1 && zf.Flips[0].Dir == 1 && zf.Flips[0].Kind == "FLIP" && zf.Flips[0].ZoneLo == 99.25 && zf.Live.Count == 0 && zf.NewFlipStory[0] == "▼ SELL ZONE 100.00–101.00 FAILED — sellers absorbed, 🪤 trapped sellers → BUY setup",
+                "a FAILED ▼ sell zone (a closed candle back above it, delta teal) → 🪤 trapped sellers → ▲ BUY FLIP, stop beyond the failed push's low", zf.NewFlipStory.Count > 0 ? zf.NewFlipStory[0] : "none");
+            var zb = new KeystoneFlowZones(); zb.Add("B1", 1, 100, 101, "ABSORB", "buyers absorbed", T0, 1, 3); zb.OnClosed(2, T0.AddMinutes(1), 100.5, 101.25, 98.75, 98.5, -90, 0.25);
+            Check(zb.Flips.Count == 1 && zb.Flips[0].Dir == -1 && zb.Flips[0].ZoneHi == 101.25, "the mirror: a failed ▲ buy zone → 🪤 trapped buyers → ▼ SELL");
+            var fr = new List<KeystoneOfSetupRow>(); for (int i = 0; i < 35; i++) fr.Add(new KeystoneOfSetupRow { Time = T0.AddMinutes(i), Kind = i % 2 == 0 ? "FLIP" : "ZONE STACKED", Dir = 1, Compass = 1, Entry = 100, Stop = 98, Target = 104, Result = 1 });
+            var jf = KeystoneOfLearner.Judge(fr, new KeystoneOfSetupRow { Time = T0.AddHours(2), Kind = "FLIP", Dir = 1, Compass = 1, Entry = 100, Stop = 98, Target = 104 });
+            Check(jf.N == 18 && KeystoneOfSetupBook.Parse(KeystoneOfSetupBook.Line(fr[0])).Kind == "FLIP", "FLIP = a setup type of its own (journaled, judged on its own history)", "n " + jf.N);
+            // the failed big print
+            var bp = new KeystoneFlowBigPrint { Side = -1, Size = 16, Price = 28207.5, After = "failed" };
+            Check(KeystoneFlowBig.Failed(bp) && KeystoneFlowBig.PressureSide(bp) == 1 && KeystoneFlowBig.FailLabel(bp) == "🪤 seller failed → BUY pressure" && KeystoneFlowBig.FailTip(bp) == "a big seller hit the bid at 28207.50 but the price went UP after it → the seller is trapped; this supports a BUY"
+                && !KeystoneFlowBig.Failed(new KeystoneFlowBigPrint { Side = -1, After = "pushed" }) && KeystoneFlowBig.FailLabel(new KeystoneFlowBigPrint { Side = 1, After = "failed" }) == "🪤 buyer failed → SELL pressure", "🪤 a failed big print = restyled, its meaning in words (seller failed → BUY pressure)");
+            // the decision bar = the verdict (the same object), the classes
+            var vb = new KeystoneFlowVerdict(); vb.Update(new KeystoneFlowVerdictInput { CardOffered = true, CardDir = 1, Proven = true, CardStyle = "SWING", CardSummary = "3 MNQ • R:R 2.4 • TP at POC", CardText = "BUY 3 MNQ" }, T0);
+            Check(KeystoneOfClass.Text(vb) == vb.Head + " — " + vb.Reason && KeystoneOfClass.Text(vb).StartsWith("✅ SWING BUY 3 MNQ"), "the decision bar's text = the NOW verdict (one source)", KeystoneOfClass.Text(vb));
+            Check(KeystoneOfClass.Of("TAKE", true, "SCALP", false) == "SCALP" && KeystoneOfClass.Of("TAKE", true, "SWING", false) == "SWING" && KeystoneOfClass.Of("TAKE", false, "SWING", true) == "LEARNING" && KeystoneOfClass.Of("TAKE", true, "SCALP", true) == "STRONG"
+                && KeystoneOfClass.Of("WAIT", false, "", false) == "WAIT" && KeystoneOfClass.Of("TAKE", true, "SCALP", true, "⚠ PROTECT THE PROFIT") == "PROTECT" && KeystoneOfClass.Of("", false, "", false, "⛔ GET OUT") == "CLOSE" && KeystoneOfClass.Of("", false, "", false, "HOLD") == "HOLD", "the class of a setup / a trade");
+            Check(KeystoneOfClass.Color("SCALP") == "#26C6DA" && KeystoneOfClass.Color("SWING") == "#B388FF" && KeystoneOfClass.Color("STRONG") == "#FFC94D" && KeystoneOfClass.Color("LEARNING") == "#8A93A3" && KeystoneOfClass.Color("PROTECT") == "#FF9F43" && KeystoneOfClass.Color("CLOSE") == "#FF4D5E", "class colours: scalp cyan, swing violet, strong gold, learning grey, protect orange, close red");
+            Check(KeystoneOfClass.IsStrong(true, true, true, true) && !KeystoneOfClass.IsStrong(false, true, true, true) && !KeystoneOfClass.IsStrong(true, true, false, true) && !KeystoneOfClass.IsStrong(true, true, true, false), "⭐ STRONG only when proven AND flow + location + compass all agree");
+            Check(KeystoneOfClass.Opacity("LEARNING", 0.5, false) == 1 && KeystoneOfClass.Opacity("STRONG", 0.5, false) < KeystoneOfClass.Opacity("SCALP", 0.5, false) && KeystoneOfClass.Opacity("SCALP", 31, false) == 1 && KeystoneOfClass.Opacity("CLOSE", 0.5, true) == 1, "pulse: 30 s then steady, STRONG deeper, LEARNING never, reduce motion = steady");
+            Check(KeystoneOfClass.InTrade("⛔ GET OUT", new List<string> { "everything turned against you" }, "LONG 2") == "⛔ CLOSE — everything turned against you • LONG 2", "in a trade: the suggestion + its first reason");
+            // what's happening now: never contradicts the compass; the accumulation rule
+            var ph = KeystoneFlowPhrases.Now(1, 48, 0.3, 500, -1, 28210, 0, 1, 28215);
+            Check(ph.Count == 1 && ph[0].StartsWith("nothing clear") , "BUYERS in control: sell-side phrases are left out (never contradict the compass)", string.Join(" | ", ph));
+            var ph2 = KeystoneFlowPhrases.Now(1, 48, 0.7, 500, 1, 28207, 0, -1, 28215);
+            Check(ph2.Count == 3 && ph2[0] == "AGGRESSION: buyers are hitting the ask hard" && ph2[1] == "ABSORPTION: sellers hit 28207.00 hard but the price won't drop — someone is buying it all" && ph2[2].StartsWith("TRAPPED: sellers"), "≤ 3 plain phrases with the beginner words", string.Join(" | ", ph2));
+            var ph3 = KeystoneFlowPhrases.Now(-1, 48, 0.7, 500, 0, 0, 0, 0, 0); Check(ph3[0] == "AGGRESSION: buyers are hitting the ask hard", "a fading SELLERS state with a +48 score follows the score (\"fading\")");
+            var acc = new List<KeystoneFootprint>(); for (int i = 0; i < 12; i++) acc.Add(new KeystoneFootprint { Start = T0.AddMinutes(i), End = T0.AddMinutes(i + 1), Open = 100, High = 101, Low = 99.5, Close = 100.25, Trades = 10, Buy = 40, Sell = 60 });
+            Check(KeystoneFlowPhrases.AccDist(acc, 99, 120, 0.25) == 1, "ACCUMULATION: flat near the session low while the sellers keep hitting (−20 % delta) → +1");
+            Check(KeystoneFlowPhrases.AccDist(acc, 90, 120, 0.25) == 0 && KeystoneFlowPhrases.AccDist(acc.Take(5).ToList(), 99, 120, 0.25) == 0, "… not near the low / too few minutes → nothing");
+            var dist = acc.Select(f => new KeystoneFootprint { Start = f.Start, End = f.End, Open = 100, High = 101, Low = 99.5, Close = 100.25, Trades = 10, Buy = 60, Sell = 40 }).ToList(); Check(KeystoneFlowPhrases.AccDist(dist, 80, 101.5, 0.25) == -1, "DISTRIBUTION: the mirror at the high");
+            Check(KeystoneFlowPhrases.Word("ABSORB", 1) == "🧱 ABSORBED" && KeystoneFlowPhrases.Word("TRAP", -1) == "🪤 TRAPPED SELLERS" && KeystoneFlowPhrases.Word("STACKED", -1) == "▤ SELLERS PUSHING", "🎓 beginner words next to the icons");
+        }
+        // ---- 19. 🔔 11x event toasts + the narrator + the event journal
+        {
+            var ts = new KeystoneOfToasts(); ts.Add("a", "A", "x", "SCALP", 1, T0); ts.Add("b", "B", "x", "SCALP", 1, T0.AddSeconds(1)); ts.Add("c", "C", "x", "SWING", -1, T0.AddSeconds(2));
+            Check(ts.Items.Count == 2 && ts.Items[0].Key == "c" && ts.Items[1].Key == "b" && !ts.Add("c", "C", "x", "", 0, T0.AddSeconds(3)), "toasts: max 2, newest on top, each event once");
+            Check(ts.Opacity(ts.Items[0], T0.AddSeconds(7)) == 1 && ts.Opacity(ts.Items[0], T0.AddSeconds(8.5)) < 1, "a toast stays 6 s, then fades");
+            ts.Prune(T0.AddSeconds(9.6)); Check(ts.Items.Count == 0, "… and is gone after 6 s + the fade");
+            double x1 = KeystoneOfToasts.Place(0, 550, 600, 900, 260), x2 = KeystoneOfToasts.Place(0, 600, 860, 900, 260);
+            Check(x1 + 260 <= 892 && x1 >= 606 && (x2 + 260 <= 600 || x2 >= 860), "a toast never covers the newest candles (free space left of the strip, else left of the candles)", x1 + " / " + x2);
+            Check(KeystoneOfEvents.Narrate(1, "a buyers' stack", 1, 50, 0, "") == "→ supports BUY (with the buyers in control)" && KeystoneOfEvents.Narrate(-1, "sellers absorbing", 1, 50, 0, "").StartsWith("→ nothing to do yet — WAIT: it goes against the buyers"), "the narrator never contradicts the compass");
+            Check(KeystoneOfEvents.Narrate(-1, "a sellers' stack", 1, 50, 2, "") == "→ warning for your LONG: tighten — a sellers' stack points the other way (the compass is still with you)" && KeystoneOfEvents.Narrate(1, "x", -1, -50, 2, "") == "→ for your LONG: HOLD — x is on your side" && KeystoneOfEvents.Narrate(0, "x", 0, 0, 0, "a close above 101") == "→ nothing to do yet — WAIT for a close above 101", "with a position: HOLD / a warning WITH its reason (never a bare get out)");
+            var ev = new KeystoneOfEvent { Time = T0, Symbol = "MNQ", Type = "STACKED", Side = 1, Price = 100, Text = "▤ STACKED, for buyers", Narrator = "→ supports BUY" };
+            var tk = new List<KeystoneOfTick> { new KeystoneOfTick { Time = T0.AddSeconds(-10), Price = 90, Size = 1, Side = -1 } }; for (int i = 1; i <= 1900; i++) tk.Add(new KeystoneOfTick { Time = T0.AddSeconds(i), Price = 100 + Math.Min(3, i / 100.0), Size = 1, Side = 1 });
+            KeystoneOfEvents.Measure(ev, tk, tk.Count, T0.AddSeconds(100), 0.25); Check(ev.Result == 0 && ev.Mae == 0 && !ev.Done && double.IsNaN(ev.M5), "event outcome at 100 s: nothing from before it, nothing after the clock (no look-ahead)");
+            KeystoneOfEvents.Measure(ev, tk, tk.Count, T0.AddMinutes(31), 0.25); Check(ev.Result == 1 && ev.Done && Math.Abs(ev.M30 - 3) < 1e-9, "… at 31 min: +8 ticks first, the 30-min move, done");
+            var back = KeystoneOfEvents.Parse(KeystoneOfEvents.Line(ev)); Check(back != null && back.Key == ev.Key && back.Result == 1 && back.Narrator == "→ supports BUY" && back.Text == "▤ STACKED; for buyers", "events CSV round-trips");
+            var past = new List<KeystoneOfEvent>(); for (int i = 0; i < 25; i++) past.Add(new KeystoneOfEvent { Time = T0.AddMinutes(-60 + i), Type = "STACKED", Side = 1, Result = i < 15 ? 1 : -1 });
+            Check(KeystoneOfEvents.Probability(past, "STACKED", 1, T0) == "buyers' stacked led to +8 ticks before −8 in 60 % of 25 cases" && KeystoneOfEvents.Probability(past.Take(10), "STACKED", 1, T0) == "learning (10)" && KeystoneOfEvents.Probability(past, "STACKED", 1, T0.AddMinutes(-50)) == "learning (10)", "a % only from n ≥ 20 decided past events (else learning (n))", KeystoneOfEvents.Probability(past, "STACKED", 1, T0));
+            Check(KeystoneOfEvents.Classify("T|1|100", "🪤 trapped buyers • x").Item2 == -1 && KeystoneOfEvents.Classify("BF|1", "🪤 BIG PRINT FAILED • a big seller hit the bid at 1 but the price went UP after it → the seller is trapped; this supports a BUY").Item2 == 1 && KeystoneOfEvents.Classify("C|1", "🧭 the compass turned SELLERS").Item2 == -1 && KeystoneOfEvents.Classify("X|", "").Item1 == "", "events classified from the STORY");
+        }
         Console.WriteLine(failures == 0 ? "ALL FLOW COMPASS TESTS PASSED" : failures + " FLOW COMPASS TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
