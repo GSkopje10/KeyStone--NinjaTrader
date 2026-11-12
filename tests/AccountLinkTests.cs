@@ -1008,12 +1008,11 @@ public static class AccountLinkTests
             pa.Observe(51076.50, 0, true);
             Check(Math.Abs(pa.FundedPeak - 51102.75) < 1e-6 && Math.Abs(pa.FundedFloor(51076.50, 2000, 50000, double.NaN) - 49102.75) < 1e-6, "💰 flat after #3 at 51,076.50: the peak stays 51,102.75");
             var ev = new KeystonePoolAccount { Account = "E", Status = "EVAL" }; ev.Observe(51000, 10, true); Check(ev.FundedPeak == 0 && ev.PeakBal == 51000, "💰 an EVAL account keeps no funded peak (PeakBal = NinjaTrader's equity as before)");
-            // EXECUTIONS: fees / net from NinjaTrader (Tradovate's executions carry Commission 0)
-            var tr = new List<KeystoneJTrade> { new KeystoneJTrade { MaxQty = 5, Gross = -1.25 * 2 + 0 }, new KeystoneJTrade { MaxQty = 6, Gross = 588.75 }, new KeystoneJTrade { MaxQty = 10, Gross = 534.0 } };
-            Check(KeystoneFundedLiq.ApplyNtFees(tr, 1121.50, 1076.50) && Math.Abs(tr.Sum(t => t.Fees) - 45) < 1e-9 && Math.Abs(tr[2].Fees - 45.0 * 10 / 21) < 1e-9, "💰 EXECUTIONS: the $45 of fees shared by contracts (10 of 21 → $21.43)", string.Join(",", tr.Select(t => t.Fees.ToString("0.00"))));
-            Check(Math.Abs(KeystoneFundedLiq.ShownNet(tr, 1121.50, 1076.50) - 1076.50) < 1e-9 && KeystoneFundedLiq.DayFees(1121.50, 1076.50) == 45, "💰 EXECUTIONS: the day's NET = NinjaTrader's Realized PnL +$1,076.50, FEES $45");
-            Check(!KeystoneFundedLiq.ApplyNtFees(tr, 1121.50, 1076.50) && double.IsNaN(KeystoneFundedLiq.DayFees(0, 0)) && Math.Abs(KeystoneFundedLiq.ShownNet(tr, double.NaN, double.NaN) - tr.Sum(t => t.Net)) < 1e-9, "💰 EXECUTIONS: already right → unchanged; NinjaTrader's numbers unknown → the executions' own");
-            KeystoneFundedLiq.Learned.Clear(); KeystoneFundedLiq.Parse("TAKEPROFITPRO382305483|1.0714\nBAD|x"); var fmt = KeystoneFundedLiq.Format();
+            // 🧾 11t: EXECUTIONS no longer shares NinjaTrader's gross − realized as fees (wrong on the user's TPT funded) — see tests/ExecJournalTests.cs;
+            // DayFees stays only as a number; a per-side rate above $5 from gross − realized is refused
+            Check(KeystoneFundedLiq.DayFees(1121.50, 1076.50) == 45 && double.IsNaN(KeystoneFundedLiq.DayFees(0, 0)), "💰 DayFees is only NinjaTrader's gross − realized (not used for the EXECUTIONS rows)");
+            Check(Math.Abs(KeystoneFundedLiq.PerSide(0, 14, 1725.50, 357.75, 0, 0, out src) - KeystoneFundedLiq.DefaultPerSide) < 1e-9 && src == "default", "🧾 11t: $97.70 a side from gross − realized is refused → the default");
+            KeystoneFundedLiq.Learned.Clear(); KeystoneFundedLiq.Parse("TAKEPROFITPRO382305483|1.0714\nBAD|x\nHUGE|97.7"); var fmt = KeystoneFundedLiq.Format();
             Check(KeystoneFundedLiq.Learned.Count == 1 && Math.Abs(KeystoneFundedLiq.Learned["takeprofitpro382305483"] - 1.0714) < 1e-9 && fmt == "TAKEPROFITPRO382305483|1.0714", "💰 the learned rates are saved / read per account", fmt);
         }
         Console.WriteLine(failures == 0 ? "ALL ACCOUNT LINK TESTS PASSED" : failures + " ACCOUNT LINK TEST(S) FAILED");

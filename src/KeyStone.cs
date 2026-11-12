@@ -8599,10 +8599,11 @@ namespace NinjaTrader.NinjaScript
     // So: liquidation equity = NetLiquidation − open contracts × the per-side commission LEARNED FROM NINJATRADER today (the executions' own
     // Commission, else (gross − realized) / the closed sides), else the last rate learned for that account, else $0.62; flat = no adjustment.
     // A new peak is taken only from a CONSISTENT reading (a position listed when there is an open P/L; nothing open → no open P/L).
-    // EXECUTIONS: Tradovate's executions reach NinjaTrader with Commission 0 — the day's fees are NinjaTrader's gross − realized (ApplyNtFees).
+    // 🧾 11t: EXECUTIONS no longer uses gross − realized (it was wrong on the user's TPT funded: −$391 of "fees" on a 2-contract trade) — fees come from the
+    // executions only (KeystoneExecJournal); a per-side rate derived from gross − realized above MaxPerSide is refused here too (other scopes / trades).
     public static class KeystoneFundedLiq
     {
-        public const double DefaultPerSide = 0.62;
+        public const double DefaultPerSide = 0.62, MaxPerSide = 5.0;   // 🧾 11t: no micro / mini commission is above $5 a side — a bigger "rate" means gross and realized cover different trades
         public static readonly Dictionary<string, double> Learned = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);   // account → $ per contract per side
         // execCommission / execQty: today's executions (sum of Commission, sum of contracts); gross / realized: NinjaTrader's Accounts grid today
         public static double PerSide(double execCommission, int execQty, double gross, double realized, int openContracts, double fallback, out string source)
@@ -8610,7 +8611,7 @@ namespace NinjaTrader.NinjaScript
             if (execCommission > 0.0001 && execQty > 0) { source = "NinjaTrader executions"; return execCommission / execQty; }
             int closedSides = execQty - Math.Max(0, openContracts);   // the sides of the round turns already closed (2 per contract)
             double fees = double.IsNaN(gross) || double.IsNaN(realized) ? 0 : gross - realized;
-            if (fees > 0.0001 && closedSides >= 2) { source = "NinjaTrader gross − realized"; return fees / closedSides; }
+            if (fees > 0.0001 && closedSides >= 2 && fees / closedSides <= MaxPerSide) { source = "NinjaTrader gross − realized"; return fees / closedSides; }
             if (fallback > 0 && !double.IsNaN(fallback)) { source = "last rate learned"; return fallback; }
             source = "default"; return DefaultPerSide;
         }
@@ -8626,22 +8627,11 @@ namespace NinjaTrader.NinjaScript
         public static double PeakCandidate(double netLiq, double unrealized, int openContracts, double perSide) { return Consistent(netLiq, unrealized, openContracts) ? Equity(netLiq, openContracts, perSide) : double.NaN; }
         // the day's commissions as NinjaTrader books them (Accounts grid: Gross realized − Realized); NaN = not known
         public static double DayFees(double gross, double realized) { if (double.IsNaN(gross) || double.IsNaN(realized) || gross == 0 && realized == 0) return double.NaN; double f = gross - realized; return f > 0.004 ? f : double.NaN; }
-        // EXECUTIONS: the day's fees from NinjaTrader shared by contracts over the day's finished trades (only when the executions carried none /
-        // different ones); true = changed. The day's NET shown = NinjaTrader's realized itself (ShownNet).
-        public static bool ApplyNtFees(List<KeystoneJTrade> trades, double gross, double realized)
-        {
-            double fees = DayFees(gross, realized); if (trades == null || trades.Count == 0 || double.IsNaN(fees)) return false;
-            if (Math.Abs(trades.Sum(t => t.Fees) - fees) < 0.5) return false;
-            double q = trades.Sum(t => (double)Math.Max(1, t.MaxQty)); if (q <= 0) return false;
-            foreach (var t in trades) t.Fees = fees * Math.Max(1, t.MaxQty) / q;
-            return true;
-        }
-        public static double ShownNet(List<KeystoneJTrade> trades, double gross, double realized) { return !double.IsNaN(DayFees(gross, realized)) ? realized : (trades ?? new List<KeystoneJTrade>()).Sum(t => t.Net); }
         public static string Format() { lock (Learned) return string.Join("\n", Learned.Select(kv => kv.Key + "|" + kv.Value.ToString("0.####", CultureInfo.InvariantCulture))); }
         public static void Parse(string text)
         {
             lock (Learned) foreach (var l in (text ?? "").Split('\n'))
-            { var a = l.Trim().Split('|'); double v; if (a.Length == 2 && a[0] != "" && double.TryParse(a[1], NumberStyles.Float, CultureInfo.InvariantCulture, out v) && v > 0 && v < 20) Learned[a[0]] = v; }
+            { var a = l.Trim().Split('|'); double v; if (a.Length == 2 && a[0] != "" && double.TryParse(a[1], NumberStyles.Float, CultureInfo.InvariantCulture, out v) && v > 0 && v <= MaxPerSide) Learned[a[0]] = v; }
         }
     }
     // ---- 📊 PROP TRACKER: one self-contained web page (saved on your PC, re-read by the browser every 10 s) with what you bought,
@@ -9221,6 +9211,224 @@ namespace NinjaTrader.NinjaScript
             int.TryParse(a[6], NumberStyles.Integer, IC, out mq); double.TryParse(a[7], NumberStyles.Float, IC, out ai); double.TryParse(a[8], NumberStyles.Float, IC, out ao); int.TryParse(a[9], NumberStyles.Integer, IC, out bt); int.TryParse(a[10], NumberStyles.Integer, IC, out bs); int.TryParse(a[11], NumberStyles.Integer, IC, out bo);
             double.TryParse(a[12], NumberStyles.Float, IC, out g); double.TryParse(a[13], NumberStyles.Float, IC, out f); double.TryParse(a[14], NumberStyles.Float, IC, out b); double.TryParse(a[15], NumberStyles.Float, IC, out w);
             return new KeystoneJTrade { Day = d, Account = a[1], Instrument = a[2], Side = a[3] == "LONG" ? 1 : -1, Open = o, Close = cl, MaxQty = mq, AvgIn = ai, AvgOut = ao, ByTarget = bt, ByStop = bs, ByOther = bo, Gross = g, Fees = f, Best = b, Worst = w, Note = a[16] };
+        }
+    }
+    // 🧾 BUILD 2026-11-12t — EXECUTIONS = a per-account TRADE JOURNAL built from NinjaTrader's own executions only (read-only, sends nothing).
+    // User's catch (11s, TPT funded 50K): "FEES = NinjaTrader's gross − realized shared by contracts" gave −$391 on a 2-contract trade and a
+    // winning +$180 trade shown as −$797 — NinjaTrader's GrossRealized / Realized cover other scopes on that connection. So: every fill (time,
+    // instrument, side, qty, price, its own commission — estimated and marked "est." only when the connection reports 0), ITERATIONS from flat
+    // to flat per account per instrument (FIFO lots), every leg (ENTRY / ADD / PARTIAL EXIT n / EXIT, a reversal through flat splits the fill),
+    // MFE / MAE from the prices seen, the account snapshot at the start and at the close. NinjaTrader's realized is only a reconciliation line.
+    public sealed class KeystoneXFill { public string Id = "", Account = "", Instrument = "", OrderName = "", OrderKind = "MARKET"; public DateTime Time; public int SignedQty; public double Price, Commission; }
+    public sealed class KeystoneXLeg
+    {
+        public int N, SignedQty, PosAfter; public string Kind = "", Who = "", FillId = ""; public DateTime Time; public bool CommEst;
+        public double Price, Realized, Commission, CumRealized, RemAvg;   // Realized: this leg's gross $ (FIFO); CumRealized / RemAvg: the iteration after the leg (realized so far, the average of the lots left)
+    }
+    public sealed class KeystoneXSnap
+    {
+        public DateTime Time; public bool Funded, Locked; public string Note = "";
+        public double Balance = double.NaN, Today = double.NaN, Realized = double.NaN, Start = double.NaN, Peak = double.NaN, Floor = double.NaN, Buffer = double.NaN, ToLock = double.NaN;
+        public bool Has { get { return !double.IsNaN(Balance); } }
+    }
+    public sealed class KeystoneXIter
+    {
+        public string Account = "", Instrument = ""; public int Side, MaxQty, OpenQty, Partials, Adds; public DateTime Start, End, Day; public bool Open, CommEst;
+        public readonly List<KeystoneXLeg> Legs = new List<KeystoneXLeg>();
+        public double AvgIn, AvgOut, Gross, Commission, Mfe, Mae, MfePts, MaePts, OpenPl, LastPrice = double.NaN, PointValue = 2;
+        public KeystoneXSnap AtStart = new KeystoneXSnap(), AtClose = new KeystoneXSnap();
+        public double Net { get { return Gross - Commission; } }                       // closed: the iteration's result • open: realized so far
+        public double NetIfClosed { get { return Gross + OpenPl - Commission; } }    // open: realized + open P/L − commissions so far
+        public string Key { get { return Account + "|" + Instrument + "|" + Start.Ticks.ToString(CultureInfo.InvariantCulture); } }
+        public double DdUsed { get { return Math.Max(0, -Mae); } }                     // the deepest the iteration went against the account ($, gross)
+        public TimeSpan Duration(DateTime now) { return (Open ? now : End) - Start; }
+    }
+    public sealed class KeystoneXDay { public DateTime Day; public int Iterations, Won, Lost, OpenNow, Fills, Partials; public double Gross, Commission, Net, Best = double.NaN, Worst = double.NaN; public bool CommEst; }
+    public static class KeystoneExecJournal
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public static DateTime DayOf(DateTime ny) { return ny.Hour >= 18 ? ny.Date.AddDays(1) : ny.Date; }   // the trading session (18:00 New York starts the next one)
+        public static string Root(string instrument) { var s = (instrument ?? "").Trim(); int i = s.IndexOf(' '); return (i > 0 ? s.Substring(0, i) : s).ToUpperInvariant(); }
+        // who sent the fill's order: KeyStone (its link names "KEYSTONE …"), a bracket stop / target, a flatten / close, or by hand
+        public static string Who(KeystoneXFill f, bool reducing)
+        {
+            string n = (f.OrderName ?? "").Trim(), u = n.ToUpperInvariant(), k = (f.OrderKind ?? "").ToUpperInvariant();
+            if (u.StartsWith("KEYSTONE")) return k == "STOP" ? "KeyStone stop" : k == "LIMIT" ? (reducing ? "KeyStone target" : "KeyStone limit") : "KeyStone";
+            if (u.Contains("STOP") || u == "SL") return "bracket stop";
+            if (u.Contains("TARGET") || u.Contains("PROFIT") || u == "TP") return "bracket target";
+            if (u.Contains("CLOSE") || u.Contains("FLATTEN") || u.Contains("EXIT") || u.Contains("LIQUID")) return "flatten / close";
+            if (reducing && k == "LIMIT") return "limit (target)" + (n != "" ? " • " + n : "");
+            if (reducing && k == "STOP") return "stop" + (n != "" ? " • " + n : "");
+            return "by hand" + (n != "" && u != "ENTRY" && u != "BUY" && u != "SELL" ? " • " + n : "");
+        }
+        // adds the new fills (by NinjaTrader's execution id — the same execution is never counted twice); returns how many were new
+        public static int Merge(List<KeystoneXFill> into, IEnumerable<KeystoneXFill> add)
+        {
+            var have = new HashSet<string>(into.Select(f => f.Id)); int n = 0;
+            foreach (var f in add ?? new List<KeystoneXFill>()) { if (f == null || f.SignedQty == 0 || f.Id == "" || !have.Add(f.Id)) continue; into.Add(f); n++; }
+            return n;
+        }
+        // the iterations of ONE account from its fills (every instrument): flat → flat, FIFO lots; estPerSide(instrument) = the $ per contract per side used
+        // when a fill carries no commission (marked est.); a fill that goes through flat closes the iteration and opens the next with the rest
+        public static List<KeystoneXIter> Build(IEnumerable<KeystoneXFill> fills, Func<string, double> pointValue, Func<string, double> estPerSide)
+        {
+            var res = new List<KeystoneXIter>(); var cur = new Dictionary<string, KeystoneXIter>(StringComparer.OrdinalIgnoreCase);
+            var lots = new Dictionary<string, List<double[]>>(StringComparer.OrdinalIgnoreCase);   // [qty, price] FIFO, unsigned qty
+            foreach (var f in (fills ?? new List<KeystoneXFill>()).Where(x => x != null && x.SignedQty != 0 && x.Price > 0).OrderBy(x => x.Time).ThenBy(x => x.Id, StringComparer.Ordinal))
+            {
+                string ins = f.Instrument ?? ""; double pv = pointValue != null ? pointValue(ins) : 2; if (pv <= 0 || double.IsNaN(pv)) pv = 2;
+                bool est = !(f.Commission > 0.00001); double comm = est ? Math.Abs(f.SignedQty) * Math.Max(0, estPerSide != null ? estPerSide(ins) : 0) : f.Commission;
+                int left = f.SignedQty;
+                while (left != 0)
+                {
+                    KeystoneXIter it; cur.TryGetValue(ins, out it); List<double[]> lt; if (!lots.TryGetValue(ins, out lt)) lots[ins] = lt = new List<double[]>();
+                    int pos = it == null ? 0 : it.OpenQty;
+                    if (it == null || pos == 0)
+                    {
+                        it = new KeystoneXIter { Account = f.Account ?? "", Instrument = ins, Side = Math.Sign(left), Start = f.Time, Open = true, PointValue = pv }; cur[ins] = it; res.Add(it); lt.Clear();
+                    }
+                    pos = it.OpenQty; int q; var leg = new KeystoneXLeg { Time = f.Time, Price = f.Price, FillId = f.Id, CommEst = est };
+                    if (pos == 0 || Math.Sign(pos) == Math.Sign(left))
+                    {   // ENTRY / ADD
+                        q = left; lt.Add(new double[] { Math.Abs(q), f.Price }); leg.Kind = it.Legs.Count == 0 ? "ENTRY" : "ADD"; if (it.Legs.Count > 0) it.Adds++;
+                        leg.Who = Who(f, false);
+                    }
+                    else
+                    {   // a reducing leg: FIFO against the lots
+                        q = Math.Sign(left) * Math.Min(Math.Abs(left), Math.Abs(pos)); int need = Math.Abs(q); double gain = 0;
+                        while (need > 0 && lt.Count > 0) { var l0 = lt[0]; int take = (int)Math.Min(need, l0[0]); gain += (f.Price - l0[1]) * take * it.Side * pv; l0[0] -= take; need -= take; if (l0[0] <= 0) lt.RemoveAt(0); }
+                        leg.Realized = Math.Round(gain, 2); it.Gross += gain; leg.Who = Who(f, true);
+                    }
+                    leg.SignedQty = q; leg.Commission = Math.Round(comm * Math.Abs(q) / Math.Abs(f.SignedQty), 4); it.Commission += leg.Commission; if (est) it.CommEst = true;
+                    // the P/L at this fill's price before the leg (the whole position at that price)
+                    Mark(it, f.Price, f.Time);
+                    it.OpenQty = pos + q; leg.PosAfter = it.OpenQty; leg.CumRealized = Math.Round(it.Gross, 2);
+                    double rq = lt.Sum(l => l[0]); leg.RemAvg = rq > 0 ? lt.Sum(l => l[0] * l[1]) / rq : 0;
+                    if (leg.SignedQty != 0 && Math.Sign(leg.SignedQty) != it.Side) { if (it.OpenQty != 0) { it.Partials++; leg.Kind = "PARTIAL EXIT " + it.Partials; } else leg.Kind = "EXIT"; }
+                    leg.N = it.Legs.Count + 1; it.Legs.Add(leg); it.MaxQty = Math.Max(it.MaxQty, Math.Abs(it.OpenQty));
+                    if (it.OpenQty == 0) { it.Open = false; it.End = f.Time; it.OpenPl = 0; }
+                    left -= q;
+                }
+            }
+            foreach (var it in res)
+            {
+                var ins = it.Legs.Where(l => Math.Sign(l.SignedQty) == it.Side).ToList(); var outs = it.Legs.Where(l => Math.Sign(l.SignedQty) != it.Side).ToList();
+                it.AvgIn = ins.Sum(l => Math.Abs(l.SignedQty)) > 0 ? ins.Sum(l => l.Price * Math.Abs(l.SignedQty)) / ins.Sum(l => Math.Abs(l.SignedQty)) : 0;
+                it.AvgOut = outs.Sum(l => Math.Abs(l.SignedQty)) > 0 ? outs.Sum(l => l.Price * Math.Abs(l.SignedQty)) / outs.Sum(l => Math.Abs(l.SignedQty)) : 0;
+                it.Gross = Math.Round(it.Gross, 2); it.Commission = Math.Round(it.Commission, 2);
+                if (it.Legs.Count > 0) { var lastL = it.Legs[it.Legs.Count - 1]; it.LastPrice = lastL.Price; }
+                it.Day = DayOf(it.Open ? (it.Legs.Count > 0 ? it.Legs[it.Legs.Count - 1].Time : it.Start) : it.End);
+            }
+            return res;
+        }
+        // the iteration's state at time t (the last leg at or before t)
+        static KeystoneXLeg StateAt(KeystoneXIter it, DateTime t) { KeystoneXLeg s = null; foreach (var l in it.Legs) { if (l.Time > t) break; s = l; } return s; }
+        // a price seen at time t while the iteration is open → MFE / MAE ($ gross: realized so far + the lots left at that price; points from the lots' average)
+        public static void Mark(KeystoneXIter it, double price, DateTime t)
+        {
+            if (it == null || price <= 0 || double.IsNaN(price) || t < it.Start || !it.Open && t > it.End) return;
+            var s = StateAt(it, t); if (s == null || s.PosAfter == 0) return;
+            double pts = (price - s.RemAvg) * it.Side, pl = s.CumRealized + pts * Math.Abs(s.PosAfter) * it.PointValue;
+            it.Mfe = Math.Max(it.Mfe, Math.Round(pl, 2)); it.Mae = Math.Min(it.Mae, Math.Round(pl, 2)); it.MfePts = Math.Max(it.MfePts, pts); it.MaePts = Math.Min(it.MaePts, pts);
+        }
+        // MFE / MAE from a price path (time, price) — e.g. the chart's minute highs / lows or ticks while the iteration was open
+        public static void ApplyPath(KeystoneXIter it, IEnumerable<Tuple<DateTime, double>> path) { foreach (var p in path ?? new List<Tuple<DateTime, double>>()) Mark(it, p.Item2, p.Item1); }
+        // an OPEN iteration at the live price: open P/L of the lots left (gross) + MFE / MAE
+        public static void Live(KeystoneXIter it, double price, DateTime now)
+        {
+            if (it == null || !it.Open || price <= 0 || double.IsNaN(price) || it.Legs.Count == 0) return;
+            var s = it.Legs[it.Legs.Count - 1]; it.LastPrice = price; it.OpenPl = Math.Round((price - s.RemAvg) * it.Side * Math.Abs(s.PosAfter) * it.PointValue, 2); Mark(it, price, now < s.Time ? s.Time : now);
+        }
+        // the days: Σ of the iterations CLOSED that session (net = Σ iteration net — the same numbers as the rows); open ones are counted apart
+        public static List<KeystoneXDay> Days(IEnumerable<KeystoneXIter> iters)
+        {
+            var res = new List<KeystoneXDay>();
+            foreach (var g in (iters ?? new List<KeystoneXIter>()).GroupBy(i => i.Day.Date).OrderByDescending(g => g.Key))
+            {
+                var cl = g.Where(i => !i.Open).ToList(); var d = new KeystoneXDay { Day = g.Key, Iterations = cl.Count, Won = cl.Count(i => i.Net > 0), Lost = cl.Count(i => i.Net <= 0), OpenNow = g.Count(i => i.Open),
+                    Fills = g.Sum(i => i.Legs.Count), Partials = cl.Sum(i => i.Partials), Gross = Math.Round(cl.Sum(i => i.Gross), 2), Commission = Math.Round(cl.Sum(i => i.Commission), 2), CommEst = cl.Any(i => i.CommEst) };
+                d.Net = Math.Round(d.Gross - d.Commission, 2); if (cl.Count > 0) { d.Best = cl.Max(i => i.Net); d.Worst = cl.Min(i => i.Net); }
+                res.Add(d);
+            }
+            return res;
+        }
+        // NinjaTrader says: its realized today vs the journal's (closed iterations + the partial exits of open ones); > $1 apart → why
+        public static List<string> Reconcile(List<KeystoneXIter> day, double ntRealized, double ntGross)
+        {
+            var res = new List<string>(); day = day ?? new List<KeystoneXIter>(); if (double.IsNaN(ntRealized)) { res.Add("NinjaTrader gives no realized P/L for this account now (not connected?)"); return res; }
+            double ours = day.Sum(i => i.Net), oursG = day.Sum(i => i.Gross), diff = ntRealized - ours;
+            res.Add("NinjaTrader says: realized today " + S(ntRealized) + (double.IsNaN(ntGross) ? "" : " (gross " + S(ntGross) + ")") + " • the journal: " + S(ours) + " (gross " + S(oursG) + ")" + (Math.Abs(diff) <= 1 ? " ✓ match" : " • difference " + S(diff)));
+            if (Math.Abs(diff) <= 1) return res;
+            if (day.Any(i => i.CommEst)) res.Add("• commissions are ESTIMATED here (" + S(-day.Where(i => i.CommEst).Sum(i => i.Commission)) + "): this connection reports 0 commission on the executions — NinjaTrader books its own");
+            if (!double.IsNaN(ntGross) && Math.Abs(ntGross - oursG) > 1) res.Add("• the GROSS differs too (" + S(ntGross - oursG) + "): NinjaTrader's realized covers trades the journal does not have — fills before KeyStone's history" + (day.Count > 0 ? " (the first fill KeyStone has today: " + day.Min(i => i.Start).ToString("HH:mm:ss", IC) + " NY)" : "") + ", other sessions (its reset point is the connection's, e.g. 17:00 CT), or a balance adjustment");
+            if (day.Any(i => i.Open && Math.Abs(i.Gross) > 0.004)) res.Add("• partial exits of the OPEN iteration(s) are included (" + S(day.Where(i => i.Open).Sum(i => i.Net)) + ")");
+            if (res.Count == 1) res.Add("• the difference is in the commissions only (" + S(diff) + ")");
+            return res;
+        }
+        static string S(double v) { return (v >= 0 ? "+$" : "−$") + Math.Abs(v).ToString("N2", IC); }
+        static string P(double v) { return v.ToString("0.00##", IC); }
+        static string N(double v) { return double.IsNaN(v) ? "" : v.ToString("0.##", IC); }
+        static string T(DateTime t) { return t == DateTime.MinValue ? "" : t.ToString("yyyy-MM-dd HH:mm:ss", IC); }
+        static string C(string x) { return (x ?? "").Replace(",", ";").Replace("\n", " ").Replace("\r", ""); }
+        static double D(string s) { double v; return double.TryParse(s, NumberStyles.Float, IC, out v) ? v : double.NaN; }
+        static DateTime Dt(string s) { DateTime v; return DateTime.TryParseExact(s, "yyyy-MM-dd HH:mm:ss", IC, DateTimeStyles.None, out v) ? v : DateTime.MinValue; }
+        public const string FileHeader = "# KeyStone 🧾 EXECUTIONS journal (read-only: built from NinjaTrader's executions, sends nothing). Rows: ITER = one iteration flat → flat, LEG = its legs, FILL = NinjaTrader's executions (the source; rebuilt by id, never counted twice)";
+        public const string IterCols = "ITER,key,account,instrument,side,start,end,open,duration_s,max_qty,legs,adds,partials,avg_in,avg_out,gross,commission,commission_est,net,mfe,mae,mfe_pts,mae_pts,"
+            + "start_balance,start_peak,start_floor,start_buffer,close_time,close_balance,close_today,close_realized,close_peak,close_floor,close_buffer,close_to_lock,funded,locked,start_bal_rule,note";
+        public const string LegCols = "LEG,key,n,kind,time,qty,price,pos_after,realized,commission,commission_est,who,fill_id";
+        public const string FillCols = "FILL,id,account,instrument,time,qty,price,commission,order_name,order_kind";
+        // one day file: the fills of that session + the iterations closed in it (open ones too, on their day) with their legs and snapshots
+        public static string Format(List<KeystoneXFill> fills, List<KeystoneXIter> iters)
+        {
+            var sb = new StringBuilder(); sb.AppendLine(FileHeader); sb.AppendLine(IterCols); sb.AppendLine(LegCols); sb.AppendLine(FillCols);
+            foreach (var it in (iters ?? new List<KeystoneXIter>()).OrderBy(i => i.Start))
+            {
+                var a = it.AtStart ?? new KeystoneXSnap(); var z = it.AtClose ?? new KeystoneXSnap();
+                sb.AppendLine(string.Join(",", new[] { "ITER", C(it.Key), C(it.Account), C(it.Instrument), it.Side > 0 ? "LONG" : "SHORT", T(it.Start), it.Open ? "" : T(it.End), it.Open ? "1" : "0", it.Open ? "" : ((int)(it.End - it.Start).TotalSeconds).ToString(IC),
+                    it.MaxQty.ToString(IC), it.Legs.Count.ToString(IC), it.Adds.ToString(IC), it.Partials.ToString(IC), P(it.AvgIn), P(it.AvgOut), N(it.Gross), N(it.Commission), it.CommEst ? "1" : "0", N(it.Net), N(it.Mfe), N(it.Mae), N(it.MfePts), N(it.MaePts),
+                    N(a.Balance), N(a.Peak), N(a.Floor), N(a.Buffer), T(z.Time), N(z.Balance), N(z.Today), N(z.Realized), N(z.Peak), N(z.Floor), N(z.Buffer), N(z.ToLock), z.Funded ? "1" : "0", z.Locked ? "1" : "0", N(z.Start), C(z.Note) }));
+                foreach (var l in it.Legs)
+                    sb.AppendLine(string.Join(",", new[] { "LEG", C(it.Key), l.N.ToString(IC), C(l.Kind), T(l.Time), l.SignedQty.ToString(IC), P(l.Price), l.PosAfter.ToString(IC), N(l.Realized), N(l.Commission), l.CommEst ? "1" : "0", C(l.Who), C(l.FillId) }));
+            }
+            foreach (var f in (fills ?? new List<KeystoneXFill>()).OrderBy(x => x.Time))
+                sb.AppendLine(string.Join(",", new[] { "FILL", C(f.Id), C(f.Account), C(f.Instrument), T(f.Time), f.SignedQty.ToString(IC), P(f.Price), N(f.Commission), C(f.OrderName), C(f.OrderKind) }));
+            return sb.ToString();
+        }
+        // reads a day file back: the fills (the source) + what only the live session saw for each iteration (snapshots, MFE / MAE from the price feed)
+        public static void Parse(string text, List<KeystoneXFill> fills, Dictionary<string, KeystoneXIter> saved)
+        {
+            foreach (var raw in (text ?? "").Split('\n'))
+            {
+                var a = raw.TrimEnd('\r').Split(','); if (a.Length < 2) continue;
+                if (a[0] == "FILL" && a.Length >= 10)
+                {
+                    var t = Dt(a[4]); int q; if (t == DateTime.MinValue || !int.TryParse(a[5], NumberStyles.Integer, IC, out q) || q == 0 || a[1] == "") continue; double c = D(a[7]);
+                    fills.Add(new KeystoneXFill { Id = a[1], Account = a[2], Instrument = a[3], Time = t, SignedQty = q, Price = D(a[6]), Commission = double.IsNaN(c) ? 0 : c, OrderName = a[8], OrderKind = a[9] });
+                }
+                else if (a[0] == "ITER" && a.Length >= 38 && saved != null)
+                {
+                    var it = new KeystoneXIter { Mfe = Z(a[19]), Mae = Z(a[20]), MfePts = Z(a[21]), MaePts = Z(a[22]) };
+                    it.AtStart = new KeystoneXSnap { Balance = D(a[23]), Peak = D(a[24]), Floor = D(a[25]), Buffer = D(a[26]) };
+                    it.AtClose = new KeystoneXSnap { Time = Dt(a[27]), Balance = D(a[28]), Today = D(a[29]), Realized = D(a[30]), Peak = D(a[31]), Floor = D(a[32]), Buffer = D(a[33]), ToLock = D(a[34]), Funded = a[35] == "1", Locked = a[36] == "1", Start = D(a[37]), Note = a.Length > 38 ? a[38] : "" };
+                    saved[a[1]] = it;
+                }
+            }
+        }
+        static double Z(string s) { var v = D(s); return double.IsNaN(v) ? 0 : v; }
+        // what only the live session knew (snapshots, MFE / MAE beyond the fills) carried onto a rebuilt iteration
+        public static void Carry(KeystoneXIter it, KeystoneXIter saved)
+        {
+            if (it == null || saved == null) return;
+            it.Mfe = Math.Max(it.Mfe, saved.Mfe); it.Mae = Math.Min(it.Mae, saved.Mae); it.MfePts = Math.Max(it.MfePts, saved.MfePts); it.MaePts = Math.Min(it.MaePts, saved.MaePts);
+            if (!it.AtStart.Has && saved.AtStart != null && saved.AtStart.Has) it.AtStart = saved.AtStart;
+            if (!it.AtClose.Has && saved.AtClose != null && saved.AtClose.Has) it.AtClose = saved.AtClose;
+        }
+        // the open contracts per instrument root the journal sees (to compare with NinjaTrader's positions: different = fills missing)
+        public static Dictionary<string, int> OpenByRoot(IEnumerable<KeystoneXIter> iters)
+        {
+            var d = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var it in (iters ?? new List<KeystoneXIter>()).Where(i => i.Open)) { int v; d.TryGetValue(Root(it.Instrument), out v); d[Root(it.Instrument)] = v + it.OpenQty; }
+            return d;
         }
     }
     public sealed class KeystoneTrackerLive
@@ -46546,50 +46754,218 @@ namespace NinjaTrader.NinjaScript.AddOns
                     };
                     strip.Children.Add(toolsBtn); collapseTools(); w.Loaded += delegate { collapseTools(); };
                 }
+                // 🧾 BUILD 11t — EXECUTIONS = a per-account TRADE JOURNAL (read-only, sends nothing): NinjaTrader's own executions of the chosen account
+                // (every fill: time, side, qty, price, its commission — "est." only when the connection reports 0), ITERATIONS flat → flat (FIFO) with every
+                // leg (ENTRY / ADD / PARTIAL EXIT n / EXIT), MFE / MAE from the chart's prices while open, the account snapshot at the start and at the close
+                // (balance, today, trailing peak, BLOWS AT, buffer, to lock). Saved per account per day: Studio\Executions\<account>\<yyyy-MM-dd>.csv,
+                // rebuilt from the executions by id (never counted twice). NinjaTrader's realized today is a separate reconciliation line only.
+                string xjAccS = null; { string sv0; if (realKeys.TryGetValue("realexec.acct", out sv0)) xjAccS = sv0; }   // "" / null = the chart's account • "*" = ALL
+                var xjOpenKeys = new HashSet<string>(); var xjCombos = new List<ComboBox>();
+                var xjFills = new Dictionary<string, List<KeystoneXFill>>(StringComparer.OrdinalIgnoreCase);
+                var xjSaved = new Dictionary<string, Dictionary<string, KeystoneXIter>>(StringComparer.OrdinalIgnoreCase);   // account → iteration key → what the files / the live session kept (snapshots, MFE / MAE)
+                var xjIters = new Dictionary<string, List<KeystoneXIter>>(StringComparer.OrdinalIgnoreCase);                 // account → the iterations built last
+                var xjWritten = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                Func<string, string> xjDir = a => Path.Combine(StudioFolder(), "Executions", string.Concat((a ?? "").Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch)));
+                Func<double, string> xjM = v => double.IsNaN(v) ? "—" : (v >= 0 ? "+$" : "−$") + Math.Abs(v).ToString("N2", CultureInfo.InvariantCulture);
+                Func<double, string> xjC = v => double.IsNaN(v) ? "—" : "$" + v.ToString("N2", CultureInfo.InvariantCulture);
+                Func<TimeSpan, string> xjDur = ts => ts.TotalHours >= 1 ? ((int)ts.TotalHours) + "h " + ts.Minutes.ToString("00") + "m" : ts.TotalMinutes >= 1 ? ((int)ts.TotalMinutes) + "m " + ts.Seconds.ToString("00") + "s" : Math.Max(0, ts.Seconds) + "s";
+                Action<string> xjLoad = a =>
+                {
+                    if (xjFills.ContainsKey(a)) return; var fl = new List<KeystoneXFill>(); var sv = new Dictionary<string, KeystoneXIter>(); xjFills[a] = fl; xjSaved[a] = sv;
+                    try { var dir = xjDir(a); if (Directory.Exists(dir)) foreach (var f in Directory.GetFiles(dir, "????-??-??.csv")) { var tmp = new List<KeystoneXFill>(); var txt = File.ReadAllText(f); KeystoneExecJournal.Parse(txt, tmp, sv); KeystoneExecJournal.Merge(fl, tmp); xjWritten[f] = txt; } } catch { }
+                };
+                // NinjaTrader's executions of one account (New York time) — the source of everything here
+                Func<string, List<KeystoneXFill>> xjReadNt = a =>
+                {
+                    var res = new List<KeystoneXFill>(); var acc = findAccount(a); if (acc == null) return res;
+                    TimeZoneInfo estX = null; try { estX = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); } catch { }
+                    try
+                    {
+                        var srcE = (System.Collections.IEnumerable)acc.Executions; var es = new List<Execution>(); lock (srcE) foreach (object x in srcE) if (x is Execution) es.Add((Execution)x);
+                        foreach (var e in es)
+                        {
+                            if (e == null || e.Instrument == null || e.Quantity <= 0) continue; var eo = e.Order; var ot = eo == null ? OrderType.Market : eo.OrderType; DateTime tNy = e.Time;
+                            try { if (estX != null) tNy = TimeZoneInfo.ConvertTime(DateTime.SpecifyKind(e.Time, DateTimeKind.Unspecified), TimeZoneInfo.Local, estX); } catch { }
+                            res.Add(new KeystoneXFill { Id = e.ExecutionId ?? (e.Time.Ticks + "|" + e.Price + "|" + e.Quantity), Account = a, Instrument = e.Instrument.FullName ?? "", OrderName = eo != null ? eo.Name ?? "" : "", OrderKind = ot == OrderType.Market ? "MARKET" : ot == OrderType.Limit ? "LIMIT" : "STOP",
+                                Time = tNy, Price = e.Price, Commission = Math.Max(0, e.Commission), SignedQty = e.MarketPosition == MarketPosition.Long ? e.Quantity : -e.Quantity });
+                        }
+                    }
+                    catch { }
+                    return res;
+                };
+                // the account now: balance, today, realized, the trailing peak, BLOWS AT, buffer, to lock (the same machinery as the header tiles)
+                Func<string, LiveSnap, KeystoneXSnap> xjSnapNow = (a, sn) =>
+                {
+                    var s = new KeystoneXSnap { Time = nyNow() }; if (sn == null || !sn.Connected || sn.Balance <= 0) return s;
+                    s.Balance = sn.Balance; s.Today = sn.Today; s.Realized = sn.Closed;
+                    try
+                    {
+                        string svP; realKeys.TryGetValue("realpreset." + a, out svP); var prX = KeystoneFirmRules.Resolve(svP, a); double dd = prX != null ? prX.Dd : 0;
+                        double start = startOf != null ? startOf(a) : 0; KeystoneAccountWatch awX; watches.TryGetValue(a, out awX); if (start <= 0) start = awX != null && awX.StartBalance > 0 ? awX.StartBalance : prX != null ? prX.Size : 0; s.Start = start;
+                        if (dd > 0 && start > 0)
+                        {
+                            double adj = closeCostOf != null ? closeCostOf(a) : sn.CloseCost; double ff = fundedFloorOf != null ? fundedFloorOf(a, dd, start) : double.NaN;
+                            if (!double.IsNaN(ff)) { s.Funded = true; s.Floor = ff; double pk = fundedPeakOf != null && !double.IsNaN(fundedPeakOf(a)) ? Math.Max(fundedPeakOf(a), sn.Balance - adj) : sn.Balance - adj; s.Peak = pk; s.Locked = ff >= start - 0.01; s.ToLock = s.Locked ? 0 : Math.Max(0, start + dd - pk); s.Note = "FUNDED trailing $" + dd.ToString("N0", CultureInfo.InvariantCulture); }
+                            else if (awX != null) { var dayS = KeystoneStudioStore.SessionOf(nyNow()); s.Floor = awX.Floor(KeystoneAccountWatch.LiquidationDay(nyNow(), dayS), dd, true); s.Peak = awX.PeakEod(dayS); s.ToLock = prX.Target > 0 ? Math.Max(0, start + prX.Target - sn.Balance) : double.NaN; s.Note = "EVAL drawdown $" + dd.ToString("N0", CultureInfo.InvariantCulture) + (prX.Target > 0 ? " • TO PASS" : ""); }
+                            if (!double.IsNaN(s.Floor)) s.Buffer = sn.Balance - adj - s.Floor;
+                        }
+                    }
+                    catch { }
+                    return s;
+                };
+                Func<string, double> xjPrice = ins => { var r = KeystoneExecJournal.Root(ins); var pn0 = panes.FirstOrDefault(q => q.Trader != null && KeystoneExecJournal.Root(q.Symbol) == r); return pn0 != null && pn0.Trader.Price > 0 ? pn0.Trader.Price : double.NaN; };
+                // one account: the saved fills + NinjaTrader's → iterations; the live session adds MFE / MAE, the snapshots; the day files are rewritten when they changed
+                Func<string, LiveSnap, List<KeystoneXIter>> xjBuild = (a, sn) =>
+                {
+                    xjLoad(a); var fl = xjFills[a]; var sv = xjSaved[a]; int added = KeystoneExecJournal.Merge(fl, xjReadNt(a));
+                    double rate; lock (KeystoneFundedLiq.Learned) KeystoneFundedLiq.Learned.TryGetValue(a, out rate); if (!(rate > 0) || rate > KeystoneFundedLiq.MaxPerSide) rate = KeystoneFundedLiq.DefaultPerSide;
+                    var its = KeystoneExecJournal.Build(fl, ins => KeystoneMoveStudy.PointValue(KeystoneExecJournal.Root(ins)), ins => rate); var nowX = nyNow(); bool snapChanged = false;
+                    foreach (var it in its)
+                    {
+                        KeystoneXIter old; if (sv.TryGetValue(it.Key, out old)) KeystoneExecJournal.Carry(it, old);
+                        if (it.Open) KeystoneExecJournal.Live(it, xjPrice(it.Instrument), nowX);
+                        if (!it.AtStart.Has && (nowX - it.Start).TotalMinutes <= 3 && (it.Open || (nowX - it.End).TotalMinutes <= 3)) { it.AtStart = xjSnapNow(a, sn); snapChanged |= it.AtStart.Has; }
+                        if (!it.Open && !it.AtClose.Has && (nowX - it.End).TotalMinutes <= 3) { it.AtClose = xjSnapNow(a, sn); snapChanged |= it.AtClose.Has; }
+                        if (old == null || Math.Abs(old.Mfe - it.Mfe) > 0.004 || Math.Abs(old.Mae - it.Mae) > 0.004) snapChanged = true;
+                        sv[it.Key] = it;
+                    }
+                    xjIters[a] = its;
+                    if (added > 0 || snapChanged)
+                        try
+                        {
+                            var dir = xjDir(a); Directory.CreateDirectory(dir);
+                            foreach (var day in fl.Select(f => KeystoneExecJournal.DayOf(f.Time)).Concat(its.Select(i => i.Day)).Distinct())
+                            {
+                                var dayK = day; var txt = KeystoneExecJournal.Format(fl.Where(f => KeystoneExecJournal.DayOf(f.Time) == dayK).ToList(), its.Where(i => i.Day == dayK).ToList()); var file = Path.Combine(dir, day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".csv"); string was;
+                                if (xjWritten.TryGetValue(file, out was) && was == txt) continue; File.WriteAllText(file, txt); xjWritten[file] = txt;
+                            }
+                        }
+                        catch { }
+                    return its;
+                };
+                // every 3 s: every connected account with executions (the snapshots are taken at the close even when the tab is not shown)
+                { var xjTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) }; xjTimer.Tick += delegate { if (!liveMode) return; try { foreach (var sn in ReadNinjaAccounts().Where(x => x.Connected && (x.Trades > 0 || x.Positions != "" || xjFills.ContainsKey(x.Name)))) xjBuild(sn.Name, sn); } catch { } }; xjTimer.Start(); w.Closed += delegate { xjTimer.Stop(); }; }
                 fillExec = delegate
                 {
-                    var accX = linkedName; var root2 = new StackPanel { Margin = new Thickness(14, 10, 14, 14) }; execHost.Content = root2;
-                    if (accX == null) { root2.Children.Add(Txt("🧾 EXECUTIONS — pick the chart's account first", Muted, 14, FontWeights.Bold)); return; }
-                    var allX = new List<KeystoneJTrade>(); try { if (File.Exists(AccountTradesFile())) foreach (var l0 in File.ReadAllLines(AccountTradesFile())) { var t0 = KeystoneAccountJournal.ParseTrade(l0); if (t0 != null && string.Equals(t0.Account, accX, StringComparison.OrdinalIgnoreCase)) allX.Add(t0); } } catch { }
-                    var todayX = KeystoneAccountJournal.DayOf(nyNow()).Date; var daysX = allX.Select(t => t.Day.Date).Concat(new[] { todayX }).Distinct().OrderByDescending(d => d).Take(12).ToList();
-                    DateTime selX; if (!DateTime.TryParseExact(execDayS, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out selX) || !daysX.Contains(selX)) selX = daysX[0];
-                    var dayT = allX.Where(t => t.Day.Date == selX).OrderByDescending(t => t.Open).ToList();
-                    root2.Children.Add(Txt("🧾 EXECUTIONS • " + DeskNick(accX) + " • " + selX.ToString("dddd dd MMMM yyyy", CultureInfo.InvariantCulture), Gold, 16, FontWeights.Bold));
-                    var dwX = new WrapPanel { Margin = new Thickness(0, 6, 0, 8) }; root2.Children.Add(dwX);
-                    double ntGT = double.NaN, ntRT = double.NaN; { var snX = ReadNinjaAccounts().FirstOrDefault(x => string.Equals(x.Name, accX, StringComparison.OrdinalIgnoreCase)); if (snX != null && snX.Connected) { ntGT = snX.Gross; ntRT = snX.Closed; } }   // 💰 11q: NinjaTrader's gross / realized today
-                    foreach (var d1 in daysX) { var dk = d1; var nD = d1 == todayX && !double.IsNaN(KeystoneFundedLiq.DayFees(ntGT, ntRT)) ? ntRT : allX.Where(t => t.Day.Date == d1).Sum(t => t.Net); var bd = Btn((d1 == todayX ? "TODAY • " : "") + d1.ToString("ddd dd MMM", CultureInfo.InvariantCulture).ToUpperInvariant() + (allX.Any(t => t.Day.Date == d1) ? "  " + Signed(nD) : ""), d1 == selX ? (Brush)Tint(Cyan, 150) : Card); bd.Height = 26; bd.FontSize = 11; bd.Margin = new Thickness(0, 0, 6, 4); bd.Padding = new Thickness(10, 0, 10, 0); bd.Click += delegate { execDayS = dk.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); fillExec(); }; dwX.Children.Add(bd); }
-                    // the day in numbers
-                    Func<TimeSpan, string> duX = ts => ts.TotalHours >= 1 ? ((int)ts.TotalHours) + "h " + ts.Minutes.ToString("00") + "m" : ts.TotalMinutes >= 1 ? ((int)ts.TotalMinutes) + "m " + ts.Seconds.ToString("00") + "s" : ts.Seconds + "s";
-                    var tilesX = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) }; root2.Children.Add(tilesX);
-                    Action<string, string, Brush> tileX = (cap, val, br) => { var sp = new StackPanel(); sp.Children.Add(Txt(cap, Muted, 9.5, FontWeights.Bold)); sp.Children.Add(new TextBlock { Text = val, Foreground = br, FontSize = 16, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas") }); tilesX.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 5, 14, 6), Margin = new Thickness(0, 0, 8, 6), BorderBrush = Tint((SolidColorBrush)br, 110), BorderThickness = new Thickness(1.2), Child = sp }); };
-                    // 💰 11q: FEES / NET from NinjaTrader (user's catch: FEES −$0 / NET +$1,122 while NinjaTrader's Realized PnL was +$1,076.50): Tradovate's
-                    // executions carry no commission — today's fees = NinjaTrader's Gross realized − Realized (shared by contracts), the day's NET = its Realized
-                    double ntGX = double.NaN, ntRX = double.NaN; string feeFromX = ""; Func<double, string> sgnC = vC => (vC >= 0 ? "+$" : "−$") + Math.Abs(vC).ToString("N2", CultureInfo.InvariantCulture);
-                    if (selX == todayX) { ntGX = ntGT; ntRX = ntRT; }
-                    if (!double.IsNaN(KeystoneFundedLiq.DayFees(ntGX, ntRX))) { dayT = dayT.Select(t => new KeystoneJTrade { Account = t.Account, Instrument = t.Instrument, Note = t.Note, Day = t.Day, Open = t.Open, Close = t.Close, Side = t.Side, MaxQty = t.MaxQty, ByTarget = t.ByTarget, ByStop = t.ByStop, ByOther = t.ByOther, AvgIn = t.AvgIn, AvgOut = t.AvgOut, Gross = t.Gross, Fees = t.Fees, Best = t.Best, Worst = t.Worst }).ToList(); KeystoneFundedLiq.ApplyNtFees(dayT, ntGX, ntRX); feeFromX = " • from NinjaTrader"; }
-                    int nX = dayT.Count, wnX = dayT.Count(t => t.Net > 0); double netX = feeFromX != "" ? KeystoneFundedLiq.ShownNet(dayT, ntGX, ntRX) : dayT.Sum(t => t.Net), grossX = feeFromX != "" ? ntGX : dayT.Sum(t => t.Gross), feesX = feeFromX != "" ? KeystoneFundedLiq.DayFees(ntGX, ntRX) : dayT.Sum(t => t.Fees);
-                    tileX("TRADES", nX.ToString(CultureInfo.InvariantCulture), Text); tileX("WON / LOST", wnX + " / " + (nX - wnX) + (nX > 0 ? "  " + (100.0 * wnX / nX).ToString("0", CultureInfo.InvariantCulture) + "%" : ""), wnX >= nX - wnX ? Green : Red);
-                    tileX("NET (AFTER FEES)" + feeFromX, sgnC(netX), MoneyBrush(netX)); tileX("GROSS" + feeFromX, sgnC(grossX), MoneyBrush(grossX)); tileX("FEES" + feeFromX, nX > 0 || feesX > 0.004 ? "−$" + feesX.ToString("N2", CultureInfo.InvariantCulture) : "$0", Orange);
-                    tileX("BEST TRADE", nX > 0 ? Signed(dayT.Max(t => t.Net)) : "—", Green); tileX("WORST TRADE", nX > 0 ? Signed(dayT.Min(t => t.Net)) : "—", Red);
-                    tileX("AVG TIME IN A TRADE", nX > 0 ? duX(TimeSpan.FromSeconds(dayT.Average(t => (t.Close - t.Open).TotalSeconds))) : "—", Cyan); tileX("CONTRACTS TRADED", dayT.Sum(t => t.MaxQty).ToString(CultureInfo.InvariantCulture), Orchid);
-                    if (nX == 0) { root2.Children.Add(Txt("no finished trade this day yet (open positions show on the chart; a trade appears here when it is closed)", Muted, 12.5, FontWeights.Normal)); return; }
-                    // the table
-                    var colsX = new[] { Tuple.Create("#", 34.0), Tuple.Create("OPEN → CLOSE (NY)", 150.0), Tuple.Create("⏱ IN TRADE", 90.0), Tuple.Create("SIDE", 120.0), Tuple.Create("CONTRACTS", 80.0), Tuple.Create("AVG IN → OUT", 180.0), Tuple.Create("CLOSED BY", 120.0), Tuple.Create("📈 PEAK", 90.0), Tuple.Create("📉 LOWEST", 90.0), Tuple.Create("FEES", 70.0), Tuple.Create("NET", 100.0) };
-                    var hdrX = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 0, 0, 4) }; foreach (var c in colsX) hdrX.Children.Add(new TextBlock { Text = c.Item1, Width = c.Item2, Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold }); root2.Children.Add(hdrX);
-                    int k2X = nX;
-                    foreach (var t in dayT)
+                    var root2 = new StackPanel { Margin = new Thickness(14, 10, 14, 14) }; execHost.Content = root2; var snapsX = ReadNinjaAccounts(); var nicks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    Func<string, string> nk = a => { string n; if (!nicks.TryGetValue(a, out n)) nicks[a] = n = DeskNick(a) ?? a; return n; };
+                    bool allAcc = xjAccS == "*"; string accX = allAcc ? null : !string.IsNullOrEmpty(xjAccS) ? xjAccS : linkedName;
+                    // the ACCOUNT selector: the chart's account (default) • ALL • every connected account (+ the ones with a saved journal)
+                    var accNames = snapsX.Where(x => x.Connected).Select(x => x.Name).ToList(); try { var exRoot = Path.Combine(StudioFolder(), "Executions"); if (Directory.Exists(exRoot)) foreach (var d0 in Directory.GetDirectories(exRoot)) { var n0 = Path.GetFileName(d0); if (!accNames.Contains(n0, StringComparer.OrdinalIgnoreCase)) accNames.Add(n0); } } catch { }
+                    var xjTop = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) }; root2.Children.Add(xjTop);
+                    xjTop.Children.Add(Txt("🧾 EXECUTIONS • ACCOUNT", Gold, 16, FontWeights.Bold));
+                    var cb = new ComboBox { MinWidth = 380, Height = 28, Margin = new Thickness(6, 4, 8, 4), FontSize = 12.5, ToolTip = "Which account these numbers are for — remembered" }; xjCombos.Clear(); xjCombos.Add(cb);
+                    var keysCb = new List<string> { "", "*" }; cb.Items.Add("⟲ THE CHART'S ACCOUNT" + (linkedName != null ? " — " + nk(linkedName) + " (" + linkedName + ")" : " (none linked)")); cb.Items.Add("Σ ALL ACCOUNTS");
+                    foreach (var n1 in accNames.OrderBy(x => nk(x), StringComparer.OrdinalIgnoreCase)) { keysCb.Add(n1); cb.Items.Add(nk(n1) + (nk(n1) != n1 ? "  •  " + n1 : "") + (snapsX.Any(x => x.Name == n1 && x.Connected) ? "" : "  (not connected — saved journal)")); }
+                    cb.SelectedIndex = Math.Max(0, keysCb.IndexOf(allAcc ? "*" : xjAccS ?? ""));
+                    cb.SelectionChanged += delegate { if (cb.SelectedIndex < 0 || cb.SelectedIndex >= keysCb.Count) return; var k = keysCb[cb.SelectedIndex]; if (k == (xjAccS ?? "")) return; xjAccS = k; realKeys["realexec.acct"] = k; if (saveWorkspace != null) saveWorkspace(); execDayS = ""; Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => fillExec())); };
+                    xjTop.Children.Add(cb);
+                    if (!allAcc && accX == null) { root2.Children.Add(Txt("pick an account above (or link the chart to one)", Muted, 13, FontWeights.Bold)); return; }
+                    var accsShown = allAcc ? accNames : new List<string> { accX };
+                    var itsAll = new List<KeystoneXIter>();
+                    foreach (var a in accsShown) { List<KeystoneXIter> li; var sn = snapsX.FirstOrDefault(x => string.Equals(x.Name, a, StringComparison.OrdinalIgnoreCase)); if (!xjIters.TryGetValue(a, out li) || sn != null && sn.Connected) li = xjBuild(a, sn); itsAll.AddRange(li); }
+                    var todayX = KeystoneExecJournal.DayOf(nyNow()).Date;
+                    var daysAll = KeystoneExecJournal.Days(itsAll); var dayList = daysAll.Select(x => x.Day).Concat(new[] { todayX }).Distinct().OrderByDescending(x => x).ToList();
+                    DateTime selX; if (!DateTime.TryParseExact(execDayS, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out selX) || !dayList.Contains(selX)) selX = dayList[0];
+                    root2.Children.Add(Txt((allAcc ? "Σ ALL ACCOUNTS (" + accsShown.Count + ")" : nk(accX) + (nk(accX) != accX ? "  •  " + accX : "")) + "  •  " + selX.ToString("dddd dd MMMM yyyy", CultureInfo.InvariantCulture) + "  •  read-only: NinjaTrader's executions, nothing is sent", Cyan, 13, FontWeights.Bold));
+                    var tools = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) }; root2.Children.Add(tools);
+                    var dayPick = new ComboBox { MinWidth = 200, Height = 26, Margin = new Thickness(4, 2, 8, 2), FontSize = 11.5, ToolTip = "every saved day (history)" }; xjCombos.Add(dayPick);
+                    foreach (var dd0 in dayList) { var dx = daysAll.FirstOrDefault(x => x.Day == dd0); dayPick.Items.Add((dd0 == todayX ? "TODAY • " : "") + dd0.ToString("ddd dd MMM yyyy", CultureInfo.InvariantCulture).ToUpperInvariant() + (dx != null && dx.Iterations > 0 ? "  " + xjM(dx.Net) : "")); }
+                    dayPick.SelectedIndex = dayList.IndexOf(selX); dayPick.SelectionChanged += delegate { if (dayPick.SelectedIndex >= 0 && dayPick.SelectedIndex < dayList.Count && dayList[dayPick.SelectedIndex] != selX) { execDayS = dayList[dayPick.SelectedIndex].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => fillExec())); } };
+                    tools.Children.Add(Txt("DAY", Muted, 11, FontWeights.Bold)); tools.Children.Add(dayPick);
+                    var expB = Btn("📤 EXPORT CSV", Card); expB.Height = 26; expB.FontSize = 11; expB.ToolTip = "the shown day's iterations, legs, snapshots and fills → Studio\\Executions\\export-….csv (opened in Explorer)";
+                    expB.Click += delegate
                     {
-                        var rwX = new StackPanel { Orientation = Orientation.Horizontal }; int ciX = 0;
-                        Action<string, Brush> cellX = (x, br) => { rwX.Children.Add(new TextBlock { Text = x, Width = colsX[ciX].Item2, Foreground = br, FontSize = 12.5, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), VerticalAlignment = VerticalAlignment.Center }); ciX++; };
-                        cellX("#" + k2X--, Muted); cellX(t.Open.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " → " + t.Close.ToString("HH:mm:ss", CultureInfo.InvariantCulture), Text); cellX(duX(t.Close - t.Open), Orchid);
-                        cellX((t.Side > 0 ? "▲ LONG " : "▼ SHORT ") + t.Instrument.Split(' ')[0], t.Side > 0 ? Green : Red); cellX(t.MaxQty.ToString(CultureInfo.InvariantCulture), Text);
-                        cellX(t.AvgIn.ToString("0.00", CultureInfo.InvariantCulture) + " → " + t.AvgOut.ToString("0.00", CultureInfo.InvariantCulture), Text);
-                        cellX((t.ByTarget > 0 ? "🎯 TARGET " : "") + (t.ByStop > 0 ? "🛑 STOP " : "") + (t.ByOther > 0 && t.ByTarget == 0 && t.ByStop == 0 ? "✋ BY HAND" : ""), t.ByTarget > 0 ? Green : t.ByStop > 0 ? Red : Muted);
-                        cellX(Signed(t.Best), MoneyBrush(t.Best)); cellX(Signed(t.Worst), MoneyBrush(t.Worst)); cellX("−" + Cash(t.Fees), Orange); cellX(Signed(t.Net), MoneyBrush(t.Net));
-                        root2.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 4), BorderBrush = MoneyBrush(t.Net), BorderThickness = new Thickness(4, 0, 0, 0), Child = rwX, ToolTip = t.Note });
+                        try
+                        {
+                            var dirE = Path.Combine(StudioFolder(), "Executions"); Directory.CreateDirectory(dirE); var dayIts = itsAll.Where(i => i.Day == selX).ToList();
+                            var fe = accsShown.SelectMany(a => xjFills.ContainsKey(a) ? xjFills[a] : new List<KeystoneXFill>()).Where(f => KeystoneExecJournal.DayOf(f.Time) == selX).ToList();
+                            var fileE = Path.Combine(dirE, "export-" + (allAcc ? "ALL" : string.Concat(accX.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch))) + "-" + selX.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".csv");
+                            File.WriteAllText(fileE, KeystoneExecJournal.Format(fe, dayIts)); try { System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + fileE + "\""); } catch { }
+                            status.Text = "🧾 EXPORTED " + dayIts.Count + " iteration(s), " + fe.Count + " fill(s) → " + fileE; status.Foreground = Green;
+                        }
+                        catch (Exception ex) { status.Text = "🧾 EXPORT FAILED • " + ex.Message; status.Foreground = Red; }
+                    };
+                    tools.Children.Add(expB);
+                    var folderB = Btn("📂 FOLDER", Card); folderB.Height = 26; folderB.FontSize = 11; folderB.Click += delegate { try { var dirF = allAcc ? Path.Combine(StudioFolder(), "Executions") : xjDir(accX); Directory.CreateDirectory(dirF); System.Diagnostics.Process.Start("explorer.exe", dirF); } catch { } }; tools.Children.Add(folderB);
+                    // the day buttons: Σ of the iterations closed that session (= the rows)
+                    var dwX = new WrapPanel { Margin = new Thickness(0, 4, 0, 8) }; root2.Children.Add(dwX);
+                    foreach (var d1 in dayList.Take(10)) { var dk = d1; var dx = daysAll.FirstOrDefault(x => x.Day == d1); var bd = Btn((d1 == todayX ? "TODAY • " : "") + d1.ToString("ddd dd MMM", CultureInfo.InvariantCulture).ToUpperInvariant() + (dx != null && dx.Iterations > 0 ? "  " + Signed(dx.Net) : ""), d1 == selX ? (Brush)Tint(Cyan, 150) : Card); bd.Height = 26; bd.FontSize = 11; bd.Margin = new Thickness(0, 0, 6, 4); bd.Padding = new Thickness(10, 0, 10, 0); bd.ToolTip = dx == null ? "no iteration" : dx.Iterations + " iteration(s) closed • gross " + xjM(dx.Gross) + " • fees −" + xjC(dx.Commission) + (dx.CommEst ? " (est.)" : "") + " • net " + xjM(dx.Net); bd.Click += delegate { execDayS = dk.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture); fillExec(); }; dwX.Children.Add(bd); }
+                    var dayIt = itsAll.Where(i => i.Day == selX || i.Open && selX == todayX).OrderByDescending(i => i.Start).ToList(); var closedX = dayIt.Where(i => !i.Open).ToList(); var openX = dayIt.Where(i => i.Open).ToList();
+                    var dS = KeystoneExecJournal.Days(closedX).FirstOrDefault() ?? new KeystoneXDay { Day = selX };
+                    // the day in numbers (Σ of the rows below)
+                    var tilesX = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) }; root2.Children.Add(tilesX);
+                    Action<string, string, Brush, string> tileX = (cap, val, br, tip) => { var sp = new StackPanel(); sp.Children.Add(Txt(cap, Muted, 9.5, FontWeights.Bold)); sp.Children.Add(new TextBlock { Text = val, Foreground = br, FontSize = 16, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas") }); tilesX.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 5, 14, 6), Margin = new Thickness(0, 0, 8, 6), BorderBrush = Tint((SolidColorBrush)br, 110), BorderThickness = new Thickness(1.2), Child = sp, ToolTip = tip }); };
+                    tileX("ITERATIONS", dS.Iterations.ToString(CultureInfo.InvariantCulture) + (openX.Count > 0 ? " + " + openX.Count + " open" : ""), Text, "one iteration = flat → flat on one instrument (every entry, add and partial exit inside)");
+                    tileX("WON / LOST", dS.Won + " / " + dS.Lost + (dS.Iterations > 0 ? "  " + (100.0 * dS.Won / dS.Iterations).ToString("0", CultureInfo.InvariantCulture) + "%" : ""), dS.Won >= dS.Lost ? Green : Red, "by net (after fees)");
+                    tileX("NET (AFTER FEES)", xjM(dS.Net), MoneyBrush(dS.Net), "Σ of the iterations' NET below"); tileX("GROSS", xjM(dS.Gross), MoneyBrush(dS.Gross), "Σ of the legs' realized $ (FIFO)");
+                    tileX("FEES" + (dS.CommEst ? " (est.)" : " • executions"), "−" + xjC(dS.Commission), Orange, dS.CommEst ? "this connection reports 0 commission on (some) executions: estimated at the per-side rate (marked est.)" : "Σ of NinjaTrader's execution commissions");
+                    tileX("PARTIAL EXITS", dS.Partials.ToString(CultureInfo.InvariantCulture), Orchid, "exits that left part of the position open");
+                    tileX("BEST", dS.Iterations > 0 ? xjM(dS.Best) : "—", Green, ""); tileX("WORST", dS.Iterations > 0 ? xjM(dS.Worst) : "—", Red, "");
+                    if (openX.Count > 0) tileX("OPEN NOW (if closed)", xjM(openX.Sum(i => i.NetIfClosed)), MoneyBrush(openX.Sum(i => i.NetIfClosed)), "realized so far + open P/L at the chart's price − fees so far");
+                    // NinjaTrader says (today, one account): a separate reconciliation — never mixed into the rows
+                    if (!allAcc && selX == todayX)
+                    {
+                        var snR = snapsX.FirstOrDefault(x => string.Equals(x.Name, accX, StringComparison.OrdinalIgnoreCase));
+                        var rec = KeystoneExecJournal.Reconcile(dayIt, snR != null && snR.Connected ? snR.Closed : double.NaN, snR != null && snR.Connected ? snR.Gross : double.NaN);
+                        var recB = new StackPanel(); foreach (var l in rec) recB.Children.Add(new TextBlock { Text = l, Foreground = l.Contains("✓") ? Green : l.StartsWith("•") ? Muted : Gold, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 1) });
+                        if (snR != null && snR.Connected)
+                        {   // the journal's open contracts vs NinjaTrader's positions (different = fills before KeyStone's history are missing)
+                            var mine = KeystoneExecJournal.OpenByRoot(itsAll); var keysP = snR.Qty.Keys.Concat(mine.Keys).Select(k => k.ToUpperInvariant()).Distinct();
+                            foreach (var kp in keysP) { int q1 = 0, q2 = 0; foreach (var kv in snR.Qty) if (string.Equals(kv.Key, kp, StringComparison.OrdinalIgnoreCase)) q1 += kv.Value; mine.TryGetValue(kp, out q2); if (q1 != q2) recB.Children.Add(new TextBlock { Text = "⚠ " + kp + ": NinjaTrader holds " + q1 + ", the journal sees " + q2 + " — some fills happened before KeyStone's history (the open iteration is incomplete)", Foreground = Orange, FontSize = 11.5, TextWrapping = TextWrapping.Wrap }); }
+                        }
+                        root2.Children.Add(new Border { Background = Card, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 0, 0, 10), BorderBrush = Muted, BorderThickness = new Thickness(1), Child = recB });
                     }
+                    if (dayIt.Count == 0) { root2.Children.Add(Txt("no fill on " + (allAcc ? "these accounts" : "this account") + " this day (NinjaTrader's executions are read every 3 s; history comes from Studio\\Executions)", Muted, 12.5, FontWeights.Normal)); return; }
+                    // the rows: one per iteration (click = its legs + the account snapshot)
+                    var colsX = new List<Tuple<string, double>> { Tuple.Create("#", 40.0), Tuple.Create("START → END (NY)", 150.0), Tuple.Create("⏱", 72.0), Tuple.Create("SIDE", 120.0), Tuple.Create("MAX", 44.0), Tuple.Create("LEGS", 92.0), Tuple.Create("AVG IN → OUT", 170.0), Tuple.Create("MFE / MAE", 150.0), Tuple.Create("GROSS", 90.0), Tuple.Create("FEES", 80.0), Tuple.Create("NET", 100.0) };
+                    if (allAcc) colsX.Insert(1, Tuple.Create("ACCOUNT", 150.0));
+                    var hdrX = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(14, 0, 0, 4) }; foreach (var c in colsX) hdrX.Children.Add(new TextBlock { Text = c.Item1, Width = c.Item2, Foreground = Muted, FontSize = 10.5, FontWeight = FontWeights.Bold }); root2.Children.Add(hdrX);
+                    int kX = dayIt.Count; var nowR = nyNow();
+                    foreach (var it in dayIt)
+                    {
+                        var itK = it; bool openRow = xjOpenKeys.Contains(it.Key); var box = new StackPanel(); var rwX = new StackPanel { Orientation = Orientation.Horizontal }; box.Children.Add(rwX); int ciX = 0;
+                        Action<string, Brush> cellX = (x, br) => { rwX.Children.Add(new TextBlock { Text = x, Width = colsX[ciX].Item2, Foreground = br, FontSize = 12.5, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis }); ciX++; };
+                        double netShown = it.Open ? it.NetIfClosed : it.Net;
+                        cellX((openRow ? "▾" : "▸") + kX--, Muted); if (allAcc) cellX(nk(it.Account), Cyan);
+                        cellX(it.Start.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + " → " + (it.Open ? "● OPEN" : it.End.ToString("HH:mm:ss", CultureInfo.InvariantCulture)), it.Open ? Gold : Text); cellX(xjDur(it.Duration(nowR)), Orchid);
+                        cellX((it.Side > 0 ? "▲ LONG " : "▼ SHORT ") + KeystoneExecJournal.Root(it.Instrument), it.Side > 0 ? Green : Red); cellX(it.MaxQty.ToString(CultureInfo.InvariantCulture), Text);
+                        cellX(it.Legs.Count + (it.Partials > 0 ? " • " + it.Partials + " part" : "") + (it.Adds > 0 ? " • " + it.Adds + " add" : ""), it.Partials > 0 ? Orchid : Text);
+                        cellX(it.AvgIn.ToString("0.00", CultureInfo.InvariantCulture) + " → " + (it.AvgOut > 0 ? it.AvgOut.ToString("0.00", CultureInfo.InvariantCulture) : "…"), Text);
+                        cellX(Signed(it.Mfe) + " / " + Signed(it.Mae), Text); cellX(xjM(it.Gross) + (it.Open ? "*" : ""), MoneyBrush(it.Gross)); cellX("−" + xjC(it.Commission) + (it.CommEst ? " est." : ""), Orange); cellX(xjM(netShown) + (it.Open ? " ●" : ""), MoneyBrush(netShown));
+                        if (openRow)
+                        {
+                            // the legs, in order
+                            var lg = new StackPanel { Margin = new Thickness(26, 8, 0, 2) }; box.Children.Add(lg);
+                            var lc = new[] { Tuple.Create("LEG", 130.0), Tuple.Create("TIME (NY)", 80.0), Tuple.Create("QTY", 60.0), Tuple.Create("PRICE", 90.0), Tuple.Create("POSITION", 90.0), Tuple.Create("REALIZED", 100.0), Tuple.Create("FEES", 80.0), Tuple.Create("WHO", 210.0) };
+                            var lh = new StackPanel { Orientation = Orientation.Horizontal }; foreach (var c in lc) lh.Children.Add(new TextBlock { Text = c.Item1, Width = c.Item2, Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold }); lg.Children.Add(lh);
+                            foreach (var l in it.Legs)
+                            {
+                                var lr = new StackPanel { Orientation = Orientation.Horizontal }; int li = 0; bool exitL = Math.Sign(l.SignedQty) != it.Side;
+                                Action<string, Brush> lcX = (x, br) => { lr.Children.Add(new TextBlock { Text = x, Width = lc[li].Item2, Foreground = br, FontSize = 11.5, FontFamily = new FontFamily("Consolas"), TextTrimming = TextTrimming.CharacterEllipsis }); li++; };
+                                lcX(l.N + ". " + l.Kind, exitL ? Orchid : Cyan); lcX(l.Time.ToString("HH:mm:ss", CultureInfo.InvariantCulture), Text); lcX((l.SignedQty > 0 ? "BUY " : "SELL ") + Math.Abs(l.SignedQty), l.SignedQty > 0 ? Green : Red); lcX(l.Price.ToString("0.00", CultureInfo.InvariantCulture), Text);
+                                lcX(l.PosAfter == 0 ? "FLAT" : (l.PosAfter > 0 ? "LONG " : "SHORT ") + Math.Abs(l.PosAfter), Text); lcX(exitL ? xjM(l.Realized) : "", MoneyBrush(l.Realized)); lcX("−" + xjC(l.Commission) + (l.CommEst ? " est." : ""), Orange); lcX(l.Who, Muted);
+                                lg.Children.Add(lr);
+                            }
+                            // the account snapshot: at the start, at the close, what this iteration used
+                            var ss = new StackPanel { Margin = new Thickness(26, 6, 0, 4) }; box.Children.Add(ss);
+                            Func<KeystoneXSnap, string> snapLine = s => "balance " + xjC(s.Balance) + (double.IsNaN(s.Today) ? "" : " • today " + xjM(s.Today)) + (double.IsNaN(s.Realized) ? "" : " • realized " + xjM(s.Realized)) + (double.IsNaN(s.Peak) ? "" : (s.Funded ? " • trailing peak " : " • best close ") + xjC(s.Peak)) + (double.IsNaN(s.Floor) ? "" : " • 💥 BLOWS AT " + xjC(s.Floor)) + (double.IsNaN(s.Buffer) ? "" : " • 🛡 buffer " + xjC(s.Buffer)) + (double.IsNaN(s.ToLock) ? "" : (s.Funded ? (s.Locked ? " • 🔒 floor locked" : " • 🔒 to lock " + xjC(s.ToLock)) : " • 🎯 to pass " + xjC(s.ToLock))) + (s.Note != "" ? " • " + s.Note : "");
+                            ss.Children.Add(new TextBlock { Text = "▶ AT THE START " + it.Start.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ": " + (it.AtStart.Has ? snapLine(it.AtStart) : "not captured (KeyStone was not running when it opened)"), Foreground = Text, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
+                            if (!it.Open) ss.Children.Add(new TextBlock { Text = "■ AT THE CLOSE " + it.End.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + ": " + (it.AtClose.Has ? snapLine(it.AtClose) : "not captured (KeyStone was not running when it closed)"), Foreground = Text, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
+                            else ss.Children.Add(new TextBlock { Text = "● OPEN " + (it.OpenQty > 0 ? "LONG " : "SHORT ") + Math.Abs(it.OpenQty) + " • open P/L " + xjM(it.OpenPl) + " at " + (double.IsNaN(it.LastPrice) ? "—" : it.LastPrice.ToString("0.00", CultureInfo.InvariantCulture)) + " (the chart's price) • realized so far " + xjM(it.Gross) + " • if closed now " + xjM(it.NetIfClosed), Foreground = Gold, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
+                            var used = "📉 drawdown used: " + xjM(-it.DdUsed) + " at worst (MAE, " + it.MaePts.ToString("0.00", CultureInfo.InvariantCulture) + " pts) • best " + xjM(it.Mfe) + " (MFE, +" + it.MfePts.ToString("0.00", CultureInfo.InvariantCulture) + " pts)";
+                            if (it.AtStart.Has && !double.IsNaN(it.AtStart.Buffer) && it.AtStart.Buffer > 0) used += " • " + (100 * it.DdUsed / it.AtStart.Buffer).ToString("0", CultureInfo.InvariantCulture) + "% of the " + xjC(it.AtStart.Buffer) + " buffer at the start";
+                            if (it.AtStart.Has && it.AtClose.Has && !double.IsNaN(it.AtStart.Floor) && !double.IsNaN(it.AtClose.Floor) && Math.Abs(it.AtClose.Floor - it.AtStart.Floor) > 0.004) used += " • the floor moved " + xjM(it.AtClose.Floor - it.AtStart.Floor) + " (trailing)";
+                            ss.Children.Add(new TextBlock { Text = used + " • MFE / MAE: from the fills" + (xjPrice(it.Instrument) > 0 ? " + the chart's prices while open" : " only (this instrument is not on the chart)"), Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap });
+                        }
+                        var bx = new Border { Background = Card, CornerRadius = new CornerRadius(8), Padding = new Thickness(10, 7, 10, 7), Margin = new Thickness(0, 0, 0, 4), BorderBrush = it.Open ? Gold : MoneyBrush(netShown), BorderThickness = new Thickness(4, 0, 0, 0), Child = box, Cursor = System.Windows.Input.Cursors.Hand,
+                            ToolTip = it.Account + " • " + it.Instrument + " • " + it.Legs.Count + " fill(s), " + it.Partials + " partial exit(s), " + it.Adds + " add(s) • click for the legs + the account snapshot" };
+                        bx.MouseLeftButtonUp += delegate { if (!xjOpenKeys.Remove(itK.Key)) xjOpenKeys.Add(itK.Key); fillExec(); };
+                        root2.Children.Add(bx);
+                    }
+                    root2.Children.Add(Txt("* open: realized so far • MFE / MAE = the best / worst P/L of the position (gross, $ and points from the average of the lots left) • FEES = NinjaTrader's execution commissions (est. = this connection reports 0: the per-side rate learned, else $0.62)", Muted, 10.5, FontWeights.Normal));
                 };
-                { var execTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) }; execTimer.Tick += delegate { if (view == "EXEC" && fillExec != null) { double vo = execHost.VerticalOffset; fillExec(); execHost.ScrollToVerticalOffset(vo); } }; execTimer.Start(); w.Closed += delegate { execTimer.Stop(); }; }
+                { var execTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) }; execTimer.Tick += delegate { if (view == "EXEC" && fillExec != null && !xjCombos.Any(c => c.IsDropDownOpen)) { double vo = execHost.VerticalOffset; fillExec(); execHost.ScrollToVerticalOffset(vo); } }; execTimer.Start(); w.Closed += delegate { execTimer.Stop(); }; }
                 journalBtn.Click += delegate { showView("JOURNAL"); }; copierBtn.Click += delegate { showView("COPIER"); }; poolBtn.Click += delegate { showView("POOL"); }; rotateBtn.Click += delegate { showView("ROTATE"); }; autoBtn.Click += delegate { showView("AUTOPILOT"); }; duoBtn.Click += delegate { showView("DUO"); };
                 Func<string, string> nickOf = a => { LiveProfile pf; return a != null && profiles.TryGetValue(a, out pf) && pf.Nick != "" ? pf.Nick : a ?? ""; };
                 Func<string, LiveProfile> profileFor = a => { LiveProfile pf; if (!profiles.TryGetValue(a, out pf)) { pf = new LiveProfile { Name = a }; var g = KeystoneFirmRules.Guess(a); if (g != null) { pf.Firm = g.Firm; pf.Size = g.Size; pf.Dd = g.Dd; pf.Target = g.Target; } profiles[a] = pf; } return pf; };
