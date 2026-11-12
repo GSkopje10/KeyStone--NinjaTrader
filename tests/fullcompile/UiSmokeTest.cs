@@ -1048,6 +1048,36 @@ public static class UiSmokeTest
                         ((Action<string, int>)F("studioLayer"))("OF.V.CH.DECISION", 1);   /* the rest of this step trades from the card (→ the CHART view): a CHART chip ON keeps the order-flow engine (and the test's trades) alive there */
                     }
                     if (desk("OPEN") != "OPEN") throw new Exception("the ORDERFLOW view did not open");
+                    {   /* ❓ 13c: every chip / tab / header button explains itself (WHAT • WHY • HOW), the layer-bar chips on hover, 🎓 HOW TO USE first in GUIDE, the one-time QUICK START */
+                        var elsH = FindAll<System.Windows.FrameworkElement>(bt.Content).ToList();
+                        var need = elsH.Where(x => { string t0 = Convert.ToString(x.Tag); return t0.StartsWith("of.dtab.") || t0.StartsWith("of.view.") || t0.StartsWith("of.num.") || (t0.StartsWith("of.style.") && t0 != "of.style.note") || t0 == "of.beginner" || t0 == "of.calm" || t0 == "of.howto" || t0 == "of.profs" || t0 == "of.ticklib" || t0 == "of.master" || t0 == "of.chartchip"; }).ToList();
+                        var noTip = need.Where(x => !Convert.ToString(x.ToolTip).StartsWith("WHAT: ")).Select(x => Convert.ToString(x.Tag)).ToList();
+                        if (noTip.Count > 0) throw new Exception("❓ controls without a WHAT / WHY / HOW tooltip: " + string.Join(",", noTip));
+                        foreach (var want in new[] { "of.dtab.NOW", "of.dtab.EVENTS", "of.dtab.GUIDE", "of.view.SIGNALS", "of.view.ALL", "of.view.ON", "of.view.SETTINGS", "of.view.BACK", "of.num.BADGE", "of.num.CANDLE Δ", "of.num.CUM Δ", "of.num.BUYERS", "of.num.IN CONTROL", "of.style.SCALP", "of.style.SWING", "of.style.BOTH", "of.beginner", "of.calm", "of.howto" })
+                            if (!need.Any(x => Convert.ToString(x.Tag) == want)) throw new Exception("❓ missing control " + want);
+                        if (need.Count(x => Convert.ToString(x.Tag).StartsWith("of.dtab.")) != 12) throw new Exception("❓ not all 12 dock tabs carry help");
+                        foreach (var cap0 in new[] { "◫ SPLIT", "PATTERN", "CLEAN", "MATCHES", "⏭ NOW" })
+                        { var bH = FindAll<System.Windows.Controls.Button>(bt.Content).FirstOrDefault(x => Convert.ToString(x.Content) == cap0); if (bH != null && !Convert.ToString(bH.ToolTip).StartsWith("WHAT: ")) throw new Exception("❓ the toolbar button " + cap0 + " has no help: " + bH.ToolTip); }
+                        var calmH = need.First(x => Convert.ToString(x.Tag) == "of.calm"); calmH.RaiseToolTipOpening(); if (!Convert.ToString(calmH.ToolTip).Contains("NOW: OFF")) throw new Exception("❓ REDUCE MOTION's hover must say ON / OFF: " + calmH.ToolTip);
+                        var lbH = (Func<string, string>)F("studioLayerBar");
+                        foreach (var mode in new[] { "SIMPLE", "DETAILED" })
+                        {
+                            lbH(mode); string chH = lbH("CHIPS"); var ids = chH.Split(',').Where(t0 => t0.StartsWith("layerbar.") && t0 != "layerbar.help").Select(t0 => t0.Substring(9)).ToList();
+                            if (ids.Count < 3) throw new Exception("❓ no chips drawn (" + mode + "): " + chH);
+                            foreach (var id in ids) { string hv = lbH("HOVER|" + id); if (!hv.StartsWith("WHAT: ") || !hv.Contains("\nWHY: ") || !hv.Contains("\nHOW: ")) throw new Exception("❓ the chip " + id + " (" + mode + ") does not explain itself on hover: " + hv); }
+                            Console.WriteLine("      ❓ " + mode + " chips with hover help: " + string.Join(" ", ids));
+                        }
+                        lbH("SIMPLE");
+                        var gHost = elsH.OfType<System.Windows.Controls.StackPanel>().First(x => Convert.ToString(x.Tag) == "of.tab.GUIDE");
+                        var g0 = gHost.Children.OfType<System.Windows.FrameworkElement>().First(); if (Convert.ToString(g0.Tag) != "of.guide.howto") throw new Exception("🎓 HOW TO USE must be the GUIDE's first section: " + g0.Tag);
+                        string gtx = string.Join(" ", FindAll<System.Windows.Controls.TextBlock>(g0).Select(x => x.Text)); foreach (var w0 in new[] { "HOW TO USE THIS TAB", "IN CONTROL", "CANDLE Δ", "CLOSE", "TAKE", "HOLD", "TIGHTEN", "PROTECT", "GET OUT", "WHAT NOT TO DO" }) if (!gtx.Contains(w0)) throw new Exception("🎓 the HOW TO USE section misses " + w0);
+                        var qs = elsH.First(x => Convert.ToString(x.Tag) == "of.quickstart"); if (qs.Visibility != System.Windows.Visibility.Visible) throw new Exception("👋 the QUICK START card must show the first time");
+                        var hw = (System.Windows.Controls.Button)elsH.First(x => Convert.ToString(x.Tag) == "of.howto"); hw.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                        if (gHost.Visibility != System.Windows.Visibility.Visible) throw new Exception("❓ HOW TO USE did not open the 🎓 GUIDE tab");
+                        var qsOk = (System.Windows.Controls.Button)elsH.First(x => Convert.ToString(x.Tag) == "of.quickstart.ok"); qsOk.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                        if (qs.Visibility == System.Windows.Visibility.Visible) throw new Exception("👋 GOT IT did not hide the QUICK START");
+                        desk("TAB NOW"); Console.WriteLine("      ❓ " + need.Count + " controls with WHAT / WHY / HOW help • 🎓 HOW TO USE first in GUIDE • 👋 QUICK START hidden after GOT IT");
+                    }
                     string nb = desk("NOTICKS"); string strip0 = desk("STRIP");
                     if (nb != KeystoneOfSource.NoneText || !strip0.Contains(KeystoneOfSource.NoneText) || !strip0.Contains("CANDLE Δ") || !strip0.Contains("—")) throw new Exception("🛡 no trades must show the grey badge and no numbers: " + strip0);
                     if (FindAll<System.Windows.FrameworkElement>(bt.Content).Any(x => Convert.ToString(x.Tag) == "of.dprof")) throw new Exception("🛡 a delta profile without trades");
@@ -1142,6 +1172,13 @@ public static class UiSmokeTest
                     System.Windows.MessageBox.Answer = (t, b) => System.Windows.MessageBoxResult.Yes;
                     string take; try { take = desk("TAKE"); } finally { System.Windows.MessageBox.Answer = null; }
                     rt = (KeystoneReplayTrader)F("replayTrader"); if (!take.Contains("view CHART") || (sellCard ? rt.Position >= 0 : rt.Position <= 0)) throw new Exception("TAKE (the chart's own BUY / SELL on the simulated trader): " + take);
+                    {   /* ⛔ 13c: a stand-in account with $1 to its floor → the in-trade box says the stop is beyond the floor (or no stop: the floor is the real stop) — never "drawdown is normal" */
+                        desk("OPEN"); desk("TAB NOW"); string fr9 = desk("ROOM 1");
+                        if (!(fr9.Contains("BEYOND YOUR ACCOUNT'S FLOOR") || fr9.Contains("NO STOP SET — your account blows at"))) throw new Exception("⛔ the floor-vs-stop warning is missing: " + fr9);
+                        if (fr9.Contains("DRAWDOWN IS NORMAL") || fr9.Contains("the plan holds")) throw new Exception("⛔ 'drawdown is normal / the plan holds' while the stop is beyond the floor: " + fr9);
+                        string ok9 = desk("ROOM 1000000"); if (ok9.Contains("BEYOND YOUR ACCOUNT'S FLOOR")) throw new Exception("⛔ a floor warning with plenty of room: " + ok9);
+                        desk("ROOM OFF"); Console.WriteLine("      ⛔ floor vs stop: " + fr9.Substring(0, Math.Min(160, fr9.Length)).Replace("\n", " / "));
+                    }
                     { string st9 = desk("TAB STORY"); if (!st9.Contains("TAKEN") && !st9.Contains("taken")) throw new Exception("📖 the TAKE is not in the recent setups / STORY: " + st9.Substring(0, Math.Min(400, st9.Length))); }
                     ((Action)F("replayTraderFlat"))();
                     if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 the ORDERFLOW desk built a NinjaBroker");

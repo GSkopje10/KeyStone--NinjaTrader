@@ -120,6 +120,7 @@ namespace System.Windows
         public double ActualWidth { get { return 0; } }
         public double ActualHeight { get { return 0; } }
         public object ToolTip { get; set; }
+        public event System.Windows.Controls.ToolTipEventHandler ToolTipOpening; public void RaiseToolTipOpening() { if (ToolTipOpening != null) ToolTipOpening(this, new System.Windows.Controls.ToolTipEventArgs()); }   /* ❓ 13c: the stand-in's hover */
         public object Tag { get; set; }
         public string Name { get; set; }
         public object DataContext { get; set; }
@@ -465,6 +466,8 @@ namespace System.Windows.Controls
     public class Image : FrameworkElement { public ImageSource Source { get; set; } public Stretch Stretch { get; set; } }
     public class ProgressBar : System.Windows.Controls.Primitives.RangeBase { public bool IsIndeterminate { get; set; } }
     public class Slider : System.Windows.Controls.Primitives.RangeBase { public double TickFrequency { get; set; } public bool IsSnapToTickEnabled { get; set; } }
+    public class ToolTipEventArgs : System.Windows.RoutedEventArgs { }
+    public delegate void ToolTipEventHandler(object sender, ToolTipEventArgs e);
     public static class ToolTipService { public static void SetShowDuration(DependencyObject d, int v) { } public static void SetInitialShowDelay(DependencyObject d, int v) { } }
 }
 

@@ -561,6 +561,103 @@ public static class FlowCompassTests
             try { Directory.Delete(dir, true); } catch { }
             Check(KeystoneOfConfirm.Guide.Contains("FVG") && KeystoneOfConfirm.Guide.Contains("⭐ OF ✔") && KeystoneOfConfirm.Guide.Contains("never sends"), "the GUIDE section in plain words with the FVG example");
         }
+        // ---- 29. ⛔ 13c: the account's FLOOR vs your STOP (the user's TPT funded screenshot: SHORT 1 @ 28197, stop 29031 = −$1,668, open −$870, DD LEFT $1,036)
+        {
+            double px = 28197 + 435;   // −$870 open on 1 MNQ ($2 a point); DD LEFT already counts the open −$870 (NetLiquidation) → the floor 518 pts ABOVE the price
+            var u = KeystoneFloorGuard.Check(-1, 1, px, 29031, 2, 1036);
+            Check(u.Level == 1 && Math.Abs(u.FloorPx - 29150) < 1e-9 && u.Text.StartsWith("⚠ the floor is close: $1,036 left") && u.Text.Contains("risks $798"), "the screenshot: $1,036 left vs $798 still at risk to the stop → ⚠ the floor is close (orange)", u.Text);
+            var pu = KeystoneTradeAdvice.Plan("HOLD", -1, px, 29031, "your stop", 29031, 28197, false, 0, false, false, -870, 1668, false, u);
+            Check(pu.Item2.StartsWith("⚠ the floor is close") && !pu.Item2.Contains("DRAWDOWN IS NORMAL") && !pu.Item2.Contains("plan holds"), "… and the box no longer says 'DRAWDOWN IS NORMAL … the plan holds'", pu.Item2);
+            var f = KeystoneFloorGuard.Check(-1, 1, px, 29031, 2, 700);   // the same trade with $700 left: the account blows at ≈ 28982, before the stop
+            Check(f.Level == 2 && f.Text.StartsWith("⛔ YOUR STOP IS BEYOND YOUR ACCOUNT'S FLOOR") && f.Text.Contains("≈ 28982.00") && f.Text.Contains("(−$700 more)") && f.Text.Contains("the stop is at 29031.00") && f.Text.Contains("Move the stop inside the floor or reduce"), "SHORT: $700 left < $798 at the stop → red, the floor price from the current price (+$700 ÷ $2 = 350 pts above)", f.Text);
+            var pl = KeystoneTradeAdvice.Plan("HOLD", -1, px, 29031, "your stop", 29031, 28197, false, 0, false, false, -870, 1668, false, f);
+            Check(pl.Item2 == f.Text && !pl.Item2.Contains("DRAWDOWN IS NORMAL") && !pl.Item2.Contains("plan holds") && pl.Item1 == "⚠ TIGHTEN", "… the in-trade box: the red warning ONLY (never 'drawdown is normal' / 'the plan holds'), HOLD → TIGHTEN", pl.Item1 + " | " + pl.Item2);
+            var plOld = KeystoneTradeAdvice.Plan("HOLD", -1, px, 29031, "your stop", 29031, 28197, false, 0, false, false, -870, 1668, false);
+            Check(plOld.Item2.Contains("DRAWDOWN IS NORMAL"), "(without the account's numbers the old text stays — the bug the floor check fixes)");
+            Check(KeystoneOfSimple.InTrade("HOLD", -1, 29031, false, f) == f.Short && f.Short.StartsWith("⛔ STOP BEYOND FLOOR"), "the decision line: ⛔ STOP BEYOND FLOOR • blows ≈ …", KeystoneOfSimple.InTrade("HOLD", -1, 29031, false, f));
+            Check(KeystoneOfSimple.InTrade("HOLD", -1, 29031, false, u).StartsWith("⚠ FLOOR CLOSE • $1,036 left"), "… orange: ⚠ FLOOR CLOSE • $x left");
+            string ft = KeystoneOfTradeEvents.ForTrade(-1, 28197, 1, "absorption", f);
+            Check(ft.Contains("against you") && ft.Contains("⛔ your stop is beyond your account's floor"), "the toast's 'for your trade' line says it too", ft);
+            // LONG: 2 contracts @ 100, now 98, stop 90 → the stop still risks (98 − 90) × 2 × $2 = $32
+            var l1 = KeystoneFloorGuard.Check(1, 2, 98, 90, 2, 20); Check(l1.Level == 2 && Math.Abs(l1.FloorPx - 93) < 1e-9, "LONG: $20 left < $32 at the stop → beyond, the floor at 98 − 20 ÷ 4 = 93", l1.FloorPx + " " + l1.Text);
+            var l2 = KeystoneFloorGuard.Check(1, 2, 98, 90, 2, 40); Check(l2.Level == 1 && l2.Text.StartsWith("⚠ the floor is close: $40 left"), "LONG: $40 left < 1.5 × $32 → ⚠ the floor is close (orange)", l2.Text);
+            var l3 = KeystoneFloorGuard.Check(1, 2, 98, 90, 2, 100); Check(l3.Level == 0 && KeystoneTradeAdvice.Plan("HOLD", 1, 98, 90, "your stop", 90, 100, false, 0, false, false, -8, 40, false, l3).Item2.Contains("DRAWDOWN IS NORMAL"), "LONG: plenty of room → no warning, the plan text as before");
+            var l4 = KeystoneFloorGuard.Check(1, 2, 98, 90, 2, 0); Check(l4.Level == 2 && l4.Text.StartsWith("⛔ YOUR ACCOUNT IS AT ITS FLOOR"), "no room left → ⛔ at the floor");
+            Check(KeystoneFloorGuard.Check(1, 2, 98, 90, 2, double.NaN).Level == 0, "no firm rules (room unknown) → nothing said");
+            // the intraday trailing buffer: NetLiquidation − the closing commission (funded) − the trailing floor
+            Check(Math.Abs(KeystoneFloorGuard.Room(50785.5, 49748, 2000, 1.5, true) - 1036) < 1e-9 && Math.Abs(KeystoneFloorGuard.Room(50785.5, 49748, 2000, 1.5, false) - 1037.5) < 1e-9 && double.IsNaN(KeystoneFloorGuard.Room(50785.5, 49748, 0, 0, true)), "the room = DD LEFT (funded: minus the closing commission), NaN without a drawdown rule");
+            // NO STOP SET: the floor IS the stop
+            var n1 = KeystoneFloorGuard.Check(-1, 1, px, 0, 2, 1036);
+            Check(n1.Level == 1 && n1.Text.StartsWith("⚠ NO STOP SET — your account blows at ≈ 29150.00 (−$1,036 more)"), "no stop → ⚠ NO STOP SET + where the account blows", n1.Text);
+            var pn1 = KeystoneTradeAdvice.Plan("HOLD", -1, px, double.NaN, "", 0, 28197, false, 0, false, false, -870, 0, false, n1);
+            Check(pn1.Item2.StartsWith("⚠ NO STOP SET — your account blows at") && !pn1.Item2.Contains("plan holds"), "… the in-trade box with no stop names the floor", pn1.Item2);
+            Check(KeystoneOfSimple.InTrade("HOLD", -1, double.NaN, false, n1).StartsWith("⚠ NO STOP • floor ≈ 29150.00"), "… the decision line", KeystoneOfSimple.InTrade("HOLD", -1, double.NaN, false, n1));
+        }
+        // ---- 30. ❓ 13c: the HELP dictionary — every chip / tab / button: WHAT • WHY • HOW, ≤ 60 words, ON / OFF when it switches
+        {
+            var req = new List<string>();
+            foreach (var c in new[] { "MODE", "SETUP", "PAST", "PROF", "DROW", "EVENTS", "ZONES", "LEVELS", "DECISION", "TOAST", "BATTLE", "OFCONF", "CANDLE", "DRAW", "CLEAN", "GEAR" }) req.Add(KeystoneHelp.Chip(c));
+            foreach (var t in new[] { "TF", "NOW", "PAST", "OFMASTER", "OFCHIP", "OFMENU", "OFOPEN", "SPLIT", "PATTERN", "CLEAN", "MATCHES", "TEMPLATE", "ACCOUNT" }) req.Add("TB." + t);
+            foreach (var v in new[] { "SIGNALS", "PROFILE", "DELTA", "FLOW", "BOOK", "ALL", "ON", "SYM", "SETTINGS", "PROFS", "TICKLIB", "BACK" }) req.Add(KeystoneHelp.View(v));
+            foreach (var n in new[] { "BADGE", "CANDLE", "CVD", "BUYERS", "CONTROL" }) req.Add("OFN." + n);
+            foreach (var d in new[] { "NOW", "WHY", "STORY", "SETUPS", "ANALYZE", "LEARN", "FLOW", "BOOK", "STATS", "GUIDE", "PROFILE", "EVENTS" }) req.Add(KeystoneHelp.Dock(d));
+            foreach (var w in new[] { "BEGINNER", "CALM", "SCALP", "SWING", "BOTH", "HOWTO" }) req.Add("NOW." + w);
+            var miss = req.Where(k => !KeystoneHelp.Has(k)).ToList(); Check(miss.Count == 0, "every chip / toolbar button / header button / chip / dock tab / NOW switch has its help (" + req.Count + ")", string.Join(",", miss));
+            var badF = KeystoneHelp.Keys.Where(k => { var t = KeystoneHelp.Tip(k); return !t.StartsWith("WHAT: ") || !t.Contains("\nWHY: ") || !t.Contains("\nHOW: "); }).ToList(); Check(badF.Count == 0, "each tooltip = WHAT • WHY • HOW", string.Join(",", badF));
+            var longW = KeystoneHelp.Keys.Where(k => KeystoneHelp.Words(k) > 60).ToList(); Check(longW.Count == 0, "each ≤ 60 words", string.Join(",", longW.Select(k => k + "=" + KeystoneHelp.Words(k))));
+            Check(KeystoneHelp.Tip("NOW.CALM", true).EndsWith("\nNOW: ON") && KeystoneHelp.Tip("NOW.CALM", false).EndsWith("\nNOW: OFF") && KeystoneHelp.Tip("nope") == "", "the ON / OFF state where it switches; an unknown key = no tooltip");
+        }
+        // ---- 31. 🎓 13c: HOW TO USE THIS TAB — the routine, in a trade, what NOT to do, the 5-line quick start
+        {
+            string tx = KeystoneOfHowTo.Text();
+            Check(KeystoneOfHowTo.Steps.Length == 5 && KeystoneOfHowTo.Steps[0].StartsWith("①") && KeystoneOfHowTo.Steps[4].StartsWith("⑤") && tx.Contains("IN CONTROL") && tx.Contains("CANDLE Δ") && tx.Contains("VAL / VAH") && tx.Contains("POC") && tx.Contains("absorption") && tx.Contains("CLOSE back on your side") && tx.Contains("TAKE on a card"), "the 5 steps: who pushes → where → the attacker fails → the close → act");
+            Check(KeystoneOfHowTo.InTrade.Any(x => x.StartsWith("✋ HOLD")) && KeystoneOfHowTo.InTrade.Any(x => x.StartsWith("⚠ TIGHTEN")) && KeystoneOfHowTo.InTrade.Any(x => x.StartsWith("⚠ PROTECT")) && KeystoneOfHowTo.InTrade.Any(x => x.StartsWith("⛔ GET OUT")) && tx.Contains("BEYOND YOUR FLOOR"), "in a trade: HOLD / TIGHTEN / PROTECT / GET OUT + the floor, what each means");
+            Check(tx.Contains("forming") && tx.Contains("do not fight IN CONTROL") && tx.Contains("never move the stop AWAY") && KeystoneOfHowTo.QuickStart.Length == 5, "what NOT to do + the quick start = 5 lines");
+        }
+        // ---- 32. 📊 13c: the HONEST event layer — the edge gate (n / % / 95 % interval), with vs against the trend, the wording
+        {
+            Check(KeystoneOfEdge.Of(20, 29).State == "LEARNING" && KeystoneOfEdge.Of(20, 29).Text == "learning (29)", "n < 30 → 🧪 learning (n)");
+            var ne = KeystoneOfEdge.Of(48, 102); Check(ne.State == "NOEDGE" && ne.Text == "47 % of 102 = no edge", "48 of 102 → '47 % of 102 = no edge'", ne.Text);
+            Check(KeystoneOfEdge.Of(56, 100).State == "NOEDGE", "56 % of 100: the 95 % interval still includes 50 % → no edge", KeystoneOfEdge.Of(56, 100).Lo.ToString("0.0"));
+            Check(KeystoneOfEdge.Of(170, 300).State == "EDGE" && KeystoneOfEdge.Of(170, 300).Text == "57 % of 300", "57 % of 300 (interval above 50 %) → an EDGE", KeystoneOfEdge.Of(170, 300).Lo.ToString("0.0"));
+            var T = new DateTime(2026, 11, 12, 9, 0, 0); var past = new List<KeystoneOfEvent>();
+            for (int i = 0; i < 60; i++) past.Add(new KeystoneOfEvent { Time = T.AddMinutes(i), Symbol = "MNQ", Type = "FAILED PRINT", Side = -1, Price = 28000, Trend = 2, Result = i % 5 < 2 ? 1 : -1 });   // SELL side against a strong UP trend: 40 %
+            for (int i = 0; i < 60; i++) past.Add(new KeystoneOfEvent { Time = T.AddMinutes(100 + i), Symbol = "MNQ", Type = "FAILED PRINT", Side = -1, Price = 28000, Trend = -2, Result = i % 10 < 7 ? 1 : -1 });   // SELL side WITH a strong DOWN trend: 70 %
+            var ag = KeystoneOfEdge.Measure(past, "FAILED PRINT", -1, T.AddDays(1), 2); var wi = KeystoneOfEdge.Measure(past, "FAILED PRINT", -1, T.AddDays(1), -2);
+            Check(ag.State == "NOEDGE" && ag.N == 60 && ag.Context == "against the trend" && ag.Text.Contains("(against the trend)"), "measured AGAINST the trend apart: 40 % of 60 = no edge", ag.Text);
+            Check(wi.State == "EDGE" && wi.N == 60 && wi.Context == "with the trend", "… and WITH the trend apart: 70 % of 60 = an edge", wi.Text);
+            var fb = KeystoneOfEdge.Measure(past, "FAILED PRINT", -1, T.AddDays(1), 0); Check(fb.Context == "all" && fb.N == 120 && fb.Text.Contains("all contexts"), "too few in its own context (no trend: 0) → all contexts together, said", fb.Text);
+            Check(KeystoneOfEdge.Measure(past, "FAILED PRINT", -1, T.AddMinutes(20), 2).State == "LEARNING", "no look-ahead: only events before the moment count");
+            string h = KeystoneOfEdge.Honest("🪤 buyer failed → SELL pressure", ne), hl = KeystoneOfEdge.Label("🪤 buyer failed → SELL pressure", ne);
+            Check(h == "🪤 a big buyer failed here (no proven edge)" && hl == "🪤 a big buyer failed here (no proven edge) • 47 % of 102 = no edge" && !hl.Contains("SELL pressure"), "no edge → 'a big buyer failed here (no proven edge) • 47 % of 102 = no edge' — never 'SELL pressure'", hl);
+            string ht = KeystoneOfEdge.Honest("a big buyer lifted the ask at 28000.00 but the price went DOWN after it → the buyer is trapped; this supports a SELL", ne); Check(!ht.Contains("supports a SELL") && ht.EndsWith("(no proven edge)"), "the details box never says 'supports a SELL' without an edge", ht);
+            Check(KeystoneOfEdge.Label("🪤 seller failed → BUY pressure", KeystoneOfEdge.Of(170, 300)) == "🪤 seller failed → BUY pressure • 57 % of 300", "a proven edge keeps its words + its measured %");
+            Check(KeystoneOfEdge.Label("🪤 seller failed → BUY pressure", KeystoneOfEdge.Of(5, 12)).Contains("(🧪 learning (12))"), "learning → grey words + 'learning (n)'");
+            // the SESSION TREND: the user's day (MNQ +324 on a ~420-pt average range, above VWAP, buyers in control) = a STRONG UP trend
+            Check(KeystoneOfTrend.Of(28324, 28000, 28200, 420, 12, 1) == 2 && KeystoneOfTrend.Of(28324, 28000, 28200, 420, 12, -1) == 1 && KeystoneOfTrend.Of(28100, 28000, 28200, 420, 12, 1) == 0 && KeystoneOfTrend.Of(28100, 28000, 28050, 420, 30, 1) == 1, "strong = the day's move ≥ 0.6 × the 20-day range (compass not against); below VWAP = no trend");
+            Check(KeystoneOfTrend.Of(28100, 28000, 28050, 0, 30, 1) == 1 && KeystoneOfTrend.Of(28100, 28000, 28050, 0, 10, 1) == 2 && KeystoneOfTrend.Of(28100, 28000, 28050, 0, 10, 0) == 1, "… or ≥ 2 ATR from VWAP with the compass agreeing");
+            Check(KeystoneOfTrend.Counter(2, -1) == "⚠ against a strong UP trend — counter-trend signals mostly fail" && KeystoneOfTrend.Counter(2, 1) == "" && KeystoneOfTrend.Counter(1, -1) == "", "counter-trend events in a STRONG trend are flagged");
+            Check(KeystoneOfTrend.ForPosition(2, -1) == "your SHORT is against a strong up-trend" && KeystoneOfTradeEvents.ForTrade(-1, 28197, -1, "absorption", null, 2).Contains("your SHORT is against a strong up-trend"), "a SHORT in a strong up-trend is told so in its 'for your trade' line");
+            var ev = new KeystoneOfEvent { Time = T, Symbol = "MNQ", Type = "FAILED PRINT", Side = -1, Price = 28000, Trend = 2, Result = 1, Done = true };
+            Check(KeystoneOfEvents.Parse(KeystoneOfEvents.Line(ev)).Trend == 2 && KeystoneOfEvents.Parse("2026-11-12 09:00:00.000,MNQ,ABSORPTION,1,28000,0,0,,x,,1,,,,,,1").Trend == 0, "the journal keeps the trend (old lines = 0)");
+        }
+        // ---- 33. 👉 13c: "what to do now" — the in-trade advice's own word, never against the compass, nothing to act on without an edge / counter-trend
+        {
+            var edge = KeystoneOfEdge.Of(170, 300); var none = KeystoneOfEdge.Of(48, 102);
+            foreach (var a in new[] { Tuple.Create("HOLD", "hold"), Tuple.Create("⚠ TIGHTEN", "tighten"), Tuple.Create("⚠ PROTECT", "protect the profit"), Tuple.Create("⛔ GET OUT", "get out") })
+                foreach (int evS in new[] { 1, -1, 0 })
+                {
+                    string l = KeystoneOfAct.Now(evS, "ABSORPTION", -1, -60, 2, a.Item1, 28000, edge, 0, null);
+                    Check(l.StartsWith("👉 what to do now: for your trade: ") && l.Contains(a.Item2) && (a.Item1 == "HOLD" || !l.Contains(": hold")), "in a trade the line = the advice (" + a.Item1 + ", event side " + evS + ")", l);
+                }
+            Check(KeystoneOfAct.Now(1, "ABSORPTION", 1, 60, 2, "HOLD", 28000, edge, 0, KeystoneFloorGuard.Check(1, 2, 28010, 27900, 2, 10)).Contains("beyond your account's floor"), "in a trade with the stop beyond the floor → move it inside or reduce");
+            Check(KeystoneOfAct.Now(1, "ABSORPTION", -1, -60, 0, "", 28000, edge, 0, null).Contains("against the sellers in control") && !KeystoneOfAct.Now(1, "ABSORPTION", -1, -60, 0, "", 28000, edge, 0, null).Contains("BUY"), "flat: a BUY event against SELLERS in control → wait (never 'consider a BUY')");
+            Check(KeystoneOfAct.Now(1, "ABSORPTION", 1, 60, 0, "", 28000, edge, 0, null) == "👉 what to do now: consider a BUY if a candle CLOSES back above 28000.00 and holds (stop past it)", "flat, proven, with the compass → consider a BUY if a candle closes back above the level", KeystoneOfAct.Now(1, "ABSORPTION", 1, 60, 0, "", 28000, edge, 0, null));
+            Check(KeystoneOfAct.Now(-1, "FAILED PRINT", -1, -60, 0, "", 28000, none, 0, null) == "👉 what to do now: nothing to act on — this event has no proven edge", "no edge → nothing to act on");
+            Check(KeystoneOfAct.Now(-1, "FAILED PRINT", -1, -60, 0, "", 28000, KeystoneOfEdge.Of(3, 9), 0, null).Contains("still learning"), "learning → nothing to act on");
+            Check(KeystoneOfAct.Now(-1, "ABSORPTION", -1, -60, 0, "", 28000, edge, 2, null).Contains("against a strong UP trend"), "a proven SELL event against a strong UP trend → nothing to act on");
+            Check(KeystoneOfAct.Now(1, "STACKED", 1, 60, 0, "", 28000, edge, 0, null).Contains("watch the level 28000.00") && KeystoneOfAct.Now(0, "COMPASS", 1, 60, 0, "", 0, null, 0, null).Contains("nothing — wait"), "push events → watch the level; context events → wait");
+        }
         Console.WriteLine(failures == 0 ? "ALL FLOW COMPASS TESTS PASSED" : failures + " FLOW COMPASS TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
