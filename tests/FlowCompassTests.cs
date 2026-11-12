@@ -445,6 +445,44 @@ public static class FlowCompassTests
             var p3 = KeystoneTradeAdvice.Plan("HOLD", 1, 28262, 28258, "z", 28250, 28265, false, 95, true, true, -6, 30, false); var p4 = KeystoneTradeAdvice.Plan("HOLD", 1, 28262, 28258, "z", 28250, 28265, false, 95, true, false, -6, 30, false); var p5 = KeystoneTradeAdvice.Plan("HOLD", 1, 28262, 28258, "z", 28250, 28265, false, 95, true, true, -6, 30, true);
             Check(p3.Item1 == "⛔ GET OUT" && p3.Item2.Contains("against you for 95 s") && p4.Item1 != "⛔ GET OUT" && p5.Item1 != "⛔ GET OUT", "… or the triple condition (flow ≥ 90 s + delta + an event); a swing needs 180 s");
         }
+        // ---- 24. 🧼 11y: no "stop 0.00" ever — the plan's invalidation (card stop → zone → NO STOP SET) + the short decision line
+        {
+            var n1 = KeystoneTradeAdvice.Plan("⚠ TIGHTEN", 1, 28220, double.NaN, "", 0, 28230, false, 0, false, false, -26, 0, false);
+            Check(!n1.Item2.Contains("0.00") && n1.Item2.StartsWith(KeystoneOfSimple.NoStop) && !n1.Item2.Contains("plan holds"), "no stop + no invalidation: \"⚠ NO STOP SET — set your stop\", never \"stop 0.00\", no \"plan holds\"", n1.Item2);
+            var iv1 = KeystoneOfSimple.Invalidation(1, 28205, 28210); var iv2 = KeystoneOfSimple.Invalidation(1, double.NaN, 28210); var iv3 = KeystoneOfSimple.Invalidation(-1, 0, double.NaN);
+            Check(iv1.Item1 == 28205 && iv1.Item2 == "the setup's stop" && iv2.Item1 == 28210 && iv2.Item2 == "the BUY ZONE" && double.IsNaN(iv3.Item1), "invalidation: the card's stop first, else the zone, else none");
+            var n2 = KeystoneTradeAdvice.Plan("⚠ TIGHTEN", 1, 28220, iv1.Item1, iv1.Item2, 0, 28230, false, 0, false, false, -26, 0, false);
+            Check(n2.Item2.Contains("above 28205.00 (the setup's stop)") && !n2.Item2.Contains("your stop 0.00"), "no stop but a card: the plan holds above the card's stop", n2.Item2);
+            Check(KeystoneOfSimple.Holds(1, 0, "x") == KeystoneOfSimple.NoStop && KeystoneOfSimple.Holds(-1, 28300, "the SELL ZONE") == "the plan holds while price stays below 28300.00 (the SELL ZONE)", "Holds(): never a 0 price");
+            Check(KeystoneOfSimple.StopPrice(1, 28230, 0, 0, null) == 0 && KeystoneOfSimple.StopPrice(1, 28230, 10, 0, null) == 28220 && KeystoneOfSimple.StopPrice(-1, 28230, 0, 6, null) == 28236 && KeystoneOfSimple.StopPrice(1, 28230, 0, 0, new[] { 0.0, 28210 }) == 28210, "the working stop: panel → trader → a STOP order; none = 0");
+            string t1 = KeystoneOfSimple.InTrade("⚠ TIGHTEN", 1, double.NaN, false), t2 = KeystoneOfSimple.InTrade("⚠ TIGHTEN", 1, 28205, false), t3 = KeystoneOfSimple.InTrade("⛔ GET OUT", -1, 28300, true);
+            Check(t1.StartsWith("⚠ NO STOP SET") && !t1.Contains("0.00") && t2 == "⚠ TIGHTEN • pullback, plan holds above 28205.00" && t3 == "⛔ GET OUT • a candle closed above 28300.00", "the in-trade line: NO STOP SET first / the level / the closed break", t1 + " | " + t2 + " | " + t3);
+            Func<string, bool> oneLine = l => !l.Contains("\n") && (l.Contains(" • ") ? l.Substring(l.IndexOf(" • ") + 3).Split(' ').Length <= KeystoneOfSimple.MaxWords : true);
+            string w1 = KeystoneOfSimple.Line("⏳ WAIT", "sellers are attacking the BUY ZONE 28258.00–28262.00 (Δ −180 this candle): watch if they fail\nmore"), w2 = KeystoneOfSimple.Card(true, "SCALP", 1, 4), w3 = KeystoneOfSimple.Line("⛔ AVOID", "balanced / chop — nobody is in control (score +3)");
+            Check(w1.StartsWith("⏳ WAIT • ") && oneLine(w1) && w2 == "✅ ⚡ SCALP BUY 4 • TAP for details" && w3 == "⛔ AVOID • balanced / chop" && oneLine(t2), "the decision line: the verdict word first, ONE line, ≤ 8 words", w1 + " | " + w3);
+            var si = new KeystoneFlowStepInput { ZoneSide = 1, ZoneLo = 28258, ZoneHi = 28262, Price = 28260, CandleDelta = -180 };
+            Check(KeystoneOfSimple.Line("⏳ WAIT", KeystoneOfSimple.StepPhrase(si, 2)) == "⏳ WAIT • sellers attacking the buy zone" && KeystoneOfSimple.StepPhrase(new KeystoneFlowStepInput(), 1) == "no zone near the price yet", "the WAIT reason from the 5 steps");
+            Check(KeystoneOfSimple.Allowed(null) && KeystoneOfSimple.Allowed("gutter-label") && KeystoneOfSimple.Allowed("of.decision") && KeystoneOfSimple.Allowed("of.zone.simple") && !KeystoneOfSimple.Allowed("of.toast") && !KeystoneOfSimple.Allowed("of.vp") && !KeystoneOfSimple.Allowed("of.trademap.label") && !KeystoneOfSimple.Allowed("layerbar.PROF"), "the SIMPLE plot's allowed tags");
+        }
+        // ---- 25. 📚 11y: the DOM for beginners — walls, pulled walls, refills (icebergs), the totals text, the no-depth message
+        {
+            var T = new DateTime(2026, 11, 12, 10, 0, 0); var dt = new KeystoneDomTracker();
+            Func<long, Dictionary<double, long>> bidsW = w => new Dictionary<double, long> { { 100.00, 10 }, { 99.75, 10 }, { 99.50, w }, { 99.25, 10 } };
+            var asks = new Dictionary<double, long> { { 100.25, 10 }, { 100.50, 10 }, { 100.75, 10 } };
+            Check(KeystoneDomTracker.IsWall(70, 15) && !KeystoneDomTracker.IsWall(40, 15) && !KeystoneDomTracker.IsWall(4, 1), "a wall = ≥ 3× the average level (and ≥ 5)");
+            dt.Update(T, bidsW(70), asks, null); dt.Update(T.AddSeconds(1), bidsW(20), asks, new Dictionary<double, long>());
+            Check(dt.Events.Count == 1 && dt.Events[0].Item3 == "a 70-lot buy wall at 99.50 was pulled — not real support" && dt.Pulled(1, 99.50, T.AddSeconds(2)), "a wall losing ≥ 60 % without trades there = PULLED (journaled)", string.Join(" / ", dt.Events.Select(e => e.Item3)));
+            var dt2 = new KeystoneDomTracker(); dt2.Update(T, bidsW(70), asks, null); dt2.Update(T.AddSeconds(1), bidsW(20), asks, new Dictionary<double, long> { { 99.50, 50 } });
+            Check(dt2.Events.Count == 0 && !dt2.Pulled(1, 99.50, T.AddSeconds(2)), "the same drop EATEN by trades is not 'pulled'");
+            var dt3 = new KeystoneDomTracker(); dt3.Update(T, bidsW(30), asks, null);
+            for (int i = 1; i <= 3; i++) dt3.Update(T.AddSeconds(i), bidsW(30), asks, new Dictionary<double, long> { { 99.50, 25 } });
+            Check(dt3.Refill(1, 99.50) && dt3.Events.Any(e => e.Item3.Contains("possible iceberg")), "a level hit by trades that keeps coming back = 🧊 refill (possible iceberg)");
+            var lad = dt.Ladder(100.00, 0.25, 15, bidsW(70), asks, new Dictionary<double, long[]> { { 100.00, new long[] { 5, 3 } } }, T.AddSeconds(2));
+            Check(lad.Count == 31 && lad[0].Price == 103.75 && lad[30].Price == 96.25 && lad.First(r => r.Price == 99.50).Wall && lad.First(r => r.Price == 100.00).Bought == 5, "the ladder: ±15 tick rows centred on the last price, walls flagged, traded column", lad.Count + " " + lad[0].Price);
+            var tt = KeystoneDomTracker.Totals(1240, 980);
+            Check(tt.Item1 == "Waiting to BUY 1,240 • waiting to SELL 980 → more buyers waiting (56 %)" && tt.Item2 != "", "the totals in plain words", tt.Item1);
+            Check(KeystoneDomTracker.NoDepth(true, 0, 12, "") == "your data connection isn't sending market depth — the DOM needs Level 2 data" && KeystoneDomTracker.NoDepth(true, 0, 3, "").StartsWith("waiting") && KeystoneDomTracker.NoDepth(true, 5, 30, "") == "" && KeystoneDomTracker.NoDepth(false, 0, 0, "").Contains("only LIVE"), "no depth within 10 s = says so plainly");
+        }
         Console.WriteLine(failures == 0 ? "ALL FLOW COMPASS TESTS PASSED" : failures + " FLOW COMPASS TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

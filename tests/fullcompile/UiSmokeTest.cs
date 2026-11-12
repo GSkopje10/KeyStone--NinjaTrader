@@ -960,6 +960,39 @@ public static class UiSmokeTest
                     string green = desk("TICKS 6000 0.97"); if (!green.StartsWith("● REAL TICKS • bid/ask 9")) throw new Exception("green badge: " + green);
                     string strip = desk("STRIP"); if (!strip.Contains("● REAL TICKS • bid/ask") || !strip.Contains("BUYERS") || !strip.Contains("IN CONTROL")) throw new Exception("strip: " + strip);
                     if (FindAll<System.Windows.FrameworkElement>(bt.Content).Count(x => Convert.ToString(x.Tag) == "of.profs" || Convert.ToString(x.Tag) == "of.ticklib") != 2) throw new Exception("▥ PROFILES / 📥 TICK LIBRARY buttons missing in the ORDERFLOW bar");
+                    {   /* 🧼 11y: SIMPLE is the default — the plot holds only the allowed tags (candles, labels, ONE decision line, the setup's lines / arrow, ≤ 2 zone outlines, 3 chips);
+                           the toast goes to the dock; ▥ PROFILE / 🧱 EVENTS / 📚 DOM in the dock; 🔬 DETAILED restores the exact previous chip set; no NinjaBroker */
+                        var lbS = (Func<string, string>)F("studioLayerBar"); string ls0 = lbS("LIST"); if (!ls0.Contains("MODE=SIMPLE")) throw new Exception("🧼 SIMPLE must be the default: " + ls0);
+                        Func<System.Windows.Controls.Canvas> plotCv = () => FindAll<System.Windows.Controls.Canvas>(bt.Content).FirstOrDefault(c0 => c0.Children.OfType<System.Windows.FrameworkElement>().Any(x => Convert.ToString(x.Tag) == "layerbar.MODE"));
+                        Action<string> plotOk = when =>
+                        {
+                            ((Action<int>)F("replayTraderStep"))(0); var cv0 = plotCv(); if (cv0 == null) throw new Exception("🧼 no plot canvas with the mode chip (" + when + ")");
+                            var tg = cv0.Children.OfType<System.Windows.FrameworkElement>().Select(x => Convert.ToString(x.Tag)).ToList();
+                            var bad = tg.Where(t0 => !KeystoneOfSimple.Allowed(t0)).Distinct().ToList(); if (bad.Count > 0) throw new Exception("🧼 SIMPLE plot (" + when + ") holds: " + string.Join(",", bad));
+                            if (tg.Count(t0 => t0 == "of.zone.simple") > 2) throw new Exception("🧼 more than 2 zone outlines");
+                            var chips = string.Join(",", tg.Where(t0 => t0.StartsWith("layerbar."))); if (chips != "layerbar.MODE,layerbar.CLEAN,layerbar.GEAR") throw new Exception("🧼 SIMPLE chips: " + chips);
+                            if (tg.Count(t0 => t0 == "of.decision") != 1) throw new Exception("🧼 not exactly one decision line (" + when + ")");
+                            var dl = FindAll<System.Windows.Controls.TextBlock>(cv0).First(x => Convert.ToString(x.Tag) == "of.decision.text").Text;
+                            if (dl.Contains("\n") || !(dl.StartsWith("⏳") || dl.StartsWith("⛔") || dl.StartsWith("✅") || dl.StartsWith("🧪") || dl.StartsWith("⚠") || dl.StartsWith("✋")) || (dl.Contains(" • ") && dl.Substring(dl.IndexOf(" • ") + 3).Split(' ').Length > 8)) throw new Exception("🧼 the decision line: " + dl);
+                        };
+                        plotOk("no setup");
+                        desk("SIGNAL"); desk("TAB NOW"); plotOk("a setup offered"); var cvS = plotCv();
+                        if (!cvS.Children.OfType<System.Windows.FrameworkElement>().Any(x => Convert.ToString(x.Tag) == "of.setup.arrow")) throw new Exception("🧼 the offered setup's ENTRY arrow is missing in SIMPLE");
+                        if (cvS.Children.OfType<System.Windows.FrameworkElement>().Any(x => Convert.ToString(x.Tag) == "of.toast")) throw new Exception("🔔 a toast on the SIMPLE plot");
+                        string nwS = desk("TAB NOW"); if (!nwS.Contains("🔔") || !nwS.Contains("THE 5 STEPS")) throw new Exception("🔔 the toast / the 5 steps are not in 🧭 NOW: " + nwS.Substring(0, Math.Min(400, nwS.Length)));
+                        string pfS = desk("TAB PROFILE"); if (!pfS.Contains("VOLUME PROFILE") || !pfS.Contains("POC") || !pfS.Contains("BATTLE MAP")) throw new Exception("▥ PROFILE: " + pfS.Substring(0, Math.Min(300, pfS.Length)));
+                        if (!FindAll<System.Windows.FrameworkElement>(bt.Content).Any(x => Convert.ToString(x.Tag) == "of.profile.chart" && ((System.Windows.Controls.Border)x).Child is System.Windows.Controls.Canvas)) throw new Exception("▥ no profile mini-chart");
+                        string evS = desk("TAB EVENTS"); if (!evS.Contains("EVENTS — the last 20")) throw new Exception("🧱 EVENTS: " + evS.Substring(0, Math.Min(300, evS.Length)));
+                        string stS = desk("TAB STORY"); if (!stS.Contains("→")) throw new Exception("📖 STORY has no \"→ what it means\" line: " + stS.Substring(0, Math.Min(300, stS.Length)));
+                        string gdS = desk("TAB GUIDE"); if (!gdS.Contains("🧼 SIMPLE vs 🔬 DETAILED") || !gdS.Contains("THE DOM")) throw new Exception("🎓 GUIDE misses SIMPLE vs DETAILED / the DOM");
+                        string dmS = desk("DEPTH"); if (!dmS.Contains("rows 31") || !dmS.Contains("Waiting to BUY") || !dmS.Contains("wall 80 to buy") || !dmS.Contains("The DOM shows orders that are WAITING")) throw new Exception("📚 DOM ladder: …" + dmS.Substring(Math.Max(0, dmS.Length - 600)));
+                        string ndS = desk("NODEPTH"); if (!ndS.Contains("only LIVE") || ndS.Contains("rows")) throw new Exception("📚 no depth: " + ndS.Substring(0, Math.Min(300, ndS.Length)));
+                        string ld = lbS("DETAILED"); ((Action<int>)F("replayTraderStep"))(0);
+                        if (!ld.Contains("MODE=DETAILED") || ld.Replace("MODE=DETAILED", "") != ls0.Replace("MODE=SIMPLE", "")) throw new Exception("🔬 DETAILED did not restore the exact chip set: " + ls0 + " vs " + ld);
+                        if (!FindAll<System.Windows.FrameworkElement>(bt.Content).Any(x => Convert.ToString(x.Tag) == "of.vp")) throw new Exception("🔬 DETAILED: no profile strip");
+                        if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 11y built a NinjaBroker");
+                        desk("RAW"); Console.WriteLine("      🧼 SIMPLE plot: allowed tags only, 3 chips, one decision line • toast in 🧭 NOW • ▥ PROFILE / 🧱 EVENTS / 📚 DOM (31 rows, wall) in the dock • 🔬 DETAILED = the same chips: OK");
+                    }
                     if (FindAll<System.Windows.FrameworkElement>(bt.Content).All(x => Convert.ToString(x.Tag) != "of.dprof")) throw new Exception("no Δ DELTA PROFILE drawn by the price axis");
                     {   /* 📊 11v: the calm ORDERFLOW chart — the profile strip + the Δ / contracts row drawn, NO floating live flow / tape box, no wide box on the plot */
                         var cvs = FindAll<System.Windows.Controls.Canvas>(bt.Content).Where(c0 => c0.Children.OfType<System.Windows.FrameworkElement>().Any(x => Convert.ToString(x.Tag) == "of.vp")).ToList();
