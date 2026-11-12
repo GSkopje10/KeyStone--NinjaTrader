@@ -306,6 +306,34 @@ public static class ReplayTraderTests
             bool ok = lay.Count == 2; foreach (var it in lay) foreach (var r0 in reserved) if (it.Item1 < r0 + 8 + 2 && it.Item1 + 16 + 2 > r0 - 8) ok = false; if (lay.Count == 2 && lay[1].Item1 < lay[0].Item1 + 16) ok = false;
             Check(ok, "🏷 FLOOR / LOCK next to the position label are pushed clear of it (and of each other)", string.Join(" | ", lay.Select(x => x.Item1.ToString("0") + " " + x.Item2)));
         }
+        {   /* ✋ BUILD 2026-11-13e — the user: "if I want to drag the take profit down, it grabs the yellow (profit stop) line — whatever I hover and click, that's
+               the line we are moving". ONE pick (KeystoneLinePick) for the hover and the click: a label / handle under the cursor first (topmost), else the NEAREST line */
+            // SHORT 2: entry y 200, the 🔒 profit stop at y 260, the take profit just below at y 272 (lines 12 px apart), drawn TARGET first then STOP (as the chart does)
+            var it = new List<KeystoneGrab>();
+            KeystoneLinePick.Line(it, "TARGET", 272, 0, 772); KeystoneLinePick.Box(it, "TARGET", new double[] { 640, 263, 772, 281 });
+            KeystoneLinePick.Line(it, "STOP", 260, 0, 772); KeystoneLinePick.Box(it, "STOP", new double[] { 640, 233, 772, 251 });   // its label stepped AWAY (up), never across the TP line
+            Func<double, double, string> at = (x, y) => { var g = KeystoneLinePick.Pick(it, x, y); return g == null ? "-" : g.Code; };
+            Check(at(700, 240) == "STOP" && at(700, 275) == "TARGET", "✋ a label under the cursor wins: the stop's label = STOP, the take profit's label = TARGET", at(700, 240) + " " + at(700, 275));
+            Check(at(300, 270) == "TARGET" && at(300, 262) == "STOP" && at(300, 290) == "-", "✋ off the labels: the NEAREST line within 6 px (y 270 → the take profit 2 px away, not the profit stop), nothing farther", at(300, 270) + " " + at(300, 262) + " " + at(300, 290));
+            var near3 = new List<KeystoneGrab>(); KeystoneLinePick.Line(near3, "TARGET", 103, 0, 772); KeystoneLinePick.Line(near3, "STOP", 100, 0, 772);
+            Check(KeystoneLinePick.Pick(near3, 300, 102).Code == "TARGET" && KeystoneLinePick.Pick(near3, 300, 101).Code == "STOP" && KeystoneLinePick.Pick(near3, 300, 105).Code == "TARGET" && KeystoneLinePick.Pick(near3, 300, 98).Code == "STOP",
+                "✋ two lines 3 px apart: the nearer one, whichever was drawn last (never \"the stop first\")");
+            var tie = new List<KeystoneGrab>(); KeystoneLinePick.Line(tie, "STOP", 100, 0, 772); KeystoneLinePick.Line(tie, "TARGET", 104, 0, 772);
+            Check(KeystoneLinePick.Pick(tie, 300, 102).Code == "TARGET", "✋ an exact tie: the line drawn last (on top)");
+            Check(KeystoneLinePick.Pick(it, 700, 262, "TARGET").Code == "TARGET" && KeystoneLinePick.Pick(it, 300, 240, "TARGET").Code == "TARGET" && KeystoneLinePick.Pick(it, 300, 600, "TARGET").Code == "TARGET",
+                "✋ while the take profit is dragged across the profit stop it keeps its identity (the stop's line / label are not grabbable until the release)");
+            // an add-on order's wide ⇕ SL handle (drawn first) under the take profit's line + label (drawn after): the topmost wins, the nearest line otherwise
+            var ad = new List<KeystoneGrab>(); KeystoneLinePick.Box(ad, "OSTOP", new double[] { 482, 249, 744, 271 }); KeystoneLinePick.Line(ad, "TARGET", 268, 0, 772); KeystoneLinePick.Box(ad, "TARGET", new double[] { 640, 259, 772, 277 }); KeystoneLinePick.Line(ad, "STOP", 260, 0, 772);
+            Check(KeystoneLinePick.Pick(ad, 700, 268).Code == "TARGET" && KeystoneLinePick.Pick(ad, 500, 255).Code == "OSTOP" && KeystoneLinePick.Same("OSTOP") == "STOP" && KeystoneLinePick.Same("ETARGET") == "TARGET" && KeystoneLinePick.Same("GSTOP:A") == "GSTOP:A",
+                "✋ the take profit's label drawn over the add-on's ⇕ SL handle wins there; the handle elsewhere = the position's STOP");
+            // the hover and the click agree at every point (the click takes what the hover lit, while it is still under the cursor)
+            int agree = 0, total = 0; for (double y = 225; y <= 290; y += 1) for (double x = 100; x <= 770; x += 30) { total++; var h = KeystoneLinePick.Pick(it, x, y); var c2 = KeystoneLinePick.PickShown(it, x, y, h == null ? null : h.Code); if ((h == null && c2 == null) || (h != null && c2 != null && h.Code == c2.Code && h.IsLabel == c2.IsLabel)) agree++; }
+            Check(agree == total, "✋ hovered = grabbed at " + total + " cursor points over the two close lines + their labels", agree + " / " + total);
+            Check(KeystoneLinePick.PickShown(it, 300, 266, "STOP").Code == "STOP" && KeystoneLinePick.PickShown(it, 300, 277, "STOP").Code == "TARGET",
+                "✋ the click takes what was LIT while it is still under the cursor (y 266 is 6 px from both lines), else the same pick");
+            var sl = new List<double> { 272 }; double fy = KeystoneLinePick.FreeSlot(sl, 260, 0, 500); var sl2 = new List<double> { 200 }; double fy2 = KeystoneLinePick.FreeSlot(sl2, 210, 0, 500);
+            Check(fy == 242 && fy2 == 228 && KeystoneLinePick.FreeSlot(new List<double>(), 260, 0, 500) == 260, "✋ a label steps AWAY from the label it would cover (the stop's label above the take profit's stays above: 242, not 278 across the TP line)", fy + " " + fy2);
+        }
         Console.WriteLine(failures == 0 ? "ALL REPLAY TRADER TESTS PASSED" : failures + " REPLAY TRADER TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

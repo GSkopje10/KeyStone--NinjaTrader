@@ -1044,6 +1044,30 @@ public static class UiSmokeTest
                         string ln = tb("LIB"); var tlw = (System.Windows.Window)F("tickLibWindow"); if (tlw == null) throw new Exception("🛠 the banner's 📥 TICK LIBRARY did not open the library"); tlw.Close();
                         Console.WriteLine("      🛠 GET TICKS banner: " + bl + " • GET → " + gn);
                     }
+                    {   /* ✋ 13e (user: "dragging the take profit grabs the yellow profit stop — whatever I hover and click, that's the line we are moving"): a long with a 🔒 profit stop
+                           a few px from its take profit — at every cursor point the line / label the hover lights is the one the click path grabs; off the labels the NEAREST line */
+                        var lp = (Func<string, string>)F("studioLinePick"); if (lp == null) throw new Exception("✋ no studioLinePick hook");
+                        var ic = System.Globalization.CultureInfo.InvariantCulture; string fieldsLp = lp("FIELDS");
+                        var wasLp = lp("ADOPT 1,PRICE").Split(',');   /* a stand-in long on the chart's own trader at its price: no fill, no minute played, nothing recorded */ double tickLp = double.Parse(wasLp[3], ic); try {
+                        Func<string, string, double> lineY = (lst, code) => { var it = lst.Split(';').FirstOrDefault(x => x.StartsWith(code + ":line@")); return it == null ? double.NaN : double.Parse(it.Substring(it.IndexOf('@') + 1).Split(',')[0], ic); };
+                        Func<string, string, double[]> boxOf = (lst, code) => { var it = lst.Split(';').LastOrDefault(x => x.StartsWith(code + ":box@")); return it == null ? null : it.Substring(it.IndexOf('@') + 1).Split(',').Select(v => double.Parse(v, ic)).ToArray(); };
+                        string set0 = lp("SET -4|8"); string l0 = lp("LIST"); double yB = lineY(l0, "BRACKET"), yS0 = lineY(l0, "STOP");
+                        if (double.IsNaN(yB) || double.IsNaN(yS0)) throw new Exception("✋ the entry / stop lines are not grabbable (SL,TP " + set0 + "): " + l0);
+                        double pxPt = Math.Abs(yB - yS0) / 4.0, gapPts = Math.Max(tickLp, Math.Round(9.0 / Math.Max(1e-6, pxPt) / tickLp) * tickLp);
+                        lp("SET -4|" + (4 + gapPts).ToString(ic)); string l1 = lp("LIST"); double yS = lineY(l1, "STOP"), yT = lineY(l1, "TARGET"); var bS = boxOf(l1, "STOP"); var bT = boxOf(l1, "TARGET");
+                        if (double.IsNaN(yT) || bS == null || bT == null) throw new Exception("✋ the take profit / stop labels are not grabbable: " + l1);
+                        string tl = l1.Split(';').First(x => x.StartsWith("TARGET:line@")); double x1 = double.Parse(tl.Split(',').Last(), ic);
+                        int n = 0, bad = 0; string firstBad = "";
+                        for (double y = Math.Min(yS, yT) - 14; y <= Math.Max(yS, yT) + 14; y += 1) for (double x = 20; x <= x1 + 26; x += 23)
+                        { n++; var rr = lp(x.ToString("0.##", ic) + "," + y.ToString("0.##", ic)).Split('|'); if (rr[0] != rr[1]) { bad++; if (firstBad == "") firstBad = x + "," + y + " → " + string.Join("|", rr); } }
+                        if (bad > 0) throw new Exception("✋ hovered ≠ grabbed at " + bad + " / " + n + " points (first " + firstBad + ") • " + l1);
+                        string onT = lp("40," + yT.ToString("0.##", ic)), onS = lp("40," + yS.ToString("0.##", ic)), lbT = lp(((bT[0] + bT[2]) / 2).ToString("0.##", ic) + "," + ((bT[1] + bT[3]) / 2).ToString("0.##", ic)), lbS = lp(((bS[0] + bS[2]) / 2).ToString("0.##", ic) + "," + ((bS[1] + bS[3]) / 2).ToString("0.##", ic));
+                        if (onT != "TARGET|TARGET|line" || onS != "STOP|STOP|line" || lbT != "TARGET|TARGET|box" || lbS != "STOP|STOP|box") throw new Exception("✋ the take profit / profit stop picks: on TP " + onT + " • on SL " + onS + " • TP label " + lbT + " • SL label " + lbS + " • lines " + yT + " / " + yS);
+                        lp("5,5"); var txts = FindAll<System.Windows.Controls.TextBlock>(bt.Content).Select(t => t.Text ?? "").ToList();
+                        if (!txts.Any(t => t.StartsWith("TAKE PROFIT +$")) || !txts.Any(t => t.StartsWith("🔒 PROFIT STOP $"))) throw new Exception("✋ the labels must read TAKE PROFIT vs 🔒 PROFIT STOP: " + string.Join(" | ", txts.Where(t => t.Contains("$")).Take(12)));
+                        Console.WriteLine("      ✋ line picking: TP / 🔒 profit stop " + Math.Abs(yT - yS).ToString("0.#", ic) + " px apart — hovered = grabbed at " + n + " points, the nearest line off the labels, each label its own line");
+                        } finally { lp("ADOPT " + wasLp[0] + "," + wasLp[1]); lp("SET " + fieldsLp); lp("5,5"); } ((Action<int>)F("replayTraderStep"))(0);
+                    }
                     var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
                     {   /* 🧼 11y (user: "I will stick to my candlestick strategies"): the 📈 CHART view shows NO order flow by default (decision, toasts, setup lines, zones, events, battle map) */
                         string chL = ((Func<string, string>)F("studioLayerBar"))("LIST"); foreach (var ck in new[] { "DECISION=off", "TOAST=off", "SETUP=off", "ZONES=off", "EVENTS=off", "PROF=off" }) if (!chL.Contains(ck)) throw new Exception("🧼 the CHART view's order flow must be OFF by default: " + chL);
