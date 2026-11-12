@@ -334,6 +334,46 @@ public static class ReplayTraderTests
             var sl = new List<double> { 272 }; double fy = KeystoneLinePick.FreeSlot(sl, 260, 0, 500); var sl2 = new List<double> { 200 }; double fy2 = KeystoneLinePick.FreeSlot(sl2, 210, 0, 500);
             Check(fy == 242 && fy2 == 228 && KeystoneLinePick.FreeSlot(new List<double>(), 260, 0, 500) == 260, "✋ a label steps AWAY from the label it would cover (the stop's label above the take profit's stays above: 242, not 278 across the TP line)", fy + " " + fy2);
         }
+        {   /* ⏳ BUILD 2026-11-13g — the user: "sell limits have TP and SL draggable but stop orders don't" + "it randomly remembers the take profit and stop loss for every
+               stop and limit order — it should start WITHOUT". Each working order carries its OWN after-fill bracket; a fill from flat takes it (LIMIT and STOP alike) */
+            Func<KeystoneReplayTrader> live = () => { var t9 = KeystoneReplayTrader.LiveStart(new List<KeystoneArcBar> { B(0, 20000, 20001, 19999, 20000) }, "MNQ", new DateTime(2026, 3, 10, 9, 30, 0)); return t9; };
+            var ts = live(); ts.StopPts = 12; ts.TargetPts = 30;   /* the panel's leftover distances (for a market entry) */
+            var so = ts.Place("STOP", -1, 1, 19990); so.StopPts = 8; so.TargetPts = 16;
+            ts.LiveUpdate(B(1, 20000, 20000, 19989, 19989), new DateTime(2026, 3, 10, 9, 31, 0));
+            Check(ts.Position == -1 && ts.AvgPrice == 19990 && ts.StopPts == 8 && ts.TargetPts == 16, "⏳ a SELL STOP @ 19990 fills → SHORT 1 with ITS OWN bracket (stop 8 / target 16 pts), never the panel's 12 / 30", ts.Position + " @ " + ts.AvgPrice + " " + ts.StopPts + "/" + ts.TargetPts);
+            var tb = live(); tb.StopPts = 0; var bo = tb.Place("STOP", 1, 2, 20010); bo.StopPts = 10; bo.TargetPts = 20;
+            tb.LiveUpdate(B(1, 20000, 20011, 20000, 20011), new DateTime(2026, 3, 10, 9, 31, 0));
+            Check(tb.Position == 2 && tb.StopPts == 10 && tb.TargetPts == 20, "⏳ a BUY STOP @ 20010 fills → LONG 2 with its stop 10 / target 20 pts (exactly like a limit)", tb.Position + " " + tb.StopPts + "/" + tb.TargetPts);
+            var tl = live(); var lo = tl.Place("LIMIT", -1, 1, 20005); lo.StopPts = 8; lo.TargetPts = 16; tl.LiveUpdate(B(1, 20000, 20006, 20000, 20006), new DateTime(2026, 3, 10, 9, 31, 0));
+            Check(tl.Position == -1 && tl.StopPts == 8 && tl.TargetPts == 16, "⏳ a SELL LIMIT fills the same way (the same bracket path)");
+            var tn = live(); tn.StopPts = 12; tn.TargetPts = 30; tn.Place("LIMIT", 1, 1, 19995); tn.LiveUpdate(B(1, 20000, 20000, 19994, 19994), new DateTime(2026, 3, 10, 9, 31, 0));
+            Check(tn.Position == 1 && tn.StopPts == 0 && tn.TargetPts == 0, "⏳ an order placed WITHOUT a bracket fills with none — nothing remembered from the panel / an earlier order", tn.StopPts + "/" + tn.TargetPts);
+            var ta = live(); ta.Buy(1); ta.StopPts = 10; ta.TargetPts = 20; var add = ta.Place("LIMIT", 1, 1, 19996); ta.LiveUpdate(B(1, 20000, 20000, 19995, 19995), new DateTime(2026, 3, 10, 9, 31, 0));
+            Check(ta.Position == 2 && Math.Abs((ta.AvgPrice - ta.StopPts) - 19990) < 1e-9 && Math.Abs((ta.AvgPrice + ta.TargetPts) - 20020) < 1e-9, "⏳ an ADD-ON fill keeps the position's stop / target prices (unchanged behaviour)", ta.AvgPrice + " " + ta.StopPts + "/" + ta.TargetPts);
+            // two consecutive limit orders: the panel's SL / TP go with the FIRST (set for it), then the fields are cleared → the second starts without
+            double panelSl = 10, panelTp = 20; bool clr;
+            var b1 = KeystoneBracketLeg.ForNewOrder(panelSl, panelTp, out clr); if (clr) { panelSl = 0; panelTp = 0; }
+            bool clr2; var b2 = KeystoneBracketLeg.ForNewOrder(panelSl, panelTp, out clr2);
+            Check(b1[0] == 10 && b1[1] == 20 && clr && panelSl == 0 && panelTp == 0 && b2[0] == 0 && b2[1] == 0 && !clr2, "⏳ two limit orders in a row: the first takes the SL / TP set for it (the fields are then cleared), the second has NO bracket", string.Join("/", b1) + " → " + string.Join("/", b2));
+            bool clr3; var b3 = KeystoneBracketLeg.ForNewOrder(-2, 0, out clr3); Check(b3[0] == 0 && clr3, "⏳ a leftover profit-stop value never becomes a new order's stop (cleared)");
+            // ✕ per leg: the order keeps working, only that leg goes; only the position's STOP asks first
+            var pxo = new KeystoneReplayOrder { Id = 7, Dir = -1, Qty = 1, Type = "STOP", Price = 19990, StopPts = 8, TargetPts = 16 };
+            Check(KeystoneBracketLeg.RemovePending(pxo, "AXSTOP#7") && pxo.StopPts == 0 && pxo.TargetPts == 16, "⏳ ✕ on a pending SL: not attached after the fill, the TP stays");
+            Check(KeystoneBracketLeg.RemovePending(pxo, "AXTARGET#7") && pxo.TargetPts == 0, "⏳ ✕ on a pending TP: not attached either");
+            Check(KeystoneBracketLeg.AsksFirst("XSTOP") && !KeystoneBracketLeg.AsksFirst("XTARGET") && !KeystoneBracketLeg.AsksFirst("AXSTOP#7") && !KeystoneBracketLeg.AsksFirst("AXSTOP"), "⏳ only the live position's stop asks first (\"" + KeystoneBracketLeg.StopQuestion + "\"); the target and pending legs go at once");
+            Check(KeystoneBracketLeg.Scope("XSTOP") == "POS" && KeystoneBracketLeg.Scope("AXTARGET#3") == "ORDER" && KeystoneBracketLeg.Scope("AXSTOP") == "TICKET" && KeystoneBracketLeg.IdOf("ASTOP#12") == 12 && KeystoneBracketLeg.KindOf("ATARGET#12") == "ATARGET" && KeystoneBracketLeg.IsX("AXSTOP#3") && !KeystoneBracketLeg.IsX("ASTOP#3") && KeystoneBracketLeg.IsPendingLeg("ASTOP#3"), "⏳ the leg codes (ASTOP#id / AXSTOP#id / XSTOP …)");
+            // ONE $ (after costs) for every pill: −(pts × pv × q + cost × q) / +(pts × pv × q − cost × q)
+            double pv = KeystoneMoveStudy.PointValue("MNQ"), cost = KeystoneMoveStudy.Cost("MNQ");
+            Check(Math.Abs(KeystoneBracketLeg.StopUsd(59.25, 1, pv, cost) + (59.25 * pv + cost)) < 1e-9 && Math.Abs(KeystoneBracketLeg.TargetUsd(43.5, 1, pv, cost) - (43.5 * pv - cost)) < 1e-9 && KeystoneBracketLeg.StopUsd(10, 2, pv, cost) == KeystonePractice.UsdOf(10, 2, pv, cost, true),
+                "⏳ one after-costs $ for every leg (the same as the practice bracket's UsdOf)");
+            // the pick: the ✕ (registered after its pill) wins inside the pill; the pill elsewhere; the leg line off the pill
+            var g = new List<KeystoneGrab>(); KeystoneLinePick.Line(g, "ASTOP#7", 150, 400, 772); KeystoneLinePick.Box(g, "ASTOP#7", new double[] { 609, 139, 741, 161 }); KeystoneLinePick.Box(g, "AXSTOP#7", new double[] { 720, 142, 738, 158 });
+            KeystoneLinePick.Line(g, "ORDER:0", 120, 472, 772); KeystoneLinePick.Box(g, "ATARGET#7", new double[] { 471, 110, 517, 130 });   /* the "+ TP" handle on the order line */
+            Func<double, double, string> pk = (x, y) => { var h = KeystoneLinePick.Pick(g, x, y); return h == null ? "-" : h.Code; };
+            Check(pk(729, 150) == "AXSTOP#7" && pk(640, 150) == "ASTOP#7" && pk(450, 152) == "ASTOP#7" && pk(490, 120) == "ATARGET#7" && pk(600, 121) == "ORDER:0", "⏳ the pick with ✕: the ✕ wins inside its pill, the pill / line elsewhere, \"+ TP\" on the order line, the order line beside it", pk(729, 150) + " " + pk(640, 150) + " " + pk(450, 152) + " " + pk(490, 120) + " " + pk(600, 121));
+            int agree = 0, tot = 0; for (double y = 105; y <= 165; y += 1) for (double x = 460; x <= 770; x += 7) { tot++; var h = KeystoneLinePick.Pick(g, x, y); var c = KeystoneLinePick.PickShown(g, x, y, h == null ? null : h.Code); if ((h == null && c == null) || (h != null && c != null && h.Code == c.Code)) agree++; }
+            Check(agree == tot, "⏳ hovered = grabbed with the ✕ in place (" + tot + " points)", agree + " / " + tot);
+        }
         Console.WriteLine(failures == 0 ? "ALL REPLAY TRADER TESTS PASSED" : failures + " REPLAY TRADER TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

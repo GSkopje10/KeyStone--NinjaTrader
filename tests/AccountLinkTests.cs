@@ -1015,6 +1015,31 @@ public static class AccountLinkTests
             KeystoneFundedLiq.Learned.Clear(); KeystoneFundedLiq.Parse("TAKEPROFITPRO382305483|1.0714\nBAD|x\nHUGE|97.7"); var fmt = KeystoneFundedLiq.Format();
             Check(KeystoneFundedLiq.Learned.Count == 1 && Math.Abs(KeystoneFundedLiq.Learned["takeprofitpro382305483"] - 1.0714) < 1e-9 && fmt == "TAKEPROFITPRO382305483|1.0714", "💰 the learned rates are saved / read per account", fmt);
         }
+        {   /* ⏳ BUILD 2026-11-13g — a working STOP order gets the same after-fill bracket as a LIMIT, through the same armed link path (SetBracket at the fill);
+               an order placed without one never takes the panel's leftover distances; the ✕ on the position's take profit cancels the target order through the link */
+            var b = new FakeBroker(); var l = new KeystoneAccountLink(b, "MNQ") { MaxContracts = 4 }; var t = Trader(); l.Arm(t0);
+            t.StopPts = 12; t.TargetPts = 30;   /* the panel's leftover (a market entry's) */
+            var so = t.Place("STOP", -1, 1, 19990); so.StopPts = 8; so.TargetPts = 16;
+            for (int k = 0; k < 3; k++) l.Tick(t, t0.AddSeconds(k));
+            var real = b.All.FirstOrDefault(o => o.Kind == "STOP" && o.Side < 0 && !o.Done);
+            Check(real != null && Math.Abs(real.Price - 19990) < 1e-9, "⏳ the SELL STOP @ 19990 is sent through the armed link (no new path)", string.Join(" | ", b.Sent));
+            b.Trigger(real); for (int k = 0; k < 8; k++) l.Tick(t, t0.AddSeconds(5 + k));
+            var st = b.All.FirstOrDefault(o => !o.Done && o.Kind == "STOP" && o.Side > 0); var tg = b.All.FirstOrDefault(o => !o.Done && o.Kind == "LIMIT" && o.Side > 0);
+            Check(b.Q == -1 && st != null && Math.Abs(st.Price - 19998) < 1e-9 && tg != null && Math.Abs(tg.Price - 19974) < 1e-9 && st.Oco != "" && st.Oco == tg.Oco,
+                "⏳ at the fill: ITS bracket — stop 19998 + target 19974 (one cancels the other), never the panel's 12 / 30", string.Join(" | ", b.Sent));
+            // the ✕ on the position's take profit: the target leg goes (the stop stays) through the same link
+            t.TargetPts = 0; for (int k = 0; k < 8; k++) l.Tick(t, t0.AddSeconds(20 + k));
+            Check(!b.All.Any(o => !o.Done && o.Kind == "LIMIT") && b.All.Any(o => !o.Done && o.Kind == "STOP" && Math.Abs(o.Price - 19998) < 1e-9), "⏳ ✕ TP on the position: the target order is cancelled, the stop stays at 19998", string.Join(" | ", b.Sent));
+            // a BUY LIMIT placed with NO bracket (the panel still holds 12 / 30): it fills with none
+            var b2 = new FakeBroker(); var l2 = new KeystoneAccountLink(b2, "MNQ") { MaxContracts = 4 }; var t2 = Trader(); l2.Arm(t0); t2.StopPts = 12; t2.TargetPts = 30;
+            t2.Place("LIMIT", 1, 1, 19995); for (int k = 0; k < 3; k++) l2.Tick(t2, t0.AddSeconds(k));
+            var lim = b2.All.First(o => o.Kind == "LIMIT"); b2.Trigger(lim); for (int k = 0; k < 8; k++) l2.Tick(t2, t0.AddSeconds(5 + k));
+            Check(b2.Q == 1 && !b2.All.Any(o => !o.Done) && t2.StopPts == 0 && t2.TargetPts == 0, "⏳ an order without its own bracket fills with NO stop / target (nothing remembered)", string.Join(" | ", b2.Sent) + " • " + t2.StopPts + "/" + t2.TargetPts);
+            // NOT armed: nothing is sent and no phantom bracket appears on the chart
+            var b3 = new FakeBroker(); var l3 = new KeystoneAccountLink(b3, "MNQ"); var t3 = Trader(); var ext = b3.External("STOP", -1, 19990); l3.Tick(t3, t0);
+            var s3 = t3.Orders.FirstOrDefault(); if (s3 != null) { s3.StopPts = 8; s3.TargetPts = 16; } l3.Tick(t3, t0.AddSeconds(1)); b3.Trigger(ext); for (int k = 0; k < 4; k++) l3.Tick(t3, t0.AddSeconds(3 + k));
+            Check(s3 != null && b3.Q == -1 && b3.Sent.Count == 0 && t3.StopPts == 0 && t3.TargetPts == 0, "⏳ unarmed: a NinjaTrader stop order shown with a studio bracket fills → nothing sent, no phantom stop on the chart", string.Join(" | ", b3.Sent) + " • " + t3.StopPts);
+        }
         Console.WriteLine(failures == 0 ? "ALL ACCOUNT LINK TESTS PASSED" : failures + " ACCOUNT LINK TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }

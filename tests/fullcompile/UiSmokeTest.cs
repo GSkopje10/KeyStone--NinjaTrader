@@ -1068,6 +1068,41 @@ public static class UiSmokeTest
                         Console.WriteLine("      ✋ line picking: TP / 🔒 profit stop " + Math.Abs(yT - yS).ToString("0.#", ic) + " px apart — hovered = grabbed at " + n + " points, the nearest line off the labels, each label its own line");
                         } finally { lp("ADOPT " + wasLp[0] + "," + wasLp[1]); lp("SET " + fieldsLp); lp("5,5"); } ((Action<int>)F("replayTraderStep"))(0);
                     }
+                    {   /* ⏳ 13g (user: "sell limits have TP and SL draggable but stop orders don't … add an ✕ … it randomly remembers the TP / SL — start WITHOUT"):
+                           a working STOP order gets the same draggable after-fill SL / TP as a LIMIT, ONE pill per leg (no doubled label), an ✕ in each, a new order starts clean */
+                        var lp = (Func<string, string>)F("studioLinePick"); var ic = System.Globalization.CultureInfo.InvariantCulture; var rt9 = (KeystoneReplayTrader)F("replayTrader");
+                        string fields9 = lp("FIELDS"); var was9 = lp("ADOPT 0,0").Split(','); double px9 = double.Parse(was9[2], ic);
+                        try
+                        {
+                            lp("CANCELALL"); lp("SET 10|20");
+                            string o1 = lp("PLACE STOP,-1," + (px9 - 20).ToString("0.00", ic));
+                            if (!o1.Contains(":STOP:-1:") || !o1.EndsWith(":10:20") || lp("FIELDS") != "0|0") throw new Exception("⏳ the SELL STOP must take the SL / TP set for it (10 / 20) and clear the fields: " + o1 + " • fields " + lp("FIELDS"));
+                            string o2 = lp("PLACE LIMIT,-1," + (px9 + 20).ToString("0.00", ic));
+                            var ords = o2.Split(';'); if (ords.Length != 2 || !ords[1].Contains(":LIMIT:-1:") || !ords[1].EndsWith(":0:0") || !ords[0].EndsWith(":10:20")) throw new Exception("⏳ the second (LIMIT) order must start WITHOUT a bracket: " + o2);
+                            string id1 = ords[0].Split(':')[0], id2 = ords[1].Split(':')[0];
+                            string l9 = lp("LIST"); var items = l9.Split(';');
+                            Func<string, int> boxes = code => items.Count(x => x.StartsWith(code + ":box@"));
+                            if (boxes("ASTOP#" + id1) != 1 || boxes("ATARGET#" + id1) != 1 || boxes("AXSTOP#" + id1) != 1 || boxes("AXTARGET#" + id1) != 1) throw new Exception("⏳ the STOP order needs exactly ONE draggable SL / TP pill + ONE ✕ each: " + l9);
+                            if (!items.Any(x => x.StartsWith("ASTOP#" + id1 + ":line@")) || !items.Any(x => x.StartsWith("ATARGET#" + id1 + ":line@"))) throw new Exception("⏳ the STOP order's SL / TP lines must be grabbable: " + l9);
+                            if (boxes("ASTOP#" + id2) != 1 || boxes("ATARGET#" + id2) != 1 || boxes("AXSTOP#" + id2) != 0) throw new Exception("⏳ the LIMIT without a bracket shows only + SL / + TP (no ✕): " + l9);
+                            string tg = lp("TAGS"); if (!tg.StartsWith("pill=2;x=2;add=2;")) throw new Exception("⏳ exactly one pill per leg (2 pills, 2 ✕, 2 + handles): " + tg);
+                            var tx9 = FindAll<System.Windows.Controls.TextBlock>(bt.Content).Select(t => t.Text ?? "").ToList();
+                            if (tx9.Count(t => t.StartsWith("⇕ SL ")) != 1 || tx9.Count(t => t.StartsWith("⇕ TP ")) != 1 || tx9.Any(t => t.StartsWith("MY SL") || t.StartsWith("MY TP"))) throw new Exception("⏳ the SL / TP label must be drawn ONCE (no MY SL / MY TP under the pill): " + string.Join(" | ", tx9.Where(t => t.Contains("SL") || t.Contains("TP")).Take(12)));
+                            Func<string, string> center = code => { var it = items.Last(x => x.StartsWith(code + ":box@")); var v = it.Substring(it.IndexOf('@') + 1).Split(',').Select(z => double.Parse(z, ic)).ToArray(); return ((v[0] + v[2]) / 2).ToString("0.##", ic) + "," + ((v[1] + v[3]) / 2).ToString("0.##", ic); };
+                            string hx = lp(center("AXSTOP#" + id1)), hp = lp(center("ASTOP#" + id1));
+                            if (hx != "AXSTOP#" + id1 + "|AXSTOP#" + id1 + "|box") throw new Exception("⏳ the ✕ is what the hover lights and the click takes: " + hx);
+                            if (hp.Split('|')[0] != hp.Split('|')[1]) throw new Exception("⏳ the pill: hovered ≠ grabbed: " + hp);
+                            string xr = lp("XLEG AXSTOP#" + id1); string o3 = lp("ORDERS");
+                            if (xr != "pending stop removed" || !o3.Split(';')[0].EndsWith(":0:20") || o3.Split(';').Length != 2) throw new Exception("⏳ ✕ on the pending SL: only that leg goes, the order keeps working: " + xr + " • " + o3);
+                            // a position: ✕ TARGET at once, ✕ STOP asks (NO keeps it, YES removes it)
+                            lp("CANCELALL"); lp("ADOPT 1,PRICE"); lp("SET 8|16"); string l10 = lp("LIST");
+                            if (!l10.Split(';').Any(x => x.StartsWith("XSTOP:box@")) || !l10.Split(';').Any(x => x.StartsWith("XTARGET:box@"))) throw new Exception("⏳ the position's MY STOP LOSS / MY TAKE PROFIT need their own ✕: " + l10);
+                            string kNo = lp("XLEG XSTOP,NO"), f1 = lp("FIELDS"), kYes = lp("XLEG XSTOP,YES"), f2 = lp("FIELDS"), kT = lp("XLEG XTARGET"), f3 = lp("FIELDS");
+                            if (kNo != "stop kept" || f1 != "8|16" || kYes != "stop removed" || f2 != "0|16" || kT != "target removed" || f3 != "0|0") throw new Exception("⏳ the position's ✕: " + kNo + " " + f1 + " • " + kYes + " " + f2 + " • " + kT + " " + f3);
+                            Console.WriteLine("      ⏳ 13g: SELL STOP with its own SL / TP (one pill each + ✕), a LIMIT after it starts clean (+ SL / + TP), ✕ hovered = grabbed, pending ✕ keeps the order, the position's stop asks first");
+                        }
+                        finally { lp("CANCELALL"); lp("ADOPT " + was9[0] + "," + was9[1]); lp("SET " + fields9); lp("5,5"); }
+                    }
                     var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
                     {   /* 🧼 11y (user: "I will stick to my candlestick strategies"): the 📈 CHART view shows NO order flow by default (decision, toasts, setup lines, zones, events, battle map) */
                         string chL = ((Func<string, string>)F("studioLayerBar"))("LIST"); foreach (var ck in new[] { "DECISION=off", "TOAST=off", "SETUP=off", "ZONES=off", "EVENTS=off", "PROF=off" }) if (!chL.Contains(ck)) throw new Exception("🧼 the CHART view's order flow must be OFF by default: " + chL);
