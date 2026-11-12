@@ -952,6 +952,12 @@ public static class UiSmokeTest
                     for (int k = 0; k < 150; k++) ((Action<int>)F("replayTraderStep"))(1);
                     { var na = (Action<double>)F("replayTraderNewAccount"); if (na != null) na(50000); ((Action<int>)F("replayTraderStep"))(0); }
                     var desk = (Func<string, string>)F("studioOfDesk"); if (desk == null) throw new Exception("no ORDERFLOW desk hook");
+                    {   /* 🧼 11y (user: "I will stick to my candlestick strategies"): the 📈 CHART view shows NO order flow by default (decision, toasts, setup lines, zones, events, battle map) */
+                        string chL = ((Func<string, string>)F("studioLayerBar"))("LIST"); foreach (var ck in new[] { "DECISION=off", "TOAST=off", "SETUP=off", "ZONES=off", "EVENTS=off", "PROF=off" }) if (!chL.Contains(ck)) throw new Exception("🧼 the CHART view's order flow must be OFF by default: " + chL);
+                        var ofT = FindAll<System.Windows.FrameworkElement>(bt.Content).Select(x => Convert.ToString(x.Tag)).Where(t0 => t0.StartsWith("of.") && !t0.StartsWith("of.tab") && !t0.StartsWith("of.dock") && !t0.StartsWith("of.d") && !t0.StartsWith("of.now") && !t0.StartsWith("of.sig") && !t0.StartsWith("of.sw") && !t0.StartsWith("of.verdict") && !t0.StartsWith("of.style") && !t0.StartsWith("of.flow") && !t0.StartsWith("of.why") && !t0.StartsWith("of.who") && !t0.StartsWith("of.learn") && !t0.StartsWith("of.setups") && !t0.StartsWith("of.guide") && !t0.StartsWith("of.profile") && !t0.StartsWith("of.events") && !t0.StartsWith("of.book") && !t0.StartsWith("of.stats") && !t0.StartsWith("of.story") && !t0.StartsWith("of.recent") && !t0.StartsWith("of.fit") && !t0.StartsWith("of.levels") && !t0.StartsWith("of.analyze") && !t0.StartsWith("of.export") && !t0.StartsWith("of.trade") && !t0.StartsWith("of.status") && !t0.StartsWith("of.strip") && !t0.StartsWith("of.profs") && !t0.StartsWith("of.ticklib") && !t0.StartsWith("of.beginner") && !t0.StartsWith("of.calm") && !t0.StartsWith("of.overlays") && !t0.StartsWith("of.tape")).Distinct().ToList();
+                        if (ofT.Any(t0 => t0 == "of.decision" || t0 == "of.toast" || t0.StartsWith("of.setup") || t0.StartsWith("of.zone") || t0.StartsWith("of.mark") || t0.StartsWith("of.big") || t0.StartsWith("of.trademap") || t0 == "of.event.pill")) throw new Exception("🧼 order flow drawn on the 📈 CHART by default: " + string.Join(",", ofT));
+                        ((Action<string, int>)F("studioLayer"))("OF.V.CH.DECISION", 1);   /* the rest of this step trades from the card (→ the CHART view): a CHART chip ON keeps the order-flow engine (and the test's trades) alive there */
+                    }
                     if (desk("OPEN") != "OPEN") throw new Exception("the ORDERFLOW view did not open");
                     string nb = desk("NOTICKS"); string strip0 = desk("STRIP");
                     if (nb != KeystoneOfSource.NoneText || !strip0.Contains(KeystoneOfSource.NoneText) || !strip0.Contains("CANDLE Δ") || !strip0.Contains("—")) throw new Exception("🛡 no trades must show the grey badge and no numbers: " + strip0);
@@ -990,6 +996,21 @@ public static class UiSmokeTest
                         string ld = lbS("DETAILED"); ((Action<int>)F("replayTraderStep"))(0);
                         if (!ld.Contains("MODE=DETAILED") || ld.Replace("MODE=DETAILED", "") != ls0.Replace("MODE=SIMPLE", "")) throw new Exception("🔬 DETAILED did not restore the exact chip set: " + ls0 + " vs " + ld);
                         if (!FindAll<System.Windows.FrameworkElement>(bt.Content).Any(x => Convert.ToString(x.Tag) == "of.vp")) throw new Exception("🔬 DETAILED: no profile strip");
+                        {   /* 🎯 11y: in DETAILED the failed-print / event WORDS sit in the right column — no event pill intersects a candle rectangle; the ring ≤ 8 px; opposite failed prints = ONE ⚖ pill */
+                            string fpS = desk("FAILPRINTS"); if (!fpS.StartsWith("failed prints")) throw new Exception("🎯 " + fpS);
+                            var cvP = plotCv(); var kidsP = cvP.Children.OfType<System.Windows.FrameworkElement>().ToList();
+                            if (kidsP.Any(x => Convert.ToString(x.Tag) == "of.big.failed.label")) throw new Exception("🎯 a failed-print label is still drawn at the print");
+                            if (kidsP.Where(x => Convert.ToString(x.Tag) == "of.big.failed").Any(x => x.Width > 8)) throw new Exception("🎯 the failed-print ring is bigger than 8 px");
+                            var bodies = kidsP.OfType<System.Windows.Shapes.Rectangle>().Where(x => x.Tag == null && x.Fill != null && x.Width >= 2 && x.Width < 40).Select(x => new System.Windows.Rect(System.Windows.Controls.Canvas.GetLeft(x), System.Windows.Controls.Canvas.GetTop(x), x.Width, x.Height)).ToList();
+                            int nPill = 0; foreach (var pl9 in kidsP.Where(x => Convert.ToString(x.Tag) == "of.event.pill"))
+                            {
+                                nPill++; pl9.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity)); var pr9 = new System.Windows.Rect(System.Windows.Controls.Canvas.GetLeft(pl9), System.Windows.Controls.Canvas.GetTop(pl9), Math.Min(double.IsInfinity(pl9.MaxWidth) || pl9.MaxWidth <= 0 ? 9999 : pl9.MaxWidth, 7.0 * ((((System.Windows.Controls.Border)pl9).Child as System.Windows.Controls.TextBlock).Text ?? "").Length), 16);
+                                Func<System.Windows.Rect, bool> isect = b9 => b9.X < pr9.X + pr9.Width && pr9.X < b9.X + b9.Width && b9.Y < pr9.Y + pr9.Height && pr9.Y < b9.Y + b9.Height; var hit = bodies.FirstOrDefault(isect); if (hit.Width > 0 && isect(hit)) throw new Exception("🎯 an event pill covers a candle: " + pr9 + " vs " + hit);
+                            }
+                            if (FindAll<System.Windows.Controls.TextBlock>(cvP).Any(t9 => (t9.Text ?? "").Contains("buyer failed"))) throw new Exception("🎯 opposite failed prints must be ONE ⚖ pill, not two contradicting ones");
+                            if (nPill == 0) throw new Exception("🎯 no event pill drawn in the studio's right gutter");
+                            Console.WriteLine("      🎯 event pills in the right column: " + nPill + " drawn, none over a candle, ring ≤ 8 px");
+                        }
                         if ((int)nbMade.GetValue(null) != made0) throw new Exception("🛡 11y built a NinjaBroker");
                         desk("RAW"); Console.WriteLine("      🧼 SIMPLE plot: allowed tags only, 3 chips, one decision line • toast in 🧭 NOW • ▥ PROFILE / 🧱 EVENTS / 📚 DOM (31 rows, wall) in the dock • 🔬 DETAILED = the same chips: OK");
                     }
@@ -1012,7 +1033,7 @@ public static class UiSmokeTest
                         foreach (var chip in new[] { "PAST", "PROF", "DROW", "EVENTS", "ZONES", "LEVELS" })   /* 11x: SETUP without a setup opens 🔍 WHY (tested in the 11x step) */ { string a1 = lb(chip), a2 = lb(chip); bool was = l0.Contains(chip + "=on"); if (a1.Contains(chip + "=" + (was ? "on" : "off")) || !a2.Contains(chip + "=" + (was ? "on" : "off"))) throw new Exception("👁 chip " + chip + " did not flip: " + a1 + " / " + a2); }
                         string c1 = lb("CLEAN"); ((Action<int>)F("replayTraderStep"))(0);
                         if (!c1.Contains("CLEAN=1") || c1.Contains("=on;")) throw new Exception("👁 CLEAN left something on: " + c1);
-                        var left = FindAll<System.Windows.FrameworkElement>(bt.Content).Select(x => Convert.ToString(x.Tag)).Where(t0 => t0.StartsWith("of.vp") || t0 == "of.drow" || t0 == "of.big" || t0 == "of.trap" || t0 == "of.mark" || t0 == "of.zone" || t0.StartsWith("of.setup.") || t0 == "of.dprof").ToList();
+                        var left = FindAll<System.Windows.FrameworkElement>(bt.Content).Select(x => Convert.ToString(x.Tag)).Where(t0 => t0.StartsWith("of.vp") || t0 == "of.drow" || t0 == "of.big" || t0 == "of.trap" || t0 == "of.mark" || t0 == "of.event.pill" || t0 == "of.zone" || t0.StartsWith("of.setup.") || t0 == "of.dprof").ToList();
                         if (left.Count > 0) throw new Exception("👁 after CLEAN the plot still shows: " + string.Join(",", left.Distinct()));
                         string c2 = lb("CLEAN"); if (c2.Replace("CLEAN=0", "") != l0.Replace("CLEAN=0", "")) throw new Exception("👁 CLEAN did not restore the exact set: " + l0 + " vs " + c2);
                         ((Action<int>)F("replayTraderStep"))(0);
@@ -1059,7 +1080,8 @@ public static class UiSmokeTest
                             string fl9 = desk("TAB FLOW"); if (!fl9.Contains("📊 TOTALS — contracts") || !fl9.Contains("TAPE — every trade")) throw new Exception("📊 TOTALS card / TAPE title missing: " + fl9.Substring(0, Math.Min(300, fl9.Length)));
                             string su9 = desk("TAB SETUPS"); if (!su9.Contains("💵 TOTAL") || !su9.Contains("$ CARD")) throw new Exception("💵 the SETUPS table / totals strip: " + su9.Substring(0, Math.Min(400, su9.Length)));
                             string nw9 = desk("TAB NOW"); if (!nw9.Contains("WHAT'S HAPPENING NOW") || !has("of.beginner")) throw new Exception("👀 NOW: " + nw9);
-                            desk("CLOSE"); ((Action<int>)F("replayTraderStep"))(0); if (!has("of.decision")) throw new Exception("🚥 no decision bar on the 📈 CHART view");
+                            ((Action<string, int>)F("studioLayer"))("OF.V.CH.DECISION", 1);   /* 🧼 11y: the CHART view's decision line is OFF by default — switched on here to test its chip */
+                            desk("CLOSE"); ((Action<int>)F("replayTraderStep"))(0); if (!has("of.decision")) throw new Exception("🚥 no decision bar on the 📈 CHART view once its chip is on");
                             lbx("DECISION"); ((Action<int>)F("replayTraderStep"))(0); if (has("of.decision")) throw new Exception("🚥 the CHART view's DECISION chip did not hide the bar"); lbx("DECISION"); desk("OPEN");
                         }
                         desk("STYLE SWING"); desk("SWING"); if (!desk("CARD").StartsWith("HIDDEN") || !desk("CARD2").StartsWith("VISIBLE")) throw new Exception("🏃 STYLE SWING must show only the swing card");

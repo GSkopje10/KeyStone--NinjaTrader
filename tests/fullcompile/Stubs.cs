@@ -358,7 +358,13 @@ namespace System.Windows.Controls
     public class GridSplitter : Control { public GridResizeDirection ResizeDirection { get; set; } public GridResizeBehavior ResizeBehavior { get; set; } public bool ShowsPreview { get; set; } }
     public class WrapPanel : Panel { public Orientation Orientation { get; set; } public double ItemWidth { get; set; } public double ItemHeight { get; set; } }
     public class DockPanel : Panel { public bool LastChildFill { get; set; } public static void SetDock(UIElement e, Dock d) { } }
-    public class Canvas : Panel { public static void SetLeft(UIElement e, double v) { } public static void SetTop(UIElement e, double v) { } public static void SetRight(UIElement e, double v) { } public static void SetBottom(UIElement e, double v) { } public static double GetLeft(UIElement e) { return 0; } public static double GetTop(UIElement e) { return 0; } }
+    public class Canvas : Panel
+    {   /* the stand-in keeps Left / Top so the smoke test can check overlaps (🎯 11y: no event pill over a candle) */
+        static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, double[]> pos = new System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, double[]>();
+        static double[] P(UIElement e) { return pos.GetValue(e, k => new[] { double.NaN, double.NaN }); }
+        public static void SetLeft(UIElement e, double v) { if (e != null) P(e)[0] = v; } public static void SetTop(UIElement e, double v) { if (e != null) P(e)[1] = v; } public static void SetRight(UIElement e, double v) { } public static void SetBottom(UIElement e, double v) { }
+        public static double GetLeft(UIElement e) { return e == null ? double.NaN : P(e)[0]; } public static double GetTop(UIElement e) { return e == null ? double.NaN : P(e)[1]; }
+    }
     public class Control : FrameworkElement
     { public static readonly System.Windows.DependencyProperty ForegroundProperty = new System.Windows.DependencyProperty(); public static readonly DependencyProperty BackgroundProperty = new DependencyProperty(), PaddingProperty = new DependencyProperty(), BorderBrushProperty = new DependencyProperty(); public ControlTemplate Template { get; set; } 
         public Brush Background { get; set; } public Brush Foreground { get; set; } public Brush BorderBrush { get; set; }

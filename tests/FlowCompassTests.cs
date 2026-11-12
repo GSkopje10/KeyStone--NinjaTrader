@@ -483,6 +483,22 @@ public static class FlowCompassTests
             Check(tt.Item1 == "Waiting to BUY 1,240 • waiting to SELL 980 → more buyers waiting (56 %)" && tt.Item2 != "", "the totals in plain words", tt.Item1);
             Check(KeystoneDomTracker.NoDepth(true, 0, 12, "") == "your data connection isn't sending market depth — the DOM needs Level 2 data" && KeystoneDomTracker.NoDepth(true, 0, 3, "").StartsWith("waiting") && KeystoneDomTracker.NoDepth(true, 5, 30, "") == "" && KeystoneDomTracker.NoDepth(false, 0, 0, "").Contains("only LIVE"), "no depth within 10 s = says so plainly");
         }
+        // ---- 26. 🎯 11y: events "for your trade" + opposite events = ONE chop line + the in-trade distances
+        {
+            var T = new DateTime(2026, 11, 12, 10, 0, 0);
+            string f1 = KeystoneOfTradeEvents.ForTrade(2, 28198.375, 1, "seller failed"), f2 = KeystoneOfTradeEvents.ForTrade(2, 28198.375, -1, "buyer failed"), f3 = KeystoneOfTradeEvents.ForTrade(-1, 28200, 0, "the compass");
+            Check(f1 == "for your LONG 2 @ 28198.38: supports HOLD — seller failed is on your side" && f2.StartsWith("for your LONG 2 @ 28198.38: against you — buyer failed counts toward ⚠ TIGHTEN") && f3.StartsWith("for your SHORT 1 @ 28200.00: neutral") && KeystoneOfTradeEvents.ForTrade(0, 1, 1, "x") == "", "the per-trade line: supports HOLD / against you → TIGHTEN / neutral", f1 + " | " + f2);
+            var evs = new List<KeystoneOfEvent> {
+                new KeystoneOfEvent { Time = T, Type = "FAILED PRINT", Side = -1, Price = 28200, Text = "🪤 buyer failed → SELL pressure" },
+                new KeystoneOfEvent { Time = T.AddMinutes(20), Type = "FAILED PRINT", Side = 1, Price = 28201, Text = "🪤 seller failed → BUY pressure" },
+                new KeystoneOfEvent { Time = T.AddMinutes(25), Type = "ABSORPTION", Side = 1, Price = 28190, Text = "🧱 absorbed" } };
+            var m = KeystoneOfTradeEvents.Merge(evs, 0.25, 45);
+            Check(m.Count == 2 && m.Count(x => x.Item3.Count == 2) == 1 && m.First(x => x.Item3.Count == 2).Item2.StartsWith("⚖ both sides failed here (28200.00–28201.00) → balance / chop: no new information — follow your plan (stop / target)"), "opposite failed prints within 3 candles / a few ticks = ONE chop line", string.Join(" / ", m.Select(x => x.Item2)));
+            var m2 = KeystoneOfTradeEvents.Merge(evs, 0.25, 5); var m3 = KeystoneOfTradeEvents.Merge(new List<KeystoneOfEvent> { evs[0], new KeystoneOfEvent { Time = T.AddMinutes(1), Type = "FAILED PRINT", Side = 1, Price = 28210, Text = "far" } }, 0.25, 45);
+            Check(m2.Count == 3 && m3.Count == 2, "too far apart in time or price = two lines");
+            string d1 = KeystoneOfTradeEvents.Distances(1, 28200, 28190, 28230, 2, 2), d2 = KeystoneOfTradeEvents.Distances(1, 28200, 0, 0, 2, 2);
+            Check(d1 == "STOP 28190.00 • −10.00 pts • −$40\nTARGET 28230.00 • +30.00 pts • +$120" && d2 == KeystoneOfSimple.NoStop + "\nno target set" && !d2.Contains("0.00"), "the in-trade box: stop / target with pts and $ — or NO STOP SET", d1 + " | " + d2);
+        }
         Console.WriteLine(failures == 0 ? "ALL FLOW COMPASS TESTS PASSED" : failures + " FLOW COMPASS TEST(S) FAILED");
         return failures == 0 ? 0 : 1;
     }
