@@ -9074,12 +9074,12 @@ namespace NinjaTrader.NinjaScript
         public static string Neutral(int i) { return P[Clamp(i)][6]; }
     }
     // 🧭 the FLOW COMPASS — ONE stable answer to "who is in control", from the REAL trades only: an EMA (τ = 60 s) of the signed volume over the volume
-    // (the flow) + the price's progress over its own 60-s EMA (the engine) → a score −100 … +100. HYSTERESIS: a side takes control only after the score stays past
+    // (the flow, ½) + the price's progress over its own 60-s EMA (the engine, ½) → a score −100 … +100. HYSTERESIS: a side takes control only after the score stays past
     // ±Enter (35) for ConfirmSec (20 s); it leaves (→ BALANCED) only below ±Exit (15); every state is held at least MinHoldSec (60 s). Every place that says who is
     // in control reads this one object.
     public sealed class KeystoneFlowCompass
     {
-        public double TauSec = 60, Enter = 35, Exit = 15, ConfirmSec = 20, MinHoldSec = 60, FlowFull = 0.4, PriceFullTicks = 12;
+        public double TauSec = 60, Enter = 35, Exit = 15, ConfirmSec = 20, MinHoldSec = 60, FlowFull = 0.5, PriceFullTicks = 12;
         public int State; public double Score; public DateTime Since = DateTime.MinValue, LastTime = DateTime.MinValue;
         public readonly List<Tuple<DateTime, int, double>> Changes = new List<Tuple<DateTime, int, double>>();   // time, the new state, the score then
         double eS, eV, eP, lastPx; bool init; DateTime pendSince = DateTime.MinValue; int pendDir; object src; int done;
@@ -9100,7 +9100,7 @@ namespace NinjaTrader.NinjaScript
         {
             double sf = eV > 1e-6 ? Math.Max(-1, Math.Min(1, eS / eV / FlowFull)) : 0;
             double sp = tick > 0 ? Math.Max(-1, Math.Min(1, (lastPx - eP) / tick / PriceFullTicks)) : 0;
-            Score = Math.Round(100 * (0.6 * sf + 0.4 * sp), 1);
+            Score = Math.Round(100 * (0.5 * sf + 0.5 * sp), 1);   // the fuel AND the engine: aggression the price does not follow is absorption, not control
             bool canChange = Since == DateTime.MinValue || (t - Since).TotalSeconds >= MinHoldSec;
             if (State == 0)
             {
@@ -9411,7 +9411,7 @@ namespace NinjaTrader.NinjaScript
             var IC = CultureInfo.InvariantCulture; Func<double, string> c = v => "$" + Math.Round(v).ToString("N0", IC);
             if (!known) return Tuple.Create("🏦 ACCOUNT FIT • account rules unknown here — stop " + c(stopUsdPer * qty) + " for " + qty + " " + symbol, qty);
             double room = double.IsNaN(dayRoom) ? buffer : double.IsNaN(buffer) ? dayRoom : Math.Min(buffer, dayRoom);
-            int fit = stopUsdPer > 0 && !double.IsNaN(room) ? (int)Math.Floor(room / stopUsdPer + 1e-9) : qty; if (maxQty > 0) fit = Math.Min(fit, maxQty); fit = Math.Max(0, fit);
+            int fit = stopUsdPer > 0 && !double.IsNaN(room) ? (int)Math.Floor(room / stopUsdPer + 1e-9) : qty; if (maxQty > 0) fit = Math.Min(fit, maxQty); fit = Math.Max(0, Math.Min(fit, qty));
             double stop = stopUsdPer * qty, run = runUsdPer * qty;
             if (fit < qty)
             {
