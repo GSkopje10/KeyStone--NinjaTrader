@@ -6,7 +6,7 @@
 //   GOAL      the iteration TOTAL (open + this iteration's closed legs) ≥ the recovery goal (TARGET = breakeven + the target, or BE) → CLOSE ALL
 //   FLOOR     the equity reached the floor (MAX RISK / the $ floor) → neutralise (net 0) and add nothing more — it never closes at a loss by itself
 //   TRAIL     the stacked lots' profit is trailed (TrailAtr × ATR M5 behind their best) → the stack closes when it gives back
-//   FLIP      the trend turned against the stack → the stack closes
+//   FLIP      the trend turned against the stack (≥ 75) or the stack is StepInStopAtr × ATR M5 against it (its stop) → the stack closes
 //   TRIM      every TrimAtr × ATR M5 in the stack's favour → TrimPct % of the stack is banked
 //   CUT PAIR  a counter-trend loser + a with-trend winner whose sum ≥ $0 → both closed (the same lots: the net, the total unchanged)
 //   HOLD      no trend → net 0 once (the chop lesson of #83 / 05 Nov #5), nothing else until a trend shows
@@ -234,6 +234,7 @@ namespace KeystoneMT5
                 if (w != null) { double cl = Math.Min(w.Lots, m); return new StepInAction { Kind = "CLOSE", Tag = "CUT2", Ticket = w.Ticket, Lots = cl >= w.Lots - 1e-9 ? 0 : Rnd(cl, step), Why = "🚑 CUT PAIR (2/2) — the winner " + w.Side + " " + Rnd(cl, step).ToString("0.##", IC) + " of #" + w.Ticket + " closes too: the net is what it was" }; }
             }
             double atr5 = tr != null && !double.IsNaN(tr.Atr5) && tr.Atr5 > 0 ? tr.Atr5 : (tr != null && !double.IsNaN(tr.Atr1) ? tr.Atr1 * Math.Sqrt(5) : double.NaN);
+            double spread = Math.Max(0, ask - v.Bid); if (!double.IsNaN(atr5) && spread > 0) atr5 = Math.Max(atr5, 4 * spread);   // the distances (stop 1.5×, trail, trims) never inside 6 spreads: the spread would eat the stack
             // 4. the STACK: trail / flip / trim
             var stack = v.Pos.Where(p => Stack.Contains(p.Ticket)).ToList();
             if (stack.Count == 0) { TrailPx = BestPx = double.NaN; trailHit = flipping = false; StackTrims = 0; }
@@ -242,7 +243,9 @@ namespace KeystoneMT5
                 int sd = stack[0].Dir; double lots = stack.Sum(p => p.Lots), avg = stack.Sum(p => p.Open * p.Lots) / Math.Max(1e-9, lots), px = sd > 0 ? v.Bid : ask, move = sd * (px - avg);
                 var big = stack.OrderByDescending(p => p.Lots).First();
                 if (trailHit || flipping) return new StepInAction { Kind = "CLOSE", Tag = trailHit ? "TRAIL" : "FLIP", Ticket = big.Ticket, Why = (trailHit ? "🚑 TRAIL" : "🚑 FLIP") + " — the next stacked leg " + big.Side + " " + big.Lots.ToString("0.##", IC) + " #" + big.Ticket + " closes (" + U(Pl(big)) + ")" };
-                if (d == -sd && tr.Strength >= s.StepInMinStrength)
+                if (!double.IsNaN(atr5) && move <= -s.StepInStopAtr * atr5)
+                { flipping = true; if (Ep != null) Ep.Flips++; return new StepInAction { Kind = "CLOSE", Tag = "FLIP", Ticket = big.Ticket, Why = "🚑 STACK STOP — the stack is " + (-move).ToString("0.00", IC) + " against it (≥ " + s.StepInStopAtr.ToString("0.#", IC) + " × ATR M5 $" + atr5.ToString("0.00", IC) + ") → the stacked " + big.Side + " " + big.Lots.ToString("0.##", IC) + " #" + big.Ticket + " closes (" + U(Pl(big)) + "), the rest of the stack follows" }; }
+                if (d == -sd && tr.Strength >= Math.Max(s.StepInMinStrength, 75))
                 { flipping = true; if (Ep != null) Ep.Flips++; return new StepInAction { Kind = "CLOSE", Tag = "FLIP", Ticket = big.Ticket, Why = "🚑 FLIP — " + tr.Text + " turned against the stack → the stacked " + big.Side + " " + big.Lots.ToString("0.##", IC) + " #" + big.Ticket + " closes (" + U(Pl(big)) + "), the rest of the stack follows" }; }
                 if (!double.IsNaN(atr5))
                 {
@@ -281,7 +284,11 @@ namespace KeystoneMT5
             if (d == 0)
             {
                 Text = "🚑 STEP IN ACTIVE — no trend (" + (tr != null ? tr.Text : "—") + "): " + (Held ? "holding at net 0, waits for a trend" : "freezing at net 0");
-                if (!Held && stack.Count == 0 && Math.Abs(net) >= step - 1e-9) { Held = true; return new StepInAction { Kind = "ORDER", Tag = "HOLD", Dir = net > 0 ? -1 : 1, Lots = Math.Abs(net), Why = "🚑 HOLD — no trend (" + (tr != null ? tr.Text : "—") + ") → " + (net > 0 ? "SELL " : "BUY ") + Math.Abs(net).ToString("0.##", IC) + " = net 0: no more flip-flop in the chop, it waits for a trend" }; }
+                if (!Held && stack.Count == 0 && Math.Abs(net) >= step - 1e-9)
+                {   // first the net side's legs IN PROFIT close (the gross shrinks, the total is unchanged, no new spread); the rest is hedged by a new leg
+                    int nd = net > 0 ? 1 : -1; var win = v.Pos.Where(p => p.Dir == nd && Pl(p) > 0).OrderByDescending(p => Pl(p) / Math.Max(1e-9, p.Lots)).FirstOrDefault();
+                    if (win != null) { double cl = Math.Min(win.Lots, Math.Abs(net)); return new StepInAction { Kind = "CLOSE", Tag = "HOLD", Ticket = win.Ticket, Lots = cl >= win.Lots - 1e-9 ? 0 : Rnd(cl, step), Why = "🚑 HOLD — no trend (" + (tr != null ? tr.Text : "—") + ") → the " + win.Side + " " + Rnd(cl, step).ToString("0.##", IC) + " of #" + win.Ticket + " in profit closes (" + U(Pl(win) * cl / Math.Max(1e-9, win.Lots)) + ") toward net 0: fewer lots, the same total" }; }
+                    Held = true; return new StepInAction { Kind = "ORDER", Tag = "HOLD", Dir = net > 0 ? -1 : 1, Lots = Math.Abs(net), Why = "🚑 HOLD — no trend (" + (tr != null ? tr.Text : "—") + ") → " + (net > 0 ? "SELL " : "BUY ") + Math.Abs(net).ToString("0.##", IC) + " = net 0: no more flip-flop in the chop, it waits for a trend" }; }
                 return StepInAction.None(Text);
             }
             Held = false;
@@ -289,7 +296,8 @@ namespace KeystoneMT5
             string trendTxt = (d > 0 ? "UP " : "DOWN ") + tr.Strength;
             Text = "🚑 STEP IN ACTIVE — stacking with the trend (" + (d > 0 ? "UP" : "DOWN") + ")" + (Ep != null && Ep.Trimmed != 0 ? " • trimmed " + U(Ep.Trimmed) : "") + (!double.IsNaN(TrailPx) ? " • trailing at " + P(TrailPx) : "") + " • total " + U(v.Total) + " → goal " + U(Goal);
             if (tr.Strength < s.StepInMinStrength) return StepInAction.None(Text + " (the trend " + tr.Strength + " < " + s.StepInMinStrength + ": waits)");
-            if (Ep != null && Ep.Stacks >= s.StepInMaxStacks) return StepInAction.None(Text + " (" + Ep.Stacks + "/" + s.StepInMaxStacks + " stacks used)");
+            if (stack.Count > 0 && stack[0].Dir != d) return StepInAction.None(Text + " (the open stack is the other way: its stop / trail / flip goes first)");
+            if (Stack.Count >= s.StepInMaxStacks) return StepInAction.None(Text + " (" + Stack.Count + "/" + s.StepInMaxStacks + " stacked legs open)");
             double lvl, close;
             if (s.StepInTf >= 5) { var m5 = SwingM5(v.M1); lvl = d > 0 ? m5.Item1 : m5.Item2; close = m5.Item3; } else { lvl = d > 0 ? tr.SwingHi : tr.SwingLo; close = tr.Close; }
             if (double.IsNaN(lvl) || double.IsNaN(close) || !(d > 0 ? close > lvl : close < lvl) || (!double.IsNaN(usedSwing) && Math.Abs(lvl - usedSwing) < 1e-9)) return StepInAction.None(Text + " (waits for a new " + (s.StepInTf >= 5 ? "M5" : "M1") + " swing break " + (d > 0 ? "up" : "down") + ")");
@@ -297,7 +305,9 @@ namespace KeystoneMT5
             double netD = net * d, flip = Math.Max(0, -netD), have = Math.Max(0, netD);
             double need = Math.Max(0, Goal - v.Total) / (s.StepInMoveK * atr5 * v.PerPrice) - have;
             double cap = Math.Max(0, v.Equity - FloorEq) / (s.StepInRiskMoveK * atr5 * v.PerPrice) - have;   // the risk budget: the equity above the floor over RiskMoveK × ATR M5 against
-            double add = Math.Min(Math.Max(step, Math.Ceiling(Math.Max(0, need) / step - 1e-9) * step), Rnd(Math.Max(0, cap), step));
+            // one stack never risks more than StepInStackRisk % of the equity above the floor at its own stop (StepInStopAtr × ATR M5): a failed stack costs a slice, not the account
+            double perStack = s.StepInStackRisk > 0 ? s.StepInStackRisk / 100 * Math.Max(0, v.Equity - FloorEq) / (s.StepInStopAtr * atr5 * v.PerPrice) : 1e9;
+            double add = Math.Min(Math.Min(Math.Max(step, Math.Ceiling(Math.Max(0, need) / step - 1e-9) * step), Rnd(Math.Max(0, cap), step)), Rnd(Math.Max(0, perStack), step));
             double lotsO = Rnd(flip + Math.Max(0, add), step);
             double room = MarginRoom(v.Equity, v.Margin, v.MarginPerLot, MinLevel(v.Simulated, v.StopOutPct));
             string capWhy = "";
@@ -306,8 +316,8 @@ namespace KeystoneMT5
             usedSwing = lvl;
             if (lotsO < step - 1e-9 || (flip <= 0 && add < step - 1e-9)) return StepInAction.None(Text + " — no room to stack" + (capWhy != "" ? capWhy : cap < step ? " (the risk budget above the floor $" + FloorEq.ToString("N0", IC) + " is used)" : ""));
             if (Ep != null) Ep.Stacks++;
-            return new StepInAction { Kind = "ORDER", Tag = "STACK", Dir = d, Lots = lotsO, Why = "🚑 STACK " + (Ep != null ? Ep.Stacks : 1) + "/" + s.StepInMaxStacks + " " + (d > 0 ? "BUY " : "SELL ") + lotsO.ToString("0.##", IC) + " — trend " + trendTxt + ", the " + (s.StepInTf >= 5 ? "M5" : "M1") + " close " + P(close) + " broke the swing " + P(lvl)
-                + (flip > 0 ? " · flips the net " + net.ToString("+0.##;−0.##", IC) + " to the trend's side" : "") + " · needs " + U(Goal - v.Total) + " to the goal in " + s.StepInMoveK.ToString("0.#", IC) + " × ATR M5 ($" + atr5.ToString("0.00", IC) + ") · risk budget " + (have + Math.Max(0, cap)).ToString("0.##", IC) + " net lots above the floor $" + FloorEq.ToString("N0", IC) + capWhy };
+            return new StepInAction { Kind = "ORDER", Tag = "STACK", Dir = d, Lots = lotsO, Why = "🚑 STACK " + (Ep != null ? Ep.Stacks : 1) + " (" + (Stack.Count + 1) + "/" + s.StepInMaxStacks + " open) " + (d > 0 ? "BUY " : "SELL ") + lotsO.ToString("0.##", IC) + " — trend " + trendTxt + ", the " + (s.StepInTf >= 5 ? "M5" : "M1") + " close " + P(close) + " broke the swing " + P(lvl)
+                + (flip > 0 ? " · flips the net " + net.ToString("+0.##;−0.##", IC) + " to the trend's side" : "") + " · needs " + U(Goal - v.Total) + " to the goal in " + s.StepInMoveK.ToString("0.#", IC) + " × ATR M5 ($" + atr5.ToString("0.00", IC) + ") · risk budget " + (have + Math.Max(0, cap)).ToString("0.##", IC) + " net lots above the floor $" + FloorEq.ToString("N0", IC) + (s.StepInStackRisk > 0 ? ", ≤ " + s.StepInStackRisk.ToString("0", IC) + " % of it at this stack's stop" : "") + capWhy };
         }
     }
 }

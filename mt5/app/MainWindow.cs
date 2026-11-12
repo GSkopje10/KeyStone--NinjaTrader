@@ -18,7 +18,7 @@ namespace KeystoneMT5
 {
     public sealed partial class MainWindow : Window
     {
-        public const string Build = "SpasiX • BUILD 2026-11-09m";
+        public const string Build = "SpasiX • BUILD 2026-11-13n";   // 09n: 🚑 STEP IN (the iteration handed to a trend-stacking manager when a basket is deep; simulated = may blow, MT5 = opt-in, typed STEP IN)
         static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         static SolidColorBrush B(string hex) { return Sx.B(hex); }
         static readonly SolidColorBrush Bg = Sx.Bg, Panel = Sx.Panel, Card = Sx.Card, Line = Sx.Line, Text = Sx.Text, Muted = Sx.Muted,

@@ -27,6 +27,7 @@ namespace KeystoneMT5
         FrameworkElement BuildAuto()
         {
             aset = AutoSettings.Load(Get(AKey, Get("auto." + Mode, ""))); if (!Virtual) aset.TrendStack = false;   // 🚀 09e: the experiment never on an MT5 account
+            if (Environment.GetEnvironmentVariable("SPASIX_TEST_STEPIN") == "1") { aset.StepIn = true; if (!Virtual) aset.StepInRisk = AutoSettings.StepInLiveRisk; }   // screens.sh only: the 🚑 STEP IN section open (display; nothing confirmed, nothing sent)
             // ★ the tested defaults (user's request, once per window): the boxes open with ★ SAFE HEDGE's values — every box can still be changed
             // (a window whose automation was running keeps the settings it ran with)
             // 🛡 the new default (user's request): DEFENDER once per window, sized from the balance (a running automation keeps its settings — pick it in STRATEGY)
@@ -602,7 +603,7 @@ namespace KeystoneMT5
                 return;
             }
             bool broke = !auto.Running && HedgeAuto.IsBlowReason(auto.StopReason), low = open == 0 && bal < 0.1 * start && (auto.Running || wasOn);
-            bool siBlown = open == 0 && auto.StepIns.Count(x => x.Blown) > aSiBlowSeen; if (siBlown) aSiBlowSeen = auto.StepIns.Count(x => x.Blown);   // 🚑 09n: a step-in that blew (a stop-out) restarts the DEMO too
+            bool siBlown = open == 0 && bal < 0.9 * start && auto.StepIns.Count(x => x.Blown) > aSiBlowSeen; aSiBlowSeen = Math.Max(aSiBlowSeen, siBlown || broke || low ? auto.StepIns.Count(x => x.Blown) : aSiBlowSeen);   // 🚑 09n: a step-in that blew (a stop-out) restarts the DEMO too
             if (!(broke || low || siBlown)) return;
             aRebornAt = DateTime.Now;
             if (open > 0)
@@ -677,6 +678,12 @@ namespace KeystoneMT5
             List<Mt5Position> ps; lock (broker.State.Gate) ps = broker.State.Positions.Where(p => string.Equals(p.Symbol, "XAUUSD", StringComparison.OrdinalIgnoreCase)).ToList(); if (ps.Count == 0) return;
             aTestIter = true; var f = ps.OrderBy(p => p.Time).First(); var it = new AutoIteration { N = auto.Iterations.Count + 1, Start = f.Time, FirstDir = f.Side, Buys = ps.Count(p => p.Dir > 0), Sells = ps.Count(p => p.Dir < 0), Manual = true };
             auto.Iterations.Add(it); auto.Current = it; auto.Version++;
+            if (Environment.GetEnvironmentVariable("SPASIX_TEST_STEPIN") == "1")
+            {   // screens.sh only: the banner as it looks with 🚑 STEP IN active (the manager's own text; nothing is sent — the automation is not running)
+                double bal; lock (broker.State.Gate) bal = broker.State.Account.Balance; var v = new StepInView { Pos = ps, Total = -812.3, Target = 16, Bid = 3986, Ask = 3986.2, PerPrice = 100, Balance = bal, Equity = bal - 812, Simulated = Virtual, Now = it.Start.AddMinutes(150) };
+                auto.SI.Activate(aset, it.N, v, it.Start, "the basket −$812.30 ≤ −8 × the target ($128)", "test"); auto.SI.Ep.Trimmed = 42.1;
+                auto.StepInText = "🚑 STEP IN ACTIVE — stacking with the trend (DOWN) • trimmed +$42.10 • trailing at 3,986.40 • total −$812.30 → goal +$16.00";
+            }
         }
         void ASizePreview()
         {
@@ -1259,7 +1266,12 @@ namespace KeystoneMT5
         List<string> AutoStepInLines()
         {
             var L = new List<string>(); var eps = Sim ? auto.StepIns.ToList() : aSi.ToList();
-            if (eps.Count == 0 && !(auto.Set ?? aset).StepIn) return L;
+            if (eps.Count == 0 && Environment.GetEnvironmentVariable("SPASIX_TEST_STEPIN") == "1")
+            {   // screens.sh only: sample episodes to see the panel (display, never saved)
+                var t = DateTime.Today.AddHours(9); Func<string, int, double, double, double, string, double, StepInEpisode> E = (m, n, x0, worst, res, o, alone) => new StepInEpisode { Mode = m, Iter = n, At = t.AddHours(n), End = t.AddHours(n + 2), Target = 50, Total0 = x0 * 50, X0 = x0, Pct0 = x0 * 50 / 80, Minutes0 = 120, Worst = worst, Result = res, Outcome = o, Stacks = 3, Trims = 2, Alone = alone, AloneReason = alone < -1000 ? "HARD STOP" : "RESCUE BE" };
+                eps = new List<StepInEpisode> { E("SIM", 1, -8.2, -598, 53.9, "GREEN", 13.5), E("SIM", 3, -8.1, -1706, 88.1, "GREEN", 15.2), E("SIM", 38, -8.3, -8566, -8641, "BLOWN", 5.5), E("LIVE", 83, -9.0, -900, 51.2, "GREEN", -4707.9) };
+            }
+            if (eps.Count == 0 && !(auto.Running ? auto.Set : aset).StepIn) return L;
             foreach (var g in new[] { "LIVE", "SIM" }) { var l = eps.Where(e => e.Mode == g).ToList(); if (l.Count == 0 && !(g == (Virtual ? "SIM" : "LIVE"))) continue; L.AddRange(StepInStats.Of(l).Lines(g == "LIVE" ? "🚑 STEP IN — LIVE (MT5)" : "🚑 STEP IN — SIMULATED")); }
             foreach (var e in eps.AsEnumerable().Reverse().Take(12)) L.Add(string.Format(IC, "   #{0,-4} {1:dd MMM HH:mm}  at {2,10} ({3,5:0.0}×, {4,4:0.#} % of the balance, {5,4:0} min open)  worst {6,10}  {7,-6} {8,10}  stacks {9} trims {10} cuts {11}{12}",
                 e.Iter, e.At, Signed(e.Total0, "USD"), e.X0, -e.Pct0, e.Minutes0, Signed(e.Worst, "USD"), e.Outcome, double.IsNaN(e.Result) ? "open" : Signed(e.Result, "USD"), e.Stacks, e.Trims, e.Cuts, double.IsNaN(e.Alone) ? "" : "  · alone " + Signed(e.Alone, "USD") + " (" + e.AloneReason + ")"));

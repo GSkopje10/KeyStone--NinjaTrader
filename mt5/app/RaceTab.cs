@@ -153,8 +153,8 @@ namespace KeystoneMT5
         {
             if (l.Br == null || l.StartBalance <= 0) return; double bal, eq; int open; DateTime now;
             lock (l.Br.State.Gate) { bal = l.Br.State.Account.Balance; eq = l.Br.State.Account.Equity; open = l.Br.State.Positions.Count; now = l.Br.State.ServerNow > DateTime.MinValue ? l.Br.State.ServerNow : DateTime.Now; }
-            bool broke = !l.Eng.Running && HedgeAuto.IsBlowReason(l.Eng.StopReason), low = open == 0 && bal < 0.1 * l.StartBalance, siBlown = open == 0 && l.Eng.StepIns.Count(x => x.Blown) > l.StepBlowSeen;   // 🚑 09n
-            if (siBlown) l.StepBlowSeen = l.Eng.StepIns.Count(x => x.Blown);
+            bool broke = !l.Eng.Running && HedgeAuto.IsBlowReason(l.Eng.StopReason), low = open == 0 && bal < 0.1 * l.StartBalance, siBlown = open == 0 && bal < 0.9 * l.StartBalance && l.Eng.StepIns.Count(x => x.Blown) > l.StepBlowSeen;   // 🚑 09n
+            if (siBlown || broke || low) l.StepBlowSeen = l.Eng.StepIns.Count(x => x.Blown);
             if (!(broke || low || siBlown)) return;
             if (open > 0) { l.Br.Command("CLOSEALL", new object[] { l.Set.Symbol, "ALL" }); return; }
             l.Blowups++; lock (l.Br.State.Gate) l.Br.Acct.SetBalance(l.StartBalance, now); l.PeakEq = l.StartBalance;

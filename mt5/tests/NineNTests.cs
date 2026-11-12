@@ -31,17 +31,17 @@ public static class NineNTests
     static SimSpec Gold() { return new SimSpec { Name = "XAUUSD", Digits = 2, Point = 0.01, Contract = 100, TickValue = 1, TickSize = 0.01, VolMin = 0.01, VolStep = 0.01, VolMax = 100, NyOffsetHours = -7 }; }
 
     // a chop that drives a flip-flopping basket deep, then a down trend with swings (downBars), then a rally of rallyStep a minute
-    static Tuple<HedgeAuto, SimBroker, string> RunSim(int downBars, double rallyStep, double bal, int lev, double gap = 0, double moveK = 2)
+    static Tuple<HedgeAuto, SimBroker, string> RunSim(int downBars, double rallyStep, double bal, int lev, double gap = 0, double moveK = 2, double stopOut = 50, double stackRisk = 20)
     {
         var chop = Enumerable.Range(0, 180).Select(i => Math.Round(4000 + 6 * Math.Sin(i * 2 * Math.PI / 14), 2)).ToList(); var down = new List<double>(); double p = chop[chop.Count - 1];
         for (int i = 0; i < downBars; i++) { p += (i % 6 >= 4) ? 0.7 : -1.0; down.Add(Math.Round(p, 2)); }
         var up = new List<double>(); for (int i = 0; i < 160; i++) { p += rallyStep + (i == 0 ? gap : 0); up.Add(Math.Round(p, 2)); }
         var warm = Path0(Day0.AddHours(10), 4000, Enumerable.Range(0, 260).Select(i => 4000 + Math.Sin(i / 7.0) * 0.8));
         var path = warm.Concat(Path0(Day1, 4000, Enumerable.Repeat(4000.0, 5).Concat(chop).Concat(down).Concat(up))).ToList();
-        var sb = new SimBroker(); sb.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = bal, Kind = "STANDARD", FixedSpread = 10, Leverage = lev, StopOutPct = 50 }, Gold(), path);
+        var sb = new SimBroker(); sb.Load(new SimSettings { Symbol = "XAUUSD", From = Day1, To = Day1, Balance = bal, Kind = "STANDARD", FixedSpread = 10, Leverage = lev, StopOutPct = stopOut }, Gold(), path);
         var s = new AutoSettings { Symbol = "XAUUSD", Tf = 1, EntryLots = 0.1, AddLots = 0.2, Target = 30, FirstDir = "SELL", HedgeMode = "PRICE", HedgePrice = 4, HedgeSize = "FIXED", NextStart = "PAUSE", PauseSec = 99999, Swing = false, Lookback = 1, Rolling = false, TrackManual = false, OnManual = "ADOPT",
-            Rescue = false, HardFloat = 0, HardMargin = 0, ExitGuard = false, StepIn = true, StepInX = 4, StepInMin = 0, StepInRisk = 100, StepInFloor = 0, StepInMoveK = moveK };
-        var au = new HedgeAuto(); au.Send = (c, a, l) => sb.Command(c, a); sb.OnTickHook = () => au.Step(sb); string chk = au.Check(sb, s); if (chk == "") au.Start(sb, s, false);
+            Rescue = false, HardFloat = 0, HardMargin = 0, ExitGuard = false, StepIn = true, StepInX = 4, StepInMin = 0, StepInRisk = 100, StepInFloor = 0, StepInMoveK = moveK, StepInStackRisk = stackRisk };
+        var au = new HedgeAuto(); au.StopOutPct = stopOut; au.Send = (c, a, l) => sb.Command(c, a); sb.OnTickHook = () => au.Step(sb); string chk = au.Check(sb, s); if (chk == "") au.Start(sb, s, false);
         sb.Playing = true; sb.Speed = 60; for (int k = 0; k < 40000 && !sb.Ended && au.StepIns.Count == 0; k++) sb.Advance(0.25);
         if (Environment.GetEnvironmentVariable("SIDBG") == "1") { foreach (var lg in au.Log) Console.WriteLine("  LOG " + lg); }
         return Tuple.Create(au, sb, chk);
@@ -65,7 +65,7 @@ public static class NineNTests
                 "🚑 floor: 100 % = $0 (may blow), 50 % of $10,000 = $5,000, a $ floor wins; goal: breakeven + the target / breakeven");
         }
         // ---------------------------------------------------------------- 2. trend-side sizing
-        var S = new AutoSettings { StepIn = true, Target = 10 };
+        var S = new AutoSettings { StepIn = true, Target = 10, StepInStackRisk = 0 };   // 0 = no per-stack cap (the sizing alone); the default 20 % is checked below
         {
             var pos = new[] { Leg(1, "BUY", 0.10, 4004, -35, t0.AddMinutes(-80)), Leg(2, "SELL", 0.10, 3998, -25, t0.AddMinutes(-70)), Leg(3, "BUY", 0.05, 4006, -27, t0.AddMinutes(-60)) };   // net +0.05
             var v = View(-120, pos, Up()); var m = Active(S, v); var a = m.Decide(S, v);
@@ -79,7 +79,7 @@ public static class NineNTests
             // the risk budget: the equity above the floor over 3 × ATR M5 against → (2,000 − 0) / (3 × 2 × 100) = 3.33 net lots
             var vb = View(-1500, new[] { Leg(1, "BUY", 0.10, 4010, -1500, t0) }, Up(), 2000); var mb = Active(S, vb); var b = mb.Decide(S, vb);
             Check(b.Kind == "ORDER" && Eq(b.Lots, 3.23), "🚑 risk budget: a $1,500 hole needs 3.775 lots, the whole $2,000 equity over 3 × ATR M5 allows 3.33 net (0.10 held) → BUY 3.23", b.Lots + " " + b.Why);
-            var S50 = new AutoSettings { StepIn = true, Target = 10, StepInRisk = 50 }; var mh = Active(S50, vb); var bh = mh.Decide(S50, vb);
+            var S50 = new AutoSettings { StepIn = true, Target = 10, StepInRisk = 50, StepInStackRisk = 0 }; var mh = Active(S50, vb); var bh = mh.Decide(S50, vb);
             Check(Eq(mh.FloorEq, 1000) && bh.Kind == "ORDER" && Eq(bh.Lots, 1.56), "🚑 MAX RISK 50 %: the floor $1,000 → budget $1,000 / $600 = 1.66 net (0.10 held) → BUY 1.56", bh.Lots + " floor " + mh.FloorEq);
             // the margin guard: never under 100 % after the order (the broker's free margin), an MT5 account also ≥ 1.5 × its stop-out level (here 80 % → 120 %)
             double rs = StepInManager.MarginRoom(2000, 500, 800, StepInManager.MinLevel(true, 80)), rl = StepInManager.MarginRoom(2000, 500, 800, StepInManager.MinLevel(false, 80));
@@ -88,6 +88,8 @@ public static class NineNTests
             Check(Eq(StepInManager.MinLevel(false, 80), 120) && Eq(StepInManager.MinLevel(true, 80), 100) && Eq(StepInManager.MinLevel(false, 50), 100) && Math.Abs(rs - 1.875) < 1e-9 && Math.Abs(rl - (2000 / 1.2 - 500) / 800) < 1e-9 && bl.Kind == "ORDER" && Eq(bl.Lots, 1.45) && bl.Why.Contains("margin guard") && Eq(bs2.Lots, 1.87)
                 && (vl.Equity / (vl.Margin + bl.Lots * vl.MarginPerLot) * 100) >= 120 - 1e-6,
                 "🚑 margin guard: the order is cut so the margin level stays ≥ 100 % (the broker's free margin) and on an MT5 account ≥ 1.5 × the stop-out level (80 % → 120 %): 3.23 → 1.45 lots live, 1.87 simulated", bl.Lots + " " + bs2.Lots + " " + rl);
+            var S20 = new AutoSettings { StepIn = true, Target = 10 }; var m20 = Active(S20, vb); var b20 = m20.Decide(S20, vb);
+            Check(Eq(S20.StepInStackRisk, 20) && b20.Kind == "ORDER" && Eq(b20.Lots, 1.33) && b20.Why.Contains("≤ 20 %"), "🚑 the default per-stack cap: one stack risks ≤ 20 % of the equity above the floor at its stop (1.5 × ATR M5): 20 % × $2,000 / $300 = 1.33 lots", b20.Lots + " " + b20.Why);
             var vm = View(-1500, new[] { Leg(1, "BUY", 0.10, 4010, -1500, t0) }, Up(), 2000); vm.MaxOrder = 1; var mm = Active(S, vm); var bm = mm.Decide(S, vm);
             Check(Eq(bm.Lots, 1) && bm.Why.Contains("max 1 lots"), "🚑 the bridge's MaxLotsPerOrder caps one order", bm.Lots.ToString(IC));
             var vw = View(-120, pos, Up(50)); var mw = Active(S, vw); var w = mw.Decide(S, vw);
@@ -184,9 +186,9 @@ public static class NineNTests
             var r1 = RunSim(140, 1.8, 1500, 100); var e1 = r1.Item1.StepIns.FirstOrDefault();
             Check(r1.Item3 == "" && e1 != null && e1.Mode == "SIM" && e1.X0 <= -4 && e1.Stacks >= 1 && r1.Item1.Trades.Any(t => (t.Why ?? "").StartsWith("🚑 STACK")) && e1.Outcome == "GREEN" && e1.Result >= 0.5 * e1.Target && r1.Item1.Iterations[0].Reason == "🚑 STEP IN GOAL",
                 "🚑 simulated recovery: a chop drove the basket to " + (e1 == null ? "—" : e1.X0.ToString("0.0", IC)) + "× the target, STEP IN froze it at net 0 (HOLD), then stacked SELL with the down trend (" + (e1 == null ? "—" : e1.Stacks + " stacks") + ") and closed at the goal " + (e1 == null ? "" : e1.Result.ToString("+0.00", IC)), e1 == null ? r1.Item3 : e1.Csv());
-            var r2 = RunSim(4, 2, 1500, 500, 40, 0.5); var au = r2.Item1; var sb = r2.Item2; var e2 = au.StepIns.FirstOrDefault(); int so; double bal2; lock (sb.State.Gate) { so = sb.State.Deals.Count(d => d.Reason == "STOPOUT"); bal2 = sb.State.Account.Balance; }
+            var r2 = RunSim(4, 2, 1500, 500, 120, 0.5, 150, 0); var au = r2.Item1; var sb = r2.Item2; var e2 = au.StepIns.FirstOrDefault(); int so; double bal2; lock (sb.State.Gate) { so = sb.State.Deals.Count(d => d.Reason == "STOPOUT"); bal2 = sb.State.Account.Balance; }
             Check(e2 != null && so > 0 && e2.Blown && e2.Outcome == "BLOWN" && e2.Stacks >= 1 && StepInStats.BlowCtx(null, e2).StartsWith("stepin,") && StepInStats.BlowCtx(null, e2).EndsWith(",BLOWN") && StepInStats.Of(au.StepIns).Blown == 1,
-                "🚑 simulated blow-up (MOVE × 0.5 = bigger stacks): stacked SELL, then a $40 gap up against the stack → the broker's stop-out (" + so + " legs, balance $" + bal2.ToString("0", IC) + ") → the episode is recorded BLOWN with its context for blowups-*.csv (" + (e2 == null ? "" : StepInStats.BlowCtx(null, e2)) + ")", e2 == null ? "no episode" : e2.Csv() + " so " + so);
+                "🚑 simulated blow-up (MOVE × 0.5, no per-stack cap = bigger stacks, a broker stop-out at 150 %): stacked SELL, then a $120 gap up against the stack → the broker's stop-out (" + so + " legs, balance $" + bal2.ToString("0", IC) + ") → the episode is recorded BLOWN with its context for blowups-*.csv (" + (e2 == null ? "" : StepInStats.BlowCtx(null, e2)) + ")", e2 == null ? "no episode" : e2.Csv() + " so " + so);
             // 💥 AUTO RESTART (as the DEMO / RACE do it): the balance back to the start by a balance deal, the automation again — STEP IN armed again
             lock (sb.State.Gate) sb.Account.SetBalance(1500, sb.State.ServerNow); if (au.Running) au.Stop("💥 blow-up: restart"); var s2 = au.Set.Copy(); string chk2 = au.Check(sb, s2); if (chk2 == "") au.Start(sb, s2, false); double balR; lock (sb.State.Gate) balR = sb.State.Account.Balance;
             Check(chk2 == "" && au.Running && au.Set.StepIn && !au.SI.Active && au.StepIns.Count == 1 && Eq(balR, 1500), "🚑 after the reset ($1,500 again) the automation starts again with STEP IN armed — the blown episode stays in the statistics", chk2 + " " + balR);
