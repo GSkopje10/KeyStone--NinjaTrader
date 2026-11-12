@@ -9739,10 +9739,13 @@ namespace NinjaTrader.NinjaScript
             sb.Append("story.csv                         time_ny,text — the 📖 STORY timeline (compass changes, absorption, big prints, level breaks, trapped zones, setups)\n");
             sb.Append("compass.csv                       time_ny,symbol,state(+1 buyers / −1 sellers / 0 balanced),score(−100…+100) — one reading every 10 s\n");
             sb.Append("executions/<account>/<day>.csv    the 🧾 EXECUTIONS journal days as saved (fills → iterations)\n");
+            sb.Append("diagnostics/KeyStone.log          the last 2 MB of Studio\\KeyStone.log (every Drawdown / Liquidation / Trailing item NinjaTrader reported is logged once)\n");
+            sb.Append("diagnostics/CommissionRates.txt   the per-side commission learned per account\n");
+            sb.Append("diagnostics/funded-peaks.txt      the funded peak / floor tracking of the chosen accounts: their AccountPool.txt lines (peak, low, funded since, trailing type) + pk.sync.<account> (the last ✎ SYNC with Tradovate's DRAWDOWN AUTO)\n");
             if (notes != null && notes.Count > 0) { sb.Append("\nSKIPPED / NOTES:\n"); foreach (var n in notes) sb.Append("  • " + n + "\n"); }
             return sb.ToString();
         }
-        public static string Build(string folder, IList<string> syms, IList<DateTime> days, IList<string> accounts, string storyCsv, string compassCsv, string outZip, Action<string> progress = null)
+        public static string Build(string folder, IList<string> syms, IList<DateTime> days, IList<string> accounts, string storyCsv, string compassCsv, string outZip, Action<string> progress = null, IList<Tuple<string, string, long>> files = null, IList<Tuple<string, string>> texts = null)
         {
             var entries = new List<Tuple<string, byte[]>>(); var notes = new List<string>(); Action<string> pr = m => { if (progress != null) try { progress(m); } catch { } };
             foreach (var sym in syms ?? new List<string>())
@@ -9771,6 +9774,12 @@ namespace NinjaTrader.NinjaScript
                 int nx = 0; foreach (var d in days ?? new List<DateTime>()) { var p = Path.Combine(folder ?? "", "Executions", acc, d.ToString("yyyy-MM-dd", IC) + ".csv"); if (File.Exists(p)) { entries.Add(Tuple.Create("executions/" + acc + "/" + Path.GetFileName(p), File.ReadAllBytes(p))); nx++; } }
                 if (nx == 0) notes.Add("no 🧾 EXECUTIONS days saved for " + acc);
             }
+            foreach (var f in files ?? new List<Tuple<string, string, long>>())
+            {   // (the name in the zip, the source file, the most bytes to keep from its END; 0 = all)
+                try { if (!File.Exists(f.Item2)) { notes.Add("no " + Path.GetFileName(f.Item2) + " yet"); continue; } var b = File.ReadAllBytes(f.Item2); if (f.Item3 > 0 && b.Length > f.Item3) b = b.Skip((int)(b.Length - f.Item3)).ToArray(); entries.Add(Tuple.Create(f.Item1, b)); }
+                catch (Exception e) { notes.Add(Path.GetFileName(f.Item2) + ": " + e.Message); }
+            }
+            foreach (var t in texts ?? new List<Tuple<string, string>>()) { if (string.IsNullOrEmpty(t.Item2)) notes.Add("nothing for " + t.Item1); else entries.Add(Tuple.Create(t.Item1, Encoding.UTF8.GetBytes(t.Item2))); }
             entries.Insert(0, Tuple.Create("README.txt", Encoding.UTF8.GetBytes(Readme(notes))));
             pr("writing the zip"); Directory.CreateDirectory(Path.GetDirectoryName(outZip)); KeystoneZip.Write(outZip, entries); pr("done");
             return outZip;
@@ -46773,7 +46782,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                 ofDock.Visibility = on ? Visibility.Visible : Visibility.Collapsed; tabs.Margin = on ? new Thickness(0, 0, 424, 0) : tabsMargin0; if (ofDualHost != null) ofDualHost.Margin = on ? new Thickness(0, 0, 424, 0) : new Thickness(0);
                 if (on && layerOf("OF.TAB", 1) != 1) { layerModes["OF.TAB"] = 1; saveWorkspace(); paintOfTab(); }   // opening the tab = the order flow ON (it was left OFF: an empty tab)
                 if (on) { var paOn = active; if (paOn != null && paOn.OfRun != null) paOn.OfRun(true); }
-                if (on) { ofDockUpdate(); ofDockTimer.Start(); } else ofDockTimer.Stop();
+                if (on) { ofForce = true; ofDockUpdate(); ofDockTimer.Start(); } else ofDockTimer.Stop();
                 // leaving the tab: the engine keeps running only where the trading chart's badge needs it
                 if (!on && !ofChartNeeds()) foreach (var p2 in panes) if (p2.OfRun != null) p2.OfRun(false);
                 paintOfBar(); renderAll();
@@ -46783,9 +46792,9 @@ namespace NinjaTrader.NinjaScript.AddOns
                 bool tOn = layerOf("OF.TAB", 1) != 1; layerModes["OF.TAB"] = tOn ? 1 : 0; saveWorkspace(); paintOfTab();
                 bool badge = ofChartNeeds(); var pa = active;
                 if (tOn) { if (pa != null && pa.OfRun != null) pa.OfRun(true); } else if (!badge) foreach (var p2 in panes) if (p2.OfRun != null) p2.OfRun(false);
-                ofDockUpdate(); renderAll();
+                ofForce = true; ofDockUpdate(); renderAll();
             };
-            Action<int, int, double, double, string> ofTake = null;
+            Func<int, int, double, double, string, bool> ofTake = null;
             ofTradeH = dir => { var pa0 = active; double tk0 = pa0 != null && pa0.Trader != null && pa0.Trader.Tick > 0 ? pa0.Trader.Tick : 0.25; bool br0 = ofBr.IsChecked == true; if (ofTake != null) ofTake(dir, ofQty, br0 ? layerOf("OF.STP", 40) * tk0 : 0, br0 ? layerOf("OF.TGT", 40) * tk0 : 0, ""); };
             sgFill.Click += delegate
             {   /* FILL ORDER: the order panel's fields only — nothing is sent */
@@ -46793,27 +46802,65 @@ namespace NinjaTrader.NinjaScript.AddOns
                 pa.OrderType.SelectedIndex = 0; pa.Qty.Text = pl.Qty.ToString(CultureInfo.InvariantCulture); pa.Sl.Text = pl.StopPts.ToString("0.##", CultureInfo.InvariantCulture); pa.Tp.Text = pl.TargetPts.ToString("0.##", CultureInfo.InvariantCulture);
                 vSub.Text = "✓ the order panel is filled: " + (pl.Dir > 0 ? "BUY " : "SELL ") + pl.Qty + " • stop " + fmt(pl.StopPts) + " pts • target " + fmt(pl.TargetPts) + " pts — press BUY / SELL on the 📈 CHART tab (nothing was sent)";
             };
-            sgTake.Click += delegate { var pl = ofPlanNow; if (pl == null || ofTake == null) return; var paT = active; if (paT == null || (pl.Symbol != "" && pl.Symbol != paT.Symbol)) { KBox(w, "NOT SENT • the card is for " + pl.Symbol + " but the chart is on " + (paT == null ? "nothing" : paT.Symbol) + ".", "ORDERFLOW • TRADE", MessageBoxButton.OK, MessageBoxImage.Warning); return; } ofTake(pl.Dir, pl.Qty, pl.StopPts, pl.TargetPts, "🎯 suggested by the ORDERFLOW signal: stop beyond " + pl.Level + " • target " + pl.TargetWhy); };
-            sgSkip.Click += delegate { if (ofPlanKey != "") ofSkipped.Add(ofPlanKey); sgCard.Visibility = Visibility.Collapsed; ofPlanNow = null; ofCardPlan = null; };
-            ofDockRefresh = delegate { ofStatsAt = DateTime.MinValue; ofDockUpdate(); };
+            sgTake.Click += delegate { var pl = ofPlanNow; if (pl == null || ofTake == null) return; var paT = active; if (paT == null || (pl.Symbol != "" && pl.Symbol != paT.Symbol)) { KBox(w, "NOT SENT • the card is for " + pl.Symbol + " but the chart is on " + (paT == null ? "nothing" : paT.Symbol) + ".", "ORDERFLOW • TRADE", MessageBoxButton.OK, MessageBoxImage.Warning); return; } var recT = paT.Hold.Current; int posT = paT.Trader.Position; try { if (liveWindow && paT.Link != null && paT.Link.Broker.Qty != 0) posT = paT.Link.Broker.Qty; } catch { } string agT = KeystoneFlowGate.AgainstPosition(pl.Dir, posT);
+                if (ofTake(pl.Dir, pl.Qty, pl.StopPts, pl.TargetPts, (recT != null ? "💡 setup #" + recT.Id + " • " : "💡 ") + "STOP LOSS " + fmt(pl.Stop) + " beyond " + (pl.Level ?? "").Split('|')[0] + " • TAKE PROFIT " + fmt(pl.Target) + " — " + pl.TargetWhy + (agT != "" ? "\n\n" + agT : "")) && recT != null && paT.Hold.Current == recT)
+                { var ck9 = ofClock(paT); var nw = ck9 != null ? ck9.Item2 : DateTime.Now; var rec = paT.Hold.End(nw, "taken", "sent through the chart's own " + (pl.Dir > 0 ? "BUY" : "SELL") + " (" + pl.Qty + " " + paT.Symbol + ")"); ofBookStatus(paT, rec, "taken"); paT.Story.Add(nw, "E|" + rec.Key, "🎯 " + paT.Hold.LastRemoved); } };
+            sgSkip.Click += delegate
+            {   // SKIP: the setup ends with its reason (📖 STORY, 📒 SETUPS, recent setups) — never a silent disappearance
+                var pa = active; if (ofPlanKey != "") ofSkipped.Add(ofPlanKey); sgCard.Visibility = Visibility.Collapsed; ofPlanNow = null; ofCardPlan = null;
+                if (pa != null && pa.Hold.Current != null) { var ck9 = ofClock(pa); var nw = ck9 != null ? ck9.Item2 : DateTime.Now; var rec = pa.Hold.End(nw, "skipped", "you pressed SKIP"); ofBookStatus(pa, rec, "skipped: you pressed SKIP"); pa.Story.Add(nw, "E|" + rec.Key, "🎯 " + pa.Hold.LastRemoved); }
+                renderAll();
+            };
+            ofDockRefresh = delegate { ofStatsAt = DateTime.MinValue; ofForce = true; ofDockUpdate(); };
+            sgWhyBtn.Click += delegate { var tb9 = ofTabBtns.FirstOrDefault(x => x.Item1 == "WHY"); if (tb9 != null) tb9.Item2.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); };
+            foreach (var cb9 in new[] { suRes, suSide, suTaken, suSrc }) cb9.SelectionChanged += delegate { if (ofDockRefresh != null) ofDockRefresh(); };
+            lnRetrain.Click += delegate { foreach (var p2 in panes) p2.OfLearnRows = null; ofProveMsg = "⟳ retrained " + DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture); if (ofDockRefresh != null) ofDockRefresh(); };
+            // 📜 PROVE FROM HISTORY: the same detectors walked forward over the saved real-tick days (TickCache) → setups-<SYM>-history.csv (labelled "history replay"); files only
+            lnProve.Click += delegate
+            {
+                var pa = active; if (pa == null || ofProving) return; ofProving = true; string sym = pa.Symbol; double tk0 = pa.Trader != null && pa.Trader.Tick > 0 ? pa.Trader.Tick : KeystoneMoveStudy.TickSize(sym), pv0 = KeystoneMoveStudy.PointValue(sym);
+                int minSt = KeystoneOfCardPlan.MinStopTicks(sym, layerOf("OF.MINSTOP", 0)), scT = Math.Max(4, layerOf("OF.SCALP", 12)); var disp = w.Dispatcher; ofProveMsg = "📜 replaying the saved tick days …";
+                System.Threading.Tasks.Task.Factory.StartNew(() =>
+                {
+                    var rows = new List<KeystoneOfSetupRow>(); int days = 0; string msg;
+                    try
+                    {
+                        var dl = Enumerable.Range(1, 60).Select(k => KeystoneTickLib.SessionOfTick(DateTime.Now).AddDays(-k)).Where(KeystoneTickLib.IsSessionDay).Take(30).ToList();
+                        foreach (var d in dl) { KeystoneTickDay m0; var tks = KeystoneTickLib.OrderFlowTicks(sfolder, sym, d, out m0); if (tks == null || tks.Count < 1000) continue; days++; rows.AddRange(KeystoneOfHistory.Replay(tks, sym, tk0, pv0, new KeystoneOfSettings(), minSt, scT)); disp.BeginInvoke(new Action(() => { ofProveMsg = "📜 " + days + " day(s) replayed …"; })); }
+                        var pth = Path.Combine(sfolder, "OrderFlow", "setups-" + sym + "-history.csv"); Directory.CreateDirectory(Path.GetDirectoryName(pth)); File.WriteAllText(pth, KeystoneOfSetupBook.Header + "\n" + string.Join("\n", rows.Select(KeystoneOfSetupBook.Line)) + "\n");
+                        msg = days == 0 ? "📜 no saved real-tick day for " + sym + " — download ticks in 📥 TICK LIBRARY to prove setups" : "📜 history replay: " + days + " day(s), " + rows.Count + " setups (labelled \"history replay\")";
+                    }
+                    catch (Exception ex) { msg = "📜 history replay failed: " + ex.Message; }
+                    disp.BeginInvoke(new Action(() => { ofProving = false; ofProveMsg = msg; foreach (var p2 in panes) p2.OfLearnRows = null; if (ofDockRefresh != null) ofDockRefresh(); }));
+                });
+            };
+            // ＋ ADD / － REDUCE / ✕ CLOSE: the chart's OWN buttons (each asks first) — no new order path
+            ofAdd.Click += delegate { var pa = active; if (pa == null || pa.Trader == null) return; int pq = pa.Trader.Position; try { if (liveWindow && pa.Link != null && pa.Link.Broker.Qty != 0) pq = pa.Link.Broker.Qty; } catch { } if (pq != 0 && ofTake != null) ofTake(Math.Sign(pq), ofQty, 0, 0, "＋ ADD to your " + (pq > 0 ? "LONG " : "SHORT ") + Math.Abs(pq)); };
+            ofRed.Click += delegate { var pa = active; if (pa == null || pa.Trader == null) return; int pq = pa.Trader.Position; try { if (liveWindow && pa.Link != null && pa.Link.Broker.Qty != 0) pq = pa.Link.Broker.Qty; } catch { } if (pq != 0 && ofTake != null) ofTake(-Math.Sign(pq), Math.Min(ofQty, Math.Abs(pq)), 0, 0, "－ REDUCE your " + (pq > 0 ? "LONG " : "SHORT ") + Math.Abs(pq)); };
+            ofClose.Click += delegate
+            {
+                var pa = active; if (pa == null || pa.Trader == null) return;
+                if (KBox(w, "✕ CLOSE the " + pa.Symbol + " position on the chart's account?\n\nThis presses the chart's own CLOSE (its usual rules apply).", "ORDERFLOW • CLOSE", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                if (pa.DoClose != null) pa.DoClose(); else paneActions(pa).Item2();
+            };
             ofTake = (dir, qtyT, stPT, tgPT, whyT) =>
             {
                 // the trade from the ORDERFLOW tab = the chart's own BUY / SELL (same armed account, same limits): asks first, then the chart opens
-                var pa = active; if (pa == null || pa.Trader == null || (pa.DoBuy == null && liveWindow)) return;   /* 11s: the BACKTEST STUDIO has no mini panel — its chart's own BUY / SELL (paneActions) */
-                if (liveWindow && (pa.Link == null || !pa.Link.Armed || !pa.Link.Connected || pa.Link.Locked)) { KBox(w, "LIVE TRADING DISABLED for " + pa.Symbol + "\n\nPress ARM REAL ORDERS on the 📈 CHART tab first (once per session).", "ORDERFLOW • TRADE", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+                var pa = active; if (pa == null || pa.Trader == null || (pa.DoBuy == null && liveWindow)) return false;   /* 11s: the BACKTEST STUDIO has no mini panel — its chart's own BUY / SELL (paneActions) */
+                if (liveWindow && (pa.Link == null || !pa.Link.Armed || !pa.Link.Connected || pa.Link.Locked)) { KBox(w, "LIVE TRADING DISABLED for " + pa.Symbol + "\n\nPress ARM REAL ORDERS on the 📈 CHART tab first (once per session).", "ORDERFLOW • TRADE", MessageBoxButton.OK, MessageBoxImage.Information); return false; }
                 double tick = pa.Trader.Tick > 0 ? pa.Trader.Tick : 0.25, pv = KeystoneMoveStudy.PointValue(pa.Symbol); bool br = stPT > 0 || tgPT > 0; int ofQtyT = Math.Max(1, qtyT);
                 double stP = stPT, tgP = tgPT, px = pa.Trader.Price;
                 string msg = (dir > 0 ? "▲ BUY " : "▼ SELL ") + ofQtyT + " CONTRACT" + (ofQtyT == 1 ? "" : "S") + " of " + pa.Symbol + " at market now (≈ " + fmt(px) + ")?\n\n" + ofQtyT + " × " + pa.Symbol + " = " + Cash(pv * ofQtyT) + " a point"
                     + (pa.Link != null && pa.Link.Armed ? " • account max " + pa.Link.MaxContracts : "")
-                    + (br ? "\n\nStop " + fmt(stP) + " pts → " + fmt(px - dir * stP) + "  (−" + Cash(stP * pv * ofQtyT) + ")\nTarget " + fmt(tgP) + " pts → " + fmt(px + dir * tgP) + "  (+" + Cash(tgP * pv * ofQtyT) + ")" : "\n\nNo stop / target — set them on the chart.") + (string.IsNullOrEmpty(whyT) ? "" : "\n\n" + whyT)
+                    + (br ? "\n\nSTOP LOSS " + fmt(stP) + " pts → " + fmt(px - dir * stP) + "  (−" + Cash(stP * pv * ofQtyT) +  ")\nTAKE PROFIT " + fmt(tgP) + " pts → " + fmt(px + dir * tgP) + "  (+" + Cash(tgP * pv * ofQtyT) + ")" : "\n\nNo stop / target — set them on the chart.") + (string.IsNullOrEmpty(whyT) ? "" : "\n\n" + whyT)
                     + (ofIndicated != 0 && ofIndicated != dir ? "\n\n⚠ The order flow points the OTHER way right now." : "") + (liveWindow ? "\n\nThe 📈 CHART tab opens to manage it." : "\n\nREPLAY (backtest account) • the chart opens to manage it.");
-                if (KBox(w, msg, "ORDERFLOW • TRADE", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                if (KBox(w, msg, "ORDERFLOW • TRADE", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return false;
                 if (ofViewOn && ofExitH != null) ofExitH();   // back to the trading chart first: the order goes out from there
                 pa.OrderType.SelectedIndex = 0; pa.Qty.Text = ofQtyT.ToString(CultureInfo.InvariantCulture); pa.Sl.Text = stP.ToString(CultureInfo.InvariantCulture); pa.Tp.Text = tgP.ToString(CultureInfo.InvariantCulture);
                 // 🛡 11u: send ONLY when the order panel now holds exactly what was confirmed (contracts + instrument)
-                int sentQ = Math.Max(1, Integer(pa.Qty, 1)); if (sentQ != ofQtyT) { KBox(w, "NOT SENT • the order panel holds " + sentQ + " contracts but you confirmed " + ofQtyT + " " + pa.Symbol + ".\n\nNothing was sent.", "ORDERFLOW • TRADE", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
-                if (pa.DoBuy == null) { paneActions(pa).Item1(dir); return; }
-                if (dir > 0) pa.DoBuy(); else pa.DoSell();
+                int sentQ = Math.Max(1, Integer(pa.Qty, 1)); if (sentQ != ofQtyT) { KBox(w, "NOT SENT • the order panel holds " + sentQ + " contracts but you confirmed " + ofQtyT + " " + pa.Symbol + ".\n\nNothing was sent.", "ORDERFLOW • TRADE", MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
+                if (pa.DoBuy == null) { paneActions(pa).Item1(dir); return true; }
+                if (dir > 0) pa.DoBuy(); else pa.DoSell(); return true;
             };
             ofBackBtn.Click += delegate { if (ofExitH != null) ofExitH(); };
             // ⚔ BULLS vs BEARS in the header's free top-right corner (the chart stays clean) • ☑ in INDICATORS • click = the ORDERFLOW view

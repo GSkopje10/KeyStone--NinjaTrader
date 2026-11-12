@@ -213,9 +213,11 @@ public static class FlowCompassTests
             var tk = new List<KeystoneOfTick>(); var st = KeystoneTickLib.SessionStart(day); for (int i = 0; i < 100; i++) tk.Add(new KeystoneOfTick { Time = st.AddSeconds(10 + i), Price = 20000 + i * 0.25, Size = 1, Side = 1, Quoted = true });
             KeystoneTickLib.Save(dir, "MNQ", day, tk, "TICKS", true); KeystoneOfSetupBook.SaveDay(dir, "MNQ", day, new[] { new KeystoneOfSetupRow { Time = day.AddHours(10), Symbol = "MNQ", Kind = "STACKED", Dir = 1, Entry = 1, Stop = 0.5, Target = 2 } });
             var zip = Path.Combine(dir, "exports", "keystone-export-test.zip"); var prog = new List<string>();
-            KeystoneOfExport.Build(dir, new[] { "MNQ" }, new[] { day }, new[] { "ACC1" }, "time_ny,text\n2026-03-09 10:00:00,x\n", "", zip, prog.Add);
+            File.WriteAllText(Path.Combine(dir, "KeyStone.log"), new string('x', 5000) + "END");
+            KeystoneOfExport.Build(dir, new[] { "MNQ" }, new[] { day }, new[] { "ACC1" }, "time_ny,text\n2026-03-09 10:00:00,x\n", "", zip, prog.Add, new[] { Tuple.Create("diagnostics/KeyStone.log", Path.Combine(dir, "KeyStone.log"), 1000L), Tuple.Create("diagnostics/CommissionRates.txt", Path.Combine(dir, "CommissionRates.txt"), 0L) }, new[] { Tuple.Create("diagnostics/funded-peaks.txt", "pk.sync.ACC1=2026-03-09 10:00") });
             var z = KeystoneZip.Read(zip); string rd = System.Text.Encoding.UTF8.GetString(z["README.txt"]);
             Check(z.ContainsKey("ticks/MNQ/2026-03-09.csv.gz") && z.ContainsKey("setups/setups-MNQ-2026-03-09.csv") && z.ContainsKey("story.csv") && !z.ContainsKey("compass.csv"), "the bundle: ticks, setups, story; an empty piece left out", string.Join(",", z.Keys));
+            Check(z.ContainsKey("diagnostics/KeyStone.log") && z["diagnostics/KeyStone.log"].Length == 1000 && System.Text.Encoding.UTF8.GetString(z["diagnostics/KeyStone.log"]).EndsWith("END") && z.ContainsKey("diagnostics/funded-peaks.txt") && rd.Contains("no CommissionRates.txt yet") && rd.Contains("funded-peaks.txt"), "diagnostics: the log's tail (capped), the funded peaks, a missing commission file noted");
             Check(rd.Contains("compass.csv") && rd.Contains("no compass readings yet") && rd.Contains("no 🧾 EXECUTIONS days saved for ACC1") && rd.Contains("no saved 1-minute candles for MNQ") && prog.Contains("done"), "README describes every file + notes the skipped pieces; progress reported");
         }
         // ---- 12. in-trade confidence + the battle map since the entry
