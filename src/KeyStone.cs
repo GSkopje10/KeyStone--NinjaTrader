@@ -9355,13 +9355,24 @@ namespace NinjaTrader.NinjaScript
         }
         // the chart chip / card title: the setup's id + time, so the same setup is recognisable ("#14 ▲ BUY 10 MNQ • 20:39 • R:R 2.2")
         public static string Chip(KeystoneOfSetupRecord r, KeystoneOfPlan p, string sym) { return r == null || p == null ? "" : "#" + r.Id + " " + (r.Dir > 0 ? "▲ BUY " : "▼ SELL ") + r.Qty + " " + sym + " • " + r.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + " • R:R " + KeystoneFlowGate.Rr(p).ToString("0.0", CultureInfo.InvariantCulture); }
+        // the PLANNED $ from the setup's ENTRY (fixed for the setup's life — never the distance from the current price)
+        public static double PlannedProfit(KeystoneOfSetupRecord r, double pv) { return r == null ? 0 : Math.Abs(r.Target - r.Entry) * pv * r.Qty; }
+        public static double PlannedLoss(KeystoneOfSetupRecord r, double pv) { return r == null ? 0 : Math.Abs(r.Entry - r.Stop) * pv * r.Qty; }
+        // where the price is vs the entry: "" at the entry; a small line when worse / better; missed = more than 25 % of the stop distance worse (no ✅ TAKE)
+        public static string EntryDrift(KeystoneOfSetupRecord r, double price, out bool missed)
+        {
+            missed = false; if (r == null || price <= 0) return ""; var IC = CultureInfo.InvariantCulture; double worse = r.Dir * (price - r.Entry), stopD = Math.Abs(r.Entry - r.Stop);
+            if (Math.Abs(worse) < 1e-9) return "";
+            if (worse > 0 && stopD > 0 && worse > 0.25 * stopD) { missed = true; return "⚠ entry missed — WAIT for a return to " + r.Entry.ToString("0.00", IC) + " (price now " + price.ToString("0.00", IC) + ")"; }
+            return "price now " + price.ToString("0.00", IC) + " (" + Math.Abs(worse).ToString("0.00", IC) + " pts " + (worse > 0 ? "worse" : "better") + " than the entry)";
+        }
         public static string Line(KeystoneOfSetupRecord r) { return (r.Id > 0 ? "#" + r.Id + " " : "") + r.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + "  " + (r.Dir > 0 ? "▲ " : "▼ ") + r.Kind + "  " + r.Result.ToUpperInvariant() + " — " + r.Reason; }
     }
     // 🚦 WHAT TO DO — exactly ONE verdict (✅ TAKE / ⏳ WAIT / ⛔ AVOID) with its reason. TAKE only with an offered card; the hard AVOIDs (in a trade at max,
     // news, no trades) are immediate; any other change of verdict must hold HoldSec (15 s) first and a reason is kept ≥ 10 s → no flicker.
     public sealed class KeystoneFlowVerdictInput
     {
-        public bool Proven; public int CardDir; public string LearnText = "";
+        public bool Proven, EntryMissed; public int CardDir; public string LearnText = "", MissedText = "";
         public bool CardOffered, InTradeAtMax, NewsLock, Quiet, AgainstFlow, AgainstPosition, HistorySkip; public string CardText = "", NewsText = "", AgainstText = "", RawWait = "", NearLevel = "", PositionText = "", HistoryText = "";
         public double SkippedRr = double.NaN; public int CompassState; public double CompassScore;
     }
@@ -9373,6 +9384,7 @@ namespace NinjaTrader.NinjaScript
         {
             var IC = CultureInfo.InvariantCulture;
             if (x.InTradeAtMax) return Tuple.Create("AVOID", "already in a trade at the account's max contracts" + (x.PositionText != "" ? " (" + x.PositionText + ")" : ""), true);
+            if (x.CardOffered && !x.AgainstPosition && x.EntryMissed) return Tuple.Create("WAIT", x.MissedText != "" ? x.MissedText : "the price to return to the entry", true);
             if (x.CardOffered && !x.AgainstPosition) return Tuple.Create("TAKE", x.CardText, true);
             if (x.CardOffered && x.AgainstPosition) return Tuple.Create("AVOID", "the offered setup is against your open position — " + x.PositionText, true);
             if (x.NewsLock) return Tuple.Create("AVOID", "high-impact news " + x.NewsText, true);

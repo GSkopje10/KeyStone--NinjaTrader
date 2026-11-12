@@ -106,6 +106,15 @@ public static class FlowCompassTests
             var h3 = new KeystoneOfCardHold { PointValue = 2 }; h3.Offer(new KeystoneOfSignal { Bar = 5, Dir = -1, Kind = "STACKED", Price = 100, Time = T0 }, new KeystoneOfPlan { Dir = -1, Qty = 5, Entry = 100, Stop = 102, Target = 96, StopPts = 2, TargetPts = 4 }, "MNQ", T0, 6);
             var p3 = new List<KeystoneOfTick> { new KeystoneOfTick { Time = T0.AddSeconds(3), Price = 102.25, Size = 1, Side = 1 }, new KeystoneOfTick { Time = T0.AddSeconds(6), Price = 99, Size = 1, Side = -1 } };
             h3.TouchAll(p3, p3.Count, T0.AddSeconds(6)); var r3 = h3.Check(T0.AddSeconds(6), 99, 6, 0); Check(r3.Item1 == "stopped" && r3.Item2.StartsWith("✖ STOP LOSS HIT −$20"), "the stop touched then back → resolved as a LOSS", r3.Item2);
+            {   // the PLANNED $ are fixed from the entry; the drift line; entry missed > 25 % of the stop distance
+                var h5 = new KeystoneOfCardHold(); h5.Offer(new KeystoneOfSignal { Bar = 5, Dir = -1, Kind = "STACKED", Price = 28268.75, Time = T0 }, new KeystoneOfPlan { Dir = -1, Qty = 4, Entry = 28268.75, Stop = 28287.75, Target = 28243.25, StopPts = 19, TargetPts = 25.5 }, "MNQ", T0, 6);
+                bool same = true; double p0 = KeystoneOfCardHold.PlannedProfit(h5.Current, 2), l0 = KeystoneOfCardHold.PlannedLoss(h5.Current, 2);
+                foreach (var px in new[] { 28268.75, 28270, 28260, 28275.5, 28250 }) { h5.Check(T0.AddSeconds(1), px, 6, 0); if (KeystoneOfCardHold.PlannedProfit(h5.Current, 2) != p0 || KeystoneOfCardHold.PlannedLoss(h5.Current, 2) != l0) same = false; }
+                Check(same && p0 == 204 && l0 == 152, "the planned $ (+$204 / −$152) never change with the price", p0 + " / " + l0);
+                bool m1, m2; string d1 = KeystoneOfCardHold.EntryDrift(h5.Current, 28267.5, out m1), d2 = KeystoneOfCardHold.EntryDrift(h5.Current, 28263, out m2);   /* a SELL: lower = worse */
+                Check(!m1 && d1 == "price now 28267.50 (1.25 pts worse than the entry)" && KeystoneOfCardHold.EntryDrift(h5.Current, 28270, out m1) == "price now 28270.00 (1.25 pts better than the entry)" && m2 && d2.StartsWith("⚠ entry missed — WAIT for a return to 28268.75"), "price vs the entry: worse by a little = a note; > 25 % of the stop = entry missed", d1 + " | " + d2);
+                Check(KeystoneFlowVerdict.Raw(new KeystoneFlowVerdictInput { CardOffered = true, EntryMissed = true, MissedText = d2 }).Item1 == "WAIT", "entry missed → WAIT, no ✅");
+            }
             var h4 = new KeystoneOfCardHold(); h4.Offer(s2, good, "MNQ", T0, 12); var r4 = h4.Check(T0.AddMinutes(10), 100, 30, 0); Check(r4.Item1 == "expired" && r4.Item2 == "expired after 10 min", "expires after 10 minutes with its reason");
         }
         // ---- 4. the verdict: TAKE only with a card, WAIT names its condition, AVOID reasons, no flicker, never contradicts the compass
