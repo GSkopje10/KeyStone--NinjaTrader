@@ -9055,6 +9055,604 @@ namespace NinjaTrader.NinjaScript
             return "";
         }
     }
+    // ================= 📊 BUILD 2026-11-12v — the CALM ORDERFLOW (display / analysis only: nothing here sends, sizes or places an order) =================
+    // 🎨 the order-flow palettes (🎨 template menu ▸ ORDERFLOW COLOURS): buyers / sellers / POC / value area / trapped / big players / neutral
+    public static class KeystoneOfPalette
+    {
+        public static readonly string[] Names = { "TEAL / CORAL", "CLASSIC green / red", "MONO high contrast" };
+        static readonly string[][] P = {
+            new[] { "#26C6DA", "#FF5C8A", "#FFC94D", "#5A6B85", "#FFB300", "#B388FF", "#9AA4B2" },
+            new[] { "#26D07C", "#FF4D5E", "#FFC94D", "#5A6B85", "#FFB300", "#B388FF", "#9AA4B2" },
+            new[] { "#F2F4F8", "#7D8796", "#FFD54F", "#4A5568", "#FFB300", "#C9B6FF", "#A0A8B5" } };
+        public static int Clamp(int i) { return i < 0 || i >= P.Length ? 0 : i; }
+        public static string Buy(int i) { return P[Clamp(i)][0]; }
+        public static string Sell(int i) { return P[Clamp(i)][1]; }
+        public static string Poc(int i) { return P[Clamp(i)][2]; }
+        public static string Va(int i) { return P[Clamp(i)][3]; }
+        public static string Trap(int i) { return P[Clamp(i)][4]; }
+        public static string Big(int i) { return P[Clamp(i)][5]; }
+        public static string Neutral(int i) { return P[Clamp(i)][6]; }
+    }
+    // 🧭 the FLOW COMPASS — ONE stable answer to "who is in control", from the REAL trades only: an EMA (τ = 60 s) of the signed volume over the volume
+    // (the flow) + the price's progress over its own 60-s EMA (the engine) → a score −100 … +100. HYSTERESIS: a side takes control only after the score stays past
+    // ±Enter (35) for ConfirmSec (20 s); it leaves (→ BALANCED) only below ±Exit (15); every state is held at least MinHoldSec (60 s). Every place that says who is
+    // in control reads this one object.
+    public sealed class KeystoneFlowCompass
+    {
+        public double TauSec = 60, Enter = 35, Exit = 15, ConfirmSec = 20, MinHoldSec = 60, FlowFull = 0.4, PriceFullTicks = 12;
+        public int State; public double Score; public DateTime Since = DateTime.MinValue, LastTime = DateTime.MinValue;
+        public readonly List<Tuple<DateTime, int, double>> Changes = new List<Tuple<DateTime, int, double>>();   // time, the new state, the score then
+        double eS, eV, eP, lastPx; bool init; DateTime pendSince = DateTime.MinValue; int pendDir; object src; int done;
+        public void Reset() { State = 0; Score = 0; Since = LastTime = DateTime.MinValue; Changes.Clear(); eS = eV = eP = lastPx = 0; init = false; pendSince = DateTime.MinValue; pendDir = 0; src = null; done = 0; }
+        void Decay(DateTime t)
+        {
+            if (LastTime == DateTime.MinValue) { LastTime = t; return; }
+            double dt = (t - LastTime).TotalSeconds; if (dt <= 0) return; double f = Math.Exp(-dt / TauSec);
+            eS *= f; eV *= f; if (init) eP += (lastPx - eP) * (1 - f); LastTime = t;
+        }
+        public void Feed(DateTime t, double price, long size, int side, double tick)
+        {
+            Decay(t); if (!init) { init = true; eP = price; if (Since == DateTime.MinValue) Since = t; }
+            eS += side > 0 ? size : -size; eV += size; lastPx = price; Step(t, tick);
+        }
+        public void Advance(DateTime now, double tick) { if (!init) return; Decay(now); Step(now, tick); }
+        void Step(DateTime t, double tick)
+        {
+            double sf = eV > 1e-6 ? Math.Max(-1, Math.Min(1, eS / eV / FlowFull)) : 0;
+            double sp = tick > 0 ? Math.Max(-1, Math.Min(1, (lastPx - eP) / tick / PriceFullTicks)) : 0;
+            Score = Math.Round(100 * (0.6 * sf + 0.4 * sp), 1);
+            bool canChange = Since == DateTime.MinValue || (t - Since).TotalSeconds >= MinHoldSec;
+            if (State == 0)
+            {
+                int want = Score >= Enter ? 1 : Score <= -Enter ? -1 : 0;
+                if (want == 0) { pendDir = 0; return; }
+                if (pendDir != want) { pendDir = want; pendSince = t; }
+                if ((t - pendSince).TotalSeconds >= ConfirmSec && canChange) Change(want, t);
+            }
+            else
+            {
+                pendDir = 0; bool leave = State > 0 ? Score < Exit : Score > -Exit;
+                if (leave && canChange) Change(0, t);
+            }
+        }
+        void Change(int s, DateTime t) { State = s; Since = t; pendDir = 0; Changes.Add(Tuple.Create(t, s, Score)); if (Changes.Count > 400) Changes.RemoveAt(0); }
+        // the compass over a list of real trades (sorted by time), incremental: only the new ones are fed; a new list / a clock going back = start again (30 min back)
+        public void Sync(List<KeystoneOfTick> ticks, int endN, DateTime now, double tick)
+        {
+            if (ticks == null) return; endN = Math.Min(endN, ticks.Count);
+            if (!ReferenceEquals(src, ticks) || endN < done || (LastTime != DateTime.MinValue && now < LastTime.AddSeconds(-1)))
+            { Reset(); src = ticks; done = KeystoneOrderFlow.FirstAfter(ticks, now.AddMinutes(-30), endN); }
+            for (; done < endN; done++) { var x = ticks[done]; if (x.Time > now) break; Feed(x.Time, x.Price, x.Size, x.Side, tick); }
+            Advance(now, tick);
+        }
+        public static string StateText(int s) { return s > 0 ? "BUYERS IN CONTROL" : s < 0 ? "SELLERS IN CONTROL" : "BALANCED"; }
+        public static string SideWord(int s) { return s > 0 ? "BUYERS" : s < 0 ? "SELLERS" : "BALANCED"; }
+        public string Text { get { return StateText(State); } }
+        public double HeldSec(DateTime now) { return Since == DateTime.MinValue ? 0 : Math.Max(0, (now - Since).TotalSeconds); }
+        public static string Held(double sec) { return sec < 60 ? ((int)sec).ToString(CultureInfo.InvariantCulture) + " s" : sec < 3600 ? ((int)(sec / 60)).ToString(CultureInfo.InvariantCulture) + " min" : (sec / 3600).ToString("0.0", CultureInfo.InvariantCulture) + " h"; }
+        public static string ScoreText(double sc) { return (sc > 0 ? "+" : sc < 0 ? "−" : "") + Math.Abs(sc).ToString("0", CultureInfo.InvariantCulture); }
+    }
+    // 👥 WHO'S DOING WHAT — the aggressive buyers / sellers over a window: contracts, their average price and where they stand now (pts)
+    public sealed class KeystoneFlowSideStat { public int Side, Trades; public long Volume; public double Avg = double.NaN, PnlPts = double.NaN; public DateTime From = DateTime.MinValue; }
+    public static class KeystoneFlowSides
+    {
+        public static KeystoneFlowSideStat Of(List<KeystoneOfTick> t, int endN, DateTime now, double seconds, int side, double price)
+        {
+            var s = new KeystoneFlowSideStat { Side = side }; if (t == null) return s; endN = Math.Min(endN, t.Count); double pv = 0;
+            for (int i = KeystoneOrderFlow.FirstAfter(t, now.AddSeconds(-seconds), endN); i < endN; i++)
+            {
+                var x = t[i]; if (x.Time > now) break; if ((x.Side > 0 ? 1 : -1) != side) continue;
+                if (s.Trades == 0) s.From = x.Time; s.Trades++; s.Volume += x.Size; pv += x.Price * x.Size;
+            }
+            if (s.Volume > 0) { s.Avg = pv / s.Volume; if (price > 0) s.PnlPts = side * (price - s.Avg); }
+            return s;
+        }
+        public static string Line(KeystoneFlowSideStat s, string window)
+        {
+            var IC = CultureInfo.InvariantCulture; string who = s.Side > 0 ? "BUYERS" : "SELLERS";
+            if (s.Volume <= 0) return who + " • " + window + ": none";
+            string pl = double.IsNaN(s.PnlPts) ? "" : " → " + (s.PnlPts >= 0 ? "+" : "−") + Math.Abs(s.PnlPts).ToString("0.00", IC) + " pts " + (s.PnlPts > 0 ? "in profit" : s.PnlPts < 0 ? "in loss" : "flat");
+            return who + " since " + s.From.ToString("HH:mm", IC) + " " + (s.Side > 0 ? "bought " : "sold ") + s.Volume.ToString("N0", IC) + " @ avg " + s.Avg.ToString("0.00", IC) + pl;
+        }
+    }
+    // 🪤 TRAPPED traders — the rule (only zones where it FIRED, never invented): within the last LookMin minutes, at a price band of BandTicks, one side traded
+    // ≥ MinVol contracts aggressively (≥ MinShare of the band), then within WithinMin minutes of its last print there the price went ≥ AgainstTicks against it,
+    // and the price is STILL beyond the band now.
+    public sealed class KeystoneFlowTrapZone { public int Side; public double Lo, Hi, Avg, PtsAgainst; public long Volume; public DateTime Time; }
+    public static class KeystoneFlowTrap
+    {
+        public static List<KeystoneFlowTrapZone> Find(List<KeystoneOfTick> t, int endN, DateTime now, double tick, double price, long minVol, int bandTicks = 4, int againstTicks = 8, double withinMin = 5, double lookMin = 15, double minShare = 0.6)
+        {
+            var res = new List<KeystoneFlowTrapZone>(); if (t == null || tick <= 0 || price <= 0) return res; endN = Math.Min(endN, t.Count);
+            int st = KeystoneOrderFlow.FirstAfter(t, now.AddMinutes(-lookMin), endN); double bw = tick * Math.Max(1, bandTicks);
+            var bands = new Dictionary<long, double[]>();   // buyVol, sellVol, buyPV, sellPV, buyLastIdx, sellLastIdx
+            int en = st; for (; en < endN && t[en].Time <= now; en++)
+            {
+                var x = t[en]; long b = (long)Math.Floor(x.Price / bw + 1e-7); double[] a; if (!bands.TryGetValue(b, out a)) bands[b] = a = new double[] { 0, 0, 0, 0, -1, -1 };
+                if (x.Side > 0) { a[0] += x.Size; a[2] += x.Price * x.Size; a[4] = en; } else { a[1] += x.Size; a[3] += x.Price * x.Size; a[5] = en; }
+            }
+            var raw = new List<Tuple<long, KeystoneFlowTrapZone>>();
+            foreach (var kv in bands)
+            {
+                for (int s = 1; s >= -1; s -= 2)
+                {
+                    var a = kv.Value; double vol = s > 0 ? a[0] : a[1], tot = a[0] + a[1]; if (vol < minVol || tot <= 0 || vol < minShare * tot) continue;
+                    double lo = kv.Key * bw, hi = lo + bw - tick; int li = (int)(s > 0 ? a[4] : a[5]); if (li < 0) continue; DateTime tl = t[li].Time; bool went = false;
+                    for (int k = li + 1; k < en && t[k].Time <= tl.AddMinutes(withinMin); k++) if (s > 0 ? t[k].Price <= lo - againstTicks * tick + 1e-9 : t[k].Price >= hi + againstTicks * tick - 1e-9) { went = true; break; }
+                    if (!went || (s > 0 ? price >= lo : price <= hi)) continue;   // the price must still be beyond the band now
+                    double avg = (s > 0 ? a[2] : a[3]) / vol;
+                    raw.Add(Tuple.Create(kv.Key, new KeystoneFlowTrapZone { Side = s, Lo = lo, Hi = hi, Avg = avg, Volume = (long)vol, Time = tl, PtsAgainst = s > 0 ? avg - price : price - avg }));
+                }
+            }
+            // neighbouring bands of the same side = one zone
+            foreach (int s in new[] { 1, -1 })
+            {
+                var l = raw.Where(r => r.Item2.Side == s).OrderBy(r => r.Item1).ToList(); int i = 0;
+                while (i < l.Count)
+                {
+                    int j = i; var z = l[i].Item2; double pv = z.Avg * z.Volume; long v = z.Volume; DateTime tm = z.Time; double hi = z.Hi;
+                    while (j + 1 < l.Count && l[j + 1].Item1 == l[j].Item1 + 1) { j++; var y = l[j].Item2; pv += y.Avg * y.Volume; v += y.Volume; hi = y.Hi; if (y.Time > tm) tm = y.Time; }
+                    double avg = pv / v; res.Add(new KeystoneFlowTrapZone { Side = s, Lo = z.Lo, Hi = hi, Avg = avg, Volume = v, Time = tm, PtsAgainst = s > 0 ? avg - price : price - avg }); i = j + 1;
+                }
+            }
+            return res.OrderByDescending(z => z.Volume).Take(3).ToList();
+        }
+        public static string Text(KeystoneFlowTrapZone z)
+        {
+            var IC = CultureInfo.InvariantCulture; bool b = z.Side > 0;
+            return "~" + z.Volume.ToString("N0", IC) + " contracts " + (b ? "bought" : "sold") + " at " + z.Lo.ToString("0.00", IC) + "–" + z.Hi.ToString("0.00", IC) + " are now −" + Math.Abs(z.PtsAgainst).ToString("0.00", IC) + " pts: trapped " + (b ? "buyers" : "sellers")
+                + " — if the price stays " + (b ? "below" : "above") + ", they may " + (b ? "sell" : "buy") + " (fuel for " + (b ? "sellers" : "buyers") + ")";
+        }
+    }
+    // 🐋 BIG PLAYERS — the prints ≥ the big-trade size (neighbouring ones of the same side within 2 s / 2 ticks = one cluster) and what the price did after
+    public sealed class KeystoneFlowBigPrint { public DateTime Time; public int Side; public long Size; public double Price; public string After = ""; }
+    public static class KeystoneFlowBig
+    {
+        public static List<KeystoneFlowBigPrint> Find(List<KeystoneOfTick> t, int endN, DateTime now, double tick, long thr, double minutes = 15, double afterSec = 120, int moveTicks = 4, int max = 20)
+        {
+            var o = new List<KeystoneFlowBigPrint>(); if (t == null || thr <= 0 || tick <= 0) return o; endN = Math.Min(endN, t.Count); KeystoneFlowBigPrint cur = null; double pv = 0; int en = endN;
+            for (int i = KeystoneOrderFlow.FirstAfter(t, now.AddMinutes(-minutes), endN); i < endN; i++)
+            {
+                var x = t[i]; if (x.Time > now) { en = i; break; } if (x.Size < thr) continue; int sd = x.Side > 0 ? 1 : -1;
+                if (cur != null && cur.Side == sd && (x.Time - cur.Time).TotalSeconds <= 2 && Math.Abs(x.Price - pv / cur.Size) <= 2 * tick + 1e-9) { cur.Size += x.Size; pv += x.Price * x.Size; cur.Price = pv / cur.Size; continue; }
+                cur = new KeystoneFlowBigPrint { Time = x.Time, Side = sd, Size = x.Size, Price = x.Price }; pv = x.Price * x.Size; o.Add(cur);
+            }
+            foreach (var b in o)
+            {
+                if ((now - b.Time).TotalSeconds < 30) { b.After = "just now"; continue; }
+                DateTime at = b.Time.AddSeconds(afterSec); if (at > now) at = now; int k = KeystoneOrderFlow.FirstAfter(t, at, en) - 1; if (k < 0) { b.After = "held"; continue; }
+                double mv = b.Side * (t[k].Price - b.Price) / tick; b.After = mv >= moveTicks ? "pushed" : mv <= -moveTicks ? "failed" : "held";
+            }
+            return o.Count > max ? o.Skip(o.Count - max).ToList() : o;
+        }
+    }
+    // 📍 KEY LEVELS — nearest first, distance in points, a one-word role (support / resistance / magnet / trap) and "just touched"
+    public sealed class KeystoneFlowLevel { public string Name = "", Role = ""; public double Price, Dist; public bool Touched; }
+    public static class KeystoneFlowLevels
+    {
+        public static List<KeystoneFlowLevel> Build(double price, IEnumerable<Tuple<string, double, string>> raw, Func<double, bool> touched, int max = 10)
+        {
+            var o = new List<KeystoneFlowLevel>(); var seen = new HashSet<string>(); if (raw == null || price <= 0) return o;
+            foreach (var r in raw)
+            {
+                if (r == null || double.IsNaN(r.Item2) || double.IsInfinity(r.Item2) || r.Item2 <= 0 || !seen.Add(r.Item1)) continue;
+                string role = !string.IsNullOrEmpty(r.Item3) ? r.Item3 : r.Item2 > price ? "resistance" : "support";
+                o.Add(new KeystoneFlowLevel { Name = r.Item1, Price = r.Item2, Dist = r.Item2 - price, Role = role, Touched = touched != null && touched(r.Item2) });
+            }
+            return o.OrderBy(l => Math.Abs(l.Dist)).Take(max).ToList();
+        }
+        public static bool TouchedRecently(List<KeystoneOfTick> t, int endN, DateTime now, double level, double tick, double minutes = 5)
+        {
+            if (t == null) return false; endN = Math.Min(endN, t.Count);
+            for (int i = KeystoneOrderFlow.FirstAfter(t, now.AddMinutes(-minutes), endN); i < endN; i++) { if (t[i].Time > now) break; if (Math.Abs(t[i].Price - level) <= tick + 1e-9) return true; }
+            return false;
+        }
+    }
+    // 📖 THE STORY in plain words — from the compass (the ONLY control word), the absorption (the defender), the journal (a % only when there is enough
+    // history — never invented), the next target and the invalidation. Lines: [0] who is winning, [1] attacker, [2] defender, [3] likely winner, [4] target, [5] invalidation.
+    public static class KeystoneFlowStory
+    {
+        public static string[] Lines(int state, double score, string held, int defSide, double defPrice, double winPct, int winN, string target, string invalidation)
+        {
+            var IC = CultureInfo.InvariantCulture; string sc = KeystoneFlowCompass.ScoreText(score), dp = double.IsNaN(defPrice) ? "" : defPrice.ToString("0.00", IC);
+            string w0, att, def, win;
+            if (state == 0)
+            {
+                w0 = "Nobody is in control — buyers and sellers are balanced (score " + sc + ")" + (defSide != 0 && dp != "" ? "; " + (defSide > 0 ? "buyers" : "sellers") + " absorbed at " + dp : "") + ".";
+                att = "⚔ ATTACKER • nobody — balanced (score " + sc + ")";
+                win = "🏁 LIKELY WINNER • none yet — wait for the compass to pick a side";
+            }
+            else
+            {
+                string side = state > 0 ? "Buyers" : "Sellers", other = state > 0 ? "sellers" : "buyers";
+                w0 = side + " are pushing the price " + (state > 0 ? "up" : "down") + " (score " + sc + ", held " + held + ")"
+                    + (defSide == -state && dp != "" ? "; " + other + " are absorbing at " + dp + " (big passive " + (state > 0 ? "selling" : "buying") + "), so the push may stall." : defSide == state && dp != "" ? "; " + side.ToLowerInvariant() + " also defend " + dp + "." : ".");
+                att = "⚔ ATTACKER • " + KeystoneFlowCompass.StateText(state) + " (score " + sc + ", held " + held + ")";
+                win = !double.IsNaN(winPct) && winN > 0 ? "🏁 LIKELY WINNER • " + side.ToUpperInvariant() + " — " + winPct.ToString("0", IC) + " % of " + winN + " past confirmed " + (state > 0 ? "▲" : "▼") + " setups worked (journal)"
+                    : "🏁 LIKELY WINNER • " + side.ToUpperInvariant() + " while " + (string.IsNullOrEmpty(invalidation) ? "the flow holds" : "the price holds " + (state > 0 ? "above " : "below ") + invalidation) + " (no % — not enough journal history)";
+            }
+            def = defSide == 0 || dp == "" ? "🛡 DEFENDER • no absorption seen near the price" : "🛡 DEFENDER • " + (defSide > 0 ? "buyers" : "sellers") + " absorbed the other side at " + dp + " (passive " + (defSide > 0 ? "buying" : "selling") + ")";
+            return new[] { w0, att, def, win, "🎯 NEXT TARGET • " + (string.IsNullOrEmpty(target) ? "—" : target), "❌ INVALIDATION • " + (string.IsNullOrEmpty(invalidation) ? "—" : invalidation) };
+        }
+    }
+    // 🚦 the CARD GATE — only a CONFIRMED setup on CLOSED candles with a frozen plan of reward : risk ≥ 1, in the compass direction (or the compass BALANCED),
+    // and not flagged by its history, is offered; the rest is one grey line in the dock (never lines on the chart, never a TAKE)
+    public static class KeystoneFlowGate
+    {
+        public const int None = 0, Offer = 1, SkipRr = 2, Against = 3, NoPlan = 4, HistorySkip = 5, Forming = 6;
+        public static double Rr(KeystoneOfPlan p) { return p == null || p.StopPts <= 0 ? 0 : p.TargetPts / p.StopPts; }
+        public static Tuple<int, string> Decide(KeystoneOfSignal confirmed, int closedBars, int compassState, KeystoneOfPlan plan, string historySkip = null)
+        {
+            if (confirmed == null) return Tuple.Create(None, "");
+            string nm = (confirmed.Dir > 0 ? "▲ " : "▼ ") + confirmed.Kind;
+            if (confirmed.Bar >= closedBars) return Tuple.Create(Forming, "watching: " + nm + " — waits for the closed candle");
+            if (plan == null) return Tuple.Create(NoPlan, "not offered: " + nm + " — the price already went through the level it defended (no made-up stop)");
+            if (compassState != 0 && compassState != confirmed.Dir) return Tuple.Create(Against, "against the flow — not offered: " + nm + " while the compass says " + KeystoneFlowCompass.SideWord(compassState));
+            double rr = Rr(plan); if (rr < 1 - 1e-9) return Tuple.Create(SkipRr, "skipped: reward smaller than risk (" + rr.ToString("0.0", CultureInfo.InvariantCulture) + ") — " + nm);
+            if (!string.IsNullOrEmpty(historySkip)) return Tuple.Create(HistorySkip, historySkip);
+            return Tuple.Create(Offer, compassState == 0 ? "against no one / balanced" : "with the " + KeystoneFlowCompass.SideWord(compassState).ToLowerInvariant());
+        }
+        public static string Watching(KeystoneOfSignal raw) { return raw == null ? "" : "watching: raw " + (raw.Dir > 0 ? "▲ " : "▼ ") + raw.Kind + " — waits for the closed candle"; }
+        // ⚠ a setup against the position open on the chart's account
+        public static string AgainstPosition(int setupDir, int position)
+        {
+            if (position == 0 || setupDir == 0 || Math.Sign(position) == setupDir) return "";
+            return "⚠ against your open " + (position > 0 ? "LONG " : "SHORT ") + Math.Abs(position) + " — taking it would close / reverse";
+        }
+    }
+    // 🎯 the CARD HOLD — a shown card stays until its stop / target, SKIP, TAKE, 10 minutes, or (only after its candle + 1 closed) the compass turning against it;
+    // every removal carries its reason and goes into the recent setups (last 10). Never a silent disappearance; never replaced by another card while shown.
+    public sealed class KeystoneOfSetupRecord { public string Key = "", Kind = "", Symbol = "", Result = "", Reason = ""; public int Id, Dir, Qty, Bar, ShownClosed; public DateTime Time, Shown, Ended; public double Entry, Stop, Target; }
+    public sealed class KeystoneOfCardHold
+    {
+        public KeystoneOfSetupRecord Current; public KeystoneOfPlan Frozen; public double MaxMinutes = 10; public string LastRemoved = ""; public int NextId = 1;
+        public readonly List<KeystoneOfSetupRecord> History = new List<KeystoneOfSetupRecord>(); readonly HashSet<string> done = new HashSet<string>();
+        public bool Offer(KeystoneOfSignal sg, KeystoneOfPlan frozen, string symbol, DateTime now, int closedBars)
+        {
+            if (Current != null || sg == null || frozen == null || sg.Bar >= closedBars) return false;   // the forming candle never shows a card
+            string key = (symbol ?? "") + "|" + sg.Time.Ticks + "|" + sg.Dir; if (done.Contains(key)) return false;
+            Current = new KeystoneOfSetupRecord { Id = NextId++, Key = key, Kind = sg.Kind, Symbol = symbol ?? "", Dir = sg.Dir, Qty = frozen.Qty, Bar = sg.Bar, ShownClosed = closedBars, Time = sg.Time, Shown = now, Entry = frozen.Entry, Stop = frozen.Stop, Target = frozen.Target };
+            Frozen = frozen; frozen.Key = key; return true;
+        }
+        public bool WasShown(string key) { return done.Contains(key) || (Current != null && Current.Key == key); }
+        // "" = the card stays; else the result word and why it goes (the caller passes it to End)
+        public Tuple<string, string> Check(DateTime now, double price, int closedBars, int compassState)
+        {
+            if (Current == null) return null; var IC = CultureInfo.InvariantCulture; int d = Current.Dir;
+            if (price > 0 && d * (price - Current.Stop) <= 0) return Tuple.Create("stopped", "price hit its stop " + Current.Stop.ToString("0.00", IC));
+            if (price > 0 && d * (Current.Target - price) <= 0) return Tuple.Create("target", "price reached its target " + Current.Target.ToString("0.00", IC));
+            if ((now - Current.Shown).TotalMinutes >= MaxMinutes) return Tuple.Create("expired", "expired after " + MaxMinutes.ToString("0", IC) + " min");
+            if (compassState == -d && closedBars >= Current.ShownClosed + 1) return Tuple.Create("withdrawn", "the compass turned " + KeystoneFlowCompass.SideWord(compassState) + " — not offered any more");
+            return Tuple.Create("", "");
+        }
+        public KeystoneOfSetupRecord End(DateTime now, string result, string reason)
+        {
+            var c = Current; if (c == null) return null; c.Ended = now; c.Result = result; c.Reason = reason; done.Add(c.Key); if (done.Count > 500) done.Clear();
+            History.Insert(0, c); if (History.Count > 10) History.RemoveAt(History.Count - 1);
+            LastRemoved = "setup #" + c.Id + " " + (c.Dir > 0 ? "▲ " : "▼ ") + c.Kind + " " + c.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + " removed: " + reason; Current = null; Frozen = null; return c;
+        }
+        // a setup that was never shown (against the flow, R:R < 1, history says skip) — listed with its reason, once
+        public void Note(KeystoneOfSignal sg, string symbol, DateTime now, string result, string reason)
+        {
+            if (sg == null) return; string key = (symbol ?? "") + "|" + sg.Time.Ticks + "|" + sg.Dir + "|n"; if (done.Contains(key)) return; done.Add(key);
+            History.Insert(0, new KeystoneOfSetupRecord { Key = key, Kind = sg.Kind, Symbol = symbol ?? "", Dir = sg.Dir, Time = sg.Time, Shown = now, Ended = now, Entry = sg.Price, Result = result, Reason = reason });
+            if (History.Count > 10) History.RemoveAt(History.Count - 1);
+        }
+        // the chart chip / card title: the setup's id + time, so the same setup is recognisable ("#14 ▲ BUY 10 MNQ • 20:39 • R:R 2.2")
+        public static string Chip(KeystoneOfSetupRecord r, KeystoneOfPlan p, string sym) { return r == null || p == null ? "" : "#" + r.Id + " " + (r.Dir > 0 ? "▲ BUY " : "▼ SELL ") + r.Qty + " " + sym + " • " + r.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + " • R:R " + KeystoneFlowGate.Rr(p).ToString("0.0", CultureInfo.InvariantCulture); }
+        public static string Line(KeystoneOfSetupRecord r) { return (r.Id > 0 ? "#" + r.Id + " " : "") + r.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + "  " + (r.Dir > 0 ? "▲ " : "▼ ") + r.Kind + "  " + r.Result.ToUpperInvariant() + " — " + r.Reason; }
+    }
+    // 🚦 WHAT TO DO — exactly ONE verdict (✅ TAKE / ⏳ WAIT / ⛔ AVOID) with its reason. TAKE only with an offered card; the hard AVOIDs (in a trade at max,
+    // news, no trades) are immediate; any other change of verdict must hold HoldSec (15 s) first and a reason is kept ≥ 10 s → no flicker.
+    public sealed class KeystoneFlowVerdictInput
+    {
+        public bool Proven; public int CardDir; public string LearnText = "";
+        public bool CardOffered, InTradeAtMax, NewsLock, Quiet, AgainstFlow, AgainstPosition, HistorySkip; public string CardText = "", NewsText = "", AgainstText = "", RawWait = "", NearLevel = "", PositionText = "", HistoryText = "";
+        public double SkippedRr = double.NaN; public int CompassState; public double CompassScore;
+    }
+    public sealed class KeystoneFlowVerdict
+    {
+        public string Kind = "WAIT", Reason = "waiting for the order flow"; public DateTime Since = DateTime.MinValue; public double HoldSec = 15, ReasonSec = 10;
+        string pendKind = ""; DateTime pendSince, reasonAt = DateTime.MinValue;
+        public static Tuple<string, string, bool> Raw(KeystoneFlowVerdictInput x)   // kind, reason, immediate
+        {
+            var IC = CultureInfo.InvariantCulture;
+            if (x.InTradeAtMax) return Tuple.Create("AVOID", "already in a trade at the account's max contracts" + (x.PositionText != "" ? " (" + x.PositionText + ")" : ""), true);
+            if (x.CardOffered && !x.AgainstPosition) return Tuple.Create("TAKE", x.CardText, true);
+            if (x.CardOffered && x.AgainstPosition) return Tuple.Create("AVOID", "the offered setup is against your open position — " + x.PositionText, true);
+            if (x.NewsLock) return Tuple.Create("AVOID", "high-impact news " + x.NewsText, true);
+            if (x.Quiet) return Tuple.Create("AVOID", "no trades right now — the market is quiet / closed", true);
+            if (!double.IsNaN(x.SkippedRr)) return Tuple.Create("AVOID", "reward smaller than risk (" + x.SkippedRr.ToString("0.0", IC) + ")", false);
+            if (x.HistorySkip) return Tuple.Create("AVOID", x.HistoryText, false);
+            if (x.AgainstFlow) return Tuple.Create("AVOID", x.AgainstText != "" ? x.AgainstText : "the setup is against the flow", false);
+            if (!string.IsNullOrEmpty(x.RawWait)) return Tuple.Create("WAIT", x.RawWait, false);
+            if (x.CompassState == 0)
+            {
+                if (Math.Abs(x.CompassScore) < 15) return Tuple.Create("AVOID", "balanced / chop — nobody is in control (score " + KeystoneFlowCompass.ScoreText(x.CompassScore) + ")", false);
+                int lean = Math.Sign(x.CompassScore);
+                return Tuple.Create("WAIT", "the compass to turn " + KeystoneFlowCompass.SideWord(lean) + " (score " + KeystoneFlowCompass.ScoreText(x.CompassScore) + " now — needs " + (lean > 0 ? "+35" : "−35") + " for 20 s)", false);
+            }
+            return Tuple.Create("WAIT", "a confirmed " + (x.CompassState > 0 ? "▲" : "▼") + " setup with the " + KeystoneFlowCompass.SideWord(x.CompassState).ToLowerInvariant() + (string.IsNullOrEmpty(x.NearLevel) ? "" : " — or " + x.NearLevel), false);
+        }
+        public bool Proven; public int Dir; public string Learn = "";
+        public void Update(KeystoneFlowVerdictInput x, DateTime now)
+        {
+            var r = Raw(x); Proven = x.Proven; Dir = x.CardDir; Learn = x.LearnText ?? "";
+            if (Since == DateTime.MinValue) { Kind = r.Item1; Reason = r.Item2; Since = reasonAt = now; pendKind = ""; return; }
+            if (r.Item1 == Kind) { pendKind = ""; if (r.Item2 != Reason && (Kind == "TAKE" || r.Item3 || (now - reasonAt).TotalSeconds >= ReasonSec)) { Reason = r.Item2; reasonAt = now; } return; }
+            if (r.Item3 || Kind == "TAKE") { Kind = r.Item1; Reason = r.Item2; Since = reasonAt = now; pendKind = ""; return; }
+            if (pendKind != r.Item1) { pendKind = r.Item1; pendSince = now; }
+            if ((now - pendSince).TotalSeconds >= HoldSec) { Kind = r.Item1; Reason = r.Item2; Since = reasonAt = now; pendKind = ""; }
+        }
+        // ✅ BUY / ✅ SELL only when the setup type's measured win rate (n ≥ 30, walk-forward) beats its break-even; else 🧪 … learning (n) — never a made-up %
+        public string Head { get { return Kind == "TAKE" ? (Proven ? "✅ " : "🧪 ") + (Dir < 0 ? "SELL" : "BUY") + (Proven ? "" : " • " + (Learn != "" ? Learn : "learning")) : Kind == "AVOID" ? "⛔ AVOID" : "⏳ WAIT"; } }
+    }
+    // 🏦 ACCOUNT FIT — does the frozen plan fit the chart account's rules? display only (the card's contracts never change by themselves)
+    public static class KeystoneFlowFit
+    {
+        // stopUsd / runUsd = per contract; buffer = the room to the trailing floor; dayRoom = today's loss room left; maxQty = the account's max contracts
+        public static Tuple<string, int> Text(int qty, double stopUsdPer, double runUsdPer, double buffer, double dayRoom, bool intraday, bool known, int maxQty, string symbol, string stopSource)
+        {
+            var IC = CultureInfo.InvariantCulture; Func<double, string> c = v => "$" + Math.Round(v).ToString("N0", IC);
+            if (!known) return Tuple.Create("🏦 ACCOUNT FIT • account rules unknown here — stop " + c(stopUsdPer * qty) + " for " + qty + " " + symbol, qty);
+            double room = double.IsNaN(dayRoom) ? buffer : double.IsNaN(buffer) ? dayRoom : Math.Min(buffer, dayRoom);
+            int fit = stopUsdPer > 0 && !double.IsNaN(room) ? (int)Math.Floor(room / stopUsdPer + 1e-9) : qty; if (maxQty > 0) fit = Math.Min(fit, maxQty); fit = Math.Max(0, fit);
+            double stop = stopUsdPer * qty, run = runUsdPer * qty;
+            if (fit < qty)
+            {
+                string why = !double.IsNaN(dayRoom) && dayRoom <= (double.IsNaN(buffer) ? double.MaxValue : buffer) ? "today's room " + c(dayRoom) : !double.IsNaN(buffer) ? "the buffer " + c(buffer) : "the max contracts " + maxQty;
+                if (maxQty > 0 && qty > maxQty && (double.IsNaN(room) || stopUsdPer * maxQty <= room)) why = "the max contracts " + maxQty;
+                return Tuple.Create("⚠ too big for this account: stop " + c(stop) + " > " + why + " → max " + fit + " " + symbol + " (" + stopSource + ")", fit);
+            }
+            string s = "fits " + (intraday ? "intraday trailing" : "end-of-day trailing") + " (stop " + c(stop) + (double.IsNaN(buffer) || buffer <= 0 ? "" : " = " + (100 * stop / buffer).ToString("0", IC) + " % of the " + c(buffer) + " buffer") + ")";
+            if (intraday && run > 0) s += " • intraday trailing: the +" + c(run) + " run would raise your floor " + c(run) + " before the target — " + (double.IsNaN(buffer) ? "check the buffer" : "OK, buffer " + c(buffer));
+            return Tuple.Create("🏦 ACCOUNT FIT • " + s + " • fits: " + fit + " " + symbol + " on this account (" + stopSource + ")", fit);
+        }
+    }
+    // 📖 the STORY timeline: one line per change (compass, absorption, big cluster, key-level break, trapped zone, setup shown / removed), newest first, ≤ 60 min, deduplicated
+    public sealed class KeystoneFlowTimeline
+    {
+        public readonly List<Tuple<DateTime, string>> Items = new List<Tuple<DateTime, string>>(); readonly HashSet<string> keys = new HashSet<string>(); public double KeepMin = 60;
+        public bool Add(DateTime t, string key, string text)
+        {
+            if (!keys.Add(key)) return false; int i = 0; while (i < Items.Count && Items[i].Item1 > t) i++; Items.Insert(i, Tuple.Create(t, text)); if (keys.Count > 4000) keys.Clear(); return true;
+        }
+        public void Prune(DateTime now) { Items.RemoveAll(x => x.Item1 < now.AddMinutes(-KeepMin)); while (Items.Count > 200) Items.RemoveAt(Items.Count - 1); }
+        public void Clear() { Items.Clear(); keys.Clear(); }
+    }
+    // 📒 the SETUP BOOK — every setup shown / not offered, saved per instrument per day (Studio\OrderFlow\setups-<SYM>-<yyyy-MM-dd>.csv), with its context and the
+    // OUTCOMES measured on the REAL trades that followed it (never before it, never after the clock): target-or-stop, R, MFE / MAE, the scalp ±8 ticks, the 5 / 15 / 30-min move
+    public sealed class KeystoneOfSetupRow
+    {
+        public DateTime Time; public string Symbol = "", Kind = "", Status = "", Location = "", Taken = "", MyResult = ""; public int Dir, Compass, Qty, Result, Scalp; public bool Done;
+        public double CompassScore, Delta, Big, Trapped, Entry, Stop, Target, R = double.NaN, Mfe, Mae, M5 = double.NaN, M15 = double.NaN, M30 = double.NaN;
+        public string Key { get { return Time.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + "|" + Symbol + "|" + Dir + "|" + Kind; } }
+        public int Agree { get { return Compass == 0 ? 0 : Compass == Dir ? 1 : -1; } }
+        public double Rr { get { double s = Dir * (Entry - Stop); return s > 0 ? Dir * (Target - Entry) / s : 0; } }
+    }
+    public static class KeystoneOfSetupBook
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public const string Header = "time,symbol,kind,side,status,compass,compass_score,location,delta,big,trapped,entry,stop,target,qty,result,r,mfe,mae,scalp,m5,m15,m30,done,taken,my_result";
+        public static string PathOf(string folder, string sym, DateTime day) { return Path.Combine(folder ?? "", "OrderFlow", "setups-" + (sym ?? "") + "-" + day.ToString("yyyy-MM-dd", IC) + ".csv"); }
+        static string N(double v) { return double.IsNaN(v) ? "" : v.ToString("0.####", IC); }
+        static double D(string s) { double v; return double.TryParse(s, NumberStyles.Float, IC, out v) ? v : double.NaN; }
+        public static string Line(KeystoneOfSetupRow r)
+        {
+            Func<string, string> q = s => (s ?? "").Replace(",", ";").Replace("\n", " ");
+            return string.Join(",", r.Time.ToString("yyyy-MM-dd HH:mm:ss", IC), q(r.Symbol), q(r.Kind), r.Dir > 0 ? "BUY" : "SELL", q(r.Status), r.Compass, N(r.CompassScore), q(r.Location), N(r.Delta), N(r.Big), N(r.Trapped),
+                N(r.Entry), N(r.Stop), N(r.Target), r.Qty, r.Result, N(r.R), N(r.Mfe), N(r.Mae), r.Scalp, N(r.M5), N(r.M15), N(r.M30), r.Done ? 1 : 0, q(r.Taken), q(r.MyResult));
+        }
+        public static KeystoneOfSetupRow Parse(string l)
+        {
+            var a = (l ?? "").Split(','); if (a.Length < 26 || a[0] == "time") return null; DateTime t;
+            if (!DateTime.TryParseExact(a[0], "yyyy-MM-dd HH:mm:ss", IC, DateTimeStyles.None, out t)) return null;
+            Func<string, int> I = s => { int v; return int.TryParse(s, NumberStyles.Integer, IC, out v) ? v : 0; };
+            return new KeystoneOfSetupRow { Time = t, Symbol = a[1], Kind = a[2], Dir = a[3] == "SELL" ? -1 : 1, Status = a[4], Compass = I(a[5]), CompassScore = D(a[6]), Location = a[7], Delta = D(a[8]), Big = D(a[9]), Trapped = D(a[10]),
+                Entry = D(a[11]), Stop = D(a[12]), Target = D(a[13]), Qty = I(a[14]), Result = I(a[15]), R = D(a[16]), Mfe = D(a[17]), Mae = D(a[18]), Scalp = I(a[19]), M5 = D(a[20]), M15 = D(a[21]), M30 = D(a[22]), Done = a[23] == "1", Taken = a[24], MyResult = a[25] };
+        }
+        // the outcomes from the trades AFTER the setup's time up to `now` only (no look-ahead); done when decided and the 30-min move is known (or 60 min passed)
+        public static void Measure(KeystoneOfSetupRow r, List<KeystoneOfTick> t, int endN, DateTime now, double tick, int scalpTicks = 8)
+        {
+            if (r == null || t == null || r.Done || tick <= 0 || r.Entry <= 0) return; endN = Math.Min(endN, t.Count); int d = r.Dir; double mfe = 0, mae = 0; int res = 0, sc = 0;
+            bool br = r.Stop > 0 && r.Target > 0 && d * (r.Entry - r.Stop) > 0 && d * (r.Target - r.Entry) > 0; double m5 = double.NaN, m15 = double.NaN, m30 = double.NaN; double last = r.Entry; DateTime lastT = r.Time;
+            for (int i = KeystoneOrderFlow.FirstAfter(t, r.Time, endN); i < endN; i++)
+            {
+                var x = t[i]; if (x.Time > now || x.Time > r.Time.AddMinutes(60)) break;
+                if (double.IsNaN(m5) && x.Time > r.Time.AddMinutes(5)) m5 = d * (last - r.Entry); if (double.IsNaN(m15) && x.Time > r.Time.AddMinutes(15)) m15 = d * (last - r.Entry); if (double.IsNaN(m30) && x.Time > r.Time.AddMinutes(30)) m30 = d * (last - r.Entry);
+                double m = d * (x.Price - r.Entry);
+                if (res == 0) { mfe = Math.Max(mfe, m); mae = Math.Max(mae, -m); if (br) { if (d * (x.Price - r.Stop) <= 0) res = -1; else if (d * (x.Price - r.Target) >= 0) res = 1; } }
+                if (sc == 0) { if (m >= scalpTicks * tick - 1e-9) sc = 1; else if (-m >= scalpTicks * tick - 1e-9) sc = -1; }
+                last = x.Price; lastT = x.Time;
+            }
+            DateTime horizon = now < r.Time.AddMinutes(60) ? now : r.Time.AddMinutes(60);
+            if (double.IsNaN(m5) && horizon >= r.Time.AddMinutes(5)) m5 = d * (last - r.Entry); if (double.IsNaN(m15) && horizon >= r.Time.AddMinutes(15)) m15 = d * (last - r.Entry); if (double.IsNaN(m30) && horizon >= r.Time.AddMinutes(30)) m30 = d * (last - r.Entry);
+            r.Mfe = mfe; r.Mae = mae; r.Result = res; r.Scalp = sc; r.M5 = m5; r.M15 = m15; r.M30 = m30;
+            r.R = res > 0 ? r.Rr : res < 0 ? -1 : double.NaN;
+            r.Done = (res != 0 || !br) && !double.IsNaN(m30) || now >= r.Time.AddMinutes(60);
+        }
+        public static List<KeystoneOfSetupRow> LoadAll(string folder, string sym)
+        {
+            var o = new List<KeystoneOfSetupRow>(); try { var dir = Path.Combine(folder ?? "", "OrderFlow"); if (!Directory.Exists(dir)) return o;
+                foreach (var f in Directory.GetFiles(dir, "setups-" + sym + "-*.csv").OrderBy(x => x)) foreach (var l in File.ReadAllLines(f)) { var r = Parse(l); if (r != null) o.Add(r); } } catch { }
+            return o.OrderBy(r => r.Time).ToList();
+        }
+        public static void SaveDay(string folder, string sym, DateTime day, IEnumerable<KeystoneOfSetupRow> rows)
+        {
+            var p = PathOf(folder, sym, day); Directory.CreateDirectory(Path.GetDirectoryName(p));
+            File.WriteAllText(p, Header + "\n" + string.Join("\n", rows.OrderBy(r => r.Time).Select(Line)) + "\n");
+        }
+        public static string Location(double price, KeystoneProfile prof, double vwap, double dayHi, double dayLo, double tick)
+        {
+            var o = new List<string>();
+            if (prof != null && !double.IsNaN(prof.Vah) && !double.IsNaN(prof.Val)) o.Add(price > prof.Vah ? "above VAH" : price < prof.Val ? "below VAL" : "inside value");
+            if (prof != null && !double.IsNaN(prof.Poc)) o.Add(Math.Abs(price - prof.Poc) <= 8 * tick ? "at POC" : price > prof.Poc ? "over POC" : "under POC");
+            if (!double.IsNaN(vwap)) o.Add(price >= vwap ? "over VWAP" : "under VWAP");
+            if (!double.IsNaN(dayHi) && dayHi - price <= 8 * tick) o.Add("near day high"); if (!double.IsNaN(dayLo) && price - dayLo <= 8 * tick) o.Add("near day low");
+            return string.Join(" / ", o);
+        }
+    }
+    // 📊 ANALYZE — hit rates and average R by a key, a sample count on every number; under MinN: "n < 20: not enough yet"
+    public static class KeystoneOfSetupStats
+    {
+        public const int MinN = 20;
+        public static List<string[]> Table(IEnumerable<KeystoneOfSetupRow> rows, Func<KeystoneOfSetupRow, string> key)
+        {
+            var IC = CultureInfo.InvariantCulture; var o = new List<string[]>();
+            foreach (var g in rows.Where(r => r.Result != 0).GroupBy(key).OrderByDescending(g => g.Count()))
+            {
+                int n = g.Count(), w = g.Count(r => r.Result > 0), ns = g.Count(r => r.Scalp != 0), ws = g.Count(r => r.Scalp > 0); var rs = g.Where(r => !double.IsNaN(r.R)).Select(r => r.R).ToList();
+                o.Add(new[] { g.Key, n.ToString(IC), n < MinN ? "n < " + MinN + ": not enough yet" : (100.0 * w / n).ToString("0", IC) + " %", n < MinN || rs.Count == 0 ? "—" : (rs.Average() >= 0 ? "+" : "−") + Math.Abs(rs.Average()).ToString("0.00", IC) + " R",
+                    ns < MinN ? "scalp n " + ns : "scalp " + (100.0 * ws / ns).ToString("0", IC) + " % of " + ns });
+            }
+            return o;
+        }
+        public static string HourBucket(DateTime t) { int h = t.Hour; return h < 3 || h >= 18 ? "Asia" : h < 9 || (h == 9 && t.Minute < 30) ? "London" : h < 11 ? "NY open" : h < 14 ? "NY midday" : h < 16 ? "NY close" : "after hours"; }
+    }
+    // 🧠 LEARN — from the PAST setups only (walk-forward, no look-ahead): similar setups (same kind / side / compass agreement, then location / hour), a calibrated
+    // win rate (shrunk to the base rate: (wins + 10 × base) ÷ (n + 10)), "learning (n)" under 30, and the ONLY thing it may change: a setup type whose calibrated
+    // rate is below the break-even for its R:R with ≥ 30 samples is "⚠ history says skip" (not offered as ✅ TAKE). It never places or sizes a trade.
+    public sealed class KeystoneOfLearnResult { public int N, Wins; public double Calibrated = double.NaN, Base = double.NaN; public string Text = "", Skip = ""; public List<KeystoneOfSetupRow> Similar = new List<KeystoneOfSetupRow>(); }
+    public static class KeystoneOfLearner
+    {
+        public const int MinN = 30; public const double Prior = 10;
+        static string Group(KeystoneOfSetupRow r) { return r.Kind + "|" + r.Dir + "|" + r.Agree; }
+        public static string GroupName(KeystoneOfSetupRow r) { return (r.Dir > 0 ? "▲ " : "▼ ") + r.Kind + (r.Agree > 0 ? " with the compass" : r.Agree < 0 ? " against " + KeystoneFlowCompass.SideWord(r.Compass) + " compass" : " (compass balanced)"); }
+        public static KeystoneOfLearnResult Judge(IEnumerable<KeystoneOfSetupRow> all, KeystoneOfSetupRow now)
+        {
+            var IC = CultureInfo.InvariantCulture; var res = new KeystoneOfLearnResult(); if (now == null) return res;
+            var past = all.Where(r => r.Result != 0 && r.Time < now.Time && r.Key != now.Key).ToList();   // only what was decided BEFORE this setup
+            res.Base = past.Count == 0 ? double.NaN : past.Count(r => r.Result > 0) / (double)past.Count;
+            var grp = past.Where(r => Group(r) == Group(now)).ToList(); res.N = grp.Count; res.Wins = grp.Count(r => r.Result > 0);
+            double b = double.IsNaN(res.Base) ? 0.5 : res.Base; res.Calibrated = (res.Wins + Prior * b) / (res.N + Prior);
+            res.Similar = grp.OrderByDescending(r => (r.Location == now.Location ? 2 : 0) + (KeystoneOfSetupStats.HourBucket(r.Time) == KeystoneOfSetupStats.HourBucket(now.Time) ? 1 : 0)).ThenByDescending(r => r.Time).Take(5).ToList();
+            if (res.N < MinN) { res.Text = "🧠 learning (" + res.N + ") — similar past setups: " + res.N + (res.N > 0 ? " — " + res.Wins + " won, " + (res.N - res.Wins) + " lost" : "") + " (needs " + MinN + ")"; return res; }
+            res.Text = "🧠 similar past setups: " + res.N + " — " + res.Wins + " won, " + (res.N - res.Wins) + " lost (calibrated " + (100 * res.Calibrated).ToString("0", IC) + " %)";
+            double rr = now.Rr > 0 ? now.Rr : 1, be = 1 / (1 + rr);
+            if (res.Calibrated < be) res.Skip = "⚠ history says skip — " + GroupName(now) + ": " + res.Wins + " of " + res.N + " won (calibrated " + (100 * res.Calibrated).ToString("0", IC) + " % < break-even " + (100 * be).ToString("0", IC) + " % for R:R " + rr.ToString("0.0", IC) + ")";
+            return res;
+        }
+        public static List<string> Lessons(IEnumerable<KeystoneOfSetupRow> all, int minN = 10)
+        {
+            var IC = CultureInfo.InvariantCulture; var o = new List<string>();
+            foreach (var g in all.Where(r => r.Result != 0).GroupBy(Group).OrderByDescending(g => g.Count()))
+            {
+                var f = g.First(); int n = g.Count(), w = g.Count(r => r.Result > 0); if (n < minN) { o.Add(GroupName(f) + ": " + w + " of " + n + " won — learning (" + n + ")"); continue; }
+                double rr = g.Average(r => r.Rr > 0 ? r.Rr : 1), be = 1 / (1 + rr), p = (double)w / n;
+                o.Add(GroupName(f) + ": " + w + " of " + n + " won" + (n >= MinN && p < be ? " → not offered" : p >= be ? " → keeps its place" : " → watch (n < " + MinN + ")"));
+            }
+            return o;
+        }
+        // the honest baseline: walk forward over the decided setups in time order; the model's calibrated % vs the plain base rate so far (Brier, lower = better)
+        public static string Baseline(IEnumerable<KeystoneOfSetupRow> all)
+        {
+            var IC = CultureInfo.InvariantCulture; var rows = all.Where(r => r.Result != 0).OrderBy(r => r.Time).ToList(); if (rows.Count < MinN + 10) return "model vs random: learning (" + rows.Count + " decided setups, needs " + (MinN + 10) + ")";
+            double bm = 0, bb = 0; int n = 0;
+            for (int i = MinN; i < rows.Count; i++)
+            {
+                var past = rows.Take(i).ToList(); var j = Judge(past, rows[i]); double y = rows[i].Result > 0 ? 1 : 0, base0 = past.Count(r => r.Result > 0) / (double)past.Count;
+                bm += (j.Calibrated - y) * (j.Calibrated - y); bb += (base0 - y) * (base0 - y); n++;
+            }
+            bm /= n; bb /= n; bool edge = bm < bb - 0.005;
+            return "model vs random (walk-forward, " + n + " setups): Brier " + bm.ToString("0.000", IC) + " vs the base rate " + bb.ToString("0.000", IC) + (edge ? " → the model helps a little" : " → ⚠ no edge over the base rate yet");
+        }
+    }
+
+    // 🏦 WHICH ACCOUNT — ranks the connected PROP accounts for a setup (display only: it never switches the chart account and never sends). 🎮 sim accounts are
+    // never ranked. Excluded with the reason: locked / locked out, blown, in a trade, ONE TRADE A DAY and already traded, disconnected, the stop does not fit.
+    public sealed class KeystoneFitAccount
+    {
+        public string Name = "", Display = "", Firm = "", Stage = ""; public bool Sim, Connected = true, Locked, Blown, InTrade, TradedToday, OneADay, Intraday;
+        public double Buffer = double.NaN, DayRoom = double.NaN, ToTarget = double.NaN, ToLock = double.NaN; public int MaxQty;
+    }
+    public sealed class KeystoneFitRank { public KeystoneFitAccount Acc; public int Qty; public double Score; public string Why = ""; }
+    public static class KeystoneSetupAccountFit
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        static string C(double v) { return "$" + Math.Round(v).ToString("N0", IC); }
+        // stopUsdPer = the stop $ per contract (the journal's typical MAE when n ≥ 20, else the plan's stop); runUsdPer = the target $ per contract
+        public static List<KeystoneFitRank> Rank(IEnumerable<KeystoneFitAccount> accounts, double stopUsdPer, double runUsdPer, int plannedQty, string symbol)
+        {
+            var o = new List<KeystoneFitRank>();
+            foreach (var a in accounts ?? Enumerable.Empty<KeystoneFitAccount>())
+            {
+                if (a == null || a.Sim) continue; var r = new KeystoneFitRank { Acc = a };
+                string ex = !a.Connected ? "disconnected" : a.Blown ? "blown" : a.Locked ? "locked for today" : a.InTrade ? "already in a trade" : a.OneADay && a.TradedToday ? "already traded today (ONE TRADE A DAY)" : "";
+                double room = double.IsNaN(a.DayRoom) ? a.Buffer : double.IsNaN(a.Buffer) ? a.DayRoom : Math.Min(a.Buffer, a.DayRoom);
+                int fit = stopUsdPer > 0 && !double.IsNaN(room) ? (int)Math.Floor(room / stopUsdPer + 1e-9) : plannedQty; if (a.MaxQty > 0) fit = Math.Min(fit, a.MaxQty); fit = Math.Max(0, Math.Min(fit, Math.Max(1, plannedQty)));
+                if (ex == "" && fit <= 0) ex = "the stop " + C(stopUsdPer) + " a contract does not fit " + (double.IsNaN(room) ? "the account" : "its room " + C(room));
+                if (ex != "") { r.Why = ex; r.Score = double.NegativeInfinity; o.Add(r); continue; }
+                double margin = double.IsNaN(room) ? 1 : room / Math.Max(1, stopUsdPer * fit); double sc = Math.Min(4, margin) * 10 + fit;
+                if (a.Intraday && runUsdPer * fit > 0 && !double.IsNaN(a.Buffer) && runUsdPer * fit > a.Buffer * 0.5) sc -= 8;   // a big run on an intraday trail lifts the floor a lot
+                if (a.Stage == "EVAL" && !double.IsNaN(a.ToTarget) && a.ToTarget > 0) sc += runUsdPer * fit >= a.ToTarget ? 6 : 3;
+                if (a.Stage == "FUNDED" && !double.IsNaN(a.ToLock) && a.ToLock > 0 && stopUsdPer * fit > a.ToLock * 0.5) sc -= 6;   // near its lock / payout: only small setups
+                r.Qty = fit; r.Score = sc;
+                r.Why = a.Stage + " • " + (a.Intraday ? "intraday" : "EOD") + (double.IsNaN(a.Buffer) ? "" : " • buffer " + C(a.Buffer)) + " → " + fit + " " + symbol;
+                o.Add(r);
+            }
+            return o.OrderByDescending(x => x.Score).ThenBy(x => x.Acc.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        public static string Text(List<KeystoneFitRank> ranked)
+        {
+            if (ranked == null || ranked.Count == 0) return "🏦 best for: no connected prop account";
+            var ok = ranked.Where(r => r.Qty > 0 && !double.IsNegativeInfinity(r.Score)).ToList(); var no = ranked.Where(r => double.IsNegativeInfinity(r.Score)).ToList(); var parts = new List<string>();
+            parts.Add(ok.Count == 0 ? "🏦 best for: none fits right now" : "🏦 best for: " + ok[0].Acc.Display + " (" + ok[0].Why + ")");
+            if (ok.Count > 1) parts.Add("2nd: " + ok[1].Acc.Display + " (" + ok[1].Why + ")");
+            if (no.Count > 0) parts.Add("not for: " + string.Join(", ", no.Take(3).Select(r => r.Acc.Display + " (" + r.Why + ")")));
+            return string.Join(" • ", parts);
+        }
+    }
+    // 📦 EXPORT FOR CLAUDE — ONE zip: the chosen days' real ticks (the Tick Library's own CSV), 1-minute candles, the setup journal, the STORY log, the compass
+    // readings, the 🧾 EXECUTIONS day CSVs, a README. Files only: it reads the saved files and writes one zip; a missing piece is skipped with a note.
+    public static class KeystoneOfExport
+    {
+        static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        public static string Readme(IList<string> notes)
+        {
+            var sb = new StringBuilder("KeyStone 📦 EXPORT FOR CLAUDE (BUILD 2026-11-12v) — files written on this PC, nothing was sent anywhere.\n\n");
+            sb.Append("ticks/<SYM>/<yyyy-MM-dd>.csv.gz   real trades (Tick Library format): " + KeystoneTickLib.CsvHeader + " — side +1 = buyer aggressor, −1 = seller; bidask_quoted 1 = side from bid / ask, 0 = tick rule\n");
+            sb.Append("candles/<SYM>-1min.csv            time_ny (bar close),open,high,low,close,volume\n");
+            sb.Append("setups/setups-<SYM>-<day>.csv     " + KeystoneOfSetupBook.Header + "\n   status = shown / taken / skipped / expired / stopped / target / withdrawn / not offered: <why>; result +1 target first, −1 stop first, 0 open; r = R multiple; mfe / mae / m5 / m15 / m30 in points in the setup's direction; scalp ±8 ticks first\n");
+            sb.Append("story.csv                         time_ny,text — the 📖 STORY timeline (compass changes, absorption, big prints, level breaks, trapped zones, setups)\n");
+            sb.Append("compass.csv                       time_ny,symbol,state(+1 buyers / −1 sellers / 0 balanced),score(−100…+100) — one reading every 10 s\n");
+            sb.Append("executions/<account>/<day>.csv    the 🧾 EXECUTIONS journal days as saved (fills → iterations)\n");
+            if (notes != null && notes.Count > 0) { sb.Append("\nSKIPPED / NOTES:\n"); foreach (var n in notes) sb.Append("  • " + n + "\n"); }
+            return sb.ToString();
+        }
+        public static string Build(string folder, IList<string> syms, IList<DateTime> days, IList<string> accounts, string storyCsv, string compassCsv, string outZip, Action<string> progress = null)
+        {
+            var entries = new List<Tuple<string, byte[]>>(); var notes = new List<string>(); Action<string> pr = m => { if (progress != null) try { progress(m); } catch { } };
+            foreach (var sym in syms ?? new List<string>())
+            {
+                foreach (var d in days ?? new List<DateTime>())
+                {
+                    pr("ticks " + sym + " " + d.ToString("yyyy-MM-dd", IC));
+                    try { KeystoneTickDay m; var tk = KeystoneTickLib.OrderFlowTicks(folder, sym, d, out m); if (tk == null || tk.Count == 0) notes.Add("no real ticks for " + sym + " " + d.ToString("yyyy-MM-dd", IC)); else entries.Add(Tuple.Create("ticks/" + KeystoneTickLib.Norm(sym) + "/" + d.ToString("yyyy-MM-dd", IC) + ".csv.gz", KeystoneTickLib.DayCsvGz(tk, d))); }
+                    catch (Exception e) { notes.Add("ticks " + sym + " " + d.ToString("yyyy-MM-dd", IC) + ": " + e.Message); }
+                }
+                try
+                {
+                    pr("candles " + sym); var ds = (days ?? new List<DateTime>()).ToList();
+                    var bars = ds.Count == 0 ? new List<KeystoneArcBar>() : KeystoneStudioStore.Load(folder, sym, ds.Min(), ds.Max());
+                    if (bars == null || bars.Count == 0) notes.Add("no saved 1-minute candles for " + sym);
+                    else entries.Add(Tuple.Create("candles/" + KeystoneTickLib.Norm(sym) + "-1min.csv", Encoding.UTF8.GetBytes("time_ny,open,high,low,close,volume\n" + string.Join("\n", bars.Select(b => b.Time.ToString("yyyy-MM-dd HH:mm:ss", IC) + "," + b.Open.ToString(IC) + "," + b.High.ToString(IC) + "," + b.Low.ToString(IC) + "," + b.Close.ToString(IC) + "," + b.Volume.ToString(IC))) + "\n")));
+                }
+                catch (Exception e) { notes.Add("candles " + sym + ": " + e.Message); }
+                int ns = 0; foreach (var d in days ?? new List<DateTime>()) { var p = KeystoneOfSetupBook.PathOf(folder, sym, d); if (File.Exists(p)) { entries.Add(Tuple.Create("setups/" + Path.GetFileName(p), File.ReadAllBytes(p))); ns++; } }
+                if (ns == 0) notes.Add("no order-flow setups saved for " + sym + " on the chosen days");
+            }
+            if (!string.IsNullOrEmpty(storyCsv)) entries.Add(Tuple.Create("story.csv", Encoding.UTF8.GetBytes(storyCsv))); else notes.Add("no STORY lines yet");
+            if (!string.IsNullOrEmpty(compassCsv)) entries.Add(Tuple.Create("compass.csv", Encoding.UTF8.GetBytes(compassCsv))); else notes.Add("no compass readings yet");
+            foreach (var acc in accounts ?? new List<string>())
+            {
+                int nx = 0; foreach (var d in days ?? new List<DateTime>()) { var p = Path.Combine(folder ?? "", "Executions", acc, d.ToString("yyyy-MM-dd", IC) + ".csv"); if (File.Exists(p)) { entries.Add(Tuple.Create("executions/" + acc + "/" + Path.GetFileName(p), File.ReadAllBytes(p))); nx++; } }
+                if (nx == 0) notes.Add("no 🧾 EXECUTIONS days saved for " + acc);
+            }
+            entries.Insert(0, Tuple.Create("README.txt", Encoding.UTF8.GetBytes(Readme(notes))));
+            pr("writing the zip"); Directory.CreateDirectory(Path.GetDirectoryName(outZip)); KeystoneZip.Write(outZip, entries); pr("done");
+            return outZip;
+        }
+    }
     // 📒 ORDER FLOW SETUP JOURNAL: every confirmed setup once it is decided (target or stop hit), one line each in
     // Documents\KeystoneArcData\orderflow_setups.csv — the SETUP TRACKER counts the wins and losses per day / instrument / timeframe
     public static class KeystoneOfJournal
