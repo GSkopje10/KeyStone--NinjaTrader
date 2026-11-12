@@ -9281,14 +9281,14 @@ namespace NinjaTrader.NinjaScript
     {
         public const int None = 0, Offer = 1, SkipRr = 2, Against = 3, NoPlan = 4, HistorySkip = 5, Forming = 6;
         public static double Rr(KeystoneOfPlan p) { return p == null || p.StopPts <= 0 ? 0 : p.TargetPts / p.StopPts; }
-        public static Tuple<int, string> Decide(KeystoneOfSignal confirmed, int closedBars, int compassState, KeystoneOfPlan plan, string historySkip = null)
+        public static Tuple<int, string> Decide(KeystoneOfSignal confirmed, int closedBars, int compassState, KeystoneOfPlan plan, string historySkip = null, double rrMin = 1)
         {
             if (confirmed == null) return Tuple.Create(None, "");
             string nm = (confirmed.Dir > 0 ? "▲ " : "▼ ") + confirmed.Kind;
             if (confirmed.Bar >= closedBars) return Tuple.Create(Forming, "watching: " + nm + " — waits for the closed candle");
             if (plan == null) return Tuple.Create(NoPlan, "not offered: " + nm + " — the price already went through the level it defended (no made-up stop)");
             if (compassState != 0 && compassState != confirmed.Dir) return Tuple.Create(Against, "against the flow — not offered: " + nm + " while the compass says " + KeystoneFlowCompass.SideWord(compassState));
-            double rr = Rr(plan); if (rr < 1 - 1e-9) return Tuple.Create(SkipRr, "skipped: reward smaller than risk (" + rr.ToString("0.0", CultureInfo.InvariantCulture) + ") — " + nm);
+            double rr = Rr(plan); if (rr < rrMin - 1e-9) return Tuple.Create(SkipRr, "skipped: reward smaller than risk (" + rr.ToString("0.0", CultureInfo.InvariantCulture) + ") — " + nm);
             if (!string.IsNullOrEmpty(historySkip)) return Tuple.Create(HistorySkip, historySkip);
             return Tuple.Create(Offer, compassState == 0 ? "against no one / balanced" : "with the " + KeystoneFlowCompass.SideWord(compassState).ToLowerInvariant());
         }
@@ -9305,11 +9305,12 @@ namespace NinjaTrader.NinjaScript
     public sealed class KeystoneOfSetupRecord { public string Key = "", Kind = "", Symbol = "", Result = "", Reason = ""; public int Id, Dir, Qty, Bar, ShownClosed; public DateTime Time, Shown, Ended; public double Entry, Stop, Target; }
     public sealed class KeystoneOfCardHold
     {
-        public KeystoneOfSetupRecord Current; public KeystoneOfPlan Frozen; public double MaxMinutes = 10; public string LastRemoved = ""; public int NextId = 1;
+        public KeystoneOfSetupRecord Current; public KeystoneOfPlan Frozen; public double MaxMinutes = 10; public string LastRemoved = ""; public int NextId = 1, CoolBars = 2, coolUntil = -1;   /* 🧘 after a setup ends: no new one for CoolBars closed candles */
         public readonly List<KeystoneOfSetupRecord> History = new List<KeystoneOfSetupRecord>(); readonly HashSet<string> done = new HashSet<string>();
         public bool Offer(KeystoneOfSignal sg, KeystoneOfPlan frozen, string symbol, DateTime now, int closedBars)
         {
             if (Current != null || sg == null || frozen == null || sg.Bar >= closedBars) return false;   // the forming candle never shows a card
+            if (closedBars < coolUntil) return false;   // 🧘 the cool-down after the last one
             string key = (symbol ?? "") + "|" + sg.Time.Ticks + "|" + sg.Dir; if (done.Contains(key)) return false;
             Current = new KeystoneOfSetupRecord { Id = NextId++, Key = key, Kind = sg.Kind, Symbol = symbol ?? "", Dir = sg.Dir, Qty = frozen.Qty, Bar = sg.Bar, ShownClosed = closedBars, Time = sg.Time, Shown = now, Entry = frozen.Entry, Stop = frozen.Stop, Target = frozen.Target };
             Frozen = frozen; frozen.Key = key; return true;
@@ -9329,8 +9330,10 @@ namespace NinjaTrader.NinjaScript
             for (int i = KeystoneOrderFlow.FirstAfter(t, Current.Shown.AddSeconds(-1), endN); i < endN && pending == null; i++) { if (t[i].Time > now) break; Touch(t[i].Time, t[i].Price); }
         }
         // "" = the card stays; else the result word and why it goes (the caller passes it to End)
+        int lastClosed; public bool Cooling(int closedBars) { return closedBars < coolUntil; }
         public Tuple<string, string> Check(DateTime now, double price, int closedBars, int compassState)
         {
+            lastClosed = closedBars;
             if (Current == null) return null; var IC = CultureInfo.InvariantCulture; int d = Current.Dir;
             if (pending != null) return pending;
             if (price > 0 && d * (price - Current.Stop) <= 0) return Tuple.Create("stopped", "price hit its stop " + Current.Stop.ToString("0.00", IC));
@@ -9341,7 +9344,7 @@ namespace NinjaTrader.NinjaScript
         }
         public KeystoneOfSetupRecord End(DateTime now, string result, string reason)
         {
-            var c = Current; if (c == null) return null; c.Ended = now; c.Result = result; c.Reason = reason; done.Add(c.Key); if (done.Count > 500) done.Clear(); pending = null;
+            var c = Current; if (c == null) return null; c.Ended = now; c.Result = result; c.Reason = reason; done.Add(c.Key); if (done.Count > 500) done.Clear(); pending = null; coolUntil = lastClosed + CoolBars;
             if (result == "target" || result == "stopped") { LastResolved = c; LastResolvedAt = now; }
             History.Insert(0, c); if (History.Count > 10) History.RemoveAt(History.Count - 1);
             LastRemoved = "setup #" + c.Id + " " + (c.Dir > 0 ? "▲ " : "▼ ") + c.Kind + " " + c.Time.ToString("HH:mm", CultureInfo.InvariantCulture) + " removed: " + reason; Current = null; Frozen = null; return c;
@@ -9372,7 +9375,7 @@ namespace NinjaTrader.NinjaScript
     // news, no trades) are immediate; any other change of verdict must hold HoldSec (15 s) first and a reason is kept ≥ 10 s → no flicker.
     public sealed class KeystoneFlowVerdictInput
     {
-        public bool Proven, EntryMissed; public int CardDir; public string LearnText = "", MissedText = "";
+        public bool Proven, EntryMissed, Patient, NoHistory; public int CardDir; public string LearnText = "", MissedText = "", LastText = "";
         public bool CardOffered, InTradeAtMax, NewsLock, Quiet, AgainstFlow, AgainstPosition, HistorySkip; public string CardText = "", NewsText = "", AgainstText = "", RawWait = "", NearLevel = "", PositionText = "", HistoryText = "";
         public double SkippedRr = double.NaN; public int CompassState; public double CompassScore;
     }
@@ -9393,6 +9396,8 @@ namespace NinjaTrader.NinjaScript
             if (x.HistorySkip) return Tuple.Create("AVOID", x.HistoryText, false);
             if (x.AgainstFlow) return Tuple.Create("AVOID", x.AgainstText != "" ? x.AgainstText : "the setup is against the flow", false);
             if (!string.IsNullOrEmpty(x.RawWait)) return Tuple.Create("WAIT", x.RawWait, false);
+            if (x.Patient && x.NoHistory) return Tuple.Create("WAIT", "patience: no proven setup yet — download ticks in 📥 TICK LIBRARY to prove setups", false);
+            if (x.Patient && (x.CompassState != 0 || Math.Abs(x.CompassScore) >= 15)) return Tuple.Create("WAIT", "patience: no proven setup right now" + (string.IsNullOrEmpty(x.LastText) ? "" : " (last one " + x.LastText + ")"), false);
             if (x.CompassState == 0)
             {
                 if (Math.Abs(x.CompassScore) < 15) return Tuple.Create("AVOID", "balanced / chop — nobody is in control (score " + KeystoneFlowCompass.ScoreText(x.CompassScore) + ")", false);
@@ -9539,13 +9544,15 @@ namespace NinjaTrader.NinjaScript
     // 🧠 LEARN — from the PAST setups only (walk-forward, no look-ahead): similar setups (same kind / side / compass agreement, then location / hour), a calibrated
     // win rate (shrunk to the base rate: (wins + 10 × base) ÷ (n + 10)), "learning (n)" under 30, and the ONLY thing it may change: a setup type whose calibrated
     // rate is below the break-even for its R:R with ≥ 30 samples is "⚠ history says skip" (not offered as ✅ TAKE). It never places or sizes a trade.
-    public sealed class KeystoneOfLearnResult { public int N, Wins; public double Calibrated = double.NaN, Base = double.NaN; public string Text = "", Skip = ""; public List<KeystoneOfSetupRow> Similar = new List<KeystoneOfSetupRow>(); }
+    public sealed class KeystoneOfLearnResult { public int N, Wins; public bool Proven; public double Calibrated = double.NaN, Base = double.NaN, BreakEven = double.NaN; public string Text = "", Skip = ""; public List<KeystoneOfSetupRow> Similar = new List<KeystoneOfSetupRow>(); }
     public static class KeystoneOfLearner
     {
         public const int MinN = 30; public const double Prior = 10;
         static string Group(KeystoneOfSetupRow r) { return r.Kind + "|" + r.Dir + "|" + r.Agree; }
         public static string GroupName(KeystoneOfSetupRow r) { return (r.Dir > 0 ? "▲ " : "▼ ") + r.Kind + (r.Agree > 0 ? " with the compass" : r.Agree < 0 ? " against " + KeystoneFlowCompass.SideWord(r.Compass) + " compass" : " (compass balanced)"); }
-        public static KeystoneOfLearnResult Judge(IEnumerable<KeystoneOfSetupRow> all, KeystoneOfSetupRow now)
+        // break-even win rate for a bracket after costs (points a contract, round trip): (stop + cost) ÷ (stop + target)
+        public static double BreakEven(double stopPts, double targetPts, double costPts) { return stopPts + targetPts <= 0 ? 0.5 : Math.Min(1, (stopPts + Math.Max(0, costPts)) / (stopPts + targetPts)); }
+        public static KeystoneOfLearnResult Judge(IEnumerable<KeystoneOfSetupRow> all, KeystoneOfSetupRow now, double costPts = 0)
         {
             var IC = CultureInfo.InvariantCulture; var res = new KeystoneOfLearnResult(); if (now == null) return res;
             var past = all.Where(r => r.Result != 0 && r.Time < now.Time && r.Key != now.Key).ToList();   // only what was decided BEFORE this setup
@@ -9555,7 +9562,7 @@ namespace NinjaTrader.NinjaScript
             res.Similar = grp.OrderByDescending(r => (r.Location == now.Location ? 2 : 0) + (KeystoneOfSetupStats.HourBucket(r.Time) == KeystoneOfSetupStats.HourBucket(now.Time) ? 1 : 0)).ThenByDescending(r => r.Time).Take(5).ToList();
             if (res.N < MinN) { res.Text = "🧠 learning (" + res.N + ") — similar past setups: " + res.N + (res.N > 0 ? " — " + res.Wins + " won, " + (res.N - res.Wins) + " lost" : "") + " (needs " + MinN + ")"; return res; }
             res.Text = "🧠 similar past setups: " + res.N + " — " + res.Wins + " won, " + (res.N - res.Wins) + " lost (calibrated " + (100 * res.Calibrated).ToString("0", IC) + " %)";
-            double rr = now.Rr > 0 ? now.Rr : 1, be = 1 / (1 + rr);
+            double rr = now.Rr > 0 ? now.Rr : 1, sp = Math.Abs(now.Entry - now.Stop), be = sp > 0 ? BreakEven(sp, sp * rr, costPts) : 1 / (1 + rr); res.BreakEven = be; res.Proven = res.Calibrated >= be;
             if (res.Calibrated < be) res.Skip = "⚠ history says skip — " + GroupName(now) + ": " + res.Wins + " of " + res.N + " won (calibrated " + (100 * res.Calibrated).ToString("0", IC) + " % < break-even " + (100 * be).ToString("0", IC) + " % for R:R " + rr.ToString("0.0", IC) + ")";
             return res;
         }
@@ -39751,6 +39758,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                     // the CUMULATIVE DELTA band (bottom), the signals with their hit rate, and a status line saying where the data comes from
                     Func<long, string> sgnL = v => (v > 0 ? "+" : v < 0 ? "−" : "") + (Math.Abs(v) >= 10000 ? (Math.Abs(v) / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + "k" : Math.Abs(v).ToString("N0", CultureInfo.InvariantCulture));
                     var fpsD = pn.OfFps; var prD = pn.OfProf; double stepD = KeystoneOrderFlow.RowStep(tkO, ofS);
+                    ofSync(pn);   /* 📊 11v: the compass, trapped zones, big prints, the STORY */
                     // each part is its own layer (right-click / ▾ on 📊 ORDER FLOW): ENTRIES ONLY = just the ▲ ▼ signals
                     bool lSig = ofLay("SIG", 1), lProf = ofLay("PROF", 1), lLvl = ofLay("LVL", 1), lStk = ofLay("STK", 1), lDlt = ofLay("DLT", 0),
                          lCvd = ofLay("CVD", 1), lBox = ofLay("BOX", 1), lStat = ofLay("STAT", 1), lTape = ofLay("TAPE", 1), lFlow = ofLay("FLOW", 1), lBook = ofLay("BOOK", 1), lDprof = ofLay("DPROF", 1);
@@ -39947,6 +39955,73 @@ namespace NinjaTrader.NinjaScript.AddOns
                             var cl = new TextBlock { Text = "CUMULATIVE DELTA " + sgnL(vis[vis.Count - 1].Item2), Foreground = vis[vis.Count - 1].Item2 >= 0 ? ofBuyB : ofSellB, FontSize = 10, FontWeight = FontWeights.Bold, IsHitTestVisible = false };
                             System.Windows.Controls.Canvas.SetLeft(cl, 6); System.Windows.Controls.Canvas.SetTop(cl, bTop + 2); cv.Children.Add(cl);
                         }
+                        /* 📊 11v: the DELTA + CONTRACTS row under the candles — a small bar per candle coloured by the delta's sign, the delta and the contracts (grey) when the
+                           candle is wide enough, else the hovered candle's numbers at the row's left; from the real trades only */
+                        if (ofPart("DROW"))
+                        {
+                            double rH = 34, rW = Math.Max(10, pn.PlotW - pn.Gutter - pn.OfStrip), rTop = pn.Top + pn.PlotH - (lCvd ? bandH + 4 : 0) - (lStat ? 14 * 4 + 2 + 2 : 0) - rH - 4, mid = rTop + rH / 2;
+                            var rowBg = new System.Windows.Shapes.Rectangle { Width = rW, Height = rH, Fill = Tint(Bg, 150), IsHitTestVisible = false, Tag = "of.drow" }; System.Windows.Controls.Canvas.SetLeft(rowBg, 0); System.Windows.Controls.Canvas.SetTop(rowBg, rTop); cv.Children.Add(rowBg);
+                            cv.Children.Add(new System.Windows.Shapes.Line { X1 = 0, X2 = rW, Y1 = mid, Y2 = mid, Stroke = Muted, StrokeThickness = 1, Opacity = 0.3, IsHitTestVisible = false });
+                            long mxR = 1; for (int i = i0; i <= i1; i++) { int k = i - pn.OfI0; if (k >= 0 && k < fpsD.Count) mxR = Math.Max(mxR, Math.Abs(fpsD[k].Delta)); }
+                            bool numsR = pn.Spacing >= 34; double cwR = Math.Max(2, Math.Min(pn.Spacing - 2, 18));
+                            for (int i = i0; i <= i1; i++)
+                            {
+                                int k = i - pn.OfI0; if (k < 0 || k >= fpsD.Count) continue; var f = fpsD[k]; if (f.Empty) continue; double x = xOfIndex(pn, i); if (x > rW) continue;
+                                double hR = Math.Max(1, (rH / 2 - 2) * Math.Abs(f.Delta) / mxR); var bR = new System.Windows.Shapes.Rectangle { Width = cwR, Height = hR, Fill = f.Delta >= 0 ? ofBuyB : ofSellB, Opacity = numsR ? 0.45 : 0.85, IsHitTestVisible = false };
+                                System.Windows.Controls.Canvas.SetLeft(bR, x - cwR / 2); System.Windows.Controls.Canvas.SetTop(bR, f.Delta >= 0 ? mid - hR : mid); cv.Children.Add(bR);
+                                if (numsR)
+                                {
+                                    var dT = new TextBlock { Text = sgnL(f.Delta), Foreground = f.Delta >= 0 ? ofBuyB : ofSellB, FontSize = 10, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Consolas"), Width = pn.Spacing, TextAlignment = TextAlignment.Center, IsHitTestVisible = false };
+                                    System.Windows.Controls.Canvas.SetLeft(dT, x - pn.Spacing / 2); System.Windows.Controls.Canvas.SetTop(dT, rTop + 1); cv.Children.Add(dT);
+                                    var vT = new TextBlock { Text = numL(f.Volume), Foreground = Muted, FontSize = 9.5, FontFamily = new FontFamily("Consolas"), Width = pn.Spacing, TextAlignment = TextAlignment.Center, IsHitTestVisible = false };
+                                    System.Windows.Controls.Canvas.SetLeft(vT, x - pn.Spacing / 2); System.Windows.Controls.Canvas.SetTop(vT, rTop + rH - 14); cv.Children.Add(vT);
+                                }
+                            }
+                            string hovR = "Δ / CONTRACTS"; if (pn.MouseOver && pn.MouseX >= 0 && pn.MouseX < rW) { int ih = (int)Math.Round(indexAt(pn, pn.MouseX)), kh = ih - pn.OfI0; if (kh >= 0 && kh < fpsD.Count && ih >= 0 && ih < cs.Count && !fpsD[kh].Empty) hovR = tzShow(cs[ih].Time).ToString("HH:mm", CultureInfo.InvariantCulture) + "  Δ " + sgnL(fpsD[kh].Delta) + "  •  " + numL(fpsD[kh].Volume) + " contracts"; }
+                            var hl = new TextBlock { Text = hovR, Foreground = Text, Background = Tint(Bg, 200), FontSize = 10, FontWeight = FontWeights.SemiBold, FontFamily = new FontFamily("Consolas"), Padding = new Thickness(4, 0, 4, 0), IsHitTestVisible = false, Tag = "of.drow.label" };
+                            System.Windows.Controls.Canvas.SetLeft(hl, 4); System.Windows.Controls.Canvas.SetTop(hl, rTop - 15); cv.Children.Add(hl);
+                        }
+                        var ckD = ofClock(pn); DateTime nowD = ckD != null ? ckD.Item2 : r.Time;
+                        Func<DateTime, int> candleAt = t0 => { int lo0 = 0, hi0 = cs.Count - 1; if (hi0 < 0 || t0 > cs[hi0].Time) return -1; while (lo0 < hi0) { int m0 = (lo0 + hi0) / 2; if (cs[m0].Time >= t0) hi0 = m0; else lo0 = m0 + 1; } return lo0; };
+                        if (ofPart("BIG"))
+                        {   /* ⚡ BIG PRINTS: a bubble at the price for the prints ≥ the big-trade size (max 20), fading with age; click = what it was and what happened after */
+                            long mxBig = Math.Max(1, pn.OfBig.Select(b => b.Size).DefaultIfEmpty(1).Max());
+                            foreach (var b in pn.OfBig)
+                            {
+                                int i = candleAt(b.Time); if (i < i0 || i > i1 || i < 0) continue; double x = xOfIndex(pn, i), y = yOf(pn, b.Price); if (!onPlot(y)) continue;
+                                double d0 = 7 + 13 * Math.Sqrt((double)b.Size / mxBig), age = Math.Max(0, (nowD - b.Time).TotalMinutes); SolidColorBrush bc = b.Side > 0 ? ofBuyB : ofSellB;
+                                var el = new System.Windows.Shapes.Ellipse { Width = d0, Height = d0, Fill = Tint(bc, 70), Stroke = bc, StrokeThickness = 1.3, Opacity = Math.Max(0.3, 1 - age / 15 * 0.7), IsHitTestVisible = false, Tag = "of.big" };
+                                System.Windows.Controls.Canvas.SetLeft(el, x - d0 / 2); System.Windows.Controls.Canvas.SetTop(el, y - d0 / 2); cv.Children.Add(el);
+                                pn.InfoHot.Add(Tuple.Create(new[] { x - d0 / 2, y - d0 / 2, x + d0 / 2, y + d0 / 2 }, "OFBIG|" + b.Time.Ticks, new[] { "⚡ BIG PRINT • " + (b.Side > 0 ? "a buyer lifted the offer" : "a seller hit the bid"), b.Size.ToString("N0", CultureInfo.InvariantCulture) + " contracts @ " + fmt(b.Price) + " • " + tzShow(b.Time).ToString("HH:mm:ss", CultureInfo.InvariantCulture), "after it: " + b.After }, (Brush)bc));
+                            }
+                        }
+                        if (ofPart("TRAP"))
+                        {   /* 🪤 TRAPPED: the zones where the rule fired — a small outlined box at the right edge of the candles with its contracts */
+                            double xr = pn.PlotW - pn.Gutter - pn.OfStrip - 4;
+                            foreach (var z in pn.OfTraps)
+                            {
+                                double ya = yOf(pn, z.Hi + tkO), yb = yOf(pn, z.Lo); if (yb < pn.Top || ya > pn.Top + pn.PlotH) continue; SolidColorBrush zc = z.Side > 0 ? ofBuyB : ofSellB;
+                                var bx = new Border { Width = 92, Height = Math.Max(14, yb - ya), BorderBrush = zc, BorderThickness = new Thickness(1.4), Background = Tint(ofTrapB, 30), CornerRadius = new CornerRadius(3), IsHitTestVisible = false, Tag = "of.trap",
+                                    Child = new TextBlock { Text = "🪤 trapped " + (z.Side > 0 ? "buyers " : "sellers ") + z.Volume.ToString("N0", CultureInfo.InvariantCulture), Foreground = ofTrapB, FontSize = 9.5, FontWeight = FontWeights.Bold, Margin = new Thickness(3, 0, 2, 0), TextTrimming = TextTrimming.CharacterEllipsis } };
+                                System.Windows.Controls.Canvas.SetLeft(bx, xr - 92); System.Windows.Controls.Canvas.SetTop(bx, ya); cv.Children.Add(bx);
+                                pn.InfoHot.Add(Tuple.Create(new[] { xr - 92, ya, xr, ya + Math.Max(14, yb - ya) }, "OFTRAP|" + z.Lo, new[] { "🪤 TRAPPED " + (z.Side > 0 ? "BUYERS" : "SELLERS"), KeystoneFlowTrap.Text(z) }, (Brush)ofTrapB));
+                            }
+                        }
+                        if (ofPart("MARKS") && pn.OfSigs != null)
+                        {   /* 🧱 ⇅ ▤ LIVE EVENT MARKS: absorption / divergence / stacked imbalance at the exact price and candle — the 12 newest, fading with age; click = the plain meaning */
+                            var lastCard = pn.Hold.Current;
+                            foreach (var g in pn.OfSigs.Where(x => x.Time <= nowD).Reverse().Take(12))
+                            {
+                                int i = pn.OfI0 + g.Bar; if (i < i0 || i > i1 || i >= cs.Count) continue; double x = xOfIndex(pn, i) + bw / 2 + 4, y = yOf(pn, g.Price); if (!onPlot(y)) continue;
+                                string gl = g.Kind == "ABSORB" ? "🧱" : g.Kind == "DIVERGE" ? "⇅" : "▤", nm = g.Kind == "ABSORB" ? "ABSORPTION" : g.Kind == "DIVERGE" ? "DIVERGENCE" : "STACKED";
+                                double ageM = Math.Max(0, (nowD - g.Time).TotalMinutes); SolidColorBrush gc = g.Dir > 0 ? ofBuyB : ofSellB;
+                                var mk = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(3, 0, 4, 0), Background = Tint(Bg, 200), BorderBrush = gc, BorderThickness = new Thickness(ageM < 2 ? 1.5 : 0.8), Opacity = Math.Max(0.35, 1 - ageM / 30), IsHitTestVisible = false, Tag = "of.mark",
+                                    Child = new TextBlock { Text = gl + " " + nm, Foreground = gc, FontSize = 9.5, FontWeight = FontWeights.Bold } };
+                                System.Windows.Controls.Canvas.SetLeft(mk, x); System.Windows.Controls.Canvas.SetTop(mk, y - 8); cv.Children.Add(mk);
+                                bool sup = lastCard != null && lastCard.Time == g.Time && lastCard.Dir == g.Dir;
+                                pn.InfoHot.Add(Tuple.Create(new[] { x, y - 8, x + 96, y + 8 }, "OFMARK|" + g.Time.Ticks + "|" + g.Kind, new[] { gl + " " + nm + " • " + (g.Dir > 0 ? "for buyers" : "for sellers") + " @ " + fmt(g.Price), g.Kind == "ABSORB" ? (g.Dir > 0 ? "sellers hit the bid hard but the price held → buyers defending" : "buyers lifted the offer hard but the price held → sellers defending") : g.Kind == "DIVERGE" ? "the price made a new extreme but the delta did not follow → the push is weak" : "one side kept hitting several prices in a row → strength", g.Why ?? "", sup ? "supports setup #" + lastCard.Id + (lastCard.Dir > 0 ? " BUY" : " SELL") : "" }, (Brush)gc));
+                            }
+                        }
                         // the signals: ▲ / ▼ with the kind and its hit rate so far (n = how many earlier signals of that kind + side were decided)
                         bool mainSig = !ofViewOn && layerOf("OF.CHARTSIG", 0) == 1;   // the trading chart only TRACKS them (📒 SETUP TRACKER); the markers are in the 📊 ORDERFLOW tab (user's request)
                         //   // the trading chart: only the ✅ CONFIRMED setups
@@ -39978,7 +40053,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                                         + "hit rate so far: " + (double.IsNaN(cg.Prob) ? "new (no earlier one decided)" : cg.Prob.ToString("0", IC0) + "% of " + cg.N + " earlier") + (strongC ? " ✔ strong" : " (weaker)") + "\n"
                                         + "timeframes agreeing (5M / 15M / 1H trend): " + (nTf == 0 ? "—" : agree + " of " + nTf) + "\n"
                                         + (cg.Outcome > 0 ? "RESULT: ✔ WIN — the target came first" : cg.Outcome < 0 ? "RESULT: ✖ LOSS — the stop came first" : "RESULT: still open");
-                                    var mkC = new Border { CornerRadius = new CornerRadius(6), Padding = new Thickness(5, 1, 6, 2), Background = Tint((SolidColorBrush)rb, (byte)(nowC && flS ? 230 : strongC ? 165 : 110)), IsHitTestVisible = false, Opacity = strongC || nowC ? 1 : 0.85,
+                                    var mkC = new Border { CornerRadius = new CornerRadius(6), Padding = new Thickness(5, 1, 6, 2), Background = Tint((SolidColorBrush)rb, (byte)(nowC ? 200 : strongC ? 165 : 110)), IsHitTestVisible = false, Opacity = strongC || nowC ? 1 : 0.85,
                                         Child = new TextBlock { Text = (cg.Dir > 0 ? "▲ BUY " : "▼ SELL ") + (double.IsNaN(cg.Prob) ? "new" : cg.Prob.ToString("0", IC0) + "%·" + cg.N) + (nTf > 0 ? " " + agree + "/" + nTf + "TF" : "") + res, Foreground = Bg, FontSize = strongC || nowC ? 12 : 10, FontWeight = FontWeights.Bold } };
                                     // click = its plan + result (the chart's own click layer: a tooltip on the marker never got the click)
                                     mkC.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); double mwC = mkC.DesiredSize.Width > 0 ? mkC.DesiredSize.Width : 150, mhC = mkC.DesiredSize.Height > 0 ? mkC.DesiredSize.Height : 20;
@@ -39986,7 +40061,7 @@ namespace NinjaTrader.NinjaScript.AddOns
                                     System.Windows.Controls.Canvas.SetLeft(mkC, x - 10); System.Windows.Controls.Canvas.SetTop(mkC, ymC); cv.Children.Add(mkC);
                                 }
                             }
-                            if (lSig) foreach (var sg in pn.OfSigs)
+                            if (lSig && !ofPart("MARKS")) foreach (var sg in pn.OfSigs)
                             {
                                 int i = pn.OfI0 + sg.Bar; if (i < i0 || i > i1 || i >= cs.Count) continue; double x = xOfIndex(pn, i); Brush sb = sg.Dir > 0 ? Cyan : Orchid;
                                 bool strong = !onlyC && !double.IsNaN(sg.Prob) && sg.Prob >= minPs && sg.N >= minNs, isNow = !onlyC && ReferenceEquals(sg, lastSgD) && fpsD != null && sg.Bar >= fpsD.Count - 3;
